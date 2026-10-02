@@ -1,8 +1,6 @@
 # 팀 합의 항목 (결정 로그)
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: 전 Phase 공통. Phase 구분 자체는 #21.
+> Phase 기준: [requirements.md 2장](requirements.md#phase-scope). 팀 결정과 미결 제안은 이 문서에 기록합니다.
 
 ## 16. 팀 합의 항목 (결정 로그)
 
@@ -30,7 +28,7 @@
 | 18 | 데이터베이스 | **확정** | **MongoDB 8.0** 컨테이너(JSON 로그를 그대로 저장). Jazzy용 ROS MongoDB 도구가 없으므로 pymongo로 직접 쓰고 JSONL 폴백. 선행 사례: KnowRob NEEM 로그도 MongoDB 사용 | - | C |
 | 19 | 실행 프레임워크 | **확정** | **자체 JSON Runner 유지**(BehaviorTree.CPP·py_trees·PlanSys2 미채택). 근거: C++ 부담, run-always `finally`·조건별 로그 미지원. BT의 `timeout`·`fallback`·`recovery`·`on_halt` 의미만 차용(7.1) | - | C |
 | 20 | SAM2 활용 범위 | 미결 (제안) | **과목 필수 아님(선택 사항, 10/02 확인)**. 비전 보조 도구로 한정: ① 데이터셋 라벨링 보조 우선 도입, ② 미지 물체 분할은 Day 6 정확도 미달 시에만 도입, ③ 영상 트래킹은 미사용(요청 시 1프레임 촬영 구조라 이점이 적고 서랍 좌표 매칭이 더 단순). YOLO를 대체하지 않으며 일정 추가 없이 진행. GPU(#9)·PyTorch 호환은 사용 전 확인 | Day 3 (10/05, 라벨링 시작 전) | A |
-| 21 | 기능 Phase 구분 | **확정** (10/02) | 기획서 v4.1 전체 = **Phase 3**, 범위를 줄인 **Phase 1(음성으로 보이는 물건 꺼내기)**, 중간 **Phase 2(가려진 물건 찾기·원상 복구·플래너 조합)**. Phase 1만으로도 챌린지 3요소 최소 충족. 상세: [phases.md](phases.md) | - | 전원 (판정 E) |
+| 21 | 기능 Phase 구분 | **확정** (10/02) | 기획서 v4.1 전체 = **Phase 3**, 범위를 줄인 **Phase 1(음성으로 보이는 물건 꺼내기)**, 중간 **Phase 2(가려진 물건 찾기·원상 복구·플래너 조합)**. Phase 1만으로도 챌린지 3요소 최소 충족. 상세: [requirements.md 2장](requirements.md#phase-scope) | - | 전원 (판정 E) |
 | 22 | P1 비전 합격 기준 | 미결 (제안) | ① 핸드-아이 캘리브레이션 단독 오차 **1.0 cm 이내**(#7) ② YOLO **mAP50 0.9 이상**, 학습과 다른 촬영 세션의 검증셋 기준(#14) ③ `inspect_region` 응답 **2초 이내**(#18). 최종 3D 위치 오차 1.5 cm는 [metrics_risks.md](metrics_risks.md) 기존 기준 | Day 2 (10/04) | A (E 승인) |
 | 23 | 고정 TF 발행 위치 | 미결 (제안) | 공동 패키지 `ready2go_bringup` launch가 `config/calibration/`(A)·`config/places.yaml`(B·E)을 읽어 static TF 발행. 비전·스킬 패키지는 TF를 발행하지 않고 구독만 함. ICD "ros2-core 발행"과 일치 | Day 1 (10/03) | C · A (B 검토) |
 | 24 | 손목 카메라 뎁스 토픽 | **확정** (10/02) | YOLO 박스 픽셀로 깊이를 읽기 위해 **컬러에 정렬된 뎁스** `/wrist_cam/aligned_depth_to_color/image_raw` 사용, 내부 파라미터는 `/wrist_cam/color/camera_info`. ICD 5장 수정. Isaac Sim 트윈도 같은 이름으로 발행 | - | A |

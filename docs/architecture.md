@@ -1,8 +1,6 @@
 # 시스템 아키텍처 · 기술 스택
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: 전 Phase 공통 구조. 백엔드 `sim`(트윈)은 **P2**부터 사용.
+> 관련 요구사항: [NFR-ABS-01](requirements.md#nfr-abs-01), [NFR-ENV-01](requirements.md#nfr-env-01), [FR-COM-01](requirements.md#fr-com-01). 기술 상세와 구현 경계는 이 문서에서 다룹니다.
 
 ## 3. 시스템 아키텍처
 

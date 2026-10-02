@@ -1,8 +1,6 @@
 # 비전 파이프라인
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: **P1**: V0 카메라·캘리브레이션, V1 실물 데이터셋, V2 YOLO + 뎁스(보이는 물체) · **P2**: 가림 순서(`top_z`), V3 미지 물체·ID 추적, V-sim(oracle) · **P3**: SAM2(선택).
+> 관련 요구사항: [FR-VIS-01–04](requirements.md#fr-vis-01), [FR-ML-01](requirements.md#fr-ml-01). 비전 파이프라인과 모델 상세는 이 문서에서 다룹니다.
 
 ## 9. 비전 파이프라인 상세 (담당 A, 핵심 경로)
 

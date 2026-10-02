@@ -1,8 +1,6 @@
 # 인터페이스 계약 (ICD)
 
-> 요구사항 기준: [requirements.md](requirements.md) — [ROS 2 인터페이스](requirements.md#fr-com-01), [다중 PC 통신](requirements.md#fr-com-02), [MongoDB 실행 이력](requirements.md#fr-log-01).
->
-> **Phase 범위**: **P1**: `/voice/intent`, `/voice/speak`, `/vision/inspect_region`, `/skills/*`, 그리퍼·서랍 상태, 카메라, `/runner/*`, MongoDB · **P2**: `/robot_state`, `/planner/plan`, `/dsr01/joint_states` → 트윈.
+> 관련 요구사항: [FR-COM-01–02](requirements.md#fr-com-01), [FR-INT-01–03](requirements.md#fr-int-01), [FR-VIS-02](requirements.md#fr-vis-02), [FR-LOG-01](requirements.md#fr-log-01). 인터페이스 이름·형식·호출 관계는 이 문서에서 다룹니다.
 
 ## 5. 인터페이스 계약 (ICD)
 

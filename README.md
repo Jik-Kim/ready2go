@@ -3,7 +3,7 @@
 음성 명령으로 실물 **Doosan M0609 + OnRobot RG2**가 서랍 속 물건을 찾아 꺼내고 원상 복구하는 시스템.
 로봇의 동작·상태를 **JSON 온톨로지**로 정의하고, 명령에 맞춰 조합하며, 모든 동작의 성공 여부를 기록한다.
 
-- 문서: [`docs/README.md`](docs/README.md) (인덱스부터) · 요구사항 기준 원본: [`docs/requirements.md`](docs/requirements.md) · 단계 요약: [`docs/phases.md`](docs/phases.md)
+- 문서: [`docs/README.md`](docs/README.md) (인덱스부터) · 요구사항·Phase 기준 원본: [`docs/requirements.md`](docs/requirements.md)
 - 스택: ROS 2 Jazzy · CycloneDDS(`ROS_DOMAIN_ID=70`) · Docker Compose · Python · MongoDB · Isaac Sim 5.1.0(트윈, 네이티브)
 
 ## 실행 (장비별 명령 1개)

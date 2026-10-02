@@ -1,8 +1,6 @@
 # 로봇 온톨로지 · 상태 추적 · 지식 그래프
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: **P1**: 세계·상태 + 이동·관측·서랍 열기·닫기·집기·놓기 스킬의 계약과 `pre`·`effect` · **P2**: 스킬 `verify`·`hold`, 온톨로지 조건·결과 기반 계획, 관측 우선 상태 갱신 · **P3**: 클래스 추론, 시작 시 정합성 검사, 복합 스킬 추가(코드 변경 없이), `STATE_MISMATCH` 시연. 7.9 지식 그래프는 초안. 범위는 [요구사항 기준](requirements.md#fr-ont-01).
+> 관련 요구사항: [FR-ONT-01–03](requirements.md#fr-ont-01), [FR-PLN-01–03](requirements.md#fr-pln-01), [FR-REC-01](requirements.md#fr-rec-01). 온톨로지와 상태 추적의 구현 상세는 이 문서에서 다룹니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격 (일부)
 

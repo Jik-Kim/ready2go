@@ -1,8 +1,6 @@
 # Docker · 컨테이너 구성
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: 전 Phase 공통(과목 필수). `db`(MongoDB)는 [FR-LOG-01](requirements.md#fr-log-01)에 따라 **P1부터 기본 실행 이력 저장에 사용**하고, P2에서 상세 상태 로그를 추가한다. DB 장애 시 JSONL 폴백을 사용한다. `dsr-emulator`·`mock-sim`은 개발용으로 P1부터 사용.
+> 관련 요구사항: [NFR-ENV-01](requirements.md#nfr-env-01), [FR-COM-02](requirements.md#fr-com-02), [FR-LOG-01–02](requirements.md#fr-log-01), [NFR-DB-01](requirements.md#nfr-db-01). 컨테이너·네트워크 구현 상세는 이 문서에서 다룹니다.
 
 ## 4. Docker / 컨테이너 구성 (필수)
 

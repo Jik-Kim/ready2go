@@ -1,8 +1,6 @@
 # 성공 지표 · 리스크
 
-> 요구사항 기준과 목표값: [requirements.md](requirements.md#ac-index). 이 문서에는 시험 절차, 실측 결과와 리스크를 기록한다.
->
-> **Phase 범위**: Phase 배정은 [requirements.md](requirements.md#fr-index)에서 확인한다. MongoDB 실행 이력은 Phase 1 필수이며, Phase 2에서 상태 조건·사후 검증·전후 상태 로그를 확장한다.
+> 관련 기준: [AC-INDEX](requirements.md#ac-index), [FR-LOG-01–02](requirements.md#fr-log-01), [FR-REC-01](requirements.md#fr-rec-01). 이 문서에는 시험 절차, 실측 결과와 리스크를 기록합니다.
 
 ## 14. 성공 지표 측정 및 결과
 
@@ -14,6 +12,7 @@
 | [AC-INT-01](requirements.md#ac-int-01) 음성 인텐트 | 화자 2명 이상, 자유 표현을 포함한 평가 문장으로 LLM·폴백 경로를 각각 측정 (E, 기록 D) | 미측정 |
 | [AC-INT-02](requirements.md#ac-int-02) LLM 결과 검증 | 인텐트 입력·검증 결과·폴백 결과를 실행 로그와 대조 (E) | 미측정 |
 | [AC-INT-03](requirements.md#ac-int-03) 음성 응답 지연 | 발화 종료와 확인 TTS 시작 간 타임스탬프 (E) | 미측정 |
+| [AC-LLM-01](requirements.md#ac-llm-01) (Stretch) 생성 태스크 | 자연어 요청 3건 이상에 대해 생성 JSON, 스키마·트윈 검증, 실물 실행 결과를 함께 기록 (C·E) | 미측정 |
 | [AC-ACT-01](requirements.md#ac-act-01) 서랍 개폐 | 실물 반복 개폐 (B, 기록 D) | 미측정 |
 | [AC-VIS-01](requirements.md#ac-vis-01) 3D 위치 오차 | 격자 시트와 실측값 비교 (A) | 미측정 |
 | [AC-VIS-02](requirements.md#ac-vis-02) 가림 순서 | 겹침 배치별 정답 순서와 시스템 판정 비교 (A) | 미측정 |
@@ -48,7 +47,7 @@
 | OpenAI API 장애·네트워크 단절 | STT·LLM 파싱 불가 | STT는 faster-whisper CPU 폴백, 인텐트는 규칙·별칭 폴백 |
 | LLM 오출력(없는 물품·형식 오류) | 잘못된 탐색 실행 | 온톨로지 키로 출력 제한, JSON 형식 강제, 코드 검증 후 실패 시 폴백·재질문, temperature 0 |
 | 조장(E) 업무 과부하 (통합 지휘 + 하드웨어 + 음성·LLM + 온톨로지) | 통합 의사결정·음성 지연 | 통합 실무는 모듈 담당이 공동 수행, 로봇 시간표는 B 작성, 온톨로지 조회 인터페이스는 C가 구현, 조립은 B와 공동, 기록은 D, 강의 코드 재사용으로 음성 구현량 축소 |
-| 플래너·상태 추적 구현 지연 | 챌린지 핵심 미달 | Phase 1 기본 스킬 6종(이동·관측·열기·닫기·집기·놓기)과 선언형 태스크부터 구현하고, Phase 2 플래너는 mock에서 조기 검증 |
+| 플래너·상태 추적 구현 지연 | 챌린지 핵심 미달 | 필수 스킬 계약과 선언형 태스크부터 구현하고, Phase 2 플래너는 mock에서 조기 검증 |
 | 모델 상태와 실제 불일치 (사람 개입·파지 실패 등) | 잘못된 계획 | 관측 우선 규칙(7.8), 스텝 실패 시 재관측 후 1회 재계획, 시연 전 상태 스냅샷 복원 |
 | 스킬 조건 정의 오류 | 불가능한 계획 또는 계획 불가 | B가 모션 스킬 조건 검토, mock에서 명령 세트 자동 테스트 |
 | Doosan Jazzy 드라이버가 Real 모드로 기동되지 않음 (이슈 #340) | 실물 경로 전체 지연 | Day 0~1 판정 기준을 "Real 모드로 실물이 움직임"으로, 문제 시 즉시 강사·조교 문의, 강의 bringup 설정과 비교 |

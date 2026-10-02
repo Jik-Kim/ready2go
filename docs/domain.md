@@ -1,8 +1,6 @@
 # 도메인 기능: 탐색 · 복구 · 서랍 개폐
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: **P1**: 8.4 서랍 개폐 · **P2**: 8.2 Unpacking, 8.3 LIFO 복구·관측 기반 상태 갱신 · **P3**: 8.1 목록·분류 탐색, 다른 서랍에서 발견된 남은 목표 처리, 복구 자리 점유 시 재계획.
+> 관련 요구사항: [FR-ACT-01–04](requirements.md#fr-act-01), [FR-INT-02](requirements.md#fr-int-02), [FR-REC-01](requirements.md#fr-rec-01). 도메인 동작 구현 상세는 이 문서에서 다룹니다.
 
 ## 8. 메인 도메인 기능 상세
 

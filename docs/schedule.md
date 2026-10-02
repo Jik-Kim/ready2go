@@ -1,8 +1,6 @@
 # 14일 스프린트 일정
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: 일정은 날짜 기준, Phase는 기능 기준([phases.md](phases.md)). 목표: **P1** = Day 8(L1), **P2** = Day 10~11(L2), **P3** = Day 12(L3).
+> Phase 기준: [requirements.md 2장](requirements.md#phase-scope). 이 문서는 담당자와 날짜별 일정 및 마일스톤을 관리합니다. 목표: **P1** = Day 8(L1), **P2** = Day 10~11(L2), **P3** = Day 12(L3).
 
 ## 13. 14일 풀타임 스프린트 일정 및 마일스톤 (10/03 ~ 10/16)
 

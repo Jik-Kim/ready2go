@@ -1,8 +1,6 @@
 # Runner · 원자 동작 · JSON 규격 · 실행 로그
 
-> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
->
-> **Phase 범위**: **P1**: 원자 동작 전체, 제어 블록 `sequence`·`if`·`set_var`·`retry`·`timeout_sec`·`finally`, 변수·조사 필터, [기본 실행 로그를 MongoDB에 저장](requirements.md#fr-log-01) (DB 장애 시 JSONL 폴백) · **P2**: `while`·`for_each`·`push`/`pop`·`recovery`·`fallback`·`on_halt`, 7.3 예시(Unpacking), 로그 `pre_check`·`post_check`·`state_diff` · **P3**: 안전 게이트 기록.
+> 관련 요구사항: [FR-PLN-01](requirements.md#fr-pln-01), [FR-ONT-01–02](requirements.md#fr-ont-01), [FR-LOG-01–02](requirements.md#fr-log-01). Runner 동작·JSON 형식·로그 상세는 이 문서에서 다룹니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격 (강사 챌린지 핵심)
 
