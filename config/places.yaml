@@ -1,5 +1,5 @@
 # 장소 좌표계 (TCP 3점 터치로 측정, 담당 B·E) [팀 확정 필요]
 # 서랍 좌표계 원점·축은 base_link 기준. 단위 m, rad
-drawer_top:    {origin: null, rpy: null, max_travel_m: null, return_slot: null}
+drawer_top:    {origin: null, rpy: null, max_travel_m: 0.17, return_slot: null}   # max_travel_m: [실측 10/02, A] 닫힘→최대 인출 앞면 이동 거리 17 cm (sim/drawer_dimensions.yaml)
 staging_tray:  {origin: null, rpy: null, slots: 3}
 handover_zone: {origin: null, rpy: null, slots: 3}
