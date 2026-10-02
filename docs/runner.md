@@ -83,6 +83,22 @@
 * 스텝별 `on_failure`: `abort`(기본) / `retry`(`retry` 횟수만큼) / `skip` / `safe_home`.
 * `abort`로 `sequence`가 중단되면 `finally`가 실행되고 `overall_status = FAILED`.
 * **비상정지(E-stop)로 인한 `ABORTED`에서는 `finally`의 로봇 동작을 실행하지 않음.** 사람이 상태를 확인한 뒤 재개 명령으로 복구함.
+* `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
+* `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
+* `timeout_sec`: Runner가 제한을 백엔드에 함께 전달하고, **동작 취소는 백엔드 책임**. Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
+* **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
+
+**Runner 에러 코드** (스킬별 에러 코드는 7.5 온톨로지 `errors`)
+
+| 코드 | 의미 |
+| :--- | :--- |
+| `TASK_INVALID` | 실행 전 검사 실패 (스키마·Phase 범위·필수 필드) |
+| `VAR_UNDEFINED` | 존재하지 않는 변수 참조 |
+| `BAD_FILTER` | `{{x\|필터}}`에 없는 조사·`목록` 필터 오용 |
+| `BAD_CONDITION` | 조건식 인자 개수·타입 오류 |
+| `TIMEOUT` | `timeout_sec` 초과 |
+| `ACTION_FAILED` | 백엔드가 에러 코드 없이 실패를 반환 |
+| `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등). 스텝 실패로 처리해 `finally`를 보장 |
 
 ### 7.2 태스크 시퀀스 스키마
 
