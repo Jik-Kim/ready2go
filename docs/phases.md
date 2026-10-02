@@ -1,62 +1,12 @@
-# 기능 Phase (개발 단계)
+# 기능 Phase 요약
 
-> 상위 인덱스: [docs/README.md](README.md) · 결정 로그 #21
+> **기준 원본:** [requirements.md](requirements.md) — 요구사항 범위, Phase 배정 및 완료 기준.
+> 이 문서는 시연 수준을 빠르게 확인하기 위한 요약이며, 요구사항 원본과 충돌하면 `requirements.md`가 우선한다.
 
-기획서 v4.1 전체를 **Phase 3**으로 보고, 범위를 줄인 **Phase 1(최소)**과 그 중간인 **Phase 2(발전)**로 나눔. 시간 단위가 아니라 **기능 단위**이며, 각 Phase는 그 자체로 완성된 시연이 됨.
+| Phase | 핵심 시연 | 주요 요구사항 |
+|---|---|---|
+| **1 — 음성으로 보이는 물건 꺼내기** | 음성 명령 → RealSense·YOLO 위치 인식 → 실물 Doosan/RG2 Pick and Place → MongoDB 실행 이력. Docker와 다중 PC/컨테이너 통신도 검증한다. | [FR-INT-01–03](requirements.md#fr-index), [FR-VIS-01–02](requirements.md#fr-index), [FR-ML-01](requirements.md#fr-ml-01), [FR-ACT-01–03](requirements.md#fr-index), [FR-LOG-01](requirements.md#fr-log-01), [NFR-ENV-01](requirements.md#nfr-env-01), [FR-COM-02](requirements.md#fr-com-02) |
+| **2 — 온톨로지 계획과 가림 복구** | 플래너가 스킬 조건·결과에서 계획을 만들고, 가림 물체를 임시 이동한 뒤 LIFO 복구한다. 상세 실행 상태를 저장하고 트윈 미러링을 추가한다. | [FR-ONT-02](requirements.md#fr-ont-02), [FR-PLN-02](requirements.md#fr-pln-02), [FR-VIS-03](requirements.md#fr-vis-03), [FR-ACT-04](requirements.md#fr-act-04), [FR-LOG-02](requirements.md#fr-log-02), [FR-TWN-01](requirements.md#fr-twn-01) |
+| **3 — 목록·다중 서랍·상태 보정** | 목록/분류형 음성 명령으로 여러 서랍을 탐색하고 상태 불일치를 안전하게 처리한다. 트윈 사전 검증과 선택 분할 기능을 확장한다. | [FR-INT-02](requirements.md#fr-int-02), [FR-ONT-03](requirements.md#fr-ont-03), [FR-REC-01](requirements.md#fr-rec-01), [FR-TWN-02](requirements.md#fr-twn-02), [FR-VIS-04](requirements.md#fr-vis-04) |
 
-**원칙**
-* **Phase 1만 완성되어도 강사 챌린지 3요소(동작·상태 JSON, 조합, 성공 여부 로그)를 최소 충족**함. 일정이 밀려도 프로젝트가 성립하도록 하기 위함.
-* 다음 Phase 기능은 이전 Phase 완료 기준을 통과한 뒤에 착수함. 단, 다음 Phase를 위한 선행 작업(데이터 수집, 트윈 씬 구성 등)은 병행 가능.
-* 각 문서 맨 위의 **Phase 범위** 표시가 이 문서의 기준을 따름. 충돌하면 이 문서가 우선.
-
-## 1. 기능별 범위
-
-| 기능 | Phase 1 (최소) | Phase 2 (발전) | Phase 3 (기획서 전체) |
-| :--- | :--- | :--- | :--- |
-| **한 줄 요약** | 음성으로 보이는 물건 꺼내기 | 가려진 물건 찾기 + 원상 복구 + 명령 조합 | 여러 서랍·세트 탐색 + 자기 수정 + 새 기능 추가 |
-| 서랍 | 1개 (위 서랍) | 1개 | 2개 |
-| 음성 명령 | 단일 물품 ("시계 찾아줘"), 취소·상태 | + 목표형 명령("지갑 아래 서랍에 넣어 둬"), 상태 질의 | + 목록·분류("출근 준비물", "귀중품 다") |
-| LLM | 물품 키워드 추출(강의 코드 수준) + 규칙 폴백 | 구조화 출력으로 목표 추출, 한국어 예시, 자동 폴백 | + (선택) LLM 태스크 생성 |
-| 로봇 온톨로지 | 세계·상태 + 스킬 4종(열기·닫기·집기·놓기) 조건·결과 | + `verify`(관측 확인)·`hold`(유지 조건) | + 클래스 추론, 시작 시 정합성 검사 |
-| 동작 조합 | 사람이 짠 태스크 JSON (`sequence`·`if`·`retry`·`timeout_sec`·`finally`) | + **BFS 플래너가 조건에서 순서 도출**, `while`·`push`/`pop`·`recovery`·`fallback`·`on_halt` | + 스킬 파일 추가로 새 기능(`return_items`), 태스크 레지스트리 |
-| 비전 | YOLO + 뎁스, **보이는 물체만** | + 가림 순서, 미지 물체, ID 추적 | + (선택) SAM2 |
-| 탐색 | 바로 보일 때 꺼내기 | + **Unpacking**(장애물 치우기) | + 다른 서랍에서 발견된 남은 목표 처리 |
-| 복구 | `finally`로 서랍 닫기·홈 복귀 | + **LIFO 원위치 복구** | + 복구 자리 점유 시 재계획 |
-| 상태 자기 수정 | — (Runner가 `effect`로만 갱신) | 관측값으로 상태 갱신 | + `STATE_MISMATCH` 시연 장면(차키) |
-| 로그 | 스텝별 성공 여부·에러 코드 → JSONL 파일 | + MongoDB, `pre_check`·`post_check`·`state_diff` | + 안전 게이트 단계별 기록 |
-| 디지털 트윈 | — (씬 구성은 병행 가능) | 실물 미러링 | + 사전 검증 모드 |
-| 안전 | E-stop(펜던트·키보드), 저속, 2인 운용 | + 작업 영역 제한, 목표형 명령 계획 확인 | + 안전 게이트 8단계 전체 |
-| Docker · 음성 (과목 필수) | ✅ | ✅ | ✅ |
-| 시연 레벨 (17.7) | **L1** | **L2** | **L3** |
-| 목표 시점 (참고) | Day 8 (10/10) | Day 10~11 | Day 12 |
-
-## 2. 완료 기준
-
-### Phase 1 — 음성으로 보이는 물건 꺼내기
-* "헬로 로키, 시계 찾아줘" → 위 서랍 열기 → 보이는 시계 집기 → 전달 트레이 → 서랍 닫기 → 홈.
-* 모든 동작이 태스크 JSON으로 실행되고, Runner가 스킬 실행 전 조건(`pre`)을 확인하고 실행 후 결과(`effect`)로 상태를 갱신함.
-* 스텝별 성공 여부·에러 코드가 JSONL 로그에 남음. 실패하면 `finally`로 서랍을 닫고 홈으로 복귀.
-* 장비별 `docker compose --profile` 명령 1개로 기동.
-* **챌린지 대응**: 동작·상태 JSON ✅ / JSON 조합 ✅(사람이 조합) / 성공 여부 로그 ✅
-
-### Phase 2 — 가려진 물건 찾기, 원상 복구, 명령 조합
-* 시계가 장애물 아래 있어도 치우면서 찾고, 끝나면 장애물을 원위치에 되돌림(서랍 1개).
-* "지갑 아래 서랍에 넣어 둬" → 플래너가 열기 → 집기 → 넣기 → 닫기를 조건에서 도출하고, 계획을 확인받은 뒤 실행.
-* "아래 서랍 닫아줘"(이미 닫힘) → "이미 닫혀 있습니다"처럼 상태 기반 응답. "지금 뭐 들고 있어?" 상태 질의.
-* 로그를 MongoDB에 저장(JSONL 폴백), 스텝별 조건 확인·관측 확인·전후 상태 기록. 트윈이 실물을 미러링.
-* **챌린지 대응**: 조합을 시스템이 스스로 함 ✅ (챌린지 핵심)
-
-### Phase 3 — 기획서 v4.1 전체 (17장 시나리오 전체)
-* 서랍 2개, "출근 준비물" 세트 탐색, 차키 위치 자기 수정(`STATE_MISMATCH`).
-* "정리해줘" 스킬 파일 추가만으로 새 기능(코드 수정 0줄), 트윈 사전 검증, 안전 게이트 8단계.
-* (선택) LLM 태스크 생성, SAM2.
-
-## 3. 담당별 Phase 1 범위 (요약)
-
-| 담당 | Phase 1에서 할 것 | Phase 2부터 |
-| :--- | :--- | :--- |
-| A 김병직 | RealSense·캘리브레이션, 실물 데이터·YOLO, `inspect_region`(보이는 물체) | 가림 순서·미지 물체·ID 추적, 트윈 미러링 |
-| B 서동권 | DSR Real 모드, 기준 포즈, `drawer_control`, `pick_object`·`place_object`, E-stop | Unpacking 동작, 원위치 복구, 작업 영역 제한 |
-| C 이영훈 | Runner(`sequence`·`if`·`retry`·`timeout_sec`·`finally`, 변수), 조건 확인·상태 갱신, JSONL 로그, compose | BFS 플래너, `while`·스택·`recovery`·`fallback`, MongoDB 로그 |
-| E 고희태 | 서랍장 설치, 온톨로지(세계·상태·스킬 4종), voice(웨이크워드·STT·키워드 추출·TTS) | 목표 추출 LLM, 상태 질의, `verify`·`hold` |
-| D 김민준 | 음성 평가 문장, 실험 기록 양식 | 측정 기록, 시연 화면 |
+담당자와 일정은 [schedule.md](schedule.md), 기술 설계는 [문서 인덱스](README.md)의 주제별 문서를 참조한다.

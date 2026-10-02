@@ -1,6 +1,6 @@
 # 최종 시연 시나리오
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
 >
 > **Phase 범위**: **L1 = P1**, **L2 = P2**, **L3 = P3** (17.7). 17장 전체 시나리오는 **P3** 기준.
 

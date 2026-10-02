@@ -1,6 +1,6 @@
 # 14일 스프린트 일정
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
 >
 > **Phase 범위**: 일정은 날짜 기준, Phase는 기능 기준([phases.md](phases.md)). 목표: **P1** = Day 8(L1), **P2** = Day 10~11(L2), **P3** = Day 12(L3).
 

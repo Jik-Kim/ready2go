@@ -1,8 +1,8 @@
 # 인터페이스 계약 (ICD)
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md) — [ROS 2 인터페이스](requirements.md#fr-com-01), [다중 PC 통신](requirements.md#fr-com-02), [MongoDB 실행 이력](requirements.md#fr-log-01).
 >
-> **Phase 범위**: **P1**: `/voice/intent`, `/voice/speak`, `/vision/inspect_region`, `/skills/*`, 그리퍼·서랍 상태, 카메라, `/runner/*` · **P2**: `/robot_state`, `/planner/plan`, MongoDB, `/dsr01/joint_states` → 트윈.
+> **Phase 범위**: **P1**: `/voice/intent`, `/voice/speak`, `/vision/inspect_region`, `/skills/*`, 그리퍼·서랍 상태, 카메라, `/runner/*`, MongoDB · **P2**: `/robot_state`, `/planner/plan`, `/dsr01/joint_states` → 트윈.
 
 ## 5. 인터페이스 계약 (ICD)
 

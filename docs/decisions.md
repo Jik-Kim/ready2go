@@ -1,6 +1,6 @@
 # 팀 합의 항목 (결정 로그)
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
 >
 > **Phase 범위**: 전 Phase 공통. Phase 구분 자체는 #21.
 

@@ -1,6 +1,6 @@
 # 플래너: 명령 → 스킬 조합
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
 >
 > **Phase 범위**: **P2**부터 (Phase 1에는 플래너 없음 — 사람이 짠 태스크 JSON으로 조합). 실행 중 실패 시 재계획은 **P3**.
 

@@ -1,6 +1,6 @@
 # 음성 · LLM
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
 >
 > **Phase 범위**: **P1**: 웨이크워드·STT·TTS, 인텐트 `find_item`·`cancel`·`status`, LLM 물품 키워드 추출(강의 코드 수준) + 규칙 폴백 · **P2**: 6.4 구조화 출력 목표 추출(`achieve_goal`), `query_state`, 자동 폴백 · **P3**: `find_list`·`find_class`·레지스트리 인텐트, 6.5 LLM 태스크 생성(선택).
 

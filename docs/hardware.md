@@ -1,6 +1,6 @@
 # 실물 작업 공간 · 하드웨어
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
 >
 > **Phase 범위**: **P1·P2**: 서랍 1개(위 서랍) + 임시·전달 트레이 · **P3**: 서랍 2개. 서랍장·물품 선정 기준은 전 Phase 공통.
 

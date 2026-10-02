@@ -1,8 +1,8 @@
 # Docker · 컨테이너 구성
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+> 요구사항 기준: [requirements.md](requirements.md). 이 문서는 기술 상세를 정의하며, 범위·Phase·완료 기준은 요구사항 기준 문서를 따릅니다.
 >
-> **Phase 범위**: 전 Phase 공통(과목 필수). `db`(MongoDB)는 **P2**부터 사용 — **P1** 로그는 JSONL 파일. `dsr-emulator`·`mock-sim`은 개발용으로 P1부터 사용.
+> **Phase 범위**: 전 Phase 공통(과목 필수). `db`(MongoDB)는 [FR-LOG-01](requirements.md#fr-log-01)에 따라 **P1부터 기본 실행 이력 저장에 사용**하고, P2에서 상세 상태 로그를 추가한다. DB 장애 시 JSONL 폴백을 사용한다. `dsr-emulator`·`mock-sim`은 개발용으로 P1부터 사용.
 
 ## 4. Docker / 컨테이너 구성 (필수)
 
