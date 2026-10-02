@@ -29,6 +29,10 @@ services:
     network_mode: host
     environment: { <<: *ros-env, VISION_MODE: "${VISION_MODE:-yolo}" }   # yolo | yolo_sam2(조건부) | oracle(sim 전용)
     volumes: [./models:/models:ro, ./config:/config:ro]
+    deploy:                          # GPU 추론 (NVIDIA Container Toolkit 필요)
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
 
   realsense:
     profiles: ["real"]
@@ -36,7 +40,7 @@ services:
     network_mode: host
     privileged: true                 # USB 재연결 시 장치 번호가 바뀌므로 /dev 전체 공유
     environment: *ros-env
-    volumes: ["/dev:/dev"]
+    volumes: ["/dev:/dev", "./config:/config:ro"]   # CYCLONEDDS_URI가 /config를 가리킴
 
   voice:
     profiles: ["real", "sim", "dev"]

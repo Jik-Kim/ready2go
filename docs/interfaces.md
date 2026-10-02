@@ -21,7 +21,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 서랍 상태 | `/drawers/state` | JSON 문자열 (`drawer_id`, `displacement`) | 백엔드 → Runner·트윈 |
 | 카메라 | `/wrist_cam/color/image_raw`, `/wrist_cam/color/camera_info`, `/wrist_cam/aligned_depth_to_color/image_raw` (컬러에 정렬된 뎁스, 내부 파라미터는 컬러와 동일) | `sensor_msgs` | realsense / Isaac Sim → vision (결정 #24) |
 | Runner 상태 · 비상정지 | `/runner/status`, `/runner/estop` | `std_msgs/String`, `std_srvs/Trigger` | ros2-core ↔ 전체 |
-| TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_optical`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core: `ready2go_bringup` launch가 `config/calibration/`·`config/places.yaml`을 읽어 static TF 발행 (결정 #23). 로봇 TF는 DSR 드라이버 |
+| TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_link`, `wrist_cam_color_optical_frame`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core: `ready2go_bringup` launch가 `config/calibration/`·`config/places.yaml`을 읽어 static TF 발행 (결정 #23). 로봇 TF는 DSR 드라이버. **`wrist_cam_link`**: 캘리브레이션 결과를 거는 프레임(`link_6 → wrist_cam_link`, bringup 발행). **`wrist_cam_color_optical_frame`**: 컬러·정렬 뎁스 이미지의 `frame_id`, `wrist_cam_link` 아래 트리는 realsense 드라이버가 `/tf_static`으로 발행(끄지 않음). Isaac Sim 트윈 카메라도 같은 `frame_id`를 사용. `link_6`의 실제 이름(`dsr01` 접두어 여부)은 `view_frames`로 확인 후 반영 `[팀 확정 필요]` |
 
 **ROS 인터페이스가 아닌 호출 (같은 프로세스 또는 외부 서비스)**
 
