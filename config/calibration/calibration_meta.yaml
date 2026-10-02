@@ -1,0 +1,50 @@
+# T_gripper2camera.npy 메타데이터 (담당 A). 값은 이 파일에만 둔다. 절차·재계산: README.md, 결정: docs/decisions.md #23(TF 구조)·#28(프로젝트 TCP).
+# 상태: 잠정 채택(개발용) — 5점 verify.py 실측 후 확정 (verified.status 참고)
+file: T_gripper2camera.npy
+frame_meaning: "TCP 프레임에서 본 카메라 광학 프레임 (T_gripper2cam, OpenCV 핀홀 규약). 평행이동 mm, 회전 행렬"   # [문서] handeye_calibration.py
+
+measured:
+  date: 2026-10-01                     # [실측] 파일 시각 15:41
+  by: A (김병직)
+  script: corecode/Calibration_Tutorial/handeye_calibration.py   # 강의 코드
+  num_images: 26                       # [실측] data/calibrate_data.json
+  pose_range_mm: {x: [253.3, 540.1], y: [-186.3, 269.0], z: [93.9, 351.5]}   # [실측]
+  gripper: RG2                         # [사용자 확인 10/02]
+  robot: M0609                         # 개체 식별자는 [팀 확정 필요]
+  camera_serial: "207222073543"        # [실측 10/02] 10/02에 연결한 D435i. 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요]
+
+tcp:
+  name_during_calibration: "GripperDA_V1"   # [사용자 확인 10/02] set_tcp("GripperDA_V1")로 실행
+  tool_name_during_calibration: null        # [팀 확정 필요] set_tool에 쓴 이름
+  name_on_pendant: "GripperDA_V1"           # [실측 10/02, 펜던트 사진] 목록에 이것 하나뿐
+  offset_from_pendant: {x: 0, y: 0, z: 228, rx: 0, ry: 0, rz: 0}   # mm, deg (ZYZ). [실측 10/02] T_link6→TCP. link_6 원점이 플랜지 면인지는 [팀 확정 필요, B 확인 요청 #7]
+  tool_weight_on_pendant: {name: "tool_weight", kg: 1.420, cog_mm: [12.570, -28.240, -6.880]}   # [실측 10/02]
+
+verified:
+  error_cm: null                       # 5점 verify.py 실측 후 기록 (최대값, 결정 #22 기준 1.0 cm 이내)
+  qualitative: "체스판 중앙 파지, 육안 1 cm 미만 [사용자 보고 10/01]"
+  status: provisional                  # provisional(잠정 채택, 개발용) → accepted (5점 실측이 결정 #22 기준 충족 시)
+  by:
+    - "A: 2026-10-01 verify.py 육안 확인"
+    - "B: 2026-10-02 팀 구성에서 npy 적용 확인 [사용자 보고]"
+
+driver_tf_used:                        # [실측 10/02] /tf_static의 wrist_cam_link→color_frame→color_optical_frame 두 변환을 합성. tools/calib_derive_tf.py의 입력
+  parent: wrist_cam_link
+  child: wrist_cam_color_optical_frame
+  translation_m: [-0.0006116, 0.0149422, 0.0002685]
+  quaternion_xyzw: [-0.4991948, 0.5005903, -0.498378, 0.5018299]
+  camera_serial: "207222073543"        # 카메라 개체마다 값이 조금 다르므로 카메라를 바꾸면 이 블록을 다시 읽어 스크립트를 재실행
+
+derived_tf:                            # [계산 10/02] bringup이 발행할 static TF. 입력: npy, tcp.offset_from_pendant, driver_tf_used. 재계산: python3 tools/calib_derive_tf.py
+  parent: link_6
+  child: wrist_cam_link
+  translation_m: [0.01875, 0.07650, 0.02641]
+  quaternion_xyzw: [-0.50615, -0.49852, -0.5008, 0.49446]   # w ≥ 0 정규화 (스크립트 출력과 동일, q와 -q는 같은 회전)
+
+sanity_check:                          # [계산 10/02] T_link6→TCP × T_gripper2camera = link_6 기준 광학 프레임
+  camera_optical_in_link6_mm: [33.7, 76.6, 25.8]   # 플랜지 면에서 +z로 25.8 mm 앞
+  optical_z_axis_in_link6: [0.003, 0.010, 1.000]   # 시선이 그리퍼 접근 방향(+z)과 평행 → 손목 마운트로 타당. 플랜지 기준(TCP 해제)이었다면 뒤 202 mm가 되어 불가
+
+notes:
+  - "10/01 측정값은 강의 샘플(해시 27cf64…)과 해시가 다름 → 직접 측정한 값 [추정, 해시 비교]"
+  - "마운트(브래킷)를 다시 달면 무효. TCP가 바뀌면 TCP 차이만큼 어긋남."

@@ -1,18 +1,43 @@
-# 캘리브레이션 결과 (담당 A 김병직)
-- `T_gripper2camera.npy`: 강의 Calibration_Tutorial로 재측정한 핸드-아이 결과 (광학 프레임 기준, `link_6 → wrist_cam_color_optical_frame`)
-- 측정일·오차(`verify.py` 결과)를 [실측] 태그로 이 파일에 기록
+# 캘리브레이션 (담당 A 김병직)
 
-## TF 구조 (결정 #23, A안)
-- bringup이 발행하는 TF는 `link_6 → wrist_cam_link` **1개**. `wrist_cam_link` 아래 광학 프레임은 realsense 드라이버의 `/tf_static`을 그대로 사용.
-- `T_link6→cam_link = T_link6→color_optical(핸드-아이) × (T_cam_link→color_optical)⁻¹` 로 변환해 저장. `T_cam_link→color_optical`은 드라이버 `/tf_static`에서 읽은 값.
-- 이 폴더에는 **핸드-아이 원본, 변환 결과, 변환에 사용한 드라이버 TF 값(`T_cam_link→color_optical`)** 을 모두 저장.
+> 값은 [calibration_meta.yaml](calibration_meta.yaml)에만 있다. 이 문서는 **절차**만 적는다. 결정: `docs/decisions.md` #23(TF 구조), #28(프로젝트 TCP).
 
-## 캘리브레이션 시 기록할 것
-| 항목 | 값 | 근거 |
-| :--- | :--- | :--- |
-| 측정일 | | |
-| 펜던트 TCP 설정 (가능하면 해제) | | [실측] |
-| `link_6`의 실제 프레임 이름 (`dsr01` 접두어 여부) | | [실측] `view_frames` |
-| `posx` 단위 변환 (mm, ZYZ 오일러각 → m, 쿼터니언) | | [실측] |
-| 사용한 드라이버 TF 값 (`T_cam_link→color_optical`) | | [실측] `/tf_static` |
-| 검증 오차 (`verify.py`) | | [실측] |
+**상태: 잠정 채택(개발용) — 5점 `verify.py` 실측 후 확정.** 확정 조건은 결정 #22(오차 1.0 cm 이내)이고, 기록 위치는 meta의 `verified`.
+
+## 파일
+| 파일 | 내용 |
+| :--- | :--- |
+| `T_gripper2camera.npy` | 핸드-아이 결과. **TCP 프레임 기준**(강의 코드가 `set_tcp` 후 `get_current_posx`를 읽음), 평행이동 mm |
+| `calibration_meta.yaml` | 측정 조건, TCP·툴, 검증 상태, 드라이버 TF, 계산된 `derived_tf` |
+
+강의 샘플 `T_gripper2camera.npy`(해시 `27cf64…`)는 쓰지 않는다. 강의 코드의 `2FG_TCP`는 이 로봇의 TCP 목록에 없는 이름이므로 그대로 쓰면 안 된다.
+
+## TF 구조
+bringup이 발행하는 TF는 `link_6 → wrist_cam_link` **1개**. `wrist_cam_link` 아래 광학 프레임은 realsense 드라이버의 `/tf_static`을 그대로 쓴다(한 프레임은 부모를 하나만 가질 수 있어 광학 프레임에 직접 걸면 충돌).
+
+`T_link6→cam_link = T_link6→TCP × T_gripper2camera × (T_cam_link→color_optical)⁻¹`
+
+## 재계산
+```bash
+python3 tools/calib_derive_tf.py          # 계산 + meta의 derived_tf와 비교 (불일치 시 종료 코드 1)
+python3 tools/calib_derive_tf.py --print  # 계산 결과만 출력
+```
+- 허용 오차: 평행이동 `1e-5` m, 회전 `0.01`° (`--tol-m`, `--tol-deg`로 변경).
+- 입력은 meta의 `tcp.offset_from_pendant`와 `driver_tf_used`, 그리고 `T_gripper2camera.npy`.
+- 출력의 `derived_tf`로 meta의 `derived_tf`를 교체한다. 출력 쿼터니언은 `w ≥ 0`으로 정규화되어 있다.
+- 단위: 평행이동 mm→m, TCP 회전은 두산 `posx`와 같은 ZYZ 오일러각(deg).
+
+## 다시 계산해야 하는 경우
+- **카메라를 바꿈**: `driver_tf_used`를 새 카메라의 `/tf_static`에서 다시 읽어 갱신(개체마다 조금 다름). 마운트(브래킷)를 다시 달았다면 캘리브레이션 자체를 다시 한다.
+- **TCP 오프셋이 바뀜**(B 확인 결과 등): `tcp.offset_from_pendant` 갱신. 캘리브레이션 당시의 TCP가 달랐다면 `npy`도 영향을 받는다.
+- 위 변경 후에는 스크립트를 돌리고 결과를 PR에 기록한다.
+
+## bringup에 반영하기 전 확인
+1. `link_6`의 실제 프레임 이름(`dsr01` 접두어 여부): `view_frames`로 확인.
+2. `link_6` 원점이 플랜지 면과 같은 위치인지, TCP 오프셋 값과 툴 무게가 실제 RG2와 맞는지: B 확인 요청 중(#7).
+3. TF 설정 파일 형식: C와 합의(#3).
+
+## 확정 절차 (잠정 → 채택)
+1. `verify.py`로 5점 이상 측정해 최대 오차를 `verified.error_cm`에 기록.
+2. 결정 #22 기준(1.0 cm 이내)이면 `verified.status: accepted`로 바꾸고, 이 문서의 상태 줄과 meta 맨 위 상태 줄을 함께 고친다.
+3. 기준을 넘으면 재측정한다.
