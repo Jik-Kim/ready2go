@@ -11,3 +11,4 @@
 - **v1**: 초안 (Docker·음성 필수 요건, JSON 스키마, 14일 일정).
 - **v5 (분할)**: 기획서 v4.1을 `docs/` 주제별 문서로 분할하고 JSON 예시를 원본 파일(`contracts/`, `knowledge/`, `tasks/`)로 이동. 저장소 이름 `ready2go`, 패키지 접두어 `ready2go_`.
 - **v5.1**: 기능 Phase 구분(P1 최소 · P2 발전 · P3 = 기획서 전체) 추가([phases.md](phases.md)), 각 문서 상단에 Phase 범위 표시, 결정 로그 #21.
+- **v5.2**: 비전 이슈(#5·#7·#14·#18) 검토 반영 — ICD 카메라 토픽을 정렬 뎁스(`aligned_depth_to_color`)·컬러 `camera_info`로 수정, 고정 TF는 `ready2go_bringup`이 발행(결정 #22~#24).

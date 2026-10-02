@@ -21,9 +21,9 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 그리퍼 상태 | `/gripper/state` | JSON 문자열 (`width`, `grasp_detected`) | 백엔드 → Runner·트윈 |
 | 그리퍼 명령 (sim 전용) | `/gripper/command` | JSON 문자열 | sim 백엔드 → Isaac Sim |
 | 서랍 상태 | `/drawers/state` | JSON 문자열 (`drawer_id`, `displacement`) | 백엔드 → Runner·트윈 |
-| 카메라 | `/wrist_cam/color/image_raw`, `/wrist_cam/depth/image_rect_raw`, `/wrist_cam/camera_info` | `sensor_msgs` | realsense(remap) / Isaac Sim → vision |
+| 카메라 | `/wrist_cam/color/image_raw`, `/wrist_cam/color/camera_info`, `/wrist_cam/aligned_depth_to_color/image_raw` (컬러에 정렬된 뎁스, 내부 파라미터는 컬러와 동일) | `sensor_msgs` | realsense / Isaac Sim → vision (결정 #24) |
 | Runner 상태 · 비상정지 | `/runner/status`, `/runner/estop` | `std_msgs/String`, `std_srvs/Trigger` | ros2-core ↔ 전체 |
-| TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_optical`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core (캘리브레이션·서랍 좌표계 결과 발행) |
+| TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_optical`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core: `ready2go_bringup` launch가 `config/calibration/`·`config/places.yaml`을 읽어 static TF 발행 (결정 #23). 로봇 TF는 DSR 드라이버 |
 
 **ROS 인터페이스가 아닌 호출 (같은 프로세스 또는 외부 서비스)**
 
