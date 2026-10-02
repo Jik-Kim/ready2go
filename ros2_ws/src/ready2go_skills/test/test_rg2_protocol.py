@@ -14,6 +14,11 @@ def test_grip_command_rejects_out_of_range(width, force):
         proto.grip_command(width, force)
 
 
+def test_gripper_state_payload_matches_icd():
+    st = proto.decode_status(523, proto.STATUS_GRIP_DETECTED)
+    assert proto.gripper_state_payload(st) == {"width": 0.0523, "grasp_detected": True}
+
+
 def test_decode_status_bits():
     st = proto.decode_status(523, proto.STATUS_BUSY | proto.STATUS_GRIP_DETECTED)
     assert st.width_mm == pytest.approx(52.3)

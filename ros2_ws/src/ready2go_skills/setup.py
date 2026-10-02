@@ -18,5 +18,7 @@ setup(
     description='실물/시뮬/목 백엔드의 모션 원자 동작(DSR·RG2) — 로봇을 움직이는 유일한 패키지',
     license='TODO',
     tests_require=['pytest'],
-    entry_points={'console_scripts': []},
+    entry_points={'console_scripts': [
+        'gripper_state = ready2go_skills.nodes.gripper_state_node:main',
+    ]},
 )

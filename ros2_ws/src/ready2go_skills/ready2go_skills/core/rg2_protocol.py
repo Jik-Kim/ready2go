@@ -44,6 +44,11 @@ class Rg2Status:
     safety_error: bool
 
 
+def gripper_state_payload(status: Rg2Status) -> dict:
+    """/gripper/state JSON 본문 (ICD: width, grasp_detected). width 단위는 m."""
+    return {"width": round(status.width_mm / 1000.0, 4), "grasp_detected": status.grip_detected}
+
+
 def decode_status(width_raw: int, status_raw: int) -> Rg2Status:
     """폭 레지스터(1/10 mm)와 상태 레지스터 → Rg2Status."""
     return Rg2Status(
