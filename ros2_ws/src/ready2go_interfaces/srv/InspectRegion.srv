@@ -1,0 +1,7 @@
+# 인식 서비스 (docs/vision.md, docs/interfaces.md)
+string region
+string search_target
+---
+bool success
+string error_code
+string result_json

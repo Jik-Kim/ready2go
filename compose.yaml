@@ -1,0 +1,70 @@
+# ready2go — 장비별 실행: docker compose --profile <real|sim|dev> up  (자세한 설명: docs/docker.md)
+name: ready2go
+
+x-ros-env: &ros-env
+  ROS_DOMAIN_ID: "70"                                  # 강사 배정 조별 Domain ID (확정)
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp               # 강사 제공 표준 (확정)
+  CYCLONEDDS_URI: file:///config/cyclonedds.${DDS_MODE:-local}.xml   # local | multi
+  DDS_IFACE: ${DDS_IFACE:-}        # multi 모드: 팀 공유기에 연결된 NIC 이름
+  PEER_PC1: ${PEER_PC1:-}          # multi 모드: 장비 IP
+  PEER_PC2: ${PEER_PC2:-}
+
+services:
+  ros2-core:
+    profiles: ["real", "sim", "dev"]
+    build: ./docker/ros2-core
+    network_mode: host
+    environment: { <<: *ros-env, BACKEND: "${BACKEND:-mock}", ROBOT_HOST: "${ROBOT_HOST:-127.0.0.1}" }  # real: 실물 제어기 IP
+    volumes:
+      - ./ros2_ws:/ros2_ws
+      - ./contracts:/contracts:ro    # JSON Schema 계약
+      - ./tasks:/tasks:ro            # JSON 태스크 템플릿
+      - ./knowledge:/knowledge       # 온톨로지 (런타임 갱신)
+      - ./logs:/logs                 # 실행 로그 JSON
+      - ./config:/config:ro          # 기준 포즈, 서랍 좌표계, 캘리브레이션 결과
+
+  vision:
+    profiles: ["real", "sim"]
+    build: ./docker/vision
+    network_mode: host
+    environment: { <<: *ros-env, VISION_MODE: "${VISION_MODE:-yolo}" }   # yolo | yolo_sam2(조건부) | oracle(sim 전용)
+    volumes: [./models:/models:ro, ./config:/config:ro]
+
+  realsense:
+    profiles: ["real"]
+    build: ./docker/realsense
+    network_mode: host
+    privileged: true                 # USB 재연결 시 장치 번호가 바뀌므로 /dev 전체 공유
+    environment: *ros-env
+    volumes: ["/dev:/dev"]
+
+  voice:
+    profiles: ["real", "sim", "dev"]
+    build: ./docker/voice
+    network_mode: host
+    env_file:
+      - path: ./secrets/voice.env    # OPENAI_API_KEY (Git 제외, secrets/voice.env.example 복사)
+        required: false
+    environment: { <<: *ros-env, PULSE_SERVER: "unix:${XDG_RUNTIME_DIR}/pulse/native" }
+    volumes:
+      - ${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native
+      - ./knowledge:/knowledge:ro
+      - ./models:/models:ro
+      - ./config:/config:ro
+
+  db:
+    profiles: ["real", "sim", "dev"]
+    image: mongo:8.0
+    network_mode: host
+    volumes: ["./db_data:/data/db"]    # 로그·상태 영속 저장
+
+  dsr-emulator:
+    profiles: ["sim", "dev"]
+    image: doosanrobot/dsr_emulator:3.0.1
+    network_mode: host
+
+  mock-sim:
+    profiles: ["dev"]
+    build: ./docker/mock-sim
+    network_mode: host
+    environment: *ros-env

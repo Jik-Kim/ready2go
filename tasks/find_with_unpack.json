@@ -1,0 +1,52 @@
+{
+  "task_id": "find_with_unpack",
+  "description": "목표 물품 탐색: 가려지면 장애물을 트레이로 배출하며 탐색, 종료(성공/실패 무관) 후 원위치 복구",
+  "inputs": { "target": "watch" },
+  "sequence": [
+    { "id": "s1", "action": "query_ontology", "params": { "item": "$inputs.target" }, "output": "loc" },
+    { "id": "s2", "action": "speak", "params": { "text": "{{loc.name_ko}} 찾기를 시작합니다" } },
+    { "id": "s3", "action": "move_to_named_pose", "params": { "pose_name": "drawer_approach", "drawer_id": "$loc.drawer_id" } },
+    { "id": "s4", "action": "drawer_control", "params": { "drawer_id": "$loc.drawer_id", "state": "open" } },
+    { "id": "s5", "action": "move_to_named_pose", "params": { "pose_name": "drawer_top_view", "drawer_id": "$loc.drawer_id" } },
+    { "id": "s6", "action": "inspect_region", "params": { "region": "$loc.drawer_id", "search_target": "$inputs.target" }, "output": "scan" },
+
+    { "id": "s7", "action": "while",
+      "cond": { "op": "and", "args": [
+        { "op": "==", "args": ["$scan.target_found", false] },
+        { "op": ">",  "args": ["$scan.visible_count", 0] } ] },
+      "max_iter": 8,
+      "body": [
+        { "id": "s7.1", "action": "pick_object", "params": { "object_id": "$scan.candidates[0].id", "approach_offset": [0, 0, 0.1] },
+          "output": "picked", "on_failure": "retry", "retry": 1 },
+        { "id": "s7.2", "action": "place_object", "params": { "location": "staging_tray" }, "output": "placed" },
+        { "id": "s7.3", "action": "push", "params": { "stack": "restore_stack",
+            "value": { "object_id": "$picked.object_id", "origin_pose": "$picked.pick_pose_drawer_frame", "slot": "$placed.slot" } } },
+        { "id": "s7.4", "action": "move_to_named_pose", "params": { "pose_name": "drawer_top_view", "drawer_id": "$loc.drawer_id" } },
+        { "id": "s7.5", "action": "inspect_region", "params": { "region": "$loc.drawer_id", "search_target": "$inputs.target" }, "output": "scan" }
+      ] },
+
+    { "id": "s8", "action": "if",
+      "cond": { "op": "==", "args": ["$scan.target_found", true] },
+      "then": [
+        { "id": "s8.1", "action": "pick_object", "params": { "object_id": "$scan.target.id", "approach_offset": [0, 0, 0.1] } },
+        { "id": "s8.2", "action": "place_object", "params": { "location": "handover_zone" } },
+        { "id": "s8.3", "action": "update_ontology", "params": { "item": "$inputs.target", "drawer_id": "$loc.drawer_id" } },
+        { "id": "s8.4", "action": "speak", "params": { "text": "{{loc.name_ko|을}} 찾았습니다. 앞쪽 트레이에서 가져가세요" } }
+      ],
+      "else": [
+        { "id": "s8.5", "action": "speak", "params": { "text": "서랍장에서 {{loc.name_ko|을}} 찾지 못했습니다" } }
+      ] }
+  ],
+  "finally": [
+    { "id": "f1", "action": "while",
+      "cond": { "op": "not_empty", "args": ["$restore_stack"] }, "max_iter": 8,
+      "body": [
+        { "id": "f1.1", "action": "pop", "params": { "stack": "restore_stack" }, "output": "item" },
+        { "id": "f1.2", "action": "move_to_named_pose", "params": { "pose_name": "tray_view" } },
+        { "id": "f1.3", "action": "pick_object", "params": { "object_id": "$item.object_id", "source_slot": "$item.slot", "approach_offset": [0, 0, 0.1] } },
+        { "id": "f1.4", "action": "place_object", "params": { "pose": "$item.origin_pose", "frame": "drawer" } }
+      ] },
+    { "id": "f2", "action": "drawer_control", "params": { "drawer_id": "$loc.drawer_id", "state": "close" } },
+    { "id": "f3", "action": "move_to_named_pose", "params": { "pose_name": "home" } }
+  ]
+}

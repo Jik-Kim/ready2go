@@ -1,0 +1,16 @@
+# ROS 2
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+__pycache__/
+*.pyc
+.pytest_cache/
+# 비밀·장비별 값
+.env
+secrets/*.env
+!secrets/*.env.example
+# 런타임 산출물
+logs/
+db_data/
+models/*.pt
+!models/.gitkeep

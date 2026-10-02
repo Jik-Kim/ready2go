@@ -1,0 +1,8 @@
+{
+  "task_id": "return_items",
+  "description": "전달 트레이의 물건을 온톨로지에 기록된 서랍으로 반납",
+  "trigger": { "intent": "return_items", "examples_ko": ["꺼낸 물건들 다시 서랍에 정리해줘", "원래대로 넣어줘"] },
+  "sequence": [
+    { "id": "s1", "action": "inspect_region", "params": { "region": "handover_zone" }, "output": "tray" }
+  ]
+}

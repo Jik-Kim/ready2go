@@ -1,0 +1,11 @@
+# 원자 동작 공통 액션 — 액션 이름이 곧 동작명 (/skills/<action_name>, docs/interfaces.md)
+# goal
+string params_json
+---
+# result
+bool success
+string error_code
+string output_json
+---
+# feedback
+string stage

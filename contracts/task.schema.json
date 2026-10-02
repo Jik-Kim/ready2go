@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TaskSequence",
+  "type": "object",
+  "required": ["task_id", "sequence"],
+  "properties": {
+    "task_id": { "type": "string" },
+    "description": { "type": "string" },
+    "inputs": { "type": "object", "description": "음성 인텐트에서 바인딩되는 입력 (예: target, list_name)" },
+    "trigger": { "type": "object", "description": "태스크 레지스트리용 음성 트리거 (7.6)" },
+    "params": { "type": "object", "description": "복합 스킬 입력 선언 (이름: 클래스)" },
+    "pre": { "type": "object", "description": "실행 조건 (상태 경로: 값, 7.5)" },
+    "effect": { "description": "결과 (상태 경로: 값) 또는 \"sensing\"" },
+    "sequence": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+    "finally":  { "type": "array", "items": { "$ref": "#/definitions/step" } },
+    "on_halt":  { "type": "array", "items": { "$ref": "#/definitions/step" } }
+  },
+  "definitions": {
+    "cond": {
+      "type": "object",
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "enum": ["==", "!=", "<", ">", "<=", ">=", "and", "or", "not", "empty", "not_empty"] },
+        "args": { "type": "array", "minItems": 1 }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["id", "action"],
+      "properties": {
+        "id": { "type": "string", "description": "로그 추적용 고유 ID (예: s7, s7.1)" },
+        "action": { "enum": [
+          "move_to_named_pose", "drawer_control", "inspect_region", "pick_object", "place_object",
+          "query_ontology", "update_ontology", "speak",
+          "set_var", "push", "pop", "if", "while", "for_each", "fallback"
+        ]},
+        "params": { "type": "object" },
+        "output": { "type": "string", "description": "반환값을 저장할 변수명" },
+        "cond": { "$ref": "#/definitions/cond" },
+        "then": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+        "else": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+        "body": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+        "in":   { "type": "string" },
+        "as":   { "type": "string" },
+        "max_iter": { "type": "integer", "minimum": 1 },
+        "on_failure": { "enum": ["abort", "retry", "skip", "safe_home"], "default": "abort" },
+        "timeout_sec": { "type": "number", "exclusiveMinimum": 0 },
+        "recovery": { "type": "array", "items": { "$ref": "#/definitions/step" } },
+        "options": { "type": "array", "items": { "type": "array", "items": { "$ref": "#/definitions/step" } } },
+        "retry": { "type": "integer", "minimum": 0, "default": 0 }
+      }
+    }
+  }
+}

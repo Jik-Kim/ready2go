@@ -1,0 +1,23 @@
+{
+  "task_id": "find_with_unpack",
+  "run_id": "2026-10-11T14:03:00Z_001",
+  "backend": "real",
+  "inputs": { "target": "watch", "source": "voice", "stt_text": "시계 찾아줘", "stt_confidence": 0.93 },
+  "overall_status": "COMPLETED",
+  "outcome": "FOUND",
+  "started_at": "2026-10-11T14:03:00.000Z",
+  "total_duration_sec": 96.4,
+  "logs": [
+    { "id": "s6", "action": "inspect_region", "status": "SUCCESS", "started_at": "2026-10-11T14:03:18.200Z", "duration_sec": 0.8,
+      "result": { "target_found": false, "visible_count": 2, "candidates": ["unknown#1", "notebook#1"] } },
+    { "id": "s7.1", "iteration": 1, "attempt": 1, "action": "pick_object", "status": "FAILURE", "duration_sec": 3.1,
+      "error": { "code": "GRASP_FAILED", "message": "gripper closed with no object" } },
+    { "id": "s7.1", "iteration": 1, "attempt": 2, "action": "pick_object", "status": "SUCCESS", "duration_sec": 4.2,
+      "pre_check": { "result": "PASS", "conditions": [ { "subject": "robot", "predicate": "gripper", "op": "==", "value": "empty", "actual": "empty", "pass": true } ] },
+      "post_check": { "result": "PASS", "verify": "gripper_width > min_width AND grasp_detected", "observed": { "gripper_width_mm": 41.5 } },
+      "result": { "object_id": "unknown#1", "pick_pose_drawer_frame": [0.12, 0.05, 0.03, 0.0, 0.707, 0.0, 0.707], "grasp_ok": true },
+      "state_diff": { "gripper": ["empty", "unknown#1"], "located_in.unknown#1": ["drawer_top", "gripper"] } },
+    { "id": "s7.2", "iteration": 1, "attempt": 1, "action": "place_object", "status": "SUCCESS", "duration_sec": 4.0,
+      "result": { "slot": "staging_tray_slot_1" } }
+  ]
+}

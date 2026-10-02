@@ -1,0 +1,6 @@
+# 기준 포즈 (직접교시로 측정, 담당 B 서동권) — 관절각 [deg] [팀 확정 필요]
+# Phase 1: home, drawer_top용 포즈, tray_view
+home:              {joints_deg: null}
+drawer_approach:   {drawer_top: null}     # Phase 3: drawer_bottom 추가
+drawer_top_view:   {drawer_top: null}
+tray_view:         {joints_deg: null}

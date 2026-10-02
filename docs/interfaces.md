@@ -1,0 +1,34 @@
+# 인터페이스 계약 (ICD)
+
+> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
+>
+> **Phase 범위**: **P1**: `/voice/intent`, `/voice/speak`, `/vision/inspect_region`, `/skills/*`, 그리퍼·서랍 상태, 카메라, `/runner/*` · **P2**: `/robot_state`, `/planner/plan`, MongoDB, `/dsr01/joint_states` → 트윈.
+
+## 5. 인터페이스 계약 (ICD)
+
+Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수정함. 커스텀 메시지는 `ready2go_interfaces` 패키지의 **2종(`Skill.action`, `InspectRegion.srv`)으로 제한**하고, 나머지 페이로드는 JSON 문자열로 주고받음.
+
+| 인터페이스 | 이름 | 타입 | 제공 → 사용 |
+| :--- | :--- | :--- | :--- |
+| 인텐트 | `/voice/intent` | topic `std_msgs/String` (JSON) | voice → ros2-core |
+| 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | ros2-core → 시연 화면·트윈·voice(상태 질의) |
+| 생성된 계획 | `/planner/plan` | topic `std_msgs/String` (7.2 형식 JSON) | ros2-core → 시연 화면 |
+| 텍스트 디버그 입력 | `/voice/text_override` | topic `std_msgs/String` | 테스트 → voice |
+| TTS 요청 (`speak` 원자 동작) | `/voice/speak` | action `Skill` | ros2-core → voice |
+| 인식 | `/vision/inspect_region` | service `InspectRegion` (req: `region`, `search_target` / res: `result_json`) | ros2-core → vision |
+| 로봇 원자 동작 | `/skills/<action_name>` | action `Skill` (goal: `params_json` / result: `success`, `error_code`, `output_json` / feedback: `stage`) | Runner → 백엔드 |
+| 로봇 조인트 상태 | `/dsr01/joint_states` | `sensor_msgs/JointState` | DSR 드라이버(real·sim) → Isaac Sim 트윈 |
+| 그리퍼 상태 | `/gripper/state` | JSON 문자열 (`width`, `grasp_detected`) | 백엔드 → Runner·트윈 |
+| 그리퍼 명령 (sim 전용) | `/gripper/command` | JSON 문자열 | sim 백엔드 → Isaac Sim |
+| 서랍 상태 | `/drawers/state` | JSON 문자열 (`drawer_id`, `displacement`) | 백엔드 → Runner·트윈 |
+| 카메라 | `/wrist_cam/color/image_raw`, `/wrist_cam/depth/image_rect_raw`, `/wrist_cam/camera_info` | `sensor_msgs` | realsense(remap) / Isaac Sim → vision |
+| Runner 상태 · 비상정지 | `/runner/status`, `/runner/estop` | `std_msgs/String`, `std_srvs/Trigger` | ros2-core ↔ 전체 |
+| TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_optical`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core (캘리브레이션·서랍 좌표계 결과 발행) |
+
+**ROS 인터페이스가 아닌 호출 (같은 프로세스 또는 외부 서비스)**
+
+| 대상 | 호출 방식 | 사용 위치 |
+| :--- | :--- | :--- |
+| `query_ontology` · `update_ontology` 원자 동작 | **ROS 인터페이스 없음.** `ros2-core` 프로세스 안에서 Runner가 `OntologyManager` 메서드를 직접 호출 | Runner (7.1 ②) |
+| 로그·상태 저장 | Python `pymongo`로 MongoDB(`cobot2` DB: `runs`·`steps`·`states`) 직접 연결, `LogStore` 인터페이스 경유. 연결 실패 시 `logs/*.jsonl` 폴백 | Runner·Logger (7.4) |
+| STT · LLM | HTTPS로 OpenAI API 호출 (`secrets/voice.env`의 키 사용) | `voice` 컨테이너 (6장) |

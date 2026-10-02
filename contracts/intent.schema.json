@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Intent",
+  "description": "voice → ros2-core (/voice/intent). docs/voice_llm.md 6.4",
+  "type": "object",
+  "required": [
+    "intent",
+    "confidence"
+  ],
+  "properties": {
+    "intent": {
+      "enum": [
+        "find_item",
+        "find_list",
+        "find_class",
+        "achieve_goal",
+        "query_state",
+        "cancel",
+        "status",
+        "unknown",
+        "clarify"
+      ],
+      "description": "레지스트리 인텐트(P3)는 tasks/의 trigger.intent로 런타임에 추가"
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "온톨로지 키 (런타임 enum)"
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "predicate",
+          "subject",
+          "value"
+        ],
+        "properties": {
+          "predicate": {
+            "enum": [
+              "located_in",
+              "open"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "string",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "description": "Phase 2: achieve_goal 목표 상태"
+    },
+    "query": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "predicate": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      }
+    },
+    "clarify_question": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "source": {
+      "type": "object",
+      "description": "로그용: stt_text, llm_raw, fallback_used, latency_ms"
+    }
+  }
+}

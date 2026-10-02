@@ -1,0 +1,21 @@
+<!-- config/cyclonedds.multi.xml -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces><NetworkInterface name="${DDS_IFACE}" priority="default"/></Interfaces>  <!-- 원본: lo -->
+      <AllowMulticast>false</AllowMulticast>                                                <!-- 원본: true -->
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="${PEER_PC1}"/>
+        <Peer address="${PEER_PC2}"/>
+      </Peers>
+    </Discovery>
+    <Internal>
+      <SocketReceiveBufferSize min="64MB"/>
+      <SocketSendBufferSize min="64MB"/>
+    </Internal>
+  </Domain>
+</CycloneDDS>

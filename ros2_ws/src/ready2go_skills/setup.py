@@ -1,0 +1,22 @@
+from glob import glob
+from setuptools import find_packages, setup
+
+package_name = 'ready2go_skills'
+
+setup(
+    name=package_name,
+    version='0.1.0',
+    packages=find_packages(exclude=['test']),
+    data_files=[
+        ('share/ament_index/resource_index/packages', ['resource/ready2go_skills']),
+        ('share/ready2go_skills', ['package.xml']),
+    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='B 서동권',
+    maintainer_email='todo@example.com',
+    description='실물/시뮬/목 백엔드의 모션 원자 동작(DSR·RG2) — 로봇을 움직이는 유일한 패키지',
+    license='TODO',
+    tests_require=['pytest'],
+    entry_points={'console_scripts': []},
+)

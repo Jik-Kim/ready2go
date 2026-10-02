@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  contracts-and-core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema pytest
+      - name: 계약·온톨로지·태스크 검증
+        run: python3 tools/validate_contracts.py
+      - name: core 단위 테스트 (ROS 불필요)
+        run: python3 -m pytest ros2_ws/src -q
+
+  compose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose 프로파일 문법 검사
+        run: |
+          for p in real sim dev; do docker compose --profile "$p" config -q; done
+
+  ros-build:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy-ros-base-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: colcon build
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ros2_ws && colcon build --event-handlers console_direct-
