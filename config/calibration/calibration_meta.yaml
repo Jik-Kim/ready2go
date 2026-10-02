@@ -7,15 +7,15 @@ measured:
   script: corecode/Calibration_Tutorial/handeye_calibration.py   # 강의 코드
   num_images: 26                       # [실측] data/calibrate_data.json
   pose_range_mm: {x: [253.3, 540.1], y: [-186.3, 269.0], z: [93.9, 351.5]}   # [실측]
-  tcp_name: "2FG_TCP"                  # [코드 확인] data_recording.py:30 set_tcp("2FG_TCP"). verify.py는 TCP를 설정하지 않음(컨트롤러 활성 TCP를 따름)
-  tool_name: "Tool Weight_2FG"         # [코드 확인] data_recording.py:29
+  tcp_name: "GripperDA_V1"            # [사용자 확인 10/02] 어제 set_tcp("GripperDA_V1")로 실행. 이 PC의 강의 사본 data_recording.py에는 2FG_TCP가 남아 있음(실행본과 다름). verify.py는 TCP를 설정하지 않음(활성 TCP를 따름)
+  tool_name: null                      # [팀 확정 필요] 어제 set_tool에 쓴 이름. 강의 사본은 "Tool Weight_2FG", 펜던트 표시는 tool_weight
   gripper: RG2                         # [사용자 확인 10/02] 어제 구성이 RG2와 같다고 확인
   robot: M0609                         # B가 10/02 팀 구성에서 이 npy를 적용해 동작 확인 [사용자 보고] → 같은 구성으로 판단. 로봇 개체 식별자는 [팀 확정 필요]
   camera_serial: "207222073543"        # [실측 10/02, 드라이버 로그] 현재 PC1에 연결한 D435i. 어제 캘리브레이션에 쓴 카메라와 같은 개체인지 [팀 확정 필요]
-  tcp_name_on_pendant: "GripperDA_V1"  # [실측 10/02, 펜던트 사진] 현재 선택된 TCP. 코드의 "2FG_TCP"와 이름이 다름
+  tcp_name_on_pendant: "GripperDA_V1"  # [실측 10/02, 펜던트 사진] 현재 선택된 TCP (어제 캘리브레이션에 쓴 것과 같음)
   tcp_offset_from_pendant: {x: 0, y: 0, z: 228, rx: 0, ry: 0, rz: 0}   # mm, deg. [실측 10/02, 펜던트 사진 "GripperDA_V1"] T_link6→TCP
   tool_weight_on_pendant: {name: "tool_weight", kg: 1.420, cog_mm: [12.570, -28.240, -6.880]}   # [실측 10/02, 펜던트 사진]
-  tcp_active_during_calibration: "GripperDA_V1"   # [추정, 확신 높음] 펜던트 TCP 목록에 GripperDA_V1만 있음 [실측 10/02, 사용자 확인] → set_tcp("2FG_TCP")는 무효. 플랜지(TCP 해제) 가설은 카메라가 플랜지 뒤 202mm가 되어 물리적으로 불가 [계산]
+  tcp_active_during_calibration: "GripperDA_V1"   # [사용자 확인 10/02] set_tcp("GripperDA_V1")로 실행. 보조 근거: 펜던트 TCP 목록에 하나뿐 [실측], TCP 228mm 적용 시 카메라가 플랜지 앞 25.8mm로 타당(플랜지 기준이면 뒤 202mm로 불가) [계산]
 verified:
   error_cm: null                       # 수치 측정값은 없음. 아래 error_cm_upper 참고
   error_cm_upper: 1.0                  # [사용자 보고 10/02] 오차 1 cm 미만. 체스판 중앙을 집었을 때 거의 정중앙과 일치(육안 확인, 자 측정 아님). 결정 #22 기준(1.0 cm 이내) 만족
