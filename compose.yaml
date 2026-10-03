@@ -58,7 +58,7 @@ services:
 
   db:
     profiles: ["real", "sim", "dev"]
-    image: mongo:8.0
+    image: mongo:7.0                 # 8.0 은 커널 6.19+ 에서 기동 거부, 팀 PC 모두 커널 7.0 (결정 #18 변경, 이슈 #34)
     network_mode: host
     volumes: ["./db_data:/data/db"]    # 로그·상태 영속 저장
 

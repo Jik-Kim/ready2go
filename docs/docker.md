@@ -9,7 +9,7 @@
 | 서비스 | 베이스 이미지 | 프로파일 | 역할 |
 | :--- | :--- | :--- | :--- |
 | `ros2-core` | `ros:jazzy` 기반 커스텀 | `real`, `sim`, `dev` | Runner(상태 추적), Logger, 로봇 온톨로지, 플래너, 모션 스킬, DSR 드라이버, 그리퍼 제어 |
-| `db` | `mongo:8.0` (버전 고정, 지원 2029-10까지) | `real`, `sim`, `dev` | 실행 로그·스텝 기록·상태 스냅샷 저장(JSON 문서 그대로 저장). 과목 목표 "DataBase 활용" 대응 |
+| `db` | `mongo:7.0` (버전 고정, 지원 2027-08-31까지. 8.0은 커널 6.19+ 비호환, 이슈 #34) | `real`, `sim`, `dev` | 실행 로그·스텝 기록·상태 스냅샷 저장(JSON 문서 그대로 저장). 과목 목표 "DataBase 활용" 대응 |
 | `vision` | `ros:jazzy` + ultralytics (+CUDA 선택) | `real`, `sim` | 검출, 3D 위치, 가림 순서, 인스턴스 ID 추적 |
 | `realsense` | `ros:jazzy` + realsense2_camera | `real` | 손목 RealSense RGB-D 발행 (표준 토픽명으로 remap) |
 | `voice` | `ros:jazzy` + 음성 스택 | `real`, `sim`, `dev` | 웨이크워드 → STT → 인텐트, TTS |

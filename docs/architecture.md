@@ -44,6 +44,6 @@
 | **Action Orchestration** | Python JSON Runner + `jsonschema` | 원자 동작 디스패칭, 변수·조건·반복·finally 해석, 실행 로그 |
 | **Vision** | Intel RealSense(손목), YOLO(ultralytics), 뎁스 기반 3D 위치, 핸드-아이 캘리브레이션 | 물품 검출, 가림 순서, 인스턴스 ID 추적 |
 | **Robot Ontology · Planner** | Python, JSON-LD, BFS 플래너 | 스킬(조건·결과)·상태·세계 정의, 명령 → 스킬 조합, 상태 추적, 별칭·클래스 추론 |
-| **Database** | MongoDB 8.0 (컨테이너) + pymongo, JSONL 폴백, rosbag2(MCAP) | 실행 로그·스텝 기록·상태 스냅샷 저장·조회, 원시 토픽 녹화 |
+| **Database** | MongoDB 7.0 (컨테이너, 이슈 #34) + pymongo, JSONL 폴백, rosbag2(MCAP) | 실행 로그·스텝 기록·상태 스냅샷 저장·조회, 원시 토픽 녹화 |
 | **Speech · LLM (필수)** | openWakeWord, OpenAI Whisper API / faster-whisper, LangChain + GPT(강의 방식), Piper·espeak-ng | 웨이크워드, STT, LLM 인텐트 파싱, TTS |
 | **Digital Twin (팀 선택)** | NVIDIA Isaac Sim 5.1.0 (네이티브), Lula IK·RMPflow(폴백) | 실물 미러링, JSON 사전 검증 |
