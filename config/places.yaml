@@ -15,7 +15,7 @@ drawer_bottom:   # 서랍장 중간 단으로 추정 [팀 확정 필요: E·B] �
   tf: {parent: base_link, child: drawer_bottom, translation_m: null, quaternion_xyzw: null}
   max_travel_m: 0.17   # [실측 A 10/03] 맨 위 서랍과 같은 제품이라 최대 인출 17 cm (이전 값 0.25는 실측 없는 가정이었음)
   return_slot: null
-  interior_m: [0.205, 0.26, 0.057]   # [추정] 맨 위 서랍과 같은 제품이라 동일로 가정, 미실측 — 재서 확인
+  interior_m: [0.205, 0.26, 0.057]   # [사용자 확인 A 10/03] 맨 위 서랍과 같은 제품이라 동일한 값
   sag_m_at_max_travel: 0.0125        # [실측 A 10/03, 버니어] 맨 위 서랍과 같음
 staging_tray:
   tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}
