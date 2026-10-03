@@ -36,7 +36,7 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 작업대 + 받침 선반 + 3단 서랍장(맨 위 단은 Prismatic Joint 0~0.17 m) + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`.
 ```bash
 ~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py     # 씬 생성 (sim/drawer_dimensions.yaml, config/calibration/ 에서 값을 읽음)
-~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py    # 검증 (9개 구조 + 카메라 변환 + 서랍 가동 범위 + 로봇 안정성), 통과 시 종료 코드 0
+~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py    # 검증 (9개 구조 + 카메라 변환 + 서랍 가동 범위 + 로봇 안정성), 마지막 줄 `[verify] 결과: 전부 통과`로 판정
 ```
 GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Open**으로 `sim/scenes/ready2go_t1.usd`.
 - 서랍 움직여 보기: Stage에서 `/World/workspace/cabinet/drawer_top_joint` 선택 → Property ▸ Drive ▸ Linear ▸ **Target Position**(m, 0~0.17) → Play.
@@ -65,7 +65,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 ```bash
 # GUI로 보기 (창을 닫거나 Ctrl+C로 종료)
 ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/mirror_joint_states.py
-# 헤드리스 시험 (--duration이 있으면 통과/실패를 종료 코드로 알려 줌)
+# 헤드리스 시험 (--duration이 있으면 마지막에 `[mirror] 결과: 통과/실패` 줄을 출력)
 ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/mirror_joint_states.py --headless --duration 30
 ```
 - 2초마다 수신 주기, 메시지 지연(수신 시각 − `header.stamp`), 추종 오차를 출력한다.

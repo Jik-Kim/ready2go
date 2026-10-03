@@ -3,7 +3,8 @@
 실행: ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py
 확인: ① 구조(로봇·카메라·서랍·관절) ② 카메라 변환이 npy·TCP로 직접 계산한 값과 일치(USD 행렬·쿼터니언 규약 검증)
       ③ 서랍 Prismatic Joint 가동 범위 0~0.17 m, 한계 초과 목표는 한계에서 멈춤, 다른 축 이동 없음 ④ 로봇이 중력에 무너지지 않음
-종료 코드 0 = 전부 통과, 1 = 하나라도 실패.
+판정은 마지막 줄 `[verify] 결과: 전부 통과` / `실패 [...]` 로 한다. (SimulationApp.close() 가 프로세스를 그 자리에서 끝내서 뒤의 sys.exit 이 실행되지 않으므로
+프로세스 종료 코드는 항상 0 이다 [실측 10/03]. 자동 검사는 로그의 결과 줄을 찾아 판정할 것.)
 """
 import sys
 from pathlib import Path
