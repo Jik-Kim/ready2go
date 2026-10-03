@@ -21,7 +21,7 @@
 ### 10.3 작업 단계와 중단 기준
 | 단계 | 내용 | 기한 |
 | :--- | :--- | :--- |
-| T1 씬 | 기존 M0609 조립본 + 실측 서랍장(Prismatic Joint) + 트레이, 호스트 ROS 2 + CycloneDDS로 Bridge 동작 확인 | Day 2~3 |
+| T1 씬 | 기존 M0609 조립본 + 실측 서랍장(Prismatic Joint) + 트레이, `sim/isaac_env.sh`(번들 ROS 라이브러리 + CycloneDDS)로 Bridge 동작 확인 | Day 2~3 |
 | T2 미러링 | `/dsr01/joint_states` → 트윈 조인트 위치 구동 (에뮬레이터·실물 공통) | Day 4 |
 | T3 사전 검증 | 손목 카메라 oracle, 시뮬 그리퍼(attach 폴백), `BACKEND=sim`으로 7.3 예시 실행 | Day 6~7 |
 

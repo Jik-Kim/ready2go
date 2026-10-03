@@ -16,7 +16,7 @@
 | `dsr-emulator` | `doosanrobot/dsr_emulator:3.0.1` | `sim`, `dev` | M0609 가상 제어기 |
 | `mock-sim` | `ros:jazzy` + Python | `dev` | 가짜 조인트·서랍·카메라 토픽, 미리 정의한 검출 결과 |
 
-* **Isaac Sim은 컨테이너에 넣지 않음**: 과목 필수 요소가 아닌 팀 선택 도구로, 실물 로봇·카메라처럼 외부 환경으로 취급함. PC1의 네이티브 설치본(`~/isaac-sim-5.1.0`)을 호스트 ROS 2 Jazzy + CycloneDDS를 source한 뒤 실행함. **팀 로직은 Isaac Sim 안에 두지 않고**(씬 로드·ROS 2 Bridge·조인트 미러링만), 전부 컨테이너의 ROS 노드에 둠.
+* **Isaac Sim은 컨테이너에 넣지 않음**: 과목 필수 요소가 아닌 팀 선택 도구로, 실물 로봇·카메라처럼 외부 환경으로 취급함. PC1의 네이티브 설치본(`~/isaac-sim-5.1.0`)을 `sim/isaac_env.sh`로 환경을 맞춘 뒤 실행함. **시스템 ROS를 source하지 않고** Isaac Sim 번들의 내부 ROS 라이브러리 + CycloneDDS(Domain 70)를 씀 [실측 10/03]: Kit의 Python은 3.11이고 시스템 Jazzy `rclpy`는 3.12용이라 시스템 ROS를 source하면 `rclpy`를 불러오지 못함. **팀 로직은 Isaac Sim 안에 두지 않고**(씬 로드·ROS 2 Bridge·조인트 미러링만), 전부 컨테이너의 ROS 노드에 둠.
 * 기존 `ros:jazzy-ros-base-noble` 기반 `yolo-detection` 컨테이너를 `vision`의 시작점으로 재사용함.
 * ROS 2 배포판은 **Jazzy(Ubuntu 24.04)로 확정**.
 
@@ -38,7 +38,7 @@
 * 장비별 값은 각 PC의 `.env`에 고정하여 실제 실행은 명령 1개로 유지.
 
 ### 4.3 운영 규칙 및 알려진 함정 (이미 겪은 이슈 포함)
-* **RMW (확정)**: 강사 제공 **CycloneDDS**(`rmw_cyclonedds_cpp`)를 모든 컨테이너, 호스트, 네이티브 Isaac Sim에서 사용함. 호스트 `.bashrc`의 `RMW_IMPLEMENTATION`/`CYCLONEDDS_URI`/`ROS_DOMAIN_ID=70`도 컨테이너와 같은 값으로 맞춤(10/02 전 팀원 확인 완료).
+* **RMW (확정)**: 강사 제공 **CycloneDDS**(`rmw_cyclonedds_cpp`)를 모든 컨테이너, 호스트, 네이티브 Isaac Sim에서 사용함. 호스트 `.bashrc`의 `RMW_IMPLEMENTATION`/`CYCLONEDDS_URI`/`ROS_DOMAIN_ID=70`도 컨테이너와 같은 값으로 맞춤(10/02 전 팀원 확인 완료). 단 PC1(A)의 새 로그인 셸에는 이 변수들이 설정돼 있지 않았음 [실측 10/03] — Isaac Sim은 `sim/isaac_env.sh`가 지정하고, `ros2` CLI는 `sim/README.md`의 환경으로 사용.
 * **커널 버퍼 설정**: 강사 스크립트(`a08_cyclone.sh`)의 sysctl 버퍼 설정을 **모든 PC 호스트에 적용**함. `network_mode: host` 컨테이너는 호스트 네트워크 설정을 그대로 따름.
 * **다중 PC 통신**: 강사 제공 원본은 `lo` 전용이라 PC 간 통신이 되지 않으므로 다중 PC는 `multi` 설정을 사용하고, 방화벽(ufw)에서 DDS UDP 포트를 허용함. PC2는 로봇 제어기용 유선 + 팀 공유기 2개 네트워크에 연결되므로 `DDS_IFACE`를 **팀 공유기 쪽**으로 지정.
 * **GUI 표시**: GUI 컨테이너(RViz 등)는 호스트에서 `xhost +local:root`, `DISPLAY`와 `/tmp/.X11-unix` 전달. **`DISPLAY` 값은 세션마다 다를 수 있음**(현재 PC1은 Xwayland `:1`).
