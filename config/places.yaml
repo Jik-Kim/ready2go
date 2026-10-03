@@ -8,7 +8,7 @@ drawer_top:
   return_slot: null
   interior_m: [0.205, 0.295, 0.07]   # [실측 A 10/03] 서랍 내부 [깊이, 폭, 높이] m. 높이는 약 7 cm이고 여유 공간은 8 cm까지 가능. 우드락(0.5 cm)은 서랍장 바깥 아래에 깔아 내부 높이는 그대로. 서랍 내부 [깊이, 폭, 높이] m — 정본(트윈 sim/scripts/build_scene.py도 이 값을 읽음). 서랍 좌표계 원점·축 기준은 #6 3점 터치와 맞출 것 [팀 확정 필요]
   sag_m_at_max_travel: 0.0     # [사용자 확인 A 10/03] 최대 인출에서 처짐 없음. 서랍 좌표계(#6 3점 터치)는 실제로 집을 때와 같은 인출 거리에서 측정할 것
-drawer_bottom:                # 서랍장에서 두 번째로 쓰는 단 (서랍장 중간 단 대응은 새 서랍 기준으로 다시 확정 [E·B])
+drawer_bottom:                # 서랍장 아래 단 [사용자 확인 10/03: 위 단 = drawer_top, 아래 단 = drawer_bottom]
   tf: {parent: base_link, child: drawer_bottom, translation_m: null, quaternion_xyzw: null}
   max_travel_m: 0.225   # [실측 A 10/03] 닫힘→최대 인출 22.5 cm (두 서랍 동일 제품 가정)
   return_slot: null

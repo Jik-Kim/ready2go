@@ -27,7 +27,7 @@
 - [ ] #18 V2 (Day 5): YOLO+뎁스. **깊이 0·결손 픽셀 검사와 전용 `error_code`(예: `DEPTH_INVALID`) 필수** — B가 원본 `verify.py`에서 깊이 0 클릭 시 팔이 카메라 위치로 들어 올려진 사례 2회. 미발견(`success=true`, `target_found=false`)과 구분. 높이 오프셋(카메라 면 높이 + 약 10 mm)은 B 쪽에서 처리
 - [x] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
 - [x] `feat/a-isaac-env` push → PR #30 (기준 브랜치 `feat/a-drawer-measurements`, 리뷰어 C)
-- [ ] 새 서랍 실측 중(10/03): 외곽·단 높이·내부 치수·손잡이 폭/두께는 기록함. 최대 인출 22.5 cm·처짐 없음도 기록함. 남은 것: 손잡이 돌출·앞판 크기·작업대 위치·ID 대응(위 단 = drawer_top?) → `drawer_dimensions.yaml`·`places.yaml`, 서랍 좌표계 기준은 #6 3점 터치와 맞춤, 씬 재생성·검증
+- [ ] 새 서랍 실측 중(10/03): 외곽·단 높이·내부 치수·손잡이 폭/두께는 기록함. 최대 인출 22.5 cm·처짐 없음도 기록함. 손잡이 돌출 1.8 cm·ID 대응(위 단 = drawer_top)도 확정. 남은 것: 앞판 크기, 작업대 위치(35.1 cm가 어느 끝·어느 면 기준인지) → `drawer_dimensions.yaml`·`places.yaml`, 서랍 좌표계 기준은 #6 3점 터치와 맞춤, 씬 재생성·검증
 - [ ] 씬의 [추정] 값 교체: 로봇-작업대 각도(#6 결과), 트레이 크기
 - [x] (P2 선행 구현) 트윈 T2 미러링(에뮬레이터): `/dsr01/joint_states` → 트윈 조인트
 - [ ] 트윈 T2 실물 미러링: 실물 M0609의 `/dsr01/joint_states` 수신 확인 (B의 #4, PC1↔PC2 multi DDS). Day 5 중단 기준
