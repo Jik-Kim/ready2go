@@ -105,6 +105,7 @@ def test_action_failure_stops_sequence():
     assert [c[0] for c in fake.calls] == ["query_ontology", "speak", "drawer_control"]   # s4, s5 실행 안 함
     assert result.failed_step == "s3"
     assert result.steps[-1].pop("duration_sec") >= 0
+    assert result.steps[-1].pop("started_at").endswith("Z")                 # 시작 시각 (UTC)
     assert result.steps[-1] == {"id": "s3", "action": "drawer_control", "attempts": 1,
                                 "params": {"drawer_id": "drawer_top", "state": "open"},
                                 "status": "FAILURE", "error_code": "DRAWER_STUCK"}
@@ -245,6 +246,7 @@ def test_skip_records_failure_and_continues():
     assert result.overall_status == "COMPLETED"
     assert [c[0] for c in fake.calls] == ["pick_object", "speak"]
     assert result.steps[0].pop("duration_sec") >= 0
+    assert result.steps[0].pop("started_at").endswith("Z")
     assert result.steps[0] == {"id": "s1", "action": "pick_object", "attempts": 1,
                                "params": {"object_id": "watch#1"},
                                "status": "FAILURE", "error_code": "GRASP_FAILED", "on_failure": "skip"}
