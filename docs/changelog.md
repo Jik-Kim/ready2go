@@ -10,7 +10,7 @@
 - **v2**: 로봇 기종 확정(M0609 + RG2), 다중 노트북 구성·compose 프로파일, 원자 동작 백엔드 추상화, ICD, 스키마 정합성 수정(조건식·변수 문법·`finally`), 안전 요구사항.
 - **v1**: 초안 (Docker·음성 필수 요건, JSON 스키마, 14일 일정).
 - **v5 (분할)**: 기획서 v4.1을 `docs/` 주제별 문서로 분할하고 JSON 예시를 원본 파일(`contracts/`, `knowledge/`, `tasks/`)로 이동. 저장소 이름 `ready2go`, 패키지 접두어 `ready2go_`.
-- **v5.1**: 기능 Phase 구분(P1 최소 · P2 발전 · P3 = 기획서 전체) 추가(당시 phases.md, v5.5에서 requements.md로 통합·삭제), 각 문서 상단에 Phase 범위 표시, 결정 로그 #21.
+- **v5.1**: 기능 Phase 구분(P1 최소 · P2 발전 · P3 = 기획서 전체) 추가(당시 phases.md, v5.5에서 requirements.md로 통합·삭제), 각 문서 상단에 Phase 범위 표시, 결정 로그 #21.
 - **v5.2**: 비전 이슈(#5·#7·#14·#18) 검토 반영 — ICD 카메라 토픽을 정렬 뎁스(`aligned_depth_to_color`)·컬러 `camera_info`로 수정, 고정 TF는 `ready2go_bringup`이 발행(결정 #22~#24). #5 실측 반영 — realsense는 `-r __ns:=/`를 줘야 `/wrist_cam/...`으로 발행됨(Dockerfile 주석의 [추정] 정정), 컬러·정렬 뎁스 약 30 Hz 확인, 손목 카메라 TF는 `link_6 → wrist_cam_link`만 bringup이 발행하고 광학 프레임은 드라이버 TF 사용(ICD 5장 TF 표, 결정 #23 확장).
 - **v5.3**: Isaac Sim ROS 2 Bridge 환경 실측 반영 — 시스템 ROS를 source하지 않고 번들 내부 ROS 라이브러리 + CycloneDDS(Domain 70)를 쓰도록 `sim/isaac_env.sh` 추가(`docs/docker.md`, `docs/twin.md`, `sim/README.md` 정정), `/clock` 스모크 테스트로 호스트·컨테이너 수신 확인.
 - **v5.4**: 트윈 T1 씬(`sim/scenes/ready2go_t1.usd`, `sim/scripts/build_scene.py`·`verify_scene.py`, `sim/drawer_dimensions.yaml`)과 T2 미러링(`sim/scripts/mirror_joint_states.py`) 구현·실측 반영(`docs/twin.md` 10.3 상태 열, 근거 `sim/README.md`). DSR 모션 서비스 이름이 `/dsr01/dsr_controller2/motion/...`임을 실측으로 확인(`/dsr01/motion/...` 아님).
