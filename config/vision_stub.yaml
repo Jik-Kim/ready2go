@@ -1,0 +1,15 @@
+# inspect_region stub 용 서랍 안 물체 좌표 (담당 A, #18 Day 4 stub — B #15 실물 테스트용)
+# 사람이 직접 잰 값을 넣는다. 아래 값은 자리표시자 [추정]이므로 실물 테스트 전에 B와 함께 덮어쓰고, 그 뒤에 ready 를 true 로 바꿀 것.
+# pose.frame 은 서랍 좌표계(원점·축은 places.yaml 의 tf 블록 기준), 단위 m·rad. [팀 확정 필요]
+# top_z: 서랍 바닥 기준 물체 윗면 높이(m). candidates 는 이 값 내림차순으로 반환된다.
+# ready: 실측 좌표로 교체했을 때만 true 로 바꾼다. false 이면 서비스가 STUB_NOT_READY 로 실패해
+# 자리표시자 좌표가 로봇 동작의 입력이 되지 않는다 (PR #33 리뷰).
+ready: false
+regions:
+  drawer_top:
+    objects:
+      - {class: watch,   position: [0.10, 0.08, 0.0], yaw: 0.0, top_z: 0.04}
+      - {class: wallet,  position: [0.10, 0.18, 0.0], yaw: 0.0, top_z: 0.02}
+      - {class: car_key, position: [0.18, 0.13, 0.0], yaw: 0.0, top_z: 0.02}
+  staging_tray: {objects: []}
+  handover_zone: {objects: []}
