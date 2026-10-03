@@ -2,7 +2,9 @@
 
 > 값은 [calibration_meta.yaml](calibration_meta.yaml)에만 있다. 이 문서는 **절차**만 적는다. 결정: `docs/decisions.md` #23(TF 구조), #28(프로젝트 TCP).
 
-**상태: 잠정 채택(개발용) — 5점 `verify.py` 실측 후 확정.** 확정 조건은 결정 #22(오차 1.0 cm 이내)이고, 기록 위치는 meta의 `verified`.
+**상태: 채택 — B의 5점 `verify.py` 실측(10/03)으로 확정.** 기준은 결정 #22(오차 1.0 cm 이내), 결과는 meta의 `verified`.
+
+> ⚠️ 강의 폴더 `corecode/Calibration_Tutorial/T_gripper2camera.npy`(2026-02, md5 `ed3c4a6c…`)는 이 폴더의 채택 값(md5 `dea4dee3…`)과 다르며 z가 약 31 mm 높게 계산된다. 강의 코드로 실행할 때는 이 폴더의 npy를 복사해 쓴다.
 
 ## 파일
 | 파일 | 내용 |
