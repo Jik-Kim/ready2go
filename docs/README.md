@@ -27,7 +27,6 @@
 | Docker·네트워크·DB | [NFR-ENV-01](requirements.md#nfr-env-01), [FR-COM-01–02](requirements.md#fr-com-01), [NFR-DB-01](requirements.md#nfr-db-01) | [docker.md](docker.md), [interfaces.md](interfaces.md) | `compose.yaml`, `config/cyclonedds.*.xml` |
 | Isaac Sim 트윈 | [FR-TWN-01–02](requirements.md#fr-twn-01), [NFR-TWN-01](requirements.md#nfr-twn-01) | [twin.md](twin.md) | `sim/` |
 | 일정·담당 확인 | [schedule.md](schedule.md), [overview.md](overview.md) 0장 | — |
-| 결정 사항 확인·추가 | [decisions.md](decisions.md) | — |
 | 시연 준비 | [demo_scenario.md](demo_scenario.md), [safety.md](safety.md) | — |
 
 ## 문서 목록
@@ -50,7 +49,6 @@
 | [safety.md](safety.md) | 비상정지, 실물 실행 절차, 안전 게이트 | 11 |
 | [schedule.md](schedule.md) | 14일 일정, 체크포인트 | 13 |
 | [metrics_risks.md](metrics_risks.md) | 성공 지표, 리스크 | 14, 15 |
-| [decisions.md](decisions.md) | 결정 로그 | 16 |
 | [demo_scenario.md](demo_scenario.md) | 최종 시연 시나리오 "출근 준비 도우미" | 17 |
 | [changelog.md](changelog.md) | 변경 이력 | (머리말) |
 | [research/prior_art_report.md](research/prior_art_report.md) | 선행 사례 조사 보고서 | (별도) |
