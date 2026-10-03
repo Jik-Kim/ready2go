@@ -66,6 +66,7 @@ Phase 배정을 바꿀 때는 아래 FR/NFR 표를 먼저 수정하고, 관련 �
 | <a id="fr-act-02"></a>FR-ACT-02 | RG2 Modbus 제어 | Pymodbus 기반 Modbus TCP 통신으로 OnRobot RG2를 열고 닫는다. 그리퍼 상태를 읽고 명령 결과를 반환한다. | P1 |
 | <a id="fr-act-03"></a>FR-ACT-03 | 기본 Pick and Place | 인식 위치에서 물체를 파지해 전달 트레이에 놓는다. 파지·배치 성공 여부를 관측해 결과로 반환한다. | P1 |
 | <a id="fr-act-04"></a>FR-ACT-04 | Unpacking·LIFO 복구 | 목표를 가리는 물체를 임시 트레이로 옮기고, 기록한 원래 위치를 이용해 역순으로 복구한다. 실패·취소 시 안전 복구 경로를 적용한다. | P2 |
+| <a id="fr-act-05"></a>FR-ACT-05 | 벽 인접 물체 밀어오기 | 손가락이 들어갈 여유가 없는 물체는 닫은 그리퍼로 파지 가능한 위치까지 밀고, 다시 인식한 좌표로 집는다. 바닥 높이는 힘 감지로 정한다. 밀 수 없으면 실행하지 않고 원인을 반환한다. Phase 1 완료(L1) 조건은 아니며, 가운데 배치로 L1을 통과할 수 있다. | P1 (L1 비필수) |
 | <a id="fr-log-01"></a>FR-LOG-01 | MongoDB 실행 이력 | Phase 1부터 MongoDB에 실행 ID, 입력 명령, 단계 ID, 시작 시각, 실행 상태, 오류 코드를 저장한다. DB 연결은 짧은 제한 시간 안에 시도하고, 연결 실패 시 같은 형식의 레코드를 JSONL에 기록하되 로봇 동작은 중단하지 않는다. Runner는 저장소 구현에 종속되지 않게 해 DB와 JSONL에서 같은 로그 계약을 사용한다. 시연 종료 후 실행 이력을 조회한다. | P1 |
 | <a id="fr-log-02"></a>FR-LOG-02 | 상세 상태 로그 | 조건 확인·사후 검증·재시도와 전후 상태 차이를 단계별로 저장하고 조회한다. DB 기록과 실행 결과의 누락 여부를 확인한다. | P2 |
 | <a id="fr-rec-01"></a>FR-REC-01 | 관측 불일치 처리 | 비전·그리퍼·서랍 관측이 저장된 상태와 다르면 `STATE_MISMATCH`를 기록한다. 신뢰도 기준을 충족한 관측만 상태에 반영하고, 그렇지 않으면 정지하거나 사용자 확인을 요청한다. | P3 |
@@ -103,6 +104,7 @@ Phase 배정을 바꿀 때는 아래 FR/NFR 표를 먼저 수정하고, 관련 �
 | <a id="ac-act-02"></a>AC-ACT-02 | 무작위 배치 10회에서 대상이 존재할 때 탐색 성공률 80% 이상 | [FR-ACT-04](#fr-act-04) |
 | <a id="ac-act-03"></a>AC-ACT-03 | 원위치 복구 오차 2cm 이내. 위치와 방향 오차를 함께 기록 | [FR-ACT-04](#fr-act-04) |
 | <a id="ac-act-04"></a>AC-ACT-04 | 장애물이 없는 단일 물품 작업은 발화부터 전달까지 120초 이내 | [FR-ACT-03](#fr-act-03) |
+| <a id="ac-act-05"></a>AC-ACT-05 | 벽 근처 배치 10회 중 8회 이상 밀기 → 다시 인식 → 파지 성공. 벽에 붙은 배치는 `NO_PUSH_ACCESS`로 안전 종료(`finally`) | [FR-ACT-05](#fr-act-05) |
 | <a id="ac-saf-01"></a>AC-SAF-01 | 실패 주입 10회에서 안전 정지·복구 절차 누락 0건. E-stop 뒤 자동 재개 0건 | [NFR-SAF-01–02](#nfr-saf-01) |
 | <a id="ac-pln-01"></a>AC-PLN-01 | 목표형 명령 5종 이상을 온톨로지 조건·결과에서 계획하고 실물 실행 결과를 기록 | [FR-PLN-02](#fr-pln-02) |
 | <a id="ac-pln-02"></a>AC-PLN-02 | 새 복합 작업 2종 이상을 Python 코드 변경 없이 등록·실행 | [FR-PLN-03](#fr-pln-03) |
@@ -120,6 +122,6 @@ Phase 배정을 바꿀 때는 아래 FR/NFR 표를 먼저 수정하고, 관련 �
 | ROS 2 인터페이스 | [interfaces.md](interfaces.md) | FR-COM-01–02 |
 | 비전·학습 | [vision.md](vision.md) | FR-VIS-01–04, FR-ML-01 |
 | 온톨로지·Runner·플래너 | [ontology.md](ontology.md), [runner.md](runner.md), [planner.md](planner.md) | FR-ONT-01–03, FR-PLN-01–03 |
-| 로봇·도메인 동작 | [hardware.md](hardware.md), [domain.md](domain.md) | FR-ACT-01–04 |
+| 로봇·도메인 동작 | [hardware.md](hardware.md), [domain.md](domain.md) | FR-ACT-01–05 |
 | 로그·지표·리스크 | [metrics_risks.md](metrics_risks.md) | FR-LOG-01–02, FR-REC-01 |
 | Docker·네트워크·트윈·안전 | [docker.md](docker.md), [twin.md](twin.md), [safety.md](safety.md) | NFR-ENV-01, NFR-ABS-01, NFR-DB-01, NFR-SAF-01–02, NFR-TWN-01 |

@@ -35,7 +35,8 @@ drawer_unit:                          # 3단 소형 서랍장 (사진: 별도 �
 drawer_top:                           # Phase 1·2 대상. 아래 서랍은 Phase 3
   front_panel_cm: {width: null, height: 7.5, thickness: null}    # height [계산] 23 - 15.5. 폭은 전체 폭(26.5)에 가깝게 보임(사진), 미측정
   front_bottom_height_above_seat_cm: 15.5                        # [사용자 확인 10/02] 맨 위 단의 아랫면 높이, 기준면 = 받침 선반 윗면
-  interior_cm: {depth: 20.5, width: 26, height: 5.7, floor_height_above_seat_cm: null}   # [사용자 정정 10/02] 내부 깊이 약 20.5, 폭 26, 높이 5.7. (처음 '17x26x5.7'의 17은 내부 깊이가 아니라 최대 인출 거리였음)
+  # 내부 치수(깊이·폭·높이)는 config/places.yaml 의 drawer_top.interior_m 이 정본이다 (이슈 #37, 한 값은 한 곳에만). build_scene.py 가 거기서 읽는다.
+  floor_height_above_seat_cm: null
   max_travel_cm: 17                                              # [사용자 정정 10/02] 닫힌 상태에서 최대로 당겼을 때 앞면 이동 거리. 정본은 config/places.yaml max_travel_m(B·E)이므로 0.17 m로 전달 필요
 
 plan_view_cm:                         # [사용자 보고, 도면] 작업대 평면도 기준, 씬 초기 배치용

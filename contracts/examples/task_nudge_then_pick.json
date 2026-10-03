@@ -1,0 +1,159 @@
+{
+  "task_id": "nudge_then_pick",
+  "description": "벽 근처 물체: 닫은 그리퍼로 밀기 → 다시 인식 → 재판단 → 집기 (P1 블록만 사용, nudge_object 1회 호출 = 1회 밀기)",
+  "inputs": {
+    "target": "watch"
+  },
+  "sequence": [
+    {
+      "id": "s1",
+      "action": "query_ontology",
+      "params": {
+        "item": "$inputs.target"
+      },
+      "output": "loc"
+    },
+    {
+      "id": "s2",
+      "action": "move_to_named_pose",
+      "params": {
+        "pose_name": "drawer_approach",
+        "drawer_id": "$loc.drawer_id"
+      }
+    },
+    {
+      "id": "s3",
+      "action": "drawer_control",
+      "params": {
+        "drawer_id": "$loc.drawer_id",
+        "state": "open"
+      },
+      "timeout_sec": 30
+    },
+    {
+      "id": "s4",
+      "action": "move_to_named_pose",
+      "params": {
+        "pose_name": "drawer_top_view",
+        "drawer_id": "$loc.drawer_id"
+      }
+    },
+    {
+      "id": "s5",
+      "action": "inspect_region",
+      "params": {
+        "region": "$loc.drawer_id",
+        "search_target": "$inputs.target"
+      },
+      "output": "scan"
+    },
+    {
+      "id": "s6",
+      "action": "if",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$scan.target_found",
+          true
+        ]
+      },
+      "then": [
+        {
+          "id": "s6.1",
+          "action": "nudge_object",
+          "params": {
+            "target": "$scan.target",
+            "drawer_id": "$loc.drawer_id"
+          },
+          "output": "nudge"
+        },
+        {
+          "id": "s6.2",
+          "action": "if",
+          "cond": {
+            "op": "==",
+            "args": [
+              "$nudge.pushed",
+              true
+            ]
+          },
+          "then": [
+            {
+              "id": "s6.2.1",
+              "action": "move_to_named_pose",
+              "params": {
+                "pose_name": "drawer_top_view",
+                "drawer_id": "$loc.drawer_id"
+              }
+            },
+            {
+              "id": "s6.2.2",
+              "action": "inspect_region",
+              "params": {
+                "region": "$loc.drawer_id",
+                "search_target": "$inputs.target"
+              },
+              "output": "scan"
+            },
+            {
+              "id": "s6.2.3",
+              "action": "nudge_object",
+              "params": {
+                "target": "$scan.target",
+                "drawer_id": "$loc.drawer_id",
+                "check_only": true
+              },
+              "output": "recheck"
+            }
+          ]
+        },
+        {
+          "id": "s6.3",
+          "action": "pick_object",
+          "params": {
+            "object_id": "$scan.target.id",
+            "approach_offset": [
+              0,
+              0,
+              0.1
+            ]
+          },
+          "output": "picked"
+        },
+        {
+          "id": "s6.4",
+          "action": "place_object",
+          "params": {
+            "location": "handover_zone"
+          }
+        }
+      ],
+      "else": [
+        {
+          "id": "s6.5",
+          "action": "speak",
+          "params": {
+            "text": "서랍장에서 {{loc.name_ko|을}} 찾지 못했습니다"
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "id": "f1",
+      "action": "drawer_control",
+      "params": {
+        "drawer_id": "$loc.drawer_id",
+        "state": "close"
+      }
+    },
+    {
+      "id": "f2",
+      "action": "move_to_named_pose",
+      "params": {
+        "pose_name": "home"
+      }
+    }
+  ]
+}
