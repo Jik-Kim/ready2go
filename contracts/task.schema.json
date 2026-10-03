@@ -30,7 +30,7 @@
       "properties": {
         "id": { "type": "string", "description": "로그 추적용 고유 ID (예: s7, s7.1)" },
         "action": { "enum": [
-          "move_to_named_pose", "drawer_control", "inspect_region", "pick_object", "place_object",
+          "move_to_named_pose", "drawer_control", "inspect_region", "nudge_object", "pick_object", "place_object",
           "query_ontology", "update_ontology", "speak",
           "set_var", "push", "pop", "if", "while", "for_each", "fallback"
         ]},

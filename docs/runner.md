@@ -24,7 +24,7 @@
 | `move_to_named_pose` | `pose_name`: `"home"`, `"drawer_approach"`, `"drawer_top_view"`, `"tray_view"` / `drawer_id`(서랍 관련 포즈일 때) | - | 사전 정의된 로봇 관절 포즈로 이동 |
 | `drawer_control` | `drawer_id`, `state`: `"open"`/`"close"`, `distance`(선택, 기본 = `max_travel_m`) | `{drawer_displacement, close_confirmed}` | 손잡이 파지 및 슬라이딩 개폐 (real: 컴플라이언스 인출, **닫힘 = 닫힘 위치 도달 AND 미는 축 힘 임계 초과**, 8.4 / sim: 조인트 직접 구동 폴백) |
 | `inspect_region` | `region`: 서랍 ID, `"staging_tray"`, `"handover_zone"`, `search_target`(클래스명, 선택) | `{target_found, target, candidates[], visible_count}` | 검출 + 3D 위치 + 가림 순서. `target`은 `{id, class, pose, top_z}` 또는 `null`, `candidates`는 목표를 제외한 물체를 **위에 있는 순서(서랍 좌표계 `top_z` 내림차순)**로 정렬 |
-| `nudge_object` | `object` 또는 `target`(`inspect_region` 결과의 `id`·`class`·`pose`·`yaw`), `drawer_id` | `{pushed, push_vector_m, clearance_before_m, floor_z_m}` | 닫은 그리퍼로 바닥 접촉(힘 감지) → 수 mm 상승 → 벽에서 멀어지는 방향으로 직선 밀기. 잡을 수 있는 자리면 움직이지 않고 `pushed: false`. 밀었으면 다시 `inspect_region` 후 집기 (FR-ACT-05, 상세 [domain.md 8.5](domain.md#85-벽-인접-물체-밀어오기-담당-b)) |
+| `nudge_object` | `target`(`inspect_region` 결과의 `target`을 그대로 넘김: `$scan.target` — `id`·`class`·`pose`(`yaw` 포함)·`top_z`), `drawer_id`, `check_only`(선택, bool, 기본 `false`) | `{pushed, push_vector_m, clearance_before_m, floor_z_m}` (모두 서랍 좌표계 `drawer_<id>`, `inspect_region`의 `pose`와 같은 기준) | **1회 호출 = 1회 밀기.** 닫은 그리퍼로 바닥 접촉(힘 감지) → 수 mm 상승 → 벽에서 멀어지는 방향으로 직선 밀기. 잡을 수 있는 자리면 움직이지 않고 `pushed: false`. `check_only: true`이면 움직이지 않고 판단만 한다. 밀었으면 다시 `inspect_region` 후 집기 (FR-ACT-05, 상세 [domain.md 8.5](domain.md#85-벽-인접-물체-밀어오기-담당-b)) |
 | `pick_object` | `object_id`(인스턴스 ID), `approach_offset`, `grip_force`(선택, 기본 = 온톨로지 값), `source_slot`(선택, 트레이에서 집을 때) | `{object_id, class, pick_pose_drawer_frame, grasp_ok}` | 접근 → 파지 → 안전 높이 상승 |
 | `place_object` | `location`: `"staging_tray"`(빈 슬롯 자동 할당) / `"handover_zone"` / 슬롯명, 또는 `pose` + `frame` | `{slot, placed_pose}` | 지정 위치에 거치 후 그리퍼 해제. `frame: "drawer"`일 때는 배치 직전 재촬영으로 높이(z) 보정. **`location`이 서랍(`Drawer` 클래스)이면 백엔드가 `frame: "drawer"`, 현재 인출 거리 반영 서랍 좌표, z 보정을 자동 적용**(서랍의 `return_slot` 또는 지정 `pose` 사용) |
 
@@ -120,7 +120,7 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 | `NO_FLOOR_CONTACT` | 최대 하강 거리 안에서 바닥 접촉이 없음(서랍 덜 열림·좌표 오류) → 즉시 정지 |
 | `NO_PUSH_ACCESS` | 물체가 벽에 붙어 닫힌 손가락이 들어갈 틈이 없음 → P1은 실패 + TTS 안내(벽 따라 옆으로 밀기는 P2 후보) |
 | `PUSH_BLOCKED` | 밀다가 힘 임계 초과(끼임·다른 물건) |
-| `PUSH_LIMIT` | 2회 밀어도 파지 가능한 자리가 되지 않음 |
+| `PUSH_LIMIT` | `check_only: true` 재판단에서 한 번 민 뒤에도 파지 가능한 자리가 아님(P1 Runner는 `while`이 없어 반복 밀기를 하지 않으므로 밀기는 1회로 제한) |
 
 ### 7.2 태스크 시퀀스 스키마
 

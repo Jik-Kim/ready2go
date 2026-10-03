@@ -8,7 +8,7 @@
 - #7: 핸드-아이 결과 **채택 확정**: B의 5점 `verify.py`(10/03)에서 x·y 오차 ≤ 0.2 cm, `calibration_meta.yaml` accepted, TCP 이름은 제어기 실제 이름 `GripperDA_v1`(소문자 v). `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
 - 트윈 T1 씬 완료: `sim/scenes/ready2go_t1.usd`(작업대·3단 서랍장·M0609/RG2·손목 카메라, 서랍 Prismatic 0~0.17 m)를 `build_scene.py`로 생성하고 `verify_scene.py` 전부 통과, GUI에서 정상 확인 [실측 10/03]. 서랍 실측 치수·씬·실행 환경(PR #29·#30)과 T2(PR #31)는 모두 머지됨.
 - 트윈 T2 미러링은 **P2 선행 구현**(Phase 게이트 리뷰 지적은 있었으나 사용자 판단으로 PR #31 병합, 에뮬레이터 확인): `mirror_joint_states.py`가 `/dsr01/joint_states`(joint_1~6, 라디안, 약 100 Hz)를 받아 관절을 따라가게 함. 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24° [실측 10/03], 사용자가 GUI에서 팔 추종 확인. 그리퍼는 토픽에 없어 미반영(닫혀 보이는 원인은 확인 중). 실물 미러링은 B의 #4·multi DDS 이후.
-- 결정 #29 벽 인접 물체 밀어오기(`nudge_object`, B 구현 이슈 #37): 문서 PR 작성(FR-ACT-05·AC-ACT-05, runner.md, domain.md 8.5). 서랍 내부 치수 정본을 `config/places.yaml`의 `drawer_top.interior_m`으로 이관, 트윈 `build_scene.py`가 읽도록 변경(값 동일, 장면 재생성·`verify_scene.py` 재실행은 Isaac Sim을 닫은 뒤 확인 필요).
+- 벽 인접 물체 밀어오기(`nudge_object`, FR-ACT-05, B 구현 이슈 #37): 문서 PR 작성(FR-ACT-05·AC-ACT-05, runner.md, domain.md 8.5). 서랍 내부 치수 정본을 `config/places.yaml`의 `drawer_top.interior_m`으로 이관, 트윈 `build_scene.py`가 읽도록 변경(값 동일, 장면 재생성·`verify_scene.py` 재실행은 Isaac Sim을 닫은 뒤 확인 필요).
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
@@ -18,11 +18,11 @@
 
 ## 막힌 점 · 필요한 도움
 - C: bringup static TF 구현(#3). 결정 #23은 확정(각 담당 파일을 직접 읽음).
-- 카메라 `207222073543`이 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요].
 
 ## 다음 할 일
 - [x] 5점 `verify.py` 결과 반영 (B 측정, meta accepted)
-- [ ] #14 실물 데이터 수집(로봇 슬롯)·라벨링·YOLO 학습
+- [x] #14 학습 파이프라인 준비: `tools/yolo/`(촬영·데이터셋 구성·학습), RTX 5060 CUDA 확인, 합성 데이터로 종단 검증 [실측 10/03]
+- [ ] #14 실물 데이터 수집(로봇 슬롯, 클래스는 #8 확정 후)·라벨링·YOLO 학습
 - [x] #18 `inspect_region` stub (설정 파일 좌표 응답, 서비스 호출 확인 10/03) — 설정 `ready: false`로 배포(실측 전 STUB_NOT_READY로 차단, PR #33 리뷰). 좌표를 B와 실물로 재서 교체한 뒤 `ready: true`, `pose` 형식 B와 합의 필요
 - [ ] #18 V2 (Day 5): YOLO+뎁스. **깊이 0·결손 픽셀 검사와 전용 `error_code`(예: `DEPTH_INVALID`) 필수** — B가 원본 `verify.py`에서 깊이 0 클릭 시 팔이 카메라 위치로 들어 올려진 사례 2회. 미발견(`success=true`, `target_found=false`)과 구분. 높이 오프셋(카메라 면 높이 + 약 10 mm)은 B 쪽에서 처리
 - [x] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
