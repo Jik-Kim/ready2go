@@ -37,7 +37,7 @@ drawer_unit:                          # 새 서랍장: 원목형 2단 일체형,
 drawer_top:                           # 위 단(2단)
   front_panel_cm: null                # 앞판 가로·세로·두께
   front_bottom_height_above_seat_cm: 14.8   # 우드락 추가 전 기준. 씬에서 + riser_cm
-  max_travel_cm: null                 # 최대 인출 거리. 정본은 config/places.yaml 의 max_travel_m (미측정)
+  max_travel_cm: 22.5                 # [실측 A 10/03] 정본은 config/places.yaml 의 max_travel_m
 
 plan_view_cm:                         # [사용자 보고, 도면] 작업대 평면도 기준, 씬 초기 배치용
   drawer_right_edge_to_table_right: null
