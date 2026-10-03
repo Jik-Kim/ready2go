@@ -4,7 +4,8 @@ bringup 이 각 담당 파일을 직접 읽는다 (이슈 #3 합의):
 - 손목 카메라: config/calibration/calibration_meta.yaml 의 derived_tf (A)
 - 서랍·트레이: config/places.yaml 의 항목별 tf 블록 (B·E, 이슈 #6)
 TF 블록 키: parent, child, translation_m [x, y, z], quaternion_xyzw [x, y, z, w]
-tf 블록이 없거나 값이 null 인 장소는 아직 측정 전이므로 건너뛰고 사유를 돌려준다.
+tf 블록이 없거나 translation_m·quaternion_xyzw 가 둘 다 null 인 장소는 아직 측정 전이므로 건너뛰고 사유를 돌려준다.
+한쪽만 채워진 블록은 입력 실수로 보고 StaticTfError.
 """
 from __future__ import annotations
 
@@ -54,6 +55,11 @@ def parse_tf(block: dict, source: str) -> StaticTf:
     return StaticTf(block["parent"], block["child"], translation, quaternion, source)
 
 
+def _not_measured(block) -> bool:
+    return isinstance(block, dict) and block.get("translation_m") is None \
+        and block.get("quaternion_xyzw") is None
+
+
 def _load_yaml(path: Path) -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
@@ -68,7 +74,7 @@ def load_static_tfs(config_dir: str | Path) -> tuple[list[StaticTf], list[str]]:
     calib = config_dir / CALIBRATION_FILE
     if calib.exists():
         block = _load_yaml(calib).get("derived_tf")
-        if block is None:
+        if block is None or _not_measured(block):
             skipped.append(f"{CALIBRATION_FILE}: derived_tf 없음 (캘리브레이션 전)")
         else:
             tfs.append(parse_tf(block, f"{CALIBRATION_FILE}:derived_tf"))
@@ -80,6 +86,9 @@ def load_static_tfs(config_dir: str | Path) -> tuple[list[StaticTf], list[str]]:
         block = entry.get("tf") if isinstance(entry, dict) else None
         if block is None:
             skipped.append(f"{PLACES_FILE}:{name}: tf 블록 없음 (측정 전, 이슈 #6)")
+            continue
+        if _not_measured(block):
+            skipped.append(f"{PLACES_FILE}:{name}: tf 값 null (측정 전, #6)")
             continue
         tfs.append(parse_tf(block, f"{PLACES_FILE}:{name}.tf"))
 

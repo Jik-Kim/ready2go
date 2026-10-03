@@ -1,5 +1,5 @@
 # T_gripper2camera.npy 메타데이터 (담당 A). 값은 이 파일에만 둔다. 절차·재계산: README.md, 결정: docs/decisions.md #23(TF 구조)·#28(프로젝트 TCP).
-# 상태: 잠정 채택(개발용) — 5점 verify.py 실측 후 확정 (verified.status 참고)
+# 상태: 채택 — B의 5점 verify.py 실측(10/03)으로 확정 (verified.status 참고)
 file: T_gripper2camera.npy
 frame_meaning: "TCP 프레임에서 본 카메라 광학 프레임 (T_gripper2cam, OpenCV 핀홀 규약). 평행이동 mm, 회전 행렬"   # [문서] handeye_calibration.py
 
@@ -11,22 +11,23 @@ measured:
   pose_range_mm: {x: [253.3, 540.1], y: [-186.3, 269.0], z: [93.9, 351.5]}   # [실측]
   gripper: RG2                         # [사용자 확인 10/02]
   robot: M0609                         # 개체 식별자는 [팀 확정 필요]
-  camera_serial: "207222073543"        # [실측 10/02] 10/02에 연결한 D435i. 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요]
+  camera_serial: "207222073543"        # [실측 10/02] 10/02에 연결한 D435i. 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요 — B가 10/03 5점 검증에 쓴 카메라 시리얼 확인 대기]
 
 tcp:
-  name_during_calibration: "GripperDA_V1"   # [사용자 확인 10/02] set_tcp("GripperDA_V1")로 실행
+  name_during_calibration: "GripperDA_v1"   # [사용자 확인 10/03] 실제 이름은 소문자 v. 대문자 "V1"은 기록·대화 중의 오타였음 (제어기 이름은 B가 get_current_tcp로도 실측)
   tool_name_during_calibration: null        # [팀 확정 필요] set_tool에 쓴 이름
-  name_on_pendant: "GripperDA_V1"           # [실측 10/02, 펜던트 사진] 목록에 이것 하나뿐
-  offset_from_pendant: {x: 0, y: 0, z: 228, rx: 0, ry: 0, rz: 0}   # mm, deg (ZYZ). [실측 10/02] T_link6→TCP. link_6 원점이 플랜지 면인지는 [팀 확정 필요, B 확인 요청 #7]
+  name_on_pendant: "GripperDA_v1"           # [실측 B 10/02·10/03, 사용자 확인 10/03] 제어기 get_current_tcp. 목록에 이것 하나뿐
+  offset_from_pendant: {x: 0, y: 0, z: 228, rx: 0, ry: 0, rz: 0}   # mm, deg (ZYZ). [실측 10/02] T_link6→TCP. link_6 원점 = 플랜지 면 확인(제어기 플랜지 posx와 차이 1.8 mm·0.16°) [실측 B 10/02, #7]
   tool_weight_on_pendant: {name: "tool_weight", kg: 1.420, cog_mm: [12.570, -28.240, -6.880]}   # [실측 10/02]
 
 verified:
-  error_cm: null                       # 5점 verify.py 실측 후 기록 (최대값, 결정 #22 기준 1.0 cm 이내)
+  error_cm: "≤ 0.2 (x·y 육안, 5점, B 10/03)"   # 결정 #22 기준 1.0 cm 이내 충족. 근거: #7 B 3차 코멘트
   qualitative: "체스판 중앙 파지, 육안 1 cm 미만 [사용자 보고 10/01]"
-  status: provisional                  # provisional(잠정 채택, 개발용) → accepted (5점 실측이 결정 #22 기준 충족 시)
+  status: accepted                     # 5점 실측이 결정 #22 기준 충족 (10/03). 이전: provisional
   by:
     - "A: 2026-10-01 verify.py 육안 확인"
-    - "B: 2026-10-02 팀 구성에서 npy 적용 확인 [사용자 보고]"
+    - "B: 2026-10-03 5점 verify.py, 채택 npy로 x·y 5곳 일치, z 일관 [실측]"
+    # 무효: "B 10/02 팀 구성에서 npy 적용 확인" — 그때 쓴 것은 강의 폴더의 2월 npy였을 가능성이 큼 (B 정정)
 
 driver_tf_used:                        # [실측 10/02] /tf_static의 wrist_cam_link→color_frame→color_optical_frame 두 변환을 합성. tools/calib_derive_tf.py의 입력
   parent: wrist_cam_link

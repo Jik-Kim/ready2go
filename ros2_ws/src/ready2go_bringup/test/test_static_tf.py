@@ -40,6 +40,23 @@ def test_places_with_tf_block_are_published(tmp_path):
     assert skipped == ["places.yaml:staging_tray: tf 블록 없음 (측정 전, 이슈 #6)"]
 
 
+def test_places_with_null_tf_values_are_skipped(tmp_path):
+    # main 의 places.yaml 형식 (PR #28): tf 블록은 있으나 측정 전이라 값이 null
+    places = {"drawer_top": {"tf": {"parent": "base_link", "child": "drawer_top",
+                                    "translation_m": None, "quaternion_xyzw": None}, "max_travel_m": 0.17}}
+    tfs, skipped = load_static_tfs(write_config(tmp_path, places=places))
+    assert [tf.child for tf in tfs] == ["wrist_cam_link"]                 # launch 는 멈추지 않음
+    assert skipped == ["places.yaml:drawer_top: tf 값 null (측정 전, #6)"]
+
+
+def test_partially_filled_tf_raises(tmp_path):
+    places = {"drawer_top": {"tf": {"parent": "base_link", "child": "drawer_top",
+                                    "translation_m": [0.5, 0.0, 0.1], "quaternion_xyzw": None}}}
+    with pytest.raises(StaticTfError) as e:
+        load_static_tfs(write_config(tmp_path, places=places))
+    assert "quaternion_xyzw" in str(e.value)
+
+
 def test_missing_files_are_skipped(tmp_path):
     tfs, skipped = load_static_tfs(tmp_path)
     assert tfs == []

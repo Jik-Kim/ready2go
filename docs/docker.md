@@ -31,7 +31,7 @@
 > **원본 파일**: [`config/cyclonedds.multi.xml`](../config/cyclonedds.multi.xml) (강사 제공 원본은 [`config/cyclonedds.local.xml`](../config/cyclonedds.local.xml))
 
 **실행 절차 (장비별 명령 1개)**
-* PC2 (실물): `docker compose --profile real up` (`.env`: `BACKEND=real`, `ROBOT_HOST=<제어기 IP>`, `DDS_MODE=multi`)
+* PC2 (실물): `docker compose --profile real up` (`.env`: `BACKEND=real`, `ROBOT_HOST=<제어기 IP>`, `RG2_HOST=<RG2 IP>`, `DDS_MODE=multi`) — DSR 드라이버·`/gripper/state`가 함께 기동
 * PC1 (사전 검증): Isaac Sim 네이티브 실행 후 `docker compose --profile sim up` (`.env`: `BACKEND=sim`, `VISION_MODE=oracle`)
 * PC1 (실물 미러링 트윈): Isaac Sim 네이티브만 실행 (`DDS_MODE=multi`로 PC2의 `/dsr01/joint_states` 수신)
 * 개발: `docker compose --profile dev up`

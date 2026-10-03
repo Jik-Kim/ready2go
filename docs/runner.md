@@ -103,6 +103,15 @@
 | `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등). 스텝 실패로 처리해 `finally`를 보장 |
 | `INTERNAL_ERROR` | Runner 내부의 예상 못 한 에러. 스텝 실패로 처리해 `finally`를 보장하고 기록의 `internal_error`에 원인을 남김 |
 
+**`inspect_region` 에러 코드** (`InspectRegion.srv`의 `error_code`, 실패 시 `success=false`. 미발견은 에러가 아니라 `success=true` + `target_found=false`)
+
+| 코드 | 의미 |
+| :--- | :--- |
+| `UNKNOWN_REGION` | 알 수 없는 `region` |
+| `STUB_NOT_READY` | stub 좌표가 실측 전(`config/vision_stub.yaml`의 `ready: false`) |
+
+V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없음 등을 이 표에 추가한다 `[팀 확정 필요]`.
+
 ### 7.2 태스크 시퀀스 스키마
 
 `action` 값에 따라 `params`를 검증하여 **오타나 잘못된 파라미터를 실행 전에 차단**합니다. 스텝은 재귀 구조(`if/while/for_each` 내부에 스텝)입니다.
