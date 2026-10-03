@@ -1,19 +1,35 @@
 import json
+import uuid
 
 import pytest
 
 from ready2go_runner.core.log_records import run_document, step_document
-from ready2go_runner.core.logstore import JsonlLogStore, LogStore, MemoryLogStore
+from ready2go_runner.core.logstore import JsonlLogStore, LogStore, MemoryLogStore, MongoLogStore
 
 # LogStore 약속을 지켜야 하는 저장소들. 단계마다 여기에 추가한다 (JSONL·MongoDB·폴백).
 STORES = {
     "memory": lambda tmp_path: MemoryLogStore(),
     "jsonl": lambda tmp_path: JsonlLogStore(tmp_path / "logs"),
+    "mongo": None,                        # 실제 DB 필요 → mongo_store() 에서 만들고 없으면 건너뜀
 }
+
+
+def mongo_store(request):
+    """실제 MongoDB 에 테스트 전용 DB 를 만들고, 끝나면 지운다. pymongo·DB 가 없으면(호스트·CI) 건너뜀."""
+    pytest.importorskip("pymongo")
+    store = MongoLogStore(db_name=f"cobot2_test_{uuid.uuid4().hex[:8]}", timeout_ms=500)
+    try:
+        store.ping()
+    except Exception:
+        pytest.skip("MongoDB 에 연결할 수 없음 (ros2-core 컨테이너에서 실행: docs 참고)")
+    request.addfinalizer(lambda: store.client.drop_database(store.db.name))
+    return store
 
 
 @pytest.fixture(params=list(STORES))
 def store(request, tmp_path):
+    if request.param == "mongo":
+        return mongo_store(request)
     return STORES[request.param](tmp_path)
 
 
@@ -130,3 +146,17 @@ def test_jsonl_append_after_truncated_line(tmp_path):
     store.end_run(end)
     saved = store.read_run("r1")
     assert [s["id"] for s in saved["steps"]] == ["s2"] and saved["run"] == end
+
+
+# ---- MongoDB 전용 ----
+
+def test_mongo_unreachable_fails_fast():
+    # DB 가 없을 때 30초(기본값)가 아니라 짧게 실패해야 폴백이 로봇을 멈추지 않음
+    pytest.importorskip("pymongo")
+    import time
+    store = MongoLogStore(uri="mongodb://127.0.0.1:1", timeout_ms=300)   # 아무도 안 듣는 포트
+    start, _, _ = sample_run()
+    t0 = time.monotonic()
+    with pytest.raises(Exception):
+        store.start_run(start)
+    assert time.monotonic() - t0 < 3
