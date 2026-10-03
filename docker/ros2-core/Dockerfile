@@ -21,10 +21,12 @@ ARG DRCF_VER=2                                         # 포크 기본값. 제�
 RUN mkdir -p /opt/dsr_ws/src/doosan-robot2 && cd /opt/dsr_ws/src/doosan-robot2 \
     && git init -q && git remote add origin "${DSR_REPO}" \
     && git fetch -q --depth 1 origin "${DSR_REF}" && git checkout -q FETCH_HEAD
-# gazebo·moveit·mobile·예제는 쓰지 않으므로 제외. build/ 삭제를 위해 --symlink-install 미사용
+# 실물 구동에 필요한 패키지만 빌드 (gazebo·moveit 설정 등 제외). build/ 삭제를 위해 --symlink-install 미사용.
+# --cmake-args는 뒤의 옵션을 삼키므로 맨 끝에 둔다.
 RUN source /opt/ros/jazzy/setup.bash && cd /opt/dsr_ws \
-    && colcon build --cmake-args -DDRCF_VER=${DRCF_VER} \
-         --packages-skip dsr_gazebo2 dsr_moveit2 dsr_mobile_wbc2 dsr_example2 dsr_tests \
+    && colcon build \
+         --packages-up-to dsr_common2 dsr_msgs2 dsr_hardware2 dsr_controller2 dsr_description2 dsr_bringup2 \
+         --cmake-args -DDRCF_VER=${DRCF_VER} \
     && rm -rf /opt/dsr_ws/build /opt/dsr_ws/log
 
 COPY entrypoint.sh /entrypoint.sh
