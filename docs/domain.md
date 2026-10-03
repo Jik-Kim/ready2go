@@ -37,7 +37,7 @@
 * **판단 (`core/`, ROS 없이 테스트)**: 물체 크기(온톨로지 `size_m`) + `yaw`로 서랍 내부 벽까지의 거리를 계산 → 두 파지 방향 중 하나라도 손가락 여유가 있으면 밀지 않음(`pushed: false`) → 아니면 가장 가까운 벽에서 멀어지는 방향으로 (필요 거리 + 여유)만큼 민다. 서랍 내부 치수는 [`config/places.yaml`](../config/places.yaml)의 `drawer_top.interior_m`.
 * **동작 5단계**: ① 닫은 그리퍼를 물체의 벽 쪽 뒤편 위로 이동 → ② 저속 하강, z축 힘이 임계를 넘으면 정지하고 바닥 높이 기록(최대 하강 거리 제한) → ③ 바닥에서 수 mm 상승(물체 높이의 절반 미만) → ④ 저속 직선 밀기, 힘 임계 초과 시 정지 → ⑤ 위로 이탈.
 * **밀고 나서**: 물체가 돌거나 움직이므로 **반드시 `inspect_region`을 다시 해서 그 좌표로 집는다**. P1 Runner에는 `while`이 없으므로 `nudge_object` 1회 호출 = 1회 밀기이고, 태스크는 `inspect_region` → `nudge_object` → (`pushed`면) `inspect_region` 다시 → `nudge_object(check_only: true)`(아직 파지 불가면 `PUSH_LIMIT`) → `pick_object`로 펼친다. 예시: [`contracts/examples/task_nudge_then_pick.json`](../contracts/examples/task_nudge_then_pick.json). 벽에 붙어 틈이 없으면 `NO_PUSH_ACCESS`로 실패하고 TTS로 안내한다(P1). 벽 따라 옆으로 밀기는 P2 후보.
-* **처짐 대응**: 서랍이 얇은 플라스틱이라 최대 인출(17 cm)에서 앞쪽이 약 1.25 cm 처진다 [실측 A 10/03 버니어, `config/places.yaml`의 `sag_m_at_max_travel`]. 서랍 TF의 z는 인출 거리에 따라 어긋나므로 바닥 높이는 **TF가 아니라 힘 감지**(2단계)로 정하고, 많이 열수록 하강 시작 높이의 여유를 늘린다. 인출 거리별 처짐은 실측 후 반영 `[팀 확정 필요]`.
+* **처짐 대응**: 서랍이 얇은 플라스틱이라 최대 인출(17 cm)에서 앞쪽이 약 1.25 cm 처진다(맨 위·중간 서랍 모두) [실측 A 10/03 버니어, `config/places.yaml`의 `sag_m_at_max_travel`]. 서랍 TF의 z는 인출 거리에 따라 어긋나므로 바닥 높이는 **TF가 아니라 힘 감지**(2단계)로 정하고, 많이 열수록 하강 시작 높이의 여유를 늘린다. 인출 거리별 처짐은 실측 후 반영 `[팀 확정 필요]`.
 * **범위**: P1에 포함하지만 L1(Day 8) 필수 경로는 아니다 — #15를 가운데 배치로 먼저 완성한 뒤 Day 5~6에 구현.
 * **실측 후 채울 값** `[팀 확정 필요]`: 닫힌 손가락 두께(미는 방향 기준), 바닥 감지 힘 임계·하강 속도, 바닥 감지 반복성(같은 자리 5회 z 편차), 벽에서 몇 cm부터 밀지 않고 잡히는지.
 
