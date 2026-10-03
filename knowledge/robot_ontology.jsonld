@@ -16,7 +16,7 @@
     },
     "places": {
       "drawer_top":    { "class": "Drawer", "name_ko": "위 서랍",   "max_travel_m": 0.17, "return_slot": [0.20, 0.08, 0.0] },
-      "drawer_bottom": { "class": "Drawer", "name_ko": "아래 서랍", "max_travel_m": 0.25, "return_slot": [0.20, 0.08, 0.0] },
+      "drawer_bottom": { "class": "Drawer", "name_ko": "아래 서랍", "max_travel_m": 0.17, "return_slot": [0.20, 0.08, 0.0] },
       "staging_tray":  { "class": "Tray",   "name_ko": "임시 트레이", "slots": 3 },
       "handover_zone": { "class": "Tray",   "name_ko": "전달 트레이", "slots": 3 }
     }

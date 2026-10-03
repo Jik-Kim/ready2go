@@ -11,6 +11,12 @@ drawer_top:
   # 얇은 플라스틱이라 최대(17 cm)로 열면 서랍 앞쪽이 아래로 처진다: 약 1.25 cm [실측 A 10/03, 버니어]. 중간 서랍도 같은 값(약 1.25 cm) [실측 A 10/03, 버니어] — 중간·아래 서랍 항목이 이 파일에 추가되면 같은 키로 복사.
   # 측정 위치(앞면/바닥)·인출 거리별 값·물건을 올렸을 때 변화는 [팀 확정 필요]. 서랍 TF의 z를 인출 거리와 무관하게 고정하면 최대 이 값만큼 어긋난다 → 바닥 높이는 힘 감지로 잡는다(domain.md 8.5).
   sag_m_at_max_travel: 0.0125
+drawer_bottom:   # 서랍장 중간 단으로 추정 [팀 확정 필요: E·B] — 맨 아래 단은 사용하지 않음
+  tf: {parent: base_link, child: drawer_bottom, translation_m: null, quaternion_xyzw: null}
+  max_travel_m: 0.17   # [실측 A 10/03] 맨 위 서랍과 같은 제품이라 최대 인출 17 cm (이전 값 0.25는 실측 없는 가정이었음)
+  return_slot: null
+  interior_m: [0.205, 0.26, 0.057]   # [추정] 맨 위 서랍과 같은 제품이라 동일로 가정, 미실측 — 재서 확인
+  sag_m_at_max_travel: 0.0125        # [실측 A 10/03, 버니어] 맨 위 서랍과 같음
 staging_tray:
   tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}
   slots: 3
