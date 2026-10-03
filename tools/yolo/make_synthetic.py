@@ -16,7 +16,7 @@ sys_path = str(ROOT / "tools/yolo")
 import sys  # noqa: E402
 
 sys.path.insert(0, sys_path)
-from build_dataset import class_names  # noqa: E402
+from build_dataset import CLASSES_FILE, load_classes  # noqa: E402
 
 COLORS = [(40, 40, 220), (50, 200, 50), (220, 80, 40), (30, 200, 220), (200, 50, 200)]   # BGR, 클래스 수만큼 순환
 
@@ -38,9 +38,13 @@ def main():
     ap.add_argument("--sessions", type=int, default=4)
     ap.add_argument("--per-session", type=int, default=20)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--classes", default=str(CLASSES_FILE), help="고정 클래스 목록 (없으면 온톨로지 순서 — 합성 점검 전용)")
     a = ap.parse_args()
     rng = random.Random(a.seed)
-    nc = len(class_names())
+    names, warns = load_classes(Path(a.classes), allow_ontology_order=True)   # 데이터셋 구성(build_dataset)과 같은 번호 체계
+    for w in warns:
+        print(f"[synthetic] ! {w}")
+    nc = len(names)
     W, H = 640, 480
     for s in range(1, a.sessions + 1):
         sess = Path(a.out) / f"syn{s:02d}"
