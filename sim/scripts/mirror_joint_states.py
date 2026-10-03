@@ -26,6 +26,7 @@ ap.add_argument("--topic", default="/dsr01/joint_states")
 ap.add_argument("--headless", action="store_true", help="창 없이 실행(시험용)")
 ap.add_argument("--duration", type=float, default=0.0, help="초. 0이면 창을 닫거나 Ctrl+C 할 때까지")
 ap.add_argument("--report", type=float, default=2.0, help="통계 출력 간격(초)")
+ap.add_argument("--max-finger-deg", type=float, default=2.0, help="시험 모드에서 허용하는 그리퍼(finger_joint)의 열림 이탈 각도(도)")
 ap.add_argument("--max-err-rad", type=float, default=0.02, help="시험 모드에서 허용하는 최대 추종 오차(rad)")
 args = ap.parse_args()
 
@@ -148,7 +149,7 @@ if args.duration:
     print(f"[mirror] 요약: 최대 추종 오차 {max_err * 1000:.2f} mrad ({np.degrees(max_err):.3f}°), 매핑 안 된 이름: {sorted(unmapped) or '없음'}", flush=True)
     fmax = max(finger_dev) if finger_dev else 0.0
     print(f"[mirror] 요약: 그리퍼(finger_joint) 열림에서 벗어난 최대 각도 {fmax:.2f}°", flush=True)
-    ok = n > 0 and max_err < args.max_err_rad and fmax < 2.0
+    ok = n > 0 and max_err < args.max_err_rad and fmax < args.max_finger_deg
     print(f"[mirror] 결과: {'통과' if ok else '실패'}", flush=True)
 
 node.destroy_node()
