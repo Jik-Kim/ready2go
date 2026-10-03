@@ -24,11 +24,11 @@ ONTOLOGY = ROOT / "knowledge/robot_ontology.jsonld"
 CLASSES_FILE = ROOT / "config/yolo_classes.txt"
 
 
-def ontology_items(ontology=ONTOLOGY) -> list[str]:
+def ontology_items(ontology=None) -> list[str]:
     """온톨로지 world.items 의 키 순서. 정의가 분리된 형식(진입 파일의 sources.world → world.jsonld)과
     단일 파일 형식(진입 파일 안의 world)을 모두 읽는다. 학습 도구가 PyYAML 에 의존하지 않도록
     ready2go_knowledge 의 load() 대신 world 파일만 직접 따라간다."""
-    path = Path(ontology)
+    path = Path(ONTOLOGY if ontology is None else ontology)   # 호출 시점에 해석(시험에서 ONTOLOGY 를 바꿀 수 있게)
     data = json.loads(path.read_text(encoding="utf-8"))
     ref = data.get("sources", {}).get("world")
     if ref:
@@ -40,17 +40,16 @@ def ontology_items(ontology=ONTOLOGY) -> list[str]:
         raise ValueError(f"{path}: world.items 를 찾지 못했습니다") from None
 
 
-def class_names(ontology=ONTOLOGY) -> list[str]:
-    """온톨로지 순서의 클래스 목록 (합성 데이터 점검용). 실제 학습은 load_classes 의 고정 목록을 쓴다."""
-    return ontology_items(ontology)
-
-
-def load_classes(classes_file: Path = CLASSES_FILE, ontology=ONTOLOGY) -> tuple[list[str], list[str]]:
-    """(클래스 목록, 경고 목록). classes_file 이 있으면 그 순서를 쓰고 온톨로지에 없는 이름은 오류(ValueError)."""
+def load_classes(classes_file: Path | None = None, ontology=None, allow_ontology_order: bool = False) -> tuple[list[str], list[str]]:
+    """(클래스 목록, 경고 목록). classes_file 이 있으면 그 순서를 쓰고 온톨로지에 없는 이름은 오류(ValueError).
+    파일이 없으면 오류(ValueError) — 온톨로지 순서가 바뀌면 이미 만든 라벨이 조용히 다른 클래스로 해석되기 때문.
+    합성 점검처럼 명시적으로 허용한 경우(allow_ontology_order=True)에만 온톨로지 순서로 대체하고 경고를 돌려준다."""
     items = ontology_items(ontology)
-    f = Path(classes_file)
+    f = Path(CLASSES_FILE if classes_file is None else classes_file)
     if not f.exists():
-        return items, ["config/yolo_classes.txt 가 없어 온톨로지 순서를 씁니다. 물품이 바뀌면 기존 라벨 번호가 어긋납니다 → --init-classes 로 고정하세요"]
+        if not allow_ontology_order:
+            raise ValueError(f"{f} 가 없습니다. 라벨 번호가 물품 목록 변경에 흔들리지 않도록 먼저 --init-classes 로 클래스 번호를 고정하세요 (합성 점검만 --allow-ontology-order 로 허용)")
+        return items, [f"{f.name} 가 없어 온톨로지 순서를 씁니다 (점검 전용 — 실제 라벨링에는 쓰지 마세요)"]
     names = [l.strip() for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
     if len(set(names)) != len(names):
         raise ValueError(f"{f}: 중복된 클래스 이름이 있습니다")
@@ -113,6 +112,7 @@ def main() -> int:
     ap.add_argument("--val", nargs="*", help="검증용 세션 이름")
     ap.add_argument("--val-ratio", type=float, default=0.25)
     ap.add_argument("--classes", default=str(CLASSES_FILE), help="고정 클래스 목록 파일")
+    ap.add_argument("--allow-ontology-order", action="store_true", help="클래스 고정 파일이 없어도 온톨로지 순서를 허용 (합성 점검 전용)")
     ap.add_argument("--init-classes", action="store_true", help="온톨로지 순서로 클래스 파일을 만들어 번호를 고정하고 종료 (이미 있으면 거절)")
     args = ap.parse_args()
 
@@ -127,7 +127,7 @@ def main() -> int:
         print(f"{f} 생성: {ontology_items()}")
         return 0
     try:
-        names, warns = load_classes(Path(args.classes))
+        names, warns = load_classes(Path(args.classes), allow_ontology_order=args.allow_ontology_order)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 1
