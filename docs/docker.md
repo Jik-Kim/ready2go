@@ -43,6 +43,7 @@
 * **다중 PC 통신**: 강사 제공 원본은 `lo` 전용이라 PC 간 통신이 되지 않으므로 다중 PC는 `multi` 설정을 사용하고, 방화벽(ufw)에서 DDS UDP 포트를 허용함. PC2는 로봇 제어기용 유선 + 팀 공유기 2개 네트워크에 연결되므로 `DDS_IFACE`를 **팀 공유기 쪽**으로 지정.
 * **GUI 표시**: GUI 컨테이너(RViz 등)는 호스트에서 `xhost +local:root`, `DISPLAY`와 `/tmp/.X11-unix` 전달. **`DISPLAY` 값은 세션마다 다를 수 있음**(현재 PC1은 Xwayland `:1`).
 * **오디오**: Ubuntu 24.04는 PipeWire가 ALSA 장치를 점유하므로 `/dev/snd` 직접 패스스루 대신 **PulseAudio 소켓을 마운트**함.
+* **`real` 기동 전 호스트 드라이버 종료**: 호스트에서 DSR 드라이버(`cobot2_ws` 등)나 `realsense2_camera`를 띄운 채 `docker compose --profile real up` 하면, 같은 `/dsr01` 이름 때문에 컨테이너의 spawner가 호스트 controller_manager에 붙어 `Controller already loaded` → `Failed to configure controller`로 실패하고 제어기에도 이중 접속됨. 카메라도 장치 단독 점유라 충돌함. **호스트 드라이버·카메라 노드를 끄고 올릴 것** [실측 10/03, PC2, PR #40].
 * **카메라 장치 독점**: `realsense2_camera`와 `cv2.VideoCapture`가 같은 장치를 동시에 열 수 없음. 항상 **ROS 토픽 구독 방식으로 통일**하고 `/dev/videoN` 번호는 하드코딩하지 않음.
 * **RealSense 하드웨어 점검**: `Left MIPI error`는 USB 3.0 포트 직결 + 정품 케이블 + 재연결로 먼저 확인(10/02 재연결로 해결된 이력). 로봇 팔 움직임에 케이블이 당기지 않도록 케이블 고정.
 * **비밀정보**: OpenAI API 키는 `secrets/*.env`로 분리하고 `.gitignore`에 등록.
