@@ -1,11 +1,18 @@
 import json
 from pathlib import Path
 
-import yaml
+import pytest
 
 from ready2go_vision.core.stub_inspect import inspect
 
-CFG = yaml.safe_load((Path(__file__).resolve().parents[4] / "config/vision_stub.yaml").read_text(encoding="utf-8"))
+# CI 에는 PyYAML 이 없으므로 로직 테스트는 인라인 설정을 쓴다. 실제 설정 파일은 마지막 테스트에서 (PyYAML 이 있을 때만) 검사한다.
+CFG = {"regions": {
+    "drawer_top": {"objects": [
+        {"class": "watch", "position": [0.10, 0.08, 0.0], "yaw": 0.0, "top_z": 0.04},
+        {"class": "wallet", "position": [0.10, 0.18, 0.0], "yaw": 0.0, "top_z": 0.02},
+        {"class": "car_key", "position": [0.18, 0.13, 0.0], "yaw": 0.0, "top_z": 0.03}]},
+    "staging_tray": {"objects": []},
+}}
 
 
 def run(region, target=""):
@@ -45,3 +52,11 @@ def test_duplicate_class_gets_numbered_ids():
     ok, _, js = inspect(cfg, "r", "a")
     r = json.loads(js)
     assert r["target"]["id"] == "a#2" and r["candidates"][0]["id"] == "a#1"   # target = top_z 가 큰 쪽
+
+
+def test_real_config_file_is_valid():
+    yaml = pytest.importorskip("yaml")
+    cfg = yaml.safe_load((Path(__file__).resolve().parents[4] / "config/vision_stub.yaml").read_text(encoding="utf-8"))
+    for region in cfg["regions"]:
+        ok, _, js = inspect(cfg, region)
+        assert ok and json.loads(js)["visible_count"] == len(cfg["regions"][region]["objects"])
