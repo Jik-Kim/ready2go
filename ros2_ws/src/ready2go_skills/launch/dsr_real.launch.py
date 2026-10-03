@@ -17,6 +17,10 @@ from launch_ros.substitutions import FindPackageShare
 
 from dsr_bringup2.utils import read_update_rate
 
+# 실물 제어기 접속(OPEN CONNECTION → RT stream)이 끝나기 전에 spawner 기본 대기(10 s)가 끝나
+# joint_state_broadcaster가 실패한 적 있음 [실측 10/03, 컨테이너] → 대기를 늘림
+SPAWNER_WAIT = ["--controller-manager-timeout", "60", "--service-call-timeout", "60"]
+
 
 def generate_launch_description():
     name = LaunchConfiguration("name")
@@ -53,11 +57,11 @@ def generate_launch_description():
     )
     jsb_spawner = Node(
         package="controller_manager", executable="spawner", namespace=name,
-        arguments=["joint_state_broadcaster", "-c", "controller_manager"],
+        arguments=["joint_state_broadcaster", "-c", "controller_manager", *SPAWNER_WAIT],
     )
     ctrl_spawner = Node(
         package="controller_manager", executable="spawner", namespace=name,
-        arguments=["dsr_controller2", "-c", "controller_manager"],
+        arguments=["dsr_controller2", "-c", "controller_manager", *SPAWNER_WAIT],
     )
     after_jsb = RegisterEventHandler(OnProcessExit(target_action=jsb_spawner, on_exit=[ctrl_spawner]))
 
