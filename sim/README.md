@@ -30,3 +30,29 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 ## 자산 (`sim/assets/`, 아직 커밋하지 않음)
 - `sim/assets/m0609_camera_cube/`: 기존 M0609 + 카메라 + RG2 조립본 (약 15 MB, `~/isaac_legacy/M0609_jik/Collected_m0609_camera_cube` 복사본).
 - `git-lfs`가 설치되기 전에는 USD를 커밋하지 않는다.
+
+## T1 씬 (`sim/scenes/ready2go_t1.usd`)
+작업대 + 받침 선반 + 3단 서랍장(맨 위 단은 Prismatic Joint 0~0.17 m) + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`.
+```bash
+~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py     # 씬 생성 (sim/drawer_dimensions.yaml, config/calibration/ 에서 값을 읽음)
+~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py    # 검증 (9개 구조 + 카메라 변환 + 서랍 가동 범위 + 로봇 안정성), 통과 시 종료 코드 0
+```
+GUI에서 열기: 위의 실행 명령으로 Isaac Sim을 켠 뒤 **File ▸ Open**으로 `sim/scenes/ready2go_t1.usd`.
+- 서랍 움직여 보기: Stage에서 `/World/workspace/cabinet/drawer_top_joint` 선택 → Property ▸ Drive ▸ Linear ▸ **Target Position**(m, 0~0.17) → Play.
+- 손목 카메라 시점: 뷰포트 카메라 메뉴에서 `/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera`.
+- **생성 파일이라 USD를 직접 수정하지 말고** `build_scene.py`나 `drawer_dimensions.yaml`을 고친 뒤 다시 생성한다.
+
+### 이 씬이 근사하는 부분 (전부 [추정], 실측되면 교체)
+| 항목 | 현재 값 | 교체할 때 |
+| :--- | :--- | :--- |
+| 로봇과 작업대 변의 각도 | `WORKSPACE_YAW_DEG = 0` (미확인) | #6(3점 터치) 결과 |
+| 서랍장 위치 | 평면도 기준 (앞면이 작업대 변에서 0.4 cm 바깥) | #6 결과 |
+| 로봇 축 위치 | 베이스 철판 중심 = 원점 | #6/URDF 확인 |
+| 트레이 벽·바닥 두께 | 옆벽 2.5 mm, 앞뒤 1.5 mm, 바닥 4 mm | 실측 |
+| 손잡이 | 2 × 1.5 × 2 cm 박스 (돌출 길이 미측정) | 지름·돌출 길이 실측 |
+| 아래 두 단 높이 | 같은 높이로 가정 | 실측 |
+| `link_6` 원점 = 플랜지 면 | 가정 (손목 카메라 위치에 영향) | B 확인 |
+| 스테이징·전달 트레이 | 아직 없음 (크기 미측정) | 실측 후 추가 |
+
+검증으로 확인된 것 [실측]: 카메라 광학 프레임이 `npy × TCP`로 직접 계산한 값과 일치(평행이동 4 µm, 회전 0.0007°), 서랍은 목표 17 cm에서 16.99 cm, 한계 초과 목표(30 cm)에서도 17.00 cm에서 멈추고 다른 축 이동 없음, 로봇은 중력에 무너지지 않음(link_6 변화 0.5 mm).
+
