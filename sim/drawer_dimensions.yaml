@@ -26,11 +26,13 @@ drawer_unit:                          # 새 서랍장: 원목형 2단 일체형,
   tiers_detail:                       # 바닥 기준 높이(cm), 우드락 추가 전
     upper: {front_bottom_height: 14.8, box_top: 29.5, box_bottom: 19.5}   # 2단: 아랫면 14.8, 서랍 상자 29.5~19.5 (높이 10) [사용자 정정 10/03]
     lower: {box_top: 14.8, box_bottom: 4.8}                                # 1단: 서랍 상자 14.8~4.8 (높이 10) [사용자 확인 10/03, 우드락 전 기준]
-  drawer_box:                         # 서랍 상자(안에 물건이 들어가는 부분), 위에서 본 가로 방향 [사진 2장에서 읽은 값, 오차 약 0.5 cm — 사용자 확인 필요]
-    inner_width_cm: 29.5              # [사용자 실측] 상자 옆벽 안쪽 사이. 서랍 내부 폭의 정본은 config/places.yaml interior_m
-    outer_width_cm: 32.5              # [사진 추정] 자를 서랍장 옆면에 대고 읽음: 상자 바깥이 약 3.2 ~ 35.8 (서랍장 0 ~ 38.5)
-    side_wall_cm: 1.5                 # [계산] (32.5 - 29.5) / 2
-    cabinet_side_clearance_cm: 3.0    # [사진 추정] 서랍장 옆면 ~ 상자 바깥 (옆판 + 레일 공간), 양쪽 약 3 cm
+  drawer_box:                         # 서랍 상자(안에 물건이 들어가는 부분), 위에서 본 가로 방향 [사용자 실측 10/03]
+    inner_width_cm: 29.5              # 상자 옆벽 안쪽 사이. 서랍 내부 폭의 정본은 config/places.yaml interior_m
+    outer_width_cm: 32.0              # 상자 바깥 폭
+    side_wall_cm: 1.25                # [계산] (32.0 - 29.5) / 2 — 상자 옆벽 두께
+    cabinet_board_cm: 1.1             # 서랍장 옆판(벽) 두께
+    cabinet_side_clearance_cm: 3.2    # 서랍장 바깥 옆면 ~ 상자 바깥, 양쪽 모두 3.2 (옆판 1.1 + 레일 공간 약 2.1 [계산])
+                                      # 확인: 32.0 + 3.2 x 2 = 38.4 (서랍장 가로 38.5와 0.1 cm 차이, 측정 오차 범위)
   handle:                             # 플라스틱, 앞판 가로 중앙
     width_cm: 11
     thickness_vertical_cm: 0.7        # 위아래 두께 (RG2가 위아래로 쥐는 방향 폭)
