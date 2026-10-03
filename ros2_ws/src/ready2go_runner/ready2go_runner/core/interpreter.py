@@ -7,9 +7,14 @@ Phase 2: while · for_each · push/pop · recovery · fallback · on_halt, verif
 Runner 는 원자 동작을 직접 실행하지 않는다. 생성 시 받은 execute(action, params, timeout_sec) → ActionResult
 로 위임하며, #10 에서 ROS 액션 클라이언트(real·sim·mock 백엔드)가 이 자리에 들어간다.
 timeout_sec 이 지나면 동작을 취소하는 것은 백엔드 책임이고, Runner 는 걸린 시간을 재서 초과하면 TIMEOUT 으로 판정한다.
+
+E-stop·사용자 취소(docs/runner.md 7.1, docs/safety.md): 백엔드가 ESTOP 으로 실패하거나 halt() 가 호출되면
+일반 실패 처리(retry·skip·safe_home)를 건너뛰고 ABORTED 로 끝낸다. 이때 finally 는 로봇을 움직이지 않는
+동작(ABORT_SAFE_ACTIONS)만 실행하고 나머지는 SKIPPED 로 기록한다.
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -29,20 +34,32 @@ class ActionResult:
 
 @dataclass
 class RunResult:
-    overall_status: str                 # COMPLETED / FAILED
+    overall_status: str                 # COMPLETED / FAILED / ABORTED(E-stop·사용자 취소)
     blackboard: dict
     steps: list[dict] = field(default_factory=list)
-    error_code: str | None = None       # FAILED 일 때 원인 코드
-    failed_step: str | None = None      # FAILED 일 때 실패한 스텝 ID
+    error_code: str | None = None       # FAILED·ABORTED 일 때 원인 코드
+    failed_step: str | None = None      # FAILED·ABORTED 일 때 멈춘 스텝 ID
     problems: list[str] = field(default_factory=list)   # TASK_INVALID 일 때 실행 전 검사 문제 목록
 
 
 Execute = Callable[[str, dict, "float | None"], ActionResult]   # (action, params, timeout_sec)
 
 SAFE_HOME_POSE = "home"                 # on_failure: safe_home 이 이동할 기준 포즈 (docs/runner.md 7.1)
+HALT_CODES = {"ESTOP"}                  # 백엔드가 이 코드로 실패하면 비상정지로 보고 ABORTED
+HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
+# ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
+ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
 
 
 class StepFailed(Exception):
+    def __init__(self, step_id: str, code: str):
+        super().__init__(f"{step_id}: {code}")
+        self.step_id, self.code = step_id, code
+
+
+class Halted(Exception):
+    """E-stop·사용자 취소. StepFailed 와 달리 retry·skip·safe_home 을 거치지 않고 바로 위로 전달된다."""
+
     def __init__(self, step_id: str, code: str):
         super().__init__(f"{step_id}: {code}")
         self.step_id, self.code = step_id, code
@@ -54,25 +71,39 @@ class Runner:
         self.execute = execute
         self.schema = schema                    # contracts/task.schema.json 내용 (노드가 읽어서 전달)
         self.clock = clock                      # 소요 시간·timeout 측정용 (테스트에서 가짜 시계 주입)
+        self._halt = threading.Event()          # halt() 요청 (다른 스레드의 ROS 서비스 콜백에서 호출)
+        self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
+
+    def halt(self) -> None:
+        """실행 중인 태스크를 다음 스텝 시작 전에 멈춘다(ABORTED). 진행 중인 동작의 취소는 백엔드 책임."""
+        self._halt.set()
 
     def run(self, task: dict, inputs: dict | None = None) -> RunResult:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩)."""
+        self._halt.clear()
+        self._aborted = False
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
         problems = check_task(task, self.schema)
         if problems:                            # 로봇을 움직이기 전에 거절 (finally 도 실행하지 않음)
             return RunResult("FAILED", blackboard, [], TASK_INVALID, problems=problems)
         records: list[dict] = []
-        error: StepFailed | None = None
+        error: StepFailed | Halted | None = None
         try:
             self._run_steps(task["sequence"], blackboard, records)
         except StepFailed as e:
             error = e
+        except Halted as e:
+            error, self._aborted = e, True
         # finally 는 sequence 가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀)
-        # TODO(C 이영훈): #10 E-stop 연결 시 ABORTED 이면 finally 의 로봇 동작을 실행하지 않음 (docs/runner.md 7.1)
+        # ABORTED 이면 _run_step 이 로봇 동작을 건너뛴다
         try:
             self._run_steps(task.get("finally", []), blackboard, records)
         except StepFailed as e:
             error = error or e                  # 둘 다 실패하면 처음(sequence) 원인을 남김
+        except Halted as e:
+            error, self._aborted = e, True      # E-stop 이 다른 실패보다 우선
+        if self._aborted:
+            return RunResult("ABORTED", blackboard, records, error.code, error.step_id)
         if error:
             return RunResult("FAILED", blackboard, records, error.code, error.step_id)
         return RunResult("COMPLETED", blackboard, records)
@@ -83,8 +114,13 @@ class Runner:
 
     def _run_step(self, step: dict, blackboard: dict, records: list[dict]) -> None:
         """스텝 하나를 실행하고 on_failure 정책(abort·retry·skip·safe_home)을 적용."""
+        if self._halt.is_set() and not self._aborted:
+            raise Halted(step["id"], HALTED)
         record = {"id": step["id"], "action": step["action"]}
         records.append(record)
+        if self._aborted and step["action"] not in ABORT_SAFE_ACTIONS:
+            record.update(status="SKIPPED", skipped_reason="ABORTED")   # 중단 후 로봇 동작 금지
+            return
         policy = step.get("on_failure", "abort")
         max_attempts = 1 + (step.get("retry", 0) if policy == "retry" else 0)
         started = self.clock()
@@ -96,6 +132,9 @@ class Runner:
             except StepFailed as e:
                 failure = e
                 continue
+            except Halted as e:                 # retry·skip·safe_home 을 거치지 않음
+                record.update(status="FAILURE", error_code=e.code)
+                raise
             finally:
                 record["duration_sec"] = round(self.clock() - started, 3)   # 재시도 포함 전체 시간
             record["status"] = "SUCCESS"
@@ -121,6 +160,8 @@ class Runner:
         record["status"] = "SUCCESS" if result.success else "FAILURE"
         if not result.success:
             record["error_code"] = result.error_code or "ACTION_FAILED"
+            if result.error_code in HALT_CODES:
+                raise Halted(record["id"], result.error_code)
 
     def _check_timeout(self, step: dict, attempt_started: float) -> None:
         timeout = step.get("timeout_sec")
@@ -149,6 +190,8 @@ class Runner:
         except Exception as e:                  # 통신 끊김 등 백엔드 예외도 스텝 실패로 처리해 finally 를 보장
             raise StepFailed(step["id"], "BACKEND_ERROR") from e
         if not result.success:
+            if result.error_code in HALT_CODES:
+                raise Halted(step["id"], result.error_code)
             raise StepFailed(step["id"], result.error_code or "ACTION_FAILED")
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
         record["output"] = result.output
