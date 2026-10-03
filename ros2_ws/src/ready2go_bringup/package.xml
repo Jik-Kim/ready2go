@@ -10,6 +10,7 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>ready2go_interfaces</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ready2go_skills</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 
