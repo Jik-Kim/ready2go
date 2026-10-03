@@ -13,19 +13,31 @@ table:
 # 새 서랍 설치 후 아래 drawer_unit·drawer_top·plan_view_cm.drawer_* 를 실측으로 채운다. 값이 비어 있으면 build_scene.py 는 서랍장 없이 작업대·로봇만 만든다.
 # 서랍 내부 치수·최대 인출 거리·처짐은 config/places.yaml 이 정본이다.
 
-drawer_unit:
-  tiers: null
-  width_cm: null                      # 작업대 변과 나란한 방향
-  depth_cm: null                      # 앞면~뒷면 (닫힌 상태)
-  total_height_cm: null
-  seat_top_vs_table_surface_cm: null  # 받침(고정대) 윗면이 작업대 윗면보다 낮은 정도
-  tier_usage: null                    # 어느 단을 어떤 프로젝트 서랍 ID(drawer_top, drawer_bottom)로 쓰는지
-  handle: null                        # 형태·크기·돌출 길이·위치·파지 방향
+drawer_unit:                          # 새 서랍장: 원목형 2단 일체형, 무거워 별도 고정 불필요 [사용자 실측 10/03, 버니어·자, cm]
+  tiers: 2
+  width_cm: 38.5                      # 서랍장 본체 가로 (작업대 변과 나란한 방향)
+  depth_cm: 26.5                      # 서랍장 본체 세로(깊이)
+  total_height_cm: 29.5               # 우드락(아래) 추가 전 기준
+  front_panel_protrusion_cm: 1.8      # 닫힌 상태에서 앞판(회색)이 본체 앞면 밖으로 튀어나온 길이. 앞판 쪽이 작업대(로봇) 방향
+  riser_cm: 0.5                       # 서랍장 맨 아래에 우드락을 깔아 모든 높이가 0.5 cm 올라감. 아래 높이 값들은 우드락 추가 전 측정 → 씬에서 +riser_cm
+  seat_top_vs_table_surface_cm: null  # 서랍장을 놓은 면이 작업대 윗면과 얼마나 다른지 (아직 미측정)
+  tier_usage: null                    # 위 단 = drawer_top, 아래 단 = drawer_bottom 으로 추정 [확인 필요]
+  tiers_detail:                       # 바닥 기준 높이(cm), 우드락 추가 전
+    upper: {front_bottom_height: 14.8, box_top: 29.5, box_bottom: 19.6}   # 2단: 아랫면 14.8, 서랍 상자 29.5~19.6 (높이 9.9)
+    lower: {box_top: 14.8, box_bottom: 4.8}                                # 1단: 서랍 상자 14.8~4.8 (높이 10)
+  handle:                             # 플라스틱, 앞판 가로 중앙
+    width_cm: 11
+    thickness_vertical_cm: 0.7        # 위아래 두께 (RG2가 위아래로 쥐는 방향 폭)
+    protrusion_cm: null               # 앞판 밖으로 나온 길이 (미측정)
+    bottom_recess_cm: 0.3             # 아랫면이 0.3 cm 파여 있어 파지에 유리
+    height_from_bottom_cm: {upper: 26.4, lower: 11.8}
+    below_top_edge_cm: 2              # 맨 위 가장자리에서 약 2 cm 아래 (26.4와 1.1 cm 차이는 틈 때문)
+    horizontal_offset_from_panel_center_cm: 0
 
-drawer_top:
-  front_panel_cm: null
-  front_bottom_height_above_seat_cm: null
-  max_travel_cm: null                 # 정본은 config/places.yaml 의 max_travel_m
+drawer_top:                           # 위 단(2단)
+  front_panel_cm: null                # 앞판 가로·세로·두께
+  front_bottom_height_above_seat_cm: 14.8   # 우드락 추가 전 기준. 씬에서 + riser_cm
+  max_travel_cm: null                 # 최대 인출 거리. 정본은 config/places.yaml 의 max_travel_m (미측정)
 
 plan_view_cm:                         # [사용자 보고, 도면] 작업대 평면도 기준, 씬 초기 배치용
   drawer_right_edge_to_table_right: null
