@@ -39,6 +39,13 @@ def split_sessions(sessions: list[str], val: list[str] | None, val_ratio: float)
     return train, sorted(valset)
 
 
+def pair_errors(session_dir: Path) -> tuple[list[str], list[str]]:
+    """이미지와 라벨 파일명(stem)을 1:1로 비교. (라벨 없는 이미지, 이미지 없는 라벨)."""
+    imgs = {p.stem for p in (session_dir / "images").glob("*.png")}
+    labs = {p.stem for p in (session_dir / "labels").glob("*.txt")}
+    return sorted(imgs - labs), sorted(labs - imgs)
+
+
 def check_labels(label_dir: Path, nc: int) -> tuple[int, int, list[str]]:
     """(라벨 파일 수, 빈 라벨 수, 오류 목록). 클래스 id 범위·좌표 범위를 확인."""
     errs, n, empty = [], 0, 0
@@ -85,9 +92,12 @@ def main() -> int:
         n, empty, errs = check_labels(labeled / s / "labels", len(names))
         imgs = len(list((labeled / s / "images").glob("*.png")))
         print(f"[{'val ' if s in val else 'train'}] {s}: 이미지 {imgs}, 라벨 {n} (빈 라벨 {empty})")
-        if n != imgs:
-            print(f"  ! 이미지 수와 라벨 수가 다릅니다")
-            bad = True
+        missing, extra = pair_errors(labeled / s)
+        for m in missing[:5]:
+            print(f"  ! 라벨 없음: {m}.png")
+        for x in extra[:5]:
+            print(f"  ! 이미지 없는 라벨: {x}.txt")
+        bad |= bool(missing or extra)
         for e in errs[:5]:
             print(f"  ! {e}")
         bad |= bool(errs)
