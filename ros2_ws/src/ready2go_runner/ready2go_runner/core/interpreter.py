@@ -116,7 +116,9 @@ class Runner:
         except StepFailed as e:
             error = error or e                  # 둘 다 실패하면 처음(sequence) 원인을 남김
         except Halted as e:
-            error = self._abort(e)              # E-stop 이 다른 실패보다 우선
+            if not self._aborted:               # E-stop 이 다른 실패보다 우선
+                error = self._abort(e)
+            # 이미 중단 상태면 처음 멈춘 위치·원인을 유지
         if self._aborted:
             return RunResult("ABORTED", blackboard, records, error.code, error.step_id)
         if error:
@@ -164,6 +166,10 @@ class Runner:
             except Halted as e:                 # retry·skip·safe_home 을 거치지 않음
                 record.update(status="FAILURE", error_code=e.code)
                 raise
+            except Exception as e:              # Runner 내부의 예상 못 한 에러도 스텝 실패로 처리해 finally 를 보장
+                record["internal_error"] = f"{type(e).__name__}: {e}"
+                failure = StepFailed(step["id"], "INTERNAL_ERROR")
+                continue
             finally:
                 record["duration_sec"] = round(self.clock() - started, 3)   # 재시도 포함 전체 시간
             record["status"] = "SUCCESS"

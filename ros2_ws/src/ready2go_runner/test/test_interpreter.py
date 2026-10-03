@@ -584,3 +584,38 @@ def test_halt_code_keeps_first_reason():
     runner.halt("ESTOP")
     runner.halt()                                                          # 나중 요청이 원인을 덮지 않음
     assert runner.run(estop_task()).error_code == "ESTOP"
+
+
+# ---- 코드 리뷰 ①②: 처음 멈춘 위치 유지 · 내부 에러에도 finally 보장 ----
+
+def test_first_abort_location_is_kept():
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "pick_object", "params": {}}],
+            "finally": [{"id": "f1", "action": "speak", "params": {"text": "멈춤"}}]}
+    fake = FakeBackend({"pick_object": ESTOP, "speak": ESTOP})            # finally 의 음성도 ESTOP 응답
+    result = Runner(fake).run(task)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "ESTOP", "s1")
+
+
+def internal_error_task(**step_fields) -> dict:
+    # s3 의 set_var 이름이 객체로 치환되어 Runner 안에서 TypeError 가 나는 태스크
+    return {"task_id": "t", "sequence": [
+        {"id": "s1", "action": "query_ontology", "params": {}, "output": "loc"},
+        {"id": "s2", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}},
+        {"id": "s3", "action": "set_var", "params": {"name": "$loc", "value": 1}, **step_fields},
+        {"id": "s4", "action": "speak", "params": {"text": "다음"}}],
+        "finally": [{"id": "f1", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "close"}}]}
+
+
+def test_internal_error_still_runs_finally():
+    fake = FakeBackend({"query_ontology": ActionResult(True, {"drawer_id": "drawer_top"})})
+    result = Runner(fake).run(internal_error_task())
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "INTERNAL_ERROR", "s3")
+    assert fake.calls[-1] == ("drawer_control", {"drawer_id": "drawer_top", "state": "close"})   # 서랍 닫힘
+    assert result.steps[2]["internal_error"].startswith("TypeError")                               # 원인 기록
+
+
+def test_internal_error_follows_on_failure_policy():
+    fake = FakeBackend({"query_ontology": ActionResult(True, {"drawer_id": "drawer_top"})})
+    result = Runner(fake).run(internal_error_task(on_failure="skip"))
+    assert result.overall_status == "COMPLETED"
+    assert ("speak", {"text": "다음"}) in fake.calls                     # skip 이라 다음 스텝 진행

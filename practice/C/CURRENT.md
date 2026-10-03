@@ -4,9 +4,10 @@
 - **최종 갱신**: 2026-10-03
 
 ## 지금 상태
-- #9 Runner P1 구현 완료 (브랜치 `feat/c-runner-p1`): `core/variables.py`(`$경로`·`{{}}`·조사 필터), `core/conditions.py`, `core/validation.py`(실행 전 검사), `core/interpreter.py`(sequence·if·set_var·on_failure·finally·timeout_sec). core pytest 113개 통과.
+- #9 Runner P1 구현 완료 (브랜치 `feat/c-runner-p1`): `core/variables.py`(`$경로`·`{{}}`·조사 필터), `core/conditions.py`, `core/validation.py`(실행 전 검사), `core/interpreter.py`(sequence·if·set_var·on_failure·finally·timeout_sec). core pytest 116개 통과.
 - PR #27 리뷰(D) 반영: E-stop(`ESTOP`)·`halt()` → `ABORTED`, retry·skip·safe_home 미적용, `finally` 는 비동작만 실행.
 - 자체 코드 리뷰 A~E 반영: 재시도·safe_home 직전 중단 확인, 중단 잠김 → `resume()` 전까지 새 태스크 거절.
+- 2차 리뷰 반영: 중단 시 처음 멈춘 위치 유지, Runner 내부 에러도 `INTERNAL_ERROR` 스텝 실패로 처리해 `finally` 보장.
 - Runner 는 원자 동작을 `execute(action, params, timeout_sec) → ActionResult` 로 위임 → #10 에서 ROS 액션 클라이언트·mock 백엔드를 이 자리에 연결.
 - PR #25 에 결정 #26(MongoDB P1)·#27(스킬 4종) 의견 제출, 이슈 #3 에 결정 #23·TF 설정 파일 형식 답변 → A·B 동의.
 
@@ -21,6 +22,7 @@
 - E: #26(MongoDB P1)·#27(P1 스킬 4종) 승인, **태스크 JSON 에서 스킬을 부르는 방식** 결정 → #12 `pre`/`effect` 확인 시점에 필요.
 - B·E: `places.yaml` 키 형식(이슈 #6) → bringup 서랍·트레이 TF 에 필요.
 - E: 결정 #23 결정 로그 확정 승인.
+- B: 펜던트 비상정지 시 백엔드가 `ESTOP` 코드를 반환해야 Runner 가 `ABORTED` 로 처리 (이슈 #19 확인 필요).
 - B (#17 때): `finally` 서랍 닫기 실패 시 홈 복귀 여부(`on_failure` skip/abort).
 
 ## 다음 할 일

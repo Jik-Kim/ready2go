@@ -103,6 +103,7 @@
 | `HALTED` | Runner `halt()`로 중단(사용자 취소·`/runner/estop`) → `ABORTED` |
 | `ACTION_FAILED` | 백엔드가 에러 코드 없이 실패를 반환 |
 | `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등). 스텝 실패로 처리해 `finally`를 보장 |
+| `INTERNAL_ERROR` | Runner 내부의 예상 못 한 에러. 스텝 실패로 처리해 `finally`를 보장하고 기록의 `internal_error`에 원인을 남김 |
 
 ### 7.2 태스크 시퀀스 스키마
 
