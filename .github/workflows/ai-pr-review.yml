@@ -63,6 +63,15 @@ jobs:
             core.setOutput('reason', reason);
             core.info(`Review route: ${model}/${effort} (${reason})`);
 
+      - name: Check OpenAI API key configuration
+        env:
+          API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: |
+          if [[ "$API_KEY_PRESENT" != "true" ]]; then
+            echo "::error title=Missing API key::Add OPENAI_API_KEY under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
       - name: Review PR diff without editing or running project code
         id: codex
         uses: openai/codex-action@v1
