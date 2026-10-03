@@ -8,6 +8,9 @@
 - `docs/interfaces.md`
 - `docs/runner.md (7.1 inspect_region)`
 
+## 데이터 수집·학습 도구
+실물 데이터 촬영·라벨 세션 분할·YOLO 학습·평가: [`tools/yolo/README.md`](../../../tools/yolo/README.md)
+
 ## 구조
 
 | 폴더 | 내용 |
