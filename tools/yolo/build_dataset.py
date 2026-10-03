@@ -25,7 +25,19 @@ CLASSES_FILE = ROOT / "config/yolo_classes.txt"
 
 
 def ontology_items(ontology=ONTOLOGY) -> list[str]:
-    return list(json.loads(Path(ontology).read_text(encoding="utf-8"))["world"]["items"].keys())
+    """온톨로지 world.items 의 키 순서. 정의가 분리된 형식(진입 파일의 sources.world → world.jsonld)과
+    단일 파일 형식(진입 파일 안의 world)을 모두 읽는다. 학습 도구가 PyYAML 에 의존하지 않도록
+    ready2go_knowledge 의 load() 대신 world 파일만 직접 따라간다."""
+    path = Path(ontology)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    ref = data.get("sources", {}).get("world")
+    if ref:
+        path = (path.parent / ref).resolve()
+        data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return list(data["world"]["items"].keys())
+    except KeyError:
+        raise ValueError(f"{path}: world.items 를 찾지 못했습니다") from None
 
 
 def class_names(ontology=ONTOLOGY) -> list[str]:
