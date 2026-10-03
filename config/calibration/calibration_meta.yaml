@@ -1,4 +1,4 @@
-# T_gripper2camera.npy 메타데이터 (담당 A). 값은 이 파일에만 둔다. 절차·재계산: README.md, 결정: docs/decisions.md #23(TF 구조)·#28(프로젝트 TCP).
+# T_gripper2camera.npy 메타데이터 (담당 A). 값은 이 파일에만 둔다. 절차·재계산: README.md, 결정: 이슈 #3(TF 구조)·#7(캘리브레이션·프로젝트 TCP).
 # 상태: 채택 — B의 5점 verify.py 실측(10/03)으로 확정 (verified.status 참고)
 file: T_gripper2camera.npy
 frame_meaning: "TCP 프레임에서 본 카메라 광학 프레임 (T_gripper2cam, OpenCV 핀홀 규약). 평행이동 mm, 회전 행렬"   # [문서] handeye_calibration.py
@@ -21,9 +21,9 @@ tcp:
   tool_weight_on_pendant: {name: "tool_weight", kg: 1.420, cog_mm: [12.570, -28.240, -6.880]}   # [실측 10/02]
 
 verified:
-  error_cm: "≤ 0.2 (x·y 육안, 5점, B 10/03)"   # 결정 #22 기준 1.0 cm 이내 충족. 근거: #7 B 3차 코멘트
+  error_cm: "≤ 0.2 (x·y 육안, 5점, B 10/03)"   # 합격 기준 1.0 cm 이내(이슈 #7) 충족. 근거: #7 B 3차 코멘트
   qualitative: "체스판 중앙 파지, 육안 1 cm 미만 [사용자 보고 10/01]"
-  status: accepted                     # 5점 실측이 결정 #22 기준 충족 (10/03). 이전: provisional
+  status: accepted                     # 5점 실측이 합격 기준(1.0 cm, 이슈 #7) 충족 (10/03). 이전: provisional
   by:
     - "A: 2026-10-01 verify.py 육안 확인"
     - "B: 2026-10-03 5점 verify.py, 채택 npy로 x·y 5곳 일치, z 일관 [실측]"
