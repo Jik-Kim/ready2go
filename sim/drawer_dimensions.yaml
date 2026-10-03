@@ -1,0 +1,55 @@
+# 실물 서랍장·작업대 형상 치수 (담당 A). Isaac Sim 트윈 모델링용 값 — 형상 치수는 이 파일에만 둔다.
+# 측정: 캘리퍼스·줄자, 2026-10-02 [사용자 보고, 평면도 + 사진 3장]. 단위 cm (모델링 시 m로 변환).
+# 서랍의 로봇 베이스 기준 위치는 #6(3점 터치, B·E)이 정본. 이 파일의 작업대 기준 위치는 씬 초기 배치용이며 #6 결과로 교체한다.
+# 최대 인출 거리(max_travel_m)는 config/places.yaml(B·E)에 채운다 — 여기에는 따로 적지 않는다.
+# null = 아직 측정 안 함.
+
+table:
+  width_cm: 120                       # [사용자 보고, 도면] 가로
+  depth_cm: 65                        # [사용자 정정 10/02] 도면의 55는 오기. 21 + 23 + 21 = 65로 일치
+  surface_height_from_floor_cm: null  # 미측정
+
+drawer_unit:                          # 3단 소형 서랍장 (사진: 별도 흰색 선반 위, 작업대 옆)
+  tiers: 3                            # [사진]
+  width_cm: 26.5                      # [사용자 보고, 도면] 작업대 변과 나란한 방향
+  depth_cm: 20.8                      # [사용자 보고, 도면] 앞면~뒷면 (닫힌 상태). 도면 세로 방향을 깊이로 해석 [추정]
+  total_height_cm: 23                 # [사용자 보고, 도면] 3단 전체
+  per_tier_height_cm_rough: 7.7       # [계산, 거친 추정] 23 / 3. 맨 위 단은 23 - 15.5 = 7.5로 일치
+  seat: "작업대 위가 아니라 작업대 옆 별도 흰색 선반 위"   # [사진]
+  front_faces: "작업대 쪽 (로봇 방향)"                    # [사진, 확인 필요]
+  tier_usage:                         # [사용자 보고 10/02] 맨 아래 단은 받침대, 위의 2·3단만 사용
+    bottom: "받침대 (사용 안 함)"
+    middle: "drawer_bottom (Phase 3)"   # 프로젝트 서랍 ID와의 대응은 [추정], E·B 확인
+    top: "drawer_top (Phase 1·2)"
+  handle:
+    type: "고무 재질의 짧은 곡면 탭(한쪽이 열린 반원통 모양), 위아래로 잡는 형태"   # [사용자 보고 + 사진 10/02]
+    size_cm: 2                           # [사용자 보고] 지름인지 돌출 길이인지 구분 미확인
+    protrusion_cm: null
+    horizontal_offset_from_panel_center_cm: 0   # [사용자 확인 10/02] 패널 가로 중앙. 사진에서 오른쪽으로 보인 것은 원근 때문(촬영 각도)이며 실제 오프셋이 아님
+    vertical_position: "패널 높이의 중간 부근"   # [사진]
+    grip_direction: "위아래 (손가락이 수직으로 닫힘)"   # RG2를 손목 회전해 접근해야 하는지 B 확인 [추정]
+  seat_fixed: true                    # [사용자 확인 10/02] 받침 선반은 고정시킴
+  fixed_to_seat: null                 # 서랍장 상자가 선반에 붙어 있는지는 미확인 [확인 필요]. 고정 방법(테이프/볼트/클램프)도 미기록
+  seat_top_vs_table_surface_cm: -0.3  # [사용자 확인 10/02] 받침 선반 윗면이 작업대 윗면보다 3 mm 낮음
+
+drawer_top:                           # Phase 1·2 대상. 아래 서랍은 Phase 3
+  front_panel_cm: {width: null, height: 7.5, thickness: null}    # height [계산] 23 - 15.5. 폭은 전체 폭(26.5)에 가깝게 보임(사진), 미측정
+  front_bottom_height_above_seat_cm: 15.5                        # [사용자 확인 10/02] 맨 위 단의 아랫면 높이, 기준면 = 받침 선반 윗면
+  interior_cm: {depth: 20.5, width: 26, height: 5.7, floor_height_above_seat_cm: null}   # [사용자 정정 10/02] 내부 깊이 약 20.5, 폭 26, 높이 5.7. (처음 '17x26x5.7'의 17은 내부 깊이가 아니라 최대 인출 거리였음)
+  max_travel_cm: 17                                              # [사용자 정정 10/02] 닫힌 상태에서 최대로 당겼을 때 앞면 이동 거리. 정본은 config/places.yaml max_travel_m(B·E)이므로 0.17 m로 전달 필요
+
+plan_view_cm:                         # [사용자 보고, 도면] 작업대 평면도 기준, 씬 초기 배치용
+  drawer_right_edge_to_table_right: 40.1
+  drawer_left_edge_to_table_left: 53.4            # [계산] 120 - 26.5 - 40.1
+  drawer_front_to_table_edge_gap: 0.4             # 도면의 0.4cm. 간격인지 겹침인지 [팀 확정 필요]
+  robot_base_left_gap_to_table_left: 16
+  robot_base_gap_to_table_top_edge: 21
+  robot_base_gap_to_table_bottom_edge: 21
+  robot_base_plate_cm: {width: 23, depth: 23}   # [사용자 정정 10/02] 베이스 아래 철판 크기 (도면의 23cm 두 개)
+  robot_base_plate_center_from_table_left: 27.5 # [계산] 16 + 23/2. 철판 중심이며 로봇 축 위치와 같은지는 #6/URDF로 확인
+  robot_base_plate_center_from_table_top: 32.5  # [계산] 21 + 23/2 (= 65/2, 깊이 방향 중앙)
+  note: "로봇 베이스와 서랍의 상대 위치는 #6(3점 터치) 결과를 쓴다. 이 평면도 값은 초기 배치용."
+
+trays:                                # staging_tray, handover_zone
+  staging_tray: {size_cm: null, slots: 3}
+  handover_zone: {size_cm: null, slots: 3}

@@ -3,7 +3,7 @@
 # 단위 m, 쿼터니언 xyzw (w ≥ 0). parent = base_link (DSR 드라이버 TF 접두어 없음 [실측 10/02, #7])
 drawer_top:
   tf: {parent: base_link, child: drawer_top, translation_m: null, quaternion_xyzw: null}
-  max_travel_m: null
+  max_travel_m: 0.17   # [실측 10/02, A] 닫힘→최대 인출 앞면 이동 거리 17 cm (sim/drawer_dimensions.yaml)
   return_slot: null
 staging_tray:
   tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}

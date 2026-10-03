@@ -1,8 +1,6 @@
 # Isaac Sim 디지털 트윈
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **P1**: 없음(T1 씬 구성은 병행 가능) · **P2**: T2 실물 미러링 · **P3**: T3 사전 검증 모드.
+> 관련 요구사항: [FR-TWN-01–02](requirements.md#fr-twn-01), [NFR-TWN-01](requirements.md#nfr-twn-01). 디지털 트윈 검증 경계와 구현 상세는 이 문서에서 다룹니다.
 
 ## 10. Isaac Sim 디지털 트윈 (담당 A, 보조 경로)
 
@@ -23,7 +21,7 @@
 ### 10.3 작업 단계와 중단 기준
 | 단계 | 내용 | 기한 |
 | :--- | :--- | :--- |
-| T1 씬 | 기존 M0609 조립본 + 실측 서랍장(Prismatic Joint) + 트레이, 호스트 ROS 2 + CycloneDDS로 Bridge 동작 확인 | Day 2~3 |
+| T1 씬 | 기존 M0609 조립본 + 실측 서랍장(Prismatic Joint) + 트레이, `sim/isaac_env.sh`(번들 ROS 라이브러리 + CycloneDDS)로 Bridge 동작 확인 | Day 2~3 |
 | T2 미러링 | `/dsr01/joint_states` → 트윈 조인트 위치 구동 (에뮬레이터·실물 공통) | Day 4 |
 | T3 사전 검증 | 손목 카메라 oracle, 시뮬 그리퍼(attach 폴백), `BACKEND=sim`으로 7.3 예시 실행 | Day 6~7 |
 

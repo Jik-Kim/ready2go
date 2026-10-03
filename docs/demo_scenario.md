@@ -1,8 +1,6 @@
 # 최종 시연 시나리오
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **L1 = P1**, **L2 = P2**, **L3 = P3** (17.7). 17장 전체 시나리오는 **P3** 기준.
+> 관련 기준: [UC-P1–P3](requirements.md#use-cases), [AC-DEMO-01](requirements.md#ac-demo-01). 세부 시연 순서는 이 문서에서 다룹니다.
 
 ## 17. 최종 시연 시나리오 (팀 공동 목표) — 확정 (10/02 팀 합의)
 

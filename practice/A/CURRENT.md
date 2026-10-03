@@ -5,7 +5,8 @@
 
 ## 지금 상태
 - #5 완료: realsense 컨테이너에서 컬러·정렬 뎁스를 `/wrist_cam/...`으로 발행, 수신 확인 (PR #24 머지).
-- #7: 핸드-아이 결과 **잠정 채택(개발용), 5점 `verify.py` 검증 대기**. `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 리뷰 중.
+- #7: 핸드-아이 결과 **잠정 채택(개발용), 5점 `verify.py` 검증 대기**. `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
+- 트윈 T1 씬 완료: `sim/scenes/ready2go_t1.usd`(작업대·3단 서랍장·M0609/RG2·손목 카메라, 서랍 Prismatic 0~0.17 m)를 `build_scene.py`로 생성하고 `verify_scene.py` 전부 통과, GUI에서 정상 확인 [실측 10/03]. 서랍 실측 치수·`drawer_top` 인출 거리 정정은 PR #29 리뷰 중. 씬 작업은 로컬 브랜치 `feat/a-isaac-env`(PR #29 위에 쌓음), 미push.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -24,7 +25,10 @@
 - [ ] 5점 `verify.py` 측정 → `verified.error_cm` 기록, 1.0 cm 이내(결정 #22)면 `accepted`로 확정
 - [ ] #14 실물 데이터 수집(로봇 슬롯)·라벨링·YOLO 학습
 - [ ] #18 Day 4까지 `inspect_region` stub 제공 (B #15용), 이후 V2
-- [ ] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
+- [x] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
+- [ ] `feat/a-isaac-env` push → PR(기준 브랜치 `feat/a-drawer-measurements`, #29 머지 후 `main`으로 변경), 리뷰어 C
+- [ ] 씬의 [추정] 값 교체: 로봇-작업대 각도·서랍장 위치(#6 결과), 손잡이 돌출 길이, 트레이 크기 (표: `sim/README.md`)
+- [ ] 트윈 T2 미러링: `/dsr01/joint_states` → 트윈 조인트 (dsr-emulator 또는 B의 #4). Day 5 중단 기준
 
 ## Phase 2 이슈 후보 (P1 마무리 후 생성)
 - 가림 순서(`top_z` 정렬) + V3 미지 물체 + ID 추적 (Day 6, Day 9 Unpacking에 필요)
