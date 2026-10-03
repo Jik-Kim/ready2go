@@ -24,7 +24,8 @@
 ## 다음 할 일
 - [ ] 5점 `verify.py` 측정 → `verified.error_cm` 기록, 1.0 cm 이내(결정 #22)면 `accepted`로 확정
 - [ ] #14 실물 데이터 수집(로봇 슬롯)·라벨링·YOLO 학습
-- [ ] #18 Day 4까지 `inspect_region` stub 제공 (B #15용), 이후 V2
+- [x] #18 `inspect_region` stub (설정 파일 좌표 응답, 서비스 호출 확인 10/03) — 좌표를 B와 실물로 재서 교체, `pose` 형식 B와 합의 필요
+- [ ] #18 V2 (Day 5): YOLO+뎁스
 - [x] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
 - [ ] `feat/a-isaac-env` push → PR(기준 브랜치 `feat/a-drawer-measurements`, #29 머지 후 `main`으로 변경), 리뷰어 C
 - [ ] 씬의 [추정] 값 교체: 로봇-작업대 각도·서랍장 위치(#6 결과), 손잡이 돌출 길이, 트레이 크기 (표: `sim/README.md`)

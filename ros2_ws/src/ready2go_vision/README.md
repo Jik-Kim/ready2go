@@ -20,3 +20,18 @@
 ## 규칙
 - 다른 담당의 패키지는 수정하지 않음. 필요하면 GitHub Issue로 요청.
 - 계약(`ready2go_interfaces`, `contracts/`)을 바꾸면 스키마·예시·문서를 같은 PR에서 함께 수정.
+
+## inspect_region stub (#18, Day 4 — B의 #15 실물 테스트용)
+카메라·YOLO 없이 `config/vision_stub.yaml`의 손으로 잰 좌표를 `result_json` 형식 그대로 응답한다. 실제 구현(Day 5)도 같은 형식을 쓴다.
+
+```bash
+colcon build --packages-select ready2go_interfaces ready2go_vision && source install/setup.bash
+ros2 run ready2go_vision inspect_region_stub --ros-args -p config_path:=<저장소>/config/vision_stub.yaml
+ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: watch}"
+```
+
+- 결과 예시: [`contracts/examples/inspect_region_result.json`](../../../contracts/examples/inspect_region_result.json)
+- `pose` = `{frame: <region>, position: [x, y, z] m, yaw: rad}` — 서랍 좌표계 기준. 형식은 **[팀 확정 필요]**(B의 `pick_object`가 쓰는 형식과 맞출 것).
+- 좌표값은 자리표시자 **[추정]**. B와 함께 실물을 재서 `config/vision_stub.yaml`을 덮어쓴다.
+- 미발견은 `success=true` + `target_found=false`, 모르는 region은 `success=false` + `error_code=UNKNOWN_REGION`.
+- 테스트: `python3 -m pytest --rootdir=. --confcutdir=. ros2_ws/src/ready2go_vision` (저장소 루트에서)

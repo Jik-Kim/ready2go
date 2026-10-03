@@ -18,5 +18,5 @@ setup(
     description='inspect_region: 검출 · 뎁스 3D 위치 · 가림 순서 · 인스턴스 ID 추적',
     license='TODO',
     tests_require=['pytest'],
-    entry_points={'console_scripts': []},
+    entry_points={'console_scripts': ['inspect_region_stub = ready2go_vision.nodes.inspect_region_stub:main']},
 )
