@@ -14,7 +14,7 @@ drawer_bottom:                # 서랍장 아래 단 [사용자 확인 10/03: �
   max_travel_m: 0.225   # [실측 A 10/03] 닫힘→최대 인출 22.5 cm (두 서랍 동일 제품 가정)
   return_slot: null
   interior_m: [0.205, 0.295, 0.07]   # 위 단과 같은 제품 [사용자 확인 10/03]
-  interior_clearance_height_m: 0.08
+  interior_clearance_height_m: null  # 1단은 위가 2단 상자 바닥까지 열려 있어(중간 가로막 없음) 8 cm가 아님. 미측정
   sag_m_at_max_travel: 0.0   # [사용자 확인 A 10/03] 처짐 없음 (위 단과 같은 제품)
 staging_tray:
   tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}

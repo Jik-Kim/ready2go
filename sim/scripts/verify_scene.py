@@ -52,7 +52,8 @@ need = ["/World/m0609/base_link", "/World/m0609/link_6", "/World/m0609/onrobot_r
         "/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera",
         "/World/workspace/table", "/World/physicsScene"]
 if has_cabinet:
-    need += ["/World/workspace/shelf", "/World/workspace/cabinet/drawer_top_tray/handle", "/World/workspace/cabinet/drawer_top_joint"]
+    need += ["/World/workspace/shelf", "/World/workspace/cabinet/drawer_top_tray/handle", "/World/workspace/cabinet/drawer_top_joint",
+             "/World/workspace/cabinet/drawer_bottom_tray/handle", "/World/workspace/cabinet/drawer_bottom_joint"]
 elif missing:
     print("[SKIP] 서랍장 없음 — 서랍 값이 아직 비어 있어 의도적으로 생략된 상태입니다. 필요한 항목: " + "; ".join(missing), flush=True)
 else:
