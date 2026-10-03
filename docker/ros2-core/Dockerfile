@@ -33,4 +33,6 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 WORKDIR /ros2_ws
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["bash", "-c", "colcon build --symlink-install && source install/setup.bash && ros2 launch ready2go_bringup ready2go.launch.py"]
+# 팀 워크스페이스 빌드 산출물은 컨테이너 전용 /colcon 에 둔다. 마운트한 ros2_ws/build·install 은 호스트 경로로
+#   빌드되어 있을 수 있어 같이 쓰면 CMakeCache 경로 불일치로 빌드가 실패함 [실측 10/03, 이슈 #3].
+CMD ["bash", "-c", "colcon --log-base /colcon/log build --symlink-install --build-base /colcon/build --install-base /colcon/install && source /colcon/install/setup.bash && ros2 launch ready2go_bringup ready2go.launch.py"]

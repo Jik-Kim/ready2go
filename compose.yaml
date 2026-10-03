@@ -58,7 +58,7 @@ services:
 
   db:
     profiles: ["real", "sim", "dev"]
-    image: mongo:8.0
+    image: mongo:7.0                 # 8.0 은 커널 6.19+ 에서 기동 거부, 팀 PC 모두 커널 7.0 (결정 #18 변경, 이슈 #34)
     network_mode: host
     volumes: ["./db_data:/data/db"]    # 로그·상태 영속 저장
 
@@ -66,9 +66,13 @@ services:
     profiles: ["sim", "dev"]
     image: doosanrobot/dsr_emulator:3.0.1
     network_mode: host
+    environment: { ROBOT_MODEL: m0609 }   # 결정 #1 로봇 기종
+    tty: true                        # 시작 스크립트(start_services.sh)가 tty 없으면 바로 종료됨 [실측 10/03]
+    stdin_open: true
 
   mock-sim:
     profiles: ["dev"]
     build: ./docker/mock-sim
     network_mode: host
     environment: *ros-env
+    volumes: ["./config:/config:ro"]   # CYCLONEDDS_URI가 /config를 가리킴 (없으면 다른 DDS 설정으로 떠서 송수신 실패 [실측 10/03])
