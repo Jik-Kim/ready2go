@@ -1,8 +1,6 @@
 # 플래너: 명령 → 스킬 조합
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **P2**부터 (Phase 1에는 플래너 없음 — 사람이 짠 태스크 JSON으로 조합). 실행 중 실패 시 재계획은 **P3**.
+> 관련 요구사항: [FR-PLN-02–03](requirements.md#fr-pln-02), [FR-ONT-02–03](requirements.md#fr-ont-02). 플래너 알고리즘과 실행 상세는 이 문서에서 다룹니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격 (일부)
 

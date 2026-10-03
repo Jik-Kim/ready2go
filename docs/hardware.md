@@ -1,8 +1,6 @@
 # 실물 작업 공간 · 하드웨어
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **P1·P2**: 서랍 1개(위 서랍) + 임시·전달 트레이 · **P3**: 서랍 2개. 서랍장·물품 선정 기준은 전 Phase 공통.
+> 관련 요구사항: [FR-ACT-01–04](requirements.md#fr-act-01), [NFR-SAF-01](requirements.md#nfr-saf-01). 실제 작업 공간과 장비 구성 상세는 이 문서에서 다룹니다.
 
 ## 2. 실물 작업 공간 · 하드웨어 구성
 

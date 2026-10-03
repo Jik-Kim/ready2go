@@ -1,8 +1,6 @@
 # Docker · 컨테이너 구성
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: 전 Phase 공통(과목 필수). `db`(MongoDB)는 **P2**부터 사용 — **P1** 로그는 JSONL 파일. `dsr-emulator`·`mock-sim`은 개발용으로 P1부터 사용.
+> 관련 요구사항: [NFR-ENV-01](requirements.md#nfr-env-01), [FR-COM-02](requirements.md#fr-com-02), [FR-LOG-01–02](requirements.md#fr-log-01), [NFR-DB-01](requirements.md#nfr-db-01). 컨테이너·네트워크 구현 상세는 이 문서에서 다룹니다.
 
 ## 4. Docker / 컨테이너 구성 (필수)
 

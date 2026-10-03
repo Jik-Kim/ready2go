@@ -1,8 +1,6 @@
 # Runner · 원자 동작 · JSON 규격 · 실행 로그
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **P1**: 원자 동작 전체, 제어 블록 `sequence`·`if`·`set_var`·`retry`·`timeout_sec`·`finally`, 변수·조사 필터, 로그(성공 여부·에러 코드, JSONL) · **P2**: `while`·`for_each`·`push`/`pop`·`recovery`·`fallback`·`on_halt`, 7.3 예시(Unpacking), 로그 `pre_check`·`post_check`·`state_diff` + MongoDB · **P3**: 안전 게이트 기록.
+> 관련 요구사항: [FR-PLN-01](requirements.md#fr-pln-01), [FR-ONT-01–02](requirements.md#fr-ont-01), [FR-LOG-01–02](requirements.md#fr-log-01). Runner 동작·JSON 형식·로그 상세는 이 문서에서 다룹니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격 (강사 챌린지 핵심)
 

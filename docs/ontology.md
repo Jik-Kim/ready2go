@@ -1,8 +1,6 @@
 # 로봇 온톨로지 · 상태 추적 · 지식 그래프
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **P1**: 7.5 세계·상태 + 스킬 4종의 `pre`·`effect`, 7.8 Runner가 `effect`로 상태 갱신 · **P2**: `verify`·`hold`, 관측 우선 상태 갱신 · **P3**: 클래스 추론, 시작 시 정합성 검사, 7.6 스킬 추가(코드 0줄), `STATE_MISMATCH` 시연. 7.9 지식 그래프는 초안.
+> 관련 요구사항: [FR-ONT-01–03](requirements.md#fr-ont-01), [FR-PLN-01–03](requirements.md#fr-pln-01), [FR-REC-01](requirements.md#fr-rec-01). 온톨로지와 상태 추적의 구현 상세는 이 문서에서 다룹니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격 (일부)
 

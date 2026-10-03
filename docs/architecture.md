@@ -1,8 +1,6 @@
 # 시스템 아키텍처 · 기술 스택
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: 전 Phase 공통 구조. 백엔드 `sim`(트윈)은 **P2**부터 사용.
+> 관련 요구사항: [NFR-ABS-01](requirements.md#nfr-abs-01), [NFR-ENV-01](requirements.md#nfr-env-01), [FR-COM-01](requirements.md#fr-com-01). 기술 상세와 구현 경계는 이 문서에서 다룹니다.
 
 ## 3. 시스템 아키텍처
 

@@ -1,8 +1,6 @@
 # Isaac Sim 디지털 트윈
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **P1**: 없음(T1 씬 구성은 병행 가능) · **P2**: T2 실물 미러링 · **P3**: T3 사전 검증 모드.
+> 관련 요구사항: [FR-TWN-01–02](requirements.md#fr-twn-01), [NFR-TWN-01](requirements.md#nfr-twn-01). 디지털 트윈 검증 경계와 구현 상세는 이 문서에서 다룹니다.
 
 ## 10. Isaac Sim 디지털 트윈 (담당 A, 보조 경로)
 

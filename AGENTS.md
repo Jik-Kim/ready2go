@@ -2,7 +2,8 @@
 
 ## 작업 시작
 - 먼저 `docs/README.md`(인덱스)만 읽고, 작업에 필요한 문서만 연다. **문서 전체를 한 번에 읽지 않는다.**
-- `docs/phases.md`에서 현재 Phase를 확인하고, **그 Phase 범위 밖 기능은 만들지 않는다.**
+- `docs/requirements.md`에서 작업에 연결된 요구사항 ID와 Phase를 확인하고, **그 Phase 범위 밖 기능은 만들지 않는다.** 별도 Phase 요약 문서는 기준으로 사용하지 않는다.
+- 요구사항 문서 전체를 읽지 않는다. 작업 관련 ID를 먼저 찾아 해당 FR/NFR 항목과 연결된 완료 기준만 확인한다. 범위가 불명확하면 `requirements.md` 2장의 Phase 요약을 확인한다.
 - JSON은 문서가 아니라 원본 파일(`contracts/`, `knowledge/`, `tasks/`)을 본다.
 - `git status`로 작업 트리 상태를 확인한다. `docs/archive/`는 읽지 않는다.
 

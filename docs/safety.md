@@ -1,8 +1,6 @@
 # 안전 요구사항
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: **P1**: 비상정지(펜던트·키보드), 저속 → 정상 속도 절차, 2인 운용, 전달 트레이 방식 · **P2**: 작업 영역 제한, 목표형 명령 계획 확인(게이트 4) · **P3**: 안전 게이트 8단계 전체.
+> 관련 요구사항: [NFR-SAF-01–02](requirements.md#nfr-saf-01), [NFR-TWN-01](requirements.md#nfr-twn-01). 실물 작업 절차와 안전 게이트 상세는 이 문서에서 다룹니다.
 
 ## 11. 안전 요구사항 (실물)
 

@@ -1,8 +1,6 @@
 # 개요 · 팀 구성 · 차별점
 
-> 상위 인덱스: [docs/README.md](README.md) · 원본: 기획서 v4.1 (`docs/archive/project_plan_v4.1.md`)
->
-> **Phase 범위**: 전 Phase 공통. 기능별 범위는 [phases.md](phases.md).
+> 관련 기준: [프로젝트 목표와 사용자 시나리오](requirements.md#use-cases). 팀 구성과 배경은 이 문서에서 다룹니다.
 
 ## 0. 팀 구성 및 역할 (R&R)
 
