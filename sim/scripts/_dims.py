@@ -5,8 +5,8 @@
 - 서랍 내부 치수·최대 인출 거리: config/places.yaml (정본)
 """
 
-# build_scene.py 의 서랍장 형상 코드가 지원하는 단 수. 새 서랍(2단)은 아직 형상 코드가 없다.
-SUPPORTED_TIERS = 3
+# build_scene.py 의 서랍장 형상 코드가 지원하는 단 수 (원목 2단 서랍장).
+SUPPORTED_TIERS = 2
 
 
 def cabinet_missing(dim: dict, places: dict) -> list[str]:
@@ -26,6 +26,12 @@ def cabinet_missing(dim: dict, places: dict) -> list[str]:
         "plan_view_cm.drawer_front_to_table_edge_gap": pv.get("drawer_front_to_table_edge_gap"),
         "places.yaml drawer_top.interior_m": pt.get("interior_m"),
         "places.yaml drawer_top.max_travel_m": pt.get("max_travel_m"),
+        "drawer_unit.riser_cm": u.get("riser_cm"),
+        "drawer_unit.top_board_cm": u.get("top_board_cm"),
+        "drawer_unit.tiers_detail": u.get("tiers_detail"),
+        "drawer_unit.drawer_box (side_wall_cm, cabinet_board_cm)": all((u.get("drawer_box") or {}).get(k) is not None for k in ("side_wall_cm", "cabinet_board_cm")) or None,
+        "drawer_unit.handle (width, thickness, protrusion, heights)": all((u.get("handle") or {}).get(k) is not None for k in ("width_cm", "thickness_vertical_cm", "protrusion_cm", "height_from_bottom_cm")) or None,
+        "drawer_top.front_panel_cm (width, thickness)": all((top.get("front_panel_cm") or {}).get(k) is not None for k in ("width", "thickness")) or None,
     }
     missing = [k for k, v in need.items() if v is None]
     tiers = u.get("tiers")

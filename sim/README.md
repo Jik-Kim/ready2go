@@ -33,13 +33,13 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 - `git-lfs`가 설치되기 전에는 USD를 커밋하지 않는다.
 
 ## T1 씬 (`sim/scenes/ready2go_t1.usd`)
-작업대 + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`. **서랍은 10/03에 철제 고정대 + 원목 서랍으로 교체하기로 해 기존 플라스틱 서랍장 값을 모두 삭제했고, 현재 씬에는 서랍장이 없다.** 새 서랍을 설치해 `sim/drawer_dimensions.yaml`과 `config/places.yaml`의 서랍 값을 채우고 `build_scene.py`를 다시 실행하면 받침 선반 + 서랍장(맨 위 단 Prismatic Joint)이 만들어진다.
+작업대 + 받침 선반 + 원목 2단 서랍장(상자 2개 각각 Prismatic Joint 0~22.5 cm, 중간 가로막 없음) + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`. 서랍은 10/03에 철제 레일 + 원목 서랍으로 교체했고 기존 플라스틱 서랍장 값은 모두 삭제했다. 서랍 값이 하나라도 비면 `build_scene.py`는 서랍장 없이 만들고 이유를 출력한다.
 ```bash
 ~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py     # 씬 생성 (sim/drawer_dimensions.yaml, config/calibration/ 에서 값을 읽음)
 ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py    # 검증 (9개 구조 + 카메라 변환 + 서랍 가동 범위 + 로봇 안정성), 마지막 줄 `[verify] 결과: 전부 통과`로 판정
 ```
 GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Open**으로 `sim/scenes/ready2go_t1.usd`.
-- 서랍 움직여 보기(서랍장이 있을 때): Stage에서 `/World/workspace/cabinet/drawer_top_joint` 선택 → Property ▸ Drive ▸ Linear ▸ **Target Position**(m, 0~max_travel) → Play.
+- 서랍 움직여 보기: Stage에서 `/World/workspace/cabinet/drawer_top_joint`(또는 `drawer_bottom_joint`) 선택 → Property ▸ Drive ▸ Linear ▸ **Target Position**(m, 0~max_travel) → Play.
 - 손목 카메라 시점: 뷰포트 카메라 메뉴에서 `/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera`.
 - **생성 파일이라 USD를 직접 수정하지 말고** `build_scene.py`나 `drawer_dimensions.yaml`을 고친 뒤 다시 생성한다.
 
@@ -49,9 +49,11 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 로봇과 작업대 변의 각도 | `WORKSPACE_YAW_DEG = 0` (미확인) | #6(3점 터치) 결과 |
 | 로봇 축 위치 | 베이스 철판 중심 = 원점 | #6/URDF 확인 |
 | `link_6` 원점 = 플랜지 면 | 가정 (손목 카메라 위치에 영향) | B 확인 |
+| 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
+| 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
 | 스테이징·전달 트레이 | 아직 없음 (크기 미측정) | 실측 후 추가 |
 
-검증으로 확인된 것 [실측]: 카메라 광학 프레임이 `npy × TCP`로 직접 계산한 값과 일치(평행이동 4 µm, 회전 0.0007°), 로봇은 중력에 무너지지 않음(link_6 변화 0.5 mm). (서랍 가동 범위 검증은 기존 플라스틱 서랍장 기준이었고 서랍 교체로 삭제됨 — 새 서랍 씬에서 다시 확인)
+검증으로 확인된 것 [실측]: 카메라 광학 프레임이 `npy × TCP`로 직접 계산한 값과 일치(평행이동 4 µm, 회전 0.0007°), 로봇은 중력에 무너지지 않음(link_6 변화 0.5 mm). 새 서랍 씬 검증 [실측 10/03]: 맨 위 서랍이 목표 22.5 cm에서 22.49 cm, 한계 초과 목표에서도 22.50 cm에서 멈추고 다른 축 이동 없음.
 
 ## T2 미러링 (`sim/scripts/mirror_joint_states.py`)
 `/dsr01/joint_states`를 구독해 트윈의 M0609 관절을 그대로 따라가게 한다. **구독만 하고 로봇에는 어떤 명령도 보내지 않는다.**
