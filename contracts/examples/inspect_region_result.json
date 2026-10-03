@@ -1,23 +1,37 @@
 {
   "target_found": true,
   "target": {
-    "id": "watch#1",
-    "class": "watch",
+    "id": "eraser#1",
+    "class": "eraser",
     "pose": {
       "frame": "drawer_top",
       "position": [
-        0.1,
-        0.08,
+        0.18,
+        0.13,
         0.0
       ],
       "yaw": 0.0
     },
-    "top_z": 0.04
+    "top_z": 0.0115
   },
   "candidates": [
     {
-      "id": "wallet#1",
-      "class": "wallet",
+      "id": "lip_balm#1",
+      "class": "lip_balm",
+      "pose": {
+        "frame": "drawer_top",
+        "position": [
+          0.1,
+          0.08,
+          0.0
+        ],
+        "yaw": 0.0
+      },
+      "top_z": 0.0202
+    },
+    {
+      "id": "car_key#1",
+      "class": "car_key",
       "pose": {
         "frame": "drawer_top",
         "position": [
@@ -27,21 +41,7 @@
         ],
         "yaw": 0.0
       },
-      "top_z": 0.02
-    },
-    {
-      "id": "car_key#1",
-      "class": "car_key",
-      "pose": {
-        "frame": "drawer_top",
-        "position": [
-          0.18,
-          0.13,
-          0.0
-        ],
-        "yaw": 0.0
-      },
-      "top_z": 0.02
+      "top_z": 0.0158
     }
   ],
   "visible_count": 3

@@ -40,7 +40,8 @@ def main() -> int:
                                   name=f"{args.name}_val", exist_ok=True)
     m50 = float(metrics.box.map50)
     per_class = {n: float(v) for n, v in zip(metrics.names.values(), metrics.box.ap50)}
-    result = {"name": args.name, "base": args.base, "epochs": args.epochs, "imgsz": args.imgsz,
+    classes_f = Path(args.data).parent / "classes.txt"
+    result = {"name": args.name, "base": args.base, "classes": classes_f.read_text(encoding="utf-8").split() if classes_f.exists() else None, "epochs": args.epochs, "imgsz": args.imgsz,
               "map50": m50, "map50_per_class": per_class, "threshold": args.threshold, "passed": m50 >= args.threshold,
               "weights": str(best)}
     (ROOT / "runs" / args.name / "metrics.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

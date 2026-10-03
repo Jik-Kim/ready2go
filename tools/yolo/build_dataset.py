@@ -2,7 +2,9 @@
 """YOLO 데이터셋 구성 (담당 A, #14). 라벨링된 촬영 세션을 **세션 단위로** train/val 로 나눈다.
 
 입력 구조:  data/labeled/<세션>/images/*.png  +  data/labeled/<세션>/labels/*.txt  (YOLO 형식, 클래스 id = 아래 클래스 목록 순서)
-클래스 목록: knowledge/robot_ontology.jsonld 의 world.items 키 순서 (물품 목록 #8 이 온톨로지에 반영되면 자동으로 따라감)
+클래스 목록: **config/yolo_classes.txt (한 줄에 클래스 하나, 줄 번호 = 클래스 id, 깃으로 추적)** 가 원본이다. 온톨로지(world.items) 순서를 그대로 쓰면
+             물품이 추가·재정렬될 때 이미 만든 라벨의 번호가 어긋나므로, 라벨링을 시작하기 전에 `--init-classes`로 고정한다.
+             yolo_classes.txt 의 모든 이름은 온톨로지 world.items 에 있어야 한다(tools/validate_contracts.py 가 검사). 물품을 추가하면 맨 뒤에 덧붙인다(앞의 번호를 바꾸지 말 것).
 출력:        data/yolo/{train,val}/{images,labels}/<세션>__<파일>  (심볼릭 링크) + data/yolo/dataset.yaml
 
   python3 tools/yolo/build_dataset.py --val s03_overlap s05_light      # 검증 세션 지정 (권장)
@@ -18,8 +20,33 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def class_names(ontology=ROOT / "knowledge/robot_ontology.jsonld") -> list[str]:
+ONTOLOGY = ROOT / "knowledge/robot_ontology.jsonld"
+CLASSES_FILE = ROOT / "config/yolo_classes.txt"
+
+
+def ontology_items(ontology=ONTOLOGY) -> list[str]:
     return list(json.loads(Path(ontology).read_text(encoding="utf-8"))["world"]["items"].keys())
+
+
+def class_names(ontology=ONTOLOGY) -> list[str]:
+    """온톨로지 순서의 클래스 목록 (합성 데이터 점검용). 실제 학습은 load_classes 의 고정 목록을 쓴다."""
+    return ontology_items(ontology)
+
+
+def load_classes(classes_file: Path = CLASSES_FILE, ontology=ONTOLOGY) -> tuple[list[str], list[str]]:
+    """(클래스 목록, 경고 목록). classes_file 이 있으면 그 순서를 쓰고 온톨로지에 없는 이름은 오류(ValueError)."""
+    items = ontology_items(ontology)
+    f = Path(classes_file)
+    if not f.exists():
+        return items, ["config/yolo_classes.txt 가 없어 온톨로지 순서를 씁니다. 물품이 바뀌면 기존 라벨 번호가 어긋납니다 → --init-classes 로 고정하세요"]
+    names = [l.strip() for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
+    if len(set(names)) != len(names):
+        raise ValueError(f"{f}: 중복된 클래스 이름이 있습니다")
+    unknown = [n for n in names if n not in items]
+    if unknown:
+        raise ValueError(f"{f}: 온톨로지 world.items 에 없는 클래스: {unknown}")
+    new = [i for i in items if i not in names]
+    return names, ([f"온톨로지에는 있지만 yolo_classes.txt 에 없는 물품(학습 대상 아님): {new}"] if new else [])
 
 
 def split_sessions(sessions: list[str], val: list[str] | None, val_ratio: float) -> tuple[list[str], list[str]]:
@@ -73,10 +100,27 @@ def main() -> int:
     ap.add_argument("--out", default=str(ROOT / "data/yolo"))
     ap.add_argument("--val", nargs="*", help="검증용 세션 이름")
     ap.add_argument("--val-ratio", type=float, default=0.25)
+    ap.add_argument("--classes", default=str(CLASSES_FILE), help="고정 클래스 목록 파일")
+    ap.add_argument("--init-classes", action="store_true", help="온톨로지 순서로 클래스 파일을 만들어 번호를 고정하고 종료 (이미 있으면 거절)")
     args = ap.parse_args()
 
-    names = class_names()
     labeled = Path(args.labeled)
+    if args.init_classes:
+        f = Path(args.classes)
+        if f.exists():
+            print(f"{f} 가 이미 있습니다. 번호가 바뀌지 않도록 덮어쓰지 않습니다.", file=sys.stderr)
+            return 1
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("\n".join(ontology_items()) + "\n", encoding="utf-8")
+        print(f"{f} 생성: {ontology_items()}")
+        return 0
+    try:
+        names, warns = load_classes(Path(args.classes))
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+    for w in warns:
+        print(f"  ! {w}")
     sessions = sorted(p.name for p in labeled.iterdir() if (p / "images").is_dir()) if labeled.is_dir() else []
     if not sessions:
         print(f"라벨링된 세션이 없습니다: {labeled}/<세션>/images, labels", file=sys.stderr)
@@ -118,6 +162,7 @@ def main() -> int:
     (out / "dataset.yaml").write_text(
         f"path: {out.resolve()}\ntrain: train/images\nval: val/images\nnc: {len(names)}\nnames: {json.dumps(names)}\n",
         encoding="utf-8")
+    (out / "classes.txt").write_text("\n".join(names) + "\n", encoding="utf-8")   # 학습 시점의 클래스 목록 기록
     print(f"클래스 {names}\ntrain 세션 {train}\nval 세션 {val}\n→ {out / 'dataset.yaml'}")
     return 0
 
