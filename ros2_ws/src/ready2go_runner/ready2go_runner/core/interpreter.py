@@ -11,6 +11,7 @@ timeout_sec 이 지나면 동작을 취소하는 것은 백엔드 책임이고, 
 E-stop·사용자 취소(docs/runner.md 7.1, docs/safety.md): 백엔드가 ESTOP 으로 실패하거나 halt() 가 호출되면
 일반 실패 처리(retry·skip·safe_home)를 건너뛰고 ABORTED 로 끝낸다. 이때 finally 는 로봇을 움직이지 않는
 동작(ABORT_SAFE_ACTIONS)만 실행하고 나머지는 SKIPPED 로 기록한다.
+중단 상태는 잠긴 채 유지되어, 사람이 확인하고 resume() 을 부르기 전까지 새 태스크를 로봇 동작 없이 거절한다.
 """
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ class RunResult:
     steps: list[dict] = field(default_factory=list)
     error_code: str | None = None       # FAILED·ABORTED 일 때 원인 코드
     failed_step: str | None = None      # FAILED·ABORTED 일 때 멈춘 스텝 ID
-    problems: list[str] = field(default_factory=list)   # TASK_INVALID 일 때 실행 전 검사 문제 목록
+    problems: list[str] = field(default_factory=list)   # 실행하지 않은 이유 (TASK_INVALID 검사 결과, 중단 잠김)
 
 
 Execute = Callable[[str, dict, "float | None"], ActionResult]   # (action, params, timeout_sec)
@@ -71,18 +72,32 @@ class Runner:
         self.execute = execute
         self.schema = schema                    # contracts/task.schema.json 내용 (노드가 읽어서 전달)
         self.clock = clock                      # 소요 시간·timeout 측정용 (테스트에서 가짜 시계 주입)
-        self._halt = threading.Event()          # halt() 요청 (다른 스레드의 ROS 서비스 콜백에서 호출)
+        self._halt = threading.Event()          # 중단 잠김 (다른 스레드의 ROS 서비스 콜백에서 halt() 호출)
+        self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
 
-    def halt(self) -> None:
-        """실행 중인 태스크를 다음 스텝 시작 전에 멈춘다(ABORTED). 진행 중인 동작의 취소는 백엔드 책임."""
+    def halt(self, code: str = HALTED) -> None:
+        """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
+        if not self._halt.is_set():
+            self._halt_code = code
         self._halt.set()
+
+    def resume(self) -> None:
+        """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
+        self._halt_code = None
+        self._halt.clear()
+
+    @property
+    def halted(self) -> bool:
+        return self._halt.is_set()
 
     def run(self, task: dict, inputs: dict | None = None) -> RunResult:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩)."""
-        self._halt.clear()
         self._aborted = False
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
+        if self._halt.is_set():                 # E-stop 뒤 resume() 전에는 로봇을 움직이지 않음
+            return RunResult("ABORTED", blackboard, [], self._halt_code,
+                             problems=["중단 상태입니다. 사람이 확인한 뒤 resume() 해야 실행합니다"])
         problems = check_task(task, self.schema)
         if problems:                            # 로봇을 움직이기 전에 거절 (finally 도 실행하지 않음)
             return RunResult("FAILED", blackboard, [], TASK_INVALID, problems=problems)
@@ -93,7 +108,7 @@ class Runner:
         except StepFailed as e:
             error = e
         except Halted as e:
-            error, self._aborted = e, True
+            error = self._abort(e)
         # finally 는 sequence 가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀)
         # ABORTED 이면 _run_step 이 로봇 동작을 건너뛴다
         try:
@@ -101,12 +116,23 @@ class Runner:
         except StepFailed as e:
             error = error or e                  # 둘 다 실패하면 처음(sequence) 원인을 남김
         except Halted as e:
-            error, self._aborted = e, True      # E-stop 이 다른 실패보다 우선
+            error = self._abort(e)              # E-stop 이 다른 실패보다 우선
         if self._aborted:
             return RunResult("ABORTED", blackboard, records, error.code, error.step_id)
         if error:
             return RunResult("FAILED", blackboard, records, error.code, error.step_id)
         return RunResult("COMPLETED", blackboard, records)
+
+    def _abort(self, e: Halted) -> Halted:
+        """중단으로 전환하고 잠근다(백엔드 ESTOP 도 resume() 전까지 유지)."""
+        self._aborted = True
+        self.halt(e.code)
+        return e
+
+    def _check_halt(self, step_id: str) -> None:
+        """중단 요청이 있으면 로봇 동작 전에 멈춘다. 스텝 시작·재시도·safe_home 직전에 확인."""
+        if self._halt.is_set() and not self._aborted:
+            raise Halted(step_id, self._halt_code or HALTED)
 
     def _run_steps(self, steps: list[dict], blackboard: dict, records: list[dict]) -> None:
         for step in steps:
@@ -114,8 +140,7 @@ class Runner:
 
     def _run_step(self, step: dict, blackboard: dict, records: list[dict]) -> None:
         """스텝 하나를 실행하고 on_failure 정책(abort·retry·skip·safe_home)을 적용."""
-        if self._halt.is_set() and not self._aborted:
-            raise Halted(step["id"], HALTED)
+        self._check_halt(step["id"])
         record = {"id": step["id"], "action": step["action"]}
         records.append(record)
         if self._aborted and step["action"] not in ABORT_SAFE_ACTIONS:
@@ -126,6 +151,10 @@ class Runner:
         started = self.clock()
 
         for attempt in range(1, max_attempts + 1):
+            if attempt > 1 and self._halt.is_set() and not self._aborted:   # 실패 중 중단 요청 → 재시도 안 함
+                record.update(status="FAILURE", error_code=failure.code,
+                              duration_sec=round(self.clock() - started, 3))
+                self._check_halt(step["id"])
             record["attempts"] = attempt
             try:
                 self._dispatch(step, blackboard, record, records, self.clock())
@@ -144,7 +173,8 @@ class Runner:
         if policy == "skip":
             record["on_failure"] = "skip"
             return
-        if policy == "safe_home":
+        if policy == "safe_home" and not self._aborted:      # 중단 중에는 홈 이동도 하지 않음
+            self._check_halt(step["id"])
             self._safe_home(step, records)
         raise failure
 

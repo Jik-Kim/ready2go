@@ -514,9 +514,73 @@ def test_halt_stops_before_next_step():
     assert [c[0] for c in fake.calls] == ["pick_object", "speak"]          # s2 놓기·finally 이동 없음
 
 
-def test_next_run_after_halt_starts_clean():
+# ---- 코드 리뷰 A~E: 중단 확인 시점 · 중단 잠김(resume) ----
+
+def halting_runner(results: dict, halt_on: str) -> tuple[Runner, FakeBackend]:
+    """halt_on 동작이 실행되는 도중 /runner/estop(다른 스레드)이 halt() 를 부른 상황."""
+    fake = FakeBackend(results)
+    runner = Runner(fake)
+
+    def backend(action, params, timeout_sec):
+        if action == halt_on:
+            runner.halt()
+        return fake(action, params, timeout_sec)
+
+    runner.execute = backend
+    return runner, fake
+
+
+def test_a_no_retry_after_halt_requested():
+    runner, fake = halting_runner({"pick_object": FAIL}, halt_on="pick_object")
+    result = runner.run(estop_task(on_failure="retry", retry=2))
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
+    assert [c[0] for c in fake.calls] == ["pick_object", "speak"]          # 재시도 0회
+    assert (result.steps[0]["status"], result.steps[0]["error_code"]) == ("FAILURE", "GRASP_FAILED")
+
+
+def test_b_no_safe_home_after_halt_requested():
+    runner, fake = halting_runner({"pick_object": FAIL}, halt_on="pick_object")
+    result = runner.run(estop_task(on_failure="safe_home"))
+    assert result.overall_status == "ABORTED"
+    assert "move_to_named_pose" not in [c[0] for c in fake.calls]
+
+
+def test_c_no_safe_home_in_finally_after_abort():
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "pick_object", "params": {}}],
+            "finally": [{"id": "f1", "action": "speak", "params": {"text": "멈춤"}, "on_failure": "safe_home"}]}
+    fake = FakeBackend({"pick_object": ESTOP, "speak": FAIL})
+    result = Runner(fake).run(task)
+    assert result.overall_status == "ABORTED"
+    assert [c[0] for c in fake.calls] == ["pick_object", "speak"]          # 음성 실패해도 홈 이동 없음
+
+
+def test_d_halt_before_run_refuses_until_resume():
+    fake = FakeBackend()
+    runner = Runner(fake)
+    runner.halt()
+    result = runner.run(estop_task())
+    assert (result.overall_status, result.error_code) == ("ABORTED", "HALTED")
+    assert fake.calls == [] and result.steps == [] and result.problems    # 로봇 0회, finally 도 없음
+    runner.resume()
+    assert runner.run(estop_task()).overall_status == "COMPLETED"
+
+
+def test_e_backend_estop_stays_latched_until_resume():
     fake = FakeBackend({"pick_object": [ESTOP, OK]})
     runner = Runner(fake)
     assert runner.run(estop_task()).overall_status == "ABORTED"
-    runner.halt()                                                          # 이전 요청이 남아 있어도
-    assert runner.run(estop_task()).overall_status == "COMPLETED"          # 새 실행은 초기화
+    assert runner.halted
+    fake.calls.clear()
+    again = runner.run(estop_task())                                       # 사람 확인 없이 다시 명령
+    assert (again.overall_status, again.error_code) == ("ABORTED", "ESTOP")  # 처음 멈춘 이유 유지
+    assert fake.calls == []
+    runner.resume()
+    assert not runner.halted
+    assert runner.run(estop_task()).overall_status == "COMPLETED"
+
+
+def test_halt_code_keeps_first_reason():
+    runner = Runner(FakeBackend())
+    runner.halt("ESTOP")
+    runner.halt()                                                          # 나중 요청이 원인을 덮지 않음
+    assert runner.run(estop_task()).error_code == "ESTOP"
