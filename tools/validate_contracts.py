@@ -41,6 +41,10 @@ def main() -> int:
         except jsonschema.ValidationError as e:
             errors.append(f"{p.name}: {e.message}")
     load(ROOT / "contracts/examples/execution_log.json")
+    raw = load(ROOT / "knowledge/robot_ontology.jsonld")   # 서랍 물리 값(인출 거리 등)의 정본은 config/places.yaml. 온톨로지에 따로 두면 서로 어긋난다
+    for pname, pdef in raw.get("world", {}).get("places", {}).items():
+        if pdef.get("max_travel_m") is not None:
+            errors.append(f"knowledge/robot_ontology.jsonld: places.{pname}.max_travel_m 은 config/places.yaml 이 정본이므로 온톨로지에는 null 로 둔다")
     onto = onto_lib.load(ROOT / "knowledge/robot_ontology.jsonld")
     errors += onto_lib.list_reference_errors(onto)
     for name, skill in onto.get("skills", {}).items():

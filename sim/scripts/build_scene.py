@@ -10,6 +10,7 @@
 - 서랍의 로봇 기준 정확한 위치는 #6(3점 터치) 결과로 교체한다. 여기 값은 평면도 기준 초기 배치다.
 """
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,8 @@ DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="u
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
 PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
 OUT = ROOT / "sim/scenes/ready2go_t1.usd"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _dims import cabinet_missing  # noqa: E402
 ROBOT_REL = "../assets/m0609_camera_cube/m0609_camera_cube.usd"
 
 CM = 0.01
@@ -90,21 +93,13 @@ def box(stage, path, size, center, color, collide=True):
     return prim
 
 
-def cabinet_ready(u, top):
-    """서랍장 형상 값이 모두 채워졌는지. 비어 있으면(null) 서랍장 없이 작업대·로봇만 만든다."""
-    pv = DIM["plan_view_cm"]
-    need = [u.get(k) for k in ("width_cm", "depth_cm", "total_height_cm")] + [top.get("front_bottom_height_above_seat_cm"), top.get("max_travel_cm")]
-    need += [pv.get(k) for k in ("drawer_right_edge_to_table_right", "drawer_left_edge_to_table_left", "drawer_front_to_table_edge_gap")]
-    need += [PLACES["drawer_top"].get("interior_m")]
-    return all(v is not None for v in need)
-
-
 def build():
     u = DIM["drawer_unit"]
     top = DIM["drawer_top"]
     pv = DIM["plan_view_cm"]
     tb = DIM["table"]
-    cabinet = cabinet_ready(u, top)
+    missing = cabinet_missing(DIM, PLACES)
+    cabinet = not missing
 
     # ---------- 평면도 → 작업대 좌표계 W (원점 = 로봇 베이스 철판 중심, 작업대 윗면 z=0, +x 긴 변 오른쪽, +y 서랍 반대쪽) ----------
     plate_w, plate_d = pv["robot_base_plate_cm"]["width"], pv["robot_base_plate_cm"]["depth"]
@@ -123,7 +118,7 @@ def build():
         y_front = y_bottom - pv["drawer_front_to_table_edge_gap"] * CM   # 앞면(로봇 쪽) y. 0.4cm는 간격으로 가정 [확인 필요]
         cab_yc = y_front - cab_d / 2
 
-        z_seat = DIM["drawer_unit"].get("seat_top_vs_table_surface_cm", -0.3) * CM
+        z_seat = u["seat_top_vs_table_surface_cm"] * CM
         total_h = u["total_height_cm"] * CM
         z_t3_bottom = z_seat + top["front_bottom_height_above_seat_cm"] * CM
         t3_h = z_seat + total_h - z_t3_bottom
@@ -226,7 +221,7 @@ def build():
         fp.CreateFilteredPairsRel().AddTarget(Sdf.Path("/World/workspace/cabinet/drawer_top_shell"))
 
         # Prismatic Joint: 축 = 트레이 로컬 +y(작업대 쪽으로 당김), 0 ~ max_travel
-        travel = top["max_travel_cm"] * CM
+        travel = PLACES["drawer_top"]["max_travel_m"]   # 정본은 config/places.yaml
         jt = UsdPhysics.PrismaticJoint.Define(stage, "/World/workspace/cabinet/drawer_top_joint")
         jt.CreateBody0Rel().AddTarget(Sdf.Path("/World/workspace/cabinet/drawer_top_shell"))
         jt.CreateBody1Rel().AddTarget(Sdf.Path(p))
@@ -247,12 +242,14 @@ def build():
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     stage.GetRootLayer().Export(str(OUT))
-    print(f"[build] 저장: {OUT}")
-    print(f"[build] 작업대 x[{x_left:.3f},{x_right:.3f}] y[{y_bottom:.3f},{y_top:.3f}]")
+    print(f"[build] 저장: {OUT}", flush=True)
+    print(f"[build] 작업대 x[{x_left:.3f},{x_right:.3f}] y[{y_bottom:.3f},{y_top:.3f}]", flush=True)
     if cabinet:
-        print(f"[build] 서랍장 x[{cab_x0:.3f},{cab_x1:.3f}] 앞면 y={y_front:.3f}  맨 위 단: 바닥 z={z_t3_bottom:.4f} 높이 {t3_h:.4f}  인출 한계 {travel:.3f} m")
+        print(f"[build] 서랍장 x[{cab_x0:.3f},{cab_x1:.3f}] 앞면 y={y_front:.3f}  맨 위 단: 바닥 z={z_t3_bottom:.4f} 높이 {t3_h:.4f}  인출 한계 {travel:.3f} m", flush=True)
     else:
-        print("[build] 서랍 치수가 비어 있어 서랍장 없이 작업대·로봇·카메라만 만들었습니다 (새 서랍 실측 후 sim/drawer_dimensions.yaml, config/places.yaml 을 채우고 다시 생성)")
+        print("[build] 서랍장은 만들지 않았습니다 (작업대·로봇·카메라만). 아직 필요한 항목:", flush=True)
+        for m in missing:
+            print(f"[build]   - {m}", flush=True)
 
 
 build()

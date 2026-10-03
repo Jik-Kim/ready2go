@@ -23,6 +23,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENE = ROOT / "sim/scenes/ready2go_t1.usd"
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
+PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _dims import cabinet_missing  # noqa: E402
 fails = []
 
 
@@ -43,19 +46,22 @@ for _ in range(10):
 stage = omni.usd.get_context().get_stage()
 
 # ① 구조
-has_cabinet = stage.GetPrimAtPath("/World/workspace/cabinet").IsValid()   # 서랍 치수가 비어 있으면 서랍장 없이 생성된다(build_scene.py)
+missing = cabinet_missing(DIM, PLACES)     # build_scene.py 와 같은 규칙: 값이 비어 있으면 서랍장 없이 생성된다
+has_cabinet = stage.GetPrimAtPath("/World/workspace/cabinet").IsValid()
 need = ["/World/m0609/base_link", "/World/m0609/link_6", "/World/m0609/onrobot_rg2ft/gripper_body",
         "/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera",
         "/World/workspace/table", "/World/physicsScene"]
 if has_cabinet:
     need += ["/World/workspace/shelf", "/World/workspace/cabinet/drawer_top_tray/handle", "/World/workspace/cabinet/drawer_top_joint"]
+elif missing:
+    print("[SKIP] 서랍장 없음 — 서랍 값이 아직 비어 있어 의도적으로 생략된 상태입니다. 필요한 항목: " + "; ".join(missing), flush=True)
 else:
-    print("[SKIP] 서랍장 없음 — 서랍 관련 검사는 건너뜁니다 (새 서랍 실측 후 씬을 다시 생성)", flush=True)
+    check("설정상 서랍장이 있어야 하는데 씬에 없음", False, "(서랍 값은 모두 채워져 있음 → build_scene.py 생성 오류, 씬을 다시 생성하세요)")
 for p in need:
     check(f"prim 존재 {p}", stage.GetPrimAtPath(p).IsValid())
 if has_cabinet:
     jt = UsdPhysics.PrismaticJoint(stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint"))
-    travel = DIM["drawer_top"]["max_travel_cm"] / 100
+    travel = PLACES["drawer_top"]["max_travel_m"]   # 정본은 config/places.yaml
     # USD는 float32로 저장하므로 허용 오차를 1e-6 으로 둔다
     check("서랍 관절 한계 0~max_travel", abs(jt.GetUpperLimitAttr().Get() - travel) < 1e-6 and abs(jt.GetLowerLimitAttr().Get()) < 1e-9,
           f"(상한 {jt.GetUpperLimitAttr().Get():.3f} m, 실측 {travel:.3f} m)")
@@ -103,8 +109,8 @@ if has_cabinet:
     d1 = run(travel)
     check("목표 최대 인출 → 최대 거리만큼 인출", abs(d1[1] - travel) < 2e-3, f"(y {d1[1] * 100:.2f} cm)")
     check("다른 축 이동 없음", abs(d1[0]) < 1e-3 and abs(d1[2]) < 1e-3, f"(x {d1[0] * 1000:.2f} mm, z {d1[2] * 1000:.2f} mm)")
-    d2 = run(0.30)
-    check("한계 초과 목표(30 cm)는 최대 인출에서 멈춤", abs(d2[1] - travel) < 2e-3, f"(y {d2[1] * 100:.2f} cm)")
+    d2 = run(travel + 0.10)
+    check("한계 초과 목표(최대 인출 + 10 cm)는 최대 인출에서 멈춤", abs(d2[1] - travel) < 2e-3, f"(y {d2[1] * 100:.2f} cm)")
     d3 = run(0.0)
     check("다시 닫힘", np.abs(d3).max() < 1.5e-3, f"(y {d3[1] * 1000:.2f} mm)")
 else:
