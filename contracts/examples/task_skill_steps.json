@@ -1,0 +1,18 @@
+{
+  "task_id": "fetch_visible_by_skills",
+  "description": "P1 시나리오를 온톨로지 스킬로 작성한 예시 (#12): 위 서랍 열기 → 보이는 물건 집기 → 전달 트레이에 놓기, finally 로 서랍 닫기·홈. Runner 가 스킬마다 pre 확인 → expand 실행 → effect 반영",
+  "inputs": { "target": "watch" },
+  "sequence": [
+    { "id": "s1", "action": "query_ontology", "params": { "item": "$inputs.target" }, "output": "loc" },
+    { "id": "s2", "action": "speak", "params": { "text": "{{loc.name_ko|을}} 꺼내 올게요" } },
+    { "id": "s3", "skill": "open_drawer", "params": { "drawer_id": "$loc.drawer_id" }, "timeout_sec": 30 },
+    { "id": "s4", "skill": "pick", "params": { "item": "$inputs.target", "from": "$loc.drawer_id" },
+      "on_failure": "retry", "retry": 1 },
+    { "id": "s5", "skill": "place", "params": { "item": "$inputs.target", "to": "handover_zone" } },
+    { "id": "s6", "action": "speak", "params": { "text": "{{loc.name_ko|을}} 앞쪽 트레이에 놓았어요" } }
+  ],
+  "finally": [
+    { "id": "f1", "skill": "close_drawer", "params": { "drawer_id": "$loc.drawer_id" }, "on_failure": "skip" },
+    { "id": "f2", "action": "move_to_named_pose", "params": { "pose_name": "home" } }
+  ]
+}

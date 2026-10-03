@@ -110,3 +110,22 @@ def test_runner_runs_valid_task_with_schema():
     result = Runner(lambda a, p, t: ActionResult(True, outputs.get(a)), schema=SCHEMA).run(P1_TASK)
     assert result.overall_status == "COMPLETED"
     assert [s["id"] for s in result.steps] == ["s1", "s2", "s3", "s4", "s4.1", "f1", "f2"]
+
+
+# ---- #12: skill 스텝 (스키마) ----
+
+def test_schema_accepts_skill_step():
+    task = task_with(lambda t: t["sequence"].insert(
+        1, {"id": "s1.5", "skill": "open_drawer", "params": {"drawer_id": "$loc.drawer_id"}}))
+    assert check_task(task, SCHEMA) == []
+
+
+def test_schema_rejects_step_with_both_or_neither():
+    both = task_with(lambda t: t["sequence"][1].update(skill="open_drawer"))          # action + skill
+    neither = task_with(lambda t: t["sequence"][1].pop("action"))                     # 둘 다 없음
+    assert check_task(both, SCHEMA) and check_task(neither, SCHEMA)
+
+
+def test_skill_example_task_is_valid():
+    task = json.loads((ROOT / "contracts/examples/task_skill_steps.json").read_text(encoding="utf-8"))
+    assert check_task(task, SCHEMA) == []
