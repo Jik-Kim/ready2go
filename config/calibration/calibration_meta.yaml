@@ -14,9 +14,9 @@ measured:
   camera_serial: "207222073543"        # [실측 10/02] 10/02에 연결한 D435i. 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요]
 
 tcp:
-  name_during_calibration: "GripperDA_v1"   # [실측 B 10/02] 제어기에 등록된 실제 이름은 소문자 v. 사용자는 set_tcp("GripperDA_V1")로 실행했다고 기억하나, 대소문자 다른 이름은 success=False로 거부되고 기존 TCP가 유지됨 → 실제로 쓰인 TCP는 v1 [추정]
+  name_during_calibration: "GripperDA_v1"   # [사용자 확인 10/03] 실제 이름은 소문자 v. 대문자 "V1"은 기록·대화 중의 오타였음 (제어기 이름은 B가 get_current_tcp로도 실측)
   tool_name_during_calibration: null        # [팀 확정 필요] set_tool에 쓴 이름
-  name_on_pendant: "GripperDA_v1"           # [실측 B 10/02·10/03] 제어기 get_current_tcp. 목록에 이것 하나뿐 (10/02 펜던트 사진의 "V1" 표기는 오독)
+  name_on_pendant: "GripperDA_v1"           # [실측 B 10/02·10/03, 사용자 확인 10/03] 제어기 get_current_tcp. 목록에 이것 하나뿐
   offset_from_pendant: {x: 0, y: 0, z: 228, rx: 0, ry: 0, rz: 0}   # mm, deg (ZYZ). [실측 10/02] T_link6→TCP. link_6 원점이 플랜지 면인지는 [팀 확정 필요, B 확인 요청 #7]
   tool_weight_on_pendant: {name: "tool_weight", kg: 1.420, cog_mm: [12.570, -28.240, -6.880]}   # [실측 10/02]
 

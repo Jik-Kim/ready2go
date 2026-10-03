@@ -42,4 +42,4 @@
 - #14 선행에서 캘리브레이션(#7) 제외: 이미지 수집·학습에는 불필요, 3D 변환(#18)에만 필요.
 - ~~realsense `__node:=wrist_cam`만 주면 `/wrist_cam/...`으로 발행된다~~ → 실측 결과 `/camera/wrist_cam/...`, `-r __ns:=/`가 필요 (10/02).
 - ~~10/01 캘리브레이션 때 `set_tcp("2FG_TCP")`가 무시돼 `GripperDA_V1`이 쓰였다~~ → 사용자가 `set_tcp("GripperDA_V1")`로 직접 실행했다고 확인 (10/02). 이 PC의 강의 사본 코드만 보고 한 추정이었음.
-- ~~TCP 이름 `GripperDA_V1`(펜던트 사진 판독)~~ → 제어기 실제 이름은 `GripperDA_v1`(소문자 v), B의 `get_current_tcp` 실측 (10/02·10/03). 대소문자 다른 `set_tcp`는 `success=False`로 거부되므로 10/01 캘리브레이션에 실제로 쓰인 TCP도 v1이었을 것 [추정].
+- ~~TCP 이름 `GripperDA_V1`~~ → 실제 이름은 `GripperDA_v1`(소문자 v). 대문자 V는 오타였고 사용자가 직접 확인 (10/03), B의 `get_current_tcp` 실측과도 일치. 10/01 캘리브레이션도 이 TCP로 실행됨.
