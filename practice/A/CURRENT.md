@@ -8,7 +8,7 @@
 - #7: 핸드-아이 결과 **채택 확정**: B의 5점 `verify.py`(10/03)에서 x·y 오차 ≤ 0.2 cm, `calibration_meta.yaml` accepted, TCP 이름은 제어기 실제 이름 `GripperDA_v1`(소문자 v). `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
 - 트윈 T1 씬 완료: `sim/scenes/ready2go_t1.usd`(작업대·3단 서랍장·M0609/RG2·손목 카메라, 서랍 Prismatic 0~0.17 m)를 `build_scene.py`로 생성하고 `verify_scene.py` 전부 통과, GUI에서 정상 확인 [실측 10/03]. 서랍 실측 치수·씬·실행 환경(PR #29·#30)과 T2(PR #31)는 모두 머지됨.
 - 트윈 T2 미러링은 **P2 선행 구현**(Phase 게이트 리뷰 지적은 있었으나 사용자 판단으로 PR #31 병합, 에뮬레이터 확인): `mirror_joint_states.py`가 `/dsr01/joint_states`(joint_1~6, 라디안, 약 100 Hz)를 받아 관절을 따라가게 함. 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24° [실측 10/03], 사용자가 GUI에서 팔 추종 확인. 그리퍼는 토픽에 없어 미반영(닫혀 보이는 원인은 확인 중). 실물 미러링은 B의 #4·multi DDS 이후.
-- 벽 인접 물체 밀어오기(`nudge_object`, FR-ACT-05, B 구현 이슈 #37): 문서 PR 작성(FR-ACT-05·AC-ACT-05, runner.md, domain.md 8.5). 서랍 내부 치수 정본을 `config/places.yaml`의 `drawer_top.interior_m`으로 이관, 트윈 `build_scene.py`가 읽도록 변경(값 동일, 장면 재생성·`verify_scene.py` 재실행으로 USD 변화 없음·전부 통과 확인 [실측 10/03]). 서랍 처짐 약 1.25 cm(최대 인출, 버니어) 실측을 `places.yaml`의 `sag_m_at_max_travel`에 기록.
+- 벽 인접 물체 밀어오기(`nudge_object`, FR-ACT-05, B 구현 이슈 #37): 문서 PR 작성(FR-ACT-05·AC-ACT-05, runner.md, domain.md 8.5). 서랍 내부 치수 정본을 `config/places.yaml`의 `drawer_top.interior_m`으로 이관, 트윈 `build_scene.py`가 읽도록 변경(값 동일, 장면 재생성·`verify_scene.py` 재실행으로 USD 변화 없음·전부 통과 확인 [실측 10/03]). 서랍 처짐 실측(버니어)을 `places.yaml`의 `sag_m_at_max_travel`에 기록.
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
