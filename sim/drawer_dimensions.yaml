@@ -20,11 +20,12 @@ drawer_unit:                          # 새 서랍장: 원목형 2단 일체형,
   total_height_cm: 29.5               # 우드락(아래) 추가 전 기준
   front_panel_protrusion_cm: 1.8      # 닫힌 상태에서 앞판(회색)이 본체 앞면 밖으로 튀어나온 길이. 앞판 쪽이 작업대(로봇) 방향
   riser_cm: 0.5                       # 서랍장 맨 아래에 우드락을 깔아 모든 높이가 0.5 cm 올라감. 아래 높이 값들은 우드락 추가 전 측정 → 씬에서 +riser_cm
-  seat_top_vs_table_surface_cm: null  # 서랍장을 놓은 면이 작업대 윗면과 얼마나 다른지 (아직 미측정)
+  seat: 받침 선반                      # [사용자 확인 10/03] 서랍장 바닥은 작업대가 아니라 선반 위에 놓임 (우드락 0.5 cm를 사이에 깔았음)
+  seat_top_vs_table_surface_cm: -0.3  # 선반 윗면이 작업대 윗면보다 3 mm 낮음. 10/02에 잰 값을 같은 선반이라고 보고 복원 — 선반이 그대로인지 확인 필요
   tier_usage: {upper: drawer_top, lower: drawer_bottom}   # [사용자 확인 10/03]
   tiers_detail:                       # 바닥 기준 높이(cm), 우드락 추가 전
     upper: {front_bottom_height: 14.8, box_top: 29.5, box_bottom: 19.5}   # 2단: 아랫면 14.8, 서랍 상자 29.5~19.5 (높이 10) [사용자 정정 10/03]
-    lower: {box_top: 14.8, box_bottom: 4.8}                                # 1단: 서랍 상자 14.8~4.8 (높이 10). 처음 말씀한 값 유지, 2단 정정과 함께 확인 필요
+    lower: {box_top: 14.8, box_bottom: 4.8}                                # 1단: 서랍 상자 14.8~4.8 (높이 10) [사용자 확인 10/03, 우드락 전 기준]
   drawer_box:                         # 서랍 상자(안에 물건이 들어가는 부분), 위에서 본 가로 방향 [사진 2장에서 읽은 값, 오차 약 0.5 cm — 사용자 확인 필요]
     inner_width_cm: 29.5              # [사용자 실측] 상자 옆벽 안쪽 사이. 서랍 내부 폭의 정본은 config/places.yaml interior_m
     outer_width_cm: 32.5              # [사진 추정] 자를 서랍장 옆면에 대고 읽음: 상자 바깥이 약 3.2 ~ 35.8 (서랍장 0 ~ 38.5)
@@ -46,7 +47,7 @@ drawer_top:                           # 위 단(2단)
 plan_view_cm:                         # [사용자 보고, 도면] 작업대 평면도 기준, 씬 초기 배치용
   drawer_right_edge_to_table_right: 35.1      # [사용자 실측 10/03] 작업대 오른쪽 끝에서 서랍장 가까운(오른쪽) 옆면까지
   drawer_left_edge_to_table_left: 46.4        # [계산] 120 - 38.5 - 35.1
-  drawer_front_to_table_edge_gap: null        # 서랍장 앞면과 작업대 가장자리의 간격 (미측정). 앞판 1.8 cm가 작업대 쪽으로 나와 있다는 설명으로 보아 본체 앞면이 가장자리와 거의 같은 위치로 추정 [확인 필요]
+  drawer_front_to_table_edge_gap: 0           # [사용자 확인 10/03] 서랍장 본체 앞면 = 작업대 가장자리와 같은 선, 앞판 1.8 cm가 작업대 쪽으로 나옴
   robot_base_left_gap_to_table_left: 16
   robot_base_gap_to_table_top_edge: 21
   robot_base_gap_to_table_bottom_edge: 21
