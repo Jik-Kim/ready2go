@@ -16,6 +16,8 @@ class InspectRegionStub(Node):
             self._config = yaml.safe_load(f)
         self.create_service(InspectRegion, "/vision/inspect_region", self._handle)
         self.get_logger().info(f"inspect_region stub 시작 (좌표: {path})")
+        if self._config.get("ready") is not True:
+            self.get_logger().warn("설정의 ready 가 true 가 아닙니다. 모든 요청이 STUB_NOT_READY 로 실패합니다 (자리표시자 좌표 차단).")
 
     def _handle(self, req, res):
         res.success, res.error_code, res.result_json = inspect(self._config, req.region, req.search_target)
