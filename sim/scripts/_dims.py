@@ -29,7 +29,7 @@ def cabinet_missing(dim: dict, places: dict) -> list[str]:
         "drawer_unit.riser_cm": u.get("riser_cm"),
         "drawer_unit.top_board_cm": u.get("top_board_cm"),
         "drawer_unit.tiers_detail": u.get("tiers_detail"),
-        "drawer_unit.drawer_box (inner/outer width, cabinet_board_cm)": all((u.get("drawer_box") or {}).get(k) is not None for k in ("inner_width_cm", "side_wall_cm", "cabinet_board_cm")) or None,
+        "drawer_unit.drawer_box (side_wall_cm, cabinet_board_cm)": all((u.get("drawer_box") or {}).get(k) is not None for k in ("side_wall_cm", "cabinet_board_cm")) or None,
         "drawer_unit.handle (width, thickness, protrusion, heights)": all((u.get("handle") or {}).get(k) is not None for k in ("width_cm", "thickness_vertical_cm", "protrusion_cm", "height_from_bottom_cm")) or None,
         "drawer_top.front_panel_cm (width, thickness)": all((top.get("front_panel_cm") or {}).get(k) is not None for k in ("width", "thickness")) or None,
     }

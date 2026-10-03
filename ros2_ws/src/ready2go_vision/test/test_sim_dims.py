@@ -8,7 +8,7 @@ from _dims import cabinet_missing  # noqa: E402
 
 DIM = {
     "drawer_unit": {"tiers": 2, "width_cm": 38.5, "depth_cm": 26.5, "total_height_cm": 29.5, "seat_top_vs_table_surface_cm": -0.3, "riser_cm": 0.5, "top_board_cm": 1.8,
-                    "tiers_detail": {"upper": {}, "lower": {}}, "drawer_box": {"inner_width_cm": 29.5, "side_wall_cm": 1.1, "cabinet_board_cm": 1.9},
+                    "tiers_detail": {"upper": {}, "lower": {}}, "drawer_box": {"side_wall_cm": 1.1, "cabinet_board_cm": 1.9},
                     "handle": {"width_cm": 11, "thickness_vertical_cm": 0.7, "protrusion_cm": 1.8, "height_from_bottom_cm": {"upper": 26.4, "lower": 11.8}}},
     "drawer_top": {"front_bottom_height_above_seat_cm": 14.8, "front_panel_cm": {"width": 38.5, "thickness": 1.8, "height": 14.7}},
     "plan_view_cm": {"drawer_right_edge_to_table_right": 35.1, "drawer_left_edge_to_table_left": 46.4, "drawer_front_to_table_edge_gap": 0},
