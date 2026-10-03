@@ -37,6 +37,8 @@ def _numbers(value, count: int, what: str, source: str) -> tuple[float, ...]:
     if not isinstance(value, (list, tuple)) or len(value) != count \
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value):
         raise StaticTfError(f"{source}: {what} 는 숫자 {count}개여야 함: {value!r}")
+    if not all(math.isfinite(v) for v in value):   # YAML .nan·.inf 도 float 라 위 검사를 통과함
+        raise StaticTfError(f"{source}: {what} 에 NaN·무한대가 있음 (tf2 가 버려 TF 가 사라짐): {value!r}")
     return tuple(float(v) for v in value)
 
 

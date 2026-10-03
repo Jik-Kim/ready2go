@@ -81,3 +81,25 @@ def test_duplicate_child_raises(tmp_path):
     with pytest.raises(StaticTfError) as e:
         load_static_tfs(write_config(tmp_path, places=places))
     assert "wrist_cam_link" in str(e.value)
+
+
+@pytest.mark.parametrize("field, text", [
+    ("translation_m", "[.nan, 0.0, 0.0]"),
+    ("translation_m", "[.inf, 0.0, 0.0]"),
+    ("translation_m", "[0.0, -.inf, 0.0]"),
+    ("quaternion_xyzw", "[.nan, 0.0, 0.0, 1.0]"),        # 크기가 NaN 이면 단위 쿼터니언 검사도 못 잡음
+])
+def test_non_finite_values_raise(field, text):
+    # PR #40 리뷰(D): tf2 BufferCore 는 NaN transform 을 TF_NAN_INPUT 으로 버려, bringup 은 정상처럼 떠도 TF 가 사라짐
+    with pytest.raises(StaticTfError) as e:
+        parse_tf({**CAMERA_TF, field: yaml.safe_load(text)}, "test")
+    assert "NaN·무한대" in str(e.value)
+
+
+def test_non_finite_in_calibration_file_stops_launch(tmp_path):
+    (tmp_path / "calibration").mkdir()
+    (tmp_path / "calibration/calibration_meta.yaml").write_text(
+        "derived_tf: {parent: link_6, child: wrist_cam_link, translation_m: [.nan, 0.0, 0.0], "
+        "quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]}\n", encoding="utf-8")
+    with pytest.raises(StaticTfError):
+        load_static_tfs(tmp_path)
