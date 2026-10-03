@@ -143,3 +143,61 @@ class MongoLogStore:
         run = self.db.runs.find_one({"run_id": run_id}, {"_id": 0})
         steps = list(self.db.steps.find({"run_id": run_id}, {"_id": 0}).sort("seq", 1))
         return {"run": run, "steps": steps}
+
+
+class FallbackLogStore:
+    """주 저장소(MongoDB)가 실패하면 예비 저장소(JSONL)로 같은 레코드를 남긴다 (FR-LOG-01, NFR-DB-01).
+
+    - 실행 도중 주 저장소가 실패하면 그때까지 쓴 시작 기록·스텝을 예비 저장소에 다시 써서
+      한 실행의 기록이 둘로 갈라지지 않게 한다.
+    - 한 번 실패한 실행은 끝날 때까지 예비 저장소만 쓴다 (스텝마다 연결 제한만큼 멈추지 않게).
+    - 다음 실행이 시작될 때 주 저장소를 다시 시도한다.
+    - 예비 저장소까지 실패하면 예외를 올린다 (Runner 가 실행을 멈추지 않도록 감쌈).
+    """
+
+    def __init__(self, primary: LogStore, fallback: LogStore):
+        self.primary, self.fallback = primary, fallback
+        self.degraded = False                  # 지금 실행을 예비 저장소에 쓰는 중인지 (/runner/status 표시용)
+        self.last_error: str | None = None
+        self._run_start: dict | None = None    # 실행 도중 전환 시 예비 저장소에 다시 쓸 기록
+        self._run_steps: list[dict] = []
+
+    def _switch(self, error: Exception) -> None:
+        self.degraded = True
+        self.last_error = f"{type(error).__name__}: {error}"
+        if self._run_start is not None:
+            self.fallback.start_run(self._run_start)
+        for step in self._run_steps:
+            self.fallback.write_step(step)
+
+    def _write(self, method: str, doc: dict) -> None:
+        if not self.degraded:
+            try:
+                getattr(self.primary, method)(doc)
+                return
+            except Exception as e:             # DB 연결 끊김·시간 초과 등
+                self._switch(e)
+        getattr(self.fallback, method)(doc)
+
+    def start_run(self, run_doc: dict) -> None:
+        self.degraded, self.last_error = False, None   # 새 실행은 주 저장소부터 다시 시도
+        self._run_start, self._run_steps = copy.deepcopy(run_doc), []
+        self._write("start_run", run_doc)
+
+    def write_step(self, step_doc: dict) -> None:
+        self._write("write_step", step_doc)
+        if not self.degraded:
+            self._run_steps.append(copy.deepcopy(step_doc))
+
+    def end_run(self, run_doc: dict) -> None:
+        self._write("end_run", run_doc)
+        self._run_start, self._run_steps = None, []
+
+    def read_run(self, run_id: str) -> dict:
+        saved = self.fallback.read_run(run_id)          # 폴백된 실행은 예비 저장소에 전체가 있음
+        if saved["run"] is not None:
+            return saved
+        try:
+            return self.primary.read_run(run_id)
+        except Exception:
+            return saved

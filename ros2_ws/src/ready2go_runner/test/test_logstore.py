@@ -4,13 +4,14 @@ import uuid
 import pytest
 
 from ready2go_runner.core.log_records import run_document, step_document
-from ready2go_runner.core.logstore import JsonlLogStore, LogStore, MemoryLogStore, MongoLogStore
+from ready2go_runner.core.logstore import FallbackLogStore, JsonlLogStore, LogStore, MemoryLogStore, MongoLogStore
 
 # LogStore 약속을 지켜야 하는 저장소들. 단계마다 여기에 추가한다 (JSONL·MongoDB·폴백).
 STORES = {
     "memory": lambda tmp_path: MemoryLogStore(),
     "jsonl": lambda tmp_path: JsonlLogStore(tmp_path / "logs"),
     "mongo": None,                        # 실제 DB 필요 → mongo_store() 에서 만들고 없으면 건너뜀
+    "fallback": lambda tmp_path: FallbackLogStore(MemoryLogStore(), JsonlLogStore(tmp_path / "logs")),
 }
 
 
@@ -160,3 +161,92 @@ def test_mongo_unreachable_fails_fast():
     with pytest.raises(Exception):
         store.start_run(start)
     assert time.monotonic() - t0 < 3
+
+
+# ---- 폴백 (DB 장애) ----
+
+class FlakyStore(MemoryLogStore):
+    """주 저장소 흉내. down=True 면 모든 쓰기가 실패하고, 호출 횟수를 센다."""
+
+    def __init__(self, fail_after: int | None = None):
+        super().__init__()
+        self.down, self.calls, self.fail_after = False, 0, fail_after
+
+    def _check(self):
+        self.calls += 1
+        if self.down or (self.fail_after is not None and self.calls > self.fail_after):
+            raise ConnectionError("DB 연결 끊김")
+
+    def start_run(self, d): self._check(); super().start_run(d)
+    def write_step(self, d): self._check(); super().write_step(d)
+    def end_run(self, d): self._check(); super().end_run(d)
+
+
+def run_through(store, run_id="r1"):
+    start, steps, end = sample_run(run_id)
+    store.start_run(start)
+    for s in steps:
+        store.write_step(s)
+    store.end_run(end)
+    return start, steps, end
+
+
+def test_fallback_uses_primary_when_healthy(tmp_path):
+    primary, jsonl = FlakyStore(), JsonlLogStore(tmp_path)
+    store = FallbackLogStore(primary, jsonl)
+    _, _, end = run_through(store)
+    assert primary.read_run("r1")["run"] == end and not store.degraded
+    assert jsonl.read_run("r1") == {"run": None, "steps": []}            # 파일에는 안 씀
+
+
+def test_fallback_when_db_down_from_start(tmp_path):
+    primary, jsonl = FlakyStore(), JsonlLogStore(tmp_path)
+    primary.down = True
+    store = FallbackLogStore(primary, jsonl)
+    _, steps, end = run_through(store)
+    assert store.degraded and "ConnectionError" in store.last_error
+    assert jsonl.read_run("r1") == {"run": end, "steps": steps}          # 같은 형식으로 전부 파일에
+    assert primary.calls == 1                                            # 실패 후 같은 실행에서 DB 재시도 안 함
+
+
+def test_fallback_mid_run_keeps_whole_run_in_jsonl(tmp_path):
+    primary, jsonl = FlakyStore(fail_after=2), JsonlLogStore(tmp_path)  # 시작·s1 까지 성공, s2 부터 실패
+    store = FallbackLogStore(primary, jsonl)
+    _, steps, end = run_through(store)
+    assert jsonl.read_run("r1") == {"run": end, "steps": steps}          # 앞 기록도 다시 써서 한 파일에 전체
+    assert store.read_run("r1") == {"run": end, "steps": steps}
+
+
+def test_next_run_retries_primary(tmp_path):
+    primary, jsonl = FlakyStore(), JsonlLogStore(tmp_path)
+    store = FallbackLogStore(primary, jsonl)
+    primary.down = True
+    run_through(store, "r1")
+    primary.down = False                                                 # DB 복구
+    _, _, end2 = run_through(store, "r2")
+    assert not store.degraded and store.last_error is None
+    assert primary.read_run("r2")["run"] == end2
+    assert jsonl.read_run("r2")["run"] is None
+
+
+def test_fallback_failure_is_raised(tmp_path):
+    class Broken(MemoryLogStore):
+        def start_run(self, d): raise OSError("디스크 가득 참")
+
+    primary = FlakyStore()
+    primary.down = True
+    store = FallbackLogStore(primary, Broken())
+    with pytest.raises(OSError):                                          # 실행을 멈출지는 Runner 가 정함 (6단계)
+        store.start_run(sample_run()[0])
+
+
+def test_fallback_with_unreachable_mongo_is_fast(tmp_path):
+    # 실제 MongoLogStore 가 DB 에 못 붙을 때: 실행 1건이 몇 초 안에 끝나고 전부 JSONL 에 남음
+    pytest.importorskip("pymongo")
+    import time
+    store = FallbackLogStore(MongoLogStore(uri="mongodb://127.0.0.1:1", timeout_ms=300), JsonlLogStore(tmp_path))
+    t0 = time.monotonic()
+    _, steps, end = run_through(store)
+    assert time.monotonic() - t0 < 3                                     # 스텝마다 기다리지 않음
+    assert store.degraded
+    assert JsonlLogStore(tmp_path).read_run("r1") == {"run": end, "steps": steps}
