@@ -31,6 +31,18 @@ docker compose --profile dev up    # 개발: 로봇·GPU 없이 (BACKEND=mock)
 | `tools/` | 검증·측정 스크립트 |
 | `practice/` | 담당별 현재 상태(`CURRENT.md`) |
 
+## 자동 PR 리뷰
+
+`.github/workflows/ai-pr-review.yml`이 PR diff와 관련 파일을 읽어 리뷰 코멘트를 남깁니다. 리뷰 job은 Codex의 `:read-only` 권한 프로필로 실행하며, 프로젝트 코드나 테스트는 실행하지 않습니다.
+
+| PR 변경 | 모델 / 추론 강도 |
+| :--- | :--- |
+| Markdown 파일만 변경 | `gpt-6-luna` / `low` |
+| 일반 코드 변경 | `gpt-6.1-sol` / `medium` |
+| `review:deep` 라벨 또는 안전·복구 경로 변경 | `gpt-6.1-sol` / `high` |
+
+안전·복구 경로는 `docs/safety.md`, `docs/domain.md`, `ready2go_skills`, Runner 제어 흐름 해석기입니다. AI 리뷰는 사람의 검토와 CI 검증을 대체하지 않습니다. Actions 저장소 시크릿에 `OPENAI_API_KEY`를 등록하고 저장소 라벨 `review:deep`을 만들어야 합니다. workflow는 `pull_request` 이벤트를 사용하고 작성자가 저장소 소유자·조직 멤버·협력자인 경우에만 모델 호출을 진행합니다. 포크 PR에는 시크릿이 제공되지 않아 자동 AI 리뷰가 실행되지 않습니다.
+
 ## 팀
 | 코드 | 이름 | 담당 |
 | :--- | :--- | :--- |
