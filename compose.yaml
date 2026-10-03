@@ -66,6 +66,9 @@ services:
     profiles: ["sim", "dev"]
     image: doosanrobot/dsr_emulator:3.0.1
     network_mode: host
+    environment: { ROBOT_MODEL: m0609 }   # 결정 #1 로봇 기종
+    tty: true                        # 시작 스크립트(start_services.sh)가 tty 없으면 바로 종료됨 [실측 10/03]
+    stdin_open: true
 
   mock-sim:
     profiles: ["dev"]
