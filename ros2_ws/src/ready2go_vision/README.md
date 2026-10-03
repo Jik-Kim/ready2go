@@ -30,7 +30,7 @@
 ```bash
 colcon build --packages-select ready2go_interfaces ready2go_vision && source install/setup.bash
 ros2 run ready2go_vision inspect_region_stub --ros-args -p config_path:=<저장소>/config/vision_stub.yaml
-ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: watch}"
+ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: eraser}"
 ```
 
 - 결과 예시: [`contracts/examples/inspect_region_result.json`](../../../contracts/examples/inspect_region_result.json)

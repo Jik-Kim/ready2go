@@ -6,8 +6,8 @@
     "pose": {
       "frame": "drawer_top",
       "position": [
-        0.1,
-        0.08,
+        0.18,
+        0.13,
         0.0
       ],
       "yaw": 0.0
@@ -22,12 +22,12 @@
         "frame": "drawer_top",
         "position": [
           0.1,
-          0.18,
+          0.08,
           0.0
         ],
         "yaw": 0.0
       },
-      "top_z": 0.02
+      "top_z": 0.0202
     },
     {
       "id": "car_key#1",
@@ -35,8 +35,8 @@
       "pose": {
         "frame": "drawer_top",
         "position": [
+          0.1,
           0.18,
-          0.13,
           0.0
         ],
         "yaw": 0.0

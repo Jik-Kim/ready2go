@@ -1,32 +1,30 @@
-# 로봇 온톨로지 · 상태 추적 · 지식 그래프
+# 로봇 온톨로지 · 파일 구조와 상태 계약
 
-> 관련 요구사항: [FR-ONT-01–03](requirements.md#fr-ont-01), [FR-PLN-01–03](requirements.md#fr-pln-01), [FR-REC-01](requirements.md#fr-rec-01). 온톨로지와 상태 추적의 구현 상세는 이 문서에서 다룹니다.
+> 범위·Phase·완료 기준의 정본은 [requirements.md](requirements.md)입니다. 이 문서는 데이터 구조, 현재 E 로더의 기능, 담당별 연결 사항을 설명합니다. 시연 예시는 구현 완료의 근거로 사용하지 않습니다.
 
-## 7. 로봇 온톨로지 및 JSON 규격 (일부)
+## 7. 로봇 온톨로지 및 JSON 규격
 
-### 7.5 로봇 온톨로지 (동작 · 상태 · 세계, JSON-LD)
+### 7.5 파일 역할과 현재 로더
 
-강사 챌린지의 중심. 로봇이 **할 수 있는 동작(skills)**, **현재 상태(state)**, **다루는 세계(world)**를 하나의 온톨로지로 정의하고, 플래너·Runner·LLM 파서·로거가 같은 로더 조회 구조를 기준으로 동작함. 작성 파일은 역할별로 분리하며, `robot_ontology.jsonld`가 전체 구성의 진입점임.
+[FR-ONT-01](requirements.md#fr-ont-01)의 물품·장소·상태·스킬을 하나의 조회 구조로 정의합니다. 작성 파일을 분리하되 `robot_ontology.jsonld`를 전체 구성의 진입점으로 사용합니다. [문서]
 
-> **진입점**: [`knowledge/robot_ontology.jsonld`](../knowledge/robot_ontology.jsonld) — `@context`와 `sources` 참조 목록.
-> **작성 원본**: [`classes.jsonld`](../knowledge/classes.jsonld), [`world.jsonld`](../knowledge/world.jsonld), `knowledge/skills/*.jsonld`, [`initial_state.json`](../knowledge/snapshots/initial_state.json). 파일별 역할은 [`knowledge/README.md`](../knowledge/README.md).
+| 원본 | 역할 |
+| :--- | :--- |
+| [`robot_ontology.jsonld`](../knowledge/robot_ontology.jsonld) | 공통 `@context`와 `sources` 참조 목록 |
+| [`classes.jsonld`](../knowledge/classes.jsonld) | 종류와 계층 정의 |
+| [`world.jsonld`](../knowledge/world.jsonld) | 물품·목록·장소 정의 |
+| `knowledge/skills/*.jsonld` | 입력·사전 조건(`pre`)·전개(`expand`)·성공 후 결과(`effect`)·오류 정의 |
+| [`initial_state.json`](../knowledge/snapshots/initial_state.json) | 실제 상태와 대조한 뒤 적용할 초기화용 예시 프리셋 |
+| [`places.yaml`](../config/places.yaml) | 장소 좌표계·실측 치수·이동 거리·설정의 정본 |
+| [`item_grasp.yaml`](../config/item_grasp.yaml) | 물품별 파지 힘과 검증 승인 상태의 정본 |
 
-* **로딩**: `ready2go_knowledge.core.ontology.load()`가 참조 파일을 읽어 `classes`·`world`·`state`·`skills` 구조로 반환함. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아님.
-* **장소 설정 정본**: [`config/places.yaml`](../config/places.yaml)의 장소 식별자를 `world.places`와 연결하고, 로딩 시 설정을 결합함. TF·치수·`max_travel_m`·`return_slot`·`slots`·처짐 설정은 YAML에만 작성함. `null`은 미측정 상태로 보존하며 실행 전에 준비 여부 확인이 필요함.
-* **이름 변경**: 기존 `fetch_with_unpack` 등록은 `handover_with_unpack`으로 변경함. 태스크 파일 `tasks/find_with_unpack.json`과 내부 동작은 유지함.
+`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 상세 사용법은 [knowledge/README.md](../knowledge/README.md)를 참조합니다. [문서]
 
-* **classes / world**: 물품·리스트·장소의 지식 (기존 물품 지식 베이스는 여기로 통합). `lists.*.items`에 쓰인 키는 반드시 `world.items`에 정의되어야 함(로딩 시 검증).
-* **state**: 로더 반환값은 초기화용 상태 프리셋이며 실제 로봇 상태를 확인한 결과가 아님. 실제 상태 확인 후 Runner가 적용하고 실행 중 **현재 상태**를 관리함. `상태[predicate][subject] = value` 한 가지 형태로 통일(예: `open.drawer_top`, `located_in.eraser`, `gripper.robot`). 서랍과 트레이를 `open` 하나로 다뤄 "집거나 놓을 수 있는 곳인가"를 단순하게 판단함.
-* **skills**: 로봇 동작의 정의.
-  * `primitive` 스킬: **실행 조건(`pre`)·실행 중 유지 조건(`hold`)·결과(`effect`)·관측 확인 기준(`verify`)·원자 동작 전개(`expand`)·발생 가능 에러**를 가짐. 조건·결과는 모두 `{subject, predicate, op, value}` 레코드 형식으로 통일. 플래너가 조합에 사용함.
-  * `hold`는 스킬 실행 중 주기적으로 확인(예: 집는 동안 서랍이 열려 있어야 함). 깨지면 즉시 중단하고 `HOLD_VIOLATED` 기록.
-  * `composite` 스킬: 7.3 같은 태스크 JSON을 하나의 스킬로 등록. 결과가 관측에 따라 달라지는(`effect: "sensing"`) 탐색형 작업은 플래너 조합 대상이 아니라 인텐트로 직접 호출함.
-* 물품 `size_m`은 #8의 최신 치수 보고와 제공된 외접 박스 표로 갱신함. 미확정 파지 힘은 `config/item_grasp.yaml`에 두며 임의 예시값을 유지하지 않음. 장소 설정의 실측 여부·근거는 정본 `config/places.yaml`에서 관리하고, 미측정 값을 온톨로지 예시값으로 대체하지 않음.
-* **원천은 JSON-LD, PDDL은 내보내기만**: 조건·결과 레코드는 PDDL의 술어 형식과 1:1로 대응하므로, 여유가 있으면 PDDL 내보내기 스크립트로 "표준 플래닝 언어와 호환"을 증빙함. PlanSys2·SkiROS2 같은 외부 프레임워크 도입은 향후 과제로 둠(ROS 2 Jazzy 지원·C++ 부담, 선행 사례 보고서 참고).
-* **파라미터 이름 규칙**: 스킬 파라미터가 원자 동작 파라미터(7.1)와 같은 대상을 가리키면 **같은 이름**을 씀(예: `drawer_id`). 스킬 수준에서만 쓰는 개념(`item`, `from`, `to`)은 `expand`에서 원자 동작 파라미터(`search_target`, `region`, `location`)로 명시적으로 매핑하며, 정합성 검사(아래)가 매핑 누락을 잡아냄.
-* **목적지 종류에 따른 자동 처리**: `place` 스킬은 `location: "$to"`만 넘기고, 목적지가 서랍이면 `place_object` 백엔드가 서랍 좌표계·z 보정을 자동 적용함(7.1 `place_object`). 원위치 복구처럼 정확한 자리가 필요하면 태스크 JSON에서 `pose` + `frame: "drawer"`를 직접 지정함(7.3 `f1.4`).
-* **시작 시 정합성 검사**: 로딩 시 ① 모든 스킬에 실행 구현이 있고 그 역도 성립, ② 모든 조건이 존재하는 상태 경로를 참조, ③ 모든 에러 코드가 정의됨을 검증하고, 실패하면 Runner를 시작하지 않음.
+**현재 분리 형식에서 검사하는 항목**: 필수 sources와 객체 형식, JSON/YAML 중복 키, 중복 스킬 ID, 장소 설정 누락·중복, 물품과 파지 설정 ID 일치, 양수 유한값 3개의 `size_m`, 파지 설정 형식·값, 물품·장소의 class 참조, 초기 located_in의 물품·장소 참조, 목록의 물품 참조입니다. 기존 단일 파일 호환 경로는 JSON을 읽어 그대로 반환하며 이 전체 검사를 수행하지 않습니다. [문서]
 
+**현재 수행하지 않는 검사**: 스킬과 실행 구현의 대응, 모든 조건의 상태 경로, 전체 오류 코드, 파라미터 매핑의 완전성 검사입니다. 이러한 검사를 근거로 Runner 시작을 차단하는 기능도 E 로더에 없습니다. 향후 클래스 추론·정합성 기능의 요구사항은 [FR-ONT-03](requirements.md#fr-ont-03)에 따르며, 구현 범위는 별도 확정해야 합니다. [문서]
+
+스킬 파라미터가 원자 동작과 같은 대상을 뜻하면 같은 이름을 사용하고, 스킬 수준의 `item/from/to`는 `expand`에서 원자 동작 파라미터로 명시적으로 매핑합니다. 현재 데이터에 `hold/verify`가 있어도 자동 관측 검증 구현을 의미하지 않습니다. 문자열 verify의 관측값·임계값 출처·평가 방법과 접근 동작 책임은 B·C·E 계약 보완 사항입니다. [문서]
 
 ### 물품 정의·치수·요청 범위 (P1, #8 반영)
 
@@ -38,36 +36,19 @@
 - **파지 설정**: 등록·인식·라벨링과 실물 파지 승인은 구분함. 미확정 `grip_force`는 YAML의 `null`, `grasp_verified`는 `false`로 둠. 임의 기본 힘·임계값을 넣지 않음. 로더는 이를 물품 조회 결과에 제공하며 `require_grasp_settings(onto, item)`은 미확정 설정을 거절함. 이 함수를 **B/C의 실제 파지·밀기·복구 경로에 연결하는 작업은 인계 사항**으로, 이번 변경만으로 실행 차단이 자동 적용되는 것은 아님.
 - **근거·결정 기록**: [#8](https://github.com/Jik-Kim/ready2go/issues/8)에 실측·시험·B/E 채택 근거를 기록하고, 선정 기준·물품별 검증 상태는 [hardware.md 2.3](hardware.md#23-물품-선정-기준-day-2-실물-파지-테스트로-확정), 인터페이스 의미는 [interfaces.md](interfaces.md)에서 공유함. 삭제된 `decisions.md`를 결정 기록 위치로 사용하지 않음.
 
-### 7.6 새 작업 추가 = 온톨로지에 스킬 추가 (코드 수정 0줄)
+### 7.6 확장 정의와 연결 경계
 
-* 새 작업은 `tasks/<이름>.json`(7.2 스키마)과 복합 스킬 정의 파일을 추가하고, 진입점 `sources.skills`에 해당 파일을 등록함. 파일에 `trigger`(인텐트 이름·예문)를 적으면 **LLM 인텐트 파서(6.4)의 프롬프트와 플래너에 자동 반영**되어 음성 명령까지 함께 추가됨.
-* 새 원자 수준 능력은 `primitive` 스킬로 추가(예: "트레이 흔들어 정렬하기"). 기존 원자 동작의 조합으로 `expand`를 적을 수 있으면 역시 코드 수정이 필요 없음.
+기존 복합 스킬 이름은 `handover_with_unpack`이며 참조 태스크는 `tasks/find_with_unpack.json`입니다. 등록된 데이터가 P1 실물 경로에서 가림 탐색을 실행할 수 있다는 뜻은 아닙니다. [문서]
 
-> **원본 파일**: [`tasks/return_items.json`](../tasks/return_items.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
+자동 계획은 [FR-PLN-02](requirements.md#fr-pln-02), 복합 작업 추가는 [FR-PLN-03](requirements.md#fr-pln-03), 목록·분류 조회는 [FR-ONT-03](requirements.md#fr-ont-03)에 따릅니다. 스킬 파일과 sources 등록만으로 음성 프롬프트·플래너·태스크 레지스트리에 자동 반영된다고 보장하지 않습니다. 담당 모듈의 연결 확인이 필요합니다. 계획 설계는 [planner.md](planner.md)를 참조합니다. [문서]
 
-> 위 예시의 `sequence`는 지면상 첫 스텝만 표기. 시연 2막(17.4)의 "정리해줘"가 이 방식의 증빙임.
+### 7.8 상태 계약과 Phase별 연결
 
-### 7.8 상태 추적 규칙 (담당 C, 온톨로지 데이터 E)
+- 상태는 `state[predicate][subject] = value` 형태입니다. 초기 프리셋을 읽는 것과 실제 로봇 상태를 확인·관리하는 것은 별개입니다. 현재 상태·로그 관리 책임은 Runner(C)에 있습니다. [문서]
+- P1은 [FR-PLN-01](requirements.md#fr-pln-01)에 따라 실행 전 pre를 확인하고 성공 응답 후 effect를 반영해야 합니다. E core의 조건·효과 함수 제공과 Runner 실행 경로 연결 완료를 구분합니다. [문서]
+- P2의 사후 관측 verify는 [FR-ONT-02](requirements.md#fr-ont-02), P3의 관측 불일치 처리는 [FR-REC-01](requirements.md#fr-rec-01)에 따릅니다. 현재 문서나 데이터의 존재로 구현 완료를 판단하지 않습니다. [문서]
+- 중간 실패 시 실제 상태·확인 불가 상태, 인스턴스별 위치, hold 평가, 상태 발행·지속성은 담당 코드와 계약을 확인해야 합니다. 실행·로그 설계는 [runner.md](runner.md)를 참조합니다. [문서]
 
-* **Runner가 상태의 단일 관리자**. 스킬 실행 전 `pre`를 확인하고(`PRE_UNMET`이면 실행하지 않음), 실행 중 `hold`를 확인하며, 액션 성공 후 `verify` 관측이 통과해야 `effect`를 반영.
-* **관측이 우선**: `inspect_region` 결과(물품 위치), `/drawers/state`(서랍), `/gripper/state`(그리퍼)가 상태와 다르면 **관측값으로 고치고 `STATE_MISMATCH`를 로그**에 남김. 1막의 차키 위치 자동 수정도 이 규칙으로 동작함.
-* 현재 상태는 `/robot_state` 토픽(JSON)으로 계속 발행 → 시연 화면·Isaac Sim 트윈이 사용.
-* 상태는 DB에 저장하여 작업 사이에 유지됨(2막에서 1막의 수정 결과 사용).
+### 7.9 그래프·선택적 확장
 
-### 7.9 지식 그래프 (초안)
-
-7.5 로봇 온톨로지를 그림으로 나타낸 초안. 그림은 과거 물품·시나리오 기준 초안이며 이번 물품 원본·현재 상태의 증빙이 아님. 새 목록과 시나리오가 확정되면 최종본으로 다시 그림(원본: 팀 공유 `지식 그래프_초안.pdf`).
-
-**① 분류 계층(TBox)과 개체(ABox)** — 하위 클래스(실선), 개체의 종류(점선), 목록 구성. "귀중품 다 찾아줘"는 Valuables 아래 개체를 따라가는 추론으로 처리됨.
-
-![분류 계층과 개체](images/knowledge_graph_1.jpg)
-
-**② 상태 스냅샷 — 시연 시작 시점(17.2)** — `located_in` 기록과, 1막 1-7에서 관측 후 수정되는 차키 위치(주황 점선).
-
-![상태 스냅샷](images/knowledge_graph_2.jpg)
-
-**③ 스킬 인과 체인 — 2막 "립밤은 아래 서랍에 넣어 둬"** — 각 스킬의 결과가 다음 스킬의 조건을 채우는 관계. 서랍을 먼저 여는 순서가 조건에서 도출됨(7.7).
-
-![스킬 인과 체인](images/knowledge_graph_3.jpg)
-
-> **최종본 작성 시 확인**: Day 2 파지 테스트로 확정된 물품, 실제 서랍·트레이 구성, 17.2 초기 배치, 2막 명령 문장, 그림 속 용어(`located_in`, `open`, `gripper`)와 7.5 온톨로지 키 일치.
+과거 물품과 시연 배치에 맞춘 그래프는 현재 world·상태의 근거로 사용하지 않습니다. 현재 문서 본문에서는 제외하며, 필요할 때 확정된 원본 데이터로 다시 작성합니다. PDDL 내보내기와 외부 플래닝 프레임워크는 선택적 검토 사항이며 현재 구현 범위에 포함하지 않습니다. [문서]

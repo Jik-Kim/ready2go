@@ -1,4 +1,4 @@
-"""T1 씬 생성 (담당 A): 작업대 + 받침 선반 + 3단 서랍장(맨 위 단 Prismatic Joint) + M0609/RG2 + 손목 카메라.
+"""T1 씬 생성 (담당 A): 작업대 + (서랍 치수가 채워졌을 때만) 받침 선반 + 서랍장(맨 위 단 Prismatic Joint) + M0609/RG2 + 손목 카메라.
 
 실행: ~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py  →  sim/scenes/ready2go_t1.usd
 검증: ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py
@@ -10,6 +10,7 @@
 - 서랍의 로봇 기준 정확한 위치는 #6(3점 터치) 결과로 교체한다. 여기 값은 평면도 기준 초기 배치다.
 """
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,8 @@ DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="u
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
 PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
 OUT = ROOT / "sim/scenes/ready2go_t1.usd"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _dims import cabinet_missing  # noqa: E402
 ROBOT_REL = "../assets/m0609_camera_cube/m0609_camera_cube.usd"
 
 CM = 0.01
@@ -33,8 +36,8 @@ WORKSPACE_YAW_DEG = 0.0      # [미확인] 로봇 base_link x축과 작업대 �
 TABLE_THICKNESS = 0.03       # [추정]
 SHELF_MARGIN = 0.02          # [추정] 받침 선반이 서랍장보다 사방으로 더 나온 길이
 SHELF_THICKNESS = 0.01       # [추정]
-SIDE_WALL = 0.0025           # 서랍 트레이 옆벽: (외곽 폭 26.5 - 내부 폭 26) / 2  [계산]
-FRONT_BACK_WALL = 0.0015     # 앞/뒤벽: (외곽 깊이 20.8 - 내부 깊이 20.5) / 2  [계산, 앞뒤를 같게 가정]
+SIDE_WALL = 0.0025           # 서랍 트레이 옆벽 [기존 서랍 기준 임시값 — 새 서랍 실측 후 교체]
+FRONT_BACK_WALL = 0.0015     # 앞/뒤벽 [기존 서랍 기준 임시값 — 새 서랍 실측 후 교체]
 TRAY_FLOOR = 0.004           # [추정]
 SHELL_FLOOR = 0.005          # [추정] 트레이 아래 바닥 판 (단 높이 7.5 = 0.5 + 6.1 + 0.9)
 SHELL_CEIL = 0.009           # [추정]
@@ -95,6 +98,8 @@ def build():
     top = DIM["drawer_top"]
     pv = DIM["plan_view_cm"]
     tb = DIM["table"]
+    missing = cabinet_missing(DIM, PLACES)
+    cabinet = not missing
 
     # ---------- 평면도 → 작업대 좌표계 W (원점 = 로봇 베이스 철판 중심, 작업대 윗면 z=0, +x 긴 변 오른쪽, +y 서랍 반대쪽) ----------
     plate_w, plate_d = pv["robot_base_plate_cm"]["width"], pv["robot_base_plate_cm"]["depth"]
@@ -104,19 +109,20 @@ def build():
     y_bottom = -(pv["robot_base_gap_to_table_bottom_edge"] + plate_d / 2) * CM
     assert abs((y_top - y_bottom) - tb["depth_cm"] * CM) < 1e-6, "도면의 21+23+21 이 작업대 깊이와 맞지 않음"
 
-    cab_w, cab_d = u["width_cm"] * CM, u["depth_cm"] * CM
-    cab_x0 = x_left + pv["drawer_left_edge_to_table_left"] * CM
-    cab_x1 = cab_x0 + cab_w
-    assert abs((x_right - cab_x1) - pv["drawer_right_edge_to_table_right"] * CM) < 1e-6, "도면의 서랍 좌우 치수가 맞지 않음"
-    cab_xc = (cab_x0 + cab_x1) / 2
-    y_front = y_bottom - pv["drawer_front_to_table_edge_gap"] * CM   # 앞면(로봇 쪽) y. 0.4cm는 간격으로 가정 [확인 필요]
-    cab_yc = y_front - cab_d / 2
+    if cabinet:
+        cab_w, cab_d = u["width_cm"] * CM, u["depth_cm"] * CM
+        cab_x0 = x_left + pv["drawer_left_edge_to_table_left"] * CM
+        cab_x1 = cab_x0 + cab_w
+        assert abs((x_right - cab_x1) - pv["drawer_right_edge_to_table_right"] * CM) < 1e-6, "도면의 서랍 좌우 치수가 맞지 않음"
+        cab_xc = (cab_x0 + cab_x1) / 2
+        y_front = y_bottom - pv["drawer_front_to_table_edge_gap"] * CM   # 앞면(로봇 쪽) y. 0.4cm는 간격으로 가정 [확인 필요]
+        cab_yc = y_front - cab_d / 2
 
-    z_seat = DIM["drawer_unit"].get("seat_top_vs_table_surface_cm", -0.3) * CM
-    total_h = u["total_height_cm"] * CM
-    z_t3_bottom = z_seat + top["front_bottom_height_above_seat_cm"] * CM
-    t3_h = z_seat + total_h - z_t3_bottom
-    lower_h = (z_t3_bottom - z_seat) / 2           # 아래 두 단은 같은 높이로 가정 [거친 추정]
+        z_seat = u["seat_top_vs_table_surface_cm"] * CM
+        total_h = u["total_height_cm"] * CM
+        z_t3_bottom = z_seat + top["front_bottom_height_above_seat_cm"] * CM
+        t3_h = z_seat + total_h - z_t3_bottom
+        lower_h = (z_t3_bottom - z_seat) / 2           # 아래 두 단은 같은 높이로 가정 [거친 추정]
 
     stage = Usd.Stage.CreateInMemory()
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
@@ -165,78 +171,85 @@ def build():
     box(stage, "/World/workspace/table", (x_right - x_left, y_top - y_bottom, TABLE_THICKNESS),
         ((x_left + x_right) / 2, (y_top + y_bottom) / 2, -TABLE_THICKNESS / 2), (0.80, 0.68, 0.47))
     box(stage, "/World/workspace/robot_base_plate", (plate_w * CM, plate_d * CM, 0.005), (0, 0, 0.0025), (0.7, 0.7, 0.72))
-    box(stage, "/World/workspace/shelf", (cab_w + 2 * SHELF_MARGIN, cab_d + 2 * SHELF_MARGIN, SHELF_THICKNESS),
-        (cab_xc, cab_yc, z_seat - SHELF_THICKNESS / 2), (0.92, 0.92, 0.92))
+    if cabinet:
+        box(stage, "/World/workspace/shelf", (cab_w + 2 * SHELF_MARGIN, cab_d + 2 * SHELF_MARGIN, SHELF_THICKNESS),
+            (cab_xc, cab_yc, z_seat - SHELF_THICKNESS / 2), (0.92, 0.92, 0.92))
 
-    # ---------- 서랍장 ----------
-    cab = xform(stage, "/World/workspace/cabinet", pose([cab_xc, cab_yc, 0]))
-    white = (0.95, 0.95, 0.93)
-    for name, z0 in (("tier1_base", z_seat), ("tier2_drawer_bottom", z_seat + lower_h)):
-        box(stage, f"/World/workspace/cabinet/{name}", (cab_w, cab_d, lower_h), (0, 0, z0 + lower_h / 2), white)
-    # tier2 앞면 손잡이(닫힌 채 고정, Phase 3)
-    box(stage, "/World/workspace/cabinet/tier2_drawer_bottom_handle", (0.02, HANDLE_PROTRUSION, 0.02),
-        (0, cab_d / 2 + HANDLE_PROTRUSION / 2, z_seat + lower_h + lower_h / 2), (0.85, 0.85, 0.83), collide=True)
+    if cabinet:
+        # ---------- 서랍장 ----------
+        cab = xform(stage, "/World/workspace/cabinet", pose([cab_xc, cab_yc, 0]))
+        white = (0.95, 0.95, 0.93)
+        for name, z0 in (("tier1_base", z_seat), ("tier2_drawer_bottom", z_seat + lower_h)):
+            box(stage, f"/World/workspace/cabinet/{name}", (cab_w, cab_d, lower_h), (0, 0, z0 + lower_h / 2), white)
+        # tier2 앞면 손잡이(닫힌 채 고정, Phase 3)
+        box(stage, "/World/workspace/cabinet/tier2_drawer_bottom_handle", (0.02, HANDLE_PROTRUSION, 0.02),
+            (0, cab_d / 2 + HANDLE_PROTRUSION / 2, z_seat + lower_h + lower_h / 2), (0.85, 0.85, 0.83), collide=True)
 
-    # 맨 위 단: shell(고정) + tray(Prismatic)
-    z3c = z_t3_bottom + t3_h / 2                              # 단 중심 높이
-    shell = xform(stage, "/World/workspace/cabinet/drawer_top_shell", pose([0, 0, z3c]))
-    UsdPhysics.RigidBodyAPI.Apply(shell).CreateKinematicEnabledAttr(True)
-    box(stage, "/World/workspace/cabinet/drawer_top_shell/floor_slab", (cab_w, cab_d, SHELL_FLOOR),
-        (0, 0, -t3_h / 2 + SHELL_FLOOR / 2), white)
-    box(stage, "/World/workspace/cabinet/drawer_top_shell/ceiling_slab", (cab_w, cab_d, SHELL_CEIL),
-        (0, 0, t3_h / 2 - SHELL_CEIL / 2), white)
+        # 맨 위 단: shell(고정) + tray(Prismatic)
+        z3c = z_t3_bottom + t3_h / 2                              # 단 중심 높이
+        shell = xform(stage, "/World/workspace/cabinet/drawer_top_shell", pose([0, 0, z3c]))
+        UsdPhysics.RigidBodyAPI.Apply(shell).CreateKinematicEnabledAttr(True)
+        box(stage, "/World/workspace/cabinet/drawer_top_shell/floor_slab", (cab_w, cab_d, SHELL_FLOOR),
+            (0, 0, -t3_h / 2 + SHELL_FLOOR / 2), white)
+        box(stage, "/World/workspace/cabinet/drawer_top_shell/ceiling_slab", (cab_w, cab_d, SHELL_CEIL),
+            (0, 0, t3_h / 2 - SHELL_CEIL / 2), white)
 
-    int_d, int_w, int_h = PLACES["drawer_top"]["interior_m"]   # [깊이, 폭, 높이] m, 정본은 config/places.yaml
-    tray_h = TRAY_FLOOR + int_h
-    tray_zc = -t3_h / 2 + SHELL_FLOOR + tray_h / 2           # shell 좌표계에서 트레이 중심 z
-    tray = xform(stage, "/World/workspace/cabinet/drawer_top_tray", pose([0, 0, z3c + tray_zc]))
-    UsdPhysics.RigidBodyAPI.Apply(tray)
-    UsdPhysics.MassAPI.Apply(tray).CreateMassAttr(TRAY_MASS)
-    p = "/World/workspace/cabinet/drawer_top_tray"
-    out_w = int_w + 2 * SIDE_WALL
-    box(stage, f"{p}/floor", (out_w, cab_d, TRAY_FLOOR), (0, 0, -tray_h / 2 + TRAY_FLOOR / 2), white)
-    for sgn, nm in ((-1, "wall_left"), (1, "wall_right")):
-        box(stage, f"{p}/{nm}", (SIDE_WALL, cab_d, tray_h), (sgn * (int_w / 2 + SIDE_WALL / 2), 0, 0), white)
-    box(stage, f"{p}/wall_back", (int_w, FRONT_BACK_WALL, tray_h), (0, -cab_d / 2 + FRONT_BACK_WALL / 2, 0), white)
-    panel_h = t3_h                                            # 앞 패널은 단 전체 높이 (측정: 맨 위 단 약 7.5 cm)
-    panel_zc = (-t3_h / 2 + t3_h / 2) - tray_zc               # shell 중심 높이 - 트레이 중심 높이
-    box(stage, f"{p}/front_panel", (cab_w, FRONT_BACK_WALL, panel_h), (0, cab_d / 2 - FRONT_BACK_WALL / 2, panel_zc), white)
-    box(stage, f"{p}/handle", (0.02, HANDLE_PROTRUSION, 0.02),
-        (0, cab_d / 2 + HANDLE_PROTRUSION / 2, panel_zc), (0.85, 0.85, 0.83))
-    UsdGeom.Xformable(stage.GetPrimAtPath(f"{p}/handle")).GetPrim().SetCustomDataByKey(
-        "note", "손잡이 크기 2cm·돌출 길이는 미측정 [추정]. 위아래로 잡는 곡면 탭을 박스로 단순화")
+        int_d, int_w, int_h = PLACES["drawer_top"]["interior_m"]   # [깊이, 폭, 높이] m, 정본은 config/places.yaml
+        tray_h = TRAY_FLOOR + int_h
+        tray_zc = -t3_h / 2 + SHELL_FLOOR + tray_h / 2           # shell 좌표계에서 트레이 중심 z
+        tray = xform(stage, "/World/workspace/cabinet/drawer_top_tray", pose([0, 0, z3c + tray_zc]))
+        UsdPhysics.RigidBodyAPI.Apply(tray)
+        UsdPhysics.MassAPI.Apply(tray).CreateMassAttr(TRAY_MASS)
+        p = "/World/workspace/cabinet/drawer_top_tray"
+        out_w = int_w + 2 * SIDE_WALL
+        box(stage, f"{p}/floor", (out_w, cab_d, TRAY_FLOOR), (0, 0, -tray_h / 2 + TRAY_FLOOR / 2), white)
+        for sgn, nm in ((-1, "wall_left"), (1, "wall_right")):
+            box(stage, f"{p}/{nm}", (SIDE_WALL, cab_d, tray_h), (sgn * (int_w / 2 + SIDE_WALL / 2), 0, 0), white)
+        box(stage, f"{p}/wall_back", (int_w, FRONT_BACK_WALL, tray_h), (0, -cab_d / 2 + FRONT_BACK_WALL / 2, 0), white)
+        panel_h = t3_h                                            # 앞 패널은 단 전체 높이 (측정: 맨 위 단 약 7.5 cm)
+        panel_zc = (-t3_h / 2 + t3_h / 2) - tray_zc               # shell 중심 높이 - 트레이 중심 높이
+        box(stage, f"{p}/front_panel", (cab_w, FRONT_BACK_WALL, panel_h), (0, cab_d / 2 - FRONT_BACK_WALL / 2, panel_zc), white)
+        box(stage, f"{p}/handle", (0.02, HANDLE_PROTRUSION, 0.02),
+            (0, cab_d / 2 + HANDLE_PROTRUSION / 2, panel_zc), (0.85, 0.85, 0.83))
+        UsdGeom.Xformable(stage.GetPrimAtPath(f"{p}/handle")).GetPrim().SetCustomDataByKey(
+            "note", "손잡이 크기 2cm·돌출 길이는 미측정 [추정]. 위아래로 잡는 곡면 탭을 박스로 단순화")
 
-    # 트레이는 shell과 겹치므로 둘 사이 충돌은 끈다
-    fp = UsdPhysics.FilteredPairsAPI.Apply(tray)
-    for nm in ("floor_slab", "ceiling_slab"):
-        fp.CreateFilteredPairsRel().AddTarget(Sdf.Path(f"/World/workspace/cabinet/drawer_top_shell/{nm}"))
-    fp.CreateFilteredPairsRel().AddTarget(Sdf.Path("/World/workspace/cabinet/drawer_top_shell"))
+        # 트레이는 shell과 겹치므로 둘 사이 충돌은 끈다
+        fp = UsdPhysics.FilteredPairsAPI.Apply(tray)
+        for nm in ("floor_slab", "ceiling_slab"):
+            fp.CreateFilteredPairsRel().AddTarget(Sdf.Path(f"/World/workspace/cabinet/drawer_top_shell/{nm}"))
+        fp.CreateFilteredPairsRel().AddTarget(Sdf.Path("/World/workspace/cabinet/drawer_top_shell"))
 
-    # Prismatic Joint: 축 = 트레이 로컬 +y(작업대 쪽으로 당김), 0 ~ max_travel
-    travel = top["max_travel_cm"] * CM
-    jt = UsdPhysics.PrismaticJoint.Define(stage, "/World/workspace/cabinet/drawer_top_joint")
-    jt.CreateBody0Rel().AddTarget(Sdf.Path("/World/workspace/cabinet/drawer_top_shell"))
-    jt.CreateBody1Rel().AddTarget(Sdf.Path(p))
-    jt.CreateAxisAttr("Y")
-    jt.CreateLocalPos0Attr(Gf.Vec3f(0, 0, tray_zc))
-    jt.CreateLocalPos1Attr(Gf.Vec3f(0, 0, 0))
-    jt.CreateLocalRot0Attr(Gf.Quatf(1, 0, 0, 0))
-    jt.CreateLocalRot1Attr(Gf.Quatf(1, 0, 0, 0))
-    jt.CreateLowerLimitAttr(0.0)
-    jt.CreateUpperLimitAttr(travel)
-    drv_api = UsdPhysics.DriveAPI.Apply(jt.GetPrim(), "linear")
-    drv_api.CreateTypeAttr("force")
-    drv_api.CreateStiffnessAttr(2000.0)
-    drv_api.CreateDampingAttr(200.0)
-    drv_api.CreateMaxForceAttr(100.0)
-    drv_api.CreateTargetPositionAttr(0.0)
-    jt.GetPrim().SetCustomDataByKey("note", "max_travel 17cm 실측(A, 10/02). 닫힘=0")
+        # Prismatic Joint: 축 = 트레이 로컬 +y(작업대 쪽으로 당김), 0 ~ max_travel
+        travel = PLACES["drawer_top"]["max_travel_m"]   # 정본은 config/places.yaml
+        jt = UsdPhysics.PrismaticJoint.Define(stage, "/World/workspace/cabinet/drawer_top_joint")
+        jt.CreateBody0Rel().AddTarget(Sdf.Path("/World/workspace/cabinet/drawer_top_shell"))
+        jt.CreateBody1Rel().AddTarget(Sdf.Path(p))
+        jt.CreateAxisAttr("Y")
+        jt.CreateLocalPos0Attr(Gf.Vec3f(0, 0, tray_zc))
+        jt.CreateLocalPos1Attr(Gf.Vec3f(0, 0, 0))
+        jt.CreateLocalRot0Attr(Gf.Quatf(1, 0, 0, 0))
+        jt.CreateLocalRot1Attr(Gf.Quatf(1, 0, 0, 0))
+        jt.CreateLowerLimitAttr(0.0)
+        jt.CreateUpperLimitAttr(travel)
+        drv_api = UsdPhysics.DriveAPI.Apply(jt.GetPrim(), "linear")
+        drv_api.CreateTypeAttr("force")
+        drv_api.CreateStiffnessAttr(2000.0)
+        drv_api.CreateDampingAttr(200.0)
+        drv_api.CreateMaxForceAttr(100.0)
+        drv_api.CreateTargetPositionAttr(0.0)
+        jt.GetPrim().SetCustomDataByKey("note", "max_travel은 config/places.yaml 의 max_travel_m. 닫힘=0")
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     stage.GetRootLayer().Export(str(OUT))
-    print(f"[build] 저장: {OUT}")
-    print(f"[build] 작업대 x[{x_left:.3f},{x_right:.3f}] y[{y_bottom:.3f},{y_top:.3f}]  서랍장 x[{cab_x0:.3f},{cab_x1:.3f}] 앞면 y={y_front:.3f}")
-    print(f"[build] 맨 위 단: 바닥 z={z_t3_bottom:.4f} 높이 {t3_h:.4f}  인출 한계 {travel:.3f} m")
+    print(f"[build] 저장: {OUT}", flush=True)
+    print(f"[build] 작업대 x[{x_left:.3f},{x_right:.3f}] y[{y_bottom:.3f},{y_top:.3f}]", flush=True)
+    if cabinet:
+        print(f"[build] 서랍장 x[{cab_x0:.3f},{cab_x1:.3f}] 앞면 y={y_front:.3f}  맨 위 단: 바닥 z={z_t3_bottom:.4f} 높이 {t3_h:.4f}  인출 한계 {travel:.3f} m", flush=True)
+    else:
+        print("[build] 서랍장은 만들지 않았습니다 (작업대·로봇·카메라만). 아직 필요한 항목:", flush=True)
+        for m in missing:
+            print(f"[build]   - {m}", flush=True)
 
 
 build()

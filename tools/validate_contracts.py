@@ -41,7 +41,17 @@ def main() -> int:
         except jsonschema.ValidationError as e:
             errors.append(f"{p.name}: {e.message}")
     load(ROOT / "contracts/examples/execution_log.json")
+    raw = load(ROOT / "knowledge/robot_ontology.jsonld")   # 서랍 물리 값(인출 거리 등)의 정본은 config/places.yaml. 온톨로지에 따로 두면 서로 어긋난다
+    for pname, pdef in raw.get("world", {}).get("places", {}).items():
+        if pdef.get("max_travel_m") is not None:
+            errors.append(f"knowledge/robot_ontology.jsonld: places.{pname}.max_travel_m 은 config/places.yaml 이 정본이므로 온톨로지에는 null 로 둔다")
     onto = onto_lib.load(ROOT / "knowledge/robot_ontology.jsonld")
+    classes_f = ROOT / "config/yolo_classes.txt"   # YOLO 클래스 고정 목록: 온톨로지에 없는 이름이 있으면 라벨 번호가 깨진다
+    if classes_f.exists():
+        names = [l.strip() for l in classes_f.read_text(encoding="utf-8").splitlines() if l.strip()]
+        errors += [f"config/yolo_classes.txt: 온톨로지 world.items 에 없는 클래스 {n}" for n in names if n not in onto.get("world", {}).get("items", {})]
+        if len(set(names)) != len(names):
+            errors.append("config/yolo_classes.txt: 중복된 클래스 이름")
     errors += onto_lib.list_reference_errors(onto)
     for name, skill in onto.get("skills", {}).items():
         if skill.get("kind") != "primitive":

@@ -1,5 +1,7 @@
 # Runner · 원자 동작 · JSON 규격 · 실행 로그
 
+> 아래 내용은 requirements.md의 요구사항에 따른 설계·계약 설명입니다. 문서의 존재나 현재형 표현만으로 구현 완료를 의미하지 않으며, Phase·완료 기준은 requirements.md를 따릅니다. 실제 연결 여부는 담당 코드와 작업 기록에서 확인합니다. [문서]
+
 > 관련 요구사항: [FR-PLN-01](requirements.md#fr-pln-01), [FR-ONT-01–02](requirements.md#fr-ont-01), [FR-LOG-01–02](requirements.md#fr-log-01). Runner 동작·JSON 형식·로그 상세는 이 문서에서 다룹니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격 (강사 챌린지 핵심)

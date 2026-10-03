@@ -2,7 +2,7 @@
 
 실행: ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py
 확인: ① 구조(로봇·카메라·서랍·관절) ② 카메라 변환이 npy·TCP로 직접 계산한 값과 일치(USD 행렬·쿼터니언 규약 검증)
-      ③ 서랍 Prismatic Joint 가동 범위 0~0.17 m, 한계 초과 목표는 한계에서 멈춤, 다른 축 이동 없음 ④ 로봇이 중력에 무너지지 않음
+      ③ 서랍 Prismatic Joint 가동 범위 0~max_travel, 한계 초과 목표는 한계에서 멈춤, 다른 축 이동 없음 (서랍 치수가 비어 서랍장이 없으면 건너뜀) ④ 로봇이 중력에 무너지지 않음
 판정은 마지막 줄 `[verify] 결과: 전부 통과` / `실패 [...]` 로 한다. (SimulationApp.close() 가 프로세스를 그 자리에서 끝내서 뒤의 sys.exit 이 실행되지 않으므로
 프로세스 종료 코드는 항상 0 이다 [실측 10/03]. 자동 검사는 로그의 결과 줄을 찾아 판정할 것.)
 """
@@ -23,6 +23,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENE = ROOT / "sim/scenes/ready2go_t1.usd"
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
+PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _dims import cabinet_missing  # noqa: E402
 fails = []
 
 
@@ -43,17 +46,25 @@ for _ in range(10):
 stage = omni.usd.get_context().get_stage()
 
 # ① 구조
+missing = cabinet_missing(DIM, PLACES)     # build_scene.py 와 같은 규칙: 값이 비어 있으면 서랍장 없이 생성된다
+has_cabinet = stage.GetPrimAtPath("/World/workspace/cabinet").IsValid()
 need = ["/World/m0609/base_link", "/World/m0609/link_6", "/World/m0609/onrobot_rg2ft/gripper_body",
         "/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera",
-        "/World/workspace/table", "/World/workspace/shelf", "/World/workspace/cabinet/drawer_top_tray/handle",
-        "/World/workspace/cabinet/drawer_top_joint", "/World/physicsScene"]
+        "/World/workspace/table", "/World/physicsScene"]
+if has_cabinet:
+    need += ["/World/workspace/shelf", "/World/workspace/cabinet/drawer_top_tray/handle", "/World/workspace/cabinet/drawer_top_joint"]
+elif missing:
+    print("[SKIP] 서랍장 없음 — 서랍 값이 아직 비어 있어 의도적으로 생략된 상태입니다. 필요한 항목: " + "; ".join(missing), flush=True)
+else:
+    check("설정상 서랍장이 있어야 하는데 씬에 없음", False, "(서랍 값은 모두 채워져 있음 → build_scene.py 생성 오류, 씬을 다시 생성하세요)")
 for p in need:
     check(f"prim 존재 {p}", stage.GetPrimAtPath(p).IsValid())
-jt = UsdPhysics.PrismaticJoint(stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint"))
-travel = DIM["drawer_top"]["max_travel_cm"] / 100
-# USD는 float32로 저장하므로 허용 오차를 1e-6 으로 둔다
-check("서랍 관절 한계 0~max_travel", abs(jt.GetUpperLimitAttr().Get() - travel) < 1e-6 and abs(jt.GetLowerLimitAttr().Get()) < 1e-9,
-      f"(상한 {jt.GetUpperLimitAttr().Get():.3f} m, 실측 {travel:.3f} m)")
+if has_cabinet:
+    jt = UsdPhysics.PrismaticJoint(stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint"))
+    travel = PLACES["drawer_top"]["max_travel_m"]   # 정본은 config/places.yaml
+    # USD는 float32로 저장하므로 허용 오차를 1e-6 으로 둔다
+    check("서랍 관절 한계 0~max_travel", abs(jt.GetUpperLimitAttr().Get() - travel) < 1e-6 and abs(jt.GetLowerLimitAttr().Get()) < 1e-9,
+          f"(상한 {jt.GetUpperLimitAttr().Get():.3f} m, 실측 {travel:.3f} m)")
 
 # ② 카메라 변환 검증: link_6 기준 color_optical = T_link6→TCP × T_gripper2camera (npy, mm→m)
 N = np.load(ROOT / "config/calibration/T_gripper2camera.npy").copy()
@@ -72,35 +83,39 @@ rel = np.linalg.inv(opt_w) @ cam_w
 check("USD 카메라 = 광학 프레임을 x축 180° 회전", np.allclose(rel[:3, :3], np.diag([1, -1, -1]), atol=1e-6))
 
 # 작업대 배치 요약
-for nm, path in (("서랍장", "/World/workspace/cabinet"), ("트레이 손잡이", "/World/workspace/cabinet/drawer_top_tray/handle")):
+for nm, path in ((("서랍장", "/World/workspace/cabinet"), ("트레이 손잡이", "/World/workspace/cabinet/drawer_top_tray/handle")) if has_cabinet else ()):
     print(f"[info] {nm} 월드 위치 (m): {np.round(world_T(stage, path)[:3, 3], 4)}", flush=True)
 
 # ③④ 물리
 world = World(stage_units_in_meters=1.0, physics_dt=1 / 120.0, rendering_dt=1 / 60.0)
 world.reset()
-drive = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetAttribute("drive:linear:physics:targetPosition")
-tray = "/World/workspace/cabinet/drawer_top_tray"
 l6 = "/World/m0609/link_6"
-t0 = world_T(stage, tray)[:3, 3].copy()
 l6_0 = world_T(stage, l6)[:3, 3].copy()
+if has_cabinet:
+    drive = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetAttribute("drive:linear:physics:targetPosition")
+    tray = "/World/workspace/cabinet/drawer_top_tray"
+    t0 = world_T(stage, tray)[:3, 3].copy()
 
 
-def run(target, steps=360):
-    drive.Set(float(target))
-    for _ in range(steps):
+    def run(target, steps=360):
+        drive.Set(float(target))
+        for _ in range(steps):
+            world.step(render=False)
+        return world_T(stage, tray)[:3, 3] - t0
+
+
+    d0 = run(0.0, 120)
+    check("닫힘 유지 (목표 0)", np.abs(d0).max() < 1e-3, f"(이동 {np.round(d0 * 1000, 2)} mm)")
+    d1 = run(travel)
+    check("목표 최대 인출 → 최대 거리만큼 인출", abs(d1[1] - travel) < 2e-3, f"(y {d1[1] * 100:.2f} cm)")
+    check("다른 축 이동 없음", abs(d1[0]) < 1e-3 and abs(d1[2]) < 1e-3, f"(x {d1[0] * 1000:.2f} mm, z {d1[2] * 1000:.2f} mm)")
+    d2 = run(travel + 0.10)
+    check("한계 초과 목표(최대 인출 + 10 cm)는 최대 인출에서 멈춤", abs(d2[1] - travel) < 2e-3, f"(y {d2[1] * 100:.2f} cm)")
+    d3 = run(0.0)
+    check("다시 닫힘", np.abs(d3).max() < 1.5e-3, f"(y {d3[1] * 1000:.2f} mm)")
+else:
+    for _ in range(360):   # 서랍이 없어도 로봇이 중력에 무너지지 않는지는 확인
         world.step(render=False)
-    return world_T(stage, tray)[:3, 3] - t0
-
-
-d0 = run(0.0, 120)
-check("닫힘 유지 (목표 0)", np.abs(d0).max() < 1e-3, f"(이동 {np.round(d0 * 1000, 2)} mm)")
-d1 = run(travel)
-check("목표 0.17 → 17 cm 인출", abs(d1[1] - travel) < 2e-3, f"(y {d1[1] * 100:.2f} cm)")
-check("다른 축 이동 없음", abs(d1[0]) < 1e-3 and abs(d1[2]) < 1e-3, f"(x {d1[0] * 1000:.2f} mm, z {d1[2] * 1000:.2f} mm)")
-d2 = run(0.30)
-check("한계 초과 목표(30 cm)는 17 cm에서 멈춤", abs(d2[1] - travel) < 2e-3, f"(y {d2[1] * 100:.2f} cm)")
-d3 = run(0.0)
-check("다시 닫힘", np.abs(d3).max() < 1.5e-3, f"(y {d3[1] * 1000:.2f} mm)")
 l6_1 = world_T(stage, l6)[:3, 3]
 check("로봇이 중력에 무너지지 않음 (link_6 위치 유지)", float(np.linalg.norm(l6_1 - l6_0)) < 5e-3,
       f"(변화 {np.linalg.norm(l6_1 - l6_0) * 1000:.2f} mm, 시작 {np.round(l6_0, 3)})")
