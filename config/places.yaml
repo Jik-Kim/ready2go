@@ -5,6 +5,9 @@ drawer_top:
   tf: {parent: base_link, child: drawer_top, translation_m: null, quaternion_xyzw: null}
   max_travel_m: 0.17   # [실측 10/02, A] 닫힘→최대 인출 앞면 이동 거리 17 cm (sim/drawer_dimensions.yaml)
   return_slot: null
+  # 서랍 트레이 내부 치수 [깊이, 폭, 높이] m — 정본(트윈 sim/scripts/build_scene.py도 이 값을 읽음). [실측 A 10/02] 깊이 약 20.5·폭 26·높이 5.7 cm.
+  # 서랍 좌표계 원점·축 기준(예: 앞쪽 왼쪽 바닥 모서리)은 #6 3점 터치와 맞춰야 함 [팀 확정 필요]
+  interior_m: [0.205, 0.26, 0.057]
 staging_tray:
   tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}
   slots: 3
