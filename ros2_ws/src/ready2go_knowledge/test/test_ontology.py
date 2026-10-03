@@ -32,3 +32,123 @@ def test_pick_blocked_when_drawer_closed():
     results = onto_lib.check(onto["state"], onto["skills"]["pick"]["pre"], {"item": "watch", "from": "drawer_top"})
     failed = [r for r in results if not r["pass"]]
     assert [(r["predicate"], r["subject"]) for r in failed] == [("open", "drawer_top")]
+
+
+def _split_copy(tmp_path):
+    """진입점의 ../config 참조까지 포함해 독립 구성 복사."""
+    import shutil
+    shutil.copytree(ONTO.parent, tmp_path / "knowledge")
+    (tmp_path / "config").mkdir()
+    shutil.copyfile(ROOT / "config/places.yaml", tmp_path / "config/places.yaml")
+    return tmp_path / "knowledge/robot_ontology.jsonld"
+
+
+def test_manifest_load_preserves_shape_and_rename():
+    import json
+    manifest = json.loads(ONTO.read_text())
+    assert set(manifest) == {"@context", "sources"}
+    onto = _onto()
+    assert set(onto) == {"@context", "classes", "world", "state", "skills"}
+    assert "fetch_with_unpack" not in onto["skills"]
+    assert onto["skills"]["handover_with_unpack"]["task"] == "tasks/find_with_unpack.json"
+
+
+def test_places_yaml_is_only_source_and_reload_reads_changes(tmp_path):
+    import json
+    import yaml
+    manifest = _split_copy(tmp_path)
+    raw = json.loads((manifest.parent / "world.jsonld").read_text())
+    assert set(raw["world"]["places"]["drawer_top"]) == {"class", "name_ko"}
+    settings = tmp_path / "config/places.yaml"
+    data = yaml.safe_load(settings.read_text())
+    data["drawer_top"]["max_travel_m"] = 0.13
+    settings.write_text(yaml.safe_dump(data))
+    place = onto_lib.load(manifest)["world"]["places"]["drawer_top"]
+    assert place["max_travel_m"] == 0.13
+    assert place["return_slot"] is None  # 예전 온톨로지 예시값으로 채우지 않는다.
+    assert place["tf"]["translation_m"] is None
+
+
+def test_missing_place_settings_fails(tmp_path):
+    import pytest
+    import yaml
+    manifest = _split_copy(tmp_path)
+    settings = tmp_path / "config/places.yaml"
+    data = yaml.safe_load(settings.read_text())
+    del data["drawer_top"]
+    settings.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="장소 설정이 없습니다: drawer_top"):
+        onto_lib.load(manifest)
+
+
+def test_duplicate_skill_reference_fails(tmp_path):
+    import json
+    import pytest
+    manifest = _split_copy(tmp_path)
+    data = json.loads(manifest.read_text())
+    data["sources"]["skills"].append(data["sources"]["skills"][0])
+    manifest.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="중복 스킬 식별자"):
+        onto_lib.load(manifest)
+
+
+def test_world_yaml_duplicate_value_fails(tmp_path):
+    import json
+    import pytest
+    manifest = _split_copy(tmp_path)
+    world = manifest.parent / "world.jsonld"
+    data = json.loads(world.read_text())
+    data["world"]["places"]["drawer_top"]["max_travel_m"] = 0.25
+    world.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="중복 설정"):
+        onto_lib.load(manifest)
+
+
+def test_unknown_item_class_fails(tmp_path):
+    import json
+    import pytest
+    manifest = _split_copy(tmp_path)
+    world = manifest.parent / "world.jsonld"
+    data = json.loads(world.read_text())
+    data["world"]["items"]["watch"]["class"] = "missing_class"
+    world.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="정의되지 않은 종류"):
+        onto_lib.load(manifest)
+
+
+def test_duplicate_yaml_and_json_keys_fail(tmp_path):
+    import pytest
+    manifest = _split_copy(tmp_path)
+    settings = tmp_path / "config/places.yaml"
+    original = settings.read_text()
+    settings.write_text(original + "\ndrawer_top: {}\n")
+    with pytest.raises(ValueError, match="중복 YAML 키: drawer_top"):
+        onto_lib.load(manifest)
+    settings.write_text(original)
+    (manifest.parent / "classes.jsonld").write_text('{"classes": {}, "classes": {}}')
+    with pytest.raises(ValueError, match="중복 JSON 키: classes"):
+        onto_lib.load(manifest)
+
+
+def test_missing_source_file_fails(tmp_path):
+    import pytest
+    manifest = _split_copy(tmp_path)
+    (manifest.parent / "classes.jsonld").unlink()
+    with pytest.raises(FileNotFoundError):
+        onto_lib.load(manifest)
+
+
+def test_relative_paths_ignore_cwd_and_state_is_fresh(tmp_path, monkeypatch):
+    manifest = _split_copy(tmp_path)
+    monkeypatch.chdir(tmp_path / "config")
+    first = onto_lib.load(manifest)
+    first["state"]["open"]["drawer_top"] = True
+    assert onto_lib.load(manifest)["state"]["open"]["drawer_top"] is False
+
+
+def test_legacy_single_file_can_still_load(tmp_path):
+    import json
+    path = tmp_path / "legacy.jsonld"
+    data = {"world": {"items": {"watch": {}}}, "state": {}}
+    path.write_text(json.dumps(data))
+    assert onto_lib.load(path) == data

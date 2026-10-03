@@ -1,0 +1,59 @@
+{
+  "skills": {
+    "place": {
+      "kind": "primitive",
+      "name_ko": "놓기",
+      "params": {
+        "item": "Item",
+        "to": "Place"
+      },
+      "pre": [
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "op": "==",
+          "value": "$item"
+        },
+        {
+          "subject": "$to",
+          "predicate": "open",
+          "op": "==",
+          "value": true
+        }
+      ],
+      "hold": [
+        {
+          "subject": "$to",
+          "predicate": "open",
+          "op": "==",
+          "value": true
+        }
+      ],
+      "effect": [
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "value": "empty"
+        },
+        {
+          "subject": "$item",
+          "predicate": "located_in",
+          "value": "$to"
+        }
+      ],
+      "verify": "rescan: $item visible in $to",
+      "expand": [
+        {
+          "action": "place_object",
+          "params": {
+            "location": "$to"
+          }
+        }
+      ],
+      "errors": [
+        "TRAY_FULL",
+        "PLACE_FAILED"
+      ]
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "world": {
+    "items": {
+      "car_key": {
+        "class": "Key",
+        "name_ko": "차키",
+        "aliases_ko": [
+          "차키",
+          "자동차 열쇠"
+        ],
+        "size_m": [
+          0.06,
+          0.03,
+          0.02
+        ],
+        "grip_force": 20
+      },
+      "wallet": {
+        "class": "Valuables",
+        "name_ko": "지갑",
+        "aliases_ko": [
+          "지갑"
+        ],
+        "size_m": [
+          0.11,
+          0.09,
+          0.02
+        ],
+        "grip_force": 25
+      },
+      "watch": {
+        "class": "Valuables",
+        "name_ko": "시계",
+        "aliases_ko": [
+          "시계",
+          "손목시계"
+        ],
+        "size_m": [
+          0.06,
+          0.06,
+          0.04
+        ],
+        "grip_force": 15
+      }
+    },
+    "lists": {
+      "commute_set": {
+        "name_ko": "출근 준비물",
+        "aliases_ko": [
+          "출근 준비물",
+          "출근 세트"
+        ],
+        "items": [
+          "car_key",
+          "wallet",
+          "watch"
+        ]
+      }
+    },
+    "places": {
+      "drawer_top": {
+        "class": "Drawer",
+        "name_ko": "위 서랍"
+      },
+      "drawer_bottom": {
+        "class": "Drawer",
+        "name_ko": "아래 서랍"
+      },
+      "staging_tray": {
+        "class": "Tray",
+        "name_ko": "임시 트레이"
+      },
+      "handover_zone": {
+        "class": "Tray",
+        "name_ko": "전달 트레이"
+      }
+    }
+  }
+}

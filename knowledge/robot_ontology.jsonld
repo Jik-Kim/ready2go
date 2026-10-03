@@ -1,98 +1,18 @@
 {
-  "@context": { "@vocab": "https://ready2go.local/onto#" },
-  "classes": {
-    "Item": {}, "Valuables": { "subClassOf": "Item", "name_ko": "귀중품" }, "Key": { "subClassOf": "Valuables", "name_ko": "열쇠류" },
-    "Obstacle": { "subClassOf": "Item" },
-    "Place": {}, "Drawer": { "subClassOf": "Place" }, "Tray": { "subClassOf": "Place" }
+  "@context": {
+    "@vocab": "https://ready2go.local/onto#"
   },
-  "world": {
-    "items": {
-      "car_key": { "class": "Key",       "name_ko": "차키", "aliases_ko": ["차키", "자동차 열쇠"], "size_m": [0.06, 0.03, 0.02], "grip_force": 20 },
-      "wallet":  { "class": "Valuables", "name_ko": "지갑", "aliases_ko": ["지갑"],             "size_m": [0.11, 0.09, 0.02], "grip_force": 25 },
-      "watch":   { "class": "Valuables", "name_ko": "시계", "aliases_ko": ["시계", "손목시계"], "size_m": [0.06, 0.06, 0.04], "grip_force": 15 }
-    },
-    "lists": {
-      "commute_set": { "name_ko": "출근 준비물", "aliases_ko": ["출근 준비물", "출근 세트"], "items": ["car_key", "wallet", "watch"] }
-    },
-    "places": {
-      "drawer_top":    { "class": "Drawer", "name_ko": "위 서랍",   "max_travel_m": 0.17, "return_slot": [0.20, 0.08, 0.0] },
-      "drawer_bottom": { "class": "Drawer", "name_ko": "아래 서랍", "max_travel_m": 0.17, "return_slot": [0.20, 0.08, 0.0] },
-      "staging_tray":  { "class": "Tray",   "name_ko": "임시 트레이", "slots": 3 },
-      "handover_zone": { "class": "Tray",   "name_ko": "전달 트레이", "slots": 3 }
-    }
-  },
-  "state": {
-    "robot_pose": { "robot": "home" },
-    "gripper":    { "robot": "empty" },
-    "open":       { "drawer_top": false, "drawer_bottom": false, "staging_tray": true, "handover_zone": true },
-    "located_in": { "car_key": "drawer_bottom", "wallet": "drawer_bottom", "watch": "drawer_top" }
-  },
-  "skills": {
-    "open_drawer": {
-      "kind": "primitive", "name_ko": "서랍 열기", "params": { "drawer_id": "Drawer" },
-      "pre": [
-        { "subject": "$drawer_id", "predicate": "open",    "op": "==", "value": false },
-        { "subject": "robot",   "predicate": "gripper", "op": "==", "value": "empty" }
-      ],
-      "effect": [ { "subject": "$drawer_id", "predicate": "open", "value": true } ],
-      "verify": "drawer_displacement >= 0.9 * distance",
-      "expand": [
-        { "action": "move_to_named_pose", "params": { "pose_name": "drawer_approach", "drawer_id": "$drawer_id" } },
-        { "action": "drawer_control", "params": { "drawer_id": "$drawer_id", "state": "open" } }
-      ],
-      "errors": ["DRAWER_STUCK", "GRASP_FAILED"]
-    },
-    "close_drawer": {
-      "kind": "primitive", "name_ko": "서랍 닫기", "params": { "drawer_id": "Drawer" },
-      "pre": [
-        { "subject": "$drawer_id", "predicate": "open",    "op": "==", "value": true },
-        { "subject": "robot",   "predicate": "gripper", "op": "==", "value": "empty" }
-      ],
-      "effect": [ { "subject": "$drawer_id", "predicate": "open", "value": false } ],
-      "verify": "closed_position_reached AND push_axis_force > threshold",
-      "expand": [ { "action": "drawer_control", "params": { "drawer_id": "$drawer_id", "state": "close" } } ],
-      "errors": ["DRAWER_STUCK", "CLOSE_NOT_CONFIRMED"]
-    },
-    "pick": {
-      "kind": "primitive", "name_ko": "집기", "params": { "item": "Item", "from": "Place" },
-      "pre": [
-        { "subject": "robot", "predicate": "gripper",    "op": "==", "value": "empty" },
-        { "subject": "$item", "predicate": "located_in", "op": "==", "value": "$from" },
-        { "subject": "$from", "predicate": "open",       "op": "==", "value": true }
-      ],
-      "hold": [ { "subject": "$from", "predicate": "open", "op": "==", "value": true } ],
-      "effect": [
-        { "subject": "robot", "predicate": "gripper",    "value": "$item" },
-        { "subject": "$item", "predicate": "located_in", "value": "gripper" }
-      ],
-      "verify": "gripper_width > min_width AND grasp_detected",
-      "expand": [
-        { "action": "inspect_region", "params": { "region": "$from", "search_target": "$item" }, "output": "scan" },
-        { "action": "pick_object", "params": { "object_id": "$scan.target.id", "approach_offset": [0, 0, 0.1] } }
-      ],
-      "errors": ["NOT_VISIBLE", "GRASP_FAILED"]
-    },
-    "place": {
-      "kind": "primitive", "name_ko": "놓기", "params": { "item": "Item", "to": "Place" },
-      "pre": [
-        { "subject": "robot", "predicate": "gripper", "op": "==", "value": "$item" },
-        { "subject": "$to",   "predicate": "open",    "op": "==", "value": true }
-      ],
-      "hold": [ { "subject": "$to", "predicate": "open", "op": "==", "value": true } ],
-      "effect": [
-        { "subject": "robot", "predicate": "gripper",    "value": "empty" },
-        { "subject": "$item", "predicate": "located_in", "value": "$to" }
-      ],
-      "verify": "rescan: $item visible in $to",
-      "expand": [ { "action": "place_object", "params": { "location": "$to" } } ],
-      "errors": ["TRAY_FULL", "PLACE_FAILED"]
-    },
-    "fetch_with_unpack": {
-      "kind": "composite", "name_ko": "가려진 물건까지 찾아 꺼내기", "params": { "target": "Item" },
-      "task": "tasks/find_with_unpack.json",
-      "pre": [ { "subject": "robot", "predicate": "gripper", "op": "==", "value": "empty" } ],
-      "effect": "sensing",
-      "trigger": { "intent": "find_item", "examples_ko": ["시계 찾아줘"] }
-    }
+  "sources": {
+    "classes": "classes.jsonld",
+    "world": "world.jsonld",
+    "skills": [
+      "skills/open_drawer.jsonld",
+      "skills/close_drawer.jsonld",
+      "skills/pick.jsonld",
+      "skills/place.jsonld",
+      "skills/handover_with_unpack.jsonld"
+    ],
+    "initial_state": "snapshots/initial_state.json",
+    "places": "../config/places.yaml"
   }
 }

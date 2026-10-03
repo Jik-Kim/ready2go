@@ -1,5 +1,5 @@
 {
-  "description": "17장 시연 시작 시점 상태 (docs/demo_scenario.md 17.2). 시연 전 이 값으로 state 복원",
+  "description": "초기 상태 프리셋 (docs/demo_scenario.md 17.2의 배치 기준). 실제 상태를 확인한 뒤 초기화 시 이 값으로 state 복원",
   "state": {
     "robot_pose": {
       "robot": "home"

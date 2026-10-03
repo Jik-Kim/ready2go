@@ -6,17 +6,22 @@
 
 ### 7.5 로봇 온톨로지 (동작 · 상태 · 세계, JSON-LD)
 
-강사 챌린지의 중심. 로봇이 **할 수 있는 동작(skills)**, **현재 상태(state)**, **다루는 세계(world)**를 하나의 온톨로지로 정의하고, 플래너·Runner·LLM 파서·로거가 모두 이 파일을 기준으로 동작함.
+강사 챌린지의 중심. 로봇이 **할 수 있는 동작(skills)**, **현재 상태(state)**, **다루는 세계(world)**를 하나의 온톨로지로 정의하고, 플래너·Runner·LLM 파서·로거가 같은 로더 조회 구조를 기준으로 동작함. 작성 파일은 역할별로 분리하며, `robot_ontology.jsonld`가 전체 구성의 진입점임.
 
-> **원본 파일**: [`knowledge/robot_ontology.jsonld`](../knowledge/robot_ontology.jsonld) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
+> **진입점**: [`knowledge/robot_ontology.jsonld`](../knowledge/robot_ontology.jsonld) — `@context`와 `sources` 참조 목록.
+> **작성 원본**: [`classes.jsonld`](../knowledge/classes.jsonld), [`world.jsonld`](../knowledge/world.jsonld), `knowledge/skills/*.jsonld`, [`initial_state.json`](../knowledge/snapshots/initial_state.json). 파일별 역할은 [`knowledge/README.md`](../knowledge/README.md).
+
+* **로딩**: `ready2go_knowledge.core.ontology.load()`가 참조 파일을 읽어 `classes`·`world`·`state`·`skills` 구조로 반환함. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아님.
+* **장소 설정 정본**: [`config/places.yaml`](../config/places.yaml)의 장소 식별자를 `world.places`와 연결하고, 로딩 시 설정을 결합함. TF·치수·`max_travel_m`·`return_slot`·`slots`·처짐 설정은 YAML에만 작성함. `null`은 미측정 상태로 보존하며 실행 전에 준비 여부 확인이 필요함.
+* **이름 변경**: 기존 `fetch_with_unpack` 등록은 `handover_with_unpack`으로 변경함. 태스크 파일 `tasks/find_with_unpack.json`과 내부 동작은 유지함.
 
 * **classes / world**: 물품·리스트·장소의 지식 (기존 물품 지식 베이스는 여기로 통합). `lists.*.items`에 쓰인 키는 반드시 `world.items`에 정의되어야 함(로딩 시 검증).
-* **state**: 로봇과 세계의 **현재 상태**. `상태[predicate][subject] = value` 한 가지 형태로 통일(예: `open.drawer_top`, `located_in.watch`, `gripper.robot`). 서랍과 트레이를 `open` 하나로 다뤄 "집거나 놓을 수 있는 곳인가"를 단순하게 판단함.
+* **state**: 로더 반환값은 초기화용 상태 프리셋이며 실제 로봇 상태를 확인한 결과가 아님. 실제 상태 확인 후 Runner가 적용하고 실행 중 **현재 상태**를 관리함. `상태[predicate][subject] = value` 한 가지 형태로 통일(예: `open.drawer_top`, `located_in.watch`, `gripper.robot`). 서랍과 트레이를 `open` 하나로 다뤄 "집거나 놓을 수 있는 곳인가"를 단순하게 판단함.
 * **skills**: 로봇 동작의 정의.
   * `primitive` 스킬: **실행 조건(`pre`)·실행 중 유지 조건(`hold`)·결과(`effect`)·관측 확인 기준(`verify`)·원자 동작 전개(`expand`)·발생 가능 에러**를 가짐. 조건·결과는 모두 `{subject, predicate, op, value}` 레코드 형식으로 통일. 플래너가 조합에 사용함.
   * `hold`는 스킬 실행 중 주기적으로 확인(예: 집는 동안 서랍이 열려 있어야 함). 깨지면 즉시 중단하고 `HOLD_VIOLATED` 기록.
   * `composite` 스킬: 7.3 같은 태스크 JSON을 하나의 스킬로 등록. 결과가 관측에 따라 달라지는(`effect: "sensing"`) 탐색형 작업은 플래너 조합 대상이 아니라 인텐트로 직접 호출함.
-* 물품 목록·`size_m`·`grip_force`·`max_travel_m`·`return_slot`은 예시값이며, Day 2 실물 파지 테스트와 서랍장 실측 후 갱신함(2.2, 2.3).
+* 물품 `size_m`·`grip_force`는 기존 예시값으로 유지하며 실측·파지 테스트 후 갱신함. 장소 설정의 실측 여부·근거는 정본 `config/places.yaml`에서 관리하고, 미측정 값을 온톨로지 예시값으로 대체하지 않음.
 * **원천은 JSON-LD, PDDL은 내보내기만**: 조건·결과 레코드는 PDDL의 술어 형식과 1:1로 대응하므로, 여유가 있으면 PDDL 내보내기 스크립트로 "표준 플래닝 언어와 호환"을 증빙함. PlanSys2·SkiROS2 같은 외부 프레임워크 도입은 향후 과제로 둠(ROS 2 Jazzy 지원·C++ 부담, 선행 사례 보고서 참고).
 * **파라미터 이름 규칙**: 스킬 파라미터가 원자 동작 파라미터(7.1)와 같은 대상을 가리키면 **같은 이름**을 씀(예: `drawer_id`). 스킬 수준에서만 쓰는 개념(`item`, `from`, `to`)은 `expand`에서 원자 동작 파라미터(`search_target`, `region`, `location`)로 명시적으로 매핑하며, 정합성 검사(아래)가 매핑 누락을 잡아냄.
 * **목적지 종류에 따른 자동 처리**: `place` 스킬은 `location: "$to"`만 넘기고, 목적지가 서랍이면 `place_object` 백엔드가 서랍 좌표계·z 보정을 자동 적용함(7.1 `place_object`). 원위치 복구처럼 정확한 자리가 필요하면 태스크 JSON에서 `pose` + `frame: "drawer"`를 직접 지정함(7.3 `f1.4`).
@@ -24,7 +29,7 @@
 
 ### 7.6 새 작업 추가 = 온톨로지에 스킬 추가 (코드 수정 0줄)
 
-* 새 작업은 `tasks/<이름>.json`(7.2 스키마) 파일을 추가하고 온톨로지 `skills`에 `composite`로 등록하면 끝. 파일에 `trigger`(인텐트 이름·예문)를 적으면 **LLM 인텐트 파서(6.4)의 프롬프트와 플래너에 자동 반영**되어 음성 명령까지 함께 추가됨.
+* 새 작업은 `tasks/<이름>.json`(7.2 스키마)과 복합 스킬 정의 파일을 추가하고, 진입점 `sources.skills`에 해당 파일을 등록함. 파일에 `trigger`(인텐트 이름·예문)를 적으면 **LLM 인텐트 파서(6.4)의 프롬프트와 플래너에 자동 반영**되어 음성 명령까지 함께 추가됨.
 * 새 원자 수준 능력은 `primitive` 스킬로 추가(예: "트레이 흔들어 정렬하기"). 기존 원자 동작의 조합으로 `expand`를 적을 수 있으면 역시 코드 수정이 필요 없음.
 
 > **원본 파일**: [`tasks/return_items.json`](../tasks/return_items.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.

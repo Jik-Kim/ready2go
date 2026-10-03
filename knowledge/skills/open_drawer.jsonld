@@ -1,0 +1,53 @@
+{
+  "skills": {
+    "open_drawer": {
+      "kind": "primitive",
+      "name_ko": "서랍 열기",
+      "params": {
+        "drawer_id": "Drawer"
+      },
+      "pre": [
+        {
+          "subject": "$drawer_id",
+          "predicate": "open",
+          "op": "==",
+          "value": false
+        },
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "op": "==",
+          "value": "empty"
+        }
+      ],
+      "effect": [
+        {
+          "subject": "$drawer_id",
+          "predicate": "open",
+          "value": true
+        }
+      ],
+      "verify": "drawer_displacement >= 0.9 * distance",
+      "expand": [
+        {
+          "action": "move_to_named_pose",
+          "params": {
+            "pose_name": "drawer_approach",
+            "drawer_id": "$drawer_id"
+          }
+        },
+        {
+          "action": "drawer_control",
+          "params": {
+            "drawer_id": "$drawer_id",
+            "state": "open"
+          }
+        }
+      ],
+      "errors": [
+        "DRAWER_STUCK",
+        "GRASP_FAILED"
+      ]
+    }
+  }
+}
