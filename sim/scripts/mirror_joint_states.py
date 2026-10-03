@@ -1,12 +1,14 @@
 """T2 미러링 (담당 A): /dsr01/joint_states 를 구독해 트윈의 M0609 관절을 그대로 따라가게 한다.
 
 실행(GUI):  ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/mirror_joint_states.py
-실행(헤드리스 시험):  ... mirror_joint_states.py --headless --duration 30 --topic /시험용/joint_states
+실행(헤드리스 시험):  ... mirror_joint_states.py --headless --duration 30 --topic /test/joint_states
 
 - 입력: sensor_msgs/JointState. 이름 joint_1~joint_6, 단위 라디안, 약 100 Hz  [실측 10/03, 에뮬레이터]
 - 처리: 이름으로 트윈 관절에 매핑(없는 이름은 무시), 위치를 그대로 설정(텔레포트) + 구동 목표도 같은 값으로 설정.
 - 통계: 수신 주기, 메시지 지연(수신 시각 - header.stamp), 설정 후 읽은 위치와 받은 값의 차이(추종 오차).
 - 시험 모드(--duration)는 메시지를 한 건도 못 받았거나 추종 오차가 크면 종료 코드 1.
+그리퍼: 토픽에 그리퍼 관절이 없으므로 `finger_joint`는 매 스텝 열림(0°) 목표로 붙잡는다. 이렇게 하지 않으면 팔을 계속 순간이동시키는 동안 손가락이
+  서서히 닫힌다 [실측 10/03: 4초 만에 42.6°, 붙잡으면 0.1° 이내]. 실물 그리퍼 폭 연동(`/gripper/state`)은 후속.
 이 스크립트는 로봇에 어떤 명령도 보내지 않는다(구독만).
 """
 import argparse
@@ -62,6 +64,10 @@ robot = SingleArticulation(prim_path=root_path, name="m0609")
 robot.initialize()
 dof_names = list(robot.dof_names)
 print(f"[mirror] 관절 루트 {root_path}, DOF {len(dof_names)}개: {dof_names}", flush=True)
+finger = dof_names.index("finger_joint") if "finger_joint" in dof_names else None
+if finger is None:
+    print("[mirror] finger_joint 가 없어 그리퍼는 붙잡지 않습니다", flush=True)
+finger_dev = []   # 열림(0°)에서 벗어난 각도 기록
 
 rclpy.init()
 node = rclpy.create_node("ready2go_twin_mirror")
@@ -103,7 +109,9 @@ try:
                 idx = np.array(idx, dtype=int)
                 robot.set_joint_positions(pos, joint_indices=idx)                       # 위치를 그대로 설정
                 robot.set_joint_velocities(np.zeros(len(idx)), joint_indices=idx)
-                robot.apply_action(ArticulationAction(joint_positions=pos, joint_indices=idx))  # 구동 목표도 같은 값
+                # 구동 목표도 같은 값. 그리퍼는 열림(0)으로 함께 지정해 팔 순간이동 중 손가락이 닫히지 않게 한다
+                a_idx, a_pos = (np.append(idx, finger), np.append(pos, 0.0)) if finger is not None else (idx, pos)
+                robot.apply_action(ArticulationAction(joint_positions=a_pos, joint_indices=a_idx))
                 stamp_ns = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
                 if stamp_ns > 0:
                     lat_ms.append((state["recv_ns"] - stamp_ns) / 1e6)
@@ -113,6 +121,8 @@ try:
             idx, pos = last
             got = np.asarray(robot.get_joint_positions())[idx]
             errs.append(float(np.max(np.abs(got - pos))))
+            if finger is not None:
+                finger_dev.append(abs(float(np.degrees(np.asarray(robot.get_joint_positions())[finger]))))
 
         now = time.time()
         if now - t_report >= args.report:
@@ -136,7 +146,9 @@ if args.duration:
     max_err = max(errs) if errs else float("nan")
     print(f"[mirror] 요약: 수신 {n}건, 평균 지연 {np.mean(lat_ms):.1f} ms" if lat_ms else f"[mirror] 요약: 수신 {n}건", flush=True)
     print(f"[mirror] 요약: 최대 추종 오차 {max_err * 1000:.2f} mrad ({np.degrees(max_err):.3f}°), 매핑 안 된 이름: {sorted(unmapped) or '없음'}", flush=True)
-    ok = n > 0 and max_err < args.max_err_rad
+    fmax = max(finger_dev) if finger_dev else 0.0
+    print(f"[mirror] 요약: 그리퍼(finger_joint) 열림에서 벗어난 최대 각도 {fmax:.2f}°", flush=True)
+    ok = n > 0 and max_err < args.max_err_rad and fmax < 2.0
     print(f"[mirror] 결과: {'통과' if ok else '실패'}", flush=True)
 
 node.destroy_node()
