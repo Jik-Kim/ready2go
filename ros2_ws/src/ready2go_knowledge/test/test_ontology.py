@@ -29,7 +29,7 @@ def test_open_drawer_pre_and_effect():
 
 def test_pick_blocked_when_drawer_closed():
     onto = _onto()
-    results = onto_lib.check(onto["state"], onto["skills"]["pick"]["pre"], {"item": "watch", "from": "drawer_top"})
+    results = onto_lib.check(onto["state"], onto["skills"]["pick"]["pre"], {"item": "eraser", "from": "drawer_top"})
     failed = [r for r in results if not r["pass"]]
     assert [(r["predicate"], r["subject"]) for r in failed] == [("open", "drawer_top")]
 
@@ -40,6 +40,7 @@ def _split_copy(tmp_path):
     shutil.copytree(ONTO.parent, tmp_path / "knowledge")
     (tmp_path / "config").mkdir()
     shutil.copyfile(ROOT / "config/places.yaml", tmp_path / "config/places.yaml")
+    shutil.copyfile(ROOT / "config/item_grasp.yaml", tmp_path / "config/item_grasp.yaml")
     return tmp_path / "knowledge/robot_ontology.jsonld"
 
 
@@ -110,7 +111,7 @@ def test_unknown_item_class_fails(tmp_path):
     manifest = _split_copy(tmp_path)
     world = manifest.parent / "world.jsonld"
     data = json.loads(world.read_text())
-    data["world"]["items"]["watch"]["class"] = "missing_class"
+    data["world"]["items"]["eraser"]["class"] = "missing_class"
     world.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="정의되지 않은 종류"):
         onto_lib.load(manifest)
@@ -149,6 +150,56 @@ def test_relative_paths_ignore_cwd_and_state_is_fresh(tmp_path, monkeypatch):
 def test_legacy_single_file_can_still_load(tmp_path):
     import json
     path = tmp_path / "legacy.jsonld"
-    data = {"world": {"items": {"watch": {}}}, "state": {}}
+    data = {"world": {"items": {"eraser": {}}}, "state": {}}
     path.write_text(json.dumps(data))
     assert onto_lib.load(path) == data
+
+
+def test_all_registered_items_are_request_targets_but_grasp_is_pending():
+    import pytest
+    onto = _onto()
+    assert len(onto["world"]["items"]) == 11
+    assert {"eraser", "cover_plate", "car_key"} <= onto["world"]["items"].keys()
+    for name, item in onto["world"]["items"].items():
+        assert "request_target" in item["roles"]
+        assert item["grip_force"] is None
+        with pytest.raises(ValueError, match="파지 설정 미확정"):
+            onto_lib.require_grasp_settings(onto, name)
+    assert onto["world"]["items"]["cover_plate"]["size_m"][2] == 0.0405
+    assert onto["world"]["items"]["eraser"]["size_m"] == [0.022, 0.0525, 0.0115]
+
+
+def test_verified_grasp_configuration_must_include_force(tmp_path):
+    import pytest
+    import yaml
+    manifest = _split_copy(tmp_path)
+    path = tmp_path / "config/item_grasp.yaml"
+    grasp = yaml.safe_load(path.read_text())
+    grasp["eraser"]["grasp_verified"] = True
+    path.write_text(yaml.safe_dump(grasp))
+    with pytest.raises(ValueError, match="파지 힘이 없습니다"):
+        onto_lib.load(manifest)
+    grasp["eraser"]["grip_force"] = 5.0  # 테스트 전용 합성값, 실제 설정에 기록하지 않음
+    path.write_text(yaml.safe_dump(grasp))
+    assert onto_lib.require_grasp_settings(onto_lib.load(manifest), "eraser") == {"grip_force": 5.0}
+
+
+def test_item_configuration_and_geometry_reference_errors(tmp_path):
+    import json
+    import pytest
+    import yaml
+    manifest = _split_copy(tmp_path)
+    path = tmp_path / "config/item_grasp.yaml"
+    original = path.read_text()
+    grasp = yaml.safe_load(original)
+    del grasp["eraser"]
+    path.write_text(yaml.safe_dump(grasp))
+    with pytest.raises(ValueError, match="식별자"):
+        onto_lib.load(manifest)
+    path.write_text(original)
+    world = manifest.parent / "world.jsonld"
+    data = json.loads(world.read_text())
+    data["world"]["items"]["eraser"]["size_m"] = [0.022, 0, 0.0115]
+    world.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="size_m"):
+        onto_lib.load(manifest)

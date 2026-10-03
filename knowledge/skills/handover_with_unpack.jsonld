@@ -19,7 +19,7 @@
       "trigger": {
         "intent": "find_item",
         "examples_ko": [
-          "시계 찾아줘"
+          "지우개 찾아줘"
         ]
       }
     }

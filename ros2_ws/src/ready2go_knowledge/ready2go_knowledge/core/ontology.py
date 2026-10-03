@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -83,7 +84,7 @@ def load(path: str | Path) -> dict:
     if "sources" not in manifest:
         return manifest
     sources = _section(manifest, "sources", path)
-    required = {"classes", "world", "skills", "initial_state", "places"}
+    required = {"classes", "world", "skills", "initial_state", "places", "item_grasp"}
     if set(sources) != required:
         raise ValueError(f"sources 키는 {sorted(required)}여야 합니다")
     classes_path = _source(path.parent, sources["classes"])
@@ -123,6 +124,34 @@ def load(path: str | Path) -> dict:
         # 미측정 null은 그대로 보존한다. 동작에 필요한 값의 준비 여부는
         # 사용자가 이 장소를 실행할 때 확인해야 한다.
         definition.update(physical)
+    grasp = _read_places(_source(path.parent, sources["item_grasp"]))
+    if set(grasp) != set(items):
+        raise ValueError("물품과 파지 설정의 식별자가 일치하지 않습니다")
+    for name, item in items.items():
+        if not isinstance(item, dict):
+            raise ValueError(f"물품 정의 객체가 필요합니다: {name}")
+        size = item.get("size_m")
+        if not isinstance(size, list) or len(size) != 3 or any(
+            isinstance(v, bool) or not isinstance(v, (int, float))
+            or not math.isfinite(v) or v <= 0 for v in size
+        ):
+            raise ValueError(f"size_m은 양수 유한값 3개여야 합니다: {name}")
+        config = grasp[name]
+        if not isinstance(config, dict) or set(config) != {"grip_force", "grasp_verified"}:
+            raise ValueError(f"물품 파지 설정 형식 오류: {name}")
+        if not isinstance(config["grasp_verified"], bool):
+            raise ValueError(f"grasp_verified는 bool이어야 합니다: {name}")
+        force = config["grip_force"]
+        if force is not None and (
+            isinstance(force, bool) or not isinstance(force, (int, float))
+            or not math.isfinite(force) or force <= 0
+        ):
+            raise ValueError(f"grip_force는 null 또는 양수 유한값이어야 합니다: {name}")
+        if config["grasp_verified"] and force is None:
+            raise ValueError(f"검증 완료 물품의 파지 힘이 없습니다: {name}")
+        if item.keys() & config.keys():
+            raise ValueError(f"world와 YAML의 중복 파지 설정: {name}")
+        item.update(config)
     for group in (items, places):
         for name, definition in group.items():
             if not isinstance(definition, dict) or definition.get("class") not in classes:
@@ -131,6 +160,10 @@ def load(path: str | Path) -> dict:
         "@context": manifest.get("@context", {}),
         "classes": classes, "world": world, "state": state, "skills": skills,
     }
+    locations = _section(state, "located_in", state_path)
+    for item, place in locations.items():
+        if item not in items or place not in places:
+            raise ValueError(f"초기 위치의 물품/장소 참조가 없습니다: {item} -> {place}")
     errors = list_reference_errors(onto)
     if errors:
         raise ValueError("; ".join(errors))
@@ -181,3 +214,14 @@ def list_reference_errors(onto: dict) -> list[str]:
     for name, lst in onto.get("world", {}).get("lists", {}).items():
         errors += [f"lists.{name}: 정의되지 않은 물품 {i}" for i in lst.get("items", []) if i not in items]
     return errors
+
+
+def require_grasp_settings(onto: dict, item: str) -> dict:
+    """실물 실행 전 사용할 검증된 파지 설정. 미확정 힘을 기본값으로 바꾸지 않는다.
+
+    호출 자체는 로봇을 움직이지 않는다. B/C가 파지·밀기·복구 경로에 연결해야 한다.
+    """
+    definition = onto["world"]["items"][item]
+    if definition.get("grasp_verified") is not True or definition.get("grip_force") is None:
+        raise ValueError(f"파지 설정 미확정: {item}")
+    return {"grip_force": definition["grip_force"]}

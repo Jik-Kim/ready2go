@@ -13,6 +13,7 @@
       "skills/handover_with_unpack.jsonld"
     ],
     "initial_state": "snapshots/initial_state.json",
-    "places": "../config/places.yaml"
+    "places": "../config/places.yaml",
+    "item_grasp": "../config/item_grasp.yaml"
   }
 }

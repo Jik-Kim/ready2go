@@ -29,6 +29,14 @@
 | 일정·담당 확인 | [schedule.md](schedule.md), [overview.md](overview.md) 0장 | — |
 | 시연 준비 | [demo_scenario.md](demo_scenario.md), [safety.md](safety.md) | — |
 
+## 물품 정의·라벨링 연결 확인
+
+- 원본 물품 목록·치수·분류·역할·공통 로더: [ontology.md](ontology.md), [knowledge/README.md](../knowledge/README.md), `knowledge/world.jsonld`
+- 물품 키/인스턴스 ID·좌표·조회 결과·담당별 코드 인계: [interfaces.md](interfaces.md#51-물품-식별자좌표조회-결과의-공유-규칙)
+- 채택·측정·파지 보고와 최종 승인 상태·높이 기준: [hardware.md 2.3](hardware.md#23-물품-선정-기준-day-2-실물-파지-테스트로-확정), GitHub 이슈 [#8](https://github.com/Jik-Kim/ready2go/issues/8)
+- 파지 설정 정본: `config/item_grasp.yaml`. 인식 목록 등록과 파지 승인·실행은 구분함. 문서 갱신은 다른 담당 코드의 자동 대응을 뜻하지 않음.
+- P1은 단일 요청, 목록·분류는 P3. 예시 물품은 요청 범위를 제한하지 않음.
+
 ## 문서 목록
 
 | 문서 | 내용 | 기획서 v4.1 장 |

@@ -29,3 +29,5 @@
 - Python 실행 의존성: `PyYAML` (`setup.py`), ROS/시스템 의존성: `python3-yaml` (`package.xml`). CI에서도 `PyYAML`을 설치한다.
 - 단위 테스트: 저장소 루트에서 `PYTHONPATH=ros2_ws/src/ready2go_knowledge python3 -m pytest ros2_ws/src/ready2go_knowledge/test -q`.
 - 전체 파일 역할·담당별 인계: [`knowledge/README.md`](../../../knowledge/README.md).
+
+- 물품 파지 설정 정본 `config/item_grasp.yaml`도 로딩하여 기존 물품 조회에 grip_force(null 허용)·grasp_verified를 제공한다. `require_grasp_settings(onto, item)`은 미확정 설정을 거절하지만 실제 실행 경로 연결은 B·C 담당이다.
