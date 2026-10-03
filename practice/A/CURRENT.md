@@ -1,12 +1,13 @@
 # CURRENT — A 김병직
 
 - **담당**: 비전 · Isaac Sim 트윈 · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-02
+- **최종 갱신**: 2026-10-03
 
 ## 지금 상태
 - #5 완료: realsense 컨테이너에서 컬러·정렬 뎁스를 `/wrist_cam/...`으로 발행, 수신 확인 (PR #24 머지).
-- #7: 핸드-아이 결과 **잠정 채택(개발용), 5점 `verify.py` 검증 대기**. `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
-- 트윈 T1 씬 완료: `sim/scenes/ready2go_t1.usd`(작업대·3단 서랍장·M0609/RG2·손목 카메라, 서랍 Prismatic 0~0.17 m)를 `build_scene.py`로 생성하고 `verify_scene.py` 전부 통과, GUI에서 정상 확인 [실측 10/03]. 서랍 실측 치수·`drawer_top` 인출 거리 정정은 PR #29 리뷰 중. 씬 작업은 로컬 브랜치 `feat/a-isaac-env`(PR #29 위에 쌓음), 미push.
+- #7: 핸드-아이 결과 **잠정 채택(개발용), 5점 `verify.py` 검증은 B 담당(10/03 사용자 확인)**. `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
+- 트윈 T1 씬 완료: `sim/scenes/ready2go_t1.usd`(작업대·3단 서랍장·M0609/RG2·손목 카메라, 서랍 Prismatic 0~0.17 m)를 `build_scene.py`로 생성하고 `verify_scene.py` 전부 통과, GUI에서 정상 확인 [실측 10/03]. 서랍 실측 치수·`drawer_top` 인출 거리 정정은 PR #29, 씬·실행 환경은 PR #30(기준 브랜치 `feat/a-drawer-measurements`) 리뷰 중.
+- 트윈 T2 미러링은 **P2 선행 구현**(Phase 게이트 리뷰 지적은 있었으나 사용자 판단으로 PR #31 병합, 에뮬레이터 확인): `mirror_joint_states.py`가 `/dsr01/joint_states`(joint_1~6, 라디안, 약 100 Hz)를 받아 관절을 따라가게 함. 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24° [실측 10/03], 사용자가 GUI에서 팔 추종 확인. 그리퍼는 토픽에 없어 미반영(닫혀 보이는 원인은 확인 중). 실물 미러링은 B의 #4·multi DDS 이후.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -16,19 +17,21 @@
 | 캘리브레이션 값·TCP·`derived_tf` | [calibration_meta.yaml](../../config/calibration/calibration_meta.yaml) (절차: 같은 폴더 README) | [실측]/[계산]/[사용자 확인] |
 
 ## 막힌 점 · 필요한 도움
-- 5점 `verify.py` 측정에 로봇 시간 필요 → B와 조율.
 - B 확인(#7 코멘트): `link_6` 원점이 플랜지 면인지, TCP 오프셋·툴 무게가 실제 RG2와 맞는지, 프레임 이름 접두어, `set_tcp` 반환값. 결과에 따라 `derived_tf` 재계산.
 - C 확인(#3, 결정 #23): bringup static TF의 설정 파일 형식.
 - 카메라 `207222073543`이 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요].
 
 ## 다음 할 일
-- [ ] 5점 `verify.py` 측정 → `verified.error_cm` 기록, 1.0 cm 이내(결정 #22)면 `accepted`로 확정
+- (B 담당) 5점 `verify.py` 측정 결과를 받으면 `verified.error_cm` 기록, 1.0 cm 이내(결정 #22)면 `accepted`로 확정
 - [ ] #14 실물 데이터 수집(로봇 슬롯)·라벨링·YOLO 학습
 - [ ] #18 Day 4까지 `inspect_region` stub 제공 (B #15용), 이후 V2
 - [x] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
-- [ ] `feat/a-isaac-env` push → PR(기준 브랜치 `feat/a-drawer-measurements`, #29 머지 후 `main`으로 변경), 리뷰어 C
+- [x] `feat/a-isaac-env` push → PR #30 (기준 브랜치 `feat/a-drawer-measurements`, 리뷰어 C)
+- [ ] #29 머지 후 PR #30 기준 브랜치를 `main`으로 변경
 - [ ] 씬의 [추정] 값 교체: 로봇-작업대 각도·서랍장 위치(#6 결과), 손잡이 돌출 길이, 트레이 크기 (표: `sim/README.md`)
-- [ ] 트윈 T2 미러링: `/dsr01/joint_states` → 트윈 조인트 (dsr-emulator 또는 B의 #4). Day 5 중단 기준
+- [x] (P2 선행 구현) 트윈 T2 미러링(에뮬레이터): `/dsr01/joint_states` → 트윈 조인트
+- [ ] 트윈 T2 실물 미러링: 실물 M0609의 `/dsr01/joint_states` 수신 확인 (B의 #4, PC1↔PC2 multi DDS). Day 5 중단 기준
+- [ ] 미러링 시 그리퍼 상태 처리: 닫혀 보이는 원인 확인, 기본 열림 유지 또는 `/gripper/state` 연동
 
 ## Phase 2 이슈 후보 (P1 마무리 후 생성)
 - 가림 순서(`top_z` 정렬) + V3 미지 물체 + ID 추적 (Day 6, Day 9 Unpacking에 필요)
