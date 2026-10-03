@@ -10,6 +10,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/ready2go_skills']),
         ('share/ready2go_skills', ['package.xml']),
+        ('share/ready2go_skills/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
