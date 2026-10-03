@@ -5,7 +5,7 @@
 
 ## 지금 상태
 - #5 완료: realsense 컨테이너에서 컬러·정렬 뎁스를 `/wrist_cam/...`으로 발행, 수신 확인 (PR #24 머지).
-- #7: 핸드-아이 결과 **잠정 채택(개발용), 5점 `verify.py` 검증 대기**. `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
+- #7: 핸드-아이 결과 **잠정 채택(개발용), 5점 `verify.py` 검증은 B 담당(10/03 사용자 확인)**. `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
 - 트윈 T1 씬 완료: `sim/scenes/ready2go_t1.usd`(작업대·3단 서랍장·M0609/RG2·손목 카메라, 서랍 Prismatic 0~0.17 m)를 `build_scene.py`로 생성하고 `verify_scene.py` 전부 통과, GUI에서 정상 확인 [실측 10/03]. 서랍 실측 치수·`drawer_top` 인출 거리 정정은 PR #29, 씬·실행 환경은 PR #30(기준 브랜치 `feat/a-drawer-measurements`) 리뷰 중.
 - 트윈 T2 미러링은 **P2 선행 실험**(에뮬레이터 확인, PR #31은 P1 완료 후 병합 — 리뷰 지적 수용): `mirror_joint_states.py`가 `/dsr01/joint_states`(joint_1~6, 라디안, 약 100 Hz)를 받아 관절을 따라가게 함. 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24° [실측 10/03], 사용자가 GUI에서 팔 추종 확인. 그리퍼는 토픽에 없어 미반영(닫혀 보이는 원인은 확인 중). 실물 미러링은 B의 #4·multi DDS 이후.
 
@@ -17,13 +17,12 @@
 | 캘리브레이션 값·TCP·`derived_tf` | [calibration_meta.yaml](../../config/calibration/calibration_meta.yaml) (절차: 같은 폴더 README) | [실측]/[계산]/[사용자 확인] |
 
 ## 막힌 점 · 필요한 도움
-- 5점 `verify.py` 측정에 로봇 시간 필요 → B와 조율.
 - B 확인(#7 코멘트): `link_6` 원점이 플랜지 면인지, TCP 오프셋·툴 무게가 실제 RG2와 맞는지, 프레임 이름 접두어, `set_tcp` 반환값. 결과에 따라 `derived_tf` 재계산.
 - C 확인(#3, 결정 #23): bringup static TF의 설정 파일 형식.
 - 카메라 `207222073543`이 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요].
 
 ## 다음 할 일
-- [ ] 5점 `verify.py` 측정 → `verified.error_cm` 기록, 1.0 cm 이내(결정 #22)면 `accepted`로 확정
+- (B 담당) 5점 `verify.py` 측정 결과를 받으면 `verified.error_cm` 기록, 1.0 cm 이내(결정 #22)면 `accepted`로 확정
 - [ ] #14 실물 데이터 수집(로봇 슬롯)·라벨링·YOLO 학습
 - [ ] #18 Day 4까지 `inspect_region` stub 제공 (B #15용), 이후 V2
 - [x] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
