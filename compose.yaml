@@ -75,3 +75,4 @@ services:
     build: ./docker/mock-sim
     network_mode: host
     environment: *ros-env
+    volumes: ["./config:/config:ro"]   # CYCLONEDDS_URI가 /config를 가리킴 (없으면 다른 DDS 설정으로 떠서 송수신 실패 [실측 10/03])
