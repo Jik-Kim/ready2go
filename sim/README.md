@@ -9,9 +9,10 @@
 
 ## 실행
 ```bash
-source sim/isaac_env.sh && ~/isaac-sim-5.1.0/isaac-sim.sh --/isaac/startup/ros_bridge_extension=isaacsim.ros2.bridge
+bash sim/run_isaac.sh          # 어느 터미널에서나 가능. 시스템 ROS가 source된 셸이어도 ROS 환경을 정리한 뒤 실행한다
 ```
-- **시스템 ROS를 source한 셸에서는 실행하지 않는다**(스크립트가 막음). Kit의 Python은 3.11, 시스템 Jazzy `rclpy`는 3.12용이라 충돌한다 [실측 10/03]. Bridge는 번들의 내부 ROS 라이브러리(`jazzy/lib`)를 쓴다.
+수동으로 하려면 ROS가 source되지 않은 깨끗한 셸에서 `source sim/isaac_env.sh && ~/isaac-sim-5.1.0/isaac-sim.sh --/isaac/startup/ros_bridge_extension=isaacsim.ros2.bridge`.
+- **`isaac_env.sh`는 시스템 ROS를 source한 셸에서는 스스로 중단한다**(`run_isaac.sh`는 이를 자동으로 처리). Kit의 Python은 3.11, 시스템 Jazzy `rclpy`는 3.12용이라 충돌한다 [실측 10/03]. Bridge는 번들의 내부 ROS 라이브러리(`jazzy/lib`)를 쓴다.
 - DDS 값은 컨테이너와 같다: Domain 70, CycloneDDS. 다중 PC는 `DDS_MODE=multi`와 `DDS_IFACE`, `PEER_PC1`, `PEER_PC2`가 필요하다.
 
 ## Bridge 스모크 테스트 (`/clock` 발행)
@@ -37,7 +38,7 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 ~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py     # 씬 생성 (sim/drawer_dimensions.yaml, config/calibration/ 에서 값을 읽음)
 ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py    # 검증 (9개 구조 + 카메라 변환 + 서랍 가동 범위 + 로봇 안정성), 통과 시 종료 코드 0
 ```
-GUI에서 열기: 위의 실행 명령으로 Isaac Sim을 켠 뒤 **File ▸ Open**으로 `sim/scenes/ready2go_t1.usd`.
+GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Open**으로 `sim/scenes/ready2go_t1.usd`.
 - 서랍 움직여 보기: Stage에서 `/World/workspace/cabinet/drawer_top_joint` 선택 → Property ▸ Drive ▸ Linear ▸ **Target Position**(m, 0~0.17) → Play.
 - 손목 카메라 시점: 뷰포트 카메라 메뉴에서 `/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera`.
 - **생성 파일이라 USD를 직접 수정하지 말고** `build_scene.py`나 `drawer_dimensions.yaml`을 고친 뒤 다시 생성한다.

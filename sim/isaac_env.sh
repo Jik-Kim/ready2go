@@ -16,7 +16,7 @@ _ERR=""
 
 [ -d "$_LIB" ] || _ERR="Isaac Sim 번들 ROS 라이브러리가 없습니다: $_LIB (ISAAC_SIM_ROOT 확인)"
 if [ -z "$_ERR" ] && { [ -n "${AMENT_PREFIX_PATH:-}" ] || [[ "${PYTHONPATH:-}" == */opt/ros/* ]]; }; then
-  _ERR="시스템 ROS가 source 된 셸입니다. Python 3.11/3.12 충돌을 피하려면 새 터미널에서 실행하세요."
+  _ERR="시스템 ROS가 source 된 셸입니다. Python 3.11/3.12 충돌을 피하려면 'bash sim/run_isaac.sh' 로 실행하거나 새 터미널에서 실행하세요."
 fi
 _DDS_MODE="${DDS_MODE:-local}"
 if [ -z "$_ERR" ] && [ ! -f "${_REPO}/config/cyclonedds.${_DDS_MODE}.xml" ]; then
