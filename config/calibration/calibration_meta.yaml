@@ -11,13 +11,13 @@ measured:
   pose_range_mm: {x: [253.3, 540.1], y: [-186.3, 269.0], z: [93.9, 351.5]}   # [실측]
   gripper: RG2                         # [사용자 확인 10/02]
   robot: M0609                         # 개체 식별자는 [팀 확정 필요]
-  camera_serial: "207222073543"        # [실측 10/02] 10/02에 연결한 D435i. 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요]
+  camera_serial: "207222073543"        # [실측 10/02] 10/02에 연결한 D435i. 10/01 캘리브레이션에 쓴 개체와 같은지 [팀 확정 필요 — B가 10/03 5점 검증에 쓴 카메라 시리얼 확인 대기]
 
 tcp:
   name_during_calibration: "GripperDA_v1"   # [사용자 확인 10/03] 실제 이름은 소문자 v. 대문자 "V1"은 기록·대화 중의 오타였음 (제어기 이름은 B가 get_current_tcp로도 실측)
   tool_name_during_calibration: null        # [팀 확정 필요] set_tool에 쓴 이름
   name_on_pendant: "GripperDA_v1"           # [실측 B 10/02·10/03, 사용자 확인 10/03] 제어기 get_current_tcp. 목록에 이것 하나뿐
-  offset_from_pendant: {x: 0, y: 0, z: 228, rx: 0, ry: 0, rz: 0}   # mm, deg (ZYZ). [실측 10/02] T_link6→TCP. link_6 원점이 플랜지 면인지는 [팀 확정 필요, B 확인 요청 #7]
+  offset_from_pendant: {x: 0, y: 0, z: 228, rx: 0, ry: 0, rz: 0}   # mm, deg (ZYZ). [실측 10/02] T_link6→TCP. link_6 원점 = 플랜지 면 확인(제어기 플랜지 posx와 차이 1.8 mm·0.16°) [실측 B 10/02, #7]
   tool_weight_on_pendant: {name: "tool_weight", kg: 1.420, cog_mm: [12.570, -28.240, -6.880]}   # [실측 10/02]
 
 verified:

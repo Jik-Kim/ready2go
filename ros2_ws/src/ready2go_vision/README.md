@@ -33,5 +33,5 @@ ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "
 - 결과 예시: [`contracts/examples/inspect_region_result.json`](../../../contracts/examples/inspect_region_result.json)
 - `pose` = `{frame: <region>, position: [x, y, z] m, yaw: rad}` — 서랍 좌표계 기준. 형식은 **[팀 확정 필요]**(B의 `pick_object`가 쓰는 형식과 맞출 것).
 - 좌표값은 자리표시자 **[추정]**이라 설정의 `ready: false`로 배포한다. 이 상태에서는 `success=false` + `error_code=STUB_NOT_READY`로 실패해 추정 좌표가 로봇 동작에 쓰이지 않는다. B와 함께 실물을 재서 값을 덮어쓴 **뒤에** `ready: true`로 바꾼다.
-- 미발견은 `success=true` + `target_found=false`, 모르는 region은 `success=false` + `error_code=UNKNOWN_REGION`.
+- 미발견은 `success=true` + `target_found=false`, 실패는 `success=false` + `error_code`. 코드 목록은 [`docs/runner.md`](../../../docs/runner.md)의 "`inspect_region` 에러 코드" 표가 원본.
 - 테스트: `python3 -m pytest --rootdir=. --confcutdir=. ros2_ws/src/ready2go_vision` (저장소 루트에서)

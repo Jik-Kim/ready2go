@@ -1,7 +1,7 @@
 """inspect_region stub 로직 (ROS 비의존). 손으로 잰 좌표를 result_json 형식 그대로 만든다.
 
 실제 구현(YOLO + 뎁스)으로 바뀌어도 반환 형식은 같다: docs/runner.md 7.1.
-error_code: UNKNOWN_REGION, STUB_NOT_READY(설정의 ready 가 true 가 아니면 좌표를 내보내지 않음). 카메라 타임아웃·TF 없음·뎁스 결손은 실제 구현에서 추가 [팀 확정 필요].
+error_code 목록은 docs/runner.md 의 "inspect_region 에러 코드" 표가 원본이다. 이 stub 은 UNKNOWN_REGION, STUB_NOT_READY 만 쓴다. 카메라 타임아웃·TF 없음·뎁스 결손은 실제 구현에서 추가 [팀 확정 필요].
 """
 import json
 from collections import Counter
