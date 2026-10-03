@@ -7,7 +7,7 @@
 - #5 완료: realsense 컨테이너에서 컬러·정렬 뎁스를 `/wrist_cam/...`으로 발행, 수신 확인 (PR #24 머지).
 - #7: 핸드-아이 결과 **잠정 채택(개발용), 5점 `verify.py` 검증은 B 담당(10/03 사용자 확인)**. `link_6 → wrist_cam_link` 계산과 재계산 스크립트 완료, PR #26 머지됨.
 - 트윈 T1 씬 완료: `sim/scenes/ready2go_t1.usd`(작업대·3단 서랍장·M0609/RG2·손목 카메라, 서랍 Prismatic 0~0.17 m)를 `build_scene.py`로 생성하고 `verify_scene.py` 전부 통과, GUI에서 정상 확인 [실측 10/03]. 서랍 실측 치수·`drawer_top` 인출 거리 정정은 PR #29, 씬·실행 환경은 PR #30(기준 브랜치 `feat/a-drawer-measurements`) 리뷰 중.
-- 트윈 T2 미러링은 **P2 선행 실험**(에뮬레이터 확인, PR #31은 P1 완료 후 병합 — 리뷰 지적 수용): `mirror_joint_states.py`가 `/dsr01/joint_states`(joint_1~6, 라디안, 약 100 Hz)를 받아 관절을 따라가게 함. 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24° [실측 10/03], 사용자가 GUI에서 팔 추종 확인. 그리퍼는 토픽에 없어 미반영(닫혀 보이는 원인은 확인 중). 실물 미러링은 B의 #4·multi DDS 이후.
+- 트윈 T2 미러링은 **P2 선행 구현**(Phase 게이트 리뷰 지적은 있었으나 사용자 판단으로 PR #31 병합, 에뮬레이터 확인): `mirror_joint_states.py`가 `/dsr01/joint_states`(joint_1~6, 라디안, 약 100 Hz)를 받아 관절을 따라가게 함. 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24° [실측 10/03], 사용자가 GUI에서 팔 추종 확인. 그리퍼는 토픽에 없어 미반영(닫혀 보이는 원인은 확인 중). 실물 미러링은 B의 #4·multi DDS 이후.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -29,7 +29,7 @@
 - [x] `feat/a-isaac-env` push → PR #30 (기준 브랜치 `feat/a-drawer-measurements`, 리뷰어 C)
 - [ ] #29 머지 후 PR #30 기준 브랜치를 `main`으로 변경
 - [ ] 씬의 [추정] 값 교체: 로봇-작업대 각도·서랍장 위치(#6 결과), 손잡이 돌출 길이, 트레이 크기 (표: `sim/README.md`)
-- [x] (P2 선행 실험, 병합은 P1 후) 트윈 T2 미러링(에뮬레이터): `/dsr01/joint_states` → 트윈 조인트
+- [x] (P2 선행 구현) 트윈 T2 미러링(에뮬레이터): `/dsr01/joint_states` → 트윈 조인트
 - [ ] 트윈 T2 실물 미러링: 실물 M0609의 `/dsr01/joint_states` 수신 확인 (B의 #4, PC1↔PC2 multi DDS). Day 5 중단 기준
 - [ ] 미러링 시 그리퍼 상태 처리: 닫혀 보이는 원인 확인, 기본 열림 유지 또는 `/gripper/state` 연동
 
