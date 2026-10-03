@@ -57,3 +57,18 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 
 검증으로 확인된 것 [실측]: 카메라 광학 프레임이 `npy × TCP`로 직접 계산한 값과 일치(평행이동 4 µm, 회전 0.0007°), 서랍은 목표 17 cm에서 16.99 cm, 한계 초과 목표(30 cm)에서도 17.00 cm에서 멈추고 다른 축 이동 없음, 로봇은 중력에 무너지지 않음(link_6 변화 0.5 mm).
 
+## T2 미러링 (`sim/scripts/mirror_joint_states.py`)
+`/dsr01/joint_states`를 구독해 트윈의 M0609 관절을 그대로 따라가게 한다. **구독만 하고 로봇에는 어떤 명령도 보내지 않는다.**
+- 입력 [실측 10/03, 에뮬레이터]: `sensor_msgs/JointState`, 이름 `joint_1`~`joint_6`, 단위 **라디안**, 약 **100 Hz** (그리퍼 관절은 이 토픽에 없음)
+- 드라이버·에뮬레이터는 가상 모드로 실행: `ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py mode:=virtual host:=127.0.0.1 port:=12345 model:=m0609 gui:=false` (`~/cobot2_ws` 소스 후). 가상 모드는 에뮬레이터 컨테이너를 launch가 자동으로 띄우고 종료한다.
+- DSR 모션 서비스 이름은 **`/dsr01/dsr_controller2/motion/...`** 이다 (`/dsr01/motion/...` 아님) [실측].
+```bash
+# GUI로 보기 (창을 닫거나 Ctrl+C로 종료)
+ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/mirror_joint_states.py
+# 헤드리스 시험 (--duration이 있으면 통과/실패를 종료 코드로 알려 줌)
+ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/mirror_joint_states.py --headless --duration 30
+```
+- 2초마다 수신 주기, 메시지 지연(수신 시각 − `header.stamp`), 추종 오차를 출력한다.
+- 시험 [실측, 별도 시험 토픽 50 Hz 발행]: 수신 50 Hz, 평균 지연 2.2 ms, 최대 추종 오차 4.2 mrad(0.24°), 매핑 안 된 이름 없음, 1249건 처리.
+- 추종 오차는 위치를 설정한 뒤 물리 스텝 한 번 후 읽은 값과 받은 값의 차이다(중력·구동 목표 때문에 0이 되지는 않음).
+
