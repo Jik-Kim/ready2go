@@ -3,7 +3,7 @@
 실행: ~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py  →  sim/scenes/ready2go_t1.usd
 검증: ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py
 
-- 형상 치수는 sim/drawer_dimensions.yaml 에서 읽는다 (값은 그 파일에만 둔다).
+- 형상 치수는 sim/drawer_dimensions.yaml 에서 읽는다 (값은 그 파일에만 둔다). 서랍 내부 치수만 config/places.yaml 의 drawer_top.interior_m 에서 읽는다.
 - 카메라 변환은 config/calibration/calibration_meta.yaml 의 derived_tf·driver_tf_used 에서 읽는다 (잠정 채택 값).
 - 월드 = 로봇 base_link. 로봇은 원점에 두고(루트 고정 관절의 기준점이 월드에 고정되어 있어 옮기면 어긋남),
   작업대·서랍장은 /World/workspace 아래에 둔다. 로봇 base_link와 작업대 변의 각도는 미확인이라 WORKSPACE_YAW_DEG 로 둔다.
@@ -23,6 +23,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
+PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
 OUT = ROOT / "sim/scenes/ready2go_t1.usd"
 ROBOT_REL = "../assets/m0609_camera_cube/m0609_camera_cube.usd"
 
@@ -185,7 +186,7 @@ def build():
     box(stage, "/World/workspace/cabinet/drawer_top_shell/ceiling_slab", (cab_w, cab_d, SHELL_CEIL),
         (0, 0, t3_h / 2 - SHELL_CEIL / 2), white)
 
-    int_w, int_d, int_h = top["interior_cm"]["width"] * CM, top["interior_cm"]["depth"] * CM, top["interior_cm"]["height"] * CM
+    int_d, int_w, int_h = PLACES["drawer_top"]["interior_m"]   # [깊이, 폭, 높이] m, 정본은 config/places.yaml
     tray_h = TRAY_FLOOR + int_h
     tray_zc = -t3_h / 2 + SHELL_FLOOR + tray_h / 2           # shell 좌표계에서 트레이 중심 z
     tray = xform(stage, "/World/workspace/cabinet/drawer_top_tray", pose([0, 0, z3c + tray_zc]))

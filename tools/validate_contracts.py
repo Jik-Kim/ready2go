@@ -14,6 +14,8 @@ import jsonschema
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_knowledge"))
+sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_runner"))
+from ready2go_runner.core.validation import check_task  # noqa: E402
 from ready2go_knowledge.core import ontology as onto_lib  # noqa: E402
 
 
@@ -29,6 +31,9 @@ def main() -> int:
             jsonschema.validate(load(p), task_schema)
         except jsonschema.ValidationError as e:
             errors.append(f"{p.name}: {e.message}")
+    for p in sorted((ROOT / "contracts/examples").glob("task_*.json")):   # 예시 태스크: 스키마 + Phase 1 범위(실행 전 검사와 같은 규칙)
+        for msg in check_task(load(p), task_schema):
+            errors.append(f"{p.name}: {msg}")
     intent_schema = load(ROOT / "contracts/intent.schema.json")
     for p in sorted((ROOT / "contracts/examples").glob("intent_*.json")):
         try:

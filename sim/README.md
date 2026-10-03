@@ -59,7 +59,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 
 ## T2 미러링 (`sim/scripts/mirror_joint_states.py`)
 `/dsr01/joint_states`를 구독해 트윈의 M0609 관절을 그대로 따라가게 한다. **구독만 하고 로봇에는 어떤 명령도 보내지 않는다.**
-- 입력 [실측 10/03, 에뮬레이터]: `sensor_msgs/JointState`, 이름 `joint_1`~`joint_6`, 단위 **라디안**, 약 **100 Hz** (그리퍼 관절은 이 토픽에 없음)
+- 입력 [실측 10/03, 에뮬레이터]: `sensor_msgs/JointState`, 이름 `joint_1`~`joint_6`, 단위 **라디안**, 약 **100 Hz** (그리퍼 관절은 이 토픽에 없음 → 스크립트가 `finger_joint`를 매 스텝 열림(0°) 목표로 붙잡는다. 안 붙잡으면 팔을 순간이동시키는 동안 손가락이 서서히 닫힌다: 4초에 42.6° [실측 10/03]. 붙잡으면 최대 0.4° 이내. 정지 상태에서는 닫히지 않음)
 - 드라이버·에뮬레이터는 가상 모드로 실행: `ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py mode:=virtual host:=127.0.0.1 port:=12345 model:=m0609 gui:=false` (`~/cobot2_ws` 소스 후). 가상 모드는 에뮬레이터 컨테이너를 launch가 자동으로 띄우고 종료한다.
 - DSR 모션 서비스 이름은 **`/dsr01/dsr_controller2/motion/...`** 이다 (`/dsr01/motion/...` 아님) [실측].
 ```bash
