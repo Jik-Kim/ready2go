@@ -1,0 +1,30 @@
+{
+  "description": "P1 초기 배치 예시: 등록 물품은 위 서랍에 있다고 가정. 실물 위치가 아니며 실제 배치 확인 후 명시적 초기화에만 사용. eraser는 클래스 키이며 개별 인스턴스 상태/추적은 A·C 계약으로 분리.",
+  "state": {
+    "robot_pose": {
+      "robot": "home"
+    },
+    "gripper": {
+      "robot": "empty"
+    },
+    "open": {
+      "drawer_top": false,
+      "drawer_bottom": false,
+      "staging_tray": true,
+      "handover_zone": true
+    },
+    "located_in": {
+      "airpods_case": "drawer_top",
+      "caramel_box": "drawer_top",
+      "car_key": "drawer_top",
+      "eraser": "drawer_top",
+      "lip_balm": "drawer_top",
+      "carrot_pen": "drawer_top",
+      "masking_tape": "drawer_top",
+      "toy_car": "drawer_top",
+      "toy_wrench": "drawer_top",
+      "toy_hammer": "drawer_top",
+      "cover_plate": "drawer_top"
+    }
+  }
+}

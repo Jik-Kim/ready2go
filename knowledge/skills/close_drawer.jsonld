@@ -1,0 +1,46 @@
+{
+  "skills": {
+    "close_drawer": {
+      "kind": "primitive",
+      "name_ko": "서랍 닫기",
+      "params": {
+        "drawer_id": "Drawer"
+      },
+      "pre": [
+        {
+          "subject": "$drawer_id",
+          "predicate": "open",
+          "op": "==",
+          "value": true
+        },
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "op": "==",
+          "value": "empty"
+        }
+      ],
+      "effect": [
+        {
+          "subject": "$drawer_id",
+          "predicate": "open",
+          "value": false
+        }
+      ],
+      "verify": "closed_position_reached AND push_axis_force > threshold",
+      "expand": [
+        {
+          "action": "drawer_control",
+          "params": {
+            "drawer_id": "$drawer_id",
+            "state": "close"
+          }
+        }
+      ],
+      "errors": [
+        "DRAWER_STUCK",
+        "CLOSE_NOT_CONFIRMED"
+      ]
+    }
+  }
+}

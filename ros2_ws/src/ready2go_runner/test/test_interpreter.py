@@ -105,6 +105,7 @@ def test_action_failure_stops_sequence():
     assert [c[0] for c in fake.calls] == ["query_ontology", "speak", "drawer_control"]   # s4, s5 실행 안 함
     assert result.failed_step == "s3"
     assert result.steps[-1].pop("duration_sec") >= 0
+    assert result.steps[-1].pop("started_at").endswith("Z")                 # 시작 시각 (UTC)
     assert result.steps[-1] == {"id": "s3", "action": "drawer_control", "attempts": 1,
                                 "params": {"drawer_id": "drawer_top", "state": "open"},
                                 "status": "FAILURE", "error_code": "DRAWER_STUCK"}
@@ -245,6 +246,7 @@ def test_skip_records_failure_and_continues():
     assert result.overall_status == "COMPLETED"
     assert [c[0] for c in fake.calls] == ["pick_object", "speak"]
     assert result.steps[0].pop("duration_sec") >= 0
+    assert result.steps[0].pop("started_at").endswith("Z")
     assert result.steps[0] == {"id": "s1", "action": "pick_object", "attempts": 1,
                                "params": {"object_id": "watch#1"},
                                "status": "FAILURE", "error_code": "GRASP_FAILED", "on_failure": "skip"}
@@ -404,13 +406,26 @@ def test_backend_timeout_code_is_kept():
     assert result.error_code == "TIMEOUT"
 
 
-def test_timeout_then_retry_succeeds():
+def test_late_success_is_not_retried():
+    # PR #64 리뷰: 제한 시간 뒤 도착한 성공은 동작이 실제로 끝났을 수 있음 → 같은 동작을 다시 보내면 위험
     clock = FakeClock()
-    fake = FakeBackend(clock=clock, durations={"drawer_control": [40.0, 10.0]})   # 1차 40초(초과), 2차 10초
+    fake = FakeBackend(clock=clock, durations={"drawer_control": [40.0, 10.0]})   # 40초 뒤 성공 도착 (제한 30초)
+    result = Runner(fake, clock=clock).run(timed_task(timeout_sec=30, on_failure="retry", retry=1))
+    assert (result.overall_status, result.error_code) == ("FAILED", "TIMEOUT")
+    assert [a for a, _ in fake.calls] == ["drawer_control", "move_to_named_pose"]   # 서랍 명령은 한 번, 다음은 finally 홈
+    assert result.steps[0]["attempts"] == 1
+    assert result.steps[0]["retry_stopped"] == "LATE_RESULT"
+
+
+def test_backend_failure_is_still_retried_with_timeout():
+    # 백엔드가 실패를 돌려준 경우(동작이 끝나지 않음)는 기존대로 재시도
+    clock = FakeClock()
+    fake = FakeBackend({"drawer_control": [ActionResult(False, error_code="DRAWER_STUCK"), ActionResult(True)]},
+                       clock=clock, durations={"drawer_control": 10.0})
     result = Runner(fake, clock=clock).run(timed_task(timeout_sec=30, on_failure="retry", retry=1))
     assert result.overall_status == "COMPLETED"
     assert result.steps[0]["attempts"] == 2
-    assert result.steps[0]["duration_sec"] == 50.0                    # 재시도 포함 전체 시간
+    assert result.steps[0]["duration_sec"] == 20.0                    # 재시도 포함 전체 시간
 
 
 def test_if_block_timeout_checked_after_children():

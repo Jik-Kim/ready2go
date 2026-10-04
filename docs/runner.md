@@ -1,5 +1,7 @@
 # Runner · 원자 동작 · JSON 규격 · 실행 로그
 
+> 아래 내용은 requirements.md의 요구사항에 따른 설계·계약 설명입니다. 문서의 존재나 현재형 표현만으로 구현 완료를 의미하지 않으며, Phase·완료 기준은 requirements.md를 따릅니다. 실제 연결 여부는 담당 코드와 작업 기록에서 확인합니다. [문서]
+
 > 관련 요구사항: [FR-PLN-01](requirements.md#fr-pln-01), [FR-ONT-01–02](requirements.md#fr-ont-01), [FR-LOG-01–02](requirements.md#fr-log-01). Runner 동작·JSON 형식·로그 상세는 이 문서에서 다룹니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격 (강사 챌린지 핵심)
@@ -23,12 +25,12 @@
 | :--- | :--- | :--- | :--- |
 | `move_to_named_pose` | `pose_name`: `"home"`, `"drawer_approach"`, `"drawer_top_view"`, `"tray_view"` / `drawer_id`(서랍 관련 포즈일 때) | - | 사전 정의된 로봇 관절 포즈로 이동 |
 | `drawer_control` | `drawer_id`, `state`: `"open"`/`"close"`, `distance`(선택, 기본 = `max_travel_m`) | `{drawer_displacement, close_confirmed}` | 손잡이 파지 및 슬라이딩 개폐 (real: 컴플라이언스 인출, **닫힘 = 닫힘 위치 도달 AND 미는 축 힘 임계 초과**, 8.4 / sim: 조인트 직접 구동 폴백) |
-| `inspect_region` | `region`: 서랍 ID, `"staging_tray"`, `"handover_zone"`, `search_target`(클래스명, 선택) | `{target_found, target, candidates[], visible_count}` | 검출 + 3D 위치 + 가림 순서. `target`은 `{id, class, pose, top_z}` 또는 `null`, `candidates`는 목표를 제외한 물체를 **위에 있는 순서(서랍 좌표계 `top_z` 내림차순)**로 정렬. `pose`는 서랍 좌표계(원점 = 상자 안쪽 바닥 앞쪽 오른쪽 모서리, x 안쪽·y 왼쪽·z 위, 정의는 `config/places.yaml` 첫 부분·#6). **`position` = YOLO 박스 중심의 x·y, z는 항상 0**(높이는 `top_z`에만 둔다). **`yaw` = 물체 긴 변 방향**(서랍 x축 기준 rad), 범위 **(−π/2, π/2]**(긴 변은 180° 돌려도 같은 직선이라 한 범위로 고정, `ready2go_vision.core.pose_rules`), 위에서 본 모양이 정사각형이거나 둥근 물체(판정: `pose_rules.is_symmetric`, [vision.md](vision.md) V2)는 yaw 0 고정. **`yaw_valid`(bool)**: yaw를 믿어도 되는지. 대칭 물체와 정상 산출은 `true`, 덩어리가 비정상(뎁스 결손·너무 얇음 등)이면 `false`이고 이때 `yaw`는 0 자리표시이며 진짜 0°가 아니다. **받는 쪽은 필드가 없으면 `false`로 취급한다**(보내는 쪽은 항상 채운다). 소비자는 `false`이면 길쭉한 물체를 집지 않고 재인식하고, 그래도 `false`이면 오류로 처리한다(에러 코드는 `pick_object` 표 소관). 판정 임계값은 params(yaml)에 두며 `[팀 확정 필요]`. `size_m` 규약은 [vision.md](vision.md) V2. `top_z` = 서랍 바닥 기준 물체 윗면 높이. P1은 박스 중심만 제공하며 머리 방향(망치·스패너 등)은 B의 요청이 있을 때 계약 변경으로 추가. yaw 산출 방식(서랍 바닥 위 뎁스 덩어리 + `minAreaRect`, 사용자 확정 10/04)은 [vision.md](vision.md) V2. 박스 중심 픽셀을 서랍 좌표 x·y로 옮길 때는 **`z = top_z/2` 평면**과 교차시킨다(확정, [vision.md](vision.md) V2) |
+| `inspect_region` | `region`: 서랍 ID, `"staging_tray"`, `"handover_zone"`, `search_target`(클래스명, 선택) | `{target_found, target, candidates[], visible_count}` | 검출 + 3D 위치 + 가림 순서. `target`은 `{id, class, pose, top_z}` 또는 `null`, `candidates`는 목표를 제외한 물체를 **위에 있는 순서(서랍 좌표계 `top_z` 내림차순)**로 정렬. `pose`는 서랍 좌표계(원점 = 상자 안쪽 바닥 앞쪽 오른쪽 모서리, x 안쪽·y 왼쪽·z 위, 정의는 `config/places.yaml` 첫 부분·#6). **`position` = YOLO 박스 중심의 x·y, z는 항상 0**(높이는 `top_z`에만 둔다). **`yaw` = 물체 긴 변 방향**(서랍 x축 기준 rad), 범위 **(−π/2, π/2]**(긴 변은 180° 돌려도 같은 직선이라 한 범위로 고정, `ready2go_vision.core.pose_rules`), 위에서 본 모양이 정사각형이거나 둥근 물체(판정: `pose_rules.is_symmetric`, [vision.md](vision.md) V2)는 yaw 0 고정. **`yaw_valid`(bool)**: yaw를 믿어도 되는지. 대칭 물체와 정상 산출은 `true`, 덩어리가 비정상(뎁스 결손·너무 얇음 등)이면 `false`이고 이때 `yaw`는 0 자리표시이며 진짜 0°가 아니다. **받는 쪽은 필드가 없으면 `false`로 취급한다**(보내는 쪽은 항상 채운다). 소비자는 `false`이면 길쭉한 물체를 집지 않고 재인식하고, 그래도 `false`이면 오류로 처리한다(에러 코드는 `pick_object` 표 소관). 판정 임계값은 params(yaml)에 두며 `[팀 확정 필요]`. `size_m` 규약은 [ontology.md](ontology.md)의 "치수 계약". `top_z` = 서랍 바닥 기준 물체 윗면 높이. P1은 박스 중심만 제공하며 머리 방향(망치·스패너 등)은 B의 요청이 있을 때 계약 변경으로 추가. yaw 산출 방식(서랍 바닥 위 뎁스 덩어리 + `minAreaRect`, 사용자 확정 10/04)은 [vision.md](vision.md) V2. 박스 중심 픽셀을 서랍 좌표 x·y로 옮길 때는 **`z = top_z/2` 평면**과 교차시킨다(확정, [vision.md](vision.md) V2) |
 | `nudge_object` | `target`(`inspect_region` 결과의 `target`을 그대로 넘김: `$scan.target` — `id`·`class`·`pose`(`yaw` 포함)·`top_z`), `drawer_id`, `check_only`(선택, bool, 기본 `false`) | `{pushed, push_vector_m, clearance_before_m, floor_z_m}` (모두 서랍 좌표계 `drawer_<id>`, `inspect_region`의 `pose`와 같은 기준) | **1회 호출 = 1회 밀기.** 닫은 그리퍼로 바닥 접촉(힘 감지) → 수 mm 상승 → 벽에서 멀어지는 방향으로 직선 밀기. 잡을 수 있는 자리면 움직이지 않고 `pushed: false`. `check_only: true`이면 움직이지 않고 판단만 한다. 밀었으면 다시 `inspect_region` 후 집기 (FR-ACT-05, 상세 [domain.md 8.5](domain.md#85-벽-인접-물체-밀어오기-담당-b)) |
 | `pick_object` | `object_id`(인스턴스 ID), `approach_offset`, `grip_force`(선택, 기본 = 온톨로지 값), `source_slot`(선택, 트레이에서 집을 때) | `{object_id, class, pick_pose_drawer_frame, grasp_ok}` | 접근 → 파지 → 안전 높이 상승 |
 | `place_object` | `location`: `"staging_tray"`(빈 슬롯 자동 할당) / `"handover_zone"` / 슬롯명, 또는 `pose` + `frame` | `{slot, placed_pose}` | 지정 위치에 거치 후 그리퍼 해제. `frame: "drawer"`일 때는 배치 직전 재촬영으로 높이(z) 보정. **`location`이 서랍(`Drawer` 클래스)이면 백엔드가 `frame: "drawer"`, 현재 인출 거리 반영 서랍 좌표, z 보정을 자동 적용**(서랍의 `return_slot` 또는 지정 `pose` 사용) |
 
-* **ID 규칙**: `object_id`는 비전이 부여한 **인스턴스 ID**(예: `watch#1`, `unknown#3`), `search_target`과 온톨로지 키는 **클래스명**(예: `watch`). 둘을 섞지 않음.
+* **ID 규칙**: `object_id`는 비전이 부여한 **인스턴스 ID**(예: `eraser#1`, `unknown#3`), `search_target`과 온톨로지 키는 **클래스명**(예: `eraser`). 둘을 섞지 않음.
 * **포즈 vs 위치**: `pose_name`은 로봇 관절 포즈, `location`은 월드의 물체 거치 장소. 이름 공간을 분리함.
 
 **② 지식/상호작용 동작**
@@ -71,7 +73,7 @@
 **변수 문법 (2종만 허용)**
 * **값 전체 참조**: `"$scan.target.id"`, `"$scan.candidates[0].id"` → 원래 타입(불리언·숫자·객체) 그대로 치환.
 * **문자열 보간**: `"{{loc.name_ko}} 찾기를 시작합니다"` → 문자열로 치환.
-* **한국어 조사 필터**: `"{{loc.name_ko|을}}"`처럼 조사를 붙이면 Runner가 앞 단어의 받침 유무(유니코드 한글 음절 계산)로 `을/를`, `이/가`, `은/는`, `과/와`, `으로/로`를 자동 선택함. 목록은 `"{{list.items_ko|목록|을}}"` → "차키, 지갑, 시계를"처럼 쉼표로 잇고 마지막 단어 기준으로 조사를 붙임. 영문·숫자로 끝나면 받침 없음으로 처리.
+* **한국어 조사 필터**: `"{{loc.name_ko|을}}"`처럼 조사를 붙이면 Runner가 앞 단어의 받침 유무(유니코드 한글 음절 계산)로 `을/를`, `이/가`, `은/는`, `과/와`, `으로/로`를 자동 선택함. 목록은 `"{{list.items_ko|목록|을}}"` → "차키, 립밤, 지우개를"처럼 쉼표로 잇고 마지막 단어 기준으로 조사를 붙임. 영문·숫자로 끝나면 받침 없음으로 처리.
 * `eval`을 사용하지 않고 Runner가 경로를 해석함. 존재하지 않는 변수는 `VAR_UNDEFINED` 에러.
 * **변수 스코프 (블랙보드)**: `output`·`set_var`로 만든 변수(`loc`, `scan`, `picked` 등)는 **태스크 단위 전역 블랙보드**에 저장되어 `sequence`·`finally`·`on_halt` 어디서든 태스크 종료 시까지 유지됨. 같은 이름으로 다시 `output`하면 덮어씀(예: Unpacking 루프의 `scan`은 재촬영마다 갱신, `loc`은 처음 값 유지). 예외로 `for_each`의 `as` 변수만 루프 안에서 유효함. 블랙보드는 태스크가 끝나면 사라지고(최종 값은 로그에 기록), **태스크 사이에 이어지는 정보는 상태 온톨로지(7.8)만** 사용함.
 
@@ -87,7 +89,13 @@
 * `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
 * `timeout_sec`: Runner가 제한을 백엔드에 함께 전달하고, **동작 취소는 백엔드 책임**. Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
+  * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
+* **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
+  * P1 은 **동작 응답 성공 = effect 반영**. `verify`(사후 관측)·`hold`(실행 중 유지 조건)는 P2(FR-ONT-02). P1 은 `primitive` 스킬만(`composite`는 P2).
+  * **P1 은 `skill` 스텝의 `retry` 금지** (PR #64 리뷰): 실패 응답을 받아도 앞 원자 동작이 이미 실행됐거나 동작이 실제로 끝났을 수 있는데, 관측 확인(`verify`) 전에는 알 수 없어 스킬 전체를 다시 보내면 이미 열린 서랍 재열기·이미 집은 물건 재집기가 될 수 있음. 실행 전 검사에서 `TASK_INVALID`, 실행 중에도 1회만 시도. `verify`·복구가 준비되는 P2 에서 다시 검토.
+  * `timeout_sec`은 스킬 전체 시간(각 원자 동작에는 남은 시간을 전달). 로봇을 움직이므로 `ABORTED` 때 `finally`에서도 `SKIPPED`.
+  * 실행 전 검사에서 온톨로지에 없는 스킬, `composite`, 스킬 정의와 다른 `params` 이름(빠짐·모름), 하위 기록 ID 중복, `retry`를 `TASK_INVALID`로 거절. 실행 중에도 다시 확인(`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`).
 
 **Runner 에러 코드** (스킬별 에러 코드는 7.5 온톨로지 `errors`)
 
@@ -103,6 +111,9 @@
 | `ACTION_FAILED` | 백엔드가 에러 코드 없이 실패를 반환 |
 | `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등). 스텝 실패로 처리해 `finally`를 보장 |
 | `INTERNAL_ERROR` | Runner 내부의 예상 못 한 에러. 스텝 실패로 처리해 `finally`를 보장하고 기록의 `internal_error`에 원인을 남김 |
+| `PRE_UNMET` | `skill` 스텝의 `pre` 조건 불충족. 로봇 동작을 보내지 않음(틀린 조건은 기록의 `pre_check`) |
+| `UNKNOWN_SKILL` | 온톨로지에 없거나 P1 미지원(`composite`) 스킬 (보통 실행 전 검사에서 `TASK_INVALID`로 먼저 걸림) |
+| `BAD_SKILL_PARAMS` | `skill` 스텝에 스킬 정의의 `params`가 빠짐 (보통 실행 전 검사에서 `TASK_INVALID`로 먼저 걸림) |
 
 **`inspect_region` 에러 코드** (`InspectRegion.srv`의 `error_code`, 실패 시 `success=false`. 미발견은 에러가 아니라 `success=true` + `target_found=false`)
 
@@ -125,7 +136,7 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 
 ### 7.2 태스크 시퀀스 스키마
 
-`action` 값에 따라 `params`를 검증하여 **오타나 잘못된 파라미터를 실행 전에 차단**합니다. 스텝은 재귀 구조(`if/while/for_each` 내부에 스텝)입니다.
+`action` 값에 따라 `params`를 검증하여 **오타나 잘못된 파라미터를 실행 전에 차단**합니다. 스텝은 재귀 구조(`if/while/for_each` 내부에 스텝)입니다. 스텝에는 `action`과 `skill`(7.1 `skill` 스텝) 중 정확히 하나가 있어야 합니다(예시: [`contracts/examples/task_skill_steps.json`](../contracts/examples/task_skill_steps.json)).
 
 > **원본 파일**: [`contracts/task.schema.json`](../contracts/task.schema.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
 
@@ -133,7 +144,7 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 
 ### 7.3 실제 인스턴스 예시: 오클루전 탐색 + 복구 (하드코딩 ID 없음)
 
-음성으로 "시계 찾아줘" → `inputs.target = "watch"`로 바인딩되어 실행됩니다. 장애물 ID는 미리 알 수 없으므로 `inspect_region`의 반환값을 변수로 받아 사용합니다.
+음성으로 "지우개 찾아줘" → `inputs.target = "eraser"`로 바인딩되어 실행됩니다. 장애물 ID는 미리 알 수 없으므로 `inspect_region`의 반환값을 변수로 받아 사용합니다.
 
 > **원본 파일**: [`tasks/find_with_unpack.json`](../tasks/find_with_unpack.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
 
@@ -157,3 +168,10 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 * **플래너 실행**: 헤더에 `goal`과 `plan`(스킬 조합 목록), 스킬 단위 기록과 그 아래 원자 동작 기록을 함께 저장.
 * **저장**: 스텝이 끝날 때마다 `LogStore`를 통해 MongoDB(`runs`·`steps`·`states` 컬렉션)에 저장. `runs` 헤더에는 **온톨로지 파일 해시**, STT 원문, LLM 원문 응답, 안전 게이트 결과를 포함. DB 연결 실패 시 **JSONL 파일로 자동 폴백**하여 시연이 멈추지 않게 하고, 제출·발표용으로 `logs/*.json`도 내보냄. 원시 토픽(카메라·조인트)은 rosbag2(MCAP)로 별도 녹화.
 * 위 예시는 지면상 일부 스텝만 표기. 실제 로그에는 `finally` 스텝을 포함한 모든 스텝이 기록됨.
+* **구현 (P1, #12)**: `core/log_records.py`가 레코드 모양을, `core/logstore.py`가 저장을 맡음. Runner 는 `LogStore` 약속(`start_run`·`write_step`·`end_run`·`read_run`)에만 의존.
+  * `MongoLogStore`: `cobot2`의 `runs`(실행 1건, `run_id`로 덮어써 시작 기록을 완성)·`steps`(스텝 1건, `run_id`·`seq` 색인). 접속 주소 `MONGO_URI`(기본 `mongodb://localhost:27017`), 연결·응답 제한 1초 `[추정, 실측 후 조정]`.
+  * `JsonlLogStore`: `logs/<run_id>.jsonl`(`:`→`-`), 한 줄 = `{"collection": "runs"|"steps", "doc": ...}`. `doc`은 MongoDB 레코드와 같은 모양. 쓰다 만 줄은 건너뜀.
+  * `FallbackLogStore`: MongoDB 실패 시 그 실행의 앞 기록까지 JSONL 에 다시 써서 한 파일에 실행 전체를 남기고, 그 실행은 끝까지 JSONL(스텝마다 연결 제한만큼 멈추지 않게). 다음 실행은 MongoDB 재시도. 상태는 `degraded`·`last_error`.
+  * `run_id` = 시작 시각(UTC) + 6자리 난수. 스텝 `seq` = 시작 순서. 실행 거절(`TASK_INVALID`·중단 잠김)도 기록. 기록 저장 실패는 `RunResult.log_errors`에 남기고 **실행은 멈추지 않음**.
+  * P1 범위: FR-LOG-01 항목(실행 ID·입력 명령·단계 ID·시작 시각·상태·오류 코드). `states` 컬렉션·`post_check`는 P2(FR-LOG-02).
+  * `skill` 스텝 기록(#12): `action: "skill"`, `skill`, `params`, `pre_check`(온톨로지 `check` 결과 배열), 성공 시 `state_diff`(온톨로지 `apply` 결과). 추가 계산 없이 나오는 값이라 P1 에서도 남겨 `PRE_UNMET` 원인을 볼 수 있게 함. 하위 원자 동작 기록은 `parent`로 묶음. `state_diff` 키에 `.`이 있어 MongoDB 에서 키로 직접 조회하기는 불편함(저장·읽기는 7.0 실측 정상).

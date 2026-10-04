@@ -1,0 +1,11 @@
+airpods_case
+caramel_box
+car_key
+eraser
+lip_balm
+carrot_pen
+masking_tape
+toy_car
+toy_wrench
+toy_hammer
+cover_plate

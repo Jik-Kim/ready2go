@@ -1,11 +1,11 @@
 {
   "intent": "find_item",
   "targets": [
-    "watch"
+    "eraser"
   ],
   "confidence": 0.93,
   "source": {
-    "stt_text": "시계 찾아줘",
+    "stt_text": "지우개 찾아줘",
     "fallback_used": false
   }
 }

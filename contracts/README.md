@@ -16,3 +16,9 @@
 - 계약을 바꾸면 스키마·예시·문서를 **같은 PR**에서 고치고 `python3 tools/validate_contracts.py`를 통과시킨다.
 - 물품 키·장소 이름 enum은 런타임에 온톨로지(`knowledge/robot_ontology.jsonld`)에서 생성하므로 스키마에는 문자열로만 둔다.
 - TODO(C 이영훈): 실행 로그·온톨로지 스키마(`log.schema.json`, `ontology.schema.json`) — Phase 2.
+
+## 물품 목록 예시 갱신 (#8)
+
+- 인텐트·태스크·로그·인식 예시의 제거된 `watch`·`wallet` 참조를 등록 물품으로 변경했다. 인텐트·태스크 스키마 구조와 ROS 메시지 필드는 유지한다.
+- 물품 키는 `world.jsonld` 원본 또는 공통 로더에서 얻고, 인스턴스 ID는 비전이 제공한다. 예시 좌표·로그 성공 기록은 새 물품의 실물 검증 증빙이 아니다.
+- 공유 계약·담당별 실행 인계는 `docs/interfaces.md` 5.1, 치수 축·단위는 `docs/ontology.md`를 따른다.
