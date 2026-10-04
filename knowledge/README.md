@@ -37,7 +37,7 @@
 
 ## 물품 목록 갱신 (#8)
 
-- `world.items`는 제공된 실측/외접박스 표의 11종·12개를 반영한다. 번호 고정은 A의 `config/yolo_classes.txt`에서 하며 여기의 순서를 다시 바꿔 기존 라벨을 해석하지 않는다.
+- `world.items`는 제공된 실측/외접박스 표의 11종·12개를 반영한다. 최초 11종 번호는 공식 생성기로 만든 `config/yolo_classes.txt`에 고정했으며 여기의 순서를 다시 바꿔 기존 라벨을 해석하지 않는다.
 - P1은 등록 물품의 단일 요청이며 `commute_set`은 P3 예시 참조 데이터다. `roles`의 request_target은 파지 검증 완료를 의미하지 않는다.
 - `sources.item_grasp`의 `config/item_grasp.yaml`을 읽어 `grip_force`와 `grasp_verified`를 물품에 제공한다. 미확정 값은 null/false로 유지한다. 미확정 상태를 거절하는 E 함수와 실제 실행 경로 연결은 구분한다.
 - 치수·분류·역할·초기 상태·인계의 현재 기준은 공용 `docs/ontology.md`, `docs/interfaces.md`, `docs/hardware.md`다. 이전의 '물품 size_m 예시값 유지' 설명은 이번 실측 반영으로 대체된다.
