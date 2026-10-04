@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install jsonschema pytest pyyaml   # pyyaml: ready2go_bringup static_tf (package.xml python3-yaml)
+      - run: pip install jsonschema pytest pyyaml   # pyyaml: bringup static_tf 및 knowledge 설정 로더
       - name: 계약·온톨로지·태스크 검증
         run: python3 tools/validate_contracts.py
       - name: core 단위 테스트 (ROS 불필요)

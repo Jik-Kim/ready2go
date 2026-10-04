@@ -11,7 +11,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/ready2go_knowledge']),
         ('share/ready2go_knowledge', ['package.xml']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'PyYAML'],
     zip_safe=True,
     maintainer='E 고희태',
     maintainer_email='todo@example.com',

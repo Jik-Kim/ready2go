@@ -1,18 +1,18 @@
 {
   "intent": "achieve_goal",
   "targets": [
-    "wallet"
+    "lip_balm"
   ],
   "goals": [
     {
       "predicate": "located_in",
-      "subject": "wallet",
+      "subject": "lip_balm",
       "value": "drawer_bottom"
     }
   ],
   "confidence": 0.9,
   "source": {
-    "stt_text": "지갑은 아래 서랍에 넣어 둬",
+    "stt_text": "립밤은 아래 서랍에 넣어 둬",
     "fallback_used": false
   }
 }
