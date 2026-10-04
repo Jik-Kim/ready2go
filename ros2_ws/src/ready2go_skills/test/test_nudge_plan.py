@@ -15,9 +15,9 @@ GEO = np_.GripperGeometry(
 ERASER = (0.0525, 0.022)          # #8 실측 22 × 52.5 mm, 로컬 x = 긴 변
 
 
-def _plan(x, y, yaw=0.0, size=ERASER, **kw):
-    return np_.plan_nudge(center_xy=(x, y), yaw=yaw, size_xy=size, interior_xy=INTERIOR,
-                          geo=GEO, **kw)
+def _plan(x, y, yaw=0.0, size=ERASER, yaw_valid=True, **kw):
+    return np_.plan_nudge(center_xy=(x, y), yaw=yaw, yaw_valid=yaw_valid, size_xy=size,
+                          interior_xy=INTERIOR, geo=GEO, **kw)
 
 
 def test_center_is_graspable_without_push():
@@ -91,3 +91,34 @@ def test_clearance_before_is_min_gap():
 def test_center_outside_interior_raises():
     with pytest.raises(ValueError):
         _plan(0.30, 0.10)
+
+
+# yaw_valid 차단 (#15 PM 요청, PR #65 선행). D 재현 사례: 차키 69.5 × 39 mm, 중심 (0.035, 0.040),
+# yaw_valid false라 yaw 0이 자리표시인데 그대로 쓰면 밀기 계획(약 17.5 mm)이 나온다.
+CAR_KEY = (0.0695, 0.039)
+KEY_AT = (0.035, 0.040)
+
+
+def test_d_case_would_push_if_yaw_trusted():
+    p = _plan(*KEY_AT, size=CAR_KEY)
+    assert p.pushed is True and p.error_code is None     # 차단이 없으면 이 계획으로 움직임
+
+
+@pytest.mark.parametrize("yaw_valid", [False, None])     # false, 필드 없음
+@pytest.mark.parametrize("check_only", [False, True])
+def test_untrusted_yaw_returns_yaw_unknown_without_moving(yaw_valid, check_only):
+    p = _plan(*KEY_AT, size=CAR_KEY, yaw_valid=yaw_valid, check_only=check_only)
+    assert (p.pushed, p.error_code) == (False, np_.YAW_INVALID)
+    assert p.push_vector_m == (0.0, 0.0) and p.push_start_m is None and p.finger_travel_m == 0.0
+
+
+def test_yaw_valid_must_be_true_not_truthy():
+    p = _plan(0.10, 0.15, yaw_valid=1)
+    assert p.error_code == np_.YAW_INVALID
+
+
+def test_valid_zero_yaw_and_symmetric_object_proceed():
+    assert _plan(0.10, 0.15, yaw=0.0, yaw_valid=True).error_code is None
+    tape = (0.0385, 0.0385)                              # masking_tape: 대칭, 비전이 yaw 0 + yaw_valid true
+    p = _plan(0.10, 0.15, size=tape, yaw=0.0, yaw_valid=True)
+    assert (p.pushed, p.error_code) == (False, None)
