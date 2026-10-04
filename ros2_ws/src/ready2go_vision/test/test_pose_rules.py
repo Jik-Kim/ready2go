@@ -30,7 +30,7 @@ def test_normalized_value_is_always_in_range_and_same_line():
 
 
 def test_pose_errors():
-    ok = {"frame": "drawer_top", "position": [0.1, 0.2, 0.0], "yaw": 0.5}
+    ok = {"frame": "drawer_top", "position": [0.1, 0.2, 0.0], "yaw": 0.5, "yaw_valid": True}
     assert pose_errors(ok) == []
     assert pose_errors({**ok, "position": [0.1, 0.2, 0.03]})                  # z 는 0
     assert pose_errors({**ok, "yaw": PI / 2 + 0.01})                            # 범위 밖
@@ -65,3 +65,18 @@ def test_is_symmetric_ignores_order_and_height():
 def test_is_symmetric_rejects_nonpositive():
     with pytest.raises(ValueError):
         is_symmetric([0.0, 0.1, 0.1])
+
+
+def test_yaw_valid_rules():
+    base = {"frame": "drawer_top", "position": [0.1, 0.2, 0.0]}
+    assert pose_errors({**base, "yaw": 0.0, "yaw_valid": False}) == []        # 모름: yaw 0 자리표시
+    assert pose_errors({**base, "yaw": 0.0, "yaw_valid": True}) == []         # 진짜 0° 또는 대칭 물체
+    assert pose_errors({**base, "yaw": 0.4, "yaw_valid": False})              # false 인데 yaw != 0
+    assert pose_errors({**base, "yaw": 0.4})                                  # 필드 없음
+    assert pose_errors({**base, "yaw": 0.4, "yaw_valid": 1})                  # bool 아님
+
+
+def test_example_has_a_false_yaw_valid_case():
+    r = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/inspect_region_result.json").read_text(encoding="utf-8"))
+    flags = [r["target"]["pose"]["yaw_valid"]] + [c["pose"]["yaw_valid"] for c in r["candidates"]]
+    assert False in flags and True in flags

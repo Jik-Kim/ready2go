@@ -20,10 +20,11 @@ def inspect(config: dict, region: str, search_target: str = "") -> tuple[bool, s
     items = []
     for o in regions[region].get("objects", []):
         seen[o["class"]] += 1
+        valid = o.get("yaw_valid", True)                      # 스텁은 기본 true. false 예시를 시험하려면 설정에서 지정 (이때 yaw 는 0)
         items.append({
             "id": f"{o['class']}#{seen[o['class']]}",
             "class": o["class"],
-            "pose": {"frame": region, "position": list(o["position"]), "yaw": normalize_yaw(o.get("yaw", 0.0))},
+            "pose": {"frame": region, "position": list(o["position"]), "yaw": normalize_yaw(o.get("yaw", 0.0)) if valid else 0.0, "yaw_valid": valid},
             "top_z": o["top_z"],
         })
     items.sort(key=lambda i: i["top_z"], reverse=True)
