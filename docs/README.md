@@ -27,7 +27,15 @@
 | Docker·네트워크·DB | [NFR-ENV-01](requirements.md#nfr-env-01), [FR-COM-01–02](requirements.md#fr-com-01), [NFR-DB-01](requirements.md#nfr-db-01) | [docker.md](docker.md), [interfaces.md](interfaces.md) | `compose.yaml`, `config/cyclonedds.*.xml` |
 | Isaac Sim 트윈 | [FR-TWN-01–02](requirements.md#fr-twn-01), [NFR-TWN-01](requirements.md#nfr-twn-01) | [twin.md](twin.md) | `sim/` |
 | 일정·담당 확인 | [schedule.md](schedule.md), [overview.md](overview.md) 0장 | — |
-| 시연 준비 | [demo_scenario.md](demo_scenario.md), [safety.md](safety.md) | — |
+| 시연 준비 | [UC-P1–P3](requirements.md#use-cases), [AC-DEMO-01](requirements.md#ac-demo-01) | [demo_scenario.md](demo_scenario.md), [safety.md](safety.md) | — |
+
+## 물품 정의·라벨링 연결 확인
+
+- 원본 물품 목록·치수·분류·역할·공통 로더: [ontology.md](ontology.md), [knowledge/README.md](../knowledge/README.md), `knowledge/world.jsonld`
+- 물품 키/인스턴스 ID·좌표·조회 결과·담당별 코드 인계: [interfaces.md](interfaces.md#51-물품-식별자좌표조회-결과의-공유-규칙)
+- 채택·측정·파지 보고와 최종 승인 상태·높이 기준: [hardware.md 2.3](hardware.md#23-물품-선정-기준-day-2-실물-파지-테스트로-확정), GitHub 이슈 [#8](https://github.com/Jik-Kim/ready2go/issues/8)
+- 파지 설정 정본: `config/item_grasp.yaml`. 인식 목록 등록과 파지 승인·실행은 구분함. 문서 갱신은 다른 담당 코드의 자동 대응을 뜻하지 않음.
+- P1은 단일 요청, 목록·분류는 P3. 예시 물품은 요청 범위를 제한하지 않음.
 
 ## 문서 목록
 
@@ -49,7 +57,7 @@
 | [safety.md](safety.md) | 비상정지, 실물 실행 절차, 안전 게이트 | 11 |
 | [schedule.md](schedule.md) | 14일 일정, 체크포인트 | 13 |
 | [metrics_risks.md](metrics_risks.md) | 성공 지표, 리스크 | 14, 15 |
-| [demo_scenario.md](demo_scenario.md) | 최종 시연 시나리오 "출근 준비 도우미" | 17 |
+| [demo_scenario.md](demo_scenario.md) | 요구사항·완료 기준에 따른 시연 절차와 예시 | 17 |
 | [changelog.md](changelog.md) | 변경 이력 | (머리말) |
 | [research/prior_art_report.md](research/prior_art_report.md) | 선행 사례 조사 보고서 | (별도) |
 

@@ -1,5 +1,7 @@
 # 음성 · LLM
 
+> 아래 내용은 requirements.md의 요구사항에 따른 설계·계약 설명입니다. 문서의 존재나 현재형 표현만으로 구현 완료를 의미하지 않으며, Phase·완료 기준은 requirements.md를 따릅니다. 실제 연결 여부는 담당 코드와 작업 기록에서 확인합니다. [문서]
+
 > 관련 요구사항: [FR-INT-01–03](requirements.md#fr-int-01). 음성 인식과 LLM 인텐트 처리 상세는 이 문서에서 다룹니다.
 
 ## 6. 음성 · LLM 인터페이스 (필수, 담당 E)
@@ -24,7 +26,7 @@
 * `find_item`: "가위 찾아줘"
 * `find_list`: "출근 준비물 찾아줘"
 * `find_class`: "귀중품 다 찾아줘" → 온톨로지 클래스 계층 추론(`Valuables`의 하위 클래스 포함)
-* `achieve_goal` (플래너 조합): "지갑은 아래 서랍에 넣어 둬", "위 서랍 시계를 아래 서랍으로 옮겨줘", "아래 서랍 닫아줘" → 목표 상태로 변환(7.7)
+* `achieve_goal` (플래너 조합): "립밤은 아래 서랍에 넣어 둬", "위 서랍 지우개를 아래 서랍으로 옮겨줘", "아래 서랍 닫아줘" → 목표 상태로 변환(7.7)
 * `query_state`: "지금 뭐 들고 있어?", "위 서랍 열려 있어?" → `/robot_state`로 응답
 * 태스크 레지스트리 인텐트: 스킬 파일의 `trigger`로 자동 추가(예: `return_items` "정리해줘", 7.6)
 * `cancel` / `status`: "멈춰", "지금 뭐 해?"
@@ -47,7 +49,7 @@ STT 텍스트 + 온톨로지 어휘(물품·리스트·클래스 키, 한국어 
 ```
 
 * **출력 형식 (구조화 출력 strict 모드 + 온톨로지에서 생성한 enum)**: `{"intent": "find_item|find_list|find_class|achieve_goal|query_state|<레지스트리 인텐트>|cancel|status|unknown|clarify", "targets": ["<온톨로지 키 enum>"], "goals": [{"predicate": "located_in|open", "subject": "<키 enum>", "value": "<장소·값 enum>"}], "query": {"predicate": "...", "subject": "..."} 또는 null, "clarify_question": "..." 또는 null, "confidence": 0.0~1.0}`
-* **고정 키 배열**: 목표는 `{"located_in.wallet": ...}` 같은 동적 키 객체가 아니라 `goals: [{predicate, subject, value}]` 배열로 받음(구조화 출력의 enum 검증이 가능하고 7.5 조건 형식과 동일).
+* **고정 키 배열**: 목표는 `{"located_in.lip_balm": ...}` 같은 동적 키 객체가 아니라 `goals: [{predicate, subject, value}]` 배열로 받음(구조화 출력의 enum 검증이 가능하고 7.5 조건 형식과 동일).
 * **탈출값 필수**: enum에 `unknown`·`clarify`가 없으면 모델이 어휘 밖 요청에도 아무 물품이나 고르게 됨. 스키마는 형식만 보장하므로 의미(존재하는 물품인지, 현재 상태와 다른 목표인지)는 코드로 다시 검증.
 * **목표만 출력**: `achieve_goal`에서 LLM은 목표 상태만 내고 동작 순서는 만들지 않음. 순서는 플래너가 스킬 조건에서 도출(7.7). LLM+P(2023) 실험에서 같은 GPT-4가 계획을 직접 짜면 0~35%, 목표만 번역하고 플래너에 맡기면 85~95% 성공(선행 사례 보고서 참고).
 * **어휘 제한**: 프롬프트에 온톨로지의 키·한국어 이름·별칭 목록과 레지스트리 인텐트를 자동 주입하고, 목록에 없는 물품은 `unknown`으로 답하도록 지시(하드코딩 금지). 공간 표현("위 서랍", "앞 트레이")은 장소 enum 기호로만 받음.

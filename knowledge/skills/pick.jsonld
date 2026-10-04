@@ -1,0 +1,78 @@
+{
+  "skills": {
+    "pick": {
+      "kind": "primitive",
+      "name_ko": "집기",
+      "params": {
+        "item": "Item",
+        "from": "Place"
+      },
+      "pre": [
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "op": "==",
+          "value": "empty"
+        },
+        {
+          "subject": "$item",
+          "predicate": "located_in",
+          "op": "==",
+          "value": "$from"
+        },
+        {
+          "subject": "$from",
+          "predicate": "open",
+          "op": "==",
+          "value": true
+        }
+      ],
+      "hold": [
+        {
+          "subject": "$from",
+          "predicate": "open",
+          "op": "==",
+          "value": true
+        }
+      ],
+      "effect": [
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "value": "$item"
+        },
+        {
+          "subject": "$item",
+          "predicate": "located_in",
+          "value": "gripper"
+        }
+      ],
+      "verify": "gripper_width > min_width AND grasp_detected",
+      "expand": [
+        {
+          "action": "inspect_region",
+          "params": {
+            "region": "$from",
+            "search_target": "$item"
+          },
+          "output": "scan"
+        },
+        {
+          "action": "pick_object",
+          "params": {
+            "object_id": "$scan.target.id",
+            "approach_offset": [
+              0,
+              0,
+              0.1
+            ]
+          }
+        }
+      ],
+      "errors": [
+        "NOT_VISIBLE",
+        "GRASP_FAILED"
+      ]
+    }
+  }
+}

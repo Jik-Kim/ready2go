@@ -30,3 +30,20 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | `query_ontology` · `update_ontology` 원자 동작 | **ROS 인터페이스 없음.** `ros2-core` 프로세스 안에서 Runner가 `OntologyManager` 메서드를 직접 호출 | Runner (7.1 ②) |
 | 로그·상태 저장 | Python `pymongo`로 MongoDB(`cobot2` DB: `runs`·`steps`·`states`) 직접 연결, `LogStore` 인터페이스 경유. 연결 실패 시 `logs/*.jsonl` 폴백 | Runner·Logger (7.4) |
 | STT · LLM | HTTPS로 OpenAI API 호출 (`secrets/voice.env`의 키 사용) | `voice` 컨테이너 (6장) |
+
+### 5.1 물품 식별자·좌표·조회 결과의 공유 규칙
+
+| 항목 | 의미·제공자·사용자 |
+| :--- | :--- |
+| 물품 키 | `world.items` 키(예: `eraser`). voice의 `targets`, vision의 `search_target`·검출 `class`에서 사용. 온톨로지 종류 `Item/Key/Obstacle`와 구분 |
+| 인스턴스 ID | A가 관측한 물체에 부여한 `eraser#1` 등. B의 `object_id` 입력으로 사용. 클래스 키를 인스턴스 ID로 임의 변환하지 않음 |
+| `pose` | `{frame, position, yaw}` 형식 유지. 위치·yaw·`top_z` 의미는 병합된 PR #61의 [runner.md 7.1](runner.md#71-원자-동작primitive-action-정의-규격)을 참조함. 서랍 좌표계 정의는 [`config/places.yaml` 첫 부분](../config/places.yaml)이 정본. 규칙 함수·예시 검사는 제공되지만 실제 비전 추론·B 실행 경로 연결 완료를 뜻하지 않음 |
+| `size_m` | 물체 로컬 x 긴 변·y 짧은 변·z 높이 순서의 외접 박스(m). 치수 원본은 E의 `world.jsonld`. 스패너·망치 머리 폭을 파지 손잡이 폭으로 해석하지 않음 |
+| `top_z` | 관측 시 지지면·배치를 포함한 물체 윗면의 프레임 z 높이(m). 바닥에 놓인 예시에서만 물품 높이와 같을 수 있음. 항상 `size_m[2]`로 대체하지 않음 |
+| 물품 조회 | E 공통 로더의 `world.items.<key>`: 기존 이름·종류·별칭·치수와 `roles`, `grip_force`(양수 또는 null), `grasp_verified`(bool). 물품 등록과 파지 승인은 별개 |
+| 초기 위치 | `initial_state.json`은 배치 예시. 실제 위치라고 발행하려면 확인·초기화가 필요하며, 현재 상태와 개별 인스턴스 위치는 C가 관리 |
+| 인식 결과 | `target_found/target/candidates/visible_count` 형식 유지. 미발견은 `success=true, target_found=false`; 통신·관측 실패와 구분. 예시 좌표는 실측 증빙이 아님 |
+
+**실행 전 인계**: B·C는 `require_grasp_settings()` 또는 동등한 검증으로 미확정 파지 힘·검증 상태를 확인하고 실행 불가를 반환해야 함. null을 임의 기본 힘으로 대체하지 않음. 기존 `query_ontology` 결과에도 이 상태를 전달하는 연결은 C 담당이며, 에러 코드·질문/TTS 응답 계약은 해당 담당과 확정 필요.
+
+**학습 인계**: A의 데이터셋 도구는 병합된 PR #45에서 `sources.world`를 따라 `world.jsonld`의 물품 목록을 조회함. 전체 E 로더를 호출하지 않아 학습 도구에 PyYAML 의존성을 추가하지 않음. PR #45의 고정 클래스 목록은 `config/yolo_classes.txt`(0부터 시작하는 줄 순서)이며 이번 PR에서 `--init-classes`로 11종의 최초 번호(0–10)를 생성함. 이후 재정렬하지 않음. 번호 고정 후 새 클래스는 끝에 추가하고 데이터셋·가중치와 목록 버전을 연결함. 기존 라벨의 유무·번호는 A가 확인함.

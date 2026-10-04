@@ -2,7 +2,7 @@
   "task_id": "nudge_then_pick",
   "description": "벽 근처 물체: 닫은 그리퍼로 밀기 → 다시 인식 → 재판단 → 집기 (P1 블록만 사용, nudge_object 1회 호출 = 1회 밀기)",
   "inputs": {
-    "target": "watch"
+    "target": "eraser"
   },
   "sequence": [
     {

@@ -1,0 +1,23 @@
+{
+  "classes": {
+    "Item": {},
+    "Valuables": {
+      "subClassOf": "Item",
+      "name_ko": "귀중품"
+    },
+    "Key": {
+      "subClassOf": "Valuables",
+      "name_ko": "열쇠류"
+    },
+    "Obstacle": {
+      "subClassOf": "Item"
+    },
+    "Place": {},
+    "Drawer": {
+      "subClassOf": "Place"
+    },
+    "Tray": {
+      "subClassOf": "Place"
+    }
+  }
+}

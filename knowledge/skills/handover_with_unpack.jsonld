@@ -1,0 +1,27 @@
+{
+  "skills": {
+    "handover_with_unpack": {
+      "kind": "composite",
+      "name_ko": "가려진 물건까지 찾아 꺼내기",
+      "params": {
+        "target": "Item"
+      },
+      "task": "tasks/find_with_unpack.json",
+      "pre": [
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "op": "==",
+          "value": "empty"
+        }
+      ],
+      "effect": "sensing",
+      "trigger": {
+        "intent": "find_item",
+        "examples_ko": [
+          "지우개 찾아줘"
+        ]
+      }
+    }
+  }
+}
