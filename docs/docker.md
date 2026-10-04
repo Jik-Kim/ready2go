@@ -14,7 +14,7 @@
 | `realsense` | `ros:jazzy` + realsense2_camera | `real` | 손목 RealSense RGB-D 발행 (표준 토픽명으로 remap) |
 | `voice` | `ros:jazzy` + 음성 스택 | `real`, `sim`, `dev` | 웨이크워드 → STT → 인텐트, TTS |
 | `dsr-emulator` | `doosanrobot/dsr_emulator:3.0.1` | `sim`, `dev` | M0609 가상 제어기 |
-| `mock-sim` | `ros:jazzy` + Python | `dev` | 가짜 조인트·서랍·카메라 토픽, 미리 정의한 검출 결과 |
+| `mock-sim` | `ros:jazzy` + Python | `dev` | 가짜 조인트·서랍·카메라 토픽 (예정). 로봇 원자 동작 mock 은 우리 작업공간이 필요해 `ros2-core` 안의 `mock_backend`가 맡음(`BACKEND=mock`, #10) |
 
 * **Isaac Sim은 컨테이너에 넣지 않음**: 과목 필수 요소가 아닌 팀 선택 도구로, 실물 로봇·카메라처럼 외부 환경으로 취급함. PC1의 네이티브 설치본(`~/isaac-sim-5.1.0`)을 `sim/isaac_env.sh`로 환경을 맞춘 뒤 실행함. **시스템 ROS를 source하지 않고** Isaac Sim 번들의 내부 ROS 라이브러리 + CycloneDDS(Domain 70)를 씀 [실측 10/03]: Kit의 Python은 3.11이고 시스템 Jazzy `rclpy`는 3.12용이라 시스템 ROS를 source하면 `rclpy`를 불러오지 못함. **팀 로직은 Isaac Sim 안에 두지 않고**(씬 로드·ROS 2 Bridge·조인트 미러링만), 전부 컨테이너의 ROS 노드에 둠.
 * 기존 `ros:jazzy-ros-base-noble` 기반 `yolo-detection` 컨테이너를 `vision`의 시작점으로 재사용함.
@@ -34,7 +34,7 @@
 * PC2 (실물): `docker compose --profile real up` (`.env`: `BACKEND=real`, `ROBOT_HOST=<제어기 IP>`, `RG2_HOST=<RG2 IP>`, `DDS_MODE=multi`) — DSR 드라이버·`/gripper/state`가 함께 기동
 * PC1 (사전 검증): Isaac Sim 네이티브 실행 후 `docker compose --profile sim up` (`.env`: `BACKEND=sim`, `VISION_MODE=oracle`)
 * PC1 (실물 미러링 트윈): Isaac Sim 네이티브만 실행 (`DDS_MODE=multi`로 PC2의 `/dsr01/joint_states` 수신)
-* 개발: `docker compose --profile dev up`
+* 개발: `docker compose --profile dev up` — `ros2-core`가 Runner 노드와 mock 백엔드를 띄움. 시험 태스크는 `.env`의 `RUNNER_TASK_FILE=/contracts/examples/task_skill_steps.json`, 실패 시험은 `MOCK_FAIL`·`MOCK_NOT_VISIBLE` ([runner.md](runner.md) 7.1 "Runner 노드")
 * 장비별 값은 각 PC의 `.env`에 고정하여 실제 실행은 명령 1개로 유지.
 
 ### 4.3 운영 규칙 및 알려진 함정 (이미 겪은 이슈 포함)

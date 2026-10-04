@@ -106,15 +106,23 @@
 | `VAR_UNDEFINED` | 존재하지 않는 변수 참조 |
 | `BAD_FILTER` | `{{x\|필터}}`에 없는 조사·`목록` 필터 오용 |
 | `BAD_CONDITION` | 조건식 인자 개수·타입 오류 |
-| `TIMEOUT` | `timeout_sec` 초과 |
+| `TIMEOUT` | `timeout_sec` 초과 (Runner 판정, 또는 클라이언트가 취소 요청). 결과가 불확실해 재시도하지 않음 |
 | `ESTOP` | 백엔드가 비상정지로 동작 실패를 반환 → `ABORTED` |
 | `HALTED` | Runner `halt()`로 중단(사용자 취소·`/runner/estop`) → `ABORTED` |
 | `ACTION_FAILED` | 백엔드가 에러 코드 없이 실패를 반환 |
-| `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등). 스텝 실패로 처리해 `finally`를 보장 |
+| `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등), 서버 없음·goal 거절(동작 안 함), 성공 응답의 JSON 을 읽을 수 없음. 스텝 실패로 처리해 `finally`를 보장 |
 | `INTERNAL_ERROR` | Runner 내부의 예상 못 한 에러. 스텝 실패로 처리해 `finally`를 보장하고 기록의 `internal_error`에 원인을 남김 |
 | `PRE_UNMET` | `skill` 스텝의 `pre` 조건 불충족. 로봇 동작을 보내지 않음(틀린 조건은 기록의 `pre_check`) |
 | `UNKNOWN_SKILL` | 온톨로지에 없거나 P1 미지원(`composite`) 스킬 (보통 실행 전 검사에서 `TASK_INVALID`로 먼저 걸림) |
 | `BAD_SKILL_PARAMS` | `skill` 스텝에 스킬 정의의 `params`가 빠짐 (보통 실행 전 검사에서 `TASK_INVALID`로 먼저 걸림) |
+
+**`query_ontology` 에러 코드** (#10, Runner 안에서 처리 — `core/ontology_query.py`)
+
+| 코드 | 의미 |
+| :--- | :--- |
+| `UNKNOWN_ITEM` | 온톨로지 `world.items`에 없는 물품이거나 위치(`located_in`)를 모름 |
+| `BAD_QUERY` | 조회 파라미터 형식 오류 (`item`·`state` 중 하나, `state`는 `"predicate.subject"` 경로) |
+| `NOT_SUPPORTED` | P1 미지원: `list`·`class` 다중 조회(번들 요청은 `for_each`가 필요한 P2), `update_ontology` |
 
 **`inspect_region` 에러 코드** (`InspectRegion.srv`의 `error_code`, 실패 시 `success=false`. 미발견은 에러가 아니라 `success=true` + `target_found=false`)
 
@@ -146,6 +154,16 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 | 비상정지 | 펜던트 비상정지 등으로 멈추면 `error_code = "ESTOP"` → Runner `ABORTED`·잠김 (#19, B 확인) |
 | 동작 없이 거절 | 모션 계획 전에 거절하면 로봇이 움직이지 않았음을 보장하고 `NO_MOTION_CODES`의 코드 사용(현재 `YAW_INVALID`). 새 코드는 runner.md 와 `interpreter.NO_MOTION_CODES`에 함께 추가 |
 | 서버 준비 | Runner 는 서버를 2초 안에 못 찾거나 goal 이 거절되면 `BACKEND_ERROR`(동작 안 함) `[추정, 실측 후 조정]` |
+
+**Runner 노드** (#10, `ready2go_runner runner`, bringup launch 가 모든 `BACKEND`에서 실행)
+
+* 시작할 때 스키마(`/contracts`)·온톨로지(`/knowledge`, 초기 상태 포함)를 읽고 실행 이력은 MongoDB(`MONGO_URI`) → 실패 시 `/logs` JSONL.
+* `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
+* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`).
+* `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
+* `/runner/estop` (`std_srvs/Trigger`) → `halt()`. **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
+* 태스크 실행 통로: 정식은 `/voice/intent`(#17). 지금은 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행.
+* `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험.
 
 ### 7.2 태스크 시퀀스 스키마
 
