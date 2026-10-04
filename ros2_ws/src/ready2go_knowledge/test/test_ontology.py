@@ -66,8 +66,20 @@ def test_places_yaml_is_only_source_and_reload_reads_changes(tmp_path):
     settings.write_text(yaml.safe_dump(data))
     place = onto_lib.load(manifest)["world"]["places"]["drawer_top"]
     assert place["max_travel_m"] == 0.13
-    assert place["return_slot"] is None  # 예전 온톨로지 예시값으로 채우지 않는다.
-    assert place["tf"]["translation_m"] is None
+    assert place["return_slot"] == data["drawer_top"]["return_slot"]
+    assert place["tf"] == data["drawer_top"]["tf"]
+
+
+def test_explicit_null_place_tf_is_preserved(tmp_path):
+    import yaml
+    manifest = _split_copy(tmp_path)
+    settings = tmp_path / "config/places.yaml"
+    data = yaml.safe_load(settings.read_text())
+    data["drawer_top"]["tf"]["translation_m"] = None
+    data["drawer_top"]["tf"]["quaternion_xyzw"] = None
+    settings.write_text(yaml.safe_dump(data))
+    place = onto_lib.load(manifest)["world"]["places"]["drawer_top"]
+    assert place["tf"] == data["drawer_top"]["tf"]
 
 
 def test_missing_place_settings_fails(tmp_path):
@@ -162,11 +174,12 @@ def test_all_registered_items_are_request_targets_but_grasp_is_pending():
     assert {"eraser", "cover_plate", "car_key"} <= onto["world"]["items"].keys()
     for name, item in onto["world"]["items"].items():
         assert "request_target" in item["roles"]
+        assert item["size_m"][0] >= item["size_m"][1], name
         assert item["grip_force"] is None
         with pytest.raises(ValueError, match="파지 설정 미확정"):
             onto_lib.require_grasp_settings(onto, name)
     assert onto["world"]["items"]["cover_plate"]["size_m"][2] == 0.0405
-    assert onto["world"]["items"]["eraser"]["size_m"] == [0.022, 0.0525, 0.0115]
+    assert onto["world"]["items"]["eraser"]["size_m"] == [0.0525, 0.022, 0.0115]
 
 
 def test_verified_grasp_configuration_must_include_force(tmp_path):

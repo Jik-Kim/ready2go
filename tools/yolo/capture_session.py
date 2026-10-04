@@ -46,6 +46,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("session", help="세션 이름 (예: s01_basic)")
     ap.add_argument("--note", default="", help="배치·조명 등 메모 (session.yaml 에 기록)")
+    ap.add_argument("--gt-yaw-method", default="", help="정답 yaw 를 어떻게 기록했는지 자리표시(각도 지그/격자 시트 등). 실제 방법은 이슈 #62 에서 정한다 [팀 확정 필요]")
     ap.add_argument("--interval", type=float, default=0.0, help="초. 0이면 Enter 로 수동 저장")
     ap.add_argument("--count", type=int, default=0, help="--interval 사용 시 저장할 장수")
     ap.add_argument("--out", default=str(ROOT / "data/raw"))
@@ -93,7 +94,7 @@ def main():
 
     import yaml
     (sess / "session.yaml").write_text(yaml.safe_dump(
-        {"session": args.session, "note": args.note, "images": n, "color_topic": args.color_topic,
+        {"session": args.session, "note": args.note, "gt_yaw_method": args.gt_yaw_method or None, "images": n, "color_topic": args.color_topic,
          "depth_topic": args.depth_topic, "captured": time.strftime("%Y-%m-%d %H:%M:%S")},
         allow_unicode=True, sort_keys=False), encoding="utf-8")
     print(f"[capture] 완료: {n}장 → {sess}", flush=True)

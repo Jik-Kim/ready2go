@@ -37,8 +37,8 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | :--- | :--- |
 | 물품 키 | `world.items` 키(예: `eraser`). voice의 `targets`, vision의 `search_target`·검출 `class`에서 사용. 온톨로지 종류 `Item/Key/Obstacle`와 구분 |
 | 인스턴스 ID | A가 관측한 물체에 부여한 `eraser#1` 등. B의 `object_id` 입력으로 사용. 클래스 키를 인스턴스 ID로 임의 변환하지 않음 |
-| `pose` | 기존 `{frame, position, yaw}` 형식 유지. position은 명시된 frame의 좌표(m), yaw는 +z축 주위 회전(rad). `size_m`의 로컬 x·y가 frame x·y와 일치할 때 yaw=0. 물체 위치 기준점·A/B 구현 정합성은 기존 제안 계약대로 **[팀 확정 필요: A·B]**이며 이 문서 수정이 코드 반영을 뜻하지 않음 |
-| `size_m` | 물체 로컬 x 폭·y 길이·z 높이의 외접 박스(m). 치수 원본은 E의 `world.jsonld`. 스패너·망치 머리 폭을 파지 손잡이 폭으로 해석하지 않음 |
+| `pose` | `{frame, position, yaw}` 형식 유지. 위치·yaw·`top_z` 의미는 병합된 PR #61의 [runner.md 7.1](runner.md#71-원자-동작primitive-action-정의-규격)을 참조함. 서랍 좌표계 정의는 [`config/places.yaml` 첫 부분](../config/places.yaml)이 정본. 규칙 함수·예시 검사는 제공되지만 실제 비전 추론·B 실행 경로 연결 완료를 뜻하지 않음 |
+| `size_m` | 물체 로컬 x 긴 변·y 짧은 변·z 높이 순서의 외접 박스(m). 치수 원본은 E의 `world.jsonld`. 스패너·망치 머리 폭을 파지 손잡이 폭으로 해석하지 않음 |
 | `top_z` | 관측 시 지지면·배치를 포함한 물체 윗면의 프레임 z 높이(m). 바닥에 놓인 예시에서만 물품 높이와 같을 수 있음. 항상 `size_m[2]`로 대체하지 않음 |
 | 물품 조회 | E 공통 로더의 `world.items.<key>`: 기존 이름·종류·별칭·치수와 `roles`, `grip_force`(양수 또는 null), `grasp_verified`(bool). 물품 등록과 파지 승인은 별개 |
 | 초기 위치 | `initial_state.json`은 배치 예시. 실제 위치라고 발행하려면 확인·초기화가 필요하며, 현재 상태와 개별 인스턴스 위치는 C가 관리 |
