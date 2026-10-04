@@ -80,10 +80,10 @@ class SkillServer(Node):
                 return self._finish(goal, action, sf.Outcome(False, err.error_code, reason=err.reason))
             try:
                 outcome, output = handler(goal, params)
-            except Exception as e:          # 예외로 끝나도 로봇은 멈추고 실패로 돌려줌
+            except Exception as e:          # 예외로 끝나도 로봇은 멈추고 실패로 돌려줌 (움직인 뒤일 수 있어 SKILL_EXCEPTION)
                 self.robot.stop()
                 self.get_logger().error(f"[{action}] 예외: {e!r}")
-                outcome, output = sf.Outcome(False, "BACKEND_ERROR", reason=repr(e)), None
+                outcome, output = sf.Outcome(False, sf.SKILL_EXCEPTION, reason=repr(e)), None
             return self._finish(goal, action, outcome, output)
         return execute
 

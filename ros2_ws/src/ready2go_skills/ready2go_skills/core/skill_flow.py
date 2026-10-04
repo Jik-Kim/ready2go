@@ -20,6 +20,7 @@ MOTION_TIMEOUT = "MOTION_TIMEOUT"        # 서버 쪽 안전 상한 시간 안�
 NOT_REACHED = "NOT_REACHED"              # 멈췄는데 목표 관절각과 다름
 NOT_IMPLEMENTED = "NOT_IMPLEMENTED"      # 아직 실물 구현 전 (로봇 동작 없음)
 BAD_PARAMS = "BAD_PARAMS"
+SKILL_EXCEPTION = "SKILL_EXCEPTION"      # 서버 안 예외 — 움직인 뒤일 수 있음. Runner 의 BACKEND_ERROR(서버 없음·goal 거절, 동작 안 함)와 구분 (#73 C 리뷰)
 
 # DSR GetRobotState 값 (jog_gui STATE 표와 같음 [문서 DRFL]). 2 = 이동 중
 STATE_MOVING = 2

@@ -51,7 +51,7 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 | `drawer_control`·`nudge_object`·`pick_object`·`place_object` | TODO(B) 10/06 실측 후. 지금은 움직이지 않고 `NOT_IMPLEMENTED` |
 
 - 공통 (`core/skill_flow.py`): 취소 요청 → 정지 → `canceled`(그리퍼는 그대로), 안전·비상정지 → `ESTOP`, 움직이기 전 펜던트 TCP·툴 확인 → `TOOL_NOT_SET`
-- 서버 쪽 에러 코드: `UNKNOWN_POSE`·`POSE_NOT_TAUGHT`·`MOVE_REJECTED`·`MOTION_TIMEOUT`·`NOT_REACHED`·`NOT_IMPLEMENTED`·`BAD_PARAMS`·`BACKEND_ERROR` — `runner.md` 7.1 표 반영은 10/06 실물 연결 확인 후
+- 서버 쪽 에러 코드: `UNKNOWN_POSE`·`POSE_NOT_TAUGHT`·`MOVE_REJECTED`·`MOTION_TIMEOUT`·`NOT_REACHED`·`NOT_IMPLEMENTED`·`BAD_PARAMS`·`SKILL_EXCEPTION`(서버 안 예외, 움직인 뒤일 수 있음 — Runner의 `BACKEND_ERROR`와 구분) — `runner.md` 7.1 표 반영은 10/06 실물 연결 확인 후
 - 파라미터: `joint_vel_deg_s`(기본 20, 처음은 저속), `joint_acc_deg_s2`, `move_timeout_s`(30), `reach_tol_deg`(0.5), `config_dir`, `dsr_prefix`
 
 ```bash
