@@ -41,7 +41,7 @@
   - `NOT_VISIBLE`: A 는 미발견 `success + target_found=false` 유지, E 가 `pick` 스킬에 미발견 분기·오류 의미 정의, C 가 Runner 에서 실행·기록. `VAR_UNDEFINED` 일괄 변환은 하지 않음. 실패 TTS 후속 확인.
   - `resume()`: P1 은 B 가 실물 확인·기준 상태 복구 → C 가 Runner 상태를 맞춘 뒤 재개하는 명시적 절차. 재개 서비스는 ICD 에 없어 E 협의 후 추가 (지금은 Runner 노드 재시작 = 잠김 해제·상태 초기화). 자동 검증·불일치 조정은 FR-ONT-02(P2)·FR-REC-01(P3).
   - `pre_check`·`state_diff`: P1 진단용 부가 기록으로 허용 (runner.md 7.4 에 구분 반영).
-- B: 스킬 서버(`/skills/*`) — 취소 요청 시 멈춤, 비상정지 시 `ESTOP` (runner.md 7.1 "백엔드 구현 약속"). 서버가 나오면 PC2 에서 real 연결 확인(#10 완료 기준). `sim` 드라이버·에뮬레이터 버전 맞추기 (P2).
+- B: 스킬 서버(`/skills/*`) — runner.md 7.1 "백엔드 구현 약속" 동의(Slack 10/04): 취소 시 `MoveStop` 후 `canceled`(물건은 놓지 않음), 비상정지·안전정지 `ESTOP`, 움직이기 전 `TOOL_NOT_SET`(재시도 대상 아님). **10/06 오전 PC2 에서 real 연결 확인**(#10 완료 기준). `sim` 드라이버·에뮬레이터 버전 맞추기 (P2).
 - B (#17 때): `finally` 서랍 닫기 실패 시 홈 복귀 여부(`on_failure` skip/abort).
 
 ## 다음 할 일
