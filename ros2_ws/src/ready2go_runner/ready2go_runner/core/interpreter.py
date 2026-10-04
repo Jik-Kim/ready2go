@@ -15,10 +15,13 @@ E-stop·사용자 취소(docs/runner.md 7.1, docs/safety.md): 백엔드가 ESTOP
 """
 from __future__ import annotations
 
+import copy
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+from ready2go_knowledge.core import ontology
 
 from .conditions import BadCondition, evaluate
 from .log_records import new_run_id, run_document, step_document, utc_iso
@@ -54,6 +57,10 @@ HALT_CODES = {"ESTOP"}                  # 백엔드가 이 코드로 실패하�
 HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
 ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
+# skill 스텝 (#12): 온톨로지 primitive 스킬. 로봇을 움직이므로 ABORTED 때는 건너뜀
+UNKNOWN_SKILL = "UNKNOWN_SKILL"         # 온톨로지에 없거나 primitive 가 아닌 스킬 (P1 은 primitive 만)
+BAD_SKILL_PARAMS = "BAD_SKILL_PARAMS"   # 스킬 정의의 params 가 빠짐
+PRE_UNMET = "PRE_UNMET"                 # pre 조건 불충족 → 로봇 동작을 보내지 않음
 
 
 class StepFailed(Exception):
@@ -72,11 +79,15 @@ class Halted(Exception):
 
 class Runner:
     def __init__(self, execute: Execute, schema: dict | None = None,
-                 clock: Callable[[], float] = time.monotonic, log_store: LogStore | None = None):
+                 clock: Callable[[], float] = time.monotonic, log_store: LogStore | None = None,
+                 ontology: dict | None = None):
         self.execute = execute
         self.schema = schema                    # contracts/task.schema.json 내용 (노드가 읽어서 전달)
         self.clock = clock                      # 소요 시간·timeout 측정용 (테스트에서 가짜 시계 주입)
         self.log_store = log_store              # 실행 이력 저장 (FallbackLogStore: MongoDB → JSONL), None 이면 기록 안 함
+        # 온톨로지(E, knowledge/robot_ontology.jsonld): 스킬 정의는 참고만, 상태는 Runner 가 단일 관리자(docs/ontology.md 7.8)
+        self.skills: dict = (ontology or {}).get("skills", {})
+        self._state: dict = copy.deepcopy((ontology or {}).get("state", {}))   # 원본은 바꾸지 않음, 태스크 사이에 유지
         self._run_id: str | None = None
         self._records: list[dict] = []
         self._log_errors: list[str] = []
@@ -98,6 +109,11 @@ class Runner:
     @property
     def halted(self) -> bool:
         return self._halt.is_set()
+
+    @property
+    def state(self) -> dict:
+        """현재 온톨로지 상태 state[predicate][subject] 의 복사본 (#10 에서 /robot_state 로 발행)."""
+        return copy.deepcopy(self._state)
 
     def run(self, task: dict, inputs: dict | None = None, meta: dict | None = None) -> RunResult:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
@@ -180,7 +196,9 @@ class Runner:
     def _run_step(self, step: dict, blackboard: dict, records: list[dict]) -> None:
         """스텝 하나를 실행하고, 끝나면(성공·실패·건너뜀 모두) 실행 이력에 기록한다."""
         self._check_halt(step["id"])
-        record = {"id": step["id"], "action": step["action"], "started_at": utc_iso()}
+        record = {"id": step["id"], "action": step.get("action", "skill"), "started_at": utc_iso()}
+        if "skill" in step:
+            record["skill"] = step["skill"]
         records.append(record)
         try:
             self._run_step_body(step, blackboard, records, record)
@@ -189,7 +207,7 @@ class Runner:
 
     def _run_step_body(self, step: dict, blackboard: dict, records: list[dict], record: dict) -> None:
         """on_failure 정책(abort·retry·skip·safe_home)을 적용."""
-        if self._aborted and step["action"] not in ABORT_SAFE_ACTIONS:
+        if self._aborted and step.get("action") not in ABORT_SAFE_ACTIONS:
             record.update(status="SKIPPED", skipped_reason="ABORTED")   # 중단 후 로봇 동작 금지
             return
         policy = step.get("on_failure", "abort")
@@ -254,6 +272,9 @@ class Runner:
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
                   attempt_started: float) -> None:
+        if "skill" in step:
+            self._run_skill(step, blackboard, record, records, attempt_started)
+            return
         action = step["action"]
         if action == "if":
             self._run_if(step, blackboard, record, records)
@@ -291,3 +312,56 @@ class Runner:
         branch = "then" if taken else "else"
         record["branch"] = branch
         self._run_steps(step.get(branch, []), blackboard, records)
+
+    def _run_skill(self, step: dict, blackboard: dict, record: dict, records: list[dict],
+                   attempt_started: float) -> None:
+        """skill 스텝: pre 확인 → expand 원자 동작 실행 → effect 반영 (#12, docs/ontology.md 7.8).
+        P1 은 동작 응답이 성공이면 effect 를 반영한다 (verify·hold 는 P2, FR-ONT-02)."""
+        skill = self.skills.get(step["skill"])
+        if not isinstance(skill, dict) or skill.get("kind") != "primitive":
+            raise StepFailed(step["id"], UNKNOWN_SKILL)
+        try:
+            params = resolve(step.get("params", {}), blackboard)
+        except (VarUndefined, BadFilter) as e:
+            raise StepFailed(step["id"], e.code) from e
+        record["params"] = params
+        if any(name not in params for name in skill.get("params", {})):
+            raise StepFailed(step["id"], BAD_SKILL_PARAMS)
+
+        checks = ontology.check(self._state, skill.get("pre", []), params)
+        record["pre_check"] = checks
+        if not all(c["pass"] for c in checks):
+            raise StepFailed(step["id"], PRE_UNMET)
+
+        scope = {**blackboard, **params}        # expand 의 $drawer_id·$scan 등은 스킬 안에서만 보임
+        for i, sub in enumerate(skill.get("expand", []), 1):
+            self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
+        self._check_timeout(step, attempt_started)
+
+        self._state, diff = ontology.apply(self._state, skill.get("effect", []), params)
+        record["state_diff"] = diff
+
+    def _run_expanded(self, child: dict, step: dict, scope: dict, records: list[dict],
+                      attempt_started: float) -> None:
+        """스킬이 펼친 원자 동작 하나. 재시도·실패 정책은 스킬 스텝이 맡고, 여기서는 실행과 기록만."""
+        self._check_halt(child["id"])
+        timeout = step.get("timeout_sec")
+        if timeout is not None:                 # 스킬 전체 제한 시간 중 남은 시간을 동작에 넘김
+            child["timeout_sec"] = timeout - (self.clock() - attempt_started)
+            if child["timeout_sec"] <= 0:
+                raise StepFailed(step["id"], "TIMEOUT")
+        record = {"id": child["id"], "action": child["action"], "parent": step["id"], "started_at": utc_iso()}
+        records.append(record)
+        started = self.clock()
+        try:
+            self._dispatch(child, scope, record, records, started)
+            record["status"] = "SUCCESS"
+        except (StepFailed, Halted) as e:
+            record.update(status="FAILURE", error_code=e.code)
+            raise
+        except Exception:                       # 스킬 스텝에서 INTERNAL_ERROR 로 처리됨
+            record.update(status="FAILURE", error_code="INTERNAL_ERROR")
+            raise
+        finally:
+            record["duration_sec"] = round(self.clock() - started, 3)
+            self._log_step(record)
