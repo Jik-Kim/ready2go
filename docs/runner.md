@@ -87,11 +87,13 @@
 * `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
 * `timeout_sec`: Runner가 제한을 백엔드에 함께 전달하고, **동작 취소는 백엔드 책임**. Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
+  * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
 * **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
   * P1 은 **동작 응답 성공 = effect 반영**. `verify`(사후 관측)·`hold`(실행 중 유지 조건)는 P2(FR-ONT-02). P1 은 `primitive` 스킬만(`composite`는 P2).
-  * `retry`는 스킬 전체(pre 확인부터)를 다시 실행, `timeout_sec`은 스킬 전체 시간(각 원자 동작에는 남은 시간을 전달). 로봇을 움직이므로 `ABORTED` 때 `finally`에서도 `SKIPPED`.
-  * 실행 전 검사에서 온톨로지에 없는 스킬, `composite`, 스킬 정의와 다른 `params` 이름(빠짐·모름), 하위 기록 ID 중복을 `TASK_INVALID`로 거절. 실행 중에도 다시 확인(`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`).
+  * **P1 은 `skill` 스텝의 `retry` 금지** (PR #64 리뷰): 실패 응답을 받아도 앞 원자 동작이 이미 실행됐거나 동작이 실제로 끝났을 수 있는데, 관측 확인(`verify`) 전에는 알 수 없어 스킬 전체를 다시 보내면 이미 열린 서랍 재열기·이미 집은 물건 재집기가 될 수 있음. 실행 전 검사에서 `TASK_INVALID`, 실행 중에도 1회만 시도. `verify`·복구가 준비되는 P2 에서 다시 검토.
+  * `timeout_sec`은 스킬 전체 시간(각 원자 동작에는 남은 시간을 전달). 로봇을 움직이므로 `ABORTED` 때 `finally`에서도 `SKIPPED`.
+  * 실행 전 검사에서 온톨로지에 없는 스킬, `composite`, 스킬 정의와 다른 `params` 이름(빠짐·모름), 하위 기록 ID 중복, `retry`를 `TASK_INVALID`로 거절. 실행 중에도 다시 확인(`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`).
 
 **Runner 에러 코드** (스킬별 에러 코드는 7.5 온톨로지 `errors`)
 

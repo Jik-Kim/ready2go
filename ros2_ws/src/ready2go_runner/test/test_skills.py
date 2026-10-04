@@ -130,15 +130,38 @@ def test_skill_params_use_task_variables():
     assert runner.state["open"]["drawer_bottom"] is True
 
 
-def test_retry_repeats_whole_skill():
-    backend = FakeBackend({"drawer_control": [ActionResult(False, error_code="DRAWER_STUCK"), ActionResult(True)]})
-    runner = Runner(backend, ontology=ONTOLOGY)
+def test_skill_retry_is_rejected_before_moving():
+    # PR #64 리뷰: P1 은 물리 결과 확인(verify)이 없으므로 스킬 전체 재실행을 시작 전에 거절
+    backend = FakeBackend()
+    result = Runner(backend, schema=SCHEMA, ontology=ONTOLOGY).run(skill_task(
+        {"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}, "on_failure": "retry", "retry": 1}))
+    assert (result.overall_status, result.error_code) == ("FAILED", "TASK_INVALID")
+    assert any("skill 스텝의 retry" in p for p in result.problems)
+    assert backend.calls == []
+
+
+def test_late_success_does_not_resend_skill(monkeypatch):
+    # PR #64 리뷰 재현: open_drawer(timeout 1, retry 1), drawer_control 이 2초 뒤 성공 → 이전에는 동작 4번 전송
+    monkeypatch.setattr("ready2go_runner.core.interpreter.check_task", lambda *a: [])   # 실행 중 안전장치만 시험
+    clock = FakeClock()
+    backend = FakeBackend(clock=clock, durations={"drawer_control": 2.0})
+    runner = Runner(backend, clock=clock, ontology=ONTOLOGY)
     result = runner.run(skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"},
-                                    "on_failure": "retry", "retry": 1}))
-    assert result.overall_status == "COMPLETED"
-    assert [a for a, _ in backend.calls] == ["move_to_named_pose", "drawer_control"] * 2
-    assert result.steps[0]["attempts"] == 2
-    assert runner.state["open"]["drawer_top"] is True
+                                    "timeout_sec": 1, "on_failure": "retry", "retry": 1}))
+    assert [a for a, _ in backend.calls] == ["move_to_named_pose", "drawer_control"]   # 한 번만
+    assert (result.overall_status, result.error_code) == ("FAILED", "TIMEOUT")
+    assert result.steps[0]["attempts"] == 1
+    assert runner.state["open"]["drawer_top"] is False         # 확인 전이라 effect 도 없음
+
+
+def test_backend_failure_does_not_resend_skill(monkeypatch):
+    # 응답이 실패여도 앞 동작(접근 이동)은 이미 실행됨 → P1 에서는 스킬을 다시 보내지 않음
+    monkeypatch.setattr("ready2go_runner.core.interpreter.check_task", lambda *a: [])
+    backend = FakeBackend({"drawer_control": [ActionResult(False, error_code="DRAWER_STUCK"), ActionResult(True)]})
+    result = Runner(backend, ontology=ONTOLOGY).run(skill_task(
+        {"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}, "on_failure": "retry", "retry": 1}))
+    assert [a for a, _ in backend.calls] == ["move_to_named_pose", "drawer_control"]
+    assert (result.overall_status, result.error_code) == ("FAILED", "DRAWER_STUCK")
 
 
 def test_timeout_covers_whole_skill():
@@ -375,7 +398,7 @@ def test_example_item_not_visible_still_closes_drawer():
     assert result.overall_status == "FAILED"
     # 현재 동작: pick 의 expand 가 $scan.target.id 를 쓰므로 못 찾으면 변수 없음으로 실패 (아래 "확인 필요" 참고)
     assert (result.error_code, result.failed_step) == ("VAR_UNDEFINED", "s4.e2")
-    assert robot.calls.count("inspect_region") == 2 and "pick_object" not in robot.calls   # retry 1, 집기 안 함
+    assert robot.calls.count("inspect_region") == 1 and "pick_object" not in robot.calls   # 재시도 없음, 집기 안 함
     assert runner.state["open"]["drawer_top"] is False                 # finally 에서 서랍 닫음
     assert runner.state["located_in"]["car_key"] == "drawer_top"       # 차키는 그대로
 

@@ -64,9 +64,11 @@ PRE_UNMET = "PRE_UNMET"                 # pre 조건 불충족 → 로봇 동작
 
 
 class StepFailed(Exception):
-    def __init__(self, step_id: str, code: str):
+    """retryable=False: 동작이 이미 끝났을 수 있어 다시 보내면 위험한 실패 (제한 시간 뒤 도착한 결과)."""
+
+    def __init__(self, step_id: str, code: str, retryable: bool = True):
         super().__init__(f"{step_id}: {code}")
-        self.step_id, self.code = step_id, code
+        self.step_id, self.code, self.retryable = step_id, code, retryable
 
 
 class Halted(Exception):
@@ -212,6 +214,8 @@ class Runner:
             return
         policy = step.get("on_failure", "abort")
         max_attempts = 1 + (step.get("retry", 0) if policy == "retry" else 0)
+        if "skill" in step:                     # P1: 물리 결과를 확인(verify, P2)하기 전에는 스킬 전체를 다시 보내지 않음
+            max_attempts = 1                    # 실행 전 검사가 막지만, 검사를 거치지 않아도 재실행하지 않도록 한 번 더
         started = self.clock()
 
         for attempt in range(1, max_attempts + 1):
@@ -224,6 +228,10 @@ class Runner:
                 self._dispatch(step, blackboard, record, records, self.clock())
             except StepFailed as e:
                 failure = e
+                if not e.retryable:             # 늦게 온 결과: 동작이 실제로 끝났을 수 있어 다시 보내지 않음
+                    if attempt < max_attempts:
+                        record["retry_stopped"] = "LATE_RESULT"
+                    break
                 continue
             except Halted as e:                 # retry·skip·safe_home 을 거치지 않음
                 record.update(status="FAILURE", error_code=e.code)
@@ -266,9 +274,10 @@ class Runner:
             self._log_step(record)
 
     def _check_timeout(self, step: dict, attempt_started: float) -> None:
+        """결과가 온 뒤 걸린 시간을 판정. 이때는 동작이 이미 끝났을 수 있으므로 재시도하지 않는 TIMEOUT."""
         timeout = step.get("timeout_sec")
         if timeout is not None and self.clock() - attempt_started > timeout:
-            raise StepFailed(step["id"], "TIMEOUT")
+            raise StepFailed(step["id"], "TIMEOUT", retryable=False)
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
                   attempt_started: float) -> None:
