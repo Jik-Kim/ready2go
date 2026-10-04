@@ -146,3 +146,36 @@ def test_check_reached():
     assert sf.check_reached(t, [3, 0, 90, 0, 90, 0], 0.5).error_code == sf.NOT_REACHED
     assert sf.check_reached(t, None, 0.5).error_code == sf.NOT_REACHED
     assert sf.check_reached(t, [float("nan")] * 6, 0.5).error_code == sf.NOT_REACHED
+
+
+# ---- 예외 경로도 정지를 확인 (#73 D 재검수)
+def _boom():
+    raise RuntimeError("동작 중 예외")
+
+
+def _guarded(f):
+    return sf.run_guarded(_boom, stop=f.stop, get_state=f.state, clock=f.clock, sleep=f.sleep)
+
+
+def test_handler_result_passes_through():
+    f = Fake([1])
+    ok = (sf.Outcome(True, reason="끝"), {"x": 1})
+    assert sf.run_guarded(lambda: ok, stop=f.stop, get_state=f.state, clock=f.clock, sleep=f.sleep) == ok
+    assert f.stopped == 0
+
+
+def test_exception_with_confirmed_stop_is_skill_exception():
+    f = Fake([2], after_stop=[1])
+    o, out = _guarded(f)
+    assert (o.success, o.error_code, out) == (False, sf.SKILL_EXCEPTION, None) and f.stopped == 1
+
+
+@pytest.mark.parametrize("stop_ok,after_stop", [(True, [2]), (True, [None]), (False, [1])])
+def test_exception_without_confirmed_stop_is_stop_unconfirmed(stop_ok, after_stop):
+    o, _ = _guarded(Fake([2], stop_ok=stop_ok, after_stop=after_stop))
+    assert o.error_code == sf.STOP_UNCONFIRMED
+
+
+def test_exception_during_estop_reports_estop():
+    o, _ = _guarded(Fake([2], after_stop=[6]))
+    assert o.error_code == sf.ESTOP

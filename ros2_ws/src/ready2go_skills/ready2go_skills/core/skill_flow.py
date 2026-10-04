@@ -105,6 +105,19 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
         sleep(period_s)
 
 
+def run_guarded(handler: Callable[[], tuple], *, stop: Callable[[], bool], get_state: Callable[[], Optional[int]],
+                period_s: float = 0.05, stop_confirm_s: float = 3.0,
+                clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
+    """동작 handler() → (Outcome, output). 예외가 나면 움직인 뒤일 수 있으므로 정지하고 **정지를 확인**한다:
+    확인되면 SKILL_EXCEPTION, 아니면 STOP_UNCONFIRMED (노드가 잠금). 취소·시간 초과와 같은 _halt 를 쓴다 (#73 D 리뷰)."""
+    try:
+        return handler()
+    except Exception as e:
+        out = _halt(stop, get_state, clock, sleep, period_s, stop_confirm_s,
+                    Outcome(False, SKILL_EXCEPTION, reason=f"예외: {e!r}"))
+        return out, None
+
+
 def _halt(stop, get_state, clock, sleep, period_s, limit_s, outcome_if_stopped: Outcome) -> Outcome:
     """정지 명령 → 정지 확인. 명령이 받아들여지고 **움직이지 않는 상태를 두 번 연속 실제로 읽어야** 정지로 본다.
     아니면 STOP_UNCONFIRMED — 노드는 사람이 확인하기 전까지 다음 동작을 받지 않는다(잠금)."""

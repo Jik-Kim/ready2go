@@ -82,13 +82,11 @@ class SkillServer(Node):
             err = motion_guard.check_tool(*self.robot.tool_names(), self.expected_tcp, self.expected_tool)
             if err:
                 return self._finish(goal, action, sf.Outcome(False, err.error_code, reason=err.reason))
-            try:
-                outcome, output = handler(goal, params)
-            except Exception as e:          # 예외로 끝나도 로봇은 멈추고 실패로 돌려줌 (움직인 뒤일 수 있어 SKILL_EXCEPTION)
-                if not self.robot.stop():
-                    self.locked = f"{action}: 예외 뒤 정지 명령 실패 ({e!r})"
-                self.get_logger().error(f"[{action}] 예외: {e!r}")
-                outcome, output = sf.Outcome(False, sf.SKILL_EXCEPTION, reason=repr(e)), None
+            # 예외가 나면 정지 후 정지를 확인 — 확인 못 하면 STOP_UNCONFIRMED 로 잠금 (skill_flow.run_guarded)
+            outcome, output = sf.run_guarded(lambda: handler(goal, params), stop=self.robot.stop,
+                                             get_state=self.robot.state)
+            if outcome.error_code in (sf.SKILL_EXCEPTION, sf.STOP_UNCONFIRMED):
+                self.get_logger().error(f"[{action}] {outcome.reason}")
             if outcome.error_code in (sf.STOP_UNCONFIRMED, sf.STATE_UNKNOWN):
                 self.locked = f"{action}: {outcome.reason}"
                 self.get_logger().error(f"[{action}] 정지 확인 실패로 잠금 — 펜던트에서 로봇 상태 확인 필요")
