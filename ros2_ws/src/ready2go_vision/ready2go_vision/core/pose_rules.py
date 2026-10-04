@@ -2,7 +2,9 @@
 
 - position = YOLO 박스 중심의 서랍 좌표계 x·y [m], position.z = 0 (높이는 top_z 에만 둔다)
 - yaw = 물체 긴 변 방향(서랍 x축 기준 rad), 범위 (-pi/2, pi/2]. 긴 변은 180° 돌려도 같은 직선이라 한 범위로 고정한다.
-  원통·정사각형처럼 긴 변이 없는 대칭 물체는 0 으로 고정한다 (판정: is_symmetric).
+  위에서 본 모양이 정사각형이거나 둥근 대칭 물체는 0 으로 고정한다 (판정: is_symmetric, 기준값은 이 파일의 SYMMETRY_RATIO 하나뿐).
+- yaw_valid(bool) = yaw 를 믿어도 되는가. 대칭 물체와 정상 산출은 True, 덩어리 비정상(뎁스 결손·너무 얇음 등)은 False 이며 이때 yaw 는 0 자리표시.
+  소비자(pick_object·nudge_object)가 진짜 0° 와 '모름'을 구분하려는 것이다 (B 요청, 사용자 승인 10/04).
 """
 import math
 
@@ -37,6 +39,11 @@ def pose_errors(pose: dict, where: str = "pose") -> list[str]:
         errs.append(f"{where}.yaw 는 숫자(rad)")
     elif not (-math.pi / 2 + EPS < yaw <= math.pi / 2 + EPS):
         errs.append(f"{where}.yaw 는 (-pi/2, pi/2] 범위 — 값 {yaw}")
+    valid = pose.get("yaw_valid")
+    if not isinstance(valid, bool):
+        errs.append(f"{where}.yaw_valid 는 bool 필수")
+    elif not valid and isinstance(yaw, (int, float)) and abs(yaw) > EPS:
+        errs.append(f"{where}.yaw_valid 가 false 이면 yaw 는 0 이어야 함 — 값 {yaw}")
     return errs
 
 

@@ -74,3 +74,21 @@ def test_stub_normalizes_yaw_to_range():
     cfg = {"ready": True, "regions": {"r": {"objects": [{"class": "a", "position": [0, 0, 0], "yaw": 3.0, "top_z": 0.01}]}}}
     _, _, js = inspect(cfg, "r", "a")
     assert -1.5708 < json.loads(js)["target"]["pose"]["yaw"] <= 1.5708   # 3.0 rad → 3.0 - pi
+
+
+def test_stub_emits_yaw_valid_true_by_default_and_false_with_zero_yaw_when_set():
+    cfg = {"ready": True, "regions": {"r": {"objects": [
+        {"class": "a", "position": [0, 0, 0], "yaw": 0.4, "top_z": 0.02},
+        {"class": "b", "position": [0, 0, 0], "yaw": 0.4, "yaw_valid": False, "top_z": 0.01}]}}}
+    _, _, js = inspect(cfg, "r", "a")
+    r = json.loads(js)
+    assert r["target"]["pose"]["yaw_valid"] is True and r["target"]["pose"]["yaw"] == 0.4
+    b = r["candidates"][0]["pose"]
+    assert b["yaw_valid"] is False and b["yaw"] == 0.0
+
+
+@pytest.mark.parametrize("bad", ["false", "true", 0, 1, None])
+def test_non_bool_yaw_valid_is_a_config_error(bad):
+    cfg = {"ready": True, "regions": {"r": {"objects": [{"class": "a", "position": [0, 0, 0], "yaw": 0.4, "yaw_valid": bad, "top_z": 0.02}]}}}
+    ok, code, js = inspect(cfg, "r", "a")
+    assert not ok and code == "CONFIG_INVALID" and js == ""
