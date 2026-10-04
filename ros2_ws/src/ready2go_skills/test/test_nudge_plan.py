@@ -106,7 +106,7 @@ def test_d_case_would_push_if_yaw_trusted():
 
 @pytest.mark.parametrize("yaw_valid", [False, None])     # false, 필드 없음
 @pytest.mark.parametrize("check_only", [False, True])
-def test_untrusted_yaw_returns_yaw_unknown_without_moving(yaw_valid, check_only):
+def test_untrusted_yaw_returns_yaw_invalid_without_moving(yaw_valid, check_only):
     p = _plan(*KEY_AT, size=CAR_KEY, yaw_valid=yaw_valid, check_only=check_only)
     assert (p.pushed, p.error_code) == (False, np_.YAW_INVALID)
     assert p.push_vector_m == (0.0, 0.0) and p.push_start_m is None and p.finger_travel_m == 0.0

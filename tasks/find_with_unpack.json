@@ -16,7 +16,7 @@
         { "op": ">",  "args": ["$scan.visible_count", 0] } ] },
       "max_iter": 8,
       "body": [
-        { "id": "s7.1", "action": "pick_object", "params": { "object_id": "$scan.candidates[0].id", "approach_offset": [0, 0, 0.1] },
+        { "id": "s7.1", "action": "pick_object", "params": { "target": "$scan.candidates[0]", "approach_offset": [0, 0, 0.1] },
           "output": "picked", "on_failure": "retry", "retry": 1 },
         { "id": "s7.2", "action": "place_object", "params": { "location": "staging_tray" }, "output": "placed" },
         { "id": "s7.3", "action": "push", "params": { "stack": "restore_stack",
@@ -28,7 +28,7 @@
     { "id": "s8", "action": "if",
       "cond": { "op": "==", "args": ["$scan.target_found", true] },
       "then": [
-        { "id": "s8.1", "action": "pick_object", "params": { "object_id": "$scan.target.id", "approach_offset": [0, 0, 0.1] } },
+        { "id": "s8.1", "action": "pick_object", "params": { "target": "$scan.target", "approach_offset": [0, 0, 0.1] } },
         { "id": "s8.2", "action": "place_object", "params": { "location": "handover_zone" } },
         { "id": "s8.3", "action": "update_ontology", "params": { "item": "$inputs.target", "drawer_id": "$loc.drawer_id" } },
         { "id": "s8.4", "action": "speak", "params": { "text": "{{loc.name_ko|을}} 찾았습니다. 앞쪽 트레이에서 가져가세요" } }
