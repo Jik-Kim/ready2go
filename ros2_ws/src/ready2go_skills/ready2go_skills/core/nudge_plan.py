@@ -7,6 +7,9 @@ docs/domain.md 8.5: 두 파지 방향 중 하나라도 손가락 여유가 있�
   x ∈ [0, depth], y ∈ [0, width] — `places.yaml`의 `interior_m` = [깊이, 폭, 높이] 순서를 따름.
   원점 = 서랍 안쪽 바닥 모서리. 어느 모서리인지는 #6 3점 터치 규약과 맞출 것 [팀 확정 필요].
 물체: 중심 (x, y), `yaw`(서랍 x축 기준, rad), 크기 `size_m`[0]·[1] = 물체 로컬 x·y 길이(온톨로지 규약).
+`yaw_valid`(`inspect_region` pose, runner.md 7.1)가 True가 아니면(false·없음) yaw를 믿을 수 없어 판단하지 않고
+`YAW_UNKNOWN`을 반환한다 — false일 때 yaw 0은 자리표시라 그대로 쓰면 엉뚱한 밀기 계획이 나온다(#15).
+대칭 물체는 비전이 `yaw_valid: true`로 내므로 그대로 진행. 다시 인식은 태스크(C)가 1회 한다.
 벽·손가락은 축 정렬 직사각형(AABB)으로 근사한다 — yaw가 있으면 보수적(실제보다 덜 들어간다고 판단).
 
 손가락 치수·여유 값은 모두 실측 전이라 `GripperGeometry`로 받는다 [팀 확정 필요, #37 실측 항목].
@@ -18,6 +21,7 @@ from typing import Optional
 
 NO_PUSH_ACCESS = "NO_PUSH_ACCESS"
 PUSH_LIMIT = "PUSH_LIMIT"
+YAW_UNKNOWN = "YAW_UNKNOWN"   # pick_object와 공통 (#15)
 
 
 @dataclass(frozen=True)
@@ -34,7 +38,7 @@ class GripperGeometry:
 @dataclass(frozen=True)
 class NudgePlan:
     pushed: bool                          # 밀어야 함(밀기 계획 있음)
-    error_code: Optional[str]             # None / NO_PUSH_ACCESS / PUSH_LIMIT
+    error_code: Optional[str]             # None / NO_PUSH_ACCESS / PUSH_LIMIT / YAW_UNKNOWN
     push_vector_m: tuple                  # 물체 이동 (dx, dy) — 밀지 않으면 (0, 0)
     push_start_m: Optional[tuple]         # 닫은 손가락을 내릴 위치 (x, y)
     finger_travel_m: float                # 손가락 직선 이동 거리 = 물체까지 빈틈 + 밀기 거리
@@ -84,9 +88,13 @@ def _fits(rects, axis, lo, hi):
     return iv is not None and iv[0] <= 1e-12
 
 
-def plan_nudge(*, center_xy, yaw, size_xy, interior_xy, geo: GripperGeometry,
-               check_only: bool = False) -> NudgePlan:
-    """물체 하나에 대한 밀기 판단. `interior_xy` = (depth, width) m."""
+def plan_nudge(*, center_xy, yaw, yaw_valid: Optional[bool], size_xy, interior_xy,
+               geo: GripperGeometry, check_only: bool = False) -> NudgePlan:
+    """물체 하나에 대한 밀기 판단. `interior_xy` = (depth, width) m.
+    `yaw_valid`는 pose 그대로(필드가 없으면 None) 넘긴다."""
+    if yaw_valid is not True:
+        return NudgePlan(False, YAW_UNKNOWN, (0.0, 0.0), None, 0.0, 0.0, None,
+                         f"yaw를 믿을 수 없음 (yaw_valid={yaw_valid}) — 다시 인식 필요")
     cx, cy = center_xy
     depth, width = interior_xy
     ohx, ohy = _half_extents(size_xy[0], size_xy[1], yaw)
