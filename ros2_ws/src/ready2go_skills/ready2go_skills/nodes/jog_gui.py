@@ -11,6 +11,7 @@
   (10/04 툴 설정이 풀려 좌표가 플랜지 기준으로 읽힌 사고, #6).
 - 축 정렬 x / y / z / r (core/pose_math.py): TCP 위치 고정, 20° 이하 조각, 돌기 전 확인창, 정렬 후 직접교시(선택).
 - grip(힘 칸) / release(최대) / 폭만큼 열기(폭 칸), 직접교시 ON/OFF, gohome(확인창).
+- 창 닫기(X)·Ctrl+C: 움직이는 중이면 정지 명령을 보내고 깔끔하게 종료.
 
 실행 (PC2 호스트, DSR 드라이버 실행 중, cobot2_ws 등 dsr_msgs2를 source 한 터미널):
     ros2 run ready2go_skills jog_gui                 # colcon 빌드 후
@@ -20,9 +21,11 @@
 """
 import argparse
 import os
+import signal
 import threading
 import time
 import tkinter as tk
+import traceback
 from pathlib import Path
 from tkinter import messagebox
 
@@ -68,7 +71,11 @@ class Robot:
     """DSR 드라이버 서비스 클라이언트 (모든 호출에 타임아웃)."""
 
     def __init__(self, srv):
-        rclpy.init()
+        try:                         # Ctrl+C는 창이 직접 받아 정지 후 종료 (서비스 대기 중 예외로 끊기지 않게)
+            from rclpy.signals import SignalHandlerOptions
+            rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+        except ImportError:
+            rclpy.init()
         self.node = rclpy.create_node("jog_gui")
         spec = {"posx": (GetCurrentPosx, "aux_control/get_current_posx"),
                 "posj": (GetCurrentPosj, "aux_control/get_current_posj"),
@@ -183,6 +190,7 @@ class App:
         self.hold = None             # (jog_axis, 시작 시각) 꾹 누르는 중
         self.pending = None          # 꾹 누르기 판정 대기 after id
         self.click = None
+        self.quit_req = False        # Ctrl+C 요청 (신호 처리기에서 표시만 하고 watchdog에서 종료)
         self.seq = []                # 정렬 조각 목록 (하나씩 보냄)
         self.move_buttons = []
 
@@ -254,6 +262,8 @@ class App:
             tk.Button(self.root, text="copy", command=lambda v=var: self.copy_text(v.get())).grid(row=15 + k, column=8)
             self.live[name] = var
         self.root.bind("<FocusOut>", lambda e: self.end_hold() if e.widget is self.root else None)   # 창이 포커스를 잃으면 멈춤
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.report_callback_exception = self.on_error
 
         self.check_tool()
         if not self.cfg["home"]:
@@ -390,6 +400,9 @@ class App:
             self.clear_marks()
 
     def watchdog(self):
+        if self.quit_req:
+            self.close()
+            return
         if self.hold and time.monotonic() - self.hold[1] > HOLD_MAX_S:
             self.end_hold()
             self.status.config(text=f"꾹 누르기 {HOLD_MAX_S:.0f}초 제한으로 멈춤 — 다시 누르세요")
@@ -501,6 +514,19 @@ class App:
         self.end_hold()
         self.r.stop()
 
+    def close(self):
+        """창 닫기·Ctrl+C: 움직이는 중이면 멈추고 종료."""
+        if self.hold or self.seq or self.r.state() == 2:
+            self.stop_all()
+        self.root.destroy()
+
+    def on_error(self, exc, val, tb):
+        if issubclass(exc, KeyboardInterrupt):
+            self.close()
+            return
+        traceback.print_exception(exc, val, tb)
+        self.status.config(text=f"오류: {val} (터미널 참고)")
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="실물 로봇 조그 창 (교시·측정용)")
@@ -516,7 +542,14 @@ def main(argv=None):
     robot = Robot(args.srv)
     if not robot.ready():
         raise SystemExit(f"드라이버 서비스 없음: {args.srv} (DSR 드라이버 실행 중인지 확인)")
-    App(robot, Gripper(args.rg2_ip), settings).root.mainloop()
+    app = App(robot, Gripper(args.rg2_ip), settings)
+    signal.signal(signal.SIGINT, lambda *_: setattr(app, "quit_req", True))
+    try:
+        app.root.mainloop()
+    finally:
+        robot.node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
