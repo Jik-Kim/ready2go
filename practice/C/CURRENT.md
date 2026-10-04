@@ -1,17 +1,15 @@
 # CURRENT — C 이영훈
 
 - **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-03
+- **최종 갱신**: 2026-10-04
 
 ## 지금 상태
 - **#9 완료** (PR #27 머지, [FR-PLN-01](../../docs/requirements.md#fr-pln-01) 중 실행기 부분): `ready2go_runner/core/` 의 variables·conditions·validation·interpreter. sequence·if·set_var·on_failure·finally·timeout_sec, 실행 전 검사, E-stop·halt → `ABORTED`(retry·skip·safe_home 미적용, finally 는 비동작만), 중단 잠김 → `resume()` 전까지 거절, 내부 에러도 `INTERNAL_ERROR` 로 finally 보장. 원자 동작은 `execute(action, params, timeout_sec) → ActionResult` 로 위임.
-- **#3 진행 중** (Draft PR #40, 브랜치 `feat/c-compose-dds`, [FR-COM-02](../../docs/requirements.md#fr-com-02)·[NFR-ENV-01](../../docs/requirements.md#nfr-env-01)): `dev`(C)·`real`(PC2, B) 통과, PC1 `sim`·PC1↔PC2 통신 대기. 시험 방법은 이슈 #3 C 댓글.
-  - bringup 고정 TF: `static_tf.py` 가 `calibration_meta.yaml` 의 `derived_tf`·`places.yaml` 의 `tf` 블록을 읽어 발행. 값이 null 이면 측정 전으로 건너뜀, 형식 오류면 launch 중단.
-  - `dev` 5개 서비스 기동 수정: ros2-core 빌드 산출물 `/colcon` 분리(+ `entrypoint.sh`), dsr-emulator `tty`·`ROBOT_MODEL`, mock-sim `/config` 마운트.
-  - MongoDB 8.0 → 7.0 (이슈 #34 E 승인): 커널 6.19+ 에서 8.0 기동 거부.
-  - main(PR #28 DSR 드라이버 등) 병합, 충돌 해결 후 재빌드·기동 확인. CI 에 `pyyaml` 추가(bringup 테스트 import 실패 수정).
-  - `docs/docker.md` 4.3: `real` 기동 전 호스트 DSR 드라이버·RealSense 종료 주의 (B 요청).
-  - D 리뷰: `sim` 에서 DSR 드라이버가 `dsr-emulator` 에 붙지 않음 → 드라이버(DRCF v2)·에뮬레이터(v3) 버전 불일치로 멈춤 [실측]. P2 범위라 B 확인 후 별도 PR.
+- **#3 완료** (PR #40 머지 10/03, `Closes #3, #34`): `dev`·`real`(PC2)·`sim`(PC1) 기동, PC1↔PC2 컨테이너·호스트 송수신, PC2 `tf2_echo base_link wrist_cam_color_optical_frame` 확인(A·B). bringup 고정 TF(`static_tf.py`, NaN·무한대 거부), ros2-core `/colcon` 분리, MongoDB 7.0. sim 드라이버·에뮬레이터 버전 불일치는 P2(B).
+- **#12 구현 완료, PR 준비** (브랜치 `feat/c-logstore`, [FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-LOG-01](../../docs/requirements.md#fr-log-01)·[NFR-DB-01](../../docs/requirements.md#nfr-db-01)). PR #47(로그만)은 닫고 스킬까지 묶어 다시 올림.
+  - 실행 이력: `core/log_records.py`·`core/logstore.py` — MongoDB `cobot2` `runs`·`steps`, DB 실패 시 그 실행 전체를 JSONL 로 폴백, 기록 실패에도 실행 계속(`log_errors`).
+  - 스킬: 태스크 스텝 `skill`(스키마·예시 `task_skill_steps.json`), Runner 가 온톨로지(E) 상태를 들고 `pre` → `PRE_UNMET` / `expand`(`<id>.e<n>`) / `effect`. 실행 전 검사로 없는 스킬·composite·파라미터 이름 거절. E 의 `ontology.check`·`apply` 사용(E 코드 수정 없음).
+  - 시험: 호스트 pytest 전체 통과(MongoDB 테스트는 건너뜀), ros2-core 컨테이너 + MongoDB 7.0 에서 건너뜀 없이 통과. 예시 태스크로 시계·지갑·미발견·비상정지·재실행 확인.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -23,22 +21,23 @@
 | MongoDB | 7.0 (`mongo:7.0`, 7.0.43 기동 확인). 8.0 은 커널 6.19+ 에서 기동 거부, 팀 PC 3대 커널 7.0.0-34 | [실측] 10/03, 이슈 #34 |
 | `ros2-core` 이미지 | DSR 드라이버 포함 빌드 5분 4초, 3.23 GB | [실측] 10/03 C 노트북 |
 | PC2 `real` 기동 | 5개 서비스 Up, DSR 드라이버 실물 접속·컨트롤러 활성화, vision CUDA(RTX 4060), 카메라 30 Hz, db 7.0, `tf2_echo base_link wrist_cam_link` 수신 | [실측] B 10/03, PR #40 코멘트 |
-| `/gripper/state` `width` 단위 | m (열림 약 0.100) — B 제안에 C 동의, ICD 반영 예정 | [실측] B, PR #28 |
+| `/gripper/state` `width` 단위 | m (열림 약 0.100). ICD 반영(#12 PR), B `grasp_check.py` 도 m | [실측] B, PR #28 |
 | P1 온톨로지 스킬 | 4종(열기·닫기·집기·놓기), 이동·관측은 Runner 원자 동작 | [문서] requirements.md FR-ONT-01 |
 | 실행 이력 저장 | P1부터 MongoDB(실행 ID·입력 명령·단계 ID·시작 시각·상태·오류 코드), DB 장애 시 JSONL | [문서] requirements.md FR-LOG-01 |
-| Runner 에러 코드 | `TASK_INVALID`·`VAR_UNDEFINED`·`BAD_FILTER`·`BAD_CONDITION`·`TIMEOUT`·`ESTOP`·`HALTED`·`ACTION_FAILED`·`BACKEND_ERROR`·`INTERNAL_ERROR` | [문서] docs/runner.md 7.1 |
+| Runner 에러 코드 | `TASK_INVALID`·`VAR_UNDEFINED`·`BAD_FILTER`·`BAD_CONDITION`·`TIMEOUT`·`ESTOP`·`HALTED`·`ACTION_FAILED`·`BACKEND_ERROR`·`INTERNAL_ERROR`, 스킬 `PRE_UNMET`·`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`(#12) | [문서] docs/runner.md 7.1 |
+| PC1↔PC2 통신 | 공용 Wi-Fi `Rokey_A`, `cyclonedds.multi.xml`(멀티캐스트 끔). PC2 `joint_states` 100 Hz → PC1 86~96 Hz | [실측] A·B 10/03, PR #40 |
 
 ## 막힌 점 · 필요한 도움
-- A·B: **PC1 `sim` 기동**, **PC1↔PC2 송수신**(`DDS_MODE=multi`, 두 사람이 시간 합의), PC2 `tf2_echo base_link wrist_cam_color_optical_frame` (#3 완료 기준). 통신 시험 때 C 노트북으로 같이 수신 확인.
-- E: #12 에 답한 **스킬 호출 방식(태스크 `skill` 스텝 → Runner 가 pre·expand·effect)** 최종 확인 → #12 착수 조건.
-- B: 펜던트 비상정지 시 백엔드가 `ESTOP` 코드를 반환해야 Runner 가 `ABORTED` 로 처리 (PR #28 에 요청, #19·#10). `sim` 드라이버·에뮬레이터 버전 맞추기 (P2).
+- E: #12 PR 리뷰·승인(계약 변경 → E 포함 2명). 함께 결정 필요:
+  - 물건이 안 보이면 `pick` 의 `expand` 가 `$scan.target.id` 없음(`VAR_UNDEFINED`)으로 실패하고 retry 도 헛돎. `pick.errors` 의 `NOT_VISIBLE` 을 누가 낼지(스킬 정의 변경 / Runner 변환).
+  - 비상정지 후 Runner 상태(예: 서랍 열림)와 실제가 다를 수 있음(사람이 손으로 닫는 경우). P1 에서 `resume()` 때 상태를 어떻게 맞출지(관측 갱신은 P2).
+  - `pre_check`·`state_diff` 를 P1 기록에도 남김(runner.md 7.4 는 P2 로 분류) — 유지 여부.
+- B: 펜던트 비상정지 시 백엔드가 `ESTOP` 코드를 반환해야 Runner 가 `ABORTED` 로 처리 (#19·#10). `sim` 드라이버·에뮬레이터 버전 맞추기 (P2).
 - B (#17 때): `finally` 서랍 닫기 실패 시 홈 복귀 여부(`on_failure` skip/abort).
 
 ## 다음 할 일
-- [ ] #3: PC1 `sim`·PC1↔PC2 통신 결과 정리 → PR #40 Ready → 머지 (`Closes #3, #34`)
-- [ ] ICD `/gripper/state` `width` 단위(m) 추가 (계약 변경, 승인 2명)
-- [ ] #12 (FR-PLN-01·FR-LOG-01): `skill` 스텝(스키마 변경 포함), `pre`/`effect`, MongoDB 실행 이력 + JSONL 폴백
-- [ ] #10: mock 백엔드 + Skill 액션 클라이언트, `/runner/estop` → `Runner.halt()`, 재개 → `Runner.resume()` 연결(재개 서비스는 ICD 추가 필요), 백엔드 비상정지 시 `ESTOP` 반환
+- [ ] #12 PR 올리기 → E 리뷰 반영 → 머지 (`Closes #12`)
+- [ ] #10: mock 백엔드 + Skill 액션 클라이언트, `/runner/estop` → `Runner.halt()`, 재개 → `Runner.resume()` 연결(재개 서비스는 ICD 추가 필요), 백엔드 비상정지 시 `ESTOP` 반환, 온톨로지 파일 로딩·`/robot_state` 발행, Docker 가 만든 root 소유 `logs/` 정리
 
 ## 철회한 결론
 - ~~bringup 고정 TF 를 `config/static_tf.yaml` 한 파일로 모은다~~ → 값이 두 곳에 복사되어 어긋날 수 있어 각 담당 파일을 직접 읽기로 함 (이슈 #3, 10/02).
