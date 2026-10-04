@@ -80,3 +80,8 @@ def test_closing_stops_on_non_finite(remaining, resist):
 @pytest.mark.parametrize("dist", [NAN, INF, True])
 def test_open_distance_non_finite(dist):
     assert dp.check_open_distance(dist, TOP["max_travel_m"]).error_code == dp.BAD_DISTANCE
+
+
+@pytest.mark.parametrize("dist", [None, "0.2"])
+def test_open_distance_wrong_type_returns_bad_distance(dist):          # 예외 대신 BAD_DISTANCE (#71 D 리뷰)
+    assert dp.check_open_distance(dist, TOP["max_travel_m"]).error_code == dp.BAD_DISTANCE

@@ -60,7 +60,9 @@ class Verdict:
 
 def check_open_distance(distance_m: float, max_travel_m: float) -> Optional[Verdict]:
     """요청 인출 거리가 (0, max_travel] 안인지. 넘으면 스토퍼에 걸리므로 시작 전에 거부."""
-    if not _finite(distance_m, max_travel_m) or not (0.0 < distance_m <= max_travel_m + 1e-9):
+    if not _finite(distance_m, max_travel_m):
+        return Verdict(True, BAD_DISTANCE, f"인출 거리 값 없음·비정상 ({distance_m!r}, 최대 {max_travel_m!r})")
+    if not (0.0 < distance_m <= max_travel_m + 1e-9):
         return Verdict(True, BAD_DISTANCE, f"인출 거리 {distance_m * 1000:.1f} mm, 허용 (0, {max_travel_m * 1000:.1f}] mm")
     return None
 
