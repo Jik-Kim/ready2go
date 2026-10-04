@@ -73,3 +73,37 @@ def test_check_hold_bad_parameters():
 
 def test_failure_code_by_stage():
     assert gc.FAILURE_CODE == {"close": "GRASP_FAILED", "lift": "GRASP_FAILED", "transport": "OBJECT_DROPPED"}
+
+
+# ---- 비정상 폭은 잡은 것으로 보지 않음 (#72 D 리뷰)
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize("width", [NAN, INF, -INF, 0.2, -0.01, None, True])
+def test_check_grasp_invalid_width_is_sensor_invalid(width):
+    r = gc.check_grasp(width_m=width, grasp_detected=True, min_width_m=0.005)
+    assert (r.ok, r.reason) == (False, gc.SENSOR_INVALID)
+
+
+def test_check_grasp_non_bool_detected_is_sensor_invalid():
+    assert gc.check_grasp(width_m=0.02, grasp_detected=1, min_width_m=0.005).reason == gc.SENSOR_INVALID
+
+
+@pytest.mark.parametrize("kw", [{"min_width_m": NAN}, {"min_width_m": INF},
+                                {"expected_width_m": NAN, "width_tolerance_m": 0.003},
+                                {"expected_width_m": 0.02, "width_tolerance_m": NAN}])
+def test_check_grasp_non_finite_params_raise(kw):
+    with pytest.raises(ValueError):
+        gc.check_grasp(**{"width_m": 0.02, "grasp_detected": True, "min_width_m": 0.005, **kw})
+
+
+@pytest.mark.parametrize("width,at_grasp", [(NAN, 0.0214), (INF, 0.0214), (0.2, 0.0214), (0.02, NAN), (0.02, -INF)])
+def test_check_hold_invalid_width_is_sensor_invalid(width, at_grasp):
+    r = gc.check_hold(width_m=width, width_at_grasp_m=at_grasp, min_width_m=0.005, slip_tolerance_m=0.002)
+    assert (r.held, r.reason) == (False, gc.SENSOR_INVALID)
+
+
+@pytest.mark.parametrize("kw", [{"min_width_m": NAN}, {"slip_tolerance_m": NAN}, {"slip_tolerance_m": INF}])
+def test_check_hold_non_finite_params_raise(kw):
+    with pytest.raises(ValueError):
+        gc.check_hold(**{"width_m": 0.02, "width_at_grasp_m": 0.0214, "min_width_m": 0.005, "slip_tolerance_m": 0.002, **kw})
