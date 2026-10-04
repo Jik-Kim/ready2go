@@ -29,7 +29,8 @@
 - 입력칸·맨 아래 실시간 좌표 0.3초 갱신 + copy (`posx([...])`, `posj([...])`)
 - 축 정렬 x / y / z / r (TCP 위치 고정, 20° 조각, 돌기 전 확인창, 정렬 후 직접교시 선택). 계산은 `core/pose_math.py`
 - grip(힘 칸) / release / 폭만큼 열기, 직접교시 ON/OFF, gohome(`config/poses.yaml` home, 확인창), 정지
-- 시작할 때 펜던트 TCP·툴 이름이 `config/calibration/calibration_meta.yaml`과 다르면 이동 버튼을 막음
+- 시작할 때와 **이동 직전마다** 펜던트 TCP·툴 이름이 `config/calibration/calibration_meta.yaml`과 다르면 이동 버튼을 막음
+- 한 칸이 10° 또는 20 mm보다 크면 확인창 (입력 실수로 크게 도는 것 방지)
 
 실행 (PC2 호스트, DSR 드라이버 실행 중, `dsr_msgs2`가 있는 워크스페이스를 source 한 터미널):
 ```bash
@@ -39,3 +40,4 @@ cd ~/ready2go/ros2_ws/src/ready2go_skills && python3 -m ready2go_skills.nodes.jo
 - `--config-dir`: 저장소 `config` 폴더 (기본: 자동 탐색, 환경변수 `READY2GO_CONFIG_DIR`)
 - `--rg2-ip`: 생략하면 환경변수 `RG2_HOST`, 둘 다 없으면 그리퍼 버튼만 동작하지 않음
 - 필요 패키지: `python3-tk`, `python3-yaml`
+- **RG2 이중 접속 주의**: 이 창은 RG2 Modbus에 직접 붙는다. `docker compose --profile real up`의 그리퍼 노드(`/gripper/state`, 10 Hz 읽기)와 동시에 써도 되는지 확인 전이므로 **같이 띄우지 않는다** [팀 확정 필요, #69 PM 검토]

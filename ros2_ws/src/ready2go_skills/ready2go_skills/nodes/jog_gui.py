@@ -40,6 +40,9 @@ from ready2go_skills.core.pose_math import align_target, rot, rotation_angle, st
 SRV = "/dsr01/dsr_controller2"
 HOLD_DELAY_MS = 350          # 이보다 오래 누르면 '꾹 누르기'
 HOLD_MAX_S = 5.0             # 꾹 누르기 한 번에 최대 시간
+REFRESH_TIMEOUT_S = 0.5      # 화면 갱신용 조회 타임아웃 (드라이버가 느려도 정지 처리가 밀리지 않게, #69 PM 검토)
+STEP_CONFIRM_DEG = 10.0      # 한 칸 이동이 이보다 크면 확인창 (관절·회전)
+STEP_CONFIRM_MM = 20.0       # 한 칸 이동이 이보다 크면 확인창 (직선)
 HOME_VEL = 40.0              # gohome 관절 속도 deg/s
 ALIGN_VEL, ALIGN_STEP_DEG = 20.0, 20.0
 JOINT_VEL, JOINT_ACC, LINE_VEL, LINE_ACC = 20, 20, 30, 60    # 슬라이더 기본값 (강의 jog 60은 빠름)
@@ -99,16 +102,16 @@ class Robot:
         rclpy.spin_until_future_complete(self.node, f, timeout_sec=timeout)
         return f.result() if f.done() else None
 
-    def posx(self):
-        r = self.call("posx", ref=0)
+    def posx(self, timeout=2.0):
+        r = self.call("posx", timeout, ref=0)
         return list(r.task_pos_info[0].data[:6]) if r else None
 
-    def posj(self):
-        r = self.call("posj")
+    def posj(self, timeout=2.0):
+        r = self.call("posj", timeout)
         return list(r.pos) if r else None
 
-    def state(self):
-        r = self.call("state")
+    def state(self, timeout=2.0):
+        r = self.call("state", timeout)
         return r.robot_state if r else None
 
     def mode_name(self):
@@ -337,19 +340,25 @@ class App:
             b.config(state="normal" if self.ok else "disabled")
 
     def refresh(self):
-        for name, values, entries in (("posj", self.r.posj(), self.joint), ("posx", self.r.posx(), self.axes)):
+        if self.hold:                        # 꾹 누르는 동안은 조회하지 않음 — 손을 떼면 바로 정지되게
+            self.status.config(text=f"상태: 꾹 누르는 중   {self.g.text}")
+            self.root.after(300, self.refresh)
+            return
+        t = REFRESH_TIMEOUT_S
+        for name, values, entries in (("posj", self.r.posj(t), self.joint), ("posx", self.r.posx(t), self.axes)):
             if values:
                 self.live[name].set(f"{name}([" + ", ".join(f"{v:.3f}" for v in values) + "])")
                 for e, v in zip(entries[:6], values):
                     if not e.dirty:          # 사용자가 고친 칸(노란색)은 덮어쓰지 않음
                         e.delete(0, tk.END)
                         e.insert(0, f"{v:.3f}")
-        s = self.r.state()
-        mode = "꾹 누르는 중" if self.hold else ("정렬 중" if self.seq else STATE.get(s, s))
+        s = self.r.state(t)
+        mode = "정렬 중" if self.seq else STATE.get(s, s)
         self.status.config(text=f"상태: {mode}   ({time.strftime('%H:%M:%S')} 갱신)   {self.g.text}")
         self.root.after(300, self.refresh)
 
     def can_move(self):
+        self.check_tool()                    # 이동 직전마다 다시 확인 — 쓰는 도중 펜던트 설정이 바뀌어도 잡음 (#69 PM 검토)
         if not self.ok:
             return False
         if self.r.state() == 2:
@@ -408,20 +417,33 @@ class App:
             self.status.config(text=f"꾹 누르기 {HOLD_MAX_S:.0f}초 제한으로 멈춤 — 다시 누르세요")
         self.root.after(100, self.watchdog)
 
+    def big_step_ok(self, inc, limit, unit):
+        """한 칸이 상한보다 크면 확인창 (입력 실수로 한 번에 크게 도는 것 방지)."""
+        if abs(inc) <= limit:
+            return True
+        return messagebox.askokcancel("큰 이동 확인", f"한 칸 {inc:g}{unit} — 상한 {limit:g}{unit}보다 큽니다. 움직일까요?",
+                                      parent=self.root)
+
     def step(self, group, idx, sign):
-        if not self.can_move():
+        try:
+            inc = float((self.inc_j if group == "j" else self.inc_x).get())
+        except ValueError:
+            self.status.config(text="Increment 칸에 숫자를 넣으세요")
+            return
+        limit, unit = (STEP_CONFIRM_MM, " mm") if group != "j" and idx < 3 else (STEP_CONFIRM_DEG, "°")
+        if not self.big_step_ok(inc, limit, unit) or not self.can_move():
             return
         if group == "j":
             q = self.r.posj()                # 지금 관절값을 새로 읽음
             if q is None:
                 return
-            q[idx] += sign * float(self.inc_j.get())
+            q[idx] += sign * inc
             self.report(self.r.movej(q, self.joint[6].get(), self.joint[7].get()), f"J{idx + 1} 이동")
         else:
             p = self.r.posx()                # 지금 위치를 새로 읽음
             if p is None:
                 return
-            ok = self.r.movel(step_target(p, idx, sign * float(self.inc_x.get())), self.axes[6].get(), self.axes[7].get())
+            ok = self.r.movel(step_target(p, idx, sign * inc), self.axes[6].get(), self.axes[7].get())
             self.report(ok, "XYZ"[idx] + " 이동" if idx < 3 else "R" + "xyz"[idx - 3] + " 회전")
         self.clear_marks()
 
