@@ -138,7 +138,7 @@ class Runner:
         if self._halt.is_set():                 # E-stop 뒤 resume() 전에는 로봇을 움직이지 않음
             return finish(RunResult("ABORTED", blackboard, [], self._halt_code,
                                     problems=["중단 상태입니다. 사람이 확인한 뒤 resume() 해야 실행합니다"]))
-        problems = check_task(task, self.schema)
+        problems = check_task(task, self.schema, self.skills)
         if problems:                            # 로봇을 움직이기 전에 거절 (finally 도 실행하지 않음)
             return finish(RunResult("FAILED", blackboard, [], TASK_INVALID, problems=problems))
         error: StepFailed | Halted | None = None

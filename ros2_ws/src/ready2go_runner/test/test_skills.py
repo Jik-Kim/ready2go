@@ -1,11 +1,16 @@
 """#12 스킬 상태 추적: Runner 가 온톨로지(E)를 받아 pre 확인 → expand 실행 → effect 반영."""
+import json
 from pathlib import Path
+
+import pytest
 
 from ready2go_knowledge.core import ontology
 from ready2go_runner.core.interpreter import ActionResult, Runner
+from ready2go_runner.core.validation import check_task
 
 ROOT = Path(__file__).resolve().parents[4]
 ONTOLOGY = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")
+SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
 
 
 def ok_backend(action, params, timeout_sec):
@@ -150,15 +155,52 @@ def test_estop_skips_skills_in_finally():
     assert [a for a, _ in backend.calls] == ["move_to_named_pose", "drawer_control", "speak"]
 
 
-def test_unknown_or_composite_skill_fails():
-    runner = Runner(FakeBackend(), ontology=ONTOLOGY)
-    for name in ("open_drawr", "fetch_with_unpack"):            # 오타, P1 미지원(composite)
-        result = runner.run(skill_task({"id": "s1", "skill": name, "params": {}}))
-        assert result.error_code == "UNKNOWN_SKILL"
-
-
-def test_missing_skill_param_fails_before_moving():
+def test_runtime_guard_when_validation_is_bypassed(monkeypatch):
+    # 실행 전 검사(4단계)가 막지만, 검사를 거치지 않아도 실행 중 다시 확인해 로봇을 움직이지 않음
+    monkeypatch.setattr("ready2go_runner.core.interpreter.check_task", lambda *a: [])
     backend = FakeBackend()
-    result = Runner(backend, ontology=ONTOLOGY).run(
-        skill_task({"id": "s1", "skill": "pick", "params": {"item": "watch"}}))   # from 빠짐
-    assert result.error_code == "BAD_SKILL_PARAMS" and backend.calls == []
+    runner = Runner(backend, ontology=ONTOLOGY)
+    for params, skill, code in [({}, "open_drawr", "UNKNOWN_SKILL"),
+                                ({"target": "watch"}, "fetch_with_unpack", "UNKNOWN_SKILL"),
+                                ({"item": "watch"}, "pick", "BAD_SKILL_PARAMS")]:
+        result = runner.run(skill_task({"id": "s1", "skill": skill, "params": params}))
+        assert result.error_code == code
+    assert backend.calls == []
+
+
+# ---- 4단계: 실행 전 검사 ----
+
+@pytest.mark.parametrize("step, expected", [
+    ({"id": "s1", "skill": "open_drawr", "params": {"drawer_id": "drawer_top"}}, "없는 스킬 'open_drawr'"),
+    ({"id": "s1", "skill": "fetch_with_unpack", "params": {"target": "watch"}}, "P1 미지원"),
+    ({"id": "s1", "skill": "pick", "params": {"item": "watch"}}, "params.from 가 없음"),
+    ({"id": "s1", "skill": "open_drawer", "params": {"drawer": "drawer_top"}}, "없는 파라미터 params.drawer"),
+])
+def test_invalid_skill_step_is_rejected_before_moving(step, expected):
+    backend = FakeBackend()
+    # 앞 스텝(말하기)도 실행되지 않아야 함: 시작 전에 거절
+    task = skill_task({"id": "s0", "action": "speak", "params": {"text": "시작"}}, step,
+                      final=[{"id": "f1", "action": "move_to_named_pose", "params": {"pose_name": "home"}}])
+    result = Runner(backend, schema=SCHEMA, ontology=ONTOLOGY).run(task)
+    assert (result.overall_status, result.error_code) == ("FAILED", "TASK_INVALID")
+    assert any(expected in p for p in result.problems), result.problems
+    assert backend.calls == [] and result.steps == []
+
+
+def test_child_record_id_collision_is_rejected():
+    task = skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}},
+                      {"id": "s1.e2", "action": "speak", "params": {"text": "겹침"}})
+    problems = check_task(task, SCHEMA, ONTOLOGY["skills"])
+    assert any("'s1.e2'" in p and "중복" in p for p in problems)
+
+
+def test_skill_example_passes_with_ontology():
+    task = json.loads((ROOT / "contracts/examples/task_skill_steps.json").read_text(encoding="utf-8"))
+    assert check_task(task, SCHEMA, ONTOLOGY["skills"]) == []
+
+
+def test_skill_step_without_ontology_is_rejected():
+    # 온톨로지 없이 만든 Runner 는 skill 스텝을 실행할 수 없음
+    result = Runner(FakeBackend()).run(skill_task({"id": "s1", "skill": "open_drawer",
+                                                   "params": {"drawer_id": "drawer_top"}}))
+    assert result.error_code == "TASK_INVALID"
