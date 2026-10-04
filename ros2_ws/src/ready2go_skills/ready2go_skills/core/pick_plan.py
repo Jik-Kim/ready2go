@@ -54,6 +54,9 @@ def plan_drawer_grasp(*, target: Mapping, size_m: Sequence[float], tf: Mapping, 
     """`target`은 motion_guard.precheck_pick을 통과한 것만 넘긴다(yaw_valid true, 바닥 위)."""
     x, y = target["pose"]["position"][:2]
     length, width, height = size_m
+    vals = (x, y, target["pose"]["yaw"], length, width, height)
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in vals):
+        raise ValueError(f"위치·yaw·크기에 NaN·inf·숫자 아닌 값: {vals}")     # 로봇 목표로 보내지 않음
     if width > length:
         raise ValueError(f"size_m 규약은 [긴 변, 짧은 변, 높이]: {size_m}")
     above_floor = max(height + params["tcp_above_top_m"], params["min_tcp_above_floor_m"])

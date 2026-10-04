@@ -65,3 +65,9 @@ def test_tray_slots_split_bottom_evenly():
     assert len(c) == 3
     assert [round(p[0], 4) for p in c] == [round(0.0055 + 0.166 * k / 6, 4) for k in (1, 3, 5)]
     assert all(p[1] == pytest.approx(0.00675 + 0.1165 / 2) for p in c)
+
+
+@pytest.mark.parametrize("x,yaw", [(float("nan"), 0.0), (0.1, float("inf")), (True, 0.0)])
+def test_non_finite_target_rejected(x, yaw):
+    with pytest.raises(ValueError):
+        pp.plan_drawer_grasp(target=_target(x=x, yaw=yaw), size_m=ERASER, tf=TF, params=P)
