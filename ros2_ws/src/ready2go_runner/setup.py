@@ -18,5 +18,7 @@ setup(
     description='JSON Runner · 플래너 · 상태 추적 · 실행 로그(LogStore→MongoDB)',
     license='TODO',
     tests_require=['pytest'],
-    entry_points={'console_scripts': []},
+    entry_points={'console_scripts': [
+        'mock_backend = ready2go_runner.nodes.mock_backend:main',
+    ]},
 )

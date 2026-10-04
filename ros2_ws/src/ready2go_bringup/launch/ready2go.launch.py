@@ -5,6 +5,8 @@ BACKEND(real|sim|mock)는 compose의 환경변수로 전달됨 (docs/docker.md).
   (결정 #23, ready2go_bringup.static_tf). config_dir 기본값은 컨테이너 마운트 경로 /config,
   호스트에서는 config_dir:=<저장소>/config 로 지정.
 - real: DSR 드라이버(ready2go_skills/dsr_real.launch.py, 제어기 = ROBOT_HOST) + RG2 /gripper/state (RG2 = RG2_HOST)
+- mock: mock 백엔드(ready2go_runner mock_backend) — /skills/*·/voice/speak·/vision/inspect_region 을
+  로봇·음성·비전 없이 같은 이름으로 응답 (#10). 실패 시험은 MOCK_FAIL·MOCK_NOT_VISIBLE 환경변수
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction
@@ -38,6 +40,8 @@ def _static_tf_nodes(context):
 def generate_launch_description():
     is_real = IfCondition(PythonExpression(
         ["'", EnvironmentVariable("BACKEND", default_value="mock"), "' == 'real'"]))
+    is_mock = IfCondition(PythonExpression(
+        ["'", EnvironmentVariable("BACKEND", default_value="mock"), "' == 'mock'"]))
 
     dsr_real = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -50,6 +54,13 @@ def generate_launch_description():
         condition=is_real, output="screen",
     )
 
+    mock_backend = Node(
+        package="ready2go_runner", executable="mock_backend", name="mock_backend",
+        parameters=[{"fail": EnvironmentVariable("MOCK_FAIL", default_value=""),
+                     "not_visible": EnvironmentVariable("MOCK_NOT_VISIBLE", default_value="")}],
+        condition=is_mock, output="screen",
+    )
+
     # TODO(C 이영훈): runner, vision, voice 노드 추가
     return LaunchDescription([
         DeclareLaunchArgument("config_dir", default_value="/config",
@@ -57,4 +68,5 @@ def generate_launch_description():
         OpaqueFunction(function=_static_tf_nodes),
         dsr_real,
         gripper_state,
+        mock_backend,
     ])
