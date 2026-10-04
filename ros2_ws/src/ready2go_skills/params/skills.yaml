@@ -3,3 +3,17 @@
 motion_guard:   # core/motion_guard.py (#15)
   travel_tolerance_m: 0.005     # [팀 확정 필요] drawer_displacement 와 tf_at_travel_m 차이 허용. 넘으면 DRAWER_NOT_AT_TRAVEL. 실측(스토퍼 재현성) 후 확정
   on_floor_tolerance_m: 0.01    # [팀 확정 필요] top_z − 물체 높이 허용. 넘으면 NOT_ON_FLOOR. 검정·반사 물체 뎁스 오차(#15 A 코멘트) 실측 후 확정
+drawer_control:   # core/drawer_plan.py (#13, docs/domain.md 8.4). 모두 [팀 확정 필요] — 10/06 실물 측정 후 확정
+  approach_mm: 108.0            # [실측 B 10/04] drawer_approach → 손잡이 파지까지 직선 접근 거리 (poses.yaml drawer_approach 주석)
+  pos_tol_m: 0.002              # 목표·닫힘 위치 도달 판정 여유
+  stuck_force_n: 30.0           # [추정] 인출 중 저항이 이보다 크면 DRAWER_STUCK (즉시 정지). 정상 인출 저항을 재서 여유 두고 정함
+  close_force_n: 15.0           # [추정] 닫힘 판정 미는 축 저항 임계. 닫힘 위치에서 밀 때 힘을 재서 정함
+  close_overtravel_m: 0.005     # 닫힘 위치보다 이만큼 더 밀어 힘 임계에 닿게 함 (컴플라이언스로 부드럽게)
+  reopen_m: 0.05                # CLOSE_NOT_CONFIRMED 후 다시 여는 거리 (8.4 복구 ①)
+  force_sign: 1.0               # [추정] get_tool_force 부호 규약. 실측에서 저항력이 음수로 나오면 -1.0
+pick:   # core/pick_plan.py (#15)
+  tcp_above_top_m: 0.0          # [실측 B 10/04, #8] TCP를 물체 윗면 높이에 둠 — 지우개(11.5 mm) TCP 바닥 위 10.0~11.4 mm에서 3/3 파지. 높은 물체는 10/06 확인
+  min_tcp_above_floor_m: 0.010  # [실측 B 10/04, #8] 성공한 가장 낮은 TCP 높이. 닫힌 손끝이 TCP보다 약 10 mm 아래라 이보다 낮추지 않음
+  open_margin_m: 0.013          # [실측 B 10/04, #8] 벌림 = 짧은 변 + 13 mm (지우개 22 mm → 35 mm). 완전히 벌리면 손끝이 바닥에 닿음
+  max_open_width_m: 0.100       # [문서] RG2 최대 110 mm에서 여유를 뺀 값 (#8 판정 기준)
+  finger_axis_offset_deg: null  # [팀 확정 필요] TCP Rz와 손가락 닫힘 축의 관계. 10/06 실물에서 정함 (노드에서 사용)
