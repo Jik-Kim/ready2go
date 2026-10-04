@@ -19,6 +19,7 @@ setup(
     license='TODO',
     tests_require=['pytest'],
     entry_points={'console_scripts': [
+        'runner = ready2go_runner.nodes.runner_node:main',
         'mock_backend = ready2go_runner.nodes.mock_backend:main',
     ]},
 )

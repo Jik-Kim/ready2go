@@ -121,6 +121,17 @@ class Runner:
         return self._halt.is_set()
 
     @property
+    def halt_code(self) -> str | None:
+        """처음 멈춘 이유 (HALTED / ESTOP). 잠기지 않았으면 None."""
+        return self._halt_code if self._halt.is_set() else None
+
+    @property
+    def current_step(self) -> str | None:
+        """지금(또는 마지막으로) 시작한 스텝 ID. /runner/status 표시용 (#10, 시연 화면 #59)."""
+        records = self._records
+        return records[-1]["id"] if records else None
+
+    @property
     def state(self) -> dict:
         """현재 온톨로지 상태 state[predicate][subject] 의 복사본 (#10 에서 /robot_state 로 발행)."""
         return copy.deepcopy(self._state)
