@@ -9,7 +9,17 @@ from ready2go_runner.core.interpreter import ActionResult, Runner
 from ready2go_runner.core.validation import check_task
 
 ROOT = Path(__file__).resolve().parents[4]
-ONTOLOGY = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")
+REAL = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")   # E 의 실제 온톨로지 (물품·배치는 E 가 바꿀 수 있음)
+# 스킬 규칙(pre·effect·expand)은 E 파일 그대로 쓰고, 물품 이름·위치는 시험용으로 고정한다.
+# E 가 실측 물품이나 초기 배치를 바꿔도(PR #46 등) Runner 시험이 깨지지 않게 하기 위함.
+TEST_ITEMS = {"watch": {"name_ko": "시계"}, "wallet": {"name_ko": "지갑"}, "car_key": {"name_ko": "차키"}}
+TEST_STATE = {
+    "robot_pose": {"robot": "home"}, "gripper": {"robot": "empty"},
+    "open": {"drawer_top": False, "drawer_bottom": False, "staging_tray": True, "handover_zone": True},
+    "located_in": {"watch": "drawer_top", "car_key": "drawer_top", "wallet": "drawer_bottom"},
+}
+ONTOLOGY = {**REAL, "world": {**REAL["world"], "items": TEST_ITEMS}, "state": TEST_STATE}
+COMPOSITE = next(name for name, skill in REAL["skills"].items() if skill.get("kind") == "composite")
 SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
 
 
@@ -153,6 +163,37 @@ def test_estop_skips_skills_in_finally():
     f1 = next(s for s in result.steps if s["id"] == "f1")
     assert (f1["status"], f1["skipped_reason"]) == ("SKIPPED", "ABORTED")   # 스킬도 로봇을 움직이므로 생략
     assert [a for a, _ in backend.calls] == ["move_to_named_pose", "drawer_control", "speak"]
+    assert runner.state["open"]["drawer_top"] is False         # 열기 도중 멈춤 → effect 없음
+
+
+def test_halt_during_skill_stops_before_next_action():
+    # 사용자 "멈춰"·/runner/estop: 진행 중 동작은 백엔드가 끊고, Runner 는 다음 원자 동작을 보내지 않음
+    calls = []
+
+    def backend(action, params, timeout_sec):
+        calls.append(action)
+        if action == "move_to_named_pose":
+            runner.halt()
+        return ActionResult(True)
+
+    runner = Runner(backend, ontology=ONTOLOGY)
+    result = runner.run(skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}}))
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1.e2")
+    assert calls == ["move_to_named_pose"]                     # 서랍 열기는 보내지 않음
+    assert runner.state["open"]["drawer_top"] is False
+
+
+def test_real_ontology_file_runs_open_drawer():
+    # 시험용 배치가 아니라 E 의 실제 파일 그대로: 스킬 4종과 초기 상태로 서랍 열기 1회
+    primitives = {name: sorted(s.get("params", {})) for name, s in REAL["skills"].items()
+                  if s.get("kind") == "primitive"}
+    assert primitives == {"open_drawer": ["drawer_id"], "close_drawer": ["drawer_id"],
+                          "pick": ["from", "item"], "place": ["item", "to"]}
+    drawer = next(d for d, is_open in REAL["state"]["open"].items() if is_open is False)
+    runner = Runner(FakeBackend(), schema=SCHEMA, ontology=REAL)
+    result = runner.run(skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": drawer}}))
+    assert result.overall_status == "COMPLETED"
+    assert runner.state["open"][drawer] is True
 
 
 def test_runtime_guard_when_validation_is_bypassed(monkeypatch):
@@ -161,7 +202,7 @@ def test_runtime_guard_when_validation_is_bypassed(monkeypatch):
     backend = FakeBackend()
     runner = Runner(backend, ontology=ONTOLOGY)
     for params, skill, code in [({}, "open_drawr", "UNKNOWN_SKILL"),
-                                ({"target": "watch"}, "fetch_with_unpack", "UNKNOWN_SKILL"),
+                                ({"target": "watch"}, COMPOSITE, "UNKNOWN_SKILL"),
                                 ({"item": "watch"}, "pick", "BAD_SKILL_PARAMS")]:
         result = runner.run(skill_task({"id": "s1", "skill": skill, "params": params}))
         assert result.error_code == code
@@ -172,7 +213,7 @@ def test_runtime_guard_when_validation_is_bypassed(monkeypatch):
 
 @pytest.mark.parametrize("step, expected", [
     ({"id": "s1", "skill": "open_drawr", "params": {"drawer_id": "drawer_top"}}, "없는 스킬 'open_drawr'"),
-    ({"id": "s1", "skill": "fetch_with_unpack", "params": {"target": "watch"}}, "P1 미지원"),
+    ({"id": "s1", "skill": COMPOSITE, "params": {"target": "watch"}}, "P1 미지원"),
     ({"id": "s1", "skill": "pick", "params": {"item": "watch"}}, "params.from 가 없음"),
     ({"id": "s1", "skill": "open_drawer", "params": {"drawer": "drawer_top"}}, "없는 파라미터 params.drawer"),
 ])
@@ -291,17 +332,17 @@ def robot_runner(robot, **kw):
     return runner
 
 
-def test_example_fetch_watch_end_to_end():
+def test_example_fetch_car_key_end_to_end():
     robot = FakeRobot()
     runner = robot_runner(robot)
     result = runner.run(EXAMPLE)
 
     assert result.overall_status == "COMPLETED"
-    assert robot.spoken == ["시계를 꺼내 올게요", "시계를 앞쪽 트레이에 놓았어요"]
+    assert robot.spoken == ["차키를 꺼내 올게요", "차키를 앞쪽 트레이에 놓았어요"]
     assert [(s["id"], s.get("state_diff")) for s in result.steps if "skill" in s] == [
         ("s3", {"open.drawer_top": [False, True]}),
-        ("s4", {"gripper.robot": ["empty", "watch"], "located_in.watch": ["drawer_top", "gripper"]}),
-        ("s5", {"gripper.robot": ["watch", "empty"], "located_in.watch": ["gripper", "handover_zone"]}),
+        ("s4", {"gripper.robot": ["empty", "car_key"], "located_in.car_key": ["drawer_top", "gripper"]}),
+        ("s5", {"gripper.robot": ["car_key", "empty"], "located_in.car_key": ["gripper", "handover_zone"]}),
         ("f1", {"open.drawer_top": [True, False]}),
     ]
     assert robot.calls == ["query_ontology", "speak",
@@ -312,7 +353,7 @@ def test_example_fetch_watch_end_to_end():
                            "drawer_control", "move_to_named_pose"]          # f1 close_drawer, f2 홈
     state = runner.state
     assert state["open"]["drawer_top"] is False and state["gripper"]["robot"] == "empty"
-    assert state["located_in"]["watch"] == "handover_zone"
+    assert state["located_in"]["car_key"] == "handover_zone"
 
 
 def test_example_with_other_item_uses_bottom_drawer():
@@ -336,7 +377,7 @@ def test_example_item_not_visible_still_closes_drawer():
     assert (result.error_code, result.failed_step) == ("VAR_UNDEFINED", "s4.e2")
     assert robot.calls.count("inspect_region") == 2 and "pick_object" not in robot.calls   # retry 1, 집기 안 함
     assert runner.state["open"]["drawer_top"] is False                 # finally 에서 서랍 닫음
-    assert runner.state["located_in"]["watch"] == "drawer_top"         # 시계는 그대로
+    assert runner.state["located_in"]["car_key"] == "drawer_top"       # 차키는 그대로
 
 
 def test_example_estop_during_pick_keeps_drawer_open_in_state():
