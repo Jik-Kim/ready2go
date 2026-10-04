@@ -68,10 +68,11 @@ def _output(action: str, params: dict) -> Any:
     if action == "drawer_control":
         opened = params.get("state") == "open"
         return {"drawer_displacement": 0.2 if opened else 0.0, "close_confirmed": not opened}
-    if action == "pick_object":
-        object_id = str(params.get("object_id", ""))
-        return {"object_id": object_id, "class": object_id.split("#")[0], "pick_pose_drawer_frame": None,
-                "grasp_ok": True}
+    if action == "pick_object":      # 서랍: target 통째로(PR #70), 트레이: object_id
+        target = params.get("target") if isinstance(params.get("target"), dict) else {}
+        object_id = str(target.get("id") or params.get("object_id", ""))
+        return {"object_id": object_id, "class": target.get("class") or object_id.split("#")[0],
+                "pick_pose_drawer_frame": None, "grasp_ok": True}
     if action == "place_object":
         return {"slot": params.get("location"), "placed_pose": None}
     if action == "nudge_object":

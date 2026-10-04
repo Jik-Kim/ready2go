@@ -16,7 +16,9 @@ def test_outputs_follow_runner_md():
     mock = MockSkills()
     assert mock.respond("drawer_control", {"drawer_id": "drawer_top", "state": "open"}).output == {
         "drawer_displacement": 0.2, "close_confirmed": False}
-    assert mock.respond("pick_object", {"object_id": "car_key#1"}).output["class"] == "car_key"
+    assert mock.respond("pick_object", {"object_id": "car_key#1"}).output["class"] == "car_key"   # 트레이·이전 형식
+    picked = mock.respond("pick_object", {"target": {"id": "eraser#2", "class": "eraser"}}).output   # 서랍 (PR #70)
+    assert (picked["object_id"], picked["class"]) == ("eraser#2", "eraser")
     assert mock.respond("place_object", {"location": "handover_zone"}).output["slot"] == "handover_zone"
     assert mock.respond("move_to_named_pose", {"pose_name": "home"}).output is None
 
