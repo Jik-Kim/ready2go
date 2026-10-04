@@ -85,6 +85,7 @@
 * `abort`로 `sequence`가 중단되면 `finally`가 실행되고 `overall_status = FAILED`.
 * **비상정지(E-stop)로 인한 `ABORTED`에서는 `finally`의 로봇 동작을 실행하지 않음.** 사람이 상태를 확인한 뒤 재개 명령으로 복구함.
 * `ABORTED` 경로: 백엔드가 `ESTOP`으로 실패하거나 Runner `halt()`(`/runner/estop`·음성 "멈춰")가 호출되면 `retry`·`skip`·`safe_home`을 적용하지 않고 즉시 중단. `halt()`는 다음 스텝 시작 전에 적용(진행 중 동작 취소는 백엔드 책임). `finally`는 로봇을 움직이지 않는 동작(`speak`·`query_ontology`·`update_ontology`·`set_var`·`if`)만 실행하고 나머지는 `SKIPPED`로 기록(허용 목록이라 새 동작은 기본 생략). 다른 실패와 겹치면 `ABORTED`가 우선. 중단 요청은 스텝 시작·재시도·`safe_home` 직전마다 확인.
+  * **중단과 결과 반영의 경계** (PR #64 E 리뷰): 중단 요청이 결과 반영 전에 들어오면 반영하지 않음. `skill`은 `effect` 직전에 확인해 상태를 바꾸지 않고 스킬을 `FAILURE`(`HALTED`)로 기록(하위 원자 동작은 받은 응답대로 기록). 원자 동작은 응답대로 기록하되 다음 동작을 보내지 않음. 마지막 스텝 도중의 중단도 `COMPLETED`가 아니라 `ABORTED`. 반영되지 않은 결과는 사람이 확인한 뒤 재개(중단 잠김).
 * **중단 잠김**: `ABORTED` 뒤에는 Runner `resume()`(사람이 상태 확인 후 재개 명령)을 부르기 전까지 새 태스크를 로봇 동작 없이 `ABORTED`로 거절하고, 처음 멈춘 이유(`ESTOP`/`HALTED`)를 돌려줌.
 * `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
@@ -92,7 +93,7 @@
   * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
 * **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
-  * P1 은 **동작 응답 성공 = effect 반영**. `verify`(사후 관측)·`hold`(실행 중 유지 조건)는 P2(FR-ONT-02). P1 은 `primitive` 스킬만(`composite`는 P2).
+  * P1 은 **동작 응답 성공 = effect 반영**. `verify`(사후 관측)·`hold`(실행 중 유지 조건)는 P2(FR-ONT-02). P1 Runner 는 `primitive` 스킬만 `skill` 스텝으로 실행(`composite`는 거절). 선언형 복합 스킬 추가는 FR-PLN-03(P3).
   * **P1 은 `skill` 스텝의 `retry` 금지** (PR #64 리뷰): 실패 응답을 받아도 앞 원자 동작이 이미 실행됐거나 동작이 실제로 끝났을 수 있는데, 관측 확인(`verify`) 전에는 알 수 없어 스킬 전체를 다시 보내면 이미 열린 서랍 재열기·이미 집은 물건 재집기가 될 수 있음. 실행 전 검사에서 `TASK_INVALID`, 실행 중에도 1회만 시도. `verify`·복구가 준비되는 P2 에서 다시 검토.
   * `timeout_sec`은 스킬 전체 시간(각 원자 동작에는 남은 시간을 전달). 로봇을 움직이므로 `ABORTED` 때 `finally`에서도 `SKIPPED`.
   * 실행 전 검사에서 온톨로지에 없는 스킬, `composite`, 스킬 정의와 다른 `params` 이름(빠짐·모름), 하위 기록 ID 중복, `retry`를 `TASK_INVALID`로 거절. 실행 중에도 다시 확인(`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`).
@@ -154,6 +155,8 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 
 각 스텝(중첩 스텝 포함)마다 시작 시각, 소요 시간, 반복 인덱스, 시도 횟수, **성공 여부·결과 코드, 에러 정보, 조건 확인 결과(`pre_check`), 상태 변화(`state_diff`)**를 기록합니다. 플래너가 만든 실행은 `plan`(스킬 조합)도 함께 기록합니다.
 
+> **Phase 구분**: 아래 목록은 전체 설계입니다. P1 에 구현된 범위는 맨 아래 "구현 (P1, #12)"이며, 사후 관측 성공 판정(`post_check`)·`states` 컬렉션은 P2(FR-ONT-02·FR-LOG-02), 관측 불일치 `STATE_MISMATCH`는 P3(FR-REC-01) 계획입니다.
+
 > **원본 파일**: [`contracts/examples/execution_log.json`](../contracts/examples/execution_log.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
 
 * `overall_status`: `COMPLETED`(시퀀스 정상 종료) / `FAILED`(스텝 abort, `finally` 실행됨) / `ABORTED`(사용자 취소·비상정지).
@@ -161,9 +164,9 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 * **시간 규칙**: `total_duration_sec`는 실행 전체의 **실제 경과 시간(wall-clock)**. 제어 블록(`while`/`if`)의 소요 시간은 자식 스텝을 포함하므로 합산에서 제외하고, **원자 동작(리프) 스텝 소요 시간의 합 ≤ `total_duration_sec`**를 검증함.
 * **성공 여부**: 모든 스텝은 `status`(`SUCCESS`/`FAILURE`/`SKIPPED`)를 가짐. 실패 시 `error.code`(7.5 스킬의 `errors` 목록 기준)를 기록.
 * **조건 확인**: `pre_check`는 `PASS` / `PRE_UNMET`과 함께 **조건별 결과 배열**(조건, 실제 값, 통과 여부)을 기록. `PRE_UNMET`이면 동작을 보내지 않음.
-* **성공 판정**: 스텝 성공 = **액션 결과 성공 AND 사후 관측 확인(`post_check`) 통과**. 관측 기준은 스킬의 `verify`(그리퍼 폭, 서랍 변위, 재스캔). 액션은 성공했지만 관측이 안 맞으면 `POST_UNCONFIRMED`로 실패 처리.
+* **성공 판정** (P2 계획, FR-ONT-02. P1 은 액션 응답 성공 기준): 스텝 성공 = **액션 결과 성공 AND 사후 관측 확인(`post_check`) 통과**. 관측 기준은 스킬의 `verify`(그리퍼 폭, 서랍 변위, 재스캔). 액션은 성공했지만 관측이 안 맞으면 `POST_UNCONFIRMED`로 실패 처리.
 * **안전 게이트**: 실물 실행 전 8단계 게이트(11장)의 단계별 통과 여부를 `runs` 헤더에 기록.
-* **상태 변화**: `state_diff`는 `{상태 경로: [이전 값, 이후 값]}`. 관측으로 고친 경우 `STATE_MISMATCH` 항목으로 따로 표시.
+* **상태 변화**: `state_diff`는 `{상태 경로: [이전 값, 이후 값]}`. 관측으로 고친 경우 `STATE_MISMATCH` 항목으로 따로 표시(P3 계획, FR-REC-01).
 * **플래너 실행**: 헤더에 `goal`과 `plan`(스킬 조합 목록), 스킬 단위 기록과 그 아래 원자 동작 기록을 함께 저장.
 * **저장**: 스텝이 끝날 때마다 `LogStore`를 통해 MongoDB(`runs`·`steps`·`states` 컬렉션)에 저장. `runs` 헤더에는 **온톨로지 파일 해시**, STT 원문, LLM 원문 응답, 안전 게이트 결과를 포함. DB 연결 실패 시 **JSONL 파일로 자동 폴백**하여 시연이 멈추지 않게 하고, 제출·발표용으로 `logs/*.json`도 내보냄. 원시 토픽(카메라·조인트)은 rosbag2(MCAP)로 별도 녹화.
 * 위 예시는 지면상 일부 스텝만 표기. 실제 로그에는 `finally` 스텝을 포함한 모든 스텝이 기록됨.
@@ -173,4 +176,4 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
   * `FallbackLogStore`: MongoDB 실패 시 그 실행의 앞 기록까지 JSONL 에 다시 써서 한 파일에 실행 전체를 남기고, 그 실행은 끝까지 JSONL(스텝마다 연결 제한만큼 멈추지 않게). 다음 실행은 MongoDB 재시도. 상태는 `degraded`·`last_error`.
   * `run_id` = 시작 시각(UTC) + 6자리 난수. 스텝 `seq` = 시작 순서. 실행 거절(`TASK_INVALID`·중단 잠김)도 기록. 기록 저장 실패는 `RunResult.log_errors`에 남기고 **실행은 멈추지 않음**.
   * P1 범위: FR-LOG-01 항목(실행 ID·입력 명령·단계 ID·시작 시각·상태·오류 코드). `states` 컬렉션·`post_check`는 P2(FR-LOG-02).
-  * `skill` 스텝 기록(#12): `action: "skill"`, `skill`, `params`, `pre_check`(온톨로지 `check` 결과 배열), 성공 시 `state_diff`(온톨로지 `apply` 결과). 추가 계산 없이 나오는 값이라 P1 에서도 남겨 `PRE_UNMET` 원인을 볼 수 있게 함. 하위 원자 동작 기록은 `parent`로 묶음. `state_diff` 키에 `.`이 있어 MongoDB 에서 키로 직접 조회하기는 불편함(저장·읽기는 7.0 실측 정상).
+  * `skill` 스텝 기록(#12): `action: "skill"`, `skill`, `params`, `pre_check`(온톨로지 `check` 결과 배열), 성공 시 `state_diff`(온톨로지 `apply` 결과). P1 실행에서 이미 계산되는 값을 **진단용 부가 기록**으로 남겨 `PRE_UNMET` 원인을 볼 수 있게 함(PR #64 E 검토 허용). FR-LOG-02 상세 로그 완료나 관측으로 검증된 상태를 뜻하지 않음(`state_diff`는 응답 기준 반영 결과). 하위 원자 동작 기록은 `parent`로 묶음. `state_diff` 키에 `.`이 있어 MongoDB 에서 키로 직접 조회하기는 불편함(저장·읽기는 7.0 실측 정상).

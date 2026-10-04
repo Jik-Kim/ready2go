@@ -28,16 +28,18 @@
 | PC1↔PC2 통신 | 공용 Wi-Fi `Rokey_A`, `cyclonedds.multi.xml`(멀티캐스트 끔). PC2 `joint_states` 100 Hz → PC1 86~96 Hz | [실측] A·B 10/03, PR #40 |
 
 ## 막힌 점 · 필요한 도움
-- E: #12 PR 리뷰·승인(계약 변경 → E 포함 2명). 함께 결정 필요:
-  - 물건이 안 보이면 `pick` 의 `expand` 가 `$scan.target.id` 없음(`VAR_UNDEFINED`)으로 실패하고 retry 도 헛돎. `pick.errors` 의 `NOT_VISIBLE` 을 누가 낼지(스킬 정의 변경 / Runner 변환).
-  - 비상정지 후 Runner 상태(예: 서랍 열림)와 실제가 다를 수 있음(사람이 손으로 닫는 경우). P1 에서 `resume()` 때 상태를 어떻게 맞출지(관측 갱신은 P2).
-  - `pre_check`·`state_diff` 를 P1 기록에도 남김(runner.md 7.4 는 P2 로 분류) — 유지 여부.
+- E·D: #12 PR #64 승인(계약 변경 → E 포함 2명). E Request changes(마지막 동작 중 halt → effect 반영, Phase 문구) 반영 완료.
+- E 권고(10/04 PR #64, 새 설계 제안이며 합의 아님) → 후속:
+  - `NOT_VISIBLE`: A 는 미발견 `success + target_found=false` 유지, E 가 `pick` 스킬에 미발견 분기·오류 의미 정의, C 가 Runner 에서 실행·기록. `VAR_UNDEFINED` 일괄 변환은 하지 않음. 실패 TTS 후속 확인.
+  - `resume()`: P1 은 B 가 실물 확인·기준 상태 복구 → C 가 Runner 상태를 맞춘 뒤 재개하는 명시적 절차 (#10 재개 서비스·상태 설정). 자동 검증·불일치 조정은 FR-ONT-02(P2)·FR-REC-01(P3).
+  - `pre_check`·`state_diff`: P1 진단용 부가 기록으로 허용 (runner.md 7.4 에 구분 반영).
+- B·C (PR #65): `yaw_valid=false` → B 가 모션 전 차단·`YAW_INVALID`(가칭), 재인식 1회 [팀 확정 필요], 누락은 false. C 는 "동작 없이 차단된 실패"만 스킬 재시도 허용 (#10/#17).
 - B: 펜던트 비상정지 시 백엔드가 `ESTOP` 코드를 반환해야 Runner 가 `ABORTED` 로 처리 (#19·#10). `sim` 드라이버·에뮬레이터 버전 맞추기 (P2).
 - B (#17 때): `finally` 서랍 닫기 실패 시 홈 복귀 여부(`on_failure` skip/abort).
 
 ## 다음 할 일
-- [ ] #12 PR 올리기 → E 리뷰 반영 → 머지 (`Closes #12`)
-- [ ] #10: mock 백엔드 + Skill 액션 클라이언트, `/runner/estop` → `Runner.halt()`, 재개 → `Runner.resume()` 연결(재개 서비스는 ICD 추가 필요), 백엔드 비상정지 시 `ESTOP` 반환, 온톨로지 파일 로딩·`/robot_state` 발행, Docker 가 만든 root 소유 `logs/` 정리
+- [ ] #12 PR #64 승인 → 머지 (`Closes #12`)
+- [ ] #10: mock 백엔드 + Skill 액션 클라이언트, `/runner/estop` → `Runner.halt()`, 재개 → `Runner.resume()` 연결(재개 서비스는 ICD 추가 필요), 백엔드 비상정지 시 `ESTOP` 반환, 온톨로지 파일 로딩(#46 머지 후 `snapshots/initial_state.json`)·`/robot_state` 발행, 재개 절차(상태 맞춘 뒤 `resume()`), CI 에 MongoDB 테스트, Docker 가 만든 root 소유 `logs/` 정리
 
 ## 철회한 결론
 - ~~bringup 고정 TF 를 `config/static_tf.yaml` 한 파일로 모은다~~ → 값이 두 곳에 복사되어 어긋날 수 있어 각 담당 파일을 직접 읽기로 함 (이슈 #3, 10/02).

@@ -206,6 +206,31 @@ def test_halt_during_skill_stops_before_next_action():
     assert runner.state["open"]["drawer_top"] is False
 
 
+@pytest.mark.parametrize("final", [[], [{"id": "f1", "action": "speak", "params": {"text": "멈췄습니다"}},
+                                       {"id": "f2", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]])
+def test_halt_during_last_action_does_not_apply_effect(final):
+    # PR #64 E 리뷰 재현: 마지막 expand 동작(drawer_control) 중 halt() → 이전에는 effect 반영, finally 없으면 COMPLETED
+    calls = []
+
+    def backend(action, params, timeout_sec):
+        calls.append(action)
+        if action == "drawer_control":
+            runner.halt()                                      # 동작은 끝났고 응답은 성공
+        return ActionResult(True)
+
+    runner = Runner(backend, ontology=ONTOLOGY)
+    result = runner.run(skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}},
+                                   final=final))
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
+    assert runner.state["open"]["drawer_top"] is False         # effect 미반영 → 사람이 확인 후 재개
+    s1 = result.steps[0]
+    assert (s1["status"], s1["error_code"]) == ("FAILURE", "HALTED") and "state_diff" not in s1   # 스킬 성공 기록 없음
+    assert result.steps[2]["id"] == "s1.e2" and result.steps[2]["status"] == "SUCCESS"            # 하위 동작은 응답대로
+    if final:
+        assert calls[-1] == "speak"                            # 비동작만 실행, 홈 이동은 SKIPPED
+        assert [s["status"] for s in result.steps if s["id"] in ("f1", "f2")] == ["SUCCESS", "SKIPPED"]
+
+
 def test_real_ontology_file_runs_open_drawer():
     # 시험용 배치가 아니라 E 의 실제 파일 그대로: 스킬 4종과 초기 상태로 서랍 열기 1회
     primitives = {name: sorted(s.get("params", {})) for name, s in REAL["skills"].items()
