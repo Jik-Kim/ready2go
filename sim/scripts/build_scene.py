@@ -10,6 +10,7 @@
 - 서랍의 로봇 기준 정확한 위치는 #6(3점 터치) 결과로 교체한다. 여기 값은 평면도 기준 초기 배치다.
 """
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -24,10 +25,11 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
-PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
-OUT = ROOT / "sim/scenes/ready2go_t1.usd"
+# 시험용: 가짜 tf 로 확인할 때 READY2GO_PLACES(대체 places.yaml), READY2GO_SCENE(출력 경로)를 지정한다. 지정하지 않으면 정본 파일.
+PLACES = yaml.safe_load(Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml")).read_text(encoding="utf-8"))
+OUT = Path(os.environ.get("READY2GO_SCENE", ROOT / "sim/scenes/ready2go_t1.usd"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _dims import cabinet_missing  # noqa: E402
+from _dims import cabinet_missing, cabinet_pose_from_tf, drawer_tf  # noqa: E402
 ROBOT_REL = "../assets/m0609_camera_cube/m0609_camera_cube.usd"
 
 CM = 0.01
@@ -114,7 +116,8 @@ def build():
         cab_yc = y_front - cab_d / 2
 
         z_seat = u["seat_top_vs_table_surface_cm"] * CM      # 받침 선반 윗면 (작업대 윗면 기준)
-        z_base = z_seat + u["riser_cm"] * CM                  # 서랍장 바닥 = 선반 위 우드락 위. 아래 높이(cm)들은 우드락 추가 전 기준이라 +riser
+        z_base = z_seat + u["riser_cm"] * CM
+        tf = drawer_tf(PLACES)                                # #6 3점 터치 결과(서랍 좌표계). 아직 null 이면 None → 평면도 기반 임시 배치                  # 서랍장 바닥 = 선반 위 우드락 위. 아래 높이(cm)들은 우드락 추가 전 기준이라 +riser
 
     stage = Usd.Stage.CreateInMemory()
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
@@ -164,10 +167,6 @@ def build():
         ((x_left + x_right) / 2, (y_top + y_bottom) / 2, -TABLE_THICKNESS / 2), (0.80, 0.68, 0.47))
     box(stage, "/World/workspace/robot_base_plate", (plate_w * CM, plate_d * CM, 0.005), (0, 0, 0.0025), (0.7, 0.7, 0.72))
     if cabinet:
-        box(stage, "/World/workspace/shelf", (cab_w + 2 * SHELF_MARGIN, cab_d + 2 * SHELF_MARGIN, SHELF_THICKNESS),
-            (cab_xc, cab_yc, z_seat - SHELF_THICKNESS / 2), (0.92, 0.92, 0.92))
-
-    if cabinet:
         # ---------- 서랍장: 원목 2단, 중간 가로막 없음(철제 레일). 서랍 상자 2개가 각각 Prismatic Joint ----------
         det, bx, hd = u["tiers_detail"], u["drawer_box"], u["handle"]
         fpn = top["front_panel_cm"]
@@ -184,7 +183,18 @@ def build():
         def hz(cm):
             return z_base + cm * CM
 
-        xform(stage, "/World/workspace/cabinet", pose([cab_xc, cab_yc, 0]))
+        y_c = cab_d / 2 - out_d / 2                             # 닫힌 상자 중심의 서랍장 로컬 y (상자 앞벽이 서랍장 본체 앞면과 같은 선)
+        z_floor = hz(det["upper"]["floor_surface"])             # 위 단 상자 안쪽 바닥면의 서랍장 로컬 z
+        if tf is None:
+            T_cab = pose([cab_xc, cab_yc, 0])
+            placement = f"임시 배치(평면도: 작업대 오른쪽 끝 {pv['drawer_right_edge_to_table_right']} cm). places.yaml drawer_top.tf 가 null"
+        else:
+            R_cab, o_cab = cabinet_pose_from_tf(tf[0], tf[1], tf[2], in_w, in_d, y_c, z_floor)
+            T_cab = pose(o_cab, R=np.array(R_cab))
+            placement = f"places.yaml drawer_top.tf (인출 {tf[2]:.3f} m 기준) → 서랍장 원점 {np.round(o_cab, 4).tolist()}"
+        xform(stage, "/World/workspace/cabinet", T_cab)
+        box(stage, "/World/workspace/cabinet/shelf", (cab_w + 2 * SHELF_MARGIN, cab_d + 2 * SHELF_MARGIN, SHELF_THICKNESS),
+            (0, 0, z_seat - SHELF_THICKNESS / 2), (0.92, 0.92, 0.92))    # 받침 선반은 서랍장과 함께 움직인다
         shell = xform(stage, "/World/workspace/cabinet/shell", pose([0, 0, 0]))
         UsdPhysics.RigidBodyAPI.Apply(shell).CreateKinematicEnabledAttr(True)
         sp = "/World/workspace/cabinet/shell"
@@ -198,7 +208,6 @@ def build():
         def drawer(tag, tier, handle_cm):
             d = det[tier]
             z_ref = hz(d["floor_surface"])                      # 상자 안쪽 바닥면 높이
-            y_c = cab_d / 2 - out_d / 2                         # 상자 앞벽이 서랍장 본체 앞면과 같은 선
             p = f"/World/workspace/cabinet/drawer_{tag}_tray"
             tray = xform(stage, p, pose([0, y_c, z_ref]))
             UsdPhysics.RigidBodyAPI.Apply(tray)
@@ -245,6 +254,7 @@ def build():
     print(f"[build] 저장: {OUT}", flush=True)
     print(f"[build] 작업대 x[{x_left:.3f},{x_right:.3f}] y[{y_bottom:.3f},{y_top:.3f}]", flush=True)
     if cabinet:
+        print(f"[build] 서랍장 배치: {placement}", flush=True)
         print(f"[build] 서랍장 x[{cab_x0:.3f},{cab_x1:.3f}] 앞면 y={y_front:.3f}  인출 한계 {travel:.3f} m  2단 상자 안쪽 바닥 z={hz(det['upper']['floor_surface']):.4f}", flush=True)
     else:
         print("[build] 서랍장은 만들지 않았습니다 (작업대·로봇·카메라만). 아직 필요한 항목:", flush=True)

@@ -41,6 +41,8 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Open**으로 `sim/scenes/ready2go_t1.usd`.
 - 서랍 움직여 보기: Stage에서 `/World/workspace/cabinet/drawer_top_joint`(또는 `drawer_bottom_joint`) 선택 → Property ▸ Drive ▸ Linear ▸ **Target Position**(m, 0~max_travel) → Play.
 - 손목 카메라 시점: 뷰포트 카메라 메뉴에서 `/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera`.
+- **서랍 위치**: `config/places.yaml`의 `drawer_top.tf`(+`tf_at_travel_m`, #6 3점 터치 결과 = 최대 인출 상태의 서랍 좌표계)가 채워지면 `build_scene.py`가 그 값으로 서랍장을 놓는다(닫힘 = 원점 + `tf_at_travel_m` × 서랍 x축). `null`이면 평면도 기반 임시 배치로 만들고 출력에 이유를 남기며, `verify_scene.py`의 tf 일치 검사(원점 1 mm·회전 0.1° 이내)는 건너뛴다. 서랍 좌표계 정의는 `config/places.yaml` 첫 부분과 #6.
+- 값이 오기 전 시험: `READY2GO_PLACES=<대체 places.yaml> READY2GO_SCENE=<출력 usd> bash sim/run_isaac.sh sim/scripts/build_scene.py` (verify도 같은 변수). 정본 씬을 덮어쓰지 않는다. 씬 파일을 `sim/scenes/` 밖에 두면 로봇 참조(상대 경로)가 깨져 prim 존재 검사 2건이 실패하니, 시험용 씬도 `sim/scenes/` 안에 두자.
 - **생성 파일이라 USD를 직접 수정하지 말고** `build_scene.py`나 `drawer_dimensions.yaml`을 고친 뒤 다시 생성한다.
 
 ### 이 씬이 근사하는 부분 (전부 [추정], 실측되면 교체)
@@ -50,6 +52,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 로봇 축 위치 | 베이스 철판 중심 = 원점 | #6/URDF 확인 |
 | `link_6` 원점 = 플랜지 면 | 가정 (손목 카메라 위치에 영향) | B 확인 |
 | 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
+| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | B의 3점 터치(P3) 후 `drawer_bottom` tf·내부 치수 |
 | 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
 | 스테이징·전달 트레이 | 아직 없음 (크기 미측정) | 실측 후 추가 |
 

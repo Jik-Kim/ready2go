@@ -6,6 +6,8 @@ error_code 목록은 docs/runner.md 의 "inspect_region 에러 코드" 표가 �
 import json
 from collections import Counter
 
+from .pose_rules import normalize_yaw
+
 
 def inspect(config: dict, region: str, search_target: str = "") -> tuple[bool, str, str]:
     """(success, error_code, result_json) 반환. 미발견은 success=True + target_found=False."""
@@ -21,7 +23,7 @@ def inspect(config: dict, region: str, search_target: str = "") -> tuple[bool, s
         items.append({
             "id": f"{o['class']}#{seen[o['class']]}",
             "class": o["class"],
-            "pose": {"frame": region, "position": list(o["position"]), "yaw": o.get("yaw", 0.0)},
+            "pose": {"frame": region, "position": list(o["position"]), "yaw": normalize_yaw(o.get("yaw", 0.0))},
             "top_z": o["top_z"],
         })
     items.sort(key=lambda i: i["top_z"], reverse=True)
