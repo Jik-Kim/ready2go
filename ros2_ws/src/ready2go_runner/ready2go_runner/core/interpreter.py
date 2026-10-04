@@ -68,11 +68,12 @@ PRE_UNMET = "PRE_UNMET"                 # pre 조건 불충족 → 로봇 동작
 
 
 class StepFailed(Exception):
-    """retryable=False: 동작이 이미 끝났을 수 있어 다시 보내면 위험한 실패 (제한 시간 뒤 도착한 결과)."""
+    """no_retry: 동작이 어디까지 됐는지 몰라 다시 보내면 위험한 실패의 이유 (기록 retry_stopped).
+    LATE_RESULT = 제한 시간 뒤 도착한 결과, TIMEOUT = 백엔드 호출이 제한 시간에 끝나지 않아 취소 요청함."""
 
-    def __init__(self, step_id: str, code: str, retryable: bool = True):
+    def __init__(self, step_id: str, code: str, no_retry: str | None = None):
         super().__init__(f"{step_id}: {code}")
-        self.step_id, self.code, self.retryable = step_id, code, retryable
+        self.step_id, self.code, self.no_retry = step_id, code, no_retry
 
 
 class Halted(Exception):
@@ -237,9 +238,9 @@ class Runner:
                 self._dispatch(step, blackboard, record, records, self.clock())
             except StepFailed as e:
                 failure = e
-                if not e.retryable:             # 늦게 온 결과: 동작이 실제로 끝났을 수 있어 다시 보내지 않음
+                if e.no_retry:                  # 결과 불확실: 동작이 실제로 끝났을 수 있어 다시 보내지 않음
                     if attempt < max_attempts:
-                        record["retry_stopped"] = "LATE_RESULT"
+                        record["retry_stopped"] = e.no_retry
                     break
                 continue
             except Halted as e:                 # retry·skip·safe_home 을 거치지 않음
@@ -286,7 +287,7 @@ class Runner:
         """결과가 온 뒤 걸린 시간을 판정. 이때는 동작이 이미 끝났을 수 있으므로 재시도하지 않는 TIMEOUT."""
         timeout = step.get("timeout_sec")
         if timeout is not None and self.clock() - attempt_started > timeout:
-            raise StepFailed(step["id"], "TIMEOUT", retryable=False)
+            raise StepFailed(step["id"], "TIMEOUT", no_retry="LATE_RESULT")
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
                   attempt_started: float) -> None:
@@ -315,7 +316,9 @@ class Runner:
         if not result.success:
             if result.error_code in HALT_CODES:
                 raise Halted(step["id"], result.error_code)
-            raise StepFailed(step["id"], result.error_code or "ACTION_FAILED")
+            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음
+            raise StepFailed(step["id"], result.error_code or "ACTION_FAILED",
+                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" else None)
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
         record["output"] = result.output
         if "output" in step:

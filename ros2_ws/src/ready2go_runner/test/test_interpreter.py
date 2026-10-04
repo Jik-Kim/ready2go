@@ -417,6 +417,15 @@ def test_late_success_is_not_retried():
     assert result.steps[0]["retry_stopped"] == "LATE_RESULT"
 
 
+def test_backend_timeout_is_not_retried():
+    # #10: Skill goal 에 제한 시간 칸이 없어 클라이언트가 시간 초과 시 취소 요청 후 TIMEOUT → 결과 불확실
+    fake = FakeBackend({"drawer_control": [ActionResult(False, error_code="TIMEOUT"), ActionResult(True)]})
+    result = Runner(fake).run(timed_task(timeout_sec=30, on_failure="retry", retry=1))
+    assert (result.overall_status, result.error_code) == ("FAILED", "TIMEOUT")
+    assert [a for a, _ in fake.calls].count("drawer_control") == 1
+    assert result.steps[0]["retry_stopped"] == "TIMEOUT"
+
+
 def test_backend_failure_is_still_retried_with_timeout():
     # 백엔드가 실패를 돌려준 경우(동작이 끝나지 않음)는 기존대로 재시도
     clock = FakeClock()
