@@ -12,6 +12,8 @@
 | yaw 비교 실험 | (이슈 [#62](https://github.com/Jik-Kim/ready2go/issues/62) YOLO-OBB, [#63](https://github.com/Jik-Kim/ready2go/issues/63) SAM2) | 데모 경로 밖. 정답 yaw 기록법은 `capture_session.py --gt-yaw-method`로 방법만 `session.yaml`에 남기고 실제 방법(각도 지그/격자 시트)은 #62에서 정한다 `[팀 확정 필요]`. OBB 라벨은 현재 detect 형식과 공존해야 하므로 `build_dataset.py`에 라벨 형식 선택(detect/obb)을 추가하는 방향 |
 | 점검용 | `python3 tools/yolo/make_synthetic.py` | 합성 데이터. **파이프라인 점검 전용**, 학습 결과를 모델로 쓰지 않음 |
 
+촬영 계획표와 촬영 전 점검 목록: [shooting_plan.md](shooting_plan.md)
+
 ## 점검 결과 [실측 10/03, PC1 RTX 5060, yolo-detection 컨테이너]
 - GPU: torch 2.11.0+cu128, `sm_120` 지원, CUDA 행렬 연산 정상 (#14 "GPU 호환 확인" 항목, RTX 5060).
 - 합성 3클래스(세션 4개×20장, 검증 1세션)로 15 epoch 학습 약 7초, 검증 mAP50 0.908 — 파이프라인 동작 확인용 숫자일 뿐 모델 성능이 아님.
