@@ -98,19 +98,22 @@ class Runner:
         self._records: list[dict] = []
         self._log_errors: list[str] = []
         self._halt = threading.Event()          # 중단 잠김 (다른 스레드의 ROS 서비스 콜백에서 halt() 호출)
+        self._halt_lock = threading.Lock()      # halt() 와 effect 반영(중단 확인 → 상태 갱신)이 서로 끼어들지 않게
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
 
     def halt(self, code: str = HALTED) -> None:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
-        if not self._halt.is_set():
-            self._halt_code = code
-        self._halt.set()
+        with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
+            if not self._halt.is_set():
+                self._halt_code = code
+            self._halt.set()
 
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
-        self._halt_code = None
-        self._halt.clear()
+        with self._halt_lock:
+            self._halt_code = None
+            self._halt.clear()
 
     @property
     def halted(self) -> bool:
@@ -351,11 +354,11 @@ class Runner:
         scope = {**blackboard, **params}        # expand 의 $drawer_id·$scan 등은 스킬 안에서만 보임
         for i, sub in enumerate(skill.get("expand", []), 1):
             self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
-        self._check_halt(step["id"])            # 마지막 동작 중 중단 요청 → effect 반영 안 함 (PR #64 E 리뷰)
-        self._check_timeout(step, attempt_started)
-
-        self._state, diff = ontology.apply(self._state, skill.get("effect", []), params)
-        record["state_diff"] = diff
+        with self._halt_lock:                   # 중단 확인과 반영 사이에 halt() 가 끼어들 수 없음 (PR #64 E 리뷰)
+            self._check_halt(step["id"])        # 반영 전 중단 요청 → effect 반영 안 함
+            self._check_timeout(step, attempt_started)
+            self._state, diff = ontology.apply(self._state, skill.get("effect", []), params)
+        record["state_diff"] = diff             # 반영 뒤 들어온 중단은 다음 경계(스텝 시작·실행 끝)에서 ABORTED
 
     def _run_expanded(self, child: dict, step: dict, scope: dict, records: list[dict],
                       attempt_started: float) -> None:

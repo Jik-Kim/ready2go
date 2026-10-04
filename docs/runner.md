@@ -85,7 +85,7 @@
 * `abort`로 `sequence`가 중단되면 `finally`가 실행되고 `overall_status = FAILED`.
 * **비상정지(E-stop)로 인한 `ABORTED`에서는 `finally`의 로봇 동작을 실행하지 않음.** 사람이 상태를 확인한 뒤 재개 명령으로 복구함.
 * `ABORTED` 경로: 백엔드가 `ESTOP`으로 실패하거나 Runner `halt()`(`/runner/estop`·음성 "멈춰")가 호출되면 `retry`·`skip`·`safe_home`을 적용하지 않고 즉시 중단. `halt()`는 다음 스텝 시작 전에 적용(진행 중 동작 취소는 백엔드 책임). `finally`는 로봇을 움직이지 않는 동작(`speak`·`query_ontology`·`update_ontology`·`set_var`·`if`)만 실행하고 나머지는 `SKIPPED`로 기록(허용 목록이라 새 동작은 기본 생략). 다른 실패와 겹치면 `ABORTED`가 우선. 중단 요청은 스텝 시작·재시도·`safe_home` 직전마다 확인.
-  * **중단과 결과 반영의 경계** (PR #64 E 리뷰): 중단 요청이 결과 반영 전에 들어오면 반영하지 않음. `skill`은 `effect` 직전에 확인해 상태를 바꾸지 않고 스킬을 `FAILURE`(`HALTED`)로 기록(하위 원자 동작은 받은 응답대로 기록). 원자 동작은 응답대로 기록하되 다음 동작을 보내지 않음. 마지막 스텝 도중의 중단도 `COMPLETED`가 아니라 `ABORTED`. 반영되지 않은 결과는 사람이 확인한 뒤 재개(중단 잠김).
+  * **중단과 결과 반영의 경계** (PR #64 E 리뷰): 중단 요청이 결과 반영 전에 들어오면 반영하지 않음. `skill`은 `effect` 직전에 확인해 상태를 바꾸지 않고 스킬을 `FAILURE`(`HALTED`)로 기록(하위 원자 동작은 받은 응답대로 기록). 원자 동작은 응답대로 기록하되 다음 동작을 보내지 않음. 마지막 스텝 도중의 중단도 `COMPLETED`가 아니라 `ABORTED`. 반영되지 않은 결과는 사람이 확인한 뒤 재개(중단 잠김). `halt()`와 effect 반영(중단 확인 → 상태 갱신)은 같은 잠금으로 묶어, 다른 스레드의 중단 요청은 반영 전이면 반영하지 않고 반영 중이면 반영이 끝난 뒤 적용(그 스킬은 완료로 기록).
 * **중단 잠김**: `ABORTED` 뒤에는 Runner `resume()`(사람이 상태 확인 후 재개 명령)을 부르기 전까지 새 태스크를 로봇 동작 없이 `ABORTED`로 거절하고, 처음 멈춘 이유(`ESTOP`/`HALTED`)를 돌려줌.
 * `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
