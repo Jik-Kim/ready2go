@@ -7,6 +7,7 @@
   NOT_ON_FLOOR         top_z 가 물체 높이보다 커서 다른 물체 위에 있음(P1은 거부, top_z 기준 파지는 P2)
 다시 인식은 스킬이 아니라 태스크(C)가 한다. 허용 오차는 params/skills.yaml 에서 받는다 [팀 확정 필요].
 """
+import math
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
@@ -20,6 +21,11 @@ NOT_ON_FLOOR = "NOT_ON_FLOOR"
 class GuardError:
     error_code: str
     reason: str
+
+
+def _finite(*values) -> bool:
+    """모두 bool이 아닌 유한한 숫자인지. NaN·inf는 비교가 항상 False라 그대로 쓰면 확인을 통과해 버린다 (#70 D 리뷰)."""
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
 
 def expected_tool(meta: Mapping) -> tuple:
@@ -43,8 +49,9 @@ def check_tool(current_tcp: Optional[str], current_tool: Optional[str],
 def check_travel(displacement_m: Optional[float], tf_at_travel_m: float,
                  tolerance_m: float) -> Optional[GuardError]:
     """마지막 `drawer_control` 결과의 `drawer_displacement`가 `tf_at_travel_m` 허용 오차 안인지. 값이 없으면 거부."""
-    if displacement_m is None:
-        return GuardError(DRAWER_NOT_AT_TRAVEL, "서랍 인출 거리 값 없음")
+    if not _finite(displacement_m, tf_at_travel_m, tolerance_m):
+        return GuardError(DRAWER_NOT_AT_TRAVEL,
+                          f"인출 거리 값 없음·비정상 ({displacement_m!r}, 기준 {tf_at_travel_m!r}, 허용 {tolerance_m!r})")
     if abs(displacement_m - tf_at_travel_m) > tolerance_m:
         return GuardError(DRAWER_NOT_AT_TRAVEL,
                           f"인출 {displacement_m * 1000:.1f} mm, 기준 {tf_at_travel_m * 1000:.1f} mm")
@@ -62,8 +69,10 @@ def check_yaw(target: Mapping) -> Optional[GuardError]:
 def check_on_floor(target: Mapping, height_m: float, tolerance_m: float) -> Optional[GuardError]:
     """top_z − 물체 높이(온톨로지 size_m[2])가 허용 오차보다 크면 다른 물체 위. top_z 가 없으면 거부."""
     top_z = target.get("top_z")
-    if not isinstance(top_z, (int, float)) or isinstance(top_z, bool):
-        return GuardError(NOT_ON_FLOOR, f"top_z 없음 ({top_z!r})")
+    if not _finite(top_z, height_m, tolerance_m):
+        return GuardError(NOT_ON_FLOOR, f"top_z·높이 값 없음·비정상 (top_z {top_z!r}, 높이 {height_m!r}, 허용 {tolerance_m!r})")
+    if top_z < -tolerance_m:
+        return GuardError(NOT_ON_FLOOR, f"top_z {top_z * 1000:.1f} mm — 바닥 아래라 측정 오류")
     if top_z - height_m > tolerance_m:
         return GuardError(NOT_ON_FLOOR,
                           f"top_z {top_z * 1000:.1f} mm > 높이 {height_m * 1000:.1f} mm + {tolerance_m * 1000:.1f} mm")
