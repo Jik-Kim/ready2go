@@ -6,7 +6,7 @@
 ## 지금 상태
 - **#9 완료** (PR #27 머지, [FR-PLN-01](../../docs/requirements.md#fr-pln-01) 중 실행기 부분): `ready2go_runner/core/` 의 variables·conditions·validation·interpreter. sequence·if·set_var·on_failure·finally·timeout_sec, 실행 전 검사, E-stop·halt → `ABORTED`(retry·skip·safe_home 미적용, finally 는 비동작만), 중단 잠김 → `resume()` 전까지 거절, 내부 에러도 `INTERNAL_ERROR` 로 finally 보장. 원자 동작은 `execute(action, params, timeout_sec) → ActionResult` 로 위임.
 - **#3 완료** (PR #40 머지 10/03, `Closes #3, #34`): `dev`·`real`(PC2)·`sim`(PC1) 기동, PC1↔PC2 컨테이너·호스트 송수신, PC2 `tf2_echo base_link wrist_cam_color_optical_frame` 확인(A·B). bringup 고정 TF(`static_tf.py`, NaN·무한대 거부), ros2-core `/colcon` 분리, MongoDB 7.0. sim 드라이버·에뮬레이터 버전 불일치는 P2(B).
-- **#12 구현 완료, PR 준비** (브랜치 `feat/c-logstore`, [FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-LOG-01](../../docs/requirements.md#fr-log-01)·[NFR-DB-01](../../docs/requirements.md#nfr-db-01)). PR #47(로그만)은 닫고 스킬까지 묶어 다시 올림.
+- **#12 완료** (PR #64 E 머지 10/04 05:35Z, #46 과 함께 main 반영. 후속 PR: E 리뷰의 halt·문서 수정, 브랜치 `fix/c-runner-halt-effect`, [FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-LOG-01](../../docs/requirements.md#fr-log-01)·[NFR-DB-01](../../docs/requirements.md#nfr-db-01)).
   - 실행 이력: `core/log_records.py`·`core/logstore.py` — MongoDB `cobot2` `runs`·`steps`, DB 실패 시 그 실행 전체를 JSONL 로 폴백, 기록 실패에도 실행 계속(`log_errors`).
   - 스킬: 태스크 스텝 `skill`(스키마·예시 `task_skill_steps.json`), Runner 가 온톨로지(E) 상태를 들고 `pre` → `PRE_UNMET` / `expand`(`<id>.e<n>`) / `effect`. 실행 전 검사로 없는 스킬·composite·파라미터 이름 거절. E 의 `ontology.check`·`apply` 사용(E 코드 수정 없음).
   - 시험: 호스트 pytest 전체 통과(MongoDB 테스트는 건너뜀), ros2-core 컨테이너 + MongoDB 7.0 에서 건너뜀 없이 통과. 예시 태스크로 시계·지갑·미발견·비상정지·재실행 확인.
@@ -28,7 +28,7 @@
 | PC1↔PC2 통신 | 공용 Wi-Fi `Rokey_A`, `cyclonedds.multi.xml`(멀티캐스트 끔). PC2 `joint_states` 100 Hz → PC1 86~96 Hz | [실측] A·B 10/03, PR #40 |
 
 ## 막힌 점 · 필요한 도움
-- E·D: #12 PR #64 승인(계약 변경 → E 포함 2명). E Request changes(마지막 동작 중 halt → effect 반영, Phase 문구) 반영 완료.
+- E: #12 후속 PR 리뷰 — PR #64 의 Request changes(마지막 동작 중 halt → effect 반영, Phase 문구)를 고쳤으나 수정 전 커밋으로 머지되어 후속 PR 로 올림.
 - E 권고(10/04 PR #64, 새 설계 제안이며 합의 아님) → 후속:
   - `NOT_VISIBLE`: A 는 미발견 `success + target_found=false` 유지, E 가 `pick` 스킬에 미발견 분기·오류 의미 정의, C 가 Runner 에서 실행·기록. `VAR_UNDEFINED` 일괄 변환은 하지 않음. 실패 TTS 후속 확인.
   - `resume()`: P1 은 B 가 실물 확인·기준 상태 복구 → C 가 Runner 상태를 맞춘 뒤 재개하는 명시적 절차 (#10 재개 서비스·상태 설정). 자동 검증·불일치 조정은 FR-ONT-02(P2)·FR-REC-01(P3).
@@ -38,7 +38,7 @@
 - B (#17 때): `finally` 서랍 닫기 실패 시 홈 복귀 여부(`on_failure` skip/abort).
 
 ## 다음 할 일
-- [ ] #12 PR #64 승인 → 머지 (`Closes #12`)
+- [ ] #12 후속 PR (halt·effect 경계, Phase 문구) 리뷰 → 머지
 - [ ] #10: mock 백엔드 + Skill 액션 클라이언트, `/runner/estop` → `Runner.halt()`, 재개 → `Runner.resume()` 연결(재개 서비스는 ICD 추가 필요), 백엔드 비상정지 시 `ESTOP` 반환, 온톨로지 파일 로딩(#46 머지 후 `snapshots/initial_state.json`)·`/robot_state` 발행, 재개 절차(상태 맞춘 뒤 `resume()`), CI 에 MongoDB 테스트, Docker 가 만든 root 소유 `logs/` 정리
 
 ## 철회한 결론
