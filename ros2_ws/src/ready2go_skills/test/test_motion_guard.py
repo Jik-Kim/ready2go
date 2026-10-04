@@ -113,3 +113,26 @@ def test_precheck_nudge_skips_floor_check():
     assert mg.precheck_nudge(target=on_top, displacement_m=TF_AT, tf_at_travel_m=TF_AT, params=PARAMS) is None
     assert mg.precheck_nudge(target=_pose(yaw_valid=False, yaw=0.0), displacement_m=TF_AT,
                              tf_at_travel_m=TF_AT, params=PARAMS).error_code == mg.YAW_INVALID
+
+
+# ---- 비유한 수치는 통과시키지 않음 (#70 D 리뷰: NaN 비교가 항상 False라 fail-open)
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize("disp,ref,tol", [(NAN, TF_AT, 0.005), (INF, TF_AT, 0.005), (-INF, TF_AT, 0.005),
+                                          (TF_AT, NAN, 0.005), (TF_AT, TF_AT, NAN), (TF_AT, TF_AT, INF),
+                                          (True, TF_AT, 0.005), ("0.226", TF_AT, 0.005)])
+def test_non_finite_travel_is_rejected(disp, ref, tol):
+    assert mg.check_travel(disp, ref, tol).error_code == mg.DRAWER_NOT_AT_TRAVEL
+
+
+@pytest.mark.parametrize("top_z,height,tol", [(NAN, ERASER_H, 0.01), (INF, ERASER_H, 0.01), (-INF, ERASER_H, 0.01),
+                                              (0.0115, NAN, 0.01), (0.0115, ERASER_H, NAN), (0.0115, ERASER_H, INF),
+                                              (-0.05, ERASER_H, 0.01)])          # 바닥 아래 top_z
+def test_non_finite_or_below_floor_top_z_is_rejected(top_z, height, tol):
+    assert mg.check_on_floor({**TARGET, "top_z": top_z}, height, tol).error_code == mg.NOT_ON_FLOOR
+
+
+def test_precheck_pick_rejects_nan_everywhere():
+    assert _pick(displacement=NAN).error_code == mg.DRAWER_NOT_AT_TRAVEL
+    assert _pick({**TARGET, "top_z": NAN}).error_code == mg.NOT_ON_FLOOR
