@@ -6,6 +6,7 @@
 판정은 마지막 줄 `[verify] 결과: 전부 통과` / `실패 [...]` 로 한다. (SimulationApp.close() 가 프로세스를 그 자리에서 끝내서 뒤의 sys.exit 이 실행되지 않으므로
 프로세스 종료 코드는 항상 0 이다 [실측 10/03]. 자동 검사는 로그의 결과 줄을 찾아 판정할 것.)
 """
+import os
 import sys
 from pathlib import Path
 
@@ -20,12 +21,12 @@ from isaacsim.core.api import World  # noqa: E402
 from pxr import Gf, Usd, UsdGeom, UsdPhysics  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-SCENE = ROOT / "sim/scenes/ready2go_t1.usd"
+SCENE = Path(os.environ.get("READY2GO_SCENE", ROOT / "sim/scenes/ready2go_t1.usd"))
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
-PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+PLACES = yaml.safe_load(Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml")).read_text(encoding="utf-8"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _dims import cabinet_missing  # noqa: E402
+from _dims import cabinet_missing, drawer_pose_from_tray, drawer_tf, quat_to_R  # noqa: E402
 fails = []
 
 
@@ -52,7 +53,7 @@ need = ["/World/m0609/base_link", "/World/m0609/link_6", "/World/m0609/onrobot_r
         "/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera",
         "/World/workspace/table", "/World/physicsScene"]
 if has_cabinet:
-    need += ["/World/workspace/shelf", "/World/workspace/cabinet/drawer_top_tray/handle", "/World/workspace/cabinet/drawer_top_joint",
+    need += ["/World/workspace/cabinet/shelf", "/World/workspace/cabinet/drawer_top_tray/handle", "/World/workspace/cabinet/drawer_top_joint",
              "/World/workspace/cabinet/drawer_bottom_tray/handle", "/World/workspace/cabinet/drawer_bottom_joint"]
 elif missing:
     print("[SKIP] 서랍장 없음 — 서랍 값이 아직 비어 있어 의도적으로 생략된 상태입니다. 필요한 항목: " + "; ".join(missing), flush=True)
@@ -105,15 +106,30 @@ if has_cabinet:
         return world_T(stage, tray)[:3, 3] - t0
 
 
+    axis = world_T(stage, "/World/workspace/cabinet")[:3, 1]      # 서랍이 열리는 방향 = 서랍장 +y 의 월드 방향 (tf 로 회전돼 있을 수 있다)
+    along = lambda d: float(d @ axis)                              # noqa: E731
+    across = lambda d: float(np.linalg.norm(d - along(d) * axis))  # noqa: E731
     d0 = run(0.0, 120)
     check("닫힘 유지 (목표 0)", np.abs(d0).max() < 1e-3, f"(이동 {np.round(d0 * 1000, 2)} mm)")
     d1 = run(travel)
-    check("목표 최대 인출 → 최대 거리만큼 인출", abs(d1[1] - travel) < 2e-3, f"(y {d1[1] * 100:.2f} cm)")
-    check("다른 축 이동 없음", abs(d1[0]) < 1e-3 and abs(d1[2]) < 1e-3, f"(x {d1[0] * 1000:.2f} mm, z {d1[2] * 1000:.2f} mm)")
+    check("목표 최대 인출 → 최대 거리만큼 인출", abs(along(d1) - travel) < 2e-3, f"(인출 방향 {along(d1) * 100:.2f} cm)")
+    check("다른 축 이동 없음", across(d1) < 1.5e-3, f"(인출 방향 밖으로 {across(d1) * 1000:.2f} mm)")
+    # #6 3점 터치 결과(places.yaml drawer_top.tf)와 최대 인출 상태의 서랍 좌표계가 일치하는지. 값이 아직 null 이면 건너뜀
+    tf = drawer_tf(PLACES)
+    if tf is None:
+        print("[SKIP] 서랍 tf 일치 검사 — places.yaml drawer_top.tf 가 아직 null (3점 터치 결과 대기)", flush=True)
+    else:
+        in_d, in_w = PLACES["drawer_top"]["interior_m"][0], PLACES["drawer_top"]["interior_m"][1]
+        Tw = world_T(stage, tray)
+        R_d, o_d = drawer_pose_from_tray(Tw[:3, :3].tolist(), Tw[:3, 3].tolist(), in_w, in_d)
+        R_tf = np.array(quat_to_R(tf[1]))
+        dp = float(np.linalg.norm(np.array(o_d) - np.array(tf[0])))
+        dang = float(np.degrees(np.arccos(np.clip((np.trace(np.array(R_d).T @ R_tf) - 1) / 2, -1, 1))))
+        check("최대 인출 상태 서랍 좌표계 = places.yaml drawer_top.tf", dp < 1e-3 and dang < 0.1, f"(원점 차이 {dp * 1000:.3f} mm, 회전 차이 {dang:.4f}°)")
     d2 = run(travel + 0.10)
-    check("한계 초과 목표(최대 인출 + 10 cm)는 최대 인출에서 멈춤", abs(d2[1] - travel) < 2e-3, f"(y {d2[1] * 100:.2f} cm)")
+    check("한계 초과 목표(최대 인출 + 10 cm)는 최대 인출에서 멈춤", abs(along(d2) - travel) < 2e-3, f"(인출 방향 {along(d2) * 100:.2f} cm)")
     d3 = run(0.0)
-    check("다시 닫힘", np.abs(d3).max() < 1.5e-3, f"(y {d3[1] * 1000:.2f} mm)")
+    check("다시 닫힘", np.abs(d3).max() < 1.5e-3, f"(이동 {np.round(d3 * 1000, 2)} mm)")
 else:
     for _ in range(360):   # 서랍이 없어도 로봇이 중력에 무너지지 않는지는 확인
         world.step(render=False)

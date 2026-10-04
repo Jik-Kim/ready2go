@@ -40,3 +40,49 @@ def test_unsupported_tier_count_blocks_cabinet():
 
 def test_empty_skeleton_lists_every_item():
     assert len(cabinet_missing({"drawer_unit": {}, "drawer_top": {}, "plan_view_cm": {}}, {"drawer_top": {}})) == 16
+
+
+# ---- 서랍 tf (#6 3점 터치) ----
+import math  # noqa: E402
+
+import pytest  # noqa: E402
+from _dims import cabinet_pose_from_tf, drawer_pose_from_tray, drawer_tf  # noqa: E402
+
+Q_NEG90Z = [0, 0, -math.sqrt(0.5), math.sqrt(0.5)]   # 서랍 x = base -y, 서랍 y = base +x
+
+
+def _places(tf=None, at=None):
+    return {"drawer_top": {"tf": {"translation_m": tf, "quaternion_xyzw": Q_NEG90Z if tf else None}, "tf_at_travel_m": at}}
+
+
+def test_tf_null_means_not_measured_yet():
+    assert drawer_tf(_places()) is None
+
+
+def test_tf_without_travel_distance_is_an_error():
+    with pytest.raises(ValueError):
+        drawer_tf(_places([0.5, -0.1, 0.2], None))
+
+
+def test_tf_half_filled_is_an_error():
+    p = _places([0.5, -0.1, 0.2], 0.225); p["drawer_top"]["tf"]["quaternion_xyzw"] = None
+    with pytest.raises(ValueError):
+        drawer_tf(p)
+
+
+def test_round_trip_tf_to_scene_and_back_at_full_travel():
+    t, at = [0.5, -0.1, 0.2], 0.225
+    in_w, in_d, y_c, z_ref = 0.295, 0.205, 0.0585, 0.1
+    R, o = cabinet_pose_from_tf(t, Q_NEG90Z, at, in_w, in_d, y_c, z_ref)
+    # 최대 인출: 상자가 서랍장 +y 로 at 만큼 나온 위치
+    tray = [o[i] + sum(R[i][k] * v for k, v in enumerate([0.0, y_c + at, z_ref])) for i in range(3)]
+    Rd, od = drawer_pose_from_tray(R, tray, in_w, in_d)
+    assert od == pytest.approx(t, abs=1e-9)
+    assert Rd[0][0] == pytest.approx(0, abs=1e-9) and Rd[1][0] == pytest.approx(-1)   # 서랍 x = base -y
+
+
+def test_closed_position_is_origin_plus_travel_along_x():
+    # 서랍 x = base -y 이므로 닫힘 원점은 열린 원점보다 base -y 쪽(안쪽)
+    R, o = cabinet_pose_from_tf([0.5, -0.1, 0.2], Q_NEG90Z, 0.225, 0.295, 0.205, 0.0, 0.0)
+    closed_origin_in_base = [o[i] + R[i][0] * 0.295 / -2 + R[i][1] * 0.205 / 2 for i in range(3)]
+    assert closed_origin_in_base[1] == pytest.approx(-0.1 - 0.225)
