@@ -71,3 +71,37 @@ def test_tray_slots_split_bottom_evenly():
 def test_non_finite_target_rejected(x, yaw):
     with pytest.raises(ValueError):
         pp.plan_drawer_grasp(target=_target(x=x, yaw=yaw), size_m=ERASER, tf=TF, params=P)
+
+
+# ---- tf·파라미터·결과도 fail-closed (#71 D 리뷰)
+NAN = float("nan")
+
+
+@pytest.mark.parametrize("key,val", [("tcp_above_top_m", NAN), ("open_margin_m", NAN), ("min_tcp_above_floor_m", 0.0),
+                                     ("max_open_width_m", 0.5), ("open_margin_m", -0.01), ("tcp_above_top_m", None)])
+def test_bad_pick_params_rejected(key, val):
+    with pytest.raises(ValueError):
+        pp.plan_drawer_grasp(target=_target(), size_m=ERASER, tf=TF, params={**P, key: val})
+
+
+@pytest.mark.parametrize("tf", [
+    {**TF, "translation_m": [NAN, 0.0, 0.2]},
+    {**TF, "translation_m": [0.2, 0.0]},
+    {**TF, "quaternion_xyzw": [0.0, 0.0, 0.0, 2.0]},     # 길이 1 아님
+    {**TF, "quaternion_xyzw": None},
+])
+def test_bad_tf_rejected(tf):
+    with pytest.raises(ValueError):
+        pp.plan_drawer_grasp(target=_target(), size_m=ERASER, tf=tf, params=P)
+
+
+@pytest.mark.parametrize("size", [[0.05, 0.02, -0.01], [0.05, 0.0, 0.01], [0.05, 0.02, NAN]])
+def test_bad_size_rejected(size):
+    with pytest.raises(ValueError):
+        pp.plan_drawer_grasp(target=_target(), size_m=size, tf=TF, params=P)
+
+
+@pytest.mark.parametrize("args", [([0.166, NAN], 3), ([0.166, 0.1165], 0), ([0.166, 0.1165], 2.5), ([-0.1, 0.1], 3)])
+def test_bad_tray_rejected(args):
+    with pytest.raises(ValueError):
+        pp.slot_centers(*args)
