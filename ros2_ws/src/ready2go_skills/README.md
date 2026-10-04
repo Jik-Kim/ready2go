@@ -41,3 +41,20 @@ cd ~/ready2go/ros2_ws/src/ready2go_skills && python3 -m ready2go_skills.nodes.jo
 - `--rg2-ip`: 생략하면 환경변수 `RG2_HOST`, 둘 다 없으면 그리퍼 버튼만 동작하지 않음
 - 필요 패키지: `python3-tk`, `python3-yaml`
 - **RG2 이중 접속 주의**: 이 창은 RG2 Modbus에 직접 붙는다. `docker compose --profile real up`의 그리퍼 노드(`/gripper/state`, 10 Hz 읽기)와 동시에 써도 되는지 확인 전이므로 **같이 띄우지 않는다** [팀 확정 필요, #69 PM 검토]
+
+## 스킬 서버 (`skill_server`, BACKEND=real)
+Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 이름·형식은 `docs/interfaces.md`·`runner.md` 7.1, C 의 `ready2go_runner/nodes/mock_backend.py`와 같다.
+
+| 동작 | 상태 |
+| :--- | :--- |
+| `move_to_named_pose` | 구현: `config/poses.yaml` 관절각으로 `movej`, 도착 확인 |
+| `drawer_control`·`nudge_object`·`pick_object`·`place_object` | TODO(B) 10/06 실측 후. 지금은 움직이지 않고 `NOT_IMPLEMENTED` |
+
+- 공통 (`core/skill_flow.py`): 취소 요청 → 정지 → `canceled`(그리퍼는 그대로), 안전·비상정지 → `ESTOP`, 움직이기 전 펜던트 TCP·툴 확인 → `TOOL_NOT_SET`
+- 서버 쪽 에러 코드: `UNKNOWN_POSE`·`POSE_NOT_TAUGHT`·`MOVE_REJECTED`·`MOTION_TIMEOUT`·`NOT_REACHED`·`NOT_IMPLEMENTED`·`BAD_PARAMS`·`BACKEND_ERROR` — `runner.md` 7.1 표 반영은 10/06 실물 연결 확인 후
+- 파라미터: `joint_vel_deg_s`(기본 20, 처음은 저속), `joint_acc_deg_s2`, `move_timeout_s`(30), `reach_tol_deg`(0.5), `config_dir`, `dsr_prefix`
+
+```bash
+ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0     # PC2, DSR 드라이버 실행 중
+ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skill "{params_json: '{\"pose_name\": \"home\"}'}"
+```
