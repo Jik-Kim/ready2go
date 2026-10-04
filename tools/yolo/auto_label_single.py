@@ -68,7 +68,6 @@ def main() -> int:
     ap.add_argument("--extend-px", type=int, default=70, help="ROI 가장자리에 닿은 물체를 색 차이로 따라갈 때 ROI 밖으로 보는 범위(px)")
     ap.add_argument("--strong-l", type=float, default=38.0, help="확장용 밝기 차이 문턱")
     ap.add_argument("--strong-c", type=float, default=22.0, help="확장용 색상 차이 문턱")
-    ap.add_argument("--tight", action="store_true", help="박스를 조인다: 색 차이가 큰 픽셀(그림자 제외)로 윤곽을 잡고 여백 1 px")
     ap.add_argument("--exclude", nargs="*", default=[], help="라벨링에서 뺄 이미지 번호 (예: 0017)")
     args = ap.parse_args()
 
@@ -113,13 +112,6 @@ def main() -> int:
             diff = cv2.morphologyEx(diff.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
             near = cv2.dilate(obj, np.ones((41, 41), np.uint8)) > 0   # 뎁스 덩어리에서 약 2 cm 이내의 색 변화만
             obj = cv2.morphologyEx(((obj > 0) | ((diff > 0) & near)).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-        if args.tight and bg_lab is not None:
-            dm = (obj > 0)
-            near2 = cv2.dilate(dm.astype(np.uint8), np.ones((31, 31), np.uint8)) > 0
-            d = lab_img - bg_lab[y0r:y1r, x0r:x1r]
-            strong = (np.abs(d[:, :, 0]) > 38) | (np.hypot(d[:, :, 1], d[:, :, 2]) > 22)      # 밝기 차이가 크거나 색상이 다름(옅은 그림자는 제외)
-            strong = cv2.morphologyEx(strong.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)) > 0
-            obj = cv2.morphologyEx((strong & near2).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
         n, lab, st, _ = cv2.connectedComponentsWithStats(obj)
         if n <= 1:
             review.append((stem, "물체 덩어리 없음"))

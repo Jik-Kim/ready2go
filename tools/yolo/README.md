@@ -6,6 +6,9 @@
 | :--- | :--- | :--- |
 | 촬영 | `python3 tools/yolo/capture_session.py s01_basic --note "배치 메모" --interval 1 --count 30` | 세션 = 배치 하나. 컬러 + 정렬 뎁스를 `data/raw/<세션>/`에 저장. 구독만 하고 로봇은 움직이지 않음. 로봇은 `drawer_top_view` 포즈(B) |
 | 라벨링 | (외부 도구) 결과를 `data/labeled/<세션>/images`, `labels`(YOLO txt)로 | 클래스 id = `config/yolo_classes.txt` 줄 번호. 학습 결과(`metrics.json`)에 사용한 클래스 목록이 기록된다 |
+| 라벨링 보조 | `python3 tools/yolo/auto_label_single.py s01_single_v0` | **한 장에 물품 하나인 세션 전용.** `class_ranges.txt`(번호 구간 ↔ 물품) + 정렬 뎁스 덩어리 + 빈 서랍 배경과의 색 차이로 박스 초안을 만든다. 서랍 바닥 영역(ROI)은 기준 시점 `drawer_top_view` 기준이라 시점 변화 세션에는 쓰지 않는다. `carrot_pen`은 색 분할로 끝까지 따라간다. 박스는 몇 px 넉넉하고, 더 조이면(색 차이만) 흰색·주황색 물체가 잘려서 사람 확인이 필요하다 |
+| 박스 수정 | `python3 tools/yolo/review_boxes.py <세션> --labeled data/labeled --out data/labeled_fixed` | 한 장에 박스 하나인 라벨을 OpenCV 창에서 드래그로 고친다(Enter 확정). 오프라인 대안이며, Roboflow를 쓰면 필요 없다 |
+| Roboflow 복원 | `python3 tools/yolo/import_roboflow.py data/roboflow_export [--dry-run]` | Roboflow YOLOv8 내보내기를 우리 규칙으로 되돌린다: 클래스는 **이름으로** `yolo_classes.txt` 번호에 재매핑, 파일 이름 접두어(`s01_…`)로 세션 복원, 이미지는 원본 PNG. 버전을 만들 때 **Preprocessing(Auto-Orient, Resize)과 Augmentation은 모두 끄고** 내려받는다(좌표가 어긋남). 모르는 클래스 이름·범위 밖 좌표는 쓰기 전에 중단 |
 | 클래스 고정 | `python3 tools/yolo/build_dataset.py --init-classes` | **라벨링 시작 전에 1회.** `config/yolo_classes.txt`(줄 번호 = 클래스 id, 깃으로 추적)를 만든다. 물품을 추가하면 맨 뒤에 덧붙이고 앞 번호는 바꾸지 않는다. **실행 시점**: 물품 목록(이슈 #8 11종)이 온톨로지 `world.items`에 반영(PR #46 머지)된 뒤. 그 전에는 파일이 없어 `main`에서 구성 단계가 중단되는 것이 정상 |
 | 구성 | `python3 tools/yolo/build_dataset.py --val s90_val_a s91_val_b` (고정 파일이 없으면 **중단**, 합성 점검만 `--allow-ontology-order`) | **세션 단위** 분할. 라벨 오류(id 범위·좌표 범위·이미지와 라벨 파일명 불일치)가 있거나 `yolo_classes.txt`에 온톨로지에 없는 이름이 있으면 중단 |
 | 학습·평가 | `python3 tools/yolo/train.py --base <yolov8n.pt> --epochs 100 --name v1` | 검증 세션 mAP50 을 `runs/<name>/metrics.json`에 기록, 0.9 이상이면 통과(결정 #22 제안값 [팀 확정 필요]) |
