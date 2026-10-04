@@ -1,7 +1,7 @@
 # CURRENT — A 김병직
 
 - **담당**: 비전 · Isaac Sim 트윈 · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-04
+- **최종 갱신**: 2026-10-04 (밤)
 
 ## 지금 상태
 - #5 완료: realsense 컨테이너에서 컬러·정렬 뎁스를 `/wrist_cam/...`으로 발행, 수신 확인 (PR #24 머지).
@@ -9,6 +9,10 @@
 - 트윈 T1 씬: 원목 2단 서랍장 씬 복원 완료(PR #49). 상자 2개 각각 Prismatic Joint 0~22.5 cm, 위 서랍 22.5 cm 가동·한계 초과 목표에서 정지 확인, 미러링 통과 [실측 10/03]. 스테이징·전달 트레이는 씬에 없음. 상자 앞·뒤벽·바닥판 등 일부 치수는 [추정]. 서랍장 위치는 PR #55부터 `config/places.yaml` `drawer_top.tf`(+`tf_at_travel_m`, 최대 인출 상태의 서랍 좌표계)에서 읽고, 둘 중 하나라도 비면 임시 배치(tf만 있고 인출 거리가 없으면 오류로 중단). B의 3점 터치 결과(PR #56)가 머지되면 씬이 그 위치로 바뀌므로 재생성·검증 필요.
 - 트윈 T2 미러링은 **P2 선행 구현**(Phase 게이트 리뷰 지적은 있었으나 사용자 판단으로 PR #31 병합, 에뮬레이터 확인): `mirror_joint_states.py`가 `/dsr01/joint_states`(joint_1~6, 라디안, 약 100 Hz)를 받아 관절을 따라가게 함. 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24° [실측 10/03], 사용자가 GUI에서 팔 추종 확인. 그리퍼는 토픽에 없어 미반영(열림 고정으로 닫혀 보이는 문제 해결, PR #41). 실물 미러링은 B의 #4·multi DDS 이후.
 - 벽 인접 물체 밀어오기(`nudge_object`, FR-ACT-05, B 구현 이슈 #37): 문서 반영 완료(FR-ACT-05·AC-ACT-05, runner.md, domain.md 8.5). 서랍 내부 치수 정본은 `config/places.yaml`(새 서랍 실측값 기록됨: 내부 20.5 × 29.5 × 7 cm, 인출 22.5 cm)
+- #14 실물 데이터 수집 완료(10/04): 세션 9개 **239장**(학습 219 / 검증 20), 기준 시점 `drawer_top_view`(최대 인출 22.5 cm), 컬러+정렬 뎁스 [실측]. 라벨링은 Roboflow(자동 라벨 `Claude Opus 5.5 (Boxes)` + 사람 확인)로 끝내고 `tools/yolo/import_roboflow.py`로 우리 규칙(클래스 번호·세션·원본 PNG)에 되돌림. `build_dataset.py --val s90_val_a s91_val_b` 통과. 상세는 `2026-10-04_practice.md`.
+- `inspect_region` pose 정의 확정·계약 반영(PR #61·#65·#66): `position` = YOLO 박스 중심 x·y, z = 0, `yaw` = 긴 변 방향 (−π/2, π/2], 대칭(`size_m` 가로·세로 비 기준) yaw 0, `yaw_valid`(bool), 투영 평면 `z = top_z/2`. 형식 테스트만 완료, Day 5 실제 구현과 #10 Runner 연동은 미검증.
+- 3점 터치 z 오류 발견·정정(PR #58): 측정 때 펜던트 TCP·tool weight가 풀려 z가 TCP 오프셋(228 mm)만큼 높았음 → 트윈 씬이 작업대에서 23 cm 떠 있어 발견 [실측]. 정정 후 `verify_scene` tf 일치 원점 0.024 mm·회전 0.0000°.
+- `drawer_top_view`는 팔이 거의 펴진 자세(J3 ≈ 10°, J5 132.8°)라 Z를 올릴 수 없고(약 +5 mm가 한계) 내리기만 가능, J5 +4°(136.849°)는 이동이 안 됨(사용자 보고, J5 한계 135° 근처로 추정 [미확인]). `jog_gui`의 Z `−` 버튼이 비스듬히 움직인 원인은 단정하지 못함 [미확인]. B에게 전달 필요.
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
@@ -22,8 +26,10 @@
 ## 다음 할 일
 - [x] 5점 `verify.py` 결과 반영 (B 측정, meta accepted)
 - [x] #14 학습 파이프라인 준비: `tools/yolo/`(촬영·데이터셋 구성·학습), RTX 5060 CUDA 확인, 합성 데이터로 종단 검증 [실측 10/03]
-- [ ] **일정 변경(PM 10/04)**: 10/05가 공휴일이라 Day 3 일을 오늘(10/04)로 당김. 순서: ① A `drawer_top_view`를 직접교시로 정하고 바로 데이터 수집(1.5~2시간) ② B `drawer_approach`·`tray_view` 교시와 `staging_tray` 3점 터치 ③ A·B `vision_stub` 물체 4개(eraser·car_key·lip_balm·masking_tape) 손끝 터치 실측 ④ B `drawer_control` 실물. 남으면 10/06 오전 최우선, 학습은 10/06, 1차 점검 10/07 그대로. 촬영 계획·점검 목록: `tools/yolo/shooting_plan.md`
-- [ ] #14 실물 데이터 수집(로봇 슬롯)·라벨링·YOLO 학습. 물품 11종·치수는 이슈 #8에 기록됨(클래스 ID `airpods_case`·`caramel_box`·`car_key`·`eraser`·`lip_balm`·`carrot_pen`·`masking_tape`·`toy_car`·`toy_wrench`·`toy_hammer`·`cover_plate`). **온톨로지 `world.items` 갱신(E) 후 `build_dataset.py --init-classes`로 클래스 번호를 고정하고 라벨링 시작** — 순서가 바뀌면 라벨 번호가 어긋남
+- [x] **일정 변경(PM 10/04)**: 10/05 공휴일이라 Day 3의 데이터 수집을 10/04로 당겨 완료(위 참고). 남은 로봇 순서(B `tray_view` 교시, `staging_tray`, `vision_stub` 물체 4개 손끝 실측, `drawer_control` 실물)는 B 소관.
+- [x] #14 실물 데이터 수집·라벨링(10/04). `config/yolo_classes.txt` 11종 그대로 사용(`--init-classes` 실행 안 함).
+- [ ] #14 YOLO 학습·평가(10/06): `vision` 컨테이너(GPU) + 기본 가중치 `yolov8n.pt` 내려받기는 사용자 승인 필요. 통과 기준 mAP50 0.9는 [팀 확정 필요]. 검증 인스턴스가 클래스당 5~7개로 적어 **10 미만이면 `s92_val_c`로 보충**. `s02_spread`는 계획표 1~5번 줄 조합만 반복해 찍음(조합 5가지) → 공존 편향 주의.
+- [ ] 도구 PR: 브랜치 `feat/a-auto-label`(`auto_label_single.py`, `review_boxes.py`, `import_roboflow.py`)을 PR로 올림(미작성). 단독 배치 자동 라벨은 뎁스 덩어리 + 빈 서랍 배경 색 차이, 가장자리에 닿는 물체는 ROI 밖까지 확장 필요(벽 인접 물체가 ROI에 잘리는 것 발견).
 - [x] #18 `inspect_region` stub (설정 파일 좌표 응답, 서비스 호출 확인 10/03) — 설정 `ready: false`로 배포(실측 전 STUB_NOT_READY로 차단, PR #33 리뷰). 좌표를 B와 실물로 재서 교체한 뒤 `ready: true`, `pose` 형식 B와 합의 필요
 - [ ] #18 V2 (Day 5): YOLO+뎁스. **깊이 0·결손 픽셀 검사와 전용 `error_code`(예: `DEPTH_INVALID`) 필수** — B가 원본 `verify.py`에서 깊이 0 클릭 시 팔이 카메라 위치로 들어 올려진 사례 2회. 미발견(`success=true`, `target_found=false`)과 구분. 높이 오프셋(카메라 면 높이 + 약 10 mm)은 B 쪽에서 처리
 - [x] (P2 선행, 병행 가능) 트윈 T1 씬: 실측 치수로 서랍장 씬 구성
