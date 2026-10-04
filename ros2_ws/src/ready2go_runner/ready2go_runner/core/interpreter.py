@@ -65,11 +65,17 @@ ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontolo
 UNKNOWN_SKILL = "UNKNOWN_SKILL"         # 온톨로지에 없거나 primitive 가 아닌 스킬 (P1 은 primitive 만)
 BAD_SKILL_PARAMS = "BAD_SKILL_PARAMS"   # 스킬 정의의 params 가 빠짐
 PRE_UNMET = "PRE_UNMET"                 # pre 조건 불충족 → 로봇 동작을 보내지 않음
+# 스킬 재시도 (P1): 앞 동작이 실행됐거나 끝났을 수 있으면 다시 보내지 않는다(PR #64 D 리뷰). 다만 백엔드가
+# 로봇을 움직이지 않았음을 보장하는 실패이고, 그 시도에서 앞서 보낸 동작도 팔을 움직이지 않았으면 재시도한다.
+NO_MOTION_CODES = {"YAW_INVALID"}       # 모션 계획 전에 거절 (B PR #66, PR #65 합의: 태스크에서 재인식 1회)
+NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region"}   # 팔을 움직이지 않는 원자 동작
 
 
 class StepFailed(Exception):
     """no_retry: 동작이 어디까지 됐는지 몰라 다시 보내면 위험한 실패의 이유 (기록 retry_stopped).
-    LATE_RESULT = 제한 시간 뒤 도착한 결과, TIMEOUT = 백엔드 호출이 제한 시간에 끝나지 않아 취소 요청함."""
+    LATE_RESULT = 제한 시간 뒤 도착한 결과, TIMEOUT = 백엔드 호출이 제한 시간에 끝나지 않아 취소 요청함,
+    MOTION_UNCERTAIN = 스킬 하위 동작 실패 중 로봇이 움직이지 않았음이 보장되지 않음,
+    NOT_RETRYABLE = 스킬 단계의 실패 코드가 재시도 허용 목록(NO_MOTION_CODES)에 없음 (PRE_UNMET 등)."""
 
     def __init__(self, step_id: str, code: str, no_retry: str | None = None):
         super().__init__(f"{step_id}: {code}")
@@ -235,8 +241,6 @@ class Runner:
             return
         policy = step.get("on_failure", "abort")
         max_attempts = 1 + (step.get("retry", 0) if policy == "retry" else 0)
-        if "skill" in step:                     # P1: 물리 결과를 확인(verify, P2)하기 전에는 스킬 전체를 다시 보내지 않음
-            max_attempts = 1                    # 실행 전 검사가 막지만, 검사를 거치지 않아도 재실행하지 않도록 한 번 더
         started = self.clock()
 
         for attempt in range(1, max_attempts + 1):
@@ -249,6 +253,8 @@ class Runner:
                 self._dispatch(step, blackboard, record, records, self.clock())
             except StepFailed as e:
                 failure = e
+                if "skill" in step and e.no_retry is None and e.code not in NO_MOTION_CODES:
+                    e.no_retry = "NOT_RETRYABLE"    # 스킬은 로봇이 움직이지 않았음이 보장된 실패만 재시도
                 if e.no_retry:                  # 결과 불확실: 동작이 실제로 끝났을 수 있어 다시 보내지 않음
                     if attempt < max_attempts:
                         record["retry_stopped"] = e.no_retry
@@ -366,8 +372,15 @@ class Runner:
             raise StepFailed(step["id"], PRE_UNMET)
 
         scope = {**blackboard, **params}        # expand 의 $drawer_id·$scan 등은 스킬 안에서만 보임
+        moved = False                           # 이 시도에서 팔을 움직이는 동작을 이미 보냈는지
         for i, sub in enumerate(skill.get("expand", []), 1):
-            self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
+            try:
+                self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
+            except StepFailed as e:
+                if e.no_retry is None and moved:
+                    e.no_retry = "MOTION_UNCERTAIN"   # 앞서 팔을 움직였으면 어떤 실패든 스킬을 다시 보내지 않음
+                raise
+            moved = moved or sub["action"] not in NON_MOTION_ACTIONS
         with self._halt_lock:                   # 중단 확인과 반영 사이에 halt() 가 끼어들 수 없음 (PR #64 E 리뷰)
             self._check_halt(step["id"])        # 반영 전 중단 요청 → effect 반영 안 함
             self._check_timeout(step, attempt_started)

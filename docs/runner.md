@@ -89,14 +89,14 @@
 * **중단 잠김**: `ABORTED` 뒤에는 Runner `resume()`(사람이 상태 확인 후 재개 명령)을 부르기 전까지 새 태스크를 로봇 동작 없이 `ABORTED`로 거절하고, 처음 멈춘 이유(`ESTOP`/`HALTED`)를 돌려줌.
 * `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
-* `timeout_sec`: Runner가 제한을 백엔드에 함께 전달하고, **동작 취소는 백엔드 책임**. Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
-  * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
+* `timeout_sec`: `Skill` goal 에는 제한 시간 칸이 없으므로 Runner(ROS 클라이언트)가 시간이 지나면 **취소를 요청**하고 기다리지 않음(#10). **실제로 멈추는 것은 백엔드 책임**(아래 "백엔드 구현 약속"). Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
+  * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 취소 요청으로 끝난 `TIMEOUT`도 같음(`retry_stopped: "TIMEOUT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
 * **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
   * P1 은 **동작 응답 성공 = effect 반영**. `verify`(사후 관측)·`hold`(실행 중 유지 조건)는 P2(FR-ONT-02). P1 Runner 는 `primitive` 스킬만 `skill` 스텝으로 실행(`composite`는 거절). 선언형 복합 스킬 추가는 FR-PLN-03(P3).
-  * **P1 은 `skill` 스텝의 `retry` 금지** (PR #64 리뷰): 실패 응답을 받아도 앞 원자 동작이 이미 실행됐거나 동작이 실제로 끝났을 수 있는데, 관측 확인(`verify`) 전에는 알 수 없어 스킬 전체를 다시 보내면 이미 열린 서랍 재열기·이미 집은 물건 재집기가 될 수 있음. 실행 전 검사에서 `TASK_INVALID`, 실행 중에도 1회만 시도. `verify`·복구가 준비되는 P2 에서 다시 검토.
+  * **스킬 재시도는 로봇이 움직이지 않은 실패에만** (PR #64 D 리뷰 + PR #65 합의): 실패 응답을 받아도 앞 원자 동작이 실행됐거나 동작이 실제로 끝났을 수 있는데 P1 은 관측 확인(`verify`)이 없어 알 수 없으므로, 스킬 전체를 다시 보내면 이미 열린 서랍 재열기·이미 집은 물건 재집기가 될 수 있음. 그래서 `retry`는 ① 실패 코드가 "동작 없이 거절"이 보장된 코드(`NO_MOTION_CODES`: `YAW_INVALID`, B PR #66)이고 ② 그 시도에서 앞서 보낸 원자 동작이 모두 팔을 움직이지 않는 동작(`inspect_region`·`speak`·`query_ontology` 등)일 때만 적용. 예: `pick`(살펴보기 → 집기)에서 방향 산출 실패로 `pick_object`가 거절하면 재인식 1회. 그 밖에는 재시도하지 않고 기록에 `retry_stopped`(`MOTION_UNCERTAIN` = 앞서 팔을 움직임, `NOT_RETRYABLE` = 허용 목록에 없는 코드). 재인식 횟수는 태스크 `retry`로 정함 `[팀 확정 필요]`.
   * `timeout_sec`은 스킬 전체 시간(각 원자 동작에는 남은 시간을 전달). 로봇을 움직이므로 `ABORTED` 때 `finally`에서도 `SKIPPED`.
-  * 실행 전 검사에서 온톨로지에 없는 스킬, `composite`, 스킬 정의와 다른 `params` 이름(빠짐·모름), 하위 기록 ID 중복, `retry`를 `TASK_INVALID`로 거절. 실행 중에도 다시 확인(`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`).
+  * 실행 전 검사에서 온톨로지에 없는 스킬, `composite`, 스킬 정의와 다른 `params` 이름(빠짐·모름), 하위 기록 ID 중복을 `TASK_INVALID`로 거절. 실행 중에도 다시 확인(`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`).
 
 **Runner 에러 코드** (스킬별 에러 코드는 7.5 온톨로지 `errors`)
 
@@ -134,6 +134,18 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 | `NO_PUSH_ACCESS` | 물체가 벽에 붙어 닫힌 손가락이 들어갈 틈이 없음 → P1은 실패 + TTS 안내(벽 따라 옆으로 밀기는 P2 후보) |
 | `PUSH_BLOCKED` | 밀다가 힘 임계 초과(끼임·다른 물건) |
 | `PUSH_LIMIT` | `check_only: true` 재판단에서 한 번 민 뒤에도 파지 가능한 자리가 아님(P1 Runner는 `while`이 없어 반복 밀기를 하지 않으므로 밀기는 1회로 제한) |
+
+**백엔드(Skill 서버) 구현 약속** (#10, B·E·A 서버와 mock 공통. 참고 구현 `ready2go_runner/nodes/mock_backend.py`)
+
+| 항목 | 약속 |
+| :--- | :--- |
+| 이름 | 로봇 동작 `/skills/<동작>`(`Skill` 액션), TTS `/voice/speak`(`Skill`), 인식 `/vision/inspect_region`(`InspectRegion`) — [ICD](interfaces.md). Runner 는 `BACKEND`(real·sim·mock)와 관계없이 같은 이름으로 보냄. mock 은 `BACKEND=mock` 일 때만 떠서 이름이 겹치지 않음 |
+| goal | `params_json` = 위 표의 `params`를 JSON 문자열로(UTF-8, 한글 그대로). `$변수`는 Runner 가 풀어서 보냄 |
+| result | `success`, `error_code`(실패 시 코드. 비우면 Runner 가 `ACTION_FAILED`), `output_json`(위 표의 반환값, 없으면 빈 문자열. 성공인데 JSON 을 읽을 수 없으면 Runner 는 `BACKEND_ERROR` 실패로 봄) |
+| 취소 | `Skill` goal 에 제한 시간 칸이 없음. Runner 는 `timeout_sec`이 지나면 취소를 요청하고 `TIMEOUT`으로 끝냄(재시도 안 함) → **서버는 취소 요청을 받으면 안전하게 멈추고 `canceled`로 끝낼 것** |
+| 비상정지 | 펜던트 비상정지 등으로 멈추면 `error_code = "ESTOP"` → Runner `ABORTED`·잠김 (#19, B 확인) |
+| 동작 없이 거절 | 모션 계획 전에 거절하면 로봇이 움직이지 않았음을 보장하고 `NO_MOTION_CODES`의 코드 사용(현재 `YAW_INVALID`). 새 코드는 runner.md 와 `interpreter.NO_MOTION_CODES`에 함께 추가 |
+| 서버 준비 | Runner 는 서버를 2초 안에 못 찾거나 goal 이 거절되면 `BACKEND_ERROR`(동작 안 함) `[추정, 실측 후 조정]` |
 
 ### 7.2 태스크 시퀀스 스키마
 
