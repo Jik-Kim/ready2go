@@ -68,3 +68,9 @@ def test_real_config_file_is_valid():
     for region in cfg["regions"]:
         ok, _, js = inspect(cfg, region)
         assert ok and json.loads(js)["visible_count"] == len(cfg["regions"][region]["objects"])
+
+
+def test_stub_normalizes_yaw_to_range():
+    cfg = {"ready": True, "regions": {"r": {"objects": [{"class": "a", "position": [0, 0, 0], "yaw": 3.0, "top_z": 0.01}]}}}
+    _, _, js = inspect(cfg, "r", "a")
+    assert -1.5708 < json.loads(js)["target"]["pose"]["yaw"] <= 1.5708   # 3.0 rad → 3.0 - pi

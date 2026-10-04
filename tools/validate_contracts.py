@@ -3,6 +3,7 @@
 
 - tasks/*.json 이 contracts/task.schema.json 을 통과하는지
 - contracts/examples/intent_*.json 이 intent.schema.json 을 통과하는지
+- contracts/examples/inspect_region_result.json 의 pose 규칙(position.z = 0, yaw 범위)
 - 온톨로지 목록 참조 · 스킬 파라미터($변수) 참조가 맞는지
 """
 import json
@@ -15,8 +16,10 @@ import jsonschema
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_knowledge"))
 sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_runner"))
+sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_vision"))
 from ready2go_runner.core.validation import check_task  # noqa: E402
 from ready2go_knowledge.core import ontology as onto_lib  # noqa: E402
+from ready2go_vision.core.pose_rules import result_errors  # noqa: E402
 
 
 def load(p):
@@ -41,6 +44,7 @@ def main() -> int:
         except jsonschema.ValidationError as e:
             errors.append(f"{p.name}: {e.message}")
     load(ROOT / "contracts/examples/execution_log.json")
+    errors += [f"inspect_region_result.json: {m}" for m in result_errors(load(ROOT / "contracts/examples/inspect_region_result.json"))]   # pose 규칙: position.z=0, yaw (-pi/2, pi/2]
     raw = load(ROOT / "knowledge/robot_ontology.jsonld")   # 서랍 물리 값(인출 거리 등)의 정본은 config/places.yaml. 온톨로지에 따로 두면 서로 어긋난다
     for pname, pdef in raw.get("world", {}).get("places", {}).items():
         if pdef.get("max_travel_m") is not None:
