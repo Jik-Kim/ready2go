@@ -2,16 +2,27 @@
 
 - position = YOLO 박스 중심의 서랍 좌표계 x·y [m], position.z = 0 (높이는 top_z 에만 둔다)
 - yaw = 물체 긴 변 방향(서랍 x축 기준 rad), 범위 (-pi/2, pi/2]. 긴 변은 180° 돌려도 같은 직선이라 한 범위로 고정한다.
-  원통·정사각형처럼 긴 변이 없는 물체는 0 으로 고정한다 (대칭 판정 기준은 아직 [팀 확정 필요]).
+  원통·정사각형처럼 긴 변이 없는 대칭 물체는 0 으로 고정한다 (판정: is_symmetric).
 """
 import math
 
 EPS = 1e-9
+SYMMETRY_RATIO = 1.2   # 근거: PM 제안(PR #46 코멘트), 사용자 승인 10/04. 확정 11종 중 masking_tape(1.0)만 대칭, 다음은 cover_plate 1.33·airpods_case 1.34
 
 
 def normalize_yaw(yaw: float) -> float:
     """임의의 각도(rad)를 같은 직선을 나타내는 (-pi/2, pi/2] 값으로. -pi/2 는 +pi/2 로 쓴다."""
     return yaw - math.pi * math.ceil(yaw / math.pi - 0.5)
+
+
+def is_symmetric(size_m, ratio: float = SYMMETRY_RATIO) -> bool:
+    """온톨로지 명목 size_m 의 가로·세로 두 값(max/min)이 ratio 미만이면 대칭 물체 → yaw 0 고정.
+    측정한 덩어리가 아니라 명목 치수로 계산해 재현성을 확보한다. 높이(size_m[2])는 쓰지 않고, 두 값의 순서와 무관하다."""
+    a, b = float(size_m[0]), float(size_m[1])
+    lo, hi = min(a, b), max(a, b)
+    if lo <= 0:
+        raise ValueError(f"size_m 가로·세로는 양수여야 함: {size_m}")
+    return hi / lo < ratio
 
 
 def pose_errors(pose: dict, where: str = "pose") -> list[str]:

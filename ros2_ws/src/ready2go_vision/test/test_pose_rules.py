@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ready2go_vision.core.pose_rules import normalize_yaw, pose_errors, result_errors
+from ready2go_vision.core.pose_rules import is_symmetric, normalize_yaw, pose_errors, result_errors
 
 PI = math.pi
 
@@ -44,3 +44,24 @@ def test_example_result_follows_rules_and_has_nonzero_yaw():
     assert result_errors(r) == []
     yaws = [r["target"]["pose"]["yaw"]] + [c["pose"]["yaw"] for c in r["candidates"]]
     assert any(abs(y) > 0.1 for y in yaws), "범위 검사가 의미 있도록 0이 아닌 yaw 예시가 있어야 함"
+
+
+@pytest.mark.parametrize("size,expected", [
+    ([0.119, 0.100, 0.03], True),      # 비 1.19 → 대칭
+    ([0.120, 0.100, 0.03], False),     # 비 1.2 → 비대칭 (< 1.2 만 대칭)
+    ([0.0200, 0.0200, 0.0], True),     # masking_tape 처럼 비 1.0
+    ([0.0905, 0.0680, 0.0], False),    # cover_plate 류 비 1.33
+    ([0.0535, 0.0400, 0.0], False),    # airpods_case 류 비 1.34
+])
+def test_is_symmetric_boundaries(size, expected):
+    assert is_symmetric(size) is expected
+
+
+def test_is_symmetric_ignores_order_and_height():
+    assert is_symmetric([0.10, 0.119, 0.5]) == is_symmetric([0.119, 0.10, 0.001]) is True
+    assert is_symmetric([0.10, 0.2, 0.03]) == is_symmetric([0.2, 0.10, 0.03]) is False
+
+
+def test_is_symmetric_rejects_nonpositive():
+    with pytest.raises(ValueError):
+        is_symmetric([0.0, 0.1, 0.1])
