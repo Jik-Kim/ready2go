@@ -22,5 +22,6 @@ setup(
     tests_require=['pytest'],
     entry_points={'console_scripts': [
         'gripper_state = ready2go_skills.nodes.gripper_state_node:main',
+        'jog_gui = ready2go_skills.nodes.jog_gui:main',
     ]},
 )

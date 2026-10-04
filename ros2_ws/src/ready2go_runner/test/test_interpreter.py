@@ -634,3 +634,17 @@ def test_internal_error_follows_on_failure_policy():
     result = Runner(fake).run(internal_error_task(on_failure="skip"))
     assert result.overall_status == "COMPLETED"
     assert ("speak", {"text": "다음"}) in fake.calls                     # skip 이라 다음 스텝 진행
+
+
+def test_halt_during_last_action_ends_aborted():
+    # 원자 동작도 같은 경계: 마지막 동작 중 halt() → 응답대로 SUCCESS 기록, 태스크는 ABORTED (COMPLETED 아님)
+    def backend(action, params, timeout_sec):
+        runner.halt()
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    result = runner.run({"task_id": "t", "sequence": [
+        {"id": "s1", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}}]})
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
+    assert result.steps[0]["status"] == "SUCCESS"
+    assert runner.halted

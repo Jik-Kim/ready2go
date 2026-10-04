@@ -1,8 +1,10 @@
 """JSON 태스크 해석기 — docs/runner.md 7.1~7.3.
 
 Phase 1 범위: sequence, if, set_var, retry, timeout_sec, finally, 변수($ref·{{}} 보간·조사 필터),
-스킬 실행 전 pre 확인 → 실행 → effect 반영(ready2go_knowledge.core.ontology), 스텝 로그(LogStore).
-Phase 2: while · for_each · push/pop · recovery · fallback · on_halt, verify/post_check, state_diff 로그.
+primitive 스킬 실행 전 pre 확인 → 실행 → 응답 성공 시 effect 반영(ready2go_knowledge.core.ontology),
+스텝 로그(LogStore, 스킬의 pre_check·state_diff 는 진단용 부가 기록).
+Phase 2: while · for_each · push/pop · recovery · fallback · on_halt, verify 사후 관측(FR-ONT-02),
+상세 상태 로그(FR-LOG-02). Phase 3: 선언형 복합 스킬 추가(FR-PLN-03).
 
 Runner 는 원자 동작을 직접 실행하지 않는다. 생성 시 받은 execute(action, params, timeout_sec) → ActionResult
 로 위임하며, #10 에서 ROS 액션 클라이언트(real·sim·mock 백엔드)가 이 자리에 들어간다.
@@ -12,6 +14,8 @@ E-stop·사용자 취소(docs/runner.md 7.1, docs/safety.md): 백엔드가 ESTOP
 일반 실패 처리(retry·skip·safe_home)를 건너뛰고 ABORTED 로 끝낸다. 이때 finally 는 로봇을 움직이지 않는
 동작(ABORT_SAFE_ACTIONS)만 실행하고 나머지는 SKIPPED 로 기록한다.
 중단 상태는 잠긴 채 유지되어, 사람이 확인하고 resume() 을 부르기 전까지 새 태스크를 로봇 동작 없이 거절한다.
+중단과 결과 반영의 경계: 중단 요청이 결과 반영 전에 들어오면 반영하지 않는다. 스킬은 effect 직전에 확인해
+상태를 바꾸지 않고, 원자 동작은 응답대로 기록하되 다음 동작을 보내지 않으며, 마지막 동작 중이어도 ABORTED.
 """
 from __future__ import annotations
 
@@ -94,19 +98,22 @@ class Runner:
         self._records: list[dict] = []
         self._log_errors: list[str] = []
         self._halt = threading.Event()          # 중단 잠김 (다른 스레드의 ROS 서비스 콜백에서 halt() 호출)
+        self._halt_lock = threading.Lock()      # halt() 와 effect 반영(중단 확인 → 상태 갱신)이 서로 끼어들지 않게
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
 
     def halt(self, code: str = HALTED) -> None:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
-        if not self._halt.is_set():
-            self._halt_code = code
-        self._halt.set()
+        with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
+            if not self._halt.is_set():
+                self._halt_code = code
+            self._halt.set()
 
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
-        self._halt_code = None
-        self._halt.clear()
+        with self._halt_lock:
+            self._halt_code = None
+            self._halt.clear()
 
     @property
     def halted(self) -> bool:
@@ -146,6 +153,7 @@ class Runner:
         error: StepFailed | Halted | None = None
         try:
             self._run_steps(task["sequence"], blackboard, records)
+            self._check_halt(records[-1]["id"] if records else "")   # 마지막 스텝 중 중단 요청도 ABORTED
         except StepFailed as e:
             error = e
         except Halted as e:
@@ -154,6 +162,7 @@ class Runner:
         # ABORTED 이면 _run_step 이 로봇 동작을 건너뛴다
         try:
             self._run_steps(task.get("finally", []), blackboard, records)
+            self._check_halt(records[-1]["id"] if records else "")
         except StepFailed as e:
             error = error or e                  # 둘 다 실패하면 처음(sequence) 원인을 남김
         except Halted as e:
@@ -345,10 +354,11 @@ class Runner:
         scope = {**blackboard, **params}        # expand 의 $drawer_id·$scan 등은 스킬 안에서만 보임
         for i, sub in enumerate(skill.get("expand", []), 1):
             self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
-        self._check_timeout(step, attempt_started)
-
-        self._state, diff = ontology.apply(self._state, skill.get("effect", []), params)
-        record["state_diff"] = diff
+        with self._halt_lock:                   # 중단 확인과 반영 사이에 halt() 가 끼어들 수 없음 (PR #64 E 리뷰)
+            self._check_halt(step["id"])        # 반영 전 중단 요청 → effect 반영 안 함
+            self._check_timeout(step, attempt_started)
+            self._state, diff = ontology.apply(self._state, skill.get("effect", []), params)
+        record["state_diff"] = diff             # 반영 뒤 들어온 중단은 다음 경계(스텝 시작·실행 끝)에서 ABORTED
 
     def _run_expanded(self, child: dict, step: dict, scope: dict, records: list[dict],
                       attempt_started: float) -> None:

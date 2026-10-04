@@ -1,5 +1,6 @@
 """#12 스킬 상태 추적: Runner 가 온톨로지(E)를 받아 pre 확인 → expand 실행 → effect 반영."""
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -204,6 +205,54 @@ def test_halt_during_skill_stops_before_next_action():
     assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1.e2")
     assert calls == ["move_to_named_pose"]                     # 서랍 열기는 보내지 않음
     assert runner.state["open"]["drawer_top"] is False
+
+
+@pytest.mark.parametrize("final", [[], [{"id": "f1", "action": "speak", "params": {"text": "멈췄습니다"}},
+                                       {"id": "f2", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]])
+def test_halt_during_last_action_does_not_apply_effect(final):
+    # PR #64 E 리뷰 재현: 마지막 expand 동작(drawer_control) 중 halt() → 이전에는 effect 반영, finally 없으면 COMPLETED
+    calls = []
+
+    def backend(action, params, timeout_sec):
+        calls.append(action)
+        if action == "drawer_control":
+            runner.halt()                                      # 동작은 끝났고 응답은 성공
+        return ActionResult(True)
+
+    runner = Runner(backend, ontology=ONTOLOGY)
+    result = runner.run(skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}},
+                                   final=final))
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
+    assert runner.state["open"]["drawer_top"] is False         # effect 미반영 → 사람이 확인 후 재개
+    s1 = result.steps[0]
+    assert (s1["status"], s1["error_code"]) == ("FAILURE", "HALTED") and "state_diff" not in s1   # 스킬 성공 기록 없음
+    assert result.steps[2]["id"] == "s1.e2" and result.steps[2]["status"] == "SUCCESS"            # 하위 동작은 응답대로
+    if final:
+        assert calls[-1] == "speak"                            # 비동작만 실행, 홈 이동은 SKIPPED
+        assert [s["status"] for s in result.steps if s["id"] in ("f1", "f2")] == ["SUCCESS", "SKIPPED"]
+
+
+def test_halt_waits_while_effect_is_applied(monkeypatch):
+    # 다른 스레드(#10 ROS 서비스)의 halt() 가 반영 도중 들어오면 반영이 끝날 때까지 기다림 → 반영 후 중단으로 처리
+    real_apply, seen = ontology.apply, {}
+
+    def apply_while_halting(state, records, binding):
+        halter = threading.Thread(target=runner.halt)
+        halter.start()
+        halter.join(0.2)
+        seen["halt_blocked"] = halter.is_alive()               # 잠금 때문에 halt() 가 아직 못 끝남
+        seen["halter"] = halter
+        return real_apply(state, records, binding)
+
+    monkeypatch.setattr(ontology, "apply", apply_while_halting)
+    runner = Runner(FakeBackend(), ontology=ONTOLOGY)
+    result = runner.run(skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}}))
+    seen["halter"].join(1)
+    assert seen["halt_blocked"] is True
+    assert runner.state["open"]["drawer_top"] is True           # 중단보다 먼저 끝난 반영은 유지
+    assert result.steps[0]["status"] == "SUCCESS" and "state_diff" in result.steps[0]
+    assert runner.halted                                        # 중단 요청은 반영 뒤에 적용되어 잠김 유지
+    # 태스크 결과(ABORTED/COMPLETED)는 halt() 스레드가 실행 끝 확인보다 먼저 도착했는지에 달려 단정하지 않음
 
 
 def test_real_ontology_file_runs_open_drawer():
