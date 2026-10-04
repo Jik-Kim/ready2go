@@ -40,6 +40,18 @@ def test_successful_run_is_logged():
     assert result.log_errors == []
 
 
+def test_meta_cannot_override_reserved_keys():
+    # PR #64 리뷰(P2): meta 에 run_id 가 있으면 생성된 실행 ID 를 덮어써 RunResult.run_id 로 조회가 안 됐음
+    store = MemoryLogStore()
+    result = Runner(backend(), log_store=store).run(
+        TASK, meta={"run_id": "fake", "task_id": "other", "started_at": "x", "backend": "mock"})
+    run = store.read_run(result.run_id)["run"]
+    assert run is not None and run["run_id"] == result.run_id
+    assert (run["task_id"], run["backend"]) == ("find_visible", "mock")   # 예약 키는 그대로, 나머지 meta 는 저장
+    assert run["started_at"].endswith("Z")
+    assert store.read_run("fake")["run"] is None
+
+
 def test_failed_run_logs_error_code_and_finally():
     store = MemoryLogStore()
     result = Runner(backend({"pick_object": ActionResult(False, error_code="GRASP_FAILED")}),

@@ -209,6 +209,15 @@ def test_fallback_when_db_down_from_start(tmp_path):
     assert primary.calls == 1                                            # 실패 후 같은 실행에서 DB 재시도 안 함
 
 
+def test_fallback_from_start_writes_start_record_once(tmp_path):
+    # PR #64 리뷰(P3): 처음부터 DB 가 꺼져 있으면 시작 기록이 JSONL 에 두 번 쓰였음
+    primary, jsonl = FlakyStore(), JsonlLogStore(tmp_path)
+    primary.down = True
+    run_through(FallbackLogStore(primary, jsonl))
+    lines = [json.loads(line) for line in (tmp_path / "r1.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [line["collection"] for line in lines].count("runs") == 2     # 시작 1 + 끝 1
+
+
 def test_fallback_mid_run_keeps_whole_run_in_jsonl(tmp_path):
     primary, jsonl = FlakyStore(fail_after=2), JsonlLogStore(tmp_path)  # 시작·s1 까지 성공, s2 부터 실패
     store = FallbackLogStore(primary, jsonl)

@@ -177,6 +177,8 @@ class FallbackLogStore:
                 return
             except Exception as e:             # DB 연결 끊김·시간 초과 등
                 self._switch(e)
+                if method == "start_run":      # 전환하며 시작 기록을 이미 옮겨 씀 → 두 번 쓰지 않음 (PR #64 리뷰)
+                    return
         getattr(self.fallback, method)(doc)
 
     def start_run(self, run_doc: dict) -> None:

@@ -39,9 +39,9 @@ def run_document(run_id: str, task_id: str, inputs: dict, started_at: str, *,
                  failed_step: str | None = None, problems: list[str] | None = None,
                  extra: dict | None = None) -> dict:
     """runs 레코드. 시작 시점에는 상태 없이 만들고, 끝나면 같은 함수로 완성본을 만든다.
-    extra: backend·STT 원문·LLM 응답 등 헤더에 덧붙일 값 (runner.md 7.4)."""
-    doc = {"run_id": run_id, "task_id": task_id, "inputs": inputs, "started_at": started_at,
-           **(extra or {})}
+    extra: backend·STT 원문·LLM 응답 등 헤더에 덧붙일 값 (runner.md 7.4).
+    extra 를 먼저 넣어 run_id·task_id 같은 예약 키를 덮어쓰지 못하게 한다 (PR #64 리뷰)."""
+    doc = {**(extra or {}), "run_id": run_id, "task_id": task_id, "inputs": inputs, "started_at": started_at}
     if overall_status is not None:
         doc.update(ended_at=ended_at, total_duration_sec=total_duration_sec, overall_status=overall_status)
         if error_code is not None:
