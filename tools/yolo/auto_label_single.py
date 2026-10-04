@@ -65,6 +65,10 @@ def main() -> int:
     ap.add_argument("--pad-px", type=int, default=3, help="박스를 사방으로 넓힘(뎁스-컬러 가장자리 오차)")
     ap.add_argument("--background-session", default="s05_empty_v0", help="빈 서랍 세션(같은 시점·조명). 없으면 뎁스만 사용")
     ap.add_argument("--color-diff", type=float, default=28.0, help="배경과의 색 차이(Lab 거리) 문턱 [팀 확정 필요]")
+    ap.add_argument("--extend-px", type=int, default=70, help="ROI 가장자리에 닿은 물체를 색 차이로 따라갈 때 ROI 밖으로 보는 범위(px)")
+    ap.add_argument("--strong-l", type=float, default=38.0, help="확장용 밝기 차이 문턱")
+    ap.add_argument("--strong-c", type=float, default=22.0, help="확장용 색상 차이 문턱")
+    ap.add_argument("--tight", action="store_true", help="박스를 조인다: 색 차이가 큰 픽셀(그림자 제외)로 윤곽을 잡고 여백 1 px")
     ap.add_argument("--exclude", nargs="*", default=[], help="라벨링에서 뺄 이미지 번호 (예: 0017)")
     args = ap.parse_args()
 
@@ -109,6 +113,13 @@ def main() -> int:
             diff = cv2.morphologyEx(diff.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
             near = cv2.dilate(obj, np.ones((41, 41), np.uint8)) > 0   # 뎁스 덩어리에서 약 2 cm 이내의 색 변화만
             obj = cv2.morphologyEx(((obj > 0) | ((diff > 0) & near)).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+        if args.tight and bg_lab is not None:
+            dm = (obj > 0)
+            near2 = cv2.dilate(dm.astype(np.uint8), np.ones((31, 31), np.uint8)) > 0
+            d = lab_img - bg_lab[y0r:y1r, x0r:x1r]
+            strong = (np.abs(d[:, :, 0]) > 38) | (np.hypot(d[:, :, 1], d[:, :, 2]) > 22)      # 밝기 차이가 크거나 색상이 다름(옅은 그림자는 제외)
+            strong = cv2.morphologyEx(strong.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)) > 0
+            obj = cv2.morphologyEx((strong & near2).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
         n, lab, st, _ = cv2.connectedComponentsWithStats(obj)
         if n <= 1:
             review.append((stem, "물체 덩어리 없음"))
@@ -117,14 +128,41 @@ def main() -> int:
         k = 1 + int(np.argmax(areas))
         x, y, bw, bh, area = st[k]
         x0, y0 = FLOOR_ROI[0], FLOOR_ROI[1]
-        bx0, by0 = max(x + x0 - args.pad_px, 0), max(y + y0 - args.pad_px, 0)
-        bx1, by1 = min(x + x0 + bw + args.pad_px, w), min(y + y0 + bh + args.pad_px, h)
+        ex0, ey0, ex1, ey1 = x + x0, y + y0, x + x0 + bw, y + y0 + bh          # 전체 화면 기준 박스
         notes = []
+        touch = ex0 <= FLOOR_ROI[0] + 2 or ey0 <= FLOOR_ROI[1] + 2 or ex1 >= FLOOR_ROI[2] - 2 or ey1 >= FLOOR_ROI[3] - 2
+        always = cls_of[i] == "carrot_pen"                                  # 길고 가는 물체는 깊이만으로 끝까지 못 잡아 항상 색으로 따라간다
+        if (touch or always) and bg_lab is not None:                                      # 영역 밖으로 뻗은 부분(벽에 걸친 물체)을 색 차이로 따라간다
+            M = args.extend_px
+            X0, Y0, X1, Y1 = max(FLOOR_ROI[0] - M, 0), max(FLOOR_ROI[1] - M, 0), min(FLOOR_ROI[2] + M, w), min(FLOOR_ROI[3] + M, h)
+            lab_full = cv2.cvtColor(color, cv2.COLOR_BGR2LAB).astype(float)[Y0:Y1, X0:X1]
+            dd = lab_full - bg_lab[Y0:Y1, X0:X1]
+            strong = (np.abs(dd[:, :, 0]) > args.strong_l) | (np.hypot(dd[:, :, 1], dd[:, :, 2]) > args.strong_c)
+            if cls_of[i] == "carrot_pen":                                    # 주황 몸통·초록 잎은 색으로 직접 찾는다(벽 근처에서 배경 차이가 약함)
+                hsv = cv2.cvtColor(color, cv2.COLOR_BGR2HSV)[Y0:Y1, X0:X1]
+                orange = (hsv[:, :, 0] >= 3) & (hsv[:, :, 0] <= 22) & (hsv[:, :, 1] > 140) & (hsv[:, :, 2] > 110)
+                green = (hsv[:, :, 0] >= 38) & (hsv[:, :, 0] <= 85) & (hsv[:, :, 1] > 90) & (hsv[:, :, 2] > 90)
+                strong = strong | orange | green
+            strong = cv2.morphologyEx(strong.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+            strong = cv2.morphologyEx(strong, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+            blob = np.zeros(strong.shape, np.uint8)
+            blob[ey0 - Y0:ey1 - Y0, ex0 - X0:ex1 - X0] = (lab[y:y + bh, x:x + bw] == k)
+            n2, lab2, st2, _ = cv2.connectedComponentsWithStats(((strong > 0) | (blob > 0)).astype(np.uint8))
+            ids = set(np.unique(lab2[blob > 0])) - {0}
+            if ids:
+                bxs = np.array([[st2[j, 0], st2[j, 1], st2[j, 0] + st2[j, 2], st2[j, 1] + st2[j, 3]] for j in ids])
+                nx0, ny0, nx1, ny1 = X0 + bxs[:, 0].min(), Y0 + bxs[:, 1].min(), X0 + bxs[:, 2].max(), Y0 + bxs[:, 3].max()
+                if (nx1 - nx0) * (ny1 - ny0) <= 2.5 * (ex1 - ex0) * (ey1 - ey0):          # 벽 그림자·조명 변화로 지나치게 번지면 버린다
+                    ex0, ey0, ex1, ey1 = min(ex0, nx0), min(ey0, ny0), max(ex1, nx1), max(ey1, ny1)
+                else:
+                    notes.append("확장이 지나치게 커서 취소(손으로 확인)")
+        bx0, by0 = max(ex0 - args.pad_px, 0), max(ey0 - args.pad_px, 0)
+        bx1, by1 = min(ex1 + args.pad_px, w), min(ey1 + args.pad_px, h)
         others = [a for j, a in enumerate(areas, start=1) if j != k and a > 0.15 * area]
         if others:
             notes.append(f"다른 큰 덩어리 {len(others)}개")
-        if x + x0 <= FLOOR_ROI[0] or y + y0 <= FLOOR_ROI[1] or x + x0 + bw >= FLOOR_ROI[2] or y + y0 + bh >= FLOOR_ROI[3]:
-            notes.append("ROI 가장자리에 닿음(벽 인접?)")
+        if touch or always:
+            notes.append(f"ROI 밖으로 확장함 → 박스 {int(ex1 - ex0)}x{int(ey1 - ey0)} px (눈으로 확인)")
         if area < 1500:
             notes.append(f"덩어리 작음 {area}px")
         name = cls_of[i]
