@@ -53,6 +53,7 @@ class SkillServer(Node):
         meta = yaml.safe_load((cfg / "calibration" / "calibration_meta.yaml").read_text(encoding="utf-8"))
         self.expected_tcp, self.expected_tool = motion_guard.expected_tool(meta)
         self.robot = Dsr(self, self.declare_parameter("dsr_prefix", "/dsr01/dsr_controller2").value)
+        self.locked = None                   # STOP_UNCONFIRMED 사유. 잠기면 사람이 로봇을 확인하고 서버를 다시 띄울 때까지 모든 동작 거부
         group = ReentrantCallbackGroup()
         self._servers = [ActionServer(self, Skill, f"/skills/{a}", self._execute_for(a), callback_group=group,
                                       cancel_callback=lambda _: CancelResponse.ACCEPT) for a in ACTIONS]
@@ -72,6 +73,9 @@ class SkillServer(Node):
             except json.JSONDecodeError as e:
                 return self._finish(goal, action, sf.Outcome(False, sf.BAD_PARAMS, reason=str(e)))
             self.get_logger().info(f"[{action}] {params}")
+            if self.locked:
+                return self._finish(goal, action, sf.Outcome(False, sf.LOCKED, reason=f"잠김: {self.locked} — "
+                                                             "로봇 확인 후 skill_server 재시작"))
             if handler is None:
                 return self._finish(goal, action, sf.Outcome(False, sf.NOT_IMPLEMENTED,
                                                              reason="10/06 실측 후 구현 (로봇 동작 없음)"))
@@ -81,9 +85,13 @@ class SkillServer(Node):
             try:
                 outcome, output = handler(goal, params)
             except Exception as e:          # 예외로 끝나도 로봇은 멈추고 실패로 돌려줌 (움직인 뒤일 수 있어 SKILL_EXCEPTION)
-                self.robot.stop()
+                if not self.robot.stop():
+                    self.locked = f"{action}: 예외 뒤 정지 명령 실패 ({e!r})"
                 self.get_logger().error(f"[{action}] 예외: {e!r}")
                 outcome, output = sf.Outcome(False, sf.SKILL_EXCEPTION, reason=repr(e)), None
+            if outcome.error_code in (sf.STOP_UNCONFIRMED, sf.STATE_UNKNOWN):
+                self.locked = f"{action}: {outcome.reason}"
+                self.get_logger().error(f"[{action}] 정지 확인 실패로 잠금 — 펜던트에서 로봇 상태 확인 필요")
             return self._finish(goal, action, outcome, output)
         return execute
 

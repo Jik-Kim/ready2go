@@ -73,4 +73,6 @@ class Dsr:
         return bool(r and r.success)
 
     def stop(self):
-        self.call("stop", stop_mode=QUICK_STOP)
+        """정지 명령이 받아들여졌는지 반환 (응답 없음·실패면 False)."""
+        r = self.call("stop", stop_mode=QUICK_STOP)
+        return bool(r and r.success)

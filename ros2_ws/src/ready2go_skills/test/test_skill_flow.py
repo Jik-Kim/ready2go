@@ -41,8 +41,9 @@ def test_bad_joint_values(bad):
 
 # ---- wait_motion: 가짜 시계·상태로
 class Fake:
-    def __init__(self, states, cancel_at=None):
+    def __init__(self, states, cancel_at=None, stop_ok=True, after_stop=(1,)):
         self.states, self.i, self.t, self.cancel_at, self.stopped = list(states), 0, 0.0, cancel_at, 0
+        self.stop_ok, self.after_stop = stop_ok, list(after_stop)
 
     def state(self):
         s = self.states[min(self.i, len(self.states) - 1)]
@@ -60,8 +61,8 @@ class Fake:
 
     def stop(self):
         self.stopped += 1
-        self.states = [1]                    # 정지 명령 후 대기 상태
-        self.i = 0
+        self.states, self.i = self.after_stop, 0     # 정지 명령 뒤 읽히는 상태
+        return self.stop_ok
 
 
 def _wait(f, timeout=5.0):
@@ -80,16 +81,56 @@ def test_not_done_before_motion_starts():
     assert o.success and f.i == 4
 
 
-def test_cancel_stops_and_reports_canceled():
+def test_cancel_stops_and_reports_canceled_only_when_confirmed():
     f = Fake([2] * 1000, cancel_at=0.2)
     o = _wait(f)
     assert (o.success, o.error_code, o.canceled) == (False, sf.CANCELED, True) and f.stopped == 1
+
+
+# 정지를 확인하지 못하면 canceled·MOTION_TIMEOUT 로 끝내지 않음 (#73 D 리뷰)
+@pytest.mark.parametrize("stop_ok,after_stop", [
+    (False, [1]),                 # 정지 명령 실패 (상태는 멈춘 것처럼 보여도 명령이 안 받아들여짐)
+    (True, [None]),               # 정지 뒤 상태 조회 실패
+    (True, [2]),                  # 정지 명령 뒤에도 계속 이동 중
+    (True, [1, None, 1, None]),   # 연속 두 번 확인이 안 됨
+])
+def test_cancel_without_confirmed_stop_is_stop_unconfirmed(stop_ok, after_stop):
+    f = Fake([2] * 1000, cancel_at=0.2, stop_ok=stop_ok, after_stop=after_stop)
+    o = _wait(f)
+    assert (o.success, o.error_code, o.canceled) == (False, sf.STOP_UNCONFIRMED, False)
+
+
+def test_timeout_without_confirmed_stop_is_stop_unconfirmed():
+    f = Fake([2] * 100000, stop_ok=True, after_stop=[2])
+    assert _wait(f, timeout=1.0).error_code == sf.STOP_UNCONFIRMED
+
+
+def test_state_none_during_motion_is_not_finished():
+    f = Fake([2, 2, None, None, 2, 2, 1])     # 잠깐 조회 실패 → 끝난 것으로 보지 않고 계속 기다림
+    o = _wait(f)
+    assert o.success and f.i == 7
+
+
+def test_state_none_too_long_stops_with_state_unknown():
+    f = Fake([2, 2] + [None] * 100000)
+    o = _wait(f)
+    assert o.error_code == sf.STATE_UNKNOWN and f.stopped == 1
+
+
+def test_state_none_too_long_and_stop_unconfirmed():
+    f = Fake([2, 2] + [None] * 100000, after_stop=[None])
+    assert _wait(f).error_code == sf.STOP_UNCONFIRMED
 
 
 @pytest.mark.parametrize("estop_state", sorted(sf.ESTOP_STATES))
 def test_estop_state_reports_estop(estop_state):
     o = _wait(Fake([2, 2, estop_state]))
     assert (o.success, o.error_code, o.canceled) == (False, sf.ESTOP, False)
+
+
+def test_estop_while_confirming_stop_reports_estop():
+    f = Fake([2] * 1000, cancel_at=0.2, after_stop=[6])
+    assert _wait(f).error_code == sf.ESTOP
 
 
 def test_timeout_stops():
