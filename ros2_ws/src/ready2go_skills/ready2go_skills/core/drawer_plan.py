@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 DRAWER_STUCK = "DRAWER_STUCK"
+SENSOR_INVALID = "SENSOR_INVALID"   # 위치·힘 값이 NaN·inf — 판정할 수 없으니 즉시 정지 (fail-safe, #70 D 리뷰와 같은 문제)
 CLOSE_NOT_CONFIRMED = "CLOSE_NOT_CONFIRMED"
 BAD_DISTANCE = "BAD_DISTANCE"
 
@@ -46,6 +47,10 @@ def resist_force_n(force_n: Sequence[float], direction: Sequence[float], force_s
     return -force_sign * sum(f * d for f, d in zip(force_n[:3], direction))
 
 
+def _finite(*values) -> bool:
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+
+
 @dataclass(frozen=True)
 class Verdict:
     done: bool                     # 이 구간을 끝내야 함 (성공이든 실패든)
@@ -55,14 +60,16 @@ class Verdict:
 
 def check_open_distance(distance_m: float, max_travel_m: float) -> Optional[Verdict]:
     """요청 인출 거리가 (0, max_travel] 안인지. 넘으면 스토퍼에 걸리므로 시작 전에 거부."""
-    if not (0.0 < distance_m <= max_travel_m + 1e-9):
+    if not _finite(distance_m, max_travel_m) or not (0.0 < distance_m <= max_travel_m + 1e-9):
         return Verdict(True, BAD_DISTANCE, f"인출 거리 {distance_m * 1000:.1f} mm, 허용 (0, {max_travel_m * 1000:.1f}] mm")
     return None
 
 
 def judge_opening(moved_m: float, target_m: float, resist_n: float, stuck_force_n: float,
                   pos_tol_m: float) -> Verdict:
-    """인출 중 주기적으로 호출. 목표 도달 → 끝, 저항력이 임계 초과 → DRAWER_STUCK(즉시 정지)."""
+    """인출 중 주기적으로 호출. 목표 도달 → 끝, 저항력이 임계 초과 → DRAWER_STUCK(즉시 정지), 값 비정상 → SENSOR_INVALID."""
+    if not _finite(moved_m, target_m, resist_n, stuck_force_n, pos_tol_m):
+        return Verdict(True, SENSOR_INVALID, f"값 비정상 (이동 {moved_m!r}, 저항 {resist_n!r})")
     if resist_n > stuck_force_n:
         return Verdict(True, DRAWER_STUCK, f"인출 {moved_m * 1000:.1f} mm에서 저항 {resist_n:.1f} N > {stuck_force_n:g} N")
     if moved_m >= target_m - pos_tol_m:
@@ -73,6 +80,8 @@ def judge_opening(moved_m: float, target_m: float, resist_n: float, stuck_force_
 def judge_closing(remaining_m: float, resist_n: float, close_force_n: float, pos_tol_m: float) -> Verdict:
     """닫는 중 주기적으로 호출. `remaining_m` = 닫힘 위치까지 남은 거리.
     닫힘 = 위치 도달 AND 힘 임계. 위치 전에 힘 임계 → CLOSE_NOT_CONFIRMED(튀어나온 물품·레일 걸림, 8.4 복구 절차)."""
+    if not _finite(remaining_m, resist_n, close_force_n, pos_tol_m):
+        return Verdict(True, SENSOR_INVALID, f"값 비정상 (남은 거리 {remaining_m!r}, 저항 {resist_n!r})")
     reached = remaining_m <= pos_tol_m
     pushed = resist_n >= close_force_n
     if reached and pushed:

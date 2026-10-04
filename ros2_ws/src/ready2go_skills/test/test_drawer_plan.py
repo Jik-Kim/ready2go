@@ -60,3 +60,23 @@ def test_judge_closing_needs_both_position_and_force():
     early = dp.judge_closing(0.04, f + 1, f, tol)                      # 4 cm 전에 막힘: 튀어나온 물품
     assert early.done and early.error_code == dp.CLOSE_NOT_CONFIRMED
     assert not dp.judge_closing(0.04, 2.0, f, tol).done
+
+
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize("moved,resist", [(NAN, 5.0), (0.1, NAN), (0.1, INF), (INF, 5.0)])
+def test_opening_stops_on_non_finite(moved, resist):
+    v = dp.judge_opening(moved, TOP["max_travel_m"], resist, P["stuck_force_n"], P["pos_tol_m"])
+    assert v.done and v.error_code == dp.SENSOR_INVALID
+
+
+@pytest.mark.parametrize("remaining,resist", [(NAN, 5.0), (0.0, NAN), (-INF, 20.0)])
+def test_closing_stops_on_non_finite(remaining, resist):
+    v = dp.judge_closing(remaining, resist, P["close_force_n"], P["pos_tol_m"])
+    assert v.done and v.error_code == dp.SENSOR_INVALID
+
+
+@pytest.mark.parametrize("dist", [NAN, INF, True])
+def test_open_distance_non_finite(dist):
+    assert dp.check_open_distance(dist, TOP["max_travel_m"]).error_code == dp.BAD_DISTANCE
