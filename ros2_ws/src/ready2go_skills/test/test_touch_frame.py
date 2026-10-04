@@ -81,3 +81,28 @@ def test_tip_offset_lowers_origin_only():
 def test_negative_tip_offset_rejected():
     with pytest.raises(ValueError):
         tf.frame_from_touch([0, 0, 0], [200, 0, 0], [0, 200, 0], tip_offset_mm=-1)
+
+
+def test_floor_point_lowers_origin_along_z():
+    # 테두리 윗면 z=220, 바닥 z=150 (깊이 70), 손끝 10 mm 보정
+    rim = ([400, -100, 220], [605, -100, 220], [400, 195, 220])
+    f = tf.frame_from_touch(*rim, tip_offset_mm=10, floor_point_mm=[450, 0, 150])
+    assert f.translation_m == pytest.approx([0.4, -0.1, 0.14])
+    assert f.quaternion_xyzw == pytest.approx([0, 0, 0, 1])
+    assert (f.span_x_mm, f.span_y_mm, f.floor_depth_mm) == pytest.approx((205, 295, 70))
+
+
+def test_floor_point_on_tilted_plane_moves_along_frame_z():
+    rim = ([0, 0, 0], [200, 0, 20], [0, 200, 0])     # x 방향으로 기울어진 평면
+    f = tf.frame_from_touch(*rim, floor_point_mm=[100, 100, -60])
+    z = f.z_axis
+    # 원점은 P1에서 z축 방향으로만 움직인다 (x·y가 축과 무관하게 튀지 않음)
+    d = [f.translation_m[i] * 1000 for i in range(3)]
+    cross = [d[1] * z[2] - d[2] * z[1], d[2] * z[0] - d[0] * z[2], d[0] * z[1] - d[1] * z[0]]
+    assert cross == pytest.approx([0, 0, 0], abs=1e-9)
+    assert sum(d[i] * z[i] for i in range(3)) < 0
+
+
+def test_floor_point_above_plane_rejected():
+    with pytest.raises(ValueError):
+        tf.frame_from_touch([0, 0, 0], [200, 0, 0], [0, 200, 0], floor_point_mm=[50, 50, 30])

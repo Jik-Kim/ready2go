@@ -10,10 +10,14 @@ z가 아래를 향하면 경고한다 — P3을 반대쪽 모서리로 찍은 �
 손끝이 TCP보다 약 10 mm 아래에 있다 [실측 B 10/03, #7]. 그대로 넣으면 좌표계가 그만큼 위로 뜨므로
 `tip_offset_mm`(손끝 돌출량)을 세 점의 z에서 뺀다. **툴이 수직 아래(base −z)를 향한 자세로 찍는다고 가정**한다.
 
+바닥 점(선택): 안쪽 바닥 모서리는 손끝 폭 때문에 찍기 어려워, 테두리 윗면 안쪽 모서리 3곳으로 축·x·y를 정하고
+바닥 한 점으로 원점 z를 맞춘다 (#6 B·PM 합의). 원점 = P1 + z축 × ((바닥점 − P1) · z축) — 회전은 그대로.
+측정 점검용으로 P1–P2·P1–P3 거리(내부 깊이·폭)와 바닥까지 깊이(내부 높이)를 함께 출력한다.
+
 단독 실행 (펜던트 베이스 좌표 X·Y·Z mm 그대로):
     python3 touch_frame.py --child drawer_top \\
         --origin 400.1 -120.3 150.2 --x-point 600.0 -121.0 150.0 --xy-point 401.0 150.5 150.4 \\
-        --tip-offset-mm 10
+        --tip-offset-mm 10 --floor-point 450.0 0.0 80.0
 """
 import argparse
 import math
@@ -73,19 +77,25 @@ class TouchFrame:
     y_axis: list
     z_axis: list
     plane_angle_deg: float     # P1P2 와 P1P3 사이 각 (직각 모서리면 약 90)
+    span_x_mm: float           # P1–P2 거리 (손끝 보정 후) — 서랍이면 내부 깊이와 비교
+    span_y_mm: float           # P1–P3 거리 — 서랍이면 내부 폭과 비교
+    floor_depth_mm: float      # 세 점 평면에서 바닥 점까지 깊이 (바닥 점 없으면 0) — 내부 높이와 비교
     warnings: list
 
 
-def frame_from_touch(origin_mm, x_point_mm, xy_point_mm, *, tip_offset_mm: float = 0.0) -> TouchFrame:
+def frame_from_touch(origin_mm, x_point_mm, xy_point_mm, *, tip_offset_mm: float = 0.0,
+                     floor_point_mm=None) -> TouchFrame:
     """세 점(mm, base_link, 펜던트 TCP 좌표) → 장소 좌표계. 점이 너무 가깝거나 한 직선 위면 ValueError.
 
     `tip_offset_mm`: 닫힌 손끝이 TCP보다 아래로 나온 길이 [팀 확정 필요, 측정 당일 자로 실측].
     세 점에 똑같이 적용되므로 회전은 그대로이고 원점 z만 내려간다.
+    `floor_point_mm`: 주면 원점을 z축을 따라 이 점(같은 손끝 보정)의 높이까지 내린다.
     """
     if tip_offset_mm < 0:
         raise ValueError(f"tip_offset_mm는 0 이상: {tip_offset_mm}")
-    origin_mm, x_point_mm, xy_point_mm = (
-        [p[0], p[1], p[2] - tip_offset_mm] for p in (origin_mm, x_point_mm, xy_point_mm))
+    pts = [origin_mm, x_point_mm, xy_point_mm] + ([floor_point_mm] if floor_point_mm is not None else [])
+    pts = [[p[0], p[1], p[2] - tip_offset_mm] for p in pts]
+    origin_mm, x_point_mm, xy_point_mm = pts[:3]
     v1 = _sub(x_point_mm, origin_mm)
     v2 = _sub(xy_point_mm, origin_mm)
     if _norm(v1) < MIN_SPAN_MM or _norm(v2) < MIN_SPAN_MM:
@@ -108,11 +118,20 @@ def frame_from_touch(origin_mm, x_point_mm, xy_point_mm, *, tip_offset_mm: float
     if tilt > MAX_PLANE_SKEW_DEG:
         warnings.append(f"평면이 수평에서 {tilt:.1f}° 기울어 있음 — 서랍 설치·찍은 점 확인")
 
+    floor_depth = 0.0
+    if floor_point_mm is not None:
+        h = _dot(_sub(pts[3], origin_mm), z)          # z축 방향 높이 (바닥이면 음수)
+        if h >= 0:
+            raise ValueError(f"바닥 점이 세 점 평면보다 아래에 있지 않음 (높이 {h:.1f} mm) — 점·축 방향 확인")
+        floor_depth = -h
+        origin_mm = [origin_mm[i] + z[i] * h for i in range(3)]
+
     return TouchFrame(
         translation_m=[v / 1000.0 for v in origin_mm],
         quaternion_xyzw=quaternion_xyzw(x, y, z),
         x_axis=x, y_axis=y, z_axis=z,
         plane_angle_deg=angle,
+        span_x_mm=_norm(v1), span_y_mm=_norm(v2), floor_depth_mm=floor_depth,
         warnings=warnings,
     )
 
@@ -133,15 +152,21 @@ def main() -> int:
     ap.add_argument("--xy-point", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
     ap.add_argument("--tip-offset-mm", type=float, required=True,
                     help="닫힌 손끝이 TCP보다 아래로 나온 길이 mm (툴 수직 아래 가정). 보정하지 않으려면 0")
+    ap.add_argument("--floor-point", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                    help="바닥 한 점(TCP mm). 주면 원점을 이 높이까지 내림 (테두리 3점으로 찍을 때)")
     args = ap.parse_args()
     try:
-        f = frame_from_touch(args.origin, args.x_point, args.xy_point, tip_offset_mm=args.tip_offset_mm)
+        f = frame_from_touch(args.origin, args.x_point, args.xy_point, tip_offset_mm=args.tip_offset_mm,
+                             floor_point_mm=args.floor_point)
     except ValueError as e:
         print(f"오류: {e}", file=sys.stderr)
         return 1
     print(places_tf_line(args.child, f))
     print(f"# x축 {[round(v, 4) for v in f.x_axis]}, y축 {[round(v, 4) for v in f.y_axis]}, "
           f"z축 {[round(v, 4) for v in f.z_axis]}, P1P2–P1P3 각 {f.plane_angle_deg:.1f}°")
+    print(f"# 점검: P1–P2 {f.span_x_mm:.1f} mm, P1–P3 {f.span_y_mm:.1f} mm"
+          + (f", 바닥까지 깊이 {f.floor_depth_mm:.1f} mm" if args.floor_point else "")
+          + "  (drawer_top 내부 205 × 295 × 70 mm와 비교)")
     for w in f.warnings:
         print(f"경고: {w}", file=sys.stderr)
     return 0
