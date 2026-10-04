@@ -8,8 +8,8 @@ ready: false
 regions:
   drawer_top:
     objects:
-      - {class: watch,   position: [0.10, 0.08, 0.0], yaw: 0.0, top_z: 0.04}
-      - {class: wallet,  position: [0.10, 0.18, 0.0], yaw: 0.0, top_z: 0.02}
-      - {class: car_key, position: [0.18, 0.13, 0.0], yaw: 0.0, top_z: 0.02}
+      - {class: lip_balm, position: [0.10, 0.08, 0.0], yaw: 0.0, top_z: 0.0202}   # 높이는 이슈 #8 실측(지름 20.2), 위치는 자리표시자
+      - {class: car_key,  position: [0.10, 0.18, 0.0], yaw: 0.0, top_z: 0.0158}
+      - {class: eraser,   position: [0.18, 0.13, 0.0], yaw: 0.0, top_z: 0.0115}
   staging_tray: {objects: []}
   handover_zone: {objects: []}

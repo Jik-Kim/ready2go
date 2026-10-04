@@ -5,8 +5,9 @@
 | 단계 | 명령 | 비고 |
 | :--- | :--- | :--- |
 | 촬영 | `python3 tools/yolo/capture_session.py s01_basic --note "배치 메모" --interval 1 --count 30` | 세션 = 배치 하나. 컬러 + 정렬 뎁스를 `data/raw/<세션>/`에 저장. 구독만 하고 로봇은 움직이지 않음. 로봇은 `drawer_top_view` 포즈(B) |
-| 라벨링 | (외부 도구) 결과를 `data/labeled/<세션>/images`, `labels`(YOLO txt)로 | 클래스 id 순서 = 온톨로지 `world.items` 키 순서(#8 반영 시 자동) |
-| 구성 | `python3 tools/yolo/build_dataset.py --val s03 s05` | **세션 단위** 분할. 라벨 오류(id 범위·좌표 범위·이미지/라벨 수 불일치)가 있으면 중단 |
+| 라벨링 | (외부 도구) 결과를 `data/labeled/<세션>/images`, `labels`(YOLO txt)로 | 클래스 id = `config/yolo_classes.txt` 줄 번호. 학습 결과(`metrics.json`)에 사용한 클래스 목록이 기록된다 |
+| 클래스 고정 | `python3 tools/yolo/build_dataset.py --init-classes` | **라벨링 시작 전에 1회.** `config/yolo_classes.txt`(줄 번호 = 클래스 id, 깃으로 추적)를 만든다. 물품을 추가하면 맨 뒤에 덧붙이고 앞 번호는 바꾸지 않는다 |
+| 구성 | `python3 tools/yolo/build_dataset.py --val s03 s05` (고정 파일이 없으면 **중단**, 합성 점검만 `--allow-ontology-order`) | **세션 단위** 분할. 라벨 오류(id 범위·좌표 범위·이미지와 라벨 파일명 불일치)가 있거나 `yolo_classes.txt`에 온톨로지에 없는 이름이 있으면 중단 |
 | 학습·평가 | `python3 tools/yolo/train.py --base <yolov8n.pt> --epochs 100 --name v1` | 검증 세션 mAP50 을 `runs/<name>/metrics.json`에 기록, 0.9 이상이면 통과(결정 #22 제안값 [팀 확정 필요]) |
 | 점검용 | `python3 tools/yolo/make_synthetic.py` | 합성 데이터. **파이프라인 점검 전용**, 학습 결과를 모델로 쓰지 않음 |
 
