@@ -204,3 +204,51 @@ def test_skill_step_without_ontology_is_rejected():
     result = Runner(FakeBackend()).run(skill_task({"id": "s1", "skill": "open_drawer",
                                                    "params": {"drawer_id": "drawer_top"}}))
     assert result.error_code == "TASK_INVALID"
+
+
+# ---- 5단계: 스킬 기록 저장 (메모리·JSONL·MongoDB·폴백) ----
+
+from test_logstore import store  # noqa: E402,F401  (저장소 4종 fixture)
+
+
+def test_skill_and_child_records_are_saved_in_order(store):  # noqa: F811
+    backend = FakeBackend({"inspect_region": FOUND_WATCH})
+    result = Runner(backend, ontology=ONTOLOGY, log_store=store).run(skill_task(
+        {"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}},
+        {"id": "s2", "skill": "pick", "params": {"item": "watch", "from": "drawer_top"}}))
+    steps = store.read_run(result.run_id)["steps"]
+
+    # 스킬은 하위 동작보다 늦게 끝나지만 seq 는 시작 순서
+    assert [(s["seq"], s["id"], s.get("parent")) for s in steps] == [
+        (0, "s1", None), (1, "s1.e1", "s1"), (2, "s1.e2", "s1"),
+        (3, "s2", None), (4, "s2.e1", "s2"), (5, "s2.e2", "s2")]
+    s1, s2 = steps[0], steps[3]
+    assert (s1["action"], s1["skill"], s1["params"]) == ("skill", "open_drawer", {"drawer_id": "drawer_top"})
+    assert all(c["pass"] for c in s1["pre_check"])
+    assert s1["state_diff"] == {"open.drawer_top": [False, True]}
+    assert s2["state_diff"] == {"gripper.robot": ["empty", "watch"], "located_in.watch": ["drawer_top", "gripper"]}
+    assert steps[4]["result"] == FOUND_WATCH.output                       # 하위 동작 출력도 저장
+
+
+def test_pre_unmet_reason_is_saved(store):  # noqa: F811
+    result = Runner(FakeBackend(), ontology=ONTOLOGY, log_store=store).run(
+        skill_task({"id": "s1", "skill": "close_drawer", "params": {"drawer_id": "drawer_top"}}))  # 이미 닫힘
+    saved = store.read_run(result.run_id)
+    assert saved["run"]["error"] == {"code": "PRE_UNMET"} and saved["run"]["failed_step"] == "s1"
+    (s1,) = saved["steps"]                                                # 하위 동작 기록 없음 (로봇 안 움직임)
+    assert s1["error"] == {"code": "PRE_UNMET"} and "state_diff" not in s1
+    assert [c for c in s1["pre_check"] if not c["pass"]] == [
+        {"subject": "drawer_top", "predicate": "open", "op": "==", "value": True, "actual": False, "pass": False}]
+
+
+def test_failed_child_is_saved(store):  # noqa: F811
+    backend = FakeBackend({"drawer_control": ActionResult(False, error_code="DRAWER_STUCK")})
+    result = Runner(backend, ontology=ONTOLOGY, log_store=store).run(
+        skill_task({"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}},
+                   final=[{"id": "f1", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]))
+    saved = store.read_run(result.run_id)
+    assert saved["run"]["failed_step"] == "s1.e2"
+    assert [(s["id"], s["status"], s.get("error")) for s in saved["steps"]] == [
+        ("s1", "FAILURE", {"code": "DRAWER_STUCK"}), ("s1.e1", "SUCCESS", None),
+        ("s1.e2", "FAILURE", {"code": "DRAWER_STUCK"}), ("f1", "SUCCESS", None)]
+    assert "state_diff" not in saved["steps"][0]
