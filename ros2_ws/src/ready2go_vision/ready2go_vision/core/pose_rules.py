@@ -2,7 +2,7 @@
 
 - position = YOLO 박스 중심의 서랍 좌표계 x·y [m], position.z = 0 (높이는 top_z 에만 둔다)
 - yaw = 물체 긴 변 방향(서랍 x축 기준 rad), 범위 (-pi/2, pi/2]. 긴 변은 180° 돌려도 같은 직선이라 한 범위로 고정한다.
-  위에서 본 모양이 정사각형이거나 둥근 대칭 물체(size_m 가로·세로 비 < 1.2)는 0 으로 고정한다 (판정: is_symmetric).
+  위에서 본 모양이 정사각형이거나 둥근 대칭 물체는 0 으로 고정한다 (판정: is_symmetric, 기준값은 이 파일의 SYMMETRY_RATIO 하나뿐).
 - yaw_valid(bool) = yaw 를 믿어도 되는가. 대칭 물체와 정상 산출은 True, 덩어리 비정상(뎁스 결손·너무 얇음 등)은 False 이며 이때 yaw 는 0 자리표시.
   소비자(pick_object·nudge_object)가 진짜 0° 와 '모름'을 구분하려는 것이다 (B 요청, 사용자 승인 10/04).
 """

@@ -85,3 +85,10 @@ def test_stub_emits_yaw_valid_true_by_default_and_false_with_zero_yaw_when_set()
     assert r["target"]["pose"]["yaw_valid"] is True and r["target"]["pose"]["yaw"] == 0.4
     b = r["candidates"][0]["pose"]
     assert b["yaw_valid"] is False and b["yaw"] == 0.0
+
+
+@pytest.mark.parametrize("bad", ["false", "true", 0, 1, None])
+def test_non_bool_yaw_valid_is_a_config_error(bad):
+    cfg = {"ready": True, "regions": {"r": {"objects": [{"class": "a", "position": [0, 0, 0], "yaw": 0.4, "yaw_valid": bad, "top_z": 0.02}]}}}
+    ok, code, js = inspect(cfg, "r", "a")
+    assert not ok and code == "CONFIG_INVALID" and js == ""
