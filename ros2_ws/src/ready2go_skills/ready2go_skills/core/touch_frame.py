@@ -6,9 +6,14 @@ ROS·numpy 비의존 (pytest 대상). 회전(ZYZ)은 쓰지 않고 세 점의 �
 축 방향(어느 모서리를 원점으로 할지)은 [팀 확정 필요]: z가 위(base +z)를 향하도록 P3을 고른다.
 z가 아래를 향하면 경고한다 — P3을 반대쪽 모서리로 찍은 경우.
 
+손끝 보정: 펜던트 좌표는 TCP(`GripperDA_v1`, 손가락 패드 부근) 위치라, 닫힌 손끝으로 찍으면
+손끝이 TCP보다 약 10 mm 아래에 있다 [실측 B 10/03, #7]. 그대로 넣으면 좌표계가 그만큼 위로 뜨므로
+`tip_offset_mm`(손끝 돌출량)을 세 점의 z에서 뺀다. **툴이 수직 아래(base −z)를 향한 자세로 찍는다고 가정**한다.
+
 단독 실행 (펜던트 베이스 좌표 X·Y·Z mm 그대로):
     python3 touch_frame.py --child drawer_top \\
-        --origin 400.1 -120.3 150.2 --x-point 600.0 -121.0 150.0 --xy-point 401.0 150.5 150.4
+        --origin 400.1 -120.3 150.2 --x-point 600.0 -121.0 150.0 --xy-point 401.0 150.5 150.4 \\
+        --tip-offset-mm 10
 """
 import argparse
 import math
@@ -71,8 +76,16 @@ class TouchFrame:
     warnings: list
 
 
-def frame_from_touch(origin_mm, x_point_mm, xy_point_mm) -> TouchFrame:
-    """세 점(mm, base_link) → 장소 좌표계. 점이 너무 가깝거나 한 직선 위면 ValueError."""
+def frame_from_touch(origin_mm, x_point_mm, xy_point_mm, *, tip_offset_mm: float = 0.0) -> TouchFrame:
+    """세 점(mm, base_link, 펜던트 TCP 좌표) → 장소 좌표계. 점이 너무 가깝거나 한 직선 위면 ValueError.
+
+    `tip_offset_mm`: 닫힌 손끝이 TCP보다 아래로 나온 길이 [팀 확정 필요, 측정 당일 자로 실측].
+    세 점에 똑같이 적용되므로 회전은 그대로이고 원점 z만 내려간다.
+    """
+    if tip_offset_mm < 0:
+        raise ValueError(f"tip_offset_mm는 0 이상: {tip_offset_mm}")
+    origin_mm, x_point_mm, xy_point_mm = (
+        [p[0], p[1], p[2] - tip_offset_mm] for p in (origin_mm, x_point_mm, xy_point_mm))
     v1 = _sub(x_point_mm, origin_mm)
     v2 = _sub(xy_point_mm, origin_mm)
     if _norm(v1) < MIN_SPAN_MM or _norm(v2) < MIN_SPAN_MM:
@@ -118,9 +131,11 @@ def main() -> int:
     ap.add_argument("--origin", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
     ap.add_argument("--x-point", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
     ap.add_argument("--xy-point", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
+    ap.add_argument("--tip-offset-mm", type=float, required=True,
+                    help="닫힌 손끝이 TCP보다 아래로 나온 길이 mm (툴 수직 아래 가정). 보정하지 않으려면 0")
     args = ap.parse_args()
     try:
-        f = frame_from_touch(args.origin, args.x_point, args.xy_point)
+        f = frame_from_touch(args.origin, args.x_point, args.xy_point, tip_offset_mm=args.tip_offset_mm)
     except ValueError as e:
         print(f"오류: {e}", file=sys.stderr)
         return 1

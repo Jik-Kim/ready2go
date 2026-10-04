@@ -67,3 +67,17 @@ def test_places_tf_line_format():
     line = tf.places_tf_line("drawer_top", f)
     assert line.startswith("tf: {parent: base_link, child: drawer_top, translation_m: [0.40000")
     assert "quaternion_xyzw: [0.000000, 0.000000, 0.000000, 1.000000]" in line
+
+
+def test_tip_offset_lowers_origin_only():
+    pts = ([400, -100, 150], [600, -100, 150], [400, 100, 150])
+    base = tf.frame_from_touch(*pts)
+    f = tf.frame_from_touch(*pts, tip_offset_mm=10)
+    assert f.translation_m == pytest.approx([0.4, -0.1, 0.14])     # 손끝 10 mm → 원점 z 10 mm 아래
+    assert f.quaternion_xyzw == pytest.approx(base.quaternion_xyzw)
+    assert pts[0] == [400, -100, 150]                                # 입력 리스트를 바꾸지 않음
+
+
+def test_negative_tip_offset_rejected():
+    with pytest.raises(ValueError):
+        tf.frame_from_touch([0, 0, 0], [200, 0, 0], [0, 200, 0], tip_offset_mm=-1)
