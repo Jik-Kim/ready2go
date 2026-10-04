@@ -252,3 +252,115 @@ def test_failed_child_is_saved(store):  # noqa: F811
         ("s1", "FAILURE", {"code": "DRAWER_STUCK"}), ("s1.e1", "SUCCESS", None),
         ("s1.e2", "FAILURE", {"code": "DRAWER_STUCK"}), ("f1", "SUCCESS", None)]
     assert "state_diff" not in saved["steps"][0]
+
+
+# ---- 6단계: 예시 태스크(contracts/examples/task_skill_steps.json) 끝까지 실행 ----
+
+EXAMPLE = json.loads((ROOT / "contracts/examples/task_skill_steps.json").read_text(encoding="utf-8"))
+WORLD = ONTOLOGY["world"]
+
+
+class FakeRobot:
+    """로봇·지식 노드 흉내. query_ontology 는 Runner 의 현재 상태와 온톨로지 world 로 답한다."""
+
+    def __init__(self, visible=True, fail=None):
+        self.visible, self.fail = visible, fail or {}     # fail: {동작: 에러 코드}
+        self.runner: Runner | None = None
+        self.calls: list[str] = []
+        self.spoken: list[str] = []
+
+    def __call__(self, action, params, timeout_sec):
+        self.calls.append(action)
+        if action in self.fail:
+            return ActionResult(False, error_code=self.fail[action])
+        if action == "speak":
+            self.spoken.append(params["text"])
+        if action == "query_ontology":
+            item = params["item"]
+            return ActionResult(True, {"name_ko": WORLD["items"][item]["name_ko"],
+                                       "drawer_id": self.runner.state["located_in"][item]})
+        if action == "inspect_region":                    # ICD: 못 찾아도 success, target_found=false
+            found = {"target_found": True, "target": {"id": f"{params['search_target']}#1"}}
+            return ActionResult(True, found if self.visible else {"target_found": False})
+        return ActionResult(True)
+
+
+def robot_runner(robot, **kw):
+    runner = Runner(robot, schema=SCHEMA, ontology=ONTOLOGY, **kw)
+    robot.runner = runner
+    return runner
+
+
+def test_example_fetch_watch_end_to_end():
+    robot = FakeRobot()
+    runner = robot_runner(robot)
+    result = runner.run(EXAMPLE)
+
+    assert result.overall_status == "COMPLETED"
+    assert robot.spoken == ["시계를 꺼내 올게요", "시계를 앞쪽 트레이에 놓았어요"]
+    assert [(s["id"], s.get("state_diff")) for s in result.steps if "skill" in s] == [
+        ("s3", {"open.drawer_top": [False, True]}),
+        ("s4", {"gripper.robot": ["empty", "watch"], "located_in.watch": ["drawer_top", "gripper"]}),
+        ("s5", {"gripper.robot": ["watch", "empty"], "located_in.watch": ["gripper", "handover_zone"]}),
+        ("f1", {"open.drawer_top": [True, False]}),
+    ]
+    assert robot.calls == ["query_ontology", "speak",
+                           "move_to_named_pose", "drawer_control",          # s3 open_drawer
+                           "inspect_region", "pick_object",                 # s4 pick
+                           "place_object",                                  # s5 place
+                           "speak",
+                           "drawer_control", "move_to_named_pose"]          # f1 close_drawer, f2 홈
+    state = runner.state
+    assert state["open"]["drawer_top"] is False and state["gripper"]["robot"] == "empty"
+    assert state["located_in"]["watch"] == "handover_zone"
+
+
+def test_example_with_other_item_uses_bottom_drawer():
+    robot = FakeRobot()
+    runner = robot_runner(robot)
+    result = runner.run(EXAMPLE, inputs={"target": "wallet"})
+    assert result.overall_status == "COMPLETED"
+    assert robot.spoken[0] == "지갑을 꺼내 올게요"
+    assert next(s for s in result.steps if s["id"] == "s3")["params"] == {"drawer_id": "drawer_bottom"}
+    assert runner.state["located_in"]["wallet"] == "handover_zone"
+    assert runner.state["open"]["drawer_bottom"] is False
+
+
+def test_example_item_not_visible_still_closes_drawer():
+    robot = FakeRobot(visible=False)
+    runner = robot_runner(robot)
+    result = runner.run(EXAMPLE)
+
+    assert result.overall_status == "FAILED"
+    # 현재 동작: pick 의 expand 가 $scan.target.id 를 쓰므로 못 찾으면 변수 없음으로 실패 (아래 "확인 필요" 참고)
+    assert (result.error_code, result.failed_step) == ("VAR_UNDEFINED", "s4.e2")
+    assert robot.calls.count("inspect_region") == 2 and "pick_object" not in robot.calls   # retry 1, 집기 안 함
+    assert runner.state["open"]["drawer_top"] is False                 # finally 에서 서랍 닫음
+    assert runner.state["located_in"]["watch"] == "drawer_top"         # 시계는 그대로
+
+
+def test_example_estop_during_pick_keeps_drawer_open_in_state():
+    robot = FakeRobot(fail={"pick_object": "ESTOP"})
+    runner = robot_runner(robot)
+    result = runner.run(EXAMPLE)
+
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "ESTOP", "s4.e2")
+    assert [(s["id"], s["status"]) for s in result.steps if s["id"] in ("f1", "f2")] == [
+        ("f1", "SKIPPED"), ("f2", "SKIPPED")]                         # 비상정지 후 서랍 닫기·홈 이동 안 함
+    assert runner.state["open"]["drawer_top"] is True                  # 실제처럼 서랍은 열린 채
+    assert runner.state["gripper"]["robot"] == "empty"                 # 집기 실패 → effect 없음
+    assert runner.halted
+
+
+def test_example_rerun_after_estop_stops_at_open_drawer():
+    # 비상정지로 서랍이 열린 채 남은 뒤 사람이 resume() 하고 같은 태스크를 다시 실행하면
+    robot = FakeRobot(fail={"pick_object": "ESTOP"})
+    runner = robot_runner(robot)
+    runner.run(EXAMPLE)
+    runner.resume()
+    robot.fail = {}
+    result = runner.run(EXAMPLE)
+
+    # 현재 동작: open_drawer 의 pre(서랍 닫힘) 불충족 → 로봇 동작 없이 실패, finally 의 서랍 닫기·홈은 실행
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "PRE_UNMET", "s3")
+    assert runner.state["open"]["drawer_top"] is False
