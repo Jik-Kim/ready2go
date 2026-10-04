@@ -47,3 +47,29 @@ def test_bad_parameters():
         gc.check_grasp(width_m=0.02, grasp_detected=True, min_width_m=0)
     with pytest.raises(ValueError):
         gc.check_grasp(width_m=0.02, grasp_detected=True, min_width_m=0.005, expected_width_m=0.02)
+
+
+@pytest.mark.parametrize("width, held, reason", [
+    (0.0214, True, gc.HELD),          # 지우개 좁은 쪽 21.4 mm 그대로 [실측 B 10/04]
+    (0.0200, True, gc.HELD),          # 고무가 조금 더 눌림 (허용 범위 안)
+    (0.0150, True, gc.SLIPPED),       # 손가락 안에서 돌아감
+    (0.0009, False, gc.DROPPED),      # 빈손 닫힘 0.9 mm까지 줄어듦 [실측 B 10/03]
+    (0.0050, False, gc.DROPPED),      # 최소 폭과 같으면 놓친 것으로 본다
+])
+def test_check_hold(width, held, reason):
+    r = gc.check_hold(width_m=width, width_at_grasp_m=0.0214, min_width_m=0.005, slip_tolerance_m=0.002)
+    assert (r.held, r.reason) == (held, reason)
+    assert r.change_m == pytest.approx(width - 0.0214)
+
+
+def test_check_hold_bad_parameters():
+    with pytest.raises(ValueError):
+        gc.check_hold(width_m=0.02, width_at_grasp_m=0.0214, min_width_m=0, slip_tolerance_m=0.002)
+    with pytest.raises(ValueError):
+        gc.check_hold(width_m=0.02, width_at_grasp_m=0.0214, min_width_m=0.005, slip_tolerance_m=-1)
+    with pytest.raises(ValueError):                 # 잡지 못한 상태(폭이 최소 이하)를 기준으로 쓰면 안 됨
+        gc.check_hold(width_m=0.02, width_at_grasp_m=0.004, min_width_m=0.005, slip_tolerance_m=0.002)
+
+
+def test_failure_code_by_stage():
+    assert gc.FAILURE_CODE == {"close": "GRASP_FAILED", "lift": "GRASP_FAILED", "transport": "OBJECT_DROPPED"}
