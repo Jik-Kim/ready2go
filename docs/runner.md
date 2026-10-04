@@ -84,12 +84,12 @@
 * 스텝별 `on_failure`: `abort`(기본) / `retry`(`retry` 횟수만큼) / `skip` / `safe_home`.
 * `abort`로 `sequence`가 중단되면 `finally`가 실행되고 `overall_status = FAILED`.
 * **비상정지(E-stop)로 인한 `ABORTED`에서는 `finally`의 로봇 동작을 실행하지 않음.** 사람이 상태를 확인한 뒤 재개 명령으로 복구함.
-* `ABORTED` 경로: 백엔드가 `ESTOP`으로 실패하거나 Runner `halt()`(`/runner/estop`·음성 "멈춰")가 호출되면 `retry`·`skip`·`safe_home`을 적용하지 않고 즉시 중단. `halt()`는 다음 스텝 시작 전에 적용(진행 중 동작 취소는 백엔드 책임). `finally`는 로봇을 움직이지 않는 동작(`speak`·`query_ontology`·`update_ontology`·`set_var`·`if`)만 실행하고 나머지는 `SKIPPED`로 기록(허용 목록이라 새 동작은 기본 생략). 다른 실패와 겹치면 `ABORTED`가 우선. 중단 요청은 스텝 시작·재시도·`safe_home` 직전마다 확인.
+* `ABORTED` 경로: 백엔드가 `ESTOP`으로 실패하거나 Runner `halt()`(`/runner/estop`·음성 "멈춰")가 호출되면 `retry`·`skip`·`safe_home`을 적용하지 않고 즉시 중단. `halt()`는 진행 중인 액션에 즉시 취소를 요청하고(Runner 노드: `RosClients.cancel_all`), 백엔드가 멈춘 뒤 최종 결과(`canceled`)를 주면 그 스텝에서 `ABORTED`로 끝냄(스텝 기록에는 백엔드 코드, 예: `CANCELED`). 실제로 멈추는 것은 백엔드 책임(PR #74 리뷰). `finally`는 로봇을 움직이지 않는 동작(`speak`·`query_ontology`·`update_ontology`·`set_var`·`if`)만 실행하고 나머지는 `SKIPPED`로 기록(허용 목록이라 새 동작은 기본 생략). 다른 실패와 겹치면 `ABORTED`가 우선. 중단 요청은 스텝 시작·재시도·`safe_home` 직전마다 확인.
   * **중단과 결과 반영의 경계** (PR #64 E 리뷰): 중단 요청이 결과 반영 전에 들어오면 반영하지 않음. `skill`은 `effect` 직전에 확인해 상태를 바꾸지 않고 스킬을 `FAILURE`(`HALTED`)로 기록(하위 원자 동작은 받은 응답대로 기록). 원자 동작은 응답대로 기록하되 다음 동작을 보내지 않음. 마지막 스텝 도중의 중단도 `COMPLETED`가 아니라 `ABORTED`. 반영되지 않은 결과는 사람이 확인한 뒤 재개(중단 잠김). `halt()`와 effect 반영(중단 확인 → 상태 갱신)은 같은 잠금으로 묶어, 다른 스레드의 중단 요청은 반영 전이면 반영하지 않고 반영 중이면 반영이 끝난 뒤 적용(그 스킬은 완료로 기록).
 * **중단 잠김**: `ABORTED` 뒤에는 Runner `resume()`(사람이 상태 확인 후 재개 명령)을 부르기 전까지 새 태스크를 로봇 동작 없이 `ABORTED`로 거절하고, 처음 멈춘 이유(`ESTOP`/`HALTED`)를 돌려줌.
 * `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
-* `timeout_sec`: `Skill` goal 에는 제한 시간 칸이 없으므로 Runner(ROS 클라이언트)가 시간이 지나면 **취소를 요청**하고 기다리지 않음(#10). **실제로 멈추는 것은 백엔드 책임**(아래 "백엔드 구현 약속"). Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
+* `timeout_sec`: `Skill` goal 에는 제한 시간 칸이 없으므로 Runner(ROS 클라이언트)가 시간이 지나면 **취소를 요청하고, 백엔드가 멈춘 뒤 최종 결과를 줄 때까지 기다린 다음** `TIMEOUT`으로 끝냄(#10, PR #74 리뷰) → `finally` 복구 동작이 앞 동작과 겹치지 않음. 취소 뒤 5초 `[추정]` 안에 최종 결과가 없으면 `STOP_UNCONFIRMED`: 멈췄는지 알 수 없으므로 `ESTOP`처럼 `ABORTED`·잠금, 사람 확인 전 새 동작 없음. **실제로 멈추는 것은 백엔드 책임**(아래 "백엔드 구현 약속"). Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
   * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 취소 요청으로 끝난 `TIMEOUT`도 같음(`retry_stopped: "TIMEOUT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
 * **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
@@ -108,6 +108,7 @@
 | `BAD_CONDITION` | 조건식 인자 개수·타입 오류 |
 | `TIMEOUT` | `timeout_sec` 초과 (Runner 판정, 또는 클라이언트가 취소 요청). 결과가 불확실해 재시도하지 않음 |
 | `ESTOP` | 백엔드가 비상정지로 동작 실패를 반환 → `ABORTED` |
+| `STOP_UNCONFIRMED` | 취소를 요청했지만 정해진 시간 안에 백엔드의 정지 확인(최종 결과)이 없음 → `ABORTED`·잠금 (PR #74 리뷰) |
 | `HALTED` | Runner `halt()`로 중단(사용자 취소·`/runner/estop`) → `ABORTED` |
 | `ACTION_FAILED` | 백엔드가 에러 코드 없이 실패를 반환 |
 | `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등), 서버 없음·goal 거절(동작 안 함), 성공 응답의 JSON 을 읽을 수 없음. 스텝 실패로 처리해 `finally`를 보장 |
@@ -150,7 +151,7 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 | 이름 | 로봇 동작 `/skills/<동작>`(`Skill` 액션), TTS `/voice/speak`(`Skill`), 인식 `/vision/inspect_region`(`InspectRegion`) — [ICD](interfaces.md). Runner 는 `BACKEND`(real·sim·mock)와 관계없이 같은 이름으로 보냄. mock 은 `BACKEND=mock` 일 때만 떠서 이름이 겹치지 않음 |
 | goal | `params_json` = 위 표의 `params`를 JSON 문자열로(UTF-8, 한글 그대로). `$변수`는 Runner 가 풀어서 보냄 |
 | result | `success`, `error_code`(실패 시 코드. 비우면 Runner 가 `ACTION_FAILED`), `output_json`(위 표의 반환값, 없으면 빈 문자열. 성공인데 JSON 을 읽을 수 없으면 Runner 는 `BACKEND_ERROR` 실패로 봄) |
-| 취소 | `Skill` goal 에 제한 시간 칸이 없음. Runner 는 `timeout_sec`이 지나면 취소를 요청하고 `TIMEOUT`으로 끝냄(재시도 안 함) → **서버는 취소 요청을 받으면 안전하게 멈추고 `canceled`로 끝낼 것** |
+| 취소 | `Skill` goal 에 제한 시간 칸이 없음. Runner 는 `timeout_sec`이 지나거나 `/runner/estop`이 오면 취소를 요청하고 **최종 결과를 기다림** → **서버는 취소 요청을 받으면 안전하게 멈추고 5초 `[추정]` 안에 `canceled`로 끝낼 것**. 없으면 Runner 는 `STOP_UNCONFIRMED`로 잠김 |
 | 비상정지 | 펜던트 비상정지 등으로 멈추면 `error_code = "ESTOP"` → Runner `ABORTED`·잠김 (#19, B 확인) |
 | 동작 없이 거절 | 모션 계획 전에 거절하면 로봇이 움직이지 않았음을 보장하고 `NO_MOTION_CODES`의 코드 사용(현재 `YAW_INVALID`). 새 코드는 runner.md 와 `interpreter.NO_MOTION_CODES`에 함께 추가 |
 | 서버 준비 | Runner 는 서버를 2초 안에 못 찾거나 goal 이 거절되면 `BACKEND_ERROR`(동작 안 함) `[추정, 실측 후 조정]` |
@@ -161,7 +162,7 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 * `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
 * `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`).
 * `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
-* `/runner/estop` (`std_srvs/Trigger`) → `halt()`. **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
+* `/runner/estop` (`std_srvs/Trigger`) → `halt()` → 진행 중인 goal 에 즉시 취소 요청(정지 확인 전에는 다음 동작 없음). **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
 * 태스크 실행 통로: 정식은 `/voice/intent`(#17). 지금은 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행.
 * `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험.
 

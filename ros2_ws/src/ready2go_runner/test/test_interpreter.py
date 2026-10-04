@@ -657,3 +657,40 @@ def test_halt_during_last_action_ends_aborted():
     assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
     assert result.steps[0]["status"] == "SUCCESS"
     assert runner.halted
+
+
+# ---- PR #74 리뷰: 중단 요청이 진행 중 동작 취소로 이어지고, 정지 확인 전에는 다음 동작을 보내지 않음 ----
+
+STOP_TASK = {"task_id": "t", "sequence": [
+    {"id": "s1", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}}],
+    "finally": [{"id": "f1", "action": "speak", "params": {"text": "멈췄습니다"}},
+                {"id": "f2", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]}
+
+
+def test_halt_calls_on_halt_once_and_canceled_action_aborts_there():
+    canceled = []
+
+    def backend(action, params, timeout_sec):
+        if action == "drawer_control":
+            runner.halt()                                       # /runner/estop (다른 스레드라고 가정)
+            return ActionResult(False, error_code="CANCELED")   # on_halt 로 취소된 동작의 최종 결과
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    runner.on_halt = lambda: canceled.append("cancel_all")
+    result = runner.run(STOP_TASK)
+    runner.halt()                                               # 두 번째 halt 는 다시 취소하지 않음
+    assert canceled == ["cancel_all"]
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
+    assert (result.steps[0]["status"], result.steps[0]["error_code"]) == ("FAILURE", "CANCELED")
+    assert [(s["id"], s["status"]) for s in result.steps[1:]] == [("f1", "SUCCESS"), ("f2", "SKIPPED")]
+
+
+def test_stop_unconfirmed_locks_runner_and_sends_no_motion():
+    fake = FakeBackend({"drawer_control": ActionResult(False, error_code="STOP_UNCONFIRMED")})
+    runner = Runner(fake)
+    result = runner.run(STOP_TASK)
+    assert (result.overall_status, result.error_code) == ("ABORTED", "STOP_UNCONFIRMED")
+    assert runner.halted and runner.halt_code == "STOP_UNCONFIRMED"
+    assert [a for a, _ in fake.calls] == ["drawer_control", "speak"]     # 홈 이동 안 보냄
+    assert runner.run(STOP_TASK).overall_status == "ABORTED"             # 사람 확인(resume) 전 새 태스크 거절

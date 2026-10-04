@@ -43,7 +43,15 @@ class Watcher:
 
 
 @pytest.fixture
-def system(tmp_path):
+def thread_errors(monkeypatch):
+    """작업 스레드 예외를 모은다 (PR #74 리뷰: 로그 등급 ValueError 가 스레드 안에서 나던 문제)."""
+    errors = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: errors.append(args.exc_value))
+    return errors
+
+
+@pytest.fixture
+def system(tmp_path, thread_errors):
     context = rclpy.Context()
     rclpy.init(context=context, domain_id=random.randint(150, 230))
     mock = MockBackendNode(context=context, parameter_overrides=[Parameter("duration_sec", value=0.05)])
@@ -88,3 +96,14 @@ def test_estop_halts_and_refuses_next_task(system):
     assert runner.start_task(task)
     assert watcher.wait(lambda w: w.status["last"]["overall_status"] == "ABORTED")   # 잠김: 로봇 동작 없이 거절
     assert watcher.status["last"]["problems"]
+
+
+def test_success_then_aborted_run_has_no_thread_error(system, thread_errors):
+    # 같은 노드에서 성공(info) 뒤 중단(warning) 로그 → 이전에는 rclpy ValueError 가 작업 스레드에서 남
+    runner, watcher, _ = system
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED")
+    runner.runner.halt()
+    assert runner.start_task(json.loads(TASK_FILE.read_text(encoding="utf-8")))
+    assert watcher.wait(lambda w: w.status["last"]["overall_status"] == "ABORTED")
+    time.sleep(0.3)
+    assert thread_errors == []

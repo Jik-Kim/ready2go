@@ -57,7 +57,7 @@ class RunResult:
 Execute = Callable[[str, dict, "float | None"], ActionResult]   # (action, params, timeout_sec)
 
 SAFE_HOME_POSE = "home"                 # on_failure: safe_home 이 이동할 기준 포즈 (docs/runner.md 7.1)
-HALT_CODES = {"ESTOP"}                  # 백엔드가 이 코드로 실패하면 비상정지로 보고 ABORTED
+HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED"}   # 비상정지, 또는 취소 후 정지 확인 실패 → ABORTED·잠금 (PR #74 리뷰)
 HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
 ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
@@ -83,11 +83,12 @@ class StepFailed(Exception):
 
 
 class Halted(Exception):
-    """E-stop·사용자 취소. StepFailed 와 달리 retry·skip·safe_home 을 거치지 않고 바로 위로 전달된다."""
+    """E-stop·사용자 취소. StepFailed 와 달리 retry·skip·safe_home 을 거치지 않고 바로 위로 전달된다.
+    step_code: 스텝 기록에 남길 백엔드 응답 코드 (예: 중단 요청으로 취소된 동작의 CANCELED). 없으면 code."""
 
-    def __init__(self, step_id: str, code: str):
+    def __init__(self, step_id: str, code: str, step_code: str | None = None):
         super().__init__(f"{step_id}: {code}")
-        self.step_id, self.code = step_id, code
+        self.step_id, self.code, self.step_code = step_id, code, step_code
 
 
 class Runner:
@@ -106,15 +107,19 @@ class Runner:
         self._log_errors: list[str] = []
         self._halt = threading.Event()          # 중단 잠김 (다른 스레드의 ROS 서비스 콜백에서 halt() 호출)
         self._halt_lock = threading.Lock()      # halt() 와 effect 반영(중단 확인 → 상태 갱신)이 서로 끼어들지 않게
+        self.on_halt: Callable[[], object] | None = None   # 처음 멈출 때 진행 중인 동작 취소 (노드가 RosClients.cancel_all 연결)
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
 
     def halt(self, code: str = HALTED) -> None:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
         with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
-            if not self._halt.is_set():
+            first = not self._halt.is_set()
+            if first:
                 self._halt_code = code
             self._halt.set()
+        if first and self.on_halt is not None:  # 진행 중인 로봇 동작에 즉시 취소 요청 (기다림은 클라이언트가 함)
+            self.on_halt()
 
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
@@ -261,7 +266,7 @@ class Runner:
                     break
                 continue
             except Halted as e:                 # retry·skip·safe_home 을 거치지 않음
-                record.update(status="FAILURE", error_code=e.code)
+                record.update(status="FAILURE", error_code=e.step_code or e.code)
                 raise
             except Exception as e:              # Runner 내부의 예상 못 한 에러도 스텝 실패로 처리해 finally 를 보장
                 record["internal_error"] = f"{type(e).__name__}: {e}"
@@ -333,6 +338,8 @@ class Runner:
         if not result.success:
             if result.error_code in HALT_CODES:
                 raise Halted(step["id"], result.error_code)
+            if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
+                raise Halted(step["id"], self._halt_code or HALTED, step_code=result.error_code or None)
             # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음
             raise StepFailed(step["id"], result.error_code or "ACTION_FAILED",
                              no_retry="TIMEOUT" if result.error_code == "TIMEOUT" else None)
@@ -403,7 +410,7 @@ class Runner:
             self._dispatch(child, scope, record, records, started)
             record["status"] = "SUCCESS"
         except (StepFailed, Halted) as e:
-            record.update(status="FAILURE", error_code=e.code)
+            record.update(status="FAILURE", error_code=getattr(e, "step_code", None) or e.code)
             raise
         except Exception:                       # 스킬 스텝에서 INTERNAL_ERROR 로 처리됨
             record.update(status="FAILURE", error_code="INTERNAL_ERROR")

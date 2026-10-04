@@ -49,8 +49,9 @@ class RunnerNode(Node):
             schema = json.load(f)
         onto = ontology.load(ontology_file)
         self.log_store = _make_log_store(log_dir, self.get_logger())
-        self.ros_clients = RosClients(self)
         self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store)
+        self.ros_clients = RosClients(self, stopping=lambda: self.runner.halted)
+        self.runner.on_halt = self.ros_clients.cancel_all   # /runner/estop → 진행 중인 goal 즉시 취소
         self.runner.execute = RosBackend(self.ros_clients.call_action, self.ros_clients.call_service,
                                          lambda: self.runner.state, onto.get("world", {}))
 
@@ -94,15 +95,19 @@ class RunnerNode(Node):
         finally:
             self._busy = False
         self._last, self._last_task_id = result, self._task_id
-        log = self.get_logger().info if result.overall_status == "COMPLETED" else self.get_logger().warning
-        log(f"태스크 끝: {self._task_id} → {result.overall_status}"
-            + (f" ({result.error_code} @ {result.failed_step})" if result.error_code else "")
-            + (f" 거절 이유: {result.problems}" if result.problems else "")
-            + f" run_id={result.run_id}")
+        message = (f"태스크 끝: {self._task_id} → {result.overall_status}"
+                   + (f" ({result.error_code} @ {result.failed_step})" if result.error_code else "")
+                   + (f" 거절 이유: {result.problems}" if result.problems else "")
+                   + f" run_id={result.run_id}")
+        # rclpy 는 같은 호출 위치에서 로그 등급이 바뀌면 ValueError → 등급별로 다른 줄에서 호출 (PR #74 리뷰)
+        if result.overall_status == "COMPLETED":
+            self.get_logger().info(message)
+        else:
+            self.get_logger().warning(message)
         self.publish()
 
     def _estop(self, request, response):
-        self.runner.halt()
+        self.runner.halt()                      # on_halt → 진행 중인 goal 에 취소 요청
         self.get_logger().error("/runner/estop: 중단. 사람이 상태를 확인한 뒤 재개해야 합니다")
         response.success = True
         response.message = "halted: 진행 중 동작 취소는 백엔드 책임, 재개 전까지 새 태스크 거절"
