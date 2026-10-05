@@ -32,6 +32,13 @@ drawer_bottom:                # 서랍장 아래 단 [사용자 확인 10/03: �
 staging_tray:
   tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}
   slots: 3
-handover_zone:
-  tf: {parent: base_link, child: handover_zone, translation_m: null, quaternion_xyzw: null}
-  slots: 3
+handover_zone:                # 전달트레이 (위로 갈수록 넓어지는 사다리꼴 — 기준은 바닥). 축 규칙은 서랍과 같음: 로봇 쪽에서 볼 때
+  #   원점 = 앞쪽(로봇 쪽) 오른쪽 바닥 모서리, x = 로봇에서 멀어지는 쪽(≈ base +x), y = 왼쪽(≈ base +y), z = 위.
+  # [실측 B 10/05] 바닥 직접 터치(닫힌 손끝, 수직 아래, TCP mm): P1 [599.875, 65.534, 13.238], P2 [681.294, 65.540, 12.756],
+  #   P3 [597.518, 204.817, 13.803] → touch_frame.py --tip-offset-mm 10 (바닥을 직접 찍어 --floor-point 없음).
+  #   x축 base +x와 0.004°, 두 축 사이 91.0°(모서리가 둥글어 P3 위치 2 mm 차이), 평면 기울기 0.4°.
+  #   점검: 가운데 점 [642.593, 134.216, 12.786] → 좌표계 (42.7, 68.7, −0.5) mm = 바닥 중심(40.7, 69.7)과 2 mm 이내, 평면에서 0.5 mm.
+  #   모서리가 둥글어 같은 모서리도 터치마다 2~4 mm 차이(1차 P1–P2 85.0 mm) → 작은 쪽(이번 값) 사용.
+  tf: {parent: base_link, child: handover_zone, translation_m: [0.59988, 0.06553, 0.00324], quaternion_xyzw: [0.001978, 0.002960, 0.000031, 0.999994]}
+  interior_m: [0.0814, 0.1393, null]   # [실측 B 10/05, 위 터치] 바닥 [깊이, 폭, 높이] m = P1–P2, P1–P3 (닫힌 손끝 중심이 닿는 범위). 높이(테두리) 미측정
+  slots: 3                      # 긴 쪽(y)으로 3칸 → 칸마다 x 81 × y 46 mm. 물건 긴 변을 x로 놓음 (skill_plan.slot_centers·place_posx)
