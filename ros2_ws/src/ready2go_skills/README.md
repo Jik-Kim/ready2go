@@ -51,8 +51,9 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 | `drawer_control`·`nudge_object`·`pick_object`·`place_object` | TODO(B) 10/06 실측 후. 지금은 움직이지 않고 `NOT_IMPLEMENTED` |
 
 - 공통 (`core/skill_flow.py`): 취소 요청 → 정지 → **정지 확인되면** `canceled`(그리퍼는 그대로), 안전·비상정지 → `ESTOP`, 움직이기 전 펜던트 TCP·툴 확인 → `TOOL_NOT_SET`
-- **정지를 확인하지 못하면**(정지 명령 실패·상태 조회 실패·정지 확인 3초 초과) `STOP_UNCONFIRMED`로 끝내고 서버를 **잠근다** — 이후 모든 동작은 `LOCKED`로 거부. 펜던트에서 로봇 상태를 확인한 뒤 `skill_server`를 다시 띄워야 풀린다. 이동 중 상태 조회가 1초 넘게 실패해도 정지 후 잠금(`STATE_UNKNOWN`)
-- 서버 쪽 에러 코드: `UNKNOWN_POSE`·`POSE_NOT_TAUGHT`·`MOVE_REJECTED`·`MOTION_TIMEOUT`·`NOT_REACHED`·`NOT_IMPLEMENTED`·`BAD_PARAMS`·`STOP_UNCONFIRMED`·`STATE_UNKNOWN`·`LOCKED`·`SKILL_EXCEPTION`(서버 안 예외, 움직인 뒤일 수 있음 — Runner의 `BACKEND_ERROR`와 구분) — `runner.md` 7.1 표 반영은 10/06 실물 연결 확인 후
+- **정지를 확인하지 못하면**(정지 명령 실패·상태 조회 실패·정지 확인 3초 초과) `STOP_UNCONFIRMED`로 끝내고 서버를 **잠근다** — 이후 모든 동작은 `LOCKED`로 거부. 펜던트에서 로봇 상태를 확인한 뒤 `skill_server`를 다시 띄워야 풀린다. 이동 중 상태 조회가 1초 넘게 실패해도 정지 후 잠금(`STATE_UNKNOWN`). 이동 명령 응답이 없으면(수락 여부 모름) 정지·확인 후 `MOVE_UNCONFIRMED`로 잠금 — 늦게 도착한 요청으로 움직일 수 있어서
+- **한 번에 한 동작**: 5개 액션 전체에서 실행 중인 동작이 있으면 새 goal을 거절하고, 수락과 실행 사이에 겹치면 `BUSY`(로봇 동작 없음)
+- 서버 쪽 에러 코드: `UNKNOWN_POSE`·`POSE_NOT_TAUGHT`·`MOVE_REJECTED`·`MOTION_TIMEOUT`·`NOT_REACHED`·`NOT_IMPLEMENTED`·`BAD_PARAMS`·`STOP_UNCONFIRMED`·`STATE_UNKNOWN`·`MOVE_UNCONFIRMED`·`LOCKED`·`BUSY`·`SKILL_EXCEPTION`(서버 안 예외, 움직인 뒤일 수 있음 — Runner의 `BACKEND_ERROR`와 구분) — `runner.md` 7.1 표 반영은 10/06 실물 연결 확인 후
 - 파라미터: `joint_vel_deg_s`(기본 20, 처음은 저속), `joint_acc_deg_s2`, `move_timeout_s`(30), `reach_tol_deg`(0.5), `config_dir`, `dsr_prefix`
 
 ```bash

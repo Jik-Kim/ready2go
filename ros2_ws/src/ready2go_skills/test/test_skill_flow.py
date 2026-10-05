@@ -179,3 +179,68 @@ def test_exception_without_confirmed_stop_is_stop_unconfirmed(stop_ok, after_sto
 def test_exception_during_estop_reports_estop():
     o, _ = _guarded(Fake([2], after_stop=[6]))
     assert o.error_code == sf.ESTOP
+
+
+# ---- 이동 명령 응답: 수락 / 거부 / 응답 없음 (#73 E 리뷰)
+def _after(accepted, f):
+    return sf.after_command(accepted, what="movej", stop=f.stop, get_state=f.state, clock=f.clock, sleep=f.sleep)
+
+
+def test_accepted_command_proceeds():
+    f = Fake([1])
+    assert _after(True, f) is None and f.stopped == 0
+
+
+@pytest.mark.parametrize("after_stop,code", [([1], sf.MOVE_UNCONFIRMED), ([2], sf.STOP_UNCONFIRMED), ([None], sf.STOP_UNCONFIRMED)])
+def test_no_response_stops_and_locks(after_stop, code):
+    f = Fake([2], after_stop=after_stop)          # 응답은 없었지만 실제로는 이동 중
+    o = _after(None, f)
+    assert o.error_code == code and f.stopped == 1
+    assert o.error_code in sf.LOCKING_CODES
+
+
+def test_explicit_reject_idle_is_move_rejected_without_stop():
+    f = Fake([1])
+    o = _after(False, f)
+    assert o.error_code == sf.MOVE_REJECTED and f.stopped == 0
+
+
+@pytest.mark.parametrize("state", [2, None])
+def test_explicit_reject_but_moving_or_unknown_stops_first(state):
+    f = Fake([state], after_stop=[1])
+    o = _after(False, f)
+    assert o.error_code == sf.MOVE_REJECTED and f.stopped == 1
+
+
+def test_explicit_reject_in_estop():
+    assert _after(False, Fake([6])).error_code == sf.ESTOP
+
+
+# ---- 한 번에 한 동작 (#73 E 리뷰)
+def test_motion_gate_allows_one_at_a_time():
+    g = sf.MotionGate()
+    assert not g.busy() and g.try_enter()
+    assert g.busy() and not g.try_enter()      # 두 번째 요청은 바로 거절
+    g.exit()
+    assert not g.busy() and g.try_enter()
+
+
+def test_motion_gate_threads():
+    import threading
+    g, entered, start = sf.MotionGate(), [], threading.Barrier(8)
+
+    def worker():
+        start.wait()
+        if g.try_enter():
+            entered.append(1)
+    ts = [threading.Thread(target=worker) for _ in range(8)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert len(entered) == 1
+
+
+# ---- 도착 확인: 개수·NaN (#73 E 리뷰)
+@pytest.mark.parametrize("actual", [[0, 0, 0, 0, 0], [0, float("nan"), 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0],
+                                    [0, 0, 0, 0, 0, True]])
+def test_check_reached_rejects_bad_joint_lists(actual):
+    assert sf.check_reached([0] * 6, actual, 0.5).error_code == sf.NOT_REACHED

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import rclpy
 import yaml
-from rclpy.action import ActionServer, CancelResponse
+from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -53,9 +53,11 @@ class SkillServer(Node):
         meta = yaml.safe_load((cfg / "calibration" / "calibration_meta.yaml").read_text(encoding="utf-8"))
         self.expected_tcp, self.expected_tool = motion_guard.expected_tool(meta)
         self.robot = Dsr(self, self.declare_parameter("dsr_prefix", "/dsr01/dsr_controller2").value)
-        self.locked = None                   # STOP_UNCONFIRMED 사유. 잠기면 사람이 로봇을 확인하고 서버를 다시 띄울 때까지 모든 동작 거부
+        self.locked = None                   # 잠금 사유(skill_flow.LOCKING_CODES). 사람이 로봇을 확인하고 서버를 다시 띄울 때까지 모든 동작 거부
+        self.gate = sf.MotionGate()          # 5개 액션 전체에서 한 번에 하나만 실행 (#73 E 리뷰)
         group = ReentrantCallbackGroup()
         self._servers = [ActionServer(self, Skill, f"/skills/{a}", self._execute_for(a), callback_group=group,
+                                      goal_callback=self._on_goal,
                                       cancel_callback=lambda _: CancelResponse.ACCEPT) for a in ACTIONS]
         self.get_logger().info(f"스킬 서버 준비: /skills/{{{','.join(ACTIONS)}}} (관절 {self.joint_vel}°/s, "
                                f"기대 TCP {self.expected_tcp}·툴 {self.expected_tool}, config {cfg})")
@@ -63,6 +65,10 @@ class SkillServer(Node):
     def poses(self):
         """매 호출마다 다시 읽음 — 교시값을 고친 뒤 서버를 재시작하지 않아도 되게."""
         return yaml.safe_load((self.cfg_dir / "poses.yaml").read_text(encoding="utf-8"))
+
+    def _on_goal(self, _request):
+        """실행 중인 동작이 있으면 새 goal 을 받지 않음 (Runner 는 거절로 받음, 로봇 동작 없음)."""
+        return GoalResponse.REJECT if self.gate.busy() else GoalResponse.ACCEPT
 
     def _execute_for(self, action):
         handler = getattr(self, f"_do_{action}", None)
@@ -79,18 +85,21 @@ class SkillServer(Node):
             if handler is None:
                 return self._finish(goal, action, sf.Outcome(False, sf.NOT_IMPLEMENTED,
                                                              reason="10/06 실측 후 구현 (로봇 동작 없음)"))
-            err = motion_guard.check_tool(*self.robot.tool_names(), self.expected_tcp, self.expected_tool)
-            if err:
-                return self._finish(goal, action, sf.Outcome(False, err.error_code, reason=err.reason))
-            # 예외가 나면 정지 후 정지를 확인 — 확인 못 하면 STOP_UNCONFIRMED 로 잠금 (skill_flow.run_guarded)
-            outcome, output = sf.run_guarded(lambda: handler(goal, params), stop=self.robot.stop,
-                                             get_state=self.robot.state)
-            if outcome.error_code in (sf.SKILL_EXCEPTION, sf.STOP_UNCONFIRMED):
-                self.get_logger().error(f"[{action}] {outcome.reason}")
-            if outcome.error_code in (sf.STOP_UNCONFIRMED, sf.STATE_UNKNOWN):
-                self.locked = f"{action}: {outcome.reason}"
-                self.get_logger().error(f"[{action}] 정지 확인 실패로 잠금 — 펜던트에서 로봇 상태 확인 필요")
-            return self._finish(goal, action, outcome, output)
+            if not self.gate.try_enter():    # goal 수락과 실행 사이에 다른 요청이 먼저 들어온 경우
+                return self._finish(goal, action, sf.Outcome(False, sf.BUSY, reason="다른 동작 실행 중 (로봇 동작 없음)"))
+            try:
+                err = motion_guard.check_tool(*self.robot.tool_names(), self.expected_tcp, self.expected_tool)
+                if err:
+                    return self._finish(goal, action, sf.Outcome(False, err.error_code, reason=err.reason))
+                # 예외가 나면 정지 후 정지를 확인 — 확인 못 하면 STOP_UNCONFIRMED 로 잠금 (skill_flow.run_guarded)
+                outcome, output = sf.run_guarded(lambda: handler(goal, params), stop=self.robot.stop,
+                                                 get_state=self.robot.state)
+                if outcome.error_code in sf.LOCKING_CODES:
+                    self.locked = f"{action}: {outcome.reason}"
+                    self.get_logger().error(f"[{action}] 잠금 — 펜던트에서 로봇 상태 확인 후 skill_server 재시작 필요")
+                return self._finish(goal, action, outcome, output)
+            finally:
+                self.gate.exit()
         return execute
 
     def _finish(self, goal, action, outcome, output=None):
@@ -100,8 +109,10 @@ class SkillServer(Node):
             goal.succeed()
         else:
             goal.abort()
-        log = self.get_logger().info if outcome.success else self.get_logger().warning
-        log(f"[{action}] {'성공' if outcome.success else outcome.error_code}: {outcome.reason}")
+        if outcome.success:                  # rclpy 는 같은 호출 위치에서 severity 를 바꾸면 ValueError (#73 E 리뷰)
+            self.get_logger().info(f"[{action}] 성공: {outcome.reason}")
+        else:
+            self.get_logger().warning(f"[{action}] {outcome.error_code}: {outcome.reason}")
         return Skill.Result(success=outcome.success, error_code=outcome.error_code,
                             output_json="" if output is None else json.dumps(output, ensure_ascii=False))
 
@@ -111,22 +122,18 @@ class SkillServer(Node):
         if err:
             return err, None
         goal.publish_feedback(Skill.Feedback(stage="auto_mode"))
-        if not self.robot.auto():
-            return self._rejected("자동 모드로 바꾸지 못함"), None
+        if not self.robot.auto():            # 모드 전환은 이동 명령이 아님 → 명시적 거부로 처리
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.robot.state), None
         goal.publish_feedback(Skill.Feedback(stage="moving"))
-        if not self.robot.movej_async(joints, self.joint_vel, self.joint_acc):
-            return self._rejected("movej 거부"), None
+        bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej",
+                               stop=self.robot.stop, get_state=self.robot.state)
+        if bad:
+            return bad, None
         done = sf.wait_motion(get_state=self.robot.state, cancel_requested=lambda: goal.is_cancel_requested,
                               stop=self.robot.stop, timeout_s=self.move_timeout)
         if not done.success:
             return done, None
         return sf.check_reached(joints, self.robot.posj(), self.reach_tol), None
-
-    def _rejected(self, why):
-        state = self.robot.state()
-        if sf.stopped_by_estop(state):
-            return sf.Outcome(False, sf.ESTOP, reason=f"{why} — 로봇 상태 {state}")
-        return sf.Outcome(False, sf.MOVE_REJECTED, reason=f"{why} — 로봇 상태 {state}")
 
 
 def main():

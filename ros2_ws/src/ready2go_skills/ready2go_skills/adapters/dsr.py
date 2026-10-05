@@ -67,10 +67,11 @@ class Dsr:
         return False
 
     def movej_async(self, joints, vel, acc):
-        """비동기(sync_type=1) 관절 이동. 명령이 받아들여졌는지만 반환하고 끝은 wait_motion 이 본다."""
+        """비동기(sync_type=1) 관절 이동. True = 수락, False = 명시적 거부, None = 응답 없음(수락 여부 모름).
+        끝은 wait_motion 이, 응답 없음·거부 처리는 skill_flow.after_command 가 본다."""
         r = self.call("movej", pos=[float(v) for v in joints], vel=float(vel), acc=float(acc),
                       time=0.0, radius=0.0, mode=0, blend_type=0, sync_type=1)
-        return bool(r and r.success)
+        return None if r is None else bool(r.success)
 
     def stop(self):
         """정지 명령이 받아들여졌는지 반환 (응답 없음·실패면 False)."""

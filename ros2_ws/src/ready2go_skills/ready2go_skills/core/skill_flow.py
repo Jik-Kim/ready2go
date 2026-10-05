@@ -7,6 +7,7 @@ Runner와의 약속 (docs/runner.md 7.1 "백엔드 구현 약속", #10):
 노드는 DSR 서비스를 감싼 함수만 넘기고, 언제 멈추고 무엇을 돌려줄지는 여기서 정한다.
 """
 import math
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Mapping, Optional, Sequence
@@ -22,6 +23,8 @@ NOT_IMPLEMENTED = "NOT_IMPLEMENTED"      # 아직 실물 구현 전 (로봇 동�
 BAD_PARAMS = "BAD_PARAMS"
 STOP_UNCONFIRMED = "STOP_UNCONFIRMED"    # 정지 명령 뒤 멈춘 것을 확인 못 함 — 노드 잠금, Runner 는 ESTOP 처럼 ABORTED 권장 (#73 D 리뷰)
 STATE_UNKNOWN = "STATE_UNKNOWN"          # 이동 중 상태 조회가 계속 실패 → 정지 후 이 코드
+MOVE_UNCONFIRMED = "MOVE_UNCONFIRMED"    # 이동 명령 응답이 없어 수락 여부 모름 → 정지·확인 후 이 코드로 잠금 (#73 E 리뷰)
+BUSY = "BUSY"                            # 다른 동작이 실행 중 — 한 번에 하나만 (#73 E 리뷰). 로봇 동작 없음
 LOCKED = "LOCKED"                        # 앞서 STOP_UNCONFIRMED 로 잠긴 서버 — 사람이 확인하고 서버를 다시 띄울 때까지 거부
 SKILL_EXCEPTION = "SKILL_EXCEPTION"      # 서버 안 예외 — 움직인 뒤일 수 있음. Runner 의 BACKEND_ERROR(서버 없음·goal 거절, 동작 안 함)와 구분 (#73 C 리뷰)
 
@@ -60,8 +63,51 @@ def pose_joints(poses: Mapping, pose_name: str, drawer_id: Optional[str] = None)
     return [float(v) for v in joints], None
 
 
+# 서버를 잠그는 결과 — 로봇이 아직 움직이거나 늦게 도착한 명령으로 움직일 수 있음. 사람 확인 후 서버 재시작으로 해제
+LOCKING_CODES = frozenset({"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"})
+
+
 def stopped_by_estop(robot_state: Optional[int]) -> bool:
     return robot_state in ESTOP_STATES
+
+
+class MotionGate:
+    """로봇은 하나라 동작도 한 번에 하나만 (#73 E 리뷰: 5개 액션 전체 직렬화). 기다리지 않고 바로 판정한다."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    def busy(self) -> bool:
+        return self._lock.locked()
+
+    def try_enter(self) -> bool:
+        return self._lock.acquire(blocking=False)
+
+    def exit(self) -> None:
+        self._lock.release()
+
+
+def after_command(accepted: Optional[bool], *, what: str, stop: Callable[[], bool],
+                  get_state: Callable[[], Optional[int]], period_s: float = 0.05, stop_confirm_s: float = 3.0,
+                  clock: Callable[[], float] = time.monotonic,
+                  sleep: Callable[[float], None] = time.sleep) -> Optional[Outcome]:
+    """이동 명령을 보낸 직후. accepted: True = 수락, False = 명시적 거부, None = 응답 없음(수락 여부 모름).
+    - True → None (wait_motion 으로 진행)
+    - None → 이미 움직이고 있을 수 있으므로 정지 + 정지 확인. 확인돼도 늦게 도착한 요청으로 움직일 수 있어 MOVE_UNCONFIRMED(잠금)
+    - False → 비상정지 상태면 ESTOP, 이동 중이면 정지 + 확인 후 MOVE_REJECTED, 아니면 MOVE_REJECTED (#73 E 리뷰)"""
+    def halt(o):
+        return _halt(stop, get_state, clock, sleep, period_s, stop_confirm_s, o)
+
+    if accepted is True:
+        return None
+    if accepted is None:
+        return halt(Outcome(False, MOVE_UNCONFIRMED, reason=f"{what} 응답 없음 — 정지 확인했지만 늦은 요청 가능성, 사람 확인 필요"))
+    state = get_state()
+    if stopped_by_estop(state):
+        return Outcome(False, ESTOP, reason=f"{what} 거부 — 로봇 상태 {state}")
+    if state is None or state == STATE_MOVING:
+        return halt(Outcome(False, MOVE_REJECTED, reason=f"{what} 거부 — 로봇 상태 {state}, 정지 확인"))
+    return Outcome(False, MOVE_REJECTED, reason=f"{what} 거부 — 로봇 상태 {state}")
 
 
 def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Callable[[], bool],
@@ -138,10 +184,18 @@ def _halt(stop, get_state, clock, sleep, period_s, limit_s, outcome_if_stopped: 
     return Outcome(False, STOP_UNCONFIRMED, reason=f"{why} ({outcome_if_stopped.error_code} 처리 중) — 사람 확인 필요")
 
 
+def _finite(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
 def check_reached(target_deg: Sequence[float], actual_deg: Optional[Sequence[float]], tol_deg: float) -> Outcome:
+    """관절 6개가 모두 유한하고 목표와 tol 안인지. 개수가 다르거나 NaN 이 하나라도 있으면 실패 (#73 E 리뷰)."""
     if actual_deg is None:
         return Outcome(False, NOT_REACHED, reason="현재 관절각 조회 실패")
+    if (len(actual_deg) != 6 or len(target_deg) != 6
+            or not all(_finite(v) for v in list(actual_deg) + list(target_deg))):
+        return Outcome(False, NOT_REACHED, reason=f"관절각 개수·값 비정상: {list(actual_deg)!r}")
     err = max(abs(a - t) for a, t in zip(actual_deg, target_deg))
-    if not math.isfinite(err) or err > tol_deg:
+    if err > tol_deg:
         return Outcome(False, NOT_REACHED, reason=f"관절 오차 {err:.2f}° > {tol_deg:g}°")
     return Outcome(True, reason=f"도착 (관절 오차 {err:.2f}°)")
