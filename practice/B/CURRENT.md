@@ -1,60 +1,72 @@
 # CURRENT — B 서동권
 
 - **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-04
+- **최종 갱신**: 2026-10-05
 
 ## 지금 상태
-- #4 완료 (10/03 실물 확인): `ros2-core` 컨테이너에서 DSR 드라이버 Real 모드 접속, `move_joint`로 실물 동작, RG2 열기·닫기·폭 읽기, `/gripper/state` 발행.
-  - 컨테이너 실행 (PR #40 머지 후): `docker compose --profile real up` — bringup이 DSR 드라이버·`/gripper/state`·고정 TF를 함께 띄움 (`.env`: `BACKEND=real`, `ROBOT_HOST=192.168.1.100`, `RG2_HOST=192.168.1.1`). 빌드 산출물은 컨테이너 전용 `/colcon`, `entrypoint.sh`가 `/colcon/install`을 source.
-  - 스킬만 따로: `docker compose --profile real run --rm ros2-core bash -c "colcon --log-base /colcon/log build --symlink-install --build-base /colcon/build --install-base /colcon/install --packages-select ready2go_interfaces ready2go_skills && source /colcon/install/setup.bash && ros2 launch ready2go_skills dsr_real.launch.py"`
-  - 호스트 드라이버(`cobot2_ws`)·호스트 `realsense2_camera`와 동시에 띄우지 않는다 — 같은 `/dsr01` 이름으로 spawner가 호스트 controller_manager에 붙어 실패하고 제어기에 이중 접속됨 [실측 10/03, PR #40].
-- #3 완료 (10/03): PC2 `real` 5개 서비스 기동, `tf2_echo base_link wrist_cam_color_optical_frame` 값 수신(계산값과 1 mm 이내), PC1↔PC2 양방향 송수신.
-- #7: B 확인 항목(프레임 이름, `link_6` 원점, TCP·툴, `set_current_tcp`) 완료. **5점 검증 완료 (10/03)** — 채택 npy로 x·y 5곳 일치, z 일관. 남은 것: A의 meta 확정 반영, C의 bringup TF.
-  - ⚠️ 강의 폴더 `corecode/Calibration_Tutorial/T_gripper2camera.npy`(md5 `ed3c4a6c…`, 2026-02-25)는 채택 값(`dea4dee3…`)과 다름. 이 파일로는 z가 약 31 mm 높게 계산됨 → 강의 코드로 실행할 때는 `config/calibration/`의 npy를 복사해 쓴다.
-- #6: **서랍 교체(10/03, PR #48·#49)** — 플라스틱 → 원목 2단. 옛 서랍 값은 무효. 3점 터치·`drawer_approach`·`drawer_top_view` 교시·개폐 힘 임계를 새 서랍으로 다시 한다.
-  - 3점 터치는 처짐이 없어졌지만 레일 유격 때문에 **집을 때와 같은 인출 거리에서** 잰다 (#6 PM 정정 코멘트).
-  - 변환: `python3 ros2_ws/src/ready2go_skills/ready2go_skills/core/touch_frame.py --child drawer_top --origin X Y Z --x-point X Y Z --xy-point X Y Z` (펜던트 베이스 mm) → `places.yaml` `tf` 한 줄 (브랜치 `feat/b-touch-frame`, PR 전).
-  - 결정 대기 (B·E): 임시 트레이를 서랍장 윗면에 둘지 — 위 서랍 손잡이(26.4 cm)를 잡을 때 손가락·손목이 윗면 앞 모서리 약 3 cm까지 옴.
-- #8: A가 최종 물품 11종 확정·실측. **결정 #11 (B·E, 10/04)**: 높이 기준 1.5 → 1.0 cm 변경 또는 지우개(11.5 mm)만 예외. B 몫 파지 시험: 마스킹테이프(벽 0.7 mm, 힘 낮게)·당근 펜(원뿔)·망치/스패너(무게중심)·지우개 서랍 안(가운데·벽 옆 각 3회).
-- 코드 (로봇 없이 pytest, PR 전 브랜치): `core/grasp_check.py` (#15 `grasp_ok` — 빈손 닫힘 구분, `feat/b-grasp-check`), `core/nudge_plan.py` (#37 밀기 판단, `feat/b-nudge-plan`).
+- #4·#3 완료 (10/03): 컨테이너 Real 모드 실물 동작, RG2 제어, `/gripper/state`, PC2 `real` 기동·TF·PC1↔PC2 통신.
+  - 컨테이너 실행: `docker compose --profile real up` (`.env`: `BACKEND=real`, `ROBOT_HOST=192.168.1.100`, `RG2_HOST=192.168.1.1`).
+  - 호스트 드라이버(`cobot2_ws`)·호스트 `realsense2_camera`와 동시에 띄우지 않는다 — 같은 `/dsr01` 이름으로 충돌 [실측 10/03, PR #40].
+- #7 완료: 5점 검증(채택 npy, 10/03). 강의 폴더 `corecode/Calibration_Tutorial/T_gripper2camera.npy`(md5 `ed3c4a6c…`)는 채택 값과 달라 z가 약 31 mm 높음 → `config/calibration/`의 npy를 쓴다.
+- **#6 서랍 좌표계·기준 포즈 (10/04)**
+  - `drawer_top` 3점 터치 → `places.yaml` tf (PR #56·#58). 축 규칙(원점 = 앞쪽 오른쪽 안쪽 바닥 모서리, x 안쪽·y 왼쪽·z 위)은 `places.yaml` 첫 부분이 정본. `interior_m` [0.1997, 0.2937, 0.0681]은 로봇 터치 값(줄자 값 아님).
+  - **사고·교훈**: 측정 당시 펜던트 툴 설정(TCP `GripperDA_v1`, `tool_weight`)이 풀려 좌표가 플랜지 기준으로 읽혀 z가 228 mm 높았다(A 트윈 검증에서 발견). 툴 수직이라 z만 정정, 재터치 2점으로 2.3 mm 확인. **로봇을 움직이는 코드는 시작할 때 TCP·툴 이름을 확인한다**(`jog_gui`에 적용).
+  - 포즈 (PR #69): `drawer_approach.drawer_top`(손잡이 정면 10.8 cm 앞, 직선으로 들어가면 파지), `drawer_top_view.drawer_top`(수직 아래, 카메라 광축이 바닥 가운데 1 cm 안). 손잡이 파지 관절값(닫힘·최대 인출)은 `poses.yaml` 주석.
+  - 최대 인출 0.226 m: 손잡이를 잡은 채 로봇으로 끌어 연 실측 226.3 mm, x·z 변화 0.2 mm 이내(서랍이 똑바로 열림).
+  - **주의 (A 보고 10/04)**: `drawer_top_view`는 팔이 거의 펴진 자세(J3 ≈ 10°, J5 132.8°)라 위로 약 5 mm밖에 못 올라가고 J5 +4°는 이동 불가(J5 한계 근처 [미확인]). 촬영 자세를 바꿀 일이 있으면 덜 펴진 자세로 다시 교시.
+  - 남은 것: 전달 트레이(`handover_zone`) 바닥 모서리 3점(벽이 위로 벌어진 모양이라 바닥 기준), `tray_view` 교시, `drawer_approach` ↔ `drawer_top_view` 저속 경로 확인(J1 약 58° 차이).
+  - **임시 트레이 철회 (#6, 10/04)**: 장애물은 같은 서랍 안 목표를 가리지 않는 빈자리로 옮기고, 목표를 집은 뒤 역순 복구(P2). 빈자리 계산은 B `core/`. 온톨로지 표현·태스크 호출 방식은 P2 전에 C·E와 정함.
+- **#8 파지 (10/04)**: 새 서랍 안 지우개 좁은 쪽 **3/3 성공**(바닥 위 10~11.4 mm에서 모두 성공) → 결정 #11 높이 기준 1.0 cm 확정 제안(E 동의 대기). 남은 시험: 마스킹테이프·당근 펜·망치·스패너.
+- **#15 `pick_object` 입력**: `object_id` → `target`(`inspect_region` 결과 통째) 계약 변경 PR. `inspect_region` pose 정의(박스 중심, z = 0, yaw 범위, `yaw_valid`, 투영 평면 `top_z/2`)는 A와 합의 완료(#18, PR #61·#65).
+- **파지 실패·놓침 처리**: `core/grasp_check.check_hold` + `domain.md` 8.6 (PR #72). 실패하면 그리퍼 열고 상승, P2에서 top view 재인식 후 재시도(C 확인: 재시도 때 params 다시 해석).
+- **도구**: `nodes/jog_gui.py`(PR #69) — 강의 jog의 "입력칸 숫자 + 한 칸" 문제(옛 위치로 돌아가는 충돌 위험) 수정, 꾹 누르기, 실시간 좌표 copy, 축 정렬 x/y/z/r, 툴 설정 확인. PC2: `cd ~/ready2go/ros2_ws/src/ready2go_skills && python3 -m ready2go_skills.nodes.jog_gui --rg2-ip 192.168.1.1`.
+
+## 챌린지 방향 (B 결정 10/04, 이슈 기록 예정)
+"좌표만 믿지 않고 닿는 힘을 느끼는 동작" — 사람처럼 자연스럽게.
+- **끌어오기 (#37)**: 벽에 붙은 얇은 물체를 닫은 그리퍼로 위에서 살짝 눌러 손가락처럼 마찰로 끌어옴(뒤에 틈이 없어도 됨). 먼저 지우개·차키·캐러멜로 직접교시 마찰 시험 → 결과에 따라 `domain.md` 8.5·`nudge_plan` 수정.
+- **살포시 내려놓기 (#15)**: `place_object`에서 천천히 내리다 아래 힘이 기준을 넘으면 놓음(물체 높이 몰라도 됨, 전달 트레이·복구 공통).
+- 공통: 닿음 판정(힘 기준값, 닿은 높이가 예상 범위인지)을 `core/`에 하나로. 서랍 닫힘 판정(#13)과 같은 기술.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
-| 제어기 IP·포트 | `192.168.1.100:12345` | [실측] 강의 실행 기록, 10/03 컨테이너 접속 |
-| 제어기 버전 | `DRCF version = GF02120100` → 빌드 옵션 `DRCF_VER=2` | [실측] 드라이버 로그 |
-| DSR 드라이버 소스 | `ROKEY-SPARK/doosan-robot2_jazzy` @ `31750d68` (호스트 `cobot2_ws`와 같은 커밋). 두산 원본과 `libDRFL.a`가 달라 포크 사용 | [실측] |
-| RG2 접속 | `192.168.1.1:502`, unit ID 65 | [문서] 강의 `robot_control.py`, [실측] 동작 |
-| RG2 폭 | 열림 99.5~99.9 mm, 닫힘 0.9 mm. **빈 상태로 닫아도 `grip_detected=True`** → 파지 판정은 온톨로지 `verify`대로 폭 조건과 함께 | [실측] 10/03 |
-| TF 프레임 이름 | `base_link`, `link_6` (접두어 없음). 강의 URDF·두산 URDF 모두 같음. `tool0` = `link_6`과 원점 같고 축만 다름 | [실측] 10/02·10/03 |
-| `link_6` 원점 | 플랜지 면 (제어기 플랜지 `posx`와 차이 1.8 mm·0.16°) | [실측·계산] #7 |
-| TCP·툴 | TCP `GripperDA_v1` (소문자 v) z 228 mm, 툴 `tool_weight` 1.420 kg | [실측] 제어기 조회, 228 mm 팀 확정 10/02 |
-| `set_current_tcp` | 수동 모드(0)에서만 가능, 자동 모드에서는 거부. 잘못된 이름은 `success=False`, TCP 유지 | [실측] #7 |
-| 카메라 z → 손끝 닿는 높이 | 카메라가 계산한 면 높이 + 약 10 mm(8.5·9.8 mm)에 TCP를 두면 닫힌 손끝이 면에 닿음 (#15 파지 높이 기준) | [실측] 10/03, 채택 npy, 2곳 |
-| `/gripper/state` | `{"width": m, "grasp_detected": bool}`, 10 Hz | [실측] 10/03. `width` 단위(m)는 ICD에 없어 B가 정함 [팀 확정 필요] |
-| PC2 | 강의장 컴퓨터 `ms-07` (RTX 4060). `wlo1` 172.24.0.3 = DDS(공유기), `enp3s0` 192.168.1.32 = 로봇 전용선(제어기 .100, RG2 .1), DDS 미사용 | [실측] 10/03 `ip neigh`. `wlo1` 고정 IP 여부 확인 필요 |
-| 새 서랍 (drawer_top·bottom) | 내부 [깊이 0.205, 폭 0.295, 높이 0.07] m, 최대 인출 0.225 m, 처짐 0 | [실측 A 10/03] 정본 `config/places.yaml` |
+| 제어기 IP·포트 | `192.168.1.100:12345` | [실측] 10/03 |
+| 제어기 버전 | `DRCF version = GF02120100` → `DRCF_VER=2` | [실측] 드라이버 로그 |
+| DSR 드라이버 소스 | `ROKEY-SPARK/doosan-robot2_jazzy` @ `31750d68` | [실측] |
+| RG2 접속 | `192.168.1.1:502`, unit ID 65 | [문서·실측] |
+| RG2 폭 | 열림 99.5~99.9 mm, 빈손 닫힘 0.9 mm(빈손도 `grip_detected=True`) | [실측] 10/03 |
+| TCP·툴 | TCP `GripperDA_v1` z 228 mm, 툴 `tool_weight` 1.420 kg. **펜던트 설정이 풀릴 수 있음 → 시작할 때 확인** | [실측] 10/02·10/04 |
+| 손끝 ↔ TCP | 닫힌 손끝이 TCP보다 약 10 mm 아래 (3점 터치 `--tip-offset-mm 10`) | [실측] 10/03·10/04 |
+| RG2 손끝 높이 | 벌림 폭에 따라 달라짐: 완전히 벌린 채(100 mm) 지우개 높이로 내려가면 손끝이 서랍 바닥을 누름 → 물체 폭 + 약 13 mm만 벌리고 접근 | [실측] 10/04 |
+| 지우개 파지 | 좁은 쪽 폭 21.4 mm(실물 22, 고무 눌림)·긴 쪽 51.5 mm, 바닥 위 10~11.4 mm에서 3/3 성공 → 기준 바닥 + 11 mm, 벌림 35 mm, 힘 20 N | [실측] 10/04, #8 |
+| 서랍 `drawer_top` | tf·`interior_m`·`max_travel_m` 0.226·`tf_at_travel_m` 0.226. 정본 `config/places.yaml` | [실측 B] 10/04 |
+| 포즈 | `home`·`drawer_approach`·`drawer_top_view`. 정본 `config/poses.yaml` | [실측 B] 10/03·10/04 |
+| `/gripper/state` | `{"width": m, "grasp_detected": bool}`, 10 Hz | [실측] 10/03. 단위(m) [팀 확정 필요] |
+| PC2 | `ms-07`, `wlo1` 172.24.0.3 = DDS, `enp3s0` 192.168.1.32 = 로봇 전용선 | [실측] 10/03 |
 
 ## 막힌 점 · 필요한 도움
-- `/gripper/state`의 `width` 단위(m)를 Runner(C)와 맞춰야 함.
-- 서랍 좌표계 축 규약 [팀 확정 필요]: `interior_m` 순서([깊이, 폭, 높이])에 맞춰 x = 깊이, y = 폭, 원점 = 안쪽 바닥 모서리로 가정하고 `nudge_plan`을 짰다. #6 3점 터치 때 이 규약으로 찍을지 E·A와 확정.
-- #37: 밀기가 의미 있으려면 집을 때 벌림 여유(열린 손가락에 필요한 틈)가 닫은 손가락 두께보다 커야 함 → 실측 항목에 "집을 때 벌림 폭" 추가 필요.
+- E: 결정 #11(1.0 cm) 동의 → `hardware.md`·`metrics_risks.md` 수정 PR. 온톨로지 `pick.jsonld` `expand`의 `pick_object` params를 `target: "$scan.target"`으로(계약 변경 PR 후속).
+- E: `OBJECT_DROPPED`를 온톨로지 `place` errors에 넣을지 (PR #72).
+- RG2 웹 화면에서 손끝 오프셋(Fingertip offset)을 5 mm로 저장한 적 있음(10/04) — 원래 값과 같은지 확인 필요. 다르면 그리퍼 폭 숫자(0.9 mm 등) 기준이 바뀜.
+- `/gripper/state`의 `width` 단위(m)를 C와 확정.
 
 ## 다음 할 일
-- [x] #7 5점 `verify.py` 검증 (10/03)
-- [x] #3 PC2 `real` 기동·TF 연결·PC1↔PC2 통신 (10/03)
-- [ ] #8·결정 #11 (Day 2, 10/04) 높이 기준 결정 + 파지 시험
-- [ ] #6 (Day 2) 새 서랍으로 3점 터치(`drawer_top`, 트레이 위치 정해지면 `staging_tray`), 기준 포즈 교시 → `poses.yaml`·`places.yaml`
-- [ ] `feat/b-touch-frame`·`feat/b-grasp-check`·`feat/b-nudge-plan` PR
-- [ ] #13 (Day 3) `drawer_control` 실물
-- [ ] #15 (Day 4) `pick_object`·`place_object` 실물 — `vision_stub.yaml` 물품이 립밤·차키·지우개로 바뀜(PR #45), 실측 후 `ready: true`
-- [ ] #37 (Day 5~6) `nudge_object` 실물 — 손가락 두께·벌림 폭·바닥 감지 힘 임계 실측
+- [ ] #6 전달 트레이 바닥 3점, `tray_view` → `places.yaml`·`poses.yaml` PR
+- [ ] #13 `drawer_control` 실물 (10/05가 공휴일이라 Day 3 일을 당김, 남으면 10/06 오전 최우선): `drawer_approach` → 손잡이 파지 → 컴플라이언스 인출 → 닫힘(변위 + 힘) 판정, 힘 기준값 측정
+- [ ] #18 `vision_stub` 물체 4개(지우개·차키·립밤·마스킹테이프) 손끝 터치 실측 (A·B)
+- [ ] #37 끌어오기 마찰 시험 → 설계 확정
+- [ ] #15 (Day 4) `pick_object`·`place_object` 실물(`target` 입력, 살포시 놓기)
+- [ ] #8 나머지 물품 파지 시험
 - [ ] #19 E-stop(펜던트·키보드) + 저속 → 정상 속도 절차
 - [ ] (P2) `sim`용 DSR 드라이버·에뮬레이터 DRCF v2/v3 맞추기 (PR #40 리뷰 스레드)
 
 ## 철회한 결론
-- ~~10/02 팀 구성에서 채택 npy 적용 확인~~ → 그때 쓴 것은 강의 폴더의 2월 파일이었을 가능성이 큼(해시 다름). 채택 값 검증은 10/03 5점 검증으로 대체.
-- ~~프로젝트 TCP 이름 `GripperDA_V1`~~ → 제어기가 반환한 실제 이름은 `GripperDA_v1` (10/02).
-- ~~`set_tcp`가 잘못된 이름을 조용히 무시한다~~ → 자동 모드에서는 이름과 무관하게 거부, 수동 모드에서는 잘못된 이름에 `success=False` (10/02).
-- ~~#6 3점 터치 전에 손끝 돌출량 측정 필요~~ → 교시·터치한 TCP 값을 같은 기준으로 쓰면 불필요, 수업 때도 문제 없었음 (10/03).
-- ~~컨테이너 드라이버로 `move_joint`가 동작하지 않는다~~ → 10° 회전이라 눈에 안 띄었을 뿐, 30°에서 동작 확인 (10/03).
+- ~~10/02 팀 구성에서 채택 npy 적용 확인~~ → 강의 폴더의 2월 파일이었을 가능성이 큼. 10/03 5점 검증으로 대체.
+- ~~프로젝트 TCP 이름 `GripperDA_V1`~~ → 실제 이름은 `GripperDA_v1` (10/02).
+- ~~`set_tcp`가 잘못된 이름을 조용히 무시한다~~ → 자동 모드에서는 거부, 수동 모드에서는 잘못된 이름에 `success=False` (10/02).
+- ~~#6 3점 터치 전에 손끝 돌출량 측정 필요~~ → 실측 10 mm를 `--tip-offset-mm`로 반영 (10/04).
+- ~~컨테이너 드라이버로 `move_joint`가 동작하지 않는다~~ → 10° 회전이라 눈에 안 띄었을 뿐 (10/03).
+- ~~3점 터치 z(테두리 501.9 mm 등)~~ → 툴 설정이 풀려 플랜지 기준이었음, 228 mm 정정 (10/04, PR #58).
+- ~~지우개 파지 높이 = 바닥 + 4 mm~~ → 손가락 사이로 밀려 올라간 상태의 측정이었음, 바닥 + 11 mm가 맞음 (10/04).
+- ~~임시 트레이를 서랍장 윗면 / 작업대에 둔다~~ → 서랍 안 옆자리로 옮기기 (10/04, #6).
+- ~~줄자로 잰 서랍 내부 205 × 295 × 70 mm~~ → 로봇 터치 값 199.7 × 293.7 × 68.1 mm를 정본으로 (사람 실측값은 프로젝트 값으로 쓰지 않음, 10/04).

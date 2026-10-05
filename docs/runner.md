@@ -27,10 +27,10 @@
 | `drawer_control` | `drawer_id`, `state`: `"open"`/`"close"`, `distance`(선택, 기본 = `max_travel_m`) | `{drawer_displacement, close_confirmed}` | 손잡이 파지 및 슬라이딩 개폐 (real: 컴플라이언스 인출, **닫힘 = 닫힘 위치 도달 AND 미는 축 힘 임계 초과**, 8.4 / sim: 조인트 직접 구동 폴백) |
 | `inspect_region` | `region`: 서랍 ID, `"staging_tray"`, `"handover_zone"`, `search_target`(클래스명, 선택) | `{target_found, target, candidates[], visible_count}` | 검출 + 3D 위치 + 가림 순서. `target`은 `{id, class, pose, top_z}` 또는 `null`, `candidates`는 목표를 제외한 물체를 **위에 있는 순서(서랍 좌표계 `top_z` 내림차순)**로 정렬. `pose`는 서랍 좌표계(원점 = 상자 안쪽 바닥 앞쪽 오른쪽 모서리, x 안쪽·y 왼쪽·z 위, 정의는 `config/places.yaml` 첫 부분·#6). **`position` = YOLO 박스 중심의 x·y, z는 항상 0**(높이는 `top_z`에만 둔다). **`yaw` = 물체 긴 변 방향**(서랍 x축 기준 rad), 범위 **(−π/2, π/2]**(긴 변은 180° 돌려도 같은 직선이라 한 범위로 고정, `ready2go_vision.core.pose_rules`), 위에서 본 모양이 정사각형이거나 둥근 물체(판정: `pose_rules.is_symmetric`, [vision.md](vision.md) V2)는 yaw 0 고정. **`yaw_valid`(bool)**: yaw를 믿어도 되는지. 대칭 물체와 정상 산출은 `true`, 덩어리가 비정상(뎁스 결손·너무 얇음 등)이면 `false`이고 이때 `yaw`는 0 자리표시이며 진짜 0°가 아니다. **받는 쪽은 필드가 없으면 `false`로 취급한다**(보내는 쪽은 항상 채운다). 소비자는 `false`이면 길쭉한 물체를 집지 않고 재인식하고, 그래도 `false`이면 오류로 처리한다(에러 코드는 `pick_object` 표 소관). 판정 임계값은 params(yaml)에 두며 `[팀 확정 필요]`. `size_m` 규약은 [ontology.md](ontology.md)의 "치수 계약". `top_z` = 서랍 바닥 기준 물체 윗면 높이. P1은 박스 중심만 제공하며 머리 방향(망치·스패너 등)은 B의 요청이 있을 때 계약 변경으로 추가. yaw 산출 방식(서랍 바닥 위 뎁스 덩어리 + `minAreaRect`, 사용자 확정 10/04)은 [vision.md](vision.md) V2. 박스 중심 픽셀을 서랍 좌표 x·y로 옮길 때는 **`z = top_z/2` 평면**과 교차시킨다(확정, [vision.md](vision.md) V2) |
 | `nudge_object` | `target`(`inspect_region` 결과의 `target`을 그대로 넘김: `$scan.target` — `id`·`class`·`pose`(`yaw` 포함)·`top_z`), `drawer_id`, `check_only`(선택, bool, 기본 `false`) | `{pushed, push_vector_m, clearance_before_m, floor_z_m}` (모두 서랍 좌표계 `drawer_<id>`, `inspect_region`의 `pose`와 같은 기준) | **1회 호출 = 1회 밀기.** 닫은 그리퍼로 바닥 접촉(힘 감지) → 수 mm 상승 → 벽에서 멀어지는 방향으로 직선 밀기. 잡을 수 있는 자리면 움직이지 않고 `pushed: false`. `check_only: true`이면 움직이지 않고 판단만 한다. 밀었으면 다시 `inspect_region` 후 집기 (FR-ACT-05, 상세 [domain.md 8.5](domain.md#85-벽-인접-물체-밀어오기-담당-b)) |
-| `pick_object` | `object_id`(인스턴스 ID), `approach_offset`, `grip_force`(선택, 기본 = 온톨로지 값), `source_slot`(선택, 트레이에서 집을 때) | `{object_id, class, pick_pose_drawer_frame, grasp_ok}` | 접근 → 파지 → 안전 높이 상승 |
+| `pick_object` | `target`(서랍에서 집을 때. `inspect_region` 결과의 `target`을 그대로 넘김: `$scan.target` — `id`·`class`·`pose`(`yaw`·`yaw_valid` 포함)·`top_z`, `nudge_object`와 같음) 또는 `source_slot`(트레이에서 집을 때), `approach_offset`, `grip_force`(선택, 기본 = 온톨로지 값) | `{object_id, class, pick_pose_drawer_frame, grasp_ok}` (`object_id` = `target.id`) | 접근 → 파지 → 안전 높이 상승. 접근 x·y = `pose.position`, 손가락은 `yaw`(긴 변)에 수직으로 닫음(좁은 쪽 파지), 파지 높이 = 서랍 바닥(`places.yaml` tf) + 물체별 높이(`top_z`는 검산용), 손가락은 물체 폭 + 여유만큼만 벌리고 내려감(RG2는 벌림 폭에 따라 손끝 높이가 달라짐, #8). 길쭉한 물체인데 `yaw_valid`가 `false`이면 집지 않고 `YAW_INVALID` (#15·#18) |
 | `place_object` | `location`: `"staging_tray"`(빈 슬롯 자동 할당) / `"handover_zone"` / 슬롯명, 또는 `pose` + `frame` | `{slot, placed_pose}` | 지정 위치에 거치 후 그리퍼 해제. `frame: "drawer"`일 때는 배치 직전 재촬영으로 높이(z) 보정. **`location`이 서랍(`Drawer` 클래스)이면 백엔드가 `frame: "drawer"`, 현재 인출 거리 반영 서랍 좌표, z 보정을 자동 적용**(서랍의 `return_slot` 또는 지정 `pose` 사용) |
 
-* **ID 규칙**: `object_id`는 비전이 부여한 **인스턴스 ID**(예: `eraser#1`, `unknown#3`), `search_target`과 온톨로지 키는 **클래스명**(예: `eraser`). 둘을 섞지 않음.
+* **ID 규칙**: `target.id`·`object_id`는 비전이 부여한 **인스턴스 ID**(예: `eraser#1`, `unknown#3`), `search_target`과 온톨로지 키는 **클래스명**(예: `eraser`). 둘을 섞지 않음.
 * **포즈 vs 위치**: `pose_name`은 로봇 관절 포즈, `location`은 월드의 물체 거치 장소. 이름 공간을 분리함.
 
 **② 지식/상호작용 동작**
@@ -134,6 +134,13 @@ V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없�
 | `NO_PUSH_ACCESS` | 물체가 벽에 붙어 닫힌 손가락이 들어갈 틈이 없음 → P1은 실패 + TTS 안내(벽 따라 옆으로 밀기는 P2 후보) |
 | `PUSH_BLOCKED` | 밀다가 힘 임계 초과(끼임·다른 물건) |
 | `PUSH_LIMIT` | `check_only: true` 재판단에서 한 번 민 뒤에도 파지 가능한 자리가 아님(P1 Runner는 `while`이 없어 반복 밀기를 하지 않으므로 밀기는 1회로 제한) |
+
+**`pick_object` 에러 코드** (온톨로지 `pick` 스킬 `errors`와 함께 쓰는 원자 동작 수준 코드)
+
+| 코드 | 의미 |
+| :--- | :--- |
+| `YAW_INVALID` | 길쭉한 물체인데 `target.pose.yaw_valid`가 `false`(또는 없음) → 집지 않음. 다시 인식한 뒤 재시도 대상 |
+| `GRASP_FAILED` | 닫았는데 빈손·감지 없음·기대 폭과 다름, 또는 들어 올린 직후 빠짐 → 그리퍼 열고 안전 높이로 상승 후 반환 ([domain.md 8.6](domain.md)) |
 
 ### 7.2 태스크 시퀀스 스키마
 

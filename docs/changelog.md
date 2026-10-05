@@ -28,3 +28,4 @@
 
 - **2026-10-04 E PR #46 검토 반영**: 최신 main(#58 TF 정정·#61 pose 규칙 포함)을 통합하고 변경 이력을 보존. 물품 `size_m`을 긴 변·짧은 변·높이 순서로 정렬하고 관련 설명을 정정. 장소 설정 테스트는 원본 YAML 대조와 독립 null fixture로 분리. 시연 최소 표시·터미널 대체 및 D·C·E 인계를 복원하고 #59 참조를 재구성 문서의 17.4·17.5·17.6으로 갱신함. [문서]
 - **v5.12**: **계약 변경** — `inspect_region` `pose`에 `yaw_valid`(bool) 추가(B 요청, 사용자 승인 10/04): 대칭 물체·정상 산출은 true, 덩어리 비정상은 false(yaw 0 자리표시)로 진짜 0°와 구분. 투영 높이 평면 `z = top_z/2` 확정, 대칭 물체 문구를 "위에서 본 모양이 정사각형이거나 둥근 물체"로 정정. `runner.md` 7.1, 예시 JSON, `pose_rules.py`, `validate_contracts.py`, 스텁 반영.
+- **v5.13**: `pick_object` 입력을 `object_id`에서 `target`(`inspect_region`의 `target` 통째, `nudge_object`와 같음)으로 변경해 백엔드가 위치·yaw·`yaw_valid`·`top_z`를 받게 함(#15), `pick_object` 에러 코드 표(`YAW_INVALID`, `GRASP_FAILED`) 추가(`runner.md` 7.1), 예시 태스크·`interfaces.md` 인스턴스 ID 설명 갱신.
