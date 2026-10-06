@@ -18,6 +18,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from _outdir import prepare_output
+
 ROOT = Path(__file__).resolve().parents[2]
 # 기준 시점 1280x720 화면에서 서랍 바닥 안쪽 [x0, y0, x1, y1] 픽셀 (바닥-벽 경계선 안쪽, 눈으로 잰 값)
 FLOOR_ROI = (268, 108, 1008, 614)
@@ -68,6 +70,7 @@ def main() -> int:
     ap.add_argument("--extend-px", type=int, default=70, help="ROI 가장자리에 닿은 물체를 색 차이로 따라갈 때 ROI 밖으로 보는 범위(px)")
     ap.add_argument("--strong-l", type=float, default=38.0, help="확장용 밝기 차이 문턱")
     ap.add_argument("--strong-c", type=float, default=22.0, help="확장용 색상 차이 문턱")
+    ap.add_argument("--force", action="store_true", help="출력 폴더에 이전 결과가 있어도 지우고 다시 만든다(손으로 고친 라벨도 사라짐)")
     ap.add_argument("--exclude", nargs="*", default=[], help="라벨링에서 뺄 이미지 번호 (예: 0017)")
     args = ap.parse_args()
 
@@ -90,9 +93,12 @@ def main() -> int:
         bg_lab = cv2.cvtColor(np.median(np.stack(bgs), axis=0).astype(np.uint8), cv2.COLOR_BGR2LAB).astype(float)
     else:
         print(f"[auto_label] 배경 세션 {bg_dir} 없음 → 뎁스만 사용")
-    (out / "images").mkdir(parents=True, exist_ok=True)
-    (out / "labels").mkdir(exist_ok=True)
-    (out / "preview").mkdir(exist_ok=True)
+    try:
+        removed = prepare_output(out, raw, args.force)
+    except (FileExistsError, ValueError) as e:
+        sys.exit(f"[auto_label] {e}")
+    if removed:
+        print(f"[auto_label] --force: 이전 결과를 지우고 다시 만듭니다 {removed}")
     review, n_ok = [], 0
     for img_path in sorted((raw / "images").glob("*.png")):
         stem, i = img_path.stem, int(img_path.stem)
