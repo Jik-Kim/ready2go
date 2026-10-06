@@ -374,7 +374,7 @@ class SkillServer(Node):
         reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
         if not reached.success:
             return reached, None
-        handle = mp.handle_posx(closed, pull, disp)
+        handle = mp.offset_posx(mp.handle_posx(closed, pull, disp), pull, oc["handle_grasp_back_mm"])   # 실측보다 조금 덜 들어감
         reach_f = self.robot.tool_force()
 
         def touched():                                       # 손잡이 앞에서 무언가에 닿음 = 서랍이 덜 닫혔거나 위치가 다름 (10/06 실물)

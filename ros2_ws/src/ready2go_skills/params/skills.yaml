@@ -58,6 +58,7 @@ drawer_open_close:              # drawer_control 실물 (위 drawer_control 판�
   handle_grasp_posx:            # 손잡이 파지 TCP posx — 서랍 닫힌 상태 [실측 B 10/04, poses.yaml drawer_approach 주석]
     drawer_top: [382.105, -291.757, 268.641, 89.981, -89.964, 179.892]   # 끝까지 연 손잡이 [382.264, -66.470, 268.556] → 인출 225.3 mm [실측 B 10/06]. [실측 B 10/06 재측정, 꽉 잡음, posj [7.269, 17.642, 116.824, 95.151, -95.372, -45.383]] — 10/04 값과 y 0.7 mm 차이
     drawer_bottom: null         # 교시 전 → DRAWER_NOT_CONFIGURED (움직이지 않음)
+  handle_grasp_back_mm: 2.0     # 손잡이 잡을 때 실측 자리보다 당기는 쪽(+y)으로 이만큼 덜 들어감 — 너무 붙음 [사용자 10/06]
   handle_open_width_mm: 30.0    # 손잡이 잡으러 갈 때 벌림 [팀 확정 필요]
   close_enabled: true           # 닫기: 손잡이를 잡지 않고 홈 자세(수직) 손끝으로 손잡이 앞을 힘 느낄 때까지 밀기 [사용자 제안 10/06, 실물 확인 전]. false = 사람이 닫음
   vertical_push_offset_mm: 0.0  # 수직 그리퍼로 밀 때 목표 TCP = 열 때 잡는 손잡이 y + 이 값 [사용자 10/06]. 손가락이 먼저 닿아 닫히면 push_stop_force_n 에서 멈춤
