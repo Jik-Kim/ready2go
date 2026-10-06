@@ -48,6 +48,9 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
   grasp_mm_s: 15.0              # 마지막 내려가기·놓기
   pull_mm_s: 60.0               # 서랍 당기기 (10/06 1.5배)
   push_mm_s: 45.0               # 서랍 밀어 닫기 (10/06 1.5배)
+carry:                            # 집은 뒤 → 트레이 직선 블렌딩 (poses.yaml carry_line) [사용자 10/06 저녁]
+  radius_mm: 20.0               # 경유점 모서리 블렌딩 반지름 (마지막 놓는 자리는 0 = 정확히 정지)
+  pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤
 force:                            # 힘 기준값 (scripts/b_demo.py 와 같음)
   tare_settle_s: 0.7            # 멈춘 뒤 기다림
   tare_samples: 10              # 평균 낼 횟수

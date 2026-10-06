@@ -47,7 +47,7 @@ def server(monkeypatch):
     _stub(monkeypatch, "dsr_msgs2")
     _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
         "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetRobotMode GetRobotState GetToolForce "
-        "MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
+        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
     _stub(monkeypatch, "pymodbus")
     _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
     for m in ("ready2go_skills.adapters.dsr", "ready2go_skills.adapters.rg2", "ready2go_skills.nodes.skill_server"):
@@ -100,6 +100,11 @@ def server(monkeypatch):
         def movej_async(self, j, vel, acc):
             self.log.append(("movej", j))
             self.j = list(j)
+            return True
+
+        def moveb_async(self, pts, radii, vel, acc, rot_vel=30.0, rot_acc=60.0):
+            self.log.append(("moveb", [list(p) for p in pts], list(radii)))
+            self.p = list(pts[-1])
             return True
 
         def movesj_async(self, pts, vel, acc):
@@ -193,14 +198,25 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2827 - 0.0349, abs=1e-3)
     server.srv.robot.force = lambda p: [0.0] * 6
     server.Gripper.holding = True
+    route = server.srv.poses()["carry_line"]["drawer_top"]
+    server.srv.robot.log.clear()
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
     server.Gripper.holding = False
     assert out.success and data["grasp_ok"] is True
+    assert server.srv.robot.log[-1] == ("movel", route[0])               # 집고 바로 경유점 1(서랍 중앙)로 — z 300 안 올림 (10/06 저녁)
     server.srv.robot.log.clear()
     out, data = server.run("place_object", {"location": "handover_zone"})
-    kinds = [e[0] for e in server.srv.robot.log]
+    log = server.srv.robot.log
     assert out.success and data["slot"] == "handover_zone_1"
-    assert kinds[:2] == ["movej", "movesj"] and len(server.srv.robot.log[1][1]) == 3   # 경유점 1 movej → 2·3·4 movesj (10/06)
+    kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이) → 놓는 자리, 직선 블렌딩 한 번
+    assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 5
+    assert radii == [20.0, 20.0, 20.0, 20.0, 0.0]
+    assert pts[3][2] == pytest.approx(route[-1][2]) and pts[3][:2] == pytest.approx(pts[4][:2])
+    assert pts[4][2] < pts[3][2] and log[1][0] == "movel"               # 놓은 뒤 위로
+    log.clear()
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
+    assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-291.757 + 226.0 + 30.0, abs=1.0)   # 홈 안 거치고 손잡이 앞으로 바로
+    assert not any(e[0] == "movej" for e in log)
 
 
 def test_named_pose_from_low_non_drawer_spot_lifts_first(server):

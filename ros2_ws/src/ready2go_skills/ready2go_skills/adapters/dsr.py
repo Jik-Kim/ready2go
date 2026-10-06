@@ -7,13 +7,14 @@ import time
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetRobotMode, GetRobotState,
-                           GetToolForce, MoveJoint, MoveLine, MoveSplineJoint, MoveStop, SetRobotMode)
+                           GetToolForce, MoveBlending, MoveJoint, MoveLine, MoveSplineJoint, MoveStop, SetRobotMode)
 
 SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
         "posx": (GetCurrentPosx, "aux_control/get_current_posx"),
         "force": (GetToolForce, "aux_control/get_tool_force"),
         "movel": (MoveLine, "motion/move_line"),
         "movesj": (MoveSplineJoint, "motion/move_spline_joint"),
+        "moveb": (MoveBlending, "motion/move_blending"),
         "state": (GetRobotState, "system/get_robot_state"),
         "mode": (GetRobotMode, "system/get_robot_mode"),
         "setmode": (SetRobotMode, "system/set_robot_mode"),
@@ -122,6 +123,33 @@ class Dsr:
         r = self.call("movel", pos=[float(v) for v in posx], vel=[float(vel), float(rot_vel)],
                       acc=[float(acc), float(rot_acc)],
                       time=0.0, radius=0.0, ref=REF_BASE, mode=0, blend_type=0, sync_type=1)
+        return None if r is None else bool(r.success)
+
+    def moveb_async(self, points, radii, vel, acc, rot_vel=30.0, rot_acc=60.0):
+        """비동기 직선 블렌딩 (posx 경유점 여러 개를 직선으로 잇고 모서리를 반지름 mm 로 둥글게, 마지막 점에서만 정지).
+        구간 = [목표 posx 6, 원호 보조점 6(직선이면 0), 종류(직선 0), 반지름] [두산 MoveBlending, practice/B 10/06 표].
+        드라이버 필드가 예상(segment·pos_cnt)과 다르면 명령을 보내지 않고 False. 반환은 movej_async 와 같다."""
+        from std_msgs.msg import Float64MultiArray
+        req = self.T["moveb"].Request()
+        ft = req.get_fields_and_field_types()
+        if "segment" not in ft or "pos_cnt" not in ft:
+            self.node.get_logger().error(f"MoveBlending 필드가 예상과 다름 — 보내지 않음: {ft}")
+            return False
+        req.segment = [Float64MultiArray(data=[float(v) for v in p] + [0.0] * 6 + [0.0, float(r)])
+                       for p, r in zip(points, radii)]
+        req.pos_cnt = len(points)
+        for name, val in (("vel", [float(vel), float(rot_vel)]), ("acc", [float(acc), float(rot_acc)])):
+            if name in ft:
+                setattr(req, name, val if "[" in ft[name] or "sequence" in ft[name] else val[0])
+        for name in ("time", "ref", "mode"):
+            if name in ft:
+                setattr(req, name, type(getattr(req, name))(0))      # ref 0 = base, mode 0 = 절대
+        req.sync_type = 1
+        fut = self.cli["moveb"].call_async(req)
+        t0 = time.monotonic()
+        while not fut.done() and time.monotonic() - t0 < 2.0:
+            time.sleep(0.005)
+        r = fut.result() if fut.done() else None
         return None if r is None else bool(r.success)
 
     def stop(self):
