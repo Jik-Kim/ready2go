@@ -1,0 +1,5 @@
+# ready2go_skills 파라미터 (담당 B). 확정 전 값은 [팀 확정 필요] — 코드에 두지 않는다.
+# 기대 TCP·툴 이름은 config/calibration/calibration_meta.yaml, 서랍 기준 인출 거리는 config/places.yaml tf_at_travel_m 에서 읽는다(복사하지 않음).
+motion_guard:   # core/motion_guard.py (#15)
+  travel_tolerance_m: 0.005     # [팀 확정 필요] drawer_displacement 와 tf_at_travel_m 차이 허용. 넘으면 DRAWER_NOT_AT_TRAVEL. 실측(스토퍼 재현성) 후 확정
+  on_floor_tolerance_m: 0.01    # [팀 확정 필요] top_z − 물체 높이 허용. 넘으면 NOT_ON_FLOOR. 검정·반사 물체 뎁스 오차(#15 A 코멘트) 실측 후 확정

@@ -110,7 +110,7 @@ def test_state_carries_across_steps_and_tasks():
         {"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}},
         {"id": "s2", "skill": "pick", "params": {"item": "watch", "from": "drawer_top"}}))
     assert first.overall_status == "COMPLETED"
-    assert ("pick_object", {"object_id": "watch#1", "approach_offset": [0, 0, 0.1]}) in backend.calls   # $scan 사용
+    assert ("pick_object", {"target": {"id": "watch#1"}, "approach_offset": [0, 0, 0.1]}) in backend.calls   # $scan.target 통째로 (runner.md 7.1 v5.13)
     assert "scan" not in first.blackboard                      # 스킬 안 출력은 태스크 변수로 새지 않음
 
     # 다음 태스크: 앞 태스크가 남긴 상태(시계를 들고 있음)에서 이어짐
