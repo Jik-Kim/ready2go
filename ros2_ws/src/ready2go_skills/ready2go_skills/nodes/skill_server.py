@@ -38,6 +38,7 @@ ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object"
 PARAMS_FILE = Path(__file__).resolve().parents[2] / "params" / "skills.yaml"
 NO_OBJECT_CONTACT = "NO_OBJECT_CONTACT"  # 끌기: 내려가도 물체 윗면 접촉을 못 느낌 (runner.md nudge_object 표)
 PUSH_BLOCKED = "PUSH_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림, runner.md 기존 코드)
+PUSH_LIMIT = "PUSH_LIMIT"                # check_only 재판단에서 아직 잡을 수 없는 자리 (runner.md 기존 코드)
 GRASP_FAILED = "GRASP_FAILED"
 NOT_HOLDING = "NOT_HOLDING"
 HOLDING_OBJECT = "HOLDING_OBJECT"        # 물건을 든 채 서랍 닫기 거부
@@ -396,11 +397,13 @@ class SkillServer(Node):
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
                "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)
-        if plan.error_code:
-            return sf.Outcome(False, plan.error_code, reason=plan.reason), out
-        if not plan.needed or params.get("check_only"):
+        if plan.error_code:                                   # check_only 재판단이면 runner.md 대로 PUSH_LIMIT
+            return sf.Outcome(False, PUSH_LIMIT if params.get("check_only") else plan.error_code, reason=plan.reason), out
+        if not plan.needed:
             out["target_after"] = target                      # 움직이지 않음 → 위치 그대로
             return sf.Outcome(True, reason=plan.reason), out
+        if params.get("check_only"):                          # 재판단인데 아직 끌어야 함 → 집지 않게 멈춤 (runner.md, #83 D 리뷰)
+            return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — {plan.reason}"), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
         tilt = math.radians(d["tilt_deg"])
