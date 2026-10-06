@@ -282,13 +282,17 @@ class SkillServer(Node):
         return None if done.success else done
 
     def _transit(self, goal, target, stage):
-        """지금 높이가 safe_z 보다 낮으면 수직으로 올라가고 → safe_z 에서 목표 위로(방향도 바꿈) → 목표로 내려감."""
+        """safe_z 로 수직 이동 → 그 자리에서 방향만 돌림 → safe_z 에서 목표 위로 → 목표로 내려감.
+        방향 바꾸기와 옮기기를 나눔: drawer_top_view(팔 거의 펴짐, J3 약 10°)에서 옮기며 30° 기울이다 특이점에 걸림 (10/06 실물).
+        제자리에서 서랍 벽 쪽으로 기울이면 플랜지가 안쪽으로 와서 팔이 덜 펴짐."""
         prm = self.prm()
         safe, vel = prm["transit"]["safe_z_mm"], prm["speed"]["line_mm_s"]
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
-        for pose, st in ((mp.with_z(cur, max(cur[2], safe)), f"{stage}:lift"),
+        level = mp.with_z(cur, safe if self._over_drawer(cur) else max(cur[2], safe))   # 서랍 위면 높아도 safe_z 로 내림
+        for pose, st in ((level, f"{stage}:level"),
+                         (list(level[:3]) + list(target[3:]), f"{stage}:turn"),
                          (mp.with_z(target, max(safe, target[2])), f"{stage}:over"),
                          (list(target), f"{stage}:down")):
             bad = self._line(goal, pose, vel, st)
