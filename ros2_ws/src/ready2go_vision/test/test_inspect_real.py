@@ -161,3 +161,22 @@ def test_floor_probe_reports_floor_height_and_ignores_objects():
     raised = depth - 0.003                                              # 바닥(과 물체)이 카메라 쪽으로 3 mm → 서랍 z +3 mm
     assert floor_probe(raised, K, T, INTERIOR, [box], fp)["z_median_m"] == pytest.approx(0.003, abs=0.0005)
     assert floor_probe(np.zeros_like(depth), K, T, INTERIOR, [], fp) == {"n": 0}
+
+
+def test_edge_tolerance_boundary_keeps_14mm_and_drops_16mm_overrun():
+    """경계 여유(vision_params region.edge_tolerance_m)가 footprint 초과량 14 mm 는 허용, 16 mm 는 제외하는가 (0.015 기준)."""
+    from ready2go_vision.core.inspect_real import footprint_inside
+    tol = PARAMS["region"]["edge_tolerance_m"]
+    assert tol == pytest.approx(0.015)
+    size = [0.0525, 0.022, 0.0115]
+    hx, hy = size[0] / 2, size[1] / 2
+    for over, inside in [(0.014, True), (0.016, False)]:
+        assert footprint_inside(hx - over, 0.15, 0.0, True, size, INTERIOR, tol) is inside                  # x = 0 벽 밖
+        assert footprint_inside(INTERIOR[0] - hx + over, 0.15, 0.0, True, size, INTERIOR, tol) is inside    # x = 안쪽 벽 밖
+        assert footprint_inside(0.10, hy - over, 0.0, True, size, INTERIOR, tol) is inside                  # y = 0 벽 밖
+        assert footprint_inside(0.10, INTERIOR[1] - hy + over, 0.0, True, size, INTERIOR, tol) is inside    # y = 왼쪽 벽 밖
+    # 합성 장면 전체 경로: 이 장면에서 x 가 약 1.4 mm 안쪽으로 측정돼(투영 근사) 경계 ±1 mm 는 가르지 못한다 → 12 mm 허용·18 mm 제외로 본다
+    for cx, keep in [(hx - 0.012, True), (hx - 0.018, False)]:
+        depth = scene(cx, 0.15, 0.0, (0.0525, 0.022), 0.0115)
+        ok, _, js = run(depth, [{"class": "eraser", "conf": 0.9, "box": box_of(cx, 0.15, (0.0525, 0.022), 0.0)}])
+        assert ok and json.loads(js)["target_found"] is keep, (cx, keep)

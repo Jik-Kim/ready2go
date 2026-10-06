@@ -17,6 +17,8 @@ region:
   edge_tolerance_m: 0.015      # 물체 footprint 가 서랍 내부 경계 밖으로 이만큼까지는 측정 오차로 보고 허용 [추정]. 넘으면 결과에서 제외
                                # 0.01 → 0.015 (10/06, AC-VIS-01 1.5 cm와 같게): 벽면 배치(P1 사용자 결정) 실측 지우개 [0.1769, 0.2895] yaw 0 은
                                # footprint 가 interior_m 보다 x 3.4 mm·y 6.8 mm 밖으로 계산돼(#22 E 값), 0.01 이면 비전 오차 3 mm 로 제외될 수 있음
+                               # 영향: 서랍 밖으로 최대 15 mm 나간 footprint 도 결과(target·candidates → nudge·pick 입력)에 들어간다 [추정: 서랍 벽 두께·테두리 위 물체는
+                               # 이보다 멀어 제외될 것]. 벽 붙임 시험(#22·#23 10/07~08)으로 실측 footprint 초과량을 확인한 뒤 0.01 환원을 검토한다
 detector:
   conf_min: 0.25               # 이보다 낮은 검출은 버린다
 policy:
