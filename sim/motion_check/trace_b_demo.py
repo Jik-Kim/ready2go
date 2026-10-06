@@ -37,6 +37,20 @@ class DemoRobot(KinRobot):
     def check_tool(self):
         return None
 
+    def _finish(self):                                                   # b_demo 의 이동은 동기(끝날 때까지 기다림) → 경로 끝까지
+        while self._path:
+            self.p, self.j = self._path.pop(0)
+        self._moving = 0
+
+    def halt(self, *a, **k):
+        return None
+
+    def grip(self, width, force):                                        # 손잡이 8 mm·지우개 21 mm·빈 손 0.9 mm (실제 폭 흉내)
+        d = self.demo
+        w = float(width) if width > 0 else {d.GRIP_HANDLE_N: 8.0, d.GRIP_ERASER_N: 21.0}.get(force, 0.9)
+        self.grip_events.append(dict(before_segment=len(self.segments), width_mm=w, step=self.step))
+        return types.SimpleNamespace(width_mm=w)
+
     def movej(self, j, vel=20.0):
         self.stage = self.step
         if abs(j[4]) > self.demo.J5_MAX:
@@ -46,6 +60,7 @@ class DemoRobot(KinRobot):
     def movel(self, x, vel=50.0, rot=15.0):
         self.stage = self.step
         self.movel_async(list(x), vel, vel, rot, rot)
+        self._finish()
 
     def movesj(self, pts, vel=20.0):
         self.stage = self.step
@@ -68,8 +83,10 @@ class DemoRobot(KinRobot):
             streak = streak + 1 if hit else 0
             if hit and streak >= confirm:
                 self.movel_async(p, vel, vel)                             # 멈춘 곳까지만
+                self._finish()
                 return hit
         self.movel_async(x, vel, vel)
+        self._finish()
         return None
 
 
@@ -92,11 +109,7 @@ def main():
     spec.loader.exec_module(demo)
     robot = DemoRobot(HOME_J, demo)
 
-    def grip(width, force):                                              # 손잡이 8 mm·지우개 21 mm·빈 손 0.9 mm
-        w = float(width) if width > 0 else {demo.GRIP_HANDLE_N: 8.0, demo.GRIP_ERASER_N: 21.0}.get(force, 0.9)
-        robot.grip_events.append(dict(before_segment=len(robot.segments), width_mm=w, step=robot.step))
-        return types.SimpleNamespace(width_mm=w)
-    demo.grip = grip
+    demo.grip = robot.grip                                               # 예전 b_demo 는 모듈 함수 grip, 지금은 r.grip
     demo.time.sleep = lambda s: None
     steps, results = demo.run(robot), []
     for (title, fn), step in zip(steps, STEP_NAMES):

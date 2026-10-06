@@ -65,6 +65,7 @@ class KinRobot:
         self.p = kin.fk_posx(self.j)
         self.segments, self.stage, self.contact, self.grip_events = [], "", None, []
         self._moving = 0
+        self._path, self._path_i, self._path_n = [], 0, 0
         self.step = ""
 
     # --- 상태 조회 ---
@@ -72,6 +73,11 @@ class KinRobot:
         return True
 
     def state(self):
+        """직선 이동은 조회할 때마다 경로를 한 칸씩 나아감 (감시 함수가 내려가는 중의 위치·힘을 보게). 끝나면 정지(1)."""
+        if self._path:
+            self.p, self.j = self._path.pop(0)
+            self._path_i += 1
+            return 2
         if self._moving:
             self._moving -= 1
             return 2
@@ -95,7 +101,13 @@ class KinRobot:
         return ("GripperDA_v1", "tool_weight")
 
     def stop(self):
-        self._moving = 0
+        if self._path and self.segments:                                  # 감시로 멈춤: 기록한 구간을 멈춘 곳까지 자름
+            seg = self.segments[-1]
+            k = max(1, round(self._path_i * (len(seg["joints"]) - 1) / max(1, self._path_n)))
+            seg["joints"] = seg["joints"][: k + 1]
+            seg["end_posx"] = [round(v, 2) for v in self.p]
+            seg["stopped_early"] = True
+        self._path, self._moving = [], 0
         return True
 
     # --- 이동 ---
@@ -139,8 +151,15 @@ class KinRobot:
             traj.append(list(map(float, q)))
         self._record("movel", self.p, list(p), traj, dict(vel=vel, acc=acc, rot_vel=rot_vel, rot_acc=rot_acc,
                                                           dist_mm=dist, rot_deg=ang, ik_fail=fail))
-        self.j, self.p = traj[-1], list(p)
-        self._moving = 2
+        idx = np.linspace(0, len(Ts) - 1, min(len(Ts), 200)).round().astype(int)[1:]   # 조회마다 나아갈 점들
+        def at(i):                                                       # 중간 위치는 직선 보간, 자세 표현은 명령값 그대로(ZYZ 는 B≈180° 에서 A·C 가 여러 표현)
+            pos = (Ts[i][:3, 3] * 1000.0).tolist()
+            ori = kin.T_to_posx(Ts[i])[3:] if ang > 0.5 and i < len(Ts) - 1 else list(p[3:])
+            return pos + list(ori)
+        self._path = [(at(i), traj[i]) for i in idx]
+        self._path[-1] = (list(p), traj[-1])
+        self._path_i, self._path_n = 0, len(self._path)
+        self._moving = 1
         return True
 
     def _record(self, kind, p0, p1, traj, extra):
@@ -187,6 +206,8 @@ def load_server(repo: Path, robot):
         def close(self):
             pass
     ss.Rg2 = Gripper
+    import yaml
+    SEARCH_BELOW_MM[0] = (yaml.safe_load(Path(ss.PARAMS_FILE).read_text(encoding="utf-8")).get("drag") or {}).get("search_below_mm")
     srv = object.__new__(ss.SkillServer)
     srv.cfg_dir, srv.params_file, srv.rg2_ip = repo / "config", ss.PARAMS_FILE, "x"
     srv.robot, srv.disp, srv.held, srv.tray = robot, {}, None, {}
@@ -216,10 +237,13 @@ def load_server(repo: Path, robot):
     return ss, sf, srv, Gripper
 
 
+SEARCH_BELOW_MM = [None]      # params drag.search_below_mm (있으면 예상 접촉 높이 = 누르기 끝 z + 이 값)
+
+
 def contact_for(stage, p0, p1):
-    """접촉이 있어야 끝나는 직선 이동만: 목표까지 가는 길의 중간쯤에서 힘을 낸다 (실물 힘 값 아님)."""
+    """접촉이 있어야 끝나는 직선 이동만 힘을 낸다 (실물 힘 값 아님). 누르기: 예상 접촉 높이(B params)에서, 값이 없으면 경로 중간에서."""
     if stage in ("press",):
-        zc = (p0[2] + p1[2]) / 2
+        zc = p1[2] + SEARCH_BELOW_MM[0] if SEARCH_BELOW_MM[0] is not None else (p0[2] + p1[2]) / 2
         return lambda p: [0.0, 0.0, 30.0, 0, 0, 0] if p[2] <= zc else None
     return None
 
