@@ -29,7 +29,7 @@ TASK = json.loads((ROOT / "contracts/examples/task_skill_steps.json").read_text(
 P1_TASK = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))   # #17
 
 
-def run_with_mock(fail="", not_visible="", task=TASK):
+def run_with_mock(fail="", not_visible="", task=TASK, onto=ONTOLOGY):
     context = rclpy.Context()
     rclpy.init(context=context, domain_id=next(DOMAIN_IDS))
     mock = MockBackendNode(context=context, parameter_overrides=[
@@ -42,9 +42,9 @@ def run_with_mock(fail="", not_visible="", task=TASK):
     threading.Thread(target=executor.spin, daemon=True).start()
     try:
         clients = RosClients(client, server_wait_sec=3.0)
-        runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
+        runner = Runner(None, schema=SCHEMA, ontology=onto)
         runner.execute = RosBackend(clients.call_action, clients.call_service, lambda: runner.state,
-                                    ONTOLOGY["world"])
+                                    onto["world"])
         return runner, runner.run(task)
     finally:
         executor.shutdown()
@@ -78,7 +78,7 @@ def test_p1_task_completes_on_mock():
 def test_p1_task_grasp_failure_runs_finally_on_mock():
     runner, result = run_with_mock(fail="pick_object=GRASP_FAILED", task=P1_TASK)
     assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
-    assert [s["status"] for s in result.steps if s["id"] in ("f1", "f2")] == ["SUCCESS", "SUCCESS"]
+    assert [s["status"] for s in result.steps if s["id"] in ("f2", "f3.1")] == ["SUCCESS", "SUCCESS"]
     assert runner.state["open"]["drawer_top"] is False
 
 
@@ -89,18 +89,31 @@ def test_p1_task_not_visible_on_mock():
     assert runner.state["located_in"]["eraser"] == "drawer_top"
 
 
-# ---- #22 1차 점검용 tasks/p1_check_eraser.json (speak 없음) ----
+# ---- #22 1차 점검용 tasks/p1_check_eraser.json (speak 없음, E 시연 pick_demo: nudge → target_after 로 pick) ----
+
+from test_tasks import demo_ontology  # noqa: E402
 
 CHECK_TASK = json.loads((ROOT / "tasks/p1_check_eraser.json").read_text(encoding="utf-8"))
+DEMO = demo_ontology()
 
 
 def test_check_task_completes_on_mock():
-    runner, result = run_with_mock(task=CHECK_TASK)
+    runner, result = run_with_mock(task=CHECK_TASK, onto=DEMO)
     assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
     assert runner.state["located_in"]["eraser"] == "handover_zone" and runner.state["open"]["drawer_top"] is False
+    picked = next(s for s in result.steps if s["id"] == "s4.1.e2")["params"]["target"]
+    nudged = next(s for s in result.steps if s["id"] == "s4.1.e1")["output"]["target_after"]
+    assert picked == nudged                                             # mock 노드가 준 target_after 그대로 집기에
+
+
+def test_check_task_nudge_failure_does_not_pick_on_mock():
+    runner, result = run_with_mock(fail="nudge_object=NO_PUSH_ACCESS", task=CHECK_TASK, onto=DEMO)
+    assert (result.overall_status, result.error_code) == ("FAILED", "NO_PUSH_ACCESS")
+    assert not any(s["id"] == "s4.1.e2" for s in result.steps)       # pick_object 안 보냄
+    assert runner.state["located_in"]["eraser"] == "drawer_top"
 
 
 def test_check_task_grasp_failure_runs_finally_on_mock():
-    runner, result = run_with_mock(fail="pick_object=GRASP_FAILED", task=CHECK_TASK)
+    runner, result = run_with_mock(fail="pick_object=GRASP_FAILED", task=CHECK_TASK, onto=DEMO)
     assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
-    assert [s["status"] for s in result.steps if s["id"] in ("f1", "f2")] == ["SUCCESS", "SUCCESS"]
+    assert [s["status"] for s in result.steps if s["id"] in ("f2", "f3.1")] == ["SUCCESS", "SUCCESS"]

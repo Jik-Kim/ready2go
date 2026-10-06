@@ -6,10 +6,12 @@
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Any
 
 SKILL_ACTIONS = ("move_to_named_pose", "drawer_control", "pick_object", "place_object", "nudge_object")
+MOCK_NUDGE_DY = -0.04                   # mock 끌기: 서랍 옆(y)으로 옮기는 거리 (m). 실물 값은 B 계산
 
 
 @dataclass
@@ -75,6 +77,13 @@ def _output(action: str, params: dict) -> Any:
                 "pick_pose_drawer_frame": None, "grasp_ok": True}
     if action == "place_object":
         return {"slot": params.get("location"), "placed_pose": None}
-    if action == "nudge_object":
-        return {"pushed": not params.get("check_only", False)}
+    if action == "nudge_object":      # B #83: target_after 는 성공일 때만, 끌지 않으면 위치 그대로
+        target = params.get("target") if isinstance(params.get("target"), dict) else None
+        if params.get("check_only") or target is None:
+            return {"pushed": False, "target_after": target}
+        after = copy.deepcopy(target)
+        position = (after.get("pose") or {}).get("position")
+        if isinstance(position, list) and len(position) > 1:
+            position[1] = round(position[1] + MOCK_NUDGE_DY, 4)
+        return {"pushed": True, "target_after": after}
     return None                                     # move_to_named_pose·speak 은 반환값 없음
