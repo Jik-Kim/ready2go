@@ -52,12 +52,11 @@ def scan(node):
     from ready2go_interfaces.srv import InspectRegion
     c = node.create_client(InspectRegion, "/vision/inspect_region")
     if not c.wait_for_service(timeout_sec=5.0):
-        print("비전 서비스 없음 — 고정 지우개 좌표(stub)로 진행")
-        try:
-            import os
-            os.remove(SCAN)
-        except OSError:
-            pass
+        import os
+        if os.path.exists(SCAN):                  # 다른 터미널(비전과 같은 통신 설정)에서 미리 scan 한 결과
+            print(f"비전 서비스 안 보임 — 저장된 인식 결과 사용 ({SCAN})")
+        else:
+            print("비전 서비스 안 보임 — 고정 지우개 좌표(stub)로 진행")
         return True
     f = c.call_async(InspectRegion.Request(region="drawer_top", search_target="eraser"))
     rclpy.spin_until_future_complete(node, f, timeout_sec=30.0)
