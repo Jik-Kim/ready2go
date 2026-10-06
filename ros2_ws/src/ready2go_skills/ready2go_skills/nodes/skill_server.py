@@ -436,12 +436,15 @@ class SkillServer(Node):
             return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — {plan.reason}"), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
-        tilt = math.radians(d["tilt_deg"])
-        tip_v = mp.tip_contact(tilt, g)[1]                             # 기울인 닫은 손끝의 가장 낮은 점 깊이 (TCP 아래)
-        contact_z_m = size[2] + tip_v / 1000.0
         wall = mp.dir_to_base(tf, (0.0, plan.wall_normal_y, 0.0))      # 옆벽 쪽 (base)
-        yaw = target["pose"]["yaw"]
-        along = mp.dir_to_base(tf, (math.cos(yaw), math.sin(yaw), 0.0))  # 닫힘 축 = 물체 긴 변 (얇은 쪽이 옆벽)
+        if d.get("close_axis", "object") == "wall":                    # 닫힘 축 = 옆벽 법선 [실측 B 10/06, 지우개 잘 끌림]
+            tip_v = d["wall_tip_below_mm"]                             # 기울인 손끝이 TCP 아래 (실측)
+            along = wall
+        else:
+            tip_v = mp.tip_contact(math.radians(d["tilt_deg"]), g)[1]  # 기울인 닫은 손끝의 가장 낮은 점 깊이 (TCP 아래, 계산)
+            yaw = target["pose"]["yaw"]
+            along = mp.dir_to_base(tf, (math.cos(yaw), math.sin(yaw), 0.0))  # 닫힘 축 = 물체 긴 변 (얇은 쪽이 옆벽)
+        contact_z_m = size[2] + tip_v / 1000.0
         px, py = plan.press_xy_m
         start_mm = [1000.0 * v for v in pp.to_base(tf, (px, py, contact_z_m + d["start_above_mm"] / 1000.0))]
         end_mm = [1000.0 * v for v in pp.to_base(tf, (px, py, contact_z_m - d["search_below_mm"] / 1000.0))]

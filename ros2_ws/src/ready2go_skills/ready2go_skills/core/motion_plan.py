@@ -5,6 +5,7 @@ posx = [x, y, z, Rz, Ry, Rz'] mm·deg (ZYZ). 손가락은 툴 x축 방향으로 
   - 벌릴수록 손끝이 올라감 → `tip_below_tcp_mm` 표
   - 손가락 바깥 관절이 닫힘 방향으로 튀어나옴 → 벽 간섭 거리 `wall_clearance_mm` (across = 닫힘 축이 벽과 직각, along = 나란히)
 끌기(nudge, 트러블슈팅 2): 그리퍼를 기울여 손끝으로 위에서 눌러, 서랍 옆으로만(서랍 좌표 y, base ≈ x) 끈다.
+  손가락 방향: drag.close_axis "wall"(닫힘 축 = 옆벽 법선, 10/06 실측으로 확인한 자세) / "object"(닫힘 축 = 물체 긴 변, 계산만).
   서랍이 닫히는 방향으로는 끌지 않는다 (2 N에서도 서랍이 같이 밀림 [실측 B 10/06]).
 """
 import math
@@ -161,10 +162,16 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
         return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, sign, gap_m, f"끌 거리 {abs(shift) * 1000:.0f} mm가 최대보다 큼")
     # 누르는 점 (닫은 손가락, 닫힘 축 = 물체 긴 변 → 얇은 쪽이 옆벽). 거리는 모두 '옆벽(서랍 좌표 경계)에서' mm.
     # 손끝은 옆에서 보면 반원(U) [사진 B 10/06] → 기울여도 가장 낮은 점은 반원 중심 바로 아래 (tip_contact).
-    t = math.radians(drag.get("tilt_deg", 0.0))
-    along = g["wall_clearance_mm"]["along_mm"]
-    low_off, _ = tip_contact(t, g)                          # 접촉점이 TCP보다 벽 쪽(+)으로 간 거리
-    need_mm = along + low_off + margin                      # 벽 쪽 끝 = 반원 중심 + 반지름 → 수직일 때보다 low_off 만큼 이동
+    if drag.get("close_axis", "object") == "wall":
+        # 닫힘 축 = 옆벽 법선(서랍 y), 옆벽 쪽으로 30° [실측 B 10/06]: 모서리에 최대로 넣어 TCP–옆벽 경계 5.0 mm,
+        # 지우개 윗면을 눌러 옆으로 잘 끌림. 접촉점은 TCP 바로 아래로 봄 [추정 — 손끝 가운데로 눌림, 사용자 확인]
+        low_off = 0.0
+        need_mm = drag["wall_tcp_min_mm"] + margin
+    else:
+        t = math.radians(drag.get("tilt_deg", 0.0))
+        along = g["wall_clearance_mm"]["along_mm"]
+        low_off, _ = tip_contact(t, g)                      # 접촉점이 TCP보다 벽 쪽(+)으로 간 거리
+        need_mm = along + low_off + margin                  # 벽 쪽 끝 = 반원 중심 + 반지름 → 수직일 때보다 low_off 만큼 이동
     half_w = size_m[1] * 1000.0 / 2
     center = (wd - cy * 1000.0) if sign > 0 else cy * 1000.0
     tcp = max(need_mm, center + low_off)                    # 가능하면 가장 낮은 점이 물체 중심에

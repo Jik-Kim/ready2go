@@ -90,7 +90,7 @@ def test_measured_eraser_10_06_round_tip_tilt_still_lands_on_eraser():
     """10/06 터치 위치(벽에 딱 붙음): 손끝이 반원이라 30° 기울여도 가장 낮은 점이 지우개 위, 41.7 mm 끌기."""
     t = tgt(0.1769, 0.2895, 0.0)
     for tilt in (0.0, 30.0):
-        p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=tilt))
+        p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=tilt, close_axis="object"))
         assert p.needed and p.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
     off, depth = mp.tip_contact(math.radians(30), G)
     assert off == pytest.approx(-2.9, abs=0.05) and depth == pytest.approx(10.78, abs=0.05)
@@ -104,3 +104,16 @@ def test_square_tip_would_miss_narrow_flush_object():
     p = mp.plan_drag(target=tgt(0.1769, 0.2895, 0.0), size_m=ERASER, interior_m=INTERIOR, g=g,
                      drag=dict(DRAG, tilt_deg=30.0))
     assert p.error_code is None or p.error_code == mp.NO_PUSH_ACCESS
+
+
+def test_wall_close_axis_presses_measured_eraser_over_its_middle():
+    """10/06 실측 자세(닫힘 축 = 옆벽 법선, 30°): TCP 는 옆벽 경계에서 5.0 + 여유 3 mm, 지우개 폭 안. 끌 거리는 같음."""
+    d = dict(DRAG, close_axis="wall", wall_tcp_min_mm=5.0, tilt_deg=30.0)
+    p = mp.plan_drag(target=tgt(0.1769, 0.2895, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=d)
+    assert p.needed and p.error_code is None and p.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
+    assert (INTERIOR[1] - p.press_xy_m[1]) * 1000 == pytest.approx(8.0, abs=0.05)
+    assert abs(p.press_xy_m[1] - 0.2895) < 0.011 - 0.003
+
+
+def test_params_use_wall_close_axis():
+    assert DRAG["close_axis"] == "wall" and DRAG["wall_tcp_min_mm"] == 5.0 and DRAG["wall_tip_below_mm"] == 11.7
