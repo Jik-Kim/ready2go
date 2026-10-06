@@ -24,7 +24,7 @@ cd <저장소> && docker run --rm --gpus all --network host --user $(id -u):$(id
 ```
 - 빌드는 컨테이너 안 `/tmp`에만 한다. 호스트 `ros2_ws/build`·`install`에 `/repo` 경로가 남으면 다른 컨테이너 빌드와 CMakeCache 경로가 충돌한다(#3, C 검토 #80).
 - **stub 노드(`inspect_region_stub`)와 동시에 켜지 않는다.** 같은 서비스 이름 `/vision/inspect_region`이 둘이 된다.
-- 실물 첫 연결 시험(PC2)은 `bash tools/dev/vision_real_check.sh check|node|call|measure|replay`로 한다(DDS local, 사용법은 스크립트 첫 부분). `node`는 `-p dump_dir:=` 로 요청마다 컬러·뎁스·K·TF·검출·결과를 `.npz`로 저장하고, `replay`(`tools/dev/replay_inspect_dump.py`)가 로봇 없이 다시 계산한다(`--truth X Y YAW`로 손끝 정답과 위치 오차, `--dz-mm`으로 서랍 원점 이동 영향).
+- 실물 첫 연결 시험은 `bash tools/dev/vision_real_check.sh camera|check|node|call|measure|replay`로 한다. 카메라·로봇이 같은 PC면 `DDS_MODE=local`, 카메라·비전은 PC1이고 로봇은 PC2면 양쪽 `DDS_MODE=multi`(+`DDS_IFACE`·`PEER_PC1`·`PEER_PC2`). 사용법은 스크립트 첫 부분. `node`는 `-p dump_dir:=` 로 요청마다 컬러·뎁스·K·TF·검출·결과를 `.npz`로 저장하고, `replay`(`tools/dev/replay_inspect_dump.py`)가 로봇 없이 다시 계산한다(`--truth X Y YAW`로 손끝 정답과 위치 오차, `--dz-mm`으로 서랍 원점 이동 영향).
 - 진단 로그(결과에는 영향 없음): 요청마다 검출별 판단 근거(`top_z`, 덩어리 크기, 제외 사유)와 카메라로 본 서랍 바닥 z(`core/floor_probe.py`, 중앙값·10/90 백분위)를 남긴다. 시작 로그에 가중치·`places.yaml`·`vision_params.yaml` 해시와 `drawer_top.tf`를 남긴다.
 다중 PC면 `cyclonedds.multi.xml`과 `DDS_IFACE`·`PEER_PC1`·`PEER_PC2`를 쓴다(IP·NIC는 팀 `.env` 기준). 호출: `ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: eraser}"`. 모델·토픽·프레임 이름은 노드 파라미터(`weights`, `color_topic`, `camera_frame` 등)로 바꾼다.
 
