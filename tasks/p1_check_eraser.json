@@ -1,0 +1,16 @@
+{
+  "task_id": "p1_check_eraser",
+  "description": "#22 1차 점검용 지우개 P1 태스크 (#17 E 요청): 위치 조회 → 스킬 open_drawer → 스킬 pick(안에서 inspect_region) → 스킬 place(handover_zone) → finally 스킬 close_drawer·홈. 실물에 음성 서버가 없어 speak 를 뺀 점검본 (정식은 find_item.json). pick retry 1 = 방향 산출 실패(YAW_INVALID, 로봇 동작 없음) 시 재인식 1회. 놓기 실패로 물품을 쥐고 있으면 close_drawer pre(그리퍼 비어 있음) 불충족 → 닫기를 건너뛰고(PRE_UNMET 기록) 홈으로 감: '실패 후 닫힘 완료'가 아니며, 이 경우 안전 종료·홈 이동·사람 복구 책임은 B·C·E 확인 중",
+  "inputs": { "target": "eraser" },
+  "sequence": [
+    { "id": "s1", "action": "query_ontology", "params": { "item": "$inputs.target" }, "output": "loc" },
+    { "id": "s2", "skill": "open_drawer", "params": { "drawer_id": "$loc.drawer_id" }, "timeout_sec": 60 },
+    { "id": "s3", "skill": "pick", "params": { "item": "$inputs.target", "from": "$loc.drawer_id" },
+      "on_failure": "retry", "retry": 1, "timeout_sec": 60 },
+    { "id": "s4", "skill": "place", "params": { "item": "$inputs.target", "to": "handover_zone" }, "timeout_sec": 60 }
+  ],
+  "finally": [
+    { "id": "f1", "skill": "close_drawer", "params": { "drawer_id": "$loc.drawer_id" }, "on_failure": "skip", "timeout_sec": 60 },
+    { "id": "f2", "action": "move_to_named_pose", "params": { "pose_name": "home" }, "timeout_sec": 60 }
+  ]
+}

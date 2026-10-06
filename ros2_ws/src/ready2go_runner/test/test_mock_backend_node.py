@@ -87,3 +87,20 @@ def test_p1_task_not_visible_on_mock():
     assert result.overall_status == "COMPLETED"
     assert any(s["id"] == "s5.4" and s["status"] == "SUCCESS" for s in result.steps)     # "찾지 못했어요"
     assert runner.state["located_in"]["eraser"] == "drawer_top"
+
+
+# ---- #22 1차 점검용 tasks/p1_check_eraser.json (speak 없음) ----
+
+CHECK_TASK = json.loads((ROOT / "tasks/p1_check_eraser.json").read_text(encoding="utf-8"))
+
+
+def test_check_task_completes_on_mock():
+    runner, result = run_with_mock(task=CHECK_TASK)
+    assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
+    assert runner.state["located_in"]["eraser"] == "handover_zone" and runner.state["open"]["drawer_top"] is False
+
+
+def test_check_task_grasp_failure_runs_finally_on_mock():
+    runner, result = run_with_mock(fail="pick_object=GRASP_FAILED", task=CHECK_TASK)
+    assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
+    assert [s["status"] for s in result.steps if s["id"] in ("f1", "f2")] == ["SUCCESS", "SUCCESS"]

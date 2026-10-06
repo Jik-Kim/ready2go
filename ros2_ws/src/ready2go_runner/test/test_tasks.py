@@ -119,3 +119,71 @@ def test_other_items_by_input(item, name):
     assert result.overall_status == "COMPLETED"
     assert robot.spoken[0].startswith(name)
     assert runner.state["located_in"][item] == "handover_zone"
+
+
+# ---- #22 1차 점검용 tasks/p1_check_eraser.json (#17 E 요청: speak 없음) ----
+
+from ready2go_runner.core.logstore import MemoryLogStore  # noqa: E402
+
+CHECK = json.loads((ROOT / "tasks/p1_check_eraser.json").read_text(encoding="utf-8"))
+
+
+def run_check(robot):
+    store = MemoryLogStore()
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, log_store=store)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    result = runner.run(CHECK)
+    return runner, result, store.read_run(result.run_id)
+
+
+def test_check_task_is_valid_and_has_no_speak():
+    from ready2go_runner.core.validation import check_task
+    assert check_task(CHECK, SCHEMA, ONTOLOGY["skills"]) == []
+    assert "speak" not in json.dumps(CHECK["sequence"] + CHECK["finally"])
+
+
+def test_check_success_effect_and_full_log():
+    robot = MockRobot()
+    runner, result, saved = run_check(robot)
+    assert result.overall_status == "COMPLETED"
+    assert SPEAK_ACTION not in robot.sent                                   # 음성 서버 없이 실행
+    state = runner.state
+    assert (state["located_in"]["eraser"], state["gripper"]["robot"], state["open"]["drawer_top"]) == (
+        "handover_zone", "empty", False)
+    assert saved["run"]["overall_status"] == "COMPLETED"
+    assert [s["id"] for s in saved["steps"]] == [s["id"] for s in result.steps]   # AC-LOG-01: 스텝 기록 누락 0
+    assert all(s.get("status") for s in saved["steps"])
+
+
+def test_check_grasp_failed_runs_finally_without_effect():
+    robot = MockRobot(fail={"pick_object": ["GRASP_FAILED"]})
+    runner, result, saved = run_check(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "GRASP_FAILED", "s3.e2")
+    assert statuses(result, "f1", "f2") == ["SUCCESS", "SUCCESS"]
+    assert (runner.state["located_in"]["eraser"], runner.state["gripper"]["robot"]) == ("drawer_top", "empty")
+    assert saved["run"]["error"] == {"code": "GRASP_FAILED"} and saved["run"]["failed_step"] == "s3.e2"
+
+
+def test_check_place_failed_while_holding_is_not_recorded_as_closed():
+    # E 요청: 놓기 실패로 물품을 쥔 상태 → close_drawer pre(빈 그리퍼) 불충족. "닫힘 완료"로 기록하지 않음
+    robot = MockRobot(fail={"place_object": ["PLACE_FAILED"]})
+    runner, result, _ = run_check(robot)
+    assert (result.overall_status, result.error_code) == ("FAILED", "PLACE_FAILED")
+    f1 = next(s for s in result.steps if s["id"] == "f1")
+    assert (f1["status"], f1["error_code"], f1["on_failure"]) == ("FAILURE", "PRE_UNMET", "skip")
+    assert "/skills/drawer_control" not in robot.sent[robot.sent.index("/skills/place_object"):]   # 닫기 동작 안 보냄
+    assert runner.state["gripper"]["robot"] == "eraser" and runner.state["open"]["drawer_top"] is True
+    assert statuses(result, "f2") == ["SUCCESS"]                       # 현재: 쥔 채 홈 이동 → B·C·E 확인 중
+
+
+@pytest.mark.parametrize("code", ["ESTOP", "STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"])
+@pytest.mark.parametrize("where", ["drawer_control", "pick_object", "place_object"])
+def test_check_safety_codes_abort_lock_and_send_no_motion(code, where):
+    robot = MockRobot(fail={where: [code]})
+    runner, result, saved = run_check(robot)
+    assert (result.overall_status, result.error_code) == ("ABORTED", code)
+    assert runner.halted
+    after = robot.sent[robot.sent.index(f"/skills/{where}") + 1:]
+    assert after == []                                                  # finally 의 닫기·홈 등 로봇 동작 없음
+    assert statuses(result, "f1", "f2") == ["SKIPPED", "SKIPPED"]
+    assert saved["run"]["overall_status"] == "ABORTED"

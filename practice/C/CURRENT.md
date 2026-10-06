@@ -1,7 +1,7 @@
 # CURRENT — C 이영훈
 
 - **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-04
+- **최종 갱신**: 2026-10-06
 
 ## 지금 상태
 - **#9 완료** (PR #27 머지, [FR-PLN-01](../../docs/requirements.md#fr-pln-01) 중 실행기 부분): `ready2go_runner/core/` 의 variables·conditions·validation·interpreter. sequence·if·set_var·on_failure·finally·timeout_sec, 실행 전 검사, E-stop·halt → `ABORTED`(retry·skip·safe_home 미적용, finally 는 비동작만), 중단 잠김 → `resume()` 전까지 거절, 내부 에러도 `INTERNAL_ERROR` 로 finally 보장. 원자 동작은 `execute(action, params, timeout_sec) → ActionResult` 로 위임.
@@ -10,10 +10,12 @@
   - 실행 이력: `core/log_records.py`·`core/logstore.py` — MongoDB `cobot2` `runs`·`steps`, DB 실패 시 그 실행 전체를 JSONL 로 폴백, 기록 실패에도 실행 계속(`log_errors`).
   - 스킬: 태스크 스텝 `skill`(스키마·예시 `task_skill_steps.json`), Runner 가 온톨로지(E) 상태를 들고 `pre` → `PRE_UNMET` / `expand`(`<id>.e<n>`) / `effect`. 실행 전 검사로 없는 스킬·composite·파라미터 이름 거절. E 의 `ontology.check`·`apply` 사용(E 코드 수정 없음).
   - 시험: 호스트 pytest 전체 통과(MongoDB 테스트는 건너뜀), ros2-core 컨테이너 + MongoDB 7.0 에서 건너뜀 없이 통과. 예시 태스크로 시계·지갑·미발견·비상정지·재실행 확인.
-- **#10 mock 까지 구현, PR 준비** (브랜치 `feat/c-runner-node`, [FR-PLN-01](../../docs/requirements.md#fr-pln-01) "mock 환경에서 정상·실패 경로"). real 확인은 B 스킬 서버 이후.
+- **#10 main 머지** (PR #74 10/06 10:41, D·E 재검토 "P1 해결"·PM 동의. 실물 연결 확인 대기 → `Closes #10`) ( [FR-PLN-01](../../docs/requirements.md#fr-pln-01) "mock 환경에서 정상·실패 경로"). real 확인은 B 스킬 서버 이후.
   - `core/backend.py`(동작별 보낼 곳·JSON 변환), `core/ontology_query.py`(`query_ontology` 를 Runner 상태로 응답), `adapters/ros_clients.py`(Skill 액션·InspectRegion 클라이언트, 시간 초과 시 취소 요청), `nodes/mock_backend.py`, `nodes/runner_node.py`(`/runner/status`·`/robot_state`·`/runner/estop`).
   - 스킬 재시도는 로봇이 움직이지 않은 실패(`YAW_INVALID`)에만 (PR #65 합의, PM #10 요청). B 에 "백엔드 구현 약속"(취소 시 멈춤·`ESTOP`) 전달 (#10 코멘트·Slack 10/04).
   - CI: `contracts-and-core` 에 MongoDB 7.0 서비스·pymongo, `REQUIRE_MONGO=1` 이면 DB 없을 때 실패.
+
+- **#17 진행** (브랜치 `feat/c-p1-task`): `tasks/find_item.json`(정식, speak·미발견 안내 포함, 음성 연결 후 시연용)·`tasks/p1_check_eraser.json`(#22 점검용, speak 없음 — 실물에 음성 서버 없음, E 요청 순서). mock 정상·파지 실패·미발견·안전 코드 5종 확인. 남은 것: `/voice/intent` → 태스크 실행 연결 (Day 6), 밀기 분기(#37).
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -45,9 +47,11 @@
 - B (#17 때): `finally` 서랍 닫기 실패 시 홈 복귀 여부(`on_failure` skip/abort).
 
 ## 다음 할 일
-- [ ] #10 PR 리뷰 → 머지 (`Refs #10`), B 스킬 서버가 나오면 PC2 에서 real 연결 확인 후 `Closes #10`
+- [ ] #10 PC2 real 연결 확인(`home` → `drawer_approach` → `home`, B) → `Closes #10`
+- [ ] #22 1차 점검 (10/06 16:00 KST, B 실행·D 비상정지): `tasks/p1_check_eraser.json`, MongoDB 스텝 기록 누락 0 확인 (AC-LOG-01)
+- [ ] 점검 뒤: 스킬 서버 bringup 자동 실행(NFR-ENV-01, B·C), B 잠금 코드 runner.md 확정, 놓기 실패로 쥔 경우 안전 종료·홈 이동 조건(B·C·E)
 - [ ] #10 후속: 재개(`resume`) 서비스 ICD 협의(E), Docker 가 만든 root 소유 `logs/` 정리
-- [ ] #17 (10/06): P1 시나리오 태스크(skill 스텝), `/voice/intent` → 태스크 실행, mock 성공·실패
+- [ ] #17: PR (태스크 2종) → E 확인 → 머지, `/voice/intent` → 태스크 실행 연결 (Day 6) → `Closes #17`
 
 ## 철회한 결론
 - ~~bringup 고정 TF 를 `config/static_tf.yaml` 한 파일로 모은다~~ → 값이 두 곳에 복사되어 어긋날 수 있어 각 담당 파일을 직접 읽기로 함 (이슈 #3, 10/02).
