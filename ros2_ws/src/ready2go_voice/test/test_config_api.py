@@ -11,7 +11,7 @@ from ready2go_voice.core.intent import IntentParser
 
 @pytest.mark.parametrize('key,value', [('sample_rate', 22050), ('frame_samples', 1),
     ('llm_timeout_sec', -1), ('min_confidence', math.nan), ('evaluation_mode', 'false'),
-    ('bare_item_policy', 'execute')])
+    ('bare_item_policy', 'execute'), ('bare_item_policy', 'unknown')])
 def test_invalid_config_rejected(cfg, tmp_path, key, value):
     cfg[key] = value
     path = tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg))

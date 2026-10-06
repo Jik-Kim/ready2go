@@ -24,8 +24,8 @@ def load_config(path):
     for key in ('min_confidence', 'wake_threshold'):
         if not isinstance(cfg.get(key), (int, float)) or isinstance(cfg[key], bool) or not 0 <= cfg[key] <= 1:
             raise ValueError(f'{key}: 0~1 필요')
-    if cfg.get('bare_item_policy') not in ('clarify', 'unknown'):
-        raise ValueError('대상 단독 발화는 clarify 또는 unknown으로 보류합니다')
+    if cfg.get('bare_item_policy') != 'clarify':
+        raise ValueError('사용자 확정 정책: 대상 단독/모호 요청은 clarify로 보류합니다')
     if cfg['tts_reserve_sec'] >= cfg['confirmation_budget_sec']:
         raise ValueError('TTS 여유는 전체 확인 예산보다 작아야 합니다')
     for key in ('evaluation_mode', 'audio_enabled', 'confirmation_enabled'):
