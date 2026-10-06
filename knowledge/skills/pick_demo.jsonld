@@ -1,0 +1,80 @@
+{
+  "skills": {
+    "pick_demo": {
+      "kind": "primitive",
+      "name_ko": "시연용 끌기 후 집기",
+      "params": {
+        "item": "Item",
+        "from": "Place",
+        "target": "object"
+      },
+      "pre": [
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "op": "==",
+          "value": "empty"
+        },
+        {
+          "subject": "$item",
+          "predicate": "located_in",
+          "op": "==",
+          "value": "$from"
+        },
+        {
+          "subject": "$from",
+          "predicate": "open",
+          "op": "==",
+          "value": true
+        }
+      ],
+      "hold": [
+        {
+          "subject": "$from",
+          "predicate": "open",
+          "op": "==",
+          "value": true
+        }
+      ],
+      "effect": [
+        {
+          "subject": "robot",
+          "predicate": "gripper",
+          "value": "$item"
+        },
+        {
+          "subject": "$item",
+          "predicate": "located_in",
+          "value": "gripper"
+        }
+      ],
+      "verify": "gripper_width > min_width AND grasp_detected",
+      "expand": [
+        {
+          "action": "nudge_object",
+          "params": {
+            "target": "$target",
+            "drawer_id": "$from"
+          },
+          "output": "nudge"
+        },
+        {
+          "action": "pick_object",
+          "params": {
+            "target": "$nudge.target_after",
+            "approach_offset": [
+              0,
+              0,
+              0.1
+            ]
+          }
+        }
+      ],
+      "errors": [
+        "NOT_VISIBLE",
+        "GRASP_FAILED"
+      ],
+      "description": "위 서랍 지우개 시연 한정. target은 최초 인식의 전체 객체이며 target_after는 이동량 기반 예상 위치이다. 재인식 및 FR-ACT-05 완료를 의미하지 않는다. 호출 태스크는 retry를 생략하거나 0으로 지정한다."
+    }
+  }
+}

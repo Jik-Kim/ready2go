@@ -70,3 +70,13 @@
 - 설정·코드·계약·트레이 역할은 변경하지 않음. OBJECT_DROPPED는 #78 별도 협의 범위이며, PR #70~#73의 승인·병합이나 실제 노드 연결 완료를 뜻하지 않음. [문서]
 - PR 생성·push 결과는 지정 PR 세션의 실제 PR 링크·원격 head로 확인함. 제품명·실물 인계 미확인 사항은 별도 유지함. [문서]
 - 검증: #1·#8·#15 결정/요청 및 관련 P1 요구사항과 문구 대조, 기존 일반 재질 기준 보존, 실측·미확정 연결 구분, 로컬 파일 링크/앵커 및 승인된 3개 파일 범위·diff 공백 검사 통과. 코드 변경이 없어 전체 테스트·빌드·실물 시험은 수행하지 않음. [문서]
+
+## 2026-10-06 #22 시연용 pick_demo 연결
+- 사용자 승인 범위: E 파일 4개 작성·관련 최소 검증·로컬 커밋. 기준 main `e05a2f5cde29874600d789b8f12d00dd448d01bc`, 작업 브랜치 `codex/ontology-demo-pick`. push·PR·병합은 미승인. [문서]
+- `knowledge/robot_ontology_demo.jsonld`는 open_drawer/close_drawer/pick_demo/place 4종으로 구성. 공통 manifest/pick/초기 상태는 유지함. `pick_demo`는 기존 pre/hold/effect/오류·verify 선언을 보존하고 nudge → 반환 전체 target_after로 pick을 연결함. approach_offset=[0,0,0.1]. [문서]
+- 실제 E 로더의 참조 결합·4종/중복 없음, 기본 ontology/pick 보존, 모의 태스크의 task schema 확인 통과. 실제 C Runner + MemoryLogStore로 11사례 통과: 정상, target_after 누락(VAR_UNDEFINED), pick GRASP_FAILED, nudge GRASP_FAILED, 안전 오류 5종, pre 불충족, target 입력 누락(TASK_INVALID). 마지막 입력 누락은 최신 C 사전 검증이 실행 전 거절함을 확인하고 검사 기대값을 바로잡음. [실측: 로컬 모의]
+- nudge 입력 전체 target 및 pick 입력 전체 target_after 전달, inspect_region 1회, nudge 1회(retry=0), 성공 시에만 gripper/located_in 효과, 실패/출력 누락 시 pick 미호출·집기 효과 없음, nudge/pick 각각의 params/result/status·실패 단계 로그를 확인함. 정상 pick 후 place/close 실물 연결 검증은 포함하지 않음. [실측: 로컬 모의]
+- 임시 검증 스크립트 `/tmp/verify_e_pick_demo.py`는 저장소 커밋에 포함하지 않음. ROS·Docker 전체 빌드, 실제 로봇·MongoDB/JSONL 저장·배포 검증은 수행하지 않음. [문서]
+- C 제안 실행 조합: ontology_file=/knowledge/robot_ontology_demo.jsonld, task_file=/tasks/p1_demo_eraser.json. 기준 main에는 해당 태스크 없음: C 반영·실행 조합 확인 대기. 호출 태스크 retry 생략/0, place 실패 시 쥔 상태의 종료·복구 정책은 C/B 인계임. [문서]
+- B #83 head25e97ef 배열 지원·lift 오류 보존의 13사례 통과는 검토 세션 전달 결과이며 E의 재검증이 아님. check_only PUSH_LIMIT 보완, target_after 계약 출력 예시·E 포함2명 승인은 별도 인계. A stub·B 보정 TF/실물 준비·C 패키지는 수정하지 않음. [문서]
+- target_after는 이동량 기반 예상값이며 FR-ACT-05/AC-ACT-05 재인식 완료가 아님. P1 FR-ONT-01/FR-PLN-01 연결의 시연 한정 구성. domain 상세는 시연 후 계획으로 유지하며 출력 계약 승인이나 실물 배포 완료를 대신하지 않음. [문서]
