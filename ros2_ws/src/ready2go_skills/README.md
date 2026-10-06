@@ -53,6 +53,8 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 | `pick_object` (서랍) | 짧은 변 잡기(`pick_plan`), 벌림 = 짧은 변 + 13 mm, 폭 확인(`check_grasp`), 들어 올린 뒤 놓침 확인(`check_hold`) |
 | `place_object` (`handover_zone`) | 빈 칸(트레이 x로 3칸), 집을 때 높이 + 1.5 mm에서 놓음, 옮기기 전 놓침 확인 |
 
+**아래 서랍(`drawer_bottom`)**: 코드는 공통이라 값만 채우면 같은 동작 — `places.yaml` `drawer_bottom` tf·`interior_m`·`tf_at_travel_m`·`max_travel_m`, `poses.yaml` `drawer_approach.drawer_bottom`·`drawer_top_view.drawer_bottom`, `params/skills.yaml` `drawer_open_close.handle_grasp_posx.drawer_bottom`. 비어 있으면 `DRAWER_NOT_CONFIGURED`·`POSE_NOT_TAUGHT`(움직이지 않음). 서랍은 한 번에 하나만 연다(`OTHER_DRAWER_OPEN`). P1 시연은 위 서랍만.
+
 **시작 조건**: 서버를 띄울 때 서랍이 **닫혀 있어야** 한다 (서버는 인출 거리를 기억만 함). 재시작 뒤 열린 서랍을 닫으려면 `drawer_control`에 `displacement`(m)를 같이 준다 — 없으면 `DRAWER_STATE_UNKNOWN`(움직이지 않음).
 값: `params/skills.yaml` (그리퍼 기하·속도·끌기 — 10/05~06 로봇 실측), 장소 `config/places.yaml`, 물체 크기 `knowledge/world.jsonld`, 잡는 힘 `config/item_grasp.yaml`.
 추가 에러 코드: `GRASP_FAILED`·`NOT_HOLDING`·`HOLDING_OBJECT`·`TRAY_FULL`·`PLACE_NOT_CONFIGURED`·`UNSUPPORTED_PARAMS`·`DRAWER_NOT_CONFIGURED`·`DRAWER_STATE_UNKNOWN`·`DRAWER_ALREADY_OPEN`·`NO_CONTACT`·`DRAG_BLOCKED`·`NO_PUSH_ACCESS`·`DRAWER_STUCK`·`CLOSE_NOT_CONFIRMED`·`SENSOR_INVALID`

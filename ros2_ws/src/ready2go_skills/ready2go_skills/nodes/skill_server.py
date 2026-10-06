@@ -47,6 +47,7 @@ UNSUPPORTED_PARAMS = "UNSUPPORTED_PARAMS"
 DRAWER_NOT_CONFIGURED = "DRAWER_NOT_CONFIGURED"
 DRAWER_STATE_UNKNOWN = "DRAWER_STATE_UNKNOWN"    # 서버가 인출 거리를 모름(재시작) — 열린 서랍에 닫힘 기준으로 다가가면 충돌
 DRAWER_ALREADY_OPEN = "DRAWER_ALREADY_OPEN"
+OTHER_DRAWER_OPEN = "OTHER_DRAWER_OPEN"        # 서랍은 한 번에 하나만 엶 (위·아래가 겹쳐 접근·시야를 막음)
 GRIPPER_ERROR = "GRIPPER_ERROR"
 
 
@@ -243,6 +244,9 @@ class SkillServer(Node):
         if state == "close" and drawer_id not in self.disp:
             return sf.Outcome(False, DRAWER_STATE_UNKNOWN, reason="인출 거리를 모름 — params displacement 로 알려주기"), None
         disp = self.disp.get(drawer_id, 0.0)                # 열기: 서버 시작 때는 닫혀 있다고 봄 (README 시작 조건)
+        others = [d for d, v in self.disp.items() if d != drawer_id and v > 0.01]
+        if state == "open" and others:
+            return sf.Outcome(False, OTHER_DRAWER_OPEN, reason=f"{others[0]} 이 열려 있음 — 먼저 닫기"), None
         if state == "open" and disp > 0.01:
             return sf.Outcome(False, DRAWER_ALREADY_OPEN, reason=f"이미 {disp * 1000:.0f} mm 열림"), \
                 {"drawer_displacement": round(disp, 4), "close_confirmed": False}

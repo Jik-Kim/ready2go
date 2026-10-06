@@ -45,6 +45,7 @@ transit:
 drawer_open_close:              # drawer_control 실물 (위 drawer_control 판정값과 함께)
   handle_grasp_posx:            # 손잡이 파지 TCP posx — 서랍 닫힌 상태 [실측 B 10/04, poses.yaml drawer_approach 주석]
     drawer_top: [382.695, -292.476, 268.505, 89.981, -89.969, 179.943]
+    drawer_bottom: null         # 교시 전 → DRAWER_NOT_CONFIGURED (움직이지 않음)
   handle_open_width_mm: 30.0    # 손잡이 잡으러 갈 때 벌림 [팀 확정 필요]
   handle_grip_force_n: 40.0     # [팀 확정 필요]
   handle_min_width_m: 0.003     # 손잡이를 잡았는지 [팀 확정 필요: 새 손잡이 폭]
