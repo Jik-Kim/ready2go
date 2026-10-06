@@ -14,7 +14,9 @@ services:
     profiles: ["real", "sim", "dev"]
     build: ./docker/ros2-core
     network_mode: host
-    environment: { <<: *ros-env, BACKEND: "${BACKEND:-mock}", ROBOT_HOST: "${ROBOT_HOST:-127.0.0.1}", RG2_HOST: "${RG2_HOST:-}" }  # real: 실물 제어기·RG2 IP
+    environment: { <<: *ros-env, BACKEND: "${BACKEND:-mock}", ROBOT_HOST: "${ROBOT_HOST:-127.0.0.1}", RG2_HOST: "${RG2_HOST:-}",
+                   MOCK_FAIL: "${MOCK_FAIL:-}", MOCK_NOT_VISIBLE: "${MOCK_NOT_VISIBLE:-}", RUNNER_TASK_FILE: "${RUNNER_TASK_FILE:-}",
+                   PYTHONDONTWRITEBYTECODE: "1" }  # real: 실물 제어기·RG2 IP / mock: 실패 시험 / 소스 폴더에 root 소유 __pycache__ 안 만듦 [실측 10/04]
     volumes:
       - ./ros2_ws:/ros2_ws
       - ./contracts:/contracts:ro    # JSON Schema 계약

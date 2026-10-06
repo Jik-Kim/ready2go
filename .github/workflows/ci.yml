@@ -8,16 +8,25 @@ on:
 jobs:
   contracts-and-core:
     runs-on: ubuntu-24.04
+    services:
+      mongo:                       # 실행 이력 MongoLogStore 테스트용 (compose db 와 같은 버전, 이슈 #34)
+        image: mongo:7.0
+        ports: ["27017:27017"]
+        options: >-                # 준비될 때까지 기다린 뒤 테스트 시작
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1})'"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install jsonschema pytest pyyaml   # pyyaml: bringup static_tf 및 knowledge 설정 로더
+      - run: pip install jsonschema pytest pyyaml pymongo   # pyyaml: bringup static_tf·knowledge 로더, pymongo: MongoLogStore
       - name: 계약·온톨로지·태스크 검증
         run: python3 tools/validate_contracts.py
-      - name: core 단위 테스트 (ROS 불필요)
-        run: python3 -m pytest ros2_ws/src -q
+      - name: core 단위 테스트 (ROS 불필요, MongoDB 테스트 포함)
+        env:
+          REQUIRE_MONGO: "1"       # MongoDB 에 연결 못 하면 건너뛰지 않고 실패 (조용히 통과하지 않게)
+        run: python3 -m pytest ros2_ws/src -q -rs   # -rs: 건너뛴 테스트와 이유 표시 (ROS 필요한 것만 건너뛰어야 함)
 
   compose:
     runs-on: ubuntu-24.04

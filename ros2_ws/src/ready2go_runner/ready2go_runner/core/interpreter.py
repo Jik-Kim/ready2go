@@ -57,7 +57,9 @@ class RunResult:
 Execute = Callable[[str, dict, "float | None"], ActionResult]   # (action, params, timeout_sec)
 
 SAFE_HOME_POSE = "home"                 # on_failure: safe_home 이 이동할 기준 포즈 (docs/runner.md 7.1)
-HALT_CODES = {"ESTOP"}                  # 백엔드가 이 코드로 실패하면 비상정지로 보고 ABORTED
+# 이 코드로 실패하면 ABORTED·잠금 (사람 확인 전 새 동작 없음). 비상정지, 취소 후 정지 확인 실패(PR #74 리뷰),
+# B 스킬 서버의 잠금 코드(PR #73: 상태 조회 실패·이동 수락 모름·서버 잠김) — 10/06 실물 확인 후 runner.md 표로 확정
+HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"}
 HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
 ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
@@ -65,22 +67,30 @@ ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontolo
 UNKNOWN_SKILL = "UNKNOWN_SKILL"         # 온톨로지에 없거나 primitive 가 아닌 스킬 (P1 은 primitive 만)
 BAD_SKILL_PARAMS = "BAD_SKILL_PARAMS"   # 스킬 정의의 params 가 빠짐
 PRE_UNMET = "PRE_UNMET"                 # pre 조건 불충족 → 로봇 동작을 보내지 않음
+# 스킬 재시도 (P1): 앞 동작이 실행됐거나 끝났을 수 있으면 다시 보내지 않는다(PR #64 D 리뷰). 다만 백엔드가
+# 로봇을 움직이지 않았음을 보장하는 실패이고, 그 시도에서 앞서 보낸 동작도 팔을 움직이지 않았으면 재시도한다.
+NO_MOTION_CODES = {"YAW_INVALID"}       # 모션 계획 전에 거절 (B PR #66, PR #65 합의: 태스크에서 재인식 1회)
+NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region"}   # 팔을 움직이지 않는 원자 동작
 
 
 class StepFailed(Exception):
-    """retryable=False: 동작이 이미 끝났을 수 있어 다시 보내면 위험한 실패 (제한 시간 뒤 도착한 결과)."""
+    """no_retry: 동작이 어디까지 됐는지 몰라 다시 보내면 위험한 실패의 이유 (기록 retry_stopped).
+    LATE_RESULT = 제한 시간 뒤 도착한 결과, TIMEOUT = 백엔드 호출이 제한 시간에 끝나지 않아 취소 요청함,
+    MOTION_UNCERTAIN = 스킬 하위 동작 실패 중 로봇이 움직이지 않았음이 보장되지 않음,
+    NOT_RETRYABLE = 스킬 단계의 실패 코드가 재시도 허용 목록(NO_MOTION_CODES)에 없음 (PRE_UNMET 등)."""
 
-    def __init__(self, step_id: str, code: str, retryable: bool = True):
+    def __init__(self, step_id: str, code: str, no_retry: str | None = None):
         super().__init__(f"{step_id}: {code}")
-        self.step_id, self.code, self.retryable = step_id, code, retryable
+        self.step_id, self.code, self.no_retry = step_id, code, no_retry
 
 
 class Halted(Exception):
-    """E-stop·사용자 취소. StepFailed 와 달리 retry·skip·safe_home 을 거치지 않고 바로 위로 전달된다."""
+    """E-stop·사용자 취소. StepFailed 와 달리 retry·skip·safe_home 을 거치지 않고 바로 위로 전달된다.
+    step_code: 스텝 기록에 남길 백엔드 응답 코드 (예: 중단 요청으로 취소된 동작의 CANCELED). 없으면 code."""
 
-    def __init__(self, step_id: str, code: str):
+    def __init__(self, step_id: str, code: str, step_code: str | None = None):
         super().__init__(f"{step_id}: {code}")
-        self.step_id, self.code = step_id, code
+        self.step_id, self.code, self.step_code = step_id, code, step_code
 
 
 class Runner:
@@ -99,15 +109,19 @@ class Runner:
         self._log_errors: list[str] = []
         self._halt = threading.Event()          # 중단 잠김 (다른 스레드의 ROS 서비스 콜백에서 halt() 호출)
         self._halt_lock = threading.Lock()      # halt() 와 effect 반영(중단 확인 → 상태 갱신)이 서로 끼어들지 않게
+        self.on_halt: Callable[[], object] | None = None   # 처음 멈출 때 진행 중인 동작 취소 (노드가 RosClients.cancel_all 연결)
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
 
     def halt(self, code: str = HALTED) -> None:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
         with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
-            if not self._halt.is_set():
+            first = not self._halt.is_set()
+            if first:
                 self._halt_code = code
             self._halt.set()
+        if first and self.on_halt is not None:  # 진행 중인 로봇 동작에 즉시 취소 요청 (기다림은 클라이언트가 함)
+            self.on_halt()
 
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
@@ -118,6 +132,23 @@ class Runner:
     @property
     def halted(self) -> bool:
         return self._halt.is_set()
+
+    @property
+    def stop_requested(self) -> bool:
+        """중단 요청이 들어왔지만 이번 실행이 아직 중단 처리 전. 이때 새 원자 동작을 보내지 않는다(RosClients).
+        중단 처리 뒤 finally 의 비동작(speak 등)은 Runner 가 골라 보내므로 막지 않는다."""
+        return self._halt.is_set() and not self._aborted
+
+    @property
+    def halt_code(self) -> str | None:
+        """처음 멈춘 이유 (HALTED / ESTOP). 잠기지 않았으면 None."""
+        return self._halt_code if self._halt.is_set() else None
+
+    @property
+    def current_step(self) -> str | None:
+        """지금(또는 마지막으로) 시작한 스텝 ID. /runner/status 표시용 (#10, 시연 화면 #59)."""
+        records = self._records
+        return records[-1]["id"] if records else None
 
     @property
     def state(self) -> dict:
@@ -223,8 +254,6 @@ class Runner:
             return
         policy = step.get("on_failure", "abort")
         max_attempts = 1 + (step.get("retry", 0) if policy == "retry" else 0)
-        if "skill" in step:                     # P1: 물리 결과를 확인(verify, P2)하기 전에는 스킬 전체를 다시 보내지 않음
-            max_attempts = 1                    # 실행 전 검사가 막지만, 검사를 거치지 않아도 재실행하지 않도록 한 번 더
         started = self.clock()
 
         for attempt in range(1, max_attempts + 1):
@@ -237,13 +266,15 @@ class Runner:
                 self._dispatch(step, blackboard, record, records, self.clock())
             except StepFailed as e:
                 failure = e
-                if not e.retryable:             # 늦게 온 결과: 동작이 실제로 끝났을 수 있어 다시 보내지 않음
+                if "skill" in step and e.no_retry is None and e.code not in NO_MOTION_CODES:
+                    e.no_retry = "NOT_RETRYABLE"    # 스킬은 로봇이 움직이지 않았음이 보장된 실패만 재시도
+                if e.no_retry:                  # 결과 불확실: 동작이 실제로 끝났을 수 있어 다시 보내지 않음
                     if attempt < max_attempts:
-                        record["retry_stopped"] = "LATE_RESULT"
+                        record["retry_stopped"] = e.no_retry
                     break
                 continue
             except Halted as e:                 # retry·skip·safe_home 을 거치지 않음
-                record.update(status="FAILURE", error_code=e.code)
+                record.update(status="FAILURE", error_code=e.step_code or e.code)
                 raise
             except Exception as e:              # Runner 내부의 예상 못 한 에러도 스텝 실패로 처리해 finally 를 보장
                 record["internal_error"] = f"{type(e).__name__}: {e}"
@@ -286,7 +317,7 @@ class Runner:
         """결과가 온 뒤 걸린 시간을 판정. 이때는 동작이 이미 끝났을 수 있으므로 재시도하지 않는 TIMEOUT."""
         timeout = step.get("timeout_sec")
         if timeout is not None and self.clock() - attempt_started > timeout:
-            raise StepFailed(step["id"], "TIMEOUT", retryable=False)
+            raise StepFailed(step["id"], "TIMEOUT", no_retry="LATE_RESULT")
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
                   attempt_started: float) -> None:
@@ -315,7 +346,11 @@ class Runner:
         if not result.success:
             if result.error_code in HALT_CODES:
                 raise Halted(step["id"], result.error_code)
-            raise StepFailed(step["id"], result.error_code or "ACTION_FAILED")
+            if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
+                raise Halted(step["id"], self._halt_code or HALTED, step_code=result.error_code or None)
+            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음
+            raise StepFailed(step["id"], result.error_code or "ACTION_FAILED",
+                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" else None)
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
         record["output"] = result.output
         if "output" in step:
@@ -352,8 +387,15 @@ class Runner:
             raise StepFailed(step["id"], PRE_UNMET)
 
         scope = {**blackboard, **params}        # expand 의 $drawer_id·$scan 등은 스킬 안에서만 보임
+        moved = False                           # 이 시도에서 팔을 움직이는 동작을 이미 보냈는지
         for i, sub in enumerate(skill.get("expand", []), 1):
-            self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
+            try:
+                self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
+            except StepFailed as e:
+                if e.no_retry is None and moved:
+                    e.no_retry = "MOTION_UNCERTAIN"   # 앞서 팔을 움직였으면 어떤 실패든 스킬을 다시 보내지 않음
+                raise
+            moved = moved or sub["action"] not in NON_MOTION_ACTIONS
         with self._halt_lock:                   # 중단 확인과 반영 사이에 halt() 가 끼어들 수 없음 (PR #64 E 리뷰)
             self._check_halt(step["id"])        # 반영 전 중단 요청 → effect 반영 안 함
             self._check_timeout(step, attempt_started)
@@ -376,7 +418,7 @@ class Runner:
             self._dispatch(child, scope, record, records, started)
             record["status"] = "SUCCESS"
         except (StepFailed, Halted) as e:
-            record.update(status="FAILURE", error_code=e.code)
+            record.update(status="FAILURE", error_code=getattr(e, "step_code", None) or e.code)
             raise
         except Exception:                       # 스킬 스텝에서 INTERNAL_ERROR 로 처리됨
             record.update(status="FAILURE", error_code="INTERNAL_ERROR")

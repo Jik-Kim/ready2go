@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 
 import pytest
@@ -16,12 +17,19 @@ STORES = {
 
 
 def mongo_store(request):
-    """실제 MongoDB 에 테스트 전용 DB 를 만들고, 끝나면 지운다. pymongo·DB 가 없으면(호스트·CI) 건너뜀."""
-    pytest.importorskip("pymongo")
+    """실제 MongoDB 에 테스트 전용 DB 를 만들고, 끝나면 지운다. pymongo·DB 가 없으면(호스트) 건너뜀.
+    REQUIRE_MONGO=1(CI) 이면 건너뛰지 않고 실패 → DB 가 안 떠서 조용히 통과하는 일을 막음."""
+    required = os.environ.get("REQUIRE_MONGO") == "1"
+    if required:
+        import pymongo  # noqa: F401  (없으면 ImportError 로 실패)
+    else:
+        pytest.importorskip("pymongo")
     store = MongoLogStore(db_name=f"cobot2_test_{uuid.uuid4().hex[:8]}", timeout_ms=500)
     try:
         store.ping()
-    except Exception:
+    except Exception as e:
+        if required:
+            pytest.fail(f"REQUIRE_MONGO=1 인데 MongoDB 에 연결할 수 없음: {e}")
         pytest.skip("MongoDB 에 연결할 수 없음 (ros2-core 컨테이너에서 실행: docs 참고)")
     request.addfinalizer(lambda: store.client.drop_database(store.db.name))
     return store

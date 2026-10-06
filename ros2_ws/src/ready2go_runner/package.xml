@@ -8,6 +8,8 @@
   <license>TODO</license>
 
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
   <exec_depend>ready2go_interfaces</exec_depend>
   <exec_depend>ready2go_knowledge</exec_depend>
   <exec_depend>python3-jsonschema</exec_depend>

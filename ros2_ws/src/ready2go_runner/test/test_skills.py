@@ -131,13 +131,57 @@ def test_skill_params_use_task_variables():
     assert runner.state["open"]["drawer_bottom"] is True
 
 
-def test_skill_retry_is_rejected_before_moving():
-    # PR #64 리뷰: P1 은 물리 결과 확인(verify)이 없으므로 스킬 전체 재실행을 시작 전에 거절
-    backend = FakeBackend()
-    result = Runner(backend, schema=SCHEMA, ontology=ONTOLOGY).run(skill_task(
+def test_skill_retry_passes_validation():
+    # PR #65 합의: 재인식은 태스크에서 1회 → skill 스텝의 retry 를 허용하고, 실제 재시도 여부는 Runner 가 판단
+    task = skill_task({"id": "s1", "skill": "pick", "params": {"item": "watch", "from": "drawer_top"},
+                       "on_failure": "retry", "retry": 1})
+    assert check_task(task, SCHEMA, ONTOLOGY["skills"]) == []
+
+
+def opened_drawer_runner(backend):
+    runner = Runner(backend, schema=SCHEMA, ontology=ONTOLOGY)
+    runner._state["open"]["drawer_top"] = True                 # pick 의 pre(서랍 열림)를 맞춰 둠
+    return runner
+
+
+PICK_WITH_RETRY = {"id": "s1", "skill": "pick", "params": {"item": "watch", "from": "drawer_top"},
+                   "on_failure": "retry", "retry": 1}
+
+
+def test_yaw_invalid_reinspects_once_then_picks():
+    # 방향을 몰라 pick_object 가 움직이지 않고 거절(YAW_INVALID) → 다시 살펴보고 집기 1회 (PR #65·#66)
+    backend = FakeBackend({"inspect_region": FOUND_WATCH,
+                           "pick_object": [ActionResult(False, error_code="YAW_INVALID"), ActionResult(True)]})
+    runner = opened_drawer_runner(backend)
+    result = runner.run(skill_task(PICK_WITH_RETRY))
+    assert result.overall_status == "COMPLETED"
+    assert [a for a, _ in backend.calls] == ["inspect_region", "pick_object", "inspect_region", "pick_object"]
+    assert result.steps[0]["attempts"] == 2
+    assert runner.state["gripper"]["robot"] == "watch"
+
+
+def test_yaw_invalid_again_ends_task_with_finally():
+    backend = FakeBackend({"inspect_region": FOUND_WATCH, "pick_object": ActionResult(False, error_code="YAW_INVALID")})
+    result = opened_drawer_runner(backend).run(skill_task(
+        PICK_WITH_RETRY, final=[{"id": "f1", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]))
+    assert (result.overall_status, result.error_code) == ("FAILED", "YAW_INVALID")
+    assert [a for a, _ in backend.calls] == ["inspect_region", "pick_object"] * 2 + ["move_to_named_pose"]
+
+
+def test_yaw_invalid_after_motion_is_not_retried():
+    # 앞에서 팔을 움직였으면(서랍 앞 이동) 같은 코드라도 다시 보내지 않음
+    backend = FakeBackend({"drawer_control": ActionResult(False, error_code="YAW_INVALID")})
+    result = Runner(backend, ontology=ONTOLOGY).run(skill_task(
         {"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}, "on_failure": "retry", "retry": 1}))
-    assert (result.overall_status, result.error_code) == ("FAILED", "TASK_INVALID")
-    assert any("skill 스텝의 retry" in p for p in result.problems)
+    assert [a for a, _ in backend.calls] == ["move_to_named_pose", "drawer_control"]
+    assert result.steps[0]["retry_stopped"] == "MOTION_UNCERTAIN"
+
+
+def test_pre_unmet_is_not_retried():
+    backend = FakeBackend()
+    result = Runner(backend, ontology=ONTOLOGY).run(skill_task(PICK_WITH_RETRY))   # 서랍 닫힘 → PRE_UNMET
+    assert (result.error_code, result.steps[0]["attempts"], result.steps[0]["retry_stopped"]) == (
+        "PRE_UNMET", 1, "NOT_RETRYABLE")
     assert backend.calls == []
 
 
@@ -163,6 +207,7 @@ def test_backend_failure_does_not_resend_skill(monkeypatch):
         {"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}, "on_failure": "retry", "retry": 1}))
     assert [a for a, _ in backend.calls] == ["move_to_named_pose", "drawer_control"]
     assert (result.overall_status, result.error_code) == ("FAILED", "DRAWER_STUCK")
+    assert result.steps[0]["retry_stopped"] == "MOTION_UNCERTAIN"
 
 
 def test_timeout_covers_whole_skill():
