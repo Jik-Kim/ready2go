@@ -35,7 +35,19 @@ from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_gu
 from ready2go_skills.core import pick_plan as pp, pose_math as pm, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
-PARAMS_FILE = Path(__file__).resolve().parents[2] / "params" / "skills.yaml"
+def _params_file():
+    """params/skills.yaml: 소스(symlink 설치) → 설치된 share 순서."""
+    src = Path(__file__).resolve().parents[2] / "params" / "skills.yaml"
+    if src.exists():
+        return src
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return Path(get_package_share_directory("ready2go_skills")) / "params" / "skills.yaml"
+    except Exception:  # noqa: BLE001 — ROS 없는 테스트 환경
+        return src
+
+
+PARAMS_FILE = _params_file()
 NO_OBJECT_CONTACT = "NO_OBJECT_CONTACT"  # 끌기: 내려가도 물체 윗면 접촉을 못 느낌 (runner.md nudge_object 표)
 PUSH_BLOCKED = "PUSH_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림, runner.md 기존 코드)
 PUSH_LIMIT = "PUSH_LIMIT"                # check_only 재판단에서 아직 잡을 수 없는 자리 (runner.md 기존 코드)
