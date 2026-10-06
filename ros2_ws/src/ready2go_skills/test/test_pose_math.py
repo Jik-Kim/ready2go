@@ -87,3 +87,48 @@ def test_align_rejects_unknown_mode():
 def test_rotation_angle_of_base_rotation():
     r = pm.rot(*POSES[3][3:])
     assert math.isclose(pm.rotation_angle(r, pm.matmul(pm.base_rot("z", 35.0), r)), 35.0, abs_tol=1e-6)
+
+
+def test_tilt_target_keeps_tcp_and_tilts_tip_toward_direction():
+    """jog_gui 기울이기: 수직 아래 자세에서 +x 쪽 30° → 툴 z = (sin30, 0, −cos30), 위치 그대로, 손가락 방향 유지."""
+    p = [517.21, -286.93, 240.49, 0.0, 180.0, 90.0]
+    t = pm.tilt_target(p, (1.0, 0.0), 30.0)
+    assert t[:3] == p[:3]
+    z = pm.col(pm.rot(*t[3:]), 2)
+    assert z == pytest.approx([0.5, 0.0, -math.sqrt(3) / 2], abs=1e-9)
+    assert pm.rotation_angle(pm.rot(*p[3:]), pm.rot(*t[3:])) == pytest.approx(30.0, abs=1e-6)
+    x0, x1 = pm.col(pm.rot(*p[3:]), 0), pm.col(pm.rot(*t[3:]), 0)
+    assert sum(a * b for a, b in zip(x0, x1)) == pytest.approx(1.0, abs=1e-6)   # 닫힘 축이 기울기 축과 같으면 그대로
+
+
+def test_tilt_target_is_absolute_and_zero_is_vertical():
+    p = [400.0, -200.0, 300.0, 0.0, 180.0, 0.0]
+    once = pm.tilt_target(p, (0.0, -1.0), 30.0)
+    again = pm.tilt_target(once, (0.0, -1.0), 30.0)           # 다시 눌러도 60°가 되지 않음
+    assert pm.rotation_angle(pm.rot(*once[3:]), pm.rot(*again[3:])) == pytest.approx(0.0, abs=1e-6)
+    back = pm.tilt_target(once, (1.0, 0.0), 0.0)
+    assert pm.col(pm.rot(*back[3:]), 2) == pytest.approx([0.0, 0.0, -1.0], abs=1e-9)
+
+
+def test_tilt_target_matches_nudge_pose():
+    """motion_plan.gripper_posx(기울임)와 같은 툴 z — 끌기 때 쓸 자세를 창으로 미리 볼 수 있다."""
+    from ready2go_skills.core import motion_plan as mp
+    p = [517.21, -286.93, 240.49, 0.4, 180.0, 89.74]
+    a = mp.gripper_posx(p[:3], (0.0, 1.0, 0.0), p[3:], tilt_toward=(1.0, 0.0, 0.0), tilt_deg=30.0)
+    b = pm.tilt_target(p, (1.0, 0.0), 30.0)
+    assert pm.col(pm.rot(*a[3:]), 2) == pytest.approx(pm.col(pm.rot(*b[3:]), 2), abs=1e-9)
+
+
+def test_roll_target_turns_fingers_about_gripper_axis():
+    """jog_gui 그리퍼 회전: 툴 z 고정, 손가락(툴 x) 90° 회전, 위치 그대로. 수직 아래면 + = 위에서 볼 때 시계 방향."""
+    p = [400.0, -200.0, 300.0, 0.0, 180.0, 0.0]
+    t = pm.roll_target(p, 90.0)
+    r0, r1 = pm.rot(*p[3:]), pm.rot(*t[3:])
+    assert t[:3] == p[:3]
+    assert pm.col(r1, 2) == pytest.approx(pm.col(r0, 2), abs=1e-9)
+    assert pm.rotation_angle(r0, r1) == pytest.approx(90.0, abs=1e-6)
+    x0, x1 = pm.col(r0, 0), pm.col(r1, 0)
+    assert pm.cross(x0, x1)[2] == pytest.approx(-1.0, abs=1e-9)    # base z 기준 −90° = 위에서 볼 때 시계
+    back = pm.roll_target(t, -90.0)
+    assert pm.rotation_angle(r0, pm.rot(*back[3:])) == pytest.approx(0.0, abs=1e-6)
+    assert len(pm.waypoints(p, t, 20.0)) == 5

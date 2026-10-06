@@ -4,6 +4,7 @@
 - tasks/*.json 이 contracts/task.schema.json 을 통과하는지
 - contracts/examples/intent_*.json 이 intent.schema.json 을 통과하는지
 - contracts/examples/inspect_region_result.json 의 pose 규칙(position.z = 0, yaw 범위)
+- contracts/examples/nudge_object_result.json 의 target_after 규칙(성공일 때만 target 형식, 실패면 null)
 - 온톨로지 목록 참조 · 스킬 파라미터($변수) 참조가 맞는지
 """
 import json
@@ -45,6 +46,16 @@ def main() -> int:
             errors.append(f"{p.name}: {e.message}")
     load(ROOT / "contracts/examples/execution_log.json")
     errors += [f"inspect_region_result.json: {m}" for m in result_errors(load(ROOT / "contracts/examples/inspect_region_result.json"))]   # pose 규칙: position.z=0, yaw (-pi/2, pi/2]
+    for c in load(ROOT / "contracts/examples/nudge_object_result.json")["cases"]:   # target_after: 성공일 때만, 실패면 null (#83)
+        after = c["output"].get("target_after", "없음")
+        if not c["success"] and after is not None:
+            errors.append(f"nudge_object_result.json {c['case']}: 실패 결과의 target_after 는 null")
+        if c["success"]:
+            if not isinstance(after, dict):
+                errors.append(f"nudge_object_result.json {c['case']}: 성공 결과에 target_after(target 형식) 필요")
+            else:
+                errors += [f"nudge_object_result.json {c['case']}: {m}"
+                           for m in result_errors({"target_found": True, "target": after, "candidates": [], "visible_count": 1})]
     raw = load(ROOT / "knowledge/robot_ontology.jsonld")   # 서랍 물리 값(인출 거리 등)의 정본은 config/places.yaml. 온톨로지에 따로 두면 서로 어긋난다
     for pname, pdef in raw.get("world", {}).get("places", {}).items():
         if pdef.get("max_travel_m") is not None:

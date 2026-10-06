@@ -1,0 +1,232 @@
+"""b_demo·b_route(시연·점검 스크립트) 정지 확인 회귀 테스트 — ROS·로봇 없이 가짜 제어기·가짜 시계로. #83 E 검토 P1.
+
+정지 명령 응답 없음/거절/정지 미확인이면 정상 접촉으로 반환하지 않고, b_demo 는 이후 이동·그리퍼 명령을 막는다.
+감시 중 힘·좌표 조회가 끊기면 정지·확인 후 실패한다.
+"""
+import importlib
+import importlib.util
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+ns = types.SimpleNamespace
+
+
+def _stub(monkeypatch, name, **attrs):
+    try:
+        importlib.import_module(name)
+        return
+    except ImportError:
+        pass
+    mod = types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(mod, k, v)
+    monkeypatch.setitem(sys.modules, name, mod)
+
+
+def _load(monkeypatch, name):
+    _stub(monkeypatch, "rclpy")
+    _stub(monkeypatch, "rclpy.signals", SignalHandlerOptions=ns(NO=0))
+    _stub(monkeypatch, "std_msgs")
+    _stub(monkeypatch, "std_msgs.msg", Float64MultiArray=object)
+    _stub(monkeypatch, "dsr_msgs2")
+    _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
+        "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetToolForce "
+        "MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
+    _stub(monkeypatch, "pymodbus")
+    _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
+    spec = importlib.util.spec_from_file_location(f"_test_{name}", SCRIPTS / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def monotonic(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+class Ctl:
+    """가짜 제어기: 비동기 직선 이동은 z 로만 일정 속도. stop = ok | ignored(수락하고 확인 시간 넘게 계속 움직임) | none | rejected."""
+
+    def __init__(self, clock, stop="ok", contact_z=None):
+        self.c, self.stop, self.contact_z = clock, stop, contact_z
+        self.z, self.target, self.log = 200.0, None, []
+        self.force_ok_calls = None               # 이 횟수 뒤부터 힘 조회 실패
+        self.move_resp = ns(success=True)
+
+    def z_now(self):
+        if self.target is None:
+            return self.z
+        z = self.z0 - self.v * (self.c.t - self.t0)
+        if z <= self.target:
+            self.z, self.target = self.target, None
+            return self.z
+        return z
+
+    def call(self, name, kw):
+        self.log.append(name.split("/")[-1])
+        if name.endswith("move_line"):
+            self.z = self.z_now()
+            self.z0, self.t0, self.target, self.v = self.z, self.c.t, kw["pos"][2], kw["vel"][0]
+            return self.move_resp
+        if name.endswith("move_stop"):
+            if self.stop == "ok":
+                self.z, self.target = self.z_now(), None
+            elif self.stop == "ignored" and self.target is not None:   # 수락했지만 멈추지 않고 계속 내려감
+                self.z0, self.t0, self.target = self.z_now(), self.c.t, -1000.0
+            return {"ok": ns(success=True), "ignored": ns(success=True), "none": None,
+                    "rejected": ns(success=False)}[self.stop]
+        if name.endswith("get_current_posx"):
+            return ns(task_pos_info=[ns(data=[400.0, 0.0, self.z_now(), 0.0, 180.0, 0.0])])
+        if name.endswith("get_tool_force"):
+            if self.force_ok_calls is not None:
+                if self.force_ok_calls <= 0:
+                    return None
+                self.force_ok_calls -= 1
+            hit = self.contact_z is not None and self.z_now() <= self.contact_z
+            return ns(tool_force=[0.0, 0.0, 3.0 if hit else 0.0, 0.0, 0.0, 0.0])
+        raise AssertionError(name)
+
+
+# ---------------- b_demo ----------------
+
+@pytest.fixture
+def demo(monkeypatch):
+    mod = _load(monkeypatch, "b_demo")
+    clock = Clock()
+    monkeypatch.setattr(mod, "time", clock)
+    grips = []
+
+    class Rg2:
+        def __init__(self, ip):
+            pass
+
+        def move(self, w, f):
+            grips.append((w, f))
+            return ns(width_mm=w)
+
+        def close(self):
+            pass
+    monkeypatch.setattr(mod, "Rg2", Rg2)
+
+    def make(**kw):
+        ctl = Ctl(clock, **kw)
+        r = object.__new__(mod.Robot)
+        r.call = lambda typ, name, timeout=5.0, req=None, **k: ctl.call(name, k)
+        return r, ctl
+    return ns(mod=mod, make=make, grips=grips)
+
+
+def _press(demo, r):
+    """b_demo 누르기처럼: 9 mm 아래 목표, 3 mm 내려가면 접촉으로 봄."""
+    z0 = r.posx()[2]
+    return r.movel_watch([400.0, 0.0, z0 - 9.0, 0.0, 180.0, 0.0], 5.0,
+                         lambda p, d: "접촉" if p[2] <= z0 - 3.0 else None, 10)
+
+
+def _assert_locked(demo, r, ctl):
+    sent = len(ctl.log)
+    for fn in (lambda: r.movel([400.0, 0.0, 250.0, 0.0, 180.0, 0.0]), lambda: r.movej([0.0, 0.0, 90.0, 0.0, 90.0, 0.0]),
+               lambda: r.movel_watch([400.0, 0.0, 150.0, 0.0, 180.0, 0.0], 5.0, lambda p, d: None, 10),
+               lambda: r.grip(30.0, 20.0)):
+        with pytest.raises(demo.mod.Stop, match="잠김"):
+            fn()
+    assert ctl.log[sent:] == [] and demo.grips == []
+
+
+def test_demo_contact_with_confirmed_stop_returns_hit(demo):
+    r, ctl = demo.make()
+    assert _press(demo, r) == "접촉"
+    assert "move_stop" in ctl.log and not r.locked
+    assert ctl.z == pytest.approx(197.0, abs=0.2)
+
+
+@pytest.mark.parametrize("stop", ["none", "rejected", "ignored"])
+def test_demo_contact_without_confirmed_stop_raises_and_locks(demo, stop):
+    r, ctl = demo.make(stop=stop)
+    with pytest.raises(demo.mod.Stop):
+        _press(demo, r)
+    assert "move_stop" in ctl.log and r.locked
+    _assert_locked(demo, r, ctl)
+
+
+def test_demo_force_query_failure_while_moving_stops_and_confirms(demo):
+    r, ctl = demo.make()
+    ctl.force_ok_calls = 11                      # tare 10 번 + 감시 1 번 뒤 끊김
+    with pytest.raises(demo.mod.Stop, match="힘 조회 실패 — 정지 확인"):
+        _press(demo, r)
+    assert ctl.log.count("move_stop") == 1 and ctl.target is None and ctl.z > 191.0
+
+
+def test_demo_force_query_failure_with_unconfirmed_stop_locks(demo):
+    r, ctl = demo.make(stop="ignored")
+    ctl.force_ok_calls = 11
+    with pytest.raises(demo.mod.Stop):
+        _press(demo, r)
+    assert r.locked
+    _assert_locked(demo, r, ctl)
+
+
+@pytest.mark.parametrize("resp", [None, ns(success=False)])
+def test_demo_async_move_not_accepted_stops_and_fails(demo, resp):
+    r, ctl = demo.make()
+    ctl.move_resp = resp
+    with pytest.raises(demo.mod.Stop, match="시작 실패"):
+        _press(demo, r)
+    assert ctl.log[-1] != "move_line" and "move_stop" in ctl.log
+
+
+# ---------------- b_route press ----------------
+
+@pytest.fixture
+def route(monkeypatch):
+    mod = _load(monkeypatch, "b_route")
+    clock = Clock()
+    monkeypatch.setattr(mod, "time", clock)
+
+    def make(**kw):
+        ctl = Ctl(clock, **kw)
+        r = object.__new__(mod.Robot)
+        r.call = lambda typ, name, timeout=5.0, **k: ctl.call(name, k)
+        return r, ctl
+    return make
+
+
+def test_route_press_contact_with_confirmed_stop(route):
+    r, ctl = route(contact_z=197.0)
+    out = r.press(9.0, 2.0, 5.0)
+    assert out.startswith("접촉") and "정지 확인" in out and ctl.target is None
+
+
+@pytest.mark.parametrize("stop", ["none", "rejected", "ignored"])
+def test_route_press_contact_without_confirmed_stop_fails(route, stop):
+    r, ctl = route(contact_z=197.0, stop=stop)
+    out = r.press(9.0, 2.0, 5.0)
+    assert out.startswith("실패") and "move_stop" in ctl.log
+
+
+def test_route_press_force_lost_while_moving_stops_instead_of_no_contact(route):
+    """E 재현: 처음 힘 정상 → 다음 힘 None → 예전엔 정지 없이 '9 mm 내려가도 2 N 안 됨'."""
+    r, ctl = route()
+    ctl.force_ok_calls = 1
+    out = r.press(9.0, 2.0, 5.0)
+    assert out.startswith("실패") and "조회 실패" in out and "정지 확인" in out
+    assert ctl.log.count("move_stop") == 1 and ctl.z > 199.0
+
+
+@pytest.mark.parametrize("resp", [None, ns(success=False)])
+def test_route_press_move_not_accepted_fails(route, resp):
+    r, ctl = route()
+    ctl.move_resp = resp
+    out = r.press(9.0, 2.0, 5.0)
+    assert out.startswith("실패") and "시작 실패" in out and "move_stop" in ctl.log

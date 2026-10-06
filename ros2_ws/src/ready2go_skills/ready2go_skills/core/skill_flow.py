@@ -24,6 +24,7 @@ BAD_PARAMS = "BAD_PARAMS"
 STOP_UNCONFIRMED = "STOP_UNCONFIRMED"    # 정지 명령 뒤 멈춘 것을 확인 못 함 — 노드 잠금, Runner 는 ESTOP 처럼 ABORTED 권장 (#73 D 리뷰)
 STATE_UNKNOWN = "STATE_UNKNOWN"          # 이동 중 상태 조회가 계속 실패 → 정지 후 이 코드
 MOVE_UNCONFIRMED = "MOVE_UNCONFIRMED"    # 이동 명령 응답이 없어 수락 여부 모름 → 정지·확인 후 이 코드로 잠금 (#73 E 리뷰)
+MOVE_NOT_STARTED = "MOVE_NOT_STARTED"    # 명령이 수락됐는데 start_timeout_s 안에 움직이지도, 목표에 있지도 않음 → 정지 확인 후 이 코드
 BUSY = "BUSY"                            # 다른 동작이 실행 중 — 한 번에 하나만 (#73 E 리뷰). 로봇 동작 없음
 LOCKED = "LOCKED"                        # 앞서 LOCKING_CODES 로 잠긴 서버 — 사람이 확인하고 서버를 다시 띄울 때까지 거부
 SKILL_EXCEPTION = "SKILL_EXCEPTION"      # 서버 안 예외 — 움직인 뒤일 수 있음. Runner 의 BACKEND_ERROR(서버 없음·goal 거절, 동작 안 함)와 구분 (#73 C 리뷰)
@@ -67,8 +68,56 @@ def pose_joints(poses: Mapping, pose_name: str, drawer_id: Optional[str] = None)
 LOCKING_CODES = frozenset({"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"})
 
 
+# 이 결과 뒤에는 로봇을 더 움직이지 않는다 (복귀·후퇴 이동도 보내지 않음, #37 E 검토 10/06)
+SAFETY_CODES = frozenset({ESTOP, CANCELED}) | LOCKING_CODES
+_SEVERITY = {**{c: 3 for c in LOCKING_CODES}, ESTOP: 2, CANCELED: 1}
+
+
+def is_safety(outcome: Optional["Outcome"]) -> bool:
+    return outcome is not None and not outcome.success and outcome.error_code in SAFETY_CODES
+
+
+def worse(first: Optional["Outcome"], second: Optional["Outcome"]) -> Optional["Outcome"]:
+    """두 결과(None = 성공) 중 더 심각한 쪽. 잠금 > ESTOP > 취소 > 일반 실패 > 성공, 같으면 first.
+    동작 실패 뒤 복귀 이동까지 실패하면 안전 오류가 일반 오류에 가려지지 않게 (#37 E 검토 10/06)."""
+    def rank(o):
+        if o is None or o.success:
+            return -1
+        return _SEVERITY.get(o.error_code, 0)
+    return second if rank(second) > rank(first) else (first if first is not None and not first.success else None)
+
+
 def stopped_by_estop(robot_state: Optional[int]) -> bool:
     return robot_state in ESTOP_STATES
+
+
+class MotionState:
+    """로봇 상태 + 관절각 변화. 관절이 eps_deg 넘게 바뀐 뒤 hold_s 안이면 '이동 중'(STATE_MOVING)으로 돌려준다.
+    실물에서 관절 이동 중에도 GetRobotState 가 3 s 넘게 '이동 중'이 아니었음 (10/06 C 연결 확인 재시험, 홈 가다가
+    MOVE_NOT_STARTED 로 정지) → wait_motion·정지 확인(_halt)이 상태값만 믿지 않게 한다. 관절 조회 실패면 상태값 그대로."""
+
+    def __init__(self, get_state: Callable[[], Optional[int]], get_joints: Callable[[], Optional[Sequence[float]]],
+                 eps_deg: float = 0.02, hold_s: float = 0.3, clock: Callable[[], float] = time.monotonic):
+        self._state, self._joints, self._clock = get_state, get_joints, clock
+        self.eps, self.hold = eps_deg, hold_s
+        self._last = None
+        self._changed_at = None
+        self._lock = threading.Lock()
+
+    def __call__(self) -> Optional[int]:
+        state = self._state()
+        if state is None or stopped_by_estop(state):
+            return state
+        joints = self._joints()
+        now = self._clock()
+        with self._lock:
+            if joints is not None and len(joints) == 6 and all(_finite(v) for v in joints):
+                if self._last is not None and max(abs(a - b) for a, b in zip(joints, self._last)) > self.eps:
+                    self._changed_at = now
+                self._last = list(joints)
+            if state != STATE_MOVING and self._changed_at is not None and now - self._changed_at < self.hold:
+                return STATE_MOVING
+        return state
 
 
 class MotionGate:
@@ -164,13 +213,19 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
                 stop: Callable[[], bool], timeout_s: float, period_s: float = 0.05,
                 settle_s: float = 0.3, unknown_limit_s: float = 1.0, stop_confirm_s: float = 3.0,
                 clock: Callable[[], float] = time.monotonic,
-                sleep: Callable[[float], None] = time.sleep) -> Outcome:
+                sleep: Callable[[float], None] = time.sleep,
+                watch: Optional[Callable[[], Optional[Outcome]]] = None,
+                arrived: Optional[Callable[[], bool]] = None, start_timeout_s: float = 3.0) -> Outcome:
     """비동기 이동 명령을 보낸 뒤 끝날 때까지 기다린다.
+    - watch(): 주기마다 호출. Outcome 을 돌려주면 정지 → 정지가 확인되면 그 Outcome (접촉 감지 = 성공, 걸림 = 실패 등)
     - 취소 요청 → 정지 → **정지가 확인되면** canceled, 확인 못 하면 STOP_UNCONFIRMED (#73 D 리뷰)
     - 비상정지·안전정지 상태 → ESTOP
     - timeout_s 초과 → 정지 → 확인되면 MOTION_TIMEOUT, 아니면 STOP_UNCONFIRMED
     - 상태 조회 실패(None)는 '끝남'이 아니라 '모름'. unknown_limit_s 넘게 계속되면 정지 → STATE_UNKNOWN / STOP_UNCONFIRMED
-    - 이동 시작 전 잠깐(settle_s)은 '이동 중'이 아니어도 끝난 것으로 보지 않는다 (명령 직후 상태가 늦게 바뀜)."""
+    - 이동 시작 전 잠깐(settle_s)은 '이동 중'이 아니어도 끝난 것으로 보지 않는다 (명령 직후 상태가 늦게 바뀜).
+    - arrived()(목표에 있는지)를 주면: 멈췄을 때 목표에 없으면 NOT_REACHED. '이동 중'을 한 번도 못 봤을 때는 목표에 있을 때만 끝. start_timeout_s 안에
+      움직이지도 도착하지도 않으면 정지 → MOVE_NOT_STARTED. 실물 10°/s 에서 '이동 중'으로 바뀌는 데 0.3 s 넘게 걸려
+      출발 전에 끝으로 판단한 사고 대응 (10/06 C 연결 확인, NOT_REACHED 195°)."""
     t0 = clock()
     seen_moving = False
     unknown_since = None
@@ -184,6 +239,10 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
             return Outcome(False, ESTOP, reason=f"로봇 상태 {state} (안전·비상정지)")
         if cancel_requested():
             return halt(Outcome(False, CANCELED, canceled=True, reason="취소 요청으로 정지"))
+        if watch is not None:
+            hit = watch()
+            if hit is not None:
+                return halt(hit)
         now = clock()
         elapsed = now - t0
         if state is None:
@@ -194,8 +253,19 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
             unknown_since = None
             moving = state == STATE_MOVING
             seen_moving = seen_moving or moving
-            if not moving and (seen_moving or elapsed >= settle_s):
-                return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
+            if not moving:
+                if seen_moving:
+                    if arrived is not None and not arrived():      # 목표 전에 멈춤 → 다음 단계로 가지 않음 (#83 D 재검토 P1)
+                        return Outcome(False, NOT_REACHED, reason=f"이동이 멈췄지만 목표에 없음 ({elapsed:.1f} s)")
+                    return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
+                if arrived is None:
+                    if elapsed >= settle_s:
+                        return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
+                elif arrived():
+                    return Outcome(True, reason=f"이미 목표에 있음 ({elapsed:.1f} s)")
+                elif elapsed >= start_timeout_s:
+                    return halt(Outcome(False, MOVE_NOT_STARTED,
+                                        reason=f"{start_timeout_s:g} s 안에 움직이지 않고 목표에도 없음 — 정지"))
         if elapsed > timeout_s:
             return halt(Outcome(False, MOTION_TIMEOUT, reason=f"{timeout_s:g} s 안에 끝나지 않아 정지"))
         sleep(period_s)

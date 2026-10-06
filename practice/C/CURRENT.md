@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-06
 
 ## 지금 상태
+- **CI numpy (PR #90, #88 E 요청·D 리뷰 P1)**: `contracts-and-core` 에 `numpy>=1.24,<2` 설치(voice `setup.py` 와 같은 범위, skip 우회 없음). 목적: #88 음성 시험의 numpy import 수집 실패로 core 검사 전체가 멈추던 것. 검증: 깨끗한 venv(CI 설치 목록 + numpy)에서 #88 head `0336120` 806 passed·12 skipped(의도된 importorskip) [실측 10/06], #90 CI 3개 통과. 남은 확인: #90 머지 → #88 에 main 반영 → #88 최신 head CI 통과 (E 통합 완료 조건).
 - **#9 완료** (PR #27 머지, [FR-PLN-01](../../docs/requirements.md#fr-pln-01) 중 실행기 부분): `ready2go_runner/core/` 의 variables·conditions·validation·interpreter. sequence·if·set_var·on_failure·finally·timeout_sec, 실행 전 검사, E-stop·halt → `ABORTED`(retry·skip·safe_home 미적용, finally 는 비동작만), 중단 잠김 → `resume()` 전까지 거절, 내부 에러도 `INTERNAL_ERROR` 로 finally 보장. 원자 동작은 `execute(action, params, timeout_sec) → ActionResult` 로 위임.
 - **#3 완료** (PR #40 머지 10/03, `Closes #3, #34`): `dev`·`real`(PC2)·`sim`(PC1) 기동, PC1↔PC2 컨테이너·호스트 송수신, PC2 `tf2_echo base_link wrist_cam_color_optical_frame` 확인(A·B). bringup 고정 TF(`static_tf.py`, NaN·무한대 거부), ros2-core `/colcon` 분리, MongoDB 7.0. sim 드라이버·에뮬레이터 버전 불일치는 P2(B).
 - **#12 완료** (PR #64 E 머지 10/04 05:35Z, #46 과 함께 main 반영. E 리뷰의 halt·문서 수정은 후속 PR #67 머지, [FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-LOG-01](../../docs/requirements.md#fr-log-01)·[NFR-DB-01](../../docs/requirements.md#nfr-db-01)).

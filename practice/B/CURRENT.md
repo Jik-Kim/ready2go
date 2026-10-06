@@ -1,9 +1,13 @@
 # CURRENT — B 서동권
 
 - **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-04
+- **최종 갱신**: 2026-10-06
 
 ## 지금 상태
+- **10/06 실물 (PR #83, 승인: C 2회, E 대기)**: 위 서랍 열기 → 탑뷰 → (인식) → 30° 기울여 눌러 끌기 → 집기 → 들고 나오기(movesj) → 트레이 얹기 → 밀어 닫기 흐름을 PC2 호스트에서 돌림. 시연 확정 경로는 `scripts/b_demo.py`(직접교시 좌표 그대로), 같은 흐름을 스킬 서버(Runner 경로)에도 옮김(`1ecafb6`).
+  - 실행: `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh demo [go|N]` (스킬 서버 없이) / `server` + `all` (스킬 서버, 탑뷰 인식 포함)
+  - 확인됨: 열기(226 mm), 탑뷰, 경유점 내려오기, 기울이기, 들고 나오기 경로(`carry_out`), 트레이 얹기. 누르기 2 N 오검출 → 대책(멈춘 뒤 평균, 출발 2 mm 무시 후 기준 다시, 연속 3회, 접촉 z ± 3 mm) 넣은 뒤 1회 성공. 닫기(수직 손끝으로 밀기)는 1회 확인 필요.
+  - 안전: J5 펜던트 제한 135° → 서버·스크립트 133°에서 거부·정지. 경유점은 사용자가 말한 것만 (10/06 홈 경유를 임의로 넣어 위험 — 재발 금지).
 - #4 완료 (10/03 실물 확인): `ros2-core` 컨테이너에서 DSR 드라이버 Real 모드 접속, `move_joint`로 실물 동작, RG2 열기·닫기·폭 읽기, `/gripper/state` 발행.
   - 컨테이너 실행 (PR #40 머지 후): `docker compose --profile real up` — bringup이 DSR 드라이버·`/gripper/state`·고정 TF를 함께 띄움 (`.env`: `BACKEND=real`, `ROBOT_HOST=192.168.1.100`, `RG2_HOST=192.168.1.1`). 빌드 산출물은 컨테이너 전용 `/colcon`, `entrypoint.sh`가 `/colcon/install`을 source.
   - 스킬만 따로: `docker compose --profile real run --rm ros2-core bash -c "colcon --log-base /colcon/log build --symlink-install --build-base /colcon/build --install-base /colcon/install --packages-select ready2go_interfaces ready2go_skills && source /colcon/install/setup.bash && ros2 launch ready2go_skills dsr_real.launch.py"`
@@ -37,6 +41,12 @@
 - #37: 밀기가 의미 있으려면 집을 때 벌림 여유(열린 손가락에 필요한 틈)가 닫은 손가락 두께보다 커야 함 → 실측 항목에 "집을 때 벌림 폭" 추가 필요.
 
 ## 다음 할 일
+- [ ] PR #83 E 승인 → 머지
+- [ ] 끌기·집기 반복 시험 (누르기 오검출 대책 효과, 집기 폭 19~25 mm 판정), 닫기 실물 확인
+- [ ] A 비전 연결: PC2 호스트에서 `/vision/inspect_region` 보이는지, 인식 좌표로 끌기·집기
+- [ ] C: `p1_demo_eraser`에 열기 뒤 `move_to_named_pose(drawer_top_view)` 추가 요청
+- [ ] 아래 서랍: 손잡이·서랍 앞·최대 인출·테두리 3점·바닥 4점·보는 자세
+- [ ] 높이 규칙(원통 립밤): 다 닫혔을 때 손끝이 물체 높이 40%, 벌림별 손끝 높이 60/85/100 mm 실측
 - [x] #7 5점 `verify.py` 검증 (10/03)
 - [x] #3 PC2 `real` 기동·TF 연결·PC1↔PC2 통신 (10/03)
 - [x] #8 지우개 서랍 안 3/3 (10/04) — 결정 #11 확정은 E 답 후 `hardware.md`·`metrics_risks.md` 수정
