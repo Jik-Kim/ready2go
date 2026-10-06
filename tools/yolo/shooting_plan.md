@@ -9,11 +9,11 @@
 | 항목 | 상태 | 담당 |
 | :--- | :--- | :--- |
 | 촬영 자세 `drawer_top_view` | `config/poses.yaml`에 `null`. **A(사용자)가 직접교시로 정하고** 관절값을 B에게 넘기면 B가 등록·경로 안전 확인(PM 정리 10/04). 데이터 수집의 선행 조건은 이것 하나 | A → B |
-| 서랍 인출 거리 | **최대 인출 0.225 m(스토퍼)에서만 촬영.** 서랍 좌표 `tf`가 이 거리에서만 유효하고 V2 추론도 같은 거리에서 하기 때문 | B(DRAWER_NOT_AT_TRAVEL, #15) |
+| 서랍 인출 거리 | **최대 인출 0.226 m(스토퍼, B 실측 226.3 mm)에서만 촬영.** 서랍 좌표 `tf`가 이 거리에서만 유효하고 V2 추론도 같은 거리에서 하기 때문 | B(DRAWER_NOT_AT_TRAVEL, #15) |
 | 로봇 슬롯 | 시간대 확정 필요 | A·B |
 | 펜던트 TCP·tool weight | 10/04 3점 터치 때 풀려 있었음(PR #58). 촬영 전 `GripperDA_v1`·`tool_weight` 설정 확인 | B |
 | 클래스 번호 | `config/yolo_classes.txt` 11종 확정(0~10). 새 클래스는 맨 끝에만 추가 | — |
-| 사전 라벨링 도구 | `vision` 컨테이너에서 실행. 모델 파일이 필요하면 내려받기 승인을 따로 받는다 | A |
+| 라벨링 도구 | 5장 참조(자동 박스 도구 + Roboflow). 학습 때(10/06) 기본 가중치(`yolov8n.pt` 등)를 새로 내려받아야 하면 승인을 따로 받는다(현재 PC에 3종 있음) | A |
 
 ## 1-0. 로봇을 움직이는 모든 절차의 안전 게이트
 
@@ -29,7 +29,7 @@
 
 0. 위 1-0의 안전 게이트를 확인한다.
 1. 펜던트에서 TCP `GripperDA_v1`과 tool weight 설정을 확인한다(3점 터치 때 풀려 있었음).
-2. 서랍을 최대 인출(22.5 cm, 스토퍼)까지 연다.
+2. 서랍을 최대 인출(22.6 cm, 스토퍼)까지 연다.
 3. 직접교시로 손목 카메라가 서랍 안을 **거의 수직**으로 보게 맞춘다. 내부 전체와 벽 4개가 화면에 들어와야 한다. 맞추면서 `/wrist_cam/color/image_raw`를 화면으로 확인한다.
 4. 관절값(deg 6개)을 기록해 B에게 넘긴다. B가 `config/poses.yaml`의 `drawer_top_view`에 등록하고, 이동 경로(관절 한계, 서랍장 윗판 간섭, `home`에서 가는 경로)를 확인한다.
 5. 이후 촬영은 이 자세에서 한다. 로봇 이동 명령은 사용자가 직접 실행한다.
@@ -71,7 +71,7 @@
 **로봇·카메라**
 - [ ] 위 1-0의 안전 게이트(협동·저속, 2인 운용, 경로 확인, 정지 후 촬영)
 - [ ] 펜던트 `TCP = GripperDA_v1`, `tool_weight` 설정 확인(10/04에 풀려 있었음)
-- [ ] 서랍을 최대 인출(22.5 cm, 스토퍼)까지 열고 `drawer_top_view` 자세로 이동(로봇 조작은 사용자·B)
+- [ ] 서랍을 최대 인출(22.6 cm, 스토퍼)까지 열고 `drawer_top_view` 자세로 이동(로봇 조작은 사용자·B)
 - [ ] `realsense` 컨테이너 기동, `/wrist_cam/color/image_raw`와 `/wrist_cam/aligned_depth_to_color/image_raw`가 약 30 Hz로 오는지 확인
 - [ ] 카메라 노출·화이트밸런스가 촬영 중 변하지 않게 고정 [추정: realsense 파라미터로 자동 노출 끔 — 방법은 첫 촬영 때 확인]
 - [ ] 첫 이미지 2~3장을 저장해서 눈으로 확인: 서랍 안쪽 전체가 보이는지, 초점, 뎁스에 구멍이 많은지
@@ -91,8 +91,8 @@
 
 ## 5. 촬영 후 (사전 라벨링)
 
-1. 사전 라벨링: `vision` 컨테이너에서 오프라인 실행 `[팀 확정 필요: 도구 — YOLO-World 등, 모델 파일 내려받기 승인 필요]`
-2. 사람이 수동 보정. 클래스 id는 `config/yolo_classes.txt` 줄 번호
+1. 자동 라벨: 한 장에 물품 하나인 세션은 `auto_label_single.py`(세션 폴더의 `class_ranges.txt` 필요, 형식은 README), 그 외 세션은 Roboflow(외부 서비스, Auto Label 기능)에 컬러 이미지를 올려 자동 라벨 `[사용자 확정 10/04]`. 올린 것: 서랍 안 물품 컬러 사진(뎁스·개인정보 없음). 내려받을 때 Preprocessing·Augmentation은 끈다. `import_roboflow.py`로 클래스 번호·세션·원본 PNG 복원.
+2. 사람이 보정(Roboflow 화면 또는 `review_boxes.py`). 클래스 id는 `config/yolo_classes.txt` 줄 번호
 3. 라벨 결과를 `data/labeled/<세션>/images`, `labels`(YOLO txt)로. `build_dataset.py`가 이미지·라벨 파일명(stem)을 1:1로 검증하므로 **빈 서랍 세션(`s05_empty`)도 이미지마다 빈 `.txt` 라벨(0바이트)을 만든다**(빈 라벨은 `check_labels`가 empty로 세어 통과)
 4. `python3 tools/yolo/build_dataset.py --val s90_val_a s91_val_b`로 데이터셋 구성(라벨 오류·id 범위 점검 포함)
 5. 클래스별 인스턴스 수를 세어 부족한 클래스를 보충 세션에 반영
