@@ -49,6 +49,7 @@ drawer_open_close:              # drawer_control 실물 (위 drawer_control 판�
     drawer_top: [382.105, -291.757, 268.641, 89.981, -89.964, 179.892]   # 끝까지 연 손잡이 [382.264, -66.470, 268.556] → 인출 225.3 mm [실측 B 10/06]. [실측 B 10/06 재측정, 꽉 잡음, posj [7.269, 17.642, 116.824, 95.151, -95.372, -45.383]] — 10/04 값과 y 0.7 mm 차이
     drawer_bottom: null         # 교시 전 → DRAWER_NOT_CONFIGURED (움직이지 않음)
   handle_open_width_mm: 30.0    # 손잡이 잡으러 갈 때 벌림 [팀 확정 필요]
+  close_enabled: false          # 닫기 자동 경로(홈 → 손잡이 쪽 ready 자세, J2 반대로 꺾임) 실물 확인 전 → 로봇 동작 없이 NOT_IMPLEMENTED, 사람이 닫음 (10/06)
   handle_contact_n: 8.0         # 손잡이로 들어가다 당김 축으로 이만큼 닿으면 멈추고 뒤로 (10/06 실물: 서랍이 덜 닫혀 너무 깊이 들어감) [추정]
   handle_grip_force_n: 40.0     # [팀 확정 필요]
   handle_min_width_m: 0.003     # 손잡이를 잡았는지. [실측 B 10/06] 위 서랍 손잡이 꽉 잡은 폭 7.9 mm (못 잡으면 약 0.9 mm)

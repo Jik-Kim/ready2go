@@ -172,31 +172,59 @@ class SkillServer(Node):
 
     # --- 동작 ---
     def _do_move_to_named_pose(self, goal, params):
-        joints, err = sf.pose_joints(self.poses(), params.get("pose_name", ""), params.get("drawer_id"))
+        return self._named(goal, params.get("pose_name", ""), params.get("drawer_id")), None
+
+    def _named(self, goal, pose_name, drawer_id=None):
+        """기준 포즈로 관절 이동 (낮으면 먼저 수직으로 올림). 성공이면 Outcome(True), 아니면 실패 Outcome."""
+        joints, err = sf.pose_joints(self.poses(), pose_name, drawer_id)
         if err:
-            return err, None
+            return err
         goal.publish_feedback(Skill.Feedback(stage="auto_mode"))
         if not self.robot.auto():            # 모드 전환은 이동 명령이 아님 → 명시적 거부로 처리
-            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 모드 전환 중 취소됐으면 movej 를 보내지 않음
         if early:
-            return early, None
+            return early
         cur = self.robot.posx()
         safe = self.prm()["transit"]["safe_z_mm"]
-        if cur and cur[2] < safe:            # 관절 이동은 경로를 모르므로 낮은 곳(서랍·트레이 안)에선 먼저 수직으로 올림
+        if cur and cur[2] < safe and self._over_drawer(cur):   # 서랍 안에서 바로 관절 이동하지 않음 — 먼저 수직으로 올림
             bad = self._line(goal, mp.with_z(cur, safe), self.prm()["speed"]["line_mm_s"], "lift")
             if bad:
-                return bad, None
-        goal.publish_feedback(Skill.Feedback(stage="moving"))
+                return bad
+        goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
         bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej",
                                stop=self.robot.stop, get_state=self.state)
         if bad:
-            return bad, None
+            return bad
         done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
                               stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
         if not done.success:
-            return done, None
-        return sf.check_reached(joints, self.robot.posj(), self.reach_tol), None
+            return done
+        return sf.check_reached(joints, self.robot.posj(), self.reach_tol)
+
+    def _over_drawer(self, cur):
+        """TCP 가 서랍 안쪽(벽 포함 여유 40 mm) 위에 있는지 — 최대 인출 tf 기준."""
+        for name in ("drawer_top", "drawer_bottom"):
+            pl = self.places().get(name) or {}
+            tf, size = pl.get("tf") or {}, pl.get("interior_m")
+            if not tf.get("translation_m") or not size:
+                continue
+            p = mp.from_base(tf, [v / 1000.0 for v in cur[:3]])
+            if -0.04 <= p[0] <= size[0] + 0.04 and -0.04 <= p[1] <= size[1] + 0.04 and p[2] > -0.02:
+                return True
+        return False
+
+    def _to_drawer_view(self, goal, drawer_id):
+        """서랍 위 작업 전: 서랍 위가 아니면 홈 → drawer_top_view (관절 이동). ready(손잡이 쪽) 자세는 J2가 반대로 꺾여 있어
+        보는 자세로 바로 못 감 → 홈을 거쳐 관절 자세를 풀고 올라감 [사용자 확인 B 10/06]. 이미 서랍 위면 그대로."""
+        cur = self.robot.posx()
+        if cur and self._over_drawer(cur):
+            return None
+        for name, d in (("home", None), ("drawer_top_view", drawer_id)):
+            o = self._named(goal, name, d)
+            if not o.success:
+                return o
+        return None
 
     def _at_joints(self, joints):
         """wait_motion arrived: 관절각이 목표와 reach_tol 안. 조회 실패면 False."""
@@ -371,10 +399,16 @@ class SkillServer(Node):
         bad = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat")
         if bad:
             return bad, None
+        home = self._named(goal, "home")                   # 손잡이 쪽(ready) 관절 자세를 풀어 둠 — 다음 동작은 홈에서 시작
+        if not home.success:
+            return home, {"drawer_displacement": round(self.disp[drawer_id], 4), "close_confirmed": False}
         out = {"drawer_displacement": round(self.disp[drawer_id], 4), "close_confirmed": False}
         return sf.Outcome(True, reason=f"열림 {self.disp[drawer_id] * 1000:.1f} mm"), out
 
     def _close_drawer(self, goal, drawer_id, oc, dc, closed, pull, handle):
+        if not oc.get("close_enabled", False):              # 홈 → 손잡이 쪽(ready, J2 반대) 자세 경로가 실물 미검증 (10/06)
+            return sf.Outcome(False, sf.NOT_IMPLEMENTED, reason="닫기 자동 경로 실물 확인 전 — 사람이 손으로 닫기 "
+                                                                "(params drawer_open_close.close_enabled)"), None
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"{self.held['class']} 를 든 채 닫지 않음"), None
         speed = self.prm()["speed"]
@@ -461,6 +495,9 @@ class SkillServer(Node):
             yaw = target["pose"]["yaw"]
             along = mp.dir_to_base(tf, (math.cos(yaw), math.sin(yaw), 0.0))  # 닫힘 축 = 물체 긴 변 (얇은 쪽이 옆벽)
         contact_z_m = size[2] + tip_v / 1000.0
+        bad = self._to_drawer_view(goal, drawer_id)
+        if bad:
+            return bad, out
         px, py = plan.press_xy_m
         start_mm = [1000.0 * v for v in pp.to_base(tf, (px, py, contact_z_m + d["start_above_mm"] / 1000.0))]
         end_mm = [1000.0 * v for v in pp.to_base(tf, (px, py, contact_z_m - d["search_below_mm"] / 1000.0))]
@@ -539,6 +576,9 @@ class SkillServer(Node):
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"])
         g, speed = prm["gripper"], prm["speed"]
+        bad = self._to_drawer_view(goal, drawer_id)
+        if bad:
+            return bad, None
         close_dir = mp.horizontal_angle_dir(plan.long_axis_deg + 90.0)
         grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
         off = params.get("approach_offset", 0.10)              # 태스크·온톨로지는 [0, 0, 0.1] (m) — z 만 씀
@@ -575,7 +615,7 @@ class SkillServer(Node):
             return sf.Outcome(False, GRASP_FAILED, reason=f"들어 올리다 놓침 ({hold.reason})"), \
                 {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         floor_z = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
-        self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m,
+        self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
                      "tcp_above_floor_m": plan.position_m[2] - floor_z}
         out = {"object_id": target.get("id"), "class": cls, "pick_pose_drawer_frame": target.get("pose"),
                "grasp_ok": True}
@@ -599,12 +639,19 @@ class SkillServer(Node):
             return sf.Outcome(False, TRAY_FULL, reason=f"{loc} {len(slots)}칸 모두 사용"), None
         i = free[0]
         g, pl, speed = prm["gripper"], prm["place"], prm["speed"]
+        # 서랍 → 트레이: 서랍 위면 보는 자세 → 홈 → tray_view (관절 이동, 열린 서랍 앞판 위를 직선으로 가로지르지 않음 10/06)
+        stops = (["drawer_top_view"] if self.robot.posx() and self._over_drawer(self.robot.posx()) else []) + ["home", "tray_view"]
+        for name in stops:
+            o = self._named(goal, name, self.held.get("drawer_id") if name == "drawer_top_view" else None)
+            if not o.success:
+                return o, None
         z_m = mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"])
         pos = [1000.0 * v for v in pp.to_base(tf, (slots[i][0], slots[i][1], z_m))]
         close_dir = mp.dir_to_base(tf, (1.0, 0.0, 0.0))                 # 칸이 x로 늘어섬 → 물체 긴 변은 y, 손가락은 x로
         target = mp.gripper_posx(pos, close_dir, self._cur_angles())
-        above = mp.with_z(target, target[2] + pl["approach_m"] * 1000.0)
-        bad = self._transit(goal, above, "transport")
+        view = self.robot.posx()
+        above = mp.with_z(target, max(view[2] if view else 0.0, target[2] + pl["approach_m"] * 1000.0))
+        bad = self._line(goal, above, speed["line_mm_s"], "transport")   # tray_view 높이에서 칸 위로
         if bad:
             return bad, None
         r = Rg2(self.rg2_ip)

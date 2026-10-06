@@ -66,6 +66,7 @@ def server(monkeypatch):
             self.p = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0]
             self.log, self.path = [], None
             self.force = lambda p: [0.0] * 6
+            self.j = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
 
         def auto(self):
             return True
@@ -80,7 +81,7 @@ def server(monkeypatch):
             return list(self.p)
 
         def posj(self):
-            return None                      # 관절 조회 실패 → MotionState 는 상태값 그대로
+            return list(self.j)
 
         def tool_force(self):
             return self.force(self.p)
@@ -98,6 +99,7 @@ def server(monkeypatch):
 
         def movej_async(self, j, vel, acc):
             self.log.append(("movej", j))
+            self.j = list(j)
             return True
 
     class Gripper:
