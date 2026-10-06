@@ -58,6 +58,7 @@ PULL_STUCK_N = 30.0         # 서랍 당기다 걸림
 PRESS_N = 2.0               # 지우개 누르기: 이 힘이 되면 멈추고 끌기 시작
 PRESS_SPEED = 5.0           # mm/s
 PRESS_CONFIRM = 3           # 누르기 접촉은 연속 이 횟수(20 ms 간격) 넘을 때만 인정
+PRESS_IGNORE_MM = 2.0       # 누르기 출발 후 이 거리까지는 힘을 보지 않음 (출발할 때 힘 값이 튐; 접촉 예상은 출발 5 mm 아래)
 CONTACT_Z_TOL = 3.0         # 접촉 TCP z 가 예상(지우개 위 출발 z − 5) ± 이 값 밖이면 끌지 않고 멈춤
 DRAG_SPEED = 10.0           # mm/s
 DRAG_LIMIT_N = 15.0         # 끄는 중 이 힘을 넘으면 걸림
@@ -238,8 +239,10 @@ def run(r):
         r.movel(PRESS_START + TILT, vel=30.0 * SPEED)                           # 지우개 끝 위 5 mm
 
     def press_and_drag():
-        hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, PRESS_SPEED,
-                            lambda p, d: f"{d[2]:+.1f} N" if abs(d[2]) >= PRESS_N else None, 10, confirm=PRESS_CONFIRM)
+        z0 = r.posx()[2]
+        hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, PRESS_SPEED,     # 출발 직후 힘 튐(10/06 z 225.5 오검출) →
+                            lambda p, d: f"{d[2]:+.1f} N" if abs(d[2]) >= PRESS_N and p[2] <= z0 - PRESS_IGNORE_MM else None,
+                            10, confirm=PRESS_CONFIRM)                                   # 처음 PRESS_IGNORE_MM 은 힘을 안 봄
         if not hit:
             raise Stop("9 mm 내려가도 접촉 없음")
         p = r.posx()
