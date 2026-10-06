@@ -84,3 +84,12 @@ def test_from_base_inverts_to_base():
     tf = {"translation_m": [0.23193, -0.11241, 0.19584], "quaternion_xyzw": [0.001314, -0.007931, -0.704605, 0.709555]}
     p = (0.1, 0.2, 0.01)
     assert mp.from_base(tf, to_base(tf, p)) == pytest.approx(p, abs=1e-6)
+
+
+def test_measured_eraser_10_06_vertical_press_ok_but_30deg_tilt_misses():
+    """10/06 터치 위치(벽에 딱 붙음): 기울이지 않으면 41.7 mm 끌기, 30° 기울이면 가장 낮은 점이 지우개 밖 → 거부."""
+    t = tgt(0.1769, 0.2895, 0.0)
+    p0 = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=0.0))
+    assert p0.needed and p0.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
+    p30 = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=30.0))
+    assert p30.error_code == mp.NO_PUSH_ACCESS

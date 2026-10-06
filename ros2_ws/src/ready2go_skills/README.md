@@ -72,9 +72,9 @@ ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skil
 ```bash
 S="ros2 action send_goal --feedback"
 $S /skills/drawer_control ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"state\": \"open\"}'}"
-T='{\"id\": \"eraser#1\", \"class\": \"eraser\", \"top_z\": 0.0115, \"pose\": {\"frame\": \"drawer_top\", \"position\": [0.1735, 0.2827, 0.0], \"yaw\": 0.0, \"yaw_valid\": true}}'
+T='{\"id\": \"eraser#1\", \"class\": \"eraser\", \"top_z\": 0.0115, \"pose\": {\"frame\": \"drawer_top\", \"position\": [0.1769, 0.2895, 0.0], \"yaw\": 0.0, \"yaw_valid\": true}}'
 $S /skills/nudge_object ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"target\": $T}'}"
-# pick 의 target 은 nudge 결과 target_after 를 그대로 (y 가 약 0.248 로 바뀜)
+# pick 의 target 은 nudge 결과 target_after 를 그대로 (y 가 약 0.248 로 바뀜, 10/06 터치 위치 기준)
 $S /skills/pick_object ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"target\": <target_after>}'}"
 $S /skills/place_object ready2go_interfaces/action/Skill "{params_json: '{\"location\": \"handover_zone\"}'}"
 $S /skills/drawer_control ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"state\": \"close\"}'}"

@@ -151,18 +151,22 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     shift = -sign * (lack_mm + drag["extra_mm"]) / 1000.0     # 벽 반대쪽(가운데)으로
     if not abs(shift) <= drag["max_shift_mm"] / 1000.0:
         return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, sign, gap_m, f"끌 거리 {abs(shift) * 1000:.0f} mm가 최대보다 큼")
-    # 누르는 점: 물체 중심에서 시작, 닫은 손가락(닫힘 축 = 물체 긴 변, 얇은 쪽이 옆벽)이 옆벽과 떨어지도록 가운데 쪽으로 옮김.
-    # 벽 쪽으로 손끝을 기울이면(tilt) 손끝 모서리가 TCP보다 벽 쪽으로 나감: along·cos t + 손끝 깊이·sin t
+    # 누르는 점 (닫은 손가락, 닫힘 축 = 물체 긴 변 → 얇은 쪽이 옆벽). 거리는 모두 '옆벽에서' mm.
+    #   벽 조건: 손가락의 벽 쪽 끝이 벽과 여유를 둠. 손끝을 벽 쪽으로 t 기울이면 그 끝이 TCP보다 along·cos t + 손끝 깊이·sin t 만큼 벽 쪽.
+    #   접촉 조건: 가장 낮은 점(기울이면 벽 반대쪽 모서리, TCP 기준 손끝 깊이·sin t − along·cos t)이 물체 윗면 위(가장자리에서 inset 안쪽).
     t = math.radians(drag.get("tilt_deg", 0.0))
-    along = g["wall_clearance_mm"]["along_mm"]
-    need_mm = max(along, along * math.cos(t) + tip_below_tcp_mm(0.9, g) * math.sin(t)) + margin
+    along, tip = g["wall_clearance_mm"]["along_mm"], tip_below_tcp_mm(0.9, g)
+    need_mm = max(along, along * math.cos(t) + tip * math.sin(t)) + margin
+    low_off = (tip * math.sin(t) - along * math.cos(t)) if t > 0 else 0.0     # + = 벽 쪽
     half_w = size_m[1] * 1000.0 / 2
-    py_mm = cy * 1000.0
-    gap_center = (wd - py_mm) if sign > 0 else py_mm
-    move_mm = max(0.0, need_mm - gap_center)
-    if move_mm > max(0.0, half_w - drag["press_inset_mm"]):
-        return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, sign, gap_m, "누를 점이 물체 밖으로 나감")
-    press = (cx, cy - sign * move_mm / 1000.0)
+    center = (wd - cy * 1000.0) if sign > 0 else cy * 1000.0
+    tcp = max(need_mm, center + low_off)                    # 가능하면 가장 낮은 점이 물체 중심에
+    contact = tcp - low_off
+    if not (center - half_w + drag["press_inset_mm"] <= contact <= center + half_w - drag["press_inset_mm"]):
+        return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, sign, gap_m,
+                        f"누를 점이 물체 밖 (벽에서 TCP {tcp:.1f}, 접촉 {contact:.1f}, 물체 {center - half_w:.1f}~{center + half_w:.1f} mm)"
+                        " — 기울기를 줄이거나 0으로")
+    press = (cx, cy + sign * (center - tcp) / 1000.0)
     return DragPlan(True, None, shift, press, sign, gap_m,
                     f"옆벽 쪽 부족 {lack_mm:.1f} mm → y {shift * 1000:+.1f} mm 끌기")
 
