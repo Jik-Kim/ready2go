@@ -30,11 +30,8 @@ drawer_bottom:                # 서랍장 아래 단 [사용자 확인 10/03: �
   interior_clearance_height_m: null  # 1단은 위가 2단 상자 바닥까지 열려 있어(중간 가로막 없음) 8 cm가 아님. 미측정
   sag_m_at_max_travel: 0.0   # [사용자 확인 A 10/03] 처짐 없음 (위 단과 같은 제품)
 staging_tray:
-  tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}   # 10/06 3점 터치. 위치: 작업대 위, 위 테두리 오른쪽 위 꼭지점이 작업판 오른쪽 끝 22.5 cm·위쪽 끝 11 cm, 긴 변이 작업판 위아래 방향 (#6 PM 확정 10/04, 거리는 놓는 위치 안내용)
+  tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}
   slots: 3
-  size_m: [0.166, 0.1165]       # [실측 A 10/04, #6] 바닥 안쪽 [긴 변, 짧은 변] — 놓기 슬롯·여유 판단
-  rim_size_m: [0.177, 0.130]    # [실측 A 10/04, #6] 위 테두리 — 충돌·접근 판단, 트윈 형상. 아래가 좁고 위가 넓음
-  height_m: 0.045               # [실측 A 10/04, #6] 바닥 → 테두리. 3점 터치 바닥점으로 검산
 handover_zone:
   tf: {parent: base_link, child: handover_zone, translation_m: null, quaternion_xyzw: null}
   slots: 3

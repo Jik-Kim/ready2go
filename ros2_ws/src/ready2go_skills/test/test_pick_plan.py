@@ -60,8 +60,8 @@ def test_wrap_line_deg():
 
 
 def test_tray_slots_split_bottom_evenly():
-    tray = PLACES["staging_tray"]
-    c = pp.slot_centers(tray["size_m"], tray["slots"], inset_m=(0.0055, 0.00675))   # 테두리 투영 원점이면 바닥 모서리까지 (#6 PM)
+    # 실측 트레이 바닥 [A 10/04, #6]. staging_tray 는 #6 확정(서랍 안에서 옆으로 치우기)으로 쓰지 않아 값은 places.yaml 에 두지 않음
+    c = pp.slot_centers([0.166, 0.1165], 3, inset_m=(0.0055, 0.00675))   # 테두리 투영 원점이면 바닥 모서리까지 (#6 PM)
     assert len(c) == 3
     assert [round(p[0], 4) for p in c] == [round(0.0055 + 0.166 * k / 6, 4) for k in (1, 3, 5)]
     assert all(p[1] == pytest.approx(0.00675 + 0.1165 / 2) for p in c)
