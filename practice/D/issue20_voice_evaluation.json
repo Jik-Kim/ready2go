@@ -209,7 +209,7 @@
     {
       "case_id": "TC-015",
       "category": "find_item",
-      "sentence": "서랍에서 지우개 찾아줘.",
+      "sentence": "서랍에서 지우개 찾아서 건네줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
       "answer_key_status": "pending_review"
