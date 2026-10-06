@@ -15,7 +15,7 @@
   - 스킬 재시도는 로봇이 움직이지 않은 실패(`YAW_INVALID`)에만 (PR #65 합의, PM #10 요청). B 에 "백엔드 구현 약속"(취소 시 멈춤·`ESTOP`) 전달 (#10 코멘트·Slack 10/04).
   - CI: `contracts-and-core` 에 MongoDB 7.0 서비스·pymongo, `REQUIRE_MONGO=1` 이면 DB 없을 때 실패.
 
-- **#17 진행** (브랜치 `feat/c-p1-task`): `tasks/find_item.json`(정식, speak·미발견 안내 포함, 음성 연결 후 시연용)·`tasks/p1_check_eraser.json`(#22 점검용, speak 없음 — 실물에 음성 서버 없음, E 요청 순서). mock 정상·파지 실패·미발견·안전 코드 5종 확인. 남은 것: `/voice/intent` → 태스크 실행 연결 (Day 6), 밀기 분기(#37).
+- **#17 진행** (브랜치 `feat/c-p1-task`): `tasks/find_item.json`(정식, speak·미발견 안내 포함, 음성 연결 후 시연용)·`tasks/p1_demo_eraser.json`(#22 점검용, speak 없음 — 실물에 음성 서버 없음, E 요청 순서). mock 정상·파지 실패·미발견·안전 코드 5종 확인. 남은 것: `/voice/intent` → 태스크 실행 연결 (Day 6), 밀기 분기(#37).
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -48,7 +48,7 @@
 
 ## 다음 할 일
 - [ ] #10 PC2 real 연결 확인(`home` → `drawer_approach` → `home`, B) → `Closes #10`
-- [ ] #22 1차 점검 (10/06 16:00 KST, B 실행·D 비상정지): `tasks/p1_check_eraser.json`, MongoDB 스텝 기록 누락 0 확인 (AC-LOG-01)
+- [ ] #22 1차 점검 (10/06 16:00 KST, B 실행·D 비상정지): `tasks/p1_demo_eraser.json`, MongoDB 스텝 기록 누락 0 확인 (AC-LOG-01)
 - [ ] 점검 뒤: 스킬 서버 bringup 자동 실행(NFR-ENV-01, B·C), B 잠금 코드 runner.md 확정, 놓기 실패로 쥔 경우 안전 종료·홈 이동 조건(B·C·E)
 - [ ] #10 후속: 재개(`resume`) 서비스 ICD 협의(E), Docker 가 만든 root 소유 `logs/` 정리
 - [ ] #17: PR (태스크 2종) → E 확인 → 머지, `/voice/intent` → 태스크 실행 연결 (Day 6) → `Closes #17`

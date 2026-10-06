@@ -89,11 +89,11 @@ def test_p1_task_not_visible_on_mock():
     assert runner.state["located_in"]["eraser"] == "drawer_top"
 
 
-# ---- #22 1차 점검용 tasks/p1_check_eraser.json (speak 없음, E 시연 pick_demo: nudge → target_after 로 pick) ----
+# ---- #22 1차 점검용 tasks/p1_demo_eraser.json (speak 없음, E 시연 pick_demo: nudge → target_after 로 pick) ----
 
 from test_tasks import demo_ontology  # noqa: E402
 
-CHECK_TASK = json.loads((ROOT / "tasks/p1_check_eraser.json").read_text(encoding="utf-8"))
+CHECK_TASK = json.loads((ROOT / "tasks/p1_demo_eraser.json").read_text(encoding="utf-8"))
 DEMO = demo_ontology()
 
 

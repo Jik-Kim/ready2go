@@ -1,6 +1,6 @@
 {
-  "task_id": "p1_check_eraser",
-  "description": "#22 1차 점검용 지우개 P1 태스크 (#17·#22 10/06 합의): 지우개를 위 서랍 오른쪽 아래 두 벽에 붙여 둠 → 위치 조회 → 스킬 open_drawer → inspect_region 1회 → (찾음) 시연 스킬 pick_demo(nudge_object 로 옆(y)으로 끈 뒤 nudge 의 target_after 로 pick_object, 재조회 없음) → 스킬 place(handover_zone) → finally 그리퍼 상태 조회·close_drawer(skip)·그리퍼가 비어 있을 때만 홈. speak 없음(실물에 음성 서버 없음). pick_demo 는 E 시연 온톨로지(knowledge/robot_ontology_demo.jsonld, 승인 대기)에 있으므로 Runner 를 ontology_file 을 그 파일로 띄워 실행. nudge 이후는 스킬 재시도 없음. target_after 는 예상 위치이며 FR-ACT-05 재인식 완료가 아님. #37 lift 안전 오류·target_after·approach_offset 계약 승인과 실제 전달 파라미터 확인 전에는 실물 점검 보류 (PR #82 리뷰)",
+  "task_id": "p1_demo_eraser",
+  "description": "#22 1차 점검용 지우개 P1 태스크 (#17·#22 10/06 합의): 지우개를 위 서랍 오른쪽 아래 두 벽에 붙여 둠 → 위치 조회 → 스킬 open_drawer → inspect_region 1회 → (찾음) 시연 스킬 pick_demo(nudge_object 로 옆(y)으로 끈 뒤 nudge 의 target_after 로 pick_object, 재조회 없음) → 스킬 place(handover_zone) → finally 그리퍼 상태 조회·close_drawer(skip)·그리퍼가 비어 있을 때만 홈. speak 없음(실물에 음성 서버 없음). pick_demo 는 E 시연 온톨로지(knowledge/robot_ontology_demo.jsonld, PR #85)에 있으므로 Runner 를 ontology_file 을 그 파일로 띄워 실행. nudge 이후는 스킬 재시도 없음. target_after 는 예상 위치이며 FR-ACT-05 재인식 완료가 아님. #37 lift 안전 오류·target_after·approach_offset 계약 승인과 실제 전달 파라미터 확인 전에는 실물 점검 보류 (PR #82 리뷰)",
   "inputs": {
     "target": "eraser"
   },

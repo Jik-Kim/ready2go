@@ -1,4 +1,4 @@
-"""#17 P1 태스크(tasks/find_item.json, tasks/p1_check_eraser.json)를 실제 경로(연결표·query_ontology·E 온톨로지)로 mock 실행.
+"""#17 P1 태스크(tasks/find_item.json, tasks/p1_demo_eraser.json)를 실제 경로(연결표·query_ontology·E 온톨로지)로 mock 실행.
 완료 기준: mock 에서 성공·실패(파지 실패) 양쪽 모두 finally 까지 실행.
 PR #82 리뷰: 놓기 실패로 물품을 쥔 채면 finally 에서 로봇 동작(닫기·홈)을 보내지 않음."""
 import copy
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[4]
 ONTOLOGY = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")
 SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
 TASK = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))
-CHECK = json.loads((ROOT / "tasks/p1_check_eraser.json").read_text(encoding="utf-8"))
+CHECK = json.loads((ROOT / "tasks/p1_demo_eraser.json").read_text(encoding="utf-8"))
 NUDGE_DY = -0.0417                       # mock 끌기: y 로 옮기는 거리 (B 계산 예: 0.2895 → 약 0.2478)
 
 
@@ -176,7 +176,7 @@ def test_other_items_by_input(item, name):
     assert runner.state["located_in"][item] == "handover_zone"
 
 
-# ---- #22 1차 점검용 p1_check_eraser.json: 벽 배치 → nudge → target_after 로 pick (E 시연 pick_demo) ----
+# ---- #22 1차 점검용 p1_demo_eraser.json: 벽 배치 → nudge → target_after 로 pick (E 시연 pick_demo) ----
 
 def run_check(robot):
     return run(robot, task=CHECK, onto=DEMO)
