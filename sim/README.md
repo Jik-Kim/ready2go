@@ -62,10 +62,11 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 ## 비전 사전 검증 (트윈 렌더 → 정답 대조) [실측 10/06]
 로봇 없이 `inspect_region` 계산(좌표 변환·뎁스 덩어리·yaw·`top_z`)을 검증한다. 손목 카메라를 `drawer_top_view` 자세에 두고 서랍을 최대 인출(`max_travel_m`)로 연 뒤, 서랍 안에 지우개 크기 직육면체(`world.jsonld` 치수)를 임의 위치·방향으로 놓아 컬러·뎁스를 저장한다(씬 파일은 바꾸지 않음).
 ```bash
-ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/render_eraser_test.py --n 30 --seed 1 --out <폴더> [--margin 0.03]
+ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/render_eraser_test.py --n 30 --seed 1 --out <폴더> [--margin 0.03 | --touch]
 python3 tools/dev/eval_inspect_sim.py <폴더> [--yolo models/yolo11n_ready2go_v1.pt]
 ```
 - 결과(정답 직육면체를 투영한 박스 사용, 이상적 뎁스): 벽에서 4 cm 이상 30장 위치 오차 최대 0.6 mm·yaw 0.2°·`top_z` +0.6 mm, 벽에서 3 cm까지 가까운 30장도 같은 수준. 계산 실패 0장
+- 벽에 붙인 배치(`--touch`, 벽 하나 또는 모서리, 간격 0~2 mm, 32장 seed 3) [실측 10/06]: 위치 오차 최대 0.5 mm, yaw 최대 2.3°, `top_z` 최대 +3.7 mm(벽면 뎁스가 덩어리에 조금 섞임), 계산 실패 0장
 - 이것은 **센서 노이즈·결손·반사와 YOLO 검출 오차가 없는 하한**이다. 실물 오차(AC-VIS-01 1.5 cm)는 별도로 재야 한다
 - 학습한 YOLO가 시뮬 컬러에서 흰 직육면체를 찾은 것은 12/30장뿐이다(실물 사진으로 학습해서 합성 이미지는 잘 못 찾음). 시뮬은 검출이 아니라 **기하(좌표·높이·yaw) 검증용**이다
 - 시뮬 카메라의 서랍 좌표 위치(0.1135, 0.1661, 0.3628)와 실제 이미지 FK 계산(0.1106, 0.1626, 0.3676)이 5 mm 안팎으로 같다. 로봇이 목표 자세에서 최대 0.6° 처진다(물리 시뮬레이션)

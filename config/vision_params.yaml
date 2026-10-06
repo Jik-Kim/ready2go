@@ -14,7 +14,9 @@ depth_blob:
   min_short_side_m: 0.008      # 덩어리 짧은 변이 이보다 얇으면 yaw_valid=false
   size_tolerance: 0.5          # 덩어리 긴 변이 명목 긴 변의 ±50% 를 벗어나면 yaw_valid=false (겹침·병합 의심)
 region:
-  edge_tolerance_m: 0.01       # 물체 footprint 가 서랍 내부 경계 밖으로 이만큼까지는 측정 오차로 보고 허용 [추정, AC-VIS-01 1.5 cm 안에서]. 넘으면 결과에서 제외
+  edge_tolerance_m: 0.015      # 물체 footprint 가 서랍 내부 경계 밖으로 이만큼까지는 측정 오차로 보고 허용 [추정]. 넘으면 결과에서 제외
+                               # 0.01 → 0.015 (10/06, AC-VIS-01 1.5 cm와 같게): 벽면 배치(P1 사용자 결정) 실측 지우개 [0.1769, 0.2895] yaw 0 은
+                               # footprint 가 interior_m 보다 x 3.4 mm·y 6.8 mm 밖으로 계산돼(#22 E 값), 0.01 이면 비전 오차 3 mm 로 제외될 수 있음
 detector:
   conf_min: 0.25               # 이보다 낮은 검출은 버린다
 policy:

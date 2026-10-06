@@ -22,6 +22,7 @@ ap.add_argument("--n", type=int, default=20)
 ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--out", default="sim_render_out")
 ap.add_argument("--margin", type=float, default=0.04, help="물체 중심이 서랍 벽에서 최소 이만큼(m) 떨어지게. 벽 가까이 시험은 0.03")
+ap.add_argument("--touch", action="store_true", help="벽에 붙인 배치(벽 하나 또는 모서리 두 벽, 간격 0~2 mm, 긴 변이 축과 거의 나란히). 1차 점검·P1 벽면 배치 재현")
 args, _ = ap.parse_known_args()
 app = SimulationApp({"headless": True})
 
@@ -105,6 +106,17 @@ truth = {"K": K, "T_base_cam": T_base_cam.tolist(), "T_base_drawer": T_base_draw
 for i in range(args.n):
     cx, cy = rng.uniform(margin, interior[0] - margin), rng.uniform(margin, interior[1] - margin)
     yaw = float(rng.uniform(-math.pi, math.pi))
+    if args.touch:                                                        # 붙일 벽: x0·x1·y0·y1 중 하나 또는 모서리(두 벽)
+        yaw = float(rng.choice([0.0, math.pi / 2]) + rng.uniform(-0.05, 0.05))
+        c, sn = abs(math.cos(yaw)), abs(math.sin(yaw))
+        hx, hy = (size[0] * c + size[1] * sn) / 2, (size[0] * sn + size[1] * c) / 2
+        walls = [["x0"], ["x1"], ["y0"], ["y1"], ["x0", "y0"], ["x0", "y1"], ["x1", "y0"], ["x1", "y1"]][i % 8]
+        cx, cy = rng.uniform(hx + 0.01, interior[0] - hx - 0.01), rng.uniform(hy + 0.01, interior[1] - hy - 0.01)
+        gap = lambda: float(rng.uniform(0.0, 0.002))
+        if "x0" in walls: cx = hx + gap()
+        if "x1" in walls: cx = interior[0] - hx - gap()
+        if "y0" in walls: cy = hy + gap()
+        if "y1" in walls: cy = interior[1] - hy - gap()
     p = (T_base_drawer @ np.array([cx, cy, size[2] / 2, 1.0]))[:3]       # 서랍 좌표 → 월드(base_link)
     drawer_yaw = math.atan2(T_base_drawer[1, 0], T_base_drawer[0, 0])
     op_t.Set(Gf.Vec3d(*[float(v) for v in p]))
