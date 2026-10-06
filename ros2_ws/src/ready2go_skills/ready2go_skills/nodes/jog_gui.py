@@ -9,10 +9,10 @@
 - 움직이는 중 누른 버튼은 무시, 움직이기 전에 자동 모드로 바꾸고 바뀔 때까지 기다린다. 거부되면 상태·모드를 표시.
 - 시작·'툴 확인' 때 펜던트 툴 설정(TCP, 툴 무게)이 config와 같은지 확인하고, 다르면 이동 버튼을 막는다
   (10/04 툴 설정이 풀려 좌표가 플랜지 기준으로 읽힌 사고, #6).
-- 축 정렬 x / y / z / r (core/pose_math.py): TCP 위치 고정, 20° 이하 조각, 돌기 전 확인창, 정렬 후 직접교시(선택).
+- 축 정렬 x / y / z / r (core/pose_math.py): TCP 위치 고정, 한 번에 돌기(170° 넘으면 2번), 돌기 전 확인창, 정렬 후 직접교시(선택).
 - 그리퍼 회전 +/− (r 정렬 옆, 기본 90°): 툴 z 둘레, TCP 위치 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향.
 - 기울이기 왼(−x)·오른(+x)·앞(+y)·뒤(−y)·수직: TCP 위치 고정, 수직 아래에서 각도 칸(기본 30°)만큼 손끝을 그쪽으로
-  (nudge_object 끌기 자세 시험용, 트러블슈팅 2). 축 정렬과 같은 조각·확인창, 끝나도 직접교시로 바꾸지 않음.
+  (nudge_object 끌기 자세 시험용, 트러블슈팅 2). 축 정렬과 같은 확인창, 끝나도 직접교시로 바꾸지 않음.
 - grip(힘 칸) / release(최대) / 폭만큼 열기(폭 칸), 직접교시 ON/OFF, gohome(확인창).
 - 창 닫기(X)·Ctrl+C: 움직이는 중이면 정지 명령을 보내고 깔끔하게 종료.
 
@@ -48,8 +48,9 @@ REFRESH_TIMEOUT_S = 0.5      # 화면 갱신용 조회 타임아웃 (드라이�
 STEP_CONFIRM_DEG = 10.0      # 한 칸 이동이 이보다 크면 확인창 (관절·회전)
 STEP_CONFIRM_MM = 20.0       # 한 칸 이동이 이보다 크면 확인창 (직선)
 HOME_VEL = 40.0              # gohome 관절 속도 deg/s
-ALIGN_VEL, ALIGN_STEP_DEG = 20.0, 20.0
-PIECE_TIMEOUT_S = 10.0       # 회전 조각 하나(20° 이하, 20°/s)가 이 안에 도착하지 않으면 정지
+ALIGN_VEL, ALIGN_ACC = 30.0, 60.0   # 회전(축 정렬·기울이기·그리퍼 회전) 속도 deg/s·가속 (10/06 사용자 요청으로 실제 10 → 30°/s)
+ALIGN_STEP_DEG = 170.0       # 이보다 큰 회전만 나눔 — 180° 근처는 도는 방향이 정해지지 않아서 (사용자 요청 10/06: 중간 멈춤 없앰)
+PIECE_TIMEOUT_EXTRA_S = 5.0  # 회전 시간(각도 / ALIGN_VEL) + 이 안에 도착하지 않으면 정지
 JOINT_VEL, JOINT_ACC, LINE_VEL, LINE_ACC = 20, 20, 30, 60    # 슬라이더 기본값 (강의 jog 60은 빠름)
 STATE = {0: "초기화", 1: "대기", 2: "이동 중", 3: "서보 꺼짐", 4: "직접교시", 5: "안전 정지",
          6: "비상정지", 7: "홈", 8: "복구 모드", 9: "안전 정지2", 10: "서보 꺼짐2", 15: "준비 안 됨"}
@@ -151,9 +152,12 @@ class Robot:
         time.sleep(0.5)
         self.call("setmode", robot_mode=0)
 
-    def movel(self, pose, vel, acc):
-        r = self.call("movel", pos=[float(v) for v in pose], vel=[float(vel), float(vel) / 2],
-                      acc=[float(acc), float(acc) / 2], ref=0, mode=0, sync_type=1)
+    def movel(self, pose, vel, acc, rot_vel=None, rot_acc=None):
+        """vel·acc = 직선(mm/s), 회전은 rot_vel·rot_acc(deg/s), 없으면 직선의 절반 (강의 jog 그대로)."""
+        rv = float(vel) / 2 if rot_vel is None else float(rot_vel)
+        ra = float(acc) / 2 if rot_acc is None else float(rot_acc)
+        r = self.call("movel", pos=[float(v) for v in pose], vel=[float(vel), rv],
+                      acc=[float(acc), ra], ref=0, mode=0, sync_type=1)
         return bool(r and r.success)
 
     def movej(self, joints, vel, acc):
@@ -524,7 +528,7 @@ class App:
                        "\n\n서랍·물체 안이면 손가락이 벽에 닿을 수 있으니 먼저 올리세요.")
 
     def rotate_to(self, p, target, title, what, warn=""):
-        """TCP 고정 회전: 조각으로 나누고 확인창 → 하나씩 보냄 (축 정렬·기울이기 공통)."""
+        """TCP 고정 회전: 확인창 → 한 번에 (170° 넘으면 2번) (축 정렬·기울이기·그리퍼 회전 공통)."""
         self.seq = waypoints(p, target, ALIGN_STEP_DEG)
         if not self.seq:
             self.status.config(text="이미 그 자세임")
@@ -534,7 +538,7 @@ class App:
         dmax = max(abs(wrap(target[i] - p[i])) for i in range(3, 6))
         msg = (f"{title}\n\n"
                f"현재  {[round(v, 2) for v in p[3:]]}\n목표  {[round(v, 2) for v in target[3:]]}\n\n"
-               f"회전 {turn:.1f}° → {len(self.seq)}조각(조각당 {ALIGN_STEP_DEG:g}° 이하), {ALIGN_VEL:g}°/s\n"
+               f"회전 {turn:.1f}°{f' ({len(self.seq)}번에 나눠)' if len(self.seq) > 1 else ''}, {ALIGN_VEL:g}°/s\n"
                f"Rx·Ry·Rz 최대 변화 {dmax:.1f}°\n위치는 그대로, 방향만 돌립니다.")
         if dmax > 90.0:
             msg += "\n\n주의: 각도 값이 90° 넘게 바뀝니다. 그리퍼가 크게 돌 수 있으니 주변을 확인하세요."
@@ -552,15 +556,17 @@ class App:
             return
         piece = self.seq.pop(0)
         self.rotating = True
-        if not self.r.movel(piece, ALIGN_VEL, ALIGN_VEL * 2):
+        if not self.r.movel(piece, 30.0, 60.0, ALIGN_VEL, ALIGN_ACC):   # TCP 고정이라 직선 속도는 거의 안 씀
             self.seq, self.rotating = [], False
             self.report(False, "정렬")
             return
-        self.wait_piece(time.monotonic(), piece)
+        cur = self.r.posx()
+        turn = rotation_angle(rot(*cur[3:]), rot(*piece[3:])) if cur else 180.0
+        self.wait_piece(time.monotonic(), piece, turn / ALIGN_VEL + PIECE_TIMEOUT_EXTRA_S)
 
-    def wait_piece(self, t0, piece):
+    def wait_piece(self, t0, piece, limit_s):
         """조각 목표에 도착하고(1 mm·0.5°) 멈춘 뒤 다음 조각. 실물 드라이버는 이동 중에도 '이동 중' 상태가 늦거나
-        안 뜰 때가 있어(10/06 스킬 서버) 상태값만 보지 않는다. PIECE_TIMEOUT_S 안에 못 오면 정지하고 남은 조각 취소."""
+        안 뜰 때가 있어(10/06 스킬 서버) 상태값만 보지 않는다. limit_s 안에 못 오면 정지하고 남은 조각 취소."""
         if not self.rotating:                # 정지 버튼으로 취소됨
             return
         st, p = self.r.state(), self.r.posx()
@@ -573,11 +579,11 @@ class App:
                 self.rotating = False
                 self.after_align()
             return
-        if time.monotonic() - t0 > PIECE_TIMEOUT_S:
+        if time.monotonic() - t0 > limit_s:
             self.stop_all()
-            self.status.config(text=f"회전 조각이 {PIECE_TIMEOUT_S:g}초 안에 도착하지 않아 정지 — 남은 조각 취소")
+            self.status.config(text=f"회전이 {limit_s:.0f}초 안에 도착하지 않아 정지")
             return
-        self.root.after(80, lambda: self.wait_piece(t0, piece))
+        self.root.after(80, lambda: self.wait_piece(t0, piece, limit_s))
 
     def after_align(self):
         self.clear_marks()
