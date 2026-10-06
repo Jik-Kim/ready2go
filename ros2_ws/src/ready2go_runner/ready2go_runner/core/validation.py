@@ -3,7 +3,8 @@
 ① contracts/task.schema.json 스키마 검증
 ② Phase 1 범위 밖 블록·필드 거절 (while, for_each, push/pop, fallback, recovery, on_halt → P2)
 ③ 스키마가 잡지 못하는 실행 조건 (set_var 의 name, if 의 cond, 스텝 ID 중복, retry 횟수)
-④ skill 스텝 (#12): 온톨로지에 있는 primitive 스킬인지, params 이름이 스킬 정의와 맞는지, retry 금지(P1)
+④ skill 스텝 (#12): 온톨로지에 있는 primitive 스킬인지, params 이름이 스킬 정의와 맞는지
+   (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_CODES)
 문제가 하나라도 있으면 로봇을 움직이기 전에 실행하지 않는다.
 """
 from __future__ import annotations
@@ -65,8 +66,6 @@ def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> l
             if sid in seen:
                 errors.append(f"스텝 ID 중복: '{sid}' ({seen[sid]}, {where})")
             seen.setdefault(sid, where)
-            if "skill" in step and step.get("on_failure") == "retry":
-                errors.append(f"P1 미지원: {label} skill 스텝의 retry (물리 결과 확인(verify, P2) 전 스킬 재실행은 위험)")
             if "skill" in step and skills is not None:
                 errors += _check_skill(step, label, skills)
                 skill = skills.get(step["skill"])

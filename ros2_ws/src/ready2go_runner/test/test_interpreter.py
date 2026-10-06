@@ -1,3 +1,5 @@
+import pytest
+
 from ready2go_runner.core.interpreter import ActionResult, Runner
 
 
@@ -417,6 +419,15 @@ def test_late_success_is_not_retried():
     assert result.steps[0]["retry_stopped"] == "LATE_RESULT"
 
 
+def test_backend_timeout_is_not_retried():
+    # #10: Skill goal 에 제한 시간 칸이 없어 클라이언트가 시간 초과 시 취소 요청 후 TIMEOUT → 결과 불확실
+    fake = FakeBackend({"drawer_control": [ActionResult(False, error_code="TIMEOUT"), ActionResult(True)]})
+    result = Runner(fake).run(timed_task(timeout_sec=30, on_failure="retry", retry=1))
+    assert (result.overall_status, result.error_code) == ("FAILED", "TIMEOUT")
+    assert [a for a, _ in fake.calls].count("drawer_control") == 1
+    assert result.steps[0]["retry_stopped"] == "TIMEOUT"
+
+
 def test_backend_failure_is_still_retried_with_timeout():
     # 백엔드가 실패를 돌려준 경우(동작이 끝나지 않음)는 기존대로 재시도
     clock = FakeClock()
@@ -648,3 +659,68 @@ def test_halt_during_last_action_ends_aborted():
     assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
     assert result.steps[0]["status"] == "SUCCESS"
     assert runner.halted
+
+
+# ---- PR #74 리뷰: 중단 요청이 진행 중 동작 취소로 이어지고, 정지 확인 전에는 다음 동작을 보내지 않음 ----
+
+STOP_TASK = {"task_id": "t", "sequence": [
+    {"id": "s1", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}}],
+    "finally": [{"id": "f1", "action": "speak", "params": {"text": "멈췄습니다"}},
+                {"id": "f2", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]}
+
+
+def test_halt_calls_on_halt_once_and_canceled_action_aborts_there():
+    canceled = []
+
+    def backend(action, params, timeout_sec):
+        if action == "drawer_control":
+            runner.halt()                                       # /runner/estop (다른 스레드라고 가정)
+            return ActionResult(False, error_code="CANCELED")   # on_halt 로 취소된 동작의 최종 결과
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    runner.on_halt = lambda: canceled.append("cancel_all")
+    result = runner.run(STOP_TASK)
+    runner.halt()                                               # 두 번째 halt 는 다시 취소하지 않음
+    assert canceled == ["cancel_all"]
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "HALTED", "s1")
+    assert (result.steps[0]["status"], result.steps[0]["error_code"]) == ("FAILURE", "CANCELED")
+    assert [(s["id"], s["status"]) for s in result.steps[1:]] == [("f1", "SUCCESS"), ("f2", "SKIPPED")]
+
+
+def test_stop_unconfirmed_locks_runner_and_sends_no_motion():
+    fake = FakeBackend({"drawer_control": ActionResult(False, error_code="STOP_UNCONFIRMED")})
+    runner = Runner(fake)
+    result = runner.run(STOP_TASK)
+    assert (result.overall_status, result.error_code) == ("ABORTED", "STOP_UNCONFIRMED")
+    assert runner.halted and runner.halt_code == "STOP_UNCONFIRMED"
+    assert [a for a, _ in fake.calls] == ["drawer_control", "speak"]     # 홈 이동 안 보냄
+    assert runner.run(STOP_TASK).overall_status == "ABORTED"             # 사람 확인(resume) 전 새 태스크 거절
+
+
+@pytest.mark.parametrize("code", ["STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"])
+def test_skill_server_lock_codes_abort_and_lock(code):
+    # B 스킬 서버(PR #73)의 잠금 코드도 Runner 를 잠금 — 10/06 실물 확인 후 runner.md 표로 확정
+    fake = FakeBackend({"drawer_control": ActionResult(False, error_code=code)})
+    runner = Runner(fake)
+    result = runner.run(STOP_TASK)
+    assert (result.overall_status, result.error_code) == ("ABORTED", code)
+    assert runner.halted and "move_to_named_pose" not in [a for a, _ in fake.calls]
+
+
+def test_stop_requested_only_until_abort_is_handled():
+    # 중단 요청 직후에는 새 동작을 막고(stop_requested), 중단 처리 뒤 finally 의 speak 는 보낼 수 있어야 함
+    seen = []
+
+    def backend(action, params, timeout_sec):
+        if action == "drawer_control":
+            runner.halt()
+            seen.append(("after halt", runner.stop_requested))
+            return ActionResult(False, error_code="CANCELED")
+        seen.append((action, runner.stop_requested))
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    result = runner.run(STOP_TASK)
+    assert result.overall_status == "ABORTED"
+    assert seen == [("after halt", True), ("speak", False)]
