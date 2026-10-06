@@ -57,6 +57,8 @@ HANDLE_CONTACT_N = 12.0     # 손잡이로 다가가다 이 힘이면 멈춤
 PULL_STUCK_N = 30.0         # 서랍 당기다 걸림
 PRESS_N = 2.0               # 지우개 누르기: 이 힘이 되면 멈추고 끌기 시작
 PRESS_SPEED = 5.0           # mm/s
+PRESS_CONFIRM = 3           # 누르기 접촉은 연속 이 횟수(20 ms 간격) 넘을 때만 인정
+CONTACT_Z_TOL = 3.0         # 접촉 TCP z 가 예상(지우개 위 출발 z − 5) ± 이 값 밖이면 끌지 않고 멈춤
 DRAG_SPEED = 10.0           # mm/s
 DRAG_LIMIT_N = 15.0         # 끄는 중 이 힘을 넘으면 걸림
 PUSH_LIMIT_N = 25.0         # 서랍 밀어 닫다 걸림
@@ -131,9 +133,17 @@ class Robot:
         if not (r and r.success):
             raise Stop("movel 실패")
 
-    def movel_watch(self, x, vel, watch, timeout_s):
-        """비동기 직선 이동 + 주기 감시. watch(posx, dforce) 가 문자열을 돌려주면 정지하고 그 문자열 반환, 도착이면 None."""
-        f0 = self.fz()
+    def tare(self, settle_s=0.7, n=10):
+        """멈춘 뒤 settle_s 기다렸다가 n 번 읽은 평균 = 힘 기준값. 두산 툴 힘은 관절 토크 추정이라 멈춘 직후 흔들림 (10/06 팀 분석)."""
+        time.sleep(settle_s)
+        fs = [self.fz() for _ in range(n)]
+        return [sum(f[i] for f in fs) / n for i in range(6)]
+
+    def movel_watch(self, x, vel, watch, timeout_s, confirm=1):
+        """비동기 직선 이동 + 주기 감시. watch(posx, dforce) 가 confirm 번 연속 문자열을 돌려주면 정지하고 그 문자열 반환,
+        도착이면 None. 힘 기준값은 tare() (멈춘 뒤 평균)."""
+        f0 = self.tare()
+        streak = 0
         self.call(MoveLine, "motion/move_line", pos=[float(v) for v in x], vel=[vel, 10.0], acc=[vel, 10.0],   # 가속 = 속도 (스킬 서버와 같게, 가속이 크면 힘 값이 튐)
                   time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=1)
         t0 = time.monotonic()
@@ -141,7 +151,8 @@ class Robot:
             while time.monotonic() - t0 < timeout_s:
                 p, f = self.posx(), self.fz()
                 hit = watch(p, [f[i] - f0[i] for i in range(3)])
-                if hit:
+                streak = streak + 1 if hit else 0
+                if hit and streak >= confirm:
                     self.stop()
                     time.sleep(0.4)
                     return hit
@@ -228,11 +239,14 @@ def run(r):
 
     def press_and_drag():
         hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, PRESS_SPEED,
-                            lambda p, d: f"{d[2]:+.1f} N" if abs(d[2]) >= PRESS_N else None, 10)
+                            lambda p, d: f"{d[2]:+.1f} N" if abs(d[2]) >= PRESS_N else None, 10, confirm=PRESS_CONFIRM)
         if not hit:
             raise Stop("9 mm 내려가도 접촉 없음")
         p = r.posx()
         print(f"   접촉 {hit} @ z {p[2]:.2f}")
+        expect = PRESS_START[2] - 5.0                                   # 지우개 윗면에 손끝이 닿는 TCP z (손 시험 221.0)
+        if abs(p[2] - expect) > CONTACT_Z_TOL:                          # 허공·다른 곳 접촉이면 끌지 않음 (팀 분석 10/06)
+            raise Stop(f"접촉 높이 z {p[2]:.2f} 가 예상 {expect:.1f} ± {CONTACT_Z_TOL:g} 밖 — 오검출로 보고 끌지 않음")
         hit = r.movel_watch([p[0] - DRAG_MM] + p[1:], DRAG_SPEED,
                             lambda q, d: f"끄는 중 {sum(v * v for v in d) ** 0.5:.0f} N" if sum(v * v for v in d) > DRAG_LIMIT_N ** 2 else None,
                             DRAG_MM / DRAG_SPEED + 10)
