@@ -111,7 +111,7 @@
           "id": "s6.3",
           "action": "pick_object",
           "params": {
-            "object_id": "$scan.target.id",
+            "target": "$scan.target",
             "approach_offset": [
               0,
               0,
