@@ -100,12 +100,19 @@ def main():
     slot1 = to_base(tray["tf"], (lx / (2 * tray["slots"]), ly / 2, 0.0))      # 첫 칸 가운데 (y = 트레이 가운데)
     r = Robot()
     r.check_tool()
+    if cmd == "mvl":                                         # mvl X Y Z A B C — 툴 확인 후 직선 이동 (호스트 mvl 대신)
+        if len(sys.argv) != 8:
+            sys.exit("사용: mvl X Y Z A B C")
+        target = [float(v) for v in sys.argv[2:8]]
+        print(f"직선 이동 → {target}")
+        print("성공" if r.movel(target) else "실패")
+        return
     if cmd == "route1":
         print("경유점 1(서랍 안)으로 관절 이동")
         print("성공" if r.movej(pts[0]) else "실패")
         return
     if cmd != "route":
-        sys.exit("사용: route1 | route")
+        sys.exit("사용: route1 | route | mvl X Y Z A B C")
     cur = r.posj()
     if cur is None or max(abs(a - b) for a, b in zip(cur, pts[0])) > 2.0:
         sys.exit(f"지금 관절 {cur} 이 경유점 1과 2° 넘게 다름 — 먼저 route1")
