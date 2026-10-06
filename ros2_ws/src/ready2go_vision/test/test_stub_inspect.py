@@ -199,3 +199,15 @@ def test_log_failure_codes(cfg, region, interiors, code):
     line, (ok, c, js) = log_for(cfg, region, "wallet", interiors)
     assert not ok and c == code and js == ""
     assert line == f"[stub] 응답 실패 error={code} region={region}"
+
+
+@pytest.mark.parametrize("region,target", [
+    ("drawer_top\n[WARN] forged", "wallet"),        # 실패 경로(UNKNOWN_REGION)에 region 이 들어감
+    ("drawer_top", "eraser\r\n[INFO] forged"),      # 미발견 경로에 target 이 들어감
+    ("drawer_top", "x\x1b[31m\t"),                  # 터미널 제어문자
+])
+def test_log_lines_stay_single_line(region, target):
+    """#100 D P2: 요청 문자열의 줄바꿈·제어문자로 로그가 여러 줄로 갈라지지 않는다."""
+    for line in (format_request(region, target), log_for(CFG, region, target)[0]):
+        assert "\n" not in line and "\r" not in line and line.isprintable()
+    assert "drawer_top\\n[WARN] forged" in log_for(CFG, "drawer_top\n[WARN] forged", "wallet")[0]
