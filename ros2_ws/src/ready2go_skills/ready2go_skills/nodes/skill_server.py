@@ -316,9 +316,25 @@ class SkillServer(Node):
         if not reached.success:
             return reached, None
         handle = mp.handle_posx(closed, pull, disp)
-        bad = self._line(goal, handle, speed["approach_mm_s"], "reach_handle")
+        reach_f = self.robot.tool_force()
+
+        def touched():                                       # 손잡이 앞에서 무언가에 닿음 = 서랍이 덜 닫혔거나 위치가 다름 (10/06 실물)
+            f = self.robot.tool_force()
+            if f is None or reach_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            push = abs(sum((f[i] - reach_f[i]) * pull[i] for i in range(3)))
+            if push >= oc["handle_contact_n"]:
+                return sf.Outcome(False, GRASP_FAILED, reason=f"손잡이 접근 중 {push:.1f} N 접촉 — 서랍이 끝까지 닫혔는지 확인")
+            return None
+
+        bad = self._line(goal, handle, speed["approach_mm_s"], "reach_handle", watch=touched)
         if bad:
-            return bad, None
+            if sf.is_safety(bad):
+                return bad, None
+            now = self.robot.posx()                          # 접촉으로 멈춤 → 그대로 뒤로 빼고 실패
+            back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat") \
+                if now else sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
+            return sf.worse(bad, back), None
         st = self._grip(0, oc["handle_grip_force_n"])
         if st.width_mm / 1000.0 <= oc["handle_min_width_m"]:
             self._grip(oc["handle_open_width_mm"], 20)
