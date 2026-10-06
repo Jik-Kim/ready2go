@@ -706,9 +706,11 @@ class SkillServer(Node):
             state.setdefault("fz", f[2])
             dz = f[2] - state["fz"]
             state["streak"] = state["streak"] + 1 if abs(dz) >= d["press_force_n"] else 0
+            if state["streak"] == 1:
+                state["z1"] = p[2]                          # 처음 2 N 넘은 높이 — 연속 확인·정지하는 동안 더 내려감
             if state["streak"] >= d["press_confirm"]:
-                state["z"] = p[2]
-                return sf.Outcome(True, reason=f"접촉 {dz:+.1f} N @ z {p[2]:.2f}")
+                state["z"] = state["z1"]
+                return sf.Outcome(True, reason=f"접촉 {dz:+.1f} N @ z {state['z1']:.2f} (확인 z {p[2]:.2f})")
             return None
 
         bad = self._line(goal, end_mm + above[3:], d["press_speed_mm_s"], "press", watch=contact)
@@ -720,6 +722,15 @@ class SkillServer(Node):
                    if "z" in state else "예상 높이보다 내려가도 접촉 없음 — 물체 위치·높이 확인")
             return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason=why), back), out
         pressed = self.robot.posx()
+        if pressed is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
+        if pressed[2] < state["z"]:
+            # 감시 한 바퀴가 0.1 s 넘게 걸려 확인·정지하는 동안 1.5 mm 넘게 더 눌림(1 mm 에 2 → 10 N, 실측 10/06) → 너무 세게 눌러
+            # 끌다 걸림 (10/06 저녁 통합). 처음 2 N 넘은 높이로 천천히 올라온 뒤 끈다 = 2 N 으로 누른 깊이
+            pressed = mp.with_z(pressed, state["z"])
+            bad = self._line(goal, pressed, d["press_speed_mm_s"], "press_back")
+            if bad:
+                return bad, out
         shift = mp.dir_to_base(tf, (0.0, plan.shift_y_m, 0.0))
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N

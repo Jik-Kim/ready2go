@@ -200,6 +200,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2827 - 0.0349, abs=1e-3)
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=1e-6)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁)
+    assert start[2] == pytest.approx(contact["z"], abs=0.25)             # 처음 2 N 넘은 높이로 올라와서 끔 (확인·정지 동안 더 눌린 만큼 되돌림)
     server.srv.robot.force = lambda p: [0.0] * 6
     server.Gripper.holding = True
     route = server.srv.poses()["carry_line"]["drawer_top"]
