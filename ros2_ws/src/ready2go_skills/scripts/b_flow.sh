@@ -4,8 +4,8 @@
 #   bash b_flow.sh demo [go|N]  10/06 시연 흐름 (사용자 지정 순서·좌표, 단계마다 Enter / go = 끝까지 / N = N단계부터)
 #   bash b_flow.sh build      메시지 패키지(ready2go_interfaces)만 호스트에 빌드 — 처음 한 번
 #   bash b_flow.sh server     스킬 서버 (터미널 1, 계속 켜 둠)
-#   bash b_flow.sh all        터미널 2: 홈에서 열기 → 끌기 → 집기 → 놓기 → 닫기 → 홈 (실패하면 거기서 멈춤)
-#   bash b_flow.sh <동작>     하나만: open | opened | nudge | pick | place | close | home
+#   bash b_flow.sh all        터미널 2: 홈에서 열기 → 탑뷰 → 인식(A 비전, 없으면 고정 좌표) → 끌기 → 집기 → 놓기 → 닫기 → 홈
+#   bash b_flow.sh <동작>     하나만: open | opened | view | scan | nudge | pick | place | close | home
 #     opened = 서랍을 손으로 끝까지 연 것으로 서버에 알림 (로봇 동작 없음)
 #   bash b_flow.sh route1     들고 나오기 시험: 경유점 1(서랍 안)으로 관절 이동 (스킬 서버 없이)
 #   bash b_flow.sh route      경유점 1 → movesj 2·3·4 → 트레이 첫 칸 위 직선
