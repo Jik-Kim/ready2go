@@ -51,6 +51,7 @@ PARAMS_FILE = _params_file()
 NO_OBJECT_CONTACT = "NO_OBJECT_CONTACT"  # 끌기: 내려가도 물체 윗면 접촉을 못 느낌 (runner.md nudge_object 표)
 PUSH_BLOCKED = "PUSH_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림, runner.md 기존 코드)
 WALL_TOO_CLOSE = "WALL_TOO_CLOSE"        # pick_object: 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿음 → nudge_object 먼저 (움직이기 전)
+JOINT_LIMIT = "JOINT_LIMIT"              # 관절이 안전 제한(params joint_limits_deg, 펜던트 안전 설정보다 조금 안쪽)을 넘음/넘을 목표 → 정지·거부
 PUSH_LIMIT = "PUSH_LIMIT"                # check_only 재판단에서 아직 잡을 수 없는 자리 (runner.md 기존 코드)
 GRASP_FAILED = "GRASP_FAILED"
 NOT_HOLDING = "NOT_HOLDING"
@@ -180,6 +181,9 @@ class SkillServer(Node):
         joints, err = sf.pose_joints(self.poses(), pose_name, drawer_id)
         if err:
             return err
+        err = self._joint_bad(joints, f"{pose_name} 목표")
+        if err:
+            return err
         goal.publish_feedback(Skill.Feedback(stage="auto_mode"))
         if not self.robot.auto():            # 모드 전환은 이동 명령이 아님 → 명시적 거부로 처리
             return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
@@ -203,7 +207,8 @@ class SkillServer(Node):
         if bad:
             return bad
         done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
+                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints),
+                              watch=self._joint_watch())
         if not done.success:
             return done
         reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
@@ -251,6 +256,26 @@ class SkillServer(Node):
             return bad
         return self._line(goal, [xy[0], xy[1]] + up[2:], prm["speed"]["line_mm_s"], "go_high_over")
 
+    def _joint_bad(self, joints, what):
+        """관절 제한 확인 (펜던트 안전 설정 J5 ±135° → params 는 그보다 안쪽). 넘으면 Outcome, 아니면 None."""
+        lim = self.prm().get("joint_limits_deg") or {}
+        for name, (lo, hi) in lim.items():
+            v = joints[int(name[1:]) - 1]
+            if not lo <= v <= hi:
+                return sf.Outcome(False, JOINT_LIMIT, reason=f"{what} {name} {v:.1f}° — 제한 [{lo:g}, {hi:g}]° 밖")
+        return None
+
+    def _joint_watch(self, extra=None):
+        """이동 중 관절 제한 감시 (+ 다른 watch). 넘기 전에 멈춰 펜던트 안전 정지까지 가지 않게."""
+        def watch():
+            j = self.robot.posj()
+            if j is not None:
+                bad = self._joint_bad(j, "이동 중")
+                if bad:
+                    return bad
+            return extra() if extra else None
+        return watch
+
     def _at_joints(self, joints):
         """wait_motion arrived: 관절각이 목표와 reach_tol 안. 조회 실패면 False."""
         return lambda: sf.check_reached(joints, self.robot.posj(), self.reach_tol).success
@@ -281,7 +306,8 @@ class SkillServer(Node):
         if bad:
             return bad
         done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=watch, arrived=self._at_posx(posx))
+                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=self._joint_watch(watch),
+                              arrived=self._at_posx(posx))
         return None if done.success else done
 
     def _spline(self, goal, points, stage):
@@ -292,13 +318,18 @@ class SkillServer(Node):
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
         if early:
             return early
+        for k, p in enumerate(points):
+            err = self._joint_bad(p, f"경유점 {k + 1}")
+            if err:
+                return err
         sp = self.prm()["speed"]
         bad = sf.after_command(self.robot.movesj_async(points, sp["spline_deg_s"], sp["spline_acc_deg_s2"]),
                                what=f"movesj({stage})", stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad
         done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(points[-1]))
+                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(points[-1]),
+                              watch=self._joint_watch())
         if not done.success:
             return done
         reached = sf.check_reached(points[-1], self.robot.posj(), self.reach_tol)
@@ -381,6 +412,9 @@ class SkillServer(Node):
             if bad:
                 return bad, None
         goal.publish_feedback(Skill.Feedback(stage="approach"))
+        err = self._joint_bad(joints, "drawer_approach 목표")
+        if err:
+            return err, None
         if not self.robot.auto():
             return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
         bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej(drawer_approach)",
@@ -388,7 +422,8 @@ class SkillServer(Node):
         if bad:
             return bad, None
         done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
+                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints),
+                              watch=self._joint_watch())
         if not done.success:
             return done, None
         reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)

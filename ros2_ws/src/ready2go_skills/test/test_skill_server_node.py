@@ -226,3 +226,17 @@ def test_pick_next_to_side_wall_refused_without_motion(server, y):
     out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
     assert not out.success and out.error_code == server.ss.WALL_TOO_CLOSE
     assert server.srv.robot.log == []
+
+
+def test_named_pose_over_joint_limit_refused_without_motion(server):
+    """J5 펜던트 안전 제한 ±135° [사용자 10/06] → params 133° 넘는 목표는 움직이기 전 JOINT_LIMIT."""
+    server.srv.poses = lambda: {"home": {"joints_deg": [0.0, 0.0, 90.0, 0.0, 134.0, 0.0]}}
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    assert not out.success and out.error_code == server.ss.JOINT_LIMIT and server.srv.robot.log == []
+
+
+def test_joint_limit_watch_stops_motion(server):
+    server.srv.robot.j = [0.0, 0.0, 90.0, 0.0, 133.5, 0.0]                  # 이동 중 133° 넘음 (도착 전)
+    server.srv.robot.movej_async = lambda j, v, a: True
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    assert not out.success and out.error_code == server.ss.JOINT_LIMIT
