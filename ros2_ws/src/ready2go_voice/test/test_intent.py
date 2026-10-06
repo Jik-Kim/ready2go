@@ -47,10 +47,14 @@ def test_normal_hold_is_not_validation_failure(ontology, schema, cfg, kind):
     assert not doc['source']['fallback_used']
 
 
-def test_valid_free_expression_uses_llm(ontology, schema, cfg):
+@pytest.mark.parametrize('text', ['연필 찾아줘', '연필 자국 없애는 물건 가져다줘'])
+def test_unnamed_llm_target_is_held(ontology, schema, cfg, text):
     parser = IntentParser(ontology, schema, cfg, lambda *_: json.dumps(
         {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .95}))
-    assert parser.parse('연필 자국 없애는 물건 가져다줘')['targets'] == ['eraser']
+    doc = parser.parse(text)
+    assert doc['intent'] == 'clarify' and doc['targets'] == []
+    assert not doc['source']['execution_allowed']
+    assert doc['source']['llm_validation'] == 'passed'
 
 
 def test_late_response_dropped_and_single_call_slot(ontology, schema, cfg):
@@ -127,3 +131,53 @@ def test_late_stt_no_interpretation_or_publication(ontology, schema, cfg):
         assert doc['intent'] == 'clarify' and not doc['source']['execution_allowed']
     finally:
         release.set()
+
+
+@pytest.mark.parametrize('text', [
+    '지우개 가져다주지 마', '지우개 안 찾아도 돼', '지우개가 얼마인지 알려줄래',
+])
+@pytest.mark.parametrize('mode', ['offline', 'hallucination', 'api_error'])
+def test_nonexecution_context_cannot_become_pick(ontology, schema, cfg, text, mode):
+    def llm(*_):
+        if mode == 'api_error':
+            raise RuntimeError('api unavailable')
+        return {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99}
+    parser = IntentParser(ontology, schema, cfg, None if mode == 'offline' else llm)
+    doc = parser.parse(text)
+    assert doc['intent'] in ('unknown', 'clarify') and doc['targets'] == []
+    assert not doc['source']['execution_allowed']
+    # 직접 의미검증 경로도 같은 보류를 적용합니다.
+    held = parser.validate({'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99}, text)
+    assert held['intent'] in ('unknown', 'clarify') and held['targets'] == []
+
+
+@pytest.mark.parametrize('text', [
+    '지우개 찾아줘', '지우개 찾아주세요', '지우개 찾아줄래', '지우개 꺼내줘',
+    '지우개 꺼내주세요', '지우개 꺼내줄래', '지우개 가져다줘', '지우개 가져다주세요',
+    '지우개 가져다줄래', '지우개 가져와', '지우개 가져와줘', '지우개 갖다줘',
+    '지우개 주세요', '지우개 줄래', '지우개를 좀 가져다줘', '지우개 하나 주세요',
+    '저한테 지우개 가져다주세요', '혹시 지우개 좀 찾아줄래요?',
+    '지우개가 필요해', '지우개 주면 좋겠어요',
+    '자동차 열쇠 찾아줘',
+])
+@pytest.mark.parametrize('use_llm', [False, True])
+def test_explicit_positive_requests_preserved(ontology, schema, cfg, text, use_llm):
+    parser = IntentParser(ontology, schema, cfg)
+    target = sorted(parser.mentioned(text))
+    if use_llm:
+        parser.llm = lambda *_: {'intent': 'find_item', 'targets': target, 'confidence': .99}
+    doc = parser.parse(text)
+    assert doc['intent'] == 'find_item' and doc['targets'] == target
+    assert doc['source']['execution_allowed']
+
+
+def test_all_registered_names_and_aliases_keep_explicit_requests(ontology, schema, cfg):
+    parser = IntentParser(ontology, schema, cfg)
+    for key, item in parser.items.items():
+        for alias in [key, item['name_ko'], *item.get('aliases_ko', [])]:
+            named = parser.mentioned(alias)
+            if named != {key}:  # 겹치는 별칭은 원래도 모호성 보류 대상입니다.
+                continue
+            doc = parser.parse(alias + ' 가져다줘')
+            assert doc['intent'] == 'find_item' and doc['targets'] == [key]
+            assert doc['source']['execution_allowed']

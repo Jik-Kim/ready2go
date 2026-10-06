@@ -15,7 +15,9 @@ class FakeTTS:
     def __init__(self):
         self.lock = threading.Lock()
         self.fail = False
+        self.texts = []
     def speak(self, text, **kwargs):
+        self.texts.append(text)
         if self.fail:
             raise RuntimeError('audio missing')
         stamp = {'tts_started_unix': 123, 'tts_started_monotonic': time.monotonic(),
@@ -136,3 +138,21 @@ def test_ros_evaluation_topic_and_tts_action(cfg, tmp_path, monkeypatch):
         if peer:
             peer.destroy_node()
         rclpy.try_shutdown()
+
+
+@pytest.mark.parametrize('text', [
+    '연필 찾아줘', '연필 자국 없애는 물건 가져다줘',
+    '지우개 가져다주지 마', '지우개 안 찾아도 돼', '지우개가 얼마인지 알려줄래',
+])
+@pytest.mark.parametrize('use_llm', [False, True])
+def test_execution_node_holds_unconfirmed_meaning(harness, text, use_llm):
+    harness.cfg['evaluation_mode'] = False
+    if use_llm:
+        harness.parser.llm = lambda *_: {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99}
+    doc = harness.parser.parse(text)
+    VoiceNode._deliver(harness, doc, 0)
+    assert harness.published
+    assert all(d['intent'] in ('unknown', 'clarify') and d['targets'] == []
+               and not d['source']['execution_allowed'] for d in harness.published)
+    assert harness.tts.texts == [doc['clarify_question']]
+    assert all('가져다드리겠습니다' not in t for t in harness.tts.texts)
