@@ -33,8 +33,11 @@ def footprint_inside(x, y, yaw, yaw_known, size, interior, tol):
 
 
 def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict, items: dict,
-                  region: str, search_target: str = "", interior_m=None) -> tuple[bool, str, str]:
-    """(success, error_code, result_json). 미발견은 success=True + target_found=False."""
+                  region: str, search_target: str = "", interior_m=None, debug: list | None = None) -> tuple[bool, str, str]:
+    """(success, error_code, result_json). 미발견은 success=True + target_found=False.
+    debug 에 리스트를 넘기면 검출마다 판단 근거(dict)를 붙인다 (로그·덤프용, 결과에는 영향 없음)."""
+    note = (lambda det, **kv: debug.append({"class": det["class"], "conf": round(float(det["conf"]), 3),
+                                            "box": [round(float(b), 1) for b in det["box"]], **kv})) if debug is not None else (lambda det, **kv: None)
     if region not in SUPPORTED_REGIONS:
         return False, "UNKNOWN_REGION", ""
     blob_params, policy = params["depth_blob"], params.get("policy", {})
@@ -42,10 +45,12 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
     found = []
     for det in sorted(detections, key=lambda d: -d["conf"]):
         if det["conf"] < params["detector"]["conf_min"] or det["class"] not in items:
+            note(det, skip="conf_min 미만 또는 온톨로지에 없는 클래스")
             continue
         size = items[det["class"]]["size_m"]
         blob = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, nominal_long_m=size[0])
         if not blob.depth_ok or blob.top_z is None:
+            note(det, skip=f"뎁스 덩어리 실패: {blob.reason}", n_valid=blob.n_valid, invalid_ratio=round(blob.invalid_ratio, 3))
             if fail_on_invalid:
                 return False, "DEPTH_INVALID", ""
             continue
@@ -53,6 +58,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         u, v = (det["box"][0] + det["box"][2]) / 2, (det["box"][1] + det["box"][3]) / 2
         xy = ray_plane_xy(u, v, K, T_drawer_cam, top_z / 2)
         if xy is None:
+            note(det, skip="광선이 top_z/2 평면과 만나지 않음", top_z=top_z)
             if fail_on_invalid:
                 return False, "DEPTH_INVALID", ""
             continue
@@ -61,9 +67,13 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         else:
             yaw, valid = (round(blob.yaw, 4), True) if blob.yaw_ok else (0.0, False)
             yaw_known = valid
+        info = dict(top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)], yaw=yaw, yaw_valid=valid, yaw_reason=blob.reason,
+                    n_blob=blob.n_blob, blob_long_mm=round(blob.blob_long_m * 1000, 1), blob_short_mm=round(blob.blob_short_m * 1000, 1))
         if interior_m is not None and not footprint_inside(xy[0], xy[1], yaw, yaw_known, size, interior_m,
                                                            params.get("region", {}).get("edge_tolerance_m", 0.01)):
-            continue                                                  # 서랍 밖(시야에 잡힌 다른 물체·TF 오차)은 결과에 넣지 않는다
+            note(det, skip="footprint 가 서랍 안쪽 밖", **info)
+            continue
+        note(det, **info)                                                  # 서랍 밖(시야에 잡힌 다른 물체·TF 오차)은 결과에 넣지 않는다
         found.append({"class": det["class"], "pose": {"frame": region, "position": [round(xy[0], 4), round(xy[1], 4), 0.0],
                                                       "yaw": yaw, "yaw_valid": valid}, "top_z": top_z})
     found.sort(key=lambda i: i["top_z"], reverse=True)

@@ -3,7 +3,12 @@
 요청이 올 때 요청 이후에 도착한 프레임 한 쌍을 쓰고(오래된 프레임 방지), 광학 프레임의 서랍 좌표 변환은
 TF base_link→광학 프레임(실시간)과 config/places.yaml 의 drawer_top.tf(서랍 정본)로 계산한다.
 오류 코드: UNKNOWN_REGION, CAMERA_TIMEOUT, TF_UNAVAILABLE, DEPTH_INVALID, RESULT_INVALID (docs/runner.md).
+
+진단(결과에는 영향 없음): 요청마다 검출별 판단 근거와 카메라로 본 서랍 바닥 z(core/floor_probe.py)를 로그로 남긴다.
+dump_dir 파라미터를 주면 그 요청에 쓴 컬러·뎁스·K·TF·검출·결과를 .npz 로 저장한다(tools/dev/replay_inspect_dump.py 로 재계산).
 """
+import datetime
+import hashlib
 import json
 import threading
 import time
@@ -22,6 +27,7 @@ from tf2_ros import Buffer, TransformListener
 
 from ready2go_interfaces.srv import InspectRegion
 from ready2go_vision.core.detector import YoloDetector
+from ready2go_vision.core.floor_probe import floor_probe
 from ready2go_vision.core.geometry import Intrinsics, drawer_from_camera, make_T
 from ready2go_vision.core.inspect_real import inspect_scene
 
@@ -51,7 +57,7 @@ class InspectRegionNode(Node):
         d("config_dir", "/config"); d("world_path", "/knowledge/world.jsonld"); d("weights", "/models/yolo11n_ready2go_v1.pt")
         d("color_topic", "/wrist_cam/color/image_raw"); d("depth_topic", "/wrist_cam/aligned_depth_to_color/image_raw")
         d("info_topic", "/wrist_cam/color/camera_info"); d("base_frame", "base_link"); d("camera_frame", "wrist_cam_color_optical_frame")
-        d("frame_timeout_s", 3.0); d("device", "0")
+        d("frame_timeout_s", 3.0); d("device", "0"); d("dump_dir", ""); d("code_sha", "")
         p = lambda n: self.get_parameter(n).value
         cfg = Path(p("config_dir"))
         self._params = yaml.safe_load((cfg / "vision_params.yaml").read_text(encoding="utf-8"))
@@ -61,6 +67,12 @@ class InspectRegionNode(Node):
         if not tf or tf.get("translation_m") is None:
             raise RuntimeError("places.yaml drawer_top.tf 가 비어 있음 — 3점 터치 결과가 필요")
         self._T_base_drawer = make_T(tf["translation_m"], tf["quaternion_xyzw"])
+        sha = lambda f: hashlib.sha256(Path(f).read_bytes()).hexdigest()[:12]
+        self._versions = {"code_sha": p("code_sha"), "weights_sha256": sha(p("weights")), "places_sha256": sha(cfg / "places.yaml"),
+                          "vision_params_sha256": sha(cfg / "vision_params.yaml"), "drawer_top_tf": tf}
+        self._dump = Path(p("dump_dir")) if p("dump_dir") else None
+        if self._dump:
+            self._dump.mkdir(parents=True, exist_ok=True)
         world = yaml.safe_load(Path(p("world_path")).read_text(encoding="utf-8"))
         self._items = world.get("world", world)["items"]
         dev = p("device")
@@ -77,7 +89,8 @@ class InspectRegionNode(Node):
         self.create_subscription(Image, p("depth_topic"), lambda m: self._store("_depth", m), qos_profile_sensor_data, callback_group=cb)
         self.create_subscription(CameraInfo, p("info_topic"), lambda m: self._store("_info", m), qos_profile_sensor_data, callback_group=cb)
         self.create_service(InspectRegion, "/vision/inspect_region", self._handle, callback_group=cb)
-        self.get_logger().info(f"inspect_region 시작 (모델 {p('weights')}, 클래스 {list(self._detector.names.values())})")
+        self.get_logger().info(f"inspect_region 시작 (모델 {p('weights')}, 클래스 {list(self._detector.names.values())}, "
+                               f"버전 {json.dumps(self._versions, ensure_ascii=False)}, 덤프 {self._dump or '끔'})")
 
     def _store(self, name, msg):
         with self._lock:
@@ -115,11 +128,35 @@ class InspectRegionNode(Node):
                 return res
         T_drawer_cam = drawer_from_camera(self._T_base_drawer, tf_to_T(ts))
         K = Intrinsics(info.k[0], info.k[4], info.k[2], info.k[5])
-        dets = self._detector.detect(image_to_numpy(color_m))
+        color, depth = image_to_numpy(color_m), image_to_numpy(depth_m)
+        dets = self._detector.detect(color)
+        debug = []
         res.success, res.error_code, res.result_json = inspect_scene(
-            dets, image_to_numpy(depth_m), K, T_drawer_cam, self._params, self._items, req.region, req.search_target, self._interior)
-        self.get_logger().info(f"inspect_region {req.region}/{req.search_target}: 검출 {len(dets)}개 → success={res.success} {res.error_code} {res.result_json[:200]}")
+            dets, depth, K, T_drawer_cam, self._params, self._items, req.region, req.search_target, self._interior, debug)
+        floor = floor_probe(depth, K, T_drawer_cam, self._interior, [dt["box"] for dt in dets], self._params["floor_probe"])
+        log = self.get_logger()
+        log.info(f"inspect_region {req.region}/{req.search_target}: 검출 {len(dets)}개 → success={res.success} {res.error_code} {res.result_json[:300]}")
+        for item in debug:
+            log.info(f"  검출 {json.dumps(item, ensure_ascii=False)}")
+        log.info(f"  바닥(카메라, 서랍 z) {json.dumps(floor)}")
+        if self._dump:
+            self._save(color, depth, K, ts, T_drawer_cam, dets, debug, floor, req, res)
         return res
+
+    def _save(self, color, depth, K, ts, T_drawer_cam, dets, debug, floor, req, res):
+        now = datetime.datetime.now(datetime.timezone.utc)                     # UTC (컨테이너 시간대와 무관)
+        stamp = f"{now:%Y%m%d_%H%M%S}_{now.microsecond // 1000:03d}Z"
+        path = self._dump / f"inspect_{stamp}.npz"
+        meta = {"request": {"region": req.region, "search_target": req.search_target}, "success": res.success,
+                "error_code": res.error_code, "result_json": res.result_json, "detections": dets, "debug": debug, "floor": floor,
+                "K": [K.fx, K.fy, K.cx, K.cy], "versions": self._versions, "interior_m": self._interior}
+        try:
+            np.savez_compressed(path, color=color, depth_m=depth.astype(np.float32), T_base_cam=tf_to_T(ts),
+                                T_base_drawer=self._T_base_drawer, T_drawer_cam=T_drawer_cam,
+                                meta=np.array(json.dumps(meta, ensure_ascii=False, default=float)))
+            self.get_logger().info(f"  덤프 {path}")
+        except Exception as e:                                   # 덤프 실패가 서비스 응답을 막지 않게
+            self.get_logger().warn(f"덤프 실패 {path}: {e}")
 
 
 def main():

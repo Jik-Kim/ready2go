@@ -138,3 +138,26 @@ def test_unknown_yaw_uses_circumscribed_footprint():
     assert footprint_inside(0.027, 0.15, 0.0, False, size, INTERIOR, 0.0) is False     # 모르면 외접원 28.5 mm → 밖
     for x, y in [(0.10, -0.01), (0.10, 0.30), (-0.01, 0.15), (0.21, 0.15)]:             # 네 방향 바깥(오차 여유 0)
         assert footprint_inside(x, y, 0.3, True, size, INTERIOR, 0.0) is False
+
+
+def test_debug_notes_each_detection_without_changing_result():
+    depth = scene(0.06, 0.18, 0.5, (0.0525, 0.022), 0.0115)
+    dets = [{"class": "eraser", "conf": 0.9, "box": box_of(0.06, 0.18, (0.0525, 0.022), 0.5)},
+            {"class": "eraser", "conf": 0.1, "box": box_of(0.06, 0.18, (0.0525, 0.022), 0.5)}]
+    debug = []
+    with_debug = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, debug)
+    assert with_debug == run(depth, dets)
+    assert len(debug) == 2 and "skip" not in debug[0] and debug[0]["top_z"] == pytest.approx(0.0115, abs=0.002)
+    assert "conf_min" in debug[1]["skip"]
+
+
+def test_floor_probe_reports_floor_height_and_ignores_objects():
+    from ready2go_vision.core.floor_probe import floor_probe
+    fp = PARAMS["floor_probe"]
+    depth = scene(0.10, 0.15, 0.0, (0.0525, 0.022), 0.0115)
+    box = box_of(0.10, 0.15, (0.0525, 0.022), 0.0)
+    r = floor_probe(depth, K, T, INTERIOR, [box], fp)
+    assert r["n"] > 100 and r["z_median_m"] == pytest.approx(0.0, abs=0.0005)
+    raised = depth - 0.003                                              # 바닥(과 물체)이 카메라 쪽으로 3 mm → 서랍 z +3 mm
+    assert floor_probe(raised, K, T, INTERIOR, [box], fp)["z_median_m"] == pytest.approx(0.003, abs=0.0005)
+    assert floor_probe(np.zeros_like(depth), K, T, INTERIOR, [], fp) == {"n": 0}
