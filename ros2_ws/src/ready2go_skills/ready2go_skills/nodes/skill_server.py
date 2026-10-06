@@ -721,6 +721,8 @@ class SkillServer(Node):
             return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason=why), back), out
         pressed = self.robot.posx()
         shift = mp.dir_to_base(tf, (0.0, plan.shift_y_m, 0.0))
+        shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
+        #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
         base_drag = self._tare()
 
         def blocked():
