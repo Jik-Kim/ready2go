@@ -61,9 +61,21 @@ def test_duplicate_class_gets_numbered_ids():
 
 
 def test_real_config_file_is_valid():
+    """커밋된 설정 파일 검사. ready 가 false(실측 전)면 형식만, true 면 실측 값 규칙(명시적 yaw_valid·서랍 안 위치)까지 확인한다."""
     yaml = pytest.importorskip("yaml")
-    cfg = yaml.safe_load((Path(__file__).resolve().parents[4] / "config/vision_stub.yaml").read_text(encoding="utf-8"))
-    assert cfg["ready"] is False, "자리표시자 좌표 상태에서는 ready 가 false 여야 합니다 (실측 반영 시 이 검사를 갱신)"
+    root = Path(__file__).resolve().parents[4]
+    cfg = yaml.safe_load((root / "config/vision_stub.yaml").read_text(encoding="utf-8"))
+    places = yaml.safe_load((root / "config/places.yaml").read_text(encoding="utf-8"))
+    if cfg["ready"] is True:
+        interior = places["drawer_top"]["interior_m"]
+        objs = cfg["regions"]["drawer_top"]["objects"]
+        assert objs, "ready: true 인데 실측한 물체가 없음"
+        for o in objs:
+            assert isinstance(o.get("yaw_valid"), bool), f"{o['class']}: 실측 값은 yaw_valid(bool)를 명시해야 함"
+            assert 0 <= o["position"][0] <= interior[0] and 0 <= o["position"][1] <= interior[1], f"{o['class']}: 서랍 안(interior_m)이 아님"
+            assert o["position"][2] == 0.0
+    else:
+        assert cfg["ready"] is False
     cfg["ready"] = True
     for region in cfg["regions"]:
         ok, _, js = inspect(cfg, region)
