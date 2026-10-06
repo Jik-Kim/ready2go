@@ -21,6 +21,11 @@ def test_outputs_follow_runner_md():
     assert (picked["object_id"], picked["class"]) == ("eraser#2", "eraser")
     assert mock.respond("place_object", {"location": "handover_zone"}).output["slot"] == "handover_zone"
     assert mock.respond("move_to_named_pose", {"pose_name": "home"}).output is None
+    target = {"id": "eraser#1", "pose": {"frame": "drawer_top", "position": [0.1769, 0.2895, 0.0]}}
+    nudged = mock.respond("nudge_object", {"target": target, "drawer_id": "drawer_top"}).output
+    assert nudged["pushed"] and nudged["target_after"]["pose"]["position"][1] == 0.2495     # 옆(y)으로 끔
+    assert target["pose"]["position"][1] == 0.2895                                          # 입력은 그대로
+    assert mock.respond("nudge_object", {"target": target, "check_only": True}).output == {"pushed": False, "target_after": target}
 
 
 def test_failure_first_n_times_then_success():
