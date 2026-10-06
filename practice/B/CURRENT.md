@@ -1,13 +1,14 @@
 # CURRENT — B 서동권
 
 - **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-06
+- **최종 갱신**: 2026-10-06 저녁
 
 ## 지금 상태
-- **10/06 실물 (PR #83, 승인: C 2회, E 대기)**: 위 서랍 열기 → 탑뷰 → (인식) → 30° 기울여 눌러 끌기 → 집기 → 들고 나오기(movesj) → 트레이 얹기 → 밀어 닫기 흐름을 PC2 호스트에서 돌림. 시연 확정 경로는 `scripts/b_demo.py`(직접교시 좌표 그대로), 같은 흐름을 스킬 서버(Runner 경로)에도 옮김(`1ecafb6`).
-  - 실행: `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh demo [go|N]` (스킬 서버 없이) / `server` + `all` (스킬 서버, 탑뷰 인식 포함)
-  - 확인됨: 열기(226 mm), 탑뷰, 경유점 내려오기, 기울이기, 들고 나오기 경로(`carry_out`), 트레이 얹기. 누르기 2 N 오검출 → 대책(멈춘 뒤 평균, 출발 2 mm 무시 후 기준 다시, 연속 3회, 접촉 z ± 3 mm) 넣은 뒤 1회 성공. 닫기(수직 손끝으로 밀기)는 1회 확인 필요.
-  - 안전: J5 펜던트 제한 135° → 서버·스크립트 133°에서 거부·정지. 경유점은 사용자가 말한 것만 (10/06 홈 경유를 임의로 넣어 위험 — 재발 금지).
+- **10/06 (PR #83 머지)**: 위 서랍 열기 → 탑뷰 → (인식) → 30° 기울여 눌러 끌기 → 집기 → 들고 나오기 → 트레이 → 밀어 닫기. `scripts/b_demo.py`(직접교시 좌표 그대로) 처음부터 끝까지 성공 (저녁, 열림 226.1 mm, 접촉 z 219.90, 닫힘 잘 됨).
+  - 저녁 수정은 브랜치 `claude/amazing-lamport-81s469` (`2c4cc6e`~`3dd1534`, PR 안 만듦, 실물 미확인): Runner 열기 경로 z 300, 들고 나오기 직선 블렌딩(`poses.yaml carry_line`), 닫기 실측 위치·저속·15 N, 끌기 수평·누르기 깊이, 빈 공간 2배. 상세 `2026-10-06_practice.md` "저녁 통합·수정".
+  - **방향 바꿈 [사용자 10/06 저녁]**: 끌기 그만 → 30° 기울인 그대로 3 cm 올려 벌리고 그 자세로 잡기 (잡는 자세 직접교시 필요).
+  - 실행: `b_flow.sh demo [go|N]` (스킬 서버 없이) / `server` + `all` (스킬 서버). PC2 호스트 터미널은 모두 `CYCLONEDDS_URI=~/.config/cyclonedds/cyclonedds.xml`(lo) — roboton·스킬 서버와 같게. 이 설정에서 PC1 stub(multi)은 호출 안 됨.
+  - 안전: J5 133°·J3 10° 제한. 경유점은 사용자가 말한 것만 (10/06 홈 경유를 임의로 넣어 위험 — 재발 금지).
 - #4 완료 (10/03 실물 확인): `ros2-core` 컨테이너에서 DSR 드라이버 Real 모드 접속, `move_joint`로 실물 동작, RG2 열기·닫기·폭 읽기, `/gripper/state` 발행.
   - 컨테이너 실행 (PR #40 머지 후): `docker compose --profile real up` — bringup이 DSR 드라이버·`/gripper/state`·고정 TF를 함께 띄움 (`.env`: `BACKEND=real`, `ROBOT_HOST=192.168.1.100`, `RG2_HOST=192.168.1.1`). 빌드 산출물은 컨테이너 전용 `/colcon`, `entrypoint.sh`가 `/colcon/install`을 source.
   - 스킬만 따로: `docker compose --profile real run --rm ros2-core bash -c "colcon --log-base /colcon/log build --symlink-install --build-base /colcon/build --install-base /colcon/install --packages-select ready2go_interfaces ready2go_skills && source /colcon/install/setup.bash && ros2 launch ready2go_skills dsr_real.launch.py"`
@@ -41,27 +42,15 @@
 - #37: 밀기가 의미 있으려면 집을 때 벌림 여유(열린 손가락에 필요한 틈)가 닫은 손가락 두께보다 커야 함 → 실측 항목에 "집을 때 벌림 폭" 추가 필요.
 
 ## 다음 할 일
-- [ ] PR #83 E 승인 → 머지
-- [ ] 끌기·집기 반복 시험 (누르기 오검출 대책 효과, 집기 폭 19~25 mm 판정), 닫기 실물 확인
-- [ ] A 비전 연결: PC2 호스트에서 `/vision/inspect_region` 보이는지, 인식 좌표로 끌기·집기
-- [ ] C: `p1_demo_eraser`에 열기 뒤 `move_to_named_pose(drawer_top_view)` 추가 요청
+- [ ] 기울인 그대로 잡기: 잡는 자세(30°, 35 mm 벌림, 지우개 감싼 위치) 직접교시 → 스킬 서버 `nudge`·`pick` 대신 넣기 → 실물
+- [ ] 저녁 수정 실물 확인 (스킬 서버 `all`): 열기 ready 경로·손잡이 1 cm 전 저속, 집기 → 경유점 1 대각선, 블렌딩 들고 나오기·칸 위 살포시, 닫기 직행·마지막 30 mm 저속, 2배 속도
+- [ ] `nudge` `NOT_REACHED`·"내려가다 오른쪽으로 찌름" 로그 확인 (끌기를 안 쓰면 같이 없어지는지)
+- [ ] PC2 통신 설정 정리 (C·A와): PC1 stub(multi) ↔ PC2(lo) 불통 → stub 을 PC2로 or PC2 설정 통일. Runner 컨테이너 `BACKEND=sim` + `cyclonedds.local.xml` 방식 C와 확정
+- [ ] #22 결과: Runner run_id·MongoDB 기록 확인, 비상정지 2회차 (C·D·E)
+- [ ] 저녁 브랜치 PR 여부 결정 (`claude/amazing-lamport-81s469`)
+- [ ] `b_demo` 들고 나오기 movesj → 블렌딩 맞출지
+- [ ] A 실제 비전 연결 → 재인식·재시도 로직 (설계는 10/06 일지)
 - [ ] 아래 서랍: 손잡이·서랍 앞·최대 인출·테두리 3점·바닥 4점·보는 자세
 - [ ] 높이 규칙(원통 립밤): 다 닫혔을 때 손끝이 물체 높이 40%, 벌림별 손끝 높이 60/85/100 mm 실측
-- [x] #7 5점 `verify.py` 검증 (10/03)
-- [x] #3 PC2 `real` 기동·TF 연결·PC1↔PC2 통신 (10/03)
-- [x] #8 지우개 서랍 안 3/3 (10/04) — 결정 #11 확정은 E 답 후 `hardware.md`·`metrics_risks.md` 수정
-- [x] `drawer_top` 3점 터치 (#56·#58), touch_frame·grasp_check·nudge_plan PR 머지
-- [ ] #6 (10/04) `drawer_approach`·`tray_view` 교시, `drawer_top_view` 등록, `staging_tray` 3점 터치, `vision_stub` 4개 측정 → `poses.yaml`·`places.yaml`
-- [ ] #15 `pick_object` `target` 계약 + `motion_guard` PR (10/04, 10/05 공휴일로 당김)
-- [ ] #13 `drawer_control` 실물 — 10/04 저녁 착수, 못 끝내면 10/06 오전
-- [ ] #15 `pick_object`·`place_object` 실물 — 10/06 오후. 노드 연결 때 `motion_guard` 호출(`yaw_valid` 기본값 넣지 않기)
-- [ ] #37 (Day 5~6) `nudge_object` 실물 — 손가락 두께·벌림 폭·바닥 감지 힘 임계 실측
 - [ ] #19 E-stop(펜던트·키보드) + 저속 → 정상 속도 절차
 - [ ] (P2) `sim`용 DSR 드라이버·에뮬레이터 DRCF v2/v3 맞추기 (PR #40 리뷰 스레드)
-
-## 철회한 결론
-- ~~10/02 팀 구성에서 채택 npy 적용 확인~~ → 그때 쓴 것은 강의 폴더의 2월 파일이었을 가능성이 큼(해시 다름). 채택 값 검증은 10/03 5점 검증으로 대체.
-- ~~프로젝트 TCP 이름 `GripperDA_V1`~~ → 제어기가 반환한 실제 이름은 `GripperDA_v1` (10/02).
-- ~~`set_tcp`가 잘못된 이름을 조용히 무시한다~~ → 자동 모드에서는 이름과 무관하게 거부, 수동 모드에서는 잘못된 이름에 `success=False` (10/02).
-- ~~#6 3점 터치 전에 손끝 돌출량 측정 필요~~ → 교시·터치한 TCP 값을 같은 기준으로 쓰면 불필요, 수업 때도 문제 없었음 (10/03).
-- ~~컨테이너 드라이버로 `move_joint`가 동작하지 않는다~~ → 10° 회전이라 눈에 안 띄었을 뿐, 30°에서 동작 확인 (10/03).
