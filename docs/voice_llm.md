@@ -1,67 +1,121 @@
 # 음성 · LLM
 
-> 아래 내용은 requirements.md의 요구사항에 따른 설계·계약 설명입니다. 문서의 존재나 현재형 표현만으로 구현 완료를 의미하지 않으며, Phase·완료 기준은 requirements.md를 따릅니다. 실제 연결 여부는 담당 코드와 작업 기록에서 확인합니다. [문서]
+> 요구사항·Phase·완료 기준의 정본은 [requirements.md](requirements.md)입니다. 아래는 현재 구현, 미확정 설정, 후속 설계를 구분한 기술 설명입니다. 구현 코드가 존재하는 것과 실물 연결·수용 기준 통과는 구분합니다. [문서]
 
-> 관련 요구사항: [FR-INT-01–03](requirements.md#fr-int-01). 음성 인식과 LLM 인텐트 처리 상세는 이 문서에서 다룹니다.
+> 관련 요구사항: [FR-INT-01–03](requirements.md#fr-int-01). 구현·의존성·실행 준비는 [ready2go_voice README](../ros2_ws/src/ready2go_voice/README.md), 검증 기록은 [E CURRENT](../practice/E/CURRENT.md)를 참조합니다.
 
 ## 6. 음성 · LLM 인터페이스 (필수, 담당 E)
 
+| 구분 | 범위·정본 | 현재 상태 |
+| :--- | :--- | :--- |
+| P1 | FR-INT-01~03: 웨이크/STT, 단일 물품 해석·폴백, 음성 피드백 | E 패키지 구현 있음. 실제 음성/API·C/D 연결·AC-INT-01~03 미검증 |
+| P2 | FR-INT-02 구조화 목표 추출 → [FR-PLN-02](requirements.md#fr-pln-02) 조건·결과 기반 자동 계획 | 이 문서의 후속 설계. 현재 P1 voice 경로에서 목표 계획을 실행하지 않음 |
+| P3 | FR-INT-02 목록·분류, [FR-ONT-03](requirements.md#fr-ont-03) 클래스/관계 조회, [FR-PLN-03](requirements.md#fr-pln-03) 복합 작업 등록 | 다중 서랍·지식 확장 후속 설계. 데이터 등록과 음성/실행 연결 완료는 구분 |
+| Phase 미배정 | 상태 질의, 퍼지 매칭, 이름 없는 추론 수용 등의 개선안 | SOT의 명시적 Phase 배정 없이 P2/P3 구현 약속으로 확정하지 않음 |
+
 ### 6.1 파이프라인
 
-```
-마이크 → 웨이크워드("hello rokey") → 녹음 → STT → 텍스트
-      → 인텐트 파서 → {intent, targets[], scenario} → 플래너
-      → (진행 상황/결과) TTS 음성 출력
+**P1 현재 E 구현 경로** [문서]
+
+```text
+마이크 → hello rokey 웨이크 → 무음 종료 녹음 → whisper-1 STT
+      → 제어/미지원 규칙 또는 LLM 후보 → 의미 검증·필요 시 규칙 폴백
+      → 검증된 단일 find_item: 중복 확인 → 확인 TTS → /voice/intent
+      → unknown/clarify: 보류 안내 / cancel·status: 규칙 제어 경로
 ```
 
-| 단계 | 구현 방안 | 비고 |
+기본 `evaluation_mode: true`, `audio_enabled: false`입니다. 평가 모드는 **모든 intent 발행을 금지**하고 동일 입력의 TTS·진단 반복은 허용합니다. 실제 웨이크/STT 평가에는 준비한 장치 설정에서 audio를 켜야 합니다. 텍스트 override는 같은 파서의 디버깅 입력이며 음성 평가를 대신하지 않습니다. C 수신→태스크/진행·결과 피드백 및 로그, D 화면은 담당별 인계·실측이 남아 있습니다.
+
+| 단계 | P1 현재 구현 | 미확정 설정·미구현 후보 |
 | :--- | :--- | :--- |
-| 음성 입력 | 강의 웨이크워드 모델(`hello_rokey_8332_32.tflite`) 재사용, Push-to-talk(키 입력) 병행 | 오탐 시 Push-to-talk로 전환 |
-| STT | 1순위: OpenAI `whisper-1` (강의 코드 재사용, `prompt`에 물품 어휘 주입 — 지원 여부는 현재 API 문서로 확인) / 폴백: `faster-whisper small` (CPU, 오프라인) | 지연 목표 2초 이내 |
-| 인텐트 파서 | **주 경로: LLM**(강의 `get_keyword`·LangChain 방식)이 문장을 인텐트·목표 JSON으로 변환(6.4) / **폴백(시연 보험): 규칙 + 온톨로지 별칭(`aliases_ko`) 퍼지 매칭** — API 응답 3~5초 초과·네트워크 오류 시 **자동 전환** | LLM 출력도 같은 별칭 정규화·검증을 거쳐 하나의 검증된 목표로 수렴. 저신뢰·검증 실패 시 재확인 질의 |
-| 확인 응답 | "출근 준비물 3개를 찾겠습니다" TTS 후 실행 | 모호하면 재질문 |
-| TTS | Piper(오프라인 한국어) 또는 `espeak-ng` | 결과 피드백은 JSON `speak` 원자 동작으로 실행 |
+| 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, RMS 무음 종료·최대 녹음 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
+| STT | OpenAI `whisper-1`, 한국어·등록 물품 이름 prompt, API 단일 호출 슬롯 | 계정/지연 실측 필요. `faster-whisper small` 오프라인 폴백은 미구현 후보 |
+| 해석 | LangChain·`gpt-4o` 후보 strict JSON → 기존 계약·등록 물품·긍정 요청 검증; 오류/시간 초과/검증 실패 시 규칙 폴백 | 모델·프롬프트·E/D 정답표 미확정. 퍼지 매칭은 구현하지 않음 |
+| 확인 | 기본 `confirmation_enabled: true`: “지우개 가져다드리겠습니다.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | C 태스크 시작/기존 speak와 확인 책임 분담은 인계 사항 |
+| TTS | `espeak-ng` 후보 WAV 합성→PortAudio 재생, 기존 `/voice/speak` Skill 액션 | 한국어 음성·장치·명료도 실측 필요. Piper는 미구현 후보 |
+
+[설정 원본 voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)의 `silence_sec: 0.4`, `stt_timeout_sec: 1.1`, `llm_timeout_sec: 0.8`, `tts_reserve_sec: 0.7`은 **시운전 제안값**입니다. 마지막 유성 프레임부터 확인 TTS 시작까지 3초 예산에 무음 대기·API·TTS 준비를 포함합니다. 남은 예산에 따라 STT/LLM의 실제 제한은 더 짧아질 수 있으며, 값의 합이나 설정만으로 실제 3초 달성을 선언하지 않습니다. 늦은 API 결과는 폐기하고 재시도를 쌓지 않습니다.
+
+실행 모드의 동일 find_item은 중복 시간창 안에서 TTS 전에 보류하고 발행 호출 정상 반환 후에만 중복 기록을 확정합니다. TTS 실패·취소·시간 초과·발행 예외 후 재시도는 가능합니다. publisher 정상 반환은 C 수신·실행 성공 확인이 아닙니다.
 
 ### 6.2 지원 인텐트 (최소 세트)
-* `find_item`: "가위 찾아줘"
-* `find_list`: "출근 준비물 찾아줘"
-* `find_class`: "귀중품 다 찾아줘" → 온톨로지 클래스 계층 추론(`Valuables`의 하위 클래스 포함)
-* `achieve_goal` (플래너 조합): "립밤은 아래 서랍에 넣어 둬", "위 서랍 지우개를 아래 서랍으로 옮겨줘", "아래 서랍 닫아줘" → 목표 상태로 변환(7.7)
-* `query_state`: "지금 뭐 들고 있어?", "위 서랍 열려 있어?" → `/robot_state`로 응답
-* 태스크 레지스트리 인텐트: 스킬 파일의 `trigger`로 자동 추가(예: `return_items` "정리해줘", 7.6)
-* `cancel` / `status`: "멈춰", "지금 뭐 해?"
+
+**P1 현재 지원** [문서]
+
+| intent | 처리·예시 |
+| :--- | :--- |
+| `find_item` | 등록 이름/별칭과 긍정 요청 전체 문형이 맞는 단일 물품. “지우개 찾아줘.”, “지우개 좀 가져다줘.”, “위 서랍에 있는 지우개 꺼내줘.”, “지우개가 필요한데 가져다줄래?” |
+| `cancel` / `status` | “멈춰.” / “지금 뭐 해?”를 규칙으로 직접 처리. 끝 `.!?。？！`만 정규화해 정확 비교; API 없이 처리하며 텍스트 cancel은 진행 중 결과의 추가 발행도 취소 |
+| `unknown` / `clarify` | 미지원·미등록·모호 요청의 실행 보류. 대상 단독 발화 정책은 설정의 clarify/unknown 후보로 E/D 합의 필요 |
+
+LLM이 등록 키를 반환하더라도 발화에서 이름/별칭이 확인되지 않으면 clarify·빈 targets로 보류합니다. 부정·정보 질문·인용·불명확한 문형을 요청 동사의 일부 문자열만으로 실행하지 않습니다. 이는 일반 자유 표현 이해 완료를 의미하지 않습니다. **자유 표현 10개를 포함한 P1 평가는 그대로 요구되며**, 현재 보수적 구현의 한계와 평가 정답 합의 미확정을 구분해야 합니다.
+
+**P2/P3 후속 설계** [문서]
+
+| Phase | intent·예시 | 연결·완료 기준 |
+| :--- | :--- | :--- |
+| P2 | `achieve_goal`: “립밤은 아래 서랍에 넣어 둬” → 구조화 goals | FR-INT-02 → FR-PLN-02, [플래너 7.7](planner.md). 목표형 명령 5종 이상 계획·실물 결과 기록([AC-PLN-01](requirements.md#ac-pln-01)); 현재 P1 파서는 거절 |
+| P3 | `find_list`: “출근 준비물 찾아줘”; `find_class`: “귀중품 다 찾아줘” | FR-INT-02·FR-ONT-03의 목록/분류·클래스 계층/관계 조회. 현재 P1 해석·발행 경로는 미지원 |
+| P3 | 등록된 원자 스킬 조합의 새 복합 작업 | FR-PLN-03, [온톨로지 7.6](ontology.md). Python 변경 없이 2종 이상 등록·실행([AC-PLN-02](requirements.md#ac-pln-02)). 등록만으로 trigger→음성 intent 자동 추가/어휘 주입이 완료되지 않음 |
+
+**미확정 설계/선택 과제(Phase 미배정)** [제안]
+
+- `query_state` (“지금 뭐 들고 있어?”)는 계약에 허용되지만 실제 상태 수신·응답 연결은 현재 E voice에서 구현하지 않습니다. P1 status 규칙은 현재 로봇 상태 조회를 대신하지 않습니다.
+- 퍼지 매칭, 이름 없는 추론 수용, 프롬프트/정답 정책 개선은 별도 설계·승인이 필요합니다. 이 개선안의 Phase 미배정은 P1 자유 표현 평가 요구를 미루는 근거가 아닙니다.
+- Push-to-talk·오프라인 STT/Piper는 선택 후보이며 필수 추가 구현으로 확정하지 않습니다. 새 웨이크 모델 학습 [#87](https://github.com/Jik-Kim/ready2go/issues/87)은 우선순위가 낮은 선택 후속으로 마감일·Phase 미배정입니다. 기존 P1 웨이크 실측 의무는 유지합니다.
 
 ### 6.3 비기능 요구사항
-* 인식 실패/저신뢰(confidence 임계값 미만) 시 실행하지 않고 TTS로 재요청.
-* 텍스트 입력 토픽(`/voice/text_override`)은 **디버깅/자동화 테스트 전용**이며, 시연은 반드시 음성으로 수행.
-* 음성 "멈춰"는 **보조 정지 수단**임. 1차 정지는 티치 펜던트 비상정지 버튼과 키보드/서비스 E-stop(11장).
-* 평가용 **한국어 명령 40문장 세트**(화자 2명 이상)로 **인텐트 정확도**를 측정(목표 90% 이상). 시연 장소 소음 조건에서도 측정.
+
+- **P1 수용 기준 유지**: [AC-INT-01](requirements.md#ac-int-01) 실제 한국어 음성 40문장, 화자 2명 이상, 자유 표현 10개 포함, 정확도 90% 이상. [AC-INT-02](requirements.md#ac-int-02) LLM 검증 실패율 5% 이하·형식/대상 검증 실패에 따른 잘못된 실행 0건. [AC-INT-03](requirements.md#ac-int-03) 발화 종료→확인 TTS 시작 3초 이내. 현재 실측 통과 기록은 없습니다.
+- E/D 평가 구성안은 지우개 요청20/모호10/미등록·미지원10(자유 표현10은 전체40 안에 포함), cancel/status 별도 보조 시험입니다. 문장별 정답·보류 정책은 미확정입니다. 로컬 문형 회귀 통과를 전체 평가나 이름 없는 자유 표현 수용 완료로 대신하지 않습니다.
+- STT 실패는 clarify 보류입니다. LLM 저신뢰 응답 자체는 거절하지만 **그 뒤 규칙 폴백이 명확한 단일 요청을 검증하면 실행 후보가 될 수 있습니다**. 폴백도 보류면 재확인/미지원 안내만 제공합니다. 저신뢰 결과의 직접 실행과 검증된 폴백 실행을 구분합니다.
+- `/voice/text_override`는 디버깅/테스트 보조 경로이며 시연·AC 평가는 실제 웨이크/STT 음성으로 수행합니다.
+- 음성 취소는 보조 수단입니다. API 처리 중 새 웨이크 청취가 일시 정지되는 한계가 있으며 E voice가 로봇 ESTOP을 대신하지 않습니다. 1차 정지·실물 운용은 [안전 11장](safety.md)을 따릅니다.
 
 ### 6.4 LLM 인텐트 파서 (주 경로, 담당 E)
 
-강의 `get_keyword.py`(LangChain + GPT)의 구조를 재사용하되, 출력을 **자유 텍스트가 아닌 검증 가능한 JSON**으로 바꿈.
+**P1 현재 출력·검증** [문서]
 
-```
-STT 텍스트 + 온톨로지 어휘(물품·리스트·클래스 키, 한국어 이름·별칭)
-   → LLM (temperature 0, JSON 출력 강제)
-   → 검증: 형식 / intent 허용값 / targets가 온톨로지 키인지
-   → 통과: /voice/intent 발행  |  실패·저신뢰: 규칙·별칭 폴백 → 그래도 실패 시 재질문
+강의 `keyword_extraction.py`·STT 호출 구조를 참고한 [adapters/api.py](../ros2_ws/src/ready2go_voice/ready2go_voice/adapters/api.py)는 현재 온톨로지의 **물품 키·한국어 이름·별칭**을 prompt에 넣습니다. 목록·클래스·레지스트리 intent 자동 주입은 현재 경로에 없습니다. LangChain 후보 모델은 temperature 0·strict JSON을 사용하며 런타임 targets enum은 등록 물품 키로 생성합니다.
+
+```text
+제어/미지원·모호 규칙 → 필요한 경우 STT 텍스트 + 등록 물품 어휘 → LLM 후보
+  → 기존 intent 계약 + P1 허용값 + 단일 등록 대상 + 확신도 + 발화 의미 검증
+  → 오류·시간 초과·검증 실패: 같은 긍정 요청/별칭 규칙으로 폴백
+  → 최종 find_item: 평가/세대/중복/확인 TTS 게이트 → /voice/intent
 ```
 
-* **출력 형식 (구조화 출력 strict 모드 + 온톨로지에서 생성한 enum)**: `{"intent": "find_item|find_list|find_class|achieve_goal|query_state|<레지스트리 인텐트>|cancel|status|unknown|clarify", "targets": ["<온톨로지 키 enum>"], "goals": [{"predicate": "located_in|open", "subject": "<키 enum>", "value": "<장소·값 enum>"}], "query": {"predicate": "...", "subject": "..."} 또는 null, "clarify_question": "..." 또는 null, "confidence": 0.0~1.0}`
-* **고정 키 배열**: 목표는 `{"located_in.lip_balm": ...}` 같은 동적 키 객체가 아니라 `goals: [{predicate, subject, value}]` 배열로 받음(구조화 출력의 enum 검증이 가능하고 7.5 조건 형식과 동일).
-* **탈출값 필수**: enum에 `unknown`·`clarify`가 없으면 모델이 어휘 밖 요청에도 아무 물품이나 고르게 됨. 스키마는 형식만 보장하므로 의미(존재하는 물품인지, 현재 상태와 다른 목표인지)는 코드로 다시 검증.
-* **목표만 출력**: `achieve_goal`에서 LLM은 목표 상태만 내고 동작 순서는 만들지 않음. 순서는 플래너가 스킬 조건에서 도출(7.7). LLM+P(2023) 실험에서 같은 GPT-4가 계획을 직접 짜면 0~35%, 목표만 번역하고 플래너에 맡기면 85~95% 성공(선행 사례 보고서 참고).
-* **어휘 제한**: 프롬프트에 온톨로지의 키·한국어 이름·별칭 목록과 레지스트리 인텐트를 자동 주입하고, 목록에 없는 물품은 `unknown`으로 답하도록 지시(하드코딩 금지). 공간 표현("위 서랍", "앞 트레이")은 장소 enum 기호로만 받음.
-* **예시 필수**: 한국어 발화 → 출력 JSON 예시를 **1~3개** 프롬프트에 넣음(LLM+P에서 예시가 없으면 모든 도메인 0%).
-* **모델**: 추론형이 아닌 빠른 모델 사용. 정확성은 플래너·검증 코드가 보장하므로 속도를 우선.
-* **장점**: "차 탈 때 쓰는 열쇠", "아침에 들고 나가는 것들"처럼 별칭에 없는 자유 표현도 처리. 규칙 파서만으로는 불가능한 부분이 LLM 활용의 시연 포인트.
-* **로그**: STT 텍스트, LLM 원문 응답, 검증 결과, 폴백 사용 여부, 지연 시간을 실행 로그의 `inputs`에 함께 기록.
-* **지연 예산**: STT + LLM 합계 2.5초 이내(확인 TTS 시작까지 3초 목표, 14장).
+LLM 요청 스키마는 `intent`를 find_item/unknown/clarify로 제한하고 `targets`, `confidence`, `clarify_question`을 받습니다. cancel/status는 규칙 경로입니다. 외부 출력 정본 [intent.schema.json](../contracts/intent.schema.json)은 intent/confidence가 필수이며 현재 출력에서 targets·필요한 확인 질문과 진단 source를 덧붙입니다. strict 응답 형식이 사용자 의미의 정확성을 보장하지 않아 코드가 다시 검증합니다. P1은 goals/query 실행을 허용하지 않습니다.
+
+“지우개 찾아줘.”의 검증된 출력 예시(source 생략):
+
+```json
+{"intent": "find_item", "targets": ["eraser"], "confidence": 0.99}
+```
+
+이름 없는 추론의 실행 보류 예시:
+
+```json
+{"intent": "clarify", "targets": [], "confidence": 1.0, "clarify_question": "물품 이름과 가져오기 요청을 확인해 다시 말씀해 주세요."}
+```
+
+unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집계하지 않습니다. 진단 `llm_validation=passed`도 사용자 확인 완료·실행 허용을 뜻하지 않습니다. 현재 프롬프트에는 한국어 해석 예시가 있으나 프롬프트·정답표의 정확도는 E/D 평가로 확인해야 합니다. 모델 이름/속도 제안만으로 검증 코드나 플래너가 의미 정확성을 보장한다고 표현하지 않습니다.
+
+**P2/P3 계약·후속 출력 설계** [문서]
+
+- 계약 enum에는 find_list/find_class/achieve_goal/query_state도 있으나 스키마가 허용한다는 이유로 해당 기능·Phase를 자동 실행하지 않습니다. P1 런타임 허용값은 6.2와 같습니다.
+- P2 achieve_goal은 `goals: [{predicate, subject, value}]` 배열이며 계약의 predicate는 located_in/open입니다. [기존 목표 예시](../contracts/examples/intent_goal.json)의 lip_balm→drawer_bottom은 후속 설계 예시로 P1 출력이 아닙니다. 목표를 받으면 [온톨로지 7.5](ontology.md) 조건·결과와 [플래너 7.7](planner.md)에서 순서를 도출하는 계획이며 LLM이 동작 순서를 직접 생성하는 경로와 구분합니다.
+- P3 목록/클래스 대상 및 복합 태스크 호출은 해당 요구사항·담당 연결 검증이 필요합니다. 계약의 레지스트리 intent 런타임 추가 설명은 후속 연결 설명이며 현재 고정 enum을 임의 문자열이 통과한다는 뜻으로 사용하지 않습니다.
+- `query` 객체/null은 계약이 허용하지만 상태 질의 설계의 Phase는 미확정입니다. goals/query/source를 모든 intent의 필수 출력으로 확정하지 않습니다.
+
+**현재 진단과 C/D 인계** [문서]
+
+STT 원문·LLM 응답·검증·폴백·실행 허용·발행 여부·지연과 발화 종료/첫 PortAudio DAC 재생 시각은 ROS 진단 로그 또는 intent의 source에 제공합니다. source 부가 필드 수신/의미는 C/D 협의 대상입니다. 이를 C run_id/DB 실행 로그의 inputs·D 화면에 자동 기록하는 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
 
 ### 6.5 (Stretch) LLM 태스크 JSON 생성
 
-* **착수 조건**: Day 11 3차 챌린지 점검 통과 후, 담당 C·E.
-* **흐름**: 템플릿에 없는 자연어 요청 → LLM이 7.1의 원자 동작·제어 블록만으로 태스크 JSON 생성 → **스키마 검증(7.2)** → **기호적 드라이런**(온톨로지 상태 위에서 조건·결과만으로 모의 실행) → **트윈 사전 검증(10장)** → 통과한 경우에만 실물 실행.
-* **안전 장치**: 생성 JSON은 스키마 검증과 사전 검증을 통과하지 않으면 실물에 보내지 않음. `while`의 `max_iter`, 작업 영역 제한, E-stop 규칙은 그대로 적용.
-* **의미**: 챌린지 과제("코드 수정 없이 미정의 시나리오 수행")를 사람이 아닌 LLM이 JSON을 작성하는 수준까지 확장하고, 디지털 트윈이 그 안전 관문 역할을 함.
+**P3 후속 계획**: [FR-PLN-03](requirements.md#fr-pln-03)·[FR-TWN-02](requirements.md#fr-twn-02), [AC-LLM-01](requirements.md#ac-llm-01)에 연결된 Stretch입니다. 현재 P1 voice 구현에 없으며 고정 Day 11 문구로 현 일정·착수 승인을 확정하지 않습니다. 착수·범위·담당 C/E/A 연결은 별도 합의가 필요합니다. [문서]
+
+- 계획 흐름: 미정의 자연어 요청 → [Runner 7.1 원자 동작·제어 블록](runner.md)으로 태스크 JSON 생성 → [태스크 스키마 7.2](runner.md) 검증 → 조건·결과 기반 기호적 드라이런 → [트윈 10장](twin.md) 사전 검증 → 승인된 실물 운용 절차에 따른 실행. 현재 자동 연결된 기능으로 설명하지 않습니다.
+- 생성 태스크의 검사/거절, while max_iter·작업 영역·E-stop 등은 후속 구현·계약 대조 항목입니다. 트윈 통과를 실물 안전 검증으로 간주하지 않습니다.
+- 완료 기준은 자연어 요청 3건 이상에서 생성 태스크의 스키마·트윈 사전 검증 및 실물 실행 성공입니다. P2 목표 추출/자동 계획과 P3 Stretch 태스크 직접 생성의 범위를 구분합니다.
