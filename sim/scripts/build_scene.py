@@ -91,28 +91,95 @@ def box(stage, path, size, center, color, collide=True):
 
 
 HANDOVER_FINGER_M = 0.010    # [추정] interior_m 은 닫힌 손끝 "중심"이 닿는 범위 → 실제 바닥은 손가락 반 두께만큼 넓다고 봄
-HANDOVER_WALL_OUT_M = 0.008  # [추정] 사다리꼴 벽: 윗면 중심이 바닥 끝에서 약 16 mm 바깥(places.yaml 테두리 터치) → 세운 벽을 그 중간에 둠
+HANDOVER_RIM_OUT_M = 0.0158  # [실측 B 10/05] 벽 윗면 중심이 바닥 끝(손끝 범위)에서 바깥으로 15.8 mm (서동권 쪽 벽). 네 벽 같다고 봄 [추정]
 HANDOVER_WALL_T = 0.004      # [추정]
+HANDOVER_CORNER_R = 0.012    # [추정] 모서리 둥글기 반경 (안쪽 면, 바닥 기준). 보이는 형상에만 씀
+
+
+def _round_rect(d, w, e, r, z, k=10):
+    """손끝 범위 사각형(0~d, 0~w)을 바깥으로 e 만큼 넓히고 모서리를 반경 r 로 둥글린 고리 점들 (반시계)."""
+    pts = []
+    for cx, cy, a0 in ((d + e - r, -e + r, -90), (d + e - r, w + e - r, 0), (-e + r, w + e - r, 90), (-e + r, -e + r, 180)):
+        for i in range(k + 1):
+            a = math.radians(a0 + 90 * i / k)
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a), z))
+    return pts
+
+
+def rounded_tray_visual(stage, path, d, w, h, lo, hi, t, r, col):
+    """보이는 트레이: 둥근 모서리 사다리꼴 벽(안쪽 면·윗면·바깥 면·밑면)과 둥근 바닥판을 메시 둘로. 충돌 없음."""
+    rings = [_round_rect(d, w, lo, r, 0.0), _round_rect(d, w, hi, r, h), _round_rect(d, w, hi + t, r + t, h), _round_rect(d, w, lo + t, r + t, 0.0)]
+    n = len(rings[0])
+    pts = [Gf.Vec3f(*q) for ring in rings for q in ring]
+    counts, idx = [], []
+    for a in range(4):                                                   # 안쪽 면 → 윗면 → 바깥 면 → 밑면 → 다시 안쪽
+        b = (a + 1) % 4
+        for i in range(n):
+            j = (i + 1) % n
+            counts.append(4)
+            idx += [a * n + i, a * n + j, b * n + j, b * n + i]
+    shell = UsdGeom.Mesh.Define(stage, f"{path}_walls")
+    shell.CreatePointsAttr(pts)
+    shell.CreateFaceVertexCountsAttr(counts)
+    shell.CreateFaceVertexIndicesAttr(idx)
+    shell.CreateSubdivisionSchemeAttr("none")
+    shell.CreateDoubleSidedAttr(True)
+    shell.CreateDisplayColorAttr([Gf.Vec3f(*col)])
+    top, bot = _round_rect(d, w, lo, r, 0.0), _round_rect(d, w, lo, r, -t)
+    fpts = [Gf.Vec3f(*q) for q in top + bot]
+    fc, fi = [len(top), len(bot)], list(range(len(top))) + list(range(2 * len(top) - 1, len(top) - 1, -1))
+    for i in range(len(top)):
+        j = (i + 1) % len(top)
+        fc.append(4)
+        fi += [i, len(top) + i, len(top) + j, j]
+    floor = UsdGeom.Mesh.Define(stage, f"{path}_floor")
+    floor.CreatePointsAttr(fpts)
+    floor.CreateFaceVertexCountsAttr(fc)
+    floor.CreateFaceVertexIndicesAttr(fi)
+    floor.CreateSubdivisionSchemeAttr("none")
+    floor.CreateDoubleSidedAttr(True)
+    floor.CreateDisplayColorAttr([Gf.Vec3f(*col)])
 
 
 def handover_tray(stage):
-    """전달 트레이(places.yaml handover_zone): 좌표계 원점 = 앞쪽 오른쪽 바닥 모서리, 바닥면 z = 0. 고정 물체(충돌만)."""
+    """전달 트레이(places.yaml handover_zone): 위로 갈수록 넓어지는 사다리꼴. 좌표계 원점 = 앞쪽 오른쪽 바닥 모서리(손끝 범위),
+    바닥면 z = 0. 벽은 바닥 끝(손끝 범위 − HANDOVER_FINGER_M)에서 윗면(− HANDOVER_RIM_OUT_M, 높이 h)까지 기운 판. 고정 물체(충돌만)."""
     hz_ = PLACES.get("handover_zone") or {}
     tf, inner = hz_.get("tf"), hz_.get("interior_m")
     if not tf or not tf.get("translation_m") or not inner:
         return "만들지 않음 (places.yaml handover_zone tf·interior_m 없음)"
     d, w, h = (float(v) for v in inner)
-    m, o, t = HANDOVER_FINGER_M, HANDOVER_WALL_OUT_M, HANDOVER_WALL_T
+    m, o, t = HANDOVER_FINGER_M, HANDOVER_RIM_OUT_M, HANDOVER_WALL_T
     root = "/World/workspace/handover_tray"
     xform(stage, root, pose(tf["translation_m"], tf["quaternion_xyzw"]))
     col = (0.35, 0.45, 0.7)
-    box(stage, f"{root}/floor", (d + 2 * (m + o), w + 2 * (m + o), t), ((d) / 2, w / 2, -t / 2), col)
-    for nm, size, c in (("wall_near", (t, w + 2 * (m + o), h), (-m - o, w / 2, h / 2)),
-                        ("wall_far", (t, w + 2 * (m + o), h), (d + m + o, w / 2, h / 2)),
-                        ("wall_right", (d + 2 * (m + o), t, h), (d / 2, -m - o, h / 2)),
-                        ("wall_left", (d + 2 * (m + o), t, h), (d / 2, w + m + o, h / 2))):
-        box(stage, f"{root}/{nm}", size, c, col)
-    return f"{root} 바닥 {d * 1000:.0f}×{w * 1000:.0f} mm(손끝 범위) 높이 {h * 1000:.0f} mm, 원점 {tf['translation_m']}"
+    hidden = [box(stage, f"{root}/floor", (d + 2 * m, w + 2 * m, t), (d / 2, w / 2, -t / 2), col)]   # 충돌용 (보이는 건 아래 둥근 메시)
+    slant = o - m                                                       # 높이 h 동안 바깥으로 벌어지는 거리
+    ang = math.atan2(slant, h)
+    # 벽 = 사다리꼴 판(아래 변은 바닥 끝, 위 변은 윗면 위치, 모서리에서 이웃 벽과 맞닿음) — 안쪽 면 4점 + 바깥으로 두께 t
+    lo, hi = m, o                                                       # 바닥 끝·윗면이 손끝 범위 끝에서 바깥으로 나간 거리
+    walls = {
+        "wall_near": ([(-lo, -lo, 0), (-lo, w + lo, 0), (-hi, w + hi, h), (-hi, -hi, h)], (-1, 0)),
+        "wall_far": ([(d + lo, -lo, 0), (d + lo, w + lo, 0), (d + hi, w + hi, h), (d + hi, -hi, h)], (1, 0)),
+        "wall_right": ([(-lo, -lo, 0), (d + lo, -lo, 0), (d + hi, -hi, h), (-hi, -hi, h)], (0, -1)),
+        "wall_left": ([(-lo, w + lo, 0), (d + lo, w + lo, 0), (d + hi, w + hi, h), (-hi, w + hi, h)], (0, 1)),
+    }
+    for nm, (inner_pts, (nx, ny)) in walls.items():
+        pts = [Gf.Vec3f(*q) for q in inner_pts] + [Gf.Vec3f(q[0] + nx * t, q[1] + ny * t, q[2]) for q in inner_pts]
+        mesh = UsdGeom.Mesh.Define(stage, f"{root}/{nm}")
+        mesh.CreatePointsAttr(pts)
+        mesh.CreateFaceVertexCountsAttr([4] * 6)
+        mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3, 7, 6, 5, 4, 0, 4, 5, 1, 1, 5, 6, 2, 2, 6, 7, 3, 3, 7, 4, 0])
+        mesh.CreateDisplayColorAttr([Gf.Vec3f(*col)])
+        mesh.CreateDoubleSidedAttr(True)
+        UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+        UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim()).CreateApproximationAttr("convexHull")
+        hidden.append(mesh.GetPrim())
+    for prim in hidden:                                                  # 충돌만 하고 화면에는 안 보임
+        UsdGeom.Imageable(prim).MakeInvisible()
+    rounded_tray_visual(stage, f"{root}/visual", d, w, h, lo, hi, t, HANDOVER_CORNER_R, col)
+    return (f"{root} 바닥 {(d + 2 * m) * 1000:.0f}×{(w + 2 * m) * 1000:.0f} mm, 윗면 {(d + 2 * o) * 1000:.0f}×{(w + 2 * o) * 1000:.0f} mm, "
+            f"높이 {h * 1000:.0f} mm (벽 기울기 {math.degrees(ang):.1f}°), 원점 {tf['translation_m']}")
 
 
 def build():
