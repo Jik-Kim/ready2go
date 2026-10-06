@@ -3,7 +3,7 @@
 # 전제: 호스트 DSR 드라이버(roboton) 실행 중, 컨테이너 ros2-core 멈춤, r2gjog 꺼짐(같이 명령하지 않게).
 #   bash b_flow.sh demo [go|N]  10/06 시연 흐름 (사용자 지정 순서·좌표, 단계마다 Enter / go = 끝까지 / N = N단계부터)
 #   bash b_flow.sh build      메시지 패키지(ready2go_interfaces)만 호스트에 빌드 — 처음 한 번
-#   bash b_flow.sh server     스킬 서버 (터미널 1, 계속 켜 둠)
+#   bash b_flow.sh server     스킬 서버 (터미널 1, 계속 켜 둠). 관절 속도 VEL=60 JACC=40 기본, 느리게 보려면 VEL=20 JACC=20
 #   bash b_flow.sh all        터미널 2: 홈에서 열기 → 탑뷰 → 인식(A 비전, 없으면 고정 좌표) → 끌기 → 집기 → 놓기 → 닫기 → 홈
 #   bash b_flow.sh <동작>     하나만: open | opened | view | scan | nudge | pick | place | close | home
 #     opened = 서랍을 손으로 끝까지 연 것으로 서버에 알림 (로봇 동작 없음)
@@ -29,7 +29,8 @@ case "$1" in
     server)
         ros_env
         cd "$R/ros2_ws/src/ready2go_skills" && RG2_HOST="${RG2_HOST:-192.168.1.1}" exec python3 -m ready2go_skills.nodes.skill_server \
-            --ros-args -p joint_vel_deg_s:="$(python3 -c "print(float('${VEL:-30}'))")" -p config_dir:="$R/config" ;;
+            --ros-args -p joint_vel_deg_s:="$(python3 -c "print(float('${VEL:-60}'))")" \
+            -p joint_acc_deg_s2:="$(python3 -c "print(float('${JACC:-40}'))")" -p config_dir:="$R/config" ;;   # 10/06 저녁 2배 (30·20 → 60·40)
     demo)
         ros_env
         shift

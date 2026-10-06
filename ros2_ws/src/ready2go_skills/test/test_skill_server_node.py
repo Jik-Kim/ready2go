@@ -213,11 +213,12 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     out, data = server.run("place_object", {"location": "handover_zone"})
     log = server.srv.robot.log
     assert out.success and data["slot"] == "handover_zone_1"
-    kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이) → 놓는 자리, 직선 블렌딩 한 번
-    assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 5
-    assert radii == [20.0, 20.0, 20.0, 20.0, 0.0]
-    assert pts[3][2] == pytest.approx(route[-1][2]) and pts[3][:2] == pytest.approx(pts[4][:2])
-    assert pts[4][2] < pts[3][2] and log[1][0] == "movel"               # 놓은 뒤 위로
+    kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이), 직선 블렌딩 한 번
+    assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 4
+    assert radii == [20.0, 20.0, 20.0, 0.0]
+    assert pts[3][2] == pytest.approx(route[-1][2])
+    assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
+    assert log[2][0] == "movel"                                         # 놓은 뒤 위로
     log.clear()
     out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
     assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-291.757 + 226.0 + 11.1 + 30.0, abs=1.0)   # 홈 안 거치고 손잡이 앞으로 바로
@@ -264,7 +265,8 @@ def test_runner_open_path_lifts_before_ready_and_does_not_redo_it(server):
     assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(300.0) and log[1] == ("movej", ready)
     log.clear()
     server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
-    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-289.757, abs=0.5)   # 바로 손잡이로
+    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-289.757 + 10.0, abs=0.5)   # 바로 손잡이 1 cm 앞(빠르게)
+    assert log[1][0] == "movel" and log[1][1][1] == pytest.approx(-289.757, abs=0.5)        # 마지막 1 cm 천천히
     assert ("movej", ready) not in log
 
 

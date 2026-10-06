@@ -503,7 +503,11 @@ class SkillServer(Node):
                 return sf.Outcome(False, GRASP_FAILED, reason=f"손잡이 접근 중 {push:.1f} N 접촉 — 서랍이 끝까지 닫혔는지 확인")
             return None
 
-        bad = self._line(goal, handle, speed["approach_mm_s"], "reach_handle", watch=touched)
+        slow = oc.get("handle_slow_last_mm", 0.0)          # 잡기 1 cm 전까지는 빠르게, 마지막만 천천히 [사용자 10/06 저녁] (접촉 감시는 둘 다)
+        bad = self._line(goal, mp.offset_posx(handle, pull, slow), speed["line_mm_s"], "reach_handle_fast",
+                         watch=touched) if slow > 0 else None
+        if bad is None:
+            bad = self._line(goal, handle, speed["approach_mm_s"], "reach_handle", watch=touched)
         if bad:
             if sf.is_safety(bad):
                 return bad, None
@@ -864,7 +868,7 @@ class SkillServer(Node):
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
-        legs, at_target = [], False
+        legs = []
         route = self._carry_route(self.held.get("drawer_id"))
         if route and self._over_drawer(cur):
             # 들고 나오기(carry_line): 경유점 1(서랍 중앙) → 2·3·4 → 트레이 칸 위(4번 높이) → 놓는 자리를 직선 블렌딩으로 한 번에,
@@ -874,12 +878,12 @@ class SkillServer(Node):
                 if bad:
                     return bad, None
                 time.sleep(prm["carry"]["pause_s"])
-            pts = route[1:] + [list(target[:2]) + [route[-1][2]] + list(target[3:]), list(target)]
+            pts = route[1:] + [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)까지 블렌딩, 거기서 정지
             rad = prm["carry"]["radius_mm"]
             bad = self._blend(goal, pts, [rad] * (len(pts) - 1) + [0.0], speed["line_mm_s"], "carry")
             if bad:
-                return bad, None
-            at_target = True
+                return bad, None                            # 놓는 자리로는 grasp_mm_s 로 살포시 (10/06 저녁: 놓기는 빠르게 하지 않음)
+            above = list(pts[-1])                           # 이미 칸 위 — 다시 올리지 않음, 놓은 뒤에도 여기로
         elif self._over_drawer(cur):
             # 들고 나오기(carry_out): 직접교시 경유점 4개를 movesj 로 한 번에 — 서랍 안 → 서랍 위 → 앞판 넘음 → 트레이 쪽
             # [사용자 직접교시·실물 확인 B 10/06]. 그다음 트레이 칸 위로 직선 (4번 높이, y = 트레이 가운데)
@@ -896,7 +900,8 @@ class SkillServer(Node):
             if p4 is None:
                 return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
             above = list(above[:2]) + [p4[2]] + list(above[3:])
-        legs.append((above, "transport"))
+        if not (route and self._over_drawer(cur)):
+            legs.append((above, "transport"))
         for pose, st in legs:
             bad = self._line(goal, pose, speed["line_mm_s"], st)
             if bad:
@@ -911,7 +916,7 @@ class SkillServer(Node):
         if not hold.held:
             self.held = None
             return sf.Outcome(False, gc.FAILURE_CODE["transport"], reason=f"옮기는 중 놓침 ({hold.reason})"), None
-        bad = None if at_target else self._line(goal, target, speed["grasp_mm_s"], "lower")
+        bad = self._line(goal, target, speed["grasp_mm_s"], "lower")
         if bad:
             return bad, None
         goal.publish_feedback(Skill.Feedback(stage="release"))
