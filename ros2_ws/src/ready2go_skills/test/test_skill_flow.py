@@ -397,7 +397,7 @@ def _wait_arrived(f, arrived, timeout=30.0):
 
 def test_late_start_is_not_taken_as_done_when_arrival_is_checked():
     f = Fake([1] * 15 + [2] * 20 + [1])      # 0.75 s 동안 대기 상태로 읽힌 뒤 출발
-    o = _wait_arrived(f, arrived=lambda: False)
+    o = _wait_arrived(f, arrived=lambda: f.i > 35)
     assert o.success and f.i == 36           # 이동을 끝까지 기다림 (예전에는 0.3 s 에 끝)
 
 
@@ -468,3 +468,24 @@ def test_motion_state_passes_estop_and_unknown_through():
     assert sf.MotionState(lambda: 6, lambda: [0.0] * 6)() == 6
     assert sf.MotionState(lambda: None, lambda: [0.0] * 6)() is None
     assert sf.MotionState(lambda: 1, lambda: None)() == 1
+
+
+def test_stopped_short_of_target_is_not_reached():
+    """#83 D 재검토 P1: 움직이다가 목표 전에 멈추면 성공이 아님 (직선 이동은 뒤에 도착 검사가 없음)."""
+    f = Fake([2] * 10 + [1] * 10)
+    o = _wait_arrived(f, arrived=lambda: False)
+    assert (o.success, o.error_code) == (False, sf.NOT_REACHED) and f.stopped == 0
+
+
+def test_stopped_at_target_succeeds():
+    f = Fake([2] * 10 + [1] * 10)
+    o = _wait_arrived(f, arrived=lambda: f.i > 10)
+    assert o.success
+
+
+def test_watch_stop_mid_path_keeps_watch_outcome():
+    f = Fake([2] * 100)
+    hit = sf.Outcome(True, reason="접촉")
+    o = sf.wait_motion(get_state=f.state, cancel_requested=f.cancel, stop=f.stop, timeout_s=30.0, clock=f.clock,
+                       sleep=f.sleep, watch=lambda: hit if f.i > 5 else None, arrived=lambda: False)
+    assert o is hit and f.stopped == 1

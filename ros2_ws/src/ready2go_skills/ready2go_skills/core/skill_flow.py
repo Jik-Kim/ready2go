@@ -223,7 +223,7 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
     - timeout_s 초과 → 정지 → 확인되면 MOTION_TIMEOUT, 아니면 STOP_UNCONFIRMED
     - 상태 조회 실패(None)는 '끝남'이 아니라 '모름'. unknown_limit_s 넘게 계속되면 정지 → STATE_UNKNOWN / STOP_UNCONFIRMED
     - 이동 시작 전 잠깐(settle_s)은 '이동 중'이 아니어도 끝난 것으로 보지 않는다 (명령 직후 상태가 늦게 바뀜).
-    - arrived()(목표에 있는지)를 주면: '이동 중'을 한 번도 못 봤을 때는 목표에 있을 때만 끝. start_timeout_s 안에
+    - arrived()(목표에 있는지)를 주면: 멈췄을 때 목표에 없으면 NOT_REACHED. '이동 중'을 한 번도 못 봤을 때는 목표에 있을 때만 끝. start_timeout_s 안에
       움직이지도 도착하지도 않으면 정지 → MOVE_NOT_STARTED. 실물 10°/s 에서 '이동 중'으로 바뀌는 데 0.3 s 넘게 걸려
       출발 전에 끝으로 판단한 사고 대응 (10/06 C 연결 확인, NOT_REACHED 195°)."""
     t0 = clock()
@@ -255,6 +255,8 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
             seen_moving = seen_moving or moving
             if not moving:
                 if seen_moving:
+                    if arrived is not None and not arrived():      # 목표 전에 멈춤 → 다음 단계로 가지 않음 (#83 D 재검토 P1)
+                        return Outcome(False, NOT_REACHED, reason=f"이동이 멈췄지만 목표에 없음 ({elapsed:.1f} s)")
                     return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
                 if arrived is None:
                     if elapsed >= settle_s:
