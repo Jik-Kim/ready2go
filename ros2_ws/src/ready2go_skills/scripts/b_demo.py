@@ -25,6 +25,7 @@ from ready2go_skills.adapters.rg2 import Rg2  # noqa: E402
 CFG = Path.home() / "ready2go" / "config"
 SRV = "/dsr01/dsr_controller2/"
 J5_MAX = 133.0                                   # 펜던트 안전 135° [사용자 10/06]
+J3_MIN = 10.0                                    # J3 0~10° 는 팔이 거의 펴져 튐 [사용자 10/06]
 
 # ---- 좌표 (전부 10/06 실측·직접교시, base mm·deg) ----
 HOME = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
@@ -123,6 +124,8 @@ class Robot:
     def movej(self, j, vel=20.0 * SPEED):
         if abs(j[4]) > J5_MAX:
             raise Stop(f"J5 {j[4]}° > {J5_MAX}°")
+        if j[2] < J3_MIN:
+            raise Stop(f"J3 {j[2]}° < {J3_MIN}° — 팔이 펴져 튐")
         r = self.call(MoveJoint, "motion/move_joint", timeout=90.0, pos=[float(v) for v in j], vel=vel, acc=vel,
                       time=0.0, radius=0.0, mode=0, blend_type=0, sync_type=0)
         if not (r and r.success):
