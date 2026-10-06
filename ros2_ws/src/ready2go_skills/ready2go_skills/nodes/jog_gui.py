@@ -9,7 +9,10 @@
 - 움직이는 중 누른 버튼은 무시, 움직이기 전에 자동 모드로 바꾸고 바뀔 때까지 기다린다. 거부되면 상태·모드를 표시.
 - 시작·'툴 확인' 때 펜던트 툴 설정(TCP, 툴 무게)이 config와 같은지 확인하고, 다르면 이동 버튼을 막는다
   (10/04 툴 설정이 풀려 좌표가 플랜지 기준으로 읽힌 사고, #6).
-- 축 정렬 x / y / z / r (core/pose_math.py): TCP 위치 고정, 20° 이하 조각, 돌기 전 확인창, 정렬 후 직접교시(선택).
+- 축 정렬 x / y / z / r (core/pose_math.py): TCP 위치 고정, 한 번에 돌기(170° 넘으면 2번), 돌기 전 확인창, 정렬 후 직접교시(선택).
+- 그리퍼 회전 +/− (r 정렬 옆, 기본 90°): 툴 z 둘레, TCP 위치 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향.
+- 기울이기 왼(−x)·오른(+x)·앞(+y)·뒤(−y)·수직: TCP 위치 고정, 수직 아래에서 각도 칸(기본 30°)만큼 손끝을 그쪽으로
+  (nudge_object 끌기 자세 시험용, 트러블슈팅 2). 축 정렬과 같은 확인창, 끝나도 직접교시로 바꾸지 않음.
 - grip(힘 칸) / release(최대) / 폭만큼 열기(폭 칸), 직접교시 ON/OFF, gohome(확인창).
 - 창 닫기(X)·Ctrl+C: 움직이는 중이면 정지 명령을 보내고 깔끔하게 종료.
 
@@ -35,7 +38,8 @@ from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCur
                            GetRobotState, Jog, MoveJoint, MoveLine, MoveStop, SetRobotMode)
 
 from ready2go_skills.adapters.rg2 import Rg2
-from ready2go_skills.core.pose_math import align_target, rot, rotation_angle, step_target, waypoints, wrap
+from ready2go_skills.core.pose_math import (align_target, roll_target, rot, rotation_angle, step_target, tilt_target,
+                                            waypoints, wrap)
 
 SRV = "/dsr01/dsr_controller2"
 HOLD_DELAY_MS = 350          # 이보다 오래 누르면 '꾹 누르기'
@@ -44,11 +48,17 @@ REFRESH_TIMEOUT_S = 0.5      # 화면 갱신용 조회 타임아웃 (드라이�
 STEP_CONFIRM_DEG = 10.0      # 한 칸 이동이 이보다 크면 확인창 (관절·회전)
 STEP_CONFIRM_MM = 20.0       # 한 칸 이동이 이보다 크면 확인창 (직선)
 HOME_VEL = 40.0              # gohome 관절 속도 deg/s
-ALIGN_VEL, ALIGN_STEP_DEG = 20.0, 20.0
+ALIGN_VEL, ALIGN_ACC = 30.0, 60.0   # 회전(축 정렬·기울이기·그리퍼 회전) 속도 deg/s·가속 (10/06 사용자 요청으로 실제 10 → 30°/s)
+ALIGN_STEP_DEG = 170.0       # 이보다 큰 회전만 나눔 — 180° 근처는 도는 방향이 정해지지 않아서 (사용자 요청 10/06: 중간 멈춤 없앰)
+PIECE_TIMEOUT_EXTRA_S = 5.0  # 회전 시간(각도 / ALIGN_VEL) + 이 안에 도착하지 않으면 정지
 JOINT_VEL, JOINT_ACC, LINE_VEL, LINE_ACC = 20, 20, 30, 60    # 슬라이더 기본값 (강의 jog 60은 빠름)
 STATE = {0: "초기화", 1: "대기", 2: "이동 중", 3: "서보 꺼짐", 4: "직접교시", 5: "안전 정지",
          6: "비상정지", 7: "홈", 8: "복구 모드", 9: "안전 정지2", 10: "서보 꺼짐2", 15: "준비 안 됨"}
 ALIGN_NAMES = {"x": "x 정렬 (수평·바깥)", "y": "y 정렬 (수평·-y)", "z": "z 정렬 (수직 아래)", "r": "r 정렬 (90° 칸)"}
+TILT_DIRS = (("← 왼 (−x, 로봇 쪽)", (-1.0, 0.0)), ("오른 (+x) →", (1.0, 0.0)),
+             ("앞 (+y, 내 반대쪽)", (0.0, 1.0)), ("뒤 (−y, 내 쪽)", (0.0, -1.0)))   # 서동권 자리(base −y)에서 본 방향
+TILT_DEFAULT, TILT_MAX = 30.0, 45.0
+ROLL_DEFAULT, ROLL_MAX = 90.0, 180.0     # 그리퍼 회전(툴 z 둘레) 한 번에
 
 
 def find_config_dir():
@@ -142,9 +152,12 @@ class Robot:
         time.sleep(0.5)
         self.call("setmode", robot_mode=0)
 
-    def movel(self, pose, vel, acc):
-        r = self.call("movel", pos=[float(v) for v in pose], vel=[float(vel), float(vel) / 2],
-                      acc=[float(acc), float(acc) / 2], ref=0, mode=0, sync_type=1)
+    def movel(self, pose, vel, acc, rot_vel=None, rot_acc=None):
+        """vel·acc = 직선(mm/s), 회전은 rot_vel·rot_acc(deg/s), 없으면 직선의 절반 (강의 jog 그대로)."""
+        rv = float(vel) / 2 if rot_vel is None else float(rot_vel)
+        ra = float(acc) / 2 if rot_acc is None else float(rot_acc)
+        r = self.call("movel", pos=[float(v) for v in pose], vel=[float(vel), rv],
+                      acc=[float(acc), ra], ref=0, mode=0, sync_type=1)
         return bool(r and r.success)
 
     def movej(self, joints, vel, acc):
@@ -195,6 +208,7 @@ class App:
         self.click = None
         self.quit_req = False        # Ctrl+C 요청 (신호 처리기에서 표시만 하고 watchdog에서 종료)
         self.seq = []                # 정렬 조각 목록 (하나씩 보냄)
+        self.rotating = False        # 조각 도착 기다리는 중
         self.move_buttons = []
 
         self.joint = self.entries(["J1", "J2", "J3", "J4", "J5", "J6", "Speed", "Acc"], 0, JOINT_VEL, JOINT_ACC, 50)
@@ -227,10 +241,29 @@ class App:
         af.grid(row=11, column=0, columnspan=9, pady=8)
         for mode, text in ALIGN_NAMES.items():
             self.mb(tk.Button(af, text=text, command=lambda m=mode: self.align(m))).pack(side=tk.LEFT, padx=4)
+        tk.Label(af, text="그리퍼 회전").pack(side=tk.LEFT, padx=(10, 2))
+        self.roll_deg = tk.Entry(af, width=4)
+        self.roll_deg.insert(0, f"{ROLL_DEFAULT:g}")
+        self.roll_deg.pack(side=tk.LEFT)
+        tk.Label(af, text="°").pack(side=tk.LEFT)
+        for sign, text in ((1, "+ (위에서 시계)"), (-1, "− (반시계)")):
+            self.mb(tk.Button(af, text=text, command=lambda s=sign: self.roll(s))).pack(side=tk.LEFT, padx=2)
         self.snap = tk.BooleanVar(value=False)
         self.teach_after = tk.BooleanVar(value=True)
         tk.Checkbutton(af, text="직각도 맞춤", variable=self.snap).pack(side=tk.LEFT, padx=4)
         tk.Checkbutton(af, text="정렬 후 직접교시", variable=self.teach_after).pack(side=tk.LEFT, padx=4)
+
+        tf = tk.Frame(self.root)
+        tf.grid(row=17, column=0, columnspan=9, pady=8)
+        tk.Label(tf, text="기울이기 (TCP 고정, 손끝이 그쪽으로)").pack(side=tk.LEFT, padx=4)
+        self.tilt_deg = tk.Entry(tf, width=5)
+        self.tilt_deg.insert(0, f"{TILT_DEFAULT:g}")
+        self.tilt_deg.pack(side=tk.LEFT)
+        tk.Label(tf, text="°").pack(side=tk.LEFT, padx=(0, 6))
+        for text, d in TILT_DIRS:
+            self.mb(tk.Button(tf, text=text, command=lambda t=text, d=d: self.tilt(d, t))).pack(side=tk.LEFT, padx=2)
+        self.mb(tk.Button(tf, text="수직", command=lambda: self.tilt((1.0, 0.0), "수직", 0.0))).pack(side=tk.LEFT, padx=6)
+        self.teach_when_done = False         # 축 정렬 = 체크박스 따라, 기울이기 = 직접교시로 바꾸지 않음
 
         for i in range(6):
             for column, sign, group in ((2, 1, "j"), (3, -1, "j"), (7, 1, "x"), (8, -1, "x")):
@@ -353,7 +386,7 @@ class App:
                         e.delete(0, tk.END)
                         e.insert(0, f"{v:.3f}")
         s = self.r.state(t)
-        mode = "정렬 중" if self.seq else STATE.get(s, s)
+        mode = "정렬 중" if self.seq or self.rotating else STATE.get(s, s)
         self.status.config(text=f"상태: {mode}   ({time.strftime('%H:%M:%S')} 갱신)   {self.g.text}")
         self.root.after(300, self.refresh)
 
@@ -466,23 +499,54 @@ class App:
         if p is None:
             return
         target = align_target(p, mode, self.snap.get())
+        self.teach_when_done = self.teach_after.get()
+        self.rotate_to(p, target, f"{ALIGN_NAMES[mode]}{' + 직각' if self.snap.get() and mode != 'r' else ''}", "축 정렬")
+
+    def roll(self, sign):
+        """그리퍼 축(툴 z) 둘레로 ±각도 칸(기본 90°) 회전, TCP 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향."""
+        if not self.can_move():
+            return
+        p = self.r.posx()
+        if p is None:
+            return
+        deg = sign * self.num(self.roll_deg, ROLL_DEFAULT, ROLL_MAX)
+        self.teach_when_done = False
+        self.rotate_to(p, roll_target(p, deg), f"그리퍼 회전 {deg:+g}° (툴 z 둘레)", "그리퍼 회전",
+                       "\n\n손가락이 서랍 벽·물체에 닿지 않는 높이인지 확인하세요.")
+
+    def tilt(self, direction, name, deg=None):
+        """수직 아래에서 direction 쪽으로 기울이기 (deg None = 각도 칸 값). 끌기(nudge_object) 자세 시험용."""
+        if not self.can_move():
+            return
+        p = self.r.posx()
+        if p is None:
+            return
+        deg = self.num(self.tilt_deg, TILT_DEFAULT, TILT_MAX) if deg is None else deg
+        target = tilt_target(p, direction, deg)
+        self.teach_when_done = False
+        self.rotate_to(p, target, f"기울이기 {name} {deg:g}°" if deg else "수직 아래로", "기울이기",
+                       "\n\n서랍·물체 안이면 손가락이 벽에 닿을 수 있으니 먼저 올리세요.")
+
+    def rotate_to(self, p, target, title, what, warn=""):
+        """TCP 고정 회전: 확인창 → 한 번에 (170° 넘으면 2번) (축 정렬·기울이기·그리퍼 회전 공통)."""
         self.seq = waypoints(p, target, ALIGN_STEP_DEG)
         if not self.seq:
-            self.status.config(text="이미 정렬되어 있음")
+            self.status.config(text="이미 그 자세임")
             self.after_align()
             return
         turn = rotation_angle(rot(*p[3:]), rot(*target[3:]))
         dmax = max(abs(wrap(target[i] - p[i])) for i in range(3, 6))
-        msg = (f"{ALIGN_NAMES[mode]}{' + 직각' if self.snap.get() and mode != 'r' else ''}\n\n"
+        msg = (f"{title}\n\n"
                f"현재  {[round(v, 2) for v in p[3:]]}\n목표  {[round(v, 2) for v in target[3:]]}\n\n"
-               f"회전 {turn:.1f}° → {len(self.seq)}조각(조각당 {ALIGN_STEP_DEG:g}° 이하), {ALIGN_VEL:g}°/s\n"
+               f"회전 {turn:.1f}°{f' ({len(self.seq)}번에 나눠)' if len(self.seq) > 1 else ''}, {ALIGN_VEL:g}°/s\n"
                f"Rx·Ry·Rz 최대 변화 {dmax:.1f}°\n위치는 그대로, 방향만 돌립니다.")
         if dmax > 90.0:
             msg += "\n\n주의: 각도 값이 90° 넘게 바뀝니다. 그리퍼가 크게 돌 수 있으니 주변을 확인하세요."
+        msg += warn
         print(msg.replace("\n\n", "\n"))
-        if not messagebox.askokcancel("축 정렬 확인", msg, parent=self.root):
+        if not messagebox.askokcancel(f"{what} 확인", msg, parent=self.root):
             self.seq = []
-            self.status.config(text="정렬 취소")
+            self.status.config(text=f"{what} 취소")
             return
         self.next_piece()
 
@@ -490,28 +554,44 @@ class App:
         """정렬 조각을 하나 보내고, 끝나면(이동 중 아님) 다음 조각. 정지 버튼을 누르면 목록을 비운다."""
         if not self.seq:
             return
-        if not self.r.movel(self.seq.pop(0), ALIGN_VEL, ALIGN_VEL * 2):
-            self.seq = []
+        piece = self.seq.pop(0)
+        self.rotating = True
+        if not self.r.movel(piece, 30.0, 60.0, ALIGN_VEL, ALIGN_ACC):   # TCP 고정이라 직선 속도는 거의 안 씀
+            self.seq, self.rotating = [], False
             self.report(False, "정렬")
             return
-        self.wait_piece(time.monotonic(), False)
+        cur = self.r.posx()
+        turn = rotation_angle(rot(*cur[3:]), rot(*piece[3:])) if cur else 180.0
+        self.wait_piece(time.monotonic(), piece, turn / ALIGN_VEL + PIECE_TIMEOUT_EXTRA_S)
 
-    def wait_piece(self, t0, seen):
-        st = self.r.state()
-        seen = seen or st == 2
-        if (seen or time.monotonic() - t0 > 1.0) and st != 2:
+    def wait_piece(self, t0, piece, limit_s):
+        """조각 목표에 도착하고(1 mm·0.5°) 멈춘 뒤 다음 조각. 실물 드라이버는 이동 중에도 '이동 중' 상태가 늦거나
+        안 뜰 때가 있어(10/06 스킬 서버) 상태값만 보지 않는다. limit_s 안에 못 오면 정지하고 남은 조각 취소."""
+        if not self.rotating:                # 정지 버튼으로 취소됨
+            return
+        st, p = self.r.state(), self.r.posx()
+        there = p is not None and (max(abs(p[i] - piece[i]) for i in range(3)) <= 1.0
+                                   and rotation_angle(rot(*p[3:]), rot(*piece[3:])) <= 0.5)
+        if there and st != 2:
             if self.seq:
                 self.next_piece()
             else:
+                self.rotating = False
                 self.after_align()
             return
-        self.root.after(80, lambda: self.wait_piece(t0, seen))
+        if time.monotonic() - t0 > limit_s:
+            self.stop_all()
+            self.status.config(text=f"회전이 {limit_s:.0f}초 안에 도착하지 않아 정지")
+            return
+        self.root.after(80, lambda: self.wait_piece(t0, piece, limit_s))
 
     def after_align(self):
         self.clear_marks()
-        if self.teach_after.get():
+        if self.teach_when_done:
             self.r.teach()
             self.status.config(text="정렬 끝 → 직접교시 ON")
+        else:
+            self.status.config(text="회전 끝")
 
     # --- 모드·홈·정지 ---
     def teach_on(self):
@@ -532,13 +612,13 @@ class App:
             self.clear_marks()
 
     def stop_all(self):
-        self.seq = []                        # 정렬 중이면 남은 조각 취소
+        self.seq, self.rotating = [], False  # 정렬·기울이기 중이면 남은 조각 취소
         self.end_hold()
         self.r.stop()
 
     def close(self):
         """창 닫기·Ctrl+C: 움직이는 중이면 멈추고 종료."""
-        if self.hold or self.seq or self.r.state() == 2:
+        if self.hold or self.seq or self.rotating or self.r.state() == 2:
             self.stop_all()
         self.root.destroy()
 

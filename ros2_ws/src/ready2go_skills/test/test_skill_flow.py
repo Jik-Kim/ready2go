@@ -351,3 +351,141 @@ def test_server_params_rejected(key, val):
     p[key] = val
     with pytest.raises(ValueError):
         sf.check_server_params(**p)
+
+
+def test_wait_motion_watch_stops_and_returns_its_outcome():
+    """watch 가 Outcome 을 돌려주면 정지하고, 정지가 확인되면 그 Outcome (접촉 감지·걸림)."""
+    states = iter([2, 2, 1, 1, 1])
+    calls = {"n": 0, "stop": 0}
+
+    def watch():
+        calls["n"] += 1
+        return sf.Outcome(True, reason="접촉") if calls["n"] >= 2 else None
+
+    def stop():
+        calls["stop"] += 1
+        return True
+
+    out = sf.wait_motion(get_state=lambda: next(states, 1), cancel_requested=lambda: False, stop=stop,
+                         timeout_s=5.0, sleep=lambda s: None, watch=watch)
+    assert out.success and out.reason == "접촉" and calls["stop"] == 1
+
+
+def test_worse_keeps_safety_over_ordinary_failure_and_success():
+    """동작 실패 뒤 복귀 이동이 안전 오류면 그쪽을 돌려줌 (#37 E 검토 10/06: lift 실패가 nudge 성공으로 소실)."""
+    ok = None
+    blocked = sf.Outcome(False, "DRAG_BLOCKED")
+    estop = sf.Outcome(False, sf.ESTOP)
+    unconf = sf.Outcome(False, sf.STOP_UNCONFIRMED)
+    cancel = sf.Outcome(False, sf.CANCELED, canceled=True)
+    assert sf.worse(ok, ok) is None
+    assert sf.worse(ok, unconf) is unconf                  # 성공한 끌기 뒤 lift 정지 미확인 → 잠금 코드
+    assert sf.worse(blocked, estop) is estop
+    assert sf.worse(estop, unconf) is unconf               # 잠금 > ESTOP
+    assert sf.worse(unconf, estop) is unconf
+    assert sf.worse(blocked, ok) is blocked
+    assert sf.worse(cancel, blocked) is cancel
+    assert sf.is_safety(estop) and sf.is_safety(cancel) and sf.is_safety(unconf)
+    assert not sf.is_safety(blocked) and not sf.is_safety(None)
+
+
+# ---- 출발 지연 (10/06 C 연결 확인: 10°/s 에서 '이동 중' 표시가 0.3 s 넘게 늦어 출발 전에 끝으로 판단 → NOT_REACHED 195°)
+def _wait_arrived(f, arrived, timeout=30.0):
+    return sf.wait_motion(get_state=f.state, cancel_requested=f.cancel, stop=f.stop, timeout_s=timeout,
+                          clock=f.clock, sleep=f.sleep, arrived=arrived)
+
+
+def test_late_start_is_not_taken_as_done_when_arrival_is_checked():
+    f = Fake([1] * 15 + [2] * 20 + [1])      # 0.75 s 동안 대기 상태로 읽힌 뒤 출발
+    o = _wait_arrived(f, arrived=lambda: f.i > 35)
+    assert o.success and f.i == 36           # 이동을 끝까지 기다림 (예전에는 0.3 s 에 끝)
+
+
+def test_already_at_target_ends_immediately():
+    f = Fake([1] * 100)
+    o = _wait_arrived(f, arrived=lambda: True)
+    assert o.success and f.i == 1
+
+
+def test_never_starts_and_not_at_target_stops_with_move_not_started():
+    f = Fake([1] * 1000)
+    o = _wait_arrived(f, arrived=lambda: False)
+    assert (o.success, o.error_code) == (False, sf.MOVE_NOT_STARTED) and f.stopped == 1
+    assert f.t == pytest.approx(3.0, abs=0.1)
+
+
+class Arm:
+    """관절이 움직이는데 상태는 계속 대기(1)로 읽히는 실물 (10/06 C 연결 확인 재시험)."""
+
+    def __init__(self, moving_s, stop_ok=True):
+        self.t, self.moving_s, self.stopped, self.stop_ok = 0.0, moving_s, 0, stop_ok
+        self.j = [0.0] * 6
+
+    def clock(self):
+        return self.t
+
+    def sleep(self, dt):
+        self.t += dt
+        if self.t <= self.moving_s and not self.stopped:
+            self.j = [self.j[0] + 10.0 * dt] + self.j[1:]      # 10°/s
+
+    def joints(self):
+        return list(self.j)
+
+    def stop(self):
+        self.stopped += 1
+        return self.stop_ok
+
+
+def _wait_arm(a, arrived, timeout=30.0):
+    st = sf.MotionState(lambda: 1, a.joints, clock=a.clock)
+    return sf.wait_motion(get_state=st, cancel_requested=lambda: False, stop=a.stop, timeout_s=timeout,
+                          clock=a.clock, sleep=a.sleep, arrived=arrived)
+
+
+def test_joint_change_counts_as_moving_when_state_never_says_moving():
+    a = Arm(moving_s=8.0)
+    o = _wait_arm(a, arrived=lambda: a.t >= 8.0)
+    assert o.success and a.stopped == 0 and a.t >= 8.0      # 3 s 에 MOVE_NOT_STARTED 로 멈추지 않음
+
+
+def test_no_joint_change_still_stops_with_move_not_started():
+    a = Arm(moving_s=0.0)
+    o = _wait_arm(a, arrived=lambda: False)
+    assert (o.success, o.error_code) == (False, sf.MOVE_NOT_STARTED) and a.stopped == 1
+
+
+def test_stop_is_confirmed_only_after_joints_hold_still():
+    a = Arm(moving_s=100.0)
+    st = sf.MotionState(lambda: 1, a.joints, clock=a.clock)
+    st()
+    a.sleep(0.05)                                          # 움직이는 중
+    o = sf.after_command(None, what="movej", stop=a.stop, get_state=st, clock=a.clock, sleep=a.sleep)
+    assert o.error_code == sf.MOVE_UNCONFIRMED and a.t >= 0.3   # 관절이 멈춘 뒤 hold_s 지나서야 정지 확인
+
+
+def test_motion_state_passes_estop_and_unknown_through():
+    assert sf.MotionState(lambda: 6, lambda: [0.0] * 6)() == 6
+    assert sf.MotionState(lambda: None, lambda: [0.0] * 6)() is None
+    assert sf.MotionState(lambda: 1, lambda: None)() == 1
+
+
+def test_stopped_short_of_target_is_not_reached():
+    """#83 D 재검토 P1: 움직이다가 목표 전에 멈추면 성공이 아님 (직선 이동은 뒤에 도착 검사가 없음)."""
+    f = Fake([2] * 10 + [1] * 10)
+    o = _wait_arrived(f, arrived=lambda: False)
+    assert (o.success, o.error_code) == (False, sf.NOT_REACHED) and f.stopped == 0
+
+
+def test_stopped_at_target_succeeds():
+    f = Fake([2] * 10 + [1] * 10)
+    o = _wait_arrived(f, arrived=lambda: f.i > 10)
+    assert o.success
+
+
+def test_watch_stop_mid_path_keeps_watch_outcome():
+    f = Fake([2] * 100)
+    hit = sf.Outcome(True, reason="접촉")
+    o = sf.wait_motion(get_state=f.state, cancel_requested=f.cancel, stop=f.stop, timeout_s=30.0, clock=f.clock,
+                       sleep=f.sleep, watch=lambda: hit if f.i > 5 else None, arrived=lambda: False)
+    assert o is hit and f.stopped == 1
