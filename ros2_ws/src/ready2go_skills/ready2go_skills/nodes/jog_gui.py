@@ -10,6 +10,7 @@
 - 시작·'툴 확인' 때 펜던트 툴 설정(TCP, 툴 무게)이 config와 같은지 확인하고, 다르면 이동 버튼을 막는다
   (10/04 툴 설정이 풀려 좌표가 플랜지 기준으로 읽힌 사고, #6).
 - 축 정렬 x / y / z / r (core/pose_math.py): TCP 위치 고정, 20° 이하 조각, 돌기 전 확인창, 정렬 후 직접교시(선택).
+- 그리퍼 회전 +/− (r 정렬 옆, 기본 90°): 툴 z 둘레, TCP 위치 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향.
 - 기울이기 왼(−x)·오른(+x)·앞(+y)·뒤(−y)·수직: TCP 위치 고정, 수직 아래에서 각도 칸(기본 30°)만큼 손끝을 그쪽으로
   (nudge_object 끌기 자세 시험용, 트러블슈팅 2). 축 정렬과 같은 조각·확인창, 끝나도 직접교시로 바꾸지 않음.
 - grip(힘 칸) / release(최대) / 폭만큼 열기(폭 칸), 직접교시 ON/OFF, gohome(확인창).
@@ -37,7 +38,8 @@ from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCur
                            GetRobotState, Jog, MoveJoint, MoveLine, MoveStop, SetRobotMode)
 
 from ready2go_skills.adapters.rg2 import Rg2
-from ready2go_skills.core.pose_math import align_target, rot, rotation_angle, step_target, tilt_target, waypoints, wrap
+from ready2go_skills.core.pose_math import (align_target, roll_target, rot, rotation_angle, step_target, tilt_target,
+                                            waypoints, wrap)
 
 SRV = "/dsr01/dsr_controller2"
 HOLD_DELAY_MS = 350          # 이보다 오래 누르면 '꾹 누르기'
@@ -55,6 +57,7 @@ ALIGN_NAMES = {"x": "x 정렬 (수평·바깥)", "y": "y 정렬 (수평·-y)", "
 TILT_DIRS = (("← 왼 (−x, 로봇 쪽)", (-1.0, 0.0)), ("오른 (+x) →", (1.0, 0.0)),
              ("앞 (+y, 내 반대쪽)", (0.0, 1.0)), ("뒤 (−y, 내 쪽)", (0.0, -1.0)))   # 서동권 자리(base −y)에서 본 방향
 TILT_DEFAULT, TILT_MAX = 30.0, 45.0
+ROLL_DEFAULT, ROLL_MAX = 90.0, 180.0     # 그리퍼 회전(툴 z 둘레) 한 번에
 
 
 def find_config_dir():
@@ -234,6 +237,13 @@ class App:
         af.grid(row=11, column=0, columnspan=9, pady=8)
         for mode, text in ALIGN_NAMES.items():
             self.mb(tk.Button(af, text=text, command=lambda m=mode: self.align(m))).pack(side=tk.LEFT, padx=4)
+        tk.Label(af, text="그리퍼 회전").pack(side=tk.LEFT, padx=(10, 2))
+        self.roll_deg = tk.Entry(af, width=4)
+        self.roll_deg.insert(0, f"{ROLL_DEFAULT:g}")
+        self.roll_deg.pack(side=tk.LEFT)
+        tk.Label(af, text="°").pack(side=tk.LEFT)
+        for sign, text in ((1, "+ (위에서 시계)"), (-1, "− (반시계)")):
+            self.mb(tk.Button(af, text=text, command=lambda s=sign: self.roll(s))).pack(side=tk.LEFT, padx=2)
         self.snap = tk.BooleanVar(value=False)
         self.teach_after = tk.BooleanVar(value=True)
         tk.Checkbutton(af, text="직각도 맞춤", variable=self.snap).pack(side=tk.LEFT, padx=4)
@@ -487,6 +497,18 @@ class App:
         target = align_target(p, mode, self.snap.get())
         self.teach_when_done = self.teach_after.get()
         self.rotate_to(p, target, f"{ALIGN_NAMES[mode]}{' + 직각' if self.snap.get() and mode != 'r' else ''}", "축 정렬")
+
+    def roll(self, sign):
+        """그리퍼 축(툴 z) 둘레로 ±각도 칸(기본 90°) 회전, TCP 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향."""
+        if not self.can_move():
+            return
+        p = self.r.posx()
+        if p is None:
+            return
+        deg = sign * self.num(self.roll_deg, ROLL_DEFAULT, ROLL_MAX)
+        self.teach_when_done = False
+        self.rotate_to(p, roll_target(p, deg), f"그리퍼 회전 {deg:+g}° (툴 z 둘레)", "그리퍼 회전",
+                       "\n\n손가락이 서랍 벽·물체에 닿지 않는 높이인지 확인하세요.")
 
     def tilt(self, direction, name, deg=None):
         """수직 아래에서 direction 쪽으로 기울이기 (deg None = 각도 칸 값). 끌기(nudge_object) 자세 시험용."""

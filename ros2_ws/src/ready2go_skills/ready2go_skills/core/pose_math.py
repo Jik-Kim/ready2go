@@ -153,6 +153,13 @@ def align_target(pose, mode, snap=False):
     return list(pose[:3]) + zyz_near(rt, pose[3:])
 
 
+def roll_target(pose, deg):
+    """TCP 위치 고정, 그리퍼 축(툴 z) 둘레로 deg° 회전한 목표 posx. + = 툴 x → 툴 y 쪽
+    (그리퍼가 수직 아래면 위에서 볼 때 시계 방향)."""
+    r = matmul(rot(*pose[3:]), base_rot("z", deg))
+    return list(pose[:3]) + zyz_near(r, pose[3:])
+
+
 def tilt_target(pose, direction, deg):
     """TCP 위치 고정. 그리퍼 축(툴 z)을 수직 아래에서 수평 방향 direction 쪽으로 deg° 기울인 목표 posx — 손끝이 그쪽으로 감.
     지금 기울어져 있어도 수직 기준으로 다시 잡는다(누적 안 됨), deg 0 = 수직. 손가락 방향은 point_rot(최소 변화)."""

@@ -117,3 +117,18 @@ def test_tilt_target_matches_nudge_pose():
     a = mp.gripper_posx(p[:3], (0.0, 1.0, 0.0), p[3:], tilt_toward=(1.0, 0.0, 0.0), tilt_deg=30.0)
     b = pm.tilt_target(p, (1.0, 0.0), 30.0)
     assert pm.col(pm.rot(*a[3:]), 2) == pytest.approx(pm.col(pm.rot(*b[3:]), 2), abs=1e-9)
+
+
+def test_roll_target_turns_fingers_about_gripper_axis():
+    """jog_gui 그리퍼 회전: 툴 z 고정, 손가락(툴 x) 90° 회전, 위치 그대로. 수직 아래면 + = 위에서 볼 때 시계 방향."""
+    p = [400.0, -200.0, 300.0, 0.0, 180.0, 0.0]
+    t = pm.roll_target(p, 90.0)
+    r0, r1 = pm.rot(*p[3:]), pm.rot(*t[3:])
+    assert t[:3] == p[:3]
+    assert pm.col(r1, 2) == pytest.approx(pm.col(r0, 2), abs=1e-9)
+    assert pm.rotation_angle(r0, r1) == pytest.approx(90.0, abs=1e-6)
+    x0, x1 = pm.col(r0, 0), pm.col(r1, 0)
+    assert pm.cross(x0, x1)[2] == pytest.approx(-1.0, abs=1e-9)    # base z 기준 −90° = 위에서 볼 때 시계
+    back = pm.roll_target(t, -90.0)
+    assert pm.rotation_angle(r0, pm.rot(*back[3:])) == pytest.approx(0.0, abs=1e-6)
+    assert len(pm.waypoints(p, t, 20.0)) == 5
