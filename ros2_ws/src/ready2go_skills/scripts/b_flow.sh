@@ -7,15 +7,18 @@
 #   bash b_flow.sh <동작>     하나만: open | opened | nudge | pick | place | close | home
 #     opened = 서랍을 손으로 끝까지 연 것으로 서버에 알림 (로봇 동작 없음)
 R="$HOME/ready2go"
+H="$HOME/r2g_host"      # 호스트 빌드 결과 — 저장소 ros2_ws/install 은 컨테이너가 만든 것(경로가 /opt/dsr_ws 등)이라 쓰지 않음
 ros_env() {
     source /opt/ros/jazzy/setup.bash
     source "$HOME/cobot2_ws/install/setup.bash"
-    if [ -f "$R/ros2_ws/install/setup.bash" ]; then source "$R/ros2_ws/install/setup.bash"; fi
+    if [ ! -f "$H/install/setup.bash" ]; then echo "먼저: bash $0 build"; exit 1; fi
+    source "$H/install/setup.bash"
 }
 case "$1" in
     build)
         source /opt/ros/jazzy/setup.bash
-        cd "$R/ros2_ws" && colcon build --packages-select ready2go_interfaces ;;
+        cd "$R/ros2_ws" && colcon --log-base "$H/log" build --packages-select ready2go_interfaces \
+            --build-base "$H/build" --install-base "$H/install" ;;
     server)
         ros_env
         cd "$R/ros2_ws/src/ready2go_skills" && RG2_HOST="${RG2_HOST:-192.168.1.1}" exec python3 -m ready2go_skills.nodes.skill_server \
