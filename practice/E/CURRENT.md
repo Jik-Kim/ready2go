@@ -128,3 +128,8 @@
 - P2 FR-INT-02 목표 추출→FR-PLN-02 자동계획/AC-PLN-01, P3 목록·분류/FR-ONT-03·복합작업FR-PLN-03/AC-PLN-02와 FR-TWN-02·AC-LLM-01 Stretch를 후속 계획으로 분리. query_state·퍼지매칭·이름없는추론수용/선택모델·#87학습은 Phase 미배정 미확정 과제로 구분하고 P1 평가를 미루는 근거로 쓰지 않음. [문서]
 - 요구사항 관련ID/완료기준만 확인, 실제 core/adapters/node/params/패키지README와 계약 원본·온톨로지 물품/장소·기존 예시 대조. 문서 내 JSON 예시2개와 연결된 기존 목표 예시의 계약 검증, 6.1~6.5 제목 유지·문서 내 링크/앵커/절번호·diff 검사 통과. 테스트/전체빌드/장치/유료API/subagent/push/PR변경/병합 없음. [문서]
 - ROS진단/source 제공과 C run_id/DB/D화면 자동연결은 구분. 실웨이크/STT/한국어TTS/API·40문장·3초/C-D-Docker는 계속 미검증. 정답 합의/확인정책/담당별 수신 인계가 남으며 문서 정합성 완료를 P1 또는 AC-INT 통과로 판정하지 않음. root 읽기전용 검토·기존PR88 게시조율 대기. [문서]
+
+## 2026-10-06 PR #88 CI NumPy 수정 #90 main 통합
+- 사용자 “PR #90 main에 병합됐어 #88 ci 오류 해결 후 push 해” 승인에 따라 기존 E voice 브랜치에 최신 main d6c3007(#90 merge)을 충돌 없이 merge. 병합 커밋5460cb0의 부모는 기존HEAD0336120/main d6c3007. CI·일정·C/E CURRENT의 승인된 main 변경 그대로 통합, 별도 CI/타 담당 코드 수정 없음. [문서]
+- NumPy setup.py와 CI 설치 범위 numpy>=1.24,<2 일치, 계약 검증OK·diff 검사 통과. Python3.12.3/NumPy1.26.4의 임시 격리 venv(CI 기본 의존성만 설치, PYTHONPATH 제거·ROS/API/장치SDK 없음)에서 core pytest796 passed/22 skipped. MongoDB 연결 없음10개, ROS5/cv2 1/sounddevice4/API2개 미설치로12개 skip. 로컬은 REQUIRE_MONGO를 설정하지 않음; Mongo 서비스를 제공하고 REQUIRE_MONGO=1인 최신 원격CI의 확인이 남음. [실측: 로컬 격리]
+- 기존 P1 FR-INT-01~03 검사 지원이며 AC/NFR 전체 달성 아님. 로봇 전체빌드/실물/API/문장평가 추가 없음. 이번 세션은 로컬 통합/CURRENT 커밋까지만 수행하며 root 게시조율 후 새 head CI 성공 확인 대기. 기존 미추적 :memory:.ses 보존/미포함. [문서]
