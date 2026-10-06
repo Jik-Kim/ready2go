@@ -51,11 +51,14 @@ class IntentParser:
         value = normalize(text).rstrip('.!?。？！')
         # 이름 앞뒤의 조사·공손 표현만 허용합니다. 부정/질문/인용 문맥은
         # 삭제하거나 블랙리스트로 추정하지 않고 전체 문장 불일치로 보류합니다.
-        prefix = r'(?:헬로로키|로키|저기)?(?:혹시)?(?:저|나)?(?:에게|한테)?(?:좀)?'
+        prefix = r'(?:헬로로키|로키|저기)?(?:혹시)?(?:저|나)?(?:에게|한테)?(?:좀)?(?:위서랍에있는)?'
         particle = r'(?:을|를|이|가|하나|한개)?(?:하나|한개)?(?:좀)?'
         ending = r'(?:줘|주세요|줄래|줄래요|주실래요|주면좋겠어|주면좋겠어요|주시면좋겠어요)?'
         action = r'(?:(?:찾아|꺼내|가져와|가져다|가져|갖다)' + ending + r'|줘|주세요|줄래|줄래요|주실래요|주면좋겠어|주면좋겠어요|필요해|필요해요|필요합니다)'
-        return any(re.fullmatch(prefix + re.escape(alias) + particle + action, value)
+        # 사용자 정상 예시의 긍정 복합 요청만 추가합니다. 임의 앞 문맥을
+        # 제거하지 않으므로 부정·정보 질문이 긍정 요청으로 바뀌지 않습니다.
+        return any(re.fullmatch(prefix + re.escape(alias) +
+                                '(?:' + particle + action + '|가필요한데가져다줄래)', value)
                    for alias in self.aliases)
 
     def guard(self, text):

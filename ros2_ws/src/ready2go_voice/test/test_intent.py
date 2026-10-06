@@ -181,3 +181,33 @@ def test_all_registered_names_and_aliases_keep_explicit_requests(ontology, schem
             doc = parser.parse(alias + ' 가져다줘')
             assert doc['intent'] == 'find_item' and doc['targets'] == [key]
             assert doc['source']['execution_allowed']
+
+
+@pytest.mark.parametrize('text', [
+    '지우개 찾아줘.', '지우개 좀 가져다줘.',
+    '위 서랍에 있는 지우개 꺼내줘.', '지우개가 필요한데 가져다줄래?',
+])
+@pytest.mark.parametrize('use_llm', [False, True])
+def test_user_positive_examples_preserved(ontology, schema, cfg, text, use_llm):
+    parser = IntentParser(ontology, schema, cfg)
+    if use_llm:
+        parser.llm = lambda *_: {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99}
+    doc = parser.parse(text)
+    assert doc['intent'] == 'find_item' and doc['targets'] == ['eraser']
+    assert doc['source']['execution_allowed']
+    assert doc['source']['llm_called'] == use_llm
+    assert doc['source']['fallback_used'] == (not use_llm)
+
+
+@pytest.mark.parametrize('text', [
+    '위 서랍에 있는 지우개 꺼내주지 마.',
+    '위 서랍에 있는 지우개가 얼마인지 알려줄래?',
+    '지우개가 안 필요한데 가져다줄래?',
+    '지우개가 필요한데 가져다주지 마.',
+])
+def test_added_contexts_do_not_discard_negation_or_questions(ontology, schema, cfg, text):
+    parser = IntentParser(ontology, schema, cfg,
+                          lambda *_: {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99})
+    doc = parser.parse(text)
+    assert doc['intent'] in ('unknown', 'clarify') and doc['targets'] == []
+    assert not doc['source']['execution_allowed']
