@@ -5,6 +5,7 @@
 저장된 검출(YOLO 박스)·뎁스·K·TF 를 그대로 쓰고, 현재 config/vision_params.yaml 로 inspect_scene 과 바닥 진단을 다시 돌린다.
   --truth   손끝 터치 정답 (서랍 좌표 x y m, yaw rad — ready2go_skills/core/stub_measure.py 출력). 위치 오차를 함께 출력
   --dz-mm   서랍 원점을 z 로 이만큼 옮겨 다시 계산 (원점 보정 차이가 top_z·위치에 주는 영향 확인용, 예: -3.0)
+  --weights 저장된 검출 대신 이 YOLO 가중치로 저장된 컬러 이미지를 다시 검출 (같은 실물 프레임에서 모델 비교, ultralytics 필요)
 AC-VIS-01 위치 오차 기준 1.5 cm. 정답이 없는 덤프는 결과만 출력한다.
 """
 import argparse
@@ -28,12 +29,17 @@ def main():
     ap.add_argument("path")
     ap.add_argument("--truth", nargs=3, type=float, metavar=("X", "Y", "YAW"))
     ap.add_argument("--dz-mm", type=float, default=0.0)
+    ap.add_argument("--weights", default="")
     a = ap.parse_args()
     p = Path(a.path)
     files = sorted(p.glob("inspect_*.npz")) if p.is_dir() else [p]
     params = yaml.safe_load((ROOT / "config/vision_params.yaml").read_text(encoding="utf-8"))
     world = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))
     items = world.get("world", world)["items"]
+    detector = None
+    if a.weights:
+        from ready2go_vision.core.detector import YoloDetector
+        detector = YoloDetector(a.weights, params["detector"]["conf_min"], 0)
     for f in files:
         z = np.load(f, allow_pickle=False)
         meta = json.loads(str(z["meta"]))
@@ -42,12 +48,13 @@ def main():
         T_base_drawer[:3, 3] += T_base_drawer[:3, 2] * a.dz_mm / 1000.0       # 서랍 z 축 방향으로 원점 이동
         T = drawer_from_camera(T_base_drawer, z["T_base_cam"])
         depth = z["depth_m"].astype(float)
-        dets = [{**d, "box": tuple(d["box"])} for d in meta["detections"]]
+        dets = detector.detect(z["color"]) if detector else [{**d, "box": tuple(d["box"])} for d in meta["detections"]]
         req = meta["request"]
         debug = []
         ok, err, js = inspect_scene(dets, depth, K, T, params, items, req["region"], req["search_target"], meta["interior_m"], debug)
         floor = floor_probe(depth, K, T, meta["interior_m"], [d["box"] for d in dets], params["floor_probe"])
-        print(f"== {f.name} (저장 당시 success={meta['success']} {meta['error_code']}, 버전 {meta['versions'].get('code_sha') or '?'})")
+        print(f"== {f.name} (저장 당시 success={meta['success']} {meta['error_code']}, 버전 {meta['versions'].get('code_sha') or '?'}, "
+              f"검출 {'다시: ' + Path(a.weights).name if detector else '저장된 것'})")
         print(f"  재계산 success={ok} {err} {js}")
         for d in debug:
             print(f"  검출 {json.dumps(d, ensure_ascii=False)}")
