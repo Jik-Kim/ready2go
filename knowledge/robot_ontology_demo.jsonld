@@ -1,0 +1,18 @@
+{
+  "@context": {
+    "@vocab": "https://ready2go.local/onto#"
+  },
+  "sources": {
+    "classes": "classes.jsonld",
+    "world": "world.jsonld",
+    "skills": [
+      "skills/open_drawer.jsonld",
+      "skills/close_drawer.jsonld",
+      "skills/pick_demo.jsonld",
+      "skills/place.jsonld"
+    ],
+    "initial_state": "snapshots/initial_state.json",
+    "places": "../config/places.yaml",
+    "item_grasp": "../config/item_grasp.yaml"
+  }
+}
