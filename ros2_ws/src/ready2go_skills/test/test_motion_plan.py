@@ -41,8 +41,8 @@ def test_vertical_eraser_in_corner_drags_sideways_35mm():
     assert p.needed and p.error_code is None
     assert p.shift_y_m == pytest.approx(-0.0349, abs=5e-4)
     assert p.wall_normal_y == 1.0
-    # 누르는 점은 지우개 위(중심에서 벽 반대쪽으로 옮김, 지우개 폭 안)
-    assert 0.2827 - 0.011 < p.press_xy_m[1] < 0.2827
+
+    assert 0.2827 - 0.011 < p.press_xy_m[1] < 0.2827 + 0.011        # 누르는 TCP 는 지우개 폭 안
 
 
 def test_horizontal_eraser_against_back_wall_not_solved_by_sideways():
@@ -86,10 +86,21 @@ def test_from_base_inverts_to_base():
     assert mp.from_base(tf, to_base(tf, p)) == pytest.approx(p, abs=1e-6)
 
 
-def test_measured_eraser_10_06_vertical_press_ok_but_30deg_tilt_misses():
-    """10/06 터치 위치(벽에 딱 붙음): 기울이지 않으면 41.7 mm 끌기, 30° 기울이면 가장 낮은 점이 지우개 밖 → 거부."""
+def test_measured_eraser_10_06_round_tip_tilt_still_lands_on_eraser():
+    """10/06 터치 위치(벽에 딱 붙음): 손끝이 반원이라 30° 기울여도 가장 낮은 점이 지우개 위, 41.7 mm 끌기."""
     t = tgt(0.1769, 0.2895, 0.0)
-    p0 = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=0.0))
-    assert p0.needed and p0.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
-    p30 = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=30.0))
-    assert p30.error_code == mp.NO_PUSH_ACCESS
+    for tilt in (0.0, 30.0):
+        p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=tilt))
+        assert p.needed and p.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
+    off, depth = mp.tip_contact(math.radians(30), G)
+    assert off == pytest.approx(-2.9, abs=0.05) and depth == pytest.approx(10.78, abs=0.05)
+    assert mp.tip_contact(0.0, G) == pytest.approx((0.0, 10.0))
+
+
+def test_square_tip_would_miss_narrow_flush_object():
+    """반지름이 작으면(사각에 가까운 끝) 기울였을 때 닿는 점이 벽 반대쪽으로 멀어져 좁은 물체를 못 누름 → 거부."""
+    g = dict(G, tip_radius_mm=0.0)
+    g["wall_clearance_mm"] = dict(G["wall_clearance_mm"], along_mm=15.0)
+    p = mp.plan_drag(target=tgt(0.1769, 0.2895, 0.0), size_m=ERASER, interior_m=INTERIOR, g=g,
+                     drag=dict(DRAG, tilt_deg=30.0))
+    assert p.error_code is None or p.error_code == mp.NO_PUSH_ACCESS

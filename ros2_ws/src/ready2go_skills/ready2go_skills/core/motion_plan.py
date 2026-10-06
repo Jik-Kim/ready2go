@@ -106,6 +106,14 @@ def travel_mm(start_posx: Sequence[float], now_posx: Sequence[float], direction:
 
 
 # ---------- 끌기 ----------
+def tip_contact(tilt_rad: float, g: Mapping) -> tuple:
+    """닫은 손끝을 벽 쪽으로 tilt 만큼 기울였을 때 가장 낮은 점: (TCP보다 벽 쪽 수평 거리 mm, TCP 아래 깊이 mm).
+    손끝 끝은 반지름 R 반원, 수직일 때 바닥점이 TCP 아래 tip mm → 반원 중심은 TCP 아래 (tip − R)."""
+    tip, r = tip_below_tcp_mm(0.9, g), g["tip_radius_mm"]
+    return (tip - r) * math.sin(tilt_rad), (tip - r) * math.cos(tilt_rad) + r
+
+
+
 @dataclass(frozen=True)
 class DragPlan:
     needed: bool
@@ -151,13 +159,12 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     shift = -sign * (lack_mm + drag["extra_mm"]) / 1000.0     # 벽 반대쪽(가운데)으로
     if not abs(shift) <= drag["max_shift_mm"] / 1000.0:
         return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, sign, gap_m, f"끌 거리 {abs(shift) * 1000:.0f} mm가 최대보다 큼")
-    # 누르는 점 (닫은 손가락, 닫힘 축 = 물체 긴 변 → 얇은 쪽이 옆벽). 거리는 모두 '옆벽에서' mm.
-    #   벽 조건: 손가락의 벽 쪽 끝이 벽과 여유를 둠. 손끝을 벽 쪽으로 t 기울이면 그 끝이 TCP보다 along·cos t + 손끝 깊이·sin t 만큼 벽 쪽.
-    #   접촉 조건: 가장 낮은 점(기울이면 벽 반대쪽 모서리, TCP 기준 손끝 깊이·sin t − along·cos t)이 물체 윗면 위(가장자리에서 inset 안쪽).
+    # 누르는 점 (닫은 손가락, 닫힘 축 = 물체 긴 변 → 얇은 쪽이 옆벽). 거리는 모두 '옆벽(서랍 좌표 경계)에서' mm.
+    # 손끝은 옆에서 보면 반원(U) [사진 B 10/06] → 기울여도 가장 낮은 점은 반원 중심 바로 아래 (tip_contact).
     t = math.radians(drag.get("tilt_deg", 0.0))
-    along, tip = g["wall_clearance_mm"]["along_mm"], tip_below_tcp_mm(0.9, g)
-    need_mm = max(along, along * math.cos(t) + tip * math.sin(t)) + margin
-    low_off = (tip * math.sin(t) - along * math.cos(t)) if t > 0 else 0.0     # + = 벽 쪽
+    along = g["wall_clearance_mm"]["along_mm"]
+    low_off, _ = tip_contact(t, g)                          # 접촉점이 TCP보다 벽 쪽(+)으로 간 거리
+    need_mm = along + low_off + margin                      # 벽 쪽 끝 = 반원 중심 + 반지름 → 수직일 때보다 low_off 만큼 이동
     half_w = size_m[1] * 1000.0 / 2
     center = (wd - cy * 1000.0) if sign > 0 else cy * 1000.0
     tcp = max(need_mm, center + low_off)                    # 가능하면 가장 낮은 점이 물체 중심에

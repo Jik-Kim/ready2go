@@ -395,7 +395,7 @@ class SkillServer(Node):
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
         tilt = math.radians(d["tilt_deg"])
-        tip_v = mp.tip_below_tcp_mm(0.9, g) * math.cos(tilt)          # 닫은 손끝이 TCP보다 아래인 높이
+        tip_v = mp.tip_contact(tilt, g)[1]                             # 기울인 닫은 손끝의 가장 낮은 점 깊이 (TCP 아래)
         contact_z_m = size[2] + tip_v / 1000.0
         wall = mp.dir_to_base(tf, (0.0, plan.wall_normal_y, 0.0))      # 옆벽 쪽 (base)
         yaw = target["pose"]["yaw"]
