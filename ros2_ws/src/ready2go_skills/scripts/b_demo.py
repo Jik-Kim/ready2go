@@ -292,6 +292,14 @@ def main():
     except KeyboardInterrupt:
         r.stop()
         print("\nCtrl+C — 정지 명령 보냄")
+    except Exception as e:                       # 예상 못 한 오류도 로봇 정지 후 이유 출력
+        try:
+            r.stop()
+        except Exception:
+            pass
+        import traceback
+        traceback.print_exc()
+        print(f"\n멈춤(오류): {e!r}")
 
 
 if __name__ == "__main__":
