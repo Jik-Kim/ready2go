@@ -125,17 +125,21 @@ class Robot:
         self.call(MoveLine, "motion/move_line", pos=[float(v) for v in x], vel=[vel, 10.0], acc=[vel, 10.0],   # 가속 = 속도 (스킬 서버와 같게, 가속이 크면 힘 값이 튐)
                   time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=1)
         t0 = time.monotonic()
-        while time.monotonic() - t0 < timeout_s:
-            p, f = self.posx(), self.fz()
-            hit = watch(p, [f[i] - f0[i] for i in range(3)])
-            if hit:
-                self.stop()
-                time.sleep(0.4)
-                return hit
-            if max(abs(p[i] - x[i]) for i in range(3)) < 0.5:
-                time.sleep(0.2)
-                return None
-            time.sleep(0.02)
+        try:
+            while time.monotonic() - t0 < timeout_s:
+                p, f = self.posx(), self.fz()
+                hit = watch(p, [f[i] - f0[i] for i in range(3)])
+                if hit:
+                    self.stop()
+                    time.sleep(0.4)
+                    return hit
+                if max(abs(p[i] - x[i]) for i in range(3)) < 0.5:
+                    time.sleep(0.2)
+                    return None
+                time.sleep(0.02)
+        except BaseException:                    # 감시 조회 실패·Ctrl+C 도 진행 중 이동부터 정지 (#83 D 재검토 P1)
+            self.stop()
+            raise
         self.stop()
         raise Stop("시간 초과 — 정지")
 
@@ -288,6 +292,10 @@ def main():
             fn()
         print("\n끝")
     except Stop as e:
+        try:
+            r.stop()                             # 어느 단계에서 멈추든 정지 명령 (움직이지 않던 중이면 영향 없음)
+        except Exception:
+            pass
         print(f"\n멈춤: {e}")
     except KeyboardInterrupt:
         r.stop()
