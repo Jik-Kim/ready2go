@@ -460,7 +460,9 @@ class SkillServer(Node):
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"이미 {self.held['class']} 를 들고 있음"), None
         target = params.get("target") or {}
-        drawer_id = params.get("drawer_id") or "drawer_top"
+        drawer_id = params.get("drawer_id") or (target.get("pose") or {}).get("frame")   # 계약엔 drawer_id 없음 → pose.frame
+        if drawer_id not in ("drawer_top", "drawer_bottom"):
+            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame 이 서랍이 아님: {drawer_id!r}"), None
         prm, place = self.prm(), self.places().get(drawer_id) or {}
         cls = target.get("class")
         size, grip_force = self.item(cls)
@@ -472,7 +474,8 @@ class SkillServer(Node):
         g, speed = prm["gripper"], prm["speed"]
         close_dir = mp.horizontal_angle_dir(plan.long_axis_deg + 90.0)
         grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
-        approach = float(params.get("approach_offset", 0.10)) * 1000.0
+        off = params.get("approach_offset", 0.10)              # 태스크·온톨로지는 [0, 0, 0.1] (m) — z 만 씀
+        approach = float(off[2] if isinstance(off, (list, tuple)) else off) * 1000.0
         above = mp.with_z(grasp, grasp[2] + approach)
         bad = self._transit(goal, above, "to_object")
         if bad:
