@@ -412,3 +412,59 @@ def test_never_starts_and_not_at_target_stops_with_move_not_started():
     o = _wait_arrived(f, arrived=lambda: False)
     assert (o.success, o.error_code) == (False, sf.MOVE_NOT_STARTED) and f.stopped == 1
     assert f.t == pytest.approx(3.0, abs=0.1)
+
+
+class Arm:
+    """관절이 움직이는데 상태는 계속 대기(1)로 읽히는 실물 (10/06 C 연결 확인 재시험)."""
+
+    def __init__(self, moving_s, stop_ok=True):
+        self.t, self.moving_s, self.stopped, self.stop_ok = 0.0, moving_s, 0, stop_ok
+        self.j = [0.0] * 6
+
+    def clock(self):
+        return self.t
+
+    def sleep(self, dt):
+        self.t += dt
+        if self.t <= self.moving_s and not self.stopped:
+            self.j = [self.j[0] + 10.0 * dt] + self.j[1:]      # 10°/s
+
+    def joints(self):
+        return list(self.j)
+
+    def stop(self):
+        self.stopped += 1
+        return self.stop_ok
+
+
+def _wait_arm(a, arrived, timeout=30.0):
+    st = sf.MotionState(lambda: 1, a.joints, clock=a.clock)
+    return sf.wait_motion(get_state=st, cancel_requested=lambda: False, stop=a.stop, timeout_s=timeout,
+                          clock=a.clock, sleep=a.sleep, arrived=arrived)
+
+
+def test_joint_change_counts_as_moving_when_state_never_says_moving():
+    a = Arm(moving_s=8.0)
+    o = _wait_arm(a, arrived=lambda: a.t >= 8.0)
+    assert o.success and a.stopped == 0 and a.t >= 8.0      # 3 s 에 MOVE_NOT_STARTED 로 멈추지 않음
+
+
+def test_no_joint_change_still_stops_with_move_not_started():
+    a = Arm(moving_s=0.0)
+    o = _wait_arm(a, arrived=lambda: False)
+    assert (o.success, o.error_code) == (False, sf.MOVE_NOT_STARTED) and a.stopped == 1
+
+
+def test_stop_is_confirmed_only_after_joints_hold_still():
+    a = Arm(moving_s=100.0)
+    st = sf.MotionState(lambda: 1, a.joints, clock=a.clock)
+    st()
+    a.sleep(0.05)                                          # 움직이는 중
+    o = sf.after_command(None, what="movej", stop=a.stop, get_state=st, clock=a.clock, sleep=a.sleep)
+    assert o.error_code == sf.MOVE_UNCONFIRMED and a.t >= 0.3   # 관절이 멈춘 뒤 hold_s 지나서야 정지 확인
+
+
+def test_motion_state_passes_estop_and_unknown_through():
+    assert sf.MotionState(lambda: 6, lambda: [0.0] * 6)() == 6
+    assert sf.MotionState(lambda: None, lambda: [0.0] * 6)() is None
+    assert sf.MotionState(lambda: 1, lambda: None)() == 1

@@ -91,6 +91,35 @@ def stopped_by_estop(robot_state: Optional[int]) -> bool:
     return robot_state in ESTOP_STATES
 
 
+class MotionState:
+    """로봇 상태 + 관절각 변화. 관절이 eps_deg 넘게 바뀐 뒤 hold_s 안이면 '이동 중'(STATE_MOVING)으로 돌려준다.
+    실물에서 관절 이동 중에도 GetRobotState 가 3 s 넘게 '이동 중'이 아니었음 (10/06 C 연결 확인 재시험, 홈 가다가
+    MOVE_NOT_STARTED 로 정지) → wait_motion·정지 확인(_halt)이 상태값만 믿지 않게 한다. 관절 조회 실패면 상태값 그대로."""
+
+    def __init__(self, get_state: Callable[[], Optional[int]], get_joints: Callable[[], Optional[Sequence[float]]],
+                 eps_deg: float = 0.02, hold_s: float = 0.3, clock: Callable[[], float] = time.monotonic):
+        self._state, self._joints, self._clock = get_state, get_joints, clock
+        self.eps, self.hold = eps_deg, hold_s
+        self._last = None
+        self._changed_at = None
+        self._lock = threading.Lock()
+
+    def __call__(self) -> Optional[int]:
+        state = self._state()
+        if state is None or stopped_by_estop(state):
+            return state
+        joints = self._joints()
+        now = self._clock()
+        with self._lock:
+            if joints is not None and len(joints) == 6 and all(_finite(v) for v in joints):
+                if self._last is not None and max(abs(a - b) for a, b in zip(joints, self._last)) > self.eps:
+                    self._changed_at = now
+                self._last = list(joints)
+            if state != STATE_MOVING and self._changed_at is not None and now - self._changed_at < self.hold:
+                return STATE_MOVING
+        return state
+
+
 class MotionGate:
     """로봇은 하나라 동작도 한 번에 하나만 (#73 E 리뷰: 5개 액션 전체 직렬화). 기다리지 않고 바로 판정한다."""
 

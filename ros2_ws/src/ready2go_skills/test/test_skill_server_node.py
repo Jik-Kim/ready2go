@@ -79,6 +79,9 @@ def server(monkeypatch):
         def posx(self):
             return list(self.p)
 
+        def posj(self):
+            return None                      # 관절 조회 실패 → MotionState 는 상태값 그대로
+
         def tool_force(self):
             return self.force(self.p)
 
@@ -117,12 +120,13 @@ def server(monkeypatch):
     srv = object.__new__(ss.SkillServer)
     srv.cfg_dir, srv.params_file, srv.rg2_ip = REPO / "config", ss.PARAMS_FILE, "x"
     srv.robot, srv.disp, srv.held, srv.tray = Robot(), {"drawer_top": 0.226}, None, {}
+    srv.state = sf.MotionState(srv.robot.state, srv.robot.posj)
     srv.move_timeout, srv.joint_vel, srv.joint_acc, srv.reach_tol = 30.0, 20.0, 20.0, 0.5
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
 
     def run(action, params):
         return sf.run_guarded(lambda: getattr(srv, f"_do_{action}")(goal, json.loads(json.dumps(params))),
-                              stop=srv.robot.stop, get_state=srv.robot.state)
+                              stop=srv.robot.stop, get_state=srv.state)
     return types.SimpleNamespace(ss=ss, srv=srv, run=run, Gripper=Gripper)
 
 

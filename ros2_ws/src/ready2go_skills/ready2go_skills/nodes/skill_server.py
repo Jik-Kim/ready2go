@@ -88,6 +88,7 @@ class SkillServer(Node):
         meta = yaml.safe_load((cfg / "calibration" / "calibration_meta.yaml").read_text(encoding="utf-8"))
         self.expected_tcp, self.expected_tool = motion_guard.expected_tool(meta)
         self.robot = Dsr(self, self.declare_parameter("dsr_prefix", "/dsr01/dsr_controller2").value)
+        self.state = sf.MotionState(self.robot.state, self.robot.posj)   # 상태값 + 관절 변화 (실물에서 이동 중 표시가 안 뜸, 10/06)
         self.params_file = Path(self.declare_parameter("params_file", str(PARAMS_FILE)).value)
         self.rg2_ip = os.environ.get("RG2_HOST") or self.prm()["gripper"]["rg2_ip"]
         self.disp = {}                       # 서랍별 인출 거리(m) — drawer_control 결과. 서버 재시작 후엔 모름 → 집기 거부
@@ -143,7 +144,7 @@ class SkillServer(Node):
                                                locked=lambda: self.locked, set_locked=lambda why: self._lock(action, why),
                                                cancel_requested=lambda: goal.is_cancel_requested,
                                                check_tool=self._check_tool, stop=self.robot.stop,
-                                               get_state=self.robot.state)
+                                               get_state=self.state)
             return self._finish(goal, action, outcome, output)
         return execute
 
@@ -176,7 +177,7 @@ class SkillServer(Node):
             return err, None
         goal.publish_feedback(Skill.Feedback(stage="auto_mode"))
         if not self.robot.auto():            # 모드 전환은 이동 명령이 아님 → 명시적 거부로 처리
-            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.robot.state), None
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 모드 전환 중 취소됐으면 movej 를 보내지 않음
         if early:
             return early, None
@@ -188,10 +189,10 @@ class SkillServer(Node):
                 return bad, None
         goal.publish_feedback(Skill.Feedback(stage="moving"))
         bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej",
-                               stop=self.robot.stop, get_state=self.robot.state)
+                               stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad, None
-        done = sf.wait_motion(get_state=self.robot.state, cancel_requested=lambda: goal.is_cancel_requested,
+        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
                               stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
         if not done.success:
             return done, None
@@ -216,15 +217,15 @@ class SkillServer(Node):
         """직선 이동 1회 (자동 모드 → 취소 확인 → 비동기 명령 → 끝날 때까지). 성공이면 None, 아니면 Outcome."""
         goal.publish_feedback(Skill.Feedback(stage=stage))
         if not self.robot.auto():
-            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.robot.state)
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
         if early:
             return early
         bad = sf.after_command(self.robot.movel_async(posx, vel, 2 * vel), what=f"movel({stage})",
-                               stop=self.robot.stop, get_state=self.robot.state)
+                               stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad
-        done = sf.wait_motion(get_state=self.robot.state, cancel_requested=lambda: goal.is_cancel_requested,
+        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
                               stop=self.robot.stop, timeout_s=self.move_timeout, watch=watch, arrived=self._at_posx(posx))
         return None if done.success else done
 
@@ -302,12 +303,12 @@ class SkillServer(Node):
                 return bad, None
         goal.publish_feedback(Skill.Feedback(stage="approach"))
         if not self.robot.auto():
-            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.robot.state), None
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
         bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej(drawer_approach)",
-                               stop=self.robot.stop, get_state=self.robot.state)
+                               stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad, None
-        done = sf.wait_motion(get_state=self.robot.state, cancel_requested=lambda: goal.is_cancel_requested,
+        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
                               stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
         if not done.success:
             return done, None
