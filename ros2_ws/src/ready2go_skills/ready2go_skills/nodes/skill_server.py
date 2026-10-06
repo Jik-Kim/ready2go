@@ -200,6 +200,8 @@ class SkillServer(Node):
         lift_z = tr["safe_z_mm"] if self._over_drawer(cur) else tr["free_lift_z_mm"]
         if pose_name == "drawer_top_view" and not self._over_drawer(cur):
             lift_z = max(lift_z, tr["high_z_mm"])          # 홈 쪽에서 보는 자세로: 앞판·손잡이 위로 올린 뒤 (10/06 실물, 낮게 가면 손잡이에 걸림)
+        if pose_name == "drawer_approach":
+            lift_z = max(lift_z, tr["safe_z_mm"])          # 홈 → z 300 → ready: drawer_control 열기·b_demo 와 같은 경로 (10/06 통합: 홈에서 바로 가면 손잡이보다 낮게 지나감)
         if cur[2] < lift_z:
             bad = self._line(goal, mp.with_z(cur, lift_z), self.prm()["speed"]["line_mm_s"], "lift")
             if bad:
@@ -441,28 +443,30 @@ class SkillServer(Node):
         if cur is None:                                              # 높이를 모르면 그리퍼·관절 이동 전에 실패 (#83 E 검토 P1)
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함"), None
         self._grip(oc["handle_open_width_mm"], 20)
-        if cur[2] < self.prm()["transit"]["safe_z_mm"]:              # 낮은 곳에서 바로 관절 이동하지 않음
-            bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), speed["line_mm_s"], "lift")
+        # Runner 의 open_drawer 는 move_to_named_pose(drawer_approach) 를 먼저 보냄 → 이미 ready 면 다시 올렸다 내리지 않음 (10/06 통합 실물)
+        if not sf.check_reached(joints, self.robot.posj(), self.reach_tol).success:
+            if cur[2] < self.prm()["transit"]["safe_z_mm"]:              # 낮은 곳에서 바로 관절 이동하지 않음
+                bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), speed["line_mm_s"], "lift")
+                if bad:
+                    return bad, None
+            goal.publish_feedback(Skill.Feedback(stage="approach"))
+            err = self._joint_bad(joints, "drawer_approach 목표")
+            if err:
+                return err, None
+            if not self.robot.auto():
+                return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
+            bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej(drawer_approach)",
+                                   stop=self.robot.stop, get_state=self.state)
             if bad:
                 return bad, None
-        goal.publish_feedback(Skill.Feedback(stage="approach"))
-        err = self._joint_bad(joints, "drawer_approach 목표")
-        if err:
-            return err, None
-        if not self.robot.auto():
-            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
-        bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej(drawer_approach)",
-                               stop=self.robot.stop, get_state=self.state)
-        if bad:
-            return bad, None
-        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints),
-                              watch=self._joint_watch())
-        if not done.success:
-            return done, None
-        reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
-        if not reached.success:
-            return reached, None
+            done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
+                                  stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints),
+                                  watch=self._joint_watch())
+            if not done.success:
+                return done, None
+            reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
+            if not reached.success:
+                return reached, None
         handle = mp.offset_posx(mp.handle_posx(closed, pull, disp), pull, oc["handle_grasp_back_mm"])   # 실측보다 조금 덜 들어감
         reach_f = self._tare()
 

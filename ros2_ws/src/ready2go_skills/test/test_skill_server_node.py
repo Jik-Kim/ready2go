@@ -228,6 +228,22 @@ def test_open_drawer_without_posx_fails_before_any_command(server):
     assert server.srv.robot.log == [] and server.Gripper.width == 55.0
 
 
+def test_runner_open_path_lifts_before_ready_and_does_not_redo_it(server):
+    """10/06 통합 실물: Runner open_drawer = move_to_named_pose(drawer_approach) → drawer_control(open).
+    홈(z 195)에서 ready 로 바로 관절 이동하면 손잡이보다 낮게 지나감 → 먼저 z 300, drawer_control 은 ready 를 다시 하지 않음."""
+    ready = server.srv.poses()["drawer_approach"]["drawer_top"]
+    server.srv.disp = {}
+    server.srv.robot.p = [368.0, 6.5, 195.0, 0.0, 180.0, 0.0]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
+    log = server.srv.robot.log
+    assert out.success
+    assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(300.0) and log[1] == ("movej", ready)
+    log.clear()
+    server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
+    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-289.757, abs=0.5)   # 바로 손잡이로
+    assert ("movej", ready) not in log
+
+
 @pytest.mark.parametrize("y", [0.2925, 0.2895, 0.2827])
 def test_pick_next_to_side_wall_refused_without_motion(server, y):
     """#83 A 요청(#80 D P1 후속): 끌기 없이 벽에 붙은 지우개를 바로 집으면 움직이기 전에 WALL_TOO_CLOSE."""
