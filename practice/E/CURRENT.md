@@ -133,3 +133,11 @@
 - 사용자 “PR #90 main에 병합됐어 #88 ci 오류 해결 후 push 해” 승인에 따라 기존 E voice 브랜치에 최신 main d6c3007(#90 merge)을 충돌 없이 merge. 병합 커밋5460cb0의 부모는 기존HEAD0336120/main d6c3007. CI·일정·C/E CURRENT의 승인된 main 변경 그대로 통합, 별도 CI/타 담당 코드 수정 없음. [문서]
 - NumPy setup.py와 CI 설치 범위 numpy>=1.24,<2 일치, 계약 검증OK·diff 검사 통과. Python3.12.3/NumPy1.26.4의 임시 격리 venv(CI 기본 의존성만 설치, PYTHONPATH 제거·ROS/API/장치SDK 없음)에서 core pytest796 passed/22 skipped. MongoDB 연결 없음10개, ROS5/cv2 1/sounddevice4/API2개 미설치로12개 skip. 로컬은 REQUIRE_MONGO를 설정하지 않음; Mongo 서비스를 제공하고 REQUIRE_MONGO=1인 최신 원격CI의 확인이 남음. [실측: 로컬 격리]
 - 기존 P1 FR-INT-01~03 검사 지원이며 AC/NFR 전체 달성 아님. 로봇 전체빌드/실물/API/문장평가 추가 없음. 이번 세션은 로컬 통합/CURRENT 커밋까지만 수행하며 root 게시조율 후 새 head CI 성공 확인 대기. 기존 미추적 :memory:.ses 보존/미포함. [문서]
+
+## 2026-10-06 #20 평가 기준 판별 정책 보완(미커밋)
+- 사용자 지시 “issue20_voice_evaluation.json 이 기준에 맞춰서 판별 기준 수정, 모호한 요청은 clarify로 처리” 승인 범위. 기존 PR88 merged main06f8e9e 기반 새 E 브랜치 codex/voice-evaluation-policy에서 구현/검증만 진행, 커밋/push/PR/병합 미승인·미수행. FR-INT-01~03(P1), AC-INT-01~03 유지. [문서]
+- D 원본 /home/jonny/Downloads/issue20_voice_evaluation.json SHA256 5995fc225c0a2cc78aa1c9264eee6a07518ad674ed4923763acf5017377aec84 읽기 전용 대조, 최신 TC008 “지우개 찾아서 건네줘.” 포함. normal20/ambiguous10/unsupported10, 자유표현10/화자20씩. 원본 pending_e_d_review 상태 유지하며 자료 승인 완료로 간주하지 않음. [문서]
+- 등록 물품/별칭 전체에 전체 긍정 문형을 확장: 찾아서/꺼내서→가져오기·건네기·전달트레이, 부탁/내게/있으면/필요한데. 건네기는 기존 P1 트레이 흐름이며 직접손/타목적지/반납/정리/던지기/다중요청은 미지원. 생산 코드에 40문장 또는 지우개 전용 분기 없음. [문서]
+- 모호 대상단독/대명사/일반대상/대상불명 행동 요청은 guard/validate/규칙폴백에서 clarify·targets[]·실행허용false 고정. 기존 bare_item_policy=clarify 및 request_patterns 호환 유지, unknown 정책만 명시거절. 미사용 request_patterns로 실행하지 않음. 프롬프트와 패키지README/공통문서P1설명 정합성 보완. 새 확인 대화 프로토콜은 추가하지 않음. [문서]
+- 관련 voice 검사343 passed/0 skipped, 기존 실제ROS topic/action1 deselected. 최신40 텍스트 각 규칙/모의LLM/예외폴백40/40(정상20find_item/eraser/허용, 모호10clarify/빈대상/보류, 미지원10unknown또는clarify/보류), 등록 이름·별칭 치환/별칭충돌보류·부정/질문/인용/직접손/타목적지·일반자유문형/LLM환각·저신뢰·시간초과·제어·중복·평가발행차단 회귀 확인. compileall/YAML/문서링크·앵커·기존절제목·JSON예시/참조SHA·diff검사 통과. [실측: 로컬 텍스트·API/오디오 모의]
+- 실제 웨이크/STT/한국어TTS·API·40음성/90%·실제검증실패율/3초·C/D연결·안전운용은 미검증. D자료 승인/정답표 동결·진단과D결과필드 대응·후속확인정책은 인계, 로컬결과를 실제평가/AC달성으로 기록하지 않음. D원본/수집기/계약/타담당/로봇동작 변경 및 전체저장소빌드/실물/유료API/subagent 없음. 기존 :memory:.ses 보존/미포함. [문서]
