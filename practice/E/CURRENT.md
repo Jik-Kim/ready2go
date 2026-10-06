@@ -1,7 +1,7 @@
 # CURRENT — E 고희태
 
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-05
+- **최종 갱신**: 2026-10-06
 
 ## 지금 상태
 - #1·#8 최신 결정에 따라 hardware·metrics_risks의 서랍 재질/레일·높이 기준 문구를 정정함. 작업 브랜치 `codex/hardware-doc-alignment`, 기준 main `f6c2aa4`. 사용자께서 문서 수정·로컬 커밋·push·새 PR 생성을 승인함. [문서]
@@ -80,3 +80,15 @@
 - C 제안 실행 조합: ontology_file=/knowledge/robot_ontology_demo.jsonld, task_file=/tasks/p1_demo_eraser.json. 기준 main에는 해당 태스크 없음: C 반영·실행 조합 확인 대기. 호출 태스크 retry 생략/0, place 실패 시 쥔 상태의 종료·복구 정책은 C/B 인계임. [문서]
 - B #83 head25e97ef 배열 지원·lift 오류 보존의 13사례 통과는 검토 세션 전달 결과이며 E의 재검증이 아님. check_only PUSH_LIMIT 보완, target_after 계약 출력 예시·E 포함2명 승인은 별도 인계. A stub·B 보정 TF/실물 준비·C 패키지는 수정하지 않음. [문서]
 - target_after는 이동량 기반 예상값이며 FR-ACT-05/AC-ACT-05 재인식 완료가 아님. P1 FR-ONT-01/FR-PLN-01 연결의 시연 한정 구성. domain 상세는 시연 후 계획으로 유지하며 출력 계약 승인이나 실물 배포 완료를 대신하지 않음. [문서]
+
+## 2026-10-06 #16 P1 음성 패키지 구현
+- 검토 세션에서 전달된 사용자 직접 승인 “구현 승인. 이 코드 참고하도록 넘겨.”에 따라 E voice 패키지/설정/관련 검증·본 CURRENT·로컬 커밋 범위 구현. 기준 main `64399e638e6b1293ac0a692a39f8e9cb4b0d4212`, 브랜치 `codex/voice-p1-implementation`. 기존 일정/시연 브랜치는 보존함. push/PR/병합·타 담당/공통 계약 편집은 제외. [문서]
+- 참고 원본 STT/keyword_extraction/audio_device/wakeup_word는 읽기만 수행. SciPy 대신 표준 wave, 기존 온톨로지 전체 물품/별칭, LangChain strict JSON+의미 검증·규칙 폴백·unknown/clarify 보류를 구현. 고정5초 녹음은 RMS 무음 종료/최대 한도로 변경함. 키는 환경에서 읽으며 출력하지 않음. 모델 원본 복제/수정 없음. [문서]
+- 웨이크→녹음→whisper-1 후보 전사, gpt-4o 후보 해석, espeak-ng 후보 WAV→PortAudio DAC 재생, 기존 voice intent/text_override/speak ROS 연결을 구현. 모델/장치/임계값/예산은 패키지 params의 팀 확정 필요 설정으로 구분. default evaluation_mode=true·audio_enabled=false: 평가에서는 제어 intent 포함 모든 intent 발행 없음. [문서]
+- 실제 실행 결과: 빠른 compileall·JSON/YAML/XML/README 링크·diff 공백 검사 통과. colcon packages-up-to ready2go_voice 빌드 최종1회(interfaces/knowledge/voice3개) 성공. 실제 ROS/생성 Skill을 source한 패키지 검사47개 통과, skip0. core/SDK 모의·기록 종료·PCM/장치오류·TTS취소·API시간초과/늦은응답·평가/중복/취소 게이트 및 독립ROS도메인166 topic/action 연결 포함. DDS 인터페이스 열거가 샌드박스에서 차단되어 승인된 검증을 독립도메인/임시로그 경로의 격리된 로컬 실행으로 확인함. [실측: 로컬·API/오디오 모의]
+- 강의 hello_rokey_8332_32.tflite는 현재 환경에서 tflite runtime 초기화·무음1280프레임 추론 성공. 실제 웨이크 발화·모델 배포/PC 설정 검증이 아님. 입력/출력 장치0개, espeak-ng 실행기 없음. 실제 한국어 음성 가용성/물리재생/API 계정·지연은 미검증이며 유료API 호출하지 않음. [실측: 로컬 환경 확인]
+- TTS 시작은 요청/합성시각 대신 첫 PortAudio DAC 재생 시각으로 진단하며 실제 어댑터와 mock 시각을 구분. 물리 스피커 지연은 별도 실측. 무음 대기/STT/LLM/TTS준비를3초예산에 포함하고 늦은API결과·취소된요청은 추가발행하지 않음. TTS실패는find_item을clarify로보류. 시간예산설정이실제로3초를충족하는지는미검증. [문서]
+- C #17 인계: intent→P1태스크·cancel/status·중복/모호/미지원보류, 확인TTS↔태스크시작 책임, source→run_id/로그. Docker/compose의패키지/계약/모델배포·기동은별도C/E협의/승인. E는로봇제어/ESTOP·관측상태/DB로거를추가하지않음. [문서]
+- D #20 인계: 20지우개/10모호/10미등록미지원(자유표현10포함/화자2명이상), cancel/status보조유지. 문장별정답·대상단독clarify/unknown정책·필드수신경로는미합의. 기존ROS로그와source에STT/LLM원문·검증/폴백·실행허용/발행·발화종료/재생시각출력 제공. 정상unknown/clarify를LLM검증실패로세지않음. [문서]
+- 실음성40문장≥36정답·LLM검증실패≤5%/잘못된실행0·실제확인TTS≤3초(AC-INT-01~03)는미측정. 장치/API/TTS·C/D·모션없는평가·운용조건확인후10/08목16:00P1테스트를준비함. 시작시각은준비완료/성공보장이아님. [문서]
+- 벽면배치·nudge는사용자지정P1테스트범위이며기존pick_demo예상target_after/재조회없음연결은유지. 실제재인식→pick/NO_PUSH_ACCESS정합성은별도A/B/C/E인계. FR-ACT-05재인식완료로판정하지않음. 새OntologyManager/BFS/목록/목표계획/LLM태스크생성은제외. [문서]
