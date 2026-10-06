@@ -47,7 +47,7 @@ def server(monkeypatch):
     _stub(monkeypatch, "dsr_msgs2")
     _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
         "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetRobotMode GetRobotState GetToolForce "
-        "MoveJoint MoveLine MoveStop SetRobotMode").split()})
+        "MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
     _stub(monkeypatch, "pymodbus")
     _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
     for m in ("ready2go_skills.adapters.dsr", "ready2go_skills.adapters.rg2", "ready2go_skills.nodes.skill_server"):
@@ -100,6 +100,11 @@ def server(monkeypatch):
         def movej_async(self, j, vel, acc):
             self.log.append(("movej", j))
             self.j = list(j)
+            return True
+
+        def movesj_async(self, pts, vel, acc):
+            self.log.append(("movesj", [list(p) for p in pts]))
+            self.j = list(pts[-1])
             return True
 
     class Gripper:
@@ -191,6 +196,11 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
     server.Gripper.holding = False
     assert out.success and data["grasp_ok"] is True
+    server.srv.robot.log.clear()
+    out, data = server.run("place_object", {"location": "handover_zone"})
+    kinds = [e[0] for e in server.srv.robot.log]
+    assert out.success and data["slot"] == "handover_zone_1"
+    assert kinds[0] == "movesj" and len(server.srv.robot.log[0][1]) == 4      # 들고 나오기 경유점 4개를 한 번에 (10/06)
 
 
 def test_named_pose_from_low_non_drawer_spot_lifts_first(server):

@@ -284,6 +284,26 @@ class SkillServer(Node):
                               stop=self.robot.stop, timeout_s=self.move_timeout, watch=watch, arrived=self._at_posx(posx))
         return None if done.success else done
 
+    def _spline(self, goal, points, stage):
+        """경유점 posj 목록을 관절 스플라인으로 (자동 모드 → 취소 확인 → 비동기 → 마지막 점 도착까지). 성공이면 None."""
+        goal.publish_feedback(Skill.Feedback(stage=stage))
+        if not self.robot.auto():
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+        if early:
+            return early
+        sp = self.prm()["speed"]
+        bad = sf.after_command(self.robot.movesj_async(points, sp["spline_deg_s"], sp["spline_acc_deg_s2"]),
+                               what=f"movesj({stage})", stop=self.robot.stop, get_state=self.state)
+        if bad:
+            return bad
+        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
+                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(points[-1]))
+        if not done.success:
+            return done
+        reached = sf.check_reached(points[-1], self.robot.posj(), self.reach_tol)
+        return None if reached.success else reached
+
     def _transit(self, goal, target, stage):
         """safe_z 로 수직 이동 → 그 자리에서 방향만 돌림 → safe_z 에서 목표 위로 → 목표로 내려감.
         방향 바꾸기와 옮기기를 나눔: drawer_top_view(팔 거의 펴짐, J3 약 10°)에서 옮기며 30° 기울이다 특이점에 걸림 (10/06 실물).
@@ -703,13 +723,18 @@ class SkillServer(Node):
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
         legs = []
         if self._over_drawer(cur):
-            # 서랍에 안 부딪힐 만큼만 높이고, 로봇 쪽(x 작게)으로 당긴 뒤 앞판을 넘음 — 높고 멀수록 특이점 (10/06 사용자)
-            tr = prm["transit"]
-            safe, high, ex, ey = tr["safe_z_mm"], tr["high_z_mm"], tr["exit_x_mm"], tr["exit_y_mm"]
-            legs += [(mp.with_z(cur, safe), "transport:up"),                       # 옆벽·테두리 위
-                     ([min(cur[0], ex), cur[1], safe] + list(cur[3:]), "transport:in"),   # 서랍 안에서 로봇 쪽으로
-                     ([min(cur[0], ex), cur[1], high] + list(cur[3:]), "transport:clear"),  # 앞판 넘을 높이
-                     ([min(cur[0], ex), ey, high] + list(cur[3:]), "transport:out")]        # 앞판·손잡이 넘어 서랍 밖
+            # 들고 나오기(carry_out): 직접교시 경유점 4개를 movesj 로 한 번에 — 서랍 안 → 서랍 위 → 앞판 넘음 → 트레이 쪽
+            # [사용자 직접교시·실물 확인 B 10/06]. 그다음 트레이 칸 위로 직선 (4번 높이, y = 트레이 가운데)
+            route = ((self.poses().get("carry_out") or {}).get(self.held.get("drawer_id") or "drawer_top"))
+            if not route:
+                return sf.Outcome(False, sf.POSE_NOT_TAUGHT, reason="poses.yaml carry_out 경유점 없음"), None
+            bad = self._spline(goal, route, "carry_out")
+            if bad:
+                return bad, None
+            p4 = self.robot.posx()
+            if p4 is None:
+                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+            above = list(above[:2]) + [p4[2]] + list(above[3:])
         legs.append((above, "transport"))
         for pose, st in legs:
             bad = self._line(goal, pose, speed["line_mm_s"], st)

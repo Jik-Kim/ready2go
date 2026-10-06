@@ -40,6 +40,8 @@ gripper:
 speed:                          # [팀 확정 필요] 처음엔 낮게
   line_mm_s: 50.0
   line_acc_ratio: 1.0           # 직선 가속 = 속도 × 이 값 (예전 2.0 → 시작·멈춤이 쿵쿵, 10/06 사용자)
+  spline_deg_s: 20.0            # 들고 나오기(carry_out) movesj 관절 속도 [실물 확인 B 10/06]
+  spline_acc_deg_s2: 20.0
   turn_deg_s: 15.0              # 직선 이동 중 방향 회전 속도 (예전 30 → 20 → 15, 기울일 때 쿵쿵)
   turn_acc_deg_s2: 15.0         # 회전 가속 (예전 60)
   approach_mm_s: 25.0           # 물체·손잡이 바로 앞

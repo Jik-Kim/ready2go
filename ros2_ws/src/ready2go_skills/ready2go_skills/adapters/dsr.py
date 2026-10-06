@@ -7,12 +7,13 @@ import time
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetRobotMode, GetRobotState,
-                           GetToolForce, MoveJoint, MoveLine, MoveStop, SetRobotMode)
+                           GetToolForce, MoveJoint, MoveLine, MoveSplineJoint, MoveStop, SetRobotMode)
 
 SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
         "posx": (GetCurrentPosx, "aux_control/get_current_posx"),
         "force": (GetToolForce, "aux_control/get_tool_force"),
         "movel": (MoveLine, "motion/move_line"),
+        "movesj": (MoveSplineJoint, "motion/move_spline_joint"),
         "state": (GetRobotState, "system/get_robot_state"),
         "mode": (GetRobotMode, "system/get_robot_mode"),
         "setmode": (SetRobotMode, "system/set_robot_mode"),
@@ -86,6 +87,33 @@ class Dsr:
         끝은 wait_motion 이, 응답 없음·거부 처리는 skill_flow.after_command 가 본다."""
         r = self.call("movej", pos=[float(v) for v in joints], vel=float(vel), acc=float(acc),
                       time=0.0, radius=0.0, mode=0, blend_type=0, sync_type=1)
+        return None if r is None else bool(r.success)
+
+    def movesj_async(self, points, vel, acc):
+        """비동기 관절 스플라인 (경유점 posj 목록을 한 번에 부드럽게). vel·acc 형식(스칼라·배열)은 드라이버 필드를 보고 채움.
+        반환은 movej_async 와 같다."""
+        from std_msgs.msg import Float64MultiArray
+        req = self.T["movesj"].Request()
+        ft = req.get_fields_and_field_types()
+        req.pos = [Float64MultiArray(data=[float(v) for v in p]) for p in points]
+        req.pos_cnt = len(points)
+        for name, val in (("vel", float(vel)), ("acc", float(acc))):
+            t = ft.get(name, "")
+            if t.startswith("double["):
+                setattr(req, name, [val] * int(t[7:-1]))
+            elif t.startswith("sequence<double"):
+                setattr(req, name, [val] * 6)
+            elif t:
+                setattr(req, name, val)
+        for name in ("time", "mode"):
+            if name in ft:
+                setattr(req, name, type(getattr(req, name))(0))
+        req.sync_type = 1
+        fut = self.cli["movesj"].call_async(req)
+        t0 = time.monotonic()
+        while not fut.done() and time.monotonic() - t0 < 2.0:
+            time.sleep(0.005)
+        r = fut.result() if fut.done() else None
         return None if r is None else bool(r.success)
 
     def movel_async(self, posx, vel, acc, rot_vel=30.0, rot_acc=60.0):
