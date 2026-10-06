@@ -40,8 +40,8 @@ gripper:
 speed:                          # [팀 확정 필요] 처음엔 낮게
   line_mm_s: 50.0
   line_acc_ratio: 1.0           # 직선 가속 = 속도 × 이 값 (예전 2.0 → 시작·멈춤이 쿵쿵, 10/06 사용자)
-  turn_deg_s: 20.0              # 직선 이동 중 방향 회전 속도 (예전 30)
-  turn_acc_deg_s2: 20.0         # 회전 가속 (예전 60)
+  turn_deg_s: 15.0              # 직선 이동 중 방향 회전 속도 (예전 30 → 20 → 15, 기울일 때 쿵쿵)
+  turn_acc_deg_s2: 15.0         # 회전 가속 (예전 60)
   approach_mm_s: 25.0           # 물체·손잡이 바로 앞
   grasp_mm_s: 15.0              # 마지막 내려가기·놓기
   pull_mm_s: 40.0               # 서랍 당기기
@@ -86,6 +86,7 @@ drag:                           # nudge_object 실물: 기울여 손끝으로 �
                                 #   [실측 B 10/06] wall + 옆벽 쪽 30°: 모서리에 최대로 넣어 TCP–옆벽 경계 5.0 mm(수직은 21.6 mm에서 관절 걸림),
                                 #   세로 지우개 윗면 눌러 옆으로 잘 끌림. object 는 계산만 (tip_contact, 실물 미확인)
   wall_tcp_min_mm: 5.0          # close_axis wall, 30°: TCP가 옆벽 경계에 다가갈 수 있는 거리 [실측 B 10/06] (+ gripper.wall_margin_mm)
+  wall_press_margin_mm: 0.0     # close_axis wall: 누르는 TCP = 옆벽 경계 + wall_tcp_min_mm + 이 값. 3 → 0 (10/06 덜 붙어 지우개 끝만 눌려 덜덜 끌림, 사용자 손 시험 x 521.4 와 같게)
   wall_tip_below_mm: 11.7       # close_axis wall, 30°: 손끝이 TCP 아래 [실측 B 10/06, 지우개 윗면 터치] — 다른 각도면 다시 잴 것
   press_speed_mm_s: 5.0         # 내려가며 접촉 찾기
   speed_mm_s: 10.0              # 끄는 속도

@@ -108,7 +108,7 @@ def test_square_tip_would_miss_narrow_flush_object():
 
 def test_wall_close_axis_presses_measured_eraser_over_its_middle():
     """10/06 실측 자세(닫힘 축 = 옆벽 법선, 30°): TCP 는 옆벽 경계에서 5.0 + 여유 3 mm, 지우개 폭 안. 끌 거리는 같음."""
-    d = dict(DRAG, close_axis="wall", wall_tcp_min_mm=5.0, tilt_deg=30.0)
+    d = dict(DRAG, close_axis="wall", wall_tcp_min_mm=5.0, wall_press_margin_mm=3.0, tilt_deg=30.0)
     p = mp.plan_drag(target=tgt(0.1769, 0.2895, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=d)
     assert p.needed and p.error_code is None and p.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
     assert (INTERIOR[1] - p.press_xy_m[1]) * 1000 == pytest.approx(8.0, abs=0.05)
@@ -117,3 +117,9 @@ def test_wall_close_axis_presses_measured_eraser_over_its_middle():
 
 def test_params_use_wall_close_axis():
     assert DRAG["close_axis"] == "wall" and DRAG["wall_tcp_min_mm"] == 5.0 and DRAG["wall_tip_below_mm"] == 11.7
+
+
+def test_wall_press_margin_zero_presses_at_measured_reach():
+    """10/06: 여유 0 → 옆벽 경계에서 TCP 5.0 mm (사용자 손 시험 x 521.4 와 같은 자리), 지우개 폭 안."""
+    p = mp.plan_drag(target=tgt(0.1769, 0.2895, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
+    assert (INTERIOR[1] - p.press_xy_m[1]) * 1000 == pytest.approx(5.0, abs=0.05) and p.error_code is None

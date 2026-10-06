@@ -544,9 +544,16 @@ class SkillServer(Node):
         end_mm = [1000.0 * v for v in pp.to_base(tf, (px, py, contact_z_m - d["search_below_mm"] / 1000.0))]
         above = mp.gripper_posx(start_mm, along, self._cur_angles(), tilt_toward=wall, tilt_deg=d["tilt_deg"])
         self._grip(0, 20)
-        bad = self._transit(goal, above, "to_object")
-        if bad:
-            return bad, out
+        # 보는 자세에서: 높이만 직선으로 내림 → 그 자리에서 기울임 → 누를 자리 위로 (10/06: 내리며 돌리면 쿵쿵, 사용자)
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
+        level = mp.with_z(cur, prm["transit"]["safe_z_mm"])
+        for pose, st in ((level, "to_object:down"), (list(level[:3]) + list(above[3:]), "to_object:tilt"),
+                         (above, "to_object:over")):
+            bad = self._line(goal, pose, speed["line_mm_s"], st)
+            if bad:
+                return bad, out
         base_f = self.robot.tool_force()
         hit = {}
 
@@ -684,28 +691,27 @@ class SkillServer(Node):
             return sf.Outcome(False, TRAY_FULL, reason=f"{loc} {len(slots)}칸 모두 사용"), None
         i = free[0]
         g, pl, speed = prm["gripper"], prm["place"], prm["speed"]
-        # 서랍 → 트레이: 서랍 위면 보는 자세 → 홈 → tray_view (관절 이동, 열린 서랍 앞판 위를 직선으로 가로지르지 않음 10/06)
-        if self.robot.posx() and self._over_drawer(self.robot.posx()):     # 서랍 위 → 보는 자세 → 높게 → 홈 위 → 홈
-            o = self._named(goal, "drawer_top_view", self.held.get("drawer_id"))
-            if not o.success:
-                return o, None
-            hp = getattr(self, "home_posx", None)
-            bad = self._go_high(goal, xy=hp[:2] if hp else (self.robot.posx()[0], prm["transit"]["exit_y_mm"]))
-            if bad:
-                return bad, None
-        for name in ("home", "tray_view"):
-            o = self._named(goal, name)
-            if not o.success:
-                return o, None
+        # 서랍 → 트레이 (10/06 사용자): 집어서 올린 뒤 서랍 앞판 위 높이(high_z)로 로봇 쪽(홈 위)으로 당겨 서랍 영역을 빠져나오고,
+        # 거기서 트레이 칸 위로 바로 (보는 자세·tray_view 를 거치지 않음 — 팔을 편 자세에서 특이점·꺾임)
         z_m = mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"])
         pos = [1000.0 * v for v in pp.to_base(tf, (slots[i][0], slots[i][1], z_m))]
         close_dir = mp.dir_to_base(tf, (1.0, 0.0, 0.0))                 # 칸이 x로 늘어섬 → 물체 긴 변은 y, 손가락은 x로
         target = mp.gripper_posx(pos, close_dir, self._cur_angles())
-        view = self.robot.posx()
-        above = mp.with_z(target, max(view[2] if view else 0.0, target[2] + pl["approach_m"] * 1000.0))
-        bad = self._line(goal, above, speed["line_mm_s"], "transport")   # tray_view 높이에서 칸 위로
-        if bad:
-            return bad, None
+        above = mp.with_z(target, max(prm["transit"]["free_lift_z_mm"], target[2] + pl["approach_m"] * 1000.0))
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        legs = []
+        if self._over_drawer(cur):
+            high = prm["transit"]["high_z_mm"]
+            hp = getattr(self, "home_posx", None)
+            out_xy = hp[:2] if hp else [cur[0], prm["transit"]["exit_y_mm"]]
+            legs += [(mp.with_z(cur, max(cur[2], high)), "transport:up"), (list(out_xy) + [high] + list(cur[3:]), "transport:out")]
+        legs.append((above, "transport"))
+        for pose, st in legs:
+            bad = self._line(goal, pose, speed["line_mm_s"], st)
+            if bad:
+                return bad, None
         r = Rg2(self.rg2_ip)
         try:
             w = r.status().width_mm / 1000.0
