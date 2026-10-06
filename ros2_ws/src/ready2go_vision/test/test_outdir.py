@@ -1,4 +1,4 @@
-"""tools/yolo/_outdir.py 회귀 테스트: 자동 라벨을 다시 돌려도 이전 결과가 학습 데이터에 남지 않는다. 표준 라이브러리만 사용(CI 호환)."""
+"""tools/yolo/_outdir.py 회귀 테스트: 자동 라벨을 다시 돌려도 이전 결과가 남지 않고, 중간에 끊겨도 불완전한 세션이 남지 않는다. 표준 라이브러리만 사용(CI 호환)."""
 import importlib.util
 from pathlib import Path
 
@@ -9,34 +9,49 @@ outdir = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(outdir)
 
 
-def fill(out):
+def fill(out, stem="0003"):
     for s in ("images", "labels", "preview"):
-        (out / s).mkdir(parents=True)
-    (out / "images/0003.png").write_bytes(b"x")
-    (out / "labels/0003.txt").write_text("0 0.5 0.5 0.1 0.1\n")
-    (out / "preview/0003.png").write_bytes(b"x")
+        (out / s).mkdir(parents=True, exist_ok=True)
+    (out / f"images/{stem}.png").write_bytes(b"x")
+    (out / f"labels/{stem}.txt").write_text("0 0.5 0.5 0.1 0.1\n")
+    (out / f"preview/{stem}.png").write_bytes(b"x")
 
 
-def test_empty_or_new_output_is_fine(tmp_path):
-    assert outdir.prepare_output(tmp_path / "out/s01", tmp_path / "raw/s01", force=False) == {}
-    assert (tmp_path / "out/s01/labels").is_dir()
+def test_new_output_gets_empty_work_dir(tmp_path):
+    out = tmp_path / "labeled/s01"
+    work, found = outdir.prepare_output(out, tmp_path / "raw/s01", force=False)
+    assert found == {} and (work / "labels").is_dir() and not out.exists()
+    assert tmp_path / "labeled" not in work.parents          # 작업 폴더는 data/labeled 밖 (데이터셋에 섞이지 않음)
 
 
 def test_existing_output_aborts_without_force(tmp_path):
-    out = tmp_path / "out/s01"
+    out = tmp_path / "labeled/s01"
     fill(out)
     with pytest.raises(FileExistsError, match="--force"):
         outdir.prepare_output(out, tmp_path / "raw/s01", force=False)
-    assert (out / "labels/0003.txt").exists()            # 중단했으니 아무것도 지워지지 않는다
+    assert (out / "labels/0003.txt").exists()
 
 
-def test_force_removes_previous_results(tmp_path):
-    out = tmp_path / "out/s01"
+def test_force_keeps_old_until_commit_then_replaces(tmp_path):
+    out = tmp_path / "labeled/s01"
     fill(out)
-    removed = outdir.prepare_output(out, tmp_path / "raw/s01", force=True)
-    assert removed == {"images": 1, "labels": 1, "preview": 1}
-    assert not (out / "labels/0003.txt").exists() and not (out / "images/0003.png").exists()
-    assert (out / "labels").is_dir()                    # 폴더는 다시 만들어 둔다
+    work, found = outdir.prepare_output(out, tmp_path / "raw/s01", force=True)
+    assert found == {"images": 1, "labels": 1, "preview": 1}
+    assert (out / "labels/0003.txt").exists()                # 끝나기 전에는 기존 출력이 그대로
+    fill(work, "0004")
+    outdir.commit_output(work, out)
+    assert not (out / "labels/0003.txt").exists() and (out / "labels/0004.txt").exists()
+    assert not work.exists()
+
+
+def test_interrupted_run_leaves_old_output_untouched(tmp_path):
+    out = tmp_path / "labeled/s01"
+    fill(out)
+    work, _ = outdir.prepare_output(out, tmp_path / "raw/s01", force=True)
+    fill(work, "0000")                                       # 일부만 만들고 오류로 끊김 (commit 안 함)
+    assert (out / "labels/0003.txt").exists() and not (out / "labels/0000.txt").exists()
+    work2, _ = outdir.prepare_output(out, tmp_path / "raw/s01", force=True)   # 다음 실행은 작업 폴더를 새로 시작
+    assert not list((work2 / "labels").iterdir())
 
 
 def test_raw_is_never_touched_and_overlap_is_rejected(tmp_path):
@@ -44,7 +59,7 @@ def test_raw_is_never_touched_and_overlap_is_rejected(tmp_path):
     (raw / "images").mkdir(parents=True)
     (raw / "images/0000.png").write_bytes(b"orig")
     with pytest.raises(ValueError):
-        outdir.prepare_output(raw, raw, force=True)               # 출력이 원본과 같으면 거부
+        outdir.prepare_output(raw, raw, force=True)
     with pytest.raises(ValueError):
-        outdir.prepare_output(raw / "images", raw, force=True)    # 원본 안쪽이어도 거부
+        outdir.prepare_output(raw / "images", raw, force=True)
     assert (raw / "images/0000.png").read_bytes() == b"orig"

@@ -18,7 +18,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from _outdir import prepare_output
+from _outdir import commit_output, prepare_output
 
 ROOT = Path(__file__).resolve().parents[2]
 # 기준 시점 1280x720 화면에서 서랍 바닥 안쪽 [x0, y0, x1, y1] 픽셀 (바닥-벽 경계선 안쪽, 눈으로 잰 값)
@@ -94,11 +94,11 @@ def main() -> int:
     else:
         print(f"[auto_label] 배경 세션 {bg_dir} 없음 → 뎁스만 사용")
     try:
-        removed = prepare_output(out, raw, args.force)
+        work, removed = prepare_output(out, raw, args.force)
     except (FileExistsError, ValueError) as e:
         sys.exit(f"[auto_label] {e}")
     if removed:
-        print(f"[auto_label] --force: 이전 결과를 지우고 다시 만듭니다 {removed}")
+        print(f"[auto_label] --force: 끝까지 성공하면 이전 결과를 교체합니다 {removed}")
     review, n_ok = [], 0
     for img_path in sorted((raw / "images").glob("*.png")):
         stem, i = img_path.stem, int(img_path.stem)
@@ -164,16 +164,17 @@ def main() -> int:
         if area < 1500:
             notes.append(f"덩어리 작음 {area}px")
         name = cls_of[i]
-        (out / "labels" / f"{stem}.txt").write_text(
+        (work / "labels" / f"{stem}.txt").write_text(
             f"{classes.index(name)} {(bx0 + bx1) / 2 / w:.6f} {(by0 + by1) / 2 / h:.6f} {(bx1 - bx0) / w:.6f} {(by1 - by0) / h:.6f}\n", encoding="utf-8")
-        shutil.copy2(img_path, out / "images" / img_path.name)
+        shutil.copy2(img_path, work / "images" / img_path.name)
         vis = color.copy()
         cv2.rectangle(vis, (int(bx0), int(by0)), (int(bx1), int(by1)), (0, 255, 0), 2)
         cv2.putText(vis, f"{stem} {name}", (int(bx0), max(int(by0) - 6, 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.imwrite(str(out / "preview" / img_path.name), vis)
+        cv2.imwrite(str(work / "preview" / img_path.name), vis)
         n_ok += 1
         if notes:
             review.append((stem, "; ".join(notes)))
+    commit_output(work, out)
     print(f"[auto_label] {n_ok}장 라벨 작성 → {out}")
     for stem, why in review:
         print(f"  확인 필요 {stem}: {why}")
