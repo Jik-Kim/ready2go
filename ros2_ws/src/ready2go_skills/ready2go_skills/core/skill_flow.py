@@ -24,6 +24,7 @@ BAD_PARAMS = "BAD_PARAMS"
 STOP_UNCONFIRMED = "STOP_UNCONFIRMED"    # 정지 명령 뒤 멈춘 것을 확인 못 함 — 노드 잠금, Runner 는 ESTOP 처럼 ABORTED 권장 (#73 D 리뷰)
 STATE_UNKNOWN = "STATE_UNKNOWN"          # 이동 중 상태 조회가 계속 실패 → 정지 후 이 코드
 MOVE_UNCONFIRMED = "MOVE_UNCONFIRMED"    # 이동 명령 응답이 없어 수락 여부 모름 → 정지·확인 후 이 코드로 잠금 (#73 E 리뷰)
+MOVE_NOT_STARTED = "MOVE_NOT_STARTED"    # 명령이 수락됐는데 start_timeout_s 안에 움직이지도, 목표에 있지도 않음 → 정지 확인 후 이 코드
 BUSY = "BUSY"                            # 다른 동작이 실행 중 — 한 번에 하나만 (#73 E 리뷰). 로봇 동작 없음
 LOCKED = "LOCKED"                        # 앞서 LOCKING_CODES 로 잠긴 서버 — 사람이 확인하고 서버를 다시 띄울 때까지 거부
 SKILL_EXCEPTION = "SKILL_EXCEPTION"      # 서버 안 예외 — 움직인 뒤일 수 있음. Runner 의 BACKEND_ERROR(서버 없음·goal 거절, 동작 안 함)와 구분 (#73 C 리뷰)
@@ -184,14 +185,18 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
                 settle_s: float = 0.3, unknown_limit_s: float = 1.0, stop_confirm_s: float = 3.0,
                 clock: Callable[[], float] = time.monotonic,
                 sleep: Callable[[float], None] = time.sleep,
-                watch: Optional[Callable[[], Optional[Outcome]]] = None) -> Outcome:
+                watch: Optional[Callable[[], Optional[Outcome]]] = None,
+                arrived: Optional[Callable[[], bool]] = None, start_timeout_s: float = 3.0) -> Outcome:
     """비동기 이동 명령을 보낸 뒤 끝날 때까지 기다린다.
     - watch(): 주기마다 호출. Outcome 을 돌려주면 정지 → 정지가 확인되면 그 Outcome (접촉 감지 = 성공, 걸림 = 실패 등)
     - 취소 요청 → 정지 → **정지가 확인되면** canceled, 확인 못 하면 STOP_UNCONFIRMED (#73 D 리뷰)
     - 비상정지·안전정지 상태 → ESTOP
     - timeout_s 초과 → 정지 → 확인되면 MOTION_TIMEOUT, 아니면 STOP_UNCONFIRMED
     - 상태 조회 실패(None)는 '끝남'이 아니라 '모름'. unknown_limit_s 넘게 계속되면 정지 → STATE_UNKNOWN / STOP_UNCONFIRMED
-    - 이동 시작 전 잠깐(settle_s)은 '이동 중'이 아니어도 끝난 것으로 보지 않는다 (명령 직후 상태가 늦게 바뀜)."""
+    - 이동 시작 전 잠깐(settle_s)은 '이동 중'이 아니어도 끝난 것으로 보지 않는다 (명령 직후 상태가 늦게 바뀜).
+    - arrived()(목표에 있는지)를 주면: '이동 중'을 한 번도 못 봤을 때는 목표에 있을 때만 끝. start_timeout_s 안에
+      움직이지도 도착하지도 않으면 정지 → MOVE_NOT_STARTED. 실물 10°/s 에서 '이동 중'으로 바뀌는 데 0.3 s 넘게 걸려
+      출발 전에 끝으로 판단한 사고 대응 (10/06 C 연결 확인, NOT_REACHED 195°)."""
     t0 = clock()
     seen_moving = False
     unknown_since = None
@@ -219,8 +224,17 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
             unknown_since = None
             moving = state == STATE_MOVING
             seen_moving = seen_moving or moving
-            if not moving and (seen_moving or elapsed >= settle_s):
-                return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
+            if not moving:
+                if seen_moving:
+                    return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
+                if arrived is None:
+                    if elapsed >= settle_s:
+                        return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
+                elif arrived():
+                    return Outcome(True, reason=f"이미 목표에 있음 ({elapsed:.1f} s)")
+                elif elapsed >= start_timeout_s:
+                    return halt(Outcome(False, MOVE_NOT_STARTED,
+                                        reason=f"{start_timeout_s:g} s 안에 움직이지 않고 목표에도 없음 — 정지"))
         if elapsed > timeout_s:
             return halt(Outcome(False, MOTION_TIMEOUT, reason=f"{timeout_s:g} s 안에 끝나지 않아 정지"))
         sleep(period_s)

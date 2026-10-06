@@ -387,3 +387,28 @@ def test_worse_keeps_safety_over_ordinary_failure_and_success():
     assert sf.worse(cancel, blocked) is cancel
     assert sf.is_safety(estop) and sf.is_safety(cancel) and sf.is_safety(unconf)
     assert not sf.is_safety(blocked) and not sf.is_safety(None)
+
+
+# ---- 출발 지연 (10/06 C 연결 확인: 10°/s 에서 '이동 중' 표시가 0.3 s 넘게 늦어 출발 전에 끝으로 판단 → NOT_REACHED 195°)
+def _wait_arrived(f, arrived, timeout=30.0):
+    return sf.wait_motion(get_state=f.state, cancel_requested=f.cancel, stop=f.stop, timeout_s=timeout,
+                          clock=f.clock, sleep=f.sleep, arrived=arrived)
+
+
+def test_late_start_is_not_taken_as_done_when_arrival_is_checked():
+    f = Fake([1] * 15 + [2] * 20 + [1])      # 0.75 s 동안 대기 상태로 읽힌 뒤 출발
+    o = _wait_arrived(f, arrived=lambda: False)
+    assert o.success and f.i == 36           # 이동을 끝까지 기다림 (예전에는 0.3 s 에 끝)
+
+
+def test_already_at_target_ends_immediately():
+    f = Fake([1] * 100)
+    o = _wait_arrived(f, arrived=lambda: True)
+    assert o.success and f.i == 1
+
+
+def test_never_starts_and_not_at_target_stops_with_move_not_started():
+    f = Fake([1] * 1000)
+    o = _wait_arrived(f, arrived=lambda: False)
+    assert (o.success, o.error_code) == (False, sf.MOVE_NOT_STARTED) and f.stopped == 1
+    assert f.t == pytest.approx(3.0, abs=0.1)

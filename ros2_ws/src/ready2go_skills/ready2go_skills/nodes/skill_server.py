@@ -32,7 +32,7 @@ from ready2go_interfaces.action import Skill
 from ready2go_skills.adapters.dsr import Dsr
 from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_guard, motion_plan as mp
-from ready2go_skills.core import pick_plan as pp, skill_flow as sf
+from ready2go_skills.core import pick_plan as pp, pose_math as pm, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
 PARAMS_FILE = Path(__file__).resolve().parents[2] / "params" / "skills.yaml"
@@ -180,10 +180,24 @@ class SkillServer(Node):
         if bad:
             return bad, None
         done = sf.wait_motion(get_state=self.robot.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout)
+                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
         if not done.success:
             return done, None
         return sf.check_reached(joints, self.robot.posj(), self.reach_tol), None
+
+    def _at_joints(self, joints):
+        """wait_motion arrived: 관절각이 목표와 reach_tol 안. 조회 실패면 False."""
+        return lambda: sf.check_reached(joints, self.robot.posj(), self.reach_tol).success
+
+    def _at_posx(self, posx, tol_mm=1.0, tol_deg=1.0):
+        """wait_motion arrived: TCP 위치·방향이 목표 근처. 조회 실패면 False."""
+        def at():
+            cur = self.robot.posx()
+            if cur is None:
+                return False
+            d = math.dist(cur[:3], [float(v) for v in posx[:3]])
+            return d <= tol_mm and pm.rotation_angle(pm.rot(*cur[3:]), pm.rot(*posx[3:])) <= tol_deg
+        return at
 
     # --- 공통 이동 ---
     def _line(self, goal, posx, vel, stage, watch=None):
@@ -199,7 +213,7 @@ class SkillServer(Node):
         if bad:
             return bad
         done = sf.wait_motion(get_state=self.robot.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=watch)
+                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=watch, arrived=self._at_posx(posx))
         return None if done.success else done
 
     def _transit(self, goal, target, stage):
@@ -282,9 +296,12 @@ class SkillServer(Node):
         if bad:
             return bad, None
         done = sf.wait_motion(get_state=self.robot.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout)
+                              stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
         if not done.success:
             return done, None
+        reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
+        if not reached.success:
+            return reached, None
         handle = mp.handle_posx(closed, pull, disp)
         bad = self._line(goal, handle, speed["approach_mm_s"], "reach_handle")
         if bad:
