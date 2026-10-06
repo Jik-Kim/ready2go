@@ -224,6 +224,29 @@ def contact_for(stage, p0, p1):
     return None
 
 
+def save_trace(robot, repo: Path, out, results, eraser, eraser_after):
+    """구간 지표(손끝 10 mm·회전 5°당 최대 관절 변화, ◀ 판정)를 붙여 trace.json 저장 + 표 출력. trace_b_demo.py 도 같이 씀."""
+    for s in robot.segments:
+        n = max(1, len(s["joints"]) - 1)
+        unit = max(s.get("dist_mm", 0.0) / n, s.get("rot_deg", 0.0) / n * 2, 1e-9)
+        dq = np.abs(np.diff(np.array(s["joints"]), axis=0)).max() if len(s["joints"]) > 1 else 0.0
+        s["amp_deg_per_10mm"] = float(dq / unit * 10) if s["kind"] == "movel" else 0.0
+        s["flag"] = bool(s["kind"] == "movel" and (s["amp_deg_per_10mm"] > 4.0 or s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10))
+    sha = (repo / ".sha").read_text().strip() if (repo / ".sha").exists() else ""
+    if not sha:
+        import subprocess
+        sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    Path(out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, results=results, eraser=eraser, eraser_after=eraser_after,
+                                         grip_events=robot.grip_events, segments=robot.segments), ensure_ascii=False))
+    print(f"\n구간 {len(robot.segments)}개 → {out} (B 코드 {sha or '?'})")
+    print("판정: 직선 이동(movel)에서 손끝 10 mm(회전 5°)당 관절 변화 > 4° 또는 |J3| < 15° 또는 |J5| < 10° 이면 ◀ (정상 구간 약 1.3~2.3°)")
+    print(f"{'#':>3} {'단계':6s} {'명령':6s} {'stage':22s} {'거리mm':>7s} {'회전°':>6s} {'°/10mm':>7s} {'min|J3|':>7s} {'min|J5|':>7s} {'σmin':>6s} 관절 이동량")
+    for s in robot.segments:
+        print(f"{s['i']:3d} {s['step']:6s} {s['kind']:6s} {s['stage'][:22]:22s} {s.get('dist_mm', 0):7.1f} {s.get('rot_deg', 0):6.1f} "
+              f"{s['amp_deg_per_10mm']:7.2f} {s['min_abs_j3']:7.1f} {s['min_abs_j5']:7.1f} {s['min_sigma']:6.3f} {s['joint_travel_deg']}"
+              f"{' ◀' if s['flag'] else ''}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repo", required=True)
@@ -261,28 +284,7 @@ def main():
         print(f"{step:6s} success={out.success} {out.error_code or ''} {getattr(out, 'reason', '') or ''} (이동 {len(robot.segments) - n0}개)")
         if not out.success:
             break
-    for s in robot.segments:                                             # 재생·판정용 지표: 손끝 10 mm(회전 5°)당 최대 관절 변화
-        n = max(1, len(s["joints"]) - 1)
-        unit = max(s.get("dist_mm", 0.0) / n, s.get("rot_deg", 0.0) / n * 2, 1e-9)
-        dq = np.abs(np.diff(np.array(s["joints"]), axis=0)).max() if n > 1 or len(s["joints"]) > 1 else 0.0
-        s["amp_deg_per_10mm"] = float(dq / unit * 10) if s["kind"] == "movel" else 0.0
-        s["flag"] = bool(s["kind"] == "movel" and (s["amp_deg_per_10mm"] > 4.0 or s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10))
-    sha = ""
-    try:
-        import subprocess
-        sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
-    except Exception:
-        pass
-    Path(a.out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, results=results, eraser=ERASER, eraser_after=after, grip_events=robot.grip_events,
-                                           segments=robot.segments), ensure_ascii=False))
-    print(f"\n구간 {len(robot.segments)}개 → {a.out}")
-    print("판정: 직선 이동(movel)에서 손끝 10 mm(회전 5°)당 관절 변화 > 4° 또는 |J3| < 15° 또는 |J5| < 10° 이면 ◀ (정상 구간 약 1.3~2.3°)")
-    print(f"{'#':>3} {'단계':6s} {'명령':5s} {'stage':22s} {'거리mm':>7s} {'회전°':>6s} {'°/10mm':>7s} {'min|J3|':>7s} {'min|J5|':>7s} {'σmin':>6s} 관절 이동량")
-    for s in robot.segments:
-        print(f"{s['i']:3d} {s['step']:6s} {s['kind']:5s} {s['stage'][:22]:22s} {s.get('dist_mm', 0):7.1f} {s.get('rot_deg', 0):6.1f} "
-              f"{s['amp_deg_per_10mm']:7.2f} {s['min_abs_j3']:7.1f} {s['min_abs_j5']:7.1f} {s['min_sigma']:6.3f} {s['joint_travel_deg']}"
-              f"{' ◀' if s['flag'] else ''}")
-
+    save_trace(robot, repo, a.out, results, ERASER, after)
 
 if __name__ == "__main__":
     main()
