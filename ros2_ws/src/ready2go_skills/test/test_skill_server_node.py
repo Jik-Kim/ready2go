@@ -191,3 +191,18 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
     server.Gripper.holding = False
     assert out.success and data["grasp_ok"] is True
+
+
+def test_named_pose_from_low_non_drawer_spot_lifts_first(server):
+    """#83 D 재검토 P1: 트레이 등 서랍 밖 낮은 곳(z 100)에서 home → 먼저 수직 상승(movel), 그 뒤 movej."""
+    server.srv.robot.p = [0.0, 0.0, 100.0, 0.0, 180.0, 0.0]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    log = server.srv.robot.log
+    assert out.success
+    assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(150.0) and log[1][0] == "movej"
+
+
+def test_named_pose_from_high_spot_goes_straight(server):
+    server.srv.robot.p = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    assert out.success and server.srv.robot.log[0][0] == "movej"

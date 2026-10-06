@@ -186,9 +186,14 @@ class SkillServer(Node):
         if early:
             return early
         cur = self.robot.posx()
-        safe = self.prm()["transit"]["safe_z_mm"]
-        if cur and cur[2] < safe and self._over_drawer(cur):   # 서랍 안에서 바로 관절 이동하지 않음 — 먼저 수직으로 올림
-            bad = self._line(goal, mp.with_z(cur, safe), self.prm()["speed"]["line_mm_s"], "lift")
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함")
+        tr = self.prm()["transit"]
+        # 관절 이동은 경로 높이를 보장하지 않음 → 낮으면 먼저 수직으로 올림 (#83 D 재검토 P1).
+        # 서랍 위: safe_z(300). 그 밖(트레이 등): free_lift_z(150) — 트레이 쪽 z 300은 팔이 거의 펴져 위험
+        lift_z = tr["safe_z_mm"] if self._over_drawer(cur) else tr["free_lift_z_mm"]
+        if cur[2] < lift_z:
+            bad = self._line(goal, mp.with_z(cur, lift_z), self.prm()["speed"]["line_mm_s"], "lift")
             if bad:
                 return bad
         goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
