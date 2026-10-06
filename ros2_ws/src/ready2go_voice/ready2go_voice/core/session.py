@@ -36,15 +36,21 @@ class VoiceSession:
                              speech_ended_monotonic=recording.ended_monotonic)
         return doc
 
+    def _fingerprint(self, doc):
+        return (doc['intent'], tuple(doc.get('targets', [])), doc['source'].get('stt_text', ''))
+
+    def is_duplicate(self, doc):
+        """조회만 수행합니다. 호출자는 발행 성공 뒤 별도로 기록해야 합니다."""
+        if self.cfg['evaluation_mode'] or doc['intent'] in ('cancel', 'status'):
+            return False
+        return bool(self._last and self._last[0] == self._fingerprint(doc)
+                    and self.clock() - self._last[1] < self.cfg['duplicate_window_sec'])
+
     def should_publish(self, doc):
-        """평가 모드에서는 제어 intent도 발행하지 않음. 중복은 유한 시간만 보류."""
-        if self.cfg['evaluation_mode']:
-            return False
-        if doc['intent'] in ('cancel', 'status'):
-            return True
-        fingerprint = (doc['intent'], tuple(doc.get('targets', [])), doc['source'].get('stt_text', ''))
-        now = self.clock()
-        if self._last and self._last[0] == fingerprint and now - self._last[1] < self.cfg['duplicate_window_sec']:
-            return False
-        self._last = (fingerprint, now)
-        return True
+        """평가 모드는 모든 발행 금지. 조회로 요청을 소비하지 않습니다."""
+        return not self.cfg['evaluation_mode'] and not self.is_duplicate(doc)
+
+    def mark_published(self, doc):
+        """실제 발행 호출 성공 뒤에만 확정합니다. 노드는 submit_lock에서 호출합니다."""
+        if not self.cfg['evaluation_mode'] and doc['intent'] not in ('cancel', 'status'):
+            self._last = (self._fingerprint(doc), self.clock())

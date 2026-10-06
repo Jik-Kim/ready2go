@@ -14,6 +14,11 @@ def normalize(text):
     return re.sub(r'\s+', '', str(text).lower())
 
 
+def normalize_control(text):
+    # 정확 비교를 유지하고 끝 종결 기호만 허용합니다.
+    return normalize(text).rstrip('.!?。？！')
+
+
 def intent(kind, targets=(), confidence=1.0, question=None):
     doc = {'intent': kind, 'targets': list(targets), 'confidence': confidence}
     if question:
@@ -40,9 +45,9 @@ class IntentParser:
         return set().union(*(keys for alias, keys in self.aliases.items() if alias in value))
 
     def control(self, text):
-        if normalize(text) in {normalize(p) for p in self.cfg['cancel_phrases']}:
+        if normalize_control(text) in {normalize_control(p) for p in self.cfg['cancel_phrases']}:
             return intent('cancel')
-        if normalize(text) in {normalize(p) for p in self.cfg['status_phrases']}:
+        if normalize_control(text) in {normalize_control(p) for p in self.cfg['status_phrases']}:
             return intent('status')
         return None
 

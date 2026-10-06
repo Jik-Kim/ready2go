@@ -119,9 +119,13 @@ class VoiceNode(Node):
                 self.requests.task_done()
 
     def _deliver(self, doc, generation):
-        if generation != self.generation:
-            self._diagnostic({'event': 'request_canceled', 'published': False})
-            return
+        with self.submit_lock:
+            if self.stop_event.is_set() or generation != self.generation:
+                self._diagnostic({'event': 'request_canceled', 'published': False})
+                return
+            if doc['intent'] == 'find_item' and self.session.is_duplicate(doc):
+                self._diagnostic({'event': 'request_duplicate', 'intent': doc, 'published': False})
+                return
         source = doc['source']
         text = doc.get('clarify_question') or '그 요청은 지원하지 않습니다.'
         if doc['intent'] == 'find_item':
@@ -153,11 +157,12 @@ class VoiceNode(Node):
         if self.stop_event.is_set() or generation != self.generation:
             return
         with self.submit_lock:
-            if generation != self.generation:
+            if self.stop_event.is_set() or generation != self.generation:
                 return
             published = self.session.should_publish(doc)
             if published:
                 self._publish(doc)
+                self.session.mark_published(doc)
         self._diagnostic({'event': 'intent', 'intent': doc, 'published': published,
                           'evaluation_mode': self.cfg['evaluation_mode']})
 

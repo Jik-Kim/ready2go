@@ -98,7 +98,9 @@ def test_evaluation_blocks_all_intents_and_execution_deduplicates(ontology, sche
         assert not session.should_publish(parser.parse(text))
     cfg['evaluation_mode'] = False
     doc = parser.parse('지우개 찾아줘')
-    assert session.should_publish(doc) and not session.should_publish(doc)
+    assert session.should_publish(doc) and session.should_publish(doc)
+    session.mark_published(doc)
+    assert not session.should_publish(doc)
     assert session.should_publish(parser.parse('멈춰'))
 
 
@@ -211,3 +213,26 @@ def test_added_contexts_do_not_discard_negation_or_questions(ontology, schema, c
     doc = parser.parse(text)
     assert doc['intent'] in ('unknown', 'clarify') and doc['targets'] == []
     assert not doc['source']['execution_allowed']
+
+
+@pytest.mark.parametrize('text,kind', [
+    ('멈춰.', 'cancel'), ('취소!', 'cancel'), ('지금 뭐 해?', 'status'),
+    ('멈춰。', 'cancel'), ('취소！', 'cancel'), ('지금 뭐 해？', 'status'),
+])
+def test_control_punctuation_uses_exact_match_without_api(ontology, schema, cfg, text, kind):
+    calls = []
+    parser = IntentParser(ontology, schema, cfg, lambda *args: calls.append(args))
+    assert parser.parse(text)['intent'] == kind
+    assert parser.fallback(text)['intent'] == kind
+    assert parser.validate({'intent': kind, 'confidence': 1}, text)['intent'] == kind
+    assert not calls
+
+
+def test_control_config_uses_same_normalization_and_preserves_context(ontology, schema, cfg):
+    cfg['cancel_phrases'] = ['멈춰！']
+    cfg['status_phrases'] = ['지금 뭐 해？']
+    parser = IntentParser(ontology, schema, cfg)
+    assert parser.control('멈춰.')['intent'] == 'cancel'
+    assert parser.control('지금 뭐 해?')['intent'] == 'status'
+    for text in ('멈추지 마.', '멈춰라고 말하지 마.', '지금 뭐 해?라고 물었어', '취소하지 마!'):
+        assert parser.control(text) is None

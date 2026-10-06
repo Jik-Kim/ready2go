@@ -66,6 +66,7 @@ def test_execution_duplicate_publishes_once(harness):
     for _ in range(2):
         VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
     assert len(harness.published) == 1
+    assert len(harness.tts.texts) == 1
     assert harness.published[0]['source']['tts_start_basis'] == 'mock'
 
 
@@ -156,3 +157,94 @@ def test_execution_node_holds_unconfirmed_meaning(harness, text, use_llm):
                and not d['source']['execution_allowed'] for d in harness.published)
     assert harness.tts.texts == [doc['clarify_question']]
     assert all('가져다드리겠습니다' not in t for t in harness.tts.texts)
+
+
+@pytest.mark.parametrize('text,kind', [('멈춰.', 'cancel'), ('취소!', 'cancel'), ('지금 뭐 해?', 'status')])
+def test_punctuated_control_fast_path(harness, text, kind):
+    harness.cfg['evaluation_mode'] = False
+    harness._submit = lambda *_: pytest.fail('control must bypass request queue')
+    harness.parser.llm = lambda *_: pytest.fail('control must bypass API')
+    VoiceNode._text(harness, SimpleNamespace(data=text))
+    assert [doc['intent'] for doc in harness.published] == [kind]
+    assert not harness.tts.texts
+    assert harness.generation == (1 if kind == 'cancel' else 0)
+    assert harness.request_cancel.is_set() == (kind == 'cancel')
+    if kind == 'cancel':
+        harness.parser.llm = None
+        VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+        assert [doc['intent'] for doc in harness.published] == [kind]
+
+
+def test_tts_failed_find_can_be_retried(harness):
+    harness.cfg['evaluation_mode'] = False
+    harness.tts.fail = True
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    harness.tts.fail = False
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    assert [doc['intent'] for doc in harness.published] == ['clarify', 'find_item']
+    assert len(harness.tts.texts) == 2
+
+
+def test_duplicate_window_expires_after_successful_publication(harness):
+    harness.cfg['evaluation_mode'] = False
+    now = [10.0]
+    harness.session.clock = lambda: now[0]
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    now[0] += harness.cfg['duplicate_window_sec']
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    assert len(harness.published) == len(harness.tts.texts) == 2
+
+
+def test_evaluation_duplicate_inputs_both_speak_without_publication(harness):
+    for _ in range(2):
+        VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    assert not harness.published
+    assert len(harness.tts.texts) == 2
+    assert sum(d['event'] == 'tts_started' for d in harness.diagnostics) == 2
+    assert sum(d['event'] == 'intent' for d in harness.diagnostics) == 2
+    assert harness.session._last is None
+
+
+def test_publication_failure_does_not_consume_find(harness):
+    harness.cfg['evaluation_mode'] = False
+    publish = harness._publish
+    def fail(_):
+        raise RuntimeError('publication unavailable')
+    harness._publish = fail
+    with pytest.raises(RuntimeError):
+        VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    assert harness.session._last is None
+    harness._publish = publish
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    assert [doc['intent'] for doc in harness.published] == ['find_item']
+    assert len(harness.tts.texts) == 2
+
+
+def test_canceled_tts_does_not_consume_find(harness):
+    harness.cfg['evaluation_mode'] = False
+    speak = harness.tts.speak
+    def cancel_during_tts(text, **kwargs):
+        VoiceNode._text(harness, SimpleNamespace(data='취소!'))
+        raise InterruptedError('cancelled')
+    harness.tts.speak = cancel_during_tts
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    assert harness.session._last is None
+    harness.request_cancel.clear()  # 다음 _submit의 기존 초기화 동작
+    harness.tts.speak = speak
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), harness.generation)
+    assert [doc['intent'] for doc in harness.published] == ['cancel', 'find_item']
+
+
+def test_expired_confirmation_does_not_consume_find(harness):
+    harness.cfg['evaluation_mode'] = False
+    speak = harness.tts.speak
+    def expire(*args, **kwargs):
+        assert kwargs['start_deadline'] < time.monotonic()
+        raise TimeoutError('late playback')
+    harness.tts.speak = expire
+    late = harness.parser.parse('지우개 찾아줘')
+    late['source'].update(input_kind='audio', speech_ended_monotonic=time.monotonic() - 10)
+    VoiceNode._deliver(harness, late, 0)
+    harness.tts.speak = speak
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    assert [doc['intent'] for doc in harness.published] == ['clarify', 'find_item']
