@@ -1,19 +1,23 @@
-# inspect_region stub 용 서랍 안 물체 좌표 (담당 A, #18 Day 4 stub — B #15 실물 테스트용)
-# 클래스(lip_balm, car_key, eraser)는 자리표시자라 물품 목록 확정(#8 11종, config/yolo_classes.txt) 후 그 목록에 맞춰 교체한다.
-# 사람이 직접 잰 값을 넣는다. 아래 값은 자리표시자 [추정]이므로 실물 테스트 전에 B와 함께 덮어쓰고, 그 뒤에 ready 를 true 로 바꿀 것.
+# inspect_region stub 용 서랍 안 물체 좌표 (담당 A, #18 Day 4 stub — B #15·1차 점검 #22 실물 테스트용 폴백)
+# 실제 구현(YOLO + 뎁스)은 ready2go_vision/nodes/inspect_region.py (PR #80). 이 stub 은 카메라·비전이 안 될 때 손으로 잰 좌표로 대신하는 용도다.
+# 규칙: 실측한 물체만 둔다. 실측하지 않은 물체·자리표시자는 두지 않는다. 값을 확인한 뒤에만 ready 를 true 로 바꾼다.
+#   ready: false 이면 서비스가 STUB_NOT_READY 로 실패해 추정 좌표가 로봇 동작의 입력이 되지 않는다 (PR #33 리뷰).
+# 현재 상태: 실측 전이라 objects 가 비어 있고 ready: false. 1차 점검 때 지우개를 두고 아래 순서로 채운다.
+#   1) 서랍 최대 인출, 펜던트 TCP GripperDA_v1·tool_weight 확인, 그리퍼 닫고 수직 아래
+#   2) 지우개 긴 변 양 끝(가운데 선 위) 두 점을 손끝으로 찍어 펜던트 base X Y Z(mm) 를 읽는다
+#   3) python3 ros2_ws/src/ready2go_skills/ready2go_skills/core/stub_measure.py --class eraser --point X1 Y1 Z1 --point X2 Y2 Z2
+#      → 출력 줄의 position·yaw 를 아래 objects 에 옮기고 yaw_valid: true 를 명시한다. 위치가 interior_m 안인지 확인한다.
+#   4) 주석에 [실측 A·B 날짜]와 터치한 두 점(mm)을 적고 ready: true 로 바꾼다.
 # pose.frame 은 서랍 좌표계, 단위 m·rad. 정의(원점·축)는 config/places.yaml 첫 부분과 #6 (B 확정):
 #   원점 = 위 서랍(drawer_top) 상자 안쪽 바닥 앞쪽 오른쪽 모서리(손잡이 정면에서 볼 때), x = 안쪽(뒤, 깊이), y = 왼쪽(폭), z = 위. 서랍이 나오는 방향은 -x.
-#   yaw 의 0이 아닌 값(0.52)과 yaw_valid: false(car_key, yaw 는 0) 는 규칙 확인용 예시다 (실측 때 교체). yaw_valid 를 생략하면 true.
-#   그래서 position 의 x·y 범위는 0 ~ places.yaml drawer_top.interior_m 의 [깊이, 폭] (손끝이 닿는 범위, 수치를 여기에 복사하지 않는다). yaw 는 물체 긴 변 방향(서랍 x축 기준 rad, size_m[0] = 긴 변).
+#   position 의 x·y 범위는 0 ~ places.yaml drawer_top.interior_m 의 [깊이, 폭] (수치를 여기에 복사하지 않는다). yaw 는 물체 긴 변 방향(서랍 x축 기준 rad), (-pi/2, pi/2].
+#   yaw_valid 를 생략하면 true 이지만 실측 값은 true/false 를 명시한다. top_z 는 터치하지 않고 온톨로지 size_m[2] (eraser 0.0115, #8 버니어 실측).
 # top_z: 서랍 바닥 기준 물체 윗면 높이(m). candidates 는 이 값 내림차순으로 반환된다.
-# ready: 실측 좌표로 교체했을 때만 true 로 바꾼다. false 이면 서비스가 STUB_NOT_READY 로 실패해
-# 자리표시자 좌표가 로봇 동작의 입력이 되지 않는다 (PR #33 리뷰).
 ready: false
 regions:
   drawer_top:
-    objects:
-      - {class: lip_balm, position: [0.10, 0.08, 0.0], yaw: 0.0, top_z: 0.0202}   # 높이는 이슈 #8 실측(지름 20.2), 위치는 자리표시자
-      - {class: car_key,  position: [0.10, 0.18, 0.0], yaw: 0.0, yaw_valid: false, top_z: 0.0158}
-      - {class: eraser,   position: [0.18, 0.13, 0.0], yaw: 0.52, top_z: 0.0115}
+    objects: []
+    # 실측 후 예시 형식 (값은 자리표시 — 그대로 쓰지 말 것):
+    #   - {class: eraser, position: [X, Y, 0.0], yaw: YAW, yaw_valid: true, top_z: 0.0115}   # [실측 A·B 10/06] 터치 P1 (.., .., ..) mm, P2 (.., .., ..) mm
   staging_tray: {objects: []}   # 임시 트레이 폐기(#6). P2에서 B·C·E가 runner.md region 목록을 정리한 뒤 제거 예정(그 전에 지우면 계약 문서와 어긋남)
   handover_zone: {objects: []}

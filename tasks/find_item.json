@@ -1,0 +1,148 @@
+{
+  "task_id": "find_item",
+  "description": "P1 단일 물품 전달 (#17, demo_scenario.md 17.1): 물품 위치 조회 → 서랍 열기 → 관측 → (찾음) 집기 → 전달 트레이에 놓기 / (못 찾음) 안내, finally 로 서랍 닫기·홈 (그리퍼가 비어 있을 때만 홈 이동: 놓기 실패로 물품을 쥐고 있으면 열린 서랍 부근에서 움직이지 않고 정지·사람 복구, PR #82 리뷰). 스킬 스텝이라 Runner 가 온톨로지 pre 확인·effect 반영. 집기 전 관측은 미발견 안내용(P1 Runner 는 pick 스킬 안의 미발견을 분기할 수 없음, 팔을 움직이지 않음). pick retry 1 = 방향 산출 실패(YAW_INVALID, 로봇 동작 없음) 시 재인식 1회 (PR #65 합의, 횟수 [팀 확정 필요]). 밀기 분기(#37)는 이후 추가",
+  "trigger": {
+    "intent": "find_item",
+    "examples_ko": [
+      "지우개 찾아줘",
+      "차키 가져다줘"
+    ]
+  },
+  "inputs": {
+    "target": "eraser"
+  },
+  "sequence": [
+    {
+      "id": "s1",
+      "action": "query_ontology",
+      "params": {
+        "item": "$inputs.target"
+      },
+      "output": "loc"
+    },
+    {
+      "id": "s2",
+      "action": "speak",
+      "params": {
+        "text": "{{loc.name_ko|을}} 찾아 올게요"
+      }
+    },
+    {
+      "id": "s3",
+      "skill": "open_drawer",
+      "params": {
+        "drawer_id": "$loc.drawer_id"
+      },
+      "timeout_sec": 60
+    },
+    {
+      "id": "s4",
+      "action": "inspect_region",
+      "params": {
+        "region": "$loc.drawer_id",
+        "search_target": "$inputs.target"
+      },
+      "output": "scan",
+      "timeout_sec": 30
+    },
+    {
+      "id": "s5",
+      "action": "if",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$scan.target_found",
+          true
+        ]
+      },
+      "then": [
+        {
+          "id": "s5.1",
+          "skill": "pick",
+          "params": {
+            "item": "$inputs.target",
+            "from": "$loc.drawer_id"
+          },
+          "on_failure": "retry",
+          "retry": 1,
+          "timeout_sec": 60
+        },
+        {
+          "id": "s5.2",
+          "skill": "place",
+          "params": {
+            "item": "$inputs.target",
+            "to": "handover_zone"
+          },
+          "timeout_sec": 60
+        },
+        {
+          "id": "s5.3",
+          "action": "speak",
+          "params": {
+            "text": "{{loc.name_ko|을}} 앞쪽 트레이에 놓았어요"
+          }
+        }
+      ],
+      "else": [
+        {
+          "id": "s5.4",
+          "action": "speak",
+          "params": {
+            "text": "{{loc.name_ko|을}} 찾지 못했어요"
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "id": "f1",
+      "action": "query_ontology",
+      "params": {
+        "state": "gripper.robot"
+      },
+      "output": "hold"
+    },
+    {
+      "id": "f2",
+      "skill": "close_drawer",
+      "params": {
+        "drawer_id": "$loc.drawer_id"
+      },
+      "on_failure": "skip",
+      "timeout_sec": 60
+    },
+    {
+      "id": "f3",
+      "action": "if",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$hold.value",
+          "empty"
+        ]
+      },
+      "then": [
+        {
+          "id": "f3.1",
+          "action": "move_to_named_pose",
+          "params": {
+            "pose_name": "home"
+          },
+          "timeout_sec": 60
+        }
+      ],
+      "else": [
+        {
+          "id": "f3.2",
+          "action": "set_var",
+          "params": {
+            "name": "stopped_holding",
+            "value": "물품을 쥔 채 정지 — 홈 이동 안 함, 사람 복구 (PR #82 리뷰)"
+          }
+        }
+      ]
+    }
+  ]
+}
