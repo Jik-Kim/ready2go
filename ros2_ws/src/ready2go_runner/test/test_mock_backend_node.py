@@ -2,7 +2,7 @@
 rclpy·ready2go_interfaces 필요 → 호스트 pytest 는 건너뛰고 ros2-core 컨테이너·colcon test 에서 실행.
 ICD 의 고정 이름(/skills/* 등)을 쓰므로 다른 시험·컨테이너와 섞이지 않게 별도 Domain ID 에서 돌린다."""
 import json
-import random
+import itertools
 import threading
 from pathlib import Path
 
@@ -20,6 +20,8 @@ from ready2go_runner.core.backend import RosBackend  # noqa: E402
 from ready2go_runner.core.interpreter import Runner  # noqa: E402
 from ready2go_runner.nodes.mock_backend import MockBackendNode  # noqa: E402
 
+# 시험마다 다른 Domain ID (파일마다 범위를 나눠, 앞 시험의 남은 서버와 섞이지 않게)
+DOMAIN_IDS = itertools.count(180)
 ROOT = Path(__file__).resolve().parents[4]
 ONTOLOGY = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")
 SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
@@ -28,7 +30,7 @@ TASK = json.loads((ROOT / "contracts/examples/task_skill_steps.json").read_text(
 
 def run_with_mock(fail="", not_visible=""):
     context = rclpy.Context()
-    rclpy.init(context=context, domain_id=random.randint(150, 230))
+    rclpy.init(context=context, domain_id=next(DOMAIN_IDS))
     mock = MockBackendNode(context=context, parameter_overrides=[
         Parameter("duration_sec", value=0.05), Parameter("fail", value=fail),
         Parameter("not_visible", value=not_visible)])

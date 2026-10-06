@@ -1,3 +1,5 @@
+import pytest
+
 from ready2go_runner.core.interpreter import ActionResult, Runner
 
 
@@ -694,3 +696,31 @@ def test_stop_unconfirmed_locks_runner_and_sends_no_motion():
     assert runner.halted and runner.halt_code == "STOP_UNCONFIRMED"
     assert [a for a, _ in fake.calls] == ["drawer_control", "speak"]     # 홈 이동 안 보냄
     assert runner.run(STOP_TASK).overall_status == "ABORTED"             # 사람 확인(resume) 전 새 태스크 거절
+
+
+@pytest.mark.parametrize("code", ["STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"])
+def test_skill_server_lock_codes_abort_and_lock(code):
+    # B 스킬 서버(PR #73)의 잠금 코드도 Runner 를 잠금 — 10/06 실물 확인 후 runner.md 표로 확정
+    fake = FakeBackend({"drawer_control": ActionResult(False, error_code=code)})
+    runner = Runner(fake)
+    result = runner.run(STOP_TASK)
+    assert (result.overall_status, result.error_code) == ("ABORTED", code)
+    assert runner.halted and "move_to_named_pose" not in [a for a, _ in fake.calls]
+
+
+def test_stop_requested_only_until_abort_is_handled():
+    # 중단 요청 직후에는 새 동작을 막고(stop_requested), 중단 처리 뒤 finally 의 speak 는 보낼 수 있어야 함
+    seen = []
+
+    def backend(action, params, timeout_sec):
+        if action == "drawer_control":
+            runner.halt()
+            seen.append(("after halt", runner.stop_requested))
+            return ActionResult(False, error_code="CANCELED")
+        seen.append((action, runner.stop_requested))
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    result = runner.run(STOP_TASK)
+    assert result.overall_status == "ABORTED"
+    assert seen == [("after halt", True), ("speak", False)]

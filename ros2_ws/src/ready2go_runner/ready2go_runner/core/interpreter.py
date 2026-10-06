@@ -57,7 +57,9 @@ class RunResult:
 Execute = Callable[[str, dict, "float | None"], ActionResult]   # (action, params, timeout_sec)
 
 SAFE_HOME_POSE = "home"                 # on_failure: safe_home 이 이동할 기준 포즈 (docs/runner.md 7.1)
-HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED"}   # 비상정지, 또는 취소 후 정지 확인 실패 → ABORTED·잠금 (PR #74 리뷰)
+# 이 코드로 실패하면 ABORTED·잠금 (사람 확인 전 새 동작 없음). 비상정지, 취소 후 정지 확인 실패(PR #74 리뷰),
+# B 스킬 서버의 잠금 코드(PR #73: 상태 조회 실패·이동 수락 모름·서버 잠김) — 10/06 실물 확인 후 runner.md 표로 확정
+HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"}
 HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
 ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
@@ -130,6 +132,12 @@ class Runner:
     @property
     def halted(self) -> bool:
         return self._halt.is_set()
+
+    @property
+    def stop_requested(self) -> bool:
+        """중단 요청이 들어왔지만 이번 실행이 아직 중단 처리 전. 이때 새 원자 동작을 보내지 않는다(RosClients).
+        중단 처리 뒤 finally 의 비동작(speak 등)은 Runner 가 골라 보내므로 막지 않는다."""
+        return self._halt.is_set() and not self._aborted
 
     @property
     def halt_code(self) -> str | None:

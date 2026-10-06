@@ -2,7 +2,7 @@
 rclpy·ready2go_interfaces 필요 → 호스트 pytest 는 건너뛰고 ros2-core 컨테이너·colcon test 에서 실행.
 MongoDB 가 없으면 FallbackLogStore 가 JSONL(tmp_path)로 기록하는 것도 함께 확인된다."""
 import json
-import random
+import itertools
 import threading
 import time
 from pathlib import Path
@@ -20,6 +20,8 @@ from std_srvs.srv import Trigger  # noqa: E402
 from ready2go_runner.nodes.mock_backend import MockBackendNode  # noqa: E402
 from ready2go_runner.nodes.runner_node import LATCHED, RunnerNode  # noqa: E402
 
+# 시험마다 다른 Domain ID (파일마다 범위를 나눠, 앞 시험의 남은 서버와 섞이지 않게)
+DOMAIN_IDS = itertools.count(200)
 ROOT = Path(__file__).resolve().parents[4]
 TASK_FILE = ROOT / "contracts/examples/task_skill_steps.json"
 
@@ -53,7 +55,7 @@ def thread_errors(monkeypatch):
 @pytest.fixture
 def system(tmp_path, thread_errors):
     context = rclpy.Context()
-    rclpy.init(context=context, domain_id=random.randint(150, 230))
+    rclpy.init(context=context, domain_id=next(DOMAIN_IDS))
     mock = MockBackendNode(context=context, parameter_overrides=[Parameter("duration_sec", value=0.05)])
     runner = RunnerNode(context=context, parameter_overrides=[
         Parameter("schema_file", value=str(ROOT / "contracts/task.schema.json")),

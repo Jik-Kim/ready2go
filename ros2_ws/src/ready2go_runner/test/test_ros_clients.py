@@ -10,7 +10,7 @@ import pytest
 rclpy = pytest.importorskip("rclpy")
 pytest.importorskip("ready2go_interfaces")
 
-from rclpy.action import ActionServer, CancelResponse  # noqa: E402
+from rclpy.action import ActionServer, CancelResponse, GoalResponse  # noqa: E402
 from rclpy.callback_groups import ReentrantCallbackGroup  # noqa: E402
 from rclpy.executors import MultiThreadedExecutor  # noqa: E402
 
@@ -26,11 +26,19 @@ class FakeServers:
         group = ReentrantCallbackGroup()
         self.cancel_requested = threading.Event()
         self.received = []
+        self.accept_delay = 0.0                         # late 서버의 수락 응답 지연 (D 리뷰 재현)
+        self.late_cancel = threading.Event()
+        self.late_started = threading.Event()
         ActionServer(node, Skill, f"{PREFIX}/skills/ok", self._ok, callback_group=group)
         ActionServer(node, Skill, f"{PREFIX}/skills/fail", self._fail, callback_group=group)
         ActionServer(node, Skill, f"{PREFIX}/skills/slow", self._slow, callback_group=group,
                      cancel_callback=self._cancel)
         node.create_service(InspectRegion, f"{PREFIX}/vision/inspect_region", self._inspect, callback_group=group)
+        ActionServer(node, Skill, f"{PREFIX}/skills/late", self._late, callback_group=group,
+                     goal_callback=self._late_accept, cancel_callback=self._late_cancel)
+        for code in ("STOP_UNCONFIRMED", "ESTOP"):      # 취소 뒤 최종 결과로 안전 코드를 주는 서버 (E 리뷰 재현)
+            ActionServer(node, Skill, f"{PREFIX}/skills/stop_{code.lower()}", self._stops_with(code),
+                         callback_group=group, cancel_callback=lambda _: CancelResponse.ACCEPT)
 
     def _ok(self, goal):
         self.received.append(json.loads(goal.request.params_json))
@@ -53,6 +61,35 @@ class FakeServers:
             time.sleep(0.1)
         goal.succeed()
         return Skill.Result(success=True)
+
+    def _late_accept(self, request):
+        time.sleep(self.accept_delay)
+        return GoalResponse.ACCEPT
+
+    def _late_cancel(self, goal):
+        self.late_cancel.set()
+        return CancelResponse.ACCEPT
+
+    def _late(self, goal):
+        self.late_started.set()
+        for _ in range(50):
+            if goal.is_cancel_requested:
+                goal.canceled()
+                return Skill.Result(success=False, error_code="CANCELED")
+            time.sleep(0.1)
+        goal.succeed()
+        return Skill.Result(success=True)
+
+    def _stops_with(self, code):
+        def execute(goal):
+            for _ in range(50):
+                if goal.is_cancel_requested:
+                    goal.canceled()
+                    return Skill.Result(success=False, error_code=code)
+                time.sleep(0.05)
+            goal.succeed()
+            return Skill.Result(success=True)
+        return execute
 
     def _inspect(self, request, response):
         response.success = True
@@ -117,3 +154,41 @@ def test_missing_service_is_backend_error(ros):
     clients, _ = ros
     reply = clients.call_service(f"{PREFIX}/vision/none", "drawer_top", "", 5)
     assert (reply.success, reply.error_code) == (False, "BACKEND_ERROR")
+
+
+# ---- PR #74 재검토: 수락 지연·보내기 전 중단·안전 코드 보존 ----
+
+def test_halt_before_send_does_not_send_goal(ros):
+    clients, servers = ros
+    before = len(servers.received)
+    stopped = RosClients(clients.node, server_wait_sec=1.0, stopping=lambda: True)
+    reply = stopped.call_action(f"{PREFIX}/skills/ok", "{}", 5)
+    assert (reply.success, reply.error_code) == (False, "HALTED")
+    time.sleep(0.3)
+    assert len(servers.received) == before                     # 서버는 goal 을 받지 않음
+
+
+def test_late_accept_is_canceled_and_confirmed(ros):
+    clients, servers = ros
+    servers.accept_delay, servers.late_cancel = 1.0, threading.Event()
+    late = RosClients(clients.node, server_wait_sec=1.0, goal_accept_sec=0.3, cancel_confirm_sec=3.0)
+    reply = late.call_action(f"{PREFIX}/skills/late", "{}", 5)
+    assert (reply.success, reply.error_code) == (False, "TIMEOUT")   # BACKEND_ERROR(동작 안 함)로 보지 않음
+    assert servers.late_cancel.is_set()                             # 늦게 수락된 goal 을 즉시 취소, 정지 확인 뒤 반환
+
+
+def test_late_accept_never_confirmed_locks(ros):
+    clients, servers = ros
+    servers.accept_delay, servers.late_cancel = 2.0, threading.Event()
+    late = RosClients(clients.node, server_wait_sec=1.0, goal_accept_sec=0.3, cancel_confirm_sec=0.5)
+    reply = late.call_action(f"{PREFIX}/skills/late", "{}", 5)
+    assert (reply.success, reply.error_code) == (False, "STOP_UNCONFIRMED")
+    assert servers.late_cancel.wait(5.0)                           # 포기한 뒤 수락돼도 취소가 감
+    servers.accept_delay = 0.0
+
+
+@pytest.mark.parametrize("code", ["STOP_UNCONFIRMED", "ESTOP"])
+def test_safety_code_after_timeout_is_kept(ros, code):
+    clients, _ = ros
+    reply = clients.call_action(f"{PREFIX}/skills/stop_{code.lower()}", "{}", 0.3)
+    assert (reply.success, reply.error_code) == (False, code)       # TIMEOUT 으로 덮지 않음

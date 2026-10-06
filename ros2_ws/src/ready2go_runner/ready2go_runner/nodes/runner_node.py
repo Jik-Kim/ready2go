@@ -50,7 +50,7 @@ class RunnerNode(Node):
         onto = ontology.load(ontology_file)
         self.log_store = _make_log_store(log_dir, self.get_logger())
         self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store)
-        self.ros_clients = RosClients(self, stopping=lambda: self.runner.halted)
+        self.ros_clients = RosClients(self, stopping=lambda: self.runner.stop_requested)
         self.runner.on_halt = self.ros_clients.cancel_all   # /runner/estop → 진행 중인 goal 즉시 취소
         self.runner.execute = RosBackend(self.ros_clients.call_action, self.ros_clients.call_service,
                                          lambda: self.runner.state, onto.get("world", {}))

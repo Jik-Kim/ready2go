@@ -1,7 +1,7 @@
 """PR #74 리뷰: /runner/estop·시간 초과가 진행 중 로봇 동작의 정지로 이어지고, 정지 확인 전에는 다음 동작을 보내지 않음.
 실제 ROS 액션으로 시험 (rclpy·ready2go_interfaces 필요 → 호스트 pytest 는 건너뜀, ros2-core 컨테이너·colcon test 에서 실행).
 ICD 고정 이름(/skills/*)을 쓰므로 별도 Domain ID 에서 돌린다."""
-import random
+import itertools
 import threading
 import time
 
@@ -19,6 +19,8 @@ from ready2go_runner.adapters.ros_clients import RosClients  # noqa: E402
 from ready2go_runner.core.backend import RosBackend  # noqa: E402
 from ready2go_runner.core.interpreter import Runner  # noqa: E402
 
+# 시험마다 다른 Domain ID (파일마다 범위를 나눠, 앞 시험의 남은 서버와 섞이지 않게)
+DOMAIN_IDS = itertools.count(150)
 TASK = {"task_id": "stop", "sequence": [
     {"id": "s1", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}}],
     "finally": [{"id": "f1", "action": "speak", "params": {"text": "멈췄습니다"}},
@@ -26,11 +28,13 @@ TASK = {"task_id": "stop", "sequence": [
 
 
 class Robot:
-    """느린 drawer_control. mode: "stops"(취소 받으면 cancel_delay 뒤 멈춤) / "ignores"(취소를 무시하고 끝까지)."""
+    """느린 drawer_control. mode: "stops"(취소 받으면 cancel_delay 뒤 멈춤) / "ignores"(취소를 무시하고 끝까지) /
+    "unconfirmed"(취소 받으면 끝내지만 최종 결과가 STOP_UNCONFIRMED — B #73 서버의 정지 확인 실패)."""
 
     def __init__(self, node, mode, duration=3.0, cancel_delay=0.4):
         self.mode, self.duration, self.cancel_delay = mode, duration, cancel_delay
         self.events: list[tuple[str, float]] = []
+        self.started = threading.Event()
         group = ReentrantCallbackGroup()
         accept = lambda _: CancelResponse.ACCEPT  # noqa: E731
         ActionServer(node, Skill, "/skills/drawer_control", self._drawer, callback_group=group, cancel_callback=accept)
@@ -42,13 +46,15 @@ class Robot:
 
     def _drawer(self, goal):
         self._mark("drawer_start")
+        self.started.set()
         end = time.monotonic() + self.duration
         while time.monotonic() < end:
-            if goal.is_cancel_requested and self.mode == "stops":
+            if goal.is_cancel_requested and self.mode in ("stops", "unconfirmed"):
                 time.sleep(self.cancel_delay)           # 실제 로봇처럼 멈추는 데 시간이 걸림
                 self._mark("drawer_end")
                 goal.canceled()
-                return Skill.Result(success=False, error_code="CANCELED")
+                code = "CANCELED" if self.mode == "stops" else "STOP_UNCONFIRMED"
+                return Skill.Result(success=False, error_code=code)
             time.sleep(0.02)
         self._mark("drawer_end")
         goal.succeed()
@@ -70,7 +76,7 @@ class Robot:
 
 def run_case(mode, halt_after=None, timeout_sec=None, cancel_confirm_sec=3.0):
     context = rclpy.Context()
-    rclpy.init(context=context, domain_id=random.randint(150, 230))
+    rclpy.init(context=context, domain_id=next(DOMAIN_IDS))
     server_node, client_node = rclpy.create_node("robot", context=context), rclpy.create_node("runner", context=context)
     robot = Robot(server_node, mode)
     executor = MultiThreadedExecutor(context=context)
@@ -80,12 +86,13 @@ def run_case(mode, halt_after=None, timeout_sec=None, cancel_confirm_sec=3.0):
     try:
         runner = Runner(None)
         clients = RosClients(client_node, server_wait_sec=3.0, cancel_confirm_sec=cancel_confirm_sec,
-                             stopping=lambda: runner.halted)
+                             stopping=lambda: runner.stop_requested)
         runner.execute = RosBackend(clients.call_action, clients.call_service, lambda: runner.state, {})
         runner.on_halt = clients.cancel_all
         task = {**TASK, "sequence": [{**TASK["sequence"][0], **({"timeout_sec": timeout_sec} if timeout_sec else {})}]}
-        if halt_after is not None:
-            threading.Timer(halt_after, runner.halt).start()     # /runner/estop 이 다른 스레드에서 들어옴
+        if halt_after is not None:                             # 동작이 시작된 뒤 /runner/estop 이 다른 스레드에서 들어옴
+            threading.Thread(target=lambda: robot.started.wait(10) and time.sleep(halt_after) or runner.halt(),
+                             daemon=True).start()
         result = runner.run(task)
         returned = time.monotonic()
         time.sleep(0.2)
@@ -118,3 +125,11 @@ def test_stop_not_confirmed_locks_runner():
     assert (result.overall_status, result.error_code) == ("ABORTED", "STOP_UNCONFIRMED")
     assert runner.halted and runner.halt_code == "STOP_UNCONFIRMED"
     assert "move_to_named_pose_start" not in robot.names()                          # 사람 확인 전 새 동작 없음
+
+
+def test_unconfirmed_stop_result_after_timeout_locks_runner():
+    # PR #74 E 리뷰: 시간 초과 뒤 최종 결과가 STOP_UNCONFIRMED 면 TIMEOUT 이 아니라 잠금, finally 로봇 동작 없음
+    runner, robot, result, _ = run_case("unconfirmed", timeout_sec=0.3)
+    assert (result.overall_status, result.error_code) == ("ABORTED", "STOP_UNCONFIRMED")
+    assert runner.halted
+    assert "move_to_named_pose_start" not in robot.names()

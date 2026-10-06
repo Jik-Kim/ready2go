@@ -89,7 +89,8 @@
 * **중단 잠김**: `ABORTED` 뒤에는 Runner `resume()`(사람이 상태 확인 후 재개 명령)을 부르기 전까지 새 태스크를 로봇 동작 없이 `ABORTED`로 거절하고, 처음 멈춘 이유(`ESTOP`/`HALTED`)를 돌려줌.
 * `retry` 횟수는 `on_failure: "retry"`일 때만 쓰며 1 이상이어야 함(아니면 실행 전 검사에서 거절). `skip`된 스텝은 `FAILURE`와 에러 코드를 그대로 기록하고 다음 스텝으로 진행. `safe_home`은 `home` 포즈로 이동한 뒤 중단.
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
-* `timeout_sec`: `Skill` goal 에는 제한 시간 칸이 없으므로 Runner(ROS 클라이언트)가 시간이 지나면 **취소를 요청하고, 백엔드가 멈춘 뒤 최종 결과를 줄 때까지 기다린 다음** `TIMEOUT`으로 끝냄(#10, PR #74 리뷰) → `finally` 복구 동작이 앞 동작과 겹치지 않음. 취소 뒤 5초 `[추정]` 안에 최종 결과가 없으면 `STOP_UNCONFIRMED`: 멈췄는지 알 수 없으므로 `ESTOP`처럼 `ABORTED`·잠금, 사람 확인 전 새 동작 없음. **실제로 멈추는 것은 백엔드 책임**(아래 "백엔드 구현 약속"). Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
+* `timeout_sec`: `Skill` goal 에는 제한 시간 칸이 없으므로 Runner(ROS 클라이언트)가 시간이 지나면 **취소를 요청하고, 백엔드가 멈춘 뒤 최종 결과를 줄 때까지 기다린 다음** `TIMEOUT`으로 끝냄(#10, PR #74 리뷰) → `finally` 복구 동작이 앞 동작과 겹치지 않음. 취소 뒤 5초 `[추정]` 안에 최종 결과가 없으면 `STOP_UNCONFIRMED`: 멈췄는지 알 수 없으므로 `ESTOP`처럼 `ABORTED`·잠금, 사람 확인 전 새 동작 없음. 최종 결과가 와도 그 코드가 잠금 대상(아래 표의 `ESTOP`·`STOP_UNCONFIRMED`·B 서버 잠금 코드)이면 `TIMEOUT`으로 덮지 않고 그대로 잠금(PR #74 E 리뷰).
+  * **goal 수락 응답이 늦을 때** (PR #74 D 리뷰): 5초 `[추정]` 안에 수락 응답이 없으면 "보내지 않음"으로 보지 않고, 늦게라도 수락되면 즉시 취소하고 정지 확인 뒤 `TIMEOUT`, 끝내 확인이 안 되면 `STOP_UNCONFIRMED`. 서버를 찾는 사이 중단 요청이 들어오면 goal 을 보내지 않음(`HALTED`). 중단 처리 뒤 `finally`의 비동작(`speak` 등)은 막지 않음. **실제로 멈추는 것은 백엔드 책임**(아래 "백엔드 구현 약속"). Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
   * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 취소 요청으로 끝난 `TIMEOUT`도 같음(`retry_stopped: "TIMEOUT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
 * **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
@@ -108,7 +109,8 @@
 | `BAD_CONDITION` | 조건식 인자 개수·타입 오류 |
 | `TIMEOUT` | `timeout_sec` 초과 (Runner 판정, 또는 클라이언트가 취소 요청). 결과가 불확실해 재시도하지 않음 |
 | `ESTOP` | 백엔드가 비상정지로 동작 실패를 반환 → `ABORTED` |
-| `STOP_UNCONFIRMED` | 취소를 요청했지만 정해진 시간 안에 백엔드의 정지 확인(최종 결과)이 없음 → `ABORTED`·잠금 (PR #74 리뷰) |
+| `STOP_UNCONFIRMED` | 취소를 요청했지만 정해진 시간 안에 백엔드의 정지 확인(최종 결과)이 없음, 또는 백엔드가 정지 확인 실패를 돌려줌 → `ABORTED`·잠금 (PR #74 리뷰) |
+| `STATE_UNKNOWN`·`MOVE_UNCONFIRMED`·`LOCKED` | B 스킬 서버 잠금 코드(PR #73: 이동 중 상태 조회 실패·이동 명령 수락 여부 모름·서버 잠김) → Runner 도 `ABORTED`·잠금. **10/06 실물 확인 후 B·C 확정** |
 | `HALTED` | Runner `halt()`로 중단(사용자 취소·`/runner/estop`) → `ABORTED` |
 | `ACTION_FAILED` | 백엔드가 에러 코드 없이 실패를 반환 |
 | `BACKEND_ERROR` | 백엔드 호출 중 예외(통신 끊김 등), 서버 없음·goal 거절(동작 안 함), 성공 응답의 JSON 을 읽을 수 없음. 스텝 실패로 처리해 `finally`를 보장 |
