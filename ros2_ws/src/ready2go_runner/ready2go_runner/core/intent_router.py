@@ -7,7 +7,7 @@ Runner 는 로봇을 움직이는 쪽이라 한 번 더 확인하고 애매하�
 - run    : 실행. find_item 등 tasks 의 trigger.intent 와 맞는 태스크를 inputs.target = targets[0] 으로
 - cancel : 실행 중이면 halt() (음성 "멈춰" = 보조 정지 수단, docs/safety.md). 실행 중이 아니면 할 일 없음
 - status : /runner/status 를 바로 다시 발행
-- hold   : 실행하지 않음 (형식 오류·모호·미지원·저신뢰·미등록 물품·태스크 없음). 재질문 TTS 는 E 음성 노드
+- hold   : 실행하지 않음 (형식 오류·모호·미지원·저신뢰·미등록 물품·태스크 없음·태스크가 받지 않는 물품). 재질문 TTS 는 E 음성 노드
 - reject : 지금은 실행할 수 없음 (실행 중 = 중복 요청, 중단 잠김)
 """
 from __future__ import annotations
@@ -27,6 +27,7 @@ LOW_CONFIDENCE = "LOW_CONFIDENCE"       # confidence < min_confidence
 NO_TARGET = "NO_TARGET"                 # targets 없음
 MULTI_TARGET = "MULTI_TARGET"           # P1 은 물품 하나만 (단일 물품 전달)
 UNKNOWN_ITEM = "UNKNOWN_ITEM"           # 온톨로지 items 에 없는 물품
+UNSUPPORTED_ITEM = "UNSUPPORTED_ITEM"   # 태스크 trigger.targets 에 없는 물품 (시연용 지우개 태스크에 차키 요청 등, #89 PM·D 리뷰)
 BUSY = "BUSY"                           # 이미 태스크 실행 중 → 중복 요청 거절 (줄 세우지 않음)
 LOCKED = "LOCKED"                       # 중단 잠김 (사람 확인 전 새 태스크 없음, docs/safety.md)
 NOT_RUNNING = "NOT_RUNNING"             # cancel 을 받았지만 멈출 태스크가 없음
@@ -110,6 +111,9 @@ class IntentRouter:
             return Decision(HOLD, MULTI_TARGET, intent=intent)
         if targets[0] not in self.items:
             return Decision(HOLD, UNKNOWN_ITEM, intent=intent)
+        allowed = (task.get("trigger") or {}).get("targets")
+        if allowed is not None and targets[0] not in allowed:     # 물품이 정해진 태스크: 다른 물품이면 움직이기 전에 보류
+            return Decision(HOLD, UNSUPPORTED_ITEM, intent=intent)
         if locked:
             return Decision(REJECT, LOCKED, intent=intent)
         if running:

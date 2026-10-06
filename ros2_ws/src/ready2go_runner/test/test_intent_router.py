@@ -97,7 +97,7 @@ def test_status():
 # ---- 인텐트 → 태스크 표 ----
 
 def test_tasks_by_intent_uses_trigger():
-    table = ir.tasks_by_intent([FIND, CHECK])           # p1_demo_eraser 는 trigger 가 없음
+    table = ir.tasks_by_intent([FIND, CHECK])           # p1_demo_eraser 는 trigger.intent 가 없음 (targets 만)
     assert table["find_item"] is FIND and len([t for t in table.values() if t is CHECK]) == 0
 
 
@@ -107,6 +107,21 @@ def test_override_replaces_trigger_task_for_demo():
     assert table["find_item"] is CHECK
     d = router(table).decide(EXAMPLE, running=False, locked=False)
     assert d.task is CHECK and d.inputs["target"] == "eraser"
+
+
+@pytest.mark.parametrize("item", ["car_key", "masking_tape"])
+def test_demo_task_holds_other_items_before_any_motion(item):
+    """#89 PM·D P1: 지우개 전용 시연 태스크에 다른 등록 물품 → 실행하지 않고 보류 (서랍 열기 전에)."""
+    assert CHECK["trigger"]["targets"] == ["eraser"]
+    table = ir.tasks_by_intent([FIND, CHECK], {"find_item": CHECK})
+    d = router(table).decide(intent(targets=[item]), running=False, locked=False)
+    assert (d.kind, d.reason, d.task) == (ir.HOLD, ir.UNSUPPORTED_ITEM, None)
+    assert d.summary()["decision"] == ir.HOLD and d.summary()["reason"] == ir.UNSUPPORTED_ITEM
+
+
+def test_task_without_targets_accepts_any_registered_item():
+    assert "targets" not in (FIND.get("trigger") or {})
+    assert router().decide(intent(targets=["car_key"]), running=False, locked=False).kind == ir.RUN
 
 
 def test_duplicate_trigger_without_override_is_error():
