@@ -48,6 +48,8 @@ class SkillServer(Node):
         self.joint_acc = float(self.declare_parameter("joint_acc_deg_s2", 20.0).value)
         self.move_timeout = float(self.declare_parameter("move_timeout_s", 30.0).value)  # 서버 쪽 안전 상한
         self.reach_tol = float(self.declare_parameter("reach_tol_deg", 0.5).value)
+        sf.check_server_params(joint_vel_deg_s=self.joint_vel, joint_acc_deg_s2=self.joint_acc,   # NaN·0·음수 → 안 뜸
+                               move_timeout_s=self.move_timeout, reach_tol_deg=self.reach_tol)
         cfg = Path(self.declare_parameter("config_dir", str(find_config_dir())).value)
         self.cfg_dir = cfg
         meta = yaml.safe_load((cfg / "calibration" / "calibration_meta.yaml").read_text(encoding="utf-8"))
@@ -79,28 +81,25 @@ class SkillServer(Node):
             except json.JSONDecodeError as e:
                 return self._finish(goal, action, sf.Outcome(False, sf.BAD_PARAMS, reason=str(e)))
             self.get_logger().info(f"[{action}] {params}")
-            if self.locked:
-                return self._finish(goal, action, sf.Outcome(False, sf.LOCKED, reason=f"잠김: {self.locked} — "
-                                                             "로봇 확인 후 skill_server 재시작"))
             if handler is None:
                 return self._finish(goal, action, sf.Outcome(False, sf.NOT_IMPLEMENTED,
                                                              reason="10/06 실측 후 구현 (로봇 동작 없음)"))
-            if not self.gate.try_enter():    # goal 수락과 실행 사이에 다른 요청이 먼저 들어온 경우
-                return self._finish(goal, action, sf.Outcome(False, sf.BUSY, reason="다른 동작 실행 중 (로봇 동작 없음)"))
-            try:
-                err = motion_guard.check_tool(*self.robot.tool_names(), self.expected_tcp, self.expected_tool)
-                if err:
-                    return self._finish(goal, action, sf.Outcome(False, err.error_code, reason=err.reason))
-                # 예외가 나면 정지 후 정지를 확인 — 확인 못 하면 STOP_UNCONFIRMED 로 잠금 (skill_flow.run_guarded)
-                outcome, output = sf.run_guarded(lambda: handler(goal, params), stop=self.robot.stop,
-                                                 get_state=self.robot.state)
-                if outcome.error_code in sf.LOCKING_CODES:
-                    self.locked = f"{action}: {outcome.reason}"
-                    self.get_logger().error(f"[{action}] 잠금 — 펜던트에서 로봇 상태 확인 후 skill_server 재시작 필요")
-                return self._finish(goal, action, outcome, output)
-            finally:
-                self.gate.exit()
+            # gate 진입 → 잠금 확인 → 취소 확인 → 툴 확인 → handler. 잠금 설정도 gate 안에서 (skill_flow.execute_skill)
+            outcome, output = sf.execute_skill(lambda: handler(goal, params), gate=self.gate,
+                                               locked=lambda: self.locked, set_locked=lambda why: self._lock(action, why),
+                                               cancel_requested=lambda: goal.is_cancel_requested,
+                                               check_tool=self._check_tool, stop=self.robot.stop,
+                                               get_state=self.robot.state)
+            return self._finish(goal, action, outcome, output)
         return execute
+
+    def _check_tool(self):
+        err = motion_guard.check_tool(*self.robot.tool_names(), self.expected_tcp, self.expected_tool)
+        return sf.Outcome(False, err.error_code, reason=err.reason) if err else None
+
+    def _lock(self, action, why):
+        self.locked = f"{action}: {why}"
+        self.get_logger().error(f"[{action}] 잠금 — 펜던트에서 로봇 상태 확인 후 skill_server 재시작 필요")
 
     def _finish(self, goal, action, outcome, output=None):
         if outcome.canceled:
@@ -124,6 +123,9 @@ class SkillServer(Node):
         goal.publish_feedback(Skill.Feedback(stage="auto_mode"))
         if not self.robot.auto():            # 모드 전환은 이동 명령이 아님 → 명시적 거부로 처리
             return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.robot.state), None
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 모드 전환 중 취소됐으면 movej 를 보내지 않음
+        if early:
+            return early, None
         goal.publish_feedback(Skill.Feedback(stage="moving"))
         bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej",
                                stop=self.robot.stop, get_state=self.robot.state)

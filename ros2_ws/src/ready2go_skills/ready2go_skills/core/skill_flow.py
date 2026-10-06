@@ -25,7 +25,7 @@ STOP_UNCONFIRMED = "STOP_UNCONFIRMED"    # 정지 명령 뒤 멈춘 것을 확�
 STATE_UNKNOWN = "STATE_UNKNOWN"          # 이동 중 상태 조회가 계속 실패 → 정지 후 이 코드
 MOVE_UNCONFIRMED = "MOVE_UNCONFIRMED"    # 이동 명령 응답이 없어 수락 여부 모름 → 정지·확인 후 이 코드로 잠금 (#73 E 리뷰)
 BUSY = "BUSY"                            # 다른 동작이 실행 중 — 한 번에 하나만 (#73 E 리뷰). 로봇 동작 없음
-LOCKED = "LOCKED"                        # 앞서 STOP_UNCONFIRMED 로 잠긴 서버 — 사람이 확인하고 서버를 다시 띄울 때까지 거부
+LOCKED = "LOCKED"                        # 앞서 LOCKING_CODES 로 잠긴 서버 — 사람이 확인하고 서버를 다시 띄울 때까지 거부
 SKILL_EXCEPTION = "SKILL_EXCEPTION"      # 서버 안 예외 — 움직인 뒤일 수 있음. Runner 의 BACKEND_ERROR(서버 없음·goal 거절, 동작 안 함)와 구분 (#73 C 리뷰)
 
 # DSR GetRobotState 값 (jog_gui STATE 표와 같음 [문서 DRFL]). 2 = 이동 중
@@ -85,6 +85,56 @@ class MotionGate:
 
     def exit(self) -> None:
         self._lock.release()
+
+
+def execute_skill(handler: Callable[[], tuple], *, gate: MotionGate, locked: Callable[[], Optional[str]],
+                  set_locked: Callable[[str], None], cancel_requested: Callable[[], bool],
+                  check_tool: Callable[[], Optional[Outcome]], stop: Callable[[], bool],
+                  get_state: Callable[[], Optional[int]], **halt_kw):
+    """노드 execute 의 실행 순서 → (Outcome, output). gate 안에서 잠금을 확인하고, 잠금 설정도 gate 를 놓기 전에 한다
+    → 먼저 수락돼 기다리던 goal 이 앞 goal 의 잠금을 건너뛰지 못함 (#73 E 재검토 P1).
+    gate 진입 → 잠금 확인(LOCKED) → 이미 취소됐으면 움직이지 않고 canceled → 툴 확인 → handler(예외 시 정지 확인)
+    → 잠금 코드면 잠금 → gate 해제."""
+    if not gate.try_enter():
+        return Outcome(False, BUSY, reason="다른 동작 실행 중 (로봇 동작 없음)"), None
+    try:
+        why = locked()
+        if why:
+            return Outcome(False, LOCKED, reason=f"잠김: {why} — 로봇 확인 후 skill_server 재시작"), None
+        early = canceled_before_motion(cancel_requested)
+        if early:
+            return early, None
+        err = check_tool()
+        if err:
+            return err, None
+        outcome, output = run_guarded(handler, stop=stop, get_state=get_state, **halt_kw)
+        if outcome.error_code in LOCKING_CODES:
+            set_locked(outcome.reason)
+        return outcome, output
+    finally:
+        gate.exit()
+
+
+def canceled_before_motion(cancel_requested: Callable[[], bool]) -> Optional[Outcome]:
+    """이동 명령을 보내기 직전에 호출. 이미 취소됐으면 명령을 보내지 않고 canceled (#73 E 재검토 P1).
+    이 goal 은 아직 로봇을 움직이지 않았으므로 정지 명령도 보내지 않는다 (다른 동작의 정지 책임을 건드리지 않음)."""
+    if cancel_requested():
+        return Outcome(False, CANCELED, canceled=True, reason="이동 명령 전 취소 — 로봇 동작 없음")
+    return None
+
+
+MAX_REACH_TOL_DEG = 5.0                  # 도착 판정 허용 오차 상한 — 이보다 크면 설정 오류로 본다
+
+
+def check_server_params(*, joint_vel_deg_s, joint_acc_deg_s2, move_timeout_s, reach_tol_deg) -> None:
+    """스킬 서버 파라미터가 유한하고 범위 안인지. 아니면 ValueError — 서버가 뜨지 않음 (#73 E 재검토 P2, NaN 허용)."""
+    vals = {"joint_vel_deg_s": joint_vel_deg_s, "joint_acc_deg_s2": joint_acc_deg_s2,
+            "move_timeout_s": move_timeout_s, "reach_tol_deg": reach_tol_deg}
+    bad = [k for k, v in vals.items() if not _finite(v) or v <= 0]
+    if not bad and reach_tol_deg > MAX_REACH_TOL_DEG:
+        bad = ["reach_tol_deg"]
+    if bad:
+        raise ValueError(f"스킬 서버 파라미터 비정상 {bad}: {vals} (reach_tol_deg 는 (0, {MAX_REACH_TOL_DEG:g}])")
 
 
 def after_command(accepted: Optional[bool], *, what: str, stop: Callable[[], bool],
@@ -190,6 +240,8 @@ def _finite(v) -> bool:
 
 def check_reached(target_deg: Sequence[float], actual_deg: Optional[Sequence[float]], tol_deg: float) -> Outcome:
     """관절 6개가 모두 유한하고 목표와 tol 안인지. 개수가 다르거나 NaN 이 하나라도 있으면 실패 (#73 E 리뷰)."""
+    if not _finite(tol_deg) or not 0 < tol_deg <= MAX_REACH_TOL_DEG:
+        return Outcome(False, NOT_REACHED, reason=f"도착 허용 오차 비정상: {tol_deg!r} (설정 오류)")   # NaN 이면 모두 도착이 됨
     if actual_deg is None:
         return Outcome(False, NOT_REACHED, reason="현재 관절각 조회 실패")
     if (len(actual_deg) != 6 or len(target_deg) != 6

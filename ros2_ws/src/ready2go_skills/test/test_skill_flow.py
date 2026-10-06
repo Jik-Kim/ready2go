@@ -244,3 +244,110 @@ def test_motion_gate_threads():
                                     [0, 0, 0, 0, 0, True]])
 def test_check_reached_rejects_bad_joint_lists(actual):
     assert sf.check_reached([0] * 6, actual, 0.5).error_code == sf.NOT_REACHED
+
+
+# ---- 실행 순서: 잠금은 gate 안에서 확인·설정, 이미 취소된 goal 은 움직이지 않음 (#73 E 재검토)
+class Server:
+    """노드의 execute 순서만 흉내 (gate·잠금·툴·로봇 호출 기록)."""
+
+    def __init__(self, tool_err=None):
+        self.gate, self.locked, self.calls = sf.MotionGate(), None, []
+        self.tool_err = tool_err
+
+    def run(self, handler, cancel=lambda: False):
+        f = self.f = Fake([1], after_stop=[1])
+
+        def check_tool():
+            self.calls.append("tool")
+            return self.tool_err
+        return sf.execute_skill(handler, gate=self.gate, locked=lambda: self.locked,
+                                set_locked=lambda why: setattr(self, "locked", why), cancel_requested=cancel,
+                                check_tool=check_tool, stop=f.stop, get_state=f.state, clock=f.clock, sleep=f.sleep)
+
+
+def _move_ok(srv):
+    def h():
+        srv.calls.append("movej")
+        return sf.Outcome(True, reason="도착"), None
+    return h
+
+
+def test_waiting_goal_cannot_bypass_lock_set_by_previous_goal():
+    import threading
+    srv = Server()
+    first_in, release = threading.Event(), threading.Event()
+
+    def first():                                   # 실행 중 STOP_UNCONFIRMED 로 끝나는 첫 goal
+        first_in.set()
+        release.wait(2)
+        return sf.Outcome(False, sf.STOP_UNCONFIRMED, reason="still moving"), None
+    t = threading.Thread(target=lambda: srv.run(first))
+    t.start()
+    first_in.wait(2)
+    assert srv.locked is None                      # 두 번째 goal 은 이 시점(잠금 없음)에 이미 수락돼 기다리는 중
+    release.set()
+    t.join(2)
+    o, _ = srv.run(_move_ok(srv))                  # 첫 goal 이 잠그고 gate 를 놓은 뒤 들어옴
+    assert o.error_code == sf.LOCKED and srv.calls == ["tool"]     # 툴 조회는 첫 goal 의 것뿐, movej 없음
+    assert srv.locked == "still moving"
+
+
+def test_busy_while_other_goal_runs_without_robot_call():
+    srv = Server()
+    assert srv.gate.try_enter()
+    o, _ = srv.run(_move_ok(srv))
+    assert o.error_code == sf.BUSY and srv.calls == []
+    srv.gate.exit()
+
+
+@pytest.mark.parametrize("code", sorted(sf.LOCKING_CODES))
+def test_locking_codes_lock_server(code):
+    srv = Server()
+    srv.run(lambda: (sf.Outcome(False, code, reason="r"), None))
+    assert srv.locked == "r" and not srv.gate.busy()
+
+
+def test_non_locking_failure_does_not_lock():
+    srv = Server()
+    srv.run(lambda: (sf.Outcome(False, sf.MOTION_TIMEOUT, reason="r"), None))
+    assert srv.locked is None
+
+
+def test_already_canceled_goal_sends_no_motion_and_no_stop():
+    srv = Server()
+    o, _ = srv.run(_move_ok(srv), cancel=lambda: True)
+    assert o.canceled and o.error_code == sf.CANCELED and srv.calls == [] and srv.f.stopped == 0
+
+
+def test_canceled_before_motion_helper():
+    assert sf.canceled_before_motion(lambda: False) is None
+    o = sf.canceled_before_motion(lambda: True)
+    assert o.canceled and not o.success
+
+
+def test_tool_error_stops_before_handler():
+    err = sf.Outcome(False, "TOOL_NOT_SET", reason="툴 다름")
+    srv = Server(tool_err=err)
+    o, _ = srv.run(_move_ok(srv))
+    assert o == err and "movej" not in srv.calls and not srv.gate.busy()
+
+
+# ---- 허용 오차·서버 파라미터 유한성 (#73 E 재검토 P2)
+@pytest.mark.parametrize("tol", [float("nan"), float("inf"), 0, -1, 10.0, None, True])
+def test_check_reached_rejects_bad_tolerance(tol):
+    assert sf.check_reached([0] * 6, [100] * 6, tol).error_code == sf.NOT_REACHED
+    assert sf.check_reached([0] * 6, [0] * 6, tol).error_code == sf.NOT_REACHED
+
+
+def test_server_params_ok():
+    sf.check_server_params(joint_vel_deg_s=10.0, joint_acc_deg_s2=20.0, move_timeout_s=30.0, reach_tol_deg=0.5)
+
+
+@pytest.mark.parametrize("key,val", [("reach_tol_deg", float("nan")), ("reach_tol_deg", 6.0), ("reach_tol_deg", 0.0),
+                                     ("joint_vel_deg_s", float("nan")), ("joint_acc_deg_s2", -1.0),
+                                     ("move_timeout_s", float("inf"))])
+def test_server_params_rejected(key, val):
+    p = dict(joint_vel_deg_s=10.0, joint_acc_deg_s2=20.0, move_timeout_s=30.0, reach_tol_deg=0.5)
+    p[key] = val
+    with pytest.raises(ValueError):
+        sf.check_server_params(**p)
