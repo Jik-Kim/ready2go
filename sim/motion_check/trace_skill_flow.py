@@ -48,9 +48,11 @@ def stub_ros():
     mod("ready2go_interfaces")
     mod("ready2go_interfaces.action", Skill=types.SimpleNamespace(Feedback=lambda stage: stage))
     mod("dsr_msgs2")
-    mod("dsr_msgs2.srv", **{n: object for n in (
-        "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetRobotMode GetRobotState GetToolForce "
-        "MoveJoint MoveLine MoveStop SetRobotMode").split()})
+    if "dsr_msgs2.srv" not in sys.modules:                              # 서비스 타입은 이름만 있으면 됨 (B 가 새로 쓰는 것도 자동으로)
+        class _AnySrv(types.ModuleType):
+            def __getattr__(self, name):
+                return object
+        sys.modules["dsr_msgs2.srv"] = _AnySrv("dsr_msgs2.srv")
     mod("pymodbus")
     mod("pymodbus.client", ModbusTcpClient=object)
 
@@ -105,6 +107,23 @@ class KinRobot:
         traj = [(q0 + (q1 - q0) * k / n).tolist() for k in range(n + 1)]
         self._record("movej", self.p, kin.fk_posx(j), traj, dict(vel=vel, acc=acc))
         self.j, self.p = list(j), kin.fk_posx(j)
+        self._moving = 2
+        return True
+
+    def movesj_async(self, points, vel, acc):
+        """관절 스플라인: 현재 자세 → 경유점들. Catmull-Rom 으로 근사 (두산 movesj 의 실제 스플라인과 모양이 조금 다를 수 있음 [추정])."""
+        P = [np.array(self.j, float)] + [np.array(q, float) for q in points]
+        ext = [P[0]] + P + [P[-1]]
+        traj = [P[0].tolist()]
+        for k in range(1, len(ext) - 2):
+            p0, p1, p2, p3 = ext[k - 1], ext[k], ext[k + 1], ext[k + 2]
+            n = max(2, int(np.max(np.abs(p2 - p1)) / 0.5))
+            for m in range(1, n + 1):
+                t = m / n
+                q = 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t ** 3)
+                traj.append(q.tolist())
+        self._record("movesj", self.p, kin.fk_posx(points[-1]), traj, dict(vel=vel, acc=acc, waypoints=len(points)))
+        self.j, self.p = list(points[-1]), kin.fk_posx(points[-1])
         self._moving = 2
         return True
 
@@ -181,6 +200,13 @@ def load_server(repo: Path, robot):
             robot.contact = contact_for(stage, robot.p, posx)
         return real_line(self, goal, posx, vel, stage, watch)
     ss.SkillServer._line = line
+    if hasattr(ss.SkillServer, "_spline"):                              # 관절 스플라인(movesj)에도 단계 이름
+        real_spline = ss.SkillServer._spline
+
+        def spline(self, goal, points, stage, *a, **k):
+            robot.stage, robot.contact, robot.from_line = stage, None, False
+            return real_spline(self, goal, points, stage, *a, **k)
+        ss.SkillServer._spline = spline
     real_named = ss.SkillServer._named
 
     def named(self, goal, pose_name, drawer_id=None):                   # 관절 이동에도 단계 이름

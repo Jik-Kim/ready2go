@@ -74,8 +74,9 @@ def quat_to_R(q):
 
 
 def duration(s):
-    if s["kind"] == "movej":
-        t = max(s["joint_travel_deg"]) / JOINT_VEL
+    if s["kind"] in ("movej", "movesj"):                                 # 관절 이동·관절 스플라인: 경로 위 관절 변화 합 기준
+        q = np.array(s["joints"])
+        t = float(np.abs(np.diff(q, axis=0)).max(axis=1).sum()) / float(s.get("vel") or JOINT_VEL)
     else:
         t = max(s.get("dist_mm", 0) / max(s.get("vel", 50), 1e-6), s.get("rot_deg", 0) / max(s.get("rot_vel", 30), 1e-6))
     return max(t, 0.2) / args.speed * (args.flag_slow if s.get("flag") else 1.0)
