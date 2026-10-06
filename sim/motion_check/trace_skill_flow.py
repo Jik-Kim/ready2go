@@ -231,7 +231,9 @@ def save_trace(robot, repo: Path, out, results, eraser, eraser_after):
         unit = max(s.get("dist_mm", 0.0) / n, s.get("rot_deg", 0.0) / n * 2, 1e-9)
         dq = np.abs(np.diff(np.array(s["joints"]), axis=0)).max() if len(s["joints"]) > 1 else 0.0
         s["amp_deg_per_10mm"] = float(dq / unit * 10) if s["kind"] == "movel" else 0.0
-        s["flag"] = bool(s["kind"] == "movel" and (s["amp_deg_per_10mm"] > 4.0 or s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10))
+        # ◀ 기준 [실물 대조 10/06]: 튄 구간은 J3 10°·0°(10 mm당 11.8°·63°), 튀지 않은 구간은 J3 25° 이상(10 mm당 12.7°까지).
+        #   10 mm당 관절 변화만으로는 가르지 못해 J3·J5(특이점까지 거리)를 주 기준으로, 관절 변화는 아주 클 때(> 20°)만 본다
+        s["flag"] = bool(s["kind"] == "movel" and (s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10 or s["amp_deg_per_10mm"] > 20.0))
     sha = (repo / ".sha").read_text().strip() if (repo / ".sha").exists() else ""
     if not sha:
         import subprocess
@@ -239,7 +241,8 @@ def save_trace(robot, repo: Path, out, results, eraser, eraser_after):
     Path(out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, results=results, eraser=eraser, eraser_after=eraser_after,
                                          grip_events=robot.grip_events, segments=robot.segments), ensure_ascii=False))
     print(f"\n구간 {len(robot.segments)}개 → {out} (B 코드 {sha or '?'})")
-    print("판정: 직선 이동(movel)에서 손끝 10 mm(회전 5°)당 관절 변화 > 4° 또는 |J3| < 15° 또는 |J5| < 10° 이면 ◀ (정상 구간 약 1.3~2.3°)")
+    print("판정: 직선 이동(movel)에서 |J3| < 15° 또는 |J5| < 10° 또는 손끝 10 mm(회전 5°)당 관절 변화 > 20° 이면 ◀ "
+          "(10/06 실물: J3 10° 이하에서 튐, 25° 이상은 10 mm당 12.7° 여도 정상)")
     print(f"{'#':>3} {'단계':6s} {'명령':6s} {'stage':22s} {'거리mm':>7s} {'회전°':>6s} {'°/10mm':>7s} {'min|J3|':>7s} {'min|J5|':>7s} {'σmin':>6s} 관절 이동량")
     for s in robot.segments:
         print(f"{s['i']:3d} {s['step']:6s} {s['kind']:6s} {s['stage'][:22]:22s} {s.get('dist_mm', 0):7.1f} {s.get('rot_deg', 0):6.1f} "
