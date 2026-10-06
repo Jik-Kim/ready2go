@@ -6,11 +6,13 @@
     top_z    = 박스 안 뎁스 덩어리의 높이 (서랍 바닥 기준)
     yaw      = 덩어리 긴 변 방향. 대칭 물체(pose_rules.is_symmetric)는 0 + yaw_valid true,
                덩어리가 비정상이면 0 + yaw_valid false
+  footprint 가 서랍 안쪽(interior_m, 오차 여유 region.edge_tolerance_m)을 벗어난 검출은 결과에서 뺀다(서랍 밖 파지 방지).
   뎁스를 쓸 수 없는 검출이 하나라도 있으면 policy.on_invalid_candidate 에 따라 전체 DEPTH_INVALID (기본 fail, 안전 우선).
 """
 from __future__ import annotations
 
 import json
+import math
 
 from .depth_blob import analyze_box
 from .geometry import Intrinsics, ray_plane_xy
@@ -19,8 +21,19 @@ from .pose_rules import is_symmetric, result_errors
 SUPPORTED_REGIONS = ("drawer_top",)
 
 
+def footprint_inside(x, y, yaw, yaw_known, size, interior, tol):
+    """물체 윗면 footprint 가 서랍 안쪽(0~interior[0], 0~interior[1])에 들어가는가. tol 은 측정 오차 여유(m).
+    yaw 를 아는 직사각형은 회전한 직사각형의 축 정렬 범위, 모르면(대칭·덩어리 비정상) 외접원 반지름으로 보수적으로 본다."""
+    if yaw_known:
+        c, s = abs(math.cos(yaw)), abs(math.sin(yaw))
+        hx, hy = (size[0] * c + size[1] * s) / 2, (size[0] * s + size[1] * c) / 2
+    else:
+        hx = hy = math.hypot(size[0], size[1]) / 2
+    return (x - hx >= -tol and x + hx <= interior[0] + tol) and (y - hy >= -tol and y + hy <= interior[1] + tol)
+
+
 def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict, items: dict,
-                  region: str, search_target: str = "") -> tuple[bool, str, str]:
+                  region: str, search_target: str = "", interior_m=None) -> tuple[bool, str, str]:
     """(success, error_code, result_json). 미발견은 success=True + target_found=False."""
     if region not in SUPPORTED_REGIONS:
         return False, "UNKNOWN_REGION", ""
@@ -44,9 +57,13 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
                 return False, "DEPTH_INVALID", ""
             continue
         if is_symmetric(size):
-            yaw, valid = 0.0, True
+            yaw, valid, yaw_known = 0.0, True, False                 # 대칭 물체의 yaw 0 은 약속값이라 footprint 는 외접원으로 본다
         else:
             yaw, valid = (round(blob.yaw, 4), True) if blob.yaw_ok else (0.0, False)
+            yaw_known = valid
+        if interior_m is not None and not footprint_inside(xy[0], xy[1], yaw, yaw_known, size, interior_m,
+                                                           params.get("region", {}).get("edge_tolerance_m", 0.01)):
+            continue                                                  # 서랍 밖(시야에 잡힌 다른 물체·TF 오차)은 결과에 넣지 않는다
         found.append({"class": det["class"], "pose": {"frame": region, "position": [round(xy[0], 4), round(xy[1], 4), 0.0],
                                                       "yaw": yaw, "yaw_valid": valid}, "top_z": top_z})
     found.sort(key=lambda i: i["top_z"], reverse=True)

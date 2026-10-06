@@ -11,6 +11,8 @@ depth_blob:
   top_percentile: 95           # top_z = 덩어리 높이의 백분위 (이상치 완충)
   min_short_side_m: 0.008      # 덩어리 짧은 변이 이보다 얇으면 yaw_valid=false
   size_tolerance: 0.5          # 덩어리 긴 변이 명목 긴 변의 ±50% 를 벗어나면 yaw_valid=false (겹침·병합 의심)
+region:
+  edge_tolerance_m: 0.01       # 물체 footprint 가 서랍 내부 경계 밖으로 이만큼까지는 측정 오차로 보고 허용 [추정, AC-VIS-01 1.5 cm 안에서]. 넘으면 결과에서 제외
 detector:
   conf_min: 0.25               # 이보다 낮은 검출은 버린다
 policy:

@@ -43,8 +43,11 @@ def box_of(cx, cy, size, yaw, margin=0.003):
     return (u0 - half / H * K.fx, v0 - half / H * K.fy, u0 + half / H * K.fx, v0 + half / H * K.fy)
 
 
+INTERIOR = [0.1997, 0.2937]
+
+
 def run(depth, dets, target="eraser"):
-    return inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", target)
+    return inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", target, INTERIOR)
 
 
 def test_eraser_pose_matches_ground_truth():
@@ -105,3 +108,33 @@ def test_two_objects_sorted_by_height_and_ids():
     ok, _, js = run(depth, dets)
     r = json.loads(js)
     assert ok and r["target"]["id"] == "eraser#1" and r["candidates"][0]["id"] == "masking_tape#1" and r["visible_count"] == 2
+
+
+def test_object_outside_drawer_is_excluded_not_returned():
+    """D 검수 P1: 서랍 밖(x<0)에 있는 물체는 정상 target 으로 나가면 안 된다."""
+    for cx, cy in [(-0.03, 0.15), (0.23, 0.15)]:                          # 시야 안에서 서랍 앞쪽·안쪽 밖. y 방향은 아래 단위 시험
+        depth = scene(cx, cy, 0.0, (0.0525, 0.022), 0.0115)
+        ok, err, js = run(depth, [{"class": "eraser", "conf": 0.9, "box": box_of(cx, cy, (0.0525, 0.022), 0.0)}])
+        r = json.loads(js)
+        assert ok and r["target_found"] is False and r["visible_count"] == 0, (cx, cy, r)
+
+
+def test_object_near_wall_inside_is_kept_and_edge_tolerance_applies():
+    inside = scene(0.04, 0.15, 0.0, (0.0525, 0.022), 0.0115)             # 긴 변 절반 26 mm 가 벽(0)에서 4 mm 안쪽 → 안
+    ok, _, js = run(inside, [{"class": "eraser", "conf": 0.9, "box": box_of(0.04, 0.15, (0.0525, 0.022), 0.0)}])
+    assert json.loads(js)["target_found"] is True
+    edge = scene(0.020, 0.15, 0.0, (0.0525, 0.022), 0.0115)              # footprint 가 벽을 6 mm 넘음 → 여유 10 mm 안이라 유지
+    ok, _, js = run(edge, [{"class": "eraser", "conf": 0.9, "box": box_of(0.020, 0.15, (0.0525, 0.022), 0.0)}])
+    assert json.loads(js)["target_found"] is True
+    far = scene(0.005, 0.15, 0.0, (0.0525, 0.022), 0.0115)               # 21 mm 넘음 → 제외
+    ok, _, js = run(far, [{"class": "eraser", "conf": 0.9, "box": box_of(0.005, 0.15, (0.0525, 0.022), 0.0)}])
+    assert json.loads(js)["target_found"] is False
+
+
+def test_unknown_yaw_uses_circumscribed_footprint():
+    from ready2go_vision.core.inspect_real import footprint_inside
+    size = [0.0525, 0.022, 0.0115]
+    assert footprint_inside(0.027, 0.15, 0.0, True, size, INTERIOR, 0.0) is True       # yaw 알면 긴 변 절반 26.3 mm → 안
+    assert footprint_inside(0.027, 0.15, 0.0, False, size, INTERIOR, 0.0) is False     # 모르면 외접원 28.5 mm → 밖
+    for x, y in [(0.10, -0.01), (0.10, 0.30), (-0.01, 0.15), (0.21, 0.15)]:             # 네 방향 바깥(오차 여유 0)
+        assert footprint_inside(x, y, 0.3, True, size, INTERIOR, 0.0) is False

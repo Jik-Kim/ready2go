@@ -62,7 +62,7 @@ def main():
         depth = np.load(folder / f"{i:04d}_depth.npy").astype(float)
         depth[~np.isfinite(depth)] = 0.0
         box = project_box(T_drawer_cam, K, s["position"][0], s["position"][1], s["yaw"], size)
-        ok, err, js = inspect_scene([{"class": "eraser", "conf": 1.0, "box": box}], depth, K, T_drawer_cam, params, items, "drawer_top", "eraser")
+        ok, err, js = inspect_scene([{"class": "eraser", "conf": 1.0, "box": box}], depth, K, T_drawer_cam, params, items, "drawer_top", "eraser", tr["interior_m"])
         if not ok or not json.loads(js)["target_found"]:
             fails.append((i, err or "미발견"))
             continue

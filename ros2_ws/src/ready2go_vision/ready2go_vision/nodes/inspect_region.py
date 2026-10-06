@@ -57,6 +57,7 @@ class InspectRegionNode(Node):
         self._params = yaml.safe_load((cfg / "vision_params.yaml").read_text(encoding="utf-8"))
         places = yaml.safe_load((cfg / "places.yaml").read_text(encoding="utf-8"))
         tf = places["drawer_top"]["tf"]
+        self._interior = places["drawer_top"]["interior_m"][:2]
         if not tf or tf.get("translation_m") is None:
             raise RuntimeError("places.yaml drawer_top.tf 가 비어 있음 — 3점 터치 결과가 필요")
         self._T_base_drawer = make_T(tf["translation_m"], tf["quaternion_xyzw"])
@@ -116,7 +117,7 @@ class InspectRegionNode(Node):
         K = Intrinsics(info.k[0], info.k[4], info.k[2], info.k[5])
         dets = self._detector.detect(image_to_numpy(color_m))
         res.success, res.error_code, res.result_json = inspect_scene(
-            dets, image_to_numpy(depth_m), K, T_drawer_cam, self._params, self._items, req.region, req.search_target)
+            dets, image_to_numpy(depth_m), K, T_drawer_cam, self._params, self._items, req.region, req.search_target, self._interior)
         self.get_logger().info(f"inspect_region {req.region}/{req.search_target}: 검출 {len(dets)}개 → success={res.success} {res.error_code} {res.result_json[:200]}")
         return res
 
