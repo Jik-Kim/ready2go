@@ -135,7 +135,14 @@
 | `STUB_NOT_READY` | stub 좌표가 실측 전(`config/vision_stub.yaml`의 `ready: false`) |
 | `CONFIG_INVALID` | stub 설정 값의 형식 오류(예: `yaw_valid`가 bool이 아님) |
 
-V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없음 등을 이 표에 추가한다 `[팀 확정 필요]`.
+실제 `inspect_region`(V2, `ready2go_vision/nodes/inspect_region.py`)은 위 코드에 더해 아래를 쓴다 `[팀 확정 필요]`(A 제안, 1차 점검 10/06에 처음 사용).
+
+| 코드 | 의미 |
+| :--- | :--- |
+| `CAMERA_TIMEOUT` | 요청 이후 컬러·뎁스·`camera_info`가 제한 시간(기본 3 s) 안에 오지 않음 |
+| `TF_UNAVAILABLE` | `base_link` → `wrist_cam_color_optical_frame` TF를 얻지 못함(로봇 드라이버·bringup 확인) |
+| `DEPTH_INVALID` | 검출 박스 안 뎁스가 쓸 수 없음(결손 비율·유효 픽셀 부족, 서랍 바닥 위로 올라온 덩어리 없음). 하나라도 있으면 전체 실패(안전 우선, `config/vision_params.yaml` `policy`) |
+| `RESULT_INVALID` | 만든 결과가 pose 규칙(runner.md 7.1)을 어김 — 코드 버그 신호 |
 
 **로봇 동작 공통 에러 코드** (원자 동작이 **움직이기 전에** 확인하고 반환. 모두 로봇 동작 없음. 판단 코드 `ready2go_skills/core/motion_guard.py`, 허용 오차 `ready2go_skills/params/skills.yaml` `[팀 확정 필요]`)
 

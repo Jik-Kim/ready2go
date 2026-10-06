@@ -1,0 +1,107 @@
+"""core/inspect_real.py 시험: 합성 장면(서랍 바닥 + 회전한 직육면체)에서 위치·높이·yaw 가 규칙대로 나오는가. OpenCV 가 없으면 건너뜀."""
+import json
+import math
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+pytest.importorskip("cv2")
+yaml = pytest.importorskip("yaml")
+from ready2go_vision.core.geometry import Intrinsics, backproject  # noqa: E402
+from ready2go_vision.core.inspect_real import inspect_scene  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[4]
+PARAMS = yaml.safe_load((ROOT / "config/vision_params.yaml").read_text(encoding="utf-8"))
+K = Intrinsics(fx=900.0, fy=900.0, cx=640.0, cy=360.0)
+H = 0.37                                                    # 카메라 높이 (서랍 바닥 위)
+CAM_XY = (0.10, 0.15)
+R_DOWN = np.diag([1.0, -1.0, -1.0])                         # 광학 z 가 아래, x 는 서랍 x, y 는 서랍 -y
+T = np.eye(4); T[:3, :3] = R_DOWN; T[:3, 3] = [*CAM_XY, H]  # T_drawer_cam
+ITEMS = {"eraser": {"size_m": [0.0525, 0.022, 0.0115]}, "masking_tape": {"size_m": [0.045, 0.045, 0.02]}}
+
+
+def scene(cx, cy, yaw, size, height, extra=None):
+    """바닥 뎁스 + (cx, cy) 중심·yaw 회전한 직육면체(위에서 본 크기 size, 높이 height)의 뎁스(m)."""
+    h, w = 720, 1280
+    us, vs = np.meshgrid(np.arange(w, dtype=float), np.arange(h, dtype=float))
+    depth = np.full((h, w), H)
+    for (px, py, pyaw, psize, pheight) in [(cx, cy, yaw, size, height)] + (extra or []):
+        x = CAM_XY[0] + (us - K.cx) / K.fx * (H - pheight)
+        y = CAM_XY[1] - (vs - K.cy) / K.fy * (H - pheight)
+        c, s = math.cos(pyaw), math.sin(pyaw)
+        a = (x - px) * c + (y - py) * s
+        b = -(x - px) * s + (y - py) * c
+        depth[(abs(a) <= psize[0] / 2) & (abs(b) <= psize[1] / 2)] = H - pheight
+    return depth
+
+
+def box_of(cx, cy, size, yaw, margin=0.003):
+    half = max(size) / 2 * 1.2 + margin
+    u0 = K.cx + (cx - CAM_XY[0]) / H * K.fx
+    v0 = K.cy - (cy - CAM_XY[1]) / H * K.fy
+    return (u0 - half / H * K.fx, v0 - half / H * K.fy, u0 + half / H * K.fx, v0 + half / H * K.fy)
+
+
+def run(depth, dets, target="eraser"):
+    return inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", target)
+
+
+def test_eraser_pose_matches_ground_truth():
+    gt = (0.06, 0.18, 0.5)
+    depth = scene(gt[0], gt[1], gt[2], (0.0525, 0.022), 0.0115)
+    ok, err, js = run(depth, [{"class": "eraser", "conf": 0.9, "box": box_of(gt[0], gt[1], (0.0525, 0.022), gt[2])}])
+    assert ok and err == ""
+    t = json.loads(js)["target"]
+    assert t["id"] == "eraser#1" and t["pose"]["frame"] == "drawer_top"
+    assert t["pose"]["position"][0] == pytest.approx(gt[0], abs=0.003) and t["pose"]["position"][1] == pytest.approx(gt[1], abs=0.003)
+    assert t["pose"]["position"][2] == 0.0
+    assert t["pose"]["yaw"] == pytest.approx(gt[2], abs=0.05) and t["pose"]["yaw_valid"] is True
+    assert t["top_z"] == pytest.approx(0.0115, abs=0.002)
+
+
+def test_yaw_is_a_line_not_an_arrow():
+    for yaw_in, yaw_out in [(2.0, 2.0 - math.pi), (-1.4, -1.4)]:
+        depth = scene(0.08, 0.16, yaw_in, (0.0525, 0.022), 0.0115)
+        _, _, js = run(depth, [{"class": "eraser", "conf": 0.9, "box": box_of(0.08, 0.16, (0.0525, 0.022), yaw_in)}])
+        assert json.loads(js)["target"]["pose"]["yaw"] == pytest.approx(yaw_out, abs=0.06)
+
+
+def test_symmetric_object_gets_yaw_zero_and_valid():
+    depth = scene(0.10, 0.10, 0.7, (0.045, 0.045), 0.02)
+    _, _, js = run(depth, [{"class": "masking_tape", "conf": 0.8, "box": box_of(0.10, 0.10, (0.045, 0.045), 0.7)}], "masking_tape")
+    p = json.loads(js)["target"]["pose"]
+    assert p["yaw"] == 0.0 and p["yaw_valid"] is True
+
+
+def test_not_visible_is_success_not_error():
+    ok, err, js = run(scene(0.1, 0.1, 0, (0.05, 0.02), 0.0115), [])
+    r = json.loads(js)
+    assert ok and err == "" and r["target_found"] is False and r["visible_count"] == 0
+
+
+def test_depth_hole_fails_whole_request():
+    depth = scene(0.08, 0.16, 0.3, (0.0525, 0.022), 0.0115)
+    b = box_of(0.08, 0.16, (0.0525, 0.022), 0.3)
+    depth[int(b[1]) - 10:int(b[3]) + 10, int(b[0]) - 10:int(b[2]) + 10] = 0.0          # 박스 안 뎁스 전부 결손
+    ok, err, _ = run(depth, [{"class": "eraser", "conf": 0.9, "box": b}])
+    assert not ok and err == "DEPTH_INVALID"
+
+
+def test_unknown_region_and_low_confidence_and_unknown_class():
+    depth = scene(0.1, 0.1, 0, (0.05, 0.02), 0.0115)
+    assert inspect_scene([], depth, K, T, PARAMS, ITEMS, "handover_zone", "eraser")[:2] == (False, "UNKNOWN_REGION")
+    b = box_of(0.1, 0.1, (0.0525, 0.022), 0)
+    ok, _, js = run(depth, [{"class": "eraser", "conf": 0.1, "box": b}, {"class": "not_an_item", "conf": 0.9, "box": b}])
+    assert ok and json.loads(js)["visible_count"] == 0
+
+
+def test_two_objects_sorted_by_height_and_ids():
+    e1 = (0.05, 0.10, 0.0, (0.0525, 0.022), 0.0115)
+    tape = (0.15, 0.22, 0.0, (0.045, 0.045), 0.02)
+    depth = scene(*e1[:2], e1[2], e1[3], e1[4], extra=[tape])
+    dets = [{"class": "eraser", "conf": 0.9, "box": box_of(0.05, 0.10, (0.0525, 0.022), 0)},
+            {"class": "masking_tape", "conf": 0.9, "box": box_of(0.15, 0.22, (0.045, 0.045), 0)}]
+    ok, _, js = run(depth, dets)
+    r = json.loads(js)
+    assert ok and r["target"]["id"] == "eraser#1" and r["candidates"][0]["id"] == "masking_tape#1" and r["visible_count"] == 2

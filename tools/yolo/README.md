@@ -17,6 +17,13 @@
 
 촬영 계획표와 촬영 전 점검 목록: [shooting_plan.md](shooting_plan.md)
 
+## inspect_region 실제 노드 실행 [실측 10/06, 가짜 카메라로 시험 — 실제 카메라·로봇 TF는 미시험]
+`vision` 이미지(torch·ultralytics 포함)에서 실행한다. 카메라 토픽·`base_link`→`wrist_cam_color_optical_frame` TF가 같은 DDS 도메인에 있어야 한다(로봇 드라이버·`ready2go_bringup`·realsense가 발행). 서랍 좌표는 `config/places.yaml`의 `drawer_top.tf`(3점 터치)에서 읽는다.
+```bash
+cd <저장소> && docker run --rm --gpus all --network host --user $(id -u):$(id -g) -e HOME=/tmp -e YOLO_CONFIG_DIR=/tmp/y -e ROS_DOMAIN_ID=70 -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -e CYCLONEDDS_URI=file:///repo/config/cyclonedds.local.xml -v $PWD:/repo -v $PWD/knowledge:/knowledge:ro -v $PWD/models:/models:ro -w /repo/ros2_ws ready2go-vision:latest bash -lc 'source /opt/ros/jazzy/setup.bash && colcon build --packages-up-to ready2go_vision && source install/setup.bash && ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/repo/config'
+```
+다중 PC면 `cyclonedds.multi.xml`과 `DDS_IFACE`·`PEER_PC1`·`PEER_PC2`를 쓴다(IP·NIC는 팀 `.env` 기준). 호출: `ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: eraser}"`. 모델·토픽·프레임 이름은 노드 파라미터(`weights`, `color_topic`, `camera_frame` 등)로 바꾼다.
+
 ## 점검 결과 [실측 10/03, PC1 RTX 5060, yolo-detection 컨테이너]
 - GPU: torch 2.11.0+cu128, `sm_120` 지원, CUDA 행렬 연산 정상 (#14 "GPU 호환 확인" 항목, RTX 5060).
 - 합성 3클래스(세션 4개×20장, 검증 1세션)로 15 epoch 학습 약 7초, 검증 mAP50 0.908 — 파이프라인 동작 확인용 숫자일 뿐 모델 성능이 아님.

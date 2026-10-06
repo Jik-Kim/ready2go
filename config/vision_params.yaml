@@ -1,0 +1,17 @@
+# inspect_region V2(뎁스 덩어리) 임계값 (담당 A). 코드에 상수로 두지 않고 여기서 읽는다.
+# 전부 [팀 확정 필요] 초기값 [추정] — 실물 촬영·시험(#14, B #15)으로 조정한다.
+depth_blob:
+  floor_margin_m: 0.004        # 서랍 바닥(z=0)보다 이만큼 높은 뎁스 픽셀만 물체 후보 (얇은 지우개 11.5 mm 도 남기려고 작게)
+  min_depth_m: 0.15            # D435i 최소 거리 근처 이하는 결손으로 본다
+  max_depth_m: 1.0
+  roi_margin_px: 4             # YOLO 박스를 이만큼 넓혀 윤곽이 잘리지 않게
+  max_invalid_ratio: 0.5       # 박스 안 결손 비율이 이보다 크면 DEPTH_INVALID
+  min_valid_px: 50             # 유효 뎁스 픽셀이 이보다 적으면 DEPTH_INVALID
+  min_blob_px: 40              # 덩어리가 이보다 작으면 yaw_valid=false
+  top_percentile: 95           # top_z = 덩어리 높이의 백분위 (이상치 완충)
+  min_short_side_m: 0.008      # 덩어리 짧은 변이 이보다 얇으면 yaw_valid=false
+  size_tolerance: 0.5          # 덩어리 긴 변이 명목 긴 변의 ±50% 를 벗어나면 yaw_valid=false (겹침·병합 의심)
+detector:
+  conf_min: 0.25               # 이보다 낮은 검출은 버린다
+policy:
+  on_invalid_candidate: fail   # fail: 뎁스가 쓸 수 없는 검출이 하나라도 있으면 전체 DEPTH_INVALID (안전 우선) / skip: 그 검출만 제외
