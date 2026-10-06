@@ -36,8 +36,8 @@ from ready2go_skills.core import pick_plan as pp, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
 PARAMS_FILE = Path(__file__).resolve().parents[2] / "params" / "skills.yaml"
-NO_CONTACT = "NO_CONTACT"                # 끌기: 내려가도 물체 윗면 접촉을 못 느낌
-DRAG_BLOCKED = "DRAG_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림)
+NO_OBJECT_CONTACT = "NO_OBJECT_CONTACT"  # 끌기: 내려가도 물체 윗면 접촉을 못 느낌 (runner.md nudge_object 표)
+PUSH_BLOCKED = "PUSH_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림, runner.md 기존 코드)
 GRASP_FAILED = "GRASP_FAILED"
 NOT_HOLDING = "NOT_HOLDING"
 HOLDING_OBJECT = "HOLDING_OBJECT"        # 물건을 든 채 서랍 닫기 거부
@@ -315,7 +315,8 @@ class SkillServer(Node):
             near_end = moved >= distance - oc["stopper_window_mm"] / 1000.0
             if not (bad.error_code == dp.DRAWER_STUCK and near_end):   # 끝 근처에서 걸림 = 스토퍼 도달로 봄
                 self.disp[drawer_id] = disp + moved
-                self._grip(oc["handle_open_width_mm"], 20)
+                if not sf.is_safety(bad):                   # 안전 정지·취소 뒤엔 그리퍼도 그대로
+                    self._grip(oc["handle_open_width_mm"], 20)
                 return bad, {"drawer_displacement": round(disp + moved, 4), "close_confirmed": False}
         self.disp[drawer_id] = disp + moved
         self._grip(oc["handle_open_width_mm"], 20)
@@ -363,12 +364,19 @@ class SkillServer(Node):
             confirmed = False                               # 위치는 왔지만 힘 임계를 못 느낌 → 확인 못 함
         self.disp[drawer_id] = rem if rem != math.inf else self.disp.get(drawer_id, 0.0)
         out = {"drawer_displacement": round(self.disp[drawer_id], 4), "close_confirmed": confirmed}
-        if now:
-            self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat")
-        if bad and not confirmed:
+        if sf.is_safety(bad):                               # 안전 정지·취소 뒤엔 후퇴하지 않음
             return bad, out
-        if not confirmed:
-            return sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 확인 못 함 (남은 {rem * 1000:.1f} mm)"), out
+        if bad and not confirmed:
+            res = bad
+        elif not confirmed:
+            res = sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 확인 못 함 (남은 {rem * 1000:.1f} mm)")
+        else:
+            res = None
+        back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat") if now else \
+            sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 후퇴 못 함")
+        res = sf.worse(res, back)
+        if res:
+            return res, out
         self.disp[drawer_id] = 0.0
         out["drawer_displacement"] = 0.0
         return sf.Outcome(True, reason=verdict["v"].reason), out
@@ -387,10 +395,11 @@ class SkillServer(Node):
         g = dict(prm["gripper"])
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
-               "floor_z_m": 0.0, "target_after": target}
+               "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)
         if plan.error_code:
             return sf.Outcome(False, plan.error_code, reason=plan.reason), out
         if not plan.needed or params.get("check_only"):
+            out["target_after"] = target                      # 움직이지 않음 → 위치 그대로
             return sf.Outcome(True, reason=plan.reason), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
@@ -424,8 +433,9 @@ class SkillServer(Node):
         if bad:
             return bad, out
         if not hit:
-            self._line(goal, above, speed["line_mm_s"], "lift")
-            return sf.Outcome(False, NO_CONTACT, reason="예상 높이보다 내려가도 접촉 없음 — 물체 위치·높이 확인"), out
+            back = self._line(goal, above, speed["line_mm_s"], "lift")
+            return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason="예상 높이보다 내려가도 접촉 없음 — 물체 위치·높이 확인"),
+                            back), out
         pressed = self.robot.posx()
         shift = mp.dir_to_base(tf, (0.0, plan.shift_y_m, 0.0))
         base_drag = self.robot.tool_force()
@@ -436,21 +446,26 @@ class SkillServer(Node):
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
             mag = math.sqrt(sum((f[i] - base_drag[i]) ** 2 for i in range(3)))
             if mag > d["max_force_n"]:
-                return sf.Outcome(False, DRAG_BLOCKED, reason=f"끄는 중 힘 {mag:.1f} N > {d['max_force_n']:g} N")
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 힘 {mag:.1f} N > {d['max_force_n']:g} N")
             return None
 
         drag_to = [pressed[i] + 1000.0 * shift[i] for i in range(3)] + pressed[3:]
         bad = self._line(goal, drag_to, d["speed_mm_s"], "drag", watch=blocked)
-        now = self.robot.posx() or drag_to
-        self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), speed["line_mm_s"], "lift")
+        if sf.is_safety(bad):                               # 안전 정지·취소 뒤엔 올리지도 않음
+            return bad, out
+        now = self.robot.posx()
+        if now is None:
+            return sf.worse(bad, sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 올리지 못함")), out
+        bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), speed["line_mm_s"], "lift"))
         moved = mp.from_base(tf, [v / 1000.0 for v in now[:3]])
         before = mp.from_base(tf, [v / 1000.0 for v in pressed[:3]])
         dy = moved[1] - before[1]
         after = json.loads(json.dumps(target))
         after["pose"]["position"] = [target["pose"]["position"][0], target["pose"]["position"][1] + dy, 0.0]
-        out.update(pushed=True, push_vector_m=[0.0, round(dy, 4)], target_after=after)   # floor_z_m: 바닥은 서랍 좌표 z=0
+        out.update(pushed=True, push_vector_m=[0.0, round(dy, 4)])   # floor_z_m: 바닥은 서랍 좌표 z=0
         if bad:
-            return bad, out
+            return bad, out                                 # target_after 는 None (실패 결과 좌표로 집지 않음)
+        out["target_after"] = after
         return sf.Outcome(True, reason=f"옆으로 {dy * 1000:+.1f} mm 끌기"), out
 
     # --- 집기 ---
@@ -491,9 +506,9 @@ class SkillServer(Node):
                              expected_width_m=plan.expected_width_m, width_tolerance_m=g["grasp_width_tolerance_m"])
         if not chk.ok:
             self._grip(plan.open_width_m * 1000.0, 20)
-            self._line(goal, above, speed["line_mm_s"], "lift")
-            return sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm)"), \
-                {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
+            back = self._line(goal, above, speed["line_mm_s"], "lift")
+            return sf.worse(sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm)"),
+                            back), {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         bad = self._line(goal, above, speed["line_mm_s"], "lift")
         if bad:
             return bad, None
@@ -558,9 +573,11 @@ class SkillServer(Node):
         used.append(i)
         cls = self.held["class"]
         self.held = None
-        self._line(goal, above, speed["line_mm_s"], "lift")
+        back = self._line(goal, above, speed["line_mm_s"], "lift")
         out = {"slot": f"{loc}_{i + 1}", "placed_pose": {"frame": loc, "position": [round(slots[i][0], 4),
                                                                                      round(slots[i][1], 4), 0.0]}}
+        if back:                                            # 놓기는 끝났지만 올라오지 못함 → 그 오류 (안전 오류 보존)
+            return back, out
         return sf.Outcome(True, reason=f"{cls} → {loc} {i + 1}번 칸"), out
 
 

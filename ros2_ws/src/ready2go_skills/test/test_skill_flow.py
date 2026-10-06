@@ -369,3 +369,21 @@ def test_wait_motion_watch_stops_and_returns_its_outcome():
     out = sf.wait_motion(get_state=lambda: next(states, 1), cancel_requested=lambda: False, stop=stop,
                          timeout_s=5.0, sleep=lambda s: None, watch=watch)
     assert out.success and out.reason == "접촉" and calls["stop"] == 1
+
+
+def test_worse_keeps_safety_over_ordinary_failure_and_success():
+    """동작 실패 뒤 복귀 이동이 안전 오류면 그쪽을 돌려줌 (#37 E 검토 10/06: lift 실패가 nudge 성공으로 소실)."""
+    ok = None
+    blocked = sf.Outcome(False, "DRAG_BLOCKED")
+    estop = sf.Outcome(False, sf.ESTOP)
+    unconf = sf.Outcome(False, sf.STOP_UNCONFIRMED)
+    cancel = sf.Outcome(False, sf.CANCELED, canceled=True)
+    assert sf.worse(ok, ok) is None
+    assert sf.worse(ok, unconf) is unconf                  # 성공한 끌기 뒤 lift 정지 미확인 → 잠금 코드
+    assert sf.worse(blocked, estop) is estop
+    assert sf.worse(estop, unconf) is unconf               # 잠금 > ESTOP
+    assert sf.worse(unconf, estop) is unconf
+    assert sf.worse(blocked, ok) is blocked
+    assert sf.worse(cancel, blocked) is cancel
+    assert sf.is_safety(estop) and sf.is_safety(cancel) and sf.is_safety(unconf)
+    assert not sf.is_safety(blocked) and not sf.is_safety(None)

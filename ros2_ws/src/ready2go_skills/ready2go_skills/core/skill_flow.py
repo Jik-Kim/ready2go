@@ -67,6 +67,25 @@ def pose_joints(poses: Mapping, pose_name: str, drawer_id: Optional[str] = None)
 LOCKING_CODES = frozenset({"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"})
 
 
+# 이 결과 뒤에는 로봇을 더 움직이지 않는다 (복귀·후퇴 이동도 보내지 않음, #37 E 검토 10/06)
+SAFETY_CODES = frozenset({ESTOP, CANCELED}) | LOCKING_CODES
+_SEVERITY = {**{c: 3 for c in LOCKING_CODES}, ESTOP: 2, CANCELED: 1}
+
+
+def is_safety(outcome: Optional["Outcome"]) -> bool:
+    return outcome is not None and not outcome.success and outcome.error_code in SAFETY_CODES
+
+
+def worse(first: Optional["Outcome"], second: Optional["Outcome"]) -> Optional["Outcome"]:
+    """두 결과(None = 성공) 중 더 심각한 쪽. 잠금 > ESTOP > 취소 > 일반 실패 > 성공, 같으면 first.
+    동작 실패 뒤 복귀 이동까지 실패하면 안전 오류가 일반 오류에 가려지지 않게 (#37 E 검토 10/06)."""
+    def rank(o):
+        if o is None or o.success:
+            return -1
+        return _SEVERITY.get(o.error_code, 0)
+    return second if rank(second) > rank(first) else (first if first is not None and not first.success else None)
+
+
 def stopped_by_estop(robot_state: Optional[int]) -> bool:
     return robot_state in ESTOP_STATES
 
