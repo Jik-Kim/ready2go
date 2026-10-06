@@ -51,6 +51,17 @@ HANDLE_OPEN = [382.264, -66.470, 268.556]                                # 끝�
 PUSH_Z = 268.556 + 3.6                                                   # 30 mm 벌린 손끝(TCP 아래 3.6) = 손잡이 높이
 CLOSED_Y = -291.757 - 2.0                                                # 닫힌 손잡이 y + 2 mm 더 밀기 [사용자]
 
+# ---- 힘·속도 (여기만 고치면 됨) ----
+HANDLE_CONTACT_N = 12.0     # 손잡이로 다가가다 이 힘이면 멈춤
+PULL_STUCK_N = 30.0         # 서랍 당기다 걸림
+PRESS_N = 2.0               # 지우개 누르기: 이 힘이 되면 멈추고 끌기 시작
+PRESS_SPEED = 5.0           # mm/s
+DRAG_SPEED = 10.0           # mm/s
+DRAG_LIMIT_N = 15.0         # 끄는 중 이 힘을 넘으면 걸림
+PUSH_LIMIT_N = 25.0         # 서랍 밀어 닫다 걸림
+GRIP_HANDLE_N = 40.0        # 손잡이 쥐는 힘
+GRIP_ERASER_N = 7.0         # 지우개 쥐는 힘
+
 RG2_IP = os.environ.get("RG2_HOST") or "192.168.1.1"
 
 
@@ -181,17 +192,17 @@ def run(r):
         p = r.posx()
         r.movel(p[:2] + [max(p[2], SAFE_Z)] + p[3:])                      # 홈에서 위로
         r.movej(READY)
-        hit = r.movel_watch(HANDLE, 25.0, lambda p, d: f"손잡이 앞 {abs(d[1]):.1f} N 접촉 @ y {p[1]:.1f}" if abs(d[1]) > 12.0 else None, 20)
+        hit = r.movel_watch(HANDLE, 25.0, lambda p, d: f"손잡이 앞 {abs(d[1]):.1f} N 접촉 @ y {p[1]:.1f}" if abs(d[1]) > HANDLE_CONTACT_N else None, 20)
         if hit:
             raise Stop(hit + " — 서랍이 끝까지 닫혔는지 확인")
-        s = grip(0.0, 40.0)
+        s = grip(0.0, GRIP_HANDLE_N)
         if s.width_mm <= 3.0:
             grip(30.0, 20.0)
             raise Stop(f"손잡이 못 잡음 (폭 {s.width_mm:.1f} mm)")
         start = r.posx()
         end = HANDLE[:1] + [HANDLE[1] + PULL_MM] + HANDLE[2:]
         hit = r.movel_watch(end, 40.0, lambda p, d: f"{abs(d[1]):.0f} N 걸림 (인출 {p[1] - start[1]:.0f} mm)"
-                            if abs(d[1]) > 30.0 else None, 20)
+                            if abs(d[1]) > PULL_STUCK_N else None, 20)
         moved = r.posx()[1] - start[1]
         if hit and moved < PULL_MM - 10.0:
             raise Stop(hit)
@@ -215,15 +226,15 @@ def run(r):
         r.movel(PRESS_START + TILT, vel=30.0)                           # 지우개 끝 위 5 mm
 
     def press_and_drag():
-        hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, 5.0,
-                            lambda p, d: f"{d[2]:+.1f} N" if abs(d[2]) >= 2.0 else None, 10)
+        hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, PRESS_SPEED,
+                            lambda p, d: f"{d[2]:+.1f} N" if abs(d[2]) >= PRESS_N else None, 10)
         if not hit:
             raise Stop("9 mm 내려가도 접촉 없음")
         p = r.posx()
         print(f"   접촉 {hit} @ z {p[2]:.2f}")
-        hit = r.movel_watch([p[0] - DRAG_MM] + p[1:], 10.0,
-                            lambda q, d: f"끄는 중 {sum(v * v for v in d) ** 0.5:.0f} N" if sum(v * v for v in d) > 15.0 ** 2 else None,
-                            15)
+        hit = r.movel_watch([p[0] - DRAG_MM] + p[1:], DRAG_SPEED,
+                            lambda q, d: f"끄는 중 {sum(v * v for v in d) ** 0.5:.0f} N" if sum(v * v for v in d) > DRAG_LIMIT_N ** 2 else None,
+                            DRAG_MM / DRAG_SPEED + 10)
         if hit:
             raise Stop(hit)
         p = r.posx()
@@ -236,7 +247,7 @@ def run(r):
         r.movel(GRASP[:2] + [SAFE_Z] + VERTICAL)
         grip(35.0, 20.0)
         r.movel(GRASP + VERTICAL, vel=15.0)
-        s = grip(0.0, 7.0)
+        s = grip(0.0, GRIP_ERASER_N)
         if not 19.0 <= s.width_mm <= 25.0:
             grip(35.0, 20.0)
             raise Stop(f"지우개 못 잡음 (폭 {s.width_mm:.1f} mm, 기대 22)")
@@ -260,7 +271,7 @@ def run(r):
         r.movel([HANDLE_OPEN[0], HANDLE_OPEN[1] + 30.0, PUSH_Z] + h[3:])
         y0 = HANDLE_OPEN[1]
         hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y, PUSH_Z] + h[3:], 30.0,
-                            lambda p, d: f"{abs(d[1]):.0f} N" if abs(d[1]) > 25.0 else None, 20)
+                            lambda p, d: f"{abs(d[1]):.0f} N" if abs(d[1]) > PUSH_LIMIT_N else None, 20)
         p = r.posx()
         left = p[1] - CLOSED_Y
         if hit and left > 15.0:
