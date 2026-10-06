@@ -20,7 +20,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install jsonschema pytest pyyaml pymongo   # pyyaml: bringup static_tf·knowledge 로더, pymongo: MongoLogStore
+      # pyyaml: bringup static_tf·knowledge 로더, pymongo: MongoLogStore, numpy: voice core(음성 버퍼·TTS, setup.py 와 같은 범위, PR #88)
+      # 오디오(sounddevice·openwakeword)·API(openai·langchain) 는 시험이 없으면 건너뜀(importorskip) → 설치하지 않음
+      - run: pip install jsonschema pytest pyyaml pymongo "numpy>=1.24,<2"
       - name: 계약·온톨로지·태스크 검증
         run: python3 tools/validate_contracts.py
       - name: core 단위 테스트 (ROS 불필요, MongoDB 테스트 포함)
