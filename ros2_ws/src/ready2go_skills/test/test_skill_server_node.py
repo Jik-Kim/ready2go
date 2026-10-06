@@ -206,3 +206,13 @@ def test_named_pose_from_high_spot_goes_straight(server):
     server.srv.robot.p = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0]
     out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
     assert out.success and server.srv.robot.log[0][0] == "movej"
+
+
+@pytest.mark.parametrize("y", [0.2925, 0.2895, 0.2827])
+def test_pick_next_to_side_wall_refused_without_motion(server, y):
+    """#83 A 요청(#80 D P1 후속): 끌기 없이 벽에 붙은 지우개를 바로 집으면 움직이기 전에 WALL_TOO_CLOSE."""
+    t = json.loads(json.dumps(ERASER_CORNER))
+    t["pose"]["position"] = [0.1769, y, 0.0]
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert not out.success and out.error_code == server.ss.WALL_TOO_CLOSE
+    assert server.srv.robot.log == []

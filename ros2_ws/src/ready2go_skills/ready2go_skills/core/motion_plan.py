@@ -141,6 +141,21 @@ def _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin_mm):
     return (not x_ok), (ext_y + margin_mm) - gap, sign
 
 
+def wall_blocks_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[str]:
+    """바로 집기 전 확인: 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿는 자리면 이유 문자열, 아니면 None.
+    plan_drag 와 같은 판단(_grasp_blocked) — 끌기 뒤 target_after 는 부족량 + extra_mm 만큼 옮겨져 통과 (#83 A 요청)."""
+    cx, cy = target["pose"]["position"][:2]
+    yaw = target["pose"]["yaw"]
+    if not _finite(cx, cy, yaw, *size_m[:2], *interior_m[:2]):
+        return f"위치·크기 값 비정상: {cx, cy, yaw, size_m, interior_m}"
+    x_blocked, lack_mm, _ = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g["wall_margin_mm"])
+    if x_blocked:
+        return "앞뒤 벽에 걸려 짧은 변으로 못 잡음"
+    if lack_mm > 0:
+        return f"옆벽 쪽 여유 {lack_mm:.1f} mm 부족 — nudge_object 먼저"
+    return None
+
+
 def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping,
               drag: Mapping) -> DragPlan:
     """옆벽에 붙어 짧은 변으로 못 잡는 물체를 서랍 y 방향(옆)으로만 끌 거리와 누를 점. 이미 잡을 수 있으면 needed False."""

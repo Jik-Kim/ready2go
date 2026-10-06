@@ -50,6 +50,7 @@ def _params_file():
 PARAMS_FILE = _params_file()
 NO_OBJECT_CONTACT = "NO_OBJECT_CONTACT"  # 끌기: 내려가도 물체 윗면 접촉을 못 느낌 (runner.md nudge_object 표)
 PUSH_BLOCKED = "PUSH_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림, runner.md 기존 코드)
+WALL_TOO_CLOSE = "WALL_TOO_CLOSE"        # pick_object: 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿음 → nudge_object 먼저 (움직이기 전)
 PUSH_LIMIT = "PUSH_LIMIT"                # check_only 재판단에서 아직 잡을 수 없는 자리 (runner.md 기존 코드)
 GRASP_FAILED = "GRASP_FAILED"
 NOT_HOLDING = "NOT_HOLDING"
@@ -614,6 +615,10 @@ class SkillServer(Node):
                                          tf_at_travel_m=place.get("tf_at_travel_m"), params=prm["motion_guard"])
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
+        wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0],
+                                    g=prm["gripper"])
+        if wall:                                            # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
+            return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"])
         g, speed = prm["gripper"], prm["speed"]
         bad = self._to_drawer_view(goal, drawer_id)
