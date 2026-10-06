@@ -218,6 +218,16 @@ def test_named_pose_from_high_spot_goes_straight(server):
     assert out.success and server.srv.robot.log[0][0] == "movej"
 
 
+def test_open_drawer_without_posx_fails_before_any_command(server):
+    """#83 E 검토 P1: 서랍 열기에서 현재 좌표를 못 읽으면 그리퍼·관절 이동 없이 STATE_UNKNOWN."""
+    server.srv.disp = {}
+    server.srv.robot.posx = lambda: None
+    server.Gripper.width = 55.0
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
+    assert not out.success and out.error_code == sf.STATE_UNKNOWN
+    assert server.srv.robot.log == [] and server.Gripper.width == 55.0
+
+
 @pytest.mark.parametrize("y", [0.2925, 0.2895, 0.2827])
 def test_pick_next_to_side_wall_refused_without_motion(server, y):
     """#83 A 요청(#80 D P1 후속): 끌기 없이 벽에 붙은 지우개를 바로 집으면 움직이기 전에 WALL_TOO_CLOSE."""

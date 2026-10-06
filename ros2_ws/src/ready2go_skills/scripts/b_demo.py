@@ -66,6 +66,8 @@ DRAG_LIMIT_N = 15.0         # 끄는 중 이 힘을 넘으면 걸림
 PUSH_LIMIT_N = 25.0         # 서랍 밀어 닫다 걸림
 GRIP_HANDLE_N = 40.0        # 손잡이 쥐는 힘
 GRIP_ERASER_N = 7.0         # 지우개 쥐는 힘
+STOP_CONFIRM_S = 3.0        # 정지 명령 뒤 이 시간 안에 TCP 가 멈춘 걸 확인 못 하면 잠금 (#83 E 검토 P1)
+STILL_MM = 0.05             # 0.1 s 간격 TCP 변화가 이 값 미만 2 번 연속 = 멈춤
 
 RG2_IP = os.environ.get("RG2_HOST") or "192.168.1.1"
 
@@ -75,6 +77,8 @@ class Stop(Exception):
 
 
 class Robot:
+    locked = None                                # 정지 확인 실패 이유. 있으면 이동·그리퍼 명령을 보내지 않음
+
     def __init__(self):
         rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         self.n = rclpy.create_node("b_demo")
@@ -89,8 +93,32 @@ class Robot:
         rclpy.spin_until_future_complete(self.n, f, timeout_sec=timeout)
         return f.result()
 
-    def stop(self):
-        self.call(MoveStop, "motion/move_stop", stop_mode=2)
+    def guard(self):
+        if self.locked:
+            raise Stop(f"잠김({self.locked}) — 이동·그리퍼 명령 안 보냄. 펜던트로 로봇 정지 확인 후 다시 실행")
+
+    def halt(self):
+        """정지 명령 + 실제 정지 확인 (#83 E 검토 P1). 응답 없음·거절·STOP_CONFIRM_S 안에 멈춤 미확인이면 잠그고 Stop."""
+        try:
+            r = self.call(MoveStop, "motion/move_stop", stop_mode=2)
+        except Exception:
+            r = None
+        if not (r and r.success):
+            self.locked = "정지 명령 응답 없음/거절"
+            raise Stop(self.locked)
+        prev, still, t0 = None, 0, time.monotonic()
+        while time.monotonic() - t0 < STOP_CONFIRM_S:
+            try:
+                p = self.posx()
+            except Stop:
+                p = None
+            still = still + 1 if p and prev and max(abs(p[i] - prev[i]) for i in range(3)) < STILL_MM else 0
+            if still >= 2:
+                return
+            prev = p
+            time.sleep(0.1)
+        self.locked = f"정지 명령 뒤 {STOP_CONFIRM_S:g} s 안에 멈춤 확인 못 함"
+        raise Stop(self.locked)
 
     def posx(self):
         r = self.call(GetCurrentPosx, "aux_control/get_current_posx", ref=0)
@@ -122,6 +150,7 @@ class Robot:
         time.sleep(0.5)
 
     def movej(self, j, vel=20.0 * SPEED):
+        self.guard()
         if abs(j[4]) > J5_MAX:
             raise Stop(f"J5 {j[4]}° > {J5_MAX}°")
         if j[2] < J3_MIN:
@@ -132,6 +161,7 @@ class Robot:
             raise Stop("movej 실패")
 
     def movel(self, x, vel=50.0 * SPEED, rot=15.0 * SPEED):
+        self.guard()
         r = self.call(MoveLine, "motion/move_line", timeout=90.0, pos=[float(v) for v in x], vel=[vel, rot],
                       acc=[vel, rot], time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=0)
         if not (r and r.success):
@@ -145,11 +175,15 @@ class Robot:
 
     def movel_watch(self, x, vel, watch, timeout_s, confirm=1):
         """비동기 직선 이동 + 주기 감시. watch(posx, dforce) 가 confirm 번 연속 문자열을 돌려주면 정지하고 그 문자열 반환,
-        도착이면 None. 힘 기준값은 tare() (멈춘 뒤 평균)."""
+        도착이면 None. 힘 기준값은 tare() (멈춘 뒤 평균). 정지할 때는 halt() 로 멈춤까지 확인, 못 하면 Stop(잠금)."""
+        self.guard()
         f0 = self.tare()
         streak = 0
-        self.call(MoveLine, "motion/move_line", pos=[float(v) for v in x], vel=[vel, 10.0], acc=[vel, 10.0],   # 가속 = 속도 (스킬 서버와 같게, 가속이 크면 힘 값이 튐)
+        r = self.call(MoveLine, "motion/move_line", pos=[float(v) for v in x], vel=[vel, 10.0], acc=[vel, 10.0],   # 가속 = 속도 (스킬 서버와 같게, 가속이 크면 힘 값이 튐)
                   time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=1)
+        if not (r and r.success):                # 응답을 못 받았으면 이미 움직이는 중일 수 있음 → 정지 확인
+            self.halt()
+            raise Stop("movel(감시) 시작 실패")
         t0 = time.monotonic()
         try:
             while time.monotonic() - t0 < timeout_s:
@@ -157,20 +191,25 @@ class Robot:
                 hit = watch(p, [f[i] - f0[i] for i in range(3)])
                 streak = streak + 1 if hit else 0
                 if hit and streak >= confirm:
-                    self.stop()
-                    time.sleep(0.4)
+                    self.halt()                  # 멈춤 확인 못 하면 여기서 Stop — 접촉으로 반환하지 않음
                     return hit
                 if max(abs(p[i] - x[i]) for i in range(3)) < 0.5:
                     time.sleep(0.2)
                     return None
                 time.sleep(0.02)
-        except BaseException:                    # 감시 조회 실패·Ctrl+C 도 진행 중 이동부터 정지 (#83 D 재검토 P1)
-            self.stop()
+        except Stop as e:
+            if self.locked:                      # halt() 가 이미 잠금 (정지 미확인)
+                raise
+            self.halt()                          # 감시 조회 실패도 진행 중 이동부터 정지·확인 (#83 D·E 검토 P1)
+            raise Stop(f"{e} — 정지 확인") from e
+        except BaseException:                    # Ctrl+C 등
+            self.halt()
             raise
-        self.stop()
-        raise Stop("시간 초과 — 정지")
+        self.halt()
+        raise Stop("시간 초과 — 정지 확인")
 
     def movesj(self, pts, vel=20.0 * SPEED):
+        self.guard()
         req = MoveSplineJoint.Request()
         ft = req.get_fields_and_field_types()
         req.pos = [Float64MultiArray(data=[float(v) for v in p]) for p in pts]
@@ -190,18 +229,19 @@ class Robot:
         if not (r and r.success):
             raise Stop("movesj 실패")
 
-
-def grip(width, force):
-    g = Rg2(RG2_IP)
-    try:
-        return g.move(width, force)
-    finally:
-        g.close()
+    def grip(self, width, force):
+        self.guard()
+        g = Rg2(RG2_IP)
+        try:
+            return g.move(width, force)
+        finally:
+            g.close()
 
 
 def run(r):
     """(이름, 함수) 단계 목록."""
     st = {}
+    grip = r.grip
 
     def open_drawer():
         grip(30.0, 20.0)
@@ -331,22 +371,21 @@ def main():
             fn()
         print("\n끝")
     except Stop as e:
-        try:
-            r.stop()                             # 어느 단계에서 멈추든 정지 명령 (움직이지 않던 중이면 영향 없음)
-        except Exception:
-            pass
-        print(f"\n멈춤: {e}")
+        print(f"\n멈춤: {e} — {halt_report(r)}")   # 어느 단계에서 멈추든 정지 명령·확인 (움직이지 않던 중이면 바로 확인)
     except KeyboardInterrupt:
-        r.stop()
-        print("\nCtrl+C — 정지 명령 보냄")
+        print(f"\nCtrl+C — {halt_report(r)}")
     except Exception as e:                       # 예상 못 한 오류도 로봇 정지 후 이유 출력
-        try:
-            r.stop()
-        except Exception:
-            pass
         import traceback
         traceback.print_exc()
-        print(f"\n멈춤(오류): {e!r}")
+        print(f"\n멈춤(오류): {e!r} — {halt_report(r)}")
+
+
+def halt_report(r):
+    try:
+        r.halt()
+        return "정지 확인"
+    except Exception as e:
+        return f"정지 미확인({e}) — 펜던트로 로봇 상태 확인"
 
 
 if __name__ == "__main__":

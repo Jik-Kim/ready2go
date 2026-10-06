@@ -437,9 +437,11 @@ class SkillServer(Node):
         joints, err = sf.pose_joints(self.poses(), "drawer_approach", drawer_id)
         if err:
             return err, None
-        self._grip(oc["handle_open_width_mm"], 20)
         cur = self.robot.posx()
-        if cur and cur[2] < self.prm()["transit"]["safe_z_mm"]:      # 낮은 곳에서 바로 관절 이동하지 않음
+        if cur is None:                                              # 높이를 모르면 그리퍼·관절 이동 전에 실패 (#83 E 검토 P1)
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함"), None
+        self._grip(oc["handle_open_width_mm"], 20)
+        if cur[2] < self.prm()["transit"]["safe_z_mm"]:              # 낮은 곳에서 바로 관절 이동하지 않음
             bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), speed["line_mm_s"], "lift")
             if bad:
                 return bad, None

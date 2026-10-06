@@ -4,6 +4,7 @@
 경유점: config/poses.yaml carry_out.drawer_top [직접교시 B 10/06]. 트레이 칸: config/places.yaml handover_zone.
 움직이기 전 펜던트 TCP·툴 확인 (calibration_meta.yaml), 다르면 안 움직임."""
 import sys
+import time
 from pathlib import Path
 
 import rclpy
@@ -18,6 +19,8 @@ SRV = "/dsr01/dsr_controller2/"
 SPLINE_VEL, SPLINE_ACC = 20.0, 20.0     # deg/s, deg/s2
 LINE_VEL, LINE_ACC = 50.0, 50.0         # mm/s
 JOINT_VEL = 20.0
+STOP_CONFIRM_S = 3.0                    # 정지 명령 뒤 이 시간 안에 멈춤 확인 (#83 E 검토 P1)
+STILL_MM = 0.05                         # 0.1 s 간격 TCP 변화가 이 값 미만 2 번 연속 = 멈춤
 
 
 def to_base(tf, p):
@@ -75,29 +78,62 @@ class Robot:
         r = self.call(GetToolForce, "aux_control/get_tool_force", timeout=0.5, ref=0)
         return list(r.tool_force) if r else None
 
+    def halt(self):
+        """정지 명령 + 실제 정지 확인. 확인되면 None, 못 하면 이유 문자열 (#83 E 검토 P1)."""
+        try:
+            r = self.call(MoveStop, "motion/move_stop", stop_mode=2)
+        except Exception:
+            r = None
+        if not (r and r.success):
+            return "정지 명령 응답 없음/거절"
+        prev, still, t0 = None, 0, time.monotonic()
+        while time.monotonic() - t0 < STOP_CONFIRM_S:
+            try:
+                p = self.posx()
+            except Exception:
+                p = None
+            still = still + 1 if p and prev and max(abs(p[i] - prev[i]) for i in range(3)) < STILL_MM else 0
+            if still >= 2:
+                return None
+            prev = p
+            time.sleep(0.1)
+        return f"정지 명령 뒤 {STOP_CONFIRM_S:g} s 안에 멈춤 확인 못 함"
+
+    def stop_fail(self, why):
+        bad = self.halt()
+        return f"실패: {why} — " + (f"{bad}, 펜던트로 로봇 상태 확인" if bad else "정지 확인")
+
     def press(self, max_down_mm, stop_n, speed):
-        """지금 자세 그대로 z 로 최대 max_down_mm 내려가며 툴 힘 z 변화가 stop_n 이상이면 정지 (내려가기 직전 0점)."""
-        import time
+        """지금 자세 그대로 z 로 최대 max_down_mm 내려가며 툴 힘 z 변화가 stop_n 이상이면 정지 (내려가기 직전 0점).
+        감시 조회 실패·예외·시간 초과는 정지·확인 후 실패 (#83 E 검토 P1)."""
         base = self.force()
         p0 = self.posx()
         if base is None or p0 is None:
-            return "힘·좌표 조회 실패"
+            return "실패: 힘·좌표 조회 실패 — 안 움직임"
         target = p0[:2] + [p0[2] - max_down_mm] + p0[3:]
-        self.call(MoveLine, "motion/move_line", pos=[float(v) for v in target], vel=[speed, 10.0],
-                  acc=[2 * speed, 20.0], time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=1)
+        r = self.call(MoveLine, "motion/move_line", pos=[float(v) for v in target], vel=[speed, 10.0],
+                      acc=[2 * speed, 20.0], time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=1)
+        if not (r and r.success):                # 응답을 못 받았으면 이미 움직이는 중일 수 있음 → 정지 확인
+            return self.stop_fail("하강 이동 시작 실패")
         t0 = time.monotonic()
-        while time.monotonic() - t0 < max_down_mm / speed + 5.0:
-            f = self.force()
-            if f is not None and abs(f[2] - base[2]) >= stop_n:
-                self.call(MoveStop, "motion/move_stop", stop_mode=2)
-                time.sleep(0.3)
-                return f"접촉 {f[2] - base[2]:+.1f} N → 정지, posx {[round(v, 3) for v in self.posx()]}"
-            p = self.posx()
-            if p is not None and p[2] <= target[2] + 0.2:
-                return f"{max_down_mm} mm 내려가도 {stop_n} N 안 됨 — posx {[round(v, 3) for v in p]}"
-            time.sleep(0.02)
-        self.call(MoveStop, "motion/move_stop", stop_mode=2)
-        return "시간 초과 — 정지"
+        try:
+            while time.monotonic() - t0 < max_down_mm / speed + 5.0:
+                f, p = self.force(), self.posx()
+                if f is None or p is None:       # 감시 입력이 끊기면 접촉 없음으로 보지 않고 정지
+                    return self.stop_fail("이동 중 힘·좌표 조회 실패")
+                if abs(f[2] - base[2]) >= stop_n:
+                    bad = self.halt()
+                    if bad:
+                        return f"실패: 접촉 {f[2] - base[2]:+.1f} N 에서 {bad}, 펜던트로 로봇 상태 확인"
+                    q = self.posx()
+                    return f"접촉 {f[2] - base[2]:+.1f} N → 정지 확인, posx {[round(v, 3) for v in q] if q else '조회 실패'}"
+                if p[2] <= target[2] + 0.2:
+                    return f"{max_down_mm} mm 내려가도 {stop_n} N 안 됨 — posx {[round(v, 3) for v in p]}"
+                time.sleep(0.02)
+        except BaseException as e:               # Ctrl+C·서비스 없음(sys.exit) 등
+            print(self.stop_fail(f"중단 {e!r}"))
+            raise
+        return self.stop_fail("시간 초과")
 
     def movesj(self, pts):
         req = MoveSplineJoint.Request()
