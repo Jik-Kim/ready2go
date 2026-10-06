@@ -248,3 +248,22 @@ def test_expired_confirmation_does_not_consume_find(harness):
     harness.tts.speak = speak
     VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
     assert [doc['intent'] for doc in harness.published] == ['clarify', 'find_item']
+
+
+@pytest.mark.parametrize('text,kind', [
+    ('지우개 찾아서 건네줘.', 'find_item'),
+    ('지우개를 찾아서 전달 트레이에 놓아줘.', 'find_item'),
+    ('그거 가져와줘.', 'clarify'), ('물건 좀 찾아줘.', 'clarify'),
+])
+def test_evaluation_policy_deliver_path(harness, text, kind):
+    harness.cfg['evaluation_mode'] = False
+    harness.parser.llm = lambda *_: {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99}
+    doc = harness.parser.parse(text)
+    VoiceNode._deliver(harness, doc, 0)
+    assert [d['intent'] for d in harness.published] == [kind]
+    assert harness.published[0]['source']['execution_allowed'] == (kind == 'find_item')
+    assert harness.published[0]['targets'] == (['eraser'] if kind == 'find_item' else [])
+    if kind == 'find_item':
+        assert harness.tts.texts == ['지우개 가져다드리겠습니다.']
+    else:
+        assert harness.tts.texts == [doc['clarify_question']]

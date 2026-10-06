@@ -20,7 +20,7 @@ llm_timeout_sec: 0.8
 confirmation_budget_sec: 3.0
 tts_reserve_sec: 0.7
 min_confidence: 0.85
-bare_item_policy: clarify # E/D 정답표 합의 전 안전한 제안. 실행 안 함.
+bare_item_policy: clarify # 사용자 확정: 대상 단독/모호 요청은 clarify. unknown 설정은 거절.
 tts_executable: espeak-ng
 tts_voice: ko        # 한국어 설치/명료도 [팀 확정 필요]
 tts_speed: 180
@@ -28,7 +28,8 @@ tts_timeout_sec: 8.0
 confirmation_enabled: true # C 태스크 시작/확인 TTS 책임 분담 [팀 확정 필요]
 duplicate_window_sec: 2.0
 # 실행은 request_patterns 부분 일치가 아니라 core의 긍정 요청 전체 문형으로 확인합니다.
-# 이름 없는 추론·부정·정보 질문·불명확한 문맥은 보류. 자유 표현 정답/확인 정책 [팀 확정 필요].
+# request_patterns는 현재 판별에 사용하지 않으며 호환용으로 유지합니다.
+# 모호=clarify 정책은 사용자 확정. D 자료의 E/D 승인·후속 확인 대화는 [팀 확정 필요].
 request_patterns: ['찾아', '찾아줘', '꺼내', '가져', '갖다', '줄래', '주세요', '주면', '필요']
 unsupported_patterns: ['넣어', '옮겨', '정리', '전부', '모두', '아래 서랍', '닫아', '열어', '분류', '찾지', '꺼내지', '가져오지', '하지 마', '하지마']
 cancel_phrases: ['멈춰', '정지', '취소', '그만']

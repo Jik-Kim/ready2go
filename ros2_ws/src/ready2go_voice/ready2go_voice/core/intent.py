@@ -51,20 +51,31 @@ class IntentParser:
             return intent('status')
         return None
 
-    def explicit_request(self, text):
-        """물품과 긍정 요청 전체를 확인합니다. 부분 동사/LLM 추론만으로 실행하지 않습니다."""
-        value = normalize(text).rstrip('.!?。？！')
-        # 이름 앞뒤의 조사·공손 표현만 허용합니다. 부정/질문/인용 문맥은
-        # 삭제하거나 블랙리스트로 추정하지 않고 전체 문장 불일치로 보류합니다.
-        prefix = r'(?:헬로로키|로키|저기)?(?:혹시)?(?:저|나)?(?:에게|한테)?(?:좀)?(?:위서랍에있는)?'
-        particle = r'(?:을|를|이|가|하나|한개)?(?:하나|한개)?(?:좀)?'
+    def _request_form(self, text, target):
+        """등록 대상과 요청 문맥 전체를 비교합니다. 부정/인용을 삭제하지 않습니다."""
+        value = normalize_control(text)
+        prefix = (r'(?:헬로로키|로키|저기)?(?:혹시)?'
+                  r'(?:(?:저|나)(?:에게|한테)|내게)?(?:좀)?'
+                  r'(?:위서랍에있는|서랍에서)?(?:그|이|저)?')
+        particle = r'(?:을|를|이|가)?(?:하나|한개)?(?:만)?(?:좀)?'
         ending = r'(?:줘|주세요|줄래|줄래요|주실래요|주면좋겠어|주면좋겠어요|주시면좋겠어요)?'
-        action = r'(?:(?:찾아|꺼내|가져와|가져다|가져|갖다)' + ending + r'|줘|주세요|줄래|줄래요|주실래요|주면좋겠어|주면좋겠어요|필요해|필요해요|필요합니다)'
-        # 사용자 정상 예시의 긍정 복합 요청만 추가합니다. 임의 앞 문맥을
-        # 제거하지 않으므로 부정·정보 질문이 긍정 요청으로 바뀌지 않습니다.
-        return any(re.fullmatch(prefix + re.escape(alias) +
-                                '(?:' + particle + action + '|가필요한데가져다줄래)', value)
-                   for alias in self.aliases)
+        delivery = r'(?:가져와|가져다|가져|갖다|건네)' + ending
+        action = (r'(?:(?:찾아|꺼내)' + ending + '|' + delivery +
+                  r'|(?:찾아서|꺼내서)(?:' + delivery + r'|전달트레이에놓아' + ending + r')'
+                  r'|줘|주세요|줄래|줄래요|주실래요|줄수있어|주면좋겠어|주면좋겠어요'
+                  r'|필요해|필요해요|필요합니다|부탁해|부탁할게)')
+        return bool(re.fullmatch(prefix + '(?:' + target + ')' + particle +
+                                 r'(?:있으면|필요한데)?' + action, value))
+
+    def explicit_request(self, text):
+        # 문형은 지우개 전용이나 평가40개 문자열 목록이 아닌 등록 어휘에 적용합니다.
+        return self._request_form(text, '|'.join(re.escape(alias) for alias in self.aliases))
+
+    def ambiguous_request(self, text):
+        target = r'그거|저거|이거|물건|하나|서랍에있는거|필요한걸|위에있는거'
+        return (bool(re.fullmatch(target, normalize_control(text))) or
+                self._request_form(text, target) or self._request_form(text, '') or
+                bool(re.fullmatch(r'(?:그거|저거|이거)어떻게좀해줘', normalize_control(text))))
 
     def guard(self, text):
         if not str(text).strip():
@@ -77,7 +88,9 @@ class IntentParser:
         if len(keys) == 1 and not self.explicit_request(text):
             question = ('그 물품을 가져다드릴까요?' if normalize(text) in self.aliases
                         else '요청을 확인해 다시 말씀해 주세요.')
-            return intent(self.cfg['bare_item_policy'], question=question)
+            return intent('clarify', question=question)
+        if not keys and self.ambiguous_request(text):
+            return intent('clarify', question='물품 이름을 확인해 다시 요청해 주세요.')
         return None
 
     def fallback(self, text):
@@ -111,11 +124,12 @@ class IntentParser:
             raise ValueError('P1 목표 계획 제외')
         if doc['intent'] in ('cancel', 'status') and not self.control(text):
             raise ValueError('제어 명령은 규칙으로만 확인합니다')
-        if doc['intent'] == 'find_item':
-            # 등록 키/확신도는 사용자의 물품·긍정 요청 확인을 대체하지 않습니다.
+        if doc['intent'] in ('find_item', 'unknown', 'clarify'):
             hold = self.guard(text)
             if hold:
                 return hold
+        if doc['intent'] == 'find_item':
+            # 등록 키/확신도는 사용자의 물품·긍정 요청 확인을 대체하지 않습니다.
             if not self.mentioned(text) or not self.explicit_request(text):
                 return intent('clarify', question='물품 이름과 가져오기 요청을 확인해 다시 말씀해 주세요.')
         # LLM source는 신뢰하지 않고 진단은 E가 생성합니다.

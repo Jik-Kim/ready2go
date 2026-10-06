@@ -17,6 +17,18 @@
 
 촬영 계획표와 촬영 전 점검 목록: [shooting_plan.md](shooting_plan.md)
 
+## inspect_region 실제 노드 실행 [실측 10/06, 가짜 카메라로 시험 — 실제 카메라·로봇 TF는 미시험]
+`vision` 이미지(torch·ultralytics 포함)에서 실행한다. 카메라 토픽·`base_link`→`wrist_cam_color_optical_frame` TF가 같은 DDS 도메인에 있어야 한다(로봇 드라이버·`ready2go_bringup`·realsense가 발행). 서랍 좌표는 `config/places.yaml`의 `drawer_top.tf`(3점 터치)에서 읽는다.
+```bash
+cd <저장소> && docker run --rm --gpus all --network host --user $(id -u):$(id -g) -e HOME=/tmp -e YOLO_CONFIG_DIR=/tmp/y -e ROS_DOMAIN_ID=70 -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -e CYCLONEDDS_URI=file:///repo/config/cyclonedds.local.xml -v $PWD:/repo -v $PWD/knowledge:/knowledge:ro -v $PWD/models:/models:ro -w /repo/ros2_ws ready2go-vision:latest bash -lc 'source /opt/ros/jazzy/setup.bash && colcon build --build-base /tmp/build --install-base /tmp/install --packages-up-to ready2go_vision && source /tmp/install/setup.bash && ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/repo/config'
+```
+- 빌드는 컨테이너 안 `/tmp`에만 한다. 호스트 `ros2_ws/build`·`install`에 `/repo` 경로가 남으면 다른 컨테이너 빌드와 CMakeCache 경로가 충돌한다(#3, C 검토 #80).
+- **stub 노드(`inspect_region_stub`)와 동시에 켜지 않는다.** 같은 서비스 이름 `/vision/inspect_region`이 둘이 된다.
+- **경계 여유 점검**: `region.edge_tolerance_m`(0.015)이 AC-VIS-01 허용 오차(1.5 cm)와 같다. 서랍 밖으로 이만큼 나간 footprint까지 결과에 들어가므로, 실물 점검 때 서랍 테두리 위·바깥에 둔 물체가 `target`·`candidates`로 나오지 않는지 확인한다(검출별 로그의 `skip`·`xy`로 확인). **이 여유는 비전 측정 오차 허용이고 모션 안전 경계가 아니다**: 벽에 붙은 물체의 좌표는 정상 `target`으로 나가며, 그리퍼가 벽에 걸리는지는 B 스킬(끌기 `plan_drag`, `pick_object` 사전 검사)이 판단한다(D 재검토 P1, #80)
+- 실물 첫 연결 시험은 `bash tools/dev/vision_real_check.sh camera|check|node|call|measure|replay`로 한다. 카메라·로봇이 같은 PC면 `DDS_MODE=local`, 카메라·비전은 PC1이고 로봇은 PC2면 양쪽 `DDS_MODE=multi`(+`DDS_IFACE`·`PEER_PC1`·`PEER_PC2`). 사용법은 스크립트 첫 부분. `node`는 `-p dump_dir:=` 로 요청마다 컬러·뎁스·K·TF·검출·결과를 `.npz`로 저장하고, `replay`(`tools/dev/replay_inspect_dump.py`)가 로봇 없이 다시 계산한다(`--truth X Y YAW`로 손끝 정답과 위치 오차, `--dz-mm`으로 서랍 원점 이동 영향).
+- 진단 로그(결과에는 영향 없음): 요청마다 검출별 판단 근거(`top_z`, 덩어리 크기, 제외 사유)와 카메라로 본 서랍 바닥 z(`core/floor_probe.py`, 중앙값·10/90 백분위)를 남긴다. 시작 로그에 가중치·`places.yaml`·`vision_params.yaml` 해시와 `drawer_top.tf`를 남긴다.
+다중 PC면 `cyclonedds.multi.xml`과 `DDS_IFACE`·`PEER_PC1`·`PEER_PC2`를 쓴다(IP·NIC는 팀 `.env` 기준). 호출: `ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: eraser}"`. 모델·토픽·프레임 이름은 노드 파라미터(`weights`, `color_topic`, `camera_frame` 등)로 바꾼다.
+
 ## 점검 결과 [실측 10/03, PC1 RTX 5060, yolo-detection 컨테이너]
 - GPU: torch 2.11.0+cu128, `sm_120` 지원, CUDA 행렬 연산 정상 (#14 "GPU 호환 확인" 항목, RTX 5060).
 - 합성 3클래스(세션 4개×20장, 검증 1세션)로 15 epoch 학습 약 7초, 검증 mAP50 0.908 — 파이프라인 동작 확인용 숫자일 뿐 모델 성능이 아님.
@@ -39,6 +51,28 @@
 - **결정 [사용자 확정 10/06]: 기본 가중치는 `yolo11n`으로 한다.** 이유: ① 전체 지표 중 재현율(0.959)·F1(0.954)·mAP50(0.989)이 가장 높고 정밀도(0.953)도 v8n(0.961)과 0.01 차이뿐이다 ② 약한 클래스가 가장 적고 `caramel_box`(0.962)·`airpods_case`(0.995)가 v8n보다 높다 ③ `yolo26n`은 `caramel_box`가 0.786으로 크게 낮아 이 데이터에서는 이점이 없었다 ④ 추론 시간은 RTX 5060에서 v8n 1.8 / 11n 2.1 / 26n 1.3 ms/장(검증 1회 측정, 편차 있음)으로 모두 데모 요구에 비해 충분히 빠르고, 11n이 조금 느려도 선택을 바꿀 차이는 아니다 [실측 10/06]. 한계: 검증이 작아 격차가 크지 않으므로, 이후 필요하면 **추가 라벨링·검증 세션(`s92_val_c` 등)을 더하고 같은 조건으로 다시 학습**해 확인한다. 재학습 때 11n이 뒤처지면 이 결정을 다시 연다
 - 통과 기준 mAP50 0.9는 [팀 확정 10/06, 사용자 전달]. 확정 모델 파일은 `models/yolo11n_ready2go_v1.pt`(Git LFS, 이 파일만 `.gitignore` 예외, 설명은 `models/README.md`)
 - 재현: 저장소를 컨테이너에 마운트하지 않으므로 `data/yolo`·`data/labeled`(이미지가 `data/labeled`로의 심볼릭 링크)를 같은 경로로 마운트하고 `train.py --base <가중치> --name <이름> --data <dataset.yaml>`을 실행한다. 결과(`runs/`)는 저장소 밖에 두면 깃 상태가 어지러워지지 않는다
+
+
+### 스몰 모델 추가 비교 [실측 10/06, E 요청]
+- 조건은 위와 같다(학습 219장, 검증 20장, 640, batch 16, 100 epoch, seed 0). 6개 모델을 같은 검증셋으로 다시 평가했다
+- 사전학습 가중치 내려받기 **승인: 사용자, 10/06 약 14:50 KST**(A 작업 세션에서 파일명·출처·크기를 밝히고 승인받음, shooting_plan.md 1장 "내려받기 승인을 따로 받는다"). 출처 `https://github.com/ultralytics/assets/releases/download/v8.4.0/<파일명>`, PC1 `~/yolo_weights/`에 보관 [실측 10/06]
+  - `yolov8s.pt` 22,588,772 B, sha256 `1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a`
+  - `yolo11s.pt` 19,313,732 B, sha256 `85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5`
+  - `yolo26s.pt` 20,422,725 B, sha256 `646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b`
+- 추론 시간은 검증 20장을 1장씩 `predict`한 값(이미지 읽기·전처리 포함, 워밍업 뒤 3회 중앙값). 순수 GPU 추론은 학습 로그상 나노 약 2 ms, 스몰 약 6 ms
+
+| 기본 가중치 | 정밀도 | 재현율 | F1 | mAP50 | mAP50-95 | 파라미터 | 파일 | ms/장 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `yolov8n` | 0.961 | 0.936 | 0.946 | 0.986 | 0.930 | 3.0M | 6 MB | 13.7 |
+| `yolo11n` | 0.953 | 0.959 | 0.954 | 0.989 | 0.926 | 2.6M | 5 MB | 14.3 |
+| `yolo26n` | 0.931 | 0.939 | 0.933 | 0.972 | 0.926 | 2.5M | 5 MB | 14.4 |
+| `yolov8s` | 0.958 | 0.929 | 0.940 | 0.981 | 0.922 | 11.1M | 23 MB | 15.0 |
+| `yolo11s` | 0.948 | 0.994 | 0.968 | 0.991 | 0.941 | 9.4M | 19 MB | 14.8 |
+| `yolo26s` | 0.954 | 0.964 | 0.958 | 0.992 | 0.958 | 10.0M | 20 MB | 15.2 |
+
+- 지우개(P1 대상, 검증 7개): 6개 모두 7개를 다 찾았다(AP50 0.995). 정답 박스와의 중심 오차 평균/최대(px)와 지우개 AP50-95: v8n 1.56/2.67·0.928, **11n 1.25/2.70·0.914**, 26n 1.57/3.34·0.917, v8s 1.22/2.68·0.936, **11s 0.98/1.76·0.973**, 26s 1.19/1.80·0.930. 1 px는 `drawer_top_view` 거리(약 0.37 m)에서 약 0.4 mm라 모두 AC-VIS-01(15 mm)에 비해 작다 [계산]
+- 해석: 스몰 2종(11s·26s)이 전체 지표에서 조금 높지만 11n과의 재현율 차이 0.035는 63개 중 약 2개이고, 클래스별 F1은 모델마다 크게 흔들린다(`caramel_box` 0.72~0.97). 위 한계(검증 20장)를 그대로 받는다
+- **결정 [사용자 10/06]: 실물에서 `yolo11n`(현재)과 `yolo11s` 두 개를 한 번 더 비교한다.** 스몰 중 11s를 고른 이유: 전체 재현율·F1이 가장 높고, P1 대상 지우개의 박스 중심 오차·AP50-95가 6개 중 가장 좋다(26s는 전체 mAP50-95는 가장 높지만 지우개에서는 11s보다 낮다). 방법: 실물 호출마다 저장한 프레임(`dump_dir`)에 `tools/dev/replay_inspect_dump.py --weights`로 11s를 다시 검출해, **같은 프레임·같은 손끝 정답**으로 위치 오차를 비교한다(로봇 시간 추가 없음, `bash tools/dev/vision_real_check.sh`의 `WEIGHTS=... replay`). 결과 전까지 `models/`의 모델은 `yolo11n` 그대로이며 11s 가중치는 저장소 밖에 둔다: PC1 `~/yolo_run/runs/11s/weights/best.pt`, sha256 `5a2aeb869c3423d34ff0427df0c6c67b7cfcdd3bf3ea13687466f73096c98e9c` [실측 10/06]. 백업은 아직 없음(실물 비교에서 채택되면 `models/`로 옮기고 LFS 예외를 바꾼다)
 
 ## 주의
 - `data/`, `runs/`는 `.gitignore`(용량). 확정한 가중치만 `models/`에 둔다 — `.gitignore`의 `models/*.pt` 때문에 한 파일씩 예외로 Git LFS에 올린다(해결: [`models/README.md`](../../models/README.md)).
