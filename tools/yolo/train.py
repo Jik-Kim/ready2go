@@ -5,7 +5,7 @@
   python3 tools/yolo/train.py --base /yolo_train/Fruits/yolov8n.pt --epochs 100 --name v1
 결과: runs/<name>/ (ultralytics 산출물) + runs/<name>/metrics.json (mAP50, 기준 0.9, 통과 여부)
 가중치는 runs/<name>/weights/best.pt → 확정되면 models/ 로 복사(Git LFS, .gitignore 의 models/*.pt 예외 처리 필요).
-기준: mAP50 0.9 이상, 학습에 쓰지 않은 촬영 세션 검증셋 (결정 #22, [팀 확정 10/06, 사용자 전달]).
+기준: mAP50 0.9 이상, 학습에 쓰지 않은 촬영 세션 검증셋 (이슈 #14, [팀 확정 10/06, 사용자 전달]).
 """
 import argparse
 import json
