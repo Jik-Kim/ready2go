@@ -240,9 +240,16 @@ def run(r):
 
     def press_and_drag():
         z0 = r.posx()[2]
-        hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, PRESS_SPEED,     # 출발 직후 힘 튐(10/06 z 225.5 오검출) →
-                            lambda p, d: f"{d[2]:+.1f} N" if abs(d[2]) >= PRESS_N and p[2] <= z0 - PRESS_IGNORE_MM else None,
-                            10, confirm=PRESS_CONFIRM)                                   # 처음 PRESS_IGNORE_MM 은 힘을 안 봄
+        moving = {}                                                     # 내려가는 중 기준값 (출발 PRESS_IGNORE_MM 뒤 다시 잡음)
+
+        def pressed(p, d):
+            if p[2] > z0 - PRESS_IGNORE_MM:                             # 출발 직후 힘 튐(10/06 z 225.5 오검출) → 안 봄
+                return None
+            moving.setdefault("fz", d[2])                               # 일정 속도로 내려가는 중의 값을 새 기준으로 (사용자 제안)
+            dz = d[2] - moving["fz"]
+            return f"{dz:+.1f} N" if abs(dz) >= PRESS_N else None
+
+        hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, PRESS_SPEED, pressed, 10, confirm=PRESS_CONFIRM)
         if not hit:
             raise Stop("9 mm 내려가도 접촉 없음")
         p = r.posx()
