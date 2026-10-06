@@ -10,8 +10,8 @@ import rclpy
 import yaml
 from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import Float64MultiArray
-from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, MoveJoint, MoveLine,
-                           MoveSplineJoint, SetRobotMode)
+from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetToolForce, MoveJoint,
+                           MoveLine, MoveSplineJoint, MoveStop, SetRobotMode)
 
 CFG = Path.home() / "ready2go" / "config"
 SRV = "/dsr01/dsr_controller2/"
@@ -71,6 +71,34 @@ class Robot:
                       acc=[LINE_ACC, 20.0], time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=0)
         return bool(r and r.success)
 
+    def force(self):
+        r = self.call(GetToolForce, "aux_control/get_tool_force", timeout=0.5, ref=0)
+        return list(r.tool_force) if r else None
+
+    def press(self, max_down_mm, stop_n, speed):
+        """지금 자세 그대로 z 로 최대 max_down_mm 내려가며 툴 힘 z 변화가 stop_n 이상이면 정지 (내려가기 직전 0점)."""
+        import time
+        base = self.force()
+        p0 = self.posx()
+        if base is None or p0 is None:
+            return "힘·좌표 조회 실패"
+        target = p0[:2] + [p0[2] - max_down_mm] + p0[3:]
+        self.call(MoveLine, "motion/move_line", pos=[float(v) for v in target], vel=[speed, 10.0],
+                  acc=[2 * speed, 20.0], time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=1)
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < max_down_mm / speed + 5.0:
+            f = self.force()
+            if f is not None and abs(f[2] - base[2]) >= stop_n:
+                self.call(MoveStop, "motion/move_stop", stop_mode=2)
+                time.sleep(0.3)
+                return f"접촉 {f[2] - base[2]:+.1f} N → 정지, posx {[round(v, 3) for v in self.posx()]}"
+            p = self.posx()
+            if p is not None and p[2] <= target[2] + 0.2:
+                return f"{max_down_mm} mm 내려가도 {stop_n} N 안 됨 — posx {[round(v, 3) for v in p]}"
+            time.sleep(0.02)
+        self.call(MoveStop, "motion/move_stop", stop_mode=2)
+        return "시간 초과 — 정지"
+
     def movesj(self, pts):
         req = MoveSplineJoint.Request()
         ft = req.get_fields_and_field_types()
@@ -105,6 +133,9 @@ def main():
         print("drawer_top_view 로 관절 이동 (경유 없음)")
         print("성공" if r.movej(poses["drawer_top_view"]["drawer_top"]) else "실패")
         return
+    if cmd == "press":                                       # press — 지금 자세로 z 최대 9 mm 내려가며 2 N 닿으면 정지 (5 mm/s)
+        print(r.press(9.0, 2.0, 5.0))
+        return
     if cmd == "movej":                                       # movej J1..J6 — 툴 확인 후 관절 이동
         if len(sys.argv) != 8:
             sys.exit("사용: movej J1 J2 J3 J4 J5 J6")
@@ -126,7 +157,7 @@ def main():
         print("성공" if r.movej(pts[0]) else "실패")
         return
     if cmd != "route":
-        sys.exit("사용: view | route1 | route | mvl X Y Z A B C | movej J1..J6")
+        sys.exit("사용: view | route1 | route | mvl X Y Z A B C | movej J1..J6 | press")
     cur = r.posj()
     if cur is None or max(abs(a - b) for a, b in zip(cur, pts[0])) > 2.0:
         sys.exit(f"지금 관절 {cur} 이 경유점 1과 2° 넘게 다름 — 먼저 route1")
