@@ -11,12 +11,9 @@
 - #3 완료 (10/03): PC2 `real` 5개 서비스 기동, `tf2_echo base_link wrist_cam_color_optical_frame` 값 수신(계산값과 1 mm 이내), PC1↔PC2 양방향 송수신.
 - #7: B 확인 항목(프레임 이름, `link_6` 원점, TCP·툴, `set_current_tcp`) 완료. **5점 검증 완료 (10/03)** — 채택 npy로 x·y 5곳 일치, z 일관. 남은 것: A의 meta 확정 반영, C의 bringup TF.
   - ⚠️ 강의 폴더 `corecode/Calibration_Tutorial/T_gripper2camera.npy`(md5 `ed3c4a6c…`, 2026-02-25)는 채택 값(`dea4dee3…`)과 다름. 이 파일로는 z가 약 31 mm 높게 계산됨 → 강의 코드로 실행할 때는 `config/calibration/`의 npy를 복사해 쓴다.
-- #6: **서랍 교체(10/03, PR #48·#49)** — 플라스틱 → 원목 2단. 옛 서랍 값은 무효. 3점 터치·`drawer_approach`·`drawer_top_view` 교시·개폐 힘 임계를 새 서랍으로 다시 한다.
-  - 3점 터치는 처짐이 없어졌지만 레일 유격 때문에 **집을 때와 같은 인출 거리에서** 잰다 (#6 PM 정정 코멘트).
-  - 변환: `python3 ros2_ws/src/ready2go_skills/ready2go_skills/core/touch_frame.py --child drawer_top --origin X Y Z --x-point X Y Z --xy-point X Y Z` (펜던트 베이스 mm) → `places.yaml` `tf` 한 줄 (브랜치 `feat/b-touch-frame`, PR 전).
-  - 결정 대기 (B·E): 임시 트레이를 서랍장 윗면에 둘지 — 위 서랍 손잡이(26.4 cm)를 잡을 때 손가락·손목이 윗면 앞 모서리 약 3 cm까지 옴.
-- #8: A가 최종 물품 11종 확정·실측. **결정 #11 (B·E, 10/04)**: 높이 기준 1.5 → 1.0 cm 변경 또는 지우개(11.5 mm)만 예외. B 몫 파지 시험: 마스킹테이프(벽 0.7 mm, 힘 낮게)·당근 펜(원뿔)·망치/스패너(무게중심)·지우개 서랍 안(가운데·벽 옆 각 3회).
-- 코드 (로봇 없이 pytest, PR 전 브랜치): `core/grasp_check.py` (#15 `grasp_ok` — 빈손 닫힘 구분, `feat/b-grasp-check`), `core/nudge_plan.py` (#37 밀기 판단, `feat/b-nudge-plan`).
+- #6: 새 원목 서랍 `drawer_top` 3점 터치 완료 (10/04, PR #56, z 정정 #58 — 측정 때 펜던트 툴 설정이 풀려 있었음). 남은 것: `drawer_approach`·`tray_view` 교시, `drawer_top_view`는 A가 교시(B는 관절값 등록·경로 안전 확인), `staging_tray` 3점 터치(서랍장 윗면 앞 모서리에서 5 cm 이상 뒤, 바닥 0.166 × 0.1165 m, 테두리 0.177 × 0.130 m, 높이 0.045 m), `vision_stub` 물체 4개 손끝 터치(A와).
+- #8: 지우개 서랍 안 파지 3/3 성공 (10/04) → 결정 #11 높이 기준 1.0 cm 확정 제안, E 답 대기. 남은 파지 시험: 마스킹테이프·당근 펜·망치/스패너.
+- 코드 (머지): `core/touch_frame.py`(#50), `core/grasp_check.py`(#51), `core/nudge_plan.py`(#52, `yaw_valid` 차단 #66). 이번 PR: `core/motion_guard.py` — 움직이기 전 확인(`TOOL_NOT_SET`·`DRAWER_NOT_AT_TRAVEL`·`YAW_INVALID`·`NOT_ON_FLOOR`), `pick_object` 입력 `target` 계약 변경(#15).
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -37,17 +34,17 @@
 
 ## 막힌 점 · 필요한 도움
 - `/gripper/state`의 `width` 단위(m)를 Runner(C)와 맞춰야 함.
-- 서랍 좌표계 축 규약 [팀 확정 필요]: `interior_m` 순서([깊이, 폭, 높이])에 맞춰 x = 깊이, y = 폭, 원점 = 안쪽 바닥 모서리로 가정하고 `nudge_plan`을 짰다. #6 3점 터치 때 이 규약으로 찍을지 E·A와 확정.
 - #37: 밀기가 의미 있으려면 집을 때 벌림 여유(열린 손가락에 필요한 틈)가 닫은 손가락 두께보다 커야 함 → 실측 항목에 "집을 때 벌림 폭" 추가 필요.
 
 ## 다음 할 일
 - [x] #7 5점 `verify.py` 검증 (10/03)
 - [x] #3 PC2 `real` 기동·TF 연결·PC1↔PC2 통신 (10/03)
-- [ ] #8·결정 #11 (Day 2, 10/04) 높이 기준 결정 + 파지 시험
-- [ ] #6 (Day 2) 새 서랍으로 3점 터치(`drawer_top`, 트레이 위치 정해지면 `staging_tray`), 기준 포즈 교시 → `poses.yaml`·`places.yaml`
-- [ ] `feat/b-touch-frame`·`feat/b-grasp-check`·`feat/b-nudge-plan` PR
-- [ ] #13 (Day 3) `drawer_control` 실물
-- [ ] #15 (Day 4) `pick_object`·`place_object` 실물 — `vision_stub.yaml` 물품이 립밤·차키·지우개로 바뀜(PR #45), 실측 후 `ready: true`
+- [x] #8 지우개 서랍 안 3/3 (10/04) — 결정 #11 확정은 E 답 후 `hardware.md`·`metrics_risks.md` 수정
+- [x] `drawer_top` 3점 터치 (#56·#58), touch_frame·grasp_check·nudge_plan PR 머지
+- [ ] #6 (10/04) `drawer_approach`·`tray_view` 교시, `drawer_top_view` 등록, `staging_tray` 3점 터치, `vision_stub` 4개 측정 → `poses.yaml`·`places.yaml`
+- [ ] #15 `pick_object` `target` 계약 + `motion_guard` PR (10/04, 10/05 공휴일로 당김)
+- [ ] #13 `drawer_control` 실물 — 10/04 저녁 착수, 못 끝내면 10/06 오전
+- [ ] #15 `pick_object`·`place_object` 실물 — 10/06 오후. 노드 연결 때 `motion_guard` 호출(`yaw_valid` 기본값 넣지 않기)
 - [ ] #37 (Day 5~6) `nudge_object` 실물 — 손가락 두께·벌림 폭·바닥 감지 힘 임계 실측
 - [ ] #19 E-stop(펜던트·키보드) + 저속 → 정상 속도 절차
 - [ ] (P2) `sim`용 DSR 드라이버·에뮬레이터 DRCF v2/v3 맞추기 (PR #40 리뷰 스레드)

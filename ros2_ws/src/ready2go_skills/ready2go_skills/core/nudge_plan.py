@@ -3,9 +3,8 @@
 docs/domain.md 8.5: 두 파지 방향 중 하나라도 손가락 여유가 있으면 밀지 않는다(`pushed: false`).
 아니면 벽에서 멀어지는 방향으로 (필요 거리 + 여유)만큼 민다. 1회 호출 = 1회 밀기.
 
-좌표 (서랍 좌표계 `drawer_<id>`, `inspect_region` pose와 같은 기준):
+좌표 (서랍 좌표계 `drawer_<id>`, `inspect_region` pose와 같은 기준, 원점·축 정의는 `config/places.yaml` 첫 부분):
   x ∈ [0, depth], y ∈ [0, width] — `places.yaml`의 `interior_m` = [깊이, 폭, 높이] 순서를 따름.
-  원점 = 서랍 안쪽 바닥 모서리. 어느 모서리인지는 #6 3점 터치 규약과 맞출 것 [팀 확정 필요].
 물체: 중심 (x, y), `yaw`(서랍 x축 기준, rad), 크기 `size_m`[0]·[1] = 물체 로컬 x·y 길이(온톨로지 규약).
 `yaw_valid`(`inspect_region` pose, runner.md 7.1)가 True가 아니면(false·없음) yaw를 믿을 수 없어 판단하지 않고
 `YAW_INVALID`을 반환한다 — false일 때 yaw 0은 자리표시라 그대로 쓰면 엉뚱한 밀기 계획이 나온다(#15).
@@ -19,9 +18,10 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
+from .motion_guard import YAW_INVALID   # pick_object와 공통 (정의: motion_guard)
+
 NO_PUSH_ACCESS = "NO_PUSH_ACCESS"
 PUSH_LIMIT = "PUSH_LIMIT"
-YAW_INVALID = "YAW_INVALID"   # pick_object와 공통, 이름은 C Runner 재시도 규칙과 맞춤 (PR #65 PM 코멘트)
 
 
 @dataclass(frozen=True)

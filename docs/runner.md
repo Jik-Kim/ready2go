@@ -27,10 +27,10 @@
 | `drawer_control` | `drawer_id`, `state`: `"open"`/`"close"`, `distance`(선택, 기본 = `max_travel_m`) | `{drawer_displacement, close_confirmed}` | 손잡이 파지 및 슬라이딩 개폐 (real: 컴플라이언스 인출, **닫힘 = 닫힘 위치 도달 AND 미는 축 힘 임계 초과**, 8.4 / sim: 조인트 직접 구동 폴백) |
 | `inspect_region` | `region`: 서랍 ID, `"staging_tray"`, `"handover_zone"`, `search_target`(클래스명, 선택) | `{target_found, target, candidates[], visible_count}` | 검출 + 3D 위치 + 가림 순서. `target`은 `{id, class, pose, top_z}` 또는 `null`, `candidates`는 목표를 제외한 물체를 **위에 있는 순서(서랍 좌표계 `top_z` 내림차순)**로 정렬. `pose`는 서랍 좌표계(원점 = 상자 안쪽 바닥 앞쪽 오른쪽 모서리, x 안쪽·y 왼쪽·z 위, 정의는 `config/places.yaml` 첫 부분·#6). **`position` = YOLO 박스 중심의 x·y, z는 항상 0**(높이는 `top_z`에만 둔다). **`yaw` = 물체 긴 변 방향**(서랍 x축 기준 rad), 범위 **(−π/2, π/2]**(긴 변은 180° 돌려도 같은 직선이라 한 범위로 고정, `ready2go_vision.core.pose_rules`), 위에서 본 모양이 정사각형이거나 둥근 물체(판정: `pose_rules.is_symmetric`, [vision.md](vision.md) V2)는 yaw 0 고정. **`yaw_valid`(bool)**: yaw를 믿어도 되는지. 대칭 물체와 정상 산출은 `true`, 덩어리가 비정상(뎁스 결손·너무 얇음 등)이면 `false`이고 이때 `yaw`는 0 자리표시이며 진짜 0°가 아니다. **받는 쪽은 필드가 없으면 `false`로 취급한다**(보내는 쪽은 항상 채운다). 소비자는 `false`이면 길쭉한 물체를 집지 않고 재인식하고, 그래도 `false`이면 오류로 처리한다(에러 코드는 `pick_object` 표 소관). 판정 임계값은 params(yaml)에 두며 `[팀 확정 필요]`. `size_m` 규약은 [ontology.md](ontology.md)의 "치수 계약". `top_z` = 서랍 바닥 기준 물체 윗면 높이. P1은 박스 중심만 제공하며 머리 방향(망치·스패너 등)은 B의 요청이 있을 때 계약 변경으로 추가. yaw 산출 방식(서랍 바닥 위 뎁스 덩어리 + `minAreaRect`, 사용자 확정 10/04)은 [vision.md](vision.md) V2. 박스 중심 픽셀을 서랍 좌표 x·y로 옮길 때는 **`z = top_z/2` 평면**과 교차시킨다(확정, [vision.md](vision.md) V2) |
 | `nudge_object` | `target`(`inspect_region` 결과의 `target`을 그대로 넘김: `$scan.target` — `id`·`class`·`pose`(`yaw` 포함)·`top_z`), `drawer_id`, `check_only`(선택, bool, 기본 `false`) | `{pushed, push_vector_m, clearance_before_m, floor_z_m}` (모두 서랍 좌표계 `drawer_<id>`, `inspect_region`의 `pose`와 같은 기준) | **1회 호출 = 1회 밀기.** 닫은 그리퍼로 바닥 접촉(힘 감지) → 수 mm 상승 → 벽에서 멀어지는 방향으로 직선 밀기. 잡을 수 있는 자리면 움직이지 않고 `pushed: false`. `check_only: true`이면 움직이지 않고 판단만 한다. 밀었으면 다시 `inspect_region` 후 집기 (FR-ACT-05, 상세 [domain.md 8.5](domain.md#85-벽-인접-물체-밀어오기-담당-b)) |
-| `pick_object` | `object_id`(인스턴스 ID), `approach_offset`, `grip_force`(선택, 기본 = 온톨로지 값), `source_slot`(선택, 트레이에서 집을 때) | `{object_id, class, pick_pose_drawer_frame, grasp_ok}` | 접근 → 파지 → 안전 높이 상승 |
+| `pick_object` | 서랍에서: `target`(`inspect_region` 결과의 `target`을 그대로 넘김: `$scan.target` — `id`·`class`·`pose`·`top_z`) / 트레이에서: `source_slot` + `object_id`(인스턴스 ID). 공통: `approach_offset`, `grip_force`(선택, 기본 = 온톨로지 값) | `{object_id, class, pick_pose_drawer_frame, grasp_ok}` | 접근 → 파지 → 안전 높이 상승. 접근 위치는 `pose.position` x·y, 손목 회전은 `pose.yaw`, **파지 높이는 서랍 바닥(`places.yaml` tf) + 온톨로지 물체 높이**(`top_z`는 검산용, #18). 서랍에서 집을 때는 움직이기 전에 인출 거리 → `yaw_valid` → 바닥 위(`top_z`)를 확인하고 걸리면 움직이지 않고 에러(아래 표) |
 | `place_object` | `location`: `"staging_tray"`(빈 슬롯 자동 할당) / `"handover_zone"` / 슬롯명, 또는 `pose` + `frame` | `{slot, placed_pose}` | 지정 위치에 거치 후 그리퍼 해제. `frame: "drawer"`일 때는 배치 직전 재촬영으로 높이(z) 보정. **`location`이 서랍(`Drawer` 클래스)이면 백엔드가 `frame: "drawer"`, 현재 인출 거리 반영 서랍 좌표, z 보정을 자동 적용**(서랍의 `return_slot` 또는 지정 `pose` 사용) |
 
-* **ID 규칙**: `object_id`는 비전이 부여한 **인스턴스 ID**(예: `eraser#1`, `unknown#3`), `search_target`과 온톨로지 키는 **클래스명**(예: `eraser`). 둘을 섞지 않음.
+* **ID 규칙**: `object_id`·`target.id`는 비전이 부여한 **인스턴스 ID**(예: `eraser#1`, `unknown#3`), `search_target`과 온톨로지 키는 **클래스명**(예: `eraser`). 둘을 섞지 않음.
 * **포즈 vs 위치**: `pose_name`은 로봇 관절 포즈, `location`은 월드의 물체 거치 장소. 이름 공간을 분리함.
 
 **② 지식/상호작용 동작**
@@ -126,7 +126,16 @@
 
 V2(Day 5)에서 깊이 결손(`DEPTH_INVALID`)·카메라 타임아웃·TF 없음 등을 이 표에 추가한다 `[팀 확정 필요]`.
 
-**`nudge_object` 에러 코드** (스킬이 아니라 원자 동작이라 온톨로지 `errors`가 아니라 여기에 둔다)
+**로봇 동작 공통 에러 코드** (원자 동작이 **움직이기 전에** 확인하고 반환. 모두 로봇 동작 없음. 판단 코드 `ready2go_skills/core/motion_guard.py`, 허용 오차 `ready2go_skills/params/skills.yaml` `[팀 확정 필요]`)
+
+| 코드 | 대상 | 의미 |
+| :--- | :--- | :--- |
+| `TOOL_NOT_SET` | 로봇을 움직이는 모든 원자 동작 | 펜던트 활성 TCP·툴이 `config/calibration/calibration_meta.yaml`의 값(`GripperDA_v1`·`tool_weight`)과 다르거나 조회 실패 (결정 #28). 노드 시작·첫 동작 직전에 확인. P1은 거부 + TTS 안내(자동 전환은 선택) |
+| `DRAWER_NOT_AT_TRAVEL` | `pick_object`(서랍)·`nudge_object` | 마지막 `drawer_control`의 `drawer_displacement`가 `places.yaml` `tf_at_travel_m`(서랍 좌표계가 유효한 인출 거리)에서 허용 오차를 벗어남 또는 값 없음 |
+| `YAW_INVALID` | `pick_object`(서랍)·`nudge_object` | `target.pose.yaw_valid`가 `true`가 아님(`false`·필드 없음). 다시 인식은 스킬이 아니라 태스크에서 1회(#65 합의) |
+| `NOT_ON_FLOOR` | `pick_object`(서랍) | `top_z − 물체 높이`가 허용 오차보다 큼 → 다른 물체 위에 있음(또는 `top_z` 없음). 바닥 + 물체 높이로 내려가면 아래 물체와 부딪히므로 P1은 거부, `top_z` 기준 파지는 P2 |
+
+**`nudge_object` 에러 코드** (스킬이 아니라 원자 동작이라 온톨로지 `errors`가 아니라 여기에 둔다. 위 공통 코드도 반환)
 
 | 코드 | 의미 |
 | :--- | :--- |

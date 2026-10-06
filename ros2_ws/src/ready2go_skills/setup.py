@@ -11,6 +11,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/ready2go_skills']),
         ('share/ready2go_skills', ['package.xml']),
         ('share/ready2go_skills/launch', glob('launch/*.launch.py')),
+        ('share/ready2go_skills/params', glob('params/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
