@@ -1,0 +1,43 @@
+{
+  "_comment": "nudge_object 결과 예시 (runner.md 7.1, #37·#83). 각 항목 = Skill 액션 결과 {success, error_code, output_json(파싱한 값)}. 좌표는 서랍 좌표계(inspect_region pose 와 같은 기준). target_after 는 입력 target 에서 pose.position 만 끈 만큼 옮긴 예상값이며 재인식이 아님(FR-ACT-05 재인식 완료로 보지 않음). 성공일 때만 채우고 실패면 null. 값은 10/06 위 서랍 세로 지우개 실측 위치(stub 시연용)",
+  "cases": [
+    {
+      "case": "moved",
+      "success": true,
+      "error_code": "",
+      "output": {
+        "pushed": true,
+        "push_vector_m": [0.0, -0.0417],
+        "clearance_before_m": 0.0042,
+        "floor_z_m": 0.0,
+        "target_after": {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+                         "pose": {"frame": "drawer_top", "position": [0.1769, 0.2478, 0.0], "yaw": 0.0, "yaw_valid": true}}
+      }
+    },
+    {
+      "case": "not_needed",
+      "success": true,
+      "error_code": "",
+      "output": {
+        "pushed": false,
+        "push_vector_m": [0.0, 0.0],
+        "clearance_before_m": 0.1437,
+        "floor_z_m": 0.0,
+        "target_after": {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+                         "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.3, "yaw_valid": true}}
+      }
+    },
+    {
+      "case": "check_only_still_blocked",
+      "success": false,
+      "error_code": "PUSH_LIMIT",
+      "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0042, "floor_z_m": 0.0, "target_after": null}
+    },
+    {
+      "case": "lift_after_drag_failed",
+      "success": false,
+      "error_code": "STOP_UNCONFIRMED",
+      "output": {"pushed": true, "push_vector_m": [0.0, -0.0417], "clearance_before_m": 0.0042, "floor_z_m": 0.0, "target_after": null}
+    }
+  ]
+}
