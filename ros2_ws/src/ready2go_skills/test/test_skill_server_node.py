@@ -94,7 +94,7 @@ def server(monkeypatch):
         def movel_async(self, p, vel, acc, rot_vel=30.0, rot_acc=60.0):
             self.log.append(("movel", p))
             s0 = list(self.p)
-            self.path = [[s0[i] + (p[i] - s0[i]) * (k + 1) / 5 for i in range(6)] for k in range(5)]
+            self.path = [[s0[i] + (p[i] - s0[i]) * (k + 1) / 40 for i in range(6)] for k in range(40)]   # 0.2 mm 단위 (누르기 연속 확인)
             return True
 
         def movej_async(self, j, vel, acc):
@@ -200,7 +200,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     out, data = server.run("place_object", {"location": "handover_zone"})
     kinds = [e[0] for e in server.srv.robot.log]
     assert out.success and data["slot"] == "handover_zone_1"
-    assert kinds[0] == "movesj" and len(server.srv.robot.log[0][1]) == 4      # 들고 나오기 경유점 4개를 한 번에 (10/06)
+    assert kinds[:2] == ["movej", "movesj"] and len(server.srv.robot.log[1][1]) == 3   # 경유점 1 movej → 2·3·4 movesj (10/06)
 
 
 def test_named_pose_from_low_non_drawer_spot_lifts_first(server):

@@ -29,7 +29,7 @@ case "$1" in
     server)
         ros_env
         cd "$R/ros2_ws/src/ready2go_skills" && RG2_HOST="${RG2_HOST:-192.168.1.1}" exec python3 -m ready2go_skills.nodes.skill_server \
-            --ros-args -p joint_vel_deg_s:="$(python3 -c "print(float('${VEL:-20}'))")" -p config_dir:="$R/config" ;;
+            --ros-args -p joint_vel_deg_s:="$(python3 -c "print(float('${VEL:-30}'))")" -p config_dir:="$R/config" ;;
     demo)
         ros_env
         shift
