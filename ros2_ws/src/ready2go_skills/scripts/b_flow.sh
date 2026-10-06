@@ -9,6 +9,7 @@
 #   bash b_flow.sh route1     들고 나오기 시험: 경유점 1(서랍 안)으로 관절 이동 (스킬 서버 없이)
 #   bash b_flow.sh route      경유점 1 → movesj 2·3·4 → 트레이 첫 칸 위 직선
 #   bash b_flow.sh mvl X Y Z A B C   툴 확인 후 직선 이동
+#   bash b_flow.sh movej J1 J2 J3 J4 J5 J6   툴 확인 후 관절 이동 (J5 133° 넘으면 거부)
 #   bash b_flow.sh view       어디서든 drawer_top_view (낮으면 z 150 → 홈 → z 325 → 보는 자세)
 R="$HOME/ready2go"
 H="$HOME/r2g_host"      # 호스트 빌드 결과 — 저장소 ros2_ws/install 은 컨테이너가 만든 것(경로가 /opt/dsr_ws 등)이라 쓰지 않음
@@ -27,11 +28,11 @@ case "$1" in
         ros_env
         cd "$R/ros2_ws/src/ready2go_skills" && RG2_HOST="${RG2_HOST:-192.168.1.1}" exec python3 -m ready2go_skills.nodes.skill_server \
             --ros-args -p joint_vel_deg_s:="$(python3 -c "print(float('${VEL:-20}'))")" -p config_dir:="$R/config" ;;
-    view|route1|route|mvl)
+    view|route1|route|mvl|movej)
         ros_env
         exec python3 "$(dirname "$0")/b_route.py" "$@" ;;
     "")
-        sed -n '2,14p' "$0" ;;
+        sed -n '2,15p' "$0" ;;
     *)
         ros_env
         exec python3 "$(dirname "$0")/b_sk.py" "$@" ;;

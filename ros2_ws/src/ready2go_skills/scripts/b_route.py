@@ -118,6 +118,15 @@ def main():
         print("drawer_top_view")
         print("성공" if r.movej(poses["drawer_top_view"]["drawer_top"]) else "실패")
         return
+    if cmd == "movej":                                       # movej J1..J6 — 툴 확인 후 관절 이동
+        if len(sys.argv) != 8:
+            sys.exit("사용: movej J1 J2 J3 J4 J5 J6")
+        j = [float(v) for v in sys.argv[2:8]]
+        if abs(j[4]) > 133.0:
+            sys.exit(f"J5 {j[4]}° — 제한 133° 넘음, 안 움직임")
+        print(f"관절 이동 → {j}")
+        print("성공" if r.movej(j) else "실패")
+        return
     if cmd == "mvl":                                         # mvl X Y Z A B C — 툴 확인 후 직선 이동 (호스트 mvl 대신)
         if len(sys.argv) != 8:
             sys.exit("사용: mvl X Y Z A B C")
@@ -130,7 +139,7 @@ def main():
         print("성공" if r.movej(pts[0]) else "실패")
         return
     if cmd != "route":
-        sys.exit("사용: view | route1 | route | mvl X Y Z A B C")
+        sys.exit("사용: view | route1 | route | mvl X Y Z A B C | movej J1..J6")
     cur = r.posj()
     if cur is None or max(abs(a - b) for a, b in zip(cur, pts[0])) > 2.0:
         sys.exit(f"지금 관절 {cur} 이 경유점 1과 2° 넘게 다름 — 먼저 route1")
