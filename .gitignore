@@ -13,6 +13,7 @@ secrets/*.env
 logs/
 db_data/
 models/*.pt
+!models/yolo11n_ready2go_v1.pt
 !models/.gitkeep
 data/
 runs/

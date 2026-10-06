@@ -33,7 +33,7 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 - `git-lfs`가 설치되기 전에는 USD를 커밋하지 않는다.
 
 ## T1 씬 (`sim/scenes/ready2go_t1.usd`)
-작업대 + 받침 선반 + 원목 2단 서랍장(상자 2개 각각 Prismatic Joint 0~22.5 cm, 중간 가로막 없음) + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`. 서랍은 10/03에 철제 레일 + 원목 서랍으로 교체했고 기존 플라스틱 서랍장 값은 모두 삭제했다. 서랍 값이 하나라도 비면 `build_scene.py`는 서랍장 없이 만들고 이유를 출력한다.
+작업대 + 받침 선반 + 원목 2단 서랍장(상자 2개 각각 Prismatic Joint 0~22.6 cm, 중간 가로막 없음) + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`. 서랍은 10/03에 철제 레일 + 원목 서랍으로 교체했고 기존 플라스틱 서랍장 값은 모두 삭제했다. 서랍 값이 하나라도 비면 `build_scene.py`는 서랍장 없이 만들고 이유를 출력한다.
 ```bash
 ~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py     # 씬 생성 (sim/drawer_dimensions.yaml, config/calibration/ 에서 값을 읽음)
 ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py    # 검증 (9개 구조 + 카메라 변환 + 서랍 가동 범위 + 로봇 안정성), 마지막 줄 `[verify] 결과: 전부 통과`로 판정
@@ -54,9 +54,9 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
 | 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | B의 3점 터치(P3) 후 `drawer_bottom` tf·내부 치수 |
 | 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
-| 스테이징·전달 트레이 | 아직 없음 (크기 미측정) | 실측 후 추가 |
+| 전달 트레이(`handover_zone`) | 아직 없음 (크기 미측정). 임시 트레이(`staging_tray`)는 폐기(#6, 서랍 안에서 옆으로 치우기) | 실측 후 추가 |
 
-검증으로 확인된 것 [실측]: 카메라 광학 프레임이 `npy × TCP`로 직접 계산한 값과 일치(평행이동 4 µm, 회전 0.0007°), 로봇은 중력에 무너지지 않음(link_6 변화 0.5 mm). 새 서랍 씬 검증 [실측 10/03]: 맨 위 서랍이 목표 22.5 cm에서 22.49 cm, 한계 초과 목표에서도 22.50 cm에서 멈추고 다른 축 이동 없음.
+검증으로 확인된 것 [실측]: 카메라 광학 프레임이 `npy × TCP`로 직접 계산한 값과 일치(평행이동 4 µm, 회전 0.0007°), 로봇은 중력에 무너지지 않음(link_6 변화 0.5 mm). 새 서랍 씬 검증 [실측 10/03]: 맨 위 서랍이 목표 22.5 cm(당시 씬 값, 이후 22.6 cm로 변경)에서 22.49 cm, 한계 초과 목표에서도 22.50 cm에서 멈추고 다른 축 이동 없음.
 
 ## T2 미러링 (`sim/scripts/mirror_joint_states.py`)
 `/dsr01/joint_states`를 구독해 트윈의 M0609 관절을 그대로 따라가게 한다. **구독만 하고 로봇에는 어떤 명령도 보내지 않는다.**

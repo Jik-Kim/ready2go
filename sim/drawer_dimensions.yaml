@@ -59,6 +59,5 @@ plan_view_cm:                         # [사용자 보고, 도면] 작업대 평
   robot_base_plate_center_from_table_top: 32.5  # [계산] 21 + 23/2 (= 65/2, 깊이 방향 중앙)
   note: "로봇 베이스와 서랍의 상대 위치는 #6(3점 터치) 결과를 쓴다. 이 평면도 값은 초기 배치용."
 
-trays:                                # staging_tray, handover_zone
-  staging_tray: {size_cm: null, slots: 3}
+trays:                                # handover_zone 만 남음 (임시 트레이 staging_tray 는 폐기: #6 확정, 서랍 안에서 옆으로 치우기)
   handover_zone: {size_cm: null, slots: 3}
