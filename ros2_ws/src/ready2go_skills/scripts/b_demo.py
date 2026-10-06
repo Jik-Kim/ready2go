@@ -52,6 +52,7 @@ PUSH_Z = 268.556 + 3.6                                                   # 30 mm
 CLOSED_Y = -291.757 - 2.0                                                # 닫힌 손잡이 y + 2 mm 더 밀기 [사용자]
 
 # ---- 힘·속도 (여기만 고치면 됨) ----
+SPEED = 1.5                 # 빈 공간 이동 속도 배율 (movej·movel·movesj·손잡이 접근·당기기·밀기). 누르기·끌기·잡기·놓기 하강은 그대로
 HANDLE_CONTACT_N = 12.0     # 손잡이로 다가가다 이 힘이면 멈춤
 PULL_STUCK_N = 30.0         # 서랍 당기다 걸림
 PRESS_N = 2.0               # 지우개 누르기: 이 힘이 되면 멈추고 끌기 시작
@@ -116,7 +117,7 @@ class Robot:
         self.call(SetRobotMode, "system/set_robot_mode", robot_mode=1)
         time.sleep(0.5)
 
-    def movej(self, j, vel=20.0):
+    def movej(self, j, vel=20.0 * SPEED):
         if abs(j[4]) > J5_MAX:
             raise Stop(f"J5 {j[4]}° > {J5_MAX}°")
         r = self.call(MoveJoint, "motion/move_joint", timeout=90.0, pos=[float(v) for v in j], vel=vel, acc=vel,
@@ -124,7 +125,7 @@ class Robot:
         if not (r and r.success):
             raise Stop("movej 실패")
 
-    def movel(self, x, vel=50.0, rot=15.0):
+    def movel(self, x, vel=50.0 * SPEED, rot=15.0 * SPEED):
         r = self.call(MoveLine, "motion/move_line", timeout=90.0, pos=[float(v) for v in x], vel=[vel, rot],
                       acc=[vel, rot], time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=0)
         if not (r and r.success):
@@ -154,7 +155,7 @@ class Robot:
         self.stop()
         raise Stop("시간 초과 — 정지")
 
-    def movesj(self, pts, vel=20.0):
+    def movesj(self, pts, vel=20.0 * SPEED):
         req = MoveSplineJoint.Request()
         ft = req.get_fields_and_field_types()
         req.pos = [Float64MultiArray(data=[float(v) for v in p]) for p in pts]
@@ -192,7 +193,7 @@ def run(r):
         p = r.posx()
         r.movel(p[:2] + [max(p[2], SAFE_Z)] + p[3:])                      # 홈에서 위로
         r.movej(READY)
-        hit = r.movel_watch(HANDLE, 25.0, lambda p, d: f"손잡이 앞 {abs(d[1]):.1f} N 접촉 @ y {p[1]:.1f}" if abs(d[1]) > HANDLE_CONTACT_N else None, 20)
+        hit = r.movel_watch(HANDLE, 25.0 * SPEED, lambda p, d: f"손잡이 앞 {abs(d[1]):.1f} N 접촉 @ y {p[1]:.1f}" if abs(d[1]) > HANDLE_CONTACT_N else None, 20)
         if hit:
             raise Stop(hit + " — 서랍이 끝까지 닫혔는지 확인")
         s = grip(0.0, GRIP_HANDLE_N)
@@ -201,7 +202,7 @@ def run(r):
             raise Stop(f"손잡이 못 잡음 (폭 {s.width_mm:.1f} mm)")
         start = r.posx()
         end = HANDLE[:1] + [HANDLE[1] + PULL_MM] + HANDLE[2:]
-        hit = r.movel_watch(end, 40.0, lambda p, d: f"{abs(d[1]):.0f} N 걸림 (인출 {p[1] - start[1]:.0f} mm)"
+        hit = r.movel_watch(end, 40.0 * SPEED, lambda p, d: f"{abs(d[1]):.0f} N 걸림 (인출 {p[1] - start[1]:.0f} mm)"
                             if abs(d[1]) > PULL_STUCK_N else None, 20)
         moved = r.posx()[1] - start[1]
         if hit and moved < PULL_MM - 10.0:
@@ -223,7 +224,7 @@ def run(r):
         p = r.posx()
         r.movel([p[0], TARGET_Y, p[2]] + p[3:])                         # y 를 목표물 y 로
         r.movel([p[0], TARGET_Y, p[2]] + TILT)                          # 제자리 30°
-        r.movel(PRESS_START + TILT, vel=30.0)                           # 지우개 끝 위 5 mm
+        r.movel(PRESS_START + TILT, vel=30.0 * SPEED)                           # 지우개 끝 위 5 mm
 
     def press_and_drag():
         hit = r.movel_watch(PRESS_START[:2] + [PRESS_START[2] - 9.0] + TILT, PRESS_SPEED,
@@ -270,7 +271,7 @@ def run(r):
         grip(30.0, 20.0)
         r.movel([HANDLE_OPEN[0], HANDLE_OPEN[1] + 30.0, PUSH_Z] + h[3:])
         y0 = HANDLE_OPEN[1]
-        hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y, PUSH_Z] + h[3:], 30.0,
+        hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y, PUSH_Z] + h[3:], 30.0 * SPEED,
                             lambda p, d: f"{abs(d[1]):.0f} N" if abs(d[1]) > PUSH_LIMIT_N else None, 20)
         p = r.posx()
         left = p[1] - CLOSED_Y
