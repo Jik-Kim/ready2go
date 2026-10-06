@@ -122,7 +122,7 @@ class Robot:
     def movel_watch(self, x, vel, watch, timeout_s):
         """비동기 직선 이동 + 주기 감시. watch(posx, dforce) 가 문자열을 돌려주면 정지하고 그 문자열 반환, 도착이면 None."""
         f0 = self.fz()
-        self.call(MoveLine, "motion/move_line", pos=[float(v) for v in x], vel=[vel, 10.0], acc=[2 * vel, 20.0],
+        self.call(MoveLine, "motion/move_line", pos=[float(v) for v in x], vel=[vel, 10.0], acc=[vel, 10.0],   # 가속 = 속도 (스킬 서버와 같게, 가속이 크면 힘 값이 튐)
                   time=0.0, radius=0.0, ref=0, mode=0, blend_type=0, sync_type=1)
         t0 = time.monotonic()
         while time.monotonic() - t0 < timeout_s:
@@ -177,7 +177,7 @@ def run(r):
         p = r.posx()
         r.movel(p[:2] + [max(p[2], SAFE_Z)] + p[3:])                      # 홈에서 위로
         r.movej(READY)
-        hit = r.movel_watch(HANDLE, 25.0, lambda p, d: f"손잡이 앞 {abs(d[1]):.1f} N 접촉" if abs(d[1]) > 8.0 else None, 20)
+        hit = r.movel_watch(HANDLE, 25.0, lambda p, d: f"손잡이 앞 {abs(d[1]):.1f} N 접촉 @ y {p[1]:.1f}" if abs(d[1]) > 12.0 else None, 20)
         if hit:
             raise Stop(hit + " — 서랍이 끝까지 닫혔는지 확인")
         s = grip(0.0, 40.0)
