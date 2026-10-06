@@ -88,3 +88,20 @@ ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/
 - 시험 [실측, 별도 시험 토픽 50 Hz 발행]: 수신 50 Hz, 평균 지연 2.2 ms, 최대 추종 오차 4.2 mrad(0.24°), 매핑 안 된 이름 없음, 1249건 처리.
 - 추종 오차는 위치를 설정한 뒤 물리 스텝 한 번 후 읽은 값과 받은 값의 차이다(중력·구동 목표 때문에 0이 되지는 않음).
 
+
+## 스킬 흐름 궤적·특이점 검사 (`sim/motion_check/`, `sim/scripts/play_motion_trace.py`) [실측·계산 10/06]
+B 모션 코드를 로봇 없이 돌려 이동 명령을 기록하고, 관절 궤적을 계산해 특이점 근처 구간을 찾은 뒤 트윈에서 재생한다. 10/06 실물에서 팔이 "확확" 움직인 구간(영상 1:14~17, 2:02~04)을 재현하려고 만들었다.
+```bash
+python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --out /tmp/trace.json   # 스킬 서버 흐름 (열기→끌기→집기→놓기→닫기→홈)
+python3 sim/motion_check/trace_b_demo.py --repo <B 저장소> --out /tmp/trace_demo.json  # 시연 스크립트 b_demo.py 흐름
+ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/play_motion_trace.py --trace /tmp/trace.json [--segments 15-24] [--flag-slow 2] [--loop]
+python3 -m pytest sim/motion_check -q   # 기구학 시험 (CI 대상 아님)
+```
+- `m0609_kin.py`: M0609 FK(`m0609.urdf`, rpy 1.571 → π/2) + TCP 228 mm(GripperDA_v1), 두산 posx(ZYZ), 자코비안, DLS IK. 교시 자세 4개 TCP 오차 1.3~2.2 mm [실측 비교]
+- `trace_skill_flow.py`: B `skill_server` 실제 코드를 기구학 가짜 로봇에 연결(ROS·DSR·RG2 는 가짜). 직선 이동은 0.5 mm·0.25° 간격 IK, 관절 이동은 선형, 관절 스플라인(`movesj`)은 Catmull-Rom 근사. 힘 감시는 누르기 접촉만 흉내
+- `trace_b_demo.py`: `scripts/b_demo.py` 를 그대로 불러 로봇 객체만 가짜로 바꿈(감시 함수·연속 확인은 b_demo 것 그대로)
+- 판정 ◀: 직선 이동에서 |J3| < 15° 또는 |J5| < 10° 또는 손끝 10 mm(회전 5°)당 최대 관절 변화 > 20°. **실물 대조 [10/06]**: 튄 구간은 J3 10°(10 mm당 11.8°)·0°(63°), 튀지 않은 구간은 J3 25° 이상(집기 전 수직 복귀 12.7°, 기울이기 5.8°, 집기 하강·상승 4.6°). 10 mm당 관절 변화만으로는 가르지 못해 J3 를 주 기준으로 함(처음 기준 > 4° 는 과민)
+- 재생: 매 스텝 관절 위치를 그대로 설정(텔레포트, 떨림 없음), 실제 시간에 맞춤, RG2 폭 → `finger_joint` 각도(트윈 손가락 간격 실측 표, 0° 137.3 mm … 67.6° 38.7 mm 를 폭 110…0 mm 로 선형 대응 [추정]), 서랍·지우개 움직임은 흉내
+- **한계**: 기하(IK)만 본다 — 두산 제어기의 실제 보간·특이점 처리·`movesj` 곡선과 다를 수 있다 [추정]. 트윈에 손목 카메라(D435i)·케이블 형상이 없다
+- main(#83 머지 뒤) [계산 10/06]: 스킬 서버 흐름·`b_demo.py` 모두 끝까지 성공, ◀ 없음 — 스킬 서버도 탑뷰에서 내려가기를 관절 이동으로 바꿈. 가짜 로봇은 조회할 때마다 경로를 한 칸씩 나아감(B 의 새 누르기 판정이 내려가는 중의 힘 변화를 보기 때문), 경로 끝 자세는 명령값 그대로(ZYZ 는 B≈180°에서 A·C 표현이 여러 개)
+- 결과 [계산 10/06, #83 `1ecafb6` `b_demo.py`]: 탑뷰에서 내려가기를 관절 이동(`DOWN`)으로 바꿔 예전 직선 하강(10 mm당 11.8°, J3 10°)이 사라짐. 바뀐 기준으로 ◀ 없음 — 제자리 30° 기울이기(10 mm당 5.8°), 집기 전 수직 복귀(12.7°, J3 25°), 집기 하강·상승(4.6°)은 실물에서도 특이점 없음 [사용자 확인 10/06]. 들고 나오기(`carry_out` movesj)는 ◀ 없음. 다만 쥔 지우개가 열린 위 서랍 앞판 위를 약 12 mm로 지남(경유점 2·3 을 +30 mm 올리면 38 mm) [메시 간격 계산, 스플라인 근사]
