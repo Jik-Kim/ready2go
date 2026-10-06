@@ -33,7 +33,7 @@ def goal_for(cmd):
     sys.exit("동작: all | open | opened | nudge | pick | place | close | home")
 
 
-STEPS = ("open", "nudge", "pick", "place", "home")   # all: 열기 → 끌기 → 집기 → 놓기 → 홈 (닫기는 손으로, close_enabled false)
+STEPS = ("open", "nudge", "pick", "place", "close", "home")   # all: 열기 → 끌기 → 집기 → 놓기 → 닫기 → 홈
 
 
 def main():

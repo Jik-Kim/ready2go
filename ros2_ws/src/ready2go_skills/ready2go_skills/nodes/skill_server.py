@@ -425,43 +425,53 @@ class SkillServer(Node):
         return sf.Outcome(True, reason=f"열림 {self.disp[drawer_id] * 1000:.1f} mm"), out
 
     def _close_drawer(self, goal, drawer_id, oc, dc, closed, pull, handle):
-        if not oc.get("close_enabled", False):              # 홈 → 손잡이 쪽(ready, J2 반대) 자세 경로가 실물 미검증 (10/06)
-            return sf.Outcome(False, sf.NOT_IMPLEMENTED, reason="닫기 자동 경로 실물 확인 전 — 사람이 손으로 닫기 "
+        """닫기: 손잡이를 잡지 않고, 홈 자세(그리퍼 수직 아래) 그대로 손끝을 손잡이 높이에 두고 밀어서 닫는다 — 힘이 느껴질 때까지
+        [사용자 제안 10/06]. 손잡이 쪽(ready, J2 반대) 자세로 가지 않아 열린 서랍 위를 돌아가지 않음."""
+        if not oc.get("close_enabled", False):
+            return sf.Outcome(False, sf.NOT_IMPLEMENTED, reason="닫기 꺼짐 — 사람이 손으로 닫기 "
                                                                 "(params drawer_open_close.close_enabled)"), None
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"{self.held['class']} 를 든 채 닫지 않음"), None
-        speed = self.prm()["speed"]
-        self._grip(0, 20)                                    # 주먹
-        pre = mp.offset_posx(handle, pull, oc["fist_offset_mm"] + oc["push_standoff_mm"])
-        bad = self._transit(goal, pre, "to_drawer_front")
+        prm = self.prm()
+        speed = prm["speed"]
+        o = self._named(goal, "home")
+        if not o.success:
+            return o, None
+        self._grip(oc["handle_open_width_mm"], 20)          # 살짝 벌린 두 손끝으로 손잡이 앞을 밂
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        tip_z = handle[2] + mp.tip_below_tcp_mm(oc["handle_open_width_mm"], prm["gripper"])   # 손끝 = 손잡이 높이
+        off = oc["vertical_push_offset_mm"]
+        pre = mp.offset_posx(list(handle[:2]) + [tip_z] + list(cur[3:]), pull, off + oc["push_standoff_mm"])
+        bad = self._line(goal, pre, speed["line_mm_s"], "to_drawer_front")
         if bad:
             return bad, None
-        contact_closed = mp.offset_posx(closed, pull, oc["fist_offset_mm"])   # 닫혔을 때 TCP 위치
-        target = mp.offset_posx(contact_closed, pull, -dc["close_overtravel_m"] * 1000.0)
+        closed = list(closed[:2]) + [tip_z] + list(cur[3:])
+        contact_closed = mp.offset_posx(closed, pull, off)  # 닫혔을 때 TCP 위치 (손끝 앞면이 닫힌 손잡이에)
         push = [-c for c in pull]
         base_f = self.robot.tool_force()
-        verdict = {}
 
         def remaining_m(now):
             return max(0.0, mp.travel_mm(contact_closed, now, pull) / 1000.0)
 
-        def watch():
+        def guard():                                        # 위치까지 밀되, 일찍 크게 걸리면 멈춤 (힘으로 판정하지 않음, 사용자 10/06)
             now, f = self.robot.posx(), self.robot.tool_force()
             if now is None or f is None or base_f is None:
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="좌표·힘 조회 실패")
             resist = abs(sum((f[i] - base_f[i]) * push[i] for i in range(3)))
-            v = dp.judge_closing(remaining_m(now), resist, dc["close_force_n"], oc["close_pos_tol_m"])
-            if v.done:
-                verdict["v"] = v
-                return sf.Outcome(v.error_code is None, v.error_code or "", reason=v.reason)
+            if resist > dc["push_stop_force_n"]:
+                rem = remaining_m(now)
+                if rem <= oc["close_pos_tol_m"]:
+                    return sf.Outcome(True, reason=f"닫힘 (남은 {rem * 1000:.1f} mm에서 {resist:.0f} N)")
+                return sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 {rem * 1000:.1f} mm 전에 {resist:.0f} N — 걸림")
             return None
 
-        bad = self._line(goal, target, speed["push_mm_s"], "push", watch=watch)
+        target = mp.offset_posx(contact_closed, pull, -dc["close_overtravel_m"] * 1000.0)   # 닫힌 손잡이 y 보다 조금 더
+        bad = self._line(goal, target, speed["push_mm_s"], "push", watch=guard)
         now = self.robot.posx()
         rem = remaining_m(now) if now else math.inf
-        confirmed = "v" in verdict and verdict["v"].error_code is None
-        if bad is None and not confirmed and rem <= oc["close_pos_tol_m"]:
-            confirmed = False                               # 위치는 왔지만 힘 임계를 못 느낌 → 확인 못 함
+        confirmed = bad is None and rem <= oc["close_pos_tol_m"]
         self.disp[drawer_id] = rem if rem != math.inf else self.disp.get(drawer_id, 0.0)
         out = {"drawer_displacement": round(self.disp[drawer_id], 4), "close_confirmed": confirmed}
         if sf.is_safety(bad):                               # 안전 정지·취소 뒤엔 후퇴하지 않음
@@ -469,7 +479,7 @@ class SkillServer(Node):
         if bad and not confirmed:
             res = bad
         elif not confirmed:
-            res = sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 확인 못 함 (남은 {rem * 1000:.1f} mm)")
+            res = sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 위치에 못 감 (남은 {rem * 1000:.1f} mm)")
         else:
             res = None
         back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat") if now else \
@@ -479,7 +489,7 @@ class SkillServer(Node):
             return res, out
         self.disp[drawer_id] = 0.0
         out["drawer_displacement"] = 0.0
-        return sf.Outcome(True, reason=verdict["v"].reason), out
+        return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
 
     # --- 끌기 (nudge_object) ---
     def _do_nudge_object(self, goal, params):

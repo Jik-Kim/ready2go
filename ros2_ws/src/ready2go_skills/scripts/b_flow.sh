@@ -3,7 +3,7 @@
 # 전제: 호스트 DSR 드라이버(roboton) 실행 중, 컨테이너 ros2-core 멈춤, r2gjog 꺼짐(같이 명령하지 않게).
 #   bash b_flow.sh build      메시지 패키지(ready2go_interfaces)만 호스트에 빌드 — 처음 한 번
 #   bash b_flow.sh server     스킬 서버 (터미널 1, 계속 켜 둠)
-#   bash b_flow.sh all        터미널 2: 홈에서 열기 → 끌기 → 집기 → 놓기 → 홈 (실패하면 거기서 멈춤, 닫기는 손으로)
+#   bash b_flow.sh all        터미널 2: 홈에서 열기 → 끌기 → 집기 → 놓기 → 닫기 → 홈 (실패하면 거기서 멈춤)
 #   bash b_flow.sh <동작>     하나만: open | opened | nudge | pick | place | close | home
 #     opened = 서랍을 손으로 끝까지 연 것으로 서버에 알림 (로봇 동작 없음)
 R="$HOME/ready2go"
