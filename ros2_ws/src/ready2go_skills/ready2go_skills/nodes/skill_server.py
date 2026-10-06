@@ -604,7 +604,13 @@ class SkillServer(Node):
             return None
 
         target = mp.offset_posx(contact_closed, pull, -dc["close_overtravel_m"] * 1000.0)   # 닫힌 손잡이 y 보다 조금 더
-        bad = self._line(goal, target, speed["push_mm_s"], "push", watch=guard)
+        slow = oc.get("push_slow_last_mm", 0.0)
+        bad = None
+        if slow > 0 and mp.travel_mm(target, pre, pull) > slow:   # 빠르게 밀다가 마지막 slow mm 는 천천히 (끝에서 세게 박지 않게, 10/06 저녁)
+            bad = self._line(goal, mp.offset_posx(target, pull, slow), speed["push_mm_s"], "push", watch=guard)
+        if bad is None:
+            bad = self._line(goal, target, speed.get("push_slow_mm_s", speed["push_mm_s"]) if slow > 0 else speed["push_mm_s"],
+                             "push_slow", watch=guard)
         now = self.robot.posx()
         rem = remaining_m(now) if now else math.inf
         confirmed = bad is None and rem <= oc["close_pos_tol_m"]

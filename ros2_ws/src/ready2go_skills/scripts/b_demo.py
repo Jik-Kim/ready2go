@@ -50,7 +50,7 @@ TRAY_ABOVE = [578.8, 205.6, 86.146, 38.535, -179.986, 38.534]            # 트�
 TRAY_PLACE_Z = 16.9                                                      # 트레이 바닥 3.9 + 11.5 + 1.5
 HANDLE_OPEN = [382.264, -66.470, 268.556]                                # 끝까지 연 손잡이 [실측]
 PUSH_Z = 268.556 + 3.6                                                   # 30 mm 벌린 손끝(TCP 아래 3.6) = 손잡이 높이
-CLOSED_Y = -291.757 - 2.0                                                # 닫힌 손잡이 y + 2 mm 더 밀기 [사용자]
+CLOSED_Y = -291.757 - 2.0 + 11.1                                         # 닫힘 TCP y [실측 10/06 저녁: 닫힌 손잡이 y − 2 를 목표로 밀면 다 닫힌 뒤 11.1 mm 앞에서 25 N 정지 — 손끝이 TCP 보다 앞]
 
 # ---- 힘·속도 (여기만 고치면 됨) ----
 SPEED = 1.5                 # 빈 공간 이동 속도 배율 (movej·movel·movesj·손잡이 접근·당기기·밀기). 누르기·끌기·잡기·놓기 하강은 그대로
@@ -63,7 +63,9 @@ PRESS_IGNORE_MM = 2.0       # 누르기 출발 후 이 거리까지는 힘을 �
 CONTACT_Z_TOL = 3.0         # 접촉 TCP z 가 예상(지우개 위 출발 z − 5) ± 이 값 밖이면 끌지 않고 멈춤
 DRAG_SPEED = 10.0           # mm/s
 DRAG_LIMIT_N = 15.0         # 끄는 중 이 힘을 넘으면 걸림
-PUSH_LIMIT_N = 25.0         # 서랍 밀어 닫다 걸림
+PUSH_LIMIT_N = 15.0         # 서랍 밀어 닫다 걸림 (25 → 15, 끝에서 세게 밂 10/06 저녁)
+PUSH_SLOW_MM = 30.0         # 닫기 마지막 이 거리는 천천히
+PUSH_SLOW_SPEED = 10.0      # mm/s
 GRIP_HANDLE_N = 40.0        # 손잡이 쥐는 힘
 GRIP_ERASER_N = 7.0         # 지우개 쥐는 힘
 STOP_CONFIRM_S = 3.0        # 정지 명령 뒤 이 시간 안에 TCP 가 멈춘 걸 확인 못 하면 잠금 (#83 E 검토 P1)
@@ -338,8 +340,11 @@ def run(r):
         grip(30.0, 20.0)
         r.movel([HANDLE_OPEN[0], HANDLE_OPEN[1] + 30.0, PUSH_Z] + h[3:])
         y0 = HANDLE_OPEN[1]
-        hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y, PUSH_Z] + h[3:], 30.0 * SPEED,
-                            lambda p, d: f"{abs(d[1]):.0f} N" if abs(d[1]) > PUSH_LIMIT_N else None, 20)
+        def limit(p, d):
+            return f"{abs(d[1]):.0f} N" if abs(d[1]) > PUSH_LIMIT_N else None
+        hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y + PUSH_SLOW_MM, PUSH_Z] + h[3:], 30.0 * SPEED, limit, 20)
+        if not hit:                                                     # 마지막 PUSH_SLOW_MM 는 천천히 (끝에서 세게 박지 않게)
+            hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y, PUSH_Z] + h[3:], PUSH_SLOW_SPEED, limit, PUSH_SLOW_MM / PUSH_SLOW_SPEED + 10)
         p = r.posx()
         left = p[1] - CLOSED_Y
         if hit and left > 15.0:

@@ -215,8 +215,11 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert pts[4][2] < pts[3][2] and log[1][0] == "movel"               # 놓은 뒤 위로
     log.clear()
     out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
-    assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-291.757 + 226.0 + 30.0, abs=1.0)   # 홈 안 거치고 손잡이 앞으로 바로
+    assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-291.757 + 226.0 + 11.1 + 30.0, abs=1.0)   # 홈 안 거치고 손잡이 앞으로 바로
     assert not any(e[0] == "movej" for e in log)
+    closed_y = -291.757 + 11.1 - 2.0                                    # 닫힘 TCP [실측 10/06 저녁] + 2 mm 더
+    assert log[1][1][1] == pytest.approx(closed_y + 30.0, abs=0.5)      # 빠르게 → 마지막 30 mm 는 천천히 (두 번)
+    assert log[2][1][1] == pytest.approx(closed_y, abs=0.5)
 
 
 def test_named_pose_from_low_non_drawer_spot_lifts_first(server):

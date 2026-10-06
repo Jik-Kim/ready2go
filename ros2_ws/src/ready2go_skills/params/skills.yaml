@@ -7,7 +7,7 @@ drawer_control:   # core/drawer_plan.py (#13, docs/domain.md 8.4). 모두 [팀 �
   approach_mm: 108.0            # [실측 B 10/04] drawer_approach → 손잡이 파지까지 직선 접근 거리 (poses.yaml drawer_approach 주석)
   pos_tol_m: 0.002              # 목표·닫힘 위치 도달 판정 여유
   stuck_force_n: 30.0           # [추정] 인출 중 저항이 이보다 크면 DRAWER_STUCK (즉시 정지). 정상 인출 저항을 재서 여유 두고 정함
-  push_stop_force_n: 25.0       # 닫기: 닫힘 위치까지 위치로 밀되, 미는 축 힘이 이보다 크면 멈춤 (닫힘 여유 안이면 닫힘, 밖이면 CLOSE_NOT_CONFIRMED) [추정]
+  push_stop_force_n: 15.0       # 닫기: 닫힘 위치까지 위치로 밀되, 미는 축 힘이 이보다 크면 멈춤 (닫힘 여유 안이면 닫힘, 밖이면 CLOSE_NOT_CONFIRMED). 25 → 15: 끝에서 세게 밂 [사용자 10/06 저녁]
   close_force_n: 15.0           # [추정] 닫힘 판정 미는 축 저항 임계. 닫힘 위치에서 밀 때 힘을 재서 정함
   close_overtravel_m: 0.002     # 닫기: 닫힌 손잡이 위치(열 때 잡는 y)보다 이만큼 더 밂 [사용자 10/06: 2 mm면 잘 닫힘]
   reopen_m: 0.05                # CLOSE_NOT_CONFIRMED 후 다시 여는 거리 (8.4 복구 ①)
@@ -48,6 +48,7 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
   grasp_mm_s: 15.0              # 마지막 내려가기·놓기
   pull_mm_s: 60.0               # 서랍 당기기 (10/06 1.5배)
   push_mm_s: 45.0               # 서랍 밀어 닫기 (10/06 1.5배)
+  push_slow_mm_s: 10.0          # 닫기 마지막 구간 (drawer_open_close.push_slow_last_mm) — 끝에서 세게 박지 않게
 carry:                            # 집은 뒤 → 트레이 직선 블렌딩 (poses.yaml carry_line) [사용자 10/06 저녁]
   radius_mm: 20.0               # 경유점 모서리 블렌딩 반지름 (마지막 놓는 자리는 0 = 정확히 정지)
   pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤
@@ -73,7 +74,8 @@ drawer_open_close:              # drawer_control 실물 (위 drawer_control 판�
   handle_grasp_back_mm: 2.0     # 손잡이 잡을 때 실측 자리보다 당기는 쪽(+y)으로 이만큼 덜 들어감 — 너무 붙음 [사용자 10/06]
   handle_open_width_mm: 30.0    # 손잡이 잡으러 갈 때 벌림 [팀 확정 필요]
   close_enabled: true           # 닫기: 손잡이를 잡지 않고 홈 자세(수직) 손끝으로 손잡이 앞을 힘 느낄 때까지 밀기 [사용자 제안 10/06, 실물 확인 전]. false = 사람이 닫음
-  vertical_push_offset_mm: 0.0  # 수직 그리퍼로 밀 때 목표 TCP = 열 때 잡는 손잡이 y + 이 값 [사용자 10/06]. 손가락이 먼저 닿아 닫히면 push_stop_force_n 에서 멈춤
+  vertical_push_offset_mm: 11.1 # 수직 그리퍼로 밀 때 목표 TCP = 열 때 잡는 손잡이 y + 이 값. [실측 B 10/06 저녁 b_demo] 0 이면 서랍이 다 닫힌 뒤 TCP 가 11.1 mm 앞에서 25 N 으로 멈춤 (손끝이 TCP 보다 앞) → 잘 닫히지만 세게 밂
+  push_slow_last_mm: 30.0       # 닫기 마지막 이 거리는 천천히 (speed.push_slow_mm_s) [사용자 10/06 저녁]
   handle_contact_n: 12.0         # 손잡이로 들어가다 당김 축으로 이만큼 닿으면 멈추고 뒤로 (10/06 실물: 서랍이 덜 닫혀 너무 깊이 들어감) [추정]
   handle_grip_force_n: 40.0     # [팀 확정 필요]
   handle_min_width_m: 0.003     # 손잡이를 잡았는지. [실측 B 10/06] 위 서랍 손잡이 꽉 잡은 폭 7.9 mm (못 잡으면 약 0.9 mm)
