@@ -200,7 +200,10 @@ class SkillServer(Node):
                               stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints))
         if not done.success:
             return done
-        return sf.check_reached(joints, self.robot.posj(), self.reach_tol)
+        reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
+        if reached.success and pose_name == "home":
+            self.home_posx = self.robot.posx()             # 놓기 때 서랍 → 홈 위로 높게 돌아오는 데 씀
+        return reached
 
     def _over_drawer(self, cur):
         """TCP 가 서랍 안쪽(벽 포함 여유 40 mm) 위에 있는지 — 최대 인출 tf 기준."""
@@ -220,11 +223,27 @@ class SkillServer(Node):
         cur = self.robot.posx()
         if cur and self._over_drawer(cur):
             return None
-        for name, d in (("home", None), ("drawer_top_view", drawer_id)):
-            o = self._named(goal, name, d)
-            if not o.success:
-                return o
-        return None
+        o = self._named(goal, "home")
+        if not o.success:
+            return o
+        bad = self._go_high(goal)                           # 홈에서 수직으로 쭉 올린 뒤 들어감 — 낮게 가면 열린 손잡이에 걸림 [실측 10/06]
+        if bad:
+            return bad
+        o = self._named(goal, "drawer_top_view", drawer_id)
+        return None if o.success else o
+
+    def _go_high(self, goal, xy=None):
+        """지금 방향 그대로 transit.high_z_mm 까지 직선 (xy 를 주면 그 위치로). 서랍 앞판·손잡이 위를 지날 때."""
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
+        prm = self.prm()
+        high = prm["transit"]["high_z_mm"]
+        up = mp.with_z(cur, max(cur[2], high))
+        bad = self._line(goal, up, prm["speed"]["line_mm_s"], "go_high")
+        if bad or xy is None:
+            return bad
+        return self._line(goal, [xy[0], xy[1]] + up[2:], prm["speed"]["line_mm_s"], "go_high_over")
 
     def _at_joints(self, joints):
         """wait_motion arrived: 관절각이 목표와 reach_tol 안. 조회 실패면 False."""
@@ -640,9 +659,16 @@ class SkillServer(Node):
         i = free[0]
         g, pl, speed = prm["gripper"], prm["place"], prm["speed"]
         # 서랍 → 트레이: 서랍 위면 보는 자세 → 홈 → tray_view (관절 이동, 열린 서랍 앞판 위를 직선으로 가로지르지 않음 10/06)
-        stops = (["drawer_top_view"] if self.robot.posx() and self._over_drawer(self.robot.posx()) else []) + ["home", "tray_view"]
-        for name in stops:
-            o = self._named(goal, name, self.held.get("drawer_id") if name == "drawer_top_view" else None)
+        if self.robot.posx() and self._over_drawer(self.robot.posx()):     # 서랍 위 → 보는 자세 → 높게 → 홈 위 → 홈
+            o = self._named(goal, "drawer_top_view", self.held.get("drawer_id"))
+            if not o.success:
+                return o, None
+            hp = getattr(self, "home_posx", None)
+            bad = self._go_high(goal, xy=hp[:2] if hp else (self.robot.posx()[0], prm["transit"]["exit_y_mm"]))
+            if bad:
+                return bad, None
+        for name in ("home", "tray_view"):
+            o = self._named(goal, name)
             if not o.success:
                 return o, None
         z_m = mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"])

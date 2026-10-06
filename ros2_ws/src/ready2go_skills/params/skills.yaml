@@ -43,6 +43,8 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
   pull_mm_s: 40.0               # 서랍 당기기
   push_mm_s: 30.0               # 서랍 밀어 닫기
 transit:
+  high_z_mm: 420.0              # 홈 ↔ 서랍 위를 오갈 때 수직으로 올리는 높이 — 열린 서랍 손잡이(z 268)·앞판 위 (10/06 낮게 가다 걸림) [실물 확인]
+  exit_y_mm: 20.0               # 홈 위치를 모를 때 서랍에서 빠져나오는 base y (열린 손잡이 y −66 보다 바깥)
   safe_z_mm: 300.0              # 장소 사이 이동 높이 (서랍 테두리 바닥+68 ≈ 264, 위로 넉넉히). drawer_top_view z 363은 팔 거의 펴짐(A 10/04)
 drawer_open_close:              # drawer_control 실물 (위 drawer_control 판정값과 함께)
   handle_grasp_posx:            # 손잡이 파지 TCP posx — 서랍 닫힌 상태 [실측 B 10/04, poses.yaml drawer_approach 주석]
