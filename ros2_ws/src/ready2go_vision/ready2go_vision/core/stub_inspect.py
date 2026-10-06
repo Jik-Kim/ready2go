@@ -75,3 +75,29 @@ def inspect(config: dict, region: str, search_target: str = "", interiors: dict 
     result = {"target_found": target is not None, "target": target,
               "candidates": candidates, "visible_count": len(items)}
     return True, "", json.dumps(result, ensure_ascii=False)
+
+
+def format_request(region: str, search_target: str) -> str:
+    """콘솔 요청 로그 한 줄 (#98). 요청마다 한 번만 찍는다."""
+    return f"[stub] 요청 region={region or '(빈 값)'} target={search_target or '(없음)'}"
+
+
+def _fmt_item(i: dict) -> str:
+    p = i["pose"]
+    x, y, z = p["position"]
+    yaw = f"{math.degrees(p['yaw']):.1f}°" + ("" if p["yaw_valid"] else "(invalid)")
+    return f"{i['id']} ({x:.4f}, {y:.4f}, {z:.4f}) m frame={p['frame']} yaw {yaw} top_z {i['top_z']:.4f} m"
+
+
+def format_response(region: str, search_target: str, success: bool, error_code: str, result_json: str) -> str:
+    """콘솔 응답 로그 한 줄 (#98). stub 응답임을 머리에 표시하고 성공·미발견·실패를 구분한다.
+    응답 내용은 바꾸지 않고 result_json 을 읽기만 한다."""
+    if not success:
+        return f"[stub] 응답 실패 error={error_code} region={region or '(빈 값)'}"
+    r = json.loads(result_json)
+    names = ", ".join(c["id"] for c in r["candidates"]) or "없음"
+    if r["target_found"]:
+        return (f"[stub] 응답 성공 target_found=true {_fmt_item(r['target'])}"
+                f" / 후보 {len(r['candidates'])}: {names} · 보임 {r['visible_count']}")
+    what = f"{search_target} 없음" if search_target else "target 지정 없음"
+    return f"[stub] 응답 성공 target_found=false ({what}) / 보임 {r['visible_count']}: {names}"

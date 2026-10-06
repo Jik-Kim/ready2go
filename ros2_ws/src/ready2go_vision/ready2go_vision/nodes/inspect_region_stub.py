@@ -4,7 +4,7 @@ import rclpy
 from rclpy.node import Node
 from ready2go_interfaces.srv import InspectRegion
 
-from ready2go_vision.core.stub_inspect import inspect, validate_config
+from ready2go_vision.core.stub_inspect import format_request, format_response, inspect, validate_config
 
 
 class InspectRegionStub(Node):
@@ -28,7 +28,14 @@ class InspectRegionStub(Node):
                 self.get_logger().error("설정이 실측 규칙을 어깁니다. 모든 요청이 CONFIG_INVALID 로 실패합니다: " + "; ".join(errs))
 
     def _handle(self, req, res):
+        log = self.get_logger()
+        log.info(format_request(req.region, req.search_target))
         res.success, res.error_code, res.result_json = inspect(self._config, req.region, req.search_target, self._interiors)
+        line = format_response(req.region, req.search_target, res.success, res.error_code, res.result_json)
+        if res.success:                                  # 미발견도 정상 응답이라 info
+            log.info(line)
+        else:                                            # rclpy 는 한 호출 위치에서 심각도를 바꾸면 ValueError → 호출을 나눈다
+            log.warning(line)
         return res
 
 
