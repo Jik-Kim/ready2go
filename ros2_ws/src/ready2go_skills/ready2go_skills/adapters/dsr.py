@@ -88,9 +88,11 @@ class Dsr:
                       time=0.0, radius=0.0, mode=0, blend_type=0, sync_type=1)
         return None if r is None else bool(r.success)
 
-    def movel_async(self, posx, vel, acc):
-        """비동기(sync_type=1) 직선 이동, base 기준 절대 posx. 반환은 movej_async 와 같다 (True·False·None)."""
-        r = self.call("movel", pos=[float(v) for v in posx], vel=[float(vel), 30.0], acc=[float(acc), 60.0],
+    def movel_async(self, posx, vel, acc, rot_vel=30.0, rot_acc=60.0):
+        """비동기(sync_type=1) 직선 이동, base 기준 절대 posx. vel·acc mm/s, rot_vel·rot_acc deg/s.
+        반환은 movej_async 와 같다 (True·False·None)."""
+        r = self.call("movel", pos=[float(v) for v in posx], vel=[float(vel), float(rot_vel)],
+                      acc=[float(acc), float(rot_acc)],
                       time=0.0, radius=0.0, ref=REF_BASE, mode=0, blend_type=0, sync_type=1)
         return None if r is None else bool(r.success)
 

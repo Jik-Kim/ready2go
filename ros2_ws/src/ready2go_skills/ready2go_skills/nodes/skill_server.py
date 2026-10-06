@@ -273,7 +273,9 @@ class SkillServer(Node):
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
         if early:
             return early
-        bad = sf.after_command(self.robot.movel_async(posx, vel, 2 * vel), what=f"movel({stage})",
+        sp = self.prm()["speed"]                          # 부드럽게: 가속 = 속도(1 s에 최고 속도), 회전 따로 (10/06 기울일 때 쿵쿵)
+        bad = sf.after_command(self.robot.movel_async(posx, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
+                                                      sp["turn_acc_deg_s2"]), what=f"movel({stage})",
                                stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad

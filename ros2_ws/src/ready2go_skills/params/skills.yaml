@@ -25,7 +25,7 @@ gripper:
   min_width_m: 0.002            # 이 폭 이하면 빈손 (빈손 닫힘 0.9 mm, grip_detected True [실측 B 10/03, 10/05])
   slip_tolerance_m: 0.002       # 잡은 뒤 폭 변화 허용 (지우개 고무 눌림 0.6 mm [실측 B 10/04])
   grasp_width_tolerance_m: 0.003   # 잡은 폭 vs 짧은 변 (지우개 22 → 21.0~21.4 mm [실측 B 10/04·10/06])
-  default_grip_force_n: 20.0    # item_grasp.yaml grip_force 가 null 일 때 [실측 B 10/04: 지우개 20 N 3/3]
+  default_grip_force_n: 7.0     # item_grasp.yaml grip_force 가 null 일 때. 10/06 사용자: 7 N 정도 (10/04 지우개 20 N 3/3 → 너무 셈)
   open_margin_mm: 13.0          # 벌림 = 짧은 변 + 이 값 [실측 B 10/04]
   tip_below_tcp_mm:             # 손끝이 TCP보다 아래인 거리 — 벌릴수록 손끝이 올라감 [실측 B 10/03·10/06, 트러블슈팅 1]
     open_mm: [0.9, 35.0]        #   크게 벌리면 손끝이 TCP보다 약 17 mm 위 [실측 10/06, 폭 85·100 중 확인 필요] → 표 밖은 끝값(외삽 안 함)
@@ -39,6 +39,9 @@ gripper:
   fingertip_outer_mm: 13.0      # TCP → 닫힌 손끝 바깥면 (지우개 양옆 터치 47.06 − 21.0 = 26.06 → 반) [실측 B 10/06]
 speed:                          # [팀 확정 필요] 처음엔 낮게
   line_mm_s: 50.0
+  line_acc_ratio: 1.0           # 직선 가속 = 속도 × 이 값 (예전 2.0 → 시작·멈춤이 쿵쿵, 10/06 사용자)
+  turn_deg_s: 20.0              # 직선 이동 중 방향 회전 속도 (예전 30)
+  turn_acc_deg_s2: 20.0         # 회전 가속 (예전 60)
   approach_mm_s: 25.0           # 물체·손잡이 바로 앞
   grasp_mm_s: 15.0              # 마지막 내려가기·놓기
   pull_mm_s: 40.0               # 서랍 당기기

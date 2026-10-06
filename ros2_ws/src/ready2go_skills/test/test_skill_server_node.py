@@ -91,7 +91,7 @@ def server(monkeypatch):
             self.log.append("stop")
             return True
 
-        def movel_async(self, p, vel, acc):
+        def movel_async(self, p, vel, acc, rot_vel=30.0, rot_acc=60.0):
             self.log.append(("movel", p))
             s0 = list(self.p)
             self.path = [[s0[i] + (p[i] - s0[i]) * (k + 1) / 5 for i in range(6)] for k in range(5)]
