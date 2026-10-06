@@ -61,8 +61,9 @@ class KinRobot:
     def __init__(self, q0):
         self.j = list(q0)
         self.p = kin.fk_posx(self.j)
-        self.segments, self.stage, self.contact = [], "", None
+        self.segments, self.stage, self.contact, self.grip_events = [], "", None, []
         self._moving = 0
+        self.step = ""
 
     # --- 상태 조회 ---
     def auto(self, *a, **k):
@@ -97,6 +98,8 @@ class KinRobot:
 
     # --- 이동 ---
     def movej_async(self, j, vel, acc):
+        if getattr(self, "from_line", False):                            # 직선 단계 뒤 바로 관절 이동(예: 열기의 drawer_approach)
+            self.stage, self.from_line = "movej", False
         q0, q1 = np.array(self.j, float), np.array(j, float)
         n = max(2, int(np.max(np.abs(q1 - q0)) / 0.5))
         traj = [(q0 + (q1 - q0) * k / n).tolist() for k in range(n + 1)]
@@ -152,7 +155,11 @@ def load_server(repo: Path, robot):
             pass
 
         def move(self, w, f):
-            Gripper.width = (21.0 if Gripper.holding else 0.9) if w == 0 else w
+            if w == 0:                                                  # 닫기: 손잡이(열기 단계)는 8 mm, 그 밖은 지우개 21 mm 를 잡음
+                Gripper.width = {"open": 8.0, "pick": 21.0}.get(robot.step, 0.9)   # 손잡이 8 mm·지우개 21 mm, 그 밖(끌기 등)은 빈 손 0.9 mm
+            else:
+                Gripper.width = float(w)
+            robot.grip_events.append(dict(before_segment=len(robot.segments), width_mm=Gripper.width, step=robot.step))
             return Rg2Status(Gripper.width, False, w == 0, False)
 
         def status(self):
@@ -169,7 +176,7 @@ def load_server(repo: Path, robot):
     real_line = ss.SkillServer._line
 
     def line(self, goal, posx, vel, stage, watch=None):                 # 단계 이름 기록 + 접촉 흉내
-        robot.stage = stage
+        robot.stage, robot.from_line = stage, True
         if stage != "drag":                                             # 끄는 동안은 누른 접촉을 유지(기준 힘이 같게)
             robot.contact = contact_for(stage, robot.p, posx)
         return real_line(self, goal, posx, vel, stage, watch)
@@ -177,7 +184,7 @@ def load_server(repo: Path, robot):
     real_named = ss.SkillServer._named
 
     def named(self, goal, pose_name, drawer_id=None):                   # 관절 이동에도 단계 이름
-        robot.stage, robot.contact = f"to_{pose_name}", None
+        robot.stage, robot.contact, robot.from_line = f"to_{pose_name}", None, False
         return real_named(self, goal, pose_name, drawer_id)
     ss.SkillServer._named = named
     return ss, sf, srv, Gripper
@@ -203,6 +210,7 @@ def main():
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
     after, results = None, []
     for step in a.steps.split(","):
+        robot.step = step
         if step == "open":
             action, params = "drawer_control", {"drawer_id": "drawer_top", "state": "open"}
         elif step == "close":
@@ -239,7 +247,7 @@ def main():
         sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
     except Exception:
         pass
-    Path(a.out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, results=results, eraser=ERASER, eraser_after=after,
+    Path(a.out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, results=results, eraser=ERASER, eraser_after=after, grip_events=robot.grip_events,
                                            segments=robot.segments), ensure_ascii=False))
     print(f"\n구간 {len(robot.segments)}개 → {a.out}")
     print("판정: 직선 이동(movel)에서 손끝 10 mm(회전 5°)당 관절 변화 > 4° 또는 |J3| < 15° 또는 |J5| < 10° 이면 ◀ (정상 구간 약 1.3~2.3°)")
