@@ -90,6 +90,31 @@ def box(stage, path, size, center, color, collide=True):
     return prim
 
 
+HANDOVER_FINGER_M = 0.010    # [추정] interior_m 은 닫힌 손끝 "중심"이 닿는 범위 → 실제 바닥은 손가락 반 두께만큼 넓다고 봄
+HANDOVER_WALL_OUT_M = 0.008  # [추정] 사다리꼴 벽: 윗면 중심이 바닥 끝에서 약 16 mm 바깥(places.yaml 테두리 터치) → 세운 벽을 그 중간에 둠
+HANDOVER_WALL_T = 0.004      # [추정]
+
+
+def handover_tray(stage):
+    """전달 트레이(places.yaml handover_zone): 좌표계 원점 = 앞쪽 오른쪽 바닥 모서리, 바닥면 z = 0. 고정 물체(충돌만)."""
+    hz_ = PLACES.get("handover_zone") or {}
+    tf, inner = hz_.get("tf"), hz_.get("interior_m")
+    if not tf or not tf.get("translation_m") or not inner:
+        return "만들지 않음 (places.yaml handover_zone tf·interior_m 없음)"
+    d, w, h = (float(v) for v in inner)
+    m, o, t = HANDOVER_FINGER_M, HANDOVER_WALL_OUT_M, HANDOVER_WALL_T
+    root = "/World/workspace/handover_tray"
+    xform(stage, root, pose(tf["translation_m"], tf["quaternion_xyzw"]))
+    col = (0.35, 0.45, 0.7)
+    box(stage, f"{root}/floor", (d + 2 * (m + o), w + 2 * (m + o), t), ((d) / 2, w / 2, -t / 2), col)
+    for nm, size, c in (("wall_near", (t, w + 2 * (m + o), h), (-m - o, w / 2, h / 2)),
+                        ("wall_far", (t, w + 2 * (m + o), h), (d + m + o, w / 2, h / 2)),
+                        ("wall_right", (d + 2 * (m + o), t, h), (d / 2, -m - o, h / 2)),
+                        ("wall_left", (d + 2 * (m + o), t, h), (d / 2, w + m + o, h / 2))):
+        box(stage, f"{root}/{nm}", size, c, col)
+    return f"{root} 바닥 {d * 1000:.0f}×{w * 1000:.0f} mm(손끝 범위) 높이 {h * 1000:.0f} mm, 원점 {tf['translation_m']}"
+
+
 def build():
     u = DIM["drawer_unit"]
     top = DIM["drawer_top"]
@@ -249,6 +274,8 @@ def build():
         for pa, pb in ((tray_top, tray_bottom), (tray_bottom, tray_top)):   # 두 상자끼리도 충돌 끔
             UsdPhysics.FilteredPairsAPI(stage.GetPrimAtPath(pa)).GetFilteredPairsRel().AddTarget(Sdf.Path(pb))
 
+    handover = handover_tray(stage)
+
     OUT.parent.mkdir(parents=True, exist_ok=True)
     stage.GetRootLayer().Export(str(OUT))
     print(f"[build] 저장: {OUT}", flush=True)
@@ -260,6 +287,7 @@ def build():
         print("[build] 서랍장은 만들지 않았습니다 (작업대·로봇·카메라만). 아직 필요한 항목:", flush=True)
         for m in missing:
             print(f"[build]   - {m}", flush=True)
+    print(f"[build] 전달 트레이: {handover}", flush=True)
 
 
 build()
