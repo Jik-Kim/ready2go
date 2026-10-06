@@ -153,3 +153,61 @@ def test_non_bool_yaw_valid_is_a_config_error(bad):
     cfg = {"ready": True, "regions": {"r": {"objects": [{"class": "a", "position": [0, 0, 0], "yaw": 0.4, "yaw_valid": bad, "top_z": 0.02}]}}}
     ok, code, js = inspect(cfg, "r", "a")
     assert not ok and code == "CONFIG_INVALID" and js == ""
+
+
+# --- 콘솔 로그 (#98): 응답 내용은 그대로, 로그 줄만 성공·미발견·실패를 구분 ---
+from ready2go_vision.core.stub_inspect import format_request, format_response  # noqa: E402
+
+
+def log_for(cfg, region, target="", interiors=None):
+    ok, code, js = inspect(cfg, region, target, interiors)
+    return format_response(region, target, ok, code, js), (ok, code, js)
+
+
+def test_log_request_line():
+    assert format_request("drawer_top", "wallet") == "[stub] 요청 region=drawer_top target=wallet"
+    assert format_request("drawer_top", "") == "[stub] 요청 region=drawer_top target=(없음)"
+
+
+def test_log_found_shows_id_pose_frame():
+    line, (ok, code, js) = log_for(CFG, "drawer_top", "wallet")
+    assert line.startswith("[stub] 응답 성공 target_found=true wallet#1 (0.1000, 0.1800, 0.0000) m frame=drawer_top")
+    assert "후보 2: watch#1, car_key#1 · 보임 3" in line
+    assert (ok, code, js) == inspect(CFG, "drawer_top", "wallet")          # 로그가 응답을 바꾸지 않음
+
+
+def test_log_not_found_is_success_not_failure():
+    line, _ = log_for(CFG, "drawer_top", "eraser")
+    assert line.startswith("[stub] 응답 성공 target_found=false (eraser 없음) / 보임 3")
+    line, _ = log_for(CFG, "staging_tray")
+    assert line == "[stub] 응답 성공 target_found=false (target 지정 없음) / 보임 0: 없음"
+
+
+def test_log_yaw_invalid_marked():
+    cfg = {"ready": True, "regions": {"drawer_top": {"objects": [
+        {"class": "eraser", "position": [0.1, 0.1, 0.0], "yaw": 0.0, "yaw_valid": False, "top_z": 0.01}]}}}
+    line, _ = log_for(cfg, "drawer_top", "eraser")
+    assert "yaw 0.0°(invalid)" in line
+
+
+@pytest.mark.parametrize("cfg,region,interiors,code", [
+    ({"ready": False, "regions": {}}, "drawer_top", None, "STUB_NOT_READY"),
+    (CFG, "drawer_bottom", None, "UNKNOWN_REGION"),
+    (CFG, "drawer_top", {"drawer_top": [0.05, 0.05]}, "CONFIG_INVALID"),
+])
+def test_log_failure_codes(cfg, region, interiors, code):
+    line, (ok, c, js) = log_for(cfg, region, "wallet", interiors)
+    assert not ok and c == code and js == ""
+    assert line == f"[stub] 응답 실패 error={code} region={region}"
+
+
+@pytest.mark.parametrize("region,target", [
+    ("drawer_top\n[WARN] forged", "wallet"),        # 실패 경로(UNKNOWN_REGION)에 region 이 들어감
+    ("drawer_top", "eraser\r\n[INFO] forged"),      # 미발견 경로에 target 이 들어감
+    ("drawer_top", "x\x1b[31m\t"),                  # 터미널 제어문자
+])
+def test_log_lines_stay_single_line(region, target):
+    """#100 D P2: 요청 문자열의 줄바꿈·제어문자로 로그가 여러 줄로 갈라지지 않는다."""
+    for line in (format_request(region, target), log_for(CFG, region, target)[0]):
+        assert "\n" not in line and "\r" not in line and line.isprintable()
+    assert "drawer_top\\n[WARN] forged" in log_for(CFG, "drawer_top\n[WARN] forged", "wallet")[0]
