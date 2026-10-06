@@ -10,7 +10,7 @@
 #   bash b_flow.sh route      경유점 1 → movesj 2·3·4 → 트레이 첫 칸 위 직선
 #   bash b_flow.sh mvl X Y Z A B C   툴 확인 후 직선 이동
 #   bash b_flow.sh movej J1 J2 J3 J4 J5 J6   툴 확인 후 관절 이동 (J5 133° 넘으면 거부)
-#   bash b_flow.sh view       어디서든 drawer_top_view (낮으면 z 150 → 홈 → z 325 → 보는 자세)
+#   bash b_flow.sh view       drawer_top_view 로 관절 이동 하나만 (경유 없음)
 R="$HOME/ready2go"
 H="$HOME/r2g_host"      # 호스트 빌드 결과 — 저장소 ros2_ws/install 은 컨테이너가 만든 것(경로가 /opt/dsr_ws 등)이라 쓰지 않음
 ros_env() {

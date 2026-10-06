@@ -100,22 +100,9 @@ def main():
     slot1 = to_base(tray["tf"], (lx / (2 * tray["slots"]), ly / 2, 0.0))      # 첫 칸 가운데 (y = 트레이 가운데)
     r = Robot()
     r.check_tool()
-    if cmd == "view":                                        # 어디서든 drawer_top_view: (낮으면 z 150) → 홈 → z 325 → 보는 자세
+    if cmd == "view":                                        # drawer_top_view 로 관절 이동 하나만 (경유 없음 — 10/06 홈 경유로 사고 날 뻔함)
         poses = yaml.safe_load((CFG / "poses.yaml").read_text(encoding="utf-8"))
-        tr = yaml.safe_load((Path(__file__).resolve().parents[1] / "params" / "skills.yaml").read_text(encoding="utf-8"))["transit"]
-        cur = r.posx()
-        if cur and cur[2] < tr["free_lift_z_mm"]:
-            print(f"z {cur[2]:.0f} → {tr['free_lift_z_mm']:.0f} 올림")
-            if not r.movel(cur[:2] + [tr["free_lift_z_mm"]] + cur[3:]):
-                sys.exit("올리기 실패")
-        print("홈")
-        if not r.movej(poses["home"]["joints_deg"]):
-            sys.exit("홈 실패")
-        h = r.posx()
-        print(f"홈에서 z {tr['high_z_mm']:.0f} 까지 수직")
-        if not r.movel(h[:2] + [max(h[2], tr["high_z_mm"])] + h[3:]):
-            sys.exit("올리기 실패")
-        print("drawer_top_view")
+        print("drawer_top_view 로 관절 이동 (경유 없음)")
         print("성공" if r.movej(poses["drawer_top_view"]["drawer_top"]) else "실패")
         return
     if cmd == "movej":                                       # movej J1..J6 — 툴 확인 후 관절 이동
