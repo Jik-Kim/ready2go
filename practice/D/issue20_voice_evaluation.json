@@ -465,7 +465,7 @@
       "execution_attempted": "실제 로봇 실행 시도 여부",
       "speech_ended_unix": "실제 audio 발화 종료 Unix 시각, 미측정이면 null",
       "tts_started_unix": "첫 TTS 재생 시작 Unix 시각, 미측정이면 null",
-      "tts_start_basis": "actual_playback, mock_event 또는 unavailable",
+      "tts_start_basis": "실제 어댑터는 portaudio_first_dac, 테스트 더블은 mock, TTS 실패·미측정은 null",
       "tts_mock": "TTS가 모의 이벤트인지 여부",
       "confirmation_latency_ms": "speech_ended_unix부터 첫 실제 TTS 재생까지의 지연, 미측정이면 null",
       "measurement_status": "measured, not_measured 또는 failed",
@@ -537,7 +537,7 @@
       "passed_count": null,
       "failed_or_unmeasured_count": null,
       "maximum_observed_ms": null,
-      "pass_rule": "input_kind=audio, tts_mock=false, tts_start_basis=actual_playback인 실측 confirmation_latency_ms만 3초 성공 판정에 사용한다."
+      "pass_rule": "input_kind=audio, tts_mock=false, tts_start_basis=portaudio_first_dac인 실측 confirmation_latency_ms만 3초 성공 판정에 사용한다. tts_start_basis=mock 또는 null은 성공으로 집계하지 않는다."
     }
   }
 }
