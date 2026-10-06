@@ -1,11 +1,11 @@
-"""core/inspect_real.py 시험: 합성 장면(서랍 바닥 + 회전한 직육면체)에서 위치·높이·yaw 가 규칙대로 나오는가. OpenCV 가 없으면 건너뜀."""
+"""core/inspect_real.py 시험: 합성 장면(서랍 바닥 + 회전한 직육면체)에서 위치·높이·yaw 가 규칙대로 나오는가. numpy·OpenCV·PyYAML 중 하나라도 없으면(CI) 건너뜀."""
 import json
 import math
 from pathlib import Path
 
-import numpy as np
 import pytest
 
+np = pytest.importorskip("numpy")
 pytest.importorskip("cv2")
 yaml = pytest.importorskip("yaml")
 from ready2go_vision.core.geometry import Intrinsics, backproject  # noqa: E402
