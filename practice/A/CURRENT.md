@@ -28,7 +28,7 @@
 - [x] #14 학습 파이프라인 준비: `tools/yolo/`(촬영·데이터셋 구성·학습), RTX 5060 CUDA 확인, 합성 데이터로 종단 검증 [실측 10/03]
 - [x] **일정 변경(PM 10/04)**: 10/05 공휴일이라 Day 3의 데이터 수집을 10/04로 당겨 완료(위 참고). 남은 로봇 순서(B `tray_view` 교시, `staging_tray`, `vision_stub` 물체 4개 손끝 실측, `drawer_control` 실물)는 B 소관.
 - [x] #14 실물 데이터 수집·라벨링(10/04). `config/yolo_classes.txt` 11종 그대로 사용(`--init-classes` 실행 안 함).
-- [ ] #14 YOLO 학습·평가(10/06): `vision` 컨테이너(GPU) + 기본 가중치 `yolov8n.pt` 내려받기는 사용자 승인 필요. 통과 기준 mAP50 0.9는 [팀 확정 필요]. 검증 인스턴스가 클래스당 5~7개로 적어 **10 미만이면 `s92_val_c`로 보충**. `s02_spread`는 계획표 1~5번 줄 조합만 반복해 찍음(조합 5가지) → 공존 편향 주의.
+- [ ] #14 YOLO 학습·평가(10/06): `vision` 컨테이너(GPU) + 기본 가중치 `yolov8n.pt` 내려받기는 사용자 승인 필요. 통과 기준 mAP50 0.9는 [팀 확정 10/06, 사용자 전달]. 검증 인스턴스가 클래스당 5~7개로 적어 **10 미만이면 `s92_val_c`로 보충**. `s02_spread`는 계획표 1~5번 줄 조합만 반복해 찍음(조합 5가지) → 공존 편향 주의.
 - [ ] 도구 PR: 브랜치 `feat/a-auto-label`(`auto_label_single.py`, `review_boxes.py`, `import_roboflow.py`)을 PR로 올림(미작성). 단독 배치 자동 라벨은 뎁스 덩어리 + 빈 서랍 배경 색 차이, 가장자리에 닿는 물체는 ROI 밖까지 확장 필요(벽 인접 물체가 ROI에 잘리는 것 발견).
 - [x] #18 `inspect_region` stub (설정 파일 좌표 응답, 서비스 호출 확인 10/03) — 설정 `ready: false`로 배포(실측 전 STUB_NOT_READY로 차단, PR #33 리뷰). 좌표를 B와 실물로 재서 교체한 뒤 `ready: true`, `pose` 형식 B와 합의 필요
 - [ ] #18 V2 (Day 5): YOLO+뎁스. **깊이 0·결손 픽셀 검사와 전용 `error_code`(예: `DEPTH_INVALID`) 필수** — B가 원본 `verify.py`에서 깊이 0 클릭 시 팔이 카메라 위치로 들어 올려진 사례 2회. 미발견(`success=true`, `target_found=false`)과 구분. 높이 오프셋(카메라 면 높이 + 약 10 mm)은 B 쪽에서 처리

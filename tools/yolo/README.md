@@ -11,7 +11,7 @@
 | Roboflow 복원 | `python3 tools/yolo/import_roboflow.py data/roboflow_export [--dry-run]` | Roboflow YOLOv8 내보내기를 우리 규칙으로 되돌린다: 클래스는 **이름으로** `yolo_classes.txt` 번호에 재매핑, 파일 이름 접두어(`s01_…`)로 세션 복원, 이미지는 원본 PNG. 버전을 만들 때 **Preprocessing(Auto-Orient, Resize)과 Augmentation은 모두 끄고** 내려받는다(좌표가 어긋남). 모르는 클래스 이름·범위 밖 좌표는 쓰기 전에 중단 |
 | 클래스 고정 | `python3 tools/yolo/build_dataset.py --init-classes` | **라벨링 시작 전에 1회.** `config/yolo_classes.txt`(줄 번호 = 클래스 id, 깃으로 추적)를 만든다. 물품을 추가하면 맨 뒤에 덧붙이고 앞 번호는 바꾸지 않는다. **실행 시점**: 물품 목록(이슈 #8 11종)이 온톨로지 `world.items`에 반영(PR #46 머지)된 뒤. 그 전에는 파일이 없어 `main`에서 구성 단계가 중단되는 것이 정상 |
 | 구성 | `python3 tools/yolo/build_dataset.py --val s90_val_a s91_val_b` (고정 파일이 없으면 **중단**, 합성 점검만 `--allow-ontology-order`) | **세션 단위** 분할. 라벨 오류(id 범위·좌표 범위·이미지와 라벨 파일명 불일치)가 있거나 `yolo_classes.txt`에 온톨로지에 없는 이름이 있으면 중단 |
-| 학습·평가 | `python3 tools/yolo/train.py --base <yolov8n.pt> --epochs 100 --name v1` | 검증 세션 mAP50 을 `runs/<name>/metrics.json`에 기록, 0.9 이상이면 통과(결정 #22 제안값 [팀 확정 필요]) |
+| 학습·평가 | `python3 tools/yolo/train.py --base <yolov8n.pt> --epochs 100 --name v1` | 검증 세션 mAP50 을 `runs/<name>/metrics.json`에 기록, 0.9 이상이면 통과(결정 #22, [팀 확정 10/06, 사용자 전달]) |
 | yaw 비교 실험 | (이슈 [#62](https://github.com/Jik-Kim/ready2go/issues/62) YOLO-OBB, [#63](https://github.com/Jik-Kim/ready2go/issues/63) SAM2) | 데모 경로 밖. 정답 yaw 기록법은 `capture_session.py --gt-yaw-method`로 방법만 `session.yaml`에 남기고 실제 방법(각도 지그/격자 시트)은 #62에서 정한다 `[팀 확정 필요]`. OBB 라벨은 현재 detect 형식과 공존해야 하므로 `build_dataset.py`에 라벨 형식 선택(detect/obb)을 추가하는 방향 |
 | 점검용 | `python3 tools/yolo/make_synthetic.py` | 합성 데이터. **파이프라인 점검 전용**, 학습 결과를 모델로 쓰지 않음 |
 
@@ -33,11 +33,11 @@
 | `yolo11n` | 0.953 | 0.959 | 0.954 | 0.989 | 0.926 | 46 |
 | `yolo26n` | 0.931 | 0.939 | 0.933 | 0.972 | 0.926 | 61 |
 
-- 세 모델 모두 통과 기준 mAP50 0.9(결정 #22 제안값 [팀 확정 필요])를 넘었다
+- 세 모델 모두 통과 기준 mAP50 0.9(결정 #22, [팀 확정 10/06, 사용자 전달])를 넘었다
 - 클래스별 AP50이 1.0 미만인 것: `caramel_box` 0.938 / 0.962 / 0.786(v8n / 11n / 26n), `airpods_case` 0.955 / 0.995 / 0.955, `lip_balm` 0.995 / 0.962 / 0.995. 나머지 8개는 모두 0.995
 - **한계**: 검증이 20장·클래스당 5~7개라 0.01 안팎 차이는 순위로 보기 어렵다
 - **결정 [사용자 확정 10/06]: 기본 가중치는 `yolo11n`으로 한다.** 이유: ① 전체 지표 중 재현율(0.959)·F1(0.954)·mAP50(0.989)이 가장 높고 정밀도(0.953)도 v8n(0.961)과 0.01 차이뿐이다 ② 약한 클래스가 가장 적고 `caramel_box`(0.962)·`airpods_case`(0.995)가 v8n보다 높다 ③ `yolo26n`은 `caramel_box`가 0.786으로 크게 낮아 이 데이터에서는 이점이 없었다 ④ 추론 시간은 RTX 5060에서 v8n 1.8 / 11n 2.1 / 26n 1.3 ms/장(검증 1회 측정, 편차 있음)으로 모두 데모 요구에 비해 충분히 빠르고, 11n이 조금 느려도 선택을 바꿀 차이는 아니다 [실측 10/06]. 한계: 검증이 작아 격차가 크지 않으므로, 이후 필요하면 **추가 라벨링·검증 세션(`s92_val_c` 등)을 더하고 같은 조건으로 다시 학습**해 확인한다. 재학습 때 11n이 뒤처지면 이 결정을 다시 연다
-- 통과 기준 mAP50 0.9는 [팀 확정 필요] 그대로이고, 확정 모델 파일(`models/`, Git LFS) 반영은 별도 작업이다 [미확정]
+- 통과 기준 mAP50 0.9는 [팀 확정 10/06, 사용자 전달]. 확정 모델 파일은 `models/yolo11n_ready2go_v1.pt`(Git LFS, 이 파일만 `.gitignore` 예외, 설명은 `models/README.md`)
 - 재현: 저장소를 컨테이너에 마운트하지 않으므로 `data/yolo`·`data/labeled`(이미지가 `data/labeled`로의 심볼릭 링크)를 같은 경로로 마운트하고 `train.py --base <가중치> --name <이름> --data <dataset.yaml>`을 실행한다. 결과(`runs/`)는 저장소 밖에 두면 깃 상태가 어지러워지지 않는다
 
 ## 주의
