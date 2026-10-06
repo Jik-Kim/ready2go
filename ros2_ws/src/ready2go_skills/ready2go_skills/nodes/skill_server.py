@@ -635,7 +635,7 @@ class SkillServer(Node):
         grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
         off = params.get("approach_offset", 0.10)              # 태스크·온톨로지는 [0, 0, 0.1] (m) — z 만 씀
         approach = float(off[2] if isinstance(off, (list, tuple)) else off) * 1000.0
-        above = mp.with_z(grasp, grasp[2] + approach)
+        above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
         bad = self._transit(goal, above, "to_object")
         if bad:
             return bad, None
@@ -703,10 +703,13 @@ class SkillServer(Node):
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
         legs = []
         if self._over_drawer(cur):
-            high = prm["transit"]["high_z_mm"]
-            hp = getattr(self, "home_posx", None)
-            out_xy = hp[:2] if hp else [cur[0], prm["transit"]["exit_y_mm"]]
-            legs += [(mp.with_z(cur, max(cur[2], high)), "transport:up"), (list(out_xy) + [high] + list(cur[3:]), "transport:out")]
+            # 서랍에 안 부딪힐 만큼만 높이고, 로봇 쪽(x 작게)으로 당긴 뒤 앞판을 넘음 — 높고 멀수록 특이점 (10/06 사용자)
+            tr = prm["transit"]
+            safe, high, ex, ey = tr["safe_z_mm"], tr["high_z_mm"], tr["exit_x_mm"], tr["exit_y_mm"]
+            legs += [(mp.with_z(cur, safe), "transport:up"),                       # 옆벽·테두리 위
+                     ([min(cur[0], ex), cur[1], safe] + list(cur[3:]), "transport:in"),   # 서랍 안에서 로봇 쪽으로
+                     ([min(cur[0], ex), cur[1], high] + list(cur[3:]), "transport:clear"),  # 앞판 넘을 높이
+                     ([min(cur[0], ex), ey, high] + list(cur[3:]), "transport:out")]        # 앞판·손잡이 넘어 서랍 밖
         legs.append((above, "transport"))
         for pose, st in legs:
             bad = self._line(goal, pose, speed["line_mm_s"], st)
