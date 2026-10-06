@@ -177,7 +177,7 @@ ers1 = (TRACE.get("eraser_after") or TRACE["eraser"])["pose"]
 print(f"[play] {len(TRACE['segments'])}구간 중 {len(segs)}구간, 배속 {args.speed}, ◀ 구간 ×{args.flag_slow} 느리게", flush=True)
 while app.is_running():
     first = segs[0]["i"]
-    travel, width, held, rel = 0.0, 110.0, False, None
+    travel, width, held, rel, placed = 0.0, 110.0, False, None, False
     for s in TRACE["segments"][:first]:                                  # 건너뛴 앞 구간의 서랍·그리퍼 상태
         travel = max_travel if s["stage"] == "pull" else (0.0 if s["stage"] == "push" else travel)
     for b, ws in grips.items():
@@ -192,12 +192,12 @@ while app.is_running():
             print(f"[play]     그리퍼 {width:.0f} → {w_new:.0f} mm", flush=True)
             for k in range(1, 31):
                 apply(s["joints"][0], finger_deg(width + (w_new - width) * k / 30), travel)
-            width = w_new
-            if s["step"] == "pick" and w_new < 50 and not held:            # 지우개를 잡음
+            closing, width = w_new < width, w_new
+            if s["step"] == "pick" and closing and not held:                # 닫을 때 잡음 (벌릴 때가 아님)
                 held = True
                 rel = np.linalg.inv(W @ kin.fk(s["joints"][0])) @ eraser_world(ers1, travel)
-            if s["step"] == "place" and w_new > 30 and held:
-                held = False
+            if s["step"] == "place" and not closing and held:               # 벌리면 놓음 → 그 자리에 둠
+                held, placed = False, True
         flag = s.get("flag")
         info = (f"{s.get('dist_mm', 0):5.0f} mm {s.get('rot_deg', 0):4.0f}° 10mm당 관절 {s.get('amp_deg_per_10mm', 0):4.1f}° "
                 f"J3 최소 {s['min_abs_j3']:4.1f}°") if s["kind"] == "movel" else f"관절 이동 최대 {max(s['joint_travel_deg']):5.1f}°"
@@ -224,13 +224,14 @@ while app.is_running():
                                                     for i in range(3)], "yaw": ers1["yaw"]}, travel))
             elif held:
                 set_cube(T_tcp @ rel)
-            elif s["step"] in ("open", "close"):
+            elif not placed and s["step"] in ("open", "close"):               # 서랍 안에 있을 때만 서랍과 함께
                 set_cube(eraser_world(ers1 if s["step"] == "close" else ers0, travel))
             apply(q, finger_deg(width), travel)
             if not app.is_running():
                 break
         UsdGeom.Imageable(marker.GetPrim()).MakeInvisible()
     if args.headless:
+        print(f"[play] 시험: 지우개 최종 월드 위치 {np.round(gf_to_np(c_xf.ComputeLocalToWorldTransform(0))[:3, 3], 3)}", flush=True)
         from isaacsim.core.prims import SingleRigidPrim
         body = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetRelationship("physics:body1").GetTargets()[0]
         rp = SingleRigidPrim(str(body))
