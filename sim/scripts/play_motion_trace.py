@@ -15,6 +15,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -152,6 +153,18 @@ def set_cube(T):
     c_op.Set(np_to_gf(T @ np.diag([size[0], size[1], size[2], 1.0])))
 
 
+_clock = [None]
+
+
+def pace():
+    """실제 시간에 맞춤: 화면이 60 fps 보다 빨리 그려져도 스텝당 PHYS_DT 초 (빨리 감기처럼 보이지 않게)."""
+    now = time.monotonic()
+    if _clock[0] is not None and not args.headless and now < _clock[0] + PHYS_DT:
+        time.sleep(_clock[0] + PHYS_DT - now)
+        now = _clock[0] + PHYS_DT
+    _clock[0] = now
+
+
 def apply(q_arm, f_deg, travel):
     pos = np.radians(np.append(q_arm, f_deg))
     idx = np.append(arm_idx, fi)
@@ -165,6 +178,7 @@ def apply(q_arm, f_deg, travel):
     else:
         drawer_attr.Set(float(travel))
     world.step(render=not args.headless)
+    pace()
 
 
 _b1 = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetRelationship("physics:body1").GetTargets()[0]
