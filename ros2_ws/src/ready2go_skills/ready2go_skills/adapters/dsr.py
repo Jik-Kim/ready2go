@@ -6,10 +6,13 @@ import time
 
 from rclpy.callback_groups import ReentrantCallbackGroup
 
-from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentTcp, GetCurrentTool, GetRobotMode, GetRobotState,
-                           MoveJoint, MoveStop, SetRobotMode)
+from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetRobotMode, GetRobotState,
+                           GetToolForce, MoveJoint, MoveLine, MoveStop, SetRobotMode)
 
 SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
+        "posx": (GetCurrentPosx, "aux_control/get_current_posx"),
+        "force": (GetToolForce, "aux_control/get_tool_force"),
+        "movel": (MoveLine, "motion/move_line"),
         "state": (GetRobotState, "system/get_robot_state"),
         "mode": (GetRobotMode, "system/get_robot_mode"),
         "setmode": (SetRobotMode, "system/set_robot_mode"),
@@ -18,6 +21,7 @@ SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
         "tcp": (GetCurrentTcp, "tcp/get_current_tcp"),
         "tool": (GetCurrentTool, "tool/get_current_tool")}
 AUTO = 1
+REF_BASE = 0
 QUICK_STOP = 2          # jog_gui 와 같은 stop_mode
 
 
@@ -47,6 +51,17 @@ class Dsr:
         r = self.call("posj")
         return list(r.pos) if r else None
 
+    def posx(self):
+        """base 기준 TCP posx [x, y, z, Rz, Ry, Rz'] (mm, deg). 실패하면 None."""
+        r = self.call("posx", ref=REF_BASE)
+        return list(r.task_pos_info[0].data[:6]) if r and r.task_pos_info else None
+
+    def tool_force(self):
+        """base 기준 툴 외력 [fx, fy, fz, mx, my, mz]. 영점이 시간에 따라 흐르므로 쓰기 직전에 기준값을 잡고 변화량만 쓴다
+        [실측 B 10/06]. 실패하면 None."""
+        r = self.call("force", timeout=0.5, ref=REF_BASE)
+        return list(r.tool_force) if r else None
+
     def tool_names(self):
         tcp, tool = self.call("tcp"), self.call("tool")
         return (tcp.info if tcp else None, tool.info if tool else None)
@@ -71,6 +86,12 @@ class Dsr:
         끝은 wait_motion 이, 응답 없음·거부 처리는 skill_flow.after_command 가 본다."""
         r = self.call("movej", pos=[float(v) for v in joints], vel=float(vel), acc=float(acc),
                       time=0.0, radius=0.0, mode=0, blend_type=0, sync_type=1)
+        return None if r is None else bool(r.success)
+
+    def movel_async(self, posx, vel, acc):
+        """비동기(sync_type=1) 직선 이동, base 기준 절대 posx. 반환은 movej_async 와 같다 (True·False·None)."""
+        r = self.call("movel", pos=[float(v) for v in posx], vel=[float(vel), 30.0], acc=[float(acc), 60.0],
+                      time=0.0, radius=0.0, ref=REF_BASE, mode=0, blend_type=0, sync_type=1)
         return None if r is None else bool(r.success)
 
     def stop(self):

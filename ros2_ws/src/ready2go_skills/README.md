@@ -47,8 +47,15 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 
 | 동작 | 상태 |
 | :--- | :--- |
-| `move_to_named_pose` | 구현: `config/poses.yaml` 관절각으로 `movej`, 도착 확인 |
-| `drawer_control`·`nudge_object`·`pick_object`·`place_object` | TODO(B) 10/06 실측 후. 지금은 움직이지 않고 `NOT_IMPLEMENTED` |
+| `move_to_named_pose` | `config/poses.yaml` 관절각으로 `movej`, 도착 확인. 낮은 곳(서랍·트레이 안)이면 먼저 수직으로 `transit.safe_z_mm`까지 올림 |
+| `drawer_control` (`drawer_top`) | 열기: `drawer_approach` → 손잡이 직선 접근 → 잡기(폭 확인) → 당기기(걸림 감시, 끝 10 mm 안 걸림은 스토퍼) → 놓고 물러남. 닫기: 주먹 쥐고 손잡이 앞으로 → 밀기, 닫힘 = 위치 AND 힘 (`drawer_plan`) |
+| `nudge_object` | 옆벽에 붙어 짧은 변으로 못 잡을 때만: 그리퍼를 벽 쪽 손끝으로 30° 기울여 위에서 내려가 힘 2 N 감지 → **서랍 옆(y)으로만** 끌기 → 올라감. 결과 `target_after` = 끈 뒤 예상 위치 (`core/motion_plan.py` `plan_drag`, 트러블슈팅 2) |
+| `pick_object` (서랍) | 짧은 변 잡기(`pick_plan`), 벌림 = 짧은 변 + 13 mm, 폭 확인(`check_grasp`), 들어 올린 뒤 놓침 확인(`check_hold`) |
+| `place_object` (`handover_zone`) | 빈 칸(트레이 x로 3칸), 집을 때 높이 + 1.5 mm에서 놓음, 옮기기 전 놓침 확인 |
+
+**시작 조건**: 서버를 띄울 때 서랍이 **닫혀 있어야** 한다 (서버는 인출 거리를 기억만 함). 재시작 뒤 열린 서랍을 닫으려면 `drawer_control`에 `displacement`(m)를 같이 준다 — 없으면 `DRAWER_STATE_UNKNOWN`(움직이지 않음).
+값: `params/skills.yaml` (그리퍼 기하·속도·끌기 — 10/05~06 로봇 실측), 장소 `config/places.yaml`, 물체 크기 `knowledge/world.jsonld`, 잡는 힘 `config/item_grasp.yaml`.
+추가 에러 코드: `GRASP_FAILED`·`NOT_HOLDING`·`HOLDING_OBJECT`·`TRAY_FULL`·`PLACE_NOT_CONFIGURED`·`UNSUPPORTED_PARAMS`·`DRAWER_NOT_CONFIGURED`·`DRAWER_STATE_UNKNOWN`·`DRAWER_ALREADY_OPEN`·`NO_CONTACT`·`DRAG_BLOCKED`·`NO_PUSH_ACCESS`·`DRAWER_STUCK`·`CLOSE_NOT_CONFIRMED`·`SENSOR_INVALID`
 
 - 공통 (`core/skill_flow.py`): 취소 요청 → 정지 → **정지 확인되면** `canceled`(그리퍼는 그대로), 안전·비상정지 → `ESTOP`, 움직이기 전 펜던트 TCP·툴 확인 → `TOOL_NOT_SET`
 - **정지를 확인하지 못하면**(정지 명령 실패·상태 조회 실패·정지 확인 3초 초과) `STOP_UNCONFIRMED`로 끝내고 서버를 **잠근다** — 이후 모든 동작은 `LOCKED`로 거부. 펜던트에서 로봇 상태를 확인한 뒤 `skill_server`를 다시 띄워야 풀린다. 이동 중 상태 조회가 1초 넘게 실패해도 정지 후 잠금(`STATE_UNKNOWN`). 이동 명령 응답이 없으면(수락 여부 모름) 정지·확인 후 `MOVE_UNCONFIRMED`로 잠금 — 늦게 도착한 요청으로 움직일 수 있어서
@@ -59,4 +66,16 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 ```bash
 ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0     # PC2, DSR 드라이버 실행 중
 ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skill "{params_json: '{\"pose_name\": \"home\"}'}"
+```
+
+시연 1차 (10/06, 위 서랍, 세로 지우개를 서동권 쪽-오른쪽 모서리에) — 하나씩 보내고 결과 확인 (`--feedback`로 단계 표시):
+```bash
+S="ros2 action send_goal --feedback"
+$S /skills/drawer_control ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"state\": \"open\"}'}"
+T='{\"id\": \"eraser#1\", \"class\": \"eraser\", \"top_z\": 0.0115, \"pose\": {\"frame\": \"drawer_top\", \"position\": [0.1735, 0.2827, 0.0], \"yaw\": 0.0, \"yaw_valid\": true}}'
+$S /skills/nudge_object ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"target\": $T}'}"
+# pick 의 target 은 nudge 결과 target_after 를 그대로 (y 가 약 0.248 로 바뀜)
+$S /skills/pick_object ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"target\": <target_after>}'}"
+$S /skills/place_object ready2go_interfaces/action/Skill "{params_json: '{\"location\": \"handover_zone\"}'}"
+$S /skills/drawer_control ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"state\": \"close\"}'}"
 ```

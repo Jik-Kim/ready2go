@@ -164,8 +164,10 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
                 stop: Callable[[], bool], timeout_s: float, period_s: float = 0.05,
                 settle_s: float = 0.3, unknown_limit_s: float = 1.0, stop_confirm_s: float = 3.0,
                 clock: Callable[[], float] = time.monotonic,
-                sleep: Callable[[float], None] = time.sleep) -> Outcome:
+                sleep: Callable[[float], None] = time.sleep,
+                watch: Optional[Callable[[], Optional[Outcome]]] = None) -> Outcome:
     """비동기 이동 명령을 보낸 뒤 끝날 때까지 기다린다.
+    - watch(): 주기마다 호출. Outcome 을 돌려주면 정지 → 정지가 확인되면 그 Outcome (접촉 감지 = 성공, 걸림 = 실패 등)
     - 취소 요청 → 정지 → **정지가 확인되면** canceled, 확인 못 하면 STOP_UNCONFIRMED (#73 D 리뷰)
     - 비상정지·안전정지 상태 → ESTOP
     - timeout_s 초과 → 정지 → 확인되면 MOTION_TIMEOUT, 아니면 STOP_UNCONFIRMED
@@ -184,6 +186,10 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
             return Outcome(False, ESTOP, reason=f"로봇 상태 {state} (안전·비상정지)")
         if cancel_requested():
             return halt(Outcome(False, CANCELED, canceled=True, reason="취소 요청으로 정지"))
+        if watch is not None:
+            hit = watch()
+            if hit is not None:
+                return halt(hit)
         now = clock()
         elapsed = now - t0
         if state is None:

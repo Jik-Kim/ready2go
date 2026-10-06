@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
 from ready2go_skills.core import pose_math as pm
-from ready2go_skills.core.pick_plan import rotate, to_base
+from ready2go_skills.core.pick_plan import rotate
 
 NO_PUSH_ACCESS = "NO_PUSH_ACCESS"      # 옆으로 끌어도 잡을 수 없음 (앞뒤 벽 때문) — docs/runner.md nudge_object 표
 
@@ -119,7 +119,7 @@ class DragPlan:
 
 def _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin_mm):
     """짧은 변 잡기(닫힘 축 = 긴 변에 수직)가 벽에 걸리는지. (x벽 걸림, y벽 부족량 mm(양수면 부족), 가까운 y벽 부호)"""
-    length, width = size_m[0], size_m[1]
+    width = size_m[1]
     open_mm = width * 1000.0 + g["open_margin_mm"]
     close_ang = yaw + math.pi / 2                   # 서랍 좌표에서 닫힘 축 각도
     ext_x = wall_extent_mm(open_mm, close_ang, g)                # x 벽(법선 x)
@@ -151,8 +151,11 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     shift = -sign * (lack_mm + drag["extra_mm"]) / 1000.0     # 벽 반대쪽(가운데)으로
     if not abs(shift) <= drag["max_shift_mm"] / 1000.0:
         return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, sign, gap_m, f"끌 거리 {abs(shift) * 1000:.0f} mm가 최대보다 큼")
-    # 누르는 점: 물체 중심에서 시작, 닫은 손가락(닫힘 축 = 물체 긴 변, 얇은 쪽이 옆벽)이 옆벽과 떨어지도록 가운데 쪽으로 옮김
-    need_mm = g["wall_clearance_mm"]["along_mm"] + margin
+    # 누르는 점: 물체 중심에서 시작, 닫은 손가락(닫힘 축 = 물체 긴 변, 얇은 쪽이 옆벽)이 옆벽과 떨어지도록 가운데 쪽으로 옮김.
+    # 벽 쪽으로 손끝을 기울이면(tilt) 손끝 모서리가 TCP보다 벽 쪽으로 나감: along·cos t + 손끝 깊이·sin t
+    t = math.radians(drag.get("tilt_deg", 0.0))
+    along = g["wall_clearance_mm"]["along_mm"]
+    need_mm = max(along, along * math.cos(t) + tip_below_tcp_mm(0.9, g) * math.sin(t)) + margin
     half_w = size_m[1] * 1000.0 / 2
     py_mm = cy * 1000.0
     gap_center = (wd - py_mm) if sign > 0 else py_mm

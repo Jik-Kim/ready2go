@@ -351,3 +351,21 @@ def test_server_params_rejected(key, val):
     p[key] = val
     with pytest.raises(ValueError):
         sf.check_server_params(**p)
+
+
+def test_wait_motion_watch_stops_and_returns_its_outcome():
+    """watch 가 Outcome 을 돌려주면 정지하고, 정지가 확인되면 그 Outcome (접촉 감지·걸림)."""
+    states = iter([2, 2, 1, 1, 1])
+    calls = {"n": 0, "stop": 0}
+
+    def watch():
+        calls["n"] += 1
+        return sf.Outcome(True, reason="접촉") if calls["n"] >= 2 else None
+
+    def stop():
+        calls["stop"] += 1
+        return True
+
+    out = sf.wait_motion(get_state=lambda: next(states, 1), cancel_requested=lambda: False, stop=stop,
+                         timeout_s=5.0, sleep=lambda s: None, watch=watch)
+    assert out.success and out.reason == "접촉" and calls["stop"] == 1
