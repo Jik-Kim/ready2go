@@ -1,0 +1,33 @@
+# ready2go 전체 프로젝트 Python 의존성 입구 (Ubuntu 24.04 / Python 3.12).
+# 설치/환경 분리 절차: README.md "프로젝트 의존성 설치".
+# ROS/DSR/Isaac/시스템 패키지는 pip 대상이 아닙니다.
+# 공통 core, Knowledge/Bringup, Runner, Skills, 보정/tools 및 Vision 영상 처리
+setuptools
+PyYAML>=6,<7
+jsonschema>=4,<5
+numpy==1.26.4
+pymongo>=4,<5
+pymodbus>=3,<4
+opencv-python==4.9.0.80
+scipy>=1.13,<2
+# Voice API/오디오, 수동 실행 명령의 dotenv
+openai>=1,<3
+langchain-openai>=0.2,<2
+langchain-core>=0.3,<2
+sounddevice>=0.4,<1
+python-dotenv>=1,<2
+# openwakeword 0.6.0의 비-TFLite 의존성. 본체는 README대로 --no-deps 별도 설치.
+onnxruntime>=1.10,<2
+tqdm>=4,<5
+scikit-learn>=1,<2
+requests>=2,<3
+# 테스트 (실물/API/모델 설치를 대신하지 않음)
+pytest>=7,<9
+# 환경별 필수 보조 설치 (이 파일에 -r로 합치지 않음):
+# Vision GPU/YOLO: docker/vision/Dockerfile + README.md 별도 .venvs/vision 절차
+#   torch 2.11.0 / torchvision 0.26.0 / ultralytics 8.4.170, CUDA cu128
+# Melo CPU: ros2_ws/src/ready2go_voice/params/melotts_requirements.txt
+#   기존 installer가 .venvs/melotts에 torch/torchaudio 2.5.1+cpu 등 설치
+# Wake TFLite: Python 3.12용 tflite_runtime 호환 제공은 미해결, 음성 README 참조
+# Isaac Sim: sim/README.md의 벤더 번들 Python 사용 (P2~ 계획/별도 환경)
+# faster-whisper/Piper/SAM2: 현재 기본 실행 의존성 아님, 설치하지 않음

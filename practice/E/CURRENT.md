@@ -248,3 +248,21 @@
 - [문서] 전체 실행 순서, 프로젝트 내 호스트 빌드와 환경 설정, Compose와 개별 노드 명령, 평가/실행 시작 인자, 로그 위치·조회·종료·회차 초기화를 정리함. 현재 음성→Runner 수신 구현을 반영하고, 대기만 하는 voice/vision 컨테이너·수동 스킬 기동·mock TTS 중복·stub 미준비를 구분함. P1 FR-INT-01~03·FR-PLN-01·FR-LOG-01·NFR-ENV-01 및 관련 안전 절차 기준.
 - [문서] 현재 로컬과 확인 당시 원격 main에는 상세 실행 안내가 없었음. 이전 안내가 어느 PR로 반영됐는지와 사라진 원인은 이번 복원으로 확정하지 않음. 실제 장치·API 실행, 전체 테스트·빌드, 커밋·push·PR·외부 전달은 이번 범위에 포함하지 않음.
 - [실측: 정적] README의 Bash 블록 23개 구문·내장 Python AST·로컬 링크 10개·패키지 실행 진입점·launch 파일 및 Compose 전 프로파일 설정 검사 통과. 실행 순서·파라미터·수신/발행·기록 위치를 현재 구현과 대조하고 변경 파일이 승인된 두 개뿐임을 확인. 실제 장치 동작이나 API 연결을 실행해 확인한 결과는 아님.
+
+
+## 2026-10-07 전체 프로젝트 의존성·설치 안내 (담당 문서 완료·runtime/게시 인계 대기)
+- [문서] 조율 세션의 사용자 승인 “수정 후 PR” 및 저장소 루트 상대 경로 지시 범위. 착수 HEAD 123fb77, ontology/main clean. 수정 소유 파일은 새 requirements.txt, 루트 README, E voice README, 이 CURRENT 네 개. 기존 사용자 README 커밋·온톨로지 정리·Melo 고정 목록·다른 담당 코드/계약/설정/Docker는 보존. P1 FR-INT-01~03·AC-INT-03·NFR-ENV-01 기준.
+- [문서] 전체 패키지 import/setup/package 선언·Docker·tools/sim 실행 문서를 대조해 공통 Python, ROS, 시스템/서비스, 벤더, 환경별 선택/모델, 테스트를 구분. requirements는 전프로젝트 입구이며 Vision CUDA/YOLO·Melo CPU·Isaac 번들을 보조 설치 경로로 명시해 서로 다른 Torch/Python을 한 환경에 합치지 않음. root/voice 안내는 시스템 준비, 프로젝트 venv/build/source, 로컬 YAML 보존·실제 import/TTS 선택 확인, dotenv 실행/평가 상세 로그, 기존 Melo installer·단독 합성·재생을 제공.
+- [실측: 로컬 파일·메타데이터] openwakeword 0.6.0의 Linux tflite-runtime 의존성과 이 PC만의 ai-edge-litert 2.2.0 Interpreter 호환 파일을 확인. 본체 --no-deps와 비-TFLite 의존성 분리 설치 안내는 제공하되 Python 3.12 신규 PC 호환 runtime 배포는 미해결 인계. shim/새 자동 연결/기능 코드는 추가하지 않음. 로컬 구동 이력을 다른 PC 준비 완료로 표현하지 않음.
+- [문서] 실행은 저장소 루트, 프로젝트 경로는 상대 경로. 기존 외부 PC YAML은 git pull로 갱신되지 않는 진단 사례로만 설명하며 로그 아래 설정으로 이식 시 장치/정책/상한/자산 값 보존. tts_engine 누락 시 espeak 기본이며 Melo 선택·키/API/자산은 코드 pull만으로 준비되지 않음. 실물/마이크/유료 API·설치/다운로드·전체 테스트/빌드·AC 3초 측정 미수행. 문서 수정/검증만 담당하며 이번 diff의 commit/push/PR은 조율 세션 게시자 분업.
+- [실측: 정적] root/voice Bash 36블록 구문, 내장 Python 8예시 AST, 로컬 링크/제목 앵커25건, root/Melo requirements72개 항목 파싱 통과. tracked Python164개 AST import를 대상별로 대조해 ROS/벤더/별도Torch 의존성을 분리했고, E config loader의 cwd 상대 경로·엔진 기본값과 Melo 소스 API 합성 인자를 확인. 허용4파일 상태·diff 공백 확인. 신규 PC pip 해결/설치·ROS 메시지 생성·GPU 호환·TFLite/전처리/VAD 모델 로딩·마이크/스피커·API·CI/전체빌드·40음성/3초 실측은 수행하지 않음. 기존 PR126 재게시를 위한 Luna 작업은 중단했으며 이번 의존성 diff의 게시/병합과 구분.
+- [문서] 최종 상대 경로 대조: root 호스트 Runner/Skills/Vision/stub의 스키마·manifest·설정·가중치·로그, mktemp·run_report를 직접 상대 경로로 통일. 수신자의 open/Path/YOLO 전달과 ROS 로그 경로 getter를 확인; ontology 내부 sources는 manifest 폴더 기준이며 CLI 진입점 cwd와 구분. DDS file URI만 실행 시 cwd 절대화 유지 이유를 명시, 시스템/벤더 설치·컨테이너 마운트·기본 ROS 로그 위치는 별도 기준. 실제 노드/모델/장치 구동·새 PC 설치를 수행한 것으로 표현하지 않음.
+- [실측: 정적] 마지막 경로 수정으로 바뀐 Bash8블록만 bash -n 재검사 통과. README의 $PWD는 DDS URI 명령과 이유 설명 두 곳뿐, task_file 예시 원본 존재·diff 공백·허용4파일 상태 확인. 제목/링크/내장 Python/requirements는 이 추가 수정에서 변경 없음으로 앞선 검사 결과 유지. 게시 담당 인계 대기, commit/push/PR 미수행.
+- [실측: 정적] PR #128 head81a00e84 후속 검토: README의 개인 작업 경로 cd2줄 제거, 저장소 루트 시작 안내·기존 의존성/명령 보존 및 변경 Bash2블록 구문·개인 경로 부재 확인. 실제 신규 PC 설치/장치/API 시험과 commit/push는 수행하지 않음.
+
+
+## 2026-10-07 PR #128 real 스킬 자동기동 문서 정정
+- [문서] 사용자 승인 “수정 진행”의 후속 범위. /tmp/ready2go-deps, codex/docs-dependencies, 착수 HEAD cd44920d9e276ba169ada3435a8c55f1a76298db clean. P1 NFR-ENV-01 기준으로 루트 README·이 CURRENT만 수정. 최신 main c8debe8d60d33921b449792a06327558da529fd4의 launch/Compose/.env.example/docs/docker를 읽기 전용 대조. requirements·음성 README·코드·Compose/launch·타 담당 파일·계약/Phase·기존 이력은 보존.
+- [문서] real 통합 launch의 skill_server 지연 자동기동을 표·준비 확인·로그 안내에 반영하고, Compose 이후 중복 수동 실행/tee 블록 제거. 기존 B 첫 저속 예10°/s는 SKILL_JOINT_VEL_DEG_S=10.0을 Compose 기동 전에 전달. 가속도/지연의 설정 출처 및 현 기본40°/s²·15초(속도 미설정60°/s)는 현재 구현값이며 안전 승인/DSR 준비 판정 아님을 구분. 자동 서버가 없는 호스트 개별 대안·같은 Domain 중복 금지·저장소 루트 상대 경로·공통 ontology 안내 유지.
+- [문서] 자동 서버의 콘솔은 Compose logs, 기본 ROS 로그는 컨테이너 ~/.ros/log이며 호스트 자동 저장을 주장하지 않음. 호스트 대안은 공통 ROS_LOG_DIR의 logs/ros. 실물 준비·장치/API 연결·전체 테스트/빌드/설치 실행은 미검증. 이번 범위는 문서 수정/정적 검증만이며 add/commit/push/PR 등록·병합·Approve·외부 메시지는 수행하지 않음.
+- [실측: 정적] 변경 real 기동 Bash1블록 bash -n 통과, 이전 수동 스킬/tee 블록 제거·호스트 대안 유지 확인. README 로컬 링크/앵커18건, 기존 제목·CURRENT 원문 prefix 보존, 개인 절대경로 부재·git diff --check·승인2파일만 변경 확인. 원격 c8debe8d의 TimerAction15초·real 조건·속도/가속 환경 전달·output=screen·Compose 기본값/로그 위치를 대조했으며 실제 서비스 readiness/실물 구동 성공으로 대신하지 않음.
