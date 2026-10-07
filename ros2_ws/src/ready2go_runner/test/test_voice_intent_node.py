@@ -155,8 +155,8 @@ def test_status_republishes(system):
 
 
 def test_demo_override_runs_wall_nudge_task(tmp_path):
-    """10/08 시연 조합: 시연 온톨로지 + intent_tasks 로 find_item → p1_demo_eraser (벽 배치·nudge)."""
-    runner, voice, close = make_system(tmp_path, ontology_file="knowledge/robot_ontology_demo.jsonld",
+    """P1 시연 조합: 공통 온톨로지 + intent_tasks 로 find_item → p1_demo_eraser (벽 배치·끌기 뒤 다시 촬영, E #122)."""
+    runner, voice, close = make_system(tmp_path, ontology_file="knowledge/robot_ontology.jsonld",
                                        intent_tasks=f"find_item={ROOT / 'tasks/p1_demo_eraser.json'}")
     try:
         voice.say(EXAMPLE)
