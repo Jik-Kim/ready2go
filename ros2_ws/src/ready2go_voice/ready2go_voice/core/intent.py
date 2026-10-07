@@ -79,18 +79,18 @@ class IntentParser:
 
     def guard(self, text):
         if not str(text).strip():
-            return intent('clarify', question='다시 말씀해 주세요.')
+            return intent('clarify', question=self.cfg['clarify_prompts']['empty'])
         if self._has(text, 'unsupported_patterns'):
             return intent('unknown', question='지금은 한 물품을 찾아 전달하는 요청만 지원합니다.')
         keys = self.mentioned(text)
         if len(keys) > 1:
-            return intent('clarify', question='한 물품씩 요청해 주세요.')
+            return intent('clarify', question=self.cfg['clarify_prompts']['multiple'])
         if len(keys) == 1 and not self.explicit_request(text):
-            question = ('그 물품을 가져다드릴까요?' if normalize(text) in self.aliases
-                        else '요청을 확인해 다시 말씀해 주세요.')
+            question = (self.cfg['clarify_prompts']['bare'] if normalize(text) in self.aliases
+                        else self.cfg['clarify_prompts']['request'])
             return intent('clarify', question=question)
         if not keys and self.ambiguous_request(text):
-            return intent('clarify', question='물품 이름을 확인해 다시 요청해 주세요.')
+            return intent('clarify', question=self.cfg['clarify_prompts']['missing_item'])
         return None
 
     def fallback(self, text):
@@ -131,7 +131,7 @@ class IntentParser:
         if doc['intent'] == 'find_item':
             # 등록 키/확신도는 사용자의 물품·긍정 요청 확인을 대체하지 않습니다.
             if not self.mentioned(text) or not self.explicit_request(text):
-                return intent('clarify', question='물품 이름과 가져오기 요청을 확인해 다시 말씀해 주세요.')
+                return intent('clarify', question=self.cfg['clarify_prompts']['unconfirmed'])
         # LLM source는 신뢰하지 않고 진단은 E가 생성합니다.
         return intent(doc['intent'], targets, doc['confidence'], doc.get('clarify_question'))
 
@@ -163,8 +163,15 @@ class IntentParser:
             if doc is None:
                 doc = self.fallback(text)
                 diag['fallback_used'] = True
+        if doc['intent'] == 'clarify':
+            doc['clarify_question'] = clarify_prompt(self.cfg, doc.get('clarify_question'))
         self.validator.validate(doc)
         diag['latency_ms'] = round((self.clock() - started) * 1000, 3)
         diag['execution_allowed'] = doc['intent'] == 'find_item'
         doc['source'] = diag
         return doc
+
+
+def clarify_prompt(cfg, question=None):
+    prompts = cfg['clarify_prompts']
+    return question if question in prompts.values() else prompts['general']

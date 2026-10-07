@@ -109,3 +109,64 @@ def test_output_device_error_not_success(cfg, playback, monkeypatch):
     with pytest.raises(RuntimeError):
         EspeakTTS(cfg).speak('지우개', on_start=starts.append)
     assert not starts
+
+
+@pytest.fixture
+def fixed_input(monkeypatch):
+    import sounddevice as sd
+    events = []
+    class Stream:
+        active = False
+        def close(self): events.append('close')
+    stream = Stream()
+    def rec(frames, **kwargs):
+        events.append(('rec', frames, kwargs))
+        return np.zeros((frames, 1), dtype=np.int16)
+    monkeypatch.setattr(sd, 'rec', rec)
+    monkeypatch.setattr(sd, 'get_stream', lambda: stream)
+    monkeypatch.setattr(sd, 'wait', lambda: events.append('wait'))
+    monkeypatch.setattr(sd, 'stop', lambda: events.append('stop'))
+    return sd, stream, events
+
+
+def test_fixed_five_seconds_format_and_unknown_speech_end(cfg, fixed_input):
+    _, _, events = fixed_input
+    cfg['input_device'] = 4
+    recording = Recorder(cfg).record_fixed(threading.Event())
+    assert events[0][1] == 80000
+    assert events[0][2]['samplerate'] == 16000 and events[0][2]['channels'] == 1
+    assert events[0][2]['dtype'] == 'int16' and events[0][2]['device'] == 4
+    assert events[-3:] == ['wait', 'stop', 'close']
+    assert len(recording.pcm) == 160000
+    assert recording.ended_monotonic is recording.ended_unix is None
+    assert recording.recording_ended_monotonic and recording.recording_mode == 'fixed'
+
+
+@pytest.mark.parametrize('failure', ['overflow', 'cancel', 'timeout'])
+def test_fixed_failure_always_stops_and_closes(cfg, fixed_input, failure):
+    sd, stream, events = fixed_input
+    if failure == 'overflow':
+        sd.wait = lambda: True
+    else:
+        stream.active = True
+    stopped = threading.Event()
+    checks = [False, True]
+    paused = (lambda: checks.pop(0)) if failure == 'cancel' else lambda: False
+    clock = Clock()
+    if failure == 'timeout': cfg['max_record_sec'] = .01
+    with pytest.raises((InterruptedError, RuntimeError, TimeoutError)):
+        Recorder(cfg, clock).record_fixed(stopped, paused)
+    assert events[-2:] == ['stop', 'close']
+
+
+def test_input_selection_environment_then_auto_then_default(cfg, monkeypatch):
+    import sounddevice as sd
+    from ready2go_voice.adapters.audio import resolve_input_device
+    monkeypatch.setenv('VOICE_MIC_DEVICE', '3')
+    assert resolve_input_device(cfg) == 3
+    monkeypatch.delenv('VOICE_MIC_DEVICE')
+    cfg['input_device'] = None
+    monkeypatch.setattr(sd, 'query_devices', lambda: [dict(max_input_channels=1, default_samplerate=16000)])
+    assert resolve_input_device(cfg) == 0
+    monkeypatch.setattr(sd, 'query_devices', lambda: [])
+    assert resolve_input_device(cfg) == sd.default.device[0]

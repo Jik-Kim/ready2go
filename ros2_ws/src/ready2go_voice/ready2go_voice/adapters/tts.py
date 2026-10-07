@@ -1,4 +1,4 @@
-"""espeak-ng WAV → PortAudio. 첫 DAC 재생 시각은 장치가 보고한 시각으로 기록합니다."""
+"""선택한 로컬 합성기 WAV → PortAudio. 첫 DAC 재생 시각은 장치가 보고한 시각으로 기록합니다."""
 import io
 import shutil
 import subprocess
@@ -7,7 +7,7 @@ import time
 import wave
 
 
-class EspeakTTS:
+class PCMTTS:
     def __init__(self, cfg):
         self.cfg = cfg
         self.lock = threading.Lock()
@@ -21,17 +21,11 @@ class EspeakTTS:
         try:
             if cancel and cancel.is_set():
                 raise InterruptedError('TTS_CANCELED')
-            exe = shutil.which(self.cfg['tts_executable'])
-            if not exe:
-                raise RuntimeError('TTS_EXECUTABLE_MISSING')
             synth_deadline = min(deadline, start_deadline) if start_deadline is not None else deadline
             if time.monotonic() >= synth_deadline:
                 raise TimeoutError('TTS_START_TIMEOUT')
-            result = subprocess.run([exe, '-v', self.cfg['tts_voice'], '-s', str(self.cfg['tts_speed']),
-                                     '--stdout', '--stdin'], input=text.encode('utf-8'),
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
-                                    timeout=max(.001, synth_deadline - time.monotonic()))
-            with wave.open(io.BytesIO(result.stdout), 'rb') as wav:
+            audio = self._synthesize(text, synth_deadline, cancel)
+            with wave.open(io.BytesIO(audio), 'rb') as wav:
                 channels, rate, width = wav.getnchannels(), wav.getframerate(), wav.getsampwidth()
                 if width != 2 or channels != 1 or rate <= 0:
                     raise ValueError('TTS_PCM_FORMAT')
@@ -88,3 +82,27 @@ class EspeakTTS:
             return state['stamp']
         finally:
             self.lock.release()
+
+    def close(self):
+        pass
+
+
+class EspeakTTS(PCMTTS):
+    def _synthesize(self, text, deadline, cancel):
+        exe = shutil.which(self.cfg["tts_executable"])
+        if not exe:
+            raise RuntimeError("TTS_EXECUTABLE_MISSING")
+        result = subprocess.run([exe, "-v", self.cfg["tts_voice"], "-s", str(self.cfg["tts_speed"]),
+                                 "--stdout", "--stdin"], input=text.encode("utf-8"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+                                timeout=max(.001, deadline - time.monotonic()))
+        return result.stdout
+
+
+def create_tts(cfg):
+    if cfg.get("tts_engine", "espeak") == "espeak":
+        return EspeakTTS(cfg)
+    if cfg["tts_engine"] == "melotts":
+        from .melotts import MeloTTS
+        return MeloTTS(cfg)
+    raise ValueError("TTS_ENGINE_INVALID")

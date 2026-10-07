@@ -18,7 +18,7 @@
 **P1 현재 E 구현 경로** [문서]
 
 ```text
-마이크 → hello rokey 웨이크 → 무음 종료 녹음 → whisper-1 STT
+마이크 → hello rokey 웨이크 → 고정5초 시운전/무음 종료 녹음 → whisper-1 STT
       → 제어/미지원 규칙 또는 LLM 후보 → 의미 검증·필요 시 규칙 폴백
       → 검증된 단일 find_item: 중복 확인 → 확인 TTS → /voice/intent
       → unknown/clarify: 보류 안내 / cancel·status: 규칙 제어 경로
@@ -28,13 +28,21 @@
 
 | 단계 | P1 현재 구현 | 미확정 설정·미구현 후보 |
 | :--- | :--- | :--- |
-| 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, RMS 무음 종료·최대 녹음 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
+| 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, 원본 sd.rec→sd.wait 고정5초 시운전, 또는 RMS 무음 종료·보호 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
 | STT | OpenAI `whisper-1`, 한국어·등록 물품 이름 prompt, API 단일 호출 슬롯 | 계정/지연 실측 필요. `faster-whisper small` 오프라인 폴백은 미구현 후보 |
 | 해석 | LangChain·`gpt-4o` 후보 strict JSON → 기존 계약·등록 물품·긍정 요청 검증; 오류/시간 초과/검증 실패 시 규칙 폴백 | 모델·프롬프트·E/D 정답표 미확정. 퍼지 매칭은 구현하지 않음 |
 | 확인 | 기본 `confirmation_enabled: true`: “지우개 가져다드리겠습니다.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | C 태스크 시작/기존 speak와 확인 책임 분담은 인계 사항 |
-| TTS | `espeak-ng` 후보 WAV 합성→PortAudio 재생, 기존 `/voice/speak` Skill 액션 | 한국어 음성·장치·명료도 실측 필요. Piper는 미구현 후보 |
+| TTS | 사용자 선택 MeloTTS, 별도 CPU 환경의 한국어 모델 재사용/문장 캐시→PortAudio 재생, 기존 `/voice/speak` Skill 액션 | 단문 합성·첫 DAC 재생 확인. 전체 음성3초·청취 품질·C/D 연결 미검증. espeak는 명시 선택 호환 경로이며 자동 폴백 없음 |
 
-[설정 원본 voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)의 `silence_sec: 0.4`, `stt_timeout_sec: 1.1`, `llm_timeout_sec: 0.8`, `tts_reserve_sec: 0.7`은 **시운전 제안값**입니다. 마지막 유성 프레임부터 확인 TTS 시작까지 3초 예산에 무음 대기·API·TTS 준비를 포함합니다. 남은 예산에 따라 STT/LLM의 실제 제한은 더 짧아질 수 있으며, 값의 합이나 설정만으로 실제 3초 달성을 선언하지 않습니다. 늦은 API 결과는 폐기하고 재시도를 쌓지 않습니다.
+사용자 확정 웨이크 기준은0.7이며 기존 점수>기준 비교입니다. 고정5초 녹음 완료 후 로컬 Silero의30ms 구간 VAD+RMS를 검사하고, 무발화/VAD불가·오류/취소는 STT·LLM 및 intent발행을 생략합니다. VAD0.5·연속0.15초는 소음/짧은 발화로 튜닝할 제안값이며 실제효과는 미검증입니다. 정상 발화는5초 전체를 STT에 보내고 발화종료를 새로 추정하지 않습니다. [문서]
+
+P1 clarify는 설정 `clarify_prompts`의 규칙별 고정 질문 또는 일반 고정 안내를 사전캐시합니다. 임의 LLM질문은 일반 안내로 정규화하여 최종 clarify_question과 실제 재생이 일치하며 원문은 source.llm_raw에 보존합니다. unknown/find/control·대상단독clarify 판별은 유지하고 새 확인 대화는 만들지 않습니다. 설치된 모델의 합성입력 무발화 검사·캐시 응답5~7ms는 실제마이크 오탐/전체3초 달성 근거가 아닙니다. 웨이크 잔음이 음성구간 기준을 넘으면 통과할 가능성이 남습니다. [문서·로컬 검사]
+
+원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 웨이크 스트림을 닫은 뒤 동일 입력으로 16kHz/int16/mono 고정 녹음을 시작합니다. commissioning은 평가 발행 금지를 유지하되 3초 AC 예산으로 API 기능 확인을 차단하지 않습니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
+
+[현재 설정 원본 voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)은 시운전 STT/LLM 상한 각각30초, silence_sec=0.4, tts_reserve_sec=0.7입니다. 이전 STT1.1초/LLM0.8초는 AC 준비 후보였으며 현재 원본 값이 아닙니다. AC 모드의 값은 별도 실측해 확정합니다. silence/ac_budget 모드에서는 마지막 유성 프레임부터 확인 TTS 시작까지 3초 예산에 무음 대기·API·TTS 준비를 포함합니다. 남은 예산에 따라 STT/LLM의 실제 제한은 더 짧아질 수 있으며, 값의 합이나 설정만으로 실제 3초 달성을 선언하지 않습니다. 늦은 API 결과는 폐기하고 재시도를 쌓지 않습니다.
+
+Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 완료 후 웨이크 입력을 시작합니다. 준비/합성 실패·취소·기한 초과는 재생/발행을 보류하며 기존 TTS lock·첫 DAC 시각을 유지합니다. 설치 경로·공식 revision·Python3.12 호환 의존성/한국어 전용 패치와 단문 재생 명령은 패키지 README를 참조하십시오. CPU4스레드 단문 합성 약2.43~2.49초와 캐시 조회 약3ms는 합성/조회 측정이며 전체 AC-INT-03 달성 근거가 아닙니다. [실측: 로컬 단문]
 
 실행 모드의 동일 find_item은 중복 시간창 안에서 TTS 전에 보류하고 발행 호출 정상 반환 후에만 중복 기록을 확정합니다. TTS 실패·취소·시간 초과·발행 예외 후 재시도는 가능합니다. publisher 정상 반환은 C 수신·실행 성공 확인이 아닙니다.
 
@@ -112,7 +120,7 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 **현재 진단과 C/D 인계** [문서]
 
-STT 원문·LLM 응답·검증·폴백·실행 허용·발행 여부·지연과 발화 종료/첫 PortAudio DAC 재생 시각은 ROS 진단 로그 또는 intent의 source에 제공합니다. source 부가 필드 수신/의미는 C/D 협의 대상입니다. 이를 C run_id/DB 실행 로그의 inputs·D 화면에 자동 기록하는 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
+STT 원문·LLM 응답·검증·폴백·실행 허용·발행 여부·지연과 발화 종료/첫 PortAudio DAC 재생 시각은 ROS 상세 진단 로그 또는 intent의 source에 제공합니다. 기본 콘솔은 한 줄 진행 표시이며 `-p diagnostic_detail:=true`로 voice_diagnostic 원본을 유지합니다(실행/보존 명령은 패키지 README). source 부가 필드 수신/의미는 C/D 협의 대상입니다. 이를 C run_id/DB 실행 로그의 inputs·D 화면에 자동 기록하는 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
 
 ### 6.5 (Stretch) LLM 태스크 JSON 생성
 

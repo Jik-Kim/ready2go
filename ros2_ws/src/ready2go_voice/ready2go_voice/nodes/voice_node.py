@@ -15,11 +15,11 @@ from std_msgs.msg import String
 from ready2go_interfaces.action import Skill
 from ready2go_knowledge.core.ontology import load
 from ..core.config import load_config
-from ..core.intent import IntentParser, intent
+from ..core.intent import IntentParser, intent, clarify_prompt
 from ..core.session import VoiceSession
 from ..adapters.api import LangChainIntent, WhisperSTT
 from ..adapters.audio import Recorder, WakeAudio
-from ..adapters.tts import EspeakTTS
+from ..adapters.tts import create_tts
 
 
 class VoiceNode(Node):
@@ -28,13 +28,20 @@ class VoiceNode(Node):
         default = str(Path(get_package_share_directory('ready2go_voice')) / 'params/voice.yaml')
         path = self.declare_parameter('config_file', default).value
         self.cfg = load_config(path)
+        self.cfg['diagnostic_detail'] = self.declare_parameter('diagnostic_detail', self.cfg['diagnostic_detail']).value
         ontology = load(self.cfg['ontology_file'])
         with open(self.cfg['intent_schema_file'], encoding='utf-8') as f:
             schema = json.load(f)
         self.parser = IntentParser(ontology, schema, self.cfg, LangChainIntent(self.cfg, ontology['world']['items']))
         self.session = VoiceSession(self.parser, self.cfg, WhisperSTT(
-            self.cfg, [v['name_ko'] for v in ontology['world']['items'].values()]))
-        self.tts = EspeakTTS(self.cfg)
+            self.cfg, [v['name_ko'] for v in ontology['world']['items'].values()]),
+            progress=lambda **event: self._diagnostic(event))
+        if self.cfg.get('tts_engine') == 'melotts':
+            self.cfg['_tts_prefill_texts'] = list(self.cfg.get('tts_melotts_prefill_texts', [])) + list(self.cfg['clarify_prompts'].values()) + [
+                item['name_ko'] + ' 가져다드리겠습니다.' for item in self.parser.items.values()]
+        self.tts = create_tts(self.cfg)
+        if self.cfg.get('tts_engine') == 'melotts':
+            self.tts.prepare()  # 모델/캐시 완료 전 웨이크/ready를 시작하지 않음
         self.stop_event = threading.Event()
         self.busy = threading.Event()
         self.speaking = threading.Event()
@@ -61,7 +68,33 @@ class VoiceNode(Node):
 
     def _diagnostic(self, doc):
         # D는 /rosout 또는 voice 콘솔에서 조회. 새 토픽/DB 로거를 만들지 않음.
-        self.get_logger().info(json.dumps({'voice_diagnostic': doc}, ensure_ascii=False))
+        if self.cfg.get('diagnostic_detail', False):
+            self.get_logger().info(json.dumps({'voice_diagnostic': doc}, ensure_ascii=False))
+        event = doc.get('event')
+        messages = {
+            'ready': '음성 준비 완료 (' + ('평가: 실행 보류' if doc.get('evaluation_mode') else '실행 모드') + ')', 'wake_waiting': f"웨이크 대기 (입력: {doc.get('input_device')})",
+            'wake_detected': f"웨이크 감지 (점수 {doc.get('score', 0):.3f})",
+            'record_started': f"녹음 시작 ({doc.get('duration', '무음 종료')}초)",
+            'record_finished': '녹음 완료', 'whisper_requested': 'Whisper 요청',
+            'stt_result': f"STT 결과: {doc.get('text', '')}",
+            'speech_check_started': '발화 검사', 'no_speech': '발화 없음: STT·LLM 생략',
+            'speech_check_failed': f"발화 검사 보류: {doc.get('error_type', '')}",
+            'stt_failed': f"STT 실패: {doc.get('error_type', '')}",
+            'tts_failed': f"TTS 실패: {doc.get('error_type', '')}",
+            'tts_started': 'TTS 시작', 'tts_finished': 'TTS 종료',
+            'recording_held': f"녹음 보류: {doc.get('reason', '')}",
+            'audio_unavailable': f"음성 장치/모델 오류: {doc.get('error_type', '')}",
+            'processing_failed': f"처리 실패: {doc.get('error_type', '')}",
+            'request_canceled': '취소: 실행 보류', 'request_duplicate': '중복: 실행 보류',
+        }
+        if event == 'interpretation':
+            value = doc['intent']
+            route = '폴백' if value['source'].get('fallback_used') else ('LLM' if value['source'].get('llm_called') else '규칙')
+            messages[event] = f"{route} 결과: {value['intent']} {','.join(value.get('targets', []))}"
+        if event == 'intent':
+            messages[event] = '실행 보류 (평가/확인 정책)' if not doc.get('published') else 'intent 발행'
+        if event in messages:
+            self.get_logger().info(messages[event].replace('\n', ' '))
 
     def _publish(self, doc):
         message = String()
@@ -104,12 +137,14 @@ class VoiceNode(Node):
                 continue
             try:
                 if kind == 'record_error':
-                    doc = intent('clarify', question='다시 말씀해 주세요.')
+                    doc = intent('clarify', question=self.cfg['clarify_prompts']['empty'])
                     doc['source'] = {'input_kind': 'audio', 'stt_text': '', 'record_error': value,
                         'llm_called': False, 'llm_validation': 'not_called', 'fallback_used': False,
                         'execution_allowed': False}
                 else:
-                    doc = self.session.audio(value) if kind == 'audio' else self.parser.parse(value)
+                    doc = self.session.audio(value, cancel=self.request_cancel,
+                        paused=lambda: self.stop_event.is_set() or generation != self.generation) if kind == 'audio' else self.parser.parse(value)
+                self._diagnostic({'event': 'interpretation', 'intent': doc})
                 self._deliver(doc, generation)
             except Exception as exc:
                 self._diagnostic({'event': 'processing_failed', 'error_type': type(exc).__name__,
@@ -127,6 +162,8 @@ class VoiceNode(Node):
                 self._diagnostic({'event': 'request_duplicate', 'intent': doc, 'published': False})
                 return
         source = doc['source']
+        if doc['intent'] == 'clarify':
+            doc['clarify_question'] = clarify_prompt(self.cfg, doc.get('clarify_question'))
         text = doc.get('clarify_question') or '그 요청은 지원하지 않습니다.'
         if doc['intent'] == 'find_item':
             text = self.parser.items[doc['targets'][0]]['name_ko'] + ' 가져다드리겠습니다.'
@@ -136,20 +173,25 @@ class VoiceNode(Node):
             try:
                 timeout = self.cfg['tts_timeout_sec']
                 start_deadline = None
-                if source.get('input_kind') == 'audio' and doc['intent'] == 'find_item':
+                if (source.get('input_kind') == 'audio' and doc['intent'] == 'find_item'
+                        and source.get('timing_mode', 'ac_budget') == 'ac_budget'
+                        and source.get('speech_ended_monotonic') is not None):
                     start_deadline = source['speech_ended_monotonic'] + self.cfg['confirmation_budget_sec']
                 self.speaking.set()
                 def started(stamp):
                     source.update(stamp)
-                    if 'speech_ended_monotonic' in source:
+                    if (source.get('speech_ended_monotonic') is not None
+                            and source.get('timing_mode', 'ac_budget') == 'ac_budget'):
                         source['confirmation_latency_ms'] = round(
                             (stamp['tts_started_monotonic'] - source['speech_ended_monotonic']) * 1000, 3)
                     self._diagnostic({'event': 'tts_started', 'source': source})
                 self.tts.speak(text, cancel=self.request_cancel, on_start=started, timeout=timeout, start_deadline=start_deadline)
+                self._diagnostic({'event': 'tts_finished'})
             except Exception as exc:
                 source['tts_error'] = type(exc).__name__
+                self._diagnostic({'event': 'tts_failed', 'error_type': type(exc).__name__})
                 if doc['intent'] == 'find_item':
-                    doc = intent('clarify', question='음성 안내를 확인하지 못했습니다. 실행을 보류합니다.')
+                    doc = intent('clarify', question=self.cfg['clarify_prompts']['tts_failure'])
                     source['execution_allowed'] = False
                     doc['source'] = source
             finally:
@@ -174,22 +216,32 @@ class VoiceNode(Node):
                 if self.busy.is_set() or self.speaking.is_set() or self.tts.lock.locked():
                     self.stop_event.wait(.08)
                     continue
-                with wake.stream() as stream:
-                    woke = wake.wait(stream, self.stop_event, lambda: self.speaking.is_set() or self.tts.lock.locked())
-                    if woke is None:
-                        continue
-                    if not woke:
-                        break
-                    if self.speaking.is_set() or self.busy.is_set():
-                        continue
-                    record_generation = self.generation
-                    try:
-                        recording = recorder.record(stream, self.stop_event, lambda: self.speaking.is_set() or self.tts.lock.locked())
-                    except (TimeoutError, InterruptedError) as exc:
-                        self._diagnostic({'event': 'recording_held', 'reason': str(exc)})
-                        if isinstance(exc, TimeoutError):
-                            self._submit(('record_error', str(exc)), generation=record_generation)
-                        continue
+                self._diagnostic({'event': 'wake_waiting', 'input_device': self.cfg['input_device']})
+                record_generation = self.generation
+                try:
+                    with wake.stream() as stream:
+                        woke = wake.wait(stream, self.stop_event, lambda: self.speaking.is_set() or self.tts.lock.locked())
+                        if not woke:
+                            continue
+                        if self.speaking.is_set() or self.busy.is_set():
+                            continue
+                        record_generation = self.generation
+                        self._diagnostic({'event': 'wake_detected', 'score': wake.last_score})
+                        if self.cfg.get('recording_mode', 'silence') == 'silence':
+                            self._diagnostic({'event': 'record_started'})
+                            recording = recorder.record(stream, self.stop_event,
+                                lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation)
+                    # 웨이크 스트림을 닫은 뒤 원본 sd.rec가 같은 입력으로 새 스트림을 엽니다.
+                    if self.cfg.get('recording_mode', 'silence') == 'fixed':
+                        self._diagnostic({'event': 'record_started', 'duration': self.cfg['record_duration_sec']})
+                        recording = recorder.record_fixed(self.stop_event,
+                            lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation)
+                    self._diagnostic({'event': 'record_finished'})
+                except (TimeoutError, InterruptedError, RuntimeError) as exc:
+                    self._diagnostic({'event': 'recording_held', 'reason': str(exc)})
+                    if not isinstance(exc, InterruptedError):
+                        self._submit(('record_error', str(exc)), generation=record_generation)
+                    continue
                 self._submit(('audio', recording), generation=record_generation)
                 while self.busy.is_set() and not self.stop_event.is_set():
                     self.stop_event.wait(.08)
@@ -223,6 +275,7 @@ class VoiceNode(Node):
             params = json.loads(goal.request.params_json)
             stamp = self.tts.speak(params['text'], cancel=cancel,
                 on_start=lambda s: self._diagnostic({'event': 'tts_started', 'source': s}))
+            self._diagnostic({'event': 'tts_finished'})
             if cancel.is_set() or goal.is_cancel_requested:
                 raise InterruptedError('TTS_CANCELED')
             result.success = True
@@ -251,6 +304,8 @@ class VoiceNode(Node):
         self.worker.join(timeout=1)
         if self.listener:
             self.listener.join(timeout=1)
+        if hasattr(self.tts, 'close'):
+            self.tts.close()
         self.server.destroy()
 
 
