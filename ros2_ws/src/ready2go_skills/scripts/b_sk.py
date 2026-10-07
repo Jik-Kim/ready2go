@@ -41,10 +41,17 @@ def goal_for(cmd):
         return "move_to_named_pose", {"pose_name": "home"}
     if cmd == "view":
         return "move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"}
-    sys.exit("동작: all | open | opened | view | scan | nudge | pick | place | close | home")
+    sys.exit("동작: all | dragtest | open | opened | view | scan | nudge | pick | place | close | home")
 
 
 STEPS = ("open", "view", "scan", "nudge", "pick", "place", "close", "home")   # all: 열기 → 탑뷰 → 인식 → 끌기 → 집기 → 놓기 → 닫기 → 홈
+DRAG_TEST = ("home", "open", "view", "scan", "nudge", "pick", "place")         # dragtest: 끌기 단위 시험 [사용자 10/07]
+# 끌기가 이 코드로 실패하면 멈추지 않고 탑뷰 → 인식(지금은 시늉, 비전 연동 때 실제) → 다시 끌기 [사용자 10/07].
+# 안전 코드(ESTOP·STOP_UNCONFIRMED·MOVE_UNCONFIRMED·JOINT_LIMIT·취소 등)와 그 밖의 코드는 그대로 멈춘다.
+RETRY_CODES = {"NO_OBJECT_CONTACT", "PUSH_BLOCKED", "NOT_REACHED", "SENSOR_INVALID", "PUSH_LIMIT", "NO_PUSH_ACCESS",
+               "WALL_TOO_CLOSE", "MOVE_NOT_STARTED"}
+NUDGE_RETRIES = 2                          # 다시 끌기 최대 횟수 (제 제안)
+last = {"code": ""}
 
 
 def scan(node):
@@ -81,6 +88,9 @@ def main():
     if cmd == "scan":
         scan(node)
         return
+    if cmd == "dragtest":
+        drag_test(node)
+        return
     if cmd != "all":
         run(node, cmd)
         return
@@ -89,6 +99,28 @@ def main():
         if not (scan(node) if step == "scan" else run(node, step)):
             sys.exit(f"{step} 실패 — 여기서 멈춤 (뒤 단계 안 보냄). 터미널 1 로그 확인")
     print("\n전체 흐름 성공")
+
+
+def drag_test(node):
+    """홈 → 열기 → 탑뷰 → 인식 → 끌기(실패하면 탑뷰 → 인식 → 다시, 최대 NUDGE_RETRIES 번) → 집기 → 트레이."""
+    for i, step in enumerate(DRAG_TEST, 1):
+        print(f"\n===== {i}/{len(DRAG_TEST)} {step} =====")
+        if step == "scan":
+            ok = scan(node)
+        elif step == "nudge":
+            ok = run(node, "nudge")
+            for k in range(NUDGE_RETRIES):
+                if ok or last["code"] not in RETRY_CODES:
+                    break
+                print(f"\n----- 끌기 {last['code']} → 탑뷰로 가서 다시 확인 ({k + 1}/{NUDGE_RETRIES}) -----")
+                if not (run(node, "view") and scan(node)):
+                    break
+                ok = run(node, "nudge")
+        else:
+            ok = run(node, step)
+        if not ok:
+            sys.exit(f"{step} 실패 {last['code']} — 여기서 멈춤 (뒤 단계 안 보냄). 터미널 로그 확인")
+    print("\n끌기 시험 성공 (트레이까지)")
 
 
 def run(node, cmd):
@@ -104,6 +136,7 @@ def run(node, cmd):
     handle = sent.result()
     if not handle.accepted:
         print("거절됨 (다른 동작 실행 중?)")
+        last["code"] = "REJECTED"
         return False
     result = handle.get_result_async()
     try:
@@ -114,8 +147,10 @@ def run(node, cmd):
         rclpy.spin_until_future_complete(node, result, timeout_sec=10.0)
     if not result.done():
         print("결과 못 받음 — 터미널 1 로그 확인")
+        last["code"] = "NO_RESULT"
         return False
     r = result.result().result
+    last["code"] = r.error_code
     out = json.loads(r.output_json) if r.output_json else None
     if cmd == "opened" and r.error_code == "DRAWER_ALREADY_OPEN":
         print("결과: 서버에 '끝까지 열림(226 mm)'으로 알림 — 로봇 동작 없음")

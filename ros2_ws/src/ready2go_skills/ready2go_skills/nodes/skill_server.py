@@ -660,7 +660,12 @@ class SkillServer(Node):
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), p, n
             n = abs(f[2] - base_f[2])
             if n <= hi:
-                return None, p, n                         # 하한 미만이어도 끔 — 살포시만 닿아도 잘 끌림 [사용자 10/07]
+                if n < lo and k > 0:                        # 한 칸에 범위를 지나침 → 반 칸 내려가서 끔 (그 사이 힘)
+                    p = mp.with_z(p, p[2] - d["relax_step_mm"] / 2.0)
+                    bad = self._step(goal, p, "relax:half_back")
+                    if bad:
+                        return bad, p, n
+                return None, p, n
             if k == int(d["relax_max_steps"]):
                 break
             p = mp.with_z(p, p[2] + d["relax_step_mm"])
@@ -669,6 +674,17 @@ class SkillServer(Node):
                 return bad, p, n
         return sf.Outcome(False, PUSH_BLOCKED, reason=f"{d['relax_max_steps'] * d['relax_step_mm']:.1f} mm 올려도 누르는 힘 "
                                                      f"{n:.1f} N > {hi:g} N (끄는 힘 {lo:g}~{hi:g} N)"), p, n
+
+    def _force_reads(self, count, gap_s):
+        """멈춘 채 gap_s 간격으로 count 번 읽기. 하나라도 조회 실패면 None."""
+        out = []
+        for _ in range(count):
+            time.sleep(gap_s)
+            f = self.robot.tool_force()
+            if f is None:
+                return None
+            out.append(f)
+        return out
 
     def _force_still(self, settle_s):
         """멈춘 채 settle_s 기다린 뒤 여러 번 읽은 평균 (_tare 와 같은 방식). 모두 조회 실패면 None."""
@@ -765,31 +781,40 @@ class SkillServer(Node):
                 return bad, out
         base_f = self._tare()
         z0 = above[2]
-        state = {"streak": 0}
+        state = {}
 
-        def contact():                                      # 오검출 대책 (10/06 팀 분석·사용자): 출발 직후 무시, 내려가는 중 기준 다시, 연속 확인
+        def contact():                                      # 내려가다 닿음 힘(touch_force_n)을 한 번이라도 넘으면 바로 그 자리에서 멈춤 [사용자 10/07]
             f, p = self.robot.tool_force(), self.robot.posx()
             if f is None or p is None or base_f is None:
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
-            if p[2] > z0 - d["press_ignore_mm"]:
-                return None
-            state.setdefault("fz", f[2])
+            if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
+                return None                                 # 출발할 때 힘이 튐 (10/06 z 225.5 오검출) — 처음 내려갈 때만
+            state.setdefault("fz", f[2])                    # 내려가는 중 기준 (힘 0점이 흐름)
             dz = f[2] - state["fz"]
-            state["streak"] = state["streak"] + 1 if abs(dz) >= d["touch_force_n"] else 0
-            if state["streak"] == 1:
-                state["z1"] = p[2]                          # 처음 닿음 기준 넘은 높이 (예상 높이 판정용) — 확인·정지하는 동안 더 내려감
-            if state["streak"] >= d["press_confirm"]:
-                state["z"] = state["z1"]
-                return sf.Outcome(True, reason=f"접촉 {dz:+.1f} N @ z {state['z1']:.2f} (확인 z {p[2]:.2f})")
+            if abs(dz) >= d["touch_force_n"]:
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason=f"{dz:+.1f} N @ z {p[2]:.2f} — 멈추고 확인")
             return None
 
-        bad = self._line(goal, end_mm + above[3:], d["press_speed_mm_s"], "press", watch=contact)
-        if bad:
-            return bad, out
+        for k in range(int(d["touch_retries"]) + 1):
+            state.pop("z1", None)
+            bad = self._line(goal, end_mm + above[3:], d["press_speed_mm_s"], "press" if k == 0 else f"press:{k + 1}", watch=contact)
+            if bad:
+                return bad, out
+            if "z1" not in state:
+                break                                       # 끝까지 내려가도 안 닿음
+            reads = self._force_reads(int(d["press_confirm"]), d["confirm_gap_s"])
+            if reads is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), out
+            ns = [abs(f[2] - base_f[2]) for f in reads]
+            if all(n >= d["touch_force_n"] for n in ns):    # 멈춘 채 연속 press_confirm 번 모두 넘음 = 지우개에 닿음 [사용자 10/07]
+                state["z"] = state["z1"]
+                break
+            state["resumed"] = True                         # 튄 값 → 그 자리에서 다시 내려감 (출발 무시 구간 없이)
         if "z" not in state or abs(state["z"] - expect_z) > d["contact_z_tol_mm"]:
             back = self._line(goal, above, speed["line_mm_s"], "lift")
             why = (f"접촉 높이 z {state['z']:.2f} 가 예상 {expect_z:.1f} ± {d['contact_z_tol_mm']:g} 밖 — 오검출로 보고 끌지 않음"
-                   if "z" in state else "예상 높이보다 내려가도 접촉 없음 — 물체 위치·높이 확인")
+                   if "z" in state else "예상 높이보다 내려가도 접촉 없음 (또는 멈춘 뒤 확인에서 계속 튐) — 물체 위치·높이 확인")
             return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason=why), back), out
         pressed = self.robot.posx()
         if pressed is None:
@@ -799,7 +824,10 @@ class SkillServer(Node):
         bad, pressed, held_n = self._relax(goal, pressed, base_f, d)
         if bad:
             return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), out
-        shift = mp.dir_to_base(tf, (0.0, plan.shift_y_m, 0.0))
+        shift_y = plan.shift_y_m
+        if d.get("shift_mm"):                               # 잡을 수 있을 만큼(계획), 시연은 적어도 3 cm [사용자 10/07], 방향은 계획(옆벽 반대)
+            shift_y = math.copysign(max(abs(plan.shift_y_m), d["shift_mm"] / 1000.0), plan.shift_y_m)
+        shift = mp.dir_to_base(tf, (0.0, shift_y, 0.0))
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
         base_drag = self._tare()
