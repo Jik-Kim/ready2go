@@ -486,6 +486,37 @@ def test_relax_step_stall_keeps_going_instead_of_failing(server):
     assert bad.error_code == "ESTOP"
 
 
+def test_relax_stall_then_drag_starts_from_actual_stop_not_command(server):
+    """#135 E 리뷰: 힘 맞추기 한 칸이 안 움직였는데(NOT_REACHED 허용) 다음 힘이 범위에 들면,
+    끌기는 명령 누적 좌표(+0.1 mm)가 아니라 실제 멈춘 z 그대로 수평으로."""
+    srv = server.srv
+    contact = {}
+
+    def force(p):
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])     # 첫 칸 뒤 힘이 범위 안 (실물: 멈춘 사이 힘이 풀림)
+    srv._force_still = lambda s: next(forces)
+    srv._step = lambda goal, posx, stage: sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] 0.1 mm 남기고 멈춤")   # 로봇 안 움직임
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "press":
+            contact["z"] = (self.robot.p[2] + posx[2]) / 2
+        if stage == "drag":
+            contact["drag"] = (list(self.robot.p), list(posx))
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    server.ss.SkillServer._line = line
+    try:
+        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    finally:
+        server.ss.SkillServer._line = real_line
+    assert out.success
+    start, end = contact["drag"]
+    assert end[2] == pytest.approx(start[2], abs=1e-6)                  # 실제 멈춘 z 그대로 (명령 +0.1 mm 아님)
+
+
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
     t = json.loads(json.dumps(ERASER_CORNER))

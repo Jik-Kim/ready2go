@@ -753,9 +753,14 @@ class SkillServer(Node):
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None, None
         # 닿음은 큰 힘(touch_force_n)으로 확실히 확인 — 조금만 내려가도 힘이 튐 [사용자 10/07]. 확인·정지하는 동안 더 눌리므로
         # 멈춘 자리에서 relax_step_mm 씩 올리며 멈춘 뒤 힘을 재서 끄는 힘(drag_force_n, 2 N 에서 잘 끌림 [실측 10/06]) 상한 이하면 그 높이로 끈다
-        bad, pressed, held_n = self._relax(goal, pressed, base_f, d)
+        bad, _, held_n = self._relax(goal, pressed, base_f, d)
         if bad:
             return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), None, None
+        # 힘 맞추기의 목표는 명령 위치에 누적되고, 한 칸이 덜 움직였어도 넘어가므로(_relax_step) 끌기 시작은 실제 멈춘 자리로
+        # — "누른 z 그대로 끌기"가 명령 좌표(+0.1 mm)로 바뀌지 않게 [#135 E 리뷰]
+        pressed = self.robot.posx()
+        if pressed is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 끌기 시작 위치 모름"), None, None
         return None, pressed, held_n
 
     def _relax(self, goal, pressed, base_f, d):
