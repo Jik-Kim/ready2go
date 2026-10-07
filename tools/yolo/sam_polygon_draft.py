@@ -69,6 +69,31 @@ def mask_to_polygon(mask: np.ndarray, box, margin: int, eps_px: float, min_part:
     return poly, kept / box_area, len(polys)
 
 
+def resolve_overlaps(masks, boxes, margin: int):
+    """같은 픽셀을 여러 마스크가 칠하면 마스크가 작은 물체에 준다.
+    SAM 은 상자 안에 위에 얹힌 물체(차키·지우개·판)까지 아래 물체 마스크에 같이 칠하는 경우가 많다. 이때 아래 물체 마스크 =
+    자기 + 위 물체라 위 물체 마스크보다 크므로, 작은 쪽 우선이면 위 물체 영역이 빠진다. X자 교차처럼 서로 일부만 겹치면
+    교차 부분이 작은 물체에 가므로 틀릴 수 있다 → 빠진 비율을 돌려줘 의심 표시에 쓴다. 반환 (정리된 마스크들, 물체별 빠진 비율)."""
+    if len(masks) == 0:
+        return [], []
+    h, w = masks[0].shape
+    clipped = []
+    for m, (_, b) in zip(masks, boxes):
+        x1, y1 = max(int(b[0]) - margin, 0), max(int(b[1]) - margin, 0)
+        x2, y2 = min(int(np.ceil(b[2])) + margin, w), min(int(np.ceil(b[3])) + margin, h)
+        c = np.zeros((h, w), bool)
+        c[y1:y2, x1:x2] = m[y1:y2, x1:x2]
+        clipped.append(c)
+    taken = np.zeros((h, w), bool)
+    out, lost = [None] * len(clipped), [0.0] * len(clipped)
+    for j in sorted(range(len(clipped)), key=lambda k: clipped[k].sum()):
+        area = clipped[j].sum()
+        out[j] = clipped[j] & ~taken
+        lost[j] = float(1 - out[j].sum() / area) if area else 0.0
+        taken |= out[j]
+    return out, lost
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sessions", nargs="*", help="세션 이름 (생략 = data/labeled 의 전부)")
@@ -83,6 +108,7 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="세션당 앞 N장만 (시험용)")
     ap.add_argument("--show", action="store_true", help="처리 과정을 창으로 보기")
     ap.add_argument("--wait", type=int, default=300, help="--show 때 장당 대기 ms, 0 = 키 입력 대기")
+    ap.add_argument("--no-resolve", action="store_true", help="겹친 픽셀 정리를 끈다(비교용)")
     ap.add_argument("--force", action="store_true", help="출력 세션 폴더가 있으면 지우고 다시 만든다")
     a = ap.parse_args()
 
@@ -122,6 +148,7 @@ def main():
                 masks = res.masks.data.cpu().numpy() > 0.5 if res.masks is not None else []
             else:
                 masks = []
+            masks, lost = resolve_overlaps(masks, boxes[:len(masks)], a.margin) if len(masks) and not a.no_resolve else (masks, [])
             overlay = right.copy()
             for j, (c, b) in enumerate(boxes):
                 col = PALETTE[c % len(PALETTE)][::-1]
@@ -134,6 +161,8 @@ def main():
                     poly = np.array([[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]])
                 if ratio < a.ratio_min or ratio > a.ratio_max:
                     why.append(f"ratio{ratio:.2f}")
+                if j < len(lost) and lost[j] > 0.05:
+                    why.append(f"overlap{lost[j]:.2f}")
                 if n_comp > 1:
                     why.append(f"parts{n_comp}")
                 pts = np.clip(poly.astype(np.float64), 0, [w - 1, h - 1])
