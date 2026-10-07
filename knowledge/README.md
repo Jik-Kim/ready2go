@@ -13,7 +13,7 @@
 | `skills/close_drawer.jsonld` | `skills.close_drawer`: 서랍 닫기 |
 | `skills/pick.jsonld` | `skills.pick`: 집기 |
 | `skills/place.jsonld` | `skills.place`: 놓기 |
-| `skills/handover_with_unpack.jsonld` | 기존 가림 탐색 복합 스킬 등록. `tasks/find_with_unpack.json` 참조, P2 이후 사용 |
+| `skills/handover_with_unpack.jsonld` | 가림 탐색 복합 스킬 등록. 참조 `tasks/find_with_unpack.json`은 이전 외부 트레이 예시; 현재 P2 내부 이동 계약 반영 전 실행 기준 아님 |
 | `snapshots/initial_state.json` | 초기 상태 프리셋. 실제 상태 확인 후 명시적 초기화 시 사용 |
 | `../config/places.yaml` | 장소 TF·치수·인출 거리·처짐·복구 위치·슬롯 설정의 정본 |
 
@@ -53,3 +53,5 @@
 [문서] 현재 [`domain.md 8.5`](../docs/domain.md#85-벽-인접-물체-밀어오기-담당-b)는 태스크에서 nudge와 재인식을 조합하는 기준입니다. 이번 스킬 내부 조합은 **시연 한정 구성**이며 그 공통 기준을 변경하지 않습니다. target_after는 재관측 좌표가 아닌 이동량 기반 예상값입니다. 이번 경로의 성공은 [`FR-ACT-05·AC-ACT-05`](../docs/requirements.md#fr-act-05)의 재인식 완료를 뜻하지 않습니다. 연결 검증 범위는 P1 FR-ONT-01·FR-PLN-01입니다. domain 상세 정리는 시연 후로 두되 이번 출력 계약 승인을 대신하지 않습니다.
 
 [문서] 실물 사용 전 B의 nudge/lift 오류 보존·배포 SHA·배열 approach_offset 지원, A stub와 보정 TF의 일치, 전달 위치 TF, 실물 초기 상태를 확인해야 합니다. #83의 check_only PUSH_LIMIT 보완, target_after 출력 예시 및 E 포함 2명 계약 승인은 별도 인계입니다. 이 파일 작성은 계약 승인이나 실물 배포 완료가 아닙니다.
+
+[문서] P2 가림 물체는 같은 서랍 내부 빈 공간으로 옮기고 재관측한 뒤 목표물을 handover_zone에 전달하며, 옮긴 물체를 역순 복구합니다. located_in은 서랍 그대로 유지하고 pose/재식별·복구 기록 계약은 C·E 인계입니다. staging_tray의 world/초기상태 정의는 config·계약·소비자 잔존참조와 함께 정리할 때까지 유지하며 P2 배출 장소로 사용하지 않습니다. [domain.md 인계표](../docs/domain.md)를 참조하십시오.
