@@ -40,3 +40,4 @@
 - **2026-10-06 A 트윈 씬 재생성 (#83 반영)**: `drawer_top` 원점 −3.0 mm·내부 높이 0.0711로 서랍장 재배치, 전달 트레이(`handover_zone`)를 고정 물체로 추가(바닥·벽 치수 일부 [추정]). `verify_scene.py`에 트레이 존재·원점 일치 검사 추가, 전부 통과.
 - **2026-10-07 C 실행 기록 보고서**: `ros2 run ready2go_runner run_report` — MongoDB/JSONL 실행 기록을 한국어 요약·Markdown 표로(읽기 전용, 계약 변경 없음). `core/run_report.py`, 10/06 PC2 실물 기록 2건으로 시험. `runner.md` 7.4·Runner README.
 - **2026-10-07 A YOLO v2 비교 기록**: 겹침 데이터 재학습(v2)과 11n·11s·26s 비교를 `tools/yolo/README.md`에 기록(검증셋 10/06·10/07 구분, 평가 프레임 겹침 확인, 가중치 SHA-256). P1은 v1 그대로, P2 방침은 제안(#14). 코드·계약 변경 없음.
+- **2026-10-07 C Runner 시연 설정 환경변수**: compose `ros2-core`의 Runner 에 `RUNNER_ONTOLOGY_FILE`·`RUNNER_INTENT_TASKS`(→ `ontology_file`·`intent_tasks`)를 넘긴다. 전에는 launch Runner 가 기본 온톨로지(`pick_demo` 없음)·`trigger.intent` 로만 떠서 compose 기동으로는 P1 음성 시연 태스크를 못 돌렸다(#23). PR #108 에서 Runner 설정 부분만 뗀 것(스킬 서버 기동은 #108 에 남김). 비우면 이전과 같음. `.env.example`·`docker.md`·`runner.md`.
