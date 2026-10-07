@@ -199,7 +199,7 @@ def test_detection_outside_drawer_roi_is_skipped_before_depth():
 
 def test_roi_keeps_wall_touching_object_and_depth_hole_inside_still_fails():
     m = PARAMS["region"]["detect_roi_margin_m"]
-    assert 0.02 <= m <= 0.06
+    assert 0.02 <= m <= 0.035                                           # 서랍 안 물체 투영 초과 최대 3.3 mm, 그리퍼 손끝 자리 36 mm 이상 [실측 10/07]
     inside = scene(0.04, 0.15, 0.0, (0.0525, 0.022), 0.0115)            # 벽(x=0) 4 mm 안쪽까지 붙은 지우개 → 그대로 target
     ok, _, js = run(inside, [{"class": "eraser", "conf": 0.9, "box": box_of(0.04, 0.15, (0.0525, 0.022), 0.0)}])
     assert ok and json.loads(js)["target_found"] is True
@@ -207,3 +207,16 @@ def test_roi_keeps_wall_touching_object_and_depth_hole_inside_still_fails():
     b = box_of(0.08, 0.16, (0.0525, 0.022), 0.0)
     hole[int(b[1]) - 10:int(b[3]) + 10, int(b[0]) - 10:int(b[2]) + 10] = 0.0
     assert run(hole, [{"class": "eraser", "conf": 0.9, "box": b}])[:2] == (False, "DEPTH_INVALID")
+
+
+def test_gripper_fingertip_like_detection_beyond_back_wall_is_skipped():
+    """PC2 10/07: 화면 아래 그리퍼 손끝을 목표와 같은 eraser 로 오검출(0.39). 바닥 투영이 서랍 안쪽 끝보다 36 mm 이상 밖 → ROI 로 제외."""
+    depth = scene(0.10, 0.15, 0.0, (0.0525, 0.022), 0.0115)
+    ghost = box_of(INTERIOR[0] + 0.036, 0.15, (0.03, 0.02), 0.0)
+    dbg = []
+    ok, _, js = inspect_scene([{"class": "eraser", "conf": 0.39, "box": ghost},
+                               {"class": "eraser", "conf": 0.95, "box": box_of(0.10, 0.15, (0.0525, 0.022), 0.0)}],
+                              depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    r = json.loads(js)
+    assert ok and r["visible_count"] == 1 and abs(r["target"]["pose"]["position"][0] - 0.10) < 0.005
+    assert any(d["conf"] == 0.39 and d.get("skip", "").startswith("서랍 영역 밖") for d in dbg)
