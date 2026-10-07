@@ -27,6 +27,10 @@ PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_objec
 PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
              "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
 
+# C 원본 공통 pick 호출열 (d8823de, #118의 s3v 추가 전)
+PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
+             "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
+
 
 class MockRobot:
     """ROS 대신 call_action·call_service 를 받는 가짜 백엔드. fail: {동작: [코드, …]} 앞에서부터 하나씩."""
