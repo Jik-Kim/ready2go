@@ -246,3 +246,10 @@
 - [문서] 최종 상대 경로 대조: root 호스트 Runner/Skills/Vision/stub의 스키마·manifest·설정·가중치·로그, mktemp·run_report를 직접 상대 경로로 통일. 수신자의 open/Path/YOLO 전달과 ROS 로그 경로 getter를 확인; ontology 내부 sources는 manifest 폴더 기준이며 CLI 진입점 cwd와 구분. DDS file URI만 실행 시 cwd 절대화 유지 이유를 명시, 시스템/벤더 설치·컨테이너 마운트·기본 ROS 로그 위치는 별도 기준. 실제 노드/모델/장치 구동·새 PC 설치를 수행한 것으로 표현하지 않음.
 - [실측: 정적] 마지막 경로 수정으로 바뀐 Bash8블록만 bash -n 재검사 통과. README의 $PWD는 DDS URI 명령과 이유 설명 두 곳뿐, task_file 예시 원본 존재·diff 공백·허용4파일 상태 확인. 제목/링크/내장 Python/requirements는 이 추가 수정에서 변경 없음으로 앞선 검사 결과 유지. 게시 담당 인계 대기, commit/push/PR 미수행.
 - [실측: 정적] PR #128 head81a00e84 후속 검토: README의 개인 작업 경로 cd2줄 제거, 저장소 루트 시작 안내·기존 의존성/명령 보존 및 변경 Bash2블록 구문·개인 경로 부재 확인. 실제 신규 PC 설치/장치/API 시험과 commit/push는 수행하지 않음.
+
+
+## 2026-10-07 PR #128 real 스킬 자동기동 문서 정정
+- [문서] 사용자 승인 “수정 진행”의 후속 범위. /tmp/ready2go-deps, codex/docs-dependencies, 착수 HEAD cd44920d9e276ba169ada3435a8c55f1a76298db clean. P1 NFR-ENV-01 기준으로 루트 README·이 CURRENT만 수정. 최신 main c8debe8d60d33921b449792a06327558da529fd4의 launch/Compose/.env.example/docs/docker를 읽기 전용 대조. requirements·음성 README·코드·Compose/launch·타 담당 파일·계약/Phase·기존 이력은 보존.
+- [문서] real 통합 launch의 skill_server 지연 자동기동을 표·준비 확인·로그 안내에 반영하고, Compose 이후 중복 수동 실행/tee 블록 제거. 기존 B 첫 저속 예10°/s는 SKILL_JOINT_VEL_DEG_S=10.0을 Compose 기동 전에 전달. 가속도/지연의 설정 출처 및 현 기본40°/s²·15초(속도 미설정60°/s)는 현재 구현값이며 안전 승인/DSR 준비 판정 아님을 구분. 자동 서버가 없는 호스트 개별 대안·같은 Domain 중복 금지·저장소 루트 상대 경로·공통 ontology 안내 유지.
+- [문서] 자동 서버의 콘솔은 Compose logs, 기본 ROS 로그는 컨테이너 ~/.ros/log이며 호스트 자동 저장을 주장하지 않음. 호스트 대안은 공통 ROS_LOG_DIR의 logs/ros. 실물 준비·장치/API 연결·전체 테스트/빌드/설치 실행은 미검증. 이번 범위는 문서 수정/정적 검증만이며 add/commit/push/PR 등록·병합·Approve·외부 메시지는 수행하지 않음.
+- [실측: 정적] 변경 real 기동 Bash1블록 bash -n 통과, 이전 수동 스킬/tee 블록 제거·호스트 대안 유지 확인. README 로컬 링크/앵커18건, 기존 제목·CURRENT 원문 prefix 보존, 개인 절대경로 부재·git diff --check·승인2파일만 변경 확인. 원격 c8debe8d의 TimerAction15초·real 조건·속도/가속 환경 전달·output=screen·Compose 기본값/로그 위치를 대조했으며 실제 서비스 readiness/실물 구동 성공으로 대신하지 않음.
