@@ -6,7 +6,8 @@ BACKEND(real|sim|mock)는 compose의 환경변수로 전달됨 (docs/docker.md).
   호스트에서는 config_dir:=<저장소>/config 로 지정.
 - real: DSR 드라이버(ready2go_skills/dsr_real.launch.py, 제어기 = ROBOT_HOST) + RG2 /gripper/state (RG2 = RG2_HOST)
 - 모든 BACKEND: Runner 노드(ready2go_runner runner) — /runner/status·/robot_state 발행, /runner/estop.
-  RUNNER_TASK_FILE 을 주면 시작할 때 그 태스크를 한 번 실행 (시험용)
+  RUNNER_TASK_FILE 을 주면 시작할 때 그 태스크를 한 번 실행 (시험용). 음성 시연 조합은
+  RUNNER_ONTOLOGY_FILE·RUNNER_INTENT_TASKS (docs/docker.md)
 - mock: mock 백엔드(ready2go_runner mock_backend) — /skills/*·/voice/speak·/vision/inspect_region 을
   로봇·음성·비전 없이 같은 이름으로 응답 (#10). 실패 시험은 MOCK_FAIL·MOCK_NOT_VISIBLE 환경변수
 """
@@ -65,7 +66,10 @@ def generate_launch_description():
 
     runner = Node(  # RUNNER_TASK_FILE: 시험용으로 시작할 때 한 번 실행할 태스크 (정식 통로는 /voice/intent, #17)
         package="ready2go_runner", executable="runner", name="runner", output="screen",
-        parameters=[{"task_file": EnvironmentVariable("RUNNER_TASK_FILE", default_value="")}],
+        parameters=[{"task_file": EnvironmentVariable("RUNNER_TASK_FILE", default_value=""),
+                     "ontology_file": EnvironmentVariable("RUNNER_ONTOLOGY_FILE",
+                                                          default_value="/knowledge/robot_ontology.jsonld"),
+                     "intent_tasks": EnvironmentVariable("RUNNER_INTENT_TASKS", default_value="")}],
     )
 
     # TODO(C 이영훈): vision, voice 노드 추가
