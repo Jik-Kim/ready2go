@@ -135,8 +135,14 @@ def run(node, cmd):
     if not client.wait_for_server(timeout_sec=5.0):
         sys.exit("스킬 서버 없음 — 터미널 1 확인")
     print(f"보냄: {action} {json.dumps(params, ensure_ascii=False)}")
-    sent = client.send_goal_async(Skill.Goal(params_json=json.dumps(params)),
-                                  feedback_callback=lambda f: print("  단계:", f.feedback.stage))
+    import time
+    t = {"last": time.monotonic()}
+
+    def fb(f):                                             # 단계 사이 걸린 시간 — 어디서 멈추는지 보기 [10/07]
+        now = time.monotonic()
+        print(f"  단계: {f.feedback.stage}  (+{now - t['last']:.1f} s)")
+        t["last"] = now
+    sent = client.send_goal_async(Skill.Goal(params_json=json.dumps(params)), feedback_callback=fb)
     rclpy.spin_until_future_complete(node, sent)
     handle = sent.result()
     if not handle.accepted:
@@ -156,6 +162,7 @@ def run(node, cmd):
         return False
     r = result.result().result
     last["code"] = r.error_code
+    print(f"  끝  (+{time.monotonic() - t['last']:.1f} s)")
     out = json.loads(r.output_json) if r.output_json else None
     if cmd == "opened" and r.error_code == "DRAWER_ALREADY_OPEN":
         print("결과: 서버에 '끝까지 열림(226 mm)'으로 알림 — 로봇 동작 없음")

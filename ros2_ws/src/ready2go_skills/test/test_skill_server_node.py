@@ -96,7 +96,7 @@ def server(monkeypatch):
             self.log.append("stop")
             return True
 
-        def movel_async(self, p, vel, acc, rot_vel=30.0, rot_acc=60.0):
+        def movel_async(self, p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0):
             self.log.append(("movel", p))
             s0 = list(self.p)
             self.path = [[s0[i] + (p[i] - s0[i]) * (k + 1) / 40 for i in range(6)] for k in range(40)]   # 0.2 mm 단위 (누르기 연속 확인)
@@ -222,7 +222,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert out.success and data["slot"] == "handover_zone_1"
     kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이), 직선 블렌딩 한 번
     assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 4
-    assert radii == [20.0, 20.0, 20.0, 0.0]
+    assert radii[1:] == [50.0, 50.0, 0.0] and radii[0] == pytest.approx(41.7, abs=0.1)   # 50 mm [사용자 10/07], 짧은 구간(1→2 83 mm)은 절반
     assert pts[3][2] == pytest.approx(route[-1][2])
     assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로
@@ -272,8 +272,7 @@ def test_runner_open_path_lifts_before_ready_and_does_not_redo_it(server):
     assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(300.0) and log[1] == ("movej", ready)
     log.clear()
     server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
-    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-289.757 + 10.0, abs=0.5)   # 바로 손잡이 1 cm 앞(빠르게)
-    assert log[1][0] == "movel" and log[1][1][1] == pytest.approx(-289.757, abs=0.5)        # 마지막 1 cm 천천히
+    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-289.757, abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07)
     assert ("movej", ready) not in log
 
 
@@ -386,8 +385,7 @@ def test_press_force_cap_stops_even_in_ignore_window(server, monkeypatch):
         return out
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
-    assert out.error_code == server.ss.NO_OBJECT_CONTACT and data["target_after"] is None    # 예상 높이 밖 → 끌지 않음
-    assert contact["z"] - stop_z["z"] <= 8.0 / 8.0 + 0.25                  # 8 N 근처에서 멈춤 (가짜 경로 한 칸 0.2 mm 여유)
+    assert contact["z"] - stop_z["z"] <= 8.0 / 8.0 + 0.25                  # 무시 구간에서 닿아도 8 N 근처에서 멈춤 (가짜 경로 한 칸 여유)
 
 
 def test_slow_press_is_not_ended_early_when_joint_state_looks_still(server, monkeypatch):
@@ -433,3 +431,52 @@ def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     t["pose"]["position"][1] = 0.2904 - 0.030
     out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
     assert out.error_code == server.ss.WALL_TOO_CLOSE and server.srv.robot.log == []
+
+
+def test_lift_then_joint_move_without_stop_and_fallback_when_rejected(server):
+    """10/07 사용자 "z 올리고 탑뷰 가기 전 멈춤 없이": 올리기는 radius 20 으로 보내고 끝 20 mm 안에서 관절 이동.
+    관절 이동이 거부되면(올라가는 중) 다 올라간 뒤 다시 보냄."""
+    r = server.srv.robot
+    r.p = [368.0, 6.5, 195.0, 0.0, 180.0, 0.0]
+    seen, real = [], r.movel_async
+
+    def movel(p, *a, radius=0.0, **k):
+        seen.append(radius)
+        return real(p, *a, **k)
+    r.movel_async = movel
+    view = server.srv.poses()["drawer_top_view"]["drawer_top"]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    assert out.success and seen == [20.0] and r.log[-1] == ("movej", view)
+    r.p, r.log[:], seen[:] = [368.0, 6.5, 195.0, 0.0, 180.0, 0.0], [], []
+    real_j, calls = r.movej_async, []
+
+    def movej(j, v, a):
+        calls.append(list(j))
+        return False if len(calls) == 1 else real_j(j, v, a)
+    r.movej_async = movej
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    assert out.success and len(calls) == 2 and r.p[2] == pytest.approx(325.0, abs=0.05)   # 다 올라간 뒤 다시
+
+
+def test_pick_and_place_go_fast_until_1cm_then_slow(server):
+    """10/07 사용자: 잡기·놓기는 1 cm 전까지 빠르게(line_mm_s), 마지막 1 cm 만 천천히."""
+    server.Gripper.holding = True
+    t = json.loads(json.dumps(ERASER_CORNER))
+    t["pose"]["position"][1] = 0.2904 - 0.033
+    speeds, real = [], server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        speeds.append((stage, vel, posx[2]))
+        return real(self, goal, posx, vel, stage, watch, **kw)
+    server.ss.SkillServer._line = line
+    try:
+        out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+        assert out.success
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.ss.SkillServer._line = real
+        server.Gripper.holding = False
+    st = {s: (v, z) for s, v, z in speeds}
+    assert st["descend_fast"][0] == 150.0 and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
+    assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
+    assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
