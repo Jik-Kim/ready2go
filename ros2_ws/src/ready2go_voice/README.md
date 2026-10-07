@@ -77,7 +77,7 @@ ros2 run ready2go_voice voice_node --ros-args -p config_file:=/절대경로/voic
 - 음성의 발화 종료 Unix/monotonic 시각, TTS 재생 시각, 확인 지연. TTS는 합성 시작/완료나 요청 접수가 아니라 **첫 PCM의 PortAudio DAC 재생 시각**을 장치 callback 정보로 기록합니다(`tts_start_basis=portaudio_first_dac`). 물리 스피커 청취 지연은 별도 확인해야 합니다.
 - 실제 어댑터의 `tts_mock=false`와 테스트의 `tts_mock=true`를 구분합니다. 모의 시각·텍스트 입력으로 AC-INT-03 통과를 선언하지 않습니다. TTS 실패/장치 없음은 성공이나 실제 시작으로 기록하지 않습니다.
 
-C #17 인계: 단일 find_item→태스크 수신, cancel/status, 모호/미지원 보류, 중복 요청, 확인 TTS/태스크 시작 책임, source→실행 로그/run_id 연결. voice는 nudge/pick을 직접 실행하지 않습니다. 벽면 배치·기존 pick_demo 예상 target_after/재조회 없음 합의는 유지하며 실제 재인식→pick 및 NO_PUSH_ACCESS 정합성은 별도 A/B/C/E 인계입니다.
+C #17 인계: 단일 find_item→태스크 수신, cancel/status, 모호/미지원 보류, 중복 요청, 확인 TTS/태스크 시작 책임, source→실행 로그/run_id 연결. voice는 nudge/pick을 직접 실행하지 않습니다. 현재 공통 pick은 탑뷰 관측→B 공간 판단/필요 시 끌기→탑뷰 재관측→새 target 집기를 수행하며, nudge.target_after 예상값을 집기에 사용하지 않습니다. 정식 find_item·점검용 p1_demo_eraser는 공통 robot_ontology.jsonld를 사용합니다. 실제 재관측·NO_PUSH_ACCESS·안전 종료 정합성 확인은 A/B/C/E 인계 사항입니다.
 
 D #20 인계: **20 지우개 요청/10 모호/10 미등록·미지원**, 자유 표현10은 40개 안에 포함, 화자2명 이상, cancel/status 별도 보조 시험. 사용자 확정 모호=clarify 정책을 반영하되 평가자료의 승인 상태·문장별 정답을 E/D가 먼저 고정하고 모션 없는 평가 모드에서 측정합니다. 40문장은 평가용 정답표이며 허용 목록·학습 자료가 아닙니다. 이름 없는 자유 표현과 요청 의미가 불명확한 경우는 확인 안내·실행 보류입니다. D 초안(JSON SHA256 `5995fc225c0a2cc78aa1c9264eee6a07518ad674ed4923763acf5017377aec84`)의 최신 TC-008은 “지우개 찾아서 건네줘.”입니다. 이 자료를 읽기 전용 정답 참고로 사용한 텍스트40개 회귀는 실제 음성 평가·D 자료 승인 완료를 대신하지 않습니다. 후속 확인 대화와 자료 승인·정답표 동결은 E/D 인계로 남습니다. 정상 unknown/clarify는 LLM 검증 실패가 아닙니다. LLM 검증 passed는 형식·등록 대상 검사 통과를 뜻하며 사용자 확인 완료나 실행 허용을 뜻하지 않습니다. 전체·종류별 정확도, LLM 호출 분모/검증 실패/폴백, STT·확인 지연·실행 시도를 구분합니다. 실제 음성 40문장 ≥36 정답, 검증 실패율≤5%·잘못된 실행0, 확인TTS≤3초는 실제 측정 대상으로 남습니다.
 
