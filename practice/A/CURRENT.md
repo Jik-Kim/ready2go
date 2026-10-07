@@ -13,8 +13,8 @@
 - **#14 학습·모델 결정 완료(10/06)**: v8n·11n·26n 같은 조건 비교, `yolo11n` 결정, 가중치 `models/yolo11n_ready2go_v1.pt`(LFS, PR #76 머지). 통과 기준 mAP50 0.9 [팀 확정 10/06]. 상세 `2026-10-06_practice.md`.
 - **V2 `inspect_region` 실제 구현(PR #80 머지, 10/06)**: YOLO + 뎁스 덩어리 노드. 실물 첫 연결용 진단(바닥 z 로그, 요청별 프레임 덤프 `~/ready2go_vision_dump`, `tools/dev/replay_inspect_dump.py`, 시험 스크립트 `tools/dev/vision_real_check.sh`), `floor_margin_m` 0.007, `edge_tolerance_m` 0.015(벽면 배치; 모션 안전 경계는 B `WALL_TOO_CLOSE`). 실제 이미지 20장 서랍 바닥 z 0.4 mm(옛 원점 기준), 트윈 렌더 60장 위치 오차 최대 0.6 mm(이상적 센서), 가짜 카메라로 서비스 호출 확인 [실측]. 서랍 밖 검출 제외(D P1 반영). **실물 첫 연결(10/07)**: PC1 단독 43회 호출, 실패 2회는 서랍 밖 물체. 손끝 두 점 정답으로 위치 오차 1.1 / 1.4 / 3.2 mm(배치 3개, 첫 측정), 반복성 같은 장면 0.2 mm·홈 왕복 1.2 mm [실측]. 뒤 벽에 밀착하면 덩어리가 짧아져 yaw ±2° → 10~20 mm 띄우기 제안(#23). 서랍 밖 물체가 서랍 바닥보다 낮으면 호출 전체 `DEPTH_INVALID` → P1은 "서랍 주변 비우기" 운용, 코드 수정은 P2. 상세 #18 결과·보충, `2026-10-07_practice.md`.
 - **1차 점검(#22, 10/06)은 stub만**(조장 결정, 위 서랍만, 비전 제외). stub은 A가 PC1에서 실행(multi DDS), 값은 E 전달 [0.1769, 0.2895, 0.0]·yaw 0·`top_z` 0.0115, 파일 `~/ready2go_stub/vision_stub.yaml`. 12:29 PC2 → PC1 호출 성공 [실측], 저녁 재기동(B: `b_demo.py` 실물 + 스킬 서버 흐름에서 stub 사용). C 기록(#22, 10/07): 20:07 실행 16/16 스텝 성공, 펜던트 비상정지 회차 미실시로 "부분 점검 완료" 제안 → E 판정 대기 [문서].
-- **P1 일정 (#23)**: 10/09 공휴일 → **P1 테스트 10/08(목) 16:00**, 벽면 배치·nudge 포함(사용자 결정). A 로봇 슬롯 10/07 완료(PC1 단독, 1인. 진행표와 달리 PC `move_joint` 10 deg/s·`jog_gui` 저속 조그 사용, 사용자 판단). 시험 폴더 `/home/byeongjik/Cal2_proj/ready2go-vision`(main `1098365` + `vision_real_check.sh` `code_sha` 따옴표 로컬 수정 = PR #101). DSR 서비스 이름은 `/dsr01/dsr_controller2/motion/...`. nudge 후 재인식은 10/08 슬롯(B·비상정지 대기자) 요청 중.
-- **모델 (10/07 결정, #14)**: 실물 프레임 56장을 11n·11s로 다시 검출 → 11s는 그리퍼 아랫부분을 `toy_wrench`로 오검출(매번 같은 픽셀), 중복 많음. 그리퍼 마스크·`conf_min` 0.5·중복 병합 조건이면 놓침 10 · 10으로 동률 → **P1·P2 모두 `yolo11n` 유지**(사용자). 겹친 긴 물체(망치·렌치 X자)를 놓치는 건 두 모델 공통 → 겹침 학습 데이터로 재학습. README PR #102. 11s는 `~/yolo_run/runs/11s/` 그대로.
+- **P1 일정 (#23)**: 10/09 공휴일 → **P1 테스트 10/08(목) 16:00**, 벽면 배치·nudge 포함(사용자 결정). A 로봇 슬롯 10/07 완료(PC1 단독, 1인. 진행표와 달리 PC `move_joint` 10 deg/s·`jog_gui` 저속 조그 사용, 사용자 판단). 시험 폴더 `/home/byeongjik/Cal2_proj/ready2go-vision`(main `1098365` + `vision_real_check.sh` `code_sha` 따옴표 로컬 수정 = PR #101, 10/07 머지). DSR 서비스 이름은 `/dsr01/dsr_controller2/motion/...`. nudge 후 재인식은 10/08 슬롯(B·비상정지 대기자) 요청 중.
+- **모델 (10/07 결정, #14)**: 실물 프레임 56장을 11n·11s로 다시 검출 → 11s는 그리퍼 아랫부분을 `toy_wrench`로 오검출(매번 같은 픽셀), 중복 많음. 그리퍼 마스크·`conf_min` 0.5·중복 병합 조건이면 놓침 10 · 10으로 동률 → **P1·P2 모두 `yolo11n` 유지**(사용자). 겹친 긴 물체(망치·렌치 X자)를 놓치는 건 두 모델 공통 → 겹침 학습 데이터로 재학습. README PR #102 머지(10/07). 11s는 `~/yolo_run/runs/11s/` 그대로.
 - **P2 대비 가림 시험 (10/07, #18 보충)**: 위에서부터 치우는 순서는 맞음, 재촬영 위치 차이 0.5 mm. 과제: 절반 덮인 목표를 "찾음"으로 냄(가림 필드 없음), 닿은 물체 뎁스 섞임(top_z 25 mm), 미지 물체 오분류(딱풀 → 렌치), X자 중복.
 - **겹침 재학습 데이터 (10/07)**: `ready2go/data/raw/` `s08_overlap_long_v0` 17장 + `s09_overlap_mix_v0` 25장(학습), `s92_val_c` 10장(검증). s08·s09는 서랍 밖 투명 통 라벨 제외(`session.yaml` `label_note`), s92 9번 재촬영(원본 `_removed/`). 라벨링 전.
 - **특이점 트윈 재현(PR #92 머지)**: `sim/motion_check/`(B `skill_server`·`b_demo.py` 실제 코드 + 기구학 가짜 로봇), `sim/scripts/play_motion_trace.py`(Isaac 재생). 실물에서 튄 구간(탑뷰 직선 하강 J3 10°, 들고 나오기 J3 0°) 재현, ◀ 기준을 실물에 맞춤(J3 < 15°). main 코드는 ◀ 없음. 손잡이 손목 해는 위·아래 서랍 통일로 지금 해(J5 −106°) 유지(사용자 결정).
@@ -44,7 +44,8 @@
 - [x] #18 `inspect_region` stub — 1차 점검용으로 정리·실측 값 반영(PR #81, 10/06). 이전: (설정 파일 좌표 응답, 서비스 호출 확인 10/03) — 설정 `ready: false`로 배포(실측 전 STUB_NOT_READY로 차단, PR #33 리뷰). 좌표를 B와 실물로 재서 교체한 뒤 `ready: true`, `pose` 형식 B와 합의 필요
 - [x] #18 V2 구현 PR #80 머지(10/06)
 - [x] 10/07 슬롯: 위치 오차 첫 측정, 11s 비교, P2 가림 시험, 겹침 촬영 52장 (#18·#23·#14 기록)
-- [ ] PR #101(`code_sha`)·#102(YOLO README)·#103(practice) 머지 후 시험 폴더를 새 main으로
+- [x] PR #101(`code_sha`)·#102(YOLO README) 머지(10/07)
+- [ ] PR #103(practice) 머지 후 시험 폴더를 새 main으로
 - [ ] P1 뒤: s08·s09·s92 라벨링(Roboflow → `import_roboflow.py`, 서랍 밖 통 제외) → 재학습(219 + 42) → s90·s91·s92 + 10/07 덤프 56장 회귀로 비교, #14 기록
 - [ ] 당근 펜 제외가 확정되면 `world.jsonld`·`initial_state.json`·`item_grasp.yaml`·`hardware.md` 정리 PR
 - [ ] 10/08: 반복 측정·실제 비전 한 바퀴(16:00 P1 테스트 전), nudge 후 재인식 오차
