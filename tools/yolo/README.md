@@ -99,7 +99,7 @@ cd <저장소> && docker run --rm --gpus all --network host --user $(id -u):$(id
   - `11n_v2` 5,458,650 B, sha256 `3592425b0a96d1185e747157d7f618a9c660fc629786d4fc39c773f445313549`
   - `11s_v2` 19,167,706 B, sha256 `1aade00a95370d1b892c4475115dafc5158b0b76fe96d21db0a4d3e1715ed57b`
   - `26s_v2` 20,309,573 B, sha256 `54cfb435e1f5486442a6445ce24102738f9cd8567154f5dfdeca83394ccd1fd0`
-  - 백업 [10/07, A 개인 Google Drive `내 드라이브/P2/backups/`]: `ready2go_yolo_v2_20261007.tar.gz`(67 MB, 위 가중치 3개·학습 설정·지표, 비교 사진·스크립트, Roboflow 내보내기, 현재·이전 라벨 `.txt`) sha256 `1f83a57e3f9b273f6990278545973387e09ab51719561548d497dc995d25917d`, `ready2go_raw_20261007.tar`(380 MB, 원본 촬영 `data/raw` 전체) sha256 `b9d336048b26921a35bbd8b47945c25846760e4bde9b0146365e1580d3ea581a`. PC1 원본은 `~/yolo_run/backup_1007/`
+  - 백업 [10/07, A 개인 Google Drive `내 드라이브/P2/backups/`]: `ready2go_yolo_v2_20261007.tar.gz`(67 MB, 위 가중치 3개·학습 설정·지표, 비교 사진·스크립트, Roboflow 내보내기, 현재·이전 라벨 `.txt`) sha256 `1f83a57e3f9b273f6990278545973387e09ab51719561548d497dc995d25917d`, `ready2go_raw_20261007.tar`(380 MB, 원본 촬영 `data/raw` 전체) sha256 `b9d336048b26921a35bbd8b47945c25846760e4bde9b0146365e1580d3ea581a`. 묶음의 PC1 사본은 업로드 뒤 지움(원본 파일은 위 경로에 그대로)
   - 비교 사진·스크립트 `~/yolo_run/compare_v2/`, 라벨 `data/labeled`(이전 라벨 `data/labeled_backup_1007`), Roboflow 내보내기 `data/roboflow_export_1007`
 
 ## 주의
