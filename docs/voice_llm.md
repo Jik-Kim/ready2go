@@ -122,7 +122,7 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 **현재 진단과 C/D 인계** [문서]
 
-STT 원문·LLM 응답·검증·폴백·실행 허용·발행 여부·지연과 발화 종료/첫 PortAudio DAC 재생 시각은 ROS 상세 진단 로그 또는 intent의 source에 제공합니다. 기본 콘솔은 한 줄 진행 표시이며 `-p diagnostic_detail:=true`로 voice_diagnostic 원본을 유지합니다(실행/보존 명령은 패키지 README). source 부가 필드 수신/의미는 C/D 협의 대상입니다. 이를 C run_id/DB 실행 로그의 inputs·D 화면에 자동 기록하는 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
+STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/첫 PortAudio DAC 재생 시각은 ROS 상세 진단 로그 또는 intent의 source에 제공합니다. 발행 여부 `published`는 진단 이벤트의 최상위 필드이며 `/voice/intent`의 `source`에는 없습니다. D가 상세 콘솔 JSON을 읽을 때 발행 여부는 `voice_diagnostic.published`, intent는 `voice_diagnostic.intent`에서 확인합니다. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공 증빙은 아닙니다. 기본 콘솔은 한 줄 진행 표시이며 `-p diagnostic_detail:=true`로 voice_diagnostic 원본을 유지합니다(실행/보존 명령은 패키지 README). source 부가 필드 수신/의미는 C/D 협의 대상입니다. 이를 C run_id/DB 실행 로그의 inputs·D 화면에 자동 기록하는 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
 
 ### 6.5 (Stretch) LLM 태스크 JSON 생성
 

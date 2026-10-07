@@ -29,6 +29,7 @@
 - 사용자 확정 정책은 대상 단독·대명사·대상불명 요청을 `clarify`, 빈 targets, 실행 보류로 처리하는 것입니다. 기존 `bare_item_policy: clarify` 설정은 유지하며 충돌하는 `unknown` 설정은 거절합니다. 미사용 `request_patterns`는 설정 호환을 위해 유지하되 실행 판단에 사용하지 않습니다. D 첨부의 E/D 승인 완료를 뜻하지 않습니다.
 - 이름·별칭이 직접 확인되지 않은 LLM 대상은 `clarify`, 빈 targets, 실행 보류로 처리합니다. 정상 LLM 경로는 특정 문장 전체 정규식이나 평가40개에 한정하지 않고, 등록된 단일 물품을 받기/가져오기 위한 요청 의미를 해석합니다. 사용자 승인 `지우개 좀`, `지우개 좀.`, `지우개 좀요`는 축약 부탁이며 모든 등록 이름·별칭에 같은 정책을 적용합니다. `혹시 지우개를 받을 수 있을까요?`처럼 폴백 문형 밖 표현도 정상 LLM 결과와 공통 검증을 통과하면 실행 후보입니다. 대상 단독 `지우개`와 대상불명 `그거 좀`은 계속 clarify입니다.
 - 선제 보류는 빈 발화·단독 대상·다중/충돌 별칭·대상불명 및 명백한 부정·정보 질문·인용·불명확 문맥·미지원 행동에 적용합니다. 결과 검증에서는 기존 스키마·P1 허용값·등록 단일 대상·발화 대상 일치·유한 확신도/최소값을 확인합니다. find_item에는 요청/필요/받기/축약 부탁의 단서도 필요하며 이름만이나 단서만으로 실행하지 않습니다. 전체 문형 일치를 정상 LLM 결과에 다시 요구하지 않습니다. 자유 한국어 문맥 전체의 안전·정확성을 보장하는 의미 검사기는 아니며 실제 평가가 필요합니다.
+- [실측: 모의] 비요청 발화의 실행 후보 통과 결함은 미해결입니다. “지우개 가져다주면 안 돼”, “지우개 빼고 다른 것 가져줘”에 잘못된 LLM find_item(eraser)을 주입하면 `execution_allowed=true`가 됩니다. 위 보류 정책이 모든 부정·제외 문맥에서 구현됐다는 뜻은 아닙니다. 실제 발행·로봇 실행을 확인한 결과는 아니며, 판별 코드·회귀 검사의 별도 수정이 필요합니다. D의 모션 없는 평가에는 `evaluation_mode:=true`를 명시합니다.
 - 오류·시간 초과·검증 실패 또는 LLM 없음의 규칙 폴백은 기존 긍정 **문장 전체** 문형과 승인된 단일 대상+좀/좀요만 수용합니다. 정규식 밖의 이름 있는 표현은 clarify, 미등록은 unknown으로 보류합니다. 정상 LLM unknown/clarify를 폴백 find_item으로 덮어쓰지 않습니다. 찾기/꺼내기→가져오기·건네기·전달 트레이에 놓기의 기존 흐름은 유지하며, 부정·인용을 삭제하지 않습니다. 직접 손 전달·다른 목적지·반납·정리·던지기·다중 요청은 보류합니다.
 - 기본 `confirmation_enabled: true`는 음성 확인 재생 성공 뒤 find_item 발행을 허용합니다. 실패하면 clarify로 보류합니다. C의 태스크 시작/기존 speak와 중복 안내 책임은 C/E가 맞춰야 합니다.
 - cancel/status는 발화·설정 문구의 끝 `. ! ? 。 ！ ？`만 정규화하여 정확 비교합니다. `멈춰.`, `취소!`, `지금 뭐 해?`는 API/처리 큐를 거치지 않는 텍스트 제어 경로에서도 처리하며, 부정·문장 중간 문맥은 제거하지 않습니다.
@@ -62,16 +63,17 @@ source /opt/ros/jazzy/setup.bash
 cd ros2_ws
 colcon build --packages-up-to ready2go_voice
 source install/setup.bash
+cd ..  # MeloTTS 기본 상대 경로를 사용하는 저장소 루트로 복귀
 ros2 run ready2go_voice voice_node --ros-args -p config_file:=/절대경로/voice.yaml
 ```
 
-설정의 `ontology_file`·`intent_schema_file`·`wake_model`은 실행 환경의 실제 경로로 맞춥니다. `OPENAI_API_KEY`는 기존 보안 환경/voice.env를 명시적으로 로드하며 로그에 출력하지 않습니다. Docker/compose의 패키지·메시지·계약/모델 배포 및 자동기동은 이번 패키지 구현 밖의 C/E 인계입니다. 기존 Docker의 sleep 명령만으로 voice_node가 실행되지는 않습니다.
+설정의 `ontology_file`·`intent_schema_file`·`wake_model`은 실행 환경의 실제 경로로 맞춥니다. 기본 `tts_melotts_python`·`tts_melotts_assets`는 실행 작업 경로 기준 상대 경로이므로 저장소 루트에서 실행합니다. 다른 작업 경로에서 실행하려면 설정 복사본의 두 값을 실제 절대 경로로 지정합니다. `OPENAI_API_KEY`는 기존 보안 환경/voice.env를 명시적으로 로드하며 로그에 출력하지 않습니다. Docker/compose의 패키지·메시지·계약/모델 배포 및 자동기동은 이번 패키지 구현 밖의 C/E 인계입니다. 기존 Docker의 sleep 명령만으로 voice_node가 실행되지는 않습니다.
 
 ## C/D 연결·진단·평가
 
 [문서] `diagnostic_detail=true`에서는 `voice_diagnostic` JSON을 **기존 ROS 로그(`/rosout`) 또는 콘솔**에 출력합니다. 기본은 짧은 진행·실패 유형 로그입니다. 새 진단 토픽이나 DB를 만들지 않습니다. 실행 모드에서는 기존 intent의 `source`에도 정보를 전달하지만 C 로그/run_id·D 화면 수신이 자동 연결되는 것은 아닙니다. 아래 부가 정보의 수신·의미는 C/D 협의 대상입니다.
 
-- STT 원문, 실제 intent/targets, LLM 호출 여부·원문·검증 passed/failed/not_returned/not_called, 폴백 여부, 실행 허용/보류, 발행 여부.
+- STT 원문, 실제 intent/targets, LLM 호출 여부·원문·검증 passed/failed/not_returned/not_called, 폴백 여부, 실행 허용/보류. 상세 콘솔 JSON에서 발행 여부는 `voice_diagnostic.published`, intent는 `voice_diagnostic.intent`입니다. 발행 여부는 진단 이벤트의 최상위 `published`이며 `/voice/intent`의 `source`에는 없습니다. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공을 뜻하지 않습니다.
 - 음성의 발화 종료 Unix/monotonic 시각, TTS 재생 시각, 확인 지연. TTS는 합성 시작/완료나 요청 접수가 아니라 **첫 PCM의 PortAudio DAC 재생 시각**을 장치 callback 정보로 기록합니다(`tts_start_basis=portaudio_first_dac`). 물리 스피커 청취 지연은 별도 확인해야 합니다.
 - 실제 어댑터의 `tts_mock=false`와 테스트의 `tts_mock=true`를 구분합니다. 모의 시각·텍스트 입력으로 AC-INT-03 통과를 선언하지 않습니다. TTS 실패/장치 없음은 성공이나 실제 시작으로 기록하지 않습니다.
 
@@ -105,7 +107,41 @@ PYTHON
 
 위 명령의 `evaluation_mode:=false`를 `true`로 바꾸면 모든 intent 발행을 차단하는 평가입니다. 인자를 생략해도 기본 false이며, 로컬 YAML/키/모델은 덮어쓰지 않습니다. 기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하고, 실행 모드에서도 실제 발화 종료/3초 지연은 null/not_measured입니다.
 
-기본 콘솔: 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기. 프레임마다 점수를 출력하지 않습니다. D 상세 원본은 위 main의 args 배열에 `"-p", "diagnostic_detail:=true"`를 추가하고 `2>&1 | tee logs/voice_eval/voice.detail.log`로 보존합니다. voice_diagnostic 원본/source의 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
+기본 콘솔: 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기. 프레임마다 점수를 출력하지 않습니다. D 상세 원본은 아래 명령으로 보존합니다. 각 실행은 `mktemp`로 새 로그를 만들어 기존 기록을 덮어쓰지 않습니다. `pipefail`로 노드 오류 종료를 파이프라인 결과에 반영합니다. 진단 원본/source의 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
+
+평가용 상세 기록(모든 intent 발행 차단, 실제 녹음/API는 사용자가 실행):
+
+```bash
+cd /home/jonny/rokey_proj/VLA/ready2go
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+mkdir -p logs/voice_eval
+voice_eval_log=$(mktemp logs/voice_eval/voice.eval.XXXXXXXX.log)
+set -o pipefail
+python3 -u - <<'PYTHON' 2>&1 | tee "$voice_eval_log"
+from dotenv import load_dotenv
+from ready2go_voice.nodes.voice_node import main
+load_dotenv('secrets/voice.env')
+main(args=['--ros-args', '-p', 'config_file:=/home/jonny/rokey_proj/VLA/ready2go/logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=true', '-p', 'diagnostic_detail:=true'])
+PYTHON
+```
+
+실행용 상세 기록(기존 발행 게이트 적용, C 수신·모션 연결은 별도 확인 대상):
+
+```bash
+cd /home/jonny/rokey_proj/VLA/ready2go
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+mkdir -p logs/voice_eval
+voice_run_log=$(mktemp logs/voice_eval/voice.run.XXXXXXXX.log)
+set -o pipefail
+python3 -u - <<'PYTHON' 2>&1 | tee "$voice_run_log"
+from dotenv import load_dotenv
+from ready2go_voice.nodes.voice_node import main
+load_dotenv('secrets/voice.env')
+main(args=['--ros-args', '-p', 'config_file:=/home/jonny/rokey_proj/VLA/ready2go/logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
+PYTHON
+```
 
 ## MeloTTS 설치·재생 (P1 E, 사용자 선택)
 
