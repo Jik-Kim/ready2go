@@ -39,3 +39,4 @@
 - **2026-10-06 A 트윈 모션 검사**: B 모션 코드(`skill_server`·`b_demo.py`)를 로봇 없이 돌려 관절 궤적을 계산하고 특이점 근처 구간을 표시하는 도구(`sim/motion_check/`)와 Isaac 재생(`sim/scripts/play_motion_trace.py`)을 추가했다. 10/06 실물 특이점(탑뷰 직선 하강, J3 10°) 재현. `sim/run_isaac.sh` 가 `READY2GO_*` 환경변수를 모두 넘기도록 고쳤다(`--exec` 스크립트 설정이 빠지던 문제).
 - **2026-10-06 A 트윈 씬 재생성 (#83 반영)**: `drawer_top` 원점 −3.0 mm·내부 높이 0.0711로 서랍장 재배치, 전달 트레이(`handover_zone`)를 고정 물체로 추가(바닥·벽 치수 일부 [추정]). `verify_scene.py`에 트레이 존재·원점 일치 검사 추가, 전부 통과.
 - **2026-10-07 C 실행 기록 보고서**: `ros2 run ready2go_runner run_report` — MongoDB/JSONL 실행 기록을 한국어 요약·Markdown 표로(읽기 전용, 계약 변경 없음). `core/run_report.py`, 10/06 PC2 실물 기록 2건으로 시험. `runner.md` 7.4·Runner README.
+- **2026-10-07 A YOLO v2 비교 기록**: 겹침 데이터 재학습(v2)과 11n·11s·26s 비교를 `tools/yolo/README.md`에 기록(검증셋 10/06·10/07 구분, 평가 프레임 겹침 확인, 가중치 SHA-256). P1은 v1 그대로, P2 방침은 제안(#14). 코드·계약 변경 없음.
