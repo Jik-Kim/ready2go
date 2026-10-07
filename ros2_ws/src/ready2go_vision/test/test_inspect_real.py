@@ -207,4 +207,3 @@ def test_roi_keeps_wall_touching_object_and_depth_hole_inside_still_fails():
     b = box_of(0.08, 0.16, (0.0525, 0.022), 0.0)
     hole[int(b[1]) - 10:int(b[3]) + 10, int(b[0]) - 10:int(b[2]) + 10] = 0.0
     assert run(hole, [{"class": "eraser", "conf": 0.9, "box": b}])[:2] == (False, "DEPTH_INVALID")
-
