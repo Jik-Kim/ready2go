@@ -3,6 +3,19 @@
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장) · **현재 Phase**: P1
 - **최종 갱신**: 2026-10-07
 
+## 별도 작업 이력: 온톨로지 원본 정리
+
+아래 기록은 작성 당시 승인·검증·인계 상태입니다. 현재 PR의 게시·병합이나 C/B 후속 완료를 뜻하지 않습니다.
+
+## 2026-10-07 시연 전용 온톨로지 원본 정리 (로컬·C 선행 조건 대기)
+- [문서] 조율 세션 사용자 “정리하자. 근데 pull 당겼는데 왜 파일이 안 바뀜?” 승인 범위. 사용자 작업 경로 /home/jonny/rokey_proj/VLA/ready2go, images/demo HEAD c4dc2e6, 착수 시 작업 트리 clean 확인. P1 FR-ONT-01·FR-PLN-01·FR-ACT-05/AC-ACT-05 기준.
+- [문서] knowledge/robot_ontology_demo.jsonld·knowledge/skills/pick_demo.jsonld 삭제. knowledge/README.md의 옛 시연 진입점/현재 C pick_demo 호출·예상 target_after 실행 안내를 공통 manifest/pick 및 현재 두 태스크 호출 설명으로 교체. docs/ontology.md의 시연 원본 유지 설명과 voice README의 옛 예상값/재조회 없음 인계를 공통 재관측 경로로 정정. 과거 CURRENT의 날짜별 기록은 당시 이력이며 이번 정리로 현행화된 현재 실행 안내와 구분.
+- [문서] 공통 pick 6단계·effect·manifest·설정·계약·두 태스크·과거 fixture/log/변경 이력 유지. C run_report.py의 pick_demo 레이블은 과거 로그 해석용으로 유지. C test_intent_router.py:14는 삭제된 manifest 로딩 참조가 남아 테스트 수집 실패가 예상되므로 공통 manifest로 바꾸는 C 커밋 필요. 직접 수정하지 않음; 마스터가 #17/Slack 요청 담당. B practice/B/HANDOVER.md:54의 옛 실행 명령은 현재 사용 시 정정 인계, docs/domain.md의 역사 설명은 유지(삭제 원본으로 향한 실제 Markdown 링크는 없음). 타 담당 파일 미수정.
+- [문서] local-only 승인으로 커밋·push·PR·새 이슈·타 세션 메시지 없음. 전체 ROS 빌드·실물/마이크/API·전체 CI 실행 없음; C 참조 수정 전 전체 green/완료를 주장하지 않음.
+- [실측: 정적·모의] E knowledge37 passed(0.50초); pytest 캐시는 sandbox 읽기 전용 경로라 기록 경고2건 있으나 검사는 통과. 공통 tools/validate_contracts.py OK, 남은 knowledge JSON·E 문서 링크·두 태스크 공통pick 호출·이번6파일 범위·git diff --check 확인. archive/secrets/logs 제외 참조 검색 결과 과거 CURRENT/changelog/domain/실측fixture/run_report 레이블 보존, B HANDOVER 옛명령과 C test_intent_router 참조는 담당 인계. C test_intent_router.py만 collect-only로 확인하여 line14의 삭제 manifest에서 FileNotFoundError(수집오류1) 실측; 실제 테스트/로봇 동작은 실행하지 않음. C 커밋 전 전체CI 실패 조건이 남아 담당 정리 완료·통합 인계 대기. 로컬 status는 삭제2/수정4, index 비어 있음, commit/push/PR 없음.
+- [문서] 마지막 대조: 현재 docs/domain.md 8.5는 공통 pick 6단계·no-op 재관측·retry 억제를 이미 설명하므로 Knowledge README의 해당 문서 정리 요청을 현재 설명 참조로 정정. 이번 문서 정리의 B 후속 인계는 practice/B/HANDOVER.md:54의 옛 실행 명령과 docs/domain.md:70~71의 “파일은 기록용으로 유지” 표현 정정임. task_nudge_then_pick 예시는 유지되지만 시연 온톨로지 원본2개는 삭제되므로 과거 기록 설명과 원본 현존 여부를 구분해야 함. B 문서/코드 미수정, 코드검사37건 재실행 없이 해당 설명·앵커·링크·diff 확인. 사용자 VSCode 작업 폴더 차이는 파일 수정 대상에서 제외.
+- [문서] 사용자 후속 직접 승인 “커밋, PR 해”로 앞선 local-only 제한을 이번6파일의 커밋·push·PR 생성에 한해 변경. 현재 사용자 브랜치는 ontology/main, HEAD c4dc2e6이며 변경은 동일6파일뿐. 최신 원격 main767a9bee에서도 C test_intent_router의 삭제 manifest 참조가 남음을 확인했으므로 선행 C 수정 대기 Draft PR로 게시하고 전체green/통합완료를 주장하지 않음. 원본 브랜치 이력 전체push 없이 최신main 기반 별도게시브랜치에 이번 커밋만 반영. 추가C/B수정·범위확대·병합은 승인하지 않음.
+
 ## 지금 상태
 - #1·#8 최신 결정에 따라 hardware·metrics_risks의 서랍 재질/레일·높이 기준 문구를 정정함. 작업 브랜치 `codex/hardware-doc-alignment`, 기준 main `f6c2aa4`. 사용자께서 문서 수정·로컬 커밋·push·새 PR 생성을 승인함. [문서]
 - 일반 후보 높이 1.5 cm 유지, 지우개만 예외. 새 서랍 가운데 파지 3/3은 해당 조건의 결과이며 전체 배치·모든 물품 검증 완료가 아님. [#8 결정](https://github.com/Jik-Kim/ready2go/issues/8#issuecomment-5980582810) [문서]
