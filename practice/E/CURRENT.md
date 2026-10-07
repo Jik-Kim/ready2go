@@ -17,6 +17,9 @@
 - [문서] 사용자 후속 직접 승인 “커밋, PR 해”로 앞선 local-only 제한을 이번6파일의 커밋·push·PR 생성에 한해 변경. 현재 사용자 브랜치는 ontology/main, HEAD c4dc2e6이며 변경은 동일6파일뿐. 최신 원격 main767a9bee에서도 C test_intent_router의 삭제 manifest 참조가 남음을 확인했으므로 선행 C 수정 대기 Draft PR로 게시하고 전체green/통합완료를 주장하지 않음. 원본 브랜치 이력 전체push 없이 최신main 기반 별도게시브랜치에 이번 커밋만 반영. 추가C/B수정·범위확대·병합은 승인하지 않음.
 
 ## 지금 상태
+- [문서] 사용자 추가 승인 #138의 P1 중단/오류 안내를 기존 미커밋 Melo1.2 작업에 이어 구현했습니다. E `core/runner_notice.py` 정책과 `/runner/status` 읽기 전용 구독·별도 TTS worker·단일 대기 안내·경고 우선순위·낡은 정상 음성 epoch/generation 무효화, 고정문구7종 캐시를 추가했습니다. 정지/복구/로봇 상태/DB 제어·Runner/tasks/공통 계약·requirements·외부 SDK는 수정하지 않았습니다. 현재 실제 halt와 일반 실패를 분리하여 일반 FAILED 뒤 새 확인TTS→intent→회차가 막히지 않습니다.
+- [문서] latched 첫 상태/동일 halt·확인한 완료 ID·running의 과거 last·중복 최종결과를 억제합니다. HALTED를 ESTOP으로 단정하거나 정지 확인 없이 “멈췄어요”라고 안내하지 않습니다. 일반 실패는 finally 뒤 결과 관측 시점이며 즉시 중간 오류 안내가 아닙니다. 활성 run_id·이벤트 시각/순번 없는 현재 상태로 미관측 같은 태스크 지연 결과·전환 누락을 완전 구분할 수 없어 C #138 인계로 남깁니다. TTS 자체 실패는 로그만 남기며 재귀/재시도하지 않습니다. 실제 E-stop/장치/경고 지연·C 상태 시점 및 닫기 안내 연결은 미검증입니다.
+- [실측: 모의/목록] 상태 정책·기존 PCM/Melo/노드 핵심4파일112 passed/실제 ROS topic/action 연결1건 deselected(1.42초). malformed·baseline 반복/해제후재중단·관측회차/중복/기존결과·같은오류새회차·우선순위·TTS실패무재시도·정상goal 취소경합·일반 실패 후 새 음성 발행 회귀를 확인했습니다. 새 상태문구 포함 prefill63+warmup1=64개; 기존60초 cold 위험/운용자가 정한 별도 유한 사전준비 절차를 README에 갱신했으며 준비/상한을 실측 완료로 보고하지 않습니다. 날짜별 기록 재구성/새 파일은 타 세션 변경으로 보존합니다.
 - #1·#8 최신 결정에 따라 hardware·metrics_risks의 서랍 재질/레일·높이 기준 문구를 정정함. 작업 브랜치 `codex/hardware-doc-alignment`, 기준 main `f6c2aa4`. 사용자께서 문서 수정·로컬 커밋·push·새 PR 생성을 승인함. [문서]
 - 일반 후보 높이 1.5 cm 유지, 지우개만 예외. 새 서랍 가운데 파지 3/3은 해당 조건의 결과이며 전체 배치·모든 물품 검증 완료가 아님. [#8 결정](https://github.com/Jik-Kim/ready2go/issues/8#issuecomment-5980582810) [문서]
 - PR #46은 병합됨. #70~#73은 이번 확인 시점에 미병합이며 승인·병합·추가 변경은 본 문서 작업 범위 밖임. `DRAWER_NOT_AT_TRAVEL`의 실제 노드 연결·실물 검증은 후속 확인 사항임. [문서]

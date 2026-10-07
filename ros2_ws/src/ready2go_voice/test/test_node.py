@@ -348,3 +348,201 @@ def test_speech_hold_never_publishes_in_execution_mode(harness, reason):
     VoiceNode._deliver(harness, doc, 0)
     assert not harness.published and harness.tts.texts == [doc['clarify_question']]
     assert doc['clarify_question'] == harness.cfg['clarify_prompts']['empty']
+
+
+@pytest.mark.parametrize('prepare_fails', [False, True])
+def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeypatch, prepare_fails):
+    import ready2go_voice.nodes.voice_node as module
+    order = []
+    cfg['audio_enabled'] = True
+    monkeypatch.setattr(module.Node, '__init__', lambda *a, **k: None)
+    monkeypatch.setattr(module, 'get_package_share_directory', lambda _: '.')
+    monkeypatch.setattr(module, 'load_config', lambda *a, **k: cfg)
+    monkeypatch.setattr(module, 'load', lambda _: ontology)
+    monkeypatch.setattr(module, 'LangChainIntent', lambda *a: None)
+    from conftest import ROOT
+    cfg['intent_schema_file'] = str(ROOT / 'contracts/intent.schema.json')
+    monkeypatch.setattr(VoiceNode, 'declare_parameter', lambda self, name, default: SimpleNamespace(value=default))
+    for method in ('create_publisher', 'create_subscription'):
+        monkeypatch.setattr(VoiceNode, method, lambda *a, **k: SimpleNamespace())
+    monkeypatch.setattr(module, 'ActionServer', lambda *a, **k: None)
+    monkeypatch.setattr(VoiceNode, '_diagnostic', lambda self, doc: order.append(doc['event']))
+    class TTS:
+        def prepare(self):
+            order.append('prepare')
+            if prepare_fails:
+                raise RuntimeError('MELOTTS_PREPARE_FAILED')
+    monkeypatch.setattr(module, 'create_tts', lambda _: TTS())
+    monkeypatch.setattr(module.threading, 'Thread', lambda *a, **k: SimpleNamespace(start=lambda: order.append('thread_start')))
+    if prepare_fails:
+        with pytest.raises(RuntimeError, match='MELOTTS_PREPARE_FAILED'):
+            VoiceNode()
+        assert order == ['prepare']
+    else:
+        node = VoiceNode()
+        assert order == ['prepare', 'thread_start', 'thread_start', 'thread_start', 'ready']
+        assert '서랍을 닫았어요' in node.cfg['_tts_prefill_texts']
+
+
+def test_timing_diagnostics_stay_out_of_intent_and_action_result(harness):
+    import json
+    details = {'synthesis_wait_sec': .2, 'worker_synth_sec': .002, 'cache_hit': True}
+    class TimedTTS(FakeTTS):
+        def speak(self, text, **kwargs):
+            kwargs['on_timing'](dict(details))
+            stamp = super().speak(text, **kwargs)
+            kwargs['on_timing']({'playback_sec': .4, 'playback_end_basis': 'portaudio_finished_callback'})
+            return stamp
+    harness.tts = TimedTTS()
+    harness.cfg['evaluation_mode'] = False
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    started = next(doc for doc in harness.diagnostics if doc['event'] == 'tts_started')
+    ended = next(doc for doc in harness.diagnostics if doc['event'] == 'tts_finished')
+    assert started['timing'] == details and 'playback_sec' not in started['timing']
+    assert ended['timing']['playback_sec'] == .4
+    assert not set(details).intersection(harness.published[0]['source'])
+    harness.goal_lock = threading.Lock(); harness.goal_lock.acquire()
+    outcomes = []
+    goal = SimpleNamespace(request=SimpleNamespace(params_json=json.dumps({'text': '서랍을 닫았어요'})),
+                           is_cancel_requested=False, succeed=lambda: outcomes.append('success'),
+                           abort=lambda: outcomes.append('abort'), canceled=lambda: outcomes.append('cancel'))
+    result = VoiceNode._speak(harness, goal)
+    assert result.success and outcomes == ['success'] and not harness.goal_lock.locked()
+    assert harness.tts.texts[-1] == '서랍을 닫았어요'
+    assert set(json.loads(result.output_json)) == {'tts_started_unix', 'tts_started_monotonic', 'tts_start_basis', 'tts_mock'}
+
+
+def test_finished_timing_default_is_one_short_line_and_detail_keeps_fields(harness):
+    messages = []; harness.get_logger = lambda: SimpleNamespace(info=messages.append)
+    doc = {'event': 'tts_finished', 'timing': {'synthesis_wait_sec': .2, 'playback_sec': .4, 'cache_hit': True}}
+    harness.cfg['diagnostic_detail'] = False
+    VoiceNode._diagnostic(harness, doc)
+    assert messages == ['TTS 종료 (합성 대기 0.200초, 재생 0.400초)']
+    harness.cfg['diagnostic_detail'] = True
+    VoiceNode._diagnostic(harness, doc)
+    assert 'cache_hit' in messages[1]
+
+
+@pytest.fixture
+def status_harness(harness):
+    from ready2go_voice.core.runner_notice import RunnerNoticePolicy
+    harness.notice_policy = RunnerNoticePolicy()
+    harness.notice_condition = threading.Condition()
+    harness.pending_notice = None
+    harness.notice_cancel = threading.Event()
+    harness.normal_notice_cancel = threading.Event()
+    harness.warning_epoch = 0
+    harness.goal_lock = threading.Lock()
+    def observe(phase, code=None):
+        import json
+        doc = {'phase': phase, 'task_id': 'find_item' if phase == 'running' else None,
+               'halt_code': code, 'last': None}
+        VoiceNode._runner_status(harness, SimpleNamespace(data=json.dumps(doc)))
+    harness.observe_status = observe
+    harness.observe_status('idle');harness.observe_status('running')
+    return harness
+
+
+def test_status_callback_queues_only_and_priority_replaces_pending(status_harness):
+    h = status_harness
+    h.observe_status('running', 'HALTED')
+    assert h.pending_notice.kind == 'halted' and h.request_cancel.is_set()
+    assert h.normal_notice_cancel.is_set() and not h.tts.texts
+    h.observe_status('running', 'ESTOP')
+    assert h.pending_notice.kind == 'estop' and h.generation == 2
+    h.observe_status('running', 'HALTED')
+    assert h.pending_notice.kind == 'estop' and h.generation == 2
+    h.observe_status('idle')
+    assert h.pending_notice is None and not h.normal_notice_cancel.is_set()
+
+
+def test_warning_aborts_accepted_old_goal_and_rejects_new_normal_goal(status_harness):
+    import json
+    from rclpy.action import GoalResponse
+    h = status_harness; request = SimpleNamespace(params_json=json.dumps({'text': '앞쪽 트레이에 놓았어요'}))
+    assert VoiceNode._goal(h, request) == GoalResponse.ACCEPT
+    h.observe_status('running', 'ESTOP')
+    assert VoiceNode._goal(h, request) == GoalResponse.REJECT
+    outcomes = []
+    goal = SimpleNamespace(request=request, is_cancel_requested=False, succeed=lambda: outcomes.append('success'),
+                           abort=lambda: outcomes.append('abort'), canceled=lambda: outcomes.append('cancel'))
+    result = VoiceNode._speak(h, goal)
+    assert not result.success and result.error_code == 'CANCELED'
+    assert outcomes == ['abort'] and not h.tts.texts and not h.goal_lock.locked()
+
+
+def test_warning_race_after_playback_return_cannot_mark_old_goal_success(status_harness):
+    import json
+    h=status_harness; h.goal_lock.acquire();h.goal_warning_epoch=h.warning_epoch
+    class TTS(FakeTTS):
+        def speak(self, text, **kwargs):
+            stamp=super().speak(text, **kwargs)
+            h.observe_status('running', 'ESTOP')
+            return stamp
+    h.tts=TTS();outcomes=[]
+    goal=SimpleNamespace(request=SimpleNamespace(params_json=json.dumps({'text':'정상 안내'})),
+        is_cancel_requested=False, succeed=lambda:outcomes.append('success'),
+        abort=lambda:outcomes.append('abort'), canceled=lambda:outcomes.append('cancel'))
+    result=VoiceNode._speak(h,goal)
+    assert not result.success and outcomes==['abort']
+
+
+def test_warning_tts_failure_is_logged_once_without_retry(status_harness):
+    h=status_harness;h.observe_status('running','ESTOP');calls=[]
+    class TTS(FakeTTS):
+        def speak(self, text, **kwargs):
+            calls.append(text);raise RuntimeError('speaker unavailable')
+    h.tts=TTS()
+    def diagnostic(doc):
+        h.diagnostics.append(doc)
+        if doc['event']=='runner_notice_failed':h.stop_event.set()
+    h._diagnostic=diagnostic
+    VoiceNode._notice_work(h)
+    assert len(calls)==1
+    assert sum(doc['event']=='runner_notice_failed' for doc in h.diagnostics)==1
+    assert not h.published
+
+
+def test_active_lower_priority_warning_is_canceled_then_estop_is_spoken(status_harness):
+    h=status_harness;h.observe_status('running','HALTED');entered=threading.Event();calls=[]
+    class TTS(FakeTTS):
+        def speak(self,text,**kwargs):
+            calls.append(text)
+            if len(calls)==1:
+                entered.set()
+                if kwargs['cancel'].wait(1):raise InterruptedError('TTS_CANCELED')
+                raise AssertionError('warning was not canceled')
+            return super().speak(text,**kwargs)
+    h.tts=TTS()
+    def diagnostic(doc):
+        h.diagnostics.append(doc)
+        if doc['event']=='tts_finished':h.stop_event.set()
+    h._diagnostic=diagnostic
+    worker=threading.Thread(target=lambda:VoiceNode._notice_work(h));worker.start()
+    try:
+        assert entered.wait(1)
+        h.observe_status('running','ESTOP')
+        worker.join(timeout=1)
+        assert not worker.is_alive() and len(calls)==2
+        assert calls[1].startswith('비상정지가 감지') and not h.published
+    finally:
+        h.stop_event.set()
+        with h.notice_condition:h.notice_condition.notify_all()
+        worker.join(timeout=1)
+
+
+def test_general_failed_result_does_not_block_next_voice_confirmation_and_intent(status_harness):
+    import json
+    import queue
+    h=status_harness;h.cfg['evaluation_mode']=False
+    failed={'phase':'idle','halt_code':None,'task_id':None,
+            'last':{'run_id':'failed-one','task_id':'find_item','overall_status':'FAILED','error_code':'GRASP_FAILED'}}
+    VoiceNode._runner_status(h,SimpleNamespace(data=json.dumps(failed)))
+    assert h.pending_notice.kind=='grasp' and not h.normal_notice_cancel.is_set()
+    h.busy=threading.Event();h.requests=queue.Queue(maxsize=1)
+    assert VoiceNode._submit(h,('text','지우개 찾아줘'))
+    kind,text,generation=h.requests.get_nowait()
+    assert kind=='text' and not h.request_cancel.is_set()
+    VoiceNode._deliver(h,h.parser.parse(text),generation)
+    assert h.tts.texts==['지우개 가져다드리겠습니다.']
+    assert len(h.published)==1 and h.published[0]['intent']=='find_item'

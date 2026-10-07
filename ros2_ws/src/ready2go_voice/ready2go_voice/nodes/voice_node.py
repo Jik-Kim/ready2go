@@ -10,6 +10,7 @@ from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import String
 from ready2go_interfaces.action import Skill
@@ -17,6 +18,8 @@ from ready2go_knowledge.core.ontology import load
 from ..core.config import load_config
 from ..core.intent import IntentParser, intent, clarify_prompt
 from ..core.session import VoiceSession
+from ..core.tts_prefill import prefill_texts
+from ..core.runner_notice import RunnerNoticePolicy
 from ..adapters.api import LangChainIntent, WhisperSTT
 from ..adapters.audio import Recorder, WakeAudio
 from ..adapters.tts import create_tts
@@ -39,8 +42,7 @@ class VoiceNode(Node):
             self.cfg, [v['name_ko'] for v in ontology['world']['items'].values()]),
             progress=lambda **event: self._diagnostic(event))
         if self.cfg.get('tts_engine') == 'melotts':
-            self.cfg['_tts_prefill_texts'] = list(self.cfg.get('tts_melotts_prefill_texts', [])) + list(self.cfg['clarify_prompts'].values()) + [
-                item['name_ko'] + ' 가져다드리겠습니다.' for item in self.parser.items.values()]
+            self.cfg['_tts_prefill_texts'] = prefill_texts(self.cfg, self.parser.items.values())
         self.tts = create_tts(self.cfg)
         if self.cfg.get('tts_engine') == 'melotts':
             self.tts.prepare()  # 모델/캐시 완료 전 웨이크/ready를 시작하지 않음
@@ -52,15 +54,27 @@ class VoiceNode(Node):
         self.goal_lock = threading.Lock()
         self.generation = 0
         self.request_cancel = threading.Event()
+        self.notice_policy = RunnerNoticePolicy()
+        self.notice_condition = threading.Condition()
+        self.pending_notice = None
+        self.notice_cancel = threading.Event()
+        self.normal_notice_cancel = threading.Event()
+        self.warning_epoch = 0
         group = ReentrantCallbackGroup()
         self.publisher = self.create_publisher(String, '/voice/intent', 10)
         self.subscription = self.create_subscription(String, '/voice/text_override', self._text, 10,
                                                      callback_group=group)
+        status_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                                reliability=ReliabilityPolicy.RELIABLE)
+        self.status_subscription = self.create_subscription(String, '/runner/status', self._runner_status,
+                                                            status_qos, callback_group=group)
         self.server = ActionServer(self, Skill, '/voice/speak', execute_callback=self._speak,
                                    goal_callback=self._goal, cancel_callback=lambda _: CancelResponse.ACCEPT,
                                    callback_group=group)
         self.worker = threading.Thread(target=self._work, daemon=True)
         self.worker.start()
+        self.notice_worker = threading.Thread(target=self._notice_work, daemon=True)
+        self.notice_worker.start()
         self.listener = None
         if self.cfg['audio_enabled']:
             self.listener = threading.Thread(target=self._listen, daemon=True)
@@ -84,11 +98,16 @@ class VoiceNode(Node):
             'stt_failed': f"STT 실패: {doc.get('error_type', '')}",
             'tts_failed': f"TTS 실패: {doc.get('error_type', '')}",
             'tts_started': 'TTS 시작', 'tts_finished': 'TTS 종료',
+            'runner_notice_failed': f"상태 음성 안내 실패: {doc.get('error_type', '')}",
             'recording_held': f"녹음 보류: {doc.get('reason', '')}",
             'audio_unavailable': f"음성 장치/모델 오류: {doc.get('error_type', '')}",
             'processing_failed': f"처리 실패: {doc.get('error_type', '')}",
             'request_canceled': '취소: 실행 보류', 'request_duplicate': '중복: 실행 보류',
         }
+        timing = doc.get('timing', {})
+        if event == 'tts_finished' and 'synthesis_wait_sec' in timing and 'playback_sec' in timing:
+            messages[event] = (f"TTS 종료 (합성 대기 {timing['synthesis_wait_sec']:.3f}초, "
+                               f"재생 {timing['playback_sec']:.3f}초)")
         if event == 'interpretation':
             value = doc['intent']
             route = '폴백' if value['source'].get('fallback_used') else ('LLM' if value['source'].get('llm_called') else '규칙')
@@ -97,6 +116,49 @@ class VoiceNode(Node):
             messages[event] = '실행 보류 (평가/확인 정책)' if not doc.get('published') else 'intent 발행'
         if event in messages:
             self.get_logger().info(messages[event].replace('\n', ' '))
+
+    def _runner_status(self, message):
+        # 파싱/정책/단일 대기 슬롯만 처리. TTS/로봇 서비스/DB 호출 없음.
+        with self.notice_condition:
+            previous = self.notice_policy.revision
+            notice = self.notice_policy.observe(message.data)
+            if self.notice_policy.blocked:
+                self.normal_notice_cancel.set()
+            else:
+                self.normal_notice_cancel.clear()
+            if self.notice_policy.revision != previous:
+                self.notice_cancel.set()
+                self.pending_notice = notice
+                if notice:
+                    self.warning_epoch += 1
+                self.notice_condition.notify_all()
+        if notice:
+            with self.submit_lock:
+                self.generation += 1
+                self.request_cancel.set()  # 낡은 확인/API 결과는 기존 취소 경로로 보류.
+
+    def _notice_work(self):
+        while not self.stop_event.is_set():
+            with self.notice_condition:
+                self.notice_condition.wait_for(lambda: self.pending_notice is not None or self.stop_event.is_set())
+                if self.stop_event.is_set(): return
+                notice, self.pending_notice = self.pending_notice, None
+                if notice.revision != self.notice_policy.revision: continue
+                cancel = self.notice_cancel = threading.Event()
+            self.speaking.set()
+            timing = {}
+            try:
+                self.tts.speak(notice.text, cancel=cancel, on_timing=timing.update,
+                               on_start=lambda stamp: self._diagnostic({'event': 'tts_started',
+                                   'notice_kind': notice.kind, 'source': stamp, 'timing': dict(timing)}))
+                self._diagnostic({'event': 'tts_finished', 'notice_kind': notice.kind, 'timing': dict(timing)})
+            except InterruptedError:
+                pass  # 상위 경고/새 회차/종료 시 폐기, 재시도하지 않음.
+            except Exception as exc:
+                self._diagnostic({'event': 'runner_notice_failed', 'notice_kind': notice.kind,
+                                  'error_type': type(exc).__name__})
+            finally:
+                if not self.tts.lock.locked(): self.speaking.clear()
 
     def _publish(self, doc):
         message = String()
@@ -173,6 +235,9 @@ class VoiceNode(Node):
             doc['intent'] == 'find_item' and self.cfg['confirmation_enabled'])
         if speak:
             try:
+                normal_cancel = getattr(self, 'normal_notice_cancel', None)
+                if normal_cancel is not None and normal_cancel.is_set():
+                    raise InterruptedError('TTS_CANCELED')
                 timeout = self.cfg['tts_timeout_sec']
                 start_deadline = None
                 if (source.get('input_kind') == 'audio' and doc['intent'] == 'find_item'
@@ -180,15 +245,16 @@ class VoiceNode(Node):
                         and source.get('speech_ended_monotonic') is not None):
                     start_deadline = source['speech_ended_monotonic'] + self.cfg['confirmation_budget_sec']
                 self.speaking.set()
+                timing = {}
                 def started(stamp):
                     source.update(stamp)
                     if (source.get('speech_ended_monotonic') is not None
                             and source.get('timing_mode', 'ac_budget') == 'ac_budget'):
                         source['confirmation_latency_ms'] = round(
                             (stamp['tts_started_monotonic'] - source['speech_ended_monotonic']) * 1000, 3)
-                    self._diagnostic({'event': 'tts_started', 'source': source})
-                self.tts.speak(text, cancel=self.request_cancel, on_start=started, timeout=timeout, start_deadline=start_deadline)
-                self._diagnostic({'event': 'tts_finished'})
+                    self._diagnostic({'event': 'tts_started', 'source': source, 'timing': dict(timing)})
+                self.tts.speak(text, cancel=self.request_cancel, on_start=started, timeout=timeout, start_deadline=start_deadline, on_timing=timing.update)
+                self._diagnostic({'event': 'tts_finished', 'timing': dict(timing)})
             except Exception as exc:
                 source['tts_error'] = type(exc).__name__
                 self._diagnostic({'event': 'tts_failed', 'error_type': type(exc).__name__})
@@ -252,6 +318,8 @@ class VoiceNode(Node):
             self._diagnostic({'event': 'audio_unavailable', 'error_type': type(exc).__name__})
 
     def _goal(self, request):
+        normal_cancel = getattr(self, 'normal_notice_cancel', None)
+        if normal_cancel is not None and normal_cancel.is_set(): return GoalResponse.REJECT
         try:
             params = json.loads(request.params_json)
             if not isinstance(params, dict) or not isinstance(params.get('text'), str) or not params['text'].strip():
@@ -260,25 +328,35 @@ class VoiceNode(Node):
             return GoalResponse.REJECT
         if not self.goal_lock.acquire(blocking=False):
             return GoalResponse.REJECT
+        self.goal_warning_epoch = getattr(self, 'warning_epoch', 0)
         return GoalResponse.ACCEPT
 
     def _speak(self, goal):
         result = Skill.Result()
         cancel = threading.Event()
         done = threading.Event()
+        epoch = getattr(self, 'goal_warning_epoch', getattr(self, 'warning_epoch', 0))
+        def warning_changed():
+            normal_cancel = getattr(self, 'normal_notice_cancel', None)
+            return ((normal_cancel is not None and normal_cancel.is_set())
+                    or epoch != getattr(self, 'warning_epoch', 0))
         def watch():
             while not done.wait(.02):
-                if goal.is_cancel_requested or self.stop_event.is_set():
+                if goal.is_cancel_requested or self.stop_event.is_set() or warning_changed():
                     cancel.set()
         watcher = threading.Thread(target=watch, daemon=True)
         watcher.start()
         self.speaking.set()
         try:
+            if warning_changed():
+                raise InterruptedError('TTS_CANCELED')
+            timing = {}
             params = json.loads(goal.request.params_json)
             stamp = self.tts.speak(params['text'], cancel=cancel,
-                on_start=lambda s: self._diagnostic({'event': 'tts_started', 'source': s}))
-            self._diagnostic({'event': 'tts_finished'})
-            if cancel.is_set() or goal.is_cancel_requested:
+                on_start=lambda s: self._diagnostic({'event': 'tts_started', 'source': s, 'timing': dict(timing)}),
+                on_timing=timing.update)
+            self._diagnostic({'event': 'tts_finished', 'timing': dict(timing)})
+            if cancel.is_set() or goal.is_cancel_requested or warning_changed():
                 raise InterruptedError('TTS_CANCELED')
             result.success = True
             result.output_json = json.dumps(stamp)
@@ -303,7 +381,11 @@ class VoiceNode(Node):
     def close(self):
         self.stop_event.set()
         self.request_cancel.set()
+        with self.notice_condition:
+            self.notice_cancel.set()
+            self.notice_condition.notify_all()
         self.worker.join(timeout=1)
+        self.notice_worker.join(timeout=1)
         if self.listener:
             self.listener.join(timeout=1)
         if hasattr(self.tts, 'close'):
