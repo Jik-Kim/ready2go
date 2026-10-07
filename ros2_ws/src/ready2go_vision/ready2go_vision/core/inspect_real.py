@@ -6,6 +6,9 @@
     top_z    = 박스 안 뎁스 덩어리의 높이 (서랍 바닥 기준)
     yaw      = 덩어리 긴 변 방향. 대칭 물체(pose_rules.is_symmetric)는 0 + yaw_valid true,
                덩어리가 비정상이면 0 + yaw_valid false
+  서랍 영역 ROI: 박스 중심 광선이 서랍 바닥(z=0)과 만나는 점이 서랍 안쪽 + region.detect_roi_margin_m 밖이면 뎁스 계산 전에 뺀다.
+    서랍 밖 책상 위 물체·케이블·그리퍼 손끝을 잘못 검출해도 뎁스 실패로 호출 전체가 DEPTH_INVALID 가 되지 않게 한다 [실측 PC2 10/07].
+    TF 로 계산하므로 촬영 자세가 바뀌어도 따라간다. 값이 없으면(옛 설정) 끈다.
   footprint 가 서랍 안쪽(interior_m, 오차 여유 region.edge_tolerance_m)을 벗어난 검출은 결과에서 뺀다(서랍 밖 파지 방지).
   뎁스를 쓸 수 없는 검출이 하나라도 있으면 policy.on_invalid_candidate 에 따라 전체 DEPTH_INVALID (기본 fail, 안전 우선).
 """
@@ -42,11 +45,18 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         return False, "UNKNOWN_REGION", ""
     blob_params, policy = params["depth_blob"], params.get("policy", {})
     fail_on_invalid = policy.get("on_invalid_candidate", "fail") == "fail"
+    roi_margin = params.get("region", {}).get("detect_roi_margin_m")
     found = []
     for det in sorted(detections, key=lambda d: -d["conf"]):
         if det["conf"] < params["detector"]["conf_min"] or det["class"] not in items:
             note(det, skip="conf_min 미만 또는 온톨로지에 없는 클래스")
             continue
+        if roi_margin is not None and interior_m is not None:
+            u0, v0 = (det["box"][0] + det["box"][2]) / 2, (det["box"][1] + det["box"][3]) / 2
+            xy0 = ray_plane_xy(u0, v0, K, T_drawer_cam, 0.0)
+            if xy0 is None or not (-roi_margin <= xy0[0] <= interior_m[0] + roi_margin and -roi_margin <= xy0[1] <= interior_m[1] + roi_margin):
+                note(det, skip="서랍 영역 밖 (뎁스 전 제외)", xy_floor=None if xy0 is None else [round(xy0[0], 4), round(xy0[1], 4)])
+                continue
         size = items[det["class"]]["size_m"]
         blob = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, nominal_long_m=size[0])
         if not blob.depth_ok or blob.top_z is None:
