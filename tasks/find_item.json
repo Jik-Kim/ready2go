@@ -1,11 +1,14 @@
 {
   "task_id": "find_item",
-  "description": "P1 단일 물품 전달 (#17, demo_scenario.md 17.1): 물품 위치 조회 → 서랍 열기 → 탑뷰 이동(s3v: 열기 끝은 홈 자세, E #17 10/07) → 관측 → (찾음) 집기 → 전달 트레이에 놓기 / (못 찾음) 안내, finally 로 서랍 닫기·홈 (그리퍼가 비어 있을 때만 홈 이동: 놓기 실패로 물품을 쥐고 있으면 열린 서랍 부근에서 움직이지 않고 정지·사람 복구, PR #82 리뷰). 스킬 스텝이라 Runner 가 온톨로지 pre 확인·effect 반영. 집기 전 관측은 미발견 안내용(P1 Runner 는 pick 스킬 안의 미발견을 분기할 수 없음, 팔을 움직이지 않음). pick retry 1 = 방향 산출 실패(YAW_INVALID, 로봇 동작 없음) 시 재인식 1회 (PR #65 합의, 횟수 [팀 확정 필요]). 밀기 분기(#37)는 이후 추가",
+  "description": "P1 단일 물품 전달 (#17, demo_scenario.md 17.1): 물품 위치 조회 → 서랍 열기 → 탑뷰 이동(s3v: 열기 끝은 홈 자세, E #17 10/07) → 관측 → (찾음) 집기 → 전달 트레이에 놓기 / (못 찾음) 안내, finally 로 서랍 닫기·홈 (그리퍼가 비어 있을 때만 홈 이동: 놓기 실패로 물품을 쥐고 있으면 열린 서랍 부근에서 움직이지 않고 정지·사람 복구, PR #82 리뷰). 스킬 스텝이라 Runner 가 온톨로지 pre 확인·effect 반영. 집기 전 관측(s4)은 미발견 안내용(P1 Runner 는 pick 스킬 안의 미발견을 분기할 수 없음). pick 은 E #122 공통 스킬: 탑뷰 → 촬영 → 끌기(B 판단, 공간이 있으면 움직이지 않음) → 탑뷰 → 다시 촬영 → 다시 본 좌표로 집기(FR-ACT-05). 못 찾으면 VAR_NULL 로 집기 없이 실패. pick retry 1 은 팔이 움직이기 전 실패에만 적용되고, 탑뷰·끌기 뒤 실패(YAW_INVALID 포함)는 Runner 가 다시 보내지 않음(MOTION_UNCERTAIN). trigger.targets = 지우개만: 10/07 P1 음성 실행 한정(E #17 사용자 결정, P1 전체를 지우개로 영구 제한하는 것 아님) — 다른 등록 물품 음성 요청은 로봇 동작 전에 UNSUPPORTED_ITEM 보류. RUNNER_TASK_FILE·직접 실행은 trigger 를 보지 않으므로 inputs.target 을 따로 확인",
   "trigger": {
     "intent": "find_item",
+    "targets": [
+      "eraser"
+    ],
     "examples_ko": [
       "지우개 찾아줘",
-      "차키 가져다줘"
+      "지우개 가져다줘"
     ]
   },
   "inputs": {
