@@ -704,6 +704,60 @@ class SkillServer(Node):
         return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
 
     # --- 끌기 (nudge_object) ---
+    def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
+        """누를 자리 위(above)에서 내려가 닿음 확인 → 끄는 힘으로 맞춤. (실패 Outcome 또는 None, 누른 posx, 그때 힘 N).
+        안전 코드가 아닌 실패는 above 로 올라간 뒤 돌려줌 → 호출자가 같은 자리에서 다시 시도할 수 있음."""
+        base_f = self._tare()
+        z0 = above[2]
+        state = {}
+
+        def contact():                                      # 내려가다 닿음 힘(touch_force_n)을 한 번이라도 넘으면 바로 그 자리에서 멈춤 [사용자 10/07]
+            f, p = self.robot.tool_force(), self.robot.posx()
+            if f is None or p is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
+            if abs(f[2] - base_f[2]) >= d["press_max_force_n"]:   # 힘 상한: 무시 구간에서도 늘 봄 — 14 N 이면 서랍이 앞으로 넘어감 [사용자 10/07]
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason=f"상한 {d['press_max_force_n']:g} N 넘음 @ z {p[2]:.2f} — 멈추고 확인")
+            if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
+                return None                                 # 출발할 때 힘이 튐 (10/06 z 225.5 오검출) — 처음 내려갈 때만
+            state.setdefault("fz", f[2])                    # 내려가는 중 기준 (힘 0점이 흐름)
+            dz = f[2] - state["fz"]
+            if abs(dz) >= d["touch_force_n"]:
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason=f"{dz:+.1f} N @ z {p[2]:.2f} — 멈추고 확인")
+            return None
+
+        for k in range(int(d["touch_retries"]) + 1):
+            state.pop("z1", None)
+            bad = self._line_slow(goal, end_mm + above[3:], d["press_speed_mm_s"], "press" if k == 0 else f"press:{k + 1}",
+                                  watch=contact)
+            if bad:
+                return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), None, None
+            if "z1" not in state:
+                break                                       # 끝까지 내려가도 안 닿음
+            reads = self._force_reads(int(d["press_confirm"]), d["confirm_gap_s"])
+            if reads is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), None, None
+            ns = [abs(f[2] - base_f[2]) for f in reads]
+            if all(n >= d["touch_force_n"] for n in ns):    # 멈춘 채 연속 press_confirm 번 모두 넘음 = 지우개에 닿음 [사용자 10/07]
+                state["z"] = state["z1"]
+                break
+            state["resumed"] = True                         # 튄 값 → 그 자리에서 다시 내려감 (출발 무시 구간 없이)
+        if "z" not in state or abs(state["z"] - expect_z) > d["contact_z_tol_mm"]:
+            back = self._line(goal, above, speed["line_mm_s"], "lift")
+            why = (f"접촉 높이 z {state['z']:.2f} 가 예상 {expect_z:.1f} ± {d['contact_z_tol_mm']:g} 밖 — 오검출로 보고 끌지 않음"
+                   if "z" in state else "예상 높이보다 내려가도 접촉 없음 (또는 멈춘 뒤 확인에서 계속 튐) — 물체 위치·높이 확인")
+            return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason=why), back), None, None
+        pressed = self.robot.posx()
+        if pressed is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None, None
+        # 닿음은 큰 힘(touch_force_n)으로 확실히 확인 — 조금만 내려가도 힘이 튐 [사용자 10/07]. 확인·정지하는 동안 더 눌리므로
+        # 멈춘 자리에서 relax_step_mm 씩 올리며 멈춘 뒤 힘을 재서 끄는 힘(drag_force_n, 2 N 에서 잘 끌림 [실측 10/06]) 상한 이하면 그 높이로 끈다
+        bad, pressed, held_n = self._relax(goal, pressed, base_f, d)
+        if bad:
+            return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), None, None
+        return None, pressed, held_n
+
     def _relax(self, goal, pressed, base_f, d):
         """닿음 확인 뒤 멈춘 자리에서 relax_step_mm 씩 올리며, 멈춘 뒤 잰 힘 z 가 drag_force_n [하한, 상한] 의 상한 이하가 되면 그 높이.
         → (Outcome 또는 None, 끌기 시작 posx, 그때 힘 N). relax_max_steps 올려도 상한을 넘으면 PUSH_BLOCKED (걸림으로 봄)."""
@@ -718,14 +772,14 @@ class SkillServer(Node):
             if n <= hi:
                 if n < lo and k > 0:                        # 한 칸에 범위를 지나침 → 반 칸 내려가서 끔 (그 사이 힘)
                     p = mp.with_z(p, p[2] - d["relax_step_mm"] / 2.0)
-                    bad = self._step(goal, p, "relax:half_back")
+                    bad = self._relax_step(goal, p, "relax:half_back")
                     if bad:
                         return bad, p, n
                 return None, p, n
             if k == int(d["relax_max_steps"]):
                 break
             p = mp.with_z(p, p[2] + d["relax_step_mm"])
-            bad = self._step(goal, p, f"relax:{k + 1}")
+            bad = self._relax_step(goal, p, f"relax:{k + 1}")
             if bad:
                 return bad, p, n
         return sf.Outcome(False, PUSH_BLOCKED, reason=f"{d['relax_max_steps'] * d['relax_step_mm']:.1f} mm 올려도 누르는 힘 "
@@ -762,6 +816,16 @@ class SkillServer(Node):
         time.sleep(settle_s)
         fs = [f for f in (self.robot.tool_force() for _ in range(int(self.prm()["force"]["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
+
+    def _relax_step(self, goal, posx, stage):
+        """힘 맞추기 한 칸. 눌린 채 0.1 mm 는 제어기가 덜 움직여 0.05 mm 판정 전에 멈출 수 있음
+        [실측 10/07 PC2: relax:2 남은 0.1 mm 로 NOT_REACHED → 끌기 실패] → 그 경우만 실패로 끝내지 않고 다음 칸으로
+        (목표는 명령 위치에 누적되므로 다음 칸이 더 올림). 힘이 범위에 안 들어오면 relax_max_steps 뒤 PUSH_BLOCKED 그대로."""
+        bad = self._step(goal, posx, stage)
+        if bad and bad.error_code == sf.NOT_REACHED:
+            self.get_logger().warn(f"[nudge_object] {bad.reason} — 힘 맞추기는 계속")
+            return None
+        return bad
 
     def _step(self, goal, posx, stage):
         """아주 짧은 직선 (힘 맞추기 0.1 mm) — 느린 이동이라 좌표로 판단 (_line_slow)."""
@@ -830,55 +894,16 @@ class SkillServer(Node):
             bad = self._blend(goal, [aligned, above], [r, 0.0], speed["line_mm_s"], "to_object:over")
         if bad:
             return bad, out
-        base_f = self._tare()
-        z0 = above[2]
-        state = {}
-
-        def contact():                                      # 내려가다 닿음 힘(touch_force_n)을 한 번이라도 넘으면 바로 그 자리에서 멈춤 [사용자 10/07]
-            f, p = self.robot.tool_force(), self.robot.posx()
-            if f is None or p is None or base_f is None:
-                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
-            if abs(f[2] - base_f[2]) >= d["press_max_force_n"]:   # 힘 상한: 무시 구간에서도 늘 봄 — 14 N 이면 서랍이 앞으로 넘어감 [사용자 10/07]
-                state["z1"] = p[2]
-                return sf.Outcome(True, reason=f"상한 {d['press_max_force_n']:g} N 넘음 @ z {p[2]:.2f} — 멈추고 확인")
-            if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
-                return None                                 # 출발할 때 힘이 튐 (10/06 z 225.5 오검출) — 처음 내려갈 때만
-            state.setdefault("fz", f[2])                    # 내려가는 중 기준 (힘 0점이 흐름)
-            dz = f[2] - state["fz"]
-            if abs(dz) >= d["touch_force_n"]:
-                state["z1"] = p[2]
-                return sf.Outcome(True, reason=f"{dz:+.1f} N @ z {p[2]:.2f} — 멈추고 확인")
-            return None
-
-        for k in range(int(d["touch_retries"]) + 1):
-            state.pop("z1", None)
-            bad = self._line_slow(goal, end_mm + above[3:], d["press_speed_mm_s"], "press" if k == 0 else f"press:{k + 1}",
-                                  watch=contact)
-            if bad:
-                return bad, out
-            if "z1" not in state:
-                break                                       # 끝까지 내려가도 안 닿음
-            reads = self._force_reads(int(d["press_confirm"]), d["confirm_gap_s"])
-            if reads is None or base_f is None:
-                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), out
-            ns = [abs(f[2] - base_f[2]) for f in reads]
-            if all(n >= d["touch_force_n"] for n in ns):    # 멈춘 채 연속 press_confirm 번 모두 넘음 = 지우개에 닿음 [사용자 10/07]
-                state["z"] = state["z1"]
+        attempts = int(d.get("press_attempts", 1))
+        for attempt in range(1, attempts + 1):             # 끌기 전(누르기·힘 맞추기) 실패는 같은 자리에서 다시 — 물체는 아직 안 움직임 [사용자 10/07 "넛지 안 되면 닫지 말고 다시"]
+            bad, pressed, held_n = self._press_relax(goal, above, end_mm, expect_z, d, speed)
+            if not bad:
                 break
-            state["resumed"] = True                         # 튄 값 → 그 자리에서 다시 내려감 (출발 무시 구간 없이)
-        if "z" not in state or abs(state["z"] - expect_z) > d["contact_z_tol_mm"]:
-            back = self._line(goal, above, speed["line_mm_s"], "lift")
-            why = (f"접촉 높이 z {state['z']:.2f} 가 예상 {expect_z:.1f} ± {d['contact_z_tol_mm']:g} 밖 — 오검출로 보고 끌지 않음"
-                   if "z" in state else "예상 높이보다 내려가도 접촉 없음 (또는 멈춘 뒤 확인에서 계속 튐) — 물체 위치·높이 확인")
-            return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason=why), back), out
-        pressed = self.robot.posx()
-        if pressed is None:
-            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
-        # 닿음은 큰 힘(touch_force_n)으로 확실히 확인 — 조금만 내려가도 힘이 튐 [사용자 10/07]. 확인·정지하는 동안 더 눌리므로
-        # 멈춘 자리에서 relax_step_mm 씩 올리며 멈춘 뒤 힘을 재서 끄는 힘(drag_force_n, 2 N 에서 잘 끌림 [실측 10/06]) 상한 이하면 그 높이로 끈다
-        bad, pressed, held_n = self._relax(goal, pressed, base_f, d)
-        if bad:
-            return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), out
+            now = self.robot.posx()
+            if sf.is_safety(bad) or attempt == attempts or now is None or math.dist(now[:3], above[:3]) > 1.0:
+                return bad, out
+            self.get_logger().warn(f"[nudge_object] {attempt}/{attempts} 실패 ({bad.error_code}: {bad.reason}) — 다시 누르기")
+            goal.publish_feedback(Skill.Feedback(stage=f"retry:{attempt + 1}"))
         shift_y = plan.shift_y_m
         if d.get("shift_mm"):                               # 누른 높이·각도 그대로 고정 거리만 수평 이동 [사용자 10/07 "3 cm 이동만, 힘만 맞으면 잘 끌림"]
             shift_y = math.copysign(d["shift_mm"] / 1000.0, plan.shift_y_m)   # 방향은 계획(옆벽 반대)
