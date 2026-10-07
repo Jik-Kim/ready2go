@@ -196,12 +196,12 @@
 
 ### 7.3 실제 인스턴스 예시: 오클루전 탐색 + 복구 (하드코딩 ID 없음)
 
-음성으로 "지우개 찾아줘" → `inputs.target = "eraser"`로 바인딩되어 실행됩니다. 장애물 ID는 미리 알 수 없으므로 `inspect_region`의 반환값을 변수로 받아 사용합니다.
+[문서] 음성 "지우개 찾아줘"의 `inputs.target = "eraser"` 바인딩을 설명하는 P2 이전 설계 예시입니다. 현재 원본은 외부 트레이 흐름이 남아 있어 사용자 확정 서랍 내부 이동 계약을 반영하기 전 실행 완료 근거로 사용하지 않습니다. 장애물 ID는 미리 알 수 없으므로 `inspect_region`의 반환값을 변수로 받아 사용합니다.
 
 > **원본 파일**: [`tasks/find_with_unpack.json`](../tasks/find_with_unpack.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
 
-* 이 한 파일로 **Unpacking(s7), 미발견 처리(s8 else), Rollback(f1), 서랍 닫기(f2)** 가 모두 표현되며, 중간에 실패해도 `finally`로 복구가 보장됨. Python 코드에는 시나리오 로직이 없음.
-* **번들 요청**(`find_list`, `find_class`)은 별도 템플릿 `find_group_by_drawer`로 처리함: `query_ontology`의 `groups[]`를 `for_each`로 순회하여 **서랍당 한 번만 열고**, 서랍 내부에서는 목표 목록이 모두 발견되거나 비워질 때까지 Unpacking 루프를 돈 뒤 복구·닫기.
+* 이 한 파일로 **Unpacking(s7), 미발견 처리(s8 else), Rollback(f1), 서랍 닫기(f2)** 가 모두 표현되며, `finally`에 복구를 표현한 설계이나 실물 복구가 보장됐다는 의미는 아님. TODO(C·E): 같은 서랍 내부 빈 공간 이동·재관측/재식별·원래 pose 기록·LIFO 복구 계약을 [domain.md 8.2~8.3](domain.md)에 따라 반영하고 검증해야 함. Python 코드에는 시나리오 로직이 없음.
+* **번들 요청**(`find_list`, `find_class`)은 별도 템플릿 `find_group_by_drawer`로 처리함: `query_ontology`의 `groups[]`를 `for_each`로 순회하여 **서랍당 한 번만 열고**, 서랍 내부에서는 목표 목록이 모두 발견되거나 탐색 한도/안전 조건에 도달할 때까지 Unpacking 루프를 돈 뒤 복구·닫는 후속 설계임. 같은 서랍 안으로 옮긴 물체가 남으므로 서랍이 비워진다고 가정하지 않음.
 
 ### 7.4 실행 이력 자동 로깅 스키마 (Execution Log)
 
