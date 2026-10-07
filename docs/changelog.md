@@ -40,3 +40,4 @@
 - **2026-10-06 A 트윈 씬 재생성 (#83 반영)**: `drawer_top` 원점 −3.0 mm·내부 높이 0.0711로 서랍장 재배치, 전달 트레이(`handover_zone`)를 고정 물체로 추가(바닥·벽 치수 일부 [추정]). `verify_scene.py`에 트레이 존재·원점 일치 검사 추가, 전부 통과.
 - **2026-10-07 C 실행 기록 보고서**: `ros2 run ready2go_runner run_report` — MongoDB/JSONL 실행 기록을 한국어 요약·Markdown 표로(읽기 전용, 계약 변경 없음). `core/run_report.py`, 10/06 PC2 실물 기록 2건으로 시험. `runner.md` 7.4·Runner README.
 - **2026-10-07 A YOLO v2 비교 기록**: 겹침 데이터 재학습(v2)과 11n·11s·26s 비교를 `tools/yolo/README.md`에 기록(검증셋 10/06·10/07 구분, 평가 프레임 겹침 확인, 가중치 SHA-256). P1은 v1 그대로, P2 방침은 제안(#14). 코드·계약 변경 없음.
+- **2026-10-07 C P1 태스크 촬영 전 탑뷰**: `tasks/p1_demo_eraser.json`에 `s2v` `move_to_named_pose(drawer_top_view)`를 `open_drawer`와 `inspect_region` 사이에 넣었다. 서랍 열기는 홈 자세에서 끝나서 실제 카메라로는 서랍을 못 보기 때문이다(stub이던 #22에서는 드러나지 않음, B 흐름 "열기 → 탑뷰 → 인식"과 같게). 기존 스텝 ID는 그대로 두었고, 탑뷰 이동이 실패하면 촬영·끌기 없이 `finally`(닫기·홈)로 간다. 계약 변경 없음(#23).

@@ -56,8 +56,9 @@ class MockRobot:
         if name == SPEAK_ACTION:
             self.spoken.append(params["text"])
         codes = self.fail.get(action)
-        if codes:
-            return Reply(False, codes.pop(0))
+        code = codes.pop(0) if codes else None                # None = 그 회차는 성공
+        if code:
+            return Reply(False, code)
         if action == "nudge_object" and self.nudge_output is not None:
             return Reply(True, "", json.dumps(self.nudge_output))
         if action == "nudge_object":                      # B #83: 성공일 때만 target_after
@@ -196,6 +197,7 @@ def test_check_success_uses_target_after_without_reinspect():
     runner, result, saved = run_check(robot)
     assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
     assert robot.sent == ["/skills/move_to_named_pose", "/skills/drawer_control",   # s2 open_drawer
+                          "/skills/move_to_named_pose",                            # s2v 탑뷰 (열기 끝은 홈)
                           INSPECT_SERVICE,                                         # s3 관측 1회
                           "/skills/nudge_object", "/skills/pick_object",           # s4.1 pick_demo
                           "/skills/place_object",                                  # s4.2 place
@@ -209,6 +211,22 @@ def test_check_success_uses_target_after_without_reinspect():
     assert (state["located_in"]["eraser"], state["gripper"]["robot"], state["open"]["drawer_top"]) == (
         "handover_zone", "empty", False)
     assert [s["id"] for s in saved["steps"]] == [s["id"] for s in result.steps]       # AC-LOG-01: 스텝 기록 누락 0
+
+
+def test_check_inspects_from_drawer_top_view():
+    """10/07 P1 실제 비전: 서랍 열기는 홈에서 끝나므로 촬영 전에 drawer_top_view 로 간다 (B 흐름 열기 → 탑뷰 → 인식)."""
+    robot = MockRobot()
+    _, result, _ = run_check(robot)
+    assert step(result, "s2v")["params"] == {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"}
+    assert [s["id"] for s in result.steps].index("s2v") < [s["id"] for s in result.steps].index("s3")
+
+
+def test_check_top_view_failure_does_not_inspect_or_nudge():
+    robot = MockRobot(fail={"move_to_named_pose": [None, "NOT_REACHED"]})    # 1번째(s2.e1)는 성공, 2번째(s2v) 실패
+    runner, result, _ = run_check(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "NOT_REACHED", "s2v")
+    assert INSPECT_SERVICE not in robot.sent and "/skills/nudge_object" not in robot.sent
+    assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]        # 열린 서랍은 닫고 홈
 
 
 def test_check_nudge_failure_does_not_pick():
@@ -239,7 +257,7 @@ def test_check_no_whole_skill_retry_after_nudge_even_if_task_asks(code):
     """#23 C 검증 요청: nudge 로 물체를 옮긴 뒤 pick 이 실패하면, 태스크에 retry 가 있어도 pick_demo 전체
     (nudge 포함)를 다시 보내지 않는다. YAW_INVALID 처럼 그 동작 자체는 안 움직인 실패라도 앞의 nudge 가 움직였으므로."""
     task = copy.deepcopy(CHECK)
-    pick = task["sequence"][3]["then"][0]
+    pick = next(s for s in task["sequence"] if s["id"] == "s4")["then"][0]
     assert pick["skill"] == "pick_demo"
     pick.update(on_failure="retry", retry=2)
     robot = MockRobot(fail={"pick_object": [code, code, code]})
