@@ -181,9 +181,10 @@
 
 * 시작할 때 스키마(`/contracts`)·온톨로지(`/knowledge`, 초기 상태 포함)를 읽고 실행 이력은 MongoDB(`MONGO_URI`) → 실패 시 `/logs` JSONL.
 * `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
-* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, 없으면 `null`).
+* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, 없으면 `null`), `state_reset_at`(마지막 `/runner/reset_state` 시각 UTC, 없으면 `null`).
 * `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
 * `/runner/estop` (`std_srvs/Trigger`) → `halt()` → 진행 중인 goal 에 즉시 취소 요청(정지 확인 전에는 다음 동작 없음). **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
+* `/runner/reset_state` (`std_srvs/Trigger`, #23·#107) → 온톨로지 상태를 **Runner 시작 때 상태(초기 상태)로 되돌림**. P1 은 실행 사이 사람이 물품을 원위치해도 관측으로 상태를 맞추지 못해, 켜 둔 Runner 에 연속 요청하면 1회차 끝 상태(지우개 = `handover_zone`)로 2회차가 트레이를 서랍 자리에 넣음(10/07 발견). 리스크 대응 "시연 전 상태 스냅샷 복원"(metrics_risks.md)을 **사람이 원위치(물품·서랍 닫힘·빈 그리퍼·홈)를 확인한 뒤 부르는 명시적 초기화**로 둠(팀 결정: 나중에 시연 화면 #59 버튼). Runner 가 스스로 되돌리지 않으므로 실패(예: 놓기 실패로 쥔 채 정지) 뒤 상태는 사람이 확인할 때까지 그대로(#107 D 리뷰). 실행 중이면 `success: false`로 거절, 중단 잠김은 풀지 않음(재개는 별도). 관측으로 맞추기는 P2(FR-ONT-02)·P3(FR-REC-01).
 * 태스크 실행 통로: 정식은 `/voice/intent`(#17, `core/intent_router.py`). 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행. 온톨로지·인텐트 덮어쓰기는 `RUNNER_ONTOLOGY_FILE`·`RUNNER_INTENT_TASKS`(→ `ontology_file`·`intent_tasks`).
 * **`/voice/intent` 처리** (#17·#23): E 음성 노드가 검증한 뒤 발행하지만, 로봇을 움직이는 쪽이라 Runner 가 한 번 더 확인하고 애매하면 실행하지 않음. 재질문·안내 TTS 는 E 음성 노드(`last_intent`를 보고 말할지는 E 합의).
 
