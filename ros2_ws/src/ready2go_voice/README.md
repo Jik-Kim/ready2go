@@ -55,19 +55,58 @@
 
 [문서] [공식 STT 문서](https://developers.openai.com/api/docs/guides/speech-to-text)의 whisper-1·어휘 prompt와 [구조화 출력 문서](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat)를 대조했습니다. 모델 계정 접근·유료 API 호출 성공은 문서 확인으로 대신하지 않습니다. 로컬 검사에서는 실제 키/API 호출을 하지 않았습니다.
 
-저장소 루트에서 API/오디오 의존성을 준비한 환경을 사용합니다. ROS와 함께 설치할 때 가상환경은 system-site-packages 사용 등 ROS Python 경로와 맞춰야 합니다. tflite_runtime은 Python/아키텍처 호환 배포를 확인하고 별도 설치합니다.
+저장소 루트에서 [전체 프로젝트 설치 안내](../../../README.md#프로젝트-의존성-설치)와 [requirements.txt](../../../requirements.txt)를 먼저 적용합니다. ROS Python은 `.venvs/project`(`--system-site-packages`), Melo CPU는 `.venvs/melotts`, Vision CUDA는 별도 환경을 사용합니다. `pip install voice[api,audio]`만으로 새 Ubuntu 24.04 PC의 설치가 끝나지 않습니다.
+
+[실측: 로컬 파일·배포 메타데이터] 설치된 openwakeword 0.6.0의 Linux 의존성은 `tflite-runtime>=2.8,<3`이며 Python 3.12용 wheel 부재가 설치 장애입니다. 본체는 `--no-deps`로 설치하고 onnxruntime·tqdm·SciPy·scikit-learn·requests는 루트 requirements로 별도 설치합니다. 이 PC에는 시스템 Python의 `tflite_runtime/interpreter.py`가 `from ai_edge_litert.interpreter import Interpreter`를 제공하며 ai-edge-litert 2.2.0이 설치되어 있습니다. 이 호환 파일은 저장소 밖 파일이며 tflite-runtime 배포 메타데이터도 없습니다. `ai-edge-litert`만 설치해도 `tflite_runtime` 이름이 제공되는 것은 아닙니다. 새 PC를 위한 호환 runtime 배포/검증은 **미해결 인계**이며, 임의 shim이나 자동 ONNX 전환을 구현하지 않았습니다. runtime이 확인되기 전 실음성 웨이크 준비 완료로 보고하지 않습니다.
 
 ```bash
-python3 -m pip install -e './ros2_ws/src/ready2go_voice[api,audio]'
 source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
 cd ros2_ws
-colcon build --packages-up-to ready2go_voice
-source install/setup.bash
-cd ..  # MeloTTS 기본 상대 경로를 사용하는 저장소 루트로 복귀
-ros2 run ready2go_voice voice_node --ros-args -p config_file:=/절대경로/voice.yaml
+python3 /usr/bin/colcon build --symlink-install --packages-up-to ready2go_voice
+cd ..
+source ros2_ws/install/setup.bash
+python3 - <<'PYTHON'
+import importlib
+for name in ('yaml', 'jsonschema', 'numpy', 'openai', 'langchain_openai',
+             'sounddevice', 'onnxruntime', 'tflite_runtime.interpreter',
+             'openwakeword', 'rclpy', 'ready2go_interfaces.msg'):
+    try:
+        module = importlib.import_module(name)
+        print(name, getattr(module, '__file__', None))
+    except Exception as exc:
+        print(name, '미준비:', type(exc).__name__)
+PYTHON
 ```
 
-설정의 `ontology_file`·`intent_schema_file`·`wake_model`은 실행 환경의 실제 경로로 맞춥니다. 기본 `tts_melotts_python`·`tts_melotts_assets`는 실행 작업 경로 기준 상대 경로이므로 저장소 루트에서 실행합니다. 다른 작업 경로에서 실행하려면 설정 복사본의 두 값을 실제 절대 경로로 지정합니다. `OPENAI_API_KEY`는 기존 보안 환경/voice.env를 명시적으로 로드하며 로그에 출력하지 않습니다. Docker/compose의 패키지·메시지·계약/모델 배포 및 자동기동은 이번 패키지 구현 밖의 C/E 인계입니다. 기존 Docker의 sleep 명령만으로 voice_node가 실행되지는 않습니다.
+출력된 실제 import 경로와 실패 항목을 확인합니다. 이는 모델 로딩·마이크·API 성공 검사가 아닙니다. `python3 -m pip check`는 기존 PC의 별도 shim을 배포로 인식하지 않아 tflite-runtime 누락을 보고할 수 있습니다. 해당 오류를 설치 성공으로 숨기지 않습니다.
+
+설정은 `logs/voice_eval/voice.local.yaml`, 키는 `secrets/voice.env`, 웨이크 자산은 `models/wakeword/`에 둡니다. 모든 명령은 저장소 루트에서 실행하며 config loader는 YAML 상대 경로를 실행 작업 경로에서 열고 Melo adapter도 작업 경로 기준으로 자산 경로를 해석합니다. YAML 파일의 디렉터리가 기준이 아닙니다. 로컬 설정의 `ontology_file: knowledge/robot_ontology.jsonld`, `intent_schema_file: contracts/intent.schema.json`, `wake_model: models/wakeword/hello_rokey_8332_32.tflite`, `tts_melotts_python: .venvs/melotts/bin/python`, `tts_melotts_assets: models/tts/melotts`를 실제 자산에 맞춰 확인합니다. 모델 이름은 예시이며 원본·키는 커밋하지 않습니다.
+
+처음 설정할 때만 아래 복사를 수행합니다. 기존 로컬 YAML이 있으면 복사하지 않고 비교·필요 키만 수동 병합합니다. 다른 PC의 기존 `~/voice_assets/voice.pc2.yaml`은 git pull로 바뀌지 않는 진단 사례입니다. 그 파일을 표준 실행 위치로 가정하지 않으며, 로컬 표준 위치로 이식할 때 기존 장치/상한/모델/정책 값을 보존합니다. 원본 params YAML의 컨테이너/개인 경로는 호스트 실행 전에 위 상대 경로로 조정해야 합니다.
+
+```bash
+mkdir -p logs/voice_eval
+if [ ! -e logs/voice_eval/voice.local.yaml ]; then
+  cp -n ros2_ws/src/ready2go_voice/params/voice.yaml logs/voice_eval/voice.local.yaml
+fi
+```
+
+`audio_enabled`·장치·웨이크 자산·`clarify_prompts` 전체 및 VAD 신규 키를 확인합니다. Melo 선택 시 `tts_engine: melotts`와 관련 키를 유지/설정해야 합니다. 엔진 키가 없으면 load_config는 **espeak**를 선택하며 git pull만으로 Melo가 선택되지 않습니다. 아래 검사는 키를 출력하지 않고 설정/선택만 확인합니다. 성공하더라도 실제 어댑터/재생 준비를 확인한 것은 아닙니다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
+source ros2_ws/install/setup.bash
+python3 - <<'PYTHON'
+from ready2go_voice.core.config import load_config
+cfg = load_config('logs/voice_eval/voice.local.yaml')
+print('tts_engine:', cfg['tts_engine'])
+print('audio_enabled:', cfg['audio_enabled'])
+PYTHON
+```
+
+Docker/compose 패키지·모델/runtime 배포는 별도 인계 대상입니다. 기존 sleep 명령만으로 voice_node가 실행되지는 않습니다.
 
 ## C/D 연결·진단·평가
 
@@ -91,17 +130,17 @@ ROS 노드 검사는 생성된 ready2go_interfaces와 ROS 환경을 source한 �
 
 ## 사용자 PC 시운전 명령 (실제 녹음/API는 사용자가 실행)
 
-아래 수동 명령은 PC에 설치된 선택 도구 python-dotenv를 사용합니다(voice 런타임은 이미 로드된 환경을 읽습니다). 현재 실행 경로 `/home/jonny/rokey_proj/VLA/ready2go`, 브랜치 images/demo의 프로젝트 build/install을 사용합니다. 로그/모델/키는 로컬 자산이며 키 값을 출력하지 않습니다. 정상 로컬 설정의 TTS는 사용자 선택 MeloTTS입니다. 한국어 단문 합성·첫 DAC 재생은 확인했으며, 마이크/STT·LLM·전체 음성 평가는 재시험해야 합니다.
+아래 수동 명령은 PC에 설치된 선택 도구 python-dotenv를 사용합니다(voice 런타임은 이미 로드된 환경을 읽습니다). 저장소 루트와 현재 프로젝트 build/install 및 `.venvs/project`를 사용합니다. 로그/모델/키는 로컬 자산이며 키 값을 출력하지 않습니다. 기존 PC의 정상 로컬 설정은 사용자 선택 MeloTTS였으며, 다른 PC의 엔진 선택은 위 설정 검사로 확인합니다. 한국어 단문 합성·첫 DAC 재생은 확인했으며, 마이크/STT·LLM·전체 음성 평가는 재시험해야 합니다.
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
 source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
 python3 - <<'PYTHON'
 from dotenv import load_dotenv
 from ready2go_voice.nodes.voice_node import main
 load_dotenv('secrets/voice.env')
-main(args=['--ros-args', '-p', 'config_file:=/home/jonny/rokey_proj/VLA/ready2go/logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false'])
+main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
 PYTHON
 ```
 
@@ -112,8 +151,8 @@ PYTHON
 평가용 상세 기록(모든 intent 발행 차단, 실제 녹음/API는 사용자가 실행):
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
 source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
 mkdir -p logs/voice_eval
 voice_eval_log=$(mktemp logs/voice_eval/voice.eval.XXXXXXXX.log)
@@ -122,15 +161,15 @@ python3 -u - <<'PYTHON' 2>&1 | tee "$voice_eval_log"
 from dotenv import load_dotenv
 from ready2go_voice.nodes.voice_node import main
 load_dotenv('secrets/voice.env')
-main(args=['--ros-args', '-p', 'config_file:=/home/jonny/rokey_proj/VLA/ready2go/logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=true', '-p', 'diagnostic_detail:=true'])
+main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=true', '-p', 'diagnostic_detail:=true'])
 PYTHON
 ```
 
 실행용 상세 기록(기존 발행 게이트 적용, C 수신·모션 연결은 별도 확인 대상):
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
 source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
 mkdir -p logs/voice_eval
 voice_run_log=$(mktemp logs/voice_eval/voice.run.XXXXXXXX.log)
@@ -139,13 +178,13 @@ python3 -u - <<'PYTHON' 2>&1 | tee "$voice_run_log"
 from dotenv import load_dotenv
 from ready2go_voice.nodes.voice_node import main
 load_dotenv('secrets/voice.env')
-main(args=['--ros-args', '-p', 'config_file:=/home/jonny/rokey_proj/VLA/ready2go/logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
+main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
 PYTHON
 ```
 
 ## MeloTTS 설치·재생 (P1 E, 사용자 선택)
 
-[문서] ROS Python에 Melo 의존성을 설치하지 않습니다. 프로젝트 내부 `.venvs/melotts`는 Python 3.12.3 CPU 전용, `models/tts/melotts`는 공식 소스·한국어 모델/BERT·NLTK·Numba·WAV 캐시와 worker.log입니다. 두 경로는 Git 제외입니다. 공개 다운로드만 사용하며 TTS 실행은 오프라인이고 외부 음성 전송/API 키 사용은 없습니다.
+[문서] ROS Python에 Melo 의존성을 설치하지 않습니다. 기존 PC에서 확인한 프로젝트 내부 `.venvs/melotts`는 Python 3.12.3 CPU 전용이며, 새 PC 설치 검증은 별도입니다. `models/tts/melotts`는 공식 소스·한국어 모델/BERT·NLTK·Numba·WAV 캐시와 worker.log입니다. 두 경로는 Git 제외입니다. 공개 다운로드만 사용하며 TTS 실행은 오프라인이고 외부 음성 전송/API 키 사용은 없습니다.
 
 - 공식 소스 revision: `209145371cff8fc3bd60d7be902ea69cbdb7965a` ([upstream](https://github.com/myshell-ai/MeloTTS/tree/209145371cff8fc3bd60d7be902ea69cbdb7965a)). 공식 설치 문서는 Python 3.9/Ubuntu 20.04 기준입니다.
 - 한국어 Melo 모델: `myshell-ai/MeloTTS-Korean` revision `0207e5adfc90129a51b6b03d89be6d84360ed323` ([모델](https://huggingface.co/myshell-ai/MeloTTS-Korean)); 필요한 한국어 BERT: `kykim/bert-kor-base` revision `1779cc0982ada0216dd6de0dd4e86fb78201926d`.
@@ -155,22 +194,51 @@ PYTHON
 저장소 소스의 설치기를 명시 실행합니다. 기존 다른 revision 소스는 덮어쓰지 않습니다. 인터넷이 필요한 것은 설치 단계뿐입니다.
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
-python3 ros2_ws/src/ready2go_voice/ready2go_voice/adapters/melotts_install.py --project-root "$PWD"
+python3 ros2_ws/src/ready2go_voice/ready2go_voice/adapters/melotts_install.py --project-root .
 ```
 
 [문서] `tts_engine: melotts` 실패는 준비/합성 실패로 표시되고 espeak로 자동 전환하지 않습니다. 기존 설정에 엔진 키가 없으면 espeak 호환 경로입니다. Melo 기본 CPU4스레드/속도1.0/준비상한60초/재생전체상한20초는 실측 기반 **제안값 [팀 확정 필요]**이며, AC 모드의 `start_deadline` 3초는 완화하지 않습니다. 준비 때 등록 물품 이름으로 확인 문장과 `clarify_prompts` 전체, 추가 `tts_melotts_prefill_texts`를 캐시에 넣고 완료 후에만 voice ready/웨이크 입력을 시작합니다. 목록 밖 문장은 최초 합성이 필요합니다. 캐시 키는 문장·모델 파일/리비전·소스/worker·의존성·speaker·속도·스레드를 반영합니다.
 
+단독 합성은 설치된 Melo 소스/API를 직접 사용해 새 WAV를 만듭니다. ROS·마이크·API·스피커 재생을 사용하지 않으며 voice worker의 캐시/시간 예산 검사와도 구분합니다. 저장소 루트에서 실행합니다.
+
+```bash
+mkdir -p logs/voice_eval
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NLTK_DATA=models/tts/melotts/nltk \
+  .venvs/melotts/bin/python - <<'PYTHON'
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+assets = Path('models/tts/melotts').resolve()
+manifest = json.loads((assets / 'model_manifest.json').read_text())
+os.environ['MELOTTS_BERT_PATH'] = manifest['kykim/bert-kor-base']['path']
+sys.path.insert(0, str(assets / 'source'))
+import torch
+torch.set_num_threads(4)  # 기존 CPU 시운전 제안값; 팀 확정/해당 PC 실측 필요
+from melo.api import TTS
+kr = Path(manifest['myshell-ai/MeloTTS-Korean']['path'])
+tts = TTS(language='KR', device='cpu', config_path=str(kr / 'config.json'),
+          ckpt_path=str(kr / 'checkpoint.pth'))
+with tempfile.NamedTemporaryFile(dir='logs/voice_eval', prefix='melotts.', suffix='.wav', delete=False) as f:
+    output = f.name
+tts.tts_to_file('지우개 가져다드리겠습니다.', tts.hps.data.spk2id['KR'], output, speed=1.0)
+print(output)
+PYTHON
+```
+
 마이크·API·로봇 없이 기존 출력 장치에서 재생하는 명령입니다. 음성 노드는 먼저 종료하십시오.
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
 source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
 python3 - <<'PYTHON'
 from ready2go_voice.adapters.tts import create_tts
 from ready2go_voice.core.config import load_config
 cfg = load_config('logs/voice_eval/voice.local.yaml')
+if cfg['tts_engine'] != 'melotts':
+    raise ValueError('로컬 설정의 tts_engine을 확인하십시오: Melo 재생 시험입니다')
 tts = create_tts(cfg)
 try:
     tts.prepare()
@@ -194,4 +262,4 @@ PYTHON
 
 [실측: 로컬 합성 입력] 실제 Silero는 무음·미세/큰 임의 잡음·200Hz 정현파를 무발화로, 기존 MeloTTS 생성 시험 WAV를 발화로 판정했습니다. 새 질문 사전캐시 준비36.26초, 일반 고정 clarify의 캐시 응답5~7ms(캐시 히트)였습니다. 마이크/STT/LLM/실제 첫DAC 지연 측정이 아닙니다. 90ms 순간 구간 거절·180ms 구간 허용은 모의 검사입니다. **180ms 이상의 웨이크 잔음도 통과할 수 있으며**, 실제 마이크에서 무발화/짧은 정상 명령·오탐을 재시험해야 합니다.
 
-재실행은 위 “현재 사용자 실행 폴더의 시운전” 명령을 사용합니다. 웨이크 후 아무 말도 하지 않는 시험에서는 Whisper 요청 없이 무발화 안내·발행 보류가 나오는지, 짧은 정상 요청은 통과하는지 확인하십시오. 자유 LLM clarify는 고정 일반 질문과 캐시 사용 로그·상세 llm_raw를 대조하십시오. 실제40음성·3초·청취 품질·C/D 연결은 미완료입니다.
+재실행은 위 “사용자 PC 시운전 명령”을 사용합니다. 웨이크 후 아무 말도 하지 않는 시험에서는 Whisper 요청 없이 무발화 안내·발행 보류가 나오는지, 짧은 정상 요청은 통과하는지 확인하십시오. 자유 LLM clarify는 고정 일반 질문과 캐시 사용 로그·상세 llm_raw를 대조하십시오. 실제40음성·3초·청취 품질·C/D 연결은 미완료입니다.
