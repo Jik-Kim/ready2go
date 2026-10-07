@@ -18,6 +18,8 @@
 
 - **#17 진행** (브랜치 `feat/c-p1-task`): `tasks/find_item.json`(정식, speak·미발견 안내 포함, 음성 연결 후 시연용)·`tasks/p1_demo_eraser.json`(#22 점검용, speak 없음 — 실물에 음성 서버 없음, E 요청 순서). mock 정상·파지 실패·미발견·안전 코드 5종 확인. 남은 것: `/voice/intent` → 태스크 실행 연결 (Day 6), 밀기 분기(#37).
 
+- **실행 기록 보고서** (브랜치 `feat/c-run-report`, 10/07): MongoDB 기록이 사람이 읽기 어렵다는 문제(사용자) → `ros2 run ready2go_runner run_report`로 최근 실행을 한국어 요약·Markdown 표로. #23 C 항목 "MongoDB/JSONL 조회", 10/08 결과 보고에 사용.
+
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |

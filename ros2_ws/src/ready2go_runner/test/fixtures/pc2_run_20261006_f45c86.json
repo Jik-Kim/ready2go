@@ -1,0 +1,481 @@
+{
+ "run": {
+  "backend": "sim",
+  "run_id": "2026-10-06T11:07:13Z_f45c86",
+  "task_id": "p1_demo_eraser",
+  "inputs": {
+   "target": "eraser"
+  },
+  "started_at": "2026-10-06T11:07:13.090Z",
+  "ended_at": "2026-10-06T11:09:20.306Z",
+  "total_duration_sec": 127.213,
+  "overall_status": "COMPLETED"
+ },
+ "steps": [
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 0,
+   "id": "s1",
+   "action": "query_ontology",
+   "started_at": "2026-10-06T11:07:13.094Z",
+   "attempts": 1,
+   "params": {
+    "item": "eraser"
+   },
+   "result": {
+    "item": "eraser",
+    "name_ko": "지우개",
+    "drawer_id": "drawer_top",
+    "grip_force": null
+   },
+   "duration_sec": 0,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 1,
+   "id": "s2",
+   "action": "skill",
+   "started_at": "2026-10-06T11:07:13.095Z",
+   "skill": "open_drawer",
+   "attempts": 1,
+   "params": {
+    "drawer_id": "drawer_top"
+   },
+   "pre_check": [
+    {
+     "subject": "drawer_top",
+     "predicate": "open",
+     "op": "==",
+     "value": false,
+     "actual": false,
+     "pass": true
+    },
+    {
+     "subject": "robot",
+     "predicate": "gripper",
+     "op": "==",
+     "value": "empty",
+     "actual": "empty",
+     "pass": true
+    }
+   ],
+   "state_diff": {
+    "open.drawer_top": [
+     false,
+     true
+    ]
+   },
+   "duration_sec": 34.999,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 2,
+   "id": "s2.e1",
+   "action": "move_to_named_pose",
+   "started_at": "2026-10-06T11:07:13.095Z",
+   "parent": "s2",
+   "params": {
+    "pose_name": "drawer_approach",
+    "drawer_id": "drawer_top"
+   },
+   "result": null,
+   "duration_sec": 8.487,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 3,
+   "id": "s2.e2",
+   "action": "drawer_control",
+   "started_at": "2026-10-06T11:07:21.583Z",
+   "parent": "s2",
+   "params": {
+    "drawer_id": "drawer_top",
+    "state": "open"
+   },
+   "result": {
+    "drawer_displacement": 0.2261,
+    "close_confirmed": false
+   },
+   "duration_sec": 26.509,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 4,
+   "id": "s3",
+   "action": "inspect_region",
+   "started_at": "2026-10-06T11:07:48.095Z",
+   "attempts": 1,
+   "params": {
+    "region": "drawer_top",
+    "search_target": "eraser"
+   },
+   "result": {
+    "target_found": true,
+    "target": {
+     "id": "eraser#1",
+     "class": "eraser",
+     "pose": {
+      "frame": "drawer_top",
+      "position": [
+       0.1769,
+       0.2895,
+       0
+      ],
+      "yaw": 0,
+      "yaw_valid": true
+     },
+     "top_z": 0.0115
+    },
+    "candidates": [],
+    "visible_count": 1
+   },
+   "duration_sec": 0.014,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 5,
+   "id": "s4",
+   "action": "if",
+   "started_at": "2026-10-06T11:07:48.109Z",
+   "attempts": 1,
+   "branch": "then",
+   "duration_sec": 69.425,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 6,
+   "id": "s4.1",
+   "action": "skill",
+   "started_at": "2026-10-06T11:07:48.109Z",
+   "skill": "pick_demo",
+   "attempts": 1,
+   "params": {
+    "item": "eraser",
+    "from": "drawer_top",
+    "target": {
+     "id": "eraser#1",
+     "class": "eraser",
+     "pose": {
+      "frame": "drawer_top",
+      "position": [
+       0.1769,
+       0.2895,
+       0
+      ],
+      "yaw": 0,
+      "yaw_valid": true
+     },
+     "top_z": 0.0115
+    }
+   },
+   "pre_check": [
+    {
+     "subject": "robot",
+     "predicate": "gripper",
+     "op": "==",
+     "value": "empty",
+     "actual": "empty",
+     "pass": true
+    },
+    {
+     "subject": "eraser",
+     "predicate": "located_in",
+     "op": "==",
+     "value": "drawer_top",
+     "actual": "drawer_top",
+     "pass": true
+    },
+    {
+     "subject": "drawer_top",
+     "predicate": "open",
+     "op": "==",
+     "value": true,
+     "actual": true,
+     "pass": true
+    }
+   ],
+   "state_diff": {
+    "gripper.robot": [
+     "empty",
+     "eraser"
+    ],
+    "located_in.eraser": [
+     "drawer_top",
+     "gripper"
+    ]
+   },
+   "duration_sec": 45.917,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 7,
+   "id": "s4.1.e1",
+   "action": "nudge_object",
+   "started_at": "2026-10-06T11:07:48.109Z",
+   "parent": "s4.1",
+   "params": {
+    "target": {
+     "id": "eraser#1",
+     "class": "eraser",
+     "pose": {
+      "frame": "drawer_top",
+      "position": [
+       0.1769,
+       0.2895,
+       0
+      ],
+      "yaw": 0,
+      "yaw_valid": true
+     },
+     "top_z": 0.0115
+    },
+    "drawer_id": "drawer_top"
+   },
+   "result": {
+    "pushed": true,
+    "push_vector_m": [
+     0,
+     -0.0418
+    ],
+    "clearance_before_m": 0.0042,
+    "floor_z_m": 0,
+    "target_after": {
+     "id": "eraser#1",
+     "class": "eraser",
+     "pose": {
+      "frame": "drawer_top",
+      "position": [
+       0.1769,
+       0.2477260614351182,
+       0
+      ],
+      "yaw": 0,
+      "yaw_valid": true
+     },
+     "top_z": 0.0115
+    }
+   },
+   "duration_sec": 29.088,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 8,
+   "id": "s4.1.e2",
+   "action": "pick_object",
+   "started_at": "2026-10-06T11:08:17.198Z",
+   "parent": "s4.1",
+   "params": {
+    "target": {
+     "id": "eraser#1",
+     "class": "eraser",
+     "pose": {
+      "frame": "drawer_top",
+      "position": [
+       0.1769,
+       0.2477260614351182,
+       0
+      ],
+      "yaw": 0,
+      "yaw_valid": true
+     },
+     "top_z": 0.0115
+    },
+    "approach_offset": [
+     0,
+     0,
+     0.1
+    ]
+   },
+   "result": {
+    "object_id": "eraser#1",
+    "class": "eraser",
+    "pick_pose_drawer_frame": {
+     "frame": "drawer_top",
+     "position": [
+      0.1769,
+      0.2477260614351182,
+      0
+     ],
+     "yaw": 0,
+     "yaw_valid": true
+    },
+    "grasp_ok": true
+   },
+   "duration_sec": 16.827,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 9,
+   "id": "s4.2",
+   "action": "skill",
+   "started_at": "2026-10-06T11:08:34.027Z",
+   "skill": "place",
+   "attempts": 1,
+   "params": {
+    "item": "eraser",
+    "to": "handover_zone"
+   },
+   "pre_check": [
+    {
+     "subject": "robot",
+     "predicate": "gripper",
+     "op": "==",
+     "value": "eraser",
+     "actual": "eraser",
+     "pass": true
+    },
+    {
+     "subject": "handover_zone",
+     "predicate": "open",
+     "op": "==",
+     "value": true,
+     "actual": true,
+     "pass": true
+    }
+   ],
+   "state_diff": {
+    "gripper.robot": [
+     "eraser",
+     "empty"
+    ],
+    "located_in.eraser": [
+     "gripper",
+     "handover_zone"
+    ]
+   },
+   "duration_sec": 23.507,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 10,
+   "id": "s4.2.e1",
+   "action": "place_object",
+   "started_at": "2026-10-06T11:08:34.027Z",
+   "parent": "s4.2",
+   "params": {
+    "location": "handover_zone"
+   },
+   "result": {
+    "slot": "handover_zone_1",
+    "placed_pose": {
+     "frame": "handover_zone",
+     "position": [
+      0.0224,
+      0.0452,
+      0
+     ]
+    }
+   },
+   "duration_sec": 23.507,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 11,
+   "id": "f1",
+   "action": "query_ontology",
+   "started_at": "2026-10-06T11:08:57.535Z",
+   "attempts": 1,
+   "params": {
+    "state": "gripper.robot"
+   },
+   "result": {
+    "path": "gripper.robot",
+    "value": "empty"
+   },
+   "duration_sec": 0,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 12,
+   "id": "f2",
+   "action": "skill",
+   "started_at": "2026-10-06T11:08:57.536Z",
+   "skill": "close_drawer",
+   "attempts": 1,
+   "params": {
+    "drawer_id": "drawer_top"
+   },
+   "pre_check": [
+    {
+     "subject": "drawer_top",
+     "predicate": "open",
+     "op": "==",
+     "value": true,
+     "actual": true,
+     "pass": true
+    },
+    {
+     "subject": "robot",
+     "predicate": "gripper",
+     "op": "==",
+     "value": "empty",
+     "actual": "empty",
+     "pass": true
+    }
+   ],
+   "state_diff": {
+    "open.drawer_top": [
+     true,
+     false
+    ]
+   },
+   "duration_sec": 18.175,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 13,
+   "id": "f2.e1",
+   "action": "drawer_control",
+   "started_at": "2026-10-06T11:08:57.536Z",
+   "parent": "f2",
+   "params": {
+    "drawer_id": "drawer_top",
+    "state": "close"
+   },
+   "result": {
+    "drawer_displacement": 0,
+    "close_confirmed": true
+   },
+   "duration_sec": 18.174,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 14,
+   "id": "f3",
+   "action": "if",
+   "started_at": "2026-10-06T11:09:15.712Z",
+   "attempts": 1,
+   "branch": "then",
+   "duration_sec": 4.594,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:07:13Z_f45c86",
+   "seq": 15,
+   "id": "f3.1",
+   "action": "move_to_named_pose",
+   "started_at": "2026-10-06T11:09:15.712Z",
+   "attempts": 1,
+   "params": {
+    "pose_name": "home"
+   },
+   "result": null,
+   "duration_sec": 4.593,
+   "status": "SUCCESS"
+  }
+ ]
+}
