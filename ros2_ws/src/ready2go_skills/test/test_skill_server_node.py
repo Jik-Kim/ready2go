@@ -203,7 +203,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     finally:
         server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.030, abs=1e-3)   # 누른 z 그대로 3 cm 만 [사용자 10/07]
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.033, abs=1e-3)   # 누른 z 그대로 33 mm 만 → 옆벽 보정(7.1 mm)으로 바로 집힘 [사용자 10/07 안 가]
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
@@ -212,9 +212,6 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     server.Gripper.holding = True
     route = server.srv.poses()["carry_line"]["drawer_top"]
     server.srv.robot.log.clear()
-    out, _ = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
-    assert out.error_code == server.ss.WALL_TOO_CLOSE and server.srv.robot.log == []   # 3 cm 로는 옆벽 쪽 여유 부족 (서랍 경계 기준, 실제 벽은 약 7 mm 바깥)
-    data["target_after"]["pose"]["position"][1] = 0.2904 - 0.0426        # 잡을 수 있을 만큼(계산 42.6) 끈 자리에서 집기·놓기·닫기 확인
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
     server.Gripper.holding = False
     assert out.success and data["grasp_ok"] is True
@@ -428,3 +425,11 @@ def test_slow_press_that_really_stops_short_is_halted(server):
     target[2] -= 2.0
     out = server.srv._line_slow(goal, target, 1.0, "press")
     assert out.error_code == sf.NOT_REACHED and out.reason.startswith("[press]") and "stop" in r.log
+
+
+def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
+    """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
+    t = json.loads(json.dumps(ERASER_CORNER))
+    t["pose"]["position"][1] = 0.2904 - 0.030
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == server.ss.WALL_TOO_CLOSE and server.srv.robot.log == []

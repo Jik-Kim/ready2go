@@ -746,7 +746,7 @@ class SkillServer(Node):
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         size, _ = self.item(target.get("class"))
-        g = dict(prm["gripper"])
+        g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
                "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)
@@ -898,7 +898,7 @@ class SkillServer(Node):
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0],
-                                    g=prm["gripper"])
+                                    g=dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id)))
         if wall:                                            # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"])
