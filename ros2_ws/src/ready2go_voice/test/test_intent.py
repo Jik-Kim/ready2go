@@ -236,3 +236,49 @@ def test_control_config_uses_same_normalization_and_preserves_context(ontology, 
     assert parser.control('지금 뭐 해?')['intent'] == 'status'
     for text in ('멈추지 마.', '멈춰라고 말하지 마.', '지금 뭐 해?라고 물었어', '취소하지 마!'):
         assert parser.control(text) is None
+
+
+
+@pytest.mark.parametrize('evaluation', [True, False])
+def test_fixed_commissioning_runs_stt_llm_without_fake_speech_deadline(ontology, schema, cfg, evaluation):
+    from ready2go_voice.adapters.audio import Recording
+    paths, timeouts = [], []
+    class STT:
+        def transcribe(self, path, timeout):
+            paths.append(path)
+            assert path.exists()
+            timeouts.append(timeout)
+            return '지우개 찾아줘'
+    calls = []
+    def llm(text, timeout):
+        calls.append(timeout)
+        return {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99}
+    cfg.update(timing_mode='commissioning', stt_timeout_sec=30, llm_timeout_sec=30,
+               evaluation_mode=evaluation)
+    parser = IntentParser(ontology, schema, cfg, llm)
+    from types import SimpleNamespace
+    session = VoiceSession(parser, cfg, STT(), clock=lambda: 1000,
+                           speech_gate=SimpleNamespace(check=lambda *a, **k: True))
+    doc = session.audio(Recording(b'\0\0', None, None, recording_mode='fixed', recording_ended_monotonic=1))
+    assert doc['targets'] == ['eraser'] and calls == [30] and timeouts == [30]
+    assert not paths[0].exists()
+    assert doc['source']['speech_ended_monotonic'] is None
+    assert doc['source']['confirmation_latency_ms'] is None
+    assert doc['source']['latency_measurement'] == 'not_measured'
+    assert session.should_publish(doc) == (not evaluation)
+
+
+
+def test_stt_failure_progress_has_exception_type_only(ontology, schema, cfg):
+    from ready2go_voice.adapters.audio import Recording
+    events = []
+    class Failed:
+        def transcribe(self, *_): raise RuntimeError('SECRET')
+    from types import SimpleNamespace
+    session = VoiceSession(IntentParser(ontology, schema, cfg), cfg, Failed(),
+                           progress=lambda **event: events.append(event),
+                           speech_gate=SimpleNamespace(check=lambda *a, **k: True))
+    doc = session.audio(Recording(b'\0\0', None, None, recording_mode='fixed'))
+    assert doc['intent'] == 'clarify'
+    assert events[-1] == {'event': 'stt_failed', 'error_type': 'RuntimeError'}
+    assert 'SECRET' not in str(events)

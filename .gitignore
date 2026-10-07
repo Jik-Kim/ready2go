@@ -17,3 +17,6 @@ models/*.pt
 !models/.gitkeep
 data/
 runs/
+# E MeloTTS isolated runtime and downloaded assets
+.venvs/
+models/tts/melotts/

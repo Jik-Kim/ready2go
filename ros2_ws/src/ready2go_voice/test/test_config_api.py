@@ -64,3 +64,20 @@ def test_langchain_prompt_structured_json_and_timeout(cfg, ontology, monkeypatch
     assert captured['init']['timeout'] == .6 and captured['init']['max_retries'] == 0
     assert captured['bind']['response_format']['json_schema']['strict']
     assert 'car_key' in captured['prompt'] and '미등록 물품 가져줘' in captured['prompt']
+
+
+
+def test_legacy_config_keeps_silence_budget_defaults(cfg, tmp_path):
+    for key in ('recording_mode', 'record_duration_sec', 'timing_mode', 'diagnostic_detail'):
+        cfg.pop(key, None)
+    path = tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg))
+    loaded = load_config(path)
+    assert loaded['recording_mode'] == 'silence' and loaded['timing_mode'] == 'ac_budget'
+
+
+@pytest.mark.parametrize('updates', [dict(timing_mode='ac_budget'), dict(record_duration_sec=9),
+                                    dict(diagnostic_detail='yes')])
+def test_invalid_commissioning_configuration(cfg, tmp_path, updates):
+    cfg.update(updates)
+    path = tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError): load_config(path)
