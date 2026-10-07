@@ -28,9 +28,9 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 - `ros2` CLI는 `timeout`의 기본 종료 신호(SIGTERM)를 무시해 계속 남는다. **반드시 `timeout -s KILL`** 을 쓴다.
 - 10/03 결과 [실측]: 호스트와 컨테이너(`ready2go-realsense` 이미지) 모두 `/clock`을 수신 (발행 노드 `_ClockGraph_clock`, RELIABLE/VOLATILE).
 
-## 자산 (`sim/assets/`, 아직 커밋하지 않음)
+## 자산 (`sim/assets/`, Git LFS로 추적)
 - `sim/assets/m0609_camera_cube/`: 기존 M0609 + 카메라 + RG2 조립본 (약 15 MB, `~/isaac_legacy/M0609_jik/Collected_m0609_camera_cube` 복사본).
-- `git-lfs`가 설치되기 전에는 USD를 커밋하지 않는다.
+- USD(`*.usd`·`*.usda`·`*.usdc`)는 `.gitattributes`로 Git LFS에 올린다. 받을 때 `git lfs install && git lfs pull`(포인터 파일만 있으면 씬이 열리지 않음). 과거 기록: 10/03까지는 `git-lfs` 설치 전이라 커밋하지 않았다
 
 ## T1 씬 (`sim/scenes/ready2go_t1.usd`)
 작업대 + 받침 선반 + 원목 2단 서랍장(상자 2개 각각 Prismatic Joint 0~22.6 cm, 중간 가로막 없음) + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`. 서랍은 10/03에 철제 레일 + 원목 서랍으로 교체했고 기존 플라스틱 서랍장 값은 모두 삭제했다. 서랍 값이 하나라도 비면 `build_scene.py`는 서랍장 없이 만들고 이유를 출력한다.

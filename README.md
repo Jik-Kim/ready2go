@@ -189,14 +189,21 @@ ros2 run realsense2_camera realsense2_camera_node --ros-args \
   -p rgb_camera.color_profile:=1280x720x30 -p depth_module.depth_profile:=848x480x30
 ```
 
-**실비전**: 모델 가중치 파일 이름은 A가 제공하는 모델에 맞춥니다. 영상·깊이·카메라 내부 파라미터·TF가 필요합니다. `device:=0`이 기본이며 CPU 검사는 `-p device:=cpu`를 추가합니다.
+**실비전**: 실물에서 검증한 경로는 **`ready2go-vision` 컨테이너 + [`tools/dev/vision_real_check.sh`](tools/dev/vision_real_check.sh)**입니다 [실측 PC2 10/07 21:13 KST, main `55829e3`: P1 한 바퀴에서 첫 촬영·끌기 뒤 재인식 포함 호출 3회 성공, #23]. 카메라와 로봇이 같은 PC면 DDS `local`입니다. 저장소 루트에서 실행하고, 터미널마다 같은 환경을 줍니다.
 
 ```bash
-ros2 run ready2go_vision inspect_region --ros-args \
-  -p config_dir:="config" -p world_path:="knowledge/world.jsonld" \
-  -p weights:="models/yolo11n_ready2go_v1.pt" \
-  -p dump_dir:="logs/vision" -p code_sha:="$(git rev-parse HEAD)"
+cd <저장소>                                                    # 스크립트가 저장소를 /repo 로 마운트, config·models 를 그 안에서 읽음
+export DDS_MODE=local VISION_DUMP=$HOME/ready2go_vision_dump    # 요청마다 프레임 저장 위치(저장소 밖)
+bash tools/dev/vision_real_check.sh check                      # 뎁스 약 30 Hz, TF base_link → wrist_cam_color_optical_frame 출력이면 통과
+bash tools/dev/vision_real_check.sh node                       # 비전 노드 (터미널 하나 계속 사용, 처음 한 번 패키지 빌드 수십 초)
+bash tools/dev/vision_real_check.sh call eraser                # 1회 호출: success true, target_found true, 서랍 안 좌표
 ```
+
+- **새 PC 준비** (컨테이너 경로): ① `ready2go-vision` 이미지(`docker/vision/Dockerfile`, 버전 고정 torch 2.11.0+cu128·ultralytics 8.4.170) — 첫 실행에서 GPU 확인 `docker run --rm --gpus all ready2go-vision:latest python3 -c "import torch;print(torch.cuda.is_available())"` ② 모델은 Git LFS: `git lfs install && git lfs pull` 뒤 `sha256sum models/yolo11n_ready2go_v1.pt`가 [`models/README.md`](models/README.md) 값과 같아야 함(132 B 포인터 파일이면 노드가 시작하자마자 실패 [실측 PC2 10/07]) ③ `ros2-core`는 `BACKEND=real`(mock 이면 `mock_backend`가 같은 이름의 `/vision/inspect_region`을 띄움) ④ 카메라는 Compose `realsense` 하나만(호스트 `realsense2_camera`와 동시 실행 금지)
+- **확인 기준**: 노드 시작 로그의 가중치·`places.yaml`·`vision_params.yaml` 해시와 `drawer_top.tf`를 기록합니다. Compose `vision` 서비스는 대기 컨테이너라 노드를 띄우지 않습니다. stub과 동시에 실행하지 않습니다(서비스 이름이 같음)
+- **실물 주의** [실측 PC2 10/07]: 카메라 케이블이 렌즈 앞으로 늘어지면 뎁스가 크게 비어 `DEPTH_INVALID` → 케이블을 손목에 고정. 서랍 영역 밖 오검출은 뎁스 계산 전에 제외됩니다(`region.detect_roi_margin_m`, #132)
+- 카메라·비전이 PC1, 로봇이 PC2인 구성은 양쪽 `DDS_MODE=multi`(`DDS_IFACE`·`PEER_PC1`·`PEER_PC2`, 스크립트 첫 부분). 사용법·`measure`·`replay`는 [`tools/yolo/README.md`](tools/yolo/README.md) "inspect_region 실제 노드 실행"
+- **호스트에서 직접 실행** (`ros2 run ready2go_vision inspect_region`)은 위 `.venvs/vision`과 ROS 빌드 Python 을 맞춰야 하며 **실물 미검증**입니다. 파라미터는 같습니다(`config_dir`·`world_path`·`weights`·`dump_dir`·`code_sha`, CPU 는 `-p device:=cpu`)
 
 **비전 stub**: 실비전과 동시에 실행하지 않고 시험용 실측 파일을 지정합니다. 아래 기본 파일은 `ready: false`라 그대로 쓰면 `STUB_NOT_READY`입니다. 고정 좌표의 성공을 실제 인식 검증으로 취급하지 않습니다.
 
