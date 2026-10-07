@@ -655,3 +655,26 @@ def test_settle_timeout_stops_and_fails_instead_of_sending_next(server):
     assert out is not None and not out.success and out.error_code == sf.NOT_REACHED and "stop" in srv.robot.log
     srv.state = lambda: 1
     assert srv._settle() is None
+    srv.robot.log.clear()                                               # 상태 조회 실패가 이어지면 '멈춤'으로 보지 않음 [#139 E 리뷰 P2]
+    seq = iter([None] * 30 + [1] * 50)
+    srv.state = lambda: next(seq)
+    out = srv._settle()
+    assert out.error_code == sf.STATE_UNKNOWN and "stop" in srv.robot.log
+
+
+def test_cancel_while_settling_does_not_resend_blend(server):
+    """#139 E 리뷰 P1: 첫 블렌딩이 출발하지 않은 뒤 멈춤 확인 중 취소 → 두 번째 moveb 를 보내지 않고 CANCELED."""
+    srv, r = server.srv, server.srv.robot
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    calls = []
+    r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True    # 받기만 하고 안 감
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    real_settle = srv._settle
+
+    def settle(g=None, **kw):
+        goal.is_cancel_requested = True                                 # 멈춤 확인 중 취소
+        return real_settle(g, **kw)
+    srv._settle = settle
+    pts = [[385.4, -135.2, 229.8, 143.0, 180.0, 143.0], [522.2, -135.2, 221.1, -179.6, -160.0, 180.0]]
+    out = srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
+    assert out.error_code == sf.CANCELED and len(calls) == 1

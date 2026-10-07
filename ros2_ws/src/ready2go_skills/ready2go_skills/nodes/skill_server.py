@@ -234,7 +234,7 @@ class SkillServer(Node):
                               watch=self._joint_watch())
         if not done.success:
             return done
-        bad = self._settle()
+        bad = self._settle(goal)
         if bad:
             return bad
         reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
@@ -325,23 +325,39 @@ class SkillServer(Node):
                               watch=self._joint_watch())
         if not done.success:
             return done
-        bad = self._settle()
+        bad = self._settle(goal)
         if bad:
             return bad
         return sf.check_reached(joints, self.robot.posj(), self.reach_tol)
 
-    def _settle(self, timeout_s=2.0):
+    def _settle(self, goal=None, timeout_s=2.0):
         """관절 이동 '도착'(관절 오차 reach_tol 안)은 감속이 끝나기 전일 수 있음 → 다음 직선·블렌딩 명령 전에 이동 중이 아닐 때까지
-        (최대 timeout_s). 멈추면 None. [실측 10/07 밤 PC2, 관절 90°/s: drag_down 도착 직후 보낸 moveb 가 실행되지 않고 1 s 뒤 NOT_REACHED, 남은 204 mm]
-        timeout_s 안에 안 멈추면 정지 + 정지 확인 뒤 실패 (이동 중에 다음 명령을 보내지 않음) [#139 PM 리뷰]."""
-        t0 = time.monotonic()
-        while self.state() == sf.STATE_MOVING:
-            if time.monotonic() - t0 >= timeout_s:
+        기다림. 멈추면 None. [실측 10/07 밤 PC2, 관절 90°/s: drag_down 도착 직후 보낸 moveb 가 실행되지 않고 1 s 뒤 NOT_REACHED, 남은 204 mm]
+        실패는 정지 + 정지 확인 뒤 돌려줌 — 이동 중에 다음 명령을 보내지 않음 [#139 PM·E 리뷰]:
+        비상정지 = ESTOP, 취소 = CANCELED, 상태 조회 1 s 넘게 실패 = STATE_UNKNOWN, timeout_s 안에 안 멈춤 = NOT_REACHED."""
+        def halt(o):
+            return sf._halt(self.robot.stop, self.state, time.monotonic, time.sleep, 0.05, 3.0, o)
+
+        t0, unknown_since = time.monotonic(), None
+        while True:
+            now = time.monotonic()
+            if goal is not None and goal.is_cancel_requested:
+                return halt(sf.Outcome(False, sf.CANCELED, canceled=True, reason="취소 요청으로 정지 (관절 이동 뒤 멈춤 확인 중)"))
+            st = self.state()
+            if sf.stopped_by_estop(st):
+                return sf.Outcome(False, sf.ESTOP, reason=f"로봇 상태 {st} (안전·비상정지)")
+            if st is None:
+                unknown_since = unknown_since or now
+                if now - unknown_since > 1.0:
+                    return halt(sf.Outcome(False, sf.STATE_UNKNOWN, reason="관절 이동 뒤 상태 조회 실패 1 s 넘음 — 정지"))
+            elif st != sf.STATE_MOVING:
+                return None
+            else:
+                unknown_since = None
+            if now - t0 >= timeout_s:
                 self.get_logger().warn(f"관절 이동 뒤 {timeout_s:g} s 안에 멈추지 않음 — 정지")
-                return sf._halt(self.robot.stop, self.state, time.monotonic, time.sleep, 0.05, 3.0,
-                                sf.Outcome(False, sf.NOT_REACHED, reason=f"관절 이동 뒤 {timeout_s:g} s 안에 멈추지 않아 정지"))
+                return halt(sf.Outcome(False, sf.NOT_REACHED, reason=f"관절 이동 뒤 {timeout_s:g} s 안에 멈추지 않아 정지"))
             time.sleep(0.05)
-        return None
 
     def _joint_bad(self, joints, what):
         """관절 제한 확인 (펜던트 안전 설정 J5 ±135° → params 는 그보다 안쪽). 넘으면 Outcome, 아니면 None."""
@@ -491,6 +507,9 @@ class SkillServer(Node):
         start = self.robot.posx()
 
         def send():
+            early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 보낼 때마다 확인 (재전송 전 취소) [#139 E 리뷰 P1]
+            if early:
+                return early
             return sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
                                                            sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
                                     stop=self.robot.stop, get_state=self.state)
@@ -499,7 +518,7 @@ class SkillServer(Node):
         if now is not None and start is not None and math.dist(now[:3], start[:3]) < 1.0:
             # 받기만 하고 출발하지 않음 (앞 이동 끝 무렵에 보냄 [실측 10/07 밤]) → 멈춘 걸 확인하고 한 번만 다시
             self.get_logger().warn(f"[{stage}] 블렌딩이 출발하지 않음 — 한 번 다시 보냄 ({bad.reason})")
-            bad = self._settle() or send() or self._wait_pose(goal, points[-1], vel, stage)
+            bad = self._settle(goal) or send() or self._wait_pose(goal, points[-1], vel, stage)
         return bad
 
     def _carry_route(self, drawer_id):
