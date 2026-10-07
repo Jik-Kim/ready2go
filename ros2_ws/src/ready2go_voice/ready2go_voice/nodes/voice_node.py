@@ -27,7 +27,9 @@ class VoiceNode(Node):
         super().__init__('voice', **kwargs)
         default = str(Path(get_package_share_directory('ready2go_voice')) / 'params/voice.yaml')
         path = self.declare_parameter('config_file', default).value
-        self.cfg = load_config(path)
+        # 시작 시 ROS bool 파라미터 > YAML. 미지정 기본은 false입니다.
+        evaluation = self.declare_parameter('evaluation_mode', False).value
+        self.cfg = load_config(path, evaluation_mode=evaluation)
         self.cfg['diagnostic_detail'] = self.declare_parameter('diagnostic_detail', self.cfg['diagnostic_detail']).value
         ontology = load(self.cfg['ontology_file'])
         with open(self.cfg['intent_schema_file'], encoding='utf-8') as f:

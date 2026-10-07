@@ -21,10 +21,10 @@
 
 ## 설정과 동작 경계
 
-[문서] `params/voice.yaml`은 시운전 제안값이며 `[팀 확정 필요]` 값은 장치·지연·E/D 정답표 확인 후 확정해야 합니다. 기본 **`evaluation_mode: true`, `audio_enabled: false`**입니다. 평가 모드에서는 find_item뿐 아니라 **cancel/status/unknown/clarify 모두 `/voice/intent`를 발행하지 않습니다**. ROS 진단 로그와 TTS만 제공하므로 평가 결과를 로봇 요청으로 전달하지 않습니다. C가 다른 입력으로 기동한 태스크까지 이 설정이 중단시키는 것은 아닙니다.
+[문서] `params/voice.yaml`은 시운전 제안값이며 `[팀 확정 필요]` 값은 장치·지연·E/D 정답표 확인 후 확정해야 합니다. 사용자 확정 기본은 **`evaluation_mode: false`, `audio_enabled: false`**입니다. 시작 시 ROS bool 파라미터 `-p evaluation_mode:=true/false`로 모드를 지정하며, 생략하면 false입니다. 이 시작 값이 YAML보다 우선하므로 기존 로컬 YAML이 true여도 미지정/CLI false는 실행 모드입니다. 유효 설정은 parser/Session/TTS 생성 전에 공유하며, 실행 중 `ros2 param set`으로 전환하는 기능은 구현하지 않습니다. 평가 모드에서는 find_item뿐 아니라 **cancel/status/unknown/clarify 모두 `/voice/intent`를 발행하지 않습니다**. ROS 진단 로그와 TTS만 제공하므로 평가 결과를 로봇 요청으로 전달하지 않습니다. C가 다른 입력으로 기동한 태스크까지 이 설정이 중단시키는 것은 아닙니다.
 
-- 실제 웨이크/STT 평가는 장치/모델을 준비한 설정 복사본에서 `audio_enabled: true`, `evaluation_mode: true`로 수행합니다.
-- C 수신·모션·안전·태스크 연결 확인 뒤에만 `evaluation_mode: false`로 실행 모드를 선택하고 노드를 재시작합니다. C와 별도 평가 환경을 확인하십시오.
+- 실제 웨이크/STT 평가는 장치/모델을 준비한 설정 복사본의 `audio_enabled: true`와 시작 인자 `-p evaluation_mode:=true`로 수행합니다. YAML의 evaluation_mode만 true로 바꾸는 것은 노드의 시작 기본값을 바꾸지 않습니다.
+- 실행 모드는 기본값 또는 `-p evaluation_mode:=false`로 시작합니다. 기존 확인 TTS·취소·무발화·실패·중복 게이트를 유지하며, 실제 C 수신·모션·안전·태스크 연결은 별도 확인 대상입니다.
 - 텍스트 override는 같은 파서의 디버깅 입력이며 실제 웨이크/STT 평가를 대신하지 않습니다.
 - 사용자 확정 정책은 대상 단독·대명사·대상불명 요청을 `clarify`, 빈 targets, 실행 보류로 처리하는 것입니다. 기존 `bare_item_policy: clarify` 설정은 유지하며 충돌하는 `unknown` 설정은 거절합니다. 미사용 `request_patterns`는 설정 호환을 위해 유지하되 실행 판단에 사용하지 않습니다. D 첨부의 E/D 승인 완료를 뜻하지 않습니다.
 - 이름·별칭이 직접 확인되지 않은 LLM 대상은 `clarify`, 빈 targets, 실행 보류로 처리합니다. 정상 LLM 경로는 특정 문장 전체 정규식이나 평가40개에 한정하지 않고, 등록된 단일 물품을 받기/가져오기 위한 요청 의미를 해석합니다. 사용자 승인 `지우개 좀`, `지우개 좀.`, `지우개 좀요`는 축약 부탁이며 모든 등록 이름·별칭에 같은 정책을 적용합니다. `혹시 지우개를 받을 수 있을까요?`처럼 폴백 문형 밖 표현도 정상 LLM 결과와 공통 검증을 통과하면 실행 후보입니다. 대상 단독 `지우개`와 대상불명 `그거 좀`은 계속 clarify입니다.
@@ -35,7 +35,7 @@
 - 실행 모드의 동일 find_item은 중복 시간창 안에서 TTS 전에 보류합니다. 중복 조회는 기록을 바꾸지 않으며 `/voice/intent` 발행 호출이 정상 반환한 뒤에만 기록합니다(C 수신·실행 성공 확인을 뜻하지 않습니다). TTS 실패·취소·시간 초과·발행 예외는 find_item을 소비하지 않아 재시도할 수 있습니다. 평가 모드는 동일 입력도 TTS/진단을 반복하고 모든 intent 발행을 금지합니다. unknown/clarify의 안내 및 기존 발행 중복 정책은 유지합니다. 무발화/VAD 검사 보류는 실행 모드에서도 intent를 발행하지 않습니다.
 - cancel/status는 기존 intent로 C에 전달합니다. voice는 로봇 제어·ESTOP·현재 실행 상태 조회를 대신하지 않습니다. cancel은 진행 중인 E 해석 결과의 추가 발행도 취소합니다. 음성 취소는 보조 수단이며 API 처리 중 새 웨이크 청취는 일시 중지됩니다.
 - STT/LLM 각각 단일 작업 슬롯과 SDK timeout/max_retries=0을 적용합니다. 늦은 결과는 폐기하며 후속 요청에 추가 발행하지 않습니다. 이미 끝나지 않은 작업이 있으면 새 API 작업을 쌓지 않고 보류/폴백합니다.
-- `recording_mode: fixed`, `record_duration_sec: 5.0`, `timing_mode: commissioning`은 원본 기반 기능 시운전 기본입니다. 16kHz/int16/mono 80,000프레임을 녹음하며 웨이크 스트림을 닫은 뒤 같은 입력으로 새 sd.rec 스트림을 엽니다. `VOICE_MIC_DEVICE`→명시 input_device→16kHz 입력 자동 선택→기본 장치 순으로 한 번 정한 입력을 공유합니다. 시운전 API 상한은 STT/LLM 각각30초 제안값이고 늦은 결과 폐기·취소·평가 발행 금지는 유지합니다. 시운전은 evaluation_mode=true에서만 허용합니다.
+- `recording_mode: fixed`, `record_duration_sec: 5.0`, `timing_mode: commissioning`은 원본 기반 기능 시운전 기본입니다. 16kHz/int16/mono 80,000프레임을 녹음하며 웨이크 스트림을 닫은 뒤 같은 입력으로 새 sd.rec 스트림을 엽니다. `VOICE_MIC_DEVICE`→명시 input_device→16kHz 입력 자동 선택→기본 장치 순으로 한 번 정한 입력을 공유합니다. 시운전 API 상한은 STT/LLM 각각30초 제안값이고 늦은 결과 폐기·취소·평가 발행 금지는 유지합니다. commissioning의 API/녹음 설정은 실행·평가 모드 모두에서 사용할 수 있고, 평가 true는 계속 모든 발행을 차단합니다.
 - 고정 녹음의 발화 종료·확인 지연은 null, latency_measurement=not_measured입니다. 녹음 완료 시각은 별도 recording_ended_*로 남기며 AC-INT-03 통과로 사용하지 않습니다. AC 준비는 recording_mode=silence/timing_mode=ac_budget로 설정하고 STT/LLM 상한·장치를 실측해 정합니다. 과거 설정에 신규 키가 없으면 기존 silence/ac_budget를 유지합니다.
 - 무음 종료는 마지막 유성 프레임 시각을 기록합니다. `silence_sec` 대기·STT·LLM·TTS 준비를 **발화 종료부터 3초** 예산에 포함합니다. `max_record_sec`는 보호 한도이며 고정 녹음 시간이 아닙니다. 한도 초과로 잘린 명령은 실행하지 않습니다.
 - LLM 없는 경우 등록 별칭 규칙은 동작하지만 LLM 주 경로 및 자유 표현 완료를 의미하지 않습니다. faster-whisper 오프라인 STT는 현재 구현하지 않았습니다.
@@ -99,11 +99,13 @@ python3 - <<'PYTHON'
 from dotenv import load_dotenv
 from ready2go_voice.nodes.voice_node import main
 load_dotenv('secrets/voice.env')
-main(args=['--ros-args', '-p', 'config_file:=/home/jonny/rokey_proj/VLA/ready2go/logs/voice_eval/voice.local.yaml'])
+main(args=['--ros-args', '-p', 'config_file:=/home/jonny/rokey_proj/VLA/ready2go/logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false'])
 PYTHON
 ```
 
-기본 콘솔: 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→실행 보류→다시 대기. 프레임마다 점수를 출력하지 않습니다. D 상세 원본은 위 main의 args 배열에 `"-p", "diagnostic_detail:=true"`를 추가하고 `2>&1 | tee logs/voice_eval/voice.detail.log`로 보존합니다. voice_diagnostic 원본/source의 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
+위 명령의 `evaluation_mode:=false`를 `true`로 바꾸면 모든 intent 발행을 차단하는 평가입니다. 인자를 생략해도 기본 false이며, 로컬 YAML/키/모델은 덮어쓰지 않습니다. 기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하고, 실행 모드에서도 실제 발화 종료/3초 지연은 null/not_measured입니다.
+
+기본 콘솔: 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기. 프레임마다 점수를 출력하지 않습니다. D 상세 원본은 위 main의 args 배열에 `"-p", "diagnostic_detail:=true"`를 추가하고 `2>&1 | tee logs/voice_eval/voice.detail.log`로 보존합니다. voice_diagnostic 원본/source의 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
 
 ## MeloTTS 설치·재생 (P1 E, 사용자 선택)
 

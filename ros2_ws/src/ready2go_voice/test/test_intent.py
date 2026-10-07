@@ -239,7 +239,8 @@ def test_control_config_uses_same_normalization_and_preserves_context(ontology, 
 
 
 
-def test_fixed_commissioning_runs_stt_llm_without_fake_speech_deadline(ontology, schema, cfg):
+@pytest.mark.parametrize('evaluation', [True, False])
+def test_fixed_commissioning_runs_stt_llm_without_fake_speech_deadline(ontology, schema, cfg, evaluation):
     from ready2go_voice.adapters.audio import Recording
     paths, timeouts = [], []
     class STT:
@@ -252,7 +253,8 @@ def test_fixed_commissioning_runs_stt_llm_without_fake_speech_deadline(ontology,
     def llm(text, timeout):
         calls.append(timeout)
         return {'intent': 'find_item', 'targets': ['eraser'], 'confidence': .99}
-    cfg.update(timing_mode='commissioning', stt_timeout_sec=30, llm_timeout_sec=30)
+    cfg.update(timing_mode='commissioning', stt_timeout_sec=30, llm_timeout_sec=30,
+               evaluation_mode=evaluation)
     parser = IntentParser(ontology, schema, cfg, llm)
     from types import SimpleNamespace
     session = VoiceSession(parser, cfg, STT(), clock=lambda: 1000,
@@ -263,7 +265,7 @@ def test_fixed_commissioning_runs_stt_llm_without_fake_speech_deadline(ontology,
     assert doc['source']['speech_ended_monotonic'] is None
     assert doc['source']['confirmation_latency_ms'] is None
     assert doc['source']['latency_measurement'] == 'not_measured'
-    assert not session.should_publish(doc)
+    assert session.should_publish(doc) == (not evaluation)
 
 
 

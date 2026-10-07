@@ -1,7 +1,7 @@
 # 아래 값은 시운전 제안이며 [팀 확정 필요]. 장치/API/지연을 실측해 확정합니다.
 ontology_file: /knowledge/robot_ontology.jsonld
 intent_schema_file: /contracts/intent.schema.json
-evaluation_mode: true  # 모션 없는 평가: /voice/intent 발행 금지. 실물 연결은 C와 확인 후 false.
+evaluation_mode: false # 사용자 확정 기본 실행 모드. ROS -p evaluation_mode:=true는 모든 intent 발행 차단.
 audio_enabled: false  # 장치/모델 준비 후 true. text_override는 음성 평가를 대체하지 않음.
 input_device: null    # [팀 확정 필요] PortAudio 장치 번호 또는 이름, null은 시스템 기본값
 output_device: null   # [팀 확정 필요]

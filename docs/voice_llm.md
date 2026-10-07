@@ -24,7 +24,7 @@
       → unknown/clarify: 보류 안내 / cancel·status: 규칙 제어 경로
 ```
 
-기본 `evaluation_mode: true`, `audio_enabled: false`입니다. 평가 모드는 **모든 intent 발행을 금지**하고 동일 입력의 TTS·진단 반복은 허용합니다. 실제 웨이크/STT 평가에는 준비한 장치 설정에서 audio를 켜야 합니다. 텍스트 override는 같은 파서의 디버깅 입력이며 음성 평가를 대신하지 않습니다. C 수신→태스크/진행·결과 피드백 및 로그, D 화면은 담당별 인계·실측이 남아 있습니다.
+사용자 확정 기본 `evaluation_mode: false`, `audio_enabled: false`입니다. 시작 시 ROS bool 파라미터 `-p evaluation_mode:=true/false`로 지정하고, 미지정은 false입니다. 시작 값은 YAML보다 우선하므로 기존 로컬 YAML true도 미지정/CLI false에서는 실행 모드이며, parser/Session 생성 전에 같은 유효 설정을 공유합니다. 실행 중 모드 변경 기능은 없습니다. 평가 모드는 **모든 intent 발행을 금지**하고 동일 입력의 TTS·진단 반복은 허용합니다. 실제 웨이크/STT 평가에는 준비한 장치 설정에서 audio를 켜야 합니다. 텍스트 override는 같은 파서의 디버깅 입력이며 음성 평가를 대신하지 않습니다. C 수신→태스크/진행·결과 피드백 및 로그, D 화면은 담당별 인계·실측이 남아 있습니다.
 
 | 단계 | P1 현재 구현 | 미확정 설정·미구현 후보 |
 | :--- | :--- | :--- |
@@ -38,7 +38,7 @@
 
 P1 clarify는 설정 `clarify_prompts`의 규칙별 고정 질문 또는 일반 고정 안내를 사전캐시합니다. 임의 LLM질문은 일반 안내로 정규화하여 최종 clarify_question과 실제 재생이 일치하며 원문은 source.llm_raw에 보존합니다. unknown/find/control·대상단독clarify 판별은 유지하고 새 확인 대화는 만들지 않습니다. 설치된 모델의 합성입력 무발화 검사·캐시 응답5~7ms는 실제마이크 오탐/전체3초 달성 근거가 아닙니다. 웨이크 잔음이 음성구간 기준을 넘으면 통과할 가능성이 남습니다. [문서·로컬 검사]
 
-원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 웨이크 스트림을 닫은 뒤 동일 입력으로 16kHz/int16/mono 고정 녹음을 시작합니다. commissioning은 평가 발행 금지를 유지하되 3초 AC 예산으로 API 기능 확인을 차단하지 않습니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
+원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 웨이크 스트림을 닫은 뒤 동일 입력으로 16kHz/int16/mono 고정 녹음을 시작합니다. commissioning은 실행·평가 모드 모두에서 기존 유한 API 상한을 사용하며 3초 AC 예산을 적용하지 않습니다. 평가 true는 모든 intent 발행을 차단하고 false는 기존 확인 TTS·무발화·취소·실패·중복 게이트를 통과한 요청을 발행합니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
 
 [현재 설정 원본 voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)은 시운전 STT/LLM 상한 각각30초, silence_sec=0.4, tts_reserve_sec=0.7입니다. 이전 STT1.1초/LLM0.8초는 AC 준비 후보였으며 현재 원본 값이 아닙니다. AC 모드의 값은 별도 실측해 확정합니다. silence/ac_budget 모드에서는 마지막 유성 프레임부터 확인 TTS 시작까지 3초 예산에 무음 대기·API·TTS 준비를 포함합니다. 남은 예산에 따라 STT/LLM의 실제 제한은 더 짧아질 수 있으며, 값의 합이나 설정만으로 실제 3초 달성을 선언하지 않습니다. 늦은 API 결과는 폐기하고 재시도를 쌓지 않습니다.
 
