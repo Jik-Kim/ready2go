@@ -31,7 +31,8 @@
 > **원본 파일**: [`config/cyclonedds.multi.xml`](../config/cyclonedds.multi.xml) (강사 제공 원본은 [`config/cyclonedds.local.xml`](../config/cyclonedds.local.xml))
 
 **실행 절차 (장비별 명령 1개)**
-* PC2 (실물): `docker compose --profile real up` (`.env`: `BACKEND=real`, `ROBOT_HOST=<제어기 IP>`, `RG2_HOST=<RG2 IP>`, `DDS_MODE=multi`) — DSR 드라이버·`/gripper/state`가 함께 기동
+* PC2 (실물): `docker compose --profile real up` (`.env`: `BACKEND=real`, `ROBOT_HOST=<제어기 IP>`, `RG2_HOST=<RG2 IP>`, `DDS_MODE=multi`) — DSR 드라이버·`/gripper/state`·**스킬 서버(`/skills/*`, `SKILL_START_DELAY_S` 초 뒤)**·Runner가 함께 기동 (NFR-ENV-01). 호스트에서 드라이버·`b_flow.sh server`를 띄운 채 같이 실행하지 않는다(제어기 이중 접속)
+  * Runner 음성 시연 조합(`.env`): `RUNNER_ONTOLOGY_FILE=/knowledge/robot_ontology_demo.jsonld`, `RUNNER_INTENT_TASKS=find_item=/tasks/p1_demo_eraser.json`, 실행마다 상태 초기화 `RUNNER_RESET_STATE=true`(#107, E·PM 결정). 스킬 관절 속도 `SKILL_JOINT_VEL_DEG_S`(기본 20)
 * PC1 (사전 검증): Isaac Sim 네이티브 실행 후 `docker compose --profile sim up` (`.env`: `BACKEND=sim`, `VISION_MODE=oracle`)
 * PC1 (실물 미러링 트윈): Isaac Sim 네이티브만 실행 (`DDS_MODE=multi`로 PC2의 `/dsr01/joint_states` 수신)
 * 개발: `docker compose --profile dev up` — `ros2-core`가 Runner 노드와 mock 백엔드를 띄움. 시험 태스크는 `.env`의 `RUNNER_TASK_FILE=/contracts/examples/task_skill_steps.json`, 실패 시험은 `MOCK_FAIL`·`MOCK_NOT_VISIBLE` ([runner.md](runner.md) 7.1 "Runner 노드")

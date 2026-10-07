@@ -21,6 +21,8 @@
 
 - **실행 기록 보고서** (브랜치 `feat/c-run-report`, 10/07): MongoDB 기록이 사람이 읽기 어렵다는 문제(사용자) → `ros2 run ready2go_runner run_report`로 최근 실행을 한국어 요약·Markdown 표로. #23 C 항목 "MongoDB/JSONL 조회", 10/08 결과 보고에 사용.
 
+- **bringup 스킬 서버·Runner 설정** (브랜치 `feat/c-bringup-skills`, 초안 PR, 10/07): `--profile real up` 한 번으로 드라이버·그리퍼·스킬 서버·Runner(음성 시연 조합) 기동(NFR-ENV-01). 에뮬레이터 real 모드에서 `/skills/*` 5개 기동·Runner 설정 전달 확인 [실측]. B 확인: RG2 동시 접속(스킬 서버 + `gripper_state`), 실물 기동. 10/08 은 기존 방식(B 호스트 + C Runner)이 기본, 이 방식은 실물 확인 뒤.
+
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
