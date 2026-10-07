@@ -9,7 +9,7 @@ BACKEND(real|sim|mock)는 compose의 환경변수로 전달됨 (docs/docker.md).
   관절 속도 SKILL_JOINT_VEL_DEG_S (NFR-ENV-01: real 역할 필수 서비스를 명령 1개로, B 확인 대기)
 - 모든 BACKEND: Runner 노드(ready2go_runner runner) — /runner/status·/robot_state 발행, /runner/estop.
   RUNNER_TASK_FILE 을 주면 시작할 때 그 태스크를 한 번 실행 (시험용). 음성 시연 조합은
-  RUNNER_ONTOLOGY_FILE·RUNNER_INTENT_TASKS, 실행마다 상태 초기화는 RUNNER_RESET_STATE (docs/docker.md)
+  RUNNER_ONTOLOGY_FILE·RUNNER_INTENT_TASKS (docs/docker.md). 시연 사이 상태 초기화는 /runner/reset_state (#107)
 - mock: mock 백엔드(ready2go_runner mock_backend) — /skills/*·/voice/speak·/vision/inspect_region 을
   로봇·음성·비전 없이 같은 이름으로 응답 (#10). 실패 시험은 MOCK_FAIL·MOCK_NOT_VISIBLE 환경변수
 """
@@ -84,9 +84,7 @@ def generate_launch_description():
         parameters=[{"task_file": EnvironmentVariable("RUNNER_TASK_FILE", default_value=""),
                      "ontology_file": EnvironmentVariable("RUNNER_ONTOLOGY_FILE",
                                                           default_value="/knowledge/robot_ontology.jsonld"),
-                     "intent_tasks": EnvironmentVariable("RUNNER_INTENT_TASKS", default_value=""),
-                     "reset_state_each_run": ParameterValue(
-                         EnvironmentVariable("RUNNER_RESET_STATE", default_value="false"), value_type=bool)}],
+                     "intent_tasks": EnvironmentVariable("RUNNER_INTENT_TASKS", default_value="")}],
     )
 
     # TODO(C 이영훈): vision, voice 노드 추가

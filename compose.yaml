@@ -17,7 +17,7 @@ services:
     environment: { <<: *ros-env, BACKEND: "${BACKEND:-mock}", ROBOT_HOST: "${ROBOT_HOST:-127.0.0.1}", RG2_HOST: "${RG2_HOST:-}",
                    MOCK_FAIL: "${MOCK_FAIL:-}", MOCK_NOT_VISIBLE: "${MOCK_NOT_VISIBLE:-}", RUNNER_TASK_FILE: "${RUNNER_TASK_FILE:-}",
                    RUNNER_ONTOLOGY_FILE: "${RUNNER_ONTOLOGY_FILE:-/knowledge/robot_ontology.jsonld}", RUNNER_INTENT_TASKS: "${RUNNER_INTENT_TASKS:-}",
-                   RUNNER_RESET_STATE: "${RUNNER_RESET_STATE:-false}", SKILL_JOINT_VEL_DEG_S: "${SKILL_JOINT_VEL_DEG_S:-20.0}",
+                   SKILL_JOINT_VEL_DEG_S: "${SKILL_JOINT_VEL_DEG_S:-20.0}",
                    SKILL_START_DELAY_S: "${SKILL_START_DELAY_S:-15.0}",
                    PYTHONDONTWRITEBYTECODE: "1" }  # real: 실물 제어기·RG2 IP / mock: 실패 시험 / 소스 폴더에 root 소유 __pycache__ 안 만듦 [실측 10/04]
     volumes:
