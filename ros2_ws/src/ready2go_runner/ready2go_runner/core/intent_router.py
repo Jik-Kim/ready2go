@@ -31,6 +31,7 @@ UNSUPPORTED_ITEM = "UNSUPPORTED_ITEM"   # 태스크 trigger.targets 에 없는 �
 BUSY = "BUSY"                           # 이미 태스크 실행 중 → 중복 요청 거절 (줄 세우지 않음)
 LOCKED = "LOCKED"                       # 중단 잠김 (사람 확인 전 새 태스크 없음, docs/safety.md)
 NOT_RUNNING = "NOT_RUNNING"             # cancel 을 받았지만 멈출 태스크가 없음
+NOT_READY = "NOT_READY"                 # 태스크에 필요한 /skills/* 서버가 아직 안 뜸 (기동 직후, #108) → 로봇 동작 없이 거절
 CONTROL_INTENTS = {"cancel", "status"}
 
 

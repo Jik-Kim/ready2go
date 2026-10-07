@@ -30,7 +30,7 @@ from std_srvs.srv import Trigger
 from ready2go_knowledge.core import ontology
 
 from ..adapters.ros_clients import RosClients
-from ..core.backend import RosBackend
+from ..core.backend import RosBackend, skill_servers
 from ..core import intent_router
 from ..core.interpreter import RunResult, Runner
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
@@ -87,7 +87,21 @@ class RunnerNode(Node):
         self.publish()
         if task_file:
             with open(task_file, encoding="utf-8") as f:
-                self.start_task(json.load(f))
+                task = json.load(f)
+            self._ready_timer = self.create_timer(1.0, lambda: self._start_when_ready(task), callback_group=group)
+
+    def missing_servers(self, task: dict) -> list[str]:
+        """태스크가 쓸 /skills/* 서버 중 아직 안 뜬 것."""
+        return self.ros_clients.missing_actions(skill_servers(task, self.runner.skills))
+
+    def _start_when_ready(self, task: dict) -> None:
+        """RUNNER_TASK_FILE(시험용): 스킬 서버가 다 뜬 뒤 한 번 실행 (real 은 드라이버·스킬 서버가 늦게 뜸, #108)."""
+        missing = self.missing_servers(task)
+        if missing:
+            self.get_logger().info(f"task_file: 스킬 서버 기다리는 중 {missing}", throttle_duration_sec=5.0)
+            return
+        self._ready_timer.cancel()
+        self.start_task(task)
 
     @property
     def running(self) -> bool:
@@ -125,7 +139,11 @@ class RunnerNode(Node):
     def _on_intent(self, msg: String) -> None:
         """/voice/intent (#17). 판단은 core/intent_router, 여기서는 실행·정지·발행만."""
         decision = self.intents.decide(msg.data, running=self.running, locked=self.runner.halted)
-        if decision.kind == intent_router.RUN and not self.start_task(
+        missing = self.missing_servers(decision.task) if decision.kind == intent_router.RUN else []
+        if missing:                             # 기동 직후 스킬 서버가 아직 없음 → 움직이기 전에 거절 (#108 D P1)
+            self.get_logger().warning(f"스킬 서버 준비 전이라 거절: {missing}")
+            decision = intent_router.Decision(intent_router.REJECT, intent_router.NOT_READY, intent=decision.intent)
+        elif decision.kind == intent_router.RUN and not self.start_task(
                 decision.task, decision.inputs, {"intent": decision.intent}):
             decision = intent_router.Decision(intent_router.REJECT, intent_router.BUSY, intent=decision.intent)
         if decision.kind == intent_router.CANCEL and decision.reason is None:

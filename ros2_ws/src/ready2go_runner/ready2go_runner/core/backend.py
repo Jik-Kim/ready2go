@@ -53,6 +53,35 @@ def route(action: str) -> Route:
     return Route(ACTION, SKILL_PREFIX + action)
 
 
+CONTROL_ACTIONS = {"if", "while", "for_each", "fallback", "set_var", "push", "pop"}   # Runner 안에서 처리 (보낼 곳 없음)
+BLOCK_KEYS = ("then", "else", "body")
+
+
+def skill_servers(task: dict, skills: dict) -> set[str]:
+    """태스크가 쓸 수 있는 로봇 동작 액션 서버(/skills/*) 이름. skill 스텝은 온톨로지 expand 로 펼쳐서 센다.
+    실행 전에 서버가 다 떴는지 확인하는 데 쓴다(#108 D P1: 기동 직후 스킬 서버가 늦게 뜨는 동안 요청이 오면 BACKEND_ERROR)."""
+    names: set[str] = set()
+
+    def walk(steps: list) -> None:
+        for step in steps or []:
+            if not isinstance(step, dict):
+                continue
+            if "skill" in step:
+                walk((skills.get(step["skill"]) or {}).get("expand", []))
+                continue
+            action = step.get("action")
+            if action and action not in CONTROL_ACTIONS:
+                r = route(action)
+                if r.kind == ACTION and r.name.startswith(SKILL_PREFIX):
+                    names.add(r.name)
+            for key in BLOCK_KEYS:
+                walk(step.get(key, []))
+
+    walk(task.get("sequence", []))
+    walk(task.get("finally", []))
+    return names
+
+
 def to_result(reply: Reply) -> ActionResult:
     """응답 → ActionResult. 실패면 error_code 그대로(빈 문자열이면 Runner 가 ACTION_FAILED), 성공이면 JSON 해석."""
     if not reply.success:

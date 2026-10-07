@@ -55,10 +55,12 @@ def last_intent(s):
     return s.get("last_intent") or {}
 
 
-def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks=""):
+def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks="",
+                skills_up=True):
+    """skills_up=False: mock 백엔드(/skills/* 서버) 없이 시작 — 기동 직후 스킬 서버가 늦게 뜨는 상황 (#108).
+    나중에 voice.start_skills() 로 띄운다."""
     context = rclpy.Context()
     rclpy.init(context=context, domain_id=next(DOMAIN_IDS))
-    mock = MockBackendNode(context=context, parameter_overrides=[Parameter("duration_sec", value=duration)])
     runner = RunnerNode(context=context, parameter_overrides=[
         Parameter("schema_file", value=str(ROOT / "contracts/task.schema.json")),
         Parameter("intent_schema_file", value=str(ROOT / "contracts/intent.schema.json")),
@@ -69,8 +71,14 @@ def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology
     voice_node = rclpy.create_node("voice_test", context=context)
     voice = Voice(voice_node)
     executor = MultiThreadedExecutor(context=context)
-    for node in (mock, runner, voice_node):
+    for node in (runner, voice_node):
         executor.add_node(node)
+
+    def start_skills():
+        executor.add_node(MockBackendNode(context=context, parameter_overrides=[Parameter("duration_sec", value=duration)]))
+    voice.start_skills = start_skills
+    if skills_up:
+        start_skills()
     threading.Thread(target=executor.spin, daemon=True).start()
 
     def close():
@@ -163,5 +171,24 @@ def test_demo_override_runs_wall_nudge_task(tmp_path):
         assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None), voice.status
         assert voice.status["last"]["task_id"] == "p1_demo_eraser"
         assert voice.status["last"]["overall_status"] == "COMPLETED", voice.status["last"]
+    finally:
+        close()
+
+
+def test_request_before_skill_servers_is_rejected_without_motion(tmp_path):
+    """#108 D P1: 기동 직후 스킬 서버가 아직 없으면 NOT_READY 로 거절 — BACKEND_ERROR 실행·로봇 동작 없음.
+    서버가 뜬 뒤 같은 요청은 실행된다."""
+    runner, voice, close = make_system(tmp_path, skills_up=False)
+    try:
+        voice.say(EXAMPLE)
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "NOT_READY"), voice.status
+        assert last_intent(voice.status)["decision"] == "reject" and voice.status["last"] is None   # 실행 기록 없음
+        assert voice.status["phase"] == "idle"
+        voice.start_skills()
+        end = time.monotonic() + 10.0
+        while runner.missing_servers(runner.intents.tasks["find_item"]) and time.monotonic() < end:
+            time.sleep(0.1)
+        voice.say(EXAMPLE)
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
     finally:
         close()
