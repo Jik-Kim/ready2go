@@ -100,25 +100,26 @@ mkdir -p "$ROS_LOG_DIR"
 
 ### 2. 전체 실행 순서
 
-실물은 **DB·TF·DSR·그리퍼 상태·Runner → 스킬 서버 → 카메라·비전 → 음성** 순입니다. 음성의 실행 모드로 전환하기 전에 각 서버의 준비와 대상·배치를 확인합니다.
+실물 운용에서는 **DB·TF·DSR·그리퍼 상태·Runner·스킬 서버·카메라·비전의 준비를 확인한 뒤 음성**을 시작합니다. Compose는 아래 서비스를 함께 기동하며, 음성의 실행 모드로 전환하기 전에 각 서버의 준비와 대상·배치를 확인합니다.
 
 | 실행 방법 | 자동 시작하는 노드 | 추가로 실행할 노드 |
 | :--- | :--- | :--- |
-| `BACKEND=real`의 `ros2-core` | 고정 TF, DSR, `gripper_state`, `runner` | `skill_server`, 비전, 음성 |
+| `BACKEND=real`의 `ros2-core` | 고정 TF, DSR, `gripper_state`, `runner`, 지연 후 `skill_server` | 비전, 음성 |
 | `BACKEND=mock`의 `ros2-core` | 고정 TF, `runner`, `mock_backend` | 모의 플로우만 시험하면 불필요 |
 | `realsense` 서비스 | RealSense 카메라 | `inspect_region`은 별도로 필요 |
 | `vision`·`voice` 서비스 | 현재는 대기 컨테이너 | 각 패키지의 노드는 자동 시작하지 않음 |
 
-현재 Compose에서는 실물 스킬을 `ros2-core` 안에서 추가 실행하고, 비전·음성은 준비된 호스트에서 실행하는 절차를 아래에 적었습니다. 같은 Runner·스킬·비전·TTS 서버를 중복 실행하지 않습니다.
+[문서] real 통합 launch는 `SKILL_START_DELAY_S`(현 구현 기본 15초) 뒤 `skill_server`를 자동 기동합니다. 이 시간 경과는 DSR 연결·실물 준비 완료 판정이 아닙니다. 비전·음성은 준비된 호스트에서 별도로 실행하며, 같은 Domain의 Runner·스킬·비전·TTS 서버를 중복 실행하지 않습니다.
 
-**실물(PC2)**: `.env`의 실제 장비 IP·DDS 설정 확인 후 실행합니다. `RUNNER_TASK_FILE`은 비워 음성 입력을 기다립니다.
+**실물(PC2)**: `.env`의 실제 장비 IP·DDS 설정 확인 후 실행합니다. `RUNNER_TASK_FILE`은 비워 음성 입력을 기다립니다. 아래 B의 첫 저속 실행 예 10°/s는 Compose 기동 전에 `SKILL_JOINT_VEL_DEG_S=10.0`으로 전달합니다. 속도·가속도·지연은 기동 셸의 동명 변수 또는 `.env`에서 정하며, 미설정 시 Compose/launch의 현 구현 기본값은 각각 60°/s·40°/s²·15초입니다. 아래 명령에서 가속도는 기존 설정을 사용하고 미설정이면 40°/s²입니다. 이는 새 합의나 실물 안전 승인값이 아니므로, 운용 전에 실제 설정의 속도·가속도를 확인하고 [안전 절차](docs/safety.md)를 따릅니다.
 
 ```bash
-BACKEND=real RUNNER_TASK_FILE= docker compose --profile real up -d --build db ros2-core realsense
+BACKEND=real RUNNER_TASK_FILE= SKILL_JOINT_VEL_DEG_S=10.0 \
+  docker compose --profile real up -d --build db ros2-core realsense
 docker compose logs -f ros2-core realsense
 ```
 
-빌드 완료·DSR 연결·Runner 준비를 확인한 뒤 별도 터미널에서 스킬 서버를 실행합니다. 아래 10°/s는 B의 첫 저속 실행 예이며, 실물 운용 한계는 안전 절차를 따릅니다.
+빌드 완료·DSR 연결·Runner와 자동 스킬 서버 준비를 로그·상태로 확인한 뒤, 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다. 아래 10°/s는 B의 첫 저속 실행 예이며, 실물 운용 한계는 안전 절차를 따릅니다.
 
 ```bash
 mkdir -p logs/skills
@@ -181,7 +182,7 @@ ros2 run ready2go_runner mock_backend
 ros2 launch ready2go_skills dsr_real.launch.py host:="$ROBOT_HOST"
 ```
 
-**그리퍼 상태·실물 스킬**: 호스트에서는 `RG2_HOST`를 export합니다(Compose용 `.env`만으로 호스트 환경 변수가 설정되지는 않음). DSR·TCP·툴·실측 설정이 준비된 후 실행합니다.
+**그리퍼 상태·실물 스킬(호스트 개별 실행 대안)**: 아래 명령은 Compose의 자동 서버를 사용하지 않는 개별 실행용입니다. 같은 Domain에서 real Compose의 `gripper_state`·`skill_server`와 함께 실행하지 않습니다. 호스트에서는 `RG2_HOST`를 export합니다(Compose용 `.env`만으로 호스트 환경 변수가 설정되지는 않음). DSR·TCP·툴·실측 설정이 준비된 후 실행합니다.
 
 ```bash
 ros2 run ready2go_skills gripper_state --ros-args -p rg2_ip:="$RG2_HOST"
@@ -269,14 +270,14 @@ ros2 topic echo /robot_state
 | 기록 | 위치·확인 방법 |
 | :--- | :--- |
 | 호스트 ROS 로그 | 위 공통 환경은 `logs/ros/`. 미설정 시 보통 `~/.ros/log/`(`ROS_HOME` 설정 시 해당 경로 아래 `log/`) |
-| 실물 스킬 추가 실행 | 위 명령은 ROS 로그를 호스트 `logs/ros/`, 콘솔을 `logs/skills/console.*.log`에 저장 |
+| 실물 자동 스킬 서버 | `ros2-core`의 Compose 콘솔(`docker compose logs ros2-core`)·컨테이너 ROS 로그. 호스트 개별 실행 대안은 위 공통 환경의 `logs/ros/` |
 | Compose 자동 시작 노드 | 표준 출력은 `docker compose logs`. 기본 ROS 로그는 컨테이너 안 `~/.ros/log/`이며 호스트 자동 저장 설정은 없음 |
 | Runner 실행·스텝 | MongoDB `cobot2.runs`·`cobot2.steps`. DB 장애 시 `log_dir` 아래 `<run_id>.jsonl`로 폴백 |
 | JSONL 호스트 위치 | Compose의 `/logs`는 호스트 `logs/`. 위 호스트 Runner는 `logs/runner/`. DB가 정상이면 JSONL이 없는 것은 정상 |
 | 음성 상세 평가 | 위 명령의 `logs/voice_eval/console.*.log`. 평가 결과 JSON이나 녹음 파일이 자동 생성된다는 의미는 아님 |
 | 비전 입력·결과 | `dump_dir`를 지정하면 `logs/vision/`의 `.npz`. ROS 로그와 별개 |
 
-컨테이너 ROS 로그 위치 확인과 Compose 콘솔 저장 예입니다. `docker compose exec`로 추가 실행한 노드 출력은 해당 실행 터미널의 `tee`로 저장합니다.
+컨테이너 ROS 로그 위치 확인과 자동 스킬 서버를 포함한 Compose 콘솔 저장 예입니다. 아래 `logs/ros2-core.console.*.log` 저장은 수동이며, 컨테이너 ROS 로그의 호스트 자동 저장을 뜻하지 않습니다.
 
 ```bash
 docker compose exec ros2-core bash -lc 'ls -lt ~/.ros/log'
