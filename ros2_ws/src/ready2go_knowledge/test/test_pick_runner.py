@@ -25,11 +25,11 @@ class ObservationStub:
 
     def __init__(self, pushed=True, failure=None, null_scan=None, absent_scan=None):
         self.pushed = pushed
-        self.failure = failure             # ("nudge" / "pick" / "scan2" / "scan3", code)
+        self.failure = failure             # ("nudge" / "pick" / "post_nudge_view" / "scan2" / "scan3", code)
         self.null_scan = null_scan
         self.absent_scan = absent_scan
         self.scans = 0
-        self.views = 0
+        self.nudged = False
         self.calls = []
         self.states_before_pick = []
         self.runner = None
@@ -48,14 +48,15 @@ class ObservationStub:
         params = json.loads(params_json)
         self.calls.append((action, params))
         stage = {"nudge_object": "nudge", "pick_object": "pick"}.get(action)
-        if action == "move_to_named_pose" and params.get("pose_name") == "drawer_top_view":
-            self.views += 1
-            stage = f"view{self.views}"
+        if action == "move_to_named_pose" and params.get("pose_name") == "drawer_top_view" and self.nudged:
+            stage = "post_nudge_view"
+            self.nudged = False
         if action == "pick_object":
             self.states_before_pick.append(copy.deepcopy(self.runner.state))
         if self.failure and self.failure[0] == stage:
             return Reply(False, self.failure[1])
         if action == "nudge_object":
+            self.nudged = True
             return Reply(True, payload_json=json.dumps({
                 "pushed": self.pushed,
                 "target_after": self.predicted if self.pushed else self.initial}))
@@ -129,8 +130,8 @@ def test_common_pick_uses_new_observation_and_applies_effect_only_after_success(
     ("nudge", "NO_OBJECT_CONTACT", "e3"),
     ("nudge", "PUSH_BLOCKED", "e3"),
     ("nudge", "YAW_INVALID", "e3"),
-    ("view2", "POSE_NOT_TAUGHT", "e4"),
-    ("view2", "MOVE_REJECTED", "e4"),
+    ("post_nudge_view", "POSE_NOT_TAUGHT", "e4"),
+    ("post_nudge_view", "MOVE_REJECTED", "e4"),
     ("scan3", "RESULT_INVALID", "e5"),
     ("pick", "GRASP_FAILED", "e6"),
     ("pick", "WALL_TOO_CLOSE", "e6"),
