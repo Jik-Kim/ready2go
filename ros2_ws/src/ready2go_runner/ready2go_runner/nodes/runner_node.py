@@ -5,6 +5,8 @@
   (BACKEND 가 mock·real·sim 어느 쪽이든 같은 이름이므로 이 노드는 그대로)
 - 발행: /runner/status (phase·현재 스텝·마지막 결과), /robot_state (온톨로지 상태). 늦게 구독해도 마지막 값을 받음
 - 서비스: /runner/estop (std_srvs/Trigger) → Runner.halt(). 재개(resume) 통로는 ICD 에 없어 E 합의 후 추가
+  /runner/reset_state (std_srvs/Trigger) → 온톨로지 상태를 시작 상태로 (#23·#107). 사람이 물품·서랍·그리퍼
+  원위치를 확인한 뒤 부른다. 실행 중이면 거절, 중단 잠김은 풀지 않음
 - 태스크 실행: /voice/intent (#17, core/intent_router) — trigger.intent 가 맞는 태스크를 inputs.target = targets[0] 로.
   cancel → halt(), status → 상태 다시 발행, 모호·미지원·저신뢰·미등록 물품은 보류, 실행 중·잠김이면 거절.
   시험용으로 task_file 파라미터를 주면 시작할 때 한 번 실행
@@ -30,9 +32,10 @@ from std_srvs.srv import Trigger
 from ready2go_knowledge.core import ontology
 
 from ..adapters.ros_clients import RosClients
-from ..core.backend import RosBackend
+from ..core.backend import RosBackend, skill_servers
 from ..core import intent_router
 from ..core.interpreter import RunResult, Runner
+from ..core.log_records import utc_iso
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
 from ..core.runner_status import build_status
 
@@ -71,6 +74,7 @@ class RunnerNode(Node):
         self.status_pub = self.create_publisher(String, "/runner/status", LATCHED)
         self.state_pub = self.create_publisher(String, "/robot_state", LATCHED)
         self.create_service(Trigger, "/runner/estop", self._estop, callback_group=group)
+        self.create_service(Trigger, "/runner/reset_state", self._reset_state, callback_group=group)
         self.create_subscription(String, "/voice/intent", self._on_intent, 10, callback_group=group)
         self.create_timer(PUBLISH_PERIOD_SEC, self.publish, callback_group=group)
 
@@ -78,6 +82,7 @@ class RunnerNode(Node):
         self._busy = False                      # 실행 중 (스레드 생존과 별개: 끝난 직후 발행할 때 이미 False)
         self._task_id: str | None = None
         self._last: RunResult | None = None
+        self._state_reset_at: str | None = None   # 마지막 /runner/reset_state 시각 (UTC)
         self._last_task_id: str | None = None
         self._last_intent: dict | None = None   # 마지막으로 받은 인텐트와 처리 결과 (시연 화면 #59)
         self._sent = {"status": None, "state": None}
@@ -87,7 +92,21 @@ class RunnerNode(Node):
         self.publish()
         if task_file:
             with open(task_file, encoding="utf-8") as f:
-                self.start_task(json.load(f))
+                task = json.load(f)
+            self._ready_timer = self.create_timer(1.0, lambda: self._start_when_ready(task), callback_group=group)
+
+    def missing_servers(self, task: dict) -> list[str]:
+        """태스크가 쓸 /skills/* 서버 중 아직 안 뜬 것."""
+        return self.ros_clients.missing_actions(skill_servers(task, self.runner.skills))
+
+    def _start_when_ready(self, task: dict) -> None:
+        """RUNNER_TASK_FILE(시험용): 스킬 서버가 다 뜬 뒤 한 번 실행 (real 은 드라이버·스킬 서버가 늦게 뜸, #108)."""
+        missing = self.missing_servers(task)
+        if missing:
+            self.get_logger().info(f"task_file: 스킬 서버 기다리는 중 {missing}", throttle_duration_sec=5.0)
+            return
+        self._ready_timer.cancel()
+        self.start_task(task)
 
     @property
     def running(self) -> bool:
@@ -125,7 +144,11 @@ class RunnerNode(Node):
     def _on_intent(self, msg: String) -> None:
         """/voice/intent (#17). 판단은 core/intent_router, 여기서는 실행·정지·발행만."""
         decision = self.intents.decide(msg.data, running=self.running, locked=self.runner.halted)
-        if decision.kind == intent_router.RUN and not self.start_task(
+        missing = self.missing_servers(decision.task) if decision.kind == intent_router.RUN else []
+        if missing:                             # 기동 직후 스킬 서버가 아직 없음 → 움직이기 전에 거절 (#108 D P1)
+            self.get_logger().warning(f"스킬 서버 준비 전이라 거절: {missing}")
+            decision = intent_router.Decision(intent_router.REJECT, intent_router.NOT_READY, intent=decision.intent)
+        elif decision.kind == intent_router.RUN and not self.start_task(
                 decision.task, decision.inputs, {"intent": decision.intent}):
             decision = intent_router.Decision(intent_router.REJECT, intent_router.BUSY, intent=decision.intent)
         if decision.kind == intent_router.CANCEL and decision.reason is None:
@@ -151,11 +174,29 @@ class RunnerNode(Node):
         self.publish()
         return response
 
+    def _reset_state(self, request, response):
+        """/runner/reset_state: 사람이 원위치를 확인한 뒤 상태를 시작 상태로. 실행 중이면 거절 (start_task 와 같은 잠금)."""
+        with self._lock:
+            if self.running:
+                response.success = False
+                response.message = f"실행 중({self._task_id}) — 끝난 뒤 원위치 확인 후 다시 요청"
+                self.get_logger().warning(f"/runner/reset_state: 거절 — {response.message}")
+                return response
+            self.runner.reset_state()
+            self._state_reset_at = utc_iso()
+        locked = self.runner.halted
+        response.success = True
+        response.message = "상태를 시작 상태로 되돌림" + (" (중단 잠김은 그대로 — 재개는 별도)" if locked else "")
+        self.get_logger().info(f"/runner/reset_state: {response.message}")
+        self.publish()
+        return response
+
     def status(self) -> dict:
         degraded = getattr(self.log_store, "degraded", False)
         status = build_status(self.running, self.runner.halted, self.runner.halt_code, self._task_id,
                               self.runner.current_step, self._last, self._last_task_id, degraded)
         status["last_intent"] = self._last_intent
+        status["state_reset_at"] = self._state_reset_at   # 마지막 상태 초기화 시각 (UTC, 없으면 null)
         return status
 
     def publish(self) -> None:

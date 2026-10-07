@@ -1,6 +1,6 @@
 {
   "task_id": "p1_demo_eraser",
-  "description": "#22 1차 점검용 지우개 P1 태스크 (#17·#22 10/06 합의): 지우개를 위 서랍 오른쪽 아래 두 벽에 붙여 둠 → 위치 조회 → 스킬 open_drawer → inspect_region 1회 → (찾음) 시연 스킬 pick_demo(nudge_object 로 옆(y)으로 끈 뒤 nudge 의 target_after 로 pick_object, 재조회 없음) → 스킬 place(handover_zone) → finally 그리퍼 상태 조회·close_drawer(skip)·그리퍼가 비어 있을 때만 홈. speak 없음(실물에 음성 서버 없음). pick_demo 는 E 시연 온톨로지(knowledge/robot_ontology_demo.jsonld, PR #85)에 있으므로 Runner 를 ontology_file 을 그 파일로 띄워 실행. nudge 이후는 스킬 재시도 없음. target_after 는 예상 위치이며 FR-ACT-05 재인식 완료가 아님. #37 lift 안전 오류·target_after·approach_offset 계약 승인과 실제 전달 파라미터 확인 전에는 실물 점검 보류 (PR #82 리뷰)",
+  "description": "말 없는 예비 태스크 (P1 기준 아님 — P1 은 tasks/find_item.json, E #17 10/07): 지우개를 위 서랍 벽에 붙여 둠 → 위치 조회 → 스킬 open_drawer → 공통 스킬 pick (E #122: 탑뷰 → inspect_region → nudge_object 로 옆(y)으로 끌기 → 탑뷰 → inspect_region 다시 → 다시 본 좌표로 pick_object. FR-ACT-05 재인식, 못 찾으면 VAR_NULL 로 pick 안 보냄) → 스킬 place(handover_zone) → finally 그리퍼 상태 조회·close_drawer(skip)·그리퍼가 비어 있을 때만 홈. 공통 온톨로지(knowledge/robot_ontology.jsonld)로 실행. speak 없음. 끌기 뒤 스킬 재시도 없음(Runner MOTION_UNCERTAIN)",
   "trigger": {
     "targets": [
       "eraser"
@@ -28,55 +28,21 @@
     },
     {
       "id": "s3",
-      "action": "inspect_region",
+      "skill": "pick",
       "params": {
-        "region": "$loc.drawer_id",
-        "search_target": "$inputs.target"
+        "item": "$inputs.target",
+        "from": "$loc.drawer_id"
       },
-      "output": "scan",
-      "timeout_sec": 30
+      "timeout_sec": 60
     },
     {
       "id": "s4",
-      "action": "if",
-      "cond": {
-        "op": "==",
-        "args": [
-          "$scan.target_found",
-          true
-        ]
+      "skill": "place",
+      "params": {
+        "item": "$inputs.target",
+        "to": "handover_zone"
       },
-      "then": [
-        {
-          "id": "s4.1",
-          "skill": "pick_demo",
-          "params": {
-            "item": "$inputs.target",
-            "from": "$loc.drawer_id",
-            "target": "$scan.target"
-          },
-          "timeout_sec": 120
-        },
-        {
-          "id": "s4.2",
-          "skill": "place",
-          "params": {
-            "item": "$inputs.target",
-            "to": "handover_zone"
-          },
-          "timeout_sec": 60
-        }
-      ],
-      "else": [
-        {
-          "id": "s4.3",
-          "action": "set_var",
-          "params": {
-            "name": "not_found",
-            "value": "지우개를 찾지 못함 — 집기 안 함"
-          }
-        }
-      ]
+      "timeout_sec": 60
     }
   ],
   "finally": [

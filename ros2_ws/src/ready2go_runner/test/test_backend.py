@@ -6,7 +6,7 @@ import pytest
 
 from ready2go_knowledge.core import ontology
 from ready2go_runner.core.backend import (ACTION, INSPECT_SERVICE, LOCAL, SERVICE, SPEAK_ACTION, Reply, RosBackend,
-                                          route, to_result)
+                                          route, skill_servers, to_result)
 from ready2go_runner.core.interpreter import Runner
 from ready2go_runner.core.ontology_query import query
 
@@ -123,9 +123,22 @@ def test_example_task_through_backend():
     drawer = ONTOLOGY["state"]["located_in"]["car_key"]
     assert sent == [SPEAK_ACTION,                                        # s1 query_ontology 는 프로세스 안
                     "/skills/move_to_named_pose", "/skills/drawer_control",   # s3 open_drawer
-                    INSPECT_SERVICE, "/skills/pick_object",               # s4 pick
+                    "/skills/move_to_named_pose", INSPECT_SERVICE,        # s4 pick (E #122): 탑뷰·촬영
+                    "/skills/nudge_object",                               #   끌기
+                    "/skills/move_to_named_pose", INSPECT_SERVICE,        #   탑뷰·다시 촬영
+                    "/skills/pick_object",                                #   다시 본 좌표로 집기
                     "/skills/place_object",                               # s5 place
                     SPEAK_ACTION,
                     "/skills/drawer_control", "/skills/move_to_named_pose"]   # finally
     assert result.steps[0]["output"]["drawer_id"] == drawer
     assert runner.state["located_in"]["car_key"] == "handover_zone"
+
+
+# ---- #108 D P1: 실행 전 필요한 스킬 서버 확인 ----
+
+def test_skill_servers_lists_robot_actions_of_task_and_skills():
+    task = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))
+    names = skill_servers(task, ONTOLOGY["skills"])
+    assert {"/skills/move_to_named_pose", "/skills/drawer_control", "/skills/pick_object",
+            "/skills/place_object"} <= names                          # skill expand 안의 동작까지
+    assert all(n.startswith("/skills/") for n in names)                # speak·inspect·query·if 는 아님

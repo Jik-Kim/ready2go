@@ -21,6 +21,9 @@
 
 - **실행 기록 보고서** (브랜치 `feat/c-run-report`, 10/07): MongoDB 기록이 사람이 읽기 어렵다는 문제(사용자) → `ros2 run ready2go_runner run_report`로 최근 실행을 한국어 요약·Markdown 표로. #23 C 항목 "MongoDB/JSONL 조회", 10/08 결과 보고에 사용.
 
+- **상태 초기화 서비스** (PR #107, 10/07): `/runner/reset_state` — 사람이 원위치 확인 후 호출(팀 결정, 나중에 대시보드 버튼 #59). 자동 초기화 안은 D P1(놓기 실패 뒤 쥔 상태를 덮어씀)로 철회. 시연 사이 초기화 → 3회 연속 COMPLETED, 놓기 실패 뒤 다음 요청 로봇 동작 0건, 실행 중 거절 [실측·시험]. 10/08: 시연 사이 원위치 → `ros2 service call /runner/reset_state std_srvs/srv/Trigger`.
+- **real 기동에 스킬 서버** (PR #108, 10/07): `--profile real up` 한 번으로 드라이버·그리퍼·스킬 서버·Runner(NFR-ENV-01, 사용자 결정: 로봇 기능은 컨테이너에). D P1(서버 준비 전 요청) → Runner `NOT_READY` 거절. 속도 기본 60·40(B 호스트와 같음)
+
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
