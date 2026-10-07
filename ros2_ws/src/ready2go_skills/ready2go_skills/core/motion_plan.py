@@ -138,6 +138,7 @@ def _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin_mm):
     x_ok = min(x_mm, d - x_mm) >= ext_x + margin_mm
     sign = 1.0 if y_mm > wd / 2 else -1.0
     gap = (wd - y_mm) if sign > 0 else y_mm
+    gap += (g.get("wall_offset_mm") or {}).get("y_max" if sign > 0 else "y_min", 0.0)   # 실제 옆벽이 서랍 경계보다 바깥인 만큼 [실측 B 10/07]
     return (not x_ok), (ext_y + margin_mm) - gap, sign
 
 
