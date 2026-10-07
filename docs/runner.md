@@ -202,7 +202,7 @@
   | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
   | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |
 
-  * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — 10/08 시연(벽 배치·nudge): `-p ontology_file:=/knowledge/robot_ontology_demo.jsonld -p intent_tasks:=find_item=/tasks/p1_demo_eraser.json`. 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
+  * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — P1 시연(벽 배치·끌기 뒤 다시 촬영, E #122 공통 pick): `-p intent_tasks:=find_item=/tasks/p1_demo_eraser.json` (공통 온톨로지 그대로). 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
   * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
   * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.
 * `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험.

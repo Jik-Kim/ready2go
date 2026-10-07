@@ -115,6 +115,7 @@ def test_find_item_runs_p1_task_and_records_voice_input(system):
 @pytest.mark.parametrize("text, reason", [
     (intent("unknown", targets=()), "NEEDS_CLARIFY"),
     (intent(targets=("phone",)), "UNKNOWN_ITEM"),
+    (intent(targets=("car_key",)), "UNSUPPORTED_ITEM"),            # 10/07 P1 은 지우개만 (E #17), 로봇 동작 전 보류
     (intent(confidence=0.2), "LOW_CONFIDENCE"),
     ("지우개 찾아줘", "BAD_INTENT"),
 ])
@@ -131,10 +132,12 @@ def test_duplicate_request_while_running_is_rejected(slow_system):
     runner, voice = slow_system
     voice.say(intent())
     assert voice.wait(lambda s: s["phase"] == "running")
-    voice.say(intent(targets=("car_key",)))
+    voice.say(intent())                                 # 같은 요청 중복 (P1 find_item 은 지우개만)
     assert voice.wait(lambda s: last_intent(s).get("reason") == "BUSY"), voice.status
     assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED")
-    assert runner.runner.state["located_in"]["car_key"] != "handover_zone"           # 두 번째 요청은 실행 안 됨
+    run_ids = {voice.status["last"]["run_id"]}
+    time.sleep(0.5)
+    assert {voice.status["last"]["run_id"]} == run_ids                               # 두 번째 요청은 실행 안 됨
 
 
 def test_cancel_stops_running_task_and_locks(slow_system):
@@ -163,8 +166,8 @@ def test_status_republishes(system):
 
 
 def test_demo_override_runs_wall_nudge_task(tmp_path):
-    """10/08 시연 조합: 시연 온톨로지 + intent_tasks 로 find_item → p1_demo_eraser (벽 배치·nudge)."""
-    runner, voice, close = make_system(tmp_path, ontology_file="knowledge/robot_ontology_demo.jsonld",
+    """P1 시연 조합: 공통 온톨로지 + intent_tasks 로 find_item → p1_demo_eraser (벽 배치·끌기 뒤 다시 촬영, E #122)."""
+    runner, voice, close = make_system(tmp_path, ontology_file="knowledge/robot_ontology.jsonld",
                                        intent_tasks=f"find_item={ROOT / 'tasks/p1_demo_eraser.json'}")
     try:
         voice.say(EXAMPLE)
