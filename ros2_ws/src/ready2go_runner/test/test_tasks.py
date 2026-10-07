@@ -37,6 +37,10 @@ def demo_ontology() -> dict:
 
 DEMO = demo_ontology()
 
+# C 원본 공통 pick 호출열 (d8823de, #118의 s3v 추가 전)
+PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
+             "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
+
 
 class MockRobot:
     """ROS 대신 call_action·call_service 를 받는 가짜 백엔드. fail: {동작: [코드, …]} 앞에서부터 하나씩."""
@@ -111,7 +115,7 @@ def test_success_delivers_item_and_cleans_up():
     assert robot.sent == [SPEAK_ACTION,
                           "/skills/move_to_named_pose", "/skills/drawer_control",           # s3 open_drawer
                           INSPECT_SERVICE,                                                   # s4 관측
-                          INSPECT_SERVICE, "/skills/pick_object",                            # s5.1 pick
+                          *PICK_SENT,                                                        # s5.1 pick (E #122)
                           "/skills/place_object",                                            # s5.2 place
                           SPEAK_ACTION,
                           "/skills/drawer_control", "/skills/move_to_named_pose"]            # finally 닫기·홈
@@ -140,12 +144,14 @@ def test_not_found_announces_and_cleans_up():
     assert runner.state["open"]["drawer_top"] is False
 
 
-def test_yaw_invalid_reinspects_once():
+def test_yaw_invalid_after_reobserve_is_not_retried():
+    """E #122: pick 안에서 끌기 뒤 다시 촬영하므로, 그 뒤 YAW_INVALID 는 팔이 움직인 뒤라 다시 보내지 않고 finally."""
     robot = MockRobot(fail={"pick_object": ["YAW_INVALID"]})
     runner, result, _ = run(robot)
-    assert result.overall_status == "COMPLETED"
-    assert robot.sent.count("/skills/pick_object") == 2
-    assert step(result, "s5.1")["attempts"] == 2
+    assert (result.overall_status, result.error_code) == ("FAILED", "YAW_INVALID")
+    assert robot.sent.count("/skills/pick_object") == 1 and robot.sent.count("/skills/nudge_object") == 1
+    assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
+    assert runner.state["located_in"]["eraser"] == "drawer_top"
 
 
 def test_drawer_stuck_skips_pick_and_still_goes_home():
