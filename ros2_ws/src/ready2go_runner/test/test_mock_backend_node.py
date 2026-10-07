@@ -56,12 +56,12 @@ def test_example_task_completes_on_mock():
     assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
     assert runner.state["located_in"]["car_key"] == "handover_zone"
     assert runner.state["open"][result.steps[0]["output"]["drawer_id"]] is False      # finally 로 닫힘
-    assert next(s for s in result.steps if s["id"] == "s4.e2")["output"]["object_id"] == "car_key#1"
+    assert next(s for s in result.steps if s["id"] == "s4.e6")["output"]["object_id"] == "car_key#1"   # E #122 pick 6번째 = 집기
 
 
 def test_grasp_failure_runs_finally_on_mock():
     runner, result = run_with_mock(fail="pick_object=GRASP_FAILED")
-    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "GRASP_FAILED", "s4.e2")
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "GRASP_FAILED", "s4.e6")
     assert [s["status"] for s in result.steps if s["id"] in ("f1", "f2")] == ["SUCCESS", "SUCCESS"]
     assert runner.state["located_in"]["car_key"] != "gripper"                      # 집기 실패 → effect 없음
 
@@ -89,31 +89,28 @@ def test_p1_task_not_visible_on_mock():
     assert runner.state["located_in"]["eraser"] == "drawer_top"
 
 
-# ---- #22 1차 점검용 tasks/p1_demo_eraser.json (speak 없음, E 시연 pick_demo: nudge → target_after 로 pick) ----
-
-from test_tasks import demo_ontology  # noqa: E402
+# ---- P1 지우개 tasks/p1_demo_eraser.json (speak 없음, 공통 pick: 끌기 뒤 다시 촬영한 좌표로 집기, E #122) ----
 
 CHECK_TASK = json.loads((ROOT / "tasks/p1_demo_eraser.json").read_text(encoding="utf-8"))
-DEMO = demo_ontology()
 
 
 def test_check_task_completes_on_mock():
-    runner, result = run_with_mock(task=CHECK_TASK, onto=DEMO)
+    runner, result = run_with_mock(task=CHECK_TASK)
     assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
     assert runner.state["located_in"]["eraser"] == "handover_zone" and runner.state["open"]["drawer_top"] is False
-    picked = next(s for s in result.steps if s["id"] == "s4.1.e2")["params"]["target"]
-    nudged = next(s for s in result.steps if s["id"] == "s4.1.e1")["output"]["target_after"]
-    assert picked == nudged                                             # mock 노드가 준 target_after 그대로 집기에
+    picked = next(s for s in result.steps if s["id"] == "s3.e6")["params"]["target"]
+    reobserved = next(s for s in result.steps if s["id"] == "s3.e5")["output"]["target"]
+    assert picked == reobserved                                         # 끌기 뒤 다시 촬영한 결과로 집기
 
 
 def test_check_task_nudge_failure_does_not_pick_on_mock():
-    runner, result = run_with_mock(fail="nudge_object=NO_PUSH_ACCESS", task=CHECK_TASK, onto=DEMO)
+    runner, result = run_with_mock(fail="nudge_object=NO_PUSH_ACCESS", task=CHECK_TASK)
     assert (result.overall_status, result.error_code) == ("FAILED", "NO_PUSH_ACCESS")
-    assert not any(s["id"] == "s4.1.e2" for s in result.steps)       # pick_object 안 보냄
+    assert not any(s["id"] == "s3.e6" for s in result.steps)         # pick_object 안 보냄
     assert runner.state["located_in"]["eraser"] == "drawer_top"
 
 
 def test_check_task_grasp_failure_runs_finally_on_mock():
-    runner, result = run_with_mock(fail="pick_object=GRASP_FAILED", task=CHECK_TASK, onto=DEMO)
+    runner, result = run_with_mock(fail="pick_object=GRASP_FAILED", task=CHECK_TASK)
     assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
     assert [s["status"] for s in result.steps if s["id"] in ("f2", "f3.1")] == ["SUCCESS", "SUCCESS"]

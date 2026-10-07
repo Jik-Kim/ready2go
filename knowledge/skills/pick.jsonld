@@ -50,6 +50,36 @@
       "verify": "gripper_width > min_width AND grasp_detected",
       "expand": [
         {
+          "action": "move_to_named_pose",
+          "params": {
+            "pose_name": "drawer_top_view",
+            "drawer_id": "$from"
+          }
+        },
+        {
+          "action": "inspect_region",
+          "params": {
+            "region": "$from",
+            "search_target": "$item"
+          },
+          "output": "scan"
+        },
+        {
+          "action": "nudge_object",
+          "params": {
+            "target": "$scan.target",
+            "drawer_id": "$from"
+          },
+          "output": "nudge"
+        },
+        {
+          "action": "move_to_named_pose",
+          "params": {
+            "pose_name": "drawer_top_view",
+            "drawer_id": "$from"
+          }
+        },
+        {
           "action": "inspect_region",
           "params": {
             "region": "$from",
@@ -71,7 +101,21 @@
       ],
       "errors": [
         "NOT_VISIBLE",
-        "GRASP_FAILED"
+        "GRASP_FAILED",
+        "VAR_NULL",
+        "UNKNOWN_REGION",
+        "DEPTH_INVALID",
+        "RESULT_INVALID",
+        "UNKNOWN_POSE",
+        "POSE_NOT_TAUGHT",
+        "DRAWER_NOT_CONFIGURED",
+        "DRAWER_NOT_AT_TRAVEL",
+        "YAW_INVALID",
+        "NOT_ON_FLOOR",
+        "NO_PUSH_ACCESS",
+        "NO_OBJECT_CONTACT",
+        "PUSH_BLOCKED",
+        "WALL_TOO_CLOSE"
       ]
     }
   }

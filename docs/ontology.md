@@ -26,6 +26,14 @@
 
 스킬 파라미터가 원자 동작과 같은 대상을 뜻하면 같은 이름을 사용하고, 스킬 수준의 `item/from/to`는 `expand`에서 원자 동작 파라미터로 명시적으로 매핑합니다. 현재 데이터에 `hold/verify`가 있어도 자동 관측 검증 구현을 의미하지 않습니다. 문자열 verify의 관측값·임계값 출처·평가 방법과 접근 동작 책임은 B·C·E 계약 보완 사항입니다. [문서]
 
+### P1 공통 pick 실행 연결
+
+[문서] [공통 pick](../knowledge/skills/pick.jsonld)은 기존 manifest 등록·`item/from`·pre/hold/effect/verify를 유지합니다. 정식 [find_item 태스크](../tasks/find_item.json)의 `s5.1`에서 탑뷰 이동 → 최초 관측 `scan` → B `nudge_object` → 탑뷰 이동 → 재관측으로 스킬 로컬 `scan` 갱신 → `pick_object(target=$scan.target)`를 전개합니다. 최초/재관측 응답은 각각 e2/e5 기록에 보존하며 e6은 갱신된 두 번째 응답을 사용합니다. 끌기 예상값 `nudge.target_after`는 집기에 사용하지 않습니다. P1 공간 판단은 B의 기존 코드가 담당하며 충분하면 `pushed=false`로 이동 없이 성공합니다. 선형 전개를 유지하므로 이 경우도 재관측합니다. B pick의 벽 간섭 검사는 유지합니다. 독립 스킬·내부 분기·Runner 확장·새 비전 clearance 필드는 추가하지 않습니다.
+
+[문서] 현재 main Runner의 null 참조 차단(`VAR_NULL`)과 하위 실패 전파를 사용합니다. 최초/재관측 target이 null이면 각각 nudge/pick을 보내지 않고, 전체 pick 성공에만 effect를 적용합니다. 탑뷰 이동 뒤에는 기존 YAW_INVALID 재시도도 억제됩니다. hold/verify 보존은 P2 사후 관측 검증 구현이 아닙니다. [Knowledge 연결·인계](../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결)에 호출 순서·오류 선언·모의 테스트 한계를 기록합니다.
+
+[문서] 기준은 P1 FR-ONT-01·FR-PLN-01 및 [FR-ACT-05/AC-ACT-05](requirements.md#fr-act-05)입니다. 실물 10회 성공률은 미측정입니다. C는 기존 관측 횟수/호출열 테스트와 pick 전체 60초 예산을 검토해야 하고, B는 배포 SHA·끌기 no-op/실패·탑뷰/wall guard, A는 실제 재관측 새 프레임·좌표를 확인해야 합니다. finally는 기존 안전 조건에 따르며 ESTOP/잠금에서 자동 닫기·홈을 단정하지 않습니다. 과거 `pick_demo`는 예상 좌표를 사용하는 시연 파일로 유지하며 현재 공통 경로의 근거로 사용하지 않습니다. P2부터의 공간 판단 주체는 미확정이며 [이슈 #120](https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상으로 남깁니다. FR-ACT-05의 밀기 표현과 실제 누르고 끄는 구현의 문구 차이는 정본 담당 인계이며 이번에 요구사항/계약을 바꾸지 않습니다.
+
 ### 물품 정의·치수·요청 범위 (P1, #8 반영)
 
 - **원본**: `knowledge/world.jsonld`의 `world.items`. 진입점 `knowledge/robot_ontology.jsonld`에는 파일 참조만 있으므로 `ready2go_knowledge.core.ontology.load()`로 읽음. 장소 설정은 `config/places.yaml`, 파지 힘·최종 검증 여부는 `config/item_grasp.yaml`에서 같은 식별자로 연결함.

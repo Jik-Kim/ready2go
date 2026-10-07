@@ -35,8 +35,17 @@ def test_contract_example_runs_find_item_with_target_and_voice_inputs():
     assert d.summary()["stt_text"] == "지우개 찾아줘" and d.summary()["task_id"] == "find_item"
 
 
-def test_other_registered_item_becomes_target():
-    d = router().decide(intent(targets=["car_key"]), running=False, locked=False)
+@pytest.mark.parametrize("item", ["car_key", "masking_tape", "lip_balm"])
+def test_p1_find_item_holds_other_items_before_any_motion(item):
+    """10/07 P1 음성 실행은 지우개만 (E #17 사용자 결정): 정식 find_item 에 다른 등록 물품 → 서랍 열기 전에 보류."""
+    assert FIND["trigger"]["targets"] == ["eraser"]
+    d = router().decide(intent(targets=[item]), running=False, locked=False)
+    assert (d.kind, d.reason, d.task) == (ir.HOLD, ir.UNSUPPORTED_ITEM, None)
+
+
+def test_other_registered_item_becomes_target_when_task_has_no_targets():
+    find_any = {**FIND, "trigger": {k: v for k, v in FIND["trigger"].items() if k != "targets"}}
+    d = router({"find_item": find_any}).decide(intent(targets=["car_key"]), running=False, locked=False)
     assert d.kind == ir.RUN and d.inputs["target"] == "car_key"
 
 
@@ -122,8 +131,8 @@ def test_demo_task_holds_other_items_before_any_motion(item):
 
 
 def test_task_without_targets_accepts_any_registered_item():
-    assert "targets" not in (FIND.get("trigger") or {})
-    assert router().decide(intent(targets=["car_key"]), running=False, locked=False).kind == ir.RUN
+    find_any = {**FIND, "trigger": {"intent": "find_item"}}
+    assert router({"find_item": find_any}).decide(intent(targets=["car_key"]), running=False, locked=False).kind == ir.RUN
 
 
 BAD_TARGETS = ["car_key_eraser", 1, {"car_key": True}, [], [1], ["eraser", "eraser"], [""]]
