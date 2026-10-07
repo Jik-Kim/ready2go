@@ -38,7 +38,7 @@
 
 ### 7.6 확장 정의와 연결 경계
 
-기존 복합 스킬 이름은 `handover_with_unpack`이며 참조 태스크는 `tasks/find_with_unpack.json`입니다. 등록된 데이터가 P1 실물 경로에서 가림 탐색을 실행할 수 있다는 뜻은 아닙니다. [문서]
+기존 복합 스킬 이름은 `handover_with_unpack`이며 참조 태스크는 `tasks/find_with_unpack.json`입니다. P2는 같은 서랍 내부 빈 공간 이동→재관측→목표 전달 트레이 전달→장애물 LIFO 복구입니다. 현재 참조 태스크는 이전 외부 트레이 예시이며 내부 이동 계약 반영·실행 검증은 [domain.md 인계표](domain.md)를 따릅니다. 옮긴 장애물의 located_in은 서랍 그대로이고 pose 추적/복구 기록은 C·E 합의가 필요합니다. staging_tray 정의는 소비자 잔존참조 때문에 이번에 삭제하지 않습니다. 등록된 데이터가 P1 실물 경로에서 가림 탐색을 실행할 수 있다는 뜻은 아닙니다. [문서]
 
 자동 계획은 [FR-PLN-02](requirements.md#fr-pln-02), 복합 작업 추가는 [FR-PLN-03](requirements.md#fr-pln-03), 목록·분류 조회는 [FR-ONT-03](requirements.md#fr-ont-03)에 따릅니다. 스킬 파일과 sources 등록만으로 음성 프롬프트·플래너·태스크 레지스트리에 자동 반영된다고 보장하지 않습니다. 담당 모듈의 연결 확인이 필요합니다. 계획 설계는 [planner.md](planner.md)를 참조합니다. [문서]
 

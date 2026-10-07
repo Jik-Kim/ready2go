@@ -141,3 +141,10 @@
 - 모호 대상단독/대명사/일반대상/대상불명 행동 요청은 guard/validate/규칙폴백에서 clarify·targets[]·실행허용false 고정. 기존 bare_item_policy=clarify 및 request_patterns 호환 유지, unknown 정책만 명시거절. 미사용 request_patterns로 실행하지 않음. 프롬프트와 패키지README/공통문서P1설명 정합성 보완. 새 확인 대화 프로토콜은 추가하지 않음. [문서]
 - 관련 voice 검사343 passed/0 skipped, 기존 실제ROS topic/action1 deselected. 최신40 텍스트 각 규칙/모의LLM/예외폴백40/40(정상20find_item/eraser/허용, 모호10clarify/빈대상/보류, 미지원10unknown또는clarify/보류), 등록 이름·별칭 치환/별칭충돌보류·부정/질문/인용/직접손/타목적지·일반자유문형/LLM환각·저신뢰·시간초과·제어·중복·평가발행차단 회귀 확인. compileall/YAML/문서링크·앵커·기존절제목·JSON예시/참조SHA·diff검사 통과. [실측: 로컬 텍스트·API/오디오 모의]
 - 실제 웨이크/STT/한국어TTS·API·40음성/90%·실제검증실패율/3초·C/D연결·안전운용은 미검증. D자료 승인/정답표 동결·진단과D결과필드 대응·후속확인정책은 인계, 로컬결과를 실제평가/AC달성으로 기록하지 않음. D원본/수집기/계약/타담당/로봇동작 변경 및 전체저장소빌드/실물/유료API/subagent 없음. 기존 :memory:.ses 보존/미포함. [문서]
+
+## 2026-10-07 P2 서랍 내부 이동 문서 정합성
+- 사용자 승인 및 #6 최종 승인(issuecomment-6006660678)에 따라 UC-P2·FR-ACT-04(P2)의 가림 물체 이동을 같은 서랍 내부 빈 공간→재관측→목표 handover_zone 전달→장애물 LIFO 원위치 복구로 정정. FR-VIS-03·FR-ONT-02·FR-PLN-02·FR-LOG-02 연결과 AC-ACT-02(10회/80%)·AC-ACT-03(2cm/위치·방향 기록)은 유지. 요구사항·domain·시연·하드웨어·플래너·Runner·일정·온톨로지 문서, knowledge README, 태스크 description 및 본 기록만 변경. [문서]
+- E 문서/온톨로지 범위와 승인된 공통 문서 정정. 기존 절 제목 유지, 외부 임시 트레이 필수 배치/구매·TRAY_FULL 시연 가정·서랍이 비워진다는 설명 정정. 실행 태스크는 이전 예시로 표시하고 sequence/params/inputs/등록 이름은 유지. JSON description 표시는 실행을 차단하는 기능이 아님. [문서]
+- 원본 world/초기상태·composite/task·config/places·계약·Runner/skills/vision_stub 소비 경로를 대조. 내부 이동 장애물의 located_in은 서랍 유지; pose/재식별·restore_stack 및 pre/effect 계약은 C·E, 배치/관측 호출·안전/오류·실패취소 복구는 B·C·E 인계. staging_tray/tray_view/로그 예시 삭제는 소비자와 계약 동시 정리·승인2명(그중E) 전 보류. 타 담당 코드/CURRENT·계약 스키마는 미수정. [문서]
+- 검증: 수용 기준 변경 없음, 기존 제목 및 로컬 링크 대상 존재, 태스크 description 제외 실행 필드 동일, JSON/schema 보조 검사, diff 공백 검사 통과. 기존 음성·사용자 변경 해시 보존 확인. 문서 정합성은 코드 테스트 성공으로 대신하지 않음. 전체 빌드/pytest/실물 동작/자동 상태 갱신·실행 차단/복구 성공 검증 없음. [문서]
+- 작업 경로 /home/jonny/rokey_proj/VLA/ready2go, images/demo 기준HEADa59c4ec. 이번 문서 변경만 로컬 커밋 대상이며 기존 음성 미커밋 기록·코드와 이미지 작업은 제외. 담당 문서 정정 완료, 계약·태스크 구현/실물 검증은 인계 대기. push/PR/병합은 수행하지 않음. [문서]

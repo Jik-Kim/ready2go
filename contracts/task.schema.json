@@ -7,7 +7,17 @@
     "task_id": { "type": "string" },
     "description": { "type": "string" },
     "inputs": { "type": "object", "description": "음성 인텐트에서 바인딩되는 입력 (예: target, list_name)" },
-    "trigger": { "type": "object", "description": "태스크 레지스트리용 음성 트리거 (7.6)" },
+    "trigger": {
+      "type": "object",
+      "description": "태스크 레지스트리용 음성 트리거 (7.6)",
+      "properties": {
+        "intent": { "type": "string", "description": "이 태스크를 실행하는 /voice/intent 의 intent (예: find_item)" },
+        "targets": {
+          "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true,
+          "description": "받을 물품 키 목록(선택). 있으면 이 물품만 실행하고 나머지는 UNSUPPORTED_ITEM 보류 (runner.md 7.1)"
+        }
+      }
+    },
     "params": { "type": "object", "description": "복합 스킬 입력 선언 (이름: 클래스)" },
     "pre": { "type": "object", "description": "실행 조건 (상태 경로: 값, 7.5)" },
     "effect": { "description": "결과 (상태 경로: 값) 또는 \"sensing\"" },

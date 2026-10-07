@@ -42,7 +42,7 @@ case "${1:-}" in
       timeout -s INT 8 ros2 run tf2_ros tf2_echo base_link wrist_cam_color_optical_frame 2>&1 | head -12 || true' ;;
   node)
     mkdir -p "$DUMP"
-    exec "${RUN[@]}" -it --name "$NODE" --gpus all -v "$DUMP:/dump" "$IMG" bash -lc "$BUILD && exec ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/repo/config -p dump_dir:=/dump -p code_sha:=$SHA" ;;
+    exec "${RUN[@]}" -it --name "$NODE" --gpus all -v "$DUMP:/dump" "$IMG" bash -lc "$BUILD && exec ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/repo/config -p dump_dir:=/dump -p 'code_sha:=\"$SHA\"'" ;;
   call)
     docker ps -q -f name="^$NODE$" | grep -q . || { echo "비전 노드($NODE)가 안 떠 있음 — 먼저 node"; exit 1; }
     docker exec "$NODE" bash -lc "source /opt/ros/jazzy/setup.bash && source /tmp/install/setup.bash && timeout -s KILL 30 ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion \"{region: drawer_top, search_target: ${2:-eraser}}\"" ;;

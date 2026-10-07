@@ -21,5 +21,6 @@ setup(
     entry_points={'console_scripts': [
         'runner = ready2go_runner.nodes.runner_node:main',
         'mock_backend = ready2go_runner.nodes.mock_backend:main',
+        'run_report = ready2go_runner.nodes.run_report:main',
     ]},
 )
