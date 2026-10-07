@@ -592,7 +592,8 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
         server.ss.SkillServer._line = real
         server.Gripper.holding = False
     st = {s: (v, z) for s, v, z in speeds}
-    assert st["descend_fast"][0] == 150.0 and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
+    sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
+    assert st["descend_fast"][0] == sp["in_drawer_mm_s"] and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
     assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
     assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
 
@@ -603,7 +604,8 @@ def test_free_space_speed_only_outside_drawer(server):
     assert sp["free_mm_s"] > sp["line_mm_s"]
     assert server.srv._free_vel() == sp["free_mm_s"]
     assert server.srv._free_vel([0.0, 0.0, 100.0, 0.0, 180.0, 0.0]) == sp["free_mm_s"]          # 트레이 쪽
-    assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["line_mm_s"]    # 서랍 위
+    assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["in_drawer_mm_s"]   # 서랍 위·안은 느리게
+    assert sp["in_drawer_mm_s"] < sp["line_mm_s"] < sp["free_mm_s"]
 
 
 def test_blend_that_never_starts_is_sent_once_more(server):
@@ -625,3 +627,20 @@ def test_blend_that_never_starts_is_sent_once_more(server):
     r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
     out = server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
     assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+
+
+def test_into_drawer_waypoint_uses_slow_joint_speed(server):
+    """[사용자 10/07 밤] 큰 이동(탑뷰·홈)은 관절 설정 속도, 서랍 안 경유점(drag_down)으로 들어갈 땐 in_drawer_joint_*."""
+    srv = server.srv
+    srv.joint_vel, srv.joint_acc = 90.0, 60.0
+    sp = srv.prm()["speed"]
+    seen, real = [], srv.robot.movej_async
+    srv.robot.movej_async = lambda j, v, a: seen.append((list(j), v, a)) or real(j, v, a)
+    down = srv.poses()["drag_down"]["drawer_top"]
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]
+    server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    speeds = {tuple(j): (v, a) for j, v, a in seen}
+    assert speeds[tuple(down)] == (sp["in_drawer_joint_deg_s"], sp["in_drawer_joint_acc_deg_s2"])
+    view = srv.poses()["drawer_top_view"]["drawer_top"]
+    if tuple(view) in speeds:
+        assert speeds[tuple(view)] == (90.0, 60.0)                       # 탑뷰는 큰 이동 속도
