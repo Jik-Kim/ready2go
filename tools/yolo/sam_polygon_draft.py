@@ -4,7 +4,7 @@
 - 입력: data/labeled/<세션>/images/NNNN.png + labels/NNNN.txt (YOLO 상자, 사람이 확인한 라벨)
 - 각 상자를 SAM2 에 상자 프롬프트로 넣어 마스크를 얻고 → 상자(+여유) 밖은 잘라내고 → 가장 큰 덩어리의 외곽선을 폴리곤으로 줄인다.
 - 출력(Roboflow 업로드용): <out>/<세션>/sNN_NNNN.png(원본 복사) + sNN_NNNN.txt(YOLO 분할 형식: 클래스 x1 y1 x2 y2 ... 0~1) + data.yaml,
-  <out>/<세션>/_report.csv(물체별 마스크/상자 면적비·덩어리 수·의심 표시), <out>/_preview/<세션>/sNN_NNNN.jpg(왼쪽 상자, 오른쪽 윤곽)
+  <out>/_reports/<세션>.csv(물체별 — 업로드 폴더 밖: Roboflow 가 CSV 를 주석 형식으로 읽어 업로드 오류)(물체별 마스크/상자 면적비·덩어리 수·의심 표시), <out>/_preview/<세션>/sNN_NNNN.jpg(왼쪽 상자, 오른쪽 윤곽)
 - 의심(flag): 면적비가 너무 작거나 크다, 덩어리가 여러 개, 폴리곤이 안 만들어짐(→ 상자 사각형으로 대신 씀). 사람이 Roboflow 에서 확인한다.
 - 초안일 뿐이다. 겹친 물체는 SAM 이 위 물체까지 같이 칠할 수 있으니 반드시 사람이 고친다.
 
@@ -187,7 +187,8 @@ def main():
                     a.show = False
                     cv2.destroyAllWindows()
                     print("창 닫음 (q). 처리는 계속합니다.")
-        with open(sd / "_report.csv", "w", newline="") as f:
+        (out / "_reports").mkdir(exist_ok=True)
+        with open(out / "_reports" / f"{s}.csv", "w", newline="") as f:
             csv.writer(f).writerows([["image", "obj", "class", "mask_box_ratio", "parts", "points", "flag"]] + rows)
     if a.show:
         cv2.destroyAllWindows()
