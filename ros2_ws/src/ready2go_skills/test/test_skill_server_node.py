@@ -522,9 +522,14 @@ def test_pick_goes_through_drag_down_like_nudge(server):
     srv = server.srv
     down = srv.poses()["drag_down"]["drawer_top"]
     srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰
+    server.Gripper.width = 99.0                                         # 앞 실행에서 벌어진 채 (놓기 뒤 등)
+    real_grip = srv._grip
+    srv._grip = lambda w, f: srv.robot.log.append(("grip", w)) or real_grip(w, f)
     t = json.loads(json.dumps(ERASER_FREE))
     out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
     log = srv.robot.log
+    assert log.index(("grip", 0)) < log.index(("movej", down))          # 서랍 안 경유점 전에 닫음 [#136 PM 리뷰]
+    assert any(e[0] == "grip" and e[1] > 0 for e in log[log.index(("movej", down)):])   # 목표 위에서 벌림
     moves = [e for e in log if e[0] in ("movel", "movej", "moveb")]
     assert ("movej", down) in moves
     i = moves.index(("movej", down))

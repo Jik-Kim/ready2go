@@ -988,6 +988,8 @@ class SkillServer(Node):
             # 넛지와 같은 길 [사용자 10/07 저녁]: 탑뷰(팔 거의 펴짐)에서 바로 직선으로 가면 특이점 → 서랍 안 경유점 movej
             # → y 를 목표 y 로 → 목표 위(grasp + approach, 최대 30 mm)를 블렌딩 한 번에 (사이 멈춤 없음)
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
+            # 경유점은 서랍 안(바닥 위 약 37 mm) — 벌린 RG2 는 손끝이 더 내려옴 → 끌기처럼 닫고 지나감, 목표 위에서 벌림 [#136 PM 리뷰]
+            self._grip(0, 20)
             o = self._movej(goal, down, "to_object:down")
             if not o.success:
                 return o, None
