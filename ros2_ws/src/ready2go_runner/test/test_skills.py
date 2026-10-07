@@ -56,6 +56,8 @@ def test_runner_without_ontology_works_as_before():
 from test_interpreter import FakeBackend, FakeClock  # noqa: E402
 
 FOUND_WATCH = ActionResult(True, {"target_found": True, "target": {"id": "watch#1"}})
+# E 공통 pick (#122): 탑뷰 → 촬영 → 끌기 → 탑뷰 → 다시 촬영 → 다시 본 좌표로 집기
+PICK_CALLS = ["move_to_named_pose", "inspect_region", "nudge_object", "move_to_named_pose", "inspect_region", "pick_object"]
 
 
 def skill_task(*steps, final=()):
@@ -148,24 +150,25 @@ PICK_WITH_RETRY = {"id": "s1", "skill": "pick", "params": {"item": "watch", "fro
                    "on_failure": "retry", "retry": 1}
 
 
-def test_yaw_invalid_reinspects_once_then_picks():
-    # 방향을 몰라 pick_object 가 움직이지 않고 거절(YAW_INVALID) → 다시 살펴보고 집기 1회 (PR #65·#66)
-    backend = FakeBackend({"inspect_region": FOUND_WATCH,
-                           "pick_object": [ActionResult(False, error_code="YAW_INVALID"), ActionResult(True)]})
+def test_yaw_invalid_after_reobserve_is_not_retried():
+    # E #122 부터 pick 은 끌기 뒤 다시 촬영한 좌표로 집는다(재인식이 스킬 안에 있음). 그 뒤 YAW_INVALID 면
+    # 앞에서 팔이 움직였으므로(탑뷰·끌기) 태스크에 retry 가 있어도 pick 전체를 다시 보내지 않는다.
+    # (예전 PR #65·#66 의 "다시 살펴보고 집기 1회"는 pick 이 촬영 → 집기만 하던 때의 동작)
+    backend = FakeBackend({"inspect_region": FOUND_WATCH, "pick_object": ActionResult(False, error_code="YAW_INVALID")})
     runner = opened_drawer_runner(backend)
     result = runner.run(skill_task(PICK_WITH_RETRY))
-    assert result.overall_status == "COMPLETED"
-    assert [a for a, _ in backend.calls] == ["inspect_region", "pick_object", "inspect_region", "pick_object"]
-    assert result.steps[0]["attempts"] == 2
-    assert runner.state["gripper"]["robot"] == "watch"
+    assert (result.overall_status, result.error_code) == ("FAILED", "YAW_INVALID")
+    assert [a for a, _ in backend.calls] == PICK_CALLS
+    assert (result.steps[0]["attempts"], result.steps[0]["retry_stopped"]) == (1, "MOTION_UNCERTAIN")
+    assert runner.state["gripper"]["robot"] == "empty"
 
 
-def test_yaw_invalid_again_ends_task_with_finally():
+def test_yaw_invalid_ends_task_with_finally():
     backend = FakeBackend({"inspect_region": FOUND_WATCH, "pick_object": ActionResult(False, error_code="YAW_INVALID")})
     result = opened_drawer_runner(backend).run(skill_task(
         PICK_WITH_RETRY, final=[{"id": "f1", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]))
     assert (result.overall_status, result.error_code) == ("FAILED", "YAW_INVALID")
-    assert [a for a, _ in backend.calls] == ["inspect_region", "pick_object"] * 2 + ["move_to_named_pose"]
+    assert [a for a, _ in backend.calls] == PICK_CALLS + ["move_to_named_pose"]
 
 
 def test_yaw_invalid_after_motion_is_not_retried():
@@ -379,13 +382,13 @@ def test_skill_and_child_records_are_saved_in_order(store):  # noqa: F811
     # 스킬은 하위 동작보다 늦게 끝나지만 seq 는 시작 순서
     assert [(s["seq"], s["id"], s.get("parent")) for s in steps] == [
         (0, "s1", None), (1, "s1.e1", "s1"), (2, "s1.e2", "s1"),
-        (3, "s2", None), (4, "s2.e1", "s2"), (5, "s2.e2", "s2")]
+        (3, "s2", None), *[(3 + i, f"s2.e{i}", "s2") for i in range(1, 7)]]
     s1, s2 = steps[0], steps[3]
     assert (s1["action"], s1["skill"], s1["params"]) == ("skill", "open_drawer", {"drawer_id": "drawer_top"})
     assert all(c["pass"] for c in s1["pre_check"])
     assert s1["state_diff"] == {"open.drawer_top": [False, True]}
     assert s2["state_diff"] == {"gripper.robot": ["empty", "watch"], "located_in.watch": ["drawer_top", "gripper"]}
-    assert steps[4]["result"] == FOUND_WATCH.output                       # 하위 동작 출력도 저장
+    assert steps[5]["result"] == FOUND_WATCH.output                       # 하위 동작 출력도 저장 (s2.e2 촬영)
 
 
 def test_pre_unmet_reason_is_saved(store):  # noqa: F811
@@ -464,7 +467,7 @@ def test_example_fetch_car_key_end_to_end():
     ]
     assert robot.calls == ["query_ontology", "speak",
                            "move_to_named_pose", "drawer_control",          # s3 open_drawer
-                           "inspect_region", "pick_object",                 # s4 pick
+                           *PICK_CALLS,                                     # s4 pick (E #122)
                            "place_object",                                  # s5 place
                            "speak",
                            "drawer_control", "move_to_named_pose"]          # f1 close_drawer, f2 홈
@@ -490,9 +493,10 @@ def test_example_item_not_visible_still_closes_drawer():
     result = runner.run(EXAMPLE)
 
     assert result.overall_status == "FAILED"
-    # 현재 동작: pick 의 expand 가 $scan.target.id 를 쓰므로 못 찾으면 변수 없음으로 실패 (아래 "확인 필요" 참고)
-    assert (result.error_code, result.failed_step) == ("VAR_UNDEFINED", "s4.e2")
-    assert robot.calls.count("inspect_region") == 1 and "pick_object" not in robot.calls   # 재시도 없음, 집기 안 함
+    # 못 찾으면 끌기에 넘길 $scan.target 이 없어 변수 없음으로 실패 → 끌기·집기 안 보냄 (E #122)
+    assert (result.error_code, result.failed_step) == ("VAR_UNDEFINED", "s4.e3")
+    assert robot.calls.count("inspect_region") == 1                    # 재시도 없음
+    assert "nudge_object" not in robot.calls and "pick_object" not in robot.calls
     assert runner.state["open"]["drawer_top"] is False                 # finally 에서 서랍 닫음
     assert runner.state["located_in"]["car_key"] == "drawer_top"       # 차키는 그대로
 
@@ -502,7 +506,7 @@ def test_example_estop_during_pick_keeps_drawer_open_in_state():
     runner = robot_runner(robot)
     result = runner.run(EXAMPLE)
 
-    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "ESTOP", "s4.e2")
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "ESTOP", "s4.e6")
     assert [(s["id"], s["status"]) for s in result.steps if s["id"] in ("f1", "f2")] == [
         ("f1", "SKIPPED"), ("f2", "SKIPPED")]                         # 비상정지 후 서랍 닫기·홈 이동 안 함
     assert runner.state["open"]["drawer_top"] is True                  # 실제처럼 서랍은 열린 채
