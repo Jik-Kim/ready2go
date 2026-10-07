@@ -113,7 +113,7 @@ def test_output_device_error_not_success(cfg, playback, monkeypatch):
 
 @pytest.fixture
 def fixed_input(monkeypatch):
-    import sounddevice as sd
+    sd = pytest.importorskip('sounddevice')
     events = []
     class Stream:
         active = False
@@ -160,7 +160,7 @@ def test_fixed_failure_always_stops_and_closes(cfg, fixed_input, failure):
 
 
 def test_input_selection_environment_then_auto_then_default(cfg, monkeypatch):
-    import sounddevice as sd
+    sd = pytest.importorskip('sounddevice')
     from ready2go_voice.adapters.audio import resolve_input_device
     monkeypatch.setenv('VOICE_MIC_DEVICE', '3')
     assert resolve_input_device(cfg) == 3
