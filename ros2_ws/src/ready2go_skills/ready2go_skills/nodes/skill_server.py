@@ -342,7 +342,18 @@ class SkillServer(Node):
         done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
                               stop=self.robot.stop, timeout_s=self.move_timeout, watch=self._joint_watch(watch),
                               arrived=self._at_posx(posx))
-        return None if done.success else done
+        return None if done.success else self._where(done, stage, posx)
+
+    def _where(self, done, stage, posx):
+        """NOT_REACHED 이유에 단계·멈춘 곳·남은 거리를 붙인다 (10/06 저녁 nudge NOT_REACHED 0.3 s — 어느 이동인지 로그로 몰랐음)."""
+        if done.error_code != sf.NOT_REACHED:
+            return done
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] {done.reason}, 현재 좌표 조회 실패")
+        left = math.dist(cur[:3], [float(v) for v in posx[:3]])
+        return sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] {done.reason} — 멈춘 곳 {[round(v, 1) for v in cur]}, "
+                                                     f"목표 {[round(float(v), 1) for v in posx]}, 남은 {left:.1f} mm")
 
     def _spline(self, goal, points, stage):
         """경유점 posj 목록을 관절 스플라인으로 (자동 모드 → 취소 확인 → 비동기 → 마지막 점 도착까지). 성공이면 None."""
@@ -386,7 +397,7 @@ class SkillServer(Node):
         done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
                               stop=self.robot.stop, timeout_s=self.move_timeout, watch=self._joint_watch(),
                               arrived=self._at_posx(points[-1]))
-        return None if done.success else done
+        return None if done.success else self._where(done, stage, points[-1])
 
     def _carry_route(self, drawer_id):
         """poses.yaml carry_line 경유점 posx (집은 뒤 → 트레이 직선 블렌딩). 없으면 None (예전 carry_out movesj)."""

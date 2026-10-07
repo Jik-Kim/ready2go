@@ -292,3 +292,19 @@ def test_joint_limit_watch_stops_motion(server):
     server.srv.robot.movej_async = lambda j, v, a: True
     out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
     assert not out.success and out.error_code == server.ss.JOINT_LIMIT
+
+
+def test_line_stopped_short_names_stage_and_distance_left(server):
+    """10/06 저녁 nudge NOT_REACHED 0.3 s — 어느 이동인지 로그에 없었음 → 이유에 단계·멈춘 곳·남은 거리."""
+    r = server.srv.robot
+    real = r.movel_async
+
+    def short(p, *a, **k):
+        real(p, *a, **k)
+        r.path = r.path[:20]                                    # 절반 가고 멈춤
+        return True
+    r.movel_async = short
+    goal = __import__("types").SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    target = [380.0, -6.5, 290.0, 90.0, -90.0, 180.0]
+    out = server.srv._line(goal, target, 10.0, "press_back")
+    assert out.error_code == sf.NOT_REACHED and out.reason.startswith("[press_back]") and "남은 5.0 mm" in out.reason
