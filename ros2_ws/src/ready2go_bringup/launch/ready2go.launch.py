@@ -6,7 +6,7 @@ BACKEND(real|sim|mock)는 compose의 환경변수로 전달됨 (docs/docker.md).
   호스트에서는 config_dir:=<저장소>/config 로 지정.
 - real: DSR 드라이버(ready2go_skills/dsr_real.launch.py, 제어기 = ROBOT_HOST) + RG2 /gripper/state (RG2 = RG2_HOST)
   + 스킬 서버(ready2go_skills skill_server, /skills/*, #83) — 드라이버 서비스가 뜬 뒤 시작(SKILL_START_DELAY_S 초 뒤).
-  관절 속도 SKILL_JOINT_VEL_DEG_S (NFR-ENV-01: real 역할 필수 서비스를 명령 1개로, B 확인 대기)
+  관절 속도·가속 SKILL_JOINT_VEL_DEG_S·SKILL_JOINT_ACC_DEG_S2 (NFR-ENV-01: real 역할 필수 서비스를 명령 1개로)
 - 모든 BACKEND: Runner 노드(ready2go_runner runner) — /runner/status·/robot_state 발행, /runner/estop.
   RUNNER_TASK_FILE 을 주면 시작할 때 그 태스크를 한 번 실행 (시험용). 음성 시연 조합은
   RUNNER_ONTOLOGY_FILE·RUNNER_INTENT_TASKS (docs/docker.md). 시연 사이 상태 초기화는 /runner/reset_state (#107)
@@ -63,8 +63,10 @@ def generate_launch_description():
     skill_server = Node(  # /skills/* 실물 백엔드 (B). 호스트에서 b_flow.sh server 와 동시에 띄우지 않는다
         package="ready2go_skills", executable="skill_server", name="skill_server", output="screen",
         parameters=[{"config_dir": LaunchConfiguration("config_dir"),
-                     "joint_vel_deg_s": ParameterValue(
-                         EnvironmentVariable("SKILL_JOINT_VEL_DEG_S", default_value="20.0"), value_type=float)}],
+                     "joint_vel_deg_s": ParameterValue(      # 기본 60·40 = B 호스트 b_flow.sh server (10/06 저녁 2배)
+                         EnvironmentVariable("SKILL_JOINT_VEL_DEG_S", default_value="60.0"), value_type=float),
+                     "joint_acc_deg_s2": ParameterValue(
+                         EnvironmentVariable("SKILL_JOINT_ACC_DEG_S2", default_value="40.0"), value_type=float)}],
         condition=is_real,
     )
     # 드라이버 서비스가 뜨기 전에 시작하면 "DSR 서비스가 없음" 로그 (동작은 이후 호출 때 연결).
