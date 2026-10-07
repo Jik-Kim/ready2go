@@ -36,6 +36,7 @@ from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_gu
 from ready2go_skills.core import pick_plan as pp, pose_math as pm, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
+IN_DRAWER_POSES = ("drawer_top_view", "drag_down")   # 서랍 위에서 서랍 위로 가는 기준 포즈 — 서랍 밖으로 빼지 않고 바로 관절 이동
 def _params_file():
     """params/skills.yaml: 소스(symlink 설치) → 설치된 share 순서."""
     src = Path(__file__).resolve().parents[2] / "params" / "skills.yaml"
@@ -194,6 +195,15 @@ class SkillServer(Node):
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함")
+        if self._over_drawer(cur) and pose_name not in IN_DRAWER_POSES:
+            # 서랍 위(탑뷰 등)에서 홈 쪽으로 바로 관절 이동하면 팔이 열린 앞판·손잡이로 내려와 침
+            # [실측 10/07 PC2: 탑뷰 → 닫기(홈 경유) 2 s 만에 충돌 알람 7060] → 앞판 위 높이로 서랍 밖까지 빼고 관절 이동
+            bad = self._exit_drawer(goal, cur)
+            if bad:
+                return bad
+            cur = self.robot.posx()
+            if cur is None:
+                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 서랍 밖으로 뺀 뒤 높이 확인 못 함")
         tr = self.prm()["transit"]
         # 관절 이동은 경로 높이를 보장하지 않음 → 낮으면 먼저 수직으로 올림 (#83 D 재검토 P1).
         # 서랍 위: safe_z(300). 그 밖(트레이 등): free_lift_z(150) — 트레이 쪽 z 300은 팔이 거의 펴져 위험
@@ -228,6 +238,17 @@ class SkillServer(Node):
         if reached.success and pose_name == "home":
             self.home_posx = self.robot.posx()             # 놓기 때 서랍 → 홈 위로 높게 돌아오는 데 씀
         return reached
+
+    def _exit_drawer(self, goal, cur):
+        """서랍 위 → 앞판·손잡이 위 높이(high_z, 지금이 더 높으면 그대로)로 올린 뒤 서랍 밖(base y = exit_y)까지 수평으로 뺀다."""
+        tr, vel = self.prm()["transit"], self.prm()["speed"]["line_mm_s"]
+        z = max(cur[2], tr["high_z_mm"])
+        if cur[2] < z - 0.5:
+            bad = self._line(goal, mp.with_z(cur, z), vel, "exit_lift", radius=tr.get("blend_mm", 0.0))
+            if bad:
+                return bad
+        out = list(cur[:1]) + [tr["exit_y_mm"], z] + list(cur[3:])
+        return self._line(goal, out, vel, "exit_drawer")
 
     def _over_drawer(self, cur):
         """TCP 가 서랍 안쪽(벽 포함 여유 40 mm) 위에 있는지 — 최대 인출 tf 기준."""
