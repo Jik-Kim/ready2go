@@ -52,7 +52,7 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 | :--- | :--- |
 | `move_to_named_pose` | `config/poses.yaml` 관절각으로 `movej`, 도착 확인. 낮은 곳(서랍·트레이 안)이면 먼저 수직으로 `transit.safe_z_mm`까지 올림 |
 | `drawer_control` (`drawer_top`) | 열기: `drawer_approach` → 손잡이 직선 접근 → 잡기(폭 확인) → 당기기(걸림 감시, 끝 10 mm 안 걸림은 스토퍼) → 놓고 물러남. 닫기: 주먹 쥐고 손잡이 앞으로 → 밀기, 닫힘 = 위치 AND 힘 (`drawer_plan`) |
-| `nudge_object` | 옆벽에 붙어 짧은 변으로 못 잡을 때만: 그리퍼를 벽 쪽 손끝으로 30° 기울여 위에서 내려가 힘 2 N 감지 → **서랍 옆(y)으로만** 끌기 → 올라감. 결과 `target_after` = 끈 뒤 예상 위치(**성공일 때만**, 실패면 `null`). `check_only: true`는 움직이지 않고 판단만 — 아직 끌어야 하거나 끌어도 못 잡으면 `PUSH_LIMIT` (`core/motion_plan.py` `plan_drag`, 트러블슈팅 2) |
+| `nudge_object` | 옆벽에 붙어 짧은 변으로 못 잡을 때만: 그리퍼를 벽 쪽 손끝으로 20° 기울여 위에서 내려가 힘 5 N 접촉(멈춘 채 3번 확인) → 0.1 mm씩 올려 1.5~2.5 N → 누른 z 그대로 **서랍 옆(y)으로만** `shift_mm`(40 mm, 10/07 저녁) 끌기 → 올라감. 끌기 전(누르기·힘 맞추기) 실패는 같은 자리에서 다시(`press_attempts` 3), 끌기 시작 뒤는 다시 안 함 (상세 `docs/domain.md` 8.5). 결과 `target_after` = 끈 뒤 예상 위치(**성공일 때만**, 실패면 `null`). `check_only: true`는 움직이지 않고 판단만 — 아직 끌어야 하거나 끌어도 못 잡으면 `PUSH_LIMIT` (`core/motion_plan.py` `plan_drag`, 트러블슈팅 2) |
 | `pick_object` (서랍) | 짧은 변 잡기(`pick_plan`), 벌림 = 짧은 변 + 13 mm, 폭 확인(`check_grasp`), 들어 올린 뒤 놓침 확인(`check_hold`) |
 | `place_object` (`handover_zone`) | 빈 칸(트레이 x로 3칸), 집을 때 높이 + 1.5 mm에서 놓음, 옮기기 전 놓침 확인 |
 

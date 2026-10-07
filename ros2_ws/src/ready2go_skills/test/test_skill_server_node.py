@@ -139,6 +139,7 @@ def server(monkeypatch):
     srv.robot, srv.disp, srv.held, srv.tray = Robot(), {"drawer_top": 0.226}, None, {}
     srv.state = sf.MotionState(srv.robot.state, srv.robot.posj)
     srv.move_timeout, srv.joint_vel, srv.joint_acc, srv.reach_tol = 30.0, 20.0, 20.0, 0.5
+    srv.get_logger = lambda: types.SimpleNamespace(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
 
     def run(action, params):
@@ -203,7 +204,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     finally:
         server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.033, abs=1e-3)   # 누른 z 그대로 33 mm 만 → 옆벽 보정(7.1 mm)으로 바로 집힘 [사용자 10/07 안 가]
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.040, abs=1e-3)   # 누른 z 그대로 40 mm 만 (10/07 저녁 33 → 40) → 옆벽 보정(7.1 mm)으로 바로 집힘
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
@@ -369,7 +370,10 @@ def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
         server.ss.SkillServer._line = real_line
     assert out.error_code == server.ss.PUSH_BLOCKED and "20.0 N > 2.5 N" in out.reason
     assert "drag" not in contact and data["target_after"] is None
-    relax = [e for e in server.srv.robot.log if e[0] == "movel"][-3:-1]   # 0.1 mm 씩 두 번 올리고 → 위로 빠짐
+    attempts = server.srv.prm()["drag"]["press_attempts"]
+    lifts = [e for e in server.srv.robot.log if e[0] == "movel"]
+    assert sum(1 for e in lifts if e[1][2] < contact["z"]) >= attempts      # 끌기 전 실패 → 같은 자리에서 press_attempts 번 누름 [사용자 10/07]
+    relax = [e for e in server.srv.robot.log if e[0] == "movel"][-3:-1]   # 마지막 시도: 0.1 mm 씩 두 번 올리고 → 위로 빠짐
     assert relax[1][1][2] - relax[0][1][2] == pytest.approx(0.1)
 
 
@@ -454,6 +458,63 @@ def test_slow_press_that_really_stops_short_is_halted(server):
     target[2] -= 2.0
     out = server.srv._line_slow(goal, target, 1.0, "press")
     assert out.error_code == sf.NOT_REACHED and out.reason.startswith("[press]") and "stop" in r.log
+
+
+def test_relax_step_stall_keeps_going_instead_of_failing(server):
+    """[실측 10/07 PC2] 눌린 채 0.1 mm 올리기가 0.1 mm 남기고 멈춰 NOT_REACHED → 끌기 실패.
+    힘 맞추기 한 칸의 NOT_REACHED 는 다음 칸으로 넘어가고(목표 누적), 안전 코드는 그대로 멈춤."""
+    srv, d = server.srv, server.srv.prm()["drag"]
+    warns = []
+    srv.get_logger = lambda: types.SimpleNamespace(warn=warns.append)
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])
+    srv._force_still = lambda s: next(forces)
+    steps = []
+
+    def step(goal, posx, stage):
+        steps.append(round(posx[2], 2))
+        return sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] 멈춤") if len(steps) == 1 else None
+    srv._step = step
+    pressed = [522.3, -135.6, 216.5, 0.4, 160.0, 0.0]
+    bad, p, n = srv._relax(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
+                           pressed, [0.0] * 6, d)
+    assert bad is None and n == 2.0 and len(warns) == 1
+    assert steps == [round(216.5 + d["relax_step_mm"], 2), round(216.5 + 2 * d["relax_step_mm"], 2)]   # 두 번째 칸은 0.2 mm
+    srv._step = lambda goal, posx, stage: sf.Outcome(False, "ESTOP", reason="비상정지")
+    srv._force_still = lambda s: [0, 0, 4.0, 0, 0, 0]
+    bad, _, _ = srv._relax(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
+                           pressed, [0.0] * 6, d)
+    assert bad.error_code == "ESTOP"
+
+
+def test_relax_stall_then_drag_starts_from_actual_stop_not_command(server):
+    """#135 E 리뷰: 힘 맞추기 한 칸이 안 움직였는데(NOT_REACHED 허용) 다음 힘이 범위에 들면,
+    끌기는 명령 누적 좌표(+0.1 mm)가 아니라 실제 멈춘 z 그대로 수평으로."""
+    srv = server.srv
+    contact = {}
+
+    def force(p):
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])     # 첫 칸 뒤 힘이 범위 안 (실물: 멈춘 사이 힘이 풀림)
+    srv._force_still = lambda s: next(forces)
+    srv._step = lambda goal, posx, stage: sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] 0.1 mm 남기고 멈춤")   # 로봇 안 움직임
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "press":
+            contact["z"] = (self.robot.p[2] + posx[2]) / 2
+        if stage == "drag":
+            contact["drag"] = (list(self.robot.p), list(posx))
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    server.ss.SkillServer._line = line
+    try:
+        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    finally:
+        server.ss.SkillServer._line = real_line
+    assert out.success
+    start, end = contact["drag"]
+    assert end[2] == pytest.approx(start[2], abs=1e-6)                  # 실제 멈춘 z 그대로 (명령 +0.1 mm 아님)
 
 
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
