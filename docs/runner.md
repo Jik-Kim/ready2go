@@ -74,7 +74,7 @@
 * **값 전체 참조**: `"$scan.target.id"`, `"$scan.candidates[0].id"` → 원래 타입(불리언·숫자·객체) 그대로 치환.
 * **문자열 보간**: `"{{loc.name_ko}} 찾기를 시작합니다"` → 문자열로 치환.
 * **한국어 조사 필터**: `"{{loc.name_ko|을}}"`처럼 조사를 붙이면 Runner가 앞 단어의 받침 유무(유니코드 한글 음절 계산)로 `을/를`, `이/가`, `은/는`, `과/와`, `으로/로`를 자동 선택함. 목록은 `"{{list.items_ko|목록|을}}"` → "차키, 립밤, 지우개를"처럼 쉼표로 잇고 마지막 단어 기준으로 조사를 붙임. 영문·숫자로 끝나면 받침 없음으로 처리.
-* `eval`을 사용하지 않고 Runner가 경로를 해석함. 존재하지 않는 변수는 `VAR_UNDEFINED` 에러.
+* `eval`을 사용하지 않고 Runner가 경로를 해석함. 존재하지 않는 변수는 `VAR_UNDEFINED` 에러. 로봇·백엔드로 보내는 동작(`set_var`·`if`·`speak`·`query_ontology`·`update_ontology` 제외)의 params 값 전체가 `$변수` 참조인데 `null`이면 보내지 않고 `VAR_NULL` 에러(예: 실패·누락된 `target_after`로 집기, #23).
 * **변수 스코프 (블랙보드)**: `output`·`set_var`로 만든 변수(`loc`, `scan`, `picked` 등)는 **태스크 단위 전역 블랙보드**에 저장되어 `sequence`·`finally`·`on_halt` 어디서든 태스크 종료 시까지 유지됨. 같은 이름으로 다시 `output`하면 덮어씀(예: Unpacking 루프의 `scan`은 재촬영마다 갱신, `loc`은 처음 값 유지). 예외로 `for_each`의 `as` 변수만 루프 안에서 유효함. 블랙보드는 태스크가 끝나면 사라지고(최종 값은 로그에 기록), **태스크 사이에 이어지는 정보는 상태 온톨로지(7.8)만** 사용함.
 
 **조건식 (단일 형태)**: `{ "op": "<연산자>", "args": [ ... ] }`
@@ -105,6 +105,7 @@
 | :--- | :--- |
 | `TASK_INVALID` | 실행 전 검사 실패 (스키마·Phase 범위·필수 필드) |
 | `VAR_UNDEFINED` | 존재하지 않는 변수 참조 |
+| `VAR_NULL` | 백엔드로 보낼 동작의 `$변수` 값이 `null` → 동작을 보내지 않음 (#23) |
 | `BAD_FILTER` | `{{x\|필터}}`에 없는 조사·`목록` 필터 오용 |
 | `BAD_CONDITION` | 조건식 인자 개수·타입 오류 |
 | `TIMEOUT` | `timeout_sec` 초과 (Runner 판정, 또는 클라이언트가 취소 요청). 결과가 불확실해 재시도하지 않음 |
@@ -180,10 +181,29 @@
 
 * 시작할 때 스키마(`/contracts`)·온톨로지(`/knowledge`, 초기 상태 포함)를 읽고 실행 이력은 MongoDB(`MONGO_URI`) → 실패 시 `/logs` JSONL.
 * `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
-* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`).
+* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, 없으면 `null`), `state_reset_at`(마지막 `/runner/reset_state` 시각 UTC, 없으면 `null`).
 * `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
 * `/runner/estop` (`std_srvs/Trigger`) → `halt()` → 진행 중인 goal 에 즉시 취소 요청(정지 확인 전에는 다음 동작 없음). **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
-* 태스크 실행 통로: 정식은 `/voice/intent`(#17). 지금은 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행.
+* `/runner/reset_state` (`std_srvs/Trigger`, #23·#107) → 온톨로지 상태를 **Runner 시작 때 상태(초기 상태)로 되돌림**. P1 은 실행 사이 사람이 물품을 원위치해도 관측으로 상태를 맞추지 못해, 켜 둔 Runner 에 연속 요청하면 1회차 끝 상태(지우개 = `handover_zone`)로 2회차가 트레이를 서랍 자리에 넣음(10/07 발견). 리스크 대응 "시연 전 상태 스냅샷 복원"(metrics_risks.md)을 **사람이 원위치(물품·서랍 닫힘·빈 그리퍼·홈)를 확인한 뒤 부르는 명시적 초기화**로 둠(팀 결정: 나중에 시연 화면 #59 버튼). Runner 가 스스로 되돌리지 않으므로 실패(예: 놓기 실패로 쥔 채 정지) 뒤 상태는 사람이 확인할 때까지 그대로(#107 D 리뷰). 실행 중이면 `success: false`로 거절, 중단 잠김은 풀지 않음(재개는 별도). 관측으로 맞추기는 P2(FR-ONT-02)·P3(FR-REC-01).
+* 태스크 실행 통로: 정식은 `/voice/intent`(#17, `core/intent_router.py`). 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행.
+* **`/voice/intent` 처리** (#17·#23): E 음성 노드가 검증한 뒤 발행하지만, 로봇을 움직이는 쪽이라 Runner 가 한 번 더 확인하고 애매하면 실행하지 않음. 재질문·안내 TTS 는 E 음성 노드(`last_intent`를 보고 말할지는 E 합의).
+
+  | 받은 인텐트 | Runner | `last_intent.decision` / `reason` |
+  | :--- | :--- | :--- |
+  | `intent.schema.json` 위반·JSON 아님 | 실행 안 함 | `hold` / `BAD_INTENT` |
+  | `unknown`·`clarify` | 실행 안 함 | `hold` / `NEEDS_CLARIFY` |
+  | 연결된 태스크가 없는 인텐트 (P1 은 `find_item`만, 목록·목표형은 P2/P3) | 실행 안 함 | `hold` / `UNSUPPORTED_INTENT` |
+  | `confidence` < `min_confidence` | 실행 안 함 | `hold` / `LOW_CONFIDENCE` |
+  | `targets` 없음·2개 이상(P1 은 물품 하나)·온톨로지 `items`에 없음 | 실행 안 함 | `hold` / `NO_TARGET`·`MULTI_TARGET`·`UNKNOWN_ITEM` |
+  | 태스크 `trigger.targets`에 없는 물품 (물품이 정해진 태스크, 예: 지우개 시연 태스크에 "차키 찾아줘") | 실행 안 함 (서랍도 열지 않음) | `hold` / `UNSUPPORTED_ITEM` |
+  | 중단 잠김 / 이미 실행 중(중복 요청, 줄 세우지 않음) | 실행 안 함 | `reject` / `LOCKED`·`BUSY` |
+  | 위를 모두 통과한 `find_item` 등 | 태스크 실행, `inputs` = `{target: targets[0], source: "voice", stt_text, intent_confidence}`, 실행 기록 헤더 `intent`에 받은 JSON 그대로 (FR-LOG-01 입력 명령) | `run` |
+  | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
+  | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |
+
+  * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — 10/08 시연(벽 배치·nudge): `-p ontology_file:=/knowledge/robot_ontology_demo.jsonld -p intent_tasks:=find_item=/tasks/p1_demo_eraser.json`. 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
+  * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
+  * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.
 * `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험.
 
 ### 7.2 태스크 시퀀스 스키마
@@ -226,6 +246,7 @@
   * `MongoLogStore`: `cobot2`의 `runs`(실행 1건, `run_id`로 덮어써 시작 기록을 완성)·`steps`(스텝 1건, `run_id`·`seq` 색인). 접속 주소 `MONGO_URI`(기본 `mongodb://localhost:27017`), 연결·응답 제한 1초 `[추정, 실측 후 조정]`.
   * `JsonlLogStore`: `logs/<run_id>.jsonl`(`:`→`-`), 한 줄 = `{"collection": "runs"|"steps", "doc": ...}`. `doc`은 MongoDB 레코드와 같은 모양. 쓰다 만 줄은 건너뜀.
   * `FallbackLogStore`: MongoDB 실패 시 그 실행의 앞 기록까지 JSONL 에 다시 써서 한 파일에 실행 전체를 남기고, 그 실행은 끝까지 JSONL(스텝마다 연결 제한만큼 멈추지 않게). 다음 실행은 MongoDB 재시도. 상태는 `degraded`·`last_error`.
+  * 사람이 읽는 조회(읽기 전용): `ros2 run ready2go_runner run_report` — 최근 실행을 한국어 요약으로(KST 시각·mm·오류 코드 설명, 스킬 밑에 원자 동작 들여쓰기, `if` 줄 생략). `-n 3` 최근 3건, `--run f45c86` run_id 끝 글자, `--markdown` GitHub 댓글 표, `--uri mongodb://<PC2 IP>:27017` 다른 PC, `--jsonl /logs` 예비 기록. 요약 규칙은 `core/run_report.py`(D 시연 화면 #59에서 재사용 가능).
   * `run_id` = 시작 시각(UTC) + 6자리 난수. 스텝 `seq` = 시작 순서. 실행 거절(`TASK_INVALID`·중단 잠김)도 기록. 기록 저장 실패는 `RunResult.log_errors`에 남기고 **실행은 멈추지 않음**.
   * P1 범위: FR-LOG-01 항목(실행 ID·입력 명령·단계 ID·시작 시각·상태·오류 코드). `states` 컬렉션·`post_check`는 P2(FR-LOG-02).
   * `skill` 스텝 기록(#12): `action: "skill"`, `skill`, `params`, `pre_check`(온톨로지 `check` 결과 배열), 성공 시 `state_diff`(온톨로지 `apply` 결과). P1 실행에서 이미 계산되는 값을 **진단용 부가 기록**으로 남겨 `PRE_UNMET` 원인을 볼 수 있게 함(PR #64 E 검토 허용). FR-LOG-02 상세 로그 완료나 관측으로 검증된 상태를 뜻하지 않음(`state_diff`는 응답 기준 반영 결과). 하위 원자 동작 기록은 `parent`로 묶음. `state_diff` 키에 `.`이 있어 MongoDB 에서 키로 직접 조회하기는 불편함(저장·읽기는 7.0 실측 정상).

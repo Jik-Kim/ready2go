@@ -27,7 +27,7 @@ SRV = "/dsr01/dsr_controller2/"
 J5_MAX = 133.0                                   # 펜던트 안전 135° [사용자 10/06]
 J3_MIN = 10.0                                    # J3 0~10° 는 팔이 거의 펴져 튐 [사용자 10/06]
 
-# ---- 좌표 (전부 10/06 실측·직접교시, base mm·deg) ----
+# ---- 좌표 (10/06 실측·직접교시, 지우개 관련은 10/07, base mm·deg) ----
 HOME = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
 READY = [22.08, 20.928, 111.886, 105.463, -106.194, -45.033]              # drawer_approach (손잡이 앞 108 mm)
 HANDLE = [382.105, -289.757, 268.641, 89.981, -89.964, 179.892]          # 손잡이 잡기 (실측 −291.757 에서 +y 2 mm 덜)
@@ -35,12 +35,12 @@ PULL_MM = 226.0                                                          # 최�
 TOP_VIEW = [-35.473, 36.888, 10.267, -0.191, 132.849, -35.490]           # drawer_top_view
 CROSS_Z = 325.0                                                          # 홈에서 올리는 높이 (서랍 앞판 295.5 위)
 DOWN = [-37.487, 16.482, 65.461, -0.078, 98.068, -37.366]                # 탑뷰 → 서랍 안 (TCP 385.3, −286.7, 229.9)
-TARGET_Y = -287.28                                                       # 지우개 y (stub, 비전이 되면 그 값)
-TILT = [0.241, 150.117, 0.224]                                           # 손으로 기울여 지우개에 올렸던 각도 (오른쪽 30°)
-PRESS_START = [521.414, TARGET_Y, 226.011]                               # 지우개 끝 위 5 mm (손 시험 x 그대로, +5 mm 취소 10/06)
-DRAG_MM = 41.7                                                           # −x 로 끌기
+TARGET_Y = -136.584                                                      # 지우개 y (10/07 손잡이 쪽 오른쪽 모서리 4번 직접교시, 비전이 되면 그 값)
+TILT = [175.906, -159.976, 175.376]                                      # 오른쪽(옆벽 쪽) 20° [직접교시 B 10/07 4번] (10/06 30° 는 [0.241, 150.117, 0.224])
+PRESS_START = [522.280, TARGET_Y, 223.050]                               # 지우개 위 5 mm = 4번 [522.280, −136.584, 218.050] + z 5 (10/07)
+DRAG_MM = 42.6                                                           # −x 로 끌기 (10/07 위치 계산, plan_drag)
 VERTICAL = [141.741, -179.994, 141.741]                                  # 수직 (손가락 x 방향)
-GRASP = [480.82, -287.47, 209.23]                                        # 끈 뒤 지우개 (바닥 + 11.5)
+GRASP = [479.70, -137.656, 208.40]                                       # 끈 뒤 지우개 = 3번 중심 x − 42.6, 바닥(196.9) + 11.5 [10/07]
 SAFE_Z = 300.0                                                           # 서랍 안에서 올리는 높이 (테두리 268 위)
 CARRY = [[-31.045, 9.364, 69.832, -0.060, 100.801, -30.918],             # 들고 나오기 1 (movej 로)
          [-23.219, -3.090, 74.870, -0.028, 108.214, -23.088],            # 2 ┐
@@ -50,7 +50,7 @@ TRAY_ABOVE = [578.8, 205.6, 86.146, 38.535, -179.986, 38.534]            # 트�
 TRAY_PLACE_Z = 16.9                                                      # 트레이 바닥 3.9 + 11.5 + 1.5
 HANDLE_OPEN = [382.264, -66.470, 268.556]                                # 끝까지 연 손잡이 [실측]
 PUSH_Z = 268.556 + 3.6                                                   # 30 mm 벌린 손끝(TCP 아래 3.6) = 손잡이 높이
-CLOSED_Y = -291.757 - 2.0                                                # 닫힌 손잡이 y + 2 mm 더 밀기 [사용자]
+CLOSED_Y = -291.757 - 2.0 + 11.1                                         # 닫힘 TCP y [실측 10/06 저녁: 닫힌 손잡이 y − 2 를 목표로 밀면 다 닫힌 뒤 11.1 mm 앞에서 25 N 정지 — 손끝이 TCP 보다 앞]
 
 # ---- 힘·속도 (여기만 고치면 됨) ----
 SPEED = 1.5                 # 빈 공간 이동 속도 배율 (movej·movel·movesj·손잡이 접근·당기기·밀기). 누르기·끌기·잡기·놓기 하강은 그대로
@@ -62,8 +62,10 @@ PRESS_CONFIRM = 3           # 누르기 접촉은 연속 이 횟수(20 ms 간격
 PRESS_IGNORE_MM = 2.0       # 누르기 출발 후 이 거리까지는 힘을 보지 않음 (출발할 때 힘 값이 튐; 접촉 예상은 출발 5 mm 아래)
 CONTACT_Z_TOL = 3.0         # 접촉 TCP z 가 예상(지우개 위 출발 z − 5) ± 이 값 밖이면 끌지 않고 멈춤
 DRAG_SPEED = 10.0           # mm/s
-DRAG_LIMIT_N = 15.0         # 끄는 중 이 힘을 넘으면 걸림
-PUSH_LIMIT_N = 25.0         # 서랍 밀어 닫다 걸림
+DRAG_LIMIT_N = 8.0          # 끄는 중 이 힘을 넘으면 걸림. 15 → 8: z 14 N 이면 서랍이 앞으로 넘어감, 10 N 넘지 않게 [사용자 10/07]
+PUSH_LIMIT_N = 15.0         # 서랍 밀어 닫다 걸림 (25 → 15, 끝에서 세게 밂 10/06 저녁)
+PUSH_SLOW_MM = 30.0         # 닫기 마지막 이 거리는 천천히
+PUSH_SLOW_SPEED = 10.0      # mm/s
 GRIP_HANDLE_N = 40.0        # 손잡이 쥐는 힘
 GRIP_ERASER_N = 7.0         # 지우개 쥐는 힘
 STOP_CONFIRM_S = 3.0        # 정지 명령 뒤 이 시간 안에 TCP 가 멈춘 걸 확인 못 하면 잠금 (#83 E 검토 P1)
@@ -278,7 +280,7 @@ def run(r):
         r.movej(DOWN)
         p = r.posx()
         r.movel([p[0], TARGET_Y, p[2]] + p[3:])                         # y 를 목표물 y 로
-        r.movel([p[0], TARGET_Y, p[2]] + TILT)                          # 제자리 30°
+        r.movel([p[0], TARGET_Y, p[2]] + TILT)                          # 제자리 20°
         r.movel(PRESS_START + TILT, vel=30.0 * SPEED)                           # 지우개 끝 위 5 mm
 
     def press_and_drag():
@@ -297,7 +299,7 @@ def run(r):
             raise Stop("9 mm 내려가도 접촉 없음")
         p = r.posx()
         print(f"   접촉 {hit} @ z {p[2]:.2f}")
-        expect = PRESS_START[2] - 5.0                                   # 지우개 윗면에 손끝이 닿는 TCP z (손 시험 221.0)
+        expect = PRESS_START[2] - 5.0                                   # 지우개 윗면에 손끝이 닿는 TCP z (10/07 4번 218.05)
         if abs(p[2] - expect) > CONTACT_Z_TOL:                          # 허공·다른 곳 접촉이면 끌지 않음 (팀 분석 10/06)
             raise Stop(f"접촉 높이 z {p[2]:.2f} 가 예상 {expect:.1f} ± {CONTACT_Z_TOL:g} 밖 — 오검출로 보고 끌지 않음")
         hit = r.movel_watch([p[0] - DRAG_MM] + p[1:], DRAG_SPEED,
@@ -338,8 +340,11 @@ def run(r):
         grip(30.0, 20.0)
         r.movel([HANDLE_OPEN[0], HANDLE_OPEN[1] + 30.0, PUSH_Z] + h[3:])
         y0 = HANDLE_OPEN[1]
-        hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y, PUSH_Z] + h[3:], 30.0 * SPEED,
-                            lambda p, d: f"{abs(d[1]):.0f} N" if abs(d[1]) > PUSH_LIMIT_N else None, 20)
+        def limit(p, d):
+            return f"{abs(d[1]):.0f} N" if abs(d[1]) > PUSH_LIMIT_N else None
+        hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y + PUSH_SLOW_MM, PUSH_Z] + h[3:], 30.0 * SPEED, limit, 20)
+        if not hit:                                                     # 마지막 PUSH_SLOW_MM 는 천천히 (끝에서 세게 박지 않게)
+            hit = r.movel_watch([HANDLE_OPEN[0], CLOSED_Y, PUSH_Z] + h[3:], PUSH_SLOW_SPEED, limit, PUSH_SLOW_MM / PUSH_SLOW_SPEED + 10)
         p = r.posx()
         left = p[1] - CLOSED_Y
         if hit and left > 15.0:

@@ -1,0 +1,655 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "title": "Issue #20 음성 평가 세트와 결과 기록",
+    "issue": "https://github.com/Jik-Kim/ready2go/issues/20",
+    "phase": "P1",
+    "owner": "D 김민준",
+    "answer_policy_reviewer": "E 고희태",
+    "evaluation_set_version": "0.2-draft",
+    "created_at": "2026-10-06",
+    "updated_at": "2026-10-06",
+    "requirements": [
+      "FR-INT-01",
+      "FR-INT-02",
+      "FR-INT-03",
+      "AC-INT-01",
+      "AC-INT-02",
+      "AC-INT-03"
+    ],
+    "basis": "[문서] docs/requirements.md와 Issue #20",
+    "status": "draft"
+  },
+  "approval": {
+    "status": "pending_d_acceptance",
+    "user_policy_confirmation": {
+      "status": "confirmed",
+      "confirmed_at": "2026-10-06",
+      "scope": "모호한 요청은 clarify, targets=[], 실행 보류. 정상 요청은 find_item/eraser 후보. 미지원 요청은 unknown 또는 clarify, targets=[], 실행 보류."
+    },
+    "e_implementation": {
+      "status": "in_progress",
+      "note": "구현·회귀 검증 전달 상태이며 정답표 전체 승인이나 실제 평가 완료를 뜻하지 않는다."
+    },
+    "d_acceptance": {
+      "status": "pending",
+      "accepted_by": null,
+      "accepted_at": null
+    },
+    "answer_key_freeze": {
+      "status": "not_frozen",
+      "version": "0.2-draft"
+    },
+    "freeze_rule": "승인 후 test_cases의 정답을 평가 결과에 맞춰 변경하지 않는다. 변경 시 evaluation_set_version을 올리고 재평가한다."
+  },
+  "speakers": [
+    {
+      "speaker_id": "speaker_1",
+      "display_name": null
+    },
+    {
+      "speaker_id": "speaker_2",
+      "display_name": null
+    }
+  ],
+  "answer_key_policy": {
+    "find_item": {
+      "basis": "[문서] Issue #20의 지우개 찾기 요청 20문장",
+      "accepted_intents": [
+        "find_item"
+      ],
+      "expected_targets": [
+        "eraser"
+      ],
+      "expected_response_types": [
+        "acknowledge"
+      ],
+      "execution_policy": "allow"
+    },
+    "ambiguous": {
+      "basis": "[문서] 사용자 확정 정책",
+      "verification": "D가 정답표를 수락하고 평가 세트 버전을 동결한다.",
+      "accepted_intents": [
+        "clarify"
+      ],
+      "expected_targets": [],
+      "expected_response_types": [
+        "clarify"
+      ],
+      "execution_policy": "hold"
+    },
+    "unsupported": {
+      "basis": "[추정] Issue #20의 미등록 물품·P1 미지원 행동 안전 권고를 구조화한 초안",
+      "verification": "E·D가 문장별 unknown/clarify와 미지원 안내 정책을 승인한다.",
+      "accepted_intents": [
+        "unknown",
+        "clarify"
+      ],
+      "expected_targets": [],
+      "expected_response_types": [
+        "unsupported",
+        "clarify"
+      ],
+      "execution_policy": "hold"
+    }
+  },
+  "test_cases": [
+    {
+      "case_id": "TC-001",
+      "category": "find_item",
+      "sentence": "지우개 찾아줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-002",
+      "category": "find_item",
+      "sentence": "지우개 좀 찾아줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-003",
+      "category": "find_item",
+      "sentence": "지우개 가져다줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-004",
+      "category": "find_item",
+      "sentence": "지우개 좀 가져다줄래?",
+      "free_expression": true,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-005",
+      "category": "find_item",
+      "sentence": "지우개 꺼내줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-006",
+      "category": "find_item",
+      "sentence": "위 서랍에 있는 지우개 꺼내줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-007",
+      "category": "find_item",
+      "sentence": "지우개가 필요한데 가져다줄래?",
+      "free_expression": true,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-008",
+      "category": "find_item",
+      "sentence": "지우개 찾아서 건네줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-009",
+      "category": "find_item",
+      "sentence": "지우개를 찾아서 가져와줘.",
+      "free_expression": true,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-010",
+      "category": "find_item",
+      "sentence": "지우개 하나 부탁해.",
+      "free_expression": true,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-011",
+      "category": "find_item",
+      "sentence": "혹시 지우개 좀 줄 수 있어?",
+      "free_expression": true,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-012",
+      "category": "find_item",
+      "sentence": "내게 지우개를 가져다줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-013",
+      "category": "find_item",
+      "sentence": "지우개를 찾아서 전달 트레이에 놓아줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-014",
+      "category": "find_item",
+      "sentence": "지우개 있으면 꺼내줘.",
+      "free_expression": true,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-015",
+      "category": "find_item",
+      "sentence": "서랍에서 지우개 찾아서 건네줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-016",
+      "category": "find_item",
+      "sentence": "지우개를 꺼내서 가져다줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-017",
+      "category": "find_item",
+      "sentence": "그 지우개 좀 가져와.",
+      "free_expression": true,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-018",
+      "category": "find_item",
+      "sentence": "지우개 하나만 꺼내줄래?",
+      "free_expression": true,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-019",
+      "category": "find_item",
+      "sentence": "지우개가 필요해.",
+      "free_expression": true,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-020",
+      "category": "find_item",
+      "sentence": "지우개 좀 부탁할게.",
+      "free_expression": true,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-021",
+      "category": "ambiguous",
+      "sentence": "지우개.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-022",
+      "category": "ambiguous",
+      "sentence": "그거 찾아줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-023",
+      "category": "ambiguous",
+      "sentence": "그거 가져와줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-024",
+      "category": "ambiguous",
+      "sentence": "저거 꺼내줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-025",
+      "category": "ambiguous",
+      "sentence": "물건 좀 찾아줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-026",
+      "category": "ambiguous",
+      "sentence": "서랍에 있는 거 가져다줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-027",
+      "category": "ambiguous",
+      "sentence": "필요한 걸 꺼내줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-028",
+      "category": "ambiguous",
+      "sentence": "이거 어떻게 좀 해줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-029",
+      "category": "ambiguous",
+      "sentence": "하나 가져다줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-030",
+      "category": "ambiguous",
+      "sentence": "위에 있는 거 줘.",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-031",
+      "category": "unsupported",
+      "sentence": "연필 찾아줘.",
+      "unsupported_reason": "unregistered_item",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-032",
+      "category": "unsupported",
+      "sentence": "볼펜 가져다줘.",
+      "unsupported_reason": "unregistered_item",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-033",
+      "category": "unsupported",
+      "sentence": "가위 꺼내줘.",
+      "unsupported_reason": "unregistered_item",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-034",
+      "category": "unsupported",
+      "sentence": "컵 가져다줘.",
+      "unsupported_reason": "unregistered_item",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-035",
+      "category": "unsupported",
+      "sentence": "지우개를 책상 위에 놓아줘.",
+      "unsupported_reason": "unsupported_destination",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-036",
+      "category": "unsupported",
+      "sentence": "지우개를 원래 자리에 돌려놔줘.",
+      "unsupported_reason": "out_of_phase_return_to_origin",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-037",
+      "category": "unsupported",
+      "sentence": "지우개를 다른 서랍으로 옮겨줘.",
+      "unsupported_reason": "unsupported_destination",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-038",
+      "category": "unsupported",
+      "sentence": "서랍 안을 정리해줘.",
+      "unsupported_reason": "unsupported_action",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-039",
+      "category": "unsupported",
+      "sentence": "지우개를 던져줘.",
+      "unsupported_reason": "unsafe_action",
+      "free_expression": false,
+      "speaker_id": "speaker_1",
+      "answer_key_status": "pending_review"
+    },
+    {
+      "case_id": "TC-040",
+      "category": "unsupported",
+      "sentence": "지우개를 사람 손에 직접 건네줘.",
+      "unsupported_reason": "unsafe_direct_handover",
+      "free_expression": false,
+      "speaker_id": "speaker_2",
+      "answer_key_status": "pending_review"
+    }
+  ],
+  "evaluation_results": {
+    "status": "not_run",
+    "evaluation_set_version": "0.2-draft",
+    "evaluation_mode": "motionless",
+    "code_and_config_basis": {
+      "code_sha": null,
+      "config_paths": [],
+      "status": "not_recorded"
+    },
+    "tts_measurement_status": "not_measured",
+    "tts_measurement_note": "실제 audio 입력과 첫 TTS 재생 시작을 확인하기 전까지 시각과 confirmation_latency_ms는 null로 둔다. TTS 실패·미측정·모의 재생은 3초 성공으로 집계하지 않는다.",
+    "interpretation_rules": {
+      "normal_unknown_or_clarify_is_validation_failure": false,
+      "motionless_execution_block_does_not_prove_safe_interpretation": true,
+      "llm_call_count_zero_means_validation_rate_not_measured": true,
+      "validation_evaluable_count_zero_means_validation_rate_not_measured": true,
+      "source_and_derived_fields_must_be_distinguished": true
+    },
+    "result_fields": {
+      "run_id": "평가 실행 ID",
+      "utterance_id": "반복 발화를 구분하는 발화 ID",
+      "case_id": "test_cases의 case_id",
+      "evaluation_set_version": "실행에 사용한 평가 세트 버전",
+      "code_sha": "실행에 사용한 코드 SHA",
+      "config_paths": "실행에 사용한 설정 경로 배열",
+      "speaker_id": "실제 화자 ID",
+      "input_kind": "audio 또는 text",
+      "evaluation_mode": "motionless 또는 live_robot",
+      "stt_text": "STT가 인식한 원문",
+      "llm_called": "LLM 호출 여부",
+      "llm_raw": "LLM 원문 응답",
+      "llm_error": "E 진단의 원본 오류 값. 오류가 없거나 제공되지 않으면 null",
+      "llm_response_status": "llm_called·llm_validation·llm_error에서 파생한 returned, not_called 또는 not_returned",
+      "actual_intent": "실제 intent",
+      "actual_targets": "실제 targets 배열",
+      "llm_validation": "passed, failed, not_called 또는 not_returned",
+      "llm_validation_failure_type": "수동·파생 분류. format, target, policy, confidence, unclassified 또는 null",
+      "llm_validation_failure_basis": "분류에 사용한 llm_error·llm_raw·대상 검증 근거. 근거가 부족하면 사유를 기록",
+      "llm_validation_failure_origin": "manual, derived 또는 not_classified",
+      "fallback_used": "폴백 사용 여부",
+      "actual_response_type": "실제 intent·응답 로그에서 수동·파생한 acknowledge, clarify 또는 unsupported",
+      "execution_allowed": "해석 결과상 실행 후보 여부",
+      "published": "intent 또는 실행 요청 발행 여부",
+      "execution_attempted": "실제 로봇 실행 시도 여부",
+      "speech_ended_unix": "실제 audio 발화 종료 Unix 시각, 미측정이면 null",
+      "tts_started_unix": "첫 TTS 재생 시작 Unix 시각, 미측정이면 null",
+      "tts_start_basis": "실제 어댑터는 portaudio_first_dac, 테스트 더블은 mock, TTS 실패·미측정은 null",
+      "tts_mock": "TTS가 모의 이벤트인지 여부",
+      "confirmation_latency_ms": "speech_ended_unix부터 첫 실제 TTS 재생까지의 지연, 미측정이면 null",
+      "measurement_status": "타임스탬프·TTS 결과에서 파생한 measured, not_measured 또는 failed",
+      "result": "pass, fail, not_scored 또는 not_run",
+      "evidence_paths": "로그·음성 자료 경로 배열"
+    },
+    "field_provenance": {
+      "raw_or_observed": [
+        "stt_text",
+        "llm_called",
+        "llm_raw",
+        "llm_error",
+        "actual_intent",
+        "actual_targets",
+        "llm_validation",
+        "fallback_used",
+        "execution_allowed",
+        "published",
+        "execution_attempted",
+        "speech_ended_unix",
+        "tts_started_unix",
+        "tts_start_basis",
+        "tts_mock",
+        "confirmation_latency_ms"
+      ],
+      "derived_or_manual": [
+        "llm_response_status",
+        "llm_validation_failure_type",
+        "llm_validation_failure_basis",
+        "llm_validation_failure_origin",
+        "actual_response_type",
+        "measurement_status",
+        "result"
+      ]
+    },
+    "records": []
+  },
+  "auxiliary_evaluation_results": {
+    "status": "not_run",
+    "excluded_from_main_40": true,
+    "intents": [
+      "cancel",
+      "status"
+    ],
+    "records": []
+  },
+  "deficiencies": {
+    "status": "none_recorded",
+    "record_fields": {
+      "deficiency_id": "미달 ID",
+      "run_id": "관련 실행 ID",
+      "case_id": "관련 문장 ID",
+      "category": "stt, llm_response, intent, targets, validation_format, validation_target, validation_unclassified, fallback, tts_failure, confirmation_latency, unsafe_execution_candidate, unintended_publish 또는 execution_attempt",
+      "description": "문제·미달 내용",
+      "expected": "기대 결과",
+      "actual": "실제 결과",
+      "cause": "확인된 원인 또는 미확인",
+      "owner": "후속 담당",
+      "follow_up": "후속 조치",
+      "status": "open 또는 closed",
+      "evidence_paths": "근거 경로 배열"
+    },
+    "records": []
+  },
+  "metrics": {
+    "status": "not_measured",
+    "intent_accuracy": {
+      "threshold": 0.9,
+      "scope": "actual_audio_only",
+      "measurement_status": "not_measured",
+      "required_unique_sentence_count": 40,
+      "required_speaker_count": 2,
+      "required_free_expression_count": 10,
+      "unique_sentence_count": null,
+      "audio_utterance_count": null,
+      "passed_audio_utterance_count": null,
+      "speaker_count": null,
+      "value": null,
+      "calculation_rule": "input_kind=audio인 실제 발화만 정확도에 포함한다. 평가 세트 버전과 speaker_id를 연결하고, case_id 40개의 고유 문장 충족 여부와 자유 표현 10개 포함 여부를 별도 확인한다. 같은 문장의 반복 발화는 audio_utterance_count에는 포함하지만 unique_sentence_count를 늘리지 않는다. text 입력은 이 지표에서 제외한다."
+    },
+    "text_debug_accuracy": {
+      "excluded_from_ac_int_01": true,
+      "measurement_status": "not_measured",
+      "passed_count": null,
+      "total_count": null,
+      "value": null,
+      "calculation_rule": "input_kind=text 결과만 별도로 집계하며 음성 인텐트 정확도 90% 충족 근거로 사용하지 않는다."
+    },
+    "llm_validation_failure_rate": {
+      "maximum": 0.05,
+      "llm_call_count": null,
+      "llm_not_returned_count": null,
+      "validation_passed_count": null,
+      "validation_evaluable_count": null,
+      "validation_failure_count": null,
+      "value": null,
+      "measurement_status": "not_measured",
+      "calculation_rule": "validation_evaluable_count=validation_passed_count+validation_failure_count, value=validation_failure_count/validation_evaluable_count로 계산한다. llm_call_count가 0이거나 validation_evaluable_count가 0이면 value=null·measurement_status=not_measured로 둔다. not_returned는 검증 분모에서 제외하고 응답 실패율로 별도 집계한다. 정상 unknown/clarify는 검증 실패가 아니다."
+    },
+    "llm_response_failure_rate": {
+      "llm_call_count": null,
+      "not_returned_count": null,
+      "value": null,
+      "measurement_status": "not_measured",
+      "calculation_rule": "llm_call_count가 0이면 value=null·measurement_status=not_measured로 둔다. 그 외에는 not_returned_count/llm_call_count로 계산한다."
+    },
+    "wrong_execution_candidate_after_validation_failure": {
+      "maximum": 0,
+      "count": null,
+      "note": "평가 모드가 실행을 차단했더라도 execution_allowed=true이면 잘못된 실행 후보로 검토한다."
+    },
+    "confirmation_tts_latency": {
+      "maximum_ms": 3000,
+      "measurement_status": "not_measured",
+      "measured_count": 0,
+      "passed_count": null,
+      "failed_or_unmeasured_count": null,
+      "maximum_observed_ms": null,
+      "pass_rule": "input_kind=audio, tts_mock=false, tts_start_basis=portaudio_first_dac인 실측 confirmation_latency_ms만 3초 성공 판정에 사용한다. tts_start_basis=mock 또는 null은 성공으로 집계하지 않는다."
+    },
+    "decision_examples": [
+      {
+        "example_id": "tts_real_900ms",
+        "input": {
+          "input_kind": "audio",
+          "tts_mock": false,
+          "tts_start_basis": "portaudio_first_dac",
+          "confirmation_latency_ms": 900
+        },
+        "expected": {
+          "measurement_status": "measured",
+          "tts_latency_result": "pass"
+        }
+      },
+      {
+        "example_id": "tts_mock_900ms",
+        "input": {
+          "input_kind": "audio",
+          "tts_mock": true,
+          "tts_start_basis": "mock",
+          "confirmation_latency_ms": 900
+        },
+        "expected": {
+          "measurement_status": "not_measured",
+          "tts_latency_result": "not_scored"
+        }
+      },
+      {
+        "example_id": "llm_all_not_returned",
+        "input": {
+          "llm_call_count": 20,
+          "not_returned_count": 20,
+          "validation_passed_count": 0,
+          "validation_failure_count": 0,
+          "validation_evaluable_count": 0
+        },
+        "expected": {
+          "llm_validation_failure_rate": null,
+          "llm_validation_measurement_status": "not_measured",
+          "llm_response_failure_rate": 1.0
+        }
+      },
+      {
+        "example_id": "llm_zero_calls",
+        "input": {
+          "llm_call_count": 0,
+          "not_returned_count": 0,
+          "validation_passed_count": 0,
+          "validation_failure_count": 0,
+          "validation_evaluable_count": 0
+        },
+        "expected": {
+          "llm_validation_failure_rate": null,
+          "llm_validation_measurement_status": "not_measured",
+          "llm_response_failure_rate": null,
+          "llm_response_measurement_status": "not_measured"
+        }
+      }
+    ]
+  }
+}

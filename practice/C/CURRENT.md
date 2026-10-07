@@ -16,7 +16,12 @@
   - 스킬 재시도는 로봇이 움직이지 않은 실패(`YAW_INVALID`)에만 (PR #65 합의, PM #10 요청). B 에 "백엔드 구현 약속"(취소 시 멈춤·`ESTOP`) 전달 (#10 코멘트·Slack 10/04).
   - CI: `contracts-and-core` 에 MongoDB 7.0 서비스·pymongo, `REQUIRE_MONGO=1` 이면 DB 없을 때 실패.
 
-- **#17 진행** (브랜치 `feat/c-p1-task`): `tasks/find_item.json`(정식, speak·미발견 안내 포함, 음성 연결 후 시연용)·`tasks/p1_demo_eraser.json`(#22 점검용, speak 없음 — 실물에 음성 서버 없음, E 요청 순서). mock 정상·파지 실패·미발견·안전 코드 5종 확인. 남은 것: `/voice/intent` → 태스크 실행 연결 (Day 6), 밀기 분기(#37).
+- **#17 태스크 머지** (PR #82 10/06 13:55): `tasks/find_item.json`(정식, speak·미발견 안내 포함)·`tasks/p1_demo_eraser.json`(#22 점검용, speak 없음, E 시연 `pick_demo` PR #85 와 실행 조합). mock 정상·파지 실패·미발견·안전 코드 5종 확인.
+- **#17 `/voice/intent` 연결 진행** (브랜치 `feat/c-voice-intent`, E 통합 공지 #23 C 요청): `core/intent_router.py`(ROS 비의존 판단) + Runner 노드 구독. `trigger.intent`·`intent_tasks`(10/08 시연 find_item → `p1_demo_eraser`)로 태스크 선택, 보류(형식·모호·미지원·저신뢰·미등록 물품)·거절(실행 중·잠김)·`cancel` → `halt()`·`status` 재발행, `inputs` 에 음성 입력 기록, `/runner/status` `last_intent`. 시험 중 찾은 빈틈: `target_after: null` 이면 pick 을 보내던 것 → `VAR_NULL` 로 막음. PM·D 리뷰 P1(10/06 20:57): 시연 덮어쓰기에서 "차키 찾아줘"도 지우개 태스크로 서랍을 열던 것 → 태스크 `trigger.targets` 로 받을 물품 제한, 다르면 `UNSUPPORTED_ITEM` 보류. D 재검토 P1(10/07 10:48): 스키마에 `targets` 형식이 없어 문자열 `"car_key_eraser"`도 통과 → `task.schema.json`에 문자열 배열로 선언, Runner 도 배열이 아니면 보류. 10/07 E 음성 노드(text_override) ↔ Runner mock 연결 확인: 실행·보류·BUSY·cancel→ABORTED·LOCKED 기대대로 [실측]. 발견: Runner 를 켜 둔 채 두 번째 요청이면 지우개 위치를 `handover_zone`으로 기억해 트레이를 서랍처럼 다룸 → 10/08 은 시연마다 Runner 재시작, 근본 대책은 E·PM 협의. 남은 것: E 음성 노드와 mock 연결 확인(10/07), E 합의(`min_confidence`, 보류·cancel·status 안내 담당, 시연 태스크 speak).
+
+- **실행 기록 보고서** (브랜치 `feat/c-run-report`, 10/07): MongoDB 기록이 사람이 읽기 어렵다는 문제(사용자) → `ros2 run ready2go_runner run_report`로 최근 실행을 한국어 요약·Markdown 표로. #23 C 항목 "MongoDB/JSONL 조회", 10/08 결과 보고에 사용.
+
+- **상태 초기화 서비스** (PR #107, 10/07): `/runner/reset_state` — 사람이 원위치 확인 후 호출(팀 결정, 나중에 대시보드 버튼 #59). 자동 초기화 안은 D P1(놓기 실패 뒤 쥔 상태를 덮어씀)로 철회. 시연 사이 초기화 → 3회 연속 COMPLETED, 놓기 실패 뒤 다음 요청 로봇 동작 0건, 실행 중 거절 [실측·시험]. 10/08: 시연 사이 원위치 → `ros2 service call /runner/reset_state std_srvs/srv/Trigger`.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
@@ -31,7 +36,7 @@
 | `/gripper/state` `width` 단위 | m (열림 약 0.100). ICD 반영(#12 PR), B `grasp_check.py` 도 m | [실측] B, PR #28 |
 | P1 온톨로지 스킬 | 4종(열기·닫기·집기·놓기), 이동·관측은 Runner 원자 동작 | [문서] requirements.md FR-ONT-01 |
 | 실행 이력 저장 | P1부터 MongoDB(실행 ID·입력 명령·단계 ID·시작 시각·상태·오류 코드), DB 장애 시 JSONL | [문서] requirements.md FR-LOG-01 |
-| Runner 에러 코드 | `TASK_INVALID`·`VAR_UNDEFINED`·`BAD_FILTER`·`BAD_CONDITION`·`TIMEOUT`·`ESTOP`·`HALTED`·`ACTION_FAILED`·`BACKEND_ERROR`·`INTERNAL_ERROR`, 스킬 `PRE_UNMET`·`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`(#12), `query_ontology` `UNKNOWN_ITEM`·`BAD_QUERY`·`NOT_SUPPORTED`(#10) | [문서] docs/runner.md 7.1 |
+| Runner 에러 코드 | `TASK_INVALID`·`VAR_UNDEFINED`·`BAD_FILTER`·`BAD_CONDITION`·`TIMEOUT`·`ESTOP`·`HALTED`·`ACTION_FAILED`·`BACKEND_ERROR`·`INTERNAL_ERROR`, 스킬 `PRE_UNMET`·`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`(#12), `query_ontology` `UNKNOWN_ITEM`·`BAD_QUERY`·`NOT_SUPPORTED`(#10), `VAR_NULL`(#23) | [문서] docs/runner.md 7.1 |
 | 재인식 코드 | `YAW_INVALID` (모션 전 거절, 로봇 동작 없음), 태스크에서 재인식 1회 [팀 확정 필요] | [문서] B PR #66, PR #65 PM 정리 |
 | dev 전체 흐름 | Runner 노드 → ROS → mock 백엔드로 예시 태스크 COMPLETED 약 4.5초, MongoDB `runs`·`steps` 14건, `/robot_state` 갱신 | [실측] 10/04 C 노트북 |
 | PC1↔PC2 통신 | 공용 Wi-Fi `Rokey_A`, `cyclonedds.multi.xml`(멀티캐스트 끔). PC2 `joint_states` 100 Hz → PC1 86~96 Hz | [실측] A·B 10/03, PR #40 |
@@ -52,7 +57,8 @@
 - [ ] #22 1차 점검 (10/06 16:00 KST, B 실행·D 비상정지): `tasks/p1_demo_eraser.json`, MongoDB 스텝 기록 누락 0 확인 (AC-LOG-01)
 - [ ] 점검 뒤: 스킬 서버 bringup 자동 실행(NFR-ENV-01, B·C), B 잠금 코드 runner.md 확정, 놓기 실패로 쥔 경우 안전 종료·홈 이동 조건(B·C·E)
 - [ ] #10 후속: 재개(`resume`) 서비스 ICD 협의(E), Docker 가 만든 root 소유 `logs/` 정리
-- [ ] #17: PR (태스크 2종) → E 확인 → 머지, `/voice/intent` → 태스크 실행 연결 (Day 6) → `Closes #17`
+- [ ] #17: `/voice/intent` 연결 PR → 리뷰·머지 → E 음성 노드와 mock 확인(10/07) → `Closes #17`
+- [ ] #23: 10/07 작업 종료 전 C 회신(수락·준비 상태·로봇 시간·막힌 것), 10/08 16:00 P1 음성 통합
 
 ## 철회한 결론
 - ~~bringup 고정 TF 를 `config/static_tf.yaml` 한 파일로 모은다~~ → 값이 두 곳에 복사되어 어긋날 수 있어 각 담당 파일을 직접 읽기로 함 (이슈 #3, 10/02).

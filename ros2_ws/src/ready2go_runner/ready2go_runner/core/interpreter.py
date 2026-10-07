@@ -67,6 +67,7 @@ ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontolo
 UNKNOWN_SKILL = "UNKNOWN_SKILL"         # 온톨로지에 없거나 primitive 가 아닌 스킬 (P1 은 primitive 만)
 BAD_SKILL_PARAMS = "BAD_SKILL_PARAMS"   # 스킬 정의의 params 가 빠짐
 PRE_UNMET = "PRE_UNMET"                 # pre 조건 불충족 → 로봇 동작을 보내지 않음
+VAR_NULL = "VAR_NULL"                   # 백엔드로 보낼 동작의 "$변수" 값이 null (예: 실패한 nudge 의 target_after, #23)
 # 스킬 재시도 (P1): 앞 동작이 실행됐거나 끝났을 수 있으면 다시 보내지 않는다(PR #64 D 리뷰). 다만 백엔드가
 # 로봇을 움직이지 않았음을 보장하는 실패이고, 그 시도에서 앞서 보낸 동작도 팔을 움직이지 않았으면 재시도한다.
 NO_MOTION_CODES = {"YAW_INVALID"}       # 모션 계획 전에 거절 (B PR #66, PR #65 합의: 태스크에서 재인식 1회)
@@ -104,6 +105,7 @@ class Runner:
         # 온톨로지(E, knowledge/robot_ontology.jsonld): 스킬 정의는 참고만, 상태는 Runner 가 단일 관리자(docs/ontology.md 7.8)
         self.skills: dict = (ontology or {}).get("skills", {})
         self._state: dict = copy.deepcopy((ontology or {}).get("state", {}))   # 원본은 바꾸지 않음, 태스크 사이에 유지
+        self._initial_state: dict = copy.deepcopy(self._state)   # reset_state() 가 되돌릴 시작 상태
         self._run_id: str | None = None
         self._records: list[dict] = []
         self._log_errors: list[str] = []
@@ -154,6 +156,14 @@ class Runner:
     def state(self) -> dict:
         """현재 온톨로지 상태 state[predicate][subject] 의 복사본 (#10 에서 /robot_state 로 발행)."""
         return copy.deepcopy(self._state)
+
+    def reset_state(self) -> None:
+        """온톨로지 상태를 시작 상태로 되돌린다 (#23·#107). 사람이 물품·서랍·그리퍼를 원위치한 것을 확인한 뒤에만
+        부른다(/runner/reset_state, 나중에 시연 화면 버튼 #59). P1 은 실행 사이 원위치를 관측으로 맞추지 못하므로
+        시연 전 상태 스냅샷 복원(docs/metrics_risks.md). 실행 중에는 부르지 않는다(노드가 막음).
+        중단 잠김(halt)은 풀지 않는다 — 잠금 해제는 별도 절차."""
+        with self._halt_lock:                   # effect 반영과 끼어들지 않게
+            self._state = copy.deepcopy(self._initial_state)
 
     def run(self, task: dict, inputs: dict | None = None, meta: dict | None = None) -> RunResult:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
@@ -334,6 +344,8 @@ class Runner:
         except (VarUndefined, BadFilter) as e:
             raise StepFailed(step["id"], e.code) from e
         record["params"] = params
+        if action not in ABORT_SAFE_ACTIONS and _null_refs(step.get("params", {}), params):
+            raise StepFailed(step["id"], VAR_NULL)     # 빈 값으로 로봇·백엔드 동작을 보내지 않음
 
         if action == "set_var":
             blackboard[params["name"]] = params.get("value")
@@ -426,3 +438,10 @@ class Runner:
         finally:
             record["duration_sec"] = round(self.clock() - started, 3)
             self._log_step(record)
+
+
+def _null_refs(raw: dict, resolved: dict) -> list[str]:
+    """params 중 값 전체가 "$변수" 참조인데 null 로 풀린 이름. 백엔드 동작에 빈 값을 보내지 않으려고 확인한다.
+    (없는 변수는 VAR_UNDEFINED. null 은 "있지만 비어 있음" — 예: 실패·누락된 target_after)"""
+    return [key for key, value in raw.items()
+            if isinstance(value, str) and value.startswith("$") and resolved.get(key) is None]

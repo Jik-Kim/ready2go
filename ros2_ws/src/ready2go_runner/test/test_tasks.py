@@ -41,8 +41,9 @@ DEMO = demo_ontology()
 class MockRobot:
     """ROS 대신 call_action·call_service 를 받는 가짜 백엔드. fail: {동작: [코드, …]} 앞에서부터 하나씩."""
 
-    def __init__(self, visible=True, fail=None):
+    def __init__(self, visible=True, fail=None, nudge_output=None):
         self.visible, self.fail = visible, {k: list(v) for k, v in (fail or {}).items()}
+        self.nudge_output = nudge_output                  # nudge 성공 응답을 바꿔 줌 (target_after 누락 시험)
         self.sent: list[str] = []
         self.params: dict[str, list] = {}
         self.spoken: list[str] = []
@@ -57,6 +58,8 @@ class MockRobot:
         codes = self.fail.get(action)
         if codes:
             return Reply(False, codes.pop(0))
+        if action == "nudge_object" and self.nudge_output is not None:
+            return Reply(True, "", json.dumps(self.nudge_output))
         if action == "nudge_object":                      # B #83: 성공일 때만 target_after
             after = copy.deepcopy(params["target"])
             after["pose"]["position"][1] = round(after["pose"]["position"][1] + NUDGE_DY, 4)
@@ -219,6 +222,35 @@ def test_check_nudge_failure_does_not_pick():
     assert saved["run"]["error"] == {"code": "NO_PUSH_ACCESS"}
 
 
+@pytest.mark.parametrize("output, code", [({"pushed": True}, "VAR_UNDEFINED"),
+                                          ({"pushed": True, "target_after": None}, "VAR_NULL")])
+def test_check_missing_target_after_does_not_pick(output, code):
+    """#23 C 검증 요청: nudge 가 성공이라도 target_after 가 없거나 null 이면 pick 을 보내지 않고 집기 effect 없음."""
+    robot = MockRobot(nudge_output=output)
+    runner, result, _ = run_check(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", code, "s4.1.e2")
+    assert "/skills/pick_object" not in robot.sent
+    assert (runner.state["located_in"]["eraser"], runner.state["gripper"]["robot"]) == ("drawer_top", "empty")
+    assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
+
+
+@pytest.mark.parametrize("code", ["GRASP_FAILED", "YAW_INVALID"])
+def test_check_no_whole_skill_retry_after_nudge_even_if_task_asks(code):
+    """#23 C 검증 요청: nudge 로 물체를 옮긴 뒤 pick 이 실패하면, 태스크에 retry 가 있어도 pick_demo 전체
+    (nudge 포함)를 다시 보내지 않는다. YAW_INVALID 처럼 그 동작 자체는 안 움직인 실패라도 앞의 nudge 가 움직였으므로."""
+    task = copy.deepcopy(CHECK)
+    pick = task["sequence"][3]["then"][0]
+    assert pick["skill"] == "pick_demo"
+    pick.update(on_failure="retry", retry=2)
+    robot = MockRobot(fail={"pick_object": [code, code, code]})
+    runner, result, _ = run(robot, task=task, onto=DEMO)
+    assert result.overall_status == "FAILED" and result.error_code == code
+    assert robot.sent.count("/skills/nudge_object") == 1 and robot.sent.count("/skills/pick_object") == 1
+    assert step(result, "s4.1")["attempts"] == 1 and step(result, "s4.1")["retry_stopped"] in (
+        "MOTION_UNCERTAIN", "NOT_RETRYABLE")
+    assert runner.state["located_in"]["eraser"] == "drawer_top"
+
+
 def test_check_grasp_failed_runs_finally_without_effect():
     robot = MockRobot(fail={"pick_object": ["GRASP_FAILED"]})
     runner, result, saved = run_check(robot)
@@ -257,3 +289,61 @@ def test_check_safety_codes_abort_lock_and_send_no_motion(code, where):
     assert robot.motion_after(f"/skills/{where}") == []                 # finally 의 닫기·홈 등 로봇 동작 없음
     assert step(result, "f2")["status"] == "SKIPPED"
     assert saved["run"]["overall_status"] == "ABORTED"
+
+
+# ---- #23·#107 실행 사이 상태: Runner 를 켜 둔 채 연속 시연 (AC-DEMO-01 3회 연속) ----
+def demo_runner(robot):
+    """음성 모드처럼 Runner 하나를 켜 둔 채 여러 번 실행 (run() 은 실행마다 새 Runner 라 여기서 따로 만듦)."""
+    store = MemoryLogStore()
+    runner = Runner(None, schema=SCHEMA, ontology=DEMO, log_store=store)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, DEMO["world"])
+    return runner, store
+
+
+def test_without_reset_second_run_treats_tray_as_drawer():
+    """초기화 없이 연속 실행: 1회차 끝 '지우개 = handover_zone' 을 기억 → 2회차가 트레이를 서랍 자리에 넣음 (10/07 발견)."""
+    runner, _ = demo_runner(MockRobot())
+    assert runner.run(CHECK).overall_status == "COMPLETED"
+    second = runner.run(CHECK)
+    assert step(second, "s1")["output"]["drawer_id"] == "handover_zone"
+    assert (second.overall_status, step(second, "s2")["error_code"]) == ("FAILED", "PRE_UNMET")
+
+
+def test_reset_between_runs_gives_three_consecutive_demos():
+    """시연 사이 사람이 원위치 확인 → reset_state() (/runner/reset_state) → 3회 연속, 매번 위 서랍."""
+    robot = MockRobot()
+    runner, _ = demo_runner(robot)
+    initial = runner.state
+    results = []
+    for _ in range(3):
+        results.append(runner.run(CHECK))
+        runner.reset_state()
+        assert runner.state == initial
+    assert [r.overall_status for r in results] == ["COMPLETED"] * 3
+    assert [step(r, "s1")["output"]["drawer_id"] for r in results] == ["drawer_top"] * 3
+    assert all(p["drawer_id"] == "drawer_top" for p in robot.params["drawer_control"])
+
+
+def test_failed_run_is_not_reset_by_itself_and_next_request_sends_no_motion():
+    """#107 D P1: 놓기 실패로 지우개를 쥔 채 끝나면 Runner 가 스스로 되돌리지 않는다 → 다음 요청은 로봇 동작 0건."""
+    robot = MockRobot(fail={"place_object": ["PLACE_FAILED"]})
+    runner, _ = demo_runner(robot)
+    first = runner.run(CHECK)
+    assert (first.overall_status, first.error_code) == ("FAILED", "PLACE_FAILED")
+    holding = runner.state
+    assert holding["gripper"]["robot"] == "eraser"
+    sent = len(robot.sent)
+    second = runner.run(CHECK)
+    assert second.overall_status == "FAILED" and runner.state == holding
+    assert [n for n in robot.sent[sent:] if n.startswith("/skills/")] == []      # 서랍·이동·파지 동작 없음
+
+
+def test_reset_does_not_clear_halt_lock():
+    """초기화는 상태만 — 비상정지 잠김은 그대로라 다음 실행은 거절, 로봇 동작 없음 (자동 재개 없음)."""
+    robot = MockRobot()
+    runner, _ = demo_runner(robot)
+    runner.run(CHECK)
+    runner.halt("ESTOP")
+    runner.reset_state()
+    sent = len(robot.sent)
+    assert runner.halted and runner.run(CHECK).overall_status == "ABORTED" and len(robot.sent) == sent

@@ -724,3 +724,18 @@ def test_stop_requested_only_until_abort_is_handled():
     result = runner.run(STOP_TASK)
     assert result.overall_status == "ABORTED"
     assert seen == [("after halt", True), ("speak", False)]
+
+
+# ---- VAR_NULL (#23): 백엔드 동작의 "$변수" 가 null 이면 보내지 않음 ----
+
+def test_null_reference_is_not_sent_to_backend():
+    sent = []
+    runner = Runner(lambda a, p, t: sent.append(a) or ActionResult(True))
+    task = {"task_id": "t", "sequence": [
+        {"id": "s1", "action": "set_var", "params": {"name": "nudge", "value": {"target_after": None}}},
+        {"id": "s2", "action": "set_var", "params": {"name": "copy", "value": "$nudge.target_after"}},   # set_var 은 허용
+        {"id": "s3", "action": "pick_object", "params": {"target": "$nudge.target_after"}}]}
+    result = runner.run(task)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "VAR_NULL", "s3")
+    assert sent == []
+    assert result.blackboard["copy"] is None

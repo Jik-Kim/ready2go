@@ -53,6 +53,8 @@ need = ["/World/m0609/base_link", "/World/m0609/link_6", "/World/m0609/onrobot_r
         "/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera",
         "/World/workspace/table", "/World/physicsScene"]
 if has_cabinet:
+    if (PLACES.get("handover_zone") or {}).get("tf"):
+        need += ["/World/workspace/handover_tray/floor"]
     need += ["/World/workspace/cabinet/shelf", "/World/workspace/cabinet/drawer_top_tray/handle", "/World/workspace/cabinet/drawer_top_joint",
              "/World/workspace/cabinet/drawer_bottom_tray/handle", "/World/workspace/cabinet/drawer_bottom_joint"]
 elif missing:
@@ -67,6 +69,11 @@ if has_cabinet:
     # USD는 float32로 저장하므로 허용 오차를 1e-6 으로 둔다
     check("서랍 관절 한계 0~max_travel", abs(jt.GetUpperLimitAttr().Get() - travel) < 1e-6 and abs(jt.GetLowerLimitAttr().Get()) < 1e-9,
           f"(상한 {jt.GetUpperLimitAttr().Get():.3f} m, 실측 {travel:.3f} m)")
+
+ho = (PLACES.get("handover_zone") or {}).get("tf")
+if ho and stage.GetPrimAtPath("/World/workspace/handover_tray").IsValid():
+    d_ho = float(np.linalg.norm(world_T(stage, "/World/workspace/handover_tray")[:3, 3] - np.array(ho["translation_m"])))
+    check("전달 트레이 원점 = places.yaml handover_zone.tf", d_ho < 1e-3, f"(차이 {d_ho * 1000:.2f} mm)")
 
 # ② 카메라 변환 검증: link_6 기준 color_optical = T_link6→TCP × T_gripper2camera (npy, mm→m)
 N = np.load(ROOT / "config/calibration/T_gripper2camera.npy").copy()
