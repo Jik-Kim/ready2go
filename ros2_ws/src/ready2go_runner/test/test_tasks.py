@@ -317,22 +317,22 @@ def test_check_safety_codes_abort_lock_and_send_no_motion(code, where):
     assert saved["run"]["overall_status"] == "ABORTED"
 
 
-# ---- #23·#107 실행 사이 상태: Runner 를 켜 둔 채 연속 시연 (AC-DEMO-01 3회 연속) ----
+# ---- #23·#107 실행 사이 상태: Runner 를 켜 둔 채 연속 시연 (AC-DEMO-01 3회 연속, P1 find_item.json) ----
 def demo_runner(robot):
     """음성 모드처럼 Runner 하나를 켜 둔 채 여러 번 실행 (run() 은 실행마다 새 Runner 라 여기서 따로 만듦)."""
     store = MemoryLogStore()
-    runner = Runner(None, schema=SCHEMA, ontology=DEMO, log_store=store)
-    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, DEMO["world"])
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, log_store=store)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
     return runner, store
 
 
 def test_without_reset_second_run_treats_tray_as_drawer():
     """초기화 없이 연속 실행: 1회차 끝 '지우개 = handover_zone' 을 기억 → 2회차가 트레이를 서랍 자리에 넣음 (10/07 발견)."""
     runner, _ = demo_runner(MockRobot())
-    assert runner.run(CHECK).overall_status == "COMPLETED"
-    second = runner.run(CHECK)
+    assert runner.run(TASK).overall_status == "COMPLETED"
+    second = runner.run(TASK)
     assert step(second, "s1")["output"]["drawer_id"] == "handover_zone"
-    assert (second.overall_status, step(second, "s2")["error_code"]) == ("FAILED", "PRE_UNMET")
+    assert (second.overall_status, step(second, "s3")["error_code"]) == ("FAILED", "PRE_UNMET")   # s3 open_drawer
 
 
 def test_reset_between_runs_gives_three_consecutive_demos():
@@ -342,7 +342,7 @@ def test_reset_between_runs_gives_three_consecutive_demos():
     initial = runner.state
     results = []
     for _ in range(3):
-        results.append(runner.run(CHECK))
+        results.append(runner.run(TASK))
         runner.reset_state()
         assert runner.state == initial
     assert [r.overall_status for r in results] == ["COMPLETED"] * 3
@@ -354,12 +354,12 @@ def test_failed_run_is_not_reset_by_itself_and_next_request_sends_no_motion():
     """#107 D P1: 놓기 실패로 지우개를 쥔 채 끝나면 Runner 가 스스로 되돌리지 않는다 → 다음 요청은 로봇 동작 0건."""
     robot = MockRobot(fail={"place_object": ["PLACE_FAILED"]})
     runner, _ = demo_runner(robot)
-    first = runner.run(CHECK)
+    first = runner.run(TASK)
     assert (first.overall_status, first.error_code) == ("FAILED", "PLACE_FAILED")
     holding = runner.state
     assert holding["gripper"]["robot"] == "eraser"
     sent = len(robot.sent)
-    second = runner.run(CHECK)
+    second = runner.run(TASK)
     assert second.overall_status == "FAILED" and runner.state == holding
     assert [n for n in robot.sent[sent:] if n.startswith("/skills/")] == []      # 서랍·이동·파지 동작 없음
 
@@ -368,8 +368,8 @@ def test_reset_does_not_clear_halt_lock():
     """초기화는 상태만 — 비상정지 잠김은 그대로라 다음 실행은 거절, 로봇 동작 없음 (자동 재개 없음)."""
     robot = MockRobot()
     runner, _ = demo_runner(robot)
-    runner.run(CHECK)
+    runner.run(TASK)
     runner.halt("ESTOP")
     runner.reset_state()
     sent = len(robot.sent)
-    assert runner.halted and runner.run(CHECK).overall_status == "ABORTED" and len(robot.sent) == sent
+    assert runner.halted and runner.run(TASK).overall_status == "ABORTED" and len(robot.sent) == sent
