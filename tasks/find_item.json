@@ -1,6 +1,6 @@
 {
   "task_id": "find_item",
-  "description": "P1 단일 물품 전달 (#17, demo_scenario.md 17.1): 물품 위치 조회 → 서랍 열기 → 관측 → (찾음) 집기 → 전달 트레이에 놓기 / (못 찾음) 안내, finally 로 서랍 닫기·홈 (그리퍼가 비어 있을 때만 홈 이동: 놓기 실패로 물품을 쥐고 있으면 열린 서랍 부근에서 움직이지 않고 정지·사람 복구, PR #82 리뷰). 스킬 스텝이라 Runner 가 온톨로지 pre 확인·effect 반영. 집기 전 관측은 미발견 안내용(P1 Runner 는 pick 스킬 안의 미발견을 분기할 수 없음, 팔을 움직이지 않음). pick retry 1 = 방향 산출 실패(YAW_INVALID, 로봇 동작 없음) 시 재인식 1회 (PR #65 합의, 횟수 [팀 확정 필요]). 밀기 분기(#37)는 이후 추가",
+  "description": "P1 단일 물품 전달 (#17, demo_scenario.md 17.1): 물품 위치 조회 → 서랍 열기 → 탑뷰 이동(s3v: 열기 끝은 홈 자세, E #17 10/07) → 관측 → (찾음) 집기 → 전달 트레이에 놓기 / (못 찾음) 안내, finally 로 서랍 닫기·홈 (그리퍼가 비어 있을 때만 홈 이동: 놓기 실패로 물품을 쥐고 있으면 열린 서랍 부근에서 움직이지 않고 정지·사람 복구, PR #82 리뷰). 스킬 스텝이라 Runner 가 온톨로지 pre 확인·effect 반영. 집기 전 관측은 미발견 안내용(P1 Runner 는 pick 스킬 안의 미발견을 분기할 수 없음, 팔을 움직이지 않음). pick retry 1 = 방향 산출 실패(YAW_INVALID, 로봇 동작 없음) 시 재인식 1회 (PR #65 합의, 횟수 [팀 확정 필요]). 밀기 분기(#37)는 이후 추가",
   "trigger": {
     "intent": "find_item",
     "examples_ko": [
@@ -31,6 +31,15 @@
       "id": "s3",
       "skill": "open_drawer",
       "params": {
+        "drawer_id": "$loc.drawer_id"
+      },
+      "timeout_sec": 60
+    },
+    {
+      "id": "s3v",
+      "action": "move_to_named_pose",
+      "params": {
+        "pose_name": "drawer_top_view",
         "drawer_id": "$loc.drawer_id"
       },
       "timeout_sec": 60

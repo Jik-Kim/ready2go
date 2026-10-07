@@ -1,6 +1,6 @@
 {
   "task_id": "p1_demo_eraser",
-  "description": "P1 지우개 태스크 (#17·#23): 지우개를 위 서랍 벽에 붙여 둠 → 위치 조회 → 스킬 open_drawer → 공통 스킬 pick (E #122: 탑뷰 → inspect_region → nudge_object 로 옆(y)으로 끌기 → 탑뷰 → inspect_region 다시 → 다시 본 좌표로 pick_object. FR-ACT-05 재인식, 못 찾으면 VAR_NULL 로 pick 안 보냄) → 스킬 place(handover_zone) → finally 그리퍼 상태 조회·close_drawer(skip)·그리퍼가 비어 있을 때만 홈. 공통 온톨로지(knowledge/robot_ontology.jsonld)로 실행. speak 없음. 끌기 뒤 스킬 재시도 없음(Runner MOTION_UNCERTAIN)",
+  "description": "말 없는 예비 태스크 (P1 기준 아님 — P1 은 tasks/find_item.json, E #17 10/07): 지우개를 위 서랍 벽에 붙여 둠 → 위치 조회 → 스킬 open_drawer → 공통 스킬 pick (E #122: 탑뷰 → inspect_region → nudge_object 로 옆(y)으로 끌기 → 탑뷰 → inspect_region 다시 → 다시 본 좌표로 pick_object. FR-ACT-05 재인식, 못 찾으면 VAR_NULL 로 pick 안 보냄) → 스킬 place(handover_zone) → finally 그리퍼 상태 조회·close_drawer(skip)·그리퍼가 비어 있을 때만 홈. 공통 온톨로지(knowledge/robot_ontology.jsonld)로 실행. speak 없음. 끌기 뒤 스킬 재시도 없음(Runner MOTION_UNCERTAIN)",
   "trigger": {
     "targets": [
       "eraser"
@@ -33,7 +33,7 @@
         "item": "$inputs.target",
         "from": "$loc.drawer_id"
       },
-      "timeout_sec": 150
+      "timeout_sec": 60
     },
     {
       "id": "s4",

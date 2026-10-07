@@ -100,6 +100,7 @@ def test_success_delivers_item_and_cleans_up():
     assert robot.spoken == ["지우개를 찾아 올게요", "지우개를 앞쪽 트레이에 놓았어요"]
     assert robot.sent == [SPEAK_ACTION,
                           "/skills/move_to_named_pose", "/skills/drawer_control",           # s3 open_drawer
+                          "/skills/move_to_named_pose",                                      # s3v 탑뷰 (열기 끝은 홈)
                           INSPECT_SERVICE,                                                   # s4 관측
                           *PICK_SENT,                                                        # s5.1 pick (E #122)
                           "/skills/place_object",                                            # s5.2 place
@@ -108,6 +109,38 @@ def test_success_delivers_item_and_cleans_up():
     state = runner.state
     assert state["located_in"]["eraser"] == "handover_zone"
     assert state["gripper"]["robot"] == "empty" and state["open"]["drawer_top"] is False
+
+
+def test_success_picks_at_reobserved_position():
+    """E #17: 끌기 뒤 다시 촬영한 좌표가 실제 pick 입력 (예상 target_after 가 아님)."""
+    robot = MockRobot(seen_y=[0.2895, 0.2895, 0.2531])    # s4 관측 / pick 안 첫 촬영 / 끌기 뒤 다시 촬영
+    _, result, _ = run(robot)
+    assert result.overall_status == "COMPLETED"
+    assert robot.params["pick_object"][0]["target"]["pose"]["position"][1] == 0.2531
+    assert step(result, "s5.1.e3")["output"]["target_after"]["pose"]["position"][1] == 0.2478   # 예상값은 기록만
+    assert step(result, "s3v")["params"] == {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"}
+
+
+def test_top_view_failure_does_not_inspect_or_pick():
+    """E #17: 첫 탑뷰 이동이 실패하면 관측·끌기·집기를 보내지 않고 finally (닫기·홈)."""
+    robot = MockRobot(fail={"move_to_named_pose": [None, "NOT_REACHED"]})    # s3.e1 성공, s3v 실패
+    runner, result, _ = run(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "NOT_REACHED", "s3v")
+    assert INSPECT_SERVICE not in robot.sent
+    assert "/skills/nudge_object" not in robot.sent and "/skills/pick_object" not in robot.sent
+    assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
+    assert runner.state["located_in"]["eraser"] == "drawer_top"
+
+
+@pytest.mark.parametrize("visible, failed, nudged", [([True, False], "s5.1.e3", False),        # pick 안 첫 촬영
+                                                     ([True, True, False], "s5.1.e6", True)])  # 끌기 뒤 다시 촬영
+def test_reobserve_not_found_does_not_pick(visible, failed, nudged):
+    robot = MockRobot(visible=visible)
+    runner, result, _ = run(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "VAR_NULL", failed)
+    assert ("/skills/nudge_object" in robot.sent) is nudged and "/skills/pick_object" not in robot.sent
+    assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
+    assert (runner.state["located_in"]["eraser"], runner.state["gripper"]["robot"]) == ("drawer_top", "empty")
 
 
 def test_grasp_failure_still_runs_finally():
@@ -171,7 +204,7 @@ def test_other_items_by_input(item, name):
     assert runner.state["located_in"][item] == "handover_zone"
 
 
-# ---- P1 지우개 p1_demo_eraser.json: 벽 배치 → 공통 pick(끌기 뒤 다시 촬영한 좌표로 집기, E #122) ----
+# ---- 말 없는 예비 p1_demo_eraser.json (P1 기준은 위 find_item.json, E #17): 공통 pick(끌기 뒤 다시 촬영) ----
 
 def run_check(robot):
     return run(robot, task=CHECK)
