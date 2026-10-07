@@ -11,7 +11,7 @@ from ready2go_runner.core import intent_router as ir
 
 ROOT = Path(__file__).resolve().parents[4]
 SCHEMA = json.loads((ROOT / "contracts/intent.schema.json").read_text(encoding="utf-8"))
-ITEMS = ontology.load(ROOT / "knowledge/robot_ontology_demo.jsonld")["world"]["items"]
+ITEMS = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")["world"]["items"]
 FIND = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))
 CHECK = json.loads((ROOT / "tasks/p1_demo_eraser.json").read_text(encoding="utf-8"))
 TASK_SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
