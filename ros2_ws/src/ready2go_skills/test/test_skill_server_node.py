@@ -604,3 +604,24 @@ def test_free_space_speed_only_outside_drawer(server):
     assert server.srv._free_vel() == sp["free_mm_s"]
     assert server.srv._free_vel([0.0, 0.0, 100.0, 0.0, 180.0, 0.0]) == sp["free_mm_s"]          # 트레이 쪽
     assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["line_mm_s"]    # 서랍 위
+
+
+def test_blend_that_never_starts_is_sent_once_more(server):
+    """[실측 10/07 밤 PC2, 관절 90°/s] drag_down 도착 직후 보낸 moveb 가 실행되지 않음 → 남은 204 mm NOT_REACHED.
+    출발조차 안 한 블렌딩은 멈춘 걸 확인하고 한 번만 다시 보냄. 두 번째도 안 가면 NOT_REACHED."""
+    r = server.srv.robot
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    real, calls = r.moveb_async, []
+
+    def moveb(pts, radii, *a, **k):
+        calls.append(1)
+        return True if len(calls) == 1 else real(pts, radii, *a, **k)   # 첫 번째는 받기만 하고 안 감
+    r.moveb_async = moveb
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    pts = [[385.4, -135.2, 229.8, 143.0, 180.0, 143.0], [522.2, -135.2, 221.1, -179.6, -160.0, 180.0]]
+    assert server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over") is None and len(calls) == 2
+    calls.clear()
+    r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True        # 계속 안 감
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    out = server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 2

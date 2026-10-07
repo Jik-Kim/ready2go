@@ -234,6 +234,7 @@ class SkillServer(Node):
                               watch=self._joint_watch())
         if not done.success:
             return done
+        self._settle()
         reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
         if reached.success and pose_name == "home":
             self.home_posx = self.robot.posx()             # 놓기 때 서랍 → 홈 위로 높게 돌아오는 데 씀
@@ -310,7 +311,15 @@ class SkillServer(Node):
                               watch=self._joint_watch())
         if not done.success:
             return done
+        self._settle()
         return sf.check_reached(joints, self.robot.posj(), self.reach_tol)
+
+    def _settle(self, timeout_s=2.0):
+        """관절 이동 '도착'(관절 오차 reach_tol 안)은 감속이 끝나기 전일 수 있음 → 다음 직선·블렌딩 명령 전에 이동 중이 아닐 때까지
+        (최대 timeout_s). [실측 10/07 밤 PC2, 관절 90°/s: drag_down 도착 직후 보낸 moveb 가 실행되지 않고 1 s 뒤 NOT_REACHED, 남은 204 mm]"""
+        t0 = time.monotonic()
+        while self.state() == sf.STATE_MOVING and time.monotonic() - t0 < timeout_s:
+            time.sleep(0.05)
 
     def _joint_bad(self, joints, what):
         """관절 제한 확인 (펜던트 안전 설정 J5 ±135° → params 는 그보다 안쪽). 넘으면 Outcome, 아니면 None."""
@@ -457,12 +466,20 @@ class SkillServer(Node):
         if early:
             return early
         sp = self.prm()["speed"]
-        bad = sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
-                                                      sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
-                               stop=self.robot.stop, get_state=self.state)
-        if bad:
-            return bad
-        return self._wait_pose(goal, points[-1], vel, stage)
+        start = self.robot.posx()
+
+        def send():
+            return sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
+                                                           sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
+                                    stop=self.robot.stop, get_state=self.state)
+        bad = send() or self._wait_pose(goal, points[-1], vel, stage)
+        now = self.robot.posx() if bad is not None and bad.error_code == sf.NOT_REACHED else None
+        if now is not None and start is not None and math.dist(now[:3], start[:3]) < 1.0:
+            # 받기만 하고 출발하지 않음 (앞 이동 끝 무렵에 보냄 [실측 10/07 밤]) → 멈춘 걸 확인하고 한 번만 다시
+            self.get_logger().warn(f"[{stage}] 블렌딩이 출발하지 않음 — 한 번 다시 보냄 ({bad.reason})")
+            self._settle()
+            bad = send() or self._wait_pose(goal, points[-1], vel, stage)
+        return bad
 
     def _carry_route(self, drawer_id):
         """poses.yaml carry_line 경유점 posx (집은 뒤 → 트레이 직선 블렌딩). 없으면 None (예전 carry_out movesj)."""
