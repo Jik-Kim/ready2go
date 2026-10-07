@@ -35,7 +35,7 @@ def _load(monkeypatch, name):
     _stub(monkeypatch, "dsr_msgs2")
     _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
         "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetToolForce "
-        "MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
+        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
     _stub(monkeypatch, "pymodbus")
     _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
     spec = importlib.util.spec_from_file_location(f"_test_{name}", SCRIPTS / f"{name}.py")
@@ -230,3 +230,44 @@ def test_route_press_move_not_accepted_fails(route, resp):
     ctl.move_resp = resp
     out = r.press(9.0, 2.0, 5.0)
     assert out.startswith("실패") and "시작 실패" in out and "move_stop" in ctl.log
+
+
+def _load_sk(monkeypatch):
+    _stub(monkeypatch, "rclpy")
+    _stub(monkeypatch, "rclpy.action", ActionClient=object)
+    _stub(monkeypatch, "rclpy.signals", SignalHandlerOptions=ns(NO=0))
+    _stub(monkeypatch, "ready2go_interfaces")
+    _stub(monkeypatch, "ready2go_interfaces.action", Skill=object)
+    spec = importlib.util.spec_from_file_location("b_sk", SCRIPTS / "b_sk.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize("codes, want_calls, ok", [
+    ({"nudge": ["NO_OBJECT_CONTACT", ""]},
+     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "pick", "place"], True),
+    ({"nudge": [""], "pick": ["GRASP_FAILED", ""]},                    # 집기 실패 → 탑뷰 → 집기부터 (다시 끌지 않음)
+     ["home", "open", "view", "scan", "nudge", "pick", "view", "scan", "pick", "place"], True),
+    ({"nudge": ["NOT_REACHED", "JOINT_LIMIT", "PUSH_BLOCKED"]},         # 무엇이든 다시, 최대 2번
+     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "nudge"], False),
+    ({"nudge": ["ESTOP"]}, ["home", "open", "view", "scan", "nudge"], False),
+    ({"nudge": ["STOP_UNCONFIRMED"]}, ["home", "open", "view", "scan", "nudge"], False),
+])
+def test_dragtest_goes_back_to_top_view_on_any_failure(monkeypatch, codes, want_calls, ok):
+    """끌기·집기에서 무엇이든 이상하면 탑뷰 → 인식 → 다시 [사용자 10/07]. 비상정지·잠김·취소만 멈춤."""
+    sk = _load_sk(monkeypatch)
+    calls, seq = [], {k: iter(v) for k, v in codes.items()}
+
+    def run(node, cmd):
+        calls.append(cmd)
+        sk.last["code"] = next(seq[cmd]) if cmd in seq else ""
+        return sk.last["code"] == ""
+    monkeypatch.setattr(sk, "run", run)
+    monkeypatch.setattr(sk, "scan", lambda node: calls.append("scan") or True)
+    if ok:
+        sk.drag_test(None)
+    else:
+        with pytest.raises(SystemExit):
+            sk.drag_test(None)
+    assert calls == want_calls

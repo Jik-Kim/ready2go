@@ -4,12 +4,55 @@ import math
 import yaml
 
 
-def load_config(path):
+def load_config(path, *, evaluation_mode=None):
     with Path(path).open(encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     if not isinstance(cfg, dict):
         raise ValueError('voice 설정 객체가 필요합니다')
-    for key in ('sample_rate', 'frame_samples', 'speech_rms', 'silence_sec',
+    cfg.setdefault('evaluation_mode', False)
+    if evaluation_mode is not None:
+        if not isinstance(evaluation_mode, bool):
+            raise ValueError('evaluation_mode: bool 필요')
+        cfg['evaluation_mode'] = evaluation_mode
+    prompts = cfg.get('clarify_prompts')
+    keys = ('empty', 'multiple', 'bare', 'request', 'missing_item', 'unconfirmed',
+            'general', 'audio_failure', 'no_speech', 'tts_failure')
+    if not isinstance(prompts, dict) or any(not isinstance(prompts.get(k), str) or not prompts[k].strip() for k in keys):
+        raise ValueError('clarify_prompts: 필수 고정 안내 설정 필요')
+    value = cfg.get('speech_vad_threshold')
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 1:
+        raise ValueError('speech_vad_threshold: 0초과 1이하 필요')
+    value = cfg.get('speech_min_voiced_sec')
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        raise ValueError('speech_min_voiced_sec: 양수 유한값 필요')
+    if cfg.get('speech_vad_model') is not None and (not isinstance(cfg['speech_vad_model'], str) or not cfg['speech_vad_model'].strip()):
+        raise ValueError('speech_vad_model: null 또는 경로 필요')
+    cfg.setdefault('tts_engine', 'espeak')
+    if cfg['tts_engine'] not in ('espeak', 'melotts'):
+        raise ValueError('TTS 엔진 확인 필요')
+    if cfg['tts_engine'] == 'melotts':
+        for key in ('tts_melotts_python', 'tts_melotts_assets', 'tts_melotts_speaker', 'tts_melotts_warmup_text'):
+            if not isinstance(cfg.get(key), str) or not cfg[key].strip():
+                raise ValueError(f'{key}: 문자열 필요')
+        for key in ('tts_melotts_speed', 'tts_melotts_startup_timeout_sec', 'tts_melotts_threads'):
+            value = cfg.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f'{key}: 양수 유한값 필요')
+        if not isinstance(cfg['tts_melotts_threads'], int):
+            raise ValueError('tts_melotts_threads: 정수 필요')
+    cfg.setdefault('tts_melotts_prefill_texts', [])
+    if not isinstance(cfg['tts_melotts_prefill_texts'], list) or any(
+            not isinstance(text, str) or not text.strip() for text in cfg['tts_melotts_prefill_texts']):
+        raise ValueError('tts_melotts_prefill_texts: 문자열 배열 필요')
+    cfg.setdefault('recording_mode', 'silence')
+    cfg.setdefault('record_duration_sec', 5.0)
+    cfg.setdefault('timing_mode', 'ac_budget')
+    cfg.setdefault('diagnostic_detail', False)
+    if cfg['recording_mode'] not in ('fixed', 'silence') or cfg['timing_mode'] not in ('commissioning', 'ac_budget'):
+        raise ValueError('녹음/시간예산 모드 확인 필요')
+    if cfg['recording_mode'] == 'fixed' and cfg['timing_mode'] != 'commissioning':
+        raise ValueError('fixed 녹음은 발화 종료 미측정이므로 commissioning 모드가 필요합니다')
+    for key in ('record_duration_sec', 'sample_rate', 'frame_samples', 'speech_rms', 'silence_sec',
                 'speech_start_timeout_sec', 'max_record_sec', 'stt_timeout_sec',
                 'llm_timeout_sec', 'confirmation_budget_sec', 'tts_reserve_sec',
                 'tts_timeout_sec', 'tts_speed', 'duplicate_window_sec'):
@@ -28,7 +71,11 @@ def load_config(path):
         raise ValueError('사용자 확정 정책: 대상 단독/모호 요청은 clarify로 보류합니다')
     if cfg['tts_reserve_sec'] >= cfg['confirmation_budget_sec']:
         raise ValueError('TTS 여유는 전체 확인 예산보다 작아야 합니다')
-    for key in ('evaluation_mode', 'audio_enabled', 'confirmation_enabled'):
+    if cfg['speech_min_voiced_sec'] > cfg['record_duration_sec']:
+        raise ValueError('최소 음성 구간은 녹음 길이 이하여야 합니다')
+    if cfg['recording_mode'] == 'fixed' and cfg['record_duration_sec'] >= cfg['max_record_sec']:
+        raise ValueError('고정 녹음 시간은 녹음 보호 한도보다 짧아야 합니다')
+    for key in ('diagnostic_detail', 'evaluation_mode', 'audio_enabled', 'confirmation_enabled'):
         if not isinstance(cfg.get(key), bool):
             raise ValueError(f'{key}: bool 필요')
     for key in ('request_patterns', 'unsupported_patterns', 'cancel_phrases', 'status_phrases'):

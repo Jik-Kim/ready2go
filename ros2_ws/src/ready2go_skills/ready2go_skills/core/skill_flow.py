@@ -256,7 +256,9 @@ def wait_motion(*, get_state: Callable[[], Optional[int]], cancel_requested: Cal
             if not moving:
                 if seen_moving:
                     if arrived is not None and not arrived():      # 목표 전에 멈춤 → 다음 단계로 가지 않음 (#83 D 재검토 P1)
-                        return Outcome(False, NOT_REACHED, reason=f"이동이 멈췄지만 목표에 없음 ({elapsed:.1f} s)")
+                        # 아주 느린 이동은 '멈춤'으로 잘못 볼 수 있음(10/07 누르기 1 mm/s: 정지 명령 없이 끝나 로봇이 감시 없이 계속 내려감)
+                        # → 항상 정지 명령 + 정지 확인 뒤 NOT_REACHED
+                        return halt(Outcome(False, NOT_REACHED, reason=f"이동이 멈췄지만 목표에 없음 ({elapsed:.1f} s)"))
                     return Outcome(True, reason=f"이동 끝 ({elapsed:.1f} s)")
                 if arrived is None:
                     if elapsed >= settle_s:

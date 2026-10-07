@@ -34,6 +34,15 @@ class Watcher:
         node.create_subscription(String, "/runner/status", lambda m: setattr(self, "status", json.loads(m.data)), LATCHED)
         node.create_subscription(String, "/robot_state", lambda m: setattr(self, "state", json.loads(m.data)), LATCHED)
         self.estop = node.create_client(Trigger, "/runner/estop")
+        self.reset = node.create_client(Trigger, "/runner/reset_state")
+
+    def call(self, client, timeout=5.0):
+        assert client.wait_for_service(timeout_sec=timeout)
+        done = threading.Event()
+        future = client.call_async(Trigger.Request())
+        future.add_done_callback(lambda _: done.set())
+        assert done.wait(timeout)
+        return future.result()
 
     def wait(self, check, timeout=20.0):
         end = time.monotonic() + timeout
@@ -109,3 +118,31 @@ def test_success_then_aborted_run_has_no_thread_error(system, thread_errors):
     assert watcher.wait(lambda w: w.status["last"]["overall_status"] == "ABORTED")
     time.sleep(0.3)
     assert thread_errors == []
+
+
+def test_reset_state_service_restores_start_state_when_idle(system):
+    """#23·#107: 사람이 원위치 확인 → /runner/reset_state → /robot_state 가 시작 상태로, status 에 시각."""
+    runner, watcher, _ = system
+    start = runner.runner._initial_state["located_in"]["car_key"]
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED"
+                        and w.status["phase"] == "idle")          # 끝난 뒤에만 (실행 중이면 거절)
+    assert watcher.state["located_in"]["car_key"] == "handover_zone"
+    assert watcher.status["state_reset_at"] is None
+    reply = watcher.call(watcher.reset)
+    assert reply.success, reply.message
+    assert watcher.wait(lambda w: w.state["located_in"]["car_key"] == start and w.status["state_reset_at"])
+
+
+def test_reset_state_is_refused_while_running(system):
+    runner, watcher, _ = system
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED")
+    before = runner.runner.state
+    with runner._lock:
+        runner._busy = True                     # 실행 중으로 고정 (짧은 mock 태스크와 경합하지 않게)
+    try:
+        reply = watcher.call(watcher.reset)
+    finally:
+        runner._busy = False
+    assert not reply.success and "실행 중" in reply.message
+    assert runner.runner.state == before
+

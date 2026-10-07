@@ -1,0 +1,68 @@
+diff --git a/melo/download_utils.py b/melo/download_utils.py
+index 373244d..47ce429 100644
+--- a/melo/download_utils.py
++++ b/melo/download_utils.py
+@@ -1,7 +1,8 @@
+ import torch
+ import os
+ from . import utils
+-from cached_path import cached_path
++def cached_path(url):
++    raise RuntimeError("ready2go runtime requires explicit local model paths")
+ from huggingface_hub import hf_hub_download
+ 
+ DOWNLOAD_CKPT_URLS = {
+diff --git a/melo/text/__init__.py b/melo/text/__init__.py
+index 6e482be..a78c5f0 100644
+--- a/melo/text/__init__.py
++++ b/melo/text/__init__.py
+@@ -21,15 +21,7 @@ def cleaned_text_to_sequence(cleaned_text, tones, language, symbol_to_id=None):
+ 
+ 
+ def get_bert(norm_text, word2ph, language, device):
+-    from .chinese_bert import get_bert_feature as zh_bert
+-    from .english_bert import get_bert_feature as en_bert
+-    from .japanese_bert import get_bert_feature as jp_bert
+-    from .chinese_mix import get_bert_feature as zh_mix_en_bert
+-    from .spanish_bert import get_bert_feature as sp_bert
+-    from .french_bert import get_bert_feature as fr_bert
+-    from .korean import get_bert_feature as kr_bert
+-
+-    lang_bert_func_map = {"ZH": zh_bert, "EN": en_bert, "JP": jp_bert, 'ZH_MIX_EN': zh_mix_en_bert, 
+-                          'FR': fr_bert, 'SP': sp_bert, 'ES': sp_bert, "KR": kr_bert}
+-    bert = lang_bert_func_map[language](norm_text, word2ph, device)
+-    return bert
++    if language != "KR":
++        raise ValueError("ready2go runtime supports KR only")
++    from .korean import get_bert_feature
++    return get_bert_feature(norm_text, word2ph, device)
+diff --git a/melo/text/cleaner.py b/melo/text/cleaner.py
+index fdf2609..b9172ae 100644
+--- a/melo/text/cleaner.py
++++ b/melo/text/cleaner.py
+@@ -1,9 +1,8 @@
+-from . import chinese, japanese, english, chinese_mix, korean, french, spanish
++from . import korean
+ from . import cleaned_text_to_sequence
+ import copy
+ 
+-language_module_map = {"ZH": chinese, "JP": japanese, "EN": english, 'ZH_MIX_EN': chinese_mix, 'KR': korean,
+-                    'FR': french, 'SP': spanish, 'ES': spanish}
++language_module_map = {"KR": korean}
+ 
+ 
+ def clean_text(text, language):
+diff --git a/melo/text/korean.py b/melo/text/korean.py
+index 5674fe9..f862d61 100644
+--- a/melo/text/korean.py
++++ b/melo/text/korean.py
+@@ -91,7 +91,8 @@ def distribute_phone(n_phone, n_word):
+ 
+ # tokenizer = AutoTokenizer.from_pretrained('cl-tohoku/bert-base-japanese-v3')
+ 
+-model_id = 'kykim/bert-kor-base'
++import os
++model_id = os.environ['MELOTTS_BERT_PATH']
+ tokenizer = AutoTokenizer.from_pretrained(model_id)
+ 
+ def g2p(norm_text):

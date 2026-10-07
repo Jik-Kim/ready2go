@@ -199,6 +199,7 @@ class Gripper:
 
 class App:
     def __init__(self, robot, gripper, settings):
+        self.msg_until = 0.0
         self.r, self.g, self.cfg = robot, gripper, settings
         self.root = tk.Tk()
         self.root.title("Pos 설정 (jog_gui)")
@@ -361,6 +362,12 @@ class App:
         print(f"copy to clipboard: {text}")
 
     # --- 상태 ---
+    def say(self, text):
+        """상태줄 + 터미널. refresh 가 4초 동안 덮지 않음."""
+        self.status.config(text=text)
+        self.msg_until = time.monotonic() + 4.0
+        print(text, flush=True)
+
     def check_tool(self):
         tcp, tool = self.r.tool_names()
         self.ok = (tcp, tool) == (self.cfg["tcp"], self.cfg["tool"])
@@ -386,6 +393,9 @@ class App:
                         e.delete(0, tk.END)
                         e.insert(0, f"{v:.3f}")
         s = self.r.state(t)
+        if time.monotonic() < self.msg_until:   # 방금 띄운 거부·결과 문구는 4초 동안 덮지 않음 (10/07: 기울이기 거부 이유가 0.3 s 만에 사라짐)
+            self.root.after(300, self.refresh)
+            return
         mode = "정렬 중" if self.seq or self.rotating else STATE.get(s, s)
         self.status.config(text=f"상태: {mode}   ({time.strftime('%H:%M:%S')} 갱신)   {self.g.text}")
         self.root.after(300, self.refresh)
@@ -393,21 +403,22 @@ class App:
     def can_move(self):
         self.check_tool()                    # 이동 직전마다 다시 확인 — 쓰는 도중 펜던트 설정이 바뀌어도 잡음 (#69 PM 검토)
         if not self.ok:
+            self.say("펜던트 TCP·툴 설정이 달라 이동 막힘 (위 빨간 띠)")
             return False
         if self.r.state() == 2:
-            self.status.config(text="움직이는 중이라 무시함")
+            self.say("움직이는 중이라 무시함")
             return False
         if not self.r.auto():
-            self.status.config(text=f"자동 모드로 못 바꿈 — 상태: {STATE.get(self.r.state(), '?')}, 모드: {self.r.mode_name()}")
+            self.say(f"자동 모드로 못 바꿈 — 상태: {STATE.get(self.r.state(), '?')}, 모드: {self.r.mode_name()}")
             return False
         return True
 
     def report(self, ok, what):
         """이동 명령 결과를 상태줄에 표시 (거부되면 원인을 찾을 수 있게 상태·모드도)."""
         if ok:
-            self.status.config(text=f"{what} 시작")
+            self.say(f"{what} 시작")
         else:
-            self.status.config(text=f"{what} 거부됨 — 상태: {STATE.get(self.r.state(), '?')}, 모드: {self.r.mode_name()}")
+            self.say(f"{what} 거부됨 — 상태: {STATE.get(self.r.state(), '?')}, 모드: {self.r.mode_name()}")
 
     # --- 한 칸 / 꾹 누르기 ---
     def press(self, group, idx, sign):
@@ -447,7 +458,7 @@ class App:
             return
         if self.hold and time.monotonic() - self.hold[1] > HOLD_MAX_S:
             self.end_hold()
-            self.status.config(text=f"꾹 누르기 {HOLD_MAX_S:.0f}초 제한으로 멈춤 — 다시 누르세요")
+            self.say(f"꾹 누르기 {HOLD_MAX_S:.0f}초 제한으로 멈춤 — 다시 누르세요")
         self.root.after(100, self.watchdog)
 
     def big_step_ok(self, inc, limit, unit):
@@ -461,7 +472,7 @@ class App:
         try:
             inc = float((self.inc_j if group == "j" else self.inc_x).get())
         except ValueError:
-            self.status.config(text="Increment 칸에 숫자를 넣으세요")
+            self.say("Increment 칸에 숫자를 넣으세요")
             return
         limit, unit = (STEP_CONFIRM_MM, " mm") if group != "j" and idx < 3 else (STEP_CONFIRM_DEG, "°")
         if not self.big_step_ok(inc, limit, unit) or not self.can_move():
@@ -520,6 +531,7 @@ class App:
             return
         p = self.r.posx()
         if p is None:
+            self.say("현재 좌표 조회 실패 — 기울이기 안 함")
             return
         deg = self.num(self.tilt_deg, TILT_DEFAULT, TILT_MAX) if deg is None else deg
         target = tilt_target(p, direction, deg)
@@ -531,7 +543,7 @@ class App:
         """TCP 고정 회전: 확인창 → 한 번에 (170° 넘으면 2번) (축 정렬·기울이기·그리퍼 회전 공통)."""
         self.seq = waypoints(p, target, ALIGN_STEP_DEG)
         if not self.seq:
-            self.status.config(text="이미 그 자세임")
+            self.say("이미 그 자세임")
             self.after_align()
             return
         turn = rotation_angle(rot(*p[3:]), rot(*target[3:]))
@@ -546,7 +558,7 @@ class App:
         print(msg.replace("\n\n", "\n"))
         if not messagebox.askokcancel(f"{what} 확인", msg, parent=self.root):
             self.seq = []
-            self.status.config(text=f"{what} 취소")
+            self.say(f"{what} 취소")
             return
         self.next_piece()
 
@@ -581,7 +593,7 @@ class App:
             return
         if time.monotonic() - t0 > limit_s:
             self.stop_all()
-            self.status.config(text=f"회전이 {limit_s:.0f}초 안에 도착하지 않아 정지")
+            self.say(f"회전이 {limit_s:.0f}초 안에 도착하지 않아 정지")
             return
         self.root.after(80, lambda: self.wait_piece(t0, piece, limit_s))
 
@@ -589,18 +601,18 @@ class App:
         self.clear_marks()
         if self.teach_when_done:
             self.r.teach()
-            self.status.config(text="정렬 끝 → 직접교시 ON")
+            self.say("정렬 끝 → 직접교시 ON")
         else:
-            self.status.config(text="회전 끝")
+            self.say("회전 끝")
 
     # --- 모드·홈·정지 ---
     def teach_on(self):
         self.r.teach()
-        self.status.config(text="직접교시 ON")
+        self.say("직접교시 ON")
 
     def teach_off(self):
         self.r.teach_off()
-        self.status.config(text="직접교시 OFF (자동 모드)")
+        self.say("직접교시 OFF (자동 모드)")
 
     def go_home(self):
         home = self.cfg["home"]
@@ -627,7 +639,7 @@ class App:
             self.close()
             return
         traceback.print_exception(exc, val, tb)
-        self.status.config(text=f"오류: {val} (터미널 참고)")
+        self.say(f"오류: {val} (터미널 참고)")
 
 
 def main(argv=None):
