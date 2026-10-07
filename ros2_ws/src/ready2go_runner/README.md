@@ -18,6 +18,17 @@
 | `ready2go_runner/adapters/` | 장치·외부 서비스 연결 (DSR, RG2, RealSense, OpenAI, MongoDB 등) |
 | `test/` | `core/` 테스트 |
 
+## 실행 기록 보기
+
+MongoDB `cobot2.runs`·`steps`는 사람이 바로 읽기 어려워서, 요약 명령을 둡니다(읽기 전용, ROS 토픽 불필요).
+
+```bash
+ros2 run ready2go_runner run_report                                  # 가장 최근 실행
+ros2 run ready2go_runner run_report --uri mongodb://172.24.0.3:27017 -n 2   # PC2 DB 최근 2건
+ros2 run ready2go_runner run_report --run f45c86 --markdown         # GitHub 댓글용 표
+ros2 run ready2go_runner run_report --jsonl /logs                    # DB 장애 때 JSONL 예비 기록
+```
+
 ## 규칙
 - 다른 담당의 패키지는 수정하지 않음. 필요하면 GitHub Issue로 요청.
 - 계약(`ready2go_interfaces`, `contracts/`)을 바꾸면 스키마·예시·문서를 같은 PR에서 함께 수정.

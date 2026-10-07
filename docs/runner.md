@@ -245,6 +245,7 @@
   * `MongoLogStore`: `cobot2`의 `runs`(실행 1건, `run_id`로 덮어써 시작 기록을 완성)·`steps`(스텝 1건, `run_id`·`seq` 색인). 접속 주소 `MONGO_URI`(기본 `mongodb://localhost:27017`), 연결·응답 제한 1초 `[추정, 실측 후 조정]`.
   * `JsonlLogStore`: `logs/<run_id>.jsonl`(`:`→`-`), 한 줄 = `{"collection": "runs"|"steps", "doc": ...}`. `doc`은 MongoDB 레코드와 같은 모양. 쓰다 만 줄은 건너뜀.
   * `FallbackLogStore`: MongoDB 실패 시 그 실행의 앞 기록까지 JSONL 에 다시 써서 한 파일에 실행 전체를 남기고, 그 실행은 끝까지 JSONL(스텝마다 연결 제한만큼 멈추지 않게). 다음 실행은 MongoDB 재시도. 상태는 `degraded`·`last_error`.
+  * 사람이 읽는 조회(읽기 전용): `ros2 run ready2go_runner run_report` — 최근 실행을 한국어 요약으로(KST 시각·mm·오류 코드 설명, 스킬 밑에 원자 동작 들여쓰기, `if` 줄 생략). `-n 3` 최근 3건, `--run f45c86` run_id 끝 글자, `--markdown` GitHub 댓글 표, `--uri mongodb://<PC2 IP>:27017` 다른 PC, `--jsonl /logs` 예비 기록. 요약 규칙은 `core/run_report.py`(D 시연 화면 #59에서 재사용 가능).
   * `run_id` = 시작 시각(UTC) + 6자리 난수. 스텝 `seq` = 시작 순서. 실행 거절(`TASK_INVALID`·중단 잠김)도 기록. 기록 저장 실패는 `RunResult.log_errors`에 남기고 **실행은 멈추지 않음**.
   * P1 범위: FR-LOG-01 항목(실행 ID·입력 명령·단계 ID·시작 시각·상태·오류 코드). `states` 컬렉션·`post_check`는 P2(FR-LOG-02).
   * `skill` 스텝 기록(#12): `action: "skill"`, `skill`, `params`, `pre_check`(온톨로지 `check` 결과 배열), 성공 시 `state_diff`(온톨로지 `apply` 결과). P1 실행에서 이미 계산되는 값을 **진단용 부가 기록**으로 남겨 `PRE_UNMET` 원인을 볼 수 있게 함(PR #64 E 검토 허용). FR-LOG-02 상세 로그 완료나 관측으로 검증된 상태를 뜻하지 않음(`state_diff`는 응답 기준 반영 결과). 하위 원자 동작 기록은 `parent`로 묶음. `state_diff` 키에 `.`이 있어 MongoDB 에서 키로 직접 조회하기는 불편함(저장·읽기는 7.0 실측 정상).

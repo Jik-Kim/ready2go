@@ -1,0 +1,174 @@
+{
+ "run": {
+  "backend": "sim",
+  "run_id": "2026-10-06T11:02:28Z_6fc193",
+  "task_id": "p1_demo_eraser",
+  "inputs": {
+   "target": "eraser"
+  },
+  "started_at": "2026-10-06T11:02:28.793Z",
+  "ended_at": "2026-10-06T11:02:32.864Z",
+  "total_duration_sec": 4.013,
+  "overall_status": "FAILED",
+  "error": {
+   "code": "BACKEND_ERROR"
+  },
+  "failed_step": "s2.e1"
+ },
+ "steps": [
+  {
+   "run_id": "2026-10-06T11:02:28Z_6fc193",
+   "seq": 0,
+   "id": "s1",
+   "action": "query_ontology",
+   "started_at": "2026-10-06T11:02:28.853Z",
+   "attempts": 1,
+   "params": {
+    "item": "eraser"
+   },
+   "result": {
+    "item": "eraser",
+    "name_ko": "지우개",
+    "drawer_id": "drawer_top",
+    "grip_force": null
+   },
+   "duration_sec": 0,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:02:28Z_6fc193",
+   "seq": 1,
+   "id": "s2",
+   "action": "skill",
+   "started_at": "2026-10-06T11:02:28.854Z",
+   "skill": "open_drawer",
+   "attempts": 1,
+   "params": {
+    "drawer_id": "drawer_top"
+   },
+   "pre_check": [
+    {
+     "subject": "drawer_top",
+     "predicate": "open",
+     "op": "==",
+     "value": false,
+     "actual": false,
+     "pass": true
+    },
+    {
+     "subject": "robot",
+     "predicate": "gripper",
+     "op": "==",
+     "value": "empty",
+     "actual": "empty",
+     "pass": true
+    }
+   ],
+   "status": "FAILURE",
+   "error": {
+    "code": "BACKEND_ERROR"
+   },
+   "duration_sec": 2.007
+  },
+  {
+   "run_id": "2026-10-06T11:02:28Z_6fc193",
+   "seq": 2,
+   "id": "s2.e1",
+   "action": "move_to_named_pose",
+   "started_at": "2026-10-06T11:02:28.854Z",
+   "parent": "s2",
+   "params": {
+    "pose_name": "drawer_approach",
+    "drawer_id": "drawer_top"
+   },
+   "status": "FAILURE",
+   "error": {
+    "code": "BACKEND_ERROR"
+   },
+   "duration_sec": 2.006
+  },
+  {
+   "run_id": "2026-10-06T11:02:28Z_6fc193",
+   "seq": 3,
+   "id": "f1",
+   "action": "query_ontology",
+   "started_at": "2026-10-06T11:02:30.861Z",
+   "attempts": 1,
+   "params": {
+    "state": "gripper.robot"
+   },
+   "result": {
+    "path": "gripper.robot",
+    "value": "empty"
+   },
+   "duration_sec": 0,
+   "status": "SUCCESS"
+  },
+  {
+   "run_id": "2026-10-06T11:02:28Z_6fc193",
+   "seq": 4,
+   "id": "f2",
+   "action": "skill",
+   "started_at": "2026-10-06T11:02:30.862Z",
+   "skill": "close_drawer",
+   "attempts": 1,
+   "params": {
+    "drawer_id": "drawer_top"
+   },
+   "pre_check": [
+    {
+     "subject": "drawer_top",
+     "predicate": "open",
+     "op": "==",
+     "value": true,
+     "actual": false,
+     "pass": false
+    },
+    {
+     "subject": "robot",
+     "predicate": "gripper",
+     "op": "==",
+     "value": "empty",
+     "actual": "empty",
+     "pass": true
+    }
+   ],
+   "status": "FAILURE",
+   "on_failure": "skip",
+   "error": {
+    "code": "PRE_UNMET"
+   },
+   "duration_sec": 0
+  },
+  {
+   "run_id": "2026-10-06T11:02:28Z_6fc193",
+   "seq": 5,
+   "id": "f3",
+   "action": "if",
+   "started_at": "2026-10-06T11:02:30.862Z",
+   "attempts": 1,
+   "branch": "then",
+   "status": "FAILURE",
+   "error": {
+    "code": "BACKEND_ERROR"
+   },
+   "duration_sec": null
+  },
+  {
+   "run_id": "2026-10-06T11:02:28Z_6fc193",
+   "seq": 6,
+   "id": "f3.1",
+   "action": "move_to_named_pose",
+   "started_at": "2026-10-06T11:02:30.862Z",
+   "attempts": 1,
+   "params": {
+    "pose_name": "home"
+   },
+   "status": "FAILURE",
+   "error": {
+    "code": "BACKEND_ERROR"
+   },
+   "duration_sec": null
+  }
+ ]
+}
