@@ -644,3 +644,14 @@ def test_into_drawer_waypoint_uses_slow_joint_speed(server):
     view = srv.poses()["drawer_top_view"]["drawer_top"]
     if tuple(view) in speeds:
         assert speeds[tuple(view)] == (90.0, 60.0)                       # 탑뷰는 큰 이동 속도
+
+
+def test_settle_timeout_stops_and_fails_instead_of_sending_next(server):
+    """#139 PM 리뷰: 관절 이동 뒤 2 s 안에 멈추지 않으면 다음 명령을 보내지 않고 정지 + 정지 확인 뒤 실패."""
+    srv = server.srv
+    states = iter([sf.STATE_MOVING] * 45 + [1] * 50)                   # 2 s 넘게 이동 중 → 정지 명령 뒤 멈춤 (가짜 시계 0.05 s 간격)
+    srv.state = lambda: next(states)
+    out = srv._settle()
+    assert out is not None and not out.success and out.error_code == sf.NOT_REACHED and "stop" in srv.robot.log
+    srv.state = lambda: 1
+    assert srv._settle() is None
