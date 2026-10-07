@@ -1,6 +1,16 @@
 # YOLO 데이터 수집·학습 도구 (담당 A, #14)
 
-실물 데이터로 물품 검출 모델을 만드는 도구. 순서: **촬영 → 라벨링 → 데이터셋 구성 → 학습·평가**. 학습은 `yolo-detection` 컨테이너(PC1, RTX 5060)에서 한다 — 저장소가 마운트돼 있지 않으므로 `docker cp tools knowledge yolo-detection:/작업폴더/`로 복사해 쓴다(스크립트는 자기 위치 기준으로 `data/`·`runs/`를 만든다).
+실물 데이터로 물품 검출 모델을 만드는 도구. 순서: **촬영 → 라벨링 → 데이터셋 구성 → 학습·평가**. 학습은 PC1(RTX 5060)에서 `ready2go-vision` 이미지로 한다 [실측 10/06~07]. 데이터셋 폴더(`data/yolo*`)와 그 이미지 링크 대상(`data/labeled*`)을 **같은 절대 경로로** 마운트해야 심볼릭 링크가 풀린다. 도구는 저장소째 마운트하거나 `tools/`를 작업 폴더로 복사해 쓴다(`train.py`는 자기 위치 기준으로 `runs/`를 만든다). 예:
+
+```bash
+cd <저장소> && D=$PWD/data
+docker run --rm --gpus all --ipc=host --user $(id -u):$(id -g) -e HOME=/tmp -e YOLO_CONFIG_DIR=/tmp/yolo \
+  -v $D/yolo_v2:$D/yolo_v2 -v $D/labeled:$D/labeled:ro -v $PWD:/repo -v <사전학습 가중치 폴더>:/w -w /repo ready2go-vision:latest \
+  python3 tools/yolo/train.py --base /w/yolo11n.pt --epochs 100 --name 11n_v2 --data $D/yolo_v2/dataset.yaml
+```
+
+- **먼저 준비**: `config/yolo_classes.txt`(클래스 번호 고정, 깃 추적)가 있어야 `build_dataset.py`가 동작한다(없으면 중단, 아래 "클래스 고정"). 사전학습 가중치(`yolo11n.pt` 등)는 저장소 밖에 두고 내려받기는 따로 승인받는다
+- 예전 안내의 `docker cp tools knowledge yolo-detection:/작업폴더/`는 원본 여러 개를 한 번에 복사하지 못하는 잘못된 명령이었다(#134). 옛 `yolo-detection` 컨테이너는 10/03 점검 기록용
 
 | 단계 | 명령 | 비고 |
 | :--- | :--- | :--- |

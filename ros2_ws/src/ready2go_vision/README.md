@@ -24,6 +24,9 @@
 - 다른 담당의 패키지는 수정하지 않음. 필요하면 GitHub Issue로 요청.
 - 계약(`ready2go_interfaces`, `contracts/`)을 바꾸면 스키마·예시·문서를 같은 PR에서 함께 수정.
 
+## inspect_region 실제 노드 (실물)
+실물에서 검증한 실행 경로는 `ready2go-vision` 컨테이너 + [`tools/dev/vision_real_check.sh`](../../../tools/dev/vision_real_check.sh) (`check` → `node` → `call`) [실측 PC2 10/07, main `55829e3`]. 새 PC 준비(이미지·모델 LFS·`BACKEND=real`·카메라 하나)와 확인 기준은 [저장소 README "실비전"](../../../README.md#3-노드별-실행-명령), 상세 사용법·`replay`는 [`tools/yolo/README.md`](../../../tools/yolo/README.md) "inspect_region 실제 노드 실행". 아래 stub 과 동시에 실행하지 않는다.
+
 ## inspect_region stub (#18, Day 4 — B의 #15 실물 테스트용)
 카메라·YOLO 없이 `config/vision_stub.yaml`의 손으로 잰 좌표를 `result_json` 형식 그대로 응답한다. 실제 구현(Day 5)도 같은 형식을 쓴다.
 
