@@ -73,7 +73,6 @@ python3 -m venv --system-site-packages .venvs/vision
 호스트 노드를 쓸 경우 필요한 ROS·Python·장치 의존성을 먼저 준비하고 **프로젝트 안에 빌드**합니다. DSR 드라이버를 호스트에서 실행할 경우 벤더 워크스페이스도 준비합니다.
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
 source /opt/ros/jazzy/setup.bash
 source .venvs/project/bin/activate
 cd ros2_ws
@@ -85,7 +84,6 @@ source ros2_ws/install/setup.bash
 **호스트 노드를 실행하는 새 터미널마다** 아래 환경을 적용합니다. MeloTTS 상대 경로 때문에 음성 노드도 저장소 루트에서 시작합니다.
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
 source /opt/ros/jazzy/setup.bash
 source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash

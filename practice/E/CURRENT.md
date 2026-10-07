@@ -237,16 +237,6 @@
 - [실측: 정적] README의 Bash 블록 23개 구문·내장 Python AST·로컬 링크 10개·패키지 실행 진입점·launch 파일 및 Compose 전 프로파일 설정 검사 통과. 실행 순서·파라미터·수신/발행·기록 위치를 현재 구현과 대조하고 변경 파일이 승인된 두 개뿐임을 확인. 실제 장치 동작이나 API 연결을 실행해 확인한 결과는 아님.
 
 
-## 2026-10-07 시연 전용 온톨로지 원본 정리 (로컬·C 선행 조건 대기)
-- [문서] 조율 세션 사용자 “정리하자. 근데 pull 당겼는데 왜 파일이 안 바뀜?” 승인 범위. 사용자 작업 경로 /home/jonny/rokey_proj/VLA/ready2go, images/demo HEAD c4dc2e6, 착수 시 작업 트리 clean 확인. P1 FR-ONT-01·FR-PLN-01·FR-ACT-05/AC-ACT-05 기준.
-- [문서] knowledge/robot_ontology_demo.jsonld·knowledge/skills/pick_demo.jsonld 삭제. knowledge/README.md의 옛 시연 진입점/현재 C pick_demo 호출·예상 target_after 실행 안내를 공통 manifest/pick 및 현재 두 태스크 호출 설명으로 교체. docs/ontology.md의 시연 원본 유지 설명과 voice README의 옛 예상값/재조회 없음 인계를 공통 재관측 경로로 정정. 과거 CURRENT의 날짜별 기록은 당시 이력이며 이번 정리로 현행화된 현재 실행 안내와 구분.
-- [문서] 공통 pick 6단계·effect·manifest·설정·계약·두 태스크·과거 fixture/log/변경 이력 유지. C run_report.py의 pick_demo 레이블은 과거 로그 해석용으로 유지. C test_intent_router.py:14는 삭제된 manifest 로딩 참조가 남아 테스트 수집 실패가 예상되므로 공통 manifest로 바꾸는 C 커밋 필요. 직접 수정하지 않음; 마스터가 #17/Slack 요청 담당. B practice/B/HANDOVER.md:54의 옛 실행 명령은 현재 사용 시 정정 인계, docs/domain.md의 역사 설명은 유지(삭제 원본으로 향한 실제 Markdown 링크는 없음). 타 담당 파일 미수정.
-- [문서] local-only 승인으로 커밋·push·PR·새 이슈·타 세션 메시지 없음. 전체 ROS 빌드·실물/마이크/API·전체 CI 실행 없음; C 참조 수정 전 전체 green/완료를 주장하지 않음.
-- [실측: 정적·모의] E knowledge37 passed(0.50초); pytest 캐시는 sandbox 읽기 전용 경로라 기록 경고2건 있으나 검사는 통과. 공통 tools/validate_contracts.py OK, 남은 knowledge JSON·E 문서 링크·두 태스크 공통pick 호출·이번6파일 범위·git diff --check 확인. archive/secrets/logs 제외 참조 검색 결과 과거 CURRENT/changelog/domain/실측fixture/run_report 레이블 보존, B HANDOVER 옛명령과 C test_intent_router 참조는 담당 인계. C test_intent_router.py만 collect-only로 확인하여 line14의 삭제 manifest에서 FileNotFoundError(수집오류1) 실측; 실제 테스트/로봇 동작은 실행하지 않음. C 커밋 전 전체CI 실패 조건이 남아 담당 정리 완료·통합 인계 대기. 로컬 status는 삭제2/수정4, index 비어 있음, commit/push/PR 없음.
-- [문서] 마지막 대조: 현재 docs/domain.md 8.5는 공통 pick 6단계·no-op 재관측·retry 억제를 이미 설명하므로 Knowledge README의 해당 문서 정리 요청을 현재 설명 참조로 정정. 이번 문서 정리의 B 후속 인계는 practice/B/HANDOVER.md:54의 옛 실행 명령과 docs/domain.md:70~71의 “파일은 기록용으로 유지” 표현 정정임. task_nudge_then_pick 예시는 유지되지만 시연 온톨로지 원본2개는 삭제되므로 과거 기록 설명과 원본 현존 여부를 구분해야 함. B 문서/코드 미수정, 코드검사37건 재실행 없이 해당 설명·앵커·링크·diff 확인. 사용자 VSCode 작업 폴더 차이는 파일 수정 대상에서 제외.
-- [문서] 사용자 후속 직접 승인 “커밋, PR 해”로 앞선 local-only 제한을 이번6파일의 커밋·push·PR 생성에 한해 변경. 현재 사용자 브랜치는 ontology/main, HEAD c4dc2e6이며 변경은 동일6파일뿐. 최신 원격 main767a9bee에서도 C test_intent_router의 삭제 manifest 참조가 남음을 확인했으므로 선행 C 수정 대기 Draft PR로 게시하고 전체green/통합완료를 주장하지 않음. 원본 브랜치 이력 전체push 없이 최신main 기반 별도게시브랜치에 이번 커밋만 반영. 추가C/B수정·범위확대·병합은 승인하지 않음.
-
-
 ## 2026-10-07 전체 프로젝트 의존성·설치 안내 (담당 문서 완료·runtime/게시 인계 대기)
 - [문서] 조율 세션의 사용자 승인 “수정 후 PR” 및 저장소 루트 상대 경로 지시 범위. 착수 HEAD 123fb77, ontology/main clean. 수정 소유 파일은 새 requirements.txt, 루트 README, E voice README, 이 CURRENT 네 개. 기존 사용자 README 커밋·온톨로지 정리·Melo 고정 목록·다른 담당 코드/계약/설정/Docker는 보존. P1 FR-INT-01~03·AC-INT-03·NFR-ENV-01 기준.
 - [문서] 전체 패키지 import/setup/package 선언·Docker·tools/sim 실행 문서를 대조해 공통 Python, ROS, 시스템/서비스, 벤더, 환경별 선택/모델, 테스트를 구분. requirements는 전프로젝트 입구이며 Vision CUDA/YOLO·Melo CPU·Isaac 번들을 보조 설치 경로로 명시해 서로 다른 Torch/Python을 한 환경에 합치지 않음. root/voice 안내는 시스템 준비, 프로젝트 venv/build/source, 로컬 YAML 보존·실제 import/TTS 선택 확인, dotenv 실행/평가 상세 로그, 기존 Melo installer·단독 합성·재생을 제공.
@@ -255,3 +245,4 @@
 - [실측: 정적] root/voice Bash 36블록 구문, 내장 Python 8예시 AST, 로컬 링크/제목 앵커25건, root/Melo requirements72개 항목 파싱 통과. tracked Python164개 AST import를 대상별로 대조해 ROS/벤더/별도Torch 의존성을 분리했고, E config loader의 cwd 상대 경로·엔진 기본값과 Melo 소스 API 합성 인자를 확인. 허용4파일 상태·diff 공백 확인. 신규 PC pip 해결/설치·ROS 메시지 생성·GPU 호환·TFLite/전처리/VAD 모델 로딩·마이크/스피커·API·CI/전체빌드·40음성/3초 실측은 수행하지 않음. 기존 PR126 재게시를 위한 Luna 작업은 중단했으며 이번 의존성 diff의 게시/병합과 구분.
 - [문서] 최종 상대 경로 대조: root 호스트 Runner/Skills/Vision/stub의 스키마·manifest·설정·가중치·로그, mktemp·run_report를 직접 상대 경로로 통일. 수신자의 open/Path/YOLO 전달과 ROS 로그 경로 getter를 확인; ontology 내부 sources는 manifest 폴더 기준이며 CLI 진입점 cwd와 구분. DDS file URI만 실행 시 cwd 절대화 유지 이유를 명시, 시스템/벤더 설치·컨테이너 마운트·기본 ROS 로그 위치는 별도 기준. 실제 노드/모델/장치 구동·새 PC 설치를 수행한 것으로 표현하지 않음.
 - [실측: 정적] 마지막 경로 수정으로 바뀐 Bash8블록만 bash -n 재검사 통과. README의 $PWD는 DDS URI 명령과 이유 설명 두 곳뿐, task_file 예시 원본 존재·diff 공백·허용4파일 상태 확인. 제목/링크/내장 Python/requirements는 이 추가 수정에서 변경 없음으로 앞선 검사 결과 유지. 게시 담당 인계 대기, commit/push/PR 미수행.
+- [실측: 정적] PR #128 head81a00e84 후속 검토: README의 개인 작업 경로 cd2줄 제거, 저장소 루트 시작 안내·기존 의존성/명령 보존 및 변경 Bash2블록 구문·개인 경로 부재 확인. 실제 신규 PC 설치/장치/API 시험과 commit/push는 수행하지 않음.
