@@ -161,7 +161,7 @@ def test_drag_then_lift_failure_keeps_safety_code_and_drops_target_after(server,
     contact_z = None
 
     def force(p):
-        return [0.0, 0.0, 3.0 if contact_z is not None and p[2] <= contact_z else 0.0, 0.0, 0.0, 0.0]
+        return [0.0, 0.0, 8.0 * (contact_z - p[2]) if contact_z is not None and p[2] <= contact_z else 0.0, 0.0, 0.0, 0.0]
     server.srv.robot.force = force
     real_line = server.ss.SkillServer._line
 
@@ -180,8 +180,9 @@ def test_drag_then_lift_failure_keeps_safety_code_and_drops_target_after(server,
 def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(server):
     contact = {}
 
-    def force(p):
-        return [0.0, 0.0, 3.0 if contact.get("z") is not None and p[2] <= contact["z"] else 0.0, 0.0, 0.0, 0.0]
+    def force(p):                                                       # 위치로 누르면 1 mm 에 약 8 N [실측 10/06: 2 → 10 N]
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
     server.srv.robot.force = force
     real_line = server.ss.SkillServer._line
 
@@ -200,7 +201,8 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2827 - 0.0349, abs=1e-3)
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=1e-6)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁)
-    assert start[2] == pytest.approx(contact["z"], abs=0.25)             # 처음 2 N 넘은 높이로 올라와서 끔 (확인·정지 동안 더 눌린 만큼 되돌림)
+    assert contact["z"] - 5.0 / 8.0 <= start[2] <= contact["z"]         # 4 N 3 번 확인하며 더 눌린 뒤 0.2 mm 씩 올려 5 N 이하에서 끔 [사용자 10/07]
+    assert "N 으로 눌러" in out.reason
     server.srv.robot.force = lambda p: [0.0] * 6
     server.Gripper.holding = True
     route = server.srv.poses()["carry_line"]["drawer_top"]
@@ -306,5 +308,31 @@ def test_line_stopped_short_names_stage_and_distance_left(server):
     r.movel_async = short
     goal = __import__("types").SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
     target = [380.0, -6.5, 290.0, 90.0, -90.0, 180.0]
-    out = server.srv._line(goal, target, 10.0, "press_back")
-    assert out.error_code == sf.NOT_REACHED and out.reason.startswith("[press_back]") and "남은 5.0 mm" in out.reason
+    out = server.srv._line(goal, target, 10.0, "drag")
+    assert out.error_code == sf.NOT_REACHED and out.reason.startswith("[drag]") and "남은 5.0 mm" in out.reason
+
+
+def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
+    """닿음 확인 뒤 3 mm(0.2 mm × 15) 올려도 5 N 넘으면 끌지 않고 PUSH_BLOCKED, 위로 빠짐."""
+    server.srv.prm = (lambda real: (lambda: {**real(), "drag": {**real()["drag"], "relax_max_steps": 2}}))(server.srv.prm)
+    server.srv._force_still = lambda s: [0.0, 0.0, 20.0, 0.0, 0.0, 0.0]
+    server.srv._tare = lambda: [0.0] * 6
+    contact = {}
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None):
+        if stage == "press":
+            contact["z"] = (self.robot.p[2] + posx[2]) / 2
+        if stage == "drag":
+            contact["drag"] = True
+        return real_line(self, goal, posx, vel, stage, watch)
+    server.srv.robot.force = lambda p: [0.0, 0.0, 20.0 if contact.get("z") and p[2] <= contact["z"] else 0.0, 0.0, 0.0, 0.0]
+    server.ss.SkillServer._line = line
+    try:
+        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    finally:
+        server.ss.SkillServer._line = real_line
+    assert out.error_code == server.ss.PUSH_BLOCKED and "20.0 N > 5 N" in out.reason
+    assert "drag" not in contact and data["target_after"] is None
+    relax = [e for e in server.srv.robot.log if e[0] == "movel"][-3:-1]   # 0.2 mm 씩 두 번 올리고 → 위로 빠짐
+    assert relax[1][1][2] - relax[0][1][2] == pytest.approx(0.2)

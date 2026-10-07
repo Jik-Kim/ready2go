@@ -649,6 +649,61 @@ class SkillServer(Node):
         return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
 
     # --- 끌기 (nudge_object) ---
+    def _relax(self, goal, pressed, base_f, d):
+        """닿음 확인 뒤 멈춘 자리에서 relax_step_mm 씩 올리며, 멈춘 뒤 잰 힘 z 가 drag_force_n [하한, 상한] 의 상한 이하가 되면 그 높이.
+        → (Outcome 또는 None, 끌기 시작 posx, 그때 힘 N). relax_max_steps 올려도 상한을 넘으면 PUSH_BLOCKED (걸림으로 봄)."""
+        lo, hi = (float(v) for v in d["drag_force_n"])
+        p, n = list(pressed), None
+        for k in range(int(d["relax_max_steps"]) + 1):
+            f = self._force_still(d["relax_settle_s"])
+            if f is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), p, n
+            n = abs(f[2] - base_f[2])
+            if n <= hi:
+                return None, p, n                         # 하한 미만이어도 끔 — 살포시만 닿아도 잘 끌림 [사용자 10/07]
+            if k == int(d["relax_max_steps"]):
+                break
+            p = mp.with_z(p, p[2] + d["relax_step_mm"])
+            bad = self._step(goal, p, f"relax:{k + 1}")
+            if bad:
+                return bad, p, n
+        return sf.Outcome(False, PUSH_BLOCKED, reason=f"{d['relax_max_steps'] * d['relax_step_mm']:.1f} mm 올려도 누르는 힘 "
+                                                     f"{n:.1f} N > {hi:g} N (끄는 힘 {lo:g}~{hi:g} N)"), p, n
+
+    def _force_still(self, settle_s):
+        """멈춘 채 settle_s 기다린 뒤 여러 번 읽은 평균 (_tare 와 같은 방식). 모두 조회 실패면 None."""
+        time.sleep(settle_s)
+        fs = [f for f in (self.robot.tool_force() for _ in range(int(self.prm()["force"]["tare_samples"]))) if f is not None]
+        return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
+
+    def _step(self, goal, posx, stage, tol_mm=0.05, arrive_s=2.0):
+        """아주 짧은 직선 (relax 0.2 mm). 짧고 느린 이동은 관절 변화가 작아 '이동 중'이 안 떠 wait_motion 이 목표 전에 멈춤으로
+        볼 수 있음 (10/06 저녁 누른 뒤 되돌아오기 1.5 mm 에서 NOT_REACHED 0.3 s 추정) → 멈춤 판정 뒤에도 좌표가 목표 tol_mm 안에 들 때까지 기다린다."""
+        goal.publish_feedback(Skill.Feedback(stage=stage))
+        if not self.robot.auto():
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+        if early:
+            return early
+        sp, v = self.prm()["speed"], self.prm()["drag"]["press_speed_mm_s"]
+        bad = sf.after_command(self.robot.movel_async(posx, v, sp["line_acc_ratio"] * v, sp["turn_deg_s"], sp["turn_acc_deg_s2"]),
+                               what=f"movel({stage})", stop=self.robot.stop, get_state=self.state)
+        if bad:
+            return bad
+        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
+                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=self._joint_watch())
+        if not done.success:
+            return done
+        t0 = time.monotonic()
+        while True:
+            cur = self.robot.posx()
+            if cur is not None and math.dist(cur[:3], [float(x) for x in posx[:3]]) <= tol_mm:
+                return None
+            if time.monotonic() - t0 > arrive_s:
+                late = sf.Outcome(False, sf.NOT_REACHED, reason=f"{arrive_s:g} s 안에 목표 {tol_mm:g} mm 안으로 안 옴")
+                return self._where(sf._halt(self.robot.stop, self.state, time.monotonic, time.sleep, 0.05, 3.0, late), stage, posx)
+            time.sleep(0.05)
+
     def _do_nudge_object(self, goal, params):
         target, drawer_id = params.get("target") or {}, params.get("drawer_id")
         prm, place = self.prm(), self.places().get(drawer_id) or {}
@@ -720,9 +775,9 @@ class SkillServer(Node):
                 return None
             state.setdefault("fz", f[2])
             dz = f[2] - state["fz"]
-            state["streak"] = state["streak"] + 1 if abs(dz) >= d["press_force_n"] else 0
+            state["streak"] = state["streak"] + 1 if abs(dz) >= d["touch_force_n"] else 0
             if state["streak"] == 1:
-                state["z1"] = p[2]                          # 처음 2 N 넘은 높이 — 연속 확인·정지하는 동안 더 내려감
+                state["z1"] = p[2]                          # 처음 닿음 기준 넘은 높이 (예상 높이 판정용) — 확인·정지하는 동안 더 내려감
             if state["streak"] >= d["press_confirm"]:
                 state["z"] = state["z1"]
                 return sf.Outcome(True, reason=f"접촉 {dz:+.1f} N @ z {state['z1']:.2f} (확인 z {p[2]:.2f})")
@@ -739,13 +794,11 @@ class SkillServer(Node):
         pressed = self.robot.posx()
         if pressed is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
-        if pressed[2] < state["z"]:
-            # 감시 한 바퀴가 0.1 s 넘게 걸려 확인·정지하는 동안 1.5 mm 넘게 더 눌림(1 mm 에 2 → 10 N, 실측 10/06) → 너무 세게 눌러
-            # 끌다 걸림 (10/06 저녁 통합). 처음 2 N 넘은 높이로 천천히 올라온 뒤 끈다 = 2 N 으로 누른 깊이
-            pressed = mp.with_z(pressed, state["z"])
-            bad = self._line(goal, pressed, d["press_speed_mm_s"], "press_back")
-            if bad:
-                return bad, out
+        # 닿음은 큰 힘(touch_force_n)으로 확실히 확인 — 조금만 내려가도 힘이 튐 [사용자 10/07]. 확인·정지하는 동안 더 눌리므로
+        # 멈춘 자리에서 relax_step_mm 씩 올리며 멈춘 뒤 힘을 재서 끄는 힘(drag_force_n, 2 N 에서 잘 끌림 [실측 10/06]) 상한 이하면 그 높이로 끈다
+        bad, pressed, held_n = self._relax(goal, pressed, base_f, d)
+        if bad:
+            return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), out
         shift = mp.dir_to_base(tf, (0.0, plan.shift_y_m, 0.0))
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
@@ -777,7 +830,7 @@ class SkillServer(Node):
         if bad:
             return bad, out                                 # target_after 는 None (실패 결과 좌표로 집지 않음)
         out["target_after"] = after
-        return sf.Outcome(True, reason=f"옆으로 {dy * 1000:+.1f} mm 끌기"), out
+        return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 옆으로 {dy * 1000:+.1f} mm 끌기"), out
 
     # --- 집기 ---
     def _do_pick_object(self, goal, params):

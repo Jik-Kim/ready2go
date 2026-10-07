@@ -43,7 +43,7 @@
 
 ## 다음 할 일
 - [ ] 저녁 수정 실물 확인 (스킬 서버 `all`): 열기 ready 경로·손잡이 1 cm 전 저속, 집기 → 경유점 1 대각선, 블렌딩 들고 나오기·칸 위 살포시, 닫기 직행·마지막 30 mm 저속, 2배 속도
-- [ ] `nudge` `NOT_REACHED`(0.3 s)·"내려가다 오른쪽으로 찌름" — 끌기 유지라 고쳐야 함. 이제 `NOT_REACHED` 이유에 단계·남은 mm 가 찍힘
+- [ ] 끌기 새 누르기 실물 확인 [사용자 10/07 방식]: 닿음 확인 4 N(3번 연속, 값은 제안) → 0.2 mm 씩 올리며 멈춘 뒤 힘 → 5 N 이하면 그 높이로 끔 (2~5 N). 되돌아오기 1.5 mm(`NOT_REACHED` 0.3 s 의심) 없앰. 결과 이유에 "x N 으로 눌러" 찍힘. "내려가다 오른쪽으로 찌름"은 그대로 확인
 - [ ] PC2 통신 설정 정리 (C·A와): PC1 stub(multi) ↔ PC2(lo) 불통 → stub 을 PC2로 or PC2 설정 통일. Runner 컨테이너 `BACKEND=sim` + `cyclonedds.local.xml` 방식 C와 확정
 - [ ] #22 결과: Runner run_id·MongoDB 기록 확인, 비상정지 2회차 (C·D·E)
 - [ ] 저녁 브랜치 PR 여부 결정 (`claude/amazing-lamport-81s469`)
