@@ -271,3 +271,16 @@ def test_dragtest_goes_back_to_top_view_on_any_failure(monkeypatch, codes, want_
         with pytest.raises(SystemExit):
             sk.drag_test(None)
     assert calls == want_calls
+
+
+def test_report_sums_pick_window_from_first_view_to_last_pick(monkeypatch, capsys):
+    """구간별 시간표 (C 요청 10/07): pick 구간 = 첫 탑뷰 ~ 마지막 집기 (열기·놓기는 빼고)."""
+    sk = _load_sk(monkeypatch)
+    clock = Clock()
+    monkeypatch.setattr(sk, "time", clock)
+    for label, sec in [("open", 9.0), ("view", 3.0), ("scan", 1.0), ("nudge", 20.0), ("view", 3.0),
+                       ("rescan", 1.0), ("pick", 12.0), ("place", 8.0)]:
+        sk.timed(label, lambda sec=sec: clock.sleep(sec) or True)
+    sk.report()
+    out = capsys.readouterr().out
+    assert "pick 구간 합계 (첫 탑뷰 ~ 집기): 40.0 s" in out and "전체 합계: 57.0 s" in out

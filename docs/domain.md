@@ -46,32 +46,53 @@
 * `drawer_displacement`는 실제 이동 거리(TCP 이동량)로 반환하고 `/drawers/state`로 발행하여 비전의 서랍 좌표 변환과 트윈에 사용.
 
 ### 8.5 벽 인접 물체 밀어오기 (담당 B)
-> 10/06 실물부터 방식은 '위에서 눌러 옆(y)으로 끌기'([runner.md 7.1](runner.md) `nudge_object` 행이 현재 기준). 아래는 기존 설계 — 시연 후 정리.
+> 10/07 기준. 아래를 **① 현재 P1 실행 경로**, **② 과거 예시(현재 경로 아님)**, **③ P2 이후 후보**로 나눈다. 원자 동작 입출력·에러 코드는 [runner.md 7.1](runner.md) `nudge_object` 행이 정본이다. 실제 동작은 위에서 눌러 옆으로 **끄는** 것이며, FR-ACT-05의 "밀기" 표현과의 차이는 요구사항 정본 담당에게 인계한 상태다(#122).
 
-* **배경**: 얇은 물체(예: 지우개 1.15 cm)는 서랍 가운데에서만 잡히고, 벽 근처에서는 손가락이 들어갈 자리가 없다 [실측 10/03, A]. 닫은 그리퍼로 가운데로 밀고 → 다시 인식 → 집는다. 상세 작업 명세: GitHub 이슈 #37.
-* **원자 동작 `nudge_object`**: `pick_object` 안에 숨기지 않고 태스크에서 조합한다(로그에 단계별 기록). 입출력·에러 코드는 [runner.md 7.1](runner.md). 온톨로지 스킬 4종은 그대로이고 물체는 서랍 안에 남으므로 상태 변화가 없다.
-* **판단 (`core/`, ROS 없이 테스트)**: 물체 크기(온톨로지 `size_m`) + `yaw`로 서랍 내부 벽까지의 거리를 계산 → 두 파지 방향 중 하나라도 손가락 여유가 있으면 밀지 않음(`pushed: false`) → 아니면 가장 가까운 벽에서 멀어지는 방향으로 (필요 거리 + 여유)만큼 민다. 서랍 내부 치수는 [`config/places.yaml`](../config/places.yaml)의 `drawer_top.interior_m`.
-* **동작 5단계**: ① 닫은 그리퍼를 물체의 벽 쪽 뒤편 위로 이동 → ② 저속 하강, z축 힘이 임계를 넘으면 정지하고 바닥 높이 기록(최대 하강 거리 제한) → ③ 바닥에서 수 mm 상승(물체 높이의 절반 미만) → ④ 저속 직선 밀기, 힘 임계 초과 시 정지 → ⑤ 위로 이탈.
-* **밀고 나서**: 물체가 돌거나 움직이므로 **반드시 `inspect_region`을 다시 해서 그 좌표로 집는다**. P1 Runner에는 `while`이 없으므로 `nudge_object` 1회 호출 = 1회 밀기이고, 태스크는 `inspect_region` → `nudge_object` → (`pushed`면) `inspect_region` 다시 → `nudge_object(check_only: true)`(아직 파지 불가면 `PUSH_LIMIT`) → `pick_object`로 펼친다. 예시: [`contracts/examples/task_nudge_then_pick.json`](../contracts/examples/task_nudge_then_pick.json). 벽에 붙어 틈이 없으면 `NO_PUSH_ACCESS`로 실패하고 TTS로 안내한다(P1). 벽 따라 옆으로 밀기는 P2 후보.
-* **바닥 높이**: 새 서랍은 처짐이 없지만(`sag_m_at_max_travel` = 0 [실측 A 10/03]) 서랍 TF의 z는 설치 오차를 포함하므로, 바닥 높이는 **TF가 아니라 힘 감지**(2단계)로 정한다.
-* **범위**: P1에 포함하지만 L1(Day 8) 필수 경로는 아니다 — #15를 가운데 배치로 먼저 완성한 뒤 Day 5~6에 구현.
-* **실측 후 채울 값** `[팀 확정 필요]`: 닫힌 손가락 두께(미는 방향 기준), 바닥 감지 힘 임계·하강 속도, 바닥 감지 반복성(같은 자리 5회 z 편차), 벽에서 몇 cm부터 밀지 않고 잡히는지.
+* **배경**: 얇은 물체(예: 지우개 1.15 cm)는 서랍 가운데에서만 잡히고, 벽 근처에서는 손가락이 들어갈 자리가 없다 [실측 10/03, A]. 그래서 닫은 그리퍼로 물체를 가운데 쪽으로 끌어온 뒤 **다시 보고** 집는다. 상세 작업 명세: GitHub 이슈 #37.
+
+**① 현재 P1 실행 경로 — 공통 `pick` 스킬 안에서 선형 전개** ([`knowledge/skills/pick.jsonld`](../knowledge/skills/pick.jsonld), E #122; 정식 태스크 [`tasks/find_item.json`](../tasks/find_item.json) `s5.1`)
+1. `move_to_named_pose(drawer_top_view)` → 2. `inspect_region` → `scan` → 3. `nudge_object(target=$scan.target)` → 4. 같은 서랍 탑뷰로 이동 → 5. `inspect_region` 재관측(스킬 로컬 `scan` 갱신) → 6. `pick_object(target=$scan.target)`.
+* **끌지 않아도 될 때도 재관측한다.** 공간이 충분하면 `nudge_object`가 움직이지 않고 `pushed: false`로 성공하고, 그래도 4·5단계를 그대로 한다. 스킬 안에 분기·`check_only` 단계를 두지 않는다.
+* **집기는 재관측 좌표로만 한다.** `nudge_object`의 `target_after`는 끈 거리만큼 옮긴 **예상** 위치로 기록(e3)만 하고 집기에 쓰지 않는다. 최초·재관측 응답은 각각 e2·e5 기록에 남는다.
+* **관측 실패**: 최초 또는 재관측 `target`이 `null`이면 Runner가 `VAR_NULL`로 다음 `nudge_object`/`pick_object`를 보내지 않는다. 스킬 effect는 6단계 전체가 성공했을 때만 반영된다.
+* **재시도**: 태스크의 `pick` `retry: 1`은 팔이 움직이기 전 실패에만 적용된다. 1단계 탑뷰 이동이나 3단계 끌기 뒤의 실패는 `YAW_INVALID`를 포함해 Runner가 스킬을 다시 보내지 않는다(`retry_stopped: MOTION_UNCERTAIN`, `interpreter.py` `NON_MOTION_ACTIONS`). 이 제약을 우회하지 않는다.
+* **실패 뒤**: 태스크 `finally`의 서랍 닫기·홈은 Runner의 기존 안전 조건을 따른다. ESTOP·잠금(`HALT_CODES`)이면 로봇을 움직이는 finally 동작은 건너뛰고, 물품을 쥔 채면 홈으로 가지 않는다(`find_item` 설명). 실패하면 항상 닫고 홈으로 간다고 가정하지 않는다.
+* **`nudge_object` 백엔드 동작** (스킬 서버 `_do_nudge_object`, 값은 `ros2_ws/src/ready2go_skills/params/skills.yaml` `drag`)
+  * **판단** (`core/motion_plan.plan_drag`, ROS 없이 테스트): 물체 크기(온톨로지 `size_m`) + `yaw` + 서랍 `interior_m` + 옆벽 실제 위치 보정(`drawer_wall_offset_mm`)으로 짧은 변 파지 여유를 계산 → 잡을 수 있으면 움직이지 않고 `pushed: false`. 앞뒤 벽 때문에 옆으로 끌어도 안 되거나, 누를 점이 물체 위 밖이면 움직이지 않고 `NO_PUSH_ACCESS`.
+  * **접근**: 닫은 그리퍼를 벽 쪽 손끝·가운데 쪽 손목으로 `tilt_deg` 20° 기울인 채 물체 위 `start_above_mm`(3 mm)까지 한 번에 이동.
+  * **누르기**: `press_speed_mm_s` 2 mm/s로 내려가며 힘 z가 `touch_force_n` 5 N을 넘으면 즉시 멈춘다. 멈춘 채 0.1 s 간격으로 3번 모두 5 N 이상일 때만 접촉으로 보고, 아니면 그 자리에서 다시 내려간다(최대 2번). 누르는 동안 `press_max_force_n` 8 N 상한을 항상 본다. 위 서랍은 z 14 N에서 앞으로 넘어가므로 10 N을 넘기지 않는다 [실측 B 10/07]. 접촉 높이가 예상 ± 3 mm 밖이면 끌지 않는다.
+  * **힘 풀기**: 0.1 mm씩 올려 누르는 힘을 `drag_force_n` 1.5~2.5 N으로 맞춘다. 3 mm 올려도 상한을 넘으면 `PUSH_BLOCKED`.
+  * **끌기**: 누른 z 그대로 서랍 옆(y)으로 `shift_mm` 33 mm만 끈다. 끄는 중 힘 변화가 `max_force_n` 8 N을 넘으면 멈추고 `PUSH_BLOCKED`. 서랍이 닫히는 방향으로는 끌지 않는다(서랍이 같이 밀림, 10/06).
+  * **끝**: `lift_mm` 30 mm 위로 올라간 뒤 응답한다. 안전 정지 코드가 아닌 실패에서도 같이 올라간다. 도착 판정은 좌표 기준(목표 ± 허용 오차 + 정지)이다.
+  * **바닥 높이**: 서랍 TF z에는 설치 오차가 있어, 누르는 높이는 힘 감지로 확인한다.
+* **실물 결과**: 위 서랍 손잡이 쪽 모서리 지우개 끌기 → 집기 → 전달 트레이까지 성공했다 [실측 B 10/07, `ros2_ws/src/ready2go_skills/scripts/b_sk.py dragtest`]. 끈 뒤 탑뷰 재관측 → 그 좌표로 집기 경로도 `b_sk.py` 호스트 흐름으로 확인했다. Runner를 거친 전체 실행, AC-ACT-05 벽 근처 10회 중 8회, 공통 pick 전체 시간(현재 `timeout_sec` 60)은 아직 미측정이다.
+
+**② 과거 예시 (현재 P1 경로 아님, 파일은 기록용으로 유지)**
+* 10/06 시연 `pick_demo`(`robot_ontology_demo.jsonld`): `nudge_object` → `target_after`(예상값)로 바로 `pick_object`. 재관측이 없어 FR-ACT-05 재인식 완료로 보지 않는다.
+* 10/05 설계안 [`contracts/examples/task_nudge_then_pick.json`](../contracts/examples/task_nudge_then_pick.json): 태스크에서 `inspect_region` → `nudge_object` → (`pushed`일 때만) 재관측 → `nudge_object(check_only: true)`(아직 못 잡으면 `PUSH_LIMIT`) → `pick_object`. `check_only` 옵션은 원자 동작에 남아 있지만 현재 공통 pick은 쓰지 않는다.
+* 그 전 설계의 "바닥 감지 → 수 mm 상승 → 옆으로 밀기"는 10/06 실물에서 위에서 눌러 끄는 방식으로 바뀌었다(트러블슈팅 2, `practice/B/2026-10-06_practice.md`).
+
+**③ P2 이후 후보 (미확정)**
+* 아래 서랍(`drawer_bottom`): 위 서랍 앞판에 그리퍼 몸통이 걸려 수직으로는 안쪽 약 151 mm까지만 닿는다. 그 안쪽 띠는 20° 기울여 누른 뒤 손잡이 쪽(서랍 −x)으로 끌어오는 안이다 [실측 B 10/07, K4·K5 측정 중]. 이 경우 서랍이 닫히는 방향과 반대라 위 ①의 옆(y) 제한과 다르다. 코드·TF 미반영.
+* 벽 따라 밀기, 긴 변 방향 잡기, 주변 물체 간격까지 본 공간 판단의 주체·필드는 [#120](https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상이다.
 
 ### 8.6 파지 실패·놓침 처리 (담당 B)
-* **배경**: 집다가 빈손으로 닫히거나, 들어 올리거나 옮기는 중에 물체가 빠질 수 있다. 실패를 알아채면 로봇이 **서랍 안에서 그대로 멈춰 있지 않고 안전하게 빠져나온 뒤**, 다시 위에서 보고 집는다. 판정 코드는 `ready2go_skills/core/grasp_check.py`(ROS 없이 테스트).
-* **확인 시점과 즉시 동작** (백엔드 `pick_object`·`place_object` 안에서)
+* **배경**: 집다가 빈손으로 닫히거나, 들어 올리거나 옮기는 중에 물체가 빠질 수 있다. 실패를 알아채면 로봇이 **서랍 안에서 그대로 멈춰 있지 않고 안전하게 빠져나온 뒤** 실패를 응답한다. 판정 코드는 `ready2go_skills/core/grasp_check.py`(ROS 없이 테스트).
+* **확인 시점과 즉시 동작** (백엔드 `pick_object`·`place_object` 안, 10/07 스킬 서버 기준)
 
-  | 시점 | 판정 | 로봇 즉시 동작 | 에러 코드 |
+  | 시점 | 판정 | 로봇 즉시 동작 | 응답 코드 |
   | :--- | :--- | :--- | :--- |
-  | ① 닫은 직후 | `check_grasp`: 감지 없음·빈손 닫힘·기대 폭과 다름 | 그리퍼 열기 → 수직 상승(서랍 테두리 위 안전 높이) | `GRASP_FAILED` (물체는 거의 제자리) |
-  | ② 안전 높이로 들어 올린 직후 | `check_hold`: 폭이 최소 폭 이하 = 빠짐 | 그리퍼 열기 → 그 자리 유지 | `GRASP_FAILED` (물체는 집으려던 자리 근처로 떨어짐) |
-  | ③ 옮기는 중·놓기 직전 | `check_hold` (이동 중 `/gripper/state` 감시 + `place_object` 시작 때) | 그 자리 정지 → 상승 | `OBJECT_DROPPED` (떨어진 위치 모름: 서랍 안 또는 작업대) `[팀 확정 필요: 오류 계약은 #78, 확정 전 노드에서 쓰지 않음]` |
+  | ① 닫은 직후 | `check_grasp`: 감지 없음·빈손 닫힘·기대 폭과 다름 | 그리퍼 열기 → 물체 위 접근 높이로 상승 | `GRASP_FAILED` (물체는 거의 제자리) |
+  | ② 경유점으로 들어 올린 직후 | `check_hold`: 폭이 최소 폭 이하 = 빠짐 | 그 자리(경유점)에서 멈춤. 그리퍼는 빈손으로 닫혀 있음 | `GRASP_FAILED` (물체는 집으려던 자리 근처로 떨어짐) |
+  | ③ 놓기 직전 | `check_hold` (`place_object` 안, 놓는 자리 위에서) | 그 자리 정지, 쥔 상태 기록 해제 | `OBJECT_DROPPED` (떨어진 위치 모름: 서랍 안 또는 작업대) `[팀 확정 필요: 오류 계약은 #78]` |
 
-  * 폭이 NaN·inf·RG2 범위(0~110 mm) 밖이면 `SENSOR_INVALID` — 잡았는지 **알 수 없는** 상태로, 놓침 확정(`DROPPED`)과 구분한다. 정상 파지로 보지 않고 그 자리 정지 → 상승까지는 같게 하며, 응답 코드·후처리는 #78에서 B·C·E가 정한다 (#72 D·E 리뷰).
-  * 폭이 조금 변했지만 아직 잡고 있으면 `SLIPPED`로 기록만 하고 계속한다(손가락 안에서 돌아 놓는 위치·방향 오차가 커질 수 있음 → 로그 `post_check`에 남김).
+  * 폭이 NaN·inf·RG2 범위(0~110 mm) 밖이면 판정은 `SENSOR_INVALID`이다. 잡았는지 **알 수 없는** 상태라 놓침 확정과 구분해 정상 파지로 보지 않는다. 현재 노드는 응답 코드를 위 표 코드(`GRASP_FAILED`/`OBJECT_DROPPED`)로 내고 `reason`에 `SENSOR_INVALID`를 적는다. 별도 응답 코드·후처리는 #78에서 B·C·E가 정한다 (#72 D·E 리뷰).
+  * 폭이 조금 변했지만 아직 잡고 있으면 `SLIPPED`로 기록만 하고 계속한다(손가락 안에서 돌아 놓는 위치·방향 오차가 커질 수 있음).
   * 놓치면 RG2가 계속 닫혀 폭이 빈손 닫힘(0.9 mm)까지 줄어든다 [실측 B 10/03]. 고무 물체는 잡는 힘에 조금 눌리므로(지우개 22 → 21.4 mm [실측 B 10/04]) 작은 변화는 정상으로 본다.
-* **다시 보고 다시 집기 (태스크 흐름)**
-  * **P2**: 실패한 `pick_object` 스텝에 `recovery`로 `move_to_named_pose(drawer_top_view)` → `inspect_region`(출력 `scan`)을 두고 `on_failure: retry`, `retry: 1`. 재시도는 새로 본 `$scan` 좌표로 집는다 (C 확인: Runner는 시도마다 `params`를 그때의 블랙보드로 다시 푼다, #72. P2 `recovery` 구현·검증은 별도). ③에서 다시 봐도 목표가 서랍에 없으면 작업대로 떨어진 것으로 보고 TTS로 사람에게 확인 요청(로봇이 작업대를 찾아 집지는 않음).
-  * **P1**: P1 Runner에는 `recovery`가 없다. 그래서 **이미 실패한 같은 target의 원자 집기를 새 관측 없이 반복하지 않는다**(`pick` 스킬의 `retry`는 내부 `inspect_region`부터 다시 하므로 새 관측이 들어가 다른 경우다, C 확인 #72). 실패 → `finally`(서랍 닫기·홈) + TTS로 실패 안내. 백엔드의 ①~③ 즉시 동작은 P1부터 넣는다.
-* **값** `[팀 확정 필요]`, `config/`에 둠: 최소 폭(빈손 판정, 0.9 mm보다 큰 값), 미끄러짐 허용 폭 변화, 안전 상승 높이(서랍 테두리 + 물체 높이 + 여유).
-
+  * 옮기는 동안 `/gripper/state`를 계속 감시하지는 않는다. 확인은 위 세 시점뿐이다.
+* **실패 뒤 흐름 — 현재 P1** (공통 `pick`, 8.5 ①)
+  * `pick_object`는 6단계 중 마지막이라 앞서 탑뷰 이동(과 끌기)이 이미 있었다. 그래서 `GRASP_FAILED` 등 어떤 실패든 Runner는 `pick` 스킬을 다시 보내지 않는다(`MOTION_UNCERTAIN`). 태스크의 `retry: 1`이 있어도 같다.
+  * 실패는 태스크로 전파되어 `finally`로 간다. 서랍 닫기·홈·TTS 안내는 Runner 안전 조건을 따른다: ESTOP·잠금이면 움직이는 동작은 건너뛰고, 물품을 쥔 채(놓기 실패 등)면 홈으로 가지 않고 사람 복구를 기다린다.
+  * P1 Runner에는 `recovery`가 없어 "다시 보고 다시 집기"를 자동으로 하지 않는다. 호스트 시험 스크립트 `ros2_ws/src/ready2go_skills/scripts/b_sk.py`의 재시도(탑뷰 → 재관측 → 실패한 단계부터 다시, 최대 2회)는 B 실물 시험용이며 Runner 경로가 아니다.
+* **P2 계획 (미구현)**: 실패한 `pick_object` 스텝에 `recovery`로 `move_to_named_pose(drawer_top_view)` → `inspect_region`(출력 `scan`)을 두고 새로 본 `$scan` 좌표로 다시 집는다 (C 확인: Runner는 시도마다 `params`를 그때의 블랙보드로 다시 푼다, #72). ③ 뒤 다시 봐도 목표가 서랍에 없으면 작업대로 떨어진 것으로 보고 TTS로 사람에게 확인을 요청한다(로봇이 작업대를 찾아 집지는 않음). Runner `recovery`·이동 뒤 재시도 허용 조건은 C·E 합의가 필요하다.
+* **값** (`ros2_ws/src/ready2go_skills/params/skills.yaml` `gripper`): 최소 폭 `min_width_m` 2 mm(빈손 닫힘 0.9 mm보다 큼), 미끄러짐 허용 `slip_tolerance_m` 2 mm, 기대 폭 허용 오차 `grasp_width_tolerance_m` 3 mm [실측 B 10/03~10/06, 지우개 기준]. 다른 물품 값은 `[팀 확정 필요]`.
