@@ -58,6 +58,20 @@ def test_report_is_read_only_and_tolerates_unknown_or_unfinished():
     assert "진행 중?" in text and "future_action" in text and "NEW_CODE" in text
 
 
+def test_rejected_run_shows_why_it_did_not_start():
+    """#105 D 리뷰 P2: 실행 전 거절(TASK_INVALID)은 스텝이 없으니 runs.problems 를 그대로 보여 준다."""
+    rejected = {"run": {"run_id": "2026-10-07T03:00:00Z_abc123", "task_id": "p1_demo_eraser",
+                        "started_at": "2026-10-07T03:00:00Z", "total_duration_sec": 0.0, "overall_status": "FAILED",
+                        "error": {"code": "TASK_INVALID"},
+                        "problems": ["sequence[0]: 알 수 없는 action 'opne_drawer'", "finally[1]: params 누락"]},
+                "steps": []}
+    text = rr.to_text(rejected)
+    assert "실행 전 거절 · TASK_INVALID: 태스크 검사 실패" in text and "실패 스텝 ?" not in text
+    assert "이유: sequence[0]: 알 수 없는 action 'opne_drawer'" in text and "이유: finally[1]: params 누락" in text
+    md = rr.to_markdown(rejected)
+    assert "- 이유: finally[1]: params 누락" in md
+
+
 def test_kst():
     assert rr.kst("2026-10-06T15:30:00.5Z") == "10/07 00:30:00"
     assert rr.kst(None) == "-"

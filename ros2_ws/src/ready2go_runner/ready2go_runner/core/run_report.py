@@ -34,6 +34,7 @@ ERROR_KO = {
     "WALL_TOO_CLOSE": "벽에 너무 붙어 집을 수 없음", "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리",
     "PUSH_BLOCKED": "끌다가 힘 초과", "NO_OBJECT_CONTACT": "끌기: 물체 접촉 없음",
     "GRASP_FAILED": "파지 실패", "UNKNOWN_SKILL": "알 수 없는 스킬",
+    "TASK_INVALID": "태스크 검사 실패 — 실행 전 거절 (로봇 동작 없음)",
 }
 RUN_KO = {"COMPLETED": "✅ 성공", "FAILED": "❌ 실패", "ABORTED": "🛑 중단"}
 
@@ -173,7 +174,10 @@ def header(record: dict) -> list[str]:
     lines = [first, second]
     code = (run.get("error") or {}).get("code")
     if code:
-        lines.append(f"  실패 스텝 {run.get('failed_step', '?')} · {code}: {ERROR_KO.get(code, '')}".rstrip(": "))
+        where = f"실패 스텝 {run['failed_step']}" if run.get("failed_step") else "실행 전 거절"
+        lines.append(f"  {where} · {code}: {ERROR_KO.get(code, '')}".rstrip(": "))
+    for problem in run.get("problems") or []:    # 실행하지 않은 이유 (TASK_INVALID 검사 결과, 중단 잠김) — #105 D 리뷰
+        lines.append(f"  이유: {problem}")
     return lines
 
 
