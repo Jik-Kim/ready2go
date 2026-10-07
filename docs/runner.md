@@ -74,7 +74,7 @@
 * **값 전체 참조**: `"$scan.target.id"`, `"$scan.candidates[0].id"` → 원래 타입(불리언·숫자·객체) 그대로 치환.
 * **문자열 보간**: `"{{loc.name_ko}} 찾기를 시작합니다"` → 문자열로 치환.
 * **한국어 조사 필터**: `"{{loc.name_ko|을}}"`처럼 조사를 붙이면 Runner가 앞 단어의 받침 유무(유니코드 한글 음절 계산)로 `을/를`, `이/가`, `은/는`, `과/와`, `으로/로`를 자동 선택함. 목록은 `"{{list.items_ko|목록|을}}"` → "차키, 립밤, 지우개를"처럼 쉼표로 잇고 마지막 단어 기준으로 조사를 붙임. 영문·숫자로 끝나면 받침 없음으로 처리.
-* `eval`을 사용하지 않고 Runner가 경로를 해석함. 존재하지 않는 변수는 `VAR_UNDEFINED` 에러.
+* `eval`을 사용하지 않고 Runner가 경로를 해석함. 존재하지 않는 변수는 `VAR_UNDEFINED` 에러. 로봇·백엔드로 보내는 동작(`set_var`·`if`·`speak`·`query_ontology`·`update_ontology` 제외)의 params 값 전체가 `$변수` 참조인데 `null`이면 보내지 않고 `VAR_NULL` 에러(예: 실패·누락된 `target_after`로 집기, #23).
 * **변수 스코프 (블랙보드)**: `output`·`set_var`로 만든 변수(`loc`, `scan`, `picked` 등)는 **태스크 단위 전역 블랙보드**에 저장되어 `sequence`·`finally`·`on_halt` 어디서든 태스크 종료 시까지 유지됨. 같은 이름으로 다시 `output`하면 덮어씀(예: Unpacking 루프의 `scan`은 재촬영마다 갱신, `loc`은 처음 값 유지). 예외로 `for_each`의 `as` 변수만 루프 안에서 유효함. 블랙보드는 태스크가 끝나면 사라지고(최종 값은 로그에 기록), **태스크 사이에 이어지는 정보는 상태 온톨로지(7.8)만** 사용함.
 
 **조건식 (단일 형태)**: `{ "op": "<연산자>", "args": [ ... ] }`
@@ -105,6 +105,7 @@
 | :--- | :--- |
 | `TASK_INVALID` | 실행 전 검사 실패 (스키마·Phase 범위·필수 필드) |
 | `VAR_UNDEFINED` | 존재하지 않는 변수 참조 |
+| `VAR_NULL` | 백엔드로 보낼 동작의 `$변수` 값이 `null` → 동작을 보내지 않음 (#23) |
 | `BAD_FILTER` | `{{x\|필터}}`에 없는 조사·`목록` 필터 오용 |
 | `BAD_CONDITION` | 조건식 인자 개수·타입 오류 |
 | `TIMEOUT` | `timeout_sec` 초과 (Runner 판정, 또는 클라이언트가 취소 요청). 결과가 불확실해 재시도하지 않음 |
@@ -180,10 +181,28 @@
 
 * 시작할 때 스키마(`/contracts`)·온톨로지(`/knowledge`, 초기 상태 포함)를 읽고 실행 이력은 MongoDB(`MONGO_URI`) → 실패 시 `/logs` JSONL.
 * `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
-* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`).
+* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, 없으면 `null`).
 * `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
 * `/runner/estop` (`std_srvs/Trigger`) → `halt()` → 진행 중인 goal 에 즉시 취소 요청(정지 확인 전에는 다음 동작 없음). **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
-* 태스크 실행 통로: 정식은 `/voice/intent`(#17). 지금은 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행.
+* 태스크 실행 통로: 정식은 `/voice/intent`(#17, `core/intent_router.py`). 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행.
+* **`/voice/intent` 처리** (#17·#23): E 음성 노드가 검증한 뒤 발행하지만, 로봇을 움직이는 쪽이라 Runner 가 한 번 더 확인하고 애매하면 실행하지 않음. 재질문·안내 TTS 는 E 음성 노드(`last_intent`를 보고 말할지는 E 합의).
+
+  | 받은 인텐트 | Runner | `last_intent.decision` / `reason` |
+  | :--- | :--- | :--- |
+  | `intent.schema.json` 위반·JSON 아님 | 실행 안 함 | `hold` / `BAD_INTENT` |
+  | `unknown`·`clarify` | 실행 안 함 | `hold` / `NEEDS_CLARIFY` |
+  | 연결된 태스크가 없는 인텐트 (P1 은 `find_item`만, 목록·목표형은 P2/P3) | 실행 안 함 | `hold` / `UNSUPPORTED_INTENT` |
+  | `confidence` < `min_confidence` | 실행 안 함 | `hold` / `LOW_CONFIDENCE` |
+  | `targets` 없음·2개 이상(P1 은 물품 하나)·온톨로지 `items`에 없음 | 실행 안 함 | `hold` / `NO_TARGET`·`MULTI_TARGET`·`UNKNOWN_ITEM` |
+  | 태스크 `trigger.targets`에 없는 물품 (물품이 정해진 태스크, 예: 지우개 시연 태스크에 "차키 찾아줘") | 실행 안 함 (서랍도 열지 않음) | `hold` / `UNSUPPORTED_ITEM` |
+  | 중단 잠김 / 이미 실행 중(중복 요청, 줄 세우지 않음) | 실행 안 함 | `reject` / `LOCKED`·`BUSY` |
+  | 위를 모두 통과한 `find_item` 등 | 태스크 실행, `inputs` = `{target: targets[0], source: "voice", stt_text, intent_confidence}`, 실행 기록 헤더 `intent`에 받은 JSON 그대로 (FR-LOG-01 입력 명령) | `run` |
+  | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
+  | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |
+
+  * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — 10/08 시연(벽 배치·nudge): `-p ontology_file:=/knowledge/robot_ontology_demo.jsonld -p intent_tasks:=find_item=/tasks/p1_demo_eraser.json`. 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
+  * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
+  * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.
 * `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험.
 
 ### 7.2 태스크 시퀀스 스키마

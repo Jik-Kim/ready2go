@@ -41,8 +41,9 @@ DEMO = demo_ontology()
 class MockRobot:
     """ROS 대신 call_action·call_service 를 받는 가짜 백엔드. fail: {동작: [코드, …]} 앞에서부터 하나씩."""
 
-    def __init__(self, visible=True, fail=None):
+    def __init__(self, visible=True, fail=None, nudge_output=None):
         self.visible, self.fail = visible, {k: list(v) for k, v in (fail or {}).items()}
+        self.nudge_output = nudge_output                  # nudge 성공 응답을 바꿔 줌 (target_after 누락 시험)
         self.sent: list[str] = []
         self.params: dict[str, list] = {}
         self.spoken: list[str] = []
@@ -57,6 +58,8 @@ class MockRobot:
         codes = self.fail.get(action)
         if codes:
             return Reply(False, codes.pop(0))
+        if action == "nudge_object" and self.nudge_output is not None:
+            return Reply(True, "", json.dumps(self.nudge_output))
         if action == "nudge_object":                      # B #83: 성공일 때만 target_after
             after = copy.deepcopy(params["target"])
             after["pose"]["position"][1] = round(after["pose"]["position"][1] + NUDGE_DY, 4)
@@ -217,6 +220,35 @@ def test_check_nudge_failure_does_not_pick():
     assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
     assert step(result, "s4.1").get("retry_stopped") is None and step(result, "s4.1")["attempts"] == 1   # 재시도 없음
     assert saved["run"]["error"] == {"code": "NO_PUSH_ACCESS"}
+
+
+@pytest.mark.parametrize("output, code", [({"pushed": True}, "VAR_UNDEFINED"),
+                                          ({"pushed": True, "target_after": None}, "VAR_NULL")])
+def test_check_missing_target_after_does_not_pick(output, code):
+    """#23 C 검증 요청: nudge 가 성공이라도 target_after 가 없거나 null 이면 pick 을 보내지 않고 집기 effect 없음."""
+    robot = MockRobot(nudge_output=output)
+    runner, result, _ = run_check(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", code, "s4.1.e2")
+    assert "/skills/pick_object" not in robot.sent
+    assert (runner.state["located_in"]["eraser"], runner.state["gripper"]["robot"]) == ("drawer_top", "empty")
+    assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
+
+
+@pytest.mark.parametrize("code", ["GRASP_FAILED", "YAW_INVALID"])
+def test_check_no_whole_skill_retry_after_nudge_even_if_task_asks(code):
+    """#23 C 검증 요청: nudge 로 물체를 옮긴 뒤 pick 이 실패하면, 태스크에 retry 가 있어도 pick_demo 전체
+    (nudge 포함)를 다시 보내지 않는다. YAW_INVALID 처럼 그 동작 자체는 안 움직인 실패라도 앞의 nudge 가 움직였으므로."""
+    task = copy.deepcopy(CHECK)
+    pick = task["sequence"][3]["then"][0]
+    assert pick["skill"] == "pick_demo"
+    pick.update(on_failure="retry", retry=2)
+    robot = MockRobot(fail={"pick_object": [code, code, code]})
+    runner, result, _ = run(robot, task=task, onto=DEMO)
+    assert result.overall_status == "FAILED" and result.error_code == code
+    assert robot.sent.count("/skills/nudge_object") == 1 and robot.sent.count("/skills/pick_object") == 1
+    assert step(result, "s4.1")["attempts"] == 1 and step(result, "s4.1")["retry_stopped"] in (
+        "MOTION_UNCERTAIN", "NOT_RETRYABLE")
+    assert runner.state["located_in"]["eraser"] == "drawer_top"
 
 
 def test_check_grasp_failed_runs_finally_without_effect():
