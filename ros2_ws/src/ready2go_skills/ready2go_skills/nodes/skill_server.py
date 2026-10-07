@@ -314,19 +314,8 @@ class SkillServer(Node):
         """wait_motion arrived: 관절각이 목표와 reach_tol 안. 조회 실패면 False."""
         return lambda: sf.check_reached(joints, self.robot.posj(), self.reach_tol).success
 
-    def _at_posx(self, posx, tol_mm=1.0, tol_deg=1.0):
-        """wait_motion arrived: TCP 위치·방향이 목표 근처. 조회 실패면 False."""
-        def at():
-            cur = self.robot.posx()
-            if cur is None:
-                return False
-            d = math.dist(cur[:3], [float(v) for v in posx[:3]])
-            return d <= tol_mm and pm.rotation_angle(pm.rot(*cur[3:]), pm.rot(*posx[3:])) <= tol_deg
-        return at
-
-    # --- 공통 이동 ---
-    def _line(self, goal, posx, vel, stage, watch=None):
-        """직선 이동 1회 (자동 모드 → 취소 확인 → 비동기 명령 → 끝날 때까지). 성공이면 None, 아니면 Outcome."""
+    def _line(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0):
+        """직선 이동 1회 (자동 모드 → 취소 확인 → 비동기 명령 → 끝날 때까지, 좌표로 판단 _wait_pose). 성공이면 None, 아니면 Outcome."""
         goal.publish_feedback(Skill.Feedback(stage=stage))
         if not self.robot.auto():
             return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
@@ -339,34 +328,22 @@ class SkillServer(Node):
                                stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad
-        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=self._joint_watch(watch),
-                              arrived=self._at_posx(posx))
-        return None if done.success else self._where(done, stage, posx)
+        return self._wait_pose(goal, posx, vel, stage, watch, tol_mm, tol_deg)
 
-    def _line_slow(self, goal, posx, vel, stage, watch=None, tol_mm=0.05, still_mm=0.01, still_s=1.0):
-        """아주 느린 직선 (누르기 1 mm/s, 힘 맞추기 0.1 mm). 실물에서 느린 이동은 관절 변화가 작아 '이동 중'이 안 떠 wait_motion 이
-        멈춤으로 보고 정지 명령 없이 끝남 → 10/07 누르기가 감시 없이 계속 내려감. 그래서 좌표로만 판단한다:
-        목표 tol_mm 안 = 도착, watch 가 Outcome = 정지 후 그 결과, 좌표가 still_s 동안 still_mm 안 = 멈춤(목표 전이면 정지 후 NOT_REACHED).
-        비상정지·취소·시간 초과·좌표 조회 끊김은 wait_motion 과 같게 정지 확인. 성공이면 None."""
-        goal.publish_feedback(Skill.Feedback(stage=stage))
-        if not self.robot.auto():
-            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
-        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
-        if early:
-            return early
-        sp = self.prm()["speed"]
-        bad = sf.after_command(self.robot.movel_async(posx, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
-                                                      sp["turn_acc_deg_s2"]), what=f"movel({stage})",
-                               stop=self.robot.stop, get_state=self.state)
-        if bad:
-            return bad
-
-        def halt(o):                                        # 정지 + 정지 확인. 성공 결과(접촉 감지)면 None — _line 과 같은 약속
+    def _wait_pose(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0, settle_s=0.15, still_s=1.0,
+                   still_mm=0.01, still_deg=0.01):
+        """직선·블렌딩 이동이 끝날 때까지 — 좌표(위치·방향)로만 판단 (10/07 실물).
+        관절 변화로 '이동 중'을 보면 천천히 출발하는 동안(가속 = 속도, 1 mm/s 누르기·10 mm/s 끌기) 멈춤으로 잘못 봐
+        누르기는 정지 명령 없이 끝나고(감시 없이 계속 내려감), 끌기는 0.3 mm 에서 섰음.
+        - 목표 tol_mm·tol_deg 안 + settle_s 동안 그대로 = 도착 (None)
+        - watch 가 Outcome = 정지·확인 후 그 결과 (성공 결과면 None — 접촉 감지)
+        - 위치·방향이 still_s 동안 그대로인데 목표 밖 = 정지·확인 후 NOT_REACHED
+        - 비상정지 = ESTOP, 취소·좌표 조회 1 s 넘게 끊김·시간 초과 = 정지 확인 후 해당 코드"""
+        def halt(o):                                        # 정지 + 정지 확인 (_halt). 성공 결과(접촉 감지)면 None
             done = sf._halt(self.robot.stop, self.state, time.monotonic, time.sleep, 0.05, 3.0, o)
             return None if done.success else self._where(done, stage, posx)
 
-        goal_mm = [float(v) for v in posx[:3]]
+        goal_mm, goal_rot = [float(v) for v in posx[:3]], pm.rot(*[float(v) for v in posx[3:6]])
         cur = self.robot.posx()
         dist = math.dist(cur[:3], goal_mm) if cur else 0.0
         limit = max(self.move_timeout, 2.0 * dist / max(vel, 1e-6) + 5.0)
@@ -390,17 +367,24 @@ class SkillServer(Node):
                     return halt(sf.Outcome(False, sf.STATE_UNKNOWN, reason="좌표 조회 실패 1 s 넘음 — 정지"))
             else:
                 unknown_since = None
-                if math.dist(p[:3], goal_mm) <= tol_mm:
-                    return None
-                if last is not None and math.dist(p[:3], last[:3]) < still_mm:
+                r = pm.rot(*p[3:6])
+                if last is not None and (math.dist(p[:3], last[:3]) < still_mm
+                                         and pm.rotation_angle(r, pm.rot(*last[3:6])) < still_deg):
                     still_since = still_since or now
-                    if now - still_since > still_s:
-                        return halt(sf.Outcome(False, sf.NOT_REACHED, reason=f"좌표가 {still_s:g} s 동안 그대로 — 목표 전에 멈춤"))
                 else:
                     still_since, last = None, p
+                there = math.dist(p[:3], goal_mm) <= tol_mm and pm.rotation_angle(r, goal_rot) <= tol_deg
+                if there and still_since is not None and now - still_since >= settle_s:
+                    return None
+                if not there and still_since is not None and now - still_since > still_s:
+                    return halt(sf.Outcome(False, sf.NOT_REACHED, reason=f"위치·방향이 {still_s:g} s 동안 그대로 — 목표 전에 멈춤"))
             if now - t0 > limit:
                 return halt(sf.Outcome(False, sf.MOTION_TIMEOUT, reason=f"{limit:.0f} s 안에 끝나지 않아 정지"))
             time.sleep(0.05)
+
+    def _line_slow(self, goal, posx, vel, stage, watch=None):
+        """아주 느린 직선 (누르기 1 mm/s, 힘 맞추기 0.1 mm) — 도착 판정 0.05 mm."""
+        return self._line(goal, posx, vel, stage, watch, tol_mm=0.05, tol_deg=0.5)
 
     def _where(self, done, stage, posx):
         """NOT_REACHED 이유에 단계·멈춘 곳·남은 거리를 붙인다 (10/06 저녁 nudge NOT_REACHED 0.3 s — 어느 이동인지 로그로 몰랐음)."""
@@ -452,10 +436,7 @@ class SkillServer(Node):
                                stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad
-        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=self._joint_watch(),
-                              arrived=self._at_posx(points[-1]))
-        return None if done.success else self._where(done, stage, points[-1])
+        return self._wait_pose(goal, points[-1], vel, stage)
 
     def _carry_route(self, drawer_id):
         """poses.yaml carry_line 경유점 posx (집은 뒤 → 트레이 직선 블렌딩). 없으면 None (예전 carry_out movesj)."""
@@ -717,6 +698,7 @@ class SkillServer(Node):
             if f is None or base_f is None:
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), p, n
             n = abs(f[2] - base_f[2])
+            self._held_f = f
             if n <= hi:
                 if n < lo and k > 0:                        # 한 칸에 범위를 지나침 → 반 칸 내려가서 끔 (그 사이 힘)
                     p = mp.with_z(p, p[2] - d["relax_step_mm"] / 2.0)
@@ -863,12 +845,12 @@ class SkillServer(Node):
         if bad:
             return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), out
         shift_y = plan.shift_y_m
-        if d.get("shift_mm"):                               # 잡을 수 있을 만큼(계획), 시연은 적어도 3 cm [사용자 10/07], 방향은 계획(옆벽 반대)
-            shift_y = math.copysign(max(abs(plan.shift_y_m), d["shift_mm"] / 1000.0), plan.shift_y_m)
+        if d.get("shift_mm"):                               # 누른 높이·각도 그대로 고정 거리만 수평 이동 [사용자 10/07 "3 cm 이동만, 힘만 맞으면 잘 끌림"]
+            shift_y = math.copysign(d["shift_mm"] / 1000.0, plan.shift_y_m)   # 방향은 계획(옆벽 반대)
         shift = mp.dir_to_base(tf, (0.0, shift_y, 0.0))
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
-        base_drag = self._tare()
+        base_drag = self._held_f                            # 끄는 중 걸림 감시 기준 = 힘 맞추기 마지막 측정 (따로 0점 안 잡음 — 바로 이동)
 
         def blocked():
             f = self.robot.tool_force()

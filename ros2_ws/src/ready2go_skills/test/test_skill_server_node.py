@@ -60,6 +60,11 @@ def server(monkeypatch):
         kw.update(settle_s=0.0, sleep=lambda s: None)
         return real_wait(**kw)
     monkeypatch.setattr(sf, "wait_motion", fast_wait)
+    clock = {"t": 0.0}                                                  # 가짜 시계 — 기다림(0점·힘 맞추기·좌표 판정)을 실제로 안 기다림
+
+    def fake_sleep(dt):
+        clock["t"] += dt
+    monkeypatch.setattr(ss, "time", types.SimpleNamespace(sleep=fake_sleep, monotonic=lambda: clock["t"]))
 
     class Robot:
         def __init__(self):
@@ -164,17 +169,15 @@ def test_drag_then_lift_failure_keeps_safety_code_and_drops_target_after(server,
         return [0.0, 0.0, 8.0 * (contact_z - p[2]) if contact_z is not None and p[2] <= contact_z else 0.0, 0.0, 0.0, 0.0]
     server.srv.robot.force = force
     real_line = server.ss.SkillServer._line
-    real_slow = server.ss.SkillServer._line_slow                     # 누르기·힘 맞추기는 느린 이동 (10/07)
 
-    def line(self, goal, posx, vel, stage, watch=None):
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
         nonlocal contact_z
         if stage == "press":
             contact_z = (self.robot.p[2] + posx[2]) / 2          # 내려가는 중간에서 접촉
         if stage == "lift":
             return sf.Outcome(False, sf.STOP_UNCONFIRMED, reason="주입")
-        return (real_slow if stage.startswith(("press", "relax")) else real_line)(self, goal, posx, vel, stage, watch)
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
-    monkeypatch.setattr(server.ss.SkillServer, "_line_slow", line)
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     assert out.error_code == sf.STOP_UNCONFIRMED and data["target_after"] is None
 
@@ -187,21 +190,20 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
         return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
     server.srv.robot.force = force
     real_line = server.ss.SkillServer._line
-    real_slow = server.ss.SkillServer._line_slow                     # 누르기·힘 맞추기는 느린 이동 (10/07)
 
-    def line(self, goal, posx, vel, stage, watch=None):
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
         if stage == "press":
             contact["z"] = (self.robot.p[2] + posx[2]) / 2
         if stage == "drag":
             contact["drag"] = (list(self.robot.p), list(posx))
-        return (real_slow if stage.startswith(("press", "relax")) else real_line)(self, goal, posx, vel, stage, watch)
-    server.ss.SkillServer._line = server.ss.SkillServer._line_slow = line
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    server.ss.SkillServer._line = line
     try:
         out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     finally:
-        server.ss.SkillServer._line, server.ss.SkillServer._line_slow = real_line, real_slow
+        server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.0426, abs=1e-3)  # 잡을 수 있을 만큼(42.6) ≥ 시연 최소 3 cm [사용자 10/07]
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.030, abs=1e-3)   # 누른 z 그대로 3 cm 만 [사용자 10/07]
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
@@ -210,6 +212,9 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     server.Gripper.holding = True
     route = server.srv.poses()["carry_line"]["drawer_top"]
     server.srv.robot.log.clear()
+    out, _ = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == server.ss.WALL_TOO_CLOSE and server.srv.robot.log == []   # 3 cm 로는 옆벽 쪽 여유 부족 (서랍 경계 기준, 실제 벽은 약 7 mm 바깥)
+    data["target_after"]["pose"]["position"][1] = 0.2904 - 0.0426        # 잡을 수 있을 만큼(계산 42.6) 끈 자리에서 집기·놓기·닫기 확인
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
     server.Gripper.holding = False
     assert out.success and data["grasp_ok"] is True
@@ -322,20 +327,19 @@ def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
     server.srv._tare = lambda: [0.0] * 6
     contact = {}
     real_line = server.ss.SkillServer._line
-    real_slow = server.ss.SkillServer._line_slow                     # 누르기·힘 맞추기는 느린 이동 (10/07)
 
-    def line(self, goal, posx, vel, stage, watch=None):
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
         if stage == "press":
             contact["z"] = (self.robot.p[2] + posx[2]) / 2
         if stage == "drag":
             contact["drag"] = True
-        return (real_slow if stage.startswith(("press", "relax")) else real_line)(self, goal, posx, vel, stage, watch)
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
     server.srv.robot.force = lambda p: [0.0, 0.0, 20.0 if contact.get("z") and p[2] <= contact["z"] else 0.0, 0.0, 0.0, 0.0]
-    server.ss.SkillServer._line = server.ss.SkillServer._line_slow = line
+    server.ss.SkillServer._line = line
     try:
         out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     finally:
-        server.ss.SkillServer._line, server.ss.SkillServer._line_slow = real_line, real_slow
+        server.ss.SkillServer._line = real_line
     assert out.error_code == server.ss.PUSH_BLOCKED and "20.0 N > 2.5 N" in out.reason
     assert "drag" not in contact and data["target_after"] is None
     relax = [e for e in server.srv.robot.log if e[0] == "movel"][-3:-1]   # 0.1 mm 씩 두 번 올리고 → 위로 빠짐
@@ -355,15 +359,13 @@ def test_press_spike_while_moving_is_rechecked_still_and_resumed(server, monkeyp
     server.srv.robot.force = force
     stages = []
     real_line = server.ss.SkillServer._line
-    real_slow = server.ss.SkillServer._line_slow                     # 누르기·힘 맞추기는 느린 이동 (10/07)
 
-    def line(self, goal, posx, vel, stage, watch=None):
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
         stages.append(stage)
         if stage == "press":
             contact["z"] = (self.robot.p[2] + posx[2]) / 2
-        return (real_slow if stage.startswith(("press", "relax")) else real_line)(self, goal, posx, vel, stage, watch)
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
-    monkeypatch.setattr(server.ss.SkillServer, "_line_slow", line)
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     assert out.success and "press:2" in stages and spiked["done"]
 
@@ -377,17 +379,15 @@ def test_press_force_cap_stops_even_in_ignore_window(server, monkeypatch):
         return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
     server.srv.robot.force = force
     real_line = server.ss.SkillServer._line
-    real_slow = server.ss.SkillServer._line_slow                     # 누르기·힘 맞추기는 느린 이동 (10/07)
 
-    def line(self, goal, posx, vel, stage, watch=None):
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
         if stage == "press":
             contact["z"] = self.robot.p[2] - 0.5                 # 출발 0.5 mm 아래 (예상보다 4.5 mm 높음)
-        out = (real_slow if stage.startswith(("press", "relax")) else real_line)(self, goal, posx, vel, stage, watch)
+        out = real_line(self, goal, posx, vel, stage, watch, **kw)
         if stage == "press":
             stop_z["z"] = self.robot.p[2]
         return out
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
-    monkeypatch.setattr(server.ss.SkillServer, "_line_slow", line)
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     assert out.error_code == server.ss.NO_OBJECT_CONTACT and data["target_after"] is None    # 예상 높이 밖 → 끌지 않음
     assert contact["z"] - stop_z["z"] <= 8.0 / 8.0 + 0.25                  # 8 N 근처에서 멈춤 (가짜 경로 한 칸 0.2 mm 여유)

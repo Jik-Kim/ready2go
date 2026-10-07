@@ -57,7 +57,7 @@ def scan(node):
     """탑뷰에서 /vision/inspect_region (A 비전). 찾으면 target 저장, 서비스가 없으면 고정값(stub)으로 진행."""
     from ready2go_interfaces.srv import InspectRegion
     c = node.create_client(InspectRegion, "/vision/inspect_region")
-    if not c.wait_for_service(timeout_sec=5.0):
+    if not c.wait_for_service(timeout_sec=2.0):
         import os
         if os.path.exists(SCAN):                  # 다른 터미널(비전과 같은 통신 설정)에서 미리 scan 한 결과
             print(f"비전 서비스 안 보임 — 저장된 인식 결과 사용 ({SCAN})")
