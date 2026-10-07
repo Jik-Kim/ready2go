@@ -787,6 +787,9 @@ class SkillServer(Node):
             f, p = self.robot.tool_force(), self.robot.posx()
             if f is None or p is None or base_f is None:
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
+            if abs(f[2] - base_f[2]) >= d["press_max_force_n"]:   # 힘 상한: 무시 구간에서도 늘 봄 — 14 N 이면 서랍이 앞으로 넘어감 [사용자 10/07]
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason=f"상한 {d['press_max_force_n']:g} N 넘음 @ z {p[2]:.2f} — 멈추고 확인")
             if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
                 return None                                 # 출발할 때 힘이 튐 (10/06 z 225.5 오검출) — 처음 내려갈 때만
             state.setdefault("fz", f[2])                    # 내려가는 중 기준 (힘 0점이 흐름)

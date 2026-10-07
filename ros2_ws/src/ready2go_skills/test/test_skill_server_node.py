@@ -15,7 +15,7 @@ from ready2go_skills.core.rg2_protocol import Rg2Status
 
 REPO = Path(__file__).resolve().parents[4]
 ERASER_CORNER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
-                 "pose": {"frame": "drawer_top", "position": [0.1735, 0.2827, 0.0], "yaw": 0.0, "yaw_valid": True}}
+                 "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 10/07 실측
 ERASER_FREE = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
                "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.3, "yaw_valid": True}}
 
@@ -198,7 +198,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     finally:
         server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2827 - 0.0349, abs=1e-3)  # 잡을 수 있을 만큼(34.9) ≥ 시연 최소 3 cm [사용자 10/07]
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.0426, abs=1e-3)  # 잡을 수 있을 만큼(42.6) ≥ 시연 최소 3 cm [사용자 10/07]
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=1e-6)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁)
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
@@ -360,3 +360,26 @@ def test_press_spike_while_moving_is_rechecked_still_and_resumed(server, monkeyp
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     assert out.success and "press:2" in stages and spiked["done"]
+
+
+def test_press_force_cap_stops_even_in_ignore_window(server, monkeypatch):
+    """출발 2 mm 무시 구간에서 닿아도 8 N 상한이면 바로 멈춤 — z 14 N 이면 서랍이 앞으로 넘어감 [사용자 10/07]."""
+    contact, stop_z = {}, {}
+
+    def force(p):
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
+    server.srv.robot.force = force
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None):
+        if stage == "press":
+            contact["z"] = self.robot.p[2] - 0.5                 # 출발 0.5 mm 아래 (예상보다 4.5 mm 높음)
+        out = real_line(self, goal, posx, vel, stage, watch)
+        if stage == "press":
+            stop_z["z"] = self.robot.p[2]
+        return out
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    assert out.error_code == server.ss.NO_OBJECT_CONTACT and data["target_after"] is None    # 예상 높이 밖 → 끌지 않음
+    assert contact["z"] - stop_z["z"] <= 8.0 / 8.0 + 0.25                  # 8 N 근처에서 멈춤 (가짜 경로 한 칸 0.2 mm 여유)
