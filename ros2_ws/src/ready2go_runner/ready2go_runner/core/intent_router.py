@@ -112,7 +112,9 @@ class IntentRouter:
         if targets[0] not in self.items:
             return Decision(HOLD, UNKNOWN_ITEM, intent=intent)
         allowed = (task.get("trigger") or {}).get("targets")
-        if allowed is not None and targets[0] not in allowed:     # 물품이 정해진 태스크: 다른 물품이면 움직이기 전에 보류
+        if allowed is not None and not (isinstance(allowed, list) and targets[0] in allowed):
+            # 물품이 정해진 태스크: 다른 물품이면 움직이기 전에 보류. 목록이 아니면(문자열 등, 스키마 위반) 부분 문자열로
+            # 통과시키지 않고 보류 (#89 D P1: "car_key_eraser" 에 car_key 가 들어가던 것)
             return Decision(HOLD, UNSUPPORTED_ITEM, intent=intent)
         if locked:
             return Decision(REJECT, LOCKED, intent=intent)

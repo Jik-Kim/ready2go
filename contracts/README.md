@@ -4,7 +4,7 @@
 
 | 파일 | 내용 | Phase |
 | :--- | :--- | :--- |
-| `task.schema.json` | 태스크(복합 스킬) JSON 스키마 | P1~ |
+| `task.schema.json` | 태스크(복합 스킬) JSON 스키마. `trigger.targets`(받을 물품 키 문자열 배열, 선택) 예시는 `tasks/p1_demo_eraser.json` (runner.md 7.1) | P1~ |
 | `intent.schema.json` | 음성·LLM 인텐트 출력 (`/voice/intent`) | P1~ (`goals`·`query`는 P2) |
 | `examples/execution_log.json` | 실행 로그 예시 (`pre_check`·`post_check`·`state_diff`는 P2) | P1~ |
 | `examples/inspect_region_result.json` | `inspect_region` 결과 예시 (runner.md 7.1). `pose` = `{frame, position, yaw, yaw_valid}`: 박스 중심 x·y, z = 0, yaw (−π/2, π/2]는 확정(정의: runner.md 7.1, `config/places.yaml` 첫 부분). yaw 산출 방식(뎁스 덩어리 + `minAreaRect`)은 확정(vision.md V2), 대칭 물체 판정(`pose_rules.is_symmetric`, vision.md V2)은 확정. `yaw_valid`(bool)는 yaw를 믿어도 되는지(false이면 yaw = 0). `validate_contracts.py`가 이 예시의 z·yaw 범위·`yaw_valid`를 검사 | P1 |

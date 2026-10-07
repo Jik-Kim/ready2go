@@ -3,6 +3,7 @@ E 통합 공지(#23): find_item → P1 태스크, cancel/status, 모호·미지�
 import json
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 from ready2go_knowledge.core import ontology
@@ -13,6 +14,7 @@ SCHEMA = json.loads((ROOT / "contracts/intent.schema.json").read_text(encoding="
 ITEMS = ontology.load(ROOT / "knowledge/robot_ontology_demo.jsonld")["world"]["items"]
 FIND = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))
 CHECK = json.loads((ROOT / "tasks/p1_demo_eraser.json").read_text(encoding="utf-8"))
+TASK_SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
 EXAMPLE = (ROOT / "contracts/examples/intent_find_item.json").read_text(encoding="utf-8")
 
 
@@ -122,6 +124,25 @@ def test_demo_task_holds_other_items_before_any_motion(item):
 def test_task_without_targets_accepts_any_registered_item():
     assert "targets" not in (FIND.get("trigger") or {})
     assert router().decide(intent(targets=["car_key"]), running=False, locked=False).kind == ir.RUN
+
+
+BAD_TARGETS = ["car_key_eraser", 1, {"car_key": True}, [], [1], ["eraser", "eraser"], [""]]
+
+
+@pytest.mark.parametrize("bad", BAD_TARGETS)
+def test_task_schema_rejects_malformed_trigger_targets(bad):
+    """#89 D P1: trigger.targets 는 계약상 물품 키 문자열 배열(1개 이상, 중복 없음)."""
+    jsonschema.validate(CHECK, TASK_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(dict(CHECK, trigger={"targets": bad}), TASK_SCHEMA)
+
+
+@pytest.mark.parametrize("bad", ["car_key_eraser", {"car_key": True}, ("car_key",)])
+def test_malformed_targets_hold_instead_of_substring_match(bad):
+    """스키마 검사를 거치지 않은 태스크라도 목록이 아니면 부분 문자열로 통과시키지 않고 보류."""
+    task = dict(CHECK, trigger={"targets": bad})
+    d = router({"find_item": task}).decide(intent(targets=["car_key"]), running=False, locked=False)
+    assert (d.kind, d.reason, d.task) == (ir.HOLD, ir.UNSUPPORTED_ITEM, None)
 
 
 def test_duplicate_trigger_without_override_is_error():
