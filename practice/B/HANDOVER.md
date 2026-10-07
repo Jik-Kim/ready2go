@@ -42,7 +42,14 @@
 - `scripts/b_flow.sh` (build·server·all·demo·각 동작), `scripts/b_sk.py` (스킬 서버에 동작 보내기, `all`), `scripts/b_demo.py` (스킬 서버 없이 직접교시 시연 — 10/06 저녁 전체 성공, 들고 나오기는 아직 movesj), `scripts/b_route.py` (view·route·mvl·movej·press).
 - 테스트: `test/test_skill_server_node.py`(가짜 로봇 노드 경로), `test/test_b_scripts.py`(b_demo·b_route 정지 확인).
 
-## 4. PC2 실행 방법 (10/06 저녁 확정)
+## 4. PC2 실행 방법
+**현재 (10/07 저녁~, main `767a9be` #108)**: 로봇 기능은 모두 real 컨테이너. 호스트 `roboton`·`b_flow.sh server`·`realsense2_camera`·stub 은 **끄고** 띄운다.
+- `.env`: `BACKEND=real` · `DDS_MODE=local` · `ROBOT_HOST=192.168.1.100` · `RG2_HOST=192.168.1.1` · `RUNNER_TASK_FILE`·`RUNNER_INTENT_TASKS` 비움 (온톨로지는 공통 `/knowledge/robot_ontology.jsonld`, `find_item` → `tasks/find_item.json`) · 관절 속도 `SKILL_JOINT_VEL_DEG_S`/`ACC` (기본 60/40).
+- `docker compose --profile real up -d db ros2-core realsense` → 드라이버·`/gripper/state`·스킬 서버(15초 뒤)·Runner 가 함께 뜸. 스킬 서버를 따로 띄우지 않는다(중복).
+- B 단독 시험은 호스트에서 `b_flow.sh all`·`dragtest`·동작 하나씩 — 클라이언트만이라 컨테이너 스킬 서버로 간다(`b_flow.sh server` 는 쓰지 않음).
+- 회차 사이: 사람이 원위치(지우개·서랍 닫힘·빈 그리퍼·홈) 확인 → `ros2 service call /runner/reset_state std_srvs/srv/Trigger` (#107).
+
+**과거 기록 (10/06 저녁, 호스트 드라이버·호스트 스킬 서버 방식 — 지금은 쓰지 않음)**
 - 통신 설정: roboton·스킬 서버는 `~/.config/cyclonedds/cyclonedds.xml` (= `config/cyclonedds.local.xml`, `lo` 전용). **모든 터미널을 같게.**
   ```
   export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI=file://$HOME/.config/cyclonedds/cyclonedds.xml
@@ -51,7 +58,7 @@
 - 터미널 1 `roboton` (호스트 드라이버, `ros2 launch m0609_rg2_bringup bringup.launch.py mode:=real host:=192.168.1.100`). 컨테이너 `ros2-core` 는 꺼 둠 (`BACKEND=real` 이면 드라이버 이중 접속).
 - 터미널 2 `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server` (VEL·JACC 로 관절 속도). 재시작하면 서랍 열림 상태를 잊음 → 서랍 닫고 켜기.
 - 터미널 3 `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh all` 또는 동작 하나씩. 로그: `~/.ros/log/python3_<스킬서버PID>_*.log`.
-- Runner(C) 를 PC2 컨테이너로: `BACKEND=sim docker compose --profile real up -d db ros2-core` → 컨테이너 안 명령에 `export CYCLONEDDS_URI=file:///config/cyclonedds.local.xml` → 기본 Runner `pkill -f ready2go_runner/runner` → `ros2 run ready2go_runner runner --ros-args -p ontology_file:=/knowledge/robot_ontology_demo.jsonld -p task_file:=/tasks/p1_demo_eraser.json` (띄우는 순간 실행).
+- Runner(C) 를 PC2 컨테이너로: `BACKEND=sim docker compose --profile real up -d db ros2-core` → 컨테이너 안 명령에 `export CYCLONEDDS_URI=file:///config/cyclonedds.local.xml` → 기본 Runner `pkill -f ready2go_runner/runner` → `ros2 run ready2go_runner runner --ros-args -p ontology_file:=/knowledge/robot_ontology_demo.jsonld -p task_file:=/tasks/p1_demo_eraser.json` (띄우는 순간 실행). ※ 시연 원본 `robot_ontology_demo.jsonld`·`pick_demo.jsonld`는 E 정리로 삭제(#17) — 이 명령은 기록일 뿐 지금은 안 됨.
 - 안 되는 것 [실측]: PC1 stub(multi, 멀티캐스트 끔) ↔ PC2 `lo` 는 목록만 보이고 호출 안 됨. roboton 을 multi xml 로 켜면 spawner 가 controller_manager 를 못 찾음. → stub 은 PC2 에서 돌리거나(설정 파일 `vision_stub` 에 지우개 [0.1769, 0.2895, 0.0] yaw 0, top_z 0.0115, `ready: true`) 설정 통일 필요.
 
 ## 5. 핵심 실측 값
