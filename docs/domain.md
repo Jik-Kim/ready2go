@@ -67,9 +67,9 @@
   * **바닥 높이**: 서랍 TF z에는 설치 오차가 있어, 누르는 높이는 힘 감지로 확인한다.
 * **실물 결과**: 위 서랍 손잡이 쪽 모서리 지우개 끌기 → 집기 → 전달 트레이까지 성공했다 [실측 B 10/07, `ros2_ws/src/ready2go_skills/scripts/b_sk.py dragtest`]. 끈 뒤 탑뷰 재관측 → 그 좌표로 집기 경로도 `b_sk.py` 호스트 흐름으로 확인했다. Runner를 거친 전체 실행, AC-ACT-05 벽 근처 10회 중 8회, 공통 pick 전체 시간(현재 `timeout_sec` 60)은 아직 미측정이다.
 
-**② 과거 예시 (현재 P1 경로 아님, 기록)**
-* 10/06 시연 `pick_demo`(`robot_ontology_demo.jsonld`): `nudge_object` → `target_after`(예상값)로 바로 `pick_object`. 재관측이 없어 FR-ACT-05 재인식 완료로 보지 않는다. 두 원본 파일은 공통 pick으로 대체되어 삭제됐고(E 정리, #17), 그 실행 기록은 과거 로그·`ready2go_runner` 테스트 fixture(`pc2_run_20261006_f45c86.json`)·변경 이력에만 남는다.
-* 10/05 설계안 [`contracts/examples/task_nudge_then_pick.json`](../contracts/examples/task_nudge_then_pick.json): 태스크에서 `inspect_region` → `nudge_object` → (`pushed`일 때만) 재관측 → `nudge_object(check_only: true)`(아직 못 잡으면 `PUSH_LIMIT`) → `pick_object`. `check_only` 옵션은 원자 동작에 남아 있지만 현재 공통 pick은 쓰지 않는다.
+**② 과거 예시 (현재 P1 경로 아님)** — 10/06 시연 원본 파일은 삭제됨, 10/05 태스크 예시 파일은 유지
+* **[삭제된 원본]** 10/06 시연 `pick_demo`(`robot_ontology_demo.jsonld`): `nudge_object` → `target_after`(예상값)로 바로 `pick_object`. 재관측이 없어 FR-ACT-05 재인식 완료로 보지 않는다. 두 원본 파일은 공통 pick으로 대체되어 삭제됐고(E 정리, #17), 그 실행 기록은 과거 로그·`ready2go_runner` 테스트 fixture(`pc2_run_20261006_f45c86.json`)·변경 이력에만 남는다.
+* **[유지되는 예시]** 10/05 설계안 [`contracts/examples/task_nudge_then_pick.json`](../contracts/examples/task_nudge_then_pick.json): 태스크에서 `inspect_region` → `nudge_object` → (`pushed`일 때만) 재관측 → `nudge_object(check_only: true)`(아직 못 잡으면 `PUSH_LIMIT`) → `pick_object`. 예시 파일은 계약 예시로 남아 있지만 현재 P1 실행 경로가 아니다. `check_only` 옵션도 원자 동작에 남아 있지만 현재 공통 pick은 쓰지 않는다.
 * 그 전 설계의 "바닥 감지 → 수 mm 상승 → 옆으로 밀기"는 10/06 실물에서 위에서 눌러 끄는 방식으로 바뀌었다(트러블슈팅 2, `practice/B/2026-10-06_practice.md`).
 
 **③ P2 이후 후보 (미확정)**
