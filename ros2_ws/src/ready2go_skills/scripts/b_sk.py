@@ -1,5 +1,5 @@
 """스킬 서버에 동작 하나 보내기 (b_flow.sh 가 부름). 끌기 결과 target_after 를 저장했다가 집기에 넘긴다.
-지우개 위치는 10/06 실측(위 서랍, 세로, 서동권 쪽 오른쪽 모서리) — #22 점검 stub 과 같은 값."""
+지우개 위치는 10/07 실측(위 서랍, 세로, 손잡이 쪽 오른쪽 모서리, 3번 수직 터치). 10/06 값 [0.1769, 0.2895] 은 #22 stub 과 같음."""
 import json
 import sys
 
@@ -9,8 +9,8 @@ from rclpy.signals import SignalHandlerOptions
 
 from ready2go_interfaces.action import Skill
 
-ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
-          "pose": {"frame": "drawer_top", "position": [0.1769, 0.2895, 0.0], "yaw": 0.0, "yaw_valid": True}}
+ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,          # 10/07: 손잡이 쪽 오른쪽 모서리, 세로 [실측 B 3번 터치]
+          "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}
 AFTER = "/tmp/b_target_after.json"
 SCAN = "/tmp/b_target_scan.json"          # scan(인식) 결과 target — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 

@@ -116,10 +116,11 @@ def test_wall_close_axis_presses_measured_eraser_over_its_middle():
 
 
 def test_params_use_wall_close_axis():
-    assert DRAG["close_axis"] == "wall" and DRAG["wall_tcp_min_mm"] == 5.0 and DRAG["wall_tip_below_mm"] == 11.7
+    assert DRAG["close_axis"] == "wall" and DRAG["tilt_deg"] == 20.0                       # 30 → 20 [사용자 10/07]
+    assert DRAG["wall_tcp_min_mm"] == 3.3 and DRAG["wall_tip_below_mm"] == 9.7              # 20° 지우개 위 [실측 B 10/07 4번]
 
 
 def test_wall_press_margin_zero_presses_at_measured_reach():
-    """10/06: 여유 0 → 옆벽 경계에서 TCP 5.0 mm (사용자 손 시험 x 521.4 와 같은 자리), 지우개 폭 안."""
-    p = mp.plan_drag(target=tgt(0.1769, 0.2895, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
-    assert (INTERIOR[1] - p.press_xy_m[1]) * 1000 == pytest.approx(5.0, abs=0.05) and p.error_code is None
+    """10/07: 20°, 여유 0 → 옆벽 경계에서 TCP 3.3 mm = 4번 직접교시 자리(지우개 중심 위 y 290.44), 지우개 폭 안."""
+    p = mp.plan_drag(target=tgt(0.0275, 0.2904, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
+    assert (INTERIOR[1] - p.press_xy_m[1]) * 1000 == pytest.approx(3.3, abs=0.05) and p.error_code is None
