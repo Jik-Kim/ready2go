@@ -93,7 +93,8 @@ def test_ros_evaluation_topic_and_tts_action(cfg, tmp_path, monkeypatch):
     executor = MultiThreadedExecutor(num_threads=4)
     thread = None
     try:
-        voice = VoiceNode(parameter_overrides=[Parameter('config_file', value=str(path))])
+        voice = VoiceNode(parameter_overrides=[Parameter('config_file', value=str(path)),
+                                               Parameter('evaluation_mode', value=True)])
         voice.tts = FakeTTS()
         voice.parser.llm = None  # 유료 호출 없음
         peer = Node('voice_test_peer')

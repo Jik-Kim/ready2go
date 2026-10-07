@@ -10,7 +10,8 @@ PACKAGE = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def cfg():
-    return load_config(PACKAGE / 'params/voice.yaml')
+    # 기존 게이트 회귀는 평가 모드를 명시합니다. 제품 기본값은 별도 검사합니다.
+    return load_config(PACKAGE / 'params/voice.yaml', evaluation_mode=True)
 
 
 @pytest.fixture

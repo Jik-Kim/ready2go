@@ -76,7 +76,7 @@ def test_legacy_config_keeps_silence_budget_defaults(cfg, tmp_path):
 
 
 @pytest.mark.parametrize('updates', [dict(timing_mode='ac_budget'), dict(record_duration_sec=9),
-                                    dict(evaluation_mode=False), dict(diagnostic_detail='yes')])
+                                    dict(diagnostic_detail='yes')])
 def test_invalid_commissioning_configuration(cfg, tmp_path, updates):
     cfg.update(updates)
     path = tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg))

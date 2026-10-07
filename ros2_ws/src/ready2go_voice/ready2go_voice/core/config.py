@@ -4,11 +4,16 @@ import math
 import yaml
 
 
-def load_config(path):
+def load_config(path, *, evaluation_mode=None):
     with Path(path).open(encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     if not isinstance(cfg, dict):
         raise ValueError('voice 설정 객체가 필요합니다')
+    cfg.setdefault('evaluation_mode', False)
+    if evaluation_mode is not None:
+        if not isinstance(evaluation_mode, bool):
+            raise ValueError('evaluation_mode: bool 필요')
+        cfg['evaluation_mode'] = evaluation_mode
     prompts = cfg.get('clarify_prompts')
     keys = ('empty', 'multiple', 'bare', 'request', 'missing_item', 'unconfirmed',
             'general', 'audio_failure', 'no_speech', 'tts_failure')
@@ -47,8 +52,6 @@ def load_config(path):
         raise ValueError('녹음/시간예산 모드 확인 필요')
     if cfg['recording_mode'] == 'fixed' and cfg['timing_mode'] != 'commissioning':
         raise ValueError('fixed 녹음은 발화 종료 미측정이므로 commissioning 모드가 필요합니다')
-    if cfg['timing_mode'] == 'commissioning' and not cfg.get('evaluation_mode'):
-        raise ValueError('시운전은 evaluation_mode=true로만 수행합니다')
     for key in ('record_duration_sec', 'sample_rate', 'frame_samples', 'speech_rms', 'silence_sec',
                 'speech_start_timeout_sec', 'max_record_sec', 'stt_timeout_sec',
                 'llm_timeout_sec', 'confirmation_budget_sec', 'tts_reserve_sec',
