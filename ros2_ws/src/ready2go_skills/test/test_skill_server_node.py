@@ -517,6 +517,29 @@ def test_relax_stall_then_drag_starts_from_actual_stop_not_command(server):
     assert end[2] == pytest.approx(start[2], abs=1e-6)                  # 실제 멈춘 z 그대로 (명령 +0.1 mm 아님)
 
 
+def test_pick_goes_through_drag_down_like_nudge(server):
+    """[사용자 10/07 저녁] 탑뷰에서 목표 위로 바로 가면 특이점 → 넛지와 같은 길: drag_down movej → y 맞추며 목표 위(블렌딩)."""
+    srv = server.srv
+    down = srv.poses()["drag_down"]["drawer_top"]
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰
+    server.Gripper.width = 99.0                                         # 앞 실행에서 벌어진 채 (놓기 뒤 등)
+    real_grip = srv._grip
+    srv._grip = lambda w, f: srv.robot.log.append(("grip", w)) or real_grip(w, f)
+    t = json.loads(json.dumps(ERASER_FREE))
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    log = srv.robot.log
+    assert log.index(("grip", 0)) < log.index(("movej", down))          # 서랍 안 경유점 전에 닫음 [#136 PM 리뷰]
+    assert any(e[0] == "grip" and e[1] > 0 for e in log[log.index(("movej", down)):])   # 목표 위에서 벌림
+    moves = [e for e in log if e[0] in ("movel", "movej", "moveb")]
+    assert ("movej", down) in moves
+    i = moves.index(("movej", down))
+    assert not any(e[0] == "movel" for e in moves[:i])                 # 탑뷰에서 먼저 내려가는 직선(z 300) 없음
+    blend = moves[i + 1]
+    assert blend[0] == "moveb" and len(blend[1]) == 2                   # y 맞추기 → 목표 위, 한 번에
+    assert blend[1][0][1] == pytest.approx(blend[1][1][1])              # 첫 점 = 목표 y
+    assert blend[1][1][2] < 300.0                                       # safe_z(300) 로 올리지 않음
+
+
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
     t = json.loads(json.dumps(ERASER_CORNER))
@@ -572,3 +595,12 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     assert st["descend_fast"][0] == 150.0 and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
     assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
     assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
+
+
+def test_free_space_speed_only_outside_drawer(server):
+    """[사용자 10/07 저녁] 빈 공간 직선은 free_mm_s, 서랍 위에서는 line_mm_s 그대로 (누르기·끌기 등은 각자 값)."""
+    sp = server.srv.prm()["speed"]
+    assert sp["free_mm_s"] > sp["line_mm_s"]
+    assert server.srv._free_vel() == sp["free_mm_s"]
+    assert server.srv._free_vel([0.0, 0.0, 100.0, 0.0, 180.0, 0.0]) == sp["free_mm_s"]          # 트레이 쪽
+    assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["line_mm_s"]    # 서랍 위
