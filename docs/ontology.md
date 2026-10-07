@@ -32,7 +32,7 @@
 
 [문서] 현재 main Runner의 null 참조 차단(`VAR_NULL`)과 하위 실패 전파를 사용합니다. 최초/재관측 target이 null이면 각각 nudge/pick을 보내지 않고, 전체 pick 성공에만 effect를 적용합니다. 탑뷰 이동 뒤에는 기존 YAW_INVALID 재시도도 억제됩니다. hold/verify 보존은 P2 사후 관측 검증 구현이 아닙니다. [Knowledge 연결·인계](../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결)에 호출 순서·오류 선언·모의 테스트 한계를 기록합니다.
 
-[문서] 기준은 P1 FR-ONT-01·FR-PLN-01 및 [FR-ACT-05/AC-ACT-05](requirements.md#fr-act-05)입니다. 실물 10회 성공률은 미측정입니다. C는 기존 관측 횟수/호출열 테스트와 pick 전체 60초 예산을 검토해야 하고, B는 배포 SHA·끌기 no-op/실패·탑뷰/wall guard, A는 실제 재관측 새 프레임·좌표를 확인해야 합니다. finally는 기존 안전 조건에 따르며 ESTOP/잠금에서 자동 닫기·홈을 단정하지 않습니다. 과거 `pick_demo`는 예상 좌표를 사용하는 시연 파일로 유지하며 현재 공통 경로의 근거로 사용하지 않습니다. P2부터의 공간 판단 주체는 미확정이며 [이슈 #120](https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상으로 남깁니다. FR-ACT-05의 밀기 표현과 실제 누르고 끄는 구현의 문구 차이는 정본 담당 인계이며 이번에 요구사항/계약을 바꾸지 않습니다.
+[문서] 기준은 P1 FR-ONT-01·FR-PLN-01 및 [FR-ACT-05/AC-ACT-05](requirements.md#fr-act-05)입니다. 실물 10회 성공률은 미측정입니다. C는 기존 관측 횟수/호출열 테스트와 pick 전체 60초 예산을 검토해야 하고, B는 배포 SHA·끌기 no-op/실패·탑뷰/wall guard, A는 실제 재관측 새 프레임·좌표를 확인해야 합니다. finally는 기존 안전 조건에 따르며 ESTOP/잠금에서 자동 닫기·홈을 단정하지 않습니다. 과거 시연 전용 온톨로지·집기 원본은 제거했으며 현재 실행 기준은 공통 manifest와 pick입니다. 정식 find_item과 점검용 p1_demo_eraser 태스크는 모두 공통 pick을 호출합니다. 과거 실측 로그·fixture·변경 이력은 보존하지만 현재 실행 기준이나 재관측 검증 완료의 근거로 사용하지 않습니다. P2부터의 공간 판단 주체는 미확정이며 [이슈 #120](https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상으로 남깁니다. FR-ACT-05의 밀기 표현과 실제 누르고 끄는 구현의 문구 차이는 정본 담당 인계이며 이번에 요구사항/계약을 바꾸지 않습니다.
 
 ### 물품 정의·치수·요청 범위 (P1, #8 반영)
 

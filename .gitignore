@@ -17,6 +17,9 @@ models/*.pt
 !models/.gitkeep
 data/
 runs/
+# wakeword
+models/wakeword/
+/:memory:.ses
 # E MeloTTS isolated runtime and downloaded assets
 .venvs/
 models/tts/melotts/

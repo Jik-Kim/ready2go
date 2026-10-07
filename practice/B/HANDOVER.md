@@ -42,7 +42,18 @@
 - `scripts/b_flow.sh` (build·server·all·demo·각 동작), `scripts/b_sk.py` (스킬 서버에 동작 보내기, `all`), `scripts/b_demo.py` (스킬 서버 없이 직접교시 시연 — 10/06 저녁 전체 성공, 들고 나오기는 아직 movesj), `scripts/b_route.py` (view·route·mvl·movej·press).
 - 테스트: `test/test_skill_server_node.py`(가짜 로봇 노드 경로), `test/test_b_scripts.py`(b_demo·b_route 정지 확인).
 
-## 4. PC2 실행 방법 (10/06 저녁 확정)
+## 4. PC2 실행 방법
+**현재 (10/07 저녁~, main `767a9be` #108)**: 로봇 기능은 모두 real 컨테이너. 호스트 `roboton`·`b_flow.sh server`·`realsense2_camera`·stub 은 **끄고** 띄운다.
+- `.env`: `BACKEND=real` · `DDS_MODE=local` · `ROBOT_HOST=192.168.1.100` · `RG2_HOST=192.168.1.1` · `RUNNER_TASK_FILE`·`RUNNER_INTENT_TASKS` 비움 (온톨로지는 공통 `/knowledge/robot_ontology.jsonld`, `find_item` → `tasks/find_item.json`) · 관절 속도 `SKILL_JOINT_VEL_DEG_S`/`ACC` (기본 60/40).
+- `docker compose --profile real up -d db ros2-core realsense` → 드라이버·`/gripper/state`·스킬 서버(15초 뒤)·Runner 가 함께 뜸. 스킬 서버를 따로 띄우지 않는다(중복).
+- B 단독 시험(`all`·`dragtest`·동작 하나씩)은 컨테이너 안에서 보내는 게 확실하다 [실측 10/07: 호스트 터미널은 설정이 빠지면 컨테이너가 안 보임]:
+  `B() { docker compose exec ros2-core bash -lc "source /opt/ros/jazzy/setup.bash; source /colcon/install/setup.bash; cd /ros2_ws/src/ready2go_skills/scripts && python3 b_sk.py $*"; }` → `B home`, `B all` …
+  호스트 `b_flow.sh` 를 쓸 땐 먼저 `export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI=file://$HOME/ready2go/config/cyclonedds.local.xml`. `b_flow.sh server` 는 쓰지 않는다(서버 중복).
+- 호스트 음성 노드(E)는 `ros2_ws/install`(컨테이너 빌드)이 아니라 `~/r2g_host` 에 빌드해 source: `colcon --log-base /tmp/r2g_log build --symlink-install --packages-select ready2go_interfaces ready2go_knowledge ready2go_voice --build-base ~/r2g_host/build --install-base ~/r2g_host/install`.
+- 손으로 서랍을 닫았으면 스킬 서버는 열림으로 기억한다(→ `DRAWER_ALREADY_OPEN`). 로봇으로 닫거나 `docker compose restart ros2-core` [실측 10/07].
+- 회차 사이: 사람이 원위치(지우개·서랍 닫힘·빈 그리퍼·홈) 확인 → `ros2 service call /runner/reset_state std_srvs/srv/Trigger` (#107).
+
+**과거 기록 (10/06 저녁, 호스트 드라이버·호스트 스킬 서버 방식 — 지금은 쓰지 않음)**
 - 통신 설정: roboton·스킬 서버는 `~/.config/cyclonedds/cyclonedds.xml` (= `config/cyclonedds.local.xml`, `lo` 전용). **모든 터미널을 같게.**
   ```
   export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI=file://$HOME/.config/cyclonedds/cyclonedds.xml
@@ -51,7 +62,7 @@
 - 터미널 1 `roboton` (호스트 드라이버, `ros2 launch m0609_rg2_bringup bringup.launch.py mode:=real host:=192.168.1.100`). 컨테이너 `ros2-core` 는 꺼 둠 (`BACKEND=real` 이면 드라이버 이중 접속).
 - 터미널 2 `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server` (VEL·JACC 로 관절 속도). 재시작하면 서랍 열림 상태를 잊음 → 서랍 닫고 켜기.
 - 터미널 3 `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh all` 또는 동작 하나씩. 로그: `~/.ros/log/python3_<스킬서버PID>_*.log`.
-- Runner(C) 를 PC2 컨테이너로: `BACKEND=sim docker compose --profile real up -d db ros2-core` → 컨테이너 안 명령에 `export CYCLONEDDS_URI=file:///config/cyclonedds.local.xml` → 기본 Runner `pkill -f ready2go_runner/runner` → `ros2 run ready2go_runner runner --ros-args -p ontology_file:=/knowledge/robot_ontology_demo.jsonld -p task_file:=/tasks/p1_demo_eraser.json` (띄우는 순간 실행).
+- Runner(C) 를 PC2 컨테이너로 (10/06 기록, **지금은 쓰지 않음**): `BACKEND=sim` 으로 `db`·`ros2-core` 를 띄우고, 기본 Runner 를 끈 뒤 10/06 시연 manifest·`p1_demo_eraser` 태스크를 지정해 Runner 를 다시 띄웠다. 그 시연 manifest·`pick_demo` 원본은 공통 pick 으로 대체되어 삭제됐다(E 정리, #17·#127). **지금 Runner 는 위 "현재" 방법대로 컨테이너가 공통 `/knowledge/robot_ontology.jsonld` 로 자동 기동** — 따로 띄우거나 manifest 를 지정하지 않는다.
 - 안 되는 것 [실측]: PC1 stub(multi, 멀티캐스트 끔) ↔ PC2 `lo` 는 목록만 보이고 호출 안 됨. roboton 을 multi xml 로 켜면 spawner 가 controller_manager 를 못 찾음. → stub 은 PC2 에서 돌리거나(설정 파일 `vision_stub` 에 지우개 [0.1769, 0.2895, 0.0] yaw 0, top_z 0.0115, `ready: true`) 설정 통일 필요.
 
 ## 5. 핵심 실측 값
