@@ -267,3 +267,83 @@ def test_evaluation_policy_deliver_path(harness, text, kind):
         assert harness.tts.texts == ['지우개 가져다드리겠습니다.']
     else:
         assert harness.tts.texts == [doc['clarify_question']]
+
+
+
+def test_fixed_listener_closes_wake_before_recording(harness, monkeypatch):
+    from contextlib import contextmanager
+    from ready2go_voice.adapters.audio import Recording
+    import ready2go_voice.nodes.voice_node as module
+    events = []
+    harness.cfg.update(recording_mode='fixed', record_duration_sec=5)
+    harness.busy = threading.Event()
+    class Wake:
+        last_score = .8
+        def __init__(self, cfg): cfg['input_device'] = 4
+        @contextmanager
+        def stream(self):
+            events.append('wake_open')
+            try: yield object()
+            finally: events.append('wake_close')
+        def wait(self, *args): return True
+    class Record:
+        def __init__(self, cfg): self.cfg = cfg
+        def record_fixed(self, *args):
+            assert events[-1] == 'wake_close' and self.cfg['input_device'] == 4
+            events.append('record')
+            return Recording(b'\0\0', None, None, recording_mode='fixed')
+    def submit(*args, **kwargs): harness.stop_event.set(); return True
+    harness._submit = submit
+    monkeypatch.setattr(module, 'WakeAudio', Wake)
+    monkeypatch.setattr(module, 'Recorder', Record)
+    VoiceNode._listen(harness)
+    assert events == ['wake_open', 'wake_close', 'record']
+
+
+def test_fixed_tts_cannot_report_ac_latency(harness):
+    doc = harness.parser.parse('지우개 찾아줘')
+    doc['source'].update(input_kind='audio', timing_mode='commissioning',
+                         speech_ended_monotonic=None, confirmation_latency_ms=None)
+    VoiceNode._deliver(harness, doc, 0)
+    assert doc['source']['confirmation_latency_ms'] is None
+    assert not harness.published
+
+
+
+def test_progress_default_short_and_detailed_mode_preserves_json(harness):
+    messages = []
+    harness.get_logger = lambda: SimpleNamespace(info=messages.append)
+    doc = {'event': 'stt_result', 'text': '지우개 찾아줘', 'source': {'llm_raw': 'detailed raw'}}
+    VoiceNode._diagnostic(harness, doc)
+    assert messages == ['STT 결과: 지우개 찾아줘']
+    harness.cfg['diagnostic_detail'] = True
+    VoiceNode._diagnostic(harness, doc)
+    assert 'voice_diagnostic' in messages[1] and 'detailed raw' in messages[1]
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_ready_reports_actual_mode(harness, enabled):
+    messages = []
+    harness.get_logger = lambda: SimpleNamespace(info=messages.append)
+    VoiceNode._diagnostic(harness, {'event': 'ready', 'evaluation_mode': enabled})
+    assert ('평가: 실행 보류' in messages[0]) == enabled
+    assert ('실행 모드' in messages[0]) == (not enabled)
+
+
+def test_failure_progress_contains_type_without_sensitive_source(harness):
+    messages = []
+    harness.get_logger = lambda: SimpleNamespace(info=messages.append)
+    for event in ('stt_failed', 'tts_failed'):
+        VoiceNode._diagnostic(harness, {'event': event, 'error_type': 'RuntimeError',
+                                       'source': {'error': 'SECRET'}})
+    assert messages == ['STT 실패: RuntimeError', 'TTS 실패: RuntimeError']
+
+
+@pytest.mark.parametrize('reason', ['NO_SPEECH', 'VAD_UNAVAILABLE_OR_FAILED', 'SPEECH_CHECK_CANCELED'])
+def test_speech_hold_never_publishes_in_execution_mode(harness, reason):
+    harness.cfg['evaluation_mode'] = False
+    doc = harness.parser.parse('')
+    doc['source'].update(record_error=reason, llm_validation='not_called', execution_allowed=False)
+    VoiceNode._deliver(harness, doc, 0)
+    assert not harness.published and harness.tts.texts == [doc['clarify_question']]
+    assert doc['clarify_question'] == harness.cfg['clarify_prompts']['empty']

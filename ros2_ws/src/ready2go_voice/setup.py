@@ -10,7 +10,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/ready2go_voice']),
         ('share/ready2go_voice', ['package.xml']),
-        ('share/ready2go_voice/params', glob('params/*.yaml')),
+        ('share/ready2go_voice/params', glob('params/*.yaml') + glob('params/melotts_*')),
     ],
     install_requires=['setuptools', 'jsonschema>=4,<5', 'PyYAML>=6,<7', 'numpy>=1.24,<2'],
     extras_require={
