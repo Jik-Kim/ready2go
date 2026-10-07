@@ -228,6 +228,8 @@
 - [문서] C 원본 출처 #118 head04f6ed01adf235987736bf645d3186ba87f176f5: test_backend.py/test_skills.py는 원본 파일 그대로 통합. test_tasks.py는 해당 head의 부모 d8823de226af891ac08d18ab4c7d6d9a5a4a509e에서 정식 태스크 성공 호출열 함수, YAW_INVALID 이동 후 재시도 억제 함수 및 PICK_SENT 선언만 재사용. #118에서 s3v/데모 변경을 전제로 추가한 테스트·스텁 변경은 이식하지 않음. C 테스트 신규 구현/소유권 이전 아님. tasks·demo·Runner·ontology·계약·시간 예산·trigger 변경 없음.
 - [실측: 모의·정적] #122 조합 관련 E/C 4개 테스트 파일129 passed/3 skipped(0.92초). skip3은 test_skills의 Mongo 파라미터 사례이며 로컬 pymongo 미설치로 실행하지 않음. tools/validate_contracts.py OK. #118 실제04f6ed의 태스크·Runner·ontology를 별도 임시 검증 공간 /tmp/ready2go-e-pr118-check.n6jzy7w7에서 사용하고 E 수정 테스트만 결합해20 passed(0.35초); e4 두 오류 포함·원본 C 브랜치 미수정. 첫 전체 git archive는 무관한 USD LFS 자산 smudge 실패, 필요한 원본 디렉터리만 archive하여 해결; 테스트 실패 아님. AST·diff·정확한 C 원본 재사용·이번5파일 범위 확인. 전체 로컬 테스트/빌드·실물/마이크/API·시간 실측 미수행.
 - [문서] 통합 head의 Mongo 포함 전체 CI3개 성공 전 CI 해결 완료를 주장하지 않음. #118은 C가 E 새 커밋을 반영한 뒤 별도 원격CI 확인 필요. B/C 시간 측정·C 지우개 trigger 제한·#107 계약 승인 조율은 이 구현 범위 밖이며 마스터 담당. 조율 세션 수락 메시지 전송은 자동 승인 검토에서 직접 사용자 승인 미확인 이유로 거절돼 미전송, 우회/재전송하지 않음.
+
+
 ## 2026-10-07 루트 실행 안내 복원
 - [문서] 사용자가 승인한 로컬 README 복원 범위로 루트 README.md와 본 CURRENT만 수정. 기준은 images/demo의 9bc0a79이며, 수정 전 작업 트리는 clean. 기존 코드·설정·키·모델·다른 담당 파일·브랜치·커밋은 변경하지 않음.
 - [문서] 전체 실행 순서, 프로젝트 내 호스트 빌드와 환경 설정, Compose와 개별 노드 명령, 평가/실행 시작 인자, 로그 위치·조회·종료·회차 초기화를 정리함. 현재 음성→Runner 수신 구현을 반영하고, 대기만 하는 voice/vision 컨테이너·수동 스킬 기동·mock TTS 중복·stub 미준비를 구분함. P1 FR-INT-01~03·FR-PLN-01·FR-LOG-01·NFR-ENV-01 및 관련 안전 절차 기준.
