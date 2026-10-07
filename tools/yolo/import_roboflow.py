@@ -7,6 +7,9 @@
 - 검증: 라벨 파일은 있는데 원본 이미지가 없거나, 클래스 이름이 우리 목록에 없거나, 좌표가 0~1 밖이면 중단하고 알려 준다.
 
 실행: python3 tools/yolo/import_roboflow.py <내보낸 폴더> [--out data/labeled] [--raw data/raw] [--dry-run]
+분할(--seg, #109): 라벨 줄이 폴리곤(클래스 x1 y1 x2 y2 ...)이고 기본 출력은 data/labeled_seg. 가려져 조각난 물체는 같은 클래스 조각 여러 개로
+  그려 오므로, 사람이 확인한 상자 라벨(--boxes, 기본 data/labeled)로 조각을 물체에 배정해 하나로 합친다(seg_merge.py).
+  상자 라벨에 없는 물체(new)·윤곽이 없는 상자(no_poly)는 장별로 보고한다 → 상자 라벨 보정 근거.
 Roboflow 내보내기 파일 이름 예: s01_0000_png.rf.<해시>.jpg / .txt
 """
 import argparse
@@ -52,8 +55,12 @@ def main() -> int:
     ap.add_argument("--raw", default=str(ROOT / "data/raw"))
     ap.add_argument("--classes", default=str(ROOT / "config/yolo_classes.txt"))
     ap.add_argument("--dry-run", action="store_true", help="쓰지 않고 요약만 출력")
+    ap.add_argument("--seg", action="store_true", help="분할(폴리곤) 라벨. 기본 출력 data/labeled_seg, 조각 합치기")
+    ap.add_argument("--boxes", default=str(ROOT / "data/labeled"), help="--seg 때 조각 배정 기준 상자 라벨")
     args = ap.parse_args()
 
+    if args.seg and args.out == str(ROOT / "data/labeled"):
+        args.out = str(ROOT / "data/labeled_seg")
     export, raw, out = Path(args.export_dir), Path(args.raw), Path(args.out)
     ours = [l.strip() for l in Path(args.classes).read_text(encoding="utf-8").splitlines() if l.strip()]
     ypath = next(iter(sorted(export.glob("data.yaml"))), None) or next(iter(sorted(export.rglob("data.yaml"))), None)
@@ -95,7 +102,8 @@ def main() -> int:
                 if not parts:
                     continue
                 cid, *coords = parts
-                if len(parts) != 5 or int(cid) not in remap or not all(0.0 <= float(c) <= 1.0 for c in coords):
+                ok_len = (len(parts) >= 7 and len(parts) % 2 == 1) if args.seg else len(parts) == 5
+                if not ok_len or int(cid) not in remap or not all(0.0 <= float(c) <= 1.0 for c in coords):
                     errors.append(f"{lab.name}: 잘못된 라벨 줄 '{ln}'")
                     continue
                 lines.append(" ".join([str(remap[int(cid)])] + coords))
@@ -103,6 +111,31 @@ def main() -> int:
     if errors:
         print("\n".join(errors[:30]))
         sys.exit(f"오류 {len(errors)}건 — 중단")
+
+    if args.seg:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from seg_merge import merge_image
+        report = []
+        for sname, per in sessions.items():
+            for num, lines in per.items():
+                pieces = [(int(l.split()[0]), list(zip(*[iter(map(float, l.split()[1:]))] * 2))) for l in lines]
+                bp = Path(args.boxes) / sname / "labels" / f"{num}.txt"
+                boxes = []
+                for b in (bp.read_text(encoding="utf-8").splitlines() if bp.exists() else []):
+                    q = b.split()
+                    if len(q) == 5:
+                        c, x, y, w, h = int(q[0]), *map(float, q[1:])
+                        boxes.append((c, (x - w / 2, y - h / 2, x + w / 2, y + h / 2)))
+                objs, rep = merge_image(pieces, boxes)
+                per[num] = [f"{c} " + " ".join(f"{x:.6f} {y:.6f}" for x, y in poly) for c, poly in objs]
+                if rep["merged"] or rep["new"] or rep["no_poly"] or rep["outside"] or not bp.exists():
+                    report.append(f"{sname} {num}: 조각 {len(pieces)} → 물체 {len(objs)} (합침 {rep['merged']})"
+                                  + (f" | 상자 없는 새 물체 {[ours[c] for c in rep['new']]}" if rep["new"] else "")
+                                  + (f" | 상자 밖 조각(상자 보정 필요) {[ours[c] for c in rep['outside']]}" if rep["outside"] else "")
+                                  + (f" | 윤곽 없는 상자 {[ours[c] for c in rep['no_poly']]}" if rep["no_poly"] else "")
+                                  + ("" if bp.exists() else " | 상자 라벨 파일 없음"))
+        print("[import] 조각 합치기 보고 (상자 라벨 기준):")
+        print("\n".join("  " + r for r in report) or "  없음")
 
     total = 0
     for sname in sorted(set(sessions) | set(seen_img)):
@@ -122,7 +155,7 @@ def main() -> int:
             n_empty += not lines
             total += 1
         splits = sorted({v for (s, _), v in split_of.items() if s == sname})
-        print(f"[import] {sname}: 장 {n_lab + n_empty} (박스 있음 {n_lab}, 빈 라벨 {n_empty}) 분할 {splits}")
+        print(f"[import] {sname}: 장 {n_lab + n_empty} ({'윤곽' if args.seg else '박스'} 있음 {n_lab}, 빈 라벨 {n_empty}) 분할 {splits}")
     print(f"[import] 합계 {total}장 → {out}" + (" (dry-run, 쓰지 않음)" if args.dry_run else ""))
     return 0
 
