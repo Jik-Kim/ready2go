@@ -203,3 +203,11 @@
 - AST/YAML evaluation외값동일·diff공백·기존문서제목/로컬링크·변경범위 확인. ready2go_voice만 최종1회빌드 성공(1패키지1.70초), core/config.py 및 voice_node.py install/소스바이트일치. 전체로봇빌드·실제마이크/유료API/로봇/실제topic-action·40음성/정확도·실패율·3초실측은 미수행. fixed/commissioning이 실행모드여도 AC-INT-03 달성 근거 아님. [실측: 정적·voice빌드]
 - 별도 미해결 P1 비요청가드 결함은 이번 승인범위 제외·intent.py 미수정. 기존 조율리뷰의 과거사실/의무질문/서술좀/부정/제외 표현 중 “지우개 가져다주면 안 돼”, “지우개 빼고 다른 것 가져줘”에 잘못된 LLM find_item(eraser)을 주입하면 execution_allowed=true로 분류됨을 읽기전용 재확인(실제 발행없음). core/intent.py _nonrequest_context/_request_context의 후속 보완 및 회귀·문서·별도승인 필요. 이번 모드 구현/검증 완료와 이 결함 해결·전체안전완료는 구분함. [실측: 모의]
 - 실행은 README의 기존PC명령에서 -p evaluation_mode:=false(또는미지정), 평가시험은 :=true; 기존로컬YAML/5초/시간설정 유지. 승인된11파일과 검증결과를 조율 세션에 인계해 기존PR114만 업데이트, 새PR/추가수정/범위확대/병합 제외. 이번 범위의 실제 commit/push/CI결과는 게시담당 반환후 확인하며 현재 작업자 미커밋·인계대기. PR본문은 기본false·시작값YAML우선·실제40음성/3초/로봇미검증 및 별도비요청가드결함을 분리해야 함. [문서]
+
+
+## 2026-10-07 E 실행·진단·온톨로지 문서 보완
+- [문서] 사용자 승인: 일반 실행 경로, D 평가/실행 상세 기록 명령, Knowledge 함수 책임, 진단 published 경로와 미해결 비요청 판별 결함의 명시. P1 FR-INT-01~03·FR-ONT-01 기준으로 E 소유 README 2개·voice_llm.md·CURRENT만 변경. 파일 삭제/이름 변경·코드·설정·온톨로지 원본·로컬 자산 변경 없음.
+- [문서] 일반 빌드 후 저장소 루트로 복귀, MeloTTS 상대 경로/절대 경로 대안 설명. D 명령은 evaluation_mode true/false·diagnostic_detail true·새 mktemp 로그와 pipefail을 포함. 상세 콘솔은 voice_diagnostic.published/intent, intent.source에는 published 없음. 발행 호출 반환과 C 수신·실행 성공을 구분.
+- [문서] Knowledge는 load/get/check/apply 등의 함수이며 apply는 새 상태·diff를 반환. 현재 상태 관리·적용·저장은 Runner(C) 책임. interfaces.md의 OntologyManager 잔여 설명은 공통 계약 문서 승인(조장 포함 2명) 확인 전 보류. 해당 행의 클래스명을 실제 함수 호출·Runner 책임 설명으로 정정하는 인계 필요. 계약 스키마·예시·런타임 변경 없음.
+- [문서] 기존 비요청/부정·제외 발화의 실행 후보 통과 결함은 미해결로 README에 표시. intent.py 수정·새 회귀 검사는 별도 승인 대상. 실제 마이크/API/TTS/로봇·전체 테스트/빌드는 이번 문서 변경에서 실행하지 않음.
+- [실측: 정적] 승인된 4파일 범위·기존 제목 유지·로컬 링크 대상·README Bash 구문(bash -n)·내장 Python AST·평가/실행별 상세 모드/새 로그 보존 구성·git diff --check 통과. 실제 명령 실행은 하지 않았으며 정적 통과를 장치/API 성공 근거로 사용하지 않음. 담당 문서 범위 완료·계약 문서 승인 및 기능 결함 후속 인계 대기. 이번 변경은 로컬 커밋만 수행하며 push/PR 갱신은 별도 승인 대기.
