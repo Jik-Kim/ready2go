@@ -474,7 +474,7 @@ def test_stopped_short_of_target_is_not_reached():
     """#83 D 재검토 P1: 움직이다가 목표 전에 멈추면 성공이 아님 (직선 이동은 뒤에 도착 검사가 없음)."""
     f = Fake([2] * 10 + [1] * 10)
     o = _wait_arrived(f, arrived=lambda: False)
-    assert (o.success, o.error_code) == (False, sf.NOT_REACHED) and f.stopped == 0
+    assert (o.success, o.error_code) == (False, sf.NOT_REACHED) and f.stopped == 1   # 멈춘 줄 알아도 정지 명령 (10/07 1 mm/s 누르기)
 
 
 def test_stopped_at_target_succeeds():
