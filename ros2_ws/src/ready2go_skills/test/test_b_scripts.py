@@ -245,10 +245,10 @@ def _load_sk(monkeypatch):
 
 
 @pytest.mark.parametrize("codes, want_calls, ok", [
-    ({"nudge": ["NO_OBJECT_CONTACT", ""]},
-     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "pick", "place"], True),
+    ({"nudge": ["NO_OBJECT_CONTACT", ""]},                             # 끌기 성공 뒤엔 늘 탑뷰 → 다시 인식 → 집기 [사용자 10/07]
+     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "pick", "place"], True),
     ({"nudge": [""], "pick": ["GRASP_FAILED", ""]},                    # 집기 실패 → 탑뷰 → 집기부터 (다시 끌지 않음)
-     ["home", "open", "view", "scan", "nudge", "pick", "view", "scan", "pick", "place"], True),
+     ["home", "open", "view", "scan", "nudge", "view", "scan", "pick", "view", "scan", "pick", "place"], True),
     ({"nudge": ["NOT_REACHED", "JOINT_LIMIT", "PUSH_BLOCKED"]},         # 무엇이든 다시, 최대 2번
      ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "nudge"], False),
     ({"nudge": ["ESTOP"]}, ["home", "open", "view", "scan", "nudge"], False),
@@ -264,7 +264,7 @@ def test_dragtest_goes_back_to_top_view_on_any_failure(monkeypatch, codes, want_
         sk.last["code"] = next(seq[cmd]) if cmd in seq else ""
         return sk.last["code"] == ""
     monkeypatch.setattr(sk, "run", run)
-    monkeypatch.setattr(sk, "scan", lambda node: calls.append("scan") or True)
+    monkeypatch.setattr(sk, "scan", lambda node, for_pick=False: calls.append("scan") or True)
     if ok:
         sk.drag_test(None)
     else:
