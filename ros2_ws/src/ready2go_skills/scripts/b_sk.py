@@ -46,11 +46,10 @@ def goal_for(cmd):
 
 STEPS = ("open", "view", "scan", "nudge", "pick", "place", "close", "home")   # all: 열기 → 탑뷰 → 인식 → 끌기 → 집기 → 놓기 → 닫기 → 홈
 DRAG_TEST = ("home", "open", "view", "scan", "nudge", "pick", "place")         # dragtest: 끌기 단위 시험 [사용자 10/07]
-# 끌기가 이 코드로 실패하면 멈추지 않고 탑뷰 → 인식(지금은 시늉, 비전 연동 때 실제) → 다시 끌기 [사용자 10/07].
-# 안전 코드(ESTOP·STOP_UNCONFIRMED·MOVE_UNCONFIRMED·JOINT_LIMIT·취소 등)와 그 밖의 코드는 그대로 멈춘다.
-RETRY_CODES = {"NO_OBJECT_CONTACT", "PUSH_BLOCKED", "NOT_REACHED", "SENSOR_INVALID", "PUSH_LIMIT", "NO_PUSH_ACCESS",
-               "WALL_TOO_CLOSE", "MOVE_NOT_STARTED"}
-NUDGE_RETRIES = 2                          # 다시 끌기 최대 횟수 (제 제안)
+# 서랍 안 일(끌기·집기)에서 무엇이든 이상하면 멈추지 않고 탑뷰 → 인식(지금은 시늉, 비전 연동 때 실제) → 다시 들어감 [사용자 10/07].
+# 다시 할 수 없는 것만 멈춘다: 비상정지, 정지·이동 미확인(서버 잠김), 취소, 결과 못 받음, 거절(다른 동작 중).
+STOP_CODES = {"ESTOP", "STOP_UNCONFIRMED", "MOVE_UNCONFIRMED", "CANCELED", "NO_RESULT", "REJECTED"}
+RETRIES = 2                                # 탑뷰로 돌아가 다시 들어가는 최대 횟수 (제 제안)
 last = {"code": ""}
 
 
@@ -102,24 +101,30 @@ def main():
 
 
 def drag_test(node):
-    """홈 → 열기 → 탑뷰 → 인식 → 끌기(실패하면 탑뷰 → 인식 → 다시, 최대 NUDGE_RETRIES 번) → 집기 → 트레이."""
-    for i, step in enumerate(DRAG_TEST, 1):
+    """홈 → 열기 → 탑뷰 → 인식 → 끌기 → 집기 → 트레이. 끌기·집기가 실패하면 탑뷰 → 인식 → 실패한 단계부터 다시 (최대 RETRIES 번).
+    집기를 다시 할 때 좌표는 끌기 결과(target_after) — stub 은 늘 처음 좌표라 다시 끌면 안 됨. 비전 연동 때는 인식 결과로."""
+    for i, step in enumerate(("home", "open", "view", "scan"), 1):
         print(f"\n===== {i}/{len(DRAG_TEST)} {step} =====")
-        if step == "scan":
-            ok = scan(node)
-        elif step == "nudge":
-            ok = run(node, "nudge")
-            for k in range(NUDGE_RETRIES):
-                if ok or last["code"] not in RETRY_CODES:
-                    break
-                print(f"\n----- 끌기 {last['code']} → 탑뷰로 가서 다시 확인 ({k + 1}/{NUDGE_RETRIES}) -----")
-                if not (run(node, "view") and scan(node)):
-                    break
-                ok = run(node, "nudge")
-        else:
-            ok = run(node, step)
-        if not ok:
-            sys.exit(f"{step} 실패 {last['code']} — 여기서 멈춤 (뒤 단계 안 보냄). 터미널 로그 확인")
+        if not (scan(node) if step == "scan" else run(node, step)):
+            sys.exit(f"{step} 실패 {last['code']} — 여기서 멈춤 (서랍 안에 들어가기 전). 터미널 로그 확인")
+    step, tries = "nudge", 0
+    while step != "place":
+        print(f"\n===== {DRAG_TEST.index(step) + 1}/{len(DRAG_TEST)} {step} =====")
+        if run(node, step):
+            step = "pick" if step == "nudge" else "place"
+            continue
+        if last["code"] in STOP_CODES:
+            sys.exit(f"{step} {last['code']} — 다시 할 수 없는 상태라 멈춤 (펜던트·터미널 확인)")
+        if tries >= RETRIES:
+            sys.exit(f"{step} {last['code']} — {RETRIES}번 다시 해도 실패해 멈춤")
+        tries += 1
+        print(f"\n----- {step} {last['code']} → 탑뷰로 가서 다시 확인 ({tries}/{RETRIES}) -----")
+        if not (run(node, "view") or (last["code"] not in STOP_CODES and run(node, "view"))):   # 탑뷰 가기도 한 번 더
+            sys.exit(f"탑뷰로 못 감 {last['code']} — 멈춤")
+        scan(node)
+    print(f"\n===== {len(DRAG_TEST)}/{len(DRAG_TEST)} place =====")
+    if not run(node, "place"):
+        sys.exit(f"place 실패 {last['code']} — 물체를 든 채라 멈춤")
     print("\n끌기 시험 성공 (트레이까지)")
 
 

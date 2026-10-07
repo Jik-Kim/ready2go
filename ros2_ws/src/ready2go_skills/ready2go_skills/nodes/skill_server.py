@@ -344,6 +344,64 @@ class SkillServer(Node):
                               arrived=self._at_posx(posx))
         return None if done.success else self._where(done, stage, posx)
 
+    def _line_slow(self, goal, posx, vel, stage, watch=None, tol_mm=0.05, still_mm=0.01, still_s=1.0):
+        """아주 느린 직선 (누르기 1 mm/s, 힘 맞추기 0.1 mm). 실물에서 느린 이동은 관절 변화가 작아 '이동 중'이 안 떠 wait_motion 이
+        멈춤으로 보고 정지 명령 없이 끝남 → 10/07 누르기가 감시 없이 계속 내려감. 그래서 좌표로만 판단한다:
+        목표 tol_mm 안 = 도착, watch 가 Outcome = 정지 후 그 결과, 좌표가 still_s 동안 still_mm 안 = 멈춤(목표 전이면 정지 후 NOT_REACHED).
+        비상정지·취소·시간 초과·좌표 조회 끊김은 wait_motion 과 같게 정지 확인. 성공이면 None."""
+        goal.publish_feedback(Skill.Feedback(stage=stage))
+        if not self.robot.auto():
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+        if early:
+            return early
+        sp = self.prm()["speed"]
+        bad = sf.after_command(self.robot.movel_async(posx, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
+                                                      sp["turn_acc_deg_s2"]), what=f"movel({stage})",
+                               stop=self.robot.stop, get_state=self.state)
+        if bad:
+            return bad
+
+        def halt(o):                                        # 정지 + 정지 확인. 성공 결과(접촉 감지)면 None — _line 과 같은 약속
+            done = sf._halt(self.robot.stop, self.state, time.monotonic, time.sleep, 0.05, 3.0, o)
+            return None if done.success else self._where(done, stage, posx)
+
+        goal_mm = [float(v) for v in posx[:3]]
+        cur = self.robot.posx()
+        dist = math.dist(cur[:3], goal_mm) if cur else 0.0
+        limit = max(self.move_timeout, 2.0 * dist / max(vel, 1e-6) + 5.0)
+        watch = self._joint_watch(watch)
+        t0 = time.monotonic()
+        last, still_since, unknown_since = None, None, None
+        while True:
+            now = time.monotonic()
+            st = self.robot.state()
+            if sf.stopped_by_estop(st):
+                return sf.Outcome(False, sf.ESTOP, reason=f"로봇 상태 {st} (안전·비상정지)")
+            if goal.is_cancel_requested:
+                return halt(sf.Outcome(False, sf.CANCELED, canceled=True, reason="취소 요청으로 정지"))
+            hit = watch()
+            if hit is not None:
+                return halt(hit)
+            p = self.robot.posx()
+            if p is None:
+                unknown_since = unknown_since or now
+                if now - unknown_since > 1.0:
+                    return halt(sf.Outcome(False, sf.STATE_UNKNOWN, reason="좌표 조회 실패 1 s 넘음 — 정지"))
+            else:
+                unknown_since = None
+                if math.dist(p[:3], goal_mm) <= tol_mm:
+                    return None
+                if last is not None and math.dist(p[:3], last[:3]) < still_mm:
+                    still_since = still_since or now
+                    if now - still_since > still_s:
+                        return halt(sf.Outcome(False, sf.NOT_REACHED, reason=f"좌표가 {still_s:g} s 동안 그대로 — 목표 전에 멈춤"))
+                else:
+                    still_since, last = None, p
+            if now - t0 > limit:
+                return halt(sf.Outcome(False, sf.MOTION_TIMEOUT, reason=f"{limit:.0f} s 안에 끝나지 않아 정지"))
+            time.sleep(0.05)
+
     def _where(self, done, stage, posx):
         """NOT_REACHED 이유에 단계·멈춘 곳·남은 거리를 붙인다 (10/06 저녁 nudge NOT_REACHED 0.3 s — 어느 이동인지 로그로 몰랐음)."""
         if done.error_code != sf.NOT_REACHED:
@@ -692,33 +750,9 @@ class SkillServer(Node):
         fs = [f for f in (self.robot.tool_force() for _ in range(int(self.prm()["force"]["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
 
-    def _step(self, goal, posx, stage, tol_mm=0.05, arrive_s=2.0):
-        """아주 짧은 직선 (relax 0.2 mm). 짧고 느린 이동은 관절 변화가 작아 '이동 중'이 안 떠 wait_motion 이 목표 전에 멈춤으로
-        볼 수 있음 (10/06 저녁 누른 뒤 되돌아오기 1.5 mm 에서 NOT_REACHED 0.3 s 추정) → 멈춤 판정 뒤에도 좌표가 목표 tol_mm 안에 들 때까지 기다린다."""
-        goal.publish_feedback(Skill.Feedback(stage=stage))
-        if not self.robot.auto():
-            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
-        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
-        if early:
-            return early
-        sp, v = self.prm()["speed"], self.prm()["drag"]["press_speed_mm_s"]
-        bad = sf.after_command(self.robot.movel_async(posx, v, sp["line_acc_ratio"] * v, sp["turn_deg_s"], sp["turn_acc_deg_s2"]),
-                               what=f"movel({stage})", stop=self.robot.stop, get_state=self.state)
-        if bad:
-            return bad
-        done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                              stop=self.robot.stop, timeout_s=self.move_timeout, watch=self._joint_watch())
-        if not done.success:
-            return done
-        t0 = time.monotonic()
-        while True:
-            cur = self.robot.posx()
-            if cur is not None and math.dist(cur[:3], [float(x) for x in posx[:3]]) <= tol_mm:
-                return None
-            if time.monotonic() - t0 > arrive_s:
-                late = sf.Outcome(False, sf.NOT_REACHED, reason=f"{arrive_s:g} s 안에 목표 {tol_mm:g} mm 안으로 안 옴")
-                return self._where(sf._halt(self.robot.stop, self.state, time.monotonic, time.sleep, 0.05, 3.0, late), stage, posx)
-            time.sleep(0.05)
+    def _step(self, goal, posx, stage):
+        """아주 짧은 직선 (힘 맞추기 0.1 mm) — 느린 이동이라 좌표로 판단 (_line_slow)."""
+        return self._line_slow(goal, posx, self.prm()["drag"]["press_speed_mm_s"], stage)
 
     def _do_nudge_object(self, goal, params):
         target, drawer_id = params.get("target") or {}, params.get("drawer_id")
@@ -801,7 +835,8 @@ class SkillServer(Node):
 
         for k in range(int(d["touch_retries"]) + 1):
             state.pop("z1", None)
-            bad = self._line(goal, end_mm + above[3:], d["press_speed_mm_s"], "press" if k == 0 else f"press:{k + 1}", watch=contact)
+            bad = self._line_slow(goal, end_mm + above[3:], d["press_speed_mm_s"], "press" if k == 0 else f"press:{k + 1}",
+                                  watch=contact)
             if bad:
                 return bad, out
             if "z1" not in state:

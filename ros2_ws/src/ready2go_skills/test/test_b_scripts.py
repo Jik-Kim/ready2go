@@ -245,19 +245,23 @@ def _load_sk(monkeypatch):
 
 
 @pytest.mark.parametrize("codes, want_calls, ok", [
-    (["NO_OBJECT_CONTACT", ""], ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "pick", "place"], True),
-    (["PUSH_BLOCKED", "PUSH_BLOCKED", "PUSH_BLOCKED"], ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge",
-                                                     "view", "scan", "nudge"], False),
-    (["ESTOP"], ["home", "open", "view", "scan", "nudge"], False),
+    ({"nudge": ["NO_OBJECT_CONTACT", ""]},
+     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "pick", "place"], True),
+    ({"nudge": [""], "pick": ["GRASP_FAILED", ""]},                    # 집기 실패 → 탑뷰 → 집기부터 (다시 끌지 않음)
+     ["home", "open", "view", "scan", "nudge", "pick", "view", "scan", "pick", "place"], True),
+    ({"nudge": ["NOT_REACHED", "JOINT_LIMIT", "PUSH_BLOCKED"]},         # 무엇이든 다시, 최대 2번
+     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "nudge"], False),
+    ({"nudge": ["ESTOP"]}, ["home", "open", "view", "scan", "nudge"], False),
+    ({"nudge": ["STOP_UNCONFIRMED"]}, ["home", "open", "view", "scan", "nudge"], False),
 ])
-def test_dragtest_retries_via_top_view_only_on_object_codes(monkeypatch, codes, want_calls, ok):
-    """끌기 실패 → 탑뷰 → 인식 → 다시 (최대 2번) [사용자 10/07]. 안전 코드는 바로 멈춤."""
+def test_dragtest_goes_back_to_top_view_on_any_failure(monkeypatch, codes, want_calls, ok):
+    """끌기·집기에서 무엇이든 이상하면 탑뷰 → 인식 → 다시 [사용자 10/07]. 비상정지·잠김·취소만 멈춤."""
     sk = _load_sk(monkeypatch)
-    calls, nudges = [], iter(codes)
+    calls, seq = [], {k: iter(v) for k, v in codes.items()}
 
     def run(node, cmd):
         calls.append(cmd)
-        sk.last["code"] = next(nudges) if cmd == "nudge" else ""
+        sk.last["code"] = next(seq[cmd]) if cmd in seq else ""
         return sk.last["code"] == ""
     monkeypatch.setattr(sk, "run", run)
     monkeypatch.setattr(sk, "scan", lambda node: calls.append("scan") or True)
