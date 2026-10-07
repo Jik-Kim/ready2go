@@ -590,3 +590,12 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     assert st["descend_fast"][0] == 150.0 and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
     assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
     assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
+
+
+def test_free_space_speed_only_outside_drawer(server):
+    """[사용자 10/07 저녁] 빈 공간 직선은 free_mm_s, 서랍 위에서는 line_mm_s 그대로 (누르기·끌기 등은 각자 값)."""
+    sp = server.srv.prm()["speed"]
+    assert sp["free_mm_s"] > sp["line_mm_s"]
+    assert server.srv._free_vel() == sp["free_mm_s"]
+    assert server.srv._free_vel([0.0, 0.0, 100.0, 0.0, 180.0, 0.0]) == sp["free_mm_s"]          # 트레이 쪽
+    assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["line_mm_s"]    # 서랍 위

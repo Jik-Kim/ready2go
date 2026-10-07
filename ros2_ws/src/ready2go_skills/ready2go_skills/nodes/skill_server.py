@@ -216,13 +216,13 @@ class SkillServer(Node):
         blend = tr.get("blend_mm", 0.0) if cur[2] < lift_z and not self._over_drawer(cur) and not self.held else 0.0
         up = mp.with_z(cur, lift_z)
         if cur[2] < lift_z:                                 # 올리다 끝 blend_mm 안에서 관절 이동을 바로 보냄 — 멈추지 않고 한 동작 [사용자 10/07]
-            bad = self._line(goal, up, self.prm()["speed"]["line_mm_s"], "lift", radius=blend)
+            bad = self._line(goal, up, self._free_vel(cur), "lift", radius=blend)
             if bad:
                 return bad
         goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
         ok = self.robot.movej_async(joints, self.joint_vel, self.joint_acc)
         if ok is False and blend:                           # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
-            bad = self._wait_pose(goal, up, self.prm()["speed"]["line_mm_s"], "lift")
+            bad = self._wait_pose(goal, up, self._free_vel(cur), "lift")
             if bad:
                 return bad
             ok = self.robot.movej_async(joints, self.joint_vel, self.joint_acc)
@@ -239,9 +239,17 @@ class SkillServer(Node):
             self.home_posx = self.robot.posx()             # 놓기 때 서랍 → 홈 위로 높게 돌아오는 데 씀
         return reached
 
+    def _free_vel(self, cur=None):
+        """빈 공간 직선 속도 (서랍 밖으로 빼기·들고 나오기·트레이 위 올리기 등). cur 를 주면 서랍 위에서는 line_mm_s 로 —
+        누르기·끌기·집기/놓기 마지막·손잡이 접근은 각자 속도 그대로 [사용자 10/07 저녁 "이동은 빠르게, 넛지·주요 기능은 조심"]."""
+        sp = self.prm()["speed"]
+        if cur is not None and self._over_drawer(cur):
+            return sp["line_mm_s"]
+        return sp.get("free_mm_s", sp["line_mm_s"])
+
     def _exit_drawer(self, goal, cur):
         """서랍 위 → 앞판·손잡이 위 높이(high_z, 지금이 더 높으면 그대로)로 올린 뒤 서랍 밖(base y = exit_y)까지 수평으로 뺀다."""
-        tr, vel = self.prm()["transit"], self.prm()["speed"]["line_mm_s"]
+        tr, vel = self.prm()["transit"], self._free_vel()
         z = max(cur[2], tr["high_z_mm"])
         if cur[2] < z - 0.5:
             bad = self._line(goal, mp.with_z(cur, z), vel, "exit_lift", radius=tr.get("blend_mm", 0.0))
@@ -538,7 +546,7 @@ class SkillServer(Node):
         # Runner 의 open_drawer 는 move_to_named_pose(drawer_approach) 를 먼저 보냄 → 이미 ready 면 다시 올렸다 내리지 않음 (10/06 통합 실물)
         if not sf.check_reached(joints, self.robot.posj(), self.reach_tol).success:
             if cur[2] < self.prm()["transit"]["safe_z_mm"]:              # 낮은 곳에서 바로 관절 이동하지 않음
-                bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), speed["line_mm_s"], "lift")
+                bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), self._free_vel(cur), "lift")
                 if bad:
                     return bad, None
             goal.publish_feedback(Skill.Feedback(stage="approach"))
@@ -1084,7 +1092,7 @@ class SkillServer(Node):
             seq = [here] + pts
             radii = [min(rad, math.dist(seq[k][:3], seq[k + 1][:3]) / 2.0, math.dist(seq[k + 1][:3], seq[k + 2][:3]) / 2.0)
                      for k in range(len(pts) - 1)] + [0.0]   # 반지름은 앞뒤 구간 절반까지 (짧은 구간 1→2)
-            bad = self._blend(goal, pts, radii, speed["line_mm_s"], "carry")
+            bad = self._blend(goal, pts, radii, self._free_vel(), "carry")
             if bad:
                 return bad, None                            # 놓는 자리로는 grasp_mm_s 로 살포시 (10/06 저녁: 놓기는 빠르게 하지 않음)
             above = list(pts[-1])                           # 이미 칸 위 — 다시 올리지 않음, 놓은 뒤에도 여기로
@@ -1133,7 +1141,7 @@ class SkillServer(Node):
         used.append(i)
         cls = self.held["class"]
         self.held = None
-        back = self._line(goal, above, speed["line_mm_s"], "lift")
+        back = self._line(goal, above, self._free_vel(), "lift")
         out = {"slot": f"{loc}_{i + 1}", "placed_pose": {"frame": loc, "position": [round(slots[i][0], 4),
                                                                                      round(slots[i][1], 4), 0.0]}}
         if back:                                            # 놓기는 끝났지만 올라오지 못함 → 그 오류 (안전 오류 보존)
