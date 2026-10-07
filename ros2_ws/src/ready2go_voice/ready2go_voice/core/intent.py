@@ -52,7 +52,7 @@ class IntentParser:
         return None
 
     def _request_form(self, text, target):
-        """등록 대상과 요청 문맥 전체를 비교합니다. 부정/인용을 삭제하지 않습니다."""
+        """LLM 실패 시의 좁은 폴백 문형입니다. 정상 LLM 후보의 허용 목록이 아닙니다."""
         value = normalize_control(text)
         prefix = (r'(?:헬로로키|로키|저기)?(?:혹시)?'
                   r'(?:(?:저|나)(?:에게|한테)|내게)?(?:좀)?'
@@ -67,28 +67,66 @@ class IntentParser:
         return bool(re.fullmatch(prefix + '(?:' + target + ')' + particle +
                                  r'(?:있으면|필요한데)?' + action, value))
 
+    def _elliptical_request(self, text, target):
+        # 사용자 승인: 단일 물품 + 좀/좀요는 가져오기 부탁. 문맥을 잘라내지 않습니다.
+        prefix = (r'(?:헬로로키|로키|저기)?(?:혹시)?'
+                  r'(?:(?:저|나)(?:에게|한테)|내게)?(?:그|이|저)?')
+        return bool(re.fullmatch(prefix + '(?:' + target + ')' +
+                                 r'(?:을|를|이|가)?(?:하나|한개)?(?:만)?좀(?:요)?',
+                                 normalize_control(text)))
+
     def explicit_request(self, text):
-        # 문형은 지우개 전용이나 평가40개 문자열 목록이 아닌 등록 어휘에 적용합니다.
-        return self._request_form(text, '|'.join(re.escape(alias) for alias in self.aliases))
+        # 폴백 전용: 기존 긍정 전체 문형 + 승인된 축약 부탁을 등록 어휘에 적용합니다.
+        target = '|'.join(re.escape(alias) for alias in self.aliases)
+        return self._request_form(text, target) or self._elliptical_request(text, target)
 
     def ambiguous_request(self, text):
         target = r'그거|저거|이거|물건|하나|서랍에있는거|필요한걸|위에있는거'
         return (bool(re.fullmatch(target, normalize_control(text))) or
                 self._request_form(text, target) or self._request_form(text, '') or
+                self._elliptical_request(text, target) or
                 bool(re.fullmatch(r'(?:그거|저거|이거)어떻게좀해줘', normalize_control(text))))
+
+    def _unsupported_context(self, text):
+        value = normalize_control(text)
+        return self._has(text, 'unsupported_patterns') or bool(re.search(
+            r'던(?:져|지)|정리|청소|반납|돌려(?:놔|놓|줘)|되돌|옮(?:겨|기)|'
+            r'사람손|손(?:에|으로|바닥)|직접.*(?:손|건네)|'
+            r'(?:책상|테이블|바닥|다른서랍|옆서랍|아래서랍).*'
+            r'(?:놓|둬|두|넣|전달|건네|가져|갖다)|'
+            r'(?<!전달트레이)(?:에|으로|로)(?:좀)?(?:놓|둬|두|넣|전달|건네|가져|갖다)|'
+            r'지워(?:줘|주세요|줄래)|깎아|잘라', value))
+
+    def _nonrequest_context(self, text):
+        # 명백한 부정/정보/인용/불명확 문맥은 잘못된 LLM 후보에도 선제 보류합니다.
+        value = normalize_control(text)
+        negative = (r'않|지마(?:$|[.!?]|라|세요|요)|지말|'
+                    r'(?:안|못)(?:찾|꺼내|가져|갖다|건네|받|주|줘|필요)|'
+                    r'필요없|필요하지|싫|불필요')
+        information = (r'뭐|무엇|얼마|어디|어떻게|설명|알려|알고|궁금|뜻|의미|정보|'
+                       r'가격|색깔|어쩌|아마|글쎄|나중|내일|언젠가|만약')
+        quotation = r'["\'“”‘’「」『』`]|라고|라며|라는|말했|말한|들었|읽었|적었|예시|문장|표현'
+        return bool(re.search(negative + '|' + information + '|' + quotation, value))
+
+    def _request_context(self, text):
+        # 이름만으로 실행하지 않음. 요청/필요/받기/축약 부탁의 단서는 전체 문형과 다릅니다.
+        # 이 단서만으로 실행하지 않고 정상 LLM의 의미 판정과 공통 검증을 함께 요구합니다.
+        return bool(re.search(r'찾|꺼내|가져|갖다|건네|받|줘|줄|주(?:세|시|실|면|겠)|'
+                              r'요청|부탁|필요|좀|쓰고싶|사용하고싶', normalize_control(text)))
 
     def guard(self, text):
         if not str(text).strip():
             return intent('clarify', question=self.cfg['clarify_prompts']['empty'])
-        if self._has(text, 'unsupported_patterns'):
+        if self._unsupported_context(text):
             return intent('unknown', question='지금은 한 물품을 찾아 전달하는 요청만 지원합니다.')
         keys = self.mentioned(text)
         if len(keys) > 1:
             return intent('clarify', question=self.cfg['clarify_prompts']['multiple'])
-        if len(keys) == 1 and not self.explicit_request(text):
-            question = (self.cfg['clarify_prompts']['bare'] if normalize(text) in self.aliases
-                        else self.cfg['clarify_prompts']['request'])
-            return intent('clarify', question=question)
+        if len(keys) == 1:
+            if normalize_control(text) in self.aliases:
+                return intent('clarify', question=self.cfg['clarify_prompts']['bare'])
+            if self._nonrequest_context(text):
+                return intent('clarify', question=self.cfg['clarify_prompts']['request'])
         if not keys and self.ambiguous_request(text):
             return intent('clarify', question=self.cfg['clarify_prompts']['missing_item'])
         return None
@@ -100,6 +138,8 @@ class IntentParser:
         keys = self.mentioned(text)
         if len(keys) == 1 and self.explicit_request(text):
             return intent('find_item', sorted(keys))
+        if keys:
+            return intent('clarify', question=self.cfg['clarify_prompts']['request'])
         return intent('unknown', question='등록된 물품 하나를 요청해 주세요.')
 
     def validate(self, raw, text):
@@ -130,7 +170,7 @@ class IntentParser:
                 return hold
         if doc['intent'] == 'find_item':
             # 등록 키/확신도는 사용자의 물품·긍정 요청 확인을 대체하지 않습니다.
-            if not self.mentioned(text) or not self.explicit_request(text):
+            if not self.mentioned(text) or not self._request_context(text):
                 return intent('clarify', question=self.cfg['clarify_prompts']['unconfirmed'])
         # LLM source는 신뢰하지 않고 진단은 E가 생성합니다.
         return intent(doc['intent'], targets, doc['confidence'], doc.get('clarify_question'))

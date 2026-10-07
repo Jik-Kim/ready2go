@@ -27,7 +27,7 @@ tts_speed: 180
 tts_timeout_sec: 20.0 # Melo CPU 시운전 상한 [팀 확정 필요], AC start_deadline은 별도 유지
 confirmation_enabled: true # C 태스크 시작/확인 TTS 책임 분담 [팀 확정 필요]
 duplicate_window_sec: 2.0
-# 실행은 request_patterns 부분 일치가 아니라 core의 긍정 요청 전체 문형으로 확인합니다.
+# 정상 LLM은 요청 의미를 해석하고 core가 보류 문맥/대상/형식을 검증합니다. 전체 문형은 폴백용입니다.
 # request_patterns는 현재 판별에 사용하지 않으며 호환용으로 유지합니다.
 # 모호=clarify 정책은 사용자 확정. D 자료의 E/D 승인·후속 확인 대화는 [팀 확정 필요].
 request_patterns: ['찾아', '찾아줘', '꺼내', '가져', '갖다', '줄래', '주세요', '주면', '필요']
