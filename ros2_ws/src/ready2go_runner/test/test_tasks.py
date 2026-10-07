@@ -255,6 +255,26 @@ def test_close_announce_failure_keeps_closed_state_and_home():
     assert runner.state["open"]["drawer_top"] is False and statuses(result, "f3.1") == ["SUCCESS"]
 
 
+def test_close_announce_no_response_times_out_then_home():
+    """PM #140: 음성 노드가 응답하지 않아도 홈이 막히지 않게 f2s.1 에 제한 시간. 응답 없음 → TIMEOUT → skip → 홈·닫힘·결과 유지."""
+    robot = MockRobot(fail={"speak": [None, None, "TIMEOUT"]})            # RosClients 는 제한 시간이 지나면 취소하고 TIMEOUT
+    runner, result, _ = run(robot)
+    assert next(s for s in TASK["finally"] if s["id"] == "f2s")["then"][0]["timeout_sec"] == 20
+    assert step(result, "f2s.1")["error_code"] == "TIMEOUT" and step(result, "f2s.1")["on_failure"] == "skip"
+    assert result.overall_status == "COMPLETED"
+    assert runner.state["open"]["drawer_top"] is False and statuses(result, "f3.1") == ["SUCCESS"]
+
+
+def test_close_announce_skipped_when_queries_fail_and_home_still_runs():
+    """E #140 제안: 물품 조회 실패로 loc 이 없으면 f1d·f2·f2d·f2s 가 각각 skip — 안내 없음, 홈 복귀는 그대로."""
+    robot = MockRobot()
+    _, result, _ = run(robot, task={**TASK, "inputs": {"target": "phone"}})        # 온톨로지에 없는 물품 → s1 실패
+    assert result.overall_status == "FAILED" and result.failed_step == "s1"
+    assert [step(result, i)["status"] for i in ("f1d", "f2", "f2d", "f2s")] == ["FAILURE"] * 4
+    assert all(step(result, i)["on_failure"] == "skip" for i in ("f1d", "f2", "f2d", "f2s"))
+    assert CLOSED not in robot.spoken and statuses(result, "f3.1") == ["SUCCESS"]
+
+
 def test_place_failed_holding_no_close_announce():
     robot = MockRobot(fail={"place_object": ["PLACE_FAILED"]})
     _, result, _ = run(robot)
