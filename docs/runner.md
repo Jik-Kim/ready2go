@@ -197,6 +197,7 @@
   | `targets` 없음·2개 이상(P1 은 물품 하나)·온톨로지 `items`에 없음 | 실행 안 함 | `hold` / `NO_TARGET`·`MULTI_TARGET`·`UNKNOWN_ITEM` |
   | 태스크 `trigger.targets`에 없는 물품 (물품이 정해진 태스크, 예: 지우개 시연 태스크에 "차키 찾아줘") | 실행 안 함 (서랍도 열지 않음) | `hold` / `UNSUPPORTED_ITEM` |
   | 중단 잠김 / 이미 실행 중(중복 요청, 줄 세우지 않음) | 실행 안 함 | `reject` / `LOCKED`·`BUSY` |
+  | 태스크에 필요한 `/skills/*` 서버가 아직 안 뜸 (real 기동 직후, #108) | 실행 안 함 (로봇 동작·실행 기록 없음) | `reject` / `NOT_READY` |
   | 위를 모두 통과한 `find_item` 등 | 태스크 실행, `inputs` = `{target: targets[0], source: "voice", stt_text, intent_confidence}`, 실행 기록 헤더 `intent`에 받은 JSON 그대로 (FR-LOG-01 입력 명령) | `run` |
   | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
   | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |

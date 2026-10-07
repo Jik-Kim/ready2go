@@ -63,10 +63,18 @@ class RosClients:
             wake.set()
         return len(active)
 
-    def call_action(self, name: str, params_json: str, timeout_sec: float | None) -> Reply:
+    def _action_client(self, name: str) -> ActionClient:
         client = self._actions.get(name)
         if client is None:
             client = self._actions[name] = ActionClient(self.node, Skill, name, callback_group=self._group)
+        return client
+
+    def missing_actions(self, names) -> list[str]:
+        """아직 서버가 안 뜬 액션 이름 (기다리지 않음). 실행 전 확인용 (#108 D P1)."""
+        return sorted(n for n in names if not self._action_client(n).server_is_ready())
+
+    def call_action(self, name: str, params_json: str, timeout_sec: float | None) -> Reply:
+        client = self._action_client(name)
         if not client.wait_for_server(timeout_sec=self.server_wait_sec):
             self.node.get_logger().error(f"{name}: 액션 서버 없음")
             return Reply(False, BACKEND_ERROR)
