@@ -110,7 +110,7 @@ drag:                           # nudge_object 실물: 기울여 손끝으로 �
                                 #   세로 지우개 윗면 눌러 옆으로 잘 끌림. object 는 계산만 (tip_contact, 실물 미확인)
   wall_tcp_min_mm: 3.3          # close_axis wall, 20°: 누르는 TCP–옆벽 경계 [실측 B 10/07 4번: 20° 지우개 중심 위 y 290.44, 경계 293.7] (30° 모서리 최대 5.0, 10/06)
   wall_press_margin_mm: 0.0     # close_axis wall: 누르는 TCP = 옆벽 경계 + wall_tcp_min_mm + 이 값. 3 → 0 (10/06 덜 붙어 지우개 끝만 눌려 덜덜 끌림, 사용자 손 시험 x 521.4 와 같게)
-  wall_tip_below_mm: 9.7        # close_axis wall, 20°: 손끝이 TCP 아래 [실측 B 10/07 4번: TCP 바닥 위 21.18 − 지우개 11.5, 닿은 높이로 봄] (30° 는 11.7, 10/06)
+  wall_tip_below_mm: 9.7        # close_axis wall, 20°: 손끝이 TCP 아래 [실측 B 10/07 4번: TCP 바닥 위 21.18 − 지우개 11.5, 윗면에 닿은 높이 — 사용자 확인] (30° 는 11.7, 10/06)
   press_speed_mm_s: 1.0         # 내려가며 접촉 찾기. 5 → 1: 감지·정지까지 0.1~0.15 s 동안 더 눌림 0.75 → 0.15 mm (1 mm 에 약 8 N) — 10 N 넘지 않게 [사용자 10/07]
   press_ignore_mm: 2.0          # 출발 후 이 거리는 힘 무시 → 그 순간 값을 새 기준 (출발할 때 힘 튐, 10/06 z 225.5 오검출)
   press_confirm: 3              # 멈춘 채 이 횟수 모두 touch_force_n 넘을 때만 접촉 [사용자 10/07]
