@@ -181,9 +181,10 @@
 
 * 시작할 때 스키마(`/contracts`)·온톨로지(`/knowledge`, 초기 상태 포함)를 읽고 실행 이력은 MongoDB(`MONGO_URI`) → 실패 시 `/logs` JSONL.
 * `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
-* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, 없으면 `null`).
+* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, 없으면 `null`), `state_reset_at`(마지막 `/runner/reset_state` 시각 UTC, 없으면 `null`).
 * `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
 * `/runner/estop` (`std_srvs/Trigger`) → `halt()` → 진행 중인 goal 에 즉시 취소 요청(정지 확인 전에는 다음 동작 없음). **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
+* `/runner/reset_state` (`std_srvs/Trigger`, #23·#107) → 온톨로지 상태를 **Runner 시작 때 상태(초기 상태)로 되돌림**. P1 은 실행 사이 사람이 물품을 원위치해도 관측으로 상태를 맞추지 못해, 켜 둔 Runner 에 연속 요청하면 1회차 끝 상태(지우개 = `handover_zone`)로 2회차가 트레이를 서랍 자리에 넣음(10/07 발견). 리스크 대응 "시연 전 상태 스냅샷 복원"(metrics_risks.md)을 **사람이 원위치(물품·서랍 닫힘·빈 그리퍼·홈)를 확인한 뒤 부르는 명시적 초기화**로 둠(팀 결정: 나중에 시연 화면 #59 버튼). Runner 가 스스로 되돌리지 않으므로 실패(예: 놓기 실패로 쥔 채 정지) 뒤 상태는 사람이 확인할 때까지 그대로(#107 D 리뷰). 실행 중이면 `success: false`로 거절, 중단 잠김은 풀지 않음(재개는 별도). 관측으로 맞추기는 P2(FR-ONT-02)·P3(FR-REC-01).
 * 태스크 실행 통로: 정식은 `/voice/intent`(#17, `core/intent_router.py`). 시험용으로 `RUNNER_TASK_FILE`(compose 환경 변수 → `task_file` 파라미터)을 주면 시작할 때 한 번 실행.
 * **`/voice/intent` 처리** (#17·#23): E 음성 노드가 검증한 뒤 발행하지만, 로봇을 움직이는 쪽이라 Runner 가 한 번 더 확인하고 애매하면 실행하지 않음. 재질문·안내 TTS 는 E 음성 노드(`last_intent`를 보고 말할지는 E 합의).
 
@@ -203,7 +204,6 @@
   * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — 10/08 시연(벽 배치·nudge): `-p ontology_file:=/knowledge/robot_ontology_demo.jsonld -p intent_tasks:=find_item=/tasks/p1_demo_eraser.json`. 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
   * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
   * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.
-  * `reset_state_each_run` 기본 `false` `[E·PM 결정, #23]`: `true`면 **실행을 시작할 때마다 온톨로지 상태를 Runner 시작 때(초기 상태)로 되돌림**. P1 은 실행 사이 사람이 물건을 원위치해도 관측으로 맞추지 못해, 켜 둔 Runner 에 연속 요청하면 1회차 끝 상태(지우개 = `handover_zone`)로 2회차가 트레이를 서랍 자리에 넣음(10/07 발견). 리스크 대응 "시연 전 상태 스냅샷 복원"(metrics_risks.md). 실행 안의 상태 추적(pre·effect)은 그대로, 중단 잠김이면 되돌리지 않음(사람 확인 전 상태 보존). 되돌린 실행은 기록 헤더에 `state_reset: true`. 관측으로 맞추기는 P2(FR-ONT-02)·P3(FR-REC-01).
 * `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험.
 
 ### 7.2 태스크 시퀀스 스키마

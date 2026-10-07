@@ -97,7 +97,7 @@ class Halted(Exception):
 class Runner:
     def __init__(self, execute: Execute, schema: dict | None = None,
                  clock: Callable[[], float] = time.monotonic, log_store: LogStore | None = None,
-                 ontology: dict | None = None, reset_state_each_run: bool = False):
+                 ontology: dict | None = None):
         self.execute = execute
         self.schema = schema                    # contracts/task.schema.json 내용 (노드가 읽어서 전달)
         self.clock = clock                      # 소요 시간·timeout 측정용 (테스트에서 가짜 시계 주입)
@@ -105,10 +105,7 @@ class Runner:
         # 온톨로지(E, knowledge/robot_ontology.jsonld): 스킬 정의는 참고만, 상태는 Runner 가 단일 관리자(docs/ontology.md 7.8)
         self.skills: dict = (ontology or {}).get("skills", {})
         self._state: dict = copy.deepcopy((ontology or {}).get("state", {}))   # 원본은 바꾸지 않음, 태스크 사이에 유지
-        self._initial_state: dict = copy.deepcopy(self._state)
-        # 실행 시작마다 초기 상태로 되돌림 (#23): P1 은 실행 사이 사람이 물건을 원위치해도 관측으로 맞추지 못하므로
-        # 시연 전 상태 스냅샷 복원(docs/metrics_risks.md). 기본 꺼짐 — 켜면 실행 기록 헤더에 state_reset: true
-        self.reset_state_each_run = reset_state_each_run
+        self._initial_state: dict = copy.deepcopy(self._state)   # reset_state() 가 되돌릴 시작 상태
         self._run_id: str | None = None
         self._records: list[dict] = []
         self._log_errors: list[str] = []
@@ -160,19 +157,23 @@ class Runner:
         """현재 온톨로지 상태 state[predicate][subject] 의 복사본 (#10 에서 /robot_state 로 발행)."""
         return copy.deepcopy(self._state)
 
+    def reset_state(self) -> None:
+        """온톨로지 상태를 시작 상태로 되돌린다 (#23·#107). 사람이 물품·서랍·그리퍼를 원위치한 것을 확인한 뒤에만
+        부른다(/runner/reset_state, 나중에 시연 화면 버튼 #59). P1 은 실행 사이 원위치를 관측으로 맞추지 못하므로
+        시연 전 상태 스냅샷 복원(docs/metrics_risks.md). 실행 중에는 부르지 않는다(노드가 막음).
+        중단 잠김(halt)은 풀지 않는다 — 잠금 해제는 별도 절차."""
+        with self._halt_lock:                   # effect 반영과 끼어들지 않게
+            self._state = copy.deepcopy(self._initial_state)
+
     def run(self, task: dict, inputs: dict | None = None, meta: dict | None = None) -> RunResult:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
         meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
         self._aborted = False
-        reset = self.reset_state_each_run and not self._halt.is_set()   # 중단 잠김이면 되돌리지 않음 (사람 확인 전 상태 보존)
-        if reset:
-            self._state = copy.deepcopy(self._initial_state)
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
         records: list[dict] = []
         self._run_id, self._records, self._log_errors = new_run_id(), records, []
         run_doc = {"run_id": self._run_id, "task_id": task.get("task_id", ""),
-                   "inputs": blackboard["inputs"], "started_at": utc_iso(),
-                   "extra": {**(meta or {}), "state_reset": True} if reset else meta}
+                   "inputs": blackboard["inputs"], "started_at": utc_iso(), "extra": meta}
         self._log("start_run", run_document(**run_doc))
         started = self.clock()
 

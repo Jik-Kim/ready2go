@@ -5,6 +5,8 @@
   (BACKEND 가 mock·real·sim 어느 쪽이든 같은 이름이므로 이 노드는 그대로)
 - 발행: /runner/status (phase·현재 스텝·마지막 결과), /robot_state (온톨로지 상태). 늦게 구독해도 마지막 값을 받음
 - 서비스: /runner/estop (std_srvs/Trigger) → Runner.halt(). 재개(resume) 통로는 ICD 에 없어 E 합의 후 추가
+  /runner/reset_state (std_srvs/Trigger) → 온톨로지 상태를 시작 상태로 (#23·#107). 사람이 물품·서랍·그리퍼
+  원위치를 확인한 뒤 부른다. 실행 중이면 거절, 중단 잠김은 풀지 않음
 - 태스크 실행: /voice/intent (#17, core/intent_router) — trigger.intent 가 맞는 태스크를 inputs.target = targets[0] 로.
   cancel → halt(), status → 상태 다시 발행, 모호·미지원·저신뢰·미등록 물품은 보류, 실행 중·잠김이면 거절.
   시험용으로 task_file 파라미터를 주면 시작할 때 한 번 실행
@@ -33,6 +35,7 @@ from ..adapters.ros_clients import RosClients
 from ..core.backend import RosBackend
 from ..core import intent_router
 from ..core.interpreter import RunResult, Runner
+from ..core.log_records import utc_iso
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
 from ..core.runner_status import build_status
 
@@ -52,14 +55,12 @@ class RunnerNode(Node):
         tasks_dir = param("tasks_dir", "/tasks")
         intent_tasks = param("intent_tasks", "")   # 인텐트=태스크파일 (trigger 대신, 예: 시연 find_item=/tasks/p1_demo_eraser.json)
         min_confidence = param("min_confidence", 0.6)   # [추정, E 확정 필요] E 음성 노드 임계값과 같게
-        reset_state = param("reset_state_each_run", False)   # 실행 시작마다 초기 상태 (#23, E·PM 결정 전 기본 꺼짐)
 
         with open(schema_file, encoding="utf-8") as f:
             schema = json.load(f)
         onto = ontology.load(ontology_file)
         self.log_store = _make_log_store(log_dir, self.get_logger())
-        self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store,
-                             reset_state_each_run=reset_state)
+        self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store)
         self.ros_clients = RosClients(self, stopping=lambda: self.runner.stop_requested)
         self.runner.on_halt = self.ros_clients.cancel_all   # /runner/estop → 진행 중인 goal 즉시 취소
         self.runner.execute = RosBackend(self.ros_clients.call_action, self.ros_clients.call_service,
@@ -73,6 +74,7 @@ class RunnerNode(Node):
         self.status_pub = self.create_publisher(String, "/runner/status", LATCHED)
         self.state_pub = self.create_publisher(String, "/robot_state", LATCHED)
         self.create_service(Trigger, "/runner/estop", self._estop, callback_group=group)
+        self.create_service(Trigger, "/runner/reset_state", self._reset_state, callback_group=group)
         self.create_subscription(String, "/voice/intent", self._on_intent, 10, callback_group=group)
         self.create_timer(PUBLISH_PERIOD_SEC, self.publish, callback_group=group)
 
@@ -80,13 +82,13 @@ class RunnerNode(Node):
         self._busy = False                      # 실행 중 (스레드 생존과 별개: 끝난 직후 발행할 때 이미 False)
         self._task_id: str | None = None
         self._last: RunResult | None = None
+        self._state_reset_at: str | None = None   # 마지막 /runner/reset_state 시각 (UTC)
         self._last_task_id: str | None = None
         self._last_intent: dict | None = None   # 마지막으로 받은 인텐트와 처리 결과 (시연 화면 #59)
         self._sent = {"status": None, "state": None}
         self.get_logger().info(f"Runner 준비: 스키마 {schema_file}, 온톨로지 {ontology_file}, "
                                f"백엔드 {os.environ.get('BACKEND', 'mock')}, 예비 기록 {log_dir}, "
-                               f"인텐트 {({k: v.get('task_id') for k, v in tasks.items()})}, "
-                               f"실행마다 상태 초기화 {'켬' if reset_state else '꺼짐'}")
+                               f"인텐트 {({k: v.get('task_id') for k, v in tasks.items()})}")
         self.publish()
         if task_file:
             with open(task_file, encoding="utf-8") as f:
@@ -154,11 +156,29 @@ class RunnerNode(Node):
         self.publish()
         return response
 
+    def _reset_state(self, request, response):
+        """/runner/reset_state: 사람이 원위치를 확인한 뒤 상태를 시작 상태로. 실행 중이면 거절 (start_task 와 같은 잠금)."""
+        with self._lock:
+            if self.running:
+                response.success = False
+                response.message = f"실행 중({self._task_id}) — 끝난 뒤 원위치 확인 후 다시 요청"
+                self.get_logger().warning(f"/runner/reset_state: 거절 — {response.message}")
+                return response
+            self.runner.reset_state()
+            self._state_reset_at = utc_iso()
+        locked = self.runner.halted
+        response.success = True
+        response.message = "상태를 시작 상태로 되돌림" + (" (중단 잠김은 그대로 — 재개는 별도)" if locked else "")
+        self.get_logger().info(f"/runner/reset_state: {response.message}")
+        self.publish()
+        return response
+
     def status(self) -> dict:
         degraded = getattr(self.log_store, "degraded", False)
         status = build_status(self.running, self.runner.halted, self.runner.halt_code, self._task_id,
                               self.runner.current_step, self._last, self._last_task_id, degraded)
         status["last_intent"] = self._last_intent
+        status["state_reset_at"] = self._state_reset_at   # 마지막 상태 초기화 시각 (UTC, 없으면 null)
         return status
 
     def publish(self) -> None:
