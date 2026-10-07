@@ -250,6 +250,37 @@ def test_named_pose_from_high_spot_goes_straight(server):
     assert out.success and server.srv.robot.log[0][0] == "movej"
 
 
+@pytest.mark.parametrize("start, lifts", [
+    ([424.181, -294.601, 363.507, 0.0, 180.0, 0.0], False),     # 탑뷰 (z 363 > high_z) — 그 높이 그대로 빼냄
+    ([380.0, -216.0, 253.8, 0.0, 180.0, 0.0], True),            # 서랍 안 낮은 곳 — high_z 325 로 먼저 올림
+])
+def test_named_home_from_over_drawer_exits_over_front_first(server, start, lifts):
+    """[실측 10/07 PC2] 탑뷰 → 닫기(홈 경유)에서 바로 movej 하면 열린 앞판·손잡이를 쳐서 충돌 알람 7060.
+    서랍 위에서 서랍 밖 자세로 갈 때는 앞판 위 높이로 서랍 밖(exit_y)까지 수평으로 뺀 뒤 movej."""
+    tr = server.srv.prm()["transit"]
+    server.srv.robot.p = list(start)
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    log = server.srv.robot.log
+    assert out.success
+    moves = [e for e in log if e[0] in ("movel", "movej")]
+    z = max(start[2], tr["high_z_mm"])
+    if lifts:
+        assert moves[0][0] == "movel" and moves[0][1][:3] == pytest.approx([start[0], start[1], z])
+        moves = moves[1:]
+    assert moves[0][0] == "movel" and moves[0][1][:3] == pytest.approx([start[0], tr["exit_y_mm"], z])
+    assert moves[1][0] == "movej" and len(moves) == 2
+
+
+def test_named_top_view_from_over_drawer_does_not_exit(server):
+    """서랍 위 → 탑뷰(끌기 뒤 다시 보기)는 서랍 밖으로 빼지 않음 — safe_z 로만 올리고 movej (10/07 실물 동작 그대로)."""
+    server.srv.robot.p = [380.0, -216.0, 253.8, 0.0, 180.0, 0.0]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    log = server.srv.robot.log
+    assert out.success
+    assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-216.0) and log[0][1][2] == pytest.approx(300.0)
+    assert log[1][0] == "movej"
+
+
 def test_open_drawer_without_posx_fails_before_any_command(server):
     """#83 E 검토 P1: 서랍 열기에서 현재 좌표를 못 읽으면 그리퍼·관절 이동 없이 STATE_UNKNOWN."""
     server.srv.disp = {}
