@@ -180,3 +180,31 @@ def test_edge_tolerance_boundary_keeps_14mm_and_drops_16mm_overrun():
         depth = scene(cx, 0.15, 0.0, (0.0525, 0.022), 0.0115)
         ok, _, js = run(depth, [{"class": "eraser", "conf": 0.9, "box": box_of(cx, 0.15, (0.0525, 0.022), 0.0)}])
         assert ok and json.loads(js)["target_found"] is keep, (cx, keep)
+
+
+def test_detection_outside_drawer_roi_is_skipped_before_depth():
+    """PC2 10/07: 서랍 밖(바닥보다 낮은 책상 위) 오검출이 뎁스 실패로 호출 전체를 DEPTH_INVALID 로 만들지 않는다."""
+    depth = scene(0.08, 0.16, 0.0, (0.0525, 0.022), 0.0115)
+    out = box_of(-0.12, 0.15, (0.05, 0.03), 0.0)                       # 서랍 앞쪽 밖 12 cm
+    depth[int(out[1]):int(out[3]), int(out[0]):int(out[2])] = H + 0.05   # 서랍 바닥보다 5 cm 낮은 면 → 뎁스 덩어리 없음
+    dets = [{"class": "eraser", "conf": 0.95, "box": box_of(0.08, 0.16, (0.0525, 0.022), 0.0)},
+            {"class": "masking_tape", "conf": 0.38, "box": out}]
+    dbg = []
+    ok, err, js = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    assert ok and json.loads(js)["target_found"] is True, err
+    assert any(d["class"] == "masking_tape" and d.get("skip", "").startswith("서랍 영역 밖") for d in dbg)
+    no_roi = {**PARAMS, "region": {k: v for k, v in PARAMS["region"].items() if k != "detect_roi_margin_m"}}
+    assert inspect_scene(dets, depth, K, T, no_roi, ITEMS, "drawer_top", "eraser", INTERIOR)[:2] == (False, "DEPTH_INVALID")
+
+
+def test_roi_keeps_wall_touching_object_and_depth_hole_inside_still_fails():
+    m = PARAMS["region"]["detect_roi_margin_m"]
+    assert 0.02 <= m <= 0.06
+    inside = scene(0.04, 0.15, 0.0, (0.0525, 0.022), 0.0115)            # 벽(x=0) 4 mm 안쪽까지 붙은 지우개 → 그대로 target
+    ok, _, js = run(inside, [{"class": "eraser", "conf": 0.9, "box": box_of(0.04, 0.15, (0.0525, 0.022), 0.0)}])
+    assert ok and json.loads(js)["target_found"] is True
+    hole = scene(0.08, 0.16, 0.0, (0.0525, 0.022), 0.0115)              # 서랍 안 뎁스 결손(렌즈 가림 등)은 여전히 오류로 알린다
+    b = box_of(0.08, 0.16, (0.0525, 0.022), 0.0)
+    hole[int(b[1]) - 10:int(b[3]) + 10, int(b[0]) - 10:int(b[2]) + 10] = 0.0
+    assert run(hole, [{"class": "eraser", "conf": 0.9, "box": b}])[:2] == (False, "DEPTH_INVALID")
+
