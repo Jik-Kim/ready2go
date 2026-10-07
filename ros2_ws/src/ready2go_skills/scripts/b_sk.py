@@ -2,6 +2,7 @@
 지우개 위치는 10/07 실측(위 서랍, 세로, 손잡이 쪽 오른쪽 모서리, 3번 수직 터치). 10/06 값 [0.1769, 0.2895] 은 #22 stub 과 같음."""
 import json
 import sys
+import time
 
 import rclpy
 from rclpy.action import ActionClient
@@ -44,22 +45,50 @@ def goal_for(cmd):
     sys.exit("동작: all | dragtest | open | opened | view | scan | nudge | pick | place | close | home")
 
 
-STEPS = ("open", "view", "scan", "nudge", "pick", "place", "close", "home")   # all: 열기 → 탑뷰 → 인식 → 끌기 → 집기 → 놓기 → 닫기 → 홈
-DRAG_TEST = ("home", "open", "view", "scan", "nudge", "pick", "place")         # dragtest: 끌기 단위 시험 [사용자 10/07]
+STEPS = ("open", "view", "scan", "nudge", "view", "rescan", "pick", "place", "close", "home")
+# all: 열기 → 탑뷰 → 인식 → 끌기 → 탑뷰 → 다시 인식(그 좌표로 집기) → 집기 → 놓기 → 닫기 → 홈 [사용자 10/07]
+DRAG_TEST = ("home", "open", "view", "scan", "nudge", "pick", "place")         # dragtest: 끌기 단위 시험 [사용자 10/07] (집기 전 탑뷰·다시 인식)
 # 서랍 안 일(끌기·집기)에서 무엇이든 이상하면 멈추지 않고 탑뷰 → 인식(지금은 시늉, 비전 연동 때 실제) → 다시 들어감 [사용자 10/07].
 # 다시 할 수 없는 것만 멈춘다: 비상정지, 정지·이동 미확인(서버 잠김), 취소, 결과 못 받음, 거절(다른 동작 중).
 STOP_CODES = {"ESTOP", "STOP_UNCONFIRMED", "MOVE_UNCONFIRMED", "CANCELED", "NO_RESULT", "REJECTED"}
 RETRIES = 2                                # 탑뷰로 돌아가 다시 들어가는 최대 횟수 (제 제안)
 last = {"code": ""}
+TIMES = []                                 # (단계, 걸린 s, 성공) — 끝에 구간별 시간표 (C 요청 10/07: pick 60초 예산 판단)
 
 
-def scan(node):
-    """탑뷰에서 /vision/inspect_region (A 비전). 찾으면 target 저장, 서비스가 없으면 고정값(stub)으로 진행."""
+def timed(label, fn):
+    t0 = time.monotonic()
+    ok = fn()
+    TIMES.append((label, time.monotonic() - t0, ok))
+    return ok
+
+
+def report():
+    """구간별 시간표. 공통 pick 구간 = 첫 탑뷰 이동부터 마지막 집기 끝까지 (탑뷰 → 촬영 → 끌기 → 탑뷰 → 다시 촬영 → 집기)."""
+    if not TIMES:
+        return
+    print("\n===== 구간별 시간 =====")
+    for label, sec, ok in TIMES:
+        print(f"  {label:<8} {sec:6.1f} s{'' if ok else '  (실패)'}")
+    labels = [x[0] for x in TIMES]
+    if "view" in labels and "pick" in labels:
+        a, b = labels.index("view"), len(labels) - 1 - labels[::-1].index("pick")
+        if a < b:
+            print(f"  pick 구간 합계 (첫 탑뷰 ~ 집기): {sum(x[1] for x in TIMES[a:b + 1]):.1f} s")
+    print(f"  전체 합계: {sum(x[1] for x in TIMES):.1f} s")
+
+
+def scan(node, for_pick=False):
+    """탑뷰에서 /vision/inspect_region (A 비전). 찾으면 target 저장, 서비스가 없으면 고정값(stub)으로 진행.
+    for_pick: 끌기 뒤 다시 보기 — 찾으면 그 좌표로 집기 (끌기 예상 위치 target_after 와 비교 출력) [사용자 10/07: 끌고 나서
+    탑뷰로 다시 가서 위치 재확인 후 집기]. 비전이 없으면 target_after 그대로."""
     from ready2go_interfaces.srv import InspectRegion
     c = node.create_client(InspectRegion, "/vision/inspect_region")
     if not c.wait_for_service(timeout_sec=2.0):
         import os
-        if os.path.exists(SCAN):                  # 다른 터미널(비전과 같은 통신 설정)에서 미리 scan 한 결과
+        if for_pick:
+            print("비전 서비스 안 보임 — 끌기 예상 위치(target_after)로 집기")
+        elif os.path.exists(SCAN):                # 다른 터미널(비전과 같은 통신 설정)에서 미리 scan 한 결과
             print(f"비전 서비스 안 보임 — 저장된 인식 결과 사용 ({SCAN})")
         else:
             print("비전 서비스 안 보임 — 고정 지우개 좌표(stub)로 진행")
@@ -77,6 +106,17 @@ def scan(node):
     with open(SCAN, "w") as fp:
         json.dump(res["target"], fp)
     print(f"인식: {json.dumps(res['target'], ensure_ascii=False)}")
+    if for_pick:
+        try:
+            with open(AFTER) as f:
+                exp = json.load(f)["pose"]["position"]
+            got = res["target"]["pose"]["position"]
+            print(f"끌기 예상 {[round(v, 4) for v in exp[:2]]} vs 다시 본 위치 {[round(v, 4) for v in got[:2]]} "
+                  f"→ 차이 {[round((g - e) * 1000, 1) for g, e in zip(got[:2], exp[:2])]} mm (다시 본 위치로 집음)")
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        with open(AFTER, "w") as f:
+            json.dump(res["target"], f)
     return True
 
 
@@ -88,14 +128,26 @@ def main():
         scan(node)
         return
     if cmd == "dragtest":
-        drag_test(node)
+        try:
+            drag_test(node)
+        finally:                                   # 중간에 멈춰도(sys.exit) 시간표는 찍음
+            report()
         return
     if cmd != "all":
         run(node, cmd)
         return
+    try:
+        run_all(node)
+    finally:
+        report()
+
+
+def run_all(node):
     for i, step in enumerate(STEPS, 1):
         print(f"\n===== {i}/{len(STEPS)} {step} =====")
-        if not (scan(node) if step == "scan" else run(node, step)):
+        ok = timed(step, lambda: scan(node) if step == "scan" else scan(node, for_pick=True) if step == "rescan"
+                   else run(node, step))
+        if not ok:
             sys.exit(f"{step} 실패 — 여기서 멈춤 (뒤 단계 안 보냄). 터미널 1 로그 확인")
     print("\n전체 흐름 성공")
 
@@ -105,12 +157,21 @@ def drag_test(node):
     집기를 다시 할 때 좌표는 끌기 결과(target_after) — stub 은 늘 처음 좌표라 다시 끌면 안 됨. 비전 연동 때는 인식 결과로."""
     for i, step in enumerate(("home", "open", "view", "scan"), 1):
         print(f"\n===== {i}/{len(DRAG_TEST)} {step} =====")
-        if not (scan(node) if step == "scan" else run(node, step)):
+        if not timed(step, lambda: scan(node) if step == "scan" else run(node, step)):
             sys.exit(f"{step} 실패 {last['code']} — 여기서 멈춤 (서랍 안에 들어가기 전). 터미널 로그 확인")
     step, tries = "nudge", 0
     while step != "place":
         print(f"\n===== {DRAG_TEST.index(step) + 1}/{len(DRAG_TEST)} {step} =====")
-        if run(node, step):
+        if timed(step, lambda: run(node, step)):
+            if step == "nudge":                         # 끌고 나서 탑뷰로 가서 위치 다시 확인 → 그 좌표로 집기 [사용자 10/07]
+                print("\n----- 끌기 끝 → 탑뷰에서 지우개 위치 다시 확인 -----")
+                if not timed("view", lambda: run(node, "view")):
+                    sys.exit(f"탑뷰로 못 감 {last['code']} — 멈춤")
+                if not timed("rescan", lambda: scan(node, for_pick=True)):
+                    tries += 1
+                    if tries > RETRIES:
+                        sys.exit("다시 인식 실패 — 멈춤")
+                    continue                            # 못 찾으면 끌기부터 다시 (지우개가 어디 있는지 모름)
             step = "pick" if step == "nudge" else "place"
             continue
         if last["code"] in STOP_CODES:
@@ -119,11 +180,11 @@ def drag_test(node):
             sys.exit(f"{step} {last['code']} — {RETRIES}번 다시 해도 실패해 멈춤")
         tries += 1
         print(f"\n----- {step} {last['code']} → 탑뷰로 가서 다시 확인 ({tries}/{RETRIES}) -----")
-        if not (run(node, "view") or (last["code"] not in STOP_CODES and run(node, "view"))):   # 탑뷰 가기도 한 번 더
+        if not timed("view", lambda: run(node, "view") or (last["code"] not in STOP_CODES and run(node, "view"))):   # 탑뷰 가기도 한 번 더
             sys.exit(f"탑뷰로 못 감 {last['code']} — 멈춤")
-        scan(node)
+        timed("rescan" if step == "pick" else "scan", lambda: scan(node, for_pick=(step == "pick")))
     print(f"\n===== {len(DRAG_TEST)}/{len(DRAG_TEST)} place =====")
-    if not run(node, "place"):
+    if not timed("place", lambda: run(node, "place")):
         sys.exit(f"place 실패 {last['code']} — 물체를 든 채라 멈춤")
     print("\n끌기 시험 성공 (트레이까지)")
 
@@ -135,7 +196,6 @@ def run(node, cmd):
     if not client.wait_for_server(timeout_sec=5.0):
         sys.exit("스킬 서버 없음 — 터미널 1 확인")
     print(f"보냄: {action} {json.dumps(params, ensure_ascii=False)}")
-    import time
     t = {"last": time.monotonic()}
 
     def fb(f):                                             # 단계 사이 걸린 시간 — 어디서 멈추는지 보기 [10/07]
