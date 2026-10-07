@@ -126,14 +126,16 @@ def main() -> int:
                     if len(q) == 5:
                         c, x, y, w, h = int(q[0]), *map(float, q[1:])
                         boxes.append((c, (x - w / 2, y - h / 2, x + w / 2, y + h / 2)))
+                if not bp.exists():                             # 기준 상자가 없으면 합치지 않는다(같은 클래스 물체 2개를 하나로 잘못 합칠 수 있음)
+                    report.append(f"{sname} {num}: 상자 라벨 파일 없음 → 조각 {len(pieces)}개를 합치지 않고 그대로 씀 (확인 필요)")
+                    continue
                 objs, rep = merge_image(pieces, boxes)
                 per[num] = [f"{c} " + " ".join(f"{x:.6f} {y:.6f}" for x, y in poly) for c, poly in objs]
-                if rep["merged"] or rep["new"] or rep["no_poly"] or rep["outside"] or not bp.exists():
+                if rep["merged"] or rep["new"] or rep["no_poly"] or rep["outside"]:
                     report.append(f"{sname} {num}: 조각 {len(pieces)} → 물체 {len(objs)} (합침 {rep['merged']})"
                                   + (f" | 상자 없는 새 물체 {[ours[c] for c in rep['new']]}" if rep["new"] else "")
                                   + (f" | 상자 밖 조각(상자 보정 필요) {[ours[c] for c in rep['outside']]}" if rep["outside"] else "")
-                                  + (f" | 윤곽 없는 상자 {[ours[c] for c in rep['no_poly']]}" if rep["no_poly"] else "")
-                                  + ("" if bp.exists() else " | 상자 라벨 파일 없음"))
+                                  + (f" | 윤곽 없는 상자 {[ours[c] for c in rep['no_poly']]}" if rep["no_poly"] else ""))
         print("[import] 조각 합치기 보고 (상자 라벨 기준):")
         print("\n".join("  " + r for r in report) or "  없음")
 

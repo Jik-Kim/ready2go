@@ -129,7 +129,9 @@ def main():
             shutil.rmtree(sd)
         sd.mkdir(parents=True)
         pv = out / "_preview" / s
-        pv.mkdir(parents=True, exist_ok=True)
+        if pv.exists():
+            shutil.rmtree(pv)                                   # --force 로 다시 만들 때 옛 미리보기가 섞이지 않게
+        pv.mkdir(parents=True)
         (sd / "data.yaml").write_text("path: .\ntrain: images\nval: images\nnc: %d\nnames:\n" % len(names)
                                       + "".join(f"  {i}: {n}\n" for i, n in enumerate(names)))
         imgs = sorted((labeled / s / "images").glob("*.png"))
