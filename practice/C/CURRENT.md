@@ -21,6 +21,8 @@
 
 - **실행 기록 보고서** (브랜치 `feat/c-run-report`, 10/07): MongoDB 기록이 사람이 읽기 어렵다는 문제(사용자) → `ros2 run ready2go_runner run_report`로 최근 실행을 한국어 요약·Markdown 표로. #23 C 항목 "MongoDB/JSONL 조회", 10/08 결과 보고에 사용.
 
+- **실행마다 상태 초기화 옵션** (브랜치 `feat/c-reset-state`, 10/07): `reset_state_each_run`(기본 꺼짐). 켜면 E 음성 노드 → Runner → mock 에서 "지우개 찾아줘" 3회 연속 COMPLETED, 매번 `drawer_top` [실측]. 10/08 에 켤지는 E·PM 결정(#23).
+
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |

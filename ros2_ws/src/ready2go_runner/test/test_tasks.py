@@ -289,3 +289,51 @@ def test_check_safety_codes_abort_lock_and_send_no_motion(code, where):
     assert robot.motion_after(f"/skills/{where}") == []                 # finally 의 닫기·홈 등 로봇 동작 없음
     assert step(result, "f2")["status"] == "SKIPPED"
     assert saved["run"]["overall_status"] == "ABORTED"
+
+
+# ---- #23 실행 사이 상태: Runner 를 켜 둔 채 연속 시연 (AC-DEMO-01 3회 연속) ----
+def demo_runner(robot, reset):
+    """음성 모드처럼 Runner 하나를 켜 둔 채 여러 번 실행 (run() 은 실행마다 새 Runner 라 여기서 따로 만듦)."""
+    store = MemoryLogStore()
+    runner = Runner(None, schema=SCHEMA, ontology=DEMO, log_store=store, reset_state_each_run=reset)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, DEMO["world"])
+    return runner, store
+
+
+def test_without_reset_second_run_treats_tray_as_drawer():
+    """기본(꺼짐): 1회차 끝 '지우개 = handover_zone' 을 기억 → 2회차가 트레이를 서랍 자리에 넣음 (10/07 발견)."""
+    robot = MockRobot()
+    runner, _ = demo_runner(robot, reset=False)
+    assert runner.run(CHECK).overall_status == "COMPLETED"
+    second = runner.run(CHECK)
+    assert step(second, "s1")["output"]["drawer_id"] == "handover_zone"
+    assert (second.overall_status, step(second, "s2")["error_code"]) == ("FAILED", "PRE_UNMET")
+
+
+def test_reset_each_run_gives_three_consecutive_demos():
+    robot = MockRobot()
+    runner, store = demo_runner(robot, reset=True)
+    results = [runner.run(CHECK) for _ in range(3)]
+    assert [r.overall_status for r in results] == ["COMPLETED"] * 3
+    assert [step(r, "s1")["output"]["drawer_id"] for r in results] == ["drawer_top"] * 3
+    assert robot.sent.count("/skills/drawer_control") == 6                  # 회마다 열기·닫기 (트레이 아님)
+    assert all(p["drawer_id"] == "drawer_top" for p in robot.params["drawer_control"])
+    assert all(store.read_run(r.run_id)["run"]["state_reset"] is True for r in results)
+
+
+def test_reset_off_keeps_record_header_unchanged():
+    runner, store = demo_runner(MockRobot(), reset=False)
+    assert "state_reset" not in store.read_run(runner.run(CHECK).run_id)["run"]
+
+
+def test_reset_does_not_clear_halt_lock_or_its_state():
+    """비상정지 잠김이면 되돌리지 않고 실행도 거절 (사람 확인 전 상태 보존, 자동 재개 없음)."""
+    robot = MockRobot()
+    runner, store = demo_runner(robot, reset=True)
+    runner.run(CHECK)
+    after_first = runner.state
+    runner.halt("ESTOP")
+    sent = len(robot.sent)
+    rejected = runner.run(CHECK)
+    assert rejected.overall_status == "ABORTED" and runner.state == after_first and len(robot.sent) == sent
+    assert "state_reset" not in store.read_run(rejected.run_id)["run"]

@@ -52,12 +52,14 @@ class RunnerNode(Node):
         tasks_dir = param("tasks_dir", "/tasks")
         intent_tasks = param("intent_tasks", "")   # 인텐트=태스크파일 (trigger 대신, 예: 시연 find_item=/tasks/p1_demo_eraser.json)
         min_confidence = param("min_confidence", 0.6)   # [추정, E 확정 필요] E 음성 노드 임계값과 같게
+        reset_state = param("reset_state_each_run", False)   # 실행 시작마다 초기 상태 (#23, E·PM 결정 전 기본 꺼짐)
 
         with open(schema_file, encoding="utf-8") as f:
             schema = json.load(f)
         onto = ontology.load(ontology_file)
         self.log_store = _make_log_store(log_dir, self.get_logger())
-        self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store)
+        self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store,
+                             reset_state_each_run=reset_state)
         self.ros_clients = RosClients(self, stopping=lambda: self.runner.stop_requested)
         self.runner.on_halt = self.ros_clients.cancel_all   # /runner/estop → 진행 중인 goal 즉시 취소
         self.runner.execute = RosBackend(self.ros_clients.call_action, self.ros_clients.call_service,
@@ -83,7 +85,8 @@ class RunnerNode(Node):
         self._sent = {"status": None, "state": None}
         self.get_logger().info(f"Runner 준비: 스키마 {schema_file}, 온톨로지 {ontology_file}, "
                                f"백엔드 {os.environ.get('BACKEND', 'mock')}, 예비 기록 {log_dir}, "
-                               f"인텐트 {({k: v.get('task_id') for k, v in tasks.items()})}")
+                               f"인텐트 {({k: v.get('task_id') for k, v in tasks.items()})}, "
+                               f"실행마다 상태 초기화 {'켬' if reset_state else '꺼짐'}")
         self.publish()
         if task_file:
             with open(task_file, encoding="utf-8") as f:
