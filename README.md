@@ -19,12 +19,64 @@
 - 카메라·모델·보정 파일과 의존성: [A 패키지 안내](ros2_ws/src/ready2go_vision/README.md).
 - 마이크·API·웨이크 모델·MeloTTS 설치: [E 음성 패키지 안내](ros2_ws/src/ready2go_voice/README.md). 키는 `secrets/voice.env`, 로컬 모델은 `models/`에 두며 Git에 올리지 않습니다.
 
+#### 프로젝트 의존성 설치
+
+[문서] [requirements.txt](requirements.txt)는 음성뿐 아니라 전체 프로젝트의 Python 의존성 입구입니다. 공통 호스트 라이브러리와 테스트 도구를 설치하며, 충돌하는 Vision GPU·Melo CPU·Isaac 번들 환경은 아래 보조 설치 경로로 분리합니다. 패키지의 실제 import, `setup.py`, `package.xml`, Docker 선언과 tools/sim 실행 안내를 기준으로 구분했습니다. 범위 제한은 설치 안내이며 새 기능이나 Phase 완료 선언이 아닙니다.
+
+| 구분 | 설치 대상·범위 |
+|---|---|
+| 공통 Python | PyYAML·jsonschema·numpy, Runner pymongo, Skills pymodbus, Vision/tools OpenCV·SciPy, Voice OpenAI/LangChain·sounddevice·dotenv, 웨이크의 비-TFLite 의존성 |
+| 테스트/빌드 | pytest·setuptools는 requirements, colcon/rosdep는 ROS 개발 도구 |
+| ROS | rclpy·launch/launch_ros·ament_index_python·std_msgs/std_srvs·sensor_msgs·tf2·cv_bridge·메시지 생성. apt/rosdep 및 프로젝트 colcon 빌드로 준비; pip 설치 대상 아님 |
+| 시스템/서비스 | PortAudio·libsndfile·FFmpeg·오디오 서버/장치 권한·Tk, Git/LFS. espeak 선택 시 espeak-ng. Docker/Compose·MongoDB 서버·NVIDIA 드라이버는 별도 준비 |
+| 벤더 | DSR 소스/overlay는 B 안내 및 `docker/ros2-core/Dockerfile` 기준. Isaac Sim 5.1/omni/pxr는 [sim 안내](sim/README.md)의 번들 Python 사용; Jazzy Python 3.12와 섞지 않음 |
+| 환경별/자산 | Vision CUDA/YOLO와 Melo CPU는 아래 별도 설치. 웨이크 TFLite·전처리/VAD·TTS 모델 및 API 키는 코드 pull만으로 준비되지 않음 |
+| 선택/향후 | faster-whisper·Piper는 현재 음성 실행 경로 없음. SAM2·P2~ 트윈 준비를 P1 필수 설치/완료로 간주하지 않음 |
+
+아래 모든 프로젝트 명령의 작업 경로는 **저장소 루트**입니다. Ubuntu 24.04, 시스템 Python 3.12, ROS 2 Jazzy apt 저장소/설치가 준비되어 있어야 합니다. 기존 설정·가상환경은 삭제하거나 덮어쓰지 않습니다. 시스템/모델 설치 명령은 사용자가 해당 PC에서 실행하며, 이 문서 수정에서 실행하지 않았습니다.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ros-jazzy-ros-base ros-dev-tools python3-venv python3-pip \
+  python3-tk git git-lfs portaudio19-dev libportaudio2 libsndfile1 ffmpeg \
+  ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-cv-bridge
+source /opt/ros/jazzy/setup.bash
+python3 -m venv --system-site-packages .venvs/project
+source .venvs/project/bin/activate
+python3 -m pip install -r requirements.txt
+# Linux/Python 3.12에서 audio extra의 tflite-runtime 자동 설치를 피합니다.
+python3 -m pip install --no-deps openwakeword==0.6.0
+```
+
+웨이크 본체와 비-TFLite 의존성 설치까지의 절차입니다. **Python 3.12 TFLite 호환 런타임은 아직 저장소에 배포되지 않았습니다.** 현재 PC의 별도 호환 파일로 실행한 결과를 새 PC 설치 성공으로 간주하지 않습니다. 런타임/모델 확인과 남은 조치는 [음성 의존성 안내](ros2_ws/src/ready2go_voice/README.md#실행-준비와-의존성)를 따릅니다. espeak를 선택하면 별도로 `sudo apt-get install -y espeak-ng`를 실행하고 한국어 음성을 확인합니다.
+
+rosdep은 최초 1회 `sudo rosdep init`(이미 초기화된 PC에서는 생략), 이어서 아래 명령을 실행합니다. DSR 패키지는 벤더 overlay를 먼저 준비/source해야 하며, rosdep이 알 수 없는 `dsr_*` 의존성을 무시한 채 실물 준비 완료로 처리하지 않습니다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
+rosdep update
+rosdep install --from-paths ros2_ws/src --ignore-src -r -y --rosdistro jazzy
+```
+
+Vision/YOLO는 공통 호스트 환경과 별도로 준비합니다. 아래 조합은 [Vision Dockerfile](docker/vision/Dockerfile)의 선언값이며, 기존 PC1 컨테이너 실측과 새 PC/GPU·새 이미지 설치 검증은 구분합니다. NVIDIA 드라이버/GPU 호환 확인은 A 담당입니다.
+
+```bash
+python3 -m venv --system-site-packages .venvs/vision
+.venvs/vision/bin/python -m pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
+  torch==2.11.0 torchvision==0.26.0 ultralytics==8.4.170 \
+  numpy==1.26.4 opencv-python==4.9.0.80 PyYAML
+```
+
+이 환경에서 비전/tools를 실행하는 절차는 [A 안내](ros2_ws/src/ready2go_vision/README.md)·[YOLO 도구](tools/yolo/README.md)를 따릅니다. ROS 노드 실행 파일이 사용하는 Python도 해당 환경과 일치해야 하며, 기존 host install을 source하는 것만으로 GPU 환경 전환이 되지는 않습니다. Melo는 기존 [설치기·고정 목록·단독 합성 안내](ros2_ws/src/ready2go_voice/README.md#melotts-설치재생-p1-e-사용자-선택)에 따라 `.venvs/melotts`에만 설치합니다. 두 Torch 버전을 한 환경에 설치하지 않습니다. Compose는 이 호스트 requirements를 자동 적용하지 않으며, 현재 voice/vision 서비스는 노드 자동 기동과 완전한 모델/runtime 준비를 보장하지 않습니다.
+
 호스트 노드를 쓸 경우 필요한 ROS·Python·장치 의존성을 먼저 준비하고 **프로젝트 안에 빌드**합니다. DSR 드라이버를 호스트에서 실행할 경우 벤더 워크스페이스도 준비합니다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
 cd ros2_ws
-colcon build --symlink-install
+python3 /usr/bin/colcon build --symlink-install
 cd ..
 source ros2_ws/install/setup.bash
 ```
@@ -33,13 +85,16 @@ source ros2_ws/install/setup.bash
 
 ```bash
 source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
 export ROS_DOMAIN_ID=70
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI="file://$PWD/config/cyclonedds.local.xml"
-export ROS_LOG_DIR="$PWD/logs/ros"
+export ROS_LOG_DIR="logs/ros"
 mkdir -p "$ROS_LOG_DIR"
 ```
+
+호스트 노드의 스키마·온톨로지 진입점·설정·모델·로그 및 기록 조회 경로는 저장소 루트 기준 상대 경로입니다. 온톨로지 내부 `sources`는 로더가 진입점 파일의 폴더 기준으로 해석합니다. `CYCLONEDDS_URI`는 `file://` URI에 올바른 절대 파일 위치가 필요하므로 실행 시 `$PWD`로 생성합니다. `/opt/ros/jazzy`·`/opt/dsr_ws`는 시스템/벤더 설치 위치, `/colcon` 및 컨테이너 명령의 `/config`·`/knowledge`·`/tasks`·`/models`·`/logs`는 컨테이너 설치/마운트 위치이며 호스트 프로젝트 상대 경로와 구분합니다. 기본 `~/.ros/log`는 ROS 사용자 로그 위치입니다.
 
 `local`은 같은 PC 내 통신입니다. PC를 나누면 `.env`의 `DDS_MODE=multi`와 NIC·양쪽 IP를 맞춥니다. 호스트에도 같은 `DDS_IFACE`·`PEER_PC1`·`PEER_PC2`를 export하고 `CYCLONEDDS_URI`를 `cyclonedds.multi.xml`로 바꿉니다. 음성과 Runner의 Domain ID도 같아야 합니다.
 
@@ -67,7 +122,7 @@ docker compose logs -f ros2-core realsense
 
 ```bash
 mkdir -p logs/skills
-SKILL_CONSOLE_LOG=$(mktemp "$PWD/logs/skills/console.XXXXXX.log")
+SKILL_CONSOLE_LOG=$(mktemp "logs/skills/console.XXXXXX.log")
 set -o pipefail
 docker compose exec -T ros2-core bash -lc '
   source /opt/ros/jazzy/setup.bash
@@ -102,17 +157,17 @@ Isaac Sim은 네이티브 실행이며 [트윈 안내](docs/twin.md)를 참조�
 
 아래는 위 실행 전 준비 환경을 적용한 **호스트 개별 실행**입니다. Compose에서 이미 시작한 노드를 동시에 실행하는 목록이 아닙니다. 각 명령은 별도 터미널에서 실행합니다.
 
-**Runner**: 절대경로를 지정하고 음성 입력을 기다립니다. `BACKEND` 표시만 바꿔 실제 연결 서버가 바뀌지는 않습니다.
+**Runner**: 저장소 루트 기준 상대 경로를 지정하고 음성 입력을 기다립니다. `BACKEND` 표시만 바꿔 실제 연결 서버가 바뀌지는 않습니다.
 
 ```bash
 ros2 run ready2go_runner runner --ros-args \
-  -p schema_file:="$PWD/contracts/task.schema.json" \
-  -p intent_schema_file:="$PWD/contracts/intent.schema.json" \
-  -p ontology_file:="$PWD/knowledge/robot_ontology.jsonld" \
-  -p tasks_dir:="$PWD/tasks" -p log_dir:="$PWD/logs/runner"
+  -p schema_file:="contracts/task.schema.json" \
+  -p intent_schema_file:="contracts/intent.schema.json" \
+  -p ontology_file:="knowledge/robot_ontology.jsonld" \
+  -p tasks_dir:="tasks" -p log_dir:="logs/runner"
 ```
 
-`-p task_file:="절대경로"`를 추가하면 시작 직후 해당 태스크를 한 번 실행합니다. 일반 음성 경로에서는 지정하지 않습니다. 현재 `/voice/intent`의 `find_item`을 `tasks/find_item.json`에 연결하는 구현이 있습니다. 발행 로그만으로 Runner 수신·로봇 완료를 증명하지 않습니다.
+`-p task_file:="tasks/find_item.json"`를 추가하면 시작 직후 해당 태스크를 한 번 실행합니다. 일반 음성 경로에서는 지정하지 않습니다. 현재 `/voice/intent`의 `find_item`을 `tasks/find_item.json`에 연결하는 구현이 있습니다. 발행 로그만으로 Runner 수신·로봇 완료를 증명하지 않습니다.
 
 **모의 백엔드**: 실물 스킬·비전·음성을 대신해 응답합니다.
 
@@ -134,7 +189,7 @@ ros2 run ready2go_skills gripper_state --ros-args -p rg2_ip:="$RG2_HOST"
 
 ```bash
 ros2 run ready2go_skills skill_server --ros-args \
-  -p config_dir:="$PWD/config" -p joint_vel_deg_s:=10.0
+  -p config_dir:="config" -p joint_vel_deg_s:=10.0
 ```
 
 **RealSense 카메라**: Compose의 `realsense` 대신 호스트에서 실행할 때의 동일 설정입니다. `realsense2_camera` 설치가 필요합니다.
@@ -152,38 +207,37 @@ ros2 run realsense2_camera realsense2_camera_node --ros-args \
 
 ```bash
 ros2 run ready2go_vision inspect_region --ros-args \
-  -p config_dir:="$PWD/config" -p world_path:="$PWD/knowledge/world.jsonld" \
-  -p weights:="$PWD/models/yolo11n_ready2go_v1.pt" \
-  -p dump_dir:="$PWD/logs/vision" -p code_sha:="$(git rev-parse HEAD)"
+  -p config_dir:="config" -p world_path:="knowledge/world.jsonld" \
+  -p weights:="models/yolo11n_ready2go_v1.pt" \
+  -p dump_dir:="logs/vision" -p code_sha:="$(git rev-parse HEAD)"
 ```
 
 **비전 stub**: 실비전과 동시에 실행하지 않고 시험용 실측 파일을 지정합니다. 아래 기본 파일은 `ready: false`라 그대로 쓰면 `STUB_NOT_READY`입니다. 고정 좌표의 성공을 실제 인식 검증으로 취급하지 않습니다.
 
 ```bash
 ros2 run ready2go_vision inspect_region_stub --ros-args \
-  -p config_path:="$PWD/config/vision_stub.yaml" -p places_path:="$PWD/config/places.yaml"
+  -p config_path:="config/vision_stub.yaml" -p places_path:="config/places.yaml"
 ```
 
 `ready2go_knowledge`는 Runner·음성이 사용하는 함수 모음, `ready2go_interfaces`는 메시지·서비스·액션 정의이므로 단독 실행 노드는 없습니다. [Knowledge README](ros2_ws/src/ready2go_knowledge/README.md)를 참조합니다.
 
 ### 4. 음성 평가·실행 전환
 
-`logs/voice_eval/voice.local.yaml`에 마이크·`audio_enabled: true`·웨이크 모델 절대 경로·MeloTTS 설정을 준비합니다. 모델 파일명은 실제 배치한 것으로 지정합니다. `secrets/voice.env`는 Python dotenv로 읽고 키는 명령이나 로그에 출력하지 않습니다.
+`logs/voice_eval/voice.local.yaml`에 마이크·`audio_enabled: true`·저장소 루트 기준 웨이크 모델 경로·MeloTTS 설정을 준비합니다. 모델 파일명은 실제 배치한 것으로 지정합니다. `secrets/voice.env`는 Python dotenv로 읽고 키는 명령이나 로그에 출력하지 않습니다.
 
 **음성만 평가하는 명령**입니다. 시작 파라미터 `evaluation_mode:=true`로 모든 intent의 발행을 차단하고, 상세 결과를 매번 새 파일에 저장합니다.
 
 ```bash
 mkdir -p logs/voice_eval
-VOICE_CONSOLE_LOG=$(mktemp "$PWD/logs/voice_eval/console.XXXXXX.log")
+VOICE_CONSOLE_LOG=$(mktemp logs/voice_eval/console.XXXXXX.log)
 set -o pipefail
 python3 -u - <<'PYTHON' 2>&1 | tee "$VOICE_CONSOLE_LOG"
-from pathlib import Path
 from dotenv import load_dotenv
 from ready2go_voice.nodes.voice_node import main
 
 load_dotenv('secrets/voice.env')
 main(args=['--ros-args',
-           '-p', f'config_file:={Path.cwd() / "logs/voice_eval/voice.local.yaml"}',
+           '-p', 'config_file:=logs/voice_eval/voice.local.yaml',
            '-p', 'evaluation_mode:=true',
            '-p', 'diagnostic_detail:=true'])
 PYTHON
@@ -227,7 +281,7 @@ ros2 topic echo /robot_state
 ```bash
 docker compose exec ros2-core bash -lc 'ls -lt ~/.ros/log'
 mkdir -p logs
-CORE_CONSOLE_LOG=$(mktemp "$PWD/logs/ros2-core.console.XXXXXX.log")
+CORE_CONSOLE_LOG=$(mktemp "logs/ros2-core.console.XXXXXX.log")
 docker compose logs --no-color ros2-core > "$CORE_CONSOLE_LOG" 2>&1
 ```
 
@@ -238,7 +292,7 @@ ros2 run ready2go_runner run_report -n 2
 ```
 
 ```bash
-ros2 run ready2go_runner run_report --jsonl "$PWD/logs/runner" -n 2
+ros2 run ready2go_runner run_report --jsonl "logs/runner" -n 2
 ```
 
 ### 6. 종료·다음 회차 준비
