@@ -300,8 +300,6 @@ class App:
         self.stop_panel(bottom)
         foot = tk.Frame(body, bg=C["bg"])
         foot.pack(fill="x", pady=(6, 0))
-        home = self.btn(foot, "⌂ gohome (확인 후)", self.go_home, move=True, bg=C["amber"])
-        home.pack(side="left")
         self.status = tk.Label(foot, text="", bg=C["bg"], fg=C["sub"], anchor="e")
         self.status.pack(side="right")
 
@@ -313,7 +311,7 @@ class App:
 
         self.check_tool()
         if not self.cfg["home"]:
-            home.config(state="disabled")
+            self.home_btn.config(state="disabled")
         self.refresh()
         self.poll_gripper()
         self.watchdog()
@@ -522,6 +520,8 @@ class App:
         self.btn(r, "직접교시 ON", self.teach_on, bg=C["green"], font=("", 9, "bold")).pack(side="left", fill="x",
                                                                                          expand=True)
         self.btn(r, "직접교시 OFF", self.teach_off, font=("", 9, "bold")).pack(side="left", fill="x", expand=True, padx=(4, 0))
+        self.home_btn = self.btn(f, "⌂ gohome (확인 후)", self.go_home, move=True, bg=C["amber"], font=("", 9))
+        self.home_btn.pack(fill="x", pady=(5, 0))
 
     def stop_panel(self, parent):
         f = self.panel(parent, side="left", fill="both", expand=True)
