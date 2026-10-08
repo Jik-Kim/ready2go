@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-08
 
 ## 지금 상태
+- **#152 재개 대기 core (브랜치 `feat/c-runner-suspend-resume`, main 미반영)**: 계약안 v0([#152 댓글](https://github.com/Jik-Kim/ready2go/issues/152#issuecomment-6051650081), 승인 대기)의 Runner 안쪽 — 보존·재개·거절·버림. [실측: 시험 `test_suspend_resume.py` 18개, B #152 스킬별 재진입 조건 포함] 실제 find_item 으로 집기 중 비상정지 → 재개 시 집기부터·열기 재전송 없음·상태 1회 반영. 남은 것: 계약 승인 → 노드(`/runner/status` `halt`, 인텐트 `recover`·`resume`, `/skills/recover`), B 재진입 조건·관측 검사.
 - **"움직이기 전 거부" 동작별 목록 (#168 C 표 후속 1번)**: `NO_MOTION_BY_ACTION` — `PLACE_BLOCKED` → 다른 고정 자리 fallback 가능 [실측: 시험 9개]. #168 B 노드 카드 "움직였나" 칸이 나오면 맞춤.
 - **실패 스텝 결과 기록 (#166 D 리뷰 P1, B 요청)**: 실패 응답의 `output` 을 스텝 기록 `result` 에 남김(블랙보드 제외) [실측: 시험 3개]. B `place_object` 서랍 안 놓기 계약(#166) 소비 준비.
 - **인식 실패 다시 찍기 (#168 C 표 1번)**: `find_item` s4 retry 1, 비동작 원자 동작은 TIMEOUT·늦은 결과도 재시도 [실측: 시험 6개]. 끌기·집기 안의 인식 실패는 그대로(앞서 팔이 움직임 → 재시도 없음).
