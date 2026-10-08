@@ -246,13 +246,13 @@ def _load_sk(monkeypatch):
 
 @pytest.mark.parametrize("codes, want_calls, ok", [
     ({"nudge": ["NO_OBJECT_CONTACT", ""]},                             # 끌기 성공 뒤엔 늘 탑뷰 → 다시 인식 → 집기 [사용자 10/07]
-     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "pick", "place"], True),
+     ["home", "ready", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "pick", "place"], True),
     ({"nudge": [""], "pick": ["GRASP_FAILED", ""]},                    # 집기 실패 → 탑뷰 → 집기부터 (다시 끌지 않음)
-     ["home", "open", "view", "scan", "nudge", "view", "scan", "pick", "view", "scan", "pick", "place"], True),
+     ["home", "ready", "open", "view", "scan", "nudge", "view", "scan", "pick", "view", "scan", "pick", "place"], True),
     ({"nudge": ["NOT_REACHED", "JOINT_LIMIT", "PUSH_BLOCKED"]},         # 무엇이든 다시, 최대 2번
-     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "nudge"], False),
-    ({"nudge": ["ESTOP"]}, ["home", "open", "view", "scan", "nudge"], False),
-    ({"nudge": ["STOP_UNCONFIRMED"]}, ["home", "open", "view", "scan", "nudge"], False),
+     ["home", "ready", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "nudge"], False),
+    ({"nudge": ["ESTOP"]}, ["home", "ready", "open", "view", "scan", "nudge"], False),
+    ({"nudge": ["STOP_UNCONFIRMED"]}, ["home", "ready", "open", "view", "scan", "nudge"], False),
 ])
 def test_dragtest_goes_back_to_top_view_on_any_failure(monkeypatch, codes, want_calls, ok):
     """끌기·집기에서 무엇이든 이상하면 탑뷰 → 인식 → 다시 [사용자 10/07]. 비상정지·잠김·취소만 멈춤."""
@@ -284,3 +284,14 @@ def test_report_sums_pick_window_from_first_view_to_last_pick(monkeypatch, capsy
     sk.report()
     out = capsys.readouterr().out
     assert "pick 구간 합계 (첫 탑뷰 ~ 집기): 40.0 s" in out and "전체 합계: 57.0 s" in out
+
+
+def test_b_sk_drawer_argument_and_ready(monkeypatch):
+    """[사용자 10/08] B <동작> [drawer_top|drawer_bottom] — 팀 공통 서랍 이름 그대로, 기본 위 칸. ready = 손잡이 앞(열기 노드 시작 자세)."""
+    sk = _load_sk(monkeypatch)
+    assert sk.goal_for("ready") == ("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert sk.goal_for("open") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "open"})
+    assert sk.goal_for("close") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert sk.goal_for("view") == ("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_bottom"})
+    assert sk.STEPS[:2] == ("ready", "open") and sk.DRAG_TEST[:3] == ("home", "ready", "open")

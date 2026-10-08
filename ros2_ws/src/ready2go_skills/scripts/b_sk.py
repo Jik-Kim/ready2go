@@ -14,6 +14,7 @@ ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,          # 10/07
           "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}
 AFTER = "/tmp/b_target_after.json"
 SCAN = "/tmp/b_target_scan.json"          # scan(인식) 결과 target — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
+DRAWER = "drawer_top"                     # 두 번째 인자로 고름: B open drawer_bottom (팀 공통 서랍 이름, 기본 위 칸) [사용자 10/08]
 
 
 def target():
@@ -25,14 +26,16 @@ def target():
 
 
 def goal_for(cmd):
+    if cmd == "ready":                                 # 손잡이 앞 — Runner open_drawer 1단계 (열기 노드는 여기서만 시작, #168)
+        return "move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": DRAWER}
     if cmd == "open":
-        return "drawer_control", {"drawer_id": "drawer_top", "state": "open"}
+        return "drawer_control", {"drawer_id": DRAWER, "state": "open"}
     if cmd == "opened":
-        return "drawer_control", {"drawer_id": "drawer_top", "state": "open", "displacement": 0.226}
+        return "drawer_control", {"drawer_id": DRAWER, "state": "open", "displacement": 0.226}
     if cmd == "close":
-        return "drawer_control", {"drawer_id": "drawer_top", "state": "close"}
+        return "drawer_control", {"drawer_id": DRAWER, "state": "close"}
     if cmd == "nudge":
-        return "nudge_object", {"drawer_id": "drawer_top", "target": target()}
+        return "nudge_object", {"drawer_id": DRAWER, "target": target()}
     if cmd == "pick":
         with open(AFTER) as f:
             return "pick_object", {"target": json.load(f), "approach_offset": [0, 0, 0.1]}
@@ -41,13 +44,13 @@ def goal_for(cmd):
     if cmd == "home":
         return "move_to_named_pose", {"pose_name": "home"}
     if cmd == "view":
-        return "move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"}
-    sys.exit("동작: all | dragtest | open | opened | view | scan | nudge | pick | place | close | home")
+        return "move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": DRAWER}
+    sys.exit("동작: all | dragtest | home | ready | open | opened | view | scan | nudge | pick | place | close  [drawer_top | drawer_bottom]")
 
 
-STEPS = ("open", "view", "scan", "nudge", "view", "rescan", "pick", "place", "close", "home")
-# all: 열기 → 탑뷰 → 인식 → 끌기 → 탑뷰 → 다시 인식(그 좌표로 집기) → 집기 → 놓기 → 닫기 → 홈 [사용자 10/07]
-DRAG_TEST = ("home", "open", "view", "scan", "nudge", "pick", "place")         # dragtest: 끌기 단위 시험 [사용자 10/07] (집기 전 탑뷰·다시 인식)
+STEPS = ("ready", "open", "view", "scan", "nudge", "view", "rescan", "pick", "place", "close", "home")
+# all: 손잡이 앞 → 열기 → 탑뷰 → 인식 → 끌기 → 탑뷰 → 다시 인식(그 좌표로 집기) → 집기 → 놓기 → 닫기 → 홈 [사용자 10/07]
+DRAG_TEST = ("home", "ready", "open", "view", "scan", "nudge", "pick", "place")         # dragtest: 끌기 단위 시험 [사용자 10/07] (집기 전 탑뷰·다시 인식)
 # 서랍 안 일(끌기·집기)에서 무엇이든 이상하면 멈추지 않고 탑뷰 → 인식(지금은 시늉, 비전 연동 때 실제) → 다시 들어감 [사용자 10/07].
 # 다시 할 수 없는 것만 멈춘다: 비상정지, 정지·이동 미확인(서버 잠김), 취소, 결과 못 받음, 거절(다른 동작 중).
 STOP_CODES = {"ESTOP", "STOP_UNCONFIRMED", "MOVE_UNCONFIRMED", "CANCELED", "NO_RESULT", "REJECTED"}
@@ -90,10 +93,13 @@ def scan(node, for_pick=False):
             print("비전 서비스 안 보임 — 끌기 예상 위치(target_after)로 집기")
         elif os.path.exists(SCAN):                # 다른 터미널(비전과 같은 통신 설정)에서 미리 scan 한 결과
             print(f"비전 서비스 안 보임 — 저장된 인식 결과 사용 ({SCAN})")
+        elif DRAWER != "drawer_top":                 # 고정 좌표는 위 칸 실측 — 아래 칸은 비전 필요
+            print(f"비전 서비스 안 보임 — {DRAWER} 고정 좌표 없음, 비전 노드를 켜고 다시")
+            return False
         else:
             print("비전 서비스 안 보임 — 고정 지우개 좌표(stub)로 진행")
         return True
-    f = c.call_async(InspectRegion.Request(region="drawer_top", search_target="eraser"))
+    f = c.call_async(InspectRegion.Request(region=DRAWER, search_target="eraser"))
     rclpy.spin_until_future_complete(node, f, timeout_sec=30.0)
     r = f.result()
     if r is None or not r.success:
@@ -121,7 +127,12 @@ def scan(node, for_pick=False):
 
 
 def main():
+    global DRAWER
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if len(sys.argv) > 2:
+        if sys.argv[2] not in ("drawer_top", "drawer_bottom"):
+            sys.exit(f"서랍은 drawer_top | drawer_bottom: {sys.argv[2]!r}")
+        DRAWER = sys.argv[2]
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node("b_sk")
     if cmd == "scan":
@@ -155,7 +166,7 @@ def run_all(node):
 def drag_test(node):
     """홈 → 열기 → 탑뷰 → 인식 → 끌기 → 집기 → 트레이. 끌기·집기가 실패하면 탑뷰 → 인식 → 실패한 단계부터 다시 (최대 RETRIES 번).
     집기를 다시 할 때 좌표는 끌기 결과(target_after) — stub 은 늘 처음 좌표라 다시 끌면 안 됨. 비전 연동 때는 인식 결과로."""
-    for i, step in enumerate(("home", "open", "view", "scan"), 1):
+    for i, step in enumerate(("home", "ready", "open", "view", "scan"), 1):
         print(f"\n===== {i}/{len(DRAG_TEST)} {step} =====")
         if not timed(step, lambda: scan(node) if step == "scan" else run(node, step)):
             sys.exit(f"{step} 실패 {last['code']} — 여기서 멈춤 (서랍 안에 들어가기 전). 터미널 로그 확인")

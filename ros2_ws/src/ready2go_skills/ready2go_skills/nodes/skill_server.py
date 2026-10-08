@@ -699,6 +699,11 @@ class SkillServer(Node):
                                                                 "(params drawer_open_close.close_enabled)"), None
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"{self.held['class']} 를 든 채 닫지 않음"), None
+        tilted = (oc.get("close_push") or {}).get(drawer_id)
+        if tilted:
+            return self._close_drawer_tilted(goal, drawer_id, oc, dc, pull, tilted)
+        if not (oc.get("vertical_close_ok") or {}).get(drawer_id, False):   # 아래 칸: 수직 그리퍼 몸통이 위 서랍 앞판에 닿음 [실측 B 10/08]
+            return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} 닫기 자세(close_push) 교시 전"), None
         prm = self.prm()
         speed = prm["speed"]
         cur = self.robot.posx()
@@ -724,6 +729,12 @@ class SkillServer(Node):
             return bad, None
         closed = list(closed[:2]) + [tip_z] + list(cur[3:])
         contact_closed = mp.offset_posx(closed, pull, off)  # 닫혔을 때 TCP 위치 (손끝 앞면이 닫힌 손잡이에)
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, contact_closed)
+
+    def _push_closed(self, goal, drawer_id, oc, dc, pull, pre, contact_closed):
+        """pre(밀기 시작, 이미 도착)에서 닫히는 방향으로 contact_closed(닫혔을 때 TCP)보다 close_overtravel 만큼 더 밂.
+        빠르게 → 마지막 push_slow_last_mm 천천히, 일찍 크게 걸리면 멈춤, 끝나면 여는 방향으로 retreat_mm 빼기 (홈은 안 감)."""
+        speed = self.prm()["speed"]
         push = [-c for c in pull]
         base_f = self._force_quick()                       # 밀기 감시(15 N) 기준 — 0.7 s 기다리지 않고 바로 (도착 직후 흔들림 몇 N, 판정엔 충분 [추정]) [사용자 10/07]
 
@@ -771,6 +782,26 @@ class SkillServer(Node):
         self.disp[drawer_id] = 0.0
         out["drawer_displacement"] = 0.0
         return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
+
+    def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp):
+        """닫기 (위·아래 공통) — 수직에서 로봇 쪽으로 기울인(45°, 20° 는 손잡이에 닿음) 손끝으로 앞판 중앙을 닫히는 방향(y)으로 밂 [사용자 10/08].
+        교시(params close_push.<서랍>): start_posj = 서랍 끝까지 연 상태 앞판 3 cm 앞, end_posx = 닫힌 상태 앞판에 손끝이 닿는 자리
+        (같은 손목·높이). 서랍 위(탑뷰 등)면 먼저 홈 — 열린 앞판을 치지 않게 (#133). 그리퍼는 닫은 채 밂."""
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        if self._over_drawer(cur):
+            o = self._named(goal, "home")
+            if not o.success:
+                return o, None
+        self._grip(0, 20)
+        o = self._movej(goal, cp["start_posj"], "to_close_start")
+        if not o.success:
+            return o, None
+        pre = self.robot.posx()
+        if pre is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [float(v) for v in cp["end_posx"]])
 
     # --- 끌기 (nudge_object) ---
     def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
