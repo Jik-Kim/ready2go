@@ -68,9 +68,11 @@ ALIGN_NAMES = {"x": "x 정렬 (수평·바깥)", "y": "y 정렬 (수평·-y)", "
 TILT_DIRS = (("← 왼 (−x, 로봇 쪽)", (-1.0, 0.0)), ("오른 (+x) →", (1.0, 0.0)),
              ("앞 (+y, 내 반대쪽)", (0.0, 1.0)), ("뒤 (−y, 내 쪽)", (0.0, -1.0)))   # 서동권 자리(base −y)에서 본 방향
 J5_MAX, J3_MIN = 133.0, 10.0        # 좌표로 이동(posj) 거부 — params/skills.yaml joint_limits_deg 와 같음 [사용자 10/06]
-# 비상정지 해제 (set_robot_control): 안전정지 5·9 → 2(안전정지 리셋), 서보 꺼짐 3·10 → 3(서보 켜기).
-# [미확인] 두산 ROBOT_CONTROL 값 — PC2 에서 `ros2 interface show dsr_msgs2/srv/SetRobotControl` 로 확인 후 첫 사용
-RECOVER = {5: 2, 9: 2, 3: 3, 10: 3}
+# 비상정지 해제 (system/set_robot_control) [PC2 `ros2 interface show dsr_msgs2/srv/SetRobotControl` 10/08 확인]:
+#   2 CONTROL_RESET_SAFET_STOP = SAFE_STOP(5) → STANDBY, 3 CONTROL_RESET_SAFET_OFF = SAFE_OFF(3) → STANDBY.
+#   SAFE_STOP2(9)·SAFE_OFF2(10) 는 복구 모드(4·5 → 빼내기 → 7)를 거쳐야 해서 펜던트로 (여기서 보내지 않음).
+RECOVER = {5: 2, 3: 3}
+RECOVER_BY_PENDANT = (9, 10)
 C = {"bg": "#e9e9e7", "panel": "#f7f7f5", "line": "#c9c9c4", "sub": "#5d6470", "blue": "#2f6fde", "red": "#d33a2c",
      "green": "#e7f4ec", "amber": "#fff4dc", "posx": "#e8f0fd", "posj": "#f3ece0", "dark": "#2b2b2b", "silver": "#d5d9de"}
 TILT_DEFAULT, TILT_MAX = 30.0, 45.0
@@ -879,6 +881,10 @@ class App:
         if st == 6:
             messagebox.showinfo("비상정지 해제", "물리 비상정지 버튼이 눌린 상태입니다.\n버튼을 돌려 푼 뒤 다시 누르세요.",
                                 parent=self.root)
+            return
+        if st in RECOVER_BY_PENDANT:
+            messagebox.showinfo("비상정지 해제", f"지금 상태: {name}\n복구 모드를 거쳐야 하는 정지라 여기서 풀지 않습니다.\n"
+                                "펜던트에서 복구(Recovery) 후 해제하세요.", parent=self.root)
             return
         code = RECOVER.get(st)
         if code is None:
