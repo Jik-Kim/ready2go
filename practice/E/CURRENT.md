@@ -4,7 +4,7 @@
 - **최종 갱신**: 2026-10-08
 
 ## 지금 상태
-- [문서] [PR #165](https://github.com/Jik-Kim/ready2go/pull/165)는 확인 head `a89b0c9` 기준 Open·미병합입니다. 코멘트6051758000·6051810122의 Phase2 요약·진행 상태 참조·TTS 실패 한계·10/08 파일명 지적을 반영한 리뷰 수정본은 PR #165에 게시됐습니다. 최신 재리뷰6053101234의 게시 상태 문구 보완을 이 CURRENT에 반영했습니다. PR은 미병합이며 운영 ROS/TTS/청취·잠금/단계 재개는 미연결입니다. 이번 CURRENT·연결 기록의 추가 상태 정정은 로컬 게시 대기입니다. 진행 상태·합의값·타 담당 인계는 [#153](https://github.com/Jik-Kim/ready2go/issues/153), 당시 검증·변경 이력은 [오늘 기록](2026-10-08_practice.md)을 참조하십시오.
+- [문서] [PR #165](https://github.com/Jik-Kim/ready2go/pull/165)는 확인 head `1727dd8` 기준 Open·미병합입니다. 코멘트6051758000·6051810122의 Phase2 요약·진행 상태 참조·TTS 실패 한계·10/08 파일명 지적을 반영한 리뷰 수정본은 PR #165에 게시됐습니다. 최신 재리뷰6053101234의 게시 상태 문구 보완을 이 CURRENT에 반영했습니다. PR은 미병합이며 운영 ROS/TTS/청취·잠금/단계 재개는 미연결입니다. 진행 상태·합의값·타 담당 인계는 [#153](https://github.com/Jik-Kim/ready2go/issues/153), 당시 검증·변경 이력은 [오늘 기록](2026-10-08_practice.md)을 참조하십시오.
 - [문서] #134 최신 확인 main은 `e3a48229d51a845432fd4aec5df438dec65247f6`입니다. [#160](https://github.com/Jik-Kim/ready2go/pull/160)(merge `f6a74df`)의 E 호스트 Vision 안내와 [#161](https://github.com/Jik-Kim/ready2go/pull/161)(merge `fd655e3`)의 A stub places_path·빌드 cwd 안내, [#162](https://github.com/Jik-Kim/ready2go/pull/162)(merge `a39bd30`)의 설치 안내가 main에 반영됐습니다. 당시 게시/검증 이력은 [10/08 기록](2026-10-08_practice.md)에 보존했습니다. 이는 새 PC 설치·실물·AC 검증 완료가 아닙니다. [D #158](https://github.com/Jik-Kim/ready2go/pull/158)은 확인 head `9b448b4`에서 Open·미병합이며 safety/interfaces/runner/knowledge 문서 정정의 main 반영이 남아 있어 #134 전체 완료로 판단하지 않습니다.
 - [문서] GitHub Issue 라벨링 규칙을 `AGENTS.md`에 추가했습니다. 사용자 승인·요청 이슈에서 기존 owner/area/phase 라벨을 근거에 따라 적용하고 생성 후 확인하도록 정했으며, 기존 전체 라벨 목록 API는 조회할 수 없어 확인 한계를 기록했습니다. 이전 턴에 라벨을 부착한 열린 이슈 11개는 재조회 0개였으며 다시 변경하지 않았습니다. 자동 workflow나 전체 에이전트 배포 완료를 뜻하지 않습니다.
 
