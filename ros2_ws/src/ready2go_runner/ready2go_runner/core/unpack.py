@@ -102,13 +102,9 @@ def _choices(target: dict | None, pool: list[dict], world: dict) -> list[dict]:
             return sorted(free, key=lambda c: (-(c.get("visible_area_m2") or 0.0), -(c.get("top_z") or 0.0)))
         return sorted(pool, key=lambda c: -(c.get("top_z") or 0.0))
     occ = target.get("occluded_by")
-    if isinstance(occ, list) and occ:       # 1. 덮은 물체를 따라 맨 위까지
-        roots = []
-        for oid in occ:
-            root = _top_of(by_id.get(oid), by_id)
-            if root is not None and root not in roots:
-                roots.append(root)
-        return sorted(roots, key=lambda c: -(c.get("top_z") or 0.0))
+    if isinstance(occ, list) and occ:       # 1. 덮은 물체를 따라 맨 위까지 — 사슬이 하나라도 끊기면 고르지 않음
+        tops = _tops(occ, by_id, set())
+        return sorted(tops, key=lambda c: -(c.get("top_z") or 0.0)) if tops is not None else []
     if occ == []:                           # 2. 다 보이고 위에 아무것도 없음
         return []
     if "occluded_by" not in target and (target.get("pose") or {}).get("yaw_valid") is True:   # 3. 박스 모델, 의심 없음
@@ -124,19 +120,26 @@ def _reason(target: dict | None, pool: list[dict]) -> str:
     return "occluded_by" if target.get("occluded_by") else "overlap_higher"
 
 
-def _top_of(obj: dict | None, by_id: dict) -> dict | None:
-    """obj 를 덮은 물체를 따라 올라가 위에 아무것도 없는 물체. 판정 모름(null)이면 그 물체 자체."""
-    visited = set()
-    while obj is not None and obj.get("id") not in visited:
-        visited.add(obj.get("id"))
+def _tops(ids: list, by_id: dict, path: set) -> list[dict] | None:
+    """ids 를 덮은 물체를 따라 올라가 위에 아무것도 없는(occluded_by == []) 물체들. 사슬 중간에 결과에 없는 물체
+    (옮김·미검출·보류), 판정 모름(null), 고리가 하나라도 있으면 None — 아직 덮인 물체를 맨 위로 오인하지 않음
+    (#176 D 리뷰 P1). 호출 쪽은 None 이면 occluder_unavailable 로 멈춤."""
+    tops: list[dict] = []
+    for oid in ids:
+        obj = by_id.get(oid)
+        if obj is None or oid in path:
+            return None
         above = obj.get("occluded_by")
-        if not above:                       # [] 또는 모름
-            return obj
-        nxt = next((by_id[i] for i in above if i in by_id), None)
-        if nxt is None:                     # 덮은 물체가 결과에 없음 → 이것부터
-            return obj
-        obj = nxt
-    return obj
+        if above == []:
+            found = [obj]
+        elif isinstance(above, list):
+            found = _tops(above, by_id, path | {oid})
+        else:                               # 모름(null·필드 없음)
+            return None
+        if found is None:
+            return None
+        tops += [t for t in found if t not in tops]
+    return tops
 
 
 def _xy(pose) -> tuple[float, float] | None:

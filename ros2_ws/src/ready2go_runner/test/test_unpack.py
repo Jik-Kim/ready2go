@@ -107,6 +107,33 @@ def test_occluder_already_moved_but_still_reported_stops():
     assert (out["obstacle"], out["reason"]) == (None, "occluder_unavailable")
 
 
+@pytest.mark.parametrize("hammer_above, extra", [
+    (["car_key#1"], []),                                            # 덮은 물체가 결과에 없음 (D 반례)
+    (None, []),                                                     # 망치가 덮였는지 모름
+    (["car_key#1"], [obj("car_key#1", 0.1, 0.12, 0.03, occluded_by=["toy_hammer#1"])]),   # 고리
+    (["car_key#1"], [obj("car_key#1", 0.1, 0.12, 0.03, occluded_by=None)]),               # 사슬 위쪽이 모름
+])
+def test_broken_occluder_chain_stops(hammer_above, extra):
+    """#176 D 리뷰 P1: 덮은 물체 사슬이 중간에 끊기거나(없음·모름·고리) 하면 아직 덮인 물체를 맨 위로 오인해
+    고르지 않고 occluder_unavailable 로 멈춤."""
+    s = scan(obj("eraser#1", 0.1, 0.1, occluded_by=["toy_hammer#1"]),
+             obj("toy_hammer#1", 0.1, 0.11, 0.02, occluded_by=hammer_above), *extra)
+    out = pick({"scan": s})
+    assert (out["obstacle"], out["reason"]) == (None, "occluder_unavailable")
+
+
+def test_two_occluders_each_followed_to_top():
+    """목표를 둘이 덮고 하나는 또 덮였으면 → 맨 위 둘 중 높은 것부터, 덮인 망치는 고르지 않음."""
+    s = scan(obj("eraser#1", 0.1, 0.1, occluded_by=["toy_hammer#1", "lip_balm#1"]),
+             obj("car_key#1", 0.1, 0.12, 0.035, occluded_by=[]),
+             obj("toy_hammer#1", 0.1, 0.11, 0.02, occluded_by=["car_key#1"]),
+             obj("lip_balm#1", 0.12, 0.1, 0.025, occluded_by=[]))
+    options = [pick({"scan": s})["obstacle"]["id"]]
+    assert options == ["car_key#1"]
+    assert pick({"scan": s, "prefer": "lip_balm"})["obstacle"]["id"] == "lip_balm#1"
+    assert pick({"scan": s, "prefer": "toy_hammer"})["obstacle"]["id"] == "car_key#1"
+
+
 def test_prefer_only_reorders_within_rule_candidates():
     """사용자 답(prefer)은 같은 규칙의 후보 안에서만 순서를 바꿈 (A 제안: 안전 판단은 못 넘김)."""
     s = scan(None, obj("cover_plate#1", 0.1, 0.1, 0.02, occluded_by=[], visible_area_m2=0.008),
