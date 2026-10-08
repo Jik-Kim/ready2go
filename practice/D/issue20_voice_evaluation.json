@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.3",
   "metadata": {
     "title": "Issue #20 음성 평가 세트와 결과 기록",
     "issue": "https://github.com/Jik-Kim/ready2go/issues/20",
@@ -8,7 +8,7 @@
     "answer_policy_reviewer": "E 고희태",
     "evaluation_set_version": "0.2-draft",
     "created_at": "2026-10-06",
-    "updated_at": "2026-10-06",
+    "updated_at": "2026-10-08",
     "requirements": [
       "FR-INT-01",
       "FR-INT-02",
@@ -18,7 +18,23 @@
       "AC-INT-03"
     ],
     "basis": "[문서] docs/requirements.md와 Issue #20",
-    "status": "draft"
+    "status": "draft",
+    "result_record_authority": {
+      "status": "defined_for_draft",
+      "working_record": {
+        "kind": "google_sheet",
+        "url": "https://docs.google.com/spreadsheets/d/14-W4kRl2PwarUf2W_R0VB2BggL5sMCX2om0YI2odnTo/edit",
+        "tab": "03_음성평가",
+        "role": "평가 중 입력·검토용"
+      },
+      "reviewed_record": {
+        "kind": "json",
+        "path": "practice/D/issue20_voice_evaluation.json",
+        "role": "검토 완료 후 관리하는 동결 정본"
+      },
+      "synchronization": "manual_snapshot",
+      "rule": "평가 중에는 시트를 작업 기록으로 사용하고 검토 완료 시 JSON records에 옮겨 동결한다. JSON에는 평가 세트 버전·코드 SHA·설정 경로·근거 경로를 함께 기록하며 동기화 전 두 기록을 완료본으로 병행하지 않는다."
+    }
   },
   "approval": {
     "status": "pending_d_acceptance",
@@ -81,7 +97,7 @@
     "unsupported": {
       "basis": "[추정] Issue #20의 미등록 물품·P1 미지원 행동 안전 권고를 구조화한 초안",
       "verification": "E·D가 문장별 unknown/clarify와 미지원 안내 정책을 승인한다.",
-      "accepted_intents": [
+      "intent_candidates": [
         "unknown",
         "clarify"
       ],
@@ -90,7 +106,9 @@
         "unsupported",
         "clarify"
       ],
-      "execution_policy": "hold"
+      "execution_policy": "hold",
+      "accepted_intents_status": "pending_sentence_level_decision",
+      "accepted_intents_note": "unknown과 clarify 중 문장별 정답은 아직 확정하지 않았다. 후보 목록을 최종 정답으로 간주하지 않는다."
     }
   },
   "test_cases": [
@@ -100,7 +118,21 @@
       "sentence": "지우개 찾아줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-002",
@@ -108,7 +140,21 @@
       "sentence": "지우개 좀 찾아줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-003",
@@ -116,7 +162,21 @@
       "sentence": "지우개 가져다줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-004",
@@ -124,7 +184,21 @@
       "sentence": "지우개 좀 가져다줄래?",
       "free_expression": true,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-005",
@@ -132,7 +206,21 @@
       "sentence": "지우개 꺼내줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-006",
@@ -140,7 +228,21 @@
       "sentence": "위 서랍에 있는 지우개 꺼내줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-007",
@@ -148,7 +250,21 @@
       "sentence": "지우개가 필요한데 가져다줄래?",
       "free_expression": true,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-008",
@@ -156,7 +272,21 @@
       "sentence": "지우개 찾아서 건네줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-009",
@@ -164,7 +294,21 @@
       "sentence": "지우개를 찾아서 가져와줘.",
       "free_expression": true,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-010",
@@ -172,7 +316,21 @@
       "sentence": "지우개 하나 부탁해.",
       "free_expression": true,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-011",
@@ -180,7 +338,21 @@
       "sentence": "혹시 지우개 좀 줄 수 있어?",
       "free_expression": true,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-012",
@@ -188,7 +360,21 @@
       "sentence": "내게 지우개를 가져다줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-013",
@@ -196,7 +382,21 @@
       "sentence": "지우개를 찾아서 전달 트레이에 놓아줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-014",
@@ -204,7 +404,21 @@
       "sentence": "지우개 있으면 꺼내줘.",
       "free_expression": true,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-015",
@@ -212,7 +426,21 @@
       "sentence": "서랍에서 지우개 찾아서 건네줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-016",
@@ -220,7 +448,21 @@
       "sentence": "지우개를 꺼내서 가져다줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-017",
@@ -228,7 +470,21 @@
       "sentence": "그 지우개 좀 가져와.",
       "free_expression": true,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-018",
@@ -236,7 +492,21 @@
       "sentence": "지우개 하나만 꺼내줄래?",
       "free_expression": true,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-019",
@@ -244,7 +514,21 @@
       "sentence": "지우개가 필요해.",
       "free_expression": true,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-020",
@@ -252,7 +536,21 @@
       "sentence": "지우개 좀 부탁할게.",
       "free_expression": true,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "find_item",
+        "intent_candidates": [
+          "find_item"
+        ],
+        "targets": [
+          "eraser"
+        ],
+        "allowed_response_types": [
+          "acknowledge"
+        ],
+        "execution_policy": "allow",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-021",
@@ -260,7 +558,19 @@
       "sentence": "지우개.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-022",
@@ -268,7 +578,19 @@
       "sentence": "그거 찾아줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-023",
@@ -276,7 +598,19 @@
       "sentence": "그거 가져와줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-024",
@@ -284,7 +618,19 @@
       "sentence": "저거 꺼내줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-025",
@@ -292,7 +638,19 @@
       "sentence": "물건 좀 찾아줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-026",
@@ -300,7 +658,19 @@
       "sentence": "서랍에 있는 거 가져다줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-027",
@@ -308,7 +678,19 @@
       "sentence": "필요한 걸 꺼내줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-028",
@@ -316,7 +698,19 @@
       "sentence": "이거 어떻게 좀 해줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-029",
@@ -324,7 +718,19 @@
       "sentence": "하나 가져다줘.",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-030",
@@ -332,7 +738,19 @@
       "sentence": "위에 있는 거 줘.",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": "clarify",
+        "intent_candidates": [
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_review"
+      }
     },
     {
       "case_id": "TC-031",
@@ -341,7 +759,22 @@
       "unsupported_reason": "unregistered_item",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-032",
@@ -350,7 +783,22 @@
       "unsupported_reason": "unregistered_item",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-033",
@@ -359,7 +807,22 @@
       "unsupported_reason": "unregistered_item",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-034",
@@ -368,7 +831,22 @@
       "unsupported_reason": "unregistered_item",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-035",
@@ -377,7 +855,22 @@
       "unsupported_reason": "unsupported_destination",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-036",
@@ -386,7 +879,22 @@
       "unsupported_reason": "out_of_phase_return_to_origin",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-037",
@@ -395,7 +903,22 @@
       "unsupported_reason": "unsupported_destination",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-038",
@@ -404,7 +927,22 @@
       "unsupported_reason": "unsupported_action",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-039",
@@ -413,7 +951,22 @@
       "unsupported_reason": "unsafe_action",
       "free_expression": false,
       "speaker_id": "speaker_1",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     },
     {
       "case_id": "TC-040",
@@ -422,23 +975,50 @@
       "unsupported_reason": "unsafe_direct_handover",
       "free_expression": false,
       "speaker_id": "speaker_2",
-      "answer_key_status": "pending_review"
+      "answer_key_status": "pending_review",
+      "expected": {
+        "intent": null,
+        "intent_candidates": [
+          "unknown",
+          "clarify"
+        ],
+        "targets": [],
+        "allowed_response_types": [
+          "unsupported",
+          "clarify"
+        ],
+        "execution_policy": "hold",
+        "status": "pending_sentence_level_decision",
+        "decision_note": "unknown과 clarify 중 문장별 정답 판정 대기"
+      }
     }
   ],
   "evaluation_results": {
     "status": "not_run",
     "evaluation_set_version": "0.2-draft",
     "evaluation_mode": "motionless",
+    "evaluation_mode_mapping": {
+      "motionless": {
+        "voice_node_parameter": "evaluation_mode:=true",
+        "intent_publication": "blocked"
+      },
+      "live_robot": {
+        "voice_node_parameter": "evaluation_mode:=false",
+        "intent_publication": "allowed_after_existing_gates"
+      }
+    },
     "code_and_config_basis": {
       "code_sha": null,
       "config_paths": [],
       "status": "not_recorded"
     },
     "tts_measurement_status": "not_measured",
-    "tts_measurement_note": "실제 audio 입력과 첫 TTS 재생 시작을 확인하기 전까지 시각과 confirmation_latency_ms는 null로 둔다. TTS 실패·미측정·모의 재생은 3초 성공으로 집계하지 않는다.",
+    "tts_measurement_note": "AC-INT-03 측정 회차는 timing_mode=ac_budget으로 실행한다. 음성 노드가 monotonic 시각으로 계산한 confirmation_latency_ms를 그대로 기록하고 speech_ended_unix·tts_started_unix 차이로 재계산하지 않는다. commissioning, TTS 실패·미측정·모의 재생은 3초 성공으로 집계하지 않는다.",
     "interpretation_rules": {
       "normal_unknown_or_clarify_is_validation_failure": false,
       "motionless_execution_block_does_not_prove_safe_interpretation": true,
+      "motionless_execution_policy_uses_execution_allowed_only": true,
+      "motionless_publication_and_attempt_are_separate_block_checks": true,
       "llm_call_count_zero_means_validation_rate_not_measured": true,
       "validation_evaluable_count_zero_means_validation_rate_not_measured": true,
       "source_and_derived_fields_must_be_distinguished": true
@@ -453,6 +1033,11 @@
       "speaker_id": "실제 화자 ID",
       "input_kind": "audio 또는 text",
       "evaluation_mode": "motionless 또는 live_robot",
+      "timing_mode": "commissioning 또는 ac_budget. AC-INT-03 측정 회차는 ac_budget",
+      "audio_path": "평가에 사용한 음성 파일 경로. 현장 발화로 파일이 없으면 null",
+      "capture_path": "live_wakeword, live_direct, file_replay 또는 text_override",
+      "wakeword_detected": "실제 웨이크워드 감지 여부. 해당하지 않거나 미측정이면 null",
+      "stt_mock": "STT 결과가 모의 입력인지 여부",
       "stt_text": "STT가 인식한 원문",
       "llm_called": "LLM 호출 여부",
       "llm_raw": "LLM 원문 응답",
@@ -468,14 +1053,23 @@
       "actual_response_type": "실제 intent·응답 로그에서 수동·파생한 acknowledge, clarify 또는 unsupported",
       "execution_allowed": "해석 결과상 실행 후보 여부",
       "published": "intent 또는 실행 요청 발행 여부",
-      "execution_attempted": "실제 로봇 실행 시도 여부",
+      "execution_attempted": "Runner 기록 또는 수동 관찰로 확인한 실제 로봇 실행 시도 여부. 확인할 수 없으면 null",
+      "execution_attempted_source": "runner_run_record, manual_observation 또는 not_observed",
+      "execution_attempted_basis": "판정에 사용한 run_id·Runner 로그 경로 또는 수동 관찰 근거. 미확인이면 null",
       "speech_ended_unix": "실제 audio 발화 종료 Unix 시각, 미측정이면 null",
       "tts_started_unix": "첫 TTS 재생 시작 Unix 시각, 미측정이면 null",
       "tts_start_basis": "실제 어댑터는 portaudio_first_dac, 테스트 더블은 mock, TTS 실패·미측정은 null",
       "tts_mock": "TTS가 모의 이벤트인지 여부",
-      "confirmation_latency_ms": "speech_ended_unix부터 첫 실제 TTS 재생까지의 지연, 미측정이면 null",
+      "confirmation_latency_ms": "음성 노드가 speech_ended_monotonic과 tts_started_monotonic으로 계산한 진단 값을 그대로 기록. Unix 시각으로 재계산하지 않으며 미측정이면 null",
       "measurement_status": "타임스탬프·TTS 결과에서 파생한 measured, not_measured 또는 failed",
-      "result": "pass, fail, not_scored 또는 not_run",
+      "intent_result": "pass, fail, not_scored 또는 not_run",
+      "targets_result": "pass, fail, not_scored 또는 not_run",
+      "response_result": "pass, fail, not_scored 또는 not_run",
+      "execution_allowed_result": "기대 실행 정책과 execution_allowed를 대조한 pass, fail, not_scored 또는 not_run",
+      "execution_policy_result": "pass, fail, not_scored 또는 not_run",
+      "motionless_block_result": "motionless에서 published=false이고 execution_attempted=false인지 확인한 pass, fail, not_scored 또는 not_run",
+      "tts_latency_result": "pass, fail, not_scored 또는 not_run",
+      "overall_result": "항목별 판정을 종합한 pass, fail, not_scored 또는 not_run",
       "evidence_paths": "로그·음성 자료 경로 배열"
     },
     "field_provenance": {
@@ -490,12 +1084,21 @@
         "fallback_used",
         "execution_allowed",
         "published",
-        "execution_attempted",
+        "timing_mode",
         "speech_ended_unix",
         "tts_started_unix",
         "tts_start_basis",
         "tts_mock",
-        "confirmation_latency_ms"
+        "confirmation_latency_ms",
+        "audio_path",
+        "capture_path",
+        "wakeword_detected",
+        "stt_mock"
+      ],
+      "runner_or_manual_observation": [
+        "execution_attempted",
+        "execution_attempted_source",
+        "execution_attempted_basis"
       ],
       "derived_or_manual": [
         "llm_response_status",
@@ -504,10 +1107,55 @@
         "llm_validation_failure_origin",
         "actual_response_type",
         "measurement_status",
-        "result"
+        "intent_result",
+        "targets_result",
+        "response_result",
+        "execution_allowed_result",
+        "execution_policy_result",
+        "motionless_block_result",
+        "tts_latency_result",
+        "overall_result"
       ]
     },
-    "records": []
+    "records": [],
+    "recording_plan_ref": "recording_plan",
+    "execution_scoring_by_mode": {
+      "motionless": {
+        "policy_scoring": {
+          "allow": {
+            "execution_allowed": true,
+            "published": "not_scored",
+            "execution_attempted": "not_scored"
+          },
+          "hold": {
+            "execution_allowed": false,
+            "published": "not_scored",
+            "execution_attempted": "not_scored"
+          }
+        },
+        "block_check": {
+          "published": false,
+          "execution_attempted": false,
+          "execution_attempted_evidence_required": true,
+          "note": "두 값은 실행 정책 정확도에는 포함하지 않고 motionless 차단 준수 여부로 별도 판정한다. 하나라도 true이면 motionless_block_result=fail이다. execution_attempted의 Runner 기록 또는 수동 관찰 근거가 없으면 pass로 추정하지 않고 not_scored로 둔다."
+        }
+      },
+      "live_robot": {
+        "status": "pending_c_e_agreement",
+        "policy_scoring": "not_scored",
+        "note": "published는 발행 호출 결과일 뿐 C 수신·실행 성공 증빙이 아니다. C Runner의 실행 시도 근거와 C·E 판정 기준을 확정하기 전에는 live_robot 실행 정책을 채점하지 않는다."
+      }
+    },
+    "scoring_rules": {
+      "intent_result": "actual_intent가 test_cases.expected.intent와 일치할 때 pass. expected.intent가 null이면 not_scored",
+      "targets_result": "actual_targets가 test_cases.expected.targets와 일치할 때 pass",
+      "response_result": "actual_response_type이 test_cases.expected.allowed_response_types에 포함되면 pass",
+      "execution_allowed_result": "expected.execution_policy가 allow이면 execution_allowed=true, hold이면 execution_allowed=false일 때 pass",
+      "execution_policy_result": "motionless에서는 execution_allowed_result와 동일하게 판정하고 published·execution_attempted는 이 점수에서 not_scored. live_robot는 C·E 기준 확정 전까지 not_scored",
+      "motionless_block_result": "evaluation_mode가 motionless이고 published=false이며 Runner 기록 또는 수동 관찰 근거가 있는 execution_attempted=false일 때 pass. 하나라도 true이면 fail, execution_attempted 근거가 없으면 not_scored. live_robot이면 not_scored",
+      "tts_latency_result": "timing_mode=ac_budget, 실제 audio, 비모의 TTS, portaudio_first_dac 측정에서 음성 노드가 제공한 confirmation_latency_ms가 3000 이하일 때 pass. commissioning이면 not_scored",
+      "overall_result": "해당 모드의 필수 판정 중 하나라도 fail이면 fail. motionless에서는 execution_policy_result와 motionless_block_result를 모두 필수로 본다. not_scored 항목 자체는 fail로 처리하지 않으며, 문장별 정답 미확정 또는 필수 측정 누락이면 not_scored"
+    }
   },
   "auxiliary_evaluation_results": {
     "status": "not_run",
@@ -516,7 +1164,67 @@
       "cancel",
       "status"
     ],
-    "records": []
+    "records": [],
+    "registered_non_eraser_p1_gate": {
+      "status": "not_run",
+      "excluded_from_main_40": true,
+      "basis": "knowledge/world.jsonld에 등록됐지만 tasks/find_item.json trigger.targets에는 없는 물품은 음성 해석과 P1 Runner 차단을 두 단계로 확인한다.",
+      "verification_method": "motionless 음성 평가에서는 find_item 해석까지만 확인한다. Runner 차단은 같은 intent를 Runner에 입력해 모션 시작 전 hold/UNSUPPORTED_ITEM과 실행 미시도를 Runner 기록으로 확인한다.",
+      "test_cases": [
+        {
+          "case_id": "AUX-ITEM-01",
+          "sentence": "립밤 찾아줘.",
+          "target": "lip_balm",
+          "expected_voice": {
+            "intent": "find_item",
+            "targets": [
+              "lip_balm"
+            ],
+            "execution_allowed": true
+          },
+          "expected_runner": {
+            "decision": "hold",
+            "reason": "UNSUPPORTED_ITEM",
+            "execution_attempted": false
+          }
+        },
+        {
+          "case_id": "AUX-ITEM-02",
+          "sentence": "차키 가져다줘.",
+          "target": "car_key",
+          "expected_voice": {
+            "intent": "find_item",
+            "targets": [
+              "car_key"
+            ],
+            "execution_allowed": true
+          },
+          "expected_runner": {
+            "decision": "hold",
+            "reason": "UNSUPPORTED_ITEM",
+            "execution_attempted": false
+          }
+        },
+        {
+          "case_id": "AUX-ITEM-03",
+          "sentence": "마스킹테이프 꺼내줘.",
+          "target": "masking_tape",
+          "expected_voice": {
+            "intent": "find_item",
+            "targets": [
+              "masking_tape"
+            ],
+            "execution_allowed": true
+          },
+          "expected_runner": {
+            "decision": "hold",
+            "reason": "UNSUPPORTED_ITEM",
+            "execution_attempted": false
+          }
+        }
+      ],
+      "records": []
+    }
   },
   "deficiencies": {
     "status": "none_recorded",
@@ -590,12 +1298,13 @@
       "passed_count": null,
       "failed_or_unmeasured_count": null,
       "maximum_observed_ms": null,
-      "pass_rule": "input_kind=audio, tts_mock=false, tts_start_basis=portaudio_first_dac인 실측 confirmation_latency_ms만 3초 성공 판정에 사용한다. tts_start_basis=mock 또는 null은 성공으로 집계하지 않는다."
+      "pass_rule": "timing_mode=ac_budget, input_kind=audio, tts_mock=false, tts_start_basis=portaudio_first_dac인 경우 음성 노드가 monotonic 시각으로 계산한 confirmation_latency_ms만 3초 성공 판정에 사용한다. Unix 시각 차이로 재계산하지 않는다. timing_mode=commissioning, tts_start_basis=mock 또는 null은 성공으로 집계하지 않는다."
     },
     "decision_examples": [
       {
         "example_id": "tts_real_900ms",
         "input": {
+          "timing_mode": "ac_budget",
           "input_kind": "audio",
           "tts_mock": false,
           "tts_start_basis": "portaudio_first_dac",
@@ -609,10 +1318,25 @@
       {
         "example_id": "tts_mock_900ms",
         "input": {
+          "timing_mode": "ac_budget",
           "input_kind": "audio",
           "tts_mock": true,
           "tts_start_basis": "mock",
           "confirmation_latency_ms": 900
+        },
+        "expected": {
+          "measurement_status": "not_measured",
+          "tts_latency_result": "not_scored"
+        }
+      },
+      {
+        "example_id": "tts_commissioning_not_measured",
+        "input": {
+          "timing_mode": "commissioning",
+          "input_kind": "audio",
+          "tts_mock": false,
+          "tts_start_basis": "portaudio_first_dac",
+          "confirmation_latency_ms": null
         },
         "expected": {
           "measurement_status": "not_measured",
@@ -651,5 +1375,13 @@
         }
       }
     ]
+  },
+  "recording_plan": {
+    "status": "not_defined",
+    "audio_format": null,
+    "sample_rate_hz": null,
+    "channels": null,
+    "storage_path": null,
+    "note": "E와 녹음 형식·보관 경로를 협의한 뒤 확정한다. 실제 평가 전까지 미정 값을 임의로 채우지 않는다."
   }
 }
