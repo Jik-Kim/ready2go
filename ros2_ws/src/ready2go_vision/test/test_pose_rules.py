@@ -106,6 +106,9 @@ def test_occlusion_fields_are_optional_and_null_means_unknown():
     ([3], [], 0.001, "목록 또는 null"),
     ([], [], -0.1, "visible_area_m2"),
     ([], [], "0.1", "visible_area_m2"),
+    ([], [], float("nan"), "visible_area_m2"),
+    ([], [], float("inf"), "visible_area_m2"),
+    (["lip_balm#1"], ["eraser#1"], 0.001, "순환"),             # 서로 덮음 (#169 D 리뷰)
 ])
 def test_occlusion_field_errors(target_occ, cand_occ, area, msg):
     assert any(msg in e for e in result_errors(_occ_result(target_occ, cand_occ, area)))
@@ -115,3 +118,14 @@ def test_example_shows_occluded_unknown_and_free():
     ex = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/inspect_region_result.json").read_text(encoding="utf-8"))
     occ = [ex["target"]["occluded_by"]] + [c["occluded_by"] for c in ex["candidates"]]
     assert any(isinstance(o, list) and o for o in occ) and [] in occ and None in occ
+
+
+def test_occlusion_three_way_cycle_is_rejected_and_chain_is_ok():
+    def it(i, occ, top):
+        return {"id": i, "class": i.split("#")[0], "pose": {"frame": "drawer_top", "position": [0.1, 0.1, 0.0], "yaw": 0.0, "yaw_valid": True},
+                "top_z": top, "occluded_by": occ}
+    chain = {"target_found": True, "target": it("eraser#1", ["car_key#1"], 0.0115),
+             "candidates": [it("toy_hammer#1", [], 0.04), it("car_key#1", ["toy_hammer#1"], 0.03)], "visible_count": 3}
+    assert result_errors(chain) == []                             # 망치 → 차키 → 지우개: 맨 위 = 망치
+    chain["candidates"][0]["occluded_by"] = ["eraser#1"]          # 지우개 → 망치 를 더하면 3-순환
+    assert any("순환" in e for e in result_errors(chain))

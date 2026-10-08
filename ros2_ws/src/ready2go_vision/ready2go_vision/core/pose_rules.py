@@ -59,9 +59,35 @@ def occlusion_errors(it: dict, ids: set, where: str) -> list[str]:
             if it.get("id") in occ:
                 errs.append(f"{where}.occluded_by 에 자기 자신 {it.get('id')!r}")
     area = it.get("visible_area_m2")
-    if area is not None and (isinstance(area, bool) or not isinstance(area, (int, float)) or area < 0):
-        errs.append(f"{where}.visible_area_m2 는 0 이상 숫자 또는 null — 값 {area!r}")
+    if area is not None and (isinstance(area, bool) or not isinstance(area, (int, float)) or not math.isfinite(area) or area < 0):
+        errs.append(f"{where}.visible_area_m2 는 0 이상 유한한 숫자 또는 null — 값 {area!r}")
     return errs
+
+
+def occlusion_cycle(items: list[dict]) -> list[str] | None:
+    """occluded_by 관계(덮은 물체 → 덮인 물체)의 순환 하나를 id 목록으로, 없으면 None. 형식이 틀린 항목은 건너뛴다(형식 오류는 따로 보고)."""
+    edges = {}
+    for it in items:
+        occ = it.get("occluded_by")
+        if isinstance(occ, list):
+            for over in occ:
+                if isinstance(over, str):
+                    edges.setdefault(over, []).append(it.get("id"))
+    state, stack = {}, []
+
+    def visit(n):
+        state[n] = 1; stack.append(n)
+        for m in edges.get(n, []):
+            if state.get(m) == 1:
+                return stack[stack.index(m):] + [m]
+            if state.get(m) is None and (c := visit(m)):
+                return c
+        state[n] = 2; stack.pop()
+        return None
+    for n in list(edges):
+        if state.get(n) is None and (c := visit(n)):
+            return c
+    return None
 
 
 def result_errors(result: dict) -> list[str]:
@@ -73,6 +99,9 @@ def result_errors(result: dict) -> list[str]:
         if it is not None:
             errs += pose_errors(it.get("pose", {}), f"{name}.pose")
             errs += occlusion_errors(it, ids, name)
+    cycle = occlusion_cycle([it for _, it in items if it is not None])
+    if cycle:
+        errs.append(f"occluded_by 관계가 순환함 (맨 위 물체를 정할 수 없음): {' → '.join(cycle)}")
     tops = [c["top_z"] for c in result.get("candidates", [])]
     if tops != sorted(tops, reverse=True):
         errs.append("candidates 는 top_z 내림차순")
