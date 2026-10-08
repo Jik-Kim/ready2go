@@ -238,10 +238,10 @@
 * **성공 여부**: 모든 스텝은 `status`(`SUCCESS`/`FAILURE`/`SKIPPED`)를 가짐. 실패 시 `error.code`(7.5 스킬의 `errors` 목록 기준)를 기록.
 * **조건 확인**: `pre_check`는 `PASS` / `PRE_UNMET`과 함께 **조건별 결과 배열**(조건, 실제 값, 통과 여부)을 기록. `PRE_UNMET`이면 동작을 보내지 않음.
 * **성공 판정** (P2 계획, FR-ONT-02. P1 은 액션 응답 성공 기준): 스텝 성공 = **액션 결과 성공 AND 사후 관측 확인(`post_check`) 통과**. 관측 기준은 스킬의 `verify`(그리퍼 폭, 서랍 변위, 재스캔). 액션은 성공했지만 관측이 안 맞으면 `POST_UNCONFIRMED`로 실패 처리.
-* **안전 게이트(Phase별 후속 설계, P1 미구현)**: 실물 실행 전 게이트(11장)의 단계별 통과 여부를 `runs` 헤더에 기록하는 전체 설계. 기능 Phase는 요구사항 정본을 따른다. BFS 계획·사후 관측 `verify`는 P2(FR-PLN-02·FR-ONT-02), 트윈 사전 검증은 P3(FR-TWN-02)이며 P2 미러링(FR-TWN-01)과 구분한다. P1은 실제 실행한 스텝의 `pre_check`·`state_diff`만 남기며 전체 게이트 결과를 만들지 않음.
+* **안전 게이트(Phase별 구현 상태)**: 실물 실행 전 게이트(11장)의 단계별 통과 여부를 한 번에 판정해 `runs` 헤더에 기록하는 전체 게이트는 미구현이다. P2 BFS 계획과 `achieve_goal` → Runner 실행 연결은 구현됐지만(FR-PLN-02, #150), 실제 상태를 다시 보는 사후 관측 `verify` 후에만 `effect`를 반영하는 기능은 P2 미구현 계획(FR-ONT-02)이다. 트윈 사전 검증은 P3 계획(FR-TWN-02)이며 P2 미러링(FR-TWN-01)과 구분한다. P1은 실제 실행한 스텝의 `pre_check`·응답 기준 `state_diff`만 남기며 전체 게이트 결과를 만들지 않음.
 * **상태 변화**: `state_diff`는 `{상태 경로: [이전 값, 이후 값]}`. 관측으로 고친 경우 `STATE_MISMATCH` 항목으로 따로 표시(P3 계획, FR-REC-01).
-* **플래너 실행**: 헤더에 `goal`과 `plan`(스킬 조합 목록), 스킬 단위 기록과 그 아래 원자 동작 기록을 함께 저장.
-* **저장 전체 설계(P2 포함)**: 스텝이 끝날 때마다 `LogStore`를 통해 MongoDB에 저장하고, `runs` 헤더에 **온톨로지 파일 해시**, STT 원문, LLM 원문 응답, 안전 게이트 결과를 포함하며 `states` 컬렉션·제출용 JSON·rosbag2(MCAP)를 연결하는 것이 전체 설계다. **현재 P1 구현은 아래의 `runs`·`steps`와 JSONL 폴백까지**이며, `states` 컬렉션·전체 안전 게이트 헤더·제출용 JSON·rosbag2 연결을 구현 완료로 보지 않는다.
+* **플래너 실행(P2 구현, #150)**: 목표는 `inputs.goals`, 계획과 단계별 근거는 `runs` 헤더의 `plan`에 저장하고, 계획을 태스크로 변환해 스킬 단위 기록과 그 아래 원자 동작 기록을 함께 남긴다. `/planner/plan` 토픽 발행과 시연 화면 소비는 미구현이다.
+* **저장 전체 설계(P2 포함)**: 스텝이 끝날 때마다 `LogStore`를 통해 MongoDB에 저장하고, `runs` 헤더에 **온톨로지 파일 해시**, STT 원문, LLM 원문 응답, 안전 게이트 결과를 포함하며 `states` 컬렉션·제출용 JSON·rosbag2(MCAP)를 연결하는 것이 전체 설계다. **현재 구현은 아래의 P1 `runs`·`steps`와 JSONL 폴백, P2 계획 실행의 `inputs.goals`·`plan` 기록까지**이며, `states` 컬렉션·전체 안전 게이트 헤더·제출용 JSON·rosbag2 연결을 구현 완료로 보지 않는다.
 * 위 예시는 지면상 일부 스텝만 표기. 실제 로그에는 `finally` 스텝을 포함한 모든 스텝이 기록됨.
 * **구현 (P1, #12)**: `core/log_records.py`가 레코드 모양을, `core/logstore.py`가 저장을 맡음. Runner 는 `LogStore` 약속(`start_run`·`write_step`·`end_run`·`read_run`)에만 의존.
   * `MongoLogStore`: `cobot2`의 `runs`(실행 1건, `run_id`로 덮어써 시작 기록을 완성)·`steps`(스텝 1건, `run_id`·`seq` 색인). 접속 주소 `MONGO_URI`(기본 `mongodb://localhost:27017`), 연결·응답 제한 1초 `[추정, 실측 후 조정]`.

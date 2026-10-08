@@ -10,7 +10,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | :--- | :--- | :--- | :--- |
 | 인텐트 | `/voice/intent` | topic `std_msgs/String` (JSON) | voice → ros2-core |
 | 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | **P1 구현:** Runner가 응답 기준 현재 상태를 발행하며 Runner 통합 테스트가 구독. 시연 화면·트윈·voice의 직접 구독은 후속 연결이고, 관측으로 검증된 상태라는 뜻이 아님 |
-| 생성된 계획 | `/planner/plan` | topic `std_msgs/String` (7.2 형식 JSON) | **P2 계획(FR-PLN-02), 미구현:** 플래너 → 시연 화면 |
+| 생성된 계획 | `/planner/plan` | topic `std_msgs/String` (7.2 형식 JSON) | **토픽 발행·시연 화면 소비 미구현.** P2 플래너 핵심과 `achieve_goal` → Runner 실행 연결은 구현됐으며, 계획은 현재 실행 기록 헤더 `plan`과 콘솔에 남음 |
 | 텍스트 디버그 입력 | `/voice/text_override` | topic `std_msgs/String` | 테스트 → voice |
 | TTS 요청 (`speak` 원자 동작) | `/voice/speak` | action `Skill` | ros2-core → voice |
 | 인식 | `/vision/inspect_region` | service `InspectRegion` (req: `region`, `search_target` / res: `success`, `error_code`, `result_json`; 에러 코드 표는 [runner.md](runner.md)) | ros2-core → vision |
@@ -20,7 +20,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 그리퍼 명령 (sim 전용) | `/gripper/command` | JSON 문자열 | **P2 트윈 계획, 미구현:** sim 백엔드 → Isaac Sim |
 | 서랍 상태 | `/drawers/state` | JSON 문자열 (`drawer_id`, `displacement`) | **P2 트윈·관측 계획, 미구현:** 백엔드 → Runner·트윈. P1은 `drawer_control` 액션 응답의 `drawer_displacement`를 사용 |
 | 카메라 | `/wrist_cam/color/image_raw`, `/wrist_cam/color/camera_info`, `/wrist_cam/aligned_depth_to_color/image_raw` (컬러에 정렬된 뎁스, 내부 파라미터는 컬러와 동일) | `sensor_msgs` | realsense / Isaac Sim → vision (결정 #24) |
-| Runner 상태 · 비상정지 · 상태 초기화 | `/runner/status`, `/runner/estop`, `/runner/reset_state` | `std_msgs/String`, `std_srvs/Trigger`, `std_srvs/Trigger` | **P1 Runner 구현.** 현재 테스트·사람의 ROS 호출로 확인하며 시연 화면 #59 연결은 후속 |
+| Runner 상태 · 비상정지 · 상태 초기화 | `/runner/status`, `/runner/estop`, `/runner/reset_state` | `std_msgs/String`, `std_srvs/Trigger`, `std_srvs/Trigger` | **P1 Runner 구현.** 테스트·사람의 ROS 호출 외에 Voice가 `/runner/status`를 읽어 실행 결과 안내에 사용함(PR #144). 시연 화면 #59 연결은 후속이며, Voice는 정지·초기화 서비스를 호출하지 않음 |
 | TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_link`, `wrist_cam_color_optical_frame`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core: `ready2go_bringup` launch가 `config/calibration/`·`config/places.yaml`을 읽어 static TF 발행 (결정 #23). 로봇 TF는 DSR 드라이버. **`wrist_cam_link`**: 캘리브레이션 결과를 거는 프레임(`link_6 → wrist_cam_link`, bringup 발행). **`wrist_cam_color_optical_frame`**: 컬러·정렬 뎁스 이미지의 `frame_id`, `wrist_cam_link` 아래 트리는 realsense 드라이버가 `/tf_static`으로 발행(끄지 않음). Isaac Sim 트윈 카메라도 같은 `frame_id`를 사용. 강의 URDF(`m0609_rg2_bringup`)에 CAD 기반 `camera_*` 프레임이 따로 있어 TF에 카메라가 두 개 생길 수 있으나, **비전은 `wrist_cam_color_optical_frame`만 사용**(CAD 위치는 캘리브레이션과 x·y 약 1.8 cm 차이, 5점 검증에서 캘리브레이션이 맞음 [실측 B 10/03]). `base_link`·`link_6` 접두어 없음 [실측 B 10/02], `tool0`은 `link_6`과 원점이 같고 축만 회전하므로 사용하지 않음 |
 
 **ROS 인터페이스가 아닌 호출 (같은 프로세스 또는 외부 서비스)**
