@@ -28,7 +28,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 대상 | 호출 방식 | 사용 위치 |
 | :--- | :--- | :--- |
 | `query_ontology` 원자 동작 | **P1 구현, ROS 인터페이스 없음.** 별도 `OntologyManager` 클래스가 아니라 Runner가 보유한 상태와 로드한 `world`를 프로세스 안에서 직접 조회. P1은 단일 `item`·`state` 경로만 지원 | Runner (7.1 ②) |
-| `select_obstacle` · `find_moved` 원자 동작 (**계약안, #120·#109 — E 포함 2명 승인 전**) | **ROS 인터페이스 없음.** Runner 가 직전 `inspect_region` 결과와 치운 기록(`restore_stack`)만으로 판단(`core/unpack.py`, 로봇 동작 없음). 입출력은 [runner.md 7.1](runner.md) | Runner (Unpacking 태스크) |
+| `select_obstacle` · `find_moved` 원자 동작 (**P2, 계약 #176 머지 10/08 · E 사후 검토 대기**) | **ROS 인터페이스 없음.** Runner 가 직전 `inspect_region` 결과와 치운 기록(`restore_stack`)만으로 판단(`core/unpack.py`, 로봇 동작 없음). 입출력은 [runner.md 7.1](runner.md) | Runner (Unpacking 태스크) |
 | `update_ontology` 원자 동작 | **P1 미지원(`NOT_SUPPORTED`).** P1 상태 변경은 성공 응답 뒤 스킬 `effect` 적용으로만 수행 | Runner 후속 범위 (7.1 ②) |
 | 로그 저장 | **P1 구현:** Python `pymongo`로 MongoDB(`cobot2` DB: `runs`·`steps`)에 `LogStore` 경유 저장, 연결 실패 시 `logs/*.jsonl` 폴백. **P2 계획(FR-LOG-02):** `states` 컬렉션·사후 관측 상세 로그 | Runner (7.4). 별도 Logger 프로세스는 없음 |
 | STT · LLM | HTTPS로 OpenAI API 호출 (`secrets/voice.env`의 키 사용) | `voice` 컨테이너 (6장) |
