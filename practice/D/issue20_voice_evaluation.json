@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "metadata": {
     "title": "Issue #20 음성 평가 세트와 결과 기록",
     "issue": "https://github.com/Jik-Kim/ready2go/issues/20",
@@ -991,6 +991,8 @@
     "interpretation_rules": {
       "normal_unknown_or_clarify_is_validation_failure": false,
       "motionless_execution_block_does_not_prove_safe_interpretation": true,
+      "motionless_execution_policy_uses_execution_allowed_only": true,
+      "motionless_publication_and_attempt_are_separate_block_checks": true,
       "llm_call_count_zero_means_validation_rate_not_measured": true,
       "validation_evaluable_count_zero_means_validation_rate_not_measured": true,
       "source_and_derived_fields_must_be_distinguished": true
@@ -1034,7 +1036,9 @@
       "intent_result": "pass, fail, not_scored 또는 not_run",
       "targets_result": "pass, fail, not_scored 또는 not_run",
       "response_result": "pass, fail, not_scored 또는 not_run",
+      "execution_allowed_result": "기대 실행 정책과 execution_allowed를 대조한 pass, fail, not_scored 또는 not_run",
       "execution_policy_result": "pass, fail, not_scored 또는 not_run",
+      "motionless_block_result": "motionless에서 published=false이고 execution_attempted=false인지 확인한 pass, fail, not_scored 또는 not_run",
       "tts_latency_result": "pass, fail, not_scored 또는 not_run",
       "overall_result": "항목별 판정을 종합한 pass, fail, not_scored 또는 not_run",
       "evidence_paths": "로그·음성 자료 경로 배열"
@@ -1072,20 +1076,50 @@
         "intent_result",
         "targets_result",
         "response_result",
+        "execution_allowed_result",
         "execution_policy_result",
+        "motionless_block_result",
         "tts_latency_result",
         "overall_result"
       ]
     },
     "records": [],
     "recording_plan_ref": "recording_plan",
+    "execution_scoring_by_mode": {
+      "motionless": {
+        "policy_scoring": {
+          "allow": {
+            "execution_allowed": true,
+            "published": "not_scored",
+            "execution_attempted": "not_scored"
+          },
+          "hold": {
+            "execution_allowed": false,
+            "published": "not_scored",
+            "execution_attempted": "not_scored"
+          }
+        },
+        "block_check": {
+          "published": false,
+          "execution_attempted": false,
+          "note": "두 값은 실행 정책 정확도에는 포함하지 않고 motionless 차단 준수 여부로 별도 판정한다. 하나라도 true이면 motionless_block_result=fail이다."
+        }
+      },
+      "live_robot": {
+        "status": "pending_c_e_agreement",
+        "policy_scoring": "not_scored",
+        "note": "published는 발행 호출 결과일 뿐 C 수신·실행 성공 증빙이 아니다. C Runner의 실행 시도 근거와 C·E 판정 기준을 확정하기 전에는 live_robot 실행 정책을 채점하지 않는다."
+      }
+    },
     "scoring_rules": {
       "intent_result": "actual_intent가 test_cases.expected.intent와 일치할 때 pass. expected.intent가 null이면 not_scored",
       "targets_result": "actual_targets가 test_cases.expected.targets와 일치할 때 pass",
       "response_result": "actual_response_type이 test_cases.expected.allowed_response_types에 포함되면 pass",
-      "execution_policy_result": "execution_allowed·published·execution_attempted가 기대 실행 정책과 일치할 때 pass. motionless 차단만으로 pass 처리하지 않는다",
+      "execution_allowed_result": "expected.execution_policy가 allow이면 execution_allowed=true, hold이면 execution_allowed=false일 때 pass",
+      "execution_policy_result": "motionless에서는 execution_allowed_result와 동일하게 판정하고 published·execution_attempted는 이 점수에서 not_scored. live_robot는 C·E 기준 확정 전까지 not_scored",
+      "motionless_block_result": "evaluation_mode가 motionless이면 published=false이고 execution_attempted=false일 때 pass, 하나라도 true이면 fail. live_robot이면 not_scored",
       "tts_latency_result": "실제 audio·비모의 TTS·portaudio_first_dac 측정에서 confirmation_latency_ms가 3000 이하일 때 pass",
-      "overall_result": "필수 판정 중 하나라도 fail이면 fail. 문장별 정답 미확정 또는 필수 측정 누락이면 not_scored"
+      "overall_result": "해당 모드의 필수 판정 중 하나라도 fail이면 fail. motionless에서는 execution_policy_result와 motionless_block_result를 모두 필수로 본다. not_scored 항목 자체는 fail로 처리하지 않으며, 문장별 정답 미확정 또는 필수 측정 누락이면 not_scored"
     }
   },
   "auxiliary_evaluation_results": {
