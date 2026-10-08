@@ -78,6 +78,7 @@ transit:
   blend_mm: 20.0                # 이어지는 이동(올리기 → 관절 이동, y 맞추기 → 기울여 목표물 위)을 끝 이 거리 안에서 이음 — 멈추지 않음 [사용자 10/07].
                                 #   올리기 끝 20 mm 전에 관절 이동을 보냄 → high_z 325 − 20 = 305 > 앞판 295.5. 0 이면 예전처럼 멈췄다 감
   view_lift_blend_mm: 50.0      # 홈 쪽 → 탑뷰: 올리기 끝 이 거리부터 관절 이동(회전) 시작 — 올라가기·회전이 같이 끝남 [사용자 10/08]. 올리는 길이의 45% 까지
+  in_drawer_clear_mm: 15.0      # [사용자 10/08] 서랍 안 옆 이동은 테두리 + 이 값 위 — 쌓인 물건(약 55 mm) 위로 (지금은 서랍 안 놓기만 씀)
   safe_z_mm: 300.0              # 서랍 안 이동·집은 뒤 올리는 높이 = 테두리 약 268 + 쥔 물체 12 + 여유 20. drawer_top_view z 363은 팔 거의 펴짐(A 10/04)
 drawer_open_close:              # drawer_control 실물 (위 drawer_control 판정값과 함께)
   handle_grasp_posx:            # 손잡이 파지 TCP posx — 서랍 닫힌 상태 [실측 B 10/04, poses.yaml drawer_approach 주석]
@@ -113,6 +114,8 @@ place:
   release_extra_mm: 6.0         # 놓을 때 잡은 폭보다 이만큼 더 벌림 (옆 칸 물건과 간섭 줄임, 칸 폭 45 mm)
   approach_m: 0.06              # 놓기 전 위 높이
   slow_last_mm: 10.0            # 놓는 높이 이 거리 전까지는 speed.line_mm_s, 마지막만 grasp_mm_s [사용자 10/07]
+  footprint_margin_mm: 5.0      # [팀 확정 필요] 서랍 안 놓기 footprint 여유 (쥔 물체 size_m + 벌린 손가락(gripper.fingertip_outer_mm) 둘레). 비전 위치 오차 2.5 mm [실측 PC2 10/08, #155] + 놓기 오차 미측정 (#166)
+  default_obstacle_size_m: [0.10, 0.10]   # [팀 확정 필요] 서랍 안 놓기: 온톨로지에 치수 없는 이웃 class 의 footprint [긴 변, 짧은 변] m (#166)
 drag:                           # nudge_object 실물: 기울여 손끝으로 눌러 옆으로 끌기 (트러블슈팅 2, #37)
   # [실측 B 10/06] 지우개 모서리 2 N에서 잘 끌림. 위치로 누르면 1 mm에 2 → 10 N → 힘 감지로 멈춤.
   #   힘 영점이 시간에 따라 흐름 → 내려가기 직전 0점. 서랍 닫히는 방향 끌기는 서랍이 같이 밀림 → 서랍 옆(y)으로만.
