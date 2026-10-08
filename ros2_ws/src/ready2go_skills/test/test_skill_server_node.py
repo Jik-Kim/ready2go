@@ -221,7 +221,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     top = server.srv.places()["drawer_top"]
     travel = 1000.0 * (top["tf"]["translation_m"][2] + top["interior_m"][2]) + server.srv.prm()["transit"]["in_drawer_clear_mm"]
     assert kind == "moveb" and pts[-1] == route[0] and pts[0][2] == pytest.approx(max(travel, route[0][2]))
-    assert route[0][2] == pytest.approx(travel, abs=0.5)                # 경유점 1 = 테두리 + 15 mm (z 300 안 올림)
+    assert route[0][2] == pytest.approx(travel, abs=0.5)                # 경유점 1 = 테두리 + 5 mm (z 300 안 올림)
     server.srv.robot.log.clear()
     out, data = server.run("place_object", {"location": "handover_zone"})
     log = server.srv.robot.log
