@@ -59,3 +59,14 @@
 * **RealSense 하드웨어 점검**: `Left MIPI error`는 USB 3.0 포트 직결 + 정품 케이블 + 재연결로 먼저 확인(10/02 재연결로 해결된 이력). 로봇 팔 움직임에 케이블이 당기지 않도록 케이블 고정.
 * **비밀정보**: OpenAI API 키는 `secrets/*.env`로 분리하고 `.gitignore`에 등록.
 * **재현성**: 이미지 태그 `latest` 금지, 버전 고정. 빌드 컨텍스트는 `docker/<서비스>/Dockerfile`로 관리.
+* **로그 위치·수집 (#98)** [실측 10/08, `ros2-core` 이미지]: 기록은 세 종류이고 위치가 다름. **실행 성공 여부는 3(실행 기록)을 run_id 로 조회해 판단**하고, 콘솔에 안 보였다고 저장 실패로 보지 않음.
+
+  | | 무엇 | 어디 | 컨테이너를 다시 만들면 |
+  | :--- | :--- | :--- | :--- |
+  | 1 | **콘솔 출력** (launch `output=screen` — Runner 스텝 진행 #98, 스킬 서버·mock 로그) | `docker compose logs ros2-core` | 사라짐 → 다시 만들기 전에 `docker compose logs --no-color -t ros2-core > logs/ros2-core_$(date +%m%d_%H%M).log` |
+  | 2 | **ROS 파일 로그** (노드별 `*.log`) | 컨테이너 안 `/root/.ros/log` (`ROS_LOG_DIR` → `ROS_HOME/log` → `~/.ros/log` 순, 이미지는 셋 다 기본값). **호스트에 마운트 안 됨** | 사라짐 → 다시 만들기 전에 `docker compose cp ros2-core:/root/.ros/log logs/ros_log_$(date +%m%d_%H%M)` |
+  | 3 | **실행 기록** (Runner runs·steps) | MongoDB `cobot2`(`db` 컨테이너, `./db_data`에 영구 저장). DB 장애 때만 `./logs/<run_id>.jsonl` 폴백 | 남음. MongoDB 정상이면 JSONL 이 없어도 정상 |
+
+  * 호스트에서 띄운 노드(B `b_flow.sh server` 등)의 파일 로그는 그 사용자의 `~/.ros/log` (예: B #98 `~/.ros/log/python3_<pid>_<time>.log`)
+  * 같은 실행을 대조할 때: Runner 콘솔 시작 줄의 KST 시각(ms)·동작 이름 ↔ 스킬 서버 로그 시각 ↔ `run_report --run <run_id 끝 6자리>` (`runner.md` 7.4)
+  * 새 마운트(예: `ROS_LOG_DIR=/logs/ros`)는 아직 넣지 않음 — 필요하면 compose 변경으로 따로 제안
