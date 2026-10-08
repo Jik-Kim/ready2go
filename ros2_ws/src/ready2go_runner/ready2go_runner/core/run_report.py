@@ -191,6 +191,61 @@ def step_ref(step: dict) -> str:
     return f"{step.get('id')} · {step['iteration']}회차" if step.get("iteration") else str(step.get("id"))
 
 
+STEP_STATUSES = {"SUCCESS", "FAILURE", "SKIPPED"}
+
+
+def check(record: dict) -> list[str]:
+    """실행 기록이 빠짐없이 저장됐는지 — FR-LOG-02 "DB 기록과 실행 결과의 누락 여부 확인", AC-LOG-01 증거용.
+    빈 목록 = 완전. 기록만 보고 판단하며(읽기 전용) 로봇 동작·실행 결과의 옳고 그름은 판단하지 않는다."""
+    run, steps = record.get("run"), record.get("steps") or []
+    if not run:
+        return ["실행 헤더(runs) 없음 — start_run 저장 누락"]
+    problems = []
+    run_id, status = run.get("run_id"), run.get("overall_status")
+    if status is None:
+        problems.append("끝 기록 없음 — 아직 실행 중이거나 end_run 저장 누락")
+    elif run.get("total_duration_sec") is None or not run.get("ended_at"):
+        problems.append("끝 기록에 종료 시각·전체 시간 없음")
+    if status in ("FAILED", "ABORTED", "SUSPENDED") and not (run.get("error") or {}).get("code"):
+        problems.append(f"{status} 인데 오류 코드 없음")
+    other = sorted({s.get("run_id") for s in steps} - {run_id})
+    if other:
+        problems.append(f"다른 실행의 스텝 기록이 섞임: {other}")
+    seqs = [s.get("seq") for s in steps]
+    if any(not isinstance(q, int) for q in seqs):
+        problems.append("seq 없는 스텝 기록 있음")
+    numbers = [q for q in seqs if isinstance(q, int)]
+    if numbers:
+        missing = sorted(set(range(max(numbers) + 1)) - set(numbers))
+        if missing:
+            problems.append(f"스텝 기록 빠짐: seq {missing}")
+        dup = sorted({q for q in numbers if numbers.count(q) > 1})
+        if dup:
+            problems.append(f"스텝 기록 중복: seq {dup}")
+    ids = {s.get("id") for s in steps}
+    for s in steps:
+        if s.get("status") not in STEP_STATUSES:
+            problems.append(f"결과 없는 스텝 [{s.get('id')}] (seq {s.get('seq')})")
+        if s.get("status") == "FAILURE" and not (s.get("error") or {}).get("code"):
+            problems.append(f"실패인데 오류 코드 없는 스텝 [{s.get('id')}]")
+        if s.get("parent") and s["parent"] not in ids:
+            problems.append(f"부모 스텝 기록 없음 [{s.get('id')}] → {s['parent']}")
+    failed = run.get("failed_step")
+    if failed and steps and failed not in ids:
+        problems.append(f"실패 스텝 {failed} 의 기록 없음")
+    return problems
+
+
+def check_line(record: dict) -> str:
+    """`run_report --check` 한 줄: ✅ 완전 / ❌ 누락 목록."""
+    run = record.get("run") or {}
+    head = f"{run.get('run_id', '?')} · {run.get('task_id', '?')} · {run.get('overall_status') or '끝 기록 없음'}"
+    problems = check(record)
+    if not problems:
+        return f"✅ {head} · 스텝 기록 {len(record.get('steps') or [])}개 빠짐없음"
+    return "\n".join([f"❌ {head}"] + [f"   - {p}" for p in problems])
+
+
 def header(record: dict) -> list[str]:
     run, steps = record.get("run") or {}, record.get("steps") or []
     status = run.get("overall_status")
