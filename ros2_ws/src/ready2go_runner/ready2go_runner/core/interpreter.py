@@ -94,7 +94,7 @@ NO_MOTION_BY_ACTION = {
                                          "BAD_PARAMS", "PLACE_BLOCKED"},
 }
 NO_MOTION_DEFAULT = {"TOOL_NOT_SET"}    # 그 밖의 로봇 동작 (move_to_named_pose·drawer_control)
-NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region"}   # 팔을 움직이지 않는 원자 동작
+NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region", "select_obstacle", "find_moved"}   # 팔을 움직이지 않는 원자 동작
 
 
 SUSPENDED = "SUSPENDED"                 # 실행 상태: 중단됐지만 재개 대기로 보존 (#152)

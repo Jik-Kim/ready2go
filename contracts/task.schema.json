@@ -45,7 +45,7 @@
         "id": { "type": "string", "description": "로그 추적용 고유 ID (예: s7, s7.1)" },
         "action": { "enum": [
           "move_to_named_pose", "drawer_control", "inspect_region", "nudge_object", "pick_object", "place_object",
-          "query_ontology", "update_ontology", "speak",
+          "query_ontology", "update_ontology", "select_obstacle", "find_moved", "speak",
           "set_var", "push", "pop", "if", "while", "for_each", "fallback"
         ]},
         "skill": { "type": "string", "description": "온톨로지 primitive 스킬 이름 (예: open_drawer). Runner 가 pre 확인 → expand 실행 → effect 반영 (#12). action 과 함께 쓰지 않음" },
