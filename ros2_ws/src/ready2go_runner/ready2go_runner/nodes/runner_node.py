@@ -33,7 +33,7 @@ from ready2go_knowledge.core import ontology
 
 from ..adapters.ros_clients import RosClients
 from ..core.backend import RosBackend, skill_servers
-from ..core import intent_router
+from ..core import intent_router, step_console
 from ..core.interpreter import RunResult, Runner
 from ..core.log_records import utc_iso
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
@@ -63,6 +63,7 @@ class RunnerNode(Node):
         self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store)
         self.ros_clients = RosClients(self, stopping=lambda: self.runner.stop_requested)
         self.runner.on_halt = self.ros_clients.cancel_all   # /runner/estop → 진행 중인 goal 즉시 취소
+        self.runner.on_step = self._on_step                  # 스텝 진행 콘솔 (#98)
         self.runner.execute = RosBackend(self.ros_clients.call_action, self.ros_clients.call_service,
                                          lambda: self.runner.state, onto.get("world", {}))
         tasks = _load_tasks(tasks_dir, intent_tasks)
@@ -140,6 +141,22 @@ class RunnerNode(Node):
         else:
             self.get_logger().warning(message)
         self.publish()
+
+    def _on_step(self, event: str, record: dict, info: dict) -> None:
+        """스텝 시작·끝 한 줄 (#98). 문구는 run_report 와 같음. 콘솔은 보기용 — 저장 확인은 run_id 로 DB 조회."""
+        if event == "start":
+            line = step_console.start_line(info["run_id"], record, info["finally"], info.get("params"))
+            if line:
+                self.get_logger().info(line)
+            return
+        level, line = step_console.end_line(info["run_id"], record, info["finally"])
+        # rclpy 는 같은 호출 위치에서 로그 등급이 바뀌면 ValueError → 등급별로 다른 줄에서 호출 (PR #74 리뷰)
+        if level == step_console.INFO:
+            self.get_logger().info(line)
+        elif level == step_console.WARN:
+            self.get_logger().warning(line)
+        else:
+            self.get_logger().error(line)
 
     def _on_intent(self, msg: String) -> None:
         """/voice/intent (#17). 판단은 core/intent_router, 여기서는 실행·정지·발행만."""
