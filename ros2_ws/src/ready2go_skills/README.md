@@ -51,12 +51,12 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 | 동작 | 상태 |
 | :--- | :--- |
 | `move_to_named_pose` | `config/poses.yaml` 관절각으로 `movej`, 도착 확인. 낮은 곳(서랍·트레이 안)이면 먼저 수직으로 `transit.safe_z_mm`까지 올림 |
-| `drawer_control` (`drawer_top`) | 열기: `drawer_approach` → 손잡이 직선 접근 → 잡기(폭 확인) → 당기기(걸림 감시, 끝 10 mm 안 걸림은 스토퍼) → 놓고 물러남. 닫기: 주먹 쥐고 손잡이 앞으로 → 밀기, 닫힘 = 위치 AND 힘 (`drawer_plan`) |
+| `drawer_control` (`drawer_top`·`drawer_bottom`) | 열기: **손잡이 앞(`drawer_approach`)에서만 시작**(아니면 `NOT_AT_START_POSE`) → 손잡이 직선 접근 → 잡기(폭 확인, 못 잡으면 열고 60 mm 빼기) → 당기기(걸림 감시, 끝 10 mm 안 걸림은 스토퍼) → 놓고 물러남 → 홈. 닫기: 교시한 45° 자세(`close_push`)로 앞판 중앙을 y 로 밀기 → 60 mm 빼기 (아래 칸은 수직 불가, 위 칸은 교시 전이면 수직 밀기). 상세 `docs/domain.md` 8.4 |
 | `nudge_object` | 옆벽에 붙어 짧은 변으로 못 잡을 때만: 그리퍼를 벽 쪽 손끝으로 20° 기울여 위에서 내려가 힘 5 N 접촉(멈춘 채 3번 확인) → 0.1 mm씩 올려 1.5~2.5 N → 누른 z 그대로 **서랍 옆(y)으로만** `shift_mm`(40 mm, 10/07 저녁) 끌기 → 올라감. 끌기 전(누르기·힘 맞추기) 실패는 같은 자리에서 다시(`press_attempts` 3), 끌기 시작 뒤는 다시 안 함 (상세 `docs/domain.md` 8.5). 결과 `target_after` = 끈 뒤 예상 위치(**성공일 때만**, 실패면 `null`). `check_only: true`는 움직이지 않고 판단만 — 아직 끌어야 하거나 끌어도 못 잡으면 `PUSH_LIMIT` (`core/motion_plan.py` `plan_drag`, 트러블슈팅 2) |
 | `pick_object` (서랍) | 짧은 변 잡기(`pick_plan`), 벌림 = 짧은 변 + 13 mm, 폭 확인(`check_grasp`), 들어 올린 뒤 놓침 확인(`check_hold`). 접근: `drag_down` 교시된 서랍은 그리퍼 닫고 경유점 movej → y 맞추며 목표 위(`grasp` + 최대 30 mm, safe_z 하한 없음) 블렌딩 → 벌리고 내려감 (탑뷰에서 바로 가면 특이점, 10/07). 교시 전 서랍은 safe_z 경로 (`docs/domain.md` 8.5) |
 | `place_object` (`handover_zone`) | 빈 칸(트레이 x로 3칸), 집을 때 높이 + 1.5 mm에서 놓음, 옮기기 전 놓침 확인 |
 
-**아래 서랍(`drawer_bottom`)**: 코드는 공통이라 값만 채우면 같은 동작 — `places.yaml` `drawer_bottom` tf·`interior_m`·`tf_at_travel_m`·`max_travel_m`, `poses.yaml` `drawer_approach.drawer_bottom`·`drawer_top_view.drawer_bottom`, `params/skills.yaml` `drawer_open_close.handle_grasp_posx.drawer_bottom`. 비어 있으면 `DRAWER_NOT_CONFIGURED`·`POSE_NOT_TAUGHT`(움직이지 않음). 서랍은 한 번에 하나만 연다(`OTHER_DRAWER_OPEN`). P1 시연은 위 서랍만.
+**아래 서랍(`drawer_bottom`)**: 코드는 공통. 열기 교시(손잡이 파지·손잡이 앞·최대 인출)는 10/08 실측으로 채움. 닫기는 `skills.yaml` `close_push.drawer_bottom` — 끝 posx 실측, 시작은 위 칸 시작에서 z 만 내린 **계산값**, 사용자 보고 실물 1회 성공(10/08, AC 반복 미완료). 넛지·집기·들고 나오기(`drag_down`·`carry_line`)와 서랍 안 이동 높이 상한은 교시 전
 
 **시작 조건**: 서버를 띄울 때 서랍이 **닫혀 있어야** 한다 (서버는 인출 거리를 기억만 함). 재시작 뒤 열린 서랍을 닫으려면 `drawer_control`에 `displacement`(m)를 같이 준다 — 없으면 `DRAWER_STATE_UNKNOWN`(움직이지 않음).
 값: `params/skills.yaml` (그리퍼 기하·속도·끌기 — 10/05~06 로봇 실측), 장소 `config/places.yaml`, 물체 크기 `knowledge/world.jsonld`, 잡는 힘 `config/item_grasp.yaml`.
@@ -74,13 +74,15 @@ ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0     # 
 ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skill "{params_json: '{\"pose_name\": \"home\"}'}"
 ```
 
-시연 1차 (10/06, 위 서랍, 세로 지우개를 서동권 쪽-오른쪽 모서리에) — 하나씩 보내고 결과 확인 (`--feedback`로 단계 표시):
+**B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 서랍 필요: `ready open opened close view scan rescan nudge all dragtest`(`rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick`), 없음: `home pick place`. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
+
+**과거 단독 시험 (10/06, 현재 P1 경로 아님)** — 위 서랍, 세로 지우개를 서동권 쪽-오른쪽 모서리에. 이때는 넛지 **예상 위치**(`target_after`)로 바로 집었음. **현재 공통 `pick` 은 끈 뒤 탑뷰에서 다시 찍은 `scan.target` 으로 집는다**(`knowledge/skills/pick.jsonld`, `docs/domain.md` 8.5). 하나씩 보내고 결과 확인 (`--feedback`로 단계 표시):
 ```bash
 S="ros2 action send_goal --feedback"
 $S /skills/drawer_control ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"state\": \"open\"}'}"
 T='{\"id\": \"eraser#1\", \"class\": \"eraser\", \"top_z\": 0.0115, \"pose\": {\"frame\": \"drawer_top\", \"position\": [0.1769, 0.2895, 0.0], \"yaw\": 0.0, \"yaw_valid\": true}}'
 $S /skills/nudge_object ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"target\": $T}'}"
-# pick 의 target 은 nudge 결과 target_after 를 그대로 (y 가 약 0.248 로 바뀜, 10/06 터치 위치 기준)
+# (과거 10/06) pick 의 target 은 nudge 결과 target_after 를 그대로 — 현재는 재관측 scan.target (위 설명)
 $S /skills/pick_object ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"target\": <target_after>}'}"
 $S /skills/place_object ready2go_interfaces/action/Skill "{params_json: '{\"location\": \"handover_zone\"}'}"
 $S /skills/drawer_control ready2go_interfaces/action/Skill "{params_json: '{\"drawer_id\": \"drawer_top\", \"state\": \"close\"}'}"
