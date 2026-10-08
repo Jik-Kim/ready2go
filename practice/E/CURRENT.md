@@ -12,6 +12,14 @@
 
 - [실측: 문서 정적] voice_node/session/YAML/실행 진입점과 설명을 대조했고 수정2문서 로컬 링크/앵커46개·Voice 인바운드 앵커9개·기존 제목 보존·bash -n/Python AST 각2블록·git diff --check를 통과했습니다. 두 시운전 명령은 기존 상세 명령 그대로이며 시운전 절 밖 설치/합성/캐시/청취·Melo1.2·PR144 병합 안내·제안값·알려진 결함·P2 운영 미연결 내용은 원문을 보존했습니다. 문서 정리·검증 완료이며 이 절을 포함한 변경만 로컬 커밋합니다.
 
+## 지원 명령 목록 — E-VOICE-COMMANDS-20261008
+
+- [문서] 사용자 요청·계획 승인으로 Voice README의 현재 지원 명령 표와 수동 갱신 절차, 이 CURRENT만 추가합니다. 시작 `ontology/main`·`f2678c32ff671c918b44dd66e06da914f685efa4`의 깨끗한 checkout에서 기존 커밋을 유지한 `codex/voice-commands-20261008`을 준비했습니다. 비교 원격 main은 `92b0e0d9cb32b7027fb9a1035f63dd12f70f4056`이며 관련 Voice/계약/태스크/Runner 라우팅 원본은 동일합니다. 시작 checkout에 존재한 Runner 구현 변경과 기존 커밋은 그대로 보존했고 비교 main의 차이를 이번 작업에 병합하지 않았습니다. 이번 커밋에는 문서2파일의 추가분만 포함하며 기존 PR184 시운전 안내를 보존합니다.
+- [문서] 음성 단일 물품 해석과 eraser 태스크 제한, cancel/status, 실행 보류, Runner 구조화 목표형, 계약 enum/레지스트리 파일의 미지원 경계, P2 내부 후보/운영 미연결을 구분했습니다. 기능 변경 PR·E 지시/완료 검증 시 생산자/수신자/원본과 표를 수동 대조하도록 안내하며 자동 검사/CI 구현은 아닙니다. 정본의 의미·Phase·완료 기준은 변경하지 않습니다.
+- [문서] 필요한 문서 검증 후 이번2파일만 로컬 커밋합니다. push/PR/병합/이슈/Slack·서브에이전트는 미승인/미실행입니다. 새 타 파트 변경 인계는 없습니다. 전체 pytest/colcon/build·설치/다운로드·API/마이크/TTS/로봇 실물 AC는 실행하지 않으며 기존 불변 명령의 문법 검증을 반복하지 않습니다.
+
+- [실측: 문서 정적] 명령별 파서/발행 게이트·설정·계약enum·태스크trigger/targets·Runner 로딩/라우팅을읽기 전용으로 대조했습니다. 수정2문서 로컬 링크/앵커85개·Voice 인바운드 앵커5개·기존 제목/본문 전체/명령 블록·알려진 제약 보존과 git diff --check를 통과했습니다. 이는 실음성/실물 검증이 아니며 문서 정리·검증 완료 후 이번 추가분만 로컬 커밋합니다.
+
 ## 지금 상태
 
 - [문서] `codex/requirements-centralization`의 공통·E 문서 정리는 [PR #180](https://github.com/Jik-Kim/ready2go/pull/180)에 게시됐으며 확인 시점 Open·미병합입니다. 최초 게시 커밋은 `d4ca24e`, 최신 확인 base/main은 `bbad37320cb2ff1deec1dd29a5a30656c36a484d`이며 작업 시작 기준 `65148d4`와 구분합니다. 의미·정책·수용 기준은 [요구사항 정본](../../docs/requirements.md), 실행 필드·값은 [실행 원본 안내](../../docs/requirements.md#runtime-sources)에 둡니다. 다른 담당 문서는 직접 수정하지 않았습니다. 후속 인계34건의 실제 관리 위치는 [#134](https://github.com/Jik-Kim/ready2go/issues/134)입니다. 목록을 이 CURRENT에 복제하지 않습니다. [B 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054747674)은 domain의 선택·복구·AC/시간 예산 안내와 Skills README의 과거 시험 안내, [C 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054720331)은 Runner·planner 재계획 안내 및 ICD/안전의 C 몫에서 확인했습니다. C 주담당12–18은 [C 후속 회신](https://github.com/Jik-Kim/ready2go/pull/180#issuecomment-6055195230)에서 로컬 `056f1b7` 반영 및 #180 병합 뒤 별도 PR 예정으로 보고됐습니다. 이는 수락 이후의 로컬 반영 보고이며 E가 C 파일 수정 결과나 병합·최종 통합 완료를 검증한 것은 아닙니다. B의 수정·병합·최종 통합 완료도 미확인입니다. 기타 담당 범위의 수락·완료도 미확인으로 남깁니다.
