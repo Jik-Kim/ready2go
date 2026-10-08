@@ -367,27 +367,33 @@ class App:
         self.hold_speed.set(4)
         self.hold_speed.pack(side="right", padx=4)
         self.cells = {}
-        for name, labels, bg in (("posx", ("X", "Y", "Z", "Rx", "Ry", "Rz"), C["posx"]),
-                                 ("posj", ("J1", "J2", "J3", "J4", "J5", "J6"), C["posj"])):
-            line = tk.Frame(f, bg=bg, highlightbackground=C["line"], highlightthickness=1, padx=4, pady=2)
-            line.pack(fill="x", pady=(5, 0))
-            tk.Label(line, text=name, bg=bg, font=("", 9, "bold"), width=5, anchor="w").pack(side="left")
+        tbl = tk.Frame(f, bg=C["panel"])                  # posx·posj 한 표: 12칸 같은 폭, 위아래 줄 칸 맞춤
+        tbl.pack(fill="x", pady=(5, 0))
+        for col in range(1, 7):
+            tbl.columnconfigure(col, weight=1, uniform="cell")
+        for row, (name, labels, bg) in enumerate((("posx", ("X", "Y", "Z", "Rx", "Ry", "Rz"), C["posx"]),
+                                                  ("posj", ("J1", "J2", "J3", "J4", "J5", "J6"), C["posj"]))):
+            strip = tk.Frame(tbl, bg=bg, highlightbackground=C["line"], highlightthickness=1)   # 줄 바탕 (칸 뒤)
+            strip.grid(row=row, column=0, columnspan=8, sticky="nsew", pady=2)
+            tk.Label(tbl, text=name, bg=bg, font=("", 9, "bold"), width=5, anchor="w").grid(row=row, column=0, padx=(6, 2),
+                                                                                         pady=5)
             vals = []
-            for lab in labels:
-                c = tk.Frame(line, bg="white", highlightbackground="#d3d6da", highlightthickness=1)
-                c.pack(side="left", fill="x", expand=True, padx=2)
-                tk.Label(c, text=lab, bg="white", fg="#8a8f98", font=("", 7)).pack(side="left", padx=(3, 0))
+            for k, lab in enumerate(labels):
+                c = tk.Frame(tbl, bg="white", highlightbackground="#d3d6da", highlightthickness=1)
+                c.grid(row=row, column=k + 1, sticky="ew", padx=2, pady=5)
+                tk.Label(c, text=lab, bg="white", fg="#8a8f98", font=("", 7), width=2, anchor="w").pack(side="left",
+                                                                                                       padx=(3, 0))
                 v = tk.Label(c, text="—", bg="white", font=("TkFixedFont", 9), anchor="e")
                 v.pack(side="right", padx=3)
                 vals.append(v)
-            self.btn(line, "copy", lambda n=name: self.copy_live(n), font=("", 8)).pack(side="left", padx=(4, 0))
+            self.btn(tbl, "copy", lambda n=name: self.copy_live(n), font=("", 8)).grid(row=row, column=7, padx=(4, 6))
             self.cells[name] = vals
         self.live = {"posx": None, "posj": None}
 
     def jog_panel(self, parent, title, labels, group, vel, acc, vmax, unit, move_text, move_cmd, copy_name, hints, tag=None):
         f = self.panel(parent, title, tag, side="left", fill="both", expand=True, padx=(0, 6) if group == "j" else 0)
         body = tk.Frame(f, bg=C["panel"])
-        body.pack(fill="x")
+        body.pack(expand=True)                             # 칸 안에서 가운데 (왼쪽 쏠림 없앰)
         grid = tk.Frame(body, bg=C["panel"])
         grid.pack(side="left")
         tk.Label(grid, text="입력 (고쳐서 이동)", bg=C["panel"], fg=C["sub"], font=("", 7)).grid(row=0, column=1)
