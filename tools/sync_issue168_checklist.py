@@ -38,12 +38,13 @@ KNOWN_ERROR_CODES = {
 
 CONFIRMATION_TO_SHEET = {
     "B": {
-        "confirmed": "확인 완료", "proposed": "확인 중",
+        "confirmed": "확인 완료", "proposed": "확인 필요",
         "pending": "확인 필요", "not_applicable": "확인 필요",
     },
     "C": {
         "confirmed": "확인 완료", "proposed": "C 제안",
-        "pending": "확인 필요", "not_applicable": "확인 필요",
+        "pending": "확인 필요", "implementation_needed": "구현 필요",
+        "not_applicable": "확인 필요",
     },
     "E": {
         "confirmed": "확인 완료", "proposed": "E 조율안",
@@ -54,6 +55,7 @@ CONFIRMATION_TO_SHEET = {
 DECISION_TO_SHEET = {
     "confirmed": "확정",
     "approval_pending": "승인 대기",
+    "b_card_pending": "B 카드 대기",
     "consistency_check": "정합성 확인",
     "team_decision_needed": "팀 결정 대기",
 }
