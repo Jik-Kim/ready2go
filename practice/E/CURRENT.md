@@ -6,18 +6,18 @@
 
 ## 지금 상태
 
-- [문서] 사용자 승인으로 `codex/requirements-centralization`, 기준 main `65148d46fff5ec336edc213c0f3264b8cf4a5013`에서 공통·E 문서를 정리했습니다. 원격 main도 같은 SHA로 확인했습니다. 의미·정책·수용 기준은 [요구사항 정본](../../docs/requirements.md), 실행 필드·값은 [실행 원본 안내](../../docs/requirements.md#runtime-sources)에 둡니다. 다른 담당 문서는 직접 수정하지 않았습니다. 인계 목록은 `/tmp/ready2go-requirements-handoff.md`의 전달용 산출물이며 정본이 아닙니다.
+- [문서] `codex/requirements-centralization`의 공통·E 문서 정리는 [PR #180](https://github.com/Jik-Kim/ready2go/pull/180)에 게시됐으며 확인 시점 Open·미병합입니다. 최초 게시 커밋은 `d4ca24e`, 최신 확인 base/main은 `bbad37320cb2ff1deec1dd29a5a30656c36a484d`이며 작업 시작 기준 `65148d4`와 구분합니다. 의미·정책·수용 기준은 [요구사항 정본](../../docs/requirements.md), 실행 필드·값은 [실행 원본 안내](../../docs/requirements.md#runtime-sources)에 둡니다. 다른 담당 문서는 직접 수정하지 않았습니다. [인계 목록 34건](https://github.com/Jik-Kim/ready2go/pull/180#issuecomment-6054883942)을 PR 코멘트에 보존했습니다. 이 목록은 정본이 아니며 등록과 담당 수락·수정·완료는 구분합니다. 각 담당의 수락·완료는 미확인입니다.
 - [문서] 현재 기준 main에는 PR #165(`b4cc2fe`), #166(`f4646b4`), #167(`dea9016`), #169(`6f274e0`), #176(`65148d4`)이 병합됐습니다. E 복구 확인 내부 정책은 운영 ROS/TTS/청취 경로에 미연결입니다. C의 잠금 해제와 단계 재개 준비, B의 첫 서랍 놓기는 바닥만 지원하며 다른 물체 윗면 복구 목표와 차이가 있습니다. 지원 범위 협의가 남으며 코드 병합은 실제 운영 연결·승인된 wire·실물 검증과 구분합니다. 진행·인계는 [#152](https://github.com/Jik-Kim/ready2go/issues/152)·[#153](https://github.com/Jik-Kim/ready2go/issues/153)을 확인하십시오.
 - [문서] PR #144 MeloTTS·캐시·중단 안내와 #160/#161/#162 실행 안내는 기준 main에 반영됐습니다. 오래된 Open·미병합 및 당시 로컬 게시 대기 표시는 날짜별 이력으로만 읽습니다. #134의 D #158 최신 상태와 전체 설치/실물 완료는 이번 작업에서 다시 확인하지 않았습니다.
 - [문서] 공통 [manifest](../../knowledge/robot_ontology.jsonld)·[pick](../../knowledge/skills/pick.jsonld)과 [정식 태스크](../../tasks/find_item.json)가 현재 실행 원본입니다. E 음성의 실제 구현·진단·시운전은 [Voice README](../../ros2_ws/src/ready2go_voice/README.md), 로더는 [Knowledge README](../../knowledge/README.md)를 참조합니다. 과거 시연 전용 정의를 현재 실행 원본으로 복원하지 않습니다.
-- [문서] 기존 사용자 변경16개는 승인된 stash `acd91b2337b8a11047a5589464ff5bbe0418f84b`에 보존된 상태에서 시작했습니다. 이번 작업은 그 stash·이전 브랜치·다른 worktree·로컬 키/모델/로그를 변경하지 않았습니다.
+- [문서] 작업 시작 당시 사용자 변경16개를 승인된 stash에 보존했던 이력은 당일 기록에 남깁니다. 이후 사용자 “stash 폐기” 요청으로 해당 stash가 제거됐으며 현재 stash 목록은 비어 있음을 확인했습니다. 이번 PR 보완에서는 stash를 복원·변경하지 않았고 다른 브랜치·worktree·로컬 키/모델/로그도 변경하지 않았습니다.
 
 ## 막힌 점 · 필요한 도움
 
 - [문서] 이번 작업은 문서 정합성·FR/AC 정의 및 Phase 유지·기존 앵커/링크·실행 원본과 소비 코드 경계를 대조합니다. 전체 pytest/build·설치·마이크/API·실물 시험은 실행하지 않습니다. 과거 26건 정책·156건 회귀·595건 ROS/모의 결과는 [당시 기록](2026-10-08_practice.md)의 결과이며 이번 재실행이 아닙니다.
 - [문서] A/B/C/D와 공통 문서 소유자의 중복 기준 정리, 가림 관계·재식별 adapter, 지지면 복구 범위 협의, 안전 wire 계약 승인(E 포함 2명)·스키마/예시/문서 동시 반영이 남습니다. 링크 정리는 자동 검사·운영 연결 구현이 아닙니다.
 - [문서] 기존 비요청 판별 결함, 웨이크/runtime 배포, 운용 PC 캐시·청취 품질·실음성 평가·C/D 수신, A/B 재관측/파지 및 안전 정지·복구·재개·실물 AC는 완료로 판정하지 않습니다. 수용 기준은 [AC 목록](../../docs/requirements.md#ac-index)을 참조합니다. E는 nudge 시험 담당에서 제외합니다.
-- [문서] 이번 승인은 문서 수정·검증·로컬 커밋까지입니다. push/PR·병합·새 이슈·외부 메시지는 포함하지 않습니다.
+- [문서] 사용자 “PR해” 및 “#180 코멘트 확인 후 수정” 승인 범위로 기존 PR의 문서 보완·검증·커밋·push와 인계 코멘트 게시를 진행합니다. 타 담당 문서 반영·계약 승인·병합·새 이슈·Slack은 이번 범위에 포함하지 않습니다.
 
 ## 확정 값 (근거 태그 필수)
 

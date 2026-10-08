@@ -104,7 +104,7 @@ Phase 배정을 바꿀 때는 아래 FR/NFR 표를 먼저 수정하고, 관련 �
 <a id="occlusion-policy"></a>
 ### 3.3 가림·추적·복구 정책 — FR-VIS-03 / FR-ACT-04
 
-[합의: #109 사용자 결정 및 A/C 수락] [E 결정](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6052957079)·[C 수락](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6053084045)·[A 수락](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6053273982)을 근거로 한다. P2 실행 모델은 yolo11s-seg 단일 경로, OBB는 보류, SAM 실행은 [FR-VIS-04](#fr-vis-04)의 P3 선택이다. 라벨링 보조 도구와 런타임 모델은 구분한다. 첫 P2 시연은 배치당 클래스 하나이며 복수 동일 클래스는 후속 P2 검증으로 남긴다. 실제 물리 배치 확정·실물 완료는 별도이다.
+[합의: #109 사용자 결정 및 A/C 수락] [E 결정](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6052957079)·[C 수락](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6053084045)·[A 수락](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6053273982)을 근거로 한다. P2 실행 모델은 yolo11s-seg 단일 경로, OBB는 보류, SAM 실행은 [FR-VIS-04](#fr-vis-04)의 P3 선택이다. 라벨링 보조 도구와 런타임 모델은 구분한다. 첫 P2 시연에서는 한 배치에 각 클래스의 물체를 1개씩 배치하며, 동일 클래스 복수 물체는 후속 P2 검증으로 남긴다. 실제 물리 배치 확정·실물 완료는 별도이다.
 
 `occluded_by`의 직접 가림 방향관계가 제거 순서의 선행 제약이다. 그 제약을 만족한 제거 가능 후보끼리만 `visible_area_m2`(현재 보이는 마스크의 물리 면적)를 우선순위로 사용한다. 전체 면적·가림 비율로 해석하거나 덮인 물체를 면적만으로 먼저 집지 않는다. 파지·놓기 안전 판단은 B가 동작 직전에 수행한다. 가림 판정은 A의 segmentation·depth·국소 경계 높이에 기반하며 전역 `top_z` 큰 순서를 위아래 정답으로 단정하지 않는다. 명목 높이 비교는 보조 검사이며 모든 형상의 필수충분조건이 아니다. 순환·null·미검출·모호한 관계는 정상 관계나 안전 후보로 확정하지 않는다. 구체 필드 형식·누락 처리·예시는 기존 계약 원본을 대조하며 승인되지 않은 확장은 확정 계약으로 취급하지 않는다.
 
