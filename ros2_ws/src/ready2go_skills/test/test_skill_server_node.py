@@ -794,10 +794,11 @@ def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
     prm = srv.prm()
     start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
     end = [381.9, -283.0, 100.0, 90.0, 160.0, 90.0]                    # 닫힌 앞판에 닿는 자리 (예시)
-    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "end_posx": end}}
+    start_x = [381.9, -27.0, 100.0, 90.0, 160.0, 90.0]                  # 시작 자세 TCP (서랍 앞판 3 cm 앞)
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": start_x, "end_posx": end}}
     srv.prm = lambda: prm
     srv.disp = {"drawer_bottom": 0.226}
-    srv.robot.p = [381.9, -27.0, 100.0, 90.0, 160.0, 90.0]             # 시작 자세에 도착했을 때 TCP (서랍 앞판 3 cm 앞)
+    srv.robot.p = list(start_x)                                         # 시작 자세에 도착했을 때 TCP
     out, data = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
     assert out.success and data["close_confirmed"] is True and srv.disp["drawer_bottom"] == 0.0
     log = [e for e in srv.robot.log if e != "stop"]
@@ -811,14 +812,37 @@ def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
 
 
 def test_tilted_close_refuses_when_start_and_end_taught_apart(server):
-    """시작·끝 자세의 x·z 가 close_push_xz_tol_mm(5 mm) 넘게 다르면 잘못 잰 것 → 시작 자세까지만 가고 밀지 않음 (DRAWER_NOT_CONFIGURED)."""
+    """시작·끝 교시값의 x·z 가 close_push_xz_tol_mm(5 mm) 넘게 다르면 잘못 잰 것 → 움직이기 전 거부 (DRAWER_NOT_CONFIGURED, #181 C 리뷰).
+    start_posx 가 없어도 움직이기 전 거부."""
     srv = server.srv
     prm = srv.prm()
     end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
-    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": [21.9, 39.2, 115.7, 110.1, -99.3, -23.6], "end_posx": end}}
+    bottom = {"start_posj": [21.9, 39.2, 115.7, 110.1, -99.3, -23.6], "start_posx": [381.9, -27.0, 110.0, 90.0, -135.0, 90.0], "end_posx": end}   # z 10 mm 다름
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": bottom}
     srv.prm = lambda: prm
     srv.disp = {"drawer_bottom": 0.226}
-    srv.robot.p = [381.9, -27.0, 110.0, 90.0, -135.0, 90.0]             # z 10 mm 다름
+    srv.robot.p = [381.9, -27.0, 400.0, 90.0, -135.0, 90.0]             # 서랍 위 (홈부터 갈 자리)
     out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
     assert not out.success and out.error_code == server.ss.DRAWER_NOT_CONFIGURED
-    assert not any(e != "stop" and e[0] == "movel" for e in srv.robot.log)
+    assert [e for e in srv.robot.log if e != "stop"] == []
+    del bottom["start_posx"]
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == server.ss.DRAWER_NOT_CONFIGURED
+    assert [e for e in srv.robot.log if e != "stop"] == []
+
+
+def test_tilted_close_stops_when_arrived_away_from_start_posx(server):
+    """start_posj 로 갔는데 TCP 가 start_posx 와 5 mm 넘게 다르면(옮겨 적다 틀림) 밀지 않고 멈춤 — 이미 움직였으므로
+    움직이기 전 코드(DRAWER_NOT_CONFIGURED)가 아닌 CLOSE_NOT_CONFIRMED (#181 C 리뷰)."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = [381.9, -27.0, 112.0, 90.0, -135.0, 90.0]             # 도착했는데 z 12 mm 다름
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == server.ss.dp.CLOSE_NOT_CONFIRMED
+    log = [e for e in srv.robot.log if e != "stop"]
+    assert log[-1] == ("movej", start) and not any(e[0] == "movel" for e in log)

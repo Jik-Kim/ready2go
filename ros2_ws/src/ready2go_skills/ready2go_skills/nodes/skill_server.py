@@ -785,8 +785,19 @@ class SkillServer(Node):
 
     def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp):
         """닫기 (위·아래 공통) — 수직에서 로봇 쪽으로 기울인(45°, 20° 는 손잡이에 닿음) 손끝으로 앞판 중앙을 닫히는 방향(y)으로 밂 [사용자 10/08].
-        교시(params close_push.<서랍>): start_posj = 서랍 끝까지 연 상태 앞판 3 cm 앞, end_posx = 닫힌 상태 앞판에 손끝이 닿는 자리
+        교시(params close_push.<서랍>): start_posj·start_posx = 서랍 끝까지 연 상태 앞판 3 cm 앞, end_posx = 닫힌 상태 앞판에 손끝이 닿는 자리
         (같은 손목·높이). 서랍 위(탑뷰 등)면 먼저 홈 — 열린 앞판을 치지 않게 (#133). 그리퍼는 닫은 채 밂."""
+        tol = oc.get("close_push_xz_tol_mm", 5.0)
+        start_x, end = cp.get("start_posx"), cp.get("end_posx")
+        if not start_x or not end:
+            return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} close_push 의 start_posx·end_posx 교시 전"), None
+        start_x, end = [float(v) for v in start_x], [float(v) for v in end]
+        # 미는 동안 손목·x·z 는 시작 자세 그대로, 닫힘 판정은 끝 자세의 y 만 — 시작·끝을 따로 교시하면 C 가 180° 다르게 찍힐 수 있음
+        # (그리퍼 축 반 바퀴, 미는 데는 같음) [실측 B 10/08 위 칸 C +90 vs −90]. x·z 가 많이 다르면 잘못 잰 것 → 교시값끼리 비교해 움직이기 전 거부 (#181 C 리뷰)
+        off = max(abs(start_x[k] - end[k]) for k in (0, 2))
+        if off > tol:
+            return sf.Outcome(False, DRAWER_NOT_CONFIGURED,
+                              reason=f"닫기 시작·끝 자세의 x·z 차이 {off:.1f} mm — 같은 높이·x 로 다시 교시"), None
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
@@ -801,13 +812,10 @@ class SkillServer(Node):
         pre = self.robot.posx()
         if pre is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
-        end = [float(v) for v in cp["end_posx"]]
-        # 미는 동안 손목·x·z 는 시작 자세 그대로, 닫힘 판정은 끝 자세의 y 만 — 시작·끝을 따로 교시하면 C 가 180° 다르게 찍힐 수 있음
-        # (그리퍼 축 반 바퀴, 미는 데는 같음) [실측 B 10/08 위 칸 C +90 vs −90]. x·z 가 많이 다르면 잘못 잰 것 → 움직이기 전 거부
-        off = [abs(pre[k] - end[k]) for k in (0, 2)]
-        if max(off) > oc.get("close_push_xz_tol_mm", 5.0):
-            return sf.Outcome(False, DRAWER_NOT_CONFIGURED,
-                              reason=f"닫기 시작·끝 자세의 x·z 차이 {max(off):.1f} mm — 같은 높이·x 로 다시 교시"), None
+        off = max(abs(pre[k] - start_x[k]) for k in range(3))
+        if off > tol:                                       # start_posj 와 start_posx 가 서로 다른 자리 (옮겨 적다 틀림) → 밀지 않음. 이미 움직였으므로 이동 뒤 코드
+            return sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED,
+                              reason=f"닫기 시작 자세 도착 위치가 start_posx 와 {off:.1f} mm 다름 — 밀지 않고 멈춤, start_posj·start_posx 다시 교시"), None
         return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [pre[0], end[1], pre[2]] + list(pre[3:6]))
 
     # --- 끌기 (nudge_object) ---
