@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-`AGENTS.md`를 먼저 읽는다. 이 파일은 검증 명령만 추가한다.
+[`AGENTS.md`](AGENTS.md)와 [문서 인덱스](docs/README.md)를 먼저 읽는다. 요구사항 정본·참조 규칙은 AGENTS.md를 따른다. 이 파일은 검증 명령만 추가한다.
 
 ## 영역별 검증 명령
 | 바꾼 곳 | 실행 |
