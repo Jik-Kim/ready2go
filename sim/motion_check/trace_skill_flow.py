@@ -229,7 +229,8 @@ def load_server(repo: Path, robot, cfg_dir: Path | None = None):
 
         def move(self, w, f):
             if w == 0:                                                  # 닫기: 손잡이(열기 단계)는 8 mm, 그 밖은 지우개 21 mm 를 잡음
-                Gripper.width = {"open": HANDLE_MM, "pick": 21.0}.get(robot.step, 0.9)   # 손잡이 두께·지우개 21 mm, 그 밖(끌기 등)은 빈 손 0.9 mm
+                # 손잡이 두께·지우개 21 mm(내려가 닫을 때만 — 경유점 전 빈손으로 닫는 것은 0.9), 그 밖(끌기 등)은 빈 손 0.9 mm
+                Gripper.width = HANDLE_MM if robot.step == "open" else 21.0 if (robot.step == "pick" and robot.stage == "descend") else 0.9
             else:
                 Gripper.width = float(w)
             robot.grip_events.append(dict(before_segment=len(robot.segments), width_mm=Gripper.width, step=robot.step))
