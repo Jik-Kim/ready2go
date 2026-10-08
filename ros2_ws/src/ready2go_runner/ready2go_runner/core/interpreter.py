@@ -3,8 +3,8 @@
 Phase 1 범위: sequence, if, set_var, retry, timeout_sec, finally, 변수($ref·{{}} 보간·조사 필터),
 primitive 스킬 실행 전 pre 확인 → 실행 → 응답 성공 시 effect 반영(ready2go_knowledge.core.ontology),
 스텝 로그(LogStore, 스킬의 pre_check·state_diff 는 진단용 부가 기록).
-Phase 2 (구현): while(max_iter, 넘으면 LOOP_LIMIT) · for_each · push/pop(restore_stack 역순 복구) · fallback(대안,
-결과가 불확실한 실패면 다음 대안을 보내지 않음). 중단(ABORTED) 뒤 finally 에서 이 블록들은 SKIPPED (복구 기록은 남김).
+Phase 2 (구현): while(max_iter, 넘으면 LOOP_LIMIT) · for_each(as 변수는 루프 안에서만) · push/pop(restore_stack 역순
+복구) · fallback(대안. 그 대안에서 팔을 움직이는 동작을 보냈으면 어떤 실패든 다음 대안을 보내지 않음). 중단(ABORTED) 뒤 finally 에서 이 블록들은 SKIPPED (복구 기록은 남김).
 Phase 2 (후속): recovery · on_halt, verify 사후 관측(FR-ONT-02), 상세 상태 로그(FR-LOG-02).
 Phase 3: 선언형 복합 스킬 추가(FR-PLN-03).
 
@@ -83,7 +83,8 @@ NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region"}   # 팔을 움직�
 class StepFailed(Exception):
     """no_retry: 동작이 어디까지 됐는지 몰라 다시 보내면 위험한 실패의 이유 (기록 retry_stopped).
     LATE_RESULT = 제한 시간 뒤 도착한 결과, TIMEOUT = 백엔드 호출이 제한 시간에 끝나지 않아 취소 요청함,
-    MOTION_UNCERTAIN = 스킬 하위 동작 실패 중 로봇이 움직이지 않았음이 보장되지 않음,
+    MOTION_UNCERTAIN = 스킬 하위 동작·fallback 대안 실패 중 로봇이 움직이지 않았음이 보장되지 않음,
+    RESPONSE_LOST = 팔을 움직이는 동작을 보내다 백엔드 예외 (보낸 뒤 응답이 끊겼을 수 있음, #159 E 리뷰),
     NOT_RETRYABLE = 스킬 단계의 실패 코드가 재시도 허용 목록(NO_MOTION_CODES)에 없음 (PRE_UNMET 등)."""
 
     def __init__(self, step_id: str, code: str, no_retry: str | None = None):
@@ -123,6 +124,7 @@ class Runner:
         self.on_step: Callable[[str, dict, dict], object] | None = None
         self._in_finally = False
         self._iterations: list[int] = []        # 반복 블록 안이면 몇 번째 회차인지 (스텝 기록 iteration)
+        self._motions = 0                       # 팔을 움직였을 수 있는 동작을 보낸 횟수 (fallback 이 대안마다 비교)
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
 
@@ -338,6 +340,7 @@ class Runner:
         records.append(record)
         self._notify("start", record, params)
         try:
+            self._motions += 1
             try:
                 result = self.execute("move_to_named_pose", params, None)
             except Exception:
@@ -383,10 +386,15 @@ class Runner:
             self._stack(step, action, params, blackboard, record)
             return
 
+        motion = action not in NON_MOTION_ACTIONS
         try:
             result = self.execute(action, params, step.get("timeout_sec"))
         except Exception as e:                  # 통신 끊김 등 백엔드 예외도 스텝 실패로 처리해 finally 를 보장
-            raise StepFailed(step["id"], "BACKEND_ERROR") from e
+            if motion:                          # 보낸 뒤 끊겼을 수 있음 → 결과 불확실 (재시도·다음 대안 금지)
+                self._motions += 1
+            raise StepFailed(step["id"], "BACKEND_ERROR", no_retry="RESPONSE_LOST" if motion else None) from e
+        if motion and (result.success or result.error_code not in NO_MOTION_CODES):
+            self._motions += 1                  # 움직이지 않았음이 보장된 실패(YAW_INVALID)만 빼고 셈
         if not result.success:
             if result.error_code in HALT_CODES:
                 raise Halted(step["id"], result.error_code)
@@ -443,22 +451,35 @@ class Runner:
         if not isinstance(items, list):
             raise StepFailed(step["id"], NOT_A_LIST)
         record["iterations"] = 0
-        for n, item in enumerate(list(items), 1):         # 복사본을 돎 (body 가 리스트를 바꿔도 회차 수 그대로)
-            blackboard[step["as"]] = item
-            self._loop_body(step, n, blackboard, records)
-            record["iterations"] = n
+        name = step["as"]                                 # as 변수는 루프 안에서만: 끝나면(실패 포함) 이전 값 복구
+        had, before = name in blackboard, blackboard.get(name)
+        try:
+            for n, item in enumerate(list(items), 1):     # 복사본을 돎 (body 가 리스트를 바꿔도 회차 수 그대로)
+                blackboard[name] = item
+                self._loop_body(step, n, blackboard, records)
+                record["iterations"] = n
+        finally:
+            if had:
+                blackboard[name] = before
+            else:
+                blackboard.pop(name, None)
 
     def _run_fallback(self, step: dict, blackboard: dict, record: dict, records: list[dict]) -> None:
-        """options 를 차례로 시도해 하나라도 끝까지 성공하면 성공. 앞 대안의 실패가 결과 불확실(no_retry:
-        이동 뒤·TIMEOUT·늦은 결과)이면 다음 대안을 보내지 않는다 — retry 와 같은 안전 규칙. 중단(Halted)은 그대로 위로."""
+        """options 를 차례로 시도해 하나라도 끝까지 성공하면 성공. 다음 대안은 앞 대안이 로봇을 움직이지 않았음이
+        확인된 실패일 때만 보낸다 — 스킬 재시도와 같은 규칙(#159 E 리뷰). 그 대안에서 팔을 움직이는 동작을 보냈으면
+        (성공한 이동 뒤 인식 실패 포함) MOTION_UNCERTAIN, 결과 불확실(TIMEOUT·늦은 결과·응답 유실)이면 그 이유로 멈춤.
+        중단(Halted)은 그대로 위로."""
         last: StepFailed | None = None
         for n, option in enumerate(step.get("options", []), 1):
             record["option"] = n
+            motions = self._motions
             try:
                 self._run_steps(option, blackboard, records)
                 return
             except StepFailed as e:
                 last = e
+                if e.no_retry is None and self._motions != motions:
+                    e.no_retry = "MOTION_UNCERTAIN"   # fallback 스텝 자체의 retry 도 막힘
                 if e.no_retry:
                     record["fallback_stopped"] = e.no_retry
                     raise

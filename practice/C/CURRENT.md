@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-07
 
 ## 지금 상태
+- **P2 제어 블록 (PR #159, [FR-ACT-04](../../docs/requirements.md#fr-act-04) Runner 쪽)**: `while`(max_iter·`LOOP_LIMIT`)·`for_each`(as 변수 루프 안에서만, 끝나면 복구)·`push`/`pop`(`restore_stack` LIFO 역순 복구)·`fallback`(앞 대안이 로봇을 움직이지 않았음이 확인된 실패일 때만 다음 대안, 아니면 `fallback_stopped`). 중단 뒤 finally 에서는 블록째 SKIPPED. 반복 회차 `iteration` 기록·보고서 `[s2.1 · 2회차]`(하위 동작은 seq 로 부모 연결). E 리뷰(10/08) P1 1·P2 2 반영 [실측: 모의 시험]. 남은 것: 실물 Unpacking 태스크는 #120(서랍 안 빈 자리·놓기)·#109(재식별) 결정 뒤 `tasks/find_with_unpack.json` 갱신, `recovery`·`on_halt`는 미구현(실행 전 거절).
 - **CI numpy (PR #90, #88 E 요청·D 리뷰 P1)**: `contracts-and-core` 에 `numpy>=1.24,<2` 설치(voice `setup.py` 와 같은 범위, skip 우회 없음). 목적: #88 음성 시험의 numpy import 수집 실패로 core 검사 전체가 멈추던 것. 검증: 깨끗한 venv(CI 설치 목록 + numpy)에서 #88 head `0336120` 806 passed·12 skipped(의도된 importorskip) [실측 10/06], #90 CI 3개 통과. 남은 확인: #90 머지 → #88 에 main 반영 → #88 최신 head CI 통과 (E 통합 완료 조건).
 - **#9 완료** (PR #27 머지, [FR-PLN-01](../../docs/requirements.md#fr-pln-01) 중 실행기 부분): `ready2go_runner/core/` 의 variables·conditions·validation·interpreter. sequence·if·set_var·on_failure·finally·timeout_sec, 실행 전 검사, E-stop·halt → `ABORTED`(retry·skip·safe_home 미적용, finally 는 비동작만), 중단 잠김 → `resume()` 전까지 거절, 내부 에러도 `INTERNAL_ERROR` 로 finally 보장. 원자 동작은 `execute(action, params, timeout_sec) → ActionResult` 로 위임.
 - **#3 완료** (PR #40 머지 10/03, `Closes #3, #34`): `dev`·`real`(PC2)·`sim`(PC1) 기동, PC1↔PC2 컨테이너·호스트 송수신, PC2 `tf2_echo base_link wrist_cam_color_optical_frame` 확인(A·B). bringup 고정 TF(`static_tf.py`, NaN·무한대 거부), ros2-core `/colcon` 분리, MongoDB 7.0. sim 드라이버·에뮬레이터 버전 불일치는 P2(B).
@@ -45,7 +46,7 @@
 | PC1↔PC2 통신 | 공용 Wi-Fi `Rokey_A`, `cyclonedds.multi.xml`(멀티캐스트 끔). PC2 `joint_states` 100 Hz → PC1 86~96 Hz | [실측] A·B 10/03, PR #40 |
 
 ## 막힌 점 · 필요한 도움
-- PM: Day 3 목록의 `while`·`for_each`·`push`·`pop`·"7.3 예시 mock 실행"은 requirements.md 기준 P2 → 만들지 않음, 확인 요청 (#10 코멘트 10/04).
+- PM: Day 3 목록의 `while`·`for_each`·`push`·`pop`·"7.3 예시 mock 실행"은 requirements.md 기준 P2 → 만들지 않음, 확인 요청 (#10 코멘트 10/04). → 10/08 P2 시작, PR #159 로 구현.
 - E: `query_ontology` 를 Runner 안에 둔 것 확인, 재개(`resume`) 통로 ICD 추가 협의.
 - D: `/runner/status` 내용이 #59 에 충분한지.
 - E 권고(10/04 PR #64, 새 설계 제안이며 합의 아님) → 후속:

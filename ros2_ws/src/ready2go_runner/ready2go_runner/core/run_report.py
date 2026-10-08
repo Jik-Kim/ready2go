@@ -145,6 +145,8 @@ def detail(step: dict) -> str:
         text = f"{step['iterations']}회"
     elif action == "fallback" and step.get("option"):
         text = f"{step['option']}번 대안"
+        if step.get("fallback_stopped"):           # 앞 대안이 팔을 움직였거나 결과 불확실 → 다음 대안 안 보냄
+            text += f" · 다음 대안 안 보냄({step['fallback_stopped']})"
     elif action == "push" and result:
         text = f"{result.get('stack')} {result.get('size')}개"
     elif action == "pop" and "result" in step:
@@ -166,14 +168,20 @@ class Row:
 
 
 def rows(steps: list[dict]) -> list[Row]:
-    """최상위 스텝(if 제외) + 그 밑의 원자 동작. seq 순서."""
-    ordered = sorted(steps, key=lambda s: s.get("seq", 0))
-    by_parent: dict[tuple, list[dict]] = {}
-    for step in ordered:
-        if step.get("parent"):                      # 반복 안의 스킬은 회차마다 따로 묶음 (같은 스텝 ID)
-            by_parent.setdefault((step["parent"], step.get("iteration")), []).append(step)
-    return [Row(s, [Row(c) for c in by_parent.get((s.get("id"), s.get("iteration")), [])])
-            for s in ordered if not s.get("parent") and s.get("action") != "if"]
+    """최상위 스텝(if 제외) + 그 밑의 원자 동작. seq 순서.
+    하위 동작은 seq 가 바로 앞인 같은 ID 의 스킬 기록에 붙인다(스킬 기록이 하위 동작보다 먼저 시작). 반복 안에서는
+    같은 스텝 ID 가 회차마다 기록되므로, ID·회차로 묶으면 중첩 반복에서 다른 바깥 회차와 섞인다(#159 E 리뷰)."""
+    result: list[Row] = []
+    latest: dict[str, Row] = {}
+    for step in sorted(steps, key=lambda s: s.get("seq", 0)):
+        if step.get("parent"):
+            owner = latest.get(step["parent"])
+            if owner is not None:
+                owner.children.append(Row(step))
+        elif step.get("action") != "if":
+            latest[step.get("id")] = row = Row(step)
+            result.append(row)
+    return result
 
 
 def step_ref(step: dict) -> str:

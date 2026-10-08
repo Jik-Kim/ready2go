@@ -136,28 +136,131 @@ FALLBACK = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "opt
     [{"id": "s1.b", "action": "pick_object", "params": {"approach": "side"}}]]}]}
 
 
-def test_fallback_tries_next_option_after_plain_failure():
-    backend = FakeBackend({"pick_object": [ActionResult(False, error_code="GRASP_FAILED"), ActionResult(True)]})
+def fallback_record(result):
+    return next(s for s in result.steps if s["id"] == "s1")
+
+
+def test_fallback_tries_next_option_after_failure_without_motion():
+    """YAW_INVALID = 움직이기 전 거절(NO_MOTION_CODES) → 로봇이 안 움직였으니 다음 대안."""
+    backend = FakeBackend({"pick_object": [ActionResult(False, error_code="YAW_INVALID"), ActionResult(True)]})
     result = Runner(backend, schema=SCHEMA).run(FALLBACK)
     assert result.overall_status == "COMPLETED"
     assert [p["approach"] for _, p in backend.calls] == ["top", "side"]
-    assert next(s for s in result.steps if s["id"] == "s1")["option"] == 2
+    assert fallback_record(result)["option"] == 2
 
 
-def test_fallback_does_not_try_next_option_when_result_uncertain():
-    """앞 대안이 TIMEOUT(결과 불확실)이면 다음 대안을 보내지 않음 — retry 와 같은 안전 규칙."""
-    backend = FakeBackend({"pick_object": ActionResult(False, error_code="TIMEOUT")})
+def test_fallback_tries_next_option_after_non_motion_failure():
+    """인식만 하고 실패(팔을 움직이지 않는 동작) → 다음 대안."""
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
+        [{"id": "s1.a", "action": "inspect_region", "params": {"region": "drawer_top"}}],
+        [{"id": "s1.b", "action": "move_to_named_pose", "params": {"pose_name": "top_view"}}]]}]}
+    backend = FakeBackend({"inspect_region": ActionResult(False, error_code="NOT_VISIBLE")})
+    result = Runner(backend, schema=SCHEMA).run(task)
+    assert result.overall_status == "COMPLETED"
+    assert [a for a, _ in backend.calls] == ["inspect_region", "move_to_named_pose"]
+
+
+def test_fallback_stops_after_motion_failure():
+    """집기를 보낸 뒤 GRASP_FAILED — 팔이 움직였으므로 다른 방향으로 다시 집으러 가지 않음 (#159 E 리뷰 P1)."""
+    backend = FakeBackend({"pick_object": [ActionResult(False, error_code="GRASP_FAILED"), ActionResult(True)]})
     result = Runner(backend, schema=SCHEMA).run(FALLBACK)
-    assert (result.overall_status, result.error_code) == ("FAILED", "TIMEOUT")
+    assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
     assert len(backend.calls) == 1
-    assert next(s for s in result.steps if s["id"] == "s1")["fallback_stopped"] == "TIMEOUT"
+    assert fallback_record(result)["fallback_stopped"] == "MOTION_UNCERTAIN"
+
+
+def test_fallback_stops_after_response_lost():
+    """집기 전송 뒤 응답 유실(백엔드 예외) → 집었는지 모름 → 다음 대안 없음, 태스크 실패 (E 반례 그대로)."""
+    calls = []
+
+    def lost_then_ok(action, params, timeout_sec=None):
+        calls.append(params.get("approach"))
+        if len(calls) == 1:
+            raise ConnectionError("전송 후 응답 유실")
+        return ActionResult(True)
+
+    result = Runner(lost_then_ok, schema=SCHEMA).run(FALLBACK)
+    assert (result.overall_status, result.error_code) == ("FAILED", "BACKEND_ERROR")
+    assert calls == ["top"]
+    assert fallback_record(result)["fallback_stopped"] == "RESPONSE_LOST"
+    record = fallback_record(result)
+    assert "다음 대안 안 보냄(RESPONSE_LOST)" in step_console.end_line(result.run_id, record, False)[1]
+
+
+def test_fallback_stops_after_successful_move_then_failure():
+    """앞 대안에서 이동은 성공 → 인식 실패: 이미 팔을 움직였으므로 다음 대안의 이동을 보내지 않음 (E 반례 그대로)."""
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
+        [{"id": "s1.a1", "action": "move_to_named_pose", "params": {"pose_name": "view_a"}},
+         {"id": "s1.a2", "action": "inspect_region", "params": {"region": "drawer_top"}}],
+        [{"id": "s1.b1", "action": "move_to_named_pose", "params": {"pose_name": "view_b"}}]]}]}
+    backend = FakeBackend({"inspect_region": ActionResult(False, error_code="NOT_VISIBLE")})
+    result = Runner(backend, schema=SCHEMA).run(task)
+    assert (result.overall_status, result.error_code) == ("FAILED", "NOT_VISIBLE")
+    assert [p.get("pose_name") for a, p in backend.calls if a == "move_to_named_pose"] == ["view_a"]
+    assert fallback_record(result)["fallback_stopped"] == "MOTION_UNCERTAIN"
+
+
+def test_fallback_step_retry_does_not_rerun_after_motion():
+    """fallback 스텝에 retry 가 있어도 팔을 움직인 실패면 처음 대안부터 다시 보내지 않음."""
+    task = {"task_id": "t", "sequence": [{**FALLBACK["sequence"][0], "on_failure": "retry", "retry": 2}]}
+    backend = FakeBackend({"pick_object": ActionResult(False, error_code="GRASP_FAILED")})
+    result = Runner(backend, schema=SCHEMA).run(task)
+    assert result.overall_status == "FAILED" and len(backend.calls) == 1
 
 
 def test_fallback_all_fail_reports_last_code():
-    backend = FakeBackend({"pick_object": ActionResult(False, error_code="GRASP_FAILED")})
+    backend = FakeBackend({"pick_object": ActionResult(False, error_code="YAW_INVALID")})
     result = Runner(backend, schema=SCHEMA).run(FALLBACK)
-    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "GRASP_FAILED", "s1")
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "YAW_INVALID", "s1")
     assert len(backend.calls) == 2
+
+
+def test_motion_backend_exception_is_not_retried():
+    """팔을 움직이는 동작의 백엔드 예외 = 보낸 뒤 끊겼을 수 있음 → retry 가 있어도 다시 보내지 않음."""
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "move_to_named_pose", "params": {"pose_name": "home"},
+                                          "on_failure": "retry", "retry": 2}]}
+    calls = []
+
+    def broken(action, params, timeout_sec=None):
+        calls.append(action)
+        raise ConnectionError("응답 끊김")
+
+    result = Runner(broken, schema=SCHEMA).run(task)
+    assert (result.overall_status, result.error_code, len(calls)) == ("FAILED", "BACKEND_ERROR", 1)
+    assert result.steps[0]["retry_stopped"] == "RESPONSE_LOST"
+
+
+def lists(**values):
+    """for_each 의 in 은 "$변수" 만 받으므로 리스트를 set_var 스텝으로 먼저 만든다."""
+    return [{"id": f"v_{k}", "action": "set_var", "params": {"name": k, "value": v}} for k, v in values.items()]
+
+
+def test_for_each_restores_previous_value_of_as_variable():
+    """as 변수는 루프 안에서만 — 루프 전 값 복구, 없던 이름은 지움 (#159 E 리뷰 P2)."""
+    task = {"task_id": "t", "sequence": [
+        *lists(ab=["a", "b"], xs=["x"]),
+        {"id": "s0", "action": "set_var", "params": {"name": "d", "value": "original"}},
+        {"id": "s1", "action": "for_each", "in": "$ab", "as": "d", "body": [
+            {"id": "s1.1", "action": "speak", "params": {"text": "{{d}}"}}]},
+        {"id": "s2", "action": "for_each", "in": "$xs", "as": "fresh", "body": [{"id": "s2.1", "action": "speak"}]}]}
+    backend = FakeBackend()
+    result = Runner(backend, schema=SCHEMA).run(task)
+    assert result.overall_status == "COMPLETED"
+    assert [p.get("text") for _, p in backend.calls] == ["a", "b", None]
+    assert result.blackboard["d"] == "original" and "fresh" not in result.blackboard
+
+
+def test_nested_for_each_same_name_restores_outer_value_even_on_failure():
+    task = {"task_id": "t", "sequence": [*lists(outer=["o1", "o2"], inner=["i1"], zs=["z"]),
+        {"id": "s1", "action": "for_each", "in": "$outer", "as": "d", "body": [
+        {"id": "s1.1", "action": "for_each", "in": "$inner", "as": "d", "body": [{"id": "s1.1.1", "action": "speak"}]},
+        {"id": "s1.2", "action": "speak", "params": {"text": "{{d}}"}}]},
+        {"id": "s2", "action": "for_each", "in": "$zs", "as": "d", "body": [
+            {"id": "s2.1", "action": "pick_object"}]}]}
+    backend = FakeBackend({"pick_object": ActionResult(False, error_code="GRASP_FAILED")})
+    result = Runner(backend, schema=SCHEMA).run(task)
+    assert [p["text"] for a, p in backend.calls if a == "speak" and "text" in p] == ["o1", "o2"]   # 바깥 값 그대로
+    assert result.overall_status == "FAILED" and "d" not in result.blackboard                       # 실패해도 복구
 
 
 def test_step_console_shows_loop_blocks():
@@ -183,3 +286,23 @@ def test_report_groups_loop_iterations_and_skill_children():
     text = run_report.to_text(store.read_run(result.run_id))
     assert "[s1.1 · 1회차]" in text and "[s1.1 · 2회차]" in text
     assert text.count("[s1.1.e1 · 1회차]") == 1 and text.count("[s1.1.e1 · 2회차]") == 1          # 섞이지 않음
+
+
+def test_report_nested_loops_attach_each_child_once():
+    """중첩 반복 2×2 의 스킬 하위 동작 4개가 보고서에도 정확히 4개, 실제 부모 밑에 (#159 E 리뷰 P2)."""
+    from ready2go_runner.core import run_report
+    task = {"task_id": "t", "sequence": [*lists(outer=["a", "b"], inner=["x", "y"]),
+        {"id": "s1", "action": "for_each", "in": "$outer", "as": "o", "body": [
+        {"id": "s1.1", "action": "for_each", "in": "$inner", "as": "i", "body": [
+            {"id": "s1.1.1", "skill": "open_drawer", "params": {"drawer_id": "{{o}}{{i}}"}}]}]}]}
+    onto = {"skills": {"open_drawer": {"kind": "primitive", "params": {"drawer_id": "Drawer"}, "pre": [], "effect": [],
+                                       "expand": [{"action": "drawer_control", "params": {"drawer_id": "$drawer_id"}}]}},
+            "state": {}}
+    store = MemoryLogStore()
+    result = Runner(FakeBackend(), schema=SCHEMA, ontology=onto, log_store=store).run(task)
+    saved = store.read_run(result.run_id)
+    assert sum(1 for s in saved["steps"] if s.get("parent")) == 4
+    skills = [row for row in run_report.rows(saved["steps"]) if row.step.get("id") == "s1.1.1"]
+    assert len(skills) == 4 and all(len(row.children) == 1 for row in skills)
+    assert [row.step["params"]["drawer_id"] for row in skills] == ["ax", "ay", "bx", "by"]
+    assert [row.children[0].step["params"]["drawer_id"] for row in skills] == ["ax", "ay", "bx", "by"]
