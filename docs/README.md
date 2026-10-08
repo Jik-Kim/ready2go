@@ -31,7 +31,7 @@
 
 ## P2 안전 준비
 
-[FR-SAF-01–03/AC-SAF-02–04](requirements.md#fr-saf-01) 정본 추가안, [E 내부 준비](voice_llm.md#p2-safety-voice), [승인 대기 계약안](interfaces.md#p2-safety-proposal)을 함께 확인하십시오. 복구 후 명시적 재개 목표·현재 운영 미연결을 구분합니다. 기존 P2 12파일 초안의 safety/runner/시연/지표/일정 반영은 담당자 인계이며 현재 문서가 자동 갱신된 것이 아닙니다.
+[FR-SAF-01–03/AC-SAF-02–04](requirements.md#fr-saf-01) 정본 추가안, [E 내부 준비](voice_llm.md#p2-safety-voice), [승인 대기 계약안](interfaces.md#p2-safety-proposal)을 함께 확인하십시오. 복구 후 명시적 재개 목표·현재 운영 미연결을 구분합니다. 담당별 문서 인계·일정·진행 상태는 [#153](https://github.com/Jik-Kim/ready2go/issues/153)을 참조하십시오. 이 연결이 관련 문서나 운영 경로의 자동 갱신을 뜻하지 않습니다.
 
 ## 물품 정의·라벨링 연결 확인
 
