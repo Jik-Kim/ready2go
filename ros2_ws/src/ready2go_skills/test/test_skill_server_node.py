@@ -319,7 +319,7 @@ def test_runner_open_path_lifts_before_ready_and_does_not_redo_it(server):
     assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(300.0) and log[1] == ("movej", ready)
     log.clear()
     server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
-    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-289.757, abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07)
+    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-287.757, abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07), 실측보다 4 mm 덜 (10/08)
     assert ("movej", ready) not in log
 
 
@@ -966,6 +966,8 @@ def test_view_pose_uses_its_own_faster_joint_speed(server):
     for drawer in ("drawer_top", "drawer_bottom"):
         out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": drawer})
         assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
+    assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])   # 손잡이 앞도 [사용자 10/08]
     out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
     assert out.success and speeds[-1] == (srv.joint_vel, srv.joint_acc)
 

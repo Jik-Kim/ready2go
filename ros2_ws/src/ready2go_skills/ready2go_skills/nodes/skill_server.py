@@ -268,7 +268,7 @@ class SkillServer(Node):
                 return bad
         goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
         vel, acc = self.joint_vel, self.joint_acc
-        if pose_name == "drawer_top_view":                  # 탑뷰·바텀뷰: J6 약 200° 회전이 시간을 다 씀 → 이 이동만 따로 빠르게 [사용자 10/08]
+        if pose_name in ("drawer_top_view", "drawer_approach"):   # 탑뷰·바텀뷰(J6 약 200° 회전)·손잡이 앞 → 이 이동만 따로 빠르게 [사용자 10/08]
             sp = self.prm()["speed"]
             vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
         ok = self.robot.movej_async(joints, vel, acc)
