@@ -97,7 +97,8 @@ class SkillServer(Node):
         self.params_file = Path(self.declare_parameter("params_file", str(PARAMS_FILE)).value)
         self.rg2_ip = os.environ.get("RG2_HOST") or self.prm()["gripper"]["rg2_ip"]
         self.disp = {}                       # 서랍별 인출 거리(m) — drawer_control 결과. 서버 재시작 후엔 모름 → 집기 거부
-        self.held = None                     # 들고 있는 물체 {class, id, width_m, tcp_above_floor_m}
+        self.held_file = Path(self.declare_parameter("held_file", "/tmp/r2g_skill_held.json").value)
+        self._held = self._restore_held()    # 들고 있는 물체 {class, id, width_m, drawer_id, tcp_above_floor_m} — 파일에도 저장(재시작 뒤 복원)
         self.tray = {}                       # 장소별 쓴 칸
         self.locked = None                   # 잠금 사유(skill_flow.LOCKING_CODES). 사람이 로봇을 확인하고 서버를 다시 띄울 때까지 모든 동작 거부
         self.gate = sf.MotionGate()          # 5개 액션 전체에서 한 번에 하나만 실행 (#73 E 리뷰)
@@ -107,6 +108,51 @@ class SkillServer(Node):
                                       cancel_callback=lambda _: CancelResponse.ACCEPT) for a in ACTIONS]
         self.get_logger().info(f"스킬 서버 준비: /skills/{{{','.join(ACTIONS)}}} (관절 {self.joint_vel}°/s, "
                                f"기대 TCP {self.expected_tcp}·툴 {self.expected_tool}, config {cfg})")
+
+    @property
+    def held(self):
+        return getattr(self, "_held", None)
+
+    @held.setter
+    def held(self, v):
+        """바뀔 때마다 파일에 저장/삭제 — 서버를 다시 켜도 쥔 물체를 잊지 않게 [사용자 10/08: 재시작 뒤 놓기 NOT_HOLDING]."""
+        self._held = v
+        f = getattr(self, "held_file", None)
+        if f is None:
+            return
+        try:
+            if v:
+                f.write_text(json.dumps(v, ensure_ascii=False), encoding="utf-8")
+            else:
+                f.unlink(missing_ok=True)
+        except OSError as e:
+            self.get_logger().warning(f"쥔 물체 기록 실패 {f}: {e}")
+
+    def _restore_held(self):
+        """서버 시작 때: 저장된 쥔 물체가 있고 그리퍼가 실제로 같은 폭으로 쥐고 있으면(check_hold) 되살림. 아니면 기록 지움."""
+        f = self.held_file
+        try:
+            saved = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        g = self.prm()["gripper"]
+        try:
+            rg = Rg2(self.rg2_ip)
+            try:
+                st = rg.status()
+            finally:
+                rg.close()
+            hold = gc.check_hold(width_m=st.width_mm / 1000.0, width_at_grasp_m=float(saved["width_m"]),
+                                 min_width_m=g["min_width_m"], slip_tolerance_m=g["slip_tolerance_m"])
+        except Exception as e:                              # 그리퍼를 못 읽으면 쥐었다고 보지 않음 (기록은 남김 — 다음 시작 때 다시)
+            self.get_logger().warning(f"쥔 물체 복원 못 함 (그리퍼 읽기 실패: {e})")
+            return None
+        if hold.reason == gc.HELD:                          # 저장한 폭과 slip_tolerance 안일 때만 (활짝 열림·빈손 닫힘·많이 다름은 아님)
+            self.get_logger().info(f"쥔 물체 복원: {saved.get('class')} (그리퍼 폭 {st.width_mm:.1f} mm, 저장 {float(saved['width_m']) * 1000:.1f} mm)")
+            return saved
+        self.get_logger().info(f"저장된 쥔 물체 {saved.get('class')} 무시 — 그리퍼가 쥐고 있지 않음 ({hold.reason}, 폭 {st.width_mm:.1f} mm)")
+        f.unlink(missing_ok=True)
+        return None
 
     def poses(self):
         """매 호출마다 다시 읽음 — 교시값을 고친 뒤 서버를 재시작하지 않아도 되게."""

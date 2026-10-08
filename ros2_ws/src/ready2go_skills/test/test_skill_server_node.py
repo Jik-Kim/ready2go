@@ -968,3 +968,19 @@ def test_view_pose_uses_its_own_faster_joint_speed(server):
         assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])
     out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
     assert out.success and speeds[-1] == (srv.joint_vel, srv.joint_acc)
+
+
+@pytest.mark.parametrize("width_now, restored", [(22.4, True), (0.9, False), (99.0, False), (26.0, False)])
+def test_held_object_survives_server_restart_only_if_gripper_still_holds(server, tmp_path, width_now, restored):
+    """[사용자 10/08] 서버 재시작 뒤 놓기가 NOT_HOLDING → 쥔 물체를 파일에 저장, 시작 때 그리퍼 폭이 저장 폭과
+    slip_tolerance(2 mm) 안이면 되살림. 빈손 닫힘·활짝 열림·폭이 많이 다르면 버리고 파일 지움."""
+    srv = server.srv
+    srv.held_file = tmp_path / "held.json"
+    srv.held = {"class": "eraser", "id": "eraser#1", "width_m": 0.0228, "drawer_id": "drawer_top", "tcp_above_floor_m": 0.03}
+    assert json.loads(srv.held_file.read_text())["class"] == "eraser"
+    srv._held = None                                                    # 재시작 흉내 (메모리만 사라짐)
+    server.Gripper.width = width_now
+    srv._held = srv._restore_held()
+    assert (srv.held is not None) == restored and srv.held_file.exists() == restored
+    srv.held = None
+    assert not srv.held_file.exists()
