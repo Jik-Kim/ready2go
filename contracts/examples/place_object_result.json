@@ -1,0 +1,79 @@
+{
+  "_comment": "place_object 입력·결과 예시 (runner.md 7.1, #120 ② 계약안 — B 제안, E 포함 2명 승인 전). 각 항목 = Skill 액션 {params(입력), success, error_code, output_json(파싱한 값)}. 서랍 안 놓기는 P2 (FR-ACT-04 Unpacking: 치울 물건을 빈 자리에 놓기 → 원래 자리로 되돌리기). 좌표는 서랍 좌표계(inspect_region pose 와 같은 기준: position.z = 0, yaw (-pi/2, pi/2]). placed_pose 는 B 가 놓으라고 명령한 자리이며 재인식이 아님 — 실제 놓인 위치는 inspect_region 으로만 안다(놓기 오차·미끄러짐). 그리퍼를 연 뒤에만 채우고, 열기 전 실패면 null. 값은 위 서랍 크기(interior_m 0.1997 × 0.2937) 안의 설명용 예시이며 실측이 아님",
+  "cases": [
+    {
+      "case": "handover_zone_tray",
+      "params": {"location": "handover_zone"},
+      "success": true,
+      "error_code": "",
+      "output": {"slot": "handover_zone_1", "placed_pose": {"frame": "handover_zone", "position": [0.0225, 0.045, 0.0]}}
+    },
+    {
+      "case": "drawer_pose_aside",
+      "params": {
+        "location": "drawer_top",
+        "pose": {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 1.5707},
+        "neighbors": [
+          {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+           "pose": {"frame": "drawer_top", "position": [0.1769, 0.2895, 0.0], "yaw": 0.0, "yaw_valid": true}}
+        ]
+      },
+      "success": true,
+      "error_code": "",
+      "output": {"slot": null, "placed_pose": {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 1.5707}}
+    },
+    {
+      "case": "drawer_fixed_slot",
+      "params": {"location": "drawer_top", "slot": "aside_1", "neighbors": []},
+      "success": true,
+      "error_code": "",
+      "output": {"slot": "aside_1", "placed_pose": {"frame": "drawer_top", "position": [0.05, 0.05, 0.0], "yaw": 0.0}}
+    },
+    {
+      "case": "return_to_original_pose",
+      "params": {
+        "location": "drawer_top",
+        "pose": {"frame": "drawer_top", "position": [0.12, 0.15, 0.0], "yaw": -0.3},
+        "neighbors": []
+      },
+      "success": true,
+      "error_code": "",
+      "output": {"slot": null, "placed_pose": {"frame": "drawer_top", "position": [0.12, 0.15, 0.0], "yaw": -0.3}}
+    },
+    {
+      "case": "neighbor_too_close",
+      "params": {
+        "location": "drawer_top",
+        "pose": {"frame": "drawer_top", "position": [0.16, 0.27, 0.0], "yaw": 0.0},
+        "neighbors": [
+          {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+           "pose": {"frame": "drawer_top", "position": [0.1769, 0.2895, 0.0], "yaw": 0.0, "yaw_valid": true}}
+        ]
+      },
+      "success": false,
+      "error_code": "PLACE_BLOCKED",
+      "output": {"slot": null, "placed_pose": null, "blocked_by": "eraser#1"}
+    },
+    {
+      "case": "wall_too_close",
+      "params": {"location": "drawer_top", "pose": {"frame": "drawer_top", "position": [0.1, 0.005, 0.0], "yaw": 0.0}, "neighbors": []},
+      "success": false,
+      "error_code": "WALL_TOO_CLOSE",
+      "output": {"slot": null, "placed_pose": null, "blocked_by": "wall"}
+    },
+    {
+      "case": "neighbors_missing",
+      "params": {"location": "drawer_top", "pose": {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 0.0}},
+      "success": false,
+      "error_code": "BAD_PARAMS",
+      "output": {"slot": null, "placed_pose": null}
+    },
+    {
+      "case": "released_but_lift_failed",
+      "params": {"location": "drawer_top", "pose": {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 1.5707}, "neighbors": []},
+      "success": false,
+      "error_code": "STOP_UNCONFIRMED",
+      "output": {"slot": null, "placed_pose": {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 1.5707}}
+    }
+  ]
+}
