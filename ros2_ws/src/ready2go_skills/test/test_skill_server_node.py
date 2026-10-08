@@ -323,7 +323,7 @@ def test_runner_open_path_lifts_before_ready_and_does_not_redo_it(server):
     assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(300.0) and log[1] == ("movej", ready)
     log.clear()
     server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
-    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-287.757, abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07), 실측보다 4 mm 덜 (10/08)
+    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(server.srv.prm()["drawer_open_close"]["handle_grasp_posx"]["drawer_top"][1] + 4.0, abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07), 실측보다 4 mm 덜 (10/08)
     assert ("movej", ready) not in log
 
 
@@ -1111,7 +1111,7 @@ def test_place_in_drawer_moves_sideways_only_above_rim(server):
     pos_m, _ = plp.place_tcp_m(place["tf"], ASIDE_POSE, 0.02 + pl["drop_m"])
     low = min(lines, key=lambda p: p[2])
     assert low[:3] == pytest.approx([1000.0 * v for v in pos_m], abs=1e-6)   # 쥔 높이 + drop 에서 놓음
-    assert lines[0][2] == pytest.approx(travel_z) and lines[-1] == mp.with_z(waypoint, travel_z)   # 먼저 수직으로, 끝은 경유점 위
+    assert lines[0][2] == pytest.approx(travel_z, abs=1e-6) and lines[-1] == pytest.approx(mp.with_z(waypoint, travel_z), abs=1e-6)   # 먼저 수직으로, 끝은 경유점 위
 
 
 def test_place_in_drawer_cancel_before_release_keeps_object(server, monkeypatch):
