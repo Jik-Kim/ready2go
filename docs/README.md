@@ -29,6 +29,10 @@
 | 일정·담당 확인 | [schedule.md](schedule.md), [overview.md](overview.md) 0장 | — |
 | 시연 준비 | [UC-P1–P3](requirements.md#use-cases), [AC-DEMO-01](requirements.md#ac-demo-01) | [demo_scenario.md](demo_scenario.md), [safety.md](safety.md) | — |
 
+## P2 안전 준비
+
+[FR-SAF-01–03/AC-SAF-02–04](requirements.md#fr-saf-01) 정본 추가안, [E 내부 준비](voice_llm.md#p2-safety-voice), [승인 대기 계약안](interfaces.md#p2-safety-proposal)을 함께 확인하십시오. 복구 후 명시적 재개 목표·현재 운영 미연결을 구분합니다. 기존 P2 12파일 초안의 safety/runner/시연/지표/일정 반영은 담당자 인계이며 현재 문서가 자동 갱신된 것이 아닙니다.
+
 ## 물품 정의·라벨링 연결 확인
 
 - 원본 물품 목록·치수·분류·역할·공통 로더: [ontology.md](ontology.md), [knowledge/README.md](../knowledge/README.md), `knowledge/world.jsonld`
