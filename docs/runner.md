@@ -46,11 +46,11 @@
 | 블록 | 필드 | 설명 |
 | :--- | :--- | :--- |
 | `set_var` | `params.name`, `params.value` | 블랙보드 변수 설정 |
-| `push` / `pop` | `params.stack`, `params.value` / `params.stack` + `output` | 리스트형 변수를 LIFO 스택으로 사용 (Rollback용) |
+| `push` / `pop` | `params.stack`, `params.value` / `params.stack` + `output` | 리스트형 변수를 LIFO 스택으로 사용 (Rollback용). `value`가 null 참조면 `VAR_NULL`(엉뚱한 자리로 복구 금지), 빈 스택 pop 은 `STACK_EMPTY` — **P2 구현** |
 | `if` | `cond`, `then[]`, `else[]` | 조건 분기 |
-| `while` | `cond`, `body[]`, `max_iter`(필수) | 조건 반복. 초과 시 `LOOP_LIMIT` 에러 |
-| `for_each` | `in`, `as`, `body[]` | 리스트 순회 (번들 요청 처리) |
-| `fallback` | `options[]` (각 항목은 스텝 배열) | 첫 대안부터 시도해 하나라도 성공하면 성공 (예: 손잡이 파지 실패 → 다른 접근 포즈) |
+| `while` | `cond`, `body[]`, `max_iter`(필수) | 조건 반복. `max_iter`번 돈 뒤에도 조건이 참이면 `LOOP_LIMIT` 에러. 기록: 블록 `iterations`, 안쪽 스텝 `iteration`(회차) — **P2 구현(10/08)** |
+| `for_each` | `in`, `as`, `body[]` | 리스트 순회 (번들 요청 처리). `in`이 리스트가 아니면 `NOT_A_LIST` — **P2 구현** |
+| `fallback` | `options[]` (각 항목은 스텝 배열) | 첫 대안부터 시도해 하나라도 성공하면 성공 (예: 손잡이 파지 실패 → 다른 접근 포즈). **앞 대안 실패가 결과 불확실(이동 뒤·`TIMEOUT`·늦은 결과)이면 다음 대안을 보내지 않음**(retry 와 같은 안전 규칙, 기록 `fallback_stopped`). 모두 실패하면 마지막 코드. 기록 `option`(성공한 대안 번호) — **P2 구현** |
 | `finally` (태스크 최상위 필드) | `finally[]` | `sequence`가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀) |
 | `on_halt` (태스크 최상위 필드) | `on_halt[]` | 사용자 취소·비상정지 시 실행. **로봇 동작 없이** 상태 저장·로그·TTS 안내만 수행 |
 | 스텝 공통 필드 | `timeout_sec`, `recovery[]` | `timeout_sec` 초과 시 `TIMEOUT` 실패. 실패 시 `recovery[]`(예: 그리퍼 열고 후퇴)를 실행한 뒤 `retry` 횟수만큼 재시도 |
@@ -75,6 +75,7 @@
 * **문자열 보간**: `"{{loc.name_ko}} 찾기를 시작합니다"` → 문자열로 치환.
 * **한국어 조사 필터**: `"{{loc.name_ko|을}}"`처럼 조사를 붙이면 Runner가 앞 단어의 받침 유무(유니코드 한글 음절 계산)로 `을/를`, `이/가`, `은/는`, `과/와`, `으로/로`를 자동 선택함. 목록은 `"{{list.items_ko|목록|을}}"` → "차키, 립밤, 지우개를"처럼 쉼표로 잇고 마지막 단어 기준으로 조사를 붙임. 영문·숫자로 끝나면 받침 없음으로 처리.
 * `eval`을 사용하지 않고 Runner가 경로를 해석함. 존재하지 않는 변수는 `VAR_UNDEFINED` 에러. 로봇·백엔드로 보내는 동작(`set_var`·`if`·`speak`·`query_ontology`·`update_ontology` 제외)의 params 값 전체가 `$변수` 참조인데 `null`이면 보내지 않고 `VAR_NULL` 에러(예: 실패·누락된 `target_after`로 집기, #23).
+* **P2 제어 블록과 비상정지** (10/08 구현): `while`·`for_each`·`push`·`pop`·`fallback`은 로봇을 움직이는 블록을 감싸므로, 중단(ABORTED) 뒤 finally 에서는 블록째 `SKIPPED` — 역순 복구 반복도 자동으로 하지 않고 `restore_stack`은 블랙보드·실행 기록에 남겨 사람이 확인한다. 반복 안 스텝은 같은 ID 로 회차마다 기록되고 `iteration`으로 구분(`run_report` `[s2.1 · 2회차]`).
 * **변수 스코프 (블랙보드)**: `output`·`set_var`로 만든 변수(`loc`, `scan`, `picked` 등)는 **태스크 단위 전역 블랙보드**에 저장되어 `sequence`·`finally`·`on_halt` 어디서든 태스크 종료 시까지 유지됨. 같은 이름으로 다시 `output`하면 덮어씀(예: Unpacking 루프의 `scan`은 재촬영마다 갱신, `loc`은 처음 값 유지). 예외로 `for_each`의 `as` 변수만 루프 안에서 유효함. 블랙보드는 태스크가 끝나면 사라지고(최종 값은 로그에 기록), **태스크 사이에 이어지는 정보는 상태 온톨로지(7.8)만** 사용함.
 
 **조건식 (단일 형태)**: `{ "op": "<연산자>", "args": [ ... ] }`
