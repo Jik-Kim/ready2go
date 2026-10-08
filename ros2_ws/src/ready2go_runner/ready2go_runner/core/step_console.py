@@ -73,6 +73,8 @@ def end_line(run_id: str, record: dict, in_finally: bool = False) -> tuple[str, 
         parts.append(text)
     if record.get("retry_stopped"):
         parts.append(f"재시도 안 함({record['retry_stopped']})")
+    if record.get("fallback_stopped"):
+        parts.append(f"다음 대안 안 보냄({record['fallback_stopped']})")
     line = " · ".join([parts[0], *parts[1:]]) if len(parts) > 1 else parts[0]
     if icon == "✅":
         return INFO, line

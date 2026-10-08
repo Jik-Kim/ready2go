@@ -2,7 +2,7 @@
 """inspect_region 노드가 dump_dir 에 저장한 .npz 를 로봇 없이 다시 계산한다 (담당 A, 실물 진단).
 
   python3 tools/dev/replay_inspect_dump.py <덤프 .npz 또는 폴더> [--truth X Y YAW] [--dz-mm D]
-저장된 검출(YOLO 박스)·뎁스·K·TF 를 그대로 쓰고, 현재 config/vision_params.yaml 로 inspect_scene 과 바닥 진단을 다시 돌린다.
+저장된 검출(YOLO 박스, 분할 모델이면 덤프 masks 마스크)·뎁스·K·TF 를 그대로 쓰고, 현재 config/vision_params.yaml 로 inspect_scene 과 바닥 진단을 다시 돌린다.
   --truth   손끝 터치 정답 (서랍 좌표 x y m, yaw rad — ready2go_skills/core/stub_measure.py 출력). 위치 오차를 함께 출력
   --dz-mm   서랍 원점을 z 로 이만큼 옮겨 다시 계산 (원점 보정 차이가 top_z·위치에 주는 영향 확인용, 예: -3.0)
   --weights 저장된 검출 대신 이 YOLO 가중치로 저장된 컬러 이미지를 다시 검출 (같은 실물 프레임에서 모델 비교, ultralytics 필요)
@@ -19,6 +19,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_vision"))
+from ready2go_vision.core.dump_masks import restore_masks  # noqa: E402
 from ready2go_vision.core.floor_probe import floor_probe  # noqa: E402
 from ready2go_vision.core.geometry import Intrinsics, drawer_from_camera  # noqa: E402
 from ready2go_vision.core.inspect_real import inspect_scene  # noqa: E402
@@ -49,6 +50,8 @@ def main():
         T = drawer_from_camera(T_base_drawer, z["T_base_cam"])
         depth = z["depth_m"].astype(float)
         dets = detector.detect(z["color"]) if detector else [{**d, "box": tuple(d["box"])} for d in meta["detections"]]
+        if not detector:                                                       # 분할 모델 덤프: 저장된 마스크 복원
+            restore_masks(dets, z["masks"] if "masks" in z.files else None, z["color"].shape[1])
         req = meta["request"]
         debug = []
         ok, err, js = inspect_scene(dets, depth, K, T, params, items, req["region"], req["search_target"], meta["interior_m"], debug)

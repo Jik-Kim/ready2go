@@ -46,14 +46,14 @@
 | 블록 | 필드 | 설명 |
 | :--- | :--- | :--- |
 | `set_var` | `params.name`, `params.value` | 블랙보드 변수 설정 |
-| `push` / `pop` | `params.stack`, `params.value` / `params.stack` + `output` | 리스트형 변수를 LIFO 스택으로 사용 (Rollback용) |
+| `push` / `pop` | `params.stack`, `params.value` / `params.stack` + `output` | 리스트형 변수를 LIFO 스택으로 사용 (Rollback용). `value`가 null 참조면 `VAR_NULL`(엉뚱한 자리로 복구 금지), 빈 스택 pop 은 `STACK_EMPTY` — **P2 구현** |
 | `if` | `cond`, `then[]`, `else[]` | 조건 분기 |
-| `while` | `cond`, `body[]`, `max_iter`(필수) | 조건 반복. 초과 시 `LOOP_LIMIT` 에러 |
-| `for_each` | `in`, `as`, `body[]` | 리스트 순회 (번들 요청 처리) |
-| `fallback` | `options[]` (각 항목은 스텝 배열) | 첫 대안부터 시도해 하나라도 성공하면 성공 (예: 손잡이 파지 실패 → 다른 접근 포즈) |
+| `while` | `cond`, `body[]`, `max_iter`(필수) | 조건 반복. `max_iter`번 돈 뒤에도 조건이 참이면 `LOOP_LIMIT` 에러. 기록: 블록 `iterations`, 안쪽 스텝 `iteration`(회차) — **P2 구현(10/08)** |
+| `for_each` | `in`, `as`, `body[]` | 리스트 순회 (번들 요청 처리). `in`이 리스트가 아니면 `NOT_A_LIST` — **P2 구현** |
+| `fallback` | `options[]` (각 항목은 스텝 배열) | 첫 대안부터 시도해 하나라도 성공하면 성공 (예: `pick_object`가 `YAW_INVALID`로 동작 없이 거절 → 다른 접근). **다음 대안은 앞 대안이 로봇을 움직이지 않았음이 확인된 실패일 때만** 보냄(스킬 재시도와 같은 규칙, #159 E 리뷰): 그 대안에서 팔을 움직이는 동작을 보냈으면 성공한 이동 뒤 인식 실패라도 멈춤(`fallback_stopped: MOTION_UNCERTAIN`), 결과 불확실이면 그 이유(`TIMEOUT`·`LATE_RESULT`·`RESPONSE_LOST`). 움직이지 않았다고 보는 실패: 팔을 움직이지 않는 동작(`inspect_region`·`speak` 등)의 실패, 사전 조건·변수 오류, `NO_MOTION_CODES`. 모두 실패하면 마지막 코드. 기록 `option`(성공한 대안 번호) — **P2 구현** |
 | `finally` (태스크 최상위 필드) | `finally[]` | `sequence`가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀) |
-| `on_halt` (태스크 최상위 필드) | `on_halt[]` | 사용자 취소·비상정지 시 실행. **로봇 동작 없이** 상태 저장·로그·TTS 안내만 수행 |
-| 스텝 공통 필드 | `timeout_sec`, `recovery[]` | `timeout_sec` 초과 시 `TIMEOUT` 실패. 실패 시 `recovery[]`(예: 그리퍼 열고 후퇴)를 실행한 뒤 `retry` 횟수만큼 재시도 |
+| `on_halt` (태스크 최상위 필드) | `on_halt[]` | 사용자 취소·비상정지 시 실행. **로봇 동작 없이** 상태 저장·로그·TTS 안내만 수행 — **미구현: 있으면 실행 전 거절(`TASK_INVALID`)** |
+| 스텝 공통 필드 | `timeout_sec`, `recovery[]` | `timeout_sec` 초과 시 `TIMEOUT` 실패. 실패 시 `recovery[]`(예: 그리퍼 열고 후퇴)를 실행한 뒤 `retry` 횟수만큼 재시도 — **`recovery`는 미구현: 있으면 실행 전 거절(`TASK_INVALID`)**, `timeout_sec`은 구현 |
 
 **BehaviorTree 대응표 (발표 질의 대비: "왜 BT 프레임워크를 쓰지 않았나")**
 
@@ -75,7 +75,8 @@
 * **문자열 보간**: `"{{loc.name_ko}} 찾기를 시작합니다"` → 문자열로 치환.
 * **한국어 조사 필터**: `"{{loc.name_ko|을}}"`처럼 조사를 붙이면 Runner가 앞 단어의 받침 유무(유니코드 한글 음절 계산)로 `을/를`, `이/가`, `은/는`, `과/와`, `으로/로`를 자동 선택함. 목록은 `"{{list.items_ko|목록|을}}"` → "차키, 립밤, 지우개를"처럼 쉼표로 잇고 마지막 단어 기준으로 조사를 붙임. 영문·숫자로 끝나면 받침 없음으로 처리.
 * `eval`을 사용하지 않고 Runner가 경로를 해석함. 존재하지 않는 변수는 `VAR_UNDEFINED` 에러. 로봇·백엔드로 보내는 동작(`set_var`·`if`·`speak`·`query_ontology`·`update_ontology` 제외)의 params 값 전체가 `$변수` 참조인데 `null`이면 보내지 않고 `VAR_NULL` 에러(예: 실패·누락된 `target_after`로 집기, #23).
-* **변수 스코프 (블랙보드)**: `output`·`set_var`로 만든 변수(`loc`, `scan`, `picked` 등)는 **태스크 단위 전역 블랙보드**에 저장되어 `sequence`·`finally`·`on_halt` 어디서든 태스크 종료 시까지 유지됨. 같은 이름으로 다시 `output`하면 덮어씀(예: Unpacking 루프의 `scan`은 재촬영마다 갱신, `loc`은 처음 값 유지). 예외로 `for_each`의 `as` 변수만 루프 안에서 유효함. 블랙보드는 태스크가 끝나면 사라지고(최종 값은 로그에 기록), **태스크 사이에 이어지는 정보는 상태 온톨로지(7.8)만** 사용함.
+* **P2 제어 블록과 비상정지** (10/08 구현): `while`·`for_each`·`push`·`pop`·`fallback`은 로봇을 움직이는 블록을 감싸므로, 중단(ABORTED) 뒤 finally 에서는 블록째 `SKIPPED` — 역순 복구 반복도 자동으로 하지 않고 `restore_stack`은 블랙보드·실행 기록에 남겨 사람이 확인한다. 반복 안 스텝은 같은 ID 로 회차마다 기록되고 `iteration`(가장 안쪽 반복의 회차)으로 구분(`run_report` `[s2.1 · 2회차]`). 보고서는 스킬 하위 동작을 기록 순서(`seq`)상 바로 앞의 같은 ID 스킬 기록에 붙이므로 중첩 반복에서도 섞이지 않음(#159 E 리뷰).
+* **변수 스코프 (블랙보드)**: `output`·`set_var`로 만든 변수(`loc`, `scan`, `picked` 등)는 **태스크 단위 전역 블랙보드**에 저장되어 `sequence`·`finally`·`on_halt` 어디서든 태스크 종료 시까지 유지됨. 같은 이름으로 다시 `output`하면 덮어씀(예: Unpacking 루프의 `scan`은 재촬영마다 갱신, `loc`은 처음 값 유지). 예외로 `for_each`의 `as` 변수만 루프 안에서 유효함 — 루프가 끝나면(실패 포함) 루프 전 값으로 되돌리고, 없던 이름이면 지움. 중첩 루프가 같은 이름을 써도 바깥 값이 복구됨. 블랙보드는 태스크가 끝나면 사라지고(최종 값은 로그에 기록), **태스크 사이에 이어지는 정보는 상태 온톨로지(7.8)만** 사용함.
 
 **조건식 (단일 형태)**: `{ "op": "<연산자>", "args": [ ... ] }`
 * 비교 `==, !=, <, >, <=, >=` (args 2개) / 논리 `and, or` (2개 이상), `not` (1개) / 컬렉션 `empty, not_empty` (1개)
@@ -91,7 +92,7 @@
 * `finally` 스텝도 각자의 `on_failure`를 따름(기본 `abort`면 이후 `finally` 스텝은 실행되지 않음). `sequence`와 `finally`가 모두 실패하면 `sequence`의 원인을 태스크 실패 원인으로 남김.
 * `timeout_sec`: `Skill` goal 에는 제한 시간 칸이 없으므로 Runner(ROS 클라이언트)가 시간이 지나면 **취소를 요청하고, 백엔드가 멈춘 뒤 최종 결과를 줄 때까지 기다린 다음** `TIMEOUT`으로 끝냄(#10, PR #74 리뷰) → `finally` 복구 동작이 앞 동작과 겹치지 않음. 취소 뒤 5초 `[추정]` 안에 최종 결과가 없으면 `STOP_UNCONFIRMED`: 멈췄는지 알 수 없으므로 `ESTOP`처럼 `ABORTED`·잠금, 사람 확인 전 새 동작 없음. 최종 결과가 와도 그 코드가 잠금 대상(아래 표의 `ESTOP`·`STOP_UNCONFIRMED`·B 서버 잠금 코드)이면 `TIMEOUT`으로 덮지 않고 그대로 잠금(PR #74 E 리뷰).
   * **goal 수락 응답이 늦을 때** (PR #74 D 리뷰): 5초 `[추정]` 안에 수락 응답이 없으면 "보내지 않음"으로 보지 않고, 늦게라도 수락되면 즉시 취소하고 정지 확인 뒤 `TIMEOUT`, 끝내 확인이 안 되면 `STOP_UNCONFIRMED`. 서버를 찾는 사이 중단 요청이 들어오면 goal 을 보내지 않음(`HALTED`). 중단 처리 뒤 `finally`의 비동작(`speak` 등)은 막지 않음. **실제로 멈추는 것은 백엔드 책임**(아래 "백엔드 구현 약속"). Runner는 걸린 시간을 재서 초과하면 결과가 성공이어도 `TIMEOUT`으로 처리. `if` 같은 블록은 끝난 뒤 판정하므로 동작을 끊으려면 원자 동작 스텝에 지정.
-  * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 취소 요청으로 끝난 `TIMEOUT`도 같음(`retry_stopped: "TIMEOUT"`). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
+  * **늦게 온 결과는 재시도하지 않음** (PR #64 리뷰): Runner 가 판정한 `TIMEOUT`은 결과가 도착한 뒤라 동작이 실제로 끝났을 수 있으므로, `retry`가 있어도 같은 동작을 다시 보내지 않고 실패로 끝냄(기록 `retry_stopped: "LATE_RESULT"`). 취소 요청으로 끝난 `TIMEOUT`도 같음(`retry_stopped: "TIMEOUT"`). 팔을 움직이는 동작을 보내다 백엔드 예외(보낸 뒤 응답 끊김 가능)가 나면 `BACKEND_ERROR`이되 다시 보내지 않음(`retry_stopped: "RESPONSE_LOST"`, #159 E 리뷰). 백엔드가 실패를 돌려준 경우의 재시도는 그대로.
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
 * **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
   * P1 은 **동작 응답 성공 = effect 반영**. `verify`(사후 관측)·`hold`(실행 중 유지 조건)는 P2(FR-ONT-02). P1 Runner 는 `primitive` 스킬만 `skill` 스텝으로 실행(`composite`는 거절). 선언형 복합 스킬 추가는 FR-PLN-03(P3).
@@ -192,16 +193,21 @@
   | :--- | :--- | :--- |
   | `intent.schema.json` 위반·JSON 아님 | 실행 안 함 | `hold` / `BAD_INTENT` |
   | `unknown`·`clarify` | 실행 안 함 | `hold` / `NEEDS_CLARIFY` |
-  | 연결된 태스크가 없는 인텐트 (P1 은 `find_item`만, 목록·목표형은 P2/P3) | 실행 안 함 | `hold` / `UNSUPPORTED_INTENT` |
+  | 연결된 태스크가 없는 인텐트 (P1 은 `find_item`, P2 는 `achieve_goal` 플래너, 목록은 P3) | 실행 안 함 | `hold` / `UNSUPPORTED_INTENT` |
   | `confidence` < `min_confidence` | 실행 안 함 | `hold` / `LOW_CONFIDENCE` |
   | `targets` 없음·2개 이상(P1 은 물품 하나)·온톨로지 `items`에 없음 | 실행 안 함 | `hold` / `NO_TARGET`·`MULTI_TARGET`·`UNKNOWN_ITEM` |
   | 태스크 `trigger.targets`에 없는 물품 (물품이 정해진 태스크, 예: 지우개 시연 태스크에 "차키 찾아줘") | 실행 안 함 (서랍도 열지 않음) | `hold` / `UNSUPPORTED_ITEM` |
   | 중단 잠김 / 이미 실행 중(중복 요청, 줄 세우지 않음) | 실행 안 함 | `reject` / `LOCKED`·`BUSY` |
   | 태스크에 필요한 `/skills/*` 서버가 아직 안 뜸 (real 기동 직후, #108) | 실행 안 함 (로봇 동작·실행 기록 없음) | `reject` / `NOT_READY` |
+  | `achieve_goal` 인데 `goals` 없음 / 목표 물품이 온톨로지에 없음 | 실행 안 함 | `hold` / `NO_GOAL`·`UNKNOWN_ITEM` |
+  | `achieve_goal` → 플래너(#150): 목표가 **이미 만족** | 실행 안 함 (근거는 콘솔 `[plan]` 줄) | `hold` / `PLAN_SATISFIED` |
+  | `achieve_goal` → 플래너: 목표를 만족하는 스킬 순서 **없음** | 실행 안 함 (원인은 콘솔 `[plan]` 줄) | `hold` / `UNPLANNABLE` |
+  | `achieve_goal` → 플래너: **계획됨** | 계획을 태스크(`plan_<물품>_<값>`)로 실행, 계획·근거는 실행 기록 헤더 `plan` | `run` |
   | 위를 모두 통과한 `find_item` 등 | 태스크 실행, `inputs` = `{target: targets[0], source: "voice", stt_text, intent_confidence}`, 실행 기록 헤더 `intent`에 받은 JSON 그대로 (FR-LOG-01 입력 명령) | `run` |
   | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
   | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |
 
+  * 목표형(`achieve_goal`, P2 #150): 태스크 대신 플래너(`core/planner.py`, `docs/planner.md` 7.7)가 **현재 Runner 상태**에서 계획. 계획 스텝 제한 시간은 파라미터 `plan_timeouts`(기본 `open_drawer=60,close_drawer=60,pick=60,place=60,move_to_named_pose=60` [팀 확정 필요], find_item 과 같음). **지원 범위** 파라미터 `plan_limits`(기본 = 현재 실물 [문서: B `skill_server.py` 10/08, 팀 확정 필요] `open_drawer.drawer_id=drawer_top,close_drawer.drawer_id=drawer_top,pick.from=drawer_top,place.to=handover_zone`, 빈 문자열 = 제한 없음·mock) — 범위 밖 계획은 실행 전에 `UNPLANNABLE`. `tasks/`에 `trigger.intent: achieve_goal` 태스크를 두면 그 태스크가 우선.
   * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — P1 시연(벽 배치·끌기 뒤 다시 촬영, E #122 공통 pick): `-p intent_tasks:=find_item=/tasks/p1_demo_eraser.json` (공통 온톨로지 그대로). 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
   * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
   * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.

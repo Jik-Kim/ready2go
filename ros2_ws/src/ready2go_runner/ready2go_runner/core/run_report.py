@@ -7,6 +7,8 @@ LogStore.read_run() 결과({"run", "steps"})를 한국어 줄 목록·Markdown �
 """
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -16,6 +18,7 @@ ACTION_KO = {
     "query_ontology": "온톨로지 조회", "update_ontology": "상태 갱신", "inspect_region": "물체 조회",
     "move_to_named_pose": "자세 이동", "nudge_object": "끌기", "pick_object": "집기",
     "place_object": "놓기", "speak": "안내 음성", "set_var": "변수",
+    "while": "반복", "for_each": "목록 반복", "push": "기록 쌓기", "pop": "기록 꺼내기", "fallback": "대안",
 }
 SKILL_KO = {
     "open_drawer": "서랍 열기", "close_drawer": "서랍 닫기", "pick": "집기", "pick_demo": "끌어서 집기",
@@ -29,6 +32,8 @@ ERROR_KO = {
     "MOVE_UNCONFIRMED": "이동 명령 수락 여부 모름 → 잠금", "LOCKED": "스킬 서버 잠김",
     "ACTION_FAILED": "백엔드가 코드 없이 실패", "INTERNAL_ERROR": "Runner 내부 오류",
     "VAR_UNDEFINED": "없는 변수 참조", "VAR_NULL": "변수 값이 null",
+    "LOOP_LIMIT": "반복 최대 횟수 초과", "STACK_EMPTY": "꺼낼 기록이 없음", "NOT_A_LIST": "목록이 아님",
+    "FALLBACK_FAILED": "대안이 없음",
     "TOOL_NOT_SET": "펜던트 툴·TCP 설정이 다름", "DRAWER_NOT_AT_TRAVEL": "서랍 인출 거리가 기준과 다름",
     "YAW_INVALID": "물체 방향(yaw)을 믿을 수 없음", "NOT_ON_FLOOR": "물체가 바닥에 있지 않음",
     "WALL_TOO_CLOSE": "벽에 너무 붙어 집을 수 없음", "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리",
@@ -114,8 +119,10 @@ def detail(step: dict) -> str:
     elif action == "inspect_region" and result:
         target = result.get("target")
         if result.get("target_found") and target:
-            x, y = target["pose"]["position"][:2]
-            text = f"{target.get('class')} 찾음 ({float(x) * 1000:.0f}, {float(y) * 1000:.0f}) mm"
+            position = (target.get("pose") or {}).get("position") or []
+            name = target.get("class") or target.get("id")
+            text = (f"{name} 찾음 ({float(position[0]) * 1000:.0f}, {float(position[1]) * 1000:.0f}) mm"
+                    if len(position) >= 2 else f"{name} 찾음")        # 위치가 빠진 기록도 보고서는 멈추지 않음
         else:
             text = f"못 찾음 (보인 물체 {result.get('visible_count', 0)}개)"
     elif action == "nudge_object" and result:
@@ -128,11 +135,22 @@ def detail(step: dict) -> str:
         else:
             text = "끌 필요 없음"
     elif action == "pick_object" and result:
-        text = "잡음" if result.get("grasp_ok") else "못 잡음"
+        if "grasp_ok" in result:                       # 값이 없으면 판단을 적지 않음 (없음 ≠ 못 잡음)
+            text = "잡음" if result["grasp_ok"] else "못 잡음"
     elif action == "place_object" and result:
         text = str(result.get("slot", ""))
     elif action == "speak":
         text = f"\"{params.get('text', '')}\""
+    elif action in ("while", "for_each") and step.get("iterations") is not None:
+        text = f"{step['iterations']}회"
+    elif action == "fallback" and step.get("option"):
+        text = f"{step['option']}번 대안"
+        if step.get("fallback_stopped"):           # 앞 대안이 팔을 움직였거나 결과 불확실 → 다음 대안 안 보냄
+            text += f" · 다음 대안 안 보냄({step['fallback_stopped']})"
+    elif action == "push" and result:
+        text = f"{result.get('stack')} {result.get('size')}개"
+    elif action == "pop" and "result" in step:
+        text = json.dumps(step.get("result"), ensure_ascii=False)[:60]
     elif action == "set_var":
         text = f"{params.get('name')} = {params.get('value')}"
     code = (step.get("error") or {}).get("code")
@@ -150,14 +168,25 @@ class Row:
 
 
 def rows(steps: list[dict]) -> list[Row]:
-    """최상위 스텝(if 제외) + 그 밑의 원자 동작. seq 순서."""
-    ordered = sorted(steps, key=lambda s: s.get("seq", 0))
-    by_parent: dict[str, list[dict]] = {}
-    for step in ordered:
+    """최상위 스텝(if 제외) + 그 밑의 원자 동작. seq 순서.
+    하위 동작은 seq 가 바로 앞인 같은 ID 의 스킬 기록에 붙인다(스킬 기록이 하위 동작보다 먼저 시작). 반복 안에서는
+    같은 스텝 ID 가 회차마다 기록되므로, ID·회차로 묶으면 중첩 반복에서 다른 바깥 회차와 섞인다(#159 E 리뷰)."""
+    result: list[Row] = []
+    latest: dict[str, Row] = {}
+    for step in sorted(steps, key=lambda s: s.get("seq", 0)):
         if step.get("parent"):
-            by_parent.setdefault(step["parent"], []).append(step)
-    return [Row(s, [Row(c) for c in by_parent.get(s.get("id"), [])])
-            for s in ordered if not s.get("parent") and s.get("action") != "if"]
+            owner = latest.get(step["parent"])
+            if owner is not None:
+                owner.children.append(Row(step))
+        elif step.get("action") != "if":
+            latest[step.get("id")] = row = Row(step)
+            result.append(row)
+    return result
+
+
+def step_ref(step: dict) -> str:
+    """'s2.1' / 반복 안이면 's2.1 · 2회차'."""
+    return f"{step.get('id')} · {step['iteration']}회차" if step.get("iteration") else str(step.get("id"))
 
 
 def header(record: dict) -> list[str]:
@@ -186,11 +215,11 @@ def to_text(record: dict) -> str:
     for n, row in enumerate(rows(record.get("steps") or []), 1):
         s = row.step
         lines.append(f"{n:>3} {mark(s)} {label(s)} · {_seconds(s.get('duration_sec'))}"
-                     + (f" · {detail(s)}" if detail(s) else "") + f"   [{s.get('id')}]")
+                     + (f" · {detail(s)}" if detail(s) else "") + f"   [{step_ref(s)}]")
         for child in row.children:
             c = child.step
             lines.append(f"      └ {mark(c)} {label(c)} · {_seconds(c.get('duration_sec'))}"
-                         + (f" · {detail(c)}" if detail(c) else "") + f"   [{c.get('id')}]")
+                         + (f" · {detail(c)}" if detail(c) else "") + f"   [{step_ref(c)}]")
     return "\n".join(lines)
 
 
@@ -204,5 +233,5 @@ def to_markdown(record: dict) -> str:
             s = item.step
             name = ("└ " if depth else "") + label(s)
             lines.append(f"| {n if not depth else ''} | {name} | {mark(s)} | {_seconds(s.get('duration_sec'))} "
-                         f"| {detail(s).replace('|', '/')} | `{s.get('id')}` |")
+                         f"| {detail(s).replace('|', '/')} | `{step_ref(s)}` |")
     return "\n".join(lines)

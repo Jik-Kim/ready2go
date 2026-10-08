@@ -53,24 +53,37 @@ def test_schema_errors(change, expected):
     assert problems and expected in problems[0]
 
 
-def test_p2_example_task_is_rejected():
-    # 저장소의 tasks/find_with_unpack.json 은 while·push·pop 을 쓰는 P2 예시
+def test_p2_blocks_pass_but_old_unpack_draft_has_no_voice_trigger():
+    # tasks/find_with_unpack.json 은 while·push·pop 을 쓰는 예전(외부 트레이) 초안 — P2 블록 구현으로 형식은 통과하지만
+    # 실행 기준이 아니므로 음성 인텐트에 연결되지 않아야 함 (trigger 없음)
     task = json.loads((ROOT / "tasks/find_with_unpack.json").read_text(encoding="utf-8"))
-    problems = check_task(task, SCHEMA)
-    assert any("'while'" in p for p in problems)
-    assert any("'push'" in p for p in problems)
-    assert any("'pop'" in p for p in problems)          # finally 안쪽(while 의 body)까지 검사
+    assert check_task(task, SCHEMA) == [] and not task.get("trigger")
 
 
 @pytest.mark.parametrize("change, expected", [
     (lambda t: t.update(on_halt=[{"id": "h1", "action": "speak", "params": {"text": "멈춤"}}]), "'on_halt'"),
     (lambda t: t["sequence"][1].update(recovery=[{"id": "r1", "action": "speak"}]), "'recovery'"),
-    (lambda t: t["sequence"][3]["then"].append(
-        {"id": "s4.3", "action": "for_each", "in": "$scan.candidates", "as": "c", "body": []}), "'for_each'"),
 ])
 def test_p2_features_are_rejected(change, expected):
+    """아직 구현 안 된 recovery·on_halt 는 거절 (while·for_each·push/pop·fallback 은 P2 구현)."""
     problems = check_task(task_with(change), SCHEMA)
     assert any("P1 미지원" in p and expected in p for p in problems)
+
+
+@pytest.mark.parametrize("step, expected", [
+    ({"id": "s9", "action": "while", "cond": {"op": "==", "args": [1, 1]}, "body": [{"id": "s9.1", "action": "speak"}]},
+     "max_iter"),
+    ({"id": "s9", "action": "while", "max_iter": 2, "body": [{"id": "s9.1", "action": "speak"}]}, "while 에 cond"),
+    ({"id": "s9", "action": "for_each", "in": "$scan.candidates", "as": "c", "body": []}, "body 가 없음"),
+    ({"id": "s9", "action": "for_each", "in": "scan.candidates", "as": "c", "body": [{"id": "s9.1", "action": "speak"}]},
+     "\"$변수\" 참조"),
+    ({"id": "s9", "action": "push", "params": {"stack": "restore_stack"}}, "params.value"),
+    ({"id": "s9", "action": "pop", "params": {"stack": "$restore_stack"}, "output": "x"}, "스택 변수 이름"),
+    ({"id": "s9", "action": "fallback", "options": []}, "options"),
+])
+def test_p2_block_required_fields(step, expected):
+    problems = check_task(task_with(lambda t: t["sequence"].append(step)), SCHEMA)
+    assert any(expected in p for p in problems), problems
 
 
 @pytest.mark.parametrize("change, expected", [
@@ -84,9 +97,10 @@ def test_runner_level_errors(change, expected):
     assert any(expected in p for p in problems)
 
 
-def test_without_schema_still_checks_p1_scope():
+def test_without_schema_still_checks_blocks():
     task = task_with(lambda t: t["sequence"].append({"id": "s9", "action": "while", "max_iter": 1, "body": []}))
-    assert any("'while'" in p for p in check_task(task, None))
+    problems = check_task(task, None)
+    assert any("while 에 cond" in p for p in problems) and any("body 가 없음" in p for p in problems)
 
 
 def test_runner_refuses_invalid_task_before_moving():

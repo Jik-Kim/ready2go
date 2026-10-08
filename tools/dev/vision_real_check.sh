@@ -7,6 +7,7 @@
 #   bash tools/dev/vision_real_check.sh camera                # 이 PC 에서 realsense (compose realsense 서비스, Ctrl+C 로 종료)
 #   bash tools/dev/vision_real_check.sh check                 # 카메라 토픽 주기·TF 확인 (약 20초)
 #   bash tools/dev/vision_real_check.sh node                  # 비전 노드 (Ctrl+C 로 종료). 요청마다 ~/ready2go_vision_dump/ 에 프레임 저장
+#       VISION_WEIGHTS=<가중치 .pt> 를 앞에 붙이면 그 모델로 (기본 models/yolo11n_ready2go_v1.pt). 분할 모델(yolo*-seg)이면 마스크 안 뎁스 (P2, #109)
 #   bash tools/dev/vision_real_check.sh call [eraser] [drawer_top]   # 서비스 호출 1회 (node 가 떠 있어야 함, 그 컨테이너 안에서 실행). 아래 칸은 drawer_bottom
 #   bash tools/dev/vision_real_check.sh measure X1 Y1 Z1 X2 Y2 Z2   # 펜던트 base 좌표(mm) 손끝 두 점 → 서랍 좌표 정답 (stub_measure.py)
 #   bash tools/dev/vision_real_check.sh replay [파일] [X Y YAW]   # 저장한 프레임 다시 계산 (파일 생략 = 전부, 정답 주면 위치 오차)
@@ -42,7 +43,9 @@ case "${1:-}" in
       timeout -s INT 8 ros2 run tf2_ros tf2_echo base_link wrist_cam_color_optical_frame 2>&1 | head -12 || true' ;;
   node)
     mkdir -p "$DUMP"
-    exec "${RUN[@]}" -it --name "$NODE" --gpus all -v "$DUMP:/dump" "$IMG" bash -lc "$BUILD && exec ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/repo/config -p dump_dir:=/dump -p 'code_sha:=\"$SHA\"'" ;;
+    nw=(); np_=""
+    if [ -n "${VISION_WEIGHTS:-}" ]; then nw=(-v "$(realpath "$VISION_WEIGHTS"):/node_weights.pt:ro"); np_="-p weights:=/node_weights.pt"; echo "비전 노드 가중치: $(realpath "$VISION_WEIGHTS")"; fi
+    exec "${RUN[@]}" -it --name "$NODE" --gpus all -v "$DUMP:/dump" "${nw[@]}" "$IMG" bash -lc "$BUILD && exec ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/repo/config -p dump_dir:=/dump $np_ -p 'code_sha:=\"$SHA\"'" ;;
   call)
     docker ps -q -f name="^$NODE$" | grep -q . || { echo "비전 노드($NODE)가 안 떠 있음 — 먼저 node"; exit 1; }
     docker exec "$NODE" bash -lc "source /opt/ros/jazzy/setup.bash && source /tmp/install/setup.bash && timeout -s KILL 30 ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion \"{region: ${3:-drawer_top}, search_target: ${2:-eraser}}\"" ;;
