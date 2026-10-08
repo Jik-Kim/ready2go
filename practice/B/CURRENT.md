@@ -4,6 +4,12 @@
 - **최종 갱신**: 2026-10-08
 
 ## 지금 상태
+- **10/08 오후 서랍 개폐 노드 (PR #181, draft, 브랜치 `claude/b-nodes`)**:
+  - **실물 확인 (PC2, 저속 VEL 30·JACC 20)**: `B home` → `B ready top` → `B open top`(손잡이 앞에서만 시작) → `B close top`(45° 닫기 첫 실물) → `B ready bottom` → `B open bottom`(아래 칸 첫 로봇 열기) 모두 성공. `B close bottom` 은 교시 전이라 움직이기 전 `DRAWER_NOT_CONFIGURED`(의도).
+  - **아래 칸 45° 닫기 시작 자세 = 계산** [사용자 10/08 "위 칸 시작에서 z 만 내려"]: 위 칸 시작 TCP 를 z −141.3 mm, IK(`sim/motion_check/m0609_kin.py`) → posj `[26.793, 18.348, 103.297, -39.358, 84.382, 40.307]`. **실물 미확인** — 다음: `B opened bottom`(서버 재시작 뒤) → `B close bottom` 저속 → 성공하면 draft 해제.
+  - 결정 [사용자 10/08]: 닫기는 노드 하나가 다 함(서랍 위면 홈 → 시작 자세로 기울이며 → 밀기, #168 예외). 되돌리기 막힘은 "빈손이면 계속, 쥔 채면 멈춤"(#168 댓글). 얹힌 물체 `top_z` 기준 집기는 10/10 서랍 안 놓기와 같이.
+  - 리뷰 반영: C(x·z 확인을 움직이기 전으로), E P1(홈 뒤 취소면 그리퍼도 안 움직임, 넛지·집기 frame ≠ drawer_id 면 `BAD_PARAMS`, B 명령 인식 결과 서랍별), E P2(문서 정합성). 승인 대기: `NOT_AT_START_POSE` 계약 — E 포함 2명.
+  - B 명령: `B <동작> top|bottom`, `B ready`(손잡이 앞) 추가. PC2 에서 이 브랜치를 받아 씀(머지 전).
 - **10/08 낮 (#120·PR #156·#166)**:
   - **#120 ② 수락 [사용자 10/08]**: `place_object` 서랍 안 놓기(빈 자리에 놓기·원래 자리로 되돌리기)는 B 가 움직임까지 구현.
     - **계약안** (PR #166, draft, 승인 전 — C 승인은 이전 head, E 보완 요청 반영 중): `location` 서랍 + `pose`/`slot` **정확히 하나** + 필수 `scan`(집을 때 쓴 같은 촬영 결과 전체 — `target`·`candidates` 모두 이웃 검사), `placed_pose` = 명령한 자리(그리퍼 연 뒤만), 거부 `PLACE_BLOCKED`·`WALL_TOO_CLOSE` + `blocked_by`, 지지면은 서랍 바닥만(다른 물체 위 되돌리기 미지원).

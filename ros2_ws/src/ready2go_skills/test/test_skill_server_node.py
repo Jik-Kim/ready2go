@@ -781,10 +781,25 @@ def test_open_drawer_handle_not_grasped_releases_and_backs_off(server):
 
 def test_bottom_drawer_close_refused_until_tilted_pose_taught(server):
     """[실측 B 10/08] 아래 칸은 수직 그리퍼 몸통이 위 서랍 앞판에 닿음 → close_push 교시 전엔 움직이지 않고 DRAWER_NOT_CONFIGURED."""
+    prm = server.srv.prm()
+    prm["drawer_open_close"]["close_push"] = dict(prm["drawer_open_close"]["close_push"], drawer_bottom=None)
+    server.srv.prm = lambda: prm
     server.srv.disp = {"drawer_bottom": 0.226}
     out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
     assert not out.success and out.error_code == server.ss.DRAWER_NOT_CONFIGURED
     assert server.srv.robot.log == []
+
+
+
+def test_taught_close_push_start_and_end_agree_in_x_z(server):
+    """params 의 위·아래 close_push: 시작·끝 x·z 가 close_push_xz_tol_mm 안 (아니면 실물에서 움직이기 전 거부), 손목 같음 (C +90 vs −90 섞임 방지)."""
+    oc = server.srv.prm()["drawer_open_close"]
+    for drawer in ("drawer_top", "drawer_bottom"):
+        cp = oc["close_push"][drawer]
+        s, e = cp["start_posx"], cp["end_posx"]
+        assert max(abs(s[k] - e[k]) for k in (0, 2)) <= oc["close_push_xz_tol_mm"], drawer
+        assert all(abs(s[k] - e[k]) < 1.0 for k in (3, 4, 5)), drawer
+        assert e[1] < s[1] - 200.0, drawer                               # 끝(닫힘)이 시작(열림 앞)보다 서랍 쪽(−y)으로 200 mm 넘게
 
 
 def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
