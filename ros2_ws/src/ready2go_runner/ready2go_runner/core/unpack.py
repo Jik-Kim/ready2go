@@ -10,7 +10,8 @@ Runner 안(LOCAL)에서 처리한다. 둘 다 직전 inspect_region 결과($scan
 1. 목표 occluded_by 에 물체가 있음 → 그 물체를 덮은 물체를 따라 올라가 맨 위(occluded_by == [])부터
 2. 목표 occluded_by == [] → 치울 것 없음 (target_clear)
 3. 목표 occluded_by 모름(null·필드 없음) → yaw_valid 가 true 이고 필드 자체가 없으면(박스 모델) 치울 것 없음,
-   아니면 A 대안: 목표 footprint 와 겹치고 top_z 가 더 높은 후보 중 가장 높은 것 (없으면 치울 것 없음)
+   아니면 A 대안(짐작, GT 관계 아님): 목표 footprint 와 겹치고 top_z 가 더 높은 후보 중 가장 높은 것 — 후보 자신은
+   위에 아무것도 없다고 확인된 것만(occluded_by == [] 또는 박스 모델). null·덮인 후보는 고르지 않음 (정본 3.3)
 4. 목표 못 찾음 → occluded_by == [] 후보 중 visible_area_m2 큰 것(domain.md 8.2). 가림 필드가 아예 없는 박스 모델만
    top_z 높은 것, 필드가 있는데 null(모름)이면 고르지 않음(occlusion_unknown)
 재식별 (#109): 같은 class 후보가 정확히 1개이고 placed_pose 와 tol_m 안이면 found. 같은 class 가 2개 이상이면
@@ -121,9 +122,15 @@ def _choices(target: dict | None, pool: list[dict], world: dict) -> list[dict]:
         return []
     if "occluded_by" not in target and (target.get("pose") or {}).get("yaw_valid") is True:   # 3. 박스 모델, 의심 없음
         return []
-    base = target.get("top_z") or 0.0       # 3. A 대안: 겹치고 더 높은 것
-    over = [c for c in pool if (c.get("top_z") or 0.0) > base and _overlap(target, c, world)]
+    base = target.get("top_z") or 0.0       # 3. A 대안(짐작): 겹치고 더 높은 것 — 그 후보 자신은 위에 아무것도
+    over = [c for c in pool                 # 없다고 확인된 것(occluded_by == [])만. null·덮인 후보는 안전 후보로 확정하지
+            if _known_clear(c) and (c.get("top_z") or 0.0) > base and _overlap(target, c, world)]   # 않음 (정본 3.3)
     return sorted(over, key=lambda c: -(c.get("top_z") or 0.0))
+
+
+def _known_clear(c: dict) -> bool:
+    """위에 아무것도 없다고 확인된 후보: occluded_by == [] (분할 모델), 또는 가림 필드가 아예 없음 (박스 모델, P1 호환)."""
+    return c.get("occluded_by") == [] or "occluded_by" not in c
 
 
 def _reason(target: dict | None, pool: list[dict]) -> str:

@@ -64,6 +64,17 @@ def test_unknown_occlusion_uses_overlap_and_height():
     assert pick({"scan": far})["obstacle"] is None
 
 
+def test_unknown_occlusion_never_picks_unknown_or_covered_candidate():
+    """정본 3.3: null·모호한 관계는 안전 후보로 확정하지 않음 — 목표 관계를 모를 때 겹치고 높아도
+    그 후보 자신이 모름(null)이거나 덮여 있으면 고르지 않음. 위에 아무것도 없다고 확인된 후보만."""
+    target = obj("eraser#1", 0.10, 0.10, 0.012, occluded_by=None)
+    unknown = obj("cover_plate#1", 0.11, 0.10, 0.04, occluded_by=None)
+    covered = obj("lip_balm#1", 0.10, 0.11, 0.03, occluded_by=["car_key#1"])
+    key = obj("car_key#1", 0.10, 0.115, 0.045, occluded_by=[])
+    assert pick({"scan": scan(target, unknown)})["obstacle"] is None
+    assert pick({"scan": scan(target, unknown, covered, key)})["obstacle"]["id"] == "car_key#1"
+
+
 def test_box_model_target_with_valid_yaw_is_clear():
     """가림 필드가 없는 박스 모델 + yaw_valid true → 가림 의심 없음 (지금 P1 흐름 그대로)."""
     out = pick({"scan": scan(obj("eraser#1", 0.1, 0.1), obj("cover_plate#1", 0.11, 0.1, 0.02))})
