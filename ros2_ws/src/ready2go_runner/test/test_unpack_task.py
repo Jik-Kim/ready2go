@@ -60,15 +60,17 @@ def steps(result):
 
 
 def test_unpacks_two_delivers_and_restores_in_reverse():
-    """E #109 위 서랍 배치: 렌치 ← 망치 ← 차키. 차키(aside_1) → 망치(aside_1 막힘 → aside_2) → 렌치 전달 →
-    거꾸로 망치 원래 자리 → 차키 원래 자리는 망치와 붙어 막힘 → 고정 자리에 둠(B 결정) → 닫기 → 홈."""
+    """A #109 위 칸 시나리오(사용자 결정 10/08): 렌치 ← 캐러멜 상자 ← 차키. 차키(aside_1) → 상자(aside_1 막힘 →
+    aside_2) → 렌치 전달 → 거꾸로 상자 원래 자리 → 차키 원래 자리는 상자와 붙어 막힘 → 차키를 꺼낸 그 고정 자리
+    (aside_1)에 다시 둠, 빈손이라 계속(B·C 합의 #168) → 닫기 → 홈."""
     runner, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED", steps(result)
-    assert robot.picked() == ["car_key", "toy_hammer", "toy_wrench", "toy_hammer", "car_key"]
+    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box", "car_key"]
     assert robot.placed() == ["aside_1", "aside_1", "aside_2", "handover_zone", "origin", "origin", "aside_1"]
     scene = robot.skills.scene
     assert scene.delivered == ["toy_wrench"] and scene.held is None
-    assert scene.objects["toy_hammer"]["xy"][1] == 0.16                       # 망치는 원래 자리로
+    assert scene.objects["caramel_box"]["xy"][1] == 0.14                      # 상자는 원래 자리로
+    assert scene.objects["car_key"]["xy"][1] == 0.045                         # 차키는 꺼낸 고정 자리(aside_1)
     assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
     assert "서랍을 닫았어요" in robot.spoken
     state = runner.state
@@ -80,11 +82,11 @@ def test_restore_uses_original_pose_not_where_it_was_placed():
     """되돌리기 목적지는 치우기 전 관측 자리(origin) — 놓은 자리·다시 본 자리로 덮어쓰지 않음 (E #120 14:08 2번)."""
     _, robot, _ = run("occluded_top", "toy_wrench")
     restore = [p["pose"]["position"][:2] for a, p in robot.calls if a == "place_object" and "pose" in p]
-    assert restore == [[0.12, 0.16], [0.12, 0.19]]
+    assert restore == [[0.12, 0.14], [0.12, 0.17]]
 
 
 def test_plate_over_eraser_moves_only_the_plate():
-    """덮개 판만 치우고, 떨어진 립밤은 건드리지 않음."""
+    """A #109 아래 칸 시나리오: 판이 지우개·립밤을 반쯤 덮음 → 판만 치우고 립밤은 건드리지 않음."""
     _, robot, result = run("plate_over_eraser", "eraser")
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["cover_plate", "eraser", "cover_plate"]
@@ -120,7 +122,7 @@ def test_three_obstacles_hit_loop_limit_and_still_restore():
     """고정 자리가 2곳이라 치우기는 최대 2개(while max_iter 2). 3개째가 남으면 LOOP_LIMIT 로 실패 →
     목표는 꺼내지 않고, 옮긴 2개를 거꾸로 되돌린 뒤 닫기·홈."""
     robot = SceneRobot("occluded_top")
-    robot.skills.scene.objects["lip_balm"] = {"xy": [0.12, 0.215], "yaw": 0.0, "top_z": 0.075, "height": 0.02,
+    robot.skills.scene.objects["lip_balm"] = {"xy": [0.12, 0.195], "yaw": 0.0, "top_z": 0.0728, "height": 0.02,
                                               "area": 0.0014, "on": ["car_key"]}
     runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
     runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
@@ -129,3 +131,27 @@ def test_three_obstacles_hit_loop_limit_and_still_restore():
     assert robot.picked() == ["lip_balm", "car_key", "car_key", "lip_balm"]   # 치운 2개 → 거꾸로 되돌리기
     assert "toy_wrench" not in robot.skills.scene.delivered
     assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+
+
+class BlockedRestoreScene(MockScene):
+    """전달 뒤(되돌리기 때)는 서랍 안 어디에 놓아도 막힘 — 원래 자리·꺼낸 고정 자리 둘 다 막힌 경우."""
+
+    def place(self, params):
+        if self.delivered and params.get("location") != "handover_zone":
+            return False, "PLACE_BLOCKED", {"slot": None, "placed_pose": None, "blocked_by": "toy_car#1"}
+        return super().place(params)
+
+
+def test_restore_blocked_twice_stops_holding_without_home():
+    """B·C 합의 #168 3행: 원래 자리도, 꺼낸 고정 자리도 막힘 → 쥔 채 정지, 남은 복구 안 함, 안내, 홈 안 감."""
+    robot = SceneRobot("occluded_top")
+    robot.skills.scene = BlockedRestoreScene("occluded_top")
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    result = runner.run(TASK, {"target": "toy_wrench"})
+    assert result.overall_status == "COMPLETED", steps(result)                 # 전달은 됨, 복구는 skip
+    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]   # 차키는 되돌리기 안 함
+    assert robot.placed()[-2:] == ["origin", "aside_2"]                       # 상자: 원래 자리 → 꺼낸 자리, 둘 다 막힘
+    assert result.blackboard["holding"] is True
+    assert "옮기던 물건을 쥔 채 멈췄어요. 사람이 확인해 주세요" in robot.spoken
+    assert ("move_to_named_pose", {"pose_name": "home"}) not in robot.calls

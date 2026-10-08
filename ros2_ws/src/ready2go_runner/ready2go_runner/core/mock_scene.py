@@ -25,20 +25,21 @@ SLOTS = {"aside_1": [0.045, 0.045], "aside_2": [0.045, 0.25]}
 # 장면: class → 서랍 좌표 x·y(m), yaw, 윗면 높이 top_z, 물체 자체 높이 height(바닥에 놓으면 top_z = height),
 # 다 보일 때 면적 area(m², visible_area_m2 — 덮였으면 절반), 아래 물체 on. 높이는 world size_m[2] 근처 mock 값
 SCENES = {
-    # E #109 위 서랍 배치안: 목표 렌치를 망치가 일부 덮고, 차키가 망치 일부를 덮음 → 차키 → 망치 → 렌치
+    # A #109 위 칸 시나리오 (사용자 결정 10/08, 망치·렌치 교차는 마스크가 섞여 제외): 캐러멜 상자가 렌치 가운데를
+    # 가로질러 덮고, 차키는 상자 한쪽 끝에만 걸침 → 차키 → 캐러멜 → 렌치
     "occluded_top": {
         "toy_wrench": {"xy": [0.12, 0.13], "yaw": 0.0, "top_z": 0.0185, "height": 0.0185, "area": 0.0104, "on": []},
-        "toy_hammer": {"xy": [0.12, 0.16], "yaw": 0.0, "top_z": 0.0435, "height": 0.025, "area": 0.0135,
-                       "on": ["toy_wrench"]},
-        "car_key": {"xy": [0.12, 0.19], "yaw": 0.0, "top_z": 0.059, "height": 0.0158, "area": 0.0027,
-                    "on": ["toy_hammer"]},
+        "caramel_box": {"xy": [0.12, 0.14], "yaw": 1.5708, "top_z": 0.037, "height": 0.0185, "area": 0.0037,
+                        "on": ["toy_wrench"]},
+        "car_key": {"xy": [0.12, 0.17], "yaw": 0.0, "top_z": 0.0528, "height": 0.0158, "area": 0.0027,
+                    "on": ["caramel_box"]},
     },
-    # E #109 아래 서랍 배치안 모양 (위 서랍에서 시험): 덮개 판이 지우개를 덮고, 립밤은 떨어진 곳
+    # A #109 아래 칸 시나리오 (위 서랍에서 시험): 판이 지우개와 립밤을 반쯤 덮음 → 판 → 지우개 (립밤은 안 치움)
     "plate_over_eraser": {
         "eraser": {"xy": [0.12, 0.12], "yaw": 0.0, "top_z": 0.0115, "height": 0.0115, "area": 0.0012, "on": []},
+        "lip_balm": {"xy": [0.16, 0.17], "yaw": 0.0, "top_z": 0.02, "height": 0.02, "area": 0.0014, "on": []},
         "cover_plate": {"xy": [0.12, 0.13], "yaw": 0.0, "top_z": 0.052, "height": 0.0405, "area": 0.0073,
-                        "on": ["eraser"]},
-        "lip_balm": {"xy": [0.15, 0.26], "yaw": 0.0, "top_z": 0.02, "height": 0.02, "area": 0.0014, "on": []},
+                        "on": ["eraser", "lip_balm"]},
     },
 }
 

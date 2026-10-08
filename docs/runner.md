@@ -228,7 +228,7 @@
   * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — P1 시연(벽 배치·끌기 뒤 다시 촬영, E #122 공통 pick): `-p intent_tasks:=find_item=/tasks/p1_demo_eraser.json` (공통 온톨로지 그대로). 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
   * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
   * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.
-* `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험. `MOCK_SCENE`(예: `occluded_top` — E #109 위 서랍 배치 모양 렌치 ← 망치 ← 차키)이면 여러 물체가 겹친 장면으로 인식(`occluded_by`·`visible_area_m2` 포함)·집기·서랍 안 놓기(`PLACE_BLOCKED`)를 흉내 (`core/mock_scene.py`, Unpacking 흐름 시험용 — 실물 B·A 동작과 다를 수 있음).
+* `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험. `MOCK_SCENE`(예: `occluded_top` — A #109 위 칸 시나리오(사용자 결정 10/08) 렌치 ← 캐러멜 상자 ← 차키)이면 여러 물체가 겹친 장면으로 인식(`occluded_by`·`visible_area_m2` 포함)·집기·서랍 안 놓기(`PLACE_BLOCKED`)를 흉내 (`core/mock_scene.py`, Unpacking 흐름 시험용 — 실물 B·A 동작과 다를 수 있음).
 
 ### 7.2 태스크 시퀀스 스키마
 
@@ -240,7 +240,7 @@
 
 ### 7.3 실제 인스턴스 예시: 오클루전 탐색 + 복구 (하드코딩 ID 없음)
 
-[문서] P2 Unpacking 태스크(기준은 정본 [가림·추적·복구 정책](requirements.md#occlusion-policy), FR-ACT-04). **10/08 C 재작성 — mock 장면으로만 확인, 실물 미검증, 음성 연결(`trigger`) 전**. `find_item` 흐름에 치우기(`select_obstacle` → 장애물 `pick_object` → 고정 자리 `place_object` aside_1·막히면 aside_2 → `restore_stack` push → 탑뷰 다시 찍기, 최대 2개)와 finally 역순 복구(쥔 장애물이 없을 때만: 다시 찍기 → `find_moved` 재식별 → 원래 자리, 막히면 고정 자리)를 넣음. 선행: B 서랍 안 놓기 구현(#166)·얹힌 물체 집기(`NOT_ON_FLOOR`, #120)·A 가림 노드(#169), `reid_tol_m` 실측.
+[문서] P2 Unpacking 태스크(기준은 정본 [가림·추적·복구 정책](requirements.md#occlusion-policy), FR-ACT-04). **10/08 C 재작성 — mock 장면으로만 확인, 실물 미검증, 음성 연결(`trigger`) 전**. `find_item` 흐름에 치우기(`select_obstacle` → 장애물 `pick_object` → 고정 자리 `place_object` aside_1·막히면 aside_2 → `restore_stack` push → 탑뷰 다시 찍기, 최대 2개)와 finally 역순 복구(쥔 장애물이 없을 때만: 다시 찍기 → `find_moved` 재식별 → 원래 자리, 막히면 꺼낸 그 고정 자리 — 빈손이면 남은 복구 계속, 쥔 채면 정지·안내·홈 안 감, B·C 합의 #168)를 넣음. 선행: B 서랍 안 놓기 구현(#166)·얹힌 물체 집기(`NOT_ON_FLOOR`, #120)·A 가림 노드(#169), `reid_tol_m` 실측.
 
 > **원본 파일**: [`tasks/find_with_unpack.json`](../tasks/find_with_unpack.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
 
