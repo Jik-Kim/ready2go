@@ -218,7 +218,9 @@ class Robot:
         return bool(r and r.success)
 
     def stop(self):
-        self.call("stop", stop_mode=2)
+        """move_stop 결과: True 성공 / False 제어기 거부 / None 응답 없음(서비스 못 찾음·2초 안에 응답 없음)."""
+        r = self.call("stop", stop_mode=2)
+        return None if r is None else bool(r.success)
 
     def tool_names(self):
         tcp, tool = self.call("tcp"), self.call("tool")
@@ -967,7 +969,9 @@ class App:
     def stop_all(self):
         self.seq, self.rotating = [], False  # 정렬·기울이기 중이면 남은 조각 취소
         self.end_hold()
-        self.r.stop()
+        ok = self.r.stop()
+        result = {True: "제어기 수락", False: "제어기 거부", None: "응답 없음 — move_stop 서비스 확인"}[ok]
+        self.say(f"정지 보냄 ({result}) — 상태: {STATE.get(self.r.state(REFRESH_TIMEOUT_S), '?')}")   # 결과가 안 보였던 문제 (사용자 10/08)
 
     def close(self):
         """창 닫기·Ctrl+C: 움직이는 중이면 멈추고 종료."""
