@@ -319,6 +319,62 @@
           "yaw": 1.5707
         }
       }
+    },
+    {
+      "case": "pose_and_slot_both",
+      "params": {
+        "location": "drawer_top",
+        "pose": {
+          "frame": "drawer_top",
+          "position": [
+            0.06,
+            0.22,
+            0.0
+          ],
+          "yaw": 0.0
+        },
+        "slot": "aside_1",
+        "scan": {
+          "target_found": false,
+          "target": null,
+          "candidates": [],
+          "visible_count": 0
+        }
+      },
+      "success": false,
+      "error_code": "BAD_PARAMS",
+      "output": {
+        "slot": null,
+        "placed_pose": null
+      }
+    },
+    {
+      "case": "pose_not_finite",
+      "_comment": "x 가 NaN·Infinity·문자열이면 움직이기 전 BAD_PARAMS (JSON 에 NaN 을 못 쓰므로 문자열로 표시)",
+      "params": {
+        "location": "drawer_top",
+        "pose": {
+          "frame": "drawer_top",
+          "position": [
+            "NaN",
+            0.22,
+            0.0
+          ],
+          "yaw": 0.0
+        },
+        "scan": {
+          "target_found": false,
+          "target": null,
+          "candidates": [],
+          "visible_count": 0
+        }
+      },
+      "success": false,
+      "error_code": "BAD_PARAMS",
+      "output": {
+        "slot": null,
+        "placed_pose": null
+      }
     }
   ]
 }

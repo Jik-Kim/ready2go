@@ -57,7 +57,7 @@ class RunnerNode(Node):
         min_confidence = param("min_confidence", 0.6)   # [추정, E 확정 필요] E 음성 노드 임계값과 같게
         # 플래너 계획 스텝 제한 시간 (스킬=초). [팀 확정 필요] tasks/find_item.json 과 같은 값 (#150)
         self.plan_timeouts = _parse_timeouts(param(
-            "plan_timeouts", "open_drawer=60,close_drawer=60,pick=60,place=60,move_to_named_pose=60"))
+            "plan_timeouts", "open_drawer=60,close_drawer=60,pick=70,place=60,move_to_named_pose=60"))
         # 플래너 지원 범위 (스킬.파라미터=값|값). 기본 = 현재 실물 [문서: B skill_server.py 10/08, 팀 확정 필요]:
         # 서랍 drawer_top 만(drawer_bottom 교시 전), 집기는 서랍에서만, 놓기는 handover_zone 만. 빈 문자열 = 제한 없음(mock)
         self.plan_limits = planner.parse_limits(param(

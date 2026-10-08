@@ -9,6 +9,7 @@
 - 온톨로지 목록 참조 · 스킬 파라미터($변수) 참조가 맞는지
 """
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -37,6 +38,9 @@ def place_pose_errors(pose, frame, where):
     if not isinstance(pose, dict):
         return [f"{where} 는 {{frame, position, yaw}}"]
     errs = pose_errors({**pose, "yaw_valid": True}, where)
+    nums = list(pose.get("position") or [])[:2] + [pose.get("yaw")]
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in nums):
+        errs.append(f"{where} 의 position x·y·yaw 는 유한한 수 — 값 {nums}")
     if pose.get("frame") != frame:
         errs.append(f"{where}.frame 은 location 과 같은 서랍 ({frame}) — 값 {pose.get('frame')}")
     return errs
@@ -51,10 +55,10 @@ def place_result_errors(doc):
         loc = p.get("location")
         drawer = isinstance(loc, str) and loc.startswith("drawer_")
         if drawer:
-            if "pose" in p:
+            if ("pose" in p) == ("slot" in p) and code != "BAD_PARAMS":
+                errs.append(f"{name}: 서랍 안 놓기는 params.pose·params.slot 중 정확히 하나 — 둘 다·둘 다 없음은 BAD_PARAMS")
+            if "pose" in p and code != "BAD_PARAMS":
                 errs += [f"{name}: {m}" for m in place_pose_errors(p["pose"], loc, "params.pose")]
-            elif "slot" not in p:
-                errs.append(f"{name}: 서랍 안 놓기는 params.pose 또는 params.slot 필요")
             scan = p.get("scan")
             if code != "BAD_PARAMS":
                 if not isinstance(scan, dict):
