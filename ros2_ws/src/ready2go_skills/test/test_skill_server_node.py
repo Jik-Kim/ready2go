@@ -228,12 +228,24 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로
     log.clear()
+    cp = server.srv.prm()["drawer_open_close"]["close_push"]["drawer_top"]   # 위 칸 닫기 = 45° 기울여 앞판 중앙 밀기 [사용자 10/08]
+    start_x = [391.399, -42.000, 224.955, 90.001, -135.000, 89.992]     # 시작 자세 실측 TCP
+    real_movej = server.srv.robot.movej_async
+
+    def movej(j, v, a):
+        ok = real_movej(j, v, a)
+        if list(j) == list(cp["start_posj"]):
+            server.srv.robot.p = list(start_x)
+        return ok
+    server.srv.robot.movej_async = movej
     out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
-    assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-291.757 + 226.0 + 11.1 + 30.0, abs=1.0)   # 홈 안 거치고 손잡이 앞으로 바로
-    assert not any(e[0] == "movej" for e in log)
-    closed_y = -291.757 + 11.1 - 2.0                                    # 닫힘 TCP [실측 10/06 저녁] + 2 mm 더
+    assert out.success
+    assert log[0] == ("movej", cp["start_posj"])                        # 트레이 쪽에서 홈 안 거치고 시작 자세로 바로 (관절 이동)
+    closed_y = cp["end_posx"][1] - 2.0                                  # 닫힌 앞판에 닿는 y + 2 mm 더
     assert log[1][1][1] == pytest.approx(closed_y + 30.0, abs=0.5)      # 빠르게 → 마지막 30 mm 는 천천히 (두 번)
     assert log[2][1][1] == pytest.approx(closed_y, abs=0.5)
+    assert log[1][1][3:] == start_x[3:] and log[1][1][2] == pytest.approx(start_x[2], abs=0.5)   # 손목·높이 그대로 서랍 축(≈ y)으로만
+    assert log[1][1][0] == pytest.approx(start_x[0], abs=1.0)           # 서랍 축이 base y 에서 조금 기울어 x 는 1 mm 안
 
 
 def test_named_pose_from_low_non_drawer_spot_lifts_first(server):
@@ -742,3 +754,197 @@ def test_cancel_while_settling_does_not_resend_blend(server):
     pts = [[385.4, -135.2, 229.8, 143.0, 180.0, 143.0], [522.2, -135.2, 221.1, -179.6, -160.0, 180.0]]
     out = srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
     assert out.error_code == sf.CANCELED and len(calls) == 1
+
+
+def test_open_drawer_refused_unless_at_ready(server):
+    """#168 사용자 10/08: 열기 노드는 손잡이 앞(drawer_approach)에서만 시작 — 홈 등 다른 곳이면 그리퍼도 움직이기 전에 NOT_AT_START_POSE."""
+    server.srv.disp = {}
+    server.Gripper.width = 55.0
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})      # 가짜 로봇은 홈 관절
+    assert not out.success and out.error_code == server.ss.NOT_AT_START_POSE
+    assert server.srv.robot.log == [] and server.Gripper.width == 55.0
+
+
+def test_open_drawer_handle_not_grasped_releases_and_backs_off(server):
+    """[사용자 10/08] 손잡이를 못 잡으면 그리퍼 열고 여는 방향으로 retreat_mm 빼고 GRASP_FAILED (그 자리에 두지 않음)."""
+    srv = server.srv
+    srv.disp = {}
+    srv.robot.j = list(srv.poses()["drawer_approach"]["drawer_top"])
+    server.Gripper.holding = False                                      # 닫으면 0.9 mm = 손잡이 못 잡음
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
+    assert not out.success and out.error_code == server.ss.GRASP_FAILED
+    moves = [e for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    reach, back = moves[-2][1], moves[-1][1]
+    assert back[1] - reach[1] == pytest.approx(srv.prm()["drawer_open_close"]["retreat_mm"], abs=0.5)   # +y(여는 방향)로 60 mm
+    assert server.Gripper.width == srv.prm()["drawer_open_close"]["handle_open_width_mm"]
+
+
+def test_bottom_drawer_close_refused_until_tilted_pose_taught(server):
+    """[실측 B 10/08] 아래 칸은 수직 그리퍼 몸통이 위 서랍 앞판에 닿음 → close_push 교시 전엔 움직이지 않고 DRAWER_NOT_CONFIGURED."""
+    prm = server.srv.prm()
+    prm["drawer_open_close"]["close_push"] = dict(prm["drawer_open_close"]["close_push"], drawer_bottom=None)
+    server.srv.prm = lambda: prm
+    server.srv.disp = {"drawer_bottom": 0.226}
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == server.ss.DRAWER_NOT_CONFIGURED
+    assert server.srv.robot.log == []
+
+
+
+def test_taught_close_push_start_and_end_agree_in_x_z(server):
+    """params 의 위·아래 close_push: 시작·끝 x·z 가 close_push_xz_tol_mm 안 (아니면 실물에서 움직이기 전 거부), 손목 같음 (C +90 vs −90 섞임 방지)."""
+    oc = server.srv.prm()["drawer_open_close"]
+    for drawer in ("drawer_top", "drawer_bottom"):
+        cp = oc["close_push"][drawer]
+        s, e = cp["start_posx"], cp["end_posx"]
+        assert max(abs(s[k] - e[k]) for k in (0, 2)) <= oc["close_push_xz_tol_mm"], drawer
+        assert all(abs(s[k] - e[k]) < 1.0 for k in (3, 4, 5)), drawer
+        assert e[1] < s[1] - 200.0, drawer                               # 끝(닫힘)이 시작(열림 앞)보다 서랍 쪽(−y)으로 200 mm 넘게
+
+
+def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
+    """[사용자 10/08] 기울인(45°) 손끝으로 앞판 중앙을 y 로 밀어 닫기 (위·아래 공통): 교시한 start_posj 로 관절 이동 →
+    end_posx 를 지나 close_overtravel 만큼 밂(손목 그대로) → 여는 방향으로 빼기. 홈은 가지 않음."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, 160.0, 90.0]                    # 닫힌 앞판에 닿는 자리 (예시)
+    start_x = [381.9, -27.0, 100.0, 90.0, 160.0, 90.0]                  # 시작 자세 TCP (서랍 앞판 3 cm 앞)
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": start_x, "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = list(start_x)                                         # 시작 자세에 도착했을 때 TCP
+    out, data = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert out.success and data["close_confirmed"] is True and srv.disp["drawer_bottom"] == 0.0
+    log = [e for e in srv.robot.log if e != "stop"]
+    assert log[0] == ("movej", start)
+    pushes = [e[1] for e in log if e[0] == "movel"]
+    deepest = min(p[1] for p in pushes)
+    assert deepest == pytest.approx(end[1] - prm["drawer_control"]["close_overtravel_m"] * 1000.0, abs=0.5)
+    assert all(p[3:] == end[3:] for p in pushes[:-1])                  # 미는 동안 손목 그대로
+    assert pushes[-1][1] > deepest                                      # 마지막은 여는 방향으로 빼기
+    assert ("movej", srv.poses()["home"]["joints_deg"]) not in log
+
+
+def test_tilted_close_refuses_when_start_and_end_taught_apart(server):
+    """시작·끝 교시값의 x·z 가 close_push_xz_tol_mm(5 mm) 넘게 다르면 잘못 잰 것 → 움직이기 전 거부 (DRAWER_NOT_CONFIGURED, #181 C 리뷰).
+    start_posx 가 없어도 움직이기 전 거부."""
+    srv = server.srv
+    prm = srv.prm()
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    bottom = {"start_posj": [21.9, 39.2, 115.7, 110.1, -99.3, -23.6], "start_posx": [381.9, -27.0, 110.0, 90.0, -135.0, 90.0], "end_posx": end}   # z 10 mm 다름
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": bottom}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = [381.9, -27.0, 400.0, 90.0, -135.0, 90.0]             # 서랍 위 (홈부터 갈 자리)
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == server.ss.DRAWER_NOT_CONFIGURED
+    assert [e for e in srv.robot.log if e != "stop"] == []
+    del bottom["start_posx"]
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == server.ss.DRAWER_NOT_CONFIGURED
+    assert [e for e in srv.robot.log if e != "stop"] == []
+
+
+def test_tilted_close_stops_when_arrived_away_from_start_posx(server):
+    """start_posj 로 갔는데 TCP 가 start_posx 와 5 mm 넘게 다르면(옮겨 적다 틀림) 밀지 않고 멈춤 — 이미 움직였으므로
+    움직이기 전 코드(DRAWER_NOT_CONFIGURED)가 아닌 CLOSE_NOT_CONFIRMED (#181 C 리뷰)."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = [381.9, -27.0, 112.0, 90.0, -135.0, 90.0]             # 도착했는데 z 12 mm 다름
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == server.ss.dp.CLOSE_NOT_CONFIRMED
+    log = [e for e in srv.robot.log if e != "stop"]
+    assert log[-1] == ("movej", start) and not any(e[0] == "movel" for e in log)
+
+
+def _cancel_after_home(server):
+    """홈 이동(_named "home")이 끝난 직후 취소 요청 + 그리퍼 명령 기록. 홈 movej 뒤 로그 위치를 돌려받는 함수."""
+    srv = server.srv
+    real_named, grips = srv._named, []
+
+    def named(goal, pose_name, *a, **k):
+        o = real_named(goal, pose_name, *a, **k)
+        if pose_name == "home":
+            goal.is_cancel_requested = True                             # 홈 도착 직후 취소
+        return o
+    srv._named = named
+    srv._grip = lambda w, f: grips.append(w)
+    return grips
+
+
+def test_tilted_close_cancel_after_home_sends_no_grip(server):
+    """#181 E 리뷰: 서랍 위에서 기울여 닫기 → 홈 이동 뒤 취소면 그리퍼·다음 이동 명령 없이 CANCELED."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
+    grips = _cancel_after_home(server)
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == sf.CANCELED
+    log = [e for e in srv.robot.log if e != "stop"]
+    home = ("movej", srv.poses()["home"]["joints_deg"])
+    assert log[-1] == home and grips == []                              # 홈 movej 뒤 로봇·그리퍼 명령 없음
+
+
+def test_vertical_close_cancel_after_home_sends_no_grip(server):
+    """#181 E 리뷰: 수직 닫기도 같음 — 서랍 위에서 홈 이동 뒤 취소면 그리퍼·밀기 명령 없이 CANCELED."""
+    srv = server.srv
+    prm = srv.prm()
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": None}   # 위 칸 = 수직 방식
+    srv.prm = lambda: prm
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
+    server.Gripper.width = 0.9                                          # 닫힌 채 → 원래라면 벌리는 명령을 보냄
+    grips = _cancel_after_home(server)
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
+    assert not out.success and out.error_code == sf.CANCELED
+    log = [e for e in srv.robot.log if e != "stop"]
+    home = ("movej", srv.poses()["home"]["joints_deg"])
+    assert log[-1] == home and grips == []
+
+
+def test_nudge_and_pick_refuse_other_drawer_frame_without_motion(server):
+    """[#181 E 리뷰] 위 칸 좌표(frame drawer_top)로 아래 칸을 끌거나 집지 않음 — drawer_id 와 target.pose.frame 이 다르면 움직이기 전 BAD_PARAMS."""
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_bottom", "target": ERASER_CORNER})
+    assert not out.success and out.error_code == server.ss.sf.BAD_PARAMS
+    out, _ = server.run("pick_object", {"drawer_id": "drawer_bottom", "target": ERASER_CORNER})
+    assert not out.success and out.error_code == server.ss.sf.BAD_PARAMS
+    assert server.srv.robot.log == []
+
+
+@pytest.mark.parametrize("state", [5, 6, 9, None])
+@pytest.mark.parametrize("drawer", ["drawer_top", "drawer_bottom"])
+def test_close_after_home_safety_stop_sends_nothing_more(server, state, drawer):
+    """#181 E 재리뷰 P1: 닫기(위 = 수직, 아래 = 45°)에서 홈 이동 직후 안전정지(5)·비상정지(6)·안전정지2(9)·상태 조회 실패면
+    그리퍼·다음 이동 명령 0건 — ESTOP / STATE_UNKNOWN."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {drawer: 0.226}
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
+    server.Gripper.width = 0.9
+    real_named, grips = srv._named, []
+
+    def named(goal, pose_name, *a, **k):
+        o = real_named(goal, pose_name, *a, **k)
+        if pose_name == "home":
+            srv.robot.state = lambda: state                             # 홈 도착 직후 상태 주입
+        return o
+    srv._named = named
+    srv._grip = lambda w, f: grips.append(w)
+    out, _ = server.run("drawer_control", {"drawer_id": drawer, "state": "close"})
+    assert not out.success and out.error_code == (sf.STATE_UNKNOWN if state is None else sf.ESTOP)
+    log = [e for e in srv.robot.log if e != "stop"]
+    assert log[-1] == ("movej", srv.poses()["home"]["joints_deg"]) and grips == []
