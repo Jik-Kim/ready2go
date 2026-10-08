@@ -5,7 +5,9 @@
 
 ## 지금 상태
 
-- [문서] MeloTTS 속도1.2·사전캐시·구간 진단·중단/오류 안내는 [PR #144](https://github.com/Jik-Kim/ready2go/pull/144), 게시 head `9dd2eb8` 기준 Open·미병합입니다. 10/08 승인 범위로 최신 main `e484498`의 기록 구조와 통합하고 상태 수신 depth10·전용 상호 배제 콜백 그룹을 보완합니다. 로컬 사용자 작업 트리 보존과 PR 게시 상태를 구분합니다. 상세 구현·검증·한계는 [10/08 기록](2026-10-08_작업기록.md)을 확인하십시오.
+- [문서] 10/08 추가 승인으로 루트/Voice README에 사전 캐시 실행 순서·성공/실패 확인·로그/캐시 경로·대표 문구 청취·재합성 조건을 보완했습니다. 런타임 코드는 변경하지 않았으며 실제 합성/청취·PC2·3초는 미검증입니다.
+
+- [문서] MeloTTS 속도1.2·사전캐시·구간 진단·중단/오류 안내는 [PR #144](https://github.com/Jik-Kim/ready2go/pull/144), 게시 head `c198284` 기준 Open·미병합입니다. 10/08 승인 범위로 최신 main `e484498`의 기록 구조와 통합하고 상태 수신 depth10·전용 상호 배제 콜백 그룹을 보완합니다. 로컬 사용자 작업 트리 보존과 PR 게시 상태를 구분합니다. 상세 구현·검증·한계는 [10/08 기록](2026-10-08_작업기록.md)을 확인하십시오.
 - [문서] 현재 원본 voice.yaml은 MeloTTS·속도 1.2·wake_threshold 0.7·evaluation_mode 기본 false입니다. 시작 ROS 파라미터로 평가 모드를 선택하며, 코드/설정 반영과 실제 음성 평가 통과는 구분합니다. 실행은 [voice README](../../ros2_ws/src/ready2go_voice/README.md)를 확인하십시오.
 - [문서] 온톨로지는 공통 [manifest](../../knowledge/robot_ontology.jsonld)와 [pick](../../knowledge/skills/pick.jsonld)을 사용합니다. pick은 탑뷰·관측·nudge·탑뷰·재관측·새 target 집기의 6단계이며, 예상 target_after와 실제 재관측을 구분합니다. 상태 적용·저장은 Runner 책임입니다.
 - [문서] 문서 정합성 검토는 **수정 필요**로 [#134](https://github.com/Jik-Kim/ready2go/issues/134)에 등록하고 [Slack](https://rokey9thd-3.slack.com/archives/C0C13JMD50F/p1791372730145819)에 담당자 5명에게 전달했습니다. 담당 수락·수정 PR·main 반영·실물 완료는 미확인입니다.
