@@ -192,18 +192,6 @@ class SkillServer(Node):
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 모드 전환 중 취소됐으면 movej 를 보내지 않음
         if early:
             return early
-        view = pose_name == "drawer_top_view"
-        bad = self._leave_view(goal, keep=drawer_id if view else None)
-        if bad:
-            return bad
-        final = None
-        if view and self._at_view() is None:
-            twin = self._view_twin(joints)
-            if twin is not None:                            # 작업 방향 그대로 탑뷰 자리까지 → 제자리에서 손목만 돌림 [사용자 10/08]
-                final, joints = joints, twin
-                err = self._joint_bad(joints, f"{pose_name} 작업 방향")
-                if err:
-                    return err
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함")
@@ -252,40 +240,7 @@ class SkillServer(Node):
         reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
         if reached.success and pose_name == "home":
             self.home_posx = self.robot.posx()             # 놓기 때 서랍 → 홈 위로 높게 돌아오는 데 씀
-        if reached.success and final is not None:
-            return self._movej(goal, final, "view_wrist")
         return reached
-
-    def _view_twin(self, joints):
-        """탑뷰 관절값 → 같은 TCP 자리·같은 팔 모양에서 손목(J6)만 180° 되돌린 작업 방향 (J6 가 0 에 가까운 쪽).
-        RG2 손가락은 앞뒤 대칭이라 TCP 자리는 같고 카메라만 반대편. transit.view_wrist_flip 이 꺼져 있으면 None (탑뷰 = 작업 방향)."""
-        if not self.prm()["transit"].get("view_wrist_flip"):
-            return None
-        j = [float(v) for v in joints]
-        j[5] += 180.0 if j[5] < 0 else -180.0
-        return j
-
-    def _at_view(self):
-        """지금 관절이 어느 칸 탑뷰인지 — (drawer_id, joints) 또는 None."""
-        cur = self.robot.posj()
-        if cur is None:
-            return None
-        for d, j in (self.poses().get("drawer_top_view") or {}).items():
-            if j and sf.check_reached(j, cur, self.reach_tol).success:
-                return d, j
-        return None
-
-    def _leave_view(self, goal, keep=None):
-        """탑뷰(카메라용으로 손목만 180° 돌린 자세)에서 다른 동작 전에 제자리에서 손목만 되돌림 — 움직일 때는 늘 작업 방향
-        [사용자 10/08 "탑뷰에서만 돌려서 찍기만"]. keep = 그대로 둘 칸(같은 칸 탑뷰로 다시 갈 때). 할 일 없으면 None."""
-        at = self._at_view()
-        if at is None or at[0] == keep:
-            return None
-        twin = self._view_twin(at[1])
-        if twin is None:
-            return None
-        o = self._movej(goal, twin, "view_wrist_back")
-        return None if o.success else o
 
     def _free_vel(self, cur=None):
         """빈 공간 직선 속도 (서랍 밖으로 빼기·들고 나오기·트레이 위 올리기 등). cur 를 주면 서랍 위에서는 line_mm_s 로 —
@@ -656,9 +611,6 @@ class SkillServer(Node):
         joints, err = sf.pose_joints(self.poses(), "drawer_approach", drawer_id)
         if err:
             return err, None
-        bad = self._leave_view(goal)
-        if bad:
-            return bad, None
         cur = self.robot.posx()
         if cur is None:                                              # 높이를 모르면 그리퍼·관절 이동 전에 실패 (#83 E 검토 P1)
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함"), None
@@ -998,7 +950,7 @@ class SkillServer(Node):
         contact_z_m = size[2] + tip_v / 1000.0
         # 10/06 실물로 맞춘 순서 (scripts/b_demo.py 와 같음): 탑뷰 → 서랍 안 경유점 movej → y 를 누를 자리 y 로 →
         # 제자리 기울이기 → 누를 자리 위 start_above_mm → 누르기(오검출 대책) → 옆으로 끌기 → 올라감
-        bad = self._to_drawer_view(goal, drawer_id) or self._leave_view(goal)   # 탑뷰에서 손목 되돌린 뒤 서랍 안으로
+        bad = self._to_drawer_view(goal, drawer_id)
         if bad:
             return bad, out
         self._grip(0, 20)                                   # 누르기용으로 닫기 (탑뷰, 서랍 위 높이)
@@ -1096,7 +1048,7 @@ class SkillServer(Node):
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"])
         g, speed = prm["gripper"], prm["speed"]
-        bad = self._to_drawer_view(goal, drawer_id) or self._leave_view(goal)   # 탑뷰에서 손목 되돌린 뒤 서랍 안으로
+        bad = self._to_drawer_view(goal, drawer_id)
         if bad:
             return bad, None
         close_dir = mp.horizontal_angle_dir(plan.long_axis_deg + 90.0)

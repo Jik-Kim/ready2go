@@ -646,36 +646,6 @@ def test_into_drawer_waypoint_uses_slow_joint_speed(server):
         assert speeds[tuple(view)] == (90.0, 60.0)                       # 탑뷰는 큰 이동 속도
 
 
-def test_top_view_turns_wrist_only_in_place(server):
-    """[사용자 10/08 "탑뷰에서만 돌려서 찍기만"] 탑뷰는 카메라용으로 손목(J6)만 180° — 작업 방향으로 그 자리까지 간 뒤 제자리에서 돌리고,
-    이미 탑뷰면 다시 돌리지 않고, 떠날 때는 제자리에서 먼저 되돌림."""
-    srv, r = server.srv, server.srv.robot
-    view = srv.poses()["drawer_top_view"]["drawer_top"]
-    twin = list(view[:5]) + [view[5] + 180.0]
-    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
-    movej = lambda: [e[1] for e in r.log if e[0] == "movej"]
-    assert srv._named(goal, "drawer_top_view", "drawer_top").success
-    assert movej()[-2:] == [pytest.approx(twin), pytest.approx(view)]
-    r.log.clear()
-    assert srv._named(goal, "drawer_top_view", "drawer_top").success
-    assert all(j != pytest.approx(twin) for j in movej())
-    r.log.clear()
-    assert srv._named(goal, "home").success
-    assert movej()[0] == pytest.approx(twin) and movej()[-1] == pytest.approx(srv.poses()["home"]["joints_deg"])
-
-
-def test_pick_from_top_view_turns_wrist_back_before_going_in(server):
-    """탑뷰(손목 돌린 자세)에서 집기: 서랍 안 경유점으로 가기 전에 제자리에서 손목부터 되돌림 — 움직이는 동안은 작업 방향."""
-    srv, r = server.srv, server.srv.robot
-    view = srv.poses()["drawer_top_view"]["drawer_top"]
-    r.j = list(view)
-    r.p = [352.639, -123.713, 366.428, 164.218, -179.985, -15.810]
-    server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-    js = [e[1] for e in r.log if e[0] == "movej"]
-    assert js[0] == pytest.approx(list(view[:5]) + [view[5] + 180.0])
-    assert js[1] == pytest.approx(srv.poses()["drag_down"]["drawer_top"])
-
-
 def test_settle_timeout_stops_and_fails_instead_of_sending_next(server):
     """#139 PM 리뷰: 관절 이동 뒤 2 s 안에 멈추지 않으면 다음 명령을 보내지 않고 정지 + 정지 확인 뒤 실패."""
     srv = server.srv
