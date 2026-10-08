@@ -383,8 +383,9 @@ class SkillServer(Node):
         """wait_motion arrived: 관절각이 목표와 reach_tol 안. 조회 실패면 False."""
         return lambda: sf.check_reached(joints, self.robot.posj(), self.reach_tol).success
 
-    def _line(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0, radius=0.0):
-        """직선 이동 1회 (자동 모드 → 취소 확인 → 비동기 명령 → 끝날 때까지, 좌표로 판단 _wait_pose). 성공이면 None, 아니면 Outcome."""
+    def _line(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0, radius=0.0, resend=True):
+        """직선 이동 1회 (자동 모드 → 취소 확인 → 비동기 명령 → 끝날 때까지, 좌표로 판단 _wait_pose). 성공이면 None, 아니면 Outcome.
+        resend: 출발하지 않은 명령을 한 번 다시 (_send_wait). 접촉 감시(watch)·아주 느린 직선(_line_slow)은 다시 보내지 않음."""
         goal.publish_feedback(Skill.Feedback(stage=stage))
         if not self.robot.auto():
             return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
@@ -393,14 +394,38 @@ class SkillServer(Node):
             return early
         sp = self.prm()["speed"]                          # 부드럽게: 가속 = 속도(1 s에 최고 속도), 회전 따로 (10/06 기울일 때 쿵쿵)
         kw = {"radius": radius} if radius > 0 else {}
-        bad = sf.after_command(self.robot.movel_async(posx, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
-                                                      sp["turn_acc_deg_s2"], **kw), what=f"movel({stage})",
-                               stop=self.robot.stop, get_state=self.state)
-        if bad:
+        start = self.robot.posx() if resend and watch is None else None
+
+        def send():
+            early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+            if early:
+                return early
+            return sf.after_command(self.robot.movel_async(posx, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
+                                                           sp["turn_acc_deg_s2"], **kw), what=f"movel({stage})",
+                                    stop=self.robot.stop, get_state=self.state)
+
+        def wait():
+            if radius > 0:                                  # 이어서 갈 이동: 끝 radius 안에 들어오면 바로 돌려줌 (멈추지 않음) [사용자 10/07]
+                return self._wait_pose(goal, posx, vel, stage, watch, tol_mm=radius, tol_deg=180.0, settle_s=0.0)
+            return self._wait_pose(goal, posx, vel, stage, watch, tol_mm, tol_deg)
+        return self._send_wait(goal, send, wait, start, posx, stage)
+
+    def _send_wait(self, goal, send, wait, start, end, stage):
+        """보내고 끝까지. 받기만 하고 출발하지 않으면(start 에서 1 mm·0.5° 안에 선 NOT_REACHED, 목표는 2 mm 넘게 떨어짐)
+        멈춘 걸 확인하고 한 번만 다시 — 앞 이동이 끝날 무렵 보낸 명령이 실행되지 않음
+        [실측 10/07 밤 PC2 drag_down 뒤 moveb, 10/08 아침 놓기 트레이 위 도착 뒤 lower_fast 남은 73.6 mm]. start None = 다시 보내지 않음.
+        방향도 본다: 위치는 그대로인데 돌기만 하다 선 이동은 출발한 것 — 다시 보내지 않음 [#156 E 리뷰 P2].
+        방향은 회전 행렬로 비교해 같은 자세의 다른 표기(B 180° 에서 A·C 가 함께 바뀜)는 같은 방향으로 봄."""
+        bad = send() or wait()
+        if bad is None or bad.error_code != sf.NOT_REACHED or start is None:
             return bad
-        if radius > 0:                                      # 이어서 갈 이동: 끝 radius 안에 들어오면 바로 돌려줌 (멈추지 않음) [사용자 10/07]
-            return self._wait_pose(goal, posx, vel, stage, watch, tol_mm=radius, tol_deg=180.0, settle_s=0.0)
-        return self._wait_pose(goal, posx, vel, stage, watch, tol_mm, tol_deg)
+        now = self.robot.posx()
+        if (now is None or math.dist(now[:3], start[:3]) >= 1.0
+                or pm.rotation_angle(pm.rot(*now[3:6]), pm.rot(*start[3:6])) >= 0.5
+                or math.dist(start[:3], [float(v) for v in end[:3]]) < 2.0):
+            return bad
+        self.get_logger().warn(f"[{stage}] 이동이 출발하지 않음 — 한 번 다시 보냄 ({bad.reason})")
+        return self._settle(goal) or send() or wait()
 
     def _wait_pose(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0, settle_s=0.1, still_s=1.0,
                    still_mm=0.05, still_deg=0.05):
@@ -457,7 +482,7 @@ class SkillServer(Node):
 
     def _line_slow(self, goal, posx, vel, stage, watch=None):
         """아주 느린 직선 (누르기 1 mm/s, 힘 맞추기 0.1 mm) — 도착 판정 0.05 mm."""
-        return self._line(goal, posx, vel, stage, watch, tol_mm=0.05, tol_deg=0.5)
+        return self._line(goal, posx, vel, stage, watch, tol_mm=0.05, tol_deg=0.5, resend=False)
 
     def _where(self, done, stage, posx):
         """NOT_REACHED 이유에 단계·멈춘 곳·남은 거리를 붙인다 (10/06 저녁 nudge NOT_REACHED 0.3 s — 어느 이동인지 로그로 몰랐음)."""
@@ -513,13 +538,7 @@ class SkillServer(Node):
             return sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
                                                            sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
                                     stop=self.robot.stop, get_state=self.state)
-        bad = send() or self._wait_pose(goal, points[-1], vel, stage)
-        now = self.robot.posx() if bad is not None and bad.error_code == sf.NOT_REACHED else None
-        if now is not None and start is not None and math.dist(now[:3], start[:3]) < 1.0:
-            # 받기만 하고 출발하지 않음 (앞 이동 끝 무렵에 보냄 [실측 10/07 밤]) → 멈춘 걸 확인하고 한 번만 다시
-            self.get_logger().warn(f"[{stage}] 블렌딩이 출발하지 않음 — 한 번 다시 보냄 ({bad.reason})")
-            bad = self._settle(goal) or send() or self._wait_pose(goal, points[-1], vel, stage)
-        return bad
+        return self._send_wait(goal, send, lambda: self._wait_pose(goal, points[-1], vel, stage), start, points[-1], stage)
 
     def _carry_route(self, drawer_id):
         """poses.yaml carry_line 경유점 posx (집은 뒤 → 트레이 직선 블렌딩). 없으면 None (예전 carry_out movesj)."""
