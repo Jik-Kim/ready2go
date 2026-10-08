@@ -29,6 +29,8 @@ region:
                                # → 0.025 (처음 0.04 는 그리퍼 손끝 36 mm 를 통과시켜 PM 검토로 낮춤). 그 뒤 footprint 검사(edge_tolerance_m)는 그대로
 detector:
   conf_min: 0.25               # 이보다 낮은 검출은 버린다
+dedup:
+  min_overlap: 0.6             # 분할 모델: 같은 클래스 두 검출의 마스크 겹친 넓이 / 작은 쪽 넓이가 이 이상이면 같은 물체로 합침 [팀 확정 필요]. 박스 모델은 병합 안 함 (#109)
 policy:
   on_invalid_candidate: fail   # fail: 뎁스가 쓸 수 없는 검출이 하나라도 있으면 전체 DEPTH_INVALID (안전 우선) / skip: 그 검출만 제외
 floor_probe:                   # 진단 로그 전용 (결과에 쓰지 않음): 카메라로 본 서랍 바닥 z. #83 원점 −3 mm 뒤 카메라·터치 약 3 mm 차이 원인 확인용
