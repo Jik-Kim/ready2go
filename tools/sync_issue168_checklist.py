@@ -439,7 +439,7 @@ def apply_changes(
         {
             "range": f"'{SYNC_METADATA_SHEET}'!{SYNC_METADATA_RANGE}",
             "majorDimension": "ROWS",
-            "values": [["마지막 YAML 동기화 SHA", source_sha, "동기화 시각(KST)", synced_at]],
+            "values": [["YAML SHA", source_sha, "동기화(KST)", synced_at]],
         }
     )
     payload = {
@@ -490,7 +490,7 @@ def git_sha() -> str:
 
 
 def sync_timestamp() -> str:
-    return datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="seconds")
+    return datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
 
 
 def build_parser() -> argparse.ArgumentParser:
