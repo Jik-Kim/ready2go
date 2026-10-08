@@ -47,8 +47,12 @@ def pose_errors(pose: dict, where: str = "pose") -> list[str]:
     return errs
 
 
+OCCLUSION_KEYS = ("occluded_by", "visible_area_m2")
+
+
 def occlusion_errors(it: dict, ids: set, where: str) -> list[str]:
-    """가림 필드(P2, #120 — 계약 초안): 없거나 null 이면 '모름'. occluded_by = 같은 결과 안의 다른 물체 id 목록, visible_area_m2 >= 0."""
+    """가림 필드(P2, #169·runner.md 7.1): null 이면 '모름'. occluded_by = 같은 결과 안의 다른 물체 id 목록, visible_area_m2 >= 0.
+    필드가 있는지(분할 모델은 모든 물체, 박스 모델은 결과 전체에 없음)는 result_errors 가 본다."""
     errs = []
     occ = it.get("occluded_by")
     if occ is not None:
@@ -101,6 +105,10 @@ def result_errors(result: dict) -> list[str]:
         if it is not None:
             errs += pose_errors(it.get("pose", {}), f"{name}.pose")
             errs += occlusion_errors(it, ids, name)
+    present = [(name, [k for k in OCCLUSION_KEYS if k in it]) for name, it in items if it is not None]
+    if any(keys for _, keys in present):            # 분할 모델: 모든 물체에 두 필드, 박스 모델: 결과 전체에 없음 (#120 C 동의)
+        errs += [f"{name} 에 가림 필드 {', '.join(k for k in OCCLUSION_KEYS if k not in keys)} 없음 — 한 결과는 모든 물체에 두 필드(분할 모델) 또는 전부 없음(박스 모델)"
+                 for name, keys in present if len(keys) < len(OCCLUSION_KEYS)]
     cycle = occlusion_cycle([it for _, it in items if it is not None])
     if cycle:
         errs.append(f"occluded_by 관계가 순환함 (맨 위 물체를 정할 수 없음): {' → '.join(cycle)}")

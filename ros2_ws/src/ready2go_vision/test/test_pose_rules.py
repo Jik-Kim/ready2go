@@ -90,13 +90,24 @@ def _occ_result(target_occ, cand_occ, area=0.0012):
 
 
 def test_occlusion_fields_are_optional_and_null_means_unknown():
-    """가림 필드(#120): 없거나 null 이면 '모름' — 기존 결과·박스 모델은 그대로 통과."""
+    """가림 필드: null 이면 '모름', 결과 전체에 없으면 박스 모델 — 기존 결과·박스 모델은 그대로 통과."""
     assert result_errors(_occ_result(["lip_balm#1"], [])) == []
     assert result_errors(_occ_result(None, None, area=None)) == []
     r = _occ_result([], [])
     for it in [r["target"], *r["candidates"]]:
         del it["occluded_by"], it["visible_area_m2"]
     assert result_errors(r) == []
+
+
+@pytest.mark.parametrize("drop", [("occluded_by", "visible_area_m2"), ("visible_area_m2",), ("occluded_by",)])
+def test_partial_occlusion_fields_are_rejected(drop):
+    """분할 모델은 모든 물체에 두 필드, 박스 모델은 결과 전체에 없음 (#120 A 제안 (가)·C 동의) — 일부 물체만 빠지면 거부.
+    C select_obstacle 은 한 물체라도 필드가 있으면 분할 모델로 보고 빠진 물체를 '모름'으로 다룬다."""
+    r = _occ_result([], [])
+    for k in drop:
+        del r["candidates"][0][k]
+    errs = result_errors(r)
+    assert len(errs) == 1 and "candidates[0] 에 가림 필드" in errs[0] and all(k in errs[0] for k in drop)
 
 
 @pytest.mark.parametrize("target_occ, cand_occ, area, msg", [
@@ -123,7 +134,7 @@ def test_example_shows_occluded_unknown_and_free():
 def test_occlusion_three_way_cycle_is_rejected_and_chain_is_ok():
     def it(i, occ, top):
         return {"id": i, "class": i.split("#")[0], "pose": {"frame": "drawer_top", "position": [0.1, 0.1, 0.0], "yaw": 0.0, "yaw_valid": True},
-                "top_z": top, "occluded_by": occ}
+                "top_z": top, "occluded_by": occ, "visible_area_m2": 0.002}
     chain = {"target_found": True, "target": it("eraser#1", ["car_key#1"], 0.0115),
              "candidates": [it("toy_hammer#1", [], 0.04), it("car_key#1", ["toy_hammer#1"], 0.03)], "visible_count": 3}
     assert result_errors(chain) == []                             # 망치 → 차키 → 지우개: 맨 위 = 망치
