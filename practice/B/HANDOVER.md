@@ -48,7 +48,10 @@
    - **`.env` `DDS_MODE=local` 이어야 함** — `multi` 면 카메라 컨테이너가 호스트(local)와 안 만나 `wrist_cam` 토픽이 안 보임 [실측 10/08]. 고치기: `sed -i 's/^DDS_MODE=.*/DDS_MODE=local/' .env` (A 가 PC1 에서 원격으로 쓰는 중이면 먼저 알림).
 2. 터미널마다 `r2genv` 먼저: t1 `roboton` / t2 `docker compose --profile real up -d --force-recreate realsense` → `docker compose logs -f realsense` (`Motion Module force pause` 경고는 IMU 미사용이라 무시 [추정]) / t3 `r2gjog` / t4(인식 쓸 때만) 손목–카메라 TF(아래 명령) / t5 작업(지그와 동시 명령 금지).
 3. 확인(t5): `ros2 topic list | grep -c wrist_cam`(0 아님) · `ros2 topic hz /wrist_cam/color/image_raw`(약 30 Hz) · `ros2 service list | grep -c dsr01`(0 아님). 첫 동작 전 홈·서랍 닫힘·빈손, 새 동작은 저속.
-4. 끝: 홈·서랍 로봇으로 닫기 → t5·t3·t1 Ctrl+C → `docker compose stop realsense`.
+4. 끝: 홈·서랍 로봇으로 닫기 → 스킬 서버·t3·t1 Ctrl+C → `docker compose stop realsense` (비전 켰으면 `docker rm -f vision_check`).
+- **우리 노드 하나씩 시험 (`B` 명령)** [사용자 10/08]: 처음 한 번 `~/.bashrc` 에 `B() { ( source /opt/ros/jazzy/setup.bash; source ~/cobot2_ws/install/setup.bash; source ~/r2g_host/install/setup.bash; python3 ~/ready2go/ros2_ws/src/ready2go_skills/scripts/b_sk.py "$@" ); }` 등록 + `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh build`(~/r2g_host).
+  - 아래 칸 스킬 서버 `VEL=30 JACC=20 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server`(켜 둠, 지그 끔) / 명령 칸 `rm -f /tmp/b_target_scan.json /tmp/b_target_after.json`(예전 인식 결과 지움) → `ros2 action list | grep skills` 5개.
+  - 순서(find_item 과 같음): `B home` → `B open` → `B view` → `B scan` → `B nudge` → `B view` → `B pick` → `B place` → `B close` → `B home`. `B <명령>` = `b_sk.py goal_for()` 가 `/skills/<노드>` 액션을 보냄(Runner 와 같은 요청) → 스킬 서버(우리 노드) 실행. `B scan` 은 A 비전(없으면 고정 좌표 (27.5, 290.4) mm). **`b_flow.sh view` 는 쓰지 않음**(서버 없이 바로 관절 이동하는 다른 도구).
 
 **호스트 상태에서 교시·비전 확인 (10/08 오후 쓴 방식, 컨테이너 `ros2-core` 끔)**
 - 터미널: `roboton`(호스트 드라이버) / `r2gjog`(지그) / 카메라 `bash tools/dev/vision_real_check.sh camera`(컨테이너, `/wrist_cam`) / 손목–카메라 TF:
