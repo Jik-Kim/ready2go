@@ -66,6 +66,7 @@ DRAWER_STATE_UNKNOWN = "DRAWER_STATE_UNKNOWN"    # 서버가 인출 거리를 �
 DRAWER_ALREADY_OPEN = "DRAWER_ALREADY_OPEN"
 OTHER_DRAWER_OPEN = "OTHER_DRAWER_OPEN"        # 서랍은 한 번에 하나만 엶 (위·아래가 겹쳐 접근·시야를 막음)
 GRIPPER_ERROR = "GRIPPER_ERROR"
+NOT_AT_START_POSE = "NOT_AT_START_POSE"    # 노드 시작 자세가 아님 → 움직이기 전 거부 (노드 안에서 시작 자세로 알아서 가지 않음, #168)
 
 
 def find_config_dir():
@@ -615,34 +616,14 @@ class SkillServer(Node):
         joints, err = sf.pose_joints(self.poses(), "drawer_approach", drawer_id)
         if err:
             return err, None
-        cur = self.robot.posx()
-        if cur is None:                                              # 높이를 모르면 그리퍼·관절 이동 전에 실패 (#83 E 검토 P1)
-            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함"), None
-        self._grip(oc["handle_open_width_mm"], 20)
-        # Runner 의 open_drawer 는 move_to_named_pose(drawer_approach) 를 먼저 보냄 → 이미 ready 면 다시 올렸다 내리지 않음 (10/06 통합 실물)
+        # 시작 자세 = 손잡이 앞(ready, drawer_approach) — Runner open_drawer 가 move_to_named_pose(drawer_approach) 를 먼저 보냄.
+        # 노드 안에서 ready 로 알아서 가지 않음(숨은 이동 없음, #168 사용자 10/08). 아니면 그리퍼도 움직이기 전에 거부.
+        if self.robot.posx() is None:                                # 좌표를 모르면 그리퍼 전에 실패 (#83 E 검토 P1)
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 시작 자세 확인 못 함"), None
         if not sf.check_reached(joints, self.robot.posj(), self.reach_tol).success:
-            if cur[2] < self.prm()["transit"]["safe_z_mm"]:              # 낮은 곳에서 바로 관절 이동하지 않음
-                bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), self._free_vel(cur), "lift")
-                if bad:
-                    return bad, None
-            goal.publish_feedback(Skill.Feedback(stage="approach"))
-            err = self._joint_bad(joints, "drawer_approach 목표")
-            if err:
-                return err, None
-            if not self.robot.auto():
-                return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
-            bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej(drawer_approach)",
-                                   stop=self.robot.stop, get_state=self.state)
-            if bad:
-                return bad, None
-            done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                                  stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints),
-                                  watch=self._joint_watch())
-            if not done.success:
-                return done, None
-            reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
-            if not reached.success:
-                return reached, None
+            return sf.Outcome(False, NOT_AT_START_POSE,
+                              reason="손잡이 앞(drawer_approach)에서 시작 — 먼저 move_to_named_pose(drawer_approach)"), None
+        self._grip(oc["handle_open_width_mm"], 20)
         handle = mp.offset_posx(mp.handle_posx(closed, pull, disp), pull, oc["handle_grasp_back_mm"])   # 실측보다 조금 덜 들어감
         reach_f = self._tare()
 
@@ -665,9 +646,13 @@ class SkillServer(Node):
                 if now else sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
             return sf.worse(bad, back), None
         st = self._grip(0, oc["handle_grip_force_n"])
-        if st.width_mm / 1000.0 <= oc["handle_min_width_m"]:
+        if st.width_mm / 1000.0 <= oc["handle_min_width_m"]:     # 못 잡음 → 그리퍼 열고 접근 실패와 같은 자리(60 mm 뒤)로 빼고 멈춤 [사용자 10/08]
             self._grip(oc["handle_open_width_mm"], 20)
-            return sf.Outcome(False, GRASP_FAILED, reason=f"손잡이를 못 잡음 (폭 {st.width_mm:.1f} mm)"), None
+            failed = sf.Outcome(False, GRASP_FAILED, reason=f"손잡이를 못 잡음 (폭 {st.width_mm:.1f} mm)")
+            now = self.robot.posx()
+            back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat") \
+                if now else sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
+            return sf.worse(failed, back), None
         start = self.robot.posx()
         base_f = self._tare()
         target = mp.offset_posx(handle, pull, distance * 1000.0)
