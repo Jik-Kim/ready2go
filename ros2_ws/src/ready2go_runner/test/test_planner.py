@@ -98,6 +98,18 @@ def test_holding_item_is_put_down_before_other_work():
     assert r.status == pl.PLANNED and r.steps[0].skill == "place" and r.steps[0].params["item"] == "eraser"
 
 
+def test_goal_to_hold_item_uses_tray_as_staging_to_close_drawer():
+    """'립밤을 쥔 채로 끝내기': 쥔 채로는 서랍을 못 닫으므로 트레이에 잠깐 놓고 서랍을 닫은 뒤 다시 집는 순서를 스스로 찾음."""
+    r = pl.plan(state(), ONTO, [goal("lip_balm", "gripper")])
+    assert labels(r) == ["open_drawer(drawer_top)", "pick(lip_balm, drawer_top)", "place(lip_balm, handover_zone)",
+                         "close_drawer(drawer_top)", "pick(lip_balm, handover_zone)"]
+
+
+def test_no_skill_closes_a_tray_so_unplannable():
+    r = pl.plan(state(), ONTO, [goal("handover_zone", False, "open")])
+    assert r.status == pl.UNPLANNABLE and "깊이 8" in r.reason
+
+
 def test_deterministic_and_input_state_unchanged():
     s = state(lip_balm="handover_zone")
     before = copy.deepcopy(s)
