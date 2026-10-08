@@ -34,6 +34,14 @@
 - `main`은 PR로만 반영한다. 요청받지 않은 push·PR 생성은 하지 않는다. PR 본문에는 아래 로컬 CI 결과 줄을 붙인다.
 - 작업이 끝나면 `practice/<담당>/CURRENT.md`를 갱신한다.
 
+## 영역별 검증 명령
+| 바꾼 곳 | 실행 |
+| :--- | :--- |
+| `contracts/`, `knowledge/`, `tasks/` | `python3 tools/validate_contracts.py` |
+| 패키지 `core/` | `python3 -m pytest ros2_ws/src -q` |
+| ROS 패키지 전체 | `cd ros2_ws && colcon build --symlink-install && colcon test` |
+| `compose.yaml`, `docker/` | `docker compose --profile dev config -q` (real·sim도 동일) |
+
 ## PR 올리기 전 — 로컬 CI (GitHub Actions `ci` 비활성화 중)
 Actions 무료분 소진으로 `ci` 워크플로를 비활성화했다(10/08, 11/1 초기화 뒤 재검토). 그동안 PR 작성자(사람·에이전트)는 PR head 기준으로 아래를 돌리고 **마지막 결과 한 줄을 PR 본문 `근거`에 붙인다**. 커밋을 더 올리면 다시 돌린다.
 

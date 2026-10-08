@@ -2,7 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
-- **2026-10-08 PM 로컬 CI 안내를 AGENTS.md로**: `CLAUDE.md`에만 있던 "PR 올리기 전 — 로컬 CI" 절을 `AGENTS.md`로 옮김(Codex 등 `AGENTS.md`만 읽는 에이전트도 같은 규칙). `CLAUDE.md`는 링크만. 내용 변경 없음.
+- **2026-10-08 PM 검증 안내를 AGENTS.md로**: `CLAUDE.md`에만 있던 "영역별 검증 명령" 표와 "PR 올리기 전 — 로컬 CI" 절을 `AGENTS.md`로 옮김(팀에서 Codex를 쓰는 에이전트는 `AGENTS.md`만 읽음, 사용자 결정). `CLAUDE.md`는 `AGENTS.md`를 읽으라는 안내만, PR 템플릿 체크 문구도 `AGENTS.md`로. 명령·규칙 내용 변경 없음.
 - **2026-10-08 PM 로컬 CI**: GitHub Actions 무료분 소진으로 `ci` 워크플로 비활성화(사용자 결정, 11/1 초기화). 같은 세 작업을 이 PC에서 돌리는 `tools/dev/ci_local.sh <PR|브랜치|SHA>` 추가 — 임시 worktree·임시 MongoDB 7.0·`ros:jazzy-ros-base-noble`, 결과 한 줄을 PR 본문에 붙임. `CLAUDE.md` 검증 절·PR 템플릿 근거 칸 갱신. 코드·계약 변경 없음.
 - **2026-10-08 C 문서 정본화 (#134·#180 C 항목 12~18)**: `runner.md`·`planner.md`·`interfaces.md`·`contracts/README.md`의 의미·정책·Phase 설명을 `requirements.md` 정본 링크로 바꾸고 병합 상태(#166·#169·#176)·미구현(플래너 실행 중 재계획, 로그 `states`·`post_check`, 재개 운영 연결)을 표시. 정본 3.3에 맞춰 `select_obstacle` 대안 ③은 위에 아무것도 없다고 확인된 후보만(`null`·덮인 후보 안 고름). 계약 형식 변경 없음.
 - **2026-10-08 요구사항 정본화** [문서]: 사용자 승인으로 P1·P2·P3의 의미·정책·책임·Phase·수용 기준을 requirements.md에 모으고 공통/E 문서를 FR/AC 링크 참조로 정리했습니다. 기존 #109 가림·추적 결정과 AC-VIS-02 지표 의미, 음성/물품 정책, FR-SAF-03 중단 스킬 재개 경계를 명시했습니다. 실행 원본·코드·계약은 변경하지 않았습니다. AGENTS.md에 중복 정의 금지·실행 원본 참조 규칙을 추가하고 CLAUDE.md는 규칙 참조를 유지합니다. 타 담당 문서의 중복·충돌은 전달용 인계 목록에 분리했으며 담당 반영·계약 승인·실물 완료는 남습니다. 기존 날짜별 기록·설치 명령·실측 결과는 보존했습니다.
