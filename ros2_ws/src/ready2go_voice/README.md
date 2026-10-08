@@ -1,7 +1,7 @@
 # ready2go_voice
 
 - **담당**: E 고희태. 웨이크워드·STT·P1 단일 물품 LLM 해석/검증·규칙 폴백·TTS.
-- **정본**: [requirements.md](../../../docs/requirements.md)의 FR-INT-01~03(P1), AC-INT-01~03. [voice_llm.md](../../../docs/voice_llm.md)·[interfaces.md](../../../docs/interfaces.md)·[ontology.md](../../../docs/ontology.md)는 연결 참조입니다.
+- **정본**: [requirements.md](../../../docs/requirements.md)의 [FR-INT-01–03](../../../docs/requirements.md#fr-int-01)·[음성 정책](../../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../../docs/requirements.md#ac-int-01), P2 [FR-SAF-01–03](../../../docs/requirements.md#fr-saf-01), P3 [FR-INT-02](../../../docs/requirements.md#fr-int-02). 의미·정책·책임·Phase·수용 기준을 이 문서에서 재정의하지 않습니다. [voice_llm.md](../../../docs/voice_llm.md)·[interfaces.md](../../../docs/interfaces.md)·[ontology.md](../../../docs/ontology.md)는 연결 참조입니다.
 - [문서] 이 패키지 구현과 실제 장치/API·C 수신·D 평가 완료는 구분합니다. P2 목표 계획/BFS, P3 목록, 새 OntologyManager, 실행 상태 저장소/DB 로거는 구현 범위 밖입니다.
 
 ## 현재 구현과 파일 역할
@@ -26,11 +26,8 @@
 - 실제 웨이크/STT 평가는 장치/모델을 준비한 설정 복사본의 `audio_enabled: true`와 시작 인자 `-p evaluation_mode:=true`로 수행합니다. YAML의 evaluation_mode만 true로 바꾸는 것은 노드의 시작 기본값을 바꾸지 않습니다.
 - 실행 모드는 기본값 또는 `-p evaluation_mode:=false`로 시작합니다. 기존 확인 TTS·취소·무발화·실패·중복 게이트를 유지하며, 실제 C 수신·모션·안전·태스크 연결은 별도 확인 대상입니다.
 - 텍스트 override는 같은 파서의 디버깅 입력이며 실제 웨이크/STT 평가를 대신하지 않습니다.
-- 사용자 확정 정책은 대상 단독·대명사·대상불명 요청을 `clarify`, 빈 targets, 실행 보류로 처리하는 것입니다. 기존 `bare_item_policy: clarify` 설정은 유지하며 충돌하는 `unknown` 설정은 거절합니다. 미사용 `request_patterns`는 설정 호환을 위해 유지하되 실행 판단에 사용하지 않습니다. D 첨부의 E/D 승인 완료를 뜻하지 않습니다.
-- 이름·별칭이 직접 확인되지 않은 LLM 대상은 `clarify`, 빈 targets, 실행 보류로 처리합니다. 정상 LLM 경로는 특정 문장 전체 정규식이나 평가40개에 한정하지 않고, 등록된 단일 물품을 받기/가져오기 위한 요청 의미를 해석합니다. 사용자 승인 `지우개 좀`, `지우개 좀.`, `지우개 좀요`는 축약 부탁이며 모든 등록 이름·별칭에 같은 정책을 적용합니다. `혹시 지우개를 받을 수 있을까요?`처럼 폴백 문형 밖 표현도 정상 LLM 결과와 공통 검증을 통과하면 실행 후보입니다. 대상 단독 `지우개`와 대상불명 `그거 좀`은 계속 clarify입니다.
-- 선제 보류는 빈 발화·단독 대상·다중/충돌 별칭·대상불명 및 명백한 부정·정보 질문·인용·불명확 문맥·미지원 행동에 적용합니다. 결과 검증에서는 기존 스키마·P1 허용값·등록 단일 대상·발화 대상 일치·유한 확신도/최소값을 확인합니다. find_item에는 요청/필요/받기/축약 부탁의 단서도 필요하며 이름만이나 단서만으로 실행하지 않습니다. 전체 문형 일치를 정상 LLM 결과에 다시 요구하지 않습니다. 자유 한국어 문맥 전체의 안전·정확성을 보장하는 의미 검사기는 아니며 실제 평가가 필요합니다.
+- 요청 수용·보류·평가의 의미는 [음성 정책](../../../docs/requirements.md#voice-policy)을 참조합니다. 현재 `core/intent.py`·`adapters/api.py`는 선제 보류·LLM 후보 검증·좁은 규칙 폴백을 제공하며 `bare_item_policy` 검사와 미사용 `request_patterns` 호환 설정을 유지합니다. 정상 LLM과 오류 후 폴백은 서로 다른 경로입니다. 자유 한국어 전체의 판별을 보장하지 않으며 알려진 결함은 아래와 같습니다.
 - [실측: 모의] 비요청 발화의 실행 후보 통과 결함은 미해결입니다. “지우개 가져다주면 안 돼”, “지우개 빼고 다른 것 가져줘”에 잘못된 LLM find_item(eraser)을 주입하면 `execution_allowed=true`가 됩니다. 위 보류 정책이 모든 부정·제외 문맥에서 구현됐다는 뜻은 아닙니다. 실제 발행·로봇 실행을 확인한 결과는 아니며, 판별 코드·회귀 검사의 별도 수정이 필요합니다. D의 모션 없는 평가에는 `evaluation_mode:=true`를 명시합니다.
-- 오류·시간 초과·검증 실패 또는 LLM 없음의 규칙 폴백은 기존 긍정 **문장 전체** 문형과 승인된 단일 대상+좀/좀요만 수용합니다. 정규식 밖의 이름 있는 표현은 clarify, 미등록은 unknown으로 보류합니다. 정상 LLM unknown/clarify를 폴백 find_item으로 덮어쓰지 않습니다. 찾기/꺼내기→가져오기·건네기·전달 트레이에 놓기의 기존 흐름은 유지하며, 부정·인용을 삭제하지 않습니다. 직접 손 전달·다른 목적지·반납·정리·던지기·다중 요청은 보류합니다.
 - 기본 `confirmation_enabled: true`는 음성 확인 재생 성공 뒤 find_item 발행을 허용합니다. 실패하면 clarify로 보류합니다. C의 태스크 시작/기존 speak와 중복 안내 책임은 C/E가 맞춰야 합니다.
 - cancel/status는 발화·설정 문구의 끝 `. ! ? 。 ！ ？`만 정규화하여 정확 비교합니다. `멈춰.`, `취소!`, `지금 뭐 해?`는 API/처리 큐를 거치지 않는 텍스트 제어 경로에서도 처리하며, 부정·문장 중간 문맥은 제거하지 않습니다.
 - 실행 모드의 동일 find_item은 중복 시간창 안에서 TTS 전에 보류합니다. 중복 조회는 기록을 바꾸지 않으며 `/voice/intent` 발행 호출이 정상 반환한 뒤에만 기록합니다(C 수신·실행 성공 확인을 뜻하지 않습니다). TTS 실패·취소·시간 초과·발행 예외는 find_item을 소비하지 않아 재시도할 수 있습니다. 평가 모드는 동일 입력도 TTS/진단을 반복하고 모든 intent 발행을 금지합니다. unknown/clarify의 안내 및 기존 발행 중복 정책은 유지합니다. 무발화/VAD 검사 보류는 실행 모드에서도 intent를 발행하지 않습니다.
@@ -38,7 +35,7 @@
 - STT/LLM 각각 단일 작업 슬롯과 SDK timeout/max_retries=0을 적용합니다. 늦은 결과는 폐기하며 후속 요청에 추가 발행하지 않습니다. 이미 끝나지 않은 작업이 있으면 새 API 작업을 쌓지 않고 보류/폴백합니다.
 - `recording_mode: fixed`, `record_duration_sec: 5.0`, `timing_mode: commissioning`은 원본 기반 기능 시운전 기본입니다. 16kHz/int16/mono 80,000프레임을 녹음하며 웨이크 스트림을 닫은 뒤 같은 입력으로 새 sd.rec 스트림을 엽니다. `VOICE_MIC_DEVICE`→명시 input_device→16kHz 입력 자동 선택→기본 장치 순으로 한 번 정한 입력을 공유합니다. 시운전 API 상한은 STT/LLM 각각30초 제안값이고 늦은 결과 폐기·취소·평가 발행 금지는 유지합니다. commissioning의 API/녹음 설정은 실행·평가 모드 모두에서 사용할 수 있고, 평가 true는 계속 모든 발행을 차단합니다.
 - 고정 녹음의 발화 종료·확인 지연은 null, latency_measurement=not_measured입니다. 녹음 완료 시각은 별도 recording_ended_*로 남기며 AC-INT-03 통과로 사용하지 않습니다. AC 준비는 recording_mode=silence/timing_mode=ac_budget로 설정하고 STT/LLM 상한·장치를 실측해 정합니다. 과거 설정에 신규 키가 없으면 기존 silence/ac_budget를 유지합니다.
-- 무음 종료는 마지막 유성 프레임 시각을 기록합니다. `silence_sec` 대기·STT·LLM·TTS 준비를 **발화 종료부터 3초** 예산에 포함합니다. `max_record_sec`는 보호 한도이며 고정 녹음 시간이 아닙니다. 한도 초과로 잘린 명령은 실행하지 않습니다.
+- 무음 종료는 마지막 유성 프레임 시각을 기록합니다. `silence_sec` 대기·STT·LLM·TTS 준비를 [AC-INT-03](../../../docs/requirements.md#ac-int-03)의 예산에 포함합니다. `max_record_sec`는 보호 한도이며 고정 녹음 시간이 아닙니다. 한도 초과로 잘린 명령은 실행하지 않습니다.
 - LLM 없는 경우 등록 별칭 규칙은 동작하지만 LLM 주 경로 및 자유 표현 완료를 의미하지 않습니다. faster-whisper 오프라인 STT는 현재 구현하지 않았습니다.
 
 ## 실행 준비와 의존성
@@ -118,7 +115,7 @@ Docker/compose 패키지·모델/runtime 배포는 별도 인계 대상입니다
 
 C #17 인계: 단일 find_item→태스크 수신, cancel/status, 모호/미지원 보류, 중복 요청, 확인 TTS/태스크 시작 책임, source→실행 로그/run_id 연결. voice는 nudge/pick을 직접 실행하지 않습니다. 현재 공통 pick은 탑뷰 관측→B 공간 판단/필요 시 끌기→탑뷰 재관측→새 target 집기를 수행하며, nudge.target_after 예상값을 집기에 사용하지 않습니다. 정식 find_item·점검용 p1_demo_eraser는 공통 robot_ontology.jsonld를 사용합니다. 실제 재관측·NO_PUSH_ACCESS·안전 종료 정합성 확인은 A/B/C/E 인계 사항입니다.
 
-D #20 인계: **20 지우개 요청/10 모호/10 미등록·미지원**, 자유 표현10은 40개 안에 포함, 화자2명 이상, cancel/status 별도 보조 시험. 사용자 확정 모호=clarify 정책을 반영하되 평가자료의 승인 상태·문장별 정답을 E/D가 먼저 고정하고 모션 없는 평가 모드에서 측정합니다. 40문장은 평가용 정답표이며 허용 목록·학습 자료가 아닙니다. 이름 없는 자유 표현과 요청 의미가 불명확한 경우는 확인 안내·실행 보류입니다. D 초안(JSON SHA256 `5995fc225c0a2cc78aa1c9264eee6a07518ad674ed4923763acf5017377aec84`)의 최신 TC-008은 “지우개 찾아서 건네줘.”입니다. 이 자료를 읽기 전용 정답 참고로 사용한 텍스트40개 회귀는 실제 음성 평가·D 자료 승인 완료를 대신하지 않습니다. 후속 확인 대화와 자료 승인·정답표 동결은 E/D 인계로 남습니다. 정상 unknown/clarify는 LLM 검증 실패가 아닙니다. LLM 검증 passed는 형식·등록 대상 검사 통과를 뜻하며 사용자 확인 완료나 실행 허용을 뜻하지 않습니다. 전체·종류별 정확도, LLM 호출 분모/검증 실패/폴백, STT·확인 지연·실행 시도를 구분합니다. 실제 음성 40문장 ≥36 정답, 검증 실패율≤5%·잘못된 실행0, 확인TTS≤3초는 실제 측정 대상으로 남습니다.
+D #20 인계: [AC-INT-01–03](../../../docs/requirements.md#ac-int-01)·[음성 정책](../../../docs/requirements.md#voice-policy)에 연결해 평가자료 승인·문장별 정답을 먼저 고정하고 위 평가 모드에서 측정합니다. D 초안(JSON SHA256 `5995fc225c0a2cc78aa1c9264eee6a07518ad674ed4923763acf5017377aec84`)의 TC-008은 “지우개 찾아서 건네줘.”입니다. 당시 텍스트40개 회귀는 실제 음성 평가·자료 승인 완료를 대신하지 않습니다. 전체·종류별 정확도, LLM 호출 분모/검증 실패/폴백, STT·확인 지연·실행 시도를 분리해 기록하며 실제 측정은 남아 있습니다.
 
 ## P1 중단·오류 음성 안내 (#138)
 
@@ -150,25 +147,24 @@ ROS 노드 검사는 생성된 ready2go_interfaces와 ROS 환경을 source한 �
 
 ## 사용자 PC 시운전 명령 (실제 녹음/API는 사용자가 실행)
 
-아래 수동 명령은 PC에 설치된 선택 도구 python-dotenv를 사용합니다(voice 런타임은 이미 로드된 환경을 읽습니다). 저장소 루트와 현재 프로젝트 build/install 및 `.venvs/project`를 사용합니다. 로그/모델/키는 로컬 자산이며 키 값을 출력하지 않습니다. 기존 PC의 정상 로컬 설정은 사용자 선택 MeloTTS였으며, 다른 PC의 엔진 선택은 위 설정 검사로 확인합니다. 한국어 단문 합성·첫 DAC 재생은 확인했으며, 마이크/STT·LLM·전체 음성 평가는 재시험해야 합니다.
+| 용도 | 시작 인자 | `/voice/intent` 발행 | 로그 파일 |
+|---|---|---|---|
+| 음성 평가용 | `evaluation_mode:=true` | 모든 intent 발행 차단 | `voice.eval.*.log` |
+| Runner 연동용 | `evaluation_mode:=false` | 기존 확인 TTS·취소·무발화·실패·중복 게이트 적용 | `voice.run.*.log` |
 
-```bash
-source /opt/ros/jazzy/setup.bash
-source .venvs/project/bin/activate
-source ros2_ws/install/setup.bash
-python3 - <<'PYTHON'
-from dotenv import load_dotenv
-from ready2go_voice.nodes.voice_node import main
-load_dotenv('secrets/voice.env')
-main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
-PYTHON
-```
+두 명령은 **같은 로컬 YAML의 `audio_enabled: true`와 준비된 마이크·웨이크 모델·입력 장치**가 있어야 실제 음성 입력을 받습니다. 명령 자체는 마이크를 켜거나 로컬 YAML을 변경하지 않습니다. `audio_enabled: false`이면 자동 마이크/웨이크 청취 없이 `/voice/text_override` 디버깅 입력을 사용할 수 있으며 실제 음성 평가가 아닙니다.
 
-위 명령의 `evaluation_mode:=false`를 `true`로 바꾸면 모든 intent 발행을 차단하는 평가입니다. 인자를 생략해도 기본 false이며, 로컬 YAML/키/모델은 덮어쓰지 않습니다. 기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하고, 실행 모드에서도 실제 발화 종료/3초 지연은 null/not_measured입니다.
+- `evaluation_mode`는 모든 `/voice/intent` 발행 차단 여부를 정합니다. ROS 시작 인자가 YAML보다 우선하며 생략하면 false입니다. 평가 모드는 다른 입력으로 시작한 Runner 태스크까지 중단시키지 않습니다.
+- `audio_enabled`는 YAML에서 마이크·웨이크 사용 여부를 정합니다. 평가/Runner 연동 모드와 별개입니다.
+- 두 명령의 `diagnostic_detail:=true`는 상세 `voice_diagnostic`을 ROS 로그/콘솔에 출력합니다. `tee`는 터미널 출력(표준 출력·오류)을 파일에 보존하며, 상세 진단 선택과 파일 저장은 서로 다른 역할입니다.
 
-기본 콘솔: 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기. 프레임마다 점수를 출력하지 않습니다. D 상세 원본은 아래 명령으로 보존합니다. 각 실행은 `mktemp`로 새 로그를 만들어 기존 기록을 덮어쓰지 않습니다. `pipefail`로 노드 오류 종료를 파이프라인 결과에 반영합니다. 진단 원본/source의 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
+아래 수동 명령은 PC에 설치된 선택 도구 python-dotenv를 사용합니다(voice 런타임은 이미 로드된 환경을 읽습니다). **저장소 루트**와 현재 프로젝트 build/install 및 `.venvs/project`를 사용합니다. 로그/모델/키는 로컬 자산이며 키 값을 출력하지 않습니다. 기존 PC의 정상 로컬 설정은 사용자 선택 MeloTTS였으며, 다른 PC의 엔진 선택은 위 설정 검사로 확인합니다. 한국어 단문 합성·첫 DAC 재생은 확인했으며, 마이크/STT·LLM·전체 음성 평가는 재시험해야 합니다.
 
-평가용 상세 기록(모든 intent 발행 차단, 실제 녹음/API는 사용자가 실행):
+[실행 준비와 의존성](#실행-준비와-의존성)의 설정 확인, 아래 MeloTTS 절의 단독 WAV 합성, [사전 캐시 준비](#melotts-prefill)의 경로 확인·캐시 생성·완료 확인·대표 문구 청취는 **노드 실행 전 준비·점검 절차**입니다. 이 두 시운전 명령의 대안이나 실제 음성/Runner 연결 검증이 아닙니다. 설치·합성·캐시·청취의 상세 절차는 해당 절을 따르십시오.
+
+각 실행은 `mktemp`로 새 로그를 만들어 기존 기록을 덮어쓰지 않습니다. `python3 -u`는 Python 출력 버퍼링을 줄이고 `pipefail`은 노드 오류 종료를 파이프라인 결과에 반영합니다. 로컬 YAML/키/모델은 덮어쓰지 않습니다. 진단 원본/source의 C/D 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
+
+**음성 평가용 — 모든 intent 발행 차단**
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -185,7 +181,9 @@ main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', 
 PYTHON
 ```
 
-실행용 상세 기록(기존 발행 게이트 적용, C 수신·모션 연결은 별도 확인 대상):
+**Runner 연동용 — 기존 발행 게이트 적용**
+
+요청 전달 허용은 Runner 수신·태스크 시작·실물 실행의 증명이 아닙니다. C 수신·태스크·안전 연결과 선택한 backend를 별도로 확인하십시오. 실물 연동은 DB·TF·DSR·그리퍼 상태·Runner·스킬 서버·카메라·비전의 준비 및 대상·배치를 확인한 환경에서 수행합니다. voice가 로봇을 직접 제어하지 않습니다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -201,6 +199,10 @@ load_dotenv('secrets/voice.env')
 main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
 PYTHON
 ```
+
+기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하며 두 모드 모두 실제 발화 종료/3초 지연은 null/not_measured입니다. 위 명령으로 실음성 정확도·지연·청취 품질·C/D 연결 완료를 선언하지 않습니다.
+
+실제 음성 입력이 준비된 경우의 기본 콘솔 흐름은 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기입니다. 프레임마다 점수를 출력하지 않습니다.
 
 ## MeloTTS 설치·재생 (P1 E, 사용자 선택)
 
@@ -253,7 +255,7 @@ PYTHON
 
 ### 노드 실행 전 사전 캐시 준비
 
-[문서] 아래 순서는 **저장소 루트**, 실제 노드와 같은 로컬 YAML·프로젝트 환경에서 실행합니다. Voice 노드를 먼저 종료하고, 이 PR의 코드가 설치된 overlay를 사용하십시오. 확인 시점 main `fa69417`에는 PR #144가 미반영이므로 main의 기존 설치만 source해 새 기능을 사용할 수 있다고 판단하지 않습니다. 필요한 설치는 [실행 준비와 의존성](#실행-준비와-의존성)을 따릅니다. 모델 다운로드/설치는 위 설치 절차이며 캐시 준비와 구분합니다.
+[문서] 아래 순서는 **저장소 루트**, 실제 노드와 같은 로컬 YAML·프로젝트 환경에서 실행합니다. Voice 노드를 먼저 종료하고, 현재 저장소 코드와 일치하는 설치 overlay를 사용하십시오. 확인 시점 main `bbad373`에는 [PR #144](https://github.com/Jik-Kim/ready2go/pull/144)가 병합됐습니다. 코드 병합과 해당 PC의 빌드·설치·source 반영은 구분하여 확인합니다. 필요한 설치는 [실행 준비와 의존성](#실행-준비와-의존성)을 따릅니다. 모델 다운로드/설치는 위 설치 절차이며 캐시 준비와 구분합니다.
 
 **1. 설정·경로 확인(합성·재생 없음)**
 
@@ -397,4 +399,4 @@ PYTHON
 
 ## P2 복구 후 재개 확인 — 내부 준비
 
-[문서] `core/recovery_confirmation.py`와 해당 모의 시험은 E 내부 제안이며 ROS·TTS·listener·Runner 실행에 연결하지 않았습니다. 정지/복구/재개 명시 표현과 현재 사건/작업의 질문 1회·유효한 일회성 응답을 준비합니다. 현재 busy/TTS 중 실제 청취 제한은 유지합니다. [요구사항 추가안](../../../docs/requirements.md#fr-saf-01)·[처리 경계](../../../docs/voice_llm.md#p2-safety-voice)·[계약안](../../../docs/interfaces.md#p2-safety-proposal)을 확인하십시오. B/C 조건·부분 실행/effect·재개점 검증 전에는 실행하지 않으며 실제 마이크/API·장치 복구/재개는 미검증입니다.
+[문서] `core/recovery_confirmation.py`와 해당 모의 시험은 E 내부 제안이며 ROS·TTS·listener·Runner 실행에 연결하지 않았습니다. 정지/복구/재개 명시 표현과 현재 사건/작업의 질문 1회·유효한 일회성 응답을 준비합니다. 현재 busy/TTS 중 실제 청취 제한은 유지합니다. [요구사항 정본](../../../docs/requirements.md#fr-saf-01)·[처리 경계](../../../docs/voice_llm.md#p2-safety-voice)·[계약안](../../../docs/interfaces.md#p2-safety-proposal)을 확인하십시오. 운영 연결의 책임·검증 기준은 [FR-SAF-03](../../../docs/requirements.md#fr-saf-03)을 참조합니다. #165 병합과 실제 마이크/API·장치 복구/재개 검증은 구분합니다.
