@@ -357,7 +357,8 @@ class Runner:
         """결과가 온 뒤 걸린 시간을 판정. 이때는 동작이 이미 끝났을 수 있으므로 재시도하지 않는 TIMEOUT."""
         timeout = step.get("timeout_sec")
         if timeout is not None and self.clock() - attempt_started > timeout:
-            raise StepFailed(step["id"], "TIMEOUT", no_retry="LATE_RESULT")
+            again = step.get("action") in NON_MOTION_ACTIONS and step.get("action") != "if"   # 팔 안 움직이는 원자 동작
+            raise StepFailed(step["id"], "TIMEOUT", no_retry=None if again else "LATE_RESULT")
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
                   attempt_started: float) -> None:
@@ -402,9 +403,10 @@ class Runner:
                 raise Halted(step["id"], result.error_code)
             if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
                 raise Halted(step["id"], self._halt_code or HALTED, step_code=result.error_code or None)
-            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음
+            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음.
+            # 팔을 움직이지 않는 동작(인식 등)은 끝났어도 다시 해도 되므로 재시도 허용 (#168 인식 실패 다시 찍기)
             raise StepFailed(step["id"], result.error_code or "ACTION_FAILED",
-                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" else None)
+                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" and motion else None)
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
         record["output"] = result.output
         if "output" in step:

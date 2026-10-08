@@ -445,6 +445,19 @@ def test_late_success_is_not_retried():
     assert result.steps[0]["retry_stopped"] == "LATE_RESULT"
 
 
+def test_non_motion_timeout_is_retried():
+    """인식은 팔을 움직이지 않으므로 백엔드 TIMEOUT·늦은 결과여도 다시 해도 됨 (#168 인식 실패 다시 찍기)."""
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "inspect_region", "params": {"region": "drawer_top"},
+                                          "on_failure": "retry", "retry": 1, "timeout_sec": 30}]}
+    fake = FakeBackend({"inspect_region": [ActionResult(False, error_code="TIMEOUT"), ActionResult(True, {})]})
+    result = Runner(fake).run(task)
+    assert result.overall_status == "COMPLETED" and result.steps[0]["attempts"] == 2
+    clock = FakeClock()
+    late = FakeBackend({"inspect_region": ActionResult(True, {})}, clock=clock, durations={"inspect_region": [31, 1]})
+    result = Runner(late, clock=clock).run(task)
+    assert result.overall_status == "COMPLETED" and result.steps[0]["attempts"] == 2
+
+
 def test_backend_timeout_is_not_retried():
     # #10: Skill goal 에 제한 시간 칸이 없어 클라이언트가 시간 초과 시 취소 요청 후 TIMEOUT → 결과 불확실
     fake = FakeBackend({"drawer_control": [ActionResult(False, error_code="TIMEOUT"), ActionResult(True)]})
