@@ -10,6 +10,7 @@
     서랍 밖 책상 위 물체·케이블·그리퍼 손끝을 잘못 검출해도 뎁스 실패로 호출 전체가 DEPTH_INVALID 가 되지 않게 한다 [실측 PC2 10/07].
     TF 로 계산하므로 촬영 자세가 바뀌어도 따라간다. 값이 없으면(옛 설정) 끈다.
   footprint 가 서랍 안쪽(interior_m, 오차 여유 region.edge_tolerance_m)을 벗어난 검출은 결과에서 뺀다(서랍 밖 파지 방지).
+  분할 모델(모든 검출에 mask)이면 뎁스 전에 같은 클래스 중복 검출 중 신뢰도 높은 쪽만 남긴다(core/dedup.py, dedup.min_overlap, 합집합 안 함). 박스 모델은 그대로.
   뎁스를 쓸 수 없는 검출이 하나라도 있으면 policy.on_invalid_candidate 에 따라 전체 DEPTH_INVALID (기본 fail, 안전 우선).
   지역(region)은 서랍 칸마다 places.yaml 의 tf·interior_m 으로 계산하고 pose.frame = 요청 지역 (#155, 아래 칸 = drawer_bottom).
 """
@@ -18,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 
+from .dedup import merge_duplicates
 from .depth_blob import analyze_box
 from .geometry import Intrinsics, make_T, ray_plane_xy
 from .pose_rules import is_symmetric, result_errors
@@ -58,7 +60,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
     blob_params, policy = params["depth_blob"], params.get("policy", {})
     fail_on_invalid = policy.get("on_invalid_candidate", "fail") == "fail"
     roi_margin = params.get("region", {}).get("detect_roi_margin_m")
-    found = []
+    kept = []
     for det in sorted(detections, key=lambda d: -d["conf"]):
         if det["conf"] < params["detector"]["conf_min"] or det["class"] not in items:
             note(det, skip="conf_min 미만 또는 온톨로지에 없는 클래스")
@@ -69,12 +71,21 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
             if xy0 is None or not (-roi_margin <= xy0[0] <= interior_m[0] + roi_margin and -roi_margin <= xy0[1] <= interior_m[1] + roi_margin):
                 note(det, skip="서랍 영역 밖 (뎁스 전 제외)", xy_floor=None if xy0 is None else [round(xy0[0], 4), round(xy0[1], 4)])
                 continue
+        kept.append(det)
+    min_overlap = params.get("dedup", {}).get("min_overlap")
+    if min_overlap is not None and kept and all(d.get("mask") is not None for d in kept):
+        kept, dropped = merge_duplicates(kept, min_overlap)
+        for d in dropped:
+            note(d, skip=f"중복 검출 → 같은 클래스 conf {d['merged_into_conf']:.3f} 만 남기고 버림")
+    found = []
+    for det in kept:
+        merged = {"merged_from": det["merged_from"]} if det.get("merged_from") else {}
         size = items[det["class"]]["size_m"]
         mask = det.get("mask")
         blob = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, nominal_long_m=size[0], mask=mask)
         src = "mask" if mask is not None else "box"
         if not blob.depth_ok or blob.top_z is None:
-            note(det, skip=f"뎁스 덩어리 실패: {blob.reason}", depth_src=src, n_valid=blob.n_valid, invalid_ratio=round(blob.invalid_ratio, 3))
+            note(det, skip=f"뎁스 덩어리 실패: {blob.reason}", depth_src=src, n_valid=blob.n_valid, invalid_ratio=round(blob.invalid_ratio, 3), **merged)
             if fail_on_invalid:
                 return False, "DEPTH_INVALID", ""
             continue
@@ -91,7 +102,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         else:
             yaw, valid = (round(blob.yaw, 4), True) if blob.yaw_ok else (0.0, False)
             yaw_known = valid
-        info = dict(depth_src=src, top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)], yaw=yaw, yaw_valid=valid, yaw_reason=blob.reason,
+        info = dict(**merged, depth_src=src, top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)], yaw=yaw, yaw_valid=valid, yaw_reason=blob.reason,
                     n_blob=blob.n_blob, blob_long_mm=round(blob.blob_long_m * 1000, 1), blob_short_mm=round(blob.blob_short_m * 1000, 1))
         if interior_m is not None and not footprint_inside(xy[0], xy[1], yaw, yaw_known, size, interior_m,
                                                            params.get("region", {}).get("edge_tolerance_m", 0.01)):

@@ -5,7 +5,7 @@
 ③ 스키마가 잡지 못하는 실행 조건 (set_var 의 name, if·while 의 cond, while 의 max_iter, for_each 의 in·as,
    push/pop 의 stack, fallback 의 options, 스텝 ID 중복, retry 횟수)
 ④ skill 스텝 (#12): 온톨로지에 있는 primitive 스킬인지, params 이름이 스킬 정의와 맞는지
-   (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_CODES)
+   (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_BY_ACTION)
 문제가 하나라도 있으면 로봇을 움직이기 전에 실행하지 않는다.
 """
 from __future__ import annotations

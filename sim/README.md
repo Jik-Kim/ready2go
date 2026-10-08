@@ -62,6 +62,8 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 
 
 ## 비전 사전 검증 (트윈 렌더 → 정답 대조) [실측 10/06]
+
+> **예전 탑뷰 자세 기준**(10/08 #156 이전, J3 ≈ 10°·J5 132.8°). 지금 `drawer_top_view`는 그리퍼 180° 자세(위 칸 J3 54.8°·J5 118.2°)라 아래 결과는 새 자세로 다시 돌리기 전까지 그 당시 기록이다. 실물에서는 새 자세로 위 칸 예전 방향 대비 0.6 mm(#155 B)·아래 칸 손끝 대비 2.5 mm를 따로 확인했다.
 로봇 없이 `inspect_region` 계산(좌표 변환·뎁스 덩어리·yaw·`top_z`)을 검증한다. 손목 카메라를 `drawer_top_view` 자세에 두고 서랍을 최대 인출(`max_travel_m`)로 연 뒤, 서랍 안에 지우개 크기 직육면체(`world.jsonld` 치수)를 임의 위치·방향으로 놓아 컬러·뎁스를 저장한다(씬 파일은 바꾸지 않음).
 ```bash
 ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/render_eraser_test.py --n 30 --seed 1 --out <폴더> [--margin 0.03 | --touch]
@@ -90,6 +92,8 @@ ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/
 
 
 ## 스킬 흐름 궤적·특이점 검사 (`sim/motion_check/`, `sim/scripts/play_motion_trace.py`) [실측·계산 10/06]
+
+> **예전 탑뷰 자세 기준**(10/08 #156 이전). 아래 ◀ 결과·"J3 10°" 언급은 예전 자세(J3 ≈ 10°)의 기록이다. 새 자세(위 칸 J3 54.8°, 아래 칸 J3 85.0°)·J6 180° 회전 경로는 다시 돌리지 않았다.
 B 모션 코드를 로봇 없이 돌려 이동 명령을 기록하고, 관절 궤적을 계산해 특이점 근처 구간을 찾은 뒤 트윈에서 재생한다. 10/06 실물에서 팔이 "확확" 움직인 구간(영상 1:14~17, 2:02~04)을 재현하려고 만들었다.
 ```bash
 python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --out /tmp/trace.json   # 스킬 서버 흐름 (열기→끌기→집기→놓기→닫기→홈)

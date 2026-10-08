@@ -147,8 +147,9 @@ def test_debug_notes_each_detection_without_changing_result():
     debug = []
     with_debug = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, debug)
     assert with_debug == run(depth, dets)
-    assert len(debug) == 2 and "skip" not in debug[0] and debug[0]["top_z"] == pytest.approx(0.0115, abs=0.002)
-    assert "conf_min" in debug[1]["skip"]
+    hi, lo = (next(d for d in debug if d["conf"] == c) for c in (0.9, 0.1))   # 순서: 거르기 기록이 먼저(중복 병합 단계 분리)
+    assert len(debug) == 2 and "skip" not in hi and hi["top_z"] == pytest.approx(0.0115, abs=0.002)
+    assert "conf_min" in lo["skip"]
 
 
 def test_floor_probe_reports_floor_height_and_ignores_objects():
@@ -290,3 +291,28 @@ def test_mask_debug_reports_depth_source_and_empty_eroded_mask_falls_back():
     tiny[v - 1:v + 2, u - 1:u + 2] = True                                  # 3x3: 깎으면 사라짐 → 깎기 전 마스크로
     r = analyze_box(depth, box, K, T, {**PARAMS["depth_blob"], "min_valid_px": 5}, mask=tiny)
     assert r.depth_ok and r.top_z == pytest.approx(0.0115, abs=0.002)
+
+
+def test_duplicate_mask_detections_become_one_object():
+    """분할 모델이 같은 지우개를 두 번 잡으면(전체 + 일부) 결과는 하나, 디버그에 병합 기록 (#109 4단계 선행)."""
+    er = (0.10, 0.15, 0.0, (0.0525, 0.022), 0.0115)
+    depth = scene(*er)
+    full = mask_of(*er)
+    part = full & mask_of(er[0] + 0.01, er[1], 0.0, (0.03, 0.022), er[4])
+    box = box_of(er[0], er[1], er[3], er[2])
+    dbg = []
+    ok, err, js = inspect_scene([{"class": "eraser", "conf": 0.6, "box": box, "mask": part},
+                                 {"class": "eraser", "conf": 0.9, "box": box, "mask": full}],
+                                depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    r = json.loads(js)
+    assert ok and r["visible_count"] == 1 and r["target"]["id"] == "eraser#1"
+    assert any(d.get("skip", "").startswith("중복") for d in dbg) and any(d.get("merged_from") for d in dbg)
+
+
+def test_box_model_duplicates_are_not_merged():
+    """박스 모델(마스크 없음)은 지금처럼 병합하지 않는다 — P1 결과 그대로."""
+    er = (0.10, 0.15, 0.0, (0.0525, 0.022), 0.0115)
+    depth = scene(*er)
+    box = box_of(er[0], er[1], er[3], er[2])
+    _, _, js = run(depth, [{"class": "eraser", "conf": 0.9, "box": box}, {"class": "eraser", "conf": 0.6, "box": box}])
+    assert json.loads(js)["visible_count"] == 2
