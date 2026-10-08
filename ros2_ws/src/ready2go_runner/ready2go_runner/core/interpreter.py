@@ -112,6 +112,10 @@ class Runner:
         self._halt = threading.Event()          # 중단 잠김 (다른 스레드의 ROS 서비스 콜백에서 halt() 호출)
         self._halt_lock = threading.Lock()      # halt() 와 effect 반영(중단 확인 → 상태 갱신)이 서로 끼어들지 않게
         self.on_halt: Callable[[], object] | None = None   # 처음 멈출 때 진행 중인 동작 취소 (노드가 RosClients.cancel_all 연결)
+        # 스텝 시작·끝 알림 (#98 콘솔 진행 표시). (event "start"|"end", record, {"run_id", "finally"}).
+        # 보기용: 예외가 나도 실행·기록·안전 처리에 영향 없음
+        self.on_step: Callable[[str, dict, dict], object] | None = None
+        self._in_finally = False
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
 
@@ -168,7 +172,7 @@ class Runner:
     def run(self, task: dict, inputs: dict | None = None, meta: dict | None = None) -> RunResult:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
         meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
-        self._aborted = False
+        self._aborted, self._in_finally = False, False
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
         records: list[dict] = []
         self._run_id, self._records, self._log_errors = new_run_id(), records, []
@@ -201,6 +205,7 @@ class Runner:
             error = self._abort(e)
         # finally 는 sequence 가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀)
         # ABORTED 이면 _run_step 이 로봇 동작을 건너뛴다
+        self._in_finally = True
         try:
             self._run_steps(task.get("finally", []), blackboard, records)
             self._check_halt(records[-1]["id"] if records else "")
@@ -229,6 +234,17 @@ class Runner:
         """스텝이 끝날 때 저장. seq 는 스텝이 시작된 순서 (if 블록은 안쪽 스텝보다 늦게 끝남)."""
         seq = next(i for i, r in enumerate(self._records) if r is record)
         self._log("write_step", step_document(self._run_id, seq, record))
+        self._notify("end", record)
+
+    def _notify(self, event: str, record: dict, params: dict | None = None) -> None:
+        """on_step 알림. 콘솔 표시용이라 실패해도 무시한다 (실행·저장·중단 처리에 영향 없음).
+        params: 시작 때 아직 풀지 않은 스텝 params (예: drawer_control state) — 이름 표시용."""
+        if self.on_step is None:
+            return
+        try:
+            self.on_step(event, record, {"run_id": self._run_id, "finally": self._in_finally, "params": params})
+        except Exception:
+            pass
 
     def _abort(self, e: Halted) -> Halted:
         """중단으로 전환하고 잠근다(백엔드 ESTOP 도 resume() 전까지 유지)."""
@@ -252,6 +268,7 @@ class Runner:
         if "skill" in step:
             record["skill"] = step["skill"]
         records.append(record)
+        self._notify("start", record, step.get("params"))
         try:
             self._run_step_body(step, blackboard, records, record)
         finally:
@@ -310,6 +327,7 @@ class Runner:
         record = {"id": f"{step['id']}.safe_home", "action": "move_to_named_pose",
                   "started_at": utc_iso(), "params": params}
         records.append(record)
+        self._notify("start", record, params)
         try:
             try:
                 result = self.execute("move_to_named_pose", params, None)
@@ -425,6 +443,7 @@ class Runner:
                 raise StepFailed(step["id"], "TIMEOUT")
         record = {"id": child["id"], "action": child["action"], "parent": step["id"], "started_at": utc_iso()}
         records.append(record)
+        self._notify("start", record, child.get("params"))
         started = self.clock()
         try:
             self._dispatch(child, scope, record, records, started)
