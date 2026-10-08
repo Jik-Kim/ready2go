@@ -515,13 +515,14 @@ class App:
         self.grip_width.pack(side="left")
         tk.Label(r, text="mm", bg=C["panel"]).pack(side="left", padx=2)
         tk.Frame(f, bg=C["line"], height=1).pack(fill="x", pady=6)
-        r = tk.Frame(f, bg=C["panel"])
-        r.pack(fill="x")
-        self.btn(r, "직접교시 ON", self.teach_on, bg=C["green"], font=("", 9, "bold")).pack(side="left", fill="x",
-                                                                                         expand=True)
-        self.btn(r, "직접교시 OFF", self.teach_off, font=("", 9, "bold")).pack(side="left", fill="x", expand=True, padx=(4, 0))
         self.home_btn = self.btn(f, "⌂ gohome (확인 후)", self.go_home, move=True, bg=C["amber"], font=("", 9))
-        self.home_btn.pack(fill="x", pady=(5, 0))
+        self.home_btn.pack(side="bottom", fill="x", pady=(5, 0))
+        r = tk.Frame(f, bg=C["panel"])
+        r.pack(fill="both", expand=True)                  # 직접교시 두 버튼이 남는 세로 공간을 채움
+        self.btn(r, "직접교시 ON", self.teach_on, bg=C["green"], font=("", 10, "bold")).pack(side="left", fill="both",
+                                                                                          expand=True)
+        self.btn(r, "직접교시 OFF", self.teach_off, font=("", 10, "bold")).pack(side="left", fill="both", expand=True,
+                                                                            padx=(4, 0))
 
     def stop_panel(self, parent):
         f = self.panel(parent, side="left", fill="both", expand=True)
