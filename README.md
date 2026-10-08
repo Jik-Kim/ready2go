@@ -59,7 +59,7 @@ rosdep update
 rosdep install --from-paths ros2_ws/src --ignore-src -r -y --rosdistro jazzy
 ```
 
-Vision/YOLO는 공통 호스트 환경과 별도로 준비합니다. 아래 조합은 [Vision Dockerfile](docker/vision/Dockerfile)의 선언값이며, 기존 PC1 컨테이너 실측과 새 PC/GPU·새 이미지 설치 검증은 구분합니다. NVIDIA 드라이버/GPU 호환 확인은 A 담당입니다.
+Vision/YOLO는 공통 호스트 환경과 별도로 준비합니다. 아래 조합의 torch·torchvision·ultralytics·numpy·opencv-python 버전은 [Vision Dockerfile](docker/vision/Dockerfile)의 선언값입니다. `PyYAML`·`setuptools`는 Dockerfile pip 목록에 없고 호스트 venv용으로 더한 것입니다(컨테이너의 PyYAML은 ROS base 이미지에 포함, PC1 이미지 6.0.1 [실측]). 기존 PC1 컨테이너 실측과 새 PC/GPU·새 이미지 설치 검증은 구분합니다. NVIDIA 드라이버/GPU 호환 확인은 A 담당입니다.
 
 ```bash
 python3 -m venv --system-site-packages .venvs/vision
