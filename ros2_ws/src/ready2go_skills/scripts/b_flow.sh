@@ -6,7 +6,7 @@
 #   bash b_flow.sh server     스킬 서버 (터미널 1, 계속 켜 둠). 관절 속도 VEL=60 JACC=40 기본, 느리게 보려면 VEL=20 JACC=20
 #   bash b_flow.sh all        터미널 2: 홈에서 열기 → 탑뷰 → 인식(A 비전, 없으면 고정 좌표) → 끌기 → 탑뷰 → 다시 인식 → 집기 → 놓기 → 닫기 → 홈
 #   bash b_flow.sh dragtest   끌기 단위 시험 [사용자 10/07]: 홈 → 열기 → 탑뷰 → 인식 → 끌기 → 탑뷰·다시 인식 → 집기 → 트레이 (끌기·집기 실패면 탑뷰 → 다시, 최대 2번)
-#   bash b_flow.sh <동작> [drawer_top|drawer_bottom]  하나만: home | ready | open | opened | scan | nudge | pick | place | close  (서랍 기본 위 칸)
+#   bash b_flow.sh <동작> [서랍]  서랍 = top | bottom (= drawer_top | drawer_bottom), 서랍 필요: ready open opened close scan nudge all dragtest, 없음: home pick place
 #     view 는 아래 b_route(서버 없이 바로 관절 이동) — 서버로 탑뷰는 b_sk.py view
 #     opened = 서랍을 손으로 끝까지 연 것으로 서버에 알림 (로봇 동작 없음)
 #   bash b_flow.sh route1     들고 나오기 시험: 경유점 1(서랍 안)으로 관절 이동 (스킬 서버 없이)

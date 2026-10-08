@@ -295,3 +295,15 @@ def test_b_sk_drawer_argument_and_ready(monkeypatch):
     assert sk.goal_for("close") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
     assert sk.goal_for("view") == ("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_bottom"})
     assert sk.STEPS[:2] == ("ready", "open") and sk.DRAG_TEST[:3] == ("home", "ready", "open")
+
+
+
+def test_b_sk_drawer_required_with_short_names(monkeypatch):
+    """[사용자 10/08] 서랍이 필요한 동작은 서랍 필수, top/bottom 짧은 이름도 받음. 빼먹거나 서랍 없는 동작에 주면 움직이기 전에 멈춤."""
+    sk = _load_sk(monkeypatch)
+    assert sk.parse_drawer("open", "top") == "drawer_top" and sk.parse_drawer("open", "bottom") == "drawer_bottom"
+    assert sk.parse_drawer("view", "drawer_bottom") == "drawer_bottom"
+    assert sk.parse_drawer("home", None) == "drawer_top"
+    for cmd, arg in (("open", None), ("close", "middle"), ("all", None), ("home", "top"), ("place", "bottom")):
+        with pytest.raises(SystemExit):
+            sk.parse_drawer(cmd, arg)

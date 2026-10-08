@@ -14,7 +14,9 @@ ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,          # 10/07
           "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}
 AFTER = "/tmp/b_target_after.json"
 SCAN = "/tmp/b_target_scan.json"          # scan(인식) 결과 target — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
-DRAWER = "drawer_top"                     # 두 번째 인자로 고름: B open drawer_bottom (팀 공통 서랍 이름, 기본 위 칸) [사용자 10/08]
+DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
+DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
+NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "nudge", "all", "dragtest"}   # home·pick·place 는 서랍 없음
 
 
 def target():
@@ -45,7 +47,11 @@ def goal_for(cmd):
         return "move_to_named_pose", {"pose_name": "home"}
     if cmd == "view":
         return "move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": DRAWER}
-    sys.exit("동작: all | dragtest | home | ready | open | opened | view | scan | nudge | pick | place | close  [drawer_top | drawer_bottom]")
+    sys.exit(USAGE)
+
+
+USAGE = ("사용: B <동작> [서랍]  서랍 = top | bottom (= drawer_top | drawer_bottom)\n"
+         "  서랍 필요: ready open opened close view scan nudge all dragtest   서랍 없음: home pick place")
 
 
 STEPS = ("ready", "open", "view", "scan", "nudge", "view", "rescan", "pick", "place", "close", "home")
@@ -126,13 +132,21 @@ def scan(node, for_pick=False):
     return True
 
 
+def parse_drawer(cmd, arg):
+    """서랍이 필요한 동작은 서랍을 꼭 받음 — 빼먹으면 엉뚱한 칸으로 가지 않게 움직이기 전에 멈춤 [사용자 10/08]."""
+    if cmd in NEEDS_DRAWER:
+        if arg not in DRAWER_ALIASES:
+            sys.exit(f"{cmd} 은 서랍을 써야 함: B {cmd} top | bottom\n{USAGE}")
+        return DRAWER_ALIASES[arg]
+    if arg is not None:
+        sys.exit(f"{cmd} 은 서랍을 받지 않음: B {cmd}\n{USAGE}")
+    return DRAWER
+
+
 def main():
     global DRAWER
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if len(sys.argv) > 2:
-        if sys.argv[2] not in ("drawer_top", "drawer_bottom"):
-            sys.exit(f"서랍은 drawer_top | drawer_bottom: {sys.argv[2]!r}")
-        DRAWER = sys.argv[2]
+    DRAWER = parse_drawer(cmd, sys.argv[2] if len(sys.argv) > 2 else None)
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node("b_sk")
     if cmd == "scan":
