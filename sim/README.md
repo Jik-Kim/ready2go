@@ -52,7 +52,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 로봇 축 위치 | 베이스 철판 중심 = 원점 | #6/URDF 확인 |
 | `link_6` 원점 = 플랜지 면 | 가정 (손목 카메라 위치에 영향) | B 확인 |
 | 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
-| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | `places.yaml` `drawer_bottom.tf`는 B 실측(10/07)으로 채워짐 — `build_scene.py`가 아직 읽지 않음(씬 반영 미작업) |
+| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | `places.yaml` `drawer_bottom.tf`는 B 실측(10/07)으로 채워짐 — `build_scene.py`가 아직 읽지 않음(씬 반영 미작업). **씬 반영은 B 경로 설정 완료 뒤 진행** [사용자 결정 10/08] — 그 전 트윈 사전 검증은 위 칸만, 아래 칸은 "씬 미반영"으로 기록 |
 | 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
 | 전달 트레이(`handover_zone`) | `places.yaml` `handover_zone.tf`·`interior_m`(B 바닥 터치 10/05)으로 고정 물체로 만듦. 위로 갈수록 넓어지는 사다리꼴: `interior_m`은 닫힌 손끝 중심 범위라 바닥을 사방 10 mm 넓히고 [추정], 벽 윗면은 손끝 범위 끝에서 15.8 mm 바깥(B 실측, 한 벽만 재서 네 벽 같다고 봄) → 바닥 154×110·윗면 166×122 mm, 높이 43 mm, 벽 기울기 7.7°, 두께 4 mm [추정]. 보이는 형상은 모서리 반경 12 mm [추정] 둥근 메시 하나, 충돌은 숨긴 사다리꼴 판 4장 + 바닥판(사용자 GUI 확인 10/06). 임시 트레이(`staging_tray`)는 폐기(#6) | 트레이 외곽 실측 |
 
