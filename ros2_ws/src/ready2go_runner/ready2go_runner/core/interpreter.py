@@ -93,6 +93,14 @@ HALT_EVENT_MISMATCH = "HALT_EVENT_MISMATCH"   # 지금 정지 사건이 아님 (
 NOT_RECOVERED = "NOT_RECOVERED"         # 아직 잠김 (복구 전)
 RESUME_EXPIRED = "RESUME_EXPIRED"       # 잠금이 풀린 뒤 resume_window_sec 안에 재개 요청이 없음
 RESUME_UNSUPPORTED_BLOCK = "RESUME_UNSUPPORTED_BLOCK"   # 반복·fallback 안에서 중단 → 보존하지 않음
+REENTRY_BLOCKED = "REENTRY_BLOCKED"     # 중단된 스텝의 재진입 조건 불충족 (B #152 스킬별 조건)
+STATE_UNOBSERVED = "STATE_UNOBSERVED"   # 재진입 판단에 필요한 실제 상태(그리퍼)를 받지 못함
+# 스텝을 시작한 뒤 멈췄을 때 다시 들어가도 되는 조건 (B #152 답 10/08, 계약 승인 전 [팀 확정 필요]).
+# 값: None = 항상 거절(사람이 정리) / "empty"·"holding" = 관측한 그리퍼가 그 상태일 때만. 없는 스텝은 조건 없음.
+# 서랍: 열림 거리 센서가 없고 손잡이를 쥔 채일 수 있음 / 집기: 빈손이 확실할 때만 처음부터 /
+# 놓기: 그리퍼가 열려 있으면 놓은 것으로 봄 → 쥐고 있을 때만 처음부터 / 끌기: 누르는 중 멈춤 — B 조건 받기 전까지 거절
+REENTRY_GRIPPER = {"open_drawer": None, "close_drawer": None, "drawer_control": None, "nudge_object": None,
+                   "pick": "empty", "pick_object": "empty", "place": "holding", "place_object": "holding"}
 
 
 class ResumeRejected(Exception):
@@ -114,6 +122,7 @@ class _Run:
     halts: list[dict] = field(default_factory=list)   # 정지 사건 기록 (실행 문서 extra.halts, FR-LOG-02)
     branch_at: dict = field(default_factory=dict)       # if 위치 → 고른 분기 (재개 때 같은 분기로 들어감)
     path: list | None = None            # 중단 위치 [(인덱스, action), ...] — 바깥 → 안쪽
+    started: bool = False               # 중단된 스텝이 이미 시작됐는지 (시작 전이면 실물에 남은 부분 동작 없음)
     error: "Halted | None" = None
 
 
@@ -173,6 +182,8 @@ class Runner:
         self._pos: list[tuple[int, str]] = []   # 지금 실행 중인 스텝 위치 (바깥 → 안쪽)
         self._branch_at: dict[tuple, str] = {}  # 지금 실행 문맥의 _Run.branch_at
         self._halt_path: list | None = None     # 중단이 처음 난 스텝 위치
+        self._halt_started = False              # 그 스텝이 시작된 뒤 멈췄는지
+        self._step_started = False              # 가장 최근 _run_step 이 기록을 만들었는지 (시작 전 중단 구분)
 
     def halt(self, code: str = HALTED) -> None:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
@@ -270,6 +281,7 @@ class Runner:
             if self.resumable:
                 where = self._halt_path or [(len(ctx.task["sequence"]), "end")]   # 마지막 스텝 뒤 = 남은 sequence 없음
                 if all(action == "if" for _, action in where[:-1]):
+                    ctx.started = self._halt_started and self._halt_path is not None
                     return self._suspend(ctx, e, where)
         # finally 는 sequence 가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀)
         # ABORTED 이면 _run_step 이 로봇 동작을 건너뛴다
@@ -328,10 +340,12 @@ class Runner:
         step = _step_at(ctx, ctx.path)
         return {"run_id": ctx.doc["run_id"], "task_id": ctx.doc["task_id"], "event_id": self._event_id,
                 "code": ctx.error.code, "from_step": step.get("id") if step else None,
+                "step_started": ctx.started, "needs": _reentry_need(step) if ctx.started else "none",
                 "recovered": not self._halt.is_set()}
 
-    def check_resume(self, event_id: str | None, blockers: list[str] = ()) -> list[str]:
-        """재개 거절 이유 목록 (비면 재개 가능). blockers: 호출 쪽 관측 검사 결과 (STATE_MISMATCH 등, B 재진입 조건)."""
+    def check_resume(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None) -> list[str]:
+        """재개 거절 이유 목록 (비면 재개 가능). blockers: 호출 쪽 관측 검사 결과 (STATE_MISMATCH 등).
+        observed: 실제 상태 {"gripper": "empty"|"holding"} — 시작된 스텝에서 멈췄으면 REENTRY_GRIPPER 로 판단."""
         ctx = self._suspended
         if ctx is None:
             return [NOTHING_TO_RESUME]
@@ -343,6 +357,15 @@ class Runner:
         elif self._offered_at is not None and self.clock() - self._offered_at > self.resume_window_sec:
             reasons.append(RESUME_EXPIRED)
         step = _step_at(ctx, ctx.path)
+        if ctx.started:                         # 시작 뒤 멈춤 → 실물에 부분 동작이 남았을 수 있음 (B #152)
+            need = _reentry_need(step)
+            seen = (observed or {}).get("gripper")
+            if need is None:
+                reasons.append(REENTRY_BLOCKED)
+            elif need != "none" and seen is None:
+                reasons.append(STATE_UNOBSERVED)
+            elif need != "none" and seen != need:
+                reasons.append(REENTRY_BLOCKED)
         if step is not None and "skill" in step:   # 중단된 스킬의 pre 를 지금 상태로 다시 확인 (로봇 동작 전)
             skill = self.skills.get(step["skill"]) or {}
             try:
@@ -354,9 +377,9 @@ class Runner:
                     reasons.append(PRE_UNMET)
         return reasons + [b for b in blockers if b not in reasons]
 
-    def resume_run(self, event_id: str | None, blockers: list[str] = ()) -> RunResult:
+    def resume_run(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None) -> RunResult:
         """재개 대기 실행을 중단된 스텝부터 이어 실행. 거절이면 ResumeRejected (보존·잠금 상태 그대로)."""
-        reasons = self.check_resume(event_id, blockers)
+        reasons = self.check_resume(event_id, blockers, observed)
         if reasons:
             raise ResumeRejected(reasons)
         ctx, self._suspended, self._offered_at = self._suspended, None, None
@@ -421,6 +444,7 @@ class Runner:
             except Halted:
                 if self._halt_path is None and not self._in_finally:
                     self._halt_path = list(self._pos)   # 가장 안쪽에서 처음 잡힌 위치 = 재개 지점
+                    self._halt_started = self._step_started
                 raise
             finally:
                 self._pos.pop()
@@ -440,7 +464,9 @@ class Runner:
 
     def _run_step(self, step: dict, blackboard: dict, records: list[dict]) -> None:
         """스텝 하나를 실행하고, 끝나면(성공·실패·건너뜀 모두) 실행 이력에 기록한다."""
+        self._step_started = False
         self._check_halt(step["id"])
+        self._step_started = True
         record = {"id": step["id"], "action": step.get("action", "skill"), "started_at": utc_iso()}
         if "skill" in step:
             record["skill"] = step["skill"]
@@ -734,6 +760,14 @@ class Runner:
         finally:
             record["duration_sec"] = round(self.clock() - started, 3)
             self._log_step(record)
+
+
+def _reentry_need(step: dict | None) -> str | None:
+    """중단된 스텝의 재진입 조건: None = 항상 거절, "empty"/"holding" = 그리퍼 조건, "none" = 조건 없음."""
+    if step is None:
+        return "none"
+    name = step.get("skill") or step.get("action")
+    return REENTRY_GRIPPER[name] if name in REENTRY_GRIPPER else "none"
 
 
 def _step_at(ctx: _Run, path: list) -> dict | None:

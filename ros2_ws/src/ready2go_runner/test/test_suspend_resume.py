@@ -5,13 +5,15 @@ import pytest
 
 from ready2go_runner.core.backend import RosBackend
 from ready2go_runner.core.interpreter import (ActionResult, ResumeRejected, Runner, HALT_EVENT_MISMATCH,
-                                              NOT_RECOVERED, NOTHING_TO_RESUME, RESUME_EXPIRED, RESUME_PENDING)
+                                              NOT_RECOVERED, NOTHING_TO_RESUME, REENTRY_BLOCKED, RESUME_EXPIRED,
+                                              RESUME_PENDING, STATE_UNOBSERVED)
 from ready2go_runner.core.logstore import MemoryLogStore
 
 from test_interpreter import FakeBackend, FakeClock  # noqa: E402
 from test_tasks import ONTOLOGY, PICK_SENT, SCHEMA, SPEAK_ACTION, TASK, MockRobot  # noqa: E402
 
 FOUND = "지우개를 찾아 올게요"
+EMPTY = {"gripper": "empty"}                                            # 노드가 /gripper/state 로 준 관측 (B #152: 빈손 확실)
 
 
 def suspended_at_pick(clock=None):
@@ -30,7 +32,8 @@ def test_estop_keeps_run_suspended_without_finally():
     assert (result.overall_status, result.error_code) == ("SUSPENDED", "ESTOP")
     assert runner.halted and runner.halt_event_id
     assert runner.suspended == {"run_id": result.run_id, "task_id": "find_item", "event_id": runner.halt_event_id,
-                                "code": "ESTOP", "from_step": "s5.1", "recovered": False}
+                                "code": "ESTOP", "from_step": "s5.1", "step_started": True, "needs": "empty",
+                                "recovered": False}
     assert robot.sent[-1] == "/skills/pick_object"                       # finally(닫기·홈) 안 보냄
     assert not any(s["id"].startswith("f") for s in result.steps)
     run = store.read_run(result.run_id)["run"]
@@ -42,7 +45,7 @@ def test_resume_reruns_interrupted_skill_then_continues_and_finishes():
     event, before = runner.halt_event_id, len(robot.sent)
     runner.resume()                                                     # 복구 (B 복구 성공 뒤 잠금 해제)
     assert runner.suspended["recovered"] is True
-    result = runner.resume_run(event)
+    result = runner.resume_run(event, observed=EMPTY)
     assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
     assert result.run_id == first.run_id                                 # 같은 실행을 이어 감
     resumed = robot.sent[before:]
@@ -67,7 +70,7 @@ def test_resume_before_recovery_is_rejected_and_kept():
     runner, robot, _, _ = suspended_at_pick()
     before = len(robot.sent)
     with pytest.raises(ResumeRejected) as e:
-        runner.resume_run(runner.halt_event_id)
+        runner.resume_run(runner.halt_event_id, observed=EMPTY)
     assert e.value.reasons == [NOT_RECOVERED]
     assert len(robot.sent) == before and runner.suspended is not None
 
@@ -79,10 +82,10 @@ def test_stale_event_and_halt_again_after_recovery_are_rejected():
     runner.halt("ESTOP")                                                # 복구 뒤 다시 멈춤 → 새 사건
     assert runner.halt_event_id != old
     with pytest.raises(ResumeRejected) as e:
-        runner.resume_run(old)
+        runner.resume_run(old, observed=EMPTY)
     assert e.value.reasons == [HALT_EVENT_MISMATCH, NOT_RECOVERED]
     runner.resume()
-    assert runner.resume_run(runner.halt_event_id).overall_status == "COMPLETED"   # 새 사건으로 복구·재개하면 됨
+    assert runner.resume_run(runner.halt_event_id, observed=EMPTY).overall_status == "COMPLETED"   # 새 사건으로 복구·재개하면 됨
 
 
 def test_resume_after_window_expires_is_rejected():
@@ -91,7 +94,7 @@ def test_resume_after_window_expires_is_rejected():
     runner.resume()
     clock.now += 31                                                     # 기본 30 s [팀 확정 필요]
     with pytest.raises(ResumeRejected) as e:
-        runner.resume_run(runner.halt_event_id)
+        runner.resume_run(runner.halt_event_id, observed=EMPTY)
     assert e.value.reasons == [RESUME_EXPIRED]
 
 
@@ -99,10 +102,10 @@ def test_duplicate_resume_after_resumed_has_nothing_to_resume():
     runner, robot, _, _ = suspended_at_pick()
     event = runner.halt_event_id
     runner.resume()
-    runner.resume_run(event)
+    runner.resume_run(event, observed=EMPTY)
     before = len(robot.sent)
     with pytest.raises(ResumeRejected) as e:
-        runner.resume_run(event)
+        runner.resume_run(event, observed=EMPTY)
     assert e.value.reasons == [NOTHING_TO_RESUME] and len(robot.sent) == before
 
 
@@ -112,7 +115,7 @@ def test_observation_blockers_reject_without_motion():
     runner.resume()
     before = len(robot.sent)
     with pytest.raises(ResumeRejected) as e:
-        runner.resume_run(runner.halt_event_id, blockers=["STATE_MISMATCH"])
+        runner.resume_run(runner.halt_event_id, blockers=["STATE_MISMATCH"], observed=EMPTY)
     assert e.value.reasons == ["STATE_MISMATCH"] and len(robot.sent) == before
     assert runner.suspended is not None
 
@@ -123,7 +126,7 @@ def test_interrupted_skill_pre_is_rechecked_before_resume():
     runner.resume()
     runner.reset_state()
     with pytest.raises(ResumeRejected) as e:
-        runner.resume_run(runner.halt_event_id)
+        runner.resume_run(runner.halt_event_id, observed=EMPTY)
     assert e.value.reasons == ["PRE_UNMET"]
 
 
@@ -163,7 +166,7 @@ def test_halt_between_steps_resumes_from_next_step():
     first = runner.run(TASK)
     assert first.overall_status == "SUSPENDED" and runner.suspended["from_step"] == "s3"
     runner.resume()
-    assert runner.resume_run(runner.halt_event_id).overall_status == "COMPLETED"
+    assert runner.resume_run(runner.halt_event_id, observed=EMPTY).overall_status == "COMPLETED"
     assert robot.spoken.count(FOUND) == 1
 
 
@@ -183,3 +186,64 @@ def test_default_runner_does_not_suspend():
     runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
     runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
     assert runner.run(TASK).overall_status == "ABORTED" and runner.suspended is None
+
+
+def test_pick_resume_needs_observed_empty_gripper():
+    """B #152: 집기 중 멈춤 → 그리퍼 빈손이 확실할 때만 집기 처음부터. 쥐었거나 모르면 거절 (로봇 동작 없음)."""
+    runner, robot, _, _ = suspended_at_pick()
+    runner.resume()
+    before = len(robot.sent)
+    for observed, reason in [(None, STATE_UNOBSERVED), ({"gripper": "holding"}, REENTRY_BLOCKED)]:
+        with pytest.raises(ResumeRejected) as e:
+            runner.resume_run(runner.halt_event_id, observed=observed)
+        assert e.value.reasons == [reason]
+    assert len(robot.sent) == before and runner.suspended is not None
+
+
+def test_drawer_skill_interrupted_is_never_resumed():
+    """B #152·사용자 결정: 서랍 열기·닫기 중 멈춤 → 재개 안 함, 사람이 정리 (열림 거리 센서 없음)."""
+    robot = MockRobot(fail={"drawer_control": ["ESTOP"]})
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, resumable=True)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    assert runner.run(TASK).overall_status == "SUSPENDED" and runner.suspended["from_step"] == "s3"
+    assert runner.suspended["needs"] is None
+    runner.resume()
+    with pytest.raises(ResumeRejected) as e:
+        runner.resume_run(runner.halt_event_id, observed=EMPTY)
+    assert e.value.reasons == [REENTRY_BLOCKED]
+    assert runner.discard_suspended().overall_status == "ABORTED"          # 사람 정리 → 버림
+
+
+@pytest.mark.parametrize("observed, ok", [({"gripper": "holding"}, True), ({"gripper": "empty"}, False)])
+def test_place_resume_only_while_still_holding(observed, ok):
+    """B #152: 놓기 중 멈춤 → 그리퍼가 열려 있으면(빈손) 놓은 것으로 보고 거절, 아직 쥐고 있으면 놓기 처음부터."""
+    robot = MockRobot(fail={"place_object": ["ESTOP"]})
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, resumable=True)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    assert runner.run(TASK).overall_status == "SUSPENDED" and runner.suspended["from_step"] == "s5.2"
+    runner.resume()
+    if ok:
+        assert runner.resume_run(runner.halt_event_id, observed=observed).overall_status == "COMPLETED"
+        assert robot.sent.count("/skills/place_object") == 2 and robot.sent.count("/skills/pick_object") == 1
+    else:
+        with pytest.raises(ResumeRejected) as e:
+            runner.resume_run(runner.halt_event_id, observed=observed)
+        assert e.value.reasons == [REENTRY_BLOCKED]
+
+
+def test_step_not_started_needs_no_observation():
+    """다음 스텝 시작 전 멈춤(앞 스텝은 끝남) → 실물에 부분 동작이 없으므로 그리퍼 관측 없이도 재개 (서랍 열기여도)."""
+    robot = MockRobot()
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, resumable=True)
+    send = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+
+    def execute(action, params, timeout):
+        reply = send(action, params, timeout)
+        if action == "speak" and params.get("text") == FOUND:
+            runner.halt()
+        return reply
+    runner.execute = execute
+    runner.run(TASK)
+    assert runner.suspended["step_started"] is False and runner.suspended["needs"] == "none"
+    runner.resume()
+    assert runner.check_resume(runner.halt_event_id) == []
