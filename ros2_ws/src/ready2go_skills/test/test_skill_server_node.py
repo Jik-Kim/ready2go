@@ -662,6 +662,41 @@ def test_settle_timeout_stops_and_fails_instead_of_sending_next(server):
     assert out.error_code == sf.STATE_UNKNOWN and "stop" in srv.robot.log
 
 
+def test_line_that_never_starts_is_sent_once_more(server):
+    """[실측 10/08 아침 PC2 P1] 트레이 칸 위 도착(블렌딩) 직후 보낸 lower_fast 가 실행되지 않음 → 남은 73.6 mm NOT_REACHED.
+    직선도 출발조차 안 했으면 멈춘 걸 확인하고 한 번만 다시. 두 번째도 안 가면 NOT_REACHED."""
+    r = server.srv.robot
+    r.p = [578.7, 205.6, 100.4, 45.4, 180.0, 44.7]
+    target = [578.8, 205.5, 26.9, 151.9, -180.0, 151.2]                 # 같은 방향 (B 180 에서 C−A 같음), z 만 내려감
+    real, calls = r.movel_async, []
+
+    def movel(p, *a, **k):
+        calls.append(1)
+        return True if len(calls) == 1 else real(p, *a, **k)            # 첫 번째는 받기만 하고 안 감
+    r.movel_async = movel
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    assert server.srv._line(goal, target, 150.0, "lower_fast") is None and len(calls) == 2
+    calls.clear()
+    r.movel_async = lambda p, *a, **k: calls.append(1) or True           # 계속 안 감
+    r.p = [578.7, 205.6, 100.4, 45.4, 180.0, 44.7]
+    out = server.srv._line(goal, target, 150.0, "lower_fast")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+
+
+def test_contact_and_slow_lines_are_not_resent(server):
+    """접촉 감시 직선(끌기·손잡이 등)과 아주 느린 직선(누르기·힘 맞추기 0.1 mm)은 서 있어도 다시 보내지 않음 — 막힌 쪽으로 또 밀지 않게."""
+    r = server.srv.robot
+    calls = []
+    r.movel_async = lambda p, *a, **k: calls.append(1) or True
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    r.p = [500.0, 0.0, 100.0, 0.0, 180.0, 0.0]
+    out = server.srv._line(goal, [500.0, 40.0, 100.0, 0.0, 180.0, 0.0], 10.0, "drag", watch=lambda: None)
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 1
+    calls.clear()
+    out = server.srv._line_slow(goal, [500.0, 0.0, 90.0, 0.0, 180.0, 0.0], 1.0, "press")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 1
+
+
 def test_cancel_while_settling_does_not_resend_blend(server):
     """#139 E 리뷰 P1: 첫 블렌딩이 출발하지 않은 뒤 멈춤 확인 중 취소 → 두 번째 moveb 를 보내지 않고 CANCELED."""
     srv, r = server.srv, server.srv.robot
