@@ -1,10 +1,14 @@
 # CURRENT — C 이영훈
 
-- **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P1
+- **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P2 (P1 통합 실험 10/08 종료)
 - **최종 갱신**: 2026-10-08
 
 ## 지금 상태
 - **P2 자동 스킬 플래너 (#150, FR-PLN-02)** — PR #151: `core/planner.py` BFS(깊이 8)·단계별 근거·이미 만족/계획 불가·연 서랍 자동 닫기·`to_task`(안전 finally). [실측: 시험] planner.md 7.7 예 순서·근거 일치, P1 전달 흐름 도출, 계획 → 태스크 → mock Runner 실행 뒤 명시 목표 유지. 리뷰 반영(D·E P1): 성공 뒤 finally 가 "열어 둬" 목표를 다시 닫던 것 → 끝나지 못했을 때만 정리, 실물 지원 범위(`limits`) 안에서만 계획. [문서: B `skill_server.py`] 실물 범위 = 서랍 `drawer_top`·서랍에서 집기·`handover_zone`에 놓기 → 서랍 간 이동·트레이 집기는 mock 에서만. 남은 것: 음성 연결 PR #154, 실물 검증 10/12, 재계획(#43 뒤).
+- **P1 통합 실험 종료 (10/08)** [문서: #23 팀 결정·C 최종 결과 코멘트]: [실측: C PC2 MongoDB `cobot2` 읽기 전용 조회] PC2 실물 14건 중 **1회 성공** `2026-10-07T12:12:46Z_4315ef`(116.0 s, 녹음 끝 → 놓기 끝 95.3 s, 끌기 뒤 재인식 0.2 mm). 실패 13건은 Runner 밖(시작 절차 4·비전 4·B 스킬 5), Runner 는 14건 모두 재시도 없음·안전 종료·비상정지 뒤 로봇 동작 0건·기록 완전 [PC2 DB 확인]. [문서: requirements.md·#23 규칙] **미달**: 3회 연속(AC-DEMO-01), 비상정지·실패 주입 정식 시험(AC-SAF-01) → P2 준비로. 결과·기준 표는 #23 C 최종 결과 코멘트.
+  - [문서: GitHub PR] 10/08 C PR: #145 mock 영상용, #147 Runner 스텝 진행 콘솔(#98), #148 오류 표 정합성(#134)·로그 위치(#98). 리뷰: E #144 Approve(실제 Runner 상태로 안내 정책 검증).
+  - [문서: #23·#98·#138·#78·#134 코멘트] P2 로 넘긴 C 항목 (계획, 미착수 포함): `/runner/status` `run_id`·`error` 칸(실패 즉시 안내, #138, 계약 승인 필요), 실행 기록 `code_sha`(계약), Runner 콘솔 ↔ B 스킬 로그 실물 대조(#98), `OBJECT_DROPPED` 오류 표(#78, E·B 계약 뒤), `safety.md`·`interfaces.md` 구현/계획 구분(#134, D·E 공동).
+  - [문서: #23 C 최종 결과·`docker.md` 4.3] 운용 수칙: 시작 전 서랍 닫힘, 회차 사이 원위치 → `/runner/reset_state`, 컨테이너 재생성 전 로그 수집(`docker.md` 4.3), PC2 DB 는 `run_report --uri mongodb://<PC2 IP>:27017` 로 다른 PC 에서 읽기 가능.
 - **CI numpy (PR #90, #88 E 요청·D 리뷰 P1)**: `contracts-and-core` 에 `numpy>=1.24,<2` 설치(voice `setup.py` 와 같은 범위, skip 우회 없음). 목적: #88 음성 시험의 numpy import 수집 실패로 core 검사 전체가 멈추던 것. 검증: 깨끗한 venv(CI 설치 목록 + numpy)에서 #88 head `0336120` 806 passed·12 skipped(의도된 importorskip) [실측 10/06], #90 CI 3개 통과. 남은 확인: #90 머지 → #88 에 main 반영 → #88 최신 head CI 통과 (E 통합 완료 조건).
 - **#9 완료** (PR #27 머지, [FR-PLN-01](../../docs/requirements.md#fr-pln-01) 중 실행기 부분): `ready2go_runner/core/` 의 variables·conditions·validation·interpreter. sequence·if·set_var·on_failure·finally·timeout_sec, 실행 전 검사, E-stop·halt → `ABORTED`(retry·skip·safe_home 미적용, finally 는 비동작만), 중단 잠김 → `resume()` 전까지 거절, 내부 에러도 `INTERNAL_ERROR` 로 finally 보장. 원자 동작은 `execute(action, params, timeout_sec) → ActionResult` 로 위임.
 - **#3 완료** (PR #40 머지 10/03, `Closes #3, #34`): `dev`·`real`(PC2)·`sim`(PC1) 기동, PC1↔PC2 컨테이너·호스트 송수신, PC2 `tf2_echo base_link wrist_cam_color_optical_frame` 확인(A·B). bringup 고정 TF(`static_tf.py`, NaN·무한대 거부), ros2-core `/colcon` 분리, MongoDB 7.0. sim 드라이버·에뮬레이터 버전 불일치는 P2(B).
