@@ -42,3 +42,8 @@ def test_numbers_only_has_no_kind(jg):
 @pytest.mark.parametrize("text", ["", "posx([1, 2, 3])", "posj([1, 2, 3, 4, 5, 6, 7])", "abc"])
 def test_not_six_numbers(jg, text):
     assert jg.parse_goto(text) == (None, None)
+
+
+@pytest.mark.parametrize("text", ["posx([1e999, 0, 0, 0, 0, 0])", "posj([0, 0, 90, 0, -1e999, 0])"])
+def test_infinite_rejected(jg, text):
+    assert jg.parse_goto(text) == (None, None)

@@ -28,6 +28,7 @@
 필요: python3-tk, python3-yaml
 """
 import argparse
+import math
 import os
 import re
 import signal
@@ -43,9 +44,9 @@ import yaml
 from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetRobotMode,
                            GetRobotState, GetToolForce, Jog, MoveJoint, MoveLine, MoveStop, SetRobotMode)
 try:                                 # 비상정지 해제용 — 없는 드라이버면 버튼만 막음
-    from dsr_msgs2.srv import SetRobotControl
+    from dsr_msgs2.srv import SetRobotControl, SetSafeStopResetType
 except ImportError:
-    SetRobotControl = None
+    SetRobotControl = SetSafeStopResetType = None
 
 from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core.pose_math import (align_target, roll_target, rot, rotation_angle, step_target, tilt_target,
@@ -73,6 +74,9 @@ J5_MAX, J3_MIN = 133.0, 10.0        # 좌표로 이동(posj) 거부 — params/s
 #   SAFE_STOP2(9)·SAFE_OFF2(10) 는 복구 모드(4·5 → 빼내기 → 7)를 거쳐야 해서 펜던트로 (여기서 보내지 않음).
 RECOVER = {5: 2, 3: 3}
 RECOVER_BY_PENDANT = (9, 10)
+# 안전정지 리셋(2) 전에 reset type 을 PROGRAM_STOP(0) 으로 — 1(PROGRAM_RESUME)이 남아 있으면 자동 모드에서 멈췄던
+# 동작이 재개될 수 있음 (E #171 검수 P1, NFR-SAF-02). Doosan 예제도 리셋 직전 SAFE_STOP_RESET_TYPE_DEFAULT 설정.
+SAFE_STOP_RESET_PROGRAM_STOP = 0
 C = {"bg": "#e9e9e7", "panel": "#f7f7f5", "line": "#c9c9c4", "sub": "#5d6470", "blue": "#2f6fde", "red": "#d33a2c",
      "green": "#e7f4ec", "amber": "#fff4dc", "posx": "#e8f0fd", "posj": "#f3ece0", "dark": "#2b2b2b", "silver": "#d5d9de"}
 TILT_DEFAULT, TILT_MAX = 30.0, 45.0
@@ -124,6 +128,8 @@ class Robot:
         self.cli = {k: self.node.create_client(t, f"{srv}/{name}") for k, (t, name) in spec.items()}
         self.ctrl = (self.node.create_client(SetRobotControl, f"{srv}/system/set_robot_control")   # ready() 에 넣지 않음
                      if SetRobotControl else None)
+        self.reset_type = (self.node.create_client(SetSafeStopResetType, f"{srv}/system/set_safe_stop_reset_type")
+                           if SetSafeStopResetType else None)
 
     def ready(self):
         return all(c.wait_for_service(timeout_sec=3.0) for c in self.cli.values())
@@ -154,6 +160,14 @@ class Robot:
         if not self.ctrl or not self.ctrl.wait_for_service(timeout_sec=1.0):
             return False
         f = self.ctrl.call_async(SetRobotControl.Request(robot_control=int(value)))
+        rclpy.spin_until_future_complete(self.node, f, timeout_sec=2.0)
+        return bool(f.done() and f.result() and f.result().success)
+
+    def safe_stop_reset_type(self, value):
+        """set_safe_stop_reset_type (안전정지 리셋 뒤 프로그램 재개 여부). 서비스가 없거나 응답 없으면 False."""
+        if not self.reset_type or not self.reset_type.wait_for_service(timeout_sec=1.0):
+            return False
+        f = self.reset_type.call_async(SetSafeStopResetType.Request(reset_type=int(value)))
         rclpy.spin_until_future_complete(self.node, f, timeout_sec=2.0)
         return bool(f.done() and f.result() and f.result().success)
 
@@ -256,9 +270,10 @@ def parse_goto(text):
     low = text.lower()
     kind = "posx" if "posx" in low else "posj" if "posj" in low else None
     nums = re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", text)
-    if len(nums) != 6:
+    vals = [float(v) for v in nums]
+    if len(vals) != 6 or not all(math.isfinite(v) for v in vals):    # 1e999 → inf 는 거부 (E #171 검수 P2)
         return None, None
-    return kind, [float(v) for v in nums]
+    return kind, vals
 
 
 class App:
@@ -735,7 +750,7 @@ class App:
         text = self.goto_entry.get()
         kind, vals = parse_goto(text)
         if vals is None:
-            self.say("좌표로 이동: 숫자 6개가 필요 (예: posx([x, y, z, rx, ry, rz]))")
+            self.say("좌표로 이동: 유한한 숫자 6개가 필요 (예: posx([x, y, z, rx, ry, rz]))")
             return
         if kind is None:
             ans = messagebox.askyesnocancel("좌표 종류", f"{vals}\n\n숫자만 있습니다. posx(직선 movel)면 '예', "
@@ -882,6 +897,7 @@ class App:
 
     def recover(self):
         """비상정지 해제: 소프트웨어 안전정지(충돌·한계)만 set_robot_control 로. 물리 비상정지는 사람이 버튼을 풀어야 함.
+        안전정지 리셋 전엔 reset type 0(프로그램 정지)을 먼저 성공시키고, 리셋 뒤 움직이면 바로 정지 보냄.
         로봇은 움직이지 않는다 (해제 뒤 대기)."""
         st = self.r.state()
         name = STATE.get(st, st)
@@ -902,9 +918,17 @@ class App:
                                       "보냅니다.\n로봇은 움직이지 않습니다.\n\n멈춘 원인(충돌·한계)을 확인했나요?",
                                       parent=self.root):
             return
+        if code == 2 and not self.r.safe_stop_reset_type(SAFE_STOP_RESET_PROGRAM_STOP):
+            self.say("비상정지 해제 안 함: 리셋 뒤 프로그램 정지(reset type 0) 설정 실패 — 펜던트에서 해제하세요")
+            return
         ok = self.r.control(code)
         time.sleep(0.5)
-        self.say(f"비상정지 해제 {'보냄' if ok else '실패'} — 상태: {STATE.get(self.r.state(), '?')}")
+        after = self.r.state()
+        if after == 2:                                  # 리셋 뒤 움직이면 안 됨 — 바로 정지
+            self.r.stop()
+            self.say("비상정지 해제 뒤 로봇이 움직여서 정지 보냄 — 펜던트에서 프로그램 상태 확인")
+            return
+        self.say(f"비상정지 해제 {'보냄' if ok else '실패'} — 상태: {STATE.get(after, '?')}")
 
     def stop_all(self):
         self.seq, self.rotating = [], False  # 정렬·기울이기 중이면 남은 조각 취소
