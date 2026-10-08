@@ -1,9 +1,10 @@
 # CURRENT — E 고희태
 
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-07
+- **최종 갱신**: 2026-10-08
 
 ## 지금 상태
+- [문서] GitHub Issue 라벨링 규칙을 `AGENTS.md`에 추가했습니다. 사용자 승인·요청 이슈에서 기존 owner/area/phase 라벨을 근거에 따라 적용하고 생성 후 확인하도록 정했으며, 기존 전체 라벨 목록 API는 조회할 수 없어 확인 한계를 기록했습니다. 이전 턴에 라벨을 부착한 열린 이슈 11개는 재조회 0개였으며 다시 변경하지 않았습니다. 자동 workflow나 전체 에이전트 배포 완료를 뜻하지 않습니다.
 
 - [문서] 현재 작업 트리는 `codex/melotts-p1-cache-timing`, HEAD `1a5ebcd77f0dd3800ba5130749292706ff6e528b`입니다. 기존 MeloTTS 속도·사전캐시·구간 진단 관련 voice 코드/설정/문서 변경은 미커밋이며 이번 기록 정리에서도 보존했습니다.
 - [문서] 현재 원본 voice.yaml은 MeloTTS·속도 1.2·wake_threshold 0.7·evaluation_mode 기본 false입니다. 시작 ROS 파라미터로 평가 모드를 선택하며, 코드/설정 반영과 실제 음성 평가 통과는 구분합니다. 실행은 [voice README](../../ros2_ws/src/ready2go_voice/README.md)를 확인하십시오.
