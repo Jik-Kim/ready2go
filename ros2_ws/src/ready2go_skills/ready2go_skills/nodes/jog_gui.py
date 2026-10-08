@@ -37,6 +37,7 @@ import time
 import tkinter as tk
 import traceback
 from pathlib import Path
+from tkinter import font as tkfont
 from tkinter import messagebox
 
 import rclpy
@@ -265,6 +266,14 @@ class Gripper:
         self._run(fn)
 
 
+def force_text(d):
+    """툴 힘 표시 — 값마다 자리 수 고정(±99.9 N 까지)이라 글자 수가 늘 같음."""
+    return f"Fx {d[0]:+5.1f}  Fy {d[1]:+5.1f}  Fz {d[2]:+5.1f} N"
+
+
+FORCE_W = len(force_text([0.0, 0.0, 0.0]))
+
+
 def parse_goto(text):
     """'좌표로 이동' 칸 → (종류, 숫자 6개). 종류 = 'posx' / 'posj' / None(숫자만). 숫자가 6개가 아니면 (None, None)."""
     low = text.lower()
@@ -365,11 +374,14 @@ class App:
         row.pack(fill="x")
         self.banner = tk.Label(row, text="", font=("", 9, "bold"), padx=8, pady=3)
         self.banner.pack(side="left")
+        bf = tkfont.Font(font=self.banner["font"])        # 툴 정상 띠 폭 고정: 상태 글자가 바뀌어도 뒤 칸이 안 움직이게
+        self.banner_w = math.ceil(max(bf.measure(f"✔ 툴 정상 · {n}") for n in (*STATE.values(), "정렬 중", "꾹 누르는 중"))
+                                  / bf.measure("0"))
         self.btn(row, "다시 확인", self.check_tool, font=("", 8)).pack(side="left", padx=4)
         tk.Frame(row, bg=C["line"], width=1, height=18).pack(side="left", padx=6)
         tk.Label(row, text="툴 힘", bg=C["panel"], font=("", 9, "bold")).pack(side="left")
-        self.force_lbl = tk.Label(row, text="—", bg=C["panel"], font=("TkFixedFont", 9))
-        self.force_lbl.pack(side="left", padx=4)
+        self.force_lbl = tk.Label(row, text="—", bg=C["panel"], font=("TkFixedFont", 9), width=FORCE_W, anchor="w")
+        self.force_lbl.pack(side="left", padx=4)          # 고정폭 글꼴·글자 수 고정: 값이 바뀌어도 reset 이 안 움직임
         self.btn(row, "reset", self.force_reset, font=("", 8)).pack(side="left")
         # 꾹 누르기 묶음은 오른쪽 끝에 고정 (툴 힘 글자 길이에 따라 왔다갔다 안 하게, 사용자 10/08)
         self.hold_lbl = tk.Label(row, text="4 %", bg=C["panel"], width=4)
@@ -602,11 +614,12 @@ class App:
 
     def show_banner(self, extra=None):
         if self.ok:
-            self.banner.config(text=f"✔ 툴 정상 · {extra or self.state_name}", bg="#d9f2df", fg="black")
+            self.banner.config(text=f"✔ 툴 정상 · {extra or self.state_name}", bg="#d9f2df", fg="black",
+                               width=self.banner_w)
         else:
             tcp, tool = self.tool_text
             self.banner.config(text=f"⚠ 펜던트 툴 확인! TCP '{tcp}'(기대 {self.cfg['tcp']}), 툴 '{tool}'(기대 "
-                                    f"{self.cfg['tool']}) — 이동 막힘", bg=C["red"], fg="white")
+                                    f"{self.cfg['tool']}) — 이동 막힘", bg=C["red"], fg="white", width=0)
 
     def refresh(self):
         if self.hold:                        # 꾹 누르는 동안은 조회하지 않음 — 손을 떼면 바로 정지되게
@@ -627,7 +640,8 @@ class App:
         if f:
             self.force = f
             d = [f[i] - (self.f0[i] if self.f0 else 0.0) for i in range(3)]
-            self.force_lbl.config(text=f"Fx {d[0]:+.1f}  Fy {d[1]:+.1f}  Fz {d[2]:+.1f} N")
+            text = force_text(d)
+            self.force_lbl.config(text=text, width=max(FORCE_W, len(text)))   # 100 N 넘을 때만 늘어남
         s = self.r.state(t)
         self.state_name = "정렬 중" if self.seq or self.rotating else STATE.get(s, s)
         self.show_banner()
