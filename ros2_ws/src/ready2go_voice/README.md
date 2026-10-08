@@ -312,14 +312,13 @@ PYTHON
 
 최초 설치·속도/worker 변경 뒤 cold-cache 준비는 일반 노드의 재시작 반복으로 수행하지 않습니다. [실측: 문장 목록] 현재 등록11종의 안내와 상태 고정문구7종을 합한 prefill63개+warmup1개, 총64개입니다. [추정] 과거 속도1.0 단문 약2.43초를 단순 적용하면 약156초로, 기존 전체 준비 상한60초를 넘을 수 있습니다. 새 속도1.2·긴 안내·운용 PC의 실제 준비 시간으로 확인해야 하며 이 추정을 새 상한이나 팀 확정값으로 사용하지 않습니다.
 
-노드를 종료한 뒤 아래 **캐시 준비만** 먼저 수행합니다(마이크/API/출력 장치 사용 없음). 해당 PC에서 결정한 유한 준비 상한을 입력하여 이 명시 실행의 메모리 설정에만 적용합니다. 기존 YAML·일반 노드 준비상한·재생전체20초·AC3초 예산은 변경하지 않습니다. 실패하면 상한/worker.log/환경을 점검하고 일반 노드를 시작하지 않습니다. 완료 뒤 같은 worker·속도·모델·설정으로 일반 노드를 시작합니다. 동일 환경이라도 60초 안에 준비 가능한지 PC2에서 별도 확인해야 합니다.
+노드를 종료한 뒤 아래 **캐시 준비만** 먼저 수행합니다(마이크/API/출력 장치 사용 없음). [사용자 결정] 사전 준비 상한은 **120초**로 선택하며 이 명시 실행의 메모리 설정에만 적용합니다. 120초 이내 완료 여부는 미실측이며 충분한 시간이라고 보장하지 않습니다. 기존 YAML·일반 노드 준비상한·재생전체20초·AC3초 예산은 변경하지 않습니다. 실패하면 상한/worker.log/환경을 점검하고 일반 노드를 시작하지 않습니다. 완료 뒤 같은 worker·속도·모델·설정으로 일반 노드를 시작합니다. 동일 환경이라도 60초 안에 준비 가능한지 PC2에서 별도 확인해야 합니다. 일반 노드의 `tts_melotts_startup_timeout_sec: 60.0`은 유지합니다. 노드는 시작마다 `prepare()`로 모델 로딩과 캐시 확인을 수행하지만, 같은 캐시 키의 디스크 WAV는 재사용하고 없거나 키가 변경된 문장만 합성합니다. 모델 로딩·캐시 확인 비용이 없어지는 것은 아닙니다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
-read -r -p '최초 캐시 준비 전체 상한(초, 운용 PC에서 결정): ' MELOTTS_PREFILL_TIMEOUT_SEC
-export MELOTTS_PREFILL_TIMEOUT_SEC
+export MELOTTS_PREFILL_TIMEOUT_SEC=120
 python3 - <<'PYTHON'
 import math
 import os
@@ -361,7 +360,7 @@ test "$MELOTTS_PREFILL_EXIT_CODE" -eq 0
 tail -n 80 models/tts/melotts/worker.log
 ```
 
-- `MELOTTS_PREPARE_TIMEOUT`/`MELOTTS_PREPARE_FAILED`: worker 로그의 실제 원인과 해당 PC 준비 시간을 확인합니다. cold 합성에 부족한 상한이었다면 운용 PC에서 정한 유한 상한으로 **사전 준비만** 다시 실행합니다. 일반 노드를 반복 재시작하며 캐시를 쌓거나 일반 YAML/AC3초 예산을 임의로 늘리지 않습니다.
+- `MELOTTS_PREPARE_TIMEOUT`/`MELOTTS_PREPARE_FAILED`: worker 로그의 실제 원인과 해당 PC 준비 시간을 확인합니다. 120초 상한 내 준비에 실패하면 worker 로그의 실제 원인과 준비 시간을 확인합니다. 사전 준비를 다시 실행할 때는 노드를 먼저 종료합니다. 일반 노드를 반복 재시작하며 캐시를 쌓거나 일반 YAML/AC3초 예산을 임의로 늘리지 않습니다.
 - `MELOTTS_RUNTIME_MISSING`/모델·의존성 오류: 설정된 전용 Python, manifest의 모델 경로, 고정 의존성과 설치 절차를 대조합니다. 종료 코드가 비0이거나 완료 문구가 없으면 노드를 시작하지 않습니다.
 - 속도·모델·worker/소스·의존성·speaker·스레드·문구가 바뀌면 관련 캐시 키가 바뀌거나 새 문장이 필요하므로 사전 준비를 다시 합니다. 같은 설정·환경의 재시작은 디스크 캐시를 재사용합니다. 캐시 준비 후에도 일반 노드 준비 상한 내 완료 여부는 따로 확인합니다.
 

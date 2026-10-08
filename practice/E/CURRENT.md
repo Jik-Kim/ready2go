@@ -20,6 +20,13 @@
 
 - [실측: 문서 정적] 명령별 파서/발행 게이트·설정·계약enum·태스크trigger/targets·Runner 로딩/라우팅을읽기 전용으로 대조했습니다. 수정2문서 로컬 링크/앵커85개·Voice 인바운드 앵커5개·기존 제목/본문 전체/명령 블록·알려진 제약 보존과 git diff --check를 통과했습니다. 이는 실음성/실물 검증이 아니며 문서 정리·검증 완료 후 이번 추가분만 로컬 커밋합니다.
 
+## MeloTTS 사전 준비 상한 — E-MELOTTS-PREFILL-120-20261008
+
+- [문서: 사용자 결정] 사전 캐시 준비 명령의 상한만120초로 명시합니다. 이 실행의 메모리 cfg만 덮어쓰며 YAML·일반 노드 준비60초·재생전체20초·AC3초·Melo1.2는 유지합니다. 노드 시작마다 모델 로딩/캐시 확인은 수행하고 일치하는 디스크 WAV는 재사용하며 누락/키 변경 문장만 합성합니다. 120초 충분 여부·캐시 완료·60초 노드 재시작은 미실측입니다.
+- [문서] 시작 `codex/voice-commands-20261008`·`6eb2d7ef262b0e46503a06bc816fa06f7fe71b65`, 작업 트리는 깨끗했습니다. README와 이 CURRENT만 수정하며 이전 지원명령 커밋·기존 main 대비11파일 차이는 보존합니다. 이번 변경은 이전 커밋을 amend하지 않고 별도 로컬 커밋합니다. push/PR/병합/외부 게시·이슈·서브에이전트는 미승인/미실행이고 새 타 파트 인계는 없습니다. 실제 환경 준비/설치·캐시 생성·API/마이크/TTS/실물·전체 테스트/빌드는 수행하지 않습니다.
+
+- [실측: 문서 정적] adapters/melotts.py·melotts_worker.py·voice_node.py·기존 YAML 상한과 설명을 대조했습니다. 변경 prepare 명령1블록의 bash -n/Python AST, 수정2문서 링크/앵커85개·기존 제목·다른 명령 블록/무관 본문 보존·git diff --check를 확인했습니다. 일반 노드60초·재생20초·AC3초 설정 원본은 변경하지 않았으며 실캐시/환경 준비 성공이나120초 완료를 측정한 결과가 아닙니다.
+
 ## 지금 상태
 
 - [문서] `codex/requirements-centralization`의 공통·E 문서 정리는 [PR #180](https://github.com/Jik-Kim/ready2go/pull/180)에 게시됐으며 확인 시점 Open·미병합입니다. 최초 게시 커밋은 `d4ca24e`, 최신 확인 base/main은 `bbad37320cb2ff1deec1dd29a5a30656c36a484d`이며 작업 시작 기준 `65148d4`와 구분합니다. 의미·정책·수용 기준은 [요구사항 정본](../../docs/requirements.md), 실행 필드·값은 [실행 원본 안내](../../docs/requirements.md#runtime-sources)에 둡니다. 다른 담당 문서는 직접 수정하지 않았습니다. 후속 인계34건의 실제 관리 위치는 [#134](https://github.com/Jik-Kim/ready2go/issues/134)입니다. 목록을 이 CURRENT에 복제하지 않습니다. [B 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054747674)은 domain의 선택·복구·AC/시간 예산 안내와 Skills README의 과거 시험 안내, [C 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054720331)은 Runner·planner 재계획 안내 및 ICD/안전의 C 몫에서 확인했습니다. C 주담당12–18은 [C 후속 회신](https://github.com/Jik-Kim/ready2go/pull/180#issuecomment-6055195230)에서 로컬 `056f1b7` 반영 및 #180 병합 뒤 별도 PR 예정으로 보고됐습니다. 이는 수락 이후의 로컬 반영 보고이며 E가 C 파일 수정 결과나 병합·최종 통합 완료를 검증한 것은 아닙니다. B의 수정·병합·최종 통합 완료도 미확인입니다. 기타 담당 범위의 수락·완료도 미확인으로 남깁니다.
