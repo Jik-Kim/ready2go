@@ -50,7 +50,7 @@
 | `if` | `cond`, `then[]`, `else[]` | 조건 분기 |
 | `while` | `cond`, `body[]`, `max_iter`(필수) | 조건 반복. `max_iter`번 돈 뒤에도 조건이 참이면 `LOOP_LIMIT` 에러. 기록: 블록 `iterations`, 안쪽 스텝 `iteration`(회차) — **P2 구현(10/08)** |
 | `for_each` | `in`, `as`, `body[]` | 리스트 순회 (번들 요청 처리). `in`이 리스트가 아니면 `NOT_A_LIST` — **P2 구현** |
-| `fallback` | `options[]` (각 항목은 스텝 배열) | 첫 대안부터 시도해 하나라도 성공하면 성공 (예: `pick_object`가 `YAW_INVALID`로 동작 없이 거절 → 다른 접근). **다음 대안은 앞 대안이 로봇을 움직이지 않았음이 확인된 실패일 때만** 보냄(스킬 재시도와 같은 규칙, #159 E 리뷰): 그 대안에서 팔을 움직이는 동작을 보냈으면 성공한 이동 뒤 인식 실패라도 멈춤(`fallback_stopped: MOTION_UNCERTAIN`), 결과 불확실이면 그 이유(`TIMEOUT`·`LATE_RESULT`·`RESPONSE_LOST`). 움직이지 않았다고 보는 실패: 팔을 움직이지 않는 동작(`inspect_region`·`speak` 등)의 실패, 사전 조건·변수 오류, `NO_MOTION_CODES`. 모두 실패하면 마지막 코드. 기록 `option`(성공한 대안 번호) — **P2 구현** |
+| `fallback` | `options[]` (각 항목은 스텝 배열) | 첫 대안부터 시도해 하나라도 성공하면 성공 (예: `pick_object`가 `YAW_INVALID`로 동작 없이 거절 → 다른 접근). **다음 대안은 앞 대안이 로봇을 움직이지 않았음이 확인된 실패일 때만** 보냄(스킬 재시도와 같은 규칙, #159 E 리뷰): 그 대안에서 팔을 움직이는 동작을 보냈으면 성공한 이동 뒤 인식 실패라도 멈춤(`fallback_stopped: MOTION_UNCERTAIN`), 결과 불확실이면 그 이유(`TIMEOUT`·`LATE_RESULT`·`RESPONSE_LOST`). 움직이지 않았다고 보는 실패: 팔을 움직이지 않는 동작(`inspect_region`·`speak` 등)의 실패, 사전 조건·변수 오류, 그 동작의 "움직이기 전 거부" 코드(`NO_MOTION_BY_ACTION`, 예: `place_object`의 `PLACE_BLOCKED` → 다른 고정 자리). 모두 실패하면 마지막 코드. 기록 `option`(성공한 대안 번호) — **P2 구현** |
 | `finally` (태스크 최상위 필드) | `finally[]` | `sequence`가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀) |
 | `on_halt` (태스크 최상위 필드) | `on_halt[]` | 사용자 취소·비상정지 시 실행. **로봇 동작 없이** 상태 저장·로그·TTS 안내만 수행 — **미구현: 있으면 실행 전 거절(`TASK_INVALID`)** |
 | 스텝 공통 필드 | `timeout_sec`, `recovery[]` | `timeout_sec` 초과 시 `TIMEOUT` 실패. 실패 시 `recovery[]`(예: 그리퍼 열고 후퇴)를 실행한 뒤 `retry` 횟수만큼 재시도 — **`recovery`는 미구현: 있으면 실행 전 거절(`TASK_INVALID`)**, `timeout_sec`은 구현 |
@@ -96,7 +96,7 @@
 * **실행 전 검사**: 스키마(7.2) + 현재 Phase 범위 밖 블록·필드 거절 + `set_var`의 `name`·`if`의 `cond`·스텝 ID 중복·`retry` 횟수 확인. 문제가 있으면 로봇을 움직이지 않고 `TASK_INVALID`(문제 목록 포함), `finally`도 실행하지 않음.
 * **`skill` 스텝 (P1, #12)**: 스텝은 `action`(원자 동작)과 `skill`(온톨로지 primitive 스킬, 7.5) 중 하나. Runner 는 온톨로지를 받아 상태를 들고 있고(태스크 사이에 유지, ontology.md 7.8), 스킬마다 ① `pre` 확인 → 불충족이면 로봇 동작 없이 `PRE_UNMET` ② `expand`의 원자 동작을 차례로 실행(기록 ID `<스텝 ID>.e<n>`, `parent` = 스킬 스텝 ID, 출력은 스킬 안에서만 보임) ③ 모두 성공하면 `effect`로 상태 갱신. 하나라도 실패하면 상태는 그대로.
   * P1 은 **동작 응답 성공 = effect 반영**. `verify`(사후 관측)·`hold`(실행 중 유지 조건)는 P2(FR-ONT-02). P1 Runner 는 `primitive` 스킬만 `skill` 스텝으로 실행(`composite`는 거절). 선언형 복합 스킬 추가는 FR-PLN-03(P3).
-  * **스킬 재시도는 로봇이 움직이지 않은 실패에만** (PR #64 D 리뷰 + PR #65 합의): 실패 응답을 받아도 앞 원자 동작이 실행됐거나 동작이 실제로 끝났을 수 있는데 P1 은 관측 확인(`verify`)이 없어 알 수 없으므로, 스킬 전체를 다시 보내면 이미 열린 서랍 재열기·이미 집은 물건 재집기가 될 수 있음. 그래서 `retry`는 ① 실패 코드가 "동작 없이 거절"이 보장된 코드(`NO_MOTION_CODES`: `YAW_INVALID`, B PR #66)이고 ② 그 시도에서 앞서 보낸 원자 동작이 모두 팔을 움직이지 않는 동작(`inspect_region`·`speak`·`query_ontology` 등)일 때만 적용. 예: `pick`(살펴보기 → 집기)에서 방향 산출 실패로 `pick_object`가 거절하면 재인식 1회. 그 밖에는 재시도하지 않고 기록에 `retry_stopped`(`MOTION_UNCERTAIN` = 앞서 팔을 움직임, `NOT_RETRYABLE` = 허용 목록에 없는 코드). 재인식 횟수는 태스크 `retry`로 정함 `[팀 확정 필요]`.
+  * **스킬 재시도는 로봇이 움직이지 않은 실패에만** (PR #64 D 리뷰 + PR #65 합의): 실패 응답을 받아도 앞 원자 동작이 실행됐거나 동작이 실제로 끝났을 수 있는데 P1 은 관측 확인(`verify`)이 없어 알 수 없으므로, 스킬 전체를 다시 보내면 이미 열린 서랍 재열기·이미 집은 물건 재집기가 될 수 있음. 그래서 `retry`는 ① 실패가 그 원자 동작의 "움직이기 전 거부"가 보장된 코드(`NO_MOTION_BY_ACTION`, 동작별 — 아래 "로봇 동작 공통 에러 코드" 표 전부, `nudge_object`의 `NO_PUSH_ACCESS`, `place_object`의 #166 "움직임 없음" 코드 — **임시**: #166 승인·B 구현·#168 카드 전 계약안 기준. 처음은 `YAW_INVALID` 하나, B PR #66·#168)이고 ② 그 시도에서 앞서 보낸 원자 동작이 모두 팔을 움직이지 않는 동작(`inspect_region`·`speak`·`query_ontology` 등)일 때만 적용. 예: `pick`(살펴보기 → 집기)에서 방향 산출 실패로 `pick_object`가 거절하면 재인식 1회. 그 밖에는 재시도하지 않고 기록에 `retry_stopped`(`MOTION_UNCERTAIN` = 앞서 팔을 움직임, `NOT_RETRYABLE` = 허용 목록에 없는 코드). 재인식 횟수는 태스크 `retry`로 정함 `[팀 확정 필요]`.
   * `timeout_sec`은 스킬 전체 시간(각 원자 동작에는 남은 시간을 전달). 로봇을 움직이므로 `ABORTED` 때 `finally`에서도 `SKIPPED`.
   * 실행 전 검사에서 온톨로지에 없는 스킬, `composite`, 스킬 정의와 다른 `params` 이름(빠짐·모름), 하위 기록 ID 중복을 `TASK_INVALID`로 거절. 실행 중에도 다시 확인(`UNKNOWN_SKILL`·`BAD_SKILL_PARAMS`).
 
@@ -175,7 +175,7 @@
 | result | `success`, `error_code`(실패 시 코드. 비우면 Runner 가 `ACTION_FAILED`), `output_json`(위 표의 반환값, 없으면 빈 문자열. 성공인데 JSON 을 읽을 수 없으면 Runner 는 `BACKEND_ERROR` 실패로 봄) |
 | 취소 | `Skill` goal 에 제한 시간 칸이 없음. Runner 는 `timeout_sec`이 지나거나 `/runner/estop`이 오면 취소를 요청하고 **최종 결과를 기다림** → **서버는 취소 요청을 받으면 안전하게 멈추고 5초 `[추정]` 안에 `canceled`로 끝낼 것**. 없으면 Runner 는 `STOP_UNCONFIRMED`로 잠김 |
 | 비상정지 | 펜던트 비상정지 등으로 멈추면 `error_code = "ESTOP"` → Runner `ABORTED`·잠김 (#19, B 확인) |
-| 동작 없이 거절 | 모션 계획 전에 거절하면 로봇이 움직이지 않았음을 보장하고 `NO_MOTION_CODES`의 코드 사용(현재 `YAW_INVALID`). 새 코드는 runner.md 와 `interpreter.NO_MOTION_CODES`에 함께 추가 |
+| 동작 없이 거절 | 모션 계획 전에 거절하면 로봇이 움직이지 않았음을 보장하고, 그 코드를 이 문서 해당 동작의 에러 표에 "움직이지 않음"으로 적는다. Runner 는 동작별 목록 `interpreter.NO_MOTION_BY_ACTION`(같은 코드라도 표에 없는 동작이면 움직였을 수 있다고 봄)으로 재시도·`fallback`을 판단 — 새 코드는 표와 목록에 함께 추가(#168 노드 카드 "움직였나" 칸이 정본이 되면 맞춤) |
 | 서버 준비 | Runner 는 서버를 2초 안에 못 찾거나 goal 이 거절되면 `BACKEND_ERROR`(동작 안 함) `[추정, 실측 후 조정]` |
 
 **Runner 노드** (#10, `ready2go_runner runner`, bringup launch 가 모든 `BACKEND`에서 실행)

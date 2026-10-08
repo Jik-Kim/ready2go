@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-08
 
 ## 지금 상태
+- **"움직이기 전 거부" 동작별 목록 (#168 C 표 후속 1번)**: `NO_MOTION_BY_ACTION` — `PLACE_BLOCKED` → 다른 고정 자리 fallback 가능 [실측: 시험 9개]. #168 B 노드 카드 "움직였나" 칸이 나오면 맞춤.
 - **실패 스텝 결과 기록 (#166 D 리뷰 P1, B 요청)**: 실패 응답의 `output` 을 스텝 기록 `result` 에 남김(블랙보드 제외) [실측: 시험 3개]. B `place_object` 서랍 안 놓기 계약(#166) 소비 준비.
 - **인식 실패 다시 찍기 (#168 C 표 1번)**: `find_item` s4 retry 1, 비동작 원자 동작은 TIMEOUT·늦은 결과도 재시도 [실측: 시험 6개]. 끌기·집기 안의 인식 실패는 그대로(앞서 팔이 움직임 → 재시도 없음).
 - **pick 제한 시간 70초 (#153 사용자·C 합의)**: `find_item` s5.1·`p1_demo_eraser` s3·플래너 `plan_timeouts` 의 `pick` 만 70초, 다른 단계 그대로 [실측: 시험 `test_pick_timeout_is_70s_and_other_steps_unchanged`]. 실물 pick 구간 시간은 미측정.
