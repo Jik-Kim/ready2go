@@ -43,6 +43,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 - 손목 카메라 시점: 뷰포트 카메라 메뉴에서 `/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera`.
 - **서랍 위치**: `config/places.yaml`의 `drawer_top.tf`(+`tf_at_travel_m`, #6 3점 터치 결과 = 최대 인출 상태의 서랍 좌표계)가 채워지면 `build_scene.py`가 그 값으로 서랍장을 놓는다(닫힘 = 원점 + `tf_at_travel_m` × 서랍 x축). `null`이면 평면도 기반 임시 배치로 만들고 출력에 이유를 남기며, `verify_scene.py`의 tf 일치 검사(원점 1 mm·회전 0.1° 이내)는 건너뛴다. 서랍 좌표계 정의는 `config/places.yaml` 첫 부분과 #6.
 - 값이 오기 전 시험: `READY2GO_PLACES=<대체 places.yaml> READY2GO_SCENE=<출력 usd> bash sim/run_isaac.sh sim/scripts/build_scene.py` (verify도 같은 변수). 정본 씬을 덮어쓰지 않는다. 씬 파일을 `sim/scenes/` 밖에 두면 로봇 참조(상대 경로)가 깨져 prim 존재 검사 2건이 실패하니, 시험용 씬도 `sim/scenes/` 안에 두자.
+- **실측 서랍 좌표계 축 표시**: `/World/workspace/markers/drawer_top`·`drawer_bottom` — 최대 인출 상태 tf 위치에 빨강 x(안쪽)·초록 y·파랑 z(위)·노랑 원점(충돌 없음). 서랍을 끝까지 열면 상자 안쪽 바닥 앞 모서리와 겹쳐야 한다(`verify_scene.py`가 수치로도 확인)
 - **생성 파일이라 USD를 직접 수정하지 말고** `build_scene.py`나 `drawer_dimensions.yaml`을 고친 뒤 다시 생성한다.
 
 ### 이 씬이 근사하는 부분 (전부 [추정], 실측되면 교체)
@@ -52,7 +53,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 로봇 축 위치 | 베이스 철판 중심 = 원점 | #6/URDF 확인 |
 | `link_6` 원점 = 플랜지 면 | 가정 (손목 카메라 위치에 영향) | B 확인 |
 | 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
-| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | `places.yaml` `drawer_bottom.tf`는 B 실측(10/07)으로 채워짐 — `build_scene.py`가 아직 읽지 않음(씬 반영 미작업). **씬 반영은 B 경로 설정 완료 뒤 진행** [사용자 결정 10/08] — 그 전 트윈 사전 검증은 위 칸만, 아래 칸은 "씬 미반영"으로 기록 |
+| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | **위치는 `places.yaml` `drawer_bottom.tf`(B 실측 10/07, 끝까지 연 상태)** — 서랍장 형상으로 계산한 자리 대비 서랍장 x +8.4·y +1.3·z −0.1 mm, 회전 0.71°(바닥 기울기 0.6° 포함) [계산 10/08]. 안쪽 크기는 위 서랍 `interior_m` 깊이·폭(같은 제품, B 확인), 테두리 높이만 `drawer_bottom.interior_m[2]`. 실측 회전 때문에 앞판 아래 모서리가 선반·작업대에 닿아 상자와 선반·작업대 충돌은 끔(실물은 레일) | 실측 회전이 측정 오차인지 확인되면 회전 없이 둘지 결정 |
 | 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
 | 전달 트레이(`handover_zone`) | `places.yaml` `handover_zone.tf`·`interior_m`(B 바닥 터치 10/05)으로 고정 물체로 만듦. 위로 갈수록 넓어지는 사다리꼴: `interior_m`은 닫힌 손끝 중심 범위라 바닥을 사방 10 mm 넓히고 [추정], 벽 윗면은 손끝 범위 끝에서 15.8 mm 바깥(B 실측, 한 벽만 재서 네 벽 같다고 봄) → 바닥 154×110·윗면 166×122 mm, 높이 43 mm, 벽 기울기 7.7°, 두께 4 mm [추정]. 보이는 형상은 모서리 반경 12 mm [추정] 둥근 메시 하나, 충돌은 숨긴 사다리꼴 판 4장 + 바닥판(사용자 GUI 확인 10/06). 임시 트레이(`staging_tray`)는 폐기(#6) | 트레이 외곽 실측 |
 
