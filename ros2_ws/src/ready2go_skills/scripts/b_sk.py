@@ -16,7 +16,7 @@ AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
-NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest"}   # home·pick·place 는 서랍 없음
+NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -67,7 +67,8 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍]  서랍 = top | bottom (= drawer_top | drawer_bottom)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest   서랍 없음: home pick place\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find   서랍 없음: home pick place\n"
+         "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
 
 
@@ -174,6 +175,12 @@ def main():
     if cmd == "rescan":                            # 끌기 뒤 다시 인식 — 찾은 좌표를 집기(B pick)에 넘김 (all 의 rescan 과 같음, #181 E 리뷰)
         scan(node, for_pick=True)
         return
+    if cmd == "find":
+        try:
+            find(node)
+        finally:
+            report()
+        return
     if cmd == "dragtest":
         try:
             drag_test(node)
@@ -234,6 +241,48 @@ def drag_test(node):
     if not timed("place", lambda: run(node, "place")):
         sys.exit(f"place 실패 {last['code']} — 물체를 든 채라 멈춤")
     print("\n끌기 시험 성공 (트레이까지)")
+
+
+REGRAB_CODES = {"WALL_TOO_CLOSE"}           # 집기가 움직이기 전에 "아직 못 잡는 자리"로 거부 → 다시 넛지 [사용자 10/08]
+
+
+def find(node):
+    """서랍은 사람이 열어 둔 상태(B opened)에서: 탑뷰 → 인식 → 넛지 → 탑뷰 → 다시 인식 → 집기 → 트레이 → 홈 [사용자 10/08].
+    잡을 때까지 다시 (횟수 제한 없음 [사용자 10/08 "잡을 때까지"]): 넛지 실패·집기 전 거부(REGRAB_CODES)면 탑뷰 → 인식 → 다시 넛지,
+    집기가 움직인 뒤 실패(NOT_REACHED·GRASP_FAILED 등)면 탑뷰 → 다시 인식 → 다시 집기. 멈추는 것: STOP_CODES, 못 찾음(어디 있는지 모름), 놓기 실패(든 채)."""
+    def look(for_pick):
+        if not timed("view", lambda: run(node, "view")):
+            if last["code"] in STOP_CODES or not timed("view", lambda: run(node, "view")):   # 탑뷰 가기는 한 번 더
+                sys.exit(f"탑뷰로 못 감 {last['code']} — 멈춤")
+        if not timed("rescan" if for_pick else "scan", lambda: scan(node, for_pick=for_pick)):
+            sys.exit("목표를 못 찾음 — 어디 있는지 몰라 멈춤 (서랍 안 확인)")
+
+    look(False)
+    step, n = "nudge", 0
+    while True:
+        n += 1
+        print(f"\n===== {n}. {step} =====")
+        if timed(step, lambda: run(node, step)):
+            if step == "pick":
+                break
+            print("\n----- 넛지 끝 → 탑뷰에서 다시 확인 → 그 좌표로 집기 -----")
+            look(True)
+            step = "pick"
+            continue
+        if last["code"] in STOP_CODES:
+            sys.exit(f"{step} {last['code']} — 다시 할 수 없는 상태라 멈춤 (펜던트·터미널 확인)")
+        if step == "nudge" or last["code"] in REGRAB_CODES:
+            print(f"\n----- {step} {last['code']} → 탑뷰 → 인식 → 다시 넛지 -----")
+            look(False)
+            step = "nudge"
+        else:
+            print(f"\n----- pick {last['code']} → 탑뷰 → 다시 인식 → 다시 집기 -----")
+            look(True)
+    print("\n===== place =====")
+    if not timed("place", lambda: run(node, "place")):
+        sys.exit(f"place 실패 {last['code']} — 물체를 든 채라 멈춤")
+    timed("home", lambda: run(node, "home"))
+    print("\nfind 성공 (트레이까지)")
 
 
 def run(node, cmd):

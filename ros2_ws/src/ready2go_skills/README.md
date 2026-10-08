@@ -74,7 +74,7 @@ ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0     # 
 ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skill "{params_json: '{\"pose_name\": \"home\"}'}"
 ```
 
-**B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 서랍 필요: `ready open opened close view scan rescan nudge all dragtest`(`rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick`), 없음: `home pick place`. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
+**B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find`(`rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick` / `find` = 손으로 연 서랍에서 잡을 때까지 다시 넛지 → 트레이), 없음: `home pick place`. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
 
 **과거 단독 시험 (10/06, 현재 P1 경로 아님)** — 위 서랍, 세로 지우개를 서동권 쪽-오른쪽 모서리에. 이때는 넛지 **예상 위치**(`target_after`)로 바로 집었음. **현재 공통 `pick` 은 끈 뒤 탑뷰에서 다시 찍은 `scan.target` 으로 집는다**(`knowledge/skills/pick.jsonld`, `docs/domain.md` 8.5). 하나씩 보내고 결과 확인 (`--feedback`로 단계 표시):
 ```bash

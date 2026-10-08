@@ -948,3 +948,20 @@ def test_close_after_home_safety_stop_sends_nothing_more(server, state, drawer):
     assert not out.success and out.error_code == (sf.STATE_UNKNOWN if state is None else sf.ESTOP)
     log = [e for e in srv.robot.log if e != "stop"]
     assert log[-1] == ("movej", srv.poses()["home"]["joints_deg"]) and grips == []
+
+
+def test_view_pose_uses_its_own_faster_joint_speed(server):
+    """[사용자 10/08] 탑뷰·바텀뷰 이동만 speed.view_joint_* (J6 약 200° 회전), 다른 기준 포즈는 서버 관절 속도 그대로."""
+    srv, speeds = server.srv, []
+    real = srv.robot.movej_async
+
+    def movej(j, vel, acc):
+        speeds.append((vel, acc))
+        return real(j, vel, acc)
+    srv.robot.movej_async = movej
+    sp = srv.prm()["speed"]
+    for drawer in ("drawer_top", "drawer_bottom"):
+        out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": drawer})
+        assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    assert out.success and speeds[-1] == (srv.joint_vel, srv.joint_acc)

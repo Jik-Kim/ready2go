@@ -221,12 +221,16 @@ class SkillServer(Node):
             if bad:
                 return bad
         goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
-        ok = self.robot.movej_async(joints, self.joint_vel, self.joint_acc)
+        vel, acc = self.joint_vel, self.joint_acc
+        if pose_name == "drawer_top_view":                  # 탑뷰·바텀뷰: J6 약 200° 회전이 시간을 다 씀 → 이 이동만 따로 빠르게 [사용자 10/08]
+            sp = self.prm()["speed"]
+            vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
+        ok = self.robot.movej_async(joints, vel, acc)
         if ok is False and blend:                           # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
             bad = self._wait_pose(goal, up, self._free_vel(cur), "lift")
             if bad:
                 return bad
-            ok = self.robot.movej_async(joints, self.joint_vel, self.joint_acc)
+            ok = self.robot.movej_async(joints, vel, acc)
         bad = sf.after_command(ok, what="movej", stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad

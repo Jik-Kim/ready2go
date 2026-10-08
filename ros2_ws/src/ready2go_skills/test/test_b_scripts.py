@@ -368,3 +368,42 @@ def test_b_sk_rescan_without_vision_needs_same_drawer_after(monkeypatch, tmp_pat
     assert sk.scan(node, for_pick=True) is True
     monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
     assert sk.scan(node, for_pick=True) is False
+
+
+@pytest.mark.parametrize("codes, scans, want_calls, ok", [
+    ({}, None,                                                          # 한 번에 성공: 탑뷰 → 인식 → 넛지 → 탑뷰 → 다시 인식 → 집기 → 놓기 → 홈
+     ["view", "scan", "nudge", "view", "rescan", "pick", "place", "home"], True),
+    ({"pick": ["WALL_TOO_CLOSE", "WALL_TOO_CLOSE", ""]}, None,          # 집기 전 "아직 못 잡음" → 다시 넛지, 잡을 때까지 [사용자 10/08]
+     ["view", "scan", "nudge", "view", "rescan", "pick", "view", "scan", "nudge", "view", "rescan", "pick",
+      "view", "scan", "nudge", "view", "rescan", "pick", "place", "home"], True),
+    ({"pick": ["NOT_REACHED", ""]}, None,                               # 집기가 움직인 뒤 실패 → 다시 넛지 말고 다시 보고 집기
+     ["view", "scan", "nudge", "view", "rescan", "pick", "view", "rescan", "pick", "place", "home"], True),
+    ({"nudge": ["PUSH_BLOCKED", ""]}, None,                             # 넛지 실패 → 탑뷰 → 인식 → 다시 넛지
+     ["view", "scan", "nudge", "view", "scan", "nudge", "view", "rescan", "pick", "place", "home"], True),
+    ({"pick": ["ESTOP"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick"], False),
+    ({}, [True, False], ["view", "scan", "nudge", "view", "rescan"], False),   # 다시 인식에서 못 찾으면 멈춤
+    ({"place": ["NOT_REACHED"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick", "place"], False),
+])
+def test_b_find_retries_until_grasped(monkeypatch, codes, scans, want_calls, ok):
+    """[사용자 10/08] B find: 손으로 연 서랍에서 시작, 잡을 때까지 다시 넛지. 비상정지·잠김·못 찾음·놓기 실패만 멈춤."""
+    sk = _load_sk(monkeypatch)
+    calls, seq = [], {k: iter(v) for k, v in codes.items()}
+    found = iter(scans) if scans else None
+
+    def run(node, cmd):
+        calls.append(cmd)
+        sk.last["code"] = next(seq[cmd], "") if cmd in seq else ""
+        return sk.last["code"] == ""
+
+    def scan(node, for_pick=False):
+        calls.append("rescan" if for_pick else "scan")
+        return next(found) if found else True
+    monkeypatch.setattr(sk, "run", run)
+    monkeypatch.setattr(sk, "scan", scan)
+    if ok:
+        sk.find(None)
+    else:
+        with pytest.raises(SystemExit):
+            sk.find(None)
+    assert calls == want_calls
+    assert sk.parse_drawer("find", "bottom") == "drawer_bottom"

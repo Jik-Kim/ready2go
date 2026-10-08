@@ -45,6 +45,8 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
   in_drawer_mm_s: 75.0          # 서랍 안·위 직선 (경유점 → 물체 위, 집으러 내려가기 1 cm 전까지, 서랍 안 올리기·들고 경유점 1로) [사용자 10/07 밤 "서랍 안은 속도 낮춰"]. 10/06 첫 값 75
   in_drawer_joint_deg_s: 30.0   # 서랍 안 경유점(drag_down)으로 들어가는 관절 이동 — 큰 이동(.env SKILL_JOINT_VEL_DEG_S)보다 크지 않게
   in_drawer_joint_acc_deg_s2: 30.0
+  view_joint_deg_s: 90.0        # 탑뷰·바텀뷰(drawer_top_view) 관절 이동만 — J6 약 200° 회전이 30°/s 면 약 7 s [사용자 10/08 "너무 느림, 이상 없을 정도로만 빠르게"]. 서버 VEL 과 따로. 첫 실행은 케이블 확인
+  view_joint_acc_deg_s2: 60.0
   spline_deg_s: 60.0            # 들고 나오기(carry_out) movesj 관절 속도 [실물 확인 B 10/06 30], 10/06 저녁 2배
   spline_acc_deg_s2: 60.0
   turn_deg_s: 45.0              # 직선 이동 중 방향 회전 속도 (예전 30 → 20 → 15 → 22.5, 기울일 때 쿵쿵). 10/07 2배 [사용자 "끌기·놓기 말고 최대한 빠르게"]
