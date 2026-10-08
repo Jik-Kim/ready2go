@@ -147,25 +147,24 @@ ROS 노드 검사는 생성된 ready2go_interfaces와 ROS 환경을 source한 �
 
 ## 사용자 PC 시운전 명령 (실제 녹음/API는 사용자가 실행)
 
-아래 수동 명령은 PC에 설치된 선택 도구 python-dotenv를 사용합니다(voice 런타임은 이미 로드된 환경을 읽습니다). 저장소 루트와 현재 프로젝트 build/install 및 `.venvs/project`를 사용합니다. 로그/모델/키는 로컬 자산이며 키 값을 출력하지 않습니다. 기존 PC의 정상 로컬 설정은 사용자 선택 MeloTTS였으며, 다른 PC의 엔진 선택은 위 설정 검사로 확인합니다. 한국어 단문 합성·첫 DAC 재생은 확인했으며, 마이크/STT·LLM·전체 음성 평가는 재시험해야 합니다.
+| 용도 | 시작 인자 | `/voice/intent` 발행 | 로그 파일 |
+|---|---|---|---|
+| 음성 평가용 | `evaluation_mode:=true` | 모든 intent 발행 차단 | `voice.eval.*.log` |
+| Runner 연동용 | `evaluation_mode:=false` | 기존 확인 TTS·취소·무발화·실패·중복 게이트 적용 | `voice.run.*.log` |
 
-```bash
-source /opt/ros/jazzy/setup.bash
-source .venvs/project/bin/activate
-source ros2_ws/install/setup.bash
-python3 - <<'PYTHON'
-from dotenv import load_dotenv
-from ready2go_voice.nodes.voice_node import main
-load_dotenv('secrets/voice.env')
-main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
-PYTHON
-```
+두 명령은 **같은 로컬 YAML의 `audio_enabled: true`와 준비된 마이크·웨이크 모델·입력 장치**가 있어야 실제 음성 입력을 받습니다. 명령 자체는 마이크를 켜거나 로컬 YAML을 변경하지 않습니다. `audio_enabled: false`이면 자동 마이크/웨이크 청취 없이 `/voice/text_override` 디버깅 입력을 사용할 수 있으며 실제 음성 평가가 아닙니다.
 
-위 명령의 `evaluation_mode:=false`를 `true`로 바꾸면 모든 intent 발행을 차단하는 평가입니다. 인자를 생략해도 기본 false이며, 로컬 YAML/키/모델은 덮어쓰지 않습니다. 기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하고, 실행 모드에서도 실제 발화 종료/3초 지연은 null/not_measured입니다.
+- `evaluation_mode`는 모든 `/voice/intent` 발행 차단 여부를 정합니다. ROS 시작 인자가 YAML보다 우선하며 생략하면 false입니다. 평가 모드는 다른 입력으로 시작한 Runner 태스크까지 중단시키지 않습니다.
+- `audio_enabled`는 YAML에서 마이크·웨이크 사용 여부를 정합니다. 평가/Runner 연동 모드와 별개입니다.
+- 두 명령의 `diagnostic_detail:=true`는 상세 `voice_diagnostic`을 ROS 로그/콘솔에 출력합니다. `tee`는 터미널 출력(표준 출력·오류)을 파일에 보존하며, 상세 진단 선택과 파일 저장은 서로 다른 역할입니다.
 
-기본 콘솔: 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기. 프레임마다 점수를 출력하지 않습니다. D 상세 원본은 아래 명령으로 보존합니다. 각 실행은 `mktemp`로 새 로그를 만들어 기존 기록을 덮어쓰지 않습니다. `pipefail`로 노드 오류 종료를 파이프라인 결과에 반영합니다. 진단 원본/source의 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
+아래 수동 명령은 PC에 설치된 선택 도구 python-dotenv를 사용합니다(voice 런타임은 이미 로드된 환경을 읽습니다). **저장소 루트**와 현재 프로젝트 build/install 및 `.venvs/project`를 사용합니다. 로그/모델/키는 로컬 자산이며 키 값을 출력하지 않습니다. 기존 PC의 정상 로컬 설정은 사용자 선택 MeloTTS였으며, 다른 PC의 엔진 선택은 위 설정 검사로 확인합니다. 한국어 단문 합성·첫 DAC 재생은 확인했으며, 마이크/STT·LLM·전체 음성 평가는 재시험해야 합니다.
 
-평가용 상세 기록(모든 intent 발행 차단, 실제 녹음/API는 사용자가 실행):
+[실행 준비와 의존성](#실행-준비와-의존성)의 설정 확인, 아래 MeloTTS 절의 단독 WAV 합성, [사전 캐시 준비](#melotts-prefill)의 경로 확인·캐시 생성·완료 확인·대표 문구 청취는 **노드 실행 전 준비·점검 절차**입니다. 이 두 시운전 명령의 대안이나 실제 음성/Runner 연결 검증이 아닙니다. 설치·합성·캐시·청취의 상세 절차는 해당 절을 따르십시오.
+
+각 실행은 `mktemp`로 새 로그를 만들어 기존 기록을 덮어쓰지 않습니다. `python3 -u`는 Python 출력 버퍼링을 줄이고 `pipefail`은 노드 오류 종료를 파이프라인 결과에 반영합니다. 로컬 YAML/키/모델은 덮어쓰지 않습니다. 진단 원본/source의 C/D 수신·필드 대응 협의는 유지하며 기본 짧은 콘솔을 상세 평가 기록으로 대신하지 않습니다.
+
+**음성 평가용 — 모든 intent 발행 차단**
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -182,7 +181,9 @@ main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', 
 PYTHON
 ```
 
-실행용 상세 기록(기존 발행 게이트 적용, C 수신·모션 연결은 별도 확인 대상):
+**Runner 연동용 — 기존 발행 게이트 적용**
+
+요청 전달 허용은 Runner 수신·태스크 시작·실물 실행의 증명이 아닙니다. C 수신·태스크·안전 연결과 선택한 backend를 별도로 확인하십시오. 실물 연동은 DB·TF·DSR·그리퍼 상태·Runner·스킬 서버·카메라·비전의 준비 및 대상·배치를 확인한 환경에서 수행합니다. voice가 로봇을 직접 제어하지 않습니다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -198,6 +199,10 @@ load_dotenv('secrets/voice.env')
 main(args=['--ros-args', '-p', 'config_file:=logs/voice_eval/voice.local.yaml', '-p', 'evaluation_mode:=false', '-p', 'diagnostic_detail:=true'])
 PYTHON
 ```
+
+기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하며 두 모드 모두 실제 발화 종료/3초 지연은 null/not_measured입니다. 위 명령으로 실음성 정확도·지연·청취 품질·C/D 연결 완료를 선언하지 않습니다.
+
+실제 음성 입력이 준비된 경우의 기본 콘솔 흐름은 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기입니다. 프레임마다 점수를 출력하지 않습니다.
 
 ## MeloTTS 설치·재생 (P1 E, 사용자 선택)
 
