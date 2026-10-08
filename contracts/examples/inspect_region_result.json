@@ -26,14 +26,14 @@
       "pose": {
         "frame": "drawer_top",
         "position": [
-          0.1,
-          0.08,
+          0.175,
+          0.14,
           0.0
         ],
         "yaw": 0.0,
         "yaw_valid": true
       },
-      "top_z": 0.0202,
+      "top_z": 0.0315,
       "occluded_by": [],
       "visible_area_m2": 0.001594
     },
