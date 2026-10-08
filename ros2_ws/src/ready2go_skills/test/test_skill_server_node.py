@@ -564,7 +564,7 @@ def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
 
 
 def test_lift_then_joint_move_without_stop_and_fallback_when_rejected(server):
-    """10/07 사용자 "z 올리고 탑뷰 가기 전 멈춤 없이": 올리기는 radius 20 으로 보내고 끝 20 mm 안에서 관절 이동.
+    """10/07 사용자 "z 올리고 탑뷰 가기 전 멈춤 없이": 올리기는 radius 로 보내고 끝 안에서 관절 이동 (탑뷰는 50 mm, 10/08 "올라가기·회전 같이 끝나게").
     관절 이동이 거부되면(올라가는 중) 다 올라간 뒤 다시 보냄."""
     r = server.srv.robot
     r.p = [368.0, 6.5, 195.0, 0.0, 180.0, 0.0]
@@ -576,7 +576,7 @@ def test_lift_then_joint_move_without_stop_and_fallback_when_rejected(server):
     r.movel_async = movel
     view = server.srv.poses()["drawer_top_view"]["drawer_top"]
     out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
-    assert out.success and seen == [20.0] and r.log[-1] == ("movej", view)
+    assert out.success and seen == [50.0] and r.log[-1] == ("movej", view)   # 탑뷰는 끝 50 mm 부터 회전 시작 [사용자 10/08] (다른 포즈는 20)
     r.p, r.log[:], seen[:] = [368.0, 6.5, 195.0, 0.0, 180.0, 0.0], [], []
     real_j, calls = r.movej_async, []
 
