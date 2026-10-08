@@ -347,6 +347,32 @@ def test_finally_step_skip_continues_to_home():
     assert result.overall_status == "COMPLETED"                                # skip 이라 태스크는 정상 종료
 
 
+PLACED = {"slot": None, "placed_pose": {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 1.5707}}
+
+
+@pytest.mark.parametrize("code, status", [("LIFT_FAILED", "FAILED"), ("STOP_UNCONFIRMED", "ABORTED")])
+def test_failed_action_output_is_logged_but_not_on_blackboard(code, status):
+    """#166 D 리뷰 P1·B 요청: 그리퍼를 연 뒤 실패한 place_object 의 placed_pose 를 실행 기록에 남김.
+    블랙보드(output 변수)에는 넣지 않음 — 실패 값을 뒤 스텝이 성공 값으로 쓰지 않게."""
+    from ready2go_runner.core.logstore import MemoryLogStore
+    task = {"task_id": "t", "sequence": [
+        {"id": "s1", "action": "place_object", "params": {"location": "drawer_top"}, "output": "placed"}]}
+    store = MemoryLogStore()
+    result = Runner(FakeBackend({"place_object": ActionResult(False, PLACED, code)}), log_store=store).run(task)
+    assert (result.overall_status, result.error_code) == (status, code)
+    assert result.steps[0]["output"] == PLACED and "placed" not in result.blackboard
+    saved = store.read_run(result.run_id)["steps"][0]
+    assert saved["result"] == PLACED and saved["error"]["code"] == code
+    from ready2go_runner.core import run_report
+    assert f"{code}" in run_report.detail(saved) and "놓은 자리 (60, 220) mm" in run_report.detail(saved)
+
+
+def test_failed_action_without_output_records_nothing():
+    result = Runner(FakeBackend({"place_object": ActionResult(False, error_code="NOT_HOLDING")})).run(
+        {"task_id": "t", "sequence": [{"id": "s1", "action": "place_object", "params": {"location": "drawer_top"}}]})
+    assert "output" not in result.steps[0]
+
+
 def test_backend_exception_becomes_step_failure_and_finally_runs():
     def broken(action, params, timeout_sec):
         if action == "pick_object":
