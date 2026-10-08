@@ -41,7 +41,7 @@ ERROR_KO = {
     "GRASP_FAILED": "파지 실패", "UNKNOWN_SKILL": "알 수 없는 스킬",
     "TASK_INVALID": "태스크 검사 실패 — 실행 전 거절 (로봇 동작 없음)",
 }
-RUN_KO = {"COMPLETED": "✅ 성공", "FAILED": "❌ 실패", "ABORTED": "🛑 중단"}
+RUN_KO = {"COMPLETED": "✅ 성공", "FAILED": "❌ 실패", "ABORTED": "🛑 중단", "SUSPENDED": "⏸ 재개 대기"}
 
 
 def kst(iso: str | None) -> str:
@@ -205,6 +205,10 @@ def header(record: dict) -> list[str]:
     if code:
         where = f"실패 스텝 {run['failed_step']}" if run.get("failed_step") else "실행 전 거절"
         lines.append(f"  {where} · {code}: {ERROR_KO.get(code, '')}".rstrip(": "))
+    for halt in run.get("halts") or []:          # #152 정지 사건 → 재개·버림
+        then = (f"재개 {kst(halt['resumed_at'])}" if halt.get("resumed_at")
+                else f"버림 {kst(halt['discarded_at'])}" if halt.get("discarded_at") else "재개 대기")
+        lines.append(f"  정지 {kst(halt.get('at'))} · {halt.get('code')} · {halt.get('step') or '마지막 뒤'} → {then}")
     for problem in run.get("problems") or []:    # 실행하지 않은 이유 (TASK_INVALID 검사 결과, 중단 잠김) — #105 D 리뷰
         lines.append(f"  이유: {problem}")
     return lines

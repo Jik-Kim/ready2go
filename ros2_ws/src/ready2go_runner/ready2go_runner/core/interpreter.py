@@ -16,6 +16,11 @@ E-stop·사용자 취소(docs/runner.md 7.1, docs/safety.md): 백엔드가 ESTOP
 일반 실패 처리(retry·skip·safe_home)를 건너뛰고 ABORTED 로 끝낸다. 이때 finally 는 로봇을 움직이지 않는
 동작(ABORT_SAFE_ACTIONS)만 실행하고 나머지는 SKIPPED 로 기록한다.
 중단 상태는 잠긴 채 유지되어, 사람이 확인하고 resume() 을 부르기 전까지 새 태스크를 로봇 동작 없이 거절한다.
+재개 대기 (#152, resumable=True, 계약 승인 전 제안): sequence 중 중단되면 실행을 끝내지 않고 보존(SUSPENDED)한다.
+finally 는 실행하지 않는다. resume() 으로 잠금이 풀린 뒤 같은 정지 사건 ID 로 resume_run() 하면 중단된 스텝을
+처음부터 다시 실행하고 이어 간다(앞 스텝은 다시 보내지 않음, 중단된 스킬의 effect 는 반영된 적 없음).
+discard_suspended() 는 보존한 실행을 지금까지처럼 ABORTED 로 끝낸다(finally 는 비동작만). 반복·fallback 안에서
+멈추면 재개할 수 없으므로 보존하지 않고 바로 ABORTED.
 중단과 결과 반영의 경계: 중단 요청이 결과 반영 전에 들어오면 반영하지 않는다. 스킬은 effect 직전에 확인해
 상태를 바꾸지 않고, 원자 동작은 응답대로 기록하되 다음 동작을 보내지 않으며, 마지막 동작 중이어도 ABORTED.
 """
@@ -80,6 +85,38 @@ NO_MOTION_CODES = {"YAW_INVALID"}       # 모션 계획 전에 거절 (B PR #66,
 NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region"}   # 팔을 움직이지 않는 원자 동작
 
 
+SUSPENDED = "SUSPENDED"                 # 실행 상태: 중단됐지만 재개 대기로 보존 (#152)
+# 재개 거절 이유 (#152 계약안 v0 — 이름은 승인 전 제안)
+RESUME_PENDING = "RESUME_PENDING"       # 재개 대기 실행이 있어 새 태스크를 받지 않음 (말없이 버리지 않음)
+NOTHING_TO_RESUME = "NOTHING_TO_RESUME"
+HALT_EVENT_MISMATCH = "HALT_EVENT_MISMATCH"   # 지금 정지 사건이 아님 (과거·지연 응답, 복구 뒤 다시 멈춤)
+NOT_RECOVERED = "NOT_RECOVERED"         # 아직 잠김 (복구 전)
+RESUME_EXPIRED = "RESUME_EXPIRED"       # 잠금이 풀린 뒤 resume_window_sec 안에 재개 요청이 없음
+RESUME_UNSUPPORTED_BLOCK = "RESUME_UNSUPPORTED_BLOCK"   # 반복·fallback 안에서 중단 → 보존하지 않음
+
+
+class ResumeRejected(Exception):
+    """resume_run() 거절. reasons: 위 코드·PRE_UNMET·호출 쪽이 넘긴 관측 검사 결과(STATE_MISMATCH 등)."""
+
+    def __init__(self, reasons: list[str]):
+        super().__init__(", ".join(reasons))
+        self.reasons = reasons
+
+
+@dataclass
+class _Run:
+    """실행 하나의 문맥. 재개 대기 때 이대로 보존한다."""
+    task: dict
+    blackboard: dict
+    records: list[dict]
+    doc: dict                           # run_document 인자 (run_id·task_id·inputs·started_at·extra)
+    started: float
+    halts: list[dict] = field(default_factory=list)   # 정지 사건 기록 (실행 문서 extra.halts, FR-LOG-02)
+    branch_at: dict = field(default_factory=dict)       # if 위치 → 고른 분기 (재개 때 같은 분기로 들어감)
+    path: list | None = None            # 중단 위치 [(인덱스, action), ...] — 바깥 → 안쪽
+    error: "Halted | None" = None
+
+
 class StepFailed(Exception):
     """no_retry: 동작이 어디까지 됐는지 몰라 다시 보내면 위험한 실패의 이유 (기록 retry_stopped).
     LATE_RESULT = 제한 시간 뒤 도착한 결과, TIMEOUT = 백엔드 호출이 제한 시간에 끝나지 않아 취소 요청함,
@@ -104,8 +141,10 @@ class Halted(Exception):
 class Runner:
     def __init__(self, execute: Execute, schema: dict | None = None,
                  clock: Callable[[], float] = time.monotonic, log_store: LogStore | None = None,
-                 ontology: dict | None = None):
+                 ontology: dict | None = None, resumable: bool = False, resume_window_sec: float = 30.0):
         self.execute = execute
+        self.resumable = resumable              # #152: 중단 시 재개 대기로 보존 (기본 꺼짐 = 지금 동작)
+        self.resume_window_sec = resume_window_sec   # 잠금이 풀린 뒤 재개를 받는 시간 [팀 확정 필요]
         self.schema = schema                    # contracts/task.schema.json 내용 (노드가 읽어서 전달)
         self.clock = clock                      # 소요 시간·timeout 측정용 (테스트에서 가짜 시계 주입)
         self.log_store = log_store              # 실행 이력 저장 (FallbackLogStore: MongoDB → JSONL), None 이면 기록 안 함
@@ -127,6 +166,13 @@ class Runner:
         self._motions = 0                       # 팔을 움직였을 수 있는 동작을 보낸 횟수 (fallback 이 대안마다 비교)
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
+        self._event_seq = 0
+        self._event_id: str | None = None       # 정지 사건 ID: 잠길 때마다 새로 (재개 요청이 이 사건에 대한 것인지)
+        self._suspended: _Run | None = None     # 재개 대기 중인 실행
+        self._offered_at: float | None = None   # 재개 대기 중 잠금이 풀린 시각 (clock)
+        self._pos: list[tuple[int, str]] = []   # 지금 실행 중인 스텝 위치 (바깥 → 안쪽)
+        self._branch_at: dict[tuple, str] = {}  # 지금 실행 문맥의 _Run.branch_at
+        self._halt_path: list | None = None     # 중단이 처음 난 스텝 위치
 
     def halt(self, code: str = HALTED) -> None:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
@@ -134,6 +180,9 @@ class Runner:
             first = not self._halt.is_set()
             if first:
                 self._halt_code = code
+                self._event_seq += 1
+                self._event_id = f"h{self._event_seq}-{utc_iso()}"
+                self._offered_at = None
             self._halt.set()
         if first and self.on_halt is not None:  # 진행 중인 로봇 동작에 즉시 취소 요청 (기다림은 클라이언트가 함)
             self.on_halt()
@@ -143,6 +192,8 @@ class Runner:
         with self._halt_lock:
             self._halt_code = None
             self._halt.clear()
+            if self._suspended is not None:     # 재개 대기: 이때부터 resume_window_sec 안에 재개 요청을 받음
+                self._offered_at = self.clock()
 
     @property
     def halted(self) -> bool:
@@ -183,40 +234,52 @@ class Runner:
         meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
         self._aborted, self._in_finally = False, False
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
-        records: list[dict] = []
-        self._run_id, self._records, self._log_errors = new_run_id(), records, []
-        run_doc = {"run_id": self._run_id, "task_id": task.get("task_id", ""),
-                   "inputs": blackboard["inputs"], "started_at": utc_iso(), "extra": meta}
-        self._log("start_run", run_document(**run_doc))
-        started = self.clock()
-
-        def finish(result: RunResult) -> RunResult:
-            result.run_id, result.log_errors = self._run_id, self._log_errors
-            self._log("end_run", run_document(
-                **run_doc, ended_at=utc_iso(), total_duration_sec=round(self.clock() - started, 3),
-                overall_status=result.overall_status, error_code=result.error_code,
-                failed_step=result.failed_step, problems=result.problems))
-            return result
+        ctx = _Run(task, blackboard, [], {"run_id": new_run_id(), "task_id": task.get("task_id", ""),
+                                          "inputs": blackboard["inputs"], "started_at": utc_iso(), "extra": meta},
+                   self.clock())
+        self._run_id, self._records, self._log_errors = ctx.doc["run_id"], ctx.records, []
+        self._log("start_run", run_document(**ctx.doc))
 
         if self._halt.is_set():                 # E-stop 뒤 resume() 전에는 로봇을 움직이지 않음
-            return finish(RunResult("ABORTED", blackboard, [], self._halt_code,
-                                    problems=["중단 상태입니다. 사람이 확인한 뒤 resume() 해야 실행합니다"]))
+            return self._finish(ctx, RunResult("ABORTED", blackboard, [], self._halt_code,
+                                               problems=["중단 상태입니다. 사람이 확인한 뒤 resume() 해야 실행합니다"]))
+        if self._suspended is not None:         # 재개 대기 실행을 말없이 버리지 않음 (#152)
+            return self._finish(ctx, RunResult("ABORTED", blackboard, [], RESUME_PENDING, problems=[
+                f"재개 대기 중인 실행 {self._suspended.doc['run_id']} 이 있습니다. 재개하거나 버린 뒤 실행합니다"]))
         problems = check_task(task, self.schema, self.skills)
         if problems:                            # 로봇을 움직이기 전에 거절 (finally 도 실행하지 않음)
-            return finish(RunResult("FAILED", blackboard, [], TASK_INVALID, problems=problems))
+            return self._finish(ctx, RunResult("FAILED", blackboard, [], TASK_INVALID, problems=problems))
+        return self._continue(ctx)
+
+    def _continue(self, ctx: _Run, path: list | None = None) -> RunResult:
+        """sequence(path 가 있으면 그 스텝부터) → finally. 재개 가능한 중단이면 finally 전에 보존하고 돌아감."""
+        self._aborted, self._in_finally, self._halt_path = False, False, None
+        self._branch_at = ctx.branch_at
+        blackboard, records = ctx.blackboard, ctx.records
         error: StepFailed | Halted | None = None
         try:
-            self._run_steps(task["sequence"], blackboard, records)
+            if path is None:
+                self._run_steps(ctx.task["sequence"], blackboard, records)
+            else:
+                self._run_from(ctx.task["sequence"], path, blackboard, records, ())
             self._check_halt(records[-1]["id"] if records else "")   # 마지막 스텝 중 중단 요청도 ABORTED
         except StepFailed as e:
             error = e
         except Halted as e:
             error = self._abort(e)
+            if self.resumable:
+                where = self._halt_path or [(len(ctx.task["sequence"]), "end")]   # 마지막 스텝 뒤 = 남은 sequence 없음
+                if all(action == "if" for _, action in where[:-1]):
+                    return self._suspend(ctx, e, where)
         # finally 는 sequence 가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀)
         # ABORTED 이면 _run_step 이 로봇 동작을 건너뛴다
+        return self._run_finally(ctx, error)
+
+    def _run_finally(self, ctx: _Run, error: StepFailed | Halted | None) -> RunResult:
+        blackboard, records = ctx.blackboard, ctx.records
         self._in_finally = True
         try:
-            self._run_steps(task.get("finally", []), blackboard, records)
+            self._run_steps(ctx.task.get("finally", []), blackboard, records)
             self._check_halt(records[-1]["id"] if records else "")
         except StepFailed as e:
             error = error or e                  # 둘 다 실패하면 처음(sequence) 원인을 남김
@@ -225,10 +288,93 @@ class Runner:
                 error = self._abort(e)
             # 이미 중단 상태면 처음 멈춘 위치·원인을 유지
         if self._aborted:
-            return finish(RunResult("ABORTED", blackboard, records, error.code, error.step_id))
+            return self._finish(ctx, RunResult("ABORTED", blackboard, records, error.code, error.step_id))
         if error:
-            return finish(RunResult("FAILED", blackboard, records, error.code, error.step_id))
-        return finish(RunResult("COMPLETED", blackboard, records))
+            return self._finish(ctx, RunResult("FAILED", blackboard, records, error.code, error.step_id))
+        return self._finish(ctx, RunResult("COMPLETED", blackboard, records))
+
+    def _finish(self, ctx: _Run, result: RunResult) -> RunResult:
+        result.run_id, result.log_errors = ctx.doc["run_id"], self._log_errors
+        doc = dict(ctx.doc)
+        if ctx.halts:
+            doc["extra"] = {**(doc.get("extra") or {}), "halts": ctx.halts}
+        self._log("end_run", run_document(
+            **doc, ended_at=utc_iso(), total_duration_sec=round(self.clock() - ctx.started, 3),
+            overall_status=result.overall_status, error_code=result.error_code,
+            failed_step=result.failed_step, problems=result.problems))
+        return result
+
+    # ---- 재개 대기 (#152) ----
+    def _suspend(self, ctx: _Run, e: Halted, path: list) -> RunResult:
+        """중단된 실행을 끝내지 않고 보존. finally 는 재개·버림이 정해질 때까지 미룬다."""
+        ctx.path, ctx.error = path, e
+        step = _step_at(ctx, path)
+        ctx.halts.append({"event_id": self._event_id, "code": e.code, "step": step.get("id") if step else None,
+                          "at": utc_iso()})
+        self._suspended, self._offered_at = ctx, None
+        return self._finish(ctx, RunResult(SUSPENDED, ctx.blackboard, ctx.records, e.code, e.step_id))
+
+    @property
+    def halt_event_id(self) -> str | None:
+        """지금 정지 사건 ID. 잠겨 있거나 재개 대기 중일 때만."""
+        return self._event_id if self._halt.is_set() or self._suspended is not None else None
+
+    @property
+    def suspended(self) -> dict | None:
+        """재개 대기 중인 실행 요약 (/runner/status 용). 없으면 None."""
+        ctx = self._suspended
+        if ctx is None:
+            return None
+        step = _step_at(ctx, ctx.path)
+        return {"run_id": ctx.doc["run_id"], "task_id": ctx.doc["task_id"], "event_id": self._event_id,
+                "code": ctx.error.code, "from_step": step.get("id") if step else None,
+                "recovered": not self._halt.is_set()}
+
+    def check_resume(self, event_id: str | None, blockers: list[str] = ()) -> list[str]:
+        """재개 거절 이유 목록 (비면 재개 가능). blockers: 호출 쪽 관측 검사 결과 (STATE_MISMATCH 등, B 재진입 조건)."""
+        ctx = self._suspended
+        if ctx is None:
+            return [NOTHING_TO_RESUME]
+        reasons = []
+        if event_id != self._event_id:
+            reasons.append(HALT_EVENT_MISMATCH)
+        if self._halt.is_set():
+            reasons.append(NOT_RECOVERED)
+        elif self._offered_at is not None and self.clock() - self._offered_at > self.resume_window_sec:
+            reasons.append(RESUME_EXPIRED)
+        step = _step_at(ctx, ctx.path)
+        if step is not None and "skill" in step:   # 중단된 스킬의 pre 를 지금 상태로 다시 확인 (로봇 동작 전)
+            skill = self.skills.get(step["skill"]) or {}
+            try:
+                params = resolve(step.get("params", {}), ctx.blackboard)
+            except (VarUndefined, BadFilter) as e:
+                reasons.append(e.code)
+            else:
+                if not all(c["pass"] for c in ontology.check(self._state, skill.get("pre", []), params)):
+                    reasons.append(PRE_UNMET)
+        return reasons + [b for b in blockers if b not in reasons]
+
+    def resume_run(self, event_id: str | None, blockers: list[str] = ()) -> RunResult:
+        """재개 대기 실행을 중단된 스텝부터 이어 실행. 거절이면 ResumeRejected (보존·잠금 상태 그대로)."""
+        reasons = self.check_resume(event_id, blockers)
+        if reasons:
+            raise ResumeRejected(reasons)
+        ctx, self._suspended, self._offered_at = self._suspended, None, None
+        ctx.halts[-1]["resumed_at"] = utc_iso()
+        self._run_id, self._records = ctx.doc["run_id"], ctx.records
+        return self._continue(ctx, ctx.path)
+
+    def discard_suspended(self) -> RunResult | None:
+        """재개하지 않음 ("아니"·시간 초과·상태 초기화): 지금까지처럼 ABORTED 로 끝냄. finally 는 비동작만."""
+        ctx = self._suspended
+        if ctx is None:
+            return None
+        self._suspended, self._offered_at = None, None
+        ctx.halts[-1]["discarded_at"] = utc_iso()
+        self._run_id, self._records = ctx.doc["run_id"], ctx.records
+        self._branch_at = ctx.branch_at
+        self._aborted = True                    # 로봇 동작은 건너뜀 (잠금이 풀렸어도 사람이 정리)
+        return self._run_finally(ctx, ctx.error)
 
     def _log(self, method: str, doc: dict) -> None:
         """실행 이력 저장. 실패해도 실행은 멈추지 않고 log_errors 에 남긴다 (NFR-DB-01)."""
@@ -266,9 +412,31 @@ class Runner:
         if self._halt.is_set() and not self._aborted:
             raise Halted(step_id, self._halt_code or HALTED)
 
-    def _run_steps(self, steps: list[dict], blackboard: dict, records: list[dict]) -> None:
-        for step in steps:
-            self._run_step(step, blackboard, records)
+    def _run_steps(self, steps: list[dict], blackboard: dict, records: list[dict], start: int = 0) -> None:
+        for idx in range(start, len(steps)):
+            step = steps[idx]
+            self._pos.append((idx, step.get("action", "skill")))
+            try:
+                self._run_step(step, blackboard, records)
+            except Halted:
+                if self._halt_path is None and not self._in_finally:
+                    self._halt_path = list(self._pos)   # 가장 안쪽에서 처음 잡힌 위치 = 재개 지점
+                raise
+            finally:
+                self._pos.pop()
+
+    def _run_from(self, steps: list[dict], path: list, blackboard: dict, records: list[dict], prefix: tuple) -> None:
+        """재개: path 의 스텝부터 실행하고 그 뒤 형제 스텝으로 이어 감. 바깥 if 는 처음 고른 분기로 다시 들어감."""
+        idx, action = path[0]
+        if len(path) > 1:
+            key = prefix + (idx,)
+            self._pos.append((idx, action))
+            try:
+                self._run_from(steps[idx].get(self._branch_at[key], []), path[1:], blackboard, records, key)
+            finally:
+                self._pos.pop()
+            idx += 1
+        self._run_steps(steps, blackboard, records, start=idx)
 
     def _run_step(self, step: dict, blackboard: dict, records: list[dict]) -> None:
         """스텝 하나를 실행하고, 끝나면(성공·실패·건너뜀 모두) 실행 이력에 기록한다."""
@@ -416,6 +584,7 @@ class Runner:
             raise StepFailed(step["id"], e.code) from e
         branch = "then" if taken else "else"
         record["branch"] = branch
+        self._branch_at[tuple(i for i, _ in self._pos)] = branch
         self._run_steps(step.get(branch, []), blackboard, records)
 
     def _cond(self, step: dict, blackboard: dict) -> bool:
@@ -565,6 +734,19 @@ class Runner:
         finally:
             record["duration_sec"] = round(self.clock() - started, 3)
             self._log_step(record)
+
+
+def _step_at(ctx: _Run, path: list) -> dict | None:
+    """중단 위치의 스텝 (처음 고른 if 분기를 따라 내려감). 마지막 스텝 뒤면 None."""
+    steps, prefix = ctx.task["sequence"], ()
+    for depth, (idx, _) in enumerate(path):
+        if idx >= len(steps):
+            return None
+        if depth == len(path) - 1:
+            return steps[idx]
+        prefix += (idx,)
+        steps = steps[idx].get(ctx.branch_at[prefix], [])
+    return None
 
 
 def _null_refs(raw: dict, resolved: dict) -> list[str]:
