@@ -118,6 +118,39 @@ def test_pick_timeout_is_70s_and_other_steps_unchanged():
         assert all(s.get("timeout_sec") in (None, 20, 30, 60) for s in steps if s.get("skill") != "pick")
 
 
+class FlakyCamera(MockRobot):
+    """첫 촬영(들)이 비전 오류로 실패하는 로봇 (10/08 PC2 2회차 CAMERA_TIMEOUT)."""
+
+    def __init__(self, codes, **kw):
+        super().__init__(**kw)
+        self.codes = list(codes)
+
+    def call_service(self, name, region, search_target, timeout_sec):
+        if self.codes:
+            self.sent.append(name)
+            return Reply(False, self.codes.pop(0))
+        return super().call_service(name, region, search_target, timeout_sec)
+
+
+@pytest.mark.parametrize("code", ["CAMERA_TIMEOUT", "DEPTH_INVALID", "TIMEOUT"])
+def test_first_inspect_failure_is_retried_once(code):
+    """#168: s4 인식 실패 → 로봇 동작 없이 1회 다시 찍기 → 찾으면 그대로 진행."""
+    robot = FlakyCamera([code])
+    _, result, _ = run(robot)
+    assert result.overall_status == "COMPLETED"
+    assert step(result, "s4")["attempts"] == 2
+    i = robot.sent.index(INSPECT_SERVICE)
+    assert robot.sent[i + 1] == INSPECT_SERVICE                   # 사이에 로봇 동작 없음
+
+
+def test_inspect_failing_twice_cleans_up_without_pick():
+    robot = FlakyCamera(["CAMERA_TIMEOUT", "CAMERA_TIMEOUT"])
+    _, result, _ = run(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "CAMERA_TIMEOUT", "s4")
+    assert "/skills/pick_object" not in robot.sent and "/skills/nudge_object" not in robot.sent
+    assert robot.motion_after(INSPECT_SERVICE) == ["/skills/drawer_control", "/skills/move_to_named_pose"]   # 닫기 → 홈
+
+
 def test_success_delivers_item_and_cleans_up():
     robot = MockRobot()
     runner, result, _ = run(robot)
