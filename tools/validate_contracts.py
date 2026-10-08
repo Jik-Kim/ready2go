@@ -5,7 +5,7 @@
 - contracts/examples/intent_*.json 이 intent.schema.json 을 통과하는지
 - contracts/examples/inspect_region_result.json 의 pose 규칙(position.z = 0, yaw 범위)
 - contracts/examples/nudge_object_result.json 의 target_after 규칙(성공일 때만 target 형식, 실패면 null)
-- contracts/examples/place_object_result.json 의 서랍 안 놓기 규칙(pose·neighbors, placed_pose 는 놓은 뒤에만, 거부는 blocked_by)
+- contracts/examples/place_object_result.json 의 서랍 안 놓기 규칙(pose·scan, placed_pose 는 놓은 뒤에만, 거부는 blocked_by)
 - 온톨로지 목록 참조 · 스킬 파라미터($변수) 참조가 맞는지
 """
 import json
@@ -43,7 +43,7 @@ def place_pose_errors(pose, frame, where):
 
 
 def place_result_errors(doc):
-    """place_object 결과 규칙 (#120 ② 계약안): 서랍 안 놓기는 pose 또는 slot + neighbors(빈 배열 허용),
+    """place_object 결과 규칙 (#120 ② 계약안): 서랍 안 놓기는 pose 또는 slot + scan(직전 inspect_region 결과 전체 — target 도 이웃으로 검사, #166 D 리뷰),
     placed_pose 는 그리퍼를 연 뒤에만(움직이기 전 거부면 null), 이웃·벽 거부는 blocked_by."""
     errs = []
     for c in doc["cases"]:
@@ -55,12 +55,17 @@ def place_result_errors(doc):
                 errs += [f"{name}: {m}" for m in place_pose_errors(p["pose"], loc, "params.pose")]
             elif "slot" not in p:
                 errs.append(f"{name}: 서랍 안 놓기는 params.pose 또는 params.slot 필요")
+            scan = p.get("scan")
             if code != "BAD_PARAMS":
-                if not isinstance(p.get("neighbors"), list):
-                    errs.append(f"{name}: 서랍 안 놓기는 params.neighbors(배열, 빈 배열 허용) 필요 — 없으면 BAD_PARAMS")
+                if not isinstance(scan, dict):
+                    errs.append(f"{name}: 서랍 안 놓기는 params.scan(직전 inspect_region 결과 전체, $scan) 필요 — 없으면 BAD_PARAMS")
                 else:
-                    for i, n in enumerate(p["neighbors"]):
-                        errs += [f"{name}: {m}" for m in pose_errors(n.get("pose", {}), f"neighbors[{i}].pose")]
+                    errs += [f"{name}: params.scan {m}" for m in result_errors(scan)]
+            seen = ([scan["target"]] if isinstance(scan, dict) and scan.get("target") else []) + \
+                (scan.get("candidates", []) if isinstance(scan, dict) else [])
+            by = out.get("blocked_by")
+            if code == "PLACE_BLOCKED" and by not in {o.get("id") for o in seen}:
+                errs.append(f"{name}: PLACE_BLOCKED 의 blocked_by 는 scan 의 target·candidates 중 하나의 id — 값 {by}")
         placed = out.get("placed_pose", "없음")
         if c["success"] and not isinstance(placed, dict):
             errs.append(f"{name}: 성공 결과에 placed_pose 필요")

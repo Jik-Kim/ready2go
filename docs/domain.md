@@ -29,7 +29,7 @@
 
 | 대상·담당 | 근거·영향·필요 조치 |
 | :--- | :--- |
-| TODO(B·C·E): `place_object`/`inspect_region` 연결 | 서랍 안 놓기 계약안(#120 ②, B 제안·승인 전): `location` 서랍 + `pose`/`slot` + `neighbors`(`$scan.candidates`), 이웃·벽 겹침은 움직이기 전 거부, `placed_pose` = 명령한 자리(실제 위치는 재관측) — [runner.md 7.1](runner.md), `contracts/examples/place_object_result.json`. 빈 자리 자동 계산·실패/취소 복구 계약은 아직. 기존 `aside`/`avoid` 제안은 확정 필드로 추가하지 않음 |
+| TODO(B·C·E): `place_object`/`inspect_region` 연결 | 서랍 안 놓기 계약안(#120 ②, B 제안·승인 전): `location` 서랍 + `pose`/`slot` + `scan`(`$scan`, `target`·`candidates` 모두 이웃), 이웃·벽 겹침은 움직이기 전 거부, `placed_pose` = 명령한 자리(실제 위치는 재관측) — [runner.md 7.1](runner.md), `contracts/examples/place_object_result.json`. 빈 자리 자동 계산·실패/취소 복구 계약은 아직. 기존 `aside`/`avoid` 제안은 확정 필드로 추가하지 않음 |
 | TODO(C·E): `tasks/find_with_unpack.json` | 현재 s7.2=`staging_tray`, f1.2=`tray_view`, f1.3=`source_slot`인 이전 예시. 내부 이동/재식별·원래 pose 기록 계약을 반영한 뒤 갱신·검증. 새 좌표를 임의로 넣지 않음 |
 | TODO(C·E): Runner/플래너·온톨로지 | 이미 옮긴 물체의 반복 제거 방지, `restore_stack` 식별/pose·역순 복구, located_in 유지와 pre/effect 의미 대조 필요 |
 | TODO(B·C·A·E): 잔존 `staging_tray` | world/초기상태, places.yaml, vision_stub, ICD TF/region·place, 관련 테스트·로그 예시가 참조함. 승인·소비자 정리 전에 삭제하지 않음. `tray_view`는 전달 트레이 용도 필요 여부를 B가 판단 |
