@@ -229,7 +229,7 @@ def load_server(repo: Path, robot, cfg_dir: Path | None = None):
 
         def move(self, w, f):
             if w == 0:                                                  # 닫기: 손잡이(열기 단계)는 8 mm, 그 밖은 지우개 21 mm 를 잡음
-                Gripper.width = {"open": 8.0, "pick": 21.0}.get(robot.step, 0.9)   # 손잡이 8 mm·지우개 21 mm, 그 밖(끌기 등)은 빈 손 0.9 mm
+                Gripper.width = {"open": HANDLE_MM, "pick": 21.0}.get(robot.step, 0.9)   # 손잡이 두께·지우개 21 mm, 그 밖(끌기 등)은 빈 손 0.9 mm
             else:
                 Gripper.width = float(w)
             robot.grip_events.append(dict(before_segment=len(robot.segments), width_mm=Gripper.width, step=robot.step))
@@ -272,6 +272,9 @@ def load_server(repo: Path, robot, cfg_dir: Path | None = None):
     return ss, sf, srv, Gripper
 
 
+# 손잡이를 잡은 폭 = 손잡이 위아래 두께 (sim/drawer_dimensions.yaml). 예전 8 mm 는 재생 때 손가락이 손잡이에 안 닿아 보였음 [사용자 10/08]
+HANDLE_MM = 10.0 * __import__("yaml").safe_load((Path(__file__).resolve().parents[1] / "drawer_dimensions.yaml").read_text(encoding="utf-8"))[
+    "drawer_unit"]["handle"]["thickness_vertical_cm"]
 SEARCH_BELOW_MM = [None]      # params drag.search_below_mm (있으면 예상 접촉 높이 = 누르기 끝 z + 이 값)
 
 
