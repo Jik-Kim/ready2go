@@ -7,6 +7,7 @@ drawer_top.tf 는 시작에 필수, drawer_bottom.tf 가 아직 null 이면 그 
 
 진단(결과에는 영향 없음): 요청마다 검출별 판단 근거와 카메라로 본 서랍 바닥 z(core/floor_probe.py)를 로그로 남긴다.
 dump_dir 파라미터를 주면 그 요청에 쓴 컬러·뎁스·K·TF·검출·결과를 .npz 로 저장한다(tools/dev/replay_inspect_dump.py 로 재계산).
+분할 모델(weights 가 yolo*-seg)이면 검출 마스크를 덤프 masks(packbits)로 함께 저장한다(meta.detections 순서와 같음).
 """
 import datetime
 import hashlib
@@ -150,12 +151,15 @@ class InspectRegionNode(Node):
         now = datetime.datetime.now(datetime.timezone.utc)                     # UTC (컨테이너 시간대와 무관)
         stamp = f"{now:%Y%m%d_%H%M%S}_{now.microsecond // 1000:03d}Z"
         path = self._dump / f"inspect_{stamp}.npz"
+        masks = [d["mask"] for d in dets if "mask" in d]
         meta = {"request": {"region": req.region, "search_target": req.search_target}, "success": res.success,
-                "error_code": res.error_code, "result_json": res.result_json, "detections": dets, "debug": debug, "floor": floor,
+                "error_code": res.error_code, "result_json": res.result_json,
+                "detections": [{k: v for k, v in d.items() if k != "mask"} for d in dets], "debug": debug, "floor": floor,
                 "K": [K.fx, K.fy, K.cx, K.cy], "versions": self._versions,
                 "interior_m": region["interior_m"], "region_tf": region["tf"]}
         try:
-            np.savez_compressed(path, color=color, depth_m=depth.astype(np.float32), T_base_cam=tf_to_T(ts),
+            extra = {"masks": np.packbits(np.stack(masks), axis=-1)} if masks and len(masks) == len(dets) else {}
+            np.savez_compressed(path, **extra, color=color, depth_m=depth.astype(np.float32), T_base_cam=tf_to_T(ts),
                                 T_base_drawer=region["T_base_drawer"], T_drawer_cam=T_drawer_cam,
                                 meta=np.array(json.dumps(meta, ensure_ascii=False, default=float)))
             self.get_logger().info(f"  덤프 {path}")

@@ -247,3 +247,46 @@ def test_region_frames_skips_unmeasured_tf_and_keeps_each_interior():
     assert fr["drawer_bottom"]["interior_m"] == [0.19, 0.28] and fr["drawer_top"]["interior_m"] == places["drawer_top"]["interior_m"][:2]
     assert fr["drawer_bottom"]["T_base_drawer"][:3, 3] == pytest.approx([0.24, -0.11, 0.047])
     assert fr["drawer_bottom"]["T_base_drawer"][:3, :3] @ [1, 0, 0] == pytest.approx([0, -1, 0], abs=1e-6)
+
+
+def mask_of(cx, cy, yaw, size, height, shape=(720, 1280)):
+    """scene() 과 같은 투영으로 물체 윗면 픽셀 마스크 (분할 모델 마스크 대신)."""
+    h, w = shape
+    us, vs = np.meshgrid(np.arange(w, dtype=float), np.arange(h, dtype=float))
+    x = CAM_XY[0] + (us - K.cx) / K.fx * (H - height)
+    y = CAM_XY[1] - (vs - K.cy) / K.fy * (H - height)
+    c, s = math.cos(yaw), math.sin(yaw)
+    a, b = (x - cx) * c + (y - cy) * s, -(x - cx) * s + (y - cy) * c
+    return (abs(a) <= size[0] / 2) & (abs(b) <= size[1] / 2)
+
+
+def test_mask_depth_ignores_taller_neighbor_inside_box():
+    """P2 분할(#109): 상자 안에 높은 이웃이 들어오면 상자 뎁스는 이웃 높이가 섞이고, 마스크 안 뎁스는 자기 높이."""
+    er = (0.08, 0.15, 0.0, (0.0525, 0.022), 0.0115)
+    tall = (0.08, 0.15 + 0.011 + 0.010, 0.0, (0.06, 0.02), 0.040)        # 지우개 긴 변에 붙은 높이 40 mm 물체
+    depth = scene(*er, extra=[tall])
+    box = box_of(er[0], er[1], er[3], er[2])
+    det = {"class": "eraser", "conf": 0.9, "box": box}
+    _, _, js_box = run(depth, [det])
+    ok, err, js = run(depth, [{**det, "mask": mask_of(*er)}])
+    assert ok and err == ""
+    t_box, t = json.loads(js_box)["target"], json.loads(js)["target"]
+    assert t_box["top_z"] > 0.03                                           # 상자: 이웃 40 mm 가 섞임
+    assert t["top_z"] == pytest.approx(0.0115, abs=0.002)                  # 마스크: 지우개 11.5 mm
+    assert t["pose"]["yaw_valid"] is True and t["pose"]["yaw"] == pytest.approx(0.0, abs=0.05)
+    assert t["pose"]["position"] == pytest.approx(t_box["pose"]["position"], abs=0.003)
+
+
+def test_mask_debug_reports_depth_source_and_empty_eroded_mask_falls_back():
+    from ready2go_vision.core.depth_blob import analyze_box
+    er = (0.10, 0.15, 0.0, (0.0525, 0.022), 0.0115)
+    depth = scene(*er)
+    box = box_of(er[0], er[1], er[3], er[2])
+    dbg = []
+    inspect_scene([{"class": "eraser", "conf": 0.9, "box": box, "mask": mask_of(*er)}], depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    assert dbg[0]["depth_src"] == "mask"
+    tiny = np.zeros(depth.shape, bool)
+    u, v = int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)
+    tiny[v - 1:v + 2, u - 1:u + 2] = True                                  # 3x3: 깎으면 사라짐 → 깎기 전 마스크로
+    r = analyze_box(depth, box, K, T, {**PARAMS["depth_blob"], "min_valid_px": 5}, mask=tiny)
+    assert r.depth_ok and r.top_z == pytest.approx(0.0115, abs=0.002)
