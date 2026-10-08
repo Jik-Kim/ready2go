@@ -815,7 +815,7 @@ def test_tilted_close_refuses_when_start_and_end_taught_apart(server):
     srv = server.srv
     prm = srv.prm()
     end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
-    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": [0.0] * 6, "end_posx": end}}
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": [21.9, 39.2, 115.7, 110.1, -99.3, -23.6], "end_posx": end}}
     srv.prm = lambda: prm
     srv.disp = {"drawer_bottom": 0.226}
     srv.robot.p = [381.9, -27.0, 110.0, 90.0, -135.0, 90.0]             # z 10 mm 다름
