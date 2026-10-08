@@ -50,3 +50,12 @@ def test_three_detections_chain_into_one_and_input_not_modified():
     kept, dropped = merge_duplicates(dets, 0.6)
     assert len(kept) == 1 and len(dropped) == 2 and [m["conf"] for m in kept[0]["merged_from"]] == [0.7, 0.5]
     assert all((d["mask"] == m).all() for d, m in zip(dets, before)) and "merged_from" not in dets[1]
+
+
+def test_transitive_overlap_chain_is_one_object():
+    """A-B 0.67, B-C 0.67, A-C 0.33 이면 셋 다 같은 물체 — 버린 B 를 거쳐 이어진 C 도 합쳐야 함 (#174 D 리뷰)."""
+    a, b, c = rect(10, 10, 40, 100), rect(10, 40, 40, 130), rect(10, 70, 40, 160)   # 각 90칸, 이웃끼리 60칸 겹침, a-c 30칸
+    kept, dropped = merge_duplicates([det("toy_wrench", 0.9, a), det("toy_wrench", 0.8, b), det("toy_wrench", 0.7, c)], 0.6)
+    assert len(kept) == 1 and kept[0]["conf"] == 0.9 and (kept[0]["mask"] == a).all()
+    assert sorted(d["conf"] for d in dropped) == [0.7, 0.8] and all(d["merged_into_conf"] == 0.9 for d in dropped)
+    assert [m["conf"] for m in kept[0]["merged_from"]] == [0.8, 0.7]
