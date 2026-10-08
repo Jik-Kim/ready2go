@@ -11,7 +11,8 @@ Runner 안(LOCAL)에서 처리한다. 둘 다 직전 inspect_region 결과($scan
 2. 목표 occluded_by == [] → 치울 것 없음 (target_clear)
 3. 목표 occluded_by 모름(null·필드 없음) → yaw_valid 가 true 이고 필드 자체가 없으면(박스 모델) 치울 것 없음,
    아니면 A 대안: 목표 footprint 와 겹치고 top_z 가 더 높은 후보 중 가장 높은 것 (없으면 치울 것 없음)
-4. 목표 못 찾음 → occluded_by == [] 후보 중 visible_area_m2 큰 것(domain.md 8.2), 모르면 top_z 높은 것
+4. 목표 못 찾음 → occluded_by == [] 후보 중 visible_area_m2 큰 것(domain.md 8.2). 가림 필드가 아예 없는 박스 모델만
+   top_z 높은 것, 필드가 있는데 null(모름)이면 고르지 않음(occlusion_unknown)
 재식별 (#109): 같은 class 후보가 정확히 1개이고 placed_pose 와 tol_m 안이면 found. 같은 class 가 2개 이상이면
 ambiguous(첫 시연은 class 당 1개), 1개인데 tol_m 밖이면 ambiguous, 없으면 missing. 모호하면 이동을 확정하지 않는다.
 tol_m 은 비전 오차 + 놓기 오차 실측 + 여유 [팀 확정 필요] — 태스크가 넘긴다.
@@ -27,9 +28,11 @@ BAD_PARAMS = "BAD_PARAMS"               # scan·record·tol_m 형식 오류
 
 def select_obstacle(params: dict, world: dict) -> ActionResult:
     scan, moved = params.get("scan"), params.get("moved") or []
-    if not isinstance(scan, dict) or not isinstance(moved, list):
+    if not isinstance(scan, dict) or not isinstance(moved, list) or not all(isinstance(r, dict) for r in moved):
         return ActionResult(False, error_code=BAD_PARAMS)
     tol = params.get("tol_m")
+    if moved and not _valid_tol(tol):       # 옮긴 기록을 대조하려면 tol_m 필수 (#176 D 리뷰: 없거나 음수·무한대면
+        return ActionResult(False, error_code=BAD_PARAMS)   # 옮긴 물체를 다시 고르거나 엉뚱하게 제외함)
     seen = _objects(scan)
     excluded, held_back = [], []
     for record in moved:                    # 이미 옮긴 물체(찾음)와 확정 못 한 같은 class(모호)는 고르지 않음
@@ -69,7 +72,7 @@ def _objects(scan: dict) -> list[dict]:
 
 
 def _match(record: dict, seen: list[dict], tol) -> tuple[str | None, dict | None, float | None]:
-    if not isinstance(tol, (int, float)) or isinstance(tol, bool) or tol <= 0:
+    if not _valid_tol(tol):
         return None, None, None
     same = [o for o in seen if o.get("class") == record.get("class")]
     if not same:
@@ -84,12 +87,19 @@ def _match(record: dict, seen: list[dict], tol) -> tuple[str | None, dict | None
     return ("found" if distance <= tol else "ambiguous"), same[0], distance
 
 
+def _valid_tol(tol) -> bool:
+    """tol_m: 0보다 큰 유한한 숫자 (NaN·무한대·bool 제외)."""
+    return isinstance(tol, (int, float)) and not isinstance(tol, bool) and math.isfinite(tol) and tol > 0
+
+
 def _choose(target: dict | None, pool: list[dict], world: dict) -> tuple[dict | None, str]:
     options = _choices(target, pool, world)
     if options:
         return options[0], _reason(target, pool)
     if target is not None and target.get("occluded_by"):   # 덮은 물체가 후보에 없음(옮김·확정 못 함) → 진행 안 함
         return None, "occluder_unavailable"
+    if target is None and pool:             # 후보는 있는데 위에 아무것도 없다고 확인된 것이 없음 → 짐작 안 함
+        return None, "occlusion_unknown"
     return None, "target_clear" if target is not None else "none"
 
 
@@ -100,7 +110,9 @@ def _choices(target: dict | None, pool: list[dict], world: dict) -> list[dict]:
         free = [c for c in pool if c.get("occluded_by") == []]
         if free:
             return sorted(free, key=lambda c: (-(c.get("visible_area_m2") or 0.0), -(c.get("top_z") or 0.0)))
-        return sorted(pool, key=lambda c: -(c.get("top_z") or 0.0))
+        if all("occluded_by" not in c for c in pool):   # 가림 필드가 아예 없는 박스 모델만 높이 순 (domain.md 8.2)
+            return sorted(pool, key=lambda c: -(c.get("top_z") or 0.0))
+        return []                           # 필드가 있는데 null(모름)·덮임 → 고르지 않음 (#176 D 리뷰)
     occ = target.get("occluded_by")
     if isinstance(occ, list) and occ:       # 1. 덮은 물체를 따라 맨 위까지 — 사슬이 하나라도 끊기면 고르지 않음
         tops = _tops(occ, by_id, set())

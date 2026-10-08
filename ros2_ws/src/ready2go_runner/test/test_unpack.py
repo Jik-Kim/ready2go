@@ -134,6 +134,36 @@ def test_two_occluders_each_followed_to_top():
     assert pick({"scan": s, "prefer": "toy_hammer"})["obstacle"]["id"] == "car_key#1"
 
 
+def test_target_not_found_does_not_pick_unknown_occlusion():
+    """#176 D 리뷰 P1: 목표 못 찾음 + 위에 아무것도 없는 후보 없음 → null(모름)·덮인 후보를 높이 순으로 고르지 않음."""
+    s = scan(None, obj("toy_hammer#1", 0.1, 0.1, 0.03, occluded_by=None),
+             obj("car_key#1", 0.1, 0.12, 0.02, occluded_by=["toy_hammer#1"]))
+    out = pick({"scan": s})
+    assert (out["obstacle"], out["reason"]) == (None, "occlusion_unknown")
+
+
+@pytest.mark.parametrize("tol", [None, -1, 0, float("nan"), float("inf"), True, "0.02"])
+def test_moved_needs_valid_tol(tol):
+    """#176 D 리뷰 P1: 옮긴 기록이 있는데 tol_m 이 없거나 이상하면 고르지 않고 BAD_PARAMS (다시 고르기·엉뚱한 제외 방지)."""
+    s = scan(None, obj("toy_hammer#2", 0.035, 0.255, 0.03, occluded_by=[]))
+    params = {"scan": s, "moved": [MOVED_HAMMER]}
+    if tol is not None:
+        params["tol_m"] = tol
+    assert select_obstacle(params, WORLD).error_code == "BAD_PARAMS"
+    assert find_moved({"scan": s, "record": MOVED_HAMMER, "tol_m": tol}, WORLD).error_code == "BAD_PARAMS"
+
+
+def test_moved_records_must_be_objects():
+    """#176 D 리뷰 P2: moved 원소가 객체가 아니면 예외 대신 BAD_PARAMS."""
+    assert select_obstacle({"scan": scan(), "moved": ["toy_hammer"], "tol_m": TOL}, WORLD).error_code == "BAD_PARAMS"
+
+
+def test_no_moved_needs_no_tol():
+    """옮긴 기록이 없으면(첫 촬영) tol_m 없이도 고름."""
+    out = pick({"scan": scan(None, obj("lip_balm#1", 0.15, 0.2, 0.025, occluded_by=[]))})
+    assert out["obstacle"]["id"] == "lip_balm#1"
+
+
 def test_prefer_only_reorders_within_rule_candidates():
     """사용자 답(prefer)은 같은 규칙의 후보 안에서만 순서를 바꿈 (A 제안: 안전 판단은 못 넘김)."""
     s = scan(None, obj("cover_plate#1", 0.1, 0.1, 0.02, occluded_by=[], visible_area_m2=0.008),
