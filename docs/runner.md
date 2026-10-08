@@ -206,7 +206,7 @@
   | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
   | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |
 
-  * 목표형(`achieve_goal`, P2 #150): 태스크 대신 플래너(`core/planner.py`, `docs/planner.md` 7.7)가 **현재 Runner 상태**에서 계획. 계획 스텝 제한 시간은 파라미터 `plan_timeouts`(기본 `open_drawer=60,close_drawer=60,pick=60,place=60,move_to_named_pose=60` [팀 확정 필요], find_item 과 같음). `tasks/`에 `trigger.intent: achieve_goal` 태스크를 두면 그 태스크가 우선.
+  * 목표형(`achieve_goal`, P2 #150): 태스크 대신 플래너(`core/planner.py`, `docs/planner.md` 7.7)가 **현재 Runner 상태**에서 계획. 계획 스텝 제한 시간은 파라미터 `plan_timeouts`(기본 `open_drawer=60,close_drawer=60,pick=60,place=60,move_to_named_pose=60` [팀 확정 필요], find_item 과 같음). **지원 범위** 파라미터 `plan_limits`(기본 = 현재 실물 [문서: B `skill_server.py` 10/08, 팀 확정 필요] `open_drawer.drawer_id=drawer_top,close_drawer.drawer_id=drawer_top,pick.from=drawer_top,place.to=handover_zone`, 빈 문자열 = 제한 없음·mock) — 범위 밖 계획은 실행 전에 `UNPLANNABLE`. `tasks/`에 `trigger.intent: achieve_goal` 태스크를 두면 그 태스크가 우선.
   * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — P1 시연(벽 배치·끌기 뒤 다시 촬영, E #122 공통 pick): `-p intent_tasks:=find_item=/tasks/p1_demo_eraser.json` (공통 온톨로지 그대로). 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
   * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
   * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.
