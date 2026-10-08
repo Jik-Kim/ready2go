@@ -371,14 +371,15 @@ class App:
         self.force_lbl = tk.Label(row, text="—", bg=C["panel"], font=("TkFixedFont", 9))
         self.force_lbl.pack(side="left", padx=4)
         self.btn(row, "reset", self.force_reset, font=("", 8)).pack(side="left")
-        tk.Frame(row, bg=C["line"], width=1, height=18).pack(side="left", padx=6)
-        tk.Label(row, text="± 꾹 누르기", bg=C["panel"], font=("", 9, "bold")).pack(side="left")
+        # 꾹 누르기 묶음은 오른쪽 끝에 고정 (툴 힘 글자 길이에 따라 왔다갔다 안 하게, 사용자 10/08)
         self.hold_lbl = tk.Label(row, text="4 %", bg=C["panel"], width=4)
         self.hold_lbl.pack(side="right")
         self.hold_speed = tk.Scale(row, from_=2, to=10, orient=tk.HORIZONTAL, length=110, showvalue=0, bg=C["panel"],
                                    highlightthickness=0, command=lambda v: self.hold_lbl.config(text=f"{int(float(v))} %"))
         self.hold_speed.set(4)
-        self.hold_speed.pack(side="right", padx=4)
+        self.hold_speed.pack(side="right", padx=(2, 0))
+        tk.Label(row, text="± 꾹 누르기", bg=C["panel"], font=("", 9, "bold")).pack(side="right")
+        tk.Frame(row, bg=C["line"], width=1, height=18).pack(side="right", padx=6)
         self.cells = {}
         tbl = tk.Frame(f, bg=C["panel"])                  # posx·posj 한 표: 12칸 같은 폭, 위아래 줄 칸 맞춤
         tbl.pack(fill="x", pady=(5, 0))
