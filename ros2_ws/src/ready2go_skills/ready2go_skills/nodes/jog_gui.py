@@ -1,19 +1,24 @@
-"""실물 로봇 조그 창 (교시·측정용 도구, 태스크 실행 경로 아님). 강의 rokey_cobot2 jog 화면을 바탕으로 안전 수정.
+"""실물 로봇 조그 창 R2G Jog (교시·측정용 도구, 태스크 실행 경로 아님). 강의 rokey_cobot2 jog 화면을 바탕으로 안전 수정.
+화면 배치 10/08 새로 (사용자 시안 v22 확정, @9기_SDG): 위 상태줄(툴·툴 힘·꾹 누르기) → posx/posj → 관절 | 직선 이동 →
+좌표로 이동 → 그리퍼 기울이기 | 정렬·회전 | 그리퍼(+직접교시) | 비상정지 해제·정지 → gohome·상태.
 
 강의 jog와 다른 점
-- +/- 는 입력칸 숫자가 아니라 로봇의 '지금' 위치를 새로 읽어 한 칸만 움직인다
+- +/- 는 입력칸 숫자가 아니라 로봇의 '지금' 위치를 새로 읽어 증분만큼만 움직인다
   → 직접교시·다른 도구로 옮긴 뒤 눌러도 옛 위치로 돌아가지 않는다 (강의 jog의 충돌 위험).
 - +/- 를 꾹 누르면(0.35초 이상) DSR 연속 조그로 누르는 동안 움직이고, 떼면 멈춘다.
   멈춤: 손 떼기 / 버튼 밖으로 나가기 / 창 포커스 잃기 / 한 번에 최대 HOLD_MAX_S초.
-- 입력칸·맨 아래 실시간 좌표(copy)는 0.3초마다 갱신. 직접 고친 칸만 노란색으로 남고 movej/movel 목표가 된다.
+- 입력칸·posx/posj 칸은 0.3초마다 갱신. 직접 고친 입력칸만 노란색으로 남고 '입력값으로 movej/movel' 목표가 된다.
+- 좌표로 이동: posx([...]) → movel, posj([...]) → movej (숫자만이면 묻기). 이동 전 확인창, posj 는 J5 ≤ 133°·J3 ≥ 10°.
 - 움직이는 중 누른 버튼은 무시, 움직이기 전에 자동 모드로 바꾸고 바뀔 때까지 기다린다. 거부되면 상태·모드를 표시.
-- 시작·'툴 확인' 때 펜던트 툴 설정(TCP, 툴 무게)이 config와 같은지 확인하고, 다르면 이동 버튼을 막는다
+- 시작·'다시 확인' 때 펜던트 툴 설정(TCP, 툴 무게)이 config와 같은지 확인하고, 다르면 이동 버튼을 막는다
   (10/04 툴 설정이 풀려 좌표가 플랜지 기준으로 읽힌 사고, #6).
-- 축 정렬 x / y / z / r (core/pose_math.py): TCP 위치 고정, 한 번에 돌기(170° 넘으면 2번), 돌기 전 확인창, 정렬 후 직접교시(선택).
-- 그리퍼 회전 +/− (r 정렬 옆, 기본 90°): 툴 z 둘레, TCP 위치 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향.
-- 기울이기 왼(−x)·오른(+x)·앞(+y)·뒤(−y)·수직: TCP 위치 고정, 수직 아래에서 각도 칸(기본 30°)만큼 손끝을 그쪽으로
-  (nudge_object 끌기 자세 시험용, 트러블슈팅 2). 축 정렬과 같은 확인창, 끝나도 직접교시로 바꾸지 않음.
-- grip(힘 칸) / release(최대) / 폭만큼 열기(폭 칸), 직접교시 ON/OFF, gohome(확인창).
+- 정렬 x / y / z / 그리퍼 정렬 (core/pose_math.py): TCP 위치 고정, 한 번에 돌기(170° 넘으면 2번), 돌기 전 확인창, 끝나면 직접교시.
+- 그리퍼 회전 ↺ − / ↻ + (기본 90°): 툴 z 둘레, TCP 위치 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향.
+- 그리퍼 기울이기 왼(−x)·오른(+x)·앞(+y)·뒤(−y)·수직: TCP 위치 고정, 수직 아래에서 각도 칸(기본 30°)만큼 손끝을 그쪽으로.
+- 툴 힘(base, 관절 토크 추정): reset 누른 순간 기준의 변화량 표시 (화면 표시만, 로봇·스킬 서버에 영향 없음).
+- 그리퍼: 닫기(힘 칸) / 최대 열기 / 폭만큼 열기(폭 칸). 지금 폭·잡힘을 2초마다 읽음.
+- 정지 버튼·Esc 키(입력칸 밖이면 Space 도): 정지. 비상정지 해제: 소프트웨어 안전정지(충돌·한계)만, 확인창 뒤
+  (물리 비상정지 버튼은 직접 풀어야 함). gohome(확인창).
 - 창 닫기(X)·Ctrl+C: 움직이는 중이면 정지 명령을 보내고 깔끔하게 종료.
 
 실행 (PC2 호스트, DSR 드라이버 실행 중, cobot2_ws 등 dsr_msgs2를 source 한 터미널):
@@ -23,19 +28,26 @@
 필요: python3-tk, python3-yaml
 """
 import argparse
+import math
 import os
+import re
 import signal
 import threading
 import time
 import tkinter as tk
 import traceback
 from pathlib import Path
+from tkinter import font as tkfont
 from tkinter import messagebox
 
 import rclpy
 import yaml
 from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetRobotMode,
-                           GetRobotState, Jog, MoveJoint, MoveLine, MoveStop, SetRobotMode)
+                           GetRobotState, GetToolForce, Jog, MoveJoint, MoveLine, MoveStop, SetRobotMode)
+try:                                 # 비상정지 해제용 — 없는 드라이버면 버튼만 막음
+    from dsr_msgs2.srv import SetRobotControl, SetSafeStopResetType
+except ImportError:
+    SetRobotControl = SetSafeStopResetType = None
 
 from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core.pose_math import (align_target, roll_target, rot, rotation_angle, step_target, tilt_target,
@@ -54,9 +66,20 @@ PIECE_TIMEOUT_EXTRA_S = 5.0  # 회전 시간(각도 / ALIGN_VEL) + 이 안에 �
 JOINT_VEL, JOINT_ACC, LINE_VEL, LINE_ACC = 20, 20, 30, 60    # 슬라이더 기본값 (강의 jog 60은 빠름)
 STATE = {0: "초기화", 1: "대기", 2: "이동 중", 3: "서보 꺼짐", 4: "직접교시", 5: "안전 정지",
          6: "비상정지", 7: "홈", 8: "복구 모드", 9: "안전 정지2", 10: "서보 꺼짐2", 15: "준비 안 됨"}
-ALIGN_NAMES = {"x": "x 정렬 (수평·바깥)", "y": "y 정렬 (수평·-y)", "z": "z 정렬 (수직 아래)", "r": "r 정렬 (90° 칸)"}
+ALIGN_NAMES = {"x": "x 정렬 (수평·바깥)", "y": "y 정렬 (수평·-y)", "z": "z 정렬 (수직 아래)", "r": "그리퍼 정렬 (가까운 90°)"}
 TILT_DIRS = (("← 왼 (−x, 로봇 쪽)", (-1.0, 0.0)), ("오른 (+x) →", (1.0, 0.0)),
              ("앞 (+y, 내 반대쪽)", (0.0, 1.0)), ("뒤 (−y, 내 쪽)", (0.0, -1.0)))   # 서동권 자리(base −y)에서 본 방향
+J5_MAX, J3_MIN = 133.0, 10.0        # 좌표로 이동(posj) 거부 — params/skills.yaml joint_limits_deg 와 같음 [사용자 10/06]
+# 비상정지 해제 (system/set_robot_control) [PC2 `ros2 interface show dsr_msgs2/srv/SetRobotControl` 10/08 확인]:
+#   2 CONTROL_RESET_SAFET_STOP = SAFE_STOP(5) → STANDBY, 3 CONTROL_RESET_SAFET_OFF = SAFE_OFF(3) → STANDBY.
+#   SAFE_STOP2(9)·SAFE_OFF2(10) 는 복구 모드(4·5 → 빼내기 → 7)를 거쳐야 해서 펜던트로 (여기서 보내지 않음).
+RECOVER = {5: 2, 3: 3}
+RECOVER_BY_PENDANT = (9, 10)
+# 안전정지 리셋(2) 전에 reset type 을 PROGRAM_STOP(0) 으로 — 1(PROGRAM_RESUME)이 남아 있으면 자동 모드에서 멈췄던
+# 동작이 재개될 수 있음 (E #171 검수 P1, NFR-SAF-02). Doosan 예제도 리셋 직전 SAFE_STOP_RESET_TYPE_DEFAULT 설정.
+SAFE_STOP_RESET_PROGRAM_STOP = 0
+C = {"bg": "#e9e9e7", "panel": "#f7f7f5", "line": "#c9c9c4", "sub": "#5d6470", "blue": "#2f6fde", "red": "#d33a2c",
+     "green": "#e7f4ec", "amber": "#fff4dc", "posx": "#e8f0fd", "posj": "#f3ece0", "dark": "#2b2b2b", "silver": "#d5d9de"}
 TILT_DEFAULT, TILT_MAX = 30.0, 45.0
 ROLL_DEFAULT, ROLL_MAX = 90.0, 180.0     # 그리퍼 회전(툴 z 둘레) 한 번에
 
@@ -99,10 +122,15 @@ class Robot:
                 "movej": (MoveJoint, "motion/move_joint"),
                 "jog": (Jog, "motion/jog"),
                 "stop": (MoveStop, "motion/move_stop"),
+                "force": (GetToolForce, "aux_control/get_tool_force"),
                 "tcp": (GetCurrentTcp, "tcp/get_current_tcp"),
                 "tool": (GetCurrentTool, "tool/get_current_tool")}
         self.T = {k: v[0] for k, v in spec.items()}
         self.cli = {k: self.node.create_client(t, f"{srv}/{name}") for k, (t, name) in spec.items()}
+        self.ctrl = (self.node.create_client(SetRobotControl, f"{srv}/system/set_robot_control")   # ready() 에 넣지 않음
+                     if SetRobotControl else None)
+        self.reset_type = (self.node.create_client(SetSafeStopResetType, f"{srv}/system/set_safe_stop_reset_type")
+                           if SetSafeStopResetType else None)
 
     def ready(self):
         return all(c.wait_for_service(timeout_sec=3.0) for c in self.cli.values())
@@ -123,6 +151,26 @@ class Robot:
     def state(self, timeout=2.0):
         r = self.call("state", timeout)
         return r.robot_state if r else None
+
+    def tool_force(self, timeout=2.0):
+        r = self.call("force", timeout, ref=0)
+        return list(r.tool_force) if r else None
+
+    def control(self, value):
+        """set_robot_control (비상정지 해제). 서비스가 없거나 응답 없으면 False."""
+        if not self.ctrl or not self.ctrl.wait_for_service(timeout_sec=1.0):
+            return False
+        f = self.ctrl.call_async(SetRobotControl.Request(robot_control=int(value)))
+        rclpy.spin_until_future_complete(self.node, f, timeout_sec=2.0)
+        return bool(f.done() and f.result() and f.result().success)
+
+    def safe_stop_reset_type(self, value):
+        """set_safe_stop_reset_type (안전정지 리셋 뒤 프로그램 재개 여부). 서비스가 없거나 응답 없으면 False."""
+        if not self.reset_type or not self.reset_type.wait_for_service(timeout_sec=1.0):
+            return False
+        f = self.reset_type.call_async(SetSafeStopResetType.Request(reset_type=int(value)))
+        rclpy.spin_until_future_complete(self.node, f, timeout_sec=2.0)
+        return bool(f.done() and f.result() and f.result().success)
 
     def mode_name(self):
         r = self.call("mode")
@@ -182,27 +230,67 @@ class Gripper:
 
     def __init__(self, ip):
         self.ip, self.text = ip, ("" if ip else "RG2 IP 없음 (--rg2-ip 또는 RG2_HOST)")
+        self.width, self.detected, self.busy = None, None, False
 
-    def move(self, width, force):
-        if not self.ip:
+    def _run(self, fn):
+        if not self.ip or self.busy:
             return
+        self.busy = True
 
         def run():
+            g = None
             try:
-                st = Rg2(self.ip).move(width, force)
-                self.text = f"그리퍼 폭 {st.width_mm:.1f} mm (명령 {width:g} mm, {force:g} N)"
+                g = Rg2(self.ip)
+                fn(g)
             except Exception as e:  # noqa: BLE001 — 창이 죽지 않게 표시만
                 self.text = f"RG2 실패: {e}"
-            print(self.text)
+                print(self.text)
+            finally:
+                if g is not None:
+                    g.close()
+                self.busy = False
         threading.Thread(target=run, daemon=True).start()
+
+    def move(self, width, force):
+        def fn(g):
+            st = g.move(width, force)
+            self.width, self.detected = st.width_mm, st.grip_detected
+            self.text = f"그리퍼 폭 {st.width_mm:.1f} mm (명령 {width:g} mm, {force:g} N)"
+            print(self.text)
+        self._run(fn)
+
+    def poll(self):
+        def fn(g):
+            st = g.status()
+            self.width, self.detected = st.width_mm, st.grip_detected
+        self._run(fn)
+
+
+def force_text(d):
+    """툴 힘 표시 — 값마다 자리 수 고정(±99.9 N 까지)이라 글자 수가 늘 같음."""
+    return f"Fx {d[0]:+5.1f}  Fy {d[1]:+5.1f}  Fz {d[2]:+5.1f} N"
+
+
+FORCE_W = len(force_text([0.0, 0.0, 0.0]))
+
+
+def parse_goto(text):
+    """'좌표로 이동' 칸 → (종류, 숫자 6개). 종류 = 'posx' / 'posj' / None(숫자만). 숫자가 6개가 아니면 (None, None)."""
+    low = text.lower()
+    kind = "posx" if "posx" in low else "posj" if "posj" in low else None
+    nums = re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", text)
+    vals = [float(v) for v in nums]
+    if len(vals) != 6 or not all(math.isfinite(v) for v in vals):    # 1e999 → inf 는 거부 (E #171 검수 P2)
+        return None, None
+    return kind, vals
 
 
 class App:
     def __init__(self, robot, gripper, settings):
-        self.msg_until = 0.0
         self.r, self.g, self.cfg = robot, gripper, settings
         self.root = tk.Tk()
-        self.root.title("Pos 설정 (jog_gui)")
+        self.root.title("R2G Jog · @9기_SDG")
+        self.root.configure(bg=C["bg"])
         self.ok = False
         self.hold = None             # (jog_axis, 시작 시각) 꾹 누르는 중
         self.pending = None          # 꾹 누르기 판정 대기 after id
@@ -210,127 +298,272 @@ class App:
         self.quit_req = False        # Ctrl+C 요청 (신호 처리기에서 표시만 하고 watchdog에서 종료)
         self.seq = []                # 정렬 조각 목록 (하나씩 보냄)
         self.rotating = False        # 조각 도착 기다리는 중
+        self.teach_when_done = False  # 정렬 = 끝나면 직접교시, 그리퍼 회전·기울이기 = 그대로
         self.move_buttons = []
+        self.f0 = None               # 툴 힘 reset 기준
+        self.force = None
+        self.state_name = "?"
 
-        self.joint = self.entries(["J1", "J2", "J3", "J4", "J5", "J6", "Speed", "Acc"], 0, JOINT_VEL, JOINT_ACC, 50)
-        self.axes = self.entries(["X", "Y", "Z", "Rx", "Ry", "Rz", "Speed", "Acc"], 5, LINE_VEL, LINE_ACC, 100)
+        self.header()
+        body = tk.Frame(self.root, bg=C["bg"])
+        body.pack(fill="both", expand=True, padx=8, pady=(6, 4))
+        self.top_panel(body)
+        mid = tk.Frame(body, bg=C["bg"])
+        mid.pack(fill="x", pady=6)
+        self.joint = self.jog_panel(mid, "관절 이동 (deg)", ["J1", "J2", "J3", "J4", "J5", "J6"], "j", JOINT_VEL, JOINT_ACC,
+                                    50, "°", "입력값으로 movej", self.move_by_joint, "posj",
+                                    {2: f"≥{J3_MIN:g}", 4: f"≤{J5_MAX:g}"})
+        self.axes = self.jog_panel(mid, "직선 이동 (mm · deg)", ["X", "Y", "Z", "Rx", "Ry", "Rz"], "x", LINE_VEL, LINE_ACC,
+                                   100, "mm·°", "입력값으로 movel", self.move_by_line, "posx", {}, tag="기준 base_link")
+        self.goto_panel(body)
+        bottom = tk.Frame(body, bg=C["bg"])
+        bottom.pack(fill="x")
+        self.tilt_panel(bottom)
+        self.align_panel(bottom)
+        self.gripper_panel(bottom)
+        self.stop_panel(bottom)
+        foot = tk.Frame(body, bg=C["bg"])
+        foot.pack(fill="x", pady=(6, 0))
+        self.status = tk.Label(foot, text="", bg=C["bg"], fg=C["sub"], anchor="e")
+        self.status.pack(side="right")
 
-        gf = tk.Frame(self.root)
-        gf.grid(row=0, column=0, columnspan=9, pady=8)
-        self.grip_force = tk.Entry(gf, width=5)
-        self.grip_force.insert(0, "20")
-        self.grip_width = tk.Entry(gf, width=5)
-        self.grip_width.insert(0, "35")
-        tk.Button(gf, text="grip", width=8, height=2,
-                  command=lambda: self.g.move(0.0, self.num(self.grip_force, 20.0, 40.0))).pack(side=tk.LEFT, padx=2)
-        tk.Button(gf, text="release(최대)", height=2, command=lambda: self.g.move(100.0, 20.0)).pack(side=tk.LEFT, padx=2)
-        tk.Label(gf, text="grip 힘(N)").pack(side=tk.LEFT, padx=(16, 0))
-        self.grip_force.pack(side=tk.LEFT)
-        tk.Button(gf, text="폭만큼 열기",
-                  command=lambda: self.g.move(self.num(self.grip_width, 35.0, 100.0), 20.0)).pack(side=tk.LEFT, padx=(16, 2))
-        tk.Label(gf, text="폭(mm)").pack(side=tk.LEFT)
-        self.grip_width.pack(side=tk.LEFT)
-
-        self.mb(tk.Button(self.root, text="movej", command=self.move_by_joint)).grid(row=9, column=1, pady=10)
-        tk.Button(self.root, text="copy", command=lambda: self.copy(self.joint, "posj")).grid(row=9, column=2, pady=10)
-        self.mb(tk.Button(self.root, text="movel", command=self.move_by_line)).grid(row=9, column=6, pady=10)
-        tk.Button(self.root, text="copy", command=lambda: self.copy(self.axes, "posx")).grid(row=9, column=7, pady=10)
-        self.inc_j = self.label_entry("Joint Increment", 1)
-        self.inc_x = self.label_entry("Linear Increment", 6)
-
-        af = tk.Frame(self.root)
-        af.grid(row=11, column=0, columnspan=9, pady=8)
-        for mode, text in ALIGN_NAMES.items():
-            self.mb(tk.Button(af, text=text, command=lambda m=mode: self.align(m))).pack(side=tk.LEFT, padx=4)
-        tk.Label(af, text="그리퍼 회전").pack(side=tk.LEFT, padx=(10, 2))
-        self.roll_deg = tk.Entry(af, width=4)
-        self.roll_deg.insert(0, f"{ROLL_DEFAULT:g}")
-        self.roll_deg.pack(side=tk.LEFT)
-        tk.Label(af, text="°").pack(side=tk.LEFT)
-        for sign, text in ((1, "+ (위에서 시계)"), (-1, "− (반시계)")):
-            self.mb(tk.Button(af, text=text, command=lambda s=sign: self.roll(s))).pack(side=tk.LEFT, padx=2)
-        self.snap = tk.BooleanVar(value=False)
-        self.teach_after = tk.BooleanVar(value=True)
-        tk.Checkbutton(af, text="직각도 맞춤", variable=self.snap).pack(side=tk.LEFT, padx=4)
-        tk.Checkbutton(af, text="정렬 후 직접교시", variable=self.teach_after).pack(side=tk.LEFT, padx=4)
-
-        tf = tk.Frame(self.root)
-        tf.grid(row=17, column=0, columnspan=9, pady=8)
-        tk.Label(tf, text="기울이기 (TCP 고정, 손끝이 그쪽으로)").pack(side=tk.LEFT, padx=4)
-        self.tilt_deg = tk.Entry(tf, width=5)
-        self.tilt_deg.insert(0, f"{TILT_DEFAULT:g}")
-        self.tilt_deg.pack(side=tk.LEFT)
-        tk.Label(tf, text="°").pack(side=tk.LEFT, padx=(0, 6))
-        for text, d in TILT_DIRS:
-            self.mb(tk.Button(tf, text=text, command=lambda t=text, d=d: self.tilt(d, t))).pack(side=tk.LEFT, padx=2)
-        self.mb(tk.Button(tf, text="수직", command=lambda: self.tilt((1.0, 0.0), "수직", 0.0))).pack(side=tk.LEFT, padx=6)
-        self.teach_when_done = False         # 축 정렬 = 체크박스 따라, 기울이기 = 직접교시로 바꾸지 않음
-
-        for i in range(6):
-            for column, sign, group in ((2, 1, "j"), (3, -1, "j"), (7, 1, "x"), (8, -1, "x")):
-                b = self.mb(tk.Button(self.root, text="+" if sign > 0 else "-"))
-                b.grid(row=i + 1, column=column, padx=2, pady=5)
-                b.bind("<ButtonPress-1>", lambda e, g=group, i=i, s=sign: self.press(g, i, s))
-                b.bind("<ButtonRelease-1>", lambda e: self.release())
-                b.bind("<Leave>", lambda e: self.end_hold())
-
-        tk.Label(self.root, text="꾹 누르기 속도(%)\n(4% ≈ 10 mm/s)").grid(row=12, column=0)
-        self.hold_speed = tk.Scale(self.root, from_=2, to=10, orient=tk.HORIZONTAL, length=150)
-        self.hold_speed.set(4)
-        self.hold_speed.grid(row=12, column=1, columnspan=3)
-        bf = tk.Frame(self.root)
-        bf.grid(row=12, column=4, columnspan=5, pady=6)
-        tk.Button(bf, text="정지", bg="#d33", fg="white", width=8, height=2, command=self.stop_all).pack(side=tk.LEFT, padx=4)
-        tk.Button(bf, text="직접교시 ON", height=2, command=self.teach_on).pack(side=tk.LEFT, padx=2)
-        tk.Button(bf, text="직접교시 OFF", height=2, command=self.teach_off).pack(side=tk.LEFT, padx=2)
-        home = self.mb(tk.Button(bf, text="gohome", height=2, command=self.go_home))
-        home.pack(side=tk.LEFT, padx=6)
-        tk.Button(bf, text="툴 확인", height=2, command=self.check_tool).pack(side=tk.LEFT, padx=2)
-        self.banner = tk.Label(self.root, text="", font=("", 10, "bold"))
-        self.banner.grid(row=13, column=0, columnspan=9, sticky="we")
-        self.status = tk.Label(self.root, text="")
-        self.status.grid(row=14, column=0, columnspan=9)
-
-        self.live = {}               # 실시간 좌표 한 줄 (읽기 전용)
-        for k, (label, name) in enumerate((("current_posx:", "posx"), ("joint_state:", "posj"))):
-            tk.Label(self.root, text=label).grid(row=15 + k, column=0, sticky="e")
-            var = tk.StringVar()
-            tk.Entry(self.root, textvariable=var, width=70, state="readonly").grid(row=15 + k, column=1, columnspan=7, sticky="we")
-            tk.Button(self.root, text="copy", command=lambda v=var: self.copy_text(v.get())).grid(row=15 + k, column=8)
-            self.live[name] = var
         self.root.bind("<FocusOut>", lambda e: self.end_hold() if e.widget is self.root else None)   # 창이 포커스를 잃으면 멈춤
+        self.root.bind("<Escape>", lambda e: self.stop_all())
+        self.root.bind("<space>", self.space_stop)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.report_callback_exception = self.on_error
 
         self.check_tool()
         if not self.cfg["home"]:
-            home.config(state="disabled")
+            self.home_btn.config(state="disabled")
         self.refresh()
+        self.poll_gripper()
         self.watchdog()
 
-    # --- 화면 구성 (강의 jog와 같은 배치) ---
-    def entries(self, labels, column, vel, acc, max_val):
+    # --- 화면 구성 ---
+    def btn(self, parent, text, cmd=None, move=False, **kw):
+        """버튼은 포커스를 받지 않음 — Space 가 마지막에 누른 이동 버튼을 다시 누르지 않게 (Space = 정지)."""
+        kw.setdefault("bg", "white")
+        b = tk.Button(parent, text=text, command=cmd, takefocus=0, relief="groove", bd=1, **kw)
+        if move:
+            self.move_buttons.append(b)
+        return b
+
+    def panel(self, parent, title=None, tag=None, **pack):
+        f = tk.Frame(parent, bg=C["panel"], highlightbackground=C["line"], highlightthickness=1, padx=8, pady=6)
+        f.pack(**pack)
+        if title:
+            h = tk.Frame(f, bg=C["panel"])
+            h.pack(fill="x", pady=(0, 4))
+            tk.Label(h, text=title, bg=C["panel"], fg=C["sub"], font=("", 9, "bold")).pack(side="left")
+            if tag:
+                tk.Label(h, text=tag, bg=C["posx"], fg=C["blue"], font=("", 8), padx=4).pack(side="left", padx=6)
+        return f
+
+    def header(self):
+        h = tk.Frame(self.root, bg=C["dark"])
+        h.pack(fill="x")
+        tk.Label(h, text="R2G Jog", bg=C["dark"], fg="white", font=("", 10, "bold")).pack(side="left", padx=(10, 4), pady=4)
+        tk.Label(h, text="· Pos 설정 (jog_gui)", bg=C["dark"], fg="#9aa").pack(side="left")
+        tk.Label(h, text=" @9기_SDG ", bg="#3c4146", fg=C["silver"], font=("", 9, "bold"),
+                 highlightbackground="#aab1b9", highlightthickness=1).pack(side="right", padx=10, pady=4)
+
+    def top_panel(self, parent):
+        f = self.panel(parent, fill="x")
+        row = tk.Frame(f, bg=C["panel"])
+        row.pack(fill="x")
+        self.banner = tk.Label(row, text="", font=("", 9, "bold"), padx=8, pady=3)
+        self.banner.pack(side="left")
+        bf = tkfont.Font(font=self.banner["font"])        # 툴 정상 띠 폭 고정: 상태 글자가 바뀌어도 뒤 칸이 안 움직이게
+        self.banner_w = math.ceil(max(bf.measure(f"✔ 툴 정상 · {n}") for n in (*STATE.values(), "정렬 중", "꾹 누르는 중"))
+                                  / bf.measure("0"))
+        self.btn(row, "다시 확인", self.check_tool, font=("", 8)).pack(side="left", padx=4)
+        tk.Frame(row, bg=C["line"], width=1, height=18).pack(side="left", padx=6)
+        tk.Label(row, text="툴 힘", bg=C["panel"], font=("", 9, "bold")).pack(side="left")
+        self.force_lbl = tk.Label(row, text="—", bg=C["panel"], font=("TkFixedFont", 9), width=FORCE_W, anchor="w")
+        self.force_lbl.pack(side="left", padx=4)          # 고정폭 글꼴·글자 수 고정: 값이 바뀌어도 reset 이 안 움직임
+        self.btn(row, "reset", self.force_reset, font=("", 8)).pack(side="left")
+        # 꾹 누르기 묶음은 오른쪽 끝에 고정 (툴 힘 글자 길이에 따라 왔다갔다 안 하게, 사용자 10/08)
+        self.hold_lbl = tk.Label(row, text="4 %", bg=C["panel"], width=4)
+        self.hold_lbl.pack(side="right")
+        self.hold_speed = tk.Scale(row, from_=2, to=10, orient=tk.HORIZONTAL, length=110, showvalue=0, bg=C["panel"],
+                                   highlightthickness=0, command=lambda v: self.hold_lbl.config(text=f"{int(float(v))} %"))
+        self.hold_speed.set(4)
+        self.hold_speed.pack(side="right", padx=(2, 0))
+        tk.Label(row, text="± 꾹 누르기", bg=C["panel"], font=("", 9, "bold")).pack(side="right")
+        tk.Frame(row, bg=C["line"], width=1, height=18).pack(side="right", padx=6)
+        self.cells = {}
+        tbl = tk.Frame(f, bg=C["panel"])                  # posx·posj 한 표: 12칸 같은 폭, 위아래 줄 칸 맞춤
+        tbl.pack(fill="x", pady=(5, 0))
+        for col in range(1, 7):
+            tbl.columnconfigure(col, weight=1, uniform="cell")
+        for row, (name, labels, bg) in enumerate((("posx", ("X", "Y", "Z", "Rx", "Ry", "Rz"), C["posx"]),
+                                                  ("posj", ("J1", "J2", "J3", "J4", "J5", "J6"), C["posj"]))):
+            strip = tk.Frame(tbl, bg=bg, highlightbackground=C["line"], highlightthickness=1)   # 줄 바탕 (칸 뒤)
+            strip.grid(row=row, column=0, columnspan=8, sticky="nsew", pady=2)
+            tk.Label(tbl, text=name, bg=bg, font=("", 9, "bold"), width=5, anchor="w").grid(row=row, column=0, padx=(6, 2),
+                                                                                         pady=5)
+            vals = []
+            for k, lab in enumerate(labels):
+                c = tk.Frame(tbl, bg="white", highlightbackground="#d3d6da", highlightthickness=1)
+                c.grid(row=row, column=k + 1, sticky="ew", padx=2, pady=5)
+                tk.Label(c, text=lab, bg="white", fg="#8a8f98", font=("", 7), width=2, anchor="w").pack(side="left",
+                                                                                                       padx=(3, 0))
+                v = tk.Label(c, text="—", bg="white", font=("TkFixedFont", 9), anchor="e")
+                v.pack(side="right", padx=3)
+                vals.append(v)
+            self.btn(tbl, "copy", lambda n=name: self.copy_live(n), font=("", 8)).grid(row=row, column=7, padx=(4, 6))
+            self.cells[name] = vals
+        self.live = {"posx": None, "posj": None}
+
+    def jog_panel(self, parent, title, labels, group, vel, acc, vmax, unit, move_text, move_cmd, copy_name, hints, tag=None):
+        f = self.panel(parent, title, tag, side="left", fill="both", expand=True, padx=(0, 6) if group == "j" else 0)
+        body = tk.Frame(f, bg=C["panel"])
+        body.pack(expand=True)                             # 칸 안에서 가운데 (왼쪽 쏠림 없앰)
+        grid = tk.Frame(body, bg=C["panel"])
+        grid.pack(side="left")
+        tk.Label(grid, text="입력 (고쳐서 이동)", bg=C["panel"], fg=C["sub"], font=("", 7)).grid(row=0, column=1)
+        tk.Label(grid, text="증분만큼 바로", bg=C["panel"], fg=C["sub"], font=("", 7)).grid(row=0, column=2, columnspan=2)
         out = []
         for i, text in enumerate(labels):
-            tk.Label(self.root, text=text).grid(row=i + 1, column=column, padx=10, pady=5)
-            if i <= 5:
-                e = tk.Entry(self.root, width=10)
-                e.dirty = False
-                e.bind("<Key>", lambda ev, e=e: self.mark(e))
-                e.grid(row=i + 1, column=column + 1, padx=10, pady=5)
-            else:
-                e = tk.Scale(self.root, from_=5, to=max_val, orient=tk.HORIZONTAL, length=200)
-                e.set(vel if i == 6 else acc)
-                e.grid(row=i + 1, column=column + 1, padx=10, pady=5, columnspan=3)
+            tk.Label(grid, text=text, bg=C["panel"], font=("", 9, "bold"), width=3).grid(row=i + 1, column=0)
+            e = tk.Entry(grid, width=8, justify="right", font=("TkFixedFont", 10))
+            e.dirty = False
+            e.bind("<Key>", lambda ev, e=e: self.mark(e))
+            e.grid(row=i + 1, column=1, padx=3, pady=2)
+            for col, sign in ((2, -1), (3, 1)):                     # − 왼쪽, + 오른쪽
+                b = self.btn(grid, "−" if sign < 0 else "+", move=True, font=("", 10, "bold"), padx=8, pady=0)
+                b.grid(row=i + 1, column=col, padx=2, pady=2)
+                b.bind("<ButtonPress-1>", lambda ev, g=group, i=i, s=sign: self.press(g, i, s))
+                b.bind("<ButtonRelease-1>", lambda ev: self.release())
+                b.bind("<Leave>", lambda ev: self.end_hold())
+            if i in hints:
+                tk.Label(grid, text=hints[i], bg=C["panel"], fg=C["sub"], font=("", 7)).grid(row=i + 1, column=4, padx=2)
             out.append(e)
+        tk.Frame(body, bg=C["line"], width=1).pack(side="left", fill="y", padx=14)   # 선 양옆 여백 (사용자 10/08)
+        side = tk.Frame(body, bg=C["panel"])
+        side.pack(side="left", fill="y")
+        r0 = tk.Frame(side, bg=C["panel"])
+        r0.pack(anchor="w")
+        tk.Label(r0, text="증분", bg=C["panel"]).pack(side="left")
+        inc = tk.Entry(r0, width=5, justify="right")
+        inc.insert(0, "1")
+        inc.pack(side="left", padx=3)
+        tk.Label(r0, text=unit, bg=C["panel"]).pack(side="left")
+        if group == "j":
+            self.inc_j = inc
+        else:
+            self.inc_x = inc
+        for text, val in (("속도", vel), ("가속", acc)):
+            r = tk.Frame(side, bg=C["panel"])
+            r.pack(anchor="w")
+            tk.Label(r, text=text, bg=C["panel"]).pack(side="left")
+            sc = tk.Scale(r, from_=5, to=vmax, orient=tk.HORIZONTAL, length=90, bg=C["panel"], highlightthickness=0,
+                          font=("", 7))
+            sc.set(val)
+            sc.pack(side="left")
+            out.append(sc)
+        self.btn(side, move_text, move_cmd, move=True, bg=C["blue"], fg="white", activebackground="#2557b0",
+                 font=("", 9, "bold")).pack(fill="x", pady=(4, 3))
+        r = tk.Frame(side, bg=C["panel"])
+        r.pack(anchor="w")
+        self.btn(r, "지금 값", self.clear_marks, font=("", 8)).pack(side="left")
+        self.btn(r, "copy", lambda: self.copy(out, copy_name), font=("", 8)).pack(side="left", padx=4)
         return out
 
-    def label_entry(self, text, column):
-        tk.Label(self.root, text=text).grid(row=10, column=column - 1, padx=10, pady=5)
-        e = tk.Entry(self.root, width=10)
-        e.insert(0, "1")
-        e.grid(row=10, column=column)
-        return e
+    def goto_panel(self, parent):
+        f = self.panel(parent, fill="x", pady=(0, 6))
+        tk.Label(f, text="좌표로 이동", bg=C["panel"], fg=C["sub"], font=("", 9, "bold")).pack(side="left")
+        self.goto_entry = tk.Entry(f, font=("TkFixedFont", 10))
+        self.goto_entry.pack(side="left", fill="x", expand=True, padx=6)
+        for key in ("<Control-a>", "<Control-A>"):      # Tk 기본은 줄 맨 앞으로 — 전체 선택으로 (사용자 10/08)
+            self.goto_entry.bind(key, self.goto_select_all)
+        self.goto_entry.bind("<<Paste>>", self.goto_paste)
+        tk.Label(f, text="posx→movel · posj→movej", bg=C["panel"], fg=C["sub"], font=("", 8)).pack(side="left")
+        self.btn(f, "이동", self.goto, move=True, bg=C["blue"], fg="white", activebackground="#2557b0",
+                 font=("", 10, "bold"), width=6).pack(side="left", padx=(6, 0))
+
+    def tilt_panel(self, parent):
+        f = self.panel(parent, "그리퍼 기울이기 (TCP 고정)", side="left", fill="y", padx=(0, 6))
+        r = tk.Frame(f, bg=C["panel"])
+        r.pack(anchor="w", pady=(0, 4))
+        tk.Label(r, text="각도", bg=C["panel"], fg=C["sub"]).pack(side="left")
+        self.tilt_deg = tk.Entry(r, width=4, justify="right")
+        self.tilt_deg.insert(0, f"{TILT_DEFAULT:g}")
+        self.tilt_deg.pack(side="left", padx=3)
+        tk.Label(r, text="°", bg=C["panel"]).pack(side="left")
+        pad = tk.Frame(f, bg=C["panel"])
+        pad.pack()
+        names = {(-1.0, 0.0): ("← 왼\n(−x)", 1, 0), (1.0, 0.0): ("오른 →\n(+x)", 1, 2),
+                 (0.0, 1.0): ("↑ 앞\n(+y)", 0, 1), (0.0, -1.0): ("↓ 뒤\n(−y)", 2, 1)}
+        for text, d in TILT_DIRS:
+            label, row, col = names[d]
+            self.btn(pad, label, lambda t=text, d=d: self.tilt(d, t), move=True, width=5, font=("", 8)).grid(
+                row=row, column=col, padx=2, pady=2)
+        self.btn(pad, "수직", lambda: self.tilt((1.0, 0.0), "수직", 0.0), move=True, width=5, height=2, bg=C["green"],
+                 font=("", 9, "bold")).grid(row=1, column=1, padx=2, pady=2)
+
+    def align_panel(self, parent):
+        f = self.panel(parent, "정렬 · 회전", side="left", fill="y", padx=(0, 6))
+        g = tk.Frame(f, bg=C["panel"])
+        g.pack()
+        for k, (mode, text) in enumerate((("x", "x 정렬\n수평·바깥"), ("y", "y 정렬\n수평·−y"),
+                                          ("z", "z 정렬\n수직 아래"), ("r", "그리퍼 정렬"))):
+            self.btn(g, text, lambda m=mode: self.align(m), move=True, width=9, font=("", 8)).grid(
+                row=k // 2, column=k % 2, padx=2, pady=2, sticky="nsew")
+        r = tk.Frame(f, bg=C["panel"])
+        r.pack(anchor="w", pady=(5, 0))
+        tk.Label(r, text="회전", bg=C["panel"], fg=C["sub"]).pack(side="left")
+        self.btn(r, "↺ −", lambda: self.roll(-1), move=True, font=("", 8)).pack(side="left", padx=3)
+        self.roll_deg = tk.Entry(r, width=4, justify="right")
+        self.roll_deg.insert(0, f"{ROLL_DEFAULT:g}")
+        self.roll_deg.pack(side="left")
+        tk.Label(r, text="°", bg=C["panel"]).pack(side="left")
+        self.btn(r, "↻ +", lambda: self.roll(1), move=True, font=("", 8)).pack(side="left", padx=3)
+        tk.Label(f, text="정렬 끝나면 직접교시 켜짐", bg=C["panel"], fg=C["sub"], font=("", 8)).pack(anchor="w", pady=(5, 0))
+
+    def gripper_panel(self, parent):
+        f = self.panel(parent, side="left", fill="y", padx=(0, 6))
+        self.grip_lbl = tk.Label(f, text="그리퍼", bg=C["panel"], fg=C["sub"], font=("", 9, "bold"), anchor="w")
+        self.grip_lbl.pack(fill="x", pady=(0, 4))
+        r = tk.Frame(f, bg=C["panel"])
+        r.pack(fill="x")
+        self.btn(r, "닫기", lambda: self.g.move(0.0, self.num(self.grip_force, 20.0, 40.0)), bg=C["blue"], fg="white",
+                 activebackground="#2557b0", font=("", 10, "bold"), width=13).pack(side="left")
+        tk.Label(r, text="힘", bg=C["panel"]).pack(side="left", padx=(6, 2))
+        self.grip_force = tk.Entry(r, width=4, justify="right")
+        self.grip_force.insert(0, "20")
+        self.grip_force.pack(side="left")
+        tk.Label(r, text="N", bg=C["panel"]).pack(side="left", padx=2)
+        r = tk.Frame(f, bg=C["panel"])
+        r.pack(fill="x", pady=(5, 0))
+        self.btn(r, "최대 열기", lambda: self.g.move(100.0, 20.0), font=("", 8), padx=4).pack(side="left")
+        self.btn(r, "폭만큼 열기", lambda: self.g.move(self.num(self.grip_width, 35.0, 100.0), 20.0), font=("", 8),
+                 padx=4).pack(side="left", padx=3)
+        tk.Label(r, text="폭", bg=C["panel"]).pack(side="left", padx=(3, 2))
+        self.grip_width = tk.Entry(r, width=4, justify="right")
+        self.grip_width.insert(0, "35")
+        self.grip_width.pack(side="left")
+        tk.Label(r, text="mm", bg=C["panel"]).pack(side="left", padx=2)
+        tk.Frame(f, bg=C["line"], height=1).pack(fill="x", pady=6)
+        self.home_btn = self.btn(f, "⌂ gohome (확인 후)", self.go_home, move=True, bg=C["amber"], font=("", 9))
+        self.home_btn.pack(side="bottom", fill="x", pady=(5, 0))
+        r = tk.Frame(f, bg=C["panel"])
+        r.pack(fill="both", expand=True)                  # 직접교시 두 버튼이 남는 세로 공간을 채움
+        self.btn(r, "직접교시 ON", self.teach_on, bg=C["green"], font=("", 10, "bold")).pack(side="left", fill="both",
+                                                                                          expand=True)
+        self.btn(r, "직접교시 OFF", self.teach_off, font=("", 10, "bold")).pack(side="left", fill="both", expand=True,
+                                                                            padx=(4, 0))
+
+    def stop_panel(self, parent):
+        f = self.panel(parent, side="left", fill="both", expand=True)
+        rec = self.btn(f, "비상정지 해제\n확인 창 뒤·안전정지만", self.recover, bg=C["amber"], font=("", 8, "bold"))
+        rec.pack(fill="x")
+        if not self.r.ctrl:
+            rec.config(state="disabled")
+        tk.Button(f, text="정지\nEsc / Space", command=self.stop_all, takefocus=0, bg=C["red"], fg="white",
+                  activebackground="#b02a1e", activeforeground="white", font=("", 14, "bold"), relief="raised",
+                  bd=2).pack(fill="both", expand=True, pady=(6, 0))
 
     @staticmethod
     def num(entry, default, upper):
@@ -338,10 +571,6 @@ class App:
             return max(0.0, min(upper, float(entry.get())))
         except ValueError:
             return default
-
-    def mb(self, b):
-        self.move_buttons.append(b)
-        return b
 
     def mark(self, e):
         e.dirty = True
@@ -355,50 +584,81 @@ class App:
     def copy(self, entries, name):
         self.copy_text(f"{name}([" + ", ".join(e.get() for e in entries[:6]) + "])")
 
+    def copy_live(self, name):
+        if self.live[name]:
+            self.copy_text(f"{name}([" + ", ".join(f"{v:.3f}" for v in self.live[name]) + "])")
+
     def copy_text(self, text):
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
         self.root.update()
         print(f"copy to clipboard: {text}")
 
-    # --- 상태 ---
     def say(self, text):
-        """상태줄 + 터미널. refresh 가 4초 동안 덮지 않음."""
-        self.status.config(text=text)
-        self.msg_until = time.monotonic() + 4.0
+        """상태줄(맨 아래, 다음 문구까지 유지) + 터미널 (10/07 거부 이유가 안 보였던 문제, 7e3a93d)."""
+        self.status.config(text=f"{text}   ({time.strftime('%H:%M:%S')})")
         print(text, flush=True)
 
+    def space_stop(self, event):
+        if not isinstance(event.widget, tk.Entry):       # 입력칸에서 띄어쓰기는 정지 아님
+            self.stop_all()
+
+    # --- 상태 ---
     def check_tool(self):
         tcp, tool = self.r.tool_names()
         self.ok = (tcp, tool) == (self.cfg["tcp"], self.cfg["tool"])
-        if self.ok:
-            self.banner.config(text=f"툴 설정 정상: TCP {tcp}, 툴 {tool}", bg="#cfc", fg="black")
-        else:
-            self.banner.config(text=f"⚠ 펜던트 툴 설정 확인! TCP '{tcp}'(기대 {self.cfg['tcp']}), "
-                                    f"툴 '{tool}'(기대 {self.cfg['tool']}) — 이동 막힘", bg="#d33", fg="white")
+        self.tool_text = (tcp, tool)
+        self.show_banner()
         for b in self.move_buttons:
             b.config(state="normal" if self.ok else "disabled")
 
+    def show_banner(self, extra=None):
+        if self.ok:
+            self.banner.config(text=f"✔ 툴 정상 · {extra or self.state_name}", bg="#d9f2df", fg="black",
+                               width=self.banner_w)
+        else:
+            tcp, tool = self.tool_text
+            self.banner.config(text=f"⚠ 펜던트 툴 확인! TCP '{tcp}'(기대 {self.cfg['tcp']}), 툴 '{tool}'(기대 "
+                                    f"{self.cfg['tool']}) — 이동 막힘", bg=C["red"], fg="white", width=0)
+
     def refresh(self):
         if self.hold:                        # 꾹 누르는 동안은 조회하지 않음 — 손을 떼면 바로 정지되게
-            self.status.config(text=f"상태: 꾹 누르는 중   {self.g.text}")
+            self.show_banner("꾹 누르는 중")
             self.root.after(300, self.refresh)
             return
         t = REFRESH_TIMEOUT_S
         for name, values, entries in (("posj", self.r.posj(t), self.joint), ("posx", self.r.posx(t), self.axes)):
             if values:
-                self.live[name].set(f"{name}([" + ", ".join(f"{v:.3f}" for v in values) + "])")
+                self.live[name] = values
+                for c, v in zip(self.cells[name], values):
+                    c.config(text=f"{v:.3f}")
                 for e, v in zip(entries[:6], values):
                     if not e.dirty:          # 사용자가 고친 칸(노란색)은 덮어쓰지 않음
                         e.delete(0, tk.END)
                         e.insert(0, f"{v:.3f}")
+        f = self.r.tool_force(t)
+        if f:
+            self.force = f
+            d = [f[i] - (self.f0[i] if self.f0 else 0.0) for i in range(3)]
+            text = force_text(d)
+            self.force_lbl.config(text=text, width=max(FORCE_W, len(text)))   # 100 N 넘을 때만 늘어남
         s = self.r.state(t)
-        if time.monotonic() < self.msg_until:   # 방금 띄운 거부·결과 문구는 4초 동안 덮지 않음 (10/07: 기울이기 거부 이유가 0.3 s 만에 사라짐)
-            self.root.after(300, self.refresh)
-            return
-        mode = "정렬 중" if self.seq or self.rotating else STATE.get(s, s)
-        self.status.config(text=f"상태: {mode}   ({time.strftime('%H:%M:%S')} 갱신)   {self.g.text}")
+        self.state_name = "정렬 중" if self.seq or self.rotating else STATE.get(s, s)
+        self.show_banner()
+        if self.g.width is not None:
+            grip = "예" if self.g.detected else "아니오"
+            self.grip_lbl.config(text=f"그리퍼   지금 {self.g.width:.1f} mm · grip 신호 {grip}")
+        elif self.g.text:
+            self.grip_lbl.config(text=f"그리퍼   {self.g.text}")
         self.root.after(300, self.refresh)
+
+    def poll_gripper(self):
+        self.g.poll()
+        self.root.after(2000, self.poll_gripper)
+
+    def force_reset(self):
+        self.f0 = list(self.force) if self.force else None
+        self.say("툴 힘 기준 reset (화면 표시만)")
 
     def can_move(self):
         self.check_tool()                    # 이동 직전마다 다시 확인 — 쓰는 도중 펜던트 설정이 바뀌어도 잡음 (#69 PM 검토)
@@ -472,7 +732,7 @@ class App:
         try:
             inc = float((self.inc_j if group == "j" else self.inc_x).get())
         except ValueError:
-            self.say("Increment 칸에 숫자를 넣으세요")
+            self.say("증분 칸에 숫자를 넣으세요")
             return
         limit, unit = (STEP_CONFIRM_MM, " mm") if group != "j" and idx < 3 else (STEP_CONFIRM_DEG, "°")
         if not self.big_step_ok(inc, limit, unit) or not self.can_move():
@@ -502,16 +762,62 @@ class App:
             self.report(self.r.movel([float(e.get()) for e in self.axes[:6]], self.axes[6].get(), self.axes[7].get()), "movel")
             self.clear_marks()
 
-    # --- 축 정렬 ---
+    # --- 좌표로 이동 ---
+    def goto_select_all(self, _event=None):
+        self.goto_entry.select_range(0, "end")
+        self.goto_entry.icursor("end")
+        return "break"
+
+    def goto_paste(self, _event=None):
+        """붙여넣기: 선택된 글자를 바꿔 넣음 (리눅스 Tk 기본은 선택을 지우지 않고 뒤에 덧붙임)."""
+        try:
+            text = self.root.clipboard_get()
+        except tk.TclError:
+            return "break"
+        if self.goto_entry.selection_present():
+            self.goto_entry.delete("sel.first", "sel.last")
+        self.goto_entry.insert("insert", text)
+        return "break"
+
+    def goto(self):
+        """posx([...]) → movel, posj([...]) → movej. 숫자 6개만이면 어느 쪽인지 묻는다. 이동 전 확인창."""
+        text = self.goto_entry.get()
+        kind, vals = parse_goto(text)
+        if vals is None:
+            self.say("좌표로 이동: 유한한 숫자 6개가 필요 (예: posx([x, y, z, rx, ry, rz]))")
+            return
+        if kind is None:
+            ans = messagebox.askyesnocancel("좌표 종류", f"{vals}\n\n숫자만 있습니다. posx(직선 movel)면 '예', "
+                                            "posj(관절 movej)면 '아니오'.", parent=self.root)
+            if ans is None:
+                return
+            kind = "posx" if ans else "posj"
+        if kind == "posj" and (abs(vals[4]) > J5_MAX or vals[2] < J3_MIN):
+            self.say(f"좌표로 이동 거부: J5 {vals[4]:g}° / J3 {vals[2]:g}° — 제한(J5 ≤ {J5_MAX:g}°, J3 ≥ {J3_MIN:g}°) 밖")
+            return
+        sliders = self.axes if kind == "posx" else self.joint
+        how = "직선 movel" if kind == "posx" else "관절 movej"
+        if not messagebox.askokcancel("좌표로 이동", f"{kind}({vals})\n\n{how}, 속도 {sliders[6].get()} · 가속 "
+                                      f"{sliders[7].get()}\n가는 길에 부딪힐 것이 없는지 확인하세요.", parent=self.root):
+            return
+        if not self.can_move():
+            return
+        if kind == "posx":
+            self.report(self.r.movel(vals, sliders[6].get(), sliders[7].get()), "좌표로 movel")
+        else:
+            self.report(self.r.movej(vals, sliders[6].get(), sliders[7].get()), "좌표로 movej")
+        self.clear_marks()
+
+    # --- 정렬 ---
     def align(self, mode):
         if not self.can_move():
             return
         p = self.r.posx()
         if p is None:
             return
-        target = align_target(p, mode, self.snap.get())
-        self.teach_when_done = self.teach_after.get()
-        self.rotate_to(p, target, f"{ALIGN_NAMES[mode]}{' + 직각' if self.snap.get() and mode != 'r' else ''}", "축 정렬")
+        target = align_target(p, mode, False)
+        self.teach_when_done = True
+        self.rotate_to(p, target, ALIGN_NAMES[mode], "정렬")
 
     def roll(self, sign):
         """그리퍼 축(툴 z) 둘레로 ±각도 칸(기본 90°) 회전, TCP 고정. + = 수직 아래 자세에서 위에서 볼 때 시계 방향."""
@@ -622,6 +928,41 @@ class App:
         if self.can_move():
             self.report(self.r.movej(home, HOME_VEL, HOME_VEL), "gohome")
             self.clear_marks()
+
+    def recover(self):
+        """비상정지 해제: 소프트웨어 안전정지(충돌·한계)만 set_robot_control 로. 물리 비상정지는 사람이 버튼을 풀어야 함.
+        안전정지 리셋 전엔 reset type 0(프로그램 정지)을 먼저 성공시키고, 리셋 뒤 움직이면 바로 정지 보냄.
+        로봇은 움직이지 않는다 (해제 뒤 대기)."""
+        st = self.r.state()
+        name = STATE.get(st, st)
+        if st == 6:
+            messagebox.showinfo("비상정지 해제", "물리 비상정지 버튼이 눌린 상태입니다.\n버튼을 돌려 푼 뒤 다시 누르세요.",
+                                parent=self.root)
+            return
+        if st in RECOVER_BY_PENDANT:
+            messagebox.showinfo("비상정지 해제", f"지금 상태: {name}\n복구 모드를 거쳐야 하는 정지라 여기서 풀지 않습니다.\n"
+                                "펜던트에서 복구(Recovery) 후 해제하세요.", parent=self.root)
+            return
+        code = RECOVER.get(st)
+        if code is None:
+            self.say(f"해제할 안전정지 없음 (상태: {name})")
+            return
+        what = "안전정지 리셋" if code == 2 else "서보 켜기"
+        if not messagebox.askokcancel("비상정지 해제", f"지금 상태: {name}\n제어기에 {what} (set_robot_control {code}) 을 "
+                                      "보냅니다.\n로봇은 움직이지 않습니다.\n\n멈춘 원인(충돌·한계)을 확인했나요?",
+                                      parent=self.root):
+            return
+        if code == 2 and not self.r.safe_stop_reset_type(SAFE_STOP_RESET_PROGRAM_STOP):
+            self.say("비상정지 해제 안 함: 리셋 뒤 프로그램 정지(reset type 0) 설정 실패 — 펜던트에서 해제하세요")
+            return
+        ok = self.r.control(code)
+        time.sleep(0.5)
+        after = self.r.state()
+        if after == 2:                                  # 리셋 뒤 움직이면 안 됨 — 바로 정지
+            self.r.stop()
+            self.say("비상정지 해제 뒤 로봇이 움직여서 정지 보냄 — 펜던트에서 프로그램 상태 확인")
+            return
+        self.say(f"비상정지 해제 {'보냄' if ok else '실패'} — 상태: {STATE.get(after, '?')}")
 
     def stop_all(self):
         self.seq, self.rotating = [], False  # 정렬·기울이기 중이면 남은 조각 취소

@@ -138,7 +138,9 @@ def detail(step: dict) -> str:
         if "grasp_ok" in result:                       # 값이 없으면 판단을 적지 않음 (없음 ≠ 못 잡음)
             text = "잡음" if result["grasp_ok"] else "못 잡음"
     elif action == "place_object" and result:
-        text = str(result.get("slot", ""))
+        position = (result.get("placed_pose") or {}).get("position")
+        text = str(result.get("slot") or "") or (               # 고정 자리 이름, 없으면 B 가 명령한 자리 (#166)
+            f"놓은 자리 ({float(position[0]) * 1000:.0f}, {float(position[1]) * 1000:.0f}) mm" if position else "")
     elif action == "speak":
         text = f"\"{params.get('text', '')}\""
     elif action in ("while", "for_each") and step.get("iterations") is not None:
