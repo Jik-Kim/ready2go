@@ -439,7 +439,7 @@ def apply_changes(
         {
             "range": f"'{SYNC_METADATA_SHEET}'!{SYNC_METADATA_RANGE}",
             "majorDimension": "ROWS",
-            "values": [["YAML SHA", source_sha, "동기화(KST)", synced_at]],
+            "values": [["SHA", source_sha, f"동기화 {synced_at} KST", ""]],
         }
     )
     payload = {
