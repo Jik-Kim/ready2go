@@ -4,6 +4,14 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-08
 
+## Voice README 시운전 안내 정리 — E-VOICE-README-20261008
+
+- [문서] 사용자 “README 정리해” 계획 승인 범위로 Voice README와 이 CURRENT만 정리합니다. 브랜치는 `codex/voice-readme-20261008`, 기준 원격 main은 `b1b92b540ce0696a413bf38ad2894288038ba113`입니다. 기존 aa39의 `791dcf1` 브랜치와 미추적 `:memory:.ses`는 보존합니다.
+- [문서] P1 [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)·[음성 정책](../../docs/requirements.md#voice-policy)을 유지하며 중복 실행 블록을 평가용/Runner 연동용으로 통합합니다. 마이크 사용·발행 게이트·상세 진단·파일 보존과 준비/점검 절차를 구분합니다. 코드·YAML·계약·요구사항·당일 기록은 변경하지 않습니다.
+- [문서] 필요한 문서 검증 후 이번2파일만 로컬 커밋하는 범위입니다. push·PR 생성/갱신·외부 게시·병합은 미승인/미실행이며 PR #180 작업과 구분합니다. 새 타 파트 변경 인계는 없습니다. 실제 Runner/backend·실음성·실물 연결은 완료 조건 밖의 미검증입니다. 전체 pytest/colcon/build·설치·모델 다운로드·마이크/API/TTS 재생·실물 AC·서브에이전트 검토는 실행하지 않습니다.
+
+- [실측: 문서 정적] voice_node/session/YAML/실행 진입점과 설명을 대조했고 수정2문서 로컬 링크/앵커46개·Voice 인바운드 앵커9개·기존 제목 보존·bash -n/Python AST 각2블록·git diff --check를 통과했습니다. 두 시운전 명령은 기존 상세 명령 그대로이며 시운전 절 밖 설치/합성/캐시/청취·Melo1.2·PR144 병합 안내·제안값·알려진 결함·P2 운영 미연결 내용은 원문을 보존했습니다. 문서 정리·검증 완료이며 이 절을 포함한 변경만 로컬 커밋합니다.
+
 ## 지금 상태
 
 - [문서] `codex/requirements-centralization`의 공통·E 문서 정리는 [PR #180](https://github.com/Jik-Kim/ready2go/pull/180)에 게시됐으며 확인 시점 Open·미병합입니다. 최초 게시 커밋은 `d4ca24e`, 최신 확인 base/main은 `bbad37320cb2ff1deec1dd29a5a30656c36a484d`이며 작업 시작 기준 `65148d4`와 구분합니다. 의미·정책·수용 기준은 [요구사항 정본](../../docs/requirements.md), 실행 필드·값은 [실행 원본 안내](../../docs/requirements.md#runtime-sources)에 둡니다. 다른 담당 문서는 직접 수정하지 않았습니다. 후속 인계34건의 실제 관리 위치는 [#134](https://github.com/Jik-Kim/ready2go/issues/134)입니다. 목록을 이 CURRENT에 복제하지 않습니다. [B 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054747674)은 domain의 선택·복구·AC/시간 예산 안내와 Skills README의 과거 시험 안내, [C 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054720331)은 Runner·planner 재계획 안내 및 ICD/안전의 C 몫에서 확인했습니다. C 주담당12–18은 [C 후속 회신](https://github.com/Jik-Kim/ready2go/pull/180#issuecomment-6055195230)에서 로컬 `056f1b7` 반영 및 #180 병합 뒤 별도 PR 예정으로 보고됐습니다. 이는 수락 이후의 로컬 반영 보고이며 E가 C 파일 수정 결과나 병합·최종 통합 완료를 검증한 것은 아닙니다. B의 수정·병합·최종 통합 완료도 미확인입니다. 기타 담당 범위의 수락·완료도 미확인으로 남깁니다.
