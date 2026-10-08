@@ -139,6 +139,7 @@ def server(monkeypatch):
     srv.robot, srv.disp, srv.held, srv.tray = Robot(), {"drawer_top": 0.226}, None, {}
     srv.state = sf.MotionState(srv.robot.state, srv.robot.posj)
     srv.move_timeout, srv.joint_vel, srv.joint_acc, srv.reach_tol = 30.0, 20.0, 20.0, 0.5
+    srv.get_logger = lambda: types.SimpleNamespace(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
 
     def run(action, params):
@@ -203,7 +204,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     finally:
         server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.033, abs=1e-3)   # 누른 z 그대로 33 mm 만 → 옆벽 보정(7.1 mm)으로 바로 집힘 [사용자 10/07 안 가]
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.040, abs=1e-3)   # 누른 z 그대로 40 mm 만 (10/07 저녁 33 → 40) → 옆벽 보정(7.1 mm)으로 바로 집힘
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
@@ -248,6 +249,37 @@ def test_named_pose_from_high_spot_goes_straight(server):
     server.srv.robot.p = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0]
     out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
     assert out.success and server.srv.robot.log[0][0] == "movej"
+
+
+@pytest.mark.parametrize("start, lifts", [
+    ([424.181, -294.601, 363.507, 0.0, 180.0, 0.0], False),     # 탑뷰 (z 363 > high_z) — 그 높이 그대로 빼냄
+    ([380.0, -216.0, 253.8, 0.0, 180.0, 0.0], True),            # 서랍 안 낮은 곳 — high_z 325 로 먼저 올림
+])
+def test_named_home_from_over_drawer_exits_over_front_first(server, start, lifts):
+    """[실측 10/07 PC2] 탑뷰 → 닫기(홈 경유)에서 바로 movej 하면 열린 앞판·손잡이를 쳐서 충돌 알람 7060.
+    서랍 위에서 서랍 밖 자세로 갈 때는 앞판 위 높이로 서랍 밖(exit_y)까지 수평으로 뺀 뒤 movej."""
+    tr = server.srv.prm()["transit"]
+    server.srv.robot.p = list(start)
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    log = server.srv.robot.log
+    assert out.success
+    moves = [e for e in log if e[0] in ("movel", "movej")]
+    z = max(start[2], tr["high_z_mm"])
+    if lifts:
+        assert moves[0][0] == "movel" and moves[0][1][:3] == pytest.approx([start[0], start[1], z])
+        moves = moves[1:]
+    assert moves[0][0] == "movel" and moves[0][1][:3] == pytest.approx([start[0], tr["exit_y_mm"], z])
+    assert moves[1][0] == "movej" and len(moves) == 2
+
+
+def test_named_top_view_from_over_drawer_does_not_exit(server):
+    """서랍 위 → 탑뷰(끌기 뒤 다시 보기)는 서랍 밖으로 빼지 않음 — safe_z 로만 올리고 movej (10/07 실물 동작 그대로)."""
+    server.srv.robot.p = [380.0, -216.0, 253.8, 0.0, 180.0, 0.0]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    log = server.srv.robot.log
+    assert out.success
+    assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-216.0) and log[0][1][2] == pytest.approx(300.0)
+    assert log[1][0] == "movej"
 
 
 def test_open_drawer_without_posx_fails_before_any_command(server):
@@ -338,7 +370,10 @@ def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
         server.ss.SkillServer._line = real_line
     assert out.error_code == server.ss.PUSH_BLOCKED and "20.0 N > 2.5 N" in out.reason
     assert "drag" not in contact and data["target_after"] is None
-    relax = [e for e in server.srv.robot.log if e[0] == "movel"][-3:-1]   # 0.1 mm 씩 두 번 올리고 → 위로 빠짐
+    attempts = server.srv.prm()["drag"]["press_attempts"]
+    lifts = [e for e in server.srv.robot.log if e[0] == "movel"]
+    assert sum(1 for e in lifts if e[1][2] < contact["z"]) >= attempts      # 끌기 전 실패 → 같은 자리에서 press_attempts 번 누름 [사용자 10/07]
+    relax = [e for e in server.srv.robot.log if e[0] == "movel"][-3:-1]   # 마지막 시도: 0.1 mm 씩 두 번 올리고 → 위로 빠짐
     assert relax[1][1][2] - relax[0][1][2] == pytest.approx(0.1)
 
 
@@ -425,6 +460,86 @@ def test_slow_press_that_really_stops_short_is_halted(server):
     assert out.error_code == sf.NOT_REACHED and out.reason.startswith("[press]") and "stop" in r.log
 
 
+def test_relax_step_stall_keeps_going_instead_of_failing(server):
+    """[실측 10/07 PC2] 눌린 채 0.1 mm 올리기가 0.1 mm 남기고 멈춰 NOT_REACHED → 끌기 실패.
+    힘 맞추기 한 칸의 NOT_REACHED 는 다음 칸으로 넘어가고(목표 누적), 안전 코드는 그대로 멈춤."""
+    srv, d = server.srv, server.srv.prm()["drag"]
+    warns = []
+    srv.get_logger = lambda: types.SimpleNamespace(warn=warns.append)
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])
+    srv._force_still = lambda s: next(forces)
+    steps = []
+
+    def step(goal, posx, stage):
+        steps.append(round(posx[2], 2))
+        return sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] 멈춤") if len(steps) == 1 else None
+    srv._step = step
+    pressed = [522.3, -135.6, 216.5, 0.4, 160.0, 0.0]
+    bad, p, n = srv._relax(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
+                           pressed, [0.0] * 6, d)
+    assert bad is None and n == 2.0 and len(warns) == 1
+    assert steps == [round(216.5 + d["relax_step_mm"], 2), round(216.5 + 2 * d["relax_step_mm"], 2)]   # 두 번째 칸은 0.2 mm
+    srv._step = lambda goal, posx, stage: sf.Outcome(False, "ESTOP", reason="비상정지")
+    srv._force_still = lambda s: [0, 0, 4.0, 0, 0, 0]
+    bad, _, _ = srv._relax(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
+                           pressed, [0.0] * 6, d)
+    assert bad.error_code == "ESTOP"
+
+
+def test_relax_stall_then_drag_starts_from_actual_stop_not_command(server):
+    """#135 E 리뷰: 힘 맞추기 한 칸이 안 움직였는데(NOT_REACHED 허용) 다음 힘이 범위에 들면,
+    끌기는 명령 누적 좌표(+0.1 mm)가 아니라 실제 멈춘 z 그대로 수평으로."""
+    srv = server.srv
+    contact = {}
+
+    def force(p):
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])     # 첫 칸 뒤 힘이 범위 안 (실물: 멈춘 사이 힘이 풀림)
+    srv._force_still = lambda s: next(forces)
+    srv._step = lambda goal, posx, stage: sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] 0.1 mm 남기고 멈춤")   # 로봇 안 움직임
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "press":
+            contact["z"] = (self.robot.p[2] + posx[2]) / 2
+        if stage == "drag":
+            contact["drag"] = (list(self.robot.p), list(posx))
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    server.ss.SkillServer._line = line
+    try:
+        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    finally:
+        server.ss.SkillServer._line = real_line
+    assert out.success
+    start, end = contact["drag"]
+    assert end[2] == pytest.approx(start[2], abs=1e-6)                  # 실제 멈춘 z 그대로 (명령 +0.1 mm 아님)
+
+
+def test_pick_goes_through_drag_down_like_nudge(server):
+    """[사용자 10/07 저녁] 탑뷰에서 목표 위로 바로 가면 특이점 → 넛지와 같은 길: drag_down movej → y 맞추며 목표 위(블렌딩)."""
+    srv = server.srv
+    down = srv.poses()["drag_down"]["drawer_top"]
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰
+    server.Gripper.width = 99.0                                         # 앞 실행에서 벌어진 채 (놓기 뒤 등)
+    real_grip = srv._grip
+    srv._grip = lambda w, f: srv.robot.log.append(("grip", w)) or real_grip(w, f)
+    t = json.loads(json.dumps(ERASER_FREE))
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    log = srv.robot.log
+    assert log.index(("grip", 0)) < log.index(("movej", down))          # 서랍 안 경유점 전에 닫음 [#136 PM 리뷰]
+    assert any(e[0] == "grip" and e[1] > 0 for e in log[log.index(("movej", down)):])   # 목표 위에서 벌림
+    moves = [e for e in log if e[0] in ("movel", "movej", "moveb")]
+    assert ("movej", down) in moves
+    i = moves.index(("movej", down))
+    assert not any(e[0] == "movel" for e in moves[:i])                 # 탑뷰에서 먼저 내려가는 직선(z 300) 없음
+    blend = moves[i + 1]
+    assert blend[0] == "moveb" and len(blend[1]) == 2                   # y 맞추기 → 목표 위, 한 번에
+    assert blend[1][0][1] == pytest.approx(blend[1][1][1])              # 첫 점 = 목표 y
+    assert blend[1][1][2] < 300.0                                       # safe_z(300) 로 올리지 않음
+
+
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
     t = json.loads(json.dumps(ERASER_CORNER))
@@ -477,6 +592,153 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
         server.ss.SkillServer._line = real
         server.Gripper.holding = False
     st = {s: (v, z) for s, v, z in speeds}
-    assert st["descend_fast"][0] == 150.0 and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
+    sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
+    assert st["descend_fast"][0] == sp["in_drawer_mm_s"] and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
     assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
     assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
+
+
+def test_free_space_speed_only_outside_drawer(server):
+    """[사용자 10/07 저녁] 빈 공간 직선은 free_mm_s, 서랍 위에서는 line_mm_s 그대로 (누르기·끌기 등은 각자 값)."""
+    sp = server.srv.prm()["speed"]
+    assert sp["free_mm_s"] > sp["line_mm_s"]
+    assert server.srv._free_vel() == sp["free_mm_s"]
+    assert server.srv._free_vel([0.0, 0.0, 100.0, 0.0, 180.0, 0.0]) == sp["free_mm_s"]          # 트레이 쪽
+    assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["in_drawer_mm_s"]   # 서랍 위·안은 느리게
+    assert sp["in_drawer_mm_s"] < sp["line_mm_s"] < sp["free_mm_s"]
+
+
+def test_blend_that_never_starts_is_sent_once_more(server):
+    """[실측 10/07 밤 PC2, 관절 90°/s] drag_down 도착 직후 보낸 moveb 가 실행되지 않음 → 남은 204 mm NOT_REACHED.
+    출발조차 안 한 블렌딩은 멈춘 걸 확인하고 한 번만 다시 보냄. 두 번째도 안 가면 NOT_REACHED."""
+    r = server.srv.robot
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    real, calls = r.moveb_async, []
+
+    def moveb(pts, radii, *a, **k):
+        calls.append(1)
+        return True if len(calls) == 1 else real(pts, radii, *a, **k)   # 첫 번째는 받기만 하고 안 감
+    r.moveb_async = moveb
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    pts = [[385.4, -135.2, 229.8, 143.0, 180.0, 143.0], [522.2, -135.2, 221.1, -179.6, -160.0, 180.0]]
+    assert server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over") is None and len(calls) == 2
+    calls.clear()
+    r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True        # 계속 안 감
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    out = server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+
+
+def test_into_drawer_waypoint_uses_slow_joint_speed(server):
+    """[사용자 10/07 밤] 큰 이동(탑뷰·홈)은 관절 설정 속도, 서랍 안 경유점(drag_down)으로 들어갈 땐 in_drawer_joint_*."""
+    srv = server.srv
+    srv.joint_vel, srv.joint_acc = 90.0, 60.0
+    sp = srv.prm()["speed"]
+    seen, real = [], srv.robot.movej_async
+    srv.robot.movej_async = lambda j, v, a: seen.append((list(j), v, a)) or real(j, v, a)
+    down = srv.poses()["drag_down"]["drawer_top"]
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]
+    server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    speeds = {tuple(j): (v, a) for j, v, a in seen}
+    assert speeds[tuple(down)] == (sp["in_drawer_joint_deg_s"], sp["in_drawer_joint_acc_deg_s2"])
+    view = srv.poses()["drawer_top_view"]["drawer_top"]
+    if tuple(view) in speeds:
+        assert speeds[tuple(view)] == (90.0, 60.0)                       # 탑뷰는 큰 이동 속도
+
+
+def test_settle_timeout_stops_and_fails_instead_of_sending_next(server):
+    """#139 PM 리뷰: 관절 이동 뒤 2 s 안에 멈추지 않으면 다음 명령을 보내지 않고 정지 + 정지 확인 뒤 실패."""
+    srv = server.srv
+    states = iter([sf.STATE_MOVING] * 45 + [1] * 50)                   # 2 s 넘게 이동 중 → 정지 명령 뒤 멈춤 (가짜 시계 0.05 s 간격)
+    srv.state = lambda: next(states)
+    out = srv._settle()
+    assert out is not None and not out.success and out.error_code == sf.NOT_REACHED and "stop" in srv.robot.log
+    srv.state = lambda: 1
+    assert srv._settle() is None
+    srv.robot.log.clear()                                               # 상태 조회 실패가 이어지면 '멈춤'으로 보지 않음 [#139 E 리뷰 P2]
+    seq = iter([None] * 30 + [1] * 50)
+    srv.state = lambda: next(seq)
+    out = srv._settle()
+    assert out.error_code == sf.STATE_UNKNOWN and "stop" in srv.robot.log
+
+
+def test_line_that_never_starts_is_sent_once_more(server):
+    """[실측 10/08 아침 PC2 P1] 트레이 칸 위 도착(블렌딩) 직후 보낸 lower_fast 가 실행되지 않음 → 남은 73.6 mm NOT_REACHED.
+    직선도 출발조차 안 했으면 멈춘 걸 확인하고 한 번만 다시. 두 번째도 안 가면 NOT_REACHED."""
+    r = server.srv.robot
+    r.p = [578.7, 205.6, 100.4, 45.4, 180.0, 44.7]
+    target = [578.8, 205.5, 26.9, 151.9, -180.0, 151.2]                 # 같은 방향 (B 180 에서 C−A 같음), z 만 내려감
+    real, calls = r.movel_async, []
+
+    def movel(p, *a, **k):
+        calls.append(1)
+        return True if len(calls) == 1 else real(p, *a, **k)            # 첫 번째는 받기만 하고 안 감
+    r.movel_async = movel
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    assert server.srv._line(goal, target, 150.0, "lower_fast") is None and len(calls) == 2
+    calls.clear()
+    r.movel_async = lambda p, *a, **k: calls.append(1) or True           # 계속 안 감
+    r.p = [578.7, 205.6, 100.4, 45.4, 180.0, 44.7]
+    out = server.srv._line(goal, target, 150.0, "lower_fast")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+
+
+def test_line_that_moved_or_turned_is_not_resent(server):
+    """#156 E 리뷰 P2: 위치가 출발점 1 mm 안이어도 돌기 시작했으면 출발한 것 — 다시 보내지 않음. 조금 가다 선 것도 그대로.
+    같은 방향의 다른 표기([45.4, 180, 44.7] ↔ [151.9, -180, 151.2])는 '안 돎'으로 봄."""
+    r = server.srv.robot
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    calls = []
+
+    def stuck_at(p):                                                    # 보내면 p 까지만 가고 섬
+        def movel(*a, **k):
+            calls.append(1)
+            r.p = list(p)
+            return True
+        return movel
+    start, target = [500.0, 0.0, 100.0, 0.0, 180.0, 0.0], [510.0, 0.0, 100.0, 0.0, 180.0, 30.0]
+    for stop_at in ([500.0, 0.0, 100.0, 0.0, 180.0, 20.0],                 # 제자리에서 20° 돌다 섬 (E 반례)
+                    [501.5, 0.0, 100.0, 0.0, 180.0, 0.0],                  # 1.5 mm 가다 섬
+                    [504.0, 0.0, 100.0, 0.0, 180.0, 12.0]):                # 반쯤 가다 섬
+        calls.clear()
+        r.p = list(start)
+        r.movel_async = stuck_at(stop_at)
+        out = server.srv._line(goal, target, 150.0, "lower_fast")
+        assert out.error_code == sf.NOT_REACHED and len(calls) == 1, stop_at
+    calls.clear()                                                       # 표기만 다르고 같은 방향 = 출발 안 함 → 한 번 다시
+    r.p = [578.7, 205.6, 100.4, 45.4, 180.0, 44.7]
+    r.movel_async = stuck_at([578.7, 205.6, 100.4, 151.9, -180.0, 151.2])
+    out = server.srv._line(goal, [578.8, 205.5, 26.9, 151.9, -180.0, 151.2], 150.0, "lower_fast")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+
+
+def test_contact_and_slow_lines_are_not_resent(server):
+    """접촉 감시 직선(끌기·손잡이 등)과 아주 느린 직선(누르기·힘 맞추기 0.1 mm)은 서 있어도 다시 보내지 않음 — 막힌 쪽으로 또 밀지 않게."""
+    r = server.srv.robot
+    calls = []
+    r.movel_async = lambda p, *a, **k: calls.append(1) or True
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    r.p = [500.0, 0.0, 100.0, 0.0, 180.0, 0.0]
+    out = server.srv._line(goal, [500.0, 40.0, 100.0, 0.0, 180.0, 0.0], 10.0, "drag", watch=lambda: None)
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 1
+    calls.clear()
+    out = server.srv._line_slow(goal, [500.0, 0.0, 90.0, 0.0, 180.0, 0.0], 1.0, "press")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 1
+
+
+def test_cancel_while_settling_does_not_resend_blend(server):
+    """#139 E 리뷰 P1: 첫 블렌딩이 출발하지 않은 뒤 멈춤 확인 중 취소 → 두 번째 moveb 를 보내지 않고 CANCELED."""
+    srv, r = server.srv, server.srv.robot
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    calls = []
+    r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True    # 받기만 하고 안 감
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    real_settle = srv._settle
+
+    def settle(g=None, **kw):
+        goal.is_cancel_requested = True                                 # 멈춤 확인 중 취소
+        return real_settle(g, **kw)
+    srv._settle = settle
+    pts = [[385.4, -135.2, 229.8, 143.0, 180.0, 143.0], [522.2, -135.2, 221.1, -179.6, -160.0, 180.0]]
+    out = srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
+    assert out.error_code == sf.CANCELED and len(calls) == 1

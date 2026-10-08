@@ -33,7 +33,7 @@ from ready2go_knowledge.core import ontology
 
 from ..adapters.ros_clients import RosClients
 from ..core.backend import RosBackend, skill_servers
-from ..core import intent_router
+from ..core import intent_router, planner, step_console
 from ..core.interpreter import RunResult, Runner
 from ..core.log_records import utc_iso
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
@@ -55,14 +55,24 @@ class RunnerNode(Node):
         tasks_dir = param("tasks_dir", "/tasks")
         intent_tasks = param("intent_tasks", "")   # 인텐트=태스크파일 (trigger 대신, 예: 시연 find_item=/tasks/p1_demo_eraser.json)
         min_confidence = param("min_confidence", 0.6)   # [추정, E 확정 필요] E 음성 노드 임계값과 같게
+        # 플래너 계획 스텝 제한 시간 (스킬=초). [팀 확정 필요] tasks/find_item.json 과 같은 값 (#150)
+        self.plan_timeouts = _parse_timeouts(param(
+            "plan_timeouts", "open_drawer=60,close_drawer=60,pick=70,place=60,move_to_named_pose=60"))
+        # 플래너 지원 범위 (스킬.파라미터=값|값). 기본 = 현재 실물 [문서: B skill_server.py 10/08, 팀 확정 필요]:
+        # 서랍 drawer_top 만(drawer_bottom 교시 전), 집기는 서랍에서만, 놓기는 handover_zone 만. 빈 문자열 = 제한 없음(mock)
+        self.plan_limits = planner.parse_limits(param(
+            "plan_limits", "open_drawer.drawer_id=drawer_top,close_drawer.drawer_id=drawer_top,"
+                           "pick.from=drawer_top,place.to=handover_zone"))
 
         with open(schema_file, encoding="utf-8") as f:
             schema = json.load(f)
         onto = ontology.load(ontology_file)
+        self.onto = onto                        # 플래너가 스킬 pre·effect·world 를 씀 (#150)
         self.log_store = _make_log_store(log_dir, self.get_logger())
         self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store)
         self.ros_clients = RosClients(self, stopping=lambda: self.runner.stop_requested)
         self.runner.on_halt = self.ros_clients.cancel_all   # /runner/estop → 진행 중인 goal 즉시 취소
+        self.runner.on_step = self._on_step                  # 스텝 진행 콘솔 (#98)
         self.runner.execute = RosBackend(self.ros_clients.call_action, self.ros_clients.call_service,
                                          lambda: self.runner.state, onto.get("world", {}))
         tasks = _load_tasks(tasks_dir, intent_tasks)
@@ -141,15 +151,48 @@ class RunnerNode(Node):
             self.get_logger().warning(message)
         self.publish()
 
+    def _on_step(self, event: str, record: dict, info: dict) -> None:
+        """스텝 시작·끝 한 줄 (#98). 문구는 run_report 와 같음. 콘솔은 보기용 — 저장 확인은 run_id 로 DB 조회."""
+        if event == "start":
+            line = step_console.start_line(info["run_id"], record, info["finally"], info.get("params"))
+            if line:
+                self.get_logger().info(line)
+            return
+        level, line = step_console.end_line(info["run_id"], record, info["finally"])
+        # rclpy 는 같은 호출 위치에서 로그 등급이 바뀌면 ValueError → 등급별로 다른 줄에서 호출 (PR #74 리뷰)
+        if level == step_console.INFO:
+            self.get_logger().info(line)
+        elif level == step_console.WARN:
+            self.get_logger().warning(line)
+        else:
+            self.get_logger().error(line)
+
+    def _plan(self, decision: intent_router.Decision) -> intent_router.Decision:
+        """achieve_goal → 현재 상태로 플래너 (#150). 계획되면 run, 이미 만족·계획 불가면 hold (로봇 동작 없음)."""
+        result = planner.plan(self.runner.state, self.onto, decision.goals, limits=self.plan_limits or None)
+        lines = planner.describe(result)
+        for line in lines:
+            self.get_logger().info(f"[plan] {line}")
+        if result.status == planner.PLANNED:
+            first = decision.goals[0]
+            task_id = f"plan_{first['subject']}_{first['value']}".lower()
+            return intent_router.Decision(intent_router.RUN, task=planner.to_task(result, task_id, self.plan_timeouts),
+                                          inputs=decision.inputs, intent=decision.intent, plan=lines)
+        reason = intent_router.PLAN_SATISFIED if result.status == planner.SATISFIED else intent_router.UNPLANNABLE
+        return intent_router.Decision(intent_router.HOLD, reason, intent=decision.intent, plan=lines)
+
     def _on_intent(self, msg: String) -> None:
         """/voice/intent (#17). 판단은 core/intent_router, 여기서는 실행·정지·발행만."""
         decision = self.intents.decide(msg.data, running=self.running, locked=self.runner.halted)
+        if decision.kind == intent_router.PLAN:
+            decision = self._plan(decision)
         missing = self.missing_servers(decision.task) if decision.kind == intent_router.RUN else []
         if missing:                             # 기동 직후 스킬 서버가 아직 없음 → 움직이기 전에 거절 (#108 D P1)
             self.get_logger().warning(f"스킬 서버 준비 전이라 거절: {missing}")
             decision = intent_router.Decision(intent_router.REJECT, intent_router.NOT_READY, intent=decision.intent)
         elif decision.kind == intent_router.RUN and not self.start_task(
-                decision.task, decision.inputs, {"intent": decision.intent}):
+                decision.task, decision.inputs,
+                {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})}):
             decision = intent_router.Decision(intent_router.REJECT, intent_router.BUSY, intent=decision.intent)
         if decision.kind == intent_router.CANCEL and decision.reason is None:
             self.runner.halt()                  # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
@@ -207,6 +250,15 @@ class RunnerNode(Node):
             if text != self._sent[key]:
                 pub.publish(String(data=text))
                 self._sent[key] = text
+
+
+def _parse_timeouts(text: str) -> dict[str, float]:
+    """"pick=60,place=60" → {"pick": 60.0, ...} (플래너 계획 스텝 timeout_sec)."""
+    result = {}
+    for entry in filter(None, (part.strip() for part in text.split(","))):
+        name, _, value = entry.partition("=")
+        result[name.strip()] = float(value)
+    return result
 
 
 def _load_tasks(tasks_dir: str, intent_tasks: str) -> dict[str, dict]:

@@ -36,6 +36,7 @@ from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_gu
 from ready2go_skills.core import pick_plan as pp, pose_math as pm, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
+IN_DRAWER_POSES = ("drawer_top_view", "drag_down")   # 서랍 위에서 서랍 위로 가는 기준 포즈 — 서랍 밖으로 빼지 않고 바로 관절 이동
 def _params_file():
     """params/skills.yaml: 소스(symlink 설치) → 설치된 share 순서."""
     src = Path(__file__).resolve().parents[2] / "params" / "skills.yaml"
@@ -194,6 +195,15 @@ class SkillServer(Node):
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함")
+        if self._over_drawer(cur) and pose_name not in IN_DRAWER_POSES:
+            # 서랍 위(탑뷰 등)에서 홈 쪽으로 바로 관절 이동하면 팔이 열린 앞판·손잡이로 내려와 침
+            # [실측 10/07 PC2: 탑뷰 → 닫기(홈 경유) 2 s 만에 충돌 알람 7060] → 앞판 위 높이로 서랍 밖까지 빼고 관절 이동
+            bad = self._exit_drawer(goal, cur)
+            if bad:
+                return bad
+            cur = self.robot.posx()
+            if cur is None:
+                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 서랍 밖으로 뺀 뒤 높이 확인 못 함")
         tr = self.prm()["transit"]
         # 관절 이동은 경로 높이를 보장하지 않음 → 낮으면 먼저 수직으로 올림 (#83 D 재검토 P1).
         # 서랍 위: safe_z(300). 그 밖(트레이 등): free_lift_z(150) — 트레이 쪽 z 300은 팔이 거의 펴져 위험
@@ -206,13 +216,13 @@ class SkillServer(Node):
         blend = tr.get("blend_mm", 0.0) if cur[2] < lift_z and not self._over_drawer(cur) and not self.held else 0.0
         up = mp.with_z(cur, lift_z)
         if cur[2] < lift_z:                                 # 올리다 끝 blend_mm 안에서 관절 이동을 바로 보냄 — 멈추지 않고 한 동작 [사용자 10/07]
-            bad = self._line(goal, up, self.prm()["speed"]["line_mm_s"], "lift", radius=blend)
+            bad = self._line(goal, up, self._free_vel(cur), "lift", radius=blend)
             if bad:
                 return bad
         goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
         ok = self.robot.movej_async(joints, self.joint_vel, self.joint_acc)
         if ok is False and blend:                           # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
-            bad = self._wait_pose(goal, up, self.prm()["speed"]["line_mm_s"], "lift")
+            bad = self._wait_pose(goal, up, self._free_vel(cur), "lift")
             if bad:
                 return bad
             ok = self.robot.movej_async(joints, self.joint_vel, self.joint_acc)
@@ -224,10 +234,38 @@ class SkillServer(Node):
                               watch=self._joint_watch())
         if not done.success:
             return done
+        bad = self._settle(goal)
+        if bad:
+            return bad
         reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
         if reached.success and pose_name == "home":
             self.home_posx = self.robot.posx()             # 놓기 때 서랍 → 홈 위로 높게 돌아오는 데 씀
         return reached
+
+    def _free_vel(self, cur=None):
+        """빈 공간 직선 속도 (서랍 밖으로 빼기·들고 나오기·트레이 위 올리기 등). cur 를 주면 서랍 위에서는 line_mm_s 로 —
+        누르기·끌기·집기/놓기 마지막·손잡이 접근은 각자 속도 그대로 [사용자 10/07 저녁 "이동은 빠르게, 넛지·주요 기능은 조심"]."""
+        sp = self.prm()["speed"]
+        if cur is not None and self._over_drawer(cur):
+            return self._in_vel()
+        return sp.get("free_mm_s", sp["line_mm_s"])
+
+    def _in_vel(self):
+        """서랍 안·위 직선 속도 (경유점 → 물체 위, 집으러 내려가기, 서랍 안에서 올리기) — 큰 이동보다 느리게
+        [사용자 10/07 밤 "탑뷰·옮기기·문 열고 닫기는 크게 빠르게, 서랍 안 움직임은 속도 낮춰"]."""
+        sp = self.prm()["speed"]
+        return sp.get("in_drawer_mm_s", sp["line_mm_s"])
+
+    def _exit_drawer(self, goal, cur):
+        """서랍 위 → 앞판·손잡이 위 높이(high_z, 지금이 더 높으면 그대로)로 올린 뒤 서랍 밖(base y = exit_y)까지 수평으로 뺀다."""
+        tr, vel = self.prm()["transit"], self._free_vel()
+        z = max(cur[2], tr["high_z_mm"])
+        if cur[2] < z - 0.5:
+            bad = self._line(goal, mp.with_z(cur, z), vel, "exit_lift", radius=tr.get("blend_mm", 0.0))
+            if bad:
+                return bad
+        out = list(cur[:1]) + [tr["exit_y_mm"], z] + list(cur[3:])
+        return self._line(goal, out, vel, "exit_drawer")
 
     def _over_drawer(self, cur):
         """TCP 가 서랍 안쪽(벽 포함 여유 40 mm) 위에 있는지 — 최대 인출 tf 기준."""
@@ -261,8 +299,9 @@ class SkillServer(Node):
         fs = [f for f in (self.robot.tool_force() for _ in range(int(sp["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
 
-    def _movej(self, goal, joints, stage):
-        """관절 이동 1번 (제한 확인 → 자동 모드 → 비동기 → 도착). 성공이면 Outcome(True)."""
+    def _movej(self, goal, joints, stage, in_drawer=False):
+        """관절 이동 1번 (제한 확인 → 자동 모드 → 비동기 → 도착). 성공이면 Outcome(True).
+        in_drawer: 서랍 안으로 들어가는 경유점(drag_down) — speed.in_drawer_joint_* (관절 속도 설정보다 크지 않게)."""
         err = self._joint_bad(joints, f"{stage} 목표")
         if err:
             return err
@@ -272,7 +311,12 @@ class SkillServer(Node):
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
         if early:
             return early
-        bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what=f"movej({stage})",
+        vel, acc = self.joint_vel, self.joint_acc
+        if in_drawer:
+            sp = self.prm()["speed"]
+            vel = min(vel, sp.get("in_drawer_joint_deg_s", vel))
+            acc = min(acc, sp.get("in_drawer_joint_acc_deg_s2", acc))
+        bad = sf.after_command(self.robot.movej_async(joints, vel, acc), what=f"movej({stage})",
                                stop=self.robot.stop, get_state=self.state)
         if bad:
             return bad
@@ -281,7 +325,39 @@ class SkillServer(Node):
                               watch=self._joint_watch())
         if not done.success:
             return done
+        bad = self._settle(goal)
+        if bad:
+            return bad
         return sf.check_reached(joints, self.robot.posj(), self.reach_tol)
+
+    def _settle(self, goal=None, timeout_s=2.0):
+        """관절 이동 '도착'(관절 오차 reach_tol 안)은 감속이 끝나기 전일 수 있음 → 다음 직선·블렌딩 명령 전에 이동 중이 아닐 때까지
+        기다림. 멈추면 None. [실측 10/07 밤 PC2, 관절 90°/s: drag_down 도착 직후 보낸 moveb 가 실행되지 않고 1 s 뒤 NOT_REACHED, 남은 204 mm]
+        실패는 정지 + 정지 확인 뒤 돌려줌 — 이동 중에 다음 명령을 보내지 않음 [#139 PM·E 리뷰]:
+        비상정지 = ESTOP, 취소 = CANCELED, 상태 조회 1 s 넘게 실패 = STATE_UNKNOWN, timeout_s 안에 안 멈춤 = NOT_REACHED."""
+        def halt(o):
+            return sf._halt(self.robot.stop, self.state, time.monotonic, time.sleep, 0.05, 3.0, o)
+
+        t0, unknown_since = time.monotonic(), None
+        while True:
+            now = time.monotonic()
+            if goal is not None and goal.is_cancel_requested:
+                return halt(sf.Outcome(False, sf.CANCELED, canceled=True, reason="취소 요청으로 정지 (관절 이동 뒤 멈춤 확인 중)"))
+            st = self.state()
+            if sf.stopped_by_estop(st):
+                return sf.Outcome(False, sf.ESTOP, reason=f"로봇 상태 {st} (안전·비상정지)")
+            if st is None:
+                unknown_since = unknown_since or now
+                if now - unknown_since > 1.0:
+                    return halt(sf.Outcome(False, sf.STATE_UNKNOWN, reason="관절 이동 뒤 상태 조회 실패 1 s 넘음 — 정지"))
+            elif st != sf.STATE_MOVING:
+                return None
+            else:
+                unknown_since = None
+            if now - t0 >= timeout_s:
+                self.get_logger().warn(f"관절 이동 뒤 {timeout_s:g} s 안에 멈추지 않음 — 정지")
+                return halt(sf.Outcome(False, sf.NOT_REACHED, reason=f"관절 이동 뒤 {timeout_s:g} s 안에 멈추지 않아 정지"))
+            time.sleep(0.05)
 
     def _joint_bad(self, joints, what):
         """관절 제한 확인 (펜던트 안전 설정 J5 ±135° → params 는 그보다 안쪽). 넘으면 Outcome, 아니면 None."""
@@ -307,8 +383,9 @@ class SkillServer(Node):
         """wait_motion arrived: 관절각이 목표와 reach_tol 안. 조회 실패면 False."""
         return lambda: sf.check_reached(joints, self.robot.posj(), self.reach_tol).success
 
-    def _line(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0, radius=0.0):
-        """직선 이동 1회 (자동 모드 → 취소 확인 → 비동기 명령 → 끝날 때까지, 좌표로 판단 _wait_pose). 성공이면 None, 아니면 Outcome."""
+    def _line(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0, radius=0.0, resend=True):
+        """직선 이동 1회 (자동 모드 → 취소 확인 → 비동기 명령 → 끝날 때까지, 좌표로 판단 _wait_pose). 성공이면 None, 아니면 Outcome.
+        resend: 출발하지 않은 명령을 한 번 다시 (_send_wait). 접촉 감시(watch)·아주 느린 직선(_line_slow)은 다시 보내지 않음."""
         goal.publish_feedback(Skill.Feedback(stage=stage))
         if not self.robot.auto():
             return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
@@ -317,14 +394,38 @@ class SkillServer(Node):
             return early
         sp = self.prm()["speed"]                          # 부드럽게: 가속 = 속도(1 s에 최고 속도), 회전 따로 (10/06 기울일 때 쿵쿵)
         kw = {"radius": radius} if radius > 0 else {}
-        bad = sf.after_command(self.robot.movel_async(posx, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
-                                                      sp["turn_acc_deg_s2"], **kw), what=f"movel({stage})",
-                               stop=self.robot.stop, get_state=self.state)
-        if bad:
+        start = self.robot.posx() if resend and watch is None else None
+
+        def send():
+            early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+            if early:
+                return early
+            return sf.after_command(self.robot.movel_async(posx, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
+                                                           sp["turn_acc_deg_s2"], **kw), what=f"movel({stage})",
+                                    stop=self.robot.stop, get_state=self.state)
+
+        def wait():
+            if radius > 0:                                  # 이어서 갈 이동: 끝 radius 안에 들어오면 바로 돌려줌 (멈추지 않음) [사용자 10/07]
+                return self._wait_pose(goal, posx, vel, stage, watch, tol_mm=radius, tol_deg=180.0, settle_s=0.0)
+            return self._wait_pose(goal, posx, vel, stage, watch, tol_mm, tol_deg)
+        return self._send_wait(goal, send, wait, start, posx, stage)
+
+    def _send_wait(self, goal, send, wait, start, end, stage):
+        """보내고 끝까지. 받기만 하고 출발하지 않으면(start 에서 1 mm·0.5° 안에 선 NOT_REACHED, 목표는 2 mm 넘게 떨어짐)
+        멈춘 걸 확인하고 한 번만 다시 — 앞 이동이 끝날 무렵 보낸 명령이 실행되지 않음
+        [실측 10/07 밤 PC2 drag_down 뒤 moveb, 10/08 아침 놓기 트레이 위 도착 뒤 lower_fast 남은 73.6 mm]. start None = 다시 보내지 않음.
+        방향도 본다: 위치는 그대로인데 돌기만 하다 선 이동은 출발한 것 — 다시 보내지 않음 [#156 E 리뷰 P2].
+        방향은 회전 행렬로 비교해 같은 자세의 다른 표기(B 180° 에서 A·C 가 함께 바뀜)는 같은 방향으로 봄."""
+        bad = send() or wait()
+        if bad is None or bad.error_code != sf.NOT_REACHED or start is None:
             return bad
-        if radius > 0:                                      # 이어서 갈 이동: 끝 radius 안에 들어오면 바로 돌려줌 (멈추지 않음) [사용자 10/07]
-            return self._wait_pose(goal, posx, vel, stage, watch, tol_mm=radius, tol_deg=180.0, settle_s=0.0)
-        return self._wait_pose(goal, posx, vel, stage, watch, tol_mm, tol_deg)
+        now = self.robot.posx()
+        if (now is None or math.dist(now[:3], start[:3]) >= 1.0
+                or pm.rotation_angle(pm.rot(*now[3:6]), pm.rot(*start[3:6])) >= 0.5
+                or math.dist(start[:3], [float(v) for v in end[:3]]) < 2.0):
+            return bad
+        self.get_logger().warn(f"[{stage}] 이동이 출발하지 않음 — 한 번 다시 보냄 ({bad.reason})")
+        return self._settle(goal) or send() or wait()
 
     def _wait_pose(self, goal, posx, vel, stage, watch=None, tol_mm=1.0, tol_deg=1.0, settle_s=0.1, still_s=1.0,
                    still_mm=0.05, still_deg=0.05):
@@ -381,7 +482,7 @@ class SkillServer(Node):
 
     def _line_slow(self, goal, posx, vel, stage, watch=None):
         """아주 느린 직선 (누르기 1 mm/s, 힘 맞추기 0.1 mm) — 도착 판정 0.05 mm."""
-        return self._line(goal, posx, vel, stage, watch, tol_mm=0.05, tol_deg=0.5)
+        return self._line(goal, posx, vel, stage, watch, tol_mm=0.05, tol_deg=0.5, resend=False)
 
     def _where(self, done, stage, posx):
         """NOT_REACHED 이유에 단계·멈춘 곳·남은 거리를 붙인다 (10/06 저녁 nudge NOT_REACHED 0.3 s — 어느 이동인지 로그로 몰랐음)."""
@@ -428,12 +529,16 @@ class SkillServer(Node):
         if early:
             return early
         sp = self.prm()["speed"]
-        bad = sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
-                                                      sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
-                               stop=self.robot.stop, get_state=self.state)
-        if bad:
-            return bad
-        return self._wait_pose(goal, points[-1], vel, stage)
+        start = self.robot.posx()
+
+        def send():
+            early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 보낼 때마다 확인 (재전송 전 취소) [#139 E 리뷰 P1]
+            if early:
+                return early
+            return sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
+                                                           sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
+                                    stop=self.robot.stop, get_state=self.state)
+        return self._send_wait(goal, send, lambda: self._wait_pose(goal, points[-1], vel, stage), start, points[-1], stage)
 
     def _carry_route(self, drawer_id):
         """poses.yaml carry_line 경유점 posx (집은 뒤 → 트레이 직선 블렌딩). 없으면 None (예전 carry_out movesj)."""
@@ -517,7 +622,7 @@ class SkillServer(Node):
         # Runner 의 open_drawer 는 move_to_named_pose(drawer_approach) 를 먼저 보냄 → 이미 ready 면 다시 올렸다 내리지 않음 (10/06 통합 실물)
         if not sf.check_reached(joints, self.robot.posj(), self.reach_tol).success:
             if cur[2] < self.prm()["transit"]["safe_z_mm"]:              # 낮은 곳에서 바로 관절 이동하지 않음
-                bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), speed["line_mm_s"], "lift")
+                bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), self._free_vel(cur), "lift")
                 if bad:
                     return bad, None
             goal.publish_feedback(Skill.Feedback(stage="approach"))
@@ -683,6 +788,65 @@ class SkillServer(Node):
         return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
 
     # --- 끌기 (nudge_object) ---
+    def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
+        """누를 자리 위(above)에서 내려가 닿음 확인 → 끄는 힘으로 맞춤. (실패 Outcome 또는 None, 누른 posx, 그때 힘 N).
+        안전 코드가 아닌 실패는 above 로 올라간 뒤 돌려줌 → 호출자가 같은 자리에서 다시 시도할 수 있음."""
+        base_f = self._tare()
+        z0 = above[2]
+        state = {}
+
+        def contact():                                      # 내려가다 닿음 힘(touch_force_n)을 한 번이라도 넘으면 바로 그 자리에서 멈춤 [사용자 10/07]
+            f, p = self.robot.tool_force(), self.robot.posx()
+            if f is None or p is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
+            if abs(f[2] - base_f[2]) >= d["press_max_force_n"]:   # 힘 상한: 무시 구간에서도 늘 봄 — 14 N 이면 서랍이 앞으로 넘어감 [사용자 10/07]
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason=f"상한 {d['press_max_force_n']:g} N 넘음 @ z {p[2]:.2f} — 멈추고 확인")
+            if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
+                return None                                 # 출발할 때 힘이 튐 (10/06 z 225.5 오검출) — 처음 내려갈 때만
+            state.setdefault("fz", f[2])                    # 내려가는 중 기준 (힘 0점이 흐름)
+            dz = f[2] - state["fz"]
+            if abs(dz) >= d["touch_force_n"]:
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason=f"{dz:+.1f} N @ z {p[2]:.2f} — 멈추고 확인")
+            return None
+
+        for k in range(int(d["touch_retries"]) + 1):
+            state.pop("z1", None)
+            bad = self._line_slow(goal, end_mm + above[3:], d["press_speed_mm_s"], "press" if k == 0 else f"press:{k + 1}",
+                                  watch=contact)
+            if bad:
+                return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, self._in_vel(), "lift"))), None, None
+            if "z1" not in state:
+                break                                       # 끝까지 내려가도 안 닿음
+            reads = self._force_reads(int(d["press_confirm"]), d["confirm_gap_s"])
+            if reads is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), None, None
+            ns = [abs(f[2] - base_f[2]) for f in reads]
+            if all(n >= d["touch_force_n"] for n in ns):    # 멈춘 채 연속 press_confirm 번 모두 넘음 = 지우개에 닿음 [사용자 10/07]
+                state["z"] = state["z1"]
+                break
+            state["resumed"] = True                         # 튄 값 → 그 자리에서 다시 내려감 (출발 무시 구간 없이)
+        if "z" not in state or abs(state["z"] - expect_z) > d["contact_z_tol_mm"]:
+            back = self._line(goal, above, self._in_vel(), "lift")
+            why = (f"접촉 높이 z {state['z']:.2f} 가 예상 {expect_z:.1f} ± {d['contact_z_tol_mm']:g} 밖 — 오검출로 보고 끌지 않음"
+                   if "z" in state else "예상 높이보다 내려가도 접촉 없음 (또는 멈춘 뒤 확인에서 계속 튐) — 물체 위치·높이 확인")
+            return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason=why), back), None, None
+        pressed = self.robot.posx()
+        if pressed is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None, None
+        # 닿음은 큰 힘(touch_force_n)으로 확실히 확인 — 조금만 내려가도 힘이 튐 [사용자 10/07]. 확인·정지하는 동안 더 눌리므로
+        # 멈춘 자리에서 relax_step_mm 씩 올리며 멈춘 뒤 힘을 재서 끄는 힘(drag_force_n, 2 N 에서 잘 끌림 [실측 10/06]) 상한 이하면 그 높이로 끈다
+        bad, _, held_n = self._relax(goal, pressed, base_f, d)
+        if bad:
+            return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, self._in_vel(), "lift"))), None, None
+        # 힘 맞추기의 목표는 명령 위치에 누적되고, 한 칸이 덜 움직였어도 넘어가므로(_relax_step) 끌기 시작은 실제 멈춘 자리로
+        # — "누른 z 그대로 끌기"가 명령 좌표(+0.1 mm)로 바뀌지 않게 [#135 E 리뷰]
+        pressed = self.robot.posx()
+        if pressed is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 끌기 시작 위치 모름"), None, None
+        return None, pressed, held_n
+
     def _relax(self, goal, pressed, base_f, d):
         """닿음 확인 뒤 멈춘 자리에서 relax_step_mm 씩 올리며, 멈춘 뒤 잰 힘 z 가 drag_force_n [하한, 상한] 의 상한 이하가 되면 그 높이.
         → (Outcome 또는 None, 끌기 시작 posx, 그때 힘 N). relax_max_steps 올려도 상한을 넘으면 PUSH_BLOCKED (걸림으로 봄)."""
@@ -697,14 +861,14 @@ class SkillServer(Node):
             if n <= hi:
                 if n < lo and k > 0:                        # 한 칸에 범위를 지나침 → 반 칸 내려가서 끔 (그 사이 힘)
                     p = mp.with_z(p, p[2] - d["relax_step_mm"] / 2.0)
-                    bad = self._step(goal, p, "relax:half_back")
+                    bad = self._relax_step(goal, p, "relax:half_back")
                     if bad:
                         return bad, p, n
                 return None, p, n
             if k == int(d["relax_max_steps"]):
                 break
             p = mp.with_z(p, p[2] + d["relax_step_mm"])
-            bad = self._step(goal, p, f"relax:{k + 1}")
+            bad = self._relax_step(goal, p, f"relax:{k + 1}")
             if bad:
                 return bad, p, n
         return sf.Outcome(False, PUSH_BLOCKED, reason=f"{d['relax_max_steps'] * d['relax_step_mm']:.1f} mm 올려도 누르는 힘 "
@@ -741,6 +905,16 @@ class SkillServer(Node):
         time.sleep(settle_s)
         fs = [f for f in (self.robot.tool_force() for _ in range(int(self.prm()["force"]["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
+
+    def _relax_step(self, goal, posx, stage):
+        """힘 맞추기 한 칸. 눌린 채 0.1 mm 는 제어기가 덜 움직여 0.05 mm 판정 전에 멈출 수 있음
+        [실측 10/07 PC2: relax:2 남은 0.1 mm 로 NOT_REACHED → 끌기 실패] → 그 경우만 실패로 끝내지 않고 다음 칸으로
+        (목표는 명령 위치에 누적되므로 다음 칸이 더 올림). 힘이 범위에 안 들어오면 relax_max_steps 뒤 PUSH_BLOCKED 그대로."""
+        bad = self._step(goal, posx, stage)
+        if bad and bad.error_code == sf.NOT_REACHED:
+            self.get_logger().warn(f"[nudge_object] {bad.reason} — 힘 맞추기는 계속")
+            return None
+        return bad
 
     def _step(self, goal, posx, stage):
         """아주 짧은 직선 (힘 맞추기 0.1 mm) — 느린 이동이라 좌표로 판단 (_line_slow)."""
@@ -786,7 +960,7 @@ class SkillServer(Node):
         self._grip(0, 20)                                   # 누르기용으로 닫기 (탑뷰, 서랍 위 높이)
         down = (self.poses().get("drag_down") or {}).get(drawer_id)
         if down:
-            o = self._movej(goal, down, "to_object:down")
+            o = self._movej(goal, down, "to_object:down", in_drawer=True)
             if not o.success:
                 return o, out
         px, py = plan.press_xy_m
@@ -803,61 +977,22 @@ class SkillServer(Node):
         # y 를 목표물 y 로 → 기울이며 목표물 위로를 블렌딩 한 번에 (사이 멈춤 없음) [사용자 10/07]. 모서리 반지름은 구간 절반까지
         d1, d2 = math.dist(cur[:3], aligned[:3]), math.dist(aligned[:3], above[:3])
         if d1 < 1.0:
-            bad = self._line(goal, above, speed["line_mm_s"], "to_object:over")
+            bad = self._line(goal, above, self._in_vel(), "to_object:over")
         else:
             r = min(prm["transit"].get("blend_mm", 0.0), d1 / 2.0, d2 / 2.0)
-            bad = self._blend(goal, [aligned, above], [r, 0.0], speed["line_mm_s"], "to_object:over")
+            bad = self._blend(goal, [aligned, above], [r, 0.0], self._in_vel(), "to_object:over")
         if bad:
             return bad, out
-        base_f = self._tare()
-        z0 = above[2]
-        state = {}
-
-        def contact():                                      # 내려가다 닿음 힘(touch_force_n)을 한 번이라도 넘으면 바로 그 자리에서 멈춤 [사용자 10/07]
-            f, p = self.robot.tool_force(), self.robot.posx()
-            if f is None or p is None or base_f is None:
-                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
-            if abs(f[2] - base_f[2]) >= d["press_max_force_n"]:   # 힘 상한: 무시 구간에서도 늘 봄 — 14 N 이면 서랍이 앞으로 넘어감 [사용자 10/07]
-                state["z1"] = p[2]
-                return sf.Outcome(True, reason=f"상한 {d['press_max_force_n']:g} N 넘음 @ z {p[2]:.2f} — 멈추고 확인")
-            if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
-                return None                                 # 출발할 때 힘이 튐 (10/06 z 225.5 오검출) — 처음 내려갈 때만
-            state.setdefault("fz", f[2])                    # 내려가는 중 기준 (힘 0점이 흐름)
-            dz = f[2] - state["fz"]
-            if abs(dz) >= d["touch_force_n"]:
-                state["z1"] = p[2]
-                return sf.Outcome(True, reason=f"{dz:+.1f} N @ z {p[2]:.2f} — 멈추고 확인")
-            return None
-
-        for k in range(int(d["touch_retries"]) + 1):
-            state.pop("z1", None)
-            bad = self._line_slow(goal, end_mm + above[3:], d["press_speed_mm_s"], "press" if k == 0 else f"press:{k + 1}",
-                                  watch=contact)
-            if bad:
-                return bad, out
-            if "z1" not in state:
-                break                                       # 끝까지 내려가도 안 닿음
-            reads = self._force_reads(int(d["press_confirm"]), d["confirm_gap_s"])
-            if reads is None or base_f is None:
-                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패"), out
-            ns = [abs(f[2] - base_f[2]) for f in reads]
-            if all(n >= d["touch_force_n"] for n in ns):    # 멈춘 채 연속 press_confirm 번 모두 넘음 = 지우개에 닿음 [사용자 10/07]
-                state["z"] = state["z1"]
+        attempts = int(d.get("press_attempts", 1))
+        for attempt in range(1, attempts + 1):             # 끌기 전(누르기·힘 맞추기) 실패는 같은 자리에서 다시 — 물체는 아직 안 움직임 [사용자 10/07 "넛지 안 되면 닫지 말고 다시"]
+            bad, pressed, held_n = self._press_relax(goal, above, end_mm, expect_z, d, speed)
+            if not bad:
                 break
-            state["resumed"] = True                         # 튄 값 → 그 자리에서 다시 내려감 (출발 무시 구간 없이)
-        if "z" not in state or abs(state["z"] - expect_z) > d["contact_z_tol_mm"]:
-            back = self._line(goal, above, speed["line_mm_s"], "lift")
-            why = (f"접촉 높이 z {state['z']:.2f} 가 예상 {expect_z:.1f} ± {d['contact_z_tol_mm']:g} 밖 — 오검출로 보고 끌지 않음"
-                   if "z" in state else "예상 높이보다 내려가도 접촉 없음 (또는 멈춘 뒤 확인에서 계속 튐) — 물체 위치·높이 확인")
-            return sf.worse(sf.Outcome(False, NO_OBJECT_CONTACT, reason=why), back), out
-        pressed = self.robot.posx()
-        if pressed is None:
-            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
-        # 닿음은 큰 힘(touch_force_n)으로 확실히 확인 — 조금만 내려가도 힘이 튐 [사용자 10/07]. 확인·정지하는 동안 더 눌리므로
-        # 멈춘 자리에서 relax_step_mm 씩 올리며 멈춘 뒤 힘을 재서 끄는 힘(drag_force_n, 2 N 에서 잘 끌림 [실측 10/06]) 상한 이하면 그 높이로 끈다
-        bad, pressed, held_n = self._relax(goal, pressed, base_f, d)
-        if bad:
-            return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, speed["line_mm_s"], "lift"))), out
+            now = self.robot.posx()
+            if sf.is_safety(bad) or attempt == attempts or now is None or math.dist(now[:3], above[:3]) > 1.0:
+                return bad, out
+            self.get_logger().warn(f"[nudge_object] {attempt}/{attempts} 실패 ({bad.error_code}: {bad.reason}) — 다시 누르기")
+            goal.publish_feedback(Skill.Feedback(stage=f"retry:{attempt + 1}"))
         shift_y = plan.shift_y_m
         if d.get("shift_mm"):                               # 누른 높이·각도 그대로 고정 거리만 수평 이동 [사용자 10/07 "3 cm 이동만, 힘만 맞으면 잘 끌림"]
             shift_y = math.copysign(d["shift_mm"] / 1000.0, plan.shift_y_m)   # 방향은 계획(옆벽 반대)
@@ -882,7 +1017,7 @@ class SkillServer(Node):
         now = self.robot.posx()
         if now is None:
             return sf.worse(bad, sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 올리지 못함")), out
-        bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), speed["line_mm_s"], "lift"))
+        bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift"))
         moved = mp.from_base(tf, [v / 1000.0 for v in now[:3]])
         before = mp.from_base(tf, [v / 1000.0 for v in pressed[:3]])
         dy = moved[1] - before[1]
@@ -924,15 +1059,36 @@ class SkillServer(Node):
         grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
         off = params.get("approach_offset", 0.10)              # 태스크·온톨로지는 [0, 0, 0.1] (m) — z 만 씀
         approach = float(off[2] if isinstance(off, (list, tuple)) else off) * 1000.0
-        above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
-        bad = self._transit(goal, above, "to_object")
+        down = (self.poses().get("drag_down") or {}).get(drawer_id)
+        if down:
+            # 넛지와 같은 길 [사용자 10/07 저녁]: 탑뷰(팔 거의 펴짐)에서 바로 직선으로 가면 특이점 → 서랍 안 경유점 movej
+            # → y 를 목표 y 로 → 목표 위(grasp + approach, 최대 30 mm)를 블렌딩 한 번에 (사이 멈춤 없음)
+            above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
+            # 경유점은 서랍 안(바닥 위 약 37 mm) — 벌린 RG2 는 손끝이 더 내려옴 → 끌기처럼 닫고 지나감, 목표 위에서 벌림 [#136 PM 리뷰]
+            self._grip(0, 20)
+            o = self._movej(goal, down, "to_object:down", in_drawer=True)
+            if not o.success:
+                return o, None
+            cur = self.robot.posx()
+            if cur is None:
+                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+            aligned = [cur[0], above[1], cur[2]] + list(cur[3:])
+            d1, d2 = math.dist(cur[:3], aligned[:3]), math.dist(aligned[:3], above[:3])
+            if d1 < 1.0:
+                bad = self._line(goal, above, self._in_vel(), "to_object:over")
+            else:
+                r = min(prm["transit"].get("blend_mm", 0.0), d1 / 2.0, d2 / 2.0)
+                bad = self._blend(goal, [aligned, above], [r, 0.0], self._in_vel(), "to_object:over")
+        else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
+            above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
+            bad = self._transit(goal, above, "to_object")
         if bad:
             return bad, None
         self._grip(plan.open_width_m * 1000.0, 20)
         slow_mm = prm["pick"].get("slow_last_mm", 0.0)     # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
         bad = None
         if slow_mm > 0 and grasp[2] + slow_mm < self.robot.posx()[2] - 1.0:
-            bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), speed["line_mm_s"], "descend_fast")
+            bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
         bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, None
@@ -943,12 +1099,12 @@ class SkillServer(Node):
                              expected_width_m=plan.expected_width_m, width_tolerance_m=g["grasp_width_tolerance_m"])
         if not chk.ok:
             self._grip(plan.open_width_m * 1000.0, 20)
-            back = self._line(goal, above, speed["line_mm_s"], "lift")
+            back = self._line(goal, above, self._in_vel(), "lift")
             return sf.worse(sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm)"),
                             back), {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         route = self._carry_route(drawer_id)
         # 집고 바로 경유점 1(서랍 중앙)로 직선(대각선) — 쓸데없이 높이지 않음, 도착 뒤 잠깐 멈춤 [사용자 10/06 저녁]
-        bad = self._line(goal, route[0] if route else above, speed["line_mm_s"], "lift")
+        bad = self._line(goal, route[0] if route else above, self._in_vel(), "lift")
         if bad:
             return bad, None
         if route:
@@ -1004,7 +1160,7 @@ class SkillServer(Node):
             # 들고 나오기(carry_line): 경유점 1(서랍 중앙) → 2·3·4 → 트레이 칸 위(4번 높이) → 놓는 자리를 직선 블렌딩으로 한 번에,
             # 모서리 반지름 carry.radius_mm, 놓는 자리에서만 정지 [사용자 직접교시 10/06 저녁 — 긴 물체는 movesj 가 불안]
             if max(abs(cur[k] - route[0][k]) for k in range(3)) > 1.0:   # 집기가 경유점 1에서 끝나지 않았으면 먼저 거기로
-                bad = self._line(goal, route[0], speed["line_mm_s"], "carry:1")
+                bad = self._line(goal, route[0], self._in_vel(), "carry:1")
                 if bad:
                     return bad, None
                 time.sleep(prm["carry"]["pause_s"])
@@ -1014,7 +1170,7 @@ class SkillServer(Node):
             seq = [here] + pts
             radii = [min(rad, math.dist(seq[k][:3], seq[k + 1][:3]) / 2.0, math.dist(seq[k + 1][:3], seq[k + 2][:3]) / 2.0)
                      for k in range(len(pts) - 1)] + [0.0]   # 반지름은 앞뒤 구간 절반까지 (짧은 구간 1→2)
-            bad = self._blend(goal, pts, radii, speed["line_mm_s"], "carry")
+            bad = self._blend(goal, pts, radii, self._free_vel(), "carry")
             if bad:
                 return bad, None                            # 놓는 자리로는 grasp_mm_s 로 살포시 (10/06 저녁: 놓기는 빠르게 하지 않음)
             above = list(pts[-1])                           # 이미 칸 위 — 다시 올리지 않음, 놓은 뒤에도 여기로
@@ -1063,7 +1219,7 @@ class SkillServer(Node):
         used.append(i)
         cls = self.held["class"]
         self.held = None
-        back = self._line(goal, above, speed["line_mm_s"], "lift")
+        back = self._line(goal, above, self._free_vel(), "lift")
         out = {"slot": f"{loc}_{i + 1}", "placed_pose": {"frame": loc, "position": [round(slots[i][0], 4),
                                                                                      round(slots[i][1], 4), 0.0]}}
         if back:                                            # 놓기는 끝났지만 올라오지 못함 → 그 오류 (안전 오류 보존)

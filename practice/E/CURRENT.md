@@ -1,278 +1,41 @@
 # CURRENT — E 고희태
 
-- **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-07
-
-## 별도 작업 이력: 온톨로지 원본 정리
-
-아래 기록은 작성 당시 승인·검증·인계 상태입니다. 현재 PR의 게시·병합이나 C/B 후속 완료를 뜻하지 않습니다.
-
-## 2026-10-07 시연 전용 온톨로지 원본 정리 (로컬·C 선행 조건 대기)
-- [문서] 조율 세션 사용자 “정리하자. 근데 pull 당겼는데 왜 파일이 안 바뀜?” 승인 범위. 사용자 작업 경로 /home/jonny/rokey_proj/VLA/ready2go, images/demo HEAD c4dc2e6, 착수 시 작업 트리 clean 확인. P1 FR-ONT-01·FR-PLN-01·FR-ACT-05/AC-ACT-05 기준.
-- [문서] knowledge/robot_ontology_demo.jsonld·knowledge/skills/pick_demo.jsonld 삭제. knowledge/README.md의 옛 시연 진입점/현재 C pick_demo 호출·예상 target_after 실행 안내를 공통 manifest/pick 및 현재 두 태스크 호출 설명으로 교체. docs/ontology.md의 시연 원본 유지 설명과 voice README의 옛 예상값/재조회 없음 인계를 공통 재관측 경로로 정정. 과거 CURRENT의 날짜별 기록은 당시 이력이며 이번 정리로 현행화된 현재 실행 안내와 구분.
-- [문서] 공통 pick 6단계·effect·manifest·설정·계약·두 태스크·과거 fixture/log/변경 이력 유지. C run_report.py의 pick_demo 레이블은 과거 로그 해석용으로 유지. C test_intent_router.py:14는 삭제된 manifest 로딩 참조가 남아 테스트 수집 실패가 예상되므로 공통 manifest로 바꾸는 C 커밋 필요. 직접 수정하지 않음; 마스터가 #17/Slack 요청 담당. B practice/B/HANDOVER.md:54의 옛 실행 명령은 현재 사용 시 정정 인계, docs/domain.md의 역사 설명은 유지(삭제 원본으로 향한 실제 Markdown 링크는 없음). 타 담당 파일 미수정.
-- [문서] local-only 승인으로 커밋·push·PR·새 이슈·타 세션 메시지 없음. 전체 ROS 빌드·실물/마이크/API·전체 CI 실행 없음; C 참조 수정 전 전체 green/완료를 주장하지 않음.
-- [실측: 정적·모의] E knowledge37 passed(0.50초); pytest 캐시는 sandbox 읽기 전용 경로라 기록 경고2건 있으나 검사는 통과. 공통 tools/validate_contracts.py OK, 남은 knowledge JSON·E 문서 링크·두 태스크 공통pick 호출·이번6파일 범위·git diff --check 확인. archive/secrets/logs 제외 참조 검색 결과 과거 CURRENT/changelog/domain/실측fixture/run_report 레이블 보존, B HANDOVER 옛명령과 C test_intent_router 참조는 담당 인계. C test_intent_router.py만 collect-only로 확인하여 line14의 삭제 manifest에서 FileNotFoundError(수집오류1) 실측; 실제 테스트/로봇 동작은 실행하지 않음. C 커밋 전 전체CI 실패 조건이 남아 담당 정리 완료·통합 인계 대기. 로컬 status는 삭제2/수정4, index 비어 있음, commit/push/PR 없음.
-- [문서] 마지막 대조: 현재 docs/domain.md 8.5는 공통 pick 6단계·no-op 재관측·retry 억제를 이미 설명하므로 Knowledge README의 해당 문서 정리 요청을 현재 설명 참조로 정정. 이번 문서 정리의 B 후속 인계는 practice/B/HANDOVER.md:54의 옛 실행 명령과 docs/domain.md:70~71의 “파일은 기록용으로 유지” 표현 정정임. task_nudge_then_pick 예시는 유지되지만 시연 온톨로지 원본2개는 삭제되므로 과거 기록 설명과 원본 현존 여부를 구분해야 함. B 문서/코드 미수정, 코드검사37건 재실행 없이 해당 설명·앵커·링크·diff 확인. 사용자 VSCode 작업 폴더 차이는 파일 수정 대상에서 제외.
-- [문서] 사용자 후속 직접 승인 “커밋, PR 해”로 앞선 local-only 제한을 이번6파일의 커밋·push·PR 생성에 한해 변경. 현재 사용자 브랜치는 ontology/main, HEAD c4dc2e6이며 변경은 동일6파일뿐. 최신 원격 main767a9bee에서도 C test_intent_router의 삭제 manifest 참조가 남음을 확인했으므로 선행 C 수정 대기 Draft PR로 게시하고 전체green/통합완료를 주장하지 않음. 원본 브랜치 이력 전체push 없이 최신main 기반 별도게시브랜치에 이번 커밋만 반영. 추가C/B수정·범위확대·병합은 승인하지 않음.
+- **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장)
+- **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
+- **최종 갱신**: 2026-10-08
 
 ## 지금 상태
-- #1·#8 최신 결정에 따라 hardware·metrics_risks의 서랍 재질/레일·높이 기준 문구를 정정함. 작업 브랜치 `codex/hardware-doc-alignment`, 기준 main `f6c2aa4`. 사용자께서 문서 수정·로컬 커밋·push·새 PR 생성을 승인함. [문서]
-- 일반 후보 높이 1.5 cm 유지, 지우개만 예외. 새 서랍 가운데 파지 3/3은 해당 조건의 결과이며 전체 배치·모든 물품 검증 완료가 아님. [#8 결정](https://github.com/Jik-Kim/ready2go/issues/8#issuecomment-5980582810) [문서]
-- PR #46은 병합됨. #70~#73은 이번 확인 시점에 미병합이며 승인·병합·추가 변경은 본 문서 작업 범위 밖임. `DRAWER_NOT_AT_TRAVEL`의 실제 노드 연결·실물 검증은 후속 확인 사항임. [문서]
-- `f123f50` head의 [원격 CI 실행 127](https://github.com/Jik-Kim/ready2go/actions/runs/37179524578)은 contracts-and-core·ros-build·compose 모두 성공했습니다. 아래 로컬 검증 기록과 구분하며, 후속 커밋의 CI 결과를 대신하지 않습니다. [문서]
-- PR #46 재검토 수정과 main `5350bd9`(#58 TF 정정·#61 pose 규칙 포함) 통합을 완료했습니다. 작업 브랜치: `codex/ontology-review-fixes`. 사용자 승인 후 지정 PR 세션을 통해 커밋 `f123f50`의 push·기존 [PR #46](https://github.com/Jik-Kim/ready2go/pull/46) 갱신·Draft 해제를 완료했습니다. 당시 PR은 Open·Ready for review였으며 이후 병합됐습니다. [문서]
-- 시연 최소 표시·터미널 대체와 D 담당·C 검토·E 데이터 인계를 복원하고 이슈 #59 참조를 17.4·17.5·17.6으로 갱신했습니다. 실제 담당별 데이터 연결·수락·완료는 별도 확인 사항입니다. [문서]
-- #8의 실측/외접박스 표 11종·12개를 world 원본에 반영했습니다. 등록 물품 전체가 P1 단일 요청 대상이며 최종 파지 승인은 별도입니다. [문서]
-- 파지 힘은 item_grasp.yaml의 null, 승인 상태는 false로 두었습니다. 미확정 설정 거절 함수 제공과 B/C 실물 경로 연결은 구분합니다. [문서]
-- 공용 ontology/interfaces/hardware/README와 연관 예시·프리셋을 갱신했습니다. 높이 1.0 cm 일괄 변경이나 실물 위치·시험 성공을 임의 확정하지 않았습니다. [문서]
-- 온톨로지 작성 원본을 classes·world·스킬 파일로 분리하고, `robot_ontology.jsonld`는 공통 context와 참조 목록으로 구성했습니다. [문서]
-- E 로더가 분리 파일·초기 상태 프리셋·장소 YAML을 연결하고 기존 `classes/world/state/skills` 조회 구조를 반환합니다. [문서]
-- 장소 설정의 정본은 `config/places.yaml`이며 공통 식별자로 결합합니다. 미측정 null은 유지합니다. [문서]
-- 기존 복합 스킬 이름을 `handover_with_unpack`으로 변경했습니다. 태스크 경로와 동작 정의는 유지했습니다. [문서]
-- 초기 상태 프리셋은 `knowledge/snapshots/initial_state.json` 하나로 유지합니다. 실제 상태 확인·적용·저장은 Runner 책임입니다. [문서]
 
-## 확정 값 (근거 태그 필수)
-| 항목 | 값 | 근거 |
-| :--- | :--- | :--- |
-| 장소 설정 정본 | `config/places.yaml` | [문서] 사용자 합의 |
-| 연결 식별자 | `world.places`와 YAML의 동일 장소 키 | [문서] 사용자 합의 |
-| 복합 스킬 이름 | `handover_with_unpack` | [문서] 사용자 지정 |
-| 물품 치수 순서 | `size_m = [긴 변, 짧은 변, 높이]`, m | [문서] #6·PR #46 PM 코멘트·병합된 #61 대조 |
+- [문서] `codex/requirements-centralization`의 공통·E 문서 정리는 [PR #180](https://github.com/Jik-Kim/ready2go/pull/180)에 게시됐으며 확인 시점 Open·미병합입니다. 최초 게시 커밋은 `d4ca24e`, 최신 확인 base/main은 `bbad37320cb2ff1deec1dd29a5a30656c36a484d`이며 작업 시작 기준 `65148d4`와 구분합니다. 의미·정책·수용 기준은 [요구사항 정본](../../docs/requirements.md), 실행 필드·값은 [실행 원본 안내](../../docs/requirements.md#runtime-sources)에 둡니다. 다른 담당 문서는 직접 수정하지 않았습니다. 후속 인계34건의 실제 관리 위치는 [#134](https://github.com/Jik-Kim/ready2go/issues/134)입니다. 목록을 이 CURRENT에 복제하지 않습니다. [B 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054747674)은 domain의 선택·복구·AC/시간 예산 안내와 Skills README의 과거 시험 안내, [C 해당 범위 수락](https://github.com/Jik-Kim/ready2go/issues/134#issuecomment-6054720331)은 Runner·planner 재계획 안내 및 ICD/안전의 C 몫에서 확인했습니다. C 주담당12–18은 [C 후속 회신](https://github.com/Jik-Kim/ready2go/pull/180#issuecomment-6055195230)에서 로컬 `056f1b7` 반영 및 #180 병합 뒤 별도 PR 예정으로 보고됐습니다. 이는 수락 이후의 로컬 반영 보고이며 E가 C 파일 수정 결과나 병합·최종 통합 완료를 검증한 것은 아닙니다. B의 수정·병합·최종 통합 완료도 미확인입니다. 기타 담당 범위의 수락·완료도 미확인으로 남깁니다.
+- [문서] 현재 기준 main에는 PR #165(`b4cc2fe`), #166(`f4646b4`), #167(`dea9016`), #169(`6f274e0`), #176(`65148d4`)이 병합됐습니다. E 복구 확인 내부 정책은 운영 ROS/TTS/청취 경로에 미연결입니다. C의 잠금 해제와 단계 재개 준비, B의 첫 서랍 놓기는 바닥만 지원하며 다른 물체 윗면 복구 목표와 차이가 있습니다. 반복(`while`)·`fallback` 내부 정지의 재개 문맥 보존 제약도 [#152](https://github.com/Jik-Kim/ready2go/issues/152) 협의 항목입니다. 이 제약과 바닥만 지원하는 지지면 차이는 미달·미검증 항목이며 요구사항 축소나 시험 제외로 합의하지 않았습니다. 지지면 협의는 [#134](https://github.com/Jik-Kim/ready2go/issues/134)에서 관리합니다. 지원 범위 협의가 남으며 코드 병합은 실제 운영 연결·승인된 wire·실물 검증과 구분합니다. 진행·인계는 [#152](https://github.com/Jik-Kim/ready2go/issues/152)·[#153](https://github.com/Jik-Kim/ready2go/issues/153)을 확인하십시오.
+- [문서] PR #144 MeloTTS·캐시·중단 안내와 #160/#161/#162 실행 안내는 기준 main에 반영됐습니다. 오래된 Open·미병합 및 당시 로컬 게시 대기 표시는 날짜별 이력으로만 읽습니다. #134의 D #158 최신 상태와 전체 설치/실물 완료는 이번 작업에서 다시 확인하지 않았습니다.
+- [문서] 공통 [manifest](../../knowledge/robot_ontology.jsonld)·[pick](../../knowledge/skills/pick.jsonld)과 [정식 태스크](../../tasks/find_item.json)가 현재 실행 원본입니다. E 음성의 실제 구현·진단·시운전은 [Voice README](../../ros2_ws/src/ready2go_voice/README.md), 로더는 [Knowledge README](../../knowledge/README.md)를 참조합니다. 과거 시연 전용 정의를 현재 실행 원본으로 복원하지 않습니다.
+- [문서] 작업 시작 당시 사용자 변경16개를 승인된 stash에 보존했던 이력은 당일 기록에 남깁니다. 이후 사용자 “stash 폐기” 요청으로 해당 stash가 제거됐으며 현재 stash 목록은 비어 있음을 확인했습니다. 이번 PR 보완에서는 stash를 복원·변경하지 않았고 다른 브랜치·worktree·로컬 키/모델/로그도 변경하지 않았습니다.
 
 ## 막힌 점 · 필요한 도움
-- 구매 기록에서 실제 제품명은 확인하지 못함. PR 구매 기록은 “제품명 미확인 / 철제 고정대 + 원목 2단 서랍장(금속 레일)”로 보고하며 제품명 확인이 필요함. [문서]
-- E 포함 2명 계약 승인은 미확인입니다. 사용자 수정·push 승인을 팀 계약 승인으로 대신하지 않습니다. [문서]
-- TODO(A): lip_balm 외접박스 높이 20.0 mm/이전 20.2 mm 보고의 차이를 확인해야 합니다. size_m 로컬 축/yaw 기준은 #6·#61에 맞춰 정렬했습니다. [문서]
-- TODO(B·E): 물품별 힘·파지점·반복성·실물 실행 검증(일반 높이 기준 유지·지우개 예외는 #8에서 확정); TODO(C): require_grasp_settings와 실제 실행·TTS·인스턴스 상태 연결. [문서]
-- TODO(C 이영훈): 태스크 스킬 호출·실패 상태 계약 및 로그의 전체 구성 해시 기록 연결이 필요합니다. [문서]
-- TODO(B 서동권): 접근 동작 책임과 미측정 설정의 실행 전 검사 계약 확인이 필요합니다. [문서]
+
+- [문서] 이번 작업은 문서 정합성·FR/AC 정의 및 Phase 유지·기존 앵커/링크·실행 원본과 소비 코드 경계를 대조합니다. 전체 pytest/build·설치·마이크/API·실물 시험은 실행하지 않습니다. 과거 26건 정책·156건 회귀·595건 ROS/모의 결과는 [당시 기록](2026-10-08_practice.md)의 결과이며 이번 재실행이 아닙니다.
+- [문서] A/B/C/D와 공통 문서 소유자의 중복 기준 정리, 가림 관계·재식별 adapter, 지지면 복구 범위 협의, 안전 wire 계약 승인(E 포함 2명)·스키마/예시/문서 동시 반영이 남습니다. 링크 정리는 자동 검사·운영 연결 구현이 아닙니다.
+- [문서] 기존 비요청 판별 결함, 웨이크/runtime 배포, 운용 PC 캐시·청취 품질·실음성 평가·C/D 수신, A/B 재관측/파지 및 안전 정지·복구·재개·실물 AC는 완료로 판정하지 않습니다. 수용 기준은 [AC 목록](../../docs/requirements.md#ac-index)을 참조합니다. E는 nudge 시험 담당에서 제외합니다.
+- [문서] 사용자 “#180 리뷰 확인하고 수정해” 승인 범위로 요구사항 정본과 E 기록3파일의 문서 보완·검증·커밋·기존 PR push를 진행합니다. 이번 보완은 근거 링크·평가 장면/담당 경계·높이 기준과 현재 인계 상태를 정리하며 추가 댓글은 작성하지 않습니다. 타 담당 문서 반영·계약 승인·병합·새 이슈·Slack은 이번 범위에 포함하지 않습니다.
+
+## 확정 값 (근거 태그 필수)
+
+[문서] 의미·정책·수용 기준은 [정본](../../docs/requirements.md), 런타임 값과 승인 상태는 [실행 원본](../../docs/requirements.md#runtime-sources)을 확인합니다. 이 CURRENT에 기준값을 재복제하지 않습니다.
 
 ## 다음 할 일
-- [x] 사용자 승인 후 지정 PR 세션 인계, `f123f50` push·PR #46 갱신·Draft 해제 및 해당 head의 원격 CI 성공 확인
-- [ ] E 포함 2명 계약 승인과 #59 D/C/E 데이터 연결 확인
-- [ ] A가 고정된 클래스 번호를 사용해 촬영·라벨링 시작
-- [ ] C·B와 실행 계약 보완 사항 확정
+
+- [ ] 결정권자가 인계 목록의 담당자를 확인하고 담당 문서 반영·지지면/계약 협의를 진행합니다.
+- [ ] 별도 승인된 운영/실물 검증 결과를 현재 구현·병합 이력과 구분해 기록합니다.
 
 ## 철회한 결론
-- ~~drawer_top TF는 항상 null~~: #56·#58 실측/정정에 따라 원본 YAML 값과 비교하고 null은 독립 fixture로 검증합니다. [문서]
-- ~~size_m = [폭, 길이, 높이]~~: #6·#61의 긴 변 방향 yaw에 맞춰 앞 두 치수를 정렬했습니다. [문서]
-- 진입점 JSON을 직접 읽으면 전체 정의가 나온다는 기존 가정은 파일 분리 후 사용할 수 없습니다. [문서]
 
-## PR #46 문서 정합성 보완
-- requirements.md를 기준으로 ontology·시연·인덱스·일정의 참조와 구현/계획 구분을 정리했습니다. [문서]
-- 최신 main 통합: PR #45의 manifest 호환 데이터셋 로더·학습 README와 PR #48의 새 서랍 YAML 설정을 유지했습니다. [문서]
-- 최초 번호 파일은 10/04 아래 조치로 생성했습니다. 촬영·라벨링은 A, 파지 실행 연결·실패 상태 계약은 B/C 인계 사항입니다. [문서]
-- 검증 기준은 문서 정합성·참조·충돌 해결이며 전체 코드 테스트를 완료 근거로 사용하지 않습니다. [문서]
-- 이번 확인: 변경 문서의 파일 링크·요구사항 앵커·미구현 설명, 충돌 표식 제거, JSON 파싱 통과. PR #45의 sources.world 조회로 새 물품 11종 확인(클래스 번호 생성 없음). 전체 테스트·빌드는 수행하지 않았습니다. [문서]
+[문서] 과거 TF null·치수 순서·manifest 직접 로딩·시연 정의 관련 정정 이력은 [날짜별 기록](2026-10-07_작업기록.md)에 보존합니다. 현재 의미와 실행 원본은 위 정본 링크를 확인합니다.
 
-## 2026-10-04 FR-ML-01 클래스 번호 정본 준비
-- PR head의 world.items 순서로 공식 `build_dataset.py --init-classes`를 실행하여 config/yolo_classes.txt 11종(0–10)을 생성했습니다. 순서 변경 금지·신규 클래스 끝에 추가 규칙을 유지합니다. [문서]
-- load_classes(): 11종·경고 없음. 임시 두 세션의 각 11개 라벨 fixture로 일반 CLI 데이터셋 생성(allow-ontology-order 없이) 성공, nc=11·classes.txt·train/val 각11개 확인. 실제 영상·학습·성능을 검증한 것은 아닙니다. [실측]
-- 번호 파일 준비 당시 changelog.md는 사용자 해결 내용을 유지하기 위해 수정하지 않았습니다. 이번 재검토에서는 최신 main 기록과 기존 E 기록을 모두 보존해 충돌을 해결했습니다. [문서]
+## 날짜별 상세 기록
 
-## 2026-10-04 PR #46 재검토 수정 검증
-- 치수 정렬과 hardware·ontology·interfaces 설명을 정정했습니다. A의 pose 규칙 함수·B 밀기 계산과 대조했으며 타 담당 코드는 main 내용을 보존했습니다. [문서]
-- 계약 검증 OK, core 테스트 229 passed. 원본 YAML과 로더 TF 대조 및 독립 null fixture를 포함합니다. [실측]
-- 11종 치수와 문서 표 일치, 클래스 번호·파지 설정·main 장소 설정 및 main 전용 변경 30개 파일 보존을 확인했습니다. 변경 문서 파일 링크·앵커와 diff 공백 검사도 통과했습니다. [실측]
-- 위 로컬 검증에는 ROS/Docker 빌드, 실물 실행, 실제 영상 라벨링·YOLO 학습, MongoDB/JSONL 표시 연결을 포함하지 않았습니다. ROS 빌드·compose 검사는 별도로 위 원격 CI에서 성공했으며 실물·학습·표시 연결 완료를 뜻하지 않습니다. [문서]
-
-## 2026-10-05 하드웨어 문서 정합성 작업
-- 관련 범위: P1 FR-ACT-01·02·03, NFR-SAF-01·02. 요구사항·완료 기준은 변경하지 않음. [문서]
-- 근거: [#1 최신 요청](https://github.com/Jik-Kim/ready2go/issues/1#issuecomment-5980612526), [#8 최신 결정](https://github.com/Jik-Kim/ready2go/issues/8#issuecomment-5980582810), [#15 인출 거리 요청](https://github.com/Jik-Kim/ready2go/issues/15#issuecomment-5976855710). 실측 설정은 config/places.yaml 한 곳을 참조함. [문서]
-- 설정·코드·계약·트레이 역할은 변경하지 않음. OBJECT_DROPPED는 #78 별도 협의 범위이며, PR #70~#73의 승인·병합이나 실제 노드 연결 완료를 뜻하지 않음. [문서]
-- PR 생성·push 결과는 지정 PR 세션의 실제 PR 링크·원격 head로 확인함. 제품명·실물 인계 미확인 사항은 별도 유지함. [문서]
-- 검증: #1·#8·#15 결정/요청 및 관련 P1 요구사항과 문구 대조, 기존 일반 재질 기준 보존, 실측·미확정 연결 구분, 로컬 파일 링크/앵커 및 승인된 3개 파일 범위·diff 공백 검사 통과. 코드 변경이 없어 전체 테스트·빌드·실물 시험은 수행하지 않음. [문서]
-
-## 2026-10-06 P1 목표 10/08 일정 조율
-- 사용자 지시에 따라 P1 음성 L1 목표를 Day 8(10/10) → Day 6(10/08 목)로 변경함. docs/schedule.md·본 CURRENT 2개 파일만 수정. 기준 main c6967b9, 브랜치 codex/p1-oct08-schedule. 기존 codex/ontology-demo-pick 및 PR #85 작업은 보존하며 병합/검증 완료를 이번 일정 작업에서 단정하지 않음. [문서]
-- A 10/07 08:00~09:00 카메라/TF·첫 위치 오차 측정 슬롯 확정. 10/06 저녁 #80 보완/리뷰는 조건부, 10/08 AC-VIS-01 반복 측정·튜닝/실제 비전 연결과 P1 음성 통합 우선. 새 바닥 카메라 측정은 A 제안임. [문서: 전달된 일정 결정]
-- B 개폐20회(18/20 이상)·파지/안전, C/E 음성 통합, D 상태/로그·측정·녹화 준비는 10/07~08 목표로 조율. A 확정 슬롯 외 시간·담당자 수락은 미확정. 10/09 A 작업 불가·필수 작업 배치 금지. 10/10 시설/로봇 사용 가능은 사용자 확인이며 후속 재점검/녹화는 제안. [문서]
-- #22 10/06 stub/예상 target_after 첫 실물 점검과 #23 P1 실제 비전·웨이크/STT·단일 물품→태스크→Runner·TTS·상태/로그·안전 통합을 구분. P1 완료는 요구사항과 관련 수용 기준·AC-DEMO-01 3회 연속 기록으로 판정하며 한 바퀴 성공으로 낮추지 않음. [문서]
-- V3 지속 ID·BFS·Unpacking/원위치복구는 P2, T3 사전검증·목록은 P3로 P1 필수에서 제외. 후속 Phase 담당 확인 필요, 이후 일정을 임의 재배정하지 않음. [문서]
-- 타 문서 인계: A docs/vision.md의 V3 Day6~7, docs/twin.md의 T3 Day6~7·Day5 중단 기준; 결정권자 docs/overview.md의 Day5/8 슬롯·체크포인트, docs/domain.md의 L1(Day8), docs/metrics_risks.md의 Day5 트윈 중단 기준. 해당 파일은 편집하지 않음. [문서]
-- 검증: 두 파일 diff/공백, Day 번호·요일, 상단/표/체크포인트/중간 녹화의 Day6 10/08 일치, P1 요구사항/완료 기준 및 문서 제목·링크·앵커 대조. archive 제외 날짜 검색으로 위 인계 확인. 코드 변경 없어 전체 테스트/빌드·실물 시험은 수행하지 않음. [문서]
-- #80/#83/#85 병합·검증 및 팀 계약 승인 완료는 이번 작업에서 미확인. 로컬 커밋까지만 승인, push/PR 미승인. [문서]
-
-## 2026-10-06 #22 시연용 pick_demo 연결
-- 사용자 승인 범위: E 파일 4개 작성·관련 최소 검증·로컬 커밋. 기준 main `e05a2f5cde29874600d789b8f12d00dd448d01bc`, 작업 브랜치 `codex/ontology-demo-pick`. push·PR·병합은 미승인. [문서]
-- `knowledge/robot_ontology_demo.jsonld`는 open_drawer/close_drawer/pick_demo/place 4종으로 구성. 공통 manifest/pick/초기 상태는 유지함. `pick_demo`는 기존 pre/hold/effect/오류·verify 선언을 보존하고 nudge → 반환 전체 target_after로 pick을 연결함. approach_offset=[0,0,0.1]. [문서]
-- 실제 E 로더의 참조 결합·4종/중복 없음, 기본 ontology/pick 보존, 모의 태스크의 task schema 확인 통과. 실제 C Runner + MemoryLogStore로 11사례 통과: 정상, target_after 누락(VAR_UNDEFINED), pick GRASP_FAILED, nudge GRASP_FAILED, 안전 오류 5종, pre 불충족, target 입력 누락(TASK_INVALID). 마지막 입력 누락은 최신 C 사전 검증이 실행 전 거절함을 확인하고 검사 기대값을 바로잡음. [실측: 로컬 모의]
-- nudge 입력 전체 target 및 pick 입력 전체 target_after 전달, inspect_region 1회, nudge 1회(retry=0), 성공 시에만 gripper/located_in 효과, 실패/출력 누락 시 pick 미호출·집기 효과 없음, nudge/pick 각각의 params/result/status·실패 단계 로그를 확인함. 정상 pick 후 place/close 실물 연결 검증은 포함하지 않음. [실측: 로컬 모의]
-- 임시 검증 스크립트 `/tmp/verify_e_pick_demo.py`는 저장소 커밋에 포함하지 않음. ROS·Docker 전체 빌드, 실제 로봇·MongoDB/JSONL 저장·배포 검증은 수행하지 않음. [문서]
-- C 제안 실행 조합: ontology_file=/knowledge/robot_ontology_demo.jsonld, task_file=/tasks/p1_demo_eraser.json. 기준 main에는 해당 태스크 없음: C 반영·실행 조합 확인 대기. 호출 태스크 retry 생략/0, place 실패 시 쥔 상태의 종료·복구 정책은 C/B 인계임. [문서]
-- B #83 head25e97ef 배열 지원·lift 오류 보존의 13사례 통과는 검토 세션 전달 결과이며 E의 재검증이 아님. check_only PUSH_LIMIT 보완, target_after 계약 출력 예시·E 포함2명 승인은 별도 인계. A stub·B 보정 TF/실물 준비·C 패키지는 수정하지 않음. [문서]
-- target_after는 이동량 기반 예상값이며 FR-ACT-05/AC-ACT-05 재인식 완료가 아님. P1 FR-ONT-01/FR-PLN-01 연결의 시연 한정 구성. domain 상세는 시연 후 계획으로 유지하며 출력 계약 승인이나 실물 배포 완료를 대신하지 않음. [문서]
-
-## 2026-10-06 #16 P1 음성 패키지 구현
-- 검토 세션에서 전달된 사용자 직접 승인 “구현 승인. 이 코드 참고하도록 넘겨.”에 따라 E voice 패키지/설정/관련 검증·본 CURRENT·로컬 커밋 범위 구현. 기준 main `64399e638e6b1293ac0a692a39f8e9cb4b0d4212`, 브랜치 `codex/voice-p1-implementation`. 기존 일정/시연 브랜치는 보존함. push/PR/병합·타 담당/공통 계약 편집은 제외. [문서]
-- 참고 원본 STT/keyword_extraction/audio_device/wakeup_word는 읽기만 수행. SciPy 대신 표준 wave, 기존 온톨로지 전체 물품/별칭, LangChain strict JSON+의미 검증·규칙 폴백·unknown/clarify 보류를 구현. 고정5초 녹음은 RMS 무음 종료/최대 한도로 변경함. 키는 환경에서 읽으며 출력하지 않음. 모델 원본 복제/수정 없음. [문서]
-- 웨이크→녹음→whisper-1 후보 전사, gpt-4o 후보 해석, espeak-ng 후보 WAV→PortAudio DAC 재생, 기존 voice intent/text_override/speak ROS 연결을 구현. 모델/장치/임계값/예산은 패키지 params의 팀 확정 필요 설정으로 구분. default evaluation_mode=true·audio_enabled=false: 평가에서는 제어 intent 포함 모든 intent 발행 없음. [문서]
-- 실제 실행 결과: 빠른 compileall·JSON/YAML/XML/README 링크·diff 공백 검사 통과. colcon packages-up-to ready2go_voice 빌드 최종1회(interfaces/knowledge/voice3개) 성공. 실제 ROS/생성 Skill을 source한 패키지 검사47개 통과, skip0. core/SDK 모의·기록 종료·PCM/장치오류·TTS취소·API시간초과/늦은응답·평가/중복/취소 게이트 및 독립ROS도메인166 topic/action 연결 포함. DDS 인터페이스 열거가 샌드박스에서 차단되어 승인된 검증을 독립도메인/임시로그 경로의 격리된 로컬 실행으로 확인함. [실측: 로컬·API/오디오 모의]
-- 강의 hello_rokey_8332_32.tflite는 현재 환경에서 tflite runtime 초기화·무음1280프레임 추론 성공. 실제 웨이크 발화·모델 배포/PC 설정 검증이 아님. 입력/출력 장치0개, espeak-ng 실행기 없음. 실제 한국어 음성 가용성/물리재생/API 계정·지연은 미검증이며 유료API 호출하지 않음. [실측: 로컬 환경 확인]
-- TTS 시작은 요청/합성시각 대신 첫 PortAudio DAC 재생 시각으로 진단하며 실제 어댑터와 mock 시각을 구분. 물리 스피커 지연은 별도 실측. 무음 대기/STT/LLM/TTS준비를3초예산에 포함하고 늦은API결과·취소된요청은 추가발행하지 않음. TTS실패는find_item을clarify로보류. 시간예산설정이실제로3초를충족하는지는미검증. [문서]
-- C #17 인계: intent→P1태스크·cancel/status·중복/모호/미지원보류, 확인TTS↔태스크시작 책임, source→run_id/로그. Docker/compose의패키지/계약/모델배포·기동은별도C/E협의/승인. E는로봇제어/ESTOP·관측상태/DB로거를추가하지않음. [문서]
-- D #20 인계: 20지우개/10모호/10미등록미지원(자유표현10포함/화자2명이상), cancel/status보조유지. 문장별정답·대상단독clarify/unknown정책·필드수신경로는미합의. 기존ROS로그와source에STT/LLM원문·검증/폴백·실행허용/발행·발화종료/재생시각출력 제공. 정상unknown/clarify를LLM검증실패로세지않음. [문서]
-- 실음성40문장≥36정답·LLM검증실패≤5%/잘못된실행0·실제확인TTS≤3초(AC-INT-01~03)는미측정. 장치/API/TTS·C/D·모션없는평가·운용조건확인후10/08목16:00P1테스트를준비함. 시작시각은준비완료/성공보장이아님. [문서]
-- 벽면배치·nudge는사용자지정P1테스트범위이며기존pick_demo예상target_after/재조회없음연결은유지. 실제재인식→pick/NO_PUSH_ACCESS정합성은별도A/B/C/E인계. FR-ACT-05재인식완료로판정하지않음. 새OntologyManager/BFS/목록/목표계획/LLM태스크생성은제외. [문서]
-
-## 2026-10-06 #16 인텐트 의미 검증 회귀 보완
-- 기존 승인 범위의 기능 오류 수정: E voice core/테스트/README/params 및 본 CURRENT만 변경. FR-INT-02(P1), AC-INT-02 기준. 계약·타 담당 코드·Docker·공통 문서·시연 구조는 변경하지 않음. [문서]
-- 이름/별칭이 없는 발화에 LLM이 등록 물품을 추론해도 clarify/빈 targets/실행 보류. 등록 이름도 긍정 요청 문장 전체가 맞아야 실행하며, 부정·정보 질문·인용·불명확한 문맥은 부분 request_patterns나 LLM confidence로 실행하지 않음. 규칙 폴백과 LLM 의미 검증에 동일한 조건 적용. [문서]
-- 연필 찾아줘/이름 없는 자유 표현, 지우개 가져다주지 마/안 찾아도 돼/가격 질문 재현 보류 및 실행 모드 노드의 비집기 intent/확인 안내 검증. 긍정 지우개20표현(LLM/규칙 경로), 등록된 비모호 이름/별칭 유지. core·node 관련 검사92개 통과, 기존 실제 ROS topic/action 검사1개는 이번 수정에서 제외. compileall/YAML/README 링크/diff 검사 통과. 이번 보완은 전체 빌드·무관 어댑터 검사·실제 DDS 연결을 반복하지 않음. [실측: 로컬, API/오디오 모의]
-- 문형 밖의 자유 표현은 확인 안내로 보류하며 일반 한국어 의미 이해 완료가 아님. E/D 실제40문장 정답표·후속 확인 정책은 미확정, 회귀20표현은 실제 평가 정답표가 아님. source.llm_validation=passed와 실행 허용은 구분. 물리 음성/API/3초/실제 C 수신 검증은 계속 미완료. [문서]
-- push/PR/병합은 이번 보완 승인에 포함되지 않음. 기존 미추적 :memory:.ses는 작업 범위 밖으로 보존하고 커밋에 포함하지 않음. [문서]
-
-## 2026-10-06 #16 사용자 정상 예시 회귀 보완
-- 검토 세션이 확인한 동일 승인 범위에서 위 서랍 한정 수식과 `지우개가 필요한데 가져다줄래?` 긍정 복합 요청을 좁게 허용. 임의 문맥/부정 제거와 허용 문형 무제한 확장은 하지 않음. E core·관련 테스트·README·본 CURRENT만 수정. [문서]
-- 사용자 예시4개(지우개 찾아줘./지우개 좀 가져다줘./위 서랍에 있는 지우개 꺼내줘./지우개가 필요한데 가져다줄래?)를 정상 LLM/규칙 폴백 두 경로에서 find_item/eraser/실행 허용으로 검증. 기존 연필 추론·부정·가격 질문 보류 및 추가 수식/복합 요청의 부정·질문 변형 보류 유지. [실측: 로컬 모의]
-- 영향 core·node 검사104개 통과, 기존 실제 ROS topic/action 검사1개 제외. compileall/README 링크/diff 검사 통과. 이전20표현 통과를 정상 요청 전체 충족으로 간주하지 않으며 실제 E/D40문장·장치/API·3초·C/D 연결 검증은 계속 남음. 전체 빌드/실물/유료 API/push/PR은 수행하지 않음. [문서]
-
-## 2026-10-06 PR #88 제어 문장부호·중복 확인 안내 회귀 보완
-- 기준 HEAD e80f398, 기존 사용자 승인 내 E core intent/session·voice_node·관련 test·패키지 README·본 CURRENT만 수정. FR-INT-01~03(P1), AC-INT-02~03 관련 회귀. 공통 docs/voice_llm·계약·타 담당·Docker·PR 메타데이터는 수정하지 않음. [문서]
-- 발화/설정의 끝 .!?。？！만 정규화한 정확 비교로 취소/상태 인식. parse/fallback/validate 및 node._text 빠른 경로에서 API 없이 제어 intent 처리. 부정/중간 문맥 삭제·부분 일치 전환 없음. [문서]
-- 실행 find_item 중복 조회를 TTS 앞으로 이동, 조회와 실제 발행 기록을 분리. submit_lock 안에서 세대/중복 확인·발행 호출 정상 반환 후 기록하고 TTS 중에는 락을 해제해 즉시 취소 경로 유지. TTS 실패·취소·지연 폐기·발행 예외는 find_item 중복 기록을 확정하지 않음. 평가 반복 TTS/진단 및 모든 intent 발행 금지, unknown/clarify 안내·기존 발행 중복 정책 유지. [문서]
-- core/node 영향 검사120개 통과, 실제 ROS topic/action 검사1개 제외. 문장부호/전각종결기호·설정 동일 정규화·부정/중간 제어 발화 보류, 노드 즉시 취소 세대 갱신, 동일 요청 확인1/발행1, TTS 첫 실패 후 재시도, 시간창 경과 재허용, 평가 반복 안내/발행0, 발행 예외·취소·시간초과 후 재시도 및 기존 의미검증/사용자 예시4개 유지 확인. compileall/README 링크/diff 검사 통과. [실측: 로컬 API/오디오 모의]
-- publisher 정상 반환은 실제 C 수신/실행 확인이 아님. 실제 웨이크/STT/한국어 TTS·API·40문장/3초·C/D/Docker 검증은 미완료이며 P1 전체 또는 AC-INT 통과로 판정하지 않음. 전체 빌드/실물/유료API/subagent/push/PR 변경/병합은 수행하지 않음. 미추적 :memory:.ses 보존·커밋 미포함. [문서]
-
-## 2026-10-06 PR #88 음성 공통 문서 Phase 정합성
-- 사용자 추가 승인 “확인. 문서 내용 페이즈별로 구분해서 적어둬.”에 따라 docs/voice_llm.md와 본 CURRENT만 수정. 기준 HEAD f00c316, 최신 origin/main 33aef5c와 해당 문서 차이 없음 확인. 기존 6.1~6.5 제목·절번호 유지, 패키지 README/코드/설정/계약 정본으로 연결. 다른 변경/미추적 :memory:.ses 보존. [문서]
-- P1 FR-INT-01~03 현재 웨이크/STT·단일 물품/제어·검증/폴백·확인TTS·평가발행금지와 미확정 모델/장치/예산·E/D 정답표·실측/수신 인계 구분. LLM저신뢰 자체 거절 뒤 검증된 규칙 폴백은 실행 후보가 될 수 있음, 퍼지매칭/오프라인STT/PTT/Piper는 미구현. 자유표현10포함40문장/2화자/90%, 실패≤5%·오실행0, 확인TTS3초의 P1 SOT 유지. [문서]
-- P2 FR-INT-02 목표 추출→FR-PLN-02 자동계획/AC-PLN-01, P3 목록·분류/FR-ONT-03·복합작업FR-PLN-03/AC-PLN-02와 FR-TWN-02·AC-LLM-01 Stretch를 후속 계획으로 분리. query_state·퍼지매칭·이름없는추론수용/선택모델·#87학습은 Phase 미배정 미확정 과제로 구분하고 P1 평가를 미루는 근거로 쓰지 않음. [문서]
-- 요구사항 관련ID/완료기준만 확인, 실제 core/adapters/node/params/패키지README와 계약 원본·온톨로지 물품/장소·기존 예시 대조. 문서 내 JSON 예시2개와 연결된 기존 목표 예시의 계약 검증, 6.1~6.5 제목 유지·문서 내 링크/앵커/절번호·diff 검사 통과. 테스트/전체빌드/장치/유료API/subagent/push/PR변경/병합 없음. [문서]
-- ROS진단/source 제공과 C run_id/DB/D화면 자동연결은 구분. 실웨이크/STT/한국어TTS/API·40문장·3초/C-D-Docker는 계속 미검증. 정답 합의/확인정책/담당별 수신 인계가 남으며 문서 정합성 완료를 P1 또는 AC-INT 통과로 판정하지 않음. root 읽기전용 검토·기존PR88 게시조율 대기. [문서]
-
-## 2026-10-06 PR #88 CI NumPy 수정 #90 main 통합
-- 사용자 “PR #90 main에 병합됐어 #88 ci 오류 해결 후 push 해” 승인에 따라 기존 E voice 브랜치에 최신 main d6c3007(#90 merge)을 충돌 없이 merge. 병합 커밋5460cb0의 부모는 기존HEAD0336120/main d6c3007. CI·일정·C/E CURRENT의 승인된 main 변경 그대로 통합, 별도 CI/타 담당 코드 수정 없음. [문서]
-- NumPy setup.py와 CI 설치 범위 numpy>=1.24,<2 일치, 계약 검증OK·diff 검사 통과. Python3.12.3/NumPy1.26.4의 임시 격리 venv(CI 기본 의존성만 설치, PYTHONPATH 제거·ROS/API/장치SDK 없음)에서 core pytest796 passed/22 skipped. MongoDB 연결 없음10개, ROS5/cv2 1/sounddevice4/API2개 미설치로12개 skip. 로컬은 REQUIRE_MONGO를 설정하지 않음; Mongo 서비스를 제공하고 REQUIRE_MONGO=1인 최신 원격CI의 확인이 남음. [실측: 로컬 격리]
-- 기존 P1 FR-INT-01~03 검사 지원이며 AC/NFR 전체 달성 아님. 로봇 전체빌드/실물/API/문장평가 추가 없음. 이번 세션은 로컬 통합/CURRENT 커밋까지만 수행하며 root 게시조율 후 새 head CI 성공 확인 대기. 기존 미추적 :memory:.ses 보존/미포함. [문서]
-
-## 2026-10-06 #20 평가 기준 판별 정책 보완(미커밋)
-- 사용자 지시 “issue20_voice_evaluation.json 이 기준에 맞춰서 판별 기준 수정, 모호한 요청은 clarify로 처리” 승인 범위. 기존 PR88 merged main06f8e9e 기반 새 E 브랜치 codex/voice-evaluation-policy에서 구현/검증만 진행, 커밋/push/PR/병합 미승인·미수행. FR-INT-01~03(P1), AC-INT-01~03 유지. [문서]
-- D 원본 /home/jonny/Downloads/issue20_voice_evaluation.json SHA256 5995fc225c0a2cc78aa1c9264eee6a07518ad674ed4923763acf5017377aec84 읽기 전용 대조, 최신 TC008 “지우개 찾아서 건네줘.” 포함. normal20/ambiguous10/unsupported10, 자유표현10/화자20씩. 원본 pending_e_d_review 상태 유지하며 자료 승인 완료로 간주하지 않음. [문서]
-- 등록 물품/별칭 전체에 전체 긍정 문형을 확장: 찾아서/꺼내서→가져오기·건네기·전달트레이, 부탁/내게/있으면/필요한데. 건네기는 기존 P1 트레이 흐름이며 직접손/타목적지/반납/정리/던지기/다중요청은 미지원. 생산 코드에 40문장 또는 지우개 전용 분기 없음. [문서]
-- 모호 대상단독/대명사/일반대상/대상불명 행동 요청은 guard/validate/규칙폴백에서 clarify·targets[]·실행허용false 고정. 기존 bare_item_policy=clarify 및 request_patterns 호환 유지, unknown 정책만 명시거절. 미사용 request_patterns로 실행하지 않음. 프롬프트와 패키지README/공통문서P1설명 정합성 보완. 새 확인 대화 프로토콜은 추가하지 않음. [문서]
-- 관련 voice 검사343 passed/0 skipped, 기존 실제ROS topic/action1 deselected. 최신40 텍스트 각 규칙/모의LLM/예외폴백40/40(정상20find_item/eraser/허용, 모호10clarify/빈대상/보류, 미지원10unknown또는clarify/보류), 등록 이름·별칭 치환/별칭충돌보류·부정/질문/인용/직접손/타목적지·일반자유문형/LLM환각·저신뢰·시간초과·제어·중복·평가발행차단 회귀 확인. compileall/YAML/문서링크·앵커·기존절제목·JSON예시/참조SHA·diff검사 통과. [실측: 로컬 텍스트·API/오디오 모의]
-- 실제 웨이크/STT/한국어TTS·API·40음성/90%·실제검증실패율/3초·C/D연결·안전운용은 미검증. D자료 승인/정답표 동결·진단과D결과필드 대응·후속확인정책은 인계, 로컬결과를 실제평가/AC달성으로 기록하지 않음. D원본/수집기/계약/타담당/로봇동작 변경 및 전체저장소빌드/실물/유료API/subagent 없음. 기존 :memory:.ses 보존/미포함. [문서]
-
-## 2026-10-07 실제 실행 폴더 원본 기반 음성 시운전 복구 (미커밋)
-- 사용자 원본 기반 수정 지시에 따라 /home/jonny/rokey_proj/VLA/ready2go, images/demo/HEADa59c4ec의 E voice 코드/설정/검사/문서/CURRENT와 로컬 logs/voice_eval/voice.local.yaml만 수정. 기존 .gitignore/:memory:.ses 및 aa39 미커밋 작업 보존, 브랜치 전환·커밋·push·PR 없음. FR-INT-01~03(P1), AC-INT-01~03 유지. [문서]
-- STT.py/audio_device.py/wakeup_word.py/keyword_extraction.py 읽기 대조. 동일 마이크 선택·웨이크 스트림 close→sd.rec 5초/16kHz/int16/mono→sd.wait→표준WAV→whisper1/기존P1LLM 유지. 원본/모델/키 미변경·미복제, 모델 자동 다운로드 없음. RECORD_LIMIT 로그만으로 마이크/노이즈 원인을 확정하지 않음. [문서]
-- 기본 fixed/commissioning 기능 시험, STT/LLM각30초 유한상한 제안. fixed 발화 종료와 확인 지연은 null/not_measured, 녹음 완료 시각은 별도. silence/ac_budget 기존 호환 유지, 신규 키 미지정 과거파일은 기존모드. 취소/overflow/상한/늦은결과폐기·모호clarify/대상검증·평가全발행차단 유지. [문서]
-- 기본 한줄 단계 로그, 감지시에만 점수, 상세 voice_diagnostic은 diagnostic_detail ROS파라미터/YAML로 제공. D 원본 보존 명령을 README에 유지. 로컬 설정 root/모델 경로 유지, /usr/bin/espeak-ng 존재 확인·정식경로 적용, VOICE_MIC_DEVICE/명시입력/16k 자동선택 공유. [문서]
-- 실제 녹음/외부API 실행은 수행하지 않음. 실제 웨이크→전사/한국어재생/LLM·40음성/3초·C/D연결/안전운용은 사용자 재시험과 인계가 남음. 전체로봇빌드/타담당/계약 변경 없음. [문서]
-- 검증: 음성 모의 회귀356 passed/실제ROStopic-action1 deselected. 이후 상세로그/실제ready모드/STT·TTS오류유형 보완에 노드30개 및 추가로그4개 관련검사 통과. compileall/설정모드·root자산경로/YAML·문서링크·diff검사 통과. 프로젝트 ros2_ws에서 ready2go_voice만 빌드 성공; 최초 최종빌드 후 추가 로그 수정 지시가 도착해 voice만 1회 재빌드 성공. 전체로봇빌드 아님. [실측: 모의·로컬빌드]
-- 재시험은 프로젝트 install source 후 python3+dotenv.load_dotenv('secrets/voice.env')로 node main을 실행하도록 README에 제공. 외부API/마이크는 사용자 직접 실행, 키 값 출력 없음. 기본 짧은 실패로그는 예외유형만 표시, 상세diagnostic_detail=true로 원본정보 보존. 시운전 기능 성공·40음성/3초AC실측은 아직 확인하지 않음. [문서]
-
-## 2026-10-07 P2 서랍 내부 이동 문서 정합성
-- 사용자 승인 및 #6 최종 승인(issuecomment-6006660678)에 따라 UC-P2·FR-ACT-04(P2)의 가림 물체 이동을 같은 서랍 내부 빈 공간→재관측→목표 handover_zone 전달→장애물 LIFO 원위치 복구로 정정. FR-VIS-03·FR-ONT-02·FR-PLN-02·FR-LOG-02 연결과 AC-ACT-02(10회/80%)·AC-ACT-03(2cm/위치·방향 기록)은 유지. 요구사항·domain·시연·하드웨어·플래너·Runner·일정·온톨로지 문서, knowledge README, 태스크 description 및 본 기록만 변경. [문서]
-- E 문서/온톨로지 범위와 승인된 공통 문서 정정. 기존 절 제목 유지, 외부 임시 트레이 필수 배치/구매·TRAY_FULL 시연 가정·서랍이 비워진다는 설명 정정. 실행 태스크는 이전 예시로 표시하고 sequence/params/inputs/등록 이름은 유지. JSON description 표시는 실행을 차단하는 기능이 아님. [문서]
-- 원본 world/초기상태·composite/task·config/places·계약·Runner/skills/vision_stub 소비 경로를 대조. 내부 이동 장애물의 located_in은 서랍 유지; pose/재식별·restore_stack 및 pre/effect 계약은 C·E, 배치/관측 호출·안전/오류·실패취소 복구는 B·C·E 인계. staging_tray/tray_view/로그 예시 삭제는 소비자와 계약 동시 정리·승인2명(그중E) 전 보류. 타 담당 코드/CURRENT·계약 스키마는 미수정. [문서]
-- 검증: 수용 기준 변경 없음, 기존 제목 및 로컬 링크 대상 존재, 태스크 description 제외 실행 필드 동일, JSON/schema 보조 검사, diff 공백 검사 통과. 기존 음성·사용자 변경 해시 보존 확인. 문서 정합성은 코드 테스트 성공으로 대신하지 않음. 전체 빌드/pytest/실물 동작/자동 상태 갱신·실행 차단/복구 성공 검증 없음. [문서]
-- 작업 경로 /home/jonny/rokey_proj/VLA/ready2go, images/demo 기준HEADa59c4ec. 이번 문서 변경만 로컬 커밋 대상이며 기존 음성 미커밋 기록·코드와 이미지 작업은 제외. 담당 문서 정정 완료, 계약·태스크 구현/실물 검증은 인계 대기. push/PR/병합은 수행하지 않음. [문서]
-
-## 2026-10-07 P1 MeloTTS 교체 (미커밋)
-- 조율 세션의 사용자 직접 승인 “MeloTTS 좋은 것 같아 이걸로 진행하자” 및 전달된 E 계획에 따라 실제 /home/jonny/rokey_proj/VLA/ready2go, images/demo/HEADc46ad85에서 구현. FR-INT-03(P1)·AC-INT-03(발화종료→확인TTS3초) 유지. 기존 FR-INT-01~02·평가/clarify·원본5초 녹음/STT/LLM·intent계약 유지. 기존 사용자·음성 미커밋·발표자료·:memory:.ses 보존. 이번 지시상 커밋/push/PR/브랜치전환/subagent 금지·미수행. [문서]
-- E adapters/tts·melotts/worker/설치기, core/config·voice_node, voice params/실제 logs/voice_eval/voice.local.yaml·TTS검사, package.xml/setup.py 의존성·데이터 포함, voice README/docs/voice_llm·본CURRENT/.gitignore만 변경. 기존 audio/session/intent/API 및 기존검사 내용은 작업 전 바이트와 일치. 타 담당/계약/전체compose 미수정. [문서]
-- .venvs/melotts의 Python3.12.3 CPU 환경과 models/tts/melotts 모델/소스/캐시 사용(둘 다 Git 제외). 공식 Melo209145371cff8fc3bd60d7be902ea69cbdb7965a, 한국어모델0207e5adfc90129a51b6b03d89be6d84360ed323, 한국어BERT1779cc0982ada0216dd6de0dd4e86fb78201926d 기록. 공식원본 고정tokenizers는 Python3.12 wheel 없음 확인. transformers4.41.2/tokenizers0.19.1/librosa0.10.2.post1·torch/torchaudio2.5.1+cpu 등 별도 실측환경을 params/melotts_requirements.txt로 고정. 한국어 전용 import/로컬BERT/외부URL폴백차단 패치를 params/melotts_kr.patch로 기록, 설치기에서 revision·패치·공개HF/PyPI/공식CPU index 재현. ROS환경에 설치하지 않으며 실행은 offline, 비밀키/외부음성전송 없음. [문서]
-- 지속 worker 모델 재사용·실제WAV mono/int16/44.1kHz→기존PortAudio lock/speak(cancel,on_start,timeout,start_deadline)/첫DAC 유지. 준비 완료 전에 등록11물품 확인문장+설정4보류문장을 캐시하며 voice ready/웨이크를 시작하지 않음. 문장·모델파일/리비전·소스/worker·의존성/화자/속도/스레드 변경은 캐시무효화. 실패는 자동espeak전환 없이 보류, 합성 중 취소/기한초과는 worker종료/늦은응답폐기, 준비Ctrl+C와 중복close/watchdog 정리. [문서]
-- 실측: 첫CPU2스레드 단문합성3.37~6.18초, 동일문장1/2/4스레드비교1=9.79/7.59,2=3.99/4.23,4=2.49/2.43초(첫BERT 로딩 포함). 4스레드를 제안 설정에 반영. 초기15문장캐시 준비49.09초, 기존캐시준비3.87초; 최종 모델파일해시 반영 후 동일확인문장 WAV/실제첫DAC재생 성공, 요청→첫DAC0.165초. 실제재생취소·만료요청보류·lock해제 확인. logs/voice_eval/melotts_runtime_0.wav는 시험 음성. [실측: CPU단문/이PC출력장치]
-- 검증: 음성 핵심모의345통과(ROS 경로 누락으로 노드1모듈 제외 후 별도 노드33통과/실제ROS통합1deselected). 준비중Ctrl+C 보완 후 Melo핵심18통과, 합성중취소/시간초과 추가핵심검사 별도 확인. AST/XML/YAML·기존문서제목/로컬링크·diff 검사, 격리pip check/기록패치일치 확인. 프로젝트 ready2go_voice만 최종1회빌드 성공(1패키지2.10초). 전체로봇빌드/실제ROStopic-action/마이크/웨이크/외부API/로봇 실행 없음. [실측: 모의·voice빌드]
-- 실제 청취 품질은 사용자 확인 필요. STT/LLM 포함 발화종료→첫DAC3초·40음성/정확도90%·검증실패율/C-D연결은 미검증. CPU합성·캐시·단문재생 결과를 전체AC달성으로 판정하지 않음. 장치/속도/준비상한60초·재생상한20초는 [팀 확정 필요] 제안, AC start_deadline3초 완화 없음. 담당교체/단문시험 완료·전체음성평가/통합 인계대기. [문서]
-
-## 2026-10-07 웨이크0.7·무발화 보류·clarify 캐시 후속 보완 (미커밋)
-- 조율 세션에서 확인한 사용자 직접 지시(영상 clarify 지연·wake threshold0.7·무발화STT 이상)와 승인된 E 후속 계획 범위. 실제 /home/jonny/rokey_proj/VLA/ready2go, images/demo/HEADc46ad85 유지, FR-INT-01~03(P1)·AC-INT-03 정본 유지. 기존 Melo 설치/코드·음성 미커밋·.gitignore·영상/발표자료·:memory:.ses 보존. 커밋/push/PR/브랜치전환/subagent/타파트/계약 변경 없음. [문서]
-- 수정: E adapters/speech.py 추가·melotts.py 진행 로그, core/config·intent·session, voice_node, params/voice.yaml·로컬voice.local.yaml, 관련 test_intent/test_node/test_voice_followup, README/docsvoice_llm/본CURRENT. 원본 audio.py의 sd.rec→sd.wait 고정5초/16kint16mono·마이크선택/취소/overflow 정리는 유지. wake_threshold0.7은 사용자 확정이며 기존strict > 비교 유지. [문서]
-- 정상 고정녹음 완료 PCM에 설치된 openwakeword Silero ONNX 로컬 검사,30ms프레임 VAD≥0.5+RMS≥speech_rms 연속0.15초 기준. VAD0.5/길이0.15초는 [팀 확정 필요] 제안이며 음량만으로 음성 단정/전체5초평균 사용 없음. 통과 시5초전체 전송·추가대기/자르기 없음. NO_SPEECH/VAD불가·오류/취소는 STT·LLM0호출/intent발행금지(실행모드도), source.record_error·llm_validation=not_called·execution_allowed=false 유지, LLM/STT실패로 잘못 집계하지 않음. fixed 발화종료/AC지연은 계속null/not_measured. [문서]
-- clarify_prompts 단일 설정 원본에서 규칙/무발화/오류별 의미 유지, 자유LLM질문은 일반 고정 안내로 정규화해 최종clarify_question·실제안내 일치, source.llm_raw 원문 보존. 질문전체 사전합성캐시 후 ready/웨이크 시작(부팅질문재생 없음). unknown/find/control·D40판별정답·대상단독clarify 유지, 새로운 확인대화 없음. 기본로그에 발화검사/무발화/STT생략·TTS준비→cache사용/새합성→실제첫DAC시작/종료 구분, 상세진단 원문/tts_mock 유지. [문서]
-- 검증: voice모의회귀406통과/실제ROS통합1deselected, 추가노드 실행모드 발행차단3통과. 빈PCM·무음·미세잡음·짧은음성·VAD오류/취소·설정·wake0.7경계·LLM원문/고정질문·기존5초전체전송/평가/취소 검사. 90ms순간구간 거절/180ms구간 허용은 모의이며180ms이상 웨이크잔음도 통과가능. AST/YAML/문서제목·링크/diff 및 기존변경보존·install코드일치 통과. ready2go_voice만 최종1회빌드 성공(1패키지1.71초), 전체로봇빌드 없음. [실측: 모의·로컬빌드]
-- 실제 설치 Silero 모델의 합성 무음/미세·큰임의잡음/200Hz 정현파=False, 출처확인된 기존Melo시험WAV를16k로변환한 입력=True. 초기VAD 로딩포함무음0.738초·이후비음성약0.035초, 생성음성약0.002초. 새고정질문 캐시준비36.26초, 일반clarify캐시히트 응답5~7ms(실제DAC/LLM지연 측정아님). logs/voice_eval/clarify_fixed.wav 기록. 외부API/실제마이크/로봇 실행 없음. 로컬검증 최초자동심사시간초과 후 허용된1회재시도로 수행. [실측: 합성입력·캐시]
-- 영상의4.406초 clarify지연은 조율세션 관측, 캐시미스원인 추정은 정확한원문/당시히트부재로 미확정. 영상에마이크PCM없음. 실제마이크의무발화/순간소음/잔음/짧은정상발화·오탐, STT/LLM포함40음성·전체3초·청취/C-D연동은 사용자재시험/인계대기. 패키지README의 현재사용자실행명령과 기본로그·diagnostic_detail=true로 재시험. 구현/담당검증 완료이며 실물문제완전해소/AC달성으로 보고하지 않음. [문서]
-
-## 2026-10-07 사용자 승인 로컬 커밋
-- 사용자 “커밋해” 승인으로 위 실제 실행 폴더 음성 시운전 복구·MeloTTS 교체·웨이크0.7/무발화/clarify 후속 변경을 로컬 커밋. 앞선 “미커밋” 기록은 당시 상태의 이력입니다. 최신 모의406+추가발행차단3 통과와 voice 최종1회빌드·설치코드일치 결과 재사용, 추가 코드 변경/재시험 없음. [문서]
-- E voice 코드·설정·검사·의존성/재현자료와 docs/voice_llm·본CURRENT·Melo용 ignore만 포함. 기존 wakeword ignore 수정·발표자료·:memory:.ses 및 다운로드모델/venv·ignored 로컬 설정/시험WAV는 제외. images/demo 유지, push/PR/병합은 이번 승인에 포함하지 않음. [문서]
-
-## 2026-10-07 P1 축약 부탁·LLM 의미 해석 보완 (로컬 커밋)
-- 조율 세션 01a104cf-60e0-70e1-9f26-e03ac3cb2ad6에서 사용자 요청 “지우개 좀”과 프롬프트·검증·폴백·문서·회귀 계획 및 최종 “확인했어 진행해.” 승인을 확인. 실제 /home/jonny/rokey_proj/VLA/ready2go, images/demo/HEAD6ee6389285585738569040fce54edecbe61da23f에서 시작 시 clean 확인. 정본 FR-INT-02 P1·AC-INT-01/02 기준, root/voice README의 E 소유 범위. 계약/타담당 승인 대체 없음. [문서]
-- E adapters/api.py 프롬프트·core/intent.py·params/voice.yaml 주석·test/test_semantic_requests.py·voice README/docs/voice_llm·본CURRENT만 수정. 삭제/이름 변경 없음. 특정 문장 전체 정규식은 폴백 전용으로 분리하고 정상 LLM 후보는 받기/전달 의미를 해석. 단일 등록 이름/별칭+좀/좀요는 승인된 축약 부탁이며 조사/종결기호도 수용. 지우개 단독/그거 좀은 clarify. 요청 단서 검사는 남으므로 모든 자유 표현을 허용하는 정책이 아님. 요청합니다/주시겠어요/받을 수 있을까요 등 정상 LLM 결과 수용을 모의 확인. [문서]
-- 선제 보류: 빈/단독/다중/충돌·대상불명, 명백한 부정/정보질문/인용/불명확 문맥 및 미지원 행동. 결과 검증: 기존 스키마·P1 허용값·등록 단일 대상·발화 대상 일치·유한/최소 확신도·요청 단서 유지. 직접 손 전달/다른 목적지/정리/던지기 등은 보류. 이 규칙은 일반 한국어 의미·안전 전체를 보장하지 않음. 정상 unknown/clarify는 폴백 실행으로 덮어쓰지 않으며, 오류/시간초과/검증실패/LLM 없음의 폴백만 기존 긍정 전체 문형+축약 부탁을 수용; 그 밖의 이름 있는 표현은 clarify. [문서]
-- 웨이크0.7·고정5초·VAD 무발화·TTS 고정 clarify 캐시/로그·시간제한/취소/발행 게이트와 기존 D40 정답/평가 원본은 미수정. 40문장은 허용 목록이나 학습 자료가 아닌 평가용 정답표, 별도 파인튜닝/자동 재학습/멀티턴/새 계약 없음. 기존 session/node/config·오디오/TTS/생성기/계약·타담당 파일 변경 없음. C 수신은 기존 intent 형태를 그대로 사용하며 실제 연결 완료로 보고하지 않음. [문서]
-- 검증: voice 전체 모의 회귀530 passed/실제 ROS topic-action1 deselected(7.75초). D40의 규칙/모의LLM/오류 경로, 축약 정상 호출·응답 수용/오류·모의 timeout 폴백, 등록 이름·별칭 일반화, 전체 폴백 문형 밖5개 정상 요청, 잘못된 LLM 결과의 부정/정보/인용/미등록/다중/미지원/불명확 보류, 형식/대상/낮은·비유한 확신도/목표계획 거절과 실제 LangChain 프롬프트 전달 경로 모의 검사를 포함. 초기 물품 설명 “지워주는 물건” 과보류를 행동 문형으로 좁혀 기존 정상 보류 검사를 복구. 다중 대상 직접 검증의 기존 ValueError 거절도 보존. [실측: 모의]
-- AST/YAML/diff 공백 검사·기존 문서 제목/로컬 링크 대상·허용 파일 범위 검사 통과. 프로젝트 ros2_ws에서 ready2go_voice만 최종1회 빌드 성공(1패키지1.69초), 설치된 api.py/intent.py와 소스 바이트 일치 확인. 전체 로봇 빌드 없음. [실측: 정적·voice빌드]
-- 실제 마이크/STT/유료 LLM/로봇/ROS topic-action 및 실제40음성 정확도·검증실패율·발화종료→첫DAC3초는 수행하지 않음. 사용자 재실행은 voice README의 “사용자 PC 시운전 명령”에서 project install source 후 기존 voice.local.yaml 평가모드로 node 재시작, 지우개 좀/좀요·받기 요청과 단독/그거 좀/부정/정보/미지원 보류를 대조. 실제 LLM 의미 정확도와 E/D 평가/통합은 후속 조건. 사용자 “커밋까진 알아서 해야지” 승인으로 이번 7개 파일만 로컬 커밋. 앞선 구현 지시의 커밋 제외는 이 승인으로 변경하며, push/PR/브랜치전환/subagent/타파트 편집 없음. 담당 구현·모의 검증 완료, 실제 음성/통합 검증 인계 대기. [문서]
-
-## 2026-10-07 PR #114 선택 오디오 의존성 CI 수정
-- 사용자 제공 CI 화면 및 실제 PR #114(open/headfa9bb4c42141622113467969998fd8aaf38012c6)을 대조. .github/workflows/ci.yml은 sounddevice/openwakeword·API를 설치하지 않고 importorskip 정책을 사용하지만, E test_audio_tts.py의 fixed_input 및 입력선택 검사가 직접 sounddevice를 import하여 1 failed/4 errors가 발생. E 음성 FR-INT-01~03 P1의 검사 환경 정합성 보완이며 계약·요구사항·실행 동작 변경 없음. [문서]
-- 사용자 승인으로 해당 2곳만 pytest.importorskip('sounddevice') 적용. 기존 core 검사는 유지하고 선택 의존성 없는 경우 해당 모의 오디오 검사만 명시 skip. E test_audio_tts.py·본CURRENT만 변경, 타담당/CI workflow/런타임/설정/문서구조·모델 미수정. [문서]
-- 검증: sounddevice 설치 환경 voice전체530 passed/실제 ROS topic-action1 deselected(9.19초). 새 Python 프로세스의 import finder로 sounddevice만 미설치 상태를 재현한 voice전체514 passed/16 skipped/실제 ROS topic-action1 deselected(9.09초), 신규5개가 의존성 없음으로 skip되고 실패 없음. 다른 CI 의존성/전체저장소 환경과 동일한 검증은 아니며 원격 CI 결과 별도 확인. AST/diff 및 이번2파일 범위 확인. 테스트만 변경하여 빌드 반복 없음, 실제 장치/API/로봇/ROS통합 미실행. [실측: 모의]
-- 사용자 ‘승인’은 브리핑된 수정·검증·자동 로컬커밋·PR #114 업데이트까지 포함. images/demo에서 이번2파일만 커밋, PR 담당 세션에 승인된 커밋 push/갱신을 인계하며 추가코드수정/병합 제외. 원격 반영과 CI 성공은 확인 후 별도 보고. [문서]
-
-## 2026-10-07 시작 evaluation_mode 파라미터·기본false (게시 인계 대기)
-- 조율 세션의 직접 사용자 승인 “실행할 때 파라미터로 켜고 끌 수 있게 해. 기본은 evaluation_mode: false로, 나머지는 유지. 수정 후 PR까지 진행해” 및 read_thread userMessage01a114db-f5b4-71f2-84dc-261f333e98cf 확인. 실제 /home/jonny/rokey_proj/VLA/ready2go images/demo/HEAD11f525c에서 clean 시작. FR-INT-01~03 P1·AC-INT-01~03 정본과 E voice 소유권 적용, 계약·타담당 변경 없음. [문서]
-- 이 작업자 세션의 실제 편집 시도는 기본false 실행 경계의 직접승인 증거 부족으로 자동심사2회 거절(원문 재확인한 동일행동1회재검토 포함); 실행/파일수정 없이 중단·보고. 직접 사용자 승인 맥락을 가진 조율 세션이 준비한10파일 패치를 확인하고 허용 적용한 뒤 E는 읽기전용검토/검증·모의검사 수정 및 본기록을 수행. 거절된 모드 편집 재실행·우회 없음. 게시/커밋도 조율 세션의 Luna PR작업자가 맡으며 이 세션은 중복 수행하지 않음. [문서]
-- 수정11파일: core/config.py·nodes/voice_node.py·params/voice.yaml, test/conftest.py·test_config_api.py·test_intent.py·test_node.py·신규test_mode_parameter.py, voice README/docs/voice_llm·본CURRENT. ROS 시작 bool evaluation_mode 기본false가 YAML보다 우선(로컬YAMLtrue여도 미지정/CLIfalse는 실행), CLItrue는 모든발행차단. 유효cfg는 parser/Session 생성 전 공유, 런타임 ros2 param set 전환 구현 없음. core loader는 booloverride 검증·키 미지정false. commissioning평가전용제약만 제거. fixed5초·commissioning/API/TTS상한·Melo·wake0.7·기존무발화/취소/실패/중복게이트 유지, YAML유효값은 evaluation만 변경. 로컬secrets/logs/model은 덮어쓰지 않음. 삭제/이름변경·새모드/다른ROS파라미터 확대 없음. [문서]
-- 검증: voice일반모의541 passed/실제ROS파라미터8건+기존실제topic-action1건 제외(8.66초). 별도 실제ROS domain166 초기화8 passed/11 deselected(0.59초), defaultfalse·YAMLtrue/false와CLItrue/false우선·정수/문자열bool거절·Session/parser cfg공유·평가차단/실행기존발행·시험YAML원본보존 확인. 실제publisher/subscription/action/worker/TTS는 모의로 치환해 실제intent전송/마이크/API/로봇없음. 초기 ROS검사의 parameter_event를 intent로 오인한 mock만 토픽별로 정정 후8건 재검증, 제품코드 변경 없음. 기존노드 무발화/취소/TTS실패·중복 회귀 포함, commissioning양쪽모드에서 actual speech_end/latency null/not_measured 확인. [실측: 모의·ROS초기화]
-- AST/YAML evaluation외값동일·diff공백·기존문서제목/로컬링크·변경범위 확인. ready2go_voice만 최종1회빌드 성공(1패키지1.70초), core/config.py 및 voice_node.py install/소스바이트일치. 전체로봇빌드·실제마이크/유료API/로봇/실제topic-action·40음성/정확도·실패율·3초실측은 미수행. fixed/commissioning이 실행모드여도 AC-INT-03 달성 근거 아님. [실측: 정적·voice빌드]
-- 별도 미해결 P1 비요청가드 결함은 이번 승인범위 제외·intent.py 미수정. 기존 조율리뷰의 과거사실/의무질문/서술좀/부정/제외 표현 중 “지우개 가져다주면 안 돼”, “지우개 빼고 다른 것 가져줘”에 잘못된 LLM find_item(eraser)을 주입하면 execution_allowed=true로 분류됨을 읽기전용 재확인(실제 발행없음). core/intent.py _nonrequest_context/_request_context의 후속 보완 및 회귀·문서·별도승인 필요. 이번 모드 구현/검증 완료와 이 결함 해결·전체안전완료는 구분함. [실측: 모의]
-- 실행은 README의 기존PC명령에서 -p evaluation_mode:=false(또는미지정), 평가시험은 :=true; 기존로컬YAML/5초/시간설정 유지. 승인된11파일과 검증결과를 조율 세션에 인계해 기존PR114만 업데이트, 새PR/추가수정/범위확대/병합 제외. 이번 범위의 실제 commit/push/CI결과는 게시담당 반환후 확인하며 현재 작업자 미커밋·인계대기. PR본문은 기본false·시작값YAML우선·실제40음성/3초/로봇미검증 및 별도비요청가드결함을 분리해야 함. [문서]
-
-
-## 2026-10-07 E 실행·진단·온톨로지 문서 보완
-- [문서] 사용자 승인: 일반 실행 경로, D 평가/실행 상세 기록 명령, Knowledge 함수 책임, 진단 published 경로와 미해결 비요청 판별 결함의 명시. P1 FR-INT-01~03·FR-ONT-01 기준으로 E 소유 README 2개·voice_llm.md·CURRENT만 변경. 파일 삭제/이름 변경·코드·설정·온톨로지 원본·로컬 자산 변경 없음.
-- [문서] 일반 빌드 후 저장소 루트로 복귀, MeloTTS 상대 경로/절대 경로 대안 설명. D 명령은 evaluation_mode true/false·diagnostic_detail true·새 mktemp 로그와 pipefail을 포함. 상세 콘솔은 voice_diagnostic.published/intent, intent.source에는 published 없음. 발행 호출 반환과 C 수신·실행 성공을 구분.
-- [문서] Knowledge는 load/get/check/apply 등의 함수이며 apply는 새 상태·diff를 반환. 현재 상태 관리·적용·저장은 Runner(C) 책임. interfaces.md의 OntologyManager 잔여 설명은 공통 계약 문서 승인(조장 포함 2명) 확인 전 보류. 해당 행의 클래스명을 실제 함수 호출·Runner 책임 설명으로 정정하는 인계 필요. 계약 스키마·예시·런타임 변경 없음.
-- [문서] 기존 비요청/부정·제외 발화의 실행 후보 통과 결함은 미해결로 README에 표시. intent.py 수정·새 회귀 검사는 별도 승인 대상. 실제 마이크/API/TTS/로봇·전체 테스트/빌드는 이번 문서 변경에서 실행하지 않음.
-- [실측: 정적] 승인된 4파일 범위·기존 제목 유지·로컬 링크 대상·README Bash 구문(bash -n)·내장 Python AST·평가/실행별 상세 모드/새 로그 보존 구성·git diff --check 통과. 실제 명령 실행은 하지 않았으며 정적 통과를 장치/API 성공 근거로 사용하지 않음. 담당 문서 범위 완료·계약 문서 승인 및 기능 결함 후속 인계 대기. 이번 변경은 로컬 커밋만 수행하며 push/PR 갱신은 별도 승인 대기.
-
-
-## 2026-10-07 P1 공통 pick 재관측 연결 (담당 범위 완료·통합 인계 대기)
-- [문서] 조율 세션 01a104cf-60e0-70e1-9f26-e03ac3cb2ad6의 사용자 승인 원문 “현재 구현에서 크게 바꾸지 않는 방향…P1에서는 B가 공간 판단…구현 시작해” 범위. 최신 원격 main 9071c67f227c0064057adb72a1f7aac6e948e262 확인 후 /tmp/ready2go-e-p1-pick, codex/p1-pick-reobserve 격리 브랜치에서 작업. 원본 images/demo의 README/CURRENT 사용자 변경·models/wakeword.zip 보존. LFS 자산 로컬 clone smudge 실패 후 격리 clone만 skip-smudge로 복원; 실물/USD 자산 미사용.
-- [문서] P1 FR-ONT-01·FR-PLN-01·FR-ACT-05/AC-ACT-05 및 NFR-SAF-01~02 기준. E 파일: knowledge/skills/pick.jsonld의 expand·기존 오류 코드 선언, knowledge/README.md, docs/ontology.md, 이 CURRENT, ready2go_knowledge/test/test_pick_runner.py. item/from·pre/hold/effect/verify 보존. 탑뷰→scan→B nudge→탑뷰→scan 갱신→새 target 집기. nudge.target_after 예상값 미사용. manifest·demo·tasks·다른 담당 패키지·계약/요구사항·루트 README는 변경하지 않음.
-- [실측: 모의] E knowledge 검사 37 passed(0.45초): 기존 로더 17건 및 신규 main Runner/RosBackend+공통 ontology+정식 find_item 연결 20건. B pushed=false/true 응답·관측 총3회·예상값과 다른 재관측 전체 target 전달·성공 후 effect, 최초/재관측 미발견/null·조회/끌기/탑뷰/집기 실패 전파·effect 없음·선행 이동 뒤 YAW_INVALID 포함 retry 억제·ESTOP/LOCKED 후 finally 로봇 동작 없음. 스텁 좌표 변화와 no-op 응답은 실제 비전/공간 판단/모션 실측이 아님. 최초 일반 pytest 호출은 전역 ROS launch_testing 자동 플러그인의 수집 시 패키지 경로 누락으로 실패; PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 및 knowledge/runner PYTHONPATH 명시한 ROS 비의존 환경에서 통과.
-- [실측: 정적] pick 기존 expand/errors 외 모든 필드 동일·JSON/AST·knowledge 원본 JSON·기존 제목/로컬 링크 대상·diff 공백 통과. tools/validate_contracts.py는 skills.pick의 $scan_after를 파라미터 외 변수로 거절(1 error). 현재 검증기가 skill params 및 고정 scan만 허용하고 expand.output을 추적하지 않아 실제 Runner가 처리하는 scan_after를 거절함. 초기 검사 당시 범위 밖 검증기 수정을 보류하고 커밋하지 않았음. 조율 세션의 구현 선택 정정으로 두 번째 output도 scan을 사용해 로컬 scope를 갱신, 검증기/범위 확대 없이 해결. 검증기 수정 인계 요구는 철회하며 실패 결과는 과거 검사 기록으로만 유지. tools/validate_contracts.py 재검사 OK. 전체 빌드·로봇·마이크/유료API·실물 AC 시험 미수행.
-- [문서] C #17 인계 요청은 조율 세션이 전달, 수락 미확인. C test_tasks.py의 성공 호출열/관측2회 기대를3회로 정정, YAW_INVALID 재인식 성공 기대를 선행 이동 후 retry 억제로 대조, find_item pick timeout_sec=60 전체 전개 실측 예산 재검토 필요. finally는 그리퍼/ABORTED 조건에 따라 처리되며 ESTOP/서버 잠금에서 닫기/홈 단정 금지. B 배포 SHA·nudge no-op/실패·topview·pick wall guard, A 실제 새 프레임·좌표 인계 미확인. P2 판단 주체는 미확정이며 이슈 #120(https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상. FR-ACT-05의 닫은 그리퍼 밀기 표현과 B 누르고 끌기 구현의 차이는 정본 담당 인계; 요구사항/AC 임의 변경 없음. 공통 계약 변경은 하지 않았으며 E 포함2명 승인 규칙을 우회하지 않음. 전체 통합 완료 아님.
-- [실측: 모의·정적] 최종 변수명 반영 후 E knowledge 37 passed(0.47초), 공통 tools/validate_contracts.py OK. e2/e5 응답이 각각 최초/새 target으로 보존되고 e6 params는 두 번째 target임을 추가 검증. no-op/끌기 모두 예상값과 다른 스텁 재관측으로 집음. 최종 JSON/AST·기존 pick 필드 보존·문서 링크/기존 제목·diff 공백·허용5파일/기준 main 확인 후 이번 파일만 로컬 커밋. 기존 C 테스트 기대값 갱신은 인계 대기로 남으며 전체 CI/실물 통합 완료를 주장하지 않음. push/PR/병합 없음.
-
-
-## 2026-10-07 PR #122 CI 정합성 수정 (게시·CI 확인 대기)
-- [문서] 조율 세션 01a104cf-60e0-70e1-9f26-e03ac3cb2ad6의 사용자 승인(2026-10-07 승인 turn01a1155a-1ceb-74c1-9f4b-0b2cded104d3): E test_pick_runner의 단계 기준 실패 주입, C 작성 기존 테스트 원본 패치 통합, 이 CURRENT 및 #122 push/갱신. P1 FR-ONT-01·FR-PLN-01, 기존 실물 AC 미측정 유지. /tmp/ready2go-e-p1-pick/codex/p1-pick-reobserve의 3febefb 기준으로 진행; 원본 사용자 작업 폴더 미수정.
-- [문서] E ObservationStub의 전역 view 순번을 제거하고 성공한 nudge 뒤 첫 drawer_top_view를 post_nudge_view로 지정. #122와 #118의 앞단 탑뷰 개수 차이와 무관하게 POSE_NOT_TAUGHT/MOVE_REJECTED는 e4에서 실패해야 함. 검사 완화·skip 추가 없음; 실제 모션 코드는 미수정.
-- [문서] C 원본 출처 #118 head04f6ed01adf235987736bf645d3186ba87f176f5: test_backend.py/test_skills.py는 원본 파일 그대로 통합. test_tasks.py는 해당 head의 부모 d8823de226af891ac08d18ab4c7d6d9a5a4a509e에서 정식 태스크 성공 호출열 함수, YAW_INVALID 이동 후 재시도 억제 함수 및 PICK_SENT 선언만 재사용. #118에서 s3v/데모 변경을 전제로 추가한 테스트·스텁 변경은 이식하지 않음. C 테스트 신규 구현/소유권 이전 아님. tasks·demo·Runner·ontology·계약·시간 예산·trigger 변경 없음.
-- [실측: 모의·정적] #122 조합 관련 E/C 4개 테스트 파일129 passed/3 skipped(0.92초). skip3은 test_skills의 Mongo 파라미터 사례이며 로컬 pymongo 미설치로 실행하지 않음. tools/validate_contracts.py OK. #118 실제04f6ed의 태스크·Runner·ontology를 별도 임시 검증 공간 /tmp/ready2go-e-pr118-check.n6jzy7w7에서 사용하고 E 수정 테스트만 결합해20 passed(0.35초); e4 두 오류 포함·원본 C 브랜치 미수정. 첫 전체 git archive는 무관한 USD LFS 자산 smudge 실패, 필요한 원본 디렉터리만 archive하여 해결; 테스트 실패 아님. AST·diff·정확한 C 원본 재사용·이번5파일 범위 확인. 전체 로컬 테스트/빌드·실물/마이크/API·시간 실측 미수행.
-- [문서] 통합 head의 Mongo 포함 전체 CI3개 성공 전 CI 해결 완료를 주장하지 않음. #118은 C가 E 새 커밋을 반영한 뒤 별도 원격CI 확인 필요. B/C 시간 측정·C 지우개 trigger 제한·#107 계약 승인 조율은 이 구현 범위 밖이며 마스터 담당. 조율 세션 수락 메시지 전송은 자동 승인 검토에서 직접 사용자 승인 미확인 이유로 거절돼 미전송, 우회/재전송하지 않음.
-
-
-## 2026-10-07 루트 실행 안내 복원
-- [문서] 사용자가 승인한 로컬 README 복원 범위로 루트 README.md와 본 CURRENT만 수정. 기준은 images/demo의 9bc0a79이며, 수정 전 작업 트리는 clean. 기존 코드·설정·키·모델·다른 담당 파일·브랜치·커밋은 변경하지 않음.
-- [문서] 전체 실행 순서, 프로젝트 내 호스트 빌드와 환경 설정, Compose와 개별 노드 명령, 평가/실행 시작 인자, 로그 위치·조회·종료·회차 초기화를 정리함. 현재 음성→Runner 수신 구현을 반영하고, 대기만 하는 voice/vision 컨테이너·수동 스킬 기동·mock TTS 중복·stub 미준비를 구분함. P1 FR-INT-01~03·FR-PLN-01·FR-LOG-01·NFR-ENV-01 및 관련 안전 절차 기준.
-- [문서] 현재 로컬과 확인 당시 원격 main에는 상세 실행 안내가 없었음. 이전 안내가 어느 PR로 반영됐는지와 사라진 원인은 이번 복원으로 확정하지 않음. 실제 장치·API 실행, 전체 테스트·빌드, 커밋·push·PR·외부 전달은 이번 범위에 포함하지 않음.
-- [실측: 정적] README의 Bash 블록 23개 구문·내장 Python AST·로컬 링크 10개·패키지 실행 진입점·launch 파일 및 Compose 전 프로파일 설정 검사 통과. 실행 순서·파라미터·수신/발행·기록 위치를 현재 구현과 대조하고 변경 파일이 승인된 두 개뿐임을 확인. 실제 장치 동작이나 API 연결을 실행해 확인한 결과는 아님.
-
-
-## 2026-10-07 시연 전용 온톨로지 원본 정리 (로컬·C 선행 조건 대기)
-- [문서] 조율 세션 사용자 “정리하자. 근데 pull 당겼는데 왜 파일이 안 바뀜?” 승인 범위. 사용자 작업 경로 /home/jonny/rokey_proj/VLA/ready2go, images/demo HEAD c4dc2e6, 착수 시 작업 트리 clean 확인. P1 FR-ONT-01·FR-PLN-01·FR-ACT-05/AC-ACT-05 기준.
-- [문서] knowledge/robot_ontology_demo.jsonld·knowledge/skills/pick_demo.jsonld 삭제. knowledge/README.md의 옛 시연 진입점/현재 C pick_demo 호출·예상 target_after 실행 안내를 공통 manifest/pick 및 현재 두 태스크 호출 설명으로 교체. docs/ontology.md의 시연 원본 유지 설명과 voice README의 옛 예상값/재조회 없음 인계를 공통 재관측 경로로 정정. 과거 CURRENT의 날짜별 기록은 당시 이력이며 이번 정리로 현행화된 현재 실행 안내와 구분.
-- [문서] 공통 pick 6단계·effect·manifest·설정·계약·두 태스크·과거 fixture/log/변경 이력 유지. C run_report.py의 pick_demo 레이블은 과거 로그 해석용으로 유지. C test_intent_router.py:14는 삭제된 manifest 로딩 참조가 남아 테스트 수집 실패가 예상되므로 공통 manifest로 바꾸는 C 커밋 필요. 직접 수정하지 않음; 마스터가 #17/Slack 요청 담당. B practice/B/HANDOVER.md:54의 옛 실행 명령은 현재 사용 시 정정 인계, docs/domain.md의 역사 설명은 유지(삭제 원본으로 향한 실제 Markdown 링크는 없음). 타 담당 파일 미수정.
-- [문서] local-only 승인으로 커밋·push·PR·새 이슈·타 세션 메시지 없음. 전체 ROS 빌드·실물/마이크/API·전체 CI 실행 없음; C 참조 수정 전 전체 green/완료를 주장하지 않음.
-- [실측: 정적·모의] E knowledge37 passed(0.50초); pytest 캐시는 sandbox 읽기 전용 경로라 기록 경고2건 있으나 검사는 통과. 공통 tools/validate_contracts.py OK, 남은 knowledge JSON·E 문서 링크·두 태스크 공통pick 호출·이번6파일 범위·git diff --check 확인. archive/secrets/logs 제외 참조 검색 결과 과거 CURRENT/changelog/domain/실측fixture/run_report 레이블 보존, B HANDOVER 옛명령과 C test_intent_router 참조는 담당 인계. C test_intent_router.py만 collect-only로 확인하여 line14의 삭제 manifest에서 FileNotFoundError(수집오류1) 실측; 실제 테스트/로봇 동작은 실행하지 않음. C 커밋 전 전체CI 실패 조건이 남아 담당 정리 완료·통합 인계 대기. 로컬 status는 삭제2/수정4, index 비어 있음, commit/push/PR 없음.
-- [문서] 마지막 대조: 현재 docs/domain.md 8.5는 공통 pick 6단계·no-op 재관측·retry 억제를 이미 설명하므로 Knowledge README의 해당 문서 정리 요청을 현재 설명 참조로 정정. 이번 문서 정리의 B 후속 인계는 practice/B/HANDOVER.md:54의 옛 실행 명령과 docs/domain.md:70~71의 “파일은 기록용으로 유지” 표현 정정임. task_nudge_then_pick 예시는 유지되지만 시연 온톨로지 원본2개는 삭제되므로 과거 기록 설명과 원본 현존 여부를 구분해야 함. B 문서/코드 미수정, 코드검사37건 재실행 없이 해당 설명·앵커·링크·diff 확인. 사용자 VSCode 작업 폴더 차이는 파일 수정 대상에서 제외.
-- [문서] 사용자 후속 직접 승인 “커밋, PR 해”로 앞선 local-only 제한을 이번6파일의 커밋·push·PR 생성에 한해 변경. 현재 사용자 브랜치는 ontology/main, HEAD c4dc2e6이며 변경은 동일6파일뿐. 최신 원격 main767a9bee에서도 C test_intent_router의 삭제 manifest 참조가 남음을 확인했으므로 선행 C 수정 대기 Draft PR로 게시하고 전체green/통합완료를 주장하지 않음. 원본 브랜치 이력 전체push 없이 최신main 기반 별도게시브랜치에 이번 커밋만 반영. 추가C/B수정·범위확대·병합은 승인하지 않음.
-
-
-## 2026-10-07 전체 프로젝트 의존성·설치 안내 (담당 문서 완료·runtime/게시 인계 대기)
-- [문서] 조율 세션의 사용자 승인 “수정 후 PR” 및 저장소 루트 상대 경로 지시 범위. 착수 HEAD 123fb77, ontology/main clean. 수정 소유 파일은 새 requirements.txt, 루트 README, E voice README, 이 CURRENT 네 개. 기존 사용자 README 커밋·온톨로지 정리·Melo 고정 목록·다른 담당 코드/계약/설정/Docker는 보존. P1 FR-INT-01~03·AC-INT-03·NFR-ENV-01 기준.
-- [문서] 전체 패키지 import/setup/package 선언·Docker·tools/sim 실행 문서를 대조해 공통 Python, ROS, 시스템/서비스, 벤더, 환경별 선택/모델, 테스트를 구분. requirements는 전프로젝트 입구이며 Vision CUDA/YOLO·Melo CPU·Isaac 번들을 보조 설치 경로로 명시해 서로 다른 Torch/Python을 한 환경에 합치지 않음. root/voice 안내는 시스템 준비, 프로젝트 venv/build/source, 로컬 YAML 보존·실제 import/TTS 선택 확인, dotenv 실행/평가 상세 로그, 기존 Melo installer·단독 합성·재생을 제공.
-- [실측: 로컬 파일·메타데이터] openwakeword 0.6.0의 Linux tflite-runtime 의존성과 이 PC만의 ai-edge-litert 2.2.0 Interpreter 호환 파일을 확인. 본체 --no-deps와 비-TFLite 의존성 분리 설치 안내는 제공하되 Python 3.12 신규 PC 호환 runtime 배포는 미해결 인계. shim/새 자동 연결/기능 코드는 추가하지 않음. 로컬 구동 이력을 다른 PC 준비 완료로 표현하지 않음.
-- [문서] 실행은 저장소 루트, 프로젝트 경로는 상대 경로. 기존 외부 PC YAML은 git pull로 갱신되지 않는 진단 사례로만 설명하며 로그 아래 설정으로 이식 시 장치/정책/상한/자산 값 보존. tts_engine 누락 시 espeak 기본이며 Melo 선택·키/API/자산은 코드 pull만으로 준비되지 않음. 실물/마이크/유료 API·설치/다운로드·전체 테스트/빌드·AC 3초 측정 미수행. 문서 수정/검증만 담당하며 이번 diff의 commit/push/PR은 조율 세션 게시자 분업.
-- [실측: 정적] root/voice Bash 36블록 구문, 내장 Python 8예시 AST, 로컬 링크/제목 앵커25건, root/Melo requirements72개 항목 파싱 통과. tracked Python164개 AST import를 대상별로 대조해 ROS/벤더/별도Torch 의존성을 분리했고, E config loader의 cwd 상대 경로·엔진 기본값과 Melo 소스 API 합성 인자를 확인. 허용4파일 상태·diff 공백 확인. 신규 PC pip 해결/설치·ROS 메시지 생성·GPU 호환·TFLite/전처리/VAD 모델 로딩·마이크/스피커·API·CI/전체빌드·40음성/3초 실측은 수행하지 않음. 기존 PR126 재게시를 위한 Luna 작업은 중단했으며 이번 의존성 diff의 게시/병합과 구분.
-- [문서] 최종 상대 경로 대조: root 호스트 Runner/Skills/Vision/stub의 스키마·manifest·설정·가중치·로그, mktemp·run_report를 직접 상대 경로로 통일. 수신자의 open/Path/YOLO 전달과 ROS 로그 경로 getter를 확인; ontology 내부 sources는 manifest 폴더 기준이며 CLI 진입점 cwd와 구분. DDS file URI만 실행 시 cwd 절대화 유지 이유를 명시, 시스템/벤더 설치·컨테이너 마운트·기본 ROS 로그 위치는 별도 기준. 실제 노드/모델/장치 구동·새 PC 설치를 수행한 것으로 표현하지 않음.
-- [실측: 정적] 마지막 경로 수정으로 바뀐 Bash8블록만 bash -n 재검사 통과. README의 $PWD는 DDS URI 명령과 이유 설명 두 곳뿐, task_file 예시 원본 존재·diff 공백·허용4파일 상태 확인. 제목/링크/내장 Python/requirements는 이 추가 수정에서 변경 없음으로 앞선 검사 결과 유지. 게시 담당 인계 대기, commit/push/PR 미수행.
-- [실측: 정적] PR #128 head81a00e84 후속 검토: README의 개인 작업 경로 cd2줄 제거, 저장소 루트 시작 안내·기존 의존성/명령 보존 및 변경 Bash2블록 구문·개인 경로 부재 확인. 실제 신규 PC 설치/장치/API 시험과 commit/push는 수행하지 않음.
-
-
-## 2026-10-07 PR #128 real 스킬 자동기동 문서 정정
-- [문서] 사용자 승인 “수정 진행”의 후속 범위. /tmp/ready2go-deps, codex/docs-dependencies, 착수 HEAD cd44920d9e276ba169ada3435a8c55f1a76298db clean. P1 NFR-ENV-01 기준으로 루트 README·이 CURRENT만 수정. 최신 main c8debe8d60d33921b449792a06327558da529fd4의 launch/Compose/.env.example/docs/docker를 읽기 전용 대조. requirements·음성 README·코드·Compose/launch·타 담당 파일·계약/Phase·기존 이력은 보존.
-- [문서] real 통합 launch의 skill_server 지연 자동기동을 표·준비 확인·로그 안내에 반영하고, Compose 이후 중복 수동 실행/tee 블록 제거. 기존 B 첫 저속 예10°/s는 SKILL_JOINT_VEL_DEG_S=10.0을 Compose 기동 전에 전달. 가속도/지연의 설정 출처 및 현 기본40°/s²·15초(속도 미설정60°/s)는 현재 구현값이며 안전 승인/DSR 준비 판정 아님을 구분. 자동 서버가 없는 호스트 개별 대안·같은 Domain 중복 금지·저장소 루트 상대 경로·공통 ontology 안내 유지.
-- [문서] 자동 서버의 콘솔은 Compose logs, 기본 ROS 로그는 컨테이너 ~/.ros/log이며 호스트 자동 저장을 주장하지 않음. 호스트 대안은 공통 ROS_LOG_DIR의 logs/ros. 실물 준비·장치/API 연결·전체 테스트/빌드/설치 실행은 미검증. 이번 범위는 문서 수정/정적 검증만이며 add/commit/push/PR 등록·병합·Approve·외부 메시지는 수행하지 않음.
-- [실측: 정적] 변경 real 기동 Bash1블록 bash -n 통과, 이전 수동 스킬/tee 블록 제거·호스트 대안 유지 확인. README 로컬 링크/앵커18건, 기존 제목·CURRENT 원문 prefix 보존, 개인 절대경로 부재·git diff --check·승인2파일만 변경 확인. 원격 c8debe8d의 TimerAction15초·real 조건·속도/가속 환경 전달·output=screen·Compose 기본값/로그 위치를 대조했으며 실제 서비스 readiness/실물 구동 성공으로 대신하지 않음.
+- [2026-10-08 작업 기록](2026-10-08_practice.md): 요구사항 정본화 및 #144/#160/#165 당시 검증·게시 상태 이력.
+- [2026-10-07 작업 기록](2026-10-07_작업기록.md)
+- [2026-10-06 작업 기록](2026-10-06_작업기록.md)
+- [2026-10-05 작업 기록](2026-10-05_작업기록.md)
+- [2026-10-04 작업 기록](2026-10-04_작업기록.md)

@@ -28,9 +28,9 @@ timeout -s KILL 20 ros2 topic echo --once /clock
 - `ros2` CLI는 `timeout`의 기본 종료 신호(SIGTERM)를 무시해 계속 남는다. **반드시 `timeout -s KILL`** 을 쓴다.
 - 10/03 결과 [실측]: 호스트와 컨테이너(`ready2go-realsense` 이미지) 모두 `/clock`을 수신 (발행 노드 `_ClockGraph_clock`, RELIABLE/VOLATILE).
 
-## 자산 (`sim/assets/`, 아직 커밋하지 않음)
+## 자산 (`sim/assets/`, Git LFS로 추적)
 - `sim/assets/m0609_camera_cube/`: 기존 M0609 + 카메라 + RG2 조립본 (약 15 MB, `~/isaac_legacy/M0609_jik/Collected_m0609_camera_cube` 복사본).
-- `git-lfs`가 설치되기 전에는 USD를 커밋하지 않는다.
+- USD(`*.usd`·`*.usda`·`*.usdc`)는 `.gitattributes`로 Git LFS에 올린다. 받을 때 `git lfs install && git lfs pull`(포인터 파일만 있으면 씬이 열리지 않음). 과거 기록: 10/03까지는 `git-lfs` 설치 전이라 커밋하지 않았다
 
 ## T1 씬 (`sim/scenes/ready2go_t1.usd`)
 작업대 + 받침 선반 + 원목 2단 서랍장(상자 2개 각각 Prismatic Joint 0~22.6 cm, 중간 가로막 없음) + M0609/RG2 + 손목 카메라. 월드 = 로봇 `base_link`. 서랍은 10/03에 철제 레일 + 원목 서랍으로 교체했고 기존 플라스틱 서랍장 값은 모두 삭제했다. 서랍 값이 하나라도 비면 `build_scene.py`는 서랍장 없이 만들고 이유를 출력한다.
@@ -62,6 +62,8 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 
 
 ## 비전 사전 검증 (트윈 렌더 → 정답 대조) [실측 10/06]
+
+> **예전 탑뷰 자세 기준**(10/08 #156 이전, J3 ≈ 10°·J5 132.8°). 지금 `drawer_top_view`는 그리퍼 180° 자세(위 칸 J3 54.8°·J5 118.2°)라 아래 결과는 새 자세로 다시 돌리기 전까지 그 당시 기록이다. 실물에서는 새 자세로 위 칸 예전 방향 대비 0.6 mm(#155 B)·아래 칸 손끝 대비 2.5 mm를 따로 확인했다.
 로봇 없이 `inspect_region` 계산(좌표 변환·뎁스 덩어리·yaw·`top_z`)을 검증한다. 손목 카메라를 `drawer_top_view` 자세에 두고 서랍을 최대 인출(`max_travel_m`)로 연 뒤, 서랍 안에 지우개 크기 직육면체(`world.jsonld` 치수)를 임의 위치·방향으로 놓아 컬러·뎁스를 저장한다(씬 파일은 바꾸지 않음).
 ```bash
 ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/render_eraser_test.py --n 30 --seed 1 --out <폴더> [--margin 0.03 | --touch]
@@ -90,6 +92,8 @@ ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/
 
 
 ## 스킬 흐름 궤적·특이점 검사 (`sim/motion_check/`, `sim/scripts/play_motion_trace.py`) [실측·계산 10/06]
+
+> **예전 탑뷰 자세 기준**(10/08 #156 이전). 아래 ◀ 결과·"J3 10°" 언급은 예전 자세(J3 ≈ 10°)의 기록이다. 새 자세(위 칸 J3 54.8°, 아래 칸 J3 85.0°)·J6 180° 회전 경로는 다시 돌리지 않았다.
 B 모션 코드를 로봇 없이 돌려 이동 명령을 기록하고, 관절 궤적을 계산해 특이점 근처 구간을 찾은 뒤 트윈에서 재생한다. 10/06 실물에서 팔이 "확확" 움직인 구간(영상 1:14~17, 2:02~04)을 재현하려고 만들었다.
 ```bash
 python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --out /tmp/trace.json   # 스킬 서버 흐름 (열기→끌기→집기→놓기→닫기→홈)

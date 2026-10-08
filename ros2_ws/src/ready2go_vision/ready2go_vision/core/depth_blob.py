@@ -1,6 +1,7 @@
 """YOLO 박스 안의 뎁스 덩어리로 top_z 와 yaw 를 구한다 (V2 기준선, docs/vision.md V2). ROS 비의존, numpy + OpenCV.
 
-순서: 박스 안 유효 뎁스 픽셀 → 서랍 좌표로 변환 → 서랍 바닥(z = 0)보다 floor_margin_m 이상 높은 픽셀만 덩어리 후보
+분할 모델이면 박스 안에서도 그 물체 마스크(경계 mask_erode_px 만큼 깎음) 안의 픽셀만 쓴다 — 옆 물체·벽 뎁스가 섞이지 않게 (P2, #109).
+순서: 박스(또는 마스크) 안 유효 뎁스 픽셀 → 서랍 좌표로 변환 → 서랍 바닥(z = 0)보다 floor_margin_m 이상 높은 픽셀만 덩어리 후보
 → 가장 큰 연결 덩어리 → top_z = 덩어리 높이의 top_percentile 백분위 → 덩어리 xy 의 minAreaRect 긴 변 방향 = yaw.
 임계값은 전부 params(config/vision_params.yaml)에서 받는다. 코드에 상수로 두지 않는다 [팀 확정 필요].
 """
@@ -46,8 +47,9 @@ def _long_axis_yaw(xy: np.ndarray):
 
 
 def analyze_box(depth_m: np.ndarray, box, K: Intrinsics, T_drawer_cam: np.ndarray, params: dict,
-                nominal_long_m: float | None = None) -> BlobResult:
-    """box = (x1, y1, x2, y2) 픽셀. depth_m = 컬러에 정렬된 뎁스(m), 0·NaN·범위 밖은 결손."""
+                nominal_long_m: float | None = None, mask: np.ndarray | None = None) -> BlobResult:
+    """box = (x1, y1, x2, y2) 픽셀. depth_m = 컬러에 정렬된 뎁스(m), 0·NaN·범위 밖은 결손.
+    mask = 이미지 크기 bool (분할 모델 출력). 주면 그 안만 보고 결손 비율도 마스크 넓이 기준. 깎아서 비면 깎기 전 마스크."""
     cv2 = _cv2()
     h, w = depth_m.shape
     m = int(params["roi_margin_px"])
@@ -57,8 +59,19 @@ def analyze_box(depth_m: np.ndarray, box, K: Intrinsics, T_drawer_cam: np.ndarra
         return BlobResult(False, None, 0.0, False, "박스가 이미지 밖이거나 너무 작음")
     roi = depth_m[y1:y2, x1:x2]
     valid = np.isfinite(roi) & (roi >= params["min_depth_m"]) & (roi <= params["max_depth_m"])
+    area = roi.size
+    if mask is not None:
+        region = mask[y1:y2, x1:x2].astype(bool)
+        k = int(params.get("mask_erode_px", 0))
+        if k > 0:
+            eroded = cv2.erode(region.astype(np.uint8), np.ones((2 * k + 1, 2 * k + 1), np.uint8)) > 0
+            region = eroded if eroded.any() else region
+        if not region.any():
+            return BlobResult(False, None, 0.0, False, "마스크가 박스 안에 없음")
+        valid &= region
+        area = int(region.sum())
     n_valid = int(valid.sum())
-    invalid_ratio = 1.0 - n_valid / roi.size
+    invalid_ratio = 1.0 - n_valid / area
     if n_valid < params["min_valid_px"] or invalid_ratio > params["max_invalid_ratio"]:
         return BlobResult(False, None, 0.0, False, f"유효 뎁스 부족 (유효 {n_valid}px, 결손 비율 {invalid_ratio:.2f})",
                           n_valid=n_valid, invalid_ratio=invalid_ratio)

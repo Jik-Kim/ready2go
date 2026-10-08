@@ -1,0 +1,63 @@
+{
+  "task_id": "unpack_select_example",
+  "description": "계약안 예시 (#120·#109, C 제안 — E 포함 2명 승인 전, P2 FR-ACT-04): select_obstacle·find_moved 를 쓰는 Unpacking 최소 흐름. 촬영 → 치울 물체 고르기(옮긴 물체 제외) → 집기 → 서랍 안 고정 자리에 놓기(#166, 막히면 다른 자리) → 원래 자리 push → 다시 촬영 (최대 2회) → 목표 집어 트레이에 → finally 에서 restore_stack 을 거꾸로: 다시 촬영 → 재식별(find_moved) → 찾으면 원래 자리로 되돌리기(막히면 B 결정대로 고정 자리에 둔 채 기록, #166 C 리뷰 답), 못 찾거나 모호하면 그 물체는 두고 기록. PLACE_BLOCKED 뒤 다음 대안은 #175(움직이기 전 거부 동작별) 필요. tol_m 0.02 는 설명용 값이며 비전·놓기 오차 실측 뒤 [팀 확정 필요]. 서랍 열기·닫기·홈은 생략(find_item 과 같음). 실물 태스크가 아님",
+  "inputs": { "target": "eraser", "drawer": "drawer_top" },
+  "sequence": [
+    { "id": "s1", "action": "set_var", "params": { "name": "restore_stack", "value": [] } },
+    { "id": "s2", "action": "inspect_region", "params": { "region": "$inputs.drawer", "search_target": "$inputs.target" },
+      "output": "scan", "on_failure": "retry", "retry": 1, "timeout_sec": 30 },
+    { "id": "s3", "action": "select_obstacle", "params": { "scan": "$scan", "moved": "$restore_stack", "tol_m": 0.02 },
+      "output": "sel" },
+    { "id": "s4", "action": "while", "max_iter": 2, "cond": { "op": "!=", "args": ["$sel.obstacle", null] },
+      "body": [
+        { "id": "s4.1", "action": "pick_object", "params": { "target": "$sel.obstacle" }, "timeout_sec": 60 },
+        { "id": "s4.2", "action": "fallback", "options": [
+          [ { "id": "s4.2a", "action": "place_object", "output": "placed", "timeout_sec": 60,
+              "params": { "location": "$inputs.drawer", "slot": "aside_1", "scan": "$scan" } } ],
+          [ { "id": "s4.2b", "action": "place_object", "output": "placed", "timeout_sec": 60,
+              "params": { "location": "$inputs.drawer", "slot": "aside_2", "scan": "$scan" } } ]
+        ] },
+        { "id": "s4.3", "action": "push", "params": { "stack": "restore_stack", "value": {
+          "class": "$sel.obstacle.class", "origin": "$sel.obstacle.pose", "placed": "$placed.placed_pose" } } },
+        { "id": "s4.4", "action": "inspect_region", "params": { "region": "$inputs.drawer", "search_target": "$inputs.target" },
+          "output": "scan", "on_failure": "retry", "retry": 1, "timeout_sec": 30 },
+        { "id": "s4.5", "action": "select_obstacle", "params": { "scan": "$scan", "moved": "$restore_stack", "tol_m": 0.02 },
+          "output": "sel" }
+      ] },
+    { "id": "s5", "action": "if", "cond": { "op": "and", "args": [
+        { "op": "==", "args": ["$scan.target_found", true] }, { "op": "==", "args": ["$sel.reason", "target_clear"] } ] },
+      "then": [
+        { "id": "s5.1", "action": "pick_object", "params": { "target": "$scan.target" }, "timeout_sec": 60 },
+        { "id": "s5.2", "action": "place_object", "params": { "location": "handover_zone" }, "timeout_sec": 60 }
+      ],
+      "else": [
+        { "id": "s5.3", "action": "speak", "params": { "text": "물건을 꺼내지 못했어요" }, "on_failure": "skip", "timeout_sec": 20 }
+      ] }
+  ],
+  "finally": [
+    { "id": "f1", "action": "while", "max_iter": 4, "cond": { "op": "not_empty", "args": ["$restore_stack"] },
+      "body": [
+        { "id": "f1.1", "action": "pop", "params": { "stack": "restore_stack" }, "output": "item" },
+        { "id": "f1.2", "action": "inspect_region", "params": { "region": "$inputs.drawer" },
+          "output": "rescan", "on_failure": "retry", "retry": 1, "timeout_sec": 30 },
+        { "id": "f1.3", "action": "find_moved", "params": { "scan": "$rescan", "record": "$item", "tol_m": 0.02 },
+          "output": "found" },
+        { "id": "f1.4", "action": "if", "cond": { "op": "==", "args": ["$found.status", "found"] },
+          "then": [
+            { "id": "f1.4.1", "action": "pick_object", "params": { "target": "$found.object" }, "timeout_sec": 60 },
+            { "id": "f1.4.2", "action": "fallback", "on_failure": "skip", "options": [
+              [ { "id": "f1.4.2a", "action": "place_object", "timeout_sec": 60,
+                  "params": { "location": "$inputs.drawer", "pose": "$item.origin", "scan": "$rescan" } } ],
+              [ { "id": "f1.4.2b", "action": "place_object", "timeout_sec": 60,
+                  "params": { "location": "$inputs.drawer", "slot": "aside_1", "scan": "$rescan" } } ],
+              [ { "id": "f1.4.2c", "action": "place_object", "timeout_sec": 60,
+                  "params": { "location": "$inputs.drawer", "slot": "aside_2", "scan": "$rescan" } } ]
+            ] }
+          ],
+          "else": [
+            { "id": "f1.4.3", "action": "speak", "params": { "text": "옮긴 물건 하나를 원래 자리로 못 돌려놨어요" },
+              "on_failure": "skip", "timeout_sec": 20 }
+          ] }
+      ] }
+  ]
+}

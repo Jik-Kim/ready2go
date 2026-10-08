@@ -3,7 +3,7 @@
 음성 명령으로 실물 **Doosan M0609 + OnRobot RG2**가 서랍 속 물건을 찾아 꺼내고 원상 복구하는 시스템.
 로봇의 동작·상태를 **JSON 온톨로지**로 정의하고, 명령에 맞춰 조합하며, 모든 동작의 성공 여부를 기록한다.
 
-- 문서: [`docs/README.md`](docs/README.md) (인덱스부터) · 요구사항·Phase 기준 원본: [`docs/requirements.md`](docs/requirements.md)
+- 문서: [`docs/README.md`](docs/README.md) (인덱스부터) · P1·P2·P3의 의미·정책·책임·Phase·수용 기준: [`docs/requirements.md`](docs/requirements.md). 다른 문서는 해당 FR/AC를 링크로 참조하며 실행 필드·설정은 기존 JSON/YAML 원본을 확인합니다.
 - 스택: ROS 2 Jazzy · CycloneDDS(`ROS_DOMAIN_ID=70`) · Docker Compose · Python · MongoDB · Isaac Sim 5.1.0(트윈, 네이티브)
 
 ## 실행
@@ -59,18 +59,18 @@ rosdep update
 rosdep install --from-paths ros2_ws/src --ignore-src -r -y --rosdistro jazzy
 ```
 
-Vision/YOLO는 공통 호스트 환경과 별도로 준비합니다. 아래 조합은 [Vision Dockerfile](docker/vision/Dockerfile)의 선언값이며, 기존 PC1 컨테이너 실측과 새 PC/GPU·새 이미지 설치 검증은 구분합니다. NVIDIA 드라이버/GPU 호환 확인은 A 담당입니다.
+Vision/YOLO는 공통 호스트 환경과 별도로 준비합니다. 아래 조합의 torch·torchvision·ultralytics·numpy·opencv-python 버전은 [Vision Dockerfile](docker/vision/Dockerfile)의 선언값입니다. `PyYAML`·`setuptools`는 Dockerfile pip 목록에 없고 호스트 venv용으로 더한 것입니다(컨테이너의 PyYAML은 ROS base 이미지에 포함, PC1 이미지 6.0.1 [실측]). 기존 PC1 컨테이너 실측과 새 PC/GPU·새 이미지 설치 검증은 구분합니다. NVIDIA 드라이버/GPU 호환 확인은 A 담당입니다.
 
 ```bash
 python3 -m venv --system-site-packages .venvs/vision
 .venvs/vision/bin/python -m pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
   torch==2.11.0 torchvision==0.26.0 ultralytics==8.4.170 \
-  numpy==1.26.4 opencv-python==4.9.0.80 PyYAML
+  numpy==1.26.4 opencv-python==4.9.0.80 PyYAML setuptools
 ```
 
-이 환경에서 비전/tools를 실행하는 절차는 [A 안내](ros2_ws/src/ready2go_vision/README.md)·[YOLO 도구](tools/yolo/README.md)를 따릅니다. ROS 노드 실행 파일이 사용하는 Python도 해당 환경과 일치해야 하며, 기존 host install을 source하는 것만으로 GPU 환경 전환이 되지는 않습니다. Melo는 기존 [설치기·고정 목록·단독 합성 안내](ros2_ws/src/ready2go_voice/README.md#melotts-설치재생-p1-e-사용자-선택)에 따라 `.venvs/melotts`에만 설치합니다. 두 Torch 버전을 한 환경에 설치하지 않습니다. Compose는 이 호스트 requirements를 자동 적용하지 않으며, 현재 voice/vision 서비스는 노드 자동 기동과 완전한 모델/runtime 준비를 보장하지 않습니다.
+호스트 실비전은 아래 [전용 빌드·실행 절차](#host-vision)를 사용합니다. ROS 노드 실행 파일이 사용하는 Python도 해당 환경과 일치해야 하며, 기존 host install을 source하는 것만으로 GPU 환경 전환이 되지는 않습니다. 비전/tools의 장치·데이터 준비는 [A 안내](ros2_ws/src/ready2go_vision/README.md)·[YOLO 도구](tools/yolo/README.md)를 따릅니다. Melo는 기존 [설치기·고정 목록·단독 합성 안내](ros2_ws/src/ready2go_voice/README.md#melotts-설치재생-p1-e-사용자-선택)에 따라 `.venvs/melotts`에만 설치합니다. 두 Torch 버전을 한 환경에 설치하지 않습니다. Compose는 이 호스트 requirements를 자동 적용하지 않으며, 현재 voice/vision 서비스는 노드 자동 기동과 완전한 모델/runtime 준비를 보장하지 않습니다.
 
-호스트 노드를 쓸 경우 필요한 ROS·Python·장치 의존성을 먼저 준비하고 **프로젝트 안에 빌드**합니다. DSR 드라이버를 호스트에서 실행할 경우 벤더 워크스페이스도 준비합니다.
+공통 호스트 노드는 필요한 ROS·Python·장치 의존성을 먼저 준비하고 **프로젝트 안에 빌드**합니다. 아래 공통 빌드는 `.venvs/project`를 사용하므로 실비전은 별도 절차를 따릅니다. DSR 드라이버를 호스트에서 실행할 경우 벤더 워크스페이스도 준비합니다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -100,7 +100,7 @@ mkdir -p "$ROS_LOG_DIR"
 
 ### 2. 전체 실행 순서
 
-실물 운용에서는 **DB·TF·DSR·그리퍼 상태·Runner·스킬 서버·카메라·비전의 준비를 확인한 뒤 음성**을 시작합니다. Compose는 아래 서비스를 함께 기동하며, 음성의 실행 모드로 전환하기 전에 각 서버의 준비와 대상·배치를 확인합니다.
+실물 운용에서는 **DB·TF·DSR·그리퍼 상태·Runner·스킬 서버·카메라·비전의 준비를 확인한 뒤 음성**을 시작합니다. 음성 노드 시작 전 [MeloTTS 사전 캐시 준비](ros2_ws/src/ready2go_voice/README.md#melotts-prefill)의 **설정 확인 → 캐시 생성 → 완료 로그/종료 코드 확인 → 대표 문구 청취 → 같은 설정으로 노드 실행**을 수행합니다. 최초 설치·속도/worker 변경 시 필요하며, 청취 시험은 스피커를 사용합니다. Compose는 아래 서비스를 함께 기동하며, 음성의 실행 모드로 전환하기 전에 각 서버의 준비와 대상·배치를 확인합니다.
 
 | 실행 방법 | 자동 시작하는 노드 | 추가로 실행할 노드 |
 | :--- | :--- | :--- |
@@ -204,14 +204,63 @@ ros2 run realsense2_camera realsense2_camera_node --ros-args \
   -p rgb_camera.color_profile:=1280x720x30 -p depth_module.depth_profile:=848x480x30
 ```
 
-**실비전**: 모델 가중치 파일 이름은 A가 제공하는 모델에 맞춥니다. 영상·깊이·카메라 내부 파라미터·TF가 필요합니다. `device:=0`이 기본이며 CPU 검사는 `-p device:=cpu`를 추가합니다.
+**실비전**: 실물에서 검증한 경로는 **`ready2go-vision` 컨테이너 + [`tools/dev/vision_real_check.sh`](tools/dev/vision_real_check.sh)**입니다 [실측 PC2 10/07 21:13 KST, main `55829e3`: P1 한 바퀴에서 첫 촬영·끌기 뒤 재인식 포함 호출 3회 성공, #23]. 카메라와 로봇이 같은 PC면 DDS `local`입니다. 저장소 루트에서 실행하고, 터미널마다 같은 환경을 줍니다.
 
 ```bash
-ros2 run ready2go_vision inspect_region --ros-args \
-  -p config_dir:="config" -p world_path:="knowledge/world.jsonld" \
-  -p weights:="models/yolo11n_ready2go_v1.pt" \
-  -p dump_dir:="logs/vision" -p code_sha:="$(git rev-parse HEAD)"
+cd <저장소>                                                    # 스크립트가 저장소를 /repo 로 마운트, config·models 를 그 안에서 읽음
+export DDS_MODE=local VISION_DUMP=$HOME/ready2go_vision_dump    # 요청마다 프레임 저장 위치(저장소 밖)
+bash tools/dev/vision_real_check.sh check                      # 뎁스 약 30 Hz, TF base_link → wrist_cam_color_optical_frame 출력이면 통과
+bash tools/dev/vision_real_check.sh node                       # 비전 노드 (터미널 하나 계속 사용, 처음 한 번 패키지 빌드 수십 초)
+bash tools/dev/vision_real_check.sh call eraser                # 1회 호출: success true, target_found true, 서랍 안 좌표
+bash tools/dev/vision_real_check.sh call eraser drawer_bottom  # 아래 칸 (places.yaml drawer_bottom.tf 측정 후, 전에는 UNKNOWN_REGION)
 ```
+
+- **새 PC 준비** (컨테이너 경로): ① `ready2go-vision` 이미지(`docker/vision/Dockerfile`, 버전 고정 torch 2.11.0+cu128·ultralytics 8.4.170) — 첫 실행에서 GPU 확인 `docker run --rm --gpus all ready2go-vision:latest python3 -c "import torch;print(torch.cuda.is_available())"` ② 모델은 Git LFS: `git lfs install && git lfs pull` 뒤 `sha256sum models/yolo11n_ready2go_v1.pt`가 [`models/README.md`](models/README.md) 값과 같아야 함(132 B 포인터 파일이면 노드가 시작하자마자 실패 [실측 PC2 10/07]) ③ `ros2-core`는 `BACKEND=real`(mock 이면 `mock_backend`가 같은 이름의 `/vision/inspect_region`을 띄움) ④ 카메라는 Compose `realsense` 하나만(호스트 `realsense2_camera`와 동시 실행 금지)
+- **확인 기준**: 노드 시작 로그의 가중치·`places.yaml`·`vision_params.yaml` 해시와 `drawer_top.tf`를 기록합니다. Compose `vision` 서비스는 대기 컨테이너라 노드를 띄우지 않습니다. stub과 동시에 실행하지 않습니다(서비스 이름이 같음)
+- **실물 주의** [실측 PC2 10/07]: 카메라 케이블이 렌즈 앞으로 늘어지면 뎁스가 크게 비어 `DEPTH_INVALID` → 케이블을 손목에 고정. 서랍 영역 밖 오검출은 뎁스 계산 전에 제외됩니다(`region.detect_roi_margin_m`, #132)
+- 카메라·비전이 PC1, 로봇이 PC2인 구성은 양쪽 `DDS_MODE=multi`(`DDS_IFACE`·`PEER_PC1`·`PEER_PC2`, 스크립트 첫 부분). 사용법·`measure`·`replay`는 [`tools/yolo/README.md`](tools/yolo/README.md) "inspect_region 실제 노드 실행"
+- **호스트에서 직접 실행**은 아래 전용 절차를 따르며 **새 PC 설치·기동·실물 미검증**입니다. 위 컨테이너 경로의 실측과 구분합니다.
+
+<a id="host-vision"></a>
+#### 호스트 실비전: 설치 → 빌드 → source → 실행 [문서]
+
+P1 FR-VIS-01–02·FR-ML-01·NFR-ENV-01의 실행 준비 안내입니다. 모든 명령은 **저장소 루트**에서 실행합니다. 위 시스템/rosdep 준비와 `.venvs/vision` 설치를 먼저 마치십시오. `setup.py`의 `install_requires`는 setuptools만 선언하므로 YOLO·Torch·OpenCV·numpy·PyYAML은 위 별도 설치가 필요합니다. ROS의 rclpy·sensor_msgs·tf2_ros 및 생성된 `ready2go_interfaces`는 pip 대상이 아닙니다. 실제 노드는 이미지 변환에 cv_bridge를 사용하지 않지만 다른 도구의 시스템 의존성 안내는 유지합니다.
+
+기존 공통 빌드를 덮어쓰지 않도록 Vision용 build/install/log를 분리합니다. 새 터미널에서 공통 프로젝트 overlay를 먼저 source하지 않고 아래 순서로 실행하십시오. 가상환경을 옮기거나 재생성하면 실행기의 Python 경로도 다시 확인해야 합니다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source .venvs/vision/bin/activate
+.venvs/vision/bin/python /usr/bin/colcon --log-base ros2_ws/log_vision build \
+  --base-paths ros2_ws/src/ready2go_interfaces ros2_ws/src/ready2go_vision \
+  --packages-select ready2go_interfaces ready2go_vision --symlink-install \
+  --build-base ros2_ws/build_vision --install-base ros2_ws/install_vision
+source ros2_ws/install_vision/setup.bash
+# 첫 줄의 Python 경로가 아래 sys.executable과 같은 가상환경인지 확인합니다.
+head -n 1 ros2_ws/install_vision/ready2go_vision/lib/ready2go_vision/inspect_region
+.venvs/vision/bin/python -c 'import sys; print(sys.executable); import rclpy, sensor_msgs, tf2_ros, numpy, cv2, yaml, torch, ultralytics; from ready2go_interfaces.srv import InspectRegion; import ready2go_vision.nodes.inspect_region; print("imports OK; CUDA:", torch.cuda.is_available())'
+```
+
+빌드 성공·같은 가상환경의 shebang·`imports OK`를 확인하십시오. GPU 사용 시 CUDA가 True여야 하며 드라이버 호환은 A 확인 대상입니다. 이 확인만으로 모델·카메라·TF·서비스 응답이나 AC-VIS-01(3D 위치 오차 1.5cm 이내) 통과를 판단하지 않습니다.
+
+실행 전 [모델 받기·해시 확인](models/README.md#받기검증)을 마치고 `config/places.yaml`의 `drawer_top.tf` 및 카메라/TF 발행자를 준비합니다. 호스트·컨테이너 중 카메라는 하나만 사용하고, 같은 `/vision/inspect_region`의 stub/mock/실제 서버를 중복 실행하지 않습니다. 아래는 GPU 0·단일 PC DDS 예시이며 다중 PC는 위 `DDS_MODE=multi` 안내를 따릅니다.
+
+```bash
+# 새 터미널에서도 저장소 루트에서 이 순서로 source합니다.
+source /opt/ros/jazzy/setup.bash
+source .venvs/vision/bin/activate
+source ros2_ws/install_vision/setup.bash
+export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI="file://$PWD/config/cyclonedds.local.xml"
+export ROS_LOG_DIR="logs/ros"
+mkdir -p "$ROS_LOG_DIR" logs/vision
+ros2 run ready2go_vision inspect_region --ros-args \
+  -p config_dir:=config -p world_path:=knowledge/world.jsonld \
+  -p weights:=models/yolo11n_ready2go_v1.pt -p dump_dir:=logs/vision \
+  -p "code_sha:=\"$(git rev-parse HEAD)\"" -p 'device:="0"'
+```
+
+CPU를 사용하실 때는 `-p 'device:="0"'`을 `-p device:=cpu`로 변경하십시오. 노드는 `device`를 문자열로 선언하므로 GPU 번호도 따옴표를 보존해 문자열로 전달해야 합니다. 설정·모델·로그 경로는 저장소 루트 기준 상대 경로입니다. 별도 터미널에 같은 환경을 준비한 뒤 `ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: eraser}"`로 응답을 확인하십시오. 시작 로그의 모델·설정 해시와 TF, 응답의 success/target_found를 보존하십시오. 실물 배치와 좌표의 정확성은 A/B의 실측으로 확인해야 합니다. 본 예시는 원본과 정적으로 대조한 절차이며, 이번 문서 작업에서는 설치·빌드·노드·장치를 실행하지 않았습니다.
 
 **비전 stub**: 실비전과 동시에 실행하지 않고 시험용 실측 파일을 지정합니다. 아래 기본 파일은 `ready: false`라 그대로 쓰면 `STUB_NOT_READY`입니다. 고정 좌표의 성공을 실제 인식 검증으로 취급하지 않습니다.
 
@@ -246,7 +295,7 @@ PYTHON
 
 **로봇 연동**은 준비·접속 확인 후 같은 명령의 `'evaluation_mode:=true'`를 `'evaluation_mode:=false'`로 바꿔 실행합니다. 시작 인자의 기본은 false이며 YAML보다 우선합니다. 실행 중 `ros2 param set`으로 전환하는 기능은 없습니다. 다른 노드에서 시작한 태스크를 평가 모드가 중단시키는 것도 아닙니다.
 
-기존 `recording_mode`·`timing_mode`·웨이크 기준 등은 이 전환으로 변경하지 않습니다. 고정 5초 녹음·commissioning 설정은 발화 종료부터 3초 응답(AC-INT-03)의 측정 근거가 아닙니다. 판별 제약·미해결 사항과 기록의 의미는 [음성 README](ros2_ws/src/ready2go_voice/README.md)에 적혀 있습니다.
+기존 `recording_mode`·`timing_mode`·웨이크 기준 등은 이 전환으로 변경하지 않습니다. 고정 5초 녹음·commissioning 설정은 [AC-INT-03](docs/requirements.md#ac-int-03)의 측정 근거가 아닙니다. 판별 제약·미해결 사항과 기록의 의미는 [음성 README](ros2_ws/src/ready2go_voice/README.md)에 적혀 있습니다.
 
 ### 5. 연결·결과·로그 확인
 

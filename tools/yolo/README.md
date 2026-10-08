@@ -1,6 +1,16 @@
 # YOLO 데이터 수집·학습 도구 (담당 A, #14)
 
-실물 데이터로 물품 검출 모델을 만드는 도구. 순서: **촬영 → 라벨링 → 데이터셋 구성 → 학습·평가**. 학습은 `yolo-detection` 컨테이너(PC1, RTX 5060)에서 한다 — 저장소가 마운트돼 있지 않으므로 `docker cp tools knowledge yolo-detection:/작업폴더/`로 복사해 쓴다(스크립트는 자기 위치 기준으로 `data/`·`runs/`를 만든다).
+실물 데이터로 물품 검출 모델을 만드는 도구. 순서: **촬영 → 라벨링 → 데이터셋 구성 → 학습·평가**. 학습은 PC1(RTX 5060)에서 `ready2go-vision` 이미지로 한다 [실측 10/06~07]. 데이터셋 폴더(`data/yolo*`)와 그 이미지 링크 대상(`data/labeled*`)을 **같은 절대 경로로** 마운트해야 심볼릭 링크가 풀린다. 도구는 저장소째 마운트하거나 `tools/`를 작업 폴더로 복사해 쓴다(`train.py`는 자기 위치 기준으로 `runs/`를 만든다). 예:
+
+```bash
+cd <저장소> && D=$PWD/data
+docker run --rm --gpus all --ipc=host --user $(id -u):$(id -g) -e HOME=/tmp -e YOLO_CONFIG_DIR=/tmp/yolo \
+  -v $D/yolo_v2:$D/yolo_v2 -v $D/labeled:$D/labeled:ro -v $PWD:/repo -v <사전학습 가중치 폴더>:/w -w /repo ready2go-vision:latest \
+  python3 tools/yolo/train.py --base /w/yolo11n.pt --epochs 100 --name 11n_v2 --data $D/yolo_v2/dataset.yaml
+```
+
+- **먼저 준비**: `config/yolo_classes.txt`(클래스 번호 고정, 깃 추적)가 있어야 `build_dataset.py`가 동작한다(없으면 중단, 아래 "클래스 고정"). 사전학습 가중치(`yolo11n.pt` 등)는 저장소 밖에 두고 내려받기는 따로 승인받는다
+- 예전 안내의 `docker cp tools knowledge yolo-detection:/작업폴더/`는 원본 여러 개를 한 번에 복사하지 못하는 잘못된 명령이었다(#134). 옛 `yolo-detection` 컨테이너는 10/03 점검 기록용
 
 | 단계 | 명령 | 비고 |
 | :--- | :--- | :--- |
@@ -9,6 +19,8 @@
 | 라벨링 보조 | `python3 tools/yolo/auto_label_single.py s01_single_v0` | **한 장에 물품 하나인 세션 전용.** `data/raw/<세션>/class_ranges.txt`(번호 구간 ↔ 물품; 한 줄에 `0000-0005 airpods_case`, `#`로 시작하면 주석, 물품 이름은 `yolo_classes.txt`와 같아야 함. **손으로 작성**한다 — `capture_session.py`가 만들지 않는다. 후속: 촬영 때 `session.yaml`에 구간을 기록) + 정렬 뎁스 덩어리 + 빈 서랍 배경과의 색 차이로 박스 초안을 만든다. 서랍 바닥 영역(ROI)은 기준 시점 `drawer_top_view` 기준이라 시점 변화 세션에는 쓰지 않는다. ROI(`FLOOR_ROI` = (268, 108, 1008, 614), 화면 좌표)는 `drawer_top_view`를 다시 가르치면 다시 재야 한다. `carrot_pen`은 색 분할로 끝까지 따라간다. **재실행**: 출력 폴더(`data/labeled/<세션>`)에 이전 결과가 있으면 기본은 중단한다(손으로 고친 라벨 보호). `--force`를 붙이면 작업 폴더(`data/.auto_label_work/<세션>`)에 전부 만들고 **끝까지 성공했을 때만** 한 번에 교체한다(중간에 오류로 끊기면 기존 출력은 그대로, 불완전한 세션이 남지 않음). 교체될 장수를 출력한다(원본 `data/raw`는 건드리지 않음). 박스는 몇 px 넉넉하고, 더 조이면(색 차이만) 흰색·주황색 물체가 잘려서 사람 확인이 필요하다 |
 | 박스 수정 | `python3 tools/yolo/review_boxes.py <세션> --labeled data/labeled --out data/labeled_fixed` | 한 장에 박스 하나인 라벨을 OpenCV 창에서 드래그로 고친다(Enter 확정). 오프라인 대안이며, Roboflow를 쓰면 필요 없다 |
 | Roboflow 복원 | `python3 tools/yolo/import_roboflow.py data/roboflow_export [--dry-run]` | Roboflow YOLOv8 내보내기를 우리 규칙으로 되돌린다: 클래스는 **이름으로** `yolo_classes.txt` 번호에 재매핑, 파일 이름 접두어(`s01_…`)로 세션 복원, 이미지는 원본 PNG. 버전을 만들 때 **Preprocessing(Auto-Orient, Resize)과 Augmentation은 모두 끄고** 내려받는다(좌표가 어긋남). 모르는 클래스 이름·범위 밖 좌표는 쓰기 전에 중단 |
+| 윤곽 초안 (P2 분할, #109) | `python3 tools/yolo/sam_polygon_draft.py --sam <sam2.1_b.pt> [세션 ...] [--show --wait 0]` | 사람이 확인한 상자 라벨(`data/labeled`)을 SAM2에 상자 프롬프트로 넣어 윤곽(YOLO 분할 형식) 초안을 `data/roboflow_upload_seg/<세션>/`에 만든다(Roboflow 업로드용, `data.yaml` 포함). 같은 픽셀을 두 윤곽이 칠하면 작은 쪽(위에 얹힌 물체)에 주고, 가려져 조각난 물체는 조각을 이어 윤곽 하나로. 의심(겹침 뺏김·조각 여러 개·면적비) 목록은 업로드 폴더 밖 `_reports/<세션>.csv`(Roboflow 가 CSV 를 주석으로 읽어 업로드 오류), 미리보기 `_preview/`. `--show` 는 처리 과정을 창으로(컨테이너면 `DISPLAY`·`/tmp/.X11-unix`, `xhost +SI:localuser:$(whoami)`). 초안이므로 Roboflow 에서 전부 확인한다 |
+| 분할 라벨 복원 | `python3 tools/yolo/import_roboflow.py <분할 내보내기> --seg [--boxes data/labeled]` | 폴리곤 라벨을 `data/labeled_seg`로. 가려져 조각난 물체는 같은 클래스 조각 여러 개로 그려 오므로, 상자 라벨 기준으로 조각을 물체에 배정해 하나로 합친다(`seg_merge.py`, 같은 클래스 상자가 하나뿐이면 상자 밖 조각도 그 물체로). 상자 라벨과 맞지 않는 장(새 물체·윤곽 없는 상자·상자 밖 조각)을 보고 → 상자 라벨 보정 근거 |
 | 클래스 고정 | `python3 tools/yolo/build_dataset.py --init-classes` | **라벨링 시작 전에 1회.** `config/yolo_classes.txt`(줄 번호 = 클래스 id, 깃으로 추적)를 만든다. 물품을 추가하면 맨 뒤에 덧붙이고 앞 번호는 바꾸지 않는다. **실행 시점**: 물품 목록(이슈 #8 11종)이 온톨로지 `world.items`에 반영(PR #46 머지)된 뒤. 그 전에는 파일이 없어 `main`에서 구성 단계가 중단되는 것이 정상 |
 | 구성 | `python3 tools/yolo/build_dataset.py --val s90_val_a s91_val_b` (고정 파일이 없으면 **중단**, 합성 점검만 `--allow-ontology-order`) | **세션 단위** 분할. 라벨 오류(id 범위·좌표 범위·이미지와 라벨 파일명 불일치)가 있거나 `yolo_classes.txt`에 온톨로지에 없는 이름이 있으면 중단 |
 | 학습·평가 | `python3 tools/yolo/train.py --base <yolov8n.pt> --epochs 100 --name v1` | 검증 세션 mAP50 을 `runs/<name>/metrics.json`에 기록, 0.9 이상이면 통과(이슈 #14, [팀 확정 10/06, 사용자 전달]). 모델 점검 기준일 뿐 실제 합격은 AC-VIS-01·02 실물 측정 |
@@ -24,7 +36,7 @@ cd <저장소> && docker run --rm --gpus all --network host --user $(id -u):$(id
 ```
 - 빌드는 컨테이너 안 `/tmp`에만 한다. 호스트 `ros2_ws/build`·`install`에 `/repo` 경로가 남으면 다른 컨테이너 빌드와 CMakeCache 경로가 충돌한다(#3, C 검토 #80).
 - **stub 노드(`inspect_region_stub`)와 동시에 켜지 않는다.** 같은 서비스 이름 `/vision/inspect_region`이 둘이 된다.
-- **서랍 영역 ROI (뎁스 전) [10/07]**: 박스 중심을 서랍 바닥(z=0)에 투영한 점이 서랍 안쪽 + `region.detect_roi_margin_m`(0.025) 밖이면 뎁스 계산 전에 뺀다(로그 `skip: 서랍 영역 밖`). 서랍 밖 책상 위 케이블·화면 끝 물체·그리퍼 손끝 오검출이 뎁스 실패로 호출 전체를 `DEPTH_INVALID`로 만들던 문제 [실측 PC2 10/07]. 실물 덤프 59장 재계산: 55장 결과 그대로, 서랍 밖 물체로 실패하던 4장만 성공으로 바뀜(0.02~0.04 모두 같음). 서랍 안 결과 물체의 투영 초과는 최대 3.3 mm, 그리퍼 손끝 자리는 36~46 mm 밖이라 0.025로 둠. 렌즈 가림처럼 **서랍 안** 뎁스가 빈 경우는 그대로 `DEPTH_INVALID`
+- **서랍 영역 ROI (뎁스 전) [10/07]**: 박스 중심을 서랍 바닥(z=0)에 투영한 점이 서랍 안쪽 + `region.detect_roi_margin_m`(값은 `config/vision_params.yaml`) 밖이면 뎁스 계산 전에 뺀다(로그 `skip: 서랍 영역 밖`). 서랍 밖 책상 위 케이블·화면 끝 물체·그리퍼 손끝 오검출이 뎁스 실패로 호출 전체를 `DEPTH_INVALID`로 만들던 문제 [실측 PC2 10/07]. 실물 덤프 59장 재계산: 55장 결과 그대로, 서랍 밖 물체로 실패하던 4장만 성공으로 바뀜(0.02~0.04 모두 같음). 서랍 안 결과 물체의 투영 초과는 최대 3.3 mm, 그리퍼 손끝 자리는 36~46 mm 밖이라 그 사이 값으로 둠(처음 0.04 는 손끝을 통과시켜 낮춤, #132). 렌즈 가림처럼 **서랍 안** 뎁스가 빈 경우는 그대로 `DEPTH_INVALID`
 - **경계 여유 점검**: `region.edge_tolerance_m`(0.015)이 AC-VIS-01 허용 오차(1.5 cm)와 같다. 서랍 밖으로 이만큼 나간 footprint까지 결과에 들어가므로, 실물 점검 때 서랍 테두리 위·바깥에 둔 물체가 `target`·`candidates`로 나오지 않는지 확인한다(검출별 로그의 `skip`·`xy`로 확인). **이 여유는 비전 측정 오차 허용이고 모션 안전 경계가 아니다**: 벽에 붙은 물체의 좌표는 정상 `target`으로 나가며, 그리퍼가 벽에 걸리는지는 B 스킬(끌기 `plan_drag`, `pick_object` 사전 검사)이 판단한다(D 재검토 P1, #80)
 - 실물 첫 연결 시험은 `bash tools/dev/vision_real_check.sh camera|check|node|call|measure|replay`로 한다. 카메라·로봇이 같은 PC면 `DDS_MODE=local`, 카메라·비전은 PC1이고 로봇은 PC2면 양쪽 `DDS_MODE=multi`(+`DDS_IFACE`·`PEER_PC1`·`PEER_PC2`). 사용법은 스크립트 첫 부분. `node`는 `-p dump_dir:=` 로 요청마다 컬러·뎁스·K·TF·검출·결과를 `.npz`로 저장하고, `replay`(`tools/dev/replay_inspect_dump.py`)가 로봇 없이 다시 계산한다(`--truth X Y YAW`로 손끝 정답과 위치 오차, `--dz-mm`으로 서랍 원점 이동 영향).
 - 진단 로그(결과에는 영향 없음): 요청마다 검출별 판단 근거(`top_z`, 덩어리 크기, 제외 사유)와 카메라로 본 서랍 바닥 z(`core/floor_probe.py`, 중앙값·10/90 백분위)를 남긴다. 시작 로그에 가중치·`places.yaml`·`vision_params.yaml` 해시와 `drawer_top.tf`를 남긴다.
@@ -79,7 +91,7 @@ cd <저장소> && docker run --rm --gpus all --network host --user $(id -u):$(id
 - **결정 [사용자 10/07]: P1·P2 모두 `yolo11n` 유지.** 겹친 긴 물체를 놓치는 것은 두 모델 공통이라 학습 데이터 문제로 본다. P2: 겹침 장면(10/07 프레임 21장부터) 라벨링·재학습, 그리퍼 영역 마스크·같은 클래스 중복 병합 추가, `conf_min` 0.5는 재학습 뒤 10/07 회귀 세트 56장으로 다시 정함. 11s 가중치는 위 경로(저장소 밖) 그대로
 
 ### 겹침 데이터 재학습 v2 [실측 10/07, #14]
-**P1 운용에는 영향 없음 — P1은 `models/yolo11n_ready2go_v1.pt` 그대로.** 아래 v2와 P2 방침은 제안이며 노드에는 아직 없다(P2 구현 예정).
+**P1 운용에는 영향 없음 — P1은 `models/yolo11n_ready2go_v1.pt` 그대로.** 아래 v2와 P2 방침은 제안이다. 단 서랍 밖 검출 제외(뎁스 전)는 #132로 노드에 구현됐다(P1부터 적용, `region.detect_roi_margin_m`).
 - 데이터: 겹침 세션 `s08_overlap_long_v0` 17장·`s09_overlap_mix_v0` 25장(학습), `s92_val_c` 10장(검증)을 `capture_session.py`로 새로 촬영(10/07 09:35~10:03 KST). 위 결정의 "10/07 프레임 21장부터"는 실물 호출 덤프였으나 실제로는 덤프를 학습에 쓰지 않고 새 세션을 찍었다. 라벨은 v1 박스 초안 + Roboflow에서 사람이 전부 수정. `s91_val_b/0008`에 빠져 있던 판 밑 `car_key` 라벨 1개를 추가함. 학습 261장, 검증 30장. 학습 조건은 위와 같음(640, batch 16, 100 epoch, seed 0)
 - **검증셋이 바뀌었으므로 10/06 수치와 직접 비교하지 않는다.** 같은 v1이 10/06 검증(20장, `s90`·`s91`, 라벨 수정 전) mAP50 0.989, 10/07 검증(30장, `s92` 추가·라벨 1개 수정) 0.966이다
 
@@ -95,7 +107,7 @@ cd <저장소> && docker run --rm --gpus all --network host --user $(id -u):$(id
 - 실물 56장(10/07 실물 호출 덤프, 정답은 사진의 서랍 안 물품 목록, 그리퍼 마스크 + 같은 클래스 병합 + 서랍 밖 제외를 계산으로 적용, `conf_min` 0.30): 놓침 v1 8 · 11n v2 2 · 11s v2 2 · 26s v2 2, 병합 후 헛검출 2 · 2 · 1 · 5, 병합 전 헛검출 6 · 2 · 8 · 6. 놓침 중 `car_key` 1건은 네 모델 모두 검출했지만 footprint 검사(서랍 가장자리)에서 빠진 것
 - **평가 프레임과 학습 이미지 겹침 없음**: 56장(덤프 `.npz` 컬러)과 학습·검증 이미지 291장의 픽셀 SHA-256 일치 0, 축소 영상 평균 밝기차 최소 4.1(같은 장면 반복 촬영은 0.7, 서로 다른 배치 장면이 가장 가까운 짝) [실측 10/07]. 다만 같은 물품·같은 서랍·비슷한 겹침 배치라 겹침 13장면의 개선 폭은 실제보다 좋을 수 있다
 - `conf_min`(11n v2): 0.30 → 0.32·0.35·0.45에서 실물 놓침 2 → 3·4·5. 0.30~0.45에서 맞은 검출은 모두 다른 물체 밑에 깔린 물품. 0.25~0.35 헛검출 3건은 서랍 밖 투명 통(서랍 밖 제외로 해결)
-- **P2 방침 [제안, #14]**: `yolo11n` v2 + `conf_min` 0.30 + 서랍 밖 검출 제외(뎁스 전) + 그리퍼 영역 마스크 + 같은 클래스 중복 병합. 11s·26s는 검증 수치는 높지만 실물에서 상자 쪼개기·중복이 많고 놓침은 같음. 표본(실물 56·검증 30)이 작아 P2 실물 시험에서 다시 확인. 인스턴스 분할(`yolo11n-seg`)은 [#109](https://github.com/Jik-Kim/ready2go/issues/109)에서 논의 중이며, 채택되면 v2 검출 모델을 대체한다. 방식 관계(분할·OBB·SAM2) 정본: [#109 PM 정리](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6033256883)
+- **P2 방침 [제안, #14]**: `yolo11n` v2 + `conf_min` 0.30 + 그리퍼 영역 마스크 + 같은 클래스 중복 병합. 서랍 밖 검출 제외(뎁스 전)는 **구현됨**(#132, `region.detect_roi_margin_m`). 11s·26s는 검증 수치는 높지만 실물에서 상자 쪼개기·중복이 많고 놓침은 같음. 표본(실물 56·검증 30)이 작아 P2 실물 시험에서 다시 확인. 인스턴스 분할은 [#109](https://github.com/Jik-Kim/ready2go/issues/109)에서 논의 중이며(1차 결과 `yolo11s-seg` 제안, #109 A 기록 10/07), 채택되면 v2 검출 모델을 대체한다. 방식 관계(분할·OBB·SAM2) 정본: [#109 PM 정리](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6033256883)
 - 가중치(저장소 밖, `models/`에 아직 넣지 않음): PC1 `~/yolo_run/runs/<이름>/weights/best.pt`
   - `11n_v2` 5,458,650 B, sha256 `3592425b0a96d1185e747157d7f618a9c660fc629786d4fc39c773f445313549`
   - `11s_v2` 19,167,706 B, sha256 `1aade00a95370d1b892c4475115dafc5158b0b76fe96d21db0a4d3e1715ed57b`

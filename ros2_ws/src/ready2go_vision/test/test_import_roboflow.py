@@ -62,3 +62,15 @@ def test_dry_run_writes_nothing(tmp_path):
     classes, raw, exp = make_env(tmp_path, OURS, ["0 0.5 0.5 0.1 0.2\n"])
     r, out = run(tmp_path, classes, raw, exp, "--dry-run")
     assert r.returncode == 0 and not out.exists()
+
+
+def test_seg_without_box_file_keeps_pieces_unmerged(tmp_path):
+    """--seg: 상자 라벨 파일이 없는 장은 같은 클래스 조각을 합치지 않는다(지우개 2개가 하나로 합쳐지는 것 방지, PM 검토 #131)."""
+    names = ["airpods_case", "car_key", "caramel_box"]
+    poly = lambda x: "1 " + " ".join(f"{a:.2f} {b:.2f}" for a, b in [(x, 0.1), (x + 0.05, 0.1), (x + 0.05, 0.15), (x, 0.15)])  # noqa: E731
+    classes, raw, exp = make_env(tmp_path, names, [poly(0.1) + "\n" + poly(0.6) + "\n"])
+    r, out = run(tmp_path, classes, raw, exp, "--seg", "--boxes", str(tmp_path / "no_boxes"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    lines = (out / "s01_single_v0/labels/0000.txt").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2 and all(l.split()[0] == "2" for l in lines)        # car_key → 우리 번호 2, 조각 2개 그대로
+    assert "상자 라벨 파일 없음" in r.stdout

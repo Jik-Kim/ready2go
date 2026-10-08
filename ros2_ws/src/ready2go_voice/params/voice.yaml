@@ -41,12 +41,12 @@ record_duration_sec: 5.0
 timing_mode: commissioning
 diagnostic_detail: false
 
-# MeloTTS 사용자 선택 확정. 장치/속도/상한은 시운전 제안 [팀 확정 필요]
+# MeloTTS·음성 속도1.2 사용자 확정. 장치/스레드/상한은 시운전 제안 [팀 확정 필요]
 tts_engine: melotts
 tts_melotts_python: .venvs/melotts/bin/python
 tts_melotts_assets: models/tts/melotts
 tts_melotts_speaker: KR
-tts_melotts_speed: 1.0
+tts_melotts_speed: 1.2
 tts_melotts_threads: 4
 tts_melotts_startup_timeout_sec: 60.0
 tts_melotts_warmup_text: 준비되었습니다.

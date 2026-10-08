@@ -76,6 +76,8 @@ def skill_servers(task: dict, skills: dict) -> set[str]:
                     names.add(r.name)
             for key in BLOCK_KEYS:
                 walk(step.get(key, []))
+            for option in step.get("options", []) or []:          # fallback 대안
+                walk(option)
 
     walk(task.get("sequence", []))
     walk(task.get("finally", []))

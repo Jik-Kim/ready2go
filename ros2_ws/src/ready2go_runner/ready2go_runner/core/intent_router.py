@@ -19,6 +19,7 @@ from typing import Any
 import jsonschema
 
 RUN, CANCEL, STATUS, HOLD, REJECT = "run", "cancel", "status", "hold", "reject"
+PLAN = "plan"                           # achieve_goal: 노드가 플래너로 계획한 뒤 run 또는 hold 로 바꿈 (#150)
 # 보류·거절 이유 (/runner/status last_intent.reason, 로그)
 BAD_INTENT = "BAD_INTENT"               # JSON 이 아니거나 intent.schema.json 위반
 NEEDS_CLARIFY = "NEEDS_CLARIFY"         # intent = unknown·clarify (E 음성 노드가 재질문)
@@ -32,6 +33,9 @@ BUSY = "BUSY"                           # 이미 태스크 실행 중 → 중복
 LOCKED = "LOCKED"                       # 중단 잠김 (사람 확인 전 새 태스크 없음, docs/safety.md)
 NOT_RUNNING = "NOT_RUNNING"             # cancel 을 받았지만 멈출 태스크가 없음
 NOT_READY = "NOT_READY"                 # 태스크에 필요한 /skills/* 서버가 아직 안 뜸 (기동 직후, #108) → 로봇 동작 없이 거절
+NO_GOAL = "NO_GOAL"                     # achieve_goal 인데 goals 가 없음
+PLAN_SATISFIED = "PLAN_SATISFIED"       # 목표가 이미 만족 → 실행 안 함 (플래너 근거는 로그, #150)
+UNPLANNABLE = "UNPLANNABLE"             # 목표를 만족하는 스킬 순서가 없음 → 실행 안 함 (원인은 로그, #150)
 CONTROL_INTENTS = {"cancel", "status"}
 
 
@@ -42,6 +46,8 @@ class Decision:
     task: dict | None = None            # run 일 때 실행할 태스크
     inputs: dict = field(default_factory=dict)   # run 일 때 태스크 inputs 덮어쓰기 (target, source, stt_text)
     intent: dict | None = None          # 받은 인텐트 (해석 실패면 None) — 실행 기록 헤더에 그대로
+    goals: list | None = None           # plan 일 때 목표 (achieve_goal)
+    plan: list | None = None            # 플래너 결과 설명 줄 (실행 기록 헤더 extra.plan, #150)
 
     def summary(self) -> dict:
         """/runner/status last_intent 에 싣는 짧은 요약 (D 시연 화면 #59)."""
@@ -100,6 +106,8 @@ class IntentRouter:
             return Decision(STATUS, intent=intent)
         if name in ("unknown", "clarify"):
             return Decision(HOLD, NEEDS_CLARIFY, intent=intent)
+        if name == "achieve_goal" and name not in self.tasks:     # 목표형: 동작 순서는 플래너가 (#150, FR-PLN-02)
+            return self._goal(intent, running, locked)
         task = self.tasks.get(name)
         if task is None:
             return Decision(HOLD, UNSUPPORTED_INTENT, intent=intent)
@@ -122,6 +130,29 @@ class IntentRouter:
         if running:
             return Decision(REJECT, BUSY, intent=intent)
         return Decision(RUN, task=task, inputs=_inputs(targets[0], intent), intent=intent)
+
+    def _goal(self, intent: dict, running: bool, locked: bool) -> Decision:
+        """achieve_goal: 형식·신뢰도·물품 이름만 보고 plan 으로 넘김. 계획 자체는 노드가 현재 상태로 (core/planner)."""
+        if intent["confidence"] < self.min_confidence:
+            return Decision(HOLD, LOW_CONFIDENCE, intent=intent)
+        goals = intent.get("goals") or []
+        if not goals:
+            return Decision(HOLD, NO_GOAL, intent=intent)
+        if any(g["predicate"] == "located_in" and g["subject"] not in self.items for g in goals):
+            return Decision(HOLD, UNKNOWN_ITEM, intent=intent)
+        if locked:
+            return Decision(REJECT, LOCKED, intent=intent)
+        if running:
+            return Decision(REJECT, BUSY, intent=intent)
+        return Decision(PLAN, inputs=_goal_inputs(intent), intent=intent, goals=goals)
+
+
+def _goal_inputs(intent: dict) -> dict[str, Any]:
+    """목표형 실행의 inputs (입력 명령 기록, FR-LOG-01)."""
+    inputs: dict[str, Any] = {"source": "voice", "goals": intent["goals"], "intent_confidence": intent["confidence"]}
+    if (intent.get("source") or {}).get("stt_text"):
+        inputs["stt_text"] = intent["source"]["stt_text"]
+    return inputs
 
 
 def _inputs(target: str, intent: dict) -> dict[str, Any]:

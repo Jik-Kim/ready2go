@@ -12,7 +12,7 @@ class PCMTTS:
         self.cfg = cfg
         self.lock = threading.Lock()
 
-    def speak(self, text, cancel=None, on_start=None, timeout=None, start_deadline=None):
+    def speak(self, text, cancel=None, on_start=None, timeout=None, start_deadline=None, on_timing=None):
         import sounddevice as sd
         timeout = self.cfg['tts_timeout_sec'] if timeout is None else timeout
         deadline = time.monotonic() + timeout
@@ -24,7 +24,16 @@ class PCMTTS:
             synth_deadline = min(deadline, start_deadline) if start_deadline is not None else deadline
             if time.monotonic() >= synth_deadline:
                 raise TimeoutError('TTS_START_TIMEOUT')
+            self.last_synthesis = {}  # 실패/다른 엔진의 이전 요청 메타데이터 재사용 방지
+            synth_started = time.monotonic()
             audio = self._synthesize(text, synth_deadline, cancel)
+            timing = {'synthesis_wait_sec': time.monotonic() - synth_started}
+            if self.last_synthesis.get('cache_hit') is not None:
+                timing['cache_hit'] = self.last_synthesis['cache_hit']
+            if self.last_synthesis.get('synth_sec') is not None:
+                timing['worker_synth_sec'] = self.last_synthesis['synth_sec']
+            if on_timing:
+                on_timing(dict(timing))
             with wave.open(io.BytesIO(audio), 'rb') as wav:
                 channels, rate, width = wav.getnchannels(), wav.getframerate(), wav.getsampwidth()
                 if width != 2 or channels != 1 or rate <= 0:
@@ -58,9 +67,13 @@ class PCMTTS:
                 if end == len(pcm):
                     raise sd.CallbackStop  # 재생 버퍼를 비운 후 finished_callback
 
+            def playback_finished():
+                state['ended_monotonic'] = time.monotonic()
+                finished.set()
+
             announced = False
             with sd.RawOutputStream(samplerate=rate, channels=channels, dtype='int16', blocksize=512,
-                    device=self.cfg['output_device'], callback=callback, finished_callback=finished.set) as output:
+                    device=self.cfg['output_device'], callback=callback, finished_callback=playback_finished) as output:
                 while True:
                     if cancel and cancel.is_set():
                         output.abort()
@@ -79,6 +92,11 @@ class PCMTTS:
                         break
             if cancel and cancel.is_set():
                 raise InterruptedError('TTS_CANCELED')
+            timing.update(playback_sec=max(0, state['ended_monotonic'] - state['stamp']['tts_started_monotonic']),
+                          playback_ended_monotonic=state['ended_monotonic'],
+                          playback_end_basis='portaudio_finished_callback')
+            if on_timing:
+                on_timing(dict(timing))
             return state['stamp']
         finally:
             self.lock.release()
