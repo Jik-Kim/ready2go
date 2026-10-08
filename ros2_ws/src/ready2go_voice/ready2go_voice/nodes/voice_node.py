@@ -7,7 +7,7 @@ import time
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
@@ -64,10 +64,10 @@ class VoiceNode(Node):
         self.publisher = self.create_publisher(String, '/voice/intent', 10)
         self.subscription = self.create_subscription(String, '/voice/text_override', self._text, 10,
                                                      callback_group=group)
-        status_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        status_qos = QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                 reliability=ReliabilityPolicy.RELIABLE)
         self.status_subscription = self.create_subscription(String, '/runner/status', self._runner_status,
-                                                            status_qos, callback_group=group)
+                                                            status_qos, callback_group=MutuallyExclusiveCallbackGroup())
         self.server = ActionServer(self, Skill, '/voice/speak', execute_callback=self._speak,
                                    goal_callback=self._goal, cancel_callback=lambda _: CancelResponse.ACCEPT,
                                    callback_group=group)

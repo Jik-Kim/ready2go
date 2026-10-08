@@ -1,7 +1,7 @@
 # CURRENT — C 이영훈
 
 - **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-06
+- **최종 갱신**: 2026-10-07
 
 ## 지금 상태
 - **CI numpy (PR #90, #88 E 요청·D 리뷰 P1)**: `contracts-and-core` 에 `numpy>=1.24,<2` 설치(voice `setup.py` 와 같은 범위, skip 우회 없음). 목적: #88 음성 시험의 numpy import 수집 실패로 core 검사 전체가 멈추던 것. 검증: 깨끗한 venv(CI 설치 목록 + numpy)에서 #88 head `0336120` 806 passed·12 skipped(의도된 importorskip) [실측 10/06], #90 CI 3개 통과. 남은 확인: #90 머지 → #88 에 main 반영 → #88 최신 head CI 통과 (E 통합 완료 조건).
@@ -23,6 +23,8 @@
 
 - **상태 초기화 서비스** (PR #107, 10/07): `/runner/reset_state` — 사람이 원위치 확인 후 호출(팀 결정, 나중에 대시보드 버튼 #59). 자동 초기화 안은 D P1(놓기 실패 뒤 쥔 상태를 덮어씀)로 철회. 시연 사이 초기화 → 3회 연속 COMPLETED, 놓기 실패 뒤 다음 요청 로봇 동작 0건, 실행 중 거절 [실측·시험]. 10/08: 시연 사이 원위치 → `ros2 service call /runner/reset_state std_srvs/srv/Trigger`.
 - **real 기동에 스킬 서버** (PR #108, 10/07): `--profile real up` 한 번으로 드라이버·그리퍼·스킬 서버·Runner(NFR-ENV-01, 사용자 결정: 로봇 기능은 컨테이너에). D P1(서버 준비 전 요청) → Runner `NOT_READY` 거절. 속도 기본 60·40(B 호스트와 같음)
+- **닫기 성공 안내** (#138 C, PR #140, 10/07): `tasks/find_item.json` finally — `f1d`·`f2d`로 닫기 전·후 `open.<서랍>`을 조회해 이번 실행에서 열림 → 닫힘일 때만 `f2s.1` "서랍을 닫았어요"(닫기 → 안내 → 홈). 처음부터 닫힘·닫기 실패/skip/`PRE_UNMET`·비상정지/취소는 안내 없음. 새 단계는 모두 `on_failure: skip`, 안내는 `timeout_sec` 20(음성 노드 무응답에도 홈이 막히지 않게, PM 리뷰). 시험 11개(정상 순서·집기 실패 후 닫음·닫기 실패·PRE_UNMET·비상정지 3곳·취소·TTS 실패·무응답 TIMEOUT·조회 실패·쥔 채 정지), mock 스택 실제 실행으로 순서 확인 [실측]. 남은 것: PC2 `logs/voice_eval/voice.local.yaml`의 `tts_engine`·`tts_melotts_speed` 확인, E 사전 캐시 뒤 PC2 실행 기록에서 닫기 → 안내 → 홈 구간 시간, E 중단·오류 안내와 순서(닫았어요 → 실패 원인) 맞추기.
+- **P1 실물 1회차 성공** (10/07 21:12 KST, PC2 `2026-10-07T12:12:46Z_4315ef`, main `55829e3`): 음성 → 열기 → 탑뷰 → 촬영 → 끌기 40.1 mm → 다시 촬영(예상과 0.2 mm) → 집기 → 놓기 → 닫기 → 홈, 116.0 s. 녹음 끝 → 놓기 끝 95.3 s, pick 41.0 s [실측 DB]. 같은 날 실패 7건은 Runner 밖(서랍 열린 채 시작 3·비전 `DEPTH_INVALID` 3·B 스킬 2). 남은 것: 3회 연속(AC-DEMO-01), 비상정지 정식 시험.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |

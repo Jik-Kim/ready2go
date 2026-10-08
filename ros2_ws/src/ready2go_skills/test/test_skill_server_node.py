@@ -592,7 +592,8 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
         server.ss.SkillServer._line = real
         server.Gripper.holding = False
     st = {s: (v, z) for s, v, z in speeds}
-    assert st["descend_fast"][0] == 150.0 and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
+    sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
+    assert st["descend_fast"][0] == sp["in_drawer_mm_s"] and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
     assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
     assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
 
@@ -603,4 +604,77 @@ def test_free_space_speed_only_outside_drawer(server):
     assert sp["free_mm_s"] > sp["line_mm_s"]
     assert server.srv._free_vel() == sp["free_mm_s"]
     assert server.srv._free_vel([0.0, 0.0, 100.0, 0.0, 180.0, 0.0]) == sp["free_mm_s"]          # 트레이 쪽
-    assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["line_mm_s"]    # 서랍 위
+    assert server.srv._free_vel([380.0, -216.0, 253.8, 0.0, 180.0, 0.0]) == sp["in_drawer_mm_s"]   # 서랍 위·안은 느리게
+    assert sp["in_drawer_mm_s"] < sp["line_mm_s"] < sp["free_mm_s"]
+
+
+def test_blend_that_never_starts_is_sent_once_more(server):
+    """[실측 10/07 밤 PC2, 관절 90°/s] drag_down 도착 직후 보낸 moveb 가 실행되지 않음 → 남은 204 mm NOT_REACHED.
+    출발조차 안 한 블렌딩은 멈춘 걸 확인하고 한 번만 다시 보냄. 두 번째도 안 가면 NOT_REACHED."""
+    r = server.srv.robot
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    real, calls = r.moveb_async, []
+
+    def moveb(pts, radii, *a, **k):
+        calls.append(1)
+        return True if len(calls) == 1 else real(pts, radii, *a, **k)   # 첫 번째는 받기만 하고 안 감
+    r.moveb_async = moveb
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    pts = [[385.4, -135.2, 229.8, 143.0, 180.0, 143.0], [522.2, -135.2, 221.1, -179.6, -160.0, 180.0]]
+    assert server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over") is None and len(calls) == 2
+    calls.clear()
+    r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True        # 계속 안 감
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    out = server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+
+
+def test_into_drawer_waypoint_uses_slow_joint_speed(server):
+    """[사용자 10/07 밤] 큰 이동(탑뷰·홈)은 관절 설정 속도, 서랍 안 경유점(drag_down)으로 들어갈 땐 in_drawer_joint_*."""
+    srv = server.srv
+    srv.joint_vel, srv.joint_acc = 90.0, 60.0
+    sp = srv.prm()["speed"]
+    seen, real = [], srv.robot.movej_async
+    srv.robot.movej_async = lambda j, v, a: seen.append((list(j), v, a)) or real(j, v, a)
+    down = srv.poses()["drag_down"]["drawer_top"]
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]
+    server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    speeds = {tuple(j): (v, a) for j, v, a in seen}
+    assert speeds[tuple(down)] == (sp["in_drawer_joint_deg_s"], sp["in_drawer_joint_acc_deg_s2"])
+    view = srv.poses()["drawer_top_view"]["drawer_top"]
+    if tuple(view) in speeds:
+        assert speeds[tuple(view)] == (90.0, 60.0)                       # 탑뷰는 큰 이동 속도
+
+
+def test_settle_timeout_stops_and_fails_instead_of_sending_next(server):
+    """#139 PM 리뷰: 관절 이동 뒤 2 s 안에 멈추지 않으면 다음 명령을 보내지 않고 정지 + 정지 확인 뒤 실패."""
+    srv = server.srv
+    states = iter([sf.STATE_MOVING] * 45 + [1] * 50)                   # 2 s 넘게 이동 중 → 정지 명령 뒤 멈춤 (가짜 시계 0.05 s 간격)
+    srv.state = lambda: next(states)
+    out = srv._settle()
+    assert out is not None and not out.success and out.error_code == sf.NOT_REACHED and "stop" in srv.robot.log
+    srv.state = lambda: 1
+    assert srv._settle() is None
+    srv.robot.log.clear()                                               # 상태 조회 실패가 이어지면 '멈춤'으로 보지 않음 [#139 E 리뷰 P2]
+    seq = iter([None] * 30 + [1] * 50)
+    srv.state = lambda: next(seq)
+    out = srv._settle()
+    assert out.error_code == sf.STATE_UNKNOWN and "stop" in srv.robot.log
+
+
+def test_cancel_while_settling_does_not_resend_blend(server):
+    """#139 E 리뷰 P1: 첫 블렌딩이 출발하지 않은 뒤 멈춤 확인 중 취소 → 두 번째 moveb 를 보내지 않고 CANCELED."""
+    srv, r = server.srv, server.srv.robot
+    r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
+    calls = []
+    r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True    # 받기만 하고 안 감
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    real_settle = srv._settle
+
+    def settle(g=None, **kw):
+        goal.is_cancel_requested = True                                 # 멈춤 확인 중 취소
+        return real_settle(g, **kw)
+    srv._settle = settle
+    pts = [[385.4, -135.2, 229.8, 143.0, 180.0, 143.0], [522.2, -135.2, 221.1, -179.6, -160.0, 180.0]]
+    out = srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
+    assert out.error_code == sf.CANCELED and len(calls) == 1

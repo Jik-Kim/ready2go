@@ -384,6 +384,87 @@ def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeyp
         assert '서랍을 닫았어요' in node.cfg['_tts_prefill_texts']
 
 
+def test_ros_runner_status_subscription_dispatch(cfg, tmp_path, monkeypatch):
+    """실제 ROS 상태 구독 연결, TTS/API/장치는 모의이며 입력 전체 순서 보장 검사가 아닙니다."""
+    import json
+    import rclpy
+    import yaml
+    import ready2go_voice.nodes.voice_node as module
+    from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+    from rclpy.executors import MultiThreadedExecutor
+    from rclpy.node import Node
+    from rclpy.parameter import Parameter
+    from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+    from std_msgs.msg import String
+    from conftest import ROOT
+    from ready2go_voice.core.runner_notice import STATUS_PROMPTS
+
+    class PreparedTTS(FakeTTS):
+        def prepare(self):
+            pass
+
+    tts = PreparedTTS()
+    monkeypatch.setattr(module, 'create_tts', lambda _: tts)
+    monkeypatch.setenv('ROS_DOMAIN_ID', '167')
+    monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path / 'ros_logs'))
+    cfg.update(audio_enabled=False, ontology_file=str(ROOT / 'knowledge/robot_ontology.jsonld'),
+               intent_schema_file=str(ROOT / 'contracts/intent.schema.json'))
+    path = tmp_path / 'voice.yaml'
+    path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+    rclpy.init()
+    voice = peer = thread = None
+    executor = MultiThreadedExecutor(num_threads=4)
+    try:
+        voice = VoiceNode(parameter_overrides=[Parameter('config_file', value=str(path)),
+                                              Parameter('evaluation_mode', value=True)])
+        voice.parser.llm = None
+        assert isinstance(voice.status_subscription.callback_group, MutuallyExclusiveCallbackGroup)
+        assert isinstance(voice.subscription.callback_group, ReentrantCallbackGroup)
+        qos = voice.status_subscription.qos_profile
+        assert qos.depth == 10 and qos.reliability == ReliabilityPolicy.RELIABLE
+        assert qos.durability == DurabilityPolicy.TRANSIENT_LOCAL
+        peer = Node('runner_status_test_peer')
+        publisher = peer.create_publisher(String, '/runner/status', QoSProfile(
+            depth=1, reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        executor.add_node(voice)
+        executor.add_node(peer)
+        thread = threading.Thread(target=executor.spin, daemon=True)
+        thread.start()
+
+        def until(check):
+            deadline = time.monotonic() + 4
+            while not check() and time.monotonic() < deadline:
+                time.sleep(.01)
+            assert check()
+
+        until(lambda: publisher.get_subscription_count() > 0)
+        publisher.publish(String(data=json.dumps({'phase': 'idle', 'halt_code': None, 'last': None})))
+        until(lambda: voice.notice_policy.initialized)
+        assert not tts.texts
+        publisher.publish(String(data=json.dumps({'phase': 'running', 'task_id': 'find_item',
+                                                   'halt_code': None, 'last': None})))
+        until(lambda: voice.notice_policy.phase == 'running')
+        stopped = String(data=json.dumps({'phase': 'halted', 'halt_code': 'ESTOP', 'last': None}))
+        publisher.publish(stopped)
+        until(lambda: tts.texts == [STATUS_PROMPTS['estop']])
+        revision = voice.notice_policy.revision
+        publisher.publish(stopped)
+        time.sleep(.15)
+        assert tts.texts == [STATUS_PROMPTS['estop']] and voice.notice_policy.revision == revision
+    finally:
+        if voice:
+            voice.close()
+        executor.shutdown(timeout_sec=2)
+        if thread:
+            thread.join(timeout=2)
+        if voice:
+            voice.destroy_node()
+        if peer:
+            peer.destroy_node()
+        rclpy.try_shutdown()
+
+
 def test_timing_diagnostics_stay_out_of_intent_and_action_result(harness):
     import json
     details = {'synthesis_wait_sec': .2, 'worker_synth_sec': .002, 'cache_hit': True}

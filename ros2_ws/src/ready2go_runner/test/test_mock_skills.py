@@ -25,7 +25,32 @@ def test_outputs_follow_runner_md():
     nudged = mock.respond("nudge_object", {"target": target, "drawer_id": "drawer_top"}).output
     assert nudged["pushed"] and nudged["target_after"]["pose"]["position"][1] == 0.2495     # 옆(y)으로 끔
     assert target["pose"]["position"][1] == 0.2895                                          # 입력은 그대로
-    assert mock.respond("nudge_object", {"target": target, "check_only": True}).output == {"pushed": False, "target_after": target}
+    assert nudged["push_vector_m"] == [0.0, -0.04]                                        # run_report "40.0 mm 끌기"
+    assert mock.respond("nudge_object", {"target": target, "check_only": True}).output == {
+        "pushed": False, "push_vector_m": [0.0, 0.0], "target_after": target}
+
+
+def test_reinspect_after_nudge_sees_moved_object_and_pick_resets():
+    """영상용 실물처럼: 끌기 뒤 다시 인식하면 끌린 자리, 집기 성공 뒤(다음 회차)는 처음 자리."""
+    mock = MockSkills()
+    first = mock.inspect("drawer_top", "eraser").output["target"]
+    assert first["pose"]["position"] == [0.025, 0.292, 0.0]                                 # P1 벽 배치 (10/07 PC2)
+    after = mock.respond("nudge_object", {"target": first, "drawer_id": "drawer_top"}).output["target_after"]
+    again = mock.inspect("drawer_top", "eraser").output["target"]
+    assert again["pose"] == after["pose"] and again["pose"]["position"][1] == 0.252
+    assert mock.inspect("drawer_top", "car_key").output["target"]["pose"]["position"] == [0.025, 0.292, 0.0]   # 다른 물품은 그대로
+    mock.respond("pick_object", {"target": again})
+    assert mock.inspect("drawer_top", "eraser").output["target"]["pose"]["position"] == [0.025, 0.292, 0.0]
+
+
+def test_failed_nudge_or_pick_keeps_position_as_is():
+    mock = MockSkills(parse_failures("nudge_object=NO_PUSH_ACCESS*1,pick_object=GRASP_FAILED*1"))
+    first = mock.inspect("drawer_top", "eraser").output["target"]
+    assert not mock.respond("nudge_object", {"target": first}).success
+    assert mock.inspect("drawer_top", "eraser").output["target"]["pose"]["position"][1] == 0.292   # 안 끌렸음
+    mock.respond("nudge_object", {"target": first})
+    assert not mock.respond("pick_object", {"target": first}).success                              # 집기 실패
+    assert mock.inspect("drawer_top", "eraser").output["target"]["pose"]["position"][1] == 0.252   # 끌린 자리 그대로
 
 
 def test_failure_first_n_times_then_success():
