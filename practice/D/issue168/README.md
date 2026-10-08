@@ -58,6 +58,8 @@ export ISSUE168_GOOGLE_CREDENTIALS=/보안경로/credentials.json
 
 서비스 계정에는 이슈 #168 시트만 필요한 권한으로 공유해야 합니다. 인증 파일은 저장소에 복사하거나 커밋하지 않습니다.
 
+적용이 성공하면 `00_진행현황!A9:D9`에 마지막 YAML 동기화 commit SHA와 KST 시각을 기록합니다. 이 메타데이터 영역도 D가 관리하며 시험 결과·증적 영역과 분리합니다.
+
 ## 현재 단계
 
-`checklist.yaml`에서 Google Sheet로만 동기화합니다. 검증, 미리보기와 보호 열을 제외한 적용 기능까지 구현했지만, 실제 `--apply` 실행과 동기화 SHA·시각 기록은 다음 단계입니다.
+`checklist.yaml`에서 Google Sheet로만 동기화합니다. 검증, 미리보기, 보호 열을 제외한 적용과 동기화 SHA·시각 기록을 구현했습니다.

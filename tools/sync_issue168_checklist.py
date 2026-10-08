@@ -13,8 +13,10 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import requests
 import yaml
@@ -24,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHECKLIST = ROOT / "practice" / "D" / "issue168" / "checklist.yaml"
 CREDENTIALS_ENV = "ISSUE168_GOOGLE_CREDENTIALS"
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+SYNC_METADATA_SHEET = "00_진행현황"
+SYNC_METADATA_RANGE = "A9:D9"
 
 KNOWN_ERROR_CODES = {
     "CAMERA_TIMEOUT", "CANCELED", "DEPTH_INVALID", "ESTOP", "GRASP_FAILED",
@@ -418,19 +422,27 @@ def apply_changes(
     session: requests.Session,
     spreadsheet_id: str,
     changes: list[dict[str, str]],
+    source_sha: str,
+    synced_at: str,
 ) -> None:
-    if not changes:
-        return
+    data = [
+        {
+            "range": f"'{change['sheet']}'!{change['cell']}",
+            "majorDimension": "ROWS",
+            "values": [[change["after"]]],
+        }
+        for change in changes
+    ]
+    data.append(
+        {
+            "range": f"'{SYNC_METADATA_SHEET}'!{SYNC_METADATA_RANGE}",
+            "majorDimension": "ROWS",
+            "values": [["마지막 YAML 동기화 SHA", source_sha, "동기화 시각(KST)", synced_at]],
+        }
+    )
     payload = {
         "valueInputOption": "RAW",
-        "data": [
-            {
-                "range": f"'{change['sheet']}'!{change['cell']}",
-                "majorDimension": "ROWS",
-                "values": [[change["after"]]],
-            }
-            for change in changes
-        ],
+        "data": data,
     }
     response = session.post(
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchUpdate",
@@ -473,6 +485,10 @@ def git_sha() -> str:
         text=True,
     )
     return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def sync_timestamp() -> str:
+    return datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="seconds")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -520,10 +536,13 @@ def main(argv: list[str] | None = None) -> int:
         print_changes(changes)
         print_preserved_columns()
         if args.dry_run:
+            print(f"METADATA {SYNC_METADATA_SHEET}!{SYNC_METADATA_RANGE}: source SHA {git_sha()}")
             return 0
 
-        apply_changes(session, spreadsheet_id, changes)
-        print(f"APPLIED: {len(changes)} managed cells (source commit {git_sha()})")
+        source_sha = git_sha()
+        synced_at = sync_timestamp()
+        apply_changes(session, spreadsheet_id, changes, source_sha, synced_at)
+        print(f"APPLIED: {len(changes)} managed cells (source commit {source_sha}, {synced_at})")
         return 0
     except (ChecklistError, KeyError, requests.RequestException) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
