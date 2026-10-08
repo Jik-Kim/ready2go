@@ -353,6 +353,32 @@ class SkillServer(Node):
         fs = [f for f in (self.robot.tool_force() for _ in range(int(sp["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
 
+    def _travel_z(self, drawer_id, cur_z):
+        """서랍 안 옆 이동 높이 = 서랍 바닥 + 안쪽 높이(테두리) + transit.in_drawer_clear_mm, 지금이 더 높으면 그대로.
+        서랍 안 물건은 테두리보다 낮음 → 쌓여 있어도(망치·캐러멜·지우개 약 55 mm) 옆으로 지날 때 안 닿음 [사용자 10/08]."""
+        place = self.places().get(drawer_id) or {}
+        tf, inner = place.get("tf") or {}, place.get("interior_m")
+        clear = self.prm()["transit"].get("in_drawer_clear_mm")
+        if not tf.get("translation_m") or not inner or clear is None:
+            return cur_z
+        return max(cur_z, 1000.0 * (tf["translation_m"][2] + inner[2]) + float(clear))
+
+    def _over_then_down(self, goal, drawer_id, cur, above, stage):
+        """서랍 안: (낮으면 수직으로 travel_z 까지) → travel_z 높이로 목표 바로 위까지 수평 → 목표 위(above)로 수직.
+        경유점 높이로 옆으로 가다 비스듬히 내려가면 쌓인 물건에 닿음 [사용자 10/08]. 블렌딩 한 번 (모서리 반지름 blend_mm)."""
+        tz = self._travel_z(drawer_id, cur[2])
+        pts = []
+        if tz - cur[2] > 1.0:
+            pts.append(mp.with_z(cur, tz))
+        over = [above[0], above[1], tz] + list(above[3:])
+        if math.dist((pts[-1] if pts else cur)[:3], over[:3]) > 1.0:
+            pts.append(over)
+        pts.append(list(above))
+        if len(pts) == 1:
+            return self._line(goal, above, self._in_vel(), stage)
+        r = self.prm()["transit"].get("blend_mm", 0.0)
+        return self._blend(goal, pts, [r] * (len(pts) - 1) + [0.0], self._in_vel(), stage)
+
     def _clear_to_continue(self, goal):
         """노드 안에서 다음 명령(그리퍼 포함)을 보내기 직전: 취소 → CANCELED, 안전·비상정지 → ESTOP, 상태 조회 실패 → STATE_UNKNOWN.
         아무 명령도 보내지 않고 돌려줌 (정지 명령도 안 보냄 — 이미 멈춘 상태). 문제없으면 None (#181 E 재리뷰 P1)."""
@@ -1081,14 +1107,8 @@ class SkillServer(Node):
         above = mp.gripper_posx(start_mm, along, cur[3:], tilt_toward=wall, tilt_deg=d["tilt_deg"])
         if not down:                                        # 경유점이 없으면 예전처럼 safe_z 로 높이만
             cur = mp.with_z(cur, prm["transit"]["safe_z_mm"])
-        aligned = [cur[0], start_mm[1], cur[2]] + list(cur[3:])
-        # y 를 목표물 y 로 → 기울이며 목표물 위로를 블렌딩 한 번에 (사이 멈춤 없음) [사용자 10/07]. 모서리 반지름은 구간 절반까지
-        d1, d2 = math.dist(cur[:3], aligned[:3]), math.dist(aligned[:3], above[:3])
-        if d1 < 1.0:
-            bad = self._line(goal, above, self._in_vel(), "to_object:over")
-        else:
-            r = min(prm["transit"].get("blend_mm", 0.0), d1 / 2.0, d2 / 2.0)
-            bad = self._blend(goal, [aligned, above], [r, 0.0], self._in_vel(), "to_object:over")
+        # 테두리 위 높이로 누를 자리 바로 위까지 → 기울이며 수직으로 내려옴, 블렌딩 한 번 (사이 멈춤 없음) [사용자 10/07·10/08]
+        bad = self._over_then_down(goal, drawer_id, cur, above, "to_object:over")
         if bad:
             return bad, out
         attempts = int(d.get("press_attempts", 1))
@@ -1185,13 +1205,7 @@ class SkillServer(Node):
             # 경유점에서 손목을 반 바퀴 다시 돌리며 목표로 가 경유점을 안 지나는 것처럼 보임 [사용자 10/08]
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, cur[3:])
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
-            aligned = [cur[0], above[1], cur[2]] + list(cur[3:])
-            d1, d2 = math.dist(cur[:3], aligned[:3]), math.dist(aligned[:3], above[:3])
-            if d1 < 1.0:
-                bad = self._line(goal, above, self._in_vel(), "to_object:over")
-            else:
-                r = min(prm["transit"].get("blend_mm", 0.0), d1 / 2.0, d2 / 2.0)
-                bad = self._blend(goal, [aligned, above], [r, 0.0], self._in_vel(), "to_object:over")
+            bad = self._over_then_down(goal, drawer_id, cur, above, "to_object:over")   # 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
             above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
@@ -1217,8 +1231,14 @@ class SkillServer(Node):
             return sf.worse(sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm)"),
                             back), {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         route = self._carry_route(drawer_id)
-        # 집고 바로 경유점 1(서랍 중앙)로 직선(대각선) — 쓸데없이 높이지 않음, 도착 뒤 잠깐 멈춤 [사용자 10/06 저녁]
-        bad = self._line(goal, route[0] if route else above, self._in_vel(), "lift")
+        # 집고 수직으로 테두리 위 높이까지 → 경유점 1(서랍 중앙, 같은 높이)로 수평, 블렌딩 한 번 — 비스듬히 가면 쌓인 물건에 닿음 [사용자 10/08].
+        # 도착 뒤 잠깐 멈춤 [사용자 10/06 저녁]
+        if route:
+            up = mp.with_z(grasp, self._travel_z(drawer_id, max(grasp[2], route[0][2])))
+            r = self.prm()["transit"].get("blend_mm", 0.0)
+            bad = self._blend(goal, [up, list(route[0])], [r, 0.0], self._in_vel(), "lift")
+        else:
+            bad = self._line(goal, above, self._in_vel(), "lift")
         if bad:
             return bad, None
         if route:

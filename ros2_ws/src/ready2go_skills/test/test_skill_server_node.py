@@ -217,7 +217,11 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
     server.Gripper.holding = False
     assert out.success and data["grasp_ok"] is True
-    assert server.srv.robot.log[-1] == ("movel", route[0])               # 집고 바로 경유점 1(서랍 중앙)로 — z 300 안 올림 (10/06 저녁)
+    kind, pts, radii = server.srv.robot.log[-1]                         # 집고 수직으로 테두리 위 → 경유점 1(서랍 중앙)로 수평, 블렌딩 한 번 [사용자 10/08]
+    top = server.srv.places()["drawer_top"]
+    travel = 1000.0 * (top["tf"]["translation_m"][2] + top["interior_m"][2]) + server.srv.prm()["transit"]["in_drawer_clear_mm"]
+    assert kind == "moveb" and pts[-1] == route[0] and pts[0][2] == pytest.approx(max(travel, route[0][2]))
+    assert route[0][2] == pytest.approx(travel, abs=0.5)                # 경유점 1 = 테두리 + 15 mm (z 300 안 올림)
     server.srv.robot.log.clear()
     out, data = server.run("place_object", {"location": "handover_zone"})
     log = server.srv.robot.log
@@ -226,7 +230,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 4
     seq = [route[0]] + pts                                              # 반지름 100 mm [사용자 10/08], 구간이 짧으면 앞뒤 구간 절반의 90% — 절반 그대로면 제어기 거부 [실측 PC2 10/08]
     half = [min(math.dist(seq[k][:3], seq[k + 1][:3]), math.dist(seq[k + 1][:3], seq[k + 2][:3])) / 2.0 for k in range(3)]
-    assert radii == pytest.approx([min(100.0, 0.9 * h) for h in half] + [0.0]) and radii[0] == pytest.approx(0.9 * 41.72, abs=0.1)
+    assert radii == pytest.approx([min(100.0, 0.9 * h) for h in half] + [0.0]) and radii[0] < 100.0   # 1→2 짧은 구간은 절반의 90%
     assert pts[3][2] == pytest.approx(route[-1][2])
     assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로
@@ -986,3 +990,20 @@ def test_held_object_survives_server_restart_only_if_gripper_still_holds(server,
     assert (srv.held is not None) == restored and srv.held_file.exists() == restored
     srv.held = None
     assert not srv.held_file.exists()
+
+
+def test_in_drawer_moves_sideways_only_above_rim(server):
+    """[사용자 10/08] 서랍 안 옆 이동은 테두리 + in_drawer_clear_mm 위에서만, 목표 바로 위에서 수직으로 내려감 (쌓인 물건 약 55 mm).
+    경유점(drag_down)이 그 높이보다 낮아도 먼저 수직으로 올린 뒤 옆으로."""
+    srv = server.srv
+    top = srv.places()["drawer_top"]
+    travel = 1000.0 * (top["tf"]["translation_m"][2] + top["interior_m"][2]) + srv.prm()["transit"]["in_drawer_clear_mm"]
+    srv.robot.p = [375.6, -217.0, 250.0, 0.0, 180.0, 0.0]               # 테두리보다 낮은 경유점에 있다고 가정
+    above = [300.0, -150.0, 215.0, 0.0, 180.0, 0.0]
+    srv._over_then_down(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
+                        "drawer_top", list(srv.robot.p), above, "to_object:over")
+    kind, pts, radii = srv.robot.log[-1]
+    assert kind == "moveb" and len(pts) == 3
+    assert pts[0][:2] == pytest.approx([375.6, -217.0]) and pts[0][2] == pytest.approx(travel)   # 수직으로 올림
+    assert pts[1][:2] == pytest.approx(above[:2]) and pts[1][2] == pytest.approx(travel)        # 그 높이로 목표 바로 위
+    assert pts[2] == above and radii[-1] == 0.0                                                 # 수직으로 내려감
