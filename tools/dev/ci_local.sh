@@ -6,6 +6,8 @@
 #   bash tools/dev/ci_local.sh            # 지금 저장소 HEAD (커밋된 것만 — 커밋 안 한 수정은 검사하지 않음)
 #   bash tools/dev/ci_local.sh 185        # PR #185 의 head (origin 에서 받음)
 #   bash tools/dev/ci_local.sh <브랜치|SHA>
+#     입력 처리 순서: 숫자만 = PR 번호(원격 refs/pull/N/head 의 SHA) → 로컬에 있는 브랜치·SHA(로컬 브랜치는 커밋된 것) →
+#     40자 SHA 는 원격에서 그 커밋을 받음 → 그 밖의 이름은 원격 브랜치(refs/heads/이름). 짧은 SHA 는 로컬에 있어야 한다.
 #   ONLY=core bash tools/dev/ci_local.sh 185     # 하나만: core | compose | build (결과 줄에 "부분 검사"로 표시)
 #
 # 하는 일 (ci.yml 과 같은 조건):
@@ -41,7 +43,11 @@ if [[ $REF =~ ^[0-9]+$ ]]; then
   git -C "$REPO" cat-file -e "$SHA^{commit}" 2>/dev/null || fetch_sha "$SHA"
 else
   SHA=$(git -C "$REPO" rev-parse --verify -q "$REF^{commit}" || true)
-  if [[ -z $SHA ]]; then                                      # 로컬에 없으면 origin 브랜치로
+  if [[ -z $SHA && $REF =~ ^[0-9a-f]{40}$ ]]; then             # 로컬에 없는 40자 SHA → 원격에서 그 커밋만 받음
+    fetch_sha "$REF" || { echo "SHA $REF 를 origin 에서 받지 못함"; exit 2; }
+    SHA=$REF
+  elif [[ -z $SHA ]]; then                                    # 로컬에 없으면 origin 브랜치로
+    [[ $REF =~ ^[0-9a-f]{7,39}$ ]] && echo "참고: 짧은 SHA 는 로컬에 있어야 함 — 40자 SHA 나 PR 번호를 쓰면 원격에서 받음"
     SHA=$(remote_sha "refs/heads/$REF")
     [[ -n $SHA ]] || { echo "$REF 를 로컬·origin 어디서도 찾지 못함"; exit 2; }
     git -C "$REPO" cat-file -e "$SHA^{commit}" 2>/dev/null || fetch_sha "$SHA"
@@ -107,7 +113,7 @@ core() {
   [[ -x $vpy ]] || { echo "venv python 없음: $vpy"; return 1; }
 
   local port i
-  port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+  port=$(env -i PATH=/usr/bin:/bin "$py" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')   # 포트 고르기도 같은 빈 환경·py3.12
   docker run -d --rm --name "$MONGO" -p "127.0.0.1:$port:27017" mongo:7.0 >/dev/null
   for i in $(seq 60); do                                      # ci.yml health-check 와 같은 ping (최대 60 s)
     docker exec "$MONGO" mongosh --quiet --eval 'db.runCommand({ping: 1})' >/dev/null 2>&1 && break
