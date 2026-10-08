@@ -57,7 +57,7 @@
 
 [문서] 기존 Runner는 하위 동작 실패를 전파하고 전체 성공 뒤에만 effect를 적용합니다. 최초/재관측 `target=null`은 현재 main의 `VAR_NULL` 검사로 다음 nudge/pick 전송 전에 차단합니다. errors에는 기존 NOT_VISIBLE/GRASP_FAILED와 A 조회·B 탑뷰/끌기/집기 및 Runner null 차단의 기존 코드를 반영했습니다. errors는 선언 데이터이며 오류를 변환하거나 새로 생성하지 않습니다. B 공통 안전·통신 오류도 원래 코드로 전파되며 이 목록이 모든 장애의 허용 목록은 아닙니다. hold/verify는 보존 선언이며 관측 기반 상태 검증을 새로 구현하지 않습니다.
 
-[문서] C 인계 반영 완료(PR #130): 정식 태스크의 관측이 기존 2회에서 3회(태스크 1회+pick 2회)로 늘어난 호출열·횟수와, 재관측 `scan.target`이 실제 집기 입력인지 `test_tasks.py`에서 확인합니다. 탑뷰/nudge는 현재 NON_MOTION_ACTIONS에 없으므로 기존 `YAW_INVALID` retry 1도 선행 이동 뒤에는 억제됩니다. 이를 임의 우회하지 않으며, `timeout_sec=60`은 전체 pick 전개를 포함하므로 실측 예산을 재검토해야 합니다. finally는 기존 그리퍼·중단/잠금 조건을 따르며 ESTOP/서버 잠금에서 자동 닫기·홈을 보장하지 않습니다. 코드·테스트 반영은 B 배포 SHA·no-op/실패·탑뷰·wall guard와 A의 실제 새 프레임/좌표를 확인한 전체 실물 통합 완료를 뜻하지 않습니다.
+[문서] C 인계 반영 완료(PR #130): 정식 태스크의 관측이 기존 2회에서 3회(태스크 1회+pick 2회)로 늘어난 호출열·횟수와, 재관측 `scan.target`이 실제 집기 입력인지 `test_tasks.py`에서 확인합니다. 탑뷰/nudge는 현재 NON_MOTION_ACTIONS에 없으므로 기존 `YAW_INVALID` retry 1도 선행 이동 뒤에는 억제됩니다. 이를 임의 우회하지 않으며, 공통 pick의 `timeout_sec=70`은 PR #164에서 정식 태스크와 점검 태스크 및 테스트에 반영됐습니다. 이 값은 전체 pick 전개를 포함하며 실물 소요 시간에 따른 예산 재검토는 별도입니다. finally는 기존 그리퍼·중단/잠금 조건을 따르며 ESTOP/서버 잠금에서 자동 닫기·홈을 보장하지 않습니다. 코드·테스트 반영은 B 배포 SHA·no-op/실패·탑뷰·wall guard와 A의 실제 새 프레임/좌표를 확인한 전체 실물 통합 완료를 뜻하지 않습니다.
 
 [문서] 기준은 P1 [FR-ONT-01](../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../docs/requirements.md#fr-act-05)입니다. FR-ACT-05의 “닫은 그리퍼로 밀기”와 B의 누르고 끄는 구현 표현은 정본 담당 확인·별도 인계 사항입니다. 이 문서에서 요구사항·AC를 변경하지 않습니다. E 모의 통합 테스트의 이동 후 좌표 변화는 스텁 데이터이며 실제 재인식 성공·벽 근처 10회 실측 근거가 아닙니다. B의 [domain.md 8.5](../docs/domain.md#85-벽-인접-물체-밀어오기-담당-b)는 현재 P1 공통 pick의 6단계·no-op 후 재관측·이동 후 재시도 억제를 설명하며, 과거 예시와 P2 계획을 별도로 구분합니다.
 
