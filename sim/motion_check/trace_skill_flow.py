@@ -318,11 +318,16 @@ def main():
     ap.add_argument("--out", default="trace.json")
     ap.add_argument("--steps", default="ready,open,view,nudge,view,pick,place,close,home")
     ap.add_argument("--drawer", default="top", choices=("top", "bottom"))
+    ap.add_argument("--target", help="지우개 서랍 좌표 x,y[,yaw_deg] (m). 없으면 b_sk.py 값(위 칸 기준)")
     ap.add_argument("--cfg-dir", help="config 폴더 대신 쓸 곳 (가정값을 넣은 places.yaml 등으로 시험할 때). 결과 표에 표시")
     a = ap.parse_args()
     drawer = f"drawer_{a.drawer}"
     eraser = json.loads(json.dumps(ERASER))
     eraser["pose"]["frame"] = drawer
+    if a.target:
+        v = [float(t) for t in a.target.split(",")]
+        eraser["pose"]["position"] = [v[0], v[1], 0.0]
+        eraser["pose"]["yaw"] = math.radians(v[2]) if len(v) > 2 else 0.0
     repo = Path(a.repo).resolve()
     robot = KinRobot(HOME_J)
     ss, sf, srv, Gripper = load_server(repo, robot, Path(a.cfg_dir).resolve() if a.cfg_dir else None)
