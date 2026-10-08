@@ -54,7 +54,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 
 ### 5.2 P2 정지·복구·재개 계약안 — 제안·승인 대기
 
-[문서: 현재] 기존 ICD 표·intent enum·스키마·예시는 유지합니다. [FR-SAF-01–03](requirements.md#fr-saf-01)·[AC-SAF-02–04](requirements.md#ac-saf-02)의 목표 승인은 새 wire 계약 승인이 아닙니다. 현재 core resume() 잠금 해제는 중단 단계 재개 지원이 아닙니다. reset_state 역시 안전 해제가 아닙니다.
+[문서: 현재] 기존 ICD 표·intent enum·스키마·예시는 유지합니다. [FR-SAF-01–03](requirements.md#fr-saf-01)·[AC-SAF-02–04](requirements.md#ac-saf-02)의 목표 승인은 새 wire 계약 승인이 아닙니다. 현재 core `resume()`은 잠금 해제만 합니다. 중단 단계 재개는 core `resume_run`(PR #170 병합 10/08, 기본 꺼짐 `resumable=False`) **준비만** 있고, `/runner/status`·인텐트·`/skills/recover`·그리퍼 관측 등 **노드·E 운영 연결은 미구현**입니다(C 계약안 [v0](https://github.com/Jik-Kim/ready2go/issues/152#issuecomment-6051650081)·[v1](https://github.com/Jik-Kim/ready2go/issues/152#issuecomment-6052621770) 승인 대기). reset_state 역시 안전 해제가 아닙니다.
 
 | 흐름·담당 | 필요한 의미(확정 필드명이 아님) | 차단 조건·협의 사항 |
 | :--- | :--- | :--- |
