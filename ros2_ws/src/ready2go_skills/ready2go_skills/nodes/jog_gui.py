@@ -496,9 +496,9 @@ class App:
         g = tk.Frame(f, bg=C["panel"])
         g.pack()
         for k, (mode, text) in enumerate((("x", "x 정렬\n수평·바깥"), ("y", "y 정렬\n수평·−y"),
-                                          ("z", "z 정렬\n수직 아래"), ("r", "그리퍼 정렬\n가까운 90°로"))):
+                                          ("z", "z 정렬\n수직 아래"), ("r", "그리퍼 정렬"))):
             self.btn(g, text, lambda m=mode: self.align(m), move=True, width=9, font=("", 8)).grid(
-                row=k // 2, column=k % 2, padx=2, pady=2, sticky="we")
+                row=k // 2, column=k % 2, padx=2, pady=2, sticky="nsew")
         r = tk.Frame(f, bg=C["panel"])
         r.pack(anchor="w", pady=(5, 0))
         tk.Label(r, text="회전", bg=C["panel"], fg=C["sub"]).pack(side="left")
