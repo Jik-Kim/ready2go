@@ -49,6 +49,7 @@
 2. 터미널마다 `r2genv` 먼저: t1 `roboton` / t2 `docker compose --profile real up -d --force-recreate realsense` → `docker compose logs -f realsense` (`Motion Module force pause` 경고는 IMU 미사용이라 무시 [추정]) / t3 `r2gjog` / t4(인식 쓸 때만) 손목–카메라 TF(아래 명령) / t5 작업(지그와 동시 명령 금지).
 3. 확인(t5): `ros2 topic list | grep -c wrist_cam`(0 아님) · `ros2 topic hz /wrist_cam/color/image_raw`(약 30 Hz) · `ros2 service list | grep -c dsr01`(0 아님). 첫 동작 전 홈·서랍 닫힘·빈손, 새 동작은 저속.
 4. 끝: 홈·서랍 로봇으로 닫기 → 스킬 서버·t3·t1 Ctrl+C → `docker compose stop realsense` (비전 켰으면 `docker rm -f vision_check`).
+- **부딪히거나 이상하면 세팅부터 의심** [사용자 10/08]: 코드·교시값보다 먼저 선반·서랍장 위치와 고정 상태(밀림·기울어짐·우드락 눌림)를 확인한다. 10/08 저녁 선반이 왼쪽으로 밀려 있었고, 위 서랍 앞 두 모서리 높이 차 3.9 mm(아래 0.7 mm). 밀렸으면 서랍마다 바닥 앞 모서리 2점을 다시 재서 이동·회전을 계산해 서랍에 붙은 값(tf·손잡이·손잡이 앞·45° 닫기·경유점·들고 나오기 1·2)을 한꺼번에 옮긴다(탑뷰·트레이는 그대로).
 - **B 시험 시작 전 초기화 (매번 처음 할 때)** [사용자 10/08] — 스킬 서버는 서랍 열림을 기억으로만 알고, 인식 결과 파일도 남아 있어 실물과 어긋나면 거부·엉뚱한 좌표가 남:
   1. `cd ~/ready2go && git pull origin <브랜치> && git log --oneline -1` (코드 최신)
   2. 스킬 서버 터미널 `Ctrl+C` → `VEL=60 JACC=40 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server` (서랍 둘 다 닫힘으로 초기화). 탑뷰·바텀뷰 이동만 `skills.yaml` `speed.view_joint_deg_s` 90 [사용자 10/08]
