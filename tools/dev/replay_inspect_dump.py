@@ -19,6 +19,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_vision"))
+from ready2go_vision.core.dump_masks import restore_masks  # noqa: E402
 from ready2go_vision.core.floor_probe import floor_probe  # noqa: E402
 from ready2go_vision.core.geometry import Intrinsics, drawer_from_camera  # noqa: E402
 from ready2go_vision.core.inspect_real import inspect_scene  # noqa: E402
@@ -49,10 +50,8 @@ def main():
         T = drawer_from_camera(T_base_drawer, z["T_base_cam"])
         depth = z["depth_m"].astype(float)
         dets = detector.detect(z["color"]) if detector else [{**d, "box": tuple(d["box"])} for d in meta["detections"]]
-        if not detector and "masks" in z.files:                                # 분할 모델 덤프: 저장된 마스크 복원
-            w = z["color"].shape[1]
-            for d, mk in zip(dets, np.unpackbits(z["masks"], axis=-1)[..., :w].astype(bool)):
-                d["mask"] = mk
+        if not detector:                                                       # 분할 모델 덤프: 저장된 마스크 복원
+            restore_masks(dets, z["masks"] if "masks" in z.files else None, z["color"].shape[1])
         req = meta["request"]
         debug = []
         ok, err, js = inspect_scene(dets, depth, K, T, params, items, req["region"], req["search_target"], meta["interior_m"], debug)

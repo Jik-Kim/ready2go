@@ -15,7 +15,7 @@
 - 새 모델로 바꿀 때: 파일 이름의 버전을 올리고(`_v2`), `.gitignore` 예외 한 줄과 이 표를 함께 갱신한다
 
 ## 받기·검증
-- 이 파일은 Git LFS다. 받기 전에 한 번 `git lfs install`, 그다음 `git pull`(또는 `git lfs pull`). 설치하지 않으면 5 MB 파일 대신 포인터 텍스트 3줄만 받아 로딩이 실패한다
+- 위 두 파일은 Git LFS다. 받기 전에 한 번 `git lfs install`, 그다음 `git pull`(또는 `git lfs pull`). 설치하지 않으면 실제 파일(검출 v1 약 5 MB, 분할 약 20 MB) 대신 포인터 텍스트 3줄만 받아 로딩이 실패한다
 - 받은 뒤 검증: `sha256sum models/*.pt` 값이 위 SHA-256과 같아야 한다
 
 ## 라이선스 [미확인]

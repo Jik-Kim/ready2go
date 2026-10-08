@@ -29,6 +29,7 @@ from tf2_ros import Buffer, TransformListener
 
 from ready2go_interfaces.srv import InspectRegion
 from ready2go_vision.core.detector import YoloDetector
+from ready2go_vision.core.dump_masks import split_masks
 from ready2go_vision.core.floor_probe import floor_probe
 from ready2go_vision.core.geometry import Intrinsics, drawer_from_camera, make_T
 from ready2go_vision.core.inspect_real import SUPPORTED_REGIONS, inspect_scene, region_frames
@@ -151,14 +152,13 @@ class InspectRegionNode(Node):
         now = datetime.datetime.now(datetime.timezone.utc)                     # UTC (컨테이너 시간대와 무관)
         stamp = f"{now:%Y%m%d_%H%M%S}_{now.microsecond // 1000:03d}Z"
         path = self._dump / f"inspect_{stamp}.npz"
-        masks = [d["mask"] for d in dets if "mask" in d]
+        plain, extra = split_masks(dets)
         meta = {"request": {"region": req.region, "search_target": req.search_target}, "success": res.success,
                 "error_code": res.error_code, "result_json": res.result_json,
-                "detections": [{k: v for k, v in d.items() if k != "mask"} for d in dets], "debug": debug, "floor": floor,
+                "detections": plain, "debug": debug, "floor": floor,
                 "K": [K.fx, K.fy, K.cx, K.cy], "versions": self._versions,
                 "interior_m": region["interior_m"], "region_tf": region["tf"]}
         try:
-            extra = {"masks": np.packbits(np.stack(masks), axis=-1)} if masks and len(masks) == len(dets) else {}
             np.savez_compressed(path, **extra, color=color, depth_m=depth.astype(np.float32), T_base_cam=tf_to_T(ts),
                                 T_base_drawer=region["T_base_drawer"], T_drawer_cam=T_drawer_cam,
                                 meta=np.array(json.dumps(meta, ensure_ascii=False, default=float)))
