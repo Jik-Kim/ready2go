@@ -168,3 +168,46 @@ def test_cli_check_exit_code(tmp_path, capsys):
     assert cli.main(["--jsonl", str(folder), "-n", "3", "--check"]) == 1
     out = capsys.readouterr().out
     assert "❌ 2026-10-07T00:00:00Z_zzzzzz" in out and "끝 기록 없음" in out and "3건 중 누락 1건" in out
+
+
+def test_report_survives_non_numeric_values():
+    """#167 PM 권장: 결과 값이 숫자가 아니어도(좌표·시간 문자열·None) 보고서가 멈추지 않고 그 칸만 표시."""
+    record = {"run": {"run_id": "r", "task_id": "t", "overall_status": "FAILED", "total_duration_sec": "?",
+                      "error": {"code": "LIFT_FAILED"}, "failed_step": "s2"},
+              "steps": [
+                  {"run_id": "r", "seq": 0, "id": "s1", "action": "inspect_region", "status": "SUCCESS",
+                   "duration_sec": "abc", "result": {"target_found": True,
+                                                     "target": {"class": "eraser", "pose": {"position": ["x", None]}}}},
+                  {"run_id": "r", "seq": 1, "id": "s2", "action": "place_object", "status": "FAILURE",
+                   "error": {"code": "LIFT_FAILED"}, "result": {"slot": None, "placed_pose": {"position": [None, "y"]}}},
+                  {"run_id": "r", "seq": 2, "id": "s3", "action": "nudge_object", "status": "SUCCESS",
+                   "result": {"pushed": True, "push_vector_m": ["a", "b"]}}]}
+    text = rr.to_text(record)
+    assert "결과 값을 읽을 수 없음" in text and "LIFT_FAILED" in text and "abc s" in text
+    assert rr.to_markdown(record).count("결과 값을 읽을 수 없음") == 3
+
+
+def test_failed_place_inside_skill_keeps_placed_pose_in_child_record():
+    """#167 PM 권장 1: P2 실제 경로(place 스킬 → place_object 전개)에서도 그리퍼를 연 뒤 실패의 placed_pose 가
+    하위 동작 기록(DB result)에 남고 블랙보드에는 없음."""
+    from ready2go_runner.core.interpreter import ActionResult, Runner
+    from ready2go_runner.core.logstore import MemoryLogStore
+    from test_interpreter import FakeBackend
+
+    placed = {"slot": None, "placed_pose": {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 0.0}}
+    onto = {"skills": {"place": {"kind": "primitive", "params": {"item": "Item", "to": "Place"}, "pre": [],
+                                 "effect": [{"subject": "$item", "predicate": "located_in", "value": "$to"}],
+                                 "expand": [{"action": "place_object", "params": {"location": "$to"}}]}},
+            "state": {"located_in": {"eraser": "gripper"}}}
+    store = MemoryLogStore()
+    task = {"task_id": "t", "sequence": [{"id": "s1", "skill": "place", "params": {"item": "eraser", "to": "drawer_top"},
+                                          "output": "placed"}]}
+    runner = Runner(FakeBackend({"place_object": ActionResult(False, placed, "LIFT_FAILED")}), ontology=onto,
+                    log_store=store)
+    result = runner.run(task)
+    assert (result.overall_status, result.error_code) == ("FAILED", "LIFT_FAILED")
+    saved = store.read_run(result.run_id)["steps"]
+    child = next(s for s in saved if s.get("parent") == "s1")
+    assert child["result"] == placed and child["error"]["code"] == "LIFT_FAILED"
+    assert "placed" not in result.blackboard and runner.state["located_in"]["eraser"] == "gripper"   # effect 없음
+    assert "놓은 자리 (60, 220) mm" in rr.to_text(store.read_run(result.run_id))

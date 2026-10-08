@@ -57,7 +57,10 @@ def _mm(metres) -> str:
 
 
 def _seconds(value) -> str:
-    return "-" if value is None else f"{float(value):.1f} s"
+    try:
+        return "-" if value is None else f"{float(value):.1f} s"
+    except (TypeError, ValueError):                 # 기록 값이 숫자가 아니어도 보고서는 멈추지 않음 (#167 PM 권장)
+        return f"{value} s"
 
 
 def mark(step: dict) -> str:
@@ -95,7 +98,22 @@ def _state_diff(diff: dict) -> str:
 
 
 def detail(step: dict) -> str:
-    """스텝 하나의 핵심 값 한 줄. 실패면 오류 설명을 붙인다."""
+    """스텝 하나의 핵심 값 한 줄. 실패면 오류 설명을 붙인다. 결과 값 모양이 예상과 달라도(숫자가 아닌 좌표 등)
+    보고서 전체가 멈추지 않게 그 칸만 '값을 읽을 수 없음'으로 둔다 (#167 PM 권장 — 보고서는 사람이 원인을 볼 도구)."""
+    try:
+        text = _detail_text(step)
+    except (TypeError, ValueError, KeyError, IndexError, AttributeError):
+        text = "결과 값을 읽을 수 없음"
+    action = step.get("action")
+    code = (step.get("error") or {}).get("code") if isinstance(step.get("error"), dict) else None
+    if code and action == "skill" and not text:
+        text = code                            # 설명은 아래 원자 동작 줄에 (같은 설명 두 번 안 씀)
+    elif code:
+        text = f"{code}: {ERROR_KO.get(code, '')}".rstrip(": ") + (f" — {text}" if text else "")
+    return text
+
+
+def _detail_text(step: dict) -> str:
     action, params, result = step.get("action"), step.get("params") or {}, step.get("result") or {}
     text = ""
     if action == "skill":
@@ -155,11 +173,6 @@ def detail(step: dict) -> str:
         text = json.dumps(step.get("result"), ensure_ascii=False)[:60]
     elif action == "set_var":
         text = f"{params.get('name')} = {params.get('value')}"
-    code = (step.get("error") or {}).get("code")
-    if code and action == "skill" and not text:
-        text = code                            # 설명은 아래 원자 동작 줄에 (같은 설명 두 번 안 씀)
-    elif code:
-        text = f"{code}: {ERROR_KO.get(code, '')}".rstrip(": ") + (f" — {text}" if text else "")
     return text
 
 
