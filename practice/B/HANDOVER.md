@@ -42,6 +42,14 @@
 - 테스트: `test/test_skill_server_node.py`(가짜 로봇 노드 경로), `test/test_b_scripts.py`(b_demo·b_route 정지 확인).
 
 ## 4. PC2 실행 방법
+**PC2 재부팅 후 세팅 — 노드 작업(호스트 드라이버 방식)** [사용자 10/08, `r2genv` = `source /opt/ros/jazzy/setup.bash` + `ROS_DOMAIN_ID=70`·cyclonedds·`CYCLONEDDS_URI=…/config/cyclonedds.local.xml` + `cd ~/ready2go` (PC2 `~/.bashrc`)]
+0. 장비: 제어기·펜던트 켜기(알람 없음·비상정지 해제), 펜던트 TCP `GripperDA_v1`·툴 `tool_weight`, RG2 박스, 손목 카메라 USB3·케이블이 렌즈 안 가림, 비상정지 대기 1명.
+1. 첫 터미널(한 번): `r2genv` → `ros2 daemon stop` → `ping -c 2 192.168.1.100 && ping -c 2 192.168.1.1` → `git status`(고친 파일 있으면 멈춤) → `git switch main && git pull && git lfs pull` → `grep -n "BACKEND\|DDS_MODE\|ROBOT_HOST" .env` → `docker compose stop ros2-core`.
+   - **`.env` `DDS_MODE=local` 이어야 함** — `multi` 면 카메라 컨테이너가 호스트(local)와 안 만나 `wrist_cam` 토픽이 안 보임 [실측 10/08]. 고치기: `sed -i 's/^DDS_MODE=.*/DDS_MODE=local/' .env` (A 가 PC1 에서 원격으로 쓰는 중이면 먼저 알림).
+2. 터미널마다 `r2genv` 먼저: t1 `roboton` / t2 `docker compose --profile real up -d --force-recreate realsense` → `docker compose logs -f realsense` (`Motion Module force pause` 경고는 IMU 미사용이라 무시 [추정]) / t3 `r2gjog` / t4(인식 쓸 때만) 손목–카메라 TF(아래 명령) / t5 작업(지그와 동시 명령 금지).
+3. 확인(t5): `ros2 topic list | grep -c wrist_cam`(0 아님) · `ros2 topic hz /wrist_cam/color/image_raw`(약 30 Hz) · `ros2 service list | grep -c dsr01`(0 아님). 첫 동작 전 홈·서랍 닫힘·빈손, 새 동작은 저속.
+4. 끝: 홈·서랍 로봇으로 닫기 → t5·t3·t1 Ctrl+C → `docker compose stop realsense`.
+
 **호스트 상태에서 교시·비전 확인 (10/08 오후 쓴 방식, 컨테이너 `ros2-core` 끔)**
 - 터미널: `roboton`(호스트 드라이버) / `r2gjog`(지그) / 카메라 `bash tools/dev/vision_real_check.sh camera`(컨테이너, `/wrist_cam`) / 손목–카메라 TF:
   `source /opt/ros/jazzy/setup.bash; export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI=file://$HOME/ready2go/config/cyclonedds.local.xml; ros2 run tf2_ros static_transform_publisher --x 0.01875 --y 0.07650 --z 0.02641 --qx -0.50615 --qy -0.49852 --qz -0.5008 --qw 0.49446 --frame-id link_6 --child-frame-id wrist_cam_link`
