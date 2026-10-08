@@ -11,6 +11,7 @@
     TF 로 계산하므로 촬영 자세가 바뀌어도 따라간다. 값이 없으면(옛 설정) 끈다.
   footprint 가 서랍 안쪽(interior_m, 오차 여유 region.edge_tolerance_m)을 벗어난 검출은 결과에서 뺀다(서랍 밖 파지 방지).
   뎁스를 쓸 수 없는 검출이 하나라도 있으면 policy.on_invalid_candidate 에 따라 전체 DEPTH_INVALID (기본 fail, 안전 우선).
+  지역(region)은 서랍 칸마다 places.yaml 의 tf·interior_m 으로 계산하고 pose.frame = 요청 지역 (#155, 아래 칸 = drawer_bottom).
 """
 from __future__ import annotations
 
@@ -18,10 +19,21 @@ import json
 import math
 
 from .depth_blob import analyze_box
-from .geometry import Intrinsics, ray_plane_xy
+from .geometry import Intrinsics, make_T, ray_plane_xy
 from .pose_rules import is_symmetric, result_errors
 
-SUPPORTED_REGIONS = ("drawer_top",)
+SUPPORTED_REGIONS = ("drawer_top", "drawer_bottom")
+
+
+def region_frames(places: dict) -> dict:
+    """places.yaml → {지역: {"tf", "interior_m"(깊이·폭), "T_base_drawer"}}. tf 가 아직 측정 전(null)인 지역은 빠진다(요청하면 UNKNOWN_REGION)."""
+    out = {}
+    for name in SUPPORTED_REGIONS:
+        tf = (places.get(name) or {}).get("tf")
+        if tf and tf.get("translation_m") is not None and tf.get("quaternion_xyzw") is not None:
+            out[name] = {"tf": tf, "interior_m": places[name]["interior_m"][:2],
+                         "T_base_drawer": make_T(tf["translation_m"], tf["quaternion_xyzw"])}
+    return out
 
 
 def footprint_inside(x, y, yaw, yaw_known, size, interior, tol):

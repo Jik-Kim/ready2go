@@ -9,7 +9,7 @@ np = pytest.importorskip("numpy")
 pytest.importorskip("cv2")
 yaml = pytest.importorskip("yaml")
 from ready2go_vision.core.geometry import Intrinsics, backproject  # noqa: E402
-from ready2go_vision.core.inspect_real import inspect_scene  # noqa: E402
+from ready2go_vision.core.inspect_real import inspect_scene, region_frames  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[4]
 PARAMS = yaml.safe_load((ROOT / "config/vision_params.yaml").read_text(encoding="utf-8"))
@@ -220,3 +220,30 @@ def test_gripper_fingertip_like_detection_beyond_back_wall_is_skipped():
     r = json.loads(js)
     assert ok and r["visible_count"] == 1 and abs(r["target"]["pose"]["position"][0] - 0.10) < 0.005
     assert any(d["conf"] == 0.39 and d.get("skip", "").startswith("서랍 영역 밖") for d in dbg)
+
+
+def test_drawer_bottom_region_uses_requested_frame():
+    """아래 칸(#155): 같은 계산, pose.frame 은 요청 지역. 지원 밖 지역은 그대로 UNKNOWN_REGION."""
+    gt = (0.06, 0.18, 0.5)
+    depth = scene(gt[0], gt[1], gt[2], (0.0525, 0.022), 0.0115)
+    dets = [{"class": "eraser", "conf": 0.9, "box": box_of(gt[0], gt[1], (0.0525, 0.022), gt[2])}]
+    top = json.loads(run(depth, dets)[2])["target"]
+    ok, err, js = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_bottom", "eraser", INTERIOR)
+    bottom = json.loads(js)["target"]
+    assert ok and err == "" and bottom["pose"]["frame"] == "drawer_bottom"
+    assert bottom["pose"]["position"] == top["pose"]["position"] and bottom["top_z"] == top["top_z"]
+    assert inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_middle", "eraser", INTERIOR)[:2] == (False, "UNKNOWN_REGION")
+
+
+def test_region_frames_skips_unmeasured_tf_and_keeps_each_interior():
+    places = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+    places["drawer_bottom"]["tf"] = {"parent": "base_link", "child": "drawer_bottom", "translation_m": None, "quaternion_xyzw": None}
+    assert set(region_frames(places)) == {"drawer_top"}
+    places["drawer_bottom"]["tf"] = {"parent": "base_link", "child": "drawer_bottom",
+                                     "translation_m": [0.24, -0.11, 0.047], "quaternion_xyzw": [0.0, 0.0, -0.7071068, 0.7071068]}
+    places["drawer_bottom"]["interior_m"] = [0.19, 0.28, 0.06]
+    fr = region_frames(places)
+    assert set(fr) == {"drawer_top", "drawer_bottom"}
+    assert fr["drawer_bottom"]["interior_m"] == [0.19, 0.28] and fr["drawer_top"]["interior_m"] == places["drawer_top"]["interior_m"][:2]
+    assert fr["drawer_bottom"]["T_base_drawer"][:3, 3] == pytest.approx([0.24, -0.11, 0.047])
+    assert fr["drawer_bottom"]["T_base_drawer"][:3, :3] @ [1, 0, 0] == pytest.approx([0, -1, 0], abs=1e-6)

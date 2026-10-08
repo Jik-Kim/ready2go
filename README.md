@@ -197,6 +197,7 @@ export DDS_MODE=local VISION_DUMP=$HOME/ready2go_vision_dump    # 요청마다 �
 bash tools/dev/vision_real_check.sh check                      # 뎁스 약 30 Hz, TF base_link → wrist_cam_color_optical_frame 출력이면 통과
 bash tools/dev/vision_real_check.sh node                       # 비전 노드 (터미널 하나 계속 사용, 처음 한 번 패키지 빌드 수십 초)
 bash tools/dev/vision_real_check.sh call eraser                # 1회 호출: success true, target_found true, 서랍 안 좌표
+bash tools/dev/vision_real_check.sh call eraser drawer_bottom  # 아래 칸 (places.yaml drawer_bottom.tf 측정 후, 전에는 UNKNOWN_REGION)
 ```
 
 - **새 PC 준비** (컨테이너 경로): ① `ready2go-vision` 이미지(`docker/vision/Dockerfile`, 버전 고정 torch 2.11.0+cu128·ultralytics 8.4.170) — 첫 실행에서 GPU 확인 `docker run --rm --gpus all ready2go-vision:latest python3 -c "import torch;print(torch.cuda.is_available())"` ② 모델은 Git LFS: `git lfs install && git lfs pull` 뒤 `sha256sum models/yolo11n_ready2go_v1.pt`가 [`models/README.md`](models/README.md) 값과 같아야 함(132 B 포인터 파일이면 노드가 시작하자마자 실패 [실측 PC2 10/07]) ③ `ros2-core`는 `BACKEND=real`(mock 이면 `mock_backend`가 같은 이름의 `/vision/inspect_region`을 띄움) ④ 카메라는 Compose `realsense` 하나만(호스트 `realsense2_camera`와 동시 실행 금지)
