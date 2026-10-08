@@ -228,7 +228,7 @@
   * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — P1 시연(벽 배치·끌기 뒤 다시 촬영, E #122 공통 pick): `-p intent_tasks:=find_item=/tasks/p1_demo_eraser.json` (공통 온톨로지 그대로). 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
   * 받을 물품 제한: 태스크 `trigger.targets`(선택, **물품 키 문자열 배열, 1개 이상·중복 없음** — `contracts/task.schema.json`). 있으면 그 물품만 실행하고 나머지는 `UNSUPPORTED_ITEM` 보류, 없으면 온톨로지에 있는 물품 모두. 배열이 아니면(스키마를 거치지 않은 태스크) 부분 문자열로 통과시키지 않고 보류. `inputs.target`은 기본값일 뿐 제한이 아니다. `tasks/p1_demo_eraser.json`은 `["eraser"]` (#89 PM·D 리뷰).
   * `min_confidence` 기본 0.6 `[추정, E 음성 노드 임계값과 맞출 것]`.
-* `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험.
+* `BACKEND=mock`: `mock_backend` 노드가 `/skills/*`·`/voice/speak`·`/vision/inspect_region`을 같은 이름으로 응답. `MOCK_FAIL`(예: `pick_object=GRASP_FAILED*1`)·`MOCK_NOT_VISIBLE`(예: `car_key`)로 실패 경로 시험. `MOCK_SCENE`(예: `occluded_top` — E #109 위 서랍 배치 모양 렌치 ← 망치 ← 차키)이면 여러 물체가 겹친 장면으로 인식(`occluded_by`·`visible_area_m2` 포함)·집기·서랍 안 놓기(`PLACE_BLOCKED`)를 흉내 (`core/mock_scene.py`, Unpacking 흐름 시험용 — 실물 B·A 동작과 다를 수 있음).
 
 ### 7.2 태스크 시퀀스 스키마
 
@@ -240,11 +240,11 @@
 
 ### 7.3 실제 인스턴스 예시: 오클루전 탐색 + 복구 (하드코딩 ID 없음)
 
-[문서] 음성 "지우개 찾아줘"의 `inputs.target = "eraser"` 바인딩을 설명하는 P2 이전 설계 예시입니다. 현재 원본은 외부 트레이 흐름이 남아 있어 사용자 확정 서랍 내부 이동 계약을 반영하기 전 실행 완료 근거로 사용하지 않습니다. 장애물 ID는 미리 알 수 없으므로 `inspect_region`의 반환값을 변수로 받아 사용합니다.
+[문서] P2 Unpacking 태스크(기준은 정본 [가림·추적·복구 정책](requirements.md#occlusion-policy), FR-ACT-04). **10/08 C 재작성 — mock 장면으로만 확인, 실물 미검증, 음성 연결(`trigger`) 전**. `find_item` 흐름에 치우기(`select_obstacle` → 장애물 `pick_object` → 고정 자리 `place_object` aside_1·막히면 aside_2 → `restore_stack` push → 탑뷰 다시 찍기, 최대 2개)와 finally 역순 복구(쥔 장애물이 없을 때만: 다시 찍기 → `find_moved` 재식별 → 원래 자리, 막히면 고정 자리)를 넣음. 선행: B 서랍 안 놓기 구현(#166)·얹힌 물체 집기(`NOT_ON_FLOOR`, #120)·A 가림 노드(#169), `reid_tol_m` 실측.
 
 > **원본 파일**: [`tasks/find_with_unpack.json`](../tasks/find_with_unpack.json) — JSON은 문서에 중복하지 않고 원본 파일만 유지함.
 
-* 이 한 파일로 **Unpacking(s7), 미발견 처리(s8 else), Rollback(f1), 서랍 닫기(f2)** 가 모두 표현되며, `finally`에 복구를 표현한 설계이나 실물 복구가 보장됐다는 의미는 아님. TODO(C·E): 같은 서랍 내부 빈 공간 이동·재관측/재식별·원래 pose 기록·LIFO 복구 계약을 [domain.md 8.2~8.3](domain.md)에 따라 반영하고 검증해야 함. Python 코드에는 시나리오 로직이 없음.
+* 이 한 파일로 **Unpacking(s6·s7), 꺼내지 못함 안내(s8 else), 역순 복구(fr), 서랍 닫기(f2)·홈(f3)** 이 모두 표현되며, `finally`에 복구를 표현했지만 실물 복구가 보장된다는 의미는 아님(중단이면 복구 반복 안 함, 쥔 채면 홈 안 감). 장애물 쥔 상태는 온톨로지가 아니라 블랙보드 `holding`(같은 서랍 안 이동은 상태를 바꾸지 않음). mock 시험 `test_unpack_task.py`(`MOCK_SCENE=occluded_top`·`plate_over_eraser`). TODO(C·E): 같은 서랍 내부 빈 공간 이동·재관측/재식별·원래 pose 기록·LIFO 복구 계약을 [domain.md 8.2~8.3](domain.md)에 따라 반영하고 검증해야 함. Python 코드에는 시나리오 로직이 없음.
 * **번들 요청**(`find_list`, `find_class`)은 별도 템플릿 `find_group_by_drawer`로 처리함: `query_ontology`의 `groups[]`를 `for_each`로 순회하여 **서랍당 한 번만 열고**, 서랍 내부에서는 목표 목록이 모두 발견되거나 탐색 한도/안전 조건에 도달할 때까지 Unpacking 루프를 돈 뒤 복구·닫는 후속 설계임. 같은 서랍 안으로 옮긴 물체가 남으므로 서랍이 비워진다고 가정하지 않음.
 
 ### 7.4 실행 이력 자동 로깅 스키마 (Execution Log)

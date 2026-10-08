@@ -9,6 +9,7 @@ Runner 코드는 그대로 두고 백엔드만 바꿔 끼운다. 취소 요청�
 - speak: on(기본)/off — off 면 /voice/speak 를 띄우지 않음 (E 음성 노드와 같이 쓸 때, compose MOCK_SPEAK)
 - fail: 실패 지정 "pick_object=GRASP_FAILED*1,drawer_control=DRAWER_STUCK" (core/mock_skills.py)
 - not_visible: inspect_region 에서 못 찾을 물품 "car_key,eraser"
+- scene: 여러 물체가 겹친 장면 이름 (core/mock_scene.py SCENES, 예: "occluded_top") — Unpacking 시험. 비우면 물체 1개
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from rclpy.node import Node
 from ready2go_interfaces.action import Skill
 from ready2go_interfaces.srv import InspectRegion
 
+from ..core.mock_scene import MockScene
 from ..core.mock_skills import SKILL_ACTIONS, MockSkills, parse_failures
 
 CANCELED = "CANCELED"
@@ -42,7 +44,9 @@ class MockBackendNode(Node):
         speak_value = self.declare_parameter("speak", "on", ParameterDescriptor(dynamic_typing=True)).value
         speak = (speak_value if isinstance(speak_value, bool)
                  else str(speak_value).strip().lower() not in ("off", "false", "0", "no"))
-        self.skills = MockSkills(parse_failures(fail), {s.strip() for s in hidden.split(",") if s.strip()})
+        scene = str(self.declare_parameter("scene", "").value).strip()
+        self.skills = MockSkills(parse_failures(fail), {s.strip() for s in hidden.split(",") if s.strip()},
+                                 MockScene(scene) if scene else None)
         group = ReentrantCallbackGroup()
         self._servers = [
             ActionServer(self, Skill, f"{prefix}/skills/{action}", self._executor_for(action),
@@ -56,7 +60,7 @@ class MockBackendNode(Node):
         self.get_logger().info(f"mock 백엔드 준비: /skills/{{{','.join(SKILL_ACTIONS)}}}, "
                                f"{'/voice/speak, ' if speak else '(/voice/speak 끔 — E 음성 노드 사용), '}"
                                f"/vision/inspect_region (동작 {self.duration}s, 실패 {fail or '없음'}, "
-                               f"못 찾음 {hidden or '없음'})")
+                               f"못 찾음 {hidden or '없음'}, 장면 {scene or '물체 1개'})")
 
     def _executor_for(self, action: str):
         def execute(goal):
