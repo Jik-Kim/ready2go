@@ -300,6 +300,19 @@ class SkillServer(Node):
         fs = [f for f in (self.robot.tool_force() for _ in range(int(sp["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
 
+    def _clear_to_continue(self, goal):
+        """노드 안에서 다음 명령(그리퍼 포함)을 보내기 직전: 취소 → CANCELED, 안전·비상정지 → ESTOP, 상태 조회 실패 → STATE_UNKNOWN.
+        아무 명령도 보내지 않고 돌려줌 (정지 명령도 안 보냄 — 이미 멈춘 상태). 문제없으면 None (#181 E 재리뷰 P1)."""
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+        if early:
+            return early
+        st = self.robot.state()
+        if st is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="다음 명령 전 로봇 상태 조회 실패 — 보내지 않음")
+        if sf.stopped_by_estop(st):
+            return sf.Outcome(False, sf.ESTOP, reason=f"다음 명령 전 로봇 상태 {st} (안전·비상정지) — 보내지 않음")
+        return None
+
     def _movej(self, goal, joints, stage, in_drawer=False):
         """관절 이동 1번 (제한 확인 → 자동 모드 → 비동기 → 도착). 성공이면 Outcome(True).
         in_drawer: 서랍 안으로 들어가는 경유점(drag_down) — speed.in_drawer_joint_* (관절 속도 설정보다 크지 않게)."""
@@ -719,7 +732,7 @@ class SkillServer(Node):
             cur = self.robot.posx()
             if cur is None:
                 return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
-        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 홈 이동 뒤 취소됐으면 그리퍼도 움직이지 않음 (#181 E 리뷰)
+        early = self._clear_to_continue(goal)              # 홈 이동 뒤 취소·안전정지면 그리퍼도 움직이지 않음 (#181 E 리뷰)
         if early:
             return early, None
         if self._grip_width() < oc["handle_open_width_mm"] - 2.0:   # 이미 벌어져 있으면 그리퍼 기다림 없이 (놓기 뒤 28 mm 등) [사용자 10/07]
@@ -808,7 +821,7 @@ class SkillServer(Node):
             o = self._named(goal, "home")
             if not o.success:
                 return o, None
-        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 홈 이동 뒤 취소됐으면 그리퍼도 움직이지 않음 (#181 E 리뷰)
+        early = self._clear_to_continue(goal)              # 홈 이동 뒤 취소·안전정지면 그리퍼도 움직이지 않음 (#181 E 리뷰)
         if early:
             return early, None
         self._grip(0, 20)

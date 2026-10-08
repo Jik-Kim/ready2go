@@ -16,7 +16,7 @@ AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
-NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "nudge", "all", "dragtest"}   # home·pick·place 는 서랍 없음
+NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -67,7 +67,8 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍]  서랍 = top | bottom (= drawer_top | drawer_bottom)\n"
-         "  서랍 필요: ready open opened close view scan nudge all dragtest   서랍 없음: home pick place")
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest   서랍 없음: home pick place\n"
+         "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
 
 
 STEPS = ("ready", "open", "view", "scan", "nudge", "view", "rescan", "pick", "place", "close", "home")
@@ -169,6 +170,9 @@ def main():
     node = rclpy.create_node("b_sk")
     if cmd == "scan":
         scan(node)
+        return
+    if cmd == "rescan":                            # 끌기 뒤 다시 인식 — 찾은 좌표를 집기(B pick)에 넘김 (all 의 rescan 과 같음, #181 E 리뷰)
+        scan(node, for_pick=True)
         return
     if cmd == "dragtest":
         try:

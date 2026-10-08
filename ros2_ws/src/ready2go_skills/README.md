@@ -56,7 +56,7 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 | `pick_object` (서랍) | 짧은 변 잡기(`pick_plan`), 벌림 = 짧은 변 + 13 mm, 폭 확인(`check_grasp`), 들어 올린 뒤 놓침 확인(`check_hold`). 접근: `drag_down` 교시된 서랍은 그리퍼 닫고 경유점 movej → y 맞추며 목표 위(`grasp` + 최대 30 mm, safe_z 하한 없음) 블렌딩 → 벌리고 내려감 (탑뷰에서 바로 가면 특이점, 10/07). 교시 전 서랍은 safe_z 경로 (`docs/domain.md` 8.5) |
 | `place_object` (`handover_zone`) | 빈 칸(트레이 x로 3칸), 집을 때 높이 + 1.5 mm에서 놓음, 옮기기 전 놓침 확인 |
 
-**아래 서랍(`drawer_bottom`)**: 코드는 공통. 열기 교시(손잡이 파지·손잡이 앞·최대 인출)는 10/08 실측으로 채움. 닫기는 `skills.yaml` `close_push.drawer_bottom`(45° 시작 posj·끝 posx) 교시 뒤. 넛지·집기·들고 나오기(`drag_down`·`carry_line`)와 서랍 안 이동 높이 상한은 교시 전
+**아래 서랍(`drawer_bottom`)**: 코드는 공통. 열기 교시(손잡이 파지·손잡이 앞·최대 인출)는 10/08 실측으로 채움. 닫기는 `skills.yaml` `close_push.drawer_bottom` — 끝 posx 실측, 시작은 위 칸 시작에서 z 만 내린 **계산값**, 사용자 보고 실물 1회 성공(10/08, AC 반복 미완료). 넛지·집기·들고 나오기(`drag_down`·`carry_line`)와 서랍 안 이동 높이 상한은 교시 전
 
 **시작 조건**: 서버를 띄울 때 서랍이 **닫혀 있어야** 한다 (서버는 인출 거리를 기억만 함). 재시작 뒤 열린 서랍을 닫으려면 `drawer_control`에 `displacement`(m)를 같이 준다 — 없으면 `DRAWER_STATE_UNKNOWN`(움직이지 않음).
 값: `params/skills.yaml` (그리퍼 기하·속도·끌기 — 10/05~06 로봇 실측), 장소 `config/places.yaml`, 물체 크기 `knowledge/world.jsonld`, 잡는 힘 `config/item_grasp.yaml`.
@@ -74,7 +74,7 @@ ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0     # 
 ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skill "{params_json: '{\"pose_name\": \"home\"}'}"
 ```
 
-**B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 서랍 필요: `ready open opened close view scan nudge all dragtest`, 없음: `home pick place`. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
+**B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 서랍 필요: `ready open opened close view scan rescan nudge all dragtest`(`rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick`), 없음: `home pick place`. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
 
 **과거 단독 시험 (10/06, 현재 P1 경로 아님)** — 위 서랍, 세로 지우개를 서동권 쪽-오른쪽 모서리에. 이때는 넛지 **예상 위치**(`target_after`)로 바로 집었음. **현재 공통 `pick` 은 끈 뒤 탑뷰에서 다시 찍은 `scan.target` 으로 집는다**(`knowledge/skills/pick.jsonld`, `docs/domain.md` 8.5). 하나씩 보내고 결과 확인 (`--feedback`로 단계 표시):
 ```bash

@@ -919,3 +919,32 @@ def test_nudge_and_pick_refuse_other_drawer_frame_without_motion(server):
     out, _ = server.run("pick_object", {"drawer_id": "drawer_bottom", "target": ERASER_CORNER})
     assert not out.success and out.error_code == server.ss.sf.BAD_PARAMS
     assert server.srv.robot.log == []
+
+
+@pytest.mark.parametrize("state", [5, 6, 9, None])
+@pytest.mark.parametrize("drawer", ["drawer_top", "drawer_bottom"])
+def test_close_after_home_safety_stop_sends_nothing_more(server, state, drawer):
+    """#181 E 재리뷰 P1: 닫기(위 = 수직, 아래 = 45°)에서 홈 이동 직후 안전정지(5)·비상정지(6)·안전정지2(9)·상태 조회 실패면
+    그리퍼·다음 이동 명령 0건 — ESTOP / STATE_UNKNOWN."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {drawer: 0.226}
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
+    server.Gripper.width = 0.9
+    real_named, grips = srv._named, []
+
+    def named(goal, pose_name, *a, **k):
+        o = real_named(goal, pose_name, *a, **k)
+        if pose_name == "home":
+            srv.robot.state = lambda: state                             # 홈 도착 직후 상태 주입
+        return o
+    srv._named = named
+    srv._grip = lambda w, f: grips.append(w)
+    out, _ = server.run("drawer_control", {"drawer_id": drawer, "state": "close"})
+    assert not out.success and out.error_code == (sf.STATE_UNKNOWN if state is None else sf.ESTOP)
+    log = [e for e in srv.robot.log if e != "stop"]
+    assert log[-1] == ("movej", srv.poses()["home"]["joints_deg"]) and grips == []
