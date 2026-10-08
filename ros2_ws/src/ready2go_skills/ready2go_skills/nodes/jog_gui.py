@@ -428,7 +428,7 @@ class App:
             if i in hints:
                 tk.Label(grid, text=hints[i], bg=C["panel"], fg=C["sub"], font=("", 7)).grid(row=i + 1, column=4, padx=2)
             out.append(e)
-        tk.Frame(body, bg=C["line"], width=1).pack(side="left", fill="y", padx=6)
+        tk.Frame(body, bg=C["line"], width=1).pack(side="left", fill="y", padx=14)   # 선 양옆 여백 (사용자 10/08)
         side = tk.Frame(body, bg=C["panel"])
         side.pack(side="left", fill="y")
         r0 = tk.Frame(side, bg=C["panel"])
