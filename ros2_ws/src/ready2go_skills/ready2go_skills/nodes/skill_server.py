@@ -411,14 +411,18 @@ class SkillServer(Node):
         return self._send_wait(goal, send, wait, start, posx, stage)
 
     def _send_wait(self, goal, send, wait, start, end, stage):
-        """보내고 끝까지. 받기만 하고 출발하지 않으면(start 에서 1 mm 안에 선 NOT_REACHED, 목표는 2 mm 넘게 떨어짐)
+        """보내고 끝까지. 받기만 하고 출발하지 않으면(start 에서 1 mm·0.5° 안에 선 NOT_REACHED, 목표는 2 mm 넘게 떨어짐)
         멈춘 걸 확인하고 한 번만 다시 — 앞 이동이 끝날 무렵 보낸 명령이 실행되지 않음
-        [실측 10/07 밤 PC2 drag_down 뒤 moveb, 10/08 아침 놓기 트레이 위 도착 뒤 lower_fast 남은 73.6 mm]. start None = 다시 보내지 않음."""
+        [실측 10/07 밤 PC2 drag_down 뒤 moveb, 10/08 아침 놓기 트레이 위 도착 뒤 lower_fast 남은 73.6 mm]. start None = 다시 보내지 않음.
+        방향도 본다: 위치는 그대로인데 돌기만 하다 선 이동은 출발한 것 — 다시 보내지 않음 [#156 E 리뷰 P2].
+        방향은 회전 행렬로 비교해 같은 자세의 다른 표기(B 180° 에서 A·C 가 함께 바뀜)는 같은 방향으로 봄."""
         bad = send() or wait()
         if bad is None or bad.error_code != sf.NOT_REACHED or start is None:
             return bad
         now = self.robot.posx()
-        if now is None or math.dist(now[:3], start[:3]) >= 1.0 or math.dist(start[:3], [float(v) for v in end[:3]]) < 2.0:
+        if (now is None or math.dist(now[:3], start[:3]) >= 1.0
+                or pm.rotation_angle(pm.rot(*now[3:6]), pm.rot(*start[3:6])) >= 0.5
+                or math.dist(start[:3], [float(v) for v in end[:3]]) < 2.0):
             return bad
         self.get_logger().warn(f"[{stage}] 이동이 출발하지 않음 — 한 번 다시 보냄 ({bad.reason})")
         return self._settle(goal) or send() or wait()

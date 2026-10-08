@@ -683,6 +683,35 @@ def test_line_that_never_starts_is_sent_once_more(server):
     assert out.error_code == sf.NOT_REACHED and len(calls) == 2
 
 
+def test_line_that_moved_or_turned_is_not_resent(server):
+    """#156 E 리뷰 P2: 위치가 출발점 1 mm 안이어도 돌기 시작했으면 출발한 것 — 다시 보내지 않음. 조금 가다 선 것도 그대로.
+    같은 방향의 다른 표기([45.4, 180, 44.7] ↔ [151.9, -180, 151.2])는 '안 돎'으로 봄."""
+    r = server.srv.robot
+    goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
+    calls = []
+
+    def stuck_at(p):                                                    # 보내면 p 까지만 가고 섬
+        def movel(*a, **k):
+            calls.append(1)
+            r.p = list(p)
+            return True
+        return movel
+    start, target = [500.0, 0.0, 100.0, 0.0, 180.0, 0.0], [510.0, 0.0, 100.0, 0.0, 180.0, 30.0]
+    for stop_at in ([500.0, 0.0, 100.0, 0.0, 180.0, 20.0],                 # 제자리에서 20° 돌다 섬 (E 반례)
+                    [501.5, 0.0, 100.0, 0.0, 180.0, 0.0],                  # 1.5 mm 가다 섬
+                    [504.0, 0.0, 100.0, 0.0, 180.0, 12.0]):                # 반쯤 가다 섬
+        calls.clear()
+        r.p = list(start)
+        r.movel_async = stuck_at(stop_at)
+        out = server.srv._line(goal, target, 150.0, "lower_fast")
+        assert out.error_code == sf.NOT_REACHED and len(calls) == 1, stop_at
+    calls.clear()                                                       # 표기만 다르고 같은 방향 = 출발 안 함 → 한 번 다시
+    r.p = [578.7, 205.6, 100.4, 45.4, 180.0, 44.7]
+    r.movel_async = stuck_at([578.7, 205.6, 100.4, 151.9, -180.0, 151.2])
+    out = server.srv._line(goal, [578.8, 205.5, 26.9, 151.9, -180.0, 151.2], 150.0, "lower_fast")
+    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+
+
 def test_contact_and_slow_lines_are_not_resent(server):
     """접촉 감시 직선(끌기·손잡이 등)과 아주 느린 직선(누르기·힘 맞추기 0.1 mm)은 서 있어도 다시 보내지 않음 — 막힌 쪽으로 또 밀지 않게."""
     r = server.srv.robot
