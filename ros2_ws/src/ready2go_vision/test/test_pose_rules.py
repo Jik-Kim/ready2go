@@ -80,3 +80,38 @@ def test_example_has_a_false_yaw_valid_case():
     r = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/inspect_region_result.json").read_text(encoding="utf-8"))
     flags = [r["target"]["pose"]["yaw_valid"]] + [c["pose"]["yaw_valid"] for c in r["candidates"]]
     assert False in flags and True in flags
+
+
+def _occ_result(target_occ, cand_occ, area=0.0012):
+    def it(i, occ, top):
+        return {"id": i, "class": i.split("#")[0], "pose": {"frame": "drawer_top", "position": [0.1, 0.1, 0.0], "yaw": 0.0, "yaw_valid": True},
+                "top_z": top, "occluded_by": occ, "visible_area_m2": area}
+    return {"target_found": True, "target": it("eraser#1", target_occ, 0.0115), "candidates": [it("lip_balm#1", cand_occ, 0.02)], "visible_count": 2}
+
+
+def test_occlusion_fields_are_optional_and_null_means_unknown():
+    """가림 필드(#120): 없거나 null 이면 '모름' — 기존 결과·박스 모델은 그대로 통과."""
+    assert result_errors(_occ_result(["lip_balm#1"], [])) == []
+    assert result_errors(_occ_result(None, None, area=None)) == []
+    r = _occ_result([], [])
+    for it in [r["target"], *r["candidates"]]:
+        del it["occluded_by"], it["visible_area_m2"]
+    assert result_errors(r) == []
+
+
+@pytest.mark.parametrize("target_occ, cand_occ, area, msg", [
+    (["toy_hammer#1"], [], 0.001, "결과에 없는 id"),            # 같은 결과 안의 id 만
+    (["eraser#1"], [], 0.001, "자기 자신"),
+    ("lip_balm#1", [], 0.001, "목록 또는 null"),
+    ([3], [], 0.001, "목록 또는 null"),
+    ([], [], -0.1, "visible_area_m2"),
+    ([], [], "0.1", "visible_area_m2"),
+])
+def test_occlusion_field_errors(target_occ, cand_occ, area, msg):
+    assert any(msg in e for e in result_errors(_occ_result(target_occ, cand_occ, area)))
+
+
+def test_example_shows_occluded_unknown_and_free():
+    ex = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/inspect_region_result.json").read_text(encoding="utf-8"))
+    occ = [ex["target"]["occluded_by"]] + [c["occluded_by"] for c in ex["candidates"]]
+    assert any(isinstance(o, list) and o for o in occ) and [] in occ and None in occ

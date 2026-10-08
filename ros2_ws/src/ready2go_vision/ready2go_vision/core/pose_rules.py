@@ -47,13 +47,32 @@ def pose_errors(pose: dict, where: str = "pose") -> list[str]:
     return errs
 
 
+def occlusion_errors(it: dict, ids: set, where: str) -> list[str]:
+    """가림 필드(P2, #120 — 계약 초안): 없거나 null 이면 '모름'. occluded_by = 같은 결과 안의 다른 물체 id 목록, visible_area_m2 >= 0."""
+    errs = []
+    occ = it.get("occluded_by")
+    if occ is not None:
+        if not (isinstance(occ, list) and all(isinstance(i, str) for i in occ)):
+            errs.append(f"{where}.occluded_by 는 id 문자열 목록 또는 null — 값 {occ!r}")
+        else:
+            errs += [f"{where}.occluded_by 에 결과에 없는 id {i!r}" for i in occ if i not in ids]
+            if it.get("id") in occ:
+                errs.append(f"{where}.occluded_by 에 자기 자신 {it.get('id')!r}")
+    area = it.get("visible_area_m2")
+    if area is not None and (isinstance(area, bool) or not isinstance(area, (int, float)) or area < 0):
+        errs.append(f"{where}.visible_area_m2 는 0 이상 숫자 또는 null — 값 {area!r}")
+    return errs
+
+
 def result_errors(result: dict) -> list[str]:
-    """inspect_region result_json 의 target·candidates pose 검사. 빈 리스트면 규칙을 지킨 것."""
+    """inspect_region result_json 의 target·candidates pose·가림 필드 검사. 빈 리스트면 규칙을 지킨 것."""
     errs = []
     items = [("target", result.get("target"))] + [(f"candidates[{i}]", c) for i, c in enumerate(result.get("candidates", []))]
+    ids = {it.get("id") for _, it in items if it is not None}
     for name, it in items:
         if it is not None:
             errs += pose_errors(it.get("pose", {}), f"{name}.pose")
+            errs += occlusion_errors(it, ids, name)
     tops = [c["top_z"] for c in result.get("candidates", [])]
     if tops != sorted(tops, reverse=True):
         errs.append("candidates 는 top_z 내림차순")
