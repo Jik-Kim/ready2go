@@ -1,6 +1,6 @@
 # 로봇 온톨로지 · 파일 구조와 상태 계약
 
-> 범위·Phase·완료 기준의 정본은 [requirements.md](requirements.md)입니다. 이 문서는 데이터 구조, 현재 E 로더의 기능, 담당별 연결 사항을 설명합니다. 시연 예시는 구현 완료의 근거로 사용하지 않습니다.
+> 의미·정책·책임·Phase·수용 기준은 [requirements.md](requirements.md)에만 정의합니다. 이 문서는 데이터 구조, 현재 E 로더의 기능, 담당별 연결 사항을 설명합니다. 시연 예시는 구현 완료의 근거로 사용하지 않습니다.
 
 ## 7. 로봇 온톨로지 및 JSON 규격
 
@@ -32,28 +32,27 @@
 
 [문서] 현재 main Runner의 null 참조 차단(`VAR_NULL`)과 하위 실패 전파를 사용합니다. 최초/재관측 target이 null이면 각각 nudge/pick을 보내지 않고, 전체 pick 성공에만 effect를 적용합니다. 탑뷰 이동 뒤에는 기존 YAW_INVALID 재시도도 억제됩니다. hold/verify 보존은 P2 사후 관측 검증 구현이 아닙니다. [Knowledge 연결·인계](../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결)에 호출 순서·오류 선언·모의 테스트 한계를 기록합니다.
 
-[문서] 기준은 P1 FR-ONT-01·FR-PLN-01 및 [FR-ACT-05/AC-ACT-05](requirements.md#fr-act-05)입니다. 실물 10회 성공률은 미측정입니다. C는 기존 관측 횟수/호출열 테스트와 pick 전체 60초 예산을 검토해야 하고, B는 배포 SHA·끌기 no-op/실패·탑뷰/wall guard, A는 실제 재관측 새 프레임·좌표를 확인해야 합니다. finally는 기존 안전 조건에 따르며 ESTOP/잠금에서 자동 닫기·홈을 단정하지 않습니다. 과거 시연 전용 온톨로지·집기 원본은 제거했으며 현재 실행 기준은 공통 manifest와 pick입니다. 정식 find_item과 점검용 p1_demo_eraser 태스크는 모두 공통 pick을 호출합니다. 과거 실측 로그·fixture·변경 이력은 보존하지만 현재 실행 기준이나 재관측 검증 완료의 근거로 사용하지 않습니다. P2부터의 공간 판단 주체는 미확정이며 [이슈 #120](https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상으로 남깁니다. FR-ACT-05의 밀기 표현과 실제 누르고 끄는 구현의 문구 차이는 정본 담당 인계이며 이번에 요구사항/계약을 바꾸지 않습니다.
+[문서] 기준은 P1 FR-ONT-01·FR-PLN-01 및 [FR-ACT-05/AC-ACT-05](requirements.md#fr-act-05)입니다. [AC-ACT-05](requirements.md#ac-act-05)의 실물 성공률은 미측정입니다. C 호출열/횟수 검사는 PR #130, pick 시간 예산은 PR #164로 반영됐으며 현재 값은 [태스크 원본](../tasks/find_item.json)에서 확인합니다. 후속 통합에서 B는 배포 SHA·끌기 no-op/실패·탑뷰/wall guard, A는 실제 재관측 새 프레임·좌표를 확인해야 합니다. finally는 기존 안전 조건에 따르며 ESTOP/잠금에서 자동 닫기·홈을 단정하지 않습니다. 과거 시연 전용 온톨로지·집기 원본은 제거했으며 현재 실행 기준은 공통 manifest와 pick입니다. 정식 find_item과 점검용 p1_demo_eraser 태스크는 모두 공통 pick을 호출합니다. 과거 실측 로그·fixture·변경 이력은 보존하지만 현재 실행 기준이나 재관측 검증 완료의 근거로 사용하지 않습니다. P2부터의 공간 판단 주체는 미확정이며 [이슈 #120](https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상으로 남깁니다. FR-ACT-05의 밀기 표현과 실제 누르고 끄는 구현의 문구 차이는 정본 담당 인계이며 이번에 요구사항/계약을 바꾸지 않습니다.
 
 ### 물품 정의·치수·요청 범위 (P1, #8 반영)
 
 - **원본**: `knowledge/world.jsonld`의 `world.items`. 진입점 `knowledge/robot_ontology.jsonld`에는 파일 참조만 있으므로 `ready2go_knowledge.core.ontology.load()`로 읽음. 장소 설정은 `config/places.yaml`, 파지 힘·최종 검증 여부는 `config/item_grasp.yaml`에서 같은 식별자로 연결함.
-- **요청 범위**: P1은 등록된 물품 중 사용자가 요청한 단일 물품을 처리함. 시험 예시·초기 배치·`commute_set`으로 요청 가능한 물품을 제한하지 않음. 목록·분류 요청은 P3. `commute_set`은 참조 정합성을 유지한 P3 예시 데이터이며 실제 시연 목록 확정을 의미하지 않음.
-- **치수 계약**: `size_m = [긴 변, 짧은 변, 높이]`, 단위 m, 눕힌 상태의 물체 로컬 축 기준 외접 바운딩 박스. 로컬 x는 긴 변, y는 짧은 변이며 원통·원뿔도 최대 외곽을 포함하는 박스로 나타냄. 물체 pose·yaw 규칙은 [runner.md 7.1](runner.md#71-원자-동작primitive-action-정의-규격), 서랍 좌표계 정의는 [`config/places.yaml` 첫 부분](../config/places.yaml)을 참조함. #6의 물체 방향 규칙과 병합된 PR #61에 맞춰 #8의 실측 치수 앞 두 값을 정렬했으며 높이·측정값 자체는 유지함. A의 pose 규칙 함수와 B의 밀기 계산을 대조했으며 실물 실행 경로 연결 완료를 뜻하지 않음. [문서]
-- **분류와 역할은 별개**: `car_key`는 `Key`, `cover_plate`는 `Obstacle`, 나머지는 `Item`. YOLO의 `class` 문자열(예: `eraser`)은 온톨로지 분류 `Item`과 다름. 모든 11종에 `roles: ["request_target"]`를 부여하고 판에는 `occluder`도 부여함. 어떤 일반 물품도 배치에 따라 다른 물품을 가릴 수 있음. `Obstacle`이라는 분류가 사용자 요청을 금지하지 않음. 이번 목록에 인식만 하는 제외 물품은 지정하지 않음.
-- **인스턴스**: `eraser`는 클래스 키 하나이며 물품 2개를 `world.items`에 중복 등록하지 않음. `eraser#1`·`eraser#2`는 A가 관측 시 부여함. 초기 상태의 클래스별 위치 프리셋은 개별 인스턴스 위치·추적을 구현한 것이 아님. 서로 다른 장소에 같은 클래스가 있으면 A·C의 인스턴스 상태 계약이 필요함.
+- **요청 범위**: [FR-INT-02·물품 정책](requirements.md#item-policy)을 참조함. 현재 `commute_set`은 예시 데이터이며 실제 시연 목록 확정·음성 연결의 근거가 아님.
+- **치수·분류·역할 의미**: [물품 정책](requirements.md#item-policy)을 참조함. 현재 `world.items`는 #8 실측 치수와 #6·#61 정렬을 반영하며 `class`·`roles`를 제공함. 좌표·pose 형식은 실행 원본과 [interfaces.md](interfaces.md)를 대조함. 로더의 참조 검사와 실제 A/B 소비 경로 연결 완료는 구분함. [문서]
+- **인스턴스**: 의미는 [관측 정책](requirements.md#observation-policy)을 참조함. 현재 world는 클래스 키로 조회하고 A가 관측 ID를 제공함. 초기 위치 프리셋은 개별 인스턴스 추적 구현이 아니며 A/C 상태 계약과 실제 연결은 후속 확인 사항임.
 - **파지 설정**: 등록·인식·라벨링과 실물 파지 승인은 구분함. 미확정 `grip_force`는 YAML의 `null`, `grasp_verified`는 `false`로 둠. 임의 기본 힘·임계값을 넣지 않음. 로더는 이를 물품 조회 결과에 제공하며 `require_grasp_settings(onto, item)`은 미확정 설정을 거절함. 이 함수를 **B/C의 실제 파지·밀기·복구 경로에 연결하는 작업은 인계 사항**으로, 이번 변경만으로 실행 차단이 자동 적용되는 것은 아님.
 - **근거·결정 기록**: [#8](https://github.com/Jik-Kim/ready2go/issues/8)에 실측·시험·B/E 채택 근거를 기록하고, 선정 기준·물품별 검증 상태는 [hardware.md 2.3](hardware.md#23-물품-선정-기준-day-2-실물-파지-테스트로-확정), 인터페이스 의미는 [interfaces.md](interfaces.md)에서 공유함. 삭제된 `decisions.md`를 결정 기록 위치로 사용하지 않음.
 
 ### 7.6 확장 정의와 연결 경계
 
-기존 복합 스킬 이름은 `handover_with_unpack`이며 참조 태스크는 `tasks/find_with_unpack.json`입니다. P2는 같은 서랍 내부 빈 공간 이동→재관측→목표 전달 트레이 전달→장애물 LIFO 복구입니다. 현재 참조 태스크는 이전 외부 트레이 예시이며 내부 이동 계약 반영·실행 검증은 [domain.md 인계표](domain.md)를 따릅니다. 옮긴 장애물의 located_in은 서랍 그대로이고 pose 추적/복구 기록은 C·E 합의가 필요합니다. staging_tray 정의는 소비자 잔존참조 때문에 이번에 삭제하지 않습니다. 등록된 데이터가 P1 실물 경로에서 가림 탐색을 실행할 수 있다는 뜻은 아닙니다. [문서]
+기존 복합 스킬 이름은 `handover_with_unpack`이며 참조 태스크는 `tasks/find_with_unpack.json`입니다. P2 목표·재식별·복구 기준은 [FR-ACT-04](requirements.md#fr-act-04)·[가림 정책](requirements.md#occlusion-policy)을 참조합니다. 현재 참조 태스크는 이전 외부 트레이 예시이며 내부 이동 계약 반영·실행 검증은 [domain.md 인계표](domain.md)를 따릅니다. 옮긴 장애물의 located_in은 서랍 그대로이고 pose 추적/복구 기록은 C·E 합의가 필요합니다. staging_tray 정의는 소비자 잔존참조 때문에 이번에 삭제하지 않습니다. 등록된 데이터가 P1 실물 경로에서 가림 탐색을 실행할 수 있다는 뜻은 아닙니다. [문서]
 
 자동 계획은 [FR-PLN-02](requirements.md#fr-pln-02), 복합 작업 추가는 [FR-PLN-03](requirements.md#fr-pln-03), 목록·분류 조회는 [FR-ONT-03](requirements.md#fr-ont-03)에 따릅니다. 스킬 파일과 sources 등록만으로 음성 프롬프트·플래너·태스크 레지스트리에 자동 반영된다고 보장하지 않습니다. 담당 모듈의 연결 확인이 필요합니다. 계획 설계는 [planner.md](planner.md)를 참조합니다. [문서]
 
 ### 7.8 상태 계약과 Phase별 연결
 
 - 상태는 `state[predicate][subject] = value` 형태입니다. 초기 프리셋을 읽는 것과 실제 로봇 상태를 확인·관리하는 것은 별개입니다. 현재 상태·로그 관리 책임은 Runner(C)에 있습니다. [문서]
-- P1은 [FR-PLN-01](requirements.md#fr-pln-01)에 따라 실행 전 pre를 확인하고 성공 응답 후 effect를 반영해야 합니다. E core의 조건·효과 함수 제공과 Runner 실행 경로 연결 완료를 구분합니다. [문서]
+- [FR-PLN-01](requirements.md#fr-pln-01)의 현재 구현: E core는 조건·효과 함수를 제공하며 Runner가 실행 경로에서 호출합니다. 로더만의 검사와 실행 경로 검사를 구분합니다. [문서]
 - P2의 사후 관측 verify는 [FR-ONT-02](requirements.md#fr-ont-02), P3의 관측 불일치 처리는 [FR-REC-01](requirements.md#fr-rec-01)에 따릅니다. 현재 문서나 데이터의 존재로 구현 완료를 판단하지 않습니다. [문서]
 - 중간 실패 시 실제 상태·확인 불가 상태, 인스턴스별 위치, hold 평가, 상태 발행·지속성은 담당 코드와 계약을 확인해야 합니다. 실행·로그 설계는 [runner.md](runner.md)를 참조합니다. [문서]
 
