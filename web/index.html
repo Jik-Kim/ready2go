@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="ROKEY 출근 준비 도우미 P3 최종 시연 검토용 반응형 mock UI"
+    />
+    <title>ROKEY · 출근 준비 도우미</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <!-- 실제 연동 시 demo-data.js를 웹 API 어댑터로 교체합니다. 자세한 내용: web/README.md -->
+    <script src="./demo-data.js" defer></script>
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-lockup" aria-label="ROKEY 출근 준비 도우미">
+        <strong class="brand">ROKEY</strong>
+        <span class="brand-subtitle">출근 준비 도우미</span>
+      </div>
+
+      <div class="header-meta">
+        <span class="demo-badge">데모 · 실제 장치 미연결</span>
+        <div id="connectionStatus" class="connection-status" aria-label="장치 연결 상태"></div>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="command-overview desktop-command" aria-labelledby="commandHeading">
+        <h1 id="commandHeading" class="sr-only">명령 정보</h1>
+        <div class="command-field heard-field">
+          <span class="round-icon" aria-hidden="true">≋</span>
+          <div>
+            <span class="eyebrow">들은 말</span>
+            <p id="heardText"></p>
+          </div>
+        </div>
+        <div class="command-field understood-field">
+          <span class="round-icon" aria-hidden="true">✓</span>
+          <div>
+            <span class="eyebrow">이해한 요청</span>
+            <p id="understoodText"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="mobile-command" aria-labelledby="mobileCommandHeading">
+        <div class="section-heading compact-heading">
+          <span class="section-icon" aria-hidden="true">✓</span>
+          <div>
+            <span class="eyebrow">이해한 요청</span>
+            <h1 id="mobileCommandHeading"></h1>
+          </div>
+        </div>
+        <button id="openCommandDetails" class="row-button" type="button">
+          명령 상세 보기
+          <span aria-hidden="true">›</span>
+        </button>
+      </section>
+
+      <div class="dashboard-grid">
+        <section class="card drawer-card" aria-labelledby="drawerHeading">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">선택한 서랍의 등록 정보</span>
+              <h2 id="drawerHeading">서랍 및 물품</h2>
+            </div>
+            <span class="query-note">조회만 수행 · 로봇 명령 없음</span>
+          </div>
+
+          <div class="drawer-content">
+            <div>
+              <div id="drawerSelector" class="drawer-selector" aria-label="조회할 서랍 선택"></div>
+              <p class="drawer-help">
+                청록색은 조회 대상으로 선택한 서랍입니다.
+              </p>
+            </div>
+
+            <div class="inventory-wrap">
+              <div class="inventory-title-row">
+                <h3 id="inventoryTitle"></h3>
+                <span id="inventoryCount" class="count-label"></span>
+              </div>
+              <div class="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">물품</th>
+                      <th scope="col">등록명</th>
+                      <th scope="col">상태</th>
+                      <th scope="col">확인 시각</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventoryTableBody"></tbody>
+                </table>
+              </div>
+              <p id="inventoryEmpty" class="empty-state" hidden>등록된 물품이 없습니다.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card supplies-card" aria-labelledby="suppliesHeading">
+          <div class="section-heading supplies-heading">
+            <div>
+              <span class="eyebrow">요청 목록</span>
+              <h2 id="suppliesHeading">출근 준비물</h2>
+            </div>
+            <span id="completionCount" class="completion-count" aria-live="polite"></span>
+          </div>
+          <div id="supplyList" class="supply-list"></div>
+          <p id="suppliesEmpty" class="empty-state" hidden>요청된 준비물이 없습니다.</p>
+        </section>
+      </div>
+
+      <section class="card task-card" aria-labelledby="taskHeading">
+        <div class="task-toolbar">
+          <div class="task-title-group">
+            <span class="section-icon" aria-hidden="true">⌁</span>
+            <h2 id="taskHeading">현재 작업</h2>
+          </div>
+          <div class="task-action-line">
+            <span id="currentItemVisual" aria-hidden="true"></span>
+            <strong id="currentAction" aria-live="polite"></strong>
+            <button
+              id="taskDetailsToggle"
+              class="task-details-toggle"
+              type="button"
+              aria-expanded="true"
+              aria-controls="taskDetails"
+            >
+              작업 상세 보기 <span aria-hidden="true">▾</span>
+            </button>
+          </div>
+          <button id="stopTask" class="stop-button" type="button">
+            <span aria-hidden="true">■</span>
+            작업 중단
+          </button>
+        </div>
+
+        <div id="taskDetails" class="task-details">
+          <div class="task-detail-meta">
+            <div id="receiptStatus" class="receipt-status" role="status"></div>
+            <div class="task-location">
+              <span class="detail-label">실제 작업 위치</span>
+              <strong id="taskLocation"></strong>
+            </div>
+            <span class="demo-detail-note">시연용 샘플 작업 상태</span>
+          </div>
+          <div
+            class="progress-scroll"
+            role="region"
+            aria-label="작업 상세 진행 단계"
+            tabindex="0"
+          >
+            <ol id="progressSteps" class="progress-steps" aria-label="작업 진행 단계"></ol>
+          </div>
+        </div>
+      </section>
+
+      <button id="openDrawerPanel" class="mobile-drawer-button" type="button">
+        <span class="section-icon" aria-hidden="true">▤</span>
+        <span>
+          <small>선택한 서랍의 등록 물품</small>
+          서랍 보기
+        </span>
+        <span aria-hidden="true">›</span>
+      </button>
+
+      <p class="stop-disclaimer">
+        작업 중단은 로컬 데모 상태만 바꾸며 물리적 E-stop을 대체하지 않습니다.
+      </p>
+    </main>
+
+    <footer>
+      <strong>ROKEY</strong>
+      <span>P3 최종 시연 화면 검토용 mock UI</span>
+    </footer>
+
+    <dialog id="commandDialog" class="bottom-sheet" aria-labelledby="commandDialogTitle">
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">명령 정보</span>
+          <h2 id="commandDialogTitle">명령 상세</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="commandDialog" aria-label="명령 상세 닫기">×</button>
+      </div>
+      <dl class="detail-list">
+        <div>
+          <dt>들은 말</dt>
+          <dd id="mobileHeardText"></dd>
+        </div>
+        <div>
+          <dt>음성 인식 상태</dt>
+          <dd id="mobileRecognitionStatus"></dd>
+        </div>
+        <div>
+          <dt>명령 해석 상태</dt>
+          <dd id="mobileInterpretationStatus"></dd>
+        </div>
+      </dl>
+    </dialog>
+
+    <dialog id="drawerDialog" class="bottom-sheet drawer-sheet" aria-labelledby="drawerDialogTitle">
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">등록 물품 조회</span>
+          <h2 id="drawerDialogTitle">서랍 보기</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="drawerDialog" aria-label="서랍 보기 닫기">×</button>
+      </div>
+      <div id="mobileDrawerSelector" class="mobile-drawer-selector" aria-label="조회할 서랍 선택"></div>
+      <p class="panel-context">
+        선택한 서랍: <strong id="selectedDrawerLabel"></strong>
+        <span aria-hidden="true">·</span>
+        실제 작업 위치: <strong id="mobileTaskLocation"></strong>
+      </p>
+      <div id="mobileInventoryList" class="mobile-inventory-list"></div>
+      <p id="mobileInventoryEmpty" class="empty-state" hidden>등록된 물품이 없습니다.</p>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>
