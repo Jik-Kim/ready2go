@@ -4,8 +4,9 @@
 - **역할**: `core.ontology`의 함수로 온톨로지를 로딩하고 참조·파지 설정 및 조건을 검사합니다. `get()`은 전달받은 상태를 조회하고, `apply()`는 원본 상태를 바꾸지 않고 효과를 반영한 새 상태와 차이를 반환합니다. `OntologyManager` 클래스는 없습니다. 실제 현재 상태 관리·적용·저장은 Runner(C) 책임입니다.
 
 ## 작업 전에 읽을 문서
-- `docs/ontology.md`
-- `docs/planner.md`
+- [문서 인덱스](../../../docs/README.md)
+- [FR-ONT-01–03](../../../docs/requirements.md#fr-ont-01)·[물품 정책](../../../docs/requirements.md#item-policy)·[가림 정책](../../../docs/requirements.md#occlusion-policy): 의미·정책·Phase·완료 기준의 정본
+- [온톨로지 구현](../../../docs/ontology.md)·[플래너 구현](../../../docs/planner.md): 해당 모듈 설명. 요구사항을 복사해 정의하지 않음
 
 ## 구조
 
