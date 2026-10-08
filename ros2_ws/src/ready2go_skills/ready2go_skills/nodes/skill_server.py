@@ -1164,15 +1164,13 @@ class SkillServer(Node):
         if bad:
             return bad, None
         close_dir = mp.horizontal_angle_dir(plan.long_axis_deg + 90.0)
-        grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
         off = params.get("approach_offset", 0.10)              # 태스크·온톨로지는 [0, 0, 0.1] (m) — z 만 씀
         approach = float(off[2] if isinstance(off, (list, tuple)) else off) * 1000.0
         down = (self.poses().get("drag_down") or {}).get(drawer_id)
         if down:
-            # 넛지와 같은 길 [사용자 10/07 저녁]: 탑뷰(팔 거의 펴짐)에서 바로 직선으로 가면 특이점 → 서랍 안 경유점 movej
+            # 넛지와 같은 길 [사용자 10/07 저녁, 10/08]: 탑뷰(팔 거의 펴짐)에서 바로 직선으로 가면 특이점 → 서랍 중앙 경유점 movej
             # → y 를 목표 y 로 → 목표 위(grasp + approach, 최대 30 mm)를 블렌딩 한 번에 (사이 멈춤 없음)
-            above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
-            # 경유점은 서랍 안(바닥 위 약 37 mm) — 벌린 RG2 는 손끝이 더 내려옴 → 끌기처럼 닫고 지나감, 목표 위에서 벌림 [#136 PM 리뷰]
+            # 경유점은 서랍 안 — 벌린 RG2 는 손끝이 더 내려옴 → 끌기처럼 닫고 지나감, 목표 위에서 벌림 [#136 PM 리뷰]
             self._grip(0, 20)
             o = self._movej(goal, down, "to_object:down", in_drawer=True)
             if not o.success:
@@ -1180,6 +1178,10 @@ class SkillServer(Node):
             cur = self.robot.posx()
             if cur is None:
                 return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+            # 잡는 손목 방향은 경유점에 도착한 뒤 그 손목 기준으로 (넛지와 같음). 탑뷰(그리퍼 180° 돌림)에서 미리 정하면
+            # 경유점에서 손목을 반 바퀴 다시 돌리며 목표로 가 경유점을 안 지나는 것처럼 보임 [사용자 10/08]
+            grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, cur[3:])
+            above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
             aligned = [cur[0], above[1], cur[2]] + list(cur[3:])
             d1, d2 = math.dist(cur[:3], aligned[:3]), math.dist(aligned[:3], above[:3])
             if d1 < 1.0:
@@ -1188,6 +1190,7 @@ class SkillServer(Node):
                 r = min(prm["transit"].get("blend_mm", 0.0), d1 / 2.0, d2 / 2.0)
                 bad = self._blend(goal, [aligned, above], [r, 0.0], self._in_vel(), "to_object:over")
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
+            grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
             above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
             bad = self._transit(goal, above, "to_object")
         if bad:
