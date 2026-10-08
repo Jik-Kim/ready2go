@@ -5,6 +5,7 @@
 """
 import importlib
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -307,3 +308,62 @@ def test_b_sk_drawer_required_with_short_names(monkeypatch):
     for cmd, arg in (("open", None), ("close", "middle"), ("all", None), ("home", "top"), ("place", "bottom")):
         with pytest.raises(SystemExit):
             sk.parse_drawer(cmd, arg)
+
+
+TOP_T = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+         "pose": {"frame": "drawer_top", "position": [0.12, 0.2, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+
+def _no_vision(monkeypatch):
+    _stub(monkeypatch, "ready2go_interfaces.srv", InspectRegion=object)
+    return ns(create_client=lambda *a: ns(wait_for_service=lambda timeout_sec: False))
+
+
+def test_b_sk_scan_file_per_drawer(monkeypatch):
+    """#181 E 리뷰: 인식 결과 파일은 서랍마다 따로."""
+    sk = _load_sk(monkeypatch)
+    top = sk.scan_file()
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert top != sk.scan_file() and "drawer_bottom" in sk.scan_file()
+
+
+def test_b_sk_scan_without_vision_ignores_other_drawer_target(monkeypatch, tmp_path):
+    """#181 E 리뷰: 위 칸 인식 결과가 남아 있어도 비전 없이 B scan bottom 은 실패 (예전엔 위 칸 좌표로 성공 → nudge 칸 불일치)."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    node = _no_vision(monkeypatch)
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    assert sk.scan(node) is True                                        # 위 칸은 저장된 결과 사용
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert sk.scan(node) is False
+    (tmp_path / "b_target_scan_drawer_bottom.json").write_text(json.dumps(TOP_T))   # 아래 칸 파일에 위 칸 frame 이 들어 있어도
+    assert sk.scan(node) is False
+
+
+def test_b_sk_target_never_sends_other_drawer_target(monkeypatch, tmp_path):
+    """#181 E 리뷰: nudge 의 target 은 frame 이 지금 서랍인 것만 — 아래 칸에 위 칸 좌표·고정값(stub)을 보내지 않고 멈춤."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    assert sk.goal_for("nudge")[1]["target"] == TOP_T
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    with pytest.raises(SystemExit, match="B scan bottom"):
+        sk.goal_for("nudge")
+    (tmp_path / "b_target_scan_drawer_bottom.json").write_text(json.dumps(TOP_T))
+    with pytest.raises(SystemExit):
+        sk.goal_for("nudge")
+    bottom = json.loads(json.dumps(TOP_T))
+    bottom["pose"]["frame"] = "drawer_bottom"
+    (tmp_path / "b_target_scan_drawer_bottom.json").write_text(json.dumps(bottom))
+    assert sk.goal_for("nudge") == ("nudge_object", {"drawer_id": "drawer_bottom", "target": bottom})
+
+
+def test_b_sk_rescan_without_vision_needs_same_drawer_after(monkeypatch, tmp_path):
+    """#181 E 리뷰: 비전 없이 다시 보기(for_pick)는 지금 서랍 끌기 결과(target_after)가 있을 때만 그대로 집기."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "AFTER", str(tmp_path / "after.json"))
+    node = _no_vision(monkeypatch)
+    (tmp_path / "after.json").write_text(json.dumps(TOP_T))
+    assert sk.scan(node, for_pick=True) is True
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert sk.scan(node, for_pick=True) is False

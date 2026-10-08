@@ -719,6 +719,9 @@ class SkillServer(Node):
             cur = self.robot.posx()
             if cur is None:
                 return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 홈 이동 뒤 취소됐으면 그리퍼도 움직이지 않음 (#181 E 리뷰)
+        if early:
+            return early, None
         if self._grip_width() < oc["handle_open_width_mm"] - 2.0:   # 이미 벌어져 있으면 그리퍼 기다림 없이 (놓기 뒤 28 mm 등) [사용자 10/07]
             self._grip(oc["handle_open_width_mm"], 20)      # 살짝 벌린 두 손끝으로 손잡이 앞을 밂
         tip_z = handle[2] + mp.tip_below_tcp_mm(oc["handle_open_width_mm"], prm["gripper"])   # 손끝 = 손잡이 높이
@@ -805,6 +808,9 @@ class SkillServer(Node):
             o = self._named(goal, "home")
             if not o.success:
                 return o, None
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 홈 이동 뒤 취소됐으면 그리퍼도 움직이지 않음 (#181 E 리뷰)
+        if early:
+            return early, None
         self._grip(0, 20)
         o = self._movej(goal, cp["start_posj"], "to_close_start")
         if not o.success:
@@ -953,6 +959,9 @@ class SkillServer(Node):
 
     def _do_nudge_object(self, goal, params):
         target, drawer_id = params.get("target") or {}, params.get("drawer_id")
+        frame = (target.get("pose") or {}).get("frame")
+        if frame != drawer_id:                              # 다른 칸 좌표로 이 칸을 끌지 않음 — 움직이기 전 거부 (#181 E 리뷰)
+            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame {frame!r} ≠ drawer_id {drawer_id!r}"), None
         prm, place = self.prm(), self.places().get(drawer_id) or {}
         if not place.get("tf") or not place.get("interior_m"):
             return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} tf·interior_m 없음"), None
@@ -1067,7 +1076,10 @@ class SkillServer(Node):
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"이미 {self.held['class']} 를 들고 있음"), None
         target = params.get("target") or {}
-        drawer_id = params.get("drawer_id") or (target.get("pose") or {}).get("frame")   # 계약엔 drawer_id 없음 → pose.frame
+        frame = (target.get("pose") or {}).get("frame")
+        drawer_id = params.get("drawer_id") or frame       # 계약엔 drawer_id 없음 → pose.frame
+        if drawer_id != frame:                              # 둘 다 왔는데 다르면 어느 칸인지 모름 — 움직이기 전 거부 (#181 E 리뷰)
+            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame {frame!r} ≠ drawer_id {drawer_id!r}"), None
         if drawer_id not in ("drawer_top", "drawer_bottom"):
             return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame 이 서랍이 아님: {drawer_id!r}"), None
         prm, place = self.prm(), self.places().get(drawer_id) or {}

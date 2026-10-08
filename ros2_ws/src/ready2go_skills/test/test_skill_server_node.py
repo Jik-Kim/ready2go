@@ -846,3 +846,61 @@ def test_tilted_close_stops_when_arrived_away_from_start_posx(server):
     assert not out.success and out.error_code == server.ss.dp.CLOSE_NOT_CONFIRMED
     log = [e for e in srv.robot.log if e != "stop"]
     assert log[-1] == ("movej", start) and not any(e[0] == "movel" for e in log)
+
+
+def _cancel_after_home(server):
+    """홈 이동(_named "home")이 끝난 직후 취소 요청 + 그리퍼 명령 기록. 홈 movej 뒤 로그 위치를 돌려받는 함수."""
+    srv = server.srv
+    real_named, grips = srv._named, []
+
+    def named(goal, pose_name, *a, **k):
+        o = real_named(goal, pose_name, *a, **k)
+        if pose_name == "home":
+            goal.is_cancel_requested = True                             # 홈 도착 직후 취소
+        return o
+    srv._named = named
+    srv._grip = lambda w, f: grips.append(w)
+    return grips
+
+
+def test_tilted_close_cancel_after_home_sends_no_grip(server):
+    """#181 E 리뷰: 서랍 위에서 기울여 닫기 → 홈 이동 뒤 취소면 그리퍼·다음 이동 명령 없이 CANCELED."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
+    grips = _cancel_after_home(server)
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == sf.CANCELED
+    log = [e for e in srv.robot.log if e != "stop"]
+    home = ("movej", srv.poses()["home"]["joints_deg"])
+    assert log[-1] == home and grips == []                              # 홈 movej 뒤 로봇·그리퍼 명령 없음
+
+
+def test_vertical_close_cancel_after_home_sends_no_grip(server):
+    """#181 E 리뷰: 수직 닫기도 같음 — 서랍 위에서 홈 이동 뒤 취소면 그리퍼·밀기 명령 없이 CANCELED."""
+    srv = server.srv
+    prm = srv.prm()
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": None}   # 위 칸 = 수직 방식
+    srv.prm = lambda: prm
+    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
+    server.Gripper.width = 0.9                                          # 닫힌 채 → 원래라면 벌리는 명령을 보냄
+    grips = _cancel_after_home(server)
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
+    assert not out.success and out.error_code == sf.CANCELED
+    log = [e for e in srv.robot.log if e != "stop"]
+    home = ("movej", srv.poses()["home"]["joints_deg"])
+    assert log[-1] == home and grips == []
+
+
+def test_nudge_and_pick_refuse_other_drawer_frame_without_motion(server):
+    """[#181 E 리뷰] 위 칸 좌표(frame drawer_top)로 아래 칸을 끌거나 집지 않음 — drawer_id 와 target.pose.frame 이 다르면 움직이기 전 BAD_PARAMS."""
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_bottom", "target": ERASER_CORNER})
+    assert not out.success and out.error_code == server.ss.sf.BAD_PARAMS
+    out, _ = server.run("pick_object", {"drawer_id": "drawer_bottom", "target": ERASER_CORNER})
+    assert not out.success and out.error_code == server.ss.sf.BAD_PARAMS
+    assert server.srv.robot.log == []

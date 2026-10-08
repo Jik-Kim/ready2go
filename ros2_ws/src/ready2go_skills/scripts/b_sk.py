@@ -12,19 +12,35 @@ from ready2go_interfaces.action import Skill
 
 ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,          # 10/07: 손잡이 쪽 오른쪽 모서리, 세로 [실측 B 3번 터치]
           "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}
-AFTER = "/tmp/b_target_after.json"
-SCAN = "/tmp/b_target_scan.json"          # scan(인식) 결과 target — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
+AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은 서랍 인자가 없음, target 의 frame 이 곧 서랍)
+TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
 NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "nudge", "all", "dragtest"}   # home·pick·place 는 서랍 없음
 
 
-def target():
+def scan_file():
+    """서랍마다 따로 — 위 칸 인식 결과로 아래 칸을 끌지 않게 (#181 E 리뷰)."""
+    return f"{TMP}/b_target_scan_{DRAWER}.json"
+
+
+def _load_target(path):
+    """저장된 target 중 지금 서랍(pose.frame == DRAWER) 것만. 없거나 다른 칸이면 None."""
     try:
-        with open(SCAN) as f:
-            return json.load(f)
+        with open(path) as f:
+            t = json.load(f)
     except (OSError, ValueError):
+        return None
+    return t if isinstance(t, dict) and (t.get("pose") or {}).get("frame") == DRAWER else None
+
+
+def target():
+    t = _load_target(scan_file())
+    if t:
+        return t
+    if ERASER["pose"]["frame"] == DRAWER:                 # 고정값(stub)은 위 칸 실측
         return ERASER
+    sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 먼저 (보내지 않음)")
 
 
 def goal_for(cmd):
@@ -94,12 +110,14 @@ def scan(node, for_pick=False):
     from ready2go_interfaces.srv import InspectRegion
     c = node.create_client(InspectRegion, "/vision/inspect_region")
     if not c.wait_for_service(timeout_sec=2.0):
-        import os
         if for_pick:
+            if not _load_target(AFTER):               # 다른 칸 끌기 결과로 집지 않음
+                print(f"비전 서비스 안 보임 — {DRAWER} 끌기 결과(target_after) 없음, 비전 노드를 켜고 다시")
+                return False
             print("비전 서비스 안 보임 — 끌기 예상 위치(target_after)로 집기")
-        elif os.path.exists(SCAN):                # 다른 터미널(비전과 같은 통신 설정)에서 미리 scan 한 결과
-            print(f"비전 서비스 안 보임 — 저장된 인식 결과 사용 ({SCAN})")
-        elif DRAWER != "drawer_top":                 # 고정 좌표는 위 칸 실측 — 아래 칸은 비전 필요
+        elif _load_target(scan_file()):           # 다른 터미널(비전과 같은 통신 설정)에서 미리 scan 한 같은 칸 결과
+            print(f"비전 서비스 안 보임 — 저장된 인식 결과 사용 ({scan_file()})")
+        elif ERASER["pose"]["frame"] != DRAWER:      # 고정 좌표는 위 칸 실측 — 아래 칸은 비전 필요 (다른 칸 결과는 안 씀)
             print(f"비전 서비스 안 보임 — {DRAWER} 고정 좌표 없음, 비전 노드를 켜고 다시")
             return False
         else:
@@ -115,7 +133,7 @@ def scan(node, for_pick=False):
     if not res.get("target_found"):
         print("지우개 못 찾음")
         return False
-    with open(SCAN, "w") as fp:
+    with open(scan_file(), "w") as fp:
         json.dump(res["target"], fp)
     print(f"인식: {json.dumps(res['target'], ensure_ascii=False)}")
     if for_pick:
