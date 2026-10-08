@@ -10,7 +10,7 @@
     서랍 밖 책상 위 물체·케이블·그리퍼 손끝을 잘못 검출해도 뎁스 실패로 호출 전체가 DEPTH_INVALID 가 되지 않게 한다 [실측 PC2 10/07].
     TF 로 계산하므로 촬영 자세가 바뀌어도 따라간다. 값이 없으면(옛 설정) 끈다.
   footprint 가 서랍 안쪽(interior_m, 오차 여유 region.edge_tolerance_m)을 벗어난 검출은 결과에서 뺀다(서랍 밖 파지 방지).
-  분할 모델(모든 검출에 mask)이면 뎁스 전에 같은 클래스 중복 검출을 합친다(core/dedup.py, dedup.min_overlap). 박스 모델은 그대로.
+  분할 모델(모든 검출에 mask)이면 뎁스 전에 같은 클래스 중복 검출 중 신뢰도 높은 쪽만 남긴다(core/dedup.py, dedup.min_overlap, 합집합 안 함). 박스 모델은 그대로.
   뎁스를 쓸 수 없는 검출이 하나라도 있으면 policy.on_invalid_candidate 에 따라 전체 DEPTH_INVALID (기본 fail, 안전 우선).
   지역(region)은 서랍 칸마다 places.yaml 의 tf·interior_m 으로 계산하고 pose.frame = 요청 지역 (#155, 아래 칸 = drawer_bottom).
 """
@@ -76,7 +76,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
     if min_overlap is not None and kept and all(d.get("mask") is not None for d in kept):
         kept, dropped = merge_duplicates(kept, min_overlap)
         for d in dropped:
-            note(d, skip=f"중복 검출 → 같은 클래스 conf {d['merged_into_conf']:.3f} 에 합침")
+            note(d, skip=f"중복 검출 → 같은 클래스 conf {d['merged_into_conf']:.3f} 만 남기고 버림")
     found = []
     for det in kept:
         merged = {"merged_from": det["merged_from"]} if det.get("merged_from") else {}
