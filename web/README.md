@@ -88,11 +88,10 @@ API URL·인증·요청/응답 형식과 상태 갱신 방식은 아직 정해�
 
 ## 5. 웹페이지 실행
 
-프로젝트 PC에서 다음 명령을 실행합니다.
+프로젝트 PC에서 `ready2go` 저장소 루트로 이동한 뒤 다음 명령을 실행합니다.
 
 ```bash
-cd /home/rokey/ready2go/web
-python3 -m http.server 4173
+python3 -m http.server 4173 --directory web
 ```
 
 이 명령은 파일을 보여 주는 임시 정적 서버이며 별도 Python 애플리케이션을 만드는 것이 아닙니다. 터미널을 닫거나 `Ctrl+C`를 누르면 서버가 종료됩니다.

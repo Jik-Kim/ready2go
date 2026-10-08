@@ -211,7 +211,13 @@
     progress.style.minWidth = `${Math.max(state.task.steps.length * 150, 600)}px`;
     state.task.steps.forEach((step, index) => {
       const item = makeElement("li", `is-${step.status}`);
-      const dotText = step.status === "complete" ? "✓" : step.status === "current" ? "●" : String(index + 1);
+      const dotText = step.status === "complete"
+        ? "✓"
+        : step.status === "current"
+          ? "●"
+          : step.status === "stopped"
+            ? "■"
+            : String(index + 1);
       const dot = makeElement("span", "step-dot", dotText);
       dot.setAttribute("aria-hidden", "true");
       const text = makeElement("span", "step-text");
@@ -251,6 +257,12 @@
     if (state.task.status === "stopped") return;
     state.task.status = "stopped";
     state.task.currentAction = "데모 작업 중단";
+    state.task.steps.forEach((step) => {
+      if (step.status === "current") {
+        step.status = "stopped";
+        step.statusLabel = "중단됨";
+      }
+    });
     renderTask();
 
     const toast = getById("toast");

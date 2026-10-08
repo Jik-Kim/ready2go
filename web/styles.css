@@ -780,6 +780,12 @@ td {
   box-shadow: 0 0 0 6px rgba(240, 160, 22, 0.14);
 }
 
+.is-stopped .step-dot {
+  border-color: var(--red-700);
+  background: var(--red-100);
+  color: var(--red-700);
+}
+
 .is-complete .step-label,
 .is-current .step-label {
   color: var(--navy-900);
@@ -802,6 +808,11 @@ td {
 .is-current .step-label,
 .is-current .step-status {
   color: #c77500;
+}
+
+.is-stopped .step-label,
+.is-stopped .step-status {
+  color: var(--red-700);
 }
 
 .mobile-command,
@@ -997,6 +1008,12 @@ dialog::backdrop {
   th,
   td {
     padding-inline: 9px;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
