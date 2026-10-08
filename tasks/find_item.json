@@ -77,7 +77,7 @@
           },
           "on_failure": "retry",
           "retry": 1,
-          "timeout_sec": 60
+          "timeout_sec": 70
         },
         {
           "id": "s5.2",

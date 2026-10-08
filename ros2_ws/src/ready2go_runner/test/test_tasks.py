@@ -103,6 +103,21 @@ def test_task_passes_validation_with_skills():
     assert check_task(TASK, SCHEMA, ONTOLOGY["skills"]) == []
 
 
+def _steps(steps):
+    for step in steps:
+        yield step
+        for key in ("then", "else", "body"):
+            yield from _steps(step.get(key, []))
+
+
+def test_pick_timeout_is_70s_and_other_steps_unchanged():
+    """#153 사용자·C 합의: pick 스킬만 70초 (탑뷰·촬영·끌기·다시 촬영·집기 전체), 다른 단계는 그대로."""
+    for task in (TASK, CHECK):
+        steps = list(_steps(task["sequence"] + task.get("finally", [])))
+        assert [s["timeout_sec"] for s in steps if s.get("skill") == "pick"] == [70]
+        assert all(s.get("timeout_sec") in (None, 20, 30, 60) for s in steps if s.get("skill") != "pick")
+
+
 def test_success_delivers_item_and_cleans_up():
     robot = MockRobot()
     runner, result, _ = run(robot)
