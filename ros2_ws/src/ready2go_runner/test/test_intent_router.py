@@ -57,7 +57,7 @@ def test_other_registered_item_becomes_target_when_task_has_no_targets():
     (intent(intent="unknown", targets=[]), ir.NEEDS_CLARIFY),
     (intent(intent="clarify", clarify_question="어느 서랍요?"), ir.NEEDS_CLARIFY),
     (intent(intent="find_list", targets=["morning_kit"]), ir.UNSUPPORTED_INTENT),   # P3
-    (intent(intent="achieve_goal"), ir.UNSUPPORTED_INTENT),                 # P2
+    (intent(intent="achieve_goal"), ir.NO_GOAL),                            # P2 목표형인데 goals 없음 (#150)
     (intent(confidence=0.3), ir.LOW_CONFIDENCE),
     (intent(targets=[]), ir.NO_TARGET),
     (intent(targets=None), ir.BAD_INTENT),
@@ -172,3 +172,39 @@ def test_parse_overrides():
     assert ir.parse_overrides("") == {}
     with pytest.raises(ValueError):
         ir.parse_overrides("find_item")
+
+
+# ---- #150 achieve_goal → 플래너 (P2, FR-PLN-02) ----
+
+GOAL = json.loads((ROOT / "contracts/examples/intent_goal.json").read_text(encoding="utf-8"))
+
+
+def test_achieve_goal_goes_to_planner_with_goals_and_voice_inputs():
+    d = router().decide(json.dumps(GOAL, ensure_ascii=False), running=False, locked=False)
+    assert d.kind == ir.PLAN and d.goals == GOAL["goals"] and d.task is None
+    assert d.inputs["goals"] == GOAL["goals"] and d.inputs["source"] == "voice"
+    assert d.inputs["stt_text"] == GOAL["source"]["stt_text"]
+
+
+@pytest.mark.parametrize("change, kind, reason", [
+    ({"confidence": 0.2}, ir.HOLD, ir.LOW_CONFIDENCE),
+    ({"goals": []}, ir.HOLD, ir.NO_GOAL),
+    ({"goals": [{"predicate": "located_in", "subject": "phone", "value": "drawer_top"}]}, ir.HOLD, ir.UNKNOWN_ITEM),
+])
+def test_achieve_goal_hold_before_planning(change, kind, reason):
+    d = router().decide(json.dumps({**GOAL, **change}, ensure_ascii=False), running=False, locked=False)
+    assert (d.kind, d.reason, d.task) == (kind, reason, None)
+
+
+@pytest.mark.parametrize("running, locked, reason", [(True, False, ir.BUSY), (False, True, ir.LOCKED)])
+def test_achieve_goal_rejected_when_busy_or_locked(running, locked, reason):
+    d = router().decide(json.dumps(GOAL, ensure_ascii=False), running=running, locked=locked)
+    assert (d.kind, d.reason) == (ir.REJECT, reason)
+
+
+def test_registered_achieve_goal_task_still_wins():
+    """tasks/ 에 trigger.intent=achieve_goal 태스크를 두면 그 태스크 (플래너 대신, P3 레지스트리 호환)."""
+    custom = {"task_id": "custom_goal", "trigger": {"intent": "achieve_goal"}, "sequence": []}
+    d = router({"achieve_goal": custom}).decide(json.dumps(GOAL, ensure_ascii=False), running=False, locked=False)
+    assert d.kind == ir.RUN and d.task is custom
+

@@ -19,7 +19,7 @@ from std_msgs.msg import String  # noqa: E402
 from ready2go_runner.nodes.mock_backend import MockBackendNode  # noqa: E402
 from ready2go_runner.nodes.runner_node import LATCHED, RunnerNode  # noqa: E402
 
-DOMAIN_IDS = itertools.count(220)       # 파일마다 Domain ID 범위를 나눔 (runner_node 200, mock_backend 180)
+DOMAIN_IDS = itertools.count(100)       # 파일마다 Domain ID 범위를 나눔 (stop_safety 150, mock_backend 180, runner_node 200). ROS Domain ID 는 최대 232 → 220 에서 시작하면 14번째 시험이 233 으로 프로세스 종료 (#150)
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE = (ROOT / "contracts/examples/intent_find_item.json").read_text(encoding="utf-8")
 
@@ -195,3 +195,40 @@ def test_request_before_skill_servers_is_rejected_without_motion(tmp_path):
         assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
     finally:
         close()
+
+
+# ---- #150 achieve_goal → 플래너 → 실행 (P2, FR-PLN-02) ----
+
+def goal_intent(subject, value, predicate="located_in", stt="립밤은 아래 서랍에 넣어 둬"):
+    return json.dumps({"intent": "achieve_goal", "targets": [subject], "confidence": 0.9,
+                       "goals": [{"predicate": predicate, "subject": subject, "value": value}],
+                       "source": {"stt_text": stt}}, ensure_ascii=False)
+
+
+def test_goal_is_planned_and_run_with_plan_in_record(system):
+    """립밤(위 서랍) → 아래 서랍: 플래너가 순서를 만들고(하드코딩 없음) Runner 가 실행, 계획·근거는 실행 기록에."""
+    runner, voice = system
+    voice.say(goal_intent("lip_balm", "drawer_bottom"))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=40), voice.status
+    last = voice.status["last"]
+    assert last["overall_status"] == "COMPLETED" and last["task_id"] == "plan_lip_balm_drawer_bottom", last
+    assert last_intent(voice.status)["decision"] == "run"
+    assert runner.runner.state["located_in"]["lip_balm"] == "drawer_bottom"
+    assert runner.runner.state["open"]["drawer_bottom"] is False and runner.runner.state["open"]["drawer_top"] is False
+    run = runner.log_store.read_run(last["run_id"])["run"]
+    assert run["inputs"]["goals"][0]["value"] == "drawer_bottom" and run["inputs"]["stt_text"] == "립밤은 아래 서랍에 넣어 둬"
+    plan = run["plan"]                                                                     # extra 는 헤더에 펼쳐 저장
+    assert any("place(lip_balm, drawer_bottom)" in line and "목표" in line for line in plan)
+
+
+@pytest.mark.parametrize("goal, reason", [
+    (("lip_balm", "drawer_top"), "PLAN_SATISFIED"),          # 이미 그 자리
+    (("handover_zone", False, "open"), "UNPLANNABLE"),        # 트레이를 닫는 스킬이 없음 → 계획 불가
+])
+def test_goal_satisfied_or_unplannable_is_held_without_motion(system, goal, reason):
+    runner, voice = system
+    voice.say(goal_intent(*goal))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == reason), voice.status
+    assert last_intent(voice.status)["decision"] == "hold"
+    time.sleep(0.3)
+    assert voice.status["phase"] == "idle" and voice.status["last"] is None              # 실행 기록 없음
