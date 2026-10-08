@@ -78,6 +78,8 @@ VAR_NULL = "VAR_NULL"                   # 백엔드로 보낼 동작의 "$변수
 # 로봇을 움직이지 않았음을 보장하는 실패이고, 그 시도에서 앞서 보낸 동작도 팔을 움직이지 않았으면 재시도한다.
 # 원자 동작이 **움직이기 전에** 거부했음이 보장된 실패 코드, 동작별 (runner.md 7.1 "로봇 동작 공통 에러 코드"·
 # nudge_object 표의 "움직이지 않음", place_object 는 #166 계약안 표 "움직임 없음" — #168 B 노드 카드가 정본이 되면 맞춤).
+# [임시] place_object 줄은 #166 승인·B 구현 전 계약안 기준 (지금 스킬 서버는 서랍 안 놓기를 UNSUPPORTED_PARAMS 로
+# 거부, PLACE_BLOCKED 미구현). #166 승인·#168 카드 확정 뒤 각 코드가 실제로 모션 전인지 통합 시험으로 고정 (#175 D 리뷰).
 # 이 실패는 로봇이 안 움직였으므로: 스킬 재시도(그 시도에서 앞서 팔을 움직이지 않았을 때)·fallback 다음 대안 허용
 PRE_MOTION_COMMON = {"TOOL_NOT_SET", "DRAWER_NOT_AT_TRAVEL", "YAW_INVALID", "NOT_ON_FLOOR", "WALL_TOO_CLOSE"}
 NO_MOTION_BY_ACTION = {
@@ -368,7 +370,8 @@ class Runner:
         """결과가 온 뒤 걸린 시간을 판정. 이때는 동작이 이미 끝났을 수 있으므로 재시도하지 않는 TIMEOUT."""
         timeout = step.get("timeout_sec")
         if timeout is not None and self.clock() - attempt_started > timeout:
-            raise StepFailed(step["id"], "TIMEOUT", no_retry="LATE_RESULT")
+            again = step.get("action") in NON_MOTION_ACTIONS and step.get("action") != "if"   # 팔 안 움직이는 원자 동작
+            raise StepFailed(step["id"], "TIMEOUT", no_retry=None if again else "LATE_RESULT")
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
                   attempt_started: float) -> None:
@@ -412,9 +415,10 @@ class Runner:
                 raise Halted(step["id"], result.error_code)
             if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
                 raise Halted(step["id"], self._halt_code or HALTED, step_code=result.error_code or None)
-            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음
+            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음.
+            # 팔을 움직이지 않는 동작(인식 등)은 끝났어도 다시 해도 되므로 재시도 허용 (#168 인식 실패 다시 찍기)
             raise StepFailed(step["id"], result.error_code or "ACTION_FAILED",
-                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" else None,
+                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" and motion else None,
                              no_motion=no_motion)
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
         record["output"] = result.output
