@@ -463,6 +463,9 @@ class App:
         tk.Label(f, text="좌표로 이동", bg=C["panel"], fg=C["sub"], font=("", 9, "bold")).pack(side="left")
         self.goto_entry = tk.Entry(f, font=("TkFixedFont", 10))
         self.goto_entry.pack(side="left", fill="x", expand=True, padx=6)
+        for key in ("<Control-a>", "<Control-A>"):      # Tk 기본은 줄 맨 앞으로 — 전체 선택으로 (사용자 10/08)
+            self.goto_entry.bind(key, self.goto_select_all)
+        self.goto_entry.bind("<<Paste>>", self.goto_paste)
         tk.Label(f, text="posx→movel · posj→movej", bg=C["panel"], fg=C["sub"], font=("", 8)).pack(side="left")
         self.btn(f, "이동", self.goto, move=True, bg=C["blue"], fg="white", activebackground="#2557b0",
                  font=("", 10, "bold"), width=6).pack(side="left", padx=(6, 0))
@@ -745,6 +748,22 @@ class App:
             self.clear_marks()
 
     # --- 좌표로 이동 ---
+    def goto_select_all(self, _event=None):
+        self.goto_entry.select_range(0, "end")
+        self.goto_entry.icursor("end")
+        return "break"
+
+    def goto_paste(self, _event=None):
+        """붙여넣기: 선택된 글자를 바꿔 넣음 (리눅스 Tk 기본은 선택을 지우지 않고 뒤에 덧붙임)."""
+        try:
+            text = self.root.clipboard_get()
+        except tk.TclError:
+            return "break"
+        if self.goto_entry.selection_present():
+            self.goto_entry.delete("sel.first", "sel.last")
+        self.goto_entry.insert("insert", text)
+        return "break"
+
     def goto(self):
         """posx([...]) → movel, posj([...]) → movej. 숫자 6개만이면 어느 쪽인지 묻는다. 이동 전 확인창."""
         text = self.goto_entry.get()
