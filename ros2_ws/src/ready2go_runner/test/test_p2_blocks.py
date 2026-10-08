@@ -181,6 +181,19 @@ def test_pick_pre_motion_codes_allow_next_option(code, tries):
     assert len(backend.calls) == tries
 
 
+@pytest.mark.parametrize("code, tries", [("NOT_AT_START_POSE", 2), ("DRAWER_NOT_CONFIGURED", 2),
+                                         ("OTHER_DRAWER_OPEN", 2), ("HOLDING_OBJECT", 2),
+                                         ("CLOSE_NOT_CONFIRMED", 1), ("DRAWER_STUCK", 1)])
+def test_drawer_pre_motion_codes(code, tries):
+    """#181 B 서랍 노드: 설정·시작 자세·상태 확인 거부는 움직이기 전 → 다음 대안 가능, 움직인 뒤 실패는 멈춤."""
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
+        [{"id": "s1.a", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}}],
+        [{"id": "s1.b", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}}]]}]}
+    backend = FakeBackend({"drawer_control": [ActionResult(False, error_code=code), ActionResult(True)]})
+    Runner(backend, schema=SCHEMA).run(task)
+    assert len(backend.calls) == tries
+
+
 def test_code_counts_as_no_motion_only_for_its_action():
     """PLACE_BLOCKED 는 place_object 표의 코드 — 다른 동작(drawer_control)이 같은 코드를 내도 움직였을 수 있다고 봄."""
     task = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
