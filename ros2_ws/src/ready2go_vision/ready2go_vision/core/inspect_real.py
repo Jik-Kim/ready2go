@@ -3,7 +3,7 @@
   입력: 검출 목록(class·conf·box 픽셀), 정렬 뎁스(m), 카메라 내부 파라미터, T_drawer_cam, params(vision_params.yaml), 온톨로지 items.
   규칙 (docs/vision.md V2):
     position = YOLO 박스 중심 픽셀을 서랍 좌표 z = top_z/2 평면에 투영한 x·y, position.z = 0
-    top_z    = 박스 안 뎁스 덩어리의 높이 (서랍 바닥 기준)
+    top_z    = 박스 안 뎁스 덩어리의 높이 (서랍 바닥 기준). 검출에 mask(분할 모델)가 있으면 마스크 안 뎁스만 (#109)
     yaw      = 덩어리 긴 변 방향. 대칭 물체(pose_rules.is_symmetric)는 0 + yaw_valid true,
                덩어리가 비정상이면 0 + yaw_valid false
   서랍 영역 ROI: 박스 중심 광선이 서랍 바닥(z=0)과 만나는 점이 서랍 안쪽 + region.detect_roi_margin_m 밖이면 뎁스 계산 전에 뺀다.
@@ -70,9 +70,11 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
                 note(det, skip="서랍 영역 밖 (뎁스 전 제외)", xy_floor=None if xy0 is None else [round(xy0[0], 4), round(xy0[1], 4)])
                 continue
         size = items[det["class"]]["size_m"]
-        blob = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, nominal_long_m=size[0])
+        mask = det.get("mask")
+        blob = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, nominal_long_m=size[0], mask=mask)
+        src = "mask" if mask is not None else "box"
         if not blob.depth_ok or blob.top_z is None:
-            note(det, skip=f"뎁스 덩어리 실패: {blob.reason}", n_valid=blob.n_valid, invalid_ratio=round(blob.invalid_ratio, 3))
+            note(det, skip=f"뎁스 덩어리 실패: {blob.reason}", depth_src=src, n_valid=blob.n_valid, invalid_ratio=round(blob.invalid_ratio, 3))
             if fail_on_invalid:
                 return False, "DEPTH_INVALID", ""
             continue
@@ -89,7 +91,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         else:
             yaw, valid = (round(blob.yaw, 4), True) if blob.yaw_ok else (0.0, False)
             yaw_known = valid
-        info = dict(top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)], yaw=yaw, yaw_valid=valid, yaw_reason=blob.reason,
+        info = dict(depth_src=src, top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)], yaw=yaw, yaw_valid=valid, yaw_reason=blob.reason,
                     n_blob=blob.n_blob, blob_long_mm=round(blob.blob_long_m * 1000, 1), blob_short_mm=round(blob.blob_short_m * 1000, 1))
         if interior_m is not None and not footprint_inside(xy[0], xy[1], yaw, yaw_known, size, interior_m,
                                                            params.get("region", {}).get("edge_tolerance_m", 0.01)):

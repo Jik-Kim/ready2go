@@ -17,6 +17,7 @@ logs/
 db_data/
 models/*.pt
 !models/yolo11n_ready2go_v1.pt
+!models/yolo11s_seg_ready2go_v1.pt
 !models/.gitkeep
 data/
 runs/
