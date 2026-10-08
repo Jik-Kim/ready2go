@@ -5,6 +5,7 @@
 """
 import importlib
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -246,13 +247,13 @@ def _load_sk(monkeypatch):
 
 @pytest.mark.parametrize("codes, want_calls, ok", [
     ({"nudge": ["NO_OBJECT_CONTACT", ""]},                             # 끌기 성공 뒤엔 늘 탑뷰 → 다시 인식 → 집기 [사용자 10/07]
-     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "pick", "place"], True),
+     ["home", "ready", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "pick", "place"], True),
     ({"nudge": [""], "pick": ["GRASP_FAILED", ""]},                    # 집기 실패 → 탑뷰 → 집기부터 (다시 끌지 않음)
-     ["home", "open", "view", "scan", "nudge", "view", "scan", "pick", "view", "scan", "pick", "place"], True),
+     ["home", "ready", "open", "view", "scan", "nudge", "view", "scan", "pick", "view", "scan", "pick", "place"], True),
     ({"nudge": ["NOT_REACHED", "JOINT_LIMIT", "PUSH_BLOCKED"]},         # 무엇이든 다시, 최대 2번
-     ["home", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "nudge"], False),
-    ({"nudge": ["ESTOP"]}, ["home", "open", "view", "scan", "nudge"], False),
-    ({"nudge": ["STOP_UNCONFIRMED"]}, ["home", "open", "view", "scan", "nudge"], False),
+     ["home", "ready", "open", "view", "scan", "nudge", "view", "scan", "nudge", "view", "scan", "nudge"], False),
+    ({"nudge": ["ESTOP"]}, ["home", "ready", "open", "view", "scan", "nudge"], False),
+    ({"nudge": ["STOP_UNCONFIRMED"]}, ["home", "ready", "open", "view", "scan", "nudge"], False),
 ])
 def test_dragtest_goes_back_to_top_view_on_any_failure(monkeypatch, codes, want_calls, ok):
     """끌기·집기에서 무엇이든 이상하면 탑뷰 → 인식 → 다시 [사용자 10/07]. 비상정지·잠김·취소만 멈춤."""
@@ -284,3 +285,86 @@ def test_report_sums_pick_window_from_first_view_to_last_pick(monkeypatch, capsy
     sk.report()
     out = capsys.readouterr().out
     assert "pick 구간 합계 (첫 탑뷰 ~ 집기): 40.0 s" in out and "전체 합계: 57.0 s" in out
+
+
+def test_b_sk_drawer_argument_and_ready(monkeypatch):
+    """[사용자 10/08] B <동작> [drawer_top|drawer_bottom] — 팀 공통 서랍 이름 그대로, 기본 위 칸. ready = 손잡이 앞(열기 노드 시작 자세)."""
+    sk = _load_sk(monkeypatch)
+    assert sk.goal_for("ready") == ("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert sk.goal_for("open") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "open"})
+    assert sk.goal_for("close") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert sk.goal_for("view") == ("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_bottom"})
+    assert sk.STEPS[:2] == ("ready", "open") and sk.DRAG_TEST[:3] == ("home", "ready", "open")
+
+
+
+def test_b_sk_drawer_required_with_short_names(monkeypatch):
+    """[사용자 10/08] 서랍이 필요한 동작은 서랍 필수, top/bottom 짧은 이름도 받음. 빼먹거나 서랍 없는 동작에 주면 움직이기 전에 멈춤."""
+    sk = _load_sk(monkeypatch)
+    assert sk.parse_drawer("open", "top") == "drawer_top" and sk.parse_drawer("open", "bottom") == "drawer_bottom"
+    assert sk.parse_drawer("view", "drawer_bottom") == "drawer_bottom"
+    assert sk.parse_drawer("home", None) == "drawer_top"
+    assert sk.parse_drawer("rescan", "top") == "drawer_top"                    # 끌기 뒤 다시 인식도 서랍 필수 (#181 E 재리뷰)
+    for cmd, arg in (("open", None), ("close", "middle"), ("all", None), ("home", "top"), ("place", "bottom"), ("rescan", None)):
+        with pytest.raises(SystemExit):
+            sk.parse_drawer(cmd, arg)
+
+
+TOP_T = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+         "pose": {"frame": "drawer_top", "position": [0.12, 0.2, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+
+def _no_vision(monkeypatch):
+    _stub(monkeypatch, "ready2go_interfaces.srv", InspectRegion=object)
+    return ns(create_client=lambda *a: ns(wait_for_service=lambda timeout_sec: False))
+
+
+def test_b_sk_scan_file_per_drawer(monkeypatch):
+    """#181 E 리뷰: 인식 결과 파일은 서랍마다 따로."""
+    sk = _load_sk(monkeypatch)
+    top = sk.scan_file()
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert top != sk.scan_file() and "drawer_bottom" in sk.scan_file()
+
+
+def test_b_sk_scan_without_vision_ignores_other_drawer_target(monkeypatch, tmp_path):
+    """#181 E 리뷰: 위 칸 인식 결과가 남아 있어도 비전 없이 B scan bottom 은 실패 (예전엔 위 칸 좌표로 성공 → nudge 칸 불일치)."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    node = _no_vision(monkeypatch)
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    assert sk.scan(node) is True                                        # 위 칸은 저장된 결과 사용
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert sk.scan(node) is False
+    (tmp_path / "b_target_scan_drawer_bottom.json").write_text(json.dumps(TOP_T))   # 아래 칸 파일에 위 칸 frame 이 들어 있어도
+    assert sk.scan(node) is False
+
+
+def test_b_sk_target_never_sends_other_drawer_target(monkeypatch, tmp_path):
+    """#181 E 리뷰: nudge 의 target 은 frame 이 지금 서랍인 것만 — 아래 칸에 위 칸 좌표·고정값(stub)을 보내지 않고 멈춤."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    assert sk.goal_for("nudge")[1]["target"] == TOP_T
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    with pytest.raises(SystemExit, match="B scan bottom"):
+        sk.goal_for("nudge")
+    (tmp_path / "b_target_scan_drawer_bottom.json").write_text(json.dumps(TOP_T))
+    with pytest.raises(SystemExit):
+        sk.goal_for("nudge")
+    bottom = json.loads(json.dumps(TOP_T))
+    bottom["pose"]["frame"] = "drawer_bottom"
+    (tmp_path / "b_target_scan_drawer_bottom.json").write_text(json.dumps(bottom))
+    assert sk.goal_for("nudge") == ("nudge_object", {"drawer_id": "drawer_bottom", "target": bottom})
+
+
+def test_b_sk_rescan_without_vision_needs_same_drawer_after(monkeypatch, tmp_path):
+    """#181 E 리뷰: 비전 없이 다시 보기(for_pick)는 지금 서랍 끌기 결과(target_after)가 있을 때만 그대로 집기."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "AFTER", str(tmp_path / "after.json"))
+    node = _no_vision(monkeypatch)
+    (tmp_path / "after.json").write_text(json.dumps(TOP_T))
+    assert sk.scan(node, for_pick=True) is True
+    monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
+    assert sk.scan(node, for_pick=True) is False

@@ -66,6 +66,7 @@ DRAWER_STATE_UNKNOWN = "DRAWER_STATE_UNKNOWN"    # 서버가 인출 거리를 �
 DRAWER_ALREADY_OPEN = "DRAWER_ALREADY_OPEN"
 OTHER_DRAWER_OPEN = "OTHER_DRAWER_OPEN"        # 서랍은 한 번에 하나만 엶 (위·아래가 겹쳐 접근·시야를 막음)
 GRIPPER_ERROR = "GRIPPER_ERROR"
+NOT_AT_START_POSE = "NOT_AT_START_POSE"    # 노드 시작 자세가 아님 → 움직이기 전 거부 (노드 안에서 시작 자세로 알아서 가지 않음, #168)
 
 
 def find_config_dir():
@@ -298,6 +299,19 @@ class SkillServer(Node):
         time.sleep(sp["tare_settle_s"])
         fs = [f for f in (self.robot.tool_force() for _ in range(int(sp["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
+
+    def _clear_to_continue(self, goal):
+        """노드 안에서 다음 명령(그리퍼 포함)을 보내기 직전: 취소 → CANCELED, 안전·비상정지 → ESTOP, 상태 조회 실패 → STATE_UNKNOWN.
+        아무 명령도 보내지 않고 돌려줌 (정지 명령도 안 보냄 — 이미 멈춘 상태). 문제없으면 None (#181 E 재리뷰 P1)."""
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+        if early:
+            return early
+        st = self.robot.state()
+        if st is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="다음 명령 전 로봇 상태 조회 실패 — 보내지 않음")
+        if sf.stopped_by_estop(st):
+            return sf.Outcome(False, sf.ESTOP, reason=f"다음 명령 전 로봇 상태 {st} (안전·비상정지) — 보내지 않음")
+        return None
 
     def _movej(self, goal, joints, stage, in_drawer=False):
         """관절 이동 1번 (제한 확인 → 자동 모드 → 비동기 → 도착). 성공이면 Outcome(True).
@@ -615,34 +629,14 @@ class SkillServer(Node):
         joints, err = sf.pose_joints(self.poses(), "drawer_approach", drawer_id)
         if err:
             return err, None
-        cur = self.robot.posx()
-        if cur is None:                                              # 높이를 모르면 그리퍼·관절 이동 전에 실패 (#83 E 검토 P1)
-            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 관절 이동 전 높이 확인 못 함"), None
-        self._grip(oc["handle_open_width_mm"], 20)
-        # Runner 의 open_drawer 는 move_to_named_pose(drawer_approach) 를 먼저 보냄 → 이미 ready 면 다시 올렸다 내리지 않음 (10/06 통합 실물)
+        # 시작 자세 = 손잡이 앞(ready, drawer_approach) — Runner open_drawer 가 move_to_named_pose(drawer_approach) 를 먼저 보냄.
+        # 노드 안에서 ready 로 알아서 가지 않음(숨은 이동 없음, #168 사용자 10/08). 아니면 그리퍼도 움직이기 전에 거부.
+        if self.robot.posx() is None:                                # 좌표를 모르면 그리퍼 전에 실패 (#83 E 검토 P1)
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 시작 자세 확인 못 함"), None
         if not sf.check_reached(joints, self.robot.posj(), self.reach_tol).success:
-            if cur[2] < self.prm()["transit"]["safe_z_mm"]:              # 낮은 곳에서 바로 관절 이동하지 않음
-                bad = self._line(goal, mp.with_z(cur, self.prm()["transit"]["safe_z_mm"]), self._free_vel(cur), "lift")
-                if bad:
-                    return bad, None
-            goal.publish_feedback(Skill.Feedback(stage="approach"))
-            err = self._joint_bad(joints, "drawer_approach 목표")
-            if err:
-                return err, None
-            if not self.robot.auto():
-                return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state), None
-            bad = sf.after_command(self.robot.movej_async(joints, self.joint_vel, self.joint_acc), what="movej(drawer_approach)",
-                                   stop=self.robot.stop, get_state=self.state)
-            if bad:
-                return bad, None
-            done = sf.wait_motion(get_state=self.state, cancel_requested=lambda: goal.is_cancel_requested,
-                                  stop=self.robot.stop, timeout_s=self.move_timeout, arrived=self._at_joints(joints),
-                                  watch=self._joint_watch())
-            if not done.success:
-                return done, None
-            reached = sf.check_reached(joints, self.robot.posj(), self.reach_tol)
-            if not reached.success:
-                return reached, None
+            return sf.Outcome(False, NOT_AT_START_POSE,
+                              reason="손잡이 앞(drawer_approach)에서 시작 — 먼저 move_to_named_pose(drawer_approach)"), None
+        self._grip(oc["handle_open_width_mm"], 20)
         handle = mp.offset_posx(mp.handle_posx(closed, pull, disp), pull, oc["handle_grasp_back_mm"])   # 실측보다 조금 덜 들어감
         reach_f = self._tare()
 
@@ -665,9 +659,13 @@ class SkillServer(Node):
                 if now else sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
             return sf.worse(bad, back), None
         st = self._grip(0, oc["handle_grip_force_n"])
-        if st.width_mm / 1000.0 <= oc["handle_min_width_m"]:
+        if st.width_mm / 1000.0 <= oc["handle_min_width_m"]:     # 못 잡음 → 그리퍼 열고 접근 실패와 같은 자리(60 mm 뒤)로 빼고 멈춤 [사용자 10/08]
             self._grip(oc["handle_open_width_mm"], 20)
-            return sf.Outcome(False, GRASP_FAILED, reason=f"손잡이를 못 잡음 (폭 {st.width_mm:.1f} mm)"), None
+            failed = sf.Outcome(False, GRASP_FAILED, reason=f"손잡이를 못 잡음 (폭 {st.width_mm:.1f} mm)")
+            now = self.robot.posx()
+            back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat") \
+                if now else sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
+            return sf.worse(failed, back), None
         start = self.robot.posx()
         base_f = self._tare()
         target = mp.offset_posx(handle, pull, distance * 1000.0)
@@ -714,6 +712,11 @@ class SkillServer(Node):
                                                                 "(params drawer_open_close.close_enabled)"), None
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"{self.held['class']} 를 든 채 닫지 않음"), None
+        tilted = (oc.get("close_push") or {}).get(drawer_id)
+        if tilted:
+            return self._close_drawer_tilted(goal, drawer_id, oc, dc, pull, tilted)
+        if not (oc.get("vertical_close_ok") or {}).get(drawer_id, False):   # 아래 칸: 수직 그리퍼 몸통이 위 서랍 앞판에 닿음 [실측 B 10/08]
+            return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} 닫기 자세(close_push) 교시 전"), None
         prm = self.prm()
         speed = prm["speed"]
         cur = self.robot.posx()
@@ -729,6 +732,9 @@ class SkillServer(Node):
             cur = self.robot.posx()
             if cur is None:
                 return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        early = self._clear_to_continue(goal)              # 홈 이동 뒤 취소·안전정지면 그리퍼도 움직이지 않음 (#181 E 리뷰)
+        if early:
+            return early, None
         if self._grip_width() < oc["handle_open_width_mm"] - 2.0:   # 이미 벌어져 있으면 그리퍼 기다림 없이 (놓기 뒤 28 mm 등) [사용자 10/07]
             self._grip(oc["handle_open_width_mm"], 20)      # 살짝 벌린 두 손끝으로 손잡이 앞을 밂
         tip_z = handle[2] + mp.tip_below_tcp_mm(oc["handle_open_width_mm"], prm["gripper"])   # 손끝 = 손잡이 높이
@@ -739,6 +745,12 @@ class SkillServer(Node):
             return bad, None
         closed = list(closed[:2]) + [tip_z] + list(cur[3:])
         contact_closed = mp.offset_posx(closed, pull, off)  # 닫혔을 때 TCP 위치 (손끝 앞면이 닫힌 손잡이에)
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, contact_closed)
+
+    def _push_closed(self, goal, drawer_id, oc, dc, pull, pre, contact_closed):
+        """pre(밀기 시작, 이미 도착)에서 닫히는 방향으로 contact_closed(닫혔을 때 TCP)보다 close_overtravel 만큼 더 밂.
+        빠르게 → 마지막 push_slow_last_mm 천천히, 일찍 크게 걸리면 멈춤, 끝나면 여는 방향으로 retreat_mm 빼기 (홈은 안 감)."""
+        speed = self.prm()["speed"]
         push = [-c for c in pull]
         base_f = self._force_quick()                       # 밀기 감시(15 N) 기준 — 0.7 s 기다리지 않고 바로 (도착 직후 흔들림 몇 N, 판정엔 충분 [추정]) [사용자 10/07]
 
@@ -786,6 +798,44 @@ class SkillServer(Node):
         self.disp[drawer_id] = 0.0
         out["drawer_displacement"] = 0.0
         return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
+
+    def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp):
+        """닫기 (위·아래 공통) — 수직에서 로봇 쪽으로 기울인(45°, 20° 는 손잡이에 닿음) 손끝으로 앞판 중앙을 닫히는 방향(y)으로 밂 [사용자 10/08].
+        교시(params close_push.<서랍>): start_posj·start_posx = 서랍 끝까지 연 상태 앞판 3 cm 앞, end_posx = 닫힌 상태 앞판에 손끝이 닿는 자리
+        (같은 손목·높이). 서랍 위(탑뷰 등)면 먼저 홈 — 열린 앞판을 치지 않게 (#133). 그리퍼는 닫은 채 밂."""
+        tol = oc.get("close_push_xz_tol_mm", 5.0)
+        start_x, end = cp.get("start_posx"), cp.get("end_posx")
+        if not start_x or not end:
+            return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} close_push 의 start_posx·end_posx 교시 전"), None
+        start_x, end = [float(v) for v in start_x], [float(v) for v in end]
+        # 미는 동안 손목·x·z 는 시작 자세 그대로, 닫힘 판정은 끝 자세의 y 만 — 시작·끝을 따로 교시하면 C 가 180° 다르게 찍힐 수 있음
+        # (그리퍼 축 반 바퀴, 미는 데는 같음) [실측 B 10/08 위 칸 C +90 vs −90]. x·z 가 많이 다르면 잘못 잰 것 → 교시값끼리 비교해 움직이기 전 거부 (#181 C 리뷰)
+        off = max(abs(start_x[k] - end[k]) for k in (0, 2))
+        if off > tol:
+            return sf.Outcome(False, DRAWER_NOT_CONFIGURED,
+                              reason=f"닫기 시작·끝 자세의 x·z 차이 {off:.1f} mm — 같은 높이·x 로 다시 교시"), None
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        if self._over_drawer(cur):
+            o = self._named(goal, "home")
+            if not o.success:
+                return o, None
+        early = self._clear_to_continue(goal)              # 홈 이동 뒤 취소·안전정지면 그리퍼도 움직이지 않음 (#181 E 리뷰)
+        if early:
+            return early, None
+        self._grip(0, 20)
+        o = self._movej(goal, cp["start_posj"], "to_close_start")
+        if not o.success:
+            return o, None
+        pre = self.robot.posx()
+        if pre is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+        off = max(abs(pre[k] - start_x[k]) for k in range(3))
+        if off > tol:                                       # start_posj 와 start_posx 가 서로 다른 자리 (옮겨 적다 틀림) → 밀지 않음. 이미 움직였으므로 이동 뒤 코드
+            return sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED,
+                              reason=f"닫기 시작 자세 도착 위치가 start_posx 와 {off:.1f} mm 다름 — 밀지 않고 멈춤, start_posj·start_posx 다시 교시"), None
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [pre[0], end[1], pre[2]] + list(pre[3:6]))
 
     # --- 끌기 (nudge_object) ---
     def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
@@ -922,6 +972,9 @@ class SkillServer(Node):
 
     def _do_nudge_object(self, goal, params):
         target, drawer_id = params.get("target") or {}, params.get("drawer_id")
+        frame = (target.get("pose") or {}).get("frame")
+        if frame != drawer_id:                              # 다른 칸 좌표로 이 칸을 끌지 않음 — 움직이기 전 거부 (#181 E 리뷰)
+            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame {frame!r} ≠ drawer_id {drawer_id!r}"), None
         prm, place = self.prm(), self.places().get(drawer_id) or {}
         if not place.get("tf") or not place.get("interior_m"):
             return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} tf·interior_m 없음"), None
@@ -1036,7 +1089,10 @@ class SkillServer(Node):
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"이미 {self.held['class']} 를 들고 있음"), None
         target = params.get("target") or {}
-        drawer_id = params.get("drawer_id") or (target.get("pose") or {}).get("frame")   # 계약엔 drawer_id 없음 → pose.frame
+        frame = (target.get("pose") or {}).get("frame")
+        drawer_id = params.get("drawer_id") or frame       # 계약엔 drawer_id 없음 → pose.frame
+        if drawer_id != frame:                              # 둘 다 왔는데 다르면 어느 칸인지 모름 — 움직이기 전 거부 (#181 E 리뷰)
+            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame {frame!r} ≠ drawer_id {drawer_id!r}"), None
         if drawer_id not in ("drawer_top", "drawer_bottom"):
             return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame 이 서랍이 아님: {drawer_id!r}"), None
         prm, place = self.prm(), self.places().get(drawer_id) or {}
