@@ -138,6 +138,11 @@ if cab_root:
     cab.initialize()
     d_idx = next((i for i, n in enumerate(cab.dof_names) if n == f"{DKEY}_joint"), None)
 drawer_attr = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetAttribute("drive:linear:physics:targetPosition")
+# 서랍이 관절로 직접 안 잡히면(구동 목표) 스프링이 약해 당기는 동안 55~62 mm 늦게 따라옴 → 손이 손잡이에서 떨어져 보임 [실측 10/08, 사용자 지적].
+# 재생 동안만 구동을 아주 세게 (씬 파일은 저장 안 함)
+_jp = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint")
+for _a, _v in (("drive:linear:physics:stiffness", 1e7), ("drive:linear:physics:damping", 1e5), ("drive:linear:physics:maxForce", 1e7)):
+    _jp.GetAttribute(_a).Set(_v)
 print(f"[play] 로봇 {robot_root} DOF {len(dofs)}, {DKEY}, 서랍 {'관절 직접 설정' if d_idx is not None else '구동 목표'}, "
       f"B 코드 {TRACE.get('repo_sha') or TRACE['repo']}", flush=True)
 
