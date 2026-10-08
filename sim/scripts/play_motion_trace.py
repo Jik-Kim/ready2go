@@ -190,6 +190,19 @@ def apply(q_arm, f_deg, travel):
 _b1 = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetRelationship("physics:body1").GetTargets()[0]
 DRAWER0 = np.array(gf_to_np(UsdGeom.Xformable(stage.GetPrimAtPath(_b1)).ComputeLocalToWorldTransform(0))[:3, 3])
 segs = [s for s in TRACE["segments"] if wanted(s["i"])]
+# 닫기 밀기는 push → push_slow 로 이어짐 [B 10/08]: 둘을 한 번의 밀기로 보고, 손끝이 앞판에 닿은 뒤(전체 밀기 − 인출 거리)부터 서랍이 같이 감.
+# 예전엔 push 만으로 끝까지 닫아 손이 남은 30 mm 를 가기 전에 서랍이 먼저 닫혔음 [사용자 10/08]
+PUSH = {}
+_run = []
+for _s in TRACE["segments"] + [{"stage": ""}]:
+    if _s["stage"] in ("push", "push_slow"):
+        _run.append(_s)
+        continue
+    _tot, _before = sum(x.get("dist_mm", 0) for x in _run) / 1000.0, 0.0
+    for x in _run:
+        PUSH[x["i"]] = (_before, _tot)
+        _before += x.get("dist_mm", 0) / 1000.0
+    _run = []
 grips = {}
 for g in TRACE.get("grip_events", []):
     grips.setdefault(g["before_segment"], []).append(g["width_mm"])
@@ -200,7 +213,7 @@ while app.is_running():
     first = segs[0]["i"]
     travel, width, held, rel, placed = 0.0, 110.0, False, None, False
     for s in TRACE["segments"][:first]:                                  # 건너뛴 앞 구간의 서랍·그리퍼 상태
-        travel = max_travel if s["stage"] == "pull" else (0.0 if s["stage"] == "push" else travel)
+        travel = max_travel if s["stage"] == "pull" else (0.0 if s["stage"] in ("push", "push_slow") else travel)
     for b, ws in grips.items():
         if b <= first:
             width = ws[-1]
@@ -239,9 +252,10 @@ while app.is_running():
             m_op.Set(Gf.Vec3d(*[float(v) for v in T_tcp[:3, 3]]))
             if s["stage"] == "pull":
                 travel = min(max_travel, f * s.get("dist_mm", 0) / 1000.0)
-            elif s["stage"] == "push":
-                d = s.get("dist_mm", 0) / 1000.0
-                travel = min(max_travel, max(0.0, max_travel - max(0.0, f * d - (d - max_travel))))
+            elif s["stage"] in ("push", "push_slow"):
+                before, tot = PUSH[s["i"]]
+                pushed = before + f * s.get("dist_mm", 0) / 1000.0
+                travel = min(max_travel, max(0.0, max_travel - max(0.0, pushed - (tot - max_travel))))
             if s["stage"] == "drag":
                 set_cube(eraser_world({"position": [ers0["position"][i] + (ers1["position"][i] - ers0["position"][i]) * f
                                                     for i in range(3)], "yaw": ers1["yaw"]}, travel))
