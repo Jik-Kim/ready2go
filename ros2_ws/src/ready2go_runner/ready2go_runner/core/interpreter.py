@@ -411,6 +411,8 @@ class Runner:
         if motion and not no_motion:
             self._motions += 1                  # 움직이기 전 거부가 보장된 실패만 빼고 셈
         if not result.success:
+            if result.output is not None:       # 실패 응답의 결과도 기록만 (예: 그리퍼를 연 뒤 실패한 place_object 의
+                record["output"] = result.output   # placed_pose, #166). 블랙보드에는 넣지 않음 — 뒤 스텝이 성공 값으로 쓰지 않게
             if result.error_code in HALT_CODES:
                 raise Halted(step["id"], result.error_code)
             if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
