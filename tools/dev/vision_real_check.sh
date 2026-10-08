@@ -7,7 +7,7 @@
 #   bash tools/dev/vision_real_check.sh camera                # 이 PC 에서 realsense (compose realsense 서비스, Ctrl+C 로 종료)
 #   bash tools/dev/vision_real_check.sh check                 # 카메라 토픽 주기·TF 확인 (약 20초)
 #   bash tools/dev/vision_real_check.sh node                  # 비전 노드 (Ctrl+C 로 종료). 요청마다 ~/ready2go_vision_dump/ 에 프레임 저장
-#   bash tools/dev/vision_real_check.sh call [eraser]         # 서비스 호출 1회 (node 가 떠 있어야 함, 그 컨테이너 안에서 실행)
+#   bash tools/dev/vision_real_check.sh call [eraser] [drawer_top]   # 서비스 호출 1회 (node 가 떠 있어야 함, 그 컨테이너 안에서 실행). 아래 칸은 drawer_bottom
 #   bash tools/dev/vision_real_check.sh measure X1 Y1 Z1 X2 Y2 Z2   # 펜던트 base 좌표(mm) 손끝 두 점 → 서랍 좌표 정답 (stub_measure.py)
 #   bash tools/dev/vision_real_check.sh replay [파일] [X Y YAW]   # 저장한 프레임 다시 계산 (파일 생략 = 전부, 정답 주면 위치 오차)
 #       WEIGHTS=<가중치 .pt 경로> 를 앞에 붙이면 저장된 컬러로 그 모델이 다시 검출 (같은 실물 프레임에서 모델 비교)
@@ -45,7 +45,7 @@ case "${1:-}" in
     exec "${RUN[@]}" -it --name "$NODE" --gpus all -v "$DUMP:/dump" "$IMG" bash -lc "$BUILD && exec ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/repo/config -p dump_dir:=/dump -p 'code_sha:=\"$SHA\"'" ;;
   call)
     docker ps -q -f name="^$NODE$" | grep -q . || { echo "비전 노드($NODE)가 안 떠 있음 — 먼저 node"; exit 1; }
-    docker exec "$NODE" bash -lc "source /opt/ros/jazzy/setup.bash && source /tmp/install/setup.bash && timeout -s KILL 30 ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion \"{region: drawer_top, search_target: ${2:-eraser}}\"" ;;
+    docker exec "$NODE" bash -lc "source /opt/ros/jazzy/setup.bash && source /tmp/install/setup.bash && timeout -s KILL 30 ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion \"{region: ${3:-drawer_top}, search_target: ${2:-eraser}}\"" ;;
   measure)
     [ $# -eq 7 ] || { echo "사용: measure X1 Y1 Z1 X2 Y2 Z2 (펜던트 base mm, 지우개 긴 변 양 끝)"; exit 2; }
     "${RUN[@]}" "$IMG" python3 ros2_ws/src/ready2go_skills/ready2go_skills/core/stub_measure.py --class eraser --config-dir /repo/config \

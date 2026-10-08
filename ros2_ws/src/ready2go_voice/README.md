@@ -120,6 +120,26 @@ C #17 인계: 단일 find_item→태스크 수신, cancel/status, 모호/미지�
 
 D #20 인계: **20 지우개 요청/10 모호/10 미등록·미지원**, 자유 표현10은 40개 안에 포함, 화자2명 이상, cancel/status 별도 보조 시험. 사용자 확정 모호=clarify 정책을 반영하되 평가자료의 승인 상태·문장별 정답을 E/D가 먼저 고정하고 모션 없는 평가 모드에서 측정합니다. 40문장은 평가용 정답표이며 허용 목록·학습 자료가 아닙니다. 이름 없는 자유 표현과 요청 의미가 불명확한 경우는 확인 안내·실행 보류입니다. D 초안(JSON SHA256 `5995fc225c0a2cc78aa1c9264eee6a07518ad674ed4923763acf5017377aec84`)의 최신 TC-008은 “지우개 찾아서 건네줘.”입니다. 이 자료를 읽기 전용 정답 참고로 사용한 텍스트40개 회귀는 실제 음성 평가·D 자료 승인 완료를 대신하지 않습니다. 후속 확인 대화와 자료 승인·정답표 동결은 E/D 인계로 남습니다. 정상 unknown/clarify는 LLM 검증 실패가 아닙니다. LLM 검증 passed는 형식·등록 대상 검사 통과를 뜻하며 사용자 확인 완료나 실행 허용을 뜻하지 않습니다. 전체·종류별 정확도, LLM 호출 분모/검증 실패/폴백, STT·확인 지연·실행 시도를 구분합니다. 실제 음성 40문장 ≥36 정답, 검증 실패율≤5%·잘못된 실행0, 확인TTS≤3초는 실제 측정 대상으로 남습니다.
 
+## P1 중단·오류 음성 안내 (#138)
+
+[문서] 기존 `/runner/status`의 String JSON을 reliable/transient-local·depth10으로 읽기 전용 구독합니다. 상태 구독은 전용 `MutuallyExclusiveCallbackGroup`으로 동시 콜백 실행을 막고 text/action은 기존 Reentrant 그룹을 유지합니다. 수신 버퍼 확대와 콜백 상호 배제는 모든 입력 순서·누락 방지를 보장하지 않습니다. ROS 상태 콜백은 파싱·순수 정책·대기 슬롯 처리만 수행하며, 별도 안내 worker가 기존 TTS lock/취소/전체 timeout으로 재생합니다. 정지/복구 서비스나 로봇 상태/DB를 호출·변경하지 않으며 정지·취소 처리가 안내 재생을 기다리지 않습니다. 기존 취소/발행 보류·첫 DAC·Skill goal/result 계약을 유지합니다.
+
+| 관측한 현재 코드/결과 | 고정 안내·시점 |
+|---|---|
+| 현재 `ESTOP` | “비상정지가 감지됐어요. 상태를 확인해 주세요.” |
+| 현재 `HALTED`/취소 | “작업 중단이 요청됐어요. 상태를 확인해 주세요.” ESTOP으로 바꾸어 해석하지 않음 |
+| `STOP_UNCONFIRMED`·`STATE_UNKNOWN`·`MOVE_UNCONFIRMED`·`LOCKED`·불명확 halt | “로봇 상태를 확인할 수 없어요. 직접 확인해 주세요.” |
+| 새 최종 `FAILED`의 `TIMEOUT`/`LATE_RESULT` | 제한 시간·상태 확인 안내 |
+| 새 최종 `FAILED`의 `DEPTH_INVALID`·`RESULT_INVALID`·`UNKNOWN_REGION`·`STUB_NOT_READY` | 물품 확인 실패·카메라/작업 공간 확인 안내 |
+| 새 최종 `FAILED`의 `GRASP_FAILED` | 파지 실패·물품/그리퍼 확인 안내 |
+| 그 외 새 실패·중단 결과 | 쉬운 일반 실패 또는 불명확 상태 확인 안내. 원본 오류 전문을 읽지 않음 |
+
+문구·코드 매핑은 E의 `core/runner_notice.py` 고정 정책입니다. 7개 문구를 기존 Melo1.2 준비 캐시에 추가합니다. 안전 경고는 ESTOP→확인 불가→중단 요청 순으로 우선하며, 대기 안내는 하나만 유지합니다. 높은 경고가 오면 낮은 경고 재생을 취소하고, 새 회차/중단 해제는 낡은 대기 안내를 무효화합니다. 동일 사건 반복과 이미 확인한 완료 run_id는 재생하지 않고, 새 회차의 같은 오류는 다시 안내합니다. 첫 latched snapshot은 기준 상태로만 저장하며 동일 과거 halt/결과 반복도 무음입니다.
+
+상태 경고는 이전 정상 안내/확인 결과의 epoch·generation을 무효화합니다. 실제 현재 halt가 유지되는 동안 정상 `/voice/speak` goal을 거절하고 이전 goal을 취소하지만, 일반 `FAILED` 자체로 지속 잠금을 만들지 않습니다. 일반 실패 뒤 새 음성 확인→intent→새 회차는 기존 게이트로 진행할 수 있습니다. 이미 재생된 음성은 되돌릴 수 없으며 취소는 기존 PCM/worker의 관측 주기에 적용됩니다. TTS 자체 오류는 실패 유형 로그만 남기고 재귀 안내·무한 재시도하지 않습니다. 상세 진단의 `notice_kind`는 고정 분류이며 새 토픽이나 계약 필드가 아닙니다.
+
+[문서] running의 `last`는 이전 실행 결과일 수 있으므로 일반 실패로 안내하지 않습니다. 관측한 running 회차와 task_id가 맞는 새 최종 FAILED/ABORTED를 안내하며, 일반 실패는 현재 Runner가 finally 뒤 결과를 발행하는 **관측 시점**의 안내입니다. 중간 즉시 오류 안내가 아닙니다. 현재 상태에는 활성 run_id·이벤트 시각/순번이 없어 관측 전환 누락·미관측 같은 태스크의 지연/재정렬 snapshot·회차 간 완전한 결과 연결은 보장할 수 없습니다. 기존 계약을 임의로 확대하지 않고 [#138](https://github.com/Jik-Kim/ready2go/issues/138)의 C 상태 필드/발행 시점 인계로 남깁니다. 실제 E-stop/실물 상태·정지 확인·스피커·경고 지연은 미검증이며 “멈췄어요”라고 안내하지 않습니다.
+
 ## 검증과 남은 조건
 
 ```bash
@@ -197,7 +217,7 @@ PYTHON
 python3 ros2_ws/src/ready2go_voice/ready2go_voice/adapters/melotts_install.py --project-root .
 ```
 
-[문서] `tts_engine: melotts` 실패는 준비/합성 실패로 표시되고 espeak로 자동 전환하지 않습니다. 기존 설정에 엔진 키가 없으면 espeak 호환 경로입니다. Melo 기본 CPU4스레드/속도1.0/준비상한60초/재생전체상한20초는 실측 기반 **제안값 [팀 확정 필요]**이며, AC 모드의 `start_deadline` 3초는 완화하지 않습니다. 준비 때 등록 물품 이름으로 확인 문장과 `clarify_prompts` 전체, 추가 `tts_melotts_prefill_texts`를 캐시에 넣고 완료 후에만 voice ready/웨이크 입력을 시작합니다. 목록 밖 문장은 최초 합성이 필요합니다. 캐시 키는 문장·모델 파일/리비전·소스/worker·의존성·speaker·속도·스레드를 반영합니다.
+[문서] `tts_engine: melotts` 실패는 준비/합성 실패로 표시되고 espeak로 자동 전환하지 않습니다. 기존 설정에 엔진 키가 없으면 espeak 호환 경로입니다. MeloTTS·음성 속도1.2는 사용자 확정입니다. CPU4스레드/준비상한60초/재생전체상한20초는 기존 실측 기반 **제안값 [팀 확정 필요]**이며, AC 모드의 `start_deadline` 3초는 완화하지 않습니다. 준비 때 등록 물품별 기존 “가져다드리겠습니다.”와 P1 태스크의 “{{name|을}} 찾아 올게요”, “{{name|을}} 앞쪽 트레이에 놓았어요”, “{{name|을}} 찾지 못했어요”, 고정 “서랍을 닫았어요”, `clarify_prompts` 전체와 사용자 `tts_melotts_prefill_texts`를 중복 제거해 캐시에 넣고 완료 후에만 voice ready/웨이크 입력을 시작합니다. 목록 밖 문장은 최초 합성이 필요합니다. 캐시 키는 문장·모델 파일/리비전·소스/worker·의존성·speaker·속도·스레드를 반영합니다.
 
 단독 합성은 설치된 Melo 소스/API를 직접 사용해 새 WAV를 만듭니다. ROS·마이크·API·스피커 재생을 사용하지 않으며 voice worker의 캐시/시간 예산 검사와도 구분합니다. 저장소 루트에서 실행합니다.
 
@@ -222,12 +242,109 @@ tts = TTS(language='KR', device='cpu', config_path=str(kr / 'config.json'),
           ckpt_path=str(kr / 'checkpoint.pth'))
 with tempfile.NamedTemporaryFile(dir='logs/voice_eval', prefix='melotts.', suffix='.wav', delete=False) as f:
     output = f.name
-tts.tts_to_file('지우개 가져다드리겠습니다.', tts.hps.data.spk2id['KR'], output, speed=1.0)
+tts.tts_to_file('지우개 가져다드리겠습니다.', tts.hps.data.spk2id['KR'], output, speed=1.2)
 print(output)
 PYTHON
 ```
 
-마이크·API·로봇 없이 기존 출력 장치에서 재생하는 명령입니다. 음성 노드는 먼저 종료하십시오.
+[문서] 사전캐시 문장의 조사·띄어쓰기·마침표는 실제 `tasks/find_item.json` 렌더와 대조했습니다. “서랍을 닫았어요”의 E 책임은 합성 준비이며, C 태스크의 같은 실행 닫기 성공 후 안내는 [#140](https://github.com/Jik-Kim/ready2go/pull/140)(merge `0c0a971`)으로 main에 반영됐습니다. C mock 통합 리뷰와 PC2 실물 실행 순서·시간 검증은 구분합니다. 속도 변경은 캐시 키를 바꾸며 동일 환경·문장의 재시작 캐시는 기존 디스크에서 조회합니다. worker 코드 변경도 키에 반영되어 이전 캐시와 구분됩니다. PC2 준비 완료·새 속도 청취 품질·3초 달성은 미검증입니다. Google Cloud TTS 도입은 철회되었으며 SDK/자격증명은 추가하지 않습니다.
+
+<a id="melotts-prefill"></a>
+
+### 노드 실행 전 사전 캐시 준비
+
+[문서] 아래 순서는 **저장소 루트**, 실제 노드와 같은 로컬 YAML·프로젝트 환경에서 실행합니다. Voice 노드를 먼저 종료하고, 이 PR의 코드가 설치된 overlay를 사용하십시오. 확인 시점 main `fa69417`에는 PR #144가 미반영이므로 main의 기존 설치만 source해 새 기능을 사용할 수 있다고 판단하지 않습니다. 필요한 설치는 [실행 준비와 의존성](#실행-준비와-의존성)을 따릅니다. 모델 다운로드/설치는 위 설치 절차이며 캐시 준비와 구분합니다.
+
+**1. 설정·경로 확인(합성·재생 없음)**
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
+source ros2_ws/install/setup.bash
+python3 - <<'PYTHON'
+import os
+from pathlib import Path
+from ready2go_voice.core.config import load_config
+from ready2go_voice.core.tts_prefill import prefill_texts
+from ready2go_knowledge.core.ontology import load
+cfg = load_config('logs/voice_eval/voice.local.yaml')
+assert cfg['tts_engine'] == 'melotts' and cfg['tts_melotts_speed'] == 1.2, '실제 로컬 YAML의 엔진/속도를 확인하십시오'
+runtime = Path(cfg['tts_melotts_python']).expanduser().absolute()
+assets = Path(cfg['tts_melotts_assets']).expanduser().resolve()
+assert runtime.is_file() and os.access(runtime, os.X_OK), 'Melo 전용 Python 설치/경로를 확인하십시오'
+assert (assets / 'model_manifest.json').is_file(), 'Melo 모델 설치/경로를 확인하십시오'
+ontology = load(cfg['ontology_file'])
+texts = prefill_texts(cfg, ontology['world']['items'].values())
+print('Melo Python:', runtime)
+print('Melo assets:', assets)
+print('현재 prefill 문장 수:', len(texts), '(warmup은 별도)')
+print('캐시:', assets / 'wav_cache')
+print('worker 로그:', assets / 'worker.log')
+PYTHON
+```
+
+로컬 `voice.local.yaml`이 공유 설정보다 우선합니다. 경로는 저장소 루트 기준이며 로컬 YAML의 절대 경로는 그대로 사용합니다. 위 확인 실패 시 준비/노드 실행을 보류하고 해당 PC의 runtime·모델·ontology 경로를 먼저 바로잡으십시오. 이 확인은 파일 존재·설정·목록 검사이며 실제 모델 로딩 성공 검사가 아닙니다.
+
+**2. 전체 고정 문구 캐시 생성(물리 재생 없음)**
+
+최초 설치·속도/worker 변경 뒤 cold-cache 준비는 일반 노드의 재시작 반복으로 수행하지 않습니다. [실측: 문장 목록] 현재 등록11종의 안내와 상태 고정문구7종을 합한 prefill63개+warmup1개, 총64개입니다. [추정] 과거 속도1.0 단문 약2.43초를 단순 적용하면 약156초로, 기존 전체 준비 상한60초를 넘을 수 있습니다. 새 속도1.2·긴 안내·운용 PC의 실제 준비 시간으로 확인해야 하며 이 추정을 새 상한이나 팀 확정값으로 사용하지 않습니다.
+
+노드를 종료한 뒤 아래 **캐시 준비만** 먼저 수행합니다(마이크/API/출력 장치 사용 없음). 해당 PC에서 결정한 유한 준비 상한을 입력하여 이 명시 실행의 메모리 설정에만 적용합니다. 기존 YAML·일반 노드 준비상한·재생전체20초·AC3초 예산은 변경하지 않습니다. 실패하면 상한/worker.log/환경을 점검하고 일반 노드를 시작하지 않습니다. 완료 뒤 같은 worker·속도·모델·설정으로 일반 노드를 시작합니다. 동일 환경이라도 60초 안에 준비 가능한지 PC2에서 별도 확인해야 합니다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source .venvs/project/bin/activate
+source ros2_ws/install/setup.bash
+read -r -p '최초 캐시 준비 전체 상한(초, 운용 PC에서 결정): ' MELOTTS_PREFILL_TIMEOUT_SEC
+export MELOTTS_PREFILL_TIMEOUT_SEC
+python3 - <<'PYTHON'
+import math
+import os
+import time
+from ready2go_knowledge.core.ontology import load
+from ready2go_voice.core.config import load_config
+from ready2go_voice.core.tts_prefill import prefill_texts
+from ready2go_voice.adapters.melotts import MeloTTS
+cfg = load_config('logs/voice_eval/voice.local.yaml')
+if cfg['tts_engine'] != 'melotts':
+    raise ValueError('MeloTTS 설정을 확인하십시오')
+limit = float(os.environ['MELOTTS_PREFILL_TIMEOUT_SEC'])
+if not math.isfinite(limit) or limit <= 0:
+    raise ValueError('준비 상한은 유한 양수 초 단위입니다')
+cfg['tts_melotts_startup_timeout_sec'] = limit
+ontology = load(cfg['ontology_file'])
+cfg['_tts_prefill_texts'] = prefill_texts(cfg, ontology['world']['items'].values())
+started = time.monotonic()
+tts = MeloTTS(cfg)
+try:
+    tts.prepare()  # 모델·전체 문장 합성/조회만 수행하며 speak를 호출하지 않습니다.
+    print('전체 캐시 준비 완료(초):', round(time.monotonic() - started, 3))
+finally:
+    tts.close()
+PYTHON
+MELOTTS_PREFILL_EXIT_CODE=$?
+unset MELOTTS_PREFILL_TIMEOUT_SEC
+printf '캐시 준비 종료 코드: %s\n' "$MELOTTS_PREFILL_EXIT_CODE"
+test "$MELOTTS_PREFILL_EXIT_CODE" -eq 0
+```
+
+**3. 완료 로그·실패 원인 확인**
+
+`MeloTTS 준비 완료 (고정 안내 캐시 완료)`와 `전체 캐시 준비 완료(초): ...`를 확인하고, 위에서 보존한 **종료 코드가 0**일 때만 다음 단계로 진행합니다. 완료는 현재 설정의 모델과 전체 고정 문장 합성/캐시 조회를 뜻하며, 물리 재생이나 AC-INT-03 3초 달성은 뜻하지 않습니다. 준비 시간과 사용 설정을 #138 운용 기록에 남기십시오.
+
+캐시는 `tts_melotts_assets/wav_cache`, 로그는 같은 assets의 `worker.log`입니다(기본 `models/tts/melotts/wav_cache`, `models/tts/melotts/worker.log`). 오래된 키의 WAV도 남을 수 있으므로 파일 개수만으로 현재 준비 성공을 판정하지 않습니다. 기본 경로의 최근 로그는 다음처럼 읽습니다. assets를 변경했다면 1단계에 출력된 경로를 사용하십시오.
+
+```bash
+tail -n 80 models/tts/melotts/worker.log
+```
+
+- `MELOTTS_PREPARE_TIMEOUT`/`MELOTTS_PREPARE_FAILED`: worker 로그의 실제 원인과 해당 PC 준비 시간을 확인합니다. cold 합성에 부족한 상한이었다면 운용 PC에서 정한 유한 상한으로 **사전 준비만** 다시 실행합니다. 일반 노드를 반복 재시작하며 캐시를 쌓거나 일반 YAML/AC3초 예산을 임의로 늘리지 않습니다.
+- `MELOTTS_RUNTIME_MISSING`/모델·의존성 오류: 설정된 전용 Python, manifest의 모델 경로, 고정 의존성과 설치 절차를 대조합니다. 종료 코드가 비0이거나 완료 문구가 없으면 노드를 시작하지 않습니다.
+- 속도·모델·worker/소스·의존성·speaker·스레드·문구가 바뀌면 관련 캐시 키가 바뀌거나 새 문장이 필요하므로 사전 준비를 다시 합니다. 같은 설정·환경의 재시작은 디스크 캐시를 재사용합니다. 캐시 준비 후에도 일반 노드 준비 상한 내 완료 여부는 따로 확인합니다.
+
+**4. 대표 문구 청취 시험(스피커 사용)**
+
+마이크·API·로봇 없이 기존 출력 장치에서 재생하는 명령입니다. 음성 노드는 먼저 종료하십시오. 2~3단계 성공 후 실제 YAML의 출력 장치로 정상 확인·닫기·예외 안내를 들어보십시오. 실패하면 출력 장치/재생 환경을 확인하고 노드 기동을 보류합니다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -236,19 +353,33 @@ source ros2_ws/install/setup.bash
 python3 - <<'PYTHON'
 from ready2go_voice.adapters.tts import create_tts
 from ready2go_voice.core.config import load_config
+from ready2go_voice.core.tts_prefill import prefill_texts
+from ready2go_knowledge.core.ontology import load
 cfg = load_config('logs/voice_eval/voice.local.yaml')
 if cfg['tts_engine'] != 'melotts':
     raise ValueError('로컬 설정의 tts_engine을 확인하십시오: Melo 재생 시험입니다')
+cfg['_tts_prefill_texts'] = prefill_texts(cfg, load(cfg['ontology_file'])['world']['items'].values())
 tts = create_tts(cfg)
 try:
     tts.prepare()
-    print(tts.speak('지우개 가져다드리겠습니다.', on_start=print))
+    for text in ('지우개 가져다드리겠습니다.', '서랍을 닫았어요',
+                 '비상정지가 감지됐어요. 상태를 확인해 주세요.'):
+        print('청취 문구:', text)
+        print(tts.speak(text, on_start=print, on_timing=lambda value: print('timing:', value)))
 finally:
     tts.close()
 PYTHON
 ```
 
-[실측: CPU 합성] 같은 확인 문장 1스레드 9.79/7.59초, 2스레드 3.99/4.23초, 4스레드 2.49/2.43초. 첫 측정은 BERT 첫 로딩 비용 포함입니다. 모델 로딩 약1.8초와 합성 지연은 구분합니다. [실측: 로컬 재생] 한국어 mono/int16 44.1kHz WAV 합성 및 PortAudio 첫 DAC 재생 성공. 캐시는 약3ms 조회, 준비된 문장의 요청→첫DAC은 약0.165초였으며 **발화 종료→STT/LLM→첫 DAC 3초 달성 근거가 아닙니다**. 실제 청취 품질·40음성·C/D 연결은 미확인입니다.
+**5. 같은 설정으로 노드 실행**
+
+청취 시험을 종료한 뒤 [사용자 PC 시운전 명령](#사용자-pc-시운전-명령-실제-녹음api는-사용자가-실행)의 동일 `voice.local.yaml`을 사용합니다. 노드의 `MeloTTS 준비 완료 (고정 안내 캐시 완료)`와 음성 ready를 확인한 뒤 입력을 시작합니다. 준비 실패·timeout이면 입력/로봇 실행을 시작하지 않습니다.
+
+청취 시험 콘솔의 `TTS 준비 완료: 캐시 사용/새 합성` 및 `timing`의 `cache_hit`·`worker_synth_sec`·`synthesis_wait_sec`·`playback_sec`를 확인합니다. prepare-only 완료 로그는 문장별 cache_hit를 출력하지 않습니다. 노드 운용에서는 아래 진단 경로를 사용합니다.
+
+[문서] 기존 `diagnostic_detail=true`의 `voice_diagnostic.timing`에 `synthesis_wait_sec`(worker 준비/응답·캐시 조회/합성을 포함한 대기), `cache_hit`, `worker_synth_sec`(worker 조회/합성 처리 시간), 성공 완료 시 `playback_sec`·`playback_ended_monotonic`·`playback_end_basis=portaudio_finished_callback`을 기록합니다. 시작은 기존 첫 PortAudio DAC 기준입니다. 기본 콘솔은 기존 종료 한 줄에 합성 대기/재생 시간을 붙이며 새 전문/키는 출력하지 않습니다. 이 필드는 로그 진단이며 `/voice/speak` 결과/intent source 계약에 추가하지 않습니다. 취소/기한/장치 실패는 성공 재생 구간으로 기록하지 않습니다. Runner 요청→종료 시간은 이 두 구간 외 통신/스케줄링 등이 포함될 수 있어 전부 합성 시간으로 단정하지 않습니다.
+
+[과거 실측: 속도1.0 CPU 합성] 같은 확인 문장 1스레드 9.79/7.59초, 2스레드 3.99/4.23초, 4스레드 2.49/2.43초. 첫 측정은 BERT 첫 로딩 비용 포함입니다. 모델 로딩 약1.8초와 합성 지연은 구분합니다. [실측: 로컬 재생] 한국어 mono/int16 44.1kHz WAV 합성 및 PortAudio 첫 DAC 재생 성공. 캐시는 약3ms 조회, 준비된 문장의 요청→첫DAC은 약0.165초였으며 **발화 종료→STT/LLM→첫 DAC 3초 달성 근거가 아닙니다**. 실제 청취 품질·40음성·C/D 연결은 미확인입니다.
 
 ## 웨이크·무발화·clarify 후속 보완
 
