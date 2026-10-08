@@ -778,3 +778,83 @@ def test_null_reference_is_not_sent_to_backend():
     assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "VAR_NULL", "s3")
     assert sent == []
     assert result.blackboard["copy"] is None
+
+
+# ---- 정지 기록 halts[] (#187 AC-SAF-02 C 몫: 요청 → 응답 시각·출처) ----
+
+def _halt_run(execute, task, on_halt=None):
+    from ready2go_runner.core.logstore import MemoryLogStore
+    store = MemoryLogStore()
+    runner = Runner(None, log_store=store)
+    runner.execute = execute(runner)
+    runner.on_halt = on_halt
+    result = runner.run(task)
+    return result, store.read_run(result.run_id)["run"]
+
+
+MOVE = {"task_id": "t", "sequence": [{"id": "s1", "action": "move_to_named_pose", "params": {"pose_name": "home"}},
+                                     {"id": "s2", "action": "speak", "params": {"text": "x"}}],
+        "finally": [{"id": "f1", "action": "speak", "params": {"text": "끝"}}]}
+
+
+def test_service_halt_is_recorded_with_source_and_reply():
+    """/runner/estop(서비스)으로 멈춤 → halts[0]: 출처·요청 시각·취소한 동작 수·백엔드 응답(CANCELED)·응답 시각."""
+    def execute(runner):
+        def run(action, params, timeout=None):
+            if action == "move_to_named_pose":
+                runner.halt(source="service")
+                return ActionResult(False, error_code="CANCELED")
+            return ActionResult(True)
+        return run
+    result, run = _halt_run(execute, MOVE, on_halt=lambda: 1)
+    assert result.overall_status == "ABORTED"
+    halt = run["halts"][0]
+    assert (halt["source"], halt["code"], halt["step"], halt["step_code"], halt["canceled_goals"]) == \
+        ("service", "HALTED", "s1", "CANCELED", 1)
+    assert halt["requested_at"] <= halt["stopped_at"] and halt["in_finally"] is False
+
+
+def test_backend_estop_is_recorded_as_backend():
+    result, run = _halt_run(lambda r: FakeBackend({"move_to_named_pose": ActionResult(False, error_code="ESTOP")}), MOVE)
+    halt = run["halts"][0]
+    assert (halt["source"], halt["code"], halt["step_code"]) == ("backend", "ESTOP", "ESTOP")
+
+
+def test_halt_between_steps_and_in_finally_are_recorded():
+    """끝난 스텝 뒤 음성 정지 → 다음 스텝 시작 전 멈춤(응답 = HALTED) / finally 중 멈춤도 기록 (in_finally)."""
+    def between(runner):
+        def run(action, params, timeout=None):
+            if action == "move_to_named_pose":
+                runner.halt(source="voice")
+            return ActionResult(True)
+        return run
+    _, run = _halt_run(between, MOVE)
+    assert [(h["source"], h["step"], h["step_code"]) for h in run["halts"]] == [("voice", "s2", "HALTED")]
+
+    def in_finally(runner):
+        def run(action, params, timeout=None):
+            if params.get("text") == "끝":
+                runner.halt(source="service")
+                return ActionResult(False, error_code="CANCELED")
+            return ActionResult(True)
+        return run
+    result, run = _halt_run(in_finally, MOVE)
+    assert result.overall_status == "ABORTED"
+    assert [(h["step"], h["in_finally"]) for h in run["halts"]] == [("f1", True)]
+
+
+def test_report_shows_halt_request_and_reply():
+    from ready2go_runner.core import run_report
+    from ready2go_runner.core.logstore import MemoryLogStore
+    store = MemoryLogStore()
+    runner = Runner(None, log_store=store)
+
+    def run(action, params, timeout=None):
+        if action == "move_to_named_pose":
+            runner.halt(source="voice")
+            return ActionResult(False, error_code="CANCELED")
+        return ActionResult(True)
+    runner.execute = run
+    result = runner.run(MOVE)
+    text = run_report.to_text(store.read_run(result.run_id))
+    assert "· HALTED · 음성 멈춰 · s1 · 응답 CANCELED +" in text and "→ 중단" in text

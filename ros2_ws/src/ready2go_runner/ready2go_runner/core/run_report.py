@@ -259,6 +259,19 @@ def check_line(record: dict) -> str:
     return "\n".join([f"❌ {head}"] + [f"   - {p}" for p in problems])
 
 
+HALT_SOURCE_KO = {"service": "/runner/estop", "voice": "음성 멈춰", "backend": "스킬 서버", "runner": "Runner"}
+
+
+def _gap(start: str | None, end: str | None) -> float | None:
+    """두 ISO 시각 사이 초 (정지 요청 → 응답). 모르면 None."""
+    try:
+        a = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        return max(0.0, (b - a).total_seconds())
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def header(record: dict) -> list[str]:
     run, steps = record.get("run") or {}, record.get("steps") or []
     status = run.get("overall_status")
@@ -275,10 +288,20 @@ def header(record: dict) -> list[str]:
     if code:
         where = f"실패 스텝 {run['failed_step']}" if run.get("failed_step") else "실행 전 거절"
         lines.append(f"  {where} · {code}: {ERROR_KO.get(code, '')}".rstrip(": "))
-    for halt in run.get("halts") or []:          # #152 정지 사건 → 재개·버림
-        then = (f"재개 {kst(halt['resumed_at'])}" if halt.get("resumed_at")
-                else f"버림 {kst(halt['discarded_at'])}" if halt.get("discarded_at") else "재개 대기")
-        lines.append(f"  정지 {kst(halt.get('at'))} · {halt.get('code')} · {halt.get('step') or '마지막 뒤'} → {then}")
+    for halt in run.get("halts") or []:          # 정지 기록 (#187 요청→응답 시각, #152 재개·버림)
+        if halt.get("resumed_at"):
+            then = f"재개 {kst(halt['resumed_at'])}"
+        elif halt.get("discarded_at"):
+            then = f"버림 {kst(halt['discarded_at'])}"
+        else:
+            then = "재개 대기" if status == "SUSPENDED" else "중단"
+        source = HALT_SOURCE_KO.get(halt.get("source"), halt.get("source") or "")
+        reply = ""
+        if halt.get("step_code"):
+            gap = _gap(halt.get("requested_at") or halt.get("at"), halt.get("stopped_at"))
+            reply = f" · 응답 {halt['step_code']}" + (f" +{gap:.1f} s" if gap is not None else "")
+        lines.append(f"  정지 {kst(halt.get('requested_at') or halt.get('at'))} · {halt.get('code')}"
+                     + (f" · {source}" if source else "") + f" · {halt.get('step') or '마지막 뒤'}{reply} → {then}")
     for problem in run.get("problems") or []:    # 실행하지 않은 이유 (TASK_INVALID 검사 결과, 중단 잠김) — #105 D 리뷰
         lines.append(f"  이유: {problem}")
     return lines

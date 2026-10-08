@@ -191,6 +191,7 @@ class Runner:
         self._iterations: list[int] = []        # 반복 블록 안이면 몇 번째 회차인지 (스텝 기록 iteration)
         self._motions = 0                       # 팔을 움직였을 수 있는 동작을 보낸 횟수 (fallback 이 대안마다 비교)
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
+        self._halt_info: dict = {}              # 처음 멈춘 요청의 시각·출처·취소 요청한 동작 수 (halts[] 기록)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
         self._event_seq = 0
         self._event_id: str | None = None       # 정지 사건 ID: 잠길 때마다 새로 (재개 요청이 이 사건에 대한 것인지)
@@ -202,8 +203,10 @@ class Runner:
         self._halt_started = False              # 그 스텝이 시작된 뒤 멈췄는지
         self._step_started = False              # 가장 최근 _run_step 이 기록을 만들었는지 (시작 전 중단 구분)
 
-    def halt(self, code: str = HALTED) -> None:
-        """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임."""
+    def halt(self, code: str = HALTED, source: str = "runner") -> None:
+        """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임.
+        source: 정지 요청 출처 — "service"(/runner/estop)·"voice"(음성 cancel)·"backend"(스킬 서버 ESTOP 등 중단 코드).
+        정지 요청 시각·출처·취소 요청한 동작 수는 실행 기록 halts[] 에 남는다 (#187, AC-SAF-02 C 몫)."""
         with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
             first = not self._halt.is_set()
             if first:
@@ -211,9 +214,12 @@ class Runner:
                 self._event_seq += 1
                 self._event_id = f"h{self._event_seq}-{utc_iso()}"
                 self._offered_at = None
+                self._halt_info = {"requested_at": utc_iso(), "source": source, "canceled_goals": None}
             self._halt.set()
         if first and self.on_halt is not None:  # 진행 중인 로봇 동작에 즉시 취소 요청 (기다림은 클라이언트가 함)
-            self.on_halt()
+            canceled = self.on_halt()
+            if isinstance(canceled, int) and not isinstance(canceled, bool):
+                self._halt_info["canceled_goals"] = canceled
 
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
@@ -295,8 +301,12 @@ class Runner:
             error = e
         except Halted as e:
             error = self._abort(e)
+            where = self._halt_path or [(len(ctx.task["sequence"]), "end")]       # 마지막 스텝 뒤 = 남은 sequence 없음
+            stopped = None
+            if self._halt_path and all(action == "if" for _, action in where[:-1]):
+                stopped = _step_at(ctx, where)    # 최상위·if 안이면 그 스텝, 반복·fallback 안이면 멈춘 동작 ID 그대로
+            self._note_halt(ctx, e, stopped.get("id") if stopped else None)
             if self.resumable:
-                where = self._halt_path or [(len(ctx.task["sequence"]), "end")]   # 마지막 스텝 뒤 = 남은 sequence 없음
                 if all(action == "if" for _, action in where[:-1]):
                     ctx.step_started = self._halt_started and self._halt_path is not None
                     return self._suspend(ctx, e, where)
@@ -315,6 +325,7 @@ class Runner:
         except Halted as e:
             if not self._aborted:               # E-stop 이 다른 실패보다 우선
                 error = self._abort(e)
+                self._note_halt(ctx, e)
             # 이미 중단 상태면 처음 멈춘 위치·원인을 유지
         if self._aborted:
             return self._finish(ctx, RunResult("ABORTED", blackboard, records, error.code, error.step_id))
@@ -336,10 +347,7 @@ class Runner:
     # ---- 재개 대기 (#152) ----
     def _suspend(self, ctx: _Run, e: Halted, path: list) -> RunResult:
         """중단된 실행을 끝내지 않고 보존. finally 는 재개·버림이 정해질 때까지 미룬다."""
-        ctx.path, ctx.error = path, e
-        step = _step_at(ctx, path)
-        ctx.halts.append({"event_id": self._event_id, "code": e.code, "step": step.get("id") if step else None,
-                          "at": utc_iso()})
+        ctx.path, ctx.error = path, e                 # 정지 기록(halts[-1])은 _continue 가 이미 남김
         self._suspended, self._offered_at = ctx, None
         return self._finish(ctx, RunResult(SUSPENDED, ctx.blackboard, ctx.records, e.code, e.step_id))
 
@@ -444,8 +452,20 @@ class Runner:
     def _abort(self, e: Halted) -> Halted:
         """중단으로 전환하고 잠근다(백엔드 ESTOP 도 resume() 전까지 유지)."""
         self._aborted = True
-        self.halt(e.code)
+        self.halt(e.code, source="backend")     # 이미 잠겼으면(서비스·음성 요청) 처음 요청 정보 그대로
         return e
+
+    def _note_halt(self, ctx: _Run, e: Halted, step_id: str | None = None) -> dict:
+        """정지 기록 1건 (실행 기록 halts[], #187 AC-SAF-02 C 몫): 요청 시각·출처·취소 요청한 동작 수 →
+        백엔드가 돌려준 응답 코드(CANCELED·STOP_UNCONFIRMED·ESTOP 등)와 Runner 가 받은 시각."""
+        entry = {"event_id": self._event_id, "code": self._halt_code or e.code,
+                 "source": self._halt_info.get("source", "runner"),
+                 "requested_at": self._halt_info.get("requested_at"), "at": self._halt_info.get("requested_at"),
+                 "canceled_goals": self._halt_info.get("canceled_goals"),
+                 "step": step_id or e.step_id, "action_step": e.step_id,
+                 "step_code": e.step_code or e.code, "stopped_at": utc_iso(), "in_finally": self._in_finally}
+        ctx.halts.append(entry)
+        return entry
 
     def _check_halt(self, step_id: str) -> None:
         """중단 요청이 있으면 로봇 동작 전에 멈춘다. 스텝 시작·재시도·safe_home 직전에 확인."""

@@ -137,12 +137,11 @@ def test_reset_state_is_refused_while_running(system):
     runner, watcher, _ = system
     assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED")
     before = runner.runner.state
-    with runner._lock:
-        runner._busy = True                     # 실행 중으로 고정 (짧은 mock 태스크와 경합하지 않게)
+    assert runner.gate.try_start() == "started"   # 실행 중으로 고정 (짧은 mock 태스크와 경합하지 않게, #187 StartGate)
     try:
         reply = watcher.call(watcher.reset)
     finally:
-        runner._busy = False
+        runner.gate.finish()
     assert not reply.success and "실행 중" in reply.message
     assert runner.runner.state == before
 
