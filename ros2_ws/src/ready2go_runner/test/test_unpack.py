@@ -55,13 +55,39 @@ def test_target_not_found_without_fields_takes_highest():
 
 
 def test_unknown_occlusion_uses_overlap_and_height():
-    """occluded_by 모름(null) → A 대안: 목표와 겹치고 더 높은 것. 떨어진 높은 물체는 고르지 않음."""
+    """occluded_by 모름(null) → A 대안: 목표와 겹치고 더 높은 것 (그 후보는 위에 아무것도 없다고 확인된 것).
+    떨어진 높은 물체만 있으면 고르지 않고 occlusion_unknown — 모름을 '다 보임'으로 바꾸지 않음 (#182 E 리뷰)."""
     target = obj("eraser#1", 0.10, 0.10, 0.012, occluded_by=None)
-    s = scan(target, obj("lip_balm#1", 0.18, 0.25, 0.03), obj("cover_plate#1", 0.11, 0.10, 0.016))
+    s = scan(target, obj("lip_balm#1", 0.18, 0.25, 0.03, occluded_by=[]),
+             obj("cover_plate#1", 0.11, 0.10, 0.016, occluded_by=[]))
     out = pick({"scan": s})
     assert (out["obstacle"]["id"], out["reason"]) == ("cover_plate#1", "overlap_higher")
-    far = scan(target, obj("lip_balm#1", 0.18, 0.25, 0.03))
-    assert pick({"scan": far})["obstacle"] is None
+    far = scan(target, obj("lip_balm#1", 0.18, 0.25, 0.03, occluded_by=[]))
+    assert (pick({"scan": far})["obstacle"], pick({"scan": far})["reason"]) == (None, "occlusion_unknown")
+
+
+@pytest.mark.parametrize("plate_above", [None, ["car_key#1"]])
+def test_unknown_target_with_unusable_candidates_is_not_clear(plate_above):
+    """#182 E 리뷰 P1 반례 그대로: 목표 null + 겹치고 높은 판이 null·덮임 → target_clear 가 아니라 occlusion_unknown."""
+    s = scan(obj("eraser#1", 0.10, 0.10, 0.012, occluded_by=None),
+             obj("cover_plate#1", 0.11, 0.10, 0.04, occluded_by=plate_above))
+    out = pick({"scan": s})
+    assert (out["obstacle"], out["reason"]) == (None, "occlusion_unknown")
+
+
+def test_mixed_fields_missing_candidate_is_unknown():
+    """#182 D 리뷰: 한 결과에 가림 필드가 있으면 분할 모델 — 필드가 빠진 후보는 모름(안전 후보 아님)."""
+    s = scan(obj("eraser#1", 0.10, 0.10, 0.012, occluded_by=None), obj("cover_plate#1", 0.11, 0.10, 0.04))
+    assert pick({"scan": s})["reason"] == "occlusion_unknown"
+    s = scan(None, obj("cover_plate#1", 0.11, 0.10, 0.04), obj("lip_balm#1", 0.15, 0.2, 0.025, occluded_by=None))
+    assert pick({"scan": s})["reason"] == "occlusion_unknown"
+
+
+def test_explicit_clear_target_and_box_model_paths_still_clear():
+    """명시적 [] 는 clear, 박스 모델(결과 전체에 필드 없음) + yaw_valid true 도 clear (P1 호환)."""
+    assert pick({"scan": scan(obj("eraser#1", 0.1, 0.1, occluded_by=[]), obj("cover_plate#1", 0.11, 0.1, 0.04,
+                                                                          occluded_by=[]))})["reason"] == "target_clear"
+    assert pick({"scan": scan(obj("eraser#1", 0.1, 0.1), obj("cover_plate#1", 0.11, 0.1, 0.04))})["reason"] == "target_clear"
 
 
 def test_unknown_occlusion_never_picks_unknown_or_covered_candidate():
@@ -269,3 +295,31 @@ def test_example_task_unpacks_delivers_and_restores_in_reverse():
     restore = [p["pose"]["position"][:2] for a, p in calls if a == "place_object" and "pose" in p]
     assert restore == [[0.10, 0.11], [0.10, 0.12]]                      # 망치 → 차키 (LIFO), 원래 자리
     assert result.blackboard["restore_stack"] == []
+
+
+@pytest.mark.parametrize("plate_above", [None, ["car_key#1"]])
+def test_example_task_does_not_pick_unknown_target(plate_above):
+    """#182 E 리뷰 P1 완료 조건: 위 반례로 예시 태스크를 돌리면 목표 집기·전달 요청 0회."""
+    import json
+    from pathlib import Path
+    from ready2go_runner.core.interpreter import ActionResult, Runner
+    from ready2go_runner.core.ontology_query import local_action
+    from test_tasks import ONTOLOGY, SCHEMA
+
+    task = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/task_unpack_select.json")
+                      .read_text(encoding="utf-8"))
+    view = scan(obj("eraser#1", 0.10, 0.10, 0.012, occluded_by=None),
+                obj("cover_plate#1", 0.11, 0.10, 0.04, occluded_by=plate_above))
+    calls = []
+
+    def execute(action, params, timeout_sec=None):
+        calls.append(action)
+        if action in ("select_obstacle", "find_moved"):
+            return local_action(action, params, {}, ONTOLOGY["world"])
+        if action == "inspect_region":
+            return ActionResult(True, view)
+        return ActionResult(True, {})
+
+    result = Runner(execute, schema=SCHEMA, ontology=ONTOLOGY).run(task)
+    assert result.overall_status == "COMPLETED"
+    assert "pick_object" not in calls and "place_object" not in calls
