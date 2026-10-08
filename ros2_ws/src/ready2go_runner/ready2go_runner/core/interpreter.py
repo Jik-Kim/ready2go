@@ -77,7 +77,7 @@ VAR_NULL = "VAR_NULL"                   # 백엔드로 보낼 동작의 "$변수
 # 스킬 재시도 (P1): 앞 동작이 실행됐거나 끝났을 수 있으면 다시 보내지 않는다(PR #64 D 리뷰). 다만 백엔드가
 # 로봇을 움직이지 않았음을 보장하는 실패이고, 그 시도에서 앞서 보낸 동작도 팔을 움직이지 않았으면 재시도한다.
 NO_MOTION_CODES = {"YAW_INVALID"}       # 모션 계획 전에 거절 (B PR #66, PR #65 합의: 태스크에서 재인식 1회)
-NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region"}   # 팔을 움직이지 않는 원자 동작
+NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region", "select_obstacle", "find_moved"}   # 팔을 움직이지 않는 원자 동작
 
 
 class StepFailed(Exception):
