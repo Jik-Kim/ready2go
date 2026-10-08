@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-08
 
 ## 지금 상태
+- **Unpacking 판단 원자 동작 계약안 (#120 치울 순서·#109 재식별, 승인 대기)**: `select_obstacle`·`find_moved` (`core/unpack.py`, 로봇 동작 없음), 예시 태스크 mock 끝까지 [실측: 시험 23개]. 남은 것: E 포함 2명 승인, `tol_m` B 놓기 실측, A 가림 필드 계약, 실물 `tasks/find_with_unpack.json`(10/10).
 - **"움직이기 전 거부" 동작별 목록 (#168 C 표 후속 1번)**: `NO_MOTION_BY_ACTION` — `PLACE_BLOCKED` → 다른 고정 자리 fallback 가능 [실측: 시험 9개]. #168 B 노드 카드 "움직였나" 칸이 나오면 맞춤.
 - **pick 제한 시간 70초 (#153 사용자·C 합의)**: `find_item` s5.1·`p1_demo_eraser` s3·플래너 `plan_timeouts` 의 `pick` 만 70초, 다른 단계 그대로 [실측: 시험 `test_pick_timeout_is_70s_and_other_steps_unchanged`]. 실물 pick 구간 시간은 미측정.
 - **P2 제어 블록 (PR #159, [FR-ACT-04](../../docs/requirements.md#fr-act-04) Runner 쪽)**: `while`(max_iter·`LOOP_LIMIT`)·`for_each`(as 변수 루프 안에서만, 끝나면 복구)·`push`/`pop`(`restore_stack` LIFO 역순 복구)·`fallback`(앞 대안이 로봇을 움직이지 않았음이 확인된 실패일 때만 다음 대안, 아니면 `fallback_stopped`). 중단 뒤 finally 에서는 블록째 SKIPPED. 반복 회차 `iteration` 기록·보고서 `[s2.1 · 2회차]`(하위 동작은 seq 로 부모 연결). E 리뷰(10/08) P1 1·P2 2 반영 [실측: 모의 시험]. 남은 것: 실물 Unpacking 태스크는 #120(서랍 안 빈 자리·놓기)·#109(재식별) 결정 뒤 `tasks/find_with_unpack.json` 갱신, `recovery`·`on_halt`는 미구현(실행 전 거절).

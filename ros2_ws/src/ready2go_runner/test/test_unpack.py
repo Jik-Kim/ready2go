@@ -144,3 +144,60 @@ def test_find_moved_bad_params(params):
 
 def test_both_are_local_actions():
     assert route("select_obstacle").kind == LOCAL and route("find_moved").kind == LOCAL
+
+
+# ---- 계약안 예시 태스크를 mock 으로 끝까지 (contracts/examples/task_unpack_select.json) ----
+
+def test_example_task_unpacks_delivers_and_restores_in_reverse():
+    """E #109 위 서랍 배치 모양: 목표(지우개)를 망치가, 망치를 차키가 덮음 → 차키 → 망치 순서로 고정 자리에 치움
+    (망치는 aside_1 이 막혀 aside_2) → 지우개 전달 → finally 에서 거꾸로(망치 → 차키) 재식별해 원래 자리로.
+    차키 원래 자리가 막히면(PLACE_BLOCKED) B 결정대로 고정 자리에 둔 채 끝냄. 로봇 동작은 FakeBackend."""
+    import json
+    from pathlib import Path
+    from ready2go_runner.core.interpreter import ActionResult, Runner
+    from ready2go_runner.core.ontology_query import local_action
+    from test_tasks import ONTOLOGY, SCHEMA
+
+    root = Path(__file__).resolve().parents[4]
+    task = json.loads((root / "contracts/examples/task_unpack_select.json").read_text(encoding="utf-8"))
+    eraser = obj("eraser#1", 0.10, 0.10, 0.012)
+    key, hammer = obj("car_key#1", 0.10, 0.12, 0.03), obj("toy_hammer#1", 0.10, 0.11, 0.02)
+    key_aside, hammer_aside = obj("car_key#2", 0.031, 0.032, 0.01), obj("toy_hammer#2", 0.032, 0.258, 0.02)
+    scans = [
+        scan({**eraser, "occluded_by": ["toy_hammer#1"]}, {**key, "occluded_by": []},
+             {**hammer, "occluded_by": ["car_key#1"]}),
+        scan({**eraser, "occluded_by": ["toy_hammer#1"]}, {**hammer, "occluded_by": []},
+             {**key_aside, "occluded_by": []}),
+        scan({**eraser, "occluded_by": []}, {**hammer_aside, "occluded_by": []}, {**key_aside, "occluded_by": []}),
+        scan(None, hammer_aside, key_aside),                    # finally: 망치 되돌리기 전
+        scan(None, obj("toy_hammer#3", 0.10, 0.11, 0.02), key_aside),   # 차키 되돌리기 전
+    ]
+    slots = {"aside_1": [0.03, 0.03, 0.0], "aside_2": [0.03, 0.26, 0.0]}
+    place_results = [None, ActionResult(False, {"blocked_by": "car_key#2"}, "PLACE_BLOCKED"), None, None, None,
+                     ActionResult(False, {"blocked_by": "toy_hammer#3"}, "PLACE_BLOCKED"), None]
+    calls = []
+
+    def execute(action, params, timeout_sec=None):
+        calls.append((action, params))
+        if action in ("select_obstacle", "find_moved"):
+            return local_action(action, params, {}, ONTOLOGY["world"])
+        if action == "inspect_region":
+            return ActionResult(True, scans.pop(0))
+        if action == "place_object":
+            result = place_results.pop(0)
+            if result is not None:
+                return result
+            where = {"frame": params["location"], "position": slots[params["slot"]], "yaw": 0.0} if "slot" in params \
+                else params.get("pose") or {"frame": "handover_zone", "position": [0.02, 0.04, 0.0]}
+            return ActionResult(True, {"slot": params.get("slot"), "placed_pose": where})
+        return ActionResult(True, {})
+
+    result = Runner(execute, schema=SCHEMA, ontology=ONTOLOGY).run(task)
+    assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
+    picked = [p["target"]["id"] for a, p in calls if a == "pick_object"]
+    assert picked == ["car_key#1", "toy_hammer#1", "eraser#1", "toy_hammer#2", "car_key#2"]
+    placed = [p.get("slot") or ("origin" if "pose" in p else p["location"]) for a, p in calls if a == "place_object"]
+    assert placed == ["aside_1", "aside_1", "aside_2", "handover_zone", "origin", "origin", "aside_1"]
+    restore = [p["pose"]["position"][:2] for a, p in calls if a == "place_object" and "pose" in p]
+    assert restore == [[0.10, 0.11], [0.10, 0.12]]                      # 망치 → 차키 (LIFO), 원래 자리
+    assert result.blackboard["restore_stack"] == []
