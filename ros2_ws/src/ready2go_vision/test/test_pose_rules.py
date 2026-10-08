@@ -129,3 +129,19 @@ def test_occlusion_three_way_cycle_is_rejected_and_chain_is_ok():
     assert result_errors(chain) == []                             # 망치 → 차키 → 지우개: 맨 위 = 망치
     chain["candidates"][0]["occluded_by"] = ["eraser#1"]          # 지우개 → 망치 를 더하면 3-순환
     assert any("순환" in e for e in result_errors(chain))
+
+
+def test_duplicate_ids_are_rejected():
+    """같은 결과 안 id 중복 거부 — occluded_by 끝점이 어느 물체인지 구분 못 함 (#169 D 리뷰)."""
+    r = _occ_result([], [])
+    r["candidates"][0]["id"] = "eraser#1"
+    assert any("두 번 이상" in e for e in result_errors(r))
+
+
+def test_occluder_with_lower_top_z_is_valid():
+    """경계 높이로 판정하므로 덮는 물체 top_z 가 덮인 물체보다 낮아도 정상 (#169 E 결정): 차키(16 mm)가 렌치 손잡이 끝에, 렌치 top_z 는 머리 쪽 25 mm."""
+    def it(i, occ, top):
+        return {"id": i, "class": i.split("#")[0], "pose": {"frame": "drawer_top", "position": [0.1, 0.1, 0.0], "yaw": 0.0, "yaw_valid": True},
+                "top_z": top, "occluded_by": occ, "visible_area_m2": 0.002}
+    r = {"target_found": True, "target": it("toy_wrench#1", ["car_key#1"], 0.025), "candidates": [it("car_key#1", [], 0.022)], "visible_count": 2}
+    assert result_errors(r) == []

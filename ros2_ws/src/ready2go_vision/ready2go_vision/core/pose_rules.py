@@ -94,7 +94,9 @@ def result_errors(result: dict) -> list[str]:
     """inspect_region result_json 의 target·candidates pose·가림 필드 검사. 빈 리스트면 규칙을 지킨 것."""
     errs = []
     items = [("target", result.get("target"))] + [(f"candidates[{i}]", c) for i, c in enumerate(result.get("candidates", []))]
-    ids = {it.get("id") for _, it in items if it is not None}
+    id_list = [it.get("id") for _, it in items if it is not None]
+    ids = set(id_list)
+    errs += [f"id {i!r} 가 결과 안에 두 번 이상 (id 는 유일해야 occluded_by 가 한 물체를 가리킴)" for i in sorted({i for i in id_list if id_list.count(i) > 1}, key=str)]
     for name, it in items:
         if it is not None:
             errs += pose_errors(it.get("pose", {}), f"{name}.pose")
