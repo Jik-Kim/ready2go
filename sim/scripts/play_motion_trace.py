@@ -103,10 +103,11 @@ repo = Path(TRACE["repo"])
 places = yaml.safe_load(((repo / "config/places.yaml") if (repo / "config/places.yaml").exists()
                          else ROOT / "config/places.yaml").read_text(encoding="utf-8"))
 size = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]["eraser"]["size_m"]
-tf = places["drawer_top"]["tf"]
+DKEY = TRACE["eraser"]["pose"].get("frame", "drawer_top")          # 위·아래 서랍 (trace_skill_flow.py --drawer)
+tf = places[DKEY]["tf"]
 T_bd = np.eye(4)
 T_bd[:3, :3], T_bd[:3, 3] = quat_to_R(tf["quaternion_xyzw"]), tf["translation_m"]
-max_travel = float(places["drawer_top"]["max_travel_m"])
+max_travel = float(places[DKEY]["max_travel_m"])
 base_prim = stage.GetPrimAtPath("/World/m0609/base_link")
 W = gf_to_np(UsdGeom.Xformable(base_prim if base_prim.IsValid() else stage.GetPrimAtPath("/World/m0609"))
              .ComputeLocalToWorldTransform(0))
@@ -135,9 +136,9 @@ cab, d_idx = None, None
 if cab_root:
     cab = SingleArticulation(prim_path=cab_root, name="cabinet")
     cab.initialize()
-    d_idx = next((i for i, n in enumerate(cab.dof_names) if n == "drawer_top_joint"), None)
-drawer_attr = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetAttribute("drive:linear:physics:targetPosition")
-print(f"[play] 로봇 {robot_root} DOF {len(dofs)}, 서랍 {'관절 직접 설정' if d_idx is not None else '구동 목표'}, "
+    d_idx = next((i for i, n in enumerate(cab.dof_names) if n == f"{DKEY}_joint"), None)
+drawer_attr = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetAttribute("drive:linear:physics:targetPosition")
+print(f"[play] 로봇 {robot_root} DOF {len(dofs)}, {DKEY}, 서랍 {'관절 직접 설정' if d_idx is not None else '구동 목표'}, "
       f"B 코드 {TRACE.get('repo_sha') or TRACE['repo']}", flush=True)
 
 
@@ -181,7 +182,7 @@ def apply(q_arm, f_deg, travel):
     pace()
 
 
-_b1 = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetRelationship("physics:body1").GetTargets()[0]
+_b1 = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetRelationship("physics:body1").GetTargets()[0]
 DRAWER0 = np.array(gf_to_np(UsdGeom.Xformable(stage.GetPrimAtPath(_b1)).ComputeLocalToWorldTransform(0))[:3, 3])
 segs = [s for s in TRACE["segments"] if wanted(s["i"])]
 grips = {}
@@ -215,7 +216,7 @@ while app.is_running():
                 held, placed = False, True
         flag = s.get("flag")
         info = (f"{s.get('dist_mm', 0):5.0f} mm {s.get('rot_deg', 0):4.0f}° 10mm당 관절 {s.get('amp_deg_per_10mm', 0):4.1f}° "
-                f"J3 최소 {s['min_abs_j3']:4.1f}°") if s["kind"] == "movel" else f"관절 이동 최대 {max(s['joint_travel_deg']):5.1f}°"
+                f"J3 최소 {s['min_abs_j3']:4.1f}°") if s["kind"] in ("movel", "moveb") else f"관절 이동 최대 {max(s['joint_travel_deg']):5.1f}°"
         print(f"[play] #{s['i']:2d} {s['step']:6s} {s['kind']} {s['stage']:22s} {info}{'  ◀ 특이점 근처' if flag else ''}", flush=True)
         vis = UsdGeom.Imageable(marker.GetPrim())
         vis.MakeVisible() if flag else vis.MakeInvisible()
@@ -248,7 +249,7 @@ while app.is_running():
     if args.headless:
         print(f"[play] 시험: 지우개 최종 월드 위치 {np.round(gf_to_np(c_xf.ComputeLocalToWorldTransform(0))[:3, 3], 3)}", flush=True)
         from isaacsim.core.prims import SingleRigidPrim
-        body = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetRelationship("physics:body1").GetTargets()[0]
+        body = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetRelationship("physics:body1").GetTargets()[0]
         rp = SingleRigidPrim(str(body))
         rp.initialize()
         print(f"[play] 시험: 서랍 몸체 {body} 월드 위치 {np.round(rp.get_world_pose()[0], 4)} (목표 인출 {travel:.3f} m, "
