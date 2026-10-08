@@ -247,3 +247,23 @@ def test_step_not_started_needs_no_observation():
     assert runner.suspended["step_started"] is False and runner.suspended["needs"] == "none"
     runner.resume()
     assert runner.check_resume(runner.halt_event_id) == []
+
+
+@pytest.mark.parametrize("finish", ["resume", "discard"])
+def test_run_duration_stays_wall_clock_through_suspend(finish):
+    """#170 D 리뷰 P1: 실행 시작 시각과 '멈춘 스텝 시작 여부'가 같은 이름(started)이라 중단 때 시작 시각이 덮여
+    실행 시간이 틀리게 저장되던 것. 시계 100 s 에서 시작 → 즉시 멈춤(0 s) → 5 s 뒤 재개·버림 → 최종 5 s."""
+    clock = FakeClock()
+    clock.now = 100.0
+    store = MemoryLogStore()
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]}
+    runner = Runner(FakeBackend({"move_to_named_pose": [ActionResult(False, error_code="ESTOP"), ActionResult(True)]}),
+                    schema=SCHEMA, clock=clock, log_store=store, resumable=True)
+    first = runner.run(task)
+    assert first.overall_status == "SUSPENDED"
+    assert store.read_run(first.run_id)["run"]["total_duration_sec"] == 0.0
+    clock.now += 5
+    runner.resume()
+    result = runner.resume_run(runner.halt_event_id, observed=EMPTY) if finish == "resume" else runner.discard_suspended()
+    assert result.overall_status == ("COMPLETED" if finish == "resume" else "ABORTED")
+    assert store.read_run(first.run_id)["run"]["total_duration_sec"] == 5.0

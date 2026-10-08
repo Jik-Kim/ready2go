@@ -81,7 +81,19 @@ FALLBACK_FAILED = "FALLBACK_FAILED"     # fallback 대안이 하나도 없음
 VAR_NULL = "VAR_NULL"                   # 백엔드로 보낼 동작의 "$변수" 값이 null (예: 실패한 nudge 의 target_after, #23)
 # 스킬 재시도 (P1): 앞 동작이 실행됐거나 끝났을 수 있으면 다시 보내지 않는다(PR #64 D 리뷰). 다만 백엔드가
 # 로봇을 움직이지 않았음을 보장하는 실패이고, 그 시도에서 앞서 보낸 동작도 팔을 움직이지 않았으면 재시도한다.
-NO_MOTION_CODES = {"YAW_INVALID"}       # 모션 계획 전에 거절 (B PR #66, PR #65 합의: 태스크에서 재인식 1회)
+# 원자 동작이 **움직이기 전에** 거부했음이 보장된 실패 코드, 동작별 (runner.md 7.1 "로봇 동작 공통 에러 코드"·
+# nudge_object 표의 "움직이지 않음", place_object 는 #166 계약안 표 "움직임 없음" — #168 B 노드 카드가 정본이 되면 맞춤).
+# [임시] place_object 줄은 #166 승인·B 구현 전 계약안 기준 (지금 스킬 서버는 서랍 안 놓기를 UNSUPPORTED_PARAMS 로
+# 거부, PLACE_BLOCKED 미구현). #166 승인·#168 카드 확정 뒤 각 코드가 실제로 모션 전인지 통합 시험으로 고정 (#175 D 리뷰).
+# 이 실패는 로봇이 안 움직였으므로: 스킬 재시도(그 시도에서 앞서 팔을 움직이지 않았을 때)·fallback 다음 대안 허용
+PRE_MOTION_COMMON = {"TOOL_NOT_SET", "DRAWER_NOT_AT_TRAVEL", "YAW_INVALID", "NOT_ON_FLOOR", "WALL_TOO_CLOSE"}
+NO_MOTION_BY_ACTION = {
+    "pick_object": PRE_MOTION_COMMON,
+    "nudge_object": PRE_MOTION_COMMON | {"NO_PUSH_ACCESS"},
+    "place_object": PRE_MOTION_COMMON | {"NOT_HOLDING", "UNSUPPORTED_PARAMS", "PLACE_NOT_CONFIGURED", "TRAY_FULL",
+                                         "BAD_PARAMS", "PLACE_BLOCKED"},
+}
+NO_MOTION_DEFAULT = {"TOOL_NOT_SET"}    # 그 밖의 로봇 동작 (move_to_named_pose·drawer_control)
 NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region"}   # 팔을 움직이지 않는 원자 동작
 
 
@@ -122,7 +134,7 @@ class _Run:
     halts: list[dict] = field(default_factory=list)   # 정지 사건 기록 (실행 문서 extra.halts, FR-LOG-02)
     branch_at: dict = field(default_factory=dict)       # if 위치 → 고른 분기 (재개 때 같은 분기로 들어감)
     path: list | None = None            # 중단 위치 [(인덱스, action), ...] — 바깥 → 안쪽
-    started: bool = False               # 중단된 스텝이 이미 시작됐는지 (시작 전이면 실물에 남은 부분 동작 없음)
+    step_started: bool = False          # 중단된 스텝이 이미 시작됐는지 (시작 전이면 실물에 남은 부분 동작 없음)
     error: "Halted | None" = None
 
 
@@ -131,11 +143,12 @@ class StepFailed(Exception):
     LATE_RESULT = 제한 시간 뒤 도착한 결과, TIMEOUT = 백엔드 호출이 제한 시간에 끝나지 않아 취소 요청함,
     MOTION_UNCERTAIN = 스킬 하위 동작·fallback 대안 실패 중 로봇이 움직이지 않았음이 보장되지 않음,
     RESPONSE_LOST = 팔을 움직이는 동작을 보내다 백엔드 예외 (보낸 뒤 응답이 끊겼을 수 있음, #159 E 리뷰),
-    NOT_RETRYABLE = 스킬 단계의 실패 코드가 재시도 허용 목록(NO_MOTION_CODES)에 없음 (PRE_UNMET 등)."""
+    NOT_RETRYABLE = 스킬 단계의 실패가 "움직이기 전 거부"(NO_MOTION_BY_ACTION)가 아님 (PRE_UNMET 등).
+    no_motion: 원자 동작이 움직이기 전에 거부했음이 보장됨 (NO_MOTION_BY_ACTION)."""
 
-    def __init__(self, step_id: str, code: str, no_retry: str | None = None):
+    def __init__(self, step_id: str, code: str, no_retry: str | None = None, no_motion: bool = False):
         super().__init__(f"{step_id}: {code}")
-        self.step_id, self.code, self.no_retry = step_id, code, no_retry
+        self.step_id, self.code, self.no_retry, self.no_motion = step_id, code, no_retry, no_motion
 
 
 class Halted(Exception):
@@ -281,7 +294,7 @@ class Runner:
             if self.resumable:
                 where = self._halt_path or [(len(ctx.task["sequence"]), "end")]   # 마지막 스텝 뒤 = 남은 sequence 없음
                 if all(action == "if" for _, action in where[:-1]):
-                    ctx.started = self._halt_started and self._halt_path is not None
+                    ctx.step_started = self._halt_started and self._halt_path is not None
                     return self._suspend(ctx, e, where)
         # finally 는 sequence 가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀)
         # ABORTED 이면 _run_step 이 로봇 동작을 건너뛴다
@@ -340,7 +353,7 @@ class Runner:
         step = _step_at(ctx, ctx.path)
         return {"run_id": ctx.doc["run_id"], "task_id": ctx.doc["task_id"], "event_id": self._event_id,
                 "code": ctx.error.code, "from_step": step.get("id") if step else None,
-                "step_started": ctx.started, "needs": _reentry_need(step) if ctx.started else "none",
+                "step_started": ctx.step_started, "needs": _reentry_need(step) if ctx.step_started else "none",
                 "recovered": not self._halt.is_set()}
 
     def check_resume(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None) -> list[str]:
@@ -357,7 +370,7 @@ class Runner:
         elif self._offered_at is not None and self.clock() - self._offered_at > self.resume_window_sec:
             reasons.append(RESUME_EXPIRED)
         step = _step_at(ctx, ctx.path)
-        if ctx.started:                         # 시작 뒤 멈춤 → 실물에 부분 동작이 남았을 수 있음 (B #152)
+        if ctx.step_started:                    # 시작 뒤 멈춤 → 실물에 부분 동작이 남았을 수 있음 (B #152)
             need = _reentry_need(step)
             seen = (observed or {}).get("gripper")
             if need is None:
@@ -498,7 +511,7 @@ class Runner:
                 self._dispatch(step, blackboard, record, records, self.clock())
             except StepFailed as e:
                 failure = e
-                if "skill" in step and e.no_retry is None and e.code not in NO_MOTION_CODES:
+                if "skill" in step and e.no_retry is None and not e.no_motion:
                     e.no_retry = "NOT_RETRYABLE"    # 스킬은 로봇이 움직이지 않았음이 보장된 실패만 재시도
                 if e.no_retry:                  # 결과 불확실: 동작이 실제로 끝났을 수 있어 다시 보내지 않음
                     if attempt < max_attempts:
@@ -551,7 +564,8 @@ class Runner:
         """결과가 온 뒤 걸린 시간을 판정. 이때는 동작이 이미 끝났을 수 있으므로 재시도하지 않는 TIMEOUT."""
         timeout = step.get("timeout_sec")
         if timeout is not None and self.clock() - attempt_started > timeout:
-            raise StepFailed(step["id"], "TIMEOUT", no_retry="LATE_RESULT")
+            again = step.get("action") in NON_MOTION_ACTIONS and step.get("action") != "if"   # 팔 안 움직이는 원자 동작
+            raise StepFailed(step["id"], "TIMEOUT", no_retry=None if again else "LATE_RESULT")
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
                   attempt_started: float) -> None:
@@ -587,16 +601,21 @@ class Runner:
             if motion:                          # 보낸 뒤 끊겼을 수 있음 → 결과 불확실 (재시도·다음 대안 금지)
                 self._motions += 1
             raise StepFailed(step["id"], "BACKEND_ERROR", no_retry="RESPONSE_LOST" if motion else None) from e
-        if motion and (result.success or result.error_code not in NO_MOTION_CODES):
-            self._motions += 1                  # 움직이지 않았음이 보장된 실패(YAW_INVALID)만 빼고 셈
+        no_motion = not result.success and _no_motion(action, result.error_code)
+        if motion and not no_motion:
+            self._motions += 1                  # 움직이기 전 거부가 보장된 실패만 빼고 셈
         if not result.success:
+            if result.output is not None:       # 실패 응답의 결과도 기록만 (예: 그리퍼를 연 뒤 실패한 place_object 의
+                record["output"] = result.output   # placed_pose, #166). 블랙보드에는 넣지 않음 — 뒤 스텝이 성공 값으로 쓰지 않게
             if result.error_code in HALT_CODES:
                 raise Halted(step["id"], result.error_code)
             if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
                 raise Halted(step["id"], self._halt_code or HALTED, step_code=result.error_code or None)
-            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음
+            # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음.
+            # 팔을 움직이지 않는 동작(인식 등)은 끝났어도 다시 해도 되므로 재시도 허용 (#168 인식 실패 다시 찍기)
             raise StepFailed(step["id"], result.error_code or "ACTION_FAILED",
-                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" else None)
+                             no_retry="TIMEOUT" if result.error_code == "TIMEOUT" and motion else None,
+                             no_motion=no_motion)
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
         record["output"] = result.output
         if "output" in step:
@@ -760,6 +779,13 @@ class Runner:
         finally:
             record["duration_sec"] = round(self.clock() - started, 3)
             self._log_step(record)
+
+
+def _no_motion(action: str, code: str | None) -> bool:
+    """원자 동작 action 이 code 로 실패했을 때 움직이기 전 거부가 보장되는지."""
+    if action in NON_MOTION_ACTIONS:
+        return True
+    return code in NO_MOTION_BY_ACTION.get(action, NO_MOTION_DEFAULT)
 
 
 def _reentry_need(step: dict | None) -> str | None:

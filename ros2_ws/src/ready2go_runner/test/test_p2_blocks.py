@@ -2,6 +2,8 @@
 Unpacking·역순 복구(FR-ACT-04, domain.md 8.2·8.3)에 필요한 Runner 쪽. 서랍 안 빈 자리·재식별 계약(#120·#109)과 무관하게
 "옮길 때 원래 자리를 쌓고, 끝나면 거꾸로 꺼내 되돌린다"는 순서와 안전 규칙을 확인한다."""
 import json
+
+import pytest
 from pathlib import Path
 
 from ready2go_runner.core import step_console
@@ -141,12 +143,52 @@ def fallback_record(result):
 
 
 def test_fallback_tries_next_option_after_failure_without_motion():
-    """YAW_INVALID = 움직이기 전 거절(NO_MOTION_CODES) → 로봇이 안 움직였으니 다음 대안."""
+    """YAW_INVALID = 움직이기 전 거절(NO_MOTION_BY_ACTION) → 로봇이 안 움직였으니 다음 대안."""
     backend = FakeBackend({"pick_object": [ActionResult(False, error_code="YAW_INVALID"), ActionResult(True)]})
     result = Runner(backend, schema=SCHEMA).run(FALLBACK)
     assert result.overall_status == "COMPLETED"
     assert [p["approach"] for _, p in backend.calls] == ["top", "side"]
     assert fallback_record(result)["option"] == 2
+
+
+PLACE_ASIDE = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
+    [{"id": "s1.a", "action": "place_object", "params": {"location": "drawer_top", "slot": "aside_1"}}],
+    [{"id": "s1.b", "action": "place_object", "params": {"location": "drawer_top", "slot": "aside_2"}}]]}]}
+
+
+def test_place_blocked_tries_other_slot():
+    """#168·#166: 놓을 자리 막힘(PLACE_BLOCKED, 움직이기 전 거부) → 다른 고정 자리로 1회."""
+    backend = FakeBackend({"place_object": [ActionResult(False, {"blocked_by": "eraser#1"}, "PLACE_BLOCKED"),
+                                            ActionResult(True)]})
+    result = Runner(backend, schema=SCHEMA).run(PLACE_ASIDE)
+    assert result.overall_status == "COMPLETED"
+    assert [p["slot"] for _, p in backend.calls] == ["aside_1", "aside_2"]
+
+
+def test_place_failure_after_motion_does_not_try_other_slot():
+    backend = FakeBackend({"place_object": [ActionResult(False, error_code="NOT_REACHED"), ActionResult(True)]})
+    result = Runner(backend, schema=SCHEMA).run(PLACE_ASIDE)
+    assert (result.overall_status, result.error_code) == ("FAILED", "NOT_REACHED") and len(backend.calls) == 1
+    assert fallback_record(result)["fallback_stopped"] == "MOTION_UNCERTAIN"
+
+
+@pytest.mark.parametrize("code, tries", [("WALL_TOO_CLOSE", 2), ("NOT_ON_FLOOR", 2), ("TOOL_NOT_SET", 2),
+                                         ("GRASP_FAILED", 1), ("NOT_REACHED", 1)])
+def test_pick_pre_motion_codes_allow_next_option(code, tries):
+    """공통 표 "움직이기 전 거부" 코드면 다음 대안, 움직인 뒤 실패면 멈춤."""
+    backend = FakeBackend({"pick_object": [ActionResult(False, error_code=code), ActionResult(True)]})
+    Runner(backend, schema=SCHEMA).run(FALLBACK)
+    assert len(backend.calls) == tries
+
+
+def test_code_counts_as_no_motion_only_for_its_action():
+    """PLACE_BLOCKED 는 place_object 표의 코드 — 다른 동작(drawer_control)이 같은 코드를 내도 움직였을 수 있다고 봄."""
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
+        [{"id": "s1.a", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "open"}}],
+        [{"id": "s1.b", "action": "speak", "params": {"text": "x"}}]]}]}
+    backend = FakeBackend({"drawer_control": ActionResult(False, error_code="PLACE_BLOCKED")})
+    result = Runner(backend, schema=SCHEMA).run(task)
+    assert result.overall_status == "FAILED" and len(backend.calls) == 1
 
 
 def test_fallback_tries_next_option_after_non_motion_failure():
