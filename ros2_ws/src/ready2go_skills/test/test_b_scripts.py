@@ -305,7 +305,8 @@ def test_b_sk_drawer_required_with_short_names(monkeypatch):
     assert sk.parse_drawer("open", "top") == "drawer_top" and sk.parse_drawer("open", "bottom") == "drawer_bottom"
     assert sk.parse_drawer("view", "drawer_bottom") == "drawer_bottom"
     assert sk.parse_drawer("home", None) == "drawer_top"
-    for cmd, arg in (("open", None), ("close", "middle"), ("all", None), ("home", "top"), ("place", "bottom")):
+    assert sk.parse_drawer("rescan", "top") == "drawer_top"                    # 끌기 뒤 다시 인식도 서랍 필수 (#181 E 재리뷰)
+    for cmd, arg in (("open", None), ("close", "middle"), ("all", None), ("home", "top"), ("place", "bottom"), ("rescan", None)):
         with pytest.raises(SystemExit):
             sk.parse_drawer(cmd, arg)
 

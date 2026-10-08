@@ -49,6 +49,13 @@
 2. 터미널마다 `r2genv` 먼저: t1 `roboton` / t2 `docker compose --profile real up -d --force-recreate realsense` → `docker compose logs -f realsense` (`Motion Module force pause` 경고는 IMU 미사용이라 무시 [추정]) / t3 `r2gjog` / t4(인식 쓸 때만) 손목–카메라 TF(아래 명령) / t5 작업(지그와 동시 명령 금지).
 3. 확인(t5): `ros2 topic list | grep -c wrist_cam`(0 아님) · `ros2 topic hz /wrist_cam/color/image_raw`(약 30 Hz) · `ros2 service list | grep -c dsr01`(0 아님). 첫 동작 전 홈·서랍 닫힘·빈손, 새 동작은 저속.
 4. 끝: 홈·서랍 로봇으로 닫기 → 스킬 서버·t3·t1 Ctrl+C → `docker compose stop realsense` (비전 켰으면 `docker rm -f vision_check`).
+- **B 시험 시작 전 초기화 (매번 처음 할 때)** [사용자 10/08] — 스킬 서버는 서랍 열림을 기억으로만 알고, 인식 결과 파일도 남아 있어 실물과 어긋나면 거부·엉뚱한 좌표가 남:
+  1. `cd ~/ready2go && git pull origin <브랜치> && git log --oneline -1` (코드 최신)
+  2. 스킬 서버 터미널 `Ctrl+C` → `VEL=30 JACC=20 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server` (서랍 둘 다 닫힘으로 초기화)
+  3. `B home`
+  4. 시험할 서랍을 **손으로** 열기(다른 서랍은 닫힘) → `B opened top|bottom` (로봇 안 움직임, 서버 기억만 맞춤). 손으로 연 서랍엔 `B ready`·`B open` 안 침
+  5. `rm -f /tmp/b_target_*.json` (예전 인식 결과)
+  - 끝나면 서랍은 손으로 닫고, 다음 시작 때 다시 1번부터.
 - **우리 노드 하나씩 시험 (`B` 명령)** [사용자 10/08]: 처음 한 번 `~/.bashrc` 에 `B() { ( source /opt/ros/jazzy/setup.bash; source ~/cobot2_ws/install/setup.bash; source ~/r2g_host/install/setup.bash; python3 ~/ready2go/ros2_ws/src/ready2go_skills/scripts/b_sk.py "$@" ); }` 등록 + `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh build`(~/r2g_host).
   - 아래 칸 스킬 서버 `VEL=30 JACC=20 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server`(켜 둠, 지그 끔) / 명령 칸 `rm -f /tmp/b_target_*.json`(예전 인식 결과 지움 — 서랍별 `b_target_scan_drawer_*.json` 포함) → `ros2 action list | grep skills` 5개.
   - 순서(find_item 과 같음): `B home` → `B ready top` → `B open top` → `B view top` → `B scan top` → `B nudge top` → `B view top` → **`B rescan top`**(다시 인식, 찾은 좌표를 집기에 넘김 — `all` 과 같음) → `B pick` → `B place` → `B close top` → `B home`. `rescan` 을 빼면 `B pick` 은 끌기 예상 위치(`target_after`)로 집음(단독 시험용, 공통 pick 과 다름). **서랍을 손으로 열었으면** `B opened <서랍>` 만 하고 `B ready`·`B open` 은 건너뜀(열린 서랍에 `B ready` 는 손잡이 앞 자세가 서랍 안 높이라 쓰지 않음). **`B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`)**, 서랍 필요한 동작에 빼먹으면 움직이기 전에 멈춤 [사용자 10/08]. `B <명령>` = `b_sk.py goal_for()` 가 `/skills/<노드>` 액션을 보냄(Runner 와 같은 요청) → 스킬 서버(우리 노드) 실행. 열기 노드는 손잡이 앞에서만 시작 → `B ready` 먼저. `B scan` 은 A 비전(위 칸은 없으면 고정 좌표 (27.5, 290.4) mm, 아래 칸은 비전 필수). 손으로 서랍을 열고 닫았으면 서버 재시작 또는 `B opened <서랍>`. **`b_flow.sh view` 는 쓰지 않음**(서버 없이 바로 관절 이동하는 다른 도구).
