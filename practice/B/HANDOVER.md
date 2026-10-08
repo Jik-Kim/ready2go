@@ -51,7 +51,7 @@
 4. 끝: 홈·서랍 로봇으로 닫기 → 스킬 서버·t3·t1 Ctrl+C → `docker compose stop realsense` (비전 켰으면 `docker rm -f vision_check`).
 - **우리 노드 하나씩 시험 (`B` 명령)** [사용자 10/08]: 처음 한 번 `~/.bashrc` 에 `B() { ( source /opt/ros/jazzy/setup.bash; source ~/cobot2_ws/install/setup.bash; source ~/r2g_host/install/setup.bash; python3 ~/ready2go/ros2_ws/src/ready2go_skills/scripts/b_sk.py "$@" ); }` 등록 + `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh build`(~/r2g_host).
   - 아래 칸 스킬 서버 `VEL=30 JACC=20 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server`(켜 둠, 지그 끔) / 명령 칸 `rm -f /tmp/b_target_scan.json /tmp/b_target_after.json`(예전 인식 결과 지움) → `ros2 action list | grep skills` 5개.
-  - 순서(find_item 과 같음): `B home` → `B open` → `B view` → `B scan` → `B nudge` → `B view` → `B pick` → `B place` → `B close` → `B home`. `B <명령>` = `b_sk.py goal_for()` 가 `/skills/<노드>` 액션을 보냄(Runner 와 같은 요청) → 스킬 서버(우리 노드) 실행. `B scan` 은 A 비전(없으면 고정 좌표 (27.5, 290.4) mm). **`b_flow.sh view` 는 쓰지 않음**(서버 없이 바로 관절 이동하는 다른 도구).
+  - 순서(find_item 과 같음): `B home` → `B ready top` → `B open top` → `B view top` → `B scan top` → `B nudge top` → `B view top` → `B pick` → `B place` → `B close top` → `B home`. **`B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`)**, 서랍 필요한 동작에 빼먹으면 움직이기 전에 멈춤 [사용자 10/08]. `B <명령>` = `b_sk.py goal_for()` 가 `/skills/<노드>` 액션을 보냄(Runner 와 같은 요청) → 스킬 서버(우리 노드) 실행. 열기 노드는 손잡이 앞에서만 시작 → `B ready` 먼저. `B scan` 은 A 비전(위 칸은 없으면 고정 좌표 (27.5, 290.4) mm, 아래 칸은 비전 필수). 손으로 서랍을 열고 닫았으면 서버 재시작 또는 `B opened <서랍>`. **`b_flow.sh view` 는 쓰지 않음**(서버 없이 바로 관절 이동하는 다른 도구).
 
 **호스트 상태에서 교시·비전 확인 (10/08 오후 쓴 방식, 컨테이너 `ros2-core` 끔)**
 - 터미널: `roboton`(호스트 드라이버) / `r2gjog`(지그) / 카메라 `bash tools/dev/vision_real_check.sh camera`(컨테이너, `/wrist_cam`) / 손목–카메라 TF:
