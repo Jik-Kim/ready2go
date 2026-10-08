@@ -16,6 +16,8 @@ class FakeTTS:
         self.lock = threading.Lock()
         self.fail = False
         self.texts = []
+    def prepare(self):
+        pass
     def speak(self, text, **kwargs):
         self.texts.append(text)
         if self.fail:
@@ -82,6 +84,9 @@ def test_ros_evaluation_topic_and_tts_action(cfg, tmp_path, monkeypatch):
     from std_msgs.msg import String
     from ready2go_interfaces.action import Skill
     from conftest import ROOT
+    import ready2go_voice.nodes.voice_node as module
+    tts = FakeTTS()
+    monkeypatch.setattr(module, 'create_tts', lambda _: tts)
     monkeypatch.setenv('ROS_DOMAIN_ID', '166')
     monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path/'ros_logs'))
     cfg['ontology_file'] = str(ROOT/'knowledge/robot_ontology.jsonld')
@@ -95,7 +100,7 @@ def test_ros_evaluation_topic_and_tts_action(cfg, tmp_path, monkeypatch):
     try:
         voice = VoiceNode(parameter_overrides=[Parameter('config_file', value=str(path)),
                                                Parameter('evaluation_mode', value=True)])
-        voice.tts = FakeTTS()
+        assert voice.tts is tts
         voice.parser.llm = None  # 유료 호출 없음
         peer = Node('voice_test_peer')
         received = []
