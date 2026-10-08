@@ -1,19 +1,25 @@
 """강의 LangChain/Whisper 호출 구조. 키는 기존 환경에서만 읽습니다."""
 import json
 import os
+import time
 from pathlib import Path
 
 
 class WhisperSTT:
-    def __init__(self, cfg, vocabulary):
+    def __init__(self, cfg, vocabulary, clock=time.monotonic):
         self.cfg = cfg
+        self.clock = clock
         self.prompt = ', '.join(vocabulary)
 
-    def transcribe(self, wav_path, timeout):
+    def transcribe(self, wav_path, timeout, *, before_request=None):
         from openai import OpenAI
         # SDK 재시도를 끄고 호출자 deadline과 같은 제한을 적용합니다.
         with OpenAI(api_key=os.environ.get('OPENAI_API_KEY'), timeout=timeout, max_retries=0) as client:
             with Path(wav_path).open('rb') as audio:
+                # Actual Voice-process SDK boundary; earlier progress is not evidence.
+                # Optional internal guard. P1 behavior is unchanged without it.
+                if before_request is not None and before_request(self.clock()) is not True:
+                    raise TimeoutError('STT_REQUEST_NOT_ADMITTED')
                 result = client.audio.transcriptions.create(
                     model=self.cfg['stt_model'], file=audio, language='ko', prompt=self.prompt)
         return result.text

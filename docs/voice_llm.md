@@ -126,3 +126,13 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 [제안·계약 차단] 내부 `StoppedWork/Evidence/Question`은 wire 필드나 확정 계약이 아닙니다. 명시적 복구 의사·B 실제 정지/컨트롤러 복구 결과·C 재개점/조건·부팅 세대/순서/유효성·질문/발화 연결과 콜백 직렬화는 [승인 대기안](interfaces.md#p2-safety-proposal)에서 협의합니다. C #152 계약안 v0의 `halt_event_id`와 내부 `StoppedWork.stop`의 대응은 계약 확정 후 adapter에서 대조해야 하며 현재 승인된 wire 연결이 아닙니다. 복구 중 정지 또는 증빙 불명은 후보를 무효화해야 합니다. B/C 후속 검사의 기준은 [FR-SAF-03](requirements.md#fr-saf-03)입니다. 실제 증빙 adapter·E 후보·C 실행 보존의 연결은 미확정입니다.
 
 [미연결] 복구 결과 ROS 수신, 질문 실제 TTS·캐시, 발화 채취/자기 음성 억제, 우선 정지 경로, C 잠금/재개 요청은 아직 연결하지 않았습니다. 기존 ordinary intent·Runner notice·prefill·listener를 수정하지 않았습니다. TTS 완료 뒤 녹음 시작 검사는 실제 스피커 자기 발화가 완전히 차단됐다는 증거가 아닙니다. 모의 정책 시험은 실제 음성 수신·로봇 정지·복구·재개 완료의 근거가 아닙니다.
+
+### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
+
+[문서] 정책 정본은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy)입니다. E 내부 모듈은 [skill_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)·[recovery_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/recovery_confirmation.py)입니다. Whisper adapter의 optional before_request는 SDK 초기화·WAV 열기 뒤 create 직전 로컬 monotonic 시각으로 접수를 거절할 수 있습니다. 녹음 자료형에 시작/끝 로컬 시각을 보존하지만 P1 Session·노드는 이 guard/정책을 호출하거나 새 wire로 발행하지 않습니다. 노드의 실제 TTS 완료·취소·busy/listener 경계는 그대로이며 아직 정책 질문 TTS/녹음 연결은 없습니다. STT 별도 처리 예산·place 대기/재확인 값은 설정 null로 미정 표시하고 내부 접수를 안전측 보류합니다.
+
+[제안: C 회신안] [C v1 수락+v2 제안](https://github.com/Jik-Kim/ready2go/issues/152#issuecomment-6059657040)의 일반 cancel 보존·질문 포기 구분·사건별 일회성·재개 직전 B 확인 요구와 책임 방향은 대조했습니다. `answer: asked`는 제안 enum resume/decline/expired와 충돌하므로 기존 enum에 임의 추가하지 않습니다. 질문 등록 메시지/수신 확인 방식·등록 전 답 거절·멱등성은 별도 합의가 필요하며 새 토픽/서비스/enum을 확정하지 않습니다. E는 같은 Voice 프로세스 시계에서 TTS 실제 완료·녹음 시작/끝·실제 SDK 호출·STT 만료와 질문/boot/run/halt를 결합해 검증한 결과만 전달하는 구체안을 제안합니다. C는 사건/질문 식별자·seq·등록 상태와 **자신의 시계**로 유한 hold 상한을 검사하고 실행 직전 B/pre를 재확인합니다. 서로 다른 프로세스 monotonic 값의 직접 대소 비교는 하지 않으며 요청 시각 하나로 녹음 시각을 증명하지 않습니다. E 처리 예산과 C hold 값은 미정입니다. 스키마·예시·ICD 동시 반영과 E 포함2명 승인 전 운영 연결은 보류합니다. 이 회신안은 GitHub 게시나 계약 승인 자체가 아닙니다.
+
+[인계] B: 실제 grip 완료/실측폭/expected_width 개선·lift 유지·외력 없음/신선도/확인 모드. A/B: handover inspect/TF/ROI·촬영 자세. C: verify evaluator/대기/최종 effect·상태/로그/성공 안내·재개 노드/hold·질문 등록. 실제 연결/실물 AC를 E 모의 시험 결과로 대체하지 않습니다.
+
+[문서] E-local Question.valid_until은 접수10초와 별개의 사건/증빙 유효상한으로 접수·최종 답 시점 모두 검사합니다. C hold_until을 이 값에 복사하지 않으며 C 사건/만료를 무효화하는 adapter도 현재 미연결입니다. 기한 내 STT의 늦은 결과 허용은 E-local 상한과 별도 처리 예산 안으로 제한합니다.

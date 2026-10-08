@@ -9,10 +9,11 @@ WORK = StoppedWork('boot', 'stop1', 'run1', 's5.1')
 
 
 def ready():
-    p = RecoveryConfirmation('boot')
+    p = RecoveryConfirmation('boot', stt_result_timeout_sec=10)
     assert p.stopped(WORK, 1)
     q = p.recovered(WORK, 2, SAFE, now=2, valid_until=10)
     assert q and p.delivered(q, now=3, success=True)
+    assert p.admit(q, captured_at=4, ended_at=4.5, started_at=5)
     return p, q
 
 
@@ -29,8 +30,8 @@ def test_explicit_internal_candidates(text, kind):
 def test_question_once_and_response_once():
     p, q = ready()
     assert p.recovered(WORK, 3, SAFE, now=4, valid_until=20) is None
-    assert p.answer('재개해', q, captured_at=4, now=5, evidence=SAFE) == WORK
-    assert p.answer('재개해', q, captured_at=4, now=5, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=4, now=5, evidence=SAFE, request=p.request) == WORK
+    assert p.answer('재개해', q, captured_at=4, now=5, evidence=SAFE, request=p.request) is None
     assert p.recovered(WORK, 4, SAFE, now=5, valid_until=20) is None
 
 
@@ -38,7 +39,7 @@ def test_question_once_and_response_once():
 def test_unverified_condition_revokes_confirmation(field):
     p, q = ready()
     evidence = Evidence(**{k: k != field for k in SAFE.__dict__})
-    assert p.answer('재개해', q, captured_at=4, now=5, evidence=evidence) is None
+    assert p.answer('재개해', q, captured_at=4, now=5, evidence=evidence, request=p.request) is None
     assert p.question is None
 
 
@@ -47,50 +48,50 @@ def test_restop_stale_events_wrong_work_and_restart():
     other = StoppedWork('boot', 'stop2', 'run1', 's5.1')
     assert p.stopped(other, 3)
     assert p.recovered(WORK, 2, SAFE, now=4, valid_until=10) is None
-    assert p.answer('재개해', q, captured_at=4, now=5, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=4, now=5, evidence=SAFE, request=p.request) is None
     assert p.recovered(WORK, 4, SAFE, now=4, valid_until=10) is None
     restarted = RecoveryConfirmation('new_boot')
     assert not restarted.stopped(WORK, 5)
-    assert restarted.answer('재개해', q, captured_at=4, now=5, evidence=SAFE) is None
+    assert restarted.answer('재개해', q, captured_at=4, now=5, evidence=SAFE, request=p.request) is None
 
 
 @pytest.mark.parametrize('captured,now', [(2, 4), (4, 10), (7, 5), (float('nan'), 5)])
 def test_pre_question_delayed_or_invalid_capture(captured, now):
     p, q = ready()
-    assert p.answer('재개해', q, captured_at=captured, now=now, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=captured, now=now, evidence=SAFE, request=p.request) is None
 
 
 def test_tts_not_finished_or_failed_never_authorizes():
-    p = RecoveryConfirmation('boot'); p.stopped(WORK, 1)
+    p = RecoveryConfirmation('boot', stt_result_timeout_sec=10); p.stopped(WORK, 1)
     q = p.recovered(WORK, 2, SAFE, now=2, valid_until=10)
-    assert p.answer('재개해', q, captured_at=3, now=4, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=3, now=4, evidence=SAFE, request=p.request) is None
     p, q = ready()
     assert not p.delivered(q, now=4, success=False)
-    assert p.answer('재개해', q, captured_at=5, now=6, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=5, now=6, evidence=SAFE, request=p.request) is None
 
 
 def test_unknown_recovery_and_expiry_do_not_prepare_question():
-    p = RecoveryConfirmation('boot'); p.stopped(WORK, 1)
+    p = RecoveryConfirmation('boot', stt_result_timeout_sec=10); p.stopped(WORK, 1)
     assert p.recovered(WORK, 2, Evidence(), now=2, valid_until=10) is None
     assert p.recovered(WORK, 3, SAFE, now=10, valid_until=10) is None
     assert p.question is None
 
 
 def test_completion_before_question_creation_is_rejected():
-    p = RecoveryConfirmation('boot'); p.stopped(WORK, 1)
+    p = RecoveryConfirmation('boot', stt_result_timeout_sec=10); p.stopped(WORK, 1)
     q = p.recovered(WORK, 2, SAFE, now=2, valid_until=10)
     assert not p.delivered(q, now=0, success=True)
-    assert p.answer('재개해', q, captured_at=1, now=3, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=1, now=3, evidence=SAFE, request=p.request) is None
 
 
 def test_recording_start_before_tts_completion_is_rejected():
     p, q = ready()
-    assert p.answer('재개해', q, captured_at=2.5, now=4, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=2.5, now=4, evidence=SAFE, request=p.request) is None
 
 
 def test_clock_regression_after_completion_is_rejected():
     p, q = ready()
-    assert p.answer('재개해', q, captured_at=3, now=2, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=3, now=2, evidence=SAFE, request=p.request) is None
 
 
 def test_restopping_during_question_invalidates_late_tts_completion():
@@ -98,4 +99,4 @@ def test_restopping_during_question_invalidates_late_tts_completion():
     new = StoppedWork('boot', 'stop2', 'run1', 's5.1')
     assert p.stopped(new, 3)
     assert not p.delivered(q, now=4, success=True)
-    assert p.answer('재개해', q, captured_at=5, now=6, evidence=SAFE) is None
+    assert p.answer('재개해', q, captured_at=5, now=6, evidence=SAFE, request=p.request) is None
