@@ -228,12 +228,24 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로
     log.clear()
+    cp = server.srv.prm()["drawer_open_close"]["close_push"]["drawer_top"]   # 위 칸 닫기 = 45° 기울여 앞판 중앙 밀기 [사용자 10/08]
+    start_x = [391.399, -42.000, 224.955, 90.001, -135.000, 89.992]     # 시작 자세 실측 TCP
+    real_movej = server.srv.robot.movej_async
+
+    def movej(j, v, a):
+        ok = real_movej(j, v, a)
+        if list(j) == list(cp["start_posj"]):
+            server.srv.robot.p = list(start_x)
+        return ok
+    server.srv.robot.movej_async = movej
     out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
-    assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-291.757 + 226.0 + 11.1 + 30.0, abs=1.0)   # 홈 안 거치고 손잡이 앞으로 바로
-    assert not any(e[0] == "movej" for e in log)
-    closed_y = -291.757 + 11.1 - 2.0                                    # 닫힘 TCP [실측 10/06 저녁] + 2 mm 더
+    assert out.success
+    assert log[0] == ("movej", cp["start_posj"])                        # 트레이 쪽에서 홈 안 거치고 시작 자세로 바로 (관절 이동)
+    closed_y = cp["end_posx"][1] - 2.0                                  # 닫힌 앞판에 닿는 y + 2 mm 더
     assert log[1][1][1] == pytest.approx(closed_y + 30.0, abs=0.5)      # 빠르게 → 마지막 30 mm 는 천천히 (두 번)
     assert log[2][1][1] == pytest.approx(closed_y, abs=0.5)
+    assert log[1][1][3:] == start_x[3:] and log[1][1][2] == pytest.approx(start_x[2], abs=0.5)   # 손목·높이 그대로 서랍 축(≈ y)으로만
+    assert log[1][1][0] == pytest.approx(start_x[0], abs=1.0)           # 서랍 축이 base y 에서 조금 기울어 x 는 1 mm 안
 
 
 def test_named_pose_from_low_non_drawer_spot_lifts_first(server):
@@ -796,3 +808,17 @@ def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
     assert all(p[3:] == end[3:] for p in pushes[:-1])                  # 미는 동안 손목 그대로
     assert pushes[-1][1] > deepest                                      # 마지막은 여는 방향으로 빼기
     assert ("movej", srv.poses()["home"]["joints_deg"]) not in log
+
+
+def test_tilted_close_refuses_when_start_and_end_taught_apart(server):
+    """시작·끝 자세의 x·z 가 close_push_xz_tol_mm(5 mm) 넘게 다르면 잘못 잰 것 → 시작 자세까지만 가고 밀지 않음 (DRAWER_NOT_CONFIGURED)."""
+    srv = server.srv
+    prm = srv.prm()
+    end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": [0.0] * 6, "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = [381.9, -27.0, 110.0, 90.0, -135.0, 90.0]             # z 10 mm 다름
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert not out.success and out.error_code == server.ss.DRAWER_NOT_CONFIGURED
+    assert not any(e != "stop" and e[0] == "movel" for e in srv.robot.log)

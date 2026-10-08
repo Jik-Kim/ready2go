@@ -801,7 +801,14 @@ class SkillServer(Node):
         pre = self.robot.posx()
         if pre is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
-        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [float(v) for v in cp["end_posx"]])
+        end = [float(v) for v in cp["end_posx"]]
+        # 미는 동안 손목·x·z 는 시작 자세 그대로, 닫힘 판정은 끝 자세의 y 만 — 시작·끝을 따로 교시하면 C 가 180° 다르게 찍힐 수 있음
+        # (그리퍼 축 반 바퀴, 미는 데는 같음) [실측 B 10/08 위 칸 C +90 vs −90]. x·z 가 많이 다르면 잘못 잰 것 → 움직이기 전 거부
+        off = [abs(pre[k] - end[k]) for k in (0, 2)]
+        if max(off) > oc.get("close_push_xz_tol_mm", 5.0):
+            return sf.Outcome(False, DRAWER_NOT_CONFIGURED,
+                              reason=f"닫기 시작·끝 자세의 x·z 차이 {max(off):.1f} mm — 같은 높이·x 로 다시 교시"), None
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [pre[0], end[1], pre[2]] + list(pre[3:6]))
 
     # --- 끌기 (nudge_object) ---
     def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
