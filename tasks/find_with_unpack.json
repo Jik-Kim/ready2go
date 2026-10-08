@@ -1,6 +1,6 @@
 {
   "task_id": "find_with_unpack",
-  "description": "P2 Unpacking (FR-ACT-04 — 기준은 docs/requirements.md 가림·추적·복구 정책): find_item 흐름(열기 → 탑뷰 → 찾기 → 공통 pick → 트레이 → 닫기 → 홈)에 치우기와 역순 복구를 넣은 것. 찾기 결과로 select_obstacle 이 치울 물체를 고르면(덮은 물체를 따라 맨 위부터, 옮긴 물체 제외) 집어서 서랍 안 고정 자리(aside_1, 막히면 aside_2, #166)에 놓고 원래 자리·명령한 자리를 restore_stack 에 push → 탑뷰에서 다시 찍고 다시 고름 (최대 2개, B 고정 자리 2곳). 목표가 다 보이면 공통 pick·place 로 전달. finally: 쥔 장애물이 없을 때만 restore_stack 을 거꾸로 — 탑뷰에서 다시 찍고 find_moved 로 같은 물체를 찾아(재식별 #109) 집어 원래 자리로, 막히면 방금 꺼낸 그 고정 자리(기록한 slot)에 다시 둠 — 빈손이면 남은 복구 계속, 그것도 막혀 쥔 채면 남은 복구 안 함·안내·홈 안 감(B·C 합의 #168, AC-ACT-03 미달로 기록). 못 찾거나 모호하면 그 물체는 두고 안내. 복구 실패가 나도 닫기·홈 규칙은 find_item 과 같음(쥔 채면 홈 안 감). 중단(비상정지·취소)이면 복구 반복은 하지 않고 restore_stack 을 남김(사람 확인). 장애물 집기·놓기는 원자 동작이라 온톨로지 상태를 바꾸지 않으므로(같은 서랍 안 이동) 쥔 상태는 블랙보드 holding 으로 따로 기록. reid_tol_m 0.02 는 mock 값 — 비전·놓기 오차 실측 뒤 [팀 확정 필요]. 얹힌 물체 집기(NOT_ON_FLOOR)·지지면은 B 구현 범위를 따름(#120). trigger 없음: 음성 연결 전, RUNNER_TASK_FILE·시험으로 실행",
+  "description": "P2 Unpacking (FR-ACT-04 — 기준은 docs/requirements.md 가림·추적·복구 정책): find_item 흐름(열기 → 탑뷰 → 찾기 → 공통 pick → 트레이 → 닫기 → 홈)에 치우기와 역순 복구를 넣은 것. 찾기 결과로 select_obstacle 이 치울 물체를 고르면(덮은 물체를 따라 맨 위부터, 옮긴 물체 제외) 집어서 서랍 안 고정 자리(aside_1, 막히면 aside_2, #166)에 놓고 원래 자리·명령한 자리를 restore_stack 에 push → 탑뷰에서 다시 찍고 다시 고름 (최대 2개, B 고정 자리 2곳). 목표가 다 보이면 공통 pick·place 로 전달. finally: 쥔 장애물이 없을 때만 restore_stack 을 거꾸로 — 탑뷰에서 다시 찍고 find_moved 로 같은 물체를 찾아(재식별 #109) 집어 원래 자리로, 막히면 방금 꺼낸 그 고정 자리(기록한 slot)에 다시 둠 — 빈손이면 남은 복구 계속, 그것도 막혀 쥔 채면 남은 복구 안 함·안내·서랍 닫기·홈 안 감(B·C 합의 #168, D 체크시트 S-17, AC-ACT-03 미달로 기록). 못 찾거나 모호하면 그 물체는 두고 안내. 복구 실패가 나도 닫기·홈 규칙은 find_item 과 같음(쥔 채면 홈 안 감). 중단(비상정지·취소)이면 복구 반복은 하지 않고 restore_stack 을 남김(사람 확인). 장애물 집기·놓기는 원자 동작이라 온톨로지 상태를 바꾸지 않으므로(같은 서랍 안 이동) 쥔 상태는 블랙보드 holding 으로 따로 기록. reid_tol_m 0.02 는 mock 값 — 비전·놓기 오차 실측 뒤 [팀 확정 필요]. 얹힌 물체 집기(NOT_ON_FLOOR)·지지면은 B 구현 범위를 따름(#120). trigger 없음: 음성 연결 전, RUNNER_TASK_FILE·시험으로 실행",
   "inputs": {
     "target": "toy_wrench",
     "reid_tol_m": 0.02
@@ -436,64 +436,88 @@
       ]
     },
     {
-      "id": "f1d",
-      "action": "query_ontology",
-      "params": {
-        "state": "open.{{loc.drawer_id}}"
-      },
-      "output": "drawer_before",
-      "on_failure": "skip"
-    },
-    {
-      "id": "f2",
-      "skill": "close_drawer",
-      "params": {
-        "drawer_id": "$loc.drawer_id"
-      },
-      "on_failure": "skip",
-      "timeout_sec": 60
-    },
-    {
-      "id": "f2d",
-      "action": "query_ontology",
-      "params": {
-        "state": "open.{{loc.drawer_id}}"
-      },
-      "output": "drawer_after",
-      "on_failure": "skip"
-    },
-    {
-      "id": "f2s",
+      "id": "fc",
       "action": "if",
       "on_failure": "skip",
       "cond": {
-        "op": "and",
+        "op": "==",
         "args": [
-          {
-            "op": "==",
-            "args": [
-              "$drawer_before.value",
-              true
-            ]
-          },
-          {
-            "op": "==",
-            "args": [
-              "$drawer_after.value",
-              false
-            ]
-          }
+          "$holding",
+          false
         ]
       },
       "then": [
         {
-          "id": "f2s.1",
-          "action": "speak",
+          "id": "f1d",
+          "action": "query_ontology",
           "params": {
-            "text": "서랍을 닫았어요"
+            "state": "open.{{loc.drawer_id}}"
+          },
+          "output": "drawer_before",
+          "on_failure": "skip"
+        },
+        {
+          "id": "f2",
+          "skill": "close_drawer",
+          "params": {
+            "drawer_id": "$loc.drawer_id"
           },
           "on_failure": "skip",
-          "timeout_sec": 20
+          "timeout_sec": 60
+        },
+        {
+          "id": "f2d",
+          "action": "query_ontology",
+          "params": {
+            "state": "open.{{loc.drawer_id}}"
+          },
+          "output": "drawer_after",
+          "on_failure": "skip"
+        },
+        {
+          "id": "f2s",
+          "action": "if",
+          "on_failure": "skip",
+          "cond": {
+            "op": "and",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "$drawer_before.value",
+                  true
+                ]
+              },
+              {
+                "op": "==",
+                "args": [
+                  "$drawer_after.value",
+                  false
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "id": "f2s.1",
+              "action": "speak",
+              "params": {
+                "text": "서랍을 닫았어요"
+              },
+              "on_failure": "skip",
+              "timeout_sec": 20
+            }
+          ]
+        }
+      ],
+      "else": [
+        {
+          "id": "fc.1",
+          "action": "set_var",
+          "params": {
+            "name": "stopped_holding",
+            "value": "장애물을 쥔 채 정지 — 서랍 닫기·홈 이동 안 함, 사람이 그리퍼 열고 회수 후 reset_state (#168 S-17)"
+          }
         }
       ]
     },

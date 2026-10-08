@@ -155,3 +155,5 @@ def test_restore_blocked_twice_stops_holding_without_home():
     assert result.blackboard["holding"] is True
     assert "옮기던 물건을 쥔 채 멈췄어요. 사람이 확인해 주세요" in robot.spoken
     assert ("move_to_named_pose", {"pose_name": "home"}) not in robot.calls
+    closes = [p for a, p in robot.calls if a == "drawer_control" and p.get("state") == "close"]
+    assert closes == []                                                      # D 체크시트 S-17: 쥔 채면 닫기 요청도 안 함
