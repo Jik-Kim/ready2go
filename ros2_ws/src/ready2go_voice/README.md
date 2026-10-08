@@ -19,6 +19,27 @@
 
 [문서] 참고 코드 `keyword_extraction.py`·`STT.py`의 프롬프트/호출·녹음→Whisper 구조를 사용했습니다. 원본 `sd.rec`→`sd.wait`의 고정 5초 녹음을 시운전 기본으로 적용했습니다. 고정 도구 목록, `/` 문자열 분해, import 시 dotenv, 임시파일 누수는 옮기지 않았습니다. SciPy 대신 표준 `wave`를 사용합니다. 웨이크 모델 원본을 복제/수정하거나 모델을 자동 다운로드하지 않습니다.
 
+## 현재 지원 명령
+
+[문서·코드 대조: 2026-10-08] checkout `f2678c3`와 원격 main `92b0e0d`의 아래 Voice·계약·태스크·Runner 라우팅 원본을 대조했습니다. 이 원본들은 두 버전에서 동일합니다. 표는 **코드의 해석/라우팅 범위**이며 실제 마이크/API·Runner 수신·실물 실행 시험 결과가 아닙니다. 발화 예시는 허용 표현 전체 목록이나 성공 보장이 아닙니다. 정상 LLM 해석과 오류 후 좁은 규칙 폴백을 구분하며 폴백 문형만으로 지원 범위를 제한하지 않습니다.
+
+| 명령 종류·연결 상태 | 발화/입력 예시 | 현재 처리 | 제한·운영 연결 | 근거 원본 |
+|---|---|---|---|---|
+| 단일 물품 가져오기 — 음성 해석 `find_item` | “지우개 찾아줘”, “지우개 가져다줘”, “지우개 좀”; 다른 등록 이름/별칭의 단일 요청 | 등록 단일 대상·발화 일치·요청 단서·확신도를 검증하고 확인 TTS 뒤 발행 게이트 적용 | 해석 대상은 등록 물품이며 현재 기본 `find_item` 태스크의 `trigger.targets`는 `eraser`만. 다른 등록 대상은 Runner에서 `UNSUPPORTED_ITEM` 보류. 실행 중/잠김/서버 미준비도 거절. 직접 태스크 실행은 trigger 제한을 거치지 않아 별도 입력 확인 필요 | [파서](ready2go_voice/core/intent.py)·[노드](ready2go_voice/nodes/voice_node.py)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py)·[태스크](../../../tasks/find_item.json) |
+| 취소 — 음성/텍스트 제어 `cancel` | “멈춰”, “정지”, “취소”, “그만”; “멈춰.” | 설정 문구와 공백 정규화·끝 문장부호 제거 후 정확 비교. E가 기존 intent를 발행하며 텍스트 취소는 진행 중 해석 결과도 취소. Runner는 실행 중이면 `halt()` | 실행 중이 아니면 `NOT_RUNNING`. 실제 정지 확인·하드웨어 E-stop 대체가 아님. busy/TTS 중 새 웨이크 청취는 제한되며 텍스트 제어의 큐 우회와 음성 상시 수신은 다름. P2 안전 정지/복구/재개 완료와 구분 | [문구 설정](params/voice.yaml)·[파서](ready2go_voice/core/intent.py)·[Voice 노드](ready2go_voice/nodes/voice_node.py)·[Runner 노드](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
+| 상태 요청 — 음성/텍스트 제어 `status` | “지금 뭐 해”, “지금 뭐해”, “상태 알려”, “진행 상황”; “지금 뭐 해?” | 설정 문구와 같은 정확 비교로 E intent 발행. Runner는 `/runner/status`를 다시 발행 | 실제 현재 상태를 조회하여 음성으로 읽어주는 기능은 연결되지 않음. 기존 오류/중단 안내는 별도. 새 웨이크 청취 제한은 취소와 동일 | [문구 설정](params/voice.yaml)·[파서](ready2go_voice/core/intent.py)·[Runner 노드](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
+| 보류 응답 — `clarify`/`unknown`, 실행 명령 아님 | “지우개”, “그거 가져줘”, 여러 대상·미등록·미지원 요청 | 단독/모호/복수 대상은 확인 요청, 미지원은 보류 안내. 오류 후 폴백과 정상 unknown/clarify는 구분 | 실행 후보로 확정하지 않음. 실행 모드에서 보류 intent 자체가 발행될 수 있으나 Runner는 `NEEDS_CLARIFY`로 실행하지 않음. 부정/제외 문맥의 알려진 판별 결함은 [설정과 동작 경계](#설정과-동작-경계)에 유지 | [파서](ready2go_voice/core/intent.py)·[게이트](ready2go_voice/core/session.py)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py) |
+| 목표형 `achieve_goal` — Runner 구조화 입력 지원, 음성 미지원 | 음성 미지원/구조화 JSON의 `goals` 입력 | Runner는 계약·신뢰도·목표·물품·실행/잠김을 검사하고 현재 상태에서 플래닝. 만족/계획 불가는 실행 보류 | Voice P1 필터는 목표형 intent·goals를 거절. Runner의 계획/서버/`plan_limits` 조건은 별도이며 실물 완료 의미가 아님. 기준은 [FR-PLN-02](../../../docs/requirements.md#fr-pln-02)·[AC-PLN-01](../../../docs/requirements.md#ac-pln-01) 참조 | [계약](../../../contracts/intent.schema.json)·[Voice 필터](ready2go_voice/core/intent.py)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py)·[Runner 노드](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
+| `find_list`/`find_class`/`query_state` — 현재 음성 미지원 | 음성 미지원/계약 enum만 존재 | Voice P1 필터에서 거절. 현재 `tasks/`에는 대응 trigger 태스크가 없어 기본 Runner 라우팅은 `UNSUPPORTED_INTENT` | 계약 enum 존재만으로 지원/실행 가능이라 판정하지 않음. 확장 기준·Phase는 [FR-INT-02](../../../docs/requirements.md#fr-int-02) 참조 | [계약](../../../contracts/intent.schema.json)·[Voice 필터](ready2go_voice/core/intent.py)·[태스크 목록](../../../tasks/)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py) |
+| 레지스트리 태스크 `return_items` — 파일 존재, 현재 intent 연결 미지원 | 음성 미지원; 파일의 `examples_ko`는 지원 발화 근거 아님 | Runner loader는 `trigger.intent`를 등록하고 `intent_tasks` override를 우선하지만 `return_items`는 현재 계약 enum 밖이라 intent 입력은 `BAD_INTENT`. Voice도 미지원 | 레지스트리 로딩이 schema enum이나 음성 파서를 자동 확장하지 않음. 파일은 트레이 관측 단계만 있어 반납 완성 기능이 아님. `p1_demo_eraser`는 trigger.intent 없이 override/직접 실행용 | [예시 태스크](../../../tasks/return_items.json)·[시연 태스크](../../../tasks/p1_demo_eraser.json)·[계약](../../../contracts/intent.schema.json)·[로딩](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
+| P2 `stop`/`recover`/`resume` — 내부 후보·운영 미연결 | 내부 정책 예: “정지해”, “복구해”, “재개해”; 현재 운영 명령 아님 | 내부 표현 후보와 사건/질문/응답 정책만 준비 | ROS/TTS/listener/Runner 경로·새 wire 계약·실물 검증 미완료. 기존 cancel과 동일 기능으로 보지 않음. [P2 내부 준비](#p2-복구-후-재개-확인--내부-준비)·[FR-SAF-01–03](../../../docs/requirements.md#fr-saf-01) 참조 | [내부 정책](ready2go_voice/core/recovery_confirmation.py)·[운영 노드](ready2go_voice/nodes/voice_node.py) |
+
+E Voice를 거치는 음성/텍스트 입력에는 [설정과 동작 경계](#설정과-동작-경계)와 [시운전 두 용도](#사용자-pc-시운전-명령-실제-녹음api는-사용자가-실행)가 적용됩니다. `evaluation_mode:=true`이면 cancel/status/unknown/clarify 포함 모든 `/voice/intent` 발행이 차단됩니다. 실제 음성 입력은 같은 로컬 설정의 `audio_enabled: true`와 준비된 모델/장치가 필요합니다. 요청 해석·발행 허용과 Runner/backend 연결·실물 실행 성공을 구분합니다. Runner 직접 구조화 입력은 E 평가/오디오 설정과 별개이며, E 평가 모드가 다른 입력으로 시작한 Runner 태스크를 중단하지 않습니다. 정책/Phase/수용 기준은 [FR-INT-01–03](../../../docs/requirements.md#fr-int-01)·[음성 정책](../../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../../docs/requirements.md#ac-int-01)에만 둡니다.
+
+### 지원 명령 목록 갱신 절차
+
+[문서: 사용자 승인] 명령·표현·대상 제한·파서/발행 게이트·Runner 라우팅·관련 계약/설정·운영 연결이 바뀌는 기능 PR은 이 표와 관련 설명을 함께 갱신합니다. E 작업 지시 작성 및 완료 검증 때 실제 생산자·수신자·설정·태스크·계약 원본과 목록/제약·미연결 상태를 대조하여 누락을 확인합니다. 타 담당 원본 변경은 E 작업 지시 세션으로 인계받아 문서에 반영하며 담당 수락·병합·실물 결과는 확인한 범위만 표시합니다. 확인 기준 버전/시점을 함께 갱신합니다. 이 절차는 수동 작업·검증 절차이며 자동 생성·자동 갱신·자동 검사·CI 차단을 구현한 것이 아닙니다.
+
 ## 설정과 동작 경계
 
 [문서] `params/voice.yaml`은 시운전 제안값이며 `[팀 확정 필요]` 값은 장치·지연·E/D 정답표 확인 후 확정해야 합니다. 사용자 확정 기본은 **`evaluation_mode: false`, `audio_enabled: false`**입니다. 시작 시 ROS bool 파라미터 `-p evaluation_mode:=true/false`로 모드를 지정하며, 생략하면 false입니다. 이 시작 값이 YAML보다 우선하므로 기존 로컬 YAML이 true여도 미지정/CLI false는 실행 모드입니다. 유효 설정은 parser/Session/TTS 생성 전에 공유하며, 실행 중 `ros2 param set`으로 전환하는 기능은 구현하지 않습니다. 평가 모드에서는 find_item뿐 아니라 **cancel/status/unknown/clarify 모두 `/voice/intent`를 발행하지 않습니다**. ROS 진단 로그와 TTS만 제공하므로 평가 결과를 로봇 요청으로 전달하지 않습니다. C가 다른 입력으로 기동한 태스크까지 이 설정이 중단시키는 것은 아닙니다.
@@ -291,14 +312,13 @@ PYTHON
 
 최초 설치·속도/worker 변경 뒤 cold-cache 준비는 일반 노드의 재시작 반복으로 수행하지 않습니다. [실측: 문장 목록] 현재 등록11종의 안내와 상태 고정문구7종을 합한 prefill63개+warmup1개, 총64개입니다. [추정] 과거 속도1.0 단문 약2.43초를 단순 적용하면 약156초로, 기존 전체 준비 상한60초를 넘을 수 있습니다. 새 속도1.2·긴 안내·운용 PC의 실제 준비 시간으로 확인해야 하며 이 추정을 새 상한이나 팀 확정값으로 사용하지 않습니다.
 
-노드를 종료한 뒤 아래 **캐시 준비만** 먼저 수행합니다(마이크/API/출력 장치 사용 없음). 해당 PC에서 결정한 유한 준비 상한을 입력하여 이 명시 실행의 메모리 설정에만 적용합니다. 기존 YAML·일반 노드 준비상한·재생전체20초·AC3초 예산은 변경하지 않습니다. 실패하면 상한/worker.log/환경을 점검하고 일반 노드를 시작하지 않습니다. 완료 뒤 같은 worker·속도·모델·설정으로 일반 노드를 시작합니다. 동일 환경이라도 60초 안에 준비 가능한지 PC2에서 별도 확인해야 합니다.
+노드를 종료한 뒤 아래 **캐시 준비만** 먼저 수행합니다(마이크/API/출력 장치 사용 없음). [사용자 결정] 사전 준비 상한은 **120초**로 선택하며 이 명시 실행의 메모리 설정에만 적용합니다. 120초 이내 완료 여부는 미실측이며 충분한 시간이라고 보장하지 않습니다. 기존 YAML·일반 노드 준비상한·재생전체20초·AC3초 예산은 변경하지 않습니다. 실패하면 상한/worker.log/환경을 점검하고 일반 노드를 시작하지 않습니다. 완료 뒤 같은 worker·속도·모델·설정으로 일반 노드를 시작합니다. 동일 환경이라도 60초 안에 준비 가능한지 PC2에서 별도 확인해야 합니다. 일반 노드의 `tts_melotts_startup_timeout_sec: 60.0`은 유지합니다. 노드는 시작마다 `prepare()`로 모델 로딩과 캐시 확인을 수행하지만, 같은 캐시 키의 디스크 WAV는 재사용하고 없거나 키가 변경된 문장만 합성합니다. 모델 로딩·캐시 확인 비용이 없어지는 것은 아닙니다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
-read -r -p '최초 캐시 준비 전체 상한(초, 운용 PC에서 결정): ' MELOTTS_PREFILL_TIMEOUT_SEC
-export MELOTTS_PREFILL_TIMEOUT_SEC
+export MELOTTS_PREFILL_TIMEOUT_SEC=120
 python3 - <<'PYTHON'
 import math
 import os
@@ -340,7 +360,7 @@ test "$MELOTTS_PREFILL_EXIT_CODE" -eq 0
 tail -n 80 models/tts/melotts/worker.log
 ```
 
-- `MELOTTS_PREPARE_TIMEOUT`/`MELOTTS_PREPARE_FAILED`: worker 로그의 실제 원인과 해당 PC 준비 시간을 확인합니다. cold 합성에 부족한 상한이었다면 운용 PC에서 정한 유한 상한으로 **사전 준비만** 다시 실행합니다. 일반 노드를 반복 재시작하며 캐시를 쌓거나 일반 YAML/AC3초 예산을 임의로 늘리지 않습니다.
+- `MELOTTS_PREPARE_TIMEOUT`/`MELOTTS_PREPARE_FAILED`: worker 로그의 실제 원인과 해당 PC 준비 시간을 확인합니다. 120초 상한 내 준비에 실패하면 worker 로그의 실제 원인과 준비 시간을 확인합니다. 사전 준비를 다시 실행할 때는 노드를 먼저 종료합니다. 일반 노드를 반복 재시작하며 캐시를 쌓거나 일반 YAML/AC3초 예산을 임의로 늘리지 않습니다.
 - `MELOTTS_RUNTIME_MISSING`/모델·의존성 오류: 설정된 전용 Python, manifest의 모델 경로, 고정 의존성과 설치 절차를 대조합니다. 종료 코드가 비0이거나 완료 문구가 없으면 노드를 시작하지 않습니다.
 - 속도·모델·worker/소스·의존성·speaker·스레드·문구가 바뀌면 관련 캐시 키가 바뀌거나 새 문장이 필요하므로 사전 준비를 다시 합니다. 같은 설정·환경의 재시작은 디스크 캐시를 재사용합니다. 캐시 준비 후에도 일반 노드 준비 상한 내 완료 여부는 따로 확인합니다.
 
