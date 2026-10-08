@@ -13,7 +13,11 @@
       "yaw": 0.52,
       "yaw_valid": true
     },
-    "top_z": 0.0115
+    "top_z": 0.0115,
+    "occluded_by": [
+      "lip_balm#1"
+    ],
+    "visible_area_m2": 0.000812
   },
   "candidates": [
     {
@@ -22,14 +26,16 @@
       "pose": {
         "frame": "drawer_top",
         "position": [
-          0.1,
-          0.08,
+          0.175,
+          0.14,
           0.0
         ],
         "yaw": 0.0,
         "yaw_valid": true
       },
-      "top_z": 0.0202
+      "top_z": 0.0315,
+      "occluded_by": [],
+      "visible_area_m2": 0.001594
     },
     {
       "id": "car_key#1",
@@ -44,7 +50,9 @@
         "yaw": 0.0,
         "yaw_valid": false
       },
-      "top_z": 0.0158
+      "top_z": 0.0158,
+      "occluded_by": null,
+      "visible_area_m2": 0.001903
     }
   ],
   "visible_count": 3

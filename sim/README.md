@@ -1,11 +1,11 @@
-# sim — Isaac Sim 트윈 (담당 A 김병직, Phase 2~)
+# sim — Isaac Sim 트윈 (담당 A 김병직)
 
-> 문서: [`docs/twin.md`](../docs/twin.md)
+> 문서: [`docs/twin.md`](../docs/twin.md) · 요구사항·Phase: [FR-TWN-01–02](../docs/requirements.md#fr-twn-01), [NFR-TWN-01](../docs/requirements.md#nfr-twn-01)
 
 - Isaac Sim 5.1.0 **네이티브 실행**(컨테이너 아님). 환경은 `sim/isaac_env.sh`가 맞춘다 (아래).
 - 팀 로직은 여기 두지 않음: 씬 로드, ROS 2 Bridge, 조인트 미러링 스크립트만.
 - USD는 Git LFS(`.gitattributes`)로 관리하고 **A만 편집**. 기존 자산 출처: `~/isaac_legacy/M0609_jik` (M0609 + RG2 + 손목 카메라).
-- Phase 1에는 필수 아님(씬 구성은 병행 가능).
+- Phase 배정과 선행 작업 병행 기준은 [Phase 범위](../docs/requirements.md#phase-scope)를 따른다.
 
 ## 실행
 ```bash
@@ -52,7 +52,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 로봇 축 위치 | 베이스 철판 중심 = 원점 | #6/URDF 확인 |
 | `link_6` 원점 = 플랜지 면 | 가정 (손목 카메라 위치에 영향) | B 확인 |
 | 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
-| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | B의 3점 터치(P3) 후 `drawer_bottom` tf·내부 치수 |
+| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | `places.yaml` `drawer_bottom.tf`는 B 실측(10/07)으로 채워짐 — `build_scene.py`가 아직 읽지 않음(씬 반영 미작업). **씬 반영은 B 경로 설정 완료 뒤 진행** [사용자 결정 10/08] — 그 전 트윈 사전 검증은 위 칸만, 아래 칸은 "씬 미반영"으로 기록 |
 | 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
 | 전달 트레이(`handover_zone`) | `places.yaml` `handover_zone.tf`·`interior_m`(B 바닥 터치 10/05)으로 고정 물체로 만듦. 위로 갈수록 넓어지는 사다리꼴: `interior_m`은 닫힌 손끝 중심 범위라 바닥을 사방 10 mm 넓히고 [추정], 벽 윗면은 손끝 범위 끝에서 15.8 mm 바깥(B 실측, 한 벽만 재서 네 벽 같다고 봄) → 바닥 154×110·윗면 166×122 mm, 높이 43 mm, 벽 기울기 7.7°, 두께 4 mm [추정]. 보이는 형상은 모서리 반경 12 mm [추정] 둥근 메시 하나, 충돌은 숨긴 사다리꼴 판 4장 + 바닥판(사용자 GUI 확인 10/06). 임시 트레이(`staging_tray`)는 폐기(#6) | 트레이 외곽 실측 |
 
@@ -62,6 +62,8 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 
 
 ## 비전 사전 검증 (트윈 렌더 → 정답 대조) [실측 10/06]
+
+> **예전 탑뷰 자세 기준**(10/08 #156 이전, J3 ≈ 10°·J5 132.8°). 지금 `drawer_top_view`는 그리퍼 180° 자세(위 칸 J3 54.8°·J5 118.2°)라 아래 결과는 새 자세로 다시 돌리기 전까지 그 당시 기록이다. 실물에서는 새 자세로 위 칸 예전 방향 대비 0.6 mm(#155 B)·아래 칸 손끝 대비 2.5 mm를 따로 확인했다.
 로봇 없이 `inspect_region` 계산(좌표 변환·뎁스 덩어리·yaw·`top_z`)을 검증한다. 손목 카메라를 `drawer_top_view` 자세에 두고 서랍을 최대 인출(`max_travel_m`)로 연 뒤, 서랍 안에 지우개 크기 직육면체(`world.jsonld` 치수)를 임의 위치·방향으로 놓아 컬러·뎁스를 저장한다(씬 파일은 바꾸지 않음).
 ```bash
 ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/render_eraser_test.py --n 30 --seed 1 --out <폴더> [--margin 0.03 | --touch]
@@ -69,7 +71,7 @@ python3 tools/dev/eval_inspect_sim.py <폴더> [--yolo models/yolo11n_ready2go_v
 ```
 - 결과(정답 직육면체를 투영한 박스 사용, 이상적 뎁스): 벽에서 4 cm 이상 30장 위치 오차 최대 0.6 mm·yaw 0.2°·`top_z` +0.6 mm, 벽에서 3 cm까지 가까운 30장도 같은 수준. 계산 실패 0장
 - 벽에 붙인 배치(`--touch`, 벽 하나 또는 모서리, 간격 0~2 mm, 32장 seed 3) [실측 10/06]: 위치 오차 최대 0.5 mm, yaw 최대 2.3°, `top_z` 최대 +3.7 mm(벽면 뎁스가 덩어리에 조금 섞임), 계산 실패 0장
-- 이것은 **센서 노이즈·결손·반사와 YOLO 검출 오차가 없는 하한**이다. 실물 오차(AC-VIS-01 1.5 cm)는 별도로 재야 한다
+- 이것은 **센서 노이즈·결손·반사와 YOLO 검출 오차가 없는 하한**이다. 실물 오차([AC-VIS-01](../docs/requirements.md#ac-vis-01))는 별도로 재야 한다
 - 학습한 YOLO가 시뮬 컬러에서 흰 직육면체를 찾은 것은 12/30장뿐이다(실물 사진으로 학습해서 합성 이미지는 잘 못 찾음). 시뮬은 검출이 아니라 **기하(좌표·높이·yaw) 검증용**이다
 - 시뮬 카메라의 서랍 좌표 위치(0.1135, 0.1661, 0.3628)와 실제 이미지 FK 계산(0.1106, 0.1626, 0.3676)이 5 mm 안팎으로 같다. 로봇이 목표 자세에서 최대 0.6° 처진다(물리 시뮬레이션)
 
@@ -90,6 +92,8 @@ ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/
 
 
 ## 스킬 흐름 궤적·특이점 검사 (`sim/motion_check/`, `sim/scripts/play_motion_trace.py`) [실측·계산 10/06]
+
+> **예전 탑뷰 자세 기준**(10/08 #156 이전). 아래 ◀ 결과·"J3 10°" 언급은 예전 자세(J3 ≈ 10°)의 기록이다. 새 자세(위 칸 J3 54.8°, 아래 칸 J3 85.0°)·J6 180° 회전 경로는 다시 돌리지 않았다.
 B 모션 코드를 로봇 없이 돌려 이동 명령을 기록하고, 관절 궤적을 계산해 특이점 근처 구간을 찾은 뒤 트윈에서 재생한다. 10/06 실물에서 팔이 "확확" 움직인 구간(영상 1:14~17, 2:02~04)을 재현하려고 만들었다.
 ```bash
 python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --out /tmp/trace.json   # 스킬 서버 흐름 (열기→끌기→집기→놓기→닫기→홈)

@@ -1,10 +1,11 @@
 """태스크 실행 전 검사 — docs/runner.md 7.2, docs/safety.md 안전 게이트 1단계(스키마 검증).
 
 ① contracts/task.schema.json 스키마 검증
-② Phase 1 범위 밖 블록·필드 거절 (while, for_each, push/pop, fallback, recovery, on_halt → P2)
-③ 스키마가 잡지 못하는 실행 조건 (set_var 의 name, if 의 cond, 스텝 ID 중복, retry 횟수)
+② 아직 구현 안 된 필드 거절 (recovery, on_halt → P2 후속). while·for_each·push/pop·fallback 은 P2 구현
+③ 스키마가 잡지 못하는 실행 조건 (set_var 의 name, if·while 의 cond, while 의 max_iter, for_each 의 in·as,
+   push/pop 의 stack, fallback 의 options, 스텝 ID 중복, retry 횟수)
 ④ skill 스텝 (#12): 온톨로지에 있는 primitive 스킬인지, params 이름이 스킬 정의와 맞는지
-   (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_CODES)
+   (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_BY_ACTION)
 문제가 하나라도 있으면 로봇을 움직이기 전에 실행하지 않는다.
 """
 from __future__ import annotations
@@ -13,7 +14,6 @@ from typing import Iterator
 
 import jsonschema
 
-P2_ACTIONS = {"while", "for_each", "push", "pop", "fallback"}
 P2_STEP_FIELDS = {"recovery"}
 P2_TASK_FIELDS = {"on_halt"}
 CHILD_LISTS = ("then", "else", "body", "recovery")     # 스텝 안에 스텝 배열이 들어가는 필드
@@ -44,6 +44,34 @@ def _check_skill(step: dict, label: str, skills: dict) -> list[str]:
     return errors
 
 
+def _check_block(step: dict, action: str | None, label: str) -> list[str]:
+    """P2 제어 블록의 필수 칸 (스키마가 action 별로 강제하지 않는 것)."""
+    params = step.get("params", {})
+    errors = []
+    if action == "while":
+        if "cond" not in step:
+            errors.append(f"{label}: while 에 cond 가 없음")
+        if not isinstance(step.get("max_iter"), int) or step.get("max_iter", 0) < 1:
+            errors.append(f"{label}: while 에 max_iter(1 이상)가 없음 — 무한 반복 금지")
+    elif action == "for_each":
+        if not (isinstance(step.get("in"), str) and step["in"].startswith("$")):
+            errors.append(f"{label}: for_each 의 in 은 \"$변수\" 참조여야 함")
+        if not step.get("as"):
+            errors.append(f"{label}: for_each 에 as 가 없음")
+    elif action in ("push", "pop"):
+        if not isinstance(params.get("stack"), str) or params.get("stack", "").startswith("$"):
+            errors.append(f"{label}: {action} 의 params.stack 은 스택 변수 이름(문자열)이어야 함")
+        if action == "push" and "value" not in params:
+            errors.append(f"{label}: push 에 params.value 가 없음")
+    elif action == "fallback":
+        options = step.get("options")
+        if not isinstance(options, list) or not options or not all(isinstance(o, list) and o for o in options):
+            errors.append(f"{label}: fallback 의 options 는 스텝 배열 1개 이상의 목록이어야 함")
+    if action in ("while", "for_each") and not step.get("body"):
+        errors.append(f"{label}: {action} 에 body 가 없음")
+    return errors
+
+
 def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> list[str]:
     """문제 목록을 돌려준다. 빈 목록이면 실행 가능.
     skills: 온톨로지의 skills (Runner 가 전달). None 이면 skill 스텝의 이름·파라미터는 검사하지 않음."""
@@ -59,8 +87,7 @@ def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> l
         for step, where in _walk(task.get(part, []), part):
             sid, action = step.get("id"), step.get("action")
             label = f"{where}({sid})"
-            if action in P2_ACTIONS:
-                errors.append(f"P1 미지원: {label} action '{action}'")
+            errors += _check_block(step, action, label)
             for f in sorted(P2_STEP_FIELDS & step.keys()):
                 errors.append(f"P1 미지원: {label} 필드 '{f}'")
             if sid in seen:

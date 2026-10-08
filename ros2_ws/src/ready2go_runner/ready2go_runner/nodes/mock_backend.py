@@ -5,7 +5,8 @@ ICD(docs/interfaces.md) 와 같은 이름으로 답한다: /skills/<동작>(Skil
 Runner 코드는 그대로 두고 백엔드만 바꿔 끼운다. 취소 요청을 받으면 멈추고 CANCELED 로 끝낸다 (실제 서버의 본보기).
 
 파라미터
-- duration_sec: 동작마다 걸리는 시간 (기본 0.5)
+- duration_sec: 동작마다 걸리는 시간 (기본 0.5). 영상에서 단계가 보이게 하려면 2 정도 (compose MOCK_DURATION_SEC)
+- speak: on(기본)/off — off 면 /voice/speak 를 띄우지 않음 (E 음성 노드와 같이 쓸 때, compose MOCK_SPEAK)
 - fail: 실패 지정 "pick_object=GRASP_FAILED*1,drawer_control=DRAWER_STUCK" (core/mock_skills.py)
 - not_visible: inspect_region 에서 못 찾을 물품 "car_key,eraser"
 """
@@ -16,6 +17,7 @@ import time
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -35,6 +37,11 @@ class MockBackendNode(Node):
         self.duration = float(self.declare_parameter("duration_sec", 0.5).value)
         fail = self.declare_parameter("fail", "").value
         hidden = self.declare_parameter("not_visible", "").value
+        # speak=off: /voice/speak 를 띄우지 않음 — E 음성 노드와 같이 띄울 때 이름 겹침 방지 (통합 mock 영상)
+        # launch 는 환경변수 "on"/"off" 를 YAML 규칙으로 true/false 로 바꿔 넘길 수 있음 → 글자·참거짓 둘 다 받음
+        speak_value = self.declare_parameter("speak", "on", ParameterDescriptor(dynamic_typing=True)).value
+        speak = (speak_value if isinstance(speak_value, bool)
+                 else str(speak_value).strip().lower() not in ("off", "false", "0", "no"))
         self.skills = MockSkills(parse_failures(fail), {s.strip() for s in hidden.split(",") if s.strip()})
         group = ReentrantCallbackGroup()
         self._servers = [
@@ -42,10 +49,12 @@ class MockBackendNode(Node):
                          callback_group=group, cancel_callback=lambda _: CancelResponse.ACCEPT)
             for action in SKILL_ACTIONS
         ]
-        self._servers.append(ActionServer(self, Skill, f"{prefix}/voice/speak", self._executor_for("speak"),
-                                          callback_group=group, cancel_callback=lambda _: CancelResponse.ACCEPT))
+        if speak:
+            self._servers.append(ActionServer(self, Skill, f"{prefix}/voice/speak", self._executor_for("speak"),
+                                              callback_group=group, cancel_callback=lambda _: CancelResponse.ACCEPT))
         self.create_service(InspectRegion, f"{prefix}/vision/inspect_region", self._inspect, callback_group=group)
-        self.get_logger().info(f"mock 백엔드 준비: /skills/{{{','.join(SKILL_ACTIONS)}}}, /voice/speak, "
+        self.get_logger().info(f"mock 백엔드 준비: /skills/{{{','.join(SKILL_ACTIONS)}}}, "
+                               f"{'/voice/speak, ' if speak else '(/voice/speak 끔 — E 음성 노드 사용), '}"
                                f"/vision/inspect_region (동작 {self.duration}s, 실패 {fail or '없음'}, "
                                f"못 찾음 {hidden or '없음'})")
 

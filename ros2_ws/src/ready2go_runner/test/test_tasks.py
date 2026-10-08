@@ -9,7 +9,7 @@ import pytest
 
 from ready2go_knowledge.core import ontology
 from ready2go_runner.core.backend import INSPECT_SERVICE, SPEAK_ACTION, Reply, RosBackend
-from ready2go_runner.core.interpreter import Runner
+from ready2go_runner.core.interpreter import ActionResult, Runner
 from ready2go_runner.core.logstore import MemoryLogStore
 from ready2go_runner.core.validation import check_task
 
@@ -97,15 +97,65 @@ def statuses(result, *ids):
 
 # ---- 정식 find_item.json ----
 
+CLOSED = "서랍을 닫았어요"               # #138: 이번 실행에서 닫기에 성공했을 때만
+
 def test_task_passes_validation_with_skills():
     assert check_task(TASK, SCHEMA, ONTOLOGY["skills"]) == []
+
+
+def _steps(steps):
+    for step in steps:
+        yield step
+        for key in ("then", "else", "body"):
+            yield from _steps(step.get(key, []))
+
+
+def test_pick_timeout_is_70s_and_other_steps_unchanged():
+    """#153 사용자·C 합의: pick 스킬만 70초 (탑뷰·촬영·끌기·다시 촬영·집기 전체), 다른 단계는 그대로."""
+    for task in (TASK, CHECK):
+        steps = list(_steps(task["sequence"] + task.get("finally", [])))
+        assert [s["timeout_sec"] for s in steps if s.get("skill") == "pick"] == [70]
+        assert all(s.get("timeout_sec") in (None, 20, 30, 60) for s in steps if s.get("skill") != "pick")
+
+
+class FlakyCamera(MockRobot):
+    """첫 촬영(들)이 비전 오류로 실패하는 로봇 (10/08 PC2 2회차 CAMERA_TIMEOUT)."""
+
+    def __init__(self, codes, **kw):
+        super().__init__(**kw)
+        self.codes = list(codes)
+
+    def call_service(self, name, region, search_target, timeout_sec):
+        if self.codes:
+            self.sent.append(name)
+            return Reply(False, self.codes.pop(0))
+        return super().call_service(name, region, search_target, timeout_sec)
+
+
+@pytest.mark.parametrize("code", ["CAMERA_TIMEOUT", "DEPTH_INVALID", "TIMEOUT"])
+def test_first_inspect_failure_is_retried_once(code):
+    """#168: s4 인식 실패 → 로봇 동작 없이 1회 다시 찍기 → 찾으면 그대로 진행."""
+    robot = FlakyCamera([code])
+    _, result, _ = run(robot)
+    assert result.overall_status == "COMPLETED"
+    assert step(result, "s4")["attempts"] == 2
+    i = robot.sent.index(INSPECT_SERVICE)
+    assert robot.sent[i + 1] == INSPECT_SERVICE                   # 사이에 로봇 동작 없음
+
+
+def test_inspect_failing_twice_cleans_up_without_pick():
+    robot = FlakyCamera(["CAMERA_TIMEOUT", "CAMERA_TIMEOUT"])
+    _, result, _ = run(robot)
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "CAMERA_TIMEOUT", "s4")
+    assert "/skills/pick_object" not in robot.sent and "/skills/nudge_object" not in robot.sent
+    assert robot.motion_after(INSPECT_SERVICE) == ["/skills/drawer_control", "/skills/move_to_named_pose"]   # 닫기 → 홈
 
 
 def test_success_delivers_item_and_cleans_up():
     robot = MockRobot()
     runner, result, _ = run(robot)
     assert result.overall_status == "COMPLETED", [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
-    assert robot.spoken == ["지우개를 찾아 올게요", "지우개를 앞쪽 트레이에 놓았어요"]
+    assert robot.spoken == ["지우개를 찾아 올게요", "지우개를 앞쪽 트레이에 놓았어요", CLOSED]
     assert robot.sent == [SPEAK_ACTION,
                           "/skills/move_to_named_pose", "/skills/drawer_control",           # s3 open_drawer
                           "/skills/move_to_named_pose",                                      # s3v 탑뷰 (열기 끝은 홈)
@@ -113,7 +163,8 @@ def test_success_delivers_item_and_cleans_up():
                           *PICK_SENT,                                                        # s5.1 pick (E #122)
                           "/skills/place_object",                                            # s5.2 place
                           SPEAK_ACTION,
-                          "/skills/drawer_control", "/skills/move_to_named_pose"]            # finally 닫기·홈
+                          "/skills/drawer_control", SPEAK_ACTION,                            # finally 닫기 → "서랍을 닫았어요" (#138)
+                          "/skills/move_to_named_pose"]                                      #   → 홈
     state = runner.state
     assert state["located_in"]["eraser"] == "handover_zone"
     assert state["gripper"]["robot"] == "empty" and state["open"]["drawer_top"] is False
@@ -165,7 +216,7 @@ def test_not_found_announces_and_cleans_up():
     robot = MockRobot(visible=False)
     runner, result, _ = run(robot)
     assert result.overall_status == "COMPLETED"
-    assert robot.spoken == ["지우개를 찾아 올게요", "지우개를 찾지 못했어요"]
+    assert robot.spoken == ["지우개를 찾아 올게요", "지우개를 찾지 못했어요", CLOSED]   # 열었다 닫았으니 안내
     assert "/skills/pick_object" not in robot.sent
     assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
     assert runner.state["open"]["drawer_top"] is False
@@ -179,6 +230,103 @@ def test_yaw_invalid_after_reobserve_is_not_retried():
     assert robot.sent.count("/skills/pick_object") == 1 and robot.sent.count("/skills/nudge_object") == 1
     assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
     assert runner.state["located_in"]["eraser"] == "drawer_top"
+
+
+# ---- #138 닫기 성공 안내: 이번 실행에서 열림 → 닫힘일 때만, 안내 실패가 닫힘·홈을 막지 않음 ----
+
+def test_close_announce_comes_after_close_and_before_home():
+    robot = MockRobot()
+    runner, result, _ = run(robot)
+    assert step(result, "f1d")["output"]["value"] is True and step(result, "f2d")["output"]["value"] is False
+    assert step(result, "f2s")["branch"] == "then" and step(result, "f2s.1")["status"] == "SUCCESS"
+    assert robot.motion_after(SPEAK_ACTION) == ["/skills/move_to_named_pose"]       # 안내 뒤 홈
+    assert robot.params["speak"][-1]["text"] == CLOSED
+
+
+def test_close_announced_even_when_task_failed_but_drawer_closed():
+    """집기 실패여도 이번 실행에서 서랍은 실제로 닫았으면 안내 (닫기 성공 기준)."""
+    robot = MockRobot(fail={"pick_object": ["GRASP_FAILED"]})
+    _, result, _ = run(robot)
+    assert result.overall_status == "FAILED" and robot.spoken[-1] == CLOSED
+
+
+def test_no_close_announce_when_close_fails_and_home_still_runs():
+    robot = MockRobot(fail={"drawer_control": [None, "DRAWER_STUCK"]})       # 열기 성공, 닫기 실패 → skip
+    runner, result, _ = run(robot)
+    assert step(result, "f2")["status"] == "FAILURE" and step(result, "f2")["on_failure"] == "skip"
+    assert CLOSED not in robot.spoken and step(result, "f2s")["branch"] == "else"
+    assert statuses(result, "f3.1") == ["SUCCESS"] and runner.state["open"]["drawer_top"] is True
+
+
+def test_no_close_announce_when_drawer_never_opened():
+    """처음부터 닫힘(열기 실패) → 닫기 PRE_UNMET: '닫힘' 상태만 보고 닫았다고 하지 않음 (#138 함정)."""
+    robot = MockRobot(fail={"drawer_control": ["DRAWER_STUCK"]})
+    _, result, _ = run(robot)
+    assert step(result, "f2")["error_code"] == "PRE_UNMET"
+    assert step(result, "f1d")["output"]["value"] is False and CLOSED not in robot.spoken
+    assert statuses(result, "f3.1") == ["SUCCESS"]
+
+
+@pytest.mark.parametrize("where", ["nudge_object", "pick_object", "place_object"])
+def test_no_close_announce_after_estop(where):
+    """비상정지 → ABORTED: finally 닫기는 SKIPPED (로봇 동작 없음) → 닫았다는 안내도 없음."""
+    robot = MockRobot(fail={where: ["ESTOP"]})
+    runner, result, _ = run(robot)
+    assert (result.overall_status, result.error_code) == ("ABORTED", "ESTOP") and runner.halted
+    assert step(result, "f2")["status"] == "SKIPPED" and CLOSED not in robot.spoken
+    assert robot.motion_after(f"/skills/{where}") == []
+
+
+def test_no_close_announce_after_cancel():
+    """음성 '멈춰'(halt) → 진행 중 동작 취소 → ABORTED, 닫기 안 함 → 안내 없음."""
+    robot = MockRobot()
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, log_store=MemoryLogStore())
+    send = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+
+    def execute(action, params, timeout):
+        if action == "nudge_object":
+            runner.halt()                                   # 끌기 중 취소 요청
+            return ActionResult(False, error_code="CANCELED")
+        return send(action, params, timeout)
+    runner.execute = execute
+    result = runner.run(TASK)
+    assert result.overall_status == "ABORTED"
+    assert step(result, "f2")["status"] == "SKIPPED" and CLOSED not in robot.spoken
+
+
+def test_close_announce_failure_keeps_closed_state_and_home():
+    """안내(TTS) 실패해도 닫힘 반영·홈 복귀는 그대로, 실행은 COMPLETED (안내는 skip)."""
+    robot = MockRobot(fail={"speak": [None, None, "TTS_FAILED"]})          # 3번째 speak = 닫기 안내
+    runner, result, _ = run(robot)
+    assert result.overall_status == "COMPLETED"
+    assert step(result, "f2s.1")["status"] == "FAILURE" and step(result, "f2s.1")["on_failure"] == "skip"
+    assert runner.state["open"]["drawer_top"] is False and statuses(result, "f3.1") == ["SUCCESS"]
+
+
+def test_close_announce_no_response_times_out_then_home():
+    """PM #140: 음성 노드가 응답하지 않아도 홈이 막히지 않게 f2s.1 에 제한 시간. 응답 없음 → TIMEOUT → skip → 홈·닫힘·결과 유지."""
+    robot = MockRobot(fail={"speak": [None, None, "TIMEOUT"]})            # RosClients 는 제한 시간이 지나면 취소하고 TIMEOUT
+    runner, result, _ = run(robot)
+    assert next(s for s in TASK["finally"] if s["id"] == "f2s")["then"][0]["timeout_sec"] == 20
+    assert step(result, "f2s.1")["error_code"] == "TIMEOUT" and step(result, "f2s.1")["on_failure"] == "skip"
+    assert result.overall_status == "COMPLETED"
+    assert runner.state["open"]["drawer_top"] is False and statuses(result, "f3.1") == ["SUCCESS"]
+
+
+def test_close_announce_skipped_when_queries_fail_and_home_still_runs():
+    """E #140 제안: 물품 조회 실패로 loc 이 없으면 f1d·f2·f2d·f2s 가 각각 skip — 안내 없음, 홈 복귀는 그대로."""
+    robot = MockRobot()
+    _, result, _ = run(robot, task={**TASK, "inputs": {"target": "phone"}})        # 온톨로지에 없는 물품 → s1 실패
+    assert result.overall_status == "FAILED" and result.failed_step == "s1"
+    assert [step(result, i)["status"] for i in ("f1d", "f2", "f2d", "f2s")] == ["FAILURE"] * 4
+    assert all(step(result, i)["on_failure"] == "skip" for i in ("f1d", "f2", "f2d", "f2s"))
+    assert CLOSED not in robot.spoken and statuses(result, "f3.1") == ["SUCCESS"]
+
+
+def test_place_failed_holding_no_close_announce():
+    robot = MockRobot(fail={"place_object": ["PLACE_FAILED"]})
+    _, result, _ = run(robot)
+    assert step(result, "f2")["error_code"] == "PRE_UNMET" and CLOSED not in robot.spoken
 
 
 def test_drawer_stuck_skips_pick_and_still_goes_home():

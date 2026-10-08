@@ -47,13 +47,71 @@ def pose_errors(pose: dict, where: str = "pose") -> list[str]:
     return errs
 
 
+OCCLUSION_KEYS = ("occluded_by", "visible_area_m2")
+
+
+def occlusion_errors(it: dict, ids: set, where: str) -> list[str]:
+    """가림 필드(P2, #169·runner.md 7.1): null 이면 '모름'. occluded_by = 같은 결과 안의 다른 물체 id 목록, visible_area_m2 >= 0.
+    필드가 있는지(분할 모델은 모든 물체, 박스 모델은 결과 전체에 없음)는 result_errors 가 본다."""
+    errs = []
+    occ = it.get("occluded_by")
+    if occ is not None:
+        if not (isinstance(occ, list) and all(isinstance(i, str) for i in occ)):
+            errs.append(f"{where}.occluded_by 는 id 문자열 목록 또는 null — 값 {occ!r}")
+        else:
+            errs += [f"{where}.occluded_by 에 결과에 없는 id {i!r}" for i in occ if i not in ids]
+            if it.get("id") in occ:
+                errs.append(f"{where}.occluded_by 에 자기 자신 {it.get('id')!r}")
+    area = it.get("visible_area_m2")
+    if area is not None and (isinstance(area, bool) or not isinstance(area, (int, float)) or not math.isfinite(area) or area < 0):
+        errs.append(f"{where}.visible_area_m2 는 0 이상 유한한 숫자 또는 null — 값 {area!r}")
+    return errs
+
+
+def occlusion_cycle(items: list[dict]) -> list[str] | None:
+    """occluded_by 관계(덮은 물체 → 덮인 물체)의 순환 하나를 id 목록으로, 없으면 None. 형식이 틀린 항목은 건너뛴다(형식 오류는 따로 보고)."""
+    edges = {}
+    for it in items:
+        occ = it.get("occluded_by")
+        if isinstance(occ, list):
+            for over in occ:
+                if isinstance(over, str):
+                    edges.setdefault(over, []).append(it.get("id"))
+    state, stack = {}, []
+
+    def visit(n):
+        state[n] = 1; stack.append(n)
+        for m in edges.get(n, []):
+            if state.get(m) == 1:
+                return stack[stack.index(m):] + [m]
+            if state.get(m) is None and (c := visit(m)):
+                return c
+        state[n] = 2; stack.pop()
+        return None
+    for n in list(edges):
+        if state.get(n) is None and (c := visit(n)):
+            return c
+    return None
+
+
 def result_errors(result: dict) -> list[str]:
-    """inspect_region result_json 의 target·candidates pose 검사. 빈 리스트면 규칙을 지킨 것."""
+    """inspect_region result_json 의 target·candidates pose·가림 필드 검사. 빈 리스트면 규칙을 지킨 것."""
     errs = []
     items = [("target", result.get("target"))] + [(f"candidates[{i}]", c) for i, c in enumerate(result.get("candidates", []))]
+    id_list = [it.get("id") for _, it in items if it is not None]
+    ids = set(id_list)
+    errs += [f"id {i!r} 가 결과 안에 두 번 이상 (id 는 유일해야 occluded_by 가 한 물체를 가리킴)" for i in sorted({i for i in id_list if id_list.count(i) > 1}, key=str)]
     for name, it in items:
         if it is not None:
             errs += pose_errors(it.get("pose", {}), f"{name}.pose")
+            errs += occlusion_errors(it, ids, name)
+    present = [(name, [k for k in OCCLUSION_KEYS if k in it]) for name, it in items if it is not None]
+    if any(keys for _, keys in present):            # 분할 모델: 모든 물체에 두 필드, 박스 모델: 결과 전체에 없음 (#120 C 동의)
+        errs += [f"{name} 에 가림 필드 {', '.join(k for k in OCCLUSION_KEYS if k not in keys)} 없음 — 한 결과는 모든 물체에 두 필드(분할 모델) 또는 전부 없음(박스 모델)"
+                 for name, keys in present if len(keys) < len(OCCLUSION_KEYS)]
+    cycle = occlusion_cycle([it for _, it in items if it is not None])
+    if cycle:
+        errs.append(f"occluded_by 관계가 순환함 (맨 위 물체를 정할 수 없음): {' → '.join(cycle)}")
     tops = [c["top_z"] for c in result.get("candidates", [])]
     if tops != sorted(tops, reverse=True):
         errs.append("candidates 는 top_z 내림차순")

@@ -114,3 +114,18 @@ def test_check_task_grasp_failure_runs_finally_on_mock():
     runner, result = run_with_mock(fail="pick_object=GRASP_FAILED", task=CHECK_TASK)
     assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
     assert [s["status"] for s in result.steps if s["id"] in ("f2", "f3.1")] == ["SUCCESS", "SUCCESS"]
+
+
+@pytest.mark.parametrize("speak, expected", [("on", True), ("off", False), (True, True), (False, False)])   # launch 가 bool 로 넘길 수도
+def test_speak_server_can_be_turned_off(speak, expected):
+    """MOCK_SPEAK=off: E 음성 노드와 같이 띄울 때 /voice/speak 이름 겹침 방지. /skills/* 는 그대로."""
+    from rclpy.action import get_action_names_and_types
+    context = rclpy.Context()
+    rclpy.init(context=context, domain_id=next(DOMAIN_IDS))
+    try:
+        mock = MockBackendNode(context=context, parameter_overrides=[Parameter("speak", value=speak)])
+        names = {name for name, _ in get_action_names_and_types(mock)}
+        assert "/skills/pick_object" in names and ("/voice/speak" in names) is expected
+        mock.destroy_node()
+    finally:
+        rclpy.shutdown(context=context)

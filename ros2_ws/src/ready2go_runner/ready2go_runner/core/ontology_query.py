@@ -11,8 +11,10 @@ from __future__ import annotations
 from ready2go_knowledge.core import ontology
 
 from .interpreter import ActionResult
+from .unpack import find_moved, select_obstacle
 
-LOCAL_ACTIONS = {"query_ontology", "update_ontology"}
+# select_obstacle·find_moved: Unpacking 판단 (core/unpack.py, #120·#109) — 로봇 동작 없음
+LOCAL_ACTIONS = {"query_ontology", "update_ontology", "select_obstacle", "find_moved"}
 UNKNOWN_ITEM = "UNKNOWN_ITEM"           # world 에 없는 물품이거나 위치(located_in)를 모름
 BAD_QUERY = "BAD_QUERY"                 # 조회 파라미터 형식 오류 (state 경로는 "predicate.subject")
 NOT_SUPPORTED = "NOT_SUPPORTED"         # P1 에서 지원하지 않는 조회·동작
@@ -21,6 +23,10 @@ NOT_SUPPORTED = "NOT_SUPPORTED"         # P1 에서 지원하지 않는 조회·
 def local_action(action: str, params: dict, state: dict, world: dict) -> ActionResult:
     if action == "query_ontology":
         return query(params, state, world)
+    if action == "select_obstacle":
+        return select_obstacle(params, world)
+    if action == "find_moved":
+        return find_moved(params, world)
     return ActionResult(False, error_code=NOT_SUPPORTED)
 
 

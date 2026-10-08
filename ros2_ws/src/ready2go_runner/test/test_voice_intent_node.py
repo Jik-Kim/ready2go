@@ -19,7 +19,7 @@ from std_msgs.msg import String  # noqa: E402
 from ready2go_runner.nodes.mock_backend import MockBackendNode  # noqa: E402
 from ready2go_runner.nodes.runner_node import LATCHED, RunnerNode  # noqa: E402
 
-DOMAIN_IDS = itertools.count(220)       # 파일마다 Domain ID 범위를 나눔 (runner_node 200, mock_backend 180)
+DOMAIN_IDS = itertools.count(100)       # 파일마다 Domain ID 범위를 나눔 (stop_safety 150, mock_backend 180, runner_node 200). ROS Domain ID 는 최대 232 → 220 에서 시작하면 14번째 시험이 233 으로 프로세스 종료 (#150)
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE = (ROOT / "contracts/examples/intent_find_item.json").read_text(encoding="utf-8")
 
@@ -56,7 +56,7 @@ def last_intent(s):
 
 
 def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks="",
-                skills_up=True):
+                skills_up=True, plan_limits=None):
     """skills_up=False: mock 백엔드(/skills/* 서버) 없이 시작 — 기동 직후 스킬 서버가 늦게 뜨는 상황 (#108).
     나중에 voice.start_skills() 로 띄운다."""
     context = rclpy.Context()
@@ -67,6 +67,7 @@ def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology
         Parameter("ontology_file", value=str(ROOT / ontology_file)),
         Parameter("tasks_dir", value=str(ROOT / "tasks")),
         Parameter("intent_tasks", value=intent_tasks),
+        *([Parameter("plan_limits", value=plan_limits)] if plan_limits is not None else []),
         Parameter("log_dir", value=str(tmp_path))])
     voice_node = rclpy.create_node("voice_test", context=context)
     voice = Voice(voice_node)
@@ -195,3 +196,66 @@ def test_request_before_skill_servers_is_rejected_without_motion(tmp_path):
         assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
     finally:
         close()
+
+
+# ---- #150 achieve_goal → 플래너 → 실행 (P2, FR-PLN-02) ----
+
+def goal_intent(subject, value, predicate="located_in", stt="립밤은 아래 서랍에 넣어 둬"):
+    return json.dumps({"intent": "achieve_goal", "targets": [subject], "confidence": 0.9,
+                       "goals": [{"predicate": predicate, "subject": subject, "value": value}],
+                       "source": {"stt_text": stt}}, ensure_ascii=False)
+
+
+def test_goal_is_planned_and_run_with_plan_in_record(tmp_path):
+    """립밤(위 서랍) → 아래 서랍: 플래너가 순서를 만들고(하드코딩 없음) Runner 가 실행, 계획·근거는 실행 기록에.
+    서랍 간 이동은 실물 기본 지원 범위 밖이라 mock 처럼 제한 없음(plan_limits="")으로."""
+    runner, voice, close = make_system(tmp_path, plan_limits="")
+    try:
+        _goal_run(runner, voice)
+    finally:
+        close()
+
+
+def _goal_run(runner, voice):
+    voice.say(goal_intent("lip_balm", "drawer_bottom"))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=40), voice.status
+    last = voice.status["last"]
+    assert last["overall_status"] == "COMPLETED" and last["task_id"] == "plan_lip_balm_drawer_bottom", last
+    assert last_intent(voice.status)["decision"] == "run"
+    assert runner.runner.state["located_in"]["lip_balm"] == "drawer_bottom"
+    assert runner.runner.state["open"]["drawer_bottom"] is False and runner.runner.state["open"]["drawer_top"] is False
+    run = runner.log_store.read_run(last["run_id"])["run"]
+    assert run["inputs"]["goals"][0]["value"] == "drawer_bottom" and run["inputs"]["stt_text"] == "립밤은 아래 서랍에 넣어 둬"
+    plan = run["plan"]                                                                     # extra 는 헤더에 펼쳐 저장
+    assert any("place(lip_balm, drawer_bottom)" in line and "목표" in line for line in plan)
+
+
+@pytest.mark.parametrize("goal, reason", [
+    (("lip_balm", "drawer_top"), "PLAN_SATISFIED"),          # 이미 그 자리
+    (("handover_zone", False, "open"), "UNPLANNABLE"),        # 트레이를 닫는 스킬이 없음 → 계획 불가
+])
+def test_goal_satisfied_or_unplannable_is_held_without_motion(system, goal, reason):
+    runner, voice = system
+    voice.say(goal_intent(*goal))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == reason), voice.status
+    assert last_intent(voice.status)["decision"] == "hold"
+    time.sleep(0.3)
+    assert voice.status["phase"] == "idle" and voice.status["last"] is None              # 실행 기록 없음
+
+
+def test_default_real_limits_hold_plans_the_robot_cannot_do(system):
+    """#154 E 리뷰 P1: 기본(실물 지원 범위)에서 '립밤을 아래 서랍에'는 실행 전에 계획 불가 — 로봇 동작·실행 기록 없음."""
+    runner, voice = system
+    voice.say(goal_intent("lip_balm", "drawer_bottom"))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "UNPLANNABLE"), voice.status
+    time.sleep(0.3)
+    assert voice.status["last"] is None and runner.runner.state["located_in"]["lip_balm"] == "drawer_top"
+
+
+def test_default_real_limits_still_run_p1_delivery_goal(system):
+    runner, voice = system
+    voice.say(goal_intent("eraser", "handover_zone", stt="지우개 트레이에 갖다 놔"))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=40), voice.status
+    assert voice.status["last"]["overall_status"] == "COMPLETED"
+    assert runner.runner.state["located_in"]["eraser"] == "handover_zone"
+

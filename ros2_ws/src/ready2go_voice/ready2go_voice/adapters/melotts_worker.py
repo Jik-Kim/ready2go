@@ -11,6 +11,10 @@ import time
 import wave
 
 
+def cache_key(identity, text):
+    return hashlib.sha256(json.dumps([identity, text], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 def main():
     cfg = json.loads(sys.stdin.readline())
     assets = Path(cfg['assets'])
@@ -49,7 +53,7 @@ def main():
             identity['source_hashes'] = {str(p.relative_to(assets / 'source')): hashlib.sha256(p.read_bytes()).hexdigest()
                                         for p in (assets / 'source/melo').rglob('*.py')}
             def synth(text):
-                key = hashlib.sha256(json.dumps([identity, text], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                key = cache_key(identity, text)
                 path = cache / (key + '.wav')
                 if path.exists():
                     return path.read_bytes(), True

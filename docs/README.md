@@ -2,8 +2,8 @@
 
 음성 명령으로 실물 Doosan M0609 + RG2가 서랍 속 물건을 찾아 꺼내고 원상 복구하는 시스템. 로봇의 동작·상태를 JSON 온톨로지로 정의하고 명령에 맞춰 조합하며, 모든 동작의 성공 여부를 기록함.
 
-* **요구사항 기준 원본(SOT)**: [requirements.md](requirements.md) — 목표, 기능·비기능 요구사항 ID, Phase 범위 및 완료 기준.
-* **기술 상세**: 각 주제 문서는 구현 방법과 계약을 설명하고 관련 요구사항 ID를 참조한다. 범위·Phase·완료 기준은 `requirements.md`가 우선한다.
+* **요구사항 기준 원본(SOT)**: [requirements.md](requirements.md) — P1·P2·P3의 목표, 의미·정의·정책·책임 경계, 요구사항 ID, Phase 및 수용 기준.
+* **기술 상세**: 각 주제 문서는 자기 모듈의 현재 구현·운용·시험 방법을 설명하고 해당 FR/NFR/AC 앵커를 링크로 참조한다. 정본의 의미·정책·정량 목표를 복사해 재정의하지 않는다. 실행 필드·타입·enum·값은 기존 JSON/YAML 원본에서 확인한다.
 * **변경 이력**: [changelog.md](changelog.md).
 
 ## 읽는 규칙 (사람·AI 에이전트 공통)
@@ -29,13 +29,17 @@
 | 일정·담당 확인 | [schedule.md](schedule.md), [overview.md](overview.md) 0장 | — |
 | 시연 준비 | [UC-P1–P3](requirements.md#use-cases), [AC-DEMO-01](requirements.md#ac-demo-01) | [demo_scenario.md](demo_scenario.md), [safety.md](safety.md) | — |
 
+## P2 안전 준비
+
+[FR-SAF-01–03](requirements.md#fr-saf-01)·[AC-SAF-02–04](requirements.md#ac-saf-02) 정본, [E 내부 준비](voice_llm.md#p2-safety-voice), [승인 대기 계약안](interfaces.md#p2-safety-proposal)을 함께 확인하십시오. 복구 후 명시적 재개 목표·현재 운영 미연결을 구분합니다. 담당별 문서 인계·일정·진행 상태는 [#153](https://github.com/Jik-Kim/ready2go/issues/153)을 참조하십시오. 이 연결이 관련 문서나 운영 경로의 자동 갱신을 뜻하지 않습니다.
+
 ## 물품 정의·라벨링 연결 확인
 
 - 원본 물품 목록·치수·분류·역할·공통 로더: [ontology.md](ontology.md), [knowledge/README.md](../knowledge/README.md), `knowledge/world.jsonld`
 - 물품 키/인스턴스 ID·좌표·조회 결과·담당별 코드 인계: [interfaces.md](interfaces.md#51-물품-식별자좌표조회-결과의-공유-규칙)
 - 채택·측정·파지 보고와 최종 승인 상태·높이 기준: [hardware.md 2.3](hardware.md#23-물품-선정-기준-day-2-실물-파지-테스트로-확정), GitHub 이슈 [#8](https://github.com/Jik-Kim/ready2go/issues/8)
 - 파지 설정 정본: `config/item_grasp.yaml`. 인식 목록 등록과 파지 승인·실행은 구분함. 문서 갱신은 다른 담당 코드의 자동 대응을 뜻하지 않음.
-- P1은 단일 요청, 목록·분류는 P3. 예시 물품은 요청 범위를 제한하지 않음.
+- 요청 범위·Phase: [FR-INT-02](requirements.md#fr-int-02), [물품 정책](requirements.md#item-policy). 예시와 등록 데이터는 현재 구현 확인용입니다.
 
 ## 문서 목록
 
