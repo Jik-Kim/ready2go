@@ -4,6 +4,7 @@ ROS 패키지가 없으면(CI의 코어 단계) 필요한 모듈만 이 테스�
 """
 import importlib
 import json
+import math
 import sys
 import types
 from pathlib import Path
@@ -223,7 +224,9 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert out.success and data["slot"] == "handover_zone_1"
     kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이), 직선 블렌딩 한 번
     assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 4
-    assert radii[1:] == [50.0, 50.0, 0.0] and radii[0] == pytest.approx(41.7, abs=0.1)   # 50 mm [사용자 10/07], 짧은 구간(1→2 83 mm)은 절반
+    seq = [route[0]] + pts                                              # 반지름 100 mm [사용자 10/08], 구간이 짧으면 앞뒤 구간 절반의 90% — 절반 그대로면 제어기 거부 [실측 PC2 10/08]
+    half = [min(math.dist(seq[k][:3], seq[k + 1][:3]), math.dist(seq[k + 1][:3], seq[k + 2][:3])) / 2.0 for k in range(3)]
+    assert radii == pytest.approx([min(100.0, 0.9 * h) for h in half] + [0.0]) and radii[0] == pytest.approx(0.9 * 41.72, abs=0.1)
     assert pts[3][2] == pytest.approx(route[-1][2])
     assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로

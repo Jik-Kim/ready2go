@@ -548,6 +548,8 @@ class SkillServer(Node):
             return early
         sp = self.prm()["speed"]
         start = self.robot.posx()
+        if start is not None:                               # 반지름이 구간 절반에 딱 맞으면 제어기가 반올림으로 거부 → 여유 (모든 블렌딩 공통) [실측 PC2 10/08]
+            radii = mp.safe_blend_radii(start, points, radii)
 
         def send():
             early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)   # 보낼 때마다 확인 (재전송 전 취소) [#139 E 리뷰 P1]

@@ -97,6 +97,23 @@ def with_z(posx: Sequence[float], z_mm: float) -> list:
 
 
 # ---------- 서랍 손잡이 ----------
+BLEND_RATIO = 0.9   # 블렌딩 반지름 = 앞뒤 구간 절반의 이 비율까지. 절반 그대로면 제어기 반올림으로 거부 [실측 PC2 10/08: Input-Rad 41.724 > max_dist 41.723 → moveb 출발 안 함]
+
+
+def safe_blend_radii(start: Sequence[float], points: Sequence[Sequence[float]], radii: Sequence[float],
+                     ratio: float = BLEND_RATIO) -> list:
+    """moveb 반지름을 각 경유점 앞뒤 구간 길이 절반 × ratio 이하로 줄임 (마지막 점은 0). start = 지금 TCP posx."""
+    seq = [list(start)] + [list(p) for p in points]
+    out = []
+    for k, r in enumerate(radii):
+        if k + 2 >= len(seq):
+            out.append(0.0)
+            continue
+        half = min(math.dist(seq[k][:3], seq[k + 1][:3]), math.dist(seq[k + 1][:3], seq[k + 2][:3])) / 2.0
+        out.append(max(0.0, min(float(r), ratio * half)))
+    return out
+
+
 def handle_posx(closed_posx: Sequence[float], pull_dir: Sequence[float], displacement_m: float) -> list:
     """닫힌 상태 손잡이 파지 posx → 인출 거리 displacement_m 에서의 손잡이 파지 posx (방향 그대로)."""
     return offset_posx(closed_posx, pull_dir, displacement_m * 1000.0)

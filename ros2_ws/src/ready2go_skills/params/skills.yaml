@@ -57,7 +57,7 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
   push_mm_s: 90.0               # 서랍 밀어 닫기 (10/06 1.5배 → 저녁 2배). 마지막 30 mm 는 push_slow_mm_s
   push_slow_mm_s: 10.0          # 닫기 마지막 구간 (drawer_open_close.push_slow_last_mm) — 끝에서 세게 박지 않게
 carry:                            # 집은 뒤 → 트레이 직선 블렌딩 (poses.yaml carry_line) [사용자 10/06 저녁]
-  radius_mm: 50.0               # 경유점 모서리 블렌딩 반지름 (마지막 놓는 자리는 0 = 정확히 정지). 20 → 50 [사용자 10/07 "덜컹"], 짧은 구간은 그 절반까지
+  radius_mm: 100.0              # 경유점 모서리 블렌딩 반지름 (마지막 놓는 자리는 0 = 정확히 정지). 20 → 50 [사용자 10/07 "덜컹"] → 100 [사용자 10/08]. 구간이 짧으면 앞뒤 구간 절반의 90% 까지 (motion_plan.safe_blend_radii)
   pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤
 force:                            # 힘 기준값 (scripts/b_demo.py 와 같음)
   tare_settle_s: 0.7            # 멈춘 뒤 기다림
