@@ -214,7 +214,9 @@ while app.is_running():
             for k in range(1, 31):
                 apply(s["joints"][0], finger_deg(width + (w_new - width) * k / 30), travel)
             closing, width = w_new < width, w_new
-            if s["step"] == "pick" and closing and not held:                # 닫을 때 잡음 (벌릴 때가 아님)
+            # 닫을 때 잡음 (벌릴 때가 아님). 빈손으로 끝까지 닫는 것(경유점 지나기 전 B 가 손끝을 닫음, 폭 약 1 mm)은 잡은 게 아님 —
+            # 예전엔 탑뷰에서 지우개를 그리퍼에 붙여 내려갈 때 지우개가 사라져 보였음 [사용자 10/08]
+            if s["step"] == "pick" and closing and not held and w_new > 3.0:
                 held = True
                 rel = np.linalg.inv(W @ kin.fk(s["joints"][0])) @ eraser_world(ers1, travel)
             if s["step"] == "place" and not closing and held:               # 벌리면 놓음 → 그 자리에 둠
