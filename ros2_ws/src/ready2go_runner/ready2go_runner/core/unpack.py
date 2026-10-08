@@ -8,11 +8,14 @@ Runner 안(LOCAL)에서 처리한다. 둘 다 직전 inspect_region 결과($scan
 
 치울 순서 (#120 C 회신 표, A 동의):
 1. 목표 occluded_by 에 물체가 있음 → 그 물체를 덮은 물체를 따라 올라가 맨 위(occluded_by == [])부터
-2. 목표 occluded_by == [] → 치울 것 없음 (target_clear)
-3. 목표 occluded_by 모름(null·필드 없음) → yaw_valid 가 true 이고 필드 자체가 없으면(박스 모델) 치울 것 없음,
-   아니면 A 대안: 목표 footprint 와 겹치고 top_z 가 더 높은 후보 중 가장 높은 것 (없으면 치울 것 없음)
-4. 목표 못 찾음 → occluded_by == [] 후보 중 visible_area_m2 큰 것(domain.md 8.2). 가림 필드가 아예 없는 박스 모델만
-   top_z 높은 것, 필드가 있는데 null(모름)이면 고르지 않음(occlusion_unknown)
+2. 목표 다 보임 확인 → 치울 것 없음 (target_clear): occluded_by == [], 또는 박스 모델(결과 전체에 가림 필드 없음)
+   이고 yaw_valid true (P1 호환)
+3. 목표 관계 모름(null, 분할 모델 결과에서 필드 누락, 박스 모델 + yaw_valid 아님) → A 대안(짐작, GT 관계 아님):
+   목표 footprint 와 겹치고 top_z 가 더 높은 후보 중 가장 높은 것 — 후보 자신은 위에 아무것도 없다고 확인된 것만
+   (분할 모델 occluded_by == [], 박스 모델은 전부). 고를 후보가 없으면 occlusion_unknown — 모름을 '다 보임'으로
+   바꾸지 않으므로 태스크는 목표를 집지 않음 (정본 3.3, #182 D·E 리뷰)
+4. 목표 못 찾음 → occluded_by == [] 후보 중 visible_area_m2 큰 것(domain.md 8.2). 박스 모델(결과 전체에 필드 없음)만
+   top_z 높은 것, 분할 모델인데 null·덮임·누락뿐이면 고르지 않음(occlusion_unknown)
 재식별 (#109): 같은 class 후보가 정확히 1개이고 placed_pose 와 tol_m 안이면 found. 같은 class 가 2개 이상이면
 ambiguous(첫 시연은 class 당 1개), 1개인데 tol_m 밖이면 ambiguous, 없으면 missing. 모호하면 이동을 확정하지 않는다.
 tol_m 은 비전 오차 + 놓기 오차 실측 + 여유 [팀 확정 필요] — 태스크가 넘긴다.
@@ -92,37 +95,56 @@ def _valid_tol(tol) -> bool:
     return isinstance(tol, (int, float)) and not isinstance(tol, bool) and math.isfinite(tol) and tol > 0
 
 
+def _box_model(target: dict | None, pool: list[dict]) -> bool:
+    """결과 전체에 가림 필드가 하나도 없음 = 박스 모델(P1 호환). 한 물체라도 필드가 있으면 분할 모델로 보고
+    필드가 빠진 물체는 '모름'으로 처리 (#182 D·E 리뷰: 섞인 결과에서 빠진 후보를 안전 후보로 보지 않음)."""
+    return all("occluded_by" not in o for o in ([target] if target else []) + pool)
+
+
+def _target_clear(target: dict, box: bool) -> bool:
+    """목표가 다 보인다고 확인됨: occluded_by == [], 또는 박스 모델이고 yaw_valid true (P1 호환).
+    모름(null·필드 누락)을 '다 보임'으로 바꾸지 않음 (정본 3.3, #182 E 리뷰 P1)."""
+    if target.get("occluded_by") == []:
+        return True
+    return box and (target.get("pose") or {}).get("yaw_valid") is True
+
+
 def _choose(target: dict | None, pool: list[dict], world: dict) -> tuple[dict | None, str]:
-    options = _choices(target, pool, world)
+    box = _box_model(target, pool)
+    options = _choices(target, pool, world, box)
     if options:
         return options[0], _reason(target, pool)
     if target is not None and target.get("occluded_by"):   # 덮은 물체가 후보에 없음(옮김·확정 못 함) → 진행 안 함
         return None, "occluder_unavailable"
-    if target is None and pool:             # 후보는 있는데 위에 아무것도 없다고 확인된 것이 없음 → 짐작 안 함
+    if target is not None:                  # 목표가 다 보인다고 확인됐을 때만 clear. 모름이면 짐작으로 집지 않음
+        return None, "target_clear" if _target_clear(target, box) else "occlusion_unknown"
+    if pool:                                # 목표 안 보임 + 위에 아무것도 없다고 확인된 후보 없음 → 짐작 안 함
         return None, "occlusion_unknown"
-    return None, "target_clear" if target is not None else "none"
+    return None, "none"
 
 
-def _choices(target: dict | None, pool: list[dict], world: dict) -> list[dict]:
+def _choices(target: dict | None, pool: list[dict], world: dict, box: bool | None = None) -> list[dict]:
     """규칙대로 고를 수 있는 후보를 앞에서부터 (맨 앞 = 기본 선택)."""
+    if box is None:
+        box = _box_model(target, pool)
     by_id = {c["id"]: c for c in pool if c.get("id")}
     if target is None:                      # 4. 목표 안 보임: 위에 얹힌 것 없는 후보, 보이는 면적 큰 것부터
         free = [c for c in pool if c.get("occluded_by") == []]
         if free:
             return sorted(free, key=lambda c: (-(c.get("visible_area_m2") or 0.0), -(c.get("top_z") or 0.0)))
-        if all("occluded_by" not in c for c in pool):   # 가림 필드가 아예 없는 박스 모델만 높이 순 (domain.md 8.2)
+        if box:                             # 가림 필드가 아예 없는 박스 모델만 높이 순 (P1 호환, 정답 관계 아님)
             return sorted(pool, key=lambda c: -(c.get("top_z") or 0.0))
-        return []                           # 필드가 있는데 null(모름)·덮임 → 고르지 않음 (#176 D 리뷰)
+        return []                           # 필드가 있는데 null(모름)·덮임·누락 → 고르지 않음
     occ = target.get("occluded_by")
     if isinstance(occ, list) and occ:       # 1. 덮은 물체를 따라 맨 위까지 — 사슬이 하나라도 끊기면 고르지 않음
         tops = _tops(occ, by_id, set())
         return sorted(tops, key=lambda c: -(c.get("top_z") or 0.0)) if tops is not None else []
-    if occ == []:                           # 2. 다 보이고 위에 아무것도 없음
+    if _target_clear(target, box):          # 2. 다 보임 확인 (또는 박스 모델 + yaw 유효)
         return []
-    if "occluded_by" not in target and (target.get("pose") or {}).get("yaw_valid") is True:   # 3. 박스 모델, 의심 없음
-        return []
-    base = target.get("top_z") or 0.0       # 3. A 대안: 겹치고 더 높은 것
-    over = [c for c in pool if (c.get("top_z") or 0.0) > base and _overlap(target, c, world)]
+    base = target.get("top_z") or 0.0       # 3. A 대안(짐작): 목표 관계 모름 → 겹치고 더 높은 것 중 위에 아무것도
+    over = [c for c in pool                 # 없다고 확인된 후보만 (분할 모델 occluded_by == [], 박스 모델은 전부)
+            if (c.get("occluded_by") == [] or box)
+            and (c.get("top_z") or 0.0) > base and _overlap(target, c, world)]
     return sorted(over, key=lambda c: -(c.get("top_z") or 0.0))
 
 

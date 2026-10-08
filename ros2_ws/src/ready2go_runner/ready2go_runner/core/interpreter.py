@@ -87,13 +87,17 @@ VAR_NULL = "VAR_NULL"                   # 백엔드로 보낼 동작의 "$변수
 # 거부, PLACE_BLOCKED 미구현). #166 승인·#168 카드 확정 뒤 각 코드가 실제로 모션 전인지 통합 시험으로 고정 (#175 D 리뷰).
 # 이 실패는 로봇이 안 움직였으므로: 스킬 재시도(그 시도에서 앞서 팔을 움직이지 않았을 때)·fallback 다음 대안 허용
 PRE_MOTION_COMMON = {"TOOL_NOT_SET", "DRAWER_NOT_AT_TRAVEL", "YAW_INVALID", "NOT_ON_FLOOR", "WALL_TOO_CLOSE"}
+NO_MOTION_DEFAULT = {"TOOL_NOT_SET"}    # 표에 없는 로봇 동작 (move_to_named_pose 등)
 NO_MOTION_BY_ACTION = {
-    "pick_object": PRE_MOTION_COMMON,
-    "nudge_object": PRE_MOTION_COMMON | {"NO_PUSH_ACCESS"},
+    "pick_object": PRE_MOTION_COMMON | {"BAD_PARAMS", "HOLDING_OBJECT", "UNSUPPORTED_PARAMS"},
+    "nudge_object": PRE_MOTION_COMMON | {"NO_PUSH_ACCESS", "BAD_PARAMS"},
+    # #181 B 서랍 노드 (머지 10/08 예정): 설정·시작 자세·상태 확인은 모두 움직이기 전 (닫기 노드 안의 홈·시작 자세
+    # 이동 뒤 실패는 CLOSE_NOT_CONFIRMED 등이라 여기 없음)
+    "drawer_control": NO_MOTION_DEFAULT | {"NOT_AT_START_POSE", "DRAWER_NOT_CONFIGURED", "DRAWER_STATE_UNKNOWN",
+                                           "DRAWER_ALREADY_OPEN", "OTHER_DRAWER_OPEN", "HOLDING_OBJECT", "BAD_PARAMS"},
     "place_object": PRE_MOTION_COMMON | {"NOT_HOLDING", "UNSUPPORTED_PARAMS", "PLACE_NOT_CONFIGURED", "TRAY_FULL",
                                          "BAD_PARAMS", "PLACE_BLOCKED"},
 }
-NO_MOTION_DEFAULT = {"TOOL_NOT_SET"}    # 그 밖의 로봇 동작 (move_to_named_pose·drawer_control)
 NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region", "select_obstacle", "find_moved"}   # 팔을 움직이지 않는 원자 동작
 
 
