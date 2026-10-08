@@ -1,7 +1,8 @@
 """/vision/inspect_region 실제 노드: 손목 카메라 컬러·정렬 뎁스 + YOLO + 뎁스 덩어리 → result_json (core/inspect_real.py).
 
 요청이 올 때 요청 이후에 도착한 프레임 한 쌍을 쓰고(오래된 프레임 방지), 광학 프레임의 서랍 좌표 변환은
-TF base_link→광학 프레임(실시간)과 config/places.yaml 의 drawer_top.tf(서랍 정본)로 계산한다.
+TF base_link→광학 프레임(실시간)과 config/places.yaml 의 요청 지역 tf(서랍 정본: drawer_top, drawer_bottom)로 계산한다.
+drawer_top.tf 는 시작에 필수, drawer_bottom.tf 가 아직 null 이면 그 지역 요청만 UNKNOWN_REGION (#155).
 오류 코드: UNKNOWN_REGION, CAMERA_TIMEOUT, TF_UNAVAILABLE, DEPTH_INVALID, RESULT_INVALID (docs/runner.md).
 
 진단(결과에는 영향 없음): 요청마다 검출별 판단 근거와 카메라로 본 서랍 바닥 z(core/floor_probe.py)를 로그로 남긴다.
@@ -29,7 +30,7 @@ from ready2go_interfaces.srv import InspectRegion
 from ready2go_vision.core.detector import YoloDetector
 from ready2go_vision.core.floor_probe import floor_probe
 from ready2go_vision.core.geometry import Intrinsics, drawer_from_camera, make_T
-from ready2go_vision.core.inspect_real import inspect_scene
+from ready2go_vision.core.inspect_real import SUPPORTED_REGIONS, inspect_scene, region_frames
 
 
 def image_to_numpy(msg: Image):
@@ -62,14 +63,13 @@ class InspectRegionNode(Node):
         cfg = Path(p("config_dir"))
         self._params = yaml.safe_load((cfg / "vision_params.yaml").read_text(encoding="utf-8"))
         places = yaml.safe_load((cfg / "places.yaml").read_text(encoding="utf-8"))
-        tf = places["drawer_top"]["tf"]
-        self._interior = places["drawer_top"]["interior_m"][:2]
-        if not tf or tf.get("translation_m") is None:
+        self._regions = region_frames(places)
+        if "drawer_top" not in self._regions:
             raise RuntimeError("places.yaml drawer_top.tf 가 비어 있음 — 3점 터치 결과가 필요")
-        self._T_base_drawer = make_T(tf["translation_m"], tf["quaternion_xyzw"])
         sha = lambda f: hashlib.sha256(Path(f).read_bytes()).hexdigest()[:12]
         self._versions = {"code_sha": p("code_sha"), "weights_sha256": sha(p("weights")), "places_sha256": sha(cfg / "places.yaml"),
-                          "vision_params_sha256": sha(cfg / "vision_params.yaml"), "drawer_top_tf": tf}
+                          "vision_params_sha256": sha(cfg / "vision_params.yaml"),
+                          **{f"{r}_tf": (self._regions[r]["tf"] if r in self._regions else None) for r in SUPPORTED_REGIONS}}
         self._dump = Path(p("dump_dir")) if p("dump_dir") else None
         if self._dump:
             self._dump.mkdir(parents=True, exist_ok=True)
@@ -108,7 +108,10 @@ class InspectRegionNode(Node):
 
     def _handle(self, req, res):
         start = time.monotonic()
-        if req.region != "drawer_top":
+        region = self._regions.get(req.region)
+        if region is None:
+            why = "places.yaml tf 미측정" if req.region in SUPPORTED_REGIONS else "지원하지 않는 지역"
+            self.get_logger().warn(f"inspect_region {req.region!r}: UNKNOWN_REGION ({why})")
             res.success, res.error_code, res.result_json = False, "UNKNOWN_REGION", ""
             return res
         frames = self._fresh_frames(start)
@@ -126,33 +129,34 @@ class InspectRegionNode(Node):
                 self.get_logger().error(f"TF 없음 {self._base}→{self._cam}: {e}")
                 res.success, res.error_code, res.result_json = False, "TF_UNAVAILABLE", ""
                 return res
-        T_drawer_cam = drawer_from_camera(self._T_base_drawer, tf_to_T(ts))
+        T_drawer_cam = drawer_from_camera(region["T_base_drawer"], tf_to_T(ts))
         K = Intrinsics(info.k[0], info.k[4], info.k[2], info.k[5])
         color, depth = image_to_numpy(color_m), image_to_numpy(depth_m)
         dets = self._detector.detect(color)
         debug = []
         res.success, res.error_code, res.result_json = inspect_scene(
-            dets, depth, K, T_drawer_cam, self._params, self._items, req.region, req.search_target, self._interior, debug)
-        floor = floor_probe(depth, K, T_drawer_cam, self._interior, [dt["box"] for dt in dets], self._params["floor_probe"])
+            dets, depth, K, T_drawer_cam, self._params, self._items, req.region, req.search_target, region["interior_m"], debug)
+        floor = floor_probe(depth, K, T_drawer_cam, region["interior_m"], [dt["box"] for dt in dets], self._params["floor_probe"])
         log = self.get_logger()
         log.info(f"inspect_region {req.region}/{req.search_target}: 검출 {len(dets)}개 → success={res.success} {res.error_code} {res.result_json[:300]}")
         for item in debug:
             log.info(f"  검출 {json.dumps(item, ensure_ascii=False)}")
         log.info(f"  바닥(카메라, 서랍 z) {json.dumps(floor)}")
         if self._dump:
-            self._save(color, depth, K, ts, T_drawer_cam, dets, debug, floor, req, res)
+            self._save(color, depth, K, ts, T_drawer_cam, region, dets, debug, floor, req, res)
         return res
 
-    def _save(self, color, depth, K, ts, T_drawer_cam, dets, debug, floor, req, res):
+    def _save(self, color, depth, K, ts, T_drawer_cam, region, dets, debug, floor, req, res):
         now = datetime.datetime.now(datetime.timezone.utc)                     # UTC (컨테이너 시간대와 무관)
         stamp = f"{now:%Y%m%d_%H%M%S}_{now.microsecond // 1000:03d}Z"
         path = self._dump / f"inspect_{stamp}.npz"
         meta = {"request": {"region": req.region, "search_target": req.search_target}, "success": res.success,
                 "error_code": res.error_code, "result_json": res.result_json, "detections": dets, "debug": debug, "floor": floor,
-                "K": [K.fx, K.fy, K.cx, K.cy], "versions": self._versions, "interior_m": self._interior}
+                "K": [K.fx, K.fy, K.cx, K.cy], "versions": self._versions,
+                "interior_m": region["interior_m"], "region_tf": region["tf"]}
         try:
             np.savez_compressed(path, color=color, depth_m=depth.astype(np.float32), T_base_cam=tf_to_T(ts),
-                                T_base_drawer=self._T_base_drawer, T_drawer_cam=T_drawer_cam,
+                                T_base_drawer=region["T_base_drawer"], T_drawer_cam=T_drawer_cam,
                                 meta=np.array(json.dumps(meta, ensure_ascii=False, default=float)))
             self.get_logger().info(f"  덤프 {path}")
         except Exception as e:                                   # 덤프 실패가 서비스 응답을 막지 않게

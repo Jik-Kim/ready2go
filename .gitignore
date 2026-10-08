@@ -2,6 +2,9 @@
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
+ros2_ws/build_vision/
+ros2_ws/install_vision/
+ros2_ws/log_vision/
 __pycache__/
 *.pyc
 .pytest_cache/
