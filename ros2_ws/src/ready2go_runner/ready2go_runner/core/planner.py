@@ -8,6 +8,8 @@
   명시 목표가 그 서랍을 열어 두라고 하면 명시 목표가 우선
 - 결과: PLANNED(스텝 + 단계별 근거) / SATISFIED(이미 만족, 길이 0) / UNPLANNABLE(원인)
 - 후보 줄이기: 물품 파라미터는 목표에 나온 물품과 지금 쥔 물품만 (다른 물품은 목표 달성에 필요 없음)
+- 지원 범위(limits): 백엔드가 실제로 할 수 있는 파라미터 값만 후보로 (예: 실물 놓기는 전달 트레이만). 그 밖의
+  계획은 만들지 않고 UNPLANNABLE — 기호상 가능하지만 실물이 못 하는 계획을 중간까지 실행하지 않게 (#154 E 리뷰 P1)
 """
 from __future__ import annotations
 
@@ -85,15 +87,31 @@ def _candidates(want: str, onto: dict, relevant_items: set[str]) -> list[str]:
     return sorted(out)
 
 
-def _groundings(skills: dict, onto: dict, relevant_items: set[str]) -> list[tuple[str, dict, dict]]:
-    """(스킬 이름, 스킬 정의, 파라미터 값) 전부 — 결정적 순서 (스킬 이름·파라미터 값 정렬)."""
+def parse_limits(text: str) -> dict[str, dict[str, set[str]]]:
+    """"place.to=handover_zone,pick.from=drawer_top|drawer_bottom" → {"place": {"to": {"handover_zone"}}, ...}.
+    빈 문자열이면 제한 없음."""
+    limits: dict[str, dict[str, set[str]]] = {}
+    for entry in filter(None, (part.strip() for part in text.split(","))):
+        key, _, values = entry.partition("=")
+        skill, _, param = key.strip().partition(".")
+        if not skill or not param or not values.strip():
+            raise ValueError(f"지원 범위 형식은 스킬.파라미터=값|값: {entry!r}")
+        limits.setdefault(skill, {})[param] = {v.strip() for v in values.split("|") if v.strip()}
+    return limits
+
+
+def _groundings(skills: dict, onto: dict, relevant_items: set[str],
+                limits: dict | None = None) -> list[tuple[str, dict, dict]]:
+    """(스킬 이름, 스킬 정의, 파라미터 값) 전부 — 결정적 순서 (스킬 이름·파라미터 값 정렬). limits 밖의 값은 뺌."""
     out = []
     for name in sorted(skills):
         skill = skills[name]
         if not isinstance(skill, dict) or skill.get("kind") != "primitive":
             continue
         names = list(skill.get("params", {}))
-        pools = [_candidates(skill["params"][n], onto, relevant_items) for n in names]
+        allowed = (limits or {}).get(name, {})
+        pools = [[v for v in _candidates(skill["params"][n], onto, relevant_items)
+                  if n not in allowed or v in allowed[n]] for n in names]
         for values in itertools.product(*pools):
             out.append((name, skill, dict(zip(names, values))))
     return out
@@ -105,8 +123,10 @@ def _key(state: dict) -> str:
     return json.dumps(state, sort_keys=True, ensure_ascii=False)
 
 
-def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH) -> PlanResult:
-    """목표를 만족하는 최단 스킬 순서. state 는 Runner 상태(predicate → subject → value)."""
+def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH,
+         limits: dict | None = None) -> PlanResult:
+    """목표를 만족하는 최단 스킬 순서. state 는 Runner 상태(predicate → subject → value).
+    limits: 스킬 → 파라미터 → 허용 값 (백엔드 지원 범위, parse_limits). None 이면 제한 없음(mock·시험)."""
     problem = _check_goals(goals, onto)
     if problem:
         return PlanResult(UNPLANNABLE, [], goals, problem)
@@ -122,7 +142,7 @@ def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH)
     held = ontology.get(state, "gripper", ROBOT)
     relevant = {g["subject"] for g in goals} | {g["value"] for g in goals if isinstance(g["value"], str)}
     relevant |= {held} if held and held != "empty" else set()
-    actions = _groundings(skills, onto, relevant)
+    actions = _groundings(skills, onto, relevant, limits)
 
     start = state
     queue: deque = deque([(start, [])])
@@ -146,8 +166,9 @@ def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH)
                 return PlanResult(UNPLANNABLE, [], all_goals,
                                   f"탐색 상한({MAX_STATES} 상태)을 넘음", explored=len(seen))
             queue.append((nxt, new_path))
+    within = " (지원 범위 안에서)" if limits else ""
     return PlanResult(UNPLANNABLE, [], all_goals,
-                      f"깊이 {max_depth} 안에서 목표를 모두 만족하는 스킬 순서가 없음: "
+                      f"깊이 {max_depth} 안에서{within} 목표를 모두 만족하는 스킬 순서가 없음: "
                       + ", ".join(_goal_text(g) for g in all_goals), explored=len(seen))
 
 
@@ -220,25 +241,33 @@ def describe(result: PlanResult) -> list[str]:
 
 def to_task(result: PlanResult, task_id: str = "plan", timeouts: dict[str, float] | None = None) -> dict:
     """PLANNED 결과를 Runner 태스크로. 스텝 ID p1..pn, 단계별 근거는 description 에.
-    finally 는 find_item 과 같은 안전 규칙: 이번 계획이 연 서랍 닫기(skip — 이미 닫혔거나 쥔 채면 PRE_UNMET 로 건너뜀),
-    그리퍼가 비어 있을 때만 홈 (물품을 쥔 채면 정지·사람 복구, PR #82).
+    finally 는 find_item 과 같은 안전 규칙: **계획이 끝나지 못했을 때만** 이번 계획이 연 서랍 닫기(skip — 이미 닫혔거나
+    쥔 채면 PRE_UNMET 로 건너뜀), 그리퍼가 비어 있을 때만 홈 (물품을 쥔 채면 정지·사람 복구, PR #82).
+    성공하면 서랍은 계획대로 둔다 — 자동 목표 서랍은 계획 안에서 이미 닫혔고, "열어 둬" 같은 명시 목표는 지킨다
+    (#151 D·E 리뷰 P1: 성공 뒤 finally 가 명시적 열림 목표를 다시 닫던 것). 끝났는지는 마지막 스텝의 plan_done 으로.
     timeouts: 스킬 이름 → timeout_sec (없으면 넣지 않음 — 실물은 호출하는 쪽이 설정에서 넘김)."""
     if result.status != PLANNED:
         raise ValueError(f"PLANNED 가 아닌 결과는 태스크로 만들지 않음: {result.status}")
     timeouts = timeouts or {}
-    sequence = []
+    sequence = [{"id": "p0", "action": "set_var", "params": {"name": "plan_done", "value": False}}]
     for n, s in enumerate(result.steps, 1):
         step = {"id": f"p{n}", "skill": s.skill, "params": dict(s.params)}
         if s.skill in timeouts:
             step["timeout_sec"] = timeouts[s.skill]
         sequence.append(step)
+    sequence.append({"id": f"p{len(result.steps) + 1}", "action": "set_var",
+                     "params": {"name": "plan_done", "value": True}})
     opened = sorted({s.params.get("drawer_id") for s in result.steps if s.skill == "open_drawer"} - {None})
     final = [{"id": "f1", "action": "query_ontology", "params": {"state": "gripper.robot"}, "output": "hold"}]
-    for n, drawer in enumerate(opened, 2):
-        step = {"id": f"f{n}", "skill": "close_drawer", "params": {"drawer_id": drawer}, "on_failure": "skip"}
+    closes = []
+    for n, drawer in enumerate(opened, 1):
+        step = {"id": f"fc.{n}", "skill": "close_drawer", "params": {"drawer_id": drawer}, "on_failure": "skip"}
         if "close_drawer" in timeouts:
             step["timeout_sec"] = timeouts["close_drawer"]
-        final.append(step)
+        closes.append(step)
+    if closes:                                  # 계획이 끝나지 못했을 때만 연 서랍 정리
+        final.append({"id": "fc", "action": "if", "cond": {"op": "==", "args": ["$plan_done", False]},
+                      "then": closes})
     home = {"id": "fh.1", "action": "move_to_named_pose", "params": {"pose_name": "home"}}
     if "move_to_named_pose" in timeouts:
         home["timeout_sec"] = timeouts["move_to_named_pose"]
