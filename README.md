@@ -3,7 +3,7 @@
 음성 명령으로 실물 **Doosan M0609 + OnRobot RG2**가 서랍 속 물건을 찾아 꺼내고 원상 복구하는 시스템.
 로봇의 동작·상태를 **JSON 온톨로지**로 정의하고, 명령에 맞춰 조합하며, 모든 동작의 성공 여부를 기록한다.
 
-- 문서: [`docs/README.md`](docs/README.md) (인덱스부터) · 요구사항·Phase 기준 원본: [`docs/requirements.md`](docs/requirements.md)
+- 문서: [`docs/README.md`](docs/README.md) (인덱스부터) · P1·P2·P3의 의미·정책·책임·Phase·수용 기준: [`docs/requirements.md`](docs/requirements.md). 다른 문서는 해당 FR/AC를 링크로 참조하며 실행 필드·설정은 기존 JSON/YAML 원본을 확인합니다.
 - 스택: ROS 2 Jazzy · CycloneDDS(`ROS_DOMAIN_ID=70`) · Docker Compose · Python · MongoDB · Isaac Sim 5.1.0(트윈, 네이티브)
 
 ## 실행
@@ -280,7 +280,7 @@ PYTHON
 
 **로봇 연동**은 준비·접속 확인 후 같은 명령의 `'evaluation_mode:=true'`를 `'evaluation_mode:=false'`로 바꿔 실행합니다. 시작 인자의 기본은 false이며 YAML보다 우선합니다. 실행 중 `ros2 param set`으로 전환하는 기능은 없습니다. 다른 노드에서 시작한 태스크를 평가 모드가 중단시키는 것도 아닙니다.
 
-기존 `recording_mode`·`timing_mode`·웨이크 기준 등은 이 전환으로 변경하지 않습니다. 고정 5초 녹음·commissioning 설정은 발화 종료부터 3초 응답(AC-INT-03)의 측정 근거가 아닙니다. 판별 제약·미해결 사항과 기록의 의미는 [음성 README](ros2_ws/src/ready2go_voice/README.md)에 적혀 있습니다.
+기존 `recording_mode`·`timing_mode`·웨이크 기준 등은 이 전환으로 변경하지 않습니다. 고정 5초 녹음·commissioning 설정은 [AC-INT-03](docs/requirements.md#ac-int-03)의 측정 근거가 아닙니다. 판별 제약·미해결 사항과 기록의 의미는 [음성 README](ros2_ws/src/ready2go_voice/README.md)에 적혀 있습니다.
 
 ### 5. 연결·결과·로그 확인
 
