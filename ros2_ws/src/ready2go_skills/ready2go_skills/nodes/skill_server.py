@@ -34,6 +34,7 @@ from ready2go_interfaces.action import Skill
 from ready2go_skills.adapters.dsr import Dsr
 from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_guard, motion_plan as mp
+from ready2go_skills.core import neighbor_check as nc
 from ready2go_skills.core import pick_plan as pp, place_plan as plp, pose_math as pm, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
@@ -55,6 +56,7 @@ NO_OBJECT_CONTACT = "NO_OBJECT_CONTACT"  # 끌기: 내려가도 물체 윗면 �
 PUSH_BLOCKED = "PUSH_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림, runner.md 기존 코드)
 WALL_TOO_CLOSE = "WALL_TOO_CLOSE"        # pick_object: 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿음 → nudge_object 먼저 (움직이기 전)
 JOINT_LIMIT = "JOINT_LIMIT"              # 관절이 안전 제한(params joint_limits_deg, 펜던트 안전 설정보다 조금 안쪽)을 넘음/넘을 목표 → 정지·거부
+NEIGHBOR_TOO_CLOSE = nc.NEIGHBOR_TOO_CLOSE   # pick·nudge: scan 의 옆 물체가 벌린 손가락·끄는 길에 걸림 (움직이기 전) [사용자 10/09]
 PUSH_LIMIT = "PUSH_LIMIT"                # check_only 재판단에서 아직 잡을 수 없는 자리 (runner.md 기존 코드)
 GRASP_FAILED = "GRASP_FAILED"
 NOT_HOLDING = "NOT_HOLDING"
@@ -1090,6 +1092,13 @@ class SkillServer(Node):
             return sf.Outcome(True, reason=plan.reason), out
         if params.get("check_only"):                          # 재판단인데 아직 끌어야 함 → 집지 않게 멈춤 (runner.md, #83 D 리뷰)
             return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — {plan.reason}"), out
+        who, why = self._neighbor(params, drawer_id, lambda objs, nb: nc.drag_blocker(
+            target=target, size_m=size, shift_y_m=plan.shift_y_m, objects=objs, size_of=self._size_or_none,
+            default_size_m=prm["place"]["default_obstacle_size_m"], margin_mm=nb["margin_mm"], support_m=0.0,
+            below_tol_m=nb["below_tol_m"]))
+        if why or who:                                      # 끌다가 옆 물체를 밀지 않게 — 움직이기 전 [사용자 10/09 랜덤 배치]
+            return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
+                    sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
         wall = mp.dir_to_base(tf, (0.0, plan.wall_normal_y, 0.0))      # 옆벽 쪽 (base)
@@ -1206,6 +1215,13 @@ class SkillServer(Node):
         g, speed = prm["gripper"], prm["speed"]
         expected_w = self.grasp_width(cls, size, prm) or plan.expected_width_m       # 벌림은 외접박스 짧은 변 그대로 (plan.open_width_m)
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
+        who, why = self._neighbor(params, drawer_id, lambda objs, nb: nc.pick_blocker(
+            target=target, size_m=size, open_mm=plan.open_width_m * 1000.0, objects=objs, size_of=self._size_or_none,
+            default_size_m=prm["place"]["default_obstacle_size_m"], finger_mm=g["fingertip_outer_mm"],
+            margin_mm=nb["margin_mm"], support_m=support, below_tol_m=nb["below_tol_m"]))
+        if why or who:                                      # 움직이기 전 거부 [사용자 10/09 랜덤 배치]
+            return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
+                    sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"벌린 손가락 자리에 {who} — 띄우거나 {who} 먼저 치우기")), None
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:
             return bad, None
@@ -1387,6 +1403,17 @@ class SkillServer(Node):
             return back, out
         return sf.Outcome(True, reason=f"{cls} → {loc} {i + 1}번 칸"), out
 
+
+    def _neighbor(self, params, drawer_id, check):
+        """입력 scan(직전 inspect_region 결과 전체)이 있으면 check(objs, params.neighbor) → (막는 이웃 id, None).
+        scan 형식·다른 서랍이면 (None, 이유) → BAD_PARAMS. scan 이 없으면 확인 안 함 (None, None) — 예전과 같음."""
+        scan = params.get("scan")
+        if scan is None:
+            return None, None
+        objs, why = plp.scan_objects(scan, drawer_id)
+        if why:
+            return None, why
+        return check(objs, self.prm()["neighbor"]), None
 
     def _size_or_none(self, cls):
         """이웃 footprint 용 온톨로지 size_m — 모르는 class 면 None (place.default_obstacle_size_m 을 씀)."""

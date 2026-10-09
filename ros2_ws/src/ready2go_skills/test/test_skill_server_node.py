@@ -643,6 +643,46 @@ def test_stack_too_high_or_disabled_refused_before_motion(server, monkeypatch, a
     assert out.error_code == "NOT_ON_FLOOR" and srv.robot.log == []
 
 
+def _scan_with(target, *others):
+    return {"target_found": True, "target": target, "visible_count": 1 + len(others), "candidates": list(others)}
+
+
+CARAMEL_NEXT = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+                "pose": {"frame": "drawer_top", "position": [0.10, 0.21, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+
+def test_pick_refused_before_motion_when_neighbor_in_finger_footprint(server):
+    """[사용자 10/09 랜덤 배치] 캐러멜이 지우개 옆 6 cm(중심) — 벌린 손가락 자리와 겹침 → 움직이기 전 NEIGHBOR_TOO_CLOSE."""
+    t = json.loads(json.dumps(ERASER_FREE))
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_with(t, CARAMEL_NEXT)})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and "caramel_box#1" in out.reason and server.srv.robot.log == []
+
+
+def test_pick_with_far_neighbor_and_bad_scan(server):
+    t = json.loads(json.dumps(ERASER_FREE))
+    far = json.loads(json.dumps(CARAMEL_NEXT))
+    far["pose"]["position"][1] = 0.26
+    other = json.loads(json.dumps(CARAMEL_NEXT))
+    other["pose"]["frame"] = "drawer_bottom"                            # 다른 서랍 촬영 → BAD_PARAMS (움직이기 전)
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_with(t, other)})
+    assert out.error_code == "BAD_PARAMS" and server.srv.robot.log == []
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_with(t, far)})
+    finally:
+        server.Gripper.holding = False
+    assert out.success
+
+
+def test_nudge_refused_when_drag_path_hits_neighbor(server):
+    """옆벽(y 294) 지우개를 −y 로 40 mm 끌 때 그 길에 캐러멜 → 움직이기 전 NEIGHBOR_TOO_CLOSE."""
+    t = json.loads(json.dumps(ERASER_CORNER))
+    cara = json.loads(json.dumps(CARAMEL_NEXT))
+    cara["pose"]["position"] = [0.0375, 0.225, 0.0]
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "scan": _scan_with(t, cara)})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and data["target_after"] is None and server.srv.robot.log == []
+
+
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
     t = json.loads(json.dumps(ERASER_CORNER))

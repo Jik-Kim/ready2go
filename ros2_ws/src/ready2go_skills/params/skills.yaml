@@ -161,3 +161,6 @@ drag:                           # nudge_object 실물: 기울여 손끝으로 �
   max_shift_mm: 80.0
   press_inset_mm: 3.0           # 누르는 점은 물체 가장자리에서 이만큼 안쪽까지
   lift_mm: 30.0                 # 끈 뒤 올라가는 거리
+neighbor:   # core/neighbor_check.py — 집기·끌기 전 옆 물체 확인 (입력 scan 이 있을 때) [사용자 10/09 서랍 안 랜덤 배치]
+  margin_mm: 5.0                # [팀 확정 필요] footprint 여유 — 비전 위치 오차 2.5 mm [실측 PC2 10/08, #155] + 여유 (place.footprint_margin_mm 과 같은 값)
+  below_tol_m: 0.003            # [팀 확정 필요] 목표 받침 + 이 값 이하 윗면(top_z)의 이웃은 손가락보다 아래 → 무시 (쌓인 물체의 받침)

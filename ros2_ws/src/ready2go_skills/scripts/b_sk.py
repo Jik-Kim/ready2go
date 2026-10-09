@@ -24,6 +24,24 @@ def scan_file():
     return f"{TMP}/b_target_scan_{DRAWER}.json"
 
 
+def full_scan_file(drawer):
+    """인식 결과 전체(target + candidates) — 집기·넛지에 scan 으로 넘겨 옆 물체 확인 [사용자 10/09 랜덤 배치]."""
+    return f"{TMP}/b_target_fullscan_{drawer}.json"
+
+
+def with_scan(params, drawer):
+    """그 서랍 인식 결과 전체가 있으면 params 에 scan 으로 붙임 (없으면 그대로 — 스킬 서버는 옆 물체 확인 안 함)."""
+    try:
+        with open(full_scan_file(drawer)) as f:
+            s = json.load(f)
+    except (OSError, ValueError):
+        return params
+    objs = ([s["target"]] if s.get("target") else []) + list(s.get("candidates") or [])
+    if objs and all((o.get("pose") or {}).get("frame") == drawer for o in objs):
+        return dict(params, scan=s)
+    return params
+
+
 def _load_target(path):
     """저장된 target 중 지금 서랍(pose.frame == DRAWER) 것만. 없거나 다른 칸이면 None."""
     try:
@@ -53,10 +71,11 @@ def goal_for(cmd):
     if cmd == "close":
         return "drawer_control", {"drawer_id": DRAWER, "state": "close"}
     if cmd == "nudge":
-        return "nudge_object", {"drawer_id": DRAWER, "target": target()}
+        return "nudge_object", with_scan({"drawer_id": DRAWER, "target": target()}, DRAWER)
     if cmd == "pick":
         with open(AFTER) as f:
-            return "pick_object", {"target": json.load(f), "approach_offset": [0, 0, 0.1]}
+            t = json.load(f)
+        return "pick_object", with_scan({"target": t, "approach_offset": [0, 0, 0.1]}, (t.get("pose") or {}).get("frame"))
     if cmd == "place":
         return "place_object", {"location": "handover_zone"}
     if cmd == "home":
@@ -137,6 +156,8 @@ def scan(node, for_pick=False):
         return False
     with open(scan_file(), "w") as fp:
         json.dump(res["target"], fp)
+    with open(full_scan_file(DRAWER), "w") as fp:
+        json.dump(res, fp)
     print(f"인식: {json.dumps(res['target'], ensure_ascii=False)}")
     if for_pick:
         try:
@@ -253,7 +274,8 @@ HUMAN_FIX = {"DRAWER_NOT_AT_TRAVEL": "서랍을 끝까지 열고 B opened <서�
              "DRAWER_NOT_CONFIGURED": "서랍 교시값(places.yaml tf·interior_m) 확인",
              "BAD_PARAMS": "인식 결과·서랍 이름 확인 (rm -f /tmp/b_target_*.json 뒤 다시)",
              "TOOL_NOT_SET": "펜던트 TCP GripperDA_v1·툴 tool_weight 선택",
-             "NOT_ON_FLOOR": "다른 물체 위에 얹힘 — 아직 미지원, 사람이 내려놓기",
+             "NOT_ON_FLOOR": "쌓인 높이가 서랍 테두리에 너무 가까움(또는 top_z 이상) — 위 물체를 사람이 내려놓기",
+             "NEIGHBOR_TOO_CLOSE": "옆 물체가 손가락·끄는 길에 걸림 — 두 물체를 3~4 cm 띄우기",
              "HOLDING_OBJECT": "그리퍼에 든 물체를 빼고 서버 재시작",
              "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리 — 사람이 옮기기",
              "JOINT_LIMIT": "관절 제한 — 자세·위치 확인"}
