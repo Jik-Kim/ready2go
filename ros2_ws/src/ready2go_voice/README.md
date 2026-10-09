@@ -144,7 +144,9 @@ D #20 인계: [AC-INT-01–03](../../../docs/requirements.md#ac-int-01)·[음성
 
 | 관측한 현재 코드/결과 | 고정 안내·시점 |
 |---|---|
-| 현재 `ESTOP` | “비상정지가 감지됐어요. 상태를 확인해 주세요.” |
+| 현재 `ESTOP` | “비상정지가 보고됐어요. 로봇의 실제 정지와 상태를 확인해 주세요.” |
+| 현재/새 실패의 `OBJECT_DROPPED` | 놓침 보고·실제 정지와 물품 상태 확인. 코드만으로 실제 낙하·대상·회수 가능을 확답하지 않음 |
+| 현재/새 실패의 `SENSOR_INVALID` | 센서값 이상 보고·실제 정지와 센서/물품 상태 확인. 빈손·낙하로 단정하지 않음 |
 | 현재 `HALTED`/취소 | “작업 중단이 요청됐어요. 상태를 확인해 주세요.” ESTOP으로 바꾸어 해석하지 않음 |
 | `STOP_UNCONFIRMED`·`STATE_UNKNOWN`·`MOVE_UNCONFIRMED`·`LOCKED`·불명확 halt | “로봇 상태를 확인할 수 없어요. 직접 확인해 주세요.” |
 | 새 최종 `FAILED`의 `TIMEOUT`/`LATE_RESULT` | 제한 시간·상태 확인 안내 |
@@ -429,6 +431,14 @@ PYTHON
 
 설정 원본 params/voice.yaml의 내부 값과 null/[팀 확정 필요]를 확인하십시오. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. C v2의 answer enum/질문 등록/프로세스별 clock·hold와 B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.
 
+
+## #78 모션 차단 안내·E 내부 후보 (운영 미연결)
+
+[문서] 정책은 [모션 차단·놓침 후 새 실행 정본](../../../docs/requirements.md#halt-motion-policy)·[일반 재개 접수](../../../docs/requirements.md#resume-admission-policy)를 참조하십시오. 기존 상태 구독은 위의 원인별 고정 미확인 안내를 사용합니다. `phase=halted`를 실제 정지 증명으로 쓰거나 `task_id`로 지우개를 추론하지 않습니다. B의 현재 place 센서 이상/놓침 코드 혼용과 C 공통 잠금 누락은 후속이며 이 문서 변경으로 해결되지 않습니다.
+
+[구현: ROS 비의존 준비] `core/recovery_confirmation.py`의 `notice(HaltNoticeEvidence)`·`NewStartEvidence/NewStartCandidate`는 trusted B/C 관측을 가정한 내부 후보입니다. 현재 사건과 실제 정지/신선도/낙하/대상 근거가 있을 때만 대상별 복원 안내를 만들며, 과거/미확인 입력에는 회수를 지시하지 않습니다. place 놓침에 기존 `Evidence`/“재개해”를 주면 재개 후보를 내지 않고, 같은 사건의 실행 종료·복원/실제 상태 검사·C 동기화·B/C 조건을 모두 확인한 뒤 명시적 새 시작 응답에만 다른 자료형의 후보를 냅니다. TTS 실패·재정지 뒤 기존 run의 재개 우회도 거절합니다. 일반 cancel v1은 유지하고 센서 이상 재개에는 정상화 증빙을 추가 검사합니다. 운영 node는 이 복구 정책을 호출하지 않습니다.
+
+[문서] 고정 미확인 안내는 기존 `STATUS_PROMPTS`→`tts_prefill.prefill_texts`의 bounded 필수 목록에 포함됩니다. 대상별 복구 안내·새 시작 질문은 운영 prefill/재생에 연결하지 않았으며 Melo 설정·worker·기존 WAV를 변경하지 않습니다. 직접 관련 모의 검사는 `test_runner_notice.py`·`test_recovery_confirmation.py`와 기존 #152 v1 `test_e_verification_policy.py`입니다. 실제 API/마이크/STT/TTS 합성·로봇·글로벌 차단/실물 AC를 검증한 결과가 아닙니다. B/C 선행·계약 승인·인계 상태는 [기술 문서](../../../docs/voice_llm.md#78-e-안내새-실행-후보-준비)와 [#196](https://github.com/Jik-Kim/ready2go/issues/196)을 확인하십시오.
 
 ## #194 현재 질문·응답·진단과 #138 캐시 / #195 녹음 비교
 

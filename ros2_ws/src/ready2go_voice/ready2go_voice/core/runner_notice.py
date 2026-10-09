@@ -3,7 +3,9 @@ from dataclasses import dataclass
 import json
 
 STATUS_PROMPTS = {
-    'estop': '비상정지가 감지됐어요. 상태를 확인해 주세요.',
+    'estop': '비상정지가 보고됐어요. 로봇의 실제 정지와 상태를 확인해 주세요.',
+    'dropped': '물품 놓침이 보고됐어요. 로봇의 실제 정지와 물품 상태를 확인해 주세요.',
+    'sensor': '센서값 이상이 보고됐어요. 로봇의 실제 정지와 센서·물품 상태를 확인해 주세요.',
     'halted': '작업 중단이 요청됐어요. 상태를 확인해 주세요.',
     'unconfirmed': '로봇 상태를 확인할 수 없어요. 직접 확인해 주세요.',
     'timeout': '제한 시간 안에 작업을 완료하지 못했어요. 상태를 확인해 주세요.',
@@ -12,12 +14,16 @@ STATUS_PROMPTS = {
     'failure': '작업을 완료하지 못했어요. 상태를 확인해 주세요.',
 }
 UNCONFIRMED = {'STOP_UNCONFIRMED', 'STATE_UNKNOWN', 'MOVE_UNCONFIRMED', 'LOCKED'}
+# E-local classification only; never a Runner lock or a resume allowlist.
+HALT_MOTION = frozenset({'OBJECT_DROPPED', 'ESTOP', 'SENSOR_INVALID', *UNCONFIRMED})
 VISION_ERRORS = {'DEPTH_INVALID', 'RESULT_INVALID', 'UNKNOWN_REGION', 'STUB_NOT_READY'}
 
 
 def warning_kind(code, *, halted=False, aborted=False):
     if code == 'ESTOP': return 'estop', 0
     if code in UNCONFIRMED: return 'unconfirmed', 1
+    if code == 'OBJECT_DROPPED': return 'dropped', 1
+    if code == 'SENSOR_INVALID': return 'sensor', 1
     if code in ('HALTED', 'CANCELED'): return 'halted', 2
     if halted or aborted: return 'unconfirmed', 1
     if code in ('TIMEOUT', 'LATE_RESULT'): return 'timeout', 3
@@ -43,6 +49,7 @@ class RunnerNoticePolicy:
         self.awaiting_result = False
         self.seen_runs = set()
         self.warned_priority = float('inf')
+        self.warned_kind = None
         self.blocked = False  # 오래된 정상 음성만 억제; Runner/로봇 제어 게이트 아님.
         self.revision = 0
 
@@ -65,15 +72,17 @@ class RunnerNoticePolicy:
             self.blocked = bool(halt)
             self.awaiting_result = phase == 'running'
             self.active_task = task
-            if halt: self.warned_priority = warning_kind(halt, halted=True)[1]
+            if halt: self.warned_kind, self.warned_priority = warning_kind(halt, halted=True)
             if run_id: self.seen_runs.add(run_id)
             return None  # 첫 latched 상태/과거 결과는 재생하지 않음.
         if phase == 'running' and (self.phase != 'running' or task != self.active_task):
             self.active_task, self.awaiting_result = task, True
             self.warned_priority, self.blocked = float('inf'), False
+            self.warned_kind = None
             self.revision += 1  # 이전 회차 대기/재생 경고를 무효화.
         if self.previous_halt and not halt:
             self.blocked, self.warned_priority = False, float('inf')
+            self.warned_kind = None
             if phase != 'running': self.awaiting_result = False
             self.revision += 1
         candidates = [warning_kind(halt, halted=True)] if halt else []
@@ -91,7 +100,11 @@ class RunnerNoticePolicy:
         self.blocked = bool(halt)
         if not candidates: return None
         kind, priority = min(candidates, key=lambda item: item[1])
-        if priority >= self.warned_priority: return None
-        self.warned_priority = priority
+        # A new cause at the same severity must replace the old cause's speech.
+        # It still cannot downgrade ESTOP or infer physical stop/target evidence.
+        changed_cause = (priority == self.warned_priority and kind != self.warned_kind
+                         and kind in ('dropped', 'sensor', 'unconfirmed'))
+        if priority >= self.warned_priority and not changed_cause: return None
+        self.warned_kind, self.warned_priority = kind, priority
         self.revision += 1
         return Notice(kind, STATUS_PROMPTS[kind], priority, self.revision)
