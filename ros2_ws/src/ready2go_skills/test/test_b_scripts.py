@@ -383,6 +383,10 @@ def test_b_sk_rescan_without_vision_needs_same_drawer_after(monkeypatch, tmp_pat
     ({"pick": ["ESTOP"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick"], False),
     ({}, [True, False], ["view", "scan", "nudge", "view", "rescan"], False),   # 다시 인식에서 못 찾으면 멈춤
     ({"place": ["NOT_REACHED"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick", "place"], False),
+    ({"nudge": ["DRAWER_NOT_AT_TRAVEL"]}, None, ["view", "scan", "nudge"], False),   # 다시 봐도 안 풀림 → 반복 없이 멈춤 (#191 E 리뷰)
+    ({"nudge": ["BAD_PARAMS"]}, None, ["view", "scan", "nudge"], False),
+    ({"nudge": [""], "pick": ["DRAWER_NOT_CONFIGURED"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick"], False),
+    ({"nudge": [""], "pick": ["NOT_ON_FLOOR"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick"], False),
 ])
 def test_b_find_retries_until_grasped(monkeypatch, codes, scans, want_calls, ok):
     """[사용자 10/08] B find: 손으로 연 서랍에서 시작, 잡을 때까지 다시 넛지. 비상정지·잠김·못 찾음·놓기 실패만 멈춤."""

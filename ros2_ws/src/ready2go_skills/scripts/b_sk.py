@@ -244,12 +244,32 @@ def drag_test(node):
 
 
 REGRAB_CODES = {"WALL_TOO_CLOSE"}           # 집기가 움직이기 전에 "아직 못 잡는 자리"로 거부 → 다시 넛지 [사용자 10/08]
+# find 에서 다시 보면 풀릴 수 있는 실패만 반복 (#191 E 리뷰): 물체가 움직였거나 접촉·도착이 어긋난 경우.
+# 나머지(입력·설정·서랍 상태·툴 등)는 다시 봐도 같으므로 원인과 사람 할 일을 출력하고 멈춤.
+RETRY_NUDGE = {"PUSH_BLOCKED", "NO_OBJECT_CONTACT", "NOT_REACHED", "PUSH_LIMIT", "YAW_INVALID"}
+RETRY_PICK = {"GRASP_FAILED", "NOT_REACHED", "YAW_INVALID"}
+HUMAN_FIX = {"DRAWER_NOT_AT_TRAVEL": "서랍을 끝까지 열고 B opened <서랍>",
+             "DRAWER_STATE_UNKNOWN": "B opened <서랍> 로 열림 알리기",
+             "DRAWER_NOT_CONFIGURED": "서랍 교시값(places.yaml tf·interior_m) 확인",
+             "BAD_PARAMS": "인식 결과·서랍 이름 확인 (rm -f /tmp/b_target_*.json 뒤 다시)",
+             "TOOL_NOT_SET": "펜던트 TCP GripperDA_v1·툴 tool_weight 선택",
+             "NOT_ON_FLOOR": "다른 물체 위에 얹힘 — 아직 미지원, 사람이 내려놓기",
+             "HOLDING_OBJECT": "그리퍼에 든 물체를 빼고 서버 재시작",
+             "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리 — 사람이 옮기기",
+             "JOINT_LIMIT": "관절 제한 — 자세·위치 확인"}
+
+
+def _stop_unrecoverable(step):
+    """다시 봐도 안 풀리는 실패 → 원인·사람 할 일 출력하고 멈춤."""
+    code = last["code"]
+    sys.exit(f"{step} {code} — 다시 봐도 같은 실패라 멈춤. 할 일: {HUMAN_FIX.get(code, '스킬 서버 터미널 로그 확인')}")
 
 
 def find(node):
     """서랍은 사람이 열어 둔 상태(B opened)에서: 탑뷰 → 인식 → 넛지 → 탑뷰 → 다시 인식 → 집기 → 트레이 → 홈 [사용자 10/08].
-    잡을 때까지 다시 (횟수 제한 없음 [사용자 10/08 "잡을 때까지"]): 넛지 실패·집기 전 거부(REGRAB_CODES)면 탑뷰 → 인식 → 다시 넛지,
-    집기가 움직인 뒤 실패(NOT_REACHED·GRASP_FAILED 등)면 탑뷰 → 다시 인식 → 다시 집기. 멈추는 것: STOP_CODES, 못 찾음(어디 있는지 모름), 놓기 실패(든 채)."""
+    잡을 때까지 다시 (횟수 제한 없음 [사용자 10/08 "잡을 때까지"]): 넛지 실패(RETRY_NUDGE)·집기 전 거부(REGRAB_CODES)면 탑뷰 → 인식 → 다시 넛지,
+    집기 실패(RETRY_PICK)면 탑뷰 → 다시 인식 → 다시 집기. 멈추는 것: STOP_CODES, 다시 봐도 안 풀리는 코드(입력·설정·서랍 상태 — 원인·할 일 출력),
+    못 찾음(어디 있는지 모름), 놓기 실패(든 채)."""
     def look(for_pick):
         if not timed("view", lambda: run(node, "view")):
             if last["code"] in STOP_CODES or not timed("view", lambda: run(node, "view")):   # 탑뷰 가기는 한 번 더
@@ -271,6 +291,8 @@ def find(node):
             continue
         if last["code"] in STOP_CODES:
             sys.exit(f"{step} {last['code']} — 다시 할 수 없는 상태라 멈춤 (펜던트·터미널 확인)")
+        if last["code"] not in (RETRY_NUDGE if step == "nudge" else RETRY_PICK | REGRAB_CODES):
+            _stop_unrecoverable(step)
         if step == "nudge" or last["code"] in REGRAB_CODES:
             print(f"\n----- {step} {last['code']} → 탑뷰 → 인식 → 다시 넛지 -----")
             look(False)
