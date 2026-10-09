@@ -157,7 +157,7 @@
 | `NOT_AT_START_POSE` | 노드 시작 자세가 정해진 원자 동작 — 지금은 `drawer_control` 열기 | 시작 자세가 아님(열기 = 손잡이 앞 `drawer_approach`, Runner `open_drawer` 1단계). 노드 안에서 시작 자세로 알아서 가지 않고 그리퍼도 움직이기 전에 거부 (#168, B 10/08). C 의 "움직이기 전 거부" 동작별 목록(`NO_MOTION_BY_ACTION`)에 추가 필요 |
 | `DRAWER_NOT_AT_TRAVEL` | `pick_object`(서랍)·`nudge_object` | 마지막 `drawer_control`의 `drawer_displacement`가 `places.yaml` `tf_at_travel_m`(서랍 좌표계가 유효한 인출 거리)에서 허용 오차를 벗어남 또는 값 없음 |
 | `YAW_INVALID` | `pick_object`(서랍)·`nudge_object` | `target.pose.yaw_valid`가 `true`가 아님(`false`·필드 없음). 다시 인식은 공통 `pick` 안에서 끌기 뒤 1회(E #122). 그 뒤 실패는 팔이 이미 움직였으므로 Runner 가 다시 보내지 않음(`MOTION_UNCERTAIN`). 이력: #65 합의 때는 태스크 retry 로 다시 인식 1회(pick 이 촬영 → 집기만 하던 때) |
-| `NOT_ON_FLOOR` | `pick_object`(서랍) | `top_z − 물체 높이`가 허용 오차보다 큼 → 다른 물체 위에 있음(또는 `top_z` 없음). 바닥 + 물체 높이로 내려가면 아래 물체와 부딪히므로 P1은 거부, `top_z` 기준 파지는 P2 |
+| `NOT_ON_FLOOR` | `pick_object`(서랍) | `top_z − 물체 높이`가 허용 오차보다 큼 → 다른 물체 위에 있음(또는 `top_z` 없음). 바닥 + 물체 높이로 내려가면 아래 물체와 부딪히므로 P1은 거부. P2(B `pick.allow_stacked`, #191 구현 10/09·실물 미확인): 받침 = `top_z − 물체 높이` 위에서 같은 규칙으로 집고, 윗면이 서랍 테두리 − `stack_top_clear_m`(10 mm)보다 높을 때만 이 코드 |
 | `WALL_TOO_CLOSE` | `pick_object`(서랍) | 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿는 자리(그리퍼 벌림 폭 + 실측 벽 간섭 거리, `motion_plan.wall_blocks_grasp` — `nudge_object` 판단과 같음). 현재 공통 `pick`(E #122)은 `nudge_object` 뒤 탑뷰에서 **다시 촬영한 `scan.target`**으로 집는다(`target_after`는 예상 위치로 기록만, `knowledge/skills/pick.jsonld`·`test_tasks.py`). 이력: 10/06 추가(#83 A 요청) 때는 `target_after`로 바로 집었음 |
 
 **`nudge_object` 에러 코드** (스킬이 아니라 원자 동작이라 온톨로지 `errors`가 아니라 여기에 둔다. 위 공통 코드도 반환)

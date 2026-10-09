@@ -601,6 +601,48 @@ def test_bad_grasp_width_refused_before_motion(server, monkeypatch):
     assert srv.robot.log == ["stop"]                                    # 이동·그리퍼 명령 없음 (예외 뒤 정지 요청만, plan 오류와 같음)
 
 
+def _stacked_eraser(top_z):
+    t = json.loads(json.dumps(ERASER_FREE))
+    t["top_z"] = top_z
+    return t
+
+
+def test_stacked_eraser_picked_on_support_and_remembered_from_own_bottom(server, monkeypatch):
+    """[사용자 10/09, P2 망치 25 + 캐러멜 18.5 위 지우개] top_z − 높이 = 받침 43.5 mm 위에서 집음.
+    놓을 때 높이는 물체 자기 바닥 기준(바닥에 놓음)."""
+    srv, real, seen = server.srv, server.ss.SkillServer._line, []
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        seen.append((stage, posx[2]))
+        return real(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    server.Gripper.holding = True
+    try:
+        floor, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+        z_floor, floor_held = dict(seen)["descend"], dict(srv.held)
+        seen[:], srv.held = [], None                                    # 놓았다고 치고 다시 집기
+        out, data = server.run("pick_object", {"target": _stacked_eraser(0.0115 + 0.0435), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert floor.success and out.success and "받침 43.5 mm" in out.reason and data["grasp_ok"]
+    assert dict(seen)["descend"] - z_floor == pytest.approx(43.5, abs=0.05)
+    assert srv.held["tcp_above_floor_m"] == pytest.approx(floor_held["tcp_above_floor_m"], abs=1e-4)   # 서랍 tf 기울기만큼
+
+
+@pytest.mark.parametrize("allow, top_z", [(True, 0.0712), (False, 0.055)])
+def test_stack_too_high_or_disabled_refused_before_motion(server, monkeypatch, allow, top_z):
+    """윗면이 테두리(71.1) − 10 mm 를 넘거나, allow_stacked false(P1)면 움직이기 전 NOT_ON_FLOOR."""
+    srv, real = server.srv, server.srv.prm
+
+    def prm():
+        p = real()
+        p["pick"]["allow_stacked"] = allow
+        return p
+    monkeypatch.setattr(srv, "prm", prm)
+    out, _ = server.run("pick_object", {"target": _stacked_eraser(top_z), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "NOT_ON_FLOOR" and srv.robot.log == []
+
+
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
     t = json.loads(json.dumps(ERASER_CORNER))

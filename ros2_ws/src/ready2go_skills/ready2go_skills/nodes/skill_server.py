@@ -378,14 +378,17 @@ class SkillServer(Node):
     def _over_then_down(self, goal, drawer_id, cur, above, stage):
         """서랍 안: (낮으면 수직으로 travel_z 까지) → travel_z 높이로 목표 바로 위까지 수평 → 목표 위(above)로 수직.
         경유점 높이로 옆으로 가다 비스듬히 내려가면 쌓인 물건에 닿음 [사용자 10/08]. 블렌딩 한 번 (모서리 반지름 blend_mm)."""
-        tz = self._travel_z(drawer_id, cur[2])
+        tz = max(self._travel_z(drawer_id, cur[2]), above[2])     # 쌓인 물체 위(above)가 이동 높이보다 높으면 그 높이로 옆 이동
         pts = []
         if tz - cur[2] > 1.0:
             pts.append(mp.with_z(cur, tz))
         over = [above[0], above[1], tz] + list(above[3:])
         if math.dist((pts[-1] if pts else cur)[:3], over[:3]) > 1.0:
             pts.append(over)
-        pts.append(list(above))
+        if not pts or math.dist(pts[-1][:3], above[:3]) > 1.0:
+            pts.append(list(above))
+        else:
+            pts[-1] = list(above)
         if len(pts) == 1:
             return self._line(goal, above, self._in_vel(), stage)
         r = self.prm()["transit"].get("blend_mm", 0.0)
@@ -1185,15 +1188,21 @@ class SkillServer(Node):
         prm, place = self.prm(), self.places().get(drawer_id) or {}
         cls = target.get("class")
         size, grip_force = self.item(cls)
+        # 쌓인 물체 집기 [사용자 10/09, P2 3개 겹침]: 윗면이 테두리 − stack_top_clear_m 이하면 받침(top_z − 높이) 위에서 집음
+        max_top = None
+        if prm["pick"].get("allow_stacked") and place.get("interior_m"):
+            max_top = place["interior_m"][2] - prm["pick"]["stack_top_clear_m"]
         err = motion_guard.precheck_pick(target=target, height_m=size[2], displacement_m=self.disp.get(drawer_id),
-                                         tf_at_travel_m=place.get("tf_at_travel_m"), params=prm["motion_guard"])
+                                         tf_at_travel_m=place.get("tf_at_travel_m"), params=prm["motion_guard"],
+                                         max_top_m=max_top)
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0],
                                     g=dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id)))
         if wall:                                            # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
-        plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"])
+        support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0
+        plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"], support_m=support)
         g, speed = prm["gripper"], prm["speed"]
         expected_w = self.grasp_width(cls, size, prm) or plan.expected_width_m       # 벌림은 외접박스 짧은 변 그대로 (plan.open_width_m)
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
@@ -1270,10 +1279,11 @@ class SkillServer(Node):
                 {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         floor_z = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
-                     "tcp_above_floor_m": plan.position_m[2] - floor_z}
+                     "tcp_above_floor_m": plan.position_m[2] - floor_z - support}   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
         out = {"object_id": target.get("id"), "class": cls, "pick_pose_drawer_frame": target.get("pose"),
                "grasp_ok": True}
-        return sf.Outcome(True, reason=f"{cls} 파지 (폭 {chk.width_m * 1000:.1f} mm, {hold.reason})"), out
+        stacked = f", 받침 {support * 1000:.1f} mm 위" if support else ""
+        return sf.Outcome(True, reason=f"{cls} 파지 (폭 {chk.width_m * 1000:.1f} mm, {hold.reason}{stacked})"), out
 
     # --- 놓기 ---
     def _do_place_object(self, goal, params):
