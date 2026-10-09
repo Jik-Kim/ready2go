@@ -1045,6 +1045,7 @@
     "common_rules": {
       "registered_item_source": "knowledge/world.jsonld의 실행 시점 버전",
       "runner_support_source": "tasks/find_item.json의 실행 시점 버전",
+      "runner_support_snapshot": "현재 tasks/find_item.json의 trigger.targets는 eraser만 허용한다. 등록 물품이어도 eraser가 아니면 runner_task_unsupported로 실행·발행을 보류한다. 지원 원본이 바뀌면 basis_snapshot을 기록하고 suite_version을 올린 뒤 기대값을 변경한다.",
       "single_use_question": "후속 응답은 만료되지 않고 아직 소비되지 않은 현재 질문에만 한 번 적용한다.",
       "context_clear": "취소·새 독립 요청·만료·프로세스 재시작 뒤에는 과거 질문을 재사용하지 않는다.",
       "response_consistency": "검증된 최종 문장, 화면 안내, 실제 TTS 입력이 같아야 한다. 원시 LLM 후보는 비교 대상이 아니라 진단 근거다.",
@@ -1087,46 +1088,82 @@
       "llm_raw_exposed_to_user": "원시 LLM 후보가 화면·TTS·공개 질문에 노출됐는지 여부",
       "past_target_restored": "무효화되거나 소비된 질문의 대상을 복원했는지 여부",
       "failure_reason": "tts_failed, publish_failed 또는 null",
+      "tts_start_basis": "실제 TTS 첫 DAC 시각 기준. TTS가 첫 DAC 전에 실패하면 null",
+      "confirmation_latency_ms": "발화 종료부터 첫 DAC까지의 지연. TTS가 첫 DAC 전에 실패하면 null",
+      "timing_result": "pass, fail 또는 not_measured",
       "execution_allowed": "해석 결과상 실행 후보 여부",
       "publish_attempt_count_delta": "controlled_context_regression에서 테스트 더블 발행 시도 증가량",
       "actual_publish_count_delta": "실제 ROS 발행 증가량. motionless 트랙에서는 0이어야 함",
       "execution_attempt_count_delta": "이 단계에서 증가한 실행 시도 횟수",
       "evidence_paths": "진단·화면·TTS·Runner 근거 경로"
     },
+    "expected_result_mapping": {
+      "intent": "actual_intent와 정확히 비교한다.",
+      "intent_candidates": "actual_intent가 후보 배열에 포함되는지 비교한다.",
+      "structured_intent": "actual_intent와 정확히 비교한다.",
+      "targets": "actual_targets와 순서까지 정확히 비교한다.",
+      "structured_targets": "actual_targets와 순서까지 정확히 비교한다.",
+      "internal_reason": "decision_reason과 정확히 비교한다.",
+      "public_final_text": "verified_final_text와 정확히 비교한다.",
+      "execution_policy": "allow는 execution_allowed=true, hold는 execution_allowed=false와 비교한다.",
+      "verified_final_equals_display": "verified_final_text와 display_text의 실제 동등성 결과와 비교한다.",
+      "verified_final_equals_tts_input": "verified_final_text와 tts_input_text의 실제 동등성 결과와 비교한다.",
+      "same_name_fields": "question 상태·context_clear_reason·decision_reason·failure_reason·노출/복원 플래그·TTS timing·발행/실행 횟수 등 나머지 판정 필드는 같은 이름의 실제 결과와 비교한다.",
+      "metadata_only": [
+        "note"
+      ]
+    },
     "scoring_rules": {
-      "step_result": "intent, targets, 질문 상태, failure_reason, execution_allowed, 발행·실행 시도 증가량이 expected와 모두 일치하면 pass. 필요한 근거가 없으면 not_scored",
+      "step_result": "expected에 선언된 모든 판정 필드(note 제외)가 실제 결과와 일치해야 pass다. intent/targets와 질문 상태뿐 아니라 structured_intent, structured_targets, internal_reason, public_final_text, failure_reason, execution_allowed, 노출·복원·응답 일치 플래그, TTS timing, 발행·실행 시도 증가량을 포함한다. response_constraints는 응답 문장과 evidence_paths로 충족 여부를 판정한다. 필수 필드나 근거가 없으면 not_scored다.",
       "response_consistency_result": "안내가 있는 단계에서 verified_final_text=display_text=tts_input_text이면 pass. TTS 실패 시험은 실패 전 tts_input_text와 화면 문장을 비교하고 성공 재생으로 채점하지 않는다.",
-      "scenario_result": "필수 단계 중 하나라도 fail이면 fail. 필수 근거 누락 또는 pending 기대값이 있으면 not_scored, 모두 pass이면 pass",
-      "suite_result": "모든 시나리오가 pass일 때만 pass"
+      "scenario_result": "필수 단계의 step_result 또는 안내 단계의 response_consistency_result 중 하나라도 fail이면 fail이다. 필수 근거 누락, pending 기대값, not_scored 항목이 하나라도 있으면 not_scored이며 모든 필수 판정이 pass일 때만 pass다.",
+      "suite_result": "두 required_tracks에서 모든 필수 시나리오가 pass이고 not_scored가 없을 때만 pass다. 트랙별 count_rule은 서로 바꾸어 적용하지 않는다."
     },
     "scenarios": [
       {
         "scenario_id": "UX194-001",
-        "title": "인용형 전체 요청 수용",
+        "title": "인용형 요청과 등록 비지우개 Runner 차단",
         "steps": [
           {
             "step_id": "1",
             "input_text": "망치 가져오라고 말했잖아",
             "expected": {
-              "intent": "find_item",
-              "targets": [
-                "toy_hammer"
+              "intent_candidates": [
+                "unknown",
+                "clarify"
               ],
-              "execution_policy": "allow",
-              "publish_attempt_count_delta": 1,
-              "note": "망치는 실행 원본에서 toy_hammer에 유일 대응하는지 함께 확인한다. 현재 원본과 불일치하면 구현 실패로 기록하고 클래스 키를 바꾸지 않는다."
+              "targets": [],
+              "execution_policy": "hold",
+              "publish_attempt_count_delta": 0,
+              "note": "인용·불명확 문맥은 실행 후보로 확정하지 않는다. knowledge/world.jsonld에는 bare alias '망치'가 없으므로 toy_hammer를 복원하지 않는다."
             }
           },
           {
             "step_id": "2",
             "input_text": "엄마가 망치 가져오라고 했어",
             "expected": {
+              "intent_candidates": [
+                "unknown",
+                "clarify"
+              ],
+              "targets": [],
+              "execution_policy": "hold",
+              "publish_attempt_count_delta": 0,
+              "note": "제3자의 말을 전달한 인용형 요청은 실행 후보로 확정하지 않는다."
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "장난감 망치 가져와줘",
+            "expected": {
               "intent": "find_item",
               "targets": [
                 "toy_hammer"
               ],
-              "execution_policy": "allow",
-              "publish_attempt_count_delta": 1
+              "decision_reason": "runner_task_unsupported",
+              "execution_policy": "hold",
+              "publish_attempt_count_delta": 0,
+              "note": "등록 이름은 해석하되 현재 tasks/find_item.json의 trigger.targets가 eraser만 지원하므로 발행하지 않는다."
             }
           }
         ]
@@ -1202,8 +1239,9 @@
               ],
               "question_state_before": "pending",
               "question_state_after": "consumed",
-              "execution_policy": "allow",
-              "publish_attempt_count_delta": 1
+              "decision_reason": "runner_task_unsupported",
+              "execution_policy": "hold",
+              "publish_attempt_count_delta": 0
             }
           },
           {
@@ -1257,8 +1295,9 @@
                 "toy_wrench"
               ],
               "question_state_after": "consumed",
-              "execution_policy": "allow",
-              "publish_attempt_count_delta": 1
+              "decision_reason": "runner_task_unsupported",
+              "execution_policy": "hold",
+              "publish_attempt_count_delta": 0
             }
           }
         ]
@@ -1512,6 +1551,9 @@
             "fault": "tts_failed_before_publish",
             "expected": {
               "failure_reason": "tts_failed",
+              "tts_start_basis": null,
+              "confirmation_latency_ms": null,
+              "timing_result": "not_measured",
               "publish_attempt_count_delta": 0,
               "execution_attempt_count_delta": 0
             }
@@ -1565,8 +1607,19 @@
       "wakeword_detected": true,
       "stt_mock": false,
       "tts_mock": false,
-      "tts_start_basis": "portaudio_first_dac",
-      "confirmation_latency_ms": "required",
+      "tts_timing_by_outcome": {
+        "tts_started": {
+          "tts_start_basis": "portaudio_first_dac",
+          "confirmation_latency_ms": "required",
+          "timing_result": "pass_or_fail"
+        },
+        "tts_failed_before_first_dac": {
+          "tts_start_basis": null,
+          "confirmation_latency_ms": null,
+          "timing_result": "not_measured",
+          "counted_as_ac_int_03_pass": false
+        }
+      },
       "display_text": "required",
       "tts_input_text": "required",
       "actual_publish_count_delta": 0,
