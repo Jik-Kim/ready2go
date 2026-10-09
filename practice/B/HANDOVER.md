@@ -73,13 +73,13 @@
 **통합 시험 (컨테이너, 10/07 저녁~)**: 로봇 기능은 모두 real 컨테이너. 호스트 `roboton`·`b_flow.sh server`·`realsense2_camera`·stub 은 **끄고** 띄운다.
 - `.env`: `BACKEND=real` · `DDS_MODE=local` · `ROBOT_HOST=192.168.1.100` · `RG2_HOST=192.168.1.1` · `RUNNER_TASK_FILE`·`RUNNER_INTENT_TASKS` 비움 (온톨로지는 공통 `/knowledge/robot_ontology.jsonld`, `find_item` → `tasks/find_item.json`) · 관절 속도 `SKILL_JOINT_VEL_DEG_S`/`ACC` (기본 60/40).
 - `docker compose --profile real up -d db ros2-core realsense` → 드라이버·`/gripper/state`·스킬 서버(15초 뒤)·Runner 가 함께 뜸. 스킬 서버를 따로 띄우지 않는다(중복).
-- B 단독 시험(`all`·`dragtest`·동작 하나씩)은 컨테이너 안에서 보내는 게 확실하다 [실측 10/07: 호스트 터미널은 설정이 빠지면 컨테이너가 안 보임]:
-  `B() { docker compose exec ros2-core bash -lc "source /opt/ros/jazzy/setup.bash; source /colcon/install/setup.bash; cd /ros2_ws/src/ready2go_skills/scripts && python3 b_sk.py $*"; }` → `B home`, `B all` …
+- B 단독 시험(`all top|bottom`·`dragtest`·동작 하나씩 — 서랍 인자 필수)은 컨테이너 안에서 보내는 게 확실하다 [실측 10/07: 호스트 터미널은 설정이 빠지면 컨테이너가 안 보임]:
+  `B() { docker compose exec ros2-core bash -lc "source /opt/ros/jazzy/setup.bash; source /colcon/install/setup.bash; cd /ros2_ws/src/ready2go_skills/scripts && python3 b_sk.py $*"; }` → `B home`, `B all top` (또는 `B all bottom`) …
   호스트 `b_flow.sh` 를 쓸 땐 먼저 `export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI=file://$HOME/ready2go/config/cyclonedds.local.xml`. `b_flow.sh server` 는 쓰지 않는다(서버 중복).
 - 호스트 음성 노드(E)는 `ros2_ws/install`(컨테이너 빌드)이 아니라 `~/r2g_host` 에 빌드해 source: `colcon --log-base /tmp/r2g_log build --symlink-install --packages-select ready2go_interfaces ready2go_knowledge ready2go_voice --build-base ~/r2g_host/build --install-base ~/r2g_host/install`.
 - 손으로 서랍을 닫았으면 스킬 서버는 열림으로 기억한다(→ `DRAWER_ALREADY_OPEN`). 로봇으로 닫거나 `docker compose restart ros2-core` [실측 10/07].
 - 회차 사이: 사람이 원위치(지우개·서랍 닫힘·빈 그리퍼·홈) 확인 → `ros2 service call /runner/reset_state std_srvs/srv/Trigger` (#107). 트레이 3칸 기억은 reset 으로 안 지워짐 → 4회 이상이면 `restart ros2-core`.
-- 재시작 뒤에는 음성 전에 `B scan` 으로 인식 확인. 비전 실패하면 컨테이너 내리기 전에 `docker compose logs realsense` 저장.
+- 재시작 뒤에는 음성 전에 `B scan top` (아래 칸은 `B scan bottom`) 으로 인식 확인. 비전 실패하면 컨테이너 내리기 전에 `docker compose logs realsense` 저장.
 
 **과거 기록 (10/06 저녁, 호스트 드라이버·호스트 스킬 서버 방식 — 지금은 쓰지 않음)**
 - 통신 설정: roboton·스킬 서버는 `~/.config/cyclonedds/cyclonedds.xml` (= `config/cyclonedds.local.xml`, `lo` 전용). **모든 터미널을 같게.**

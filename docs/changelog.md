@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-09 B 집기 폭 판정·문서 정합 (#43·#134)**: 집기 성공 하한 `gripper.pick_min_width_m` 10 mm(사용자 결정 10/08, 빈손·놓침 2 mm 와 별개), 실제로 잡는 부위 폭 `pick.grasp_width_m`(망치 손잡이 12.5 mm — 외접박스 짧은 변 75 mm 로 판정하면 손잡이를 잡아도 `WIDTH_MISMATCH`). 벌림은 짧은 변 기준 그대로. `item_grasp.yaml` 은 E 온톨로지 검사가 두 키만 허용해 B params 에 둠. HANDOVER `B all`·`B scan` 서랍 인자, domain 서랍 안 놓기 상태(#191 머지 전·교시 전) 표시. 계약 변경 없음, 실물 미확인.
 - **2026-10-08 B PC2 실물 뒤 동작 정리·쌓인 물건·선반 밀림 보정**: 탑뷰·손잡이 앞 관절 이동 90°/s(탑뷰는 올리기 끝 50 mm부터 회전), 당기기 160 mm/s, 손잡이 4 mm 덜 들어감, 블렌딩 반지름 구간 절반 90%(제어기 반올림 거부로 들고 나오기 출발 안 함 [실측]) + 들고 나오기 100 mm, 쥔 물체 파일 저장·재시작 복원(그리퍼 폭 확인), 서랍 안 경유점 = 중앙(들고 나오기 1), 집기 손목은 경유점 도착 뒤 기준, 서랍 안 옆 이동은 테두리 + 5 mm(쌓인 물건 약 55 mm, 특이점 여유 J3 23° [계산]), B 명령 `rescan`·`find`(잡을 때까지 다시 넛지). 선반 밀림을 바닥·손잡이 재터치로 보정(위·아래 tf·손잡이·45° 닫기·경유점 [실측·계산]). 계약 변경 없음, 실물은 열기·닫기만 일부 확인.
 - **2026-10-08 B 서랍 안 놓기 구현 (#120 ②·#166)**: 스킬 서버 `place_object` 가 `location` = 서랍(`pose`·`slot` + `scan`)을 받음 — 움직이기 전 이웃·벽 footprint 확인(`ready2go_skills/core/place_plan.py`), 서랍 안 옆 이동은 테두리 + `transit.in_drawer_clear_mm` 위에서만(사용자 10/08). params `place.footprint_margin_mm`·`default_obstacle_size_m` [팀 확정 필요], `places.yaml` `place_slots`(교시 전 null). 예시 `place_object_result.json` 은 scan 에 쥔 물체를 넣고 `_held` 표시(쥔 `id`가 scan 에 없으면 `BAD_PARAMS` 규칙과 맞춤). 계약 변경 없음, 실물 미확인.
 - **2026-10-08 PM 검증 안내를 AGENTS.md로**: `CLAUDE.md`에만 있던 "영역별 검증 명령" 표와 "PR 올리기 전 — 로컬 CI" 절을 `AGENTS.md`로 옮김(팀에서 Codex를 쓰는 에이전트는 `AGENTS.md`만 읽음, 사용자 결정). `CLAUDE.md`는 `AGENTS.md`를 읽으라는 안내만, PR 템플릿 체크 문구도 `AGENTS.md`로. 명령·규칙 내용 변경 없음.

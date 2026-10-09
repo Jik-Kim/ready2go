@@ -175,6 +175,17 @@ class SkillServer(Node):
         force = (grasp.get(cls) or {}).get("grip_force")
         return [float(v) for v in items[cls]["size_m"]], force
 
+    def grasp_width(self, cls, size_m, prm):
+        """skills.yaml `pick.grasp_width_m` — 실제로 잡는 부위의 폭 (망치는 외접박스 짧은 변 75 mm 가 아니라 손잡이).
+        없으면 None (온톨로지 짧은 변을 씀). 0 이하·짧은 변보다 큰 값은 움직이기 전에 거부 (#43).
+        item_grasp.yaml 은 E 온톨로지 검사가 grip_force·grasp_verified 만 허용해 B 파라미터에 둠."""
+        w = (prm["pick"].get("grasp_width_m") or {}).get(cls)
+        if w is None:
+            return None
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0.0 < w <= size_m[1]:
+            raise ValueError(f"{cls} grasp_width_m 은 0 초과·짧은 변({size_m[1]}) 이하: {w!r}")
+        return float(w)
+
     def _on_goal(self, _request):
         """실행 중인 동작이 있으면 새 goal 을 받지 않음 (Runner 는 거절로 받음, 로봇 동작 없음)."""
         return GoalResponse.REJECT if self.gate.busy() else GoalResponse.ACCEPT
@@ -1184,6 +1195,8 @@ class SkillServer(Node):
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"])
         g, speed = prm["gripper"], prm["speed"]
+        expected_w = self.grasp_width(cls, size, prm) or plan.expected_width_m       # 벌림은 외접박스 짧은 변 그대로 (plan.open_width_m)
+        pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:
             return bad, None
@@ -1224,12 +1237,13 @@ class SkillServer(Node):
         force = float(params.get("grip_force") or grip_force or g["default_grip_force_n"])
         goal.publish_feedback(Skill.Feedback(stage="close"))
         st = self._grip(0, force)
-        chk = gc.check_grasp(width_m=st.width_mm / 1000.0, grasp_detected=st.grip_detected, min_width_m=g["min_width_m"],
-                             expected_width_m=plan.expected_width_m, width_tolerance_m=g["grasp_width_tolerance_m"])
+        chk = gc.check_grasp(width_m=st.width_mm / 1000.0, grasp_detected=st.grip_detected, min_width_m=pick_min_w,
+                             expected_width_m=expected_w, width_tolerance_m=g["grasp_width_tolerance_m"])
         if not chk.ok:
             self._grip(plan.open_width_m * 1000.0, 20)
             back = self._line(goal, above, self._in_vel(), "lift")
-            return sf.worse(sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm)"),
+            return sf.worse(sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm, "
+                                                                 f"기대 {expected_w * 1000:.1f} mm)"),
                             back), {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         route = self._carry_route(drawer_id)
         # 집고 수직으로 테두리 위 높이까지 → 경유점 1(서랍 중앙, 같은 높이)로 수평, 블렌딩 한 번 — 비스듬히 가면 쌓인 물건에 닿음 [사용자 10/08].

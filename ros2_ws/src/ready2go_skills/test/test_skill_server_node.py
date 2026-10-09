@@ -119,13 +119,13 @@ def server(monkeypatch):
             return True
 
     class Gripper:
-        width, holding = 99.0, False
+        width, holding, held_width = 99.0, False, 21.0   # held_width: 쥐고 닫았을 때 폭 (지우개 21 mm)
 
         def __init__(self, ip):
             pass
 
         def move(self, w, f):
-            Gripper.width = (21.0 if Gripper.holding else 0.9) if w == 0 else w
+            Gripper.width = (Gripper.held_width if Gripper.holding else 0.9) if w == 0 else w
             return Rg2Status(Gripper.width, False, w == 0, False)
 
         def status(self):
@@ -557,6 +557,48 @@ def test_pick_goes_through_drag_down_like_nudge(server):
     assert blend[0] == "moveb" and len(blend[1]) == 2                   # y 맞추기 → 목표 위, 한 번에
     assert blend[1][0][1] == pytest.approx(blend[1][1][1])              # 첫 점 = 목표 y
     assert blend[1][1][2] < 300.0                                       # safe_z(300) 로 올리지 않음
+
+
+HAMMER = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+
+@pytest.mark.parametrize("width, ok", [(12.4, True), (9.6, False), (21.0, False)])
+def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
+    """#43: 망치 외접박스 짧은 변은 75 mm(머리)라 손잡이(12.5 mm)를 잡으면 WIDTH_MISMATCH 였음 → pick.grasp_width_m 으로 판정.
+    벌림은 짧은 변 기준 그대로 (75 + 13 mm). 10 mm 이하는 성공 아님 [사용자 결정 10/08]."""
+    server.Gripper.holding, server.Gripper.held_width = True, width
+    try:
+        srv = server.srv
+        real_grip, grips = srv._grip, []
+        srv._grip = lambda w, f: grips.append(w) or real_grip(w, f)
+        out, res = server.run("pick_object", {"target": json.loads(json.dumps(HAMMER)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success is ok and res["grasp_ok"] is ok
+    assert 88.0 in [round(w, 1) for w in grips]                         # 벌림 = 75 + 13 mm
+    if not ok:
+        assert out.error_code == server.ss.GRASP_FAILED and "기대 12.5 mm" in out.reason
+
+
+def test_pick_floor_10mm_even_if_bbox_short_side_matches(server):
+    """[사용자 결정 10/08, #43] 집기 성공 하한 10 mm — 빈손·놓침 2 mm 와 별개 값."""
+    g = server.srv.prm()["gripper"]
+    assert g["pick_min_width_m"] == pytest.approx(0.010) and g["min_width_m"] == pytest.approx(0.002)
+
+
+def test_bad_grasp_width_refused_before_motion(server, monkeypatch):
+    """짧은 변(75 mm)보다 큰 잡는 폭은 설정 오류 — 움직이기 전에 거부."""
+    srv, real = server.srv, server.srv.prm
+
+    def prm():
+        p = real()
+        p["pick"]["grasp_width_m"] = {"toy_hammer": 0.2}
+        return p
+    monkeypatch.setattr(srv, "prm", prm)
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(HAMMER)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "SKILL_EXCEPTION" and "grasp_width_m" in out.reason
+    assert srv.robot.log == ["stop"]                                    # 이동·그리퍼 명령 없음 (예외 뒤 정지 요청만, plan 오류와 같음)
 
 
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
