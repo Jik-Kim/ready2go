@@ -29,7 +29,8 @@ class FakeTTS:
 
 
 @pytest.fixture
-def harness(cfg, ontology, schema):
+def harness(cfg, ontology, schema, tmp_path):
+    cfg['tts_melotts_assets'] = str(tmp_path/'assets')
     node = SimpleNamespace(cfg=cfg, parser=IntentParser(ontology, schema, cfg),
         stop_event=threading.Event(), request_cancel=threading.Event(), speaking=threading.Event(),
         submit_lock=threading.Lock(), generation=0, tts=FakeTTS(), published=[], diagnostics=[])
@@ -89,6 +90,7 @@ def test_ros_evaluation_topic_and_tts_action(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(module, 'create_tts', lambda _: tts)
     monkeypatch.setenv('ROS_DOMAIN_ID', '166')
     monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path/'ros_logs'))
+    cfg['tts_melotts_assets'] = str(tmp_path/'assets')
     cfg['ontology_file'] = str(ROOT/'knowledge/robot_ontology.jsonld')
     cfg['intent_schema_file'] = str(ROOT/'contracts/intent.schema.json')
     path = tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
@@ -270,7 +272,7 @@ def test_evaluation_policy_deliver_path(harness, text, kind):
     assert harness.published[0]['source']['execution_allowed'] == (kind == 'find_item')
     assert harness.published[0]['targets'] == (['eraser'] if kind == 'find_item' else [])
     if kind == 'find_item':
-        assert harness.tts.texts == ['지우개 가져다드리겠습니다.']
+        assert harness.tts.texts == ['지우개 가져오기 요청으로 이해했어요.']
     else:
         assert harness.tts.texts == [doc['clarify_question']]
 
@@ -316,15 +318,16 @@ def test_fixed_tts_cannot_report_ac_latency(harness):
 
 
 
-def test_progress_default_short_and_detailed_mode_preserves_json(harness):
-    messages = []
+def test_progress_default_short_and_detailed_file_preserves_json(harness):
+    messages = []; details = []
     harness.get_logger = lambda: SimpleNamespace(info=messages.append)
-    doc = {'event': 'stt_result', 'text': '지우개 찾아줘', 'source': {'llm_raw': 'detailed raw'}}
+    harness.diagnostic_file = SimpleNamespace(emit=details.append)
+    doc = {'event': 'interpretation', 'intent': {'intent': 'clarify', 'targets': [],
+        'source': {'llm_raw': 'detailed raw'}}}
     VoiceNode._diagnostic(harness, doc)
-    assert messages == ['STT 결과: 지우개 찾아줘']
-    harness.cfg['diagnostic_detail'] = True
-    VoiceNode._diagnostic(harness, doc)
-    assert 'voice_diagnostic' in messages[1] and 'detailed raw' in messages[1]
+    assert messages == ['규칙 결과: clarify ']
+    assert details[0]['intent']['source']['llm_raw'] == 'detailed raw'
+    assert not any('detailed raw' in message for message in messages)
 
 
 @pytest.mark.parametrize('enabled', [True, False])
@@ -506,7 +509,7 @@ def test_finished_timing_default_is_one_short_line_and_detail_keeps_fields(harne
     assert messages == ['TTS 종료 (합성 대기 0.200초, 재생 0.400초)']
     harness.cfg['diagnostic_detail'] = True
     VoiceNode._diagnostic(harness, doc)
-    assert 'cache_hit' in messages[1]
+    assert messages[1] == messages[0]
 
 
 @pytest.fixture
@@ -627,8 +630,8 @@ def test_general_failed_result_does_not_block_next_voice_confirmation_and_intent
     assert h.pending_notice.kind=='grasp' and not h.normal_notice_cancel.is_set()
     h.busy=threading.Event();h.requests=queue.Queue(maxsize=1)
     assert VoiceNode._submit(h,('text','지우개 찾아줘'))
-    kind,text,generation=h.requests.get_nowait()
+    kind,text,generation,request_id=h.requests.get_nowait()
     assert kind=='text' and not h.request_cancel.is_set()
     VoiceNode._deliver(h,h.parser.parse(text),generation)
-    assert h.tts.texts==['지우개 가져다드리겠습니다.']
+    assert h.tts.texts==['지우개 가져오기 요청으로 이해했어요.']
     assert len(h.published)==1 and h.published[0]['intent']=='find_item'

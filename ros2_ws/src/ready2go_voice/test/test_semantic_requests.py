@@ -116,8 +116,10 @@ def test_hold_contexts_cannot_execute_even_with_wrong_llm(ontology, schema, cfg,
 ])
 def test_new_llm_forms_still_reject_invalid_results_and_do_not_expand_fallback(ontology, schema, cfg, raw):
     doc = IntentParser(ontology, schema, cfg, lambda *_: raw).parse('혹시 지우개를 받을 수 있을까요?')
-    assert doc['source']['llm_validation'] == 'failed' and doc['source']['fallback_used']
-    assert doc['intent'] == 'clarify' and doc['targets'] == []
+    assert doc['source']['llm_validation'] == 'failed'
+    unregistered = isinstance(raw, dict) and raw.get('targets') == ['apple']
+    assert doc['source']['fallback_used'] is (not unregistered)
+    assert doc['intent'] == ('unknown' if unregistered else 'clarify') and doc['targets'] == []
     assert not doc['source']['execution_allowed']
 
 

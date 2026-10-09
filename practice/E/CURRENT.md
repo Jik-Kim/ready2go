@@ -2,7 +2,7 @@
 
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장)
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
-- **최종 갱신**: 2026-10-08
+- **최종 갱신**: 2026-10-09
 
 ## Voice README 시운전 안내 정리 — E-VOICE-README-20261008
 
@@ -37,6 +37,15 @@
 - [실측: 정적·core 모의] 계약 검사 OK, 승인 파일17개·로컬 링크/앵커304개·FR/AC 및 Phase 표·기존 명령·스킬 verify 문자열 자료형 보존·Python AST/JSON/YAML·git diff --check를 확인했습니다. 최종 변경 후 `env -u PYTHONPATH python3 -m pytest ros2_ws/src -q -rs -p no:cacheprovider`는1742 passed,24 skipped(ROS/MongoDB),68.49초입니다. 기존 ROS 경로를 상속한 최초 pytest는 ready2go_interfaces 미설치로 수집 중단(exit5)이었으며 통과 결과로 계산하지 않습니다. 운영 노드·ROS 인터페이스 변경은 없고 별도 colcon/실물/API/TTS 시험은 실행하지 않았습니다. 전체 로컬 CI 결과는 이 커밋 이후 검사 SHA와 함께 별도 보고합니다.
 
 - [문서: 조율 대기] #43의 world 최소−2mm 자동계산13.4/18mm는 사용자10mm 결정을 대체하지 않습니다. B 공용 빈손2mm·서랍손잡이3mm는 변경하지 않았습니다. hardware손잡이29mm와 사용자12.5mm는 측정부위 확인 대기이고 직접 실측하지 않았습니다. world 외접박스 expected_width 불일치 개선은 B 후속이며 코드 삭제 승인으로 해석하지 않습니다.
+
+## #194 Voice UX·#138 캐시·#195 비교 — E-VOICE-UX-20261009-01
+
+- [실측: 검증 중] 승인25파일 체크포인트입니다. Voice 비ROS 회귀679 passed/9 skipped, Python AST·JSON/YAML·계약 검사·무관 요구사항/기존 설정/물품 구조 보존·로컬 링크/앵커280개·diff 검사는 통과했습니다. colcon build7패키지는 성공했으나 ROS Voice 테스트735건 중6건 실패하여 완료 상태가 아닙니다. 전체 core는 실행 중이며 후속 수정·필수 검증·커밋 SHA 기준 전체 로컬 CI가 남아 있습니다. 실제 API/마이크/TTS/로봇·AC는 미실행입니다.
+
+- [문서: 승인] 상위 조율의 사용자 “확인했어 진행해”를 원문 확인한 지시 범위입니다. 깨끗한 `codex/e-policy-pr-20261009`·`7f967713b32eaa9ae70a41720c1f6d0e94cadf8f`를 보존하고 공유 root에서 `codex/voice-ux-20261009`로 분리했습니다. PR #193의 기존17파일 변경·aa39 로컬 자산은 보존합니다. 이번 새 변경만 로컬 커밋하며 push/PR·중복 이슈/외부 게시·추가 subagent는 수행하지 않습니다.
+- [문서] P1 [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[voice-policy](../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)의 승인 예외를 정본부터 반영했습니다. 기존 Phase/AC 숫자는 유지합니다. 물품 일상 별칭만 보강하며 키/클래스/치수/목록은 유지합니다. 내부 질문/응답/비동기 상세 로그 모듈과 노드 연결, bounded 캐시 선준비·시간 진단·핵심 모의 검사를 정리합니다. 실제 캐시 합성·API/장치·로봇/AC 시험은 하지 않습니다.
+- [문서] 정책/현재 구현과 필드·검증 경계는 [voice_llm.md](../../docs/voice_llm.md#194-요청질문진단-연결과-138-bounded-캐시)·[Voice README](../../ros2_ws/src/ready2go_voice/README.md)와 실행 원본을 참조합니다. 공개 intent/계약·C/D 코드·기존 recovery/skill 정책 및 P2 params/테스트는 변경하지 않습니다. 일반 대화는 P2 사건/10초 정책과 독립입니다. 구현 모의·ROS검사·최종로컬CI는 명령/SHA와 실제 결과로 구분해 후속 기록합니다.
+- [인계: 대기] [#194](https://github.com/Jik-Kim/ready2go/issues/194)·[#138](https://github.com/Jik-Kim/ready2go/issues/138)·[#195](https://github.com/Jik-Kim/ready2go/issues/195)는 P1 기반 개선/비교로 유지하며 후속 C 수락 연결·D #20 정책 사례 검토는 [#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 추적합니다. #23 관리종료는 과거 이력/P1 미달을 완료/AC 면제로 바꾸지 않습니다. 과거 latched/같은 문장 결과의 요청 상관 식별·TTS/수락 순서·timeout/단절/취소 책임은 C 합의 전 미연결입니다. 새 계약은 E 포함2명 승인+스키마/예시/ICD 선행이며 조율의 협의 전달은 수락/승인이 아닙니다. #43/#152/#187/#150 새 구현은 제외합니다. 녹음 기본/임계값·기존 승인 상한을 유지했고 실음성 비교/채택 근거는 미측정입니다.
 
 ## 지금 상태
 

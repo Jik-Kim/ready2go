@@ -260,7 +260,7 @@ ros2 run ready2go_vision inspect_region_stub --ros-args \
 
 `logs/voice_eval/voice.local.yaml`에 마이크·`audio_enabled: true`·저장소 루트 기준 웨이크 모델 경로·MeloTTS 설정을 준비합니다. 모델 파일명은 실제 배치한 것으로 지정합니다. `secrets/voice.env`는 Python dotenv로 읽고 키는 명령이나 로그에 출력하지 않습니다.
 
-**음성만 평가하는 명령**입니다. 시작 파라미터 `evaluation_mode:=true`로 모든 intent의 발행을 차단하고, 상세 결과를 매번 새 파일에 저장합니다.
+**음성만 평가하는 명령**입니다. 시작 파라미터 `evaluation_mode:=true`로 모든 intent의 발행을 차단하고, 요약 콘솔을 매번 새 파일에 저장하고, 상세 JSONL은 로컬 Voice YAML의 `diagnostic_file` 경로에 별도로 남깁니다. 전체 LLM 증빙은 tee 파일만으로 보존되지 않습니다.
 
 ```bash
 mkdir -p logs/voice_eval

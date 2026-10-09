@@ -87,7 +87,8 @@ def test_free_llm_clarify_is_fixed_but_raw_retained(cfg,ontology,schema):
                                      ('지우개랑 립밤 찾아줘','multiple')])
 def test_rule_clarify_meaning_preserved(cfg,ontology,schema,text,key):
     doc=IntentParser(ontology,schema,cfg).parse(text)
-    assert doc['intent']=='clarify' and doc['clarify_question']==cfg['clarify_prompts'][key]
+    assert doc['intent']=='clarify'
+    assert doc['clarify_question']==('지우개 가져오기 요청이 맞나요?' if key=='bare' else cfg['clarify_prompts'][key])
 
 
 def test_wake_threshold_uses_strict_greater(cfg):

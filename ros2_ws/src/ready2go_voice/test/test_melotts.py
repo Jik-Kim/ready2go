@@ -153,7 +153,7 @@ def test_prefill_matches_real_task_particle_render_and_preserves_user_lists(cfg,
     for item in items:
         for template in templates:
             assert interpolate(template, {'loc': item}) in result
-        assert item['name_ko'] + ' 가져다드리겠습니다.' in result
+        assert item['name_ko'] + ' 가져오기 요청으로 이해했어요.' in result
     assert set(cfg['clarify_prompts'].values()) <= set(result)
     assert result.count('서랍을 닫았어요') == result.count('사용자 안내') == 1
     assert cfg == before and len(result) == len(set(result))
