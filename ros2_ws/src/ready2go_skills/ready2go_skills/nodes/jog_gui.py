@@ -414,8 +414,10 @@ class App:
                 v = tk.Label(c, text="—", bg="white", font=("TkFixedFont", 9), anchor="e")
                 v.pack(side="right", padx=3)
                 vals.append(v)
-            self.btn(tbl, "copy", lambda n=name: self.copy_live(n), font=("", 8)).grid(row=row, column=7, padx=(4, 6))
+            self.btn(tbl, "copy", lambda n=name: self.copy_live(n), font=("", 8)).grid(row=row, column=7, padx=(4, 4))
             self.cells[name] = vals
+        self.btn(tbl, "둘 다\ncopy", self.copy_both, font=("", 8)).grid(row=0, column=8, rowspan=2, sticky="ns",
+                                                                       padx=(2, 6), pady=2)   # posx·posj 한 번에 (사용자 10/09)
         self.live = {"posx": None, "posj": None}
 
     def jog_panel(self, parent, title, labels, group, vel, acc, vmax, unit, move_text, move_cmd, copy_name, hints, tag=None):
@@ -589,6 +591,13 @@ class App:
     def copy_live(self, name):
         if self.live[name]:
             self.copy_text(f"{name}([" + ", ".join(f"{v:.3f}" for v in self.live[name]) + "])")
+
+    def copy_both(self):
+        """posx 줄, posj 줄 두 줄로 복사 (지금 로봇 값)."""
+        if self.live["posx"] and self.live["posj"]:
+            self.copy_text("\n".join(f"{n}([" + ", ".join(f"{v:.3f}" for v in self.live[n]) + "])" for n in ("posx", "posj")))
+        else:
+            self.say("좌표 조회 전이라 복사 안 함")
 
     def copy_text(self, text):
         self.root.clipboard_clear()
