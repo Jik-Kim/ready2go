@@ -209,7 +209,9 @@ def main():
             report()
         return
     if cmd != "all":
-        run(node, cmd)
+        if run(node, cmd) and cmd == "close":       # 닫고 바로 홈까지 [사용자 10/10]
+            print("\n닫힘 → 홈으로")
+            run(node, "home")
         return
     try:
         run_all(node)

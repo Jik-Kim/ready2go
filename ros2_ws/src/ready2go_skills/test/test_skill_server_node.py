@@ -236,7 +236,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로
     log.clear()
     cp = server.srv.prm()["drawer_open_close"]["close_push"]["drawer_top"]   # 위 칸 닫기 = 45° 기울여 앞판 중앙 밀기 [사용자 10/08]
-    start_x = [391.399, -42.000, 224.955, 90.001, -135.000, 89.992]     # 시작 자세 실측 TCP
+    start_x = list(cp["start_posx"])                                     # 시작 자세 도착 TCP (= params start_posx, 10/10 10 mm 앞으로)
     real_movej = server.srv.robot.movej_async
 
     def movej(j, v, a):
@@ -249,7 +249,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert out.success
     assert log[0] == ("movej", cp["start_posj"])                        # 트레이 쪽에서 홈 안 거치고 시작 자세로 바로 (관절 이동)
     closed_y = cp["end_posx"][1] - 2.0                                  # 닫힌 앞판에 닿는 y + 2 mm 더
-    assert log[1][1][1] == pytest.approx(closed_y + 30.0, abs=0.5)      # 빠르게 → 마지막 30 mm 는 천천히 (두 번)
+    assert log[1][1][1] == pytest.approx(closed_y + server.srv.prm()["drawer_open_close"]["push_slow_last_mm"], abs=0.5)   # 빠르게 → 마지막 push_slow_last_mm(10/10 10 mm) 는 천천히 (두 번)
     assert log[2][1][1] == pytest.approx(closed_y, abs=0.5)
     assert log[1][1][3:] == start_x[3:] and log[1][1][2] == pytest.approx(start_x[2], abs=0.5)   # 손목·높이 그대로 서랍 축(≈ y)으로만
     assert log[1][1][0] == pytest.approx(start_x[0], abs=1.0)           # 서랍 축이 base y 에서 조금 기울어 x 는 1 mm 안
