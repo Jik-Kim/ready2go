@@ -1084,7 +1084,14 @@ def test_place_in_drawer_matches_contract_examples(server, monkeypatch, case):
     움직이기 전 거부는 로봇·그리퍼 명령 없음."""
     srv = server.srv
     grips = _holding_in_drawer(server, {"aside_1": {"position": [0.05, 0.05, 0.0], "yaw": 0.0}, "aside_2": None})
-    srv.held = dict(LIP_HELD, id=case["_held"]["id"], **{"class": case["_held"]["class"]})
+    params = json.loads(json.dumps(case["params"]))
+    scan = params.get("scan")
+    if isinstance(scan, dict) and isinstance(scan.get("candidates"), list):
+        # 쥔 물체 id 가 scan 에 없으면 BAD_PARAMS (계약 #166) — 예시는 쥔 물체를 안 넣었으니 집기 전 자리로 넣음 (예시 보충은 별도 PR)
+        seen = [c.get("id") for c in scan["candidates"]] + [(scan.get("target") or {}).get("id")]
+        if LIP_HELD["id"] not in seen:
+            scan["candidates"].insert(0, dict(EMPTY_SCAN["candidates"][0]))
+            scan["visible_count"] = scan.get("visible_count", 0) + 1
     if case["case"] == "released_but_lift_failed":
         real_line = server.ss.SkillServer._line
 
@@ -1093,7 +1100,7 @@ def test_place_in_drawer_matches_contract_examples(server, monkeypatch, case):
                 return sf.Outcome(False, sf.STOP_UNCONFIRMED, reason="주입")
             return real_line(self, goal, posx, vel, stage, watch, **kw)
         monkeypatch.setattr(server.ss.SkillServer, "_line", line)
-    out, data = server.run("place_object", case["params"])
+    out, data = server.run("place_object", params)
     assert (out.success, out.error_code) == (case["success"], case["error_code"]), out.reason
     assert data == case["output"]
     if case["error_code"] in ("BAD_PARAMS", "PLACE_BLOCKED", "WALL_TOO_CLOSE"):

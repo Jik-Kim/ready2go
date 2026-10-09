@@ -1,5 +1,5 @@
 {
-  "_comment": "place_object 입력·결과 예시 (runner.md 7.1, #120 ② 계약안 — B 제안, E 포함 2명 승인 전). 각 항목 = Skill 액션 {params(입력), success, error_code, output_json(파싱한 값)}. 서랍 안 놓기는 P2 (FR-ACT-04 Unpacking: 치울 물건을 빈 자리에 놓기 → 원래 자리로 되돌리기). 좌표는 서랍 좌표계(inspect_region pose 와 같은 기준: position.z = 0, yaw (-pi/2, pi/2]). 서랍 안 놓기 입력 scan = 직전 inspect_region 결과 전체($scan) — B 는 target(찾았으면)과 candidates 를 모두 이웃으로 검사하고 쥔 물체와 같은 id 만 뺀다(#166 D 리뷰 P1: candidates 에는 target 이 빠져 있어 서랍에 남은 목표와 겹쳐도 통과하던 문제). placed_pose 는 B 가 놓으라고 명령한 자리이며 재인식이 아님 — 실제 놓인 위치는 inspect_region 으로만 안다(놓기 오차·미끄러짐). 그리퍼를 연 뒤에만 채우고, 열기 전 실패면 null. _held = 그 경우 스킬 서버가 pick_object 에서 기억한 쥔 물체(입력 아님, 설명·노드 테스트용) — 쥔 물체 id 가 scan 에 없으면 BAD_PARAMS 이므로 각 scan 에 쥔 lip_balm#1 이 집기 전 자리로 들어 있음(B 구현 때 보충, 계약 변경 없음). 값은 위 서랍 크기(interior_m 0.1997 × 0.2937) 안의 설명용 예시이며 실측이 아님",
+  "_comment": "place_object 입력·결과 예시 (runner.md 7.1, #120 ② 계약안 — B 제안, E 포함 2명 승인 전). 각 항목 = Skill 액션 {params(입력), success, error_code, output_json(파싱한 값)}. 서랍 안 놓기는 P2 (FR-ACT-04 Unpacking: 치울 물건을 빈 자리에 놓기 → 원래 자리로 되돌리기). 좌표는 서랍 좌표계(inspect_region pose 와 같은 기준: position.z = 0, yaw (-pi/2, pi/2]). 서랍 안 놓기 입력 scan = 직전 inspect_region 결과 전체($scan) — B 는 target(찾았으면)과 candidates 를 모두 이웃으로 검사하고 쥔 물체와 같은 id 만 뺀다(#166 D 리뷰 P1: candidates 에는 target 이 빠져 있어 서랍에 남은 목표와 겹쳐도 통과하던 문제). placed_pose 는 B 가 놓으라고 명령한 자리이며 재인식이 아님 — 실제 놓인 위치는 inspect_region 으로만 안다(놓기 오차·미끄러짐). 그리퍼를 연 뒤에만 채우고, 열기 전 실패면 null. 값은 위 서랍 크기(interior_m 0.1997 × 0.2937) 안의 설명용 예시이며 실측이 아님",
   "cases": [
     {
       "case": "handover_zone_tray",
@@ -22,10 +22,6 @@
     },
     {
       "case": "drawer_pose_aside",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -42,21 +38,6 @@
           "target": null,
           "candidates": [
             {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.1,
-                  0.1,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            },
-            {
               "id": "eraser#1",
               "class": "eraser",
               "top_z": 0.0115,
@@ -72,7 +53,7 @@
               }
             }
           ],
-          "visible_count": 2
+          "visible_count": 1
         }
       },
       "success": true,
@@ -92,34 +73,14 @@
     },
     {
       "case": "drawer_fixed_slot",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "slot": "aside_1",
         "scan": {
           "target_found": false,
           "target": null,
-          "candidates": [
-            {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.1,
-                  0.1,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            }
-          ],
-          "visible_count": 1
+          "candidates": [],
+          "visible_count": 0
         }
       },
       "success": true,
@@ -139,10 +100,6 @@
     },
     {
       "case": "return_to_original_pose",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -157,24 +114,8 @@
         "scan": {
           "target_found": false,
           "target": null,
-          "candidates": [
-            {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.05,
-                  0.05,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            }
-          ],
-          "visible_count": 1
+          "candidates": [],
+          "visible_count": 0
         }
       },
       "success": true,
@@ -194,10 +135,6 @@
     },
     {
       "case": "neighbor_too_close",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -214,21 +151,6 @@
           "target": null,
           "candidates": [
             {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.1,
-                  0.1,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            },
-            {
               "id": "eraser#1",
               "class": "eraser",
               "top_z": 0.0115,
@@ -244,7 +166,7 @@
               }
             }
           ],
-          "visible_count": 2
+          "visible_count": 1
         }
       },
       "success": false,
@@ -258,10 +180,6 @@
     {
       "case": "blocked_by_target_left_in_drawer",
       "_comment": "Unpacking: 목표(eraser#1)를 가린 lip_balm#1 을 쥐고 빈 자리로 옮기는 중. 목표는 scan.target 에만 있고 candidates 에는 없음 → target 도 검사해야 거부됨. 쥔 lip_balm#1 은 candidates 에 있어도 무시",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -320,10 +238,6 @@
     },
     {
       "case": "wall_too_close",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -338,24 +252,8 @@
         "scan": {
           "target_found": false,
           "target": null,
-          "candidates": [
-            {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.1,
-                  0.1,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            }
-          ],
-          "visible_count": 1
+          "candidates": [],
+          "visible_count": 0
         }
       },
       "success": false,
@@ -368,10 +266,6 @@
     },
     {
       "case": "scan_missing",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -393,10 +287,6 @@
     },
     {
       "case": "released_but_lift_failed",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -411,24 +301,8 @@
         "scan": {
           "target_found": false,
           "target": null,
-          "candidates": [
-            {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.1,
-                  0.1,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            }
-          ],
-          "visible_count": 1
+          "candidates": [],
+          "visible_count": 0
         }
       },
       "success": false,
@@ -448,10 +322,6 @@
     },
     {
       "case": "pose_and_slot_both",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -467,24 +337,8 @@
         "scan": {
           "target_found": false,
           "target": null,
-          "candidates": [
-            {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.1,
-                  0.1,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            }
-          ],
-          "visible_count": 1
+          "candidates": [],
+          "visible_count": 0
         }
       },
       "success": false,
@@ -497,10 +351,6 @@
     {
       "case": "pose_not_finite",
       "_comment": "x 가 NaN·Infinity·문자열이면 움직이기 전 BAD_PARAMS (JSON 에 NaN 을 못 쓰므로 문자열로 표시)",
-      "_held": {
-        "id": "lip_balm#1",
-        "class": "lip_balm"
-      },
       "params": {
         "location": "drawer_top",
         "pose": {
@@ -515,24 +365,8 @@
         "scan": {
           "target_found": false,
           "target": null,
-          "candidates": [
-            {
-              "id": "lip_balm#1",
-              "class": "lip_balm",
-              "top_z": 0.02,
-              "pose": {
-                "frame": "drawer_top",
-                "position": [
-                  0.1,
-                  0.1,
-                  0.0
-                ],
-                "yaw": 0.0,
-                "yaw_valid": true
-              }
-            }
-          ],
-          "visible_count": 1
+          "candidates": [],
+          "visible_count": 0
         }
       },
       "success": false,
