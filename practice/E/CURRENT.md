@@ -40,7 +40,7 @@
 
 ## #194 Voice UX·#138 캐시·#195 비교 — E-VOICE-UX-20261009-01
 
-- [실측: 검증 중] 승인25파일 체크포인트입니다. Voice 비ROS 회귀679 passed/9 skipped, Python AST·JSON/YAML·계약 검사·무관 요구사항/기존 설정/물품 구조 보존·로컬 링크/앵커280개·diff 검사는 통과했습니다. colcon build7패키지는 성공했으나 ROS Voice 테스트735건 중6건 실패하여 완료 상태가 아닙니다. 전체 core는 실행 중이며 후속 수정·필수 검증·커밋 SHA 기준 전체 로컬 CI가 남아 있습니다. 실제 API/마이크/TTS/로봇·AC는 미실행입니다.
+- [실측: 후속 검증] 승인25파일을 체크포인트 커밋으로 보존한 뒤 Voice 테스트 기대값/대역6건과 시험 캐시 경로를 보완했습니다. 비ROS Voice679 passed/9 skipped, Python AST·JSON/YAML·계약 검사·요구사항/기존 설정/물품 구조 보존·로컬 링크/앵커280개·diff 검사는 통과했습니다. colcon build7패키지 성공, 실제 ROS Voice colcon test735건(오류/실패/skip0) 통과입니다. ROS 환경 전체 pytest는 초기6실패/1907통과/10skip/5오류였고, Voice6실패는 보완·재검증했습니다. 남은5오류는 C test_runner_node.py의 기존 /contracts/intent.schema.json 기본 경로 부재로 인계 대상이며 C 코드는 수정하지 않습니다. core MongoDB10건은 호스트에서 연결 불가로 건너뛰었으므로 전체 core 통과로 표현하지 않습니다. 커밋 SHA 기준 전체 로컬 CI는 후속 실행입니다. 실제 API/마이크/TTS 합성·재생/로봇·AC는 미실행이고 C 수락 연결·D 검토는 대기입니다. 모의 시험이 만든 models/tts/melotts/validated_phrases.json은 텍스트 사용 이력만 포함하며 커밋 제외·보존했고 시험 assets 경로를 tmp_path로 분리했습니다.
 
 - [문서: 승인] 상위 조율의 사용자 “확인했어 진행해”를 원문 확인한 지시 범위입니다. 깨끗한 `codex/e-policy-pr-20261009`·`7f967713b32eaa9ae70a41720c1f6d0e94cadf8f`를 보존하고 공유 root에서 `codex/voice-ux-20261009`로 분리했습니다. PR #193의 기존17파일 변경·aa39 로컬 자산은 보존합니다. 이번 새 변경만 로컬 커밋하며 push/PR·중복 이슈/외부 게시·추가 subagent는 수행하지 않습니다.
 - [문서] P1 [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[voice-policy](../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)의 승인 예외를 정본부터 반영했습니다. 기존 Phase/AC 숫자는 유지합니다. 물품 일상 별칭만 보강하며 키/클래스/치수/목록은 유지합니다. 내부 질문/응답/비동기 상세 로그 모듈과 노드 연결, bounded 캐시 선준비·시간 진단·핵심 모의 검사를 정리합니다. 실제 캐시 합성·API/장치·로봇/AC 시험은 하지 않습니다.

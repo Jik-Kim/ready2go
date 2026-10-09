@@ -33,7 +33,8 @@ def harness(cfg, ontology, schema, tmp_path):
     cfg['tts_melotts_assets'] = str(tmp_path/'assets')
     node = SimpleNamespace(cfg=cfg, parser=IntentParser(ontology, schema, cfg),
         stop_event=threading.Event(), request_cancel=threading.Event(), speaking=threading.Event(),
-        submit_lock=threading.Lock(), generation=0, tts=FakeTTS(), published=[], diagnostics=[])
+        submit_lock=threading.Lock(), generation=0, tts=FakeTTS(), published=[], diagnostics=[],
+        local_context=threading.local())
     node.session = VoiceSession(node.parser, cfg)
     node._publish = lambda doc: node.published.append(copy.deepcopy(doc))
     node._diagnostic = lambda doc: node.diagnostics.append(copy.deepcopy(doc))
@@ -163,7 +164,7 @@ def test_execution_node_holds_unconfirmed_meaning(harness, text, use_llm):
     assert harness.published
     assert all(d['intent'] in ('unknown', 'clarify') and d['targets'] == []
                and not d['source']['execution_allowed'] for d in harness.published)
-    assert harness.tts.texts == [doc['clarify_question']]
+    assert harness.tts.texts == [doc['_voice']['final_text']]
     assert all('가져다드리겠습니다' not in t for t in harness.tts.texts)
 
 
@@ -219,9 +220,9 @@ def test_publication_failure_does_not_consume_find(harness):
     def fail(_):
         raise RuntimeError('publication unavailable')
     harness._publish = fail
-    with pytest.raises(RuntimeError):
-        VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
     assert harness.session._last is None
+    assert any(d['event'] == 'publish_failed' and not d['published'] for d in harness.diagnostics)
     harness._publish = publish
     VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
     assert [doc['intent'] for doc in harness.published] == ['find_item']
@@ -359,10 +360,13 @@ def test_speech_hold_never_publishes_in_execution_mode(harness, reason):
 
 
 @pytest.mark.parametrize('prepare_fails', [False, True])
-def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeypatch, prepare_fails):
+def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeypatch, prepare_fails, tmp_path):
     import ready2go_voice.nodes.voice_node as module
     order = []
     cfg['audio_enabled'] = True
+    cfg['diagnostic_detail'] = False
+    cfg['tts_melotts_assets'] = str(tmp_path/'assets')
+    monkeypatch.setattr(VoiceNode, 'get_logger', lambda self: SimpleNamespace(warning=lambda _: None))
     monkeypatch.setattr(module.Node, '__init__', lambda *a, **k: None)
     monkeypatch.setattr(module, 'get_package_share_directory', lambda _: '.')
     monkeypatch.setattr(module, 'load_config', lambda *a, **k: cfg)
@@ -385,10 +389,10 @@ def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeyp
     if prepare_fails:
         with pytest.raises(RuntimeError, match='MELOTTS_PREPARE_FAILED'):
             VoiceNode()
-        assert order == ['prepare']
+        assert order == ['prefill_selection', 'prepare']
     else:
         node = VoiceNode()
-        assert order == ['prepare', 'thread_start', 'thread_start', 'thread_start', 'ready']
+        assert order == ['prefill_selection', 'prepare', 'thread_start', 'thread_start', 'thread_start', 'ready']
         assert '서랍을 닫았어요' in node.cfg['_tts_prefill_texts']
 
 
