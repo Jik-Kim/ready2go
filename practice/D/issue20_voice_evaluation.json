@@ -1000,19 +1000,24 @@
   "issue_194_regression": {
     "status": "not_run",
     "suite_version": "0.2-draft",
-    "basis": "[문서] docs/requirements.md#voice-policy와 Issue #194 결정 E-VOICE-UX-20261009-01",
+    "basis": "[문서] Issue #194 결정 E-VOICE-UX-20261009-01과 PR #198 head d0544ee 적용 후의 목표 음성 정책",
     "relationship_to_main_40": "기존 40문장 AC-INT-01 정확도 분모에는 포함하지 않고, #194 완료를 위한 별도 필수 회귀 세트로 판정한다.",
     "basis_snapshot": {
       "requirements_anchor": "docs/requirements.md#voice-policy",
-      "code_sha": null,
+      "policy_issue": "https://github.com/Jik-Kim/ready2go/issues/194",
+      "policy_pr": "https://github.com/Jik-Kim/ready2go/pull/198",
+      "code_sha": "d0544ee92cd15913628adaf935d1f49b8f6b5277",
+      "policy_pr_state_at_snapshot": "open_not_merged",
+      "baseline_main_note": "현재 main의 인용 일괄 보류·bare alias 미등록 정책을 채점하는 baseline이 아니다. PR #198 적용 후 승인 목표를 검증하며, PR #198 head가 바뀌거나 병합되면 snapshot과 해시를 갱신한다.",
       "config_paths": [
         "ros2_ws/src/ready2go_voice/params/voice.yaml"
       ],
       "ontology_path": "knowledge/world.jsonld",
-      "ontology_sha256": null,
+      "ontology_sha256": "d9dee3b9d8b4a7005dcee02f9dec79889c84ead97c0028b162f768e6189b83bc",
+      "alias_expectation": "PR #198 head의 knowledge/world.jsonld에서 망치는 toy_hammer의 aliases_ko에 등록된다.",
       "task_path": "tasks/find_item.json",
-      "task_sha256": null,
-      "status": "not_recorded"
+      "task_sha256": "148ce4b47142ece1f3a18cd8cfa9795499f55753259a838292f837efedd9e331",
+      "status": "target_policy_snapshot_recorded"
     },
     "approval": {
       "status": "pending_d_acceptance",
@@ -1043,7 +1048,7 @@
       }
     },
     "common_rules": {
-      "registered_item_source": "knowledge/world.jsonld의 실행 시점 버전",
+      "registered_item_source": "basis_snapshot.code_sha의 knowledge/world.jsonld. 이 suite에서는 망치가 toy_hammer 별칭인 PR #198 적용 후 목표 원본을 사용한다.",
       "runner_support_source": "tasks/find_item.json의 실행 시점 버전",
       "runner_support_snapshot": "현재 tasks/find_item.json의 trigger.targets는 eraser만 허용한다. 등록 물품이어도 eraser가 아니면 runner_task_unsupported로 실행·발행을 보류한다. 지원 원본이 바뀌면 basis_snapshot을 기록하고 suite_version을 올린 뒤 기대값을 변경한다.",
       "single_use_question": "후속 응답은 만료되지 않고 아직 소비되지 않은 현재 질문에만 한 번 적용한다.",
@@ -1122,34 +1127,34 @@
     "scenarios": [
       {
         "scenario_id": "UX194-001",
-        "title": "인용형 요청과 등록 비지우개 Runner 차단",
+        "title": "승인 인용형 요청 해석과 등록 비지우개 Runner 차단",
         "steps": [
           {
             "step_id": "1",
             "input_text": "망치 가져오라고 말했잖아",
             "expected": {
-              "intent_candidates": [
-                "unknown",
-                "clarify"
+              "intent": "find_item",
+              "targets": [
+                "toy_hammer"
               ],
-              "targets": [],
+              "decision_reason": "runner_task_unsupported",
               "execution_policy": "hold",
               "publish_attempt_count_delta": 0,
-              "note": "인용·불명확 문맥은 실행 후보로 확정하지 않는다. knowledge/world.jsonld에는 bare alias '망치'가 없으므로 toy_hammer를 복원하지 않는다."
+              "note": "Issue #194 승인 예문과 PR #198의 망치 별칭을 적용해 요청 의미는 수용한다. 현재 Runner 지원은 별도 게이트에서 차단한다."
             }
           },
           {
             "step_id": "2",
             "input_text": "엄마가 망치 가져오라고 했어",
             "expected": {
-              "intent_candidates": [
-                "unknown",
-                "clarify"
+              "intent": "find_item",
+              "targets": [
+                "toy_hammer"
               ],
-              "targets": [],
+              "decision_reason": "runner_task_unsupported",
               "execution_policy": "hold",
               "publish_attempt_count_delta": 0,
-              "note": "제3자의 말을 전달한 인용형 요청은 실행 후보로 확정하지 않는다."
+              "note": "Issue #194가 승인한 전언형 단일 물품 요청으로 해석하되 현재 Runner 미지원으로 발행하지 않는다."
             }
           },
           {
