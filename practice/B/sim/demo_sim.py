@@ -8,17 +8,19 @@ import trace_skill_flow as tsf
 import m0609_kin as kin
 
 class Robot(tsf.KinRobot):
+    STEP_MM, STEP_DEG = 3.0, 1.5                         # IK 간격 (A 도구 0.5 mm·0.25° 보다 거칠게 — 빠르게, 특이점 판정은 충분)
+
     def movel_async(self, p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0):
         if self._path:                                   # 이동 중에 새 명령(블렌딩): 남은 경로 끝으로 건너뜀
             self.p, self.j = self._path[-1]; self._path = []
-        return super().movel_async(p, vel, acc, rot_vel, rot_acc)
+        return self.moveb_async([p], [0.0], vel, acc, rot_vel, rot_acc, kind="movel")
 
     def movej_async(self, j, vel, acc):
         if self._path:
             self.p, self.j = self._path[-1]; self._path = []
         return super().movej_async(j, vel, acc)
 
-    def moveb_async(self, pts, radii, vel, acc, rot_vel=30.0, rot_acc=60.0):
+    def moveb_async(self, pts, radii, vel, acc, rot_vel=30.0, rot_acc=60.0, kind="moveb"):
         if self._path:
             self.p, self.j = self._path[-1]; self._path = []
         path_all, traj_all, fail, p, q = [], [list(self.j)], 0, list(self.p), self.j
@@ -26,7 +28,7 @@ class Robot(tsf.KinRobot):
         for pt in pts:
             dist = float(np.linalg.norm(np.array(pt[:3]) - np.array(p[:3])))
             _, ang = kin.interp_line(p, pt, 1)
-            n = max(2, int(max(dist / 1.0, ang / 0.5)))
+            n = max(2, int(max(dist / self.STEP_MM, ang / self.STEP_DEG)))
             Ts, _ = kin.interp_line(p, pt, n)
             for T in Ts[1:]:
                 q, ok = kin.ik(T, q)
@@ -34,7 +36,7 @@ class Robot(tsf.KinRobot):
                 traj_all.append(list(map(float, q)))
                 path_all.append(((T[:3, 3] * 1000.0).tolist() + list(pt[3:]), list(map(float, q))))
             dist_tot += dist; ang_tot += ang; p = list(pt)
-        self._record("moveb", self.p, list(pts[-1]), traj_all, dict(vel=vel, acc=acc, rot_vel=rot_vel, rot_acc=rot_acc,
+        self._record(kind, self.p, list(pts[-1]), traj_all, dict(vel=vel, acc=acc, rot_vel=rot_vel, rot_acc=rot_acc,
                                                                    dist_mm=dist_tot, rot_deg=ang_tot, ik_fail=fail, n_pts=len(pts)))
         idx = np.linspace(0, len(path_all) - 1, min(len(path_all), 200)).round().astype(int)
         self._path = [path_all[i] for i in idx]

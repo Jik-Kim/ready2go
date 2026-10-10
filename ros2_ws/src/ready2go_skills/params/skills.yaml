@@ -14,6 +14,8 @@ drawer_control:   # core/drawer_plan.py (#13, docs/domain.md 8.4). 모두 [팀 �
   force_sign: 1.0               # [추정] get_tool_force 부호 규약. 실측에서 저항력이 음수로 나오면 -1.0
 pick:   # core/pick_plan.py (#15)
   tcp_above_top_m: 0.0          # [실측 B 10/04, #8] TCP를 물체 윗면 높이에 둠 — 지우개(11.5 mm) TCP 바닥 위 10.0~11.4 mm에서 3/3 파지. 높은 물체는 10/06 확인
+  tcp_above_top_by_class_m: {}  # 물건별 tcp_above_top_m 덮어쓰기 (m, 음수 = 윗면보다 아래). 크게 벌리면 손끝이 TCP 보다 위로 감(약 17 mm, 85~100 mm 벌림 [실측 10/06])
+                                #   → 가림막(높이 40.5, 벌림 87 mm)처럼 넓고 키 큰 물건은 윗면 높이로는 손끝이 판 위로 지나갈 수 있음 [P2 시뮬레이션 10/10 — 실측으로 채움, 예: {cover_plate: -0.015}]
   min_tcp_above_floor_m: 0.010  # [실측 B 10/04, #8] 성공한 가장 낮은 TCP 높이. 닫힌 손끝이 TCP보다 약 10 mm 아래라 이보다 낮추지 않음
   open_margin_m: 0.013          # [실측 B 10/04, #8] 벌림 = 짧은 변 + 13 mm (지우개 22 mm → 35 mm). 완전히 벌리면 손끝이 바닥에 닿음
   max_open_width_m: 0.100       # [문서] RG2 최대 110 mm에서 여유를 뺀 값 (#8 판정 기준)

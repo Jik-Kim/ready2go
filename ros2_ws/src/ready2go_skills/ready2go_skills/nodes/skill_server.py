@@ -17,6 +17,7 @@
     ros2 run ready2go_skills skill_server
     ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0   # 처음은 저속 (safety.md 11)
 """
+import copy
 import dataclasses
 import json
 import math
@@ -81,6 +82,22 @@ def find_config_dir():
         if (d / "config" / "poses.yaml").exists():
             return d / "config"
     return Path.home() / "ready2go" / "config"
+
+
+_YAML_CACHE = {}
+
+
+def _yaml_cached(path):
+    """YAML 을 파일 수정 시각·크기가 바뀔 때만 다시 파싱 (돌려줄 땐 복사 — 받은 쪽이 고쳐도 다음 호출에 안 섞임).
+    이동 감시 반복(0.05 s)마다 skills.yaml 을 다시 파싱하던 것(약 50 ms)이 감시 주기를 두 배로 늘렸음 [P2 시뮬레이션 10/10 측정]."""
+    path = Path(path)
+    st = path.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _YAML_CACHE.get(path)
+    if hit is None or hit[0] != key:
+        hit = (key, yaml.safe_load(path.read_text(encoding="utf-8")))
+        _YAML_CACHE[path] = hit
+    return copy.deepcopy(hit[1])
 
 
 class SkillServer(Node):
@@ -159,14 +176,14 @@ class SkillServer(Node):
         return None
 
     def poses(self):
-        """매 호출마다 다시 읽음 — 교시값을 고친 뒤 서버를 재시작하지 않아도 되게."""
-        return yaml.safe_load((self.cfg_dir / "poses.yaml").read_text(encoding="utf-8"))
+        """파일이 바뀌면 다시 읽음 — 교시값을 고친 뒤 서버를 재시작하지 않아도 되게."""
+        return _yaml_cached(self.cfg_dir / "poses.yaml")
 
     def prm(self):
-        return yaml.safe_load(self.params_file.read_text(encoding="utf-8"))
+        return _yaml_cached(self.params_file)
 
     def places(self):
-        return yaml.safe_load((self.cfg_dir / "places.yaml").read_text(encoding="utf-8"))
+        return _yaml_cached(self.cfg_dir / "places.yaml")
 
     def item(self, cls):
         """온톨로지 size_m [긴 변, 짧은 변, 높이] 과 item_grasp.yaml 잡는 힘."""
@@ -1309,7 +1326,9 @@ class SkillServer(Node):
         if wall and not long_side:                          # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0
-        plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"], support_m=support,
+        by_cls = (prm["pick"].get("tcp_above_top_by_class_m") or {}).get(cls)   # 물건별 잡는 높이 (윗면 기준, 음수 = 아래) — 키 큰 물건 [실측으로 채움]
+        pick_prm = dict(prm["pick"], tcp_above_top_m=by_cls) if by_cls is not None else prm["pick"]
+        plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=pick_prm, support_m=support,
                                     long_side=long_side)
         # 긴 변 잡기가 손잡이 쪽 벽 가까이면 그 벽 쪽으로 기울여 잡음 — 앞판이 테두리보다 높아 수직 몸통이 닿음 [사용자 10/10 PC2]
         tilt = None                                         # (기울일 쪽 서랍 방향, 각도, 이름, 손가락 닫힘 축) — 서랍 축 네 방향만 [사용자 10/10 교시]
@@ -1348,7 +1367,7 @@ class SkillServer(Node):
                 target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw) \
                 and mp.front_tilt_x_mm(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw) is None:
             # 짧은 변 손가락 자리에 이웃 → 긴 변 양끝(손가락이 끝으로 감)이 비면 긴 변으로 [P2 시뮬레이션 10/10: 가림막 밑 지우개 옆 립밤]
-            lplan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"], support_m=support, long_side=True)
+            lplan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=pick_prm, support_m=support, long_side=True)
             lwho, lwhy = neighbor(True, lplan.open_width_m)
             if not lwho and not lwhy:
                 who, long_side, plan = None, True, lplan
