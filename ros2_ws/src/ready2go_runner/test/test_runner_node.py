@@ -68,6 +68,8 @@ def system(tmp_path, thread_errors):
     mock = MockBackendNode(context=context, parameter_overrides=[Parameter("duration_sec", value=0.05)])
     runner = RunnerNode(context=context, parameter_overrides=[
         Parameter("schema_file", value=str(ROOT / "contracts/task.schema.json")),
+        Parameter("intent_schema_file", value=str(ROOT / "contracts/intent.schema.json")),   # /contracts 마운트 없는 PC (#198 E 보고)
+        Parameter("tasks_dir", value=str(ROOT / "tasks")),
         Parameter("ontology_file", value=str(ROOT / "knowledge/robot_ontology.jsonld")),
         Parameter("log_dir", value=str(tmp_path)),
         Parameter("task_file", value=str(TASK_FILE))])

@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-08 — 당일 기록 [2026-10-08_practice.md](2026-10-08_practice.md)
 
 ## 지금 상태
+- **#78 HALT_MOTION (10/10)**: `OBJECT_DROPPED`·`SENSOR_INVALID` → 즉시 ABORTED·잠금, finally 이동 없음, 재개 보존 안 함 [실측: 시험 4개, E 반례 그대로]. 남은 것: 복구 뒤 상태 맞추기·잠금 해제 절차(계약, B·E 협의), B `SENSOR_INVALID` 구분 PR, E 온톨로지 errors.
 - **#187 음성 정지 후속 C 몫 (브랜치 `feat/c-unpack-task`)**: [C 수락](https://github.com/Jik-Kim/ready2go/issues/187#issuecomment-6056813537) — 빠른 정지는 `/runner/estop` 재사용 권고, 요청 처리 사이 "멈춰" → 시작 안 함(`StartGate`), 정지 기록 `halts[]` 항상 [실측: 호스트 1692·컨테이너 ROS 632 passed]. 선행: B 정지 확인 결과 형식(#152), E 수신 방식.
 - **기록 누락 점검 `run_report --check` (FR-LOG-02 "DB 누락 확인", AC-LOG-01 증거, 브랜치 `feat/c-unpack-task`)**: [실측: 시험] 10/06 PC2 실물 기록 2건 빠짐없음, 일부러 망가뜨린 9가지 누락 모두 찾음, Runner 정상·거절·재개 기록 빠짐없음. PC2 DB 직접 점검은 10/08 저녁 연결 안 됨(PC2 꺼짐/IP 변경) → 다음 실물 때.
 - **Unpacking 태스크 (10/11 실물 준비, 브랜치 `feat/c-unpack-task`, PR 전)**: `tasks/find_with_unpack.json` 재작성 + mock 겹친 장면 `MOCK_SCENE` [실측: 시험 7개 — 치우기 2개·막힌 자리·전달·역순 재식별 복구·되돌리기 두 번 막힘 → 쥔 채 정지(B·C 합의 #168)·비상정지·움직인 뒤 놓기 실패·장애물 3개 LOOP_LIMIT, 컨테이너 ROS 603 passed, mock 노드 장면 인식 확인]. 남은 것: B 서랍 안 놓기 구현·고정 자리 교시, 얹힌 물체 집기(`NOT_ON_FLOOR`) B·E 결정, A 가림 노드, `reid_tol_m` 실측, 음성 연결(`trigger`) 여부.

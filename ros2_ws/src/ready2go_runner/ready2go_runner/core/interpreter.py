@@ -66,7 +66,11 @@ Execute = Callable[[str, dict, "float | None"], ActionResult]   # (action, param
 SAFE_HOME_POSE = "home"                 # on_failure: safe_home 이 이동할 기준 포즈 (docs/runner.md 7.1)
 # 이 코드로 실패하면 ABORTED·잠금 (사람 확인 전 새 동작 없음). 비상정지, 취소 후 정지 확인 실패(PR #74 리뷰),
 # B 스킬 서버의 잠금 코드(PR #73: 상태 조회 실패·이동 수락 모름·서버 잠김) — 10/06 실물 확인 후 runner.md 표로 확정
-HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"}
+# HALT_MOTION (#78 사용자 결정 10/09): 물체 놓침(OBJECT_DROPPED, 정상 관측)·그리퍼 센서 이상(SENSOR_INVALID, 보유 불확실)
+# → 즉시 ABORTED·잠금. 예전엔 일반 실패라 finally 의 서랍 닫기·홈이 나갈 수 있었음. 재개 대상도 아님: 실행을 끝내고
+# 사람이 물체 회수·원위치 → 상태 맞추기(/runner/reset_state 등) → 잠금 해제 → 명시적 새 요청으로 처음부터.
+HALT_MOTION_CODES = {"OBJECT_DROPPED", "SENSOR_INVALID"}
+HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"} | HALT_MOTION_CODES
 HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
 ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
@@ -306,7 +310,7 @@ class Runner:
             if self._halt_path and all(action == "if" for _, action in where[:-1]):
                 stopped = _step_at(ctx, where)    # 최상위·if 안이면 그 스텝, 반복·fallback 안이면 멈춘 동작 ID 그대로
             self._note_halt(ctx, e, stopped.get("id") if stopped else None)
-            if self.resumable:
+            if self.resumable and (self._halt_code or e.code) not in HALT_MOTION_CODES:   # 놓침·센서 이상은 보존 안 함
                 if all(action == "if" for _, action in where[:-1]):
                     ctx.step_started = self._halt_started and self._halt_path is not None
                     return self._suspend(ctx, e, where)
