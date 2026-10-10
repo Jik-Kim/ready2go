@@ -385,3 +385,64 @@ def test_only_fresh_current_c_completion_retires_saved_work():
     assert p.completed(WORK, 3, valid_state=True)
     assert p.work is None and p.question is None
     assert not p.stopped(WORK, 4)
+
+
+@pytest.mark.parametrize('path', ['question', 'independent'])
+def test_explicit_end_retires_same_event_even_with_higher_seq_but_allows_new_event(path):
+    from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
+    if path == 'question':
+        p, q = ready()
+        candidate = p.answer('작업 종료해', q, captured_at=4, now=6,
+                             evidence=SAFE, request=p.request)
+    else:
+        p, request = independent_ready()
+        assert p.independent_stt(request, '작업 종료해', now=24)
+        assert p.independent_registered(request, WORK, p.revision, now=25, valid_state=True)
+        candidate = p.independent_candidate(request, now=26, evidence=SAFE)
+    assert isinstance(candidate, TaskEndCandidate) and candidate.work == WORK
+    assert p.work is None
+    assert not p.stopped(WORK, 100)
+    assert p.begin_independent(WORK, now=30, unique_target=True) is None
+    other = replace(WORK, stop='new_event', task='new_run')
+    assert p.stopped(other, 101)
+    request = p.begin_independent(other, now=31, unique_target=True)
+    assert p.admit_independent(request, captured_at=32, ended_at=33, started_at=34)
+    assert p.independent_stt(request, '이어서 해', now=35)
+    assert p.independent_registered(request, other, p.revision, now=36, valid_state=True)
+    assert p.independent_candidate(request, now=37, evidence=SAFE) == other
+
+
+@pytest.mark.parametrize('callback', ['stt', 'candidate'])
+@pytest.mark.parametrize('stale', ['old_object', 'forged_same_id', 'none'])
+def test_stale_independent_callbacks_preserve_current_request_and_single_consumption(callback, stale):
+    p, old = independent_ready()
+    current = p.begin_independent(WORK, now=30, unique_target=True)
+    assert current.request_id != old.request_id
+    assert p.admit_independent(current, captured_at=31, ended_at=32, started_at=33)
+    if callback == 'candidate':
+        assert p.independent_stt(current, '이어서 해', now=35)
+        assert p.independent_registered(current, WORK, p.revision, now=36, valid_state=True)
+    state = (p.independent, p.independent_audio, p.independent_result, p.independent_ack,
+             p.audio_end, p.work, p.revision)
+    previous = {'old_object': old, 'forged_same_id': replace(old, request_id=current.request_id),
+                'none': None}[stale]
+    if callback == 'stt':
+        assert not p.independent_stt(previous, '이어서 해', now=34)
+    else:
+        assert p.independent_candidate(previous, now=37, evidence=SAFE) is None
+    assert state == (p.independent, p.independent_audio, p.independent_result, p.independent_ack,
+                     p.audio_end, p.work, p.revision)
+    if callback == 'stt':
+        assert p.independent_stt(current, '이어서 해', now=35)
+        assert p.independent_registered(current, WORK, p.revision, now=36, valid_state=True)
+    assert p.independent_candidate(current, now=37, evidence=SAFE) == WORK
+    assert p.independent_candidate(current, now=37, evidence=SAFE) is None
+
+
+def test_current_independent_candidate_expiry_still_invalidates_only_current_request():
+    p, request = independent_ready()
+    assert p.independent_stt(request, '이어서 해', now=24)
+    assert p.independent_registered(request, WORK, p.revision, now=25, valid_state=True)
+    assert p.independent_candidate(request,
+        now=21+POLICY_CFG['resume_independent_request_timeout_sec'], evidence=SAFE) is None
+    assert p.independent is None and p.work == WORK

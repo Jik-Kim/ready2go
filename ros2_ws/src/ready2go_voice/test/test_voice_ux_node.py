@@ -245,16 +245,18 @@ def test_orphan_reply_node_reasks_without_publishing_old_target(node, node_class
     assert node.session.conversation.pending.target is None
 
 
-@pytest.mark.parametrize('tts_success', [True, False])
-def test_internal_goal_never_published_after_actual_deliver_method(node, tts_success):
+def test_internal_goal_console_diagnostics_only_no_tts_or_publish(node):
     node.cfg['p2_goal_enabled'] = True
     node.parser.llm = lambda *_: dict(intent='achieve_goal', targets=[], confidence=.99,
         goals=node.cfg['p2_goal_catalog'][1], response_text='서랍을 열었어요.')
-    if not tts_success:
-        def fail(*args, **kwargs): raise RuntimeError('mock TTS failure')
-        node.tts.speak = fail
     doc = node.session.text('위 서랍 열어 둬', 0)
     assert doc['intent'] == 'achieve_goal'
     node.deliver(doc)
     assert not node.published
     assert not node.session.conversation.pending
+    assert node.texts == []  # actual _deliver never calls TTS for achieve_goal
+    final = [d for d in node.diagnostics if d['event'] == 'final_response']
+    assert len(final) == 1 and final[0]['text'] == doc['_voice']['final_text']
+    assert '내부 평가' in final[0]['text']
+    events = [d for d in node.diagnostics if d['event'] == 'intent']
+    assert len(events) == 1 and events[0]['published'] is False

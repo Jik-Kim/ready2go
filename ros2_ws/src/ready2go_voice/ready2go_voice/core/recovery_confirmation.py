@@ -257,10 +257,14 @@ class RecoveryConfirmation:
         """Trusted current C completion retires local work; no C state mutation."""
         if valid_state is not True or work != self.work or not self._accept(work, revision):
             return False
+        self._retire_work(work)
+        return True
+
+    def _retire_work(self, work):
+        # E-local retirement only; neither a C termination ACK nor a motion action.
         self.retired_events.add((work.session, work.task, work.stop))
         self.invalidate()
         self.work = None
-        return True
 
     @serialized
     def notice(self, evidence=None):
@@ -443,8 +447,7 @@ class RecoveryConfirmation:
             return None
         if task_end_utterance(text):
             candidate = TaskEndCandidate(self.work)
-            self.invalidate()
-            self.work = None
+            self._retire_work(candidate.work)
             return candidate
         if isinstance(text, str) and text.strip().rstrip('.!?') in ('아니', '아니요'):
             self.abandon(question)
@@ -495,6 +498,8 @@ class RecoveryConfirmation:
 
     @serialized
     def independent_stt(self, request, text, *, now):
+        if request is None or request is not self.independent:
+            return False  # stale callbacks must not invalidate another current request
         if not self._independent_valid(request, now) or self.independent_result is not None:
             self.invalidate(); return False
         kind = 'end' if task_end_utterance(text) else safety_utterance(text)
@@ -518,6 +523,8 @@ class RecoveryConfirmation:
 
     @serialized
     def independent_candidate(self, request, *, now, evidence):
+        if request is None or request is not self.independent:
+            return None  # preserve the current request's audio/result/ACK and deadlines
         if (not self._independent_valid(request, now) or self.independent_ack is None or
                 now < self.independent_ack):
             self.invalidate(); return None
@@ -525,7 +532,7 @@ class RecoveryConfirmation:
         work = request.work
         if kind == 'end':
             candidate = TaskEndCandidate(work)
-            self.invalidate(); self.work = None
+            self._retire_work(work)
             return candidate
         if self._recovery_mode(work, evidence) != 'resume':
             self.invalidate(); return None

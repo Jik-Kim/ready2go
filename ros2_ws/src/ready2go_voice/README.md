@@ -434,7 +434,7 @@ PYTHON
 
 ## P2 선정 목표 — 내부 평가
 
-[문서] [FR-INT-02](../../../docs/requirements.md#fr-int-02)·[FR-PLN-02](../../../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../../../docs/requirements.md#fr-ont-02)를 참조하십시오. 기본 `p2_goal_enabled=false`는 기존 P1 경로를 유지합니다. 옵트인 시 `params/voice.yaml`의 선정 목록·현재 world·명시 발화를 검증하고 기존 계약의 목표 후보만 반환합니다. 부정·충돌·범위 밖·LLM 실패는 실행 폴백을 하지 않습니다. 최종 안내는 내부 평가임을 밝히며 수락/실행/성공을 약속하지 않습니다. Session은 평가 모드 해제·TTS 성공 여부와 관계없이 목표 발행을 차단합니다. 실제 플래너/C 전달·복합 동작·실물 lip_balm/eraser 파지 확인은 후속입니다.
+[문서] [FR-INT-02](../../../docs/requirements.md#fr-int-02)·[FR-PLN-02](../../../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../../../docs/requirements.md#fr-ont-02)를 참조하십시오. 기본 `p2_goal_enabled=false`는 기존 P1 경로를 유지합니다. 옵트인 시 `params/voice.yaml`의 선정 목록·현재 world·명시 발화를 검증하고 기존 계약의 목표 후보만 반환합니다. 부정·충돌·범위 밖·LLM 실패는 실행 폴백을 하지 않습니다. 검증된 목표 안내는 콘솔·final_response/intent 진단에만 전달되며 수락/실행/성공을 약속하지 않습니다. 현재 `_deliver`는 목표 TTS를 호출하지 않으며 음성 안내는 미연결입니다. Session은 평가 모드 해제 여부와 관계없이 목표 발행을 차단합니다. 실제 플래너/C 전달·복합 동작·실물 lip_balm/eraser 파지 확인은 후속입니다.
 
 
 ## #78 모션 차단 안내·E 내부 후보 (운영 미연결)
