@@ -982,9 +982,32 @@ def test_tilted_close_then_home_retreats_and_goes_home_without_stopping(server):
     finally:
         server.ss.SkillServer._line = real
     assert out.success and data["close_confirmed"] is True and srv.disp["drawer_bottom"] == 0.0 and "홈" in out.reason
-    assert ("retreat", prm["drawer_open_close"]["home_blend_mm"]) in radii       # 빼기 끝에서 멈추지 않음
+    assert ("retreat", prm["drawer_open_close"]["home_blend_mm"]) in radii       # 홈 TCP 모름 → 빼기 끝에서 멈추지 않고 홈 관절 이동
     log = [e for e in srv.robot.log if e != "stop"]
     assert log[-1] == ("movej", srv.poses()["home"]["joints_deg"])
+    # 홈 TCP 를 알면(이번 서버에서 홈에 간 적 있음) 빼기 → 홈 TCP 를 블렌딩 한 번으로, 관절이 맞으면 관절 이동 없음
+    home_x = [368.0, 6.2, 196.5, 0.0, 180.0, 0.0]
+    srv.home_posx = home_x
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = list(start_x)
+    srv.robot.j = list(start)
+    srv.robot.log.clear()
+    orig_moveb = srv.robot.moveb_async
+
+    def moveb(pts, radii, *a, **kw):
+        r = orig_moveb(pts, radii, *a, **kw)
+        srv.robot.j = list(srv.poses()["home"]["joints_deg"])            # 홈 TCP 에 도착하면 홈 관절
+        return r
+    srv.robot.moveb_async = moveb
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close", "then_home": True})
+    assert out.success
+    log = [e for e in srv.robot.log if e != "stop"]
+    tr = prm["transit"]
+    kind, pts, radii = log[-1]                                          # 빼기 → 올리기 → 밖으로 → 홈 TCP 를 한 번에
+    assert kind == "moveb" and pts[-1] == home_x and len(pts) == 4
+    assert pts[1][2] == pytest.approx(tr["high_z_mm"]) and pts[2][1] == pytest.approx(tr["exit_y_mm"]) and pts[2][2] == pytest.approx(tr["high_z_mm"])
+    assert radii[0] > 0 and radii[-1] == 0.0
+    assert ("movej", srv.poses()["home"]["joints_deg"]) not in log
 
 
 def test_tilted_close_refuses_when_start_and_end_taught_apart(server):

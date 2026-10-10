@@ -889,19 +889,33 @@ class SkillServer(Node):
             res = sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 위치에 못 감 (남은 {rem * 1000:.1f} mm)")
         else:
             res = None
-        # then_home: 빼기 끝 home_blend_mm 안에서 바로 홈으로 (올리기·관절 이동까지 멈추지 않고 한 동작) [사용자 10/10 "뚝뚝 끊기는 게 싫음"]
+        # then_home: 지금 가던 길(빼기 → high_z 로 올리기 → exit_y 로 빼기 → 홈) 그대로, 모서리만 home_blend_mm 반지름으로 이어 한 번에
+        # (moveb) [사용자 10/10 "세 동작을 하나로, 뚝뚝 끊기는 게 싫음"]. 위·아래 칸 모두 관절 연속, J5 최대 113.5°, 홈 관절로 끝남 [계산 m0609_kin].
+        # 홈 TCP 는 이번 서버에서 홈에 도착했을 때 읽은 값(home_posx). 없으면 빼기 끝에서 이어서 _named 홈.
         r = float(oc.get("home_blend_mm", 10.0)) if then_home and res is None else 0.0
-        back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat", radius=r) if now else \
-            sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 후퇴 못 함")
+        home_x = getattr(self, "home_posx", None) if r else None
+        retreat = mp.offset_posx(now, pull, oc["retreat_mm"]) if now else None
+        if retreat is None:
+            back = sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 후퇴 못 함")
+        elif home_x:
+            tr = self.prm()["transit"]
+            z = max(retreat[2], tr["high_z_mm"])
+            pts = [retreat] + ([mp.with_z(retreat, z)] if retreat[2] < z - 0.5 else []) \
+                + [[retreat[0], tr["exit_y_mm"], z] + list(retreat[3:]), list(home_x)]
+            back = self._blend(goal, pts, [r] * (len(pts) - 1) + [0.0], speed["line_mm_s"], "retreat_home")
+        else:
+            back = self._line(goal, retreat, speed["line_mm_s"], "retreat", radius=r)
         res = sf.worse(res, back)
         if res:
             return res, out
         self.disp[drawer_id] = 0.0
         out["drawer_displacement"] = 0.0
         if r:
-            o = self._named(goal, "home", moving=True)
-            if not o.success:
-                return o, out
+            joints, _ = sf.pose_joints(self.poses(), "home")
+            if not (home_x and joints and sf.check_reached(joints, self.robot.posj(), self.reach_tol).success):
+                o = self._named(goal, "home", moving=not home_x)    # 홈 TCP 에 왔는데 관절이 조금 다르면 관절 이동으로 마무리
+                if not o.success:
+                    return o, out
         return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)" + (" → 홈" if r else "")), out
 
     def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp, then_home=False):
