@@ -313,8 +313,11 @@ def find(node):
         if timed(step, lambda: run(node, step)):
             if step == "pick":
                 break
-            print("\n----- 넛지 끝 → 탑뷰에서 다시 확인 → 그 좌표로 집기 -----")
-            look(True)
+            if last.get("pushed") is False:                # 넛지 필요 없는 자리 — 끌지 않았으니 다시 보지 않고 바로 집기 [사용자 10/10]
+                print("\n----- 넛지 필요 없음 → 바로 집기 -----")
+            else:
+                print("\n----- 넛지 끝 → 탑뷰에서 다시 확인 → 그 좌표로 집기 -----")
+                look(True)
             step = "pick"
             continue
         if last["code"] in STOP_CODES:
@@ -368,6 +371,7 @@ def run(node, cmd):
         return False
     r = result.result().result
     last["code"] = r.error_code
+    last["pushed"] = None
     print(f"  끝  (+{time.monotonic() - t['last']:.1f} s)")
     out = json.loads(r.output_json) if r.output_json else None
     if cmd == "opened" and r.error_code == "DRAWER_ALREADY_OPEN":
@@ -376,6 +380,8 @@ def run(node, cmd):
         print("결과:", "성공" if r.success else f"실패 {r.error_code} (이유는 터미널 1 로그)")
     if out:
         print(json.dumps(out, ensure_ascii=False, indent=1))
+    if cmd == "nudge" and out:
+        last["pushed"] = out.get("pushed")
     if cmd == "nudge" and r.success and out and out.get("target_after"):
         with open(AFTER, "w") as f:
             json.dump(out["target_after"], f)

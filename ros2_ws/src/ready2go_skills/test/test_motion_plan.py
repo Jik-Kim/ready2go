@@ -39,7 +39,7 @@ def test_vertical_eraser_in_corner_drags_sideways_35mm():
     """세로 지우개를 서동권 쪽-오른쪽 모서리에 (시연 1차) → 서랍 y 로 가운데 쪽 약 35 mm."""
     p = mp.plan_drag(target=tgt(0.1735, 0.2827, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
     assert p.needed and p.error_code is None
-    assert p.shift_y_m == pytest.approx(-0.0349, abs=5e-4)
+    assert p.shift_y_m == pytest.approx(-0.0369, abs=5e-4)
     assert p.wall_normal_y == 1.0
 
     assert 0.2827 - 0.011 < p.press_xy_m[1] < 0.2827 + 0.011        # 누르는 TCP 는 지우개 폭 안
@@ -91,7 +91,7 @@ def test_measured_eraser_10_06_round_tip_tilt_still_lands_on_eraser():
     t = tgt(0.1769, 0.2895, 0.0)
     for tilt in (0.0, 30.0):
         p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, tilt_deg=tilt, close_axis="object"))
-        assert p.needed and p.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
+        assert p.needed and p.shift_y_m == pytest.approx(-0.0437, abs=5e-4)
     off, depth = mp.tip_contact(math.radians(30), G)
     assert off == pytest.approx(-2.9, abs=0.05) and depth == pytest.approx(10.78, abs=0.05)
     assert mp.tip_contact(0.0, G) == pytest.approx((0.0, 10.0))
@@ -110,7 +110,7 @@ def test_wall_close_axis_presses_measured_eraser_over_its_middle():
     """10/06 실측 자세(닫힘 축 = 옆벽 법선, 30°): TCP 는 옆벽 경계에서 5.0 + 여유 3 mm, 지우개 폭 안. 끌 거리는 같음."""
     d = dict(DRAG, close_axis="wall", wall_tcp_min_mm=5.0, wall_press_margin_mm=3.0, tilt_deg=30.0)
     p = mp.plan_drag(target=tgt(0.1769, 0.2895, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=d)
-    assert p.needed and p.error_code is None and p.shift_y_m == pytest.approx(-0.0417, abs=5e-4)
+    assert p.needed and p.error_code is None and p.shift_y_m == pytest.approx(-0.0437, abs=5e-4)
     assert (INTERIOR[1] - p.press_xy_m[1]) * 1000 == pytest.approx(8.0, abs=0.05)
     assert abs(p.press_xy_m[1] - 0.2895) < 0.011 - 0.003
 

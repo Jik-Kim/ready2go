@@ -208,7 +208,12 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     finally:
         server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(WALL_Y - 0.040, abs=1e-3)   # 누른 z 그대로 40 mm 만 (10/07 저녁 33 → 40) → 옆벽 보정(7.1 mm)으로 바로 집힘
+    prm, place = server.srv.prm(), server.srv.places()["drawer_top"]
+    g = dict(prm["gripper"], wall_offset_mm=prm["drawer_wall_offset_mm"]["drawer_top"],
+             wall_tcp_min_mm=prm["drag"]["wall_tcp_min_by_drawer_mm"]["drawer_top"])
+    plan = server.ss.mp.plan_drag(target=ERASER_CORNER, size_m=server.srv.item("eraser")[0], interior_m=place["interior_m"], g=g, drag=prm["drag"])
+    assert prm["drag"]["shift_mm"] is None and plan.shift_y_m < 0                # 끄는 거리 = 계산(모자란 만큼 + extra_mm) [사용자 10/10]
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(WALL_Y + plan.shift_y_m, abs=1e-3)   # 누른 z 그대로 그만큼만
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
