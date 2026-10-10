@@ -36,7 +36,7 @@ def apart(a, b, gap=0.004):
 def cover_layout(I):
     while True:
         pyaw = rnd.choice([0.0, math.pi/2]) + rnd.uniform(-0.2, 0.2)
-        px, py = rnd.uniform(0.04, I[0]-0.04), rnd.uniform(0.04, I[1]-0.04)
+        px, py = rnd.uniform(0.04, I[0]-0.04), rnd.uniform(0.14, I[1]-0.04)   # 물건은 오른쪽(y 큰 쪽), aside 는 왼쪽 [사용자 10/10 배치]
         if not fits(px, py, pyaw, SZ["cover_plate"], I, 0.003):
             continue
         for _ in range(200):
@@ -52,7 +52,7 @@ def cover_layout(I):
 def stack_layout(I):
     while True:
         yw = rnd.uniform(-0.35, 0.35)                                     # 몽키는 세로로 [사용자 10/10]
-        x, y = rnd.uniform(0.09, I[0]-0.09), rnd.uniform(0.04, I[1]-0.04)
+        x, y = rnd.uniform(0.09, I[0]-0.09), rnd.uniform(0.13, I[1]-0.04)
         if fits(x, y, yw, SZ["toy_wrench"], I, 0.003):
             return (x, y), yw, rnd.uniform(-1.5, 1.5), rnd.uniform(-1.5, 1.5)
 

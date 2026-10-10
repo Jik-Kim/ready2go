@@ -1513,3 +1513,22 @@ def test_p2_cover_plate_lifted_off_eraser_and_set_aside(server):
     g = dict(srv.prm()["gripper"], wall_offset_mm=srv.prm()["drawer_wall_offset_mm"]["drawer_top"])
     assert server.ss.mp.wall_blocks_grasp(target={"pose": dict(pp, yaw_valid=True)}, size_m=srv.item("cover_plate")[0],
                                           interior_m=srv.places()["drawer_top"]["interior_m"], g=g) is None
+
+
+def test_long_side_held_place_checks_fingers_at_the_ends(server):
+    """[P2 시뮬레이션 10/10] 긴 변 양끝을 쥔 물체를 서랍 안에 놓을 때 손가락은 긴 변 끝 — 끝 바로 옆 이웃(손가락 자리)이면 PLACE_BLOCKED."""
+    srv = server.srv
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": math.pi / 2, "yaw_valid": True}}   # 가로 → 긴 변
+    server.Gripper.holding, server.Gripper.held_width = True, 52.0
+    try:
+        out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1]})
+        assert out.success and srv.held["long_side"] is True
+        nb = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,                              # 놓을 자리 긴 변 끝에서 35 mm
+              "pose": {"frame": "drawer_top", "position": [0.10, 0.10 + 0.02625 + 0.035, 0.0], "yaw": 0.0, "yaw_valid": True}}
+        scan = {"target_found": True, "target": er, "candidates": [nb], "visible_count": 2}
+        out, data = server.run("place_object", {"location": "drawer_top", "scan": scan,
+                                                "pose": {"frame": "drawer_top", "position": [0.10, 0.10, 0.0], "yaw": math.pi / 2}})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "caramel_box#1"

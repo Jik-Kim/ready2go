@@ -1668,12 +1668,38 @@ class SkillServer(Node):
                   wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(loc),
                   round=self.held["class"] in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
 
+        long_held = bool(self.held.get("long_side"))
+
         def check(p_):
-            bad_ = plp.check_place(pose=p_, held_id=held_id, held_size_m=size, open_mm=open_mm, objects=objs,
+            # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 손가락 자리·벽 확인 (집기 footprint 와 같음)
+            pc, sc = ((dict(p_, yaw=p_["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (p_, size))
+            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
                                    size_of=self._size_or_none, interior_m=interior, place=pl,
                                    g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
             if bad_ or not slot:
                 return bad_
+            # 남은 물건을 아직 집을 수 있어야 함 — 놓은 물체가 남은 물건의 벌린 손가락 자리에 들어가면 안 됨 [P2 무작위 배치 10/10]
+            me = {"id": held_id, "class": self.held["class"], "top_z": self.held.get("tcp_above_floor_m", 0.0) + size[2],
+                  "pose": dict(p_, yaw_valid=True)}
+            nb = prm.get("neighbor") or {}
+            for o in objs:
+                if o["id"] == held_id or not (o.get("pose") or {}).get("yaw_valid"):
+                    continue
+                osz = self._size_or_none(o.get("class"))
+                if not osz:
+                    continue
+                blocked = True
+                for long_ in ((False, True) if mp.axis_grasp_fits(osz, gw) else (False,)):
+                    ot, os_ = (({**o, "pose": {**o["pose"], "yaw": o["pose"]["yaw"] + math.pi / 2}}, [osz[1], osz[0], osz[2]])
+                               if long_ else (o, osz))
+                    if not nc.pick_blocker(target=ot, size_m=os_, open_mm=os_[1] * 1000.0 + g["open_margin_mm"], objects=[me],
+                                           size_of=self._size_or_none, default_size_m=pl["default_obstacle_size_m"],
+                                           finger_mm=g["fingertip_outer_mm"], margin_mm=nb.get("margin_mm", 5.0), support_m=0.0,
+                                           below_tol_m=nb.get("below_tol_m", 0.003), finger_half_width_mm=g.get("tip_radius_mm")):
+                        blocked = False
+                        break
+                if blocked:
+                    return plp.Refusal(PLACE_BLOCKED, f"놓으면 {o['id']} 를 집을 손가락 자리를 막음", o["id"])
             # 고정 자리는 나중에 넛지 없이 다시 집을 수 있어야 함(되돌리기) [P2 시뮬레이션 10/10: aside 에 놓은 가림막을 못 다시 집음]
             dp_ = mp.plan_drag(target={"pose": dict(p_, yaw_valid=True)}, size_m=size, interior_m=interior, g=gw, drag=prm["drag"])
             if dp_.needed or dp_.error_code:

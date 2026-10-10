@@ -6,6 +6,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ros2_ws/src/ready2
 import p2_demo as d
 from demo_sim import obj
 
+def rescan(c, T):
+    """넛지 뒤 다시 보기 흉내: 벽까지 밀어 눕혔으면 그 벽과 나란히 (실물은 다시 찍은 값)."""
+    from ready2go_skills.core import motion_plan as mp
+    after = c["nudge"]["target_after"] or T
+    dx, dy = c["nudge"]["push_vector_m"]
+    yaw = after["pose"]["yaw"]
+    off = min(abs(math.cos(yaw)), abs(math.sin(yaw)))
+    if off > math.sin(math.radians(15)):                  # 비스듬했던 것만
+        if dy and not dx:
+            yaw = 0.0                                      # 옆벽에 붙임 → 옆벽과 나란
+        elif dx < 0 and not dy:
+            yaw = math.pi / 2 if mp.is_crosswise(yaw) or T["class"] == "lip_balm" else 0.0
+    return dict(after, pose=dict(after["pose"], yaw=yaw))
+
+
 CASES = [  # (이름, 클래스, x, y, yaw, top_z, 넛지 먼저)
     ("지우개 손잡이 쪽 가로 → 기울여 긴 변", "eraser", 0.012, 0.15, math.pi / 2, 0.0115, False),
     ("지우개 손잡이 쪽 비스듬 → 벽까지 밀기", "eraser", 0.031, 0.12, -1.0102, 0.0115, True),
@@ -26,7 +41,7 @@ for drawer in ("drawer_top", "drawer_bottom"):
         steps = d.common_open(drawer)
         if nudge:
             steps.append(("nudge", "nudge_object", {"drawer_id": drawer, "target": T}))
-            steps.append(("pick (넛지 뒤)", "pick_object", lambda c, T=T: {"target": c["nudge"]["target_after"] or T, "approach_offset": [0, 0, 0.1]}))
+            steps.append(("pick (넛지 뒤)", "pick_object", lambda c, T=T: {"target": rescan(c, T), "approach_offset": [0, 0, 0.1]}))
         else:
             steps.append(("pick", "pick_object", {"target": T, "approach_offset": [0, 0, 0.1]}))
         steps += [("place → 트레이", "place_object", {"location": "handover_zone"})] + d.common_close(drawer)

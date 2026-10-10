@@ -123,6 +123,7 @@ def run_scenario(name, drawer, steps):
         n0 = len(robot.segments)
         out, data = sf.run_guarded(lambda: getattr(srv, f"_do_{action}")(goal, json.loads(json.dumps(params))), stop=robot.stop, get_state=srv.state)
         ctx[label] = data
+        ctx["_" + label.split()[0] + "_reason"] = out.reason or ""
         segs = robot.segments[n0:]
         ikf = sum(s.get("ik_fail", 0) for s in segs)
         bad = [s for s in segs if s["kind"] in ("movel", "moveb") and (s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10)]
