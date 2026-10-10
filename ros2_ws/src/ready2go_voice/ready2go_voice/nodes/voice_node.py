@@ -1,9 +1,10 @@
-"""기존 voice ICD 구현. 진단은 ROS 로그로만 출력하며 실행/DB 상태는 C가 관리합니다."""
+"""기존 voice ICD. 콘솔 요약/E 로컬 상세 증빙, 실행·DB 상태는 C 책임입니다."""
 import json
+import uuid
+import time
 from pathlib import Path
 import queue
 import threading
-import time
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -16,13 +17,20 @@ from std_msgs.msg import String
 from ready2go_interfaces.action import Skill
 from ready2go_knowledge.core.ontology import load
 from ..core.config import load_config
-from ..core.intent import IntentParser, intent, clarify_prompt
+from ..core.intent import IntentParser, intent
 from ..core.session import VoiceSession
-from ..core.tts_prefill import prefill_texts
+from ..core.tts_prefill import prefill_texts, remember_text
+from ..core.diagnostics import DiagnosticFile, redact
+from ..core.response import final_response
 from ..core.runner_notice import RunnerNoticePolicy
 from ..adapters.api import LangChainIntent, WhisperSTT
 from ..adapters.audio import Recorder, WakeAudio
 from ..adapters.tts import create_tts
+
+
+def runner_blocks(node):
+    policy = getattr(node, 'notice_policy', None)
+    return bool(policy and (policy.phase in ('running', 'halted') or policy.blocked))
 
 
 class VoiceNode(Node):
@@ -34,15 +42,20 @@ class VoiceNode(Node):
         evaluation = self.declare_parameter('evaluation_mode', False).value
         self.cfg = load_config(path, evaluation_mode=evaluation)
         self.cfg['diagnostic_detail'] = self.declare_parameter('diagnostic_detail', self.cfg['diagnostic_detail']).value
+        self.local_context = threading.local()
+        self.diagnostic_file = DiagnosticFile(self.cfg, self.get_logger().warning) if self.cfg['diagnostic_detail'] else None
         ontology = load(self.cfg['ontology_file'])
         with open(self.cfg['intent_schema_file'], encoding='utf-8') as f:
             schema = json.load(f)
         self.parser = IntentParser(ontology, schema, self.cfg, LangChainIntent(self.cfg, ontology['world']['items']))
         self.session = VoiceSession(self.parser, self.cfg, WhisperSTT(
-            self.cfg, [v['name_ko'] for v in ontology['world']['items'].values()]),
+            self.cfg, list(dict.fromkeys(name for v in ontology['world']['items'].values()
+                for name in [v['name_ko'], *v.get('aliases_ko', [])]))),
             progress=lambda **event: self._diagnostic(event))
         if self.cfg.get('tts_engine') == 'melotts':
-            self.cfg['_tts_prefill_texts'] = prefill_texts(self.cfg, self.parser.items.values())
+            self.cfg['_tts_progress'] = self._diagnostic
+            self.cfg['_tts_prefill_texts'] = prefill_texts(self.cfg, self.parser.items.values(), self.get_logger().warning,
+                lambda data: self._diagnostic(dict(data, event='prefill_selection')))
         self.tts = create_tts(self.cfg)
         if self.cfg.get('tts_engine') == 'melotts':
             self.tts.prepare()  # 모델/캐시 완료 전 웨이크/ready를 시작하지 않음
@@ -83,9 +96,23 @@ class VoiceNode(Node):
                           'audio_enabled': self.cfg['audio_enabled']})
 
     def _diagnostic(self, doc):
-        # D는 /rosout 또는 voice 콘솔에서 조회. 새 토픽/DB 로거를 만들지 않음.
-        if self.cfg.get('diagnostic_detail', False):
-            self.get_logger().info(json.dumps({'voice_diagnostic': doc}, ensure_ascii=False))
+        value = dict(doc)
+        context = getattr(self, 'local_context', None)
+        if context is not None and getattr(context, 'request_id', None):
+            value.setdefault('request_id', context.request_id)
+        meta = doc.get('intent', {}).get('_voice', {})
+        value.update({k: v for k, v in meta.items() if k in ('request_id', 'question_id')})
+        # 원본 LLM 전체는 interpretation에 한 번만; 공개 source 원본 자체는 삭제하지 않습니다.
+        if value.get('event') != 'interpretation':
+            value = dict(value)
+            if isinstance(value.get('source'), dict):
+                value['source'] = {k: v for k, v in value['source'].items() if k != 'llm_raw'}
+            if isinstance(value.get('intent'), dict):
+                value['intent'] = dict(value['intent'])
+                value['intent']['source'] = {k: v for k, v in value['intent'].get('source', {}).items() if k != 'llm_raw'}
+        writer = getattr(self, 'diagnostic_file', None)
+        if writer is not None:
+            writer.emit(value)
         event = doc.get('event')
         messages = {
             'ready': '음성 준비 완료 (' + ('평가: 실행 보류' if doc.get('evaluation_mode') else '실행 모드') + ')', 'wake_waiting': f"웨이크 대기 (입력: {doc.get('input_device')})",
@@ -113,29 +140,42 @@ class VoiceNode(Node):
             route = '폴백' if value['source'].get('fallback_used') else ('LLM' if value['source'].get('llm_called') else '규칙')
             messages[event] = f"{route} 결과: {value['intent']} {','.join(value.get('targets', []))}"
         if event == 'intent':
-            messages[event] = '실행 보류 (평가/확인 정책)' if not doc.get('published') else 'intent 발행'
-        if event in messages:
-            self.get_logger().info(messages[event].replace('\n', ' '))
+            messages[event] = '실행 보류 (평가/확인 정책)' if not doc.get('published') else 'intent 발행 완료 · Runner 수락 미확인'
+        if event == 'final_response':
+            messages[event] = doc['text']
+        if event == 'request_held':
+            messages[event] = '요청 보류: ' + doc.get('reason', '')
+        if event == 'cache_record_failed':
+            messages[event] = doc['reason']
+        if event == 'publish_failed':
+            messages[event] = '발행 실패: 수락 미확인·새 요청 필요'
+        # 일반 콘솔은 최종 응답/발행 상태/보류/오류만. 단계 증빙은 상세 파일에 보존합니다.
+        hidden = {'record_started', 'record_finished', 'whisper_requested', 'stt_result', 'speech_check_started', 'tts_started'}
+        if event in messages and event not in hidden:
+            self.get_logger().info(redact(messages[event]).replace('\n', ' '))
 
     def _runner_status(self, message):
-        # 파싱/정책/단일 대기 슬롯만 처리. TTS/로봇 서비스/DB 호출 없음.
-        with self.notice_condition:
-            previous = self.notice_policy.revision
-            notice = self.notice_policy.observe(message.data)
-            if self.notice_policy.blocked:
-                self.normal_notice_cancel.set()
-            else:
-                self.normal_notice_cancel.clear()
-            if self.notice_policy.revision != previous:
-                self.notice_cancel.set()
-                self.pending_notice = notice
+        # 관측 상태 전환과 질문 무효화는 발행 게이트와 같은 E 로컬 lock으로 직렬화합니다.
+        # 실제 C 수락과 요청 상관 여부를 확정하는 계약은 아닙니다.
+        with self.submit_lock:
+            with self.notice_condition:
+                previous = self.notice_policy.revision
+                notice = self.notice_policy.observe(message.data)
+                if self.notice_policy.blocked:
+                    self.normal_notice_cancel.set()
+                else:
+                    self.normal_notice_cancel.clear()
+                if self.notice_policy.revision != previous:
+                    self.notice_cancel.set()
+                    self.pending_notice = notice
+                    if notice:
+                        self.warning_epoch += 1
+                    self.notice_condition.notify_all()
+                if self.notice_policy.phase in ('running', 'halted') or self.notice_policy.blocked or notice:
+                    self.session.conversation.invalidate()
                 if notice:
-                    self.warning_epoch += 1
-                self.notice_condition.notify_all()
-        if notice:
-            with self.submit_lock:
-                self.generation += 1
-                self.request_cancel.set()  # 낡은 확인/API 결과는 기존 취소 경로로 보류.
+                    self.generation += 1
+                    self.request_cancel.set()
 
     def _notice_work(self):
         while not self.stop_event.is_set():
@@ -162,14 +202,15 @@ class VoiceNode(Node):
 
     def _publish(self, doc):
         message = String()
-        message.data = json.dumps(doc, ensure_ascii=False)
+        message.data = json.dumps(redact({k: v for k, v in doc.items() if not k.startswith('_')}), ensure_ascii=False)
         self.publisher.publish(message)
 
     def _text(self, message):
         control = self.parser.control(message.data)
         if control:
-            if control['intent'] == 'cancel':
-                with self.submit_lock:
+            with self.submit_lock:
+                self.session.conversation.invalidate()  # status도 새 독립 요청입니다.
+                if control['intent'] == 'cancel':
                     self.generation += 1
                     self.request_cancel.set()
             # 취소/상태 요청은 API 처리 큐 뒤에서 기다리지 않지만 로봇 제어는 C가 담당.
@@ -182,7 +223,7 @@ class VoiceNode(Node):
         else:
             self._submit(('text', message.data))
 
-    def _submit(self, request, generation=None):
+    def _submit(self, request, generation=None, request_id=None):
         with self.submit_lock:
             if (self.busy.is_set() or self.stop_event.is_set() or
                     (generation is not None and generation != self.generation)):
@@ -190,16 +231,19 @@ class VoiceNode(Node):
                 return False
             self.busy.set()
             self.request_cancel.clear()
-            self.requests.put_nowait((*request, self.generation))
+            self.requests.put_nowait((*request, self.generation, request_id or uuid.uuid4().hex))
             return True
 
     def _work(self):
         while not self.stop_event.is_set():
             try:
-                kind, value, generation = self.requests.get(timeout=.1)
+                kind, value, generation, request_id = self.requests.get(timeout=.1)
             except queue.Empty:
                 continue
             try:
+                self.local_context.request_id = request_id
+                policy = getattr(self, 'notice_policy', None)
+                blocked = bool(policy and (policy.phase in ('running', 'halted') or policy.blocked))
                 if kind == 'record_error':
                     doc = intent('clarify', question=self.cfg['clarify_prompts']['empty'])
                     doc['source'] = {'input_kind': 'audio', 'stt_text': '', 'record_error': value,
@@ -207,30 +251,34 @@ class VoiceNode(Node):
                         'execution_allowed': False}
                 else:
                     doc = self.session.audio(value, cancel=self.request_cancel,
-                        paused=lambda: self.stop_event.is_set() or generation != self.generation) if kind == 'audio' else self.parser.parse(value)
+                        paused=lambda: self.stop_event.is_set() or generation != self.generation,
+                        generation=generation, blocked=blocked, request_id=request_id) if kind == 'audio' else self.session.text(value, generation, blocked)
+                doc.setdefault('_voice', {})['request_id'] = self.local_context.request_id
                 self._diagnostic({'event': 'interpretation', 'intent': doc})
                 self._deliver(doc, generation)
             except Exception as exc:
                 self._diagnostic({'event': 'processing_failed', 'error_type': type(exc).__name__,
                                   'published': False})
             finally:
+                self.local_context.request_id = None
                 self.busy.clear()
                 self.requests.task_done()
 
     def _deliver(self, doc, generation):
         with self.submit_lock:
-            if self.stop_event.is_set() or generation != self.generation:
+            if self.stop_event.is_set() or generation != self.generation or not self.session.valid_context(doc, generation):
                 self._diagnostic({'event': 'request_canceled', 'published': False})
                 return
             if doc['intent'] == 'find_item' and self.session.is_duplicate(doc):
                 self._diagnostic({'event': 'request_duplicate', 'intent': doc, 'published': False})
                 return
+        if doc['intent'] == 'find_item' and runner_blocks(self):
+            self.session.conversation.invalidate()
+            self._diagnostic({'event': 'request_held', 'reason': 'runner_busy_or_locked', 'intent': doc, 'published': False})
+            return
         source = doc['source']
-        if doc['intent'] == 'clarify':
-            doc['clarify_question'] = clarify_prompt(self.cfg, doc.get('clarify_question'))
-        text = doc.get('clarify_question') or '그 요청은 지원하지 않습니다.'
-        if doc['intent'] == 'find_item':
-            text = self.parser.items[doc['targets'][0]]['name_ko'] + ' 가져다드리겠습니다.'
+        text = doc.get('_voice', {}).get('final_text') or final_response(self.parser, doc)
+        self._diagnostic({'event': 'final_response', 'text': text, 'intent': doc})
         speak = doc['intent'] in ('unknown', 'clarify') or (
             doc['intent'] == 'find_item' and self.cfg['confirmation_enabled'])
         if speak:
@@ -254,8 +302,18 @@ class VoiceNode(Node):
                             (stamp['tts_started_monotonic'] - source['speech_ended_monotonic']) * 1000, 3)
                     self._diagnostic({'event': 'tts_started', 'source': source, 'timing': dict(timing)})
                 self.tts.speak(text, cancel=self.request_cancel, on_start=started, timeout=timeout, start_deadline=start_deadline, on_timing=timing.update)
-                self._diagnostic({'event': 'tts_finished', 'timing': dict(timing)})
+                self._diagnostic({'event': 'tts_finished', 'timing': dict(timing), 'text': text, 'intent': doc,
+                                  'tts_finished_monotonic': time.monotonic()})
+                with self.submit_lock:
+                    if generation == self.generation and not self.stop_event.is_set() and self.session.valid_context(doc, generation):
+                        question_ready = self.session.conversation.delivered(doc, generation, True, blocked=runner_blocks(self))
+                        if question_ready:
+                            self._diagnostic({'event': 'question_ready', 'intent': doc, 'question_id': question_ready.id,
+                                              'expires_monotonic': question_ready.expires})
+                if self.cfg.get('tts_engine') == 'melotts':
+                    remember_text(self.cfg, text, lambda warning: self._diagnostic({'event': 'cache_record_failed', 'reason': warning}))
             except Exception as exc:
+                self.session.conversation.invalidate()
                 source['tts_error'] = type(exc).__name__
                 self._diagnostic({'event': 'tts_failed', 'error_type': type(exc).__name__})
                 if doc['intent'] == 'find_item':
@@ -264,15 +322,24 @@ class VoiceNode(Node):
                     doc['source'] = source
             finally:
                 self.speaking.clear()
-        if self.stop_event.is_set() or generation != self.generation:
+        if self.stop_event.is_set() or generation != self.generation or not self.session.valid_context(doc, generation):
             return
         with self.submit_lock:
-            if self.stop_event.is_set() or generation != self.generation:
+            if self.stop_event.is_set() or generation != self.generation or not self.session.valid_context(doc, generation):
+                return
+            if doc['intent'] == 'find_item' and runner_blocks(self):
+                self.session.conversation.invalidate()
+                self._diagnostic({'event': 'request_held', 'reason': 'runner_busy_or_locked', 'intent': doc, 'published': False})
                 return
             published = self.session.should_publish(doc)
             if published:
-                self._publish(doc)
-                self.session.mark_published(doc)
+                try:
+                    self._publish(doc)
+                    self.session.mark_published(doc)
+                except Exception as exc:
+                    self.session.conversation.invalidate()
+                    self._diagnostic({'event': 'publish_failed', 'intent': doc, 'error_type': type(exc).__name__, 'published': False})
+                    return
         self._diagnostic({'event': 'intent', 'intent': doc, 'published': published,
                           'evaluation_mode': self.cfg['evaluation_mode']})
 
@@ -284,6 +351,7 @@ class VoiceNode(Node):
                 if self.busy.is_set() or self.speaking.is_set() or self.tts.lock.locked():
                     self.stop_event.wait(.08)
                     continue
+                self.local_context.request_id = request_id = uuid.uuid4().hex
                 self._diagnostic({'event': 'wake_waiting', 'input_device': self.cfg['input_device']})
                 record_generation = self.generation
                 try:
@@ -304,13 +372,17 @@ class VoiceNode(Node):
                         self._diagnostic({'event': 'record_started', 'duration': self.cfg['record_duration_sec']})
                         recording = recorder.record_fixed(self.stop_event,
                             lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation)
-                    self._diagnostic({'event': 'record_finished'})
+                    self._diagnostic({'event': 'record_finished',
+                        'recording_started_monotonic': recording.recording_started_monotonic,
+                        'recording_ended_monotonic': recording.recording_ended_monotonic,
+                        'speech_ended_monotonic': recording.ended_monotonic, 'recording_mode': recording.recording_mode})
                 except (TimeoutError, InterruptedError, RuntimeError) as exc:
                     self._diagnostic({'event': 'recording_held', 'reason': str(exc)})
                     if not isinstance(exc, InterruptedError):
-                        self._submit(('record_error', str(exc)), generation=record_generation)
+                        self._submit(('record_error', str(exc)), generation=record_generation, request_id=request_id)
                     continue
-                self._submit(('audio', recording), generation=record_generation)
+                self._submit(('audio', recording), generation=record_generation, request_id=request_id)
+                self.local_context.request_id = None
                 while self.busy.is_set() and not self.stop_event.is_set():
                     self.stop_event.wait(.08)
         except Exception as exc:
@@ -390,6 +462,9 @@ class VoiceNode(Node):
             self.listener.join(timeout=1)
         if hasattr(self.tts, 'close'):
             self.tts.close()
+        writer = getattr(self, 'diagnostic_file', None)
+        if writer is not None:
+            writer.close()
         self.server.destroy()
 
 

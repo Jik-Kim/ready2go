@@ -29,10 +29,12 @@ class FakeTTS:
 
 
 @pytest.fixture
-def harness(cfg, ontology, schema):
+def harness(cfg, ontology, schema, tmp_path):
+    cfg['tts_melotts_assets'] = str(tmp_path/'assets')
     node = SimpleNamespace(cfg=cfg, parser=IntentParser(ontology, schema, cfg),
         stop_event=threading.Event(), request_cancel=threading.Event(), speaking=threading.Event(),
-        submit_lock=threading.Lock(), generation=0, tts=FakeTTS(), published=[], diagnostics=[])
+        submit_lock=threading.Lock(), generation=0, tts=FakeTTS(), published=[], diagnostics=[],
+        local_context=threading.local())
     node.session = VoiceSession(node.parser, cfg)
     node._publish = lambda doc: node.published.append(copy.deepcopy(doc))
     node._diagnostic = lambda doc: node.diagnostics.append(copy.deepcopy(doc))
@@ -89,6 +91,7 @@ def test_ros_evaluation_topic_and_tts_action(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(module, 'create_tts', lambda _: tts)
     monkeypatch.setenv('ROS_DOMAIN_ID', '166')
     monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path/'ros_logs'))
+    cfg['tts_melotts_assets'] = str(tmp_path/'assets')
     cfg['ontology_file'] = str(ROOT/'knowledge/robot_ontology.jsonld')
     cfg['intent_schema_file'] = str(ROOT/'contracts/intent.schema.json')
     path = tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
@@ -161,7 +164,7 @@ def test_execution_node_holds_unconfirmed_meaning(harness, text, use_llm):
     assert harness.published
     assert all(d['intent'] in ('unknown', 'clarify') and d['targets'] == []
                and not d['source']['execution_allowed'] for d in harness.published)
-    assert harness.tts.texts == [doc['clarify_question']]
+    assert harness.tts.texts == [doc['_voice']['final_text']]
     assert all('가져다드리겠습니다' not in t for t in harness.tts.texts)
 
 
@@ -217,9 +220,9 @@ def test_publication_failure_does_not_consume_find(harness):
     def fail(_):
         raise RuntimeError('publication unavailable')
     harness._publish = fail
-    with pytest.raises(RuntimeError):
-        VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
+    VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
     assert harness.session._last is None
+    assert any(d['event'] == 'publish_failed' and not d['published'] for d in harness.diagnostics)
     harness._publish = publish
     VoiceNode._deliver(harness, harness.parser.parse('지우개 찾아줘'), 0)
     assert [doc['intent'] for doc in harness.published] == ['find_item']
@@ -270,7 +273,7 @@ def test_evaluation_policy_deliver_path(harness, text, kind):
     assert harness.published[0]['source']['execution_allowed'] == (kind == 'find_item')
     assert harness.published[0]['targets'] == (['eraser'] if kind == 'find_item' else [])
     if kind == 'find_item':
-        assert harness.tts.texts == ['지우개 가져다드리겠습니다.']
+        assert harness.tts.texts == ['지우개 가져오기 요청으로 이해했어요.']
     else:
         assert harness.tts.texts == [doc['clarify_question']]
 
@@ -316,15 +319,16 @@ def test_fixed_tts_cannot_report_ac_latency(harness):
 
 
 
-def test_progress_default_short_and_detailed_mode_preserves_json(harness):
-    messages = []
+def test_progress_default_short_and_detailed_file_preserves_json(harness):
+    messages = []; details = []
     harness.get_logger = lambda: SimpleNamespace(info=messages.append)
-    doc = {'event': 'stt_result', 'text': '지우개 찾아줘', 'source': {'llm_raw': 'detailed raw'}}
+    harness.diagnostic_file = SimpleNamespace(emit=details.append)
+    doc = {'event': 'interpretation', 'intent': {'intent': 'clarify', 'targets': [],
+        'source': {'llm_raw': 'detailed raw'}}}
     VoiceNode._diagnostic(harness, doc)
-    assert messages == ['STT 결과: 지우개 찾아줘']
-    harness.cfg['diagnostic_detail'] = True
-    VoiceNode._diagnostic(harness, doc)
-    assert 'voice_diagnostic' in messages[1] and 'detailed raw' in messages[1]
+    assert messages == ['규칙 결과: clarify ']
+    assert details[0]['intent']['source']['llm_raw'] == 'detailed raw'
+    assert not any('detailed raw' in message for message in messages)
 
 
 @pytest.mark.parametrize('enabled', [True, False])
@@ -356,10 +360,13 @@ def test_speech_hold_never_publishes_in_execution_mode(harness, reason):
 
 
 @pytest.mark.parametrize('prepare_fails', [False, True])
-def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeypatch, prepare_fails):
+def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeypatch, prepare_fails, tmp_path):
     import ready2go_voice.nodes.voice_node as module
     order = []
     cfg['audio_enabled'] = True
+    cfg['diagnostic_detail'] = False
+    cfg['tts_melotts_assets'] = str(tmp_path/'assets')
+    monkeypatch.setattr(VoiceNode, 'get_logger', lambda self: SimpleNamespace(warning=lambda _: None))
     monkeypatch.setattr(module.Node, '__init__', lambda *a, **k: None)
     monkeypatch.setattr(module, 'get_package_share_directory', lambda _: '.')
     monkeypatch.setattr(module, 'load_config', lambda *a, **k: cfg)
@@ -382,10 +389,10 @@ def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeyp
     if prepare_fails:
         with pytest.raises(RuntimeError, match='MELOTTS_PREPARE_FAILED'):
             VoiceNode()
-        assert order == ['prepare']
+        assert order == ['prefill_selection', 'prepare']
     else:
         node = VoiceNode()
-        assert order == ['prepare', 'thread_start', 'thread_start', 'thread_start', 'ready']
+        assert order == ['prefill_selection', 'prepare', 'thread_start', 'thread_start', 'thread_start', 'ready']
         assert '서랍을 닫았어요' in node.cfg['_tts_prefill_texts']
 
 
@@ -506,7 +513,7 @@ def test_finished_timing_default_is_one_short_line_and_detail_keeps_fields(harne
     assert messages == ['TTS 종료 (합성 대기 0.200초, 재생 0.400초)']
     harness.cfg['diagnostic_detail'] = True
     VoiceNode._diagnostic(harness, doc)
-    assert 'cache_hit' in messages[1]
+    assert messages[1] == messages[0]
 
 
 @pytest.fixture
@@ -627,8 +634,8 @@ def test_general_failed_result_does_not_block_next_voice_confirmation_and_intent
     assert h.pending_notice.kind=='grasp' and not h.normal_notice_cancel.is_set()
     h.busy=threading.Event();h.requests=queue.Queue(maxsize=1)
     assert VoiceNode._submit(h,('text','지우개 찾아줘'))
-    kind,text,generation=h.requests.get_nowait()
+    kind,text,generation,request_id=h.requests.get_nowait()
     assert kind=='text' and not h.request_cancel.is_set()
     VoiceNode._deliver(h,h.parser.parse(text),generation)
-    assert h.tts.texts==['지우개 가져다드리겠습니다.']
+    assert h.tts.texts==['지우개 가져오기 요청으로 이해했어요.']
     assert len(h.published)==1 and h.published[0]['intent']=='find_item'

@@ -21,14 +21,14 @@
 
 ## 현재 지원 명령
 
-[문서·코드 대조: 2026-10-08] checkout `f2678c3`와 원격 main `92b0e0d`의 아래 Voice·계약·태스크·Runner 라우팅 원본을 대조했습니다. 이 원본들은 두 버전에서 동일합니다. 표는 **코드의 해석/라우팅 범위**이며 실제 마이크/API·Runner 수신·실물 실행 시험 결과가 아닙니다. 발화 예시는 허용 표현 전체 목록이나 성공 보장이 아닙니다. 정상 LLM 해석과 오류 후 좁은 규칙 폴백을 구분하며 폴백 문형만으로 지원 범위를 제한하지 않습니다.
+[문서·코드 대조: 2026-10-10] `7f96771`에서 분리한 #194 구현과 #198 리뷰 보완의 Voice를 기존 계약·태스크·Runner 라우팅 원본에 대조했습니다. 타 파트 원본은 수정하지 않았습니다. 표는 **코드의 해석/라우팅 범위**이며 실제 마이크/API·Runner 수신·실물 실행 시험 결과가 아닙니다. 발화 예시는 허용 표현 전체 목록이나 성공 보장이 아닙니다. 정상 LLM 해석과 오류 후 좁은 규칙 폴백을 구분하며 폴백 문형만으로 지원 범위를 제한하지 않습니다.
 
 | 명령 종류·연결 상태 | 발화/입력 예시 | 현재 처리 | 제한·운영 연결 | 근거 원본 |
 |---|---|---|---|---|
 | 단일 물품 가져오기 — 음성 해석 `find_item` | “지우개 찾아줘”, “지우개 가져다줘”, “지우개 좀”; 다른 등록 이름/별칭의 단일 요청 | 등록 단일 대상·발화 일치·요청 단서·확신도를 검증하고 확인 TTS 뒤 발행 게이트 적용 | 해석 대상은 등록 물품이며 현재 기본 `find_item` 태스크의 `trigger.targets`는 `eraser`만. 다른 등록 대상은 Runner에서 `UNSUPPORTED_ITEM` 보류. 실행 중/잠김/서버 미준비도 거절. 직접 태스크 실행은 trigger 제한을 거치지 않아 별도 입력 확인 필요 | [파서](ready2go_voice/core/intent.py)·[노드](ready2go_voice/nodes/voice_node.py)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py)·[태스크](../../../tasks/find_item.json) |
 | 취소 — 음성/텍스트 제어 `cancel` | “멈춰”, “정지”, “취소”, “그만”; “멈춰.” | 설정 문구와 공백 정규화·끝 문장부호 제거 후 정확 비교. E가 기존 intent를 발행하며 텍스트 취소는 진행 중 해석 결과도 취소. Runner는 실행 중이면 `halt()` | 실행 중이 아니면 `NOT_RUNNING`. 실제 정지 확인·하드웨어 E-stop 대체가 아님. busy/TTS 중 새 웨이크 청취는 제한되며 텍스트 제어의 큐 우회와 음성 상시 수신은 다름. P2 안전 정지/복구/재개 완료와 구분 | [문구 설정](params/voice.yaml)·[파서](ready2go_voice/core/intent.py)·[Voice 노드](ready2go_voice/nodes/voice_node.py)·[Runner 노드](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
 | 상태 요청 — 음성/텍스트 제어 `status` | “지금 뭐 해”, “지금 뭐해”, “상태 알려”, “진행 상황”; “지금 뭐 해?” | 설정 문구와 같은 정확 비교로 E intent 발행. Runner는 `/runner/status`를 다시 발행 | 실제 현재 상태를 조회하여 음성으로 읽어주는 기능은 연결되지 않음. 기존 오류/중단 안내는 별도. 새 웨이크 청취 제한은 취소와 동일 | [문구 설정](params/voice.yaml)·[파서](ready2go_voice/core/intent.py)·[Runner 노드](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
-| 보류 응답 — `clarify`/`unknown`, 실행 명령 아님 | “지우개”, “그거 가져줘”, 여러 대상·미등록·미지원 요청 | 단독/모호/복수 대상은 확인 요청, 미지원은 보류 안내. 오류 후 폴백과 정상 unknown/clarify는 구분 | 실행 후보로 확정하지 않음. 실행 모드에서 보류 intent 자체가 발행될 수 있으나 Runner는 `NEEDS_CLARIFY`로 실행하지 않음. 부정/제외 문맥의 알려진 판별 결함은 [설정과 동작 경계](#설정과-동작-경계)에 유지 | [파서](ready2go_voice/core/intent.py)·[게이트](ready2go_voice/core/session.py)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py) |
+| 보류 응답 — `clarify`/`unknown`, 실행 명령 아님 | “지우개”, “그거 가져줘”, 여러 대상·미등록·미지원 요청 | 단독/모호/복수 대상과 유효 질문 없는 동의/대명사 응답은 대상 재확인, 미등록 물품/미지원 요청은 검증된 내부 사유로 안내를 구분. 오류 후 폴백과 정상 unknown/clarify는 구분 | 실행 후보로 확정하지 않음. 실행 모드에서 보류 intent 자체가 발행될 수 있으나 Runner는 `NEEDS_CLARIFY`로 실행하지 않음. 부정/번역/제외·현재 질문 문맥의 핵심 모의 검사는 아래 #194 절에서 구분; 자유 실음성 일반화는 미검증 | [파서](ready2go_voice/core/intent.py)·[게이트](ready2go_voice/core/session.py)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py) |
 | 목표형 `achieve_goal` — Runner 구조화 입력 지원, 음성 미지원 | 음성 미지원/구조화 JSON의 `goals` 입력 | Runner는 계약·신뢰도·목표·물품·실행/잠김을 검사하고 현재 상태에서 플래닝. 만족/계획 불가는 실행 보류 | Voice P1 필터는 목표형 intent·goals를 거절. Runner의 계획/서버/`plan_limits` 조건은 별도이며 실물 완료 의미가 아님. 기준은 [FR-PLN-02](../../../docs/requirements.md#fr-pln-02)·[AC-PLN-01](../../../docs/requirements.md#ac-pln-01) 참조 | [계약](../../../contracts/intent.schema.json)·[Voice 필터](ready2go_voice/core/intent.py)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py)·[Runner 노드](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
 | `find_list`/`find_class`/`query_state` — 현재 음성 미지원 | 음성 미지원/계약 enum만 존재 | Voice P1 필터에서 거절. 현재 `tasks/`에는 대응 trigger 태스크가 없어 기본 Runner 라우팅은 `UNSUPPORTED_INTENT` | 계약 enum 존재만으로 지원/실행 가능이라 판정하지 않음. 확장 기준·Phase는 [FR-INT-02](../../../docs/requirements.md#fr-int-02) 참조 | [계약](../../../contracts/intent.schema.json)·[Voice 필터](ready2go_voice/core/intent.py)·[태스크 목록](../../../tasks/)·[라우터](../ready2go_runner/ready2go_runner/core/intent_router.py) |
 | 레지스트리 태스크 `return_items` — 파일 존재, 현재 intent 연결 미지원 | 음성 미지원; 파일의 `examples_ko`는 지원 발화 근거 아님 | Runner loader는 `trigger.intent`를 등록하고 `intent_tasks` override를 우선하지만 `return_items`는 현재 계약 enum 밖이라 intent 입력은 `BAD_INTENT`. Voice도 미지원 | 레지스트리 로딩이 schema enum이나 음성 파서를 자동 확장하지 않음. 파일은 트레이 관측 단계만 있어 반납 완성 기능이 아님. `p1_demo_eraser`는 trigger.intent 없이 override/직접 실행용 | [예시 태스크](../../../tasks/return_items.json)·[시연 태스크](../../../tasks/p1_demo_eraser.json)·[계약](../../../contracts/intent.schema.json)·[로딩](../ready2go_runner/ready2go_runner/nodes/runner_node.py) |
@@ -128,9 +128,9 @@ Docker/compose 패키지·모델/runtime 배포는 별도 인계 대상입니다
 
 ## C/D 연결·진단·평가
 
-[문서] `diagnostic_detail=true`에서는 `voice_diagnostic` JSON을 **기존 ROS 로그(`/rosout`) 또는 콘솔**에 출력합니다. 기본은 짧은 진행·실패 유형 로그입니다. 새 진단 토픽이나 DB를 만들지 않습니다. 실행 모드에서는 기존 intent의 `source`에도 정보를 전달하지만 C 로그/run_id·D 화면 수신이 자동 연결되는 것은 아닙니다. 아래 부가 정보의 수신·의미는 C/D 협의 대상입니다.
+[문서] `diagnostic_detail=true`에서는 민감정보를 제거한 상세 JSONL을 **YAML `diagnostic_file`의 E 로컬 파일**에 저장합니다. ROS 로그/콘솔과 tee는 최종 안내·대상·발행/수락 미확인·보류/오류 요약입니다. 새 진단 토픽이나 DB를 만들지 않습니다. 실행 모드에서는 기존 intent의 `source`에도 정보를 전달하지만 C 로그/run_id·D 화면 수신이 자동 연결되는 것은 아닙니다. 아래 부가 정보의 수신·의미는 C/D 협의 대상입니다.
 
-- STT 원문, 실제 intent/targets, LLM 호출 여부·원문·검증 passed/failed/not_returned/not_called, 폴백 여부, 실행 허용/보류. 상세 콘솔 JSON에서 발행 여부는 `voice_diagnostic.published`, intent는 `voice_diagnostic.intent`입니다. 발행 여부는 진단 이벤트의 최상위 `published`이며 `/voice/intent`의 `source`에는 없습니다. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공을 뜻하지 않습니다.
+- STT 원문, 실제 intent/targets, LLM 호출 여부·원문·검증 passed/failed/not_returned/not_called, 폴백 여부, 실행 허용/보류. 상세 JSONL에서 발행 여부는 최상위 `published`, intent는 `intent`입니다. 발행 여부는 진단 이벤트의 최상위 `published`이며 `/voice/intent`의 `source`에는 없습니다. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공을 뜻하지 않습니다.
 - 음성의 발화 종료 Unix/monotonic 시각, TTS 재생 시각, 확인 지연. TTS는 합성 시작/완료나 요청 접수가 아니라 **첫 PCM의 PortAudio DAC 재생 시각**을 장치 callback 정보로 기록합니다(`tts_start_basis=portaudio_first_dac`). 물리 스피커 청취 지연은 별도 확인해야 합니다.
 - 실제 어댑터의 `tts_mock=false`와 테스트의 `tts_mock=true`를 구분합니다. 모의 시각·텍스트 입력으로 AC-INT-03 통과를 선언하지 않습니다. TTS 실패/장치 없음은 성공이나 실제 시작으로 기록하지 않습니다.
 
@@ -161,7 +161,7 @@ D #20 인계: [AC-INT-01–03](../../../docs/requirements.md#ac-int-01)·[음성
 ## 검증과 남은 조건
 
 ```bash
-PYTHONPATH=ros2_ws/src/ready2go_voice:ros2_ws/src/ready2go_knowledge python3 -m pytest ros2_ws/src/ready2go_voice/test -q -rs
+PYTHONPATH=ros2_ws/src/ready2go_voice:ros2_ws/src/ready2go_knowledge:ros2_ws/src/ready2go_runner python3 -m pytest ros2_ws/src/ready2go_voice/test -q -rs
 ```
 
 ROS 노드 검사는 생성된 ready2go_interfaces와 ROS 환경을 source한 뒤 실행합니다. API/오디오 SDK가 없는 환경은 해당 어댑터 검사를 명시적으로 skip하며 core 검사는 수행합니다. 테스트의 fake API·장치는 실제 음성 수용 기준의 근거가 아닙니다. 실제 장치/한국어 음성·API·C/D·Docker 연결은 CURRENT의 실측/미검증 기록을 확인하십시오.
@@ -170,14 +170,14 @@ ROS 노드 검사는 생성된 ready2go_interfaces와 ROS 환경을 source한 �
 
 | 용도 | 시작 인자 | `/voice/intent` 발행 | 로그 파일 |
 |---|---|---|---|
-| 음성 평가용 | `evaluation_mode:=true` | 모든 intent 발행 차단 | `voice.eval.*.log` |
-| Runner 연동용 | `evaluation_mode:=false` | 기존 확인 TTS·취소·무발화·실패·중복 게이트 적용 | `voice.run.*.log` |
+| 음성 평가용 | `evaluation_mode:=true` | 모든 intent 발행 차단 | `voice.eval.*.log` 요약 + YAML 상세 JSONL |
+| Runner 연동용 | `evaluation_mode:=false` | 기존 확인 TTS·취소·무발화·실패·중복 게이트 적용 | `voice.run.*.log` 요약 + YAML 상세 JSONL |
 
 두 명령은 **같은 로컬 YAML의 `audio_enabled: true`와 준비된 마이크·웨이크 모델·입력 장치**가 있어야 실제 음성 입력을 받습니다. 명령 자체는 마이크를 켜거나 로컬 YAML을 변경하지 않습니다. `audio_enabled: false`이면 자동 마이크/웨이크 청취 없이 `/voice/text_override` 디버깅 입력을 사용할 수 있으며 실제 음성 평가가 아닙니다.
 
 - `evaluation_mode`는 모든 `/voice/intent` 발행 차단 여부를 정합니다. ROS 시작 인자가 YAML보다 우선하며 생략하면 false입니다. 평가 모드는 다른 입력으로 시작한 Runner 태스크까지 중단시키지 않습니다.
 - `audio_enabled`는 YAML에서 마이크·웨이크 사용 여부를 정합니다. 평가/Runner 연동 모드와 별개입니다.
-- 두 명령의 `diagnostic_detail:=true`는 상세 `voice_diagnostic`을 ROS 로그/콘솔에 출력합니다. `tee`는 터미널 출력(표준 출력·오류)을 파일에 보존하며, 상세 진단 선택과 파일 저장은 서로 다른 역할입니다.
+- 두 명령의 `diagnostic_detail:=true`는 YAML `diagnostic_file`에 민감정보를 제거한 상세 JSONL을 저장합니다. 콘솔과 `tee` 파일은 요약이며 전체 LLM 증빙을 대신하지 않습니다. 기존 로컬 YAML의 새 진단/문맥/캐시 설정을 원본과 수동 병합하고, 회차별 상세 경로가 필요하면 시작 전 로컬 설정에서 바꿉니다. 기존 자산/키/YAML을 덮어쓰지 않습니다.
 
 아래 수동 명령은 PC에 설치된 선택 도구 python-dotenv를 사용합니다(voice 런타임은 이미 로드된 환경을 읽습니다). **저장소 루트**와 현재 프로젝트 build/install 및 `.venvs/project`를 사용합니다. 로그/모델/키는 로컬 자산이며 키 값을 출력하지 않습니다. 기존 PC의 정상 로컬 설정은 사용자 선택 MeloTTS였으며, 다른 PC의 엔진 선택은 위 설정 검사로 확인합니다. 한국어 단문 합성·첫 DAC 재생은 확인했으며, 마이크/STT·LLM·전체 음성 평가는 재시험해야 합니다.
 
@@ -240,7 +240,7 @@ PYTHON
 python3 ros2_ws/src/ready2go_voice/ready2go_voice/adapters/melotts_install.py --project-root .
 ```
 
-[문서] `tts_engine: melotts` 실패는 준비/합성 실패로 표시되고 espeak로 자동 전환하지 않습니다. 기존 설정에 엔진 키가 없으면 espeak 호환 경로입니다. MeloTTS·음성 속도1.2는 사용자 확정입니다. CPU4스레드/준비상한60초/재생전체상한20초는 기존 실측 기반 **제안값 [팀 확정 필요]**이며, AC 모드의 `start_deadline` 3초는 완화하지 않습니다. 준비 때 등록 물품별 기존 “가져다드리겠습니다.”와 P1 태스크의 “{{name|을}} 찾아 올게요”, “{{name|을}} 앞쪽 트레이에 놓았어요”, “{{name|을}} 찾지 못했어요”, 고정 “서랍을 닫았어요”, `clarify_prompts` 전체와 사용자 `tts_melotts_prefill_texts`를 중복 제거해 캐시에 넣고 완료 후에만 voice ready/웨이크 입력을 시작합니다. 목록 밖 문장은 최초 합성이 필요합니다. 캐시 키는 문장·모델 파일/리비전·소스/worker·의존성·speaker·속도·스레드를 반영합니다.
+[문서] `tts_engine: melotts` 실패는 준비/합성 실패로 표시되고 espeak로 자동 전환하지 않습니다. 기존 설정에 엔진 키가 없으면 espeak 호환 경로입니다. MeloTTS·음성 속도1.2는 사용자 확정입니다. CPU4스레드/준비상한60초/재생전체상한20초는 기존 실측 기반 **제안값 [팀 확정 필요]**이며, AC 모드의 `start_deadline` 3초는 완화하지 않습니다. 준비 때 등록 물품별 요청 확인·구체 질문과 P1 태스크의 “{{name|을}} 찾아 올게요”, “{{name|을}} 앞쪽 트레이에 놓았어요”, “{{name|을}} 찾지 못했어요”, 고정 “서랍을 닫았어요”, `clarify_prompts` 전체와 사용자 `tts_melotts_prefill_texts`를 중복 제거해 캐시에 넣고 완료 후에만 voice ready/웨이크 입력을 시작합니다. 목록 밖 문장은 최초 합성이 필요합니다. 캐시 키는 문장·모델 파일/리비전·소스/worker·의존성·speaker·속도·스레드를 반영합니다.
 
 단독 합성은 설치된 Melo 소스/API를 직접 사용해 새 WAV를 만듭니다. ROS·마이크·API·스피커 재생을 사용하지 않으며 voice worker의 캐시/시간 예산 검사와도 구분합니다. 저장소 루트에서 실행합니다.
 
@@ -310,7 +310,7 @@ PYTHON
 
 **2. 전체 고정 문구 캐시 생성(물리 재생 없음)**
 
-최초 설치·속도/worker 변경 뒤 cold-cache 준비는 일반 노드의 재시작 반복으로 수행하지 않습니다. [실측: 문장 목록] 현재 등록11종의 안내와 상태 고정문구7종을 합한 prefill63개+warmup1개, 총64개입니다. [추정] 과거 속도1.0 단문 약2.43초를 단순 적용하면 약156초로, 기존 전체 준비 상한60초를 넘을 수 있습니다. 새 속도1.2·긴 안내·운용 PC의 실제 준비 시간으로 확인해야 하며 이 추정을 새 상한이나 팀 확정값으로 사용하지 않습니다.
+최초 설치·속도/worker 변경 뒤 cold-cache 준비는 일반 노드의 재시작 반복으로 수행하지 않습니다. [과거 문장 목록] 이전 등록11종 안내와 상태7종은 prefill63개+warmup1개, 총64개였습니다. 이번 목록은 요청 확인·구체 질문·미지원과 bounded 빈번 문장을 포함하므로 아래 사전 준비 명령의 출력 목록/개수를 기준으로 확인합니다. [추정] 과거 속도1.0 단문 약2.43초를 단순 적용하면 약156초로, 기존 전체 준비 상한60초를 넘을 수 있습니다. 새 속도1.2·긴 안내·운용 PC의 실제 준비 시간으로 확인해야 하며 이 추정을 새 상한이나 팀 확정값으로 사용하지 않습니다.
 
 노드를 종료한 뒤 아래 **캐시 준비만** 먼저 수행합니다(마이크/API/출력 장치 사용 없음). [사용자 결정] 사전 준비 상한은 **120초**로 선택하며 이 명시 실행의 메모리 설정에만 적용합니다. 120초 이내 완료 여부는 미실측이며 충분한 시간이라고 보장하지 않습니다. 기존 YAML·일반 노드 준비상한·재생전체20초·AC3초 예산은 변경하지 않습니다. 실패하면 상한/worker.log/환경을 점검하고 일반 노드를 시작하지 않습니다. 완료 뒤 같은 worker·속도·모델·설정으로 일반 노드를 시작합니다. 동일 환경이라도 60초 안에 준비 가능한지 PC2에서 별도 확인해야 합니다. 일반 노드의 `tts_melotts_startup_timeout_sec: 60.0`은 유지합니다. 노드는 시작마다 `prepare()`로 모델 로딩과 캐시 확인을 수행하지만, 같은 캐시 키의 디스크 WAV는 재사용하고 없거나 키가 변경된 문장만 합성합니다. 모델 로딩·캐시 확인 비용이 없어지는 것은 아닙니다.
 
@@ -399,7 +399,7 @@ PYTHON
 
 청취 시험 콘솔의 `TTS 준비 완료: 캐시 사용/새 합성` 및 `timing`의 `cache_hit`·`worker_synth_sec`·`synthesis_wait_sec`·`playback_sec`를 확인합니다. prepare-only 완료 로그는 문장별 cache_hit를 출력하지 않습니다. 노드 운용에서는 아래 진단 경로를 사용합니다.
 
-[문서] 기존 `diagnostic_detail=true`의 `voice_diagnostic.timing`에 `synthesis_wait_sec`(worker 준비/응답·캐시 조회/합성을 포함한 대기), `cache_hit`, `worker_synth_sec`(worker 조회/합성 처리 시간), 성공 완료 시 `playback_sec`·`playback_ended_monotonic`·`playback_end_basis=portaudio_finished_callback`을 기록합니다. 시작은 기존 첫 PortAudio DAC 기준입니다. 기본 콘솔은 기존 종료 한 줄에 합성 대기/재생 시간을 붙이며 새 전문/키는 출력하지 않습니다. 이 필드는 로그 진단이며 `/voice/speak` 결과/intent source 계약에 추가하지 않습니다. 취소/기한/장치 실패는 성공 재생 구간으로 기록하지 않습니다. Runner 요청→종료 시간은 이 두 구간 외 통신/스케줄링 등이 포함될 수 있어 전부 합성 시간으로 단정하지 않습니다.
+[문서] `diagnostic_detail=true`의 상세 JSONL `timing`에 `synthesis_wait_sec`(worker 준비/응답·캐시 조회/합성을 포함한 대기), `cache_hit`, `worker_synth_sec`(worker 조회/합성 처리 시간), 성공 완료 시 `playback_sec`·`playback_ended_monotonic`·`playback_end_basis=portaudio_finished_callback`을 기록합니다. 시작은 기존 첫 PortAudio DAC 기준입니다. 기본 콘솔은 기존 종료 한 줄에 합성 대기/재생 시간을 붙이며 새 전문/키는 출력하지 않습니다. 이 필드는 로그 진단이며 `/voice/speak` 결과/intent source 계약에 추가하지 않습니다. 취소/기한/장치 실패는 성공 재생 구간으로 기록하지 않습니다. Runner 요청→종료 시간은 이 두 구간 외 통신/스케줄링 등이 포함될 수 있어 전부 합성 시간으로 단정하지 않습니다.
 
 [과거 실측: 속도1.0 CPU 합성] 같은 확인 문장 1스레드 9.79/7.59초, 2스레드 3.99/4.23초, 4스레드 2.49/2.43초. 첫 측정은 BERT 첫 로딩 비용 포함입니다. 모델 로딩 약1.8초와 합성 지연은 구분합니다. [실측: 로컬 재생] 한국어 mono/int16 44.1kHz WAV 합성 및 PortAudio 첫 DAC 재생 성공. 캐시는 약3ms 조회, 준비된 문장의 요청→첫DAC은 약0.165초였으며 **발화 종료→STT/LLM→첫 DAC 3초 달성 근거가 아닙니다**. 실제 청취 품질·40음성·C/D 연결은 미확인입니다.
 
@@ -409,13 +409,13 @@ PYTHON
 
 [제안] 30ms 프레임의 VAD 점수≥`speech_vad_threshold: 0.5`와 RMS≥`speech_rms`를 함께 만족하는 연속 구간≥`speech_min_voiced_sec: 0.15`를 찾습니다. 두 VAD 튜닝값은 **[팀 확정 필요]**입니다. 전체5초 평균으로 짧은 요청을 버리지 않습니다. 무발화·모델 없음/오류·취소는 STT/LLM 호출 및 발행을 보류하며, 무발화는 `record_error=NO_SPEECH`, LLM `not_called`로 남습니다. 발화로 판정되면 5초 전체 WAV를 STT에 보냅니다. fixed의 실제 발화 종료/확인 지연은 계속 null/not_measured입니다.
 
-[문서] `clarify_prompts`가 규칙별·무발화·오류·일반 확인 안내의 단일 설정 원본입니다. 기존 규칙 질문의 의미는 유지하고 자유 LLM 질문은 `general`의 짧은 고정 안내로 바꾸며, 최종 `clarify_question`과 실제 안내가 일치합니다. 원본은 기존 `source.llm_raw`에 남습니다. 이 설정이 없는 이전 로컬 파일은 새 항목을 복사해 갱신해야 합니다. unknown/find/control 판별·D40 정답 정책은 바꾸지 않습니다. 대상 단독은 계속 clarify이며 “네”나 대상만 이어 말해 실행하는 새 확인 대화가 아닙니다. 시작 캐시에는 질문을 합성만 하고 재생하지 않습니다.
+[문서] `clarify_prompts`는 기본/실패 안내입니다. #194 구현은 의미 검증된 내부 LLM 문장을 유지하고 대상·판정에 맞지 않는 후보만 대체하며 최종 콘솔/TTS 입력을 일치시킵니다. 현재 대상의 구체 질문과 실제 TTS 완료 뒤의 유효한 답/대상 정정은 `Conversation`에서 한 번 처리합니다. 정책 정본은 [음성 정책](../../../docs/requirements.md#voice-policy)이며 D 정답표 반영·실음성 평가는 별도 인계입니다. 시작 캐시는 합성만 하며 과거 질문 권한을 복원하지 않습니다.
 
-기본 콘솔은 발화 검사→무발화 시 “발화 없음: STT·LLM 생략”, TTS 준비(캐시 확인/필요 합성)→준비 완료(캐시 사용/새 합성)→실제 첫DAC 기반 TTS 시작/종료를 구분합니다. 상세 LLM 원문은 기존 `diagnostic_detail=true`로 확인합니다.
+기본 콘솔은 최종 안내·intent/target·발행/수락 미확인·보류/오류와 간결한 준비/재생 정보를 표시합니다. 상세 단계 시각/LLM 원문은 `diagnostic_detail=true`의 로컬 JSONL에서 확인합니다.
 
 [실측: 로컬 합성 입력] 실제 Silero는 무음·미세/큰 임의 잡음·200Hz 정현파를 무발화로, 기존 MeloTTS 생성 시험 WAV를 발화로 판정했습니다. 새 질문 사전캐시 준비36.26초, 일반 고정 clarify의 캐시 응답5~7ms(캐시 히트)였습니다. 마이크/STT/LLM/실제 첫DAC 지연 측정이 아닙니다. 90ms 순간 구간 거절·180ms 구간 허용은 모의 검사입니다. **180ms 이상의 웨이크 잔음도 통과할 수 있으며**, 실제 마이크에서 무발화/짧은 정상 명령·오탐을 재시험해야 합니다.
 
-재실행은 위 “사용자 PC 시운전 명령”을 사용합니다. 웨이크 후 아무 말도 하지 않는 시험에서는 Whisper 요청 없이 무발화 안내·발행 보류가 나오는지, 짧은 정상 요청은 통과하는지 확인하십시오. 자유 LLM clarify는 고정 일반 질문과 캐시 사용 로그·상세 llm_raw를 대조하십시오. 실제40음성·3초·청취 품질·C/D 연결은 미완료입니다.
+재실행은 위 “사용자 PC 시운전 명령”을 사용합니다. 웨이크 후 아무 말도 하지 않는 시험에서는 Whisper 요청 없이 무발화 안내·발행 보류가 나오는지, 짧은 정상 요청은 통과하는지 확인하십시오. LLM 질문은 검증 후 최종 문장·실제 TTS 입력과 상세 JSONL의 원본/대체 사유·캐시 시간을 대조하십시오. 실제40음성·3초·청취 품질·C/D 연결은 미완료입니다.
 
 ## P2 복구 후 재개 확인 — 내부 준비
 
@@ -428,3 +428,16 @@ PYTHON
 [문서] recovery 정책은 boot 변경·동일 run/halt의 seq·질문/TTS 완료·녹음 시작/끝·SDK 직전 접수·별도 결과 만료·일회성·재정지·포기를 분리합니다. 일반 cancel은 대상 보존이며 포기와 다릅니다. WhisperSTT의 optional before_request와 Recording의 시작/끝 monotonic은 실제 E 프로세스 경계 자료형이지만 운영 Session/노드의 P1 입력/발행에는 연결하지 않았습니다. 기존 progress whisper_requested는 실제 SDK 접수 증빙으로 쓰지 않습니다. 실제 TTS 종료는 PortAudio 완료 증빙이 필요합니다. B unknown이나 처리 예산 미정일 때 운영 재개 요청을 만들지 않습니다.
 
 설정 원본 params/voice.yaml의 내부 값과 null/[팀 확정 필요]를 확인하십시오. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. C v2의 answer enum/질문 등록/프로세스별 clock·hold와 B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.
+
+
+## #194 현재 질문·응답·진단과 #138 캐시 / #195 녹음 비교
+
+[문서] 의미·정책은 [voice-policy](../../../docs/requirements.md#voice-policy), 실제 내부 필드/경계·로그/캐시·C/D 인계·녹음 비교는 [voice_llm.md](../../../docs/voice_llm.md#194-요청질문진단-연결과-138-bounded-캐시)를 참조합니다. `core/conversation.py`는 P1 질문의 로컬 권한, `core/response.py`는 최종 문장 검사, `core/diagnostics.py`는 비동기 상세 JSONL입니다. 내부 response_text/rejection_reason/_voice는 공개 wire 신규 필드가 아니고 `/voice/intent`의 새 필드로 발행하지 않습니다. parser는 사유를 검증 후 `_voice.reason`으로만 옮기며 node는 `_voice`를 제외합니다. 기존 source 소비 필드와 원본 `source.llm_raw`는 유지합니다. 실제 `LangChainIntent.schema`에 맞는 unknown/빈 targets/내부 사유로 물품 미등록과 요청 미지원을 구분하며, 미등록 target 예외 시험만으로 정상 LLM 안내 연결을 확인했다고 보고하지 않습니다.
+
+[문서] 예: “망치 가져오라고 말했잖아”/“엄마가 망치 가져오라고 했어”는 정상 LLM 요청 의미와 등록키 검증 경로입니다. “망치”의 구체 질문 TTS 완료 후 “응/맞아/그걸로” 또는 “렌치/아니 렌치야”는 유효 현재 문맥에서 한 번 결합합니다. 번역/부정/제외·문맥 없는 응답·만료·재시작·취소·관측된 running/잠금은 새 실행을 만들지 않습니다. 유효한 질문 없는 “응/맞아/그걸로”는 LLM 호출 전 clarify/빈 targets로 대상 재확인을 안내하고, 성공 재생 뒤 새 질문에도 이전 물품을 복원하지 않습니다. “립밤 되나?”는 등록과 실행가능 미확인 안내만 하며 자동 실행하지 않습니다. 문장 검증과 실제 C 수락/동작 성공은 다릅니다.
+
+[문서] YAML의 `dialogue_timeout_sec`·진단 경로/회전/큐·선준비 문장수/길이/UTF-8 용량·빈번 문장 기록/횟수는 제안/미확정 설정입니다. 일반 질문 시간은 P2 #152 정책과 독립이고 null이면 후속 결합을 보류합니다. 실패 후 질문 답을 자동 재시도하지 않고 새 독립 요청을 요구합니다. 상세파일은 비밀값을 필터한 원본 LLM/검증 사유/최종 문장/TTS/캐시/시각·로컬 요청/질문 ID를 남기며 파일/회전/큐/필터 오류는 경고합니다. 큐 포화·종료 정체 시 증빙 저장 미확인을 보고하며 음성/취소를 막지 않습니다. 파일은 설정 크기와 백업 수로 회전하며 큰 단일 원본은 보존 후 다음 기록에서 회전합니다. tee 요약 파일·C 실행 DB·worker.log는 별도 자료입니다.
+
+[문서] 초기 필수 문장과 두 번 이상 성공 재생된 검증 문장의 선택 이력을 구분합니다. `models/tts/melotts/validated_phrases.json`(실제 assets 설정 기준)은 bounded 선택 기록이며 기존 WAV 저장 기능을 중복 구현하지 않았습니다. 설정 한도를 넘는 필수 목록은 준비 실패, 이력 파일 오류는 경고 후 필수만 준비합니다. worker 시간 진단 코드 변경도 기존 identity 무효화에 포함되므로 첫 재합성이 필요할 수 있습니다. 모델 로딩·선준비·전체 준비, 첫 합성/캐시 조회·첫 DAC/재생 시간은 별도 기록이고 실제 이번 합성은 미측정입니다. 기존 Melo1.2·노드 startup60·위 prepare120·AC3초는 유지합니다.
+
+[미연결/인계] C 수락/거절의 요청 상관 식별·순서·실패/timeout/취소 책임, D #20 변경 사례/정답표 검토는 [#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 협의합니다. C/D 파일과 새 wire는 변경하지 않았고 E 포함2명 승인·스키마/예시/ICD 반영 전 연결하지 않습니다. #23의 과거 결과/미달은 보존하며 이 추적 위치 전환이 P1 완료/AC 면제를 뜻하지 않습니다. 녹음 비교 [#195](https://github.com/Jik-Kim/ready2go/issues/195)는 실제 시험 계획/기존 코드·모의 검토로 기본 fixed5/commissioning·무음/VAD 임계값을 바꾸지 않았습니다. 실제 웨이크·녹음/API·합성/청취·C 수락·로봇 AC는 이번 범위에서 미시험입니다.

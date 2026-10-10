@@ -31,18 +31,18 @@
 | 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, 원본 sd.rec→sd.wait 고정5초 시운전, 또는 RMS 무음 종료·보호 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
 | STT | OpenAI `whisper-1`, 한국어·등록 물품 이름 prompt, API 단일 호출 슬롯 | 계정/지연 실측 필요. `faster-whisper small` 오프라인 폴백은 미구현 후보 |
 | 해석 | LangChain·`gpt-4o` 후보 strict JSON → 기존 계약·등록 물품·보류 문맥·요청 단서 검증; 오류/시간 초과/검증 실패 시 좁은 규칙 폴백 | 모델·프롬프트·E/D 정답표 미확정. 퍼지 매칭은 구현하지 않음 |
-| 확인 | 기본 `confirmation_enabled: true`: “지우개 가져다드리겠습니다.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | C 태스크 시작/기존 speak와 확인 책임 분담은 인계 사항 |
+| 확인 | 기본 `confirmation_enabled: true`: 검증된 “지우개 가져오기 요청으로 이해했어요.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | C 태스크 시작/기존 speak와 확인 책임 분담은 인계 사항 |
 | TTS | 사용자 선택 MeloTTS, 별도 CPU 환경의 한국어 모델 재사용/문장 캐시→PortAudio 재생, 기존 `/voice/speak` Skill 액션 | 단문 합성·첫 DAC 재생 확인. [AC-INT-03](requirements.md#ac-int-03)·청취 품질·C/D 연결 미검증. espeak는 명시 선택 호환 경로이며 자동 폴백 없음 |
 
 사용자 확정 웨이크 기준은0.7이며 기존 점수>기준 비교입니다. 고정5초 녹음 완료 후 로컬 Silero의30ms 구간 VAD+RMS를 검사하고, 무발화/VAD불가·오류/취소는 STT·LLM 및 intent발행을 생략합니다. VAD0.5·연속0.15초는 소음/짧은 발화로 튜닝할 제안값이며 실제효과는 미검증입니다. 정상 발화는5초 전체를 STT에 보내고 발화종료를 새로 추정하지 않습니다. [문서]
 
-P1 clarify는 설정 `clarify_prompts`의 규칙별 고정 질문 또는 일반 고정 안내를 사전캐시합니다. 임의 LLM질문은 일반 안내로 정규화하여 최종 clarify_question과 실제 재생이 일치하며 원문은 source.llm_raw에 보존합니다. unknown/find/control·대상단독clarify 판별은 유지하고 새 확인 대화는 만들지 않습니다. 설치된 모델의 합성입력 무발화 검사·캐시 응답5~7ms는 실제마이크 오탐/전체3초 달성 근거가 아닙니다. 웨이크 잔음이 음성구간 기준을 넘으면 통과할 가능성이 남습니다. [문서·로컬 검사]
+[문서: #194 구현] `clarify_prompts`는 기본/실패 안내이며, [승인된 음성 정책](requirements.md#voice-policy)에 따라 현재 대상·행동·판정과 의미 일치하는 내부 LLM `response_text`를 검증해 최종 문장으로 유지합니다. 공개 `clarify_question`은 질문에만 사용하며 내부 `_voice.final_text`와 실제 `tts.speak(text)`·최종 콘솔 안내는 동일 문자열입니다. 원본/대체 사유는 E 상세 파일에 보존합니다. 현재 질문의 후보·세대/epoch·유효성을 `Conversation`이 관리하고 실제 질문 TTS 완료 후 명확한 답/대상 정정을 한 번 결합합니다. 캐시 WAV를 읽거나 재시작해도 질문 권한이 복원되지 않습니다. 이 구현은 실음성/AC·C 수락 시험 결과가 아닙니다.
 
 원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 웨이크 스트림을 닫은 뒤 동일 입력으로 16kHz/int16/mono 고정 녹음을 시작합니다. commissioning은 실행·평가 모드 모두에서 기존 유한 API 상한을 사용하며 3초 AC 예산을 적용하지 않습니다. 평가 true는 모든 intent 발행을 차단하고 false는 기존 확인 TTS·무발화·취소·실패·중복 게이트를 통과한 요청을 발행합니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
 
 [현재 설정 원본 voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)은 시운전 STT/LLM 상한 각각30초, silence_sec=0.4, tts_reserve_sec=0.7입니다. 이전 STT1.1초/LLM0.8초는 AC 준비 후보였으며 현재 원본 값이 아닙니다. AC 모드의 값은 별도 실측해 확정합니다. silence/ac_budget 모드에서는 [AC-INT-03](requirements.md#ac-int-03)의 예산에 무음 대기·API·TTS 준비를 포함합니다. 남은 예산에 따라 STT/LLM의 실제 제한은 더 짧아질 수 있으며, 값의 합이나 설정만으로 실제 3초 달성을 선언하지 않습니다. 늦은 API 결과는 폐기하고 재시도를 쌓지 않습니다.
 
-Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 완료 후 웨이크 입력을 시작합니다. 사용자 확정 엔진은 MeloTTS·속도1.2입니다. 등록 물품별 기존 확인 문장과 실제 P1 찾아오기/트레이 전달/미발견 문장, “서랍을 닫았어요”, clarify·사용자 prefill을 중복 제거해 준비합니다. 닫기 성공 후 안내는 C 태스크 [#140](https://github.com/Jik-Kim/ready2go/pull/140)(merge `0c0a971`)으로 main에 반영됐습니다. E 캐시 준비·C mock 통합 확인과 PC2 실물 실행 검증은 구분합니다. 속도/worker/모델 등의 캐시 키가 바뀌면 새 합성이 필요하고 동일 환경의 기존 디스크 캐시는 재사용합니다. 현재 상태 안내7종 포함64개 문장을 cold 합성하면 기존 전체 준비상한60초를 넘을 수 있어, 최초/속도·worker 변경 시 일반 노드 재시작 반복 대신 패키지 README의 재생 없는 사전 준비 절차와 운용 PC에서 결정한 별도 유한 상한을 사용합니다. 기존 YAML·AC3초·재생 상한은 바꾸지 않습니다. PC2 재시작 캐시·실물/청취 품질·AC3초는 미검증입니다. Google Cloud TTS 도입은 철회하여 새 SDK/키를 추가하지 않습니다. 준비/합성 실패·취소·기한 초과는 재생/발행을 보류하며 기존 TTS lock·첫 DAC 시각을 유지합니다. 설치 경로·공식 revision·Python3.12 호환 의존성/한국어 전용 패치와 단문 재생 명령은 패키지 README를 참조하십시오. 과거 속도1.0의 CPU4스레드 단문 합성 약2.43~2.49초와 캐시 조회 약3ms는 합성/조회 측정이며 전체 AC-INT-03 달성 근거가 아닙니다. [실측: 로컬 단문]
+Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 완료 후 웨이크 입력을 시작합니다. 사용자 확정 엔진은 MeloTTS·속도1.2입니다. 등록 물품별 요청 확인·구체 질문과 실제 P1 찾아오기/트레이 전달/미발견 문장, “서랍을 닫았어요”, clarify·사용자 prefill을 중복 제거해 준비합니다. 닫기 성공 후 안내는 C 태스크 [#140](https://github.com/Jik-Kim/ready2go/pull/140)(merge `0c0a971`)으로 main에 반영됐습니다. E 캐시 준비·C mock 통합 확인과 PC2 실물 실행 검증은 구분합니다. 속도/worker/모델 등의 캐시 키가 바뀌면 새 합성이 필요하고 동일 환경의 기존 디스크 캐시는 재사용합니다. 과거 상태 안내7종 포함64개 문장 기준으로 cold 합성하면 기존 전체 준비상한60초를 넘을 수 있어, 최초/속도·worker 변경 시 일반 노드 재시작 반복 대신 패키지 README의 재생 없는 사전 준비 절차와 운용 PC에서 결정한 별도 유한 상한을 사용합니다. 기존 YAML·AC3초·재생 상한은 바꾸지 않습니다. PC2 재시작 캐시·실물/청취 품질·AC3초는 미검증입니다. Google Cloud TTS 도입은 철회하여 새 SDK/키를 추가하지 않습니다. 준비/합성 실패·취소·기한 초과는 재생/발행을 보류하며 기존 TTS lock·첫 DAC 시각을 유지합니다. 설치 경로·공식 revision·Python3.12 호환 의존성/한국어 전용 패치와 단문 재생 명령은 패키지 README를 참조하십시오. 과거 속도1.0의 CPU4스레드 단문 합성 약2.43~2.49초와 캐시 조회 약3ms는 합성/조회 측정이며 전체 AC-INT-03 달성 근거가 아닙니다. [실측: 로컬 단문]
 
 기존 `/runner/status` reliable/transient-local·depth10 읽기 전용 구독과 별도 TTS worker로 P1 중단/오류 안내를 제공합니다. 현재 halt_code의 ESTOP·확인 불가·HALTED를 우선하며 정지 완료를 단정하지 않습니다. 일반 실패는 관측한 running/task와 새 마지막 결과가 맞을 때 finally 이후 관측 시점에 안내합니다. 첫 latched/동일 사건·확인한 run_id는 반복하지 않고 높은 경고/새 회차가 낡은 대기·정상 음성을 무효화합니다. 일반 FAILED를 지속 잠금으로 만들지 않아 새 음성 확인/intent는 기존 규칙으로 진행하며, 현재 halt만 정상 TTS를 억제합니다. 상태 구독만 전용 `MutuallyExclusiveCallbackGroup`으로 동시 콜백 실행을 막으며 text/action은 Reentrant 그룹을 유지합니다. 모든 입력 순서·누락 방지는 보장하지 않습니다. 상태 콜백은 TTS/정지/복구/DB를 호출하지 않고 안내는 기존 lock/cancel/timeout/첫DAC를 사용합니다. 자체 TTS 실패는 로그만 남기고 재시도/재귀 안내하지 않습니다. 문구7종은 Melo 사전캐시에 포함됩니다. 현재 계약에 활성 run_id·이벤트 시각/순번이 없어 미관측 같은 태스크 지연 결과·전환 누락을 완전 구분하거나 중간 일반 실패를 즉시 알리는 것은 미구현이며 [#138](https://github.com/Jik-Kim/ready2go/issues/138)의 C 인계입니다. 실제 정지/실물·경고 재생 지연은 미검증입니다. [문서]
 
@@ -50,7 +50,7 @@ Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 �
 
 ### 6.2 지원 인텐트 (최소 세트)
 
-요청의 의미·보류·폴백 정책은 [FR-INT-02](requirements.md#fr-int-02)·[음성 정책](requirements.md#voice-policy)을 참조합니다. 현재 파서는 `find_item`, `cancel/status`, `unknown/clarify` 경로를 구현하며 LLM 후보와 좁은 규칙 폴백을 구분합니다. 함수의 검사 통과가 자유 한국어 전체의 의미 정확성을 보장하지 않습니다. 비요청 문맥의 알려진 결함과 실제 장치 평가 상태는 [패키지 README](../ros2_ws/src/ready2go_voice/README.md#설정과-동작-경계)를 확인하십시오. [문서]
+요청의 의미·보류·폴백 정책은 [FR-INT-02](requirements.md#fr-int-02)·[음성 정책](requirements.md#voice-policy)을 참조합니다. 현재 파서는 `find_item`, `cancel/status`, `unknown/clarify` 경로를 구현하며 LLM 후보와 좁은 규칙 폴백을 구분합니다. 함수의 검사 통과가 자유 한국어 전체의 의미 정확성을 보장하지 않습니다. 핵심 부정/번역/제외 모의 보완과 남은 실음성 일반화·장치 평가 상태는 [패키지 README](../ros2_ws/src/ready2go_voice/README.md#설정과-동작-경계)를 확인하십시오. [문서]
 
 | 단계 | 정본 참조 | 현재 E 연결 |
 |---|---|---|
@@ -61,7 +61,7 @@ Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 �
 
 ### 6.3 비기능 요구사항
 
-수용 기준은 [AC-INT-01](requirements.md#ac-int-01)·[AC-INT-02](requirements.md#ac-int-02)·[AC-INT-03](requirements.md#ac-int-03), 평가·보류 의미는 [음성 정책](requirements.md#voice-policy)에만 정의합니다. 현재 실음성 통과 기록은 없습니다. E/D 정답표 승인·문장 동결·후속 확인 대화는 인계 사항입니다. 모의 회귀·설정값·합성 속도로 실제 음성 평가 완료를 대신하지 않습니다. [문서]
+수용 기준은 [AC-INT-01](requirements.md#ac-int-01)·[AC-INT-02](requirements.md#ac-int-02)·[AC-INT-03](requirements.md#ac-int-03), 평가·보류 의미는 [음성 정책](requirements.md#voice-policy)에만 정의합니다. 현재 실음성 통과 기록은 없습니다. E/D 정답표 승인·문장 동결·실음성 후속 대화 평가는 인계 사항입니다. 모의 회귀·설정값·합성 속도로 실제 음성 평가 완료를 대신하지 않습니다. [문서]
 
 현재 `bare_item_policy` 호환 검사·`request_patterns` 미사용, STT 실패 보류·LLM 검증 실패 후 폴백, 텍스트 override는 패키지 구현 설명을 참조합니다. API 처리 중 새 웨이크 청취가 일시 중지되는 한계가 있으며 음성 취소의 운용 경계는 [NFR-SAF-02](requirements.md#nfr-saf-02)와 [안전 절차](safety.md)를 따릅니다.
 
@@ -74,11 +74,12 @@ Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 �
 ```text
 제어/미지원·모호 규칙 → 필요한 경우 STT 텍스트 + 등록 물품 어휘 → LLM 후보
   → 기존 intent 계약 + P1 허용값 + 단일 등록 대상 + 확신도 + 발화 의미 검증
-  → 오류·시간 초과·검증 실패/LLM 없음: 긍정 전체 문형·이름+좀/좀요로 좁은 폴백
+  → 정상 unknown/빈 targets: 검증된 내부 사유에 맞춘 물품/요청 미지원 안내
+  → 오류·시간 초과·일반 검증 실패/LLM 없음: 좁은 폴백; 미등록 find_item은 원인 보존 후 미지원 보류
   → 최종 find_item: 평가/세대/중복/확인 TTS 게이트 → /voice/intent
 ```
 
-LLM 요청 스키마는 `intent`를 find_item/unknown/clarify로 제한하고 `targets`, `confidence`, `clarify_question`을 받습니다. cancel/status는 규칙 경로입니다. 외부 출력 정본 [intent.schema.json](../contracts/intent.schema.json)은 intent/confidence가 필수이며 현재 출력에서 targets·필요한 확인 질문과 진단 source를 덧붙입니다. strict 응답 형식이 사용자 의미의 정확성을 보장하지 않아 코드가 다시 검증합니다. P1은 goals/query 실행을 허용하지 않습니다.
+LLM 요청 스키마는 `intent`를 find_item/unknown/clarify로 제한하고 `targets`, `confidence`, `clarify_question`과 내부 `response_text/rejection_reason`을 받습니다. 등록키 targets enum·additionalProperties=false를 유지하며 사유도 required/유한 enum입니다. `unknown/빈 targets`의 미등록 물품과 미지원 요청 사유를 검증해 내부 `_voice.reason`으로 옮기고 최종 안내 선택에 사용합니다. find_item/clarify의 사유는 null이며 판정·등록 대상과 모순되거나 미지원 사유 값이면 검증 실패로 처리합니다. 원본 후보 문구로 사유를 추론하지 않습니다. response_text와 rejection_reason은 공개 intent의 새 필드가 아니며 response_text는 검증된 `_voice.final_text`로만 사용합니다. cancel/status는 규칙 경로입니다. 외부 출력 정본 [intent.schema.json](../contracts/intent.schema.json)은 intent/confidence가 필수이며 현재 출력에서 targets·필요한 확인 질문과 진단 source를 덧붙입니다. strict 응답 형식이 사용자 의미의 정확성을 보장하지 않아 코드가 다시 검증합니다. P1은 goals/query 실행을 허용하지 않습니다.
 
 “지우개 찾아줘.”의 검증된 출력 예시(source 생략):
 
@@ -125,14 +126,37 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 
 [제안·계약 차단] 내부 `StoppedWork/Evidence/Question`은 wire 필드나 확정 계약이 아닙니다. 명시적 복구 의사·B 실제 정지/컨트롤러 복구 결과·C 재개점/조건·부팅 세대/순서/유효성·질문/발화 연결과 콜백 직렬화는 [승인 대기안](interfaces.md#p2-safety-proposal)에서 협의합니다. C #152 계약안 v0의 `halt_event_id`와 내부 `StoppedWork.stop`의 대응은 계약 확정 후 adapter에서 대조해야 하며 현재 승인된 wire 연결이 아닙니다. 복구 중 정지 또는 증빙 불명은 후보를 무효화해야 합니다. B/C 후속 검사의 기준은 [FR-SAF-03](requirements.md#fr-saf-03)입니다. 실제 증빙 adapter·E 후보·C 실행 보존의 연결은 미확정입니다.
 
-[미연결] 복구 결과 ROS 수신, 질문 실제 TTS·캐시, 발화 채취/자기 음성 억제, 우선 정지 경로, C 잠금/재개 요청은 아직 연결하지 않았습니다. 기존 ordinary intent·Runner notice·prefill·listener를 수정하지 않았습니다. TTS 완료 뒤 녹음 시작 검사는 실제 스피커 자기 발화가 완전히 차단됐다는 증거가 아닙니다. 모의 정책 시험은 실제 음성 수신·로봇 정지·복구·재개 완료의 근거가 아닙니다.
+[미연결] 복구 결과 ROS 수신, 질문 실제 TTS·캐시, 발화 채취/자기 음성 억제, 우선 정지 경로, C 잠금/재개 요청은 아직 연결하지 않았습니다. P2 복구 정책은 ordinary intent·Runner notice·prefill·listener 운영 경로에 연결하지 않았습니다. TTS 완료 뒤 녹음 시작 검사는 실제 스피커 자기 발화가 완전히 차단됐다는 증거가 아닙니다. 모의 정책 시험은 실제 음성 수신·로봇 정지·복구·재개 완료의 근거가 아닙니다.
 
 ### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
 
-[문서] 정책 정본은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy)입니다. E 내부 모듈은 [skill_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)·[recovery_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/recovery_confirmation.py)입니다. Whisper adapter의 optional before_request는 SDK 초기화·WAV 열기 뒤 create 직전 로컬 monotonic 시각으로 접수를 거절할 수 있습니다. 녹음 자료형에 시작/끝 로컬 시각을 보존하지만 P1 Session·노드는 이 guard/정책을 호출하거나 새 wire로 발행하지 않습니다. 노드의 실제 TTS 완료·취소·busy/listener 경계는 그대로이며 아직 정책 질문 TTS/녹음 연결은 없습니다. STT 별도 처리 예산·place 대기/재확인 값은 설정 null로 미정 표시하고 내부 접수를 안전측 보류합니다.
+[문서] 정책 정본은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy)입니다. E 내부 모듈은 [skill_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)·[recovery_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/recovery_confirmation.py)입니다. Whisper adapter의 optional before_request는 SDK 초기화·WAV 열기 뒤 create 직전 로컬 monotonic 시각으로 접수를 거절할 수 있습니다. 녹음 자료형에 시작/끝 로컬 시각을 보존합니다. P1 Session은 SDK 직전 callback을 시각 진단에만 사용하며 #152 접수창/재개 정책과 새 wire는 연결하지 않습니다. 노드의 실제 TTS 완료·취소·busy/listener 경계는 그대로이며 아직 정책 질문 TTS/녹음 연결은 없습니다. STT 별도 처리 예산·place 대기/재확인 값은 설정 null로 미정 표시하고 내부 접수를 안전측 보류합니다.
 
 [제안: C 회신안] [C v1 수락+v2 제안](https://github.com/Jik-Kim/ready2go/issues/152#issuecomment-6059657040)의 일반 cancel 보존·질문 포기 구분·사건별 일회성·재개 직전 B 확인 요구와 책임 방향은 대조했습니다. `answer: asked`는 제안 enum resume/decline/expired와 충돌하므로 기존 enum에 임의 추가하지 않습니다. 질문 등록 메시지/수신 확인 방식·등록 전 답 거절·멱등성은 별도 합의가 필요하며 새 토픽/서비스/enum을 확정하지 않습니다. E는 같은 Voice 프로세스 시계에서 TTS 실제 완료·녹음 시작/끝·실제 SDK 호출·STT 만료와 질문/boot/run/halt를 결합해 검증한 결과만 전달하는 구체안을 제안합니다. C는 사건/질문 식별자·seq·등록 상태와 **자신의 시계**로 유한 hold 상한을 검사하고 실행 직전 B/pre를 재확인합니다. 서로 다른 프로세스 monotonic 값의 직접 대소 비교는 하지 않으며 요청 시각 하나로 녹음 시각을 증명하지 않습니다. E 처리 예산과 C hold 값은 미정입니다. 스키마·예시·ICD 동시 반영과 E 포함2명 승인 전 운영 연결은 보류합니다. 이 회신안은 GitHub 게시나 계약 승인 자체가 아닙니다.
 
 [인계] B: 실제 grip 완료/실측폭/expected_width 개선·lift 유지·외력 없음/신선도/확인 모드. A/B: handover inspect/TF/ROI·촬영 자세. C: verify evaluator/대기/최종 effect·상태/로그/성공 안내·재개 노드/hold·질문 등록. 실제 연결/실물 AC를 E 모의 시험 결과로 대체하지 않습니다.
 
 [문서] E-local Question.valid_until은 접수10초와 별개의 사건/증빙 유효상한으로 접수·최종 답 시점 모두 검사합니다. C hold_until을 이 값에 복사하지 않으며 C 사건/만료를 무효화하는 adapter도 현재 미연결입니다. 기한 내 STT의 늦은 결과 허용은 E-local 상한과 별도 처리 예산 안으로 제한합니다.
+
+
+### #194 요청/질문·진단 연결과 #138 bounded 캐시
+
+[문서] 실행 원본은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)·[IntentParser](../ros2_ws/src/ready2go_voice/ready2go_voice/core/intent.py)·[Conversation](../ros2_ws/src/ready2go_voice/ready2go_voice/core/conversation.py)·[response.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/response.py)·[DiagnosticFile](../ros2_ws/src/ready2go_voice/ready2go_voice/core/diagnostics.py)입니다. 내부 LLM response_text는 공개 intent schema의 신규 필드가 아니며 `_voice`는 발행에서 제외합니다. 기존 source 소비 필드를 유지하며 비밀값은 제거합니다. 요청 확인은 실행 시작/완료 안내가 아니고 발행은 수락이 아닙니다.
+
+[문서] 일반 질문의 `dialogue_timeout_sec`는 제안 설정이며 null이면 후속 결합을 보류합니다. 질문 TTS 실패는 질문 권한을 만들지 않고, 후속 답은 후보 생성 때 소비합니다. TTS/발행 실패 후 과거 답을 자동 재시도하지 않으며 새 독립 요청이 필요합니다. 관측된 running/잠금/경고·취소는 epoch/세대를 무효화하고, 상태 변경과 발행 게이트를 E 로컬 submit_lock으로 직렬화합니다. 수락 여부/요청 상관성·실물 준비 판정은 이 lock으로 보장하지 않습니다.
+
+[문서] `diagnostic_detail=true`는 전체 민감정보 필터 후 E 로컬 JSONL 파일을 선택하며 콘솔에 전체 JSON을 출력하지 않습니다. `diagnostic_file` 상대 경로는 실행 cwd 기준, 크기·백업 개수·bounded 큐는 YAML 원본입니다. 원본 LLM은 interpretation에서 한 번 보존하고 후속 이벤트에는 반복하지 않습니다. wake/녹음 시작·끝→submit/work→STT SDK 호출/결과→LLM→최종 문장/TTS→발행을 로컬 request_id로 연결하며 question_ready/후속 답은 question_id로 연결합니다. source 공개 필드는 기존 의미를 유지합니다. 파일 열기/쓰기/회전·필터/직렬화·큐 실패는 경고하고 음성/취소 경로로 예외를 전파하지 않습니다. 큐 포화/정체 시 증빙 손실을 경고하며 C DB 로그나 worker JSON pipe를 대신하지 않습니다. 회전 상한보다 큰 단일 원본 기록은 분할하지 않고 보존한 뒤 다음 기록에서 회전합니다.
+
+[문서·코드 대조: 2026-10-10, #198 리뷰 보완] 기준은 기존 [음성 정책](requirements.md#voice-policy)입니다. `LangChainIntent.schema`를 통과하는 unknown/빈 targets/내부 사유 응답으로 물품 미등록 안내를 확인합니다. 실행 enum에 없는 키를 반환하는 오류 모의는 별도 방어 시험이며 정상 LLM 경로의 증거로 대신하지 않습니다. 내부 응답은 parser에서 문장/사유 필드를 분리하고, 사유는 검증 후 `_voice` 안에서만 사용합니다. `_voice`와 새 내부 필드는 기존 node 발행 필터로 제외하며 원본은 기존 `source.llm_raw` 진단 필드에 보존합니다. 새로운 공개 source 필드를 추가하지 않습니다.
+
+[구현] Conversation과 parser guard는 동의/대명사 응답 판별을 공유합니다. 현재 유효 질문으로 대상이 확정된 답/정정만 전달 요청으로 결합하고, 질문 없음·만료·취소·세대 변경·경고·busy/잠금 뒤에는 원문 그대로 clarify/빈 targets와 대상 재확인 안내로 처리합니다. 이 보류는 LLM 호출 전에 적용하므로 LLM 정상/실패/없음과 무관하며 과거 대상이나 질문 권한을 복원하지 않습니다. 재확인 TTS 완료 후 만들어지는 질문은 새 ID/대상 미정이고 기존 질문의 재사용이 아닙니다. `test_voice_ux.py`·`test_config_api.py`는 실제 내부 스키마와 의미 분류를, `test_voice_ux_node.py`는 저장된 node 메서드의 모의 실행으로 최종 콘솔/TTS·기존 wire 모양·평가 차단을 확인합니다. 실제 API/마이크/ROS 송수신·C 수락·로봇 시험 결과는 아닙니다.
+
+[문서] 초기 필수 문장과 실제 성공 재생된 검증 문장의 사용 빈도를 분리해 선준비합니다. `validated_phrases.json`은 문장/사용횟수만 제한된 수·길이·용량으로 보존하며 질문 권한/대화 원본을 저장하지 않습니다. worker의 miss→WAV 저장·identity 기반 재사용은 기존 경로입니다. 모델/설정/내용/worker 코드 변경에 따른 무효화는 유지하며 이번 worker 시간 진단 수정도 identity를 바꿉니다. 기존 WAV를 삭제하지 않으므로 첫 준비 재합성이 필요할 수 있습니다. 선준비의 필수 목록이 설정 한도를 넘으면 실패하고, 선택 이력 실패는 경고 후 필수 목록만 준비합니다. model_prepare_sec, prefill_prepare_sec, prepare_total_sec와 첫 합성/히트의 worker_synth_sec·재생 구간은 구분합니다. 일반 startup60초·prepare 명령120초·Melo1.2·AC3초는 유지하며 이번 실제 합성 시간은 미측정입니다.
+
+[인계: 미연결] [#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 C는 기존 상태/last_intent의 과거 latched·동일 문장 결과와 현재 요청을 연결할 식별/순서·수락/거절·TTS 실패·timeout/단절/취소 책임을 협의합니다. 고유 요청/boot/seq가 없는 현재 상태로 수락 음성을 만들지 않습니다. D는 [#20](https://github.com/Jik-Kim/ready2go/issues/20)의 사전 정답표에 두 전언 요청·번역/부정/제외·현재 질문 응답/무문맥 응답·가능 여부·미지원 사례와 정책 버전을 대조해야 합니다. E가 C/D 파일을 수정하지 않았으며 협의 전달은 수락/계약 승인이 아닙니다. [#194](https://github.com/Jik-Kim/ready2go/issues/194)·[#138](https://github.com/Jik-Kim/ready2go/issues/138)·[#195](https://github.com/Jik-Kim/ready2go/issues/195)는 P1 기반 개선/검토로 유지합니다. #23 과거 결과·P1 미달을 종료/AC 면제로 바꾸지 않습니다.
+
+### #195 녹음 방식 비교 — 기본 전환 보류
+
+[문서·코드 대조] fixed는 sd.rec→sd.wait의5초 PCM16kHz/int16/mono 전체를 수집하고 끝난 뒤30ms VAD+RMS의 최소 연속 음성량만 검사합니다. 무음/취소/VAD 불가·오류는 STT·LLM을 생략하지만 실제 발화 끝을 측정하지 않습니다. silence는 웨이크 스트림의 RMS 기준으로 음성 시작·마지막 유성 프레임을 잡고 무음 상한 뒤 반환합니다. 마지막 프레임 시각은 발화 끝의 추정이며 조용한 발화/중간 휴지/웨이크 잔음/잡음에 영향을 받습니다. silence 경로는 현재 fixed 후처리 VAD를 사용하지 않습니다. 두 경로 모두 시작/최대 보호 한도·취소/TTS 중단을 검사하고 잘린 요청을 실행하지 않습니다.
+
+[제안: 별도 실측 승인 필요] 같은 표본에서 짧거나 작은 정상음성·중간 휴지·무음/잡음·웨이크 잔음·최대 길이·취소·자기 TTS를 비교합니다. 실제 발화 끝→녹음 끝→SDK 호출/결과→첫 DAC를 구분해 누락/오탐/잘림·지연을 기록합니다. 모의 PCM/VAD 검사와 실제 청취/API는 구분하고 적정 임계값/채택 판단은 실측 후 결정합니다. 이번 기본 fixed5/commissioning·무음/VAD 임계값을 변경하지 않았고 기본 전환을 권고할 실음성 근거는 없습니다.
