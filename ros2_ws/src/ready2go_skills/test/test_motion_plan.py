@@ -188,6 +188,22 @@ def test_eraser_crosswise_on_handle_wall_near_left_wall_dragged_sideways_then_en
     assert mp.long_side_ok(target=after, size_m=ERASER, interior_m=INTERIOR, g=g)            # 끈 뒤 긴 변으로 잡힘
 
 
+def test_eraser_crosswise_on_handle_wall_grabbed_by_ends_tilted():
+    """[사용자 10/10 PC2 "기울여서 긴 변으로"] 손잡이 쪽 벽에 가로로 붙은 지우개: 안쪽으로 못 끌어도(서랍 닫힘) 긴 변 양끝으로 잡음.
+    집기 판단 여유 8 mm 를 긴 변 판단에도 쓰면 시도도 안 함(NO_PUSH_ACCESS) → 긴 변은 기본 여유. 앞판에 몸통이 닿아 벽 쪽으로 기울임."""
+    g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"])
+    t = tgt(0.011, 0.15, math.pi / 2)
+    assert mp.wall_blocks_grasp(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
+    assert mp.long_side_ok(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
+    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False))
+    assert not p.needed and p.error_code is None and "긴 변" in p.reason
+    assert mp.front_tilt_x_mm(target=t, size_m=ERASER, interior_m=INTERIOR, g=g) == pytest.approx(11.0)   # 물체 가운데 그대로
+    tx = mp.front_tilt_x_mm(target=tgt(0.004, 0.15, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=g)
+    assert tx == pytest.approx(g["wall_clearance_mm"]["along_mm"])                                      # 벽에 더 붙었으면 손가락 자리까지 안쪽
+    assert mp.front_tilt_x_mm(target=tgt(0.10, 0.15, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=g) is None      # 가운데
+    assert mp.front_tilt_x_mm(target=tgt(0.188, 0.15, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=g) is None     # 안쪽 벽
+
+
 def test_pick_margin_makes_borderline_spots_nudge():
     """[사용자 10/10 "애매한 자리는 넛지로 확실히"] 집기 판단 여유(pick_wall_margin_mm 8)면 3 mm 일 때 바로 집던 경계 자리도 넛지."""
     g8 = dict(G, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"])

@@ -17,6 +17,7 @@
     ros2 run ready2go_skills skill_server
     ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0   # 처음은 저속 (safety.md 11)
 """
+import dataclasses
 import json
 import math
 import os
@@ -1275,6 +1276,12 @@ class SkillServer(Node):
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"], support_m=support,
                                     long_side=long_side)
+        # 긴 변 잡기가 손잡이 쪽 벽 가까이면 그 벽 쪽으로 기울여 잡음 — 앞판이 테두리보다 높아 수직 몸통이 닿음 [사용자 10/10 PC2]
+        tilt_x = (mp.front_tilt_x_mm(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+                  if long_side and prm["pick"].get("front_tilt_deg") else None)
+        if tilt_x is not None:
+            fz = mp.from_base(place["tf"], plan.position_m)[2]
+            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (tilt_x / 1000.0, target["pose"]["position"][1], fz)))
         g, speed = prm["gripper"], prm["speed"]
         expected_w = (None if long_side else self.grasp_width(cls, size, prm)) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
@@ -1320,15 +1327,20 @@ class SkillServer(Node):
                     return o, None
                 cur = self.robot.posx() or cur
                 grasp = list(grasp[:3]) + list(cur[3:])
+            vert = list(grasp)                              # 기울이지 않은 잡는 자세 — 들고 나올 때 이걸로 되돌림 (놓으러 갈 때 J6 계산은 수직 기준)
+            if tilt_x is not None:                          # 손끝은 손잡이 쪽 벽, 몸통은 서랍 안쪽 — 테두리 위 옆 구간에서 기울임 (넛지와 같음)
+                grasp = mp.gripper_posx(grasp[:3], close_dir, grasp[3:], tilt_toward=mp.dir_to_base(place["tf"], (-1.0, 0.0, 0.0)),
+                                        tilt_deg=prm["pick"]["front_tilt_deg"])
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
             # 경유점에서 미리 벌리고(테두리 위 높이라 안 닿음) 테두리 위로 목표 위 → 잡는 높이 1 cm 위까지 블렌딩 한 번 — 목표 위에서 멈춰
             # 벌리고 다시 내려가지 않음 [사용자 10/10 "동작이 너무 많고 복잡"]. 마지막 1 cm 만 천천히 [사용자 10/07]
             self._grip(plan.open_width_m * 1000.0, 20)
             slow_mm = prm["pick"].get("slow_last_mm", 0.0)
             near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
-            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=True)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
+            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=tilt_x is None)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
+            vert = list(grasp)
             above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
             bad = self._transit(goal, above, "to_object")
         if bad:
@@ -1370,7 +1382,7 @@ class SkillServer(Node):
             r = self.prm()["transit"].get("blend_mm", 0.0)
             # 경유점 1 은 위치만 — 손목은 잡은 방향 그대로 (짧은 옆 구간에서 크게 돌리면 제어기가 출발 안 함 [실측 PC2 10/10 45° 지우개
             # 들어 올리기 NOT_REACHED]). 원래 방향은 놓으러 갈 때 긴 구간(들고 나오기 1→2)에서 돌아감
-            back = list(route[0][:3]) + list(grasp[3:])
+            back = list(route[0][:3]) + list(vert[3:])      # 기울여 잡았으면 테두리 위 옆 구간에서 수직으로 되돌림
             bad = self._blend(goal, [up, back], [r, 0.0], self._in_vel(), "lift")
         else:
             bad = self._line(goal, above, self._in_vel(), "lift")
@@ -1394,7 +1406,8 @@ class SkillServer(Node):
                      "long_side": long_side}                                        # 긴 변 양끝을 쥠 → 놓을 때 손가락 방향 90° [사용자 10/10]
         out = {"object_id": target.get("id"), "class": cls, "pick_pose_drawer_frame": target.get("pose"),
                "grasp_ok": True}
-        stacked = (f", 받침 {support * 1000:.1f} mm 위" if support else "") + (", 긴 변 양끝" if long_side else "")
+        stacked = (f", 받침 {support * 1000:.1f} mm 위" if support else "") + (", 긴 변 양끝" if long_side else "") + \
+            (f", 손잡이 쪽으로 {prm['pick']['front_tilt_deg']:.0f}° 기울임" if tilt_x is not None else "")
         return sf.Outcome(True, reason=f"{cls} 파지 (폭 {chk.width_m * 1000:.1f} mm, {hold.reason}{stacked})"), out
 
     # --- 놓기 ---

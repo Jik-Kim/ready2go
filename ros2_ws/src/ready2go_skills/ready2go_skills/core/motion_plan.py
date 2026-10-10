@@ -167,12 +167,42 @@ def _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin_mm):
 
 def long_side_ok(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> bool:
     """긴 변 양끝 잡기(닫힘 축 = 긴 변)가 그리퍼 최대 벌림 안이고 벽에 안 걸리는지 [사용자 10/10 "벽에 붙으면 긴 쪽으로"].
-    g max_open_mm 가 없으면 쓰지 않음(False)."""
+    여유는 기본 wall_margin_mm — 넛지 판단용 pick_wall_margin_mm(8)을 쓰면 손잡이 쪽 벽에 붙은 지우개가 시도도 안 함 [사용자 10/10 PC2].
+    손잡이 쪽 벽(x 최소)에만 걸리면 기울여 잡기(front_tilt_x_mm)로 됨. g max_open_mm 가 없으면 쓰지 않음(False)."""
     max_open = g.get("max_open_mm")
     if max_open is None or size_m[0] * 1000.0 + g["open_margin_mm"] > max_open:
         return False
-    t = {**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}
-    return wall_blocks_grasp(target=t, size_m=[size_m[1], size_m[0]] + list(size_m[2:]), interior_m=interior_m, g=g) is None
+    cx, cy = target["pose"]["position"][:2]
+    yaw = target["pose"]["yaw"]
+    if not _finite(cx, cy, yaw, *size_m[:2], *interior_m[:2]):
+        return False
+    x_blocked, lack_mm, _ = _grasp_blocked(cx, cy, yaw + math.pi / 2, [size_m[1], size_m[0]] + list(size_m[2:]),
+                                           interior_m, g, g["wall_margin_mm"])
+    if lack_mm > 0:
+        return False
+    return not x_blocked or front_tilt_x_mm(target=target, size_m=size_m, interior_m=interior_m, g=g) is not None
+
+
+def front_tilt_x_mm(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[float]:
+    """긴 변 양끝 잡기가 손잡이 쪽 벽(서랍 x 최소) 가까이면 그리퍼를 그 벽 쪽으로 기울여 잡을 TCP x (서랍 mm), 아니면 None.
+    앞판이 테두리보다 높아 수직 그리퍼 몸통이 닿음 → 손끝은 벽 쪽, 몸통은 서랍 안쪽으로 눕힘 [사용자 10/10 "앞쪽 벽은 기울여서 잡으라고, 본체 닿는다"].
+    가까움 = 짧은 변 잡기가 앞벽에 걸리는 거리(wall_extent_mm + pick_wall_margin_mm) 안. 손끝 자리는 기울여도 바닥에서 같다고 봄(반원 손끝) —
+    TCP 는 벽에서 wall_extent_mm 이상, 물체 가운데가 그보다 벽 쪽이면 안쪽으로 밀되 물체 폭 절반 안에서만(손가락이 양끝 면에 닿게)."""
+    cx = target["pose"]["position"][0]
+    yaw = target["pose"]["yaw"]
+    if not _finite(cx, yaw, *size_m[:2], interior_m[0]):
+        return None
+    x_mm = cx * 1000.0
+    if x_mm >= interior_m[0] * 500.0:                      # 안쪽 벽 쪽 절반 — 앞판 아님
+        return None
+    open_mm = size_m[0] * 1000.0 + g["open_margin_mm"]
+    ext_x = wall_extent_mm(open_mm, yaw, g)                  # 닫힘 축 = 긴 변(yaw) vs x 벽 법선
+    short_x = wall_extent_mm(size_m[1] * 1000.0 + g["open_margin_mm"], yaw + math.pi / 2, g)   # 짧은 변 잡기 자리
+    if x_mm >= max(ext_x, short_x) + g.get("pick_wall_margin_mm", g["wall_margin_mm"]):   # 짧은 변으로 잡을 수 있는 거리면 기울일 일 없음
+        return None
+    tcp = max(x_mm, ext_x)
+    across = 1000.0 * (abs(math.cos(yaw)) * size_m[0] + abs(math.sin(yaw)) * size_m[1])   # 물체의 x 방향 폭(외접)
+    return tcp if tcp - x_mm <= across / 2 else None
 
 
 def wall_blocks_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[str]:

@@ -815,6 +815,29 @@ def test_lip_balm_on_left_wall_picked_by_ends_and_placed_turned(server):
     assert out2.success
 
 
+def test_eraser_on_handle_wall_picked_by_ends_tilted_toward_wall(server):
+    """[사용자 10/10 PC2 "앞쪽 벽은 기울여서 긴 변으로, 본체 닿는다"] 손잡이 쪽 벽에 가로로 붙은 지우개: 시도도 안 하던 것(NO_PUSH_ACCESS)
+    → 긴 변 양끝을 잡되 손끝은 벽 쪽·몸통은 안쪽으로 기울여 내려가고, 들고 나올 땐 테두리 위에서 수직으로 되돌림."""
+    srv = server.srv
+    t = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+         "pose": {"frame": "drawer_top", "position": [0.011, 0.15, 0.0], "yaw": -1.5647, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 52.0
+    srv.robot.log.clear()
+    try:
+        out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success and "긴 변" in out.reason and "기울" in out.reason and srv.held["long_side"] is True
+    log = srv.robot.log
+    tilt = srv.prm()["pick"]["front_tilt_deg"]
+    over = [e for e in log if e[0] == "moveb"][0][1]
+    grasp = [e[1] for e in log if e[0] == "movel"][-1]                 # 마지막 1 cm 천천히 내려가기
+    assert abs(grasp[4]) == pytest.approx(180.0 - tilt, abs=0.5)       # 툴 z 가 수직에서 tilt 만큼
+    assert over[0][3:] == grasp[3:]                                     # 테두리 위 옆 구간에서 이미 기울임 (넛지와 같음)
+    lift = [e for e in log if e[0] == "moveb"][-1][1]
+    assert lift[0][3:] == grasp[3:] and lift[-1][3:] != grasp[3:]       # 올릴 땐 기울인 채, 경유점 1 로 가며 수직으로
+
+
 def test_place_stops_where_it_touches_the_floor(server):
     """[사용자 10/10 "2 mm 위에서 떨구는 느낌"] 놓기 마지막에 z 힘이 touch_n 넘게 변하면 그 높이에서 멈추고 벌림."""
     srv = server.srv
