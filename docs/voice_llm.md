@@ -138,7 +138,9 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 
 [문서·코드 대조: 2026-10-10] C의 [PR #202](https://github.com/Jik-Kim/ready2go/pull/202) 병합 원본은 놓침·센서 이상을 기존 `HALT_CODES`로 처리해 `ABORTED`·잠금, 비모션 finally만 허용, 잠금 중 새 요청 거절을 적용합니다. 두 오류는 재개 대기 보존에서 제외합니다. C 코드의 차단과 E 내부 후보의 검증은 별개이며 실물 정지 증거로 대체하지 않습니다.
 
-[미연결/인계] `runner_notice.blocked`는 정상 안내 억제 상태이며 E 별도 글로벌 모션 잠금이 아닙니다. TTS 실패는 내부 질문을 폐기하고 원인/후보 제한을 유지하지만 C 잠금의 지속을 E 모의 시험으로 증명할 수 없습니다. B handover place의 센서/놓침 반환 구분·보유 확실성·실제 정지/신선 관측, C 관측 기반 상태 동기화·안전한 잠금 해제·명시적 새 run 운영 연결, 신규 wire/예시/ICD의 E 포함 2인 승인이 남아 있습니다. `reset_state()`는 시작 스냅샷 복원이며 잠금 해제·실제 상태 검증이 아닙니다. 남은 B/C 협의·운영 adapter·실물 검증은 [#78](https://github.com/Jik-Kim/ready2go/issues/78)·[#152](https://github.com/Jik-Kim/ready2go/issues/152)·[#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 추적합니다. 선행 [PR #193](https://github.com/Jik-Kim/ready2go/pull/193)은 병합됐고 [PR #198](https://github.com/Jik-Kim/ready2go/pull/198)은 게시·미병합입니다.
+[미연결/인계] `runner_notice.blocked`는 정상 안내 억제 상태이며 E 별도 글로벌 모션 잠금이 아닙니다. TTS 실패는 내부 질문을 폐기하고 원인/후보 제한을 유지하지만 C 잠금의 지속을 E 모의 시험으로 증명할 수 없습니다. B handover place의 센서/놓침 반환 구분·보유 확실성·실제 정지/신선 관측, C 관측 기반 상태 동기화·안전한 잠금 해제·명시적 새 run 운영 연결, 신규 wire/예시/ICD의 E 포함 2인 승인이 남아 있습니다. `reset_state()`는 시작 스냅샷 복원이며 잠금 해제·실제 상태 검증이 아닙니다. 남은 B/C 협의·운영 adapter·실물 검증은 [#78](https://github.com/Jik-Kim/ready2go/issues/78)·[#152](https://github.com/Jik-Kim/ready2go/issues/152)·[#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 추적합니다.
+
+[문서: 게시 상태 2026-10-10] 선행 [PR #193](https://github.com/Jik-Kim/ready2go/pull/193)·[PR #198](https://github.com/Jik-Kim/ready2go/pull/198)·[PR #202](https://github.com/Jik-Kim/ready2go/pull/202)는 main에 병합됐습니다. #198 병합 커밋은 `667f0b8a0e59a459ac0e1fb1bcf5b100413edaab`이며 [PR #203](https://github.com/Jik-Kim/ready2go/pull/203)의 현재 base는 main입니다. E 변경·검증 및 게시 기록은 [CURRENT](../practice/E/CURRENT.md#203-병합-상태-현행화--e-203-merged-status-20261010-02)를 참조하십시오. 선행 코드 병합과 위의 운영 연결·실물 검증 후속은 구분합니다.
 
 ### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
 
