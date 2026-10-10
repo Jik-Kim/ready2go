@@ -124,7 +124,7 @@ def server(monkeypatch):
             return True
 
     class Gripper:
-        width, holding, held_width = 99.0, False, 52.0   # held_width: 쥐고 닫았을 때 폭 (지우개 긴 변 양끝 52 mm — 서랍 축 파지 [사용자 10/10])
+        width, holding, held_width = 99.0, False, 21.0   # held_width: 쥐고 닫았을 때 폭 (지우개 21 mm)
 
         def __init__(self, ip):
             pass
@@ -216,14 +216,14 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
              max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
              front_tilt_within_mm=prm["pick"]["front_tilt_within_mm"])
     plan = server.ss.mp.plan_drag(target=ERASER_WALL_CROSS, size_m=server.srv.item("eraser")[0], interior_m=place["interior_m"], g=g, drag=prm["drag"])
-    assert prm["drag"]["shift_mm"] is None and plan.shift_y_m < 0 and "가로 넛지" in plan.reason   # 가로면 가로 넛지 [사용자 10/10]
+    assert prm["drag"]["shift_mm"] is None and plan.shift_y_m < 0 and plan.axis == "y"   # 가로면 y 넛지 → 긴 변 [사용자 10/10]
     assert data["target_after"]["pose"]["position"][1] == pytest.approx(WALL_Y + plan.shift_y_m, abs=1e-3)   # 누른 z 그대로 그만큼만
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
     assert "N 으로 눌러" in out.reason
     server.srv.robot.force = lambda p: [0.0] * 6
-    server.Gripper.holding = True
+    server.Gripper.holding, server.Gripper.held_width = True, 52.0     # 가로 → 긴 변 양끝 [사용자 10/10]
     route = server.srv.poses()["carry_line"]["drawer_top"]
     server.srv.robot.log.clear()
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
@@ -594,7 +594,7 @@ def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
         srv._grip = lambda w, f: grips.append(w) or real_grip(w, f)
         out, res = server.run("pick_object", {"target": json.loads(json.dumps(HAMMER)), "approach_offset": [0, 0, 0.1]})
     finally:
-        server.Gripper.holding, server.Gripper.held_width = False, 52.0
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out.success is ok and res["grasp_ok"] is ok
     assert 88.0 in [round(w, 1) for w in grips]                         # 벌림 = 75 + 13 mm
     if not ok:
@@ -776,7 +776,7 @@ def test_pick_turns_wrist_at_waypoint_before_going_down(server):
     down = srv.poses()["drag_down"]["drawer_top"]
     server.Gripper.holding = True
     t = json.loads(json.dumps(ERASER_FREE))
-    t["pose"]["yaw"] = -0.85
+    t["pose"]["yaw"] = -0.7                                             # 세로에 가까움 → 짧은 변 (가로면 긴 변 [사용자 10/10])
     srv.robot.log.clear()
     try:
         out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
@@ -827,12 +827,12 @@ def test_lip_balm_on_left_wall_picked_by_ends_tilted_and_placed_turned(server):
         srv.robot.log.clear()
         out2, _ = server.run("place_object", {"location": "handover_zone"})
     finally:
-        server.Gripper.holding, server.Gripper.held_width = False, 52.0
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out2.success
 
 
 def test_lip_balm_in_middle_also_picked_by_ends(server):
-    """[사용자 10/10] 가운데 립밤도 긴 변 양끝 (기울이지 않음). 지우개도 서랍 축 파지(긴 변 양끝)."""
+    """[사용자 10/10] 가운데 립밤도 긴 변 양끝 (기울이지 않음). 세로에 가까운 지우개는 짧은 변."""
     srv = server.srv
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
            "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.2, "yaw_valid": True}}
@@ -841,11 +841,11 @@ def test_lip_balm_in_middle_also_picked_by_ends(server):
         out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
         assert out.success and "긴 변" in out.reason and "기울" not in out.reason and srv.held["long_side"] is True
         srv.held = None
-        server.Gripper.held_width = 52.0
+        server.Gripper.held_width = 21.0
         out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-        assert out.success and srv.held["long_side"] is True and "세로 파지" in out.reason   # 지우개도 긴 변·서랍 축 [사용자 10/10]
+        assert out.success and srv.held["long_side"] is False                  # 세로에 가까운 지우개는 짧은 변 [사용자 10/10]
     finally:
-        server.Gripper.holding, server.Gripper.held_width = False, 52.0
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
 
 
 def test_place_stops_where_it_touches_the_floor(server):

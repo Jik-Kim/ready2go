@@ -1288,10 +1288,10 @@ class SkillServer(Node):
         # 원통형이 옆벽에 붙으면 넛지 없이 긴 변 양끝 + 벽 쪽으로 기울임 (굴러감) [사용자 10/10 PC2 립밤]
         long_side = False
         ag = None                                           # 긴 변 양끝·서랍 축 파지 [사용자 10/10 "그리퍼 기준 파지"]
-        if gw["axis_grasp"] and mp.axis_grasp_fits(size, gw):
+        if gw["axis_grasp"] and not gw["round"] and mp.axis_grasp_fits(size, gw) and mp.is_crosswise(target["pose"]["yaw"]):
             gd = dict(gw, wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
             ag = mp.plan_axis_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gd,
-                                    drag=prm["drag"], round_=gw["round"])
+                                    drag=prm["drag"])
             if ag.drag is not None:                         # 넛지 먼저 / 못 함 — 움직이기 전 거부
                 return sf.Outcome(False, WALL_TOO_CLOSE, reason=ag.reason), None
             wall, long_side = None, True
@@ -1325,21 +1325,10 @@ class SkillServer(Node):
             tz = support + size[2] / 2.0 - rw["tcp_below_center_mm"] / 1000.0
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (ox, oy + round_side * rw["tcp_to_wall_mm"] / 1000.0, tz)))
             tilt = ((0.0, round_side, 0.0), rw["tilt_deg"], "옆벽 쪽", (1.0, 0.0, 0.0))
-        if ag is not None:                                  # 서랍 축 파지: TCP·벌림·손가락 축, 나란한 벽에 붙으면 그 벽 쪽으로 기울임
+        if ag is not None and ag.tilt_dir is not None:      # 가로로 손잡이 쪽 벽에 붙음: 손잡이 쪽으로 기울이고 손가락은 서랍 y (교시 방향)
             fz = mp.from_base(place["tf"], plan.position_m)[2]
-            tx, ty = ag.tcp_xy_m
-            ax = (1.0, 0.0, 0.0) if ag.axis == "x" else (0.0, 1.0, 0.0)
-            if ag.tilt_dir is not None and gw["round"] and ag.tilt_dir[1]:   # 원통형 옆벽: 교시 자세 기준 [실측 사용자 10/10 PC2 립밤]
-                rw = prm["pick"]["round_wall"]
-                ty = target["pose"]["position"][1] + ag.tilt_dir[1] * rw["tcp_to_wall_mm"] / 1000.0
-                fz = support + size[2] / 2.0 - rw["tcp_below_center_mm"] / 1000.0
-                tilt = (ag.tilt_dir, rw["tilt_deg"], "옆벽 쪽", ax)
-            elif ag.tilt_dir is not None:
-                tilt = (ag.tilt_dir, prm["pick"]["front_tilt_deg"], "손잡이 쪽" if ag.tilt_dir[0] < 0 else "벽 쪽", ax)
-            else:
-                tilt = (None, 0.0, "", ax)
-            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (tx, ty, fz)), open_width_m=ag.open_mm / 1000.0,
-                                       expected_width_m=ag.expected_mm / 1000.0)
+            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (*ag.tcp_xy_m, fz)))
+            tilt = (ag.tilt_dir, prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
         g, speed = prm["gripper"], prm["speed"]
         expected_w = (None if long_side else self.grasp_width(cls, size, prm)) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
@@ -1388,7 +1377,7 @@ class SkillServer(Node):
                 cur = self.robot.posx() or cur
                 grasp = list(grasp[:3]) + list(cur[3:])
             vert = list(grasp)                              # 기울이지 않은 잡는 자세 — 들고 나올 때 이걸로 되돌림 (놓으러 갈 때 J6 계산은 수직 기준)
-            if tilt is not None and tilt[0] is not None:    # 손끝은 벽 쪽, 몸통은 서랍 안쪽 — 테두리 위 옆 구간에서 기울임 (넛지와 같음)
+            if tilt is not None:                            # 손끝은 벽 쪽, 몸통은 서랍 안쪽 — 테두리 위 옆 구간에서 기울임 (넛지와 같음)
                 grasp = mp.gripper_posx(grasp[:3], close_dir, grasp[3:], tilt_toward=mp.dir_to_base(place["tf"], tilt[0]),
                                         tilt_deg=tilt[1])
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
@@ -1397,7 +1386,7 @@ class SkillServer(Node):
             self._grip(plan.open_width_m * 1000.0, 20)
             slow_mm = prm["pick"].get("slow_last_mm", 0.0)
             near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
-            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=tilt is None or tilt[0] is None)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
+            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=tilt is None)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
             vert = list(grasp)
@@ -1467,8 +1456,7 @@ class SkillServer(Node):
         out = {"object_id": target.get("id"), "class": cls, "pick_pose_drawer_frame": target.get("pose"),
                "grasp_ok": True}
         stacked = (f", 받침 {support * 1000:.1f} mm 위" if support else "") + (", 긴 변 양끝" if long_side else "") + \
-            (f", {tilt[2]}으로 {tilt[1]:.0f}° 기울임" if tilt is not None and tilt[0] is not None else "") + \
-            (f", {'세로' if ag.axis == 'x' else '가로'} 파지" if ag is not None else "")
+            (f", {tilt[2]}으로 {tilt[1]:.0f}° 기울임" if tilt is not None else "") + (", 가로 → 긴 변" if ag is not None else "")
         return sf.Outcome(True, reason=f"{cls} 파지 (폭 {chk.width_m * 1000:.1f} mm, {hold.reason}{stacked})"), out
 
     # --- 놓기 ---
