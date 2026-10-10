@@ -1,6 +1,7 @@
 """스킬 서버에 동작 하나 보내기 (b_flow.sh 가 부름). 끌기 결과 target_after 를 저장했다가 집기에 넘긴다.
 지우개 위치는 10/07 실측(위 서랍, 세로, 손잡이 쪽 오른쪽 모서리, 3번 수직 터치). 10/06 값 [0.1769, 0.2895] 은 #22 stub 과 같음."""
 import json
+import os
 import sys
 import time
 
@@ -72,9 +73,14 @@ def goal_for(cmd):
         return "drawer_control", {"drawer_id": DRAWER, "state": "close", "then_home": True}   # 닫고 홈까지 한 동작 [사용자 10/10]
     if cmd == "nudge":
         return "nudge_object", with_scan({"drawer_id": DRAWER, "target": target()}, DRAWER)
-    if cmd == "pick":
-        with open(AFTER) as f:
+    if cmd == "pick":                                  # 가장 최근 좌표: 끌기 결과·다시 보기(target_after) 또는 그냥 B scan [사용자 10/10 넛지 없이 집기]
+        srcs = [p for p in (AFTER, f"{TMP}/b_target_scan_drawer_top.json", f"{TMP}/b_target_scan_drawer_bottom.json") if os.path.exists(p)]
+        if not srcs:
+            sys.exit("집을 좌표 없음 — B scan <서랍> 먼저 (보내지 않음)")
+        src = max(srcs, key=os.path.getmtime)
+        with open(src) as f:
             t = json.load(f)
+        print(f"집을 좌표: {src}")
         return "pick_object", with_scan({"target": t, "approach_offset": [0, 0, 0.1]}, (t.get("pose") or {}).get("frame"))
     if cmd == "place":
         return "place_object", {"location": "handover_zone"}

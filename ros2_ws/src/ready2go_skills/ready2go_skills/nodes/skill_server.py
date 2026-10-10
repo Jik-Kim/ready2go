@@ -361,6 +361,26 @@ class SkillServer(Node):
         o = self._named(goal, "drawer_top_view", drawer_id)
         return None if o.success else o
 
+    def _lower_touch(self, goal, target, vel, stage):
+        """놓기 마지막: 천천히 내리다 바닥(받침)에 닿으면(z 힘이 place.touch_n 넘게 변함) 그 자리에서 멈춤 — 계산한 높이보다
+        place.touch_overtravel_mm 까지 더 내려감, 그래도 안 닿으면 거기서 멈춤 [사용자 10/10 "2 mm 위에서 떨구는 느낌, 바닥에 얌전히"].
+        잡은 높이가 실제와 조금 달라도(서랍 바닥 tf 오차·비스듬히 잡힘) 바닥에 붙여 놓음. touch_n 0 이면 예전처럼 계산 높이까지."""
+        pl = self.prm()["place"]
+        n = float(pl.get("touch_n") or 0.0)
+        if n <= 0:
+            return self._line(goal, target, vel, stage)
+        base = self._tare()
+
+        def touched():
+            f = self.robot.tool_force()
+            if f is None or base is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            if abs(f[2] - base[2]) >= n:
+                return sf.Outcome(True, reason=f"바닥 닿음 {abs(f[2] - base[2]):.1f} N")
+            return None
+        deeper = mp.with_z(target, target[2] - float(pl.get("touch_overtravel_mm", 0.0)))
+        return self._line(goal, deeper, vel, stage, watch=touched)
+
     def _tare(self):
         """멈춘 뒤 잠깐 기다렸다가 여러 번 읽은 평균 = 힘 기준값. 두산 툴 힘은 관절 토크 추정이라 멈춘 직후 흔들림 (10/06)."""
         sp = self.prm()["force"]
@@ -1426,7 +1446,7 @@ class SkillServer(Node):
         now = self.robot.posx()
         if slow_mm > 0 and now and target[2] + slow_mm < now[2] - 1.0:
             bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), speed["line_mm_s"], "lower_fast")
-        bad = bad or self._line(goal, target, speed["grasp_mm_s"], "lower")
+        bad = bad or self._lower_touch(goal, target, speed["grasp_mm_s"], "lower")
         if bad:
             return bad, None
         goal.publish_feedback(Skill.Feedback(stage="release"))
@@ -1533,7 +1553,7 @@ class SkillServer(Node):
         now = self.robot.posx()
         if slow_mm > 0 and now and target[2] + slow_mm < now[2] - 1.0:
             bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), vel, "descend_fast")
-        bad = bad or self._line(goal, target, speed["grasp_mm_s"], "descend")
+        bad = bad or self._lower_touch(goal, target, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, dict(empty)
         bad = self._clear_to_continue(goal)                   # 그리퍼 열기 전: 취소·비상정지면 열지 않음

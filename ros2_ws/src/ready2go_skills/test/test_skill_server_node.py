@@ -744,7 +744,41 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     assert "descend_fast" not in st and st["descend"][0] == 15.0
     assert blends[0][1][-1][2] - st["descend"][1] == pytest.approx(10.0)
     assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
-    assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
+    over = server.srv.prm()["place"]["touch_overtravel_mm"]             # 안 닿으면(가짜 로봇 힘 0) 계산 높이보다 이만큼 더 [사용자 10/10]
+    assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0 + over)
+
+
+def test_place_stops_where_it_touches_the_floor(server):
+    """[사용자 10/10 "2 mm 위에서 떨구는 느낌"] 놓기 마지막에 z 힘이 touch_n 넘게 변하면 그 높이에서 멈추고 벌림."""
+    srv = server.srv
+    server.Gripper.holding = True
+    t = json.loads(json.dumps(ERASER_FREE))
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert out.success
+    floor = {}
+
+    def force(p):                                                       # 바닥에 닿으면 1 mm 에 2 N
+        z = floor.get("z")
+        return [0.0, 0.0, 2.0 * (z - p[2]) if z is not None and p[2] < z else 0.0, 0.0, 0.0, 0.0]
+    real = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "lower":
+            floor["z"] = posx[2] + server.srv.prm()["place"]["touch_overtravel_mm"] + 1.0   # 계산 높이보다 1 mm 위에 바닥
+        r = real(self, goal, posx, vel, stage, watch, **kw)
+        if stage == "lower":
+            floor["stop"] = self.robot.p[2]
+        return r
+    srv.robot.force = force
+    server.ss.SkillServer._line = line
+    try:
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.ss.SkillServer._line = real
+        server.Gripper.holding = False
+    assert out2.success
+    n = srv.prm()["place"]["touch_n"]
+    assert floor["stop"] == pytest.approx(floor["z"] - n / 2.0, abs=0.3)    # 닿은 뒤 touch_n 만큼 눌린 곳에서 멈춤 (계산 높이까지 안 감)
 
 
 def test_free_space_speed_only_outside_drawer(server):
@@ -1292,7 +1326,8 @@ def test_place_in_drawer_moves_sideways_only_above_rim(server):
         prev = p
     pos_m, _ = plp.place_tcp_m(place["tf"], ASIDE_POSE, 0.02 + pl["drop_m"])
     low = min(lines, key=lambda p: p[2])
-    assert low[:3] == pytest.approx([1000.0 * v for v in pos_m], abs=1e-6)   # 쥔 높이 + drop 에서 놓음
+    over = prm["place"]["touch_overtravel_mm"]                          # 안 닿으면 쥔 높이 + drop 보다 이만큼 더 내려가 놓음 [사용자 10/10]
+    assert low[:3] == pytest.approx([1000.0 * v for v in pos_m[:2]] + [1000.0 * pos_m[2] - over], abs=1e-6)
     tz = max(travel_z, waypoint[2])                                     # 경유점이 travel_z 보다 높으면 그 높이로 옆 이동 (_travel_z)
     assert lines[0][2] == pytest.approx(tz, abs=1e-6) and lines[-1] == pytest.approx(mp.with_z(waypoint, tz), abs=1e-6)   # 먼저 수직으로, 끝은 경유점 위
 
