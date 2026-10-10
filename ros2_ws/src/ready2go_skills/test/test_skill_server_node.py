@@ -1532,3 +1532,31 @@ def test_long_side_held_place_checks_fingers_at_the_ends(server):
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "caramel_box#1"
+
+
+def test_aside_place_keeps_remaining_object_pickable(server):
+    """[P2 무작위 배치 10/10] aside 에 놓을 때 남은 물건(립밤)의 벌린 손가락 자리를 막지 않는 자리로 — 못 찾으면 PLACE_BLOCKED (예외 아님)."""
+    srv = server.srv
+    slot = srv.places()["drawer_top"]["place_slots"]["aside_1"]["position"]
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+          "pose": {"frame": "drawer_top", "position": [0.12, 0.20, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
+           "pose": {"frame": "drawer_top", "position": [slot[0], slot[1] + 0.045, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": er, "candidates": [lip], "visible_count": 2}
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success
+        out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_1", "scan": scan})
+    finally:
+        server.Gripper.holding = False
+    assert out.error_code != "SKILL_EXCEPTION"
+    if out.success:
+        me = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115, "pose": dict(data["placed_pose"], yaw_valid=True)}
+        g = srv.prm()["gripper"]
+        lt = {**lip, "pose": {**lip["pose"], "yaw": math.pi / 2}}                      # 립밤은 긴 변으로 잡음
+        assert server.ss.nc.pick_blocker(target=lt, size_m=[0.02, 0.0718, 0.02], open_mm=84.8, objects=[me], size_of=srv._size_or_none,
+                                         default_size_m=[0.06, 0.06, 0.06], finger_mm=g["fingertip_outer_mm"], margin_mm=5.0,
+                                         support_m=0.0, below_tol_m=0.003, finger_half_width_mm=g["tip_radius_mm"]) is None
+    else:
+        assert out.error_code in ("PLACE_BLOCKED", "WALL_TOO_CLOSE")

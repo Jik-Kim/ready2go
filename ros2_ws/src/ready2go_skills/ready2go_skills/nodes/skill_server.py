@@ -1701,7 +1701,7 @@ class SkillServer(Node):
                         blocked = False
                         break
                 if blocked:
-                    return plp.Refusal(PLACE_BLOCKED, f"놓으면 {o['id']} 를 집을 손가락 자리를 막음", o["id"])
+                    return plp.Refusal(plp.PLACE_BLOCKED, f"놓으면 {o['id']} 를 집을 손가락 자리를 막음", o["id"])
             # 고정 자리는 나중에 넛지 없이 다시 집을 수 있어야 함(되돌리기) [P2 시뮬레이션 10/10: aside 에 놓은 가림막을 못 다시 집음]
             dp_ = mp.plan_drag(target={"pose": dict(p_, yaw_valid=True)}, size_m=size, interior_m=interior, g=gw, drag=prm["drag"])
             if dp_.needed or dp_.error_code:
