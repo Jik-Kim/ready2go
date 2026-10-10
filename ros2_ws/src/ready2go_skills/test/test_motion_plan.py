@@ -335,7 +335,7 @@ def test_round_never_nudged_across_its_axis():
     for x, y, yd in ((0.165, 0.040, 80), (0.040, 0.025, 20), (0.035, 0.035, 50), (0.175, 0.035, 40), (0.12, 0.15, 90)):
         yaw = math.radians(yd)
         p = mp.plan_drag(target=tgt(x, y, yaw), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
-        if p.needed:
+        if p.needed and "벽까지" not in p.reason:                                          # 벽에 붙여 눕히기는 벽이 막아 안 구름 (아래 시험)
             v = (p.shift_x_m, p.shift_y_m)
             assert abs(math.cos(yaw) * v[0] + math.sin(yaw) * v[1]) / math.hypot(*v) >= math.cos(math.radians(30.0)) - 1e-9
     p = mp.plan_drag(target=tgt(0.165, 0.040, math.radians(80)), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
@@ -355,3 +355,16 @@ def test_round_at_any_edge_tilted_toward_that_wall():
     gb = dict(g, reach_x_max_mm=129.0)
     assert mp.round_edge_dir(target=tgt(0.150, 0.15, math.pi / 2), size_m=LIP_BALM, interior_m=INTERIOR, g=gb) == (1.0, 0.0)
     assert mp.round_edge_dir(target=tgt(0.10, 0.15, math.pi / 2), size_m=LIP_BALM, interior_m=INTERIOR, g=g) is None   # 가운데
+
+
+def test_round_diagonal_near_wall_pushed_flat_first():
+    """[사용자 10/10 "립밤도 애매하게 벽에 기울어져 있으면 벽 끝까지 닿게 만들어서 집기"] 비스듬한 립밤: 가까운 벽(손잡이 쪽·옆벽, 안쪽 벽은
+    서랍이 닫혀서 안 씀)으로 밀어 눕힘 — 손잡이 쪽 가까우면 손잡이 쪽 먼저. 먼 곳은 최대 거리만 밀고 다시."""
+    g = dict(_ag(0.1, 0.1, 0.0)[1], round=True, wall_tcp_min_mm={"x_min": 15.9, "x_max": 13.9, "y_min": 14.2, "y_max": 5.5})
+    p = mp.plan_drag(target=tgt(0.10, 0.035, math.radians(45)), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert p.needed and p.axis == "y" and p.shift_y_m < 0 and p.shift_x_m == 0.0 and "옆벽" in p.reason
+    p = mp.plan_drag(target=tgt(0.035, 0.035, math.radians(50)), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert p.needed and p.axis == "x" and p.shift_x_m < 0 and "손잡이 쪽" in p.reason
+    gb = dict(g, reach_x_max_mm=129.0)
+    p = mp.plan_drag(target=tgt(0.150, 0.15, math.radians(60)), size_m=LIP_BALM, interior_m=INTERIOR, g=gb, drag=DRAG)
+    assert p.needed and p.axis == "x" and -p.shift_x_m == pytest.approx(DRAG["max_shift_mm"] / 1000.0)   # 깊은 곳 → 손잡이 쪽으로 최대만

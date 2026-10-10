@@ -218,6 +218,9 @@ def _round_at_side(target, size_m, interior_m, g):
         return None
     if size_m[0] * 1000.0 + g["open_margin_mm"] > max_open or abs(math.cos(yaw)) < math.cos(math.radians(g.get("tilt_align_deg", 15.0))):
         return None
+    reach = g.get("reach_x_max_mm")
+    if reach is not None and cx * 1000.0 > reach:
+        return None                                         # 아래 칸 깊은 곳: 옆으로 기울여도 위 서랍장에 막힘 → 축(x) 방향으로 손잡이 쪽 넛지
     sx_blocked, lack_mm, sign = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g.get("pick_wall_margin_mm", g["wall_margin_mm"]))
     if lack_mm <= 0:
         return None
@@ -379,6 +382,50 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     return p
 
 
+def _round_push_to_wall(target, size_m, interior_m, g, drag):
+    """원통형이 벽 근처에 비스듬히 있어 못 잡으면: 가장 가까운 벽(손잡이 쪽·옆벽 — 안쪽 벽은 서랍 닫히는 방향이라 안 씀) 쪽으로
+    밀어 벽에 맞춰 눕힘 [사용자 10/10 "립밤도 애매하게 벽에 기울어져 있으면 벽 끝까지 닿게 만들어서 집기"]. 벽이 막아 더 안 구름.
+    누르는 TCP 는 그 벽 쪽 기울인 교시 자세 한계(wall_tcp_min_mm) 밖 — 가운데가 거기까지 오면 벽과 약 10° 안으로 눕는다고 봄 → 다시 보고 가장자리 기울여 잡기."""
+    if not drag.get("square_to_handle_wall"):
+        return None
+    cx, cy = target["pose"]["position"][:2]
+    yaw = target["pose"]["yaw"]
+    c, s = abs(math.cos(yaw)), abs(math.sin(yaw))
+    length, width = size_m[0] * 1000.0, size_m[1] * 1000.0
+    half_x, half_y = (length * c + width * s) / 2, (length * s + width * c) / 2
+    x_mm, y_mm, wd = cx * 1000.0, cy * 1000.0, interior_m[1] * 1000.0
+    off = g.get("wall_offset_mm") or {}
+    tmin = g.get("wall_tcp_min_mm") or {}
+    walls = {"x_min": x_mm - half_x, "y_min": y_mm + off.get("y_min", 0.0) - half_y, "y_max": wd - y_mm + off.get("y_max", 0.0) - half_y}
+    reach = g.get("reach_x_max_mm")
+    if reach is not None and x_mm > reach:
+        walls.pop("y_min"), walls.pop("y_max")             # 깊은 곳은 옆벽에 붙여도 못 잡음
+    w = min(walls, key=walls.get)
+    if "x_min" in walls and walls["x_min"] < (g.get("front_tilt_within_mm") or 0.0):
+        w = "x_min"                                         # 손잡이 쪽 가까우면 손잡이 쪽 벽 먼저 (구석이면 그 뒤 축 방향 y) [사용자 10/10 지우개와 같은 순서]
+    gap_m = walls[w] / 1000.0
+    radius = width / 2
+    if w == "x_min":
+        end = max(radius, tmin.get("x_min", drag["wall_tcp_min_mm"]))
+        shift = min(end - x_mm, -drag.get("square_min_push_mm", 2.0)) / 1000.0
+        press = (cx, cy)
+        p = DragPlan(True, None, 0.0, press, 0.0, gap_m, f"원통형이 손잡이 쪽 벽에 비스듬히 → 벽까지 x {shift * 1000:+.1f} mm 밀어 눕히기",
+                     axis="x", shift_x_m=shift, wall_normal_x=-1.0)
+    else:
+        sign = -1.0 if w == "y_min" else 1.0
+        o = off.get(w, 0.0)
+        end = max(radius - o, tmin.get(w, drag["wall_tcp_min_mm"]))     # 서랍 경계에서 가운데까지
+        cur = y_mm if sign < 0 else wd - y_mm
+        shift = sign * -min(end - cur, -drag.get("square_min_push_mm", 2.0)) / 1000.0
+        p = DragPlan(True, None, shift, (cx, cy), sign, gap_m, f"원통형이 옆벽에 비스듬히 → 벽까지 y {shift * 1000:+.1f} mm 밀어 눕히기")
+    n = math.hypot(p.shift_x_m, p.shift_y_m)
+    lim = drag["max_shift_mm"] / 1000.0
+    if n > lim:                                             # 멀면 최대 거리만 밀고 다시 보고 또 밂
+        p = dataclasses.replace(p, shift_x_m=p.shift_x_m * lim / n, shift_y_m=p.shift_y_m * lim / n,
+                                reason=p.reason + f" (최대 {drag['max_shift_mm']:.0f} mm 만, 다시 보고 이어서)")
+    return p
+
+
 def _plan_drag_round(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping,
                      drag: Mapping) -> DragPlan:
     """원통형(립밤): 굴러가서 축과 다른 방향으로는 넛지하지 않음 [사용자 10/10 "짧은 변 쪽으로 넛지하면 굴러다님"].
@@ -398,6 +445,11 @@ def _plan_drag_round(*, target: Mapping, size_m: Sequence[float], interior_m: Se
                             press_x_lim_mm=g["wall_clearance_mm"]["along_mm"] + g["wall_margin_mm"])
     if long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
         return DragPlan(False, None, 0.0, None, 0.0, 0.0, "원통형 — 긴 변 양끝으로 바로")
+    yaw = target["pose"]["yaw"]
+    if min(abs(math.cos(yaw)), abs(math.sin(yaw))) > math.sin(math.radians(g.get("tilt_align_deg", 15.0))):
+        sq = _round_push_to_wall(target, size_m, interior_m, g, drag)   # 비스듬 → 가까운 벽에 붙여 눕힌 뒤 가장자리 기울여 잡기
+        if sq is not None:
+            return sq
     p = _plan_drag(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=dict(drag, square_to_handle_wall=False))
     if p.needed:
         yaw = target["pose"]["yaw"]
