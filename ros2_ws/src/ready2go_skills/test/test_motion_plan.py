@@ -152,3 +152,18 @@ def test_safe_blend_radii_keeps_margin_below_half_segment():
     assert r[0] == pytest.approx(0.9 * half01) and r[0] < half01 - 1.0
     assert r[1] == 50.0 and r[2] == 0.0
     assert mp.safe_blend_radii(start, pts[:1], [20.0]) == [0.0]
+
+
+LIP_BALM = [0.0718, 0.02, 0.02]
+
+
+def test_lip_balm_along_left_wall_is_grabbed_by_its_ends_without_drag():
+    """[사용자 10/10] 구르는 물체(립밤)가 왼쪽 벽에 세로로 붙음: 짧은 변 잡기는 벽에 걸림 → 긴 변 양끝으로 바로 잡음(끌지 않음)."""
+    g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0)
+    t = tgt(0.10, 0.014, 0.0)
+    assert mp.wall_blocks_grasp(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g)            # 짧은 변은 걸림
+    assert mp.long_side_ok(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g)                  # 긴 변은 됨
+    p = mp.plan_drag(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert not p.needed and p.error_code is None and "긴 변" in p.reason
+    assert not mp.long_side_ok(target=t, size_m=[0.17, 0.061, 0.0185], interior_m=INTERIOR, g=g)   # 스패너 170 mm 는 벌림 밖
+    assert not mp.long_side_ok(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=G)              # 최대 벌림 모르면 안 씀

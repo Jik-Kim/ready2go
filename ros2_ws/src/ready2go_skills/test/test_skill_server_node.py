@@ -781,6 +781,23 @@ def test_pick_turns_wrist_at_waypoint_before_going_down(server):
     assert all(p[3:] == pts[0][3:] for p in pts)                        # 목표 위 → 내려가기는 손목 그대로
 
 
+def test_lip_balm_on_left_wall_picked_by_ends_and_placed_turned(server):
+    """[사용자 10/10] 왼쪽 벽에 세로로 붙은 립밤: 짧은 변은 벽에 걸림 → 긴 변 양끝으로 잡고(기대 폭 = 긴 변),
+    트레이에는 손가락을 y 로 돌려 놓음(물체 긴 변은 그대로 y)."""
+    srv = server.srv
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.014, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 71.0
+    try:
+        out, data = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
+        assert out.success and data["grasp_ok"] and "긴 변" in out.reason and srv.held["long_side"] is True
+        srv.robot.log.clear()
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out2.success
+
+
 def test_place_stops_where_it_touches_the_floor(server):
     """[사용자 10/10 "2 mm 위에서 떨구는 느낌"] 놓기 마지막에 z 힘이 touch_n 넘게 변하면 그 높이에서 멈추고 벌림."""
     srv = server.srv

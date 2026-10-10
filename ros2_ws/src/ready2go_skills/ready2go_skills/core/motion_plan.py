@@ -165,6 +165,16 @@ def _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin_mm):
     return (not x_ok), (ext_y + margin_mm) - gap, sign
 
 
+def long_side_ok(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> bool:
+    """긴 변 양끝 잡기(닫힘 축 = 긴 변)가 그리퍼 최대 벌림 안이고 벽에 안 걸리는지 [사용자 10/10 "벽에 붙으면 긴 쪽으로"].
+    g max_open_mm 가 없으면 쓰지 않음(False)."""
+    max_open = g.get("max_open_mm")
+    if max_open is None or size_m[0] * 1000.0 + g["open_margin_mm"] > max_open:
+        return False
+    t = {**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}
+    return wall_blocks_grasp(target=t, size_m=[size_m[1], size_m[0]] + list(size_m[2:]), interior_m=interior_m, g=g) is None
+
+
 def wall_blocks_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[str]:
     """바로 집기 전 확인: 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿는 자리면 이유 문자열, 아니면 None.
     plan_drag 와 같은 판단(_grasp_blocked) — 끌기 뒤 target_after 는 부족량 + extra_mm 만큼 옮겨져 통과 (#83 A 요청)."""
@@ -193,6 +203,8 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     gap_m = ((wd - cy * 1000.0) if sign > 0 else cy * 1000.0) / 1000.0
     if lack_mm <= 0 and not x_blocked:
         return DragPlan(False, None, 0.0, None, sign, gap_m, "끌지 않아도 잡을 수 있음")
+    if long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
+        return DragPlan(False, None, 0.0, None, sign, gap_m, "짧은 변은 벽에 걸리지만 긴 변으로 바로 잡을 수 있음 — 끌지 않음")
     if x_blocked:                                           # 앞뒤 벽(·깊이 한계) — 그 벽 쪽으로 기울여 눌러 가운데 쪽(x)으로 [사용자 10/10]
         return _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin)
     shift = -sign * (lack_mm + drag["extra_mm"]) / 1000.0     # 벽 반대쪽(가운데)으로
