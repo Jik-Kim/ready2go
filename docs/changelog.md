@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-10 C HALT_MOTION (#78 사용자 결정)**: Runner 가 `OBJECT_DROPPED`·`SENSOR_INVALID` 를 중단 코드로 — 즉시 `ABORTED`·잠금, finally 로봇 동작 없음, 새 요청 잠금 거절, 재개(#152) 보존 대상 아님. 예전엔 일반 실패라 finally 서랍 닫기·홈이 나갈 수 있었음(#78 E 모의 반례). 계약 변경 없음(기존 코드의 Runner 처리).
 - **2026-10-08 PM 검증 안내를 AGENTS.md로**: `CLAUDE.md`에만 있던 "영역별 검증 명령" 표와 "PR 올리기 전 — 로컬 CI" 절을 `AGENTS.md`로 옮김(팀에서 Codex를 쓰는 에이전트는 `AGENTS.md`만 읽음, 사용자 결정). `CLAUDE.md`는 `AGENTS.md`를 읽으라는 안내만, PR 템플릿 체크 문구도 `AGENTS.md`로. 명령·규칙 내용 변경 없음.
 - **2026-10-08 PM 로컬 CI**: GitHub Actions 무료분 소진으로 `ci` 워크플로 비활성화(사용자 결정, 11/1 초기화). 같은 세 작업을 이 PC에서 돌리는 `tools/dev/ci_local.sh <PR|브랜치|SHA>` 추가 — 임시 worktree·임시 MongoDB 7.0·`ros:jazzy-ros-base-noble`, 결과 한 줄을 PR 본문에 붙임. `CLAUDE.md` 검증 절·PR 템플릿 근거 칸 갱신. 코드·계약 변경 없음.
 - **2026-10-08 C 문서 정본화 (#134·#180 C 항목 12~18)**: `runner.md`·`planner.md`·`interfaces.md`·`contracts/README.md`의 의미·정책·Phase 설명을 `requirements.md` 정본 링크로 바꾸고 병합 상태(#166·#169·#176)·미구현(플래너 실행 중 재계획, 로그 `states`·`post_check`, 재개 운영 연결)을 표시. 정본 3.3에 맞춰 `select_obstacle` 대안 ③은 위에 아무것도 없다고 확인된 후보만(`null`·덮인 후보 안 고름). 계약 형식 변경 없음.
