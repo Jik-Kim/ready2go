@@ -4,6 +4,14 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-10
 
+## 정기 문서 정합성 후속 — E-ISSUE134-DIAGNOSTICS-20261010
+
+- [문서] #134의 main `d52c1bb` 기준 정기 검토에서 확인된 E 범위 상세 진단 P2와 SDK 시각 연결 P3를 반영합니다. 근거는 [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[음성 정책](../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)입니다. 변경 대상은 `docs/voice_llm.md`, Voice README, 이 CURRENT뿐이며 요구사항·Phase·계약·코드·설정 및 B/D 담당 문서는 수정하지 않습니다.
+- [문서] JSONL 상세 진단의 위치·최상위 이벤트 필드와 콘솔 요약의 한계를 현재 writer에 맞췄습니다. P1 Session의 SDK 직전 시각 callback은 진단에 연결된 상태로, 기존 `whisper_requested`와 구분합니다. P2 접수/재개 정책과 실제 운영 연결은 미연결로 유지합니다.
+- [문서: 게시 상태] PR #198·#202·#203은 main에 병합됐습니다. #203 병합 커밋은 `e0df13a6d4e7bf2ab2a82d94b3f36dc89dc6561d`입니다. 아래 #203 작성 당시 Open/미병합 및 게시 계획은 당시 이력이며 현재 상태가 아닙니다. 병합은 P2 운영 연결·실물 AC 완료를 뜻하지 않습니다.
+- [실측: 문서 정적] 새 요구사항·문서 링크 5개와 명시 앵커를 확인했고, 변경 문서의 diff 공백 검사를 통과했습니다. JSONL 필드·콘솔 생략 이벤트·SDK callback 설명은 `voice_node.py`, `diagnostics.py`, `session.py`, `adapters/api.py`와 대조했습니다.
+- [문서: 검증 범위] 요청에 따라 PR 최종 head에서 로컬 CI를 실행하고 결과를 PR 본문에 기록합니다. 실제 사용자 진단 파일, 새 PC, API/ROS 운영 연결, 마이크/STT/TTS 및 실물 AC는 이번 정적 대조로 검증하지 않았습니다.
+
 ## Voice README 시운전 안내 정리 — E-VOICE-README-20261008
 
 - [문서] 사용자 “README 정리해” 계획 승인 범위로 Voice README와 이 CURRENT만 정리합니다. 브랜치는 `codex/voice-readme-20261008`, 기준 원격 main은 `b1b92b540ce0696a413bf38ad2894288038ba113`입니다. 기존 aa39의 `791dcf1` 브랜치와 미추적 `:memory:.ses`는 보존합니다.
@@ -71,7 +79,7 @@
 ## #203 병합 상태 현행화 — E-203-MERGED-STATUS-20261010-02
 
 - [문서: 승인·목적] 지시 세션 `01a11aa1-3875-7b00-9647-cfc4abcecad3`의 인간 turn `01a1244b-6bdf-71d2-8b9f-9bb1fda17363` 원문 “#203 코멘트 확인 후 수정”과 기존 작업 후 commit/push/PR 지속 승인을 확인했습니다. [최신 리뷰](https://github.com/Jik-Kim/ready2go/pull/203#pullrequestreview-5477791033)의 선행 병합·현재 base 설명만 현행화합니다. 직접 수정은 voice_llm과 이 CURRENT 2파일이며 새 정책/계약/코드·설정·타 파트 상태 변경은 없습니다.
-- [문서: 현재 상태] #193·#198·#202는 main에 병합됐고 #198 병합 SHA는 `667f0b8a0e59a459ac0e1fb1bcf5b100413edaab`입니다. #203은 Open·base main·미병합입니다. 아래 `e0a57e5` 작성 당시의 #198 Open·stacked 42파일·retarget 예정 기록은 이력이며 현재 안내가 아닙니다. 이번 main↔head 실제 차이는 #78 E 범위 11파일이고 #198/B/C 선행 변경은 main에 포함돼 중복 diff에서 제외됩니다.
+- [문서: 당시 게시 상태] #193·#198·#202·#203은 main에 병합됐습니다. #198 병합 SHA는 `667f0b8a0e59a459ac0e1fb1bcf5b100413edaab`, #203 병합 SHA는 `e0df13a6d4e7bf2ab2a82d94b3f36dc89dc6561d`입니다. 아래 `e0a57e5` 작성 당시의 #198 Open·stacked 42파일·retarget 예정 및 #203 Open/게시 예정 기록은 이력이며 현재 상태가 아닙니다. 선행 변경이 main에 포함되어 중복 diff에서 제외됐으며, 병합은 운영 연결이나 실물 검증 완료를 뜻하지 않습니다.
 - [실측: 통합·보존] 기존 `codex/e-halt-policy-20261009`·`e0a57e5d5d7cc6e64b86831f1311876370b2765c`에서 origin/main을 fetch해 지정된 `667f0b8`과 동일함을 확인했습니다. 같은 브랜치에서 normal merge 후 충돌·추가 파일 차이 없이 기존 HEAD와 동일 tree였음을 확인했고, 이어 문서2파일만 보완합니다. 새 worktree/브랜치/reset/rebase/forcepush/subagent를 사용하지 않으며 미추적 모델 사용 JSON은 보존·제외합니다. 정본 Phase/숫자/정책·실행 원본/설정/계약·Melo/녹음·B/C/D 파일과 E 기능/시험은 그대로입니다.
 - [문서·검증 재사용] 코드와 시험이 `e0a57e5`와 동일하므로 이전 직접 회귀485건 및 리뷰385건 결과를 각각의 검사 범위 근거로 재사용하며 합산하거나 재실행하지 않습니다. 문서 링크/앵커·현행/이력 구분·main 조상·E11파일 diff를 확인해 관련 문서를 묶어 로컬 커밋합니다. 새 최종 SHA의 필수 전체 CI는 1회 실행하고 `/tmp/e203-merged-status-final-ci.log`로 전달합니다. 이전 e0 CI로 대체하지 않으며 CI 뒤 CURRENT만 재커밋하지 않습니다.
 - [문서: 범위·미완료] P1 원인별 안내/오류 선언과 P2 내부 복구·새 시작 준비의 FR/NFR/AC 구분은 아래 #203 최초 보완 기록과 [정본](../../docs/requirements.md#halt-motion-policy)을 유지합니다. B 센서/놓침 구분·실제 정지/관측, C 상태 동기화·안전한 잠금 해제·새 run 운영 연결, E 포함2인 계약 승인·운영 adapter·실물 AC는 후속입니다. 실제 API/마이크/STT/Melo 합성·재생/로봇/실물 시험은 하지 않으며 #78 전체 완료를 주장하지 않습니다.
