@@ -58,8 +58,8 @@ def cover_layout(I):
 
 def stack_layout(I):
     while True:
-        yw = rnd.uniform(-0.35, 0.35)                                     # 몽키는 세로로 [사용자 10/10]
-        x, y = rnd.uniform(0.09, (0.12 if GUIDE and I is d.PL["drawer_bottom"]["interior_m"] else I[0]-0.09)), rnd.uniform(0.15 if GUIDE else 0.13, I[1]-0.04)
+        yw = rnd.uniform(-0.17, 0.17) if GUIDE else rnd.uniform(-0.35, 0.35)   # 몽키는 세로로 [사용자 10/10] — 가이드: 똑바로 ±10°
+        x, y = rnd.uniform(0.09, (0.12 if GUIDE and I is d.PL["drawer_bottom"]["interior_m"] else I[0]-0.09)), rnd.uniform(0.16 if GUIDE else 0.13, I[1]-0.04)
         if fits(x, y, yw, SZ["toy_wrench"], I, 0.003) and (not GUIDE or I[1] - y > 0.06):   # 가이드: 쌓기 오른쪽, 옆벽에서 차키·캐러멜 손가락 자리
             if GUIDE:                                                     # 가이드: 캐러멜·차키도 몽키처럼 세로로 쌓기
                 return (x, y), yw, rnd.uniform(-0.4, 0.4), rnd.uniform(-0.4, 0.4)
