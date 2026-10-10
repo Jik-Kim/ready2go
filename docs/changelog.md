@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-10 C `select_obstacle` 박스 모델 판단 시점 main 반영 (#134 E 10/08 18:30 P1)**: 옮긴·보류한 물체를 뺀 뒤 남은 물체로 박스 모델을 판단해 '모름' 목표를 clear 로 바꾸던 것 → 빼기 전 촬영 결과 전체로 한 번만(고르기·prefer·clear 모두 같은 판단). `runner.md` `pick_object` 파지 높이 설명을 바닥 물체 / 쌓인 물체(B `allow_stacked`, #191) 분기로 (#134 E 10/10 13시 새 P2 1번). 계약 변경 없음.
 - **2026-10-10 C HALT_MOTION (#78 사용자 결정)**: Runner 가 `OBJECT_DROPPED`·`SENSOR_INVALID` 를 중단 코드로 — 즉시 `ABORTED`·잠금, finally 로봇 동작 없음, 새 요청 잠금 거절, 재개(#152) 보존 대상 아님. 예전엔 일반 실패라 finally 서랍 닫기·홈이 나갈 수 있었음(#78 E 모의 반례). 계약 변경 없음(기존 코드의 Runner 처리).
 - **2026-10-09 B 쌓인 물체 집기 (P2 3개 겹침)**: `pick.allow_stacked` — 받침 = 비전 `top_z` − 물체 높이, 그 위에서 바닥과 같은 높이 규칙으로 집음. 쥔 물체 높이는 자기 바닥 기준(서랍 안 놓기는 바닥에). 윗면이 테두리 − `stack_top_clear_m`(10 mm, [팀 확정 필요])을 넘으면 `NOT_ON_FLOOR`(움직이기 전, 기존 코드 의미 확장). 목표 위가 서랍 안 옆 이동 높이보다 높으면 그 높이로 옆 이동. 계약 형식 변경 없음, 실물 미확인.
 - **2026-10-09 B 집기 폭 판정·문서 정합 (#43·#134)**: 집기 성공 하한 `gripper.pick_min_width_m` 10 mm(사용자 결정 10/08, 빈손·놓침 2 mm 와 별개), 실제로 잡는 부위 폭 `pick.grasp_width_m`(망치 손잡이 12.5 mm — 외접박스 짧은 변 75 mm 로 판정하면 손잡이를 잡아도 `WIDTH_MISMATCH`). 벌림은 짧은 변 기준 그대로. `item_grasp.yaml` 은 E 온톨로지 검사가 두 키만 허용해 B params 에 둠. HANDOVER `B all`·`B scan` 서랍 인자, domain 서랍 안 놓기 상태(#191 머지 전·교시 전) 표시. 계약 변경 없음, 실물 미확인.

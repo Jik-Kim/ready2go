@@ -108,3 +108,37 @@ def test_real_runner_status_shape_running_halt_does_not_replay_previous_last():
     p.observe(build_status(True,False,None,'find_item','pick',last,'find_item',False))
     notice=p.observe(build_status(True,True,'HALTED','find_item','pick',last,'find_item',False))
     assert notice.kind=='halted'
+
+
+@pytest.mark.parametrize('code,kind', [('OBJECT_DROPPED', 'dropped'),
+                                     ('SENSOR_INVALID', 'sensor')])
+def test_halt_reports_never_infer_physical_stop_target_or_recovery(code, kind):
+    p = RunnerNoticePolicy()
+    assert p.observe(status('halted', code, 'past', code)) is None
+    assert p.observe(status('halted', code, 'past', code)) is None
+    p.observe(status(run='past'))
+    p.observe(status('running', run='past'))
+    notice = p.observe(status('halted', code, 'current', code))
+    assert notice.kind == kind and p.blocked
+    assert '실제 정지' in notice.text
+    assert all(word not in notice.text for word in ('지우개', '중단했습니다', '넣어주세요', '빈손'))
+    assert p.observe(status('halted', code, 'current', code)) is None
+
+
+def test_cause_change_cancels_previous_notice_without_downgrading_estop():
+    p = RunnerNoticePolicy(); p.observe(status()); p.observe(status('running'))
+    drop = p.observe(status('halted', 'OBJECT_DROPPED'))
+    sensor = p.observe(status('halted', 'SENSOR_INVALID'))
+    assert sensor.kind == 'sensor' and sensor.revision > drop.revision
+    assert '놓침' not in sensor.text and p.blocked
+    assert p.observe(status('halted', 'STATE_UNKNOWN')).kind == 'unconfirmed'
+    assert p.observe(status('halted', 'ESTOP')).kind == 'estop'
+    assert p.observe(status('halted', 'SENSOR_INVALID')) is None
+
+
+@pytest.mark.parametrize('code,kind', [('OBJECT_DROPPED', 'dropped'), ('SENSOR_INVALID', 'sensor')])
+def test_new_final_failure_reports_cause_but_does_not_invent_c_lock(code, kind):
+    p = RunnerNoticePolicy(); p.observe(status()); p.observe(status('running'))
+    notice = p.observe(status(run='current', error=code))
+    assert notice.kind == kind and not p.blocked  # C global lock is still a handoff.
+    assert p.observe(status(run='current', error=code)) is None
