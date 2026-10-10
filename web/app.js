@@ -27,6 +27,8 @@
     note: "▱",
     box: "◆",
     charger: "⌁",
+    drawer: "▣",
+    gripper: "⌘",
   };
 
   function getById(id) {
@@ -230,10 +232,179 @@
       progress.append(item);
     });
 
+    const evidenceStep = state.task.steps.find((step) => step.status === "current")
+      || state.task.steps.find((step) => step.status === "stopped")
+      || state.task.steps.at(-1);
+    getById("currentStepReason").textContent = evidenceStep?.reason || "확인 전";
+    getById("currentStepObservation").textContent = evidenceStep?.observation || "미수신";
+
     const stopButton = getById("stopTask");
     const stopped = state.task.status === "stopped";
     stopButton.disabled = stopped;
     stopButton.lastChild.textContent = stopped ? "데모 작업 중단" : "작업 중단";
+  }
+
+  function renderAdminSummary() {
+    const data = state.adminReview.current;
+    const summary = getById("adminRunSummary");
+    summary.replaceChildren();
+
+    [
+      { label: "실행 ID", value: data.runId || "미수신", icon: "▧" },
+      { label: "현재 단계", value: data.step || "확인 전", icon: "⚙" },
+      { label: "실행 상태", value: data.executionStatus || "확인 전", icon: "●", status: data.executionStatusKey },
+    ].forEach((entry) => {
+      const item = makeElement("article", `admin-summary-item${entry.status ? ` is-${entry.status}` : ""}`);
+      const icon = makeElement("span", "admin-summary-icon", entry.icon);
+      icon.setAttribute("aria-hidden", "true");
+      const text = makeElement("div");
+      text.append(makeElement("span", "eyebrow", entry.label), makeElement("strong", "", entry.value));
+      item.append(icon, text);
+      summary.append(item);
+    });
+  }
+
+  function renderAdminCurrentState() {
+    const current = state.adminReview.current;
+    const body = getById("adminCurrentStateBody");
+    body.replaceChildren();
+
+    current.rows.forEach((entry) => {
+      const row = document.createElement("tr");
+      const itemCell = document.createElement("td");
+      const item = makeElement("div", "admin-state-item");
+      item.append(makeItemVisual(entry), makeElement("strong", "", entry.label));
+      itemCell.append(item);
+      const valueCell = document.createElement("td");
+      valueCell.append(makeStatus(entry.valueStatus || "waiting", entry.value || "확인 전"));
+      row.append(
+        itemCell,
+        valueCell,
+        makeElement("td", "admin-source-cell", entry.source || "미수신"),
+        makeElement("td", "time-cell", entry.receivedAt || "—"),
+      );
+      body.append(row);
+    });
+
+    const error = current.error;
+    const errorStatus = getById("adminErrorStatus");
+    errorStatus.replaceChildren(
+      makeElement("strong", "", error?.label || "현재 오류: 미수신"),
+      makeElement("span", "", error?.detail || "오류 정보가 수신되지 않았습니다."),
+    );
+  }
+
+  function renderAdminOntology() {
+    const ontology = state.adminReview.ontology;
+    const relations = getById("adminOntologyRelations");
+    const skills = getById("adminSkillDefinitions");
+    relations.replaceChildren();
+    skills.replaceChildren();
+
+    ontology.relations.forEach((entry) => {
+      const card = makeElement("article", "definition-item");
+      card.append(
+        makeElement("span", "eyebrow", entry.title),
+        makeElement("strong", "", entry.value),
+        makeElement("small", "", entry.meta),
+      );
+      relations.append(card);
+    });
+
+    ontology.skills.forEach((entry) => {
+      const card = makeElement("article", "definition-item skill-definition");
+      card.append(makeElement("h3", "", entry.title));
+      const list = document.createElement("dl");
+      [
+        ["사전 조건", entry.before],
+        ["예상 결과", entry.after],
+      ].forEach(([label, value]) => {
+        const row = document.createElement("div");
+        row.append(makeElement("dt", "", label), makeElement("dd", "", value || "미수신"));
+        list.append(row);
+      });
+      card.append(list);
+      skills.append(card);
+    });
+  }
+
+  function renderAdminHistory() {
+    const history = state.adminReview.history;
+    const list = getById("adminHistoryList");
+    const details = getById("adminHistoryDetails");
+    list.replaceChildren();
+    details.replaceChildren();
+
+    history.runs.forEach((run) => {
+      const button = makeElement("button", `history-run${run.id === history.selectedRunId ? " is-selected" : ""}`);
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(run.id === history.selectedRunId));
+      const title = makeElement("span");
+      title.append(makeElement("strong", "", run.title), makeElement("small", "", run.id));
+      button.append(title, makeElement("span", "history-run-meta", `${run.status} · ${run.startedAt || "시각 미수신"}`));
+      button.addEventListener("click", () => {
+        history.selectedRunId = run.id;
+        renderAdminHistory();
+      });
+      list.append(button);
+    });
+
+    const runDetails = history.detailsByRun?.[history.selectedRunId] || [];
+    if (runDetails.length === 0) {
+      details.append(makeElement("p", "empty-state", "선택한 데모 실행의 단계 기록이 없습니다."));
+      return;
+    }
+
+    runDetails.forEach((entry) => {
+      const card = makeElement("article", "history-step");
+      card.append(makeElement("h3", "", entry.step));
+      const listElement = document.createElement("dl");
+      [
+        ["결과", entry.result],
+        ["조건 검사", entry.condition],
+        ["상태 변경", entry.change],
+        ["오류 기록", entry.error],
+      ].forEach(([label, value]) => {
+        const row = document.createElement("div");
+        row.append(makeElement("dt", "", label), makeElement("dd", "", value || "미수신"));
+        listElement.append(row);
+      });
+      card.append(listElement);
+      details.append(card);
+    });
+  }
+
+  function renderAdmin() {
+    if (!state.adminReview) return;
+    renderAdminSummary();
+    renderAdminCurrentState();
+    renderAdminOntology();
+    getById("adminPlanMessage").textContent = state.adminReview.plan.message;
+    renderAdminHistory();
+  }
+
+  function selectAdminTab(tabName, moveFocus) {
+    document.querySelectorAll("[data-admin-tab]").forEach((tab) => {
+      const selected = tab.dataset.adminTab === tabName;
+      tab.classList.toggle("is-selected", selected);
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && moveFocus) tab.focus();
+    });
+    document.querySelectorAll("[data-admin-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.adminPanel !== tabName;
+    });
+  }
+
+  function syncViewFromHash() {
+    const adminVisible = window.location.hash === "#admin";
+    getById("dashboardView").hidden = adminVisible;
+    getById("adminView").hidden = !adminVisible;
+    document.title = adminVisible ? "ROKEY · 관리자 검토 패널" : "ROKEY · 출근 준비 도우미";
+    if (adminVisible) {
+      window.scrollTo(0, 0);
+      getById("exitAdminView").focus();
+    }
   }
 
   function renderAll() {
@@ -296,6 +467,32 @@
   getById("openDrawerPanel").addEventListener("click", (event) => openDialog("drawerDialog", event.currentTarget));
   getById("taskDetailsToggle").addEventListener("click", toggleTaskDetails);
   getById("stopTask").addEventListener("click", stopDemoTask);
+  getById("openAdminView").addEventListener("click", () => {
+    selectAdminTab("current", false);
+    window.location.hash = "admin";
+  });
+  getById("exitAdminView").addEventListener("click", () => {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    syncViewFromHash();
+    getById("openAdminView").focus();
+  });
+
+  document.querySelectorAll("[data-admin-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => selectAdminTab(tab.dataset.adminTab, false));
+    tab.addEventListener("keydown", (event) => {
+      const tabs = [...document.querySelectorAll("[data-admin-tab]")];
+      const index = tabs.indexOf(event.currentTarget);
+      let nextIndex;
+      if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+      if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === "Home") nextIndex = 0;
+      if (event.key === "End") nextIndex = tabs.length - 1;
+      if (nextIndex === undefined) return;
+      event.preventDefault();
+      selectAdminTab(tabs[nextIndex].dataset.adminTab, true);
+    });
+  });
+  window.addEventListener("hashchange", syncViewFromHash);
 
   document.querySelectorAll("[data-close-dialog]").forEach((button) => {
     button.addEventListener("click", () => closeDialog(getById(button.dataset.closeDialog)));
@@ -312,4 +509,7 @@
   });
 
   renderAll();
+  renderAdmin();
+  selectAdminTab("current", false);
+  syncViewFromHash();
 })();
