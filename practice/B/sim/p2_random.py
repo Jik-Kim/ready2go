@@ -7,6 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ros2_ws/src/ready2
 import p2_demo as d
 import demo_sim
 
+import os
+GUIDE = os.environ.get("GUIDE") == "1"          # 시연 배치 가이드: 가림막 벽에서 3 cm↑, 밑의 둘은 나란히 2 cm↑ 간격
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 rnd = random.Random(int(sys.argv[2]) if len(sys.argv) > 2 else 1)
 SZ = {"cover_plate": (0.0985, 0.0742), "eraser": (0.0525, 0.022), "lip_balm": (0.0718, 0.02), "toy_wrench": (0.17, 0.061)}
@@ -29,31 +31,36 @@ def rect_in(x, y, yaw, sz, px, py, pyaw, psz):
 
 def apart(a, b, gap=0.004):
     import ready2go_skills.core.place_plan as plp
-    ra = plp.corners(a[0]*1000, a[1]*1000, a[2], a[3][0]*500 + gap*500, a[3][1]*500 + gap*500)
+    ra = plp.corners(a[0]*1000, a[1]*1000, a[2], a[3][0]*500 + gap*1000, a[3][1]*500 + gap*1000)
     rb = plp.corners(b[0]*1000, b[1]*1000, b[2], b[3][0]*500, b[3][1]*500)
     return not plp.rects_overlap(ra, rb)
 
 def cover_layout(I):
     while True:
-        pyaw = rnd.choice([0.0, math.pi/2]) + rnd.uniform(-0.2, 0.2)
-        px, py = rnd.uniform(0.04, I[0]-0.04), rnd.uniform(0.14, I[1]-0.04)   # 물건은 오른쪽(y 큰 쪽), aside 는 왼쪽 [사용자 10/10 배치]
-        if not fits(px, py, pyaw, SZ["cover_plate"], I, 0.003):
+        if GUIDE:                                                        # 가림막 세로(긴 변 = 서랍 깊이), 오른쪽 [가이드]
+            pyaw = rnd.uniform(-0.15, 0.15)
+            px, py = rnd.uniform(0.04, I[0]-0.04), rnd.uniform(0.15, I[1]-0.04)
+        else:
+            pyaw = rnd.choice([0.0, math.pi/2]) + rnd.uniform(-0.2, 0.2)
+            px, py = rnd.uniform(0.04, I[0]-0.04), rnd.uniform(0.14, I[1]-0.04)   # 물건은 오른쪽(y 큰 쪽), aside 는 왼쪽 [사용자 10/10 배치]
+        if not fits(px, py, pyaw, SZ["cover_plate"], I, 0.030 if GUIDE else 0.003):
             continue
         for _ in range(200):
             items = []
+            base = pyaw + rnd.uniform(-0.15, 0.15)
             for cls in ("eraser", "lip_balm"):
-                yaw = pyaw + rnd.choice([0.0, math.pi/2 * 0]) + rnd.uniform(-0.3, 0.3)
+                yaw = (base + rnd.uniform(-0.08, 0.08)) if GUIDE else (pyaw + rnd.uniform(-0.3, 0.3))
                 yaw = (yaw + math.pi/2) % math.pi - math.pi/2
                 x, y = px + rnd.uniform(-0.03, 0.03), py + rnd.uniform(-0.03, 0.03)
                 items.append((x, y, yaw, SZ[cls]))
-            if all(rect_in(*it, px, py, pyaw, SZ["cover_plate"]) for it in items) and apart(items[0], items[1]):
+            if all(rect_in(*it, px, py, pyaw, SZ["cover_plate"]) for it in items) and apart(items[0], items[1], 0.020 if GUIDE else 0.004):
                 return (px, py, (pyaw + math.pi/2) % math.pi - math.pi/2), items[0][:3], items[1][:3]
 
 def stack_layout(I):
     while True:
         yw = rnd.uniform(-0.35, 0.35)                                     # 몽키는 세로로 [사용자 10/10]
-        x, y = rnd.uniform(0.09, I[0]-0.09), rnd.uniform(0.13, I[1]-0.04)
-        if fits(x, y, yw, SZ["toy_wrench"], I, 0.003):
+        x, y = rnd.uniform(0.09, I[0]-0.09), rnd.uniform(0.15 if GUIDE else 0.13, I[1]-0.04)
+        if fits(x, y, yw, SZ["toy_wrench"], I, 0.003) and (not GUIDE or I[1] - y > 0.06):   # 가이드: 쌓기 오른쪽, 옆벽에서 차키·캐러멜 손가락 자리
             return (x, y), yw, rnd.uniform(-1.5, 1.5), rnd.uniform(-1.5, 1.5)
 
 fails, counts = collections.Counter(), collections.Counter()
