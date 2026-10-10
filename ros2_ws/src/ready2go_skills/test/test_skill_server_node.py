@@ -779,6 +779,18 @@ def test_pick_turns_wrist_at_waypoint_before_going_down(server):
     assert kind == "movej" and turned[:5] == down[:5] and abs(turned[5] - down[5]) > 1.0   # 경유점에서 J6 만
     kind, pts, _ = next(e for e in log[i + 2:] if e[0] == "moveb")
     assert all(p[3:] == pts[0][3:] for p in pts)                        # 목표 위 → 내려가기는 손목 그대로
+    # 놓으러 갈 때도 블렌딩 안에서 손목을 되돌리지 않음 — 경유점에서 J6 먼저 [실측 PC2 10/10 65° → carry NOT_REACHED]
+    srv.robot.p = list(srv.robot.p[:3]) + [156.1, 180.0, -139.4]       # 집은 손목 방향 그대로 경유점
+    srv.robot.log.clear()
+    server.Gripper.holding = True
+    try:
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out2.success
+    log = srv.robot.log
+    first_b = next(k for k, e in enumerate(log) if e[0] == "moveb")
+    assert any(e[0] == "movej" for e in log[:first_b])                  # 들고 나오기 전에 J6 로 되돌림
 
 
 def test_lip_balm_on_left_wall_picked_by_ends_and_placed_turned(server):

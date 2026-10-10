@@ -1437,6 +1437,15 @@ class SkillServer(Node):
                 if bad:
                     return bad, None
                 time.sleep(prm["carry"]["pause_s"])
+                cur = self.robot.posx() or cur
+            # 집은 손목 방향 → 들고 나오기 방향은 경유점 1(서랍 가운데, 테두리 위)에서 J6 만 돌려 먼저 [실측 PC2 10/10: 1→2 구간(64 mm)에서
+            # 65° 되돌리는 블렌딩을 제어기가 출발 안 함]. 그리퍼 수직이면 J6 +θ = posx (C − A) +θ
+            turn = ((route[1][5] - route[1][3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0 if len(route) > 1 else 0.0
+            jnow = self.robot.posj()
+            if abs(turn) > 1.0 and jnow:
+                o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "carry:turn", in_drawer=True)
+                if not o.success:
+                    return o, None
             pts = route[1:] + [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)
             slow_c = pl.get("slow_last_mm", 0.0)
             if slow_c > 0 and target[2] + slow_c < pts[-1][2] - 1.0:   # 칸 위에서 멈추지 않고 놓는 높이 1 cm 위까지 이어서 [사용자 10/10]
