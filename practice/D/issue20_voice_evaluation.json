@@ -1000,24 +1000,25 @@
   "issue_194_regression": {
     "status": "not_run",
     "suite_version": "0.2-draft",
-    "basis": "[문서] Issue #194 결정 E-VOICE-UX-20261009-01과 PR #198 head d0544ee 적용 후의 목표 음성 정책",
+    "basis": "[문서] Issue #194 결정 E-VOICE-UX-20261009-01과 병합된 PR #198의 최종 음성 정책",
     "relationship_to_main_40": "기존 40문장 AC-INT-01 정확도 분모에는 포함하지 않고, #194 완료를 위한 별도 필수 회귀 세트로 판정한다.",
     "basis_snapshot": {
       "requirements_anchor": "docs/requirements.md#voice-policy",
       "policy_issue": "https://github.com/Jik-Kim/ready2go/issues/194",
       "policy_pr": "https://github.com/Jik-Kim/ready2go/pull/198",
-      "code_sha": "d0544ee92cd15913628adaf935d1f49b8f6b5277",
-      "policy_pr_state_at_snapshot": "open_not_merged",
-      "baseline_main_note": "현재 main의 인용 일괄 보류·bare alias 미등록 정책을 채점하는 baseline이 아니다. PR #198 적용 후 승인 목표를 검증하며, PR #198 head가 바뀌거나 병합되면 snapshot과 해시를 갱신한다.",
+      "code_sha": "2296b5d22b64bd9ed46dd15502bc6106f0282b3c",
+      "merge_commit_sha": "667f0b8a0e59a459ac0e1fb1bcf5b100413edaab",
+      "policy_pr_state_at_snapshot": "merged",
+      "baseline_main_note": "PR #198의 최종 head와 merge commit을 기준으로 병합된 승인 정책을 검증한다. 관련 실행 원본이 바뀌면 snapshot과 해시를 갱신한다.",
       "config_paths": [
         "ros2_ws/src/ready2go_voice/params/voice.yaml"
       ],
       "ontology_path": "knowledge/world.jsonld",
       "ontology_sha256": "d9dee3b9d8b4a7005dcee02f9dec79889c84ead97c0028b162f768e6189b83bc",
-      "alias_expectation": "PR #198 head의 knowledge/world.jsonld에서 망치는 toy_hammer의 aliases_ko에 등록된다.",
+      "alias_expectation": "PR #198 최종 head의 knowledge/world.jsonld에서 망치는 toy_hammer의 aliases_ko에 등록된다.",
       "task_path": "tasks/find_item.json",
       "task_sha256": "148ce4b47142ece1f3a18cd8cfa9795499f55753259a838292f837efedd9e331",
-      "status": "target_policy_snapshot_recorded"
+      "status": "merged_policy_snapshot_recorded"
     },
     "approval": {
       "status": "pending_d_acceptance",
@@ -1288,7 +1289,7 @@
           },
           {
             "step_id": "2",
-            "input_text": "응, 그걸로",
+            "input_text": "그걸로",
             "expected": {
               "intent": "find_item",
               "targets": [
@@ -1405,7 +1406,7 @@
           },
           {
             "step_id": "2",
-            "input_text": "취소해",
+            "input_text": "취소",
             "expected": {
               "intent": "cancel",
               "targets": [],
@@ -1623,7 +1624,7 @@
               "structured_intent": "unknown",
               "structured_targets": [],
               "internal_reason": "unregistered_item",
-              "public_final_text": "그 물품은 지원하지 않습니다",
+              "public_final_text": "그 물품은 지원하지 않습니다.",
               "unregistered_key_exposed_as_target": false,
               "voice_execution_allowed": false,
               "voice_publish_attempt_count_delta": 1,
@@ -1641,7 +1642,7 @@
               "structured_intent": "unknown",
               "structured_targets": [],
               "internal_reason": "unsupported_request",
-              "public_final_text": "그 요청은 지원하지 않습니다",
+              "public_final_text": "그 요청은 지원하지 않습니다.",
               "voice_execution_allowed": false,
               "voice_publish_attempt_count_delta": 1,
               "runner_input_count_delta": 1,
