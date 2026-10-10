@@ -412,7 +412,7 @@ class SkillServer(Node):
 
     def _movej(self, goal, joints, stage, in_drawer=False):
         """관절 이동 1번 (제한 확인 → 자동 모드 → 비동기 → 도착). 성공이면 Outcome(True).
-        in_drawer: 서랍 안으로 들어가는 경유점(drag_down) — speed.in_drawer_joint_* (관절 속도 설정보다 크지 않게)."""
+        in_drawer: 서랍 안으로 들어가는 경유점(drag_down) — speed.in_drawer_joint_* (서버 관절 속도와 따로, 탑뷰와 같게)."""
         err = self._joint_bad(joints, f"{stage} 목표")
         if err:
             return err
@@ -423,10 +423,10 @@ class SkillServer(Node):
         if early:
             return early
         vel, acc = self.joint_vel, self.joint_acc
-        if in_drawer:
+        if in_drawer:                                       # 탑뷰 → 경유점: 거의 손목(J6 약 170°)만 돌아감 → 탑뷰처럼 따로 빠르게 [사용자 10/10 "넛지하러 갈 때 돌리는 게 느림"]
             sp = self.prm()["speed"]
-            vel = min(vel, sp.get("in_drawer_joint_deg_s", vel))
-            acc = min(acc, sp.get("in_drawer_joint_acc_deg_s2", acc))
+            vel = sp.get("in_drawer_joint_deg_s", vel)
+            acc = sp.get("in_drawer_joint_acc_deg_s2", acc)
         bad = sf.after_command(self.robot.movej_async(joints, vel, acc), what=f"movej({stage})",
                                stop=self.robot.stop, get_state=self.state)
         if bad:
@@ -1103,7 +1103,8 @@ class SkillServer(Node):
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         size, _ = self.item(target.get("class"))
-        g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id))
+        g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
+                 wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
                "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)

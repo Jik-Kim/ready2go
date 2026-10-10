@@ -199,7 +199,8 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
         # 닫힘 축 = 옆벽 법선(서랍 y), 옆벽 쪽으로 30° [실측 B 10/06]: 모서리에 최대로 넣어 TCP–옆벽 경계 5.0 mm,
         # 지우개 윗면을 눌러 옆으로 잘 끌림. 접촉점은 TCP 바로 아래로 봄 [추정 — 손끝 가운데로 눌림, 사용자 확인]
         low_off = 0.0
-        need_mm = drag["wall_tcp_min_mm"] + drag.get("wall_press_margin_mm", margin)   # 10/06: 여유 0 — 덜 붙으면 지우개 끝만 눌려 덜덜 끌림
+        wall_min = (g.get("wall_tcp_min_mm") or {}).get("y_max" if sign > 0 else "y_min", drag["wall_tcp_min_mm"])   # 서랍·옆벽마다 [실측 B 10/10]
+        need_mm = wall_min + drag.get("wall_press_margin_mm", margin)   # 10/06: 여유 0 — 덜 붙으면 지우개 끝만 눌려 덜덜 끌림
     else:
         t = math.radians(drag.get("tilt_deg", 0.0))
         along = g["wall_clearance_mm"]["along_mm"]
