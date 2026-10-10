@@ -6,7 +6,8 @@ MockSkills(scene=...) 가 inspect_region·pick_object·place_object·nudge_objec
   id 는 촬영마다 "<class>#1" (첫 시연은 class 당 1개, #109).
 - 집기: 위에 다른 물체가 얹혀 있으면 GRASP_FAILED(순서가 틀린 태스크를 잡기 위함), 이미 쥐었으면 HOLDING_OBJECT.
 - 놓기: handover_zone 이면 전달(장면에서 빠짐). 서랍이면 slot 또는 pose 자리에 바닥으로 놓음 — 다른 물체와
-  PLACE_GAP_M 보다 가까우면 움직이기 전 PLACE_BLOCKED(blocked_by), scan 없으면 BAD_PARAMS (#166 계약).
+  PLACE_GAP_M 보다 가까우면 움직이기 전 PLACE_BLOCKED(blocked_by), scan 없거나 쥔 물체 id 가 scan 에 없으면
+  BAD_PARAMS (#166 계약, B #191 과 같게).
   placed_pose = 명령한 자리. 실물의 놓기 오차·미끄러짐은 PLACE_JITTER_M 만큼 흉내.
 - 끌기: 장면 물체는 벽에서 떨어져 있으므로 끌지 않음(pushed false).
 실물 B·A 동작(지지면·얹힌 물체 집기 NOT_ON_FLOOR 등)과 다를 수 있다 — 흐름 시험용.
@@ -91,8 +92,12 @@ class MockScene:
             self.held = None
             return True, "", {"slot": "handover_zone_1",
                               "placed_pose": {"frame": "handover_zone", "position": [0.0225, 0.045, 0.0]}}
-        if not isinstance(params.get("scan"), dict) or ("slot" in params) == ("pose" in params):
+        scan = params.get("scan")
+        if not isinstance(scan, dict) or ("slot" in params) == ("pose" in params):
             return False, "BAD_PARAMS", {"slot": None, "placed_pose": None}
+        seen = [scan.get("target")] + list(scan.get("candidates") or [])
+        if f"{self.held}#1" not in {o.get("id") for o in seen if isinstance(o, dict)}:
+            return False, "BAD_PARAMS", {"slot": None, "placed_pose": None}   # 쥔 물체가 scan 에 없음 (B #191)
         if "slot" in params:
             if params["slot"] not in SLOTS:
                 return False, "PLACE_NOT_CONFIGURED", {"slot": None, "placed_pose": None}

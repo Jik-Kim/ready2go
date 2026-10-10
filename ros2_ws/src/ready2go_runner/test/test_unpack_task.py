@@ -4,6 +4,8 @@ mock 이 B·A 실물 동작(얹힌 물체 집기·지지면)과 다를 수 있�
 import json
 from pathlib import Path
 
+import pytest
+
 from ready2go_runner.core.backend import SPEAK_ACTION, Reply, RosBackend
 from ready2go_runner.core.interpreter import Runner
 from ready2go_runner.core.logstore import MemoryLogStore
@@ -118,6 +120,42 @@ def test_place_failure_after_motion_keeps_holding_and_skips_home():
     assert robot.picked() == ["car_key"]                                     # 되돌리기 집기도 없음
 
 
+@pytest.mark.parametrize("code", ["OBJECT_DROPPED", "SENSOR_INVALID"])
+def test_drop_while_moving_obstacle_halts_and_locks(code):
+    """#78 HALT_MOTION: 장애물을 놓다가 놓침·센서 이상 → 즉시 ABORTED·잠금. 복구 반복·닫기·홈 없음, 다음 요청도 거절.
+    안내는 쥠 여부를 단정하지 않음(놓쳤으면 빈손, 센서 이상이면 모름)."""
+    runner, robot, result = run("occluded_top", "toy_wrench", {"place_object": [code, 1]})
+    assert (result.overall_status, result.error_code, runner.halted) == ("ABORTED", code, True)
+    assert [a for a, _ in robot.calls][-1] == "place_object"                  # 그 뒤 로봇 동작 없음
+    assert robot.spoken[-1] == "물건을 옮기다 멈췄어요. 사람이 확인해 주세요"
+    again = runner.run(TASK, {"target": "toy_wrench"})
+    assert again.overall_status == "ABORTED" and [a for a, _ in robot.calls][-1] == "place_object"
+
+
+def test_every_drawer_place_sends_scan_with_held_object():
+    """B #191: 서랍 안 놓기 scan 에 쥔 물체 id 가 없으면 BAD_PARAMS — 치우기·되돌리기 모두 집을 때 쓴 scan 을 넘김."""
+    _, robot, result = run("occluded_top", "toy_wrench")
+    assert result.overall_status == "COMPLETED", steps(result)
+    held = None
+    for action, p in robot.calls:
+        if action == "pick_object":
+            held = p["target"]["id"]
+        elif action == "place_object" and p["location"] != "handover_zone":
+            scan = p["scan"]
+            assert held in {o["id"] for o in [scan.get("target")] + scan["candidates"] if o}, (held, p)
+
+
+def test_mock_place_rejects_scan_without_held_object():
+    """mock 도 B 와 같게: 쥔 물체가 scan 에 없으면 움직이기 전 BAD_PARAMS (쥔 상태 그대로)."""
+    scene = MockScene("occluded_top")
+    other = scene.inspect("drawer_top", "toy_wrench")
+    assert scene.pick({"target": {"id": "car_key#1", "class": "car_key"}})[0]
+    without = {**other, "candidates": [c for c in other["candidates"] if c["id"] != "car_key#1"]}
+    assert scene.place({"location": "drawer_top", "slot": "aside_1", "scan": without})[:2] == (False, "BAD_PARAMS")
+    assert scene.held == "car_key"
+    assert scene.place({"location": "drawer_top", "slot": "aside_1", "scan": other})[:2] == (True, "")
+
+
 def test_three_obstacles_hit_loop_limit_and_still_restore():
     """고정 자리가 2곳이라 치우기는 최대 2개(while max_iter 2). 3개째가 남으면 LOOP_LIMIT 로 실패 →
     목표는 꺼내지 않고, 옮긴 2개를 거꾸로 되돌린 뒤 닫기·홈."""
@@ -153,7 +191,7 @@ def test_restore_blocked_twice_stops_holding_without_home():
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]   # 차키는 되돌리기 안 함
     assert robot.placed()[-2:] == ["origin", "aside_2"]                       # 상자: 원래 자리 → 꺼낸 자리, 둘 다 막힘
     assert result.blackboard["holding"] is True
-    assert "옮기던 물건을 쥔 채 멈췄어요. 사람이 확인해 주세요" in robot.spoken
+    assert "물건을 옮기다 멈췄어요. 사람이 확인해 주세요" in robot.spoken
     assert ("move_to_named_pose", {"pose_name": "home"}) not in robot.calls
     closes = [p for a, p in robot.calls if a == "drawer_control" and p.get("state") == "close"]
     assert closes == []                                                      # D 체크시트 S-17: 쥔 채면 닫기 요청도 안 함
