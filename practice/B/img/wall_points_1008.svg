@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760" font-family="sans-serif">
+  <rect width="1100" height="760" fill="#ffffff"/>
+  <text x="20" y="34" font-size="22" font-weight="bold" fill="#111">넛지 벽 한계 측정 — 위 칸·아래 칸 똑같이 8점 (+ 아래 칸 C1·C2)</text>
+  <text x="20" y="60" font-size="15" fill="#444">서랍 끝까지 연 상태 · 그리퍼 닫음 · 손끝이 벽 쪽으로 20° 기울임(넛지 자세) · 손끝 높이 바닥 위 약 12 mm · 처음 살짝 닿는 순간 멈춤</text>
+
+  <!-- 위에서 본 서랍 -->
+  <text x="60" y="100" font-size="16" font-weight="bold" fill="#111">위에서 본 서랍 (탑뷰 화면과 같은 방향)</text>
+  <rect x="150" y="150" width="440" height="300" fill="#f4f1ea" stroke="#333" stroke-width="3"/>
+  <rect x="310" y="122" width="120" height="16" rx="6" fill="#888"/>
+  <text x="370" y="116" font-size="14" text-anchor="middle" fill="#333">손잡이 (앞 · 로봇 쪽)</text>
+  <text x="370" y="478" font-size="14" text-anchor="middle" fill="#333">안쪽 (뒤)</text>
+  <text x="138" y="304" font-size="14" text-anchor="end" fill="#333">왼쪽</text>
+  <text x="138" y="322" font-size="12" text-anchor="end" fill="#777">(y 0 쪽)</text>
+  <text x="602" y="304" font-size="14" fill="#333">오른쪽</text>
+  <text x="602" y="322" font-size="12" fill="#777">(y 294 쪽)</text>
+  <text x="156" y="168" font-size="11" fill="#999">원점</text>
+
+  <!-- 화살표 정의 -->
+  <defs>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L12,6 L0,12 z" fill="#c0392b"/></marker>
+    <marker id="b" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L12,6 L0,12 z" fill="#2471a3"/></marker>
+  </defs>
+
+  <!-- 앞왼 -->
+  <circle cx="190" cy="190" r="7" fill="#333"/>
+  <line x1="190" y1="190" x2="158" y2="190" stroke="#c0392b" stroke-width="3" marker-end="url(#a)"/>
+  <line x1="190" y1="190" x2="190" y2="158" stroke="#2471a3" stroke-width="3" marker-end="url(#b)"/>
+  <text x="200" y="212" font-size="15" font-weight="bold" fill="#c0392b">1</text>
+  <text x="214" y="212" font-size="15" font-weight="bold" fill="#2471a3">2</text>
+  <!-- 앞오 -->
+  <circle cx="550" cy="190" r="7" fill="#333"/>
+  <line x1="550" y1="190" x2="582" y2="190" stroke="#c0392b" stroke-width="3" marker-end="url(#a)"/>
+  <line x1="550" y1="190" x2="550" y2="158" stroke="#2471a3" stroke-width="3" marker-end="url(#b)"/>
+  <text x="512" y="212" font-size="15" font-weight="bold" fill="#c0392b">3</text>
+  <text x="526" y="212" font-size="15" font-weight="bold" fill="#2471a3">4</text>
+  <!-- 안왼 -->
+  <circle cx="190" cy="410" r="7" fill="#333"/>
+  <line x1="190" y1="410" x2="158" y2="410" stroke="#c0392b" stroke-width="3" marker-end="url(#a)"/>
+  <line x1="190" y1="410" x2="190" y2="442" stroke="#2471a3" stroke-width="3" marker-end="url(#b)"/>
+  <text x="200" y="398" font-size="15" font-weight="bold" fill="#c0392b">5</text>
+  <text x="214" y="398" font-size="15" font-weight="bold" fill="#2471a3">6</text>
+  <!-- 안오 -->
+  <circle cx="550" cy="410" r="7" fill="#333"/>
+  <line x1="550" y1="410" x2="582" y2="410" stroke="#c0392b" stroke-width="3" marker-end="url(#a)"/>
+  <line x1="550" y1="410" x2="550" y2="442" stroke="#2471a3" stroke-width="3" marker-end="url(#b)"/>
+  <text x="512" y="398" font-size="15" font-weight="bold" fill="#c0392b">7</text>
+  <text x="526" y="398" font-size="15" font-weight="bold" fill="#2471a3">8</text>
+
+  <!-- 아래 칸 C1 -->
+  <circle cx="370" cy="290" r="9" fill="none" stroke="#1e8449" stroke-width="3"/>
+  <line x1="362" y1="290" x2="378" y2="290" stroke="#1e8449" stroke-width="2"/>
+  <line x1="370" y1="282" x2="370" y2="298" stroke="#1e8449" stroke-width="2"/>
+  <text x="384" y="286" font-size="14" font-weight="bold" fill="#1e8449">C1 (아래 칸만)</text>
+  <text x="384" y="304" font-size="12" fill="#1e8449">서랍 가운데</text>
+
+  <!-- 범례 -->
+  <line x1="150" y1="512" x2="190" y2="512" stroke="#c0392b" stroke-width="3" marker-end="url(#a)"/>
+  <text x="200" y="517" font-size="14" fill="#333">홀수 1·3·5·7 = 옆벽 쪽으로 다가가기 (손끝을 옆벽 쪽으로 20°)</text>
+  <line x1="150" y1="540" x2="190" y2="540" stroke="#2471a3" stroke-width="3" marker-end="url(#b)"/>
+  <text x="200" y="545" font-size="14" fill="#333">짝수 2·4·6·8 = 앞벽/뒷벽 쪽으로 다가가기 (손끝을 그 벽 쪽으로 20°)</text>
+  <text x="150" y="575" font-size="13" fill="#777">아래 칸 5~8(안쪽)은 위 서랍장 밑이라 안 닿으면 "못 감"이라고만 적기</text>
+
+  <!-- 옆에서 본 자세 -->
+  <text x="680" y="100" font-size="16" font-weight="bold" fill="#111">옆에서 본 자세 (예: 1번)</text>
+  <line x1="700" y1="420" x2="1060" y2="420" stroke="#333" stroke-width="3"/>
+  <text x="1060" y="440" font-size="12" text-anchor="end" fill="#555">서랍 바닥</text>
+  <line x1="720" y1="420" x2="720" y2="200" stroke="#333" stroke-width="6"/>
+  <text x="730" y="215" font-size="12" fill="#555">옆벽</text>
+  <!-- tilted gripper: tip at (760,405), axis tilted 20° from vertical, top leaning away from wall -->
+  <g transform="rotate(20 760 405)">
+    <rect x="748" y="300" width="24" height="105" rx="3" fill="#bbb" stroke="#333"/>
+    <rect x="730" y="230" width="60" height="70" rx="6" fill="#999" stroke="#333"/>
+    <rect x="745" y="130" width="30" height="100" fill="#ccc" stroke="#333"/>
+  </g>
+  <circle cx="760" cy="405" r="4" fill="#c0392b"/>
+  <line x1="800" y1="405" x2="800" y2="420" stroke="#c0392b" stroke-width="2"/>
+  <text x="808" y="416" font-size="12" fill="#c0392b">손끝 바닥 위 약 12 mm</text>
+  <path d="M 760 300 A 105 105 0 0 1 796 307" fill="none" stroke="#1e8449" stroke-width="2"/>
+  <line x1="760" y1="405" x2="760" y2="290" stroke="#1e8449" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="868" y="240" font-size="13" fill="#1e8449">20° 기울임</text>
+  <text x="868" y="258" font-size="12" fill="#1e8449">손끝이 벽 쪽,</text>
+  <text x="868" y="274" font-size="12" fill="#1e8449">몸통은 벽 반대쪽</text>
+  <line x1="880" y1="380" x2="790" y2="380" stroke="#c0392b" stroke-width="3" marker-end="url(#a)"/>
+  <text x="890" y="376" font-size="13" fill="#c0392b">높이 유지하며 벽 쪽으로</text>
+  <text x="890" y="394" font-size="13" fill="#c0392b">→ 처음 닿으면 멈춤</text>
+  <text x="700" y="462" font-size="13" fill="#333">기록: posx · posj · 닿은 부분(손끝 / 손가락 옆 / 몸통)</text>
+  <text x="700" y="482" font-size="12" fill="#777">지우개는 빼고 잼. 높이 맞추기 어려우면 지우개 윗면에</text>
+  <text x="700" y="497" font-size="12" fill="#777">손끝을 대 높이만 맞추고, 지우개를 뺀 뒤 다가가기</text>
+
+  <!-- 아래 칸 추가 -->
+  <rect x="660" y="510" width="430" height="130" rx="8" fill="#eaf5ec" stroke="#1e8449"/>
+  <text x="674" y="536" font-size="15" font-weight="bold" fill="#1e8449">아래 칸만 추가 2점</text>
+  <text x="674" y="556" font-size="12" fill="#1e8449">그리퍼 수직, 위 칸 경유점과 같은 손목 방향</text>
+  <text x="674" y="580" font-size="13" fill="#333">C1 = 서랍 가운데, 손끝 바닥 위 약 60 mm</text>
+  <text x="674" y="598" font-size="13" fill="#333">      대략 TCP [375, −213, 108] (넛지·집기 경유점 = 들고 나오기 1번)</text>
+    <text x="674" y="624" font-size="13" fill="#333">C2 = C1에서 z만 올림 (앞판·손잡이보다 충분히 위, 대략 z 200)</text>
+
+  <text x="20" y="660" font-size="15" font-weight="bold" fill="#111">보내는 형식 (한 줄에 한 점)</text>
+  <text x="20" y="688" font-size="14" fill="#333">위-1 posx(...) posj(...) 몸통      위-2 posx(...) posj(...) 손끝      …      아래-1 … 아래-8      아래-C1 posx(...) posj(...)      아래-C2 …</text>
+  <text x="20" y="716" font-size="13" fill="#777">총 위 8 + 아래 8 + C1·C2 = 18점. 못 가는 점은 "못 감"으로.</text>
+</svg>

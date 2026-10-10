@@ -2,8 +2,9 @@
 
 서랍에서 집기: `target`(inspect_region 결과, 서랍 좌표계) + 온톨로지 `size_m` → base 기준 파지 위치·방향·벌림 폭.
   - 위치: `pose.position` x·y를 서랍 tf(`places.yaml`)로 base에 옮김. 높이는 서랍 바닥(z=0) 기준으로 계산한다
-    (`top_z`·카메라 뎁스 z는 쓰지 않음, #18). 시작 전 확인(인출 거리·yaw_valid·바닥 위)은 motion_guard.precheck_pick.
-  - 높이: TCP를 바닥 위 max(물체 높이 + tcp_above_top_m, min_tcp_above_floor_m)에 둔다.
+    (바닥 물체는 `top_z`·카메라 뎁스 z를 쓰지 않음, #18). 시작 전 확인(인출 거리·yaw_valid·바닥 위)은 motion_guard.precheck_pick.
+  - 높이: TCP를 받침 위 max(물체 높이 + tcp_above_top_m, min_tcp_above_floor_m)에 둔다. 받침 = 바닥(0), 쌓인 물체는
+    `support_m` = top_z − 물체 높이 (motion_guard.support_m, 비전 뎁스 — [사용자 10/09] P2 3개 겹침).
     [실측 B 10/04, #8] 지우개(11.5 mm)를 TCP 바닥 위 10.0~11.4 mm에서 3/3 파지 → tcp_above_top_m ≈ 0.
   - 방향: 짧은 변을 잡는다 = 손가락이 긴 변(yaw)에 수직으로 닫힘. 출력은 base 기준 긴 변 각도(deg, (−90, 90]).
     TCP Rz로 바꾸는 오프셋(손가락 닫힘 축과 TCP 축 관계)은 노드가 params `finger_axis_offset_deg`로 더한다 [팀 확정 필요].
@@ -74,8 +75,11 @@ class GraspPlan:
     expected_width_m: float    # grasp_check 기대 폭 (짧은 변)
 
 
-def plan_drawer_grasp(*, target: Mapping, size_m: Sequence[float], tf: Mapping, params: Mapping) -> GraspPlan:
-    """`target`은 motion_guard.precheck_pick을 통과한 것만 넘긴다(yaw_valid true, 바닥 위)."""
+def plan_drawer_grasp(*, target: Mapping, size_m: Sequence[float], tf: Mapping, params: Mapping,
+                      support_m: float = 0.0) -> GraspPlan:
+    """`target`은 motion_guard.precheck_pick을 통과한 것만 넘긴다(yaw_valid true, 바닥 위·허용된 쌓임)."""
+    if not _finite(support_m) or support_m < 0:
+        raise ValueError(f"받침 높이는 0 이상 유한한 값: {support_m!r}")
     check_tf(tf)
     check_pick_params(params)
     x, y = target["pose"]["position"][:2]
@@ -87,7 +91,7 @@ def plan_drawer_grasp(*, target: Mapping, size_m: Sequence[float], tf: Mapping, 
         raise ValueError(f"size_m은 모두 양수: {size_m}")
     if width > length:
         raise ValueError(f"size_m 규약은 [긴 변, 짧은 변, 높이]: {size_m}")
-    above_floor = max(height + params["tcp_above_top_m"], params["min_tcp_above_floor_m"])
+    above_floor = support_m + max(height + params["tcp_above_top_m"], params["min_tcp_above_floor_m"])
     pos = to_base(tf, (x, y, above_floor))
     long_axis = wrap_line_deg(frame_yaw_deg(tf) + math.degrees(target["pose"]["yaw"]))
     open_w = width + params["open_margin_m"]
