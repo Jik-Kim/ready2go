@@ -308,6 +308,10 @@ def plan_axis_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     aligned = abs(math.cos(yaw)) <= math.sin(math.radians(g.get("tilt_align_deg", 15.0)))
     along = g["wall_clearance_mm"]["along_mm"]
     ext_x = abs(math.cos(yaw)) * length + abs(math.sin(yaw)) * size_m[1] * 1000.0
+    if not aligned:
+        dp = _push_to_handle_wall(cx, cy, yaw, size_m, interior_m, g, drag, x_mm / 1000.0)
+        if dp is not None:
+            return AxisGrasp(open_mm, length, (cx, cy), None, dp, "가로 — " + dp.reason)
     if not aligned or along - x_mm > ext_x / 2:
         dp = DragPlan(False, NO_PUSH_ACCESS, 0.0, None, 0.0, x_mm / 1000.0,
                       "손잡이 쪽 벽에 " + ("비스듬히 붙음 — 기울여 잡기는 가로일 때만, 안쪽 넛지는 서랍이 끌려 안 함" if not aligned
@@ -407,6 +411,35 @@ def _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, margin, lack_mm, sign
                     f"옆벽 쪽 부족 {lack_mm:.1f} mm → y {shift * 1000:+.1f} mm 끌기")
 
 
+def _push_to_handle_wall(cx, cy, yaw, size_m, interior_m, g, drag, gap_m):
+    """손잡이 쪽 벽 근처에 비스듬히 놓여 못 잡을 때: 손잡이 쪽(x −, 서랍 여는 방향이라 끝까지 열린 서랍은 안 끌림)으로 벽까지 끌어
+    벽에 맞춰 눕힘 [사용자 10/10 "손잡이 쪽 벽 끝까지 붙게 넛지하면 수평이 됨 → 기울여 잡기"]. 가로에 가까우면 가로로(가운데 = 짧은 변 반),
+    세로에 가까우면 세로로(가운데 = 긴 변 반) 붙는다고 봄 → 다시 보고 가로면 기울여 긴 변, 세로면 짧은 변.
+    누르는 TCP 는 손잡이 쪽 벽 쪽으로 기울인 교시 자세의 한계(wall_tcp_min_mm x_min) 밖, 옆벽에서 손가락 자리 밖."""
+    if not drag.get("square_to_handle_wall"):
+        return None
+    half = size_m[1 if is_crosswise(yaw) else 0] * 500.0              # 벽에 붙어 누운 뒤 가운데 x
+    wall_min = (g.get("wall_tcp_min_mm") or {}).get("x_min", drag["wall_tcp_min_mm"])
+    end_x = max(half, wall_min)
+    # 이미 모서리가 벽에 닿아 있어도 최소 이만큼은 밀어 돌려 눕힘. 더 못 가면 옆 힘 한계(PUSH_BLOCKED)에서 멈춤 → 다시 보고 집기
+    shift = min(end_x - cx * 1000.0, -drag.get("square_min_push_mm", 2.0)) / 1000.0
+    if -shift > drag["max_shift_mm"] / 1000.0:
+        return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, 0.0, gap_m, f"손잡이 쪽 벽까지 {-shift * 1000:.0f} mm — 최대보다 큼",
+                        axis="x", wall_normal_x=-1.0)
+    off = g.get("wall_offset_mm") or {}
+    along = g["wall_clearance_mm"]["along_mm"] + g["wall_margin_mm"]
+    wd, y_mm = interior_m[1] * 1000.0, cy * 1000.0
+    y_tcp = min(max(y_mm, along - off.get("y_min", 0.0)), wd - (along - off.get("y_max", 0.0)))
+    half_y = abs(size_m[0] * 500.0 * math.sin(yaw)) + abs(size_m[1] * 500.0 * math.cos(yaw))
+    if abs(y_tcp - y_mm) > half_y - drag["press_inset_mm"]:
+        return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, 0.0, gap_m, "손잡이 쪽 구석: 옆벽에서 누를 자리가 물체 밖",
+                        axis="x", wall_normal_x=-1.0)
+    how = "가로" if is_crosswise(yaw) else "세로"
+    return DragPlan(True, None, 0.0, (cx, y_tcp / 1000.0), 0.0, gap_m,
+                    f"손잡이 쪽 벽에 비스듬히 → 벽까지 x {shift * 1000:+.1f} mm 끌어 {how}로 붙이기", axis="x", shift_x_m=shift,
+                    wall_normal_x=-1.0)
+
+
 def _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin, ext_x_mm=None):
     """앞뒤 벽(손잡이 쪽 x 0 / 안쪽 x 최대)에 걸려 짧은 변으로 못 잡을 때 서랍 x 로 끌 거리와 누를 점 (close_axis wall 방식).
     깊이 한계(g reach_x_max_mm, 아래 칸)를 넘으면 안쪽 벽 쪽에서 눌러 손잡이 쪽으로 [사용자 10/10 "뒤로 기울여 안쪽으로 땡기기"]."""
@@ -422,6 +455,10 @@ def _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin, ext_x_mm=None
         gap = d - x_mm
     gap_m = gap / 1000.0
     if sx < 0 and not drag.get("push_inward_ok", False):   # 손잡이 쪽 벽: 안쪽(x +)으로 끌면 서랍이 같이 닫힐 수 있음 [사용자 10/10]
+        aligned = min(abs(math.sin(yaw)), abs(math.cos(yaw))) <= math.sin(math.radians(g.get("tilt_align_deg", 15.0)))
+        sq = None if aligned else _push_to_handle_wall(cx, cy, yaw, size_m, interior_m, g, drag, gap_m)
+        if sq is not None:
+            return sq
         return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, 0.0, gap_m,
                         "손잡이 쪽 벽에 붙음 — 안쪽으로 끌면 서랍이 닫혀서 넛지 안 함", axis="x", wall_normal_x=sx)
     shift = -sx * (lack + drag["extra_mm"]) / 1000.0

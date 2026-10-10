@@ -160,6 +160,8 @@ drag:                           # nudge_object 실물: 기울여 손끝으로 �
   confirm_gap_s: 0.1            # 멈춘 뒤 확인 읽기 간격
   drag_force_n: [0.5, 1.2]      # 끄는 힘. [1.5, 2.5] [사용자 10/07] → 닿기만 해도 거의 다 끌림 [사용자 10/10 "2 N 보다 적게"]. 닿음 확인 뒤 relax_step_mm 씩 올려 상한 이하로, 하한 밑으로 지나치면 반 칸 내려감
   push_inward_ok: false         # 손잡이 쪽 벽 물체를 안쪽으로 끌기 — 지우개는 됐지만 서랍이 같이 끌림 → 포기, 긴 변으로 잡기(안 되면 옆으로 끌고 긴 변) [사용자 10/10 PC2]
+  square_to_handle_wall: true   # 손잡이 쪽 벽 근처에 비스듬히(가로·세로에서 tilt_align_deg 넘게) 놓여 못 잡으면 손잡이 쪽으로 벽까지 끌어 벽에 맞춰 눕힘
+                                #   — 서랍 여는 방향이라 끝까지 열린 서랍은 안 끌림 → 다시 보고 가로면 기울여 긴 변, 세로면 짧은 변 [사용자 10/10 제안, 실물 미확인]
   relax_step_mm: 0.1            # [사용자 10/07]
   relax_settle_s: 0.3           # 올린 뒤 멈춘 채 기다렸다가 힘 평균 (force.tare_samples 번)
   relax_max_steps: 30           # 3 mm 올려도 상한 넘으면 PUSH_BLOCKED

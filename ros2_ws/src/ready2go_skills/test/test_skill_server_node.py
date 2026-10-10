@@ -1462,3 +1462,29 @@ def test_place_in_drawer_taught_slot_then_not_holding(server):
                                     "placed_pose": {"frame": "drawer_top", "position": [0.05, 0.24, 0.0], "yaw": 0.0}}
     out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_2", "scan": EMPTY_SCAN})
     assert out.error_code == "NOT_HOLDING" and data == {"slot": None, "placed_pose": None}   # 연 뒤 다시 보내도 중복 놓기 없음
+
+
+def test_diagonal_eraser_near_handle_wall_pushed_to_wall(server, monkeypatch):
+    """[사용자 10/10 제안, 실측 PC2 비전 yaw −1.0102] 손잡이 쪽 벽 근처 비스듬한 지우개: 손잡이 쪽 벽 쪽으로 기울여 눌러
+    손잡이 쪽(x −)으로만 벽까지 끎 — 서랍 여는 방향. y 로는 안 움직임."""
+    contact = {}
+
+    def force(p):
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
+    server.srv.robot.force = force
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "press":
+            contact["z"] = (self.robot.p[2] + posx[2]) / 2
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    t = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+         "pose": {"frame": "drawer_top", "position": [0.0308, 0.06, 0.0], "yaw": -1.0102, "yaw_valid": True}}
+    out, data = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == server.ss.WALL_TOO_CLOSE and "벽까지" in out.reason   # 집기 전 넛지 먼저
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t})
+    assert out.success and data["pushed"] is True
+    dx, dy = data["push_vector_m"]
+    assert dx < -0.010 and dy == 0.0
