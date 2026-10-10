@@ -136,7 +136,9 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 
 [구현: ROS 비의존 준비] place 놓침에는 `NewStartEvidence`의 같은 사건·기존 실행 종료·물리 복원·그리퍼/물체/서랍/작업영역 확인·C 상태 동기화·B/C 조건·신선도 입력을 검사합니다. 일반 `Evidence`로는 질문을 만들지 않으며 검증 뒤 질문도 재개 질문과 다른 `new_start` 후보입니다. 명시적 새 시작 응답만 `NewStartCandidate`를 1회 반환합니다. 이는 기존 작업 식별을 감사용으로 보존하는 내부 자료형으로 새 run을 생성하거나 기존 place/pick·좌표/effect를 실행하지 않습니다. “다시 넣었어”와 “재개해”는 이 후보를 내지 않습니다. 같은 기존 run의 재정지·취소·TTS 실패로 재개 경로를 되살리지 않고, `SENSOR_INVALID`의 일반 재개에는 추가 `sensor_normal` 증빙을 요구합니다. 기존 질문/녹음/실제 SDK 경계·유한 만료 검사는 내부 보호로 재사용하며 새 실행의 운영 접수 계약을 확정한 것이 아닙니다.
 
-[미연결/인계] `runner_notice.blocked`는 기존 정상 안내 억제 상태이며 E 별도 글로벌 모션 잠금이 아닙니다. TTS 실패는 내부 질문을 폐기하고 원인/후보 제한을 유지하지만 C 잠금의 지속을 E 모의 시험으로 증명할 수 없습니다. B 센서/놓침 반환과 보유 확실성·실제 정지/관측, C 공통 차단·기존 run 종료·상태 동기화·새 run, 신규 wire/예시/ICD의 E 포함 2인 승인이 선행입니다. 현재 B/C 수락·운영 연결·실물 검증은 미확인입니다. 추적은 [#78](https://github.com/Jik-Kim/ready2go/issues/78)·[#152](https://github.com/Jik-Kim/ready2go/issues/152)·[#196](https://github.com/Jik-Kim/ready2go/issues/196)이며 선행 [PR #193](https://github.com/Jik-Kim/ready2go/pull/193)·[PR #198](https://github.com/Jik-Kim/ready2go/pull/198)의 게시와 병합을 구분합니다.
+[문서·코드 대조: 2026-10-10] C의 [PR #202](https://github.com/Jik-Kim/ready2go/pull/202) 병합 원본은 놓침·센서 이상을 기존 `HALT_CODES`로 처리해 `ABORTED`·잠금, 비모션 finally만 허용, 잠금 중 새 요청 거절을 적용합니다. 두 오류는 재개 대기 보존에서 제외합니다. C 코드의 차단과 E 내부 후보의 검증은 별개이며 실물 정지 증거로 대체하지 않습니다.
+
+[미연결/인계] `runner_notice.blocked`는 정상 안내 억제 상태이며 E 별도 글로벌 모션 잠금이 아닙니다. TTS 실패는 내부 질문을 폐기하고 원인/후보 제한을 유지하지만 C 잠금의 지속을 E 모의 시험으로 증명할 수 없습니다. B handover place의 센서/놓침 반환 구분·보유 확실성·실제 정지/신선 관측, C 관측 기반 상태 동기화·안전한 잠금 해제·명시적 새 run 운영 연결, 신규 wire/예시/ICD의 E 포함 2인 승인이 남아 있습니다. `reset_state()`는 시작 스냅샷 복원이며 잠금 해제·실제 상태 검증이 아닙니다. 남은 B/C 협의·운영 adapter·실물 검증은 [#78](https://github.com/Jik-Kim/ready2go/issues/78)·[#152](https://github.com/Jik-Kim/ready2go/issues/152)·[#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 추적합니다. 선행 [PR #193](https://github.com/Jik-Kim/ready2go/pull/193)은 병합됐고 [PR #198](https://github.com/Jik-Kim/ready2go/pull/198)은 게시·미병합입니다.
 
 ### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
 

@@ -50,7 +50,7 @@ def measure(tf: Mapping, points_mm: Sequence[Sequence[float]], tip_offset_mm: fl
         if math.hypot(dx, dy) < 0.005:
             raise ValueError("두 점이 5 mm 안 — 긴 변 양 끝을 찍었는지 확인")
         yaw = normalize_yaw(math.atan2(dy, dx))
-    return {"position": [round(cx, 4), round(cy, 4), 0.0], "yaw": round(yaw, 4),
+    return {"position": [round(cx, 4), round(cy, 4), 0.0], "yaw": round(yaw, 4) + 0.0,   # -0.0 → 0.0
             "floor_gap_m": round(min(p[2] for p in local), 4)}
 
 

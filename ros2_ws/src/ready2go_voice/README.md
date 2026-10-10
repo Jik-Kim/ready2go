@@ -434,7 +434,9 @@ PYTHON
 
 ## #78 모션 차단 안내·E 내부 후보 (운영 미연결)
 
-[문서] 정책은 [모션 차단·놓침 후 새 실행 정본](../../../docs/requirements.md#halt-motion-policy)·[일반 재개 접수](../../../docs/requirements.md#resume-admission-policy)를 참조하십시오. 기존 상태 구독은 위의 원인별 고정 미확인 안내를 사용합니다. `phase=halted`를 실제 정지 증명으로 쓰거나 `task_id`로 지우개를 추론하지 않습니다. B의 현재 place 센서 이상/놓침 코드 혼용과 C 공통 잠금 누락은 후속이며 이 문서 변경으로 해결되지 않습니다.
+[문서] 정책은 [모션 차단·놓침 후 새 실행 정본](../../../docs/requirements.md#halt-motion-policy)·[일반 재개 접수](../../../docs/requirements.md#resume-admission-policy)를 참조하십시오. 기존 상태 구독은 위의 원인별 고정 미확인 안내를 사용합니다. `phase=halted`를 실제 정지 증명으로 쓰거나 `task_id`로 지우개를 추론하지 않습니다.
+
+[문서·코드 대조: 2026-10-10] C의 [PR #202](https://github.com/Jik-Kim/ready2go/pull/202)는 main에 병합돼 놓침·센서 이상에 `ABORTED`·잠금, 후속 모션/finally 제한·새 요청 거절과 재개 보존 제외를 구현했습니다. B handover place의 센서 이상/놓침 코드 혼용·보유 확실성·실제 정지/신선 관측, C 관측 기반 상태 동기화·잠금 해제·명시적 새 run 운영 연결은 후속입니다. `reset_state()`는 시작 스냅샷 복원이며 잠금 해제·실제 상태 확인이 아닙니다. 남은 B/C 협의·E 포함 2인 계약 승인·운영 adapter·실물 AC를 C 코드 병합이나 E 내부 모의 통과로 대신하지 않습니다.
 
 [구현: ROS 비의존 준비] `core/recovery_confirmation.py`의 `notice(HaltNoticeEvidence)`·`NewStartEvidence/NewStartCandidate`는 trusted B/C 관측을 가정한 내부 후보입니다. 현재 사건과 실제 정지/신선도/낙하/대상 근거가 있을 때만 대상별 복원 안내를 만들며, 과거/미확인 입력에는 회수를 지시하지 않습니다. place 놓침에 기존 `Evidence`/“재개해”를 주면 재개 후보를 내지 않고, 같은 사건의 실행 종료·복원/실제 상태 검사·C 동기화·B/C 조건을 모두 확인한 뒤 명시적 새 시작 응답에만 다른 자료형의 후보를 냅니다. TTS 실패·재정지 뒤 기존 run의 재개 우회도 거절합니다. 일반 cancel v1은 유지하고 센서 이상 재개에는 정상화 증빙을 추가 검사합니다. 운영 node는 이 복구 정책을 호출하지 않습니다.
 

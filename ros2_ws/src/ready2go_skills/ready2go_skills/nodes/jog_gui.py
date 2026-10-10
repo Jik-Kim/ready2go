@@ -218,7 +218,9 @@ class Robot:
         return bool(r and r.success)
 
     def stop(self):
-        self.call("stop", stop_mode=2)
+        """move_stop 결과: True 성공 / False 제어기 거부 / None 응답 없음(서비스 못 찾음·2초 안에 응답 없음)."""
+        r = self.call("stop", stop_mode=2)
+        return None if r is None else bool(r.success)
 
     def tool_names(self):
         tcp, tool = self.call("tcp"), self.call("tool")
@@ -412,8 +414,10 @@ class App:
                 v = tk.Label(c, text="—", bg="white", font=("TkFixedFont", 9), anchor="e")
                 v.pack(side="right", padx=3)
                 vals.append(v)
-            self.btn(tbl, "copy", lambda n=name: self.copy_live(n), font=("", 8)).grid(row=row, column=7, padx=(4, 6))
+            self.btn(tbl, "copy", lambda n=name: self.copy_live(n), font=("", 8)).grid(row=row, column=7, padx=(4, 4))
             self.cells[name] = vals
+        self.btn(tbl, "둘 다\ncopy", self.copy_both, font=("", 8)).grid(row=0, column=8, rowspan=2, sticky="ns",
+                                                                       padx=(2, 6), pady=2)   # posx·posj 한 번에 (사용자 10/09)
         self.live = {"posx": None, "posj": None}
 
     def jog_panel(self, parent, title, labels, group, vel, acc, vmax, unit, move_text, move_cmd, copy_name, hints, tag=None):
@@ -587,6 +591,13 @@ class App:
     def copy_live(self, name):
         if self.live[name]:
             self.copy_text(f"{name}([" + ", ".join(f"{v:.3f}" for v in self.live[name]) + "])")
+
+    def copy_both(self):
+        """posx 줄, posj 줄 두 줄로 복사 (지금 로봇 값)."""
+        if self.live["posx"] and self.live["posj"]:
+            self.copy_text("\n".join(f"{n}([" + ", ".join(f"{v:.3f}" for v in self.live[n]) + "])" for n in ("posx", "posj")))
+        else:
+            self.say("좌표 조회 전이라 복사 안 함")
 
     def copy_text(self, text):
         self.root.clipboard_clear()
@@ -967,7 +978,9 @@ class App:
     def stop_all(self):
         self.seq, self.rotating = [], False  # 정렬·기울이기 중이면 남은 조각 취소
         self.end_hold()
-        self.r.stop()
+        ok = self.r.stop()
+        result = {True: "제어기 수락", False: "제어기 거부", None: "응답 없음 — move_stop 서비스 확인"}[ok]
+        self.say(f"정지 보냄 ({result}) — 상태: {STATE.get(self.r.state(REFRESH_TIMEOUT_S), '?')}")   # 결과가 안 보였던 문제 (사용자 10/08)
 
     def close(self):
         """창 닫기·Ctrl+C: 움직이는 중이면 멈추고 종료."""
