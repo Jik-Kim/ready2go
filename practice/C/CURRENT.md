@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-08
 
 ## 지금 상태
+- **#78 HALT_MOTION (10/10)**: `OBJECT_DROPPED`·`SENSOR_INVALID` → 즉시 ABORTED·잠금, finally 이동 없음, 재개 보존 안 함 [실측: 시험 4개, E 반례 그대로]. 남은 것: 복구 뒤 상태 맞추기·잠금 해제 절차(계약, B·E 협의), B `SENSOR_INVALID` 구분 PR, E 온톨로지 errors.
 - **#134 문서 정본화 C 항목 (#180 인계 12~18)**: C 문서 정책 문장 → 정본 링크 19개(main 앵커 확인), 병합·미구현 상태 표시, 정본 3.3 대조로 `select_obstacle` ③ 후보를 확인된 것만으로 [실측: 시험]. 협의 항목(7·8·9·19~22·24·26·28·29·31)은 주 담당 수정 때 C 확인.
 - **Unpacking 판단 원자 동작 계약안 (#120 치울 순서·#109 재식별, 승인 대기)**: `select_obstacle`·`find_moved` (`core/unpack.py`, 로봇 동작 없음), 예시 태스크 mock 끝까지 [실측: 시험 23개]. 남은 것: E 포함 2명 승인, `tol_m` B 놓기 실측, A 가림 필드 계약, 실물 `tasks/find_with_unpack.json`(10/10).
 - **#152 재개 대기 core (PR #170 main 병합 10/08 `78de8ca`, 기본 꺼짐 — 계약 v0·v1 승인 대기, 노드·E 운영 연결 미구현)**: 계약안 v0([#152 댓글](https://github.com/Jik-Kim/ready2go/issues/152#issuecomment-6051650081), 승인 대기)의 Runner 안쪽 — 보존·재개·거절·버림. [실측: 시험 `test_suspend_resume.py` 18개, B #152 스킬별 재진입 조건 포함] 실제 find_item 으로 집기 중 비상정지 → 재개 시 집기부터·열기 재전송 없음·상태 1회 반영. 남은 것: 계약 승인 → 노드(`/runner/status` `halt`, 인텐트 `recover`·`resume`, `/skills/recover`), B 재진입 조건·관측 검사.
