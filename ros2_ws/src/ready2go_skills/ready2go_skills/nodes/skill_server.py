@@ -1299,8 +1299,8 @@ class SkillServer(Node):
                       if wall and gw["round"] else None)
         if round_side is not None:
             long_side = True
-        elif ag is None and gw["round"] and not wall:                     # 원통형은 가운데여도 긴 변 양끝 — 통일 [사용자 10/10 "원통형만 긴 변"]
-            long_side = mp.long_side_ok(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+        elif ag is None and gw["round"] and mp.long_side_ok(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw):
+            wall, long_side = None, True                    # 원통형은 긴 변 양끝 먼저 — 짧은 변이 벽에 걸려도 넛지(굴러감) 없이 [사용자 10/10 "원통형만 긴 변"]
         elif wall:
             gd = dict(gw, wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
             dp_ = mp.plan_drag(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gd, drag=prm["drag"])

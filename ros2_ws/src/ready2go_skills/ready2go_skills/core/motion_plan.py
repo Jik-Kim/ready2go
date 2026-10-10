@@ -331,7 +331,9 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     """벽에 붙어 짧은 변으로 못 잡는 물체를 끌 거리와 누를 점. 이미 잡을 수 있으면 needed False.
     우선순위 [사용자 10/10, 지우개 기준]: 가운데 → 그냥 집기 / 가장자리·모서리 → 넛지(옆벽은 옆으로, 앞뒤 벽은 앞뒤로) →
     넛지를 못 하면 긴 변 양끝으로 집기(needed False 로 돌려 집기로 넘어감)."""
-    r = _round_at_side(target, size_m, interior_m, g) if g.get("round") else None
+    if g.get("round"):
+        return _plan_drag_round(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=drag)
+    r = None
     if r and not r[1]:
         return DragPlan(False, None, 0.0, None, r[0], 0.0, "원통형이 옆벽에 붙음 — 넛지하면 굴러감 → 긴 변 양끝을 벽 쪽으로 기울여 집기")
     if r:                                                   # 모서리: 긴 변 방향(서랍 x)으로만 끎 — 짧은 변 방향(y)으로 밀면 굴러감 [사용자 10/10]
@@ -344,6 +346,29 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     if p.error_code and long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
         return DragPlan(False, None, 0.0, None, p.wall_normal_y, p.clearance_before_m,
                         f"넛지 못 함({p.reason}) → 긴 변 양끝으로 집기", axis=p.axis, wall_normal_x=p.wall_normal_x)
+    return p
+
+
+def _plan_drag_round(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping,
+                     drag: Mapping) -> DragPlan:
+    """원통형(립밤): 굴러가서 축과 다른 방향으로는 넛지하지 않음 [사용자 10/10 "짧은 변 쪽으로 넛지하면 굴러다님"].
+    ① 긴 변 양끝으로 바로 잡히면 넛지 없음 ② 옆벽에 나란히 붙음 → 넛지 없이 기울여 잡기 ③ 구석 → 축(서랍 x) 방향으로만
+    ④ 그 밖에 넛지가 필요하면 축 방향(30° 안)일 때만, 아니면 멈춤."""
+    if long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
+        return DragPlan(False, None, 0.0, None, 0.0, 0.0, "원통형 — 긴 변 양끝으로 바로")
+    r = _round_at_side(target, size_m, interior_m, g)
+    if r and not r[1]:
+        return DragPlan(False, None, 0.0, None, r[0], 0.0, "원통형이 옆벽에 붙음 — 넛지하면 굴러감 → 긴 변 양끝을 벽 쪽으로 기울여 집기")
+    if r:                                                   # 모서리: 긴 변 방향(서랍 x)으로만 끎 — 짧은 변 방향(y)으로 밀면 굴러감 [사용자 10/10]
+        return _plan_drag_round_corner(target, size_m, interior_m, g, drag, r[0])
+    p = _plan_drag(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=dict(drag, square_to_handle_wall=False))
+    if p.needed:
+        yaw = target["pose"]["yaw"]
+        v = (p.shift_x_m, p.shift_y_m)
+        n = math.hypot(*v)
+        if n and abs(math.cos(yaw) * v[0] + math.sin(yaw) * v[1]) / n < math.cos(math.radians(30.0)):
+            return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, p.wall_normal_y, p.clearance_before_m,
+                            f"원통형 — 넛지 방향이 축과 달라 굴러감, 넛지 안 함 ({p.reason})", axis=p.axis, wall_normal_x=p.wall_normal_x)
     return p
 
 

@@ -326,3 +326,16 @@ def test_handle_corner_diagonal_pushes_to_handle_wall_before_side():
         assert p.needed and p.axis == "x" and p.shift_x_m < 0 and "벽까지" in p.reason
     p = mp.plan_drag(target=tgt(0.013, 0.030, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
     assert p.needed and p.axis == "y" and p.shift_y_m > 0
+
+
+def test_round_never_nudged_across_its_axis():
+    """[사용자 10/10 "짧은 변 쪽으로 넛지하면 굴러다님"] 립밤은 긴 변으로 바로 잡히면 넛지 없음, 넛지는 축 방향(30° 안)만 — 아니면 멈춤.
+    랜덤 배치 시뮬레이션에서 축과 다른 넛지가 나오던 자리: 안쪽 벽 근처 가로, 옆벽 근처 20~40°, 손잡이 쪽 비스듬."""
+    g = dict(_ag(0.1, 0.1, 0.0)[1], round=True, wall_tcp_min_mm={"x_min": 15.9, "x_max": 13.9, "y_min": 14.2, "y_max": 5.5})
+    for x, y, yd in ((0.165, 0.040, 80), (0.040, 0.025, 20), (0.035, 0.035, 50), (0.175, 0.035, 40), (0.12, 0.15, 90)):
+        yaw = math.radians(yd)
+        p = mp.plan_drag(target=tgt(x, y, yaw), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+        if p.needed:
+            v = (p.shift_x_m, p.shift_y_m)
+            assert abs(math.cos(yaw) * v[0] + math.sin(yaw) * v[1]) / math.hypot(*v) >= math.cos(math.radians(30.0)) - 1e-9
+    assert not mp.plan_drag(target=tgt(0.165, 0.040, math.radians(80)), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG).needed   # 긴 변으로 바로
