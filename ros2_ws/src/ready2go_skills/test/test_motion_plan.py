@@ -228,6 +228,26 @@ def test_round_object_on_side_wall_not_nudged():
     assert mp.round_wall_side(target=tgt(0.10, 0.08, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g) is None    # 벽에서 멂
 
 
+def test_tilt_only_for_crosswise_on_handle_wall():
+    """[사용자 10/10 PC2 "대각선 절대 안 됨"] 기울여 잡기는 손잡이 쪽 벽에 가로(긴 변이 벽과 나란, tilt_align_deg 안)일 때만.
+    비스듬하면 기울이지 않고 멈춤(NO_PUSH_ACCESS). 가로로 손잡이 쪽 구석이면 옆으로 넛지 먼저 → 끈 뒤 기울여 긴 변."""
+    g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"],
+             tilt_align_deg=PRM["pick"]["tilt_align_deg"])
+    drag = dict(DRAG, push_inward_ok=False)
+    for yaw in (0.6, -0.8):
+        t = tgt(0.0308, 0.06, yaw)
+        assert mp.front_tilt_x_mm(target=t, size_m=ERASER, interior_m=INTERIOR, g=g) is None
+        assert mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag).error_code == mp.NO_PUSH_ACCESS
+    t = tgt(0.0308, 0.06, 1.2)                                                               # 거의 가로지만 15° 밖: 긴 변은 되는데 기울이진 않음
+    assert mp.front_tilt_x_mm(target=t, size_m=ERASER, interior_m=INTERIOR, g=g) is None
+    corner = tgt(0.012, 0.03, math.pi / 2)
+    p = mp.plan_drag(target=corner, size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag)
+    assert p.needed and p.axis == "y" and p.shift_y_m > 0                                    # 구석은 넛지 먼저 (옆으로)
+    after = tgt(0.012, 0.03 + p.shift_y_m, math.pi / 2)
+    assert mp.front_tilt_x_mm(target=after, size_m=ERASER, interior_m=INTERIOR, g=g) is not None
+    assert mp.long_side_ok(target=after, size_m=ERASER, interior_m=INTERIOR, g=g)
+
+
 def test_pick_margin_makes_borderline_spots_nudge():
     """[사용자 10/10 "애매한 자리는 넛지로 확실히"] 집기 판단 여유(pick_wall_margin_mm 8)면 3 mm 일 때 바로 집던 경계 자리도 넛지."""
     g8 = dict(G, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"])

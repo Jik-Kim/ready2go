@@ -196,6 +196,8 @@ def front_tilt_x_mm(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     x_mm = cx * 1000.0
     if x_mm >= interior_m[0] * 500.0:                      # 안쪽 벽 쪽 절반 — 앞판 아님
         return None
+    if abs(math.sin(yaw)) < math.cos(math.radians(g.get("tilt_align_deg", 15.0))):
+        return None                                         # 가로(긴 변이 손잡이 쪽 벽과 나란)일 때만 — 비스듬하면 대각선으로 눕게 됨 [사용자 10/10 "대각선 절대 안 됨"]
     open_mm = size_m[0] * 1000.0 + g["open_margin_mm"]
     ext_x = wall_extent_mm(open_mm, yaw, g)                  # 닫힘 축 = 긴 변(yaw) vs x 벽 법선
     short_x = wall_extent_mm(size_m[1] * 1000.0 + g["open_margin_mm"], yaw + math.pi / 2, g)   # 짧은 변 잡기 자리
@@ -208,13 +210,13 @@ def front_tilt_x_mm(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
 
 def _round_at_side(target, size_m, interior_m, g):
     """원통형이 옆벽에 붙어 짧은 변으로 못 잡는 자리면 (벽 부호, 긴 변 양끝이 앞뒤 벽에 걸림), 아니면 None.
-    긴 변이 옆벽과 나란(30° 안)하고 최대 벌림 안일 때만. g max_open_mm 가 없으면 None."""
+    긴 변이 옆벽과 나란(tilt_align_deg 안)하고 최대 벌림 안일 때만. g max_open_mm 가 없으면 None."""
     max_open = g.get("max_open_mm")
     cx, cy = target["pose"]["position"][:2]
     yaw = target["pose"]["yaw"]
     if max_open is None or not _finite(cx, cy, yaw, *size_m[:2], *interior_m[:2]):
         return None
-    if size_m[0] * 1000.0 + g["open_margin_mm"] > max_open or abs(math.cos(yaw)) < math.cos(math.radians(30.0)):
+    if size_m[0] * 1000.0 + g["open_margin_mm"] > max_open or abs(math.cos(yaw)) < math.cos(math.radians(g.get("tilt_align_deg", 15.0))):
         return None
     sx_blocked, lack_mm, sign = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g.get("pick_wall_margin_mm", g["wall_margin_mm"]))
     if lack_mm <= 0:
@@ -287,8 +289,8 @@ def _plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence
         lxb, llack, lsign = True, 0.0, sign
         if g.get("max_open_mm") is not None and size_m[0] * 1000.0 + g["open_margin_mm"] <= g["max_open_mm"]:
             lxb, llack, lsign = _grasp_blocked(cx, cy, yaw + math.pi / 2, [size_m[1], size_m[0]], interior_m, g, margin)
-        if lxb or llack <= 0:
-            return px
+        if (lxb and front_tilt_x_mm(target=target, size_m=size_m, interior_m=interior_m, g=g) is None) or llack <= 0:
+            return px                                       # 손잡이 쪽 벽에 가로로 붙은 건 끈 뒤 기울여 긴 변으로 잡음 (front_tilt_x_mm)
         lack_mm, sign = llack, lsign
         gap_m = ((wd - cy * 1000.0) if sign > 0 else cy * 1000.0) / 1000.0
     shift = -sign * (lack_mm + drag["extra_mm"]) / 1000.0     # 벽 반대쪽(가운데)으로

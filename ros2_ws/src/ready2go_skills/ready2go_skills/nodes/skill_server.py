@@ -1143,7 +1143,7 @@ class SkillServer(Node):
         g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
                  wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id),
                  reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id),
-                 max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0,
+                 max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
                  round=target.get("class") in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
@@ -1277,7 +1277,7 @@ class SkillServer(Node):
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         gw = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
                   reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id),
-                  max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0,
+                  max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
                   round=cls in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
         wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
         # 짧은 변이 벽에 걸리면: 넛지할 수 있으면 넛지 먼저(WALL_TOO_CLOSE), 넛지를 못 하는 자리면 긴 변 양끝으로 [사용자 10/10 우선순위]
@@ -1300,19 +1300,19 @@ class SkillServer(Node):
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"], support_m=support,
                                     long_side=long_side)
         # 긴 변 잡기가 손잡이 쪽 벽 가까이면 그 벽 쪽으로 기울여 잡음 — 앞판이 테두리보다 높아 수직 몸통이 닿음 [사용자 10/10 PC2]
-        tilt = None                                         # (기울일 쪽 서랍 방향, 각도)
+        tilt = None                                         # (기울일 쪽 서랍 방향, 각도, 이름, 손가락 닫힘 축) — 서랍 축 네 방향만 [사용자 10/10 교시]
         tilt_x = (mp.front_tilt_x_mm(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
                   if long_side and round_side is None and prm["pick"].get("front_tilt_deg") else None)
         if tilt_x is not None:
             fz = mp.from_base(place["tf"], plan.position_m)[2]
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (tilt_x / 1000.0, target["pose"]["position"][1], fz)))
-            tilt = ((-1.0, 0.0, 0.0), prm["pick"]["front_tilt_deg"], "손잡이 쪽")
+            tilt = ((-1.0, 0.0, 0.0), prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
         if round_side is not None:                          # 교시 자세 기준: TCP 는 물체 가운데보다 벽 쪽·아래 [실측 사용자 10/10 PC2]
             rw = prm["pick"]["round_wall"]
             ox, oy = target["pose"]["position"][:2]
             tz = support + size[2] / 2.0 - rw["tcp_below_center_mm"] / 1000.0
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (ox, oy + round_side * rw["tcp_to_wall_mm"] / 1000.0, tz)))
-            tilt = ((0.0, round_side, 0.0), rw["tilt_deg"], "옆벽 쪽")
+            tilt = ((0.0, round_side, 0.0), rw["tilt_deg"], "옆벽 쪽", (1.0, 0.0, 0.0))
         g, speed = prm["gripper"], prm["speed"]
         expected_w = (None if long_side else self.grasp_width(cls, size, prm)) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
@@ -1329,6 +1329,8 @@ class SkillServer(Node):
         if bad:
             return bad, None
         close_dir = mp.horizontal_angle_dir(plan.long_axis_deg + 90.0)
+        if tilt is not None:                                # 기울일 땐 손가락도 서랍 축에 딱 맞춤 — 교시한 앞뒤·좌우 자세 그대로, 대각선 금지 [사용자 10/10]
+            close_dir = mp.dir_to_base(place["tf"], tilt[3])
         off = params.get("approach_offset", 0.10)              # 태스크·온톨로지는 [0, 0, 0.1] (m) — z 만 씀
         approach = float(off[2] if isinstance(off, (list, tuple)) else off) * 1000.0
         down = (self.poses().get("drag_down") or {}).get(drawer_id)
