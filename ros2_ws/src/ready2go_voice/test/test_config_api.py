@@ -4,6 +4,7 @@ import math
 from types import SimpleNamespace
 import yaml
 import pytest
+from jsonschema import Draft7Validator, ValidationError
 from ready2go_voice.core.config import load_config
 from ready2go_voice.adapters.api import WhisperSTT, LangChainIntent
 from ready2go_voice.core.intent import IntentParser
@@ -56,7 +57,11 @@ def test_langchain_prompt_structured_json_and_timeout(cfg, ontology, monkeypatch
             captured['bind'] = kwargs
             def answer(prompt):
                 captured['prompt'] = prompt.to_string()
-                return SimpleNamespace(content=json.dumps({'intent': 'unknown', 'targets': [], 'confidence': 1}))
+                raw = {'intent': 'unknown', 'targets': [], 'confidence': 1,
+                       'clarify_question': None, 'response_text': '그 물품은 지원하지 않습니다.',
+                       'rejection_reason': 'unregistered_item'}
+                Draft7Validator(captured['bind']['response_format']['json_schema']['schema']).validate(raw)
+                return SimpleNamespace(content=json.dumps(raw))
             return RunnableLambda(answer)
     monkeypatch.setattr(langchain_openai, 'ChatOpenAI', LLM)
     answer = LangChainIntent(cfg, ontology['world']['items'])('미등록 물품 가져줘', .6)
@@ -64,6 +69,23 @@ def test_langchain_prompt_structured_json_and_timeout(cfg, ontology, monkeypatch
     assert captured['init']['timeout'] == .6 and captured['init']['max_retries'] == 0
     assert captured['bind']['response_format']['json_schema']['strict']
     assert 'car_key' in captured['prompt'] and '미등록 물품 가져줘' in captured['prompt']
+    assert 'rejection_reason' in captured['prompt'] and 'unsupported_request' in captured['prompt']
+    assert json.loads(answer)['rejection_reason'] == 'unregistered_item'
+
+
+def test_actual_internal_schema_keeps_registered_enum_and_requires_reason(cfg, ontology):
+    schema = LangChainIntent(cfg, ontology['world']['items']).schema
+    validator = Draft7Validator(schema)
+    raw = {'intent': 'unknown', 'targets': [], 'confidence': 1,
+           'clarify_question': None, 'response_text': None, 'rejection_reason': 'unregistered_item'}
+    validator.validate(raw)
+    assert set(schema['required']) == set(schema['properties'])
+    assert schema['additionalProperties'] is False
+    assert schema['properties']['targets']['items']['enum'] == list(ontology['world']['items'])
+    for invalid in (dict(raw, targets=['apple']), dict(raw, rejection_reason='new_policy'),
+                    dict(raw, extra='unapproved'), {k: v for k, v in raw.items() if k != 'rejection_reason'}):
+        with pytest.raises(ValidationError):
+            validator.validate(invalid)
 
 
 

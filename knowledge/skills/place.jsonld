@@ -52,7 +52,8 @@
       ],
       "errors": [
         "TRAY_FULL",
-        "PLACE_FAILED"
+        "PLACE_FAILED",
+        "OBJECT_DROPPED"
       ]
     }
   }
