@@ -92,9 +92,8 @@ source_catalog:
     type: repository_file
     path: config/places.yaml
   b_skill_params:
-    type: owner_file_reference
-    path: params/skills.yaml
-    availability: not_in_current_checkout
+    type: repository_file
+    path: ros2_ws/src/ready2go_skills/params/skills.yaml
   c_find_item_task:
     type: repository_file
     path: tasks/find_item.json

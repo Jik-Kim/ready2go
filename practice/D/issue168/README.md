@@ -5,10 +5,9 @@
 ## 정본과 범위
 
 - `checklist.yaml`이 시나리오, 오류 코드, 다음 행동, 담당 확인, 구현 상태, 근거의 정본입니다.
-- B의 교시·실측·파라미터 값은 복사하지 않습니다. `config/*.yaml`, `params/skills.yaml` 등 담당자 정본의 경로와 필요한 키만 참조합니다.
+- B의 교시·실측·파라미터 값은 복사하지 않습니다. `config/*.yaml`, `ros2_ws/src/ready2go_skills/params/skills.yaml` 등 담당자 정본의 경로와 필요한 키만 참조합니다.
 - 계약 값은 `contracts/`, 태스크 구현은 `tasks/`, 온톨로지는 `knowledge/`의 원본을 참조합니다.
 - mock·실물 시험 결과, 원위치 오차, 저속 설정, 운전자·안전 감시자 증적은 Google Sheet에만 기록합니다.
-- `params/skills.yaml`은 현재 checkout에 없으므로 값이나 존재 여부를 추정하지 말고 `not_in_current_checkout` 상태를 유지합니다.
 
 ## 확인·변경 절차
 
