@@ -739,7 +739,10 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
         server.Gripper.holding = False
     st = {s: (v, z) for s, v, z in speeds}
     sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
-    assert st["descend_fast"][0] == sp["in_drawer_mm_s"] and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
+    # 경유점이 있는 서랍: 목표 위로 가는 블렌딩이 잡는 높이 1 cm 위에서 끝남(따로 빠르게 내려가기 없음) → 마지막 1 cm 만 천천히 [사용자 10/10]
+    blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
+    assert "descend_fast" not in st and st["descend"][0] == 15.0
+    assert blends[0][1][-1][2] - st["descend"][1] == pytest.approx(10.0)
     assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
     assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
 

@@ -1267,14 +1267,20 @@ class SkillServer(Node):
             # 경유점에서 손목을 반 바퀴 다시 돌리며 목표로 가 경유점을 안 지나는 것처럼 보임 [사용자 10/08]
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, cur[3:])
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
-            bad = self._over_then_down(goal, drawer_id, cur, above, "to_object:over")   # 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
+            # 경유점에서 미리 벌리고(테두리 위 높이라 안 닿음) 테두리 위로 목표 위 → 잡는 높이 1 cm 위까지 블렌딩 한 번 — 목표 위에서 멈춰
+            # 벌리고 다시 내려가지 않음 [사용자 10/10 "동작이 너무 많고 복잡"]. 마지막 1 cm 만 천천히 [사용자 10/07]
+            self._grip(plan.open_width_m * 1000.0, 20)
+            slow_mm = prm["pick"].get("slow_last_mm", 0.0)
+            near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
+            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over")   # 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
             above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
             bad = self._transit(goal, above, "to_object")
         if bad:
             return bad, None
-        self._grip(plan.open_width_m * 1000.0, 20)
+        if not down:
+            self._grip(plan.open_width_m * 1000.0, 20)
         slow_mm = prm["pick"].get("slow_last_mm", 0.0)     # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
         bad = None
         if slow_mm > 0 and grasp[2] + slow_mm < self.robot.posx()[2] - 1.0:
@@ -1298,6 +1304,15 @@ class SkillServer(Node):
         # 도착 뒤 잠깐 멈춤 [사용자 10/06 저녁]
         if route:
             up = mp.with_z(grasp, self._travel_z(drawer_id, max(grasp[2], route[0][2])))
+            # 올리면서 서랍 x·y 각각 가운데 쪽으로 조금(미미한 대각선) — 벽에 붙은 물체가 벽에 끌려 기울지 않게
+            # [사용자 10/10 "올리다 윗벽에 부딪혀 기울어짐, x·y 2 mm 정도 간격 두며 올라오게"]
+            away = float(prm["pick"].get("lift_away_mm", 0.0))
+            if away > 0:
+                ox, oy = target["pose"]["position"][:2]
+                sx = math.copysign(away, place["interior_m"][0] / 2 - ox) / 1000.0
+                sy = math.copysign(away, place["interior_m"][1] / 2 - oy) / 1000.0
+                v = mp.dir_to_base(place["tf"], (sx, sy, 0.0))
+                up = [up[0] + 1000.0 * v[0], up[1] + 1000.0 * v[1]] + list(up[2:])
             r = self.prm()["transit"].get("blend_mm", 0.0)
             bad = self._blend(goal, [up, list(route[0])], [r, 0.0], self._in_vel(), "lift")
         else:
