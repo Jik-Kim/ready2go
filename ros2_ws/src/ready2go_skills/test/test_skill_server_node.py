@@ -794,61 +794,32 @@ def test_pick_turns_wrist_at_waypoint_before_going_down(server):
     assert any(e[0] == "movej" for e in log[:first_b])                  # 들고 나오기 전에 J6 로 되돌림
 
 
-def test_lip_balm_on_left_wall_picked_by_ends_and_placed_turned(server):
-    """[사용자 10/10] 왼쪽 벽에 세로로 붙은 립밤: 짧은 변은 벽에 걸림 → 긴 변 양끝으로 잡고(기대 폭 = 긴 변),
-    트레이에는 손가락을 y 로 돌려 놓음(물체 긴 변은 그대로 y)."""
+def test_lip_balm_on_left_wall_picked_by_ends_tilted_and_placed_turned(server):
+    """[사용자 10/10 PC2 "원통형은 기울여서"] 왼쪽 벽에 세로로 붙은 립밤: 넛지하면 굴러감 → 넛지 없이 긴 변 양끝을 잡고(기대 폭 = 긴 변)
+    왼벽 쪽으로 20° 기울임, TCP 는 교시대로 가운데보다 벽 쪽 4.6·아래 8.8 mm. 트레이에는 손가락을 y 로 돌려 놓음."""
     srv = server.srv
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
-           "pose": {"frame": "drawer_top", "position": [0.10, 0.019, 0.0], "yaw": 0.0, "yaw_valid": True}}
-    server.Gripper.holding, server.Gripper.held_width = True, 71.0
-    out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
-    assert out.error_code == server.ss.WALL_TOO_CLOSE                    # 넛지할 수 있는 자리면 넛지 먼저 [사용자 10/10 우선순위]
-    real = srv.prm
-    srv.prm = lambda: {**real(), "drag": {**real()["drag"], "max_shift_mm": 5.0}}   # 넛지 못 하는 자리
-    try:
-        out, data = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
-        assert out.success and data["grasp_ok"] and "긴 변" in out.reason and srv.held["long_side"] is True
-        srv.robot.log.clear()
-        out2, _ = server.run("place_object", {"location": "handover_zone"})
-    finally:
-        server.Gripper.holding, server.Gripper.held_width = False, 21.0
-        srv.prm = real
-    assert out2.success
-
-
-def test_eraser_on_handle_wall_picked_by_ends_tilted_toward_wall(server):
-    """[사용자 10/10 PC2 "앞쪽 벽은 기울여서 긴 변으로, 본체 닿는다"] 손잡이 쪽 벽에 가로로 붙은 지우개: 시도도 안 하던 것(NO_PUSH_ACCESS)
-    → 긴 변 양끝을 잡되 손끝은 벽 쪽·몸통은 안쪽으로 기울여 내려가고, 들고 나올 땐 테두리 위에서 수직으로 되돌림."""
-    srv = server.srv
-    t = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
-         "pose": {"frame": "drawer_top", "position": [0.011, 0.15, 0.0], "yaw": -1.5647, "yaw_valid": True}}
-    server.Gripper.holding, server.Gripper.held_width = True, 52.0
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.010, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": lip})
+    assert out.success and data["pushed"] is False                     # 넛지 안 함
+    server.Gripper.holding, server.Gripper.held_width = True, 72.5    # 잡은 폭 [실측 사용자 10/10 PC2]
     srv.robot.log.clear()
     try:
-        out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
-        assert out.success and "긴 변" in out.reason and "기울" in out.reason and srv.held["long_side"] is True
-        pick_log = list(srv.robot.log)
-        srv.robot.p = list(pick_log[-1][1][-1][:3]) + [151.9, 180.0, 151.9]   # 경유점 1, 잡은 손목 (실측 PC2 10/10, 손가락 x)
+        out, data = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
+        assert out.success and data["grasp_ok"] and "긴 변" in out.reason and "옆벽 쪽" in out.reason and srv.held["long_side"] is True
+        grasp = [e[1] for e in srv.robot.log if e[0] == "movel"][-1]
+        tf = srv.places()["drawer_top"]["tf"]
+        rw = srv.prm()["pick"]["round_wall"]
+        local = [1000.0 * v for v in server.ss.mp.from_base(tf, [v / 1000.0 for v in grasp[:3]])]
+        assert local[1] == pytest.approx(10.0 - rw["tcp_to_wall_mm"], abs=0.1)
+        assert local[2] == pytest.approx(10.0 - rw["tcp_below_center_mm"], abs=0.1)
+        assert abs(grasp[4]) == pytest.approx(180.0 - rw["tilt_deg"], abs=0.5)
+        srv.robot.p = list(srv.robot.p[:3]) + [151.9, 180.0, 151.9]
         srv.robot.log.clear()
         out2, _ = server.run("place_object", {"location": "handover_zone"})
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
-    # 긴 변 잡기는 놓는 손목(손가락 y)이 들고 나오기 경유점(손가락 x)과 90° 다름 → 경유점 1 에서 J6 로 먼저 돌리고, 블렌딩 안에선 손목 그대로
-    # [실측 PC2 10/10 carry NOT_REACHED]
     assert out2.success
-    carry = next(e[1] for e in srv.robot.log if e[0] == "moveb")
-    assert all(p[3:] == carry[-1][3:] for p in carry)
-    first_b = next(k for k, e in enumerate(srv.robot.log) if e[0] == "moveb")
-    assert any(e[0] == "movej" for e in srv.robot.log[:first_b])
-    srv.robot.log[:] = pick_log
-    log = srv.robot.log
-    tilt = srv.prm()["pick"]["front_tilt_deg"]
-    over = [e for e in log if e[0] == "moveb"][0][1]
-    grasp = [e[1] for e in log if e[0] == "movel"][-1]                 # 마지막 1 cm 천천히 내려가기
-    assert abs(grasp[4]) == pytest.approx(180.0 - tilt, abs=0.5)       # 툴 z 가 수직에서 tilt 만큼
-    assert over[0][3:] == grasp[3:]                                     # 테두리 위 옆 구간에서 이미 기울임 (넛지와 같음)
-    lift = [e for e in log if e[0] == "moveb"][-1][1]
-    assert lift[0][3:] == grasp[3:] and lift[-1][3:] != grasp[3:]       # 올릴 땐 기울인 채, 경유점 1 로 가며 수직으로
 
 
 def test_place_stops_where_it_touches_the_floor(server):

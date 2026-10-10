@@ -204,6 +204,30 @@ def test_eraser_crosswise_on_handle_wall_grabbed_by_ends_tilted():
     assert mp.front_tilt_x_mm(target=tgt(0.188, 0.15, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=g) is None     # 안쪽 벽
 
 
+def test_round_object_on_side_wall_not_nudged():
+    """[사용자 10/10 PC2 립밤] 원통형이 옆벽에 붙으면 넛지하면 굴러감 → 넛지 없이(needed False) 긴 변 양끝 + 그 벽 쪽 기울여 집기.
+    원통형 표시(round)가 없거나, 긴 변이 벽과 비스듬하거나, 긴 변 양끝이 앞뒤 벽에 걸리면 예전대로."""
+    g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0, round=True)
+    t = tgt(0.10, 0.010, 0.0)
+    assert mp.round_wall_side(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g) == -1.0
+    assert mp.round_wall_side(target=tgt(0.10, INTERIOR[1] - 0.010, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g) == 1.0
+    p = mp.plan_drag(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert not p.needed and p.error_code is None and p.wall_normal_y == -1.0 and "원통형" in p.reason
+    assert mp.plan_drag(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=dict(g, round=False), drag=DRAG).needed
+    assert mp.round_wall_side(target=tgt(0.10, 0.010, 1.2), size_m=LIP_BALM, interior_m=INTERIOR, g=g) is None   # 비스듬
+    assert mp.round_wall_side(target=tgt(0.03, 0.010, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g) is None   # 앞 모서리
+    # 모서리 [사용자 10/10 "구석이면 세로 방향으로 넛지, 짧은 변 쪽으로 밀면 굴러감"]: 안쪽 모서리 → 서랍 x 로만, 누르는 TCP 는 옆벽 손가락 자리 밖
+    back = tgt(INTERIOR[0] - 0.036, 0.010, 0.0)
+    p = mp.plan_drag(target=back, size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert p.needed and p.axis == "x" and p.shift_x_m < 0 and p.shift_y_m == 0.0 and p.wall_normal_y == -1.0
+    assert p.press_xy_m[1] * 1000.0 >= G["wall_clearance_mm"]["along_mm"] + G["wall_margin_mm"] - 1e-6
+    after = tgt(INTERIOR[0] - 0.036 + p.shift_x_m, 0.010, 0.0)
+    assert mp.round_wall_side(target=after, size_m=LIP_BALM, interior_m=INTERIOR, g=g) == -1.0   # 끈 뒤 옆벽 기울여 집기
+    p = mp.plan_drag(target=tgt(0.036, 0.010, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False))
+    assert p.error_code == mp.NO_PUSH_ACCESS and p.axis == "x"                                 # 손잡이 쪽 모서리: 안쪽으로 못 끎 (서랍 닫힘)
+    assert mp.round_wall_side(target=tgt(0.10, 0.08, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g) is None    # 벽에서 멂
+
+
 def test_pick_margin_makes_borderline_spots_nudge():
     """[사용자 10/10 "애매한 자리는 넛지로 확실히"] 집기 판단 여유(pick_wall_margin_mm 8)면 3 mm 일 때 바로 집던 경계 자리도 넛지."""
     g8 = dict(G, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"])

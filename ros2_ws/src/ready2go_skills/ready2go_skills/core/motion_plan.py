@@ -8,6 +8,7 @@ posx = [x, y, z, Rz, Ry, Rz'] mm·deg (ZYZ). 손가락은 툴 x축 방향으로 
   손가락 방향: drag.close_axis "wall"(닫힘 축 = 옆벽 법선, 10/06 실측으로 확인한 자세) / "object"(닫힘 축 = 물체 긴 변, 계산만).
   서랍이 닫히는 방향으로는 끌지 않는다 (2 N에서도 서랍이 같이 밀림 [실측 B 10/06]).
 """
+import dataclasses
 import math
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
@@ -205,6 +206,34 @@ def front_tilt_x_mm(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     return tcp if tcp - x_mm <= across / 2 else None
 
 
+def _round_at_side(target, size_m, interior_m, g):
+    """원통형이 옆벽에 붙어 짧은 변으로 못 잡는 자리면 (벽 부호, 긴 변 양끝이 앞뒤 벽에 걸림), 아니면 None.
+    긴 변이 옆벽과 나란(30° 안)하고 최대 벌림 안일 때만. g max_open_mm 가 없으면 None."""
+    max_open = g.get("max_open_mm")
+    cx, cy = target["pose"]["position"][:2]
+    yaw = target["pose"]["yaw"]
+    if max_open is None or not _finite(cx, cy, yaw, *size_m[:2], *interior_m[:2]):
+        return None
+    if size_m[0] * 1000.0 + g["open_margin_mm"] > max_open or abs(math.cos(yaw)) < math.cos(math.radians(30.0)):
+        return None
+    sx_blocked, lack_mm, sign = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g.get("pick_wall_margin_mm", g["wall_margin_mm"]))
+    if lack_mm <= 0:
+        return None
+    ends_x_blocked, _, _ = _grasp_blocked(cx, cy, yaw + math.pi / 2, [size_m[1], size_m[0]] + list(size_m[2:]),
+                                          interior_m, g, g["wall_margin_mm"])
+    if sx_blocked and not ends_x_blocked:
+        return None                                         # 짧은 변이 앞뒤 벽에도 걸림 — 옆벽만의 문제가 아님
+    return sign, ends_x_blocked
+
+
+def round_wall_side(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[float]:
+    """원통형(굴러가는 물체)이 옆벽(가생이)에 붙어 짧은 변으로 못 잡으면 그 벽 쪽 부호(−1 = y 0 벽, +1 = y 최대 벽), 아니면 None.
+    넛지하면 굴러감 → 넛지 없이 긴 변 양끝을 잡고 그 벽 쪽으로 기울임 [사용자 10/10 PC2 립밤 왼벽 직접교시].
+    긴 변 양끝이 앞뒤 벽에 걸리면(모서리) None — 모서리는 긴 변 방향으로 넛지 (plan_drag)."""
+    r = _round_at_side(target, size_m, interior_m, g)
+    return r[0] if r and not r[1] else None
+
+
 def wall_blocks_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[str]:
     """바로 집기 전 확인: 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿는 자리면 이유 문자열, 아니면 None.
     plan_drag 와 같은 판단(_grasp_blocked) — 끌기 뒤 target_after 는 부족량 + extra_mm 만큼 옮겨져 통과 (#83 A 요청)."""
@@ -225,6 +254,11 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     """벽에 붙어 짧은 변으로 못 잡는 물체를 끌 거리와 누를 점. 이미 잡을 수 있으면 needed False.
     우선순위 [사용자 10/10, 지우개 기준]: 가운데 → 그냥 집기 / 가장자리·모서리 → 넛지(옆벽은 옆으로, 앞뒤 벽은 앞뒤로) →
     넛지를 못 하면 긴 변 양끝으로 집기(needed False 로 돌려 집기로 넘어감)."""
+    r = _round_at_side(target, size_m, interior_m, g) if g.get("round") else None
+    if r and not r[1]:
+        return DragPlan(False, None, 0.0, None, r[0], 0.0, "원통형이 옆벽에 붙음 — 넛지하면 굴러감 → 긴 변 양끝을 벽 쪽으로 기울여 집기")
+    if r:                                                   # 모서리: 긴 변 방향(서랍 x)으로만 끎 — 짧은 변 방향(y)으로 밀면 굴러감 [사용자 10/10]
+        return _plan_drag_round_corner(target, size_m, interior_m, g, drag, r[0])
     p = _plan_drag(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=drag)
     if p.error_code and long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
         return DragPlan(False, None, 0.0, None, p.wall_normal_y, p.clearance_before_m,
@@ -286,12 +320,12 @@ def _plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence
                     f"옆벽 쪽 부족 {lack_mm:.1f} mm → y {shift * 1000:+.1f} mm 끌기")
 
 
-def _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin):
+def _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin, ext_x_mm=None):
     """앞뒤 벽(손잡이 쪽 x 0 / 안쪽 x 최대)에 걸려 짧은 변으로 못 잡을 때 서랍 x 로 끌 거리와 누를 점 (close_axis wall 방식).
     깊이 한계(g reach_x_max_mm, 아래 칸)를 넘으면 안쪽 벽 쪽에서 눌러 손잡이 쪽으로 [사용자 10/10 "뒤로 기울여 안쪽으로 땡기기"]."""
     d = interior_m[0] * 1000.0
     x_mm = cx * 1000.0
-    ext_x = wall_extent_mm(size_m[1] * 1000.0 + g["open_margin_mm"], yaw + math.pi / 2, g)
+    ext_x = ext_x_mm if ext_x_mm is not None else wall_extent_mm(size_m[1] * 1000.0 + g["open_margin_mm"], yaw + math.pi / 2, g)
     sx = 1.0 if x_mm > d / 2 else -1.0
     gap = (d - x_mm) if sx > 0 else x_mm
     lack = (ext_x + margin) - gap
@@ -319,6 +353,29 @@ def _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin):
     where = "안쪽 벽" if sx > 0 else "손잡이 쪽 벽"
     return DragPlan(True, None, 0.0, press, 0.0, gap_m, f"{where} 쪽 부족 {lack:.1f} mm → x {shift * 1000:+.1f} mm 끌기",
                     axis="x", shift_x_m=shift, wall_normal_x=sx)
+
+
+def _plan_drag_round_corner(target, size_m, interior_m, g, drag, side):
+    """원통형이 옆벽 + 앞뒤 벽 모서리: 긴 변 양끝 잡기가 앞뒤 벽에 안 걸릴 만큼 서랍 x 로만 끎 (굴러가지 않는 방향) [사용자 10/10].
+    누르는 TCP y 는 옆벽에서 손가락 자리(along_mm, 닫힘 축이 옆벽과 나란) + 여유 이상, 물체 폭 안."""
+    cx, cy = target["pose"]["position"][:2]
+    yaw = target["pose"]["yaw"]
+    margin = g["wall_margin_mm"]
+    ext_ends = wall_extent_mm(size_m[0] * 1000.0 + g["open_margin_mm"], yaw, g)   # 긴 변 양끝 잡기의 앞뒤 벽 자리
+    p = _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin, ext_x_mm=ext_ends)
+    if not p.needed:
+        return p
+    wd, y_mm = interior_m[1] * 1000.0, cy * 1000.0
+    off = (g.get("wall_offset_mm") or {}).get("y_max" if side > 0 else "y_min", 0.0)
+    lim = g["wall_clearance_mm"]["along_mm"] + margin - off
+    y_tcp = min(y_mm, wd - lim) if side > 0 else max(y_mm, lim)
+    half_y = 1000.0 * (abs(size_m[0] * math.sin(yaw)) + abs(size_m[1] * math.cos(yaw))) / 2.0
+    if abs(y_tcp - y_mm) > half_y - drag["press_inset_mm"]:
+        return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, side, p.clearance_before_m,
+                        f"모서리 원통형: 옆벽에서 누를 자리가 물체 밖 (TCP y {y_tcp:.1f}, 물체 {y_mm - half_y:.1f}~{y_mm + half_y:.1f} mm)",
+                        axis="x", wall_normal_x=p.wall_normal_x)
+    return dataclasses.replace(p, press_xy_m=(p.press_xy_m[0], y_tcp / 1000.0), wall_normal_y=side,
+                               reason="원통형 모서리 — 긴 변 방향으로만 " + p.reason)
 
 
 # ---------- 놓기 ----------
