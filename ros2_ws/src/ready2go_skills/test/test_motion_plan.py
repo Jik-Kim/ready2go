@@ -124,3 +124,14 @@ def test_wall_press_margin_zero_presses_at_measured_reach():
     """10/07: 20°, 여유 0 → 옆벽 경계에서 TCP 3.3 mm = 4번 직접교시 자리(지우개 중심 위 y 290.44), 지우개 폭 안."""
     p = mp.plan_drag(target=tgt(0.0275, 0.2904, 0.0), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
     assert (INTERIOR[1] - p.press_xy_m[1]) * 1000 == pytest.approx(3.3, abs=0.05) and p.error_code is None
+
+
+def test_safe_blend_radii_keeps_margin_below_half_segment():
+    """[실측 PC2 10/08] 반지름 41.724 > 제어기 max_dist 41.723 → moveb 출발 안 함. 구간 절반의 90% 이하, 마지막 0."""
+    start = [375.6, -217.0, 253.8]
+    pts = [[373.8, -216.4, 337.2], [366.6, 174.5, 334.9], [365.1, 174.2, 100.4]]
+    r = mp.safe_blend_radii(start, pts, [50.0, 50.0, 0.0])
+    half01 = math.dist(start, pts[0]) / 2.0
+    assert r[0] == pytest.approx(0.9 * half01) and r[0] < half01 - 1.0
+    assert r[1] == 50.0 and r[2] == 0.0
+    assert mp.safe_blend_radii(start, pts[:1], [20.0]) == [0.0]

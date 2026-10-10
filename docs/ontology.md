@@ -59,3 +59,9 @@
 ### 7.9 그래프·선택적 확장
 
 과거 물품과 시연 배치에 맞춘 그래프는 현재 world·상태의 근거로 사용하지 않습니다. 현재 문서 본문에서는 제외하며, 필요할 때 확정된 원본 데이터로 다시 작성합니다. PDDL 내보내기와 외부 플래닝 프레임워크는 선택적 검토 사항이며 현재 구현 범위에 포함하지 않습니다. [문서]
+
+### #43 사후 검증 선언·내부 후보의 현재 상태
+
+[문서] 정책·완료 기준은 [verification-policy](requirements.md#verification-policy)·[FR-ONT-02](requirements.md#fr-ont-02)·[FR-LOG-02](requirements.md#fr-log-02)에 둡니다. manifest→로더→skills 문자열 보존→Runner 실행 성공 뒤 effect의 실제 연결을 대조했습니다. pick/place/close_drawer의 문자열을 정리했지만 현재 P1 effect 소비 경로는 보존합니다. open_drawer는 원문 유지입니다. E [skill_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)는 동일 pick 관측과 handover 질문/최종 근거만 분류하며 동작·상태·로그·성공 TTS를 실행하지 않습니다. 현재 질문 객체와 run/step/목적지/기대물품을 결합하고, 장치/관측 오류·중단·TTS 실패·미정 대기는 성공 후보를 내지 않습니다. 실제 C evaluator/verify 대기/최종 effect/로그·A 재촬영·B 관측은 미연결입니다. 승인 전 구조화 verify/evaluator 형식은 추가하지 않았습니다.
+
+[문서] handover 확인 후보는 destination=handover_zone만 수용하며 질문에는 전달 트레이 이름을 사용합니다. 기대물품 ID는 현재 world의 name_ko 대응표로 표시하고 표시명이 없으면 질문/후보를 만들지 않습니다. drawer/LIFO는 거절합니다. 이 대응표 공급 역시 후속 운영 adapter가 검증해야 합니다.
