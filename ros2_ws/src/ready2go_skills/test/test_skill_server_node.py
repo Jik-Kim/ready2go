@@ -235,13 +235,13 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     out, data = server.run("place_object", {"location": "handover_zone"})
     log = server.srv.robot.log
     assert out.success and data["slot"] == "handover_zone_1"
-    kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이), 직선 블렌딩 한 번
-    assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 4
+    kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이) → 놓는 높이 1 cm 위, 직선 블렌딩 한 번 [사용자 10/10]
+    assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 5
     seq = [route[0]] + pts                                              # 반지름 100 mm [사용자 10/08], 구간이 짧으면 앞뒤 구간 절반의 90% — 절반 그대로면 제어기 거부 [실측 PC2 10/08]
-    half = [min(math.dist(seq[k][:3], seq[k + 1][:3]), math.dist(seq[k + 1][:3], seq[k + 2][:3])) / 2.0 for k in range(3)]
+    half = [min(math.dist(seq[k][:3], seq[k + 1][:3]), math.dist(seq[k + 1][:3], seq[k + 2][:3])) / 2.0 for k in range(4)]
     assert radii == pytest.approx([min(100.0, 0.9 * h) for h in half] + [0.0]) and radii[0] < 100.0   # 1→2 짧은 구간은 절반의 90%
-    assert pts[3][2] == pytest.approx(route[-1][2])
-    assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
+    assert pts[3][2] == pytest.approx(route[-1][2]) and pts[4][:2] == pytest.approx(pts[3][:2]) and pts[4][2] < pts[3][2]   # 칸 위에서 멈추지 않고 내려감
+    assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[4][2]   # 마지막 1 cm 살포시 내려놓기
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로
     log.clear()
     cp = server.srv.prm()["drawer_open_close"]["close_push"]["drawer_top"]   # 위 칸 닫기 = 45° 기울여 앞판 중앙 밀기 [사용자 10/08]
@@ -749,9 +749,10 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
     assert "descend_fast" not in st and st["descend"][0] == 15.0
     assert blends[0][1][-1][2] - st["descend"][1] == pytest.approx(10.0)
-    assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
+    assert out2.success and "lower_fast" not in st and st["lower"][0] == 15.0   # 칸 위 → 1 cm 위는 들고 나오기 블렌딩에 포함 [사용자 10/10]
     over = server.srv.prm()["place"]["touch_overtravel_mm"]             # 안 닿으면(가짜 로봇 힘 0) 계산 높이보다 이만큼 더 [사용자 10/10]
-    assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0 + over)
+    carry = [e for e in server.srv.robot.log if e[0] == "moveb"][-1][1][-1]
+    assert carry[2] - st["lower"][1] == pytest.approx(10.0 + over)
 
 
 def test_pick_turns_wrist_only_while_going_down(server):

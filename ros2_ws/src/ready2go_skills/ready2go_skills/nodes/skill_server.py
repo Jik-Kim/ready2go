@@ -369,7 +369,7 @@ class SkillServer(Node):
         n = float(pl.get("touch_n") or 0.0)
         if n <= 0:
             return self._line(goal, target, vel, stage)
-        base = self._tare()
+        base = self._tare(pl.get("touch_settle_s"))
 
         def touched():
             f = self.robot.tool_force()
@@ -381,10 +381,10 @@ class SkillServer(Node):
         deeper = mp.with_z(target, target[2] - float(pl.get("touch_overtravel_mm", 0.0)))
         return self._line(goal, deeper, vel, stage, watch=touched)
 
-    def _tare(self):
+    def _tare(self, settle_s=None):
         """멈춘 뒤 잠깐 기다렸다가 여러 번 읽은 평균 = 힘 기준값. 두산 툴 힘은 관절 토크 추정이라 멈춘 직후 흔들림 (10/06)."""
         sp = self.prm()["force"]
-        time.sleep(sp["tare_settle_s"])
+        time.sleep(sp["tare_settle_s"] if settle_s is None else settle_s)
         fs = [f for f in (self.robot.tool_force() for _ in range(int(sp["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
 
@@ -1409,7 +1409,10 @@ class SkillServer(Node):
                 if bad:
                     return bad, None
                 time.sleep(prm["carry"]["pause_s"])
-            pts = route[1:] + [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)까지 블렌딩, 거기서 정지
+            pts = route[1:] + [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)
+            slow_c = pl.get("slow_last_mm", 0.0)
+            if slow_c > 0 and target[2] + slow_c < pts[-1][2] - 1.0:   # 칸 위에서 멈추지 않고 놓는 높이 1 cm 위까지 이어서 [사용자 10/10]
+                pts.append(mp.with_z(target, target[2] + slow_c))
             rad = prm["carry"]["radius_mm"]
             here = self.robot.posx() or route[0]
             seq = [here] + pts
@@ -1418,7 +1421,7 @@ class SkillServer(Node):
             bad = self._blend(goal, pts, radii, self._free_vel(), "carry")
             if bad:
                 return bad, None                            # 놓는 자리로는 grasp_mm_s 로 살포시 (10/06 저녁: 놓기는 빠르게 하지 않음)
-            above = list(pts[-1])                           # 이미 칸 위 — 다시 올리지 않음, 놓은 뒤에도 여기로
+            above = list(pts[-2] if len(pts) > len(route) else pts[-1])   # 칸 위(4번 높이) — 놓은 뒤 여기로
         elif self._over_drawer(cur):
             # 들고 나오기(carry_out): 직접교시 경유점 4개를 movesj 로 한 번에 — 서랍 안 → 서랍 위 → 앞판 넘음 → 트레이 쪽
             # [사용자 직접교시·실물 확인 B 10/06]. 그다음 트레이 칸 위로 직선 (4번 높이, y = 트레이 가운데)
