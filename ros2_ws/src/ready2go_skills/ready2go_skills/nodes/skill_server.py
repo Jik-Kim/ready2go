@@ -1689,7 +1689,9 @@ class SkillServer(Node):
                 if not osz:
                     continue
                 blocked = True
-                for long_ in ((False, True) if mp.axis_grasp_fits(osz, gw) else (False,)):
+                round_o = o.get("class") in (prm["pick"].get("round_classes") or [])
+                ways = (True,) if round_o else ((False, True) if mp.axis_grasp_fits(osz, gw) else (False,))   # 원통형은 긴 변으로 잡음
+                for long_ in ways:
                     ot, os_ = (({**o, "pose": {**o["pose"], "yaw": o["pose"]["yaw"] + math.pi / 2}}, [osz[1], osz[0], osz[2]])
                                if long_ else (o, osz))
                     if not nc.pick_blocker(target=ot, size_m=os_, open_mm=os_[1] * 1000.0 + g["open_margin_mm"], objects=[me],
