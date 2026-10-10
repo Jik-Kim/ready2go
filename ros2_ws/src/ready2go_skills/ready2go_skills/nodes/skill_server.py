@@ -674,7 +674,21 @@ class SkillServer(Node):
             return sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
                                                            sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
                                     stop=self.robot.stop, get_state=self.state)
-        return self._send_wait(goal, send, lambda: self._wait_pose(goal, points[-1], vel, stage), start, points[-1], stage)
+        bad = self._send_wait(goal, send, lambda: self._wait_pose(goal, points[-1], vel, stage), start, points[-1], stage)
+        if bad is None or bad.error_code != sf.NOT_REACHED or start is None:
+            return bad
+        now = self.robot.posx()
+        if (now is None or math.dist(now[:3], start[:3]) >= 1.0
+                or pm.rotation_angle(pm.rot(*now[3:6]), pm.rot(*start[3:6])) >= 0.5):
+            return bad                                      # 출발은 했다가 선 것 — 그대로 실패
+        # 다시 보내도 출발 안 함 = 제어기가 이 블렌딩을 못 받음(짧은 구간에서 손목 크게 돌림 등) [실측 PC2 10/10 "방향 1 s" 반복]
+        # → 멈추지 말고 점마다 직선으로 (끊기지만 끝까지 감)
+        self.get_logger().warn(f"[{stage}] 블렌딩이 출발 안 함 — 점마다 직선으로 ({bad.reason})")
+        for k, p in enumerate(points):
+            bad = self._settle(goal) or self._line(goal, p, vel, f"{stage}:{k + 1}")
+            if bad:
+                return bad
+        return None
 
     def _carry_route(self, drawer_id):
         """poses.yaml carry_line 경유점 posx (집은 뒤 → 트레이 직선 블렌딩). 없으면 None (예전 carry_out movesj)."""
@@ -1451,15 +1465,18 @@ class SkillServer(Node):
                     return bad, None
                 time.sleep(prm["carry"]["pause_s"])
                 cur = self.robot.posx() or cur
-            # 집은 손목 방향 → 들고 나오기 방향은 경유점 1(서랍 가운데, 테두리 위)에서 J6 만 돌려 먼저 [실측 PC2 10/10: 1→2 구간(64 mm)에서
-            # 65° 되돌리는 블렌딩을 제어기가 출발 안 함]. 그리퍼 수직이면 J6 +θ = posx (C − A) +θ
-            turn = ((route[1][5] - route[1][3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0 if len(route) > 1 else 0.0
+            # 집은 손목 방향 → 놓는 손목 방향은 경유점 1(서랍 가운데, 테두리 위)에서 J6 만 돌려 먼저 [실측 PC2 10/10: 1→2 구간(64 mm)에서
+            # 65° 되돌리는 블렌딩을 제어기가 출발 안 함]. 그리퍼 수직이면 J6 +θ = posx (C − A) +θ.
+            # 들고 나오기 경유점도 위치만 쓰고 손목은 놓는 방향 그대로 — 긴 변 잡기(손가락 y)는 경유점 방향(손가락 x)과 90° 달라
+            # 4번 → 칸 위에서 돌리다 제어기가 출발 안 함 [실측 PC2 10/10 손잡이 쪽 지우개 carry NOT_REACHED]
+            turn = ((target[5] - target[3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0
             jnow = self.robot.posj()
             if abs(turn) > 1.0 and jnow:
                 o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "carry:turn", in_drawer=True)
                 if not o.success:
                     return o, None
-            pts = route[1:] + [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)
+            pts = [list(p[:3]) + list(target[3:]) for p in route[1:]] + \
+                [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)
             slow_c = pl.get("slow_last_mm", 0.0)
             if slow_c > 0 and target[2] + slow_c < pts[-1][2] - 1.0:   # 칸 위에서 멈추지 않고 놓는 높이 1 cm 위까지 이어서 [사용자 10/10]
                 pts.append(mp.with_z(target, target[2] + slow_c))

@@ -236,7 +236,8 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     log = server.srv.robot.log
     assert out.success and data["slot"] == "handover_zone_1"
     kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이) → 놓는 높이 1 cm 위, 직선 블렌딩 한 번 [사용자 10/10]
-    assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 5
+    assert kind == "moveb" and [q[:3] for q in pts[:3]] == [q[:3] for q in route[1:]] and len(pts) == 5
+    assert all(q[3:] == pts[-1][3:] for q in pts)                      # 경유점은 위치만 — 손목은 놓는 방향 그대로 [실측 PC2 10/10]
     seq = [route[0]] + pts                                              # 반지름 100 mm [사용자 10/08], 구간이 짧으면 앞뒤 구간 절반의 90% — 절반 그대로면 제어기 거부 [실측 PC2 10/08]
     half = [min(math.dist(seq[k][:3], seq[k + 1][:3]), math.dist(seq[k + 1][:3], seq[k + 2][:3])) / 2.0 for k in range(4)]
     assert radii == pytest.approx([min(100.0, 0.9 * h) for h in half] + [0.0]) and radii[0] < 100.0   # 1→2 짧은 구간은 절반의 90%
@@ -825,9 +826,21 @@ def test_eraser_on_handle_wall_picked_by_ends_tilted_toward_wall(server):
     srv.robot.log.clear()
     try:
         out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+        assert out.success and "긴 변" in out.reason and "기울" in out.reason and srv.held["long_side"] is True
+        pick_log = list(srv.robot.log)
+        srv.robot.p = list(pick_log[-1][1][-1][:3]) + [151.9, 180.0, 151.9]   # 경유점 1, 잡은 손목 (실측 PC2 10/10, 손가락 x)
+        srv.robot.log.clear()
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
-    assert out.success and "긴 변" in out.reason and "기울" in out.reason and srv.held["long_side"] is True
+    # 긴 변 잡기는 놓는 손목(손가락 y)이 들고 나오기 경유점(손가락 x)과 90° 다름 → 경유점 1 에서 J6 로 먼저 돌리고, 블렌딩 안에선 손목 그대로
+    # [실측 PC2 10/10 carry NOT_REACHED]
+    assert out2.success
+    carry = next(e[1] for e in srv.robot.log if e[0] == "moveb")
+    assert all(p[3:] == carry[-1][3:] for p in carry)
+    first_b = next(k for k, e in enumerate(srv.robot.log) if e[0] == "moveb")
+    assert any(e[0] == "movej" for e in srv.robot.log[:first_b])
+    srv.robot.log[:] = pick_log
     log = srv.robot.log
     tilt = srv.prm()["pick"]["front_tilt_deg"]
     over = [e for e in log if e[0] == "moveb"][0][1]
@@ -883,7 +896,8 @@ def test_free_space_speed_only_outside_drawer(server):
 
 def test_blend_that_never_starts_is_sent_once_more(server):
     """[실측 10/07 밤 PC2, 관절 90°/s] drag_down 도착 직후 보낸 moveb 가 실행되지 않음 → 남은 204 mm NOT_REACHED.
-    출발조차 안 한 블렌딩은 멈춘 걸 확인하고 한 번만 다시 보냄. 두 번째도 안 가면 NOT_REACHED."""
+    출발조차 안 한 블렌딩은 멈춘 걸 확인하고 한 번만 다시 보냄. 두 번째도 안 가면 점마다 직선으로 끝까지
+    [실측 PC2 10/10 "방향 1 s" 반복 — 손목 크게 도는 블렌딩은 제어기가 계속 출발 안 함]."""
     r = server.srv.robot
     r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
     real, calls = r.moveb_async, []
@@ -898,8 +912,9 @@ def test_blend_that_never_starts_is_sent_once_more(server):
     calls.clear()
     r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True        # 계속 안 감
     r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
-    out = server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
-    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+    r.log.clear()
+    assert server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over") is None and len(calls) == 2
+    assert [e[1] for e in r.log if isinstance(e, tuple) and e[0] == "movel"] == pts and r.posx()[:3] == pytest.approx(pts[-1][:3])
 
 
 def test_into_drawer_waypoint_uses_slow_joint_speed(server):
