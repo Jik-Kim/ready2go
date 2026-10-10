@@ -68,88 +68,136 @@ def classify_presence(text):
     return None
 
 
+@dataclass(frozen=True)
+class PlaceAudioRequest:
+    question: PlaceQuestion
+    captured_at: float
+    ended_at: float
+    started_at: float
+    result_until: float
+
+
 class PlaceConfirmation:
-    def __init__(self, *, item_names=None, answer_timeout_sec=None, max_reasks=None):
-        if answer_timeout_sec is not None and (
-                not finite(answer_timeout_sec) or answer_timeout_sec <= 0):
-            raise ValueError('finite positive place answer budget required')
-        if max_reasks is not None and (type(max_reasks) is not int or max_reasks < 0):
-            raise ValueError('nonnegative place reask limit required')
+    def __init__(self, *, item_names=None, admission_window_sec=None,
+                 stt_result_timeout_sec=None, max_reasks=None):
+        for value in (admission_window_sec, stt_result_timeout_sec):
+            if value is not None and (not finite(value) or value <= 0):
+                raise ValueError('finite positive place segment budget required')
+        if max_reasks is not None and (type(max_reasks) is not int or max_reasks not in (0, 1)):
+            raise ValueError('place reask limit must be None, 0 or 1')
         if item_names is not None and not isinstance(item_names, dict):
-            raise ValueError("current world item display names required")
+            raise ValueError('current world item display names required')
         self.item_names = dict(item_names or {})
-        self.answer_timeout_sec, self.max_reasks = answer_timeout_sec, max_reasks
+        self.admission_window_sec = admission_window_sec
+        self.stt_result_timeout_sec = stt_result_timeout_sec
+        self.max_reasks = max_reasks
         self._lock = threading.RLock()
         self.question = None
         self.finished_at = None
+        self.request = None
         self.final = None
         self.completed = set()
+        self.procedures = {}  # immutable identity per run/step; no resetting by retransmission
         self.attempt = 0
+
+    @classmethod
+    def from_config(cls, cfg, *, item_names):
+        return cls(item_names=item_names, admission_window_sec=cfg.get('place_admission_window_sec'),
+                   stt_result_timeout_sec=cfg.get('place_stt_result_timeout_sec'),
+                   max_reasks=cfg.get('place_max_reasks'))
+
+    def _clear(self):
+        self.question = None
+        self.finished_at = None
+        self.request = None
 
     @serialized
     def invalidate(self):
-        self.question = None
-        self.finished_at = None
+        if self.question is not None:
+            self._finish(self.question.work, False, 'unconfirmed')
+        else:
+            self._clear()
 
     def _question(self, work):
         counts = Counter(work.items)
         names = ', '.join(f'{self.item_names[item]} {count}개' for item, count in counts.items())
+        self._clear()
         self.question = PlaceQuestion(work, self.attempt,
             f'이번 작업에서 전달 트레이에 놓았어야 할 물품은 {names}, 총 {len(work.items)}개예요. 모두 있나요?')
-        self.finished_at = None
         return self.question
 
     @serialized
     def begin(self, work, *, normal_observation, all_visible):
-        self.invalidate()
-        self.final = None
-        self.attempt = 0
         if (not isinstance(work, PlaceWork) or
                 not all(isinstance(s, str) and s.strip() for s in (work.run, work.step, work.destination)) or
                 work.destination != 'handover_zone' or
                 not isinstance(work.items, tuple) or not work.items or
                 not all(isinstance(s, str) and s.strip() for s in work.items) or
-                not all(isinstance(self.item_names.get(s), str) and self.item_names[s].strip() for s in work.items) or
-                (work.run, work.step) in self.completed or normal_observation is not True):
+                not all(isinstance(self.item_names.get(s), str) and self.item_names[s].strip() for s in work.items)):
             return None
-        if all_visible is True:
+        key = (work.run, work.step)
+        if key in self.procedures:
+            if key in self.completed or self.procedures[key] != work:
+                return None
+            # Replayed status cannot replace the active question, answer or counter.
+            if normal_observation is not True:
+                self.invalidate(); return None
+            return self.question
+        self.invalidate()  # retire the old procedure before a new run/step begins
+        self.procedures[key] = work
+        self.final = None
+        self.attempt = 0
+        if normal_observation is not True or type(all_visible) is not bool:
+            self._finish(work, False, 'observation_error'); return None
+        if all_visible:
             return self._finish(work, True, 'vision')
-        if all_visible is not False:  # unknown/error is not normal non-detection
-            return None
         return self._question(work)
 
     def _finish(self, work, success, basis):
         self.final = PlaceResult(work, success, basis)
         self.completed.add((work.run, work.step))
-        self.invalidate()
+        self._clear()
         return self.final
 
     @serialized
     def delivered(self, question, *, now, success):
         if question is None or question is not self.question:
             return False
-        if success is not True or not finite(now) or self.answer_timeout_sec is None:
-            self.invalidate()
-            return False
+        if (success is not True or not finite(now) or now < 0 or
+                self.admission_window_sec is None or self.stt_result_timeout_sec is None):
+            self.invalidate(); return False
         if self.finished_at is not None:
             return False
         self.finished_at = now
         return True
 
     @serialized
-    def answer(self, question, text, *, captured_at, now):
+    def admit(self, question, *, captured_at, ended_at, started_at):
         if question is None or question is not self.question:
             return None
-        if (self.finished_at is None or not finite(captured_at) or not finite(now) or
-                not self.finished_at <= captured_at <= now < self.finished_at + self.answer_timeout_sec):
-            self.invalidate()
+        if (self.request is not None or self.finished_at is None or
+                not all(finite(v) for v in (captured_at, ended_at, started_at)) or
+                not self.finished_at <= captured_at <= ended_at <= started_at or
+                started_at >= self.finished_at + self.admission_window_sec):
+            self.invalidate(); return None
+        until = started_at + self.stt_result_timeout_sec
+        if not finite(until):
+            self.invalidate(); return None
+        self.request = PlaceAudioRequest(question, captured_at, ended_at, started_at, until)
+        return self.request
+
+    @serialized
+    def answer(self, question, text, *, captured_at, now, request=None):
+        if question is None or question is not self.question:
             return None
+        if (request is None or request is not self.request or request.question is not question or
+                captured_at != request.captured_at or not finite(now) or
+                not request.started_at <= now < request.result_until):
+            self.invalidate(); return None
         decision = classify_presence(text)
         if decision is not None:
             return self._finish(question.work, decision, 'user')
-        # Unknown limits mean safe hold, not an invented operational default.
         if self.max_reasks is None or self.attempt >= self.max_reasks:
-            self.invalidate()
-            return None
+            self.invalidate(); return None
         self.attempt += 1
         return self._question(question.work)

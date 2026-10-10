@@ -17,6 +17,18 @@ def question(name):
 
 def final_response(parser, doc, candidate=None):
     kind = doc['intent']
+    if kind == 'achieve_goal':
+        parts = []
+        for goal in doc['goals']:
+            if goal['predicate'] == 'open':
+                parts.append(parser.places[goal['subject']]['name_ko'] + (' 열림' if goal['value'] else ' 닫힘'))
+            else:
+                parts.append(parser.items[goal['subject']]['name_ko'] + ' ' + parser.places[goal['value']]['name_ko'] + ' 놓기')
+        default = ', '.join(parts) + ' 목표 요청으로 이해했어요. 현재는 내부 평가만 가능합니다.'
+        doc.setdefault('_voice', {}).update(final_text=default, response_candidate=candidate,
+            response_replacement_reason=None if candidate in (None, default) else 'response_goal_mismatch_or_promise')
+        doc.pop('clarify_question', None)
+        return default
     if kind != 'clarify':
         doc.pop('clarify_question', None)
     meta = doc.setdefault('_voice', {})

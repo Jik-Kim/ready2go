@@ -400,3 +400,13 @@ def test_secret_literals_inside_llm_string_are_redacted():
     clean=redact({'llm_raw':raw},secrets=[])
     assert all(x not in clean['llm_raw'] for x in ('plain-secret','other-secret','another-secret'))
     assert 'api_key' in clean['llm_raw']
+
+
+def test_opt_in_goal_response_preserves_requested_open_without_completion_promise(ontology, schema, cfg):
+    cfg['p2_goal_enabled'] = True
+    doc = IntentParser(ontology, schema, cfg, lambda *_: dict(intent='achieve_goal', targets=[],
+        confidence=.99, goals=cfg['p2_goal_catalog'][3], response_text='서랍을 닫고 전달을 완료했어요.')).parse(
+            '지우개 갖다 놓고 서랍은 열어 둬')
+    assert doc['goals'][1]['value'] is True
+    text = doc['_voice']['final_text']
+    assert '열림' in text and '내부 평가' in text and '완료했어요' not in text and '닫고' not in text

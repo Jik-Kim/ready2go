@@ -4,6 +4,18 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-10
 
+## P2 통합 내부 구현 — E-P2-INTEGRATED-EDIT-20261010-01
+
+- [문서: 승인] 상위 조율 세션 `01a11a9f-bcee-7c73-ad82-8887531b7526`의 인간 승인 turn `01a12507-6149-75c0-a1d1-59967fc7408e` “승인. 저장소 규칙에 맞게 계약 원본 requirements.md, 값 원본은 yaml 및 json으로 나머지는 참조만 하도록 하는 거 알지? 정합성 안 깨지게 잘해”를 확인하고 1단계 편집만 수행했습니다. 지시 세션은 기존 E 작업자에게 해당 범위를 전달·수락했습니다. 향후 작업 후 PR 절차 진행의 기존 사용자 승인도 유지합니다.
+- [문서: 작업 상태] 기존 root `/home/jonny/rokey_proj/VLA/ready2go`·`codex/e-halt-policy-20261009`·기준 HEAD `1b36ca61b589e58155b6d0b55649687ca9b8ed5a`에서 이어갑니다. 앞선 편집/검사 중단 뒤 상태를 확인하고 실행했습니다. 작업용 새 branch/worktree·reset/rebase/forcepush는 없습니다. 최신 원격 main `d52c1bb661fb9a635ac305e7b06735f68d862c1b`의 승인 대상 파일은 기준 HEAD와 동일하며 추가 C 변경은 병합하지 않습니다. 미추적 모델 사용 이력 JSON은 원본 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467` 그대로 보존·제외합니다.
+- [문서: 정본·범위] [재개 접수](../../docs/requirements.md#resume-admission-policy)·[사후 검증](../../docs/requirements.md#verification-policy)·[AC-ACT-03](../../docs/requirements.md#ac-act-03)·P2 [FR-INT-02](../../docs/requirements.md#fr-int-02)의 승인 변경을 정본에 반영했습니다. 런타임 구간값·재질문·선정 목표는 [voice.yaml](../../ros2_ws/src/ready2go_voice/params/voice.yaml), place 선언은 [place.jsonld](../../knowledge/skills/place.jsonld)이 원본입니다. 다른 Phase/AC 숫자·C 시간값·공개 계약/예시/ICD·B/C/D 코드·태스크·씬·P1 녹음/STT/Melo 설정은 바꾸지 않았습니다. 별도 문서 작업과 겹치는 #134 구간은 유지하며 이번 정본 → E 기술/실행 설명 → CURRENT 순으로 확인합니다. 문서 담당의 수락/병합을 완료로 주장하지 않습니다.
+- [문서: 내부 구현] recovery는 현재 등록 ACK→TTS→새 녹음/SDK→STT의 구간 검사, 질문과 작업 수명 분리, 종료 부정 제외·독립 요청의 별도 전체/STT 구간·일회성 소비·E 재시작 후 C 상태 확인·현재 완료 폐기를 제공합니다. #78 놓침 후 기존 run 재개 금지는 유지합니다. place는 같은 run/step 절차의 횟수·종료 상태를 보존하고 접수/STT 기한을 분리합니다. P2 LLM 스키마/검증/안내는 선정 목표와 현재 world·발화를 대조하며 기본 비활성·옵트인도 운영 발행 차단입니다. 서랍 관측 evaluator나 복합 동작을 구현한 것이 아닙니다.
+- [실측: 직접 검사] Python 3.12·ROS 미source·source 패키지 PYTHONPATH 환경의 변경 관련 6시험 파일은 **546 passed**, 종료0입니다. 등록 순서/기한·중복·질문/작업 수명·종료 부정·과거 녹음·독립 구간·재기동·놓침 재개 금지·트레이 절차/음성 기한·선정 목표/범위 밖/충돌/실패·기본 P1·실제 LangChain 스키마/프롬프트 및 저장된 VoiceNode 메서드의 TTS 성공/실패 발행 차단을 모의 확인했습니다. 실제 API/ROS 연결·음성·로봇 검증이 아닙니다.
+- [실측: 필수 core 검사] 동일 Python 3.12·ROS 미source 환경에서 `python3 -m pytest ros2_ws/src -q -rs -p no:cacheprovider`를 패키지 source PYTHONPATH로 실행해 **2202 passed, 24 skipped**, 종료0(107.50초)을 확인했습니다. ROS 의존14건·MongoDB 연결 불가10건 skip은 통과로 대체하지 않습니다. 코드/시험은 검사 뒤 변경하지 않고 승인 관련 파일만 로컬 커밋합니다. 이후 최종 커밋 SHA의 전체 CI를 `ONLY` 없이 실행하며 결과/로그를 `/tmp/e-p2-integrated-final-ci.log`로 전달합니다.
+- [실측: 정합성] AST·JSON/YAML 파싱·계약 검사 OK, 수정 문서 링크/앵커와 실행 원본의 대조를 수행했습니다. place는 verify 문자열 외 필드 불변, YAML의 기존 P1 값과 재개 접수값 보존, 공개 계약/node/타 담당 파일 미편집, 삭제한 단일 place 키는 오류 처리/이행 안내/반례에만 남음을 확인했습니다. 관련 제목/앵커는 보존합니다.
+- [미완료: 2단계] 실제 wire/ACK/종료·현재 요청 수락/결과 연결은 실행 원본·예시·ICD와 E 포함 계약 승인 뒤 진행합니다. C 안전 판정에서 실제 빈손 증거 미확인은 보류해야 하며 파지 조건 미충족을 빈손으로 복제하지 않았습니다. C verify/effect·복합 성공/관측 기반 복구·A/B 관측·실물 파지·마이크/API/Melo/장치/AC는 후속입니다. 계약 숫자의 정확 포함 여부가 미확정인 시간 경계는 보수적으로 거절하고 확정 경계만 포함합니다. 최종 SHA 전체 CI 결과는 커밋 후 외부 로그로 전달하며 이 기록 자체로 통과를 주장하지 않습니다.
+
+
 ## Voice README 시운전 안내 정리 — E-VOICE-README-20261008
 
 - [문서] 사용자 “README 정리해” 계획 승인 범위로 Voice README와 이 CURRENT만 정리합니다. 브랜치는 `codex/voice-readme-20261008`, 기준 원격 main은 `b1b92b540ce0696a413bf38ad2894288038ba113`입니다. 기존 aa39의 `791dcf1` 브랜치와 미추적 `:memory:.ses`는 보존합니다.

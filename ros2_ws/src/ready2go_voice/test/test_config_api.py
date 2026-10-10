@@ -103,3 +103,80 @@ def test_invalid_commissioning_configuration(cfg, tmp_path, updates):
     cfg.update(updates)
     path = tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ValueError): load_config(path)
+
+
+P2_BUDGET_KEYS = ('resume_admission_window_sec', 'resume_stt_result_timeout_sec',
+    'resume_register_ack_timeout_sec', 'resume_question_tts_timeout_sec',
+    'resume_independent_request_timeout_sec', 'place_admission_window_sec', 'place_stt_result_timeout_sec')
+
+
+@pytest.mark.parametrize('key', P2_BUDGET_KEYS)
+@pytest.mark.parametrize('value', [True, 0, -1, float('inf'), float('nan')])
+def test_p2_config_requires_finite_positive_segments(cfg, tmp_path, key, value):
+    cfg[key] = value
+    path = tmp_path/'cfg.yaml'; path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError): load_config(path)
+
+
+@pytest.mark.parametrize('updates', [dict(place_answer_timeout_sec=7), dict(place_max_reasks=2),
+    dict(place_max_reasks=True), dict(p2_goal_enabled='true'), dict(p2_goal_catalog=[[]])])
+def test_removed_and_invalid_p2_settings_rejected(cfg, tmp_path, updates):
+    cfg.update(updates)
+    path = tmp_path/'cfg.yaml'; path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError): load_config(path)
+
+
+def test_p2_null_budgets_hold_and_factories_use_yaml(cfg, tmp_path):
+    from ready2go_voice.core.recovery_confirmation import RecoveryConfirmation
+    from ready2go_voice.core.skill_confirmation import PlaceConfirmation
+    p = RecoveryConfirmation.from_config('boot', cfg)
+    assert p.register_ack_timeout_sec == cfg['resume_register_ack_timeout_sec']
+    assert p.independent_request_timeout_sec == cfg['resume_independent_request_timeout_sec']
+    place = PlaceConfirmation.from_config(cfg, item_names={'eraser': '지우개'})
+    assert place.admission_window_sec == cfg['place_admission_window_sec']
+    cfg.update({key: None for key in P2_BUDGET_KEYS})
+    path = tmp_path/'cfg.yaml'; path.write_text(yaml.safe_dump(cfg))
+    assert all(load_config(path)[key] is None for key in P2_BUDGET_KEYS)
+
+
+def test_p2_actual_schema_is_opt_in_and_strict(cfg, ontology):
+    cfg['p2_goal_enabled'] = True
+    schema = LangChainIntent(cfg, ontology['world']['items']).schema
+    Draft7Validator.check_schema(schema)
+    raw = dict(intent='achieve_goal', targets=[], confidence=.99, clarify_question=None,
+               response_text=None, rejection_reason=None, goals=cfg['p2_goal_catalog'][3])
+    Draft7Validator(schema).validate(raw)
+    assert schema['additionalProperties'] is False and set(schema['required']) == set(schema['properties'])
+    for invalid in (dict(raw, goals=[dict(predicate='open', subject='apple', value=True)]),
+                    dict(raw, goals=[dict(predicate='open', subject='drawer_top', value=True, action='move')]),
+                    {k: v for k, v in raw.items() if k != 'goals'}):
+        with pytest.raises(ValidationError): Draft7Validator(schema).validate(invalid)
+
+
+def test_empty_opt_in_catalog_is_rejected(cfg, tmp_path):
+    cfg.update(p2_goal_enabled=True, p2_goal_catalog=[])
+    path = tmp_path/'cfg.yaml'; path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError): load_config(path)
+
+
+def test_p2_langchain_prompt_keeps_explicit_open_goal(cfg, ontology, monkeypatch):
+    langchain_openai = pytest.importorskip('langchain_openai')
+    from langchain_core.runnables import RunnableLambda
+    captured = {}
+    cfg['p2_goal_enabled'] = True
+    raw = dict(intent='achieve_goal', targets=[], confidence=.99, clarify_question=None,
+        response_text=None, rejection_reason=None, goals=cfg['p2_goal_catalog'][3])
+    class LLM:
+        def __init__(self, **kwargs): pass
+        def bind(self, **kwargs):
+            captured['format'] = kwargs['response_format']['json_schema']
+            def answer(prompt):
+                captured['prompt'] = prompt.to_string()
+                Draft7Validator(captured['format']['schema']).validate(raw)
+                return SimpleNamespace(content=json.dumps(raw))
+            return RunnableLambda(answer)
+    monkeypatch.setattr(langchain_openai, 'ChatOpenAI', LLM)
+    answer = LangChainIntent(cfg, ontology['world']['items'])('지우개 갖다 놓고 서랍은 열어 둬', .5)
+    assert json.loads(answer)['goals'][1]['value'] is True
+    assert captured['format']['name'] == 'p2_goal_candidate' and captured['format']['strict']
+    assert '명시 열림을 자동 닫힘으로 바꾸지' in captured['prompt']
