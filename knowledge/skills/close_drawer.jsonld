@@ -27,7 +27,7 @@
           "value": false
         }
       ],
-      "verify": "closed_position_reached AND push_axis_force > threshold",
+      "verify": "close_confirmed: closing_push_target_reached_with_tolerance AND force_safety_ok; retreat/home excluded",
       "expand": [
         {
           "action": "drawer_control",

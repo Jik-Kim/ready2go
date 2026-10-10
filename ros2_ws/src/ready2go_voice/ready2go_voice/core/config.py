@@ -85,4 +85,19 @@ def load_config(path, *, evaluation_mode=None):
                 'llm_model', 'tts_executable', 'tts_voice'):
         if not isinstance(cfg.get(key), str) or not cfg[key].strip():
             raise ValueError(f'{key}: 문자열 필요')
+    for key in ('resume_stt_result_timeout_sec', 'place_answer_timeout_sec'):
+        cfg.setdefault(key, None)
+        value = cfg[key]
+        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value <= 0):
+            raise ValueError(f'{key}: null 또는 양수 유한값 필요')
+    cfg.setdefault('place_max_reasks', None)
+    if cfg['place_max_reasks'] is not None and (type(cfg['place_max_reasks']) is not int or cfg['place_max_reasks'] < 0):
+        raise ValueError('place_max_reasks: null 또는 0이상 정수 필요')
+    # Approved values are not inferred from world dimensions or P1 time budgets.
+    cfg.setdefault('pick_verify_lower_bound_m', 0.010)
+    cfg.setdefault('resume_admission_window_sec', 10.0)
+    for key in ('pick_verify_lower_bound_m', 'resume_admission_window_sec'):
+        value = cfg[key]
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f'{key}: 양수 유한값 필요')
     return cfg
