@@ -960,6 +960,33 @@ def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
     assert ("movej", srv.poses()["home"]["joints_deg"]) not in log
 
 
+def test_tilted_close_then_home_retreats_and_goes_home_without_stopping(server):
+    """[사용자 10/10] B close 는 then_home — 빼기를 끝 home_blend_mm 반지름으로 보내고 멈추지 않고 (올리기 →) 홈 관절 이동까지."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, 160.0, 90.0]
+    start_x = [381.9, -27.0, 100.0, 90.0, 160.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": start_x, "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = list(start_x)
+    radii, real = [], server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        radii.append((stage, kw.get("radius", 0.0)))
+        return real(self, goal, posx, vel, stage, watch, **kw)
+    server.ss.SkillServer._line = line
+    try:
+        out, data = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close", "then_home": True})
+    finally:
+        server.ss.SkillServer._line = real
+    assert out.success and data["close_confirmed"] is True and srv.disp["drawer_bottom"] == 0.0 and "홈" in out.reason
+    assert ("retreat", prm["drawer_open_close"]["home_blend_mm"]) in radii       # 빼기 끝에서 멈추지 않음
+    log = [e for e in srv.robot.log if e != "stop"]
+    assert log[-1] == ("movej", srv.poses()["home"]["joints_deg"])
+
+
 def test_tilted_close_refuses_when_start_and_end_taught_apart(server):
     """시작·끝 교시값의 x·z 가 close_push_xz_tol_mm(5 mm) 넘게 다르면 잘못 잰 것 → 움직이기 전 거부 (DRAWER_NOT_CONFIGURED, #181 C 리뷰).
     start_posx 가 없어도 움직이기 전 거부."""

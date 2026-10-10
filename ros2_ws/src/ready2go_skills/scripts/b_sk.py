@@ -69,7 +69,7 @@ def goal_for(cmd):
     if cmd == "opened":
         return "drawer_control", {"drawer_id": DRAWER, "state": "open", "displacement": 0.226}
     if cmd == "close":
-        return "drawer_control", {"drawer_id": DRAWER, "state": "close"}
+        return "drawer_control", {"drawer_id": DRAWER, "state": "close", "then_home": True}   # 닫고 홈까지 한 동작 [사용자 10/10]
     if cmd == "nudge":
         return "nudge_object", with_scan({"drawer_id": DRAWER, "target": target()}, DRAWER)
     if cmd == "pick":
@@ -209,9 +209,7 @@ def main():
             report()
         return
     if cmd != "all":
-        if run(node, cmd) and cmd == "close":       # 닫고 바로 홈까지 [사용자 10/10]
-            print("\n닫힘 → 홈으로")
-            run(node, "home")
+        run(node, cmd)                              # close 는 노드가 홈까지 (then_home) [사용자 10/10]
         return
     try:
         run_all(node)

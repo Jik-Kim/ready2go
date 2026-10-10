@@ -239,8 +239,9 @@ class SkillServer(Node):
     def _do_move_to_named_pose(self, goal, params):
         return self._named(goal, params.get("pose_name", ""), params.get("drawer_id")), None
 
-    def _named(self, goal, pose_name, drawer_id=None):
-        """기준 포즈로 관절 이동 (낮으면 먼저 수직으로 올림). 성공이면 Outcome(True), 아니면 실패 Outcome."""
+    def _named(self, goal, pose_name, drawer_id=None, moving=False):
+        """기준 포즈로 관절 이동 (낮으면 먼저 수직으로 올림). 성공이면 Outcome(True), 아니면 실패 Outcome.
+        moving: 앞 직선이 반지름 안에서 아직 움직이는 중 (닫기 → 홈 한 동작 [사용자 10/10]) — 관절 이동이 거부되면 멈춘 뒤 다시."""
         joints, err = sf.pose_joints(self.poses(), pose_name, drawer_id)
         if err:
             return err
@@ -289,8 +290,8 @@ class SkillServer(Node):
             sp = self.prm()["speed"]
             vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
         ok = self.robot.movej_async(joints, vel, acc)
-        if ok is False and blend:                           # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
-            bad = self._wait_pose(goal, up, self._free_vel(cur), "lift")
+        if ok is False and (blend or moving):               # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
+            bad = self._wait_pose(goal, up, self._free_vel(cur), "lift") if blend else self._settle(goal)
             if bad:
                 return bad
             ok = self.robot.movej_async(joints, vel, acc)
@@ -713,8 +714,8 @@ class SkillServer(Node):
         handle = mp.handle_posx(closed, pull, disp)
         if state == "open":
             return self._open_drawer(goal, drawer_id, place, oc, dc, closed, pull, disp, params)
-        if state == "close":
-            return self._close_drawer(goal, drawer_id, oc, dc, closed, pull, handle)
+        if state == "close":                                # then_home: 닫고 빼면서 홈까지 한 동작 (B 명령 전용, Runner 는 안 씀) [사용자 10/10]
+            return self._close_drawer(goal, drawer_id, oc, dc, closed, pull, handle, then_home=params.get("then_home") is True)
         return sf.Outcome(False, sf.BAD_PARAMS, reason=f"state 는 open/close: {state!r}"), None
 
     def _open_drawer(self, goal, drawer_id, place, oc, dc, closed, pull, disp, params):
@@ -802,7 +803,7 @@ class SkillServer(Node):
         out = {"drawer_displacement": round(self.disp[drawer_id], 4), "close_confirmed": False}
         return sf.Outcome(True, reason=f"열림 {self.disp[drawer_id] * 1000:.1f} mm"), out
 
-    def _close_drawer(self, goal, drawer_id, oc, dc, closed, pull, handle):
+    def _close_drawer(self, goal, drawer_id, oc, dc, closed, pull, handle, then_home=False):
         """닫기: 손잡이를 잡지 않고, 홈 자세(그리퍼 수직 아래) 그대로 손끝을 손잡이 높이에 두고 밀어서 닫는다 — 힘이 느껴질 때까지
         [사용자 제안 10/06]. 손잡이 쪽(ready, J2 반대) 자세로 가지 않아 열린 서랍 위를 돌아가지 않음."""
         if not oc.get("close_enabled", False):
@@ -812,7 +813,7 @@ class SkillServer(Node):
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"{self.held['class']} 를 든 채 닫지 않음"), None
         tilted = (oc.get("close_push") or {}).get(drawer_id)
         if tilted:
-            return self._close_drawer_tilted(goal, drawer_id, oc, dc, pull, tilted)
+            return self._close_drawer_tilted(goal, drawer_id, oc, dc, pull, tilted, then_home)
         if not (oc.get("vertical_close_ok") or {}).get(drawer_id, False):   # 아래 칸: 수직 그리퍼 몸통이 위 서랍 앞판에 닿음 [실측 B 10/08]
             return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} 닫기 자세(close_push) 교시 전"), None
         prm = self.prm()
@@ -843,9 +844,9 @@ class SkillServer(Node):
             return bad, None
         closed = list(closed[:2]) + [tip_z] + list(cur[3:])
         contact_closed = mp.offset_posx(closed, pull, off)  # 닫혔을 때 TCP 위치 (손끝 앞면이 닫힌 손잡이에)
-        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, contact_closed)
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, contact_closed, then_home)
 
-    def _push_closed(self, goal, drawer_id, oc, dc, pull, pre, contact_closed):
+    def _push_closed(self, goal, drawer_id, oc, dc, pull, pre, contact_closed, then_home=False):
         """pre(밀기 시작, 이미 도착)에서 닫히는 방향으로 contact_closed(닫혔을 때 TCP)보다 close_overtravel 만큼 더 밂.
         빠르게 → 마지막 push_slow_last_mm 천천히, 일찍 크게 걸리면 멈춤, 끝나면 여는 방향으로 retreat_mm 빼기 (홈은 안 감)."""
         speed = self.prm()["speed"]
@@ -888,16 +889,22 @@ class SkillServer(Node):
             res = sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 위치에 못 감 (남은 {rem * 1000:.1f} mm)")
         else:
             res = None
-        back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat") if now else \
+        # then_home: 빼기 끝 home_blend_mm 안에서 바로 홈으로 (올리기·관절 이동까지 멈추지 않고 한 동작) [사용자 10/10 "뚝뚝 끊기는 게 싫음"]
+        r = float(oc.get("home_blend_mm", 10.0)) if then_home and res is None else 0.0
+        back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat", radius=r) if now else \
             sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 후퇴 못 함")
         res = sf.worse(res, back)
         if res:
             return res, out
         self.disp[drawer_id] = 0.0
         out["drawer_displacement"] = 0.0
-        return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
+        if r:
+            o = self._named(goal, "home", moving=True)
+            if not o.success:
+                return o, out
+        return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)" + (" → 홈" if r else "")), out
 
-    def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp):
+    def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp, then_home=False):
         """닫기 (위·아래 공통) — 수직에서 로봇 쪽으로 기울인(45°, 20° 는 손잡이에 닿음) 손끝으로 앞판 중앙을 닫히는 방향(y)으로 밂 [사용자 10/08].
         교시(params close_push.<서랍>): start_posj·start_posx = 서랍 끝까지 연 상태 앞판 3 cm 앞, end_posx = 닫힌 상태 앞판에 손끝이 닿는 자리
         (같은 손목·높이). 서랍 위(탑뷰 등)면 먼저 홈 — 열린 앞판을 치지 않게 (#133). 그리퍼는 닫은 채 밂."""
@@ -933,7 +940,7 @@ class SkillServer(Node):
         if off > tol:                                       # start_posj 와 start_posx 가 서로 다른 자리 (옮겨 적다 틀림) → 밀지 않음. 이미 움직였으므로 이동 뒤 코드
             return sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED,
                               reason=f"닫기 시작 자세 도착 위치가 start_posx 와 {off:.1f} mm 다름 — 밀지 않고 멈춤, start_posj·start_posx 다시 교시"), None
-        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [pre[0], end[1], pre[2]] + list(pre[3:6]))
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [pre[0], end[1], pre[2]] + list(pre[3:6]), then_home)
 
     # --- 끌기 (nudge_object) ---
     def _press_relax(self, goal, above, end_mm, expect_z, d, speed):

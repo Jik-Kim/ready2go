@@ -293,7 +293,7 @@ def test_b_sk_drawer_argument_and_ready(monkeypatch):
     assert sk.goal_for("ready") == ("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
     monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
     assert sk.goal_for("open") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "open"})
-    assert sk.goal_for("close") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert sk.goal_for("close") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "close", "then_home": True})
     assert sk.goal_for("view") == ("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_bottom"})
     assert sk.STEPS[:2] == ("ready", "open") and sk.DRAG_TEST[:3] == ("home", "ready", "open")
 

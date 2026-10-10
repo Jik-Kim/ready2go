@@ -61,7 +61,7 @@ Runner 의 원자 동작을 `/skills/<동작>`(`Skill` 액션)으로 받는다. 
 
 **쥔 물체 기억 (재시작)** [10/08]: `pick_object` 성공 때 쥔 물체(`class`·`id`·폭·서랍·높이)를 `held_file`(파라미터, 기본 `/tmp/r2g_skill_held.json`)에 저장하고, 놓거나 놓치면 지움. 서버가 시작할 때 이 파일이 있고 **그리퍼 폭이 저장한 폭과 `gripper.slip_tolerance_m`(2 mm) 안(HELD)**이면 쥔 상태로 되살림 → 재시작 뒤에도 `place_object` 가능. 폭이 다르면(활짝 열림·빈손 닫힘·다른 물체) 파일을 지우고 빈손으로 시작, 그리퍼를 못 읽으면 빈손으로 시작하되 파일은 남겨 다음 시작 때 다시 확인. 호스트 실행(`b_flow.sh server`)은 프로세스만 다시 켜면 파일이 남지만, 컨테이너(`ros2-core`)를 **다시 만들면** 컨테이너 `/tmp` 가 비어 기억이 없어짐. 서랍 인출 거리(`disp`)는 파일에 남기지 않음 — 재시작 뒤엔 늘 닫힘으로 시작(아래 시작 조건).
 
-**시작 조건**: 서버를 띄울 때 서랍이 **닫혀 있어야** 한다 (서버는 인출 거리를 기억만 함). 재시작 뒤 열린 서랍을 닫으려면 `drawer_control`에 `displacement`(m)를 같이 준다 — 없으면 `DRAWER_STATE_UNKNOWN`(움직이지 않음).
+**시작 조건**: 서버를 띄울 때 서랍이 **닫혀 있어야** 한다 (서버는 인출 거리를 기억만 함). 재시작 뒤 열린 서랍을 닫으려면 `drawer_control`에 `displacement`(m)를 같이 준다 — 없으면 `DRAWER_STATE_UNKNOWN`(움직이지 않음). 닫기에 `then_home: true`를 주면 앞판에서 빼는 끝 `home_blend_mm`(10 mm) 안에서 멈추지 않고 홈까지 간다 — `B close` 전용, Runner 태스크는 쓰지 않음.
 값: `params/skills.yaml` (그리퍼 기하·속도·끌기 — 10/05~06 로봇 실측), 장소 `config/places.yaml`, 물체 크기 `knowledge/world.jsonld`, 잡는 힘 `config/item_grasp.yaml`.
 추가 에러 코드: `GRASP_FAILED`·`NOT_HOLDING`·`HOLDING_OBJECT`·`TRAY_FULL`·`PLACE_NOT_CONFIGURED`·`UNSUPPORTED_PARAMS`·`DRAWER_NOT_CONFIGURED`·`DRAWER_STATE_UNKNOWN`·`DRAWER_ALREADY_OPEN`·`NO_OBJECT_CONTACT`·`PUSH_BLOCKED`·`PUSH_LIMIT`·`NO_PUSH_ACCESS`·`DRAWER_STUCK`·`CLOSE_NOT_CONFIRMED`·`SENSOR_INVALID`
 
