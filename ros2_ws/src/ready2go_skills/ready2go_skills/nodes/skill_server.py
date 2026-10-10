@@ -1263,8 +1263,13 @@ class SkillServer(Node):
                   reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id),
                   max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0)
         wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
-        # 짧은 변이 벽에 걸리면 긴 변 양끝으로 잡을 수 있는지 (구르는 물체·작은 물체) [사용자 10/10] — 넛지 판단(plan_drag)과 같은 계산
-        long_side = bool(wall) and mp.long_side_ok(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+        # 짧은 변이 벽에 걸리면: 넛지할 수 있으면 넛지 먼저(WALL_TOO_CLOSE), 넛지를 못 하는 자리면 긴 변 양끝으로 [사용자 10/10 우선순위]
+        long_side = False
+        if wall:
+            gd = dict(gw, wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
+            dp_ = mp.plan_drag(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gd, drag=prm["drag"])
+            long_side = not dp_.needed and dp_.error_code is None and mp.long_side_ok(
+                target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
         if wall and not long_side:                          # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0

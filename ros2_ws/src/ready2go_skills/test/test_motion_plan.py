@@ -52,10 +52,13 @@ def test_eraser_against_back_wall_drags_toward_handle():
     assert p.press_xy_m[1] == pytest.approx(0.2675) and p.press_xy_m[0] >= 0.1887 - 1e-9   # 안쪽 벽 쪽(물체 안)에서 누름
 
 
-def test_eraser_against_handle_wall_is_not_pushed_inward():
-    """[사용자 10/10] 손잡이 쪽 벽에 붙은 물체를 안쪽(x +)으로 끌면 서랍이 같이 닫힘 → 넛지 안 함."""
-    p = mp.plan_drag(target=tgt(0.012, 0.15, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
-    assert p.error_code == mp.NO_PUSH_ACCESS and p.axis == "x" and p.wall_normal_x == -1.0 and "닫" in p.reason
+def test_eraser_against_handle_wall_pushed_inward_only_when_allowed():
+    """[사용자 10/10] 손잡이 쪽 벽: 약한 힘으로 안쪽(x +)으로 끌기가 1순위(push_inward_ok). 끄면 서랍이 닫힐 수 있어 넛지 안 함."""
+    t = tgt(0.012, 0.15, math.pi / 2)
+    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, push_inward_ok=True))
+    assert p.needed and p.axis == "x" and p.wall_normal_x == -1.0 and p.shift_x_m > 0
+    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, push_inward_ok=False))
+    assert p.error_code == mp.NO_PUSH_ACCESS and p.axis == "x" and "닫" in p.reason
 
 
 def test_bottom_drawer_deep_object_pulled_inside_reach():
@@ -157,13 +160,28 @@ def test_safe_blend_radii_keeps_margin_below_half_segment():
 LIP_BALM = [0.0718, 0.02, 0.02]
 
 
-def test_lip_balm_along_left_wall_is_grabbed_by_its_ends_without_drag():
-    """[사용자 10/10] 구르는 물체(립밤)가 왼쪽 벽에 세로로 붙음: 짧은 변 잡기는 벽에 걸림 → 긴 변 양끝으로 바로 잡음(끌지 않음)."""
+def test_lip_balm_along_left_wall_nudged_first_then_ends_if_nudge_impossible():
+    """[사용자 10/10 우선순위] 가장자리: 넛지 먼저 → 넛지를 못 하면 긴 변 양끝으로 집기(needed False)."""
     g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0)
     t = tgt(0.10, 0.014, 0.0)
     assert mp.wall_blocks_grasp(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g)            # 짧은 변은 걸림
     assert mp.long_side_ok(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g)                  # 긴 변은 됨
     p = mp.plan_drag(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert p.needed and p.axis == "y" and p.shift_y_m > 0                                      # 넛지 먼저
+    p = mp.plan_drag(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=dict(DRAG, max_shift_mm=5.0))   # 넛지 못 함
     assert not p.needed and p.error_code is None and "긴 변" in p.reason
     assert not mp.long_side_ok(target=t, size_m=[0.17, 0.061, 0.0185], interior_m=INTERIOR, g=g)   # 스패너 170 mm 는 벌림 밖
     assert not mp.long_side_ok(target=t, size_m=LIP_BALM, interior_m=INTERIOR, g=G)              # 최대 벌림 모르면 안 씀
+
+
+def test_eraser_crosswise_on_handle_wall_near_left_wall_dragged_sideways_then_ends():
+    """[사용자 10/10 PC2] 손잡이 쪽 벽에 가로로 붙고 왼쪽 벽 가까움: 짧은 변은 손잡이 쪽 벽, 긴 변은 왼쪽 벽에 걸림
+    → 안쪽(x)으로는 못 끌고(서랍 닫힘), 옆(y)으로 끌어 긴 변 양끝으로 잡게."""
+    g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0)
+    t = tgt(0.022, 0.030, math.pi / 2)
+    assert mp.wall_blocks_grasp(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
+    assert not mp.long_side_ok(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
+    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False))   # 안쪽으로 못 끌 때
+    assert p.needed and p.error_code is None and p.axis == "y" and p.shift_y_m > 0          # 왼쪽 벽에서 멀어지게
+    after = tgt(0.022, 0.030 + p.shift_y_m, math.pi / 2)
+    assert mp.long_side_ok(target=after, size_m=ERASER, interior_m=INTERIOR, g=g)            # 끈 뒤 긴 변으로 잡힘

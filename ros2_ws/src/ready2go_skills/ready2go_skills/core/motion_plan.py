@@ -192,7 +192,18 @@ def wall_blocks_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: S
 
 def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping,
               drag: Mapping) -> DragPlan:
-    """옆벽에 붙어 짧은 변으로 못 잡는 물체를 서랍 y 방향(옆)으로만 끌 거리와 누를 점. 이미 잡을 수 있으면 needed False."""
+    """벽에 붙어 짧은 변으로 못 잡는 물체를 끌 거리와 누를 점. 이미 잡을 수 있으면 needed False.
+    우선순위 [사용자 10/10, 지우개 기준]: 가운데 → 그냥 집기 / 가장자리·모서리 → 넛지(옆벽은 옆으로, 앞뒤 벽은 앞뒤로) →
+    넛지를 못 하면 긴 변 양끝으로 집기(needed False 로 돌려 집기로 넘어감)."""
+    p = _plan_drag(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=drag)
+    if p.error_code and long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
+        return DragPlan(False, None, 0.0, None, p.wall_normal_y, p.clearance_before_m,
+                        f"넛지 못 함({p.reason}) → 긴 변 양끝으로 집기", axis=p.axis, wall_normal_x=p.wall_normal_x)
+    return p
+
+
+def _plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping,
+               drag: Mapping) -> DragPlan:
     cx, cy = target["pose"]["position"][:2]
     yaw = target["pose"]["yaw"]
     if not _finite(cx, cy, yaw, *size_m[:3], *interior_m[:2]):
@@ -203,10 +214,19 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     gap_m = ((wd - cy * 1000.0) if sign > 0 else cy * 1000.0) / 1000.0
     if lack_mm <= 0 and not x_blocked:
         return DragPlan(False, None, 0.0, None, sign, gap_m, "끌지 않아도 잡을 수 있음")
-    if long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
-        return DragPlan(False, None, 0.0, None, sign, gap_m, "짧은 변은 벽에 걸리지만 긴 변으로 바로 잡을 수 있음 — 끌지 않음")
-    if x_blocked:                                           # 앞뒤 벽(·깊이 한계) — 그 벽 쪽으로 기울여 눌러 가운데 쪽(x)으로 [사용자 10/10]
-        return _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin)
+    if x_blocked:
+        # 1순위: 앞뒤 벽(·깊이 한계) — 그 벽 쪽으로 기울여 눌러 가운데 쪽(x)으로 [사용자 10/10 "손잡이 쪽에서 안으로 끌기가 1순위"]
+        px = _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin)
+        if px.needed:
+            return px
+        # 안 되면: 긴 변이 옆벽에만 걸리면 옆으로 끌어 긴 변 양끝으로 잡게 [사용자 10/10 "가로로 끌고 와서 가로로 잡기"]
+        lxb, llack, lsign = True, 0.0, sign
+        if g.get("max_open_mm") is not None and size_m[0] * 1000.0 + g["open_margin_mm"] <= g["max_open_mm"]:
+            lxb, llack, lsign = _grasp_blocked(cx, cy, yaw + math.pi / 2, [size_m[1], size_m[0]], interior_m, g, margin)
+        if lxb or llack <= 0:
+            return px
+        lack_mm, sign = llack, lsign
+        gap_m = ((wd - cy * 1000.0) if sign > 0 else cy * 1000.0) / 1000.0
     shift = -sign * (lack_mm + drag["extra_mm"]) / 1000.0     # 벽 반대쪽(가운데)으로
     if not abs(shift) <= drag["max_shift_mm"] / 1000.0:
         return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, sign, gap_m, f"끌 거리 {abs(shift) * 1000:.0f} mm가 최대보다 큼")
@@ -223,7 +243,7 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
         along = g["wall_clearance_mm"]["along_mm"]
         low_off, _ = tip_contact(t, g)                      # 접촉점이 TCP보다 벽 쪽(+)으로 간 거리
         need_mm = along + low_off + margin                  # 벽 쪽 끝 = 반원 중심 + 반지름 → 수직일 때보다 low_off 만큼 이동
-    half_w = size_m[1] * 1000.0 / 2
+    half_w = abs(size_m[0] * 500.0 * math.sin(yaw)) + abs(size_m[1] * 500.0 * math.cos(yaw))   # 물체가 y 로 차지하는 반 (돌아간 물체 포함)
     center = (wd - cy * 1000.0) if sign > 0 else cy * 1000.0
     tcp = max(need_mm, center + low_off)                    # 가능하면 가장 낮은 점이 물체 중심에
     contact = tcp - low_off
@@ -250,7 +270,7 @@ def _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin):
         sx, lack = 1.0, max(lack if sx > 0 else 0.0, x_mm - reach)
         gap = d - x_mm
     gap_m = gap / 1000.0
-    if sx < 0:                                              # 손잡이 쪽 벽: 안쪽(x +)으로 끌면 미는 힘에 서랍이 같이 닫힘 [사용자 10/10]
+    if sx < 0 and not drag.get("push_inward_ok", False):   # 손잡이 쪽 벽: 안쪽(x +)으로 끌면 서랍이 같이 닫힐 수 있음 [사용자 10/10]
         return DragPlan(False, NO_PUSH_ACCESS, 0.0, None, 0.0, gap_m,
                         "손잡이 쪽 벽에 붙음 — 안쪽으로 끌면 서랍이 닫혀서 넛지 안 함", axis="x", wall_normal_x=sx)
     shift = -sx * (lack + drag["extra_mm"]) / 1000.0

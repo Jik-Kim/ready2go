@@ -788,6 +788,10 @@ def test_lip_balm_on_left_wall_picked_by_ends_and_placed_turned(server):
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
            "pose": {"frame": "drawer_top", "position": [0.10, 0.014, 0.0], "yaw": 0.0, "yaw_valid": True}}
     server.Gripper.holding, server.Gripper.held_width = True, 71.0
+    out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == server.ss.WALL_TOO_CLOSE                    # 넛지할 수 있는 자리면 넛지 먼저 [사용자 10/10 우선순위]
+    real = srv.prm
+    srv.prm = lambda: {**real(), "drag": {**real()["drag"], "max_shift_mm": 5.0}}   # 넛지 못 하는 자리
     try:
         out, data = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
         assert out.success and data["grasp_ok"] and "긴 변" in out.reason and srv.held["long_side"] is True
@@ -795,6 +799,7 @@ def test_lip_balm_on_left_wall_picked_by_ends_and_placed_turned(server):
         out2, _ = server.run("place_object", {"location": "handover_zone"})
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
+        srv.prm = real
     assert out2.success
 
 
