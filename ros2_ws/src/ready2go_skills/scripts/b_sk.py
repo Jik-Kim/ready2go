@@ -338,9 +338,9 @@ def find(node):
     print("\nfind 성공 (트레이까지)")
 
 
-def run(node, cmd):
-    """동작 하나 보내고 끝날 때까지. 성공이면 True."""
-    action, params = goal_for(cmd)
+def run(node, cmd, goal=None, retried=False):
+    """동작 하나 보내고 끝날 때까지. 성공이면 True. goal = (action, params) 를 주면 그걸 보냄."""
+    action, params = goal or goal_for(cmd)
     client = ActionClient(node, Skill, f"/skills/{action}")
     if not client.wait_for_server(timeout_sec=5.0):
         sys.exit("스킬 서버 없음 — 터미널 1 확인")
@@ -386,6 +386,13 @@ def run(node, cmd):
         with open(AFTER, "w") as f:
             json.dump(out["target_after"], f)
         print("target_after 저장 → pick 에서 씀")
+    if r.error_code == "DRAWER_NOT_AT_TRAVEL" and not retried and sys.stdin.isatty():
+        # 서버를 다시 켜면 서랍 상태를 잊음(닫힘으로 시작) → 매번 B opened 를 잊어 멈춤 [사용자 10/10]. 사람이 열림을 확인해 주면 알리고 한 번 다시
+        d = params.get("drawer_id") or ((params.get("target") or {}).get("pose") or {}).get("frame")
+        if d and input(f"\n서버가 {d} 열림을 모름 (서버를 다시 켰나요?) — 서랍이 끝까지 열려 있으면 y 엔터: ").strip().lower() == "y":
+            run(node, "opened", ("drawer_control", {"drawer_id": d, "state": "open", "displacement": 0.226}), retried=True)
+            print(f"\n----- {cmd} 다시 -----")
+            return run(node, cmd, goal=(action, params), retried=True)
     return r.success
 
 
