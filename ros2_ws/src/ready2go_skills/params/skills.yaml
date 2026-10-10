@@ -144,7 +144,7 @@ drag:                           # nudge_object 실물: 기울여 손끝으로 �
   press_max_force_n: 8.0        # 누르는 중 힘 z 상한 (멈춘 기준 대비). 출발 무시 구간에서도 늘 봄 → 넘으면 바로 멈추고 확인. 서랍 넘어감 14 N [사용자 10/07]
   touch_retries: 2              # 멈춘 뒤 확인에서 안 넘으면(튄 값) 그 자리에서 다시 내려감 — 이 횟수까지
   confirm_gap_s: 0.1            # 멈춘 뒤 확인 읽기 간격
-  drag_force_n: [1.5, 2.5]      # 끄는 힘 [사용자 10/07]. 닿음 확인 뒤 relax_step_mm 씩 올려 상한 이하로, 하한 밑으로 지나치면 반 칸 내려감
+  drag_force_n: [0.5, 1.2]      # 끄는 힘. [1.5, 2.5] [사용자 10/07] → 닿기만 해도 거의 다 끌림 [사용자 10/10 "2 N 보다 적게"]. 닿음 확인 뒤 relax_step_mm 씩 올려 상한 이하로, 하한 밑으로 지나치면 반 칸 내려감
   relax_step_mm: 0.1            # [사용자 10/07]
   relax_settle_s: 0.3           # 올린 뒤 멈춘 채 기다렸다가 힘 평균 (force.tare_samples 번)
   relax_max_steps: 30           # 3 mm 올려도 상한 넘으면 PUSH_BLOCKED

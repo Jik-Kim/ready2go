@@ -396,7 +396,8 @@ def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
         out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     finally:
         server.ss.SkillServer._line = real_line
-    assert out.error_code == server.ss.PUSH_BLOCKED and "20.0 N > 2.5 N" in out.reason
+    hi = server.srv.prm()["drag"]["drag_force_n"][1]
+    assert out.error_code == server.ss.PUSH_BLOCKED and f"20.0 N > {hi:g} N" in out.reason
     assert "drag" not in contact and data["target_after"] is None
     attempts = server.srv.prm()["drag"]["press_attempts"]
     lifts = [e for e in server.srv.robot.log if e[0] == "movel"]
@@ -494,7 +495,8 @@ def test_relax_step_stall_keeps_going_instead_of_failing(server):
     srv, d = server.srv, server.srv.prm()["drag"]
     warns = []
     srv.get_logger = lambda: types.SimpleNamespace(warn=warns.append)
-    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])
+    mid = sum(d["drag_force_n"]) / 2.0                                  # 끄는 힘 범위 안 [10/10 0.5~1.2 N]
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 4.0, 0, 0, 0], [0, 0, mid, 0, 0, 0]])
     srv._force_still = lambda s: next(forces)
     steps = []
 
@@ -505,7 +507,7 @@ def test_relax_step_stall_keeps_going_instead_of_failing(server):
     pressed = [522.3, -135.6, 216.5, 0.4, 160.0, 0.0]
     bad, p, n = srv._relax(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
                            pressed, [0.0] * 6, d)
-    assert bad is None and n == 2.0 and len(warns) == 1
+    assert bad is None and n == mid and len(warns) == 1
     assert steps == [round(216.5 + d["relax_step_mm"], 2), round(216.5 + 2 * d["relax_step_mm"], 2)]   # 두 번째 칸은 0.2 mm
     srv._step = lambda goal, posx, stage: sf.Outcome(False, "ESTOP", reason="비상정지")
     srv._force_still = lambda s: [0, 0, 4.0, 0, 0, 0]
@@ -524,7 +526,8 @@ def test_relax_stall_then_drag_starts_from_actual_stop_not_command(server):
         z = contact.get("z")
         return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
     srv.robot.force = force
-    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])     # 첫 칸 뒤 힘이 범위 안 (실물: 멈춘 사이 힘이 풀림)
+    mid = sum(srv.prm()["drag"]["drag_force_n"]) / 2.0
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, mid, 0, 0, 0]])     # 첫 칸 뒤 힘이 범위 안 (실물: 멈춘 사이 힘이 풀림)
     srv._force_still = lambda s: next(forces)
     srv._step = lambda goal, posx, stage: sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] 0.1 mm 남기고 멈춤")   # 로봇 안 움직임
     real_line = server.ss.SkillServer._line
