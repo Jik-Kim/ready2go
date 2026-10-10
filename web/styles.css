@@ -1160,6 +1160,10 @@ dialog::backdrop {
   color: #b56800;
 }
 
+.admin-summary-item.is-stopped strong {
+  color: var(--danger);
+}
+
 .admin-summary-icon {
   display: grid;
   place-items: center;

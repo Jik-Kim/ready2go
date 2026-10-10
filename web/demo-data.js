@@ -52,7 +52,7 @@
       { id: "watch", name: "시계", icon: "watch", status: "waiting", statusLabel: "대기" },
     ],
     task: {
-      status: "running",
+      status: "verifying",
       workDrawerId: "bottom",
       currentItemIcon: "wallet",
       currentAction: "지갑의 전달 결과를 확인하는 중",
@@ -69,9 +69,6 @@
       dataModeLabel: "데모 샘플 · 실제 관리자 API 미연동",
       current: {
         runId: "demo_001",
-        step: "배치 결과 검증",
-        executionStatus: "확인 중",
-        executionStatusKey: "verifying",
         rows: [
           { id: "bottom-drawer", icon: "drawer", label: "아래 서랍", value: "열림", valueStatus: "confirmed", source: "Runner 저장 상태", receivedAt: "08:12:19" },
           { id: "gripper", icon: "gripper", label: "그리퍼", value: "열림", valueStatus: "confirmed", source: "Runner 저장 상태", receivedAt: "08:12:20" },

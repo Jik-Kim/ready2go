@@ -232,9 +232,7 @@
       progress.append(item);
     });
 
-    const evidenceStep = state.task.steps.find((step) => step.status === "current")
-      || state.task.steps.find((step) => step.status === "stopped")
-      || state.task.steps.at(-1);
+    const evidenceStep = getCurrentTaskStep();
     getById("currentStepReason").textContent = evidenceStep?.reason || "확인 전";
     getById("currentStepObservation").textContent = evidenceStep?.observation || "미수신";
 
@@ -244,15 +242,33 @@
     stopButton.lastChild.textContent = stopped ? "데모 작업 중단" : "작업 중단";
   }
 
+  function getCurrentTaskStep() {
+    return state.task.steps.find((step) => step.status === "current")
+      || state.task.steps.find((step) => step.status === "stopped")
+      || state.task.steps.at(-1);
+  }
+
+  function getTaskExecutionStatus() {
+    const statuses = {
+      running: { label: "진행 중", key: "running" },
+      verifying: { label: "확인 중", key: "verifying" },
+      complete: { label: "완료", key: "complete" },
+      stopped: { label: "중단됨", key: "stopped" },
+    };
+    return statuses[state.task.status] || { label: "확인 전", key: "waiting" };
+  }
+
   function renderAdminSummary() {
     const data = state.adminReview.current;
+    const currentStep = getCurrentTaskStep();
+    const executionStatus = getTaskExecutionStatus();
     const summary = getById("adminRunSummary");
     summary.replaceChildren();
 
     [
       { label: "실행 ID", value: data.runId || "미수신", icon: "▧" },
-      { label: "현재 단계", value: data.step || "확인 전", icon: "⚙" },
-      { label: "실행 상태", value: data.executionStatus || "확인 전", icon: "●", status: data.executionStatusKey },
+      { label: "현재 단계", value: currentStep?.label || "확인 전", icon: "⚙" },
+      { label: "실행 상태", value: executionStatus.label, icon: "●", status: executionStatus.key },
     ].forEach((entry) => {
       const item = makeElement("article", `admin-summary-item${entry.status ? ` is-${entry.status}` : ""}`);
       const icon = makeElement("span", "admin-summary-icon", entry.icon);
@@ -435,6 +451,7 @@
       }
     });
     renderTask();
+    renderAdminSummary();
 
     const toast = getById("toast");
     toast.textContent = "로컬 샘플 상태만 ‘데모 작업 중단’으로 변경했습니다.";

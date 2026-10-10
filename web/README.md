@@ -47,7 +47,8 @@ index.html
 | 등록 물품 | `drawers[].items` |
 | 준비물과 완료 수 | `supplies[]`; `status === "delivered"`만 완료로 계산 |
 | 현재 작업과 단계 | `task.currentAction`, `currentItemIcon`, `steps[]` |
-| 관리자 현재 상태 | `adminReview.current` |
+| 관리자 실행 요약 | `task`의 현재 단계·실행 상태, `adminReview.current.runId` |
+| 관리자 현재 상태 표 | `adminReview.current.rows`, `adminReview.current.error` |
 | 관리자 온톨로지·계획·기록 | `adminReview.ontology`, `plan`, `history` |
 
 현재 사용자 이벤트는 다음과 같습니다.
