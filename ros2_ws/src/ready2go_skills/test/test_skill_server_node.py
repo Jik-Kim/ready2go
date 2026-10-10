@@ -822,6 +822,23 @@ def test_lip_balm_on_left_wall_picked_by_ends_tilted_and_placed_turned(server):
     assert out2.success
 
 
+def test_lip_balm_in_middle_also_picked_by_ends(server):
+    """[사용자 10/10 "원통형만 긴 변"] 가운데 립밤도 긴 변 양끝 (기울이지 않음). 지우개는 가운데면 짧은 변 그대로."""
+    srv = server.srv
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.2, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 72.5
+    try:
+        out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
+        assert out.success and "긴 변" in out.reason and "기울" not in out.reason and srv.held["long_side"] is True
+        srv.held = None
+        server.Gripper.held_width = 21.0
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+        assert out.success and srv.held["long_side"] is False
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
 def test_place_stops_where_it_touches_the_floor(server):
     """[사용자 10/10 "2 mm 위에서 떨구는 느낌"] 놓기 마지막에 z 힘이 touch_n 넘게 변하면 그 높이에서 멈추고 벌림."""
     srv = server.srv
