@@ -1196,15 +1196,20 @@ class SkillServer(Node):
         shift = mp.dir_to_base(tf, (0.0, shift_y, 0.0))
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
-        base_drag = self._held_f                            # 끄는 중 걸림 감시 기준 = 힘 맞추기 마지막 측정 (따로 0점 안 잡음 — 바로 이동)
+        # 끄기 직전 힘 0점 다시 [사용자 10/10 "옮기기 직전에 힘값 리셋"] — 힘 맞추기 마지막 측정보다 멈춘 뒤 평균이 안정
+        base_drag = self._tare() or self._held_f
+        max_z = d.get("max_force_z_n", d["max_force_n"])
 
         def blocked():
             f = self.robot.tool_force()
             if f is None or base_drag is None:
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
-            mag = math.sqrt(sum((f[i] - base_drag[i]) ** 2 for i in range(3)))
-            if mag > d["max_force_n"]:
-                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 힘 {mag:.1f} N > {d['max_force_n']:g} N")
+            side = math.hypot(f[0] - base_drag[0], f[1] - base_drag[1])   # 옆(끄는 쪽) — 잘 끌리다 8 N 에서 멈춤 → 15 [사용자 10/10]
+            dz = abs(f[2] - base_drag[2])                                  # 위아래 — 14 N 이면 열린 서랍이 앞으로 넘어감 [사용자 10/07]
+            if side > d["max_force_n"]:
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 옆 힘 {side:.1f} N > {d['max_force_n']:g} N")
+            if dz > max_z:
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 위아래 힘 {dz:.1f} N > {max_z:g} N")
             return None
 
         drag_to = [pressed[i] + 1000.0 * shift[i] for i in range(3)] + pressed[3:]
