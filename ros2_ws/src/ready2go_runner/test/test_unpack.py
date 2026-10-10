@@ -83,6 +83,30 @@ def test_mixed_fields_missing_candidate_is_unknown():
     assert pick({"scan": s})["reason"] == "occlusion_unknown"
 
 
+def test_box_model_is_judged_before_excluding_moved_objects():
+    """#134 E 18:30 P1 반례 그대로: 옮긴 망치(필드 [])만 필드가 있고 목표·판은 누락 → 망치를 뺀 뒤에도 분할 모델 —
+    목표는 clear 가 아니고(occlusion_unknown), 목표가 안 보이는 경우 누락된 판을 높이 순으로 고르지 않음."""
+    moved = [{"class": "toy_hammer", "origin": None,
+              "placed": {"frame": "drawer_top", "position": [0.03, 0.25, 0.0], "yaw": 0.0}}]
+    hammer = obj("toy_hammer#2", 0.035, 0.255, 0.03, occluded_by=[])
+    s = scan(obj("eraser#1", 0.10, 0.10, 0.012), obj("cover_plate#1", 0.11, 0.10, 0.04), hammer)
+    out = pick({"scan": s, "moved": moved, "tol_m": TOL})
+    assert (out["obstacle"], out["reason"], out["excluded"]) == (None, "occlusion_unknown", ["toy_hammer#2"])
+    s = scan(None, obj("cover_plate#1", 0.11, 0.10, 0.04), hammer)
+    out = pick({"scan": s, "moved": moved, "tol_m": TOL})
+    assert (out["obstacle"], out["reason"]) == (None, "occlusion_unknown")
+
+
+def test_box_model_is_judged_before_holding_back_ambiguous_objects():
+    """held_back(같은 class 2개로 모호) 뒤에도 같은 판단: 필드가 있던 물체를 뺐다고 박스 모델로 바뀌지 않음."""
+    moved = [{"class": "toy_hammer", "origin": None,
+              "placed": {"frame": "drawer_top", "position": [0.03, 0.25, 0.0], "yaw": 0.0}}]
+    s = scan(obj("eraser#1", 0.10, 0.10, 0.012), obj("cover_plate#1", 0.11, 0.10, 0.04),
+             obj("toy_hammer#1", 0.035, 0.255, 0.03, occluded_by=[]), obj("toy_hammer#2", 0.15, 0.2, 0.03, occluded_by=[]))
+    out = pick({"scan": s, "moved": moved, "tol_m": TOL})
+    assert out["held_back"] == ["toy_hammer#1", "toy_hammer#2"] and out["reason"] == "occlusion_unknown"
+
+
 def test_explicit_clear_target_and_box_model_paths_still_clear():
     """명시적 [] 는 clear, 박스 모델(결과 전체에 필드 없음) + yaw_valid true 도 clear (P1 호환)."""
     assert pick({"scan": scan(obj("eraser#1", 0.1, 0.1, occluded_by=[]), obj("cover_plate#1", 0.11, 0.1, 0.04,
@@ -323,3 +347,35 @@ def test_example_task_does_not_pick_unknown_target(plate_above):
     result = Runner(execute, schema=SCHEMA, ontology=ONTOLOGY).run(task)
     assert result.overall_status == "COMPLETED"
     assert "pick_object" not in calls and "place_object" not in calls
+
+
+def test_example_task_after_moving_does_not_pick_unknown_target():
+    """#134 E 18:30 완료 조건: 하나 옮긴 뒤 다시 찍은 결과가 섞여도(옮긴 것만 필드 있음) 예시 태스크가 목표를 집지 않음."""
+    import json
+    from pathlib import Path
+    from ready2go_runner.core.interpreter import ActionResult, Runner
+    from ready2go_runner.core.ontology_query import local_action
+    from test_tasks import ONTOLOGY, SCHEMA
+
+    task = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/task_unpack_select.json")
+                      .read_text(encoding="utf-8"))
+    scans = [scan(obj("eraser#1", 0.10, 0.10, 0.012, occluded_by=["toy_hammer#1"]),
+                  obj("toy_hammer#1", 0.10, 0.11, 0.03, occluded_by=[])),
+             scan(obj("eraser#1", 0.10, 0.10, 0.012), obj("cover_plate#1", 0.11, 0.10, 0.04),
+                  obj("toy_hammer#2", 0.031, 0.031, 0.03, occluded_by=[]))]
+    picked = []
+
+    def execute(action, params, timeout_sec=None):
+        if action in ("select_obstacle", "find_moved"):
+            return local_action(action, params, {}, ONTOLOGY["world"])
+        if action == "inspect_region":
+            return ActionResult(True, scans.pop(0) if len(scans) > 1 else scans[0])
+        if action == "pick_object":
+            picked.append(params["target"]["id"])
+        if action == "place_object":
+            return ActionResult(True, {"slot": params.get("slot"), "placed_pose": {
+                "frame": "drawer_top", "position": [0.03, 0.03, 0.0], "yaw": 0.0}})
+        return ActionResult(True, {})
+
+    result = Runner(execute, schema=SCHEMA, ontology=ONTOLOGY).run(task)
+    assert "eraser#1" not in picked and picked[0] == "toy_hammer#1", (picked, result.overall_status)
