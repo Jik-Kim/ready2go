@@ -122,6 +122,26 @@ def run_scenario(name, drawer, steps):
         robot.step = "open" if action == "drawer_control" and params.get("state") == "open" else ("pick" if action == "pick_object" else label)
         n0 = len(robot.segments)
         out, data = sf.run_guarded(lambda: getattr(srv, f"_do_{action}")(goal, json.loads(json.dumps(params))), stop=robot.stop, get_state=srv.state)
+        tries = 0
+        while action == "pick_object" and not out.success and out.error_code == "WALL_TOO_CLOSE" and tries < 3:
+            # 실제 흐름(B find·Runner): 집기 거부 → 넛지 → 다시 보기 → 집기. 다시 보기는 넛지 예상 위치(target_after)로 대신
+            tries += 1
+            T = params["target"]
+            robot.step = "nudge"
+            nout, ndata = sf.run_guarded(lambda: srv._do_nudge_object(goal, json.loads(json.dumps(
+                {"drawer_id": T["pose"]["frame"], "target": T, **({"scan": params["scan"]} if "scan" in params else {})}))),
+                stop=robot.stop, get_state=srv.state)
+            print(f"  {'  └ nudge':26s} {'OK ' if nout.success else 'FAIL'} {nout.error_code or ''} {(nout.reason or '')[:90]}")
+            if not nout.success or not (ndata or {}).get("target_after"):
+                break
+            T2 = ndata["target_after"]
+            params = dict(params, target=T2)
+            if "scan" in params:
+                sc = params["scan"]
+                params["scan"] = dict(sc, target=T2 if (sc.get("target") or {}).get("id") == T2["id"] else sc.get("target"),
+                                      candidates=[T2 if c.get("id") == T2["id"] else c for c in sc.get("candidates", [])])
+            robot.step = "pick"
+            out, data = sf.run_guarded(lambda: srv._do_pick_object(goal, json.loads(json.dumps(params))), stop=robot.stop, get_state=srv.state)
         ctx[label] = data
         ctx["_" + label.split()[0] + "_reason"] = out.reason or ""
         segs = robot.segments[n0:]
