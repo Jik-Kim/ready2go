@@ -11,6 +11,7 @@ from ready2go_skills.core import pose_math as pm
 PKG = Path(__file__).resolve().parents[1]
 PRM = yaml.safe_load((PKG / "params" / "skills.yaml").read_text(encoding="utf-8"))
 G, DRAG = PRM["gripper"], PRM["drag"]
+G = dict(G, pick_wall_margin_mm=G["wall_margin_mm"])   # 아래 기하 시험은 10/06~07 여유(3 mm) 기준 — 집기 판단 여유 8 mm 는 따로 시험 [10/10]
 INTERIOR = [0.1997, 0.2937, 0.0681]          # config/places.yaml drawer_top
 ERASER = [0.0525, 0.022, 0.0115]
 
@@ -185,3 +186,19 @@ def test_eraser_crosswise_on_handle_wall_near_left_wall_dragged_sideways_then_en
     assert p.needed and p.error_code is None and p.axis == "y" and p.shift_y_m > 0          # 왼쪽 벽에서 멀어지게
     after = tgt(0.022, 0.030 + p.shift_y_m, math.pi / 2)
     assert mp.long_side_ok(target=after, size_m=ERASER, interior_m=INTERIOR, g=g)            # 끈 뒤 긴 변으로 잡힘
+
+
+def test_pick_margin_makes_borderline_spots_nudge():
+    """[사용자 10/10 "애매한 자리는 넛지로 확실히"] 집기 판단 여유(pick_wall_margin_mm 8)면 3 mm 일 때 바로 집던 경계 자리도 넛지."""
+    g8 = dict(G, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"])
+    assert g8["pick_wall_margin_mm"] == 8.0
+    y = None
+    for k in range(400):                                                 # 여유 3 mm 로 막 집히기 시작하는 y
+        t = tgt(0.10, 0.2937 - k * 0.0005, 0.0)
+        if mp.wall_blocks_grasp(target=t, size_m=ERASER, interior_m=INTERIOR, g=G) is None:
+            y = t["pose"]["position"][1]
+            break
+    assert y is not None
+    t = tgt(0.10, y, 0.0)
+    assert mp.wall_blocks_grasp(target=t, size_m=ERASER, interior_m=INTERIOR, g=g8)              # 8 mm 면 거부
+    assert mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g8, drag=DRAG).needed   # → 넛지

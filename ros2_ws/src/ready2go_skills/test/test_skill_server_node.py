@@ -733,7 +733,7 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     """10/07 사용자: 잡기·놓기는 1 cm 전까지 빠르게(line_mm_s), 마지막 1 cm 만 천천히."""
     server.Gripper.holding = True
     t = json.loads(json.dumps(ERASER_CORNER))
-    t["pose"]["position"][1] = WALL_Y - 0.033
+    t["pose"]["position"][1] = WALL_Y - 0.040                          # 집기 판단 여유 8 mm 로도 바로 집히는 자리 [10/10]
     speeds, real = [], server.ss.SkillServer._line
 
     def line(self, goal, posx, vel, stage, watch=None, **kw):
@@ -798,7 +798,7 @@ def test_lip_balm_on_left_wall_picked_by_ends_and_placed_turned(server):
     트레이에는 손가락을 y 로 돌려 놓음(물체 긴 변은 그대로 y)."""
     srv = server.srv
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
-           "pose": {"frame": "drawer_top", "position": [0.10, 0.014, 0.0], "yaw": 0.0, "yaw_valid": True}}
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.019, 0.0], "yaw": 0.0, "yaw_valid": True}}
     server.Gripper.holding, server.Gripper.held_width = True, 71.0
     out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
     assert out.error_code == server.ss.WALL_TOO_CLOSE                    # 넛지할 수 있는 자리면 넛지 먼저 [사용자 10/10 우선순위]

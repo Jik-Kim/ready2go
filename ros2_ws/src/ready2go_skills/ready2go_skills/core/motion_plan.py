@@ -182,7 +182,7 @@ def wall_blocks_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: S
     yaw = target["pose"]["yaw"]
     if not _finite(cx, cy, yaw, *size_m[:2], *interior_m[:2]):
         return f"위치·크기 값 비정상: {cx, cy, yaw, size_m, interior_m}"
-    x_blocked, lack_mm, _ = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g["wall_margin_mm"])
+    x_blocked, lack_mm, _ = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g.get("pick_wall_margin_mm", g["wall_margin_mm"]))
     if x_blocked:
         return "앞뒤 벽에 걸려 짧은 변으로 못 잡음"
     if lack_mm > 0:
@@ -208,7 +208,7 @@ def _plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence
     yaw = target["pose"]["yaw"]
     if not _finite(cx, cy, yaw, *size_m[:3], *interior_m[:2]):
         raise ValueError(f"끌기 입력 비정상: {cx, cy, yaw, size_m, interior_m}")
-    margin = g["wall_margin_mm"]
+    margin = g.get("pick_wall_margin_mm", g["wall_margin_mm"])   # 집기 판단 여유 [사용자 10/10 "애매한 자리는 넛지로 확실히"]
     x_blocked, lack_mm, sign = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin)
     wd = interior_m[1] * 1000.0
     gap_m = ((wd - cy * 1000.0) if sign > 0 else cy * 1000.0) / 1000.0
