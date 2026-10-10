@@ -294,6 +294,12 @@ def plan_axis_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     gy = {"y_min": y_mm + off.get("y_min", 0.0), "y_max": wd - y_mm + off.get("y_max", 0.0)}
     near_y = min(gy, key=gy.get)
     reach = g.get("reach_x_max_mm")
+    zone = max(need_x, g.get("front_tilt_within_mm") or 0.0)
+    aligned = abs(math.cos(yaw)) <= math.sin(math.radians(g.get("tilt_align_deg", 15.0)))
+    if x_mm < zone and not aligned:                                     # 손잡이 쪽 비스듬: 손잡이 쪽 벽까지 끌어 눕히기가 먼저, 옆벽(y)은 그 뒤
+        dp = _push_to_handle_wall(cx, cy, yaw, size_m, interior_m, g, drag, x_mm / 1000.0)   # [사용자 10/10 "손잡이 벽 먼저 → 가운데"]
+        if dp is not None and dp.needed:
+            return AxisGrasp(open_mm, length, (cx, cy), None, dp, "가로 — " + dp.reason)
     if need_y > gy[near_y]:                                             # 옆벽 → y 로 넛지
         sign = 1.0 if near_y == "y_max" else -1.0
         dp = _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, margin, need_y - gy[near_y], sign,
@@ -302,10 +308,8 @@ def plan_axis_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     if d - x_mm < need_x or (reach is not None and x_mm > reach):       # 안쪽 벽·깊이 한계 → 손잡이 쪽으로 x 넛지
         dp = _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin, ext_x_mm=need_x - margin)
         return AxisGrasp(open_mm, length, (cx, cy), None, dp, "가로 — " + dp.reason)
-    zone = max(need_x, g.get("front_tilt_within_mm") or 0.0)
     if x_mm >= zone:
         return AxisGrasp(open_mm, length, (cx, cy), None, None, f"가로 — 긴 변 양끝 (벌림 {open_mm:.1f} mm)")
-    aligned = abs(math.cos(yaw)) <= math.sin(math.radians(g.get("tilt_align_deg", 15.0)))
     along = g["wall_clearance_mm"]["along_mm"]
     ext_x = abs(math.cos(yaw)) * length + abs(math.sin(yaw)) * size_m[1] * 1000.0
     if not aligned:

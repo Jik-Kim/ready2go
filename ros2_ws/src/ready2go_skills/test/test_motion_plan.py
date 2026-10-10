@@ -315,3 +315,14 @@ def test_diagonal_near_handle_wall_pushed_flat_against_it():
             assert mp.wall_blocks_grasp(target=flat, size_m=ERASER, interior_m=INTERIOR, g=g) is None
     p = mp.plan_drag(target=tgt(0.0275, 0.15, math.radians(30)), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
     assert p.needed and p.shift_x_m == pytest.approx(-DRAG.get("square_min_push_mm", 2.0) / 1000.0)   # 모서리가 이미 벽에 닿음 → 최소 2 mm 밀어 돌림
+
+
+def test_handle_corner_diagonal_pushes_to_handle_wall_before_side():
+    """[사용자 10/10] 손잡이 쪽 구석에 비스듬하면 손잡이 쪽 벽까지 끌어 눕히기 먼저 → 그다음 옆벽에서 가운데(y). 가로·세로 같은 순서.
+    이미 가로로 누운 건(벽과 나란) 바로 y."""
+    g = dict(_ag(0.1, 0.1, 0.0)[1], wall_tcp_min_mm={"x_min": 15.9, "y_min": 14.2, "y_max": 5.5})
+    for yaw in (math.radians(55), math.radians(-60), math.radians(35)):
+        p = mp.plan_drag(target=tgt(0.032, 0.034, yaw), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
+        assert p.needed and p.axis == "x" and p.shift_x_m < 0 and "벽까지" in p.reason
+    p = mp.plan_drag(target=tgt(0.013, 0.030, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert p.needed and p.axis == "y" and p.shift_y_m > 0
