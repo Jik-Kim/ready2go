@@ -10,13 +10,16 @@ import types
 from pathlib import Path
 
 import pytest
+import yaml
 
 from ready2go_skills.core import skill_flow as sf
 from ready2go_skills.core.rg2_protocol import Rg2Status
 
 REPO = Path(__file__).resolve().parents[4]
+# 옆벽(y_max)에 붙은 지우개: 10/07 실측 0.2904 = 그때 폭 0.2937 − 3.3 mm. 서랍 좌표계를 다시 재면 폭이 바뀌므로 저장소 places.yaml 폭 기준으로 둔다 (10/10 다시 교시)
+WALL_Y = round(yaml.safe_load((REPO / "config" / "places.yaml").read_text(encoding="utf-8"))["drawer_top"]["interior_m"][1] - 0.0033, 4)
 ERASER_CORNER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
-                 "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 10/07 실측
+                 "pose": {"frame": "drawer_top", "position": [0.0275, WALL_Y, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 10/07 실측 (벽에서 3.3 mm)
 ERASER_FREE = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
                "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.3, "yaw_valid": True}}
 
@@ -205,7 +208,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     finally:
         server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.040, abs=1e-3)   # 누른 z 그대로 40 mm 만 (10/07 저녁 33 → 40) → 옆벽 보정(7.1 mm)으로 바로 집힘
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(WALL_Y - 0.040, abs=1e-3)   # 누른 z 그대로 40 mm 만 (10/07 저녁 33 → 40) → 옆벽 보정(7.1 mm)으로 바로 집힘
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
@@ -686,7 +689,7 @@ def test_nudge_refused_when_drag_path_hits_neighbor(server):
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
     t = json.loads(json.dumps(ERASER_CORNER))
-    t["pose"]["position"][1] = 0.2904 - 0.030
+    t["pose"]["position"][1] = WALL_Y - 0.030
     out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
     assert out.error_code == server.ss.WALL_TOO_CLOSE and server.srv.robot.log == []
 
@@ -720,7 +723,7 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     """10/07 사용자: 잡기·놓기는 1 cm 전까지 빠르게(line_mm_s), 마지막 1 cm 만 천천히."""
     server.Gripper.holding = True
     t = json.loads(json.dumps(ERASER_CORNER))
-    t["pose"]["position"][1] = 0.2904 - 0.033
+    t["pose"]["position"][1] = WALL_Y - 0.033
     speeds, real = [], server.ss.SkillServer._line
 
     def line(self, goal, posx, vel, stage, watch=None, **kw):
@@ -1194,9 +1197,11 @@ def test_place_in_drawer_refusals_before_any_command(server, setup, code):
         srv.held = None
     elif setup == "travel":
         srv.disp = {"drawer_top": 0.20}
-    elif setup == "slot_untaught":                                      # 저장소 places.yaml: aside_1 교시 전 (null)
-        params = {"location": "drawer_top", "slot": "aside_1", "scan": params["scan"]}
-    elif setup == "bottom_no_waypoint":                                 # 아래 칸 drag_down 교시 전
+    elif setup == "slot_untaught":                                      # 교시 안 된 slot 이름 (aside_1·2 는 10/10 교시)
+        params = {"location": "drawer_top", "slot": "aside_9", "scan": params["scan"]}
+    elif setup == "bottom_no_waypoint":                                 # 아래 칸 drag_down 교시 전 (저장소 값은 10/10 교시 → 여기서만 지움)
+        poses = srv.poses
+        srv.poses = lambda: {**poses(), "drag_down": {**poses()["drag_down"], "drawer_bottom": None}}
         srv.disp = {"drawer_bottom": 0.226}
         params["location"] = params["pose"]["frame"] = "drawer_bottom"
         params["scan"]["candidates"][0]["pose"]["frame"] = "drawer_bottom"
