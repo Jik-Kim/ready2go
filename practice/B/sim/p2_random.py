@@ -39,7 +39,7 @@ def cover_layout(I):
     while True:
         if GUIDE:                                                        # 가림막 세로(긴 변 = 서랍 깊이), 오른쪽 [가이드]
             pyaw = rnd.uniform(-0.15, 0.15)
-            px, py = rnd.uniform(0.04, I[0]-0.04), rnd.uniform(0.15, I[1]-0.04)
+            px, py = rnd.uniform(0.04, (0.125 if I is d.PL["drawer_bottom"]["interior_m"] else I[0]-0.04)), rnd.uniform(0.15, I[1]-0.04)
         else:
             pyaw = rnd.choice([0.0, math.pi/2]) + rnd.uniform(-0.2, 0.2)
             px, py = rnd.uniform(0.04, I[0]-0.04), rnd.uniform(0.14, I[1]-0.04)   # 물건은 오른쪽(y 큰 쪽), aside 는 왼쪽 [사용자 10/10 배치]
@@ -59,7 +59,7 @@ def cover_layout(I):
 def stack_layout(I):
     while True:
         yw = rnd.uniform(-0.35, 0.35)                                     # 몽키는 세로로 [사용자 10/10]
-        x, y = rnd.uniform(0.09, I[0]-0.09), rnd.uniform(0.15 if GUIDE else 0.13, I[1]-0.04)
+        x, y = rnd.uniform(0.09, (0.12 if GUIDE and I is d.PL["drawer_bottom"]["interior_m"] else I[0]-0.09)), rnd.uniform(0.15 if GUIDE else 0.13, I[1]-0.04)
         if fits(x, y, yw, SZ["toy_wrench"], I, 0.003) and (not GUIDE or I[1] - y > 0.06):   # 가이드: 쌓기 오른쪽, 옆벽에서 차키·캐러멜 손가락 자리
             if GUIDE:                                                     # 가이드: 캐러멜·차키도 몽키처럼 세로로 쌓기
                 return (x, y), yw, rnd.uniform(-0.4, 0.4), rnd.uniform(-0.4, 0.4)
@@ -67,7 +67,7 @@ def stack_layout(I):
 
 fails, counts = collections.Counter(), collections.Counter()
 examples = {}
-for drawer in ("drawer_top", "drawer_bottom"):
+for drawer in os.environ.get("DRAWERS", "drawer_top,drawer_bottom").split(","):
     I = d.PL[drawer]["interior_m"]
     for k in range(N):
         cp, er, lb = cover_layout(I)
