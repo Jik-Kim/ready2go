@@ -39,7 +39,10 @@ class LangChainIntent:
                 'confidence': {'type': 'number'},
                 'clarify_question': {'type': ['string', 'null']},
                 'response_text': {'type': ['string', 'null']},
-            }, 'required': ['intent', 'targets', 'confidence', 'clarify_question', 'response_text']}
+                'rejection_reason': {'type': ['string', 'null'],
+                                     'enum': [None, 'unregistered_item', 'unsupported_request']},
+            }, 'required': ['intent', 'targets', 'confidence', 'clarify_question',
+                            'response_text', 'rejection_reason']}
 
     def __call__(self, text, timeout):
         from langchain_core.prompts import ChatPromptTemplate
@@ -64,6 +67,12 @@ class LangChainIntent:
              '예: 지우개 가져다줘→find_item/eraser, 지우개→clarify/[], 사과 정리해줘→unknown/[]. '
              '인용·전언인 망치 가져오라고 말했잖아/엄마가 망치 가져오라고 했어는 실제 전달 요청이면 find_item입니다. '
              '번역/설명/부정/제외 요청은 실행하지 마십시오. response_text는 내부 안내 후보입니다. '
+             'rejection_reason은 내부 보류 사유입니다. unknown인 미등록 물품 요청은 '
+             'unregistered_item, 미지원 행동/목적지/부정 등 다른 미지원 요청은 '
+             'unsupported_request입니다. 행동 자체가 미지원이면 물품 미등록보다 우선합니다. '
+             'find_item/clarify에서는 null입니다. 미등록 이름을 targets에 넣지 말고 '
+             'unknown/빈 targets와 사유로 구분하십시오. response_text의 문구만으로 '
+             '사유를 대신하지 마십시오. '
              'find_item에서는 대상 이름과 요청으로 이해한 내용만 안내하고, 수락·실행·완료를 단정하지 않습니다. '
              'clarify에서는 대상 이름을 사용해 가져오기 요청이 맞는지 질문합니다. '
              '공개 clarify_question은 확인 질문만이며 수락/완료 문장으로 쓰지 않습니다. '

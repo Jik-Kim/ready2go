@@ -4,15 +4,18 @@ from pathlib import Path
 import threading
 import queue
 import pytest
+from jsonschema import Draft7Validator
+from ready2go_voice.adapters.api import LangChainIntent
 from ready2go_voice.core.intent import IntentParser
 from ready2go_voice.core.session import VoiceSession
 from ready2go_voice.core.tts_prefill import prefill_texts, remember_text
 from ready2go_voice.core.diagnostics import DiagnosticFile, redact
 
 
-def candidate(target='toy_hammer', kind='find_item', response=None):
+def candidate(target='toy_hammer', kind='find_item', response=None, reason=None):
     return {'intent': kind, 'targets': [target] if kind == 'find_item' else [],
-            'confidence': .99, 'clarify_question': None, 'response_text': response}
+            'confidence': .99, 'clarify_question': None, 'response_text': response,
+            'rejection_reason': reason}
 
 
 @pytest.mark.parametrize('text', ['망치 가져오라고 말했잖아', '엄마가 망치 가져오라고 했어'])
@@ -76,6 +79,51 @@ def test_unsupported_availability_and_raw_reasons(ontology, schema, cfg):
     assert '등록된' in doc['_voice']['final_text'] and '확인하지 못' in doc['_voice']['final_text']
 
 
+@pytest.mark.parametrize('text,reason,expected', [
+    ('사과 가져와', 'unregistered_item', '그 물품은 지원하지 않습니다.'),
+    ('귤 가져다줘', 'unregistered_item', '그 물품은 지원하지 않습니다.'),
+    ('수건 좀', 'unregistered_item', '그 물품은 지원하지 않습니다.'),
+    ('박수 쳐줘', 'unsupported_request', '그 요청은 지원하지 않습니다.'),
+    ('달을 점령해줘', 'unsupported_request', '그 요청은 지원하지 않습니다.'),
+])
+@pytest.mark.parametrize('response', [None, '그 물품은 지원하지 않습니다.', '그 요청은 지원하지 않습니다.'])
+def test_schema_valid_unknown_reason_selects_final_notice_not_candidate_phrase(
+        ontology, schema, cfg, text, reason, expected, response):
+    raw = candidate(kind='unknown', response=response, reason=reason)
+    Draft7Validator(LangChainIntent(cfg, ontology['world']['items']).schema).validate(raw)
+    p = IntentParser(ontology, schema, cfg, lambda *_: json.dumps(raw))
+    assert not p.mentioned(text)
+    doc = p.parse(text)
+    assert doc['intent'] == 'unknown' and doc['targets'] == []
+    assert doc['source']['llm_validation'] == 'passed' and not doc['source']['fallback_used']
+    assert doc['_voice']['reason'] == reason and doc['_voice']['final_text'] == expected
+    assert not doc['source']['execution_allowed']
+    assert doc['source']['llm_raw'] == json.dumps(raw)  # existing raw diagnostic field retained
+    assert 'response_text' not in doc and 'rejection_reason' not in doc
+    assert 'rejection_reason' not in doc['source']
+
+
+@pytest.mark.parametrize('reason', ['arbitrary', 1, [], {}])
+def test_invalid_internal_reason_uses_safe_unknown_fallback(ontology, schema, cfg, reason):
+    raw = candidate(kind='unknown', reason=reason)
+    doc = IntentParser(ontology, schema, cfg, lambda *_: raw).parse('사과 가져와')
+    assert doc['intent'] == 'unknown' and doc['targets'] == []
+    assert doc['_voice']['final_text'] == '그 요청은 지원하지 않습니다.'
+    assert doc['_voice']['validation_reason'] == 'invalid_rejection_reason'
+    assert not doc['source']['execution_allowed']
+
+
+@pytest.mark.parametrize('raw,text', [
+    (candidate(reason='unregistered_item'), '망치 좀'),
+    (candidate(kind='clarify', reason='unsupported_request'), '망치 좀'),
+    (candidate(kind='unknown', reason='unregistered_item'), '지우개 가져와'),
+])
+def test_reason_must_match_hold_kind_and_registered_target(ontology, schema, cfg, raw, text):
+    p = IntentParser(ontology, schema, cfg)
+    with pytest.raises(ValueError):
+        p.validate(raw, text)
+
+
 @pytest.fixture
 def dialogue(ontology, schema, cfg):
     cfg['evaluation_mode'] = False
@@ -110,7 +158,69 @@ def test_past_question_never_executes(dialogue, invalidate):
     elif invalidate == 'restart': s = VoiceSession(s.parser, s.cfg, clock=lambda: now[0])
     elif invalidate == 'new_request': s.text('지우개 가져와',4)
     doc = s.text('응',5 if invalidate=='generation' else 4, blocked=invalidate=='blocked')
-    assert doc['intent'] != 'find_item'
+    assert doc['intent'] == 'clarify' and doc['targets'] == []
+    assert doc['_voice']['final_text'] == s.cfg['clarify_prompts']['missing_item']
+    assert not doc['_voice'].get('context_answer') and 'question_target' not in doc['_voice']
+
+
+@pytest.mark.parametrize('reply', ['응', '맞아', '그걸로', '그거줘'])
+@pytest.mark.parametrize('state', ['absent', 'expired', 'cancel', 'generation', 'restart',
+                                  'warning', 'blocked', 'new_request'])
+@pytest.mark.parametrize('llm_mode', ['none', 'failure', 'normal'])
+def test_contextless_replies_reask_target_without_restoring_previous_authority(
+        dialogue, reply, state, llm_mode):
+    s, now, qdoc = dialogue
+    previous_id = qdoc['_voice']['question_id']
+    if state in ('absent', 'cancel', 'warning'):
+        s.conversation.invalidate()
+    elif state == 'expired':
+        now[0] += s.cfg['dialogue_timeout_sec']
+    elif state == 'restart':
+        s = VoiceSession(s.parser, s.cfg, clock=lambda: now[0])
+    elif state == 'new_request':
+        s.text('지우개 가져와', 4)
+    calls = []
+    def llm(*args):
+        calls.append(args)
+        if llm_mode == 'failure':
+            raise TimeoutError('mock only')
+        return candidate()
+    s.parser.llm = None if llm_mode == 'none' else llm
+    generation = 5 if state == 'generation' else 4
+    doc = s.text(reply, generation, blocked=state == 'blocked')
+    assert doc['intent'] == 'clarify' and doc['targets'] == []
+    assert doc['source']['stt_text'] == reply and not doc['source']['execution_allowed']
+    assert doc['_voice']['final_text'] == s.cfg['clarify_prompts']['missing_item']
+    assert not calls and not doc['_voice'].get('context_answer')
+    assert 'question_target' not in doc['_voice'] and 'question_id' not in doc['_voice']
+    assert s.conversation.pending is None
+    new_question = s.conversation.delivered(doc, generation, True, blocked=state == 'blocked')
+    if state == 'blocked':
+        assert new_question is None
+    else:
+        assert new_question.id != previous_id and new_question.target is None
+        assert s.text('응', generation)['targets'] == []
+
+
+@pytest.mark.parametrize('reply,target', [('응','toy_hammer'), ('맞아','toy_hammer'),
+                                        ('그걸로','toy_hammer'), ('렌치','toy_wrench'),
+                                        ('아니 렌치야','toy_wrench')])
+@pytest.mark.parametrize('llm_mode', ['none', 'failure', 'normal'])
+def test_live_question_answer_and_correction_remain_single_use(dialogue, reply, target, llm_mode):
+    s, _, qdoc = dialogue
+    def llm(*_):
+        if llm_mode == 'failure':
+            raise TimeoutError('mock only')
+        return candidate(target)
+    s.parser.llm = None if llm_mode == 'none' else llm
+    doc = s.text(reply, 4)
+    assert doc['intent'] == 'find_item' and doc['targets'] == [target]
+    assert doc['_voice']['question_id'] == qdoc['_voice']['question_id']
+    assert doc['_voice']['context_answer'] and s.valid_context(doc, 4)
+    s.mark_published(doc)
+    assert not s.should_publish(doc)
+    again = s.text('그걸로', 4)
+    assert again['intent'] == 'clarify' and again['targets'] == []
 
 
 def test_question_tts_failure_and_invalidation_after_candidate(dialogue):

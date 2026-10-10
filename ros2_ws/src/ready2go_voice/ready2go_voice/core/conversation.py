@@ -4,7 +4,7 @@ import math
 import re
 import threading
 import uuid
-from .intent import normalize_control
+from .intent import normalize_control, is_context_reply
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class Conversation:
             if blocked or (q and (q.generation != generation or self.clock() >= q.expires)):
                 self.pending = q = None
             value = normalize_control(text)
-            reply = value in {'응', '네', '예', '맞아', '맞아요', '그걸로', '그거', '그거줘', '그걸로해줘'}
+            reply = is_context_reply(text)
             keys = parser.mentioned(text)
             correction = bool(q and len(keys) == 1 and any(re.fullmatch(
                 r'(?:아니|아니요)?[,，]?' + re.escape(alias) + r'(?:이야|야|말이야|로해줘|으로해줘|줘)?', value)

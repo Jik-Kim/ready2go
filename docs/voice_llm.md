@@ -74,11 +74,12 @@ Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 �
 ```text
 제어/미지원·모호 규칙 → 필요한 경우 STT 텍스트 + 등록 물품 어휘 → LLM 후보
   → 기존 intent 계약 + P1 허용값 + 단일 등록 대상 + 확신도 + 발화 의미 검증
+  → 정상 unknown/빈 targets: 검증된 내부 사유에 맞춘 물품/요청 미지원 안내
   → 오류·시간 초과·일반 검증 실패/LLM 없음: 좁은 폴백; 미등록 find_item은 원인 보존 후 미지원 보류
   → 최종 find_item: 평가/세대/중복/확인 TTS 게이트 → /voice/intent
 ```
 
-LLM 요청 스키마는 `intent`를 find_item/unknown/clarify로 제한하고 `targets`, `confidence`, `clarify_question`과 내부 `response_text`를 받습니다. response_text는 공개 intent 필드가 아니며 검증된 `_voice.final_text`로만 사용합니다. cancel/status는 규칙 경로입니다. 외부 출력 정본 [intent.schema.json](../contracts/intent.schema.json)은 intent/confidence가 필수이며 현재 출력에서 targets·필요한 확인 질문과 진단 source를 덧붙입니다. strict 응답 형식이 사용자 의미의 정확성을 보장하지 않아 코드가 다시 검증합니다. P1은 goals/query 실행을 허용하지 않습니다.
+LLM 요청 스키마는 `intent`를 find_item/unknown/clarify로 제한하고 `targets`, `confidence`, `clarify_question`과 내부 `response_text/rejection_reason`을 받습니다. 등록키 targets enum·additionalProperties=false를 유지하며 사유도 required/유한 enum입니다. `unknown/빈 targets`의 미등록 물품과 미지원 요청 사유를 검증해 내부 `_voice.reason`으로 옮기고 최종 안내 선택에 사용합니다. find_item/clarify의 사유는 null이며 판정·등록 대상과 모순되거나 미지원 사유 값이면 검증 실패로 처리합니다. 원본 후보 문구로 사유를 추론하지 않습니다. response_text와 rejection_reason은 공개 intent의 새 필드가 아니며 response_text는 검증된 `_voice.final_text`로만 사용합니다. cancel/status는 규칙 경로입니다. 외부 출력 정본 [intent.schema.json](../contracts/intent.schema.json)은 intent/confidence가 필수이며 현재 출력에서 targets·필요한 확인 질문과 진단 source를 덧붙입니다. strict 응답 형식이 사용자 의미의 정확성을 보장하지 않아 코드가 다시 검증합니다. P1은 goals/query 실행을 허용하지 않습니다.
 
 “지우개 찾아줘.”의 검증된 출력 예시(source 생략):
 
@@ -155,6 +156,10 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 [문서] 일반 질문의 `dialogue_timeout_sec`는 제안 설정이며 null이면 후속 결합을 보류합니다. 질문 TTS 실패는 질문 권한을 만들지 않고, 후속 답은 후보 생성 때 소비합니다. TTS/발행 실패 후 과거 답을 자동 재시도하지 않으며 새 독립 요청이 필요합니다. 관측된 running/잠금/경고·취소는 epoch/세대를 무효화하고, 상태 변경과 발행 게이트를 E 로컬 submit_lock으로 직렬화합니다. 수락 여부/요청 상관성·실물 준비 판정은 이 lock으로 보장하지 않습니다.
 
 [문서] `diagnostic_detail=true`는 전체 민감정보 필터 후 E 로컬 JSONL 파일을 선택하며 콘솔에 전체 JSON을 출력하지 않습니다. `diagnostic_file` 상대 경로는 실행 cwd 기준, 크기·백업 개수·bounded 큐는 YAML 원본입니다. 원본 LLM은 interpretation에서 한 번 보존하고 후속 이벤트에는 반복하지 않습니다. wake/녹음 시작·끝→submit/work→STT SDK 호출/결과→LLM→최종 문장/TTS→발행을 로컬 request_id로 연결하며 question_ready/후속 답은 question_id로 연결합니다. source 공개 필드는 기존 의미를 유지합니다. 파일 열기/쓰기/회전·필터/직렬화·큐 실패는 경고하고 음성/취소 경로로 예외를 전파하지 않습니다. 큐 포화/정체 시 증빙 손실을 경고하며 C DB 로그나 worker JSON pipe를 대신하지 않습니다. 회전 상한보다 큰 단일 원본 기록은 분할하지 않고 보존한 뒤 다음 기록에서 회전합니다.
+
+[문서·코드 대조: 2026-10-10, #198 리뷰 보완] 기준은 기존 [음성 정책](requirements.md#voice-policy)입니다. `LangChainIntent.schema`를 통과하는 unknown/빈 targets/내부 사유 응답으로 물품 미등록 안내를 확인합니다. 실행 enum에 없는 키를 반환하는 오류 모의는 별도 방어 시험이며 정상 LLM 경로의 증거로 대신하지 않습니다. 내부 응답은 parser에서 문장/사유 필드를 분리하고, 사유는 검증 후 `_voice` 안에서만 사용합니다. `_voice`와 새 내부 필드는 기존 node 발행 필터로 제외하며 원본은 기존 `source.llm_raw` 진단 필드에 보존합니다. 새로운 공개 source 필드를 추가하지 않습니다.
+
+[구현] Conversation과 parser guard는 동의/대명사 응답 판별을 공유합니다. 현재 유효 질문으로 대상이 확정된 답/정정만 전달 요청으로 결합하고, 질문 없음·만료·취소·세대 변경·경고·busy/잠금 뒤에는 원문 그대로 clarify/빈 targets와 대상 재확인 안내로 처리합니다. 이 보류는 LLM 호출 전에 적용하므로 LLM 정상/실패/없음과 무관하며 과거 대상이나 질문 권한을 복원하지 않습니다. 재확인 TTS 완료 후 만들어지는 질문은 새 ID/대상 미정이고 기존 질문의 재사용이 아닙니다. `test_voice_ux.py`·`test_config_api.py`는 실제 내부 스키마와 의미 분류를, `test_voice_ux_node.py`는 저장된 node 메서드의 모의 실행으로 최종 콘솔/TTS·기존 wire 모양·평가 차단을 확인합니다. 실제 API/마이크/ROS 송수신·C 수락·로봇 시험 결과는 아닙니다.
 
 [문서] 초기 필수 문장과 실제 성공 재생된 검증 문장의 사용 빈도를 분리해 선준비합니다. `validated_phrases.json`은 문장/사용횟수만 제한된 수·길이·용량으로 보존하며 질문 권한/대화 원본을 저장하지 않습니다. worker의 miss→WAV 저장·identity 기반 재사용은 기존 경로입니다. 모델/설정/내용/worker 코드 변경에 따른 무효화는 유지하며 이번 worker 시간 진단 수정도 identity를 바꿉니다. 기존 WAV를 삭제하지 않으므로 첫 준비 재합성이 필요할 수 있습니다. 선준비의 필수 목록이 설정 한도를 넘으면 실패하고, 선택 이력 실패는 경고 후 필수 목록만 준비합니다. model_prepare_sec, prefill_prepare_sec, prepare_total_sec와 첫 합성/히트의 worker_synth_sec·재생 구간은 구분합니다. 일반 startup60초·prepare 명령120초·Melo1.2·AC3초는 유지하며 이번 실제 합성 시간은 미측정입니다.
 
