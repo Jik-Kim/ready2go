@@ -1,8 +1,18 @@
 # CURRENT — E 고희태
 
+
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장)
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-10
+
+
+## 수락 TTS E 내부 준비 — E-C-ACCEPT-TTS-20261011-01
+
+- [문서: 승인] 상위 조율 사용자 turn `01a12696-4540-77b0-a575-2e90938fc5be`의 “수락 TTS 권고안 채택, 작업 시작”과 [#196 결정](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6099557989)을 확인했습니다. 작업 후 커밋·push·PR까지 진행하는 이 작업자 세션의 사용자 지속 승인도 적용합니다. 공개 계약/운영 활성화/타 담당 편집/병합의 승인은 아닙니다.
+- [문서: Git·중단 확인] 인계 경로 `/home/jonny/rokey_proj/VLA/ready2go`를 유지합니다. 이전 편집·시험 중단 인계와 현재 관련 실행 프로세스 없음, 추적 파일 깨끗함을 확인했습니다. 최신 HEAD `ac96d66a21f5676c08556720d4b7e45da27185b9`는 최초 인계 `d0544ee` 이후 #203·#207 작업이 반영된 상태입니다. 상위 조율이 지정한 `codex/e-accept-tts-20261011`을 ac96d66에서 생성·전환했으며 인간이 이름을 직접 지정했다고 기록하지 않습니다. 기존 PR207 브랜치 ref와 미추적 모델 이력 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존했습니다. 새 worktree/thread·기존 PR207 추가 push는 없습니다. 로컬 CI의 임시 검사 worktree는 저장소의 필수 검사 절차입니다.
+- [문서: 범위] [수락 TTS 정본](../../docs/requirements.md#acceptance-tts-policy)에 승인 방향을 반영하고 [기술 문서의 영향표·계약 초안](../../docs/voice_llm.md#acceptance-tts-preparation)·Voice README를 참조로 연결했습니다. Session의 기존 검증 문장 보관·현재 요청/세대/epoch·원본/내용 대조·일회성 소비와 실제 `_work` 큐 ID 연결을 준비했습니다. 새 파일·설정·wire/enum/timeout·공통 계약/예시/ICD·C/B/A/D·tasks/knowledge/씬은 변경하지 않습니다. 기존 P1 재생/발행과 목표 운영 발행/TTS 차단은 유지합니다.
+- [실측: 직접 검증] 관련 3시험 파일 268 passed 뒤 실제 `_work` 연결/음성 요청 소비 시험을 보강해 변경된 2시험 파일 256 passed를 확인했습니다(중복 합산 안 함). Python3.12·ROS 미source·source 패키지 PYTHONPATH 전체 core는 2225 passed, 24 skipped, 종료0(109.74초)이며 ROS 의존14·MongoDB 연결 불가10건은 통과가 아닙니다. 마지막 시험 보강은 별도 256건에서 확인했고 최종 커밋 CI에서도 전체 검사합니다. AST·문서 링크/앵커281개·공백 검사 통과, 기존 PR207 ref/모델 해시 보존입니다. 문서 담당의 별도 수락/병합·실제 C 연결 완료를 주장하지 않습니다.
+- [미완료·게시] 내부 소비 호출자는 시험뿐이며 C 수락/재생 완료/첫 동작 허가를 증명하지 않습니다. C 요청→결정→run 및 boot/순서·문장 소비/중복·timeout/취소/단절 계약은 C 합의와 E 포함2인 승인 대기입니다. 현재 find_item s2·E 수락 전 재생은 실제 공동 연결 전 유지합니다. 목표형 수락 문장/게이트, 실제 E/C 발신·수신 핸들러 통합, 실음성/API/Melo/ROS/로봇/실물 AC는 미검증입니다. 미병합 PR207 ac96d66 의존 후속 diff이며 main 독립 완료가 아닙니다. 관련8파일만 자동 커밋하고 최종 SHA 전체 로컬 CI 결과를 외부 로그·PR 본문에 기록한 뒤 Luna 게시 담당으로 stacked PR 생성·첨부합니다. 이 커밋 전 기록으로 최종 SHA CI/PR 생성 완료를 주장하지 않습니다.
 
 ## PR207 리뷰 수정 — E-PR207-REVIEW-FIX
 

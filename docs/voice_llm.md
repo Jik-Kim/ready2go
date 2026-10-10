@@ -31,7 +31,7 @@
 | 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, 원본 sd.rec→sd.wait 고정5초 시운전, 또는 RMS 무음 종료·보호 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
 | STT | OpenAI `whisper-1`, 한국어·등록 물품 이름 prompt, API 단일 호출 슬롯 | 계정/지연 실측 필요. `faster-whisper small` 오프라인 폴백은 미구현 후보 |
 | 해석 | LangChain·`gpt-4o` 후보 strict JSON → 기존 계약·등록 물품·보류 문맥·요청 단서 검증; 오류/시간 초과/검증 실패 시 좁은 규칙 폴백 | 모델·프롬프트·E/D 정답표 미확정. 퍼지 매칭은 구현하지 않음 |
-| 확인 | 기본 `confirmation_enabled: true`: 검증된 “지우개 가져오기 요청으로 이해했어요.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | C 태스크 시작/기존 speak와 확인 책임 분담은 인계 사항 |
+| 확인 | 기본 `confirmation_enabled: true`: 검증된 “지우개 가져오기 요청으로 이해했어요.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | [수락 TTS 결정](requirements.md#acceptance-tts-policy)의 C 계약·실제 연결 대기 |
 | TTS | 사용자 선택 MeloTTS, 별도 CPU 환경의 한국어 모델 재사용/문장 캐시→PortAudio 재생, 기존 `/voice/speak` Skill 액션 | 단문 합성·첫 DAC 재생 확인. [AC-INT-03](requirements.md#ac-int-03)·청취 품질·C/D 연결 미검증. espeak는 명시 선택 호환 경로이며 자동 폴백 없음 |
 
 사용자 확정 웨이크 기준은0.7이며 기존 점수>기준 비교입니다. 고정5초 녹음 완료 후 로컬 Silero의30ms 구간 VAD+RMS를 검사하고, 무발화/VAD불가·오류/취소는 STT·LLM 및 intent발행을 생략합니다. VAD0.5·연속0.15초는 소음/짧은 발화로 튜닝할 제안값이며 실제효과는 미검증입니다. 정상 발화는5초 전체를 STT에 보내고 발화종료를 새로 추정하지 않습니다. [문서]
@@ -174,3 +174,30 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 [문서·코드 대조] fixed는 sd.rec→sd.wait의5초 PCM16kHz/int16/mono 전체를 수집하고 끝난 뒤30ms VAD+RMS의 최소 연속 음성량만 검사합니다. 무음/취소/VAD 불가·오류는 STT·LLM을 생략하지만 실제 발화 끝을 측정하지 않습니다. silence는 웨이크 스트림의 RMS 기준으로 음성 시작·마지막 유성 프레임을 잡고 무음 상한 뒤 반환합니다. 마지막 프레임 시각은 발화 끝의 추정이며 조용한 발화/중간 휴지/웨이크 잔음/잡음에 영향을 받습니다. silence 경로는 현재 fixed 후처리 VAD를 사용하지 않습니다. 두 경로 모두 시작/최대 보호 한도·취소/TTS 중단을 검사하고 잘린 요청을 실행하지 않습니다.
 
 [제안: 별도 실측 승인 필요] 같은 표본에서 짧거나 작은 정상음성·중간 휴지·무음/잡음·웨이크 잔음·최대 길이·취소·자기 TTS를 비교합니다. 실제 발화 끝→녹음 끝→SDK 호출/결과→첫 DAC를 구분해 누락/오탐/잘림·지연을 기록합니다. 모의 PCM/VAD 검사와 실제 청취/API는 구분하고 적정 임계값/채택 판단은 실측 후 결정합니다. 이번 기본 fixed5/commissioning·무음/VAD 임계값을 변경하지 않았고 기본 전환을 권고할 실음성 근거는 없습니다.
+
+
+<a id="acceptance-tts-preparation"></a>
+### #196 수락 TTS — E 내부 준비와 계약 초안
+
+[문서: E-C-ACCEPT-TTS-20261011-01] 책임·순서·차단 기준은 [요구사항 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이번 준비는 미병합 [PR207](https://github.com/Jik-Kim/ready2go/pull/207)의 `ac96d66`에 의존합니다. 기존 PR207 변경과 후속 준비 변경을 분리하며 main 기반 독립 완료가 아닙니다.
+
+| 영향 범위 | 현재 실행 원본·호출 관계 | 이번 변경·후속 조건 |
+| :--- | :--- | :--- |
+| 정의 | [FR-INT-02·03](requirements.md#fr-int-02), [AC-INT-03](requirements.md#ac-int-03) | 승인된 P2 책임 방향 반영, 기존 Phase·3초 AC 유지 |
+| 문장 생산·보관 | [response.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/response.py) → [Session](../ros2_ws/src/ready2go_voice/ready2go_voice/core/session.py) | 기존 검증 최종 문장을 현재 로컬 요청·세대·epoch에 보관하고 원본 객체/내용 대조 후 한 번만 소비. 새 요청·문맥 무효화·다른 세대·변조·복사본·재시작은 재사용 불가 |
+| 노드 발신 | [VoiceNode](../ros2_ws/src/ready2go_voice/ready2go_voice/nodes/voice_node.py)의 `_work` → Session → `_deliver` → `_publish` | 큐의 로컬 ID를 해석 시작부터 동일하게 사용. `_voice`는 기존 발행 필터로 제외. 실제 소비/공개 전달 호출자는 미연결이며 기존 P1 확인 TTS·발행 유지 |
+| C 수신·재생 | [runner_node.py](../ros2_ws/src/ready2go_runner/ready2go_runner/nodes/runner_node.py), [backend.py](../ros2_ws/src/ready2go_runner/ready2go_runner/core/backend.py), [find_item.json](../tasks/find_item.json) → `/voice/speak` | 현재 태스크 s2의 별도 문장 유지. 요청별 수락→검증 문장 전달→실행 직전 검사와 중복 제거는 C 계약/연결 후 수행. C 파일은 읽기 전용 |
+| E 재생 결과 | VoiceNode `_goal`/`_speak` → [PCMTTS](../ros2_ws/src/ready2go_voice/ready2go_voice/adapters/tts.py) → [Skill.action](../ros2_ws/src/ready2go_interfaces/action/Skill.action) | 생성 완료·첫 DAC 시각·버퍼 배출 뒤 finished_callback·액션 성공은 서로 다른 단계. 현행 성공은 재생 반환 뒤 취소/경고 검사 후 확정하지만 요청/run 상관·C 첫 동작 게이트 증거는 아님 |
+| 설정·시험 | [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml), `test_voice_ux.py`, `test_voice_ux_node.py`, `test_audio_tts.py` | 새 설정/시간값 없음. Session의 일회성 문장과 기존 실제 노드 메서드의 P1·목표 차단 회귀를 확인. E/C 통합 수락 시험·실음성·실물 AC는 미검증 |
+
+[문서: 내부 구현] `consume_acceptance_text(doc, generation)`은 E 메모리의 문장을 일회성으로 돌려주는 준비 API입니다. 재생하거나 C 수락 상태를 만들지 않습니다. 향후 실제 C 수락 핸들러 연결 시 노드의 submit_lock과 같은 경계에서 사용해야 합니다. 현재는 시험만 소비하며, publish 성공·runner_notice의 latched 상태·캐시 읽기로 소비 권한을 복원하지 않습니다. 목표형 후보의 운영 발행·TTS 차단은 그대로 유지하며 목표 수락 문장 준비도 계약 이후 연결 대상입니다. 새 run/boot/순서 검사는 이 로컬 API에 구현된 것으로 보고하지 않습니다.
+
+[제안: C 합의·E 포함2인 승인 대기] 최소 공개 계약 초안은 다음 의미를 원본 스키마·예시·ICD에서 함께 확정할 대상으로 제시합니다. 필드명·enum·타입·기한은 이 문서에서 확정하지 않습니다. 현행 [intent.schema.json](../contracts/intent.schema.json)의 자유 source와 Skill의 일반 params_json만으로 새 의미가 승인되지 않습니다.
+
+| 계약 초안의 전달 단계 | 합의할 내용·담당 |
+| :--- | :--- |
+| E 요청 → C 결정 | 현재 요청 식별과 검증 문장의 불변 연결, 중복 요청 처리, 실제 수락/거절/보류의 상관 근거. C 제안 `source.request_id`는 미확정 |
+| C 결정 → 현재 run → E 재생 | 요청·run·boot·순서의 유효성, 수락 뒤 단 한 번의 동일 문장 소비, 재전송·과거 상태·단절·재시작 처리. E/C 공동 합의 |
+| E 재생 → C 첫 동작 | 실제 재생 완료와 성공/실패/취소를 현재 요청·run에 연결, timeout/실패/취소·안전 불충족의 차단, 성공 뒤 안전 재검사와 s2 중복 제거. C 소유 게이트·E 결과 연결 |
+
+[미완료] C의 구체 변경안과 관련 계약 승인 후 스키마·예시·ICD 동일 PR 및 실제 발신/수신 핸들러 모의가 필요합니다. 해당 통합에서 수락 전 음성0·수락 후 동일 문장1회·실패/취소/단절/과거 결과의 첫 동작0·C 안전 재검사·중복 s2 음성0을 확인해야 합니다. 내부 소비 시험은 이 통합 완료 조건을 대신하지 않습니다. B/A/D·공개 계약·태스크·설정·기존 `/voice/speak` 운영 처리와 PR207은 이번 변경 대상에서 제외합니다.

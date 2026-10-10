@@ -458,3 +458,8 @@ PYTHON
 [문서] 초기 필수 문장과 두 번 이상 성공 재생된 검증 문장의 선택 이력을 구분합니다. `models/tts/melotts/validated_phrases.json`(실제 assets 설정 기준)은 bounded 선택 기록이며 기존 WAV 저장 기능을 중복 구현하지 않았습니다. 설정 한도를 넘는 필수 목록은 준비 실패, 이력 파일 오류는 경고 후 필수만 준비합니다. worker 시간 진단 코드 변경도 기존 identity 무효화에 포함되므로 첫 재합성이 필요할 수 있습니다. 모델 로딩·선준비·전체 준비, 첫 합성/캐시 조회·첫 DAC/재생 시간은 별도 기록이고 실제 이번 합성은 미측정입니다. 기존 Melo1.2·노드 startup60·위 prepare120·AC3초는 유지합니다.
 
 [미연결/인계] C 수락/거절의 요청 상관 식별·순서·실패/timeout/취소 책임, D #20 변경 사례/정답표 검토는 [#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 협의합니다. C/D 파일과 새 wire는 변경하지 않았고 E 포함2명 승인·스키마/예시/ICD 반영 전 연결하지 않습니다. #23의 과거 결과/미달은 보존하며 이 추적 위치 전환이 P1 완료/AC 면제를 뜻하지 않습니다. 녹음 비교 [#195](https://github.com/Jik-Kim/ready2go/issues/195)는 실제 시험 계획/기존 코드·모의 검토로 기본 fixed5/commissioning·무음/VAD 임계값을 바꾸지 않았습니다. 실제 웨이크·녹음/API·합성/청취·C 수락·로봇 AC는 이번 범위에서 미시험입니다.
+
+
+## 수락 TTS 후속 준비 — #196
+
+[문서] 책임·첫 동작 조건은 [정본](../../../docs/requirements.md#acceptance-tts-policy), 현재 호출 관계·계약 초안·미완료 항목은 [기술 문서](../../../docs/voice_llm.md#acceptance-tts-preparation)를 참조하십시오. Session은 검증 문장을 현재 로컬 요청에 보관하고 내부 일회성 소비를 제공합니다. 노드는 큐 요청 ID를 Session에 전달하지만 C 수락 후 소비·공개 전달은 미연결입니다. 기존 P1 확인 재생과 목표 발행/TTS 차단을 유지합니다. 기존 speak의 재생 완료 결과가 현재 요청/run의 C 첫 동작 허가를 자동 증명하지 않습니다. 새 설정·계약 필드·장치/API 실행은 추가하지 않았습니다.

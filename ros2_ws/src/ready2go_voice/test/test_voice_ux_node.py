@@ -61,6 +61,22 @@ def ask(node):
     return doc
 
 
+def test_actual_work_passes_queue_identity_to_session_preparation(node, node_class):
+    node.requests = queue.Queue()
+    node.requests.put(('text', '망치 좀', 0, 'queued-request'))
+    node.busy = threading.Event()
+    node.local_context = threading.local()
+    docs = []
+    def deliver(doc, generation):
+        docs.append(doc)
+        node.stop_event.set()  # 한 요청의 실제 _work 경로만 확인합니다.
+    node._deliver = deliver
+    node_class._work(node)
+    assert len(docs) == 1 and docs[0]['_voice']['request_id'] == 'queued-request'
+    assert node.session.consume_acceptance_text(docs[0], 0) == docs[0]['_voice']['final_text']
+    assert not node.texts and not node.published  # 내부 준비는 재생/발행하지 않습니다.
+
+
 def test_initial_question_then_different_affirmations_only_one_find(node):
     doc=ask(node)
     assert node.published[0]['intent']=='clarify'
