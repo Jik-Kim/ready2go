@@ -117,7 +117,7 @@ def test_wall_close_axis_presses_measured_eraser_over_its_middle():
 
 def test_params_use_wall_close_axis():
     assert DRAG["close_axis"] == "wall" and DRAG["tilt_deg"] == 20.0                       # 30 → 20 [사용자 10/07]
-    assert DRAG["wall_tcp_min_mm"] == 3.3 and DRAG["wall_tip_below_mm"] == 9.7              # 20° 지우개 위 [실측 B 10/07 4번]
+    assert DRAG["wall_tcp_min_mm"] == 3.3 and DRAG["wall_tip_below_mm"] == 11.3             # 20° 지우개 위 [실측 B 10/10 손잡이 쪽 2점, 10/07 은 9.7]
 
 
 def test_wall_press_margin_zero_presses_at_measured_reach():
