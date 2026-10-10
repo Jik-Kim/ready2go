@@ -91,7 +91,7 @@ def goal_for(cmd):
     sys.exit(USAGE)
 
 
-USAGE = ("사용: B <동작> [서랍]  서랍 = top | bottom (= drawer_top | drawer_bottom)\n"
+USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
          "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find   서랍 없음: home pick place\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
@@ -150,7 +150,7 @@ def scan(node, for_pick=False):
         else:
             print("비전 서비스 안 보임 — 고정 지우개 좌표(stub)로 진행")
         return True
-    f = c.call_async(InspectRegion.Request(region=DRAWER, search_target="eraser"))
+    f = c.call_async(InspectRegion.Request(region=DRAWER, search_target=TARGET))
     rclpy.spin_until_future_complete(node, f, timeout_sec=30.0)
     r = f.result()
     if r is None or not r.success:
@@ -179,6 +179,32 @@ def scan(node, for_pick=False):
     return True
 
 
+TARGET = "eraser"                          # 찾을 물체 (B <동작> <서랍> <물체>) [사용자 10/10 다른 물체도]
+TARGET_FILE = f"{TMP}/b_target_class.txt"   # 마지막에 고른 물체 — 다음 B 명령도 같은 물체
+
+
+def parse_target(arg):
+    """물체 이름(클래스 키 또는 한국어 이름·별칭) → 클래스 키. 없으면 마지막에 고른 물체(없으면 지우개)."""
+    wf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "knowledge", "world.jsonld")
+    if not os.path.exists(wf):
+        wf = os.path.expanduser("~/ready2go/knowledge/world.jsonld")
+    world = json.load(open(wf, encoding="utf-8"))["world"]["items"]
+    if arg is None:
+        try:
+            with open(TARGET_FILE) as f:
+                return f.read().strip() or "eraser"
+        except OSError:
+            return "eraser"
+    a = arg.replace(" ", "")
+    for k, v in world.items():
+        names = [k, v.get("name_ko", "")] + list(v.get("aliases_ko") or [])
+        if a in [n.replace(" ", "") for n in names] or a in ("몽키",) and k == "toy_wrench":
+            with open(TARGET_FILE, "w") as f:
+                f.write(k)
+            return k
+    sys.exit(f"모르는 물체: {arg} — 쓸 수 있는 것: " + ", ".join(f"{k}({v.get('name_ko')})" for k, v in world.items()))
+
+
 def parse_drawer(cmd, arg):
     """서랍이 필요한 동작은 서랍을 꼭 받음 — 빼먹으면 엉뚱한 칸으로 가지 않게 움직이기 전에 멈춤 [사용자 10/08]."""
     if cmd in NEEDS_DRAWER:
@@ -194,6 +220,10 @@ def main():
     global DRAWER
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     DRAWER = parse_drawer(cmd, sys.argv[2] if len(sys.argv) > 2 else None)
+    global TARGET
+    TARGET = parse_target(sys.argv[3] if len(sys.argv) > 3 else None)
+    if cmd in ("scan", "rescan", "find", "all", "dragtest"):
+        print(f"찾을 물체: {TARGET}")
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node("b_sk")
     if cmd == "scan":
