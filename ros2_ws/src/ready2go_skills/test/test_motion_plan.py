@@ -58,7 +58,7 @@ def test_eraser_against_handle_wall_pushed_inward_only_when_allowed():
     t = tgt(0.012, 0.15, math.pi / 2)
     p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, push_inward_ok=True))
     assert p.needed and p.axis == "x" and p.wall_normal_x == -1.0 and p.shift_x_m > 0
-    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, push_inward_ok=False))
+    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=G, drag=dict(DRAG, push_inward_ok=False, diagonal_deg=None))
     assert p.error_code == mp.NO_PUSH_ACCESS and p.axis == "x" and "닫" in p.reason
 
 
@@ -182,7 +182,7 @@ def test_eraser_crosswise_on_handle_wall_near_left_wall_dragged_sideways_then_en
     t = tgt(0.022, 0.030, math.pi / 2)
     assert mp.wall_blocks_grasp(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
     assert not mp.long_side_ok(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
-    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False))   # 안쪽으로 못 끌 때
+    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False, diagonal_deg=None))   # 안쪽으로 못 끌 때
     assert p.needed and p.error_code is None and p.axis == "y" and p.shift_y_m > 0          # 왼쪽 벽에서 멀어지게
     after = tgt(0.022, 0.030 + p.shift_y_m, math.pi / 2)
     assert mp.long_side_ok(target=after, size_m=ERASER, interior_m=INTERIOR, g=g)            # 끈 뒤 긴 변으로 잡힘
@@ -195,7 +195,7 @@ def test_eraser_crosswise_on_handle_wall_grabbed_by_ends_tilted():
     t = tgt(0.011, 0.15, math.pi / 2)
     assert mp.wall_blocks_grasp(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
     assert mp.long_side_ok(target=t, size_m=ERASER, interior_m=INTERIOR, g=g)
-    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False))
+    p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False, diagonal_deg=None))
     assert not p.needed and p.error_code is None and "긴 변" in p.reason
     assert mp.front_tilt_x_mm(target=t, size_m=ERASER, interior_m=INTERIOR, g=g) == pytest.approx(11.0)   # 물체 가운데 그대로
     tx = mp.front_tilt_x_mm(target=tgt(0.004, 0.15, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=g)
@@ -223,7 +223,7 @@ def test_round_object_on_side_wall_not_nudged():
     assert p.press_xy_m[1] * 1000.0 >= G["wall_clearance_mm"]["along_mm"] + G["wall_margin_mm"] - 1e-6
     after = tgt(INTERIOR[0] - 0.036 + p.shift_x_m, 0.010, 0.0)
     assert mp.round_wall_side(target=after, size_m=LIP_BALM, interior_m=INTERIOR, g=g) == -1.0   # 끈 뒤 옆벽 기울여 집기
-    p = mp.plan_drag(target=tgt(0.036, 0.010, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False))
+    p = mp.plan_drag(target=tgt(0.036, 0.010, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=dict(DRAG, push_inward_ok=False, diagonal_deg=None))
     assert p.error_code == mp.NO_PUSH_ACCESS and p.axis == "x"                                 # 손잡이 쪽 모서리: 안쪽으로 못 끎 (서랍 닫힘)
     assert mp.round_wall_side(target=tgt(0.10, 0.08, 0.0), size_m=LIP_BALM, interior_m=INTERIOR, g=g) is None    # 벽에서 멂
 
@@ -233,11 +233,16 @@ def test_tilt_only_for_crosswise_on_handle_wall():
     비스듬하면 기울이지 않고 멈춤(NO_PUSH_ACCESS). 가로로 손잡이 쪽 구석이면 옆으로 넛지 먼저 → 끈 뒤 기울여 긴 변."""
     g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"],
              tilt_align_deg=PRM["pick"]["tilt_align_deg"])
-    drag = dict(DRAG, push_inward_ok=False)
-    for yaw in (0.6, -0.8):
+    drag = dict(DRAG, push_inward_ok=False, diagonal_deg=None)
+    for yaw in (0.6, -1.0102):                                                             # -1.0102 = 실측 PC2 10/10 비전 yaw
         t = tgt(0.0308, 0.06, yaw)
         assert mp.front_tilt_x_mm(target=t, size_m=ERASER, interior_m=INTERIOR, g=g) is None
-        assert mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag).error_code == mp.NO_PUSH_ACCESS
+        assert mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(drag, diagonal_deg=None)).error_code == mp.NO_PUSH_ACCESS
+        # [사용자 10/10 "1순위 대각선 넛지"] 비스듬하면 서랍 가운데 쪽 45° 로 끎 → 끈 뒤 짧은 변으로 바로 잡힘
+        p = mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g, drag=dict(drag, diagonal_deg=45.0))
+        assert p.needed and p.axis == "x" and p.shift_x_m > 0 and p.shift_y_m == pytest.approx(p.shift_x_m) and "대각선" in p.reason
+        after = tgt(0.0308 + p.shift_x_m, 0.06 + p.shift_y_m, yaw)
+        assert mp.wall_blocks_grasp(target=after, size_m=ERASER, interior_m=INTERIOR, g=g) is None
     t = tgt(0.0308, 0.06, 1.2)                                                               # 거의 가로지만 15° 밖: 긴 변은 되는데 기울이진 않음
     assert mp.front_tilt_x_mm(target=t, size_m=ERASER, interior_m=INTERIOR, g=g) is None
     corner = tgt(0.012, 0.03, math.pi / 2)
@@ -262,3 +267,49 @@ def test_pick_margin_makes_borderline_spots_nudge():
     t = tgt(0.10, y, 0.0)
     assert mp.wall_blocks_grasp(target=t, size_m=ERASER, interior_m=INTERIOR, g=g8)              # 8 mm 면 거부
     assert mp.plan_drag(target=t, size_m=ERASER, interior_m=INTERIOR, g=g8, drag=DRAG).needed   # → 넛지
+
+
+def _ag(x, y, yaw, size=ERASER, round_=False, **kw):
+    g = dict(G, max_open_mm=PRM["pick"]["max_open_width_m"] * 1000.0, pick_wall_margin_mm=PRM["gripper"]["pick_wall_margin_mm"],
+             tilt_align_deg=PRM["pick"]["tilt_align_deg"], front_tilt_within_mm=PRM["pick"]["front_tilt_within_mm"], axis_grasp=True, **kw)
+    return mp.plan_axis_grasp(target=tgt(x, y, yaw), size_m=size, interior_m=INTERIOR, g=g, drag=dict(DRAG, diagonal_deg=45.0),
+                              round_=round_), g
+
+
+def test_axis_grasp_picks_axis_closest_to_long_side():
+    """[사용자 10/10 "그리퍼 기준 파지"] 손가락은 서랍 축(세로 x / 가로 y) 중 긴 변에 가까운 축 — 긴 변 양끝, 벌림 = 그 축 폭 + 13."""
+    ag, _ = _ag(0.10, 0.15, 0.2)
+    assert ag.axis == "x" and ag.drag is None and ag.tilt_dir is None and ag.expected_mm == pytest.approx(52.5)
+    ag, _ = _ag(0.10, 0.15, 1.4)
+    assert ag.axis == "y" and ag.drag is None
+    assert ag.open_mm == pytest.approx(52.5 * math.sin(1.4) + 22.0 * math.cos(1.4) + 13.0)
+    assert not mp.axis_grasp_fits([0.17, 0.061, 0.0185], dict(G, max_open_mm=100.0))      # 몽키는 예전대로 짧은 변
+
+
+def test_axis_grasp_nudges_along_its_axis():
+    """가로면 가로(y) 넛지, 세로면 세로(x) 넛지 — 손잡이 쪽은 대각선(서랍 닫힘), 원통형은 대각선 안 함(굴러감) [사용자 10/10]."""
+    ag, _ = _ag(0.10, INTERIOR[1] - 0.005, math.pi / 2)                    # 오른쪽 벽에 가로
+    assert ag.drag.needed and ag.drag.axis == "y" and ag.drag.shift_y_m < 0 and ag.drag.shift_x_m == 0.0
+    ag, _ = _ag(INTERIOR[0] - 0.027, 0.15, 0.0)                             # 안쪽 벽에 세로
+    assert ag.drag.needed and ag.drag.axis == "x" and ag.drag.shift_x_m < 0 and ag.drag.shift_y_m == 0.0
+    ag, _ = _ag(0.027, 0.15, 0.0)                                           # 손잡이 쪽 벽에 세로 → 대각선
+    assert ag.drag.needed and ag.drag.shift_x_m > 0 and ag.drag.shift_y_m != 0.0
+    ag, _ = _ag(0.036, 0.15, 0.0, size=LIP_BALM, round_=True)               # 원통형 → 못 함
+    assert ag.drag.error_code == mp.NO_PUSH_ACCESS
+    ag, g = _ag(0.183, 0.011, 0.0)                                          # 안쪽-왼쪽 구석 세로: x 로만, 누르는 TCP 는 옆벽에서 떼어
+    assert ag.drag.needed and ag.drag.shift_y_m == 0.0 and ag.drag.press_xy_m[1] * 1000.0 >= g["wall_clearance_mm"]["along_mm"] + g["wall_margin_mm"] - 1e-6
+
+
+def test_axis_grasp_tilts_only_toward_parallel_wall_when_aligned():
+    """나란한 벽에 붙으면 그 벽 쪽(교시한 네 방향)으로 기울임: 손잡이 쪽 가로(앞판), 옆벽 세로. 비스듬하면 기울이지 않고 떼는 넛지 먼저
+    — 손잡이 쪽은 대각선 [사용자 10/10 "대각선 기울임 절대 안 됨", "1순위 대각선 넛지"]."""
+    ag, _ = _ag(0.012, 0.15, -1.5647)                                       # 손잡이 쪽 가로
+    assert ag.drag is None and ag.axis == "y" and ag.tilt_dir == (-1.0, 0.0, 0.0)
+    ag, _ = _ag(0.10, 0.011, 0.0)                                           # 왼벽 세로
+    assert ag.drag is None and ag.axis == "x" and ag.tilt_dir == (0.0, -1.0, 0.0)
+    ag, _ = _ag(0.0308, 0.06, -1.0102)                                      # 실측 PC2 10/10 비스듬 (가로에서 32°)
+    assert ag.tilt_dir is None and ag.drag.needed and ag.drag.shift_x_m > 0 and ag.drag.shift_y_m > 0
+    after, _ = _ag(0.0308 + ag.drag.shift_x_m, 0.06 + ag.drag.shift_y_m, -1.0102)
+    assert after.drag is None and after.tilt_dir is None                    # 끈 뒤 바로 가로 파지
+    ag, _ = _ag(0.012, 0.03, math.pi / 2)                                   # 손잡이 쪽-왼쪽 구석 가로: 옆으로 넛지 먼저
+    assert ag.drag.needed and ag.drag.axis == "y" and ag.drag.shift_y_m > 0
