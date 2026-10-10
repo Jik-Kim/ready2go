@@ -36,7 +36,12 @@ sheet:
     nodes: "01_노드카드"
     scenarios: "02_시나리오시험"
   sync_direction: "yaml_to_sheet"
-  sync_implementation_status: not_implemented
+  sync_implementation_status: implemented
+  sync_verification:
+    validate: passed
+    authenticated_dry_run: passed
+    apply: pending
+    operator_pc: pending
 
 source_catalog:
   issue_168:

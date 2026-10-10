@@ -39,9 +39,9 @@
 세 명령만 사용합니다.
 
 ```bash
-python tools/sync_issue168_checklist.py --validate
-python tools/sync_issue168_checklist.py --dry-run
-python tools/sync_issue168_checklist.py --apply
+python3 tools/sync_issue168_checklist.py --validate
+python3 tools/sync_issue168_checklist.py --dry-run
+python3 tools/sync_issue168_checklist.py --apply
 ```
 
 - `--validate`: 필수 필드, ID, 상태값, 오류 코드, 근거 참조와 저장소 파일 경로를 검사합니다.
@@ -62,4 +62,8 @@ export ISSUE168_GOOGLE_CREDENTIALS=/보안경로/credentials.json
 
 ## 현재 단계
 
-`checklist.yaml`에서 Google Sheet로만 동기화합니다. 검증, 미리보기, 보호 열을 제외한 적용과 동기화 SHA·시각 기록을 구현했습니다.
+- `checklist.yaml`에서 Google Sheet로만 동기화합니다.
+- YAML 검증과 Google 서비스 계정 인증 dry-run을 확인했으며, 현재 관리 대상 셀의 변경 예정은 0건입니다.
+- `--apply`와 동기화 SHA·시각 기록은 구현했지만 실제 쓰기 검증은 진행하지 않았습니다.
+- 담당자 PC의 별도 서비스 계정 키 검증은 진행 전입니다.
+- 시험 결과와 현장 증적은 Google Sheet에만 기록하며 YAML로 역동기화하지 않습니다.

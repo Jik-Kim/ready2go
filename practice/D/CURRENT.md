@@ -28,6 +28,8 @@
 - [문서·코드] PR #200 최신 E 재리뷰의 P2 3건을 반영함. 대상 정정은 현재 질문의 답으로 즉시 `find_item` 확정되도록 고치고, 소비·취소·대체·만료·재시작 뒤 문맥 없는 응답은 과거 질문 종결 상태와 TTS 성공 후 새 `target=null` 질문을 분리해 기록함. Voice가 출력하지 않는 `question_already_consumed`·`no_active_question` 기대 사유를 제거하고, `UX194-012`는 guard에서 끝나지 않고 실제 LLM 경로에 진입하는 입력과 명시적 테스트 더블 후보로 교체함. 이는 D 평가 자료 정정이며 Voice/Runner 기능 변경이나 실제 평가 완료를 뜻하지 않음.
 - [문서·코드] PR #200 추가 P2를 반영해 `UX194-012`의 LLM 테스트 더블에 실제 `LangChainIntent.schema` 필수 필드인 `response_text`·`rejection_reason`을 명시적 `null`로 추가함. `IntentParser` 주입 전에 실제 어댑터 스키마 검증을 통과해야 하며 그 결과가 `pass`여야 단계가 합격하도록 schema 1.8 / 평가 세트 `0.6-draft` / #194 suite `0.4-draft`로 갱신하고, 정답표 동결 대상도 평가 세트와 같은 `0.6-draft`로 맞춤. 시나리오의 intent·targets·공개 안내·실행 기대 의미는 변경하지 않음.
 - [문서] 이슈 #134의 Voice 진단 정합성 지적에 따라 `issue20_voice_evaluation.json`에 원래 `diagnostic_file` 설정값·실행 cwd·실제 상세 JSONL 경로와 `request_id` 결합, 최상위 `published`와 `interpretation`·`tts_finished` 필드 매핑, 회전 파일·누락 증빙 처리 절차를 추가함. 콘솔·tee는 진행 요약으로만 사용하며 실제 JSONL 샘플 대조·음성 평가와 E 문서 정정·운영 연결 완료는 별도 상태로 유지함.
+- [문서] 이슈 #168의 노드 카드 8건·상황별 시나리오 18건을 `practice/D/issue168/checklist.yaml`에 정리하고, 담당 확인·구현·결정 상태와 근거를 분리함. B의 교시·실측·파라미터 값과 mock·실물 시험 결과는 복제하지 않고 원본 경로 및 Google Sheet 기록으로 분리함.
+- [실측] `tools/sync_issue168_checklist.py`의 YAML 검증과 Google 서비스 계정 인증 dry-run에서 `PASS: 8 node cards, 18 scenarios`와 관리 대상 셀 `NO CHANGES`를 확인함. 실제 `--apply` 쓰기와 담당자 PC 별도 키 검증, 담당 승인 및 mock·실물 시험 완료를 뜻하지 않음.
 
 ## 확정 값 (근거 태그 필수)
 - [문서] #153 P2 준비 범위에 맞춘 [Google 스프레드시트](https://docs.google.com/spreadsheets/d/14-W4kRl2PwarUf2W_R0VB2BggL5sMCX2om0YI2odnTo/edit)를 생성함. 준비현황·실행기준·파트별시험·음성평가·정지복구·미달후속 6개 탭에 파트별 준비 14건, 음성 40문장, 정지·복구 사례 28건을 구성함. 결과는 미실행이며 안전 요구사항 정본은 미확인·반영 보류, 미지원 음성의 unknown/clarify 정답은 미확정임. JSON 자동 동기화나 평가·안전 승인을 뜻하지 않음.
