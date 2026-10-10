@@ -902,7 +902,8 @@ class SkillServer(Node):
             z = max(retreat[2], tr["high_z_mm"])
             pts = [retreat] + ([mp.with_z(retreat, z)] if retreat[2] < z - 0.5 else []) \
                 + [[retreat[0], tr["exit_y_mm"], z] + list(retreat[3:]), list(home_x)]
-            back = self._blend(goal, pts, [r] * (len(pts) - 1) + [0.0], speed["line_mm_s"], "retreat_home")
+            first = min(r, float(oc.get("home_blend_first_mm", r)))   # 빼기 끝 모서리는 작게 — 위 칸 손잡이·앞판에서 먼저 떨어진 뒤 올라가게
+            back = self._blend(goal, pts, [first] + [r] * (len(pts) - 2) + [0.0], speed["line_mm_s"], "retreat_home")
         else:
             back = self._line(goal, retreat, speed["line_mm_s"], "retreat", radius=r)
         res = sf.worse(res, back)

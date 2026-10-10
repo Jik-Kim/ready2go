@@ -1006,7 +1006,7 @@ def test_tilted_close_then_home_retreats_and_goes_home_without_stopping(server):
     kind, pts, radii = log[-1]                                          # 빼기 → 올리기 → 밖으로 → 홈 TCP 를 한 번에
     assert kind == "moveb" and pts[-1] == home_x and len(pts) == 4
     assert pts[1][2] == pytest.approx(tr["high_z_mm"]) and pts[2][1] == pytest.approx(tr["exit_y_mm"]) and pts[2][2] == pytest.approx(tr["high_z_mm"])
-    assert radii[0] > 0 and radii[-1] == 0.0
+    assert radii[0] == pytest.approx(prm["drawer_open_close"]["home_blend_first_mm"]) and radii[1] > radii[0] and radii[-1] == 0.0
     assert ("movej", srv.poses()["home"]["joints_deg"]) not in log
 
 
