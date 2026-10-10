@@ -1341,7 +1341,10 @@ class SkillServer(Node):
                 v = mp.dir_to_base(place["tf"], (sx, sy, 0.0))
                 up = [up[0] + 1000.0 * v[0], up[1] + 1000.0 * v[1]] + list(up[2:])
             r = self.prm()["transit"].get("blend_mm", 0.0)
-            bad = self._blend(goal, [up, list(route[0])], [r, 0.0], self._in_vel(), "lift")
+            # 경유점 1 은 위치만 — 손목은 잡은 방향 그대로 (짧은 옆 구간에서 크게 돌리면 제어기가 출발 안 함 [실측 PC2 10/10 45° 지우개
+            # 들어 올리기 NOT_REACHED]). 원래 방향은 놓으러 갈 때 긴 구간(들고 나오기 1→2)에서 돌아감
+            back = list(route[0][:3]) + list(grasp[3:])
+            bad = self._blend(goal, [up, back], [r, 0.0], self._in_vel(), "lift")
         else:
             bad = self._line(goal, above, self._in_vel(), "lift")
         if bad:

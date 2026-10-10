@@ -228,7 +228,8 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     kind, pts, radii = server.srv.robot.log[-1]                         # 집고 수직으로 테두리 위 → 경유점 1(서랍 중앙)로 수평, 블렌딩 한 번 [사용자 10/08]
     top = server.srv.places()["drawer_top"]
     travel = 1000.0 * (top["tf"]["translation_m"][2] + top["interior_m"][2]) + server.srv.prm()["transit"]["in_drawer_clear_mm"]
-    assert kind == "moveb" and pts[-1] == route[0] and pts[0][2] == pytest.approx(max(travel, route[0][2]))
+    assert kind == "moveb" and pts[-1][:3] == route[0][:3] and pts[0][2] == pytest.approx(max(travel, route[0][2]))
+    assert pts[-1][3:] == pts[0][3:]                                    # 경유점까지 손목은 잡은 방향 그대로 [실측 PC2 10/10]
     assert travel - 0.5 <= route[0][2] <= travel + 5.0                  # 경유점 1 = 테두리 위 조금 (z 300 안 올림) — 교시값이 테두리 + 5 mm 보다 조금 높을 수 있음 [실측 10/10 +6.6 mm]
     server.srv.robot.log.clear()
     out, data = server.run("place_object", {"location": "handover_zone"})
