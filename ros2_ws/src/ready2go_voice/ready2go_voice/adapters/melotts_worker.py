@@ -18,6 +18,7 @@ def cache_key(identity, text):
 def main():
     cfg = json.loads(sys.stdin.readline())
     assets = Path(cfg['assets'])
+    boot_started = time.monotonic()
     try:
         with contextlib.redirect_stdout(sys.stderr):
             import nltk
@@ -34,6 +35,8 @@ def main():
             model = TTS(language='KR', device='cpu', config_path=str(kr / 'config.json'),
                         ckpt_path=str(kr / 'checkpoint.pth'))
             speaker = model.hps.data.spk2id[cfg['tts_melotts_speaker']]
+            model_prepare_sec = time.monotonic() - boot_started
+            print(json.dumps({'event': 'model_prepared', 'model_prepare_sec': model_prepare_sec}), file=sys.__stdout__, flush=True)
             cache = assets / 'wav_cache'
             cache.mkdir(exist_ok=True)
             def digest(path):
@@ -68,10 +71,17 @@ def main():
                 temporary.write_bytes(raw)
                 temporary.replace(path)
                 return raw, False
+            prefill_started = time.monotonic()
             synth(cfg['tts_melotts_warmup_text'])
-            for text in dict.fromkeys(cfg.get('prefill_texts', [])):
-                synth(text)
-        print(json.dumps({'ready': True}), flush=True)
+            texts = list(dict.fromkeys(cfg.get('prefill_texts', [])))
+            for done, text in enumerate(texts, 1):
+                _, hit = synth(text)
+                if done == 1 or done == len(texts) or done % cfg.get('prefill_progress_every', 8) == 0:
+                    print(json.dumps({'event': 'prefill_progress', 'done': done, 'total': len(texts),
+                        'cache_hit': hit, 'elapsed_sec': time.monotonic() - prefill_started}), file=sys.__stdout__, flush=True)
+            prefill_prepare_sec = time.monotonic() - prefill_started
+        print(json.dumps({'ready': True, 'model_prepare_sec': model_prepare_sec,
+            'prefill_prepare_sec': prefill_prepare_sec, 'prepare_total_sec': time.monotonic() - boot_started}), flush=True)
         for line in sys.stdin:
             try:
                 request = json.loads(line)

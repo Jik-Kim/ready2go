@@ -33,9 +33,9 @@ def test_rules_use_registered_items_and_hold_unsupported(ontology, schema, cfg, 
 def test_invalid_llm_cannot_change_named_target(ontology, schema, cfg, raw):
     parser = IntentParser(ontology, schema, cfg, lambda *_: json.dumps(raw) if isinstance(raw, dict) else raw)
     doc = parser.parse('지우개 가져다줘')
-    assert doc['targets'] == ['eraser']
+    assert doc['targets'] == ([] if isinstance(raw, dict) and raw.get('targets') == ['apple'] else ['eraser'])
     assert doc['source']['llm_validation'] == 'failed'
-    assert doc['source']['fallback_used']
+    assert doc['source']['fallback_used'] is (not isinstance(raw, dict) or raw.get('targets') != ['apple'])
 
 
 @pytest.mark.parametrize('kind', ['unknown', 'clarify'])

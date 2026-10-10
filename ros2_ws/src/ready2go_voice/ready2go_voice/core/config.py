@@ -85,6 +85,22 @@ def load_config(path, *, evaluation_mode=None):
                 'llm_model', 'tts_executable', 'tts_voice'):
         if not isinstance(cfg.get(key), str) or not cfg[key].strip():
             raise ValueError(f'{key}: 문자열 필요')
+    cfg.setdefault('dialogue_timeout_sec', None)
+    timeout = cfg['dialogue_timeout_sec']
+    if timeout is not None and (type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0):
+        raise ValueError('dialogue_timeout_sec: null 또는 유한 양수 필요')
+    defaults = {'response_max_chars': 160, 'diagnostic_max_bytes': 10485760,
+                'diagnostic_backups': 3, 'diagnostic_queue_size': 128,
+                'tts_prefill_progress_every': 8, 'tts_prefill_max_texts': 128, 'tts_prefill_max_chars': 160, 'tts_prefill_max_bytes': 65536,
+                'tts_frequent_max_texts': 32, 'tts_frequent_min_uses': 2,
+                'tts_frequent_max_bytes': 1048576}
+    for key, default in defaults.items():
+        cfg.setdefault(key, default)
+        if type(cfg[key]) is not int or cfg[key] <= 0:
+            raise ValueError(f'{key}: 양의 정수 필요')
+    cfg.setdefault('diagnostic_file', 'logs/voice/diagnostic.jsonl')
+    if not isinstance(cfg['diagnostic_file'], str) or not cfg['diagnostic_file'].strip():
+        raise ValueError('diagnostic_file: 경로 필요')
     for key in ('resume_stt_result_timeout_sec', 'place_answer_timeout_sec'):
         cfg.setdefault(key, None)
         value = cfg[key]

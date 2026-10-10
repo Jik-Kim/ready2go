@@ -778,3 +778,19 @@ def test_null_reference_is_not_sent_to_backend():
     assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "VAR_NULL", "s3")
     assert sent == []
     assert result.blackboard["copy"] is None
+
+
+def test_halt_motion_codes_stop_atomic_finally_too():
+    """#78 E 모의 반례 그대로: finally 에 원자 동작 닫기·홈을 둔 태스크에서 place_object 가 OBJECT_DROPPED →
+    예전엔 place → drawer_control → move_to_named_pose, FAILED, 잠김 없음. 이제 ABORTED·잠금, 닫기·홈 안 보냄."""
+    task = {"task_id": "t", "sequence": [{"id": "s1", "action": "place_object", "params": {"location": "handover_zone"}}],
+            "finally": [{"id": "f1", "action": "drawer_control", "params": {"drawer_id": "drawer_top", "state": "close"}},
+                        {"id": "f2", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]}
+    fake = FakeBackend({"place_object": ActionResult(False, error_code="OBJECT_DROPPED")})
+    runner = Runner(fake)
+    result = runner.run(task)
+    assert (result.overall_status, result.error_code, runner.halted) == ("ABORTED", "OBJECT_DROPPED", True)
+    assert [a for a, _ in fake.calls] == ["place_object"]
+    assert runner.run({"task_id": "h", "sequence": [{"id": "s1", "action": "move_to_named_pose",
+                                                     "params": {"pose_name": "home"}}]}).overall_status == "ABORTED"
+    assert [a for a, _ in fake.calls] == ["place_object"]
