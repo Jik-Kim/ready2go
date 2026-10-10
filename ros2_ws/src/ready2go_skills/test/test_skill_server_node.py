@@ -221,7 +221,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     top = server.srv.places()["drawer_top"]
     travel = 1000.0 * (top["tf"]["translation_m"][2] + top["interior_m"][2]) + server.srv.prm()["transit"]["in_drawer_clear_mm"]
     assert kind == "moveb" and pts[-1] == route[0] and pts[0][2] == pytest.approx(max(travel, route[0][2]))
-    assert route[0][2] == pytest.approx(travel, abs=0.5)                # 경유점 1 = 테두리 + 5 mm (z 300 안 올림)
+    assert travel - 0.5 <= route[0][2] <= travel + 5.0                  # 경유점 1 = 테두리 위 조금 (z 300 안 올림) — 교시값이 테두리 + 5 mm 보다 조금 높을 수 있음 [실측 10/10 +6.6 mm]
     server.srv.robot.log.clear()
     out, data = server.run("place_object", {"location": "handover_zone"})
     log = server.srv.robot.log
@@ -1235,7 +1235,8 @@ def test_place_in_drawer_moves_sideways_only_above_rim(server):
     pos_m, _ = plp.place_tcp_m(place["tf"], ASIDE_POSE, 0.02 + pl["drop_m"])
     low = min(lines, key=lambda p: p[2])
     assert low[:3] == pytest.approx([1000.0 * v for v in pos_m], abs=1e-6)   # 쥔 높이 + drop 에서 놓음
-    assert lines[0][2] == pytest.approx(travel_z, abs=1e-6) and lines[-1] == pytest.approx(mp.with_z(waypoint, travel_z), abs=1e-6)   # 먼저 수직으로, 끝은 경유점 위
+    tz = max(travel_z, waypoint[2])                                     # 경유점이 travel_z 보다 높으면 그 높이로 옆 이동 (_travel_z)
+    assert lines[0][2] == pytest.approx(tz, abs=1e-6) and lines[-1] == pytest.approx(mp.with_z(waypoint, tz), abs=1e-6)   # 먼저 수직으로, 끝은 경유점 위
 
 
 def test_place_in_drawer_cancel_before_release_keeps_object(server, monkeypatch):
