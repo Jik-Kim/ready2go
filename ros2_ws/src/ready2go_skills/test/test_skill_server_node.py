@@ -562,7 +562,8 @@ def test_pick_goes_through_drag_down_like_nudge(server):
     assert ("movej", down) in moves
     i = moves.index(("movej", down))
     assert not any(e[0] == "movel" for e in moves[:i])                 # 탑뷰에서 먼저 내려가는 직선(z 300) 없음
-    blend = moves[i + 1]
+    blend = next(e for e in moves[i + 1:] if e[0] == "moveb")           # (손목 각도가 다르면 사이에 J6 만 돌리는 movej) [10/10]
+    assert all(e[0] == "movej" for e in moves[i + 1:moves.index(blend)])
     assert blend[0] == "moveb" and len(blend[1]) == 2                   # y 맞추기 → 목표 위, 한 번에
     assert blend[1][0][1] == pytest.approx(blend[1][1][1])              # 첫 점 = 목표 y
     assert blend[1][1][2] < 300.0                                       # safe_z(300) 로 올리지 않음
@@ -755,22 +756,26 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     assert carry[2] - st["lower"][1] == pytest.approx(10.0 + over)
 
 
-def test_pick_turns_wrist_only_while_going_down(server):
-    """[실측 PC2 10/10] 45° 놓인 지우개: 옆으로 짧게 가며 크게 돌리면 제어기가 출발 안 함 → 옆 구간은 지금 손목 그대로, 내려가며 돌림."""
+def test_pick_turns_wrist_at_waypoint_before_going_down(server):
+    """[실측 PC2 10/10] 45° 놓인 지우개: 옆 구간에서 돌리면 제어기가 출발 안 하고, 내려가며 돌리면 벌린 손가락이 테두리 아래에서
+    벽에 닿음 → 경유점(테두리 위)에서 J6 만 돌려 잡는 각도를 먼저 맞추고, 목표 위 → 내려가기는 손목 그대로."""
     srv = server.srv
+    down = srv.poses()["drag_down"]["drawer_top"]
     server.Gripper.holding = True
     t = json.loads(json.dumps(ERASER_FREE))
     t["pose"]["yaw"] = -0.85
     srv.robot.log.clear()
-    cur = list(srv.robot.p)
     try:
         out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
     finally:
         server.Gripper.holding = False
     assert out.success
-    kind, pts, _ = [e for e in srv.robot.log if e[0] == "moveb"][0]
-    assert len(pts) >= 2 and all(p[3:] == cur[3:] for p in pts[:-1])     # 옆·위 구간은 손목 그대로
-    assert pts[-1][3:] != cur[3:]                                       # 마지막(내려가기)에서만 돌림
+    log = srv.robot.log
+    i = log.index(("movej", down))
+    kind, turned = log[i + 1][:2]
+    assert kind == "movej" and turned[:5] == down[:5] and abs(turned[5] - down[5]) > 1.0   # 경유점에서 J6 만
+    kind, pts, _ = next(e for e in log[i + 2:] if e[0] == "moveb")
+    assert all(p[3:] == pts[0][3:] for p in pts)                        # 목표 위 → 내려가기는 손목 그대로
 
 
 def test_place_stops_where_it_touches_the_floor(server):

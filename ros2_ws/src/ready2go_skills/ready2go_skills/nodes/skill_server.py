@@ -1293,13 +1293,25 @@ class SkillServer(Node):
             # 잡는 손목 방향은 경유점에 도착한 뒤 그 손목 기준으로 (넛지와 같음). 탑뷰(그리퍼 180° 돌림)에서 미리 정하면
             # 경유점에서 손목을 반 바퀴 다시 돌리며 목표로 가 경유점을 안 지나는 것처럼 보임 [사용자 10/08]
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, cur[3:])
+            # 잡는 각도는 경유점(테두리 위)에서 J6 만 돌려 먼저 맞춤 — 내려가며 돌리면 벌린 손가락이 테두리 아래에서 한동안 옆벽 쪽으로
+            # 벌어져 있어 비스듬한 물체 옆 벽에 닿음 [실측 PC2 10/10]. 옆 구간에서 돌리면 제어기가 출발 안 함 [실측 PC2 10/10].
+            # 그리퍼 수직(B 180°)에서 J6 +θ = posx (C − A) +θ [계산 m0609_kin]
+            turn = (grasp[5] - grasp[3]) - (cur[5] - cur[3])
+            turn = (turn + 180.0) % 360.0 - 180.0
+            jnow = self.robot.posj()
+            if abs(turn) > 1.0 and jnow:
+                o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "to_object:turn", in_drawer=True)
+                if not o.success:
+                    return o, None
+                cur = self.robot.posx() or cur
+                grasp = list(grasp[:3]) + list(cur[3:])
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
             # 경유점에서 미리 벌리고(테두리 위 높이라 안 닿음) 테두리 위로 목표 위 → 잡는 높이 1 cm 위까지 블렌딩 한 번 — 목표 위에서 멈춰
             # 벌리고 다시 내려가지 않음 [사용자 10/10 "동작이 너무 많고 복잡"]. 마지막 1 cm 만 천천히 [사용자 10/07]
             self._grip(plan.open_width_m * 1000.0, 20)
             slow_mm = prm["pick"].get("slow_last_mm", 0.0)
             near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
-            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=True)   # 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
+            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=True)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
             above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
