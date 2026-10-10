@@ -338,4 +338,20 @@ def test_round_never_nudged_across_its_axis():
         if p.needed:
             v = (p.shift_x_m, p.shift_y_m)
             assert abs(math.cos(yaw) * v[0] + math.sin(yaw) * v[1]) / math.hypot(*v) >= math.cos(math.radians(30.0)) - 1e-9
-    assert not mp.plan_drag(target=tgt(0.165, 0.040, math.radians(80)), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG).needed   # 긴 변으로 바로
+    p = mp.plan_drag(target=tgt(0.165, 0.040, math.radians(80)), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert p.needed and p.axis == "y" and p.shift_x_m == 0.0                                # 안쪽 벽 가로 + 왼벽에 끝: 축(y) 방향으로만 떼기
+
+
+def test_round_at_any_edge_tilted_toward_that_wall():
+    """[사용자 10/10 "원통형은 아래쪽이든 어디든 가장자리에 있으면 기울여 잡기"] 벽과 나란히 붙은 립밤: 옆벽 → 그 옆벽 쪽,
+    손잡이 쪽 가로 → 손잡이 쪽, 안쪽 벽 가로 → 안쪽 쪽, 아래 칸 깊이 한계 너머 가로 → 안쪽 쪽(뒤로 숙이면 닿음). 넛지 없음."""
+    g = dict(_ag(0.1, 0.1, 0.0)[1], round=True)
+    cases = [((0.10, 0.011, 0.0), (0.0, -1.0)), ((0.10, INTERIOR[1] - 0.004, 0.0), (0.0, 1.0)),
+             ((0.011, 0.15, math.pi / 2), (-1.0, 0.0)), ((INTERIOR[0] - 0.011, 0.15, math.pi / 2), (1.0, 0.0))]
+    for (x, y, yaw), want in cases:
+        assert mp.round_edge_dir(target=tgt(x, y, yaw), size_m=LIP_BALM, interior_m=INTERIOR, g=g) == want
+        p = mp.plan_drag(target=tgt(x, y, yaw), size_m=LIP_BALM, interior_m=INTERIOR, g=g, drag=DRAG)
+        assert not p.needed and p.error_code is None
+    gb = dict(g, reach_x_max_mm=129.0)
+    assert mp.round_edge_dir(target=tgt(0.150, 0.15, math.pi / 2), size_m=LIP_BALM, interior_m=INTERIOR, g=gb) == (1.0, 0.0)
+    assert mp.round_edge_dir(target=tgt(0.10, 0.15, math.pi / 2), size_m=LIP_BALM, interior_m=INTERIOR, g=g) is None   # 가운데

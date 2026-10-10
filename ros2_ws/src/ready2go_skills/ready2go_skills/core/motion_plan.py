@@ -228,6 +228,36 @@ def _round_at_side(target, size_m, interior_m, g):
     return sign, ends_x_blocked
 
 
+def _round_edge(target, size_m, interior_m, g):
+    """원통형이 가장자리(벽과 나란히, 짧은 변이 그 벽에 걸림 / 아래 칸 깊이 한계 너머)면 (기울일 쪽 서랍 방향 (x, y), 긴 변 양끝이 막힘), 아니면 None
+    [사용자 10/10 "립밤 같은 원통형은 아래쪽이든 어디든 가장자리에 있으면 기울여 잡기"]. 옆벽은 _round_at_side 그대로,
+    앞뒤 벽은 가로로 놓였을 때(서랍 y 와 tilt_align_deg 안) — 깊이 한계 너머면 안쪽 벽 쪽으로 (뒤로 20° 숙이면 끝까지 닿음 [사용자 10/10])."""
+    r = _round_at_side(target, size_m, interior_m, g)
+    if r:
+        return (0.0, r[0]), r[1]
+    max_open = g.get("max_open_mm")
+    cx, cy = target["pose"]["position"][:2]
+    yaw = target["pose"]["yaw"]
+    if max_open is None or not _finite(cx, cy, yaw, *size_m[:2], *interior_m[:2]):
+        return None
+    if size_m[0] * 1000.0 + g["open_margin_mm"] > max_open or abs(math.sin(yaw)) < math.cos(math.radians(g.get("tilt_align_deg", 15.0))):
+        return None
+    x_blocked, _, _ = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g.get("pick_wall_margin_mm", g["wall_margin_mm"]))
+    if not x_blocked:
+        return None
+    reach = g.get("reach_x_max_mm")
+    x_mm, d = cx * 1000.0, interior_m[0] * 1000.0
+    sx = 1.0 if (reach is not None and x_mm > reach) or x_mm > d / 2 else -1.0
+    _, ends_lack, _ = _grasp_blocked(cx, cy, yaw + math.pi / 2, [size_m[1], size_m[0]] + list(size_m[2:]), interior_m, g, g["wall_margin_mm"])
+    return (sx, 0.0), ends_lack > 0
+
+
+def round_edge_dir(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[tuple]:
+    """원통형 가장자리 기울여 잡기 방향 (서랍 (x, y), 축 하나만 ±1) — 긴 변 양끝이 막혀 넛지가 먼저면 None."""
+    r = _round_edge(target, size_m, interior_m, g)
+    return r[0] if r and not r[1] else None
+
+
 def round_wall_side(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[float], g: Mapping) -> Optional[float]:
     """원통형(굴러가는 물체)이 옆벽(가생이)에 붙어 짧은 변으로 못 잡으면 그 벽 쪽 부호(−1 = y 0 벽, +1 = y 최대 벽), 아니면 None.
     넛지하면 굴러감 → 넛지 없이 긴 변 양끝을 잡고 그 벽 쪽으로 기울임 [사용자 10/10 PC2 립밤 왼벽 직접교시].
@@ -354,13 +384,20 @@ def _plan_drag_round(*, target: Mapping, size_m: Sequence[float], interior_m: Se
     """원통형(립밤): 굴러가서 축과 다른 방향으로는 넛지하지 않음 [사용자 10/10 "짧은 변 쪽으로 넛지하면 굴러다님"].
     ① 긴 변 양끝으로 바로 잡히면 넛지 없음 ② 옆벽에 나란히 붙음 → 넛지 없이 기울여 잡기 ③ 구석 → 축(서랍 x) 방향으로만
     ④ 그 밖에 넛지가 필요하면 축 방향(30° 안)일 때만, 아니면 멈춤."""
+    e = _round_edge(target, size_m, interior_m, g)
+    if e and not e[1]:
+        return DragPlan(False, None, 0.0, None, e[0][1], 0.0, "원통형이 가장자리에 붙음 — 넛지하면 굴러감 → 긴 변 양끝을 벽 쪽으로 기울여 집기",
+                        axis="y" if e[0][1] else "x", wall_normal_x=e[0][0])
+    if e and e[0][1]:                                       # 옆벽 모서리: 긴 변 방향(서랍 x)으로만 끎 — 짧은 변 방향(y)으로 밀면 굴러감 [사용자 10/10]
+        return _plan_drag_round_corner(target, size_m, interior_m, g, drag, e[0][1])
+    if e:                                                   # 앞뒤 벽 모서리(가로): 긴 변 방향(서랍 y)으로만 — 옆벽에서 떼기
+        cx, cy = target["pose"]["position"][:2]
+        yaw = target["pose"]["yaw"]
+        _, lack, sign = _grasp_blocked(cx, cy, yaw + math.pi / 2, [size_m[1], size_m[0]] + list(size_m[2:]), interior_m, g, g["wall_margin_mm"])
+        return _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, g["wall_margin_mm"], lack, sign,
+                            press_x_lim_mm=g["wall_clearance_mm"]["along_mm"] + g["wall_margin_mm"])
     if long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
         return DragPlan(False, None, 0.0, None, 0.0, 0.0, "원통형 — 긴 변 양끝으로 바로")
-    r = _round_at_side(target, size_m, interior_m, g)
-    if r and not r[1]:
-        return DragPlan(False, None, 0.0, None, r[0], 0.0, "원통형이 옆벽에 붙음 — 넛지하면 굴러감 → 긴 변 양끝을 벽 쪽으로 기울여 집기")
-    if r:                                                   # 모서리: 긴 변 방향(서랍 x)으로만 끎 — 짧은 변 방향(y)으로 밀면 굴러감 [사용자 10/10]
-        return _plan_drag_round_corner(target, size_m, interior_m, g, drag, r[0])
     p = _plan_drag(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=dict(drag, square_to_handle_wall=False))
     if p.needed:
         yaw = target["pose"]["yaw"]

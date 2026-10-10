@@ -1295,8 +1295,8 @@ class SkillServer(Node):
             if ag.drag is not None:                         # 넛지 먼저 / 못 함 — 움직이기 전 거부
                 return sf.Outcome(False, WALL_TOO_CLOSE, reason=ag.reason), None
             wall, long_side = None, True
-        round_side = (mp.round_wall_side(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
-                      if wall and gw["round"] else None)
+        round_side = (mp.round_edge_dir(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+                      if gw["round"] else None)             # 원통형 가장자리 → 넛지 없이 그 벽 쪽 기울여 긴 변 [사용자 10/10]
         if round_side is not None:
             long_side = True
         elif ag is None and gw["round"] and mp.long_side_ok(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw):
@@ -1319,12 +1319,15 @@ class SkillServer(Node):
             fz = mp.from_base(place["tf"], plan.position_m)[2]
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (tilt_x / 1000.0, target["pose"]["position"][1], fz)))
             tilt = ((-1.0, 0.0, 0.0), prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
-        if round_side is not None:                          # 교시 자세 기준: TCP 는 물체 가운데보다 벽 쪽·아래 [실측 사용자 10/10 PC2]
+        if round_side is not None:                          # 교시 자세 기준: TCP 는 물체 가운데보다 벽 쪽·아래 [실측 사용자 10/10 PC2 립밤 왼벽]
             rw = prm["pick"]["round_wall"]
             ox, oy = target["pose"]["position"][:2]
+            vx, vy = round_side
             tz = support + size[2] / 2.0 - rw["tcp_below_center_mm"] / 1000.0
-            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (ox, oy + round_side * rw["tcp_to_wall_mm"] / 1000.0, tz)))
-            tilt = ((0.0, round_side, 0.0), rw["tilt_deg"], "옆벽 쪽", (1.0, 0.0, 0.0))
+            k = rw["tcp_to_wall_mm"] / 1000.0
+            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (ox + vx * k, oy + vy * k, tz)))
+            name = "옆벽 쪽" if vy else ("손잡이 쪽" if vx < 0 else "안쪽 벽 쪽")
+            tilt = ((vx, vy, 0.0), rw["tilt_deg"], name, (1.0, 0.0, 0.0) if vy else (0.0, 1.0, 0.0))
         if ag is not None and ag.tilt_dir is not None:      # 가로로 손잡이 쪽 벽에 붙음: 손잡이 쪽으로 기울이고 손가락은 서랍 y (교시 방향)
             fz = mp.from_base(place["tf"], plan.position_m)[2]
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (*ag.tcp_xy_m, fz)))
