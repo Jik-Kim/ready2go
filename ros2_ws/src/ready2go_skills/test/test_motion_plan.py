@@ -45,9 +45,26 @@ def test_vertical_eraser_in_corner_drags_sideways_35mm():
     assert 0.2827 - 0.011 < p.press_xy_m[1] < 0.2827 + 0.011        # 누르는 TCP 는 지우개 폭 안
 
 
-def test_horizontal_eraser_against_back_wall_not_solved_by_sideways():
+def test_eraser_against_back_wall_drags_toward_handle():
+    """[사용자 10/10] 안쪽(손잡이 반대) 벽에 걸려 짧은 변으로 못 잡으면 안쪽 벽 쪽으로 기울여 눌러 손잡이 쪽(x −)으로 끎."""
     p = mp.plan_drag(target=tgt(0.1887, 0.2675, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
-    assert p.error_code == mp.NO_PUSH_ACCESS
+    assert p.needed and p.error_code is None and p.axis == "x" and p.wall_normal_x == 1.0 and p.shift_x_m < 0
+    assert p.press_xy_m[1] == pytest.approx(0.2675) and p.press_xy_m[0] >= 0.1887 - 1e-9   # 안쪽 벽 쪽(물체 안)에서 누름
+
+
+def test_eraser_against_handle_wall_is_not_pushed_inward():
+    """[사용자 10/10] 손잡이 쪽 벽에 붙은 물체를 안쪽(x +)으로 끌면 서랍이 같이 닫힘 → 넛지 안 함."""
+    p = mp.plan_drag(target=tgt(0.012, 0.15, math.pi / 2), size_m=ERASER, interior_m=INTERIOR, g=G, drag=DRAG)
+    assert p.error_code == mp.NO_PUSH_ACCESS and p.axis == "x" and p.wall_normal_x == -1.0 and "닫" in p.reason
+
+
+def test_bottom_drawer_deep_object_pulled_inside_reach():
+    """아래 칸: 그리퍼 수직으로 닿는 깊이(reach_x_max_mm) 너머면 벽에 안 걸려도 손잡이 쪽으로 — 끈 뒤 가운데가 한계 안."""
+    g = dict(G, reach_x_max_mm=129.0)
+    p = mp.plan_drag(target=tgt(0.150, 0.15, 0.0), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
+    assert p.needed and p.axis == "x" and p.wall_normal_x == 1.0
+    assert 150.0 + p.shift_x_m * 1000.0 <= 129.0
+    assert mp.wall_blocks_grasp(target=tgt(0.150, 0.15, 0.0), size_m=ERASER, interior_m=INTERIOR, g=g)   # 넛지 전 집기는 거부
 
 
 def test_free_object_needs_no_drag():

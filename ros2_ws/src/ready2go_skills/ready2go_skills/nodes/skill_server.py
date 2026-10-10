@@ -1126,7 +1126,8 @@ class SkillServer(Node):
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         size, _ = self.item(target.get("class"))
         g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
-                 wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
+                 wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id),
+                 reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
                "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)
@@ -1138,7 +1139,7 @@ class SkillServer(Node):
         if params.get("check_only"):                          # 재판단인데 아직 끌어야 함 → 집지 않게 멈춤 (runner.md, #83 D 리뷰)
             return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — {plan.reason}"), out
         who, why = self._neighbor(params, drawer_id, lambda objs, nb: nc.drag_blocker(
-            target=target, size_m=size, shift_y_m=plan.shift_y_m, objects=objs, size_of=self._size_or_none,
+            target=target, size_m=size, shift_y_m=plan.shift_y_m, shift_x_m=plan.shift_x_m, objects=objs, size_of=self._size_or_none,
             default_size_m=prm["place"]["default_obstacle_size_m"], margin_mm=nb["margin_mm"], support_m=0.0,
             below_tol_m=nb["below_tol_m"]))
         if why or who:                                      # 끌다가 옆 물체를 밀지 않게 — 움직이기 전 [사용자 10/09 랜덤 배치]
@@ -1146,7 +1147,8 @@ class SkillServer(Node):
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
-        wall = mp.dir_to_base(tf, (0.0, plan.wall_normal_y, 0.0))      # 옆벽 쪽 (base)
+        on_x = plan.axis == "x"                                         # 앞뒤 벽에서 끌기 [사용자 10/10]
+        wall = mp.dir_to_base(tf, (plan.wall_normal_x, 0.0, 0.0) if on_x else (0.0, plan.wall_normal_y, 0.0))   # 누르는 쪽 벽 (base)
         if d.get("close_axis", "object") == "wall":                    # 닫힘 축 = 옆벽 법선 [실측 B 10/06, 지우개 잘 끌림]
             tip_v = d["wall_tip_below_mm"]                             # 기울인 손끝이 TCP 아래 (실측)
             along = wall
@@ -1190,10 +1192,10 @@ class SkillServer(Node):
                 return bad, out
             self.get_logger().warn(f"[nudge_object] {attempt}/{attempts} 실패 ({bad.error_code}: {bad.reason}) — 다시 누르기")
             goal.publish_feedback(Skill.Feedback(stage=f"retry:{attempt + 1}"))
-        shift_y = plan.shift_y_m
-        if d.get("shift_mm"):                               # 누른 높이·각도 그대로 고정 거리만 수평 이동 [사용자 10/07 "3 cm 이동만, 힘만 맞으면 잘 끌림"]
+        shift_y, shift_x = plan.shift_y_m, plan.shift_x_m
+        if d.get("shift_mm") and not on_x:                  # 누른 높이·각도 그대로 고정 거리만 수평 이동 [사용자 10/07 "3 cm 이동만, 힘만 맞으면 잘 끌림"]
             shift_y = math.copysign(d["shift_mm"] / 1000.0, plan.shift_y_m)   # 방향은 계획(옆벽 반대)
-        shift = mp.dir_to_base(tf, (0.0, shift_y, 0.0))
+        shift = mp.dir_to_base(tf, (shift_x, shift_y, 0.0))
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
         # 끄기 직전 힘 0점 다시 [사용자 10/10 "옮기기 직전에 힘값 리셋"] — 힘 맞추기 마지막 측정보다 멈춘 뒤 평균이 안정
@@ -1222,14 +1224,14 @@ class SkillServer(Node):
         bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift"))
         moved = mp.from_base(tf, [v / 1000.0 for v in now[:3]])
         before = mp.from_base(tf, [v / 1000.0 for v in pressed[:3]])
-        dy = moved[1] - before[1]
+        dx, dy = (moved[0] - before[0], 0.0) if on_x else (0.0, moved[1] - before[1])
         after = json.loads(json.dumps(target))
-        after["pose"]["position"] = [target["pose"]["position"][0], target["pose"]["position"][1] + dy, 0.0]
-        out.update(pushed=True, push_vector_m=[0.0, round(dy, 4)])   # floor_z_m: 바닥은 서랍 좌표 z=0
+        after["pose"]["position"] = [target["pose"]["position"][0] + dx, target["pose"]["position"][1] + dy, 0.0]
+        out.update(pushed=True, push_vector_m=[round(dx, 4), round(dy, 4)])   # floor_z_m: 바닥은 서랍 좌표 z=0
         if bad:
             return bad, out                                 # target_after 는 None (실패 결과 좌표로 집지 않음)
         out["target_after"] = after
-        return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 옆으로 {dy * 1000:+.1f} mm 끌기"), out
+        return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 {'앞뒤로 x' if on_x else '옆으로 y'} {(dx or dy) * 1000:+.1f} mm 끌기"), out
 
     # --- 집기 ---
     def _do_pick_object(self, goal, params):
@@ -1257,7 +1259,8 @@ class SkillServer(Node):
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0],
-                                    g=dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id)))
+                                    g=dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
+                                           reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id)))
         if wall:                                            # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0

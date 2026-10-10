@@ -45,17 +45,20 @@ def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, ob
 
 def drag_blocker(*, target: Mapping, size_m: Sequence[float], shift_y_m: float, objects: Sequence[Mapping],
                  size_of: Callable[[str], Optional[Sequence[float]]], default_size_m: Sequence[float],
-                 margin_mm: float, support_m: float, below_tol_m: float, step_mm: float = 5.0) -> Optional[str]:
-    """서랍 y 로 shift_y_m 끄는 동안 물체(+ 여유)가 지나가는 자리와 겹치는, 끄는 쪽 앞의 이웃 id (없으면 None)."""
+                 margin_mm: float, support_m: float, below_tol_m: float, step_mm: float = 5.0,
+                 shift_x_m: float = 0.0) -> Optional[str]:
+    """서랍 (x, y) 로 (shift_x_m, shift_y_m) 끄는 동안 물체(+ 여유)가 지나가는 자리와 겹치는, 끄는 쪽 앞의 이웃 id (없으면 None).
+    앞뒤로 끌기(shift_x_m)는 [사용자 10/10]."""
     x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
-    yaw, shift = target["pose"]["yaw"], shift_y_m * 1000.0
-    if not _finite(x, y, yaw, shift, margin_mm, support_m, below_tol_m, step_mm, *size_m[:2]) or step_mm <= 0:
-        raise ValueError(f"끌기 옆 물체 확인 입력 비정상: {x, y, yaw, shift, size_m}")
+    yaw, sy, sx = target["pose"]["yaw"], shift_y_m * 1000.0, shift_x_m * 1000.0
+    if not _finite(x, y, yaw, sx, sy, margin_mm, support_m, below_tol_m, step_mm, *size_m[:2]) or step_mm <= 0:
+        raise ValueError(f"끌기 옆 물체 확인 입력 비정상: {x, y, yaw, sx, sy, size_m}")
     half = (size_m[0] * 500.0 + margin_mm, size_m[1] * 500.0 + margin_mm)
-    n = max(1, math.ceil(abs(shift) / step_mm))
-    path = [plp.corners(x, y + shift * i / n, yaw, *half) for i in range(1, n + 1)]
+    n = max(1, math.ceil(math.hypot(sx, sy) / step_mm))
+    path = [plp.corners(x + sx * i / n, y + sy * i / n, yaw, *half) for i in range(1, n + 1)]
     for o in _others(objects, target.get("id"), support_m, below_tol_m):
-        if (o["pose"]["position"][1] * 1000.0 - y) * shift <= 0:      # 끄는 쪽 뒤(반대편)는 멀어지므로 안 막음
+        ox, oy = o["pose"]["position"][0] * 1000.0 - x, o["pose"]["position"][1] * 1000.0 - y
+        if ox * sx + oy * sy <= 0:                                    # 끄는 쪽 뒤(반대편)는 멀어지므로 안 막음
             continue
         rect = plp.neighbor_rect_mm(o, size_of(o.get("class")) or default_size_m)
         if any(plp.rects_overlap(p, rect) for p in path):
