@@ -398,14 +398,16 @@ class SkillServer(Node):
             return cur_z
         return max(cur_z, 1000.0 * (tf["translation_m"][2] + inner[2]) + float(clear))
 
-    def _over_then_down(self, goal, drawer_id, cur, above, stage):
+    def _over_then_down(self, goal, drawer_id, cur, above, stage, turn_down=False):
         """서랍 안: (낮으면 수직으로 travel_z 까지) → travel_z 높이로 목표 바로 위까지 수평 → 목표 위(above)로 수직.
-        경유점 높이로 옆으로 가다 비스듬히 내려가면 쌓인 물건에 닿음 [사용자 10/08]. 블렌딩 한 번 (모서리 반지름 blend_mm)."""
+        경유점 높이로 옆으로 가다 비스듬히 내려가면 쌓인 물건에 닿음 [사용자 10/08]. 블렌딩 한 번 (모서리 반지름 blend_mm).
+        turn_down: 손목 방향은 내려가는 구간에서만 바꿈 — 옆으로 가는 구간이 짧은데 많이 돌면 제어기가 블렌딩을 받고도 출발 안 함
+        [실측 PC2 10/10 집기: 16 mm 옆 + 49° 회전 → NOT_REACHED 두 번]."""
         tz = max(self._travel_z(drawer_id, cur[2]), above[2])     # 쌓인 물체 위(above)가 이동 높이보다 높으면 그 높이로 옆 이동
         pts = []
         if tz - cur[2] > 1.0:
             pts.append(mp.with_z(cur, tz))
-        over = [above[0], above[1], tz] + list(above[3:])
+        over = [above[0], above[1], tz] + list(cur[3:] if turn_down else above[3:])
         if math.dist((pts[-1] if pts else cur)[:3], over[:3]) > 1.0:
             pts.append(over)
         if not pts or math.dist(pts[-1][:3], above[:3]) > 1.0:
@@ -1292,7 +1294,7 @@ class SkillServer(Node):
             self._grip(plan.open_width_m * 1000.0, 20)
             slow_mm = prm["pick"].get("slow_last_mm", 0.0)
             near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
-            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over")   # 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
+            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=True)   # 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
             above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)

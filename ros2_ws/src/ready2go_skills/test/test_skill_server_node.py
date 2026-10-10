@@ -753,6 +753,24 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0 + over)
 
 
+def test_pick_turns_wrist_only_while_going_down(server):
+    """[실측 PC2 10/10] 45° 놓인 지우개: 옆으로 짧게 가며 크게 돌리면 제어기가 출발 안 함 → 옆 구간은 지금 손목 그대로, 내려가며 돌림."""
+    srv = server.srv
+    server.Gripper.holding = True
+    t = json.loads(json.dumps(ERASER_FREE))
+    t["pose"]["yaw"] = -0.85
+    srv.robot.log.clear()
+    cur = list(srv.robot.p)
+    try:
+        out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert out.success
+    kind, pts, _ = [e for e in srv.robot.log if e[0] == "moveb"][0]
+    assert len(pts) >= 2 and all(p[3:] == cur[3:] for p in pts[:-1])     # 옆·위 구간은 손목 그대로
+    assert pts[-1][3:] != cur[3:]                                       # 마지막(내려가기)에서만 돌림
+
+
 def test_place_stops_where_it_touches_the_floor(server):
     """[사용자 10/10 "2 mm 위에서 떨구는 느낌"] 놓기 마지막에 z 힘이 touch_n 넘게 변하면 그 높이에서 멈추고 벌림."""
     srv = server.srv
