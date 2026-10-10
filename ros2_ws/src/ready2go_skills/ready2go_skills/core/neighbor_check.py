@@ -28,17 +28,43 @@ def _others(objects, target_id, support_m, below_tol_m):
     return [o for o in objects if o.get("id") != target_id and not _below(o, support_m, below_tol_m)]
 
 
+def _under(obj: Mapping, target: Mapping, size_m: Sequence[float], obj_size_m: Sequence[float], tol_mm: float) -> bool:
+    """이웃이 목표 밑에 깔림: footprint 가 목표 footprint(+ tol_mm) 안에 다 들고 윗면이 목표 윗면보다 낮음 —
+    가림막 밑 지우개·립밤 [P2 시연 시뮬레이션 10/10: 가림막 집기가 밑의 지우개 때문에 NEIGHBOR_TOO_CLOSE].
+    손가락은 목표 바깥 둘레로 내려가므로 밑의 물체와 닿지 않음. top_z 를 모르면 깔렸다고 보지 않음(막는 쪽)."""
+    top, ttop = obj.get("top_z"), target.get("top_z")
+    if not (_finite(top, ttop) and top < ttop - 0.005):
+        return False
+    x, y, yaw = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0, target["pose"]["yaw"]
+    c, s = math.cos(yaw), math.sin(yaw)
+    hl, hs = size_m[0] * 500.0 + tol_mm, size_m[1] * 500.0 + tol_mm
+    for px, py in plp.neighbor_rect_mm(obj, obj_size_m):
+        dx, dy = px - x, py - y
+        if abs(dx * c + dy * s) > hl or abs(-dx * s + dy * c) > hs:
+            return False
+    return True
+
+
 def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, objects: Sequence[Mapping],
                  size_of: Callable[[str], Optional[Sequence[float]]], default_size_m: Sequence[float],
-                 finger_mm: float, margin_mm: float, support_m: float, below_tol_m: float) -> Optional[str]:
-    """집을 때 벌린 손가락 footprint 와 겹치는 이웃 id (없으면 None)."""
+                 finger_mm: float, margin_mm: float, support_m: float, below_tol_m: float,
+                 finger_half_width_mm: Optional[float] = None) -> Optional[str]:
+    """집을 때 벌린 손가락 footprint 와 겹치는 이웃 id (없으면 None).
+    finger_half_width_mm: 손가락 반폭(닫힘 축에 수직) — 주면 손가락이 실제로 내려가는 띠(긴 변 방향으로 이 폭)만 봄.
+    없으면 예전처럼 물체 길이 전체 [P2 시뮬레이션 10/10: 몽키 170 mm 끝 옆 aside 차키까지 막음]."""
     x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
     yaw = target["pose"]["yaw"]
     if not _finite(x, y, yaw, open_mm, finger_mm, margin_mm, support_m, below_tol_m, *size_m[:2]):
         raise ValueError(f"옆 물체 확인 입력 비정상: {x, y, yaw, open_mm, size_m}")   # 로봇 목표로 보내지 않음
-    mine = plp.corners(x, y, yaw, *plp.place_half_mm(size_m, open_mm, finger_mm, margin_mm))
+    hl, hs = plp.place_half_mm(size_m, open_mm, finger_mm, margin_mm)
+    if finger_half_width_mm is not None:
+        hl = min(hl, finger_half_width_mm + margin_mm)
+    mine = plp.corners(x, y, yaw, hl, hs)
     for o in _others(objects, target.get("id"), support_m, below_tol_m):
-        if plp.rects_overlap(mine, plp.neighbor_rect_mm(o, size_of(o.get("class")) or default_size_m)):
+        osz = size_of(o.get("class")) or default_size_m
+        if _under(o, target, size_m, osz, margin_mm):
+            continue
+        if plp.rects_overlap(mine, plp.neighbor_rect_mm(o, osz)):
             return o["id"]
     return None
 

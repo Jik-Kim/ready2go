@@ -149,6 +149,7 @@ place:
   release_extra_mm: 6.0         # 놓을 때 잡은 폭보다 이만큼 더 벌림 (옆 칸 물건과 간섭 줄임, 칸 폭 45 mm)
   approach_m: 0.06              # 놓기 전 위 높이
   slow_last_mm: 10.0            # 놓는 높이 이 거리 전까지는 speed.line_mm_s, 마지막만 grasp_mm_s [사용자 10/07]
+  slot_fit_max_mm: 40.0         # 고정 빈 자리(aside)에 큰 물체(가림막)가 벽·이웃에 걸리면 자리 가운데에서 이 거리 안으로 가장 적게 옮겨(·90° 돌려) 놓음 [P2 시뮬레이션 10/10, 제안]. 0 = 안 옮김
   footprint_margin_mm: 5.0      # [팀 확정 필요] 서랍 안 놓기 footprint 여유 (쥔 물체 size_m + 벌린 손가락(gripper.fingertip_outer_mm) 둘레). 비전 위치 오차 2.5 mm [실측 PC2 10/08, #155] + 놓기 오차 미측정 (#166)
   default_obstacle_size_m: [0.10, 0.10]   # [팀 확정 필요] 서랍 안 놓기: 온톨로지에 치수 없는 이웃 class 의 footprint [긴 변, 짧은 변] m (#166)
 drag:                           # nudge_object 실물: 기울여 손끝으로 눌러 옆으로 끌기 (트러블슈팅 2, #37)

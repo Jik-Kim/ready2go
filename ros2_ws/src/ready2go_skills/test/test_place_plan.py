@@ -139,3 +139,24 @@ def test_place_tcp_matches_pick_frame_conversion():
     floor = pp.to_base(tf, (0.1, 0.15, 0.0))[2]
     pos, long_deg = plp.place_tcp_m(tf, pose(0.1, 0.15, 0.3), g.position_m[2] - floor)
     assert pos == pytest.approx(g.position_m, abs=1e-5) and long_deg == pytest.approx(g.long_axis_deg)
+
+
+def test_fit_slot_moves_big_object_least_inside():
+    """[P2 시뮬레이션 10/10] 고정 자리에 안 들어가는 큰 물체(가림막)는 자리 가운데에서 가장 적게 옮김. 다 막히면 원래 거부 그대로."""
+    def check(p):
+        x = p["position"][0] * 1000.0
+        return None if x >= 55.0 else plp.Refusal(plp.WALL_TOO_CLOSE, "벽")
+    pose = {"frame": "drawer_top", "position": [0.0514, 0.0614, 0.0], "yaw": 0.0}
+    got, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=40.0)
+    assert bad is None and got["position"][0] * 1000.0 == pytest.approx(55.4, abs=0.01) and got["position"][1] == pose["position"][1]
+    got, bad = plp.fit_slot(pose=pose, check=lambda p: plp.Refusal(plp.WALL_TOO_CLOSE, "벽"), max_shift_mm=40.0)
+    assert got == pose and bad.error_code == plp.WALL_TOO_CLOSE
+    got, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=0.0)                       # 0 = 안 옮김
+    assert got == pose and bad is not None
+
+
+def test_bottom_drawer_has_travel_reference():
+    """[P2 시뮬레이션 10/10] 아래 칸 tf_at_travel_m 이 없어 집기·넛지·서랍 안 놓기가 모두 DRAWER_NOT_AT_TRAVEL 이었음."""
+    places = yaml.safe_load((Path(__file__).resolve().parents[4] / "config" / "places.yaml").read_text(encoding="utf-8"))
+    for d in ("drawer_top", "drawer_bottom"):
+        assert places[d]["tf_at_travel_m"] == pytest.approx(places[d]["max_travel_m"])

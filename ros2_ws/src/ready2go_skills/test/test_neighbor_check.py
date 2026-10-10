@@ -51,3 +51,27 @@ def test_bad_input_refused():
     bad = {**ERASER, "pose": {**ERASER["pose"], "position": [float("nan"), 0.15, 0.0]}}
     with pytest.raises(ValueError):
         _pick([], target=bad)
+
+
+def test_objects_under_the_target_are_ignored():
+    """[P2 시뮬레이션 10/10] 가림막(98.5 × 74.2, 높이 40.5) 밑의 지우개·립밤은 손가락 자리 이웃이 아님 — 손가락은 판 둘레로 내려감.
+    판 밖으로 삐져나오거나 판보다 높으면 그대로 막음."""
+    SIZES["cover_plate"] = [0.0985, 0.0742, 0.0405]
+    plate = _obj("cover_plate#1", "cover_plate", 0.110, 0.200, 0.0405)
+    under = _obj("eraser#1", "eraser", 0.095, 0.185, 0.0115)
+    common = dict(target=plate, size_m=SIZES["cover_plate"], open_mm=87.2, size_of=SIZES.get, default_size_m=[0.06, 0.06, 0.06],
+                  finger_mm=13.0, margin_mm=5.0, support_m=0.0, below_tol_m=0.003)
+    assert nc.pick_blocker(objects=[plate, under], **common) is None
+    out = _obj("eraser#1", "eraser", 0.110, 0.250, 0.0115)                  # 판 옆으로 삐져나옴
+    assert nc.pick_blocker(objects=[plate, out], **common) == "eraser#1"
+
+
+def test_finger_band_only_for_long_object():
+    """[P2 시뮬레이션 10/10] 몽키(170 mm) 끝 옆 차키는 손가락(가운데)에 안 닿음 — finger_half_width_mm 를 주면 손가락 띠만 봄."""
+    SIZES["toy_wrench"], SIZES["car_key"] = [0.17, 0.061, 0.0185], [0.0695, 0.039, 0.0158]
+    wrench = _obj("toy_wrench#1", "toy_wrench", 0.105, 0.150, 0.0185)
+    key = _obj("car_key#1", "car_key", 0.035, 0.085, 0.0158, yaw=1.5708)
+    common = dict(target=wrench, size_m=SIZES["toy_wrench"], open_mm=74.0, objects=[wrench, key], size_of=SIZES.get,
+                  default_size_m=[0.06, 0.06, 0.06], finger_mm=13.0, margin_mm=5.0, support_m=0.0, below_tol_m=0.003)
+    assert nc.pick_blocker(**common) == "car_key#1"                          # 예전: 물체 길이 전체
+    assert nc.pick_blocker(finger_half_width_mm=15.8, **common) is None

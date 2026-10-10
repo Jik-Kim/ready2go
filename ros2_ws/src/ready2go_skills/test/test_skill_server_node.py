@@ -1488,3 +1488,28 @@ def test_diagonal_eraser_near_handle_wall_pushed_to_wall(server, monkeypatch):
     assert out.success and data["pushed"] is True
     dx, dy = data["push_vector_m"]
     assert dx < -0.010 and dy == 0.0
+
+
+def test_p2_cover_plate_lifted_off_eraser_and_set_aside(server):
+    """[P2 시연 시뮬레이션 10/10] 가림막 밑 지우개는 손가락 자리 이웃이 아님 → 집힘. aside_1 에 그대로 두면 손잡이 쪽 벽 밖이라
+    자리 안에서 가장 적게 옮겨 놓고(placed_pose = 옮긴 자리), 나중에 넛지 없이 다시 집을 수 있는 자리."""
+    srv = server.srv
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0405,
+             "pose": {"frame": "drawer_top", "position": [0.110, 0.200, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+          "pose": {"frame": "drawer_top", "position": [0.095, 0.185, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": plate, "candidates": [er], "visible_count": 2}
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        out, data = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success and data["grasp_ok"]
+        out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_1", "scan": scan})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success and data["slot"] == "aside_1"
+    slot = srv.places()["drawer_top"]["place_slots"]["aside_1"]["position"]
+    pp = data["placed_pose"]
+    assert 0.0 < math.dist(pp["position"][:2], slot[:2]) <= srv.prm()["place"]["slot_fit_max_mm"] / 1000.0 + 1e-9
+    g = dict(srv.prm()["gripper"], wall_offset_mm=srv.prm()["drawer_wall_offset_mm"]["drawer_top"])
+    assert server.ss.mp.wall_blocks_grasp(target={"pose": dict(pp, yaw_valid=True)}, size_m=srv.item("cover_plate")[0],
+                                          interior_m=srv.places()["drawer_top"]["interior_m"], g=g) is None

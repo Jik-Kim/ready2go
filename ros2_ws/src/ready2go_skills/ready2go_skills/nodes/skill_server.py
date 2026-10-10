@@ -1335,12 +1335,24 @@ class SkillServer(Node):
         g, speed = prm["gripper"], prm["speed"]
         expected_w = (None if long_side else self.grasp_width(cls, size, prm)) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
-        fp_t, fp_s = (({**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}, [size[1], size[0], size[2]])
-                      if long_side else (target, size))                # 손가락 자리: 긴 변 잡기면 90° 돌린 것과 같음
-        who, why = self._neighbor(params, drawer_id, lambda objs, nb: nc.pick_blocker(
-            target=fp_t, size_m=fp_s, open_mm=plan.open_width_m * 1000.0, objects=objs, size_of=self._size_or_none,
-            default_size_m=prm["place"]["default_obstacle_size_m"], finger_mm=g["fingertip_outer_mm"],
-            margin_mm=nb["margin_mm"], support_m=support, below_tol_m=nb["below_tol_m"]))
+        def neighbor(long_, open_m):
+            fp_t, fp_s = (({**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}, [size[1], size[0], size[2]])
+                          if long_ else (target, size))             # 손가락 자리: 긴 변 잡기면 90° 돌린 것과 같음
+            return self._neighbor(params, drawer_id, lambda objs, nb: nc.pick_blocker(
+                target=fp_t, size_m=fp_s, open_mm=open_m * 1000.0, objects=objs, size_of=self._size_or_none,
+                default_size_m=prm["place"]["default_obstacle_size_m"], finger_mm=g["fingertip_outer_mm"],
+                margin_mm=nb["margin_mm"], support_m=support, below_tol_m=nb["below_tol_m"],
+                finger_half_width_mm=g.get("tip_radius_mm")))
+        who, why = neighbor(long_side, plan.open_width_m)
+        if who and not why and not long_side and tilt is None and mp.long_side_ok(
+                target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw) \
+                and mp.front_tilt_x_mm(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw) is None:
+            # 짧은 변 손가락 자리에 이웃 → 긴 변 양끝(손가락이 끝으로 감)이 비면 긴 변으로 [P2 시뮬레이션 10/10: 가림막 밑 지우개 옆 립밤]
+            lplan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"], support_m=support, long_side=True)
+            lwho, lwhy = neighbor(True, lplan.open_width_m)
+            if not lwho and not lwhy:
+                who, long_side, plan = None, True, lplan
+                expected_w = plan.expected_width_m
         if why or who:                                      # 움직이기 전 거부 [사용자 10/09 랜덤 배치]
             return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"벌린 손가락 자리에 {who} — 띄우거나 {who} 먼저 치우기")), None
@@ -1630,9 +1642,26 @@ class SkillServer(Node):
         g, pl, speed = prm["gripper"], prm["place"], prm["speed"]
         size, _ = self.item(self.held["class"])
         open_mm = self.held["width_m"] * 1000.0 + pl["release_extra_mm"]
-        bad = plp.check_place(pose=pose, held_id=held_id, held_size_m=size, open_mm=open_mm, objects=objs,
-                              size_of=self._size_or_none, interior_m=interior, place=pl,
-                              g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
+        gw = dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc),
+                  reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(loc),
+                  max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+                  axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
+                  wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(loc),
+                  round=self.held["class"] in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
+
+        def check(p_):
+            bad_ = plp.check_place(pose=p_, held_id=held_id, held_size_m=size, open_mm=open_mm, objects=objs,
+                                   size_of=self._size_or_none, interior_m=interior, place=pl,
+                                   g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
+            if bad_ or not slot:
+                return bad_
+            # 고정 자리는 나중에 넛지 없이 다시 집을 수 있어야 함(되돌리기) [P2 시뮬레이션 10/10: aside 에 놓은 가림막을 못 다시 집음]
+            dp_ = mp.plan_drag(target={"pose": dict(p_, yaw_valid=True)}, size_m=size, interior_m=interior, g=gw, drag=prm["drag"])
+            if dp_.needed or dp_.error_code:
+                return plp.Refusal(WALL_TOO_CLOSE, f"놓으면 다시 집을 때 넛지 필요 ({dp_.reason})", "wall")
+            return None
+        # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 — 명령한 pose(되돌리기)는 그대로 [P2 시뮬레이션 10/10]
+        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0)
         if bad:
             return refuse(bad.error_code, bad.reason, bad.blocked_by)
         pos_m, long_deg = plp.place_tcp_m(tf, pose, mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"]))
