@@ -9,6 +9,8 @@ import time
 from types import SimpleNamespace
 import uuid
 import pytest
+from jsonschema import Draft7Validator
+from ready2go_voice.adapters.api import LangChainIntent
 from ready2go_voice.core.intent import intent, IntentParser
 from ready2go_voice.core.session import VoiceSession
 from ready2go_voice.core.response import final_response
@@ -180,3 +182,64 @@ def test_targetless_invalid_clarify_console_and_tts_are_safe(node,node_class):
     node.deliver(node.session.text('무슨 말인지 모르겠어',0))
     assert node.texts==[node.cfg['clarify_prompts']['general']]
     assert all('실행을 완료' not in d.get('text','') for d in node.diagnostics)
+
+
+@pytest.mark.parametrize('text,reason,expected', [
+    ('사과 가져와', 'unregistered_item', '그 물품은 지원하지 않습니다.'),
+    ('박수 쳐줘', 'unsupported_request', '그 요청은 지원하지 않습니다.'),
+])
+@pytest.mark.parametrize('evaluation', [False, True])
+def test_schema_reason_reaches_console_tts_and_existing_wire_shape(node, node_class, text, reason, expected, evaluation):
+    raw = {'intent': 'unknown', 'targets': [], 'confidence': .99, 'clarify_question': None,
+           'response_text': '그 물품은 지원하지 않습니다.', 'rejection_reason': reason}
+    Draft7Validator(LangChainIntent(node.cfg, node.parser.items).schema).validate(raw)
+    node.parser.llm = lambda *_: json.dumps(raw)
+    node.cfg['evaluation_mode'] = evaluation
+    class String: pass
+    node_class._publish.__globals__['String'] = String
+    wire = []
+    node.publisher = SimpleNamespace(publish=lambda m: wire.append(json.loads(m.data)))
+    node._publish = lambda doc: node_class._publish(node, doc)
+    doc = node.session.text(text, node.generation)
+    node.deliver(doc)
+    assert doc['intent'] == 'unknown' and doc['targets'] == []
+    assert node.texts == [expected]
+    final = next(d for d in node.diagnostics if d['event'] == 'final_response')
+    messages = []; node.get_logger = lambda: SimpleNamespace(info=messages.append)
+    node_class._diagnostic(node, final)
+    assert messages == [expected]
+    assert bool(wire) is not evaluation
+    if wire:
+        assert set(wire[0]) == {'intent', 'targets', 'confidence', 'source'}
+        assert wire[0]['source'] == doc['source']
+        assert 'rejection_reason' not in wire[0]['source']
+        assert json.loads(wire[0]['source']['llm_raw']) == raw  # existing raw diagnostic retained
+        assert wire[0]['targets'] == [] and not wire[0]['source']['execution_allowed']
+    assert node.session.conversation.pending is None
+
+
+@pytest.mark.parametrize('reply', ['응', '맞아', '그걸로'])
+@pytest.mark.parametrize('state', ['absent', 'expired', 'cancel', 'generation', 'warning'])
+@pytest.mark.parametrize('evaluation', [False, True])
+def test_orphan_reply_node_reasks_without_publishing_old_target(node, node_class, reply, state, evaluation):
+    if state != 'absent':
+        ask(node)
+    if state == 'expired':
+        node.now[0] += node.cfg['dialogue_timeout_sec']
+    elif state == 'cancel':
+        node_class._text(node, SimpleNamespace(data='취소'))
+    elif state == 'generation':
+        node.generation += 1
+    elif state == 'warning':
+        node.observe('halted'); node.observe('idle')
+    node.published.clear(); node.texts.clear(); node.diagnostics.clear()
+    node.cfg['evaluation_mode'] = evaluation
+    doc = node.session.text(reply, node.generation)
+    node.deliver(doc)
+    expected = node.cfg['clarify_prompts']['missing_item']
+    assert doc['intent'] == 'clarify' and doc['targets'] == []
+    assert node.texts == [expected]
+    assert not doc['_voice'].get('context_answer') and 'question_target' not in doc['_voice']
+    assert all(d['intent'] == 'clarify' and d['targets'] == [] for d in node.published)
+    assert bool(node.published) is not evaluation
+    assert node.session.conversation.pending.target is None

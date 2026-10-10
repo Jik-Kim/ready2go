@@ -29,6 +29,12 @@ def normalize_control(text):
     return normalize(text).rstrip('.!?。？！')
 
 
+def is_context_reply(text):
+    """A reply needs a live question; the words themselves grant no target."""
+    return normalize_control(text) in {'응', '네', '예', '맞아', '맞아요', '그걸로',
+                                       '그거', '그거줘', '그걸로해줘'}
+
+
 def intent(kind, targets=(), confidence=1.0, question=None):
     doc = {'intent': kind, 'targets': list(targets), 'confidence': confidence}
     if question:
@@ -144,7 +150,7 @@ class IntentParser:
                 return doc
             if self._nonrequest_context(text):
                 return intent('clarify', question=self.cfg['clarify_prompts']['request'])
-        if not keys and self.ambiguous_request(text):
+        if not keys and (is_context_reply(text) or self.ambiguous_request(text)):
             doc = intent('clarify', question=self.cfg['clarify_prompts']['missing_item'])
             doc['_voice'] = {'asks_delivery_target': True}
             return doc
@@ -164,6 +170,10 @@ class IntentParser:
     def validate(self, raw, text):
         doc = json.loads(raw) if isinstance(raw, str) else dict(raw)
         doc.pop('response_text', None)  # 내부 후보 문장: 공개 계약의 clarify_question과 구분
+        reason = doc.pop('rejection_reason', None)  # API-local, never a public intent field
+        if reason is not None and (not isinstance(reason, str) or
+                                   reason not in ('unregistered_item', 'unsupported_request')):
+            raise InvalidIntent('invalid_rejection_reason', '지원되는 내부 사유 필요')
         if isinstance(doc, dict) and type(doc.get('confidence')) in (int, float) and not math.isfinite(doc['confidence']):
             raise InvalidIntent('nonfinite_confidence', '유한 confidence 필요')
         self.validator.validate(doc)
@@ -184,6 +194,8 @@ class IntentParser:
                 raise InvalidIntent('target_mismatch', '발화에 명시된 물품과 불일치')
         elif targets:
             raise InvalidIntent('targets_on_hold', '실행 보류/제어 intent에는 targets가 없어야 합니다')
+        if reason is not None and doc['intent'] != 'unknown':
+            raise InvalidIntent('rejection_reason_mismatch', 'unknown 보류에서만 사유 사용')
         if doc.get('goals') or doc.get('query'):
             raise InvalidIntent('p1_goal_or_query', 'P1 목표 계획 제외')
         if doc['intent'] in ('cancel', 'status') and not self.control(text):
@@ -196,8 +208,13 @@ class IntentParser:
             # 등록 키/확신도는 사용자의 물품·긍정 요청 확인을 대체하지 않습니다.
             if not self.mentioned(text) or not self._request_context(text):
                 return intent('clarify', question=self.cfg['clarify_prompts']['unconfirmed'])
+        if reason == 'unregistered_item' and self.mentioned(text):
+            raise InvalidIntent('rejection_reason_mismatch', '등록 물품 발화와 미등록 사유 불일치')
         # LLM source는 신뢰하지 않고 진단은 E가 생성합니다.
-        return intent(doc['intent'], targets, doc['confidence'], doc.get('clarify_question'))
+        result = intent(doc['intent'], targets, doc['confidence'], doc.get('clarify_question'))
+        if reason is not None:
+            result['_voice'] = {'reason': reason}
+        return result
 
     def parse(self, text, deadline=None):
         started = self.clock()
