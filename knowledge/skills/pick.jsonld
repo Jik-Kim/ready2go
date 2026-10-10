@@ -47,7 +47,7 @@
           "value": "gripper"
         }
       ],
-      "verify": "gripper_width > min_width AND grasp_detected",
+      "verify": "same_pick_closing_grip_completed AND valid_measured_width_m > 0.010 AND grasp_detected AND lift_held AND communication_ok AND not_interrupted",
       "expand": [
         {
           "action": "move_to_named_pose",

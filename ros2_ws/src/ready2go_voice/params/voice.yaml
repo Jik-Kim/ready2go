@@ -71,3 +71,10 @@ clarify_prompts:
   audio_failure: 음성을 처리하지 못했습니다. 다시 말씀해 주세요.
   no_speech: 다시 말씀해 주세요.
   tts_failure: 음성 안내를 확인하지 못했습니다. 실행을 보류합니다.
+
+# P2 E internal policy only; no Runner/wire adapter enabled.
+pick_verify_lower_bound_m: 0.010 # 사용자 결정: 망치손잡이12.5mm - 여유2.5mm, 엄격 >. B 공용 min_width 대체 아님.
+resume_admission_window_sec: 10.0 # 사용자 결정: 실제 TTS 완료→Whisper SDK 호출 직전, 10.0 포함.
+resume_stt_result_timeout_sec: null # [팀 확정 필요] 별도 유한 처리 예산. 미정이면 내부 접수 거절.
+place_answer_timeout_sec: null # [팀 확정 필요] 미정이면 내부 응답 접수 거절.
+place_max_reasks: null # [팀 확정 필요] 미정이면 모호 응답을 안전측 보류.

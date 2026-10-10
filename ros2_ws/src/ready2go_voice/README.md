@@ -420,3 +420,11 @@ PYTHON
 ## P2 복구 후 재개 확인 — 내부 준비
 
 [문서] `core/recovery_confirmation.py`와 해당 모의 시험은 E 내부 제안이며 ROS·TTS·listener·Runner 실행에 연결하지 않았습니다. 정지/복구/재개 명시 표현과 현재 사건/작업의 질문 1회·유효한 일회성 응답을 준비합니다. 현재 busy/TTS 중 실제 청취 제한은 유지합니다. [요구사항 정본](../../../docs/requirements.md#fr-saf-01)·[처리 경계](../../../docs/voice_llm.md#p2-safety-voice)·[계약안](../../../docs/interfaces.md#p2-safety-proposal)을 확인하십시오. 운영 연결의 책임·검증 기준은 [FR-SAF-03](../../../docs/requirements.md#fr-saf-03)을 참조합니다. #165 병합과 실제 마이크/API·장치 복구/재개 검증은 구분합니다.
+
+## #43·#152 내부 확인 정책 — 운영 미연결
+
+[문서] [사후 검증 정본](../../../docs/requirements.md#verification-policy)·[재개 접수 정본](../../../docs/requirements.md#resume-admission-policy)을 기준으로 core/skill_confirmation.py와 recovery_confirmation.py를 준비합니다. pick/place 판정은 E 내부 후보와 비전/사용자 근거 분류만 반환하고 C effect/로그·성공 안내·모션을 실행하지 않습니다. place 질문에는 이번 run/step의 기대물품별 개수·총개수·목적지를 포함하며 모호 응답은 설정된 재확인 한도 안에서 새 질문 객체로 분리합니다. 미정 대기/횟수는 안전측 보류합니다.
+
+[문서] recovery 정책은 boot 변경·동일 run/halt의 seq·질문/TTS 완료·녹음 시작/끝·SDK 직전 접수·별도 결과 만료·일회성·재정지·포기를 분리합니다. 일반 cancel은 대상 보존이며 포기와 다릅니다. WhisperSTT의 optional before_request와 Recording의 시작/끝 monotonic은 실제 E 프로세스 경계 자료형이지만 운영 Session/노드의 P1 입력/발행에는 연결하지 않았습니다. 기존 progress whisper_requested는 실제 SDK 접수 증빙으로 쓰지 않습니다. 실제 TTS 종료는 PortAudio 완료 증빙이 필요합니다. B unknown이나 처리 예산 미정일 때 운영 재개 요청을 만들지 않습니다.
+
+설정 원본 params/voice.yaml의 내부 값과 null/[팀 확정 필요]를 확인하십시오. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. C v2의 answer enum/질문 등록/프로세스별 clock·hold와 B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.

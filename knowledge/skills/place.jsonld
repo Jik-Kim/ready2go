@@ -41,7 +41,7 @@
           "value": "$to"
         }
       ],
-      "verify": "rescan: $item visible in $to",
+      "verify": "rescan: $item visible in $to; handover normal non-detection requires one-shot current-run expected-items/count/destination user confirmation; unknown/error/interruption is not success",
       "expand": [
         {
           "action": "place_object",

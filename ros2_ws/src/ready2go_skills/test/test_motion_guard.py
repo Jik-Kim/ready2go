@@ -136,3 +136,30 @@ def test_non_finite_or_below_floor_top_z_is_rejected(top_z, height, tol):
 def test_precheck_pick_rejects_nan_everywhere():
     assert _pick(displacement=NAN).error_code == mg.DRAWER_NOT_AT_TRAVEL
     assert _pick({**TARGET, "top_z": NAN}).error_code == mg.NOT_ON_FLOOR
+
+
+# ---- 쌓인 물체 집기 [사용자 10/09, P2 3개 겹침]
+@pytest.mark.parametrize("top_z,ok", [
+    (0.0115, True),                  # 바닥
+    (0.0115 + 0.0435, True),         # 망치 25 + 캐러멜 18.5 위 지우개 — 윗면 55 mm
+    (0.0611, True),                  # 상한과 같음
+    (0.0612, False),                 # 테두리(71.1) − 10 mm 넘음
+    (-0.02, False),                  # 바닥 아래 = 측정 오류
+])
+def test_stacked_pick_allowed_below_cap(top_z, ok):
+    err = mg.precheck_pick(target={**TARGET, "top_z": top_z}, height_m=ERASER_H, displacement_m=TF_AT,
+                           tf_at_travel_m=TF_AT, params=PARAMS, max_top_m=0.0611)
+    assert (err is None) == ok
+    if not ok:
+        assert err.error_code == mg.NOT_ON_FLOOR
+
+
+def test_stacked_refused_without_cap_like_p1():
+    err = mg.precheck_pick(target={**TARGET, "top_z": 0.055}, height_m=ERASER_H, displacement_m=TF_AT,
+                           tf_at_travel_m=TF_AT, params=PARAMS)
+    assert err.error_code == mg.NOT_ON_FLOOR
+
+
+@pytest.mark.parametrize("top_z,support", [(0.0115, 0.0), (0.0125, 0.0), (0.055, 0.0435)])
+def test_support_height(top_z, support):
+    assert mg.support_m({**TARGET, "top_z": top_z}, ERASER_H, 0.01) == pytest.approx(support)

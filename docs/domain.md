@@ -21,7 +21,7 @@
 3. **완전 부재 처리**: 서랍 내부 이동 후에도 정해진 탐색 한도/안전 조건 안에서 목표를 찾지 못하면 미발견 또는 실행 불가를 안내함. 장애물이 서랍 안에 남으므로 서랍이 비워진다고 가정하지 않음.
 
 ### 8.3 스마트 원위치 복구 (Rollback) & 동적 온톨로지 갱신
-* **스마트 복구**: 목표물을 `handover_zone`에 전달한 뒤, 기록을 역순으로 읽어 같은 서랍 안에서 옮긴 장애물을 재관측·재식별하여 **원래 서랍 로컬 좌표**로 복구하는 P2 계획. 복구 직전에 서랍 좌표계를 재추정(현재 인출 거리 반영)하고, 원래 자리 점유 등 안전 조건이 맞지 않으면 임의 위치를 원위치 복구 성공으로 처리하지 않음. 대응은 B·C·E가 검증·합의해야 함. 높이(z): **현재 B `place_object` 서랍 안 놓기는 서랍 바닥만 지원**(#166, [runner.md 7.1](runner.md) `place_object`) — 받치던 물체가 남아 있으면 겹침 검사로 `PLACE_BLOCKED`(움직이기 전), 없으면 바닥에 놓여 원래 높이와 달라짐(C 가 AC-ACT-03 미달로 기록). 다른 물체 위 복구는 [FR-ACT-04](requirements.md#fr-act-04) 목표와의 차이로 **협의 항목**(#134, 완료 아님).
+* **스마트 복구**: 목표물을 `handover_zone`에 전달한 뒤, 기록을 역순으로 읽어 같은 서랍 안에서 옮긴 장애물을 재관측·재식별하여 **원래 서랍 로컬 좌표**로 복구하는 P2 계획. 복구 직전에 서랍 좌표계를 재추정(현재 인출 거리 반영)하고, 원래 자리 점유 등 안전 조건이 맞지 않으면 임의 위치를 원위치 복구 성공으로 처리하지 않음. 대응은 B·C·E가 검증·합의해야 함. 높이(z): **현재 B `place_object` 서랍 안 놓기는 서랍 바닥만 지원**(#166, [runner.md 7.1](runner.md) `place_object`) — 받치던 물체가 남아 있으면 겹침 검사로 `PLACE_BLOCKED`(움직이기 전), 없으면 바닥에 놓여 원래 높이와 달라짐(C 가 AC-ACT-03 미달로 기록). 다른 물체 위 복구는 [FR-ACT-04](requirements.md#fr-act-04) 목표와의 차이로 **협의 항목**(#134, 완료 아님). 서랍 안 놓기 구현은 #191(머지 전까지 main 은 `UNSUPPORTED_PARAMS`로 거부), 실물 미확인, `place_slots`·아래 칸 `drag_down` 교시 전(`PLACE_NOT_CONFIGURED`).
 * **복구 정확도 측정**: 선행 연구에 정량 자료가 없으므로 위치·요(yaw) 오차를 같은 카메라로 직접 측정해 지표로 보고(14장).
 * **동적 온톨로지 업데이트**: 목표 발견 시 `update_ontology`로 명시 갱신하고, 같은 서랍 안에서 옮긴 장애물의 `located_in`은 해당 서랍으로 유지됨. 임시/원래 pose 추적과 관측 기반 상태 반영은 C·E 후속 설계이며 `inspect_region` 호출만으로 자동 갱신 완료를 뜻하지 않음.
 
@@ -29,7 +29,7 @@
 
 | 대상·담당 | 근거·영향·필요 조치 |
 | :--- | :--- |
-| TODO(B·C·E): `place_object`/`inspect_region` 연결 | 서랍 안 놓기 계약안(#120 ②, B 제안·승인 전): `location` 서랍 + `pose`/`slot` + `scan`(`$scan`, `target`·`candidates` 모두 이웃), 이웃·벽 겹침은 움직이기 전 거부, `placed_pose` = 명령한 자리(실제 위치는 재관측) — [runner.md 7.1](runner.md), `contracts/examples/place_object_result.json`. 빈 자리 자동 계산·실패/취소 복구 계약은 아직. 기존 `aside`/`avoid` 제안은 확정 필드로 추가하지 않음 |
+| TODO(B·C·E): `place_object`/`inspect_region` 연결 | 서랍 안 놓기 계약(#166 머지, #120 ② 제안): `location` 서랍 + `pose`/`slot` + `scan`(`$scan`, `target`·`candidates` 모두 이웃), 이웃·벽 겹침은 움직이기 전 거부, `placed_pose` = 명령한 자리(실제 위치는 재관측) — [runner.md 7.1](runner.md), `contracts/examples/place_object_result.json`. B 스킬 서버 구현 10/08(#191 머지 전, `core/place_plan.py`, 실물 미확인, 고정 자리 `place_slots` 교시 전). 빈 자리 자동 계산·실패/취소 복구 계약은 아직. 기존 `aside`/`avoid` 제안은 확정 필드로 추가하지 않음 |
 | TODO(C·E): `tasks/find_with_unpack.json` | 현재 s7.2=`staging_tray`, f1.2=`tray_view`, f1.3=`source_slot`인 이전 예시. 내부 이동/재식별·원래 pose 기록 계약을 반영한 뒤 갱신·검증. 새 좌표를 임의로 넣지 않음 |
 | TODO(C·E): Runner/플래너·온톨로지 | 이미 옮긴 물체의 반복 제거 방지, `restore_stack` 식별/pose·역순 복구, located_in 유지와 pre/effect 의미 대조 필요 |
 | TODO(B·C·A·E): 잔존 `staging_tray` | world/초기상태, places.yaml, vision_stub, ICD TF/region·place, 관련 테스트·로그 예시가 참조함. 승인·소비자 정리 전에 삭제하지 않음. `tray_view`는 전달 트레이 용도 필요 여부를 B가 판단 |
@@ -104,4 +104,4 @@
   * 실패는 태스크로 전파되어 `finally`로 간다. 서랍 닫기·홈·TTS 안내는 Runner 안전 조건을 따른다: ESTOP·잠금이면 움직이는 동작은 건너뛰고, 물품을 쥔 채(놓기 실패 등)면 홈으로 가지 않고 사람 복구를 기다린다.
   * P1 Runner에는 `recovery`가 없어 "다시 보고 다시 집기"를 자동으로 하지 않는다. 호스트 시험 스크립트 `ros2_ws/src/ready2go_skills/scripts/b_sk.py`의 재시도(탑뷰 → 재관측 → 실패한 단계부터 다시, 최대 2회)는 B 실물 시험용이며 Runner 경로가 아니다.
 * **P2 계획 (미구현)**: 실패한 `pick_object` 스텝에 `recovery`로 `move_to_named_pose(drawer_top_view)` → `inspect_region`(출력 `scan`)을 두고 새로 본 `$scan` 좌표로 다시 집는다 (C 확인: Runner는 시도마다 `params`를 그때의 블랙보드로 다시 푼다, #72). ③ 뒤 다시 봐도 목표가 서랍에 없으면 작업대로 떨어진 것으로 보고 TTS로 사람에게 확인을 요청한다(로봇이 작업대를 찾아 집지는 않음). Runner `recovery`·이동 뒤 재시도 허용 조건은 C·E 합의가 필요하다.
-* **값** (`ros2_ws/src/ready2go_skills/params/skills.yaml` `gripper`): 최소 폭 `min_width_m` 2 mm(빈손 닫힘 0.9 mm보다 큼), 미끄러짐 허용 `slip_tolerance_m` 2 mm, 기대 폭 허용 오차 `grasp_width_tolerance_m` 3 mm [실측 B 10/03~10/06, 지우개 기준]. 다른 물품 값은 `[팀 확정 필요]`.
+* **값** (`ros2_ws/src/ready2go_skills/params/skills.yaml` `gripper`): 최소 폭 `min_width_m` 2 mm(빈손 닫힘 0.9 mm보다 큼), 미끄러짐 허용 `slip_tolerance_m` 2 mm, 기대 폭 허용 오차 `grasp_width_tolerance_m` 3 mm [실측 B 10/03~10/06, 지우개 기준]. 집기 성공 하한 `pick_min_width_m` 10 mm(닫은 폭이 이 값 초과, [사용자 결정 10/08, #43] — 망치 손잡이 12.5 − 2.5, 빈손·놓침 2 mm 와 별개). 기대 폭은 외접박스 짧은 변이고, 실제로 잡는 부위가 다른 물품은 `pick.grasp_width_m`(망치 손잡이 12.5 mm, 사용자 제공 — 측정 부위 B 실측 확인 필요). 다른 물품 값은 `[팀 확정 필요]`.
