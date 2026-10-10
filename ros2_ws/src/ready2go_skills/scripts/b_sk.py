@@ -158,7 +158,9 @@ def scan(node, for_pick=False):
         return False
     res = json.loads(r.result_json or "{}")
     if not res.get("target_found"):
-        print("지우개 못 찾음")
+        seen = [f"{c['class']} {[round(v, 4) for v in c['pose']['position'][:2]]}" for c in res.get("candidates") or []]
+        print(f"{TARGET} 못 찾음 — 보인 것 {len(seen)}개: {', '.join(seen) or '없음'} "
+              f"(서랍 밖으로 걸러진 건 비전 창 'skip' 줄)")
         return False
     with open(scan_file(), "w") as fp:
         json.dump(res["target"], fp)
