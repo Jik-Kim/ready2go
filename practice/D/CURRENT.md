@@ -20,6 +20,13 @@
 - [문서] #153 스프레드시트의 C-01을 PR #164 병합 결과(`find_item` s5.1·`p1_demo_eraser` s3·플래너 기본 `pick=70`, SHA `908718a`)에 맞추고, `04_정지복구`의 중복 머리글 `J5:K5`·`AI35:AQ35`를 제거함.
 - [문서] #152 C v1 보충안의 `boot_id`·`seq`·`stamp`, 재기동 세대 무효화·오래된 상태 폐기·재개 응답 재검사·`RESUME_EXPIRED`와 E의 TTS 실패·지연·재생 중 요청·자기 음성 사례를 `04_정지복구`에 반영함. 사례표는 28건이며 C·E 확인·계약 승인·모의/실물 시험 완료를 뜻하지 않음.
 - [문서] #153 추가 보완 범위만 반영해 파트별 준비를 14건으로 확장하고, 음성 완료 기준 요약·cancel/status 보조 시험, 정지·복구 TTS 실패·지연·재생·자기음성 전용 기록 열, 담당 수락·선행 조건 현황을 추가함. 기존 시험 결과와 완료 판정은 변경하지 않음.
+- [문서] 사용자 지시, 음성 정책 정본과 이슈 #194 결정 `E-VOICE-UX-20261009-01`을 기준으로 기존 40문장 AC-INT-01 평가 분모는 유지한 채 `issue20_voice_evaluation.json`을 schema 1.8 / `0.6-draft`로 확장함. 인용형 전체 요청, 부정·번역·설명 예문, 현재 질문의 일회성 소비, 대상 정정, 취소·새 요청·만료·재시작, 가능 여부 질문, 미등록·미지원·Runner 태스크 미지원 원인, 최종 문장·화면·TTS 일치, TTS·발행 실패/취소 경합, 내부 LLM 응답·공개 확인 안내 분리의 12개 #194 회귀 시나리오를 별도 필수 세트로 추가함. 무효 문맥은 `clarify`·빈 targets·과거 대상 미복원으로 고정하고, controlled context와 실제 audio motionless 결과를 분리함. 진단 파일·Runner 수락·별칭 원본은 담당 경계를 넘는 D 시나리오로 만들지 않고 외부 검증 상태·증빙으로만 연결했으며 D·E 수락·버전 동결·실행 결과는 아직 아님.
+- [문서] PR #200 1차 검토를 반영해 모든 expected 판정 필드와 화면·TTS 응답 일치가 시나리오·suite 합격을 좌우하도록 채점 규칙을 연결했으며, 첫 DAC 전 TTS 실패는 시작 시각·지연을 `null`/`not_measured`로 기록해 AC-INT-03 성공으로 집계하지 않도록 분리함. 이는 Runner 지원 추가나 실제 평가 완료를 뜻하지 않음.
+- [문서] PR #200 재검수에서 Voice 발행과 Runner 보류를 하나의 게이트로 채점한 P1을 정정함. controlled 트랙은 `voice_execution_allowed`·Voice 발행 시도·C IntentRouter 입력/결정/원본 사유·평가용 사유 정규화·실제 로봇 동작 시도를 분리하고, 등록 비지우개도 Voice 발행 1회 뒤 C가 `UNSUPPORTED_ITEM`으로 보류하도록 기록함. actual audio motionless 트랙은 실제 발행·Runner 입력·로봇 동작 0회를 유지함. #194 승인 예문은 `find_item`·`toy_hammer`로 해석하며 실제 시험 미완료 상태는 그대로 구분함.
+- [문서] 같은 재검수의 P2·정합성 지적을 반영해 현재 질문 결합 문구를 구현이 정확히 인식하는 `그걸로`, 취소 문구를 설정 원본의 `취소`로 맞추고, 미등록 물품·미지원 요청의 공개 최종 문장을 런타임 상수와 마침표까지 일치시킴. 기준 snapshot은 병합된 PR #198 최종 head `2296b5d`와 merge commit `667f0b8`로 갱신했으며 ontology·task 원본 해시는 재계산 결과 변동 없음.
+- [문서·실측] PR #200의 C 회신을 반영해 `external_verification.runner_acceptance`를 C 문서·모의 확인 완료/E 확인 대기로 갱신함. C는 head `238ae08`의 Runner 입력 기대 31건을 main `d52c1bb` IntentRouter와 대조해 불일치 0건 및 보류 시 실행 미시도를 확인했으며, 실제 Voice payload 형태·hold/reject DB 기록·실물 로봇·실제 웨이크/STT는 미검증으로 유지함.
+- [문서·코드] PR #200 최신 E 재리뷰의 P2 3건을 반영함. 대상 정정은 현재 질문의 답으로 즉시 `find_item` 확정되도록 고치고, 소비·취소·대체·만료·재시작 뒤 문맥 없는 응답은 과거 질문 종결 상태와 TTS 성공 후 새 `target=null` 질문을 분리해 기록함. Voice가 출력하지 않는 `question_already_consumed`·`no_active_question` 기대 사유를 제거하고, `UX194-012`는 guard에서 끝나지 않고 실제 LLM 경로에 진입하는 입력과 명시적 테스트 더블 후보로 교체함. 이는 D 평가 자료 정정이며 Voice/Runner 기능 변경이나 실제 평가 완료를 뜻하지 않음.
+- [문서·코드] PR #200 추가 P2를 반영해 `UX194-012`의 LLM 테스트 더블에 실제 `LangChainIntent.schema` 필수 필드인 `response_text`·`rejection_reason`을 명시적 `null`로 추가함. `IntentParser` 주입 전에 실제 어댑터 스키마 검증을 통과해야 하며 그 결과가 `pass`여야 단계가 합격하도록 schema 1.8 / 평가 세트 `0.6-draft` / #194 suite `0.4-draft`로 갱신하고, 정답표 동결 대상도 평가 세트와 같은 `0.6-draft`로 맞춤. 시나리오의 intent·targets·공개 안내·실행 기대 의미는 변경하지 않음.
 - [문서] 이슈 #134의 Voice 진단 정합성 지적에 따라 `issue20_voice_evaluation.json`에 원래 `diagnostic_file` 설정값·실행 cwd·실제 상세 JSONL 경로와 `request_id` 결합, 최상위 `published`와 `interpretation`·`tts_finished` 필드 매핑, 회전 파일·누락 증빙 처리 절차를 추가함. 콘솔·tee는 진행 요약으로만 사용하며 실제 JSONL 샘플 대조·음성 평가와 E 문서 정정·운영 연결 완료는 별도 상태로 유지함.
 
 ## 확정 값 (근거 태그 필수)
@@ -38,7 +45,7 @@
 
 ## 다음 할 일
 - [문서] 2026-10-07: P3 PC·모바일 웹 대시보드 제안 [#112](https://github.com/Jik-Kim/ready2go/issues/112)을 목업과 함께 등록하고, 최신 작업 상세 목업까지 기존 `web/` 시제품에 반영함. 이벤트 기록은 제외했으며 기존 P1 표시 이슈 #59와 구분함. 연동 담당·계약·일정은 협의 전이고 구현 완료를 의미하지 않음.
-- [ ] E와 이슈 #20 정답표를 승인하고 `evaluation_set_version`을 고정
+- [ ] E와 이슈 #20 기본 정답표 및 #194 회귀 시나리오를 승인하고 `evaluation_set_version`·`suite_version`을 고정
 - [ ] 화자 ID별 발화 배정·녹음 형식·보관 경로를 반영
 - [ ] 모션 없는 40문장 평가 결과와 미달 기록 입력
 
