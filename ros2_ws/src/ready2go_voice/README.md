@@ -1,6 +1,33 @@
 # ready2go_voice
 
 - **담당**: E 고희태. 웨이크워드·STT·P1 단일 물품 LLM 해석/검증·규칙 폴백·TTS.
+
+## P2 실음성 더미 준비
+
+[문서: 준비 단계] [p2_voice_dummy.py](tools/p2_voice_dummy.py)는 기본 명령에서 구성만 확인합니다. `--serve-local`은 기존 격리 시험 도메인 166·localhost에서 실제 VoiceNode를 유지하지만, 임시 설정의 audio=false·평가 모드·기존 opt-in=false와 STT/LLM 차단·무재생 TTS를 사용합니다. 제품 설정/게이트를 수정하지 않고 `/voice/intent`, `/voice/text_override`, `/runner/status`, `/voice/speak`를 `/e_p2_dummy/` 아래로 remap합니다. C/B/모션·DB는 시작하지 않습니다. Ctrl+C로 종료하며 `--smoke-local`은 같은 노드의 생성·종료만 확인합니다.
+
+저장소 루트에서 준비 명령은 다음과 같습니다. 이 명령은 secrets를 source하지 않으며 실제 녹음·외부 호출·재생을 하지 않습니다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PYTHONPATH"
+.venvs/project/bin/python ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py
+.venvs/project/bin/python ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-local
+```
+
+[문서: 명시 live 단계] `create_live_voice`는 승인 bool 기본false·승인 hostname 미지정이면 거절합니다. `--serve-live`에서만 이 factory와 `LiveDummyBridge`를 격리 executor에 추가합니다. `logs/voice_eval/voice.local.yaml`과 `load_dotenv('secrets/voice.env', override=False)`를 재사용하고, STT/LLM의 실제 SDK hostname이 모두 `api.openai.com`인지 확인한 뒤 기존 실제 SharedInput·Whisper·LLM·Melo를 주입 대체 없이 사용합니다. HF/Transformers는 offline으로 기존 모델만 사용합니다. bridge의 명시 모의 current source callable과 계약07 수락/run·speak action을 연결하며, VoiceNode의 DAC 시작/재생 완료 검사를 통과한 action 성공 및 현재 세대/run이 유지될 때만 **더미** 첫 동작을 기록합니다. `complete` 입력 시 현재 첫 동작을 재검사한 뒤 더미 완료를 기록하며 실제 로봇 결과가 아닙니다. 트레이 질문·등록/결과 fixture, typed 정지 work·복구 질문/등록/독립 등록도 `dummy_assumption=true` 로그로 구분합니다. typed recover/candidate는 로그만 남기며 잠금 해제·모션을 하지 않습니다. 기한·revision·증빙은 시나리오 호출자가 지정하며 새 wire/시간 한계를 만들지 않습니다.
+
+[실측: 읽기 전용 준비 확인, 2026-10-11] 실제 local YAML은 audio=true, fixed, 16kHz, Melo 속도1.2, whisper-1/gpt-4o이며 입출력 장치 `None`은 시스템 기본 선택입니다. 지정 wake/Melo Python/ontology/schema 파일이 있고 지정 assets에 WAV109개가 있습니다. 파일 수는 현재 캐시 준비/재생 성공의 증거가 아닙니다. secrets 파일에는 키가 있으나 키 내용은 조회 결과에 출력하지 않았습니다. 현재 프로세스 환경 우선·dotenv override=false를 고려해 외부 요청 없이 만든 STT/LLM SDK의 hostname은 모두 `api.openai.com`입니다. 환경 override가 바뀌면 실행 직전 hostname을 다시 확인해야 합니다. 샌드박스 장치 metadata 조회는 빈 목록이며 호스트 장치 부재로 단정하지 않습니다.
+
+[문서: 실행 승인] 지시 세션이 조율 사용자 원문 “승인하고 실음성 시험 진행”을 확인했습니다. 승인 내용은 짧은 시험 WAV/물품 prompt를 Whisper(`api.openai.com/v1/audio/transcriptions`)로, 전사문/물품 목록/질문 문맥/정책을 같은 hostname의 LLM으로 전송하는 것입니다. 시험 발화는 “망치 가져다줘”·미지원 물품·질문 답변·“멈춰”·복구/재개/종료로 한정합니다. 사람의 발화가 없으면 통과로 기록하지 않습니다. 아래 명령은 마이크·유료 API·Melo 준비/재생을 실행하는 별도 단계입니다. `live_factory_started`는 스트림/녹음 성공 증거가 아니며 실제 ready·진단을 확인합니다.
+
+```bash
+# 위와 동일한 ROS/source PYTHONPATH 준비 후, 승인된 시험 발화만 입력
+.venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-live --config-file logs/voice_eval/voice.local.yaml
+```
+
+순서는 요청 발화→수락 fixture→실제 speak 성공→`dummy_first_action_after_real_speak_success`→stdin `complete`→같은 run 더미 완료입니다. 미지원 요청은 첫 동작0을 확인합니다. 트레이는 stdin `tray 100`(승인 전체100초의 명시 fixture) 후 질문 재생 완료·새 발화 “네”/“아니요”/모호 응답을 관측합니다. `tray_complete`/`tray_partial`은 실제 관측이 아닌 명시 결과 fixture입니다. 처리/TTS 중 “멈춰”는 웨이크 없이 발화하며 수신 cancel과 실제 물리 정지를 구분합니다. 안전은 `stopped`의 모의 typed work/증빙 후 `question <기한초>` 또는 `independent`와 실제 새 “복구해”/“재개해”/“작업 종료해” 발화를 관측합니다. 질문 기한은 입력한 fixture 값이며 새로운 운용 제한이 아닙니다. 후보는 로그로만 기록합니다. stdin에는 명령만 입력하고 실제 발화를 텍스트로 대체하지 않습니다. `exit`/Ctrl+C로 스트림·worker·executor를 종료합니다. [FR-INT-02](../../../docs/requirements.md#fr-int-02)·[AC-SAF-02](../../../docs/requirements.md#ac-saf-02)·[AC-SAF-04](../../../docs/requirements.md#ac-saf-04)의 실제 C/물리 수용 완료와 구분합니다.
 - **정본**: [requirements.md](../../../docs/requirements.md)의 [FR-INT-01–03](../../../docs/requirements.md#fr-int-01)·[음성 정책](../../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../../docs/requirements.md#ac-int-01), P2 [FR-SAF-01–03](../../../docs/requirements.md#fr-saf-01), P3 [FR-INT-02](../../../docs/requirements.md#fr-int-02). 의미·정책·책임·Phase·수용 기준을 이 문서에서 재정의하지 않습니다. [voice_llm.md](../../../docs/voice_llm.md)·[interfaces.md](../../../docs/interfaces.md)·[ontology.md](../../../docs/ontology.md)는 연결 참조입니다.
 - [문서] 이 패키지 구현과 실제 장치/API·C 수신·D 평가 완료는 구분합니다. P2 목표 계획/BFS, P3 목록, 새 OntologyManager, 실행 상태 저장소/DB 로거는 구현 범위 밖입니다.
 
