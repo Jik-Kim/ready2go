@@ -1761,3 +1761,35 @@ def test_pick_height_by_tip_table_without_touch(server):
     assert out.success, out.reason
     closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)
     assert closed_tip == pytest.approx(prm["pick"]["touch_floor"]["clear_mm"], abs=0.1)
+
+
+def test_long_side_grasp_accepts_slightly_skewed_box_width(server):
+    """[실측 PC2 10/11] 캐러멜(버니어 75 × 49, #8) 긴 변 양끝 — 비전 각도 약 6° 틀려 비스듬히 물려 79.7 → WIDTH_MISMATCH 였음.
+    긴 변 잡기는 long_side_yaw_slack_deg 만큼 비스듬한 폭까지 허용, 그보다 크면 여전히 실패."""
+    srv = server.srv
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1268, 0.1649, 0.0], "yaw": 1.5708, "yaw_valid": True}}
+    for width, ok in ((79.7, True), (86.0, False)):
+        srv.held = None
+        server.Gripper.holding, server.Gripper.held_width = True, width
+        out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+        assert out.success == ok, out.reason
+        assert ok or "WIDTH_MISMATCH" in out.reason
+
+
+def test_cover_plate_gripped_at_plate_height_not_floor(server):
+    """[실측 A 10/03, #8] 덮개 판은 다리 볼트 위 판(아랫면 21, 두께 8 mm) — 바닥 찍은 뒤 닫은 손끝을 판 가운데(25 mm)에."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    g = srv.prm()["gripper"]
+    target = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0405,
+              "pose": {"frame": "drawer_top", "position": [0.11, 0.18, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    tf = srv.places()["drawer_top"]["tf"]
+    open_tip = mp.tip_below_tcp_mm(74.2 + g["open_margin_mm"], g)
+    srv.robot.force = lambda p: [0.0, 0.0, max(0.0, -8.0 * (mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0 - open_tip)),
+                                 0.0, 0.0, 0.0]                         # 벌린 손끝이 바닥에 닿으면 힘
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(74.2, g)
+    assert 23.0 < closed_tip < 26.0                                     # 판(21~29) 가운데 25

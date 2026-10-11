@@ -476,7 +476,8 @@ class SkillServer(Node):
         now = self.robot.posx()
         if now is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
-        lift = max(0.0, mp.tip_below_tcp_mm(close_mm, g) - mp.tip_below_tcp_mm(open_mm, g)) + float(cfg.get("clear_mm", 2.0))
+        clear = float((cfg.get("tip_above_floor_by_class_mm") or {}).get(target.get("class"), cfg.get("clear_mm", 2.0)))   # 덮개 판은 판 높이 [#8]
+        lift = max(0.0, mp.tip_below_tcp_mm(close_mm, g) - mp.tip_below_tcp_mm(open_mm, g)) + clear
         self.get_logger().info(f"[pick_object] 바닥 {'닿음' if touched else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} (교시 바닥 {floor:.1f}, "
                                f"벌림 {open_mm:.1f} mm 손끝 표 {-tip:+.1f} mm) → {lift:.1f} mm 올려 닫음")
         return self._line(goal, mp.with_z(now, now[2] + lift), self._in_vel(), "touch_up")
@@ -1606,7 +1607,8 @@ class SkillServer(Node):
         elif touch_cfg.get("by_tip_table") and down and round_side is None:
             # 찍지 않고 계산 [사용자 10/11 "벌림에 따라 높이 다르게"]: 닫은 손끝(잡는 폭)이 바닥(받침) 위 clear_mm — 손끝 표 정확해야 함
             floor_mm = 1000.0 * pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
-            grasp = mp.with_z(grasp, floor_mm + float(touch_cfg.get("clear_mm", 2.0)) + mp.tip_below_tcp_mm(expected_w * 1000.0, g))
+            clear = float((touch_cfg.get("tip_above_floor_by_class_mm") or {}).get(cls, touch_cfg.get("clear_mm", 2.0)))
+            grasp = mp.with_z(grasp, floor_mm + clear + mp.tip_below_tcp_mm(expected_w * 1000.0, g))
             now_z = self.robot.posx()[2]
             if slow_mm > 0 and grasp[2] + slow_mm < now_z - 1.0:
                 bad = bad or self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
@@ -1619,8 +1621,12 @@ class SkillServer(Node):
         force = float(params.get("grip_force") or grip_force or g["default_grip_force_n"])
         goal.publish_feedback(Skill.Feedback(stage="close"))
         st = self._grip(0, force)
+        tol = g["grasp_width_tolerance_m"]
+        if long_side:                                       # 긴 변 양끝: 비전 각도가 조금 틀리면 비스듬히 물려 폭이 커짐 [실측 PC2 10/11 캐러멜 79.7/75 ≈ 6°]
+            th = math.radians(prm["pick"].get("long_side_yaw_slack_deg", 0.0))
+            tol += max(0.0, size[0] * math.cos(th) + size[1] * math.sin(th) - size[0])
         chk = gc.check_grasp(width_m=st.width_mm / 1000.0, grasp_detected=st.grip_detected, min_width_m=pick_min_w,
-                             expected_width_m=expected_w, width_tolerance_m=g["grasp_width_tolerance_m"])
+                             expected_width_m=expected_w, width_tolerance_m=tol)
         if not chk.ok:
             self._grip(plan.open_width_m * 1000.0, 20)
             back = self._line(goal, above, self._in_vel(), "lift")
