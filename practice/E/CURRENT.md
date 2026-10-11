@@ -5,6 +5,14 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## 공동 계약07 E 원본 초안 — E-C-REQUEST-RUN-WIRE-20261011-07
+
+- [문서: 승인·Git] 상위 인간 turn `01a1292c-e625-7c40-a46b-abab4f8fac37`의 “승인”과 직전 C 구체안, [승인 기록](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594)·[C 제안](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105074716)을 직접 대조했습니다. 기존 root의 추적 clean·PR217 `8a83b124f6dae4f09b8f14f8ef7a94852d57d8be`에서 지시 세션의 통상 Git 선택에 따라 `codex/e-c-request-run-contract-20261011`을 생성했습니다. PR217과 기존 E PR ref는 변경하지 않았습니다. 미추적 모델 이력의 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존·커밋 제외합니다.
+- [문서: E 범위] 승인 의미를 [정본](../../docs/requirements.md#acceptance-tts-policy)에 반영하고 intent 스키마에 두 선택 필드만 추가했습니다. 기존 required·enum·confidence·targets/goals는 유지하며 E 예시 두 파일에 필드만 추가했습니다. [공동 ICD](../../docs/interfaces.md#request-run-contract)의 E 발신 원본 구간과 Voice 문서의 승인/원본 준비/운영 미연결 구분을 정리했습니다. 기존 goal 예시는 공개 형식 예시로 보존했으며 선정 catalog나 목표 발행 지원을 주장하지 않습니다.
+- [미완료: C 합류] C 소유 `contracts/examples/runner_status.json`·`docs/runner.md`와 ICD 5.3의 C 수신·상태·결과 구간은 C 최소 커밋으로 합류해야 합니다. C `feat/c-status-contract` 전체는 병합/cherry-pick하지 않았고 C/B 코드·태스크·운영 adapter를 편집하지 않았습니다. E 초안 commit/push 뒤 E 편집을 중지하고 같은 브랜치를 인계합니다. C 합류 전에는 PR 생성·동일 계약 PR 완료·공동 검증 완료로 처리하지 않습니다. E 기존 승인과 C 원본 검토·계약 합류·운영 구현·실물 검증은 별개입니다.
+- [실측: E 초안 정적] `python3 tools/validate_contracts.py` OK. intent 예시2개·추가 전 P1 예시2개·유효 입력6개·빈 ID/타입 오류7개를 jsonschema로 대조했습니다. 두 새 속성을 제외한 전체 스키마와 두 예시의 기존 내용이 PR217 기준과 동일함을 확인했습니다. 변경5문서 로컬 링크/앵커375개·공백 검사 통과입니다. 기존 예시를 읽는 `tools/validate_contracts.py`는 수정하지 않았고 별도 생성기는 검색에서 발견되지 않았습니다.
+- [문서: 검증 계획] 계약 검증기·기존 intent 예시·P1 필드 누락 호환·두 선택 필드 타입/빈 ID·문서 원본 참조를 좁게 대조합니다. 코드 변경 없는 E 초안 단계의 전체 pytest/build/CI는 실행하지 않습니다. 최종 전체 CI는 C 소유 최소 커밋과 ICD가 합류한 계약 PR 최종 head에서 한 번 실행합니다. 중복/빠른 완료/TTS 성공의 운영 모의·실음성·실물 결과는 이번에 검증하지 않습니다.
+
 ## E 타이머·반복 검사 축소 — E-P2-SAFETY-TRIM-20261011-06
 
 - [문서: 승인·Git] 상위 인간 turn `01a1290f-14f1-73b3-a7d7-9ed08ac75208`의 E 한정 대체안과 후속 turn `01a12928-54e1-7981-9180-23c0dadbd7a5`의 “반복 검사 줄이는 안까지 같이 진행해” 원문을 직접 확인했습니다. 기존 root의 추적 clean·PR209 `929565a8c1c5ab58569eea877b6ecf7a2c4c8f53`에서 지시 세션이 통상 Git 선택으로 지정한 `codex/e-p2-safety-trim-20261011`을 생성했습니다. 인간이 브랜치 이름을 지정했다고 기록하지 않습니다. 완료 PR207~209는 수정하지 않습니다. 미추적 모델 파일 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존·커밋 제외합니다.
