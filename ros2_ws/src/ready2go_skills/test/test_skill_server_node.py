@@ -1644,3 +1644,32 @@ def test_open_bottom_drawer_tolerates_stronger_start_resistance(server, monkeypa
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
     out, _ = server.run("drawer_control", {"drawer_id": drawer, "state": "open"})
     assert (out.error_code == "DRAWER_STUCK") if stuck else out.success, out.reason
+
+
+def test_nudge_pushes_from_behind_to_handle_wall(server, monkeypatch):
+    """[사용자 10/11 PC2] 손잡이 쪽 벽 근처 비스듬한 지우개 — 위에서 눌러 끌면 미끄러져 덜 돎 → 뒤에서 닫은 손가락 옆면으로 벽까지 밂.
+    물체 뒤에서 수직으로 내려가(손끝 바닥 위 3 mm) → 수평으로 손잡이 쪽 → 옆 힘 5 N 넘으면(벽) 멈춤 → 올라감. target_after 는 벽과 나란히."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    tf = srv.places()["drawer_top"]["tf"]
+    target = {"id": "eraser#1", "class": "eraser", "top_z": 0.013,
+              "pose": {"frame": "drawer_top", "position": [0.0314, 0.0388, 0.0], "yaw": -1.1321, "yaw_valid": True}}
+    stages, wall_x = [], 0.040                                           # 가짜 벽: TCP 가 서랍 x 40 mm 까지 오면 옆 힘
+    srv.robot.force = lambda p: ([6.0, 0.0, 0.0, 0.0, 0.0, 0.0] if stages and stages[-1] == "push"
+                                 and mp.from_base(tf, [v / 1000.0 for v in p[:3]])[0] <= wall_x else [0.0] * 6)
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        stages.append(stage)
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": target})
+    assert out.success, out.reason
+    assert "push_down" in stages and "push" in stages and "press" not in stages and "drag" not in stages
+    moves = [e[1] for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    i = stages.index("push")
+    a, b = (mp.from_base(tf, [v / 1000.0 for v in m[:3]]) for m in (moves[i - 1], srv.robot.p))
+    assert b[0] < a[0] and abs(b[1] - a[1]) < 1e-3                      # 손잡이 쪽(x −)으로만
+    assert b[0] == pytest.approx(wall_x, abs=0.002)                     # 벽(힘)에서 멈춤
+    assert data["target_after"]["pose"]["yaw"] == pytest.approx(-math.pi / 2)
+    assert data["push_vector_m"][0] < 0 and data["push_vector_m"][1] == 0.0

@@ -301,19 +301,23 @@ def test_crosswise_nudged_only_along_x_or_y():
             assert p.shift_x_m == 0.0 or p.shift_y_m == 0.0
 
 
-def test_diagonal_near_handle_wall_pushed_flat_against_it():
+@pytest.mark.parametrize("behind", [False, True])
+def test_diagonal_near_handle_wall_pushed_flat_against_it(behind):
     """[사용자 10/10 제안] 손잡이 쪽 벽 근처 비스듬(넛지 방향 없던 자리) → 손잡이 쪽(서랍 여는 방향, 안 끌림)으로 벽까지 끌어 눕힘.
-    가로에 가까우면 가로로(가운데 = 누르는 TCP 한계), 세로에 가까우면 세로로(가운데 = 긴 변 반). 눕힌 뒤 가로는 기울여 긴 변, 세로는 짧은 변."""
+    가로에 가까우면 가로로(가운데 = 누르는 TCP 한계), 세로에 가까우면 세로로(가운데 = 긴 변 반). 눕힌 뒤 가로는 기울여 긴 변, 세로는 짧은 변.
+    behind [사용자 10/11]: 뒤에서 밀면 벽에 딱 붙음 → 가로도 가운데 = 짧은 변 반 (11 mm)."""
     g = dict(_ag(0.1, 0.1, 0.0)[1], wall_tcp_min_mm={"x_min": 15.9})
-    for yaw, end, then in ((math.radians(55), 15.9, "tilt"), (math.radians(30), 26.25, "short")):
-        p = mp.plan_drag(target=tgt(0.034, 0.15, yaw), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
+    drag = dict(DRAG, push_from_behind=behind)
+    for yaw, end, then in ((math.radians(55), 11.0 if behind else 15.9, "tilt"), (math.radians(30), 26.25, "short")):
+        p = mp.plan_drag(target=tgt(0.034, 0.15, yaw), size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag)
+        assert (p.push_to_xy_m is not None) == behind
         assert p.needed and p.axis == "x" and p.shift_y_m == 0.0 and 34.0 + p.shift_x_m * 1000.0 == pytest.approx(end)
         flat = tgt(end / 1000.0, 0.15, math.pi / 2 if then == "tilt" else 0.0)
         if then == "tilt":
-            assert mp.plan_axis_grasp(target=flat, size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG).tilt_dir == (-1.0, 0.0, 0.0)
+            assert mp.plan_axis_grasp(target=flat, size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag).tilt_dir == (-1.0, 0.0, 0.0)
         else:
             assert mp.wall_blocks_grasp(target=flat, size_m=ERASER, interior_m=INTERIOR, g=g) is None
-    p = mp.plan_drag(target=tgt(0.0275, 0.15, math.radians(30)), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
+    p = mp.plan_drag(target=tgt(0.0275, 0.15, math.radians(30)), size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag)
     assert p.needed and p.shift_x_m == pytest.approx(-DRAG.get("square_min_push_mm", 2.0) / 1000.0)   # 모서리가 이미 벽에 닿음 → 최소 2 mm 밀어 돌림
 
 
@@ -368,3 +372,18 @@ def test_round_diagonal_near_wall_pushed_flat_first():
     gb = dict(g, reach_x_max_mm=129.0)
     p = mp.plan_drag(target=tgt(0.150, 0.15, math.radians(60)), size_m=LIP_BALM, interior_m=INTERIOR, g=gb, drag=DRAG)
     assert p.needed and p.axis == "x" and -p.shift_x_m == pytest.approx(DRAG["max_shift_mm"] / 1000.0)   # 깊은 곳 → 손잡이 쪽으로 최대만
+
+
+def test_push_from_behind_geometry():
+    """[사용자 10/11 PC2] 벽까지 밀기는 물체 뒤에서 닫은 손가락 옆면으로: 시작 TCP = 물체 뒤 끝 + 손가락 옆면(along 9) + 띄움 10,
+    끝 TCP = 벽에 붙어 누운 물체 뒤 + 2 mm 더. 미는 줄은 물체 가운데(옆벽에 손가락이 걸리면 안쪽으로, 물체 밖이면 예전 방식)."""
+    g = dict(_ag(0.1, 0.1, 0.0)[1], wall_tcp_min_mm={"x_min": 15.9, "y_min": 14.2, "y_max": 5.5})
+    drag = dict(DRAG, push_from_behind=True, push_start_gap_mm=10.0, push_over_mm=2.0)
+    yaw = -1.1321                                                       # PC2 10/11 로그: (31.4, 38.8) −65°
+    p = mp.plan_drag(target=tgt(0.0314, 0.0388, yaw), size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag)
+    half_n = 26.25 * abs(math.cos(yaw)) + 11.0 * abs(math.sin(yaw))
+    assert p.push_dir == (-1.0, 0.0) and p.press_xy_m[1] == pytest.approx(0.0388)
+    assert p.press_xy_m[0] * 1000.0 == pytest.approx(31.4 + half_n + 9.0 + 10.0, abs=1e-6)
+    assert p.push_to_xy_m[0] * 1000.0 == pytest.approx(11.0 + 11.0 + 9.0 - 2.0, abs=1e-6)
+    off = dict(drag, push_from_behind=False)                            # 끄면 예전(위에서 눌러 끌기)
+    assert mp.plan_drag(target=tgt(0.0314, 0.0388, yaw), size_m=ERASER, interior_m=INTERIOR, g=g, drag=off).push_to_xy_m is None

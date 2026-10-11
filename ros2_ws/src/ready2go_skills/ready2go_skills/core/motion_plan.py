@@ -145,6 +145,8 @@ class DragPlan:
     axis: str = "y"               # 끄는 방향: "y" 옆벽에서 / "x" 앞뒤 벽(손잡이 쪽·안쪽)에서 [사용자 10/10]
     shift_x_m: float = 0.0        # axis x 일 때 서랍 x 방향 이동 (부호 포함)
     wall_normal_x: float = 0.0    # axis x 일 때 가까운 앞뒤 벽 (+1 = x 최대 벽(안쪽), −1 = x 0 벽(손잡이 쪽))
+    push_to_xy_m: Optional[tuple] = None   # 뒤에서 밀기 [사용자 10/11]: press_xy_m(시작 TCP) → 여기(끝 TCP)까지 닫은 손가락 옆면으로 밂
+    push_dir: tuple = (0.0, 0.0)           # 미는 방향 (서랍 좌표 단위 벡터, 벽 쪽)
 
 
 def _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin_mm):
@@ -405,6 +407,12 @@ def _round_push_to_wall(target, size_m, interior_m, g, drag):
         w = "x_min"                                         # 손잡이 쪽 가까우면 손잡이 쪽 벽 먼저 (구석이면 그 뒤 축 방향 y) [사용자 10/10 지우개와 같은 순서]
     gap_m = walls[w] / 1000.0
     radius = width / 2
+    if drag.get("push_from_behind"):
+        n = (-1.0, 0.0) if w == "x_min" else ((0.0, -1.0) if w == "y_min" else (0.0, 1.0))
+        bp = _behind_push(cx, cy, yaw, size_m, interior_m, g, drag, n, radius - (0.0 if w == "x_min" else off.get(w, 0.0)), radius, gap_m,
+                          "원통형을 " + ("손잡이 쪽 벽" if w == "x_min" else "옆벽") + "까지 굴려 눕히기")
+        if bp is not None:
+            return bp
     if w == "x_min":
         end = max(radius, tmin.get("x_min", drag["wall_tcp_min_mm"]))
         shift = min(end - x_mm, -drag.get("square_min_push_mm", 2.0)) / 1000.0
@@ -529,6 +537,50 @@ def _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, margin, lack_mm, sign
                     f"옆벽 쪽 부족 {lack_mm:.1f} mm → y {shift * 1000:+.1f} mm 끌기")
 
 
+def _behind_push(cx, cy, yaw, size_m, interior_m, g, drag, n, end_center_mm, end_half_mm, gap_m, reason):
+    """벽까지 밀기를 위에서 눌러 끌기 대신 물체 뒤에서 닫은 손가락 옆면으로 밂 [사용자 10/11 PC2: 눌러 끌면 미끄러지고 벽에 잘 안 붙음 —
+    손잡이 쪽 비스듬한 지우개 15.5 mm 끌었는데 13 mm·12° 만 돎]. 그리퍼 수직, 닫힘 축은 미는 방향에 수직(손가락 두 개가 나란히),
+    손끝은 바닥 위 push_tip_above_floor_mm. n = 미는 방향(벽 쪽, 서랍 좌표 단위 벡터 — x 0 벽 (−1, 0) 또는 옆벽 (0, ±1)).
+    시작 TCP = 물체 뒤 끝 + 손가락 옆면까지(along_mm) + push_start_gap_mm. 끝 TCP = 물체가 벽에 붙어 누운 자리(가운데 end_center_mm,
+    미는 방향 반 end_half_mm) 뒤 + push_over_mm 더 (벽에 닿으면 push_stop_n 에서 멈춤). 물체 이동은 최대 max_shift_mm.
+    손가락이 옆벽·뒤쪽 벽·깊이 한계에 걸리거나 미는 줄이 물체 밖이면 None (예전 방식)."""
+    nx, ny = n
+    L, W = interior_m[0] * 1000.0, interior_m[1] * 1000.0
+    x, y = cx * 1000.0, cy * 1000.0
+    c, s = math.cos(yaw), math.sin(yaw)
+    half_n = abs(size_m[0] * 500.0 * (c * nx + s * ny)) + abs(size_m[1] * 500.0 * (-s * nx + c * ny))     # 물체가 미는 방향으로 차지하는 반
+    half_t = abs(size_m[0] * 500.0 * (c * ny - s * nx)) + abs(size_m[1] * 500.0 * (s * ny + c * nx))      # 옆(손가락 나란한 방향)
+    face = g["wall_clearance_mm"]["along_mm"]                      # TCP → 닫은 손가락 옆면 (닫힘 축이 벽과 나란할 때 벽 거리 실측 9.0)
+    w = g["wall_clearance_mm"]["across"]
+    side = interp(0.9, w["open_mm"], w["dist_mm"]) + g["wall_margin_mm"]   # 닫힘 축 쪽 벽까지 (닫힘 21.6 + 여유)
+    gap, over = drag.get("push_start_gap_mm", 10.0), drag.get("push_over_mm", 2.0)
+    reach = g.get("reach_x_max_mm")
+    along_n, lat_c, lat_len = (x, y, W) if nx else (y if ny < 0 else W - y, x, L)   # 벽에서 가운데까지, 옆 좌표
+    lat = min(max(lat_c, side), lat_len - side)                    # 손가락이 옆(닫힘 축 쪽) 벽에 안 닿게
+    if abs(lat - lat_c) > half_t - drag["press_inset_mm"]:
+        return None                                                # 미는 줄이 물체 밖
+    start_d = along_n + half_n + face + gap                        # 벽에서 시작 TCP
+    want = max(along_n - end_center_mm, drag.get("square_min_push_mm", 2.0))   # 물체 가운데 이동 — 이미 벽에 닿아 있어도 조금 밀어 돌려 눕힘
+    move = min(want, drag["max_shift_mm"])
+    if move < want:                                                # 멀면 최대 거리만 밀고 다시 보고 이어서
+        end_d = start_d - gap - move - max(0.0, half_n - end_half_mm)
+    else:
+        end_d = end_center_mm + end_half_mm + face - over
+    behind = (L if nx else W) - start_d - face - g["wall_margin_mm"]   # 시작 자리 뒤 손가락 ↔ 반대쪽 벽
+    if behind < 0 or end_d >= start_d - gap:
+        return None
+
+    def pt(d):                                                     # 벽에서 d, 옆 lat → 서랍 좌표 m
+        if nx:
+            return (d / 1000.0, lat / 1000.0)
+        return (lat / 1000.0, (d if ny < 0 else W - d) / 1000.0)
+    start, stop = pt(start_d), pt(end_d)
+    if reach is not None and max(start[0], stop[0]) * 1000.0 > reach + 20.0:
+        return None                                                # 아래 칸 위 서랍장 — 수직으로 바닥 닿는 깊이 약 149 (= reach + 20)
+    shift = (nx * move / 1000.0, ny * move / 1000.0)
+    return DragPlan(True, None, shift[1], start, ny, gap_m, f"뒤에서 밀어 {reason} ({'x' if nx else 'y'} {move * (nx or ny):+.1f} mm)",
+                    axis="x" if nx else "y", shift_x_m=shift[0], wall_normal_x=nx, push_to_xy_m=stop, push_dir=(nx, ny))
+
 def _push_to_handle_wall(cx, cy, yaw, size_m, interior_m, g, drag, gap_m):
     """손잡이 쪽 벽 근처에 비스듬히 놓여 못 잡을 때: 손잡이 쪽(x −, 서랍 여는 방향이라 끝까지 열린 서랍은 안 끌림)으로 벽까지 끌어
     벽에 맞춰 눕힘 [사용자 10/10 "손잡이 쪽 벽 끝까지 붙게 넛지하면 수평이 됨 → 기울여 잡기"]. 가로에 가까우면 가로로(가운데 = 짧은 변 반),
@@ -537,6 +589,11 @@ def _push_to_handle_wall(cx, cy, yaw, size_m, interior_m, g, drag, gap_m):
     if not drag.get("square_to_handle_wall"):
         return None
     half = size_m[1 if is_crosswise(yaw) else 0] * 500.0              # 벽에 붙어 누운 뒤 가운데 x
+    if drag.get("push_from_behind"):
+        bp = _behind_push(cx, cy, yaw, size_m, interior_m, g, drag, (-1.0, 0.0), half, half, gap_m,
+                          f"손잡이 쪽 벽까지 {'가로' if is_crosswise(yaw) else '세로'}로 붙이기")
+        if bp is not None:
+            return bp
     wall_min = (g.get("wall_tcp_min_mm") or {}).get("x_min", drag["wall_tcp_min_mm"])
     end_x = max(half, wall_min)
     # 이미 모서리가 벽에 닿아 있어도 최소 이만큼은 밀어 돌려 눕힘. 더 못 가면 옆 힘 한계(PUSH_BLOCKED)에서 멈춤 → 다시 보고 집기

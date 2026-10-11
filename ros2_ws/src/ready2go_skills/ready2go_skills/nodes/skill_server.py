@@ -1189,6 +1189,8 @@ class SkillServer(Node):
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
+        if plan.push_to_xy_m is not None:                               # 벽까지 밀기는 뒤에서 [사용자 10/11]
+            return self._push_from_behind(goal, drawer_id, target, plan, tf, d, out)
         on_x = plan.axis == "x"                                         # 앞뒤 벽에서 끌기 [사용자 10/10]
         wall = mp.dir_to_base(tf, (plan.wall_normal_x, 0.0, 0.0) if on_x else (0.0, plan.wall_normal_y, 0.0))   # 누르는 쪽 벽 (base)
         if d.get("close_axis", "object") == "wall":                    # 닫힘 축 = 옆벽 법선 [실측 B 10/06, 지우개 잘 끌림]
@@ -1276,6 +1278,91 @@ class SkillServer(Node):
         out["target_after"] = after
         return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 {'대각선 x·y' if dx and dy else ('앞뒤로 x' if on_x else '옆으로 y')} "
                                  f"{f'{dx * 1000:+.1f}·{dy * 1000:+.1f}' if dx and dy else f'{(dx or dy) * 1000:+.1f}'} mm 끌기"), out
+
+    def _push_from_behind(self, goal, drawer_id, target, plan, tf, d, out):
+        """물체 뒤에서 닫은 손가락 옆면으로 벽까지 밂 [사용자 10/11 PC2 "벽으로 밀칠 땐 지우개 뒤에서 밀기, 공간 충분"].
+        탑뷰 → 닫기 → 서랍 안 경유점 → 테두리 위로 시작 자리 위 → 수직으로 손끝 바닥 위 push_tip_above_floor_mm 까지(닿으면 멈춤)
+        → 벽 쪽으로 수평 밀기(옆 힘 push_stop_n 넘으면 벽에 닿은 것 → 멈춤, 위아래 힘 max_force_z_n 넘으면 PUSH_BLOCKED) → 올라감."""
+        g = self.prm()["gripper"]
+        bad = self._to_drawer_view(goal, drawer_id)
+        if bad:
+            return bad, out
+        self._grip(0, 20)
+        down = (self.poses().get("drag_down") or {}).get(drawer_id)
+        if down:
+            o = self._movej(goal, down, "to_object:down", in_drawer=True)
+            if not o.success:
+                return o, out
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
+        tcp_z = (d.get("push_tip_above_floor_mm", 3.0) + mp.tip_below_tcp_mm(0.9, g)) / 1000.0   # 닫은 손끝 = TCP − 10 mm [실측]
+        nx, ny = plan.push_dir
+        close_dir = mp.dir_to_base(tf, (-ny, nx, 0.0))                 # 닫힘 축 ⟂ 미는 방향 — 손가락 두 개가 나란히 판처럼
+        (sx, sy), (ex, ey) = plan.press_xy_m, plan.push_to_xy_m
+        low = mp.gripper_posx([1000.0 * v for v in pp.to_base(tf, (sx, sy, tcp_z))], close_dir, cur[3:])
+        above = mp.with_z(low, low[2] + 30.0)
+        bad = self._over_then_down(goal, drawer_id, cur, above, "to_object:over")
+        if bad:
+            return bad, out
+        base_f = self._tare()
+        max_z = d.get("max_force_z_n", d["max_force_n"])
+
+        def floor_touch():                                  # 내려가다 물체·바닥에 닿으면 멈춤 (물체 위에 내려앉지 않게)
+            f = self.robot.tool_force()
+            if f is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            if abs(f[2] - base_f[2]) > d["touch_force_n"]:
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"밀 자리로 내려가다 닿음 (z 힘 {abs(f[2] - base_f[2]):.1f} N) — 뒤에 다른 물체?")
+            return None
+        bad = self._line(goal, low, d["press_speed_mm_s"] * 5.0, "push_down", watch=floor_touch)
+        if bad:
+            now = self.robot.posx()
+            back = self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift") if now and not sf.is_safety(bad) else None
+            return sf.worse(bad, back) if back else bad, out
+        pressed = self.robot.posx() or low
+        base_push = self._tare() or base_f
+        stop_n = d.get("push_stop_n", 5.0)
+        hit = {}
+
+        def wall_touch():
+            f = self.robot.tool_force()
+            if f is None or base_push is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            side = math.hypot(f[0] - base_push[0], f[1] - base_push[1])
+            if abs(f[2] - base_push[2]) > max_z:
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"미는 중 위아래 힘 {abs(f[2] - base_push[2]):.1f} N > {max_z:g} N")
+            if side > stop_n:                               # 물체가 벽에 닿아 더 안 감 = 다 밀었음
+                hit["n"] = side
+                return sf.Outcome(True, reason=f"벽에 닿음 {side:.1f} N")
+            return None
+        end = mp.gripper_posx([1000.0 * v for v in pp.to_base(tf, (ex, ey, tcp_z))], close_dir, pressed[3:])
+        end = [end[0], end[1], pressed[2]] + list(pressed[3:])         # 수평으로만 (서랍 tf 기울기로 z 가 섞여 바닥을 긁지 않게)
+        bad = self._line(goal, end, d["speed_mm_s"], "push", watch=wall_touch)
+        if bad and bad.success:
+            bad = None
+        if sf.is_safety(bad):
+            return bad, out
+        now = self.robot.posx()
+        if now is None:
+            return sf.worse(bad, sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 올리지 못함")), out
+        bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift"))
+        a = mp.from_base(tf, [v / 1000.0 for v in pressed[:3]])
+        b = mp.from_base(tf, [v / 1000.0 for v in now[:3]])
+        tcp_move = (b[0] - a[0]) * nx + (b[1] - a[1]) * ny
+        gap = d.get("push_start_gap_mm", 10.0) / 1000.0
+        move = max(0.0, min(tcp_move - gap, abs(plan.shift_x_m) + abs(plan.shift_y_m)))   # 닿기 전 빈 거리 뺀 물체 이동 [추정]
+        dx, dy = nx * move, ny * move
+        out.update(pushed=True, push_vector_m=[round(dx, 4), round(dy, 4)])
+        if bad:
+            return bad, out
+        after = json.loads(json.dumps(target))
+        yaw = after["pose"]["yaw"]
+        after["pose"]["position"] = [target["pose"]["position"][0] + dx, target["pose"]["position"][1] + dy, 0.0]
+        after["pose"]["yaw"] = round(yaw / (math.pi / 2)) * (math.pi / 2)   # 벽에 붙어 누웠다고 봄 — 다시 찍어 확인
+        out["target_after"] = after
+        why = f", 벽에 닿음 {hit['n']:.1f} N" if hit else ""
+        return sf.Outcome(True, reason=f"뒤에서 밀어 {'x' if nx else 'y'} {(dx or dy) * 1000:+.1f} mm{why}"), out
 
     # --- 집기 ---
     def _do_pick_object(self, goal, params):
