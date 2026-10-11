@@ -18,6 +18,7 @@ class Recording:
     recording_mode: str = "silence"
     recording_ended_monotonic: float | None = None
     recording_ended_unix: float | None = None
+    recording_started_monotonic: float | None = None
 
 
 def resolve_input_device(cfg):
@@ -49,6 +50,7 @@ class Recorder:
             raise InterruptedError('녹음 중단')
         frames = int(self.cfg['record_duration_sec'] * self.cfg['sample_rate'])
         stream = None
+        started = self.clock()
         try:
             audio = sd.rec(frames, samplerate=self.cfg['sample_rate'], channels=1,
                            dtype='int16', device=self.cfg['input_device'], blocking=False)
@@ -68,7 +70,8 @@ class Recorder:
             if audio.shape != (frames, 1) or audio.dtype != np.int16:
                 raise ValueError('RECORD_FORMAT')
             return Recording(audio.tobytes(), None, None, recording_mode='fixed',
-                             recording_ended_monotonic=self.clock(), recording_ended_unix=self.wall())
+                             recording_ended_monotonic=self.clock(), recording_ended_unix=self.wall(),
+                             recording_started_monotonic=started)
         finally:
             if stream is not None:
                 try:
@@ -94,7 +97,9 @@ class Recorder:
             if last_voice is not None:
                 chunks.append(pcm)
                 if now - last_voice >= self.cfg['silence_sec']:
-                    return Recording(b''.join(chunks), last_voice, ended_wall)
+                    return Recording(b''.join(chunks), last_voice, ended_wall,
+                                     recording_started_monotonic=started,
+                                     recording_ended_monotonic=now, recording_ended_unix=self.wall())
             elif now - started >= self.cfg['speech_start_timeout_sec']:
                 raise TimeoutError('NO_SPEECH')
             if now - started >= self.cfg['max_record_sec']:

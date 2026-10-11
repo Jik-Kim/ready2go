@@ -529,3 +529,28 @@ def test_reset_does_not_clear_halt_lock():
     runner.reset_state()
     sent = len(robot.sent)
     assert runner.halted and runner.run(TASK).overall_status == "ABORTED" and len(robot.sent) == sent
+
+
+# ---- #78 HALT_MOTION: 놓침·센서 이상 = 즉시 정지·잠금 (사용자 결정 10/09) ----
+
+@pytest.mark.parametrize("code", ["OBJECT_DROPPED", "SENSOR_INVALID"])
+def test_drop_or_sensor_invalid_halts_and_sends_no_more_motion(code):
+    """놓기 중 놓침(OBJECT_DROPPED)·그리퍼 센서 이상(SENSOR_INVALID) → ABORTED·잠금. 예전엔 일반 실패라
+    finally 서랍 닫기·홈이 나갈 수 있었음(#78 E 검토). 이제 그 뒤 로봇 동작 0건, 다음 요청도 잠금으로 거절."""
+    robot = MockRobot(fail={"place_object": [code]})
+    runner, result, saved = run(robot)
+    assert (result.overall_status, result.error_code) == ("ABORTED", code) and runner.halted
+    assert robot.motion_after("/skills/place_object") == []                 # 닫기·홈 없음
+    assert step(result, "f2")["status"] == "SKIPPED"
+    again = runner.run(TASK)
+    assert (again.overall_status, again.error_code) == ("ABORTED", code)    # 사람이 확인·해제하기 전 새 실행 없음
+    assert robot.sent.count("/skills/place_object") == 1
+
+
+def test_drop_is_not_kept_for_resume():
+    """#78: 놓기 중 놓침은 기존 실행을 끝냄 — 재개 모드(#152)여도 보존하지 않음 (복구 뒤 새 실행으로 처음부터)."""
+    robot = MockRobot(fail={"place_object": ["OBJECT_DROPPED"]})
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, resumable=True)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    result = runner.run(TASK)
+    assert result.overall_status == "ABORTED" and runner.suspended is None and runner.halted

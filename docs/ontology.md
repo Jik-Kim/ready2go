@@ -59,3 +59,17 @@
 ### 7.9 그래프·선택적 확장
 
 과거 물품과 시연 배치에 맞춘 그래프는 현재 world·상태의 근거로 사용하지 않습니다. 현재 문서 본문에서는 제외하며, 필요할 때 확정된 원본 데이터로 다시 작성합니다. PDDL 내보내기와 외부 플래닝 프레임워크는 선택적 검토 사항이며 현재 구현 범위에 포함하지 않습니다. [문서]
+
+### #43 사후 검증 선언·내부 후보의 현재 상태
+
+[문서] 정책·완료 기준은 [verification-policy](requirements.md#verification-policy)·[FR-ONT-02](requirements.md#fr-ont-02)·[FR-LOG-02](requirements.md#fr-log-02)에 둡니다. manifest→로더→skills 문자열 보존→Runner 실행 성공 뒤 effect의 실제 연결을 대조했습니다. pick/place/close_drawer의 문자열을 정리했지만 현재 P1 effect 소비 경로는 보존합니다. open_drawer는 원문 유지입니다. E [skill_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)는 동일 pick 관측과 handover 질문/최종 근거만 분류하며 동작·상태·로그·성공 TTS를 실행하지 않습니다. 현재 질문 객체와 run/step/목적지/기대물품을 결합하고, 장치/관측 오류·중단·TTS 실패·미정 대기는 성공 후보를 내지 않습니다. 실제 C evaluator/verify 대기/최종 effect/로그·A 재촬영·B 관측은 미연결입니다. 승인 전 구조화 verify/evaluator 형식은 추가하지 않았습니다.
+
+[문서] handover 확인 후보는 destination=handover_zone만 수용하며 질문에는 전달 트레이 이름을 사용합니다. 기대물품 ID는 현재 world의 name_ko 대응표로 표시하고 표시명이 없으면 질문/후보를 만들지 않습니다. drawer/LIFO는 거절합니다. 이 대응표 공급 역시 후속 운영 adapter가 검증해야 합니다.
+
+## #78 place 오류 선언 정합성
+
+[문서] [모션 차단·놓침 후 새 실행 정본](requirements.md#halt-motion-policy)에 연결해 `knowledge/skills/place.jsonld`의 errors에 B가 현재 반환하는 `OBJECT_DROPPED`를 추가했습니다. 기존 errors와 params/pre/hold/effect/expand/verify·manifest·로더는 보존합니다. errors는 선언 데이터이며 Runner 잠금·정지·복구/재개를 실행하는 허용 목록이 아닙니다. pick의 `GRASP_FAILED`나 아직 확정되지 않은 place 센서 반환 목록은 변경하지 않습니다.
+
+[문서·코드 대조: 2026-10-10] [PR #202](https://github.com/Jik-Kim/ready2go/pull/202) 병합 원본의 C `interpreter.HALT_MOTION_CODES`는 `OBJECT_DROPPED`·`SENSOR_INVALID`를 기존 `HALT_CODES`에 포함합니다. 해당 오류는 `ABORTED`·잠금으로 처리하며 finally는 비모션 허용 목록만 실행하고 새 요청을 거절합니다. 두 오류의 실행은 `resumable=True`여도 재개 대기로 보존하지 않습니다. 이는 E errors 선언과 별개의 C 구현이며 실제 로봇 정지·복구 완료의 증명이 아닙니다.
+
+[미연결/인계] B `skill_server._do_place_object`의 handover 경로는 현재 `check_hold`의 센서 이상과 놓침을 구분하지 않고 보유 기억을 지우며 운반 오류를 반환합니다. 실제 오류 원인/보유 확실성·정지/신선 관측, C의 관측 기반 상태 동기화·안전한 잠금 해제·명시적 새 run 운영 연결은 후속입니다. `reset_state()`는 시작 상태 스냅샷을 복원하지만 잠금을 풀거나 실제 상태 일치를 검증하지 않습니다. [#78](https://github.com/Jik-Kim/ready2go/issues/78)·[#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 남은 B/C 협의·E 포함 2인 계약 승인·운영 adapter·실물 검증을 별도로 확인합니다.

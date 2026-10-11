@@ -42,11 +42,12 @@ class MeloTTS(PCMTTS):
                 process = subprocess.Popen([str(python), '-u', worker], stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE, stderr=stderr, text=True, encoding='utf-8', env=env)
             state = {'process': process, 'ready': threading.Event(), 'responses': queue.Queue(),
-                     'error': None, 'boot_deadline': time.monotonic() + self.cfg['tts_melotts_startup_timeout_sec']}
+                     'error': None, 'progress': self.cfg.get('_tts_progress'), 'boot_deadline': time.monotonic() + self.cfg['tts_melotts_startup_timeout_sec']}
             self.runtime = state
             config = {k: self.cfg[k] for k in ('tts_melotts_speaker', 'tts_melotts_speed',
                       'tts_melotts_threads', 'tts_melotts_warmup_text')}
             config['assets'] = str(assets)
+            config['prefill_progress_every'] = self.cfg.get('tts_prefill_progress_every', 8)
             config['prefill_texts'] = self.cfg.get('_tts_prefill_texts', self.cfg.get('tts_melotts_prefill_texts', []))
             try:
                 process.stdin.write(json.dumps(config, ensure_ascii=False) + '\n')
@@ -81,9 +82,17 @@ class MeloTTS(PCMTTS):
         try:
             for line in state['process'].stdout:
                 message = json.loads(line)
-                if message.get('ready'):
+                if message.get('event') in ('model_prepared', 'prefill_progress'):
+                    if state.get('progress'):
+                        state['progress'](message)
+                    if message.get('event') == 'prefill_progress':
+                        print(f"MeloTTS 선준비 {message['done']}/{message['total']}", flush=True)
+                elif message.get('ready'):
                     if state['error']:
                         continue
+                    state['prepare_timing'] = {k: v for k, v in message.items() if k.endswith('_sec')}
+                    if state.get('progress'):
+                        state['progress'](dict(state['prepare_timing'], event='tts_prepare_finished'))
                     state['ready'].set()
                     print('MeloTTS 준비 완료 (고정 안내 캐시 완료)', flush=True)
                 elif 'error' in message and not state['ready'].is_set():

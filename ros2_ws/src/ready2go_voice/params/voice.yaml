@@ -59,7 +59,7 @@ speech_vad_threshold: 0.5
 speech_min_voiced_sec: 0.15
 speech_vad_model: null # 설치된 openwakeword Silero 자산; 자동 다운로드 없음
 
-# P1 clarify 안내 단일 원본. 자유 LLM 질문은 general, source.llm_raw 보존
+# P1 clarify 기본 안내. 의미 검증된 LLM 질문은 유지하고 원본은 상세 파일에 보존
 clarify_prompts:
   empty: 다시 말씀해 주세요.
   multiple: 한 물품씩 요청해 주세요.
@@ -71,3 +71,27 @@ clarify_prompts:
   audio_failure: 음성을 처리하지 못했습니다. 다시 말씀해 주세요.
   no_speech: 다시 말씀해 주세요.
   tts_failure: 음성 안내를 확인하지 못했습니다. 실행을 보류합니다.
+
+# P2 E internal policy only; no Runner/wire adapter enabled.
+pick_verify_lower_bound_m: 0.010 # 사용자 결정: 망치손잡이12.5mm - 여유2.5mm, 엄격 >. B 공용 min_width 대체 아님.
+resume_admission_window_sec: 10.0 # 사용자 결정: 실제 TTS 완료→Whisper SDK 호출 직전, 10.0 포함.
+resume_stt_result_timeout_sec: null # [팀 확정 필요] 별도 유한 처리 예산. 미정이면 내부 접수 거절.
+place_answer_timeout_sec: null # [팀 확정 필요] 미정이면 내부 응답 접수 거절.
+place_max_reasks: null # [팀 확정 필요] 미정이면 모호 응답을 안전측 보류.
+
+# P1 현재 질문·응답/진단 제안값 [팀 확정 필요]. P2 접수창과 독립입니다.
+dialogue_timeout_sec: 30.0 # 질문 TTS 완료 후 현재 문맥 상한 제안; null이면 후속 결합 보류.
+response_max_chars: 160
+# 일반 콘솔은 핵심만, diagnostic_detail=true이면 아래 상세파일에 저장합니다.
+diagnostic_file: logs/voice/diagnostic.jsonl
+diagnostic_max_bytes: 10485760 # 회전 제안 10MiB; 단일 초대형 원본 기록은 분할하지 않음.
+diagnostic_backups: 3
+diagnostic_queue_size: 128
+# 모델/내용 identity는 유지, 초기 필수 문장+자주 사용한 검증 문장만 bounded 선준비.
+tts_prefill_progress_every: 8 # 선준비 진행 표시 간격 제안
+tts_prefill_max_texts: 128
+tts_prefill_max_chars: 160
+tts_prefill_max_bytes: 65536 # UTF-8 선준비 문장 전체 용량 상한 제안
+tts_frequent_max_texts: 32
+tts_frequent_min_uses: 2
+tts_frequent_max_bytes: 1048576 # 검증문장 선택 기록 용량; 기존 WAV/로컬자산 삭제하지 않음.
