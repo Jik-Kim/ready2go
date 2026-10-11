@@ -5,6 +5,13 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## E 문서 정합성 정정 — 계약07/공유 입력 경계
+
+- [문서·코드] #221의 C 소유 상태 예시·Runner 설명·ICD 구간 합류 및 C 원본 검토를 E 계약 검토/PR 병합·실제 C 런타임 수신/생산자 연결 미완료와 구분합니다. #225/#227의 E payload 후보와 RequestRun 상관 로직도 실제 C source mapper 미설치·request_run_enabled 기본 false 상태를 넘지 않습니다.
+- [문서·코드] 기본 VoiceNode는 SharedInput RawInputStream을 WakeAudio와 Recorder가 공유하며 fixed 녹음은 기존 5초 프레임만 수집합니다. shared_input 없는 Recorder의 sd.rec→sd.wait 경로는 호환용으로 유지됩니다. fixed5초·commissioning·임계값은 변경하지 않습니다.
+- [문서] 기준은 [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[FR-LOG-02](../../docs/requirements.md#fr-log-02)·[수락 TTS 정책](../../docs/requirements.md#acceptance-tts-policy) 및 [FR-SAF-01/AC-SAF-02](../../docs/requirements.md#fr-saf-01)입니다. 이번 수정은 정책·Phase·계약·C 담당 파일을 바꾸지 않습니다.
+- [문서: 미검증] 실제 C 수신/운영 연결·마이크/장치·Whisper·실음성·실물 AC는 확인하지 않았습니다. 최종 head 전체 로컬 CI 결과는 이 PR 본문에 기록합니다.
+
 ## P2 모의·회귀 검증 — E-P2-VERIFY-20261011-01
 
 - [문서: 기준·범위] 기존 `codex/e-tray-confirm-integration-20261011`/`2808d2460d3102915bd72d00d3716d5f685e2e47` 작성분을 검증했습니다. 지시 세션의 개발→모의/단위/격리 ROS→실C 통합 순서를 적용했으며 새 branch/worktree/서비스/의존성·임계값·공통 계약·타 담당 파일은 추가하지 않았습니다. 신규 test_stop_audio.py·test_safety_exchange.py는 기존 노드 AST fixture와 typed 입력을 재사용하는 시험이고 실제 C/B 증빙이 아닙니다.
