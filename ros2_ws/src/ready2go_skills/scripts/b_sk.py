@@ -343,7 +343,8 @@ HUMAN_FIX = {"DRAWER_NOT_AT_TRAVEL": "서랍을 끝까지 열고 B opened <서�
              "NEIGHBOR_TOO_CLOSE": "옆 물체가 손가락·끄는 길에 걸림 — 두 물체를 3~4 cm 띄우기",
              "HOLDING_OBJECT": "그리퍼에 든 물체를 빼고 서버 재시작",
              "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리 — 사람이 옮기기",
-             "JOINT_LIMIT": "관절 제한 — 자세·위치 확인"}
+             "JOINT_LIMIT": "관절 제한 — 자세·위치 확인",
+             "SENSOR_INVALID": "그리퍼 폭·힘을 못 읽음 — 그리퍼에 물체가 있는지 보고 RG2 박스·케이블 확인 뒤 스킬 서버 재시작"}
 
 
 def _stop_unrecoverable(step):
