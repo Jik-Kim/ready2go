@@ -387,3 +387,13 @@ def test_push_from_behind_geometry():
     assert p.push_to_xy_m[0] * 1000.0 == pytest.approx(11.0 + 11.0 + 9.0 - 2.0, abs=1e-6)
     off = dict(drag, push_from_behind=False)                            # 끄면 예전(위에서 눌러 끌기)
     assert mp.plan_drag(target=tgt(0.0314, 0.0388, yaw), size_m=ERASER, interior_m=INTERIOR, g=g, drag=off).push_to_xy_m is None
+
+
+def test_side_drag_presses_clear_of_handle_wall_body():
+    """[사용자 10/11 PC2] 손잡이 쪽 벽에 가로로 붙은 지우개(12.9, 49.8)를 왼벽에서 y 로 끌 때 TCP x 12.9 → 그리퍼 몸통이 손잡이 쪽 벽에 약 3 mm 닿음.
+    누르는 TCP 는 앞뒤 벽에서 drag.press_x_lim_mm 이상 (물체 안이면)."""
+    g = dict(_ag(0.1, 0.1, 0.0)[1], wall_tcp_min_mm={"x_min": 15.9, "y_min": 14.2, "y_max": 5.5})
+    drag = dict(DRAG, press_x_lim_mm=16.0)
+    ag = mp.plan_axis_grasp(target=tgt(0.0129, 0.0498, -1.5644), size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag)
+    assert ag.drag is not None and ag.drag.needed and ag.drag.axis == "y" and ag.drag.shift_y_m > 0
+    assert ag.drag.press_xy_m[0] * 1000.0 == pytest.approx(16.0)

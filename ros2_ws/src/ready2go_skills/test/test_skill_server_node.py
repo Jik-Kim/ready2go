@@ -1674,3 +1674,26 @@ def test_nudge_pushes_from_behind_to_handle_wall(server, monkeypatch):
     assert (c[0] - b[0]) * 1000.0 == pytest.approx(d["push_back_mm"], abs=0.1) and abs(c[2] - b[2]) < 1e-4            # 같은 높이로 물러남
     assert data["target_after"]["pose"]["yaw"] == pytest.approx(-math.pi / 2)
     assert data["push_vector_m"][0] < 0 and data["push_vector_m"][1] == 0.0
+
+
+def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
+    """[사용자 10/11 PC2] 손잡이 쪽 벽에 가로로 붙은 지우개를 기울여 긴 변으로 잡으면 x·y 는 맞는데 덜 내려가 불안정
+    → 수직 잡기 높이보다 pick.front_tilt_lower_mm 더 내림."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    tf = srv.places()["drawer_top"]["tf"]
+    target = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+              "pose": {"frame": "drawer_top", "position": [0.0129, 0.0614, 0.0], "yaw": -1.5644, "yaw_valid": True}}
+    lows = {}
+    server.Gripper.holding, server.Gripper.held_width = True, 52.5        # 긴 변 양끝 쥠
+    for lower in (0.0, 5.0):
+        prm = srv.prm()
+        prm["pick"]["front_tilt_lower_mm"] = lower
+        monkeypatch.setattr(srv, "prm", lambda prm=prm: prm)
+        srv.robot.log.clear()
+        out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+        assert out.success and "긴 변" in out.reason, out.reason
+        pts = [p for e in srv.robot.log if e != "stop" and e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])]
+        lows[lower] = min(mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] for p in pts)
+        srv.held = None
+    assert (lows[0.0] - lows[5.0]) * 1000.0 == pytest.approx(5.0, abs=0.05)

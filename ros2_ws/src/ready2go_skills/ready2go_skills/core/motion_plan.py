@@ -338,7 +338,7 @@ def plan_axis_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     if need_y > gy[near_y]:                                             # 옆벽 → y 로 넛지
         sign = 1.0 if near_y == "y_max" else -1.0
         dp = _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, margin, need_y - gy[near_y], sign,
-                          press_x_lim_mm=g["wall_clearance_mm"]["along_mm"] + g["wall_margin_mm"])
+                          press_x_lim_mm=_press_x_lim(g, drag))
         return AxisGrasp(open_mm, length, (cx, cy), None, dp, "가로 — " + dp.reason)
     if d - x_mm < need_x or (reach is not None and x_mm > reach):       # 안쪽 벽·깊이 한계 → 손잡이 쪽으로 x 넛지
         dp = _plan_drag_x(cx, cy, yaw, size_m, interior_m, g, drag, margin, ext_x_mm=need_x - margin)
@@ -450,7 +450,7 @@ def _plan_drag_round(*, target: Mapping, size_m: Sequence[float], interior_m: Se
         yaw = target["pose"]["yaw"]
         _, lack, sign = _grasp_blocked(cx, cy, yaw + math.pi / 2, [size_m[1], size_m[0]] + list(size_m[2:]), interior_m, g, g["wall_margin_mm"])
         return _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, g["wall_margin_mm"], lack, sign,
-                            press_x_lim_mm=g["wall_clearance_mm"]["along_mm"] + g["wall_margin_mm"])
+                            press_x_lim_mm=_press_x_lim(g, drag))
     if long_side_ok(target=target, size_m=size_m, interior_m=interior_m, g=g):
         return DragPlan(False, None, 0.0, None, 0.0, 0.0, "원통형 — 긴 변 양끝으로 바로")
     yaw = target["pose"]["yaw"]
@@ -495,6 +495,12 @@ def _plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence
         lack_mm, sign = llack, lsign
         gap_m = ((wd - cy * 1000.0) if sign > 0 else cy * 1000.0) / 1000.0
     return _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, margin, lack_mm, sign)
+
+def _press_x_lim(g, drag):
+    """옆벽에서 y 로 끌 때 누르는 TCP 를 앞뒤 벽에서 떼는 거리. 손끝 실측(along 9 + 여유 3 = 12)이면 손잡이 쪽 벽에 가로로 붙은 지우개를
+    누를 때 그리퍼 몸통이 손잡이 쪽 벽에 약 3 mm 닿음 [사용자 10/11 PC2] → drag.press_x_lim_mm (몸통이 손끝보다 두꺼움)."""
+    return drag.get("press_x_lim_mm") or (g["wall_clearance_mm"]["along_mm"] + g["wall_margin_mm"])
+
 
 def _plan_drag_y(cx, cy, yaw, size_m, interior_m, g, drag, margin, lack_mm, sign, press_x_lim_mm=None):
     """옆벽(sign 쪽)에서 가운데 쪽으로 lack_mm + extra_mm 만큼 서랍 y 로 끌 거리와 누를 점.

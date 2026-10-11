@@ -1424,7 +1424,7 @@ class SkillServer(Node):
         tilt_x = (mp.front_tilt_x_mm(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
                   if ag is None and long_side and round_side is None and prm["pick"].get("front_tilt_deg") else None)
         if tilt_x is not None:
-            fz = mp.from_base(place["tf"], plan.position_m)[2]
+            fz = mp.from_base(place["tf"], plan.position_m)[2] - prm["pick"].get("front_tilt_lower_mm", 0.0) / 1000.0
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (tilt_x / 1000.0, target["pose"]["position"][1], fz)))
             tilt = ((-1.0, 0.0, 0.0), prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
         if round_side is not None:                          # 교시 자세 기준: TCP 는 물체 가운데보다 벽 쪽·아래 [실측 사용자 10/10 PC2 립밤 왼벽]
@@ -1437,7 +1437,8 @@ class SkillServer(Node):
             name = "옆벽 쪽" if vy else ("손잡이 쪽" if vx < 0 else "안쪽 벽 쪽")
             tilt = ((vx, vy, 0.0), rw["tilt_deg"], name, (1.0, 0.0, 0.0) if vy else (0.0, 1.0, 0.0))
         if ag is not None and ag.tilt_dir is not None:      # 가로로 손잡이 쪽 벽에 붙음: 손잡이 쪽으로 기울이고 손가락은 서랍 y (교시 방향)
-            fz = mp.from_base(place["tf"], plan.position_m)[2]
+            # 기울이면 손끝이 덜 내려가 윗부분만 잡혀 불안정 [사용자 10/11 PC2 "x·y 는 완벽, 더 깊이"] → front_tilt_lower_mm 더 내림
+            fz = mp.from_base(place["tf"], plan.position_m)[2] - prm["pick"].get("front_tilt_lower_mm", 0.0) / 1000.0
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (*ag.tcp_xy_m, fz)))
             tilt = (ag.tilt_dir, prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
         g, speed = prm["gripper"], prm["speed"]
