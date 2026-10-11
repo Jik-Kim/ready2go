@@ -253,8 +253,8 @@ def load_server(repo: Path, robot, cfg_dir: Path | None = None):
 
         def move(self, w, f):
             if w == 0:                                                  # 닫기: 손잡이(열기 단계)는 8 mm, 그 밖은 지우개 21 mm 를 잡음
-                # 손잡이 두께·지우개 21 mm(내려가 닫을 때만 — 경유점 전 빈손으로 닫는 것은 0.9), 그 밖(끌기 등)은 빈 손 0.9 mm
-                Gripper.width = HANDLE_MM if robot.step == "open" else 21.0 if (robot.step == "pick" and robot.stage == "descend") else 0.9
+                # 손잡이 두께·지우개 21 mm(잡는 높이까지 내려가 닫을 때만 — 경유점 전 빈손으로 닫는 것은 0.9), 그 밖(끌기 등)은 빈 손 0.9 mm
+                Gripper.width = HANDLE_MM if robot.step == "open" else 21.0 if (robot.step == "pick" and robot.stage in PICK_DOWN_STAGES) else 0.9
             else:
                 Gripper.width = float(w)
             robot.grip_events.append(dict(before_segment=len(robot.segments), width_mm=Gripper.width, step=robot.step))
@@ -302,6 +302,9 @@ def load_server(repo: Path, robot, cfg_dir: Path | None = None):
 # 손잡이를 잡은 폭 = 손잡이 위아래 두께 (sim/drawer_dimensions.yaml). 예전 8 mm 는 재생 때 손가락이 손잡이에 안 닿아 보였음 [사용자 10/08]
 HANDLE_MM = 10.0 * __import__("yaml").safe_load((Path(__file__).resolve().parents[1] / "drawer_dimensions.yaml").read_text(encoding="utf-8"))[
     "drawer_unit"]["handle"]["thickness_vertical_cm"]
+# 집기에서 잡는 높이까지 내려간 마지막 이동의 단계 이름: 예전 직선 descend, 바닥 찍기 touch_floor(:n),
+# #206 높이 계산 집기(grip_height_ratio)는 경유점 → 잡는 높이를 블렌딩 한 번(to_object:over)으로 끝냄
+PICK_DOWN_STAGES = ("descend", "to_object:over", "touch_floor", *(f"touch_floor:{k}" for k in range(2, 6)))
 SEARCH_BELOW_MM = [None]      # params drag.search_below_mm (있으면 예상 접촉 높이 = 누르기 끝 z + 이 값)
 
 

@@ -8,6 +8,7 @@ drawer_top.tf 는 시작에 필수, drawer_bottom.tf 가 아직 null 이면 그 
 진단(결과에는 영향 없음): 요청마다 검출별 판단 근거와 카메라로 본 서랍 바닥 z(core/floor_probe.py)를 로그로 남긴다.
 dump_dir 파라미터를 주면 그 요청에 쓴 컬러·뎁스·K·TF·검출·결과를 .npz 로 저장한다(tools/dev/replay_inspect_dump.py 로 재계산).
 분할 모델(weights 가 yolo*-seg)이면 검출 마스크를 덤프 masks(packbits)로 함께 저장한다(meta.detections 순서와 같음).
+기본 가중치는 P2 분할 모델 yolo11s_seg_ready2go_v1(가림 필드 occluded_by·visible_area_m2 를 냄, #109 4단계). 박스 모델 v1(P1)은 weights 로 지정하면 가림 필드 없이 동작.
 """
 import datetime
 import hashlib
@@ -57,7 +58,7 @@ class InspectRegionNode(Node):
     def __init__(self):
         super().__init__("inspect_region")
         d = self.declare_parameter
-        d("config_dir", "/config"); d("world_path", "/knowledge/world.jsonld"); d("weights", "/models/yolo11n_ready2go_v1.pt")
+        d("config_dir", "/config"); d("world_path", "/knowledge/world.jsonld"); d("weights", "/models/yolo11s_seg_ready2go_v1.pt")
         d("color_topic", "/wrist_cam/color/image_raw"); d("depth_topic", "/wrist_cam/aligned_depth_to_color/image_raw")
         d("info_topic", "/wrist_cam/color/camera_info"); d("base_frame", "base_link"); d("camera_frame", "wrist_cam_color_optical_frame")
         d("frame_timeout_s", 3.0); d("device", "0"); d("dump_dir", ""); d("code_sha", "")
@@ -91,7 +92,7 @@ class InspectRegionNode(Node):
         self.create_subscription(Image, p("depth_topic"), lambda m: self._store("_depth", m), qos_profile_sensor_data, callback_group=cb)
         self.create_subscription(CameraInfo, p("info_topic"), lambda m: self._store("_info", m), qos_profile_sensor_data, callback_group=cb)
         self.create_service(InspectRegion, "/vision/inspect_region", self._handle, callback_group=cb)
-        self.get_logger().info(f"inspect_region 시작 (모델 {p('weights')}, 클래스 {list(self._detector.names.values())}, "
+        self.get_logger().info(f"inspect_region 시작 (모델 {p('weights')} {'분할 — 가림 필드 냄' if self._detector.is_seg else '박스 — 가림 필드 없음'}, 클래스 {list(self._detector.names.values())}, "
                                f"버전 {json.dumps(self._versions, ensure_ascii=False)}, 덤프 {self._dump or '끔'})")
 
     def _store(self, name, msg):
@@ -137,7 +138,8 @@ class InspectRegionNode(Node):
         dets = self._detector.detect(color)
         debug = []
         res.success, res.error_code, res.result_json = inspect_scene(
-            dets, depth, K, T_drawer_cam, self._params, self._items, req.region, req.search_target, region["interior_m"], debug)
+            dets, depth, K, T_drawer_cam, self._params, self._items, req.region, req.search_target, region["interior_m"], debug,
+            seg_model=self._detector.is_seg)
         floor = floor_probe(depth, K, T_drawer_cam, region["interior_m"], [dt["box"] for dt in dets], self._params["floor_probe"])
         log = self.get_logger()
         log.info(f"inspect_region {req.region}/{req.search_target}: 검출 {len(dets)}개 → success={res.success} {res.error_code} {res.result_json[:300]}")

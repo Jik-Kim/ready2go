@@ -13,6 +13,8 @@
   분할 모델(모든 검출에 mask)이면 뎁스 전에 같은 클래스 중복 검출 중 신뢰도 높은 쪽만 남긴다(core/dedup.py, dedup.min_overlap, 합집합 안 함). 박스 모델은 그대로.
   뎁스를 쓸 수 없는 검출이 하나라도 있으면 policy.on_invalid_candidate 에 따라 전체 DEPTH_INVALID (기본 fail, 안전 우선).
   지역(region)은 서랍 칸마다 places.yaml 의 tf·interior_m 으로 계산하고 pose.frame = 요청 지역 (#155, 아래 칸 = drawer_bottom).
+  가림 필드(P2, #109 4단계, core/occlusion.py): 분할 모델이면 결과의 모든 물체에 occluded_by·visible_area_m2(모르면 null),
+  박스 모델이면 결과 전체에 두 필드를 내지 않는다(#185). 판정에는 결과에서 빠진 검출(footprint 밖 등)도 '덮은 물체' 후보로 넣는다.
 """
 from __future__ import annotations
 
@@ -22,7 +24,8 @@ import math
 from .dedup import merge_duplicates
 from .depth_blob import analyze_box
 from .geometry import Intrinsics, make_T, ray_plane_xy
-from .pose_rules import is_symmetric, result_errors
+from .occlusion import occlusion_fields
+from .pose_rules import is_symmetric, result_errors, round_yaw
 
 SUPPORTED_REGIONS = ("drawer_top", "drawer_bottom")
 
@@ -50,13 +53,17 @@ def footprint_inside(x, y, yaw, yaw_known, size, interior, tol):
 
 
 def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict, items: dict,
-                  region: str, search_target: str = "", interior_m=None, debug: list | None = None) -> tuple[bool, str, str]:
+                  region: str, search_target: str = "", interior_m=None, debug: list | None = None,
+                  seg_model: bool | None = None) -> tuple[bool, str, str]:
     """(success, error_code, result_json). 미발견은 success=True + target_found=False.
-    debug 에 리스트를 넘기면 검출마다 판단 근거(dict)를 붙인다 (로그·덤프용, 결과에는 영향 없음)."""
+    debug 에 리스트를 넘기면 검출마다 판단 근거(dict)를 붙인다 (로그·덤프용, 결과에는 영향 없음).
+    seg_model = 분할 모델인가(가림 필드를 낼지). None 이면 검출 중 하나라도 mask 가 있으면 분할 모델로 본다."""
     note = (lambda det, **kv: debug.append({"class": det["class"], "conf": round(float(det["conf"]), 3),
                                             "box": [round(float(b), 1) for b in det["box"]], **kv})) if debug is not None else (lambda det, **kv: None)
     if region not in SUPPORTED_REGIONS:
         return False, "UNKNOWN_REGION", ""
+    if seg_model is None:
+        seg_model = any(d.get("mask") is not None for d in detections)
     blob_params, policy = params["depth_blob"], params.get("policy", {})
     fail_on_invalid = policy.get("on_invalid_candidate", "fail") == "fail"
     roi_margin = params.get("region", {}).get("detect_roi_margin_m")
@@ -77,7 +84,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         kept, dropped = merge_duplicates(kept, min_overlap)
         for d in dropped:
             note(d, skip=f"중복 검출 → 같은 클래스 conf {d['merged_into_conf']:.3f} 만 남기고 버림")
-    found = []
+    found, in_result = [], {}
     for det in kept:
         merged = {"merged_from": det["merged_from"]} if det.get("merged_from") else {}
         size = items[det["class"]]["size_m"]
@@ -100,7 +107,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         if is_symmetric(size):
             yaw, valid, yaw_known = 0.0, True, False                 # 대칭 물체의 yaw 0 은 약속값이라 footprint 는 외접원으로 본다
         else:
-            yaw, valid = (round(blob.yaw, 4), True) if blob.yaw_ok else (0.0, False)
+            yaw, valid = (round_yaw(blob.yaw), True) if blob.yaw_ok else (0.0, False)
             yaw_known = valid
         info = dict(**merged, depth_src=src, top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)], yaw=yaw, yaw_valid=valid, yaw_reason=blob.reason,
                     n_blob=blob.n_blob, blob_long_mm=round(blob.blob_long_m * 1000, 1), blob_short_mm=round(blob.blob_short_m * 1000, 1))
@@ -108,15 +115,26 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
                                                            params.get("region", {}).get("edge_tolerance_m", 0.01)):
             note(det, skip="footprint 가 서랍 안쪽 밖", **info)
             continue
+        in_result[id(det)] = len(found)                                    # 가림 판정에서 결과 id 를 찾기 위해 (입력 dict 는 안 바꿈)
         note(det, **info)                                                  # 서랍 밖(시야에 잡힌 다른 물체·TF 오차)은 결과에 넣지 않는다
         found.append({"class": det["class"], "pose": {"frame": region, "position": [round(xy[0], 4), round(xy[1], 4), 0.0],
                                                       "yaw": yaw, "yaw_valid": valid}, "top_z": top_z})
-    found.sort(key=lambda i: i["top_z"], reverse=True)
+    order = sorted(range(len(found)), key=lambda i: found[i]["top_z"], reverse=True)
     n = {}
-    for it in found:
+    for i in order:
+        it = found[i]
         n[it["class"]] = n.get(it["class"], 0) + 1
         it["id"] = f"{it['class']}#{n[it['class']]}"
         it["pose"] = {k: it["pose"][k] for k in ("frame", "position", "yaw", "yaw_valid")}
+    if seg_model:
+        rels = [] if debug is not None else None
+        occ = occlusion_fields(kept, [found[in_result[id(d)]]["id"] if id(d) in in_result else None for d in kept],
+                               depth_m, K, T_drawer_cam, params["occlusion"], blob_params["min_depth_m"], blob_params["max_depth_m"], rels)
+        for it in found:
+            it["occluded_by"], it["visible_area_m2"] = occ[it["id"]]
+        if debug is not None:
+            debug += [{"occlusion": r} for r in rels]
+    found = [found[i] for i in order]
     target = next((i for i in found if search_target and i["class"] == search_target), None)
     result = {"target_found": target is not None, "target": _ordered(target),
               "candidates": [_ordered(i) for i in found if i is not target], "visible_count": len(found)}
@@ -126,4 +144,8 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
 
 
 def _ordered(it):
-    return None if it is None else {"id": it["id"], "class": it["class"], "pose": it["pose"], "top_z": it["top_z"]}
+    if it is None:
+        return None
+    out = {"id": it["id"], "class": it["class"], "pose": it["pose"], "top_z": it["top_z"]}
+    out.update({k: it[k] for k in ("occluded_by", "visible_area_m2") if k in it})
+    return out
