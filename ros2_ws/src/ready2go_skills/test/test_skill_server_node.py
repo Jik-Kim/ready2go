@@ -2038,6 +2038,20 @@ def test_handle_items_open_by_grasp_width_not_head(server, cls, grasp_w, head_w)
     assert round(grasp_w + 13.0, 1) in opens and round(head_w + 13.0, 1) not in opens, opens
 
 
+def test_putback_pick_then_place_at_pick_pose(server):
+    """[사용자 10/11 B putback] 파지만 시험 — 집은 뒤 집기 전 pose 로 서랍 안 놓기: 받아지고 그 자리(placed_pose)에 놓고 빈손."""
+    srv = server.srv
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+    t = json.loads(json.dumps(ERASER_FREE))
+    scan = {"target_found": True, "target": t, "candidates": [], "visible_count": 1}
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.success, out.reason
+    pose = {k: t["pose"][k] for k in ("frame", "position", "yaw")}
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": pose, "scan": scan})
+    assert out.success, out.reason
+    assert data["placed_pose"]["position"] == pytest.approx(pose["position"]) and srv.held is None
+
+
 def test_tray_view_named_pose_goes_to_taught_joints(server):
     """[실측 PC2 10/11] 새 트레이 탑뷰 tray_view — 교시 관절로 이동 (B trayview)."""
     out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})

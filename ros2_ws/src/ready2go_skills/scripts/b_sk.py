@@ -26,6 +26,11 @@ def scan_file():
     return f"{TMP}/b_target_scan_{DRAWER}.json"
 
 
+def picked_file():
+    """B pick 이 보낸 집기 요청(target + scan) — B putback 이 그 자리로 되돌릴 때 씀 [사용자 10/11]."""
+    return f"{TMP}/b_picked.json"
+
+
 def full_scan_file(drawer):
     """인식 결과 전체(target + candidates) — 집기·넛지에 scan 으로 넘겨 옆 물체 확인 [사용자 10/09 랜덤 배치]."""
     return f"{TMP}/b_target_fullscan_{drawer}.json"
@@ -82,7 +87,25 @@ def goal_for(cmd):
         with open(src) as f:
             t = json.load(f)
         print(f"집을 좌표: {src}")
-        return "pick_object", with_scan({"target": t, "approach_offset": [0, 0, 0.1]}, (t.get("pose") or {}).get("frame"))
+        params = with_scan({"target": t, "approach_offset": [0, 0, 0.1]}, (t.get("pose") or {}).get("frame"))
+        with open(picked_file(), "w") as f:                # B putback 용 — 집기 전 자리와 그때 본 scan (쥔 물체가 scan 에 있어야 서랍 안 놓기가 받음)
+            json.dump(params, f, ensure_ascii=False)
+        return "pick_object", params
+    if cmd == "putback":                               # 파지만 시험: 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음 [사용자 10/11]
+        try:
+            with open(picked_file()) as f:
+                p = json.load(f)
+        except (OSError, ValueError):
+            sys.exit("되돌릴 자리 없음 — B pick 으로 집은 뒤에 (보내지 않음)")
+        t = p["target"]
+        pose = {k: t["pose"][k] for k in ("frame", "position", "yaw")}   # 서랍 안 놓기 pose 는 yaw_valid 없음 (계약 #120 ②)
+        params = {"location": pose["frame"], "pose": pose}
+        if p.get("scan"):
+            params["scan"] = p["scan"]
+        else:
+            params["scan"] = {"target_found": True, "target": t, "candidates": [], "visible_count": 1}   # 옆 물체 모름 — 쥔 물체만
+        print(f"되돌릴 자리: {pose['frame']} ({pose['position'][0] * 1000:.1f}, {pose['position'][1] * 1000:.1f}) mm, yaw {pose['yaw']:.3f}")
+        return "place_object", params
     if cmd == "place":
         return "place_object", {"location": "handover_zone"}
     if cmd in ("aside", "aside2"):                    # 쥔 물체를 그 서랍 빈 자리(aside_1·aside_2)에 — 집을 때 쓴 인식 결과 전체를 같이 [사용자 10/11 쌓기 치우기]
@@ -100,7 +123,8 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place trayview trayclear\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place putback trayview trayclear\n"
+         "  putback = 파지만 시험 — B pick 으로 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음\n"
          "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
