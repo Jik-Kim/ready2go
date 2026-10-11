@@ -102,12 +102,15 @@ def load(robot):
     srv = object.__new__(ss.SkillServer)
     srv.cfg_dir, srv.params_file, srv.rg2_ip = REPO / "config", ss.PARAMS_FILE, "x"
     srv.robot, srv.disp, srv.held, srv.tray = robot, {}, None, {}
+    srv.get_logger = lambda: types.SimpleNamespace(info=lambda m: None, warn=lambda m: None, warning=lambda m: None, error=lambda m: None)
     srv.state = sf.MotionState(robot.state, robot.posj)
     srv.move_timeout, srv.joint_vel, srv.joint_acc, srv.reach_tol = 30.0, 20.0, 20.0, 0.5
     real_line = ss.SkillServer._line
     def line(self, goal, posx, vel, stage, watch=None, **kw):
         robot.stage, robot.from_line = stage, True
-        if stage != "drag":
+        if stage.startswith("touch_floor"):                  # 집기 바닥 찍기 — 찾기 끝 + search_below 높이를 바닥으로 (넛지 누르기와 같은 흉내)
+            robot.contact = tsf.contact_for("press", robot.p, posx)
+        elif stage != "drag":
             robot.contact = tsf.contact_for(stage, robot.p, posx)
         elif getattr(robot, "block_drag", 0):    # 실패 주입: 끌다가 걸림 (옆 힘 20 N)
             robot.block_drag -= 1
