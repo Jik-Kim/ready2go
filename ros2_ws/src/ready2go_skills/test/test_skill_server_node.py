@@ -338,7 +338,10 @@ def test_runner_open_path_lifts_before_ready_and_does_not_redo_it(server):
     assert out.success
     assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(300.0) and log[1] == ("movej", ready)
     log.clear()
-    server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
+    server.Gripper.holding, server.Gripper.held_width = True, 7.9                 # 손잡이 꽉 잡은 폭 [실측 B 10/06]
+    out, data = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
+    server.Gripper.holding = False
+    assert out.success and data["drawer_displacement"] >= 0.9 * data["open_distance_m"] > 0   # open_drawer verify 근거 [P2 4절]
     assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(server.srv.prm()["drawer_open_close"]["handle_grasp_posx"]["drawer_top"][1] + server.srv.prm()["drawer_open_close"]["handle_grasp_back_mm"], abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07), 실측보다 handle_grasp_back_mm 덜 (10/08 4 → 10/10 1)
     assert ("movej", ready) not in log
 
@@ -583,10 +586,11 @@ HAMMER = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025,
           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
 
 
-@pytest.mark.parametrize("width, ok", [(12.4, True), (9.6, False), (21.0, False)])
+@pytest.mark.parametrize("width, ok", [(15.3, True), (15.7, True), (9.6, False), (21.0, False)])
 def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
     """#43: 망치 외접박스 짧은 변은 75 mm(머리)라 손잡이(12.5 mm)를 잡으면 WIDTH_MISMATCH 였음 → pick.grasp_width_m 으로 판정.
-    벌림은 짧은 변 기준 그대로 (75 + 13 mm). 10 mm 이하는 성공 아님 [사용자 결정 10/08]."""
+    벌림은 손잡이 폭 + 13 mm (pick.open_by_grasp_width [사용자 10/11], 전에는 짧은 변 75 + 13). 10 mm 이하는 성공 아님 [사용자 결정 10/08].
+    손잡이 폭 15.5 [실측 PC2 10/11 가로 15.3·세로 15.7, 예전 12.5]."""
     server.Gripper.holding, server.Gripper.held_width = True, width
     try:
         srv = server.srv
@@ -596,9 +600,9 @@ def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out.success is ok and res["grasp_ok"] is ok
-    assert 88.0 in [round(w, 1) for w in grips]                         # 벌림 = 75 + 13 mm
+    assert 28.5 in [round(w, 1) for w in grips] and 88.0 not in [round(w, 1) for w in grips]   # 벌림 = 15.5 + 13 mm
     if not ok:
-        assert out.error_code == server.ss.GRASP_FAILED and "기대 12.5 mm" in out.reason
+        assert out.error_code == server.ss.GRASP_FAILED and "기대 15.5 mm" in out.reason
 
 
 def test_pick_floor_10mm_even_if_bbox_short_side_matches(server):
@@ -1091,6 +1095,7 @@ def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
     srv.robot.p = list(start_x)                                         # 시작 자세에 도착했을 때 TCP
     out, data = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
     assert out.success and data["close_confirmed"] is True and srv.disp["drawer_bottom"] == 0.0
+    assert data["close_remaining_m"] <= data["close_pos_tol_m"] and data["close_push_interrupted"] is False   # 닫기 근거 [P2 4절]
     log = [e for e in srv.robot.log if e != "stop"]
     assert log[0] == ("movej", start)
     pushes = [e[1] for e in log if e[0] == "movel"]
@@ -1325,6 +1330,42 @@ def test_held_record_kept_when_gripper_width_invalid_at_restart(server, tmp_path
     server.Gripper.width = 22.4
     srv._held = srv._restore_held()
     assert srv.held is not None and srv.held["id"] == "eraser#1" and srv.held_file.exists()
+    srv.held = None
+
+
+@pytest.mark.parametrize("bad", [float("nan"), 150.0, "read_error"])
+def test_hold_unknown_after_restart_refuses_gripper_actions_before_motion(server, tmp_path, bad):
+    """[P2 5절] 재시작 때 쥔 기록이 있는데 폭을 못 읽으면(이상값·읽기 실패) 빈손으로 보지 않음 — 집기·넛지·서랍·놓기를
+    SENSOR_INVALID 로 움직이기 전(그리퍼 명령도 없이) 거부. 기준 포즈 이동은 됨. 폭이 정상인 재시작에서 풀림."""
+    srv = server.srv
+    srv.held_file = tmp_path / "held.json"
+    srv.held = {"class": "eraser", "id": "eraser#1", "width_m": 0.0228, "drawer_id": "drawer_top", "tcp_above_floor_m": 0.03}
+    srv._held = None
+    real_status = server.Gripper.status
+    if bad == "read_error":
+        def fail(self):
+            raise IOError("RG2 연결 안 됨")
+        server.Gripper.status = fail
+    else:
+        server.Gripper.width = bad
+    srv._held = srv._restore_held()
+    assert srv.held is None and srv.hold_unknown["id"] == "eraser#1" and srv.held_file.exists()
+    grips = []
+    srv._grip = lambda *a: grips.append(a)
+    for action, params in (("pick_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER}),
+                           ("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER}),
+                           ("drawer_control", {"drawer_id": "drawer_top", "state": "close"}),
+                           ("place_object", {"location": "handover_zone"})):
+        out, _ = server.run(action, params)
+        assert not out.success and out.error_code == server.ss.gc.SENSOR_INVALID, action
+    assert srv.robot.log == [] and grips == []
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    assert out.success
+    server.Gripper.status = real_status
+    server.Gripper.width = 22.4
+    srv.hold_unknown = None                                             # 재시작 흉내
+    srv._held = srv._restore_held()
+    assert srv.held is not None and srv.hold_unknown is None and srv._refuse_if_hold_unknown() is None
     srv.held = None
 
 def test_in_drawer_moves_sideways_only_above_rim(server):
@@ -1738,10 +1779,10 @@ def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
         tip_z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0 - open_tip
         return [0.0, 0.0, max(0.0, -8.0 * tip_z), 0.0, 0.0, 0.0]
     srv.robot.force = force
-    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
     out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
-    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)   # 닫은 손끝 높이
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(43.2, g)   # 닫은 손끝 높이
     assert cfg["clear_mm"] - 1.5 <= closed_tip <= cfg["clear_mm"] + 0.5
 
 
@@ -1758,7 +1799,7 @@ def test_pick_touch_ignores_force_spike_above_floor(server):
         z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0
         return [0.0, 0.0, 6.0 if (15.0 <= z <= 17.0 or z <= 4.0) else 0.0, 0.0, 0.0, 0.0]   # 캐러멜 높이 근처에서 튐 + 바닥
     srv.robot.force = force
-    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
     assert srv.held["tcp_above_floor_m"] * 1000.0 < 12.0                # 바닥(4 mm)에서 올린 높이 — 캐러멜 높이(16)에서 올린 게 아님
@@ -1773,10 +1814,10 @@ def test_pick_height_by_tip_table_without_touch(server):
     g = prm["gripper"]
     target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
               "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
-    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
-    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(43.2, g)
     assert closed_tip == pytest.approx(18.5 * prm["pick"]["grip_height_ratio"], abs=0.1)
     stages = [e for e in srv.robot.log if e != "stop" and e[0] == "movel"]
     assert not any(e[3] == prm["speed"]["grasp_mm_s"] for e in stages if len(e) > 3)
@@ -1842,6 +1883,191 @@ def test_gripper_sensor_invalid_never_turns_held_into_empty_hand(server, monkeyp
     server.Gripper.holding, server.Gripper.held_width = True, float("nan")   # 닫은 폭부터 못 읽음
     out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
     assert out.error_code == "SENSOR_INVALID" and srv.held is not None and data["grasp_ok"] is False
+    assert data["hand"] == "unknown" and data["grasp_evidence"]["closed_width_m"] is None
+
+
+def _on_lift(server, fn):
+    """닫아서 잡은 뒤(그리퍼 폭 = 쥔 폭) 들어 올리기(stage lift) 이동에 끼어듦 — fn() 이 Outcome 을 돌려주면 그걸로 실패."""
+    srv, G = server.srv, server.Gripper
+    real_line, real_blend = srv._line, srv._blend
+
+    def hit(stage):
+        return stage == "lift" and G.holding and G.width == G.held_width and fn()
+
+    def line(goal, target, vel, stage, **kw):
+        return hit(stage) or real_line(goal, target, vel, stage, **kw)
+
+    def blend(goal, pts, radii, vel, stage, **kw):
+        return hit(stage) or real_blend(goal, pts, radii, vel, stage, **kw)
+    srv._line, srv._blend = line, blend
+
+
+def test_pick_output_separates_grasp_result_from_measured_hand(server):
+    """[P2 4절·Critical] pick 결과에 파지 성공(grasp_ok)과 손 상태(hand)를 따로, verify 근거(닫은 폭·grip_detected·들어 올린 뒤)를 같이."""
+    srv = server.srv
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+    out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.success and data["grasp_ok"] is True and data["hand"] == "holding"
+    ev = data["grasp_evidence"]
+    assert ev["closed_width_m"] == pytest.approx(0.022) and ev["closed_width_m"] > ev["min_width_m"] == pytest.approx(0.010)
+    assert ev["grasp_detected"] is True and ev["close"] == "OK" and ev["lift"] == "HELD"
+    json.loads(json.dumps(data))                                         # NaN 없이 JSON 으로 나감
+    srv.held = None
+    server.Gripper.holding = False                                       # 빈손 닫힘 0.9 mm → 다시 벌림 = released (빈손 확정 아님 [#43 결정 10])
+    out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "GRASP_FAILED" and data["grasp_ok"] is False and data["hand"] == "released" and srv.held is None
+    assert data["grasp_evidence"]["close"] == "EMPTY_CLOSE"
+
+
+PICK_EXAMPLES = {c["case"]: c for c in json.loads((REPO / "contracts/examples/pick_object_result.json").read_text(encoding="utf-8"))["cases"]}
+
+
+def test_pick_result_example_matches_node_output(server):
+    """contracts/examples/pick_object_result.json 의 다섯 경우를 노드로 그대로 — error_code·output 이 예시와 같음 (PR #223)."""
+    srv, G = server.srv, server.Gripper
+    def pick():
+        return server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+
+    def same(name, out, data):
+        ex = PICK_EXAMPLES[name]
+        assert (out.success, out.error_code, data) == (ex["success"], ex["error_code"], ex["output"]), name
+    G.holding, G.held_width = True, 22.0
+    same("held", *pick())
+    srv.held, G.holding = None, False
+    same("empty_close", *pick())
+    G.holding, G.held_width = True, float("nan")
+    same("close_width_invalid", *pick())
+    srv.held, G.held_width = None, 22.0
+    real = srv._line, srv._blend
+
+    def drop():
+        G.width = 0.9
+    _on_lift(server, drop)
+    same("lift_dropped", *pick())
+    srv._line, srv._blend = real
+    _on_lift(server, lambda: sf.Outcome(False, sf.ESTOP, reason="비상정지"))
+    same("stopped_while_lifting", *pick())
+
+
+def test_pick_stopped_while_lifting_keeps_held_object(server):
+    """[P2 5절 보유 불명확] 닫아서 잡은 뒤 들어 올리다 멈추면(비상정지 등) 빈손으로 보지 않음 — 쥔 기억 유지, hand unknown.
+    (전에는 들어 올린 뒤 검사까지 가야 held 를 정해서, 그 사이 멈추면 다음 집기가 그리퍼를 벌려 떨어뜨릴 수 있었음)"""
+    srv = server.srv
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+    _on_lift(server, lambda: sf.Outcome(False, sf.ESTOP, reason="비상정지"))
+    out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == sf.ESTOP and data["hand"] == "unknown" and data["grasp_ok"] is False
+    assert srv.held is not None and srv.held["width_m"] == pytest.approx(0.022)
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == server.ss.HOLDING_OBJECT                    # 다음 집기는 움직이기 전에 거부
+
+
+def test_pick_dropped_while_lifting_is_measured_empty_hand(server):
+    """들어 올리다 폭이 빈손 닫힘까지 줄면(DROPPED) 실측 빈손 — 쥔 기억 지움, hand empty."""
+    srv = server.srv
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+
+    def drop():
+        server.Gripper.width = 0.9
+        return None
+    _on_lift(server, drop)
+    out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "GRASP_FAILED" and data["hand"] == "empty" and srv.held is None
+    assert data["grasp_evidence"]["lift"] == "DROPPED" and data["grasp_evidence"]["lift_width_m"] == pytest.approx(0.0009)
+
+
+def test_front_panel_clearance_table_matches_touch_measurements(server):
+    """[실측 PC2 10/11] 수직 그리퍼·닫힘 축 서랍 x 로 앞판에 닿기 직전 TCP: 벌림 66 → 59.3 mm, 100.3 → 75.1 mm.
+    손잡이 쪽 벽(front)만 이 값, 안쪽 벽은 옆벽 표 그대로."""
+    g, mp = server.srv.prm()["gripper"], server.ss.mp
+    assert mp.wall_extent_mm(66.0, 0.0, g, front=True) == pytest.approx(59.3)
+    assert mp.wall_extent_mm(100.3, 0.0, g, front=True) == pytest.approx(75.1)
+    assert mp.wall_extent_mm(66.0, 0.0, g) < 50.0
+    assert mp.wall_extent_mm(66.0, math.pi / 2, g, front=True) == pytest.approx(g["wall_clearance_mm"]["along_mm"])   # 닫힘 축이 앞판과 나란하면 그대로
+
+
+def test_vertical_eraser_near_front_does_not_switch_to_long_side_into_front_panel(server):
+    """[실측 PC2 10/11 충돌] 세로 지우개(손잡이 쪽 벽에서 57.4 mm), 짧은 변 손가락 자리에 몽키 → 긴 변 양끝으로 바꿔 65.5 mm 벌리고
+    내려가다 앞판에 닿음. 앞판 여유(front_across)로 긴 변 우회가 막혀 움직이기 전 NEIGHBOR_TOO_CLOSE."""
+    srv = server.srv
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.015, "occluded_by": [],
+          "pose": {"frame": "drawer_top", "position": [0.0574, 0.1494, 0.0], "yaw": -0.2316, "yaw_valid": True}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0159, "occluded_by": None,
+          "pose": {"frame": "drawer_top", "position": [0.0795, 0.217, 0.0], "yaw": 0.1254, "yaw_valid": True}}
+    scan = {"target_found": True, "target": er, "candidates": [wr], "visible_count": 2}
+    grips = []
+    srv._grip = lambda *a: grips.append(a)
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(er)), "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and "toy_wrench" in out.reason, out.reason
+    assert srv.robot.log == [] and grips == []
+
+
+def test_tray_slots_kept_in_file_and_cleared_by_deleting_it(server, tmp_path):
+    """[사용자 10/11] 트레이 쓴 칸을 파일에도 — `B trayclear`(파일 삭제)로 비움을 알리면 서버 재시작 없이 다음 놓기는 1번 칸."""
+    srv = server.srv
+    srv.tray_file = tmp_path / "tray.json"
+    srv.tray = {}
+    slots = []
+    for _ in range(2):
+        _holding_in_drawer(server)
+        out, data = server.run("place_object", {"location": "handover_zone"})
+        assert out.success, out.reason
+        slots.append(data["slot"])
+    assert slots == ["handover_zone_1", "handover_zone_2"]
+    assert json.loads(srv.tray_file.read_text()) == {"handover_zone": [0, 1]}
+    srv.tray_file.unlink()                                              # B trayclear
+    _holding_in_drawer(server)
+    out, data = server.run("place_object", {"location": "handover_zone"})
+    assert out.success and data["slot"] == "handover_zone_1"
+
+
+@pytest.mark.parametrize("cls, grasp_w, head_w", [("toy_wrench", 25.9, 61.0), ("toy_hammer", 15.5, 75.0)])
+def test_handle_items_open_by_grasp_width_not_head(server, cls, grasp_w, head_w):
+    """[사용자 10/11 PC2 "몽키 엄청 벌리고 내려감"] pick.open_by_grasp_width: 벌림 = 손잡이 폭 + 13 mm (머리 폭 + 13 이 아님)."""
+    srv = server.srv
+    t = {"id": f"{cls}#1", "class": cls, "top_z": 0.025,
+         "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, grasp_w
+    grips, real = [], srv._grip
+    srv._grip = lambda w, f: grips.append(w) or real(w, f)
+    try:
+        out, data = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success, out.reason
+    opens = [round(w, 1) for w in grips if w > 1.0]
+    assert round(grasp_w + 13.0, 1) in opens and round(head_w + 13.0, 1) not in opens, opens
+
+
+def test_putback_pick_then_place_at_pick_pose(server):
+    """[사용자 10/11 B putback] 파지만 시험 — 집은 뒤 집기 전 pose 로 서랍 안 놓기: 받아지고 그 자리(placed_pose)에 놓고 빈손."""
+    srv = server.srv
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+    t = json.loads(json.dumps(ERASER_FREE))
+    scan = {"target_found": True, "target": t, "candidates": [], "visible_count": 1}
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.success, out.reason
+    pose = {k: t["pose"][k] for k in ("frame", "position", "yaw")}
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": pose, "scan": scan})
+    assert out.success, out.reason
+    assert data["placed_pose"]["position"] == pytest.approx(pose["position"]) and srv.held is None
+
+
+@pytest.mark.parametrize("yaw, width, ok", [(0.0, 30.9, True), (0.0, 40.5, False), (1.5708, 48.0, True), (1.5708, 57.5, False)])
+def test_toy_car_judged_by_measured_body_width(server, yaw, width, ok):
+    """[실측 PC2 10/11] 장난감차: 세로(짧은 변) 30.9·가로(긴 변 양끝) 48.0 — 외접 박스 40.5·57.5 보다 몸통이 좁아 WIDTH_MISMATCH 였음.
+    pick.grasp_width_m / grasp_width_long_m 실측으로 판정 (외접 박스 폭이면 이제 실패)."""
+    srv = server.srv
+    t = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.0325,
+         "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": yaw, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, width
+    try:
+        out, data = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success is ok, out.reason
+    if ok:
+        assert ("긴 변" in out.reason) == (yaw != 0.0)
 
 
 def test_tray_view_named_pose_goes_to_taught_joints(server):

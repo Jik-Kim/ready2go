@@ -446,6 +446,24 @@ def test_b_sk_aside_places_held_object_in_drawer_slot_with_scan(monkeypatch, tmp
     assert sk.goal_for("aside2")[1]["slot"] == "aside_2" and "aside" in sk.NEEDS_DRAWER
 
 
+def test_b_sk_putback_returns_picked_object_to_its_pick_pose(monkeypatch, tmp_path):
+    """[사용자 10/11] 파지만 시험: B pick → B putback = place_object(서랍, 집기 전 pose(yaw_valid 없음), 집을 때 본 scan).
+    pick 뒤 다시 찍어 scan 이 바뀌어도 집을 때 scan 을 씀(쥔 물체가 scan 에 있어야 서랍 안 놓기가 받음). 집은 적 없으면 보내지 않음."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "AFTER", str(tmp_path / "after.json"))
+    with pytest.raises(SystemExit, match="B pick"):
+        sk.goal_for("putback")
+    scan = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(scan))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    assert sk.goal_for("pick")[0] == "pick_object"
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(dict(scan, target=None, target_found=False)))   # 집은 뒤 다시 찍음
+    action, params = sk.goal_for("putback")
+    assert action == "place_object" and params["location"] == "drawer_top" and params["scan"] == scan
+    assert params["pose"] == {k: TOP_T["pose"][k] for k in ("frame", "position", "yaw")} and "putback" not in sk.NEEDS_DRAWER
+
+
 def test_b_sk_trayview_goes_to_taught_tray_view(monkeypatch):
     """[사용자 10/11] B trayview = 트레이 탑뷰(poses.yaml tray_view, 서랍 인자 없음)."""
     sk = _load_sk(monkeypatch)
