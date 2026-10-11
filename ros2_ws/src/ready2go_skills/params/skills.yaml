@@ -64,6 +64,7 @@ gripper:
   pick_min_width_m: 0.010       # 집기 성공 하한: 닫은 폭이 이 값 초과 [사용자 결정 10/08, #43 — 망치 손잡이 12.5 − 2.5]. 옮기는 중 놓침은 min_width_m(2 mm) 그대로
   slip_tolerance_m: 0.002       # 잡은 뒤 폭 변화 허용 (지우개 고무 눌림 0.6 mm [실측 B 10/04])
   grasp_width_tolerance_m: 0.003   # 잡은 폭 vs 기대 폭 = item_grasp.yaml grasp_width_m(긴 변 잡기면 grasp_width_long_m), 없으면 짧은 변(긴 변) (지우개 22 → 21.0~21.4 mm [실측 B 10/04·10/06])
+  grip_force_by_class_n: {caramel_box: 10.0}   # 물건별 잡는 힘 (item_grasp.yaml grip_force 가 null 일 때, 기본보다 먼저) — 캐러멜은 20 N 이면 상자가 찌그러짐 [사용자 10/11 PC2 "으깨지겠다, 10 N"]. 팀 확정되면 온톨로지 grip_force 로
   default_grip_force_n: 20.0    # item_grasp.yaml grip_force 가 null 일 때 (지금 전부 null — 팀 확정 전). 7 → 20 [사용자 10/11 PC2 "전부 20 으로" — 차키 7 N 에서 옮기다 미끄러져 떨어짐]. 지우개 20 N 3/3 [실측 10/04] (10/06 "20 N 너무 셈" 으로 7 이었음)
   open_margin_mm: 13.0          # 벌림 = 짧은 변 + 이 값 [실측 B 10/04]
   tip_below_tcp_mm:             # 손끝이 TCP보다 아래인 거리 — 벌릴수록 손끝이 올라감 [실측 B 10/03·10/06, 트러블슈팅 1]

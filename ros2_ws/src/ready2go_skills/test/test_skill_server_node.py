@@ -2072,6 +2072,23 @@ def test_toy_car_judged_by_measured_body_width(server, yaw, width, ok):
         assert ("긴 변" in out.reason) == (yaw != 0.0)
 
 
+def test_caramel_grip_force_by_class(server):
+    """[사용자 10/11 PC2] 캐러멜은 20 N 이면 찌그러짐 → gripper.grip_force_by_class_n 10 N. 다른 물건은 기본 20 N."""
+    srv = server.srv
+    forces, real = [], srv._grip
+    srv._grip = lambda w, f: forces.append((w, f)) or real(w, f)
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 43.2
+    out, _ = server.run("pick_object", {"target": car, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    assert (0, 10.0) in forces
+    srv.held, forces[:] = None, []
+    server.Gripper.held_width = 22.0
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.success and (0, 20.0) in forces
+
+
 def test_tray_view_named_pose_goes_to_taught_joints(server):
     """[실측 PC2 10/11] 새 트레이 탑뷰 tray_view — 교시 관절로 이동 (B trayview)."""
     out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})

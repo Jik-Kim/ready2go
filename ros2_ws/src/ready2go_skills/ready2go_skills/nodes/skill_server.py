@@ -1705,7 +1705,8 @@ class SkillServer(Node):
             ev = {"closed_width_m": _width_m(st.width_mm),
                   "grasp_detected": st.grip_detected, "min_width_m": pick_min_w, **evidence}
             return {"object_id": target.get("id"), "class": cls, "grasp_ok": ok, "hand": hand, "grasp_evidence": ev}
-        force = float(params.get("grip_force") or grip_force or g["default_grip_force_n"])
+        force = float(params.get("grip_force") or grip_force or (g.get("grip_force_by_class_n") or {}).get(cls)   # 요청 > 온톨로지 > B 물건별 > 기본
+                      or g["default_grip_force_n"])
         goal.publish_feedback(Skill.Feedback(stage="close"))
         st = self._grip(0, force)
         tol = g["grasp_width_tolerance_m"]
