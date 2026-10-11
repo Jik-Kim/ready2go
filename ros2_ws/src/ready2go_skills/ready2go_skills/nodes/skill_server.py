@@ -476,7 +476,7 @@ class SkillServer(Node):
         now = self.robot.posx()
         if now is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
-        clear = float((cfg.get("tip_above_floor_by_class_mm") or {}).get(target.get("class"), cfg.get("clear_mm", 2.0)))   # 덮개 판은 판 높이 [#8]
+        clear = float((prm["pick"].get("tip_above_floor_by_class_mm") or {}).get(target.get("class"), cfg.get("clear_mm", 2.0)))   # 덮개 판은 판 높이 [#8]
         lift = max(0.0, mp.tip_below_tcp_mm(close_mm, g) - mp.tip_below_tcp_mm(open_mm, g)) + clear
         self.get_logger().info(f"[pick_object] 바닥 {'닿음' if touched else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} (교시 바닥 {floor:.1f}, "
                                f"벌림 {open_mm:.1f} mm 손끝 표 {-tip:+.1f} mm) → {lift:.1f} mm 올려 닫음")
@@ -1577,6 +1577,15 @@ class SkillServer(Node):
                     return o, None
                 cur = self.robot.posx() or cur
                 grasp = list(grasp[:3]) + list(cur[3:])
+            by_height = prm["pick"].get("grip_height_ratio") is not None and round_side is None and not (prm["pick"].get("touch_floor") or {}).get("enabled")
+            if by_height:
+                # 온톨로지 높이로 계산 [사용자 10/11 "넛지 빼고 온톨로지 높이 반영해서, 벌려서 높이만큼 빠르게 내려가 집기"]: 닫은 손끝(잡는 폭 — 손끝 표)이
+                # 받침 위 물체 높이 × grip_height_ratio. 지우개 손끝 약 5~6 mm 3/3 [실측 10/04]·립밤 교시 손끝 약 11 mm [실측 10/10] = 높이 절반. 덮개 판 등은 물건별 값
+                floor_mm = 1000.0 * pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
+                tip_h = (prm["pick"].get("tip_above_floor_by_class_mm") or {}).get(cls)
+                if tip_h is None:
+                    tip_h = max(float(prm["pick"].get("min_tip_above_floor_mm", 2.0)), size[2] * 1000.0 * float(prm["pick"]["grip_height_ratio"]))
+                grasp = mp.with_z(grasp, floor_mm + float(tip_h) + mp.tip_below_tcp_mm(expected_w * 1000.0, g))
             vert = list(grasp)                              # 기울이지 않은 잡는 자세 — 들고 나올 때 이걸로 되돌림 (놓으러 갈 때 J6 계산은 수직 기준)
             if tilt is not None:                            # 손끝은 벽 쪽, 몸통은 서랍 안쪽 — 테두리 위 옆 구간에서 기울임 (넛지와 같음)
                 grasp = mp.gripper_posx(grasp[:3], close_dir, grasp[3:], tilt_toward=mp.dir_to_base(place["tf"], tilt[0]),
@@ -1585,7 +1594,7 @@ class SkillServer(Node):
             # 경유점에서 미리 벌리고(테두리 위 높이라 안 닿음) 테두리 위로 목표 위 → 잡는 높이 1 cm 위까지 블렌딩 한 번 — 목표 위에서 멈춰
             # 벌리고 다시 내려가지 않음 [사용자 10/10 "동작이 너무 많고 복잡"]. 마지막 1 cm 만 천천히 [사용자 10/07]
             self._grip(plan.open_width_m * 1000.0, 20)
-            slow_mm = prm["pick"].get("slow_last_mm", 0.0)
+            slow_mm = 0.0 if by_height else prm["pick"].get("slow_last_mm", 0.0)   # 높이 계산이면 한 번에 빠르게 [사용자 10/11 "존나 빠르게"]
             near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
             bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=tilt is None)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
@@ -1597,23 +1606,14 @@ class SkillServer(Node):
             return bad, None
         if not down:
             self._grip(plan.open_width_m * 1000.0, 20)
-        slow_mm = prm["pick"].get("slow_last_mm", 0.0)     # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
+        slow_mm = 0.0 if (down and by_height) else prm["pick"].get("slow_last_mm", 0.0)   # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
         bad = None
         if slow_mm > 0 and grasp[2] + slow_mm < self.robot.posx()[2] - 1.0:
             bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
         touch_cfg = prm["pick"].get("touch_floor") or {}
         if touch_cfg.get("enabled") and down:                # 바닥 찍고 올려 잡기 — 모든 서랍 안 집기 [사용자 10/11 "싹 새롭게"]
             bad = bad or self._pick_touch_down(goal, grasp, place["tf"], target, support, plan, expected_w, touch_cfg)
-        elif touch_cfg.get("by_tip_table") and down and round_side is None:
-            # 찍지 않고 계산 [사용자 10/11 "벌림에 따라 높이 다르게"]: 닫은 손끝(잡는 폭)이 바닥(받침) 위 clear_mm — 손끝 표 정확해야 함
-            floor_mm = 1000.0 * pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
-            clear = float((touch_cfg.get("tip_above_floor_by_class_mm") or {}).get(cls, touch_cfg.get("clear_mm", 2.0)))
-            grasp = mp.with_z(grasp, floor_mm + clear + mp.tip_below_tcp_mm(expected_w * 1000.0, g))
-            now_z = self.robot.posx()[2]
-            if slow_mm > 0 and grasp[2] + slow_mm < now_z - 1.0:
-                bad = bad or self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
-            bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
-        else:
+        elif math.dist(self.robot.posx()[:3], grasp[:3]) > 0.5:              # 높이 계산이면 블렌딩이 이미 잡는 높이까지 → 안 움직임
             bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, None

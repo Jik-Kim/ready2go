@@ -639,14 +639,13 @@ def test_stacked_eraser_picked_on_support_and_remembered_from_own_bottom(server,
     server.Gripper.holding = True
     try:
         floor, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-        z_floor, floor_held = dict(seen)["descend_fast"], dict(srv.held)   # 바닥(받침) + 5 mm 까지 빠르게 [사용자 10/11]
+        z_floor, floor_held = srv.held["tcp_above_floor_m"], dict(srv.held)   # 잡은 TCP 높이 (바닥 위)
         seen[:], srv.held = [], None                                    # 놓았다고 치고 다시 집기
         out, data = server.run("pick_object", {"target": _stacked_eraser(0.0115 + 0.0435), "approach_offset": [0, 0, 0.1]})
     finally:
         server.Gripper.holding = False
     assert floor.success and out.success and "받침 43.5 mm" in out.reason and data["grasp_ok"]
-    assert dict(seen)["descend_fast"] - z_floor == pytest.approx(43.5, abs=0.05)
-    assert srv.held["tcp_above_floor_m"] == pytest.approx(floor_held["tcp_above_floor_m"], abs=1e-4)   # 서랍 tf 기울기만큼
+    assert srv.held["tcp_above_floor_m"] == pytest.approx(floor_held["tcp_above_floor_m"], abs=1e-4)   # 받침 위 같은 높이로 잡음 (놓을 땐 바닥 기준)
 
 
 @pytest.mark.parametrize("allow, top_z", [(True, 0.0712), (False, 0.055)])
@@ -761,9 +760,8 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
     # 경유점이 있는 서랍: 목표 위로 가는 블렌딩이 잡는 높이 1 cm 위에서 끝남(따로 빠르게 내려가기 없음) → 마지막 1 cm 만 천천히 [사용자 10/10]
     blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
-    # 집기 [사용자 10/11]: 교시 바닥 + 5 mm 까지 빠르게(서랍 안 속도) → 넛지 누르기 속도로 바닥 찍기
-    assert st["descend_fast"][0] == sp["in_drawer_mm_s"] and blends[0][1][-1][2] > st["descend_fast"][1]
-    assert "descend" not in st
+    # 집기 [사용자 10/11 "벌려서 높이만큼 빠르게 내려가 집기"]: 목표 위 → 잡는 높이까지 블렌딩 한 번(서랍 안 속도), 천천히 내려가기 없음
+    assert "descend" not in st and "descend_fast" not in st
     assert out2.success and "lower_fast" not in st and st["lower"][0] == 15.0   # 칸 위 → 1 cm 위는 들고 나오기 블렌딩에 포함 [사용자 10/10]
     over = server.srv.prm()["place"]["touch_overtravel_mm"]             # 안 닿으면(가짜 로봇 힘 0) 계산 높이보다 이만큼 더 [사용자 10/10]
     carry = [e for e in server.srv.robot.log if e[0] == "moveb"][-1][1][-1]
@@ -1694,6 +1692,7 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
         prm = srv.prm()
         prm["pick"]["front_tilt_lower_mm"] = lower
         prm["pick"]["touch_floor"] = {"enabled": False}                  # 바닥 닿고 정하기를 끈 경우의 계산 높이
+        prm["pick"]["grip_height_ratio"] = None                          # 예전(윗면 높이) 방식에서의 기울여 잡기 더 내림
         monkeypatch.setattr(srv, "prm", lambda prm=prm: prm)
         srv.robot.log.clear()
         out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
@@ -1711,6 +1710,8 @@ def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
     srv = server.srv
     tf = srv.places()["drawer_top"]["tf"]
     prm = srv.prm()
+    prm["pick"]["touch_floor"]["enabled"] = True                        # 바닥 찍기 (꺼 둔 방식) 켰을 때
+    srv.prm = lambda: prm
     cfg, g = prm["pick"]["touch_floor"], prm["gripper"]
     target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
               "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
@@ -1747,12 +1748,11 @@ def test_pick_touch_ignores_force_spike_above_floor(server):
 
 
 def test_pick_height_by_tip_table_without_touch(server):
-    """[사용자 10/11 "벌림에 따라 높이 다르게"] 찍지 않는 방식: 닫은 손끝(잡는 폭)이 바닥 위 clear_mm 가 되게 TCP 높이 계산 — 물체 높이 안 씀."""
+    """[사용자 10/11 "넛지 빼고 온톨로지 높이 반영, 벌려서 높이만큼 빠르게 내려가 집기"]: 닫은 손끝(잡는 폭 — 손끝 표)이
+    바닥 위 온톨로지 높이 × grip_height_ratio. 바닥 찍기·천천히 내려가기 없이 블렌딩 한 번으로 잡는 높이까지."""
     from ready2go_skills.core import motion_plan as mp
     srv = server.srv
     prm = srv.prm()
-    prm["pick"]["touch_floor"] = dict(prm["pick"]["touch_floor"], enabled=False, by_tip_table=True)
-    srv.prm = lambda: prm
     g = prm["gripper"]
     target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
               "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
@@ -1760,7 +1760,9 @@ def test_pick_height_by_tip_table_without_touch(server):
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
     closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)
-    assert closed_tip == pytest.approx(prm["pick"]["touch_floor"]["clear_mm"], abs=0.1)
+    assert closed_tip == pytest.approx(18.5 * prm["pick"]["grip_height_ratio"], abs=0.1)
+    stages = [e for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    assert not any(e[3] == prm["speed"]["grasp_mm_s"] for e in stages if len(e) > 3)
 
 
 def test_long_side_grasp_accepts_slightly_skewed_box_width(server):

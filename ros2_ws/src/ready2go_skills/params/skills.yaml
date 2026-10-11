@@ -30,16 +30,17 @@ pick:   # core/pick_plan.py (#15)
   front_tilt_within_mm: 48.0    # 가로 파지가 손잡이 쪽 벽에서 이 거리 안이면 손잡이 쪽으로 기울임(앞판에 몸통) — 예전 판단 거리 47.9 (짧은 변 앞벽 자리 39.9 + 8) [제안, 실물 확인 필요]
   long_side_yaw_slack_deg: 7.0  # 긴 변 양끝 잡기 폭 판정: 비전 각도가 이만큼 틀려 비스듬히 물린 폭(긴 변 cos + 짧은 변 sin)까지 허용 [실측 PC2 10/11 캐러멜 79.7/75 ≈ 6°, 온톨로지 75 는 버니어 실측 #8]
   front_tilt_lower_mm: 0.0      # 손잡이 쪽으로 기울여 긴 변 잡을 때 수직 잡기 높이보다 더 내림 [사용자 10/11 "더 깊이"]. touch_floor 를 켜면 바닥 닿고 정하므로 0 (끄면 5 정도)
-  touch_floor:                  # 서랍 안 집기 [사용자 10/11 PC2 — 예전 설계(물체 윗면 높이) 버리고 새로]: ① 교시 바닥 z + fast_above_floor_mm 까지 직선으로 빠르게
-                                #   ② 넛지 누르기와 같은 닿음 판단(drag.press_speed_mm_s·press_ignore_mm·touch_force_n·press_confirm·touch_retries·search_below_mm)으로 바닥 찍기
-                                #   ③ 닫을 때 손끝이 내려오는 만큼(gripper.tip_below_tcp_mm 표) + clear_mm 올려 닫기. 쌓였으면 바닥 = 받침 윗면
-    enabled: true               #   true = 바닥 찍기. false + by_tip_table = 찍지 않고 손끝 표로 계산(빠름, 표가 정확해야 함 — 넓은 벌림 실측 후)
-    by_tip_table: true
-    fast_above_floor_mm: 5.0    #   벌린 손끝이 여기까지 빠르게 [사용자 10/11 "교시 z 보다 5 mm 위까지는 moveL 로 빠딱빠딱"] — TCP 기준이면 넓게 벌린 손끝이 바닥에 한참 못 미침
-    rise_margin: 0.3            #   손끝 표(넓게 벌리면 TCP 위로 감, 넓은 쪽은 대략값)가 틀려 손끝이 더 낮아도 빠르게 가다 박지 않게 올라간 양의 이 비율만큼 덜 내려감. 손끝 높이 실측하면 0
-    clear_mm: 2.0               #   닫은 손끝을 바닥(받침) 위 이만큼
-    tip_above_floor_by_class_mm:   #   물건별 닫은 손끝 높이 (바닥 위 mm). 덮개 판: 판 아랫면 21·두께 8 → 판 가운데 25 (다리 볼트 4개, 긴 변 가운데를 짧은 변 방향으로 [실측 A 10/03, #8])
-      cover_plate: 25.0
+  grip_height_ratio: 0.5        # 서랍 안 집기 높이 [사용자 10/11 "넛지(바닥 찍기) 빼고 온톨로지 높이 반영"]: 닫은 손끝(잡는 폭에서 — gripper.tip_below_tcp_mm 표)이
+                                #   받침(바닥) 위 온톨로지 높이(size_m[2]) × 이 비율. 지우개 손끝 약 5~6 mm 3/3 [실측 10/04]·립밤 교시 손끝 약 11 mm [실측 10/10] ≈ 높이 절반.
+                                #   크게 벌리면 손끝이 TCP 보다 위(88 mm 에서 +16 [실측 10/11 캐러멜]) → TCP 는 그만큼 낮게. null = 예전(윗면 높이)
+  min_tip_above_floor_mm: 2.0   # 닫은 손끝 바닥 위 최소
+  tip_above_floor_by_class_mm:  # 물건별 닫은 손끝 높이 (바닥 위 mm) — 구조가 다른 것. 덮개 판: 다리 볼트 위 판(아랫면 21, 두께 8) 가운데 [실측 A 10/03, #8]. 온톨로지에 넣으면 그걸로
+    cover_plate: 25.0
+  touch_floor:                  # 바닥 찍고 올려 잡기 (꺼 둠 [사용자 10/11 "넛지 빼고"]). 켜면 grip_height_ratio 대신 이것
+    enabled: false
+    fast_above_floor_mm: 5.0
+    rise_margin: 0.3
+    clear_mm: 2.0
     settle_s: 0.3               #   힘 0점 멈춤
   tilt_align_deg: 15.0          # 기울여 잡기는 긴 변이 그 벽과 이 각도 안으로 나란할 때만, 손가락은 서랍 축에 맞춤(교시한 앞뒤·좌우 네 방향만) —
                                 #   비스듬한 물체를 대각선으로 눕혀 잡다 못 잡음 [사용자 10/10 PC2 "대각선 절대 안 됨"]. 15° 는 [제안, 사용자 확인 필요]
