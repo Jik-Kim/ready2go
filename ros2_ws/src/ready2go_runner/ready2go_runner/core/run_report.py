@@ -143,6 +143,8 @@ def _detail_text(step: dict) -> str:
             name = target.get("class") or target.get("id")
             text = (f"{name} 찾음 ({float(position[0]) * 1000:.0f}, {float(position[1]) * 1000:.0f}) mm"
                     if len(position) >= 2 else f"{name} 찾음")        # 위치가 빠진 기록도 보고서는 멈추지 않음
+        elif not params.get("search_target"):           # 찾는 물체 없이 서랍 전체 촬영(되돌리기·복구 확인) — 실패 아님
+            text = f"보인 물체 {result.get('visible_count', 0)}개"
         else:
             text = f"못 찾음 (보인 물체 {result.get('visible_count', 0)}개)"
     elif action == "nudge_object" and result:

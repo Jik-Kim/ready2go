@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-11 C 음성으로 Unpacking 시작 확인 (10/12 2차 점검 대비)**: 코드 수정 없이 `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json` 으로 음성 `find_item` → Unpacking — ROS 노드 mock(겹친 장면)에서 끝까지 `COMPLETED` [실측]. 시험 2개(설정 있음 → Unpacking, 없음 → 기존 `find_item` 지우개만). `run_report`: 찾는 물체 없이 서랍 전체를 찍은 결과(되돌리기·복구 확인)를 "못 찾음"이 아니라 "보인 물체 N개"로.
 - **2026-10-11 C `runner.md` 7.1 `pick_object` 파지 높이·받침 설명을 #206 구현에 맞춤 (#134 E 10/11 정기 검토)**: 받침은 처음 값(`top_z` − 물체 높이)이고 `scan`으로 밑 물체의 온톨로지 높이를 계산할 수 있으면 그 값으로 바뀜(못 하면 처음 값), 잡는 높이는 받침 위 온톨로지 높이 × `pick.grip_height_ratio`(물건별 예외·최소값·`touch_floor` 꺼짐) — 값은 B `skills.yaml`만 가리킴.
 - **2026-10-11 C Unpacking 가림 모름이면 한 번 다시 찍기 (A #214 권고)**: `tasks/find_with_unpack.json` — `select_obstacle` 결과가 `occlusion_unknown`이면 같은 자세에서 한 번만 다시 찍고 다시 고름(처음 `s6r`, 치운 뒤 `s7.9`). 두 번째도 모르면 목표를 집지 않음(기존 규칙), 다시 찍기 실패는 skip. 실물 덮개 장면 6회 중 2회 `null`(#214) 대비. 시험 4개.
 - **2026-10-11 C Unpacking 복구 오차 기록 (AC-ACT-03)**: `tasks/find_with_unpack.json` — 원래 자리로 되돌린 물체만 `restored`에 남기고, 복구가 끝나면 닫기 전 탑뷰에서 다시 찍어 `find_moved`(`record.placed` = 원래 자리)로 원래 자리·지금 자리(위치·yaw)를 실행 기록에. `run_report` 가 "복구 오차 (판정 아님): 위치 mm · 방향 °" 표시. 새 원자 동작·계약 변경 없음, 기준값 없음(정본 2 cm → 3 cm 반영 대기). 이전에는 되돌린 뒤 다시 찍지 않아 복구 오차 근거가 없었음.

@@ -304,3 +304,43 @@ def test_unknown_after_moving_one_reshoots_inside_loop():
 def test_clear_photo_needs_no_reshoot():
     _, robot, result = run("occluded_top", "toy_wrench")
     assert not any(s["id"].startswith(("s6r.", "s7.9.")) for s in result.steps)
+
+
+# ---- 10/12 2차 핵심 점검 "음성 명령으로" Unpacking: 코드 수정 없이 RUNNER_INTENT_TASKS 로 find_item → find_with_unpack ----
+
+def _voice_router(intent_tasks):
+    from ready2go_runner.core import intent_router as ir
+    tasks = [json.loads(p.read_text(encoding="utf-8")) for p in sorted((ROOT / "tasks").glob("*.json"))]
+    overrides = {name: json.loads((ROOT / path.lstrip("/")).read_text(encoding="utf-8"))
+                 for name, path in ir.parse_overrides(intent_tasks).items()}      # 컨테이너 /tasks = 저장소 tasks/
+    schema = json.loads((ROOT / "contracts/intent.schema.json").read_text(encoding="utf-8"))
+    return ir.IntentRouter(schema, ir.tasks_by_intent(tasks, overrides), ONTOLOGY["world"]["items"], 0.6)
+
+
+VOICE_WRENCH = json.dumps({"intent": "find_item", "targets": ["toy_wrench"], "confidence": 0.93,
+                           "source": {"stt_text": "장난감 스패너 찾아줘"}}, ensure_ascii=False)
+
+
+def test_voice_find_item_starts_unpacking_with_intent_tasks_setting():
+    """RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json → 음성 "스패너 찾아줘" 가 Unpacking 으로 실행되고
+    (가려진 렌치: 치우기 → 전달 → 역순 복구), 실행 기록 inputs 에 음성 입력이 남음."""
+    decision = _voice_router("find_item=/tasks/find_with_unpack.json").decide(VOICE_WRENCH, running=False, locked=False)
+    assert (decision.kind, decision.task["task_id"]) == ("run", "find_with_unpack")
+    robot = SceneRobot("occluded_top")
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, log_store=MemoryLogStore())
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    result = runner.run(decision.task, decision.inputs)
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box", "car_key"]
+    run = runner.log_store.read_run(result.run_id)["run"]
+    assert (run["inputs"]["source"], run["inputs"]["stt_text"]) == ("voice", "장난감 스패너 찾아줘")
+    assert run["inputs"]["reid_tol_m"] == TASK["inputs"]["reid_tol_m"]        # 태스크 기본값은 그대로
+
+
+def test_without_setting_voice_find_item_stays_plain_find_item():
+    """설정이 없으면 지금처럼 find_item(치우기 없음, P1 시연 trigger.targets = 지우개만) — 점검 때만 켜는 설정.
+    스패너는 움직이기 전에 보류(UNSUPPORTED_ITEM), 지우개는 find_item."""
+    router = _voice_router("")
+    assert router.decide(VOICE_WRENCH, running=False, locked=False).reason == "UNSUPPORTED_ITEM"
+    eraser = VOICE_WRENCH.replace("toy_wrench", "eraser")
+    assert router.decide(eraser, running=False, locked=False).task["task_id"] == "find_item"

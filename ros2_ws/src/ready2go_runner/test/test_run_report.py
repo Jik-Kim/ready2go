@@ -242,3 +242,12 @@ def test_reid_find_moved_is_not_a_restore_check():
     step = {"id": "fr.4", "action": "find_moved", "params": {"record": {"class": "car_key", "origin": {"position": [0, 0]},
             "placed": {"position": [0.05, 0.04]}}}, "result": {"status": "found", "distance_m": 0.002}}
     assert rr.restore_check(step) is None and rr.detail(step) == "found (놓은 자리에서 2.0 mm)"
+
+
+def test_region_photo_without_search_target_is_not_shown_as_not_found():
+    """되돌리기·복구 확인처럼 찾는 물체 없이 서랍 전체를 찍은 결과는 '못 찾음'이 아니라 보인 물체 수 (10/11 노드 mock 에서 발견)."""
+    photo = {"action": "inspect_region", "params": {"region": "drawer_top"},
+             "result": {"target_found": False, "target": None, "candidates": [], "visible_count": 2}}
+    assert rr.detail(photo) == "보인 물체 2개"
+    missing = {**photo, "params": {"region": "drawer_top", "search_target": "eraser"}}
+    assert rr.detail(missing) == "못 찾음 (보인 물체 2개)"
