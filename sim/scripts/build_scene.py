@@ -29,9 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
 # 시험용: 가짜 tf 로 확인할 때 READY2GO_PLACES(대체 places.yaml), READY2GO_SCENE(출력 경로)를 지정한다. 지정하지 않으면 정본 파일.
-PLACES = yaml.safe_load(Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml")).read_text(encoding="utf-8"))
+PLACES_PATH = Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml"))
+PLACES_BYTES = PLACES_PATH.read_bytes()
+PLACES = yaml.safe_load(PLACES_BYTES)
 OUT = Path(os.environ.get("READY2GO_SCENE", ROOT / "sim/scenes/ready2go_t1.usd"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scene_record  # noqa: E402
 from _dims import cabinet_missing, cabinet_pose_from_tf, drawer_frame_tf, drawer_tf, quat_to_R, tray_pose_from_drawer  # noqa: E402
 ROBOT_REL = "../assets/m0609_camera_cube/m0609_camera_cube.usd"
 
@@ -202,6 +205,17 @@ def handover_tray(stage):
     rounded_tray_visual(stage, f"{root}/visual_frame/visual", d, w, h, 0.0, 0.0, t, r, col)
     return (f"{root} 안쪽 바닥(floor_m) {d * 1000:.0f}×{w * 1000:.0f} mm, 바깥 {(d + 2 * t) * 1000:.0f}×{(w + 2 * t) * 1000:.0f}×{(h + t) * 1000:.0f} mm, "
             f"벽 {t * 1000:.0f} mm, 놓기 범위(interior_m) {inner[0]}×{inner[1]} m, 원점 {tf['translation_m']}")
+
+
+def _code_sha() -> str:
+    """씬을 만든 저장소 코드 SHA(짧게). 커밋 안 된 변경이 있으면 +dirty. git 이 없으면 unknown."""
+    import subprocess
+    try:
+        sha = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--", "sim", "config"], capture_output=True, text=True).stdout.strip()
+        return sha + ("+dirty" if dirty else "")
+    except Exception:
+        return "unknown"
 
 
 def build():
@@ -390,8 +404,11 @@ def build():
             frame_marker(stage, f"/World/workspace/markers/{key}", pose(ft[0], ft[1]))
             markers.append(key)
 
+    rec = scene_record.build_record(PLACES, PLACES_BYTES, _code_sha(), str(PLACES_PATH))   # 생성 설정 — 재생기가 연 USD 의 이 기록과 궤적을 대조 (#215)
+    stage.GetRootLayer().customLayerData = {scene_record.RECORD_KEY: scene_record.dumps(rec)}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     stage.GetRootLayer().Export(str(OUT))
+    print(f"[build] 생성 설정 기록: 코드 {rec['code_sha']}, places sha256 {rec['places_sha256'][:12]} ({PLACES_PATH})", flush=True)
     print(f"[build] 저장: {OUT}", flush=True)
     print(f"[build] 작업대 x[{x_left:.3f},{x_right:.3f}] y[{y_bottom:.3f},{y_top:.3f}]", flush=True)
     if cabinet:

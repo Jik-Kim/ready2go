@@ -31,7 +31,7 @@ ap.add_argument("--flag-slow", type=float, default=1.0)
 ap.add_argument("--loop", action="store_true")
 ap.add_argument("--headless", action="store_true")
 ap.add_argument("--quit", action="store_true", help="끝나면 종료(시험용)")
-ap.add_argument("--allow-mismatch", action="store_true", help="궤적이 쓴 places.yaml 과 씬을 만든 places.yaml 이 달라도 재생(경고만)")
+ap.add_argument("--allow-mismatch", action="store_true", help="연 USD 의 생성 기록이 없거나 궤적 설정과 달라도 재생(우회로 표시)")
 args = ap.parse_args()
 
 app = SimulationApp({"headless": args.headless})
@@ -100,28 +100,44 @@ roots = [str(p.GetPath()) for p in stage.Traverse() if p.HasAPI(UsdPhysics.Artic
 robot_root = next(r for r in roots if r.startswith("/World/m0609"))
 cab_root = next((r for r in roots if r.startswith("/World/workspace")), None)
 
-# 서랍·물체는 궤적이 쓴 설정(trace config.places)으로 그린다 — 로봇 궤적과 같은 기준. 씬은 ROOT/config/places.yaml 로 만든 것이라
-# 두 값이 다르면(가정 설정 --cfg-dir, 다른 저장소의 tf 등) 서랍 위치가 어긋나 보이므로 거부(--allow-mismatch 면 경고만) [#192 E 리뷰 P2]
-scene_places = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+# 서랍·물체는 궤적이 쓴 설정(trace config.places)으로 그린다 — 로봇 궤적과 같은 기준. 그 설정을 **실제로 연 USD** 의 생성 기록
+# (build_scene.py 가 루트 레이어 customLayerData 에 남김)과 대조해 다르면 거부한다 (#192 E 리뷰 P2, #215). 저장소 config/places.yaml 은 대조에 쓰지 않는다.
+# 기록 없는 예전 USD·설정 기록 없는 예전 궤적도 거부. --allow-mismatch 면 '우회'로 표시하고 진행.
+sys.path.insert(0, str(ROOT / "sim/scripts"))
+import scene_record  # noqa: E402
 cfg = TRACE.get("config")
+scene_rec = scene_record.loads(stage.GetRootLayer().customLayerData.get(scene_record.RECORD_KEY))
+print(f"[play] 씬 {args.scene}: " + (f"생성 기록 코드 {scene_rec['code_sha']}, places sha256 {scene_rec['places_sha256'][:12]}" if scene_rec else "생성 기록 없음"), flush=True)
 if cfg:
-    places = cfg["places"]
     print(f"[play] 궤적 설정 {cfg['cfg_dir']}{' [가정 설정]' if cfg.get('assumed') else ''} sha256 {cfg['places_sha256'][:12]}", flush=True)
-else:                                                                     # 예전 궤적: 설정 기록 없음 → 씬 설정으로
-    places = scene_places
-    print("[play] 경고: 궤적에 설정 기록이 없음(예전 형식) — 씬의 places.yaml 로 그림", flush=True)
-_diff = []
-for _k in ("drawer_top", "drawer_bottom", "handover_zone"):
-    _a, _b = (places.get(_k) or {}).get("tf") or {}, (scene_places.get(_k) or {}).get("tf") or {}
-    for _f in ("translation_m", "quaternion_xyzw"):
-        if _a.get(_f) and _b.get(_f) and float(np.max(np.abs(np.array(_a[_f]) - np.array(_b[_f])))) > 1e-4:
-            _diff.append(f"{_k}.{_f} 궤적 {_a[_f]} ≠ 씬 {_b[_f]}")
-if _diff:
-    print("[play] 궤적 설정과 씬 설정이 다름:\n  " + "\n  ".join(_diff), flush=True)
+chk = scene_record.compare(scene_rec, cfg)
+_hz = (cfg or {}).get("places", {}).get("handover_zone", {}).get("tf") if cfg else None
+_tray = stage.GetPrimAtPath("/World/workspace/handover_tray")
+_base = stage.GetPrimAtPath("/World/m0609/base_link")
+if _hz and _tray.IsValid():                                              # 보조: 씬에 실제로 놓인 트레이 = 궤적 handover_zone tf (verify_scene 과 같은 방식)
+    _W = gf_to_np(UsdGeom.Xformable(_base if _base.IsValid() else stage.GetPrimAtPath("/World/m0609")).ComputeLocalToWorldTransform(0))
+    _Tt = np.linalg.inv(_W) @ gf_to_np(UsdGeom.Xformable(_tray).ComputeLocalToWorldTransform(0))
+    _dp, _dr = scene_record.pose_diff(_Tt.tolist(), _hz)
+    print(f"[play] 씬 트레이 prim vs 궤적 handover_zone tf: {_dp * 1000:.2f} mm, {_dr:.3f}°", flush=True)
+    if _dp > 1e-3 or _dr > 0.1:
+        chk["diffs"].append(f"씬 트레이 prim 이 궤적 handover_zone tf 와 {_dp * 1000:.2f} mm·{_dr:.3f}° 다름")
+        chk["status"] = "mismatch" if chk["status"] == "ok" else chk["status"]
+for _n in chk["notes"]:
+    print(f"[play] 참고: {_n}", flush=True)
+if chk["status"] != "ok":
+    print(f"[play] 씬·궤적 대조 실패 ({chk['status']}):\n  " + "\n  ".join(chk["diffs"]), flush=True)
     if not args.allow_mismatch:
-        print("[play] 거부 — 같은 places.yaml 로 씬을 다시 만들거나(build_scene.py) --allow-mismatch", flush=True)
+        print("[play] 거부 — 궤적을 뽑은 places.yaml 로 씬을 다시 만들거나(build_scene.py) 궤적을 다시 뽑을 것. 알고 보려면 --allow-mismatch", flush=True)
         app.close()
         sys.exit(2)
+    print("[play] **우회(--allow-mismatch)** — 씬과 궤적 설정이 다른 채로 재생. 이 재생으로 정합성을 판단하지 말 것", flush=True)
+else:
+    print("[play] 씬·궤적 대조 통과 (서랍·트레이 tf, 트레이 floor_m)", flush=True)
+if cfg:
+    places = cfg["places"]
+else:                                                                     # 예전 궤적(우회한 경우만 여기까지 옴): 저장소 설정으로 그림
+    places = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+    print("[play] 우회: 궤적에 설정 기록이 없어 저장소 config/places.yaml 로 그림", flush=True)
 size = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]["eraser"]["size_m"]
 DKEY = TRACE["eraser"]["pose"].get("frame", "drawer_top")          # 위·아래 서랍 (trace_skill_flow.py --drawer)
 tf = places[DKEY]["tf"]
