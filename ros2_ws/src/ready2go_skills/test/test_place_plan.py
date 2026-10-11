@@ -201,3 +201,29 @@ def test_ontology_support_uses_occlusion_relation_when_top_z_bleeds():
           "pose": {"position": [0.1221, 0.1913, 0.0], "yaw": 0.0}}
     assert plp.ontology_support_m(target=key, objects=[key, car, wr], size_of=sizes.get) == pytest.approx(0.037)
     assert {o["id"] for o in plp.objects_under(target=key, objects=[key, car, wr], size_of=sizes.get)} == {"caramel_box#1", "toy_wrench#1"}   # 둘 다 밑 (이웃 확인에서 뺌)
+
+
+def test_objects_under_when_all_stack_tops_bleed_to_the_top():
+    """[실측 PC2 10/11 분할 모델] 3단 윗면이 몽키 53.7·캐러멜 54·차키 53.7 로 비슷 + 관계 없음 → 캐러멜이 '손가락 자리 이웃'으로 NEIGHBOR_TOO_CLOSE.
+    차키 위에 아무것도 없고(occluded_by []) 가운데 밑 물체 윗면이 10 mm 안이면 밑에 깔린 것. 차키 위에 얹힌 물체·높이 차가 확실히 높은 물체는 아님."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "toy_wrench": [0.17, 0.061, 0.0185], "car_key": [0.0695, 0.039, 0.0158],
+             "cover_plate": [0.0985, 0.0742, 0.0405], "lip_balm": [0.0718, 0.02, 0.02]}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0537, "occluded_by": [], "pose": {"position": [0.12, 0.19, 0.0], "yaw": 1.57}}
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.054, "occluded_by": [], "pose": {"position": [0.135, 0.175, 0.0], "yaw": -1.5}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0537, "occluded_by": [], "pose": {"position": [0.1333, 0.1573, 0.0], "yaw": -1.19}}
+    assert {o["id"] for o in plp.objects_under(target=key, objects=[key, car, wr], size_of=sizes.get)} == {"caramel_box#1", "toy_wrench#1"}
+    unknown = dict(key, occluded_by=None)                               # 관계 모름이면 높이 차로만 → 못 찾음 (모름을 받침으로 바꾸지 않음)
+    assert plp.objects_under(target=unknown, objects=[unknown, car, wr], size_of=sizes.get) == []
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020, "occluded_by": [], "pose": {"position": [0.11, 0.15, 0.0], "yaw": 0.0}}
+    cov = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.035, "occluded_by": [], "pose": {"position": [0.11, 0.16, 0.0], "yaw": 0.0}}
+    assert plp.objects_under(target=lip, objects=[lip, cov], size_of=sizes.get) == []          # 덮개가 15 mm 높음 — 받침 아님
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.028, "occluded_by": ["cover_plate#1"], "pose": {"position": [0.11, 0.16, 0.0], "yaw": 0.0}}
+    assert plp.objects_under(target=er, objects=[er, cov], size_of=sizes.get) == []           # 위에 얹힌 덮개는 받침 아님
+
+
+def test_objects_under_ambiguous_height_never_takes_smaller_object_above():
+    """높이로 못 가르는 3단에서 몽키(맨 아래)를 목표로 하면, 그 위 캐러멜(더 작음)을 받침으로 보지 않음."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "toy_wrench": [0.17, 0.061, 0.0185]}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0537, "occluded_by": [], "pose": {"position": [0.13, 0.17, 0.0], "yaw": -1.5}}
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.054, "occluded_by": [], "pose": {"position": [0.135, 0.175, 0.0], "yaw": -1.5}}
+    assert plp.objects_under(target=wr, objects=[wr, car], size_of=sizes.get) == []

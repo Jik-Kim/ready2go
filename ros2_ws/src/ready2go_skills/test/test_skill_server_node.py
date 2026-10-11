@@ -1832,3 +1832,20 @@ def test_tray_view_named_pose_goes_to_taught_joints(server):
     out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})
     assert out.success, out.reason
     assert server.srv.robot.j == pytest.approx(server.srv.poses()["tray_view"]["joints_deg"])
+
+
+def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
+    """[실측 PC2 10/11 분할 모델] 3단 윗면이 몽키 53.7·캐러멜 54·차키 53.7 로 번지고 관계 없음 → 캐러멜이 손가락 자리 이웃으로
+    NEIGHBOR_TOO_CLOSE 였음. 차키 위에 아무것도 없고 밑 물체가 더 크면 받침 → 받침 37 (몽키 18.5 + 캐러멜 18.5) 위에서 집음."""
+    srv = server.srv
+    f = "drawer_top"
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0537, "occluded_by": [],
+           "pose": {"frame": f, "position": [0.12, 0.19, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 세로 → 짧은 변 39
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.054, "occluded_by": [],
+           "pose": {"frame": f, "position": [0.135, 0.175, 0.0], "yaw": -1.5, "yaw_valid": True}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0537, "occluded_by": [],
+          "pose": {"frame": f, "position": [0.1333, 0.1573, 0.0], "yaw": -1.19, "yaw_valid": True}}
+    scan = {"target_found": True, "target": key, "candidates": [car, wr], "visible_count": 3}
+    server.Gripper.holding, server.Gripper.held_width = True, 39.0
+    out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.success and "받침 37.0 mm" in out.reason, out.reason

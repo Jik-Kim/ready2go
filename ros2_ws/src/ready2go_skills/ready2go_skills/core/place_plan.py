@@ -241,7 +241,7 @@ def ontology_support_m(*, target: Mapping, objects: Sequence[Mapping], size_of: 
 
 
 def objects_under(*, target: Mapping, objects: Sequence[Mapping], size_of: Callable[[str], Optional[Sequence[float]]],
-                  gap_m: float = 0.005) -> list:
+                  gap_m: float = 0.005, ambiguous_m: float = 0.010) -> list:
     """target 밑에 깔린 것(받침): 분할 모델 관계(o.occluded_by 에 target) 이거나, target 가운데가 o footprint 안이고 윗면이 gap_m 넘게 낮음.
     집을 때 이웃 확인에서 뺌."""
     if not _finite(target.get("top_z")):
@@ -249,12 +249,20 @@ def objects_under(*, target: Mapping, objects: Sequence[Mapping], size_of: Calla
     x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
     out = []
     for o in objects:
-        if o.get("id") == target.get("id"):
-            continue
+        if o.get("id") == target.get("id") or o.get("id") in (target.get("occluded_by") or []):
+            continue                                        # target 위에 얹힌 물체는 받침이 아님
         if target.get("id") in (o.get("occluded_by") or []) and size_of(o.get("class")):
             out.append(o)                                   # 분할 모델 관계: o 위에 target 이 얹힘 — 비전 윗면이 번져 높아도 [사용자 10/11 PC2: 캐러멜 54.6 / 차키 55.5]
             continue
-        if not _finite(o.get("top_z")) or o["top_z"] > target["top_z"] - gap_m:
+        if not _finite(o.get("top_z")):
+            continue
+        lower = o["top_z"] < target["top_z"] - gap_m
+        # 쌓인 물체 윗면이 번져 위 물체와 비슷하게 나옴 [실측 PC2 10/11: 몽키 53.7·캐러멜 54·차키 55] — 분할 결과가 target 위에 아무것도
+        # 없다고 하면(occluded_by == []) 높이 차 ambiguous_m 안의 '가운데 밑' 물체는 밑에 깔린 것. 높이 차가 확실하면 높이대로
+        top_clear = isinstance(target.get("occluded_by"), list) and not target["occluded_by"]
+        ts, os_ = size_of(target.get("class")), size_of(o.get("class"))
+        bigger = bool(ts and os_) and os_[0] * os_[1] >= ts[0] * ts[1]   # 높이로 못 가를 땐 큰 게 밑 (몽키 > 캐러멜 > 차키) — 밑 물체를 집을 때 위 물체를 받침으로 안 봄
+        if not (lower or (top_clear and bigger and abs(o["top_z"] - target["top_z"]) <= ambiguous_m)):
             continue
         size = size_of(o.get("class"))
         if not size:
