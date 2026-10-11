@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-11
 
 ## 지금 상태
+- **10/11 밤 (#223 머지 `75c33e3` 뒤 같은 브랜치 새 PR)**: B 실측 잡는 폭을 온톨로지 `config/item_grasp.yaml` 선택 항목 `grasp_width_m`·`grasp_width_long_m` 으로 옮김(망치 15.5, 캐러멜 짧은 변 43.2, 장난감차 30.9·48.0, 몽키 25.9) — 로더(E)가 받고 검사, B 스킬 서버는 거기서 읽음. E 포함 2명 승인 필요.
 - **10/11 저녁 (브랜치 `claude/practical-darwin-z6akw4`)**: P2 체크리스트(10/10) B 항목 대조 → `practice/B/P2_B_checklist.md`(지원 범위·물품별 파지·실물 할 일).
   - 코드: 재시작 때 폭 못 읽으면 그리퍼 쓰는 동작 거부(`hold_unknown`), 닫아서 잡은 순간 쥔 것으로 기억(들어 올리다 멈춰도), pick 결과 `hand`·`grasp_evidence`, 서랍 결과 `open_distance_m`·`close_remaining_m` 등. 트러블슈팅 21~23.
   - 협의 초안: 무동작 안전 확인(B 안전 상태) — C/E 계약 승인 필요. 실물 확인 전.

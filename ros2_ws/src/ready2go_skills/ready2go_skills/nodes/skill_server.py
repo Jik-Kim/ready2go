@@ -254,12 +254,12 @@ class SkillServer(Node):
         return [float(v) for v in items[cls]["size_m"]], force
 
     def grasp_width(self, cls, size_m, prm, long_side=False):
-        """skills.yaml `pick.grasp_width_m` — 실제로 잡는 부위의 폭 (망치는 외접박스 짧은 변 75 mm 가 아니라 손잡이).
-        long_side 면 `pick.grasp_width_long_m` (긴 변 양끝을 잡은 폭 — 장난감차는 바퀴 빼고 몸통) [실측 PC2 10/11].
-        없으면 None (온톨로지 변을 씀). 0 이하·그 변보다 큰 값은 움직이기 전에 거부 (#43).
-        item_grasp.yaml 은 E 온톨로지 검사가 grip_force·grasp_verified 만 허용해 B 파라미터에 둠."""
+        """온톨로지 `config/item_grasp.yaml` 의 `grasp_width_m` — 실제로 잡는 부위의 폭 (망치는 외접박스 짧은 변 75 mm 가 아니라 손잡이).
+        long_side 면 `grasp_width_long_m` (긴 변 양끝을 잡은 폭 — 장난감차는 바퀴 빼고 몸통) [실측 PC2 10/11].
+        없으면 None (온톨로지 변을 씀). 0 이하·그 변보다 큰 값은 움직이기 전에 거부 (#43). prm 은 쓰지 않음(호환)."""
         key, side = ("grasp_width_long_m", size_m[0]) if long_side else ("grasp_width_m", size_m[1])
-        w = (prm["pick"].get(key) or {}).get(cls)
+        grasp = _yaml_cached(self.cfg_dir / "item_grasp.yaml") or {}
+        w = (grasp.get(cls) or {}).get(key)
         if w is None:
             return None
         if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0.0 < w <= side:

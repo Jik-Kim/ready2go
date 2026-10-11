@@ -612,14 +612,16 @@ def test_pick_floor_10mm_even_if_bbox_short_side_matches(server):
 
 
 def test_bad_grasp_width_refused_before_motion(server, monkeypatch):
-    """짧은 변(75 mm)보다 큰 잡는 폭은 설정 오류 — 움직이기 전에 거부."""
-    srv, real = server.srv, server.srv.prm
+    """짧은 변(75 mm)보다 큰 잡는 폭(item_grasp.yaml grasp_width_m)은 설정 오류 — 움직이기 전에 거부."""
+    srv = server.srv
+    real = server.ss._yaml_cached
 
-    def prm():
-        p = real()
-        p["pick"]["grasp_width_m"] = {"toy_hammer": 0.2}
-        return p
-    monkeypatch.setattr(srv, "prm", prm)
+    def cached(path):
+        d = real(path)
+        if path.name == "item_grasp.yaml":
+            d = {**d, "toy_hammer": {**d["toy_hammer"], "grasp_width_m": 0.2}}
+        return d
+    monkeypatch.setattr(server.ss, "_yaml_cached", cached)
     out, _ = server.run("pick_object", {"target": json.loads(json.dumps(HAMMER)), "approach_offset": [0, 0, 0.1]})
     assert out.error_code == "SKILL_EXCEPTION" and "grasp_width_m" in out.reason
     assert srv.robot.log == ["stop"]                                    # 이동·그리퍼 명령 없음 (예외 뒤 정지 요청만, plan 오류와 같음)
@@ -2056,7 +2058,7 @@ def test_putback_pick_then_place_at_pick_pose(server):
 @pytest.mark.parametrize("yaw, width, ok", [(0.0, 30.9, True), (0.0, 40.5, False), (1.5708, 48.0, True), (1.5708, 57.5, False)])
 def test_toy_car_judged_by_measured_body_width(server, yaw, width, ok):
     """[실측 PC2 10/11] 장난감차: 세로(짧은 변) 30.9·가로(긴 변 양끝) 48.0 — 외접 박스 40.5·57.5 보다 몸통이 좁아 WIDTH_MISMATCH 였음.
-    pick.grasp_width_m / grasp_width_long_m 실측으로 판정 (외접 박스 폭이면 이제 실패)."""
+    item_grasp.yaml grasp_width_m / grasp_width_long_m 실측으로 판정 (외접 박스 폭이면 이제 실패)."""
     srv = server.srv
     t = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.0325,
          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": yaw, "yaw_valid": True}}
