@@ -14,6 +14,7 @@
 | `examples/place_object_result.json` | `place_object` 입력·결과 예시 (runner.md 7.1). **서랍 안 놓기는 #120 ② 계약안(B 제안, E 포함 2명 승인 전, P2)**: `location` 서랍 + `pose`(inspect_region pose 기준, `yaw_valid` 없음) 또는 `slot` + `scan`(`$scan`, 직전 인식 결과 전체 — `target`도 이웃으로 검사). `placed_pose`는 B가 명령한 자리(재인식 아님), 그리퍼를 연 뒤에만 채우고 움직이기 전 거부면 `null`. 이웃·벽 거부는 `PLACE_BLOCKED`·`WALL_TOO_CLOSE` + `blocked_by`. 트레이(`handover_zone`)는 현행 그대로. `validate_contracts.py`가 이 규칙을 검사 | P1(트레이)·P2(서랍 안) |
 | `examples/intent_find_item.json` | P1 인텐트 예시 | P1 |
 | `examples/intent_goal.json` | 목표형 명령 인텐트 예시 | P2 |
+| `examples/runner_status.json` | `/runner/status` 예시 (runner.md 7.1). **계약07(E-C-REQUEST-RUN-WIRE-20261011-07, 10/11 사용자 승인)**: 기존 칸 + `last_intent.request_id`·`run_id` — 수락 시 고정, 보류·거절은 `null`, 최종 결과는 `last.run_id` 로 대조. Runner 구현 전(운영 PR 별도). `test_runner_status_example.py` 가 기존 칸은 코드와 같은지, 새 칸 규칙을 검사 | P2 |
 
 ## 규칙
 - 계약을 바꾸면 스키마·예시·문서를 **같은 PR**에서 고치고 `python3 tools/validate_contracts.py`를 통과시킨다.

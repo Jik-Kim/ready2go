@@ -1,0 +1,154 @@
+{
+  "_comment": "/runner/status (std_msgs/String JSON, TRANSIENT_LOCAL) 예시 — docs/runner.md 7.1 `/runner/status`·`/voice/intent` 처리. 이 공동 계약 PR(계약07, E-C-REQUEST-RUN-WIRE-20261011-07 사용자 승인)에서는 기존 칸(phase·task_id·current_step·halt_code·log_store·last·last_intent·state_reset_at)과 last_intent 의 새 칸 request_id·run_id 만 보인다. request_id = 받은 /voice/intent 최상위 request_id 그대로(없으면 null). run_id = Runner 가 실제로 수락(decision run)할 때 정한 실행 ID — 보류·거절·cancel·status 는 null, 빠른 완료로 결정 발행 전에 실행이 끝나도 같은 값. 최종 결과는 기존 last.run_id 로 대조(E 는 last.run_id == 그 요청의 run_id 일 때만 완료 안내). last_intent 는 마지막 요청 1건의 결정만 — 실행 중 다른 요청이 오면 last_intent 가 그 요청(reject BUSY)으로 바뀌므로 E 는 앞 요청의 run_id 를 자기 쪽에 보관한다. 같은 boot 안 같은 request_id 재전송은 같은 결정을 다시 발행(재실행·TTS 없음), 같은 ID + 다른 내용은 첫 결정 유지(새 내용 실행 없음, 경고 기록). #152 재개·정지 칸(boot_id·seq·halt 등)은 별도 계약안이라 여기에 넣지 않음. 값은 형식 예시이며 실측 아님. Runner 구현은 계약 병합 뒤 운영 PR.",
+  "cases": [
+    {
+      "case": "accepted_running",
+      "status": {
+        "phase": "running",
+        "task_id": "find_item",
+        "current_step": "s3",
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": null,
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "eraser"
+          ],
+          "confidence": 0.93,
+          "stt_text": "지우개 찾아줘",
+          "decision": "run",
+          "reason": null,
+          "task_id": "find_item",
+          "request_id": "req-0007",
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e"
+        },
+        "state_reset_at": null
+      }
+    },
+    {
+      "case": "accepted_fast_completed",
+      "status": {
+        "phase": "idle",
+        "task_id": null,
+        "current_step": null,
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": {
+          "task_id": "find_item",
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e",
+          "overall_status": "COMPLETED",
+          "error_code": null,
+          "failed_step": null,
+          "problems": [],
+          "log_errors": []
+        },
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "eraser"
+          ],
+          "confidence": 0.93,
+          "stt_text": "지우개 찾아줘",
+          "decision": "run",
+          "reason": null,
+          "task_id": "find_item",
+          "request_id": "req-0007",
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e"
+        },
+        "state_reset_at": null
+      }
+    },
+    {
+      "case": "hold_low_confidence",
+      "status": {
+        "phase": "idle",
+        "task_id": null,
+        "current_step": null,
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": null,
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "eraser"
+          ],
+          "confidence": 0.41,
+          "stt_text": "지우개 찾아줘",
+          "decision": "hold",
+          "reason": "LOW_CONFIDENCE",
+          "task_id": null,
+          "request_id": "req-0008",
+          "run_id": null
+        },
+        "state_reset_at": null
+      }
+    },
+    {
+      "case": "reject_busy_while_other_run",
+      "status": {
+        "phase": "running",
+        "task_id": "find_item",
+        "current_step": "s5.1",
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": {
+          "task_id": "find_item",
+          "run_id": "2026-10-11T04:58:00Z_2b9d41",
+          "overall_status": "COMPLETED",
+          "error_code": null,
+          "failed_step": null,
+          "problems": [],
+          "log_errors": []
+        },
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "car_key"
+          ],
+          "confidence": 0.93,
+          "stt_text": "차키 찾아줘",
+          "decision": "reject",
+          "reason": "BUSY",
+          "task_id": null,
+          "request_id": "req-0010",
+          "run_id": null
+        },
+        "state_reset_at": null
+      }
+    },
+    {
+      "case": "legacy_without_request_id",
+      "status": {
+        "phase": "idle",
+        "task_id": null,
+        "current_step": null,
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": {
+          "task_id": "find_item",
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e",
+          "overall_status": "COMPLETED",
+          "error_code": null,
+          "failed_step": null,
+          "problems": [],
+          "log_errors": []
+        },
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "eraser"
+          ],
+          "confidence": 0.93,
+          "stt_text": "지우개 찾아줘",
+          "decision": "run",
+          "reason": null,
+          "task_id": "find_item",
+          "request_id": null,
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e"
+        },
+        "state_reset_at": null
+      }
+    }
+  ]
+}

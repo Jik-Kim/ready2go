@@ -80,6 +80,14 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 기존 source | 같은 스키마의 `properties.source` | 로그용 자유 객체는 유지. E 발신 ID를 `source.request_id`에 중복 작성하지 않음 |
 | 현재 Voice 발신/소비 | [VoiceNode](../ros2_ws/src/ready2go_voice/ready2go_voice/nodes/voice_node.py), [Session](../ros2_ws/src/ready2go_voice/ready2go_voice/core/session.py) | 로컬 `_voice.request_id`와 내부 문장 소비만 준비됨. 두 공개 필드의 운영 발신·C 결정/결과 연결은 후속 구현 |
 
-#### C 담당 — 수신·상태·결과 합류 구간 (미작성)
+#### C 담당 — 수신·상태·결과
 
-TODO(C): 같은 공동 브랜치의 최소 소유 커밋으로 `contracts/examples/runner_status.json`·`docs/runner.md`와 이 구간을 합류합니다. 이 E 초안에는 C 상태 예시/수신 구현을 대신 작성하지 않았습니다. 기존 실행 기록 원본과 수락/결과 연결 위치는 C가 대조해야 합니다. C 원본·예시·공동 ICD 합류와 관련 담당 검토 전에는 동일 계약 PR 완료로 처리하지 않습니다.
+[문서: C 합류] 결정·결과 칸과 처리 규칙은 [runner.md 7.1 "요청 상관 — 계약07"](runner.md), 상태 예시는 [runner_status.json](../contracts/examples/runner_status.json)이 원본이다. 이 구간은 연결만 기록하며 Runner 수신 구현(중복 기억·`run_id` 고정·`accept_text` 1회 안내 게이트)은 계약 병합 뒤 운영 PR이다.
+
+| 연결 | 실행 원본·예시 | 현행 구현과의 구분 |
+| :--- | :--- | :--- |
+| E 요청 → C 결정 | `/runner/status` `last_intent.request_id`·`run_id` — [runner_status.json](../contracts/examples/runner_status.json) `accepted_running`·`hold_low_confidence`·`reject_busy_while_other_run` | 현재 `last_intent`에는 두 칸이 없음(구현 전). 기존 `decision`·`reason`은 그대로 |
+| 수락 → 최종 결과 | 기존 `last.run_id` — 같은 예시 `accepted_fast_completed`(빠른 완료에도 같은 `run_id`) | `last`는 현재 구현 그대로. E 완료 안내 조건 = `last.run_id`가 그 요청의 수락 `run_id`와 같음 |
+| 실행 기록 | 실행 헤더 `intent`(받은 payload 그대로, #89) → `intent.request_id` | 이미 저장 중 — 새 칸 없음 |
+| ID 없는 기존 요청 | 같은 예시 `legacy_without_request_id`(`request_id: null`) | 지금 동작 그대로 |
+| 중복·충돌·재기동 | runner.md 표 — 같은 ID 재전송은 같은 결정, 다른 내용은 첫 결정 유지, 기억은 이번 기동만 | 구현 전 |

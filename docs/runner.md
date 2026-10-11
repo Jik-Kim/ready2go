@@ -202,7 +202,7 @@
 
 * 시작할 때 스키마(`/contracts`)·온톨로지(`/knowledge`, 초기 상태 포함)를 읽고 실행 이력은 MongoDB(`MONGO_URI`) → 실패 시 `/logs` JSONL.
 * `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
-* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, 없으면 `null`), `state_reset_at`(마지막 `/runner/reset_state` 시각 UTC, 없으면 `null`).
+* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, **계약07 새 칸 `request_id`·`run_id`**(아래 요청 상관, 승인 10/11·Runner 구현 전), 없으면 `null`), `state_reset_at`(마지막 `/runner/reset_state` 시각 UTC, 없으면 `null`).
 * `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
 * `/runner/estop` (`std_srvs/Trigger`) → `halt()` → 진행 중인 goal 에 즉시 취소 요청(정지 확인 전에는 다음 동작 없음). **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
 * `/runner/reset_state` (`std_srvs/Trigger`, #23·#107) → 온톨로지 상태를 **Runner 시작 때 상태(초기 상태)로 되돌림**. P1 은 실행 사이 사람이 물품을 원위치해도 관측으로 상태를 맞추지 못해, 켜 둔 Runner 에 연속 요청하면 1회차 끝 상태(지우개 = `handover_zone`)로 2회차가 트레이를 서랍 자리에 넣음(10/07 발견). 리스크 대응 "시연 전 상태 스냅샷 복원"(metrics_risks.md)을 **사람이 원위치(물품·서랍 닫힘·빈 그리퍼·홈)를 확인한 뒤 부르는 명시적 초기화**로 둠(팀 결정: 나중에 시연 화면 #59 버튼). Runner 가 스스로 되돌리지 않으므로 실패(예: 놓기 실패로 쥔 채 정지) 뒤 상태는 사람이 확인할 때까지 그대로(#107 D 리뷰). 실행 중이면 `success: false`로 거절, 중단 잠김은 풀지 않음(재개는 별도). 관측으로 맞추기는 P2(FR-ONT-02)·P3(FR-REC-01).
@@ -226,6 +226,21 @@
   | 위를 모두 통과한 `find_item` 등 | 태스크 실행, `inputs` = `{target: targets[0], source: "voice", stt_text, intent_confidence}`, 실행 기록 헤더 `intent`에 받은 JSON 그대로 (FR-LOG-01 입력 명령) | `run` |
   | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
   | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |
+
+  **요청 상관 — 계약07** ([E-C-REQUEST-RUN-WIRE-20261011-07](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594) 사용자 승인 10/11, 의미·책임은 정본 [수락 TTS](requirements.md#acceptance-tts-policy), 필드는 `contracts/intent.schema.json`(E)·`contracts/examples/runner_status.json`(C), 흐름은 [interfaces.md 5.3](interfaces.md#request-run-contract)). **Runner 구현 전** — 계약 병합 뒤 운영 PR:
+
+  | 받은 것 | Runner 처리 | `/runner/status` |
+  | :--- | :--- | :--- |
+  | 최상위 `request_id`(비어 있지 않은 문자열) | 결정에 그대로 연결. 받은 payload 는 지금처럼 실행 기록 헤더 `intent`에 저장 → `intent.request_id` 로 기록(새 칸 없음) | `last_intent.request_id` |
+  | 실제 수락(`run`) | 수락할 때 실행 ID 를 정하고 바꾸지 않음 — 빠른 완료로 결정 발행 전에 실행이 끝나도 같은 값 | `last_intent.run_id`, 최종 결과는 기존 `last.run_id`로 대조 |
+  | 보류·거절·`cancel`·`status` | 실행 없음 | `last_intent.run_id: null` |
+  | 같은 기동 안 같은 `request_id` 재전송 | 첫 결정을 다시 발행, **재실행·TTS 없음** | 같은 `last_intent` |
+  | 같은 `request_id` + 다른 내용 | 첫 결정 유지, 새 내용 실행 안 함, 콘솔·기록 경고(새 오류 코드 없음) | 같은 `last_intent` |
+  | `accept_text`(문자열) | 수락된 그 run 의 첫 안내 1회에만 `speak`(E 재생 성공 → 실행 직전 안전 재검사 → 첫 동작). 보관·다른 run 재사용 없음 | — |
+  | `request_id`·`accept_text` 없음·`null`(P1 `text_override`·`task_file`·시험) | 지금 동작 그대로 — 중복 판단·상관 없음, 안내는 태스크 기존 문장(`find_item` s2) | `request_id: null` |
+  | Runner 재기동 | 기억한 ID 를 비움(이번 기동 동안만), 이전 요청 연결 무효·자동 재전송 없음 | 새 기동 |
+
+  - `last_intent` 는 마지막 요청 1건의 결정만 보인다 — 실행 중 다른 요청이 오면 그 요청(`reject`/`BUSY`)으로 바뀌므로 E 는 앞 요청의 `run_id` 를 자기 쪽에 보관하고 `last.run_id` 로 완료를 확인한다. 일반 요청에 `boot_id`·정지 사건·질문 ID·새 기한·새 오류 enum 을 더하지 않음(#152 재개 계약은 별도).
 
   * 목표형(`achieve_goal`, P2 #150): 태스크 대신 플래너(`core/planner.py`, `docs/planner.md` 7.7)가 **현재 Runner 상태**에서 계획. 계획 스텝 제한 시간은 파라미터 `plan_timeouts`(기본 `open_drawer=60,close_drawer=60,pick=70,place=60,move_to_named_pose=60` [팀 확정 필요, pick 70초는 사용자·C 합의 #153], find_item 과 같음). **지원 범위** 파라미터 `plan_limits`(기본 = 현재 실물 [문서: B `skill_server.py` 10/08, 팀 확정 필요] `open_drawer.drawer_id=drawer_top,close_drawer.drawer_id=drawer_top,pick.from=drawer_top,place.to=handover_zone`, 빈 문자열 = 제한 없음·mock) — 범위 밖 계획은 실행 전에 `UNPLANNABLE`. `tasks/`에 `trigger.intent: achieve_goal` 태스크를 두면 그 태스크가 우선.
   * 인텐트 → 태스크: `tasks_dir`(기본 `/tasks`)의 `trigger.intent`. `intent_tasks` 파라미터(`인텐트=태스크파일`, 쉼표로 여러 개)가 우선 — P1 시연(벽 배치·끌기 뒤 다시 촬영, E #122 공통 pick): `-p intent_tasks:=find_item=/tasks/p1_demo_eraser.json` (공통 온톨로지 그대로). 같은 `trigger.intent` 태스크가 둘 이상이면 시작할 때 오류.
