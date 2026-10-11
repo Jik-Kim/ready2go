@@ -5,6 +5,21 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## PR217 순서 역행 리뷰 수정 — E-PR217-REVIEW-FIX-20261011
+
+- [문서: 기준선·소유] 기존218 `6cdeceb` 편집/게시 종료·추적 clean을 확인한 뒤 기존 `codex/e-p2-safety-trim-20261011`의 `8a83b12`로 전환했습니다. 원격 최신 main `41b456d118e1eec4d7e8b17955c04d58d02bc22f`를 정상 merge합니다. 전달 main `9b1b407` 이후 B216/219 이력은 이미 main에 포함된 변경이며 대신 편집하지 않습니다. CURRENT 충돌은 양쪽 이력을 보존하고 D 과거 기준 한 문장·녹음 진단 source/_voice 정정을 상속합니다. #218의 asked/core·trusted Session/node 변경과 공동07은 역합류하지 않습니다.
+- [구현: 리뷰] [리뷰 지적](https://github.com/Jik-Kim/ready2go/pull/217#discussion_r4240350283)에 따라 동일 boot/run/halt의 최신 신뢰 의미 충돌도 revision/sequences 하한에 기록한 뒤 기존 입력·현재 확인을 무효화합니다. 충돌 work는 채택하지 않고 seq 이하 상태/ACK의 재확인을 차단합니다. 정상 의미 고seq의 입력 보존, 잘못된 입력/미확인 ACK의 하한 불변·boot/종료 처리를 유지합니다. 직접 수정은 recovery core·직접 시험·voice_llm/VoiceREADME/CURRENT 5파일뿐이며 정본 정책·설정·wire·타 담당은 변경하지 않습니다.
+- [실측: 회귀] Python3.12 test_recovery_confirmation **105 passed**, 종료0. seq2→충돌4→과거3/4 거절·독립 요청 생성 불가·oldACK 거절, 고seq 유효 재확인·일회 소비, 정상seq 입력 보존·잘못된값의 하한 불변·boot/종료 회귀를 확인했습니다. 최종 안정 HEAD 전체 로컬 CI를 한 번 실행하고 본문·리뷰 답변에 결과를 기록합니다. 이전198/2257 결과로 이 head 검증을 대신하지 않습니다.
+- [미검증·보존] 실제 E-C ACK/clock/TTS timeout·마이크/API/ROS/로봇·실물 AC는 미검증입니다. 사용자 models SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`과 기존218/07/207~209 refs를 보존합니다. CI/push/리뷰답변 완료를 이 기록으로 미리 주장하지 않습니다.
+
+## E 타이머·반복 검사 축소 — E-P2-SAFETY-TRIM-20261011-06
+
+- [문서: 승인·Git] 상위 인간 turn `01a1290f-14f1-73b3-a7d7-9ed08ac75208`의 E 한정 대체안과 후속 turn `01a12928-54e1-7981-9180-23c0dadbd7a5`의 “반복 검사 줄이는 안까지 같이 진행해” 원문을 직접 확인했습니다. 기존 root의 추적 clean·PR209 `929565a8c1c5ab58569eea877b6ecf7a2c4c8f53`에서 지시 세션이 통상 Git 선택으로 지정한 `codex/e-p2-safety-trim-20261011`을 생성했습니다. 인간이 브랜치 이름을 지정했다고 기록하지 않습니다. 완료 PR207~209는 수정하지 않습니다. 미추적 모델 파일 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존·커밋 제외합니다.
+- [문서: 변경] [재개 접수 정본](../../docs/requirements.md#resume-admission-policy)을 먼저 반영하고 E 등록 ACK 대기·등록 확인→TTS 완료 추가 타이머의 설정/로더/생성자/검사를 제거했습니다. C 등록/ACK 흐름 삭제안은 철회 상태입니다. 기존 등록 함수·질문 유효성·음성 TTS timeout을 유지하며 접수/STT/독립 전체 설정은 변경하지 않습니다. 같은 작업의 정상 seq에서는 기존 녹음/분류/ACK를 보존하고, 실제 무효화 상태 변경에는 재사용하지 않습니다. 이전 구간 설명은 아래 과거 작업 이력이며 현재 구현은 [기술 문서](../../docs/voice_llm.md#p2-safety-voice)를 참조합니다.
+- [문서: 확인·제외] C 고정 원본 `954ed61de614be216ab62c539fbd028ee30f4b22`의 등록/ACK/증빙 2차 검사와 C 자체 만료 처리를 읽기 대조했으며 편집하지 않았습니다. 일반 최소 계약04·C/B 검사·HALT·작업 보존/종료 퇴역·일회 소비·과거 콜백 격리를 유지합니다. place/P1/Melo/goal/nudge·공개 계약·새 wire/adapter·새 timeout/TTL/범용 캐시는 변경하지 않습니다.
+- [실측: 직접 검증] Python 3.12·ROS 미source의 직접 영향 3시험 파일은 **198 passed**, 종료0입니다. 두 전용 타이머 없는 유효 ACK/실제 TTS 완료, 등록 미확인·질문 만료·TTS 실패 차단/작업 보존, 정상 seq의 녹음·분류·ACK 보존과 실제 상태 변경 무효화, 과거 콜백·종료 퇴역·중복 소비 회귀를 확인했습니다. AST 4파일·YAML의 제거 키 없음/보존 구간값·문서 링크/앵커350개·변경 공백 검사 통과입니다. 공통 계약과 운영 노드/adapter는 변경하지 않았습니다.
+- [미검증·검증 계획] C 기한/현재 등록에 대응하는 E 로컬 입력과 기존 TTS timeout 실패를 연결할 운영 소비자는 없습니다. 이 내부 준비로 실제 C ACK나 실음성/API/Melo/ROS/로봇·실물 AC를 통과했다고 보고하지 않습니다. 직접 영향 시험·정적/문서 대조 후 관련 파일만 커밋하고 최종 SHA 전체 CI 1회·push·새 stacked PR 게시를 진행합니다. 최종 CI 결과는 PR 본문/외부 로그에 기록해 추가 기록 커밋으로 SHA를 바꾸지 않습니다. C/B 공동 계약 합의·운영 연결은 별도 선행입니다.
+
 ## PR209 최종208 합류 — E-PR207-209-D-DOC-REVIEW-FIX-20261011
 
 - [문서: 범위] 기존 PR209 `929565a8c1c5ab58569eea877b6ecf7a2c4c8f53`에 최종 PR208 `d19d692d4f9e19a2eb8d1a73132e88acf59159b4`를 일반 merge합니다. PR207 `a682bf7`의 승인된 D 연구 보고서 한 문장 정정과 최신 main 이력, PR208의 녹음 진단 공개 source/내부 `_voice` 경로 정정을 상속합니다. CURRENT 충돌은 양쪽 이력을 보존해 해결하며 D 문장과 정본을 추가 편집하지 않습니다. 이전 기록의 D 미확인은 이번 head에서 정정 완료로 갱신되며 main 병합·운영 연결·실물 완료와 구분합니다.
