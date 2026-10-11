@@ -4,7 +4,7 @@
 # 단일 성공 보고는 최종 승인과 다르다. 목록 등록·라벨링은 verified와 별개.
 airpods_case: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 caramel_box: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
-car_key: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
+car_key: {grip_force: 20.0, grasp_verified: false}  # [실측 PC2 10/11 사용자: 기본 7 N 에서 잡고 옮기다 미끄러져 떨어짐 — 검정 광택 단단함] → 20 N (지우개 20 N 3/3 [실측 10/04]). 확정은 반복 시험 뒤
 eraser: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 lip_balm: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 carrot_pen: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
