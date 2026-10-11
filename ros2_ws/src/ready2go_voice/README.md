@@ -225,7 +225,7 @@ PYTHON
 
 기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하며 두 모드 모두 실제 발화 종료/3초 지연은 null/not_measured입니다. 위 명령으로 실음성 정확도·지연·청취 품질·C/D 연결 완료를 선언하지 않습니다.
 
-실제 음성 입력이 준비된 경우의 기본 콘솔 흐름은 웨이크 대기→감지 점수→5초 녹음 시작/완료→Whisper 요청/STT 결과→LLM 또는 폴백 결과→TTS 시작/종료→모드와 게이트에 따른 발행/보류→다시 대기입니다. 프레임마다 점수를 출력하지 않습니다.
+실제 음성 입력이 준비된 경우 기본 콘솔에는 웨이크 대기·감지, 요약된 해석 결과, 발행/보류 상태와 오류가 표시됩니다. 녹음 시작/완료, Whisper 요청·STT 결과, TTS 시작 같은 단계 이벤트는 콘솔에서 생략됩니다. `diagnostic_detail:=true`는 설정된 `diagnostic_file`에 이벤트별 최상위 필드를 가진 상세 JSONL을 저장하며 `tee`로 받은 콘솔 요약에는 전체 증빙이 없습니다. 상세 진단은 [음성·LLM 문서의 현재 진단 절](../../../docs/voice_llm.md#voice-diagnostics-current)을 참조하십시오.
 
 ## MeloTTS 설치·재생 (P1 E, 사용자 선택)
 
@@ -427,7 +427,7 @@ PYTHON
 
 [문서] [사후 검증 정본](../../../docs/requirements.md#verification-policy)·[재개 접수 정본](../../../docs/requirements.md#resume-admission-policy)을 기준으로 core/skill_confirmation.py와 recovery_confirmation.py를 준비합니다. pick/place 판정은 E 내부 후보와 비전/사용자 근거 분류만 반환하고 C effect/로그·성공 안내·모션을 실행하지 않습니다. place 질문에는 이번 run/step의 기대물품별 개수·총개수·목적지를 포함하며 모호 응답은 설정된 재확인 한도 안에서 새 질문 객체로 분리합니다. 같은 run/step의 중복 시작과 종료 후 재시작으로 횟수를 초기화하지 않으며 실패 절차는 재사용하지 않습니다. 구간값·재질문 상한은 `params/voice.yaml`에서 읽고 null이면 보류합니다. 서랍 top view 관측과 C 최종 판정은 이 core의 운영 구현에 포함되지 않습니다.
 
-[문서] recovery 정책은 boot 변경·동일 run/halt의 seq·질문/TTS 완료·녹음 시작/끝·SDK 직전 접수·등록 ACK 뒤 TTS 시작·별도 결과 만료·일회성·재정지·질문 거절·명시 작업 종료를 분리합니다. 질문 실패/거절은 work를 보존합니다. 독립 요청은 고유 ID·새 녹음·STT 처리 구간·전체 구간·현재 등록 확인을 검사합니다. E 재기동 후 새 C 상태를 확인하고, Runner boot 변경/현재 C 완료는 보존 대상을 폐기합니다. WhisperSTT의 optional before_request와 Recording의 시작/끝 monotonic은 실제 E 프로세스 경계 자료형이지만 운영 Session/노드의 P1 입력/발행에는 연결하지 않았습니다. 기존 progress whisper_requested는 실제 SDK 접수 증빙으로 쓰지 않습니다. 실제 TTS 종료는 PortAudio 완료 증빙이 필요합니다. B unknown이나 처리 예산 미정일 때 운영 재개 요청을 만들지 않습니다.
+[문서] recovery 정책은 boot 변경·동일 run/halt의 seq·질문/TTS 완료·녹음 시작/끝·SDK 직전 접수·등록 ACK 뒤 TTS 시작·별도 결과 만료·일회성·재정지·질문 거절·명시 작업 종료를 분리합니다. 일반 cancel은 대상 보존이며 포기와 다르고, 질문 실패/거절도 work를 보존합니다. 독립 요청은 고유 ID·새 녹음·STT 처리 구간·전체 구간·현재 등록 확인을 검사합니다. E 재기동 후 새 C 상태를 확인하고 Runner boot 변경/현재 C 완료는 보존 대상을 폐기합니다. 현재 P1 Session은 WhisperSTT의 optional `before_request` callback을 연결해 실제 SDK 호출 직전 `whisper_sdk_request.requested_monotonic` 진단 이벤트를 기록합니다. 기존 progress `whisper_requested`는 그보다 앞선 진행 표시이므로 SDK 접수 증빙으로 쓰지 않습니다. `interpretation.intent.source.recording_ended_monotonic`과 내부 `interpretation.intent._voice.recording_started_monotonic`·`interpretation.intent._voice.recording_ended_monotonic`에 기록됩니다. 필드가 누락되거나 null이면 유효한 녹음 증빙으로 추정하지 않습니다. 이 P1 시각 연결은 P2 접수/재개 정책, 운영 정지·복구 경로와 연결되지 않았습니다. 실제 TTS 종료는 PortAudio 완료 증빙이 필요합니다. B unknown이나 처리 예산 미정일 때 운영 재개 요청을 만들지 않습니다.
 
 설정 원본 [params/voice.yaml](params/voice.yaml)의 승인 내부값과 미정 null을 구분하십시오. 제거된 `place_answer_timeout_sec`는 설정 오류로 거절하며 접수와 STT 키를 각각 사용합니다. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. 미승인 wire enum/등록 ACK 형식/프로세스별 clock 대응과 C hold·B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.
 
