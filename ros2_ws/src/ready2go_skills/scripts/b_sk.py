@@ -256,12 +256,17 @@ def main():
 
 
 def run_all(node):
-    for i, step in enumerate(STEPS, 1):
-        print(f"\n===== {i}/{len(STEPS)} {step} =====")
-        ok = timed(step, lambda: scan(node) if step == "scan" else scan(node, for_pick=True) if step == "rescan"
-                   else run(node, step))
-        if not ok:
+    """손잡이 앞 → 열기 → (find 와 같음: 탑뷰 → 인식 → 넛지 → 다시 보기 → 집기, 아직 못 잡는 자리면 다시 넛지 반복) → 트레이 → 닫기 → 홈.
+    예전엔 넛지 한 번 뒤 집기 거부(WALL_TOO_CLOSE)면 멈춤 — 손잡이 쪽 벽까지 밀어 눕힌 뒤 옆벽 y 넛지가 한 번 더 필요 [사용자 10/11 PC2]."""
+    for i, step in enumerate(("ready", "open"), 1):
+        print(f"\n===== {i}. {step} =====")
+        if not timed(step, lambda: run(node, step)):
             sys.exit(f"{step} 실패 — 여기서 멈춤 (뒤 단계 안 보냄). 터미널 1 로그 확인")
+    find(node)
+    for step in ("close", "home"):
+        print(f"\n===== {step} =====")
+        if not timed(step, lambda: run(node, step)):
+            sys.exit(f"{step} 실패 — 여기서 멈춤. 터미널 1 로그 확인")
     print("\n전체 흐름 성공")
 
 
