@@ -542,7 +542,7 @@ def _behind_push(cx, cy, yaw, size_m, interior_m, g, drag, n, end_center_mm, end
     손잡이 쪽 비스듬한 지우개 15.5 mm 끌었는데 13 mm·12° 만 돎]. 그리퍼 수직, 닫힘 축은 미는 방향에 수직(손가락 두 개가 나란히),
     손끝은 바닥 위 push_tip_above_floor_mm. n = 미는 방향(벽 쪽, 서랍 좌표 단위 벡터 — x 0 벽 (−1, 0) 또는 옆벽 (0, ±1)).
     시작 TCP = 물체 뒤 끝 + 손가락 옆면까지(along_mm) + push_start_gap_mm. 끝 TCP = 물체가 벽에 붙어 누운 자리(가운데 end_center_mm,
-    미는 방향 반 end_half_mm) 뒤 + push_over_mm 더 (벽에 닿으면 push_stop_n 에서 멈춤). 물체 이동은 최대 max_shift_mm.
+    미는 방향 반 end_half_mm) 뒤 + push_over_mm 더 (힘으로 끝을 찾지 않고 이 거리만 [사용자 10/11]). 물체 이동은 최대 max_shift_mm.
     손가락이 옆벽·뒤쪽 벽·깊이 한계에 걸리거나 미는 줄이 물체 밖이면 None (예전 방식)."""
     nx, ny = n
     L, W = interior_m[0] * 1000.0, interior_m[1] * 1000.0
