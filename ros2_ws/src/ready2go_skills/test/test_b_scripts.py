@@ -490,3 +490,56 @@ def test_b_sk_scan_prints_every_seen_object_with_relation(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "car_key#1" in out and "윗면 55.5 mm" in out and "caramel_box#1" in out and "위에 얹힘 ['car_key#1']" in out
     assert "(믿을 수 없음)" in out
+
+
+@pytest.mark.parametrize("results, want_calls, ok", [
+    ([("clear", "", {"action": "none", "ready_to_pick": True})],                       # 이미 잡을 수 있음 → 바로 집기
+     ["view", "scan", "clear", "pick", "place", "home"], True),
+    ([("clear", "", {"action": "unstack", "ready_to_pick": False}),                    # 위 물체 치우기 → 다시 보기 → 밀기 → 다시 보기 → 집기
+      ("clear", "", {"action": "sweep", "ready_to_pick": False}),
+      ("clear", "", {"action": "none", "ready_to_pick": True})],
+     ["view", "scan", "clear", "view", "scan", "clear", "view", "scan", "clear", "pick", "place", "home"], True),
+    ([("clear", "PUSH_BLOCKED", None), ("clear", "", {"action": "none", "ready_to_pick": True})],   # 밀다 걸림 → 다시 보고 다시
+     ["view", "scan", "clear", "view", "scan", "clear", "pick", "place", "home"], True),
+    ([("clear", "NO_FREE_SPACE", None)], ["view", "scan", "clear"], False),            # 빈 자리 없음 → 사람 할 일 출력하고 멈춤
+    ([("clear", "", {"action": "none", "ready_to_pick": True}), ("pick", "NOT_REACHED", None),
+      ("clear", "", {"action": "none", "ready_to_pick": True})],
+     ["view", "scan", "clear", "pick", "view", "scan", "clear", "pick", "place", "home"], True),
+])
+def test_b_clear_makes_room_until_ready_then_picks(monkeypatch, results, want_calls, ok):
+    """[사용자 10/11] B clear: 탑뷰 → 인식 → 공간 만들기 한 동작 → 다시 보기 … ready_to_pick 이면 집기 → 트레이 → 홈."""
+    sk = _load_sk(monkeypatch)
+    calls, queue = [], list(results)
+
+    def run(node, cmd):
+        calls.append(cmd)
+        if queue and queue[0][0] == cmd:
+            _, code, mr = queue.pop(0)
+        else:
+            code, mr = "", None
+        sk.last["code"], sk.last["make_room"] = code, mr
+        return code == ""
+
+    def scan(node, for_pick=False):
+        calls.append("scan")
+        return True
+    monkeypatch.setattr(sk, "run", run)
+    monkeypatch.setattr(sk, "scan", scan)
+    if ok:
+        sk.clear(None)
+    else:
+        with pytest.raises(SystemExit):
+            sk.clear(None)
+    assert calls == want_calls and "clear" in sk.NEEDS_DRAWER
+
+
+def test_b_sk_clear_goal_is_make_room_with_scan(monkeypatch, tmp_path):
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    with pytest.raises(SystemExit, match="B scan top"):
+        sk.goal_for("clear")
+    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
+    action, params = sk.goal_for("clear")
+    assert action == "nudge_object" and params["make_room"] is True and params["scan"] == full and params["target"] == TOP_T

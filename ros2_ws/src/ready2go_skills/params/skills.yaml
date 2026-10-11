@@ -224,8 +224,11 @@ drag:                           # nudge_object 실물: 기울여 손끝으로 �
   start_above_mm: 3.0           # 예상 접촉 높이 위에서 시작. 5 → 3 [사용자 10/07 "너무 높은 곳에서 천천히 내려옴"] (접촉 높이 판정 ± 3 mm 와 같음)
   extra_mm: 5.0                 # 계산한 최소 거리에 더하는 여유 — 비전 y 오차 ±2 mm + 3 [10/10: 3 → 5] (세로 지우개 오른쪽 위 구석 → 약 39 mm)
   max_shift_mm: 80.0
+  sweep_force_n: [1.5, 2.5]     # 파지 공간 만들기 좌우 밀기(옆 물체를 같이 밂)에서 누르는 힘 — 넛지(drag_force_n)보다 세게, 손끝 밑에서 목표가 미끄러지지 않게 [추정 — 실물 확인 필요, 제안 10/11 B]
   press_inset_mm: 3.0           # 누르는 점은 물체 가장자리에서 이만큼 안쪽까지
   lift_mm: 30.0                 # 끈 뒤 올라가는 거리
 neighbor:   # core/neighbor_check.py — 집기·끌기 전 옆 물체 확인 (입력 scan 이 있을 때) [사용자 10/09 서랍 안 랜덤 배치]
   margin_mm: 5.0                # [팀 확정 필요] footprint 여유 — 비전 위치 오차 2.5 mm [실측 PC2 10/08, #155] + 여유 (place.footprint_margin_mm 과 같은 값)
   below_tol_m: 0.003            # [팀 확정 필요] 목표 받침 + 이 값 이하 윗면(top_z)의 이웃은 손가락보다 아래 → 무시 (쌓인 물체의 받침)
+make_room:                       # nudge_object make_room — 파지 공간 만들기 한 단계 (core/clear_plan) [제안 10/11 B, 계약 승인 전, #117]
+  max_chain: 2                  # 목표를 밀 때 같이 밀려도 되는 물체 수 (줄줄이). 덮개 판·위에 뭐가 얹힌 물체는 안 밂 [추정 — 실물 확인 필요]

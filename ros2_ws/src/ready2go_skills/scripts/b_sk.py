@@ -18,7 +18,7 @@ AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
-NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2"}   # home·pick·place 는 서랍 없음
+NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -79,6 +79,11 @@ def goal_for(cmd):
         return "drawer_control", {"drawer_id": DRAWER, "state": "close", "then_home": True}   # 닫고 홈까지 한 동작 [사용자 10/10]
     if cmd == "nudge":
         return "nudge_object", with_scan({"drawer_id": DRAWER, "target": target()}, DRAWER)
+    if cmd == "clear":                                 # 파지 공간 만들기 한 단계 (nudge_object make_room) [제안 10/11 B, 계약 승인 전]
+        params = with_scan({"drawer_id": DRAWER, "target": target(), "make_room": True}, DRAWER)
+        if "scan" not in params:
+            sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 먼저 (보내지 않음)")
+        return "nudge_object", params
     if cmd == "pick":                                  # 가장 최근 좌표: 끌기 결과·다시 보기(target_after) 또는 그냥 B scan [사용자 10/10 넛지 없이 집기]
         srcs = [p for p in (AFTER, f"{TMP}/b_target_scan_drawer_top.json", f"{TMP}/b_target_scan_drawer_bottom.json") if os.path.exists(p)]
         if not srcs:
@@ -128,6 +133,8 @@ USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_
          "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
+         "  clear = (서랍 열고 B opened 뒤) 파지 공간 만들기: 탑뷰 → 인식 → 한 동작(위에 얹힌 것·막는 것 빈 자리로 / 목표 넛지 /\n"
+         "          좌우 밀기 / 벽 넛지) → 다시 인식 … 집을 수 있게 되면 집기 → 트레이 → 홈 [제안 10/11, 계약 승인 전]\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
 
 
@@ -279,7 +286,7 @@ def main():
         except FileNotFoundError:
             print("트레이 기억이 이미 비어 있음 — 다음 놓기는 1번 칸 (로봇 동작 없음)")
         return
-    if cmd in ("scan", "rescan", "find", "all", "dragtest"):
+    if cmd in ("scan", "rescan", "find", "all", "dragtest", "clear"):
         print(f"찾을 물체: {TARGET}")
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node("b_sk")
@@ -292,6 +299,12 @@ def main():
     if cmd == "find":
         try:
             find(node)
+        finally:
+            report()
+        return
+    if cmd == "clear":
+        try:
+            clear(node)
         finally:
             report()
         return
@@ -376,6 +389,7 @@ HUMAN_FIX = {"DRAWER_NOT_AT_TRAVEL": "서랍을 끝까지 열고 B opened <서�
              "NEIGHBOR_TOO_CLOSE": "옆 물체가 손가락·끄는 길에 걸림 — 두 물체를 3~4 cm 띄우기",
              "HOLDING_OBJECT": "그리퍼에 든 물체를 빼고 서버 재시작",
              "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리 — 사람이 옮기기",
+             "NO_FREE_SPACE": "치울 물체를 놓을 빈 자리가 서랍에 없음 — 사람이 몇 개 빼기",
              "JOINT_LIMIT": "관절 제한 — 자세·위치 확인",
              "SENSOR_INVALID": "그리퍼 폭·힘을 못 읽음 — 그리퍼에 물체가 있는지 보고 RG2 박스·케이블 확인 뒤 스킬 서버 재시작"}
 
@@ -431,6 +445,52 @@ def find(node):
     print("\nfind 성공 (트레이까지)")
 
 
+CLEAR_STEPS = 12                            # B clear: 다시 보기 사이 동작 최대 수 (넘으면 멈춤 — 같은 동작을 되풀이하지 않게) [제안]
+
+
+def clear(node):
+    """파지 공간 만들기 [사용자 10/11]: 탑뷰 → 인식 → (nudge_object make_room: 스킬 서버가 동작 하나 고르고 실행) → 탑뷰 → 다시 인식 …
+    서버가 ready_to_pick 이면 그 인식 좌표로 집기 → 트레이 → 홈. 집기가 다시 보면 풀리는 실패(RETRY_PICK·REGRAB)면 다시 보고 다시."""
+    def look():
+        if not timed("view", lambda: run(node, "view")):
+            if last["code"] in STOP_CODES or not timed("view", lambda: run(node, "view")):
+                sys.exit(f"탑뷰로 못 감 {last['code']} — 멈춤")
+        if not timed("scan", lambda: scan(node)):
+            sys.exit("목표를 못 찾음 — 어디 있는지 몰라 멈춤 (서랍 안 확인)")
+
+    look()
+    for n in range(1, CLEAR_STEPS + 1):
+        print(f"\n===== {n}. clear (공간 만들기) =====")
+        ok = timed("clear", lambda: run(node, "clear"))
+        mr = last.get("make_room") or {}
+        if not ok:
+            if last["code"] in STOP_CODES:
+                sys.exit(f"clear {last['code']} — 다시 할 수 없는 상태라 멈춤 (펜던트·터미널 확인)")
+            if last["code"] not in RETRY_NUDGE | RETRY_PICK:
+                _stop_unrecoverable("clear")
+            print(f"\n----- clear {last['code']} → 탑뷰 → 다시 인식 → 다시 -----")
+            look()
+            continue
+        if not mr.get("ready_to_pick"):
+            print(f"\n----- {mr.get('action')} {mr.get('moved_id')} 끝 → 탑뷰에서 다시 확인 -----")
+            look()
+            continue
+        print("\n----- 집을 수 있음 → 집기 -----")
+        if timed("pick", lambda: run(node, "pick")):
+            break
+        if last["code"] in STOP_CODES or last["code"] not in RETRY_PICK | REGRAB_CODES:
+            _stop_unrecoverable("pick")
+        print(f"\n----- pick {last['code']} → 탑뷰 → 다시 인식 → 다시 -----")
+        look()
+    else:
+        sys.exit(f"{CLEAR_STEPS}번 동작해도 아직 못 잡음 — 멈춤 (서랍 안 확인, 사람이 띄우기)")
+    print("\n===== place =====")
+    if not timed("place", lambda: run(node, "place")):
+        sys.exit(f"place 실패 {last['code']} — 물체를 든 채라 멈춤")
+    timed("home", lambda: run(node, "home"))
+    print("\nclear 성공 (트레이까지)")
+
+
 def run(node, cmd, goal=None, retried=False):
     """동작 하나 보내고 끝날 때까지. 성공이면 True. goal = (action, params) 를 주면 그걸 보냄."""
     action, params = goal or goal_for(cmd)
@@ -475,6 +535,7 @@ def run(node, cmd, goal=None, retried=False):
         print(json.dumps(out, ensure_ascii=False, indent=1))
     if cmd == "nudge" and out:
         last["pushed"] = out.get("pushed")
+    last["make_room"] = (out or {}).get("make_room") if cmd == "clear" else None
     if cmd == "nudge" and r.success and out and out.get("target_after"):
         with open(AFTER, "w") as f:
             json.dump(out["target_after"], f)

@@ -2124,3 +2124,82 @@ def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
     server.Gripper.holding, server.Gripper.held_width = True, 39.0
     out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
     assert out.success and "받침 37.0 mm" in out.reason, out.reason
+
+
+# ---- 파지 공간 만들기 nudge_object make_room [제안 10/11 B, 계약 승인 전] ----
+def test_make_room_needs_scan_and_is_noop_when_already_graspable(server):
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_FREE, "make_room": True})
+    assert out.error_code == "BAD_PARAMS" and server.srv.robot.log == []
+    far = json.loads(json.dumps(CARAMEL_NEXT))
+    far["pose"]["position"][1] = 0.26
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_FREE, "make_room": True,
+                                            "scan": _scan_with(ERASER_FREE, far)})
+    assert out.success and data["make_room"]["ready_to_pick"] is True and data["make_room"]["action"] == "none"
+    assert data["target_after"]["id"] == "eraser#1" and data["pushed"] is False and server.srv.robot.log == []
+
+
+def _press_contact(server):
+    """누르면 닿는 가짜 힘 (위치로 누르면 1 mm 에 8 N) — press 단계 중간 높이에서 닿음."""
+    contact = {}
+
+    def force(p):
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
+    server.srv.robot.force = force
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "press":
+            contact["z"] = (self.robot.p[2] + posx[2]) / 2
+        contact.setdefault("stages", []).append((stage, list(self.robot.p), list(posx)))
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    return contact, line
+
+
+def test_make_room_moves_target_away_from_neighbor_then_ready(server, monkeypatch):
+    """옆(+y)에 망치가 길게 붙어 짧은 변·긴 변 손가락 자리가 다 막힌 지우개 → 반대쪽(빈 쪽)으로 눌러 끌기 한 번, 수평으로만.
+    그 뒤 예상 위치는 다시 부르면 바로 집을 수 있음."""
+    t = json.loads(json.dumps(ERASER_FREE))
+    t["pose"]["yaw"] = 0.0
+    cara = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025, "occluded_by": [],
+            "pose": {"frame": "drawer_top", "position": [0.10, 0.15 + 0.011 + 0.0375 + 0.002, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = _scan_with(t, cara)
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and server.srv.robot.log == []   # 지금은 못 집음
+    contact, line = _press_contact(server)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": scan})
+    assert out.success, out.reason
+    mr = data["make_room"]                         # 지우개를 누르면 손가락이 더 높은 망치에 걸림 → 망치를 지우개 반대쪽으로 [press_ok]
+    assert mr["action"] in ("nudge", "sweep") and mr["moved_id"] == "toy_hammer#1" and mr["ready_to_pick"] is False
+    assert data["pushed"] is True and data["push_vector_m"][1] > 0             # 지우개 반대쪽(+y)으로
+    assert mr["moved_after"]["position"][1] > cara["pose"]["position"][1]
+    drags = [s for s in contact["stages"] if s[0] in ("drag", "drag_back")]
+    assert drags and all(abs(end[2] - start[2]) < 0.06 for _, start, end in drags)   # 수평으로만
+    assert data["target_after"]["pose"]["position"] == t["pose"]["position"]   # 목표는 그대로
+    moved = dict(cara, pose=dict(cara["pose"], **mr["moved_after"]))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True,
+                                            "scan": _scan_with(t, moved)})
+    assert out.success and data["make_room"]["ready_to_pick"] is True       # 다시 보면 바로 집기
+
+
+def test_make_room_puts_rider_in_free_space_not_on_target(server):
+    """캐러멜 위 차 키 → 차 키를 집어 서랍 빈 자리에 (고정 aside 자리 아님), 캐러멜 둘레는 비움."""
+    base = json.loads(json.dumps(CARAMEL_NEXT))
+    base["pose"]["position"] = [0.10, 0.15, 0.0]
+    base["occluded_by"] = ["car_key#1"]
+    key = {"id": "car_key#1", "class": "car_key", "top_z": round(0.0185 + 0.0158, 4), "occluded_by": [],
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = _scan_with(base, key)
+    size = server.srv.item("car_key")[0]
+    server.Gripper.holding, server.Gripper.held_width = True, 1000.0 * (server.srv.grasp_width("car_key", size, server.srv.prm()) or size[1])
+    try:
+        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": base, "make_room": True, "scan": scan})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    mr = data["make_room"]
+    assert mr["action"] == "unstack" and mr["moved_id"] == "car_key#1" and mr["placed_pose"]
+    px, py = mr["placed_pose"]["position"][:2]
+    assert math.hypot(px - 0.10, py - 0.15) > 0.06                        # 목표 위·바로 옆이 아님
+    assert server.srv.held is None

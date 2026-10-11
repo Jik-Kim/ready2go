@@ -167,21 +167,29 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     return [cur[i] for i in order], done, pushed
 
 
-def press_ok(objs: Sequence[Mapping], tid: str, size_of: Callable, finger_r_mm: float = 16.0, rise_tol_m: float = 0.003) -> bool:
-    """목표 윗면을 닫은 손가락으로 누를 수 있는지: 위에 얹힌 것 없음, 누르는 손가락(반지름 finger_r_mm, 목표 가운데)이
-    목표 밖으로 나가는 곳에 목표보다 높은 물체가 없음 [추정 — 손가락 띠 모양 실측 없음]."""
+def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, finger_r_mm: float = 16.0, rise_tol_m: float = 0.003,
+                inset_mm: float = 4.0) -> Optional[tuple]:
+    """닫은 손가락으로 목표 윗면을 누를 점 (서랍 좌표 m) — 가운데 먼저, 안 되면 긴 변을 따라 양끝 쪽으로.
+    누르는 손가락(반지름 finger_r_mm)이 목표보다 높은 물체에 걸리지 않는 점. 위에 얹힌 것이 있으면 None [추정 — 손가락 띠 모양 실측 없음]."""
     by = {o["id"]: o for o in objs}
     t = by[tid]
-    if t.get("occluded_by"):
-        return False
-    tx, ty = t["pose"]["position"][0] * 1000.0, t["pose"]["position"][1] * 1000.0
-    circle = plp.corners(tx, ty, 0.0, finger_r_mm, finger_r_mm)
-    for o in objs:
-        if o["id"] == tid or o.get("top_z") is None or t.get("top_z") is None:
-            continue
-        if o["top_z"] > t["top_z"] + rise_tol_m and plp.rects_overlap(circle, footprint_mm(o, size_of)):
-            return False
-    return True
+    if t.get("occluded_by") or t.get("top_z") is None:
+        return None if t.get("occluded_by") else tuple(t["pose"]["position"][:2])
+    tx, ty, yaw = t["pose"]["position"][0] * 1000.0, t["pose"]["position"][1] * 1000.0, t["pose"]["yaw"]
+    half = max(0.0, size_of(t["class"])[0] * 500.0 - inset_mm)
+    high = [footprint_mm(o, size_of) for o in objs
+            if o["id"] != tid and o.get("top_z") is not None and o["top_z"] > t["top_z"] + rise_tol_m]
+    for k in (0.0, 0.5, -0.5, 1.0, -1.0):
+        x, y = tx + k * half * math.cos(yaw), ty + k * half * math.sin(yaw)
+        circle = plp.corners(x, y, 0.0, finger_r_mm, finger_r_mm)
+        if not any(plp.rects_overlap(circle, fp) for fp in high):
+            return x / 1000.0, y / 1000.0
+    return None
+
+
+def press_ok(objs: Sequence[Mapping], tid: str, size_of: Callable, **kw) -> bool:
+    """목표 윗면을 닫은 손가락으로 누를 수 있는지 (press_point 가 있음)."""
+    return press_point(objs, tid, size_of, **kw) is not None
 
 
 def free_poses(objs: Sequence[Mapping], held_id: str, size_of: Callable, interior_m: Sequence[float], frame: str,
@@ -259,6 +267,8 @@ class Config:
     max_chain: int = 2                       # 한 번에 같이 밀 물체 수 [추정 — 실물 확인 필요]
     round_classes: Sequence[str] = ("lip_balm",)
     free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수
+    allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선)
+    neighbor_r_m: float = 0.08               # 목표 둘레 이 거리 안 물체는 옮겨 볼 후보
 
 
 def _round_axis_ok(t: Mapping, u: tuple, cfg: Config) -> bool:
@@ -302,8 +312,10 @@ def _support(objs, oid):
 
 
 def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
-    """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 놓은 뒤 다시 집을 수 있음(되돌리기) + 목표 둘레 비움."""
+    """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 목표 둘레 비움.
+    놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기)."""
     avoid = [o for o in objs if o["id"] in avoid_ids]
+    fallback = None
     for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid)[: cfg.free_try]:
         pose = as_pose(c)
         ok, _, _ = oracle.place(objs, held_id, pose)
@@ -312,7 +324,9 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
         after = _relocated(objs, held_id, pose)
         if oracle.pick(after, held_id)[0]:
             return pose
-    return None
+        if fallback is None and cfg.allow_unpickable_place:
+            fallback = pose
+    return fallback
 
 
 def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: int = 0) -> Action:
@@ -384,13 +398,16 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
     t = next(o for o in objs if o["id"] == tid)
     step = cfg.nudge_step_m if fine else cfg.sweep_step_m
     out = []
+    pp_ = press_point(objs, tid, cfg.size_of)
+    press = {"press_xy_m": [round(v, 4) for v in pp_]} if pp_ else {}
     for u in cfg.axes:
         if not _round_axis_ok(t, u, cfg):
             continue
         can = free_move(objs, tid, u, cfg.max_shift_m, cfg.interior_m, cfg.size_of)
         dists = [k * step for k in range(1, int(can / step + 1e-6) + 1)]
         for s in dists:
-            out.append((s, Action("nudge", tid, f"빈 쪽으로 {s * 1000:.0f} mm", dir=u, dist_m=s), _with(objs, moved(t, u[0] * s, u[1] * s))))
+            out.append((s, Action("nudge", tid, f"빈 쪽으로 {s * 1000:.0f} mm", dir=u, dist_m=s, extra=dict(press)),
+                        _with(objs, moved(t, u[0] * s, u[1] * s))))
         d = (int(can / cfg.sweep_step_m + 1e-6) + 1) * cfg.sweep_step_m
         last = can
         while d <= cfg.max_shift_m + 1e-9:
@@ -406,7 +423,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
                 backs = sorted({0.0, round(min(done / 2.0, back_max), 3)})
             for bk in backs:
                 act = Action("sweep", tid, f"{done * 1000:.0f} mm 밀고 {bk * 1000:.0f} mm 되돌아옴 (같이 밀림 {list(pushed)})",
-                             dir=u, dist_m=done, back_m=bk, pushed=tuple(pushed))
+                             dir=u, dist_m=done, back_m=bk, pushed=tuple(pushed), extra=dict(press))
                 out.append((done + bk, act, _with(o2, moved(t2, -u[0] * bk, -u[1] * bk))))
             d += cfg.sweep_step_m
     if coarse:                                                         # 종류·방향마다 짧게·중간·끝까지만
@@ -421,8 +438,11 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
 
 
 def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
-    """마지막: 막는 이웃을 집어 빈 곳으로 (#117 '물체 영역은 치울 수 있음'). 이웃 id 는 거부 이유에서."""
+    """마지막: 막는 이웃을 치움 (#117 '물체 영역은 치울 수 있음').
+    ① 거부 이유에 나온 이웃을 집어 빈 곳으로 ② 이웃(이유에 나온 것 먼저, 그다음 목표 둘레)을 넛지·밀기 — 목표가 잡히게 되는 것
+    ③ 집지도 밀지도 못하면 그 이웃 둘레부터 공간 만들기 (한 단계만)."""
     by = {o["id"]: o for o in objs}
+    t = by[tid]
     who = next((i for i in by if i != tid and i in (reason or "")), None)
     if who and depth <= 1 and not riders(objs, who):
         ok, c2, r2 = oracle.pick(objs, who)
@@ -430,12 +450,49 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
             pose = find_free_pose(objs, who, [tid], oracle, cfg)
             if pose is not None:
                 return Action("remove", who, f"막는 {who} → 빈 자리", to_pose=pose)
-        elif depth == 0:                                           # 막는 물체도 못 집으면 그 물체 둘레부터 공간 만들기 (한 단계만)
-            a = plan_next(objs, who, oracle, cfg, depth + 1)
-            if a.kind in ("nudge", "sweep", "wall_nudge", "unstack", "remove"):
-                return Action(a.kind, a.target, f"막는 {who} 먼저 — {a.reason}", to_pose=a.to_pose, dir=a.dir,
-                              dist_m=a.dist_m, back_m=a.back_m, pushed=a.pushed, extra=a.extra)
+    if depth == 0:
+        tx, ty = t["pose"]["position"][:2]
+        near = sorted((o for o in objs if o["id"] != tid and on_floor(objs, o["id"]) and pushable(o)
+                       and tid not in (o.get("occluded_by") or [])
+                       and (o["id"] == who or
+                            math.dist((tx, ty), o["pose"]["position"][:2]) <= cfg.neighbor_r_m + 0.5 * max(cfg.size_of(o["class"])[:2]))),
+                      key=lambda o: (o["id"] != who, math.dist((tx, ty), o["pose"]["position"][:2])))
+        best = None
+        for o in near[:4]:
+            if not press_ok(objs, o["id"], cfg.size_of):
+                continue
+            for c, a, after in sorted(_self_moves(objs, o["id"], cfg, fine=False), key=lambda c: c[0]):
+                if tid in a.pushed or (best is not None and c >= best[0]):
+                    continue
+                if _opens_way(after, tid, oracle):
+                    best = (c, a)
+                    break
+        if best:
+            a = best[1]
+            a.reason = f"목표 {tid} 옆 {a.target} 를 " + a.reason
+            return a
+    if who and depth == 0 and not riders(objs, who):               # 막는 물체도 못 집으면 그 물체 둘레부터 공간 만들기 (한 단계만)
+        a = plan_next(objs, who, oracle, cfg, depth + 1)
+        if a.kind in ("nudge", "sweep", "wall_nudge", "unstack", "remove"):
+            return Action(a.kind, a.target, f"막는 {who} 먼저 — {a.reason}", to_pose=a.to_pose, dir=a.dir,
+                          dist_m=a.dist_m, back_m=a.back_m, pushed=a.pushed, extra=a.extra)
     return Action("fail", tid, reason or "", code=code or "")
+
+
+def _opens_way(objs, tid, oracle, wall_steps: int = 3) -> bool:
+    """이웃을 옮긴 뒤 목표를 바로 집거나, 벽 넛지만 몇 번(끄는 길이 비어서, 예: 안쪽 벽 → 옆벽)으로 집을 수 있게 되는지
+    (예: 아래 칸 안쪽 구석 물체를 손잡이 쪽으로 끌어야 하는데 지우개가 가로막음 → 지우개를 옆으로 밀면 길이 열림)."""
+    for _ in range(wall_steps + 1):
+        ok, code, _ = oracle.pick(objs, tid)
+        if ok:
+            return True
+        if code != "WALL_TOO_CLOSE":
+            return False
+        after, _, _ = oracle.wall_nudge(objs, tid)
+        if after is None:
+            return False
+        objs = _with(objs, after)
+    return False
 
 
 def apply(objs: Sequence[Mapping], a: Action, cfg: Config) -> list:

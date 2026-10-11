@@ -3,7 +3,9 @@
 
 판단(집을 수 있나·놓을 수 있나)은 스킬 서버의 실제 사전 검사(움직이기 직전까지)를 그대로 씀. 로봇 기구학(IK)·충돌은 안 봄 —
 그건 practice/B/sim/p2_demo.py 몫. 밀었을 때 물체는 2D 미끄러짐만(회전·넘어짐 없음) [추정].
-  python3 practice/B/sim/clear_sim.py [배치 수=40] [seed=1]
+  python3 practice/B/sim/clear_sim.py [배치 수=40] [seed=1] [rules]
+rules: 시연 배치 규칙 [사용자 10/11 제안] — 큰 공구(망치·몽키)·가림막은 위 칸, 망치·몽키는 손잡이 벽 쪽에 가로로 두지 않음,
+아래 칸은 손이 닿는 깊이(drawer_reach_x_mm) 안에만, 물체 사이 RULE_GAP_MM 이상 띄움.
 """
 import sys, math, random, json, types, collections, time
 from pathlib import Path
@@ -16,6 +18,10 @@ import trace_skill_flow as tsf
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 SEED = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+RULES = len(sys.argv) > 3 and sys.argv[3] == "rules"
+RULE_GAP_MM = 15.0
+BIG = {"toy_hammer", "toy_wrench", "cover_plate"}                 # 규칙: 위 칸에만
+FRONT_KEEP_MM = 60.0                                             # 규칙: 망치·몽키 가로(손잡이 벽과 나란히)면 앞판에서 이만큼 떨어뜨림
 rnd = random.Random(SEED)
 
 robot = demo_sim.Robot(tsf.HOME_J)
@@ -34,105 +40,13 @@ UNDER_COVER = {"eraser", "car_key", "lip_balm", "masking_tape"}  # 가림막 다
 DRAWERS = ("drawer_top", "drawer_bottom")
 
 
-class _Go(Exception):
-    """사전 검사를 다 통과하고 처음으로 움직이려 함 = 가능."""
+class Oracle(ss.DryOracle):
+    """스킬 서버의 판단 전용 oracle(DryOracle — 실제 사전 검사, 움직이기 직전까지) 그대로 + 호출 수."""
 
-
-def _go(*a, **k):
-    raise _Go()
-
-
-for name in ("_to_drawer_view", "_line", "_blend", "_named", "_movej", "_grip", "_over_then_down", "_line_slow", "_exit_drawer"):
-    if hasattr(srv, name) or hasattr(type(srv), name):
-        setattr(srv, name, _go)
-GOAL = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
-
-
-def scan(objs, tid):
-    t = next(o for o in objs if o["id"] == tid)
-    return {"target_found": True, "target": t, "candidates": [o for o in objs if o["id"] != tid], "visible_count": len(objs)}
-
-
-def _call(fn):
-    try:
-        out = fn()
-    except _Go:
-        return True, "", ""
-    except Exception as e:                                       # 설정·계산 예외 = 못 함
-        return False, "SKILL_EXCEPTION", repr(e)[:120]
-    o = out[0] if isinstance(out, tuple) else out
-    return (bool(o.success), o.error_code or "", o.reason or "")
-
-
-class Oracle:
     def __init__(self, drawer, old=False):
-        self.drawer, self.old = drawer, old
-        self.calls = 0
-
-    def pick(self, objs, oid):
-        self.calls += 1
-        t = next(o for o in objs if o["id"] == oid)
-        if t.get("occluded_by"):
-            return False, "COVERED", "위에 다른 물체"
-        srv.held, srv.disp = None, {self.drawer: PLACES[self.drawer]["tf_at_travel_m"]}
-        return _call(lambda: srv._do_pick_object(GOAL, {"target": t, "approach_offset": [0, 0, 0.1], "scan": scan(objs, oid)}))
-
-    def place(self, objs, held_id, pose_or_slot):
-        self.calls += 1
-        h = next(o for o in objs if o["id"] == held_id)
-        gw = (ss._yaml_cached(REPO / "config/item_grasp.yaml").get(h["class"]) or {}).get("grasp_width_m") or SIZE[h["class"]][1]
-        srv.held = {"class": h["class"], "id": held_id, "width_m": gw, "drawer_id": self.drawer,
-                    "tcp_above_floor_m": SIZE[h["class"]][2] * 0.5, "long_side": False}
-        srv.disp = {self.drawer: PLACES[self.drawer]["tf_at_travel_m"]}
-        p = {"location": self.drawer, "scan": scan(objs, held_id)}
-        p.update({"slot": pose_or_slot} if isinstance(pose_or_slot, str) else {"pose": pose_or_slot})
-        r = _call(lambda: srv._place_in_drawer(GOAL, p, self.drawer))
-        srv.held = None
-        return r
-
-    def wall_nudge(self, objs, oid):
-        """기존 벽 넛지 계획(mp.plan_drag)과 끄는 길 이웃 검사(지금 방식) → 예상 위치. 새 방식은 길에 물체가 있으면 밀기로 넘김."""
-        self.calls += 1
-        t = next(o for o in objs if o["id"] == oid)
-        prm, place = srv.prm(), PLACES[self.drawer]
-        size, _ = srv.item(t["class"])
-        g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(self.drawer),
-                 wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(self.drawer),
-                 reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(self.drawer),
-                 max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
-                 axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
-                 round=t["class"] in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
-        try:
-            plan = mp.plan_drag(target=t, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
-        except Exception as e:
-            return None, "SKILL_EXCEPTION", repr(e)[:100]
-        if plan.error_code:
-            return None, plan.error_code, plan.reason
-        if not plan.needed:
-            return None, "NOT_NEEDED", plan.reason
-        if plan.push_to_xy_m is not None:                        # 뒤에서 밀어 벽에 눕힘 → 벽에 붙어 축에 맞춤 [예상]
-            px, py = plan.push_dir
-            yaw = math.pi / 2 if px else 0.0
-            half = (size[1] if px else size[1]) / 2.0
-            p = list(t["pose"]["position"])
-            if px:
-                p[0] = half + 0.0005 if px < 0 else place["interior_m"][0] - half - 0.0005
-            else:
-                p[1] = half + 0.0005 if py < 0 else place["interior_m"][1] - half - 0.0005
-            after = dict(t, pose=dict(t["pose"], position=p, yaw=yaw))
-        else:
-            after = cp.moved(t, plan.shift_x_m, plan.shift_y_m)
-        group = {oid} | cp.riders(objs, oid)
-        others = [o for o in objs if o["id"] not in group]
-        steps = 20
-        for k in range(1, steps + 1):                            # 끄는 길에 물체 (높이가 겹치는 것만) → 지금 방식은 거부 NEIGHBOR_TOO_CLOSE
-            f = k / steps
-            mid = cp.moved(t, (after["pose"]["position"][0] - t["pose"]["position"][0]) * f,
-                           (after["pose"]["position"][1] - t["pose"]["position"][1]) * f)
-            hit = next((o["id"] for o in others if cp.collide(mid, o, cp_size)), None)
-            if hit:
-                return None, "NEIGHBOR_TOO_CLOSE", f"끄는 길에 {hit}"
-        return after, "", plan.reason
+        srv.held, srv.disp = None, {drawer: PLACES[drawer]["tf_at_travel_m"]}
+        super().__init__(srv, drawer)
+        self.old = old
 
 
 def cp_size(cls):
@@ -143,6 +57,18 @@ def cp_size(cls):
 def mk(oid, cls, x, y, yaw, drawer, z0=0.0):
     return {"id": oid, "class": cls, "top_z": round(z0 + SIZE[cls][2], 4), "occluded_by": [],
             "pose": {"frame": drawer, "position": [x, y, 0.0], "yaw": (yaw + math.pi / 2) % math.pi - math.pi / 2, "yaw_valid": True}}
+
+
+def rule_ok(o, drawer):
+    """시연 배치 규칙 [사용자 10/11]: 아래 칸은 손 닿는 깊이 안, 망치·몽키는 손잡이 벽에 가로로 붙이지 않음."""
+    fp = cp.footprint_mm(o, cp_size)
+    reach = (srv.prm().get("drawer_reach_x_mm") or {}).get(drawer)
+    if reach is not None and o["pose"]["position"][0] * 1000.0 > reach:
+        return False
+    if o["class"] in ("toy_hammer", "toy_wrench") and abs(math.sin(o["pose"]["yaw"])) > math.sin(math.radians(45)):
+        if min(x for x, _ in fp) < FRONT_KEEP_MM:
+            return False
+    return True
 
 
 def layout(drawer, classes):
@@ -192,7 +118,9 @@ def layout(drawer, classes):
             for _ in range(500):
                 yaw = (rnd.choice((0.0, math.pi / 2)) + rnd.uniform(-0.35, 0.35)) if rnd.random() < 0.7 else rnd.uniform(-math.pi / 2, math.pi / 2)
                 o = mk(oid, cls, rnd.uniform(0, I[0]), rnd.uniform(0, I[1]), yaw, drawer)
-                if cp.inside(o, cp_size, I, 1.0) and not any(cp.overlaps(o, f, cp_size, 1.0) for f in floor):
+                if RULES and not rule_ok(o, drawer):
+                    continue
+                if cp.inside(o, cp_size, I, 1.0) and not any(cp.overlaps(o, f, cp_size, RULE_GAP_MM if RULES else 1.0) for f in floor):
                     objs.append(o)
                     placed = True
                     if cls == "cover_plate":
@@ -217,6 +145,11 @@ def layouts():
         cls = ITEMS[:]
         rnd.shuffle(cls)
         k = rnd.choice((5, 6))
+        if RULES:                                                # 큰 것은 위 칸, 나머지로 반씩 채움
+            big = [c for c in cls if c in BIG]
+            small = [c for c in cls if c not in BIG]
+            cls = big + small
+            k = max(k, len(big))
         top, bot = layout("drawer_top", cls[:k]), layout("drawer_bottom", cls[k:])
         if top is not None and bot is not None:
             return {"drawer_top": top, "drawer_bottom": bot}
@@ -299,7 +232,7 @@ def main():
                         examples.setdefault((m, drawer, key), (o["id"], why, [(x["id"], [round(v, 3) for v in x["pose"]["position"][:2]], round(x["pose"]["yaw"], 2), x["occluded_by"]) for x in objs]))
         if (i + 1) % 5 == 0:
             print(f"  ... 배치 {i + 1}/{N} ({time.time() - t0:.0f} s)", flush=True)
-    print(f"\n===== 파지 공간 만들기 시뮬레이션 — 배치 {N}개 × 위·아래, 물건 {total_targets}번 꺼내기 (seed {SEED}) =====")
+    print(f"\n===== 파지 공간 만들기 시뮬레이션 — 배치 {N}개 × 위·아래, 물건 {total_targets}번 꺼내기 (seed {SEED}{', 시연 배치 규칙' if RULES else ''}) =====")
     for drawer in DRAWERS:
         print(f"\n[{drawer}]")
         for kind in ("바닥", "위에 얹힘", "쌓임 밑"):
@@ -315,7 +248,7 @@ def main():
         tot = sum(v for k, v in res[m].items() if k[2])
         print(f"\n{'지금' if m == 'old' else '새 방식'} 전체 성공 {tot}/{total_targets} = {tot / total_targets * 100:.1f}%  동작: {dict(acts[m])}")
     print(f"\n걸린 시간 {time.time() - t0:.0f} s")
-    out = HERE / f"clear_sim_examples_{SEED}.json"
+    out = HERE / f"clear_sim_examples_{SEED}{'_rules' if RULES else ''}.json"
     out.write_text(json.dumps({f"{k[0]}|{k[1]}|{k[2]}": v for k, v in examples.items()}, ensure_ascii=False, indent=1))
     print(f"실패 예시: {out}")
 
