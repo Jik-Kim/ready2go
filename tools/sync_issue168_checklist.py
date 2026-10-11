@@ -118,16 +118,19 @@ class ChecklistError(ValueError):
     """A validation error with an item-oriented message."""
 
 
-def load_checklist(path: Path) -> dict[str, Any]:
+def load_checklist(path: Path) -> tuple[dict[str, Any], bytes]:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        content = path.read_bytes()
+        data = yaml.safe_load(content.decode("utf-8"))
     except FileNotFoundError as exc:
         raise ChecklistError(f"checklist file not found: {path}") from exc
+    except UnicodeDecodeError as exc:
+        raise ChecklistError(f"checklist is not valid UTF-8: {path}") from exc
     except yaml.YAMLError as exc:
         raise ChecklistError(f"invalid YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ChecklistError("checklist root must be a mapping")
-    return data
+    return data, content
 
 
 def require_fields(item: dict[str, Any], fields: Iterable[str], label: str) -> list[str]:
@@ -166,6 +169,21 @@ def validate_codes(codes: Any, label: str) -> list[str]:
         elif code not in KNOWN_ERROR_CODES:
             errors.append(f"{label} contains undefined error code: {code}")
     return errors
+
+
+def validate_repository_path(source_id: str, field: str, value: Any) -> list[str]:
+    label = f"source_catalog.{source_id}.{field}"
+    if not isinstance(value, str) or not value:
+        return [f"{label} must be a non-empty string"]
+    root = ROOT.resolve()
+    candidate = (root / value).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return [f"{label} must stay inside the repository: {value}"]
+    if not candidate.is_file():
+        return [f"{label} does not exist: {value}"]
+    return []
 
 
 def validate_checklist(data: dict[str, Any]) -> list[str]:
@@ -219,8 +237,11 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
             ("id", "name", "owner", "action", "card_status", "owner_confirmation", "sources"),
             label,
         )
-        if node.get("owner_confirmation") not in allowed_confirmation:
+        owner_confirmation = node.get("owner_confirmation")
+        if owner_confirmation not in allowed_confirmation:
             errors.append(f"{label}.owner_confirmation has an invalid status")
+        elif owner_confirmation not in CONFIRMATION_TO_SHEET["B"]:
+            errors.append(f"{label}.owner_confirmation cannot be projected for B")
         if node.get("card_status") not in NODE_CARD_STATUS_TO_SHEET:
             errors.append(f"{label}.card_status has an invalid status")
         errors += validate_sources(node, label, catalog)
@@ -245,6 +266,10 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
                 errors.append(f"{label}.confirmation.{owner} is missing")
             elif confirmation[owner] not in allowed_confirmation:
                 errors.append(f"{label}.confirmation.{owner} has an invalid status")
+            elif confirmation[owner] not in CONFIRMATION_TO_SHEET[owner]:
+                errors.append(
+                    f"{label}.confirmation.{owner} cannot be projected to the sheet"
+                )
         for owner, status in implementation.items():
             if owner not in {"B", "C", "E"}:
                 errors.append(f"{label}.implementation.{owner} has an invalid owner")
@@ -268,10 +293,18 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
         if not isinstance(source, dict):
             errors.append(f"source_catalog.{source_id} must be a mapping")
             continue
-        if source.get("type") == "repository_file":
-            source_path = source.get("path")
-            if not source_path or not (ROOT / source_path).is_file():
-                errors.append(f"source_catalog.{source_id}.path does not exist: {source_path}")
+        source_type = source.get("type")
+        if source_type == "repository_file":
+            errors += validate_repository_path(source_id, "path", source.get("path"))
+        elif source_type == "repository_files":
+            source_paths = source.get("paths")
+            if not isinstance(source_paths, list) or not source_paths:
+                errors.append(f"source_catalog.{source_id}.paths must be a non-empty list")
+            else:
+                for index, source_path in enumerate(source_paths):
+                    errors += validate_repository_path(
+                        source_id, f"paths[{index}]", source_path
+                    )
         if "value" in source or "values" in source:
             errors.append(f"source_catalog.{source_id} must reference a path/key, not copy raw values")
     return errors
@@ -480,13 +513,44 @@ def print_offline_plan(desired: dict[str, dict[str, dict[str, str]]]) -> None:
 
 def git_sha() -> str:
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
+        ["git", "rev-parse", "HEAD"],
         cwd=ROOT,
         check=False,
         capture_output=True,
         text=True,
     )
     return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def verified_apply_sha(checklist_path: Path, checklist_content: bytes) -> str:
+    root = ROOT.resolve()
+    resolved_path = checklist_path.expanduser().resolve()
+    try:
+        relative_path = resolved_path.relative_to(root)
+    except ValueError as exc:
+        raise ChecklistError(
+            "--apply requires a checklist tracked in the current repository"
+        ) from exc
+
+    source_sha = git_sha()
+    if source_sha == "unknown":
+        raise ChecklistError("cannot resolve the source commit for --apply")
+    committed = subprocess.run(
+        ["git", "show", f"{source_sha}:{relative_path.as_posix()}"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if committed.returncode != 0:
+        raise ChecklistError(
+            f"--apply requires a checklist tracked at {source_sha}: {relative_path}"
+        )
+    if committed.stdout != checklist_content:
+        raise ChecklistError(
+            "--apply requires checklist content committed at HEAD; commit or revert "
+            f"changes to {relative_path}"
+        )
+    return source_sha
 
 
 def sync_timestamp() -> str:
@@ -506,7 +570,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        data = load_checklist(args.checklist)
+        data, checklist_content = load_checklist(args.checklist)
         errors = validate_checklist(data)
         if errors:
             for error in errors:
@@ -517,6 +581,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         desired = desired_rows(data)
+        source_sha = (
+            verified_apply_sha(args.checklist, checklist_content)
+            if args.apply
+            else git_sha()
+        )
         credentials_value = os.environ.get(CREDENTIALS_ENV)
         if not credentials_value:
             if args.apply:
@@ -538,10 +607,9 @@ def main(argv: list[str] | None = None) -> int:
         print_changes(changes)
         print_preserved_columns()
         if args.dry_run:
-            print(f"METADATA {SYNC_METADATA_SHEET}!{SYNC_METADATA_RANGE}: source SHA {git_sha()}")
+            print(f"METADATA {SYNC_METADATA_SHEET}!{SYNC_METADATA_RANGE}: source SHA {source_sha}")
             return 0
 
-        source_sha = git_sha()
         synced_at = sync_timestamp()
         apply_changes(session, spreadsheet_id, changes, source_sha, synced_at)
         print(f"APPLIED: {len(changes)} managed cells (source commit {source_sha}, {synced_at})")
