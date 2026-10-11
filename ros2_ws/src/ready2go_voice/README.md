@@ -462,6 +462,6 @@ PYTHON
 
 ## 수락 TTS 후속 준비 — #196
 
-[문서] 책임·첫 동작 조건은 [정본](../../../docs/requirements.md#acceptance-tts-policy), 현재 호출 관계·계약 초안·미완료 항목은 [기술 문서](../../../docs/voice_llm.md#acceptance-tts-preparation)를 참조하십시오. Session은 검증 문장을 현재 로컬 요청에 보관하고 내부 일회성 소비를 제공합니다. 노드는 큐 요청 ID를 Session에 전달하지만 C 수락 후 소비·공개 전달은 미연결입니다. 기존 P1 확인 재생과 목표 발행/TTS 차단을 유지합니다. 기존 speak의 재생 완료 결과가 현재 요청/run의 C 첫 동작 허가를 자동 증명하지 않습니다. 새 설정·계약 필드·장치/API 실행은 추가하지 않았습니다.
+[문서] 책임·첫 동작 조건은 [정본](../../../docs/requirements.md#acceptance-tts-policy), 현재 호출 관계·계약 초안·미완료 항목은 [기술 문서](../../../docs/voice_llm.md#acceptance-tts-preparation)를 참조하십시오. Session은 검증 문장을 현재 로컬 요청에 보관하고 내부 일회성 소비를 제공합니다. 이 PR에는 계약07의 최상위 request_id·accept_text 필드가 스키마·예시에 포함됐지만, 현재 E 런타임의 실제 공개 발신과 C 수락 후 문장 소비·첫 동작 연결은 미완료입니다. 기존 P1 확인 재생과 목표 발행/TTS 차단을 유지합니다. 기존 speak의 재생 완료 결과가 현재 요청/run의 C 첫 동작 허가를 자동 증명하지 않습니다. 이 문서 정정은 추가 설정·계약 필드·장치/API 실행을 만들지 않습니다.
 
-[문서: PR209 리뷰 후속] 현재 Session은 text/audio 진입 시 보관 문장을 지우고 소비 시 질문 만료도 재검사합니다. 공개 요청 ID 위치·선택/P1 호환은 계약07에서 승인돼 [공동 ICD](../../../docs/interfaces.md#request-run-contract)의 E 원본 초안에 반영했습니다. C 원본 합류·운영 연결과 발행 전 질문 권한/수락 후 문장 권한의 연결은 [기술 문서의 리뷰 대조](../../../docs/voice_llm.md#acceptance-tts-preparation)를 참조하십시오. 이 문서 정리로 소비 검사·wire·기한·운영 처리를 바꾸지 않았습니다. 선행 PR207·PR208의 수명 설명과 JSONL/SDK 시각 진단을 함께 보존했습니다.
+[문서: PR209 리뷰 후속] 현재 Session은 text/audio 진입 시 보관 문장을 지우고 소비 시 질문 만료도 재검사합니다. 공개 요청 ID 위치·선택/P1 호환 및 C 상태/예시·ICD 구간은 계약07 공동 원본에 반영됐고, C 원본 검토도 확인됐습니다. E 계약 검토·PR 병합과 실제 C 런타임 수신·운영 연결은 별도 미완료입니다. 발행 전 질문 권한/수락 후 문장 권한의 연결은 [기술 문서의 리뷰 대조](../../../docs/voice_llm.md#acceptance-tts-preparation)를 참조하십시오. 이 문서 정리로 소비 검사·wire·기한·운영 처리를 바꾸지 않았습니다. 선행 PR207·PR208의 수명 설명과 JSONL/SDK 시각 진단을 함께 보존했습니다.

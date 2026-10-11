@@ -5,11 +5,18 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## E 문서 정합성 정정 — 계약07/오디오 경계
+
+- [문서] #221 head에 C 소유 상태 예시·Runner 설명·ICD 구간이 합류하고 C 원본 검토가 확인된 상태와, E 계약 검토/PR 병합 및 C 런타임 수신·실제 E/C 운영 연결이 미완료인 상태를 구분해 기술합니다. #225/#227의 E payload·RequestRun 준비 코드와 실제 C source mapper 미연결/기본 비활성도 구분합니다.
+- [문서·코드] #227의 기본 VoiceNode 입력은 SharedInput의 RawInputStream을 WakeAudio·Recorder가 공유하며 fixed 녹음은 공유 프레임에서 기존 길이만 수집합니다. shared_input 없는 Recorder의 sd.rec→sd.wait 호환 경로도 구분합니다. fixed5초·commissioning·임계값은 유지합니다.
+- [문서] 기준은 [FR-INT-02/03](../../docs/requirements.md#fr-int-02)·[FR-LOG-02](../../docs/requirements.md#fr-log-02)·[수락 TTS 정책](../../docs/requirements.md#acceptance-tts-policy), 오디오 대조는 [FR-INT-01](../../docs/requirements.md#fr-int-01)·[FR-SAF-01/AC-SAF-02](../../docs/requirements.md#fr-saf-01)입니다. 이번 정합성 수정은 요구사항·계약 스키마/예시·C 담당 문서/코드·오디오 설정을 수정하지 않습니다.
+- [문서: 미검증] 실제 C source mapping/운영 수락·첫 동작, 실제 마이크/장치·Whisper·실음성·실물 AC는 문서 대조로 확인되지 않았습니다. 각 최종 PR head의 전체 로컬 CI 결과는 해당 PR 본문에 기록합니다.
+
 ## 공동 계약07 E 원본 초안 — E-C-REQUEST-RUN-WIRE-20261011-07
 
 - [문서: 승인·Git] 상위 인간 turn `01a1292c-e625-7c40-a46b-abab4f8fac37`의 “승인”과 직전 C 구체안, [승인 기록](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594)·[C 제안](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105074716)을 직접 대조했습니다. 기존 root의 추적 clean·PR217 `8a83b124f6dae4f09b8f14f8ef7a94852d57d8be`에서 지시 세션의 통상 Git 선택에 따라 `codex/e-c-request-run-contract-20261011`을 생성했습니다. PR217과 기존 E PR ref는 변경하지 않았습니다. 미추적 모델 이력의 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존·커밋 제외합니다.
 - [문서: E 범위] 승인 의미를 [정본](../../docs/requirements.md#acceptance-tts-policy)에 반영하고 intent 스키마에 두 선택 필드만 추가했습니다. 기존 required·enum·confidence·targets/goals는 유지하며 E 예시 두 파일에 필드만 추가했습니다. [공동 ICD](../../docs/interfaces.md#request-run-contract)의 E 발신 원본 구간과 Voice 문서의 승인/원본 준비/운영 미연결 구분을 정리했습니다. 기존 goal 예시는 공개 형식 예시로 보존했으며 선정 catalog나 목표 발행 지원을 주장하지 않습니다.
-- [미완료: C 합류] C 소유 `contracts/examples/runner_status.json`·`docs/runner.md`와 ICD 5.3의 C 수신·상태·결과 구간은 C 최소 커밋으로 합류해야 합니다. C `feat/c-status-contract` 전체는 병합/cherry-pick하지 않았고 C/B 코드·태스크·운영 adapter를 편집하지 않았습니다. E 초안 commit/push 뒤 E 편집을 중지하고 같은 브랜치를 인계합니다. C 합류 전에는 PR 생성·동일 계약 PR 완료·공동 검증 완료로 처리하지 않습니다. E 기존 승인과 C 원본 검토·계약 합류·운영 구현·실물 검증은 별개입니다.
+- [문서: 초기 작성 시점 기록] 당시에는 C 소유 runner_status 예시·Runner 문서·ICD 5.3 합류를 대기했으나, 현재 #221 head에는 C 최소 커밋이 합류했고 C 원본 검토도 확인됐습니다. C 전체 운영 branch나 C/B 코드·태스크·adapter는 이 head에 포함되지 않습니다. E 계약 검토·PR 병합·운영 구현·실물 검증은 별도 미완료입니다.
 - [실측: E 초안 정적] `python3 tools/validate_contracts.py` OK. intent 예시2개·추가 전 P1 예시2개·유효 입력6개·빈 ID/타입 오류7개를 jsonschema로 대조했습니다. 두 새 속성을 제외한 전체 스키마와 두 예시의 기존 내용이 PR217 기준과 동일함을 확인했습니다. 변경5문서 로컬 링크/앵커375개·공백 검사 통과입니다. 기존 예시를 읽는 `tools/validate_contracts.py`는 수정하지 않았고 별도 생성기는 검색에서 발견되지 않았습니다.
 - [문서: 검증 계획] 계약 검증기·기존 intent 예시·P1 필드 누락 호환·두 선택 필드 타입/빈 ID·문서 원본 참조를 좁게 대조합니다. 코드 변경 없는 E 초안 단계의 전체 pytest/build/CI는 실행하지 않습니다. 최종 전체 CI는 C 소유 최소 커밋과 ICD가 합류한 계약 PR 최종 head에서 한 번 실행합니다. 중복/빠른 완료/TTS 성공의 운영 모의·실음성·실물 결과는 이번에 검증하지 않습니다.
 
