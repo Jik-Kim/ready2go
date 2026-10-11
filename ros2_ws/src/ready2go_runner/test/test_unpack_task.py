@@ -245,3 +245,62 @@ def test_no_restore_check_while_holding_or_after_estop():
     assert robot.calls[last_place + 1:] == []
     _, _, aborted = run("occluded_top", "toy_wrench", {"place_object": ["ESTOP", 1]})
     assert aborted.overall_status == "ABORTED" and _checks(aborted) == []
+
+
+# ---- 가림 모름 다시 찍기 (A #214 권고): occlusion_unknown 이면 같은 자세에서 한 번만 다시 찍고 다시 고름 ----
+
+class BlurryScene(MockScene):
+    """정한 회차의 촬영은 분할 마스크가 번져 모든 물체 관계가 null(모름) — 고를 후보가 없어 occlusion_unknown."""
+
+    def __init__(self, name, blurry_calls):
+        super().__init__(name)
+        self.calls, self.blurry_calls = 0, set(blurry_calls)
+
+    def inspect(self, region, search_target):
+        self.calls += 1
+        result = super().inspect(region, search_target)
+        if self.calls in self.blurry_calls:
+            for obj in [result["target"]] + result["candidates"]:
+                if obj:
+                    obj["occluded_by"] = None
+        return result
+
+
+def run_blurry(blurry_calls):
+    robot = SceneRobot("occluded_top")
+    robot.skills.scene = BlurryScene("occluded_top", blurry_calls)
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    return robot, runner.run(TASK, {"target": "toy_wrench"})
+
+
+def test_first_photo_unknown_reshoots_once_and_continues():
+    robot, result = run_blurry({1})
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box", "car_key"]   # 평소와 같은 순서
+    reshoot = [s for s in result.steps if s["id"] == "s6r.1"]
+    assert len(reshoot) == 1 and reshoot[0]["status"] == "SUCCESS"
+    first_pick = next(i for i, (a, _) in enumerate(robot.calls) if a == "pick_object")
+    assert [a for a, _ in robot.calls[:first_pick]].count("inspect_region") == 2   # 촬영 → 다시 찍기 → 집기
+
+
+def test_unknown_twice_does_not_pick_target_or_loop():
+    """두 번째도 모르면 지금처럼 목표를 집지 않음 — 다시 찍기는 한 번뿐, 로봇 동작 없이 안내·닫기·홈."""
+    robot, result = run_blurry({1, 2})
+    assert robot.picked() == [] and "toy_wrench" not in robot.skills.scene.delivered
+    assert [s["id"] for s in result.steps].count("s6r.1") == 1
+    assert "장난감 스패너를 꺼내지 못했어요" in robot.spoken
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+
+
+def test_unknown_after_moving_one_reshoots_inside_loop():
+    """차키를 치운 뒤 다시 찍은 사진(2번째 촬영)이 모름 → 루프 안에서 한 번 더 찍고 상자를 고름."""
+    robot, result = run_blurry({2})
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.picked()[:3] == ["car_key", "caramel_box", "toy_wrench"]
+    assert [s["id"] for s in result.steps].count("s7.9.1") == 1
+
+
+def test_clear_photo_needs_no_reshoot():
+    _, robot, result = run("occluded_top", "toy_wrench")
+    assert not any(s["id"].startswith(("s6r.", "s7.9.")) for s in result.steps)
