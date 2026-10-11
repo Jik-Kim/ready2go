@@ -543,3 +543,40 @@ def test_b_sk_clear_goal_is_make_room_with_scan(monkeypatch, tmp_path):
     (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
     action, params = sk.goal_for("clear")
     assert action == "nudge_object" and params["make_room"] is True and params["scan"] == full and params["target"] == TOP_T
+
+
+def test_b_free_places_held_object_in_found_free_spot(monkeypatch, tmp_path):
+    """[사용자 10/11] B free top: aside 고정 자리 대신 빈 자리 — 집을 때 본 scan 으로 후보를 골라 place_object(pose).
+    움직이기 전 거부(PLACE_BLOCKED·WALL_TOO_CLOSE)면 다음 후보, 받침(캐러멜)과는 떨어진 곳, 다른 실패면 멈춤."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "DRAWER", "drawer_top")
+    with pytest.raises(SystemExit, match="B pick"):
+        sk.free_poses("drawer_top")
+    base = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185, "occluded_by": ["car_key#1"],
+            "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0343, "occluded_by": [],
+           "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": key, "candidates": [base], "visible_count": 2}
+    (tmp_path / "b_picked.json").write_text(json.dumps({"target": key, "approach_offset": [0, 0, 0.1], "scan": scan}))
+    cands, sc = sk.free_poses("drawer_top")
+    assert cands and sc == scan
+    for p in cands:                                                     # 받침(다음에 꺼낼 캐러멜)과 겹치지 않음
+        assert abs(p["position"][0] - 0.1) > 0.05 or abs(p["position"][1] - 0.15) > 0.04
+    sent = []
+
+    def run(node, cmd, goal=None):
+        sent.append(goal)
+        sk.last["code"] = "PLACE_BLOCKED" if len(sent) < 3 else ""
+        return sk.last["code"] == ""
+    monkeypatch.setattr(sk, "run", run)
+    assert sk.free(None) is True and len(sent) == 3
+    assert all(g[0] == "place_object" and g[1]["location"] == "drawer_top" and g[1]["scan"] == scan for g in sent)
+    assert sent[2][1]["pose"] == cands[2] and "free" in sk.NEEDS_DRAWER
+
+    def run_moved(node, cmd, goal=None):
+        sk.last["code"] = "NOT_REACHED"
+        return False
+    monkeypatch.setattr(sk, "run", run_moved)
+    with pytest.raises(SystemExit, match="NOT_REACHED"):
+        sk.free(None)

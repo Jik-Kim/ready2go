@@ -18,7 +18,8 @@ AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
-NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear"}   # home·pick·place 는 서랍 없음
+NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear",
+                "free"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -132,6 +133,7 @@ USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_
          "  putback = 파지만 시험 — B pick 으로 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음\n"
          "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
+         "  free = 쥔 물체를 그 서랍 빈 자리에 — 고정 aside 대신 집을 때 본 인식 결과로 빈 곳을 골라 놓음 (B scan → B pick → B free top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  clear = (서랍 열고 B opened 뒤) 파지 공간 만들기: 탑뷰 → 인식 → 한 동작(위에 얹힌 것·막는 것 빈 자리로 / 목표 넛지 /\n"
          "          좌우 밀기 / 벽 넛지) → 다시 인식 … 집을 수 있게 되면 집기 → 트레이 → 홈 [제안 10/11, 계약 승인 전]\n"
@@ -237,12 +239,15 @@ TARGET = "eraser"                          # 찾을 물체 (B <동작> <서랍> 
 TARGET_FILE = f"{TMP}/b_target_class.txt"   # 마지막에 고른 물체 — 다음 B 명령도 같은 물체
 
 
+def repo_file(*rel):
+    """저장소 파일 — 소스에서 돌리면 스크립트 기준, 설치본이면 ~/ready2go."""
+    f = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", *rel)
+    return f if os.path.exists(f) else os.path.expanduser(os.path.join("~/ready2go", *rel))
+
+
 def parse_target(arg):
     """물체 이름(클래스 키 또는 한국어 이름·별칭) → 클래스 키. 없으면 마지막에 고른 물체(없으면 지우개)."""
-    wf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "knowledge", "world.jsonld")
-    if not os.path.exists(wf):
-        wf = os.path.expanduser("~/ready2go/knowledge/world.jsonld")
-    world = json.load(open(wf, encoding="utf-8"))["world"]["items"]
+    world = json.load(open(repo_file("knowledge", "world.jsonld"), encoding="utf-8"))["world"]["items"]
     if arg is None:
         try:
             with open(TARGET_FILE) as f:
@@ -307,6 +312,9 @@ def main():
             clear(node)
         finally:
             report()
+        return
+    if cmd == "free":
+        free(node)
         return
     if cmd == "dragtest":
         try:
@@ -443,6 +451,70 @@ def find(node):
         sys.exit(f"place 실패 {last['code']} — 물체를 든 채라 멈춤")
     timed("home", lambda: run(node, "home"))
     print("\nfind 성공 (트레이까지)")
+
+
+FREE_TRIES = 15                             # B free: 빈 자리 후보를 이만큼까지 보냄 (거부는 움직이기 전이라 바로 다음 후보)
+FREE_RETRY = {"PLACE_BLOCKED", "WALL_TOO_CLOSE"}   # 서랍 안 놓기의 "움직임 없음" 거부 (#166) — 다음 후보로
+
+
+def free_poses(drawer):
+    """B pick 으로 쥔 물체를 그 서랍 빈 자리에 놓을 후보 pose (점수 순) [사용자 10/11 "aside 말고 빈 공간 찾아 놓기"].
+    집을 때 본 scan(옆 물체 전부) + 온톨로지 크기로 core/clear_plan.free_poses: 벽에 붙여 큰 빈 곳을 남기고,
+    쥔 물체가 얹혀 있던 받침(다음에 꺼낼 것)에서는 25 mm 띄움. 아래 칸은 손 닿는 깊이(drawer_reach_x_mm) 안만.
+    진짜로 놓을 수 있는지는 스킬 서버 서랍 안 놓기 검사가 봄(안 되면 움직이기 전 거부 → 다음 후보)."""
+    import yaml
+    from ready2go_skills.core import clear_plan as cp, place_plan as plp
+    try:
+        with open(picked_file()) as f:
+            p = json.load(f)
+    except (OSError, ValueError):
+        sys.exit("쥔 물체 정보 없음 — B scan → B pick 으로 집은 뒤에 (보내지 않음)")
+    held, scan_ = p.get("target") or {}, p.get("scan")
+    if (held.get("pose") or {}).get("frame") != drawer:
+        sys.exit(f"쥔 물체는 {(held.get('pose') or {}).get('frame')} 에서 집음 — B free {drawer.removeprefix('drawer_')} 가 아님 (보내지 않음)")
+    if not scan_:
+        sys.exit("집을 때 본 인식 결과 전체(scan)가 없음 — B scan 뒤 B pick 으로 다시 (옆 물체를 몰라 빈 자리를 못 고름)")
+    world = json.load(open(repo_file("knowledge", "world.jsonld"), encoding="utf-8"))["world"]["items"]
+    places = yaml.safe_load(open(repo_file("config", "places.yaml"), encoding="utf-8"))
+    prm = yaml.safe_load(open(repo_file("ros2_ws", "src", "ready2go_skills", "params", "skills.yaml"), encoding="utf-8"))
+    default = prm["place"]["default_obstacle_size_m"]
+
+    def size_of(cls):
+        return (world.get(cls) or {}).get("size_m") or default
+    objs = [dict(o, occluded_by=list(o.get("occluded_by") or [])) for o in ([scan_["target"]] if scan_.get("target") else []) + list(scan_.get("candidates") or [])]
+    if held.get("id") not in {o["id"] for o in objs}:
+        objs.append(dict(held, occluded_by=[]))
+    bases = [o for o in objs if held.get("id") in o["occluded_by"]]
+    reach = (prm.get("drawer_reach_x_mm") or {}).get(drawer)
+    interior, size = places[drawer]["interior_m"], size_of(held["class"])
+    # 스킬 서버 서랍 안 놓기와 같은 겹침·벽 검사(core/place_plan.check_place)로 먼저 거름 — 벽에 붙인 후보는 벌린 손가락이
+    # 벽에 걸려 대부분 거부됨 [P2 시뮬레이션 10/11: 앞 15개 중 통과 10배치에 2~3]. 쥔 폭은 온톨로지 잡는 폭(없으면 짧은 변)
+    grasp = (yaml.safe_load(open(repo_file("config", "item_grasp.yaml"), encoding="utf-8")) or {}).get(held["class"]) or {}
+    open_mm = (grasp.get("grasp_width_m") or size[1]) * 1000.0 + prm["place"]["release_extra_mm"]
+    g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer))
+    others = [o for o in objs if o["id"] not in {b["id"] for b in bases}] + bases
+    out = []
+    for c in cp.free_poses(objs, held["id"], size_of, interior, drawer, avoid=bases):
+        pose = cp.as_pose(c)
+        if reach is not None and pose["position"][0] * 1000.0 > reach:
+            continue
+        if plp.check_place(pose=pose, held_id=held["id"], held_size_m=size, open_mm=open_mm, objects=others, size_of=size_of,
+                           interior_m=interior, g=g, place=prm["place"]) is None:
+            out.append(pose)
+    return out, scan_
+
+
+def free(node):
+    """쥔 물체를 그 서랍 빈 자리에 (고정 aside 자리 대신): 후보를 차례로 place_object(pose) — 움직이기 전 거부면 다음 후보."""
+    cands, scan_ = free_poses(DRAWER)
+    for i, pose in enumerate(cands[:FREE_TRIES], 1):
+        print(f"\n----- 빈 자리 후보 {i}: ({pose['position'][0] * 1000:.0f}, {pose['position'][1] * 1000:.0f}) mm, yaw {pose['yaw']:.2f} -----")
+        if run(node, "free", ("place_object", {"location": DRAWER, "pose": pose, "scan": scan_})):
+            print(f"빈 자리에 놓음 — 다시 꺼낼 땐 B scan {DRAWER.removeprefix('drawer_')} 부터")
+            return True
+        if last["code"] not in FREE_RETRY:
+            sys.exit(f"free {last['code']} — 움직였거나 다시 해도 같은 실패라 멈춤 (물체를 든 채일 수 있음, 터미널 1 로그 확인)")
+    sys.exit(f"빈 자리 후보 {min(len(cands), FREE_TRIES)}개가 모두 거부됨 — 서랍이 꽉 참 (사람이 자리 만들기)")
 
 
 CLEAR_STEPS = 12                            # B clear: 다시 보기 사이 동작 최대 수 (넘으면 멈춤 — 같은 동작을 되풀이하지 않게) [제안]
