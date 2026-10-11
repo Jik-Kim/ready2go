@@ -64,3 +64,31 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | C↔B 단계 재진입 | 위치/그리퍼/서랍/물체·변수·부분 실행/effect·검증된 재개 지점 | 조건 재검사 후 중단 단계부터 이어 실행 목표. 원자 동작/params/궤적 무조건 재전송·effect 중복 금지. 확인 불가 시 보류 |
 
 [제안] `recovery_confirmation.py`의 내부 자료형·후보는 운영에 연결하지 않은 구현 준비이며 표의 의미를 확정 필드로 대신하지 않습니다. 힘·시간·유효기간 미확정 값은 후속 승인 시 config/params에 `[팀 확정 필요]`로 두며 임의 기본값을 하드코딩하지 않습니다. 새 계약은 전원 ICD 변경 합의·E 포함 2명 승인·스키마/예시/문서 같은 PR 대조가 필요합니다. 다른 담당 패키지를 수정하지 않았습니다.
+
+
+<a id="request-run-contract"></a>
+### 5.3 일반 요청 → 수락 → 완료 계약07 — 공동 원본 준비
+
+[문서: E 초안] 승인 의미·책임·호환 및 중복 처리 기준은 [수락 TTS 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이 절은 E 발신 원본의 연결을 기록하며 C 수신·상태 설명은 아래 담당 구간에 합류해야 합니다. 원본 준비는 현재 노드의 발신/수신 전환이나 통합 검증 완료가 아닙니다.
+
+#### E 담당 — 일반 요청 발신 원본
+
+| 연결 | 실행 원본·예시 | 현행 구현과의 구분 |
+| :--- | :--- | :--- |
+| `/voice/intent` JSON 최상위 두 필드 | [intent.schema.json](../contracts/intent.schema.json)의 `properties.request_id`·`properties.accept_text` | `required`는 기존 `intent`·`confidence` 그대로이며 내부 LLM/P1 입력에 새 필드를 강제하지 않음 |
+| E 실행 요청의 원본 예시 | [intent_find_item.json](../contracts/examples/intent_find_item.json), [intent_goal.json](../contracts/examples/intent_goal.json) | 공개 형식 예시이며 실제 Voice 발행·목표 실행의 증거가 아님. goal 예시의 기존 목표는 유지하며 선정 catalog 지원을 뜻하지 않음 |
+| 기존 source | 같은 스키마의 `properties.source` | 로그용 자유 객체는 유지. E 발신 ID를 `source.request_id`에 중복 작성하지 않음 |
+| 현재 Voice 발신/소비 | [VoiceNode](../ros2_ws/src/ready2go_voice/ready2go_voice/nodes/voice_node.py), [Session](../ros2_ws/src/ready2go_voice/ready2go_voice/core/session.py) | 로컬 `_voice.request_id`와 내부 문장 소비만 준비됨. 두 공개 필드의 운영 발신·C 결정/결과 연결은 후속 구현 |
+
+#### C 담당 — 수신·상태·결과
+
+[문서: C 합류] 결정·결과 칸과 처리 규칙은 [runner.md 7.1 "요청 상관 — 계약07"](runner.md), 상태 예시는 [runner_status.json](../contracts/examples/runner_status.json)이 원본이다. 이 구간은 연결만 기록하며 Runner 수신 구현(중복 기억·`run_id` 고정·`accept_text` 1회 안내 게이트)은 계약 병합 뒤 운영 PR이다.
+
+| 연결 | 실행 원본·예시 | 현행 구현과의 구분 |
+| :--- | :--- | :--- |
+| E 요청 → C 결정 | `/runner/status` `last_intent.request_id`·`run_id` — [runner_status.json](../contracts/examples/runner_status.json) `accepted_running`·`hold_low_confidence`·`reject_busy_while_other_run` | 현재 `last_intent`에는 두 칸이 없음(구현 전). 기존 `decision`·`reason`은 그대로 |
+| 수락 → 최종 결과 | 기존 `last.run_id` — 같은 예시 `accepted_fast_completed`(빠른 완료에도 같은 `run_id`) | `last`는 현재 구현 그대로. E 완료 안내 조건 = `last.run_id`가 그 요청의 수락 `run_id`와 같음 |
+| 실행 기록 | 실행 헤더 `intent`(받은 payload 그대로, #89) → `intent.request_id` | 이미 저장 중 — 새 칸 없음 |
+| ID 없는 기존 요청 | 같은 예시 `legacy_without_request_id` — 입력에 `request_id` 필드가 **없으면** 상태 `last_intent.request_id: null`. 입력 `request_id: null`·빈 문자열은 스키마 위반 → `hold`/`BAD_INTENT` | 지금 동작 그대로 |
+| 수락 문장 없음 | 입력 `accept_text` 없음·`null` → 수락된 run 의 안내는 태스크 기존 문장 | 지금 동작 그대로 |
+| 중복·충돌·재기동 | runner.md 표 — 같은 ID 재전송은 같은 결정, 다른 내용은 첫 결정 유지, 기억은 이번 기동만 | 구현 전 |

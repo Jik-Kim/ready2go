@@ -14,5 +14,7 @@
   "source": {
     "stt_text": "립밤은 아래 서랍에 넣어 둬",
     "fallback_used": false
-  }
+  },
+  "request_id": "example-goal-07",
+  "accept_text": "립밤을 아래 서랍에 넣을게요."
 }
