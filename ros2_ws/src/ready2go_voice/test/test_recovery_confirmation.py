@@ -524,3 +524,45 @@ def test_old_semantic_conflict_does_not_discard_current_receipt():
     assert p.request is receipt and p.question is q
     assert p.answer('재개해', q, captured_at=4, now=6, evidence=SAFE,
                     request=receipt) == WORK
+
+
+@pytest.mark.parametrize('past_seq', [3, 4])
+def test_new_semantic_conflict_records_floor_and_old_status_ack_cannot_revive(past_seq):
+    p, request = independent_ready()  # Confirmed WORK seq2.
+    assert p.independent_stt(request, '이어서 해', now=24)
+    assert p.independent_registered(request, WORK, 2, now=25, valid_state=True)
+    assert not p.stopped(replace(WORK, cause='SENSOR_INVALID'), 4)
+    assert p.revision == 4 and p.sequences[('boot', 'run1', 'stop1')] == 4
+    assert p.work == WORK and not p.current_state_confirmed
+    assert not p.stopped(WORK, past_seq)
+    assert not p.current_state_confirmed
+    assert p.begin_independent(WORK, now=26, unique_target=True) is None
+    assert not p.independent_registered(request, WORK, past_seq, now=26, valid_state=True)
+    assert p.independent_candidate(request, now=27, evidence=SAFE) is None
+    # A fresh, valid, original semantic state may reconfirm at a higher seq.
+    assert p.stopped(WORK, 5) and p.current_state_confirmed
+    fresh = p.begin_independent(WORK, now=30, unique_target=True)
+    assert fresh and p.admit_independent(fresh, captured_at=31, ended_at=32, started_at=33)
+    assert p.independent_stt(fresh, '이어서 해', now=34)
+    assert not p.independent_registered(fresh, WORK, past_seq, now=35, valid_state=True)
+    assert p.independent_candidate(fresh, now=36, evidence=SAFE) is None
+    fresh = p.begin_independent(WORK, now=40, unique_target=True)
+    assert fresh and p.admit_independent(fresh, captured_at=41, ended_at=42, started_at=43)
+    assert p.independent_stt(fresh, '이어서 해', now=44)
+    assert p.independent_registered(fresh, WORK, 6, now=45, valid_state=True)
+    assert p.independent_candidate(fresh, now=46, evidence=SAFE) == WORK
+    assert p.independent_candidate(fresh, now=46, evidence=SAFE) is None
+
+
+@pytest.mark.parametrize('bad_work,bad_seq', [
+    (replace(WORK, session='other-boot'), 10),
+    (replace(WORK, cause=''), 10), (replace(WORK, skill=' '), 10),
+    (replace(WORK, task=''), 10), (WORK, True), (WORK, -1), (WORK, '10'),
+])
+def test_invalid_state_never_advances_conflict_floor(bad_work, bad_seq):
+    p, q = ready()
+    assert not p.stopped(bad_work, bad_seq)
+    assert p.revision == 2 and p.sequences[('boot', 'run1', 'stop1')] == 2
+    assert not p._ack_current(WORK, 10, valid_state=False)
+    assert p.revision == 2
+    assert p.stopped(WORK, 3) and p.question is q

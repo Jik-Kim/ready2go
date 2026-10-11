@@ -215,13 +215,15 @@ class RecoveryConfirmation:
             return False
         if revision <= self.revision or revision <= self.sequences.get(key, -1):
             return False
+        # A trusted newer conflict is still an observed ordering boundary.
+        # Record it before rejecting its meaning so older status/ACK cannot revive work.
+        self.sequences[key] = revision
+        self.revision = revision
         if (self.work is not None and key == (self.work.session, self.work.task, self.work.stop)
                 and work != self.work):
             self.invalidate()  # newer conflicting semantic state cannot reuse prior checks
             self.current_state_confirmed = False
             return False
-        self.sequences[key] = revision
-        self.revision = revision
         return True
 
     @serialized
