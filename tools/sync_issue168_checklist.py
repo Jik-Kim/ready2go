@@ -9,7 +9,10 @@ are never included in a write request.
 from __future__ import annotations
 
 import argparse
+import ast
+import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -29,12 +32,20 @@ SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 SYNC_METADATA_SHEET = "00_진행현황"
 SYNC_METADATA_RANGE = "A9:D9"
 
-KNOWN_ERROR_CODES = {
-    "CAMERA_TIMEOUT", "CANCELED", "DEPTH_INVALID", "ESTOP", "GRASP_FAILED",
-    "HOLDING_OBJECT", "LATE_RESULT", "NOT_ON_FLOOR", "NOT_REACHED",
-    "NO_OBJECT_CONTACT", "OBJECT_DROPPED", "PLACE_BLOCKED", "PUSH_BLOCKED",
-    "STOP_UNCONFIRMED", "TIMEOUT", "WALL_TOO_CLOSE", "YAW_INVALID",
-}
+ERROR_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+$")
+SHEET_CODE_PATTERN = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+RUNTIME_ERROR_SOURCE_GLOBS = (
+    "knowledge/skills/*.jsonld",
+    "ros2_ws/src/ready2go_runner/ready2go_runner/core/interpreter.py",
+    "ros2_ws/src/ready2go_runner/ready2go_runner/core/run_report.py",
+    "ros2_ws/src/ready2go_runner/ready2go_runner/core/step_console.py",
+    "ros2_ws/src/ready2go_runner/ready2go_runner/adapters/ros_clients.py",
+    "ros2_ws/src/ready2go_runner/ready2go_runner/nodes/mock_backend.py",
+    "ros2_ws/src/ready2go_skills/ready2go_skills/core/skill_flow.py",
+    "ros2_ws/src/ready2go_skills/ready2go_skills/nodes/skill_server.py",
+    "ros2_ws/src/ready2go_vision/ready2go_vision/core/inspect_real.py",
+    "ros2_ws/src/ready2go_vision/ready2go_vision/nodes/inspect_region.py",
+)
 
 SUPPORTED_SOURCE_TYPES = {
     "github_issue",
@@ -131,6 +142,89 @@ class ChecklistError(ValueError):
     """A validation error with an item-oriented message."""
 
 
+class RuntimeCodeVisitor(ast.NodeVisitor):
+    """Collect constants only from runtime locations that carry error codes."""
+
+    def __init__(self) -> None:
+        self.codes: set[str] = set()
+
+    def _add_literals(self, node: ast.AST) -> None:
+        for child in ast.walk(node):
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                if ERROR_CODE_PATTERN.fullmatch(child.value):
+                    self.codes.add(child.value)
+
+    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                if target.id.endswith("_CODES") or target.id in {
+                    "ERROR_TEXT", "NO_MOTION_BY_ACTION",
+                }:
+                    self._add_literals(node.value)
+                elif (
+                    target.id.isupper()
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value == target.id
+                ):
+                    self.codes.add(target.id)
+            elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(
+                node.value, (ast.Tuple, ast.List)
+            ):
+                for target_item, value_item in zip(target.elts, node.value.elts):
+                    if isinstance(target_item, ast.Attribute) and target_item.attr == "error_code":
+                        self._add_literals(value_item)
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        function_name = node.func.id if isinstance(node.func, ast.Name) else ""
+        if function_name == "StepFailed":
+            for argument in node.args[1:]:
+                self._add_literals(argument)
+        for keyword in node.keywords:
+            if keyword.arg in {"error_code", "no_retry"}:
+                self._add_literals(keyword.value)
+        self.generic_visit(node)
+
+
+def runtime_source_paths() -> list[Path]:
+    paths: set[Path] = set()
+    for pattern in RUNTIME_ERROR_SOURCE_GLOBS:
+        paths.update(ROOT.glob(pattern))
+    return sorted(path for path in paths if path.is_file())
+
+
+def load_known_error_codes() -> tuple[set[str], list[str]]:
+    """Read error codes from skill knowledge and executable Python sources."""
+    codes: set[str] = set()
+    errors: list[str] = []
+    paths = runtime_source_paths()
+    if not paths:
+        return codes, ["runtime error-code sources were not found"]
+
+    for path in paths:
+        relative = path.relative_to(ROOT)
+        try:
+            if path.suffix == ".jsonld":
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                for value in payload.get("skills", {}).values():
+                    declared = value.get("errors", []) if isinstance(value, dict) else []
+                    if not isinstance(declared, list):
+                        errors.append(f"{relative}: skill errors must be a list")
+                        continue
+                    for code in declared:
+                        if isinstance(code, str) and ERROR_CODE_PATTERN.fullmatch(code):
+                            codes.add(code)
+            else:
+                visitor = RuntimeCodeVisitor()
+                visitor.visit(
+                    ast.parse(path.read_text(encoding="utf-8"), filename=str(relative))
+                )
+                codes.update(visitor.codes)
+        except (OSError, UnicodeError, json.JSONDecodeError, SyntaxError) as exc:
+            errors.append(f"cannot read runtime error-code source {relative}: {exc}")
+    return codes, errors
+
+
 def load_checklist(path: Path) -> tuple[dict[str, Any], bytes]:
     try:
         content = path.read_bytes()
@@ -167,10 +261,16 @@ def validate_sources(item: dict[str, Any], label: str, catalog: dict[str, Any]) 
         return [f"{label}.sources must be a list"]
     if not sources:
         return [f"{label}.sources must not be empty"]
-    return [f"{label}.sources references unknown source: {source}" for source in sources if source not in catalog]
+    errors: list[str] = []
+    for source in sources:
+        if not isinstance(source, str):
+            errors.append(f"{label}.sources contains a non-string source")
+        elif source not in catalog:
+            errors.append(f"{label}.sources references unknown source: {source}")
+    return errors
 
 
-def validate_codes(codes: Any, label: str) -> list[str]:
+def validate_codes(codes: Any, label: str, known_codes: set[str]) -> list[str]:
     if not isinstance(codes, list):
         return [f"{label} must be a list"]
     errors: list[str] = []
@@ -179,9 +279,52 @@ def validate_codes(codes: Any, label: str) -> list[str]:
             errors.append(f"{label} contains a non-string code")
         elif code.startswith("[") and code.endswith("]"):
             continue
-        elif code not in KNOWN_ERROR_CODES:
+        elif code not in known_codes:
             errors.append(f"{label} contains undefined error code: {code}")
     return errors
+
+
+def validate_string_fields(
+    item: dict[str, Any], fields: Iterable[str], label: str
+) -> list[str]:
+    return [
+        f"{label}.{field} must be a string"
+        for field in fields
+        if field in item and not isinstance(item[field], str)
+    ]
+
+
+def allowed_statuses(value: Any, label: str) -> tuple[set[str], list[str]]:
+    if not isinstance(value, list):
+        return set(), [f"{label} must be a list"]
+    if not all(isinstance(status, str) for status in value):
+        return set(), [f"{label} must contain only strings"]
+    return set(value), []
+
+
+def scenario_codes(scenario: dict[str, Any]) -> list[Any]:
+    values = scenario.get("trigger_codes", [])
+    codes = list(values) if isinstance(values, list) else []
+    if "trigger_code" in scenario:
+        codes.append(scenario["trigger_code"])
+    return codes
+
+
+def validate_sheet_trigger(scenario: dict[str, Any], label: str) -> list[str]:
+    trigger = scenario.get("sheet_trigger")
+    if not isinstance(trigger, str):
+        return [f"{label}.sheet_trigger must be a string"]
+    declared = {
+        code for code in scenario_codes(scenario)
+        if isinstance(code, str) and not (code.startswith("[") and code.endswith("]"))
+    }
+    displayed = set(SHEET_CODE_PATTERN.findall(trigger))
+    if displayed != declared:
+        return [
+            f"{label}.sheet_trigger codes differ from trigger_codes: "
+            f"expected {sorted(declared)}, found {sorted(displayed)}"
+        ]
+    return []
 
 
 def validate_repository_path(source_id: str, field: str, value: Any) -> list[str]:
@@ -232,6 +375,8 @@ def validate_source_catalog_entry(source_id: str, source: Any) -> list[str]:
 
 def validate_checklist(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
+    known_codes, source_errors = load_known_error_codes()
+    errors += source_errors
     errors += require_fields(
         data,
         ("schema_version", "checklist_id", "phase", "owner", "source_catalog", "status_legend"),
@@ -250,17 +395,30 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
         errors.append("root.node_failure_cases must be a list")
         failures = []
 
+    node_items = [item for item in nodes if isinstance(item, dict)]
+    scenario_items = [item for item in scenarios if isinstance(item, dict)]
+    failure_items = [item for item in failures if isinstance(item, dict)]
+    for index, item in enumerate(nodes):
+        if not isinstance(item, dict):
+            errors.append(f"root.node_cards[{index}] must be a mapping")
+    for index, item in enumerate(scenarios):
+        if not isinstance(item, dict):
+            errors.append(f"root.scenarios[{index}] must be a mapping")
+    for index, item in enumerate(failures):
+        if not isinstance(item, dict):
+            errors.append(f"root.node_failure_cases[{index}] must be a mapping")
+
     if len(nodes) != 8:
         errors.append(f"root.node_cards must contain 8 items, found {len(nodes)}")
     if len(scenarios) != 18:
         errors.append(f"root.scenarios must contain 18 items, found {len(scenarios)}")
-    for duplicate in sorted(duplicate_ids(nodes) | duplicate_ids(scenarios)):
+    for duplicate in sorted(duplicate_ids(node_items) | duplicate_ids(scenario_items)):
         errors.append(f"duplicate id: {duplicate}")
 
     expected_nodes = {f"N-{i:02d}" for i in range(1, 9)}
     expected_scenarios = {f"S-{i:02d}" for i in range(1, 19)}
-    actual_nodes = {str(item.get("id", "")) for item in nodes}
-    actual_scenarios = {str(item.get("id", "")) for item in scenarios}
+    actual_nodes = {str(item.get("id", "")) for item in node_items}
+    actual_scenarios = {str(item.get("id", "")) for item in scenario_items}
     if actual_nodes != expected_nodes:
         errors.append(f"node IDs differ: expected {sorted(expected_nodes)}, found {sorted(actual_nodes)}")
     if actual_scenarios != expected_scenarios:
@@ -268,33 +426,63 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
             f"scenario IDs differ: expected {sorted(expected_scenarios)}, found {sorted(actual_scenarios)}"
         )
 
-    catalog = data.get("source_catalog") if isinstance(data.get("source_catalog"), dict) else {}
-    status_legend = data.get("status_legend") if isinstance(data.get("status_legend"), dict) else {}
-    allowed_confirmation = set(status_legend.get("confirmation", []))
-    allowed_implementation = set(status_legend.get("implementation", []))
-    allowed_decision = set(status_legend.get("decision", []))
+    raw_catalog = data.get("source_catalog")
+    catalog = raw_catalog if isinstance(raw_catalog, dict) else {}
+    if not isinstance(raw_catalog, dict):
+        errors.append("root.source_catalog must be a mapping")
+    raw_legend = data.get("status_legend")
+    status_legend = raw_legend if isinstance(raw_legend, dict) else {}
+    if not isinstance(raw_legend, dict):
+        errors.append("root.status_legend must be a mapping")
+    allowed_confirmation, legend_errors = allowed_statuses(
+        status_legend.get("confirmation"), "root.status_legend.confirmation"
+    )
+    errors += legend_errors
+    allowed_implementation, legend_errors = allowed_statuses(
+        status_legend.get("implementation"), "root.status_legend.implementation"
+    )
+    errors += legend_errors
+    allowed_decision, legend_errors = allowed_statuses(
+        status_legend.get("decision"), "root.status_legend.decision"
+    )
+    errors += legend_errors
 
-    for node in nodes:
+    for node in node_items:
         label = str(node.get("id", "node<?>"))
         errors += require_fields(
             node,
             ("id", "name", "owner", "action", "card_status", "owner_confirmation", "sources"),
             label,
         )
+        errors += validate_string_fields(
+            node,
+            ("id", "name", "owner", "action"),
+            label,
+        )
         owner_confirmation = node.get("owner_confirmation")
-        if owner_confirmation not in allowed_confirmation:
+        if not isinstance(owner_confirmation, str):
+            errors.append(f"{label}.owner_confirmation must be a string")
+        elif owner_confirmation not in allowed_confirmation:
             errors.append(f"{label}.owner_confirmation has an invalid status")
         elif owner_confirmation not in CONFIRMATION_TO_SHEET["B"]:
             errors.append(f"{label}.owner_confirmation cannot be projected for B")
-        if node.get("card_status") not in NODE_CARD_STATUS_TO_SHEET:
+        card_status = node.get("card_status")
+        if not isinstance(card_status, str):
+            errors.append(f"{label}.card_status must be a string")
+        elif card_status not in NODE_CARD_STATUS_TO_SHEET:
             errors.append(f"{label}.card_status has an invalid status")
         errors += validate_sources(node, label, catalog)
 
-    for scenario in scenarios:
+    for scenario in scenario_items:
         label = str(scenario.get("id", "scenario<?>"))
         errors += require_fields(
             scenario,
             ("id", "title", "sheet_trigger", "next_action", "confirmation", "implementation", "decision", "sources"),
+            label,
+        )
+        errors += validate_string_fields(
+            scenario,
+            ("id", "title", "next_action"),
             label,
         )
         confirmation = scenario.get("confirmation", {})
@@ -308,6 +496,8 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
         for owner in ("B", "C", "E"):
             if owner not in confirmation:
                 errors.append(f"{label}.confirmation.{owner} is missing")
+            elif not isinstance(confirmation[owner], str):
+                errors.append(f"{label}.confirmation.{owner} must be a string")
             elif confirmation[owner] not in allowed_confirmation:
                 errors.append(f"{label}.confirmation.{owner} has an invalid status")
             elif confirmation[owner] not in CONFIRMATION_TO_SHEET[owner]:
@@ -317,20 +507,33 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
         for owner, status in implementation.items():
             if owner not in {"B", "C", "E"}:
                 errors.append(f"{label}.implementation.{owner} has an invalid owner")
-            if status not in allowed_implementation:
+            if not isinstance(status, str):
+                errors.append(f"{label}.implementation.{owner} must be a string")
+            elif status not in allowed_implementation:
                 errors.append(f"{label}.implementation.{owner} has an invalid status")
-        if scenario.get("decision") not in allowed_decision:
+        decision = scenario.get("decision")
+        if not isinstance(decision, str):
+            errors.append(f"{label}.decision must be a string")
+        elif decision not in allowed_decision:
             errors.append(f"{label}.decision has an invalid status")
-        errors += validate_codes(scenario.get("trigger_codes", []), f"{label}.trigger_codes")
+        errors += validate_codes(
+            scenario.get("trigger_codes", []), f"{label}.trigger_codes", known_codes
+        )
         if "trigger_code" in scenario:
-            errors += validate_codes([scenario["trigger_code"]], f"{label}.trigger_code")
+            errors += validate_codes(
+                [scenario["trigger_code"]], f"{label}.trigger_code", known_codes
+            )
+        errors += validate_sheet_trigger(scenario, label)
         errors += validate_sources(scenario, label, catalog)
 
-    for index, failure in enumerate(failures):
+    for index, failure in enumerate(failure_items):
         label = f"node_failure_cases[{index}]"
         errors += require_fields(failure, ("node_id", "error_code", "segment"), label)
-        errors += validate_codes([failure.get("error_code")], f"{label}.error_code")
-        errors += validate_codes(failure.get("aliases", []), f"{label}.aliases")
+        errors += validate_string_fields(failure, ("node_id", "error_code", "segment"), label)
+        errors += validate_codes(
+            [failure.get("error_code")], f"{label}.error_code", known_codes
+        )
+        errors += validate_codes(failure.get("aliases", []), f"{label}.aliases", known_codes)
         errors += validate_sources(failure, label, catalog)
 
     for source_id, source in catalog.items():
@@ -389,6 +592,7 @@ def read_live_tables(session: requests.Session, spreadsheet_id: str) -> dict[str
         f"'{spec.title}'!A{spec.header_row}:{spec.last_column}{spec.last_data_row}"
         for spec in SHEET_SPECS.values()
     ]
+    ranges.append(f"'{SYNC_METADATA_SHEET}'!{SYNC_METADATA_RANGE}")
     response = session.get(
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet",
         params=[("ranges", value) for value in ranges] + [("valueRenderOption", "FORMATTED_VALUE")],
@@ -396,10 +600,22 @@ def read_live_tables(session: requests.Session, spreadsheet_id: str) -> dict[str
     )
     response.raise_for_status()
     payload = response.json()
-    return {
+    tables = {
         key: payload["valueRanges"][index].get("values", [])
         for index, key in enumerate(SHEET_SPECS)
     }
+    tables["sync_metadata"] = payload["valueRanges"][len(SHEET_SPECS)].get("values", [])
+    return tables
+
+
+def verify_sync_metadata(rows: list[list[str]]) -> list[str]:
+    first_cell = str(rows[0][0]).strip() if rows and rows[0] else ""
+    if first_cell not in {"", "SHA"}:
+        return [
+            f"{SYNC_METADATA_SHEET}!A9:D9 is not an empty or managed metadata row "
+            f"(A9='{first_cell}')"
+        ]
+    return []
 
 
 def verify_headers(key: str, rows: list[list[str]]) -> list[str]:
@@ -628,6 +844,7 @@ def main(argv: list[str] | None = None) -> int:
         session = authorized_session(credentials_path)
         live = read_live_tables(session, spreadsheet_id)
         changes, sheet_errors = build_changes(desired, live)
+        sheet_errors += verify_sync_metadata(live.get("sync_metadata", []))
         if sheet_errors:
             for error in sheet_errors:
                 print(f"ERROR: {error}", file=sys.stderr)
@@ -642,7 +859,9 @@ def main(argv: list[str] | None = None) -> int:
         apply_changes(session, spreadsheet_id, changes, source_sha, synced_at)
         print(f"APPLIED: {len(changes)} managed cells (source commit {source_sha}, {synced_at})")
         return 0
-    except (ChecklistError, KeyError, requests.RequestException) as exc:
+    except (
+        ChecklistError, KeyError, TypeError, AttributeError, requests.RequestException
+    ) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

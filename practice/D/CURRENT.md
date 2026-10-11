@@ -30,6 +30,8 @@
 - [문서] 이슈 #134의 Voice 진단 정합성 지적에 따라 `issue20_voice_evaluation.json`에 원래 `diagnostic_file` 설정값·실행 cwd·실제 상세 JSONL 경로와 `request_id` 결합, 최상위 `published`와 `interpretation`·`tts_finished` 필드 매핑, 회전 파일·누락 증빙 처리 절차를 추가함. 콘솔·tee는 진행 요약으로만 사용하며 실제 JSONL 샘플 대조·음성 평가와 E 문서 정정·운영 연결 완료는 별도 상태로 유지함.
 - [문서] 이슈 #168의 노드 카드 8건·상황별 시나리오 18건을 `practice/D/issue168/checklist.yaml`에 정리하고, 담당 확인·구현·결정 상태와 근거를 분리함. B의 교시·실측·파라미터 값과 mock·실물 시험 결과는 복제하지 않고 원본 경로 및 Google Sheet 기록으로 분리함.
 - [실측] `tools/sync_issue168_checklist.py`의 YAML 검증과 Google 서비스 계정 인증 dry-run에서 `PASS: 8 node cards, 18 scenarios`와 관리 대상 셀 `NO CHANGES`를 확인함. 실제 `--apply` 쓰기와 담당자 PC 별도 키 검증, 담당 승인 및 mock·실물 시험 완료를 뜻하지 않음.
+- [문서] PR #205 검토를 반영해 오류 코드 허용값을 `knowledge/skills/*.jsonld`와 Runner·Skills·Vision 실행 원본에서 읽도록 변경하고, YAML 항목 타입·시트 표시 코드 정합성·`00_진행현황!A9:D9` 관리 표식을 쓰기 전에 검사하도록 보강함. 사용자 메모가 있는 A9:D9는 덮어쓰지 않음.
+- [실측] 정상 체크리스트 `PASS: 8 node cards, 18 scenarios`, 실행 원본 오류 코드 5종(`DRAWER_STUCK`·`CLOSE_NOT_CONFIRMED`·`TRAY_FULL`·`NOT_VISIBLE`·`CAMERA_TIMEOUT`) 수용, 잘못된 YAML 4종의 오류 목록 반환, 메타데이터 표식 3종의 허용·거부를 로컬에서 확인함. 실제 Google Sheet 쓰기 검증을 뜻하지 않음.
 - [실측] PR #205 리뷰를 반영해 복수 저장소 파일 근거와 담당자별 확인 상태의 시트 변환 가능 여부를 검증하고, 실제 `--apply`는 현재 `HEAD`에 같은 내용으로 커밋된 체크리스트만 허용하도록 보완함. 로컬 오류 주입으로 누락된 복수 경로·변환 불가 상태·외부 및 미커밋 YAML 차단을 확인했으며 실제 Google Sheet 쓰기 검증 상태는 계속 대기임.
 - [실측] PR #205 재검토의 P2 지적을 반영해 `source_catalog.type`을 다섯 가지 지원 타입으로 제한하고 GitHub URL·단일 경로·복수 경로의 타입별 필수 필드를 검증함. 오타 타입과 필수 필드 누락 오류 주입을 차단했으며 체크리스트 내용과 실제 Google Sheet 쓰기 검증 상태는 변경하지 않음.
 
