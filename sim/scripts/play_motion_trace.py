@@ -115,8 +115,8 @@ _hz = (cfg or {}).get("places", {}).get("handover_zone", {}).get("tf") if cfg el
 _tray = stage.GetPrimAtPath("/World/workspace/handover_tray")
 _base = stage.GetPrimAtPath("/World/m0609/base_link")
 if _hz and _tray.IsValid():                                              # 보조: 씬에 실제로 놓인 트레이 = 궤적 handover_zone tf (verify_scene 과 같은 방식)
-    _W = gf_to_np(UsdGeom.Xformable(_base if _base.IsValid() else stage.GetPrimAtPath("/World/m0609")).ComputeLocalToWorldTransform(0))
-    _Tt = np.linalg.inv(_W) @ gf_to_np(UsdGeom.Xformable(_tray).ComputeLocalToWorldTransform(0))
+    _Wbase = gf_to_np(UsdGeom.Xformable(_base if _base.IsValid() else stage.GetPrimAtPath("/World/m0609")).ComputeLocalToWorldTransform(0))
+    _Tt = np.linalg.inv(_Wbase) @ gf_to_np(UsdGeom.Xformable(_tray).ComputeLocalToWorldTransform(0))
     _dp, _dr = scene_record.pose_diff(_Tt.tolist(), _hz)
     print(f"[play] 씬 트레이 prim vs 궤적 handover_zone tf: {_dp * 1000:.2f} mm, {_dr:.3f}°", flush=True)
     if _dp > 1e-3 or _dr > 0.1:
