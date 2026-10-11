@@ -387,7 +387,7 @@ def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
     """닿음 확인 뒤 정해진 칸만큼 올려도 2.5 N 넘으면 끌지 않고 PUSH_BLOCKED, 위로 빠짐."""
     server.srv.prm = (lambda real: (lambda: {**real(), "drag": {**real()["drag"], "relax_max_steps": 2}}))(server.srv.prm)
     server.srv._force_still = lambda s: [0.0, 0.0, 20.0, 0.0, 0.0, 0.0]
-    server.srv._tare = lambda: [0.0] * 6
+    server.srv._tare = lambda settle_s=None: [0.0] * 6
     contact = {}
     real_line = server.ss.SkillServer._line
 

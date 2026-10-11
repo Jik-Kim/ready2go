@@ -1099,7 +1099,7 @@ class SkillServer(Node):
     def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
         """누를 자리 위(above)에서 내려가 닿음 확인 → 끄는 힘으로 맞춤. (실패 Outcome 또는 None, 누른 posx, 그때 힘 N).
         안전 코드가 아닌 실패는 above 로 올라간 뒤 돌려줌 → 호출자가 같은 자리에서 다시 시도할 수 있음."""
-        base_f = self._tare()
+        base_f = self._tare(d.get("tare_settle_s"))           # 넛지는 0.4 s [사용자 10/11 "넛지 너무 느림"], 없으면 force.tare_settle_s
         z0 = above[2]
         state = {}
 
@@ -1320,7 +1320,7 @@ class SkillServer(Node):
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
         # 끄기 직전 힘 0점 다시 [사용자 10/10 "옮기기 직전에 힘값 리셋"] — 힘 맞추기 마지막 측정보다 멈춘 뒤 평균이 안정
-        base_drag = self._tare() or self._held_f
+        base_drag = self._tare(d.get("tare_settle_s")) or self._held_f
         max_z = d.get("max_force_z_n", d["max_force_n"])
 
         def blocked():
