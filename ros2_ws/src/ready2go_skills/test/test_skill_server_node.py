@@ -1975,6 +1975,32 @@ def test_pick_dropped_while_lifting_is_measured_empty_hand(server):
     assert data["grasp_evidence"]["lift"] == "DROPPED" and data["grasp_evidence"]["lift_width_m"] == pytest.approx(0.0009)
 
 
+def test_front_panel_clearance_table_matches_touch_measurements(server):
+    """[실측 PC2 10/11] 수직 그리퍼·닫힘 축 서랍 x 로 앞판에 닿기 직전 TCP: 벌림 66 → 59.3 mm, 100.3 → 75.1 mm.
+    손잡이 쪽 벽(front)만 이 값, 안쪽 벽은 옆벽 표 그대로."""
+    g, mp = server.srv.prm()["gripper"], server.ss.mp
+    assert mp.wall_extent_mm(66.0, 0.0, g, front=True) == pytest.approx(59.3)
+    assert mp.wall_extent_mm(100.3, 0.0, g, front=True) == pytest.approx(75.1)
+    assert mp.wall_extent_mm(66.0, 0.0, g) < 50.0
+    assert mp.wall_extent_mm(66.0, math.pi / 2, g, front=True) == pytest.approx(g["wall_clearance_mm"]["along_mm"])   # 닫힘 축이 앞판과 나란하면 그대로
+
+
+def test_vertical_eraser_near_front_does_not_switch_to_long_side_into_front_panel(server):
+    """[실측 PC2 10/11 충돌] 세로 지우개(손잡이 쪽 벽에서 57.4 mm), 짧은 변 손가락 자리에 몽키 → 긴 변 양끝으로 바꿔 65.5 mm 벌리고
+    내려가다 앞판에 닿음. 앞판 여유(front_across)로 긴 변 우회가 막혀 움직이기 전 NEIGHBOR_TOO_CLOSE."""
+    srv = server.srv
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.015, "occluded_by": [],
+          "pose": {"frame": "drawer_top", "position": [0.0574, 0.1494, 0.0], "yaw": -0.2316, "yaw_valid": True}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0159, "occluded_by": None,
+          "pose": {"frame": "drawer_top", "position": [0.0795, 0.217, 0.0], "yaw": 0.1254, "yaw_valid": True}}
+    scan = {"target_found": True, "target": er, "candidates": [wr], "visible_count": 2}
+    grips = []
+    srv._grip = lambda *a: grips.append(a)
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(er)), "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and "toy_wrench" in out.reason, out.reason
+    assert srv.robot.log == [] and grips == []
+
+
 def test_tray_view_named_pose_goes_to_taught_joints(server):
     """[실측 PC2 10/11] 새 트레이 탑뷰 tray_view — 교시 관절로 이동 (B trayview)."""
     out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})

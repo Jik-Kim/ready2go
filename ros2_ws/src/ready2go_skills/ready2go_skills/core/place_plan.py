@@ -144,10 +144,13 @@ def wall_reason(x_mm: float, y_mm: float, yaw: float, half: tuple, open_mm: floa
             return f"놓을 footprint 가 서랍 벽 밖 (꼭짓점 {cx:.1f}, {cy:.1f} mm, 경계 x 0~{d:.1f}, y {y_lo:.1f}~{y_hi:.1f})"
     close_ang = yaw + math.pi / 2                           # 서랍 좌표 닫힘 축 = 긴 변에 수직 (집기와 같음)
     need_x = mp.wall_extent_mm(open_mm, close_ang, g) + g["wall_margin_mm"]
+    need_front = mp.wall_extent_mm(open_mm, close_ang, g, front=True) + g["wall_margin_mm"]   # 손잡이 쪽 앞판 [실측 PC2 10/11]
     need_y = mp.wall_extent_mm(open_mm, close_ang - math.pi / 2, g) + g["wall_margin_mm"]
-    gap_x, gap_y = min(x_mm, d - x_mm), min(y_mm - y_lo, y_hi - y_mm)
-    if gap_x < need_x:
-        return f"앞뒤 벽까지 {gap_x:.1f} mm < 손가락·관절 간섭 {need_x:.1f} mm"
+    gap_y = min(y_mm - y_lo, y_hi - y_mm)
+    if x_mm < need_front:
+        return f"손잡이 쪽 벽까지 {x_mm:.1f} mm < 손가락·관절 간섭 {need_front:.1f} mm"
+    if d - x_mm < need_x:
+        return f"안쪽 벽까지 {d - x_mm:.1f} mm < 손가락·관절 간섭 {need_x:.1f} mm"
     if gap_y < need_y:
         return f"옆벽까지 {gap_y:.1f} mm < 손가락·관절 간섭 {need_y:.1f} mm"
     return None

@@ -86,7 +86,10 @@ def test_finger_wall_clearance_like_pick():
     half = plp.place_half_mm(LIP, OPEN, G["fingertip_outer_mm"], PL["footprint_margin_mm"])
     x = half[1] + 1.0                                       # 짧은 변 쪽이 앞 벽(x=0) — footprint 는 안
     assert plp.wall_reason(x, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is not None   # across 간섭 약 38 mm
-    assert plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
+    assert plp.wall_reason(INTERIOR[0] * 1000.0 - 40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None   # 안쪽 벽은 옆벽 표 그대로
+    # 손잡이 쪽 벽은 앞판이 높아 더 필요 [실측 PC2 10/11 front_across] — 40 mm 는 이제 거부, 52 mm 는 됨
+    assert "손잡이 쪽 벽" in plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G)
+    assert plp.wall_reason(52.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
 
 
 def test_side_wall_offset_widens_y_max():

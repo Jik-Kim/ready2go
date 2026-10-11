@@ -40,10 +40,16 @@ def tip_below_tcp_mm(open_mm: float, g: Mapping) -> float:
     return interp(open_mm, t["open_mm"], t["below_mm"])
 
 
-def wall_extent_mm(open_mm: float, close_angle_to_wall_normal_rad: float, g: Mapping) -> float:
-    """그리퍼가 벽 쪽으로 차지하는 거리(TCP 기준). 닫힘 축과 벽 법선 사이 각에 따라 across·along을 섞는다(보수적으로 합)."""
+def wall_extent_mm(open_mm: float, close_angle_to_wall_normal_rad: float, g: Mapping, front: bool = False) -> float:
+    """그리퍼가 벽 쪽으로 차지하는 거리(TCP 기준). 닫힘 축과 벽 법선 사이 각에 따라 across·along을 섞는다(보수적으로 합).
+    front: 손잡이 쪽 벽(서랍 x 최소) — 앞판이 테두리보다 높아 벌린 손가락이 옆벽보다 먼저 닿음 → across 에 front_across 실측과의 차를
+    더함(벌림 사이 보간, 표 밖은 끝값) [실측 PC2 10/11: 벌림 66 → 59.3 mm, 100.3 → 75.1 mm, 옆벽 표보다 10.7·15.5 mm 더]."""
     w = g["wall_clearance_mm"]
     across = interp(open_mm, w["across"]["open_mm"], w["across"]["dist_mm"])
+    fa = w.get("front_across") if front else None
+    if fa:
+        extra = [d - interp(o, w["across"]["open_mm"], w["across"]["dist_mm"]) for o, d in zip(fa["open_mm"], fa["dist_mm"])]
+        across += max(0.0, interp(open_mm, fa["open_mm"], extra))
     c, s = abs(math.cos(close_angle_to_wall_normal_rad)), abs(math.sin(close_angle_to_wall_normal_rad))
     return c * across + s * w["along_mm"]
 
@@ -154,11 +160,12 @@ def _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, margin_mm):
     width = size_m[1]
     open_mm = width * 1000.0 + g["open_margin_mm"]
     close_ang = yaw + math.pi / 2                   # 서랍 좌표에서 닫힘 축 각도
-    ext_x = wall_extent_mm(open_mm, close_ang, g)                # x 벽(법선 x)
+    ext_x = wall_extent_mm(open_mm, close_ang, g)                # x 벽(법선 x) — 안쪽 벽
+    ext_front = wall_extent_mm(open_mm, close_ang, g, front=True)  # 손잡이 쪽 벽 (앞판이 더 높음 [실측 PC2 10/11])
     ext_y = wall_extent_mm(open_mm, close_ang - math.pi / 2, g)  # y 벽(법선 y)
     d, wd = interior_m[0] * 1000.0, interior_m[1] * 1000.0
     x_mm, y_mm = cx * 1000.0, cy * 1000.0
-    x_ok = min(x_mm, d - x_mm) >= ext_x + margin_mm
+    x_ok = x_mm >= ext_front + margin_mm and d - x_mm >= ext_x + margin_mm
     reach = g.get("reach_x_max_mm")                   # 그리퍼 수직으로 닿는 깊이 한계(물체 가운데) — 아래 칸은 위 서랍장에 막힘 [사용자 10/10]
     if reach is not None and x_mm > reach:
         x_ok = False
@@ -201,9 +208,10 @@ def front_tilt_x_mm(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     if abs(math.sin(yaw)) < math.cos(math.radians(g.get("tilt_align_deg", 15.0))):
         return None                                         # 가로(긴 변이 손잡이 쪽 벽과 나란)일 때만 — 비스듬하면 대각선으로 눕게 됨 [사용자 10/10 "대각선 절대 안 됨"]
     open_mm = size_m[0] * 1000.0 + g["open_margin_mm"]
-    ext_x = wall_extent_mm(open_mm, yaw, g)                  # 닫힘 축 = 긴 변(yaw) vs x 벽 법선
-    short_x = wall_extent_mm(size_m[1] * 1000.0 + g["open_margin_mm"], yaw + math.pi / 2, g)   # 짧은 변 잡기 자리
-    if x_mm >= max(ext_x, short_x) + g.get("pick_wall_margin_mm", g["wall_margin_mm"]):   # 짧은 변으로 잡을 수 있는 거리면 기울일 일 없음
+    ext_x = wall_extent_mm(open_mm, yaw, g)                  # 닫힘 축 = 긴 변(yaw) vs x 벽 법선 — 기울인 TCP 자리
+    upright_x = max(wall_extent_mm(open_mm, yaw, g, front=True),   # 수직 그리퍼로 잡을 수 있는 거리 (앞판 [실측 PC2 10/11])
+                    wall_extent_mm(size_m[1] * 1000.0 + g["open_margin_mm"], yaw + math.pi / 2, g, front=True))   # 짧은 변 잡기 자리
+    if x_mm >= upright_x + g.get("pick_wall_margin_mm", g["wall_margin_mm"]):   # 수직으로 잡을 수 있는 거리면 기울일 일 없음
         return None
     tcp = max(x_mm, ext_x)
     across = 1000.0 * (abs(math.cos(yaw)) * size_m[0] + abs(math.sin(yaw)) * size_m[1])   # 물체의 x 방향 폭(외접)
@@ -324,12 +332,13 @@ def plan_axis_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: Seq
     x_mm, y_mm = cx * 1000.0, cy * 1000.0
     off = g.get("wall_offset_mm") or {}
     margin = g.get("pick_wall_margin_mm", g["wall_margin_mm"])          # 애매하면 넛지로 확실히 [사용자 10/10]
-    need_x = wall_extent_mm(open_mm, yaw, g) + margin                   # 닫힘 축 = 긴 변(yaw) — 앞뒤 벽까지 필요한 거리
+    need_x = wall_extent_mm(open_mm, yaw, g) + margin                   # 닫힘 축 = 긴 변(yaw) — 안쪽 벽까지 필요한 거리
+    need_front = wall_extent_mm(open_mm, yaw, g, front=True) + margin   # 손잡이 쪽 벽 (앞판 [실측 PC2 10/11])
     need_y = wall_extent_mm(open_mm, yaw - math.pi / 2, g) + margin     # 옆벽까지
     gy = {"y_min": y_mm + off.get("y_min", 0.0), "y_max": wd - y_mm + off.get("y_max", 0.0)}
     near_y = min(gy, key=gy.get)
     reach = g.get("reach_x_max_mm")
-    zone = max(need_x, g.get("front_tilt_within_mm") or 0.0)
+    zone = max(need_front, g.get("front_tilt_within_mm") or 0.0)
     aligned = abs(math.cos(yaw)) <= math.sin(math.radians(g.get("tilt_align_deg", 15.0)))
     if x_mm < zone and not aligned:                                     # 손잡이 쪽 비스듬: 손잡이 쪽 벽까지 끌어 눕히기가 먼저, 옆벽(y)은 그 뒤
         dp = _push_to_handle_wall(cx, cy, yaw, size_m, interior_m, g, drag, x_mm / 1000.0)   # [사용자 10/10 "손잡이 벽 먼저 → 가운데"]
