@@ -177,6 +177,9 @@ class SkillServer(Node):
         if hold.reason == gc.HELD:                          # 저장한 폭과 slip_tolerance 안일 때만 (활짝 열림·빈손 닫힘·많이 다름은 아님)
             self.get_logger().info(f"쥔 물체 복원: {saved.get('class')} (그리퍼 폭 {st.width_mm:.1f} mm, 저장 {float(saved['width_m']) * 1000:.1f} mm)")
             return saved
+        if hold.reason == gc.SENSOR_INVALID:                # 폭 NaN·범위 밖 — 쥐었는지 모름: 메모리엔 안 올리되 기록은 남김 (다음 시작 때 다시) [D #216]
+            self.get_logger().warning(f"쥔 물체 복원 보류 — 그리퍼 폭 이상 ({st.width_mm!r} mm), 기록 유지 {f}")
+            return None
         self.get_logger().info(f"저장된 쥔 물체 {saved.get('class')} 무시 — 그리퍼가 쥐고 있지 않음 ({hold.reason}, 폭 {st.width_mm:.1f} mm)")
         f.unlink(missing_ok=True)
         return None

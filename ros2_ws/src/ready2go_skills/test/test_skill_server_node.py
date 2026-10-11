@@ -145,7 +145,7 @@ def server(monkeypatch):
     srv.robot, srv.disp, srv.held, srv.tray = Robot(), {"drawer_top": 0.226}, None, {}
     srv.state = sf.MotionState(srv.robot.state, srv.robot.posj)
     srv.move_timeout, srv.joint_vel, srv.joint_acc, srv.reach_tol = 30.0, 20.0, 20.0, 0.5
-    srv.get_logger = lambda: types.SimpleNamespace(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
+    srv.get_logger = lambda: types.SimpleNamespace(info=lambda *a: None, warn=lambda *a: None, warning=lambda *a: None, error=lambda *a: None)
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
 
     def run(action, params):
@@ -1309,6 +1309,23 @@ def test_held_object_survives_server_restart_only_if_gripper_still_holds(server,
     srv.held = None
     assert not srv.held_file.exists()
 
+
+
+@pytest.mark.parametrize("bad", [float("nan"), -5.0, 150.0])
+def test_held_record_kept_when_gripper_width_invalid_at_restart(server, tmp_path, bad):
+    """[D #216 P1] 재시작 때 그리퍼 폭이 NaN·범위 밖(SENSOR_INVALID)이면 쥐었는지 모름 — 메모리엔 안 올리되 기록은 남김.
+    다음 재시작에 폭이 정상이면 복원."""
+    srv = server.srv
+    srv.held_file = tmp_path / "held.json"
+    srv.held = {"class": "eraser", "id": "eraser#1", "width_m": 0.0228, "drawer_id": "drawer_top", "tcp_above_floor_m": 0.03}
+    srv._held = None
+    server.Gripper.width = bad
+    srv._held = srv._restore_held()
+    assert srv.held is None and srv.held_file.exists()
+    server.Gripper.width = 22.4
+    srv._held = srv._restore_held()
+    assert srv.held is not None and srv.held["id"] == "eraser#1" and srv.held_file.exists()
+    srv.held = None
 
 def test_in_drawer_moves_sideways_only_above_rim(server):
     """[사용자 10/08] 서랍 안 옆 이동은 테두리 + in_drawer_clear_mm 위에서만, 목표 바로 위에서 수직으로 내려감 (쌓인 물건 약 55 mm).

@@ -227,3 +227,16 @@ def test_objects_under_ambiguous_height_never_takes_smaller_object_above():
     wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0537, "occluded_by": [], "pose": {"position": [0.13, 0.17, 0.0], "yaw": -1.5}}
     car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.054, "occluded_by": [], "pose": {"position": [0.135, 0.175, 0.0], "yaw": -1.5}}
     assert plp.objects_under(target=wr, objects=[wr, car], size_of=sizes.get) == []
+
+
+def test_objects_under_relation_still_needs_target_inside_footprint():
+    """[A #216] 관계(occluded_by)는 높이 조건만 대신 — 목표 가운데가 o footprint(+5 mm) 밖이면 받침 아님.
+    가장자리에 걸려 덜 보인 옆 물체의 헛관계로 이웃 확인이 빠지지 않게. 끝에 걸친 차키(밖 3.2 mm [실측 PC2 10/11])는 받침."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "car_key": [0.0695, 0.039, 0.0158]}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0555, "occluded_by": [], "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}}
+    side = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0546, "occluded_by": ["car_key#1"],
+            "pose": {"position": [0.10, 0.10, 0.0], "yaw": 0.0}}                 # 목표 가운데가 짧은 변 쪽 밖 25.5 mm — 옆
+    assert plp.objects_under(target=key, objects=[key, side], size_of=sizes.get) == []
+    edge = dict(side, pose={"position": [0.10, 0.1213, 0.0], "yaw": 0.0})      # 밖 4.2 mm — 끝에 걸침
+    assert [o["id"] for o in plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get)] == ["caramel_box#1"]
+    assert plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get, relation_margin_m=0.0) == []
