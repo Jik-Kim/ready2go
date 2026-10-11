@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-11 A 가림 판정 노드 구현·seg 기본값 (#109 4단계, #196 항목 1·2)**: `inspect_region`이 분할 모델이면 결과 모든 물체에 `occluded_by`·`visible_area_m2`(모르면 `null`), 박스 모델이면 두 필드 없음(#185 규칙). 판정 `core/occlusion.py`, 임계값·기준 넓이 `vision_params.yaml` `occlusion`(시험 코드 값, [팀 확정 필요]). 노드 기본 가중치 `yolo11s_seg_ready2go_v1.pt`(박스 모델은 `VISION_WEIGHTS=models/yolo11n_ready2go_v1.pt`). 함께 고침: yaw ±90° 반올림이 범위를 넘어 `RESULT_INVALID`(`pose_rules.round_yaw`). 실물 덤프 77장 재계산 실패 0, 관계 36·`null` 16 — `docs/vision.md` 9장.
 - **2026-10-10 B 실물 튜닝 (PC2, 브랜치 `claude/tender-bardeen-ki59od`)**: 위·아래 서랍 다시 교시(tf·탑뷰·경유점·aside·넓은 트레이), 닫기 → 홈 블렌딩 한 번, 넛지 앞뒤(x) 추가(손잡이 쪽은 안쪽으로 안 끎)·힘 0.5~1.2 N·끌기 직전 0점, 집기·놓기 손목은 경유점에서 J6 로만, 놓기는 바닥 닿으면(3 N) 놓음, 블렌딩이 다시 보내도 출발 안 하면 점마다 직선. 잡기: 넛지는 서랍 x·y 로만, 세로에 가까우면 짧은 변·가로면 긴 변 양끝(손잡이 쪽 가로는 손잡이 쪽 20° 기울여), 립밤은 항상 긴 변(옆벽은 직접교시 자세로 기울여). 계약 형식 변경 없음, 상세·트러블슈팅 `practice/B/2026-10-10_practice.md`.
 - **2026-10-10 C `select_obstacle` 박스 모델 판단 시점 main 반영 (#134 E 10/08 18:30 P1)**: 옮긴·보류한 물체를 뺀 뒤 남은 물체로 박스 모델을 판단해 '모름' 목표를 clear 로 바꾸던 것 → 빼기 전 촬영 결과 전체로 한 번만(고르기·prefer·clear 모두 같은 판단). `runner.md` `pick_object` 파지 높이 설명을 바닥 물체 / 쌓인 물체(B `allow_stacked`, #191) 분기로 (#134 E 10/10 13시 새 P2 1번). 계약 변경 없음.
 - **2026-10-10 C HALT_MOTION (#78 사용자 결정)**: Runner 가 `OBJECT_DROPPED`·`SENSOR_INVALID` 를 중단 코드로 — 즉시 `ABORTED`·잠금, finally 로봇 동작 없음, 새 요청 잠금 거절, 재개(#152) 보존 대상 아님. 예전엔 일반 실패라 finally 서랍 닫기·홈이 나갈 수 있었음(#78 E 모의 반례). 계약 변경 없음(기존 코드의 Runner 처리).
