@@ -112,7 +112,10 @@ def test_real_limits_match_runner_default():
 
 
 def test_catalog_table_in_planner_md_lists_same_commands():
-    text = (ROOT / "docs/planner.md").read_text(encoding="utf-8")
+    doc = ROOT / "docs/planner.md"
+    if not doc.exists():                                   # ros2-core 컨테이너에는 docs/ 가 마운트되지 않음 (호스트·CI 에서 검사)
+        pytest.skip("docs/planner.md 없음 (컨테이너)")
+    text = doc.read_text(encoding="utf-8")
     for no, name, *_ in SELECTED:
         assert f"| {no} | {name} |" in text, name
     for name, *_ in EXTRA:
