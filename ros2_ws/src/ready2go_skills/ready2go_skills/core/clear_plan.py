@@ -269,6 +269,8 @@ class Config:
     free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수
     allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선)
     neighbor_r_m: float = 0.08               # 목표 둘레 이 거리 안 물체는 옮겨 볼 후보
+    avoid_pad_mm: float = 25.0               # 치운 물체를 목표에서 이만큼 떨어뜨려 놓음 (먼저 봄)
+    near_pad_mm: float = 5.0                 # 위가 없으면 이만큼까지 가까이 — 목표 집기 손가락 자리를 안 막을 때만
     reach_x_m: Optional[float] = None        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
 
 
@@ -313,23 +315,38 @@ def _support(objs, oid):
 
 
 def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
-    """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 목표 둘레 비움.
+    """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 목표(avoid_ids) 둘레 비움.
+    먼저 목표에서 cfg.avoid_pad_mm 떨어진 곳, 없으면 더 가까이(near_pad_mm)도 보되 놓은 물체가 목표를 집을 손가락 자리를
+    막지 않는지 집기 검사로 확인 (가운데 가로로 놓인 몽키 위 차키 [P2 시뮬레이션 10/11: 25 mm 비우면 놓을 데가 없음]).
     놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기)."""
-    avoid = [o for o in objs if o["id"] in avoid_ids]
     fallback = None
-    cands = [c for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid)
-             if cfg.reach_x_m is None or c["pose"]["position"][0] <= cfg.reach_x_m]     # 안쪽 벽에 붙여도 손이 안 닿으면 못 놓음
-    for c in cands[: cfg.free_try]:
-        pose = as_pose(c)
-        ok, _, _ = oracle.place(objs, held_id, pose)
-        if not ok:
-            continue
-        after = _relocated(objs, held_id, pose)
-        if oracle.pick(after, held_id)[0]:
-            return pose
-        if fallback is None and cfg.allow_unpickable_place:
-            fallback = pose
-    return fallback
+    for pad in (cfg.avoid_pad_mm, cfg.near_pad_mm):
+        avoid = [o for o in objs if o["id"] in avoid_ids]
+        cands = [c for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid, avoid_pad_mm=pad)
+                 if cfg.reach_x_m is None or c["pose"]["position"][0] <= cfg.reach_x_m]   # 안쪽 벽에 붙여도 손이 안 닿으면 못 놓음
+        for c in cands[: cfg.free_try]:
+            pose = as_pose(c)
+            ok, _, _ = oracle.place(objs, held_id, pose)
+            if not ok:
+                continue
+            after = _relocated(objs, held_id, pose)
+            if pad < cfg.avoid_pad_mm and any(_blocks(after, a, held_id, oracle) for a in avoid_ids):
+                continue
+            if oracle.pick(after, held_id)[0]:
+                return pose
+            if fallback is None and cfg.allow_unpickable_place:
+                fallback = pose
+        if fallback is not None:
+            return fallback
+    return None
+
+
+def _blocks(objs, tid, placed_id, oracle) -> bool:
+    """placed_id 가 목표 tid 를 집을 손가락·끄는 길을 막는지 — 목표 위 물체는 다 치웠다고 보고 집기 검사."""
+    up = riders(objs, tid)
+    rest = [dict(o, occluded_by=[]) if o["id"] == tid else o for o in objs if o["id"] not in up]
+    ok, _, reason = oracle.pick(rest, tid)
+    return not ok and placed_id in (reason or "")
 
 
 def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: int = 0) -> Action:
