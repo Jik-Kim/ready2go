@@ -344,3 +344,48 @@ def test_without_setting_voice_find_item_stays_plain_find_item():
     assert router.decide(VOICE_WRENCH, running=False, locked=False).reason == "UNSUPPORTED_ITEM"
     eraser = VOICE_WRENCH.replace("toy_wrench", "eraser")
     assert router.decide(eraser, running=False, locked=False).task["task_id"] == "find_item"
+
+
+# ---- 원래 자리 대신 빈 자리 안내 (10/12 2차 점검 "실패해도 원래대로" 대비): 놓기는 바닥에만이라 목표 위였던 자리로 못 돌아감 ----
+
+class TargetPickFailsScene(MockScene):
+    """치우기까지는 되고 목표 집기만 실패 — 목표가 그대로 있어 위에 있던 장애물의 원래 자리가 막힘."""
+
+    def pick(self, params):
+        if ((params.get("target") or {}).get("class")) == "toy_wrench":
+            return False, "GRASP_FAILED", None
+        return super().pick(params)
+
+
+def test_success_tells_which_item_went_to_a_spare_slot():
+    """성공: 상자는 원래 자리, 차키는 원래 자리가 상자와 붙어 막혀 꺼낸 빈 자리 → 차키만 안내·기록, 닫기 전에."""
+    runner, robot, result = run("occluded_top", "toy_wrench")
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "aside_1"}]
+    assert robot.spoken[-2:] == ["차키는 원래 자리 대신 옆 빈 자리에 뒀어요", "서랍을 닫았어요"]
+    from ready2go_runner.core import run_report
+    assert "  원래 자리 대신 빈 자리: car_key(aside_1)" in run_report.header(runner.log_store.read_run(result.run_id))
+
+
+def test_target_pick_failure_restores_to_spare_slots_and_says_so():
+    """목표 집기 실패: 장애물 둘 다 원래 자리(목표 위)가 막혀 빈 자리로 → 둘 다 안내, 서랍 닫기·홈은 그대로, 실패로 끝남."""
+    robot = SceneRobot("occluded_top")
+    robot.skills.scene = TargetPickFailsScene("occluded_top")
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    result = runner.run(TASK, {"target": "toy_wrench"})
+    assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
+    assert [a["class"] for a in result.blackboard["left_aside"]] == ["caramel_box", "car_key"]
+    assert robot.spoken[-3:] == ["캐러멜 상자는 원래 자리 대신 옆 빈 자리에 뒀어요",
+                                 "차키는 원래 자리 대신 옆 빈 자리에 뒀어요", "서랍을 닫았어요"]
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"}) and result.blackboard["holding"] is False
+
+
+def test_all_back_at_origin_says_nothing_extra():
+    _, robot, result = run("plate_over_eraser", "eraser")
+    assert result.blackboard["left_aside"] == [] and not any("빈 자리에 뒀어요" in t for t in robot.spoken)
+
+
+def test_estop_skips_aside_announcement_block():
+    _, robot, result = run("occluded_top", "toy_wrench", {"place_object": ["ESTOP", 1]})
+    assert result.overall_status == "ABORTED" and not any("빈 자리에 뒀어요" in t for t in robot.spoken)

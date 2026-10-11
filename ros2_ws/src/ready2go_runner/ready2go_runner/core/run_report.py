@@ -342,6 +342,11 @@ def header(record: dict) -> list[str]:
             reply = f" · 응답 {halt['step_code']}" + (f" +{gap:.1f} s" if gap is not None else "")
         lines.append(f"  정지 {kst(halt.get('requested_at') or halt.get('at'))} · {halt.get('code')}"
                      + (f" · {source}" if source else "") + f" · {halt.get('step') or '마지막 뒤'}{reply} → {then}")
+    aside = [(st.get("params") or {}).get("value") or {} for st in steps
+             if st.get("action") == "push" and (st.get("params") or {}).get("stack") == "left_aside"
+             and st.get("status") == "SUCCESS"]
+    if aside:                                    # find_with_unpack: 원래 자리가 막혀 꺼냈던 빈 자리에 둔 물체 (사람이 찾을 수 있게)
+        lines.append("  원래 자리 대신 빈 자리: " + ", ".join(f"{a.get('class', '?')}({a.get('slot', '?')})" for a in aside))
     checks = [c for c in (restore_check(st) for st in steps) if c]
     if checks:                                   # AC-ACT-03 근거 — 판정 아님, 기준은 정본·시험표
         lines.append("  복구 오차 (판정 아님): " + "; ".join(f"{c['class']} {_restore_text(c)}" for c in checks))
