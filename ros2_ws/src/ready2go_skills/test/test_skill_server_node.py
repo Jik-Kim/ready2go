@@ -589,7 +589,7 @@ HAMMER = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025,
 @pytest.mark.parametrize("width, ok", [(12.4, True), (9.6, False), (21.0, False)])
 def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
     """#43: 망치 외접박스 짧은 변은 75 mm(머리)라 손잡이(12.5 mm)를 잡으면 WIDTH_MISMATCH 였음 → pick.grasp_width_m 으로 판정.
-    벌림은 짧은 변 기준 그대로 (75 + 13 mm). 10 mm 이하는 성공 아님 [사용자 결정 10/08]."""
+    벌림은 손잡이 폭 + 13 mm (pick.open_by_grasp_width [사용자 10/11], 전에는 짧은 변 75 + 13). 10 mm 이하는 성공 아님 [사용자 결정 10/08]."""
     server.Gripper.holding, server.Gripper.held_width = True, width
     try:
         srv = server.srv
@@ -599,7 +599,7 @@ def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out.success is ok and res["grasp_ok"] is ok
-    assert 88.0 in [round(w, 1) for w in grips]                         # 벌림 = 75 + 13 mm
+    assert 25.5 in [round(w, 1) for w in grips] and 88.0 not in [round(w, 1) for w in grips]   # 벌림 = 12.5 + 13 mm
     if not ok:
         assert out.error_code == server.ss.GRASP_FAILED and "기대 12.5 mm" in out.reason
 
@@ -1999,6 +1999,43 @@ def test_vertical_eraser_near_front_does_not_switch_to_long_side_into_front_pane
     out, _ = server.run("pick_object", {"target": json.loads(json.dumps(er)), "approach_offset": [0, 0, 0.1], "scan": scan})
     assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and "toy_wrench" in out.reason, out.reason
     assert srv.robot.log == [] and grips == []
+
+
+def test_tray_slots_kept_in_file_and_cleared_by_deleting_it(server, tmp_path):
+    """[사용자 10/11] 트레이 쓴 칸을 파일에도 — `B trayclear`(파일 삭제)로 비움을 알리면 서버 재시작 없이 다음 놓기는 1번 칸."""
+    srv = server.srv
+    srv.tray_file = tmp_path / "tray.json"
+    srv.tray = {}
+    slots = []
+    for _ in range(2):
+        _holding_in_drawer(server)
+        out, data = server.run("place_object", {"location": "handover_zone"})
+        assert out.success, out.reason
+        slots.append(data["slot"])
+    assert slots == ["handover_zone_1", "handover_zone_2"]
+    assert json.loads(srv.tray_file.read_text()) == {"handover_zone": [0, 1]}
+    srv.tray_file.unlink()                                              # B trayclear
+    _holding_in_drawer(server)
+    out, data = server.run("place_object", {"location": "handover_zone"})
+    assert out.success and data["slot"] == "handover_zone_1"
+
+
+@pytest.mark.parametrize("cls, grasp_w, head_w", [("toy_wrench", 25.9, 61.0), ("toy_hammer", 12.5, 75.0)])
+def test_handle_items_open_by_grasp_width_not_head(server, cls, grasp_w, head_w):
+    """[사용자 10/11 PC2 "몽키 엄청 벌리고 내려감"] pick.open_by_grasp_width: 벌림 = 손잡이 폭 + 13 mm (머리 폭 + 13 이 아님)."""
+    srv = server.srv
+    t = {"id": f"{cls}#1", "class": cls, "top_z": 0.025,
+         "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, grasp_w
+    grips, real = [], srv._grip
+    srv._grip = lambda w, f: grips.append(w) or real(w, f)
+    try:
+        out, data = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success, out.reason
+    opens = [round(w, 1) for w in grips if w > 1.0]
+    assert round(grasp_w + 13.0, 1) in opens and round(head_w + 13.0, 1) not in opens, opens
 
 
 def test_tray_view_named_pose_goes_to_taught_joints(server):

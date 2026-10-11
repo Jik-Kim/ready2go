@@ -13,6 +13,7 @@ from ready2go_interfaces.action import Skill
 
 ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,          # 10/07: 손잡이 쪽 오른쪽 모서리, 세로 [실측 B 3번 터치]
           "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}
+TRAY_FILE = "/tmp/r2g_skill_tray.json"   # 스킬 서버 트레이 쓴 칸 기록 (skill_server tray_file 기본값)
 AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은 서랍 인자가 없음, target 의 frame 이 곧 서랍)
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
@@ -99,7 +100,8 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place trayview\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place trayview trayclear\n"
+         "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
@@ -246,6 +248,13 @@ def main():
     DRAWER = parse_drawer(cmd, sys.argv[2] if len(sys.argv) > 2 else None)
     global TARGET
     TARGET = parse_target(" ".join(sys.argv[3:]) if len(sys.argv) > 3 else None)
+    if cmd == "trayclear":                         # 트레이를 사람이 비움 → 서버 기억 지우기 (서버가 매 놓기마다 이 파일을 읽음) [사용자 10/11]
+        try:
+            os.remove(TRAY_FILE)
+            print(f"트레이 비움 알림: {TRAY_FILE} 지움 — 다음 놓기부터 1번 칸 (로봇 동작 없음)")
+        except FileNotFoundError:
+            print("트레이 기억이 이미 비어 있음 — 다음 놓기는 1번 칸 (로봇 동작 없음)")
+        return
     if cmd in ("scan", "rescan", "find", "all", "dragtest"):
         print(f"찾을 물체: {TARGET}")
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)

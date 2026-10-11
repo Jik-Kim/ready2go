@@ -134,7 +134,8 @@ class SkillServer(Node):
         self.held_file = Path(self.declare_parameter("held_file", "/tmp/r2g_skill_held.json").value)
         self.hold_unknown = None             # 재시작 때 쥔 기록이 있는데 그리퍼 폭을 못 읽음 = 쥐었는지 모름 → 그리퍼 쓰는 동작 거부 (P2 5절)
         self._held = self._restore_held()    # 들고 있는 물체 {class, id, width_m, drawer_id, tcp_above_floor_m} — 파일에도 저장(재시작 뒤 복원)
-        self.tray = {}                       # 장소별 쓴 칸
+        self.tray_file = Path(self.declare_parameter("tray_file", "/tmp/r2g_skill_tray.json").value)
+        self.tray = {}                       # 장소별 쓴 칸 — 파일에도(B trayclear 가 지움). 서버를 다시 켜면 빈 트레이로 시작(예전과 같음)
         self.locked = None                   # 잠금 사유(skill_flow.LOCKING_CODES). 사람이 로봇을 확인하고 서버를 다시 띄울 때까지 모든 동작 거부
         self.gate = sf.MotionGate()          # 5개 액션 전체에서 한 번에 하나만 실행 (#73 E 리뷰)
         group = ReentrantCallbackGroup()
@@ -162,6 +163,33 @@ class SkillServer(Node):
                 f.unlink(missing_ok=True)
         except OSError as e:
             self.get_logger().warning(f"쥔 물체 기록 실패 {f}: {e}")
+
+    @property
+    def tray(self):
+        """트레이 쓴 칸 {장소: [칸 번호]}. tray_file 이 있으면 매번 파일에서 읽음 — 사람이 트레이를 비우고 `B trayclear`(파일 삭제)로
+        알리면 서버를 다시 켜지 않아도 다음 놓기부터 1번 칸 [사용자 10/11]."""
+        f = getattr(self, "tray_file", None)
+        if f is None:
+            return dict(getattr(self, "_tray", {}))
+        try:
+            v = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return v if isinstance(v, dict) else {}
+
+    @tray.setter
+    def tray(self, v):
+        self._tray = dict(v)
+        f = getattr(self, "tray_file", None)
+        if f is None:
+            return
+        try:
+            if v:
+                f.write_text(json.dumps(v, ensure_ascii=False), encoding="utf-8")
+            else:
+                f.unlink(missing_ok=True)
+        except OSError as e:
+            self.get_logger().warning(f"트레이 칸 기록 실패 {f}: {e}")
 
     def _restore_held(self):
         """서버 시작 때: 저장된 쥔 물체가 있고 그리퍼가 실제로 같은 폭으로 쥐고 있으면(check_hold) 되살림. 아니면 기록 지움."""
@@ -1562,6 +1590,10 @@ class SkillServer(Node):
             tilt = (ag.tilt_dir, prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
         g, speed = prm["gripper"], prm["speed"]
         expected_w = (None if long_side else self.grasp_width(cls, size, prm)) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
+        if not long_side and cls in (prm["pick"].get("open_by_grasp_width") or []) and self.grasp_width(cls, size, prm):
+            # 손잡이를 잡는 물건(몽키·망치): 벌림 = 잡는 폭 + 여유 — 머리 폭(외접 짧은 변)만큼 벌리면 손가락 자리가 넓어 이웃·벽에 걸림
+            # [사용자 10/11 PC2 "몽키 엄청 벌리고 내려감, 육안으로 충분" → 몽키·망치 둘 다]
+            plan = dataclasses.replace(plan, open_width_m=expected_w + prm["pick"]["open_margin_m"])
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
         def neighbor(long_, open_m):
             fp_t, fp_s = (({**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}, [size[1], size[0], size[2]])
@@ -1760,7 +1792,8 @@ class SkillServer(Node):
         if not tf.get("translation_m") or not interior:
             return sf.Outcome(False, PLACE_NOT_CONFIGURED, reason=f"{loc} tf·interior_m 측정 전"), None
         slots = pp.slot_centers(interior[:2], int(place.get("slots") or 1))
-        used = self.tray.setdefault(loc, [])
+        tray = self.tray
+        used = tray.setdefault(loc, [])
         free = [i for i in range(len(slots)) if i not in used]
         if not free:
             return sf.Outcome(False, TRAY_FULL, reason=f"{loc} {len(slots)}칸 모두 사용"), None
@@ -1856,6 +1889,7 @@ class SkillServer(Node):
         goal.publish_feedback(Skill.Feedback(stage="release"))
         self._grip(self.held["width_m"] * 1000.0 + pl["release_extra_mm"], 20)
         used.append(i)
+        self.tray = tray
         cls = self.held["class"]
         self.held = None
         back = self._line(goal, above, self._free_vel(), "lift")
