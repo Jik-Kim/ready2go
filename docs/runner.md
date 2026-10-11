@@ -264,7 +264,7 @@
 * `overall_status`: `COMPLETED`(시퀀스 정상 종료) / `FAILED`(스텝 abort, `finally` 실행됨) / `ABORTED`(사용자 취소·비상정지).
 * `outcome`: 작업 결과 의미(`FOUND` / `NOT_FOUND` / `PARTIAL`)는 상태와 분리하여 기록.
 * **시간 규칙**: `total_duration_sec`는 실행 전체의 **실제 경과 시간(wall-clock)**. 제어 블록(`while`/`if`)의 소요 시간은 자식 스텝을 포함하므로 합산에서 제외하고, **원자 동작(리프) 스텝 소요 시간의 합 ≤ `total_duration_sec`**를 검증함.
-* **성공 여부**: 모든 스텝은 `status`(`SUCCESS`/`FAILURE`/`SKIPPED`)를 가짐. 실패 시 `error.code`(7.5 스킬의 `errors` 목록 기준)를 기록. 실패 응답에 결과(`output_json`)가 있으면 그 값도 `result`에 기록(예: 그리퍼를 연 뒤 실패한 `place_object`의 `placed_pose`, #166) — **블랙보드(`output` 변수)에는 넣지 않음**(뒤 스텝이 실패 값을 성공 값으로 쓰지 않게).
+* **성공 여부**: 모든 스텝은 `status`(`SUCCESS`/`FAILURE`/`SKIPPED`)를 가짐. 실패 시 `error.code`(7.5 스킬의 `errors` 목록 기준)를 기록. 실패 응답에 결과(`output_json`)가 있으면 그 값도 `result`에 기록(예: 그리퍼를 연 뒤 실패한 `place_object`의 `placed_pose`, #166) — **블랙보드(`output` 변수)에는 넣지 않음**(뒤 스텝이 실패 값을 성공 값으로 쓰지 않게). **실패 응답의 결과 JSON 도 기록**(백엔드 `to_result`, 10/11 — 그 전에는 실물 실패 응답의 결과를 버려 기록에 남지 않았음). 집기 실패 결과 `hand`(#223)가 `unknown`·`holding` 이면 빈손으로 보지 않고 정지·잠금(finally 비동작), `run_report` 집기 줄에 손 상태.
 * **조건 확인**: `pre_check`는 `PASS` / `PRE_UNMET`과 함께 **조건별 결과 배열**(조건, 실제 값, 통과 여부)을 기록. `PRE_UNMET`이면 동작을 보내지 않음.
 * **성공 판정** (P2 계획, FR-ONT-02. P1 은 액션 응답 성공 기준): 스텝 성공 = **액션 결과 성공 AND 사후 관측 확인(`post_check`) 통과**. 관측 기준은 스킬의 `verify`(그리퍼 폭, 서랍 변위, 재스캔). 액션은 성공했지만 관측이 안 맞으면 `POST_UNCONFIRMED`로 실패 처리.
 * **안전 게이트(Phase별 구현 상태)**: 실물 실행 전 게이트(11장)의 단계별 통과 여부를 한 번에 판정해 `runs` 헤더에 기록하는 전체 게이트는 미구현이다. P2 BFS 계획과 `achieve_goal` → Runner 실행 연결은 구현됐지만(FR-PLN-02, #150), 실제 상태를 다시 보는 사후 관측 `verify` 후에만 `effect`를 반영하는 기능은 P2 미구현 계획(FR-ONT-02)이다. 트윈 사전 검증은 P3 계획(FR-TWN-02)이며 P2 미러링(FR-TWN-01)과 구분한다. P1은 실제 실행한 스텝의 `pre_check`·응답 기준 `state_diff`만 남기며 전체 게이트 결과를 만들지 않음.

@@ -637,6 +637,9 @@ class Runner:
                 record["output"] = result.output   # placed_pose, #166). 블랙보드에는 넣지 않음 — 뒤 스텝이 성공 값으로 쓰지 않게
             if result.error_code in HALT_CODES:
                 raise Halted(step["id"], result.error_code)
+            if _hand_uncertain(result.output):  # #223: 실패했는데 B 가 "쥐었는지 모름·쥠"이라고 함 → 빈손으로 보지 않고
+                record["hand_uncertain"] = (result.output or {}).get("hand")   # 정지·잠금(finally 비동작) — 사람 확인
+                raise Halted(step["id"], result.error_code or "ACTION_FAILED")
             if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
                 raise Halted(step["id"], self._halt_code or HALTED, step_code=result.error_code or None)
             # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음.
@@ -807,6 +810,12 @@ class Runner:
         finally:
             record["duration_sec"] = round(self.clock() - started, 3)
             self._log_step(record)
+
+
+def _hand_uncertain(output) -> bool:
+    """B 결과 hand(#223, 결정 10): holding·unknown 이면 실패여도 손에 물건이 있을 수 있음. 지금 B 는 이 경우를
+    SENSOR_INVALID·ESTOP(HALT_CODES)로 보내므로 이 검사는 다른 코드로 오는 경우의 안전장치. released·empty·없음은 그대로."""
+    return isinstance(output, dict) and output.get("hand") in ("holding", "unknown")
 
 
 def _no_motion(action: str, code: str | None) -> bool:

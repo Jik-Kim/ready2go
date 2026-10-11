@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-11 C #223 후속 — 실패 응답 결과 기록·집기 hand 안전장치·보고서 hand**: `core/backend.py` `to_result` 가 실패 응답의 결과 JSON 을 버리던 것 → 기록용으로 넘김(실물에서 실패한 놓기 `placed_pose`(#167)·집기 `hand`·`grasp_evidence`(#223)가 기록에 남지 않던 빈틈, 10/11 발견). 집기 실패인데 `hand` 가 `unknown`·`holding` 이면 빈손으로 보지 않고 정지·잠금(지금 B 는 이 경우를 `SENSOR_INVALID`·`ESTOP` 으로 보내 이미 정지 — 다른 코드로 와도 막는 안전장치). `run_report` 집기 줄에 실패 뒤 손 상태. 시험 8개.
 - **2026-10-11 C `run_report` `REGION_NOT_VISIBLE` 설명 (#220 C 리뷰 약속)**: 비전 관측 오류(촬영 지역 바닥이 충분히 안 보임)를 "못 찾음"과 구분해 한국어로 표시.
 - **2026-10-11 C Unpacking 원래 자리 대신 빈 자리 안내 (10/12 2차 점검 대비)**: 원래 자리가 막혀(목표 집기 실패로 목표가 그대로 있음 — 놓기는 바닥에만, 또는 이웃과 붙음) 꺼냈던 빈 자리에 돌려놓은 물체를 `left_aside` 에 남기고 닫기 전에 물체마다 안내, `run_report` 머리에 "원래 자리 대신 빈 자리". 이전에는 조용히 빈 자리에 둠. 시험 4개.
 - **2026-10-11 C 음성으로 Unpacking 시작 확인 (10/12 2차 점검 대비)**: 코드 수정 없이 `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json` 으로 음성 `find_item` → Unpacking — ROS 노드 mock(겹친 장면)에서 끝까지 `COMPLETED` [실측]. 시험 2개(설정 있음 → Unpacking, 없음 → 기존 `find_item` 지우개만). `run_report`: 찾는 물체 없이 서랍 전체를 찍은 결과(되돌리기·복구 확인)를 "못 찾음"이 아니라 "보인 물체 N개"로.

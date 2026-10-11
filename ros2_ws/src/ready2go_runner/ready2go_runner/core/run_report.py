@@ -44,6 +44,7 @@ ERROR_KO = {
     "REGION_NOT_VISIBLE": "촬영 지역 바닥이 충분히 안 보임 (가림·뎁스 결손·다른 곳을 찍음) — 미검출 아님, 관측 오류",
     "TASK_INVALID": "태스크 검사 실패 — 실행 전 거절 (로봇 동작 없음)",
 }
+HAND_KO = {"holding": "쥠", "empty": "빈손 확인", "released": "다시 벌림 — 빈손 확정 아님", "unknown": "쥐었는지 모름"}
 RUN_KO = {"COMPLETED": "✅ 성공", "FAILED": "❌ 실패", "ABORTED": "🛑 중단", "SUSPENDED": "⏸ 재개 대기"}
 
 
@@ -160,6 +161,9 @@ def _detail_text(step: dict) -> str:
     elif action == "pick_object" and result:
         if "grasp_ok" in result:                       # 값이 없으면 판단을 적지 않음 (없음 ≠ 못 잡음)
             text = "잡음" if result["grasp_ok"] else "못 잡음"
+            hand = HAND_KO.get(result.get("hand"))     # #223 B: 실패 뒤 손 상태 (released ≠ 빈손)
+            if hand and not result["grasp_ok"]:
+                text += f" ({hand})"
     elif action == "place_object" and result:
         position = (result.get("placed_pose") or {}).get("position")
         text = str(result.get("slot") or "") or (               # 고정 자리 이름, 없으면 B 가 명령한 자리 (#166)

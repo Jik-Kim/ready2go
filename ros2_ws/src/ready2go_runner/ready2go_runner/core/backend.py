@@ -85,9 +85,17 @@ def skill_servers(task: dict, skills: dict) -> set[str]:
 
 
 def to_result(reply: Reply) -> ActionResult:
-    """응답 → ActionResult. 실패면 error_code 그대로(빈 문자열이면 Runner 가 ACTION_FAILED), 성공이면 JSON 해석."""
+    """응답 → ActionResult. 실패면 error_code 그대로(빈 문자열이면 Runner 가 ACTION_FAILED), 성공이면 JSON 해석.
+    실패 응답에 결과 JSON 이 있으면 함께 넘김(기록용 — 실패한 놓기의 placed_pose #166·#167, 집기 hand·grasp_evidence #223).
+    전에는 실패 응답의 결과를 버려서 실물 기록에 남지 않았음(10/11 발견). 읽을 수 없으면 결과 없이 실패 그대로."""
     if not reply.success:
-        return ActionResult(False, error_code=reply.error_code or None)
+        output = None
+        if reply.payload_json:
+            try:
+                output = json.loads(reply.payload_json)
+            except json.JSONDecodeError:
+                output = None
+        return ActionResult(False, output if isinstance(output, dict) else None, error_code=reply.error_code or None)
     if not reply.payload_json:
         return ActionResult(True)
     try:

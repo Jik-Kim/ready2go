@@ -258,3 +258,12 @@ def test_region_not_visible_has_korean_explanation():
     step = {"action": "inspect_region", "params": {"region": "drawer_top", "search_target": "eraser"},
             "error": {"code": "REGION_NOT_VISIBLE"}}
     assert rr.detail(step).startswith("REGION_NOT_VISIBLE: 촬영 지역 바닥이 충분히 안 보임")
+
+
+def test_pick_failure_shows_hand_state():
+    """#223 B hand: 실패 뒤 손 상태를 함께 — released 는 빈손 확정이 아님."""
+    step = {"action": "pick_object", "params": {}, "result": {"grasp_ok": False, "hand": "released"}}
+    assert rr.detail(step) == "못 잡음 (다시 벌림 — 빈손 확정 아님)"
+    assert rr.detail({**step, "result": {"grasp_ok": False, "hand": "unknown"}}) == "못 잡음 (쥐었는지 모름)"
+    assert rr.detail({**step, "result": {"grasp_ok": True, "hand": "holding"}}) == "잡음"
+    assert rr.detail({**step, "result": {"grasp_ok": False}}) == "못 잡음"            # hand 없는 예전 기록
