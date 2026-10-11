@@ -68,7 +68,7 @@ drawer_bottom:                # 서랍장 아래 단 [사용자 확인 10/03: �
 staging_tray:
   tf: {parent: base_link, child: staging_tray, translation_m: null, quaternion_xyzw: null}
   slots: 3
-handover_zone:                # 전달트레이 (위로 갈수록 넓어지는 사다리꼴 — 기준은 바닥). 축 규칙은 서랍과 같음: 로봇 쪽에서 볼 때
+handover_zone:                # 전달트레이 (현재 26 × 20.5 × 6.2 cm, 벽 직각 [사용자 실측 10/11]; 예전 10/05 트레이는 위로 벌어지는 사다리꼴). 축 규칙은 서랍과 같음: 로봇 쪽에서 볼 때
   #   원점 = 앞쪽(로봇 쪽) 오른쪽(서동권 자리 쪽, −y) 바닥 모서리, x = 로봇에서 멀어지는 쪽(≈ base +x), y = 왼쪽(≈ base +y), z = 위.
   #   트레이는 긴 쪽을 x로 놓음 (평소 그리퍼 자세 = 손가락 base ±x로 닫힘 → 손목 회전 없이 놓기, 카메라 화면 가로와 맞춤).
   #   트레이는 고정하지 않은 임시 위치 — 몇 mm 밀릴 수 있음 [사용자 확인 B 10/05].
