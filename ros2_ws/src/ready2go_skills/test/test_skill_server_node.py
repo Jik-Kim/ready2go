@@ -2089,6 +2089,19 @@ def test_caramel_grip_force_by_class(server):
     assert out.success and (0, 20.0) in forces
 
 
+def test_toy_car_grasped_at_thin_upper_part(server):
+    """[사용자 10/11 PC2] 장난감차는 위쪽 얇은 부분(잡은 폭 30.9)을 — 닫은 손끝 = 바닥 위 21.8 mm (높이 절반 16.25 + 5.5)."""
+    srv = server.srv
+    g, mp = srv.prm()["gripper"], server.ss.mp
+    t = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.0325,
+         "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 30.9
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(30.9, g)
+    assert closed_tip == pytest.approx(21.8, abs=0.1)
+
+
 def test_tray_view_named_pose_goes_to_taught_joints(server):
     """[실측 PC2 10/11] 새 트레이 탑뷰 tray_view — 교시 관절로 이동 (B trayview)."""
     out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})
