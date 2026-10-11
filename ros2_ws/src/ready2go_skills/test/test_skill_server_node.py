@@ -1359,6 +1359,9 @@ def test_place_in_drawer_matches_contract_examples(server, monkeypatch, case):
     srv = server.srv
     grips = _holding_in_drawer(server, {"aside_1": {"position": [0.05, 0.05, 0.0], "yaw": 0.0}, "aside_2": None})
     srv.held = dict(LIP_HELD, id=case["_held"]["id"], **{"class": case["_held"]["class"]})
+    prm = srv.prm()                                     # 예시는 자리 그대로 놓임 — 비전 오차 여유(repick_noise)로 옮기는 건 아래 따로
+    prm["place"].update(repick_noise_mm=0.0, repick_noise_deg=0.0)
+    srv.prm = lambda: prm
     if case["case"] == "released_but_lift_failed":
         real_line = server.ss.SkillServer._line
 
@@ -1585,3 +1588,40 @@ def test_place_in_drawer_on_top_of_object_only_when_allowed(server, allow):
     pos_m, _ = plp.place_tcp_m(place["tf"], at, 0.025 + 0.02 + prm["place"]["drop_m"])
     low = min((p for e in srv.robot.log if e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])), key=lambda p: p[2])
     assert low[2] == pytest.approx(1000.0 * pos_m[2] - prm["place"]["touch_overtravel_mm"], abs=1e-6)   # 캐러멜 윗면 기준
+
+
+def test_place_in_slot_leaves_room_for_vision_error(server):
+    """[P2 시뮬레이션 10/11] 고정 자리는 다시 볼 때 ±repick_noise 만큼 틀려도 넛지 없이 다시 집을 수 있게 — 벽에 바짝인 자리는 안쪽으로 옮겨 놓음."""
+    srv = server.srv
+    _holding_in_drawer(server, {"aside_1": {"position": [0.05, 0.05, 0.0], "yaw": 0.0}, "aside_2": None})
+    out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_1", "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    from ready2go_skills.core import motion_plan as mp
+    prm, place = srv.prm(), srv.places()["drawer_top"]
+    p = data["placed_pose"]
+    assert p["position"][:2] != [0.05, 0.05]
+    gw = dict(prm["gripper"], round=True, max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+              axis_grasp=True, front_tilt_within_mm=prm["pick"]["front_tilt_within_mm"],
+              wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get("drawer_top"),
+              wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get("drawer_top"))
+    size, _ = srv.item("lip_balm")
+    for dx in (-0.003, 0.003):
+        for dy in (-0.003, 0.003):
+            q = dict(p, position=[p["position"][0] + dx, p["position"][1] + dy, 0.0], yaw_valid=True)
+            dp = mp.plan_drag(target={"pose": q}, size_m=size, interior_m=place["interior_m"], g=gw, drag=prm["drag"])
+            assert not dp.needed and dp.error_code is None, dp.reason
+
+
+def test_yaml_cache_keeps_last_good_while_file_is_being_written(server, tmp_path):
+    """[P2 시뮬레이션 10/11] 돌리는 중 skills.yaml 을 저장하면 빈 파일·반쯤 쓴 파일을 읽어 None → SKILL_EXCEPTION.
+    깨진 값이면 전 값을 돌려주고, 제대로 다 쓰이면 새 값."""
+    f = tmp_path / "p.yaml"
+    f.write_text("a: 1\n", encoding="utf-8")
+    yc = server.ss._yaml_cached
+    assert yc(f) == {"a": 1}
+    f.write_text("", encoding="utf-8")
+    assert yc(f) == {"a": 1}
+    f.write_text("a: [1, 2\n", encoding="utf-8")
+    assert yc(f) == {"a": 1}
+    f.write_text("a: 22\n", encoding="utf-8")
+    assert yc(f) == {"a": 22}

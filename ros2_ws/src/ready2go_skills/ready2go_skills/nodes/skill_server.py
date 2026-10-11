@@ -95,7 +95,13 @@ def _yaml_cached(path):
     key = (st.st_mtime_ns, st.st_size)
     hit = _YAML_CACHE.get(path)
     if hit is None or hit[0] != key:
-        hit = (key, yaml.safe_load(path.read_text(encoding="utf-8")))
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            data = None
+        if not isinstance(data, dict) and hit is not None:
+            return copy.deepcopy(hit[1])                # 저장하는 중(빈 파일·반쯤 쓴 파일)에 읽음 → 전 값, 다음 호출에 다시 읽음
+        hit = (key, data)                                #   [P2 시뮬레이션 10/11: 돌리는 중 skills.yaml 저장 → None → SKILL_EXCEPTION]
         _YAML_CACHE[path] = hit
     return copy.deepcopy(hit[1])
 
@@ -1711,9 +1717,16 @@ class SkillServer(Node):
                 if blocked:
                     return plp.Refusal(plp.PLACE_BLOCKED, f"놓으면 {o['id']} 를 집을 손가락 자리를 막음", o["id"])
             # 고정 자리는 나중에 넛지 없이 다시 집을 수 있어야 함(되돌리기) [P2 시뮬레이션 10/10: aside 에 놓은 가림막을 못 다시 집음]
-            dp_ = mp.plan_drag(target={"pose": dict(p_, yaw_valid=True)}, size_m=size, interior_m=interior, g=gw, drag=prm["drag"])
-            if dp_.needed or dp_.error_code:
-                return plp.Refusal(WALL_TOO_CLOSE, f"놓으면 다시 집을 때 넛지 필요 ({dp_.reason})", "wall")
+            # 다시 볼 때 비전 오차(repick_noise_mm·deg)만큼 틀려도 넛지 없이 [P2 시뮬레이션 10/11: 아래 칸 aside_1 가림막을 ±3 mm 로 보면
+            # 손잡이 쪽 벽에 걸려 넛지 → 안쪽으로 못 끌어 NO_PUSH_ACCESS]
+            e_m, e_r = pl.get("repick_noise_mm", 0.0) / 1000.0, math.radians(pl.get("repick_noise_deg", 0.0))
+            for dx, dy, dyaw in ([(0.0, 0.0, 0.0)] + [(sx * e_m, sy * e_m, sr * e_r) for sx in (-1, 1) for sy in (-1, 1) for sr in (-1, 1)]
+                                 if e_m or e_r else [(0.0, 0.0, 0.0)]):
+                q_ = dict(p_, position=[p_["position"][0] + dx, p_["position"][1] + dy] + list(p_["position"][2:]), yaw=p_["yaw"] + dyaw,
+                          yaw_valid=True)
+                dp_ = mp.plan_drag(target={"pose": q_}, size_m=size, interior_m=interior, g=gw, drag=prm["drag"])
+                if dp_.needed or dp_.error_code:
+                    return plp.Refusal(WALL_TOO_CLOSE, f"놓으면 다시 집을 때 넛지 필요 ({dp_.reason})", "wall")
             return None
         # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 — 명령한 pose(되돌리기)는 그대로 [P2 시뮬레이션 10/10]
         pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0)

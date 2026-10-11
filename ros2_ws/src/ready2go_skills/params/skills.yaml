@@ -152,6 +152,8 @@ place:
   approach_m: 0.06              # 놓기 전 위 높이
   slow_last_mm: 10.0            # 놓는 높이 이 거리 전까지는 speed.line_mm_s, 마지막만 grasp_mm_s [사용자 10/07]
   slot_fit_max_mm: 60.0         # 고정 빈 자리(aside)에 큰 물체(가림막·긴 변으로 쥔 캐러멜)가 벽·이웃에 걸리면 자리 가운데에서 이 거리 안으로 (40 → 60: 아래 칸 aside 가 좁음 [P2 무작위 배치]) 가장 적게 옮겨(·90° 돌려) 놓음 [P2 시뮬레이션 10/10, 제안]. 0 = 안 옮김
+  repick_noise_mm: 3.0          # [제안] 고정 자리(aside)는 비전 오차(위치 ±이 값·각도 ±repick_noise_deg)로 다시 봐도 넛지 없이 다시 집을 수 있는 곳만 [P2 시뮬레이션 10/11: 아래 칸 가림막 오차 ±3 mm·±5° 로 25번 중 8번 NO_PUSH_ACCESS]. 0 = 끔
+  repick_noise_deg: 5.0
   allow_stack_place: false     # [제안, 팀 합의 필요 — 계약 #166 은 지지면 바닥만] 명령한 pose(되돌리기)가 다른 물체 위면 그 윗면에 놓음 (쌓였던 차키를 캐러멜 위로) [P2 시뮬레이션 10/11]. false = 이웃이면 PLACE_BLOCKED (지금 계약)
   footprint_margin_mm: 5.0      # [팀 확정 필요] 서랍 안 놓기 footprint 여유 (쥔 물체 size_m + 벌린 손가락(gripper.fingertip_outer_mm) 둘레). 비전 위치 오차 2.5 mm [실측 PC2 10/08, #155] + 놓기 오차 미측정 (#166)
   default_obstacle_size_m: [0.10, 0.10]   # [팀 확정 필요] 서랍 안 놓기: 온톨로지에 치수 없는 이웃 class 의 footprint [긴 변, 짧은 변] m (#166)
