@@ -58,7 +58,7 @@
     },
     "answer_key_freeze": {
       "status": "not_frozen",
-      "version": "0.4-draft"
+      "version": "0.6-draft"
     },
     "freeze_rule": "승인 후 test_cases의 정답을 평가 결과에 맞춰 변경하지 않는다. 변경 시 evaluation_set_version을 올리고 재평가한다."
   },
