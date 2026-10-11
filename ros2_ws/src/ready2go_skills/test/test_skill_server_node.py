@@ -586,10 +586,11 @@ HAMMER = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025,
           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
 
 
-@pytest.mark.parametrize("width, ok", [(12.4, True), (9.6, False), (21.0, False)])
+@pytest.mark.parametrize("width, ok", [(15.3, True), (15.7, True), (9.6, False), (21.0, False)])
 def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
     """#43: 망치 외접박스 짧은 변은 75 mm(머리)라 손잡이(12.5 mm)를 잡으면 WIDTH_MISMATCH 였음 → pick.grasp_width_m 으로 판정.
-    벌림은 손잡이 폭 + 13 mm (pick.open_by_grasp_width [사용자 10/11], 전에는 짧은 변 75 + 13). 10 mm 이하는 성공 아님 [사용자 결정 10/08]."""
+    벌림은 손잡이 폭 + 13 mm (pick.open_by_grasp_width [사용자 10/11], 전에는 짧은 변 75 + 13). 10 mm 이하는 성공 아님 [사용자 결정 10/08].
+    손잡이 폭 15.5 [실측 PC2 10/11 가로 15.3·세로 15.7, 예전 12.5]."""
     server.Gripper.holding, server.Gripper.held_width = True, width
     try:
         srv = server.srv
@@ -599,9 +600,9 @@ def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out.success is ok and res["grasp_ok"] is ok
-    assert 25.5 in [round(w, 1) for w in grips] and 88.0 not in [round(w, 1) for w in grips]   # 벌림 = 12.5 + 13 mm
+    assert 28.5 in [round(w, 1) for w in grips] and 88.0 not in [round(w, 1) for w in grips]   # 벌림 = 15.5 + 13 mm
     if not ok:
-        assert out.error_code == server.ss.GRASP_FAILED and "기대 12.5 mm" in out.reason
+        assert out.error_code == server.ss.GRASP_FAILED and "기대 15.5 mm" in out.reason
 
 
 def test_pick_floor_10mm_even_if_bbox_short_side_matches(server):
@@ -1778,10 +1779,10 @@ def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
         tip_z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0 - open_tip
         return [0.0, 0.0, max(0.0, -8.0 * tip_z), 0.0, 0.0, 0.0]
     srv.robot.force = force
-    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
     out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
-    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)   # 닫은 손끝 높이
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(43.2, g)   # 닫은 손끝 높이
     assert cfg["clear_mm"] - 1.5 <= closed_tip <= cfg["clear_mm"] + 0.5
 
 
@@ -1798,7 +1799,7 @@ def test_pick_touch_ignores_force_spike_above_floor(server):
         z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0
         return [0.0, 0.0, 6.0 if (15.0 <= z <= 17.0 or z <= 4.0) else 0.0, 0.0, 0.0, 0.0]   # 캐러멜 높이 근처에서 튐 + 바닥
     srv.robot.force = force
-    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
     assert srv.held["tcp_above_floor_m"] * 1000.0 < 12.0                # 바닥(4 mm)에서 올린 높이 — 캐러멜 높이(16)에서 올린 게 아님
@@ -1813,10 +1814,10 @@ def test_pick_height_by_tip_table_without_touch(server):
     g = prm["gripper"]
     target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
               "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
-    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
-    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(43.2, g)
     assert closed_tip == pytest.approx(18.5 * prm["pick"]["grip_height_ratio"], abs=0.1)
     stages = [e for e in srv.robot.log if e != "stop" and e[0] == "movel"]
     assert not any(e[3] == prm["speed"]["grasp_mm_s"] for e in stages if len(e) > 3)
@@ -2020,7 +2021,7 @@ def test_tray_slots_kept_in_file_and_cleared_by_deleting_it(server, tmp_path):
     assert out.success and data["slot"] == "handover_zone_1"
 
 
-@pytest.mark.parametrize("cls, grasp_w, head_w", [("toy_wrench", 25.9, 61.0), ("toy_hammer", 12.5, 75.0)])
+@pytest.mark.parametrize("cls, grasp_w, head_w", [("toy_wrench", 25.9, 61.0), ("toy_hammer", 15.5, 75.0)])
 def test_handle_items_open_by_grasp_width_not_head(server, cls, grasp_w, head_w):
     """[사용자 10/11 PC2 "몽키 엄청 벌리고 내려감"] pick.open_by_grasp_width: 벌림 = 손잡이 폭 + 13 mm (머리 폭 + 13 이 아님)."""
     srv = server.srv
