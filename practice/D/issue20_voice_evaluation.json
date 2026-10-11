@@ -1,12 +1,12 @@
 {
-  "schema_version": "1.7",
+  "schema_version": "1.8",
   "metadata": {
     "title": "Issue #20 음성 평가 세트와 Issue #194 회귀 결과 기록",
     "issue": "https://github.com/Jik-Kim/ready2go/issues/20",
     "phase": "P1",
     "owner": "D 김민준",
     "answer_policy_reviewer": "E 고희태",
-    "evaluation_set_version": "0.5-draft",
+    "evaluation_set_version": "0.6-draft",
     "created_at": "2026-10-06",
     "updated_at": "2026-10-11",
     "requirements": [
@@ -999,7 +999,7 @@
   ],
   "issue_194_regression": {
     "status": "not_run",
-    "suite_version": "0.3-draft",
+    "suite_version": "0.4-draft",
     "basis": "[문서] Issue #194 결정 E-VOICE-UX-20261009-01과 병합된 PR #198의 최종 음성 정책",
     "relationship_to_main_40": "기존 40문장 AC-INT-01 정확도 분모에는 포함하지 않고, #194 완료를 위한 별도 필수 회귀 세트로 판정한다.",
     "basis_snapshot": {
@@ -1073,6 +1073,7 @@
       "single_use_question": "후속 응답은 만료되지 않고 아직 소비되지 않은 현재 질문에만 한 번 적용한다.",
       "context_clear": "취소·새 독립 요청·만료·프로세스 재시작 뒤에는 과거 질문을 재사용하지 않는다.",
       "response_consistency": "검증된 최종 문장, 화면 안내, 실제 TTS 입력이 같아야 한다. 원시 LLM 후보는 비교 대상이 아니라 진단 근거다.",
+      "llm_test_double_validation": "LLM 테스트 더블은 IntentParser 주입 전에 ros2_ws/src/ready2go_voice/ready2go_voice/adapters/api.py의 LangChainIntent.schema로 검증한다. 스키마 검증 실패 응답을 주입해 parser 결과만 채점하지 않는다.",
       "execution_safety": "hold 단계, TTS·발행 실패, 취소 경합, 이미 소비된 질문에서 새 실행을 확정하지 않는다.",
       "unobserved_fact": "실물 재고·현재 관측·파지 가능은 대응 증빙 없이는 true로 채점하지 않는다."
     },
@@ -1114,6 +1115,7 @@
       "display_text": "화면에 표시된 문장",
       "tts_input_text": "실제 TTS에 전달한 문장",
       "llm_raw_exposed_to_user": "원시 LLM 후보가 화면·TTS·공개 질문에 노출됐는지 여부",
+      "llm_test_double_schema_result": "IntentParser 주입 전 LangChainIntent.schema 검증 결과. pass 또는 fail이며 테스트 더블을 사용하지 않으면 not_applicable",
       "past_target_restored": "무효화되거나 소비된 질문의 대상을 복원했는지 여부",
       "failure_reason": "tts_failed, publish_failed 또는 null",
       "tts_start_basis": "실제 TTS 첫 DAC 시각 기준. TTS가 첫 DAC 전에 실패하면 null",
@@ -1144,6 +1146,7 @@
       "runner_reason": "C IntentRouter Decision.reason 원본 코드와 정확히 비교한다.",
       "runner_reason_normalized": "runner_reason_mapping으로 변환한 값과 비교한다.",
       "robot_execution_attempt_count_delta": "실제 로봇 동작 시도 증가량과 비교한다.",
+      "llm_test_double_schema_result": "IntentParser 주입 전 실제 LangChainIntent.schema 검증 결과와 비교한다.",
       "verified_final_equals_display": "verified_final_text와 display_text의 실제 동등성 결과와 비교한다.",
       "verified_final_equals_tts_input": "verified_final_text와 tts_input_text의 실제 동등성 결과와 비교한다.",
       "same_name_fields": "question 상태·context_clear_reason·decision_reason·failure_reason·노출/복원 플래그·TTS timing·발행/실행 횟수 등 나머지 판정 필드는 같은 이름의 실제 결과와 비교한다.",
@@ -1156,7 +1159,7 @@
       "voice_publication_result": "controlled_context_regression에서 voice_publish_attempt_count_delta가 expected와 일치하면 pass다. actual_audio_motionless에서는 이 값을 채점하지 않는다.",
       "runner_routing_result": "controlled_context_regression에서 runner_input_count_delta, runner_decision, runner_reason와 정규화 사유가 모두 expected와 일치하면 pass다. actual_audio_motionless에서는 Runner 미도달로 채점하지 않는다.",
       "robot_execution_result": "robot_execution_attempt_count_delta가 expected와 일치하고 근거가 있으면 pass다.",
-      "step_result": "expected에 선언된 모든 판정 필드(note 제외)와 해당 트랙의 voice_interpretation_result, voice_publication_result, runner_routing_result, robot_execution_result가 일치해야 pass다. Voice 발행 성공을 Runner run이나 실제 동작으로 대신 판정하지 않는다. response_constraints는 응답 문장과 evidence_paths로 충족 여부를 판정하며 필수 필드나 근거가 없으면 not_scored다.",
+      "step_result": "expected에 선언된 모든 판정 필드(note 제외)와 해당 트랙의 voice_interpretation_result, voice_publication_result, runner_routing_result, robot_execution_result가 일치해야 pass다. llm_test_double_response가 있으면 주입 전 llm_test_double_schema_result=pass도 필수다. Voice 발행 성공을 Runner run이나 실제 동작으로 대신 판정하지 않는다. response_constraints는 응답 문장과 evidence_paths로 충족 여부를 판정하며 필수 필드나 근거가 없으면 not_scored다.",
       "response_consistency_result": "안내가 있는 단계에서 verified_final_text=display_text=tts_input_text이면 pass. TTS 실패 시험은 실패 전 tts_input_text와 화면 문장을 비교하고 성공 재생으로 채점하지 않는다.",
       "scenario_result": "필수 단계의 step_result 또는 안내 단계의 response_consistency_result 중 하나라도 fail이면 fail이다. 필수 근거 누락, pending 기대값, not_scored 항목이 하나라도 있으면 not_scored이며 모든 필수 판정이 pass일 때만 pass다.",
       "suite_result": "두 required_tracks에서 모든 필수 시나리오가 pass이고 not_scored가 없을 때만 pass다. 트랙별 count_rule은 서로 바꾸어 적용하지 않는다."
@@ -1801,12 +1804,16 @@
               "intent": "clarify",
               "targets": [],
               "confidence": 0.99,
-              "clarify_question": "긴 임의 질문입니다."
+              "clarify_question": "긴 임의 질문입니다.",
+              "response_text": null,
+              "rejection_reason": null
             },
+            "llm_test_double_schema": "ros2_ws/src/ready2go_voice/ready2go_voice/adapters/api.py::LangChainIntent.schema",
             "expected": {
               "intent": "clarify",
               "targets": [],
               "llm_called": true,
+              "llm_test_double_schema_result": "pass",
               "llm_validation": "passed",
               "fallback_used": false,
               "llm_raw_retained_for_diagnostic": true,
@@ -1857,7 +1864,7 @@
   },
   "evaluation_results": {
     "status": "not_run",
-    "evaluation_set_version": "0.5-draft",
+    "evaluation_set_version": "0.6-draft",
     "evaluation_mode": "motionless",
     "evaluation_mode_mapping": {
       "motionless": {
