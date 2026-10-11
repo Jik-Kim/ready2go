@@ -1,12 +1,12 @@
 {
-  "schema_version": "1.6",
+  "schema_version": "1.7",
   "metadata": {
     "title": "Issue #20 음성 평가 세트와 Issue #194 회귀 결과 기록",
     "issue": "https://github.com/Jik-Kim/ready2go/issues/20",
     "phase": "P1",
     "owner": "D 김민준",
     "answer_policy_reviewer": "E 고희태",
-    "evaluation_set_version": "0.4-draft",
+    "evaluation_set_version": "0.5-draft",
     "created_at": "2026-10-06",
     "updated_at": "2026-10-11",
     "requirements": [
@@ -999,7 +999,7 @@
   ],
   "issue_194_regression": {
     "status": "not_run",
-    "suite_version": "0.2-draft",
+    "suite_version": "0.3-draft",
     "basis": "[문서] Issue #194 결정 E-VOICE-UX-20261009-01과 병합된 PR #198의 최종 음성 정책",
     "relationship_to_main_40": "기존 40문장 AC-INT-01 정확도 분모에는 포함하지 않고, #194 완료를 위한 별도 필수 회귀 세트로 판정한다.",
     "basis_snapshot": {
@@ -1100,12 +1100,15 @@
       "session_generation": "재시작 전후 세션 세대",
       "question_id": "현재 확인 질문 식별자. 질문이 없으면 null",
       "question_state_before": "none, pending, consumed, cleared 또는 expired",
+      "prior_question_state": "현재 질문과 구분해 보존한 직전 질문의 종결 상태. consumed, cleared, expired 또는 null",
       "input_text": "STT 또는 텍스트 입력",
       "actual_intent": "실제 intent",
       "actual_targets": "실제 targets",
       "question_state_after": "none, pending, consumed, cleared 또는 expired",
+      "new_question_created": "입력 처리와 확인 TTS 성공 뒤 이전 질문과 다른 새 질문이 생성됐는지 여부",
+      "question_id_changed_from_previous": "새 현재 질문 ID가 직전 질문 ID와 다른지 여부. 비교할 직전 질문이 없으면 null",
       "context_clear_reason": "canceled, superseded, expired, restarted 또는 null",
-      "decision_reason": "Voice 내부 판단 사유. no_active_question, question_already_consumed, unregistered_item, unsupported_request 또는 null",
+      "decision_reason": "Voice _voice.reason에서 직접 관측한 원본 사유 또는 null. 런타임에 없는 평가자 파생 사유는 기록하지 않는다.",
       "verified_final_text": "구조화 결과와 대조를 마친 최종 문장",
       "public_clarify_question": "사용자에게 공개한 검증된 확인 질문. 해당하지 않으면 null",
       "display_text": "화면에 표시된 문장",
@@ -1325,9 +1328,12 @@
             "expected": {
               "intent": "clarify",
               "targets": [],
-              "question_state_before": "consumed",
-              "question_state_after": "consumed",
-              "decision_reason": "question_already_consumed",
+              "question_state_before": "none",
+              "prior_question_state": "consumed",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
               "final_response_type": "clarify",
               "past_target_restored": false,
               "voice_execution_allowed": false,
@@ -1365,27 +1371,11 @@
             "step_id": "2",
             "input_text": "아니, 장난감 스패너",
             "expected": {
-              "intent": "clarify",
-              "targets": [],
-              "question_candidate_target": "toy_wrench",
-              "question_state_after": "pending",
-              "voice_execution_allowed": false,
-              "voice_publish_attempt_count_delta": 1,
-              "runner_input_count_delta": 1,
-              "runner_decision": "hold",
-              "runner_reason": "NEEDS_CLARIFY",
-              "runner_reason_normalized": "needs_clarify",
-              "robot_execution_attempt_count_delta": 0
-            }
-          },
-          {
-            "step_id": "3",
-            "input_text": "그걸로",
-            "expected": {
               "intent": "find_item",
               "targets": [
                 "toy_wrench"
               ],
+              "question_state_before": "pending",
               "question_state_after": "consumed",
               "voice_execution_allowed": true,
               "voice_publish_attempt_count_delta": 1,
@@ -1393,6 +1383,29 @@
               "runner_decision": "hold",
               "runner_reason": "UNSUPPORTED_ITEM",
               "runner_reason_normalized": "runner_task_unsupported",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "그걸로",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_before": "none",
+              "prior_question_state": "consumed",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
+              "final_response_type": "clarify",
+              "past_target_restored": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
               "robot_execution_attempt_count_delta": 0
             }
           }
@@ -1440,10 +1453,13 @@
             "expected": {
               "intent": "clarify",
               "targets": [],
-              "question_state_before": "cleared",
-              "question_state_after": "cleared",
+              "question_state_before": "none",
+              "prior_question_state": "cleared",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
               "context_clear_reason": "canceled",
-              "decision_reason": "no_active_question",
               "final_response_type": "clarify",
               "past_target_restored": false,
               "voice_execution_allowed": false,
@@ -1501,10 +1517,13 @@
             "expected": {
               "intent": "clarify",
               "targets": [],
-              "question_state_before": "cleared",
-              "question_state_after": "cleared",
+              "question_state_before": "none",
+              "prior_question_state": "cleared",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
               "context_clear_reason": "superseded",
-              "decision_reason": "no_active_question",
               "final_response_type": "clarify",
               "past_target_restored": false,
               "voice_execution_allowed": false,
@@ -1552,9 +1571,12 @@
               "intent": "clarify",
               "targets": [],
               "question_state_before": "expired",
-              "question_state_after": "expired",
+              "prior_question_state": "expired",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
               "context_clear_reason": "expired",
-              "decision_reason": "no_active_question",
               "final_response_type": "clarify",
               "past_target_restored": false,
               "voice_execution_allowed": false,
@@ -1581,10 +1603,13 @@
             "expected": {
               "intent": "clarify",
               "targets": [],
-              "question_state_before": "cleared",
-              "question_state_after": "cleared",
+              "question_state_before": "none",
+              "prior_question_state": "cleared",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
               "context_clear_reason": "restarted",
-              "decision_reason": "no_active_question",
               "final_response_type": "clarify",
               "past_target_restored": false,
               "voice_execution_allowed": false,
@@ -1770,11 +1795,20 @@
         "steps": [
           {
             "step_id": "1",
-            "input_text": "그거 가져와줘",
-            "fault": "invalid_or_untrusted_llm_candidate",
+            "input_text": "알 수 없는 특수 요청입니다",
+            "fault": "untrusted_llm_clarify_question",
+            "llm_test_double_response": {
+              "intent": "clarify",
+              "targets": [],
+              "confidence": 0.99,
+              "clarify_question": "긴 임의 질문입니다."
+            },
             "expected": {
               "intent": "clarify",
               "targets": [],
+              "llm_called": true,
+              "llm_validation": "passed",
+              "fallback_used": false,
               "llm_raw_retained_for_diagnostic": true,
               "llm_raw_exposed_to_user": false,
               "public_clarify_question_from_config": true,
@@ -1823,7 +1857,7 @@
   },
   "evaluation_results": {
     "status": "not_run",
-    "evaluation_set_version": "0.4-draft",
+    "evaluation_set_version": "0.5-draft",
     "evaluation_mode": "motionless",
     "evaluation_mode_mapping": {
       "motionless": {
