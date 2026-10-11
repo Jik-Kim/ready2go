@@ -110,3 +110,34 @@ def test_handover_examples_are_valid(name, ok, code, found):
         assert all(i["pose"]["frame"] == "handover_zone" for i in [ex["result"]["target"], *ex["result"]["candidates"]] if i)
     else:
         assert ex["result"] is None
+
+
+def test_sheet_on_rim_is_error_not_not_found():
+    """종이를 테두리 위에 얹어 절반을 덮으면(종이 면 z ≈ 테두리 높이 아래) 관측 오류 — 10/11 실물 A2·A3 은 0.87·0.91 로 통과했었다."""
+    depth = scene()
+    depth[:, :700] = H - 0.055
+    (ok, err, _), info = run(depth, [])
+    assert (ok, err) == (False, "REGION_NOT_VISIBLE") and info["region_visible_ratio"] < 0.6
+
+
+def test_detected_object_above_floor_cap_counts_as_visible():
+    """물체 상한(visible_object_z_max_m)보다 높아도 결과에 들어갈 검출 마스크 안이면 보인 것 (쌓인 물체). 마스크가 없으면 안 보인 것."""
+    big = (0.20, 0.16)
+    depth = scene([(0.118, 0.09, big, 0.052)])
+    xs, ys = np.meshgrid(np.arange(1280), np.arange(720))
+    x = CAM_XY[0] + (xs - K.cx) / K.fx * (H - 0.052)
+    y = CAM_XY[1] - (ys - K.cy) / K.fy * (H - 0.052)
+    mask = (abs(x - 0.118) <= big[0] / 2) & (abs(y - 0.09) <= big[1] / 2)
+    items = {**ITEMS, "tray_lid": {"size_m": [big[0], big[1], 0.052]}}
+    vv, uu = np.nonzero(mask)
+    det = {"class": "tray_lid", "conf": 0.9, "box": (uu.min(), vv.min(), uu.max(), vv.max()), "mask": mask}
+    info = {}
+    inspect_scene([det], depth, K, T, PARAMS, items, "handover_zone", "eraser", FLOOR, region_height_m=REGION["height_m"], info=info)
+    assert info["region_visible_ratio"] > 0.95
+    info = {}                                                           # 박스 모델(마스크 없음)은 박스 안을 같은 뜻으로 (P1 세운 caramel_box 52 mm)
+    inspect_scene([{k: v for k, v in det.items() if k != "mask"}], depth, K, T, PARAMS, items, "handover_zone", "eraser", FLOOR,
+                  region_height_m=REGION["height_m"], info=info)
+    assert info["region_visible_ratio"] > 0.95
+    info = {}
+    ok, err, _ = inspect_scene([], depth, K, T, PARAMS, items, "handover_zone", "eraser", FLOOR, region_height_m=REGION["height_m"], info=info)
+    assert (ok, err) == (False, "REGION_NOT_VISIBLE")
