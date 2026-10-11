@@ -13,6 +13,7 @@ from ready2go_interfaces.action import Skill
 
 ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,          # 10/07: 손잡이 쪽 오른쪽 모서리, 세로 [실측 B 3번 터치]
           "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}
+TRAY_FILE = "/tmp/r2g_skill_tray.json"   # 스킬 서버 트레이 쓴 칸 기록 (skill_server tray_file 기본값)
 AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은 서랍 인자가 없음, target 의 frame 이 곧 서랍)
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
@@ -23,6 +24,11 @@ NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "n
 def scan_file():
     """서랍마다 따로 — 위 칸 인식 결과로 아래 칸을 끌지 않게 (#181 E 리뷰)."""
     return f"{TMP}/b_target_scan_{DRAWER}.json"
+
+
+def picked_file():
+    """B pick 이 보낸 집기 요청(target + scan) — B putback 이 그 자리로 되돌릴 때 씀 [사용자 10/11]."""
+    return f"{TMP}/b_picked.json"
 
 
 def full_scan_file(drawer):
@@ -81,7 +87,25 @@ def goal_for(cmd):
         with open(src) as f:
             t = json.load(f)
         print(f"집을 좌표: {src}")
-        return "pick_object", with_scan({"target": t, "approach_offset": [0, 0, 0.1]}, (t.get("pose") or {}).get("frame"))
+        params = with_scan({"target": t, "approach_offset": [0, 0, 0.1]}, (t.get("pose") or {}).get("frame"))
+        with open(picked_file(), "w") as f:                # B putback 용 — 집기 전 자리와 그때 본 scan (쥔 물체가 scan 에 있어야 서랍 안 놓기가 받음)
+            json.dump(params, f, ensure_ascii=False)
+        return "pick_object", params
+    if cmd == "putback":                               # 파지만 시험: 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음 [사용자 10/11]
+        try:
+            with open(picked_file()) as f:
+                p = json.load(f)
+        except (OSError, ValueError):
+            sys.exit("되돌릴 자리 없음 — B pick 으로 집은 뒤에 (보내지 않음)")
+        t = p["target"]
+        pose = {k: t["pose"][k] for k in ("frame", "position", "yaw")}   # 서랍 안 놓기 pose 는 yaw_valid 없음 (계약 #120 ②)
+        params = {"location": pose["frame"], "pose": pose}
+        if p.get("scan"):
+            params["scan"] = p["scan"]
+        else:
+            params["scan"] = {"target_found": True, "target": t, "candidates": [], "visible_count": 1}   # 옆 물체 모름 — 쥔 물체만
+        print(f"되돌릴 자리: {pose['frame']} ({pose['position'][0] * 1000:.1f}, {pose['position'][1] * 1000:.1f}) mm, yaw {pose['yaw']:.3f}")
+        return "place_object", params
     if cmd == "place":
         return "place_object", {"location": "handover_zone"}
     if cmd in ("aside", "aside2"):                    # 쥔 물체를 그 서랍 빈 자리(aside_1·aside_2)에 — 집을 때 쓴 인식 결과 전체를 같이 [사용자 10/11 쌓기 치우기]
@@ -99,7 +123,9 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place trayview\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place putback trayview trayclear\n"
+         "  putback = 파지만 시험 — B pick 으로 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음\n"
+         "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
@@ -246,6 +272,13 @@ def main():
     DRAWER = parse_drawer(cmd, sys.argv[2] if len(sys.argv) > 2 else None)
     global TARGET
     TARGET = parse_target(" ".join(sys.argv[3:]) if len(sys.argv) > 3 else None)
+    if cmd == "trayclear":                         # 트레이를 사람이 비움 → 서버 기억 지우기 (서버가 매 놓기마다 이 파일을 읽음) [사용자 10/11]
+        try:
+            os.remove(TRAY_FILE)
+            print(f"트레이 비움 알림: {TRAY_FILE} 지움 — 다음 놓기부터 1번 칸 (로봇 동작 없음)")
+        except FileNotFoundError:
+            print("트레이 기억이 이미 비어 있음 — 다음 놓기는 1번 칸 (로봇 동작 없음)")
+        return
     if cmd in ("scan", "rescan", "find", "all", "dragtest"):
         print(f"찾을 물체: {TARGET}")
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
@@ -343,7 +376,8 @@ HUMAN_FIX = {"DRAWER_NOT_AT_TRAVEL": "서랍을 끝까지 열고 B opened <서�
              "NEIGHBOR_TOO_CLOSE": "옆 물체가 손가락·끄는 길에 걸림 — 두 물체를 3~4 cm 띄우기",
              "HOLDING_OBJECT": "그리퍼에 든 물체를 빼고 서버 재시작",
              "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리 — 사람이 옮기기",
-             "JOINT_LIMIT": "관절 제한 — 자세·위치 확인"}
+             "JOINT_LIMIT": "관절 제한 — 자세·위치 확인",
+             "SENSOR_INVALID": "그리퍼 폭·힘을 못 읽음 — 그리퍼에 물체가 있는지 보고 RG2 박스·케이블 확인 뒤 스킬 서버 재시작"}
 
 
 def _stop_unrecoverable(step):
