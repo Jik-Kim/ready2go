@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """B 스킬 서버(ready2go_skills)의 실제 코드로 시연 흐름을 돌려 로봇 이동 명령을 기록하고, 관절 궤적을 계산한다 (담당 A, 트윈 사전 검증).
 
-  python3 sim/motion_check/trace_skill_flow.py --repo <B 코드가 있는 저장소 경로> --out trace.json [--steps open,nudge,pick,place,close,home]
+  python3 sim/motion_check/trace_skill_flow.py --repo <B 코드가 있는 저장소 경로> --out trace.json [--drawer top|bottom] [--steps ...]
+  기본 순서 = B b_sk.py all 과 같음: ready,open,view,nudge,view,pick,place,close,home (#181 이후 열기는 손잡이 앞 ready 에서만 시작)
 
 - ROS·로봇 없이 B 의 `skill_server` 를 불러(ROS 모듈은 가짜로 대신, B 의 test_skill_server_node.py 와 같은 방식) 가짜 로봇에 연결한다.
 - 가짜 로봇은 기구학(m0609_kin)을 가진다: movej 는 관절 보간, movel 은 직선(위치 선형·자세 slerp)을 잘게 나눠 IK 로 이어 푼다.
@@ -111,7 +112,14 @@ class KinRobot:
         return True
 
     # --- 이동 ---
+    def _finish_pending(self):
+        """블렌딩(radius)으로 앞 직선이 끝나기 전에 다음 명령이 오면, 앞 직선은 끝점까지 간 것으로 보고 이어서 계산 (B _line radius, 10/07~)."""
+        if self._path:
+            self.p, self.j = self._path[-1]
+            self._path = []
+
     def movej_async(self, j, vel, acc):
+        self._finish_pending()
         if getattr(self, "from_line", False):                            # 직선 단계 뒤 바로 관절 이동(예: 열기의 drawer_approach)
             self.stage, self.from_line = "movej", False
         q0, q1 = np.array(self.j, float), np.array(j, float)
@@ -123,6 +131,7 @@ class KinRobot:
         return True
 
     def movesj_async(self, points, vel, acc):
+        self._finish_pending()
         """관절 스플라인: 현재 자세 → 경유점들. Catmull-Rom 으로 근사 (두산 movesj 의 실제 스플라인과 모양이 조금 다를 수 있음 [추정])."""
         P = [np.array(self.j, float)] + [np.array(q, float) for q in points]
         ext = [P[0]] + P + [P[-1]]
@@ -139,7 +148,33 @@ class KinRobot:
         self._moving = 2
         return True
 
-    def movel_async(self, p, vel, acc, rot_vel=30.0, rot_acc=60.0):
+    def moveb_async(self, points, radii, vel, acc, rot_vel=30.0, rot_acc=60.0):
+        """직선 블렌딩(MoveBlending): 경유점을 직선으로 차례로 이은 것으로 근사 — 모서리 반지름(radii)만큼 둥글게 도는 것은 반영 안 함 [추정]."""
+        self._finish_pending()
+        q, traj, path, fail, dist, rot, p0 = self.j, [list(self.j)], [], 0, 0.0, 0.0, list(self.p)
+        cur = list(self.p)
+        for p in points:
+            d = float(np.linalg.norm(np.array(p[:3]) - np.array(cur[:3])))
+            _, ang = kin.interp_line(cur, p, 1)
+            n = max(2, int(max(d / 0.5, ang / 0.25)))
+            Ts, _ = kin.interp_line(cur, p, n)
+            for T in Ts[1:]:
+                q, ok = kin.ik(T, q)
+                fail += 0 if ok else 1
+                traj.append(list(map(float, q)))
+                path.append(((T[:3, 3] * 1000.0).tolist() + list(p[3:]), list(map(float, q))))
+            dist, rot, cur = dist + d, rot + ang, list(p)
+        self._record("moveb", p0, list(points[-1]), traj, dict(vel=vel, acc=acc, dist_mm=dist, rot_deg=rot, ik_fail=fail,
+                                                               waypoints=len(points), radii=list(radii)))
+        idx = np.linspace(0, len(path) - 1, min(len(path), 200)).round().astype(int)
+        self._path = [path[i] for i in idx]
+        self._path[-1] = (list(points[-1]), traj[-1])
+        self._path_i, self._path_n = 0, len(self._path)
+        self._moving = 1
+        return True
+
+    def movel_async(self, p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0):
+        self._finish_pending()
         dist = float(np.linalg.norm(np.array(p[:3]) - np.array(self.p[:3])))
         Ts, ang = kin.interp_line(self.p, p, 1)
         n = max(2, int(max(dist / 0.5, ang / 0.25)))                  # 0.5 mm·0.25° 간격
@@ -173,7 +208,31 @@ class KinRobot:
                                   joint_travel_deg=[round(float(v), 1) for v in np.abs(a[-1] - a[0])], **extra))
 
 
-def load_server(repo: Path, robot):
+def wrap_blend(cls, robot):
+    """직선 블렌딩(_blend, moveb)에도 단계 이름 — 없으면 moveb 구간이 앞 단계 이름으로 기록됨 (#192 E 리뷰 P2)."""
+    real = cls._blend
+
+    def blend(self, goal, points, radii, vel, stage, *a, **k):
+        robot.stage, robot.contact, robot.from_line = stage, None, True
+        return real(self, goal, points, radii, vel, stage, *a, **k)
+    cls._blend = blend
+
+
+PLACE_KEYS = ("drawer_top", "drawer_bottom", "handover_zone")
+
+
+def places_record(cfg_dir: Path, assumed: bool) -> dict:
+    """궤적이 쓴 설정 — 재생기가 같은 값으로 서랍·물체를 그리고 씬과 대조 (#192 E 리뷰 P2)."""
+    import hashlib
+    import yaml
+    raw = (cfg_dir / "places.yaml").read_bytes()
+    pl = yaml.safe_load(raw)
+    keep = ("tf", "tf_at_travel_m", "max_travel_m", "interior_m", "slots")
+    return dict(cfg_dir=str(cfg_dir), assumed=assumed, places_sha256=hashlib.sha256(raw).hexdigest(),
+                places={k: {f: (pl.get(k) or {}).get(f) for f in keep} for k in PLACE_KEYS})
+
+
+def load_server(repo: Path, robot, cfg_dir: Path | None = None):
     sys.path.insert(0, str(repo / "ros2_ws/src/ready2go_skills"))
     stub_ros()
     from ready2go_skills.core import skill_flow as sf
@@ -194,7 +253,8 @@ def load_server(repo: Path, robot):
 
         def move(self, w, f):
             if w == 0:                                                  # 닫기: 손잡이(열기 단계)는 8 mm, 그 밖은 지우개 21 mm 를 잡음
-                Gripper.width = {"open": 8.0, "pick": 21.0}.get(robot.step, 0.9)   # 손잡이 8 mm·지우개 21 mm, 그 밖(끌기 등)은 빈 손 0.9 mm
+                # 손잡이 두께·지우개 21 mm(내려가 닫을 때만 — 경유점 전 빈손으로 닫는 것은 0.9), 그 밖(끌기 등)은 빈 손 0.9 mm
+                Gripper.width = HANDLE_MM if robot.step == "open" else 21.0 if (robot.step == "pick" and robot.stage == "descend") else 0.9
             else:
                 Gripper.width = float(w)
             robot.grip_events.append(dict(before_segment=len(robot.segments), width_mm=Gripper.width, step=robot.step))
@@ -209,17 +269,17 @@ def load_server(repo: Path, robot):
     import yaml
     SEARCH_BELOW_MM[0] = (yaml.safe_load(Path(ss.PARAMS_FILE).read_text(encoding="utf-8")).get("drag") or {}).get("search_below_mm")
     srv = object.__new__(ss.SkillServer)
-    srv.cfg_dir, srv.params_file, srv.rg2_ip = repo / "config", ss.PARAMS_FILE, "x"
+    srv.cfg_dir, srv.params_file, srv.rg2_ip = cfg_dir or repo / "config", ss.PARAMS_FILE, "x"
     srv.robot, srv.disp, srv.held, srv.tray = robot, {}, None, {}
     srv.state = sf.MotionState(robot.state, robot.posj)
     srv.move_timeout, srv.joint_vel, srv.joint_acc, srv.reach_tol = 30.0, 20.0, 20.0, 0.5
     real_line = ss.SkillServer._line
 
-    def line(self, goal, posx, vel, stage, watch=None):                 # 단계 이름 기록 + 접촉 흉내
+    def line(self, goal, posx, vel, stage, watch=None, **kw):         # 단계 이름 기록 + 접촉 흉내 (B 가 새 인자를 더해도 그대로 넘김)
         robot.stage, robot.from_line = stage, True
         if stage != "drag":                                             # 끄는 동안은 누른 접촉을 유지(기준 힘이 같게)
             robot.contact = contact_for(stage, robot.p, posx)
-        return real_line(self, goal, posx, vel, stage, watch)
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
     ss.SkillServer._line = line
     if hasattr(ss.SkillServer, "_spline"):                              # 관절 스플라인(movesj)에도 단계 이름
         real_spline = ss.SkillServer._spline
@@ -234,9 +294,14 @@ def load_server(repo: Path, robot):
         robot.stage, robot.contact, robot.from_line = f"to_{pose_name}", None, False
         return real_named(self, goal, pose_name, drawer_id)
     ss.SkillServer._named = named
+    if hasattr(ss.SkillServer, "_blend"):
+        wrap_blend(ss.SkillServer, robot)
     return ss, sf, srv, Gripper
 
 
+# 손잡이를 잡은 폭 = 손잡이 위아래 두께 (sim/drawer_dimensions.yaml). 예전 8 mm 는 재생 때 손가락이 손잡이에 안 닿아 보였음 [사용자 10/08]
+HANDLE_MM = 10.0 * __import__("yaml").safe_load((Path(__file__).resolve().parents[1] / "drawer_dimensions.yaml").read_text(encoding="utf-8"))[
+    "drawer_unit"]["handle"]["thickness_vertical_cm"]
 SEARCH_BELOW_MM = [None]      # params drag.search_below_mm (있으면 예상 접촉 높이 = 누르기 끝 z + 이 값)
 
 
@@ -248,23 +313,24 @@ def contact_for(stage, p0, p1):
     return None
 
 
-def save_trace(robot, repo: Path, out, results, eraser, eraser_after):
+def save_trace(robot, repo: Path, out, results, eraser, eraser_after, cfg: dict | None = None):
     """구간 지표(손끝 10 mm·회전 5°당 최대 관절 변화, ◀ 판정)를 붙여 trace.json 저장 + 표 출력. trace_b_demo.py 도 같이 씀."""
     for s in robot.segments:
         n = max(1, len(s["joints"]) - 1)
         unit = max(s.get("dist_mm", 0.0) / n, s.get("rot_deg", 0.0) / n * 2, 1e-9)
         dq = np.abs(np.diff(np.array(s["joints"]), axis=0)).max() if len(s["joints"]) > 1 else 0.0
-        s["amp_deg_per_10mm"] = float(dq / unit * 10) if s["kind"] == "movel" else 0.0
+        s["amp_deg_per_10mm"] = float(dq / unit * 10) if s["kind"] in ("movel", "moveb") else 0.0
         # ◀ 기준 [실물 대조 10/06]: 튄 구간은 J3 10°·0°(10 mm당 11.8°·63°), 튀지 않은 구간은 J3 25° 이상(10 mm당 12.7°까지).
         #   10 mm당 관절 변화만으로는 가르지 못해 J3·J5(특이점까지 거리)를 주 기준으로, 관절 변화는 아주 클 때(> 20°)만 본다
-        s["flag"] = bool(s["kind"] == "movel" and (s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10 or s["amp_deg_per_10mm"] > 20.0))
+        s["flag"] = bool(s["kind"] in ("movel", "moveb") and (s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10 or s["amp_deg_per_10mm"] > 20.0))
     sha = (repo / ".sha").read_text().strip() if (repo / ".sha").exists() else ""
     if not sha:
         import subprocess
         sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
-    Path(out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, results=results, eraser=eraser, eraser_after=eraser_after,
+    cfg = cfg or places_record(repo / "config", False)
+    Path(out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, config=cfg, results=results, eraser=eraser, eraser_after=eraser_after,
                                          grip_events=robot.grip_events, segments=robot.segments), ensure_ascii=False))
-    print(f"\n구간 {len(robot.segments)}개 → {out} (B 코드 {sha or '?'})")
+    print(f"\n구간 {len(robot.segments)}개 → {out} (B 코드 {sha or '?'}, 설정 {cfg['cfg_dir']}{' [가정]' if cfg['assumed'] else ''})")
     print("판정: 직선 이동(movel)에서 |J3| < 15° 또는 |J5| < 10° 또는 손끝 10 mm(회전 5°)당 관절 변화 > 20° 이면 ◀ "
           "(10/06 실물: J3 10° 이하에서 튐, 25° 이상은 10 mm당 12.7° 여도 정상)")
     print(f"{'#':>3} {'단계':6s} {'명령':6s} {'stage':22s} {'거리mm':>7s} {'회전°':>6s} {'°/10mm':>7s} {'min|J3|':>7s} {'min|J5|':>7s} {'σmin':>6s} 관절 이동량")
@@ -278,23 +344,39 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--out", default="trace.json")
-    ap.add_argument("--steps", default="open,nudge,pick,place,close,home")
+    ap.add_argument("--steps", default="ready,open,view,nudge,view,pick,place,close,home")
+    ap.add_argument("--drawer", default="top", choices=("top", "bottom"))
+    ap.add_argument("--target", help="지우개 서랍 좌표 x,y[,yaw_deg] (m). 없으면 b_sk.py 값(위 칸 기준)")
+    ap.add_argument("--cfg-dir", help="config 폴더 대신 쓸 곳 (가정값을 넣은 places.yaml 등으로 시험할 때). 결과 표에 표시")
     a = ap.parse_args()
+    drawer = f"drawer_{a.drawer}"
+    eraser = json.loads(json.dumps(ERASER))
+    eraser["pose"]["frame"] = drawer
+    if a.target:
+        v = [float(t) for t in a.target.split(",")]
+        eraser["pose"]["position"] = [v[0], v[1], 0.0]
+        eraser["pose"]["yaw"] = math.radians(v[2]) if len(v) > 2 else 0.0
     repo = Path(a.repo).resolve()
     robot = KinRobot(HOME_J)
-    ss, sf, srv, Gripper = load_server(repo, robot)
+    ss, sf, srv, Gripper = load_server(repo, robot, Path(a.cfg_dir).resolve() if a.cfg_dir else None)
+    if a.cfg_dir:
+        print(f"[가정] config 폴더 = {a.cfg_dir} (저장소 config 아님)")
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
     after, results = None, []
     for step in a.steps.split(","):
         robot.step = step
-        if step == "open":
-            action, params = "drawer_control", {"drawer_id": "drawer_top", "state": "open"}
+        if step == "ready":                                             # 손잡이 앞 (b_sk.py ready)
+            action, params = "move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": drawer}
+        elif step == "view":                                            # 탑뷰 (b_sk.py view)
+            action, params = "move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": drawer}
+        elif step == "open":
+            action, params = "drawer_control", {"drawer_id": drawer, "state": "open"}
         elif step == "close":
-            action, params = "drawer_control", {"drawer_id": "drawer_top", "state": "close"}
+            action, params = "drawer_control", {"drawer_id": drawer, "state": "close"}
         elif step == "nudge":
-            action, params = "nudge_object", {"drawer_id": "drawer_top", "target": ERASER}
+            action, params = "nudge_object", {"drawer_id": drawer, "target": eraser}
         elif step == "pick":
-            action, params = "pick_object", {"target": after or ERASER, "approach_offset": [0, 0, 0.1]}
+            action, params = "pick_object", {"target": after or eraser, "approach_offset": [0, 0, 0.1]}
         elif step == "place":
             action, params = "place_object", {"location": "handover_zone"}
         else:
@@ -311,7 +393,8 @@ def main():
         print(f"{step:6s} success={out.success} {out.error_code or ''} {getattr(out, 'reason', '') or ''} (이동 {len(robot.segments) - n0}개)")
         if not out.success:
             break
-    save_trace(robot, repo, a.out, results, ERASER, after)
+    cfg_dir = Path(a.cfg_dir).resolve() if a.cfg_dir else repo / "config"
+    save_trace(robot, repo, a.out, results, eraser, after, places_record(cfg_dir, bool(a.cfg_dir)))
 
 if __name__ == "__main__":
     main()
