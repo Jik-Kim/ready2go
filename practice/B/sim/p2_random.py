@@ -8,7 +8,9 @@ import p2_demo as d
 import demo_sim
 
 import os
-GUIDE = os.environ.get("GUIDE") == "1"          # 시연 배치 가이드: 가림막 벽에서 3 cm↑, 밑의 둘은 나란히 2 cm↑ 간격
+GUIDE = os.environ.get("GUIDE") == "1"
+if os.environ.get("NOISE"):                     # 비전 오차 "3,5" = ±3 mm·±5° (단계마다 새로)
+    demo_sim.NOISE[:] = [float(v) for v in os.environ["NOISE"].split(",")]          # 시연 배치 가이드: 가림막 벽에서 3 cm↑, 밑의 둘은 나란히 2 cm↑ 간격
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 rnd = random.Random(int(sys.argv[2]) if len(sys.argv) > 2 else 1)
 SZ = {"cover_plate": (0.0985, 0.0742), "eraser": (0.0525, 0.022), "lip_balm": (0.0718, 0.02), "toy_wrench": (0.17, 0.061)}
@@ -65,43 +67,44 @@ def stack_layout(I):
                 return (x, y), yw, rnd.uniform(-0.4, 0.4), rnd.uniform(-0.4, 0.4)
             return (x, y), yw, rnd.uniform(-1.5, 1.5), rnd.uniform(-1.5, 1.5)
 
-fails, counts = collections.Counter(), collections.Counter()
-examples = {}
-for drawer in os.environ.get("DRAWERS", "drawer_top,drawer_bottom").split(","):
-    I = d.PL[drawer]["interior_m"]
-    for k in range(N):
-        cp, er, lb = cover_layout(I)
-        lip_first = rnd.random() < 0.5
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            ok, robot, srv = d.cover_scenario(drawer, cp=cp, er=er, lb=lb, lip_first=lip_first)
-        counts[(drawer, "가림막")] += 1
-        if not ok:
-            line = [l for l in buf.getvalue().splitlines() if "FAIL" in l][0].strip()
-            key = (drawer, "가림막", line.split("FAIL")[0].strip(), line.split("FAIL")[1].strip()[:70])
-            fails[key] += 1
-            examples.setdefault(key, (cp, er, lb, lip_first))
-            print("FAIL", key, (cp, er, lb, lip_first), flush=True)
-        warn = [l for l in buf.getvalue().splitlines() if "⚠" in l]
-        if warn:
-            fails[(drawer, "가림막", "기구학", warn[0].strip()[:70])] += 1
-        at, yw, yc, yk = stack_layout(I)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            ok, robot, srv = d.stack_scenario(drawer, at=at, yaw_w=yw, yaw_c=yc, yaw_k=yk)
-        counts[(drawer, "쌓기")] += 1
-        print(f"{drawer} {k + 1}/{N} done", flush=True)
-        if not ok:
-            line = [l for l in buf.getvalue().splitlines() if "FAIL" in l][0].strip()
-            key = (drawer, "쌓기", line.split("FAIL")[0].strip(), line.split("FAIL")[1].strip()[:70])
-            fails[key] += 1
-            examples.setdefault(key, (at, yw, yc, yk))
-            print("FAIL", key, (at, yw, yc, yk), flush=True)
-        warn = [l for l in buf.getvalue().splitlines() if "⚠" in l]
-        if warn:
-            fails[(drawer, "쌓기", "기구학", warn[0].strip()[:70])] += 1
-for k, v in counts.items():
-    f = sum(n for kk, n in fails.items() if kk[:2] == k and kk[2] != "기구학")
-    print(f"{k[0]:13s} {k[1]:4s}: {v - f}/{v} 성공")
-for k, v in fails.most_common():
-    print(f"  {v:3d}× {k[0]} {k[1]} [{k[2]}] {k[3]}  예: {examples.get(k)}")
+if __name__ == "__main__":
+    fails, counts = collections.Counter(), collections.Counter()
+    examples = {}
+    for drawer in os.environ.get("DRAWERS", "drawer_top,drawer_bottom").split(","):
+        I = d.PL[drawer]["interior_m"]
+        for k in range(N):
+            cp, er, lb = cover_layout(I)
+            lip_first = rnd.random() < 0.5
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                ok, robot, srv = d.cover_scenario(drawer, cp=cp, er=er, lb=lb, lip_first=lip_first)
+            counts[(drawer, "가림막")] += 1
+            if not ok:
+                line = [l for l in buf.getvalue().splitlines() if "FAIL" in l][0].strip()
+                key = (drawer, "가림막", line.split("FAIL")[0].strip(), line.split("FAIL")[1].strip()[:70])
+                fails[key] += 1
+                examples.setdefault(key, (cp, er, lb, lip_first))
+                print("FAIL", key, (cp, er, lb, lip_first), flush=True)
+            warn = [l for l in buf.getvalue().splitlines() if "⚠" in l]
+            if warn:
+                fails[(drawer, "가림막", "기구학", warn[0].strip()[:70])] += 1
+            at, yw, yc, yk = stack_layout(I)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                ok, robot, srv = d.stack_scenario(drawer, at=at, yaw_w=yw, yaw_c=yc, yaw_k=yk)
+            counts[(drawer, "쌓기")] += 1
+            print(f"{drawer} {k + 1}/{N} done", flush=True)
+            if not ok:
+                line = [l for l in buf.getvalue().splitlines() if "FAIL" in l][0].strip()
+                key = (drawer, "쌓기", line.split("FAIL")[0].strip(), line.split("FAIL")[1].strip()[:70])
+                fails[key] += 1
+                examples.setdefault(key, (at, yw, yc, yk))
+                print("FAIL", key, (at, yw, yc, yk), flush=True)
+            warn = [l for l in buf.getvalue().splitlines() if "⚠" in l]
+            if warn:
+                fails[(drawer, "쌓기", "기구학", warn[0].strip()[:70])] += 1
+    for k, v in counts.items():
+        f = sum(n for kk, n in fails.items() if kk[:2] == k and kk[2] != "기구학")
+        print(f"{k[0]:13s} {k[1]:4s}: {v - f}/{v} 성공")
+    for k, v in fails.most_common():
+        print(f"  {v:3d}× {k[0]} {k[1]} [{k[2]}] {k[3]}  예: {examples.get(k)}")

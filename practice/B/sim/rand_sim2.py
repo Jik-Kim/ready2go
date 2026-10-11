@@ -93,6 +93,7 @@ def run(drawer, cls, step=0.005, ystep=10):
         xs = [a[0] for a in lst]; ys = [a[1] for a in lst]; yws = sorted(set(a[2] for a in lst))
         print(f"     멈춤 {len(lst):5d} ({100*len(lst)/tot:.1f}%) {r} | x {min(xs)}~{max(xs)} y {min(ys)}~{max(ys)} yaw {yws[:3]}..{yws[-3:]}")
 
-for cls in ["lip_balm"] if len(sys.argv) > 1 else ["caramel_box", "car_key", "lip_balm", "toy_wrench", "toy_hammer", "cover_plate", "airpods_case", "toy_car", "masking_tape", "eraser"]:
-    for d in ("drawer_top", "drawer_bottom"):
-        run(d, cls)
+if __name__ == "__main__":
+    for cls in ["lip_balm"] if len(sys.argv) > 1 else ["caramel_box", "car_key", "lip_balm", "toy_wrench", "toy_hammer", "cover_plate", "airpods_case", "toy_car", "masking_tape", "eraser"]:
+        for d in ("drawer_top", "drawer_bottom"):
+            run(d, cls)

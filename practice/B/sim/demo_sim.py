@@ -15,6 +15,20 @@ class Robot(tsf.KinRobot):
             self.p, self.j = self._path[-1]; self._path = []
         return self.moveb_async([p], [0.0], vel, acc, rot_vel, rot_acc, kind="movel")
 
+    scene, skip, srv_ref = (), frozenset(), None
+
+    def _record(self, kind, p0, p1, traj, extra):
+        super()._record(kind, p0, p1, traj, extra)        # 부딪힘 검사용: 그 순간 서랍 물체(참값)·넛지 대상·그리퍼 폭·쥔 물체
+        ss = getattr(self, "ss", None)
+        self.segments[-1].update(scene=self.scene, skip=self.skip, grip_w=ss.Rg2.width if ss else None,
+                                 held=dict(self.srv_ref.held) if self.srv_ref is not None and self.srv_ref.held else None,
+                                 step_label=getattr(self, "label", ""))
+
+    def stop(self):
+        if self._path and self.segments:                 # 접촉 등으로 멈춤: 간 비율 (시간 추정)
+            self.segments[-1]["frac"] = self._path_i / max(1, self._path_n)
+        return super().stop()
+
     def movej_async(self, j, vel, acc):
         if self._path:
             self.p, self.j = self._path[-1]; self._path = []
@@ -53,10 +67,14 @@ def load(robot):
     ss = importlib.import_module("ready2go_skills.nodes.skill_server")
     real_wait = sf.wait_motion
     def fast_wait(**kw):
+        robot.sleep_s += kw.get("settle_s", 0.3)          # 시간 추정: 도착 뒤 멈춤 확인
         kw.update(settle_s=0.0, sleep=lambda s: None)
         return real_wait(**kw)
     sf.wait_motion = fast_wait
-    ss.time.sleep = lambda s: None
+    def nap(sec):
+        if sec > 0.051:                                  # 0.05 는 이동 기다리는 조회 주기 (이동 시간은 구간에서 셈)
+            robot.sleep_s += sec
+    ss.time.sleep = nap
     class Gripper:
         width = 99.0
         def __init__(self, ip): pass
@@ -71,6 +89,10 @@ def load(robot):
     ss.Rg2 = Gripper
     real_check = gc.check_grasp
     def check_grasp(**kw):                       # 잡은 폭 = 기대 폭 (실물 폭은 실측으로)
+        if getattr(robot, "fail_grasp", 0):      # 실패 주입: 빈손 닫힘
+            robot.fail_grasp -= 1
+            kw["width_m"] = 0.0009; Gripper.width = 0.9
+            return real_check(**kw)
         if kw.get("expected_width_m"):
             kw["width_m"] = kw["expected_width_m"]; Gripper.width = kw["width_m"] * 1000.0
         return real_check(**kw)
@@ -87,6 +109,9 @@ def load(robot):
         robot.stage, robot.from_line = stage, True
         if stage != "drag":
             robot.contact = tsf.contact_for(stage, robot.p, posx)
+        elif getattr(robot, "block_drag", 0):    # 실패 주입: 끌다가 걸림 (옆 힘 20 N)
+            robot.block_drag -= 1
+            robot.contact = lambda p: [20.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         return real_line(self, goal, posx, vel, stage, watch, **kw)
     ss.SkillServer._line = line
     real_blend = ss.SkillServer._blend
@@ -104,16 +129,76 @@ def load(robot):
         robot.stage, robot.contact = stage, None
         return real_movej(self, goal, joints, stage, **k)
     ss.SkillServer._movej = movej
+    robot.ss = ss
     return ss, sf, srv
 
 def obj(oid, cls, x, y, yaw, top_z, drawer):
     return {"id": oid, "class": cls, "top_z": top_z, "pose": {"frame": drawer, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True}}
 
-PRM_PATCH = {}                                           # {"place": {"allow_stack_place": True}} 처럼 skills.yaml 위에 덮어씀 (시뮬레이션만)
+NOISE = [0.0, 0.0]                                       # 비전 오차 [mm, deg] — 단계(=다시 보기)마다 물체(id 있는 것) 위치·각도를 균일 ±로 흔듦
+NOISE_RND = __import__("random").Random(1)
+
+
+def perturb(params):
+    if not NOISE[0] and not NOISE[1]:
+        return params
+    seen = {}
+    def walk(v):
+        if isinstance(v, dict):
+            if "id" in v and "class" in v and isinstance(v.get("pose"), dict):
+                if v["id"] not in seen:
+                    seen[v["id"]] = (NOISE_RND.uniform(-NOISE[0], NOISE[0]) / 1000.0, NOISE_RND.uniform(-NOISE[0], NOISE[0]) / 1000.0,
+                                     math.radians(NOISE_RND.uniform(-NOISE[1], NOISE[1])))
+                dx, dy, dyaw = seen[v["id"]]
+                p = v["pose"]
+                return dict(v, pose=dict(p, position=[p["position"][0] + dx, p["position"][1] + dy] + list(p["position"][2:]), yaw=p["yaw"] + dyaw))
+            return {k: walk(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        return v
+    return walk(params)
+
+
+def scene_of(params):
+    """단계 입력에서 서랍 물체 (id 별 하나, 오차 넣기 전 참값)."""
+    out = {}
+    def walk(v):
+        if isinstance(v, dict):
+            if "id" in v and "class" in v and isinstance(v.get("pose"), dict):
+                out.setdefault(v["id"], v)
+                return
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(params)
+    return tuple(out.values())
+
+
+PRM_PATCH = {}
+TIMES = []                                               # (시나리오, 서랍, 단계, 추정 s)                                           # {"place": {"allow_stack_place": True}} 처럼 skills.yaml 위에 덮어씀 (시뮬레이션만)
+
+
+GRIP_S = 0.8                                             # RG2 한 번 벌림·닫힘 [추정, 실측 필요]
+
+
+def seg_time(seg):
+    """사다리꼴 속도로 구간 시간 [추정]: 거리 d, 속도 v, 가속 a → d/v + v/a (짧으면 2√(d/a)). 직선은 회전과 큰 쪽."""
+    def trap(d, v, a):
+        if d <= 0 or not v:
+            return 0.0
+        a = a or v * 2
+        return d / v + v / a if d > v * v / a else 2 * math.sqrt(d / a)
+    f = seg.get("frac", 1.0)
+    if seg["kind"] in ("movej", "movesj"):
+        return trap(max(seg["joint_travel_deg"]) * f, seg["vel"], seg["acc"])
+    return max(trap(seg.get("dist_mm", 0) * f, seg["vel"], seg["acc"]), trap(seg.get("rot_deg", 0) * f, seg.get("rot_vel"), seg.get("rot_acc")))
 
 
 def run_scenario(name, drawer, steps):
     robot = Robot(tsf.HOME_J)
+    robot.sleep_s = 0.0
     ss, sf, srv = load(robot)
     if PRM_PATCH:
         real_prm = srv.prm
@@ -123,10 +208,16 @@ def run_scenario(name, drawer, steps):
     ok_all = True
     ctx = {}
     for label, action, params in steps:
+        if action == "_do":                              # 실패 주입·재시작 등: params(robot, srv) → 새 srv 면 바꿈
+            srv = params(robot, srv) or srv
+            print(f"  {label:26s} --")
+            continue
         if callable(params):
             params = params(ctx)
+        robot.scene, robot.skip, robot.srv_ref, robot.label = scene_of(params), frozenset(), srv, label
+        params = perturb(params)
         robot.step = "open" if action == "drawer_control" and params.get("state") == "open" else ("pick" if action == "pick_object" else label)
-        n0 = len(robot.segments)
+        n0, g0, z0 = len(robot.segments), len(robot.grip_events), robot.sleep_s
         out, data = sf.run_guarded(lambda: getattr(srv, f"_do_{action}")(goal, json.loads(json.dumps(params))), stop=robot.stop, get_state=srv.state)
         tries = 0
         while action == "pick_object" and not out.success and out.error_code == "WALL_TOO_CLOSE" and tries < 3:
@@ -134,19 +225,23 @@ def run_scenario(name, drawer, steps):
             tries += 1
             T = params["target"]
             robot.step = "nudge"
+            robot.skip = frozenset([T["id"]])
             nout, ndata = sf.run_guarded(lambda: srv._do_nudge_object(goal, json.loads(json.dumps(
                 {"drawer_id": T["pose"]["frame"], "target": T, **({"scan": params["scan"]} if "scan" in params else {})}))),
                 stop=robot.stop, get_state=srv.state)
             print(f"  {'  └ nudge':26s} {'OK ' if nout.success else 'FAIL'} {nout.error_code or ''} {(nout.reason or '')[:90]}")
             if not nout.success or not (ndata or {}).get("target_after"):
                 break
-            T2 = ndata["target_after"]
+            T2 = perturb(ndata["target_after"]) if "class" in ndata["target_after"] else ndata["target_after"]
             params = dict(params, target=T2)
             if "scan" in params:
                 sc = params["scan"]
                 params["scan"] = dict(sc, target=T2 if (sc.get("target") or {}).get("id") == T2["id"] else sc.get("target"),
                                       candidates=[T2 if c.get("id") == T2["id"] else c for c in sc.get("candidates", [])])
             robot.step = "pick"
+            robot.skip = frozenset()
+            robot.scene = tuple(dict(o, pose=dict(o["pose"], position=list(ndata["target_after"]["pose"]["position"]), yaw=ndata["target_after"]["pose"]["yaw"]))
+                                if o["id"] == T["id"] else o for o in robot.scene)   # 넛지로 옮겨진 자리 (참값 = 예상 자리)
             out, data = sf.run_guarded(lambda: srv._do_pick_object(goal, json.loads(json.dumps(params))), stop=robot.stop, get_state=srv.state)
         ctx[label] = data
         ctx["_" + label.split()[0] + "_reason"] = out.reason or ""
@@ -154,9 +249,16 @@ def run_scenario(name, drawer, steps):
         ikf = sum(s.get("ik_fail", 0) for s in segs)
         bad = [s for s in segs if s["kind"] in ("movel", "moveb") and (s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10)]
         jmax = max((max(abs(v) for v in s["joints"][-1]) for s in segs), default=0)
-        print(f"  {label:26s} {'OK ' if out.success else 'FAIL'} {out.error_code or ''} {(out.reason or '')[:110]}")
+        t_step = sum(seg_time(s_) for s_ in segs) + GRIP_S * (len(robot.grip_events) - g0) + (robot.sleep_s - z0)
+        TIMES.append((name, drawer, label, t_step))
+        print(f"  {label:26s} {'OK ' if out.success else 'FAIL'} {out.error_code or ''} {(out.reason or '')[:110]}  [{t_step:.1f} s]")
         if ikf or bad:
             print(f"      ⚠ IK실패 {ikf}점, 특이점 근처 구간 {[(s['stage'], round(s['min_abs_j3'],1), round(s['min_abs_j5'],1)) for s in bad][:4]}")
+        if label.startswith("!"):                       # 일부러 실패시킨 단계: 실패가 맞음, 성공이면 이상
+            print(f"      → 예상 실패 {'맞음' if not out.success else '아님(성공함)'} · 멈춘 TCP {[round(v, 1) for v in robot.p[:3]]} · 쥔 물체 {(srv.held or {}).get('id')}")
+            if out.success:
+                ok_all = False
+            continue
         if not out.success:
             ok_all = False
             break
