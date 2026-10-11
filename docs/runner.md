@@ -237,7 +237,9 @@
   | 같은 기동 안 같은 `request_id` 재전송 | 첫 결정을 다시 발행, **재실행·TTS 없음** | 같은 `last_intent` |
   | 같은 `request_id` + 다른 내용 | 첫 결정 유지, 새 내용 실행 안 함, 콘솔·기록 경고(새 오류 코드 없음) | 같은 `last_intent` |
   | `accept_text`(문자열) | 수락된 그 run 의 첫 안내 1회에만 `speak`(E 재생 성공 → 실행 직전 안전 재검사 → 첫 동작). 보관·다른 run 재사용 없음 | — |
-  | `request_id`·`accept_text` 없음·`null`(P1 `text_override`·`task_file`·시험) | 지금 동작 그대로 — 중복 판단·상관 없음, 안내는 태스크 기존 문장(`find_item` s2) | `request_id: null` |
+  | `request_id` **없음**(필드 자체가 없음 — P1 `text_override`·`task_file`·시험) | 지금 동작 그대로 — 중복 판단·상관 없음 | `last_intent.request_id: null` (= 받은 ID 없음. 입력에 `null`을 보낸다는 뜻 아님) |
+  | `request_id: null`·빈 문자열 | 스키마 위반(있으면 비어 있지 않은 문자열만) → 실행 안 함 | `hold` / `BAD_INTENT` |
+  | `accept_text` 없음·`null` | 수락은 그대로, 수락된 run 의 안내는 태스크 기존 문장(`find_item` s2) | — |
   | Runner 재기동 | 기억한 ID 를 비움(이번 기동 동안만), 이전 요청 연결 무효·자동 재전송 없음 | 새 기동 |
 
   - `last_intent` 는 마지막 요청 1건의 결정만 보인다 — 실행 중 다른 요청이 오면 그 요청(`reject`/`BUSY`)으로 바뀌므로 E 는 앞 요청의 `run_id` 를 자기 쪽에 보관하고 `last.run_id` 로 완료를 확인한다. 일반 요청에 `boot_id`·정지 사건·질문 ID·새 기한·새 오류 enum 을 더하지 않음(#152 재개 계약은 별도).

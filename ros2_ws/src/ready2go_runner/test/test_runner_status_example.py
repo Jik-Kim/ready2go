@@ -43,3 +43,18 @@ def test_busy_request_does_not_take_the_running_run_id():
 def test_legacy_request_without_id_still_runs():
     legacy = cases()["legacy_without_request_id"]["last_intent"]
     assert legacy["request_id"] is None and legacy["decision"] == "run" and legacy["run_id"]
+
+
+def test_request_id_null_input_is_bad_intent_but_missing_is_legacy():
+    """입력 request_id: 없으면 기존 동작(상태 null), null·빈 문자열은 스키마 위반 → hold BAD_INTENT. accept_text 는 null 허용."""
+    import jsonschema
+    from ready2go_runner.core import intent_router as ir
+    root = Path(__file__).resolve().parents[4]
+    schema = json.loads((root / "contracts/intent.schema.json").read_text(encoding="utf-8"))
+    router = ir.IntentRouter(schema, {"find_item": {"task_id": "find_item"}}, {"eraser": {}}, 0.6)
+    base = {"intent": "find_item", "targets": ["eraser"], "confidence": 0.9}
+    assert router.decide(json.dumps(base), False, False).kind == "run"
+    for bad in (None, ""):
+        decision = router.decide(json.dumps({**base, "request_id": bad}), False, False)
+        assert (decision.kind, decision.reason) == ("hold", "BAD_INTENT")
+    jsonschema.validate({**base, "request_id": "r-1", "accept_text": None}, schema)
