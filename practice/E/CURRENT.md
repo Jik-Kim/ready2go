@@ -5,6 +5,14 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## STT API 오류 진단·안내 — E-VOICE-API-ERROR-20261011-01
+
+- [문서: 승인·범위] 지시 세션이 조율 turn `01a12aee-cc8b-75c0-8c5d-187f83b4b6f3`/user `01a12aee-ccc3-7581-b1b2-2d56127c182e`의 “수정해”를 직접 확인해 전달한 STT 최소 진단·429 원인별 안내·관련 시험/설정/문서 범위입니다. 기존 branch `codex/e-tray-confirm-integration-20261011`/HEAD `c9f5774a3f5982e72b0aeb476700eb2e0eaa43aa` tracked clean에서 시작했습니다. [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)의 기존 P1 입력을 P2 시험에서 사용하는 범위이고 정책·Phase·공동 계약·#217 변경은 없습니다.
+- [구현] core/stt_error의 닫힌 status/code/type 허용 목록과 known rate/quota/unknown429 구분, Session 내부 progress/_voice 진단과 원인별 final_text, 노드 일반 콘솔·실 TTS 입력 연결, YAML 단일 문구 원본의 source/installed-share mapping 조회·loader 누락 호환/prefill 필수문구를 반영했습니다. source 새 필드0·정상 STT/clarify·실행보류·시간 예산·SDK retry0 유지, stop/confirm/safety 실패 반환은 유지하고 최소 진단만 보강했습니다. 원문 예외/본문/헤더/WAV/전사/키/임의code는 수집하지 않으며 request ID/retry-after도 필요 없어 수집하지 않습니다.
+- [실측: 설정·자산] 원본 `logs/voice_eval/voice.local.yaml`을 수정 없이 load_config해 새 안내3문구와 prefill 선택80을 확인했습니다. 기존77 ready는 새3문구 준비/재생 증거가 아니며 실제 준비는 다음 사용자 실행에서 확인합니다. 원본 local·장치·자산·cache·startup60을 보존했고 합성/API/마이크/스피커·사용자 프로세스 조작0입니다. 보호 JSON SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467` 불변입니다.
+- [실측: 검사] 최종 영향11시험파일(`test_stt_error/config_api/intent/voice_followup/voice_ux/voice_ux_node/melotts/place_exchange/safety_exchange/stop_audio/runner_notice.py`)은 Python3.12/현재 project venv·전체 패키지 source 경로로 **651 passed**, 14.38초/exit0입니다. SDK 예외 모의/실제 노드 메서드/DiagnosticFile redaction·source/설치-share mapping·raw cfg 호환·과거 질문 폐기·정상 STT/clarify·실행보류를 검사했습니다. 추가 quota3code/YAML 단일 원본 보완 전 전체 core는2505 passed/24 skipped(68.12초)였으며 최종651과 합산하거나 최종 head 전체CI로 재사용하지 않습니다. 첫 전체 검사에서 낡은 예외타입만 dict 기대1건을 최소 허용 메타 기대로 갱신했고 SECRET 미노출 검사는 유지했습니다. 최종 AST/diff 공백·기존 handoff shell 문법 및 actual 설치 YAML mapping==source도 통과했습니다.
+- [미검증·게시] 과거 `_212053`/`_213609` RateLimitError 원인은 미확정이며 수정 완료를 API 제한 해소나 실음성 통과로 보고하지 않습니다. 이번 변경만 자동 로컬 커밋하고 게시 여부·최종 head CI는 지시/조율 결과를 따릅니다. Notion은 조율 담당입니다.
+
 ## 사용자 직접 실음성 시험 인계 — E-P2-LIVE-VOICE-HANDOFF-20261011-01
 
 - [문서: 최신 지시] 조율 turn `01a12a22-00a9-7172-905a-4e84ef9f61fe`/user `01a12a22-00e1-79e0-b381-c4018fdd49c9`의 “실음성 테스트 명령어 및 확인해야 할 사항들 리스트업, 노션에 반영해줘 직접 진행할거임”을 지시 세션이 확인했습니다. 실제 실행을 사용자에게 인계하며 [재실행·증빙 목록](../../ros2_ws/src/ready2go_voice/README.md#사용자-직접-시험--재실행과-증빙)을 정리합니다. 이번 변경은 README·이 기록2문서뿐이며 tool/제품/config 원본·정책·모델·기존 PR227을 수정하지 않습니다. Notion 작성은 조율 담당입니다.

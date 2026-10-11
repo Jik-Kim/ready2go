@@ -1,5 +1,6 @@
 """대화 처리와 평가 게이트. 로봇 동작·실행 상태 저장은 하지 않습니다."""
 from pathlib import Path
+from .stt_error import error_info, error_prompts, PROMPT_KEYS
 import tempfile
 import time
 from .deadline import DeadlineCall
@@ -172,9 +173,19 @@ class VoiceSession:
             self.progress(event='stt_result', text=text)
             doc = self.text(text, generation, blocked, None if commissioning else deadline - self.cfg['tts_reserve_sec'], request_id=local_request_id)
         except Exception as exc:
+            info = error_info(exc) if not held else None
             if not held:
-                self.progress(event='stt_failed', error_type=type(exc).__name__)
-            doc = intent('clarify', question=self.cfg['clarify_prompts']['no_speech' if held == 'NO_SPEECH' else 'audio_failure'])
+                self.progress(event='stt_failed', error_type=type(exc).__name__, api_error=info)
+            prompt = self.cfg['clarify_prompts']['no_speech' if held == 'NO_SPEECH' else 'audio_failure']
+            if info and info['category'] in PROMPT_KEYS:
+                try:
+                    prompt = error_prompts(self.cfg)[info['category']]
+                except Exception as prompt_exc:
+                    # 불완전한 raw cfg/패키지 배치도 기존 오류 안내로 안전하게 보류합니다.
+                    self.progress(event='stt_prompt_unavailable', error_type=type(prompt_exc).__name__)
+            doc = intent('clarify', question=prompt)
+            if info is not None:
+                doc['_voice'] = {'stt_failure': info, 'final_text': prompt}
             doc['source'] = {'stt_text': '', 'llm_called': False,
                              'llm_validation': 'not_called', 'fallback_used': False, 'execution_allowed': False}
             doc['source']['record_error' if held else 'stt_error'] = held or type(exc).__name__
@@ -223,7 +234,7 @@ class VoiceSession:
                                  llm_called=False, fallback_used=False)
             return doc
         except Exception as exc:
-            self.progress(event='stop_audio_held', reason=type(exc).__name__)
+            self.progress(event='stop_audio_held', reason=type(exc).__name__, api_error=error_info(exc))
             return None  # 네트워크 실패/늦은 결과는 로봇 정지 완료 증거가 아닙니다.
 
     def confirm_audio(self, exchange, envelope, recording, *, cancel=None, paused=lambda: False):
@@ -305,7 +316,7 @@ class VoiceSession:
                     exchange.invalidate()
                 return None
             self.progress(event='confirm_audio_failed', question_id=envelope.question_id,
-                          error_type=type(exc).__name__)
+                          error_type=type(exc).__name__, api_error=error_info(exc))
             return exchange.fail(envelope, answer='expired' if isinstance(exc, TimeoutError) else 'error')
 
     def safety_audio(self, exchange, target, recording, *, cancel=None, paused=lambda: False):
@@ -364,7 +375,7 @@ class VoiceSession:
             return exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
         except Exception as exc:
             exchange.fail(target)
-            self.progress(event='safety_audio_failed', error_type=type(exc).__name__)
+            self.progress(event='safety_audio_failed', error_type=type(exc).__name__, api_error=error_info(exc))
             return None
 
     def _fingerprint(self, doc):

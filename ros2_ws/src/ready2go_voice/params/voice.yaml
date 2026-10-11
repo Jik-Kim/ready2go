@@ -106,3 +106,9 @@ tts_prefill_max_bytes: 65536 # UTF-8 선준비 문장 전체 용량 상한 제�
 tts_frequent_max_texts: 32
 tts_frequent_min_uses: 2
 tts_frequent_max_bytes: 1048576 # 검증문장 선택 기록 용량; 기존 WAV/로컬자산 삭제하지 않음.
+
+# STT 제한 원인별 고정 안내. 누락된 오래된 local 설정은 loader 기본값을 사용합니다.
+stt_error_prompts:
+  rate_limit: 음성 인식 요청이 너무 많아 처리하지 못했어요. 잠시 후 새 요청을 해 주세요.
+  quota: 음성 인식 API의 크레딧이나 사용 한도를 확인해 주세요. 요청은 실행하지 않았어요.
+  unknown_429: 음성 인식 API가 요청을 제한했지만 원인은 확인되지 않았어요. 오류 기록을 확인해 주세요.

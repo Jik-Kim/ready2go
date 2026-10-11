@@ -2,6 +2,7 @@
 from pathlib import Path
 import math
 import yaml
+from .stt_error import error_prompts
 
 
 def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
@@ -24,6 +25,7 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
             'general', 'audio_failure', 'no_speech', 'tts_failure')
     if not isinstance(prompts, dict) or any(not isinstance(prompts.get(k), str) or not prompts[k].strip() for k in keys):
         raise ValueError('clarify_prompts: 필수 고정 안내 설정 필요')
+    cfg['stt_error_prompts'] = error_prompts(cfg)
     value = cfg.get('speech_vad_threshold')
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 1:
         raise ValueError('speech_vad_threshold: 0초과 1이하 필요')

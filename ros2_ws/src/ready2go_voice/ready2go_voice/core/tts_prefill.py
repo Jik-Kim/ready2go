@@ -5,6 +5,7 @@ import threading
 from .runner_notice import STATUS_PROMPTS
 from .response import confirmation, question, UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST
 from .diagnostics import redact
+from .stt_error import error_prompts
 
 _LOCK = threading.Lock()
 
@@ -53,6 +54,7 @@ def remember_text(cfg, text, warning=lambda message: None):
 def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda data: None):
     texts = list(cfg.get('tts_melotts_prefill_texts', []))
     texts.extend(cfg['clarify_prompts'].values())
+    texts.extend(error_prompts(cfg).values())
     texts.extend((UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST))
     for item in items:
         name = item['name_ko']

@@ -27,6 +27,22 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 .venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-live --config-file logs/voice_eval/voice.local.yaml
 ```
 
+### STT API 오류 진단과 안내
+
+[구현: E-VOICE-API-ERROR-20261011-01] 일반 음성 STT 실패는 `stt_failed.api_error`와 `_voice.stt_failure`에 status/code/type/category만 저장합니다. SDK의 정규화된 속성에서 HTTP status는 100–599 정수만, code/type은 `core/stt_error.py`의 닫힌 허용 목록만 받습니다. 누락·이상값·속성 읽기 오류는 안전하게 미확정 처리합니다. API 키·전체 예외 문자열/본문/헤더·WAV·예외 내 전사 및 request ID/retry-after는 수집하지 않습니다. 일반 콘솔에도 이 최소 정보만 표시하며 상세 파일은 기존 redaction을 거칩니다. 새 공개 계약/source 필드는 없습니다.
+
+| 확인된 429 정보 | 내부 분류와 음성 안내 |
+|---|---|
+| code `rate_limit_exceeded`/`slow_down` 또는 type `rate_limit_error` | `rate_limit`: 요청이 많아 처리하지 못했으며 잠시 후 새 요청을 하도록 안내 |
+| code `insufficient_quota`/`credit_balance_exhausted`/`project_spend_limit_exceeded`/`organization_usage_limit_exceeded`/`organization_spend_limit_exceeded` 또는 type `insufficient_quota` | `quota`: 크레딧이나 사용 한도 확인 안내 |
+| 알려진 정보 없음, rate/quota 정보 충돌 또는 세부 원인 없는 RateLimitError | `unknown_429`: 요청 제한 원인 미확정·오류 기록 확인 안내 |
+
+[문서] 분류 근거는 [OpenAI 공식 오류 안내](https://developers.openai.com/api/docs/guides/error-codes)와 [429 원인 안내](https://help.openai.com/en/articles/5955604-troubleshooting-api-rate-limits-and-429-errors)입니다. 알려지지 않은 code/type을 원문으로 저장하거나 추측해 분류하지 않습니다. 다른 일반 STT 오류와 발화/VAD 실패는 기존 안내를 유지합니다. 정상 STT·일반 clarify·시간 예산·SDK 재시도0·실행 보류를 보존합니다. 오류 안내는 내부 final_text에서 실제 노드 최종 응답/TTS 입력까지 전달되고, 과거 물품 확인 질문을 다시 실행 권한으로 쓰지 않습니다. stop/트레이/안전 STT 실패에는 같은 최소 내부 진단만 추가하며 기존 실패·취소 결과를 유지합니다.
+
+[구현·설정] 실제 문구는 [voice.yaml](params/voice.yaml)의 `stt_error_prompts`입니다. 오래된 local YAML에서 키가 누락되면 패키지 YAML의 해당 mapping만 읽어 사용하고, 명시한 유효 사용자 문구는 보존합니다. source 실행은 패키지 params, 설치 실행은 기존 ament_index_python의 share/ready2go_voice/params/voice.yaml을 찾습니다(setup.py의 data_files 배치). 코드에 문구 원본을 중복하지 않습니다. 직접 raw cfg를 사용하는 Session/prefill도 같은 mapping 조회를 사용하며 전체 설정을 재귀 재로드하지 않습니다. 시험 설정 복사 명령도 load_config를 사용하므로 새 문구가 포함되며 원본 local은 덮어쓰지 않습니다. 사전 캐시 선택에 세 문구가 추가됩니다. 현재 실제 local로 **선택만** 확인한 문장수는80이며, 이전77문장 캐시 ready는 새3문구 준비/재생의 근거가 아닙니다. 다음 사용자가 시작하는 노드에서 전체 준비 완료와 웨이크 대기를 확인해야 합니다. 기존60초 startup·자산/장치·캐시를 보존하며 새 합성/실API/마이크/스피커 시험은 수행하지 않았습니다.
+
+[실측·한계] `_212053`/`_213609` 시험 로그의 과거 RateLimitError는 당시 최소 code/type이 없어 원인 미확정입니다. 이번 수정으로 과거 원인이 확정되거나 API 제한이 해소됐다고 판단하지 않습니다. 모의 예외·실제 노드 메서드·진단 파일 필터·설정/default·캐시 선택을 검사하며 [FR-INT-01–03](../../../docs/requirements.md#fr-int-01)·[AC-INT-01–03](../../../docs/requirements.md#ac-int-01)의 실제 음성/지연 수용 검증은 별도입니다.
+
 ### 사용자 직접 시험 — 재실행과 증빙
 
 [실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
