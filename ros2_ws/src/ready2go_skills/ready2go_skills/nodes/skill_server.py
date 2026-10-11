@@ -1634,6 +1634,12 @@ class SkillServer(Node):
             tol += max(0.0, size[0] * math.cos(th) + size[1] * math.sin(th) - size[0])
         chk = gc.check_grasp(width_m=st.width_mm / 1000.0, grasp_detected=st.grip_detected, min_width_m=pick_min_w,
                              expected_width_m=expected_w, width_tolerance_m=tol)
+        if chk.reason == gc.SENSOR_INVALID:                    # 닫은 폭을 못 읽음 = 쥐었는지 모름 → 그리퍼 명령 없이 그 자리에서 멈춤, 쥔 것으로 기억 [P2 체크리스트 5]
+            floor0 = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
+            self.held = {"class": cls, "id": target.get("id"), "width_m": expected_w, "drawer_id": drawer_id,
+                         "tcp_above_floor_m": grasp_z_now / 1000.0 - floor0 - support, "long_side": long_side}
+            return sf.Outcome(False, dp.SENSOR_INVALID, reason=f"닫은 뒤 그리퍼 폭 이상 ({st.width_mm!r}) — 쥔 것으로 기억, 확인 필요"), \
+                {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         if not chk.ok:
             self._grip(plan.open_width_m * 1000.0, 20)
             back = self._line(goal, above, self._in_vel(), "lift")
@@ -1672,10 +1678,15 @@ class SkillServer(Node):
             st2.close()
         hold = gc.check_hold(width_m=w2, width_at_grasp_m=chk.width_m, min_width_m=g["min_width_m"],
                              slip_tolerance_m=g["slip_tolerance_m"])
+        floor_z = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
+        if hold.reason == gc.SENSOR_INVALID:                  # 들어 올린 뒤 폭을 못 읽음 = 쥐었는지 모름 → 쥔 것으로 기억(빈손으로 보지 않음) + 멈춤 [P2 체크리스트 5]
+            self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
+                         "tcp_above_floor_m": grasp_z_now / 1000.0 - floor_z - support, "long_side": long_side}
+            return sf.Outcome(False, dp.SENSOR_INVALID, reason=f"들어 올린 뒤 그리퍼 폭 이상 ({w2!r}) — 쥔 것으로 기억, 확인 필요"), \
+                {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         if not hold.held:
             return sf.Outcome(False, GRASP_FAILED, reason=f"들어 올리다 놓침 ({hold.reason})"), \
                 {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
-        floor_z = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
                      "tcp_above_floor_m": grasp_z_now / 1000.0 - floor_z - support,   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
                      "long_side": long_side}                                        # 긴 변 양끝을 쥠 → 놓을 때 손가락 방향 90° [사용자 10/10]
@@ -1779,6 +1790,8 @@ class SkillServer(Node):
             r.close()
         hold = gc.check_hold(width_m=w, width_at_grasp_m=self.held["width_m"], min_width_m=g["min_width_m"],
                              slip_tolerance_m=g["slip_tolerance_m"])
+        if hold.reason == gc.SENSOR_INVALID:                  # 폭을 못 읽음 = 쥐었는지 모름 → 빈손으로 바꾸지 않고, 그리퍼 명령 없이 멈춤 [P2 체크리스트 5]
+            return sf.Outcome(False, dp.SENSOR_INVALID, reason=f"옮기는 중 그리퍼 폭 이상 ({w!r}) — 쥔 물체 기억 유지, 확인 필요"), None
         if not hold.held:
             self.held = None
             return sf.Outcome(False, gc.FAILURE_CODE["transport"], reason=f"옮기는 중 놓침 ({hold.reason})"), None
@@ -1947,6 +1960,8 @@ class SkillServer(Node):
             r.close()
         hold = gc.check_hold(width_m=w, width_at_grasp_m=self.held["width_m"], min_width_m=g["min_width_m"],
                              slip_tolerance_m=g["slip_tolerance_m"])
+        if hold.reason == gc.SENSOR_INVALID:                  # 폭을 못 읽음 = 쥐었는지 모름 → 빈손으로 바꾸지 않고 열지 않음 [P2 체크리스트 5]
+            return sf.Outcome(False, dp.SENSOR_INVALID, reason=f"놓기 직전 그리퍼 폭 이상 ({w!r}) — 쥔 물체 기억 유지, 확인 필요"), dict(empty)
         if not hold.held:                                     # ③ 놓기 직전 (domain.md 놓침 확인)
             self.held = None
             return sf.Outcome(False, gc.FAILURE_CODE["transport"], reason=f"놓기 직전 놓침 ({hold.reason})"), dict(empty)

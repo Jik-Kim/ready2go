@@ -1809,3 +1809,19 @@ def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server)
     server.Gripper.holding, server.Gripper.held_width = True, 22.0
     out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1], "scan": scan})
     assert out.success and "받침 18.5 mm" in out.reason, out.reason
+
+
+def test_gripper_sensor_invalid_never_turns_held_into_empty_hand(server, monkeypatch):
+    """[P2 체크리스트 5 — B] 그리퍼 폭을 못 읽으면(NaN) 쥐었는지 모름 → OBJECT_DROPPED·빈손으로 바꾸지 않고 SENSOR_INVALID,
+    그리퍼 명령 없음. ① 옮기는 중(트레이) ② 서랍 안 놓기 직전 ③ 집고 들어 올린 뒤."""
+    srv = server.srv
+    grips = _holding_in_drawer(server)
+    server.Gripper.width = float("nan")
+    out, data = server.run("place_object", {"location": "handover_zone"})
+    assert out.error_code == "SENSOR_INVALID" and srv.held is not None and grips == []
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.error_code == "SENSOR_INVALID" and srv.held is not None and grips == [] and data["placed_pose"] is None
+    srv.held = None
+    server.Gripper.holding, server.Gripper.held_width = True, float("nan")   # 닫은 폭부터 못 읽음
+    out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "SENSOR_INVALID" and srv.held is not None and data["grasp_ok"] is False
