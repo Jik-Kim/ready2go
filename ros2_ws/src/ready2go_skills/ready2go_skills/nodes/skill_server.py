@@ -253,15 +253,17 @@ class SkillServer(Node):
         force = (grasp.get(cls) or {}).get("grip_force")
         return [float(v) for v in items[cls]["size_m"]], force
 
-    def grasp_width(self, cls, size_m, prm):
+    def grasp_width(self, cls, size_m, prm, long_side=False):
         """skills.yaml `pick.grasp_width_m` — 실제로 잡는 부위의 폭 (망치는 외접박스 짧은 변 75 mm 가 아니라 손잡이).
-        없으면 None (온톨로지 짧은 변을 씀). 0 이하·짧은 변보다 큰 값은 움직이기 전에 거부 (#43).
+        long_side 면 `pick.grasp_width_long_m` (긴 변 양끝을 잡은 폭 — 장난감차는 바퀴 빼고 몸통) [실측 PC2 10/11].
+        없으면 None (온톨로지 변을 씀). 0 이하·그 변보다 큰 값은 움직이기 전에 거부 (#43).
         item_grasp.yaml 은 E 온톨로지 검사가 grip_force·grasp_verified 만 허용해 B 파라미터에 둠."""
-        w = (prm["pick"].get("grasp_width_m") or {}).get(cls)
+        key, side = ("grasp_width_long_m", size_m[0]) if long_side else ("grasp_width_m", size_m[1])
+        w = (prm["pick"].get(key) or {}).get(cls)
         if w is None:
             return None
-        if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0.0 < w <= size_m[1]:
-            raise ValueError(f"{cls} grasp_width_m 은 0 초과·짧은 변({size_m[1]}) 이하: {w!r}")
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0.0 < w <= side:
+            raise ValueError(f"{cls} {key} 은 0 초과·그 변({side}) 이하: {w!r}")
         return float(w)
 
     def _on_goal(self, _request):
@@ -1589,7 +1591,7 @@ class SkillServer(Node):
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (*ag.tcp_xy_m, fz)))
             tilt = (ag.tilt_dir, prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
         g, speed = prm["gripper"], prm["speed"]
-        expected_w = (None if long_side else self.grasp_width(cls, size, prm)) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
+        expected_w = self.grasp_width(cls, size, prm, long_side=long_side) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
         if not long_side and cls in (prm["pick"].get("open_by_grasp_width") or []) and self.grasp_width(cls, size, prm):
             # 손잡이를 잡는 물건(몽키·망치): 벌림 = 잡는 폭 + 여유 — 머리 폭(외접 짧은 변)만큼 벌리면 손가락 자리가 넓어 이웃·벽에 걸림
             # [사용자 10/11 PC2 "몽키 엄청 벌리고 내려감, 육안으로 충분" → 몽키·망치 둘 다]
@@ -1614,7 +1616,7 @@ class SkillServer(Node):
             lwho, lwhy = neighbor(True, lplan.open_width_m)
             if not lwho and not lwhy:
                 who, long_side, plan = None, True, lplan
-                expected_w = plan.expected_width_m
+                expected_w = self.grasp_width(cls, size, prm, long_side=True) or plan.expected_width_m
         if why or who:                                      # 움직이기 전 거부 [사용자 10/09 랜덤 배치]
             return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"벌린 손가락 자리에 {who} — 띄우거나 {who} 먼저 치우기")), None

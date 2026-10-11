@@ -2053,6 +2053,23 @@ def test_putback_pick_then_place_at_pick_pose(server):
     assert data["placed_pose"]["position"] == pytest.approx(pose["position"]) and srv.held is None
 
 
+@pytest.mark.parametrize("yaw, width, ok", [(0.0, 30.9, True), (0.0, 40.5, False), (1.5708, 48.0, True), (1.5708, 57.5, False)])
+def test_toy_car_judged_by_measured_body_width(server, yaw, width, ok):
+    """[실측 PC2 10/11] 장난감차: 세로(짧은 변) 30.9·가로(긴 변 양끝) 48.0 — 외접 박스 40.5·57.5 보다 몸통이 좁아 WIDTH_MISMATCH 였음.
+    pick.grasp_width_m / grasp_width_long_m 실측으로 판정 (외접 박스 폭이면 이제 실패)."""
+    srv = server.srv
+    t = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.0325,
+         "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": yaw, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, width
+    try:
+        out, data = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success is ok, out.reason
+    if ok:
+        assert ("긴 변" in out.reason) == (yaw != 0.0)
+
+
 def test_tray_view_named_pose_goes_to_taught_joints(server):
     """[실측 PC2 10/11] 새 트레이 탑뷰 tray_view — 교시 관절로 이동 (B trayview)."""
     out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})
