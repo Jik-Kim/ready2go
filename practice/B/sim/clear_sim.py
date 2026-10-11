@@ -18,9 +18,11 @@ import trace_skill_flow as tsf
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 SEED = int(sys.argv[2]) if len(sys.argv) > 2 else 1
-RULES = len(sys.argv) > 3 and sys.argv[3] == "rules"
+RULES = len(sys.argv) > 3 and sys.argv[3] in ("rules", "rules2")
 RULE_GAP_MM = 15.0
 BIG = {"toy_hammer", "toy_wrench", "cover_plate"}                 # 규칙: 위 칸에만
+if len(sys.argv) > 3 and sys.argv[3] == "rules2":                # rules2: 몽키(쌓기 받침)는 아래 칸, 망치·가림막만 위 칸
+    BIG = {"toy_hammer", "cover_plate"}
 FRONT_KEEP_MM = 60.0                                             # 규칙: 망치·몽키 가로(손잡이 벽과 나란히)면 앞판에서 이만큼 떨어뜨림
 rnd = random.Random(SEED)
 
@@ -148,6 +150,8 @@ def layouts():
         if RULES:                                                # 큰 것은 위 칸, 나머지로 반씩 채움
             big = [c for c in cls if c in BIG]
             small = [c for c in cls if c not in BIG]
+            if len(sys.argv) > 3 and sys.argv[3] == "rules2":     # 몽키는 아래 칸 (맨 뒤)
+                small = [c for c in small if c != "toy_wrench"] + ["toy_wrench"]
             cls = big + small
             k = max(k, len(big))
         top, bot = layout("drawer_top", cls[:k]), layout("drawer_bottom", cls[k:])
@@ -232,7 +236,7 @@ def main():
                         examples.setdefault((m, drawer, key), (o["id"], why, [(x["id"], [round(v, 3) for v in x["pose"]["position"][:2]], round(x["pose"]["yaw"], 2), x["occluded_by"]) for x in objs]))
         if (i + 1) % 5 == 0:
             print(f"  ... 배치 {i + 1}/{N} ({time.time() - t0:.0f} s)", flush=True)
-    print(f"\n===== 파지 공간 만들기 시뮬레이션 — 배치 {N}개 × 위·아래, 물건 {total_targets}번 꺼내기 (seed {SEED}{', 시연 배치 규칙' if RULES else ''}) =====")
+    print(f"\n===== 파지 공간 만들기 시뮬레이션 — 배치 {N}개 × 위·아래, 물건 {total_targets}번 꺼내기 (seed {SEED}{(', 시연 배치 규칙 ' + sys.argv[3]) if RULES else ''}) =====")
     for drawer in DRAWERS:
         print(f"\n[{drawer}]")
         for kind in ("바닥", "위에 얹힘", "쌓임 밑"):
@@ -248,7 +252,7 @@ def main():
         tot = sum(v for k, v in res[m].items() if k[2])
         print(f"\n{'지금' if m == 'old' else '새 방식'} 전체 성공 {tot}/{total_targets} = {tot / total_targets * 100:.1f}%  동작: {dict(acts[m])}")
     print(f"\n걸린 시간 {time.time() - t0:.0f} s")
-    out = HERE / f"clear_sim_examples_{SEED}{'_rules' if RULES else ''}.json"
+    out = HERE / f"clear_sim_examples_{SEED}{('_' + sys.argv[3]) if RULES else ''}.json"
     out.write_text(json.dumps({f"{k[0]}|{k[1]}|{k[2]}": v for k, v in examples.items()}, ensure_ascii=False, indent=1))
     print(f"실패 예시: {out}")
 
