@@ -242,13 +242,19 @@ def ontology_support_m(*, target: Mapping, objects: Sequence[Mapping], size_of: 
 
 def objects_under(*, target: Mapping, objects: Sequence[Mapping], size_of: Callable[[str], Optional[Sequence[float]]],
                   gap_m: float = 0.005) -> list:
-    """target 가운데가 footprint 안이고 윗면이 gap_m 넘게 낮은 물체들 = target 밑에 깔린 것 (받침). 집을 때 이웃 확인에서 뺌."""
+    """target 밑에 깔린 것(받침): 분할 모델 관계(o.occluded_by 에 target) 이거나, target 가운데가 o footprint 안이고 윗면이 gap_m 넘게 낮음.
+    집을 때 이웃 확인에서 뺌."""
     if not _finite(target.get("top_z")):
         return []
     x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
     out = []
     for o in objects:
-        if o.get("id") == target.get("id") or not _finite(o.get("top_z")) or o["top_z"] > target["top_z"] - gap_m:
+        if o.get("id") == target.get("id"):
+            continue
+        if target.get("id") in (o.get("occluded_by") or []) and size_of(o.get("class")):
+            out.append(o)                                   # 분할 모델 관계: o 위에 target 이 얹힘 — 비전 윗면이 번져 높아도 [사용자 10/11 PC2: 캐러멜 54.6 / 차키 55.5]
+            continue
+        if not _finite(o.get("top_z")) or o["top_z"] > target["top_z"] - gap_m:
             continue
         size = size_of(o.get("class"))
         if not size:

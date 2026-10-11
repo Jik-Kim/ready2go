@@ -138,6 +138,16 @@ def report():
     print(f"  전체 합계: {sum(x[1] for x in TIMES):.1f} s")
 
 
+def print_seen(res):
+    """보인 물체 전부 한 줄씩: 위치·윗면 높이·yaw 믿음·위에 얹힌 물체(occluded_by, 분할 모델일 때만) [사용자 10/11 쌓기 확인]."""
+    objs = ([res["target"]] if res.get("target") else []) + list(res.get("candidates") or [])
+    for o in objs:
+        p = (o.get("pose") or {})
+        rel = f"  위에 얹힘 {o['occluded_by']}" if "occluded_by" in o else ""
+        print(f"  - {o.get('id')}  위치 {[round(v * 1000, 1) for v in (p.get('position') or [0, 0])[:2]]} mm  윗면 {round((o.get('top_z') or 0) * 1000, 1)} mm"
+              f"  yaw {round(p.get('yaw') or 0, 3)}{'' if p.get('yaw_valid') else ' (믿을 수 없음)'}{rel}")
+
+
 def scan(node, for_pick=False):
     """탑뷰에서 /vision/inspect_region (A 비전). 찾으면 target 저장, 서비스가 없으면 고정값(stub)으로 진행.
     for_pick: 끌기 뒤 다시 보기 — 찾으면 그 좌표로 집기 (끌기 예상 위치 target_after 와 비교 출력) [사용자 10/07: 끌고 나서
@@ -165,6 +175,7 @@ def scan(node, for_pick=False):
         print(f"인식 실패: {getattr(r, 'error_code', '응답 없음')}")
         return False
     res = json.loads(r.result_json or "{}")
+    print_seen(res)
     if not res.get("target_found"):
         seen = [f"{c['class']} {[round(v, 4) for v in c['pose']['position'][:2]]}" for c in res.get("candidates") or []]
         print(f"{TARGET} 못 찾음 — 보인 것 {len(seen)}개: {', '.join(seen) or '없음'} "
@@ -205,13 +216,16 @@ def parse_target(arg):
                 return f.read().strip() or "eraser"
         except OSError:
             return "eraser"
+    extra = {"몽키": "toy_wrench", "몽키스패너": "toy_wrench", "캐러멜박스": "caramel_box", "카라멜박스": "caramel_box",
+             "가림막": "cover_plate", "덮개": "cover_plate"}   # 우리가 부르는 이름 [사용자 10/11] — 온톨로지 별칭에 없는 것
     a = arg.replace(" ", "")
-    for k, v in world.items():
-        names = [k, v.get("name_ko", "")] + list(v.get("aliases_ko") or [])
-        if a in [n.replace(" ", "") for n in names] or a in ("몽키",) and k == "toy_wrench":
-            with open(TARGET_FILE, "w") as f:
-                f.write(k)
-            return k
+    for cand in (a, arg.split()[0]):                   # 여러 단어("장난감 스패너")는 붙여서, 안 되면 첫 단어
+        for k, v in world.items():
+            names = [k, v.get("name_ko", "")] + list(v.get("aliases_ko") or [])
+            if cand in [n.replace(" ", "") for n in names] or extra.get(cand) == k:
+                with open(TARGET_FILE, "w") as f:
+                    f.write(k)
+                return k
     sys.exit(f"모르는 물체: {arg} — 쓸 수 있는 것: " + ", ".join(f"{k}({v.get('name_ko')})" for k, v in world.items()))
 
 
@@ -231,7 +245,7 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     DRAWER = parse_drawer(cmd, sys.argv[2] if len(sys.argv) > 2 else None)
     global TARGET
-    TARGET = parse_target(sys.argv[3] if len(sys.argv) > 3 else None)
+    TARGET = parse_target(" ".join(sys.argv[3:]) if len(sys.argv) > 3 else None)
     if cmd in ("scan", "rescan", "find", "all", "dragtest"):
         print(f"찾을 물체: {TARGET}")
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)

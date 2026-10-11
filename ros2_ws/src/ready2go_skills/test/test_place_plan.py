@@ -188,3 +188,16 @@ def test_ontology_support_uses_heights_of_objects_underneath():
     assert plp.ontology_support_m(target=ca, objects=[er, ca], size_of=sizes.get) is None             # 밑에 없음 (지우개는 위)
     far = dict(ca, pose={"position": [0.20, 0.25, 0.0], "yaw": 0.0})
     assert plp.ontology_support_m(target=er, objects=[er, far], size_of=sizes.get) is None
+
+
+def test_ontology_support_uses_occlusion_relation_when_top_z_bleeds():
+    """[실측 PC2 10/11 분할 모델] 몽키 위 캐러멜 위 차키: 캐러멜 top_z 54.6(실제 37, 마스크 번짐) ≈ 차키 55.5 — 높이 순서로는 밑인지 모름.
+    분할 관계(캐러멜 occluded_by 에 차키, 몽키 occluded_by 에 캐러멜)가 있으면 그걸로 → 받침 37."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "toy_wrench": [0.17, 0.061, 0.0185], "car_key": [0.0695, 0.039, 0.0158]}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0555, "occluded_by": [], "pose": {"position": [0.1119, 0.1961, 0.0], "yaw": 1.5679}}
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0546, "occluded_by": ["car_key#1"],
+           "pose": {"position": [0.1397, 0.1741, 0.0], "yaw": -1.5647}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.030, "occluded_by": ["caramel_box#1"],
+          "pose": {"position": [0.1221, 0.1913, 0.0], "yaw": 0.0}}
+    assert plp.ontology_support_m(target=key, objects=[key, car, wr], size_of=sizes.get) == pytest.approx(0.037)
+    assert {o["id"] for o in plp.objects_under(target=key, objects=[key, car, wr], size_of=sizes.get)} == {"caramel_box#1", "toy_wrench#1"}   # 둘 다 밑 (이웃 확인에서 뺌)

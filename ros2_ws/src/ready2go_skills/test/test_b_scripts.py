@@ -450,3 +450,25 @@ def test_b_sk_trayview_goes_to_taught_tray_view(monkeypatch):
     """[사용자 10/11] B trayview = 트레이 탑뷰(poses.yaml tray_view, 서랍 인자 없음)."""
     sk = _load_sk(monkeypatch)
     assert sk.goal_for("trayview") == ("move_to_named_pose", {"pose_name": "tray_view"}) and "trayview" not in sk.NEEDS_DRAWER
+
+
+def test_b_sk_object_names_with_spaces_and_our_nicknames(monkeypatch, tmp_path):
+    """[사용자 10/11] "장난감 스패너" 는 첫 단어(장난감)만 읽어 모르는 물체였음, "몽키스패너"·"가림막" 도 — 붙여서 찾고, 우리 부르는 이름도."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TARGET_FILE", str(tmp_path / "t.txt"))
+    for name, cls in (("장난감 스패너", "toy_wrench"), ("몽키스패너", "toy_wrench"), ("몽키", "toy_wrench"),
+                      ("캐러멜 박스", "caramel_box"), ("가림막", "cover_plate"), ("차키", "car_key")):
+        assert sk.parse_target(name) == cls, name
+
+
+def test_b_sk_scan_prints_every_seen_object_with_relation(monkeypatch, capsys):
+    """[사용자 10/11] B scan 은 보인 물체 전부를 한 줄씩 — 윗면 높이·yaw 믿음·위에 얹힌 물체(분할 모델)."""
+    sk = _load_sk(monkeypatch)
+    res = {"target": {"id": "car_key#1", "class": "car_key", "top_z": 0.0555, "occluded_by": [],
+                      "pose": {"frame": "drawer_top", "position": [0.1119, 0.1961, 0.0], "yaw": 1.5679, "yaw_valid": True}},
+           "candidates": [{"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0546, "occluded_by": ["car_key#1"],
+                           "pose": {"frame": "drawer_top", "position": [0.1397, 0.1741, 0.0], "yaw": -1.56, "yaw_valid": False}}]}
+    sk.print_seen(res)
+    out = capsys.readouterr().out
+    assert "car_key#1" in out and "윗면 55.5 mm" in out and "caramel_box#1" in out and "위에 얹힘 ['car_key#1']" in out
+    assert "(믿을 수 없음)" in out
