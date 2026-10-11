@@ -208,6 +208,30 @@ class KinRobot:
                                   joint_travel_deg=[round(float(v), 1) for v in np.abs(a[-1] - a[0])], **extra))
 
 
+def wrap_blend(cls, robot):
+    """직선 블렌딩(_blend, moveb)에도 단계 이름 — 없으면 moveb 구간이 앞 단계 이름으로 기록됨 (#192 E 리뷰 P2)."""
+    real = cls._blend
+
+    def blend(self, goal, points, radii, vel, stage, *a, **k):
+        robot.stage, robot.contact, robot.from_line = stage, None, True
+        return real(self, goal, points, radii, vel, stage, *a, **k)
+    cls._blend = blend
+
+
+PLACE_KEYS = ("drawer_top", "drawer_bottom", "handover_zone")
+
+
+def places_record(cfg_dir: Path, assumed: bool) -> dict:
+    """궤적이 쓴 설정 — 재생기가 같은 값으로 서랍·물체를 그리고 씬과 대조 (#192 E 리뷰 P2)."""
+    import hashlib
+    import yaml
+    raw = (cfg_dir / "places.yaml").read_bytes()
+    pl = yaml.safe_load(raw)
+    keep = ("tf", "tf_at_travel_m", "max_travel_m", "interior_m", "slots")
+    return dict(cfg_dir=str(cfg_dir), assumed=assumed, places_sha256=hashlib.sha256(raw).hexdigest(),
+                places={k: {f: (pl.get(k) or {}).get(f) for f in keep} for k in PLACE_KEYS})
+
+
 def load_server(repo: Path, robot, cfg_dir: Path | None = None):
     sys.path.insert(0, str(repo / "ros2_ws/src/ready2go_skills"))
     stub_ros()
@@ -270,6 +294,8 @@ def load_server(repo: Path, robot, cfg_dir: Path | None = None):
         robot.stage, robot.contact, robot.from_line = f"to_{pose_name}", None, False
         return real_named(self, goal, pose_name, drawer_id)
     ss.SkillServer._named = named
+    if hasattr(ss.SkillServer, "_blend"):
+        wrap_blend(ss.SkillServer, robot)
     return ss, sf, srv, Gripper
 
 
@@ -287,7 +313,7 @@ def contact_for(stage, p0, p1):
     return None
 
 
-def save_trace(robot, repo: Path, out, results, eraser, eraser_after):
+def save_trace(robot, repo: Path, out, results, eraser, eraser_after, cfg: dict | None = None):
     """구간 지표(손끝 10 mm·회전 5°당 최대 관절 변화, ◀ 판정)를 붙여 trace.json 저장 + 표 출력. trace_b_demo.py 도 같이 씀."""
     for s in robot.segments:
         n = max(1, len(s["joints"]) - 1)
@@ -301,9 +327,10 @@ def save_trace(robot, repo: Path, out, results, eraser, eraser_after):
     if not sha:
         import subprocess
         sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
-    Path(out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, results=results, eraser=eraser, eraser_after=eraser_after,
+    cfg = cfg or places_record(repo / "config", False)
+    Path(out).write_text(json.dumps(dict(repo=str(repo), repo_sha=sha, config=cfg, results=results, eraser=eraser, eraser_after=eraser_after,
                                          grip_events=robot.grip_events, segments=robot.segments), ensure_ascii=False))
-    print(f"\n구간 {len(robot.segments)}개 → {out} (B 코드 {sha or '?'})")
+    print(f"\n구간 {len(robot.segments)}개 → {out} (B 코드 {sha or '?'}, 설정 {cfg['cfg_dir']}{' [가정]' if cfg['assumed'] else ''})")
     print("판정: 직선 이동(movel)에서 |J3| < 15° 또는 |J5| < 10° 또는 손끝 10 mm(회전 5°)당 관절 변화 > 20° 이면 ◀ "
           "(10/06 실물: J3 10° 이하에서 튐, 25° 이상은 10 mm당 12.7° 여도 정상)")
     print(f"{'#':>3} {'단계':6s} {'명령':6s} {'stage':22s} {'거리mm':>7s} {'회전°':>6s} {'°/10mm':>7s} {'min|J3|':>7s} {'min|J5|':>7s} {'σmin':>6s} 관절 이동량")
@@ -366,7 +393,8 @@ def main():
         print(f"{step:6s} success={out.success} {out.error_code or ''} {getattr(out, 'reason', '') or ''} (이동 {len(robot.segments) - n0}개)")
         if not out.success:
             break
-    save_trace(robot, repo, a.out, results, eraser, after)
+    cfg_dir = Path(a.cfg_dir).resolve() if a.cfg_dir else repo / "config"
+    save_trace(robot, repo, a.out, results, eraser, after, places_record(cfg_dir, bool(a.cfg_dir)))
 
 if __name__ == "__main__":
     main()

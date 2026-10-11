@@ -31,6 +31,7 @@ ap.add_argument("--flag-slow", type=float, default=1.0)
 ap.add_argument("--loop", action="store_true")
 ap.add_argument("--headless", action="store_true")
 ap.add_argument("--quit", action="store_true", help="끝나면 종료(시험용)")
+ap.add_argument("--allow-mismatch", action="store_true", help="궤적이 쓴 places.yaml 과 씬을 만든 places.yaml 이 달라도 재생(경고만)")
 args = ap.parse_args()
 
 app = SimulationApp({"headless": args.headless})
@@ -99,9 +100,28 @@ roots = [str(p.GetPath()) for p in stage.Traverse() if p.HasAPI(UsdPhysics.Artic
 robot_root = next(r for r in roots if r.startswith("/World/m0609"))
 cab_root = next((r for r in roots if r.startswith("/World/workspace")), None)
 
-repo = Path(TRACE["repo"])
-places = yaml.safe_load(((repo / "config/places.yaml") if (repo / "config/places.yaml").exists()
-                         else ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+# 서랍·물체는 궤적이 쓴 설정(trace config.places)으로 그린다 — 로봇 궤적과 같은 기준. 씬은 ROOT/config/places.yaml 로 만든 것이라
+# 두 값이 다르면(가정 설정 --cfg-dir, 다른 저장소의 tf 등) 서랍 위치가 어긋나 보이므로 거부(--allow-mismatch 면 경고만) [#192 E 리뷰 P2]
+scene_places = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+cfg = TRACE.get("config")
+if cfg:
+    places = cfg["places"]
+    print(f"[play] 궤적 설정 {cfg['cfg_dir']}{' [가정 설정]' if cfg.get('assumed') else ''} sha256 {cfg['places_sha256'][:12]}", flush=True)
+else:                                                                     # 예전 궤적: 설정 기록 없음 → 씬 설정으로
+    places = scene_places
+    print("[play] 경고: 궤적에 설정 기록이 없음(예전 형식) — 씬의 places.yaml 로 그림", flush=True)
+_diff = []
+for _k in ("drawer_top", "drawer_bottom", "handover_zone"):
+    _a, _b = (places.get(_k) or {}).get("tf") or {}, (scene_places.get(_k) or {}).get("tf") or {}
+    for _f in ("translation_m", "quaternion_xyzw"):
+        if _a.get(_f) and _b.get(_f) and float(np.max(np.abs(np.array(_a[_f]) - np.array(_b[_f])))) > 1e-4:
+            _diff.append(f"{_k}.{_f} 궤적 {_a[_f]} ≠ 씬 {_b[_f]}")
+if _diff:
+    print("[play] 궤적 설정과 씬 설정이 다름:\n  " + "\n  ".join(_diff), flush=True)
+    if not args.allow_mismatch:
+        print("[play] 거부 — 같은 places.yaml 로 씬을 다시 만들거나(build_scene.py) --allow-mismatch", flush=True)
+        app.close()
+        sys.exit(2)
 size = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]["eraser"]["size_m"]
 DKEY = TRACE["eraser"]["pose"].get("frame", "drawer_top")          # 위·아래 서랍 (trace_skill_flow.py --drawer)
 tf = places[DKEY]["tf"]
