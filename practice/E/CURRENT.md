@@ -5,6 +5,14 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## #43 E 교환·음성 처리 독립 준비 — E43-TRAY-CONFIRM-INTEGRATION-20261011
+
+- [문서: 승인·기준선] 사용자 “구현 시작” 원문(turn `01a129a2-1346-7311-ba2f-be5b37f529ab`/user `01a129a2-1386-7802-8f61-ca296472a2ab`)과 #43 승인08·09, [FR-ONT-02](../../docs/requirements.md#fr-ont-02)·[FR-LOG-02](../../docs/requirements.md#fr-log-02)·[사후 검증 정본](../../docs/requirements.md#verification-policy)을 대조했습니다. 지시된 기존 checkout의 branch `codex/e-tray-confirm-integration-20261011`을 PR225 `0f1f16c2991f54f05bf5577d7cd21ec888e4df7f`에서 시작했습니다. 앞 작업 편집·실행 종료와 tracked clean을 확인했고 별도 작업 폴더를 만들지 않았습니다.
+- [문서: 현재 변경] 새 place_exchange, Session.confirm_audio, 직접 시험 및 E 문서만 편집했습니다. 기존 PlaceConfirmation과 Recording·Whisper.before_request·DeadlineCall을 재사용하며 LLM 호출은 없습니다. 반환은 E 메시지 후보이고 C 등록·발행·효과가 아닙니다. 기존 설정·접수/STT 경계·전체 포함 기한을 유지하며 중복/재질문이 구간을 연장하지 않습니다. P1 노드·계약07 운영 보류·#152 경로는 변경하지 않았습니다.
+- [실측: 직접 검증] Python3.12 새 test_place_exchange.py **36 passed**, 종료0입니다. yes/no·모호 재질문·차수/식별·과거 boot/work/질문·정상 관측과 오류·TTS 실패·새 녹음/SDK 접수·기한 경계·늦은 STT·중복 작업자·중단 우선·무음/누락을 모의로 검사했습니다. 기존 불변65 검사는 재실행하지 않았습니다. 실제 SDK/장치/ROS/C/로봇 및 실물 AC 검증이 아닙니다.
+- [문서: 미완료·인계] 현재 checkout과 읽기 대조한 C `feat/c-status-contract`/`954ed61de614be216ab62c539fbd028ee30f4b22`에는 #43 질문 발신·confirm 수신·E용 단계 post_check 출력이 확인되지 않았습니다. 최신 C 실제 ref·타입·출력/수신 위치·등록 관측/시계 대응·검증된 전달/복구 결과를 지시 세션에 요청했습니다. C 원본 확인 뒤 정확 node/공통 schema·예시·ICD 파일 계획을 추가 대조하고 승인09의 같은 실행 결과 안내를 연결해야 합니다. 독립 준비를 전체 운영 완료와 구분합니다. REGION_NOT_VISIBLE의 ontology 오류목록 후속은 별도 담당 인계입니다.
+- [문서: 로컬 커밋·연결/게시 대기] 지시 세션이 실제6파일과 Whisper 호출 경계를 검토해 추가 결함 없이 독립 준비의 로컬 커밋을 지시했습니다. 이 기록을 포함한6E파일만 커밋 대상으로 확정했으며, 커밋 결과는 Git에서 확인합니다. C 원본 연결과 최종 전체 CI·push·PR은 대기입니다. 미추적 모델 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467` 및 기존 PR225/218/217/07 refs를 보존합니다. #150/152 후속은 자동 착수하지 않습니다.
+
 ## 계약07 E 요청 상관 로직·운영 보류 — E07-REQUEST-ACCEPT-COMPLETE-IMPLEMENT-20261011
 
 - [문서: 승인·Git] 조장 인간 turn `01a12983-fe9c-7ef0-8d57-efea3b4c3ecc`의 “진행하고 #43 구현사항 설명. 앞으로 하나 구현 -> PR 완료되면 다음 할 거 설명해”와 [계약07 승인](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594)을 직접 대조했습니다. 지정 branch `codex/e-request-accept-complete-20261011`은 PR218 `2545058`에서 시작했고 공동 계약221 `e9edaf8`을 merge `7ee59b0`으로 합류했습니다. 충돌3문서의 양쪽 이력과218준비를 보존했고 C 전체 운영 branch는 합류하지 않았습니다.

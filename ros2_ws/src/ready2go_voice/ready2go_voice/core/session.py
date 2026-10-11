@@ -183,6 +183,79 @@ class VoiceSession:
         doc['_voice']['recording_ended_monotonic'] = recording.recording_ended_monotonic
         return doc
 
+    def confirm_audio(self, exchange, envelope, recording, *, cancel=None, paused=lambda: False):
+        """Independent #43 STT/classification, no LLM or publication.
+
+        The caller must connect authentic C registration and real TTS completion.
+        Results are E exchange candidates, never C effects/final confirmation.
+        """
+        from ..adapters.audio import write_wav
+        from .recovery_confirmation import finite
+        capture = exchange.reserve_audio(envelope)
+        if capture is None:
+            return None  # duplicate/old audio must not invalidate an active capture.
+
+        def interrupted():
+            return (cancel is not None and cancel.is_set()) or paused()
+
+        try:
+            if interrupted():
+                raise InterruptedError('CONFIRM_CANCELED')
+            start, end = recording.recording_started_monotonic, recording.recording_ended_monotonic
+            if (recording.truncated or not recording.pcm or not all(finite(t) for t in (start, end))
+                    or not exchange.policy.finished_at <= start <= end
+                    or self.stt is None or not getattr(self.stt, 'supports_request_boundary', False)):
+                raise ValueError('CONFIRM_AUDIO_UNCONFIRMED')
+            if recording.recording_mode == 'fixed':
+                if self.speech_gate is None:
+                    from ..adapters.speech import SpeechPresence
+                    self.speech_gate = SpeechPresence(self.cfg)
+                if not self.speech_gate.check(recording, cancel=cancel, paused=paused):
+                    raise ValueError('NO_SPEECH')
+            budget = exchange.audio_budget(envelope, now=self.clock())
+            if budget is None or budget <= 0:
+                raise TimeoutError('CONFIRM_EXPIRED')
+            def transcribe():
+                if interrupted() or not exchange.current(envelope):
+                    raise InterruptedError('CONFIRM_CANCELED')
+                with tempfile.TemporaryDirectory(prefix='ready2go_confirm_') as directory:
+                    path = Path(directory) / 'speech.wav'
+                    write_wav(path, recording, self.cfg['sample_rate'])
+                    receipt = None
+                    def before_request(stamp):
+                        nonlocal receipt
+                        if interrupted() or not exchange.current(envelope):
+                            return False
+                        receipt = exchange.admit(envelope, capture, captured_at=start,
+                                                 ended_at=end, started_at=stamp)
+                        if receipt is not None:
+                            self.progress(event='confirm_sdk_request', question_id=envelope.question_id,
+                                          requested_monotonic=stamp)
+                        return receipt is not None
+                    text = self.stt.transcribe(path, exchange.policy.stt_result_timeout_sec,
+                                               before_request=before_request)
+                    return text, receipt
+            text, receipt = self.stt_calls.call(transcribe, budget)
+            if interrupted():
+                raise InterruptedError('CONFIRM_CANCELED')
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError('NO_SPEECH')
+            if receipt is None:
+                raise ValueError('CONFIRM_REQUEST_UNCONFIRMED')
+            return exchange.answer(envelope, text, captured_at=start, now=self.clock(), request=receipt)
+        except InterruptedError:
+            if exchange.current(envelope):
+                exchange.invalidate()
+            return None  # halt/cancel never becomes a yes/expired response.
+        except Exception as exc:
+            if interrupted():
+                if exchange.current(envelope):
+                    exchange.invalidate()
+                return None
+            self.progress(event='confirm_audio_failed', question_id=envelope.question_id,
+                          error_type=type(exc).__name__)
+            return exchange.fail(envelope, answer='expired' if isinstance(exc, TimeoutError) else 'error')
+
     def _fingerprint(self, doc):
         return (doc['intent'], tuple(doc.get('targets', [])), doc.get('_voice', {}).get('question_id') or doc['source'].get('stt_text', ''))
 
