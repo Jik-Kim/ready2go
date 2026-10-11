@@ -23,6 +23,7 @@
 - [문서] PR #200 1차 검토를 반영해 모든 expected 판정 필드와 화면·TTS 응답 일치가 시나리오·suite 합격을 좌우하도록 채점 규칙을 연결했으며, 첫 DAC 전 TTS 실패는 시작 시각·지연을 `null`/`not_measured`로 기록해 AC-INT-03 성공으로 집계하지 않도록 분리함. 이는 Runner 지원 추가나 실제 평가 완료를 뜻하지 않음.
 - [문서] PR #200 재검수에서 Voice 발행과 Runner 보류를 하나의 게이트로 채점한 P1을 정정함. controlled 트랙은 `voice_execution_allowed`·Voice 발행 시도·C IntentRouter 입력/결정/원본 사유·평가용 사유 정규화·실제 로봇 동작 시도를 분리하고, 등록 비지우개도 Voice 발행 1회 뒤 C가 `UNSUPPORTED_ITEM`으로 보류하도록 기록함. actual audio motionless 트랙은 실제 발행·Runner 입력·로봇 동작 0회를 유지함. #194 승인 예문은 `find_item`·`toy_hammer`로 해석하며 실제 시험 미완료 상태는 그대로 구분함.
 - [문서] 같은 재검수의 P2·정합성 지적을 반영해 현재 질문 결합 문구를 구현이 정확히 인식하는 `그걸로`, 취소 문구를 설정 원본의 `취소`로 맞추고, 미등록 물품·미지원 요청의 공개 최종 문장을 런타임 상수와 마침표까지 일치시킴. 기준 snapshot은 병합된 PR #198 최종 head `2296b5d`와 merge commit `667f0b8`로 갱신했으며 ontology·task 원본 해시는 재계산 결과 변동 없음.
+- [문서·실측] PR #200의 C 회신을 반영해 `external_verification.runner_acceptance`를 C 문서·모의 확인 완료/E 확인 대기로 갱신함. C는 head `238ae08`의 Runner 입력 기대 31건을 main `d52c1bb` IntentRouter와 대조해 불일치 0건 및 보류 시 실행 미시도를 확인했으며, 실제 Voice payload 형태·hold/reject DB 기록·실물 로봇·실제 웨이크/STT는 미검증으로 유지함.
 
 ## 확정 값 (근거 태그 필수)
 - [문서] #153 P2 준비 범위에 맞춘 [Google 스프레드시트](https://docs.google.com/spreadsheets/d/14-W4kRl2PwarUf2W_R0VB2BggL5sMCX2om0YI2odnTo/edit)를 생성함. 준비현황·실행기준·파트별시험·음성평가·정지복구·미달후속 6개 탭에 파트별 준비 14건, 음성 40문장, 정지·복구 사례 28건을 구성함. 결과는 미실행이며 안전 요구사항 정본은 미확인·반영 보류, 미지원 음성의 unknown/clarify 정답은 미확정임. JSON 자동 동기화나 평가·안전 승인을 뜻하지 않음.

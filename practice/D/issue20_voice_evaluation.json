@@ -8,7 +8,7 @@
     "answer_policy_reviewer": "E 고희태",
     "evaluation_set_version": "0.4-draft",
     "created_at": "2026-10-06",
-    "updated_at": "2026-10-10",
+    "updated_at": "2026-10-11",
     "requirements": [
       "FR-INT-01",
       "FR-INT-02",
@@ -1039,8 +1039,21 @@
           "C",
           "E"
         ],
-        "status": "pending_c_acceptance",
-        "evidence_paths": []
+        "status": "c_verified_document_and_mock_e_pending",
+        "verified_scope": [
+          "[실측] PR #200 head 238ae08의 Runner 입력 기대 단계 31건을 main d52c1bb IntentRouter와 대조해 decision/reason 불일치 0건을 확인했다. Runner 입력이 없는 5건은 제외했다.",
+          "[실측] toy_hammer·toy_wrench·lip_balm은 hold/UNSUPPORTED_ITEM, unknown·clarify는 hold/NEEDS_CLARIFY, 유휴 cancel은 cancel/NOT_RUNNING, eraser find_item은 run과 일치했다.",
+          "[문서·코드] hold·reject 판단은 태스크 시작 전이므로 해당 단계의 로봇 실행 시도 0회 기대가 타당하다.",
+          "[실측: mock] 기존 Voice text_override→Runner ROS→mock backend 경로에서 실행·UNSUPPORTED_ITEM·NEEDS_CLARIFY·BUSY·cancel·LOCKED를 확인한 C 증빙을 연결했다."
+        ],
+        "pending_scope": [
+          "E 원본 기준 실제 Voice payload의 confidence와 clarify_question 포함 형태를 고정·대조해야 한다.",
+          "Runner 입력·판단은 로그와 /runner/status last_intent에서 일부 확인되지만 hold·reject 판단은 DB에 저장되지 않아 DB 기반 횟수 집계는 미검증이다.",
+          "실물 로봇과 실제 웨이크·STT 경로는 미검증이다."
+        ],
+        "evidence_paths": [
+          "https://github.com/Jik-Kim/ready2go/pull/200#issuecomment-6095749419"
+        ]
       },
       "alias_source": {
         "owner": "E",
