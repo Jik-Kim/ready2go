@@ -75,9 +75,11 @@
 
 [문서] [사후 검증 정본](../docs/requirements.md#verification-policy)에 맞춰 pick/place/close_drawer의 **문자열 선언만** 정리하고 open_drawer는 유지했습니다. pre/hold/effect/expand·스킬/물품 식별자·manifest·로더 반환 구조는 변경하지 않았습니다. P1 로더는 문자열을 보존하고 Runner는 현재 하위 실행 성공→effect 경로이므로 evaluator/관측 기반 상태 적용이 연결된 것이 아닙니다. [E 내부 정책](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)은 pick 후보·handover 확인만 제공하며 상태/로그/성공 안내를 쓰지 않습니다. C의 verify 대기/최종 effect·B 실제 파지/닫힘/신선 관측·A handover TF/ROI/재촬영과 wire 승인은 후속입니다. 구조화 verify로 자료형을 바꾸거나 타 파트 코드를 수정하지 않았습니다.
 
+[문서: 이번 내부 구현] place의 문자열 verify는 목적지 재촬영·서랍 top view·트레이 정상 미검출 사용자 근거의 구분을 선언합니다. 기존 JSON 자료형과 pre/hold/effect/expand는 유지합니다. E 내부 확인은 같은 절차의 횟수·종료 상태와 질문별 TTS/녹음/SDK/STT 증빙을 보존합니다. 선언의 존재로 서랍 관측 evaluator·복합 성공·C effect 차단이 연결됐다고 판단하지 않습니다. 복합 검증과 복구 수용 기준은 [사후 검증 정본](../docs/requirements.md#verification-policy)·[AC-ACT-03](../docs/requirements.md#ac-act-03)을 참조하십시오.
+
 ## #78 place 오류 선언 정합성
 
-[문서] [모션 차단·놓침 후 새 실행 정본](../docs/requirements.md#halt-motion-policy)에 연결해 `knowledge/skills/place.jsonld`의 errors에 B가 현재 반환하는 `OBJECT_DROPPED`를 추가했습니다. 기존 errors와 params/pre/hold/effect/expand/verify·manifest·로더는 보존합니다. errors는 선언 데이터이며 Runner 잠금·정지·복구/재개를 실행하는 허용 목록이 아닙니다. pick의 `GRASP_FAILED`나 아직 확정되지 않은 place 센서 반환 목록은 변경하지 않습니다.
+[문서] [모션 차단·놓침 후 새 실행 정본](../docs/requirements.md#halt-motion-policy)에 연결해 `knowledge/skills/place.jsonld`의 errors에 B가 현재 반환하는 `OBJECT_DROPPED`를 추가했습니다. 당시 errors 추가는 params/pre/hold/effect/expand/verify·manifest·로더를 보존했습니다. 이번 verify 선언 갱신은 위 #43 절을 참조하십시오. errors는 선언 데이터이며 Runner 잠금·정지·복구/재개를 실행하는 허용 목록이 아닙니다. pick의 `GRASP_FAILED`나 아직 확정되지 않은 place 센서 반환 목록은 변경하지 않습니다.
 
 [문서·코드 대조: 2026-10-10] C의 [PR #202](https://github.com/Jik-Kim/ready2go/pull/202)는 main에 병합됐습니다. `interpreter.HALT_MOTION_CODES`의 `OBJECT_DROPPED`·`SENSOR_INVALID`는 기존 `HALT_CODES` 경로로 `ABORTED`·잠금을 적용하고, finally의 후속 모션과 잠금 중 새 요청을 차단합니다. 두 오류는 재개 모드에서도 실행을 보존하지 않습니다. E errors 선언이 이 동작을 구현한 것은 아니며, C 모의 검사와 실제 정지·복구 완료는 구분합니다.
 
