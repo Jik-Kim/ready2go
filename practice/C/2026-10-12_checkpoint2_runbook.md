@@ -81,7 +81,39 @@
 | 4 | 지우개 갖다 놓고 서랍은 열어 둬 | 1 과 같음 | 열기 → 집기 → 놓기 (닫지 않음) |
 | 5 | 립밤 트레이에 갖다 놔 | 1 과 같음(립밤) | 1 과 같음 — **B 립밤 파지 확인 뒤** |
 
-- **음성 목표 발행은 E 가 아직 막아 둠** → E 가 열지 않으면 `/voice/intent` 에 `achieve_goal` 을 직접 보냄(명령은 다음 절에 추가 예정). 회차마다 `reset_state` 먼저, 실행 기록 헤더 `plan` 에 근거가 남는지 `run_report` 로 확인.
+- **음성 목표 발행은 E 가 아직 막아 둠** → E 가 열지 않으면 아래 명령으로 `/voice/intent` 에 `achieve_goal` 을 직접 보낸다(PC2 호스트 터미널, Domain 70).
+  [실측: ROS 노드 mock 10/11] 5종 모두 `decision: run` → 계획 → `COMPLETED`, 콘솔 `[plan]` 줄에 단계별 근거.
+- 순서: **1 → (reset) → 2 → 3(이어서, reset 없이 — 2 가 연 서랍을 닫음) → (reset) → 4 → (reset) → 5**. 시작 상태는 B 가 눈으로 확인한 뒤 `reset_state`.
+
+먼저 보내기 함수 (한 번만):
+```bash
+send() { ros2 topic pub --once /voice/intent std_msgs/msg/String "data: '$J'"; }
+```
+
+1 지우개 트레이에 갖다 놔
+```bash
+J='{"intent": "achieve_goal", "goals": [{"predicate": "located_in", "subject": "eraser", "value": "handover_zone"}], "confidence": 0.95, "source": {"stt_text": "지우개 트레이에 갖다 놔"}}'; send
+```
+2 위 서랍 열어 둬
+```bash
+J='{"intent": "achieve_goal", "goals": [{"predicate": "open", "subject": "drawer_top", "value": true}], "confidence": 0.95, "source": {"stt_text": "위 서랍 열어 둬"}}'; send
+```
+3 위 서랍 닫아 (2 바로 뒤, 서랍 열린 상태에서)
+```bash
+J='{"intent": "achieve_goal", "goals": [{"predicate": "open", "subject": "drawer_top", "value": false}], "confidence": 0.95, "source": {"stt_text": "위 서랍 닫아"}}'; send
+```
+4 지우개 갖다 놓고 서랍은 열어 둬
+```bash
+J='{"intent": "achieve_goal", "goals": [{"predicate": "located_in", "subject": "eraser", "value": "handover_zone"}, {"predicate": "open", "subject": "drawer_top", "value": true}], "confidence": 0.95, "source": {"stt_text": "지우개 갖다 놓고 서랍은 열어 둬"}}'; send
+```
+5 립밤 트레이에 갖다 놔 (B 립밤 파지 확인 뒤)
+```bash
+J='{"intent": "achieve_goal", "goals": [{"predicate": "located_in", "subject": "lip_balm", "value": "handover_zone"}], "confidence": 0.95, "source": {"stt_text": "립밤 트레이에 갖다 놔"}}'; send
+```
+
+- 확인: 콘솔 `/voice/intent: {… 'decision': 'run', 'task_id': 'plan_…'}` 와 `[plan] 1. …` 근거 줄, 끝나면 `ros2 run ready2go_runner run_report -n 1`(헤더에 계획).
+  `decision: hold` 이면 `reason`: `PLAN_SATISFIED`(이미 만족 — 시작 상태 확인) / `UNPLANNABLE`(지원 범위 밖) / `BUSY`·`LOCKED`.
+- 실행 기록 헤더 `plan` 에 근거가 남는지 `run_report` 로 확인.
 - 사후 검증(#43)은 main 미반영 → 결과는 스킬 응답 + 사람 확인으로 기록(관측 verify 통과로 적지 않음). [planner.md 시험표](../../docs/planner.md)의 "실물 결과" 칸을 채움.
 
 ## 6. 멈췄을 때
