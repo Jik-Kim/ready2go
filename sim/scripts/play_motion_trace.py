@@ -31,6 +31,7 @@ ap.add_argument("--flag-slow", type=float, default=1.0)
 ap.add_argument("--loop", action="store_true")
 ap.add_argument("--headless", action="store_true")
 ap.add_argument("--quit", action="store_true", help="끝나면 종료(시험용)")
+ap.add_argument("--allow-mismatch", action="store_true", help="궤적이 쓴 places.yaml 과 씬을 만든 places.yaml 이 달라도 재생(경고만)")
 args = ap.parse_args()
 
 app = SimulationApp({"headless": args.headless})
@@ -99,14 +100,34 @@ roots = [str(p.GetPath()) for p in stage.Traverse() if p.HasAPI(UsdPhysics.Artic
 robot_root = next(r for r in roots if r.startswith("/World/m0609"))
 cab_root = next((r for r in roots if r.startswith("/World/workspace")), None)
 
-repo = Path(TRACE["repo"])
-places = yaml.safe_load(((repo / "config/places.yaml") if (repo / "config/places.yaml").exists()
-                         else ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+# 서랍·물체는 궤적이 쓴 설정(trace config.places)으로 그린다 — 로봇 궤적과 같은 기준. 씬은 ROOT/config/places.yaml 로 만든 것이라
+# 두 값이 다르면(가정 설정 --cfg-dir, 다른 저장소의 tf 등) 서랍 위치가 어긋나 보이므로 거부(--allow-mismatch 면 경고만) [#192 E 리뷰 P2]
+scene_places = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
+cfg = TRACE.get("config")
+if cfg:
+    places = cfg["places"]
+    print(f"[play] 궤적 설정 {cfg['cfg_dir']}{' [가정 설정]' if cfg.get('assumed') else ''} sha256 {cfg['places_sha256'][:12]}", flush=True)
+else:                                                                     # 예전 궤적: 설정 기록 없음 → 씬 설정으로
+    places = scene_places
+    print("[play] 경고: 궤적에 설정 기록이 없음(예전 형식) — 씬의 places.yaml 로 그림", flush=True)
+_diff = []
+for _k in ("drawer_top", "drawer_bottom", "handover_zone"):
+    _a, _b = (places.get(_k) or {}).get("tf") or {}, (scene_places.get(_k) or {}).get("tf") or {}
+    for _f in ("translation_m", "quaternion_xyzw"):
+        if _a.get(_f) and _b.get(_f) and float(np.max(np.abs(np.array(_a[_f]) - np.array(_b[_f])))) > 1e-4:
+            _diff.append(f"{_k}.{_f} 궤적 {_a[_f]} ≠ 씬 {_b[_f]}")
+if _diff:
+    print("[play] 궤적 설정과 씬 설정이 다름:\n  " + "\n  ".join(_diff), flush=True)
+    if not args.allow_mismatch:
+        print("[play] 거부 — 같은 places.yaml 로 씬을 다시 만들거나(build_scene.py) --allow-mismatch", flush=True)
+        app.close()
+        sys.exit(2)
 size = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]["eraser"]["size_m"]
-tf = places["drawer_top"]["tf"]
+DKEY = TRACE["eraser"]["pose"].get("frame", "drawer_top")          # 위·아래 서랍 (trace_skill_flow.py --drawer)
+tf = places[DKEY]["tf"]
 T_bd = np.eye(4)
 T_bd[:3, :3], T_bd[:3, 3] = quat_to_R(tf["quaternion_xyzw"]), tf["translation_m"]
-max_travel = float(places["drawer_top"]["max_travel_m"])
+max_travel = float(places[DKEY]["max_travel_m"])
 base_prim = stage.GetPrimAtPath("/World/m0609/base_link")
 W = gf_to_np(UsdGeom.Xformable(base_prim if base_prim.IsValid() else stage.GetPrimAtPath("/World/m0609"))
              .ComputeLocalToWorldTransform(0))
@@ -135,9 +156,14 @@ cab, d_idx = None, None
 if cab_root:
     cab = SingleArticulation(prim_path=cab_root, name="cabinet")
     cab.initialize()
-    d_idx = next((i for i, n in enumerate(cab.dof_names) if n == "drawer_top_joint"), None)
-drawer_attr = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetAttribute("drive:linear:physics:targetPosition")
-print(f"[play] 로봇 {robot_root} DOF {len(dofs)}, 서랍 {'관절 직접 설정' if d_idx is not None else '구동 목표'}, "
+    d_idx = next((i for i, n in enumerate(cab.dof_names) if n == f"{DKEY}_joint"), None)
+drawer_attr = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetAttribute("drive:linear:physics:targetPosition")
+# 서랍이 관절로 직접 안 잡히면(구동 목표) 스프링이 약해 당기는 동안 55~62 mm 늦게 따라옴 → 손이 손잡이에서 떨어져 보임 [실측 10/08, 사용자 지적].
+# 재생 동안만 구동을 아주 세게 (씬 파일은 저장 안 함)
+_jp = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint")
+for _a, _v in (("drive:linear:physics:stiffness", 1e7), ("drive:linear:physics:damping", 1e5), ("drive:linear:physics:maxForce", 1e7)):
+    _jp.GetAttribute(_a).Set(_v)
+print(f"[play] 로봇 {robot_root} DOF {len(dofs)}, {DKEY}, 서랍 {'관절 직접 설정' if d_idx is not None else '구동 목표'}, "
       f"B 코드 {TRACE.get('repo_sha') or TRACE['repo']}", flush=True)
 
 
@@ -181,9 +207,22 @@ def apply(q_arm, f_deg, travel):
     pace()
 
 
-_b1 = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetRelationship("physics:body1").GetTargets()[0]
+_b1 = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetRelationship("physics:body1").GetTargets()[0]
 DRAWER0 = np.array(gf_to_np(UsdGeom.Xformable(stage.GetPrimAtPath(_b1)).ComputeLocalToWorldTransform(0))[:3, 3])
 segs = [s for s in TRACE["segments"] if wanted(s["i"])]
+# 닫기 밀기는 push → push_slow 로 이어짐 [B 10/08]: 둘을 한 번의 밀기로 보고, 손끝이 앞판에 닿은 뒤(전체 밀기 − 인출 거리)부터 서랍이 같이 감.
+# 예전엔 push 만으로 끝까지 닫아 손이 남은 30 mm 를 가기 전에 서랍이 먼저 닫혔음 [사용자 10/08]
+PUSH = {}
+_run = []
+for _s in TRACE["segments"] + [{"stage": ""}]:
+    if _s["stage"] in ("push", "push_slow"):
+        _run.append(_s)
+        continue
+    _tot, _before = sum(x.get("dist_mm", 0) for x in _run) / 1000.0, 0.0
+    for x in _run:
+        PUSH[x["i"]] = (_before, _tot)
+        _before += x.get("dist_mm", 0) / 1000.0
+    _run = []
 grips = {}
 for g in TRACE.get("grip_events", []):
     grips.setdefault(g["before_segment"], []).append(g["width_mm"])
@@ -194,7 +233,7 @@ while app.is_running():
     first = segs[0]["i"]
     travel, width, held, rel, placed = 0.0, 110.0, False, None, False
     for s in TRACE["segments"][:first]:                                  # 건너뛴 앞 구간의 서랍·그리퍼 상태
-        travel = max_travel if s["stage"] == "pull" else (0.0 if s["stage"] == "push" else travel)
+        travel = max_travel if s["stage"] == "pull" else (0.0 if s["stage"] in ("push", "push_slow") else travel)
     for b, ws in grips.items():
         if b <= first:
             width = ws[-1]
@@ -208,14 +247,16 @@ while app.is_running():
             for k in range(1, 31):
                 apply(s["joints"][0], finger_deg(width + (w_new - width) * k / 30), travel)
             closing, width = w_new < width, w_new
-            if s["step"] == "pick" and closing and not held:                # 닫을 때 잡음 (벌릴 때가 아님)
+            # 닫을 때 잡음 (벌릴 때가 아님). 빈손으로 끝까지 닫는 것(경유점 지나기 전 B 가 손끝을 닫음, 폭 약 1 mm)은 잡은 게 아님 —
+            # 예전엔 탑뷰에서 지우개를 그리퍼에 붙여 내려갈 때 지우개가 사라져 보였음 [사용자 10/08]
+            if s["step"] == "pick" and closing and not held and w_new > 3.0:
                 held = True
                 rel = np.linalg.inv(W @ kin.fk(s["joints"][0])) @ eraser_world(ers1, travel)
             if s["step"] == "place" and not closing and held:               # 벌리면 놓음 → 그 자리에 둠
                 held, placed = False, True
         flag = s.get("flag")
         info = (f"{s.get('dist_mm', 0):5.0f} mm {s.get('rot_deg', 0):4.0f}° 10mm당 관절 {s.get('amp_deg_per_10mm', 0):4.1f}° "
-                f"J3 최소 {s['min_abs_j3']:4.1f}°") if s["kind"] == "movel" else f"관절 이동 최대 {max(s['joint_travel_deg']):5.1f}°"
+                f"J3 최소 {s['min_abs_j3']:4.1f}°") if s["kind"] in ("movel", "moveb") else f"관절 이동 최대 {max(s['joint_travel_deg']):5.1f}°"
         print(f"[play] #{s['i']:2d} {s['step']:6s} {s['kind']} {s['stage']:22s} {info}{'  ◀ 특이점 근처' if flag else ''}", flush=True)
         vis = UsdGeom.Imageable(marker.GetPrim())
         vis.MakeVisible() if flag else vis.MakeInvisible()
@@ -231,9 +272,10 @@ while app.is_running():
             m_op.Set(Gf.Vec3d(*[float(v) for v in T_tcp[:3, 3]]))
             if s["stage"] == "pull":
                 travel = min(max_travel, f * s.get("dist_mm", 0) / 1000.0)
-            elif s["stage"] == "push":
-                d = s.get("dist_mm", 0) / 1000.0
-                travel = min(max_travel, max(0.0, max_travel - max(0.0, f * d - (d - max_travel))))
+            elif s["stage"] in ("push", "push_slow"):
+                before, tot = PUSH[s["i"]]
+                pushed = before + f * s.get("dist_mm", 0) / 1000.0
+                travel = min(max_travel, max(0.0, max_travel - max(0.0, pushed - (tot - max_travel))))
             if s["stage"] == "drag":
                 set_cube(eraser_world({"position": [ers0["position"][i] + (ers1["position"][i] - ers0["position"][i]) * f
                                                     for i in range(3)], "yaw": ers1["yaw"]}, travel))
@@ -248,7 +290,7 @@ while app.is_running():
     if args.headless:
         print(f"[play] 시험: 지우개 최종 월드 위치 {np.round(gf_to_np(c_xf.ComputeLocalToWorldTransform(0))[:3, 3], 3)}", flush=True)
         from isaacsim.core.prims import SingleRigidPrim
-        body = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetRelationship("physics:body1").GetTargets()[0]
+        body = stage.GetPrimAtPath(f"/World/workspace/cabinet/{DKEY}_joint").GetRelationship("physics:body1").GetTargets()[0]
         rp = SingleRigidPrim(str(body))
         rp.initialize()
         print(f"[play] 시험: 서랍 몸체 {body} 월드 위치 {np.round(rp.get_world_pose()[0], 4)} (목표 인출 {travel:.3f} m, "
