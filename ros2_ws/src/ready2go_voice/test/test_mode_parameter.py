@@ -42,6 +42,7 @@ def test_real_ros_startup_bool_default_and_cli_priority(cfg, tmp_path, monkeypat
     from rclpy.context import Context
     import ready2go_voice.nodes.voice_node as runtime
     cfg.update(evaluation_mode=yaml_mode, audio_enabled=False,
+               tts_melotts_assets=str(tmp_path/'assets'),
                ontology_file=str(ROOT/'knowledge/robot_ontology.jsonld'),
                intent_schema_file=str(ROOT/'contracts/intent.schema.json'))
     path=tmp_path/'voice.yaml'; path.write_text(yaml.safe_dump(cfg))

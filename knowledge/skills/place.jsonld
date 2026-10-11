@@ -41,7 +41,7 @@
           "value": "$to"
         }
       ],
-      "verify": "rescan: $item visible in $to",
+      "verify": "rescan destination after place: expected items/count in $to; drawer uses fresh drawer top-view observation, not user confirmation; handover normal non-detection allows current-procedure expected-items/count/destination user confirmation; unknown/error/interruption is not success",
       "expand": [
         {
           "action": "place_object",
@@ -52,7 +52,8 @@
       ],
       "errors": [
         "TRAY_FULL",
-        "PLACE_FAILED"
+        "PLACE_FAILED",
+        "OBJECT_DROPPED"
       ]
     }
   }

@@ -46,11 +46,14 @@ def select_obstacle(params: dict, world: dict) -> ActionResult:
             held_back += [o["id"] for o in seen if o.get("class") == record.get("class")]
     skip = set(excluded) | set(held_back)
     target = scan.get("target") if scan.get("target_found") else None
+    # 박스 모델 판단은 물체를 빼기 전 촬영 결과 전체로 한 번만 (#134 E 18:30 P1: 옮긴 물체를 뺀 뒤 남은 물체에 필드가
+    # 없으면 박스 모델로 착각해 '모름' 목표를 clear 로 바꾸던 것). 고르기·prefer·clear 판정이 모두 같은 판단을 씀
+    box = _box_model(target, [c for c in scan.get("candidates") or [] if isinstance(c, dict)])
     pool = [c for c in scan.get("candidates") or [] if isinstance(c, dict) and c.get("id") not in skip]
-    chosen, reason = _choose(target, pool, world)
+    chosen, reason = _choose(target, pool, world, box)
     prefer = params.get("prefer")
     if prefer and chosen is not None:       # 사용자가 고른 class 가 같은 규칙의 후보에 있을 때만 순서를 바꿈
-        options = [c for c in _choices(target, pool, world) if c.get("class") == prefer]
+        options = [c for c in _choices(target, pool, world, box) if c.get("class") == prefer]
         if options:
             chosen, reason = options[0], "prefer"
     return ActionResult(True, {"obstacle": chosen, "reason": reason, "excluded": excluded,
@@ -109,8 +112,7 @@ def _target_clear(target: dict, box: bool) -> bool:
     return box and (target.get("pose") or {}).get("yaw_valid") is True
 
 
-def _choose(target: dict | None, pool: list[dict], world: dict) -> tuple[dict | None, str]:
-    box = _box_model(target, pool)
+def _choose(target: dict | None, pool: list[dict], world: dict, box: bool) -> tuple[dict | None, str]:
     options = _choices(target, pool, world, box)
     if options:
         return options[0], _reason(target, pool)
@@ -123,10 +125,8 @@ def _choose(target: dict | None, pool: list[dict], world: dict) -> tuple[dict | 
     return None, "none"
 
 
-def _choices(target: dict | None, pool: list[dict], world: dict, box: bool | None = None) -> list[dict]:
-    """규칙대로 고를 수 있는 후보를 앞에서부터 (맨 앞 = 기본 선택)."""
-    if box is None:
-        box = _box_model(target, pool)
+def _choices(target: dict | None, pool: list[dict], world: dict, box: bool) -> list[dict]:
+    """규칙대로 고를 수 있는 후보를 앞에서부터 (맨 앞 = 기본 선택). box: 촬영 결과 전체 기준 박스 모델 여부."""
     by_id = {c["id"]: c for c in pool if c.get("id")}
     if target is None:                      # 4. 목표 안 보임: 위에 얹힌 것 없는 후보, 보이는 면적 큰 것부터
         free = [c for c in pool if c.get("occluded_by") == []]

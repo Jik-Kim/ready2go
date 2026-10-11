@@ -26,7 +26,7 @@ CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_te
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
 PLACES = yaml.safe_load(Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml")).read_text(encoding="utf-8"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _dims import cabinet_missing, drawer_pose_from_tray, drawer_tf, quat_to_R  # noqa: E402
+from _dims import cabinet_missing, drawer_frame_tf, drawer_pose_from_tray, quat_to_R  # noqa: E402
 fails = []
 
 
@@ -67,7 +67,7 @@ if has_cabinet:
     jt = UsdPhysics.PrismaticJoint(stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint"))
     travel = PLACES["drawer_top"]["max_travel_m"]   # 정본은 config/places.yaml
     # USD는 float32로 저장하므로 허용 오차를 1e-6 으로 둔다
-    check("서랍 관절 한계 0~max_travel", abs(jt.GetUpperLimitAttr().Get() - travel) < 1e-6 and abs(jt.GetLowerLimitAttr().Get()) < 1e-9,
+    check("위 서랍 관절 한계 0~max_travel", abs(jt.GetUpperLimitAttr().Get() - travel) < 1e-6 and abs(jt.GetLowerLimitAttr().Get()) < 1e-9,
           f"(상한 {jt.GetUpperLimitAttr().Get():.3f} m, 실측 {travel:.3f} m)")
 
 ho = (PLACES.get("handover_zone") or {}).get("tf")
@@ -101,42 +101,41 @@ world.reset()
 l6 = "/World/m0609/link_6"
 l6_0 = world_T(stage, l6)[:3, 3].copy()
 if has_cabinet:
-    drive = stage.GetPrimAtPath("/World/workspace/cabinet/drawer_top_joint").GetAttribute("drive:linear:physics:targetPosition")
-    tray = "/World/workspace/cabinet/drawer_top_tray"
-    t0 = world_T(stage, tray)[:3, 3].copy()
+    in_d, in_w = PLACES["drawer_top"]["interior_m"][0], PLACES["drawer_top"]["interior_m"][1]
+    for tag in ("top", "bottom"):                                  # 위·아래 서랍 각각: 가동 범위 + 최대 인출 상태 좌표계 = places.yaml tf
+        key = f"drawer_{tag}"
+        drive = stage.GetPrimAtPath(f"/World/workspace/cabinet/{key}_joint").GetAttribute("drive:linear:physics:targetPosition")
+        tray = f"/World/workspace/cabinet/{key}_tray"
+        t0 = world_T(stage, tray)[:3, 3].copy()
+        axis = world_T(stage, tray)[:3, 1]                         # 서랍이 열리는 방향 = 상자 로컬 +y 의 월드 방향
+        along = lambda d: float(d @ axis)                              # noqa: E731
+        across = lambda d: float(np.linalg.norm(d - along(d) * axis))  # noqa: E731
 
+        def run(target, steps=360):
+            drive.Set(float(target))
+            for _ in range(steps):
+                world.step(render=False)
+            return world_T(stage, tray)[:3, 3] - t0
 
-    def run(target, steps=360):
-        drive.Set(float(target))
-        for _ in range(steps):
-            world.step(render=False)
-        return world_T(stage, tray)[:3, 3] - t0
-
-
-    axis = world_T(stage, "/World/workspace/cabinet")[:3, 1]      # 서랍이 열리는 방향 = 서랍장 +y 의 월드 방향 (tf 로 회전돼 있을 수 있다)
-    along = lambda d: float(d @ axis)                              # noqa: E731
-    across = lambda d: float(np.linalg.norm(d - along(d) * axis))  # noqa: E731
-    d0 = run(0.0, 120)
-    check("닫힘 유지 (목표 0)", np.abs(d0).max() < 1e-3, f"(이동 {np.round(d0 * 1000, 2)} mm)")
-    d1 = run(travel)
-    check("목표 최대 인출 → 최대 거리만큼 인출", abs(along(d1) - travel) < 2e-3, f"(인출 방향 {along(d1) * 100:.2f} cm)")
-    check("다른 축 이동 없음", across(d1) < 1.5e-3, f"(인출 방향 밖으로 {across(d1) * 1000:.2f} mm)")
-    # #6 3점 터치 결과(places.yaml drawer_top.tf)와 최대 인출 상태의 서랍 좌표계가 일치하는지. 값이 아직 null 이면 건너뜀
-    tf = drawer_tf(PLACES)
-    if tf is None:
-        print("[SKIP] 서랍 tf 일치 검사 — places.yaml drawer_top.tf 가 아직 null (3점 터치 결과 대기)", flush=True)
-    else:
-        in_d, in_w = PLACES["drawer_top"]["interior_m"][0], PLACES["drawer_top"]["interior_m"][1]
-        Tw = world_T(stage, tray)
-        R_d, o_d = drawer_pose_from_tray(Tw[:3, :3].tolist(), Tw[:3, 3].tolist(), in_w, in_d)
-        R_tf = np.array(quat_to_R(tf[1]))
-        dp = float(np.linalg.norm(np.array(o_d) - np.array(tf[0])))
-        dang = float(np.degrees(np.arccos(np.clip((np.trace(np.array(R_d).T @ R_tf) - 1) / 2, -1, 1))))
-        check("최대 인출 상태 서랍 좌표계 = places.yaml drawer_top.tf", dp < 1e-3 and dang < 0.1, f"(원점 차이 {dp * 1000:.3f} mm, 회전 차이 {dang:.4f}°)")
-    d2 = run(travel + 0.10)
-    check("한계 초과 목표(최대 인출 + 10 cm)는 최대 인출에서 멈춤", abs(along(d2) - travel) < 2e-3, f"(인출 방향 {along(d2) * 100:.2f} cm)")
-    d3 = run(0.0)
-    check("다시 닫힘", np.abs(d3).max() < 1.5e-3, f"(이동 {np.round(d3 * 1000, 2)} mm)")
+        d0 = run(0.0, 120)
+        check(f"[{tag}] 닫힘 유지 (목표 0)", np.abs(d0).max() < 1e-3, f"(이동 {np.round(d0 * 1000, 2)} mm)")
+        d1 = run(travel)
+        check(f"[{tag}] 목표 최대 인출 → 최대 거리만큼 인출", abs(along(d1) - travel) < 2e-3, f"(인출 방향 {along(d1) * 100:.2f} cm)")
+        check(f"[{tag}] 다른 축 이동 없음", across(d1) < 1.5e-3, f"(인출 방향 밖으로 {across(d1) * 1000:.2f} mm)")
+        tf = drawer_frame_tf(PLACES, key)
+        if tf is None:
+            print(f"[SKIP] [{tag}] 서랍 tf 일치 검사 — places.yaml {key}.tf 가 아직 null", flush=True)
+        else:
+            Tw = world_T(stage, tray)
+            R_d, o_d = drawer_pose_from_tray(Tw[:3, :3].tolist(), Tw[:3, 3].tolist(), in_w, in_d)
+            R_tf = np.array(quat_to_R(tf[1]))
+            dp = float(np.linalg.norm(np.array(o_d) - np.array(tf[0])))
+            dang = float(np.degrees(np.arccos(np.clip((np.trace(np.array(R_d).T @ R_tf) - 1) / 2, -1, 1))))
+            check(f"[{tag}] 최대 인출 상태 서랍 좌표계 = places.yaml {key}.tf", dp < 1e-3 and dang < 0.1, f"(원점 차이 {dp * 1000:.3f} mm, 회전 차이 {dang:.4f}°)")
+        d2 = run(travel + 0.10)
+        check(f"[{tag}] 한계 초과 목표(최대 인출 + 10 cm)는 최대 인출에서 멈춤", abs(along(d2) - travel) < 2e-3, f"(인출 방향 {along(d2) * 100:.2f} cm)")
+        d3 = run(0.0)
+        check(f"[{tag}] 다시 닫힘", np.abs(d3).max() < 1.5e-3, f"(이동 {np.round(d3 * 1000, 2)} mm)")
 else:
     for _ in range(360):   # 서랍이 없어도 로봇이 중력에 무너지지 않는지는 확인
         world.step(render=False)

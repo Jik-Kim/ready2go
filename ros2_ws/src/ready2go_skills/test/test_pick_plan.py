@@ -105,3 +105,17 @@ def test_bad_size_rejected(size):
 def test_bad_tray_rejected(args):
     with pytest.raises(ValueError):
         pp.slot_centers(*args)
+
+
+def test_stacked_grasp_is_support_plus_same_rule():
+    """[사용자 10/09] 쌓인 물체: 받침 위에서 바닥과 같은 규칙 (지우개는 받침 + 11.5 mm)."""
+    g0 = pp.plan_drawer_grasp(target=_target(), size_m=ERASER, tf=TF, params=P)
+    g = pp.plan_drawer_grasp(target=_target(), size_m=ERASER, tf=TF, params=P, support_m=0.0435)
+    assert g.position_m[2] - g0.position_m[2] == pytest.approx(0.0435, abs=5e-4)      # 서랍 tf 기울기(≤1.2°)만큼 차이
+    assert g.position_m[:2] == pytest.approx(g0.position_m[:2], abs=1e-3)
+
+
+@pytest.mark.parametrize("bad", [-0.001, float("nan"), True])
+def test_bad_support_refused(bad):
+    with pytest.raises(ValueError):
+        pp.plan_drawer_grasp(target=_target(), size_m=ERASER, tf=TF, params=P, support_m=bad)

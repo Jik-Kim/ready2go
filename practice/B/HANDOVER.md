@@ -49,13 +49,16 @@
 2. 터미널마다 `r2genv` 먼저: t1 `roboton` / t2 `docker compose --profile real up -d --force-recreate realsense` → `docker compose logs -f realsense` (`Motion Module force pause` 경고는 IMU 미사용이라 무시 [추정]) / t3 `r2gjog` / t4(인식 쓸 때만) 손목–카메라 TF(아래 명령) / t5 작업(지그와 동시 명령 금지).
 3. 확인(t5): `ros2 topic list | grep -c wrist_cam`(0 아님) · `ros2 topic hz /wrist_cam/color/image_raw`(약 30 Hz) · `ros2 service list | grep -c dsr01`(0 아님). 첫 동작 전 홈·서랍 닫힘·빈손, 새 동작은 저속.
 4. 끝: 홈·서랍 로봇으로 닫기 → 스킬 서버·t3·t1 Ctrl+C → `docker compose stop realsense` (비전 켰으면 `docker rm -f vision_check`).
+- **부딪히거나 이상하면 세팅부터 의심** [사용자 10/08]: 코드·교시값보다 먼저 선반·서랍장 위치와 고정 상태(밀림·기울어짐·우드락 눌림)를 확인한다. 10/08 저녁 선반이 왼쪽으로 밀려 있었고, 위 서랍 앞 두 모서리 높이 차 3.9 mm(아래 0.7 mm). 밀렸으면 서랍마다 바닥 앞 모서리 2점을 다시 재서 이동·회전을 계산해 서랍에 붙은 값(tf·손잡이·손잡이 앞·45° 닫기·경유점·들고 나오기 1·2)을 한꺼번에 옮긴다(탑뷰·트레이는 그대로).
 - **B 시험 시작 전 초기화 (매번 처음 할 때)** [사용자 10/08] — 스킬 서버는 서랍 열림을 기억으로만 알고, 인식 결과 파일도 남아 있어 실물과 어긋나면 거부·엉뚱한 좌표가 남:
   1. `cd ~/ready2go && git pull origin <브랜치> && git log --oneline -1` (코드 최신)
-  2. 스킬 서버 터미널 `Ctrl+C` → `VEL=30 JACC=20 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server` (서랍 둘 다 닫힘으로 초기화)
+  2. 스킬 서버 터미널 `Ctrl+C` → `VEL=60 JACC=40 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server` (서랍 둘 다 닫힘으로 초기화). 탑뷰·바텀뷰 이동만 `skills.yaml` `speed.view_joint_deg_s` 90 [사용자 10/08]
   3. `B home`
   4. 시험할 서랍을 **손으로** 열기(다른 서랍은 닫힘) → `B opened top|bottom` (로봇 안 움직임, 서버 기억만 맞춤). 손으로 연 서랍엔 `B ready`·`B open` 안 침
   5. `rm -f /tmp/b_target_*.json` (예전 인식 결과)
   - 끝나면 서랍은 손으로 닫고, 다음 시작 때 다시 1번부터.
+  - 줄여 쓰기 (`~/.bashrc`, 사용자 PC2): `Bserver() { cd ~/ready2go && VEL=60 JACC=40 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server; }` / `reset() { cd ~/ready2go && git pull && git log --oneline -1 && rm -f /tmp/b_target_*.json && pkill -INT -f ready2go_skills.nodes.skill_server; }` — `reset`(작업 칸, 로봇 정지 때만) → `Bserver`(서버 칸) → `B home` → 서랍 손으로 → `B opened <서랍>`. (`reset` 은 원래 터미널 초기화 명령 이름 — 필요하면 `command reset`)
+  - **한 번에 찾아 꺼내기 `B find top|bottom`** [사용자 10/08]: 손으로 연 서랍(`B opened`)에서 탑뷰 → 인식 → 넛지 → 탑뷰 → 다시 인식 → 집기 → 트레이 → 홈. **잡을 때까지 다시**(횟수 제한 없음): 넛지 실패·집기 전 `WALL_TOO_CLOSE` → 다시 넛지, 집기가 움직인 뒤 실패 → 다시 보고 집기. 멈춤: 비상정지·잠김·취소, 못 찾음, 놓기 실패.
 - **우리 노드 하나씩 시험 (`B` 명령)** [사용자 10/08]: 처음 한 번 `~/.bashrc` 에 `B() { ( source /opt/ros/jazzy/setup.bash; source ~/cobot2_ws/install/setup.bash; source ~/r2g_host/install/setup.bash; python3 ~/ready2go/ros2_ws/src/ready2go_skills/scripts/b_sk.py "$@" ); }` 등록 + `bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh build`(~/r2g_host).
   - 아래 칸 스킬 서버 `VEL=30 JACC=20 bash ros2_ws/src/ready2go_skills/scripts/b_flow.sh server`(켜 둠, 지그 끔) / 명령 칸 `rm -f /tmp/b_target_*.json`(예전 인식 결과 지움 — 서랍별 `b_target_scan_drawer_*.json` 포함) → `ros2 action list | grep skills` 5개.
   - 순서(find_item 과 같음): `B home` → `B ready top` → `B open top` → `B view top` → `B scan top` → `B nudge top` → `B view top` → **`B rescan top`**(다시 인식, 찾은 좌표를 집기에 넘김 — `all` 과 같음) → `B pick` → `B place` → `B close top` → `B home`. `rescan` 을 빼면 `B pick` 은 끌기 예상 위치(`target_after`)로 집음(단독 시험용, 공통 pick 과 다름). **서랍을 손으로 열었으면** `B opened <서랍>` 만 하고 `B ready`·`B open` 은 건너뜀(열린 서랍에 `B ready` 는 손잡이 앞 자세가 서랍 안 높이라 쓰지 않음). **`B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`)**, 서랍 필요한 동작에 빼먹으면 움직이기 전에 멈춤 [사용자 10/08]. `B <명령>` = `b_sk.py goal_for()` 가 `/skills/<노드>` 액션을 보냄(Runner 와 같은 요청) → 스킬 서버(우리 노드) 실행. 열기 노드는 손잡이 앞에서만 시작 → `B ready` 먼저. `B scan` 은 A 비전(위 칸은 없으면 고정 좌표 (27.5, 290.4) mm, 아래 칸은 비전 필수). 손으로 서랍을 열고 닫았으면 서버 재시작 또는 `B opened <서랍>`. **`b_flow.sh view` 는 쓰지 않음**(서버 없이 바로 관절 이동하는 다른 도구).
@@ -70,13 +73,13 @@
 **통합 시험 (컨테이너, 10/07 저녁~)**: 로봇 기능은 모두 real 컨테이너. 호스트 `roboton`·`b_flow.sh server`·`realsense2_camera`·stub 은 **끄고** 띄운다.
 - `.env`: `BACKEND=real` · `DDS_MODE=local` · `ROBOT_HOST=192.168.1.100` · `RG2_HOST=192.168.1.1` · `RUNNER_TASK_FILE`·`RUNNER_INTENT_TASKS` 비움 (온톨로지는 공통 `/knowledge/robot_ontology.jsonld`, `find_item` → `tasks/find_item.json`) · 관절 속도 `SKILL_JOINT_VEL_DEG_S`/`ACC` (기본 60/40).
 - `docker compose --profile real up -d db ros2-core realsense` → 드라이버·`/gripper/state`·스킬 서버(15초 뒤)·Runner 가 함께 뜸. 스킬 서버를 따로 띄우지 않는다(중복).
-- B 단독 시험(`all`·`dragtest`·동작 하나씩)은 컨테이너 안에서 보내는 게 확실하다 [실측 10/07: 호스트 터미널은 설정이 빠지면 컨테이너가 안 보임]:
-  `B() { docker compose exec ros2-core bash -lc "source /opt/ros/jazzy/setup.bash; source /colcon/install/setup.bash; cd /ros2_ws/src/ready2go_skills/scripts && python3 b_sk.py $*"; }` → `B home`, `B all` …
+- B 단독 시험(`all top|bottom`·`dragtest`·동작 하나씩 — 서랍 인자 필수)은 컨테이너 안에서 보내는 게 확실하다 [실측 10/07: 호스트 터미널은 설정이 빠지면 컨테이너가 안 보임]:
+  `B() { docker compose exec ros2-core bash -lc "source /opt/ros/jazzy/setup.bash; source /colcon/install/setup.bash; cd /ros2_ws/src/ready2go_skills/scripts && python3 b_sk.py $*"; }` → `B home`, `B all top` (또는 `B all bottom`) …
   호스트 `b_flow.sh` 를 쓸 땐 먼저 `export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI=file://$HOME/ready2go/config/cyclonedds.local.xml`. `b_flow.sh server` 는 쓰지 않는다(서버 중복).
 - 호스트 음성 노드(E)는 `ros2_ws/install`(컨테이너 빌드)이 아니라 `~/r2g_host` 에 빌드해 source: `colcon --log-base /tmp/r2g_log build --symlink-install --packages-select ready2go_interfaces ready2go_knowledge ready2go_voice --build-base ~/r2g_host/build --install-base ~/r2g_host/install`.
 - 손으로 서랍을 닫았으면 스킬 서버는 열림으로 기억한다(→ `DRAWER_ALREADY_OPEN`). 로봇으로 닫거나 `docker compose restart ros2-core` [실측 10/07].
 - 회차 사이: 사람이 원위치(지우개·서랍 닫힘·빈 그리퍼·홈) 확인 → `ros2 service call /runner/reset_state std_srvs/srv/Trigger` (#107). 트레이 3칸 기억은 reset 으로 안 지워짐 → 4회 이상이면 `restart ros2-core`.
-- 재시작 뒤에는 음성 전에 `B scan` 으로 인식 확인. 비전 실패하면 컨테이너 내리기 전에 `docker compose logs realsense` 저장.
+- 재시작 뒤에는 음성 전에 `B scan top` (아래 칸은 `B scan bottom`) 으로 인식 확인. 비전 실패하면 컨테이너 내리기 전에 `docker compose logs realsense` 저장.
 
 **과거 기록 (10/06 저녁, 호스트 드라이버·호스트 스킬 서버 방식 — 지금은 쓰지 않음)**
 - 통신 설정: roboton·스킬 서버는 `~/.config/cyclonedds/cyclonedds.xml` (= `config/cyclonedds.local.xml`, `lo` 전용). **모든 터미널을 같게.**

@@ -293,7 +293,7 @@ def test_b_sk_drawer_argument_and_ready(monkeypatch):
     assert sk.goal_for("ready") == ("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
     monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
     assert sk.goal_for("open") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "open"})
-    assert sk.goal_for("close") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "close"})
+    assert sk.goal_for("close") == ("drawer_control", {"drawer_id": "drawer_bottom", "state": "close", "then_home": True})
     assert sk.goal_for("view") == ("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_bottom"})
     assert sk.STEPS[:2] == ("ready", "open") and sk.DRAG_TEST[:3] == ("home", "ready", "open")
 
@@ -368,3 +368,79 @@ def test_b_sk_rescan_without_vision_needs_same_drawer_after(monkeypatch, tmp_pat
     assert sk.scan(node, for_pick=True) is True
     monkeypatch.setattr(sk, "DRAWER", "drawer_bottom")
     assert sk.scan(node, for_pick=True) is False
+
+
+@pytest.mark.parametrize("codes, scans, want_calls, ok", [
+    ({}, None,                                                          # 한 번에 성공: 탑뷰 → 인식 → 넛지 → 탑뷰 → 다시 인식 → 집기 → 놓기 → 홈
+     ["view", "scan", "nudge", "view", "rescan", "pick", "place", "home"], True),
+    ({"pick": ["WALL_TOO_CLOSE", "WALL_TOO_CLOSE", ""]}, None,          # 집기 전 "아직 못 잡음" → 다시 넛지, 잡을 때까지 [사용자 10/08]
+     ["view", "scan", "nudge", "view", "rescan", "pick", "view", "scan", "nudge", "view", "rescan", "pick",
+      "view", "scan", "nudge", "view", "rescan", "pick", "place", "home"], True),
+    ({"pick": ["NOT_REACHED", ""]}, None,                               # 집기가 움직인 뒤 실패 → 다시 넛지 말고 다시 보고 집기
+     ["view", "scan", "nudge", "view", "rescan", "pick", "view", "rescan", "pick", "place", "home"], True),
+    ({"nudge": ["PUSH_BLOCKED", ""]}, None,                             # 넛지 실패 → 탑뷰 → 인식 → 다시 넛지
+     ["view", "scan", "nudge", "view", "scan", "nudge", "view", "rescan", "pick", "place", "home"], True),
+    ({"pick": ["ESTOP"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick"], False),
+    ({}, [True, False], ["view", "scan", "nudge", "view", "rescan"], False),   # 다시 인식에서 못 찾으면 멈춤
+    ({"place": ["NOT_REACHED"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick", "place"], False),
+    ({"nudge": ["DRAWER_NOT_AT_TRAVEL"]}, None, ["view", "scan", "nudge"], False),   # 다시 봐도 안 풀림 → 반복 없이 멈춤 (#191 E 리뷰)
+    ({"nudge": ["BAD_PARAMS"]}, None, ["view", "scan", "nudge"], False),
+    ({"nudge": [""], "pick": ["DRAWER_NOT_CONFIGURED"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick"], False),
+    ({"nudge": [""], "pick": ["NOT_ON_FLOOR"]}, None, ["view", "scan", "nudge", "view", "rescan", "pick"], False),
+])
+def test_b_find_retries_until_grasped(monkeypatch, codes, scans, want_calls, ok):
+    """[사용자 10/08] B find: 손으로 연 서랍에서 시작, 잡을 때까지 다시 넛지. 비상정지·잠김·못 찾음·놓기 실패만 멈춤."""
+    sk = _load_sk(monkeypatch)
+    calls, seq = [], {k: iter(v) for k, v in codes.items()}
+    found = iter(scans) if scans else None
+
+    def run(node, cmd):
+        calls.append(cmd)
+        sk.last["code"] = next(seq[cmd], "") if cmd in seq else ""
+        return sk.last["code"] == ""
+
+    def scan(node, for_pick=False):
+        calls.append("rescan" if for_pick else "scan")
+        return next(found) if found else True
+    monkeypatch.setattr(sk, "run", run)
+    monkeypatch.setattr(sk, "scan", scan)
+    if ok:
+        sk.find(None)
+    else:
+        with pytest.raises(SystemExit):
+            sk.find(None)
+    assert calls == want_calls
+    assert sk.parse_drawer("find", "bottom") == "drawer_bottom"
+
+
+def test_b_sk_sends_full_scan_for_neighbor_check_only_same_drawer(monkeypatch, tmp_path):
+    """[사용자 10/09 랜덤 배치] 인식 결과 전체가 있으면 nudge·pick 에 scan 으로 붙임(옆 물체 확인). 다른 칸 결과는 안 붙임."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "AFTER", str(tmp_path / "after.json"))
+    cara = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+            "pose": {"frame": "drawer_top", "position": [0.1, 0.2, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    full = {"target_found": True, "target": TOP_T, "candidates": [cara], "visible_count": 2}
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    assert "scan" not in sk.goal_for("nudge")[1]                        # 전체 결과 없으면 예전과 같음
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
+    (tmp_path / "after.json").write_text(json.dumps(TOP_T))
+    assert sk.goal_for("nudge")[1]["scan"] == full and sk.goal_for("pick")[1]["scan"] == full
+    wrong = json.loads(json.dumps(full))
+    wrong["candidates"][0]["pose"]["frame"] = "drawer_bottom"
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(wrong))
+    assert "scan" not in sk.goal_for("pick")[1]
+
+
+def test_b_sk_aside_places_held_object_in_drawer_slot_with_scan(monkeypatch, tmp_path):
+    """[사용자 10/11] 캐러멜 위 지우개를 집어 aside 에 — B aside top = place_object(location 서랍, slot aside_1, 집을 때 본 scan).
+    aside2 는 aside_2. 그 서랍 인식 결과가 없으면 보내지 않고 멈춤."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    with pytest.raises(SystemExit, match="B scan top"):
+        sk.goal_for("aside")
+    scan = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(scan))
+    action, params = sk.goal_for("aside")
+    assert action == "place_object" and params["location"] == "drawer_top" and params["slot"] == "aside_1" and params["scan"] == scan
+    assert sk.goal_for("aside2")[1]["slot"] == "aside_2" and "aside" in sk.NEEDS_DRAWER

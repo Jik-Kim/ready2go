@@ -43,6 +43,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 - 손목 카메라 시점: 뷰포트 카메라 메뉴에서 `/World/m0609/link_6/wrist_cam_link/color_optical_frame/color_camera`.
 - **서랍 위치**: `config/places.yaml`의 `drawer_top.tf`(+`tf_at_travel_m`, #6 3점 터치 결과 = 최대 인출 상태의 서랍 좌표계)가 채워지면 `build_scene.py`가 그 값으로 서랍장을 놓는다(닫힘 = 원점 + `tf_at_travel_m` × 서랍 x축). `null`이면 평면도 기반 임시 배치로 만들고 출력에 이유를 남기며, `verify_scene.py`의 tf 일치 검사(원점 1 mm·회전 0.1° 이내)는 건너뛴다. 서랍 좌표계 정의는 `config/places.yaml` 첫 부분과 #6.
 - 값이 오기 전 시험: `READY2GO_PLACES=<대체 places.yaml> READY2GO_SCENE=<출력 usd> bash sim/run_isaac.sh sim/scripts/build_scene.py` (verify도 같은 변수). 정본 씬을 덮어쓰지 않는다. 씬 파일을 `sim/scenes/` 밖에 두면 로봇 참조(상대 경로)가 깨져 prim 존재 검사 2건이 실패하니, 시험용 씬도 `sim/scenes/` 안에 두자.
+- **실측 서랍 좌표계 축 표시**: `/World/workspace/markers/drawer_top`·`drawer_bottom` — 최대 인출 상태 tf 위치에 빨강 x(안쪽)·초록 y·파랑 z(위)·노랑 원점(충돌 없음). 서랍을 끝까지 열면 상자 안쪽 바닥 앞 모서리와 겹쳐야 한다(`verify_scene.py`가 수치로도 확인)
 - **생성 파일이라 USD를 직접 수정하지 말고** `build_scene.py`나 `drawer_dimensions.yaml`을 고친 뒤 다시 생성한다.
 
 ### 이 씬이 근사하는 부분 (전부 [추정], 실측되면 교체)
@@ -52,9 +53,9 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 로봇 축 위치 | 베이스 철판 중심 = 원점 | #6/URDF 확인 |
 | `link_6` 원점 = 플랜지 면 | 가정 (손목 카메라 위치에 영향) | B 확인 |
 | 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
-| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | 위 서랍 `drawer_top.interior_m`을 공유해 만들고 위치는 위 서랍 tf와 같은 서랍장 안(단 높이 19.5−4.8). `places.yaml`의 `drawer_bottom.interior_m`(줄자 기준, 위 서랍과 측정 기준이 다름)은 씬에서 읽지 않음 | `places.yaml` `drawer_bottom.tf`는 B 실측(10/07)으로 채워짐 — `build_scene.py`가 아직 읽지 않음(씬 반영 미작업). **씬 반영은 B 경로 설정 완료 뒤 진행** [사용자 결정 10/08] — 그 전 트윈 사전 검증은 위 칸만, 아래 칸은 "씬 미반영"으로 기록 |
+| 아래 서랍(`drawer_bottom`) 상자 크기·위치 | **위치는 `places.yaml` `drawer_bottom.tf`(B 실측 10/07, 끝까지 연 상태)** — 서랍장 형상으로 계산한 자리 대비 서랍장 x +8.4·y +1.3·z −0.1 mm, 회전 0.71°(바닥 기울기 0.6° 포함) [계산 10/08]. 안쪽 크기는 위 서랍 `interior_m` 깊이·폭(같은 제품, B 확인), 테두리 높이만 `drawer_bottom.interior_m[2]`. 실측 회전 때문에 앞판 아래 모서리가 선반·작업대에 닿아 상자와 선반·작업대 충돌은 끔(실물은 레일) | 실측 회전이 측정 오차인지 확인되면 회전 없이 둘지 결정 |
 | 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
-| 전달 트레이(`handover_zone`) | `places.yaml` `handover_zone.tf`·`interior_m`(B 바닥 터치 10/05)으로 고정 물체로 만듦. 위로 갈수록 넓어지는 사다리꼴: `interior_m`은 닫힌 손끝 중심 범위라 바닥을 사방 10 mm 넓히고 [추정], 벽 윗면은 손끝 범위 끝에서 15.8 mm 바깥(B 실측, 한 벽만 재서 네 벽 같다고 봄) → 바닥 154×110·윗면 166×122 mm, 높이 43 mm, 벽 기울기 7.7°, 두께 4 mm [추정]. 보이는 형상은 모서리 반경 12 mm [추정] 둥근 메시 하나, 충돌은 숨긴 사다리꼴 판 4장 + 바닥판(사용자 GUI 확인 10/06). 임시 트레이(`staging_tray`)는 폐기(#6) | 트레이 외곽 실측 |
+| 전달 트레이(`handover_zone`) | **새 트레이 [사용자 실측 10/11]**: 바깥 26 × 20.5 × 6.2 cm, 벽·바닥 0.2 cm, 벽 직각 — 형상은 `sim/drawer_dimensions.yaml` `trays.handover_zone`(`outer_cm`·`wall_cm`). 위치는 `places.yaml` `handover_zone.tf`(B 10/10 손끝 3점, #206): 원점 = 로봇 쪽·−y 바닥 모서리의 손끝 범위 끝, 벽 안쪽 면은 거기서 손가락 반 두께 10 mm [추정] 바깥. `interior_m`(137 × 175 mm)은 놓기 범위(도달 한계 x 659 mm)라 형상에 쓰지 않음 | B 재터치 시 tf만 교체 |
 
 #83 반영 재생성 [실측 10/06]: 서랍 원점 −3.0 mm(`places.yaml` `drawer_top.tf`)·내부 높이 0.0711·전달 트레이. `verify_scene.py` 전부 통과 — 최대 인출 서랍 좌표계와 `drawer_top.tf` 원점 차이 0.017 mm, 트레이 원점 차이 0.00 mm, 인출 22.60 cm.
 
@@ -93,10 +94,21 @@ ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/
 
 ## 스킬 흐름 궤적·특이점 검사 (`sim/motion_check/`, `sim/scripts/play_motion_trace.py`) [실측·계산 10/06]
 
-> **예전 탑뷰 자세 기준**(10/08 #156 이전). 아래 ◀ 결과·"J3 10°" 언급은 예전 자세(J3 ≈ 10°)의 기록이다. 새 자세(위 칸 J3 54.8°, 아래 칸 J3 85.0°)·J6 180° 회전 경로는 다시 돌리지 않았다.
-B 모션 코드를 로봇 없이 돌려 이동 명령을 기록하고, 관절 궤적을 계산해 특이점 근처 구간을 찾은 뒤 트윈에서 재생한다. 10/06 실물에서 팔이 "확확" 움직인 구간(영상 1:14~17, 2:02~04)을 재현하려고 만들었다.
+B 모션 코드를 로봇 없이 돌려 이동 명령을 기록하고, 관절 궤적을 계산해 특이점 근처 구간을 찾은 뒤 트윈에서 재생한다. 10/06 실물에서 팔이 "확확" 움직인 구간(영상 1:14~17, 2:02~04)을 재현하려고 만들었다. 기준·Phase는 [FR-TWN-02](../docs/requirements.md#fr-twn-02)·[NFR-TWN-01](../docs/requirements.md#nfr-twn-01) — 여기는 계산·근사·확인 결과만.
+
+**현재 결과 [계산, main `d52c1bb` = B #191 코드, 10/11]** — 순서는 B `b_sk.py all`(ready → open → view → nudge → view → pick → place → close → home), 지우개는 서랍 가운데
+| 서랍 | 설정 | 결과 |
+| :--- | :--- | :--- |
+| 위 | 저장소 config | 33구간 끝까지, ◀ 0, 직선 이동 J3 최소 34.5°. 집기 J6 회전은 경유점에서 원복(169°)만 — 물체 위·올리기 1° |
+| 아래 | 가정 설정(`tf_at_travel_m` 0.226, `drag_down`·`carry_line` 트윈 후보 — #155) | 27구간 끝까지, ◀ 0, J3 최소 63°. 집기 J6 원복(171°)만 |
+| 아래 | 저장소 config | 끌기·집기 `DRAWER_NOT_AT_TRAVEL`(`tf_at_travel_m` 없음) — B 교시 대기(#155) |
+- 아래 칸 재생은 사용자가 GUI로 확인(10/08, 열기·집기·닫기 "정확"). 손이 들어가는 깊이: 위 서랍 손잡이 앞면이 아래 서랍 좌표 x ≈ 180 mm, 카메라 브래킷 간격 x 100 → 42 mm, 130 → 12 mm, 140 이상 닿음 [트윈, 축 정렬 상자 간격 — 거친 값]
+- 예전 기록(10/06, #156 이전 탑뷰 J3 ≈ 10°)은 아래 목록의 "main(#83 머지 뒤)"·"결과" 항목 — 지금 자세와 다름
+
 ```bash
-python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --out /tmp/trace.json   # 스킬 서버 흐름 (열기→끌기→집기→놓기→닫기→홈)
+python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --out /tmp/trace.json   # 스킬 서버 흐름 (기본 = b_sk.py all 순서, 위 칸)
+python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --drawer bottom --target 0.10,0.147 --out /tmp/trace_b.json   # 아래 칸, 지우개 서랍 좌표 x,y[,yaw°]
+python3 sim/motion_check/trace_skill_flow.py --repo <B 저장소> --drawer bottom --cfg-dir <가정 config 폴더> --out /tmp/trace_b.json   # 교시 전 값을 가정해 시험
 python3 sim/motion_check/trace_b_demo.py --repo <B 저장소> --out /tmp/trace_demo.json  # 시연 스크립트 b_demo.py 흐름
 ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/play_motion_trace.py --trace /tmp/trace.json [--segments 15-24] [--flag-slow 2] [--loop]
 python3 -m pytest sim/motion_check -q   # 기구학 시험 (CI 대상 아님)
@@ -104,6 +116,8 @@ python3 -m pytest sim/motion_check -q   # 기구학 시험 (CI 대상 아님)
 - `m0609_kin.py`: M0609 FK(`m0609.urdf`, rpy 1.571 → π/2) + TCP 228 mm(GripperDA_v1), 두산 posx(ZYZ), 자코비안, DLS IK. 교시 자세 4개 TCP 오차 1.3~2.2 mm [실측 비교]
 - `trace_skill_flow.py`: B `skill_server` 실제 코드를 기구학 가짜 로봇에 연결(ROS·DSR·RG2 는 가짜). 직선 이동은 0.5 mm·0.25° 간격 IK, 관절 이동은 선형, 관절 스플라인(`movesj`)은 Catmull-Rom 근사. 힘 감시는 누르기 접촉만 흉내
 - `trace_b_demo.py`: `scripts/b_demo.py` 를 그대로 불러 로봇 객체만 가짜로 바꿈(감시 함수·연속 확인은 b_demo 것 그대로)
+- **설정 기록·씬 대조**: 궤적 파일에 쓴 설정(`config.cfg_dir`·`assumed`·`places_sha256`·서랍/트레이 tf)을 남긴다. `--cfg-dir` 폴더는 저장소 `config/` 와 같은 구성 + 옆에 `knowledge/` 가 있어야 한다(스킬 서버가 `config/../knowledge/world.jsonld` 를 읽음). 재생기는 서랍·물체를 궤적의 설정으로 그리고, 그 tf 가 씬을 만든 `config/places.yaml` 과 0.1 mm 넘게 다르면 **거부**(`--allow-mismatch` 면 경고만) — 설정을 바꿨으면 `build_scene.py` 로 씬부터 다시 만든다. 예전 형식 궤적(기록 없음)은 씬 설정으로 그림
+- **근사·한계**: 직선 블렌딩(`moveb`)은 경유점을 직선으로 이은 것 — 모서리 반지름(radius) 곡선은 재현 안 함. 블렌딩으로 앞 직선 끝나기 전에 온 명령은 앞 직선을 끝까지 간 것으로 봄. 관절 이동은 선형 보간. 가짜 그리퍼: 손잡이 = 두께(7 mm), 집기 = 내려가 닫을 때만 지우개 폭(21 mm), 경유점 전 빈손 닫기 0.9 mm. 재생은 서랍 구동을 재생 동안만 세게, 닫기 `push`·`push_slow` 를 한 번의 밀기로 본다
 - 판정 ◀: 직선 이동에서 |J3| < 15° 또는 |J5| < 10° 또는 손끝 10 mm(회전 5°)당 최대 관절 변화 > 20°. **실물 대조 [10/06]**: 튄 구간은 J3 10°(10 mm당 11.8°)·0°(63°), 튀지 않은 구간은 J3 25° 이상(집기 전 수직 복귀 12.7°, 기울이기 5.8°, 집기 하강·상승 4.6°). 10 mm당 관절 변화만으로는 가르지 못해 J3 를 주 기준으로 함(처음 기준 > 4° 는 과민)
 - 재생: 매 스텝 관절 위치를 그대로 설정(텔레포트, 떨림 없음), 실제 시간에 맞춤, RG2 폭 → `finger_joint` 각도(트윈 손가락 간격 실측 표, 0° 137.3 mm … 67.6° 38.7 mm 를 폭 110…0 mm 로 선형 대응 [추정]), 서랍·지우개 움직임은 흉내
 - **한계**: 기하(IK)만 본다 — 두산 제어기의 실제 보간·특이점 처리·`movesj` 곡선과 다를 수 있다 [추정]. 트윈에 손목 카메라(D435i)·케이블 형상이 없다

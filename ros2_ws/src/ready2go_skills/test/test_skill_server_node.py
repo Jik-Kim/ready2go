@@ -4,18 +4,24 @@ ROS 패키지가 없으면(CI의 코어 단계) 필요한 모듈만 이 테스�
 """
 import importlib
 import json
+import math
 import sys
 import types
 from pathlib import Path
 
 import pytest
+import yaml
 
 from ready2go_skills.core import skill_flow as sf
 from ready2go_skills.core.rg2_protocol import Rg2Status
 
 REPO = Path(__file__).resolve().parents[4]
+# 옆벽(y_max)에 붙은 지우개: 10/07 실측 0.2904 = 그때 폭 0.2937 − 3.3 mm. 서랍 좌표계를 다시 재면 폭이 바뀌므로 저장소 places.yaml 폭 기준으로 둔다 (10/10 다시 교시)
+WALL_Y = round(yaml.safe_load((REPO / "config" / "places.yaml").read_text(encoding="utf-8"))["drawer_top"]["interior_m"][1] - 0.0033, 4)
 ERASER_CORNER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
-                 "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 10/07 실측
+                 "pose": {"frame": "drawer_top", "position": [0.0275, WALL_Y, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 10/07 실측 (벽에서 3.3 mm)
+ERASER_WALL_CROSS = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,                    # 오른쪽 벽에 가로로 → 가로 넛지 [사용자 10/10]
+                     "pose": {"frame": "drawer_top", "position": [0.10, WALL_Y, 0.0], "yaw": math.pi / 2, "yaw_valid": True}}
 ERASER_FREE = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
                "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.3, "yaw_valid": True}}
 
@@ -118,13 +124,13 @@ def server(monkeypatch):
             return True
 
     class Gripper:
-        width, holding = 99.0, False
+        width, holding, held_width = 99.0, False, 21.0   # held_width: 쥐고 닫았을 때 폭 (지우개 21 mm)
 
         def __init__(self, ip):
             pass
 
         def move(self, w, f):
-            Gripper.width = (21.0 if Gripper.holding else 0.9) if w == 0 else w
+            Gripper.width = (Gripper.held_width if Gripper.holding else 0.9) if w == 0 else w
             return Rg2Status(Gripper.width, False, w == 0, False)
 
         def status(self):
@@ -200,36 +206,53 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
         return real_line(self, goal, posx, vel, stage, watch, **kw)
     server.ss.SkillServer._line = line
     try:
-        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_WALL_CROSS})
     finally:
         server.ss.SkillServer._line = real_line
     assert out.success and data["pushed"] is True
-    assert data["target_after"]["pose"]["position"][1] == pytest.approx(0.2904 - 0.040, abs=1e-3)   # 누른 z 그대로 40 mm 만 (10/07 저녁 33 → 40) → 옆벽 보정(7.1 mm)으로 바로 집힘
+    prm, place = server.srv.prm(), server.srv.places()["drawer_top"]
+    g = dict(prm["gripper"], wall_offset_mm=prm["drawer_wall_offset_mm"]["drawer_top"],
+             wall_tcp_min_mm=prm["drag"]["wall_tcp_min_by_drawer_mm"]["drawer_top"], axis_grasp=True,
+             max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+             front_tilt_within_mm=prm["pick"]["front_tilt_within_mm"])
+    plan = server.ss.mp.plan_drag(target=ERASER_WALL_CROSS, size_m=server.srv.item("eraser")[0], interior_m=place["interior_m"], g=g, drag=prm["drag"])
+    assert prm["drag"]["shift_mm"] is None and plan.shift_y_m < 0 and plan.axis == "y"   # 가로면 y 넛지 → 긴 변 [사용자 10/10]
+    assert data["target_after"]["pose"]["position"][1] == pytest.approx(WALL_Y + plan.shift_y_m, abs=1e-3)   # 누른 z 그대로 그만큼만
     start, end = contact["drag"]
     assert end[2] == pytest.approx(start[2], abs=0.06)                   # 수평으로만 끔 (z 섞이면 더 눌려 15 N 초과, 10/06 저녁). 0.1 mm 올리기 도착 판정 0.05 mm
     assert contact["z"] - 2.5 / 8.0 <= start[2] <= contact["z"] - 1.0 / 8.0   # 5 N 에서 멈춰 확인 → 0.1 mm 씩 올려 1.5~2.5 N 근처에서 끔 [사용자 10/07]
     assert "N 으로 눌러" in out.reason
     server.srv.robot.force = lambda p: [0.0] * 6
-    server.Gripper.holding = True
+    server.Gripper.holding, server.Gripper.held_width = True, 52.0     # 가로 → 긴 변 양끝 [사용자 10/10]
     route = server.srv.poses()["carry_line"]["drawer_top"]
     server.srv.robot.log.clear()
     out, data = server.run("pick_object", {"target": data["target_after"], "approach_offset": [0, 0, 0.1]})
     server.Gripper.holding = False
     assert out.success and data["grasp_ok"] is True
-    assert server.srv.robot.log[-1] == ("movel", route[0])               # 집고 바로 경유점 1(서랍 중앙)로 — z 300 안 올림 (10/06 저녁)
+    kind, pts, radii = server.srv.robot.log[-1]                         # 집고 수직으로 테두리 위 → 경유점 1(서랍 중앙)로 수평, 블렌딩 한 번 [사용자 10/08]
+    top = server.srv.places()["drawer_top"]
+    travel = 1000.0 * (top["tf"]["translation_m"][2] + top["interior_m"][2]) + server.srv.prm()["transit"]["in_drawer_clear_mm"]
+    assert kind == "moveb" and pts[-1][:3] == route[0][:3] and pts[0][2] == pytest.approx(max(travel, route[0][2]))
+    assert pts[-1][3:] == pts[0][3:]                                    # 경유점까지 손목은 잡은 방향 그대로 [실측 PC2 10/10]
+    assert travel - 0.5 <= route[0][2] <= travel + 5.0                  # 경유점 1 = 테두리 위 조금 (z 300 안 올림) — 교시값이 테두리 + 5 mm 보다 조금 높을 수 있음 [실측 10/10 +6.6 mm]
     server.srv.robot.log.clear()
     out, data = server.run("place_object", {"location": "handover_zone"})
     log = server.srv.robot.log
     assert out.success and data["slot"] == "handover_zone_1"
-    kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이), 직선 블렌딩 한 번
-    assert kind == "moveb" and pts[:3] == route[1:] and len(pts) == 4
-    assert radii[1:] == [50.0, 50.0, 0.0] and radii[0] == pytest.approx(41.7, abs=0.1)   # 50 mm [사용자 10/07], 짧은 구간(1→2 83 mm)은 절반
-    assert pts[3][2] == pytest.approx(route[-1][2])
-    assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[3][2]   # 살포시 내려놓기
+    if log[0][0] == "movej":                                            # 경유점 1 에서 J6 로 놓는 손목 방향 먼저 (있으면)
+        log.pop(0)
+    kind, pts, radii = log[0]                                           # 2·3·4 → 칸 위(4번 높이) → 놓는 높이 1 cm 위, 직선 블렌딩 한 번 [사용자 10/10]
+    assert kind == "moveb" and [q[:3] for q in pts[:3]] == [q[:3] for q in route[1:]] and len(pts) == 5
+    assert all(q[3:] == pts[-1][3:] for q in pts)                      # 경유점은 위치만 — 손목은 놓는 방향 그대로 [실측 PC2 10/10]
+    seq = [route[0]] + pts                                              # 반지름 100 mm [사용자 10/08], 구간이 짧으면 앞뒤 구간 절반의 90% — 절반 그대로면 제어기 거부 [실측 PC2 10/08]
+    half = [min(math.dist(seq[k][:3], seq[k + 1][:3]), math.dist(seq[k + 1][:3], seq[k + 2][:3])) / 2.0 for k in range(4)]
+    assert radii == pytest.approx([min(100.0, 0.9 * h) for h in half] + [0.0]) and radii[0] < 100.0   # 1→2 짧은 구간은 절반의 90%
+    assert pts[3][2] == pytest.approx(route[-1][2]) and pts[4][:2] == pytest.approx(pts[3][:2]) and pts[4][2] < pts[3][2]   # 칸 위에서 멈추지 않고 내려감
+    assert log[1][0] == "movel" and log[1][1][:2] == pytest.approx(pts[3][:2]) and log[1][1][2] < pts[4][2]   # 마지막 1 cm 살포시 내려놓기
     assert log[2][0] == "movel"                                         # 놓은 뒤 위로
     log.clear()
     cp = server.srv.prm()["drawer_open_close"]["close_push"]["drawer_top"]   # 위 칸 닫기 = 45° 기울여 앞판 중앙 밀기 [사용자 10/08]
-    start_x = [391.399, -42.000, 224.955, 90.001, -135.000, 89.992]     # 시작 자세 실측 TCP
+    start_x = list(cp["start_posx"])                                     # 시작 자세 도착 TCP (= params start_posx, 10/10 10 mm 앞으로)
     real_movej = server.srv.robot.movej_async
 
     def movej(j, v, a):
@@ -242,7 +265,7 @@ def test_drag_success_gives_target_after_and_pick_accepts_list_approach_offset(s
     assert out.success
     assert log[0] == ("movej", cp["start_posj"])                        # 트레이 쪽에서 홈 안 거치고 시작 자세로 바로 (관절 이동)
     closed_y = cp["end_posx"][1] - 2.0                                  # 닫힌 앞판에 닿는 y + 2 mm 더
-    assert log[1][1][1] == pytest.approx(closed_y + 30.0, abs=0.5)      # 빠르게 → 마지막 30 mm 는 천천히 (두 번)
+    assert log[1][1][1] == pytest.approx(closed_y + server.srv.prm()["drawer_open_close"]["push_slow_last_mm"], abs=0.5)   # 빠르게 → 마지막 push_slow_last_mm(10/10 10 mm) 는 천천히 (두 번)
     assert log[2][1][1] == pytest.approx(closed_y, abs=0.5)
     assert log[1][1][3:] == start_x[3:] and log[1][1][2] == pytest.approx(start_x[2], abs=0.5)   # 손목·높이 그대로 서랍 축(≈ y)으로만
     assert log[1][1][0] == pytest.approx(start_x[0], abs=1.0)           # 서랍 축이 base y 에서 조금 기울어 x 는 1 mm 안
@@ -316,7 +339,7 @@ def test_runner_open_path_lifts_before_ready_and_does_not_redo_it(server):
     assert log[0][0] == "movel" and log[0][1][2] == pytest.approx(300.0) and log[1] == ("movej", ready)
     log.clear()
     server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
-    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(-289.757, abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07)
+    assert log and log[0][0] == "movel" and log[0][1][1] == pytest.approx(server.srv.prm()["drawer_open_close"]["handle_grasp_posx"]["drawer_top"][1] + server.srv.prm()["drawer_open_close"]["handle_grasp_back_mm"], abs=0.5)   # 손잡이까지 한 번에 (1 cm 전 멈춤 없음, 10/07), 실측보다 handle_grasp_back_mm 덜 (10/08 4 → 10/10 1)
     assert ("movej", ready) not in log
 
 
@@ -380,7 +403,8 @@ def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
         out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
     finally:
         server.ss.SkillServer._line = real_line
-    assert out.error_code == server.ss.PUSH_BLOCKED and "20.0 N > 2.5 N" in out.reason
+    hi = server.srv.prm()["drag"]["drag_force_n"][1]
+    assert out.error_code == server.ss.PUSH_BLOCKED and f"20.0 N > {hi:g} N" in out.reason
     assert "drag" not in contact and data["target_after"] is None
     attempts = server.srv.prm()["drag"]["press_attempts"]
     lifts = [e for e in server.srv.robot.log if e[0] == "movel"]
@@ -478,7 +502,8 @@ def test_relax_step_stall_keeps_going_instead_of_failing(server):
     srv, d = server.srv, server.srv.prm()["drag"]
     warns = []
     srv.get_logger = lambda: types.SimpleNamespace(warn=warns.append)
-    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])
+    mid = sum(d["drag_force_n"]) / 2.0                                  # 끄는 힘 범위 안 [10/10 0.5~1.2 N]
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 4.0, 0, 0, 0], [0, 0, mid, 0, 0, 0]])
     srv._force_still = lambda s: next(forces)
     steps = []
 
@@ -489,7 +514,7 @@ def test_relax_step_stall_keeps_going_instead_of_failing(server):
     pressed = [522.3, -135.6, 216.5, 0.4, 160.0, 0.0]
     bad, p, n = srv._relax(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
                            pressed, [0.0] * 6, d)
-    assert bad is None and n == 2.0 and len(warns) == 1
+    assert bad is None and n == mid and len(warns) == 1
     assert steps == [round(216.5 + d["relax_step_mm"], 2), round(216.5 + 2 * d["relax_step_mm"], 2)]   # 두 번째 칸은 0.2 mm
     srv._step = lambda goal, posx, stage: sf.Outcome(False, "ESTOP", reason="비상정지")
     srv._force_still = lambda s: [0, 0, 4.0, 0, 0, 0]
@@ -508,7 +533,8 @@ def test_relax_stall_then_drag_starts_from_actual_stop_not_command(server):
         z = contact.get("z")
         return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
     srv.robot.force = force
-    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, 2.0, 0, 0, 0]])     # 첫 칸 뒤 힘이 범위 안 (실물: 멈춘 사이 힘이 풀림)
+    mid = sum(srv.prm()["drag"]["drag_force_n"]) / 2.0
+    forces = iter([[0, 0, 4.0, 0, 0, 0], [0, 0, mid, 0, 0, 0]])     # 첫 칸 뒤 힘이 범위 안 (실물: 멈춘 사이 힘이 풀림)
     srv._force_still = lambda s: next(forces)
     srv._step = lambda goal, posx, stage: sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] 0.1 mm 남기고 멈춤")   # 로봇 안 움직임
     real_line = server.ss.SkillServer._line
@@ -546,22 +572,149 @@ def test_pick_goes_through_drag_down_like_nudge(server):
     assert ("movej", down) in moves
     i = moves.index(("movej", down))
     assert not any(e[0] == "movel" for e in moves[:i])                 # 탑뷰에서 먼저 내려가는 직선(z 300) 없음
-    blend = moves[i + 1]
+    blend = next(e for e in moves[i + 1:] if e[0] == "moveb")           # (손목 각도가 다르면 사이에 J6 만 돌리는 movej) [10/10]
+    assert all(e[0] == "movej" for e in moves[i + 1:moves.index(blend)])
     assert blend[0] == "moveb" and len(blend[1]) == 2                   # y 맞추기 → 목표 위, 한 번에
     assert blend[1][0][1] == pytest.approx(blend[1][1][1])              # 첫 점 = 목표 y
     assert blend[1][1][2] < 300.0                                       # safe_z(300) 로 올리지 않음
 
 
+HAMMER = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+
+@pytest.mark.parametrize("width, ok", [(12.4, True), (9.6, False), (21.0, False)])
+def test_hammer_grasp_judged_by_handle_width_not_bbox(server, width, ok):
+    """#43: 망치 외접박스 짧은 변은 75 mm(머리)라 손잡이(12.5 mm)를 잡으면 WIDTH_MISMATCH 였음 → pick.grasp_width_m 으로 판정.
+    벌림은 짧은 변 기준 그대로 (75 + 13 mm). 10 mm 이하는 성공 아님 [사용자 결정 10/08]."""
+    server.Gripper.holding, server.Gripper.held_width = True, width
+    try:
+        srv = server.srv
+        real_grip, grips = srv._grip, []
+        srv._grip = lambda w, f: grips.append(w) or real_grip(w, f)
+        out, res = server.run("pick_object", {"target": json.loads(json.dumps(HAMMER)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success is ok and res["grasp_ok"] is ok
+    assert 88.0 in [round(w, 1) for w in grips]                         # 벌림 = 75 + 13 mm
+    if not ok:
+        assert out.error_code == server.ss.GRASP_FAILED and "기대 12.5 mm" in out.reason
+
+
+def test_pick_floor_10mm_even_if_bbox_short_side_matches(server):
+    """[사용자 결정 10/08, #43] 집기 성공 하한 10 mm — 빈손·놓침 2 mm 와 별개 값."""
+    g = server.srv.prm()["gripper"]
+    assert g["pick_min_width_m"] == pytest.approx(0.010) and g["min_width_m"] == pytest.approx(0.002)
+
+
+def test_bad_grasp_width_refused_before_motion(server, monkeypatch):
+    """짧은 변(75 mm)보다 큰 잡는 폭은 설정 오류 — 움직이기 전에 거부."""
+    srv, real = server.srv, server.srv.prm
+
+    def prm():
+        p = real()
+        p["pick"]["grasp_width_m"] = {"toy_hammer": 0.2}
+        return p
+    monkeypatch.setattr(srv, "prm", prm)
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(HAMMER)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "SKILL_EXCEPTION" and "grasp_width_m" in out.reason
+    assert srv.robot.log == ["stop"]                                    # 이동·그리퍼 명령 없음 (예외 뒤 정지 요청만, plan 오류와 같음)
+
+
+def _stacked_eraser(top_z):
+    t = json.loads(json.dumps(ERASER_FREE))
+    t["top_z"] = top_z
+    return t
+
+
+def test_stacked_eraser_picked_on_support_and_remembered_from_own_bottom(server, monkeypatch):
+    """[사용자 10/09, P2 망치 25 + 캐러멜 18.5 위 지우개] top_z − 높이 = 받침 43.5 mm 위에서 집음.
+    놓을 때 높이는 물체 자기 바닥 기준(바닥에 놓음)."""
+    srv, real, seen = server.srv, server.ss.SkillServer._line, []
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        seen.append((stage, posx[2]))
+        return real(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    server.Gripper.holding = True
+    try:
+        floor, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+        z_floor, floor_held = srv.held["tcp_above_floor_m"], dict(srv.held)   # 잡은 TCP 높이 (바닥 위)
+        seen[:], srv.held = [], None                                    # 놓았다고 치고 다시 집기
+        out, data = server.run("pick_object", {"target": _stacked_eraser(0.0115 + 0.0435), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert floor.success and out.success and "받침 43.5 mm" in out.reason and data["grasp_ok"]
+    assert srv.held["tcp_above_floor_m"] == pytest.approx(floor_held["tcp_above_floor_m"], abs=1e-4)   # 받침 위 같은 높이로 잡음 (놓을 땐 바닥 기준)
+
+
+@pytest.mark.parametrize("allow, top_z", [(True, 0.0712), (False, 0.055)])
+def test_stack_too_high_or_disabled_refused_before_motion(server, monkeypatch, allow, top_z):
+    """윗면이 테두리(71.1) − 10 mm 를 넘거나, allow_stacked false(P1)면 움직이기 전 NOT_ON_FLOOR."""
+    srv, real = server.srv, server.srv.prm
+
+    def prm():
+        p = real()
+        p["pick"]["allow_stacked"] = allow
+        return p
+    monkeypatch.setattr(srv, "prm", prm)
+    out, _ = server.run("pick_object", {"target": _stacked_eraser(top_z), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "NOT_ON_FLOOR" and srv.robot.log == []
+
+
+def _scan_with(target, *others):
+    return {"target_found": True, "target": target, "visible_count": 1 + len(others), "candidates": list(others)}
+
+
+CARAMEL_NEXT = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+                "pose": {"frame": "drawer_top", "position": [0.10, 0.21, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+
+def test_pick_refused_before_motion_when_neighbor_in_finger_footprint(server):
+    """[사용자 10/09 랜덤 배치] 캐러멜이 지우개 긴 변 끝 쪽 6 cm(중심) — 벌린 손가락 자리(긴 변 양끝 [사용자 10/10])와 겹침
+    → 움직이기 전 NEIGHBOR_TOO_CLOSE."""
+    t = json.loads(json.dumps(ERASER_FREE))
+    end = json.loads(json.dumps(CARAMEL_NEXT))
+    end["pose"]["position"][:2] = [0.16, 0.15]
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_with(t, end)})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and "caramel_box#1" in out.reason and server.srv.robot.log == []
+
+
+def test_pick_with_far_neighbor_and_bad_scan(server):
+    t = json.loads(json.dumps(ERASER_FREE))
+    far = json.loads(json.dumps(CARAMEL_NEXT))
+    far["pose"]["position"][1] = 0.26
+    other = json.loads(json.dumps(CARAMEL_NEXT))
+    other["pose"]["frame"] = "drawer_bottom"                            # 다른 서랍 촬영 → BAD_PARAMS (움직이기 전)
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_with(t, other)})
+    assert out.error_code == "BAD_PARAMS" and server.srv.robot.log == []
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_with(t, far)})
+    finally:
+        server.Gripper.holding = False
+    assert out.success
+
+
+def test_nudge_refused_when_drag_path_hits_neighbor(server):
+    """옆벽(y 294) 지우개를 −y 로 40 mm 끌 때 그 길에 캐러멜 → 움직이기 전 NEIGHBOR_TOO_CLOSE."""
+    t = json.loads(json.dumps(ERASER_CORNER))
+    cara = json.loads(json.dumps(CARAMEL_NEXT))
+    cara["pose"]["position"] = [0.0375, 0.225, 0.0]
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "scan": _scan_with(t, cara)})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and data["target_after"] is None and server.srv.robot.log == []
+
+
 def test_side_wall_offset_lets_33mm_drag_be_picked_but_not_30mm(server):
     """10/07: 오른쪽 옆벽은 서랍 경계보다 7.1 mm 바깥 [실측] → 33 mm 끈 지우개는 집기 통과, 30 mm 는 거부 (움직이지 않음)."""
     t = json.loads(json.dumps(ERASER_CORNER))
-    t["pose"]["position"][1] = 0.2904 - 0.030
+    t["pose"]["position"][1] = WALL_Y - 0.030
     out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
     assert out.error_code == server.ss.WALL_TOO_CLOSE and server.srv.robot.log == []
 
 
 def test_lift_then_joint_move_without_stop_and_fallback_when_rejected(server):
-    """10/07 사용자 "z 올리고 탑뷰 가기 전 멈춤 없이": 올리기는 radius 20 으로 보내고 끝 20 mm 안에서 관절 이동.
+    """10/07 사용자 "z 올리고 탑뷰 가기 전 멈춤 없이": 올리기는 radius 로 보내고 끝 안에서 관절 이동 (탑뷰는 50 mm, 10/08 "올라가기·회전 같이 끝나게").
     관절 이동이 거부되면(올라가는 중) 다 올라간 뒤 다시 보냄."""
     r = server.srv.robot
     r.p = [368.0, 6.5, 195.0, 0.0, 180.0, 0.0]
@@ -573,7 +726,7 @@ def test_lift_then_joint_move_without_stop_and_fallback_when_rejected(server):
     r.movel_async = movel
     view = server.srv.poses()["drawer_top_view"]["drawer_top"]
     out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
-    assert out.success and seen == [20.0] and r.log[-1] == ("movej", view)
+    assert out.success and seen == [50.0] and r.log[-1] == ("movej", view)   # 탑뷰는 끝 50 mm 부터 회전 시작 [사용자 10/08] (다른 포즈는 20)
     r.p, r.log[:], seen[:] = [368.0, 6.5, 195.0, 0.0, 180.0, 0.0], [], []
     real_j, calls = r.movej_async, []
 
@@ -589,7 +742,7 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     """10/07 사용자: 잡기·놓기는 1 cm 전까지 빠르게(line_mm_s), 마지막 1 cm 만 천천히."""
     server.Gripper.holding = True
     t = json.loads(json.dumps(ERASER_CORNER))
-    t["pose"]["position"][1] = 0.2904 - 0.033
+    t["pose"]["position"][:2] = [0.10, WALL_Y - 0.040]                  # 집기 판단 여유 8 mm 로도 바로 집히는 자리 [10/10]
     speeds, real = [], server.ss.SkillServer._line
 
     def line(self, goal, posx, vel, stage, watch=None, **kw):
@@ -605,9 +758,129 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
         server.Gripper.holding = False
     st = {s: (v, z) for s, v, z in speeds}
     sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
-    assert st["descend_fast"][0] == sp["in_drawer_mm_s"] and st["descend"][0] == 15.0 and st["descend_fast"][1] - st["descend"][1] == pytest.approx(10.0)
-    assert out2.success and st["lower_fast"][0] == 150.0 and st["lower"][0] == 15.0
-    assert st["lower_fast"][1] - st["lower"][1] == pytest.approx(10.0)
+    # 경유점이 있는 서랍: 목표 위로 가는 블렌딩이 잡는 높이 1 cm 위에서 끝남(따로 빠르게 내려가기 없음) → 마지막 1 cm 만 천천히 [사용자 10/10]
+    blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
+    # 집기 [사용자 10/11 "벌려서 높이만큼 빠르게 내려가 집기"]: 목표 위 → 잡는 높이까지 블렌딩 한 번(서랍 안 속도), 천천히 내려가기 없음
+    assert "descend" not in st and "descend_fast" not in st
+    assert out2.success and "lower_fast" not in st and st["lower"][0] == 15.0   # 칸 위 → 1 cm 위는 들고 나오기 블렌딩에 포함 [사용자 10/10]
+    over = server.srv.prm()["place"]["touch_overtravel_mm"]             # 안 닿으면(가짜 로봇 힘 0) 계산 높이보다 이만큼 더 [사용자 10/10]
+    carry = [e for e in server.srv.robot.log if e[0] == "moveb"][-1][1][-1]
+    assert carry[2] - st["lower"][1] == pytest.approx(10.0 + over)
+
+
+def test_pick_turns_wrist_at_waypoint_before_going_down(server):
+    """[실측 PC2 10/10] 45° 놓인 지우개: 옆 구간에서 돌리면 제어기가 출발 안 하고, 내려가며 돌리면 벌린 손가락이 테두리 아래에서
+    벽에 닿음 → 경유점(테두리 위)에서 J6 만 돌려 잡는 각도를 먼저 맞추고, 목표 위 → 내려가기는 손목 그대로."""
+    srv = server.srv
+    down = srv.poses()["drag_down"]["drawer_top"]
+    server.Gripper.holding = True
+    t = json.loads(json.dumps(ERASER_FREE))
+    t["pose"]["yaw"] = -0.7                                             # 세로에 가까움 → 짧은 변 (가로면 긴 변 [사용자 10/10])
+    srv.robot.log.clear()
+    try:
+        out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert out.success
+    log = srv.robot.log
+    i = log.index(("movej", down))
+    kind, turned = log[i + 1][:2]
+    assert kind == "movej" and turned[:5] == down[:5] and abs(turned[5] - down[5]) > 1.0   # 경유점에서 J6 만
+    kind, pts, _ = next(e for e in log[i + 2:] if e[0] == "moveb")
+    assert all(p[3:] == pts[0][3:] for p in pts)                        # 목표 위 → 내려가기는 손목 그대로
+    # 놓으러 갈 때도 블렌딩 안에서 손목을 되돌리지 않음 — 경유점에서 J6 먼저 [실측 PC2 10/10 65° → carry NOT_REACHED]
+    srv.robot.p = list(srv.robot.p[:3]) + [156.1, 180.0, -139.4]       # 집은 손목 방향 그대로 경유점
+    srv.robot.log.clear()
+    server.Gripper.holding = True
+    try:
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out2.success
+    log = srv.robot.log
+    first_b = next(k for k, e in enumerate(log) if e[0] == "moveb")
+    assert any(e[0] == "movej" for e in log[:first_b])                  # 들고 나오기 전에 J6 로 되돌림
+
+
+def test_lip_balm_on_left_wall_picked_by_ends_tilted_and_placed_turned(server):
+    """[사용자 10/10 PC2 "원통형은 기울여서"] 왼쪽 벽에 세로로 붙은 립밤: 넛지하면 굴러감 → 넛지 없이 긴 변 양끝을 잡고(기대 폭 = 긴 변)
+    왼벽 쪽으로 20° 기울임, TCP 는 교시대로 가운데보다 벽 쪽 4.6·아래 8.8 mm. 트레이에는 손가락을 y 로 돌려 놓음."""
+    prm_ = server.srv.prm()
+    prm_["pick"]["touch_floor"] = {"enabled": False}                    # 교시 자세 높이 그대로인지 (바닥 찍기는 따로 시험)
+    server.srv.prm = lambda: prm_
+    srv = server.srv
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.010, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": lip})
+    assert out.success and data["pushed"] is False                     # 넛지 안 함
+    server.Gripper.holding, server.Gripper.held_width = True, 72.5    # 잡은 폭 [실측 사용자 10/10 PC2]
+    srv.robot.log.clear()
+    try:
+        out, data = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
+        assert out.success and data["grasp_ok"] and "긴 변" in out.reason and "옆벽 쪽" in out.reason and srv.held["long_side"] is True
+        grasp = [e[1] for e in srv.robot.log if e[0] == "movel"][-1]
+        tf = srv.places()["drawer_top"]["tf"]
+        rw = srv.prm()["pick"]["round_wall"]
+        local = [1000.0 * v for v in server.ss.mp.from_base(tf, [v / 1000.0 for v in grasp[:3]])]
+        assert local[1] == pytest.approx(10.0 - rw["tcp_to_wall_mm"], abs=0.1)
+        assert local[2] == pytest.approx(10.0 - rw["tcp_below_center_mm"], abs=0.1)
+        assert abs(grasp[4]) == pytest.approx(180.0 - rw["tilt_deg"], abs=0.5)
+        srv.robot.p = list(srv.robot.p[:3]) + [151.9, 180.0, 151.9]
+        srv.robot.log.clear()
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out2.success
+
+
+def test_lip_balm_in_middle_also_picked_by_ends(server):
+    """[사용자 10/10] 가운데 립밤도 긴 변 양끝 (기울이지 않음). 세로에 가까운 지우개는 짧은 변."""
+    srv = server.srv
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.2, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 72.5
+    try:
+        out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1]})
+        assert out.success and "긴 변" in out.reason and "기울" not in out.reason and srv.held["long_side"] is True
+        srv.held = None
+        server.Gripper.held_width = 21.0
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+        assert out.success and srv.held["long_side"] is False                  # 세로에 가까운 지우개는 짧은 변 [사용자 10/10]
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+def test_place_stops_where_it_touches_the_floor(server):
+    """[사용자 10/10 "2 mm 위에서 떨구는 느낌"] 놓기 마지막에 z 힘이 touch_n 넘게 변하면 그 높이에서 멈추고 벌림."""
+    srv = server.srv
+    server.Gripper.holding = True
+    t = json.loads(json.dumps(ERASER_FREE))
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert out.success
+    floor = {}
+
+    def force(p):                                                       # 바닥에 닿으면 1 mm 에 2 N
+        z = floor.get("z")
+        return [0.0, 0.0, 2.0 * (z - p[2]) if z is not None and p[2] < z else 0.0, 0.0, 0.0, 0.0]
+    real = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "lower":
+            floor["z"] = posx[2] + server.srv.prm()["place"]["touch_overtravel_mm"] + 1.0   # 계산 높이보다 1 mm 위에 바닥
+        r = real(self, goal, posx, vel, stage, watch, **kw)
+        if stage == "lower":
+            floor["stop"] = self.robot.p[2]
+        return r
+    srv.robot.force = force
+    server.ss.SkillServer._line = line
+    try:
+        out2, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.ss.SkillServer._line = real
+        server.Gripper.holding = False
+    assert out2.success
+    n = srv.prm()["place"]["touch_n"]
+    assert floor["stop"] == pytest.approx(floor["z"] - n / 2.0, abs=0.3)    # 닿은 뒤 touch_n 만큼 눌린 곳에서 멈춤 (계산 높이까지 안 감)
 
 
 def test_free_space_speed_only_outside_drawer(server):
@@ -622,7 +895,8 @@ def test_free_space_speed_only_outside_drawer(server):
 
 def test_blend_that_never_starts_is_sent_once_more(server):
     """[실측 10/07 밤 PC2, 관절 90°/s] drag_down 도착 직후 보낸 moveb 가 실행되지 않음 → 남은 204 mm NOT_REACHED.
-    출발조차 안 한 블렌딩은 멈춘 걸 확인하고 한 번만 다시 보냄. 두 번째도 안 가면 NOT_REACHED."""
+    출발조차 안 한 블렌딩은 멈춘 걸 확인하고 한 번만 다시 보냄. 두 번째도 안 가면 점마다 직선으로 끝까지
+    [실측 PC2 10/10 "방향 1 s" 반복 — 손목 크게 도는 블렌딩은 제어기가 계속 출발 안 함]."""
     r = server.srv.robot
     r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
     real, calls = r.moveb_async, []
@@ -637,8 +911,9 @@ def test_blend_that_never_starts_is_sent_once_more(server):
     calls.clear()
     r.moveb_async = lambda pts, radii, *a, **k: calls.append(1) or True        # 계속 안 감
     r.p = [385.4, -286.7, 229.8, 143.0, 180.0, 143.0]
-    out = server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over")
-    assert out.error_code == sf.NOT_REACHED and len(calls) == 2
+    r.log.clear()
+    assert server.srv._blend(goal, pts, [20.0, 0.0], 150.0, "to_object:over") is None and len(calls) == 2
+    assert [e[1] for e in r.log if isinstance(e, tuple) and e[0] == "movel"] == pts and r.posx()[:3] == pytest.approx(pts[-1][:3])
 
 
 def test_into_drawer_waypoint_uses_slow_joint_speed(server):
@@ -826,6 +1101,56 @@ def test_tilted_close_goes_to_taught_start_and_pushes_to_end(server):
     assert ("movej", srv.poses()["home"]["joints_deg"]) not in log
 
 
+def test_tilted_close_then_home_retreats_and_goes_home_without_stopping(server):
+    """[사용자 10/10] B close 는 then_home — 빼기를 끝 home_blend_mm 반지름으로 보내고 멈추지 않고 (올리기 →) 홈 관절 이동까지."""
+    srv = server.srv
+    prm = srv.prm()
+    start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
+    end = [381.9, -283.0, 100.0, 90.0, 160.0, 90.0]
+    start_x = [381.9, -27.0, 100.0, 90.0, 160.0, 90.0]
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": start_x, "end_posx": end}}
+    srv.prm = lambda: prm
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = list(start_x)
+    radii, real = [], server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        radii.append((stage, kw.get("radius", 0.0)))
+        return real(self, goal, posx, vel, stage, watch, **kw)
+    server.ss.SkillServer._line = line
+    try:
+        out, data = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close", "then_home": True})
+    finally:
+        server.ss.SkillServer._line = real
+    assert out.success and data["close_confirmed"] is True and srv.disp["drawer_bottom"] == 0.0 and "홈" in out.reason
+    assert ("retreat", prm["drawer_open_close"]["home_blend_mm"]) in radii       # 홈 TCP 모름 → 빼기 끝에서 멈추지 않고 홈 관절 이동
+    log = [e for e in srv.robot.log if e != "stop"]
+    assert log[-1] == ("movej", srv.poses()["home"]["joints_deg"])
+    # 홈 TCP 를 알면(이번 서버에서 홈에 간 적 있음) 빼기 → 홈 TCP 를 블렌딩 한 번으로, 관절이 맞으면 관절 이동 없음
+    home_x = [368.0, 6.2, 196.5, 0.0, 180.0, 0.0]
+    srv.home_posx = home_x
+    srv.disp = {"drawer_bottom": 0.226}
+    srv.robot.p = list(start_x)
+    srv.robot.j = list(start)
+    srv.robot.log.clear()
+    orig_moveb = srv.robot.moveb_async
+
+    def moveb(pts, radii, *a, **kw):
+        r = orig_moveb(pts, radii, *a, **kw)
+        srv.robot.j = list(srv.poses()["home"]["joints_deg"])            # 홈 TCP 에 도착하면 홈 관절
+        return r
+    srv.robot.moveb_async = moveb
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_bottom", "state": "close", "then_home": True})
+    assert out.success
+    log = [e for e in srv.robot.log if e != "stop"]
+    tr = prm["transit"]
+    kind, pts, radii = log[-1]                                          # 빼기 → 올리기 → 밖으로 → 홈 TCP 를 한 번에
+    assert kind == "moveb" and pts[-1] == home_x and len(pts) == 4
+    assert pts[1][2] == pytest.approx(tr["high_z_mm"]) and pts[2][1] == pytest.approx(tr["exit_y_mm"]) and pts[2][2] == pytest.approx(tr["high_z_mm"])
+    assert radii[0] == pytest.approx(prm["drawer_open_close"]["home_blend_first_mm"]) and radii[1] > radii[0] and radii[-1] == 0.0
+    assert ("movej", srv.poses()["home"]["joints_deg"]) not in log
+
+
 def test_tilted_close_refuses_when_start_and_end_taught_apart(server):
     """시작·끝 교시값의 x·z 가 close_push_xz_tol_mm(5 mm) 넘게 다르면 잘못 잰 것 → 움직이기 전 거부 (DRAWER_NOT_CONFIGURED, #181 C 리뷰).
     start_posx 가 없어도 움직이기 전 거부."""
@@ -948,3 +1273,539 @@ def test_close_after_home_safety_stop_sends_nothing_more(server, state, drawer):
     assert not out.success and out.error_code == (sf.STATE_UNKNOWN if state is None else sf.ESTOP)
     log = [e for e in srv.robot.log if e != "stop"]
     assert log[-1] == ("movej", srv.poses()["home"]["joints_deg"]) and grips == []
+
+
+def test_view_pose_uses_its_own_faster_joint_speed(server):
+    """[사용자 10/08] 탑뷰·바텀뷰 이동만 speed.view_joint_* (J6 약 200° 회전), 다른 기준 포즈는 서버 관절 속도 그대로."""
+    srv, speeds = server.srv, []
+    real = srv.robot.movej_async
+
+    def movej(j, vel, acc):
+        speeds.append((vel, acc))
+        return real(j, vel, acc)
+    srv.robot.movej_async = movej
+    sp = srv.prm()["speed"]
+    for drawer in ("drawer_top", "drawer_bottom"):
+        out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": drawer})
+        assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
+    assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])   # 손잡이 앞도 [사용자 10/08]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    assert out.success and speeds[-1] == (srv.joint_vel, srv.joint_acc)
+
+
+@pytest.mark.parametrize("width_now, restored", [(22.4, True), (0.9, False), (99.0, False), (26.0, False)])
+def test_held_object_survives_server_restart_only_if_gripper_still_holds(server, tmp_path, width_now, restored):
+    """[사용자 10/08] 서버 재시작 뒤 놓기가 NOT_HOLDING → 쥔 물체를 파일에 저장, 시작 때 그리퍼 폭이 저장 폭과
+    slip_tolerance(2 mm) 안이면 되살림. 빈손 닫힘·활짝 열림·폭이 많이 다르면 버리고 파일 지움."""
+    srv = server.srv
+    srv.held_file = tmp_path / "held.json"
+    srv.held = {"class": "eraser", "id": "eraser#1", "width_m": 0.0228, "drawer_id": "drawer_top", "tcp_above_floor_m": 0.03}
+    assert json.loads(srv.held_file.read_text())["class"] == "eraser"
+    srv._held = None                                                    # 재시작 흉내 (메모리만 사라짐)
+    server.Gripper.width = width_now
+    srv._held = srv._restore_held()
+    assert (srv.held is not None) == restored and srv.held_file.exists() == restored
+    srv.held = None
+    assert not srv.held_file.exists()
+
+
+def test_in_drawer_moves_sideways_only_above_rim(server):
+    """[사용자 10/08] 서랍 안 옆 이동은 테두리 + in_drawer_clear_mm 위에서만, 목표 바로 위에서 수직으로 내려감 (쌓인 물건 약 55 mm).
+    경유점(drag_down)이 그 높이보다 낮아도 먼저 수직으로 올린 뒤 옆으로."""
+    srv = server.srv
+    top = srv.places()["drawer_top"]
+    travel = 1000.0 * (top["tf"]["translation_m"][2] + top["interior_m"][2]) + srv.prm()["transit"]["in_drawer_clear_mm"]
+    srv.robot.p = [375.6, -217.0, 250.0, 0.0, 180.0, 0.0]               # 테두리보다 낮은 경유점에 있다고 가정
+    above = [300.0, -150.0, 215.0, 0.0, 180.0, 0.0]
+    srv._over_then_down(types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None),
+                        "drawer_top", list(srv.robot.p), above, "to_object:over")
+    kind, pts, radii = srv.robot.log[-1]
+    assert kind == "moveb" and len(pts) == 3
+    assert pts[0][:2] == pytest.approx([375.6, -217.0]) and pts[0][2] == pytest.approx(travel)   # 수직으로 올림
+    assert pts[1][:2] == pytest.approx(above[:2]) and pts[1][2] == pytest.approx(travel)        # 그 높이로 목표 바로 위
+    assert pts[2] == above and radii[-1] == 0.0                                                 # 수직으로 내려감
+
+
+# --- 서랍 안 놓기 (#120 ②, 계약 #166) ---
+PLACE_EXAMPLES = json.loads((REPO / "contracts/examples/place_object_result.json").read_text(encoding="utf-8"))["cases"]
+DRAWER_CASES = [c for c in PLACE_EXAMPLES if c["params"]["location"].startswith("drawer_")]
+LIP_HELD = {"class": "lip_balm", "id": "lip_balm#1", "width_m": 0.0195, "drawer_id": "drawer_top", "tcp_above_floor_m": 0.02}
+EMPTY_SCAN = {"target_found": False, "target": None, "visible_count": 1,
+              "candidates": [{"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.02,
+                              "pose": {"frame": "drawer_top", "position": [0.10, 0.10, 0.0], "yaw": 0.0, "yaw_valid": True}}]}
+ASIDE_POSE = {"frame": "drawer_top", "position": [0.06, 0.22, 0.0], "yaw": 1.5707}
+
+
+def _holding_in_drawer(server, slots=None):
+    """pick_object 뒤 상태: 서랍 안 경유점(carry_line 1)에서 립밤을 쥐고 있음. slots 를 주면 places.yaml place_slots 교시값으로.
+    그리퍼 명령 폭 목록을 돌려줌."""
+    srv = server.srv
+    srv.held = dict(LIP_HELD)
+    server.Gripper.holding, server.Gripper.width = True, 19.5
+    srv.robot.p = list(srv.poses()["carry_line"]["drawer_top"][0])
+    if slots is not None:
+        places = srv.places()
+        places["drawer_top"]["place_slots"] = slots
+        srv.places = lambda: places
+    grips = []
+    real = srv._grip
+    srv._grip = lambda w, f: grips.append(w) or real(w, f)
+    return grips
+
+
+@pytest.mark.parametrize("case", DRAWER_CASES, ids=[c["case"] for c in DRAWER_CASES])
+def test_place_in_drawer_matches_contract_examples(server, monkeypatch, case):
+    """contracts/examples/place_object_result.json 의 서랍 안 경우를 노드로 그대로 — 코드·output 이 예시와 같음.
+    움직이기 전 거부는 로봇·그리퍼 명령 없음."""
+    srv = server.srv
+    grips = _holding_in_drawer(server, {"aside_1": {"position": [0.05, 0.05, 0.0], "yaw": 0.0}, "aside_2": None})
+    srv.held = dict(LIP_HELD, id=case["_held"]["id"], **{"class": case["_held"]["class"]})
+    prm = srv.prm()                                     # 예시는 자리 그대로 놓임 — 비전 오차 여유(repick_noise)로 옮기는 건 아래 따로
+    prm["place"].update(repick_noise_mm=0.0, repick_noise_deg=0.0)
+    srv.prm = lambda: prm
+    if case["case"] == "released_but_lift_failed":
+        real_line = server.ss.SkillServer._line
+
+        def line(self, goal, posx, vel, stage, watch=None, **kw):
+            if stage == "lift":
+                return sf.Outcome(False, sf.STOP_UNCONFIRMED, reason="주입")
+            return real_line(self, goal, posx, vel, stage, watch, **kw)
+        monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("place_object", case["params"])
+    assert (out.success, out.error_code) == (case["success"], case["error_code"]), out.reason
+    assert data == case["output"]
+    if case["error_code"] in ("BAD_PARAMS", "PLACE_BLOCKED", "WALL_TOO_CLOSE"):
+        assert srv.robot.log == [] and grips == [] and srv.held is not None
+
+
+@pytest.mark.parametrize("setup,code", [
+    ("not_holding", "NOT_HOLDING"), ("travel", "DRAWER_NOT_AT_TRAVEL"), ("slot_untaught", "PLACE_NOT_CONFIGURED"),
+    ("bottom_no_waypoint", "PLACE_NOT_CONFIGURED"), ("held_not_in_scan", "BAD_PARAMS"), ("other_drawer_scan", "BAD_PARAMS"),
+])
+def test_place_in_drawer_refusals_before_any_command(server, setup, code):
+    srv = server.srv
+    grips = _holding_in_drawer(server)
+    params = {"location": "drawer_top", "pose": dict(ASIDE_POSE), "scan": json.loads(json.dumps(EMPTY_SCAN))}
+    if setup == "not_holding":
+        srv.held = None
+    elif setup == "travel":
+        srv.disp = {"drawer_top": 0.20}
+    elif setup == "slot_untaught":                                      # 교시 안 된 slot 이름 (aside_1·2 는 10/10 교시)
+        params = {"location": "drawer_top", "slot": "aside_9", "scan": params["scan"]}
+    elif setup == "bottom_no_waypoint":                                 # 아래 칸 drag_down 교시 전 (저장소 값은 10/10 교시 → 여기서만 지움)
+        poses = srv.poses
+        srv.poses = lambda: {**poses(), "drag_down": {**poses()["drag_down"], "drawer_bottom": None}}
+        srv.disp = {"drawer_bottom": 0.226}
+        params["location"] = params["pose"]["frame"] = "drawer_bottom"
+        params["scan"]["candidates"][0]["pose"]["frame"] = "drawer_bottom"
+    elif setup == "held_not_in_scan":                                   # 다른 촬영 결과 (#166)
+        params["scan"]["candidates"][0]["id"] = "lip_balm#2"
+    elif setup == "other_drawer_scan":
+        params["scan"]["candidates"][0]["pose"]["frame"] = "drawer_bottom"
+    out, data = server.run("place_object", params)
+    assert not out.success and out.error_code == code
+    assert data == {"slot": None, "placed_pose": None}
+    assert srv.robot.log == [] and grips == []
+
+
+def test_place_in_drawer_moves_sideways_only_above_rim(server):
+    """[사용자 10/08] 서랍 안 물건이 약 55 mm 쌓일 수 있음 → 경유점 movej → travel_z 로 수직 → 수평 → 수직으로 내려 놓음
+    → 벌림 → 수직으로 올라 → 경유점 위(travel_z). travel_z 아래에서는 옆으로 움직이지 않음."""
+    from ready2go_skills.core import motion_plan as mp, place_plan as plp
+    srv = server.srv
+    grips = _holding_in_drawer(server)
+    down, waypoint = srv.poses()["drag_down"]["drawer_top"], srv.poses()["carry_line"]["drawer_top"][0]
+    prm, place = srv.prm(), srv.places()["drawer_top"]
+    pl = prm["place"]
+    travel_z = (place["tf"]["translation_m"][2] + place["interior_m"][2]) * 1000.0 + prm["transit"]["in_drawer_clear_mm"]
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    assert data == {"slot": None, "placed_pose": ASIDE_POSE} and srv.held is None
+    assert grips == [pytest.approx(19.5 + pl["release_extra_mm"])]       # 쥔 폭 + release_extra 로 한 번만 벌림
+    log = srv.robot.log
+    assert log[0] == ("movej", down)                                    # 서랍 안 경유점 (집기·넛지와 같은 길)
+    assert all(e[0] in ("movel", "moveb") for e in log[1:])
+    lines = [p for e in log[1:] for p in ([e[1]] if e[0] == "movel" else e[1])]   # 블렌딩 경유점까지 펼침
+    prev = list(waypoint)
+    for p in lines:
+        assert math.dist(prev[:2], p[:2]) < 0.01 or min(prev[2], p[2]) >= travel_z - 0.01, (prev, p)
+        prev = p
+    pos_m, _ = plp.place_tcp_m(place["tf"], ASIDE_POSE, 0.02 + pl["drop_m"])
+    low = min(lines, key=lambda p: p[2])
+    over = prm["place"]["touch_overtravel_mm"]                          # 안 닿으면 쥔 높이 + drop 보다 이만큼 더 내려가 놓음 [사용자 10/10]
+    assert low[:3] == pytest.approx([1000.0 * v for v in pos_m[:2]] + [1000.0 * pos_m[2] - over], abs=1e-6)
+    tz = max(travel_z, waypoint[2])                                     # 경유점이 travel_z 보다 높으면 그 높이로 옆 이동 (_travel_z)
+    assert lines[0][2] == pytest.approx(tz, abs=1e-6) and lines[-1] == pytest.approx(mp.with_z(waypoint, tz), abs=1e-6)   # 먼저 수직으로, 끝은 경유점 위
+
+
+def test_place_in_drawer_cancel_before_release_keeps_object(server, monkeypatch):
+    """그리퍼 열기 직전 취소·비상정지(_clear_to_continue) → 열지 않음, placed_pose null, 쥔 물체 기억 유지."""
+    grips = _holding_in_drawer(server)
+    monkeypatch.setattr(server.ss.SkillServer, "_clear_to_continue",
+                        lambda self, goal: sf.Outcome(False, sf.CANCELED, canceled=True, reason="주입"))
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.error_code == sf.CANCELED and data == {"slot": None, "placed_pose": None}
+    assert grips == [] and server.srv.held is not None
+
+
+def test_place_in_drawer_dropped_before_lowering(server):
+    """놓는 자리 위에서 놓침 확인 (domain.md ③) → OBJECT_DROPPED, 내려가지 않음, placed_pose null."""
+    grips = _holding_in_drawer(server)
+    server.Gripper.width = 0.9                                          # 빈손 닫힘
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.error_code == "OBJECT_DROPPED" and data == {"slot": None, "placed_pose": None}
+    assert grips == [] and server.srv.held is None
+    stages = [p for e in server.srv.robot.log if e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])]
+    assert min(p[2] for p in stages) > 230.0                            # approach(놓는 높이 + 30 mm)까지만
+
+
+def test_place_in_drawer_taught_slot_then_not_holding(server):
+    _holding_in_drawer(server, {"aside_1": None, "aside_2": {"position": [0.05, 0.24, 0.0], "yaw": 0.0}})
+    out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_2", "scan": EMPTY_SCAN})
+    assert out.success and data == {"slot": "aside_2",
+                                    "placed_pose": {"frame": "drawer_top", "position": [0.05, 0.24, 0.0], "yaw": 0.0}}
+    out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_2", "scan": EMPTY_SCAN})
+    assert out.error_code == "NOT_HOLDING" and data == {"slot": None, "placed_pose": None}   # 연 뒤 다시 보내도 중복 놓기 없음
+
+
+def test_diagonal_eraser_near_handle_wall_pushed_to_wall(server, monkeypatch):
+    """[사용자 10/10 제안, 실측 PC2 비전 yaw −1.0102] 손잡이 쪽 벽 근처 비스듬한 지우개: 손잡이 쪽 벽 쪽으로 기울여 눌러
+    손잡이 쪽(x −)으로만 벽까지 끎 — 서랍 여는 방향. y 로는 안 움직임."""
+    contact = {}
+
+    def force(p):
+        z = contact.get("z")
+        return [0.0, 0.0, 8.0 * (z - p[2]) if z is not None and p[2] <= z else 0.0, 0.0, 0.0, 0.0]
+    server.srv.robot.force = force
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        if stage == "press":
+            contact["z"] = (self.robot.p[2] + posx[2]) / 2
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    t = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+         "pose": {"frame": "drawer_top", "position": [0.0308, 0.06, 0.0], "yaw": -1.0102, "yaw_valid": True}}
+    out, data = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == server.ss.WALL_TOO_CLOSE and "벽까지" in out.reason   # 집기 전 넛지 먼저
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t})
+    assert out.success and data["pushed"] is True
+    dx, dy = data["push_vector_m"]
+    assert dx < -0.010 and dy == 0.0
+
+
+def test_p2_cover_plate_lifted_off_eraser_and_set_aside(server):
+    """[P2 시연 시뮬레이션 10/10] 가림막 밑 지우개는 손가락 자리 이웃이 아님 → 집힘. aside_1 에 그대로 두면 손잡이 쪽 벽 밖이라
+    자리 안에서 가장 적게 옮겨 놓고(placed_pose = 옮긴 자리), 나중에 넛지 없이 다시 집을 수 있는 자리."""
+    srv = server.srv
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0405,
+             "pose": {"frame": "drawer_top", "position": [0.110, 0.200, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+          "pose": {"frame": "drawer_top", "position": [0.095, 0.185, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": plate, "candidates": [er], "visible_count": 2}
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        out, data = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success and data["grasp_ok"]
+        out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_1", "scan": scan})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success and data["slot"] == "aside_1"
+    slot = srv.places()["drawer_top"]["place_slots"]["aside_1"]["position"]
+    pp = data["placed_pose"]
+    assert 0.0 < math.dist(pp["position"][:2], slot[:2]) <= srv.prm()["place"]["slot_fit_max_mm"] / 1000.0 + 1e-9
+    g = dict(srv.prm()["gripper"], wall_offset_mm=srv.prm()["drawer_wall_offset_mm"]["drawer_top"])
+    assert server.ss.mp.wall_blocks_grasp(target={"pose": dict(pp, yaw_valid=True)}, size_m=srv.item("cover_plate")[0],
+                                          interior_m=srv.places()["drawer_top"]["interior_m"], g=g) is None
+
+
+def test_long_side_held_place_checks_fingers_at_the_ends(server):
+    """[P2 시뮬레이션 10/10] 긴 변 양끝을 쥔 물체를 서랍 안에 놓을 때 손가락은 긴 변 끝 — 끝 바로 옆 이웃(손가락 자리)이면 PLACE_BLOCKED."""
+    srv = server.srv
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": math.pi / 2, "yaw_valid": True}}   # 가로 → 긴 변
+    server.Gripper.holding, server.Gripper.held_width = True, 52.0
+    try:
+        out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1]})
+        assert out.success and srv.held["long_side"] is True
+        nb = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,                              # 놓을 자리 긴 변 끝에서 35 mm
+              "pose": {"frame": "drawer_top", "position": [0.10, 0.10 + 0.02625 + 0.035, 0.0], "yaw": 0.0, "yaw_valid": True}}
+        scan = {"target_found": True, "target": er, "candidates": [nb], "visible_count": 2}
+        out, data = server.run("place_object", {"location": "drawer_top", "scan": scan,
+                                                "pose": {"frame": "drawer_top", "position": [0.10, 0.10, 0.0], "yaw": math.pi / 2}})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "caramel_box#1"
+
+
+def test_aside_place_keeps_remaining_object_pickable(server):
+    """[P2 무작위 배치 10/10] aside 에 놓을 때 남은 물건(립밤)의 벌린 손가락 자리를 막지 않는 자리로 — 못 찾으면 PLACE_BLOCKED (예외 아님)."""
+    srv = server.srv
+    slot = srv.places()["drawer_top"]["place_slots"]["aside_1"]["position"]
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+          "pose": {"frame": "drawer_top", "position": [0.12, 0.20, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
+           "pose": {"frame": "drawer_top", "position": [slot[0], slot[1] + 0.045, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": er, "candidates": [lip], "visible_count": 2}
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success
+        out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_1", "scan": scan})
+    finally:
+        server.Gripper.holding = False
+    assert out.error_code != "SKILL_EXCEPTION"
+    if out.success:
+        me = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115, "pose": dict(data["placed_pose"], yaw_valid=True)}
+        g = srv.prm()["gripper"]
+        lt = {**lip, "pose": {**lip["pose"], "yaw": math.pi / 2}}                      # 립밤은 긴 변으로 잡음
+        assert server.ss.nc.pick_blocker(target=lt, size_m=[0.02, 0.0718, 0.02], open_mm=84.8, objects=[me], size_of=srv._size_or_none,
+                                         default_size_m=[0.06, 0.06, 0.06], finger_mm=g["fingertip_outer_mm"], margin_mm=5.0,
+                                         support_m=0.0, below_tol_m=0.003, finger_half_width_mm=g["tip_radius_mm"]) is None
+    else:
+        assert out.error_code in ("PLACE_BLOCKED", "WALL_TOO_CLOSE")
+
+
+@pytest.mark.parametrize("allow", [False, True])
+def test_place_in_drawer_on_top_of_object_only_when_allowed(server, allow):
+    """[P2 시뮬레이션 10/11] 쌓기 원위치 복구 — 명령한 pose 가 캐러멜 위면 place.allow_stack_place 일 때만 캐러멜 윗면에 놓음.
+    기본(false)은 지금 계약(#166, 지지면 바닥)대로 PLACE_BLOCKED, 움직임 없음."""
+    srv = server.srv
+    grips = _holding_in_drawer(server)
+    prm = srv.prm()
+    prm["place"]["allow_stack_place"] = allow
+    srv.prm = lambda: prm
+    at = {"frame": "drawer_top", "position": [0.10, 0.12, 0.0], "yaw": 0.0}
+    scan = json.loads(json.dumps(EMPTY_SCAN))
+    scan["candidates"].append({"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.025, "pose": dict(at, yaw_valid=True)})
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": at, "scan": scan})
+    if not allow:
+        assert out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "caramel_box#1"
+        assert srv.robot.log == [] and grips == []
+        return
+    assert out.success, out.reason
+    from ready2go_skills.core import place_plan as plp
+    place = srv.places()["drawer_top"]
+    pos_m, _ = plp.place_tcp_m(place["tf"], at, 0.025 + 0.02 + prm["place"]["drop_m"])
+    low = min((p for e in srv.robot.log if e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])), key=lambda p: p[2])
+    assert low[2] == pytest.approx(1000.0 * pos_m[2] - prm["place"]["touch_overtravel_mm"], abs=1e-6)   # 캐러멜 윗면 기준
+
+
+def test_place_in_slot_leaves_room_for_vision_error(server):
+    """[P2 시뮬레이션 10/11] 고정 자리는 다시 볼 때 ±repick_noise 만큼 틀려도 넛지 없이 다시 집을 수 있게 — 벽에 바짝인 자리는 안쪽으로 옮겨 놓음."""
+    srv = server.srv
+    _holding_in_drawer(server, {"aside_1": {"position": [0.05, 0.05, 0.0], "yaw": 0.0}, "aside_2": None})
+    out, data = server.run("place_object", {"location": "drawer_top", "slot": "aside_1", "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    from ready2go_skills.core import motion_plan as mp
+    prm, place = srv.prm(), srv.places()["drawer_top"]
+    p = data["placed_pose"]
+    assert p["position"][:2] != [0.05, 0.05]
+    gw = dict(prm["gripper"], round=True, max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+              axis_grasp=True, front_tilt_within_mm=prm["pick"]["front_tilt_within_mm"],
+              wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get("drawer_top"),
+              wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get("drawer_top"))
+    size, _ = srv.item("lip_balm")
+    for dx in (-0.003, 0.003):
+        for dy in (-0.003, 0.003):
+            q = dict(p, position=[p["position"][0] + dx, p["position"][1] + dy, 0.0], yaw_valid=True)
+            dp = mp.plan_drag(target={"pose": q}, size_m=size, interior_m=place["interior_m"], g=gw, drag=prm["drag"])
+            assert not dp.needed and dp.error_code is None, dp.reason
+
+
+def test_yaml_cache_keeps_last_good_while_file_is_being_written(server, tmp_path):
+    """[P2 시뮬레이션 10/11] 돌리는 중 skills.yaml 을 저장하면 빈 파일·반쯤 쓴 파일을 읽어 None → SKILL_EXCEPTION.
+    깨진 값이면 전 값을 돌려주고, 제대로 다 쓰이면 새 값."""
+    f = tmp_path / "p.yaml"
+    f.write_text("a: 1\n", encoding="utf-8")
+    yc = server.ss._yaml_cached
+    assert yc(f) == {"a": 1}
+    f.write_text("", encoding="utf-8")
+    assert yc(f) == {"a": 1}
+    f.write_text("a: [1, 2\n", encoding="utf-8")
+    assert yc(f) == {"a": 1}
+    f.write_text("a: 22\n", encoding="utf-8")
+    assert yc(f) == {"a": 22}
+
+
+@pytest.mark.parametrize("drawer, stuck", [("drawer_top", True), ("drawer_bottom", False)])
+def test_open_bottom_drawer_tolerates_stronger_start_resistance(server, monkeypatch, drawer, stuck):
+    """[실측 PC2 10/11] 아래 칸은 꽉 맞물려 인출 7.3 mm 에서 34.9 N → 30 N 기준으로 DRAWER_STUCK. 아래 칸만 stuck_force_by_drawer_n(45 N)."""
+    srv = server.srv
+    srv.disp = {}
+    srv.robot.j = list(srv.poses()["drawer_approach"][drawer])
+    server.Gripper.holding = True                                       # 손잡이 잡음
+    pulling = {}
+    srv.robot.force = lambda p: [0.0, -35.0 if pulling.get("on") else 0.0, 0.0, 0.0, 0.0, 0.0]   # 여는 방향(+y) 반대 저항 35 N
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        pulling["on"] = stage == "pull"
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, _ = server.run("drawer_control", {"drawer_id": drawer, "state": "open"})
+    assert (out.error_code == "DRAWER_STUCK") if stuck else out.success, out.reason
+
+
+def test_nudge_pushes_from_behind_to_handle_wall(server, monkeypatch):
+    """[사용자 10/11 PC2] 손잡이 쪽 벽 근처 비스듬한 지우개 — 뒤에서 닫은 손가락 옆면으로 밂. 힘으로 끝을 찾지 않고 계산한 끝
+    (벽에 붙어 누운 지우개 뒤 = 11 + 11 + 손가락 옆면 9 mm)까지, 그다음 push_back_mm 물러났다가 올림(벽에 낀 지우개가 딸려 올라옴)."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    d = srv.prm()["drag"]
+    tf = srv.places()["drawer_top"]["tf"]
+    target = {"id": "eraser#1", "class": "eraser", "top_z": 0.013,
+              "pose": {"frame": "drawer_top", "position": [0.0314, 0.0388, 0.0], "yaw": -1.1321, "yaw_valid": True}}
+    stages, speeds = [], {}
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        stages.append(stage)
+        speeds[stage] = vel
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": target})
+    assert out.success, out.reason
+    i = stages.index("push")
+    assert stages[i - 1] == "push_down" and stages[i + 1:i + 3] == ["push_back", "lift"] and "press" not in stages
+    assert speeds["push"] == speeds["push_back"] == d["push_speed_mm_s"]
+    moves = [e[1] for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    a, b, c = (mp.from_base(tf, [v / 1000.0 for v in m[:3]]) for m in moves[i - 1:i + 2])
+    assert b[0] * 1000.0 == pytest.approx(11.0 + 11.0 + 9.0 - d["push_over_mm"], abs=0.1) and abs(b[1] - a[1]) < 1e-3   # 계산한 끝, x 로만
+    assert (c[0] - b[0]) * 1000.0 == pytest.approx(d["push_back_mm"], abs=0.1) and abs(c[2] - b[2]) < 1e-4            # 같은 높이로 물러남
+    assert data["target_after"]["pose"]["yaw"] == pytest.approx(-math.pi / 2)
+    assert data["push_vector_m"][0] < 0 and data["push_vector_m"][1] == 0.0
+
+
+def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
+    """[사용자 10/11 PC2] 손잡이 쪽 벽에 가로로 붙은 지우개를 기울여 긴 변으로 잡으면 x·y 는 맞는데 덜 내려가 불안정
+    → 수직 잡기 높이보다 pick.front_tilt_lower_mm 더 내림."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    tf = srv.places()["drawer_top"]["tf"]
+    target = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
+              "pose": {"frame": "drawer_top", "position": [0.0129, 0.0614, 0.0], "yaw": -1.5644, "yaw_valid": True}}
+    lows = {}
+    server.Gripper.holding, server.Gripper.held_width = True, 52.5        # 긴 변 양끝 쥠
+    for lower in (0.0, 5.0):
+        prm = srv.prm()
+        prm["pick"]["front_tilt_lower_mm"] = lower
+        prm["pick"]["touch_floor"] = {"enabled": False}                  # 바닥 닿고 정하기를 끈 경우의 계산 높이
+        prm["pick"]["grip_height_ratio"] = None                          # 예전(윗면 높이) 방식에서의 기울여 잡기 더 내림
+        monkeypatch.setattr(srv, "prm", lambda prm=prm: prm)
+        srv.robot.log.clear()
+        out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+        assert out.success and "긴 변" in out.reason, out.reason
+        pts = [p for e in srv.robot.log if e != "stop" and e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])]
+        lows[lower] = min(mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] for p in pts)
+        srv.held = None
+    assert (lows[0.0] - lows[5.0]) * 1000.0 == pytest.approx(5.0, abs=0.05)
+
+
+def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
+    """[사용자 10/11 PC2] 집기: 벌린 손끝이 교시 바닥 + 5 mm 까지 빠르게 → 넛지처럼 바닥 찍기 → 손끝 내려오는 만큼 + clear_mm 올려 닫기.
+    기준은 TCP 가 아니라 손끝 — 크게 벌리면 손끝이 TCP 보다 위 (TCP 기준이면 바닥까지 안 닿았음). 닫은 손끝은 바닥 위 clear_mm."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    tf = srv.places()["drawer_top"]["tf"]
+    prm = srv.prm()
+    prm["pick"]["touch_floor"]["enabled"] = True                        # 바닥 찍기 (꺼 둔 방식) 켰을 때
+    srv.prm = lambda: prm
+    cfg, g = prm["pick"]["touch_floor"], prm["gripper"]
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    open_tip = mp.tip_below_tcp_mm(49.0 + g["open_margin_mm"], g)      # 벌린 손끝이 TCP 아래 (음수 = 위)
+
+    def force(p):                                                       # 가짜 바닥: 벌린 손끝이 바닥 아래로 가면 1 mm 에 8 N
+        tip_z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0 - open_tip
+        return [0.0, 0.0, max(0.0, -8.0 * tip_z), 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)   # 닫은 손끝 높이
+    assert cfg["clear_mm"] - 1.5 <= closed_tip <= cfg["clear_mm"] + 0.5
+
+
+def test_pick_touch_ignores_force_spike_above_floor(server):
+    """[사용자 10/11 PC2] 내려가기 시작할 때 힘이 튀어 캐러멜 높이에서 '바닥 닿음' → 올라와 윗면을 잡음.
+    바닥 근처(accept_above_mm 안)에서만 닿음으로 봄 — 위에서 튄 3~9 N 은 무시하고 바닥까지 내려감."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    tf = srv.places()["drawer_top"]["tf"]
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+    def force(p):
+        z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0
+        return [0.0, 0.0, 6.0 if (15.0 <= z <= 17.0 or z <= 4.0) else 0.0, 0.0, 0.0, 0.0]   # 캐러멜 높이 근처에서 튐 + 바닥
+    srv.robot.force = force
+    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    assert srv.held["tcp_above_floor_m"] * 1000.0 < 12.0                # 바닥(4 mm)에서 올린 높이 — 캐러멜 높이(16)에서 올린 게 아님
+
+
+def test_pick_height_by_tip_table_without_touch(server):
+    """[사용자 10/11 "넛지 빼고 온톨로지 높이 반영, 벌려서 높이만큼 빠르게 내려가 집기"]: 닫은 손끝(잡는 폭 — 손끝 표)이
+    바닥 위 온톨로지 높이 × grip_height_ratio. 바닥 찍기·천천히 내려가기 없이 블렌딩 한 번으로 잡는 높이까지."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    prm = srv.prm()
+    g = prm["gripper"]
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)
+    assert closed_tip == pytest.approx(18.5 * prm["pick"]["grip_height_ratio"], abs=0.1)
+    stages = [e for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    assert not any(e[3] == prm["speed"]["grasp_mm_s"] for e in stages if len(e) > 3)
+
+
+def test_long_side_grasp_accepts_slightly_skewed_box_width(server):
+    """[실측 PC2 10/11] 캐러멜(버니어 75 × 49, #8) 긴 변 양끝 — 비전 각도 약 6° 틀려 비스듬히 물려 79.7 → WIDTH_MISMATCH 였음.
+    긴 변 잡기는 long_side_yaw_slack_deg 만큼 비스듬한 폭까지 허용, 그보다 크면 여전히 실패."""
+    srv = server.srv
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1268, 0.1649, 0.0], "yaw": 1.5708, "yaw_valid": True}}
+    for width, ok in ((79.7, True), (86.0, False)):
+        srv.held = None
+        server.Gripper.holding, server.Gripper.held_width = True, width
+        out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+        assert out.success == ok, out.reason
+        assert ok or "WIDTH_MISMATCH" in out.reason
+
+
+def test_cover_plate_gripped_at_plate_height_not_floor(server):
+    """[실측 A 10/03, #8] 덮개 판은 다리 볼트 위 판(아랫면 21, 두께 8 mm) — 바닥 찍은 뒤 닫은 손끝을 판 가운데(25 mm)에."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    g = srv.prm()["gripper"]
+    target = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0405,
+              "pose": {"frame": "drawer_top", "position": [0.11, 0.18, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    tf = srv.places()["drawer_top"]["tf"]
+    open_tip = mp.tip_below_tcp_mm(74.2 + g["open_margin_mm"], g)
+    srv.robot.force = lambda p: [0.0, 0.0, max(0.0, -8.0 * (mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0 - open_tip)),
+                                 0.0, 0.0, 0.0]                         # 벌린 손끝이 바닥에 닿으면 힘
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(74.2, g)
+    assert 23.0 < closed_tip < 26.0                                     # 판(21~29) 가운데 25
+
+
+def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server):
+    """[사용자 10/11 PC2] 비전이 캐러멜 윗면을 7~9 mm 높게 봄(25~27 / 18.5) → 지우개 받침을 비전으로 재면 높게 헛잡음.
+    scan 에 밑에 깔린 캐러멜이 있으면 받침 = 캐러멜 온톨로지 높이 18.5."""
+    srv = server.srv
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.039,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    ca = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.027,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 1.5708, "yaw_valid": True}}
+    scan = {"target_found": True, "target": er, "candidates": [ca], "visible_count": 2}
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+    out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.success and "받침 18.5 mm" in out.reason, out.reason

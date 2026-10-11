@@ -85,4 +85,54 @@ def load_config(path, *, evaluation_mode=None):
                 'llm_model', 'tts_executable', 'tts_voice'):
         if not isinstance(cfg.get(key), str) or not cfg[key].strip():
             raise ValueError(f'{key}: 문자열 필요')
+    cfg.setdefault('dialogue_timeout_sec', None)
+    timeout = cfg['dialogue_timeout_sec']
+    if timeout is not None and (type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0):
+        raise ValueError('dialogue_timeout_sec: null 또는 유한 양수 필요')
+    defaults = {'response_max_chars': 160, 'diagnostic_max_bytes': 10485760,
+                'diagnostic_backups': 3, 'diagnostic_queue_size': 128,
+                'tts_prefill_progress_every': 8, 'tts_prefill_max_texts': 128, 'tts_prefill_max_chars': 160, 'tts_prefill_max_bytes': 65536,
+                'tts_frequent_max_texts': 32, 'tts_frequent_min_uses': 2,
+                'tts_frequent_max_bytes': 1048576}
+    for key, default in defaults.items():
+        cfg.setdefault(key, default)
+        if type(cfg[key]) is not int or cfg[key] <= 0:
+            raise ValueError(f'{key}: 양의 정수 필요')
+    cfg.setdefault('diagnostic_file', 'logs/voice/diagnostic.jsonl')
+    if not isinstance(cfg['diagnostic_file'], str) or not cfg['diagnostic_file'].strip():
+        raise ValueError('diagnostic_file: 경로 필요')
+    if 'place_answer_timeout_sec' in cfg:
+        raise ValueError('place_answer_timeout_sec removed; use separate admission/STT settings')
+    for key in ('resume_admission_window_sec', 'resume_stt_result_timeout_sec',
+                'resume_register_ack_timeout_sec', 'resume_question_tts_timeout_sec',
+                'resume_independent_request_timeout_sec', 'place_admission_window_sec',
+                'place_stt_result_timeout_sec'):
+        cfg.setdefault(key, None)
+        value = cfg[key]
+        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value <= 0):
+            raise ValueError(f'{key}: null or finite positive number required')
+    cfg.setdefault('place_max_reasks', None)
+    if cfg['place_max_reasks'] is not None and (type(cfg['place_max_reasks']) is not int or cfg['place_max_reasks'] not in (0, 1)):
+        raise ValueError('place_max_reasks: null, 0 or 1 required')
+    cfg.setdefault('p2_goal_enabled', False)
+    if type(cfg['p2_goal_enabled']) is not bool:
+        raise ValueError('p2_goal_enabled: bool required')
+    cfg.setdefault('p2_goal_catalog', [])
+    if not isinstance(cfg['p2_goal_catalog'], list):
+        raise ValueError('p2_goal_catalog: list required')
+    for goals in cfg['p2_goal_catalog']:
+        if not isinstance(goals, list) or not goals:
+            raise ValueError('nonempty goal list required')
+        for goal in goals:
+            if (not isinstance(goal, dict) or set(goal) != {'predicate', 'subject', 'value'} or
+                    not isinstance(goal['subject'], str) or not goal['subject'].strip() or
+                    not ((goal['predicate'] == 'open' and type(goal['value']) is bool) or
+                         (goal['predicate'] == 'located_in' and isinstance(goal['value'], str) and goal['value'].strip()))):
+                raise ValueError('invalid P2 catalog goal')
+    if cfg['p2_goal_enabled'] and not cfg['p2_goal_catalog']:
+        raise ValueError('enabled P2 evaluation requires a nonempty selected catalog')
+    cfg.setdefault('pick_verify_lower_bound_m', 0.010)
+    value = cfg['pick_verify_lower_bound_m']
+    if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        raise ValueError('pick_verify_lower_bound_m: finite positive number required')
     return cfg

@@ -110,3 +110,29 @@ def drawer_pose_from_tray(R_wt, t_wt, in_w, in_d):
     R_wd = _matmul(R_wt, [list(c) for c in _R_DRAWER_FROM_CAB_COLS])   # 서랍 축 = 트레이 축을 서랍 좌표로 바꾼 것의 역
     off = _matvec(R_wt, [-in_w / 2, in_d / 2, 0.0])
     return R_wd, [t_wt[i] + off[i] for i in range(3)]
+
+
+def drawer_frame_tf(places: dict, key: str):
+    """places.yaml <key>.tf 를 (translation_m, quaternion_xyzw, 잰 인출 거리). drawer_top 은 drawer_tf 와 같은 규칙(tf_at_travel_m 필수).
+    drawer_bottom 은 tf_at_travel_m 이 없고 B 주석이 "끝까지 연 상태"(10/07)라 max_travel_m 을 쓴다. 없으면 None, 일부만 있으면 ValueError."""
+    if key == "drawer_top":
+        return drawer_tf(places)
+    pt = places.get(key) or {}
+    tf = pt.get("tf") or {}
+    t, q = tf.get("translation_m"), tf.get("quaternion_xyzw")
+    if t is None and q is None:
+        return None
+    if t is None or q is None or len(t) != 3 or len(q) != 4:
+        raise ValueError(f"{key}.tf: translation_m 3개와 quaternion_xyzw 4개가 둘 다 있어야 함")
+    at = pt.get("tf_at_travel_m", pt.get("max_travel_m"))
+    if at is None:
+        raise ValueError(f"{key}.tf 가 있으면 잰 인출 거리(tf_at_travel_m 또는 max_travel_m)도 필요")
+    return [float(v) for v in t], [float(v) for v in q], float(at)
+
+
+def tray_pose_from_drawer(R_wd, o_d, in_w, in_d):
+    """drawer_pose_from_tray 의 역: 서랍 좌표계 (R, 원점) → 트레이(상자 중심·바닥면) 월드 (R, 위치)."""
+    R_wt = _matmul(R_wd, _transpose([list(c) for c in _R_DRAWER_FROM_CAB_COLS]))
+    off = _matvec(R_wt, [-in_w / 2, in_d / 2, 0.0])
+    return R_wt, [o_d[i] - off[i] for i in range(3)]
+

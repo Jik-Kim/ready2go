@@ -3,7 +3,10 @@
 실행: ~/isaac-sim-5.1.0/python.sh sim/scripts/build_scene.py  →  sim/scenes/ready2go_t1.usd
 검증: ~/isaac-sim-5.1.0/python.sh sim/scripts/verify_scene.py
 
-- 형상 치수는 sim/drawer_dimensions.yaml 에서 읽는다 (값은 그 파일에만 둔다). 서랍 내부 치수만 config/places.yaml 의 drawer_top.interior_m 에서 읽는다.
+- 형상 치수는 sim/drawer_dimensions.yaml 에서 읽는다 (값은 그 파일에만 둔다). 서랍 내부 치수만 config/places.yaml 의 drawer_top.interior_m 에서 읽는다
+  (아래 서랍 상자 테두리 높이만 drawer_bottom.interior_m[2]).
+- 서랍장 위치는 drawer_top.tf, 아래 서랍 상자는 drawer_bottom.tf(B 실측 10/07)가 있으면 그 자리에 둔다(서랍장 형상에서 계산한 자리와 몇 mm 다름).
+  실측 서랍 좌표계는 /World/workspace/markers 에 축 표시(빨강 x·초록 y·파랑 z, 충돌 없음)로 남겨 GUI 에서 눈으로 대조한다.
 - 카메라 변환은 config/calibration/calibration_meta.yaml 의 derived_tf·driver_tf_used 에서 읽는다 (잠정 채택 값).
 - 월드 = 로봇 base_link. 로봇은 원점에 두고(루트 고정 관절의 기준점이 월드에 고정되어 있어 옮기면 어긋남),
   작업대·서랍장은 /World/workspace 아래에 둔다. 로봇 base_link와 작업대 변의 각도는 미확인이라 WORKSPACE_YAW_DEG 로 둔다.
@@ -29,7 +32,7 @@ CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_te
 PLACES = yaml.safe_load(Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml")).read_text(encoding="utf-8"))
 OUT = Path(os.environ.get("READY2GO_SCENE", ROOT / "sim/scenes/ready2go_t1.usd"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _dims import cabinet_missing, cabinet_pose_from_tf, drawer_tf  # noqa: E402
+from _dims import cabinet_missing, cabinet_pose_from_tf, drawer_frame_tf, drawer_tf, quat_to_R, tray_pose_from_drawer  # noqa: E402
 ROBOT_REL = "../assets/m0609_camera_cube/m0609_camera_cube.usd"
 
 CM = 0.01
@@ -64,6 +67,26 @@ def pose(t, q_xyzw=None, R=None):
     return T
 
 
+def quat_wxyz(R):
+    """3x3 회전 → (w, x, y, z)"""
+    R = np.asarray(R, dtype=float)
+    w = math.sqrt(max(0.0, 1 + R[0, 0] + R[1, 1] + R[2, 2])) / 2
+    x = math.copysign(math.sqrt(max(0.0, 1 + R[0, 0] - R[1, 1] - R[2, 2])) / 2, R[2, 1] - R[1, 2])
+    y = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] + R[1, 1] - R[2, 2])) / 2, R[0, 2] - R[2, 0])
+    z = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] - R[1, 1] + R[2, 2])) / 2, R[1, 0] - R[0, 1])
+    return w, x, y, z
+
+
+def frame_marker(stage, path, T, length=0.04, t=0.002):
+    """좌표계 축 표시(빨강 x·초록 y·파랑 z, 충돌 없음) — GUI 에서 실측 좌표계와 씬 형상을 눈으로 대조."""
+    xform(stage, path, T)
+    for i, (nm, col) in enumerate((("x", (1, 0.1, 0.1)), ("y", (0.1, 0.8, 0.1)), ("z", (0.1, 0.3, 1)))):
+        size, center = [t, t, t], [0.0, 0.0, 0.0]
+        size[i], center[i] = length, length / 2
+        box(stage, f"{path}/{nm}", size, center, col, collide=False)
+    box(stage, f"{path}/origin", (2.5 * t, 2.5 * t, 2.5 * t), (0, 0, 0), (1, 1, 0.1), collide=False)
+
+
 def set_xform(prim, T):
     UsdGeom.Xformable(prim).ClearXformOpOrder()
     UsdGeom.Xformable(prim).AddTransformOp().Set(to_gf(T))
@@ -90,10 +113,8 @@ def box(stage, path, size, center, color, collide=True):
     return prim
 
 
-HANDOVER_FINGER_M = 0.010    # [추정] interior_m 은 닫힌 손끝 "중심"이 닿는 범위 → 실제 바닥은 손가락 반 두께만큼 넓다고 봄
-HANDOVER_RIM_OUT_M = 0.0158  # [실측 B 10/05] 벽 윗면 중심이 바닥 끝(손끝 범위)에서 바깥으로 15.8 mm (서동권 쪽 벽). 네 벽 같다고 봄 [추정]
-HANDOVER_WALL_T = 0.004      # [추정]
-HANDOVER_CORNER_R = 0.012    # [추정] 모서리 둥글기 반경 (안쪽 면, 바닥 기준). 보이는 형상에만 씀
+HANDOVER_FINGER_M = 0.010    # [추정] places.yaml handover_zone 원점·interior_m 은 닫힌 손끝 "중심"이 닿는 범위 → 벽 안쪽 면은 그보다 손가락 반 두께 바깥
+HANDOVER_CORNER_R = 0.003    # 벽 직각 트레이 모서리 둥글기 반경 (안쪽 면). 보이는 형상에만 씀
 
 
 def _round_rect(d, w, e, r, z, k=10):
@@ -142,27 +163,29 @@ def rounded_tray_visual(stage, path, d, w, h, lo, hi, t, r, col):
 
 
 def handover_tray(stage):
-    """전달 트레이(places.yaml handover_zone): 위로 갈수록 넓어지는 사다리꼴. 좌표계 원점 = 앞쪽 오른쪽 바닥 모서리(손끝 범위),
-    바닥면 z = 0. 벽은 바닥 끝(손끝 범위 − HANDOVER_FINGER_M)에서 윗면(− HANDOVER_RIM_OUT_M, 높이 h)까지 기운 판. 고정 물체(충돌만)."""
+    """전달 트레이. 위치는 places.yaml handover_zone.tf(원점 = 로봇 쪽·−y 바닥 모서리의 손끝 범위 끝, 바닥면 z = 0),
+    형상은 sim/drawer_dimensions.yaml trays.handover_zone 바깥 치수·벽 두께 (벽 직각 [사용자 실측 10/11]).
+    places.yaml interior_m 은 놓기 범위(손끝이 닿는 범위, 도달 한계로 트레이보다 작을 수 있음)라 형상에 쓰지 않는다 (#206 PM 10/11).
+    벽 안쪽 면은 원점에서 로봇 쪽·−y 로 손가락 반 두께(HANDOVER_FINGER_M), 바깥 면은 거기서 벽 두께만큼 더 바깥. 고정 물체(충돌만)."""
     hz_ = PLACES.get("handover_zone") or {}
-    tf, inner = hz_.get("tf"), hz_.get("interior_m")
-    if not tf or not tf.get("translation_m") or not inner:
-        return "만들지 않음 (places.yaml handover_zone tf·interior_m 없음)"
-    d, w, h = (float(v) for v in inner)
-    m, o, t = HANDOVER_FINGER_M, HANDOVER_RIM_OUT_M, HANDOVER_WALL_T
+    tf = hz_.get("tf")
+    shape = (DIM.get("trays") or {}).get("handover_zone") or {}
+    if not tf or not tf.get("translation_m"):
+        return "만들지 않음 (places.yaml handover_zone tf 없음)"
+    if not shape.get("outer_cm") or not shape.get("wall_cm"):
+        return "만들지 않음 (sim/drawer_dimensions.yaml trays.handover_zone outer_cm·wall_cm 없음)"
+    m, t, r = HANDOVER_FINGER_M, float(shape["wall_cm"]) * CM, HANDOVER_CORNER_R
+    X, Y, H = (float(v) * CM for v in shape["outer_cm"])
+    d, w, h = X - 2 * t - 2 * m, Y - 2 * t - 2 * m, H - t                 # 안쪽 면 기준 손끝 범위로 환산 (벽은 0−m ~ d+m), 테두리 = 바닥면 위 h
     root = "/World/workspace/handover_tray"
     xform(stage, root, pose(tf["translation_m"], tf["quaternion_xyzw"]))
     col = (0.35, 0.45, 0.7)
-    hidden = [box(stage, f"{root}/floor", (d + 2 * m, w + 2 * m, t), (d / 2, w / 2, -t / 2), col)]   # 충돌용 (보이는 건 아래 둥근 메시)
-    slant = o - m                                                       # 높이 h 동안 바깥으로 벌어지는 거리
-    ang = math.atan2(slant, h)
-    # 벽 = 사다리꼴 판(아래 변은 바닥 끝, 위 변은 윗면 위치, 모서리에서 이웃 벽과 맞닿음) — 안쪽 면 4점 + 바깥으로 두께 t
-    lo, hi = m, o                                                       # 바닥 끝·윗면이 손끝 범위 끝에서 바깥으로 나간 거리
-    walls = {
-        "wall_near": ([(-lo, -lo, 0), (-lo, w + lo, 0), (-hi, w + hi, h), (-hi, -hi, h)], (-1, 0)),
-        "wall_far": ([(d + lo, -lo, 0), (d + lo, w + lo, 0), (d + hi, w + hi, h), (d + hi, -hi, h)], (1, 0)),
-        "wall_right": ([(-lo, -lo, 0), (d + lo, -lo, 0), (d + hi, -hi, h), (-hi, -hi, h)], (0, -1)),
-        "wall_left": ([(-lo, w + lo, 0), (d + lo, w + lo, 0), (d + hi, w + hi, h), (-hi, w + hi, h)], (0, 1)),
+    hidden = [box(stage, f"{root}/floor", (X, Y, t), (d / 2, w / 2, -t / 2), col)]   # 충돌용 (보이는 건 아래 메시)
+    walls = {                                                           # 안쪽 면 4점 + 바깥 법선 방향으로 두께 t
+        "wall_near": ([(-m, -m, 0), (-m, w + m, 0), (-m, w + m, h), (-m, -m, h)], (-1, 0)),
+        "wall_far": ([(d + m, -m, 0), (d + m, w + m, 0), (d + m, w + m, h), (d + m, -m, h)], (1, 0)),
+        "wall_right": ([(-m, -m, 0), (d + m, -m, 0), (d + m, -m, h), (-m, -m, h)], (0, -1)),
+        "wall_left": ([(-m, w + m, 0), (d + m, w + m, 0), (d + m, w + m, h), (-m, w + m, h)], (0, 1)),
     }
     for nm, (inner_pts, (nx, ny)) in walls.items():
         pts = [Gf.Vec3f(*q) for q in inner_pts] + [Gf.Vec3f(q[0] + nx * t, q[1] + ny * t, q[2]) for q in inner_pts]
@@ -177,9 +200,10 @@ def handover_tray(stage):
         hidden.append(mesh.GetPrim())
     for prim in hidden:                                                  # 충돌만 하고 화면에는 안 보임
         UsdGeom.Imageable(prim).MakeInvisible()
-    rounded_tray_visual(stage, f"{root}/visual", d, w, h, lo, hi, t, HANDOVER_CORNER_R, col)
-    return (f"{root} 바닥 {(d + 2 * m) * 1000:.0f}×{(w + 2 * m) * 1000:.0f} mm, 윗면 {(d + 2 * o) * 1000:.0f}×{(w + 2 * o) * 1000:.0f} mm, "
-            f"높이 {h * 1000:.0f} mm (벽 기울기 {math.degrees(ang):.1f}°), 원점 {tf['translation_m']}")
+    rounded_tray_visual(stage, f"{root}/visual", d, w, h, m, m, t, r, col)
+    reach = hz_.get("interior_m") or [None, None]
+    return (f"{root} 바깥 {X * 1000:.0f}×{Y * 1000:.0f}×{H * 1000:.0f} mm, 벽 {t * 1000:.0f} mm, 안쪽 바닥 {(d + 2 * m) * 1000:.0f}×{(w + 2 * m) * 1000:.0f} mm, "
+            f"놓기 범위(interior_m) {reach[0]}×{reach[1]} m, 원점 {tf['translation_m']}")
 
 
 def build():
@@ -297,11 +321,14 @@ def build():
         box(stage, f"{sp}/back_board", (cab_w - 2 * side_t, side_t, total_h), (0, -cab_d / 2 + side_t / 2, hz(0) + total_h / 2), wood)
         shell_parts = [Sdf.Path(sp)] + [Sdf.Path(f"{sp}/{n}") for n in ("bottom_board", "top_board", "side_left", "side_right", "back_board")]
 
-        def drawer(tag, tier, handle_cm):
+        def drawer(tag, tier, handle_cm, closed=None, rim=rim_h):
+            """closed = (R 3x3, 위치) 닫힌 상자의 서랍장 로컬 자세(실측 tf 에서 계산). None 이면 서랍장 형상으로 계산한 자리."""
             d = det[tier]
-            z_ref = hz(d["floor_surface"])                      # 상자 안쪽 바닥면 높이
+            z_ref = hz(d["floor_surface"])                      # 상자 안쪽 바닥면 높이 (서랍장 형상 기준 — 앞판·손잡이 높이 계산용)
+            R_ct, p_ct = closed if closed else (np.eye(3), np.array([0.0, y_c, z_ref]))
             p = f"/World/workspace/cabinet/drawer_{tag}_tray"
-            tray = xform(stage, p, pose([0, y_c, z_ref]))
+            tray = xform(stage, p, pose(p_ct, R=R_ct))
+            rim_h = rim
             UsdPhysics.RigidBodyAPI.Apply(tray)
             UsdPhysics.MassAPI.Apply(tray).CreateMassAttr(TRAY_MASS)
             box(stage, f"{p}/floor", (out_w, out_d, FLOOR_T), (0, 0, -FLOOR_T / 2), wood)
@@ -314,16 +341,17 @@ def build():
                 (0, out_d / 2 + panel_t / 2, hz((fb + ft) / 2) - z_ref), gray)
             box(stage, f"{p}/handle", (hd["width_cm"] * CM, hd["protrusion_cm"] * CM, hd["thickness_vertical_cm"] * CM),
                 (0, out_d / 2 + panel_t + hd["protrusion_cm"] * CM / 2, hz(handle_cm) - z_ref), handle_c)
-            fp_api = UsdPhysics.FilteredPairsAPI.Apply(tray)       # 상자와 서랍장 본체·다른 상자 사이 충돌은 끈다(레일이 잡고 있음)
-            for t in shell_parts:
+            fp_api = UsdPhysics.FilteredPairsAPI.Apply(tray)       # 상자와 서랍장 본체·다른 상자·받침 선반·작업대 사이 충돌은 끈다(레일이 잡고 있음).
+            # 아래 서랍은 실측 tf 회전(바닥 기울기 0.6° 포함)으로 앞판 아래 모서리가 선반·작업대 면에 닿아 16 cm에서 멈췄음 [실측 verify 10/08]
+            for t in shell_parts + [Sdf.Path("/World/workspace/cabinet/shelf"), Sdf.Path("/World/workspace/table")]:
                 fp_api.CreateFilteredPairsRel().AddTarget(t)
             jt = UsdPhysics.PrismaticJoint.Define(stage, f"/World/workspace/cabinet/drawer_{tag}_joint")
             jt.CreateBody0Rel().AddTarget(Sdf.Path(sp))
             jt.CreateBody1Rel().AddTarget(Sdf.Path(p))
             jt.CreateAxisAttr("Y")                                 # +y = 앞(로봇·작업대 쪽)으로 당김, 닫힘 = 0
-            jt.CreateLocalPos0Attr(Gf.Vec3f(0, y_c, z_ref - 0.0))
+            jt.CreateLocalPos0Attr(Gf.Vec3f(*[float(v) for v in p_ct]))
             jt.CreateLocalPos1Attr(Gf.Vec3f(0, 0, 0))
-            jt.CreateLocalRot0Attr(Gf.Quatf(1, 0, 0, 0))
+            jt.CreateLocalRot0Attr(Gf.Quatf(*[float(v) for v in quat_wxyz(R_ct)]))
             jt.CreateLocalRot1Attr(Gf.Quatf(1, 0, 0, 0))
             jt.CreateLowerLimitAttr(0.0)
             jt.CreateUpperLimitAttr(travel)
@@ -337,11 +365,32 @@ def build():
             return p
 
         tray_top = drawer("top", "upper", hd["height_from_bottom_cm"]["upper"])
-        tray_bottom = drawer("bottom", "lower", hd["height_from_bottom_cm"]["lower"])
+        # 아래 서랍: drawer_bottom.tf(B 실측 10/07, 끝까지 연 상태)가 있고 서랍장이 실측 tf 로 놓였으면 그 자리에 둔다
+        tfb = drawer_frame_tf(PLACES, "drawer_bottom")
+        bottom_closed, bottom_note = None, "서랍장 형상으로 계산한 자리 (drawer_bottom.tf 없음 또는 서랍장 임시 배치)"
+        if tfb is not None and tf is not None:
+            R_wt, t_wt = tray_pose_from_drawer(quat_to_R(tfb[1]), tfb[0], in_w, in_d)
+            R_wt, t_wt = np.array(R_wt), np.array(t_wt)
+            closed_w = t_wt - tfb[2] * R_wt[:, 1]                 # 트레이 로컬 +y = 여는 방향 → 닫힘 = 연 자리 − 인출 거리
+            R_c, o_c = T_cab[:3, :3], T_cab[:3, 3]
+            bottom_closed = (R_c.T @ R_wt, R_c.T @ (closed_w - o_c))
+            shape = np.array([0.0, y_c, hz(det["lower"]["floor_surface"])])
+            dd = bottom_closed[1] - shape
+            ang = math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(bottom_closed[0]) - 1) / 2))))
+            bottom_note = (f"places.yaml drawer_bottom.tf (인출 {tfb[2]:.3f} m) — 서랍장 형상 자리 대비 서랍장 x {dd[0] * 1000:+.1f}·y {dd[1] * 1000:+.1f}·"
+                           f"z {dd[2] * 1000:+.1f} mm, 회전 {ang:.2f}°")
+        rim_b = (PLACES.get("drawer_bottom") or {}).get("interior_m") or [None, None, rim_h]
+        tray_bottom = drawer("bottom", "lower", hd["height_from_bottom_cm"]["lower"], bottom_closed, rim_b[2] if rim_b[2] else rim_h)
         for pa, pb in ((tray_top, tray_bottom), (tray_bottom, tray_top)):   # 두 상자끼리도 충돌 끔
             UsdPhysics.FilteredPairsAPI(stage.GetPrimAtPath(pa)).GetFilteredPairsRel().AddTarget(Sdf.Path(pb))
 
     handover = handover_tray(stage)
+    markers = []
+    for key in ("drawer_top", "drawer_bottom"):                  # 실측 서랍 좌표계(최대 인출 상태) 축 표시 — 서랍을 끝까지 열면 상자 안쪽 바닥 모서리와 겹쳐야 함
+        ft = drawer_frame_tf(PLACES, key)
+        if ft is not None:
+            frame_marker(stage, f"/World/workspace/markers/{key}", pose(ft[0], ft[1]))
+            markers.append(key)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     stage.GetRootLayer().Export(str(OUT))
@@ -355,6 +404,9 @@ def build():
         for m in missing:
             print(f"[build]   - {m}", flush=True)
     print(f"[build] 전달 트레이: {handover}", flush=True)
+    if cabinet:
+        print(f"[build] 아래 서랍 상자: {bottom_note}", flush=True)
+    print(f"[build] 실측 서랍 좌표계 축 표시: {', '.join(markers) or '없음'} (/World/workspace/markers, 빨강 x 안쪽·초록 y·파랑 z 위)", flush=True)
 
 
 build()
