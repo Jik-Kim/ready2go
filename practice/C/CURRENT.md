@@ -57,6 +57,12 @@
 
 - **목표 5종 시험표** (PR #213, 10/11): E 선정 5종(E-150-GOAL-CATALOG-20261010-01) 계획·근거·mock 실행 뒤 상태, 이미 만족·계획 불가 별도 시험, 실물 범위 = Runner `plan_limits` 기본값 확인. #150 C 수락. 실물 10/12.
 
+- **#43 트레이 place 사용자 확인** (`feat/c-tray-confirm` `5a11f88`, 10/11, E 승인08·09 C 몫): `verify_mode: enforce` — 다시 찍기·정상 미검출이면 `/runner/status` `confirm` 요청·E `confirm` 수신·최초 asked 부터 100 s·확인돼야 effect·`last.verify` 단계 결과, 서랍 열기 확인에 B `open_distance_m` [실측: 모의 21·ROS 노드 2]. 남은 것: E 답 2개·계약 PR·실물.
+
+- **계약07 Runner 운영** (`feat/c-request-run-runtime` `e2ceae6`, #221 위): `request_id` 기억(재전송·충돌), 수락 때 `run_id` 고정, `accept_text` 첫 안내 1회(실패면 첫 동작 없음) [실측: 호스트 8·ROS 노드 1]. 남은 것: #221 정리·병합 → 운영 PR.
+
+- **실패 응답 결과 기록** (`feat/c-unpack-task` `1d677d9`): `to_result` 가 실패 응답 결과를 버려 실물 실패 근거(`placed_pose`·`hand`)가 기록에 없던 빈틈 수정, 집기 실패 `hand` 모름이면 정지.
+
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
