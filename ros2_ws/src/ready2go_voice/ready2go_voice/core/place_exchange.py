@@ -85,6 +85,11 @@ class PlaceExchange:
         return self._envelope(result)
 
     @serialized
+    def asked_candidate(self, envelope):
+        """Prepare only: sending this does not register a question with C."""
+        return self._message(envelope, 'asked') if self.current(envelope) else None
+
+    @serialized
     def asked(self, envelope, *, now, final_timeout_sec):
         """E-local asked candidate; return does not confirm C registration."""
         if not self.current(envelope):

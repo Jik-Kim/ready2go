@@ -5,6 +5,16 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## 승인 P2 연속 기능 개발 — E-P2-CONTINUOUS-DEVELOPMENT-20261011
+
+- [문서: 최신 지시] 지시 세션이 조율의 인간 원문 turn `01a129c0-cb0a-7473-be91-1b06bc9f21ed`/user `01a129c0-cb3f-7b93-b39c-4502d932b9b8`을 확인해 전달했습니다. 승인된 E 기능 개발을 먼저 이어가고, 더미/회귀/실ROS·최종 CI·PR을 뒤로 두는 순서입니다. 기존 `codex/e-tray-confirm-integration-20261011`/`a2d51b9f3e6e770d0fa67a1d4d5bafb32c3bd5ef`와 작성 중 코드를 보존했습니다. 아래 이전 단일작업 대기 기록은 당시 이력입니다.
+- [문서: 작성 범위] #43 질문 작업·등록 관측·실TTS 완료 검사·새 녹음·confirm/STT·재질문·같은 실행 결과 안내, #150 선정 목표·07 현재 payload/목표 내용 상관·수락 run speak 일회성, #187 stop의 LLM 없는 기존 cancel 경로, #152 기존 RecoveryConfirmation의 typed 상태/질문/독립 발화·복구/재개·작업 종료 후보를 작성했습니다. actual 노드 호출과 내부 typed sender가 있으며 실제 C 원본 매핑은 미완료입니다. 기본 P1·평가·명시 opt-in을 유지합니다. 정책은 [사후 검증](../../docs/requirements.md#verification-policy)·[목표 추출](../../docs/requirements.md#fr-int-02)·[수락 TTS](../../docs/requirements.md#acceptance-tts-policy)·[재개 접수](../../docs/requirements.md#resume-admission-policy)를 참조합니다.
+- [문서: 정적 보완] goal payload의 should_publish 우회 제거, 낮은/중복 seq의 현재 녹음 권한 보존·의미 충돌 시 폐기, 열린 질문/미결정 독립 요청의 새 begin 차단과 기존 기한 내 등록 대기, pending cancel의 busy 권한 정리, 질문 작업 간 직렬화/마이크 공유, 현재 수락 문장·run의 중복 재생 차단을 보완했습니다. 실행 결과로 보고하지 않습니다.
+- [실측: 정적 검사] Voice Python AST 및 git diff --check 통과입니다. 새 실행 시험·더미·ROS probe·전체 CI·push·PR은 수행하지 않았습니다. 이전 a2d51b9의 36개 직접 시험 및 기존 105개 core 시험은 각 이전 대상의 결과이며 이번 노드 경로 검증이 아닙니다.
+- [문서: 정확 통합 선행] #43 실제 질문 출력/confirm 수신/등록·시계/같은 실행 단계 결과, #150·07 현재 C 생산자·재기동/수락/first gate·계획 결과, #152 현재 boot/run/halt/등록 seq/상대 시각·유효기간 및 B 증빙/typed 후보의 공개 규약 매핑이 남아 있습니다. source callable이나 valid_state=True 주입은 실C 통합 증거가 아닙니다. common schema/ICD·C/B/A·DB/모션·ontology 오류목록은 수정하지 않았습니다. B 실파지·정지·외력/재진입·실음성/Whisper/Melo/로봇 AC도 미검증입니다.
+- [문서: #187 실제 격차] 처리/TTS 중 새 음성 stop 수신은 아직 미완료입니다. 현재 일반 listener는 busy/speaking/TTS 또는 질문 작업 동안 웨이크를 보류합니다. 텍스트 cancel·현재 질문 STT의 stop 분류를 별도 상시 음성 수신 완료로 보고하지 않습니다. 기존 웨이크·녹음·stop 최소 경로를 재사용한 독립 수신과 마이크 공유의 추가 개발을 이어갑니다.
+- [문서: 단계 완료 조건] 기능별 실제 diff·생산자/수신자와 미구현/미연결 목록을 지시 세션에 보고하고 검토 후 해당 파일만 로컬 커밋합니다. 이후 승인된 후속 개발·시험 단계로 이어가며 PR 대기로 개발을 막지 않습니다. 모델 해시와 기존 PR225/218/217/07 refs는 보존하고 커밋에서 제외합니다.
+
 ## #43 E 교환·음성 처리 독립 준비 — E43-TRAY-CONFIRM-INTEGRATION-20261011
 
 - [문서: 승인·기준선] 사용자 “구현 시작” 원문(turn `01a129a2-1346-7311-ba2f-be5b37f529ab`/user `01a129a2-1386-7802-8f61-ca296472a2ab`)과 #43 승인08·09, [FR-ONT-02](../../docs/requirements.md#fr-ont-02)·[FR-LOG-02](../../docs/requirements.md#fr-log-02)·[사후 검증 정본](../../docs/requirements.md#verification-policy)을 대조했습니다. 지시된 기존 checkout의 branch `codex/e-tray-confirm-integration-20261011`을 PR225 `0f1f16c2991f54f05bf5577d7cd21ec888e4df7f`에서 시작했습니다. 앞 작업 편집·실행 종료와 tracked clean을 확인했고 별도 작업 폴더를 만들지 않았습니다.

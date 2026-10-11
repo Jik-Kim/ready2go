@@ -62,6 +62,9 @@ class IntentParser:
         return set().union(*(keys for alias, keys in self.aliases.items() if alias in value))
 
     def control(self, text):
+        from .recovery_confirmation import safety_utterance
+        if safety_utterance(text) == 'stop':
+            return intent('cancel')
         if normalize_control(text) in {normalize_control(p) for p in self.cfg['cancel_phrases']}:
             return intent('cancel')
         if normalize_control(text) in {normalize_control(p) for p in self.cfg['status_phrases']}:
@@ -257,6 +260,8 @@ class IntentParser:
         if doc is None:
             doc = intent('clarify', question=self.cfg['clarify_prompts']['unconfirmed'])
             doc['_voice'] = {'reason': 'p2_goal_unconfirmed'}
+        elif self.cfg.get('request_run_enabled') is True:
+            diag['execution_allowed'] = True  # E request candidate, not C acceptance or motion permission.
         final_response(self, doc, candidate)
         doc['source'] = diag
         return doc

@@ -43,6 +43,18 @@ class Recorder:
     def __init__(self, cfg, clock=time.monotonic, wall=time.time):
         self.cfg, self.clock, self.wall = cfg, clock, wall
 
+    def capture(self, stop, paused=lambda: False):
+        """A question's new recording, without another wake-word round."""
+        if self.cfg.get('recording_mode', 'silence') == 'fixed':
+            return self.record_fixed(stop, paused)
+        import sounddevice as sd
+        if stop.is_set() or paused():
+            raise InterruptedError('녹음 중단')
+        with sd.RawInputStream(samplerate=self.cfg['sample_rate'], channels=1, dtype='int16',
+                               blocksize=self.cfg['frame_samples'],
+                               device=resolve_input_device(self.cfg)) as stream:
+            return self.record(stream, stop, paused)
+
     def record_fixed(self, stop, paused=lambda: False):
         """원본 sd.rec→sd.wait 고정 녹음. 발화 종료 시각은 측정하지 않습니다."""
         import sounddevice as sd

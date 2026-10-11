@@ -24,6 +24,10 @@ from ..core.diagnostics import DiagnosticFile, redact
 from ..core.response import final_response
 from ..core.runner_notice import RunnerNoticePolicy, Notice
 from ..core.request_run import RequestRun
+from ..core.place_exchange import PlaceExchange
+from ..core.place_input import decode, identity, question_input, registered, result_notice
+from ..core.safety_exchange import SafetyExchange, IndependentRegistration, QuestionDeclined, RecoveryRequest
+from ..core.recovery_confirmation import finite, safety_utterance, task_end_utterance
 from ..adapters.api import LangChainIntent, WhisperSTT
 from ..adapters.audio import Recorder, WakeAudio
 from ..adapters.tts import create_tts
@@ -31,11 +35,13 @@ from ..adapters.tts import create_tts
 
 def runner_blocks(node):
     policy = getattr(node, 'notice_policy', None)
-    return bool(policy and (policy.phase in ('running', 'halted') or policy.blocked))
+    safety = getattr(node, 'safety_exchange', None)
+    return bool(policy and (policy.phase in ('running', 'halted') or policy.blocked)
+                or safety and safety.policy and safety.policy.work is not None)
 
 
 class VoiceNode(Node):
-    def __init__(self, **kwargs):
+    def __init__(self, *, tts=None, stt=None, recorder=None, clock=time.monotonic, **kwargs):
         super().__init__('voice', **kwargs)
         default = str(Path(get_package_share_directory('ready2go_voice')) / 'params/voice.yaml')
         path = self.declare_parameter('config_file', default).value
@@ -46,6 +52,10 @@ class VoiceNode(Node):
         if not isinstance(request_run, bool):
             raise ValueError('request_run_enabled: bool 필요')
         self.cfg['request_run_enabled'] = request_run
+        goal_enabled = self.declare_parameter('p2_goal_enabled', self.cfg['p2_goal_enabled']).value
+        if not isinstance(goal_enabled, bool):
+            raise ValueError('p2_goal_enabled: bool 필요')
+        self.cfg['p2_goal_enabled'] = goal_enabled
         self.cfg['diagnostic_detail'] = self.declare_parameter('diagnostic_detail', self.cfg['diagnostic_detail']).value
         self.local_context = threading.local()
         self.diagnostic_file = DiagnosticFile(self.cfg, self.get_logger().warning) if self.cfg['diagnostic_detail'] else None
@@ -53,32 +63,65 @@ class VoiceNode(Node):
         with open(self.cfg['intent_schema_file'], encoding='utf-8') as f:
             schema = json.load(f)
         self.parser = IntentParser(ontology, schema, self.cfg, LangChainIntent(self.cfg, ontology['world']['items']))
-        self.session = VoiceSession(self.parser, self.cfg, WhisperSTT(
+        self.session = VoiceSession(self.parser, self.cfg, stt if stt is not None else WhisperSTT(
             self.cfg, list(dict.fromkeys(name for v in ontology['world']['items'].values()
                 for name in [v['name_ko'], *v.get('aliases_ko', [])]))),
-            progress=lambda **event: self._diagnostic(event))
+            clock=clock, progress=lambda **event: self._diagnostic(event))
         if self.cfg.get('tts_engine') == 'melotts':
             self.cfg['_tts_progress'] = self._diagnostic
             self.cfg['_tts_prefill_texts'] = prefill_texts(self.cfg, self.parser.items.values(), self.get_logger().warning,
                 lambda data: self._diagnostic(dict(data, event='prefill_selection')))
-        self.tts = create_tts(self.cfg)
+        self.tts = tts if tts is not None else create_tts(self.cfg)
         if self.cfg.get('tts_engine') == 'melotts':
             self.tts.prepare()  # 모델/캐시 완료 전 웨이크/ready를 시작하지 않음
         self.stop_event = threading.Event()
         self.busy = threading.Event()
         self.speaking = threading.Event()
         self.requests = queue.Queue(maxsize=1)
-        self.submit_lock = threading.Lock()
+        self.submit_lock = threading.RLock()
         self.goal_lock = threading.Lock()
         self.generation = 0
         self.request_cancel = threading.Event()
         self.notice_policy = RunnerNoticePolicy()
         self.request_run = RequestRun()
+        self.request_source_check = None  # Actual C producer/restart mapping is supplied at integration.
+        self.request_speech_used = set()
+        self.goal_request_run = None
         self.notice_condition = threading.Condition()
         self.pending_notice = None
         self.notice_cancel = threading.Event()
         self.normal_notice_cancel = threading.Event()
         self.warning_epoch = 0
+        self.audio_lock = threading.Lock()
+        self.dialog_lock = threading.Lock()
+        self.place_clock = clock
+        # Explicit development boundary; question/registered/result are test fixtures.
+        self.place_topic = self.declare_parameter('place_test_input_topic', '').value
+        if not isinstance(self.place_topic, str):
+            raise ValueError('place_test_input_topic: string required')
+        self.place_exchange = PlaceExchange(self.cfg, item_names={
+            key: value['name_ko'] for key, value in self.parser.items.items()})
+        self.place_recorder = recorder if recorder is not None else Recorder(self.cfg, clock=clock)
+        self.place_test_devices = tts is not None or stt is not None or recorder is not None
+        self.place_condition = threading.Condition(self.submit_lock)
+        self.place_pending = None
+        self.place_identity = None
+        self.place_results = set()
+        self.place_budget = None
+        self.place_first_sent = None
+        self.place_registered = None
+        self.place_registered_at = None
+        self.place_cancel = threading.Event()
+        self.place_activity = threading.Event()
+        self.place_thread = None
+        self.place_running = None
+        self.safety_exchange = SafetyExchange(self.cfg)
+        self.safety_sender = None
+        self.safety_pending = None
+        self.safety_running = None
+        self.safety_cancel = threading.Event()
+        self.safety_activity = threading.Event()
+        self.safety_thread = threading.Thread(target=self._safety_work, daemon=True)
         group = ReentrantCallbackGroup()
         self.publisher = self.create_publisher(String, '/voice/intent', 10)
         self.subscription = self.create_subscription(String, '/voice/text_override', self._text, 10,
@@ -87,6 +130,11 @@ class VoiceNode(Node):
                                 reliability=ReliabilityPolicy.RELIABLE)
         self.status_subscription = self.create_subscription(String, '/runner/status', self._runner_status_with_info,
                                                             status_qos, callback_group=MutuallyExclusiveCallbackGroup())
+        if self.place_topic:
+            self.place_subscription = self.create_subscription(String, self.place_topic, self._place_input, 10,
+                                                                callback_group=group)
+            self.place_thread = threading.Thread(target=self._place_work, daemon=True)
+            self.place_thread.start()
         self.server = ActionServer(self, Skill, '/voice/speak', execute_callback=self._speak,
                                    goal_callback=self._goal, cancel_callback=lambda _: CancelResponse.ACCEPT,
                                    callback_group=group)
@@ -94,13 +142,430 @@ class VoiceNode(Node):
         self.worker.start()
         self.notice_worker = threading.Thread(target=self._notice_work, daemon=True)
         self.notice_worker.start()
+        self.safety_thread.start()
         self.listener = None
-        if self.cfg['audio_enabled']:
+        if self.cfg['audio_enabled'] and recorder is None:
             self.listener = threading.Thread(target=self._listen, daemon=True)
             self.listener.start()
         self._diagnostic({'event': 'ready', 'evaluation_mode': self.cfg['evaluation_mode'],
                           'audio_enabled': self.cfg['audio_enabled'],
                           'request_run_enabled': self.cfg['request_run_enabled']})
+
+    def _cancel_place_locked(self):
+        owned = self.place_activity.is_set()
+        self.place_cancel.set()
+        self.place_exchange.invalidate()
+        self.place_pending = self.place_identity = None
+        self.place_registered = None
+        self.place_registered_at = None
+        if owned and self.place_running is None and not self.safety_activity.is_set():
+            self.place_activity.clear()
+            self.busy.clear()
+        if self.pending_notice and self.pending_notice.kind == 'place_result':
+            self.notice_cancel.set()
+            self.pending_notice = None
+        self.place_condition.notify_all()
+
+    def _place_input(self, message):
+        """Explicit E development fixtures; not a guessed Runner status contract."""
+        doc = decode(message.data)
+        if doc is None or not self.place_topic or self.cfg['evaluation_mode']:
+            return
+        with self.place_condition:
+            self.place_condition.notify_all()
+            if self.stop_event.is_set() or self.notice_policy.blocked or self.notice_policy.phase == 'halted':
+                return
+            if doc.get('type') == 'registered':
+                q = self.place_exchange.active
+                now = self.place_clock()
+                if (registered(doc, q) and self.place_first_sent is not None
+                        and finite(now) and self.place_first_sent <= now <= self.place_first_sent + self.place_budget
+                        and not self.place_cancel.is_set()):
+                    accepted = self.place_exchange.asked(q, now=self.place_first_sent,
+                                                        final_timeout_sec=self.place_budget)
+                    if accepted and accepted['answer'] == 'asked':
+                        if self.place_registered is not q:
+                            self.place_registered_at = now
+                        self.place_registered = q
+                    self.place_condition.notify_all()
+                return
+            if doc.get('type') == 'result':
+                text = result_notice(doc, expected=self.place_identity)
+                final = self.place_exchange.policy.final
+                if (text is None or self.place_identity in self.place_results
+                        or self.place_cancel.is_set() or final is None or final.success is not True):
+                    return
+                self.place_results.add(self.place_identity)
+                with self.notice_condition:
+                    self.notice_cancel.set()
+                    self.notice_policy.revision += 1
+                    self.pending_notice = Notice('place_result', text, 4, self.notice_policy.revision)
+                    self.notice_condition.notify_all()
+                return
+            incoming = question_input(doc)
+            if incoming is None or self.busy.is_set() and not self.place_activity.is_set():
+                return
+            current = self.place_exchange.active
+            ident = identity(doc)
+            if current is not None and ident == self.place_identity:
+                # A conflicting replay cannot mutate the active work or its budget.
+                if incoming.work != current.question.work or incoming.final_timeout_sec != self.place_budget:
+                    return
+            q = self.place_exchange.begin(incoming.work, boot_id=incoming.boot_id,
+                                         observation=incoming.observation)
+            if q is current and q is not None:
+                return
+            if q is None:
+                if self.place_exchange.current(current):
+                    return  # invalid/stale work cannot cancel the current procedure.
+                final = self.place_exchange.policy.final
+                if final is None or final.work != incoming.work:
+                    return  # unrelated rejected input cannot clear a result awaiting notice.
+                self._cancel_place_locked()
+                if final is not None and final.work == incoming.work and final.success is True:
+                    self.place_identity = ident
+                    self.place_cancel = threading.Event()
+                return
+            self.place_cancel.set()  # old worker cannot commit into the new question.
+            self.place_cancel = threading.Event()
+            self.place_identity, self.place_budget = ident, incoming.final_timeout_sec
+            self.place_first_sent = self.place_registered = self.place_registered_at = None
+            self.place_pending = q
+            self.place_activity.set()
+            self.busy.set()
+            self.session.conversation.invalidate()
+            self.place_condition.notify_all()
+
+    def _place_paused(self, q, cancel):
+        return (cancel.is_set() or self.stop_event.is_set() or not self.place_exchange.current(q)
+                or self.notice_policy.blocked or self.notice_policy.phase == 'halted')
+
+    def _place_publish_locked(self, message, q, cancel):
+        if self.cfg['evaluation_mode'] or self._place_paused(q, cancel):
+            return False
+        self._publish(message)
+        self._diagnostic({'event': 'place_confirm_sent', 'confirm': message,
+                          'test_devices': self.place_test_devices})
+        return True
+
+    def _place_work(self):
+        while not self.stop_event.is_set():
+            with self.place_condition:
+                self.place_condition.wait_for(lambda: self.place_pending is not None or self.stop_event.is_set())
+                if self.stop_event.is_set():
+                    return
+                q, self.place_pending = self.place_pending, None
+                cancel = self.place_cancel
+                if self._place_paused(q, cancel):
+                    continue
+                self.place_running = cancel
+                if self.place_first_sent is None:
+                    self.place_first_sent = self.place_clock()
+                asked = self.place_exchange.asked_candidate(q)
+                if not self._place_publish_locked(asked, q, cancel):
+                    continue
+            try:
+                self.dialog_lock.acquire()
+                # Poll only the existing whole interval; no additional ACK budget.
+                with self.place_condition:
+                    while self.place_registered is not q and not self._place_paused(q, cancel):
+                        remaining = self.place_first_sent + self.place_budget - self.place_clock()
+                        if remaining < 0:
+                            raise TimeoutError('PLACE_REGISTRATION_EXPIRED')
+                        self.place_condition.wait(min(.1, max(.001, remaining)))
+                if self._place_paused(q, cancel):
+                    raise InterruptedError('PLACE_CANCELED')
+                if self.place_clock() > self.place_first_sent + self.place_budget:
+                    raise TimeoutError('PLACE_QUESTION_EXPIRED')
+                if not self.cfg['audio_enabled']:
+                    raise ValueError('PLACE_AUDIO_DISABLED')
+                timing, started = {}, {}
+                self.speaking.set()
+                self.tts.speak(q.question.text, cancel=cancel, on_start=started.update,
+                               on_timing=timing.update)
+                self.speaking.clear()
+                finish, start = timing.get('playback_ended_monotonic'), started.get('tts_started_monotonic')
+                evidence = (finite(start) and finite(finish) and self.place_registered_at <= start <= finish <= self.place_clock()
+                            and timing.get('playback_end_basis') == 'portaudio_finished_callback'
+                            and started.get('tts_start_basis') == 'portaudio_first_dac'
+                            and (started.get('tts_mock') is False or self.place_test_devices))
+                if self._place_paused(q, cancel):
+                    raise InterruptedError('PLACE_CANCELED')
+                if not evidence:
+                    raise ValueError('PLACE_TTS_UNCONFIRMED')
+                if not self.place_exchange.delivered(q, now=finish, success=True):
+                    raise TimeoutError('PLACE_TTS_EXPIRED')
+                if not self.cfg['audio_enabled']:
+                    raise ValueError('PLACE_AUDIO_DISABLED')
+                with self.audio_lock:
+                    recording = self.place_recorder.capture(cancel, paused=lambda: self._place_paused(q, cancel))
+                reply = self.session.confirm_audio(self.place_exchange, q, recording, cancel=cancel,
+                                                   paused=lambda: cancel.is_set() or self.stop_event.is_set())
+                with self.place_condition:
+                    # The core consumes q on answer; compare the owning procedure/cancel instead.
+                    if reply is not None and cancel is self.place_cancel and not cancel.is_set() and not self.stop_event.is_set():
+                        if self.cfg['evaluation_mode'] or self.notice_policy.blocked or self.notice_policy.phase == 'halted':
+                            continue
+                        if reply.message['intent'] == 'cancel':
+                            self._cancel_place_locked()
+                            self.generation += 1
+                            self.request_cancel.set()
+                            self.request_run.invalidate()
+                        self._publish(reply.message)
+                        self._diagnostic({'event': 'place_confirm_sent', 'confirm': reply.message,
+                                          'test_devices': self.place_test_devices})
+                        if reply.next_question is not None:
+                            self.place_pending = reply.next_question
+                            self.place_registered = None
+                            self.place_registered_at = None
+                            self.place_condition.notify_all()
+            except InterruptedError:
+                pass
+            except Exception as exc:
+                with self.place_condition:
+                    if (cancel is self.place_cancel and not cancel.is_set() and not self.stop_event.is_set()
+                            and not self.cfg['evaluation_mode'] and not self.notice_policy.blocked
+                            and self.notice_policy.phase != 'halted'):
+                        reply = self.place_exchange.fail(q, answer='expired' if isinstance(exc, TimeoutError) else 'error')
+                        if reply is not None:
+                            self._publish(reply.message)
+                    self._diagnostic({'event': 'place_question_failed', 'error_type': type(exc).__name__,
+                                      'question_id': q.question_id})
+            finally:
+                self.dialog_lock.release()
+                with self.place_condition:
+                    if self.place_running is cancel:
+                        self.place_running = None
+                    if self.place_pending is None:
+                        self.place_activity.clear()
+                        if not self.safety_activity.is_set():
+                            self.busy.clear()
+                if not self.tts.lock.locked():
+                    self.speaking.clear()
+
+    def bind_safety_sender(self, sender):
+        """C 매핑 구현이 E 내부 후보를 받습니다. 공개 payload는 여기서 만들지 않습니다."""
+        if not callable(sender):
+            raise TypeError('typed C safety sender callable required')
+        with self.submit_lock:
+            self._cancel_safety_locked()
+            self.safety_sender = sender
+
+    def _cancel_safety_locked(self):
+        owned = self.safety_activity.is_set()
+        self.safety_cancel.set()
+        self.safety_exchange.cancel()
+        self.safety_pending = None
+        if self.safety_running is None:
+            self.safety_activity.clear()
+            if owned and not self.place_activity.is_set():
+                self.busy.clear()
+        self.place_condition.notify_all()
+
+    def safety_stopped(self, work, revision, *, valid_state, evidence=None):
+        """실제 C 입력 매핑 전용. 상태 JSON이나 seq만으로 valid_state를 추정하지 않습니다."""
+        with self.place_condition:
+            old = self.safety_exchange.policy.work if self.safety_exchange.policy else None
+            accepted = self.safety_exchange.stopped(work, revision, valid_state=valid_state, evidence=evidence)
+            policy = self.safety_exchange.policy
+            if policy is not None and (not policy.current_state_confirmed or accepted and old != policy.work):
+                self._cancel_safety_locked()
+            return accepted
+
+    def safety_offer(self, work, revision, evidence, *, valid_state, valid_until):
+        """복구 확인된 현재 사건을 질문 작업에 연결합니다. valid_until은 E 로컬 시각입니다."""
+        with self.place_condition:
+            if (self.safety_sender is None or self.cfg['evaluation_mode'] or self.stop_event.is_set()
+                    or self.safety_activity.is_set()):
+                return None
+            if self.busy.is_set() and not self.place_activity.is_set():
+                return None
+            q = self.safety_exchange.offer(work, revision, evidence, now=self.place_clock(),
+                                          valid_until=valid_until, valid_state=valid_state)
+            if q is None:
+                return None
+            self._cancel_place_locked()
+            self.safety_cancel = threading.Event()
+            self.safety_pending = ('question', q)
+            self.safety_activity.set()
+            self.busy.set()
+            self.place_condition.notify_all()
+            return q
+
+    def safety_registered(self, q, work, revision, *, valid_state):
+        with self.place_condition:
+            accepted = self.safety_exchange.registered(q, work, revision, now=self.place_clock(),
+                                                       valid_state=valid_state)
+            self.place_condition.notify_all()
+            return accepted
+
+    def safety_independent(self, *, unique_target):
+        """질문 만료 뒤의 새 녹음 전용이며 과거 STT 문자열은 받지 않습니다."""
+        with self.place_condition:
+            if (self.safety_sender is None or self.cfg['evaluation_mode'] or self.stop_event.is_set()
+                    or self.busy.is_set()):
+                return None
+            target = self.safety_exchange.begin_independent(now=self.place_clock(), unique_target=unique_target)
+            if target is None:
+                return None
+            self.safety_cancel = threading.Event()
+            self.safety_pending = ('independent', target)
+            self.safety_activity.set()
+            self.busy.set()
+            self.place_condition.notify_all()
+            return target
+
+    def safety_independent_registered(self, target, work, revision, *, valid_state, evidence):
+        with self.place_condition:
+            if self.cfg['evaluation_mode'] or self.stop_event.is_set() or self.safety_cancel.is_set():
+                return None
+            result = self.safety_exchange.independent_registered(target, work, revision,
+                now=self.place_clock(), valid_state=valid_state, evidence=evidence)
+            sender = self.safety_sender
+            if result is not None and sender is not None:
+                sender('candidate', result)
+        return result
+
+    def safety_completed(self, work, revision, *, valid_state):
+        with self.place_condition:
+            policy = self.safety_exchange.policy
+            if policy is None or not policy.completed(work, revision, valid_state=valid_state):
+                return False
+            self._cancel_safety_locked()
+            return True
+
+    def _safety_paused(self, target, cancel):
+        return cancel.is_set() or self.stop_event.is_set() or not self.safety_exchange.current(target)
+
+    def _safety_result_locked(self, result, cancel, sender):
+        if (result is None or sender is None or cancel is not self.safety_cancel or cancel.is_set()
+                or self.stop_event.is_set() or self.cfg['evaluation_mode']):
+            return
+        if isinstance(result, dict) and result.get('intent') == 'cancel':
+            self._cancel_safety_locked()
+            self._cancel_place_locked()
+            self.generation += 1
+            self.request_cancel.set()
+            self.request_run.invalidate()
+            self._publish(result)
+        elif isinstance(result, IndependentRegistration):
+            sender('register_independent', result.request)
+        elif isinstance(result, QuestionDeclined):
+            sender('declined', result.question)
+        elif isinstance(result, RecoveryRequest):
+            sender('recover', result.work)
+        else:
+            sender('candidate', result)
+
+    def _safety_recording(self, recording, work):
+        """새 웨이크 녹음만 독립 요청으로 처리하며 질문의 과거 답을 재분류하지 않습니다."""
+        with self.place_condition:
+            p = self.safety_exchange.policy
+            if (p is None or p.work != work or not p.current_state_confirmed
+                    or self.safety_sender is None or self.cfg['evaluation_mode']
+                    or not finite(recording.recording_started_monotonic)):
+                return
+            target = self.safety_exchange.begin_independent(now=recording.recording_started_monotonic,
+                                                           unique_target=True)
+            if target is None:
+                return
+            cancel = self.safety_cancel = threading.Event()
+            self.safety_running = cancel
+            self.safety_activity.set()
+            sender = self.safety_sender
+        try:
+            result = self.session.safety_audio(self.safety_exchange, target, recording, cancel=cancel,
+                                               paused=lambda: self.stop_event.is_set())
+            with self.place_condition:
+                self._safety_result_locked(result, cancel, sender)
+            if isinstance(result, IndependentRegistration):
+                self._wait_safety_registration(target, cancel)
+        finally:
+            with self.place_condition:
+                if self.safety_running is cancel:
+                    self.safety_running = None
+                if cancel is self.safety_cancel:
+                    self.safety_activity.clear()
+
+    def _wait_safety_registration(self, target, cancel):
+        # Keep the current request's single ownership until ACK or its existing deadline.
+        with self.place_condition:
+            while self.safety_exchange.current(target) and not cancel.is_set() and not self.stop_event.is_set():
+                remaining = self.safety_exchange.budget(target, now=self.place_clock())
+                if remaining is None or remaining <= 0:
+                    self.safety_exchange.fail(target)
+                    break
+                self.place_condition.wait(min(.1, remaining))
+
+    def _safety_work(self):
+        while not self.stop_event.is_set():
+            with self.place_condition:
+                self.place_condition.wait_for(lambda: self.safety_pending is not None or self.stop_event.is_set())
+                if self.stop_event.is_set():
+                    return
+                mode, target = self.safety_pending
+                self.safety_pending = None
+                cancel, sender = self.safety_cancel, self.safety_sender
+                self.safety_running = cancel
+            with self.dialog_lock:
+                try:
+                    if self._safety_paused(target, cancel) or self.cfg['evaluation_mode'] or sender is None:
+                        continue
+                    if not self.cfg['audio_enabled']:
+                        raise ValueError('SAFETY_AUDIO_DISABLED')
+                    if mode == 'question':
+                        with self.submit_lock:
+                            if self._safety_paused(target, cancel):
+                                continue
+                            sender('register_question', target)
+                        with self.place_condition:
+                            while self.safety_exchange.policy.registered_at is None and not self._safety_paused(target, cancel):
+                                remaining = target.valid_until - self.place_clock()
+                                if remaining <= 0:
+                                    raise TimeoutError('SAFETY_REGISTRATION_EXPIRED')
+                                self.place_condition.wait(min(.1, remaining))
+                        if self._safety_paused(target, cancel) or self.place_clock() >= target.valid_until:
+                            raise InterruptedError('SAFETY_CANCELED')
+                        timing, started = {}, {}
+                        def on_start(stamp):
+                            started.update(stamp)
+                            if not self.safety_exchange.tts_started(target, now=stamp.get('tts_started_monotonic')):
+                                cancel.set()
+                        self.speaking.set()
+                        self.tts.speak(target.text, cancel=cancel, on_start=on_start, on_timing=timing.update)
+                        self.speaking.clear()
+                        end = timing.get('playback_ended_monotonic')
+                        proof = (finite(end) and finite(started.get('tts_started_monotonic'))
+                                 and started['tts_started_monotonic'] <= end <= self.place_clock()
+                                 and started.get('tts_start_basis') == 'portaudio_first_dac'
+                                 and timing.get('playback_end_basis') == 'portaudio_finished_callback'
+                                 and (started.get('tts_mock') is False or self.place_test_devices))
+                        if (not proof or self._safety_paused(target, cancel)
+                                or not self.safety_exchange.delivered(target, now=end, success=True)):
+                            raise ValueError('SAFETY_TTS_UNCONFIRMED')
+                    if not self.cfg['audio_enabled']:
+                        raise ValueError('SAFETY_AUDIO_DISABLED')
+                    with self.audio_lock:
+                        recording = self.place_recorder.capture(cancel, paused=lambda: self._safety_paused(target, cancel))
+                    result = self.session.safety_audio(self.safety_exchange, target, recording, cancel=cancel,
+                                                      paused=lambda: self.stop_event.is_set())
+                    with self.submit_lock:
+                        self._safety_result_locked(result, cancel, sender)
+                    if isinstance(result, IndependentRegistration):
+                        self._wait_safety_registration(target, cancel)
+                except Exception as exc:
+                    self.safety_exchange.fail(target)
+                    self._diagnostic({'event': 'safety_question_failed', 'error_type': type(exc).__name__})
+                finally:
+                    with self.place_condition:
+                        if self.safety_running is cancel:
+                            self.safety_running = None
+                        if cancel is self.safety_cancel and self.safety_pending is None:
+                            self.safety_activity.clear()
+                            if not self.place_activity.is_set():
+                                self.busy.clear()
+                    if not self.tts.lock.locked():
+                        self.speaking.clear()
 
     def _diagnostic(self, doc):
         value = dict(doc)
@@ -169,9 +634,27 @@ class VoiceNode(Node):
         self._runner_status(message)
 
     def _request_run_connected(self):
-        # TODO(E/C): 실제 수락 및 재기동/과거 결과 근거를 제공하는 C 연결 구현.
-        # 현재 Jazzy MessageInfo에는 sample publisher GID가 없으며 graph는 대체 증거가 아닙니다.
-        return False
+        # The integration mapper verifies the current producer and restart boundary.
+        # Jazzy metadata/graph or a received JSON alone does not authenticate it.
+        check = getattr(self, 'request_source_check', None)
+        if check is None:
+            return False
+        try:
+            connected = check() is True
+        except Exception:
+            connected = False
+        if not connected:
+            with self.submit_lock:
+                self.request_run.invalidate()
+        return connected
+
+    def bind_request_source(self, check):
+        """실제 C 연결 확인 함수를 설치합니다. bool/readiness 캐시는 받지 않습니다."""
+        if not callable(check):
+            raise TypeError('current C source check callable required')
+        with self.submit_lock:
+            self.request_run.invalidate()
+            self.request_source_check = check
 
     def _runner_status(self, message):
         # 관측 상태 전환과 질문 무효화는 발행 게이트와 같은 E 로컬 lock으로 직렬화합니다.
@@ -187,6 +670,12 @@ class VoiceNode(Node):
                     events = self.request_run.observe(status)
                 previous = self.notice_policy.revision
                 notice = self.notice_policy.observe(message.data)
+                if (self.notice_policy.blocked or self.notice_policy.phase == 'halted'
+                        or notice and notice.kind != 'completed'):
+                    if hasattr(self, 'safety_exchange'):
+                        self._cancel_safety_locked()
+                    if getattr(self, 'place_topic', ''):
+                        self._cancel_place_locked()
                 if (not notice and not self.notice_policy.blocked
                         and any(event['event'] == 'request_completed' for event in events)):
                     self.notice_policy.revision += 1
@@ -241,11 +730,25 @@ class VoiceNode(Node):
         self.publisher.publish(message)
 
     def _text(self, message):
+        if hasattr(self, 'safety_exchange'):
+            kind = safety_utterance(message.data)
+            if kind in ('recover', 'resume', 'new_start') or task_end_utterance(message.data):
+                with self.submit_lock:
+                    p = self.safety_exchange.policy
+                    if kind == 'recover' and p is not None and p.current_state_confirmed and p.work is not None and self.safety_sender is not None and not self.cfg['evaluation_mode']:
+                        self.safety_sender('recover', p.work)
+                    else:
+                        self._diagnostic({'event': 'safety_text_held', 'reason': 'current_voice_recording_required'})
+                return
         control = self.parser.control(message.data)
         if control:
             with self.submit_lock:
                 self.session.conversation.invalidate()  # status도 새 독립 요청입니다.
                 if control['intent'] == 'cancel':
+                    if hasattr(self, 'safety_exchange'):
+                        self._cancel_safety_locked()
+                    if getattr(self, 'place_topic', ''):
+                        self._cancel_place_locked()
                     if self.cfg.get('request_run_enabled', False):
                         self.request_run.invalidate()
                         self.warning_epoch += 1
@@ -282,6 +785,9 @@ class VoiceNode(Node):
                 continue
             try:
                 self.local_context.request_id = request_id
+                if kind == 'safety_audio':
+                    self._safety_recording(*value)
+                    continue
                 policy = getattr(self, 'notice_policy', None)
                 blocked = bool(policy and (policy.phase in ('running', 'halted') or policy.blocked))
                 if kind == 'record_error':
@@ -316,17 +822,17 @@ class VoiceNode(Node):
             if self.stop_event.is_set() or generation != self.generation or not self.session.valid_context(doc, generation):
                 self._diagnostic({'event': 'request_canceled', 'published': False})
                 return
-            if doc['intent'] == 'find_item' and self.session.is_duplicate(doc):
+            if doc['intent'] in ('find_item', 'achieve_goal') and self.session.is_duplicate(doc):
                 self._diagnostic({'event': 'request_duplicate', 'intent': doc, 'published': False})
                 return
-        if doc['intent'] == 'find_item' and runner_blocks(self):
+        if doc['intent'] in ('find_item', 'achieve_goal') and runner_blocks(self):
             self.session.conversation.invalidate()
             self._diagnostic({'event': 'request_held', 'reason': 'runner_busy_or_locked', 'intent': doc, 'published': False})
             return
         source = doc['source']
         text = doc.get('_voice', {}).get('final_text') or final_response(self.parser, doc)
         self._diagnostic({'event': 'final_response', 'text': text, 'intent': doc})
-        request_run = self.cfg.get('request_run_enabled', False) and doc['intent'] == 'find_item'
+        request_run = self.cfg.get('request_run_enabled', False) and doc['intent'] in ('find_item', 'achieve_goal')
         speak = doc['intent'] in ('unknown', 'clarify') or (
             doc['intent'] == 'find_item' and self.cfg['confirmation_enabled'] and not request_run)
         if speak:
@@ -375,7 +881,7 @@ class VoiceNode(Node):
         with self.submit_lock:
             if self.stop_event.is_set() or generation != self.generation or not self.session.valid_context(doc, generation):
                 return
-            if doc['intent'] == 'find_item' and runner_blocks(self):
+            if doc['intent'] in ('find_item', 'achieve_goal') and runner_blocks(self):
                 self.session.conversation.invalidate()
                 self._diagnostic({'event': 'request_held', 'reason': 'runner_busy_or_locked', 'intent': doc, 'published': False})
                 return
@@ -420,23 +926,27 @@ class VoiceNode(Node):
                 self._diagnostic({'event': 'wake_waiting', 'input_device': self.cfg['input_device']})
                 record_generation = self.generation
                 try:
-                    with wake.stream() as stream:
-                        woke = wake.wait(stream, self.stop_event, lambda: self.speaking.is_set() or self.tts.lock.locked())
+                    with self.audio_lock, wake.stream() as stream:
+                        woke = wake.wait(stream, self.stop_event, lambda: self.speaking.is_set() or self.tts.lock.locked() or self.place_activity.is_set() or self.safety_activity.is_set())
                         if not woke:
                             continue
                         if self.speaking.is_set() or self.busy.is_set():
                             continue
                         record_generation = self.generation
+                        with self.submit_lock:
+                            policy = self.safety_exchange.policy
+                            record_work = policy.work if policy and policy.current_state_confirmed else None
                         self._diagnostic({'event': 'wake_detected', 'score': wake.last_score})
                         if self.cfg.get('recording_mode', 'silence') == 'silence':
                             self._diagnostic({'event': 'record_started'})
                             recording = recorder.record(stream, self.stop_event,
-                                lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation)
+                                lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation or self.place_activity.is_set() or self.safety_activity.is_set())
                     # 웨이크 스트림을 닫은 뒤 원본 sd.rec가 같은 입력으로 새 스트림을 엽니다.
                     if self.cfg.get('recording_mode', 'silence') == 'fixed':
                         self._diagnostic({'event': 'record_started', 'duration': self.cfg['record_duration_sec']})
-                        recording = recorder.record_fixed(self.stop_event,
-                            lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation)
+                        with self.audio_lock:
+                            recording = recorder.record_fixed(self.stop_event,
+                                lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation or self.place_activity.is_set() or self.safety_activity.is_set())
                     self._diagnostic({'event': 'record_finished',
                         'recording_started_monotonic': recording.recording_started_monotonic,
                         'recording_ended_monotonic': recording.recording_ended_monotonic,
@@ -446,7 +956,8 @@ class VoiceNode(Node):
                     if not isinstance(exc, InterruptedError):
                         self._submit(('record_error', str(exc)), generation=record_generation, request_id=request_id)
                     continue
-                self._submit(('audio', recording), generation=record_generation, request_id=request_id)
+                self._submit(('safety_audio', (recording, record_work)) if record_work is not None else ('audio', recording),
+                             generation=record_generation, request_id=request_id)
                 self.local_context.request_id = None
                 while self.busy.is_set() and not self.stop_event.is_set():
                     self.stop_event.wait(.08)
@@ -468,6 +979,17 @@ class VoiceNode(Node):
             return GoalResponse.REJECT
         if not self.goal_lock.acquire(blocking=False):
             return GoalResponse.REJECT
+        with self.submit_lock:
+            self.goal_request_run = None
+            if self.cfg.get('request_run_enabled', False):
+                pending, run = self.request_run.pending, self.request_run.run_id
+                if (pending is None or run is None or self.request_run.finished
+                        or params['text'] != pending.get('accept_text')
+                        or (pending['request_id'], run) in self.request_speech_used):
+                    self.goal_lock.release()
+                    return GoalResponse.REJECT
+                self.goal_request_run = (pending['request_id'], run, params['text'])
+                self.request_speech_used.add((pending['request_id'], run))
         self.goal_warning_epoch = getattr(self, 'warning_epoch', 0)
         return GoalResponse.ACCEPT
 
@@ -476,7 +998,14 @@ class VoiceNode(Node):
         cancel = threading.Event()
         done = threading.Event()
         epoch = getattr(self, 'goal_warning_epoch', getattr(self, 'warning_epoch', 0))
+        request_identity = getattr(self, 'goal_request_run', None)
         def warning_changed():
+            if request_identity is not None:
+                with self.submit_lock:
+                    pending = self.request_run.pending
+                    if (pending is None or (pending['request_id'], self.request_run.run_id, pending.get('accept_text')) != request_identity
+                            or self.request_run.finished):
+                        return True
             normal_cancel = getattr(self, 'normal_notice_cancel', None)
             return (self.stop_event.is_set()
                     or (normal_cancel is not None and normal_cancel.is_set())
@@ -535,6 +1064,12 @@ class VoiceNode(Node):
     def close(self):
         self.stop_event.set()
         self.request_cancel.set()
+        with self.submit_lock:
+            self._cancel_place_locked()
+            self._cancel_safety_locked()
+        if self.place_thread:
+            self.place_thread.join(timeout=1)
+        self.safety_thread.join(timeout=1)
         with self.notice_condition:
             self.notice_cancel.set()
             self.notice_condition.notify_all()

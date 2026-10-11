@@ -82,7 +82,7 @@ resume_independent_request_timeout_sec: 30.0 # 새 녹음→STT/분류/C 등록 
 place_admission_window_sec: 10.0 # 실제 TTS 완료→SDK 접수.
 place_stt_result_timeout_sec: 15.0 # SDK 호출→정상 STT 결과.
 place_max_reasks: 1 # 최초 질문 외 모호 응답 재질문 상한.
-p2_goal_enabled: false # 옵트인도 1단계 내부 평가만; 운영 발행 금지.
+p2_goal_enabled: false # 선정 목표의 명시 opt-in. 발신은 request_run_enabled와 현재 C 연결 확인도 필요.
 p2_goal_catalog: # #150 선정 목표 원본. 관측 초기 상태·행동 순서는 포함하지 않음.
   - [{predicate: located_in, subject: eraser, value: handover_zone}]
   - [{predicate: open, subject: drawer_top, value: true}]

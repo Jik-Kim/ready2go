@@ -59,8 +59,14 @@ class VoiceSession:
         """현재 요청의 검증 문장을 보관합니다. C 수락은 status에서 별도 확인합니다."""
         self._acceptance = None
         meta = doc.get('_voice', {})
-        if (doc.get('intent') != 'find_item' or len(doc.get('targets', [])) != 1
-                or doc['targets'][0] not in self.parser.items
+        goal = doc.get('intent') == 'achieve_goal'
+        if goal:
+            try:
+                self.parser._validate_goal(doc, doc.get('source', {}).get('stt_text', ''))
+            except Exception:
+                return
+        if (doc.get('intent') not in ('find_item', 'achieve_goal')
+                or not goal and (len(doc.get('targets', [])) != 1 or doc['targets'][0] not in self.parser.items)
                 or doc.get('source', {}).get('execution_allowed') is not True
                 or not meta.get('request_id') or not self.valid_context(doc, generation)):
             return
@@ -242,6 +248,15 @@ class VoiceSession:
                 raise ValueError('NO_SPEECH')
             if receipt is None:
                 raise ValueError('CONFIRM_REQUEST_UNCONFIRMED')
+            from .recovery_confirmation import safety_utterance
+            control = self.parser.control(text) if self.parser is not None else None
+            if safety_utterance(text) == 'stop' or control and control['intent'] == 'cancel':
+                from .place_exchange import PlaceReply
+                exchange.invalidate()
+                control = intent('cancel')
+                control['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
+                                         llm_called=False, fallback_used=False)
+                return PlaceReply(control)
             return exchange.answer(envelope, text, captured_at=start, now=self.clock(), request=receipt)
         except InterruptedError:
             if exchange.current(envelope):
@@ -255,6 +270,62 @@ class VoiceSession:
             self.progress(event='confirm_audio_failed', question_id=envelope.question_id,
                           error_type=type(exc).__name__)
             return exchange.fail(envelope, answer='expired' if isinstance(exc, TimeoutError) else 'error')
+
+    def safety_audio(self, exchange, target, recording, *, cancel=None, paused=lambda: False):
+        """현재 질문/새 독립 요청의 STT. 결과는 내부 후보이며 재개 wire가 아닙니다."""
+        from ..adapters.audio import write_wav
+        from .recovery_confirmation import finite, safety_utterance
+        capture = exchange.reserve(target)
+        if capture is None:
+            return None
+        interrupted = lambda: (cancel is not None and cancel.is_set()) or paused()
+        try:
+            start, end = recording.recording_started_monotonic, recording.recording_ended_monotonic
+            if (interrupted() or recording.truncated or not recording.pcm
+                    or not all(finite(t) for t in (start, end)) or start > end
+                    or self.stt is None or not getattr(self.stt, 'supports_request_boundary', False)):
+                raise ValueError('SAFETY_AUDIO_UNCONFIRMED')
+            if recording.recording_mode == 'fixed':
+                if self.speech_gate is None:
+                    from ..adapters.speech import SpeechPresence
+                    self.speech_gate = SpeechPresence(self.cfg)
+                if not self.speech_gate.check(recording, cancel=cancel, paused=paused):
+                    raise ValueError('NO_SPEECH')
+            budget = exchange.budget(target, now=self.clock(), captured_at=start)
+            if budget is None or budget <= 0:
+                raise TimeoutError('SAFETY_EXPIRED')
+            def transcribe():
+                if interrupted() or not exchange.current(target):
+                    raise InterruptedError('SAFETY_CANCELED')
+                with tempfile.TemporaryDirectory(prefix='ready2go_safety_') as directory:
+                    path = Path(directory) / 'speech.wav'
+                    write_wav(path, recording, self.cfg['sample_rate'])
+                    receipt = None
+                    def before_request(stamp):
+                        nonlocal receipt
+                        if interrupted() or not exchange.current(target):
+                            return False
+                        receipt = exchange.admit(target, capture, captured_at=start, ended_at=end, started_at=stamp)
+                        if receipt is not None:
+                            self.progress(event='safety_sdk_request', requested_monotonic=stamp)
+                        return receipt is not None
+                    text = self.stt.transcribe(path, exchange.policy.stt_result_timeout_sec,
+                                               before_request=before_request)
+                    return text, receipt
+            text, receipt = self.stt_calls.call(transcribe, budget)
+            if interrupted() or not exchange.current(target):
+                raise InterruptedError('SAFETY_CANCELED')
+            if receipt is None or not isinstance(text, str) or not text.strip():
+                raise ValueError('SAFETY_STT_UNCONFIRMED')
+            control = self.parser.control(text) if self.parser is not None else None
+            if safety_utterance(text) == 'stop' or control and control['intent'] == 'cancel':
+                exchange.cancel()
+                return intent('cancel')
+            return exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
+        except Exception as exc:
+            exchange.fail(target)
+            self.progress(event='safety_audio_failed', error_type=type(exc).__name__)
+            return None
 
     def _fingerprint(self, doc):
         return (doc['intent'], tuple(doc.get('targets', [])), doc.get('_voice', {}).get('question_id') or doc['source'].get('stt_text', ''))
@@ -271,7 +342,9 @@ class VoiceSession:
     def should_publish(self, doc):
         """평가 모드는 모든 발행 금지. 조회로 요청을 소비하지 않습니다."""
         if doc['intent'] == 'achieve_goal' or doc.get('_voice', {}).get('p2_goal_candidate'):
-            return False  # phase-1 internal evaluation only, even when opt-in is true
+            # Node additionally requires a verified current C connection before sending.
+            if not self.cfg.get('p2_goal_enabled') or not self.cfg.get('request_run_enabled'):
+                return False
         if doc['source'].get('record_error') in ('NO_SPEECH', 'SPEECH_CHECK_CANCELED', 'VAD_UNAVAILABLE_OR_FAILED'):
             return False
         return not self.cfg['evaluation_mode'] and not self.is_duplicate(doc)
