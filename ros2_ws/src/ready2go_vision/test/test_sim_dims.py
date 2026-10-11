@@ -86,3 +86,24 @@ def test_closed_position_is_origin_plus_travel_along_x():
     R, o = cabinet_pose_from_tf([0.5, -0.1, 0.2], Q_NEG90Z, 0.225, 0.295, 0.205, 0.0, 0.0)
     closed_origin_in_base = [o[i] + R[i][0] * 0.295 / -2 + R[i][1] * 0.205 / 2 for i in range(3)]
     assert closed_origin_in_base[1] == pytest.approx(-0.1 - 0.225)
+
+
+# ---- 아래 서랍 tf (B 실측 10/07) ----
+from _dims import drawer_frame_tf, tray_pose_from_drawer  # noqa: E402
+
+
+def test_bottom_tf_uses_max_travel_when_no_tf_at_travel():
+    p = {"drawer_bottom": {"tf": {"translation_m": [0.24, -0.11, 0.05], "quaternion_xyzw": Q_NEG90Z}, "max_travel_m": 0.226}}
+    assert drawer_frame_tf(p, "drawer_bottom")[2] == 0.226
+    assert drawer_frame_tf({"drawer_bottom": {"tf": {"translation_m": None, "quaternion_xyzw": None}}}, "drawer_bottom") is None
+    with pytest.raises(ValueError):
+        drawer_frame_tf({"drawer_bottom": {"tf": {"translation_m": [0, 0, 0], "quaternion_xyzw": Q_NEG90Z}}}, "drawer_bottom")
+
+
+def test_tray_pose_from_drawer_is_inverse():
+    from _dims import quat_to_R
+    R = quat_to_R([0.003, -0.004, -0.70, 0.71])
+    Rt, tt = tray_pose_from_drawer(R, [0.24, -0.11, 0.05], 0.2937, 0.1997)
+    Rd, od = drawer_pose_from_tray(Rt, tt, 0.2937, 0.1997)
+    assert od == pytest.approx([0.24, -0.11, 0.05], abs=1e-12)
+    assert [x for r in Rd for x in r] == pytest.approx([x for r in R for x in r], abs=1e-12)
