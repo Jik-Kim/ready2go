@@ -126,6 +126,8 @@ class VoiceSession:
 
     def should_publish(self, doc):
         """평가 모드는 모든 발행 금지. 조회로 요청을 소비하지 않습니다."""
+        if doc['intent'] == 'achieve_goal' or doc.get('_voice', {}).get('p2_goal_candidate'):
+            return False  # phase-1 internal evaluation only, even when opt-in is true
         if doc['source'].get('record_error') in ('NO_SPEECH', 'SPEECH_CHECK_CANCELED', 'VAD_UNAVAILABLE_OR_FAILED'):
             return False
         return not self.cfg['evaluation_mode'] and not self.is_duplicate(doc)

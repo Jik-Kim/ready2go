@@ -44,6 +44,19 @@ class LangChainIntent:
             }, 'required': ['intent', 'targets', 'confidence', 'clarify_question',
                             'response_text', 'rejection_reason']}
 
+        if cfg.get('p2_goal_enabled') is True:
+            catalog = cfg.get('p2_goal_catalog', [])
+            goals = [g for group in catalog for g in group]
+            self.schema['properties']['intent']['enum'].append('achieve_goal')
+            self.schema['properties']['goals'] = {
+                'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
+                    'properties': {
+                        'predicate': {'type': 'string', 'enum': sorted({g['predicate'] for g in goals})},
+                        'subject': {'type': 'string', 'enum': sorted({g['subject'] for g in goals})},
+                        'value': {'type': ['string', 'boolean']},
+                    }, 'required': ['predicate', 'subject', 'value']}}
+            self.schema['required'].append('goals')
+
     def __call__(self, text, timeout):
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_openai import ChatOpenAI
@@ -77,12 +90,20 @@ class LangChainIntent:
              'clarify에서는 대상 이름을 사용해 가져오기 요청이 맞는지 질문합니다. '
              '공개 clarify_question은 확인 질문만이며 수락/완료 문장으로 쓰지 않습니다. '
              '실행 시작/완료/실재고/파지 가능을 확답하지 마십시오. 등록 물품: {vocabulary}'),
+            *([('system', 'P2 내부 평가입니다. 아래 선정 목록에 일치하는 명시적 목표 요청만 '
+                'achieve_goal/targets=[]/goals로 출력합니다. 물품/서랍은 등록 키만 사용합니다. '
+                '트레이 전달과 명시 열림이 함께 요청되면 두 목표를 유지합니다. '
+                '명시 열림을 자동 닫힘으로 바꾸지 마십시오. 부정/충돌/범위외/불명확은 unknown/clarify '
+                '및 빈 goals입니다. 행동 순서/초기 상태를 만들거나 수락/실행/성공을 약속하지 않습니다. '
+                'P1은 유지하며 종료/재개 허가는 LLM으로 판정하지 않습니다. 선정 목표: {goal_catalog}')]
+              if self.cfg.get('p2_goal_enabled') is True else []),
             ('human', '{text}')])
         llm = ChatOpenAI(model=self.cfg['llm_model'], temperature=0,
                          timeout=timeout, max_retries=0)
         chain = prompt | llm.bind(response_format={'type': 'json_schema', 'json_schema': {
-            'name': 'p1_intent', 'strict': True, 'schema': self.schema}})
-        result = chain.invoke({'text': text, 'vocabulary': self.vocabulary})
+            'name': 'p2_goal_candidate' if self.cfg.get('p2_goal_enabled') is True else 'p1_intent', 'strict': True, 'schema': self.schema}})
+        result = chain.invoke({'text': text, 'vocabulary': self.vocabulary,
+                               'goal_catalog': json.dumps(self.cfg.get('p2_goal_catalog', []), ensure_ascii=False)})
         if not isinstance(result.content, str):
             raise ValueError('문자열 JSON 응답 필요')
         return result.content
