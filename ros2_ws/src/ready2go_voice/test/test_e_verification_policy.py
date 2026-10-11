@@ -314,3 +314,75 @@ def test_place_audio_ordering_and_invalid_evidence(times):
     p, q = place_ready()
     assert p.admit(q, captured_at=times[0], ended_at=times[1], started_at=times[2]) is None
     assert not p.final.success
+
+
+def place_asked():
+    p = PlaceConfirmation(item_names=NAMES, admission_window_sec=10,
+                          stt_result_timeout_sec=15, max_reasks=1)
+    q = p.begin(PLACE, normal_observation=True, all_visible=False)
+    assert p.asked(q, now=0, final_timeout_sec=100)
+    return p, q
+
+
+@pytest.mark.parametrize('at,success', [(99.999, True), (100, True), (100.001, False)])
+def test_place_final_deadline_checks_decision_not_only_received_audio(at, success):
+    p, q = place_asked()
+    assert p.delivered(q, now=90, success=True)
+    r = p.admit(q, captured_at=91, ended_at=92, started_at=93)
+    assert r  # STT interval alone would permit a result up to 108.
+    result = p.answer(q, '네', captured_at=91, now=at, request=r)
+    assert (result is not None) is success
+    assert p.final.success is success
+    assert p.answer(q, '네', captured_at=91, now=at, request=r) is None
+
+
+def test_place_reask_and_duplicate_keep_first_asked_deadline_and_old_stt_is_inert():
+    p, q = place_asked()
+    assert p.begin(PLACE, normal_observation=True, all_visible=False) is q
+    assert p.asked(q, now=80, final_timeout_sec=100)
+    assert p.asked_at == 0 and p.final_until == 100
+    assert p.delivered(q, now=85, success=True)
+    r = p.admit(q, captured_at=86, ended_at=87, started_at=88)
+    q2 = p.answer(q, '글쎄요', captured_at=86, now=89, request=r)
+    assert q2 is not q and q2.attempt == 1
+    assert p.asked(q2, now=90, final_timeout_sec=100)
+    assert p.asked_at == 0 and p.final_until == 100
+    assert p.answer(q, '네', captured_at=86, now=91, request=r) is None
+    assert p.question is q2
+    assert p.delivered(q2, now=91, success=True)
+    r2 = p.admit(q2, captured_at=92, ended_at=93, started_at=94)
+    assert p.answer(q2, '네', captured_at=92, now=100.001, request=r2) is None
+    assert not p.final.success
+    assert p.begin(PLACE, normal_observation=True, all_visible=False) is None
+
+
+def test_place_deadline_poll_exact_boundary_and_stop_do_not_restore_question():
+    p, q = place_asked()
+    assert not p.expire(now=100)
+    assert p.expire(now=100.001) and not p.final.success
+    assert not p.expire(now=101)
+    assert not p.asked(q, now=101, final_timeout_sec=100)
+    p, q = place_asked()
+    p.invalidate()
+    assert not p.asked(q, now=2, final_timeout_sec=100)
+    assert not p.delivered(q, now=3, success=True)
+    assert not p.final.success
+
+
+@pytest.mark.parametrize('value', [None, True, 0, -1, float('inf'), float('nan')])
+def test_place_invalid_budget_never_creates_registration(value):
+    p, q = place_asked()
+    assert not p.asked(q, now=1, final_timeout_sec=value)
+    assert not p.final.success
+
+
+def test_place_new_run_has_independent_first_asked_and_normal_vision_path_is_unchanged():
+    p, q = place_asked()
+    fresh = replace(PLACE, run='next-run')
+    q2 = p.begin(fresh, normal_observation=True, all_visible=False)
+    assert p.asked(q2, now=110, final_timeout_sec=100)
+    assert p.asked_at == 110 and p.final_until == 210
+    assert not p.asked(q, now=111, final_timeout_sec=100)
+    assert p.question is q2
+    verified = p.begin(replace(PLACE, run='vision-run'), normal_observation=True, all_visible=True)
+    assert verified.success and verified.basis == 'vision'
