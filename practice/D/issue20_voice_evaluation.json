@@ -1017,7 +1017,7 @@
     "diagnostic_evidence_collection": {
       "status": "procedure_defined_not_run",
       "runtime_source": "Voice 실행 설정의 diagnostic_file이 가리키는 상세 JSONL. diagnostic_detail=true인 회차만 수집 대상으로 사용한다.",
-      "path_rule": "diagnostic_file이 상대 경로이면 Voice 실행 당시 cwd를 기준으로 해석한다. 평가 기록에 설정값, 실행 cwd, 해석된 실제 경로를 함께 남긴다.",
+      "path_rule": "diagnostic_file이 상대 경로이면 Voice 실행 당시 cwd를 기준으로 해석한다. 평가 기록의 diagnostic_file_configured에는 실행 당시 원문 설정값을, diagnostic_jsonl_cwd에는 실행 cwd를, diagnostic_jsonl_path에는 실제로 읽은 해석 완료 JSONL 또는 회전 파일 경로를 남긴다.",
       "console_rule": "콘솔과 tee 파일은 진행 요약이며 상세 증빙 원본으로 사용하지 않는다. record_started, record_finished, whisper_requested, stt_result, speech_check_started, tts_started는 정상 실행에서도 콘솔에서 숨겨질 수 있다.",
       "record_shape": "각 JSONL 행은 event, request_id와 이벤트별 필드를 최상위에 둔다. voice_diagnostic 래퍼는 없으므로 voice_diagnostic.published, voice_diagnostic.intent, voice_diagnostic.timing 경로를 사용하지 않는다.",
       "correlation_rule": "같은 request_id의 interpretation, tts_finished, intent 이벤트를 한 발화 기록으로 묶는다. request_id가 없거나 충돌하면 다른 근거로 임의 결합하지 않고 해당 항목을 not_measured로 둔다.",
@@ -1062,8 +1062,9 @@
       "code_sha": "실행에 사용한 코드 SHA",
       "config_paths": "실행에 사용한 설정 경로 배열",
       "voice_request_id": "Voice 상세 JSONL에서 같은 발화의 이벤트를 연결하는 request_id",
-      "diagnostic_jsonl_path": "실제로 읽은 상세 JSONL 또는 회전 파일 경로",
+      "diagnostic_file_configured": "실행 당시 적용된 diagnostic_file 원문 값. 상대·절대 경로 표현을 변경하지 않고 그대로 기록",
       "diagnostic_jsonl_cwd": "상대 diagnostic_file 경로를 해석한 Voice 실행 cwd",
+      "diagnostic_jsonl_path": "diagnostic_file과 실행 cwd를 기준으로 해석해 실제로 읽은 상세 JSONL 또는 회전 파일 경로",
       "diagnostic_events": "해당 request_id에서 확인한 이벤트 이름 배열",
       "speaker_id": "실제 화자 ID",
       "input_kind": "audio 또는 text",
@@ -1132,8 +1133,9 @@
       ],
       "evidence_binding": [
         "voice_request_id",
-        "diagnostic_jsonl_path",
+        "diagnostic_file_configured",
         "diagnostic_jsonl_cwd",
+        "diagnostic_jsonl_path",
         "diagnostic_events",
         "evidence_paths"
       ],
