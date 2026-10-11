@@ -1717,3 +1717,22 @@ def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
     assert out.success, out.reason
     lift = mp.tip_below_tcp_mm(49.0, g) - mp.tip_below_tcp_mm(49.0 + g["open_margin_mm"], g) + cfg["clear_mm"]
     assert srv.held["tcp_above_floor_m"] * 1000.0 == pytest.approx(floor_hit * 1000.0 + lift, abs=1.0)   # 가짜 로봇은 멈춤이 한 칸 늦음
+
+
+def test_pick_touch_ignores_force_spike_above_floor(server):
+    """[사용자 10/11 PC2] 내려가기 시작할 때 힘이 튀어 캐러멜 높이에서 '바닥 닿음' → 올라와 윗면을 잡음.
+    바닥 근처(accept_above_mm 안)에서만 닿음으로 봄 — 위에서 튄 3~9 N 은 무시하고 바닥까지 내려감."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    tf = srv.places()["drawer_top"]["tf"]
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+
+    def force(p):
+        z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0
+        return [0.0, 0.0, 6.0 if (15.0 <= z <= 17.0 or z <= 4.0) else 0.0, 0.0, 0.0, 0.0]   # 캐러멜 높이 근처에서 튐 + 바닥
+    srv.robot.force = force
+    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    assert srv.held["tcp_above_floor_m"] * 1000.0 < 12.0                # 바닥(4 mm)에서 올린 높이 — 캐러멜 높이(16)에서 올린 게 아님

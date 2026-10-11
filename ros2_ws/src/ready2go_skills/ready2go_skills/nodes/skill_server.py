@@ -416,17 +416,29 @@ class SkillServer(Node):
         lowest = floor + max(mp.tip_below_tcp_mm(open_mm, g), 0.0) - float(cfg.get("overtravel_mm", 3.0))
         deeper = mp.with_z(grasp, max(lowest, grasp[2] - float(cfg.get("search_mm", 30.0))))
         base = self._tare(cfg.get("settle_s", 0.3))
-        n = float(cfg.get("touch_n", 3.0))
+        n, hard = float(cfg.get("touch_n", 3.0)), float(cfg.get("hard_n", 10.0))
+        # 바닥 근처에서만 닿음으로 봄 — 내려가기 시작할 때 힘이 튀어 캐러멜 높이에서 멈추고 올라와 윗면을 잡음 [사용자 10/11 PC2 "바닥을 찍고 와야지"].
+        # 그 위에서는 hard_n 넘을 때만 멈춤(물체 위에 내려앉음 = 실패)
+        zone_top = lowest + float(cfg.get("overtravel_mm", 3.0)) + float(cfg.get("accept_above_mm", 10.0))
 
         def touched():
-            f = self.robot.tool_force()
-            if f is None or base is None:
-                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
-            if abs(f[2] - base[2]) >= n:
-                return sf.Outcome(True, reason=f"바닥 닿음 {abs(f[2] - base[2]):.1f} N")
+            f, p = self.robot.tool_force(), self.robot.posx()
+            if f is None or base is None or p is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
+            df = abs(f[2] - base[2])
+            if p[2] > zone_top:
+                if df >= hard:
+                    return sf.Outcome(False, GRASP_FAILED, reason=f"바닥보다 {p[2] - zone_top + float(cfg.get('accept_above_mm', 10.0)):.0f} mm 위에서 "
+                                                                 f"{df:.1f} N — 물체 위에 내려앉음(위치·각도 확인)")
+                return None
+            if df >= n:
+                return sf.Outcome(True, reason=f"바닥 닿음 {df:.1f} N")
             return None
         bad = self._line(goal, deeper, float(cfg.get("speed_mm_s", 10.0)), "descend", watch=touched)
         if bad and not bad.success:
+            now = self.robot.posx()
+            if now is not None and not sf.is_safety(bad):
+                self._line(goal, mp.with_z(now, now[2] + 20.0), self._in_vel(), "lift")
             return bad
         now = self.robot.posx()
         if now is None:
