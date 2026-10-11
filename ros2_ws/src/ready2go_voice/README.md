@@ -27,7 +27,70 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 .venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-live --config-file logs/voice_eval/voice.local.yaml
 ```
 
-순서는 요청 발화→수락 fixture→실제 speak 성공→`dummy_first_action_after_real_speak_success`→stdin `complete`→같은 run 더미 완료입니다. 미지원 요청은 첫 동작0을 확인합니다. 트레이는 stdin `tray 100`(승인 전체100초의 명시 fixture) 후 질문 재생 완료·새 발화 “네”/“아니요”/모호 응답을 관측합니다. `tray_complete`/`tray_partial`은 실제 관측이 아닌 명시 결과 fixture입니다. 처리/TTS 중 “멈춰”는 웨이크 없이 발화하며 수신 cancel과 실제 물리 정지를 구분합니다. 안전은 `stopped`의 모의 typed work/증빙 후 `question <기한초>` 또는 `independent`와 실제 새 “복구해”/“재개해”/“작업 종료해” 발화를 관측합니다. 질문 기한은 입력한 fixture 값이며 새로운 운용 제한이 아닙니다. 후보는 로그로만 기록합니다. stdin에는 명령만 입력하고 실제 발화를 텍스트로 대체하지 않습니다. `exit`/Ctrl+C로 스트림·worker·executor를 종료합니다. [FR-INT-02](../../../docs/requirements.md#fr-int-02)·[AC-SAF-02](../../../docs/requirements.md#ac-saf-02)·[AC-SAF-04](../../../docs/requirements.md#ac-saf-04)의 실제 C/물리 수용 완료와 구분합니다.
+### 사용자 직접 시험 — 재실행과 증빙
+
+[실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
+
+아래는 현재 파일/가상환경으로 재실행하는 복사 명령입니다. 원본 local YAML에 P1 dialogue와 새 P2 키가 없어 유효 dialogue/place/resume 예산은 None이었습니다. 따라서 원본을 보존한 **시험용 복사본에서만** 누락된 키를 현재 [패키지 실행 원본](params/voice.yaml)에서 읽어 보충합니다. 명시된 local 값은 보존하며 여전히 None이면 해당 시험을 시작하지 않습니다. `dialogue_timeout_sec`의 원본 30.0초는 현재 질문 문맥 상한 **제안 설정을 재사용한 시험값**이며 확정 정책으로 변경하지 않습니다. 일반 콘솔은 STT 원문·DAC 시작 등 일부 이벤트를 숨기므로 기존 상세 진단도 켭니다. 장치·모델·기존 일반 startup60과 승인된 값·정책은 변경하지 않습니다. `tee`는 stdout/stderr만 저장하므로 터미널 stdin의 `complete`/fixture/`exit`가 Python에 전달됩니다. 가상환경 activate나 secrets의 shell source는 필요하지 않으며 내부 `load_dotenv(..., override=False)`와 SDK hostname 검사를 사용합니다.
+
+```bash
+cd /home/jonny/rokey_proj/VLA/ready2go
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PYTHONPATH"
+export E_P2_RUN_DIR="$PWD/logs/voice_eval/p2_dummy_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$E_P2_RUN_DIR"
+.venvs/project/bin/python - <<'PY'
+import os
+from pathlib import Path
+import yaml
+from ready2go_voice.core.config import load_config
+folder = Path(os.environ['E_P2_RUN_DIR'])
+original = Path('logs/voice_eval/voice.local.yaml')
+raw = yaml.safe_load(original.read_text())
+cfg = load_config(original)
+base = yaml.safe_load(Path('ros2_ws/src/ready2go_voice/params/voice.yaml').read_text())
+required = ('dialogue_timeout_sec', 'resume_admission_window_sec', 'resume_stt_result_timeout_sec',
+            'resume_independent_request_timeout_sec', 'place_admission_window_sec',
+            'place_stt_result_timeout_sec', 'place_max_reasks', 'p2_goal_catalog')
+for key in required:
+    if key not in raw:
+        cfg[key] = base.get(key)
+    if cfg.get(key) is None:
+        raise ValueError(f'{key}: 원본 미설정, 관련 시험 보류')
+cfg['diagnostic_detail'] = True
+cfg['diagnostic_file'] = str(folder / 'diagnostic.jsonl')
+target = folder / 'voice.local.yaml'
+target.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+checked = load_config(target)
+print('유효 P1/P2 시험 설정:', {k: len(checked[k]) if k == 'p2_goal_catalog' else checked[k] for k in required})
+print('실행 설정:', target.resolve())
+print('시험 로그:', folder)
+PY
+set -o pipefail
+.venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py \
+  --serve-live --config-file "$E_P2_RUN_DIR/voice.local.yaml" \
+  2>&1 | tee "$E_P2_RUN_DIR/console.log"
+```
+
+먼저 `MeloTTS 준비 완료 (고정 안내 캐시 완료)`와 `웨이크 대기 (입력: …)`를 모두 확인합니다. `live_factory_started_not_recording_proof`만으로 입력 ready를 판정하지 않습니다. 당시 기본 장치는 input/output7이었지만 재실행 시 실제 선택을 다시 확인합니다. hostname이 승인된 `api.openai.com`과 다르면 factory가 시작을 거절합니다. 모델 준비 실패 시 아래 기존 [캐시 사전 준비](#노드-실행-전-사전-캐시-준비) 절차를 확인하고 ready 전에는 발화하지 않습니다. 패키지의 선정 목표 catalog도 그대로 보충되지만 이번 승인 발화 범위를 선정5종 시험으로 확대하지 않습니다.
+
+| 순서·입력 | 확인할 로그/결과 | 다음 단계·한계 |
+|---|---|---|
+| 1. “헬로 로키” → “망치 가져다줘” | 상세 `record_started/record_finished`, `whisper_sdk_request`, `stt_result`의 실제 시험 전사, `interpretation`의 intent/LLM·폴백 구분; 콘솔 `accepted_fixture`와 상세 `request_accepted`의 같은 run | LLM 실패/폴백을 정상 LLM 성공으로 기록하지 않습니다. 등록 물품을 수락하는 **더미**이며 실제 Runner의 지원 물품 판정이 아닙니다. |
+| 2. 첫 요청의 수락 TTS 종료까지 기다림 | `tts_started.source.tts_mock=false`, `tts_start_basis=portaudio_first_dac`; `tts_finished.timing.playback_end_basis=portaudio_finished_callback`·종료 시각; `dummy_first_action_after_real_speak_success` | 실제 소리/문장도 듣고 기록합니다. first action이 없거나 TTS 실패면 `complete`를 입력하지 않습니다. |
+| 3. 터미널 stdin `complete` | 같은 run의 `dummy_completed_not_robot_result`, 상세 `request_completed`와 완료 안내 | 첫 동작 전/취소 뒤 complete는 `completion_rejected_no_current_first_action`이어야 합니다. 물리 성공 증거가 아닙니다. |
+| 4. 완료 안내 후 웨이크 → 미지원 물품 요청(예: “사과 가져다줘”) | unknown/미지원 안내, 새 `accepted_fixture`·더미 첫 동작0 | 과거 첫 요청의 로그를 현재 요청의 결과로 세지 않습니다. |
+| 5. 웨이크 → 대상만 “망치”, 확인 질문 종료 뒤 다시 웨이크 → “응”/“아니요”/모호한 답 | 질문 문장·새 답 전사·확인/거절/보류; 긍정일 때만 수락과 TTS gate 이후 첫 동작 | P1 답은 일반 WakeAudio를 다시 거치며 시험 복사본의 dialogue_timeout_sec=30.0(현재 제안 설정의 시험값) 문맥 안에서 진행합니다. 각 답 종류는 독립 시험으로 진행하고 active 질문/처리 중 다음 시험을 겹치지 않습니다. |
+| 6. 새 망치 요청의 처리·TTS 중, 또는 첫 동작 후 complete 전에 웨이크 없이 “멈춰” | `cancel_received_not_physical_stop`, `dummy_idle_after_cancel_not_physical_stop_evidence`; old run의 추가 첫 동작/완료0 | STT 지연/실패·늦은 결과·자기 TTS 영향과 실제 소리를 기록합니다. 자기 발화 문구 대조는 음향 echo 제거가 아니며 물리 정지 시각/성공은 미검증입니다. |
+| 7. idle/이전 작업 종료 뒤 stdin `tray 100` | 질문 재생·`tray_answer`의 `asked`→동일 question 등록 fixture; 상세 `confirm_sdk_request` | 100은 [전체 확인 기한 정본](../../../docs/requirements.md#verification-policy)에 연결된 명시 모의 입력입니다. 임의 새 timeout이 아닙니다. 질문 후 답에는 웨이크를 붙이지 않습니다. |
+| 8. 질문 완료 뒤 “네”/“아니요”/모호 답 | yes/no/ambiguous 및 모호 답의 최대1회 재질문, 새 질문 ID/attempt·다시 새 녹음 | 각 종류는 별도 tray 시나리오입니다. yes 이후에만 stdin `tray_complete` 또는 `tray_partial`로 전달/복구 결과 fixture 안내를 확인합니다. C 관측/실물 결과가 아닙니다. |
+| 9. stdin `stopped` 한 번, 이어 `question 60` | `typed_stopped_fixture_not_bc_evidence`, `typed_offer_fixture_not_bc_recovery`, `typed_safety_fixture`의 register_question; 실제 복구 확인 질문·TTS 완료 | 60초는 이번 더미 시험의 **명시 fixture 유효기간 인자**이며 운용 기본값·C 계약이 아닙니다. [재개 정책](../../../docs/requirements.md#resume-admission-policy)의 접수/STT 한계를 바꾸지 않습니다. C 유효기간 매핑 전이므로 새 운용 기본값을 정하지 않습니다. |
+| 10. 질문 완료 뒤 “재개해”/거절. 독립 발화는 각 새 실행에서 `stopped` 한 번 → `independent` → 새 “복구해”/“재개해”/“작업 종료해” | `safety_sdk_request`·새 전사와 `typed_safety_fixture`의 declined/recover/register_independent/candidate; 과거·중복 응답으로 추가 후보0 | 등록·증빙은 같은 모의 work의 주입입니다. 현재 로그는 모든 typed work ID/정지 SDK 시각을 출력하지 않으므로 없는 증빙은 미확인으로 남깁니다. 후보는 로그뿐이며 실잠금 해제·재개·작업 종료를 실행하지 않습니다. |
+| 11. stdin `exit` 또는 Ctrl+C | 명령 종료 코드, 현재 PID/worker 종료와 마이크 반환; console/diagnostic 로그 보존 | 다음 시험의 재현 발화·원인·해결·검증/미검증을 분리 기록합니다. |
+
+`stopped`는 현재 harness에서 boot=`dummy`, 새 work의 revision=1을 지정합니다. 같은 프로세스에서 이를 다시 입력하면 기존 revision보다 낮아 거절될 수 있습니다. 같은 사건의 question/independent를 순차 시험하고, 새로운 정지 사건은 정상 종료 후 새 실행으로 분리합니다. `question 60`은 이번 더미 시험의 명시 입력 예시이며 실제 C 기한 검증은 시험 밖입니다. 이 값을 제품 정책이나 C의 운용 기본값으로 옮기지 않습니다. stdin에는 fixture 명령만 입력하고 실제 발화를 텍스트로 대체하지 않습니다. 시험 범위 외 대화를 녹음/전송하지 않습니다. [FR-INT-02](../../../docs/requirements.md#fr-int-02)·[AC-SAF-02](../../../docs/requirements.md#ac-saf-02)·[AC-SAF-04](../../../docs/requirements.md#ac-saf-04)의 실제 C/물리 수용 완료와 구분합니다.
+
 - **정본**: [requirements.md](../../../docs/requirements.md)의 [FR-INT-01–03](../../../docs/requirements.md#fr-int-01)·[음성 정책](../../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../../docs/requirements.md#ac-int-01), P2 [FR-SAF-01–03](../../../docs/requirements.md#fr-saf-01), P3 [FR-INT-02](../../../docs/requirements.md#fr-int-02). 의미·정책·책임·Phase·수용 기준을 이 문서에서 재정의하지 않습니다. [voice_llm.md](../../../docs/voice_llm.md)·[interfaces.md](../../../docs/interfaces.md)·[ontology.md](../../../docs/ontology.md)는 연결 참조입니다.
 - [문서] 이 패키지 구현과 실제 장치/API·C 수신·D 평가 완료는 구분합니다. P2 목표 계획/BFS, P3 목록, 새 OntologyManager, 실행 상태 저장소/DB 로거는 구현 범위 밖입니다.
 
