@@ -762,7 +762,7 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     # 경유점이 있는 서랍: 목표 위로 가는 블렌딩이 잡는 높이 1 cm 위에서 끝남(따로 빠르게 내려가기 없음) → 마지막 1 cm 만 천천히 [사용자 10/10]
     blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
     assert "descend_fast" not in st and st["descend"][0] == 15.0
-    assert blends[0][1][-1][2] - st["descend"][1] == pytest.approx(10.0)
+    assert blends[0][1][-1][2] - st["descend"][1] >= 10.0 - 1e-6        # 1 cm 위부터 천천히 — 바닥 닿을 때까지 더 내려감 (pick.touch_floor) [사용자 10/11]
     assert out2.success and "lower_fast" not in st and st["lower"][0] == 15.0   # 칸 위 → 1 cm 위는 들고 나오기 블렌딩에 포함 [사용자 10/10]
     over = server.srv.prm()["place"]["touch_overtravel_mm"]             # 안 닿으면(가짜 로봇 힘 0) 계산 높이보다 이만큼 더 [사용자 10/10]
     carry = [e for e in server.srv.robot.log if e[0] == "moveb"][-1][1][-1]
@@ -1689,6 +1689,7 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
     for lower in (0.0, 5.0):
         prm = srv.prm()
         prm["pick"]["front_tilt_lower_mm"] = lower
+        prm["pick"]["touch_floor"] = {"enabled": False}                  # 바닥 닿고 정하기를 끈 경우의 계산 높이
         monkeypatch.setattr(srv, "prm", lambda prm=prm: prm)
         srv.robot.log.clear()
         out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
@@ -1697,3 +1698,22 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
         lows[lower] = min(mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] for p in pts)
         srv.held = None
     assert (lows[0.0] - lows[5.0]) * 1000.0 == pytest.approx(5.0, abs=0.05)
+
+
+def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
+    """[사용자 10/11 PC2] 캐러멜 첫 시도: 덜 내려가 윗면을 잡음(폭 57.9/기대 75) → 벌린 채 내려가 바닥에 닿으면 멈추고
+    닫을 때 손끝이 내려오는 만큼(tip_below 잡는 폭 − 벌린 폭) + clear_mm 올려서 닫음. 쥔 높이는 실제 닫은 높이."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    tf = srv.places()["drawer_top"]["tf"]
+    prm = srv.prm()
+    cfg, g = prm["pick"]["touch_floor"], prm["gripper"]
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    floor_hit = 0.004                                                    # 가짜 바닥: TCP 가 서랍 z 4 mm 이하면 z 힘
+    srv.robot.force = lambda p: [0.0, 0.0, 6.0 if mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] <= floor_hit else 0.0, 0.0, 0.0, 0.0]
+    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    lift = mp.tip_below_tcp_mm(49.0, g) - mp.tip_below_tcp_mm(49.0 + g["open_margin_mm"], g) + cfg["clear_mm"]
+    assert srv.held["tcp_above_floor_m"] * 1000.0 == pytest.approx(floor_hit * 1000.0 + lift, abs=1.0)   # 가짜 로봇은 멈춤이 한 칸 늦음

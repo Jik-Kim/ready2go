@@ -405,6 +405,37 @@ class SkillServer(Node):
         deeper = mp.with_z(target, target[2] - float(pl.get("touch_overtravel_mm", 0.0)))
         return self._line(goal, deeper, vel, stage, watch=touched)
 
+    def _pick_touch_down(self, goal, grasp, tf, target, support, plan, expected_w, cfg):
+        """집기 마지막: 벌린 채 천천히 내려가 바닥(받침)에 닿으면 멈춤 → 닫을 때 손끝이 내려오는 만큼 + clear_mm 올림 → (호출한 쪽이) 닫음
+        [사용자 10/11 PC2 "넛지처럼 바닥 높이 파악하고 좀 올려서 잡기"]. 캐러멜 첫 시도: x·y 맞는데 덜 내려가 윗면을 잡음(폭 57.9, 기대 75) —
+        크게 벌리면 손끝이 TCP 보다 위로 감(85~100 mm 에서 약 17 mm [실측 10/06]), 아래 칸 바닥 높이(tf) 오차도 같이 없앰.
+        올리는 거리 = tip_below_tcp(잡는 폭) − tip_below_tcp(벌린 폭) + clear_mm. 안 닿으면 search_mm 까지 내려가 거기를 바닥으로 봄."""
+        g = self.prm()["gripper"]
+        open_mm, close_mm = plan.open_width_m * 1000.0, expected_w * 1000.0
+        floor = 1000.0 * pp.to_base(tf, (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
+        lowest = floor + max(mp.tip_below_tcp_mm(open_mm, g), 0.0) - float(cfg.get("overtravel_mm", 3.0))
+        deeper = mp.with_z(grasp, max(lowest, grasp[2] - float(cfg.get("search_mm", 30.0))))
+        base = self._tare(cfg.get("settle_s", 0.3))
+        n = float(cfg.get("touch_n", 3.0))
+
+        def touched():
+            f = self.robot.tool_force()
+            if f is None or base is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            if abs(f[2] - base[2]) >= n:
+                return sf.Outcome(True, reason=f"바닥 닿음 {abs(f[2] - base[2]):.1f} N")
+            return None
+        bad = self._line(goal, deeper, float(cfg.get("speed_mm_s", 10.0)), "descend", watch=touched)
+        if bad and not bad.success:
+            return bad
+        now = self.robot.posx()
+        if now is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
+        lift = max(0.0, mp.tip_below_tcp_mm(close_mm, g) - mp.tip_below_tcp_mm(open_mm, g)) + float(cfg.get("clear_mm", 2.0))
+        self.get_logger().info(f"[pick_object] 바닥 {'닿음' if bad else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} → {lift:.1f} mm 올려 닫음 "
+                               f"(계산 높이 {grasp[2]:.1f})")
+        return self._line(goal, mp.with_z(now, now[2] + lift), float(cfg.get("speed_mm_s", 10.0)), "touch_up")
+
     def _tare(self, settle_s=None):
         """멈춘 뒤 잠깐 기다렸다가 여러 번 읽은 평균 = 힘 기준값. 두산 툴 힘은 관절 토크 추정이라 멈춘 직후 흔들림 (10/06)."""
         sp = self.prm()["force"]
@@ -1524,9 +1555,14 @@ class SkillServer(Node):
         bad = None
         if slow_mm > 0 and grasp[2] + slow_mm < self.robot.posx()[2] - 1.0:
             bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
-        bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
+        touch_cfg = prm["pick"].get("touch_floor") or {}
+        if touch_cfg.get("enabled") and down and round_side is None:   # 립밤 벽 기울여 잡기는 직접교시 높이 그대로 [실측 10/10]
+            bad = bad or self._pick_touch_down(goal, grasp, place["tf"], target, support, plan, expected_w, touch_cfg)
+        else:
+            bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, None
+        grasp_z_now = (self.robot.posx() or grasp)[2]                 # 실제로 닫은 TCP 높이 (바닥 닿아 정했으면 계산값과 다름)
         force = float(params.get("grip_force") or grip_force or g["default_grip_force_n"])
         goal.publish_feedback(Skill.Feedback(stage="close"))
         st = self._grip(0, force)
@@ -1575,7 +1611,7 @@ class SkillServer(Node):
                 {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         floor_z = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
-                     "tcp_above_floor_m": plan.position_m[2] - floor_z - support,   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
+                     "tcp_above_floor_m": grasp_z_now / 1000.0 - floor_z - support,   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
                      "long_side": long_side}                                        # 긴 변 양끝을 쥠 → 놓을 때 손가락 방향 90° [사용자 10/10]
         out = {"object_id": target.get("id"), "class": cls, "pick_pose_drawer_frame": target.get("pose"),
                "grasp_ok": True}
