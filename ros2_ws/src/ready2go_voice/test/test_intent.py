@@ -289,7 +289,7 @@ GOAL_TEXTS = ['지우개 트레이에 갖다 놔', '위 서랍 열어 둬', '위
 
 
 @pytest.mark.parametrize('index', range(5))
-def test_selected_p2_goals_are_internal_and_never_published(ontology, schema, cfg, index):
+def test_selected_p2_goals_without_request_optin_do_not_publish(ontology, schema, cfg, index):
     import copy
     cfg.update(p2_goal_enabled=True, evaluation_mode=False)
     goals = copy.deepcopy(cfg['p2_goal_catalog'][index])
@@ -299,7 +299,7 @@ def test_selected_p2_goals_are_internal_and_never_published(ontology, schema, cf
     doc = parser.parse(GOAL_TEXTS[index])
     assert doc['intent'] == 'achieve_goal' and doc['goals'] == goals
     assert not doc['source']['execution_allowed']
-    assert '내부 평가' in doc['_voice']['final_text'] and '완료했어요' not in doc['_voice']['final_text']
+    assert '목표 요청' in doc['_voice']['final_text'] and '완료했어요' not in doc['_voice']['final_text']
     session = VoiceSession(parser, cfg)
     assert not session.should_publish(doc)
     doc['source']['execution_allowed'] = True

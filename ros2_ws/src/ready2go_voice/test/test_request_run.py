@@ -127,3 +127,15 @@ def test_explicit_dependency_invalidation_prevents_old_result_rebinding(tracker)
     assert tracker.register(dict(PAYLOAD,request_id='fresh'))
     assert not tracker.observe(status(accepted(),completed()))
     assert tracker.run_id is None
+
+
+def test_goal_content_order_is_correlated_and_conflicting_content_cannot_rebind():
+    goals=[dict(predicate='located_in',subject='eraser',value='handover_zone'),
+           dict(predicate='open',subject='drawer_top',value=True)]
+    payload=dict(intent='achieve_goal',goals=goals,targets=[],request_id='goal',accept_text='목표 요청입니다.')
+    tracker=RequestRun();assert tracker.register(payload)
+    decision=dict(intent='achieve_goal',goals=list(reversed(goals)),request_id='goal',run_id='goal-run',decision='run')
+    assert tracker.observe(status(decision))[0]['event']=='request_accepted'
+    changed=copy.deepcopy(decision);changed['goals'][0]['value']=False
+    assert not tracker.observe(status(changed)) and tracker.pending is None
+    assert not tracker.observe(status(decision,completed('goal-run')))

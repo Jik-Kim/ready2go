@@ -357,7 +357,10 @@ class VoiceSession:
             control = self.parser.control(text) if self.parser is not None else None
             if safety_utterance(text) == 'stop' or control and control['intent'] == 'cancel':
                 exchange.cancel()
-                return intent('cancel')
+                doc = intent('cancel')
+                doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
+                                     llm_called=False, fallback_used=False)
+                return doc
             return exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
         except Exception as exc:
             exchange.fail(target)

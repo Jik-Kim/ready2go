@@ -317,3 +317,79 @@ def test_adapter_cannot_return_yes_without_admission_receipt(cfg):
     clock = [2.5]
     response = session(cfg, SkippedBoundary(clock), clock).confirm_audio(ex, q, recording())
     assert response.message['answer'] == 'error'
+
+
+# 기존 노드 메서드/상태 대역을 재사용하며 별도 ROS·범용 C 서비스는 만들지 않습니다.
+from test_voice_ux_node import node_class,node
+from types import SimpleNamespace
+import json
+
+
+@pytest.mark.parametrize('proof',['complete','missing_end','expired_registration'])
+def test_actual_place_worker_registration_tts_capture_and_verified_result(node,proof):
+    h=node;h.cfg.update(audio_enabled=True);h.place_topic='/test/place';h.place_test_devices=True
+    h.now[0]=10.
+    captures=[];answers=iter(['그런 것 같아','네']) if proof=='complete' else iter(['네'])
+    complete=threading.Event();order=[]
+    class STT:
+        supports_request_boundary=True
+        def transcribe(self,path,timeout,*,before_request):
+            h.now[0]+=.1
+            assert before_request(h.now[0]);order.append('sdk')
+            return next(answers)
+    h.session.stt=STT()
+    def capture(cancel,paused):
+        assert not paused() and order[-1]=='end'
+        captures.append(h.place_exchange.active.question_id)
+        start=h.now[0]+.1;h.now[0]=start+.1
+        return Recording(b'\x01\x00'*1280,h.now[0],123.,recording_started_monotonic=start,
+                         recording_ended_monotonic=h.now[0])
+    h.place_recorder=SimpleNamespace(capture=capture)
+    def speak(text,*,on_start,on_timing,**kw):
+        assert h.place_registered is h.place_exchange.active
+        order.append('tts');h.now[0]+=.1
+        on_start(dict(tts_started_monotonic=h.now[0],tts_start_basis='portaudio_first_dac',tts_mock=True))
+        if proof!='missing_end':
+            h.now[0]+=.1;on_timing(dict(playback_ended_monotonic=h.now[0],playback_end_basis='portaudio_finished_callback'))
+        order.append('end')
+    h.tts.speak=speak
+    original=h._publish
+    def publish(doc):
+        original(doc)
+        if doc.get('answer')=='asked':
+            order.append('asked')
+            if proof=='expired_registration':h.now[0]+=101.
+            ack=dict(doc,type='registered');ack.pop('intent');ack.pop('answer')
+            h._place_input(SimpleNamespace(data=json.dumps(ack)))
+        elif doc.get('answer') in ('yes','error','expired'):complete.set()
+    h._publish=publish
+    incoming=dict(type='question',boot_id='boot',run_id='run',step_id='place',destination='handover_zone',
+                  items=['eraser'],observation='not_found',final_timeout_sec=100.)
+    h._place_input(SimpleNamespace(data=json.dumps(incoming)))
+    worker=threading.Thread(target=h._place_work);worker.start()
+    try:
+        assert complete.wait(1)
+        replies=[d.get('answer') for d in h.published]
+        if proof=='complete':
+            assert replies==['asked','ambiguous','asked','yes']
+            assert len(set(captures))==2 and h.place_first_sent==10.
+            old=h.published[0];new=h.published[2]
+            assert old['question_id']!=new['question_id'] and new['attempt']==2
+            result=dict(type='result',boot_id='boot',run_id='run',step_id='place',overall_status='FAILED',
+                        delivery_verified=True,restoration_verified=False,error_code='RESTORE_FAILED')
+            h._place_input(SimpleNamespace(data=json.dumps(dict(result,run_id='old'))))
+            assert h.pending_notice is None
+            h._place_input(SimpleNamespace(data=json.dumps(dict(result,delivery_verified=False))))
+            assert h.pending_notice is None
+            h._place_input(SimpleNamespace(data=json.dumps(result)))
+            assert h.pending_notice.text=='물품은 전달했지만 원위치 복구를 완료하지 못했습니다.'
+            h.pending_notice=None
+            h._place_input(SimpleNamespace(data=json.dumps(result)))
+            assert h.pending_notice is None
+        else:
+            assert replies==['asked','error' if proof=='missing_end' else 'expired']
+            assert not captures
+    finally:
+        h.stop_event.set()
+        with h.place_condition:h.place_condition.notify_all()
+        worker.join(1);assert not worker.is_alive()

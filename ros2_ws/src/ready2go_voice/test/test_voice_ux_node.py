@@ -17,6 +17,11 @@ from ready2go_voice.core.response import final_response
 from ready2go_voice.core.diagnostics import redact
 from ready2go_voice.core.runner_notice import RunnerNoticePolicy, Notice
 from ready2go_voice.core.request_run import RequestRun
+from ready2go_voice.core.place_exchange import PlaceExchange
+from ready2go_voice.core.place_input import decode, identity, question_input, registered, result_notice
+from ready2go_voice.core.safety_exchange import SafetyExchange, IndependentRegistration, QuestionDeclined, RecoveryRequest
+from ready2go_voice.core.recovery_confirmation import finite, safety_utterance, task_end_utterance
+from ready2go_voice.adapters.audio import Recorder
 from ready2go_voice.core.tts_prefill import remember_text
 
 
@@ -28,7 +33,12 @@ def node_class():
     tree.body=[n for n in tree.body if isinstance(n,ast.ClassDef) or isinstance(n,ast.FunctionDef) and n.name=='runner_blocks']
     namespace=dict(Node=object,json=json,queue=queue,threading=threading,time=time,uuid=uuid,
                    intent=intent,final_response=final_response,redact=redact,remember_text=remember_text,
-                   Notice=Notice,RunnerNoticePolicy=RunnerNoticePolicy)
+                   Notice=Notice,RunnerNoticePolicy=RunnerNoticePolicy, Recorder=Recorder,
+                   finite=finite,safety_utterance=safety_utterance,task_end_utterance=task_end_utterance,
+                   decode=decode,identity=identity,question_input=question_input,registered=registered,result_notice=result_notice,
+                   IndependentRegistration=IndependentRegistration,QuestionDeclined=QuestionDeclined,RecoveryRequest=RecoveryRequest,
+                   GoalResponse=SimpleNamespace(ACCEPT=1,REJECT=0),
+                   Skill=SimpleNamespace(Result=SimpleNamespace))
     exec(compile(tree,str(source),'exec'),namespace)
     return namespace['VoiceNode']
 
@@ -38,17 +48,30 @@ def node(node_class,ontology,schema,cfg):
     cfg.update(evaluation_mode=False,tts_engine='espeak')
     now=[time.monotonic()]
     parser=IntentParser(ontology,schema,cfg)
-    h=SimpleNamespace(cfg=cfg,parser=parser,session=VoiceSession(parser,cfg,clock=lambda:now[0]),
+    h=node_class.__new__(node_class)
+    h.__dict__.update(cfg=cfg,parser=parser,session=VoiceSession(parser,cfg,clock=lambda:now[0]),
         generation=0,stop_event=threading.Event(),request_cancel=threading.Event(),speaking=threading.Event(),
-        submit_lock=threading.Lock(),notice_condition=threading.Condition(),notice_policy=RunnerNoticePolicy(),
+        submit_lock=threading.RLock(),notice_condition=threading.Condition(),notice_policy=RunnerNoticePolicy(),
         normal_notice_cancel=threading.Event(),notice_cancel=threading.Event(),pending_notice=None,warning_epoch=0,
         diagnostics=[],published=[],texts=[],now=now)
+    h.local_context=threading.local()
+    h.place_clock=lambda:now[0]
+    h.playback_lock=threading.Lock();h.playback_texts={};h.stop_spoken=None
+    h.busy=threading.Event();h.audio_lock=threading.Lock();h.dialog_lock=threading.Lock()
+    h.request_run=RequestRun();h.request_source_check=None;h.request_speech_used=set();h.goal_request_run=None
+    h.goal_lock=threading.Lock()
+    h.place_condition=threading.Condition(h.submit_lock)
+    h.place_exchange=PlaceExchange(cfg,item_names={k:v['name_ko'] for k,v in parser.items.items()})
+    h.place_topic='';h.place_pending=h.place_identity=h.place_registered=h.place_registered_at=None
+    h.place_running=None;h.place_cancel=threading.Event();h.place_activity=threading.Event();h.place_results=set()
+    h.safety_exchange=SafetyExchange(cfg);h.safety_sender=None;h.safety_pending=h.safety_running=None
+    h.safety_cancel=threading.Event();h.safety_activity=threading.Event()
     h._diagnostic=lambda d:h.diagnostics.append(copy.deepcopy(d))
     h._publish=lambda d:h.published.append(copy.deepcopy(d))
     def speak(text,**kw):
         h.texts.append(text)
         kw['on_start']({'tts_started_monotonic':now[0],'tts_started_unix':123,'tts_mock':True})
-    h.tts=SimpleNamespace(speak=speak)
+    h.tts=SimpleNamespace(speak=speak,lock=threading.Lock())
     h.deliver=lambda d:node_class._deliver(h,d,h.generation)
     h.observe=lambda phase:node_class._runner_status(h,SimpleNamespace(data=json.dumps({
         'phase':phase,'halt_code':'HALTED' if phase=='halted' else None,
@@ -275,7 +298,7 @@ def test_internal_goal_console_diagnostics_only_no_tts_or_publish(node):
     assert node.texts == []  # actual _deliver never calls TTS for achieve_goal
     final = [d for d in node.diagnostics if d['event'] == 'final_response']
     assert len(final) == 1 and final[0]['text'] == doc['_voice']['final_text']
-    assert '내부 평가' in final[0]['text']
+    assert '목표 요청' in final[0]['text']  # opt-in gate와 실제 실행은 별도로 검사합니다.
     events = [d for d in node.diagnostics if d['event'] == 'intent']
     assert len(events) == 1 and events[0]['published'] is False
 
@@ -334,7 +357,7 @@ def test_work_never_prepares_unsafe_or_ineligible_public_candidate(node, node_cl
 
 @pytest.fixture
 def wire_node(node,node_class):
-    # C dependency injection for mocks only; production helper always holds.
+    # C 연결이 있다고 가정하는 기존 모의입니다. 실제 checker 경계는 별도 검사합니다.
     node.cfg['request_run_enabled']=True
     node.request_run=RequestRun()
     node._request_run_connected=lambda:True
@@ -492,3 +515,76 @@ def test_unsupported_c_dependency_holds_opt_in_but_keeps_halt_warning(wire_node,
     assert wire_node.normal_notice_cancel.is_set() and wire_node.pending_notice.kind=='estop'
     node_class._goal.__globals__['GoalResponse']=SimpleNamespace(REJECT='reject',ACCEPT='accept')
     assert node_class._goal(wire_node,SimpleNamespace(params_json=json.dumps({'text':'수락 안내'})))=='reject'
+
+
+@pytest.fixture
+def selected_node(node):
+    node.cfg.update(p2_goal_enabled=True,request_run_enabled=True)
+    current={'ready':True}
+    node.bind_request_source(lambda:current['ready'])
+    node.observe('idle')
+    node.parser.llm=lambda *_:dict(intent='achieve_goal',targets=[],confidence=.99,
+        goals=copy.deepcopy(node.cfg['p2_goal_catalog'][1]),response_text=None)
+    node.source_state=current
+    return node
+
+
+def selected_request(node):
+    return node.session.text('위 서랍 열어 둬',node.generation,request_id='goal-request')
+
+
+def selected_decision(node,*,complete=False):
+    payload=node.request_run.pending
+    return dict(phase='idle' if complete else 'running',task_id='achieve_goal',halt_code=None,
+        last_intent=dict(intent='achieve_goal',goals=copy.deepcopy(payload['goals']),request_id='goal-request',
+                         decision='run',run_id='goal-run'),
+        last=dict(task_id='achieve_goal',run_id='goal-run',overall_status='COMPLETED',error_code=None) if complete else None)
+
+
+def test_selected_goal_payload_and_current_source_loss_cannot_rebind(selected_node):
+    h=selected_node;doc=selected_request(h);h.deliver(doc)
+    assert len(h.published)==1 and not h.texts
+    payload=h.published[0]
+    assert payload['goals']==h.cfg['p2_goal_catalog'][1]
+    assert payload['request_id']=='goal-request' and payload['accept_text']==doc['_voice']['final_text']
+    decision=selected_decision(h)
+    h.source_state['ready']=False
+    h._runner_status(SimpleNamespace(data=json.dumps(decision)))
+    assert h.request_run.pending is None and h.request_run.run_id is None
+    h.source_state['ready']=True
+    h._runner_status(SimpleNamespace(data=json.dumps(decision)))
+    assert h.request_run.run_id is None
+
+
+@pytest.mark.parametrize('gate',['optin','evaluation','source'])
+def test_selected_goal_publication_respects_each_gate(selected_node,gate):
+    h=selected_node
+    if gate=='optin':h.cfg['request_run_enabled']=False
+    if gate=='evaluation':h.cfg['evaluation_mode']=True
+    if gate=='source':h.source_state['ready']=False
+    h.deliver(selected_request(h))
+    assert not h.published and h.request_run.pending is None and not h.texts
+
+
+def test_selected_goal_acceptance_speak_is_current_run_once_and_mock_is_not_success(selected_node,node_class):
+    h=selected_node;h.deliver(selected_request(h))
+    h._runner_status(SimpleNamespace(data=json.dumps(selected_decision(h))))
+    assert h.request_run.run_id=='goal-run'
+    text=h.request_run.pending['accept_text']
+    assert h._goal(SimpleNamespace(params_json=json.dumps({'text':text+'이전 요청'})))==0
+    request=SimpleNamespace(params_json=json.dumps({'text':text}))
+    assert h._goal(request)==1
+    calls=[]
+    goal=SimpleNamespace(request=request,is_cancel_requested=False,abort=lambda:calls.append('abort'),
+                         succeed=lambda:calls.append('success'),canceled=lambda:calls.append('cancel'))
+    result=h._speak(goal)
+    assert result.success is False and calls==['abort']  # no-op/mock 재생은 실제 성공 증거가 아닙니다.
+    assert h._goal(request)==0 and h.texts==[text]
+
+
+def test_selected_goal_fast_final_prevents_late_acceptance_speech(selected_node):
+    h=selected_node;h.deliver(selected_request(h))
+    h._runner_status(SimpleNamespace(data=json.dumps(selected_decision(h,complete=True))))
+    assert h.request_run.finished
+    request=SimpleNamespace(params_json=json.dumps({'text':h.request_run.pending['accept_text']}))
+    assert h._goal(request)==0 and not h.texts

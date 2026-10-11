@@ -464,7 +464,7 @@ def test_opt_in_goal_response_preserves_requested_open_without_completion_promis
             '지우개 갖다 놓고 서랍은 열어 둬')
     assert doc['goals'][1]['value'] is True
     text = doc['_voice']['final_text']
-    assert '열림' in text and '내부 평가' in text and '완료했어요' not in text and '닫고' not in text
+    assert '열림' in text and '목표 요청' in text and '완료했어요' not in text and '닫고' not in text
 
 
 def test_prepared_payload_uses_queue_id_validated_text_and_detached_copy(ontology, schema, cfg):

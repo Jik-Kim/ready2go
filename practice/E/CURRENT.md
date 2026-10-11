@@ -5,6 +5,15 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## P2 모의·회귀 검증 — E-P2-VERIFY-20261011-01
+
+- [문서: 기준·범위] 기존 `codex/e-tray-confirm-integration-20261011`/`2808d2460d3102915bd72d00d3716d5f685e2e47` 작성분을 검증했습니다. 지시 세션의 개발→모의/단위/격리 ROS→실C 통합 순서를 적용했으며 새 branch/worktree/서비스/의존성·임계값·공통 계약·타 담당 파일은 추가하지 않았습니다. 신규 test_stop_audio.py·test_safety_exchange.py는 기존 노드 AST fixture와 typed 입력을 재사용하는 시험이고 실제 C/B 증빙이 아닙니다.
+- [실측: 재현 결함 1건] Session.safety_audio의 질문 stop 결과에 source가 없어 실제 `_safety_result_locked → _stop_locked → should_publish`에서 KeyError로 cancel 발신이 실패했습니다. 실제 audio/STT 문장·LLM 미사용·실행 허가 false인 기존 source를 붙여 최소 수정하고 실제 Session/노드 호출 회귀로 발신을 확인했습니다. 재개/정지 wire나 증빙 필드는 추가하지 않았습니다.
+- [문서: 시험 정합성] 선정5종/goal 응답의 과거 ‘내부 평가’ 기대6건은 승인된 ‘목표 요청’ 안내에 맞췄으며 실행결함 수로 합산하지 않습니다. 낮은/같은 seq의 권한 보존과 동일 사건의 최신 의미 충돌/하한 차단을 구분해 가정을 바로잡았습니다. 공유 입력의 새로운 물리 프레임만 overflow 반례에 사용하고, stop_event를 해제한 뒤 old cancel/generation이 추가 발신되지 않는지 검사했습니다. 기존 listener/준비 순서/ESTOP 안내 fixture도 현재 원본과 대조했습니다.
+- [실측: 직접 검사] Python3.12 CI venv에서 test_safety_exchange·test_stop_audio·test_voice_ux_node·test_audio_tts·test_request_run·test_place_exchange·test_intent·test_voice_ux **510 passed, 9 skipped**, 종료0입니다. skip9는 venv의 sounddevice 미설치로 기존 오디오 fixture가 수집하지 못한 검사이며 설치하지 않았습니다. 부모 지적 후 종료 조건에 의존하지 않도록 보완한 stop 시험은 **15 passed**입니다. 일반 STT/TTS 점유 중 실제 stop listener 진입, 소비자 cutoff/ADC/형식/overflow/취소/닫기, source/eval·중복, goal payload/current source/run/일회 재생·no-op 차단, place 등록/TTS 완료/새 SDK 답/모호 재질문/동일 실행 검증 결과, safety ACK/현재 work/독립 발화/거절/종료/옛 callback을 확인했습니다.
+- [실측: 격리 ROS] Jazzy+기존 install overlay에서 PYTHONPATH를 현재 편집 소스로 지정했고 VoiceNode.__file__의 실제 source 경로를 확인했습니다. 기존 test_node.py **48 passed**, 종료0입니다. 기존 domain166/167·tmp 로그·audio_enabled=false·FakeTTS/API 없음으로 topic/action·상태 구독/constructor/callback을 확인했습니다. 첫 수집은 ROS pytest plugin의 lark 미설치였고 설치 없이 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1로 분리했습니다. sandbox DDS 인터페이스 오류2건은 허용된 네트워크 환경의 재실행으로 해소했으며 코드결함으로 합산하지 않습니다. 명령과 pytest 프로세스는 종료됐고 노드/executor/context 정리는 기존 finally 경로로 수행했습니다. 실제 C 생산자나 음성 장치 검증이 아닙니다.
+- [문서: 재사용·남은 항목] 기존 RecoveryConfirmation의 변경 없는 core105 결과는 해당 원본에만 재사용했고 새 wrapper/노드 검증으로 대체하지 않았습니다. #43 실제 C 질문/등록/시계/confirm/동일 실행 결과, #150·07 현재 C 생산자·목표수락/first gate, #152 현재 사건/유효기간/B증빙·공개 매핑은 미연결입니다. 클라우드 지연/실패·작은 발화·자기 TTS 변형/잔음/같은 문구 보류·실제 마이크 경합 및 C/B 물리 정지·복구·재개 AC는 미검증입니다. 관련 E 경로에서 추가 미작성 기능은 이번 모의 검사로 발견하지 않았으며 실제 통합 완료로 판정하지 않습니다. 최종 전체 CI/push/PR은 후속 게시 단계입니다.
+
 ## 승인 P2 연속 기능 개발 — E-P2-CONTINUOUS-DEVELOPMENT-20261011
 
 - [문서: 최신 지시] 지시 세션이 조율의 인간 원문 turn `01a129c0-cb0a-7473-be91-1b06bc9f21ed`/user `01a129c0-cb3f-7b93-b39c-4502d932b9b8`을 확인해 전달했습니다. 승인된 E 기능 개발을 먼저 이어가고, 더미/회귀/실ROS·최종 CI·PR을 뒤로 두는 순서입니다. 기존 `codex/e-tray-confirm-integration-20261011`/`a2d51b9f3e6e770d0fa67a1d4d5bafb32c3bd5ef`와 작성 중 코드를 보존했습니다. 아래 이전 단일작업 대기 기록은 당시 이력입니다.
