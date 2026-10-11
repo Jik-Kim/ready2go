@@ -16,6 +16,7 @@ class VoiceSession:
         self.progress = progress
         self.speech_gate = speech_gate
         self.stt_calls = DeadlineCall()
+        self.stop_stt_calls = DeadlineCall()  # 일반 STT/LLM 작업 종료를 기다리지 않습니다.
         self._last = None
         self._acceptance = None
         self.conversation = Conversation(cfg, clock)
@@ -188,6 +189,42 @@ class VoiceSession:
         doc['_voice']['recording_started_monotonic'] = recording.recording_started_monotonic
         doc['_voice']['recording_ended_monotonic'] = recording.recording_ended_monotonic
         return doc
+
+    def stop_audio(self, recording, *, paused=lambda: False, spoken_texts=()):
+        """새 무음 종료 녹음의 좁은 정지 판별. LLM·대화 문맥·일반 STT 슬롯은 사용하지 않습니다."""
+        from ..adapters.audio import write_wav
+        from .recovery_confirmation import finite, safety_utterance
+        start, end = recording.recording_started_monotonic, recording.recording_ended_monotonic
+        if (paused() or recording.truncated or not recording.pcm
+                or recording.recording_mode != 'silence' or self.stt is None
+                or not all(finite(t) for t in (start, end)) or not start <= end <= self.clock()):
+            return None
+        timeout = self.cfg['stt_timeout_sec']
+        try:
+            def transcribe():
+                if paused():
+                    raise InterruptedError('STOP_CANCELED')
+                with tempfile.TemporaryDirectory(prefix='ready2go_stop_') as directory:
+                    path = Path(directory) / 'speech.wav'
+                    write_wav(path, recording, self.cfg['sample_rate'])
+                    if getattr(self.stt, 'supports_request_boundary', False):
+                        return self.stt.transcribe(path, timeout, before_request=lambda stamp: not paused())
+                    return self.stt.transcribe(path, timeout)
+            text = self.stop_stt_calls.call(transcribe, timeout)
+            # 기존 정확 문구 분류는 부정·인용·전언·모호 표현을 수용하지 않습니다.
+            if paused() or safety_utterance(text) != 'stop':
+                return None
+            normalized = ''.join(text.split()).rstrip('.!?')
+            if any(normalized in ''.join(reference.split()) for reference in spoken_texts):
+                self.progress(event='stop_audio_held', reason='overlapping_self_speech')
+                return None
+            doc = intent('cancel')
+            doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
+                                 llm_called=False, fallback_used=False)
+            return doc
+        except Exception as exc:
+            self.progress(event='stop_audio_held', reason=type(exc).__name__)
+            return None  # 네트워크 실패/늦은 결과는 로봇 정지 완료 증거가 아닙니다.
 
     def confirm_audio(self, exchange, envelope, recording, *, cancel=None, paused=lambda: False):
         """Independent #43 STT/classification, no LLM or publication.

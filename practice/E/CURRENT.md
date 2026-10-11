@@ -12,7 +12,8 @@
 - [문서: 정적 보완] goal payload의 should_publish 우회 제거, 낮은/중복 seq의 현재 녹음 권한 보존·의미 충돌 시 폐기, 열린 질문/미결정 독립 요청의 새 begin 차단과 기존 기한 내 등록 대기, pending cancel의 busy 권한 정리, 질문 작업 간 직렬화/마이크 공유, 현재 수락 문장·run의 중복 재생 차단을 보완했습니다. 실행 결과로 보고하지 않습니다.
 - [실측: 정적 검사] Voice Python AST 및 git diff --check 통과입니다. 새 실행 시험·더미·ROS probe·전체 CI·push·PR은 수행하지 않았습니다. 이전 a2d51b9의 36개 직접 시험 및 기존 105개 core 시험은 각 이전 대상의 결과이며 이번 노드 경로 검증이 아닙니다.
 - [문서: 정확 통합 선행] #43 실제 질문 출력/confirm 수신/등록·시계/같은 실행 단계 결과, #150·07 현재 C 생산자·재기동/수락/first gate·계획 결과, #152 현재 boot/run/halt/등록 seq/상대 시각·유효기간 및 B 증빙/typed 후보의 공개 규약 매핑이 남아 있습니다. source callable이나 valid_state=True 주입은 실C 통합 증거가 아닙니다. common schema/ICD·C/B/A·DB/모션·ontology 오류목록은 수정하지 않았습니다. B 실파지·정지·외력/재진입·실음성/Whisper/Melo/로봇 AC도 미검증입니다.
-- [문서: #187 실제 격차] 처리/TTS 중 새 음성 stop 수신은 아직 미완료입니다. 현재 일반 listener는 busy/speaking/TTS 또는 질문 작업 동안 웨이크를 보류합니다. 텍스트 cancel·현재 질문 STT의 stop 분류를 별도 상시 음성 수신 완료로 보고하지 않습니다. 기존 웨이크·녹음·stop 최소 경로를 재사용한 독립 수신과 마이크 공유의 추가 개발을 이어갑니다.
+- [문서: 로컬 체크포인트] 기존14E파일은 `8b5de5a691af81568f61a577097c69683207361d`로 로컬 커밋했습니다. 새 브랜치/worktree·push·PR은 생성하지 않았습니다.
+- [문서: #187 추가 작성] 지시 세션의 웨이크 없는 정지 입력 범위를 반영해 audio.py의 단일 SharedInput/소비자·기존 Recorder, Session.stop_audio의 별도 STT 슬롯, VoiceNode 독립 stop listener와 실제 재생 문구 대조·현재 세대 cancel 발신/질문 중복 차단·close를 작성했습니다. 일반 P1 wake/fixed·임계값·설정·기존 cancel wire는 유지하며 새 모델/의존성/타이머를 추가하지 않았습니다. 처리/TTS/질문·Runner 실행/잠김 중 새 “멈춰”/“정지해”는 기존 RMS/무음 종료 녹음으로 접수하도록 작성했으며 LLM/P1 STT/TTS 종료를 기다리지 않습니다. 실제 장치/Whisper/echo·C/B 정지 AC는 미검증입니다. 자기 재생 문구 대조는 음향 echo 제거가 아니며 같은 문구의 사용자 발화도 보수적으로 보류할 수 있습니다. 클라우드 지연/실패·작은 발화·TTS 잔음/변형·마이크 소비 경합/overflow/close를 후속 시험 대상으로 남깁니다. 기본 일반 wake 제한을 상시 음성 수신 보장으로 바꾸지 않습니다.
 - [문서: 단계 완료 조건] 기능별 실제 diff·생산자/수신자와 미구현/미연결 목록을 지시 세션에 보고하고 검토 후 해당 파일만 로컬 커밋합니다. 이후 승인된 후속 개발·시험 단계로 이어가며 PR 대기로 개발을 막지 않습니다. 모델 해시와 기존 PR225/218/217/07 refs는 보존하고 커밋에서 제외합니다.
 
 ## #43 E 교환·음성 처리 독립 준비 — E43-TRAY-CONFIRM-INTEGRATION-20261011

@@ -29,7 +29,7 @@ from ..core.place_input import decode, identity, question_input, registered, res
 from ..core.safety_exchange import SafetyExchange, IndependentRegistration, QuestionDeclined, RecoveryRequest
 from ..core.recovery_confirmation import finite, safety_utterance, task_end_utterance
 from ..adapters.api import LangChainIntent, WhisperSTT
-from ..adapters.audio import Recorder, WakeAudio
+from ..adapters.audio import Recorder, WakeAudio, SharedInput
 from ..adapters.tts import create_tts
 
 
@@ -93,6 +93,11 @@ class VoiceNode(Node):
         self.normal_notice_cancel = threading.Event()
         self.warning_epoch = 0
         self.audio_lock = threading.Lock()
+        self.playback_lock = threading.Lock()
+        self.playback_texts = {}
+        self.stop_spoken = None  # 현재 정지 녹음과 겹친 자체 재생 문구만 보관합니다.
+        self.shared_input = SharedInput(self.cfg, clock=clock) if self.cfg['audio_enabled'] and recorder is None else None
+        self.stop_listener = None
         self.dialog_lock = threading.Lock()
         self.place_clock = clock
         # Explicit development boundary; question/registered/result are test fixtures.
@@ -101,7 +106,7 @@ class VoiceNode(Node):
             raise ValueError('place_test_input_topic: string required')
         self.place_exchange = PlaceExchange(self.cfg, item_names={
             key: value['name_ko'] for key, value in self.parser.items.items()})
-        self.place_recorder = recorder if recorder is not None else Recorder(self.cfg, clock=clock)
+        self.place_recorder = recorder if recorder is not None else Recorder(self.cfg, clock=clock, shared_input=self.shared_input)
         self.place_test_devices = tts is not None or stt is not None or recorder is not None
         self.place_condition = threading.Condition(self.submit_lock)
         self.place_pending = None
@@ -281,7 +286,7 @@ class VoiceNode(Node):
                     raise ValueError('PLACE_AUDIO_DISABLED')
                 timing, started = {}, {}
                 self.speaking.set()
-                self.tts.speak(q.question.text, cancel=cancel, on_start=started.update,
+                self._say(q.question.text, cancel=cancel, on_start=started.update,
                                on_timing=timing.update)
                 self.speaking.clear()
                 finish, start = timing.get('playback_ended_monotonic'), started.get('tts_started_monotonic')
@@ -307,10 +312,8 @@ class VoiceNode(Node):
                         if self.cfg['evaluation_mode'] or self.notice_policy.blocked or self.notice_policy.phase == 'halted':
                             continue
                         if reply.message['intent'] == 'cancel':
-                            self._cancel_place_locked()
-                            self.generation += 1
-                            self.request_cancel.set()
-                            self.request_run.invalidate()
+                            self._stop_locked(reply.message)
+                            continue
                         self._publish(reply.message)
                         self._diagnostic({'event': 'place_confirm_sent', 'confirm': reply.message,
                                           'test_devices': self.place_test_devices})
@@ -442,12 +445,7 @@ class VoiceNode(Node):
                 or self.stop_event.is_set() or self.cfg['evaluation_mode']):
             return
         if isinstance(result, dict) and result.get('intent') == 'cancel':
-            self._cancel_safety_locked()
-            self._cancel_place_locked()
-            self.generation += 1
-            self.request_cancel.set()
-            self.request_run.invalidate()
-            self._publish(result)
+            self._stop_locked(result)
         elif isinstance(result, IndependentRegistration):
             sender('register_independent', result.request)
         elif isinstance(result, QuestionDeclined):
@@ -532,7 +530,7 @@ class VoiceNode(Node):
                             if not self.safety_exchange.tts_started(target, now=stamp.get('tts_started_monotonic')):
                                 cancel.set()
                         self.speaking.set()
-                        self.tts.speak(target.text, cancel=cancel, on_start=on_start, on_timing=timing.update)
+                        self._say(target.text, cancel=cancel, on_start=on_start, on_timing=timing.update)
                         self.speaking.clear()
                         end = timing.get('playback_ended_monotonic')
                         proof = (finite(end) and finite(started.get('tts_started_monotonic'))
@@ -701,6 +699,83 @@ class VoiceNode(Node):
                     self.generation += 1
                     self.request_cancel.set()
 
+    def _say(self, text, *, on_start=None, **kwargs):
+        """실제 재생과 겹친 자체 문구만 정지 녹음의 echo 대조에 제공합니다."""
+        token = object()
+        def started(stamp):
+            with self.playback_lock:
+                self.playback_texts[token] = text
+                if self.stop_spoken is not None:
+                    self.stop_spoken.add(text)
+            if on_start is not None:
+                on_start(stamp)
+        try:
+            return self.tts.speak(text, on_start=started, **kwargs)
+        finally:
+            with self.playback_lock:
+                self.playback_texts.pop(token, None)
+
+    def _stop_locked(self, doc, generation=None):
+        """submit_lock 안에서 현재 세대의 cancel을 한 번 발신하고 모든 E 작업을 무효화합니다."""
+        if self.stop_event.is_set() or generation is not None and generation != self.generation:
+            return False
+        self.session.conversation.invalidate()
+        self._cancel_place_locked()
+        self._cancel_safety_locked()
+        self.generation += 1
+        self.request_cancel.set()
+        self.request_run.invalidate()
+        self.warning_epoch += 1
+        with self.notice_condition:
+            self.notice_cancel.set()
+            self.pending_notice = None
+            self.notice_condition.notify_all()
+        published = self.session.should_publish(doc)
+        if published:
+            self._publish(doc)
+        self._diagnostic({'event': 'intent', 'intent': doc, 'published': published})
+        return published
+
+    def _stop_listen(self):
+        # 일반 wake/fixed 설정과 무관하게 정지는 기존 RMS/무음 종료 녹음을 사용합니다.
+        recorder = Recorder(self.cfg, clock=self.place_clock, shared_input=self.shared_input)
+        interval = self.cfg['frame_samples'] / self.cfg['sample_rate']
+        while not self.stop_event.is_set():
+            active = (self.busy.is_set() or self.speaking.is_set() or self.tts.lock.locked()
+                      or self.place_activity.is_set() or self.safety_activity.is_set()
+                      or runner_blocks(self))
+            if not active:
+                self.stop_event.wait(interval)
+                continue
+            with self.submit_lock:
+                generation = self.generation
+            spoken = set()
+            def interrupted():
+                return self.stop_event.is_set() or generation != self.generation
+            try:
+                with self.playback_lock:
+                    spoken.update(self.playback_texts.values())
+                    self.stop_spoken = spoken
+                try:
+                    with self.shared_input.stream() as stream:
+                        recording = recorder.record(stream, self.stop_event, paused=interrupted)
+                finally:
+                    with self.playback_lock:
+                        self.stop_spoken = None
+                doc = self.session.stop_audio(recording, paused=interrupted, spoken_texts=spoken)
+                if doc is not None:
+                    with self.submit_lock:
+                        self._stop_locked(doc, generation)
+            except TimeoutError:
+                continue  # 기존 음성 시작/최대 길이 경계. 무음은 API를 호출하지 않습니다.
+            except InterruptedError:
+                if self.shared_input._closed:
+                    return
+                continue
+            except Exception as exc:
+                self._diagnostic({'event': 'stop_input_unavailable', 'error_type': type(exc).__name__})
+                return
+
     def _notice_work(self):
         while not self.stop_event.is_set():
             with self.notice_condition:
@@ -712,7 +787,7 @@ class VoiceNode(Node):
             self.speaking.set()
             timing = {}
             try:
-                self.tts.speak(notice.text, cancel=cancel, on_timing=timing.update,
+                self._say(notice.text, cancel=cancel, on_timing=timing.update,
                                on_start=lambda stamp: self._diagnostic({'event': 'tts_started',
                                    'notice_kind': notice.kind, 'source': stamp, 'timing': dict(timing)}))
                 self._diagnostic({'event': 'tts_finished', 'notice_kind': notice.kind, 'timing': dict(timing)})
@@ -745,17 +820,10 @@ class VoiceNode(Node):
             with self.submit_lock:
                 self.session.conversation.invalidate()  # status도 새 독립 요청입니다.
                 if control['intent'] == 'cancel':
-                    if hasattr(self, 'safety_exchange'):
-                        self._cancel_safety_locked()
-                    if getattr(self, 'place_topic', ''):
-                        self._cancel_place_locked()
-                    if self.cfg.get('request_run_enabled', False):
-                        self.request_run.invalidate()
-                        self.warning_epoch += 1
-                        self.notice_cancel.set()
-                        self.pending_notice = None
-                    self.generation += 1
-                    self.request_cancel.set()
+                    control['source'] = dict(stt_text=message.data, input_kind='text',
+                                            execution_allowed=False, llm_called=False, fallback_used=False)
+                    self._stop_locked(control)
+                    return
             # 취소/상태 요청은 API 처리 큐 뒤에서 기다리지 않지만 로봇 제어는 C가 담당.
             control['source'] = {'stt_text': message.data, 'input_kind': 'text',
                                  'execution_allowed': False, 'llm_called': False, 'fallback_used': False}
@@ -855,7 +923,7 @@ class VoiceNode(Node):
                         source['confirmation_latency_ms'] = round(
                             (stamp['tts_started_monotonic'] - source['speech_ended_monotonic']) * 1000, 3)
                     self._diagnostic({'event': 'tts_started', 'source': source, 'timing': dict(timing)})
-                self.tts.speak(text, cancel=self.request_cancel, on_start=started, timeout=timeout, start_deadline=start_deadline, on_timing=timing.update)
+                self._say(text, cancel=self.request_cancel, on_start=started, timeout=timeout, start_deadline=start_deadline, on_timing=timing.update)
                 self._diagnostic({'event': 'tts_finished', 'timing': dict(timing), 'text': text, 'intent': doc,
                                   'tts_finished_monotonic': time.monotonic()})
                 with self.submit_lock:
@@ -880,6 +948,9 @@ class VoiceNode(Node):
             return
         with self.submit_lock:
             if self.stop_event.is_set() or generation != self.generation or not self.session.valid_context(doc, generation):
+                return
+            if doc['intent'] == 'cancel':
+                self._stop_locked(doc, generation)
                 return
             if doc['intent'] in ('find_item', 'achieve_goal') and runner_blocks(self):
                 self.session.conversation.invalidate()
@@ -916,8 +987,11 @@ class VoiceNode(Node):
 
     def _listen(self):
         try:
-            wake = WakeAudio(self.cfg)
-            recorder = Recorder(self.cfg)
+            self.shared_input.start()
+            self.stop_listener = threading.Thread(target=self._stop_listen, daemon=True)
+            self.stop_listener.start()
+            wake = WakeAudio(self.cfg, shared_input=self.shared_input)
+            recorder = Recorder(self.cfg, clock=self.place_clock, shared_input=self.shared_input)
             while not self.stop_event.is_set():
                 if self.busy.is_set() or self.speaking.is_set() or self.tts.lock.locked():
                     self.stop_event.wait(.08)
@@ -941,7 +1015,7 @@ class VoiceNode(Node):
                             self._diagnostic({'event': 'record_started'})
                             recording = recorder.record(stream, self.stop_event,
                                 lambda: self.speaking.is_set() or self.tts.lock.locked() or record_generation != self.generation or self.place_activity.is_set() or self.safety_activity.is_set())
-                    # 웨이크 스트림을 닫은 뒤 원본 sd.rec가 같은 입력으로 새 스트림을 엽니다.
+                    # 고정 모드도 같은 물리 입력의 새 소비자로 기존 길이만 수집합니다.
                     if self.cfg.get('recording_mode', 'silence') == 'fixed':
                         self._diagnostic({'event': 'record_started', 'duration': self.cfg['record_duration_sec']})
                         with self.audio_lock:
@@ -964,6 +1038,8 @@ class VoiceNode(Node):
         except Exception as exc:
             # 장치/모델 오류는 모션 입력을 생성하지 않음. 복구는 사람이 설정 확인 후 재시작.
             self._diagnostic({'event': 'audio_unavailable', 'error_type': type(exc).__name__})
+            if self.stop_listener is None:
+                self.shared_input.close()
 
     def _goal(self, request):
         if (self.cfg.get('request_run_enabled', False)
@@ -1024,7 +1100,7 @@ class VoiceNode(Node):
                 raise InterruptedError('TTS_CANCELED')
             timing = {}
             params = json.loads(goal.request.params_json)
-            stamp = self.tts.speak(params['text'], cancel=cancel,
+            stamp = self._say(params['text'], cancel=cancel,
                 on_start=lambda s: self._diagnostic({'event': 'tts_started', 'source': s, 'timing': dict(timing)}),
                 on_timing=timing.update)
             self._diagnostic({'event': 'tts_finished', 'timing': dict(timing)})
@@ -1064,6 +1140,8 @@ class VoiceNode(Node):
     def close(self):
         self.stop_event.set()
         self.request_cancel.set()
+        if self.shared_input is not None:
+            self.shared_input.close()
         with self.submit_lock:
             self._cancel_place_locked()
             self._cancel_safety_locked()
@@ -1077,6 +1155,8 @@ class VoiceNode(Node):
         self.notice_worker.join(timeout=1)
         if self.listener:
             self.listener.join(timeout=1)
+        if self.stop_listener:
+            self.stop_listener.join(timeout=1)
         if hasattr(self.tts, 'close'):
             self.tts.close()
         writer = getattr(self, 'diagnostic_file', None)
