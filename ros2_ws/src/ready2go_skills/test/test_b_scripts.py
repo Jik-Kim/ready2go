@@ -430,3 +430,17 @@ def test_b_sk_sends_full_scan_for_neighbor_check_only_same_drawer(monkeypatch, t
     wrong["candidates"][0]["pose"]["frame"] = "drawer_bottom"
     (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(wrong))
     assert "scan" not in sk.goal_for("pick")[1]
+
+
+def test_b_sk_aside_places_held_object_in_drawer_slot_with_scan(monkeypatch, tmp_path):
+    """[사용자 10/11] 캐러멜 위 지우개를 집어 aside 에 — B aside top = place_object(location 서랍, slot aside_1, 집을 때 본 scan).
+    aside2 는 aside_2. 그 서랍 인식 결과가 없으면 보내지 않고 멈춤."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    with pytest.raises(SystemExit, match="B scan top"):
+        sk.goal_for("aside")
+    scan = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(scan))
+    action, params = sk.goal_for("aside")
+    assert action == "place_object" and params["location"] == "drawer_top" and params["slot"] == "aside_1" and params["scan"] == scan
+    assert sk.goal_for("aside2")[1]["slot"] == "aside_2" and "aside" in sk.NEEDS_DRAWER

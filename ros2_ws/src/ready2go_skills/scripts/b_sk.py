@@ -17,7 +17,7 @@ AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
-NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find"}   # home·pick·place 는 서랍 없음
+NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -84,6 +84,11 @@ def goal_for(cmd):
         return "pick_object", with_scan({"target": t, "approach_offset": [0, 0, 0.1]}, (t.get("pose") or {}).get("frame"))
     if cmd == "place":
         return "place_object", {"location": "handover_zone"}
+    if cmd in ("aside", "aside2"):                    # 쥔 물체를 그 서랍 빈 자리(aside_1·aside_2)에 — 집을 때 쓴 인식 결과 전체를 같이 [사용자 10/11 쌓기 치우기]
+        params = with_scan({"location": DRAWER, "slot": "aside_1" if cmd == "aside" else "aside_2"}, DRAWER)
+        if "scan" not in params:
+            sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 로 집기 전에 본 결과가 있어야 함 (보내지 않음)")
+        return "place_object", params
     if cmd == "home":
         return "move_to_named_pose", {"pose_name": "home"}
     if cmd == "view":
@@ -92,7 +97,8 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find   서랍 없음: home pick place\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place\n"
+         "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
 

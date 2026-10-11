@@ -225,6 +225,42 @@ def stack_support(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], 
     return best
 
 
+def ontology_support_m(*, target: Mapping, objects: Sequence[Mapping], size_of: Callable[[str], Optional[Sequence[float]]],
+                       gap_m: float = 0.005, _depth: int = 0) -> Optional[float]:
+    """쌓인 물체의 받침 높이를 온톨로지 높이로 [사용자 10/11 "온톨로지로 높이 파악해서"]: 비전은 무엇이 밑에 깔렸는지(가운데가 그 물체
+    footprint 안이고 윗면이 gap_m 넘게 낮음)만 보고, 높이는 깔린 물체의 size_m[2] 를 아래로 차례로 더함. 비전 깊이는 캐러멜을 7~9 mm 높게 봄
+    [실측 PC2 10/11 top_z 25~27 / 18.5]. 밑에 깔린 게 없으면 None (호출한 쪽이 비전 값 또는 바닥)."""
+    if _depth > 5:
+        return None
+    best = None
+    for o in objects_under(target=target, objects=objects, size_of=size_of, gap_m=gap_m):
+        below = ontology_support_m(target=o, objects=objects, size_of=size_of, gap_m=gap_m, _depth=_depth + 1) or 0.0
+        h = below + float(size_of(o.get("class"))[2])
+        best = h if best is None else max(best, h)
+    return best
+
+
+def objects_under(*, target: Mapping, objects: Sequence[Mapping], size_of: Callable[[str], Optional[Sequence[float]]],
+                  gap_m: float = 0.005) -> list:
+    """target 가운데가 footprint 안이고 윗면이 gap_m 넘게 낮은 물체들 = target 밑에 깔린 것 (받침). 집을 때 이웃 확인에서 뺌."""
+    if not _finite(target.get("top_z")):
+        return []
+    x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
+    out = []
+    for o in objects:
+        if o.get("id") == target.get("id") or not _finite(o.get("top_z")) or o["top_z"] > target["top_z"] - gap_m:
+            continue
+        size = size_of(o.get("class"))
+        if not size:
+            continue
+        ox, oy, oyaw = o["pose"]["position"][0] * 1000.0, o["pose"]["position"][1] * 1000.0, o["pose"]["yaw"]
+        c, s_ = math.cos(oyaw), math.sin(oyaw)
+        dx, dy = x - ox, y - oy
+        if abs(dx * c + dy * s_) <= size[0] * 500.0 and abs(-dx * s_ + dy * c) <= size[1] * 500.0:
+            out.append(o)
+    return out
+
+
 def place_tcp_m(tf: Mapping, pose: Mapping, tcp_above_floor_m: float) -> tuple:
     """놓는 TCP (base m)와 base 기준 물체 긴 변 각도(deg, (−90, 90]). 높이 = 서랍 바닥 + tcp_above_floor_m (drop 포함)."""
     pp.check_tf(tf)

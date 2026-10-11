@@ -1795,3 +1795,17 @@ def test_cover_plate_gripped_at_plate_height_not_floor(server):
     assert out.success, out.reason
     closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(74.2, g)
     assert 23.0 < closed_tip < 26.0                                     # 판(21~29) 가운데 25
+
+
+def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server):
+    """[사용자 10/11 PC2] 비전이 캐러멜 윗면을 7~9 mm 높게 봄(25~27 / 18.5) → 지우개 받침을 비전으로 재면 높게 헛잡음.
+    scan 에 밑에 깔린 캐러멜이 있으면 받침 = 캐러멜 온톨로지 높이 18.5."""
+    srv = server.srv
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.039,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    ca = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.027,
+          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 1.5708, "yaw_valid": True}}
+    scan = {"target_found": True, "target": er, "candidates": [ca], "visible_count": 2}
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+    out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.success and "받침 18.5 mm" in out.reason, out.reason

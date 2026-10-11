@@ -1492,6 +1492,11 @@ class SkillServer(Node):
         if wall and not long_side:                          # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0
+        if support > 0 and params.get("scan") is not None:   # 쌓임: 높이는 깔린 물체의 온톨로지 높이로 (비전은 무엇이 밑인지만) [사용자 10/11]
+            objs_, why_ = plp.scan_objects(params.get("scan"), drawer_id)
+            s_ont = None if why_ else plp.ontology_support_m(target=target, objects=objs_, size_of=self._size_or_none)
+            if s_ont is not None:
+                support = s_ont
         by_cls = (prm["pick"].get("tcp_above_top_by_class_m") or {}).get(cls)   # 물건별 잡는 높이 (윗면 기준, 음수 = 아래) — 키 큰 물건 [실측으로 채움]
         pick_prm = dict(prm["pick"], tcp_above_top_m=by_cls) if by_cls is not None else prm["pick"]
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=pick_prm, support_m=support,
@@ -1524,8 +1529,10 @@ class SkillServer(Node):
         def neighbor(long_, open_m):
             fp_t, fp_s = (({**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}, [size[1], size[0], size[2]])
                           if long_ else (target, size))             # 손가락 자리: 긴 변 잡기면 90° 돌린 것과 같음
-            return self._neighbor(params, drawer_id, lambda objs, nb: nc.pick_blocker(
-                target=fp_t, size_m=fp_s, open_mm=open_m * 1000.0, objects=objs, size_of=self._size_or_none,
+            under = {o["id"] for o in plp.objects_under(target=target, objects=plp.scan_objects(params.get("scan"), drawer_id)[0] or [],
+                                                        size_of=self._size_or_none)} if support > 0 and params.get("scan") else set()
+            return self._neighbor(params, drawer_id, lambda objs, nb: nc.pick_blocker(   # 밑에 깔린 받침은 빼고 (비전 윗면이 높게 나와도) [사용자 10/11]
+                target=fp_t, size_m=fp_s, open_mm=open_m * 1000.0, objects=[o for o in objs if o["id"] not in under], size_of=self._size_or_none,
                 default_size_m=prm["place"]["default_obstacle_size_m"], finger_mm=g["fingertip_outer_mm"],
                 margin_mm=nb["margin_mm"], support_m=support, below_tol_m=nb["below_tol_m"],
                 finger_half_width_mm=g.get("tip_radius_mm")))
