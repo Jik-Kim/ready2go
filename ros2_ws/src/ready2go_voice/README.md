@@ -31,7 +31,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 [실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
 
-아래는 현재 파일/가상환경으로 재실행하는 복사 명령입니다. 원본 local YAML에 P1 dialogue와 새 P2 키가 없어 유효 dialogue/place/resume 예산은 None이었습니다. 따라서 원본을 보존한 **시험용 복사본에서만** 누락된 키를 현재 [패키지 실행 원본](params/voice.yaml)에서 읽어 보충합니다. 명시된 local 값은 보존하며 여전히 None이면 해당 시험을 시작하지 않습니다. `dialogue_timeout_sec`의 원본 30.0초는 현재 질문 문맥 상한 **제안 설정을 재사용한 시험값**이며 확정 정책으로 변경하지 않습니다. 일반 콘솔은 STT 원문·DAC 시작 등 일부 이벤트를 숨기므로 기존 상세 진단도 켭니다. 장치·모델·기존 일반 startup60과 승인된 값·정책은 변경하지 않습니다. `tee`는 stdout/stderr만 저장하므로 터미널 stdin의 `complete`/fixture/`exit`가 Python에 전달됩니다. 가상환경 activate나 secrets의 shell source는 필요하지 않으며 내부 `load_dotenv(..., override=False)`와 SDK hostname 검사를 사용합니다.
+아래는 현재 파일/가상환경으로 재실행하는 복사 명령입니다. 원본 local YAML에 P1 dialogue와 새 P2 키가 없어 유효 dialogue/place/resume 예산은 None이었습니다. 따라서 원본을 보존한 **시험용 복사본에서만** 누락된 키를 현재 [패키지 실행 원본](params/voice.yaml)에서 읽어 보충합니다. 명시된 local 값은 보존하며 여전히 None이면 해당 시험을 시작하지 않습니다. 아래 if 분기는 설정 생성/검증에 성공했을 때만 live 명령을 실행합니다. `dialogue_timeout_sec`의 원본 30.0초는 현재 질문 문맥 상한 **제안 설정을 재사용한 시험값**이며 확정 정책으로 변경하지 않습니다. 일반 콘솔은 STT 원문·DAC 시작 등 일부 이벤트를 숨기므로 기존 상세 진단도 켭니다. 장치·모델·기존 일반 startup60과 승인된 값·정책은 변경하지 않습니다. `tee`는 stdout/stderr만 저장하므로 터미널 stdin의 `complete`/fixture/`exit`가 Python에 전달됩니다. 가상환경 activate나 secrets의 shell source는 필요하지 않으며 내부 `load_dotenv(..., override=False)`와 SDK hostname 검사를 사용합니다.
 
 ```bash
 cd /home/jonny/rokey_proj/VLA/ready2go
@@ -40,7 +40,7 @@ source ros2_ws/install/setup.bash
 export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PYTHONPATH"
 export E_P2_RUN_DIR="$PWD/logs/voice_eval/p2_dummy_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$E_P2_RUN_DIR"
-.venvs/project/bin/python - <<'PY'
+if .venvs/project/bin/python - <<'PY'
 import os
 from pathlib import Path
 import yaml
@@ -67,10 +67,14 @@ print('유효 P1/P2 시험 설정:', {k: len(checked[k]) if k == 'p2_goal_catalo
 print('실행 설정:', target.resolve())
 print('시험 로그:', folder)
 PY
+then
 set -o pipefail
 .venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py \
   --serve-live --config-file "$E_P2_RUN_DIR/voice.local.yaml" \
   2>&1 | tee "$E_P2_RUN_DIR/console.log"
+else
+  printf '설정 생성/검증 실패: 실음성 실행을 보류합니다.\n' >&2
+fi
 ```
 
 먼저 `MeloTTS 준비 완료 (고정 안내 캐시 완료)`와 `웨이크 대기 (입력: …)`를 모두 확인합니다. `live_factory_started_not_recording_proof`만으로 입력 ready를 판정하지 않습니다. 당시 기본 장치는 input/output7이었지만 재실행 시 실제 선택을 다시 확인합니다. hostname이 승인된 `api.openai.com`과 다르면 factory가 시작을 거절합니다. 모델 준비 실패 시 아래 기존 [캐시 사전 준비](#노드-실행-전-사전-캐시-준비) 절차를 확인하고 ready 전에는 발화하지 않습니다. 패키지의 선정 목표 catalog도 그대로 보충되지만 이번 승인 발화 범위를 선정5종 시험으로 확대하지 않습니다.
