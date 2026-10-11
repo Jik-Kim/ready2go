@@ -55,7 +55,7 @@ GUI에서 열기: `bash sim/run_isaac.sh`로 Isaac Sim을 켠 뒤 **File ▸ Ope
 | 상자 앞·뒤벽 두께, 바닥판 두께, 서랍장 뒤판·바닥판 두께 | 상자 옆벽과 같다고 가정(1.1 cm), 바닥판 1.0 cm, 서랍장 판 1.8~1.9 cm | 실측 |
 | 아래 서랍(`drawer_bottom`) 상자 크기·위치 | **위치는 `places.yaml` `drawer_bottom.tf`(B 실측 10/07, 끝까지 연 상태)** — 서랍장 형상으로 계산한 자리 대비 서랍장 x +8.4·y +1.3·z −0.1 mm, 회전 0.71°(바닥 기울기 0.6° 포함) [계산 10/08]. 안쪽 크기는 위 서랍 `interior_m` 깊이·폭(같은 제품, B 확인), 테두리 높이만 `drawer_bottom.interior_m[2]`. 실측 회전 때문에 앞판 아래 모서리가 선반·작업대에 닿아 상자와 선반·작업대 충돌은 끔(실물은 레일) | 실측 회전이 측정 오차인지 확인되면 회전 없이 둘지 결정 |
 | 받침 선반 크기 | 서랍장보다 사방 2 cm 크게 (미측정) | 실측 |
-| 전달 트레이(`handover_zone`) | **새 트레이 [사용자 실측 10/11]**: 바깥 26 × 20.5 × 6.2 cm, 벽·바닥 0.2 cm, 벽 직각(`sim/drawer_dimensions.yaml` `trays`). 위치는 `places.yaml` `handover_zone`(작업대 위쪽 끝에 붙고 오른쪽 끝에서 17.5 cm → 평면도 좌표로 계산, **로봇 터치 전**). 바닥 256 × 201 mm, 높이 60 mm. 예전 사다리꼴 트레이(B 10/05 터치)는 places.yaml 주석에 기록 | B 3점 터치로 tf·interior_m 교체 |
+| 전달 트레이(`handover_zone`) | **새 트레이 [사용자 실측 10/11]**: 바깥 26 × 20.5 × 6.2 cm, 벽·바닥 0.2 cm, 벽 직각 — 형상은 `sim/drawer_dimensions.yaml` `trays.handover_zone`(`outer_cm`·`wall_cm`). 위치는 `places.yaml` `handover_zone.tf`(B 10/10 손끝 3점, #206): 원점 = 로봇 쪽·−y 바닥 모서리의 손끝 범위 끝, 벽 안쪽 면은 거기서 손가락 반 두께 10 mm [추정] 바깥. `interior_m`(137 × 175 mm)은 놓기 범위(도달 한계 x 659 mm)라 형상에 쓰지 않음 | B 재터치 시 tf만 교체 |
 
 #83 반영 재생성 [실측 10/06]: 서랍 원점 −3.0 mm(`places.yaml` `drawer_top.tf`)·내부 높이 0.0711·전달 트레이. `verify_scene.py` 전부 통과 — 최대 인출 서랍 좌표계와 `drawer_top.tf` 원점 차이 0.017 mm, 트레이 원점 차이 0.00 mm, 인출 22.60 cm.
 
