@@ -12,6 +12,8 @@
 | `examples/task_nudge_then_pick.json` | `nudge_object`를 쓰는 P1 태스크 예시(밀기 → 다시 인식 → 재판단 → 집기). `validate_contracts.py`가 스키마와 P1 범위를 검사 | P1 |
 | `examples/nudge_object_result.json` | `nudge_object` 결과 예시 (runner.md 7.1): 끌어 옮김·끌 필요 없음·`check_only` 재판단 실패(`PUSH_LIMIT`)·끈 뒤 lift 실패. `target_after`는 끈 뒤 **예상** 위치(입력 `target`과 같은 형식, 재인식 아님), **성공일 때만** 채우고 실패면 `null`. `validate_contracts.py`가 이 규칙과 pose 규칙을 검사. 기존 `task_nudge_then_pick.json`은 재인식 정상 경로 예시로 그대로 둠(10/06 stub 시연은 `target_after`를 pick에 넘김) | P1 |
 | `examples/place_object_result.json` | `place_object` 입력·결과 예시 (runner.md 7.1). **서랍 안 놓기는 #120 ② 계약안(B 제안, E 포함 2명 승인 전, P2)**: `location` 서랍 + `pose`(inspect_region pose 기준, `yaw_valid` 없음) 또는 `slot` + `scan`(`$scan`, 직전 인식 결과 전체 — `target`도 이웃으로 검사). `placed_pose`는 B가 명령한 자리(재인식 아님), 그리퍼를 연 뒤에만 채우고 움직이기 전 거부면 `null`. 이웃·벽 거부는 `PLACE_BLOCKED`·`WALL_TOO_CLOSE` + `blocked_by`. 트레이(`handover_zone`)는 현행 그대로. `validate_contracts.py`가 이 규칙을 검사 | P1(트레이)·P2(서랍 안) |
+| `examples/pick_object_result.json` | `pick_object` 결과 예시 (runner.md 7.1). **PR #223 제안(B, C 확인·E 포함 2명 승인 전, P2)**: 기존 `grasp_ok`와 별도로 `hand`(`holding`/`empty`/`released`/`unknown`)·`grasp_evidence`. 빈손 확정 `empty`는 들어 올리다 폭이 2 mm 이하로 줄었을 때만(#43 결정 10), 실패 뒤 다시 벌림은 `released`. `validate_contracts.py`가 규칙을, B 노드 시험이 예시 = 실제 출력을 검사 | P2 |
+| `examples/drawer_control_result.json` | `drawer_control` 결과 예시 (runner.md 7.1). **PR #223 제안(B, C 확인·E 포함 2명 승인 전, P2)**: 열기 `open_distance_m`(verify `drawer_displacement ≥ 0.9 × distance` 근거), 닫기 `close_remaining_m`·`close_pos_tol_m`·`close_push_interrupted`(`close_confirmed` 근거). `validate_contracts.py`가 규칙을 검사 | P2 |
 | `examples/intent_find_item.json` | P1 인텐트 예시 | P1 |
 | `examples/intent_goal.json` | 목표형 명령 인텐트 예시 | P2 |
 

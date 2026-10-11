@@ -80,7 +80,7 @@
 - 닫기: `close_confirmed` + `close_remaining_m`·`close_pos_tol_m`·`close_push_interrupted`.
 - 필드 추가만(기존 키 그대로) — C `run_report`·mock 영향 없음. C 가 쓰려면 C 쪽 연결 필요.
 
-## 4. 보유 불명확 (10/11 이 브랜치)
+## 4. 보유 불명확 (10/11 이 브랜치, **재시작 두 경우 실측 PC2 10/11**)
 - 재시작 때 쥔 기록이 있는데 그리퍼 폭을 못 읽으면(이상값·연결 실패) `hold_unknown` → 서랍·넛지·집기·놓기를 **움직이기 전·그리퍼 명령 없이** `SENSOR_INVALID`. 기준 포즈 이동만 됨. 풀기: 사람이 그리퍼 확인 → 서버 재시작.
   - 전: 메모리를 빈손으로 둬서 다음 `pick_object` 가 그리퍼를 벌려 쥔 물체를 떨어뜨릴 수 있었음.
 - `pick_object` 가 닫아서 잡은 순간 바로 쥔 것으로 기억 → 들어 올리다 비상정지·이동 실패여도 빈손으로 안 봄(`hand: unknown`, 다음 집기 `HOLDING_OBJECT`).
@@ -95,7 +95,7 @@
 
 ## 6. 실물로 할 것 (PC2)
 `HANDOVER.md` 4절 순서로 켠 뒤 이 브랜치로 `git pull`.
-1. **재시작 막힘 확인** — 지우개 `B pick` → 쥔 채 RG2 박스 전원 끔(또는 케이블 뺌) → 스킬 서버 재시작 → 로그 "쥔 물체 복원 못 함 … 그리퍼 쓰는 동작 거부" → `B pick` 이 `SENSOR_INVALID`, 그리퍼 안 움직임 → `B home` 은 됨 → RG2 켜고 서버 재시작 → 복원 → `B place`.
+1. ~~재시작 막힘 확인~~ **[실측 PC2 10/11 완료]** — 쥔 채 재시작 → 복원(eraser 21.2 mm) → `B pick` `HOLDING_OBJECT` / 지우개 다시 집어 기록 → `RG2_HOST=192.168.1.250 Bserver`(그리퍼 못 읽음 흉내 — RG2 박스는 세팅이 막고 있어 못 건드림) → "쥔 물체 복원 못 함" → `B pick` `SENSOR_INVALID`·로봇·그리퍼 안 움직임 → `B home` 됨 → `Bserver` → 복원 → `B aside top`. 일지 트러블슈팅 24.
 2. **결과 근거 확인** — `B pick` 성공 때 결과에 `hand: holding`, `grasp_evidence.closed_width_m` 이 실제 폭. `B open top` 결과 `open_distance_m`, `B close top` 결과 `close_remaining_m ≤ close_pos_tol_m`. 출력 그대로 붙여 주기.
 3. **물품별 파지 시험(하나씩 들어 보기)** — 위 2절 표 채우기. 립밤 결과가 E 목표 5종 확정 조건.
 4. **3단 차키** `B scan top 차키` → `B pick` 이 `받침 37.0 mm 위` 인지 (#216 뒤 미확인).

@@ -1918,6 +1918,36 @@ def test_pick_output_separates_grasp_result_from_measured_hand(server):
     assert data["grasp_evidence"]["close"] == "EMPTY_CLOSE"
 
 
+PICK_EXAMPLES = {c["case"]: c for c in json.loads((REPO / "contracts/examples/pick_object_result.json").read_text(encoding="utf-8"))["cases"]}
+
+
+def test_pick_result_example_matches_node_output(server):
+    """contracts/examples/pick_object_result.json 의 다섯 경우를 노드로 그대로 — error_code·output 이 예시와 같음 (PR #223)."""
+    srv, G = server.srv, server.Gripper
+    def pick():
+        return server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+
+    def same(name, out, data):
+        ex = PICK_EXAMPLES[name]
+        assert (out.success, out.error_code, data) == (ex["success"], ex["error_code"], ex["output"]), name
+    G.holding, G.held_width = True, 22.0
+    same("held", *pick())
+    srv.held, G.holding = None, False
+    same("empty_close", *pick())
+    G.holding, G.held_width = True, float("nan")
+    same("close_width_invalid", *pick())
+    srv.held, G.held_width = None, 22.0
+    real = srv._line, srv._blend
+
+    def drop():
+        G.width = 0.9
+    _on_lift(server, drop)
+    same("lift_dropped", *pick())
+    srv._line, srv._blend = real
+    _on_lift(server, lambda: sf.Outcome(False, sf.ESTOP, reason="비상정지"))
+    same("stopped_while_lifting", *pick())
+
+
 def test_pick_stopped_while_lifting_keeps_held_object(server):
     """[P2 5절 보유 불명확] 닫아서 잡은 뒤 들어 올리다 멈추면(비상정지 등) 빈손으로 보지 않음 — 쥔 기억 유지, hand unknown.
     (전에는 들어 올린 뒤 검사까지 가야 held 를 정해서, 그 사이 멈추면 다음 집기가 그리퍼를 벌려 떨어뜨릴 수 있었음)"""
