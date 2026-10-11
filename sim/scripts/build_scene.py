@@ -165,14 +165,18 @@ def rounded_tray_visual(stage, path, d, w, h, lo, hi, t, r, col):
 
 
 def handover_tray(stage):
-    """전달 트레이(places.yaml handover_zone): 위로 갈수록 넓어지는 사다리꼴. 좌표계 원점 = 앞쪽 오른쪽 바닥 모서리(손끝 범위),
+    """전달 트레이(places.yaml handover_zone). 형상은 sim/drawer_dimensions.yaml trays.handover_zone (벽 직각 [사용자 실측 10/11]),
+    값이 없으면 예전 사다리꼴(위로 갈수록 넓어짐). 좌표계 원점 = 앞쪽 오른쪽 바닥 모서리(손끝 범위),
     바닥면 z = 0. 벽은 바닥 끝(손끝 범위 − HANDOVER_FINGER_M)에서 윗면(− HANDOVER_RIM_OUT_M, 높이 h)까지 기운 판. 고정 물체(충돌만)."""
     hz_ = PLACES.get("handover_zone") or {}
     tf, inner = hz_.get("tf"), hz_.get("interior_m")
     if not tf or not tf.get("translation_m") or not inner:
         return "만들지 않음 (places.yaml handover_zone tf·interior_m 없음)"
     d, w, h = (float(v) for v in inner)
-    m, o, t = HANDOVER_FINGER_M, HANDOVER_RIM_OUT_M, HANDOVER_WALL_T
+    m, o, t, r = HANDOVER_FINGER_M, HANDOVER_RIM_OUT_M, HANDOVER_WALL_T, HANDOVER_CORNER_R
+    shape = (DIM.get("trays") or {}).get("handover_zone") or {}
+    if shape.get("walls") == "vertical" and shape.get("wall_cm"):       # 새 트레이: 벽이 바닥 끝에서 곧게 올라감, 모서리는 거의 각짐
+        o, t, r = m, float(shape["wall_cm"]) * CM, 0.003
     root = "/World/workspace/handover_tray"
     xform(stage, root, pose(tf["translation_m"], tf["quaternion_xyzw"]))
     col = (0.35, 0.45, 0.7)
@@ -200,7 +204,7 @@ def handover_tray(stage):
         hidden.append(mesh.GetPrim())
     for prim in hidden:                                                  # 충돌만 하고 화면에는 안 보임
         UsdGeom.Imageable(prim).MakeInvisible()
-    rounded_tray_visual(stage, f"{root}/visual", d, w, h, lo, hi, t, HANDOVER_CORNER_R, col)
+    rounded_tray_visual(stage, f"{root}/visual", d, w, h, lo, hi, t, r, col)
     return (f"{root} 바닥 {(d + 2 * m) * 1000:.0f}×{(w + 2 * m) * 1000:.0f} mm, 윗면 {(d + 2 * o) * 1000:.0f}×{(w + 2 * o) * 1000:.0f} mm, "
             f"높이 {h * 1000:.0f} mm (벽 기울기 {math.degrees(ang):.1f}°), 원점 {tf['translation_m']}")
 
