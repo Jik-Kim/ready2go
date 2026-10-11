@@ -8,6 +8,7 @@ LogStore.read_run() 결과({"run", "steps"})를 한국어 줄 목록·Markdown �
 from __future__ import annotations
 
 import json
+import math
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,7 @@ ACTION_KO = {
     "move_to_named_pose": "자세 이동", "nudge_object": "끌기", "pick_object": "집기",
     "place_object": "놓기", "speak": "안내 음성", "set_var": "변수",
     "while": "반복", "for_each": "목록 반복", "push": "기록 쌓기", "pop": "기록 꺼내기", "fallback": "대안",
+    "select_obstacle": "치울 물체 고르기", "find_moved": "옮긴 물체 찾기",
 }
 SKILL_KO = {
     "open_drawer": "서랍 열기", "close_drawer": "서랍 닫기", "pick": "집기", "pick_demo": "끌어서 집기",
@@ -173,7 +175,43 @@ def _detail_text(step: dict) -> str:
         text = json.dumps(step.get("result"), ensure_ascii=False)[:60]
     elif action == "set_var":
         text = f"{params.get('name')} = {params.get('value')}"
+    elif action == "find_moved" and result:
+        check = restore_check(step)
+        if check:
+            text = f"복구 확인 {check['class']}: {_restore_text(check)}"
+        else:
+            distance = result.get("distance_m")
+            text = str(result.get("status", "")) + (f" (놓은 자리에서 {_mm(distance)})" if distance is not None else "")
     return text
+
+
+def _yaw_error(a, b) -> float:
+    """두 yaw 의 차이 rad. 비전 yaw 는 (−π/2, π/2] 반 바퀴 주기(contracts/README inspect_region pose)라 π 로 접는다."""
+    d = abs(float(a) - float(b)) % math.pi
+    return min(d, math.pi - d)
+
+
+def restore_check(step: dict) -> dict | None:
+    """원위치 복구 확인 기록(find_with_unpack fv.3.1 — find_moved 의 record.placed = origin)이면 원래 자리와 지금 자리의
+    위치·방향 오차 (AC-ACT-03 "위치와 방향 오차를 함께 기록"). 판정은 하지 않음 — 기준값은 정본·시험표에서."""
+    record = (step.get("params") or {}).get("record") or {}
+    origin = record.get("origin")
+    if step.get("action") != "find_moved" or not isinstance(origin, dict) or record.get("placed") != origin:
+        return None
+    result = step.get("result") or {}
+    check = {"class": record.get("class"), "status": result.get("status"),
+             "position_m": result.get("distance_m"), "yaw_rad": None}
+    now = (result.get("object") or {}).get("pose") or {}
+    if origin.get("yaw_valid") and now.get("yaw_valid"):
+        check["yaw_rad"] = _yaw_error(origin.get("yaw"), now.get("yaw"))
+    return check
+
+
+def _restore_text(check: dict) -> str:
+    if check["position_m"] is None:
+        return f"못 찾음({check['status']})"
+    yaw = "방향 모름" if check["yaw_rad"] is None else f"방향 오차 {math.degrees(check['yaw_rad']):.1f}°"
+    return f"위치 오차 {_mm(check['position_m'])} · {yaw}" + ("" if check["status"] == "found" else f" ({check['status']})")
 
 
 @dataclass
@@ -302,6 +340,9 @@ def header(record: dict) -> list[str]:
             reply = f" · 응답 {halt['step_code']}" + (f" +{gap:.1f} s" if gap is not None else "")
         lines.append(f"  정지 {kst(halt.get('requested_at') or halt.get('at'))} · {halt.get('code')}"
                      + (f" · {source}" if source else "") + f" · {halt.get('step') or '마지막 뒤'}{reply} → {then}")
+    checks = [c for c in (restore_check(st) for st in steps) if c]
+    if checks:                                   # AC-ACT-03 근거 — 판정 아님, 기준은 정본·시험표
+        lines.append("  복구 오차 (판정 아님): " + "; ".join(f"{c['class']} {_restore_text(c)}" for c in checks))
     for problem in run.get("problems") or []:    # 실행하지 않은 이유 (TASK_INVALID 검사 결과, 중단 잠김) — #105 D 리뷰
         lines.append(f"  이유: {problem}")
     return lines

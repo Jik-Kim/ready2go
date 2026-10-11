@@ -211,3 +211,34 @@ def test_failed_place_inside_skill_keeps_placed_pose_in_child_record():
     assert child["result"] == placed and child["error"]["code"] == "LIFT_FAILED"
     assert "placed" not in result.blackboard and runner.state["located_in"]["eraser"] == "gripper"   # effect 없음
     assert "놓은 자리 (60, 220) mm" in rr.to_text(store.read_run(result.run_id))
+
+
+def _restore_step(origin_yaw, now, status="found", distance=0.004):
+    origin = {"frame": "drawer_top", "position": [0.12, 0.14, 0.0], "yaw": origin_yaw, "yaw_valid": True}
+    return {"run_id": "r", "seq": 0, "id": "fv.3.1", "action": "find_moved", "status": "SUCCESS",
+            "params": {"record": {"class": "caramel_box", "origin": origin, "placed": origin}, "tol_m": 0.1},
+            "result": {"status": status, "distance_m": distance,
+                       "object": None if now is None else {"class": "caramel_box", "pose": now}}}
+
+
+def test_restore_error_shows_position_and_direction_not_a_verdict():
+    """AC-ACT-03: 위치·방향 오차를 함께. 비전 yaw 는 반 바퀴 주기라 1.55 와 −1.55 는 2.4° 차이."""
+    now = {"frame": "drawer_top", "position": [0.124, 0.14, 0.0], "yaw": -1.55, "yaw_valid": True}
+    check = rr.restore_check(_restore_step(1.55, now))
+    assert check["position_m"] == 0.004 and abs(check["yaw_rad"] - 0.0416) < 1e-3
+    assert rr.detail(_restore_step(1.55, now)) == "복구 확인 caramel_box: 위치 오차 4.0 mm · 방향 오차 2.4°"
+    record = {"run": {"run_id": "r", "task_id": "find_with_unpack"}, "steps": [_restore_step(1.55, now)]}
+    assert "  복구 오차 (판정 아님): caramel_box 위치 오차 4.0 mm · 방향 오차 2.4°" in rr.header(record)
+
+
+def test_restore_error_unknown_direction_missing_and_far():
+    blurry = {"frame": "drawer_top", "position": [0.12, 0.14, 0.0], "yaw": 0.0, "yaw_valid": False}
+    assert rr.detail(_restore_step(0.3, blurry)).endswith("위치 오차 4.0 mm · 방향 모름")
+    assert rr.detail(_restore_step(0.3, None, "missing", None)) == "복구 확인 caramel_box: 못 찾음(missing)"
+    assert rr.detail(_restore_step(0.3, None, "ambiguous", 0.15)).endswith("위치 오차 150.0 mm · 방향 모름 (ambiguous)")
+
+
+def test_reid_find_moved_is_not_a_restore_check():
+    step = {"id": "fr.4", "action": "find_moved", "params": {"record": {"class": "car_key", "origin": {"position": [0, 0]},
+            "placed": {"position": [0.05, 0.04]}}}, "result": {"status": "found", "distance_m": 0.002}}
+    assert rr.restore_check(step) is None and rr.detail(step) == "found (놓은 자리에서 2.0 mm)"

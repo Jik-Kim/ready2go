@@ -195,3 +195,53 @@ def test_restore_blocked_twice_stops_holding_without_home():
     assert ("move_to_named_pose", {"pose_name": "home"}) not in robot.calls
     closes = [p for a, p in robot.calls if a == "drawer_control" and p.get("state") == "close"]
     assert closes == []                                                      # D 체크시트 S-17: 쥔 채면 닫기 요청도 안 함
+
+
+# ---- AC-ACT-03 복구 오차 기록: 원래 자리로 되돌린 물체만, 닫기 전에 다시 찍어 원래 자리와 지금 자리를 남김 ----
+
+def _checks(result):
+    return [s for s in result.steps if s["id"] == "fv.3.1"]
+
+
+def test_restore_check_records_origin_and_now_only_for_items_back_at_origin():
+    """상자는 원래 자리로 → 다시 찍어 기록(mock 놓기 오차 3 mm). 차키는 원래 자리가 막혀 꺼낸 고정 자리로 → 원위치
+    복구가 아니라 확인하지 않음. 확인 촬영은 서랍 닫기 전, 판정(합격/불합격)은 하지 않음."""
+    runner, robot, result = run("occluded_top", "toy_wrench")
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert [r["class"] for r in result.blackboard["restored"]] == ["caramel_box"]
+    (check,) = _checks(result)
+    assert check["params"]["record"]["origin"]["position"][:2] == [0.12, 0.14]
+    assert check["output"]["status"] == "found" and check["output"]["distance_m"] == 0.003
+    actions = [(a, p.get("pose_name"), p.get("state")) for a, p in robot.calls]
+    view = max(i for i, c in enumerate(actions) if c[:2] == ("move_to_named_pose", "drawer_top_view"))
+    assert actions[view + 1][0] == "inspect_region" and actions[view + 2] == ("drawer_control", None, "close")
+    record = runner.log_store.read_run(result.run_id)
+    from ready2go_runner.core import run_report
+    assert "복구 오차 (판정 아님): caramel_box 위치 오차 3.0 mm · 방향 오차 0.0°" in run_report.to_text(record)
+
+
+def test_plate_restored_to_origin_is_checked():
+    _, _, result = run("plate_over_eraser", "eraser")
+    assert [(c["params"]["record"]["class"], c["output"]["status"]) for c in _checks(result)] == [("cover_plate", "found")]
+
+
+def test_no_restore_no_extra_view_or_photo():
+    """치운 것이 없으면(목표가 맨 위) 확인 촬영도 없음 — find_item 과 같은 끝."""
+    _, robot, result = run("occluded_top", "car_key")
+    assert result.overall_status == "COMPLETED" and _checks(result) == []
+    delivered = max(i for i, (a, p) in enumerate(robot.calls) if a == "place_object")
+    assert [a for a, _ in robot.calls[delivered + 1:]] == ["drawer_control", "move_to_named_pose"]   # 닫기 → 홈
+
+
+def test_no_restore_check_while_holding_or_after_estop():
+    """쥔 채 멈춤(되돌리기 두 번 막힘)·비상정지 뒤에는 확인하러 움직이지 않음."""
+    robot = SceneRobot("occluded_top")
+    robot.skills.scene = BlockedRestoreScene("occluded_top")
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    result = runner.run(TASK, {"target": "toy_wrench"})
+    assert result.blackboard["holding"] is True and _checks(result) == []
+    last_place = max(i for i, (a, _) in enumerate(robot.calls) if a == "place_object")
+    assert robot.calls[last_place + 1:] == []
+    _, _, aborted = run("occluded_top", "toy_wrench", {"place_object": ["ESTOP", 1]})
+    assert aborted.overall_status == "ABORTED" and _checks(aborted) == []
