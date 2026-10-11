@@ -406,47 +406,76 @@ class SkillServer(Node):
         return self._line(goal, deeper, vel, stage, watch=touched)
 
     def _pick_touch_down(self, goal, grasp, tf, target, support, plan, expected_w, cfg):
-        """집기 마지막: 벌린 채 천천히 내려가 바닥(받침)에 닿으면 멈춤 → 닫을 때 손끝이 내려오는 만큼 + clear_mm 올림 → (호출한 쪽이) 닫음
-        [사용자 10/11 PC2 "넛지처럼 바닥 높이 파악하고 좀 올려서 잡기"]. 캐러멜 첫 시도: x·y 맞는데 덜 내려가 윗면을 잡음(폭 57.9, 기대 75) —
-        크게 벌리면 손끝이 TCP 보다 위로 감(85~100 mm 에서 약 17 mm [실측 10/06]), 아래 칸 바닥 높이(tf) 오차도 같이 없앰.
-        올리는 거리 = tip_below_tcp(잡는 폭) − tip_below_tcp(벌린 폭) + clear_mm. 안 닿으면 search_mm 까지 내려가 거기를 바닥으로 봄."""
-        g = self.prm()["gripper"]
+        """집기 마지막 [사용자 10/11 PC2 — 예전 설계(물체 윗면 높이) 버리고 새로]:
+        ① 서랍 바닥(교시 tf z, 쌓였으면 받침 윗면) + fast_above_floor_mm 까지 직선으로 빠르게 (힘 상한만 봄)
+        ② 넛지 누르기와 같은 방식으로 천천히 내려가 바닥 닿음 확인 — 출발 press_ignore_mm 무시, touch_force_n 넘으면 멈추고
+           멈춘 채 press_confirm 번 모두 넘어야 닿음(튄 값이면 그 자리에서 다시), 바닥 − search_below_mm 까지
+        ③ 닫을 때 손끝이 내려오는 만큼(손끝 표: 잡는 폭 − 벌린 폭) + clear_mm 올림 → (호출한 쪽이) 닫음."""
+        prm = self.prm()
+        g, d = prm["gripper"], prm["drag"]
         open_mm, close_mm = plan.open_width_m * 1000.0, expected_w * 1000.0
         floor = 1000.0 * pp.to_base(tf, (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
-        lowest = floor + max(mp.tip_below_tcp_mm(open_mm, g), 0.0) - float(cfg.get("overtravel_mm", 3.0))
-        deeper = mp.with_z(grasp, max(lowest, grasp[2] - float(cfg.get("search_mm", 30.0))))
-        base = self._tare(cfg.get("settle_s", 0.3))
-        n, hard = float(cfg.get("touch_n", 3.0)), float(cfg.get("hard_n", 10.0))
-        # 바닥 근처에서만 닿음으로 봄 — 내려가기 시작할 때 힘이 튀어 캐러멜 높이에서 멈추고 올라와 윗면을 잡음 [사용자 10/11 PC2 "바닥을 찍고 와야지"].
-        # 그 위에서는 hard_n 넘을 때만 멈춤(물체 위에 내려앉음 = 실패)
-        zone_top = lowest + float(cfg.get("overtravel_mm", 3.0)) + float(cfg.get("accept_above_mm", 10.0))
+        fast_to = mp.with_z(grasp, floor + float(cfg.get("fast_above_floor_mm", 5.0)))
+        now = self.robot.posx()
+        if now is not None and now[2] > fast_to[2] + 0.5:
+            base = self._tare(0.2)
 
-        def touched():
-            f, p = self.robot.tool_force(), self.robot.posx()
-            if f is None or base is None or p is None:
-                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
-            df = abs(f[2] - base[2])
-            if p[2] > zone_top:
-                if df >= hard:
-                    return sf.Outcome(False, GRASP_FAILED, reason=f"바닥보다 {p[2] - zone_top + float(cfg.get('accept_above_mm', 10.0)):.0f} mm 위에서 "
-                                                                 f"{df:.1f} N — 물체 위에 내려앉음(위치·각도 확인)")
+            def guard():                                    # 빠르게 가다 뭔가에 세게 닿으면 멈춤 (물체 위에 내려앉음)
+                f = self.robot.tool_force()
+                if f is None or base is None:
+                    return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+                if abs(f[2] - base[2]) >= d["press_max_force_n"]:
+                    return sf.Outcome(False, GRASP_FAILED, reason=f"바닥 + {cfg.get('fast_above_floor_mm', 5.0):g} mm 로 내려가다 "
+                                                                 f"{abs(f[2] - base[2]):.1f} N — 물체 위에 내려앉음(위치·각도 확인)")
                 return None
-            if df >= n:
-                return sf.Outcome(True, reason=f"바닥 닿음 {df:.1f} N")
+            bad = self._line(goal, fast_to, self._in_vel(), "descend_fast", watch=guard)
+            if bad:
+                p = self.robot.posx()
+                if p is not None and not sf.is_safety(bad):
+                    self._line(goal, mp.with_z(p, p[2] + 20.0), self._in_vel(), "lift")
+                return bad
+        base_f = self._tare()
+        z0 = (self.robot.posx() or fast_to)[2]
+        state = {}
+
+        def contact():                                      # 넛지 누르기(_press_relax)와 같은 닿음 판단
+            f, p = self.robot.tool_force(), self.robot.posx()
+            if f is None or p is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
+            if abs(f[2] - base_f[2]) >= d["press_max_force_n"]:
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason="상한")
+            if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
+                return None                                 # 출발할 때 힘이 튐
+            state.setdefault("fz", f[2])
+            if abs(f[2] - state["fz"]) >= d["touch_force_n"]:
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason="닿음")
             return None
-        bad = self._line(goal, deeper, float(cfg.get("speed_mm_s", 10.0)), "descend", watch=touched)
-        if bad and not bad.success:
-            now = self.robot.posx()
-            if now is not None and not sf.is_safety(bad):
-                self._line(goal, mp.with_z(now, now[2] + 20.0), self._in_vel(), "lift")
-            return bad
+
+        end = mp.with_z(grasp, floor - d["search_below_mm"])
+        touched = False
+        for k in range(int(d["touch_retries"]) + 1):
+            state.pop("z1", None)
+            bad = self._line_slow(goal, end, d["press_speed_mm_s"], "touch_floor" if k == 0 else f"touch_floor:{k + 1}", watch=contact)
+            if bad:
+                return bad
+            if "z1" not in state:
+                break                                       # 바닥 − search_below 까지 안 닿음 → 거기서 잡음
+            reads = self._force_reads(int(d["press_confirm"]), d["confirm_gap_s"])
+            if reads is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            if all(abs(f[2] - base_f[2]) >= d["touch_force_n"] for f in reads):
+                touched = True
+                break
+            state["resumed"] = True                         # 튄 값 → 그 자리에서 다시 내려감
         now = self.robot.posx()
         if now is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
         lift = max(0.0, mp.tip_below_tcp_mm(close_mm, g) - mp.tip_below_tcp_mm(open_mm, g)) + float(cfg.get("clear_mm", 2.0))
-        self.get_logger().info(f"[pick_object] 바닥 {'닿음' if bad else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} → {lift:.1f} mm 올려 닫음 "
-                               f"(계산 높이 {grasp[2]:.1f})")
-        return self._line(goal, mp.with_z(now, now[2] + lift), float(cfg.get("speed_mm_s", 10.0)), "touch_up")
+        self.get_logger().info(f"[pick_object] 바닥 {'닿음' if touched else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} (교시 바닥 {floor:.1f}) "
+                               f"→ {lift:.1f} mm 올려 닫음")
+        return self._line(goal, mp.with_z(now, now[2] + lift), self._in_vel(), "touch_up")
 
     def _tare(self, settle_s=None):
         """멈춘 뒤 잠깐 기다렸다가 여러 번 읽은 평균 = 힘 기준값. 두산 툴 힘은 관절 토크 추정이라 멈춘 직후 흔들림 (10/06)."""
@@ -1568,7 +1597,7 @@ class SkillServer(Node):
         if slow_mm > 0 and grasp[2] + slow_mm < self.robot.posx()[2] - 1.0:
             bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
         touch_cfg = prm["pick"].get("touch_floor") or {}
-        if touch_cfg.get("enabled") and down and round_side is None:   # 립밤 벽 기울여 잡기는 직접교시 높이 그대로 [실측 10/10]
+        if touch_cfg.get("enabled") and down:                # 바닥 찍고 올려 잡기 — 모든 서랍 안 집기 [사용자 10/11 "싹 새롭게"]
             bad = bad or self._pick_touch_down(goal, grasp, place["tf"], target, support, plan, expected_w, touch_cfg)
         else:
             bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")

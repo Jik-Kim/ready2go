@@ -639,13 +639,13 @@ def test_stacked_eraser_picked_on_support_and_remembered_from_own_bottom(server,
     server.Gripper.holding = True
     try:
         floor, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-        z_floor, floor_held = dict(seen)["descend"], dict(srv.held)
+        z_floor, floor_held = dict(seen)["descend_fast"], dict(srv.held)   # 바닥(받침) + 5 mm 까지 빠르게 [사용자 10/11]
         seen[:], srv.held = [], None                                    # 놓았다고 치고 다시 집기
         out, data = server.run("pick_object", {"target": _stacked_eraser(0.0115 + 0.0435), "approach_offset": [0, 0, 0.1]})
     finally:
         server.Gripper.holding = False
     assert floor.success and out.success and "받침 43.5 mm" in out.reason and data["grasp_ok"]
-    assert dict(seen)["descend"] - z_floor == pytest.approx(43.5, abs=0.05)
+    assert dict(seen)["descend_fast"] - z_floor == pytest.approx(43.5, abs=0.05)
     assert srv.held["tcp_above_floor_m"] == pytest.approx(floor_held["tcp_above_floor_m"], abs=1e-4)   # 서랍 tf 기울기만큼
 
 
@@ -761,8 +761,9 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
     sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
     # 경유점이 있는 서랍: 목표 위로 가는 블렌딩이 잡는 높이 1 cm 위에서 끝남(따로 빠르게 내려가기 없음) → 마지막 1 cm 만 천천히 [사용자 10/10]
     blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
-    assert "descend_fast" not in st and st["descend"][0] == 15.0
-    assert blends[0][1][-1][2] - st["descend"][1] >= 10.0 - 1e-6        # 1 cm 위부터 천천히 — 바닥 닿을 때까지 더 내려감 (pick.touch_floor) [사용자 10/11]
+    # 집기 [사용자 10/11]: 교시 바닥 + 5 mm 까지 빠르게(서랍 안 속도) → 넛지 누르기 속도로 바닥 찍기
+    assert st["descend_fast"][0] == sp["in_drawer_mm_s"] and blends[0][1][-1][2] > st["descend_fast"][1]
+    assert "descend" not in st
     assert out2.success and "lower_fast" not in st and st["lower"][0] == 15.0   # 칸 위 → 1 cm 위는 들고 나오기 블렌딩에 포함 [사용자 10/10]
     over = server.srv.prm()["place"]["touch_overtravel_mm"]             # 안 닿으면(가짜 로봇 힘 0) 계산 높이보다 이만큼 더 [사용자 10/10]
     carry = [e for e in server.srv.robot.log if e[0] == "moveb"][-1][1][-1]
@@ -806,6 +807,9 @@ def test_pick_turns_wrist_at_waypoint_before_going_down(server):
 def test_lip_balm_on_left_wall_picked_by_ends_tilted_and_placed_turned(server):
     """[사용자 10/10 PC2 "원통형은 기울여서"] 왼쪽 벽에 세로로 붙은 립밤: 넛지하면 굴러감 → 넛지 없이 긴 변 양끝을 잡고(기대 폭 = 긴 변)
     왼벽 쪽으로 20° 기울임, TCP 는 교시대로 가운데보다 벽 쪽 4.6·아래 8.8 mm. 트레이에는 손가락을 y 로 돌려 놓음."""
+    prm_ = server.srv.prm()
+    prm_["pick"]["touch_floor"] = {"enabled": False}                    # 교시 자세 높이 그대로인지 (바닥 찍기는 따로 시험)
+    server.srv.prm = lambda: prm_
     srv = server.srv
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
            "pose": {"frame": "drawer_top", "position": [0.10, 0.010, 0.0], "yaw": 0.0, "yaw_valid": True}}
@@ -1710,13 +1714,14 @@ def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
     cfg, g = prm["pick"]["touch_floor"], prm["gripper"]
     target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
               "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
-    floor_hit = 0.004                                                    # 가짜 바닥: TCP 가 서랍 z 4 mm 이하면 z 힘
-    srv.robot.force = lambda p: [0.0, 0.0, 6.0 if mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] <= floor_hit else 0.0, 0.0, 0.0, 0.0]
+    floor_hit = 0.004                                                    # 가짜 바닥: TCP 가 서랍 z 4 mm 아래로 가면 1 mm 에 8 N
+    srv.robot.force = lambda p: [0.0, 0.0, max(0.0, 8.0 * (floor_hit * 1000.0 - mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0)),
+                                 0.0, 0.0, 0.0]
     server.Gripper.holding, server.Gripper.held_width = True, 49.0
     out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
     lift = mp.tip_below_tcp_mm(49.0, g) - mp.tip_below_tcp_mm(49.0 + g["open_margin_mm"], g) + cfg["clear_mm"]
-    assert srv.held["tcp_above_floor_m"] * 1000.0 == pytest.approx(floor_hit * 1000.0 + lift, abs=1.0)   # 가짜 로봇은 멈춤이 한 칸 늦음
+    assert floor_hit * 1000.0 + lift - 2.0 <= srv.held["tcp_above_floor_m"] * 1000.0 <= floor_hit * 1000.0 + lift + 0.5   # 닿은 뒤 멈춤까지 조금 더 눌림
 
 
 def test_pick_touch_ignores_force_spike_above_floor(server):
