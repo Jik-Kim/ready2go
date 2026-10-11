@@ -36,6 +36,19 @@ KNOWN_ERROR_CODES = {
     "STOP_UNCONFIRMED", "TIMEOUT", "WALL_TOO_CLOSE", "YAW_INVALID",
 }
 
+SUPPORTED_SOURCE_TYPES = {
+    "github_issue",
+    "github_comment",
+    "github_pull_request",
+    "repository_file",
+    "repository_files",
+}
+GITHUB_SOURCE_TYPES = {
+    "github_issue",
+    "github_comment",
+    "github_pull_request",
+}
+
 CONFIRMATION_TO_SHEET = {
     "B": {
         "confirmed": "확인 완료", "proposed": "확인 필요",
@@ -186,6 +199,37 @@ def validate_repository_path(source_id: str, field: str, value: Any) -> list[str
     return []
 
 
+def validate_source_catalog_entry(source_id: str, source: Any) -> list[str]:
+    label = f"source_catalog.{source_id}"
+    if not isinstance(source, dict):
+        return [f"{label} must be a mapping"]
+
+    source_type = source.get("type")
+    if not isinstance(source_type, str) or source_type not in SUPPORTED_SOURCE_TYPES:
+        return [f"{label}.type is unsupported: {source_type}"]
+
+    errors: list[str] = []
+    if source_type in GITHUB_SOURCE_TYPES:
+        source_url = source.get("url")
+        if not isinstance(source_url, str) or not source_url:
+            errors.append(f"{label}.url must be a non-empty string")
+    elif source_type == "repository_file":
+        errors += validate_repository_path(source_id, "path", source.get("path"))
+    elif source_type == "repository_files":
+        source_paths = source.get("paths")
+        if not isinstance(source_paths, list) or not source_paths:
+            errors.append(f"{label}.paths must be a non-empty list")
+        else:
+            for index, source_path in enumerate(source_paths):
+                errors += validate_repository_path(
+                    source_id, f"paths[{index}]", source_path
+                )
+
+    if "value" in source or "values" in source:
+        errors.append(f"{label} must reference a path/key, not copy raw values")
+    return errors
+
+
 def validate_checklist(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     errors += require_fields(
@@ -290,23 +334,7 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
         errors += validate_sources(failure, label, catalog)
 
     for source_id, source in catalog.items():
-        if not isinstance(source, dict):
-            errors.append(f"source_catalog.{source_id} must be a mapping")
-            continue
-        source_type = source.get("type")
-        if source_type == "repository_file":
-            errors += validate_repository_path(source_id, "path", source.get("path"))
-        elif source_type == "repository_files":
-            source_paths = source.get("paths")
-            if not isinstance(source_paths, list) or not source_paths:
-                errors.append(f"source_catalog.{source_id}.paths must be a non-empty list")
-            else:
-                for index, source_path in enumerate(source_paths):
-                    errors += validate_repository_path(
-                        source_id, f"paths[{index}]", source_path
-                    )
-        if "value" in source or "values" in source:
-            errors.append(f"source_catalog.{source_id} must reference a path/key, not copy raw values")
+        errors += validate_source_catalog_entry(source_id, source)
     return errors
 
 
