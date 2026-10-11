@@ -147,8 +147,11 @@
 | :--- | :--- |
 | `CAMERA_TIMEOUT` | 요청 이후 컬러·뎁스·`camera_info`가 제한 시간(기본 3 s) 안에 오지 않음 |
 | `TF_UNAVAILABLE` | `base_link` → `wrist_cam_color_optical_frame` TF를 얻지 못함(로봇 드라이버·bringup 확인) |
+| `REGION_NOT_VISIBLE` | 요청 지역 바닥이 충분히 보이지 않음 — 바닥 격자점 중 화면 안·유효 뎁스·지역 높이 범위인 비율이 `config/vision_params.yaml` `region.visible_min_ratio`(0.80) 미만(가림·뎁스 결손·다른 지역을 찍음). 검출보다 먼저 검사(#43, A 제안 10/11) |
 | `DEPTH_INVALID` | 검출 박스 안 뎁스가 쓸 수 없음(결손 비율·유효 픽셀 부족, 서랍 바닥 위로 올라온 덩어리 없음). 하나라도 있으면 전체 실패(안전 우선, `config/vision_params.yaml` `policy`) |
 | `RESULT_INVALID` | 만든 결과가 pose 규칙(runner.md 7.1)을 어김 — 코드 버그 신호 |
+
+**관측 결과 세 가지 (#43 [사용자 결정 10/10] 트레이·서랍 재촬영, A 제안 10/11 `[팀 확정 필요]`)**: 실제 노드 지역은 `drawer_top`·`drawer_bottom`·`handover_zone`(`config/places.yaml` `handover_zone.tf`·`floor_m` — 실제 트레이 바닥, `interior_m`은 놓기 범위라 쓰지 않음), `pose.frame` = 요청 지역. ① **찾음** = `success=true` + `target_found=true` ② **정상 미검출** = `success=true` + `target_found=false` — 위 `REGION_NOT_VISIBLE` 검사를 통과한 정상 관측에서 목표가 없음(트레이면 C가 사용자 확인 경로로) ③ **관측 오류** = `success=false` + 위 표의 어느 코드든(미검출로 보지 않음). 보인 물품·개수는 `candidates`·`target`·`visible_count`이고 기대 물품·개수와 대조는 C. 예시 `contracts/examples/inspect_region_handover_{found,not_found,error}.json`
 
 **로봇 동작 공통 에러 코드** (원자 동작이 **움직이기 전에** 확인하고 반환. 모두 로봇 동작 없음. 판단 코드 `ready2go_skills/core/motion_guard.py`, 허용 오차 `ready2go_skills/params/skills.yaml` `[팀 확정 필요]`)
 

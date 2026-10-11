@@ -1,0 +1,6 @@
+{
+  "_note": "관측 오류 — 지역 바닥이 충분히 안 보임(가림·뎁스 결손·다른 지역을 찍음). 미검출이 아니므로 사용자 확인 경로로 보내지 않음. 다른 오류 코드(CAMERA_TIMEOUT·TF_UNAVAILABLE·DEPTH_INVALID 등)도 같은 분류",
+  "success": false,
+  "error_code": "REGION_NOT_VISIBLE",
+  "result": null
+}
