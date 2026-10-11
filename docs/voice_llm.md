@@ -102,9 +102,10 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 - P3 목록/클래스 대상 및 복합 태스크 호출은 해당 요구사항·담당 연결 검증이 필요합니다. 계약의 레지스트리 intent 런타임 추가 설명은 후속 연결 설명이며 현재 고정 enum을 임의 문자열이 통과한다는 뜻으로 사용하지 않습니다.
 - `query` 객체/null은 계약이 허용하지만 상태 질의 설계의 Phase는 미확정입니다. goals/query/source를 모든 intent의 필수 출력으로 확정하지 않습니다.
 
+<a id="voice-diagnostics-current"></a>
 **현재 진단과 C/D 인계** [문서]
 
-STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/첫 PortAudio DAC 재생 시각은 ROS 상세 진단 로그 또는 intent의 source에 제공합니다. 발행 여부 `published`는 진단 이벤트의 최상위 필드이며 `/voice/intent`의 `source`에는 없습니다. D가 상세 콘솔 JSON을 읽을 때 발행 여부는 `voice_diagnostic.published`, intent는 `voice_diagnostic.intent`에서 확인합니다. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공 증빙은 아닙니다. 기본 콘솔은 한 줄 진행 표시이며 `-p diagnostic_detail:=true`로 voice_diagnostic 원본을 유지합니다(실행/보존 명령은 패키지 README). TTS 상세 로그의 `voice_diagnostic.timing`은 합성 대기 `synthesis_wait_sec`, Melo `cache_hit`·`worker_synth_sec`, 성공 시 첫 DAC→PortAudio finished callback 구간 `playback_sec`·종료 시각/기준을 구분합니다. worker 처리 시간은 캐시 조회/합성 시간이며 Runner의 요청→종료 전체를 합성으로 해석하지 않습니다. 이 정보는 로그에만 추가하며 기존 Skill 액션 결과·intent source 필드와 구분합니다. source 부가 필드 수신/의미는 C/D 협의 대상입니다. 이를 C run_id/DB 실행 로그의 inputs·D 화면에 자동 기록하는 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
+상세 증빙은 `diagnostic_detail=true`일 때 설정된 `diagnostic_file`의 민감정보 필터 적용 JSONL에 기록됩니다. 각 줄은 이벤트 객체이며 `voice_diagnostic` 래퍼 없이 `event`, `request_id`와 이벤트별 필드를 최상위에 둡니다. 콘솔과 `tee` 로그는 요약이므로 전체 진단 JSON을 찾는 위치로 쓰지 않습니다. D의 증빙 확인은 저장된 JSONL에서 `interpretation.intent`, `intent.published`·`intent.intent`, `tts_finished.timing`을 확인하고 request_id와 이벤트 시각으로 이어 보십시오. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공 증빙은 아닙니다. 원본 LLM 응답은 `interpretation` 이벤트에 한 번 보존되고 후속 이벤트에는 반복되지 않습니다. TTS `timing`은 합성 대기 `synthesis_wait_sec`, Melo `cache_hit`·`worker_synth_sec`, 성공 시 첫 DAC→PortAudio finished callback 구간 `playback_sec`·종료 시각/기준을 구분합니다. worker 처리 시간은 캐시 조회/합성 시간이며 Runner 요청부터 종료까지의 전체 시간을 합성으로 해석하지 않습니다. 이 정보는 로그에만 추가하며 기존 Skill 액션 결과·intent source 필드와 구분합니다. source 부가 필드 수신/의미와 D의 저장 예시·수집 절차는 담당자 확인이 필요하며 C run_id/DB 실행 로그의 inputs·D 화면 자동 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
 
 ### 6.5 (Stretch) LLM 태스크 JSON 생성
 
@@ -159,7 +160,7 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 
 [문서] 일반 질문의 `dialogue_timeout_sec`는 제안 설정이며 null이면 후속 결합을 보류합니다. 질문 TTS 실패는 질문 권한을 만들지 않고, 후속 답은 후보 생성 때 소비합니다. TTS/발행 실패 후 과거 답을 자동 재시도하지 않으며 새 독립 요청이 필요합니다. 관측된 running/잠금/경고·취소는 epoch/세대를 무효화하고, 상태 변경과 발행 게이트를 E 로컬 submit_lock으로 직렬화합니다. 수락 여부/요청 상관성·실물 준비 판정은 이 lock으로 보장하지 않습니다.
 
-[문서] `diagnostic_detail=true`는 전체 민감정보 필터 후 E 로컬 JSONL 파일을 선택하며 콘솔에 전체 JSON을 출력하지 않습니다. `diagnostic_file` 상대 경로는 실행 cwd 기준, 크기·백업 개수·bounded 큐는 YAML 원본입니다. 원본 LLM은 interpretation에서 한 번 보존하고 후속 이벤트에는 반복하지 않습니다. wake/녹음 시작·끝→submit/work→STT SDK 호출/결과→LLM→최종 문장/TTS→발행을 로컬 request_id로 연결하며 question_ready/후속 답은 question_id로 연결합니다. source 공개 필드는 기존 의미를 유지합니다. 파일 열기/쓰기/회전·필터/직렬화·큐 실패는 경고하고 음성/취소 경로로 예외를 전파하지 않습니다. 큐 포화/정체 시 증빙 손실을 경고하며 C DB 로그나 worker JSON pipe를 대신하지 않습니다. 회전 상한보다 큰 단일 원본 기록은 분할하지 않고 보존한 뒤 다음 기록에서 회전합니다.
+[문서] `diagnostic_detail=true`는 전체 민감정보 필터 후 E 로컬 JSONL 파일을 선택하며 콘솔에 전체 JSON을 출력하지 않습니다. `diagnostic_file` 상대 경로는 실행 cwd 기준, 크기·백업 개수·bounded 큐는 YAML 원본입니다. 각 JSONL 줄은 `event`와 이벤트별 필드가 최상위에 있는 객체이며 `voice_diagnostic` 래퍼가 없습니다. 예를 들어 `intent` 이벤트의 발행 결과는 최상위 `published`, intent 내용은 최상위 `intent`에서 확인하고 `tts_finished`의 상세 시각은 최상위 `timing`에서 확인합니다. 원본 LLM은 interpretation 이벤트에 한 번 보존하고 후속 이벤트에는 반복하지 않습니다. wake/녹음 시작·끝→submit/work→STT SDK 호출/결과→LLM→최종 문장/TTS→발행을 로컬 request_id로 연결하며 question_ready/후속 답은 question_id로 연결합니다. 콘솔과 `tee` 파일은 요약이며 상세 파일을 대신하지 않습니다. source 공개 필드는 기존 의미를 유지합니다. 파일 열기/쓰기/회전·필터/직렬화·큐 실패는 경고하고 음성/취소 경로로 예외를 전파하지 않습니다. 큐 포화/정체 시 증빙 손실을 경고하며 C DB 로그나 worker JSON pipe를 대신하지 않습니다. 회전 상한보다 큰 단일 원본 기록은 분할하지 않고 보존한 뒤 다음 기록에서 회전합니다.
 
 [문서·코드 대조: 2026-10-10, #198 리뷰 보완] 기준은 기존 [음성 정책](requirements.md#voice-policy)입니다. `LangChainIntent.schema`를 통과하는 unknown/빈 targets/내부 사유 응답으로 물품 미등록 안내를 확인합니다. 실행 enum에 없는 키를 반환하는 오류 모의는 별도 방어 시험이며 정상 LLM 경로의 증거로 대신하지 않습니다. 내부 응답은 parser에서 문장/사유 필드를 분리하고, 사유는 검증 후 `_voice` 안에서만 사용합니다. `_voice`와 새 내부 필드는 기존 node 발행 필터로 제외하며 원본은 기존 `source.llm_raw` 진단 필드에 보존합니다. 새로운 공개 source 필드를 추가하지 않습니다.
 
@@ -179,7 +180,7 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 <a id="acceptance-tts-preparation"></a>
 ### #196 수락 TTS — E 내부 준비와 계약 초안
 
-[문서: E-C-ACCEPT-TTS-20261011-01] 책임·순서·차단 기준은 [요구사항 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이번 준비는 미병합 [PR207](https://github.com/Jik-Kim/ready2go/pull/207)의 `ac96d66`에 의존합니다. 기존 PR207 변경과 후속 준비 변경을 분리하며 main 기반 독립 완료가 아닙니다.
+[문서: E-C-ACCEPT-TTS-20261011-01] 책임·순서·차단 기준은 [요구사항 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 최초 내부 준비는 PR207 `ac96d66` 기반이며, 리뷰 정리에서는 [PR207](https://github.com/Jik-Kim/ready2go/pull/207) `e93ac41`과 [PR208](https://github.com/Jik-Kim/ready2go/pull/208) `6bb7a4c`를 합류했습니다. PR209의 비교 base는 PR208 브랜치입니다. 두 선행 PR은 미병합이며 main 기반 독립 완료가 아닙니다.
 
 | 영향 범위 | 현재 실행 원본·호출 관계 | 이번 변경·후속 조건 |
 | :--- | :--- | :--- |
@@ -196,8 +197,18 @@ STT 원문·LLM 응답·검증·폴백·실행 허용·지연과 발화 종료/�
 
 | 계약 초안의 전달 단계 | 합의할 내용·담당 |
 | :--- | :--- |
-| E 요청 → C 결정 | 현재 요청 식별과 검증 문장의 불변 연결, 중복 요청 처리, 실제 수락/거절/보류의 상관 근거. C 제안 `source.request_id`는 미확정 |
-| C 결정 → 현재 run → E 재생 | 요청·run·boot·순서의 유효성, 수락 뒤 단 한 번의 동일 문장 소비, 재전송·과거 상태·단절·재시작 처리. E/C 공동 합의 |
+| E 요청 → C 결정 | 현재 요청 식별과 검증 문장의 불변 연결, 중복 요청 처리, 실제 수락/거절/보류의 상관 근거. 이전 `source.request_id`와 후속 top-level `request_id` 후보를 한 위치로 합의해야 하며 현재 `_voice.request_id`는 로컬 진단 ID입니다 |
+| C 결정 → 현재 run → E 재생 | 해당 요청에 대한 C 반환 run과 결과의 상관, 기존 상태의 boot 변경 감지·과거 상태·단절·재시작 처리. 일반 요청 payload의 boot 추가 구현은 없으며 [최소 범위 결정](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104884879)에 맞춰 후속 계약을 대조합니다 |
 | E 재생 → C 첫 동작 | 실제 재생 완료와 성공/실패/취소를 현재 요청·run에 연결, timeout/실패/취소·안전 불충족의 차단, 성공 뒤 안전 재검사와 s2 중복 제거. C 소유 게이트·E 결과 연결 |
 
-[미완료] C의 구체 변경안과 관련 계약 승인 후 스키마·예시·ICD 동일 PR 및 실제 발신/수신 핸들러 모의가 필요합니다. 해당 통합에서 수락 전 음성0·수락 후 동일 문장1회·실패/취소/단절/과거 결과의 첫 동작0·C 안전 재검사·중복 s2 음성0을 확인해야 합니다. 내부 소비 시험은 이 통합 완료 조건을 대신하지 않습니다. B/A/D·공개 계약·태스크·설정·기존 `/voice/speak` 운영 처리와 PR207은 이번 변경 대상에서 제외합니다.
+[문서: PR209 리뷰 후속] [C 리뷰](https://github.com/Jik-Kim/ready2go/pull/209#pullrequestreview-5481624730)의 세 항목은 현재 내부 준비와 실제 수락 경로의 차이입니다. 아래 대조로 운영 연결이나 계약 승인을 완료한 것은 아닙니다.
+
+| 후속 항목 | 확인된 현행 구현 | 별도 합의·연결 대상 |
+| :--- | :--- | :--- |
+| 발행 뒤 문장 보관 | `Session.text()`·`audio()`는 진입 때마다 이전 문장을 지웁니다. C 수락 대기 중 다른 비실행 발화도 Session을 거치면 내부 보관이 사라집니다. 노드의 제어 경로는 epoch/세대를 무효화하며 운영 소비 호출자는 없습니다. | C가 전달받은 검증 문장을 요청별로 보관하는 안과 E의 보관·소비 경계를 대조해야 합니다. 이 PR에서 소비 검사를 제거하거나 보관 기한을 추가하지 않았습니다. |
+| 공개 요청 ID | `_voice.request_id`는 큐부터 진단까지 연결하는 내부 값이며 `_publish`가 `_voice`를 제외합니다. | 공개 ID의 한 위치, 조건부 필수와 내부 LLM 파싱 호환은 원본·예시·ICD에서 합의해야 합니다. 두 후보를 동시에 발행하지 않습니다. |
+| 질문과 수락 문장 만료 | `consume_acceptance_text()`도 `valid_context()`를 호출합니다. 현재 질문 후속 응답은 소비 시점의 `question_expires`를 넘으면 반환되지 않습니다. 발행 전 유효해도 C 수락 전 만료될 수 있습니다. | 발행 전 질문 응답 권한과 C 수락 뒤 문장 사용 권한의 수명·담당을 구분해 합의해야 합니다. 현행 만료 검사는 유지합니다. |
+
+[문서: 별도 선행] [최소 계약 범위 결정](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104884879)을 참조해 후속 초안을 좁히며, 일반 요청의 boot/run/halt/question/token 추가 생성은 이번 구현에 없습니다. C의 [등록 만료 보완](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104802923)과 B 실제 안전 검사는 별도 선행입니다. `remaining=0`인 등록 표기를 유효 ACK로 간주하거나 E가 만료 알림을 만들어 우회하지 않습니다. D 연구 문서 인계는 여전히 반영 미확인입니다.
+
+[미완료] 관련 구체 계약 승인 후 스키마·예시·ICD 동일 PR 및 실제 발신/수신 핸들러 모의가 필요합니다. 해당 통합에서 수락 전 음성0·수락 후 동일 문장1회·실패/취소/단절/과거 결과의 첫 동작0·C 안전 재검사·중복 s2 음성0을 확인해야 합니다. 내부 소비 시험은 이 통합 완료 조건을 대신하지 않습니다. B/A/D·공개 계약·태스크·설정·기존 `/voice/speak` 운영 처리와 PR207은 이번 변경 대상에서 제외합니다.

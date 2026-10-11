@@ -3,7 +3,18 @@
 
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장)
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
-- **최종 갱신**: 2026-10-10
+- **최종 갱신**: 2026-10-11
+
+## PR209 리뷰·선행 문서 통합 — E-PR207-209-REVIEW-FIX
+
+- [문서: 범위] 기존 `codex/e-accept-tts-20261011`의 `393536f156d23384b07b5b12073c74334c444a00`에 최종 PR208 `6bb7a4c9bbd3db2396b164b449e07c372a7433e6`을 정상 merge했습니다. PR207 `e93ac41`의 main 기준선·질문/작업 수명·ACK/독립 요청과 PR208의 JSONL/SDK 진단 설명 및 PR209 내부 수락 문장 이력을 함께 보존했습니다. 합류 충돌은 없었고 이번 추가 편집은 E 문서 세 파일뿐입니다. PR209 base를 PR208 브랜치로 갱신하며 선행 PR 미병합 의존성은 유지합니다.
+- [문서·코드 대조] PR209 `393536f` 대비 Voice 구현·시험은 동일합니다. 운영 소비 호출자는 없고 Session text/audio 진입의 보관 폐기·질문 만료 재검사는 유지합니다. [C 리뷰 세 항목](https://github.com/Jik-Kim/ready2go/pull/209#pullrequestreview-5481624730)의 C 보관/문장 수명·공개 ID 한 위치/내부 파싱 호환·질문 권한과 수락 문장 권한을 [기술 문서](../../docs/voice_llm.md#acceptance-tts-preparation)의 계약 후속으로 정리했습니다. [최소 범위 결정](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104884879)은 후속 초안 기준이며 이번에 계약·코드·설정·timeout·TTL·enum을 추가하지 않습니다.
+- [미완료·검증 계획] C 등록 만료 보완·B 실제 안전 검사는 별도 선행이고 D 연구 문서 반영은 미확인입니다. 실음성/API/Melo/ROS/로봇·실물 AC와 E/C 실제 연결은 미검증입니다. 문서 링크·앵커·공백·선행 설명 보존과 코드 불변을 대조한 뒤 최종 커밋 SHA의 전체 로컬 CI를 한 번 실행하고 결과를 PR 본문에 기록합니다. 이전 CI로 이번 기준선 합류 검증을 대신하지 않고 별도 중복 영향 시험/전체 빌드는 실행하지 않습니다. 미추적 모델 이력은 기존 해시로 보존·커밋 제외합니다. 이 기록은 CI 실행·push·리뷰 답변 완료를 미리 주장하지 않습니다.
+
+## PR207 최신 main 기준선 동기화
+
+- [문서: 통합] 기존 `codex/e-halt-policy-20261009`의 PR head `ac96d66a21f5676c08556720d4b7e45da27185b9`에 원격 main `ced8e123eddf7c23d1f06223b087412cc1d8a9f6`를 정상 merge했습니다. 최종 검토 전 head는 `d39605d28c9e1c804b663657d92af8c33eb50f26`입니다. PR diff를 최신 main 기준으로 대조했고 E 담당 변경 21개 파일만 남아 있습니다. main에 이미 반영된 A/B 변경은 PR 신규 변경으로 포함되지 않습니다.
+- [문서: 검증 상태] 기준선 병합으로 이전 전체 테스트 결과는 새 head 검증을 대체하지 않습니다. 최종 기록 커밋 뒤 전체 `ci_local.sh`를 한 번 실행해 결과를 PR 본문에 기록합니다. 실행 후 CURRENT를 추가 수정하지 않습니다. 미추적 모델 사용 이력 파일은 원본 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467` 그대로 보존·제외합니다. D 소유 prior-art와 현행 AC 대조는 미해결 인계입니다.
 
 
 ## 수락 TTS E 내부 준비 — E-C-ACCEPT-TTS-20261011-01
@@ -35,6 +46,14 @@
 - [실측: 정합성] AST·JSON/YAML 파싱·계약 검사 OK, 수정 문서 링크/앵커와 실행 원본의 대조를 수행했습니다. place는 verify 문자열 외 필드 불변, YAML의 기존 P1 값과 재개 접수값 보존, 공개 계약/node/타 담당 파일 미편집, 삭제한 단일 place 키는 오류 처리/이행 안내/반례에만 남음을 확인했습니다. 관련 제목/앵커는 보존합니다.
 - [미완료: 2단계] 실제 wire/ACK/종료·현재 요청 수락/결과 연결은 실행 원본·예시·ICD와 E 포함 계약 승인 뒤 진행합니다. C 안전 판정에서 실제 빈손 증거 미확인은 보류해야 하며 파지 조건 미충족을 빈손으로 복제하지 않았습니다. C verify/effect·복합 성공/관측 기반 복구·A/B 관측·실물 파지·마이크/API/Melo/장치/AC는 후속입니다. 계약 숫자의 정확 포함 여부가 미확정인 시간 경계는 보수적으로 거절하고 확정 경계만 포함합니다. 최종 SHA 전체 CI 결과는 커밋 후 외부 로그로 전달하며 이 기록 자체로 통과를 주장하지 않습니다.
 
+
+## 정기 문서 정합성 후속 — E-ISSUE134-DIAGNOSTICS-20261010
+
+- [문서] #134의 main `d52c1bb` 기준 정기 검토에서 확인된 E 범위 상세 진단 P2와 SDK 시각 연결 P3를 반영합니다. 근거는 [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[음성 정책](../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)입니다. 변경 대상은 `docs/voice_llm.md`, Voice README, 이 CURRENT뿐이며 요구사항·Phase·계약·코드·설정 및 B/D 담당 문서는 수정하지 않습니다.
+- [문서] JSONL 상세 진단의 위치·최상위 이벤트 필드와 콘솔 요약의 한계를 현재 writer에 맞췄습니다. P1 Session의 SDK 직전 시각 callback은 진단에 연결된 상태로, 기존 `whisper_requested`와 구분합니다. P2 접수/재개 정책과 실제 운영 연결은 미연결로 유지합니다.
+- [문서: 게시 상태] PR #198·#202·#203은 main에 병합됐습니다. #203 병합 커밋은 `e0df13a6d4e7bf2ab2a82d94b3f36dc89dc6561d`입니다. 아래 #203 작성 당시 Open/미병합 및 게시 계획은 당시 이력이며 현재 상태가 아닙니다. 병합은 P2 운영 연결·실물 AC 완료를 뜻하지 않습니다.
+- [실측: 문서 정적] 새 요구사항·문서 링크 5개와 명시 앵커를 확인했고, 변경 문서의 diff 공백 검사를 통과했습니다. JSONL 필드·콘솔 생략 이벤트·SDK callback 설명은 `voice_node.py`, `diagnostics.py`, `session.py`, `adapters/api.py`와 대조했습니다.
+- [문서: 검증 범위] 요청에 따라 PR 최종 head에서 로컬 CI를 실행하고 결과를 PR 본문에 기록합니다. 실제 사용자 진단 파일, 새 PC, API/ROS 운영 연결, 마이크/STT/TTS 및 실물 AC는 이번 정적 대조로 검증하지 않았습니다.
 
 ## Voice README 시운전 안내 정리 — E-VOICE-README-20261008
 
@@ -103,7 +122,7 @@
 ## #203 병합 상태 현행화 — E-203-MERGED-STATUS-20261010-02
 
 - [문서: 승인·목적] 지시 세션 `01a11aa1-3875-7b00-9647-cfc4abcecad3`의 인간 turn `01a1244b-6bdf-71d2-8b9f-9bb1fda17363` 원문 “#203 코멘트 확인 후 수정”과 기존 작업 후 commit/push/PR 지속 승인을 확인했습니다. [최신 리뷰](https://github.com/Jik-Kim/ready2go/pull/203#pullrequestreview-5477791033)의 선행 병합·현재 base 설명만 현행화합니다. 직접 수정은 voice_llm과 이 CURRENT 2파일이며 새 정책/계약/코드·설정·타 파트 상태 변경은 없습니다.
-- [문서: 현재 상태] #193·#198·#202는 main에 병합됐고 #198 병합 SHA는 `667f0b8a0e59a459ac0e1fb1bcf5b100413edaab`입니다. #203은 Open·base main·미병합입니다. 아래 `e0a57e5` 작성 당시의 #198 Open·stacked 42파일·retarget 예정 기록은 이력이며 현재 안내가 아닙니다. 이번 main↔head 실제 차이는 #78 E 범위 11파일이고 #198/B/C 선행 변경은 main에 포함돼 중복 diff에서 제외됩니다.
+- [문서: 당시 게시 상태] #193·#198·#202·#203은 main에 병합됐습니다. #198 병합 SHA는 `667f0b8a0e59a459ac0e1fb1bcf5b100413edaab`, #203 병합 SHA는 `e0df13a6d4e7bf2ab2a82d94b3f36dc89dc6561d`입니다. 아래 `e0a57e5` 작성 당시의 #198 Open·stacked 42파일·retarget 예정 및 #203 Open/게시 예정 기록은 이력이며 현재 상태가 아닙니다. 선행 변경이 main에 포함되어 중복 diff에서 제외됐으며, 병합은 운영 연결이나 실물 검증 완료를 뜻하지 않습니다.
 - [실측: 통합·보존] 기존 `codex/e-halt-policy-20261009`·`e0a57e5d5d7cc6e64b86831f1311876370b2765c`에서 origin/main을 fetch해 지정된 `667f0b8`과 동일함을 확인했습니다. 같은 브랜치에서 normal merge 후 충돌·추가 파일 차이 없이 기존 HEAD와 동일 tree였음을 확인했고, 이어 문서2파일만 보완합니다. 새 worktree/브랜치/reset/rebase/forcepush/subagent를 사용하지 않으며 미추적 모델 사용 JSON은 보존·제외합니다. 정본 Phase/숫자/정책·실행 원본/설정/계약·Melo/녹음·B/C/D 파일과 E 기능/시험은 그대로입니다.
 - [문서·검증 재사용] 코드와 시험이 `e0a57e5`와 동일하므로 이전 직접 회귀485건 및 리뷰385건 결과를 각각의 검사 범위 근거로 재사용하며 합산하거나 재실행하지 않습니다. 문서 링크/앵커·현행/이력 구분·main 조상·E11파일 diff를 확인해 관련 문서를 묶어 로컬 커밋합니다. 새 최종 SHA의 필수 전체 CI는 1회 실행하고 `/tmp/e203-merged-status-final-ci.log`로 전달합니다. 이전 e0 CI로 대체하지 않으며 CI 뒤 CURRENT만 재커밋하지 않습니다.
 - [문서: 범위·미완료] P1 원인별 안내/오류 선언과 P2 내부 복구·새 시작 준비의 FR/NFR/AC 구분은 아래 #203 최초 보완 기록과 [정본](../../docs/requirements.md#halt-motion-policy)을 유지합니다. B 센서/놓침 구분·실제 정지/관측, C 상태 동기화·안전한 잠금 해제·새 run 운영 연결, E 포함2인 계약 승인·운영 adapter·실물 AC는 후속입니다. 실제 API/마이크/STT/Melo 합성·재생/로봇/실물 시험은 하지 않으며 #78 전체 완료를 주장하지 않습니다.
