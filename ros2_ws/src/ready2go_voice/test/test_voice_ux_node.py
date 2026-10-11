@@ -276,3 +276,55 @@ def test_internal_goal_console_diagnostics_only_no_tts_or_publish(node):
     assert '내부 평가' in final[0]['text']
     events = [d for d in node.diagnostics if d['event'] == 'intent']
     assert len(events) == 1 and events[0]['published'] is False
+
+
+def test_work_prepares_queue_bound_candidate_but_p1_publish_keeps_wire(node, node_class):
+    node.requests = queue.Queue()
+    node.requests.put(('text', '지우개 가져와', 0, 'actual-queue'))
+    node.busy = threading.Event()
+    node.local_context = threading.local()
+    docs = []
+    def deliver(doc, generation):
+        docs.append(doc)
+        node_class._deliver(node, doc, generation)
+        node.stop_event.set()
+    node._deliver = deliver
+    node_class._work(node)
+    prepared = docs[0]['_voice']['prepared_request']
+    assert prepared['request_id'] == 'actual-queue'
+    assert prepared['accept_text'] == docs[0]['_voice']['final_text']
+    # Use the actual serialization method, not the fixture's publishing stub.
+    sent = []
+    node.publisher = SimpleNamespace(publish=lambda msg: sent.append(json.loads(msg.data)))
+    node_class._publish.__globals__['String'] = SimpleNamespace
+    node_class._publish(node, node.published[0])
+    assert len(sent) == 1 and '_voice' not in sent[0]
+    assert 'request_id' not in sent[0] and 'accept_text' not in sent[0]
+    assert len(node.texts) == 1  # Existing P1 confirmation remains.
+
+
+@pytest.mark.parametrize('case', ['stale_generation', 'halted', 'evaluation', 'record_error', 'goal'])
+def test_work_never_prepares_unsafe_or_ineligible_public_candidate(node, node_class, case):
+    node.requests = queue.Queue()
+    node.busy = threading.Event()
+    node.local_context = threading.local()
+    if case == 'halted': node.observe('halted')
+    if case == 'evaluation': node.cfg['evaluation_mode'] = True
+    if case == 'stale_generation': node.generation = 1
+    value = '지우개 가져와'
+    kind = 'record_error' if case == 'record_error' else 'text'
+    if case == 'goal':
+        node.cfg['p2_goal_evaluation_enabled'] = True
+        value = '지우개를 아래 서랍에 넣어줘'
+    node.requests.put((kind, value, 0, 'queue-id'))
+    docs = []
+    def deliver(doc, generation):
+        docs.append(doc)
+        node.stop_event.set()
+    node._deliver = deliver
+    if case == 'stale_generation':
+        original_done = node.requests.task_done
+        node.requests.task_done = lambda: (original_done(), node.stop_event.set())
+    node_class._work(node)
+    assert not docs or 'prepared_request' not in docs[0].get('_voice', {})
+    assert not node.published and not node.texts
