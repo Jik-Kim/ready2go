@@ -109,9 +109,15 @@ def load(robot):
 def obj(oid, cls, x, y, yaw, top_z, drawer):
     return {"id": oid, "class": cls, "top_z": top_z, "pose": {"frame": drawer, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True}}
 
+PRM_PATCH = {}                                           # {"place": {"allow_stack_place": True}} 처럼 skills.yaml 위에 덮어씀 (시뮬레이션만)
+
+
 def run_scenario(name, drawer, steps):
     robot = Robot(tsf.HOME_J)
     ss, sf, srv = load(robot)
+    if PRM_PATCH:
+        real_prm = srv.prm
+        srv.prm = lambda: (lambda p: [p[k].update(v) for k, v in PRM_PATCH.items()] and p)(real_prm())
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
     print(f"\n===== {name} ({drawer}) =====")
     ok_all = True

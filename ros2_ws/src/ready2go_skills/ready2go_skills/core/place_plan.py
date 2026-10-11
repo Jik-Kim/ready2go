@@ -201,6 +201,30 @@ def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], ma
     return pose, first
 
 
+def stack_support(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], objects: Sequence[Mapping],
+                  size_of: Callable[[str], Optional[Sequence[float]]], max_top_m: float) -> Optional[Mapping]:
+    """다른 물체 위에 놓기(되돌리기 — 쌓여 있던 원위치) [P2 시뮬레이션 10/11: 차키를 캐러멜 위였던 자리로 못 되돌림 → PLACE_BLOCKED].
+    놓을 물체 가운데가 이웃 footprint 안이고 그 이웃 윗면 + 놓을 물체 높이가 max_top_m(테두리 − 여유) 이하면 그 이웃(받침), 아니면 None.
+    받침은 하나만 — 가운데를 덮는 이웃이 여럿이면 가장 높은 것(맨 위). top_z 를 모르면 받침으로 안 씀."""
+    x, y = pose["position"][0] * 1000.0, pose["position"][1] * 1000.0
+    best = None
+    for o in objects:
+        if o["id"] == held_id or not _finite(o.get("top_z")):
+            continue
+        size = size_of(o.get("class"))
+        if not size:
+            continue
+        ox, oy, oyaw = o["pose"]["position"][0] * 1000.0, o["pose"]["position"][1] * 1000.0, o["pose"]["yaw"]
+        c, s = math.cos(oyaw), math.sin(oyaw)
+        dx, dy = x - ox, y - oy
+        if abs(dx * c + dy * s) <= size[0] * 500.0 and abs(-dx * s + dy * c) <= size[1] * 500.0:
+            if best is None or o["top_z"] > best["top_z"]:
+                best = o
+    if best is None or best["top_z"] + held_size_m[2] > max_top_m:
+        return None
+    return best
+
+
 def place_tcp_m(tf: Mapping, pose: Mapping, tcp_above_floor_m: float) -> tuple:
     """놓는 TCP (base m)와 base 기준 물체 긴 변 각도(deg, (−90, 90]). 높이 = 서랍 바닥 + tcp_above_floor_m (drop 포함)."""
     pp.check_tf(tf)

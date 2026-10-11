@@ -1560,3 +1560,28 @@ def test_aside_place_keeps_remaining_object_pickable(server):
                                          support_m=0.0, below_tol_m=0.003, finger_half_width_mm=g["tip_radius_mm"]) is None
     else:
         assert out.error_code in ("PLACE_BLOCKED", "WALL_TOO_CLOSE")
+
+
+@pytest.mark.parametrize("allow", [False, True])
+def test_place_in_drawer_on_top_of_object_only_when_allowed(server, allow):
+    """[P2 시뮬레이션 10/11] 쌓기 원위치 복구 — 명령한 pose 가 캐러멜 위면 place.allow_stack_place 일 때만 캐러멜 윗면에 놓음.
+    기본(false)은 지금 계약(#166, 지지면 바닥)대로 PLACE_BLOCKED, 움직임 없음."""
+    srv = server.srv
+    grips = _holding_in_drawer(server)
+    prm = srv.prm()
+    prm["place"]["allow_stack_place"] = allow
+    srv.prm = lambda: prm
+    at = {"frame": "drawer_top", "position": [0.10, 0.12, 0.0], "yaw": 0.0}
+    scan = json.loads(json.dumps(EMPTY_SCAN))
+    scan["candidates"].append({"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.025, "pose": dict(at, yaw_valid=True)})
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": at, "scan": scan})
+    if not allow:
+        assert out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "caramel_box#1"
+        assert srv.robot.log == [] and grips == []
+        return
+    assert out.success, out.reason
+    from ready2go_skills.core import place_plan as plp
+    place = srv.places()["drawer_top"]
+    pos_m, _ = plp.place_tcp_m(place["tf"], at, 0.025 + 0.02 + prm["place"]["drop_m"])
+    low = min((p for e in srv.robot.log if e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])), key=lambda p: p[2])
+    assert low[2] == pytest.approx(1000.0 * pos_m[2] - prm["place"]["touch_overtravel_mm"], abs=1e-6)   # 캐러멜 윗면 기준

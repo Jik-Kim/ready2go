@@ -1669,6 +1669,12 @@ class SkillServer(Node):
                   round=self.held["class"] in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
 
         long_held = bool(self.held.get("long_side"))
+        support = None                                      # 다른 물체 위에 놓기 (명령한 pose 만, place.allow_stack_place) — 받침은 이웃 확인에서 뺌
+        if not slot and pl.get("allow_stack_place"):
+            support = plp.stack_support(pose=pose, held_id=held_id, held_size_m=size, objects=objs, size_of=self._size_or_none,
+                                        max_top_m=interior[2] - prm["pick"]["stack_top_clear_m"])
+            if support is not None:
+                objs = [o for o in objs if o["id"] != support["id"]]
 
         def check(p_):
             # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 손가락 자리·벽 확인 (집기 footprint 와 같음)
@@ -1713,7 +1719,8 @@ class SkillServer(Node):
         pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0)
         if bad:
             return refuse(bad.error_code, bad.reason, bad.blocked_by)
-        pos_m, long_deg = plp.place_tcp_m(tf, pose, mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"]))
+        support_m = float(support["top_z"]) if support is not None else 0.0
+        pos_m, long_deg = plp.place_tcp_m(tf, pose, support_m + mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"]))
         travel_z = self._travel_z(loc, 0.0)                    # 서랍 안 옆 이동 높이 (넛지·집기와 같음) [사용자 10/08]
         # --- 여기부터 움직임 ---
         bad = self._to_drawer_view(goal, loc)

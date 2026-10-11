@@ -160,3 +160,17 @@ def test_bottom_drawer_has_travel_reference():
     places = yaml.safe_load((Path(__file__).resolve().parents[4] / "config" / "places.yaml").read_text(encoding="utf-8"))
     for d in ("drawer_top", "drawer_bottom"):
         assert places[d]["tf_at_travel_m"] == pytest.approx(places[d]["max_travel_m"])
+
+
+def test_stack_support_picks_top_object_under_center_within_rim():
+    """[P2 시뮬레이션 10/11] 쌓였던 차키를 캐러멜 위 원래 자리로 되돌림 — 가운데를 덮는 이웃 중 가장 높은 것, 테두리 여유 안일 때만."""
+    sizes = {"caramel": [0.08, 0.05, 0.02], "wrench": [0.20, 0.04, 0.012]}
+    objs = [{"id": "wrench#1", "class": "wrench", "top_z": 0.012, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}},
+            {"id": "caramel#1", "class": "caramel", "top_z": 0.032, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 1.5708}},
+            {"id": "key#1", "class": "car_key", "top_z": 0.05, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}}]
+    kw = dict(held_id="key#1", held_size_m=[0.06, 0.03, 0.018], objects=objs, size_of=sizes.get, max_top_m=0.06)
+    assert plp.stack_support(pose=pose(0.10, 0.15, 0.0), **kw)["id"] == "caramel#1"
+    assert plp.stack_support(pose=pose(0.10, 0.17, 0.0), **kw)["id"] == "caramel#1"           # 캐러멜 긴 변(y) 안
+    assert plp.stack_support(pose=pose(0.13, 0.15, 0.0), **kw)["id"] == "wrench#1"            # 캐러멜 짧은 변 밖, 몽키 위
+    assert plp.stack_support(pose=pose(0.10, 0.25, 0.0), **kw) is None                       # 바닥
+    assert plp.stack_support(pose=pose(0.10, 0.15, 0.0), **dict(kw, max_top_m=0.045)) is None  # 테두리 넘음

@@ -61,6 +61,31 @@ def stack_scenario(drawer, at=(0.105, 0.150), yaw_w=0.0, yaw_c=0.0, yaw_k=0.2):
     return run_scenario("몽키·캐러멜·차키 쌓기 → 몽키 꺼내기", drawer, steps)
 
 
+def stack_restore_scenario(drawer, at=(0.105, 0.170), yaw_w=0.0, yaw_c=0.0, yaw_k=0.1):
+    """쌓기 → 몽키 꺼내기 → 치운 것 원위치(LIFO: 캐러멜 → 차키). 받침(몽키)이 없어졌으니 바닥에 — 차키는 캐러멜 위였던 자리."""
+    W = obj("toy_wrench#1", "toy_wrench", at[0], at[1], yaw_w, 0.0185, drawer)
+    C = obj("caramel_box#1", "caramel_box", at[0], at[1], yaw_c, 0.037, drawer)
+    K = obj("car_key#1", "car_key", at[0], at[1], yaw_k, 0.0528, drawer)
+    ka = lambda c: placed(slot(drawer, "aside_1", "car_key#1", "car_key", 0.0158), c["place 차키 → aside_1"])
+    ca = lambda c: placed(slot(drawer, "aside_2", "caramel_box#1", "caramel_box", 0.0185), c["place 캐러멜 → aside_2"])
+    Cf = obj("caramel_box#1", "caramel_box", at[0], at[1], yaw_c, 0.0185, drawer)     # 원위치(바닥)에 놓인 캐러멜
+    steps = common_open(drawer) + [
+        ("pick 차키 (맨 위)", "pick_object", {"target": K, "approach_offset": [0, 0, 0.1], "scan": scan(W, K, C)}),
+        ("place 차키 → aside_1", "place_object", {"location": drawer, "slot": "aside_1", "scan": scan(W, K, C)}),
+        ("pick 캐러멜", "pick_object", lambda c: {"target": C, "approach_offset": [0, 0, 0.1], "scan": scan(W, ka(c), C)}),
+        ("place 캐러멜 → aside_2", "place_object", lambda c: {"location": drawer, "slot": "aside_2", "scan": scan(W, ka(c), C)}),
+        ("pick 몽키", "pick_object", lambda c: {"target": W, "approach_offset": [0, 0, 0.1], "scan": scan(W, ka(c), ca(c))}),
+        ("place 몽키 → 트레이", "place_object", {"location": "handover_zone"}),
+        ("복구: pick 캐러멜", "pick_object", lambda c: {"target": ca(c), "approach_offset": [0, 0, 0.1], "scan": scan(ca(c), ka(c))}),
+        ("복구: place 캐러멜 → 원래 x·y", "place_object", lambda c: {"location": drawer, "pose": {"frame": drawer, "position": [at[0], at[1], 0.0], "yaw": yaw_c},
+                                                           "scan": scan(ca(c), ka(c))}),
+        ("복구: pick 차키", "pick_object", lambda c: {"target": ka(c), "approach_offset": [0, 0, 0.1], "scan": scan(ka(c), Cf)}),
+        ("복구: place 차키 → 원래 x·y (캐러멜 위였음)", "place_object", lambda c: {"location": drawer, "pose": {"frame": drawer, "position": [at[0], at[1], 0.0], "yaw": yaw_k},
+                                                                 "scan": scan(ka(c), Cf)}),
+    ] + common_close(drawer)
+    return run_scenario("쌓기 → 몽키 꺼내기 → LIFO 복구", drawer, steps)
+
+
 if __name__ == "__main__":
     for d in ("drawer_top", "drawer_bottom"):
         cover_scenario(d)
