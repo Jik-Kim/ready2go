@@ -254,6 +254,13 @@ class VoiceNode(Node):
                         paused=lambda: self.stop_event.is_set() or generation != self.generation,
                         generation=generation, blocked=blocked, request_id=request_id) if kind == 'audio' else self.session.text(value, generation, blocked, request_id=request_id)
                 doc.setdefault('_voice', {})['request_id'] = self.local_context.request_id
+                with self.submit_lock:
+                    if not self.stop_event.is_set() and generation == self.generation:
+                        prepared = self.session.prepare_request_payload(
+                            doc, generation, request_id=request_id, blocked=runner_blocks(self))
+                        if prepared is not None:
+                            # Internal candidate only; _publish still strips _voice.
+                            doc['_voice']['prepared_request'] = prepared
                 self._diagnostic({'event': 'interpretation', 'intent': doc})
                 self._deliver(doc, generation)
             except Exception as exc:

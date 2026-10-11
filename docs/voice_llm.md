@@ -185,6 +185,8 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 
 <a id="acceptance-tts-preparation"></a>
+[구현: trusted 요청 후보 준비] `VoiceSession.prepare_request_payload`는 현재 요청 객체·검증 문장 signature·confidence·generation/epoch와 실제 `_work` 큐 ID가 일치할 때만 분리된 요청 사본을 반환합니다. LLM 후보의 최상위 request_id/accept_text는 Session에서 제거하고, 준비 사본에는 E 큐 ID와 재검증된 최종 문장을 넣습니다. 준비 조회는 기존 내부 문장 소비를 수행하지 않으며 사본 수정은 원본을 바꾸지 않습니다. 실제 `_work`는 submit_lock 안에서 취소·세대·현재 Runner 차단을 대조하여 `_voice.prepared_request`에만 보관합니다. 이 내부 후보는 `_publish`에서 제외되므로 현재 P1 공개 발행·s2·수락 전 재생과 목표 발행/TTS 차단을 유지합니다. C 수락 run_id·TTS 성공·첫 동작 게이트를 연결한 운영 발신은 아직 구현하지 않았습니다. 공동 계약 원본과 실제 C 수신 연결이 확인된 뒤 순차 적용합니다.
+
 ### #196 수락 TTS — E 내부 준비와 계약 초안
 
 [문서: E-C-ACCEPT-TTS-20261011-01] 책임·순서·차단 기준은 [요구사항 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 최초 내부 준비는 PR207 `ac96d66` 기반이며, 리뷰 정리에서는 [PR207](https://github.com/Jik-Kim/ready2go/pull/207) `e93ac41`과 [PR208](https://github.com/Jik-Kim/ready2go/pull/208) `6bb7a4c`를 합류했습니다. PR209의 비교 base는 PR208 브랜치입니다. 두 선행 PR은 미병합이며 main 기반 독립 완료가 아닙니다.

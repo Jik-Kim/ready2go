@@ -465,3 +465,42 @@ def test_opt_in_goal_response_preserves_requested_open_without_completion_promis
     assert doc['goals'][1]['value'] is True
     text = doc['_voice']['final_text']
     assert '열림' in text and '내부 평가' in text and '완료했어요' not in text and '닫고' not in text
+
+
+def test_prepared_payload_uses_queue_id_validated_text_and_detached_copy(ontology, schema, cfg):
+    cfg['evaluation_mode'] = False
+    raw = candidate(response='망치 실행을 완료했어요.')
+    raw.update(request_id='llm-forged-id', accept_text='작업이 완료됐습니다.')
+    session = VoiceSession(IntentParser(ontology, schema, cfg, lambda *_: json.dumps(raw)), cfg)
+    doc = session.text('망치 좀', generation=3, request_id='queue-real')
+    assert 'request_id' not in doc and 'accept_text' not in doc
+    payload = session.prepare_request_payload(doc, 3, request_id='queue-real')
+    assert payload['request_id'] == 'queue-real'
+    assert payload['accept_text'] == doc['_voice']['final_text'] != raw['accept_text']
+    assert '_voice' not in payload
+    payload['targets'].clear()
+    payload['source']['execution_allowed'] = False
+    assert doc['targets'] and doc['source']['execution_allowed'] is True
+    assert session.consume_acceptance_text(doc, 3) == doc['_voice']['final_text']
+    assert session.prepare_request_payload(doc, 3, request_id='queue-real') is None
+
+
+@pytest.mark.parametrize('change', ['copy', 'queue', 'empty_id', 'generation', 'epoch',
+                                  'confidence', 'text', 'target', 'new_request', 'blocked', 'evaluation'])
+def test_prepared_payload_rejects_stale_modified_or_untrusted_inputs(ontology, schema, cfg, change):
+    cfg['evaluation_mode'] = False
+    session = VoiceSession(IntentParser(ontology, schema, cfg), cfg)
+    doc = session.text('망치 좀', generation=3, request_id='queue-real')
+    generation, request_id, blocked = 3, 'queue-real', False
+    if change == 'copy': doc = deepcopy(doc)
+    elif change == 'queue': request_id = 'other-queue'
+    elif change == 'empty_id': request_id = ''
+    elif change == 'generation': generation = 4
+    elif change == 'epoch': session.conversation.invalidate()
+    elif change == 'confidence': doc['confidence'] = 0.01
+    elif change == 'text': doc['_voice']['final_text'] = '작업이 완료됐어요.'
+    elif change == 'target': doc['targets'] = ['toy_wrench']
+    elif change == 'new_request': session.text('렌치 좀', request_id='next')
+    elif change == 'blocked': blocked = True
+    elif change == 'evaluation': cfg['evaluation_mode'] = True
+    assert session.prepare_request_payload(doc, generation, request_id=request_id, blocked=blocked) is None

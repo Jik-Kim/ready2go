@@ -467,3 +467,5 @@ PYTHON
 [문서: PR209 리뷰 후속] 현재 Session은 text/audio 진입 시 보관 문장을 지우고 소비 시 질문 만료도 재검사합니다. C 수락 대기 중 문장 보관·공개 요청 ID 한 위치·발행 전 질문 권한과 수락 후 문장 권한은 [기술 문서의 리뷰 대조](../../../docs/voice_llm.md#acceptance-tts-preparation)에 기록한 별도 계약 합의 대상입니다. 이 문서 정리로 소비 검사·wire·기한·운영 처리를 바꾸지 않았습니다. 선행 PR207·PR208의 수명 설명과 JSONL/SDK 시각 진단을 함께 보존했습니다.
 
 [문서: 실행 연결 준비] `PlaceConfirmation.asked`의 최초 등록 전체 구간·재질문·최종 판정은 [기술 문서](../../../docs/voice_llm.md)와 [정본](../../../docs/requirements.md#verification-policy)을 참조합니다. C ACK·질문 발신·응답 수신 및 단계별 검증 결과의 실제 E 연결은 미완료이며 기존 P1 운영 경로를 내부 시험으로 대체하지 않습니다.
+
+[구현: 요청 후보 준비] 실제 큐→Session 검증→`_voice.prepared_request` 경로는 [수락 준비](../../../docs/voice_llm.md#acceptance-tts-preparation)를 참조합니다. 이 후보의 request_id/accept_text는 E가 부여하며 기존 공개 발행에는 포함하지 않습니다. C 수락·TTS 완료·첫 동작 운영 연결 전까지 P1 및 목표 차단을 유지합니다.
