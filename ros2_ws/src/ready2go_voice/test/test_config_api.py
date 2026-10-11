@@ -178,3 +178,15 @@ def test_p2_langchain_prompt_keeps_explicit_open_goal(cfg, ontology, monkeypatch
     assert json.loads(answer)['goals'][1]['value'] is True
     assert captured['format']['name'] == 'p2_goal_candidate' and captured['format']['strict']
     assert '명시 열림을 자동 닫힘으로 바꾸지' in captured['prompt']
+
+
+def test_request_run_default_opt_in_and_override(cfg, tmp_path):
+    assert cfg['request_run_enabled'] is False
+    path = tmp_path/'voice.yaml'
+    path.write_text(yaml.safe_dump(cfg))
+    assert load_config(path, request_run_enabled=True)['request_run_enabled'] is True
+    cfg['request_run_enabled']=True
+    path.write_text(yaml.safe_dump(cfg))
+    assert load_config(path, request_run_enabled=False)['request_run_enabled'] is False
+    with pytest.raises(ValueError):
+        load_config(path, request_run_enabled='true')

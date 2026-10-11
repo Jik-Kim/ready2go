@@ -5,6 +5,13 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-11
 
+## 계약07 E 요청 상관 로직·운영 보류 — E07-REQUEST-ACCEPT-COMPLETE-IMPLEMENT-20261011
+
+- [문서: 승인·Git] 조장 인간 turn `01a12983-fe9c-7ef0-8d57-efea3b4c3ecc`의 “진행하고 #43 구현사항 설명. 앞으로 하나 구현 -> PR 완료되면 다음 할 거 설명해”와 [계약07 승인](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594)을 직접 대조했습니다. 지정 branch `codex/e-request-accept-complete-20261011`은 PR218 `2545058`에서 시작했고 공동 계약221 `e9edaf8`을 merge `7ee59b0`으로 합류했습니다. 충돌3문서의 양쪽 이력과218준비를 보존했고 C 전체 운영 branch는 합류하지 않았습니다.
+- [구현: E 범위] Session/current payload 재검사, 소형 RequestRun, Voice node, cfg/YAML 기본false opt-in, 관련3시험, E 문서만 편집했습니다. 검증된 C 연결을 주입한 모의에서 큐 ID/문장을 발행하고 실제 run 결정·같은 run COMPLETED만 안내합니다. 수락 대기/진행 run을 후속 고유ID로 덮지 않으며 거절/종료/cancel 뒤 새 요청을 허용합니다. 실제 노드의 `_request_run_connected()`는 False인 TODO(E/C)로 실행 발행·수락/완료 상관·speak 수락을 보류하고 기존 P1/평가/목표 차단·halt/cancel 경고를 보존합니다. opt-in speak 로직은 실제 DAC/finished callback·non-mock·취소 검사 뒤에만 성공합니다.
+- [실측: 검증] 첫 관련3파일은 149 passed/3 skipped와 AST 시험 namespace 누락1실패, 보완 후154 passed/3 skipped였습니다. 이어 실제 Jazzy probe에서 info 객체 가정 AttributeError·dict publisher_gid KeyError를 확인했고 최종 probe는 실제4키 metadata/graph endpoint만 대조했습니다. 없는 GID 경로는 철회하고 graph를 표본 근거로 대체하지 않았습니다. 후속 요청 덮어쓰기 지적 수정·dict 모의8개 회귀를 좁게 확인했고, 최종 보류 경계/실metadata형태로 시험을 재정리한 관련3파일은149 passed/3 skipped입니다. 그 뒤 추가한 진행 중 명시 cancel 검사는 별도1 passed/79 deselected로 확인했습니다. 실물 결과로 합산하지 않습니다. 공동 계약 e9 전체 CI2262/39는 별도 head 결과이며 최종 운영 준비 stable HEAD CI를 한 번 실행해 PR 본문에 기록합니다.
+- [미완료·보존] C 실제 수락/중복/run 고정·speak first gate/안전 재검사·s2 중복 제거와 재기동/과거 결과 근거는 C 운영 선행입니다. 설정만 true로 바꿔 활성화하지 못하며 모의 수락과 실물 완료를 구분합니다. 새 timer/enum/boot/epoch·영구 잠금/강제 재시작·43/152/09/150 구현은 없습니다. 미추적 모델 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`과 기존refs를 보존합니다. PR 완료 후 다음 착수는 부모 설명/지시를 기다립니다.
+
 ## PR218 최종217 기준선 상속 — E-PR218-BASE-SYNC-20261011
 
 - [문서: 범위] 기존 PR218 `6cdeceb80d8f3f033e7690fdcea14e20bc54afe5`에서 최종 PR217 `0bfda007345ebd77e6878de903b91bf5e1e465f1`을 정상 merge합니다. PR217의 main `41b456d` 이력·의미 충돌 seq 하한 차단·D/녹음 설명을 상속하며 기존218의 asked 전체 기한·trusted 요청 후보 준비와 시험을 보존합니다. 충돌은 CURRENT 한 구간이며 양쪽 기록을 모두 유지합니다. 이번 직접 편집은 이 동기화 기록뿐이고 새 정책·필드·운영 연결·#150 착수·타 담당 대리 수정은 없습니다.
