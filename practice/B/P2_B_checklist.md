@@ -75,7 +75,7 @@
 
 ## 3. 결과 근거 (`output_json`, 10/11)
 상세 필드 정의는 [B 패키지 안내](../../ros2_ws/src/ready2go_skills/README.md)의 "결과 `output_json` 의 판정 근거".
-- `pick_object`: `grasp_ok` 와 **별도로** `hand` = `holding`/`empty`/`unknown`, `grasp_evidence` = 같은 pick 의 닫은 폭·`grasp_detected`·하한 10 mm·들어 올린 뒤 검사. `grasp_ok: false` 는 빈손이 아니다 — 빈손 근거는 `hand: empty`(실측)만.
+- `pick_object`: `grasp_ok` 와 **별도로** `hand` = `holding`/`empty`/`released`/`unknown`, `grasp_evidence` = 같은 pick 의 닫은 폭·`grasp_detected`·하한 10 mm·들어 올린 뒤 검사. `grasp_ok: false` 는 빈손이 아니다 — 빈손 확정은 `hand: empty`(닫힌 폭 ≤ 2 mm)만, 다시 벌린 상태는 `released`(#43 결정 E-B-C-GRIPPER-OBSERVATION-10, C `gripper_observation` 분류와 같은 이름).
 - `drawer_control` 열기: `drawer_displacement`(TCP 이동량 추정) + `open_distance_m`(명령 거리) → `drawer_displacement ≥ 0.9 × open_distance_m` 을 C 가 바로 계산.
 - 닫기: `close_confirmed` + `close_remaining_m`·`close_pos_tol_m`·`close_push_interrupted`.
 - 필드 추가만(기존 키 그대로) — C `run_report`·mock 영향 없음. C 가 쓰려면 C 쪽 연결 필요.

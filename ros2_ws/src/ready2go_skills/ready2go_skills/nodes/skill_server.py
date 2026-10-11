@@ -1665,7 +1665,8 @@ class SkillServer(Node):
 
         def pick_out(ok, hand, **evidence):
             """결과 output_json — 파지 성공(grasp_ok)과 손 상태(hand)를 따로 [P2 4절·Critical: 파지 실패 ≠ 빈손].
-            hand: holding(쥠 확인) / empty(실측 빈손: 들어 올리다 폭이 빈손 닫힘까지·또는 다시 벌림 확인) / unknown(못 읽음·잡은 채 멈춤).
+            hand: holding(쥠 확인) / empty(빈손 확정 = 닫힌 폭 ≤ gripper.min_width_m 2 mm) / released(실패 뒤 다시 벌림 확인 — 쥐지 않았지만
+            빈손 확정 아님) / unknown(못 읽음·잡은 채 멈춤). 빈손 기준은 [E-B-C-GRIPPER-OBSERVATION-20261011-10, #43] 과 같음.
             grasp_evidence: 닫은 폭·grip_detected(같은 pick 의 닫기), 들어 올린 뒤 검사 — pick verify 근거."""
             ev = {"closed_width_m": _width_m(st.width_mm),
                   "grasp_detected": st.grip_detected, "min_width_m": pick_min_w, **evidence}
@@ -1688,11 +1689,11 @@ class SkillServer(Node):
         if not chk.ok:
             st_open = self._grip(plan.open_width_m * 1000.0, 20)
             back = self._line(goal, above, self._in_vel(), "lift")
-            w_open = _width_m(st_open.width_mm)                # 다시 벌린 폭 = 벌림 명령 ± 2 mm 면 실측 빈손
+            w_open = _width_m(st_open.width_mm)                # 다시 벌린 폭 = 벌림 명령 ± 2 mm 면 released (빈손 확정 아님 [#43 결정 10])
             opened = w_open is not None and abs(w_open - plan.open_width_m) <= g["slip_tolerance_m"]
             return sf.worse(sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm, "
                                                                  f"기대 {expected_w * 1000:.1f} mm)"),
-                            back), pick_out(False, "empty" if opened else "unknown", close=chk.reason, open_width_m=w_open)
+                            back), pick_out(False, "released" if opened else "unknown", close=chk.reason, open_width_m=w_open)
         floor_z = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
         # 닫아서 잡음 → 바로 쥔 것으로 기억: 들어 올리다 멈춰도(비상정지·이동 실패) 빈손으로 보지 않음 [P2 5절 보유 불명확]
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,

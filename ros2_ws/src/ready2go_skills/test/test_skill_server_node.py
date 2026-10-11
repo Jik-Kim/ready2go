@@ -1912,9 +1912,9 @@ def test_pick_output_separates_grasp_result_from_measured_hand(server):
     assert ev["grasp_detected"] is True and ev["close"] == "OK" and ev["lift"] == "HELD"
     json.loads(json.dumps(data))                                         # NaN 없이 JSON 으로 나감
     srv.held = None
-    server.Gripper.holding = False                                       # 빈손 닫힘 0.9 mm → 다시 벌림 = 실측 빈손
+    server.Gripper.holding = False                                       # 빈손 닫힘 0.9 mm → 다시 벌림 = released (빈손 확정 아님 [#43 결정 10])
     out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-    assert out.error_code == "GRASP_FAILED" and data["grasp_ok"] is False and data["hand"] == "empty" and srv.held is None
+    assert out.error_code == "GRASP_FAILED" and data["grasp_ok"] is False and data["hand"] == "released" and srv.held is None
     assert data["grasp_evidence"]["close"] == "EMPTY_CLOSE"
 
 
