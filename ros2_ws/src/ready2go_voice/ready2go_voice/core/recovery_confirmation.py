@@ -143,19 +143,15 @@ class AudioRequest:
 
 class RecoveryConfirmation:
     def __init__(self, session, *, admission_window_sec=None, stt_result_timeout_sec=None,
-                 register_ack_timeout_sec=None, question_tts_timeout_sec=None,
                  independent_request_timeout_sec=None):
         if not isinstance(session, str) or not session.strip():
             raise ValueError('session required')
-        for value in (admission_window_sec, stt_result_timeout_sec, register_ack_timeout_sec,
-                      question_tts_timeout_sec, independent_request_timeout_sec):
+        for value in (admission_window_sec, stt_result_timeout_sec, independent_request_timeout_sec):
             if value is not None and (not finite(value) or value <= 0):
                 raise ValueError('finite positive budget or None required')
         self.session = session
         self.admission_window_sec = admission_window_sec
         self.stt_result_timeout_sec = stt_result_timeout_sec
-        self.register_ack_timeout_sec = register_ack_timeout_sec
-        self.question_tts_timeout_sec = question_tts_timeout_sec
         self.independent_request_timeout_sec = independent_request_timeout_sec
         self._lock = threading.RLock()
         self.retired_boots = set()
@@ -180,8 +176,7 @@ class RecoveryConfirmation:
     @classmethod
     def from_config(cls, session, cfg):
         return cls(session, **{name: cfg.get('resume_' + name) for name in (
-            'admission_window_sec', 'stt_result_timeout_sec', 'register_ack_timeout_sec',
-            'question_tts_timeout_sec', 'independent_request_timeout_sec')})
+            'admission_window_sec', 'stt_result_timeout_sec', 'independent_request_timeout_sec')})
 
     @serialized
     def voice_restarted(self):
@@ -218,10 +213,12 @@ class RecoveryConfirmation:
         key = (work.session, work.task, work.stop)
         if key in self.retired_events:
             return False
+        if revision <= self.revision or revision <= self.sequences.get(key, -1):
+            return False
         if (self.work is not None and key == (self.work.session, self.work.task, self.work.stop)
                 and work != self.work):
-            return False
-        if revision <= self.revision or revision <= self.sequences.get(key, -1):
+            self.invalidate()  # newer conflicting semantic state cannot reuse prior checks
+            self.current_state_confirmed = False
             return False
         self.sequences[key] = revision
         self.revision = revision
@@ -245,11 +242,14 @@ class RecoveryConfirmation:
             return False
         if self.work is not None and work != self.work:
             self.retired_events.add((self.work.session, self.work.task, self.work.stop))
+        unchanged = work == self.work
         self.work = work
         self.current_state_confirmed = True
         if work.cause == 'OBJECT_DROPPED':
             self.restart_required_runs.add((work.session, work.task))
-        self.invalidate()
+        if not unchanged:
+            self.invalidate()
+        # A newer status for the same semantic halt is not a new recording/request.
         return True
 
     @serialized
@@ -332,18 +332,27 @@ class RecoveryConfirmation:
         self.request = None
         return self.question
 
+    def _ack_current(self, work, revision, valid_state):
+        # ACK may arrive in a newer seq of the same boot/run/halt. It is not
+        # fresh robot evidence or permission to resume, and cannot revive work.
+        if (valid_state is not True or not self.current_state_confirmed or
+                work != self.work or type(revision) is not int or revision < self.revision):
+            return False
+        return revision == self.revision or self._accept(work, revision)
+
     @serialized
     def registered(self, question, work, revision, *, now, valid_state):
-        """Internal ACK event only; caller must supply the current trusted state."""
+        """Current trusted C registration only; no extra E ACK timer.
+
+        valid_until is an E-local bound supplied from trusted C validity, never
+        a raw C monotonic timestamp. A wire/clock adapter is still not enabled.
+        """
         if question is None or question is not self.question:
             return False
         if self.registered_at is not None:
             return False  # retransmission cannot extend deadlines or replay TTS
-        if (valid_state is not True or not self.current_state_confirmed or work != self.work or
-                type(revision) is not int or revision != self.revision or
-                self.register_ack_timeout_sec is None or not finite(now) or
-                not question.issued_at <= now < min(question.valid_until,
-                    question.issued_at + self.register_ack_timeout_sec)):
+        if (not finite(now) or not question.issued_at <= now < question.valid_until or
+                not self._ack_current(work, revision, valid_state)):
             self.invalidate()
             return False
         self.registered_at = now
@@ -355,9 +364,8 @@ class RecoveryConfirmation:
             return False
         if self.tts_started_at is not None:
             return False
-        if (self.registered_at is None or self.question_tts_timeout_sec is None or
-                not finite(now) or not self.registered_at <= now < min(question.valid_until,
-                    self.registered_at + self.question_tts_timeout_sec)):
+        if (self.registered_at is None or not finite(now) or
+                not self.registered_at <= now < question.valid_until):
             self.invalidate()
             return False
         self.tts_started_at = now
@@ -372,22 +380,14 @@ class RecoveryConfirmation:
         if q is None:
             return False
         limit = q.valid_until
-        if self.registered_at is None:
-            if self.register_ack_timeout_sec is None:
-                self.invalidate(); return True
-            limit = min(limit, q.issued_at + self.register_ack_timeout_sec)
-        elif self.finished_at is None:
-            if self.question_tts_timeout_sec is None:
-                self.invalidate(); return True
-            limit = min(limit, self.registered_at + self.question_tts_timeout_sec)
-        elif self.request is None:
+        if self.finished_at is not None and self.request is None:
             if self.admission_window_sec is None:
                 self.invalidate(); return True
             # The approved admission boundary itself is included.
             if now <= self.finished_at + self.admission_window_sec and now < q.valid_until:
                 return False
             limit = min(limit, self.finished_at + self.admission_window_sec)
-        else:
+        elif self.request is not None:
             limit = min(limit, self.request.result_until)
         if now >= limit:
             self.invalidate(); return True
@@ -395,13 +395,16 @@ class RecoveryConfirmation:
 
     @serialized
     def delivered(self, question, *, now, success):
-        """now must be actual successful TTS playback completion, not enqueue."""
+        """Actual completion after the existing PCMTTS timeout checks, not enqueue.
+
+        The future caller must report timeout/cancel/failure as success=False.
+        No operational recovery TTS caller is connected here.
+        """
         if question is None or question is not self.question:
             return False
         if (success is not True or not finite(now) or self.registered_at is None or
-                self.tts_started_at is None or self.question_tts_timeout_sec is None or
-                not self.tts_started_at <= now < min(question.valid_until,
-                    self.registered_at + self.question_tts_timeout_sec)):
+                self.tts_started_at is None or
+                not self.tts_started_at <= now < question.valid_until):
             self.invalidate()
             return False
         if self.finished_at is not None:
@@ -415,8 +418,9 @@ class RecoveryConfirmation:
 
         10.0 is included. Missing agreed processing budget disables admission.
         A receipt binds recording, question and current boot/run/halt. It is not
-        an operational resume request. Result expiry is separate from admission. valid_until is an additional
-        E-local context/evidence limit, never a C-process monotonic timestamp.
+        an operational resume request. Result expiry is separate from admission.
+        valid_until is an E-local trusted validity bound, never C monotonic time.
+        The immutable receipt reuses the checked recording order at answer().
         """
         if question is None or question is not self.question:
             return None
@@ -505,6 +509,8 @@ class RecoveryConfirmation:
         kind = 'end' if task_end_utterance(text) else safety_utterance(text)
         if kind != 'end' and kind != 'resume':
             self.invalidate(); return False
+        # Reuse this classified recording at ACK/consumption; a new request
+        # or semantic invalidation clears it, while normal seq progress does not.
         self.independent_result = (kind, now)
         return True
 
@@ -515,8 +521,8 @@ class RecoveryConfirmation:
         if self.independent_ack is not None:
             return False
         if (not self._independent_valid(request, now) or self.independent_result is None or
-                now < self.independent_result[1] or valid_state is not True or
-                work != self.work or type(revision) is not int or revision != self.revision):
+                now < self.independent_result[1] or
+                not self._ack_current(work, revision, valid_state)):
             self.invalidate(); return False
         self.independent_ack = now
         return True

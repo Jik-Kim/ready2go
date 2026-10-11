@@ -429,7 +429,7 @@ PYTHON
 
 [문서] recovery 정책은 boot 변경·동일 run/halt의 seq·질문/TTS 완료·녹음 시작/끝·SDK 직전 접수·등록 ACK 뒤 TTS 시작·별도 결과 만료·일회성·재정지·질문 거절·명시 작업 종료를 분리합니다. 일반 cancel은 대상 보존이며 포기와 다르고, 질문 실패/거절도 work를 보존합니다. 독립 요청은 고유 ID·새 녹음·STT 처리 구간·전체 구간·현재 등록 확인을 검사합니다. E 재기동 후 새 C 상태를 확인하고 Runner boot 변경/현재 C 완료는 보존 대상을 폐기합니다. 현재 P1 Session은 WhisperSTT의 optional `before_request` callback을 연결해 실제 SDK 호출 직전 `whisper_sdk_request.requested_monotonic` 진단 이벤트를 기록합니다. 기존 progress `whisper_requested`는 그보다 앞선 진행 표시이므로 SDK 접수 증빙으로 쓰지 않습니다. Recording의 시작/끝 monotonic은 실제 E 프로세스 경계 자료형이지만 P1 Session/노드의 진단 연결에는 포함되지 않았습니다. 이 P1 시각 연결은 P2 접수/재개 정책, 운영 정지·복구 경로와 연결되지 않았습니다. 실제 TTS 종료는 PortAudio 완료 증빙이 필요합니다. B unknown이나 처리 예산 미정일 때 운영 재개 요청을 만들지 않습니다.
 
-설정 원본 [params/voice.yaml](params/voice.yaml)의 승인 내부값과 미정 null을 구분하십시오. 제거된 `place_answer_timeout_sec`는 설정 오류로 거절하며 접수와 STT 키를 각각 사용합니다. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. 미승인 wire enum/등록 ACK 형식/프로세스별 clock 대응과 C hold·B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.
+설정 원본 [params/voice.yaml](params/voice.yaml)의 승인 내부값과 미정 null을 구분하십시오. E의 두 등록/TTS 전용 추가 타이머는 제거했으며 기존 등록 ACK·질문 유효 기한·음성 TTS timeout은 유지합니다. 동일 요청의 녹음/분류와 정상 seq에서의 재사용, 실제 상태 변경 시 무효화는 [구현 설명](../../../docs/voice_llm.md#p2-safety-voice)을 참조하십시오. C 기한과 ACK를 E 로컬 입력에 대응하는 운영 adapter 및 실제 재생 완료 연결은 여전히 미구현입니다. 제거된 `place_answer_timeout_sec`는 설정 오류로 거절하며 접수와 STT 키를 각각 사용합니다. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. 미승인 wire enum/등록 ACK 형식/프로세스별 clock 대응과 C hold·B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.
 
 
 ## P2 선정 목표 — 내부 평가

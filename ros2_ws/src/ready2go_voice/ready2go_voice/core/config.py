@@ -104,7 +104,6 @@ def load_config(path, *, evaluation_mode=None):
     if 'place_answer_timeout_sec' in cfg:
         raise ValueError('place_answer_timeout_sec removed; use separate admission/STT settings')
     for key in ('resume_admission_window_sec', 'resume_stt_result_timeout_sec',
-                'resume_register_ack_timeout_sec', 'resume_question_tts_timeout_sec',
                 'resume_independent_request_timeout_sec', 'place_admission_window_sec',
                 'place_stt_result_timeout_sec'):
         cfg.setdefault(key, None)
