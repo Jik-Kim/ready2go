@@ -194,7 +194,8 @@ def plan_old(objs, tid, oracle, cfg, used_slots):
 
 def retrieve(objs, tid, drawer, old):
     oracle = Oracle(drawer, old)
-    cfg = cp.Config(interior_m=PLACES[drawer]["interior_m"], frame=drawer, size_of=cp_size)
+    reach = (srv.prm().get("drawer_reach_x_mm") or {}).get(drawer)
+    cfg = cp.Config(interior_m=PLACES[drawer]["interior_m"], frame=drawer, size_of=cp_size, reach_x_m=reach / 1000.0 if reach else None)
     used, steps, last = set(), [], None
     for _ in range(10):
         a = plan_old(objs, tid, oracle, cfg, used) if old else cp.plan_next(objs, tid, oracle, cfg)

@@ -269,6 +269,7 @@ class Config:
     free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수
     allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선)
     neighbor_r_m: float = 0.08               # 목표 둘레 이 거리 안 물체는 옮겨 볼 후보
+    reach_x_m: Optional[float] = None        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
 
 
 def _round_axis_ok(t: Mapping, u: tuple, cfg: Config) -> bool:
@@ -316,7 +317,9 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
     놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기)."""
     avoid = [o for o in objs if o["id"] in avoid_ids]
     fallback = None
-    for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid)[: cfg.free_try]:
+    cands = [c for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid)
+             if cfg.reach_x_m is None or c["pose"]["position"][0] <= cfg.reach_x_m]     # 안쪽 벽에 붙여도 손이 안 닿으면 못 놓음
+    for c in cands[: cfg.free_try]:
         pose = as_pose(c)
         ok, _, _ = oracle.place(objs, held_id, pose)
         if not ok:

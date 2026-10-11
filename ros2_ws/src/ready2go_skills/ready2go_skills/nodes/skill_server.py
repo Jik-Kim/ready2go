@@ -1660,7 +1660,8 @@ class SkillServer(Node):
         cfg = clp.Config(interior_m=place["interior_m"], frame=drawer_id, size_of=self._size_cached(),
                          axes=clp.AXES if prm["drag"].get("push_inward_ok") else clp.AXES[:3],
                          max_shift_m=prm["drag"]["max_shift_mm"] / 1000.0, max_chain=int(mr.get("max_chain", 2)),
-                         round_classes=tuple(prm["pick"].get("round_classes") or ()))
+                         round_classes=tuple(prm["pick"].get("round_classes") or ()),
+                         reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
         a = clp.plan_next(objs, tid, DryOracle(self, drawer_id), cfg)
         info = {"action": a.kind, "moved_id": a.target or None, "ready_to_pick": False, "reason": a.reason}
         out["make_room"] = info
