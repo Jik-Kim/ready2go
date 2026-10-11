@@ -31,6 +31,24 @@ detector:
   conf_min: 0.25               # 이보다 낮은 검출은 버린다
 dedup:
   min_overlap: 0.6             # 분할 모델: 같은 클래스 두 검출의 마스크 겹친 넓이 / 작은 쪽 넓이가 이 이상이면 같은 물체로 합침 [팀 확정 필요]. 박스 모델은 병합 안 함 (#109)
+occlusion:                     # 가림 판정 (P2, #109 4단계, core/occlusion.py). 분할 모델일 때만 쓴다 [팀 확정 필요]
+                               # 값 출처: PC1 덤프 69장 시험 코드(~/yolo_run/occl, 10/08) — 이 표본으로 정한 값이라 AC-VIS-02 근거 아님(requirements #occlusion-policy)
+  contact_dilate_px: 12        # 두 마스크를 이만큼 넓혀 겹치면 맞닿음
+  min_contact_px: 15           # 맞닿은 띠 픽셀이 양쪽 다 이 이상
+  min_height_diff_m: 0.004     # 맞닿은 띠 높이 중앙값 차이가 이 이상이면 높은 쪽이 위 (얇은 덮개 밑은 못 봄)
+  visible_ratio_max: 0.80      # 보이는 넓이 / 클래스 기준 넓이가 이보다 작으면 '덜 보임'
+  split_min_px: 300            # 마스크 조각을 셀 때 이보다 작은 조각은 무시 (1280x720 기준)
+  ref_visible_area_m2:         # 클래스별 다 보일 때 넓이 = 69장 visible_area_m2 의 90 백분위 [실측 PC1 10/08]. 없는 클래스(carrot_pen)는 '덜 보임' 판정 불가 → 위 물체가 맞닿으면 모름
+    airpods_case: 0.002583
+    car_key: 0.002678
+    caramel_box: 0.003451
+    cover_plate: 0.006786
+    eraser: 0.001443
+    lip_balm: 0.001653
+    masking_tape: 0.001306
+    toy_car: 0.001839
+    toy_hammer: 0.004818
+    toy_wrench: 0.005013
 policy:
   on_invalid_candidate: fail   # fail: 뎁스가 쓸 수 없는 검출이 하나라도 있으면 전체 DEPTH_INVALID (안전 우선) / skip: 그 검출만 제외
 floor_probe:                   # 진단 로그 전용 (결과에 쓰지 않음): 카메라로 본 서랍 바닥 z. #83 원점 −3 mm 뒤 카메라·터치 약 3 mm 차이 원인 확인용

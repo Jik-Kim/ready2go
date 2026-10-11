@@ -41,7 +41,7 @@
           "value": "$to"
         }
       ],
-      "verify": "rescan: $item visible in $to; handover normal non-detection requires one-shot current-run expected-items/count/destination user confirmation; unknown/error/interruption is not success",
+      "verify": "rescan destination after place: expected items/count in $to; drawer uses fresh drawer top-view observation, not user confirmation; handover normal non-detection allows current-procedure expected-items/count/destination user confirmation; unknown/error/interruption is not success",
       "expand": [
         {
           "action": "place_object",

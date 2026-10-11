@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import threading
 import queue
+from copy import deepcopy
 import pytest
 from jsonschema import Draft7Validator
 from ready2go_voice.adapters.api import LangChainIntent
@@ -10,6 +11,59 @@ from ready2go_voice.core.intent import IntentParser
 from ready2go_voice.core.session import VoiceSession
 from ready2go_voice.core.tts_prefill import prefill_texts, remember_text
 from ready2go_voice.core.diagnostics import DiagnosticFile, redact
+
+
+def test_acceptance_keeps_validated_sentence_and_queue_identity(ontology, schema, cfg):
+    sentence = '망치를 가져다달라는 요청을 확인했어요.'
+    parser = IntentParser(ontology, schema, cfg, lambda *_: candidate(response=sentence))
+    session = VoiceSession(parser, cfg)
+    doc = session.text('망치 좀', generation=7, request_id='local-queued-request')
+    assert doc['_voice']['request_id'] == 'local-queued-request'
+    assert session.consume_acceptance_text(deepcopy(doc), 7) is None
+    assert session.consume_acceptance_text(doc, 7) == sentence
+    assert session.consume_acceptance_text(doc, 7) is None
+    assert 'request_id' not in doc['source']  # 새 wire를 만들지 않습니다.
+
+
+@pytest.mark.parametrize('change', ['target', 'intent', 'sentence', 'request', 'source', 'generation', 'epoch'])
+def test_acceptance_changed_or_canceled_request_is_not_reusable(ontology, schema, cfg, change):
+    session = VoiceSession(IntentParser(ontology, schema, cfg), cfg)
+    doc = session.text('망치 좀', generation=2)
+    generation = 2
+    if change == 'target': doc['targets'] = ['toy_wrench']
+    elif change == 'intent': doc['intent'] = 'cancel'
+    elif change == 'sentence': doc['_voice']['final_text'] = '망치 실행을 완료했어요.'
+    elif change == 'request': doc['_voice']['request_id'] = 'another'
+    elif change == 'source': doc['source']['execution_allowed'] = False
+    elif change == 'generation': generation = 3
+    else: session.conversation.invalidate()
+    assert session.consume_acceptance_text(doc, generation) is None
+    assert session.consume_acceptance_text(doc, 2) is None
+
+
+def test_acceptance_new_request_and_restart_cannot_restore_old_text(ontology, schema, cfg):
+    parser = IntentParser(ontology, schema, cfg)
+    session = VoiceSession(parser, cfg)
+    old = session.text('망치 좀', request_id='old')
+    current = session.text('렌치 좀', request_id='new')
+    assert session.consume_acceptance_text(old, 0) is None
+    assert VoiceSession(parser, cfg).consume_acceptance_text(current, 0) is None
+    assert session.consume_acceptance_text(current, 0) == current['_voice']['final_text']
+
+
+@pytest.mark.parametrize('response', ['사과 가져오기 요청으로 이해했어요.', '망치 실행을 완료했어요.'])
+def test_acceptance_uses_replacement_not_unsafe_llm_sentence(ontology, schema, cfg, response):
+    session = VoiceSession(IntentParser(ontology, schema, cfg, lambda *_: candidate(response=response)), cfg)
+    doc = session.text('망치 좀')
+    assert doc['_voice']['response_replacement_reason']
+    assert session.consume_acceptance_text(doc, 0) == doc['_voice']['final_text'] != response
+
+
+@pytest.mark.parametrize('text,blocked', [('립밤 되나?', False), ('사과 좀', False), ('망치 좀', True), ('응', False)])
+def test_acceptance_nonexecution_has_no_sentence_to_consume(ontology, schema, cfg, text, blocked):
+    session = VoiceSession(IntentParser(ontology, schema, cfg), cfg)
+    doc = session.text(text, blocked=blocked)
+    assert session.consume_acceptance_text(doc, 0) is None
 
 
 def candidate(target='toy_hammer', kind='find_item', response=None, reason=None):
@@ -323,6 +377,7 @@ def test_recording_sdk_and_final_internal_request_link(cfg,ontology,schema):
     assert doc['source']['recording_ended_monotonic']==100.4
     event=next(e for e in events if e['event']=='whisper_sdk_request')
     assert event['request_id']==doc['_voice']['request_id'] and event['requested_monotonic']==101.0
+    assert session.consume_acceptance_text(doc, 0) == doc['_voice']['final_text']
 
 
 @pytest.mark.parametrize('response',[None,'실행을 완료했어요.'])
@@ -400,3 +455,13 @@ def test_secret_literals_inside_llm_string_are_redacted():
     clean=redact({'llm_raw':raw},secrets=[])
     assert all(x not in clean['llm_raw'] for x in ('plain-secret','other-secret','another-secret'))
     assert 'api_key' in clean['llm_raw']
+
+
+def test_opt_in_goal_response_preserves_requested_open_without_completion_promise(ontology, schema, cfg):
+    cfg['p2_goal_enabled'] = True
+    doc = IntentParser(ontology, schema, cfg, lambda *_: dict(intent='achieve_goal', targets=[],
+        confidence=.99, goals=cfg['p2_goal_catalog'][3], response_text='서랍을 닫고 전달을 완료했어요.')).parse(
+            '지우개 갖다 놓고 서랍은 열어 둬')
+    assert doc['goals'][1]['value'] is True
+    text = doc['_voice']['final_text']
+    assert '열림' in text and '내부 평가' in text and '완료했어요' not in text and '닫고' not in text

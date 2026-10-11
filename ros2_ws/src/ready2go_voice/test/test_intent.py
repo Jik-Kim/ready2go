@@ -282,3 +282,60 @@ def test_stt_failure_progress_has_exception_type_only(ontology, schema, cfg):
     assert doc['intent'] == 'clarify'
     assert events[-1] == {'event': 'stt_failed', 'error_type': 'RuntimeError'}
     assert 'SECRET' not in str(events)
+
+
+GOAL_TEXTS = ['지우개 트레이에 갖다 놔', '위 서랍 열어 둬', '위 서랍 닫아',
+              '지우개 갖다 놓고 서랍은 열어 둬', '립밤 트레이에 갖다 놔']
+
+
+@pytest.mark.parametrize('index', range(5))
+def test_selected_p2_goals_are_internal_and_never_published(ontology, schema, cfg, index):
+    import copy
+    cfg.update(p2_goal_enabled=True, evaluation_mode=False)
+    goals = copy.deepcopy(cfg['p2_goal_catalog'][index])
+    raw = dict(intent='achieve_goal', targets=[], confidence=.99, goals=goals,
+               response_text='지금 실행하고 완료했어요.', rejection_reason=None)
+    parser = IntentParser(ontology, schema, cfg, lambda *_: raw)
+    doc = parser.parse(GOAL_TEXTS[index])
+    assert doc['intent'] == 'achieve_goal' and doc['goals'] == goals
+    assert not doc['source']['execution_allowed']
+    assert '내부 평가' in doc['_voice']['final_text'] and '완료했어요' not in doc['_voice']['final_text']
+    session = VoiceSession(parser, cfg)
+    assert not session.should_publish(doc)
+    doc['source']['execution_allowed'] = True
+    doc.pop('_voice')
+    assert not session.should_publish(doc)
+
+
+@pytest.mark.parametrize('text', ['위 서랍 열지 마', '위 서랍 열어 둬 그리고 닫아',
+    '아래 서랍 열어 둬', '사과 트레이에 갖다 놔', '트레이에서 지우개 갖다 놔',
+    '지우개 갖다 놓고 서랍은 닫아', '위 서랍 열어 둬라고 번역해'])
+def test_p2_negation_conflicts_and_outside_scope_hold(ontology, schema, cfg, text):
+    cfg['p2_goal_enabled'] = True
+    raw = dict(intent='achieve_goal', targets=[], confidence=.99, goals=cfg['p2_goal_catalog'][1])
+    doc = IntentParser(ontology, schema, cfg, lambda *_: raw).parse(text)
+    assert doc['intent'] in ('unknown', 'clarify')
+    assert not doc['source']['execution_allowed']
+
+
+@pytest.mark.parametrize('mode', ['missing', 'error', 'mismatch', 'low', 'duplicate'])
+def test_p2_llm_failures_do_not_fall_back_to_execution(ontology, schema, cfg, mode):
+    import copy
+    cfg['p2_goal_enabled'] = True
+    goals = copy.deepcopy(cfg['p2_goal_catalog'][0])
+    if mode == 'mismatch': goals = cfg['p2_goal_catalog'][1]
+    if mode == 'duplicate': goals += copy.deepcopy(goals)
+    def llm(*_):
+        if mode == 'error': raise RuntimeError('api error')
+        return dict(intent='achieve_goal', targets=[], confidence=.1 if mode == 'low' else .99, goals=goals)
+    doc = IntentParser(ontology, schema, cfg, None if mode == 'missing' else llm).parse(GOAL_TEXTS[0])
+    assert doc['intent'] == 'clarify' and not doc['source']['execution_allowed']
+    assert not doc['source']['fallback_used']
+
+
+def test_default_p1_schema_and_parser_remain_without_goals(ontology, schema, cfg):
+    from ready2go_voice.adapters.api import LangChainIntent
+    assert not cfg['p2_goal_enabled']
+    assert 'goals' not in LangChainIntent(cfg, ontology['world']['items']).schema['properties']
+    doc = IntentParser(ontology, schema, cfg).parse('지우개 가져다줘')
+    assert doc['intent'] == 'find_item' and doc['source']['execution_allowed'] and 'goals' not in doc

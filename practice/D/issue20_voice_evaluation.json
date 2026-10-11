@@ -1014,6 +1014,37 @@
     },
     "tts_measurement_status": "not_measured",
     "tts_measurement_note": "AC-INT-03 측정 회차는 timing_mode=ac_budget으로 실행한다. 음성 노드가 monotonic 시각으로 계산한 confirmation_latency_ms를 그대로 기록하고 speech_ended_unix·tts_started_unix 차이로 재계산하지 않는다. commissioning, TTS 실패·미측정·모의 재생은 3초 성공으로 집계하지 않는다.",
+    "diagnostic_evidence_collection": {
+      "status": "procedure_defined_not_run",
+      "runtime_source": "Voice 실행 설정의 diagnostic_file이 가리키는 상세 JSONL. diagnostic_detail=true인 회차만 수집 대상으로 사용한다.",
+      "path_rule": "diagnostic_file이 상대 경로이면 Voice 실행 당시 cwd를 기준으로 해석한다. 평가 기록의 diagnostic_file_configured에는 실행 당시 원문 설정값을, diagnostic_jsonl_cwd에는 실행 cwd를, diagnostic_jsonl_path에는 실제로 읽은 해석 완료 JSONL 또는 회전 파일 경로를 남긴다.",
+      "console_rule": "콘솔과 tee 파일은 진행 요약이며 상세 증빙 원본으로 사용하지 않는다. record_started, record_finished, whisper_requested, stt_result, speech_check_started, tts_started는 정상 실행에서도 콘솔에서 숨겨질 수 있다.",
+      "record_shape": "각 JSONL 행은 event, request_id와 이벤트별 필드를 최상위에 둔다. voice_diagnostic 래퍼는 없으므로 voice_diagnostic.published, voice_diagnostic.intent, voice_diagnostic.timing 경로를 사용하지 않는다.",
+      "correlation_rule": "같은 request_id의 interpretation, tts_finished, intent 이벤트를 한 발화 기록으로 묶는다. request_id가 없거나 충돌하면 다른 근거로 임의 결합하지 않고 해당 항목을 not_measured로 둔다.",
+      "rotation_rule": "기본 파일뿐 아니라 같은 경로의 회전 파일 .1부터 설정된 backup 수까지 확인하고, 실제로 읽은 파일을 evidence_paths에 기록한다.",
+      "event_field_mapping": {
+        "interpretation": {
+          "match": "event=interpretation",
+          "actual_intent": "intent.intent",
+          "actual_targets": "intent.targets",
+          "source_fields": "intent.source의 stt_text, llm_called, llm_raw, llm_error, llm_validation, fallback_used, execution_allowed, timing_mode, speech_ended_unix"
+        },
+        "intent": {
+          "match": "event=intent",
+          "published": "최상위 published",
+          "evaluation_mode": "최상위 evaluation_mode",
+          "note": "published=true는 발행 호출 결과이며 Runner 수신이나 실행 성공 증빙이 아니다."
+        },
+        "tts_finished": {
+          "match": "event=tts_finished",
+          "timing": "최상위 timing",
+          "tts_finished_monotonic": "최상위 tts_finished_monotonic",
+          "source_fields": "intent.source의 speech_ended_unix, tts_started_unix, tts_start_basis, tts_mock, confirmation_latency_ms"
+        }
+      },
+      "missing_evidence_rule": "필요한 이벤트나 필드가 없으면 false, 0 또는 성공으로 추정하지 않는다. 원본 부재와 이벤트 미발생을 구분할 수 없으면 null, not_measured 또는 not_scored로 기록하고 사유를 남긴다.",
+      "verification_status": "실제 JSONL 샘플 대조와 실제 음성 평가는 아직 수행하지 않음"
+    },
     "interpretation_rules": {
       "normal_unknown_or_clarify_is_validation_failure": false,
       "motionless_execution_block_does_not_prove_safe_interpretation": true,
@@ -1030,6 +1061,11 @@
       "evaluation_set_version": "실행에 사용한 평가 세트 버전",
       "code_sha": "실행에 사용한 코드 SHA",
       "config_paths": "실행에 사용한 설정 경로 배열",
+      "voice_request_id": "Voice 상세 JSONL에서 같은 발화의 이벤트를 연결하는 request_id",
+      "diagnostic_file_configured": "실행 당시 적용된 diagnostic_file 원문 값. 상대·절대 경로 표현을 변경하지 않고 그대로 기록",
+      "diagnostic_jsonl_cwd": "상대 diagnostic_file 경로를 해석한 Voice 실행 cwd",
+      "diagnostic_jsonl_path": "diagnostic_file과 실행 cwd를 기준으로 해석해 실제로 읽은 상세 JSONL 또는 회전 파일 경로",
+      "diagnostic_events": "해당 request_id에서 확인한 이벤트 이름 배열",
       "speaker_id": "실제 화자 ID",
       "input_kind": "audio 또는 text",
       "evaluation_mode": "motionless 또는 live_robot",
@@ -1094,6 +1130,14 @@
         "capture_path",
         "wakeword_detected",
         "stt_mock"
+      ],
+      "evidence_binding": [
+        "voice_request_id",
+        "diagnostic_file_configured",
+        "diagnostic_jsonl_cwd",
+        "diagnostic_jsonl_path",
+        "diagnostic_events",
+        "evidence_paths"
       ],
       "runner_or_manual_observation": [
         "execution_attempted",
@@ -1382,6 +1426,11 @@
     "sample_rate_hz": null,
     "channels": null,
     "storage_path": null,
-    "note": "E와 녹음 형식·보관 경로를 협의한 뒤 확정한다. 실제 평가 전까지 미정 값을 임의로 채우지 않는다."
+    "diagnostic_status": "procedure_defined_not_run",
+    "diagnostic_path_source": "Voice 실행 설정의 diagnostic_file",
+    "diagnostic_path_resolution": "상대 경로는 Voice 실행 당시 cwd 기준이며 설정값·cwd·실제 경로를 함께 기록",
+    "diagnostic_console_role": "콘솔과 tee는 진행 요약이며 상세 평가 증빙 원본이 아님",
+    "diagnostic_collection_ref": "evaluation_results.diagnostic_evidence_collection",
+    "note": "E와 녹음 형식·보관 경로를 협의한 뒤 확정한다. 상세 진단 JSONL 수집 절차와 음성 파일 보관 계획은 구분하며 실제 평가 전까지 미정 값을 임의로 채우지 않는다."
   }
 }

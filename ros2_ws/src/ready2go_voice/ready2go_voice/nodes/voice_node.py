@@ -252,7 +252,7 @@ class VoiceNode(Node):
                 else:
                     doc = self.session.audio(value, cancel=self.request_cancel,
                         paused=lambda: self.stop_event.is_set() or generation != self.generation,
-                        generation=generation, blocked=blocked, request_id=request_id) if kind == 'audio' else self.session.text(value, generation, blocked)
+                        generation=generation, blocked=blocked, request_id=request_id) if kind == 'audio' else self.session.text(value, generation, blocked, request_id=request_id)
                 doc.setdefault('_voice', {})['request_id'] = self.local_context.request_id
                 self._diagnostic({'event': 'interpretation', 'intent': doc})
                 self._deliver(doc, generation)
