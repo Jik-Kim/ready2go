@@ -415,7 +415,11 @@ class SkillServer(Node):
         g, d = prm["gripper"], prm["drag"]
         open_mm, close_mm = plan.open_width_m * 1000.0, expected_w * 1000.0
         floor = 1000.0 * pp.to_base(tf, (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
-        fast_to = mp.with_z(grasp, floor + float(cfg.get("fast_above_floor_mm", 5.0)))
+        # 기준은 TCP 가 아니라 벌린 손끝 — 크게 벌리면 손끝이 TCP 보다 위(88 mm 에서 약 15 mm) → TCP 를 바닥 + 5 로 보내면 손끝은 바닥에 한참 못 미침
+        # [사용자 10/11 PC2 "바닥까지 닿지도 않음"]. 손끝 표(넓은 쪽 [실측 10/06 대략])가 틀려도 빠르게 가다 박지 않게 위로 가는 양의 rise_margin 만큼 덜 내려감
+        tip = mp.tip_below_tcp_mm(open_mm, g)                       # 손끝이 TCP 아래 (음수 = 위)
+        margin = float(cfg.get("rise_margin", 0.3)) * max(0.0, -tip)
+        fast_to = mp.with_z(grasp, floor + float(cfg.get("fast_above_floor_mm", 5.0)) + tip + margin)
         now = self.robot.posx()
         if now is not None and now[2] > fast_to[2] + 0.5:
             base = self._tare(0.2)
@@ -453,7 +457,7 @@ class SkillServer(Node):
                 return sf.Outcome(True, reason="닿음")
             return None
 
-        end = mp.with_z(grasp, floor - d["search_below_mm"])
+        end = mp.with_z(grasp, floor - d["search_below_mm"] + tip - margin)     # 손끝이 바닥 − search_below (표보다 더 올라가 있어도 찾게)
         touched = False
         for k in range(int(d["touch_retries"]) + 1):
             state.pop("z1", None)
@@ -473,8 +477,8 @@ class SkillServer(Node):
         if now is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
         lift = max(0.0, mp.tip_below_tcp_mm(close_mm, g) - mp.tip_below_tcp_mm(open_mm, g)) + float(cfg.get("clear_mm", 2.0))
-        self.get_logger().info(f"[pick_object] 바닥 {'닿음' if touched else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} (교시 바닥 {floor:.1f}) "
-                               f"→ {lift:.1f} mm 올려 닫음")
+        self.get_logger().info(f"[pick_object] 바닥 {'닿음' if touched else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} (교시 바닥 {floor:.1f}, "
+                               f"벌림 {open_mm:.1f} mm 손끝 표 {-tip:+.1f} mm) → {lift:.1f} mm 올려 닫음")
         return self._line(goal, mp.with_z(now, now[2] + lift), self._in_vel(), "touch_up")
 
     def _tare(self, settle_s=None):
@@ -1599,6 +1603,14 @@ class SkillServer(Node):
         touch_cfg = prm["pick"].get("touch_floor") or {}
         if touch_cfg.get("enabled") and down:                # 바닥 찍고 올려 잡기 — 모든 서랍 안 집기 [사용자 10/11 "싹 새롭게"]
             bad = bad or self._pick_touch_down(goal, grasp, place["tf"], target, support, plan, expected_w, touch_cfg)
+        elif touch_cfg.get("by_tip_table") and down and round_side is None:
+            # 찍지 않고 계산 [사용자 10/11 "벌림에 따라 높이 다르게"]: 닫은 손끝(잡는 폭)이 바닥(받침) 위 clear_mm — 손끝 표 정확해야 함
+            floor_mm = 1000.0 * pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
+            grasp = mp.with_z(grasp, floor_mm + float(touch_cfg.get("clear_mm", 2.0)) + mp.tip_below_tcp_mm(expected_w * 1000.0, g))
+            now_z = self.robot.posx()[2]
+            if slow_mm > 0 and grasp[2] + slow_mm < now_z - 1.0:
+                bad = bad or self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
+            bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
         else:
             bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
         if bad:

@@ -1705,8 +1705,8 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
 
 
 def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
-    """[사용자 10/11 PC2] 캐러멜 첫 시도: 덜 내려가 윗면을 잡음(폭 57.9/기대 75) → 벌린 채 내려가 바닥에 닿으면 멈추고
-    닫을 때 손끝이 내려오는 만큼(tip_below 잡는 폭 − 벌린 폭) + clear_mm 올려서 닫음. 쥔 높이는 실제 닫은 높이."""
+    """[사용자 10/11 PC2] 집기: 벌린 손끝이 교시 바닥 + 5 mm 까지 빠르게 → 넛지처럼 바닥 찍기 → 손끝 내려오는 만큼 + clear_mm 올려 닫기.
+    기준은 TCP 가 아니라 손끝 — 크게 벌리면 손끝이 TCP 보다 위 (TCP 기준이면 바닥까지 안 닿았음). 닫은 손끝은 바닥 위 clear_mm."""
     from ready2go_skills.core import motion_plan as mp
     srv = server.srv
     tf = srv.places()["drawer_top"]["tf"]
@@ -1714,14 +1714,17 @@ def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
     cfg, g = prm["pick"]["touch_floor"], prm["gripper"]
     target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
               "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
-    floor_hit = 0.004                                                    # 가짜 바닥: TCP 가 서랍 z 4 mm 아래로 가면 1 mm 에 8 N
-    srv.robot.force = lambda p: [0.0, 0.0, max(0.0, 8.0 * (floor_hit * 1000.0 - mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0)),
-                                 0.0, 0.0, 0.0]
+    open_tip = mp.tip_below_tcp_mm(49.0 + g["open_margin_mm"], g)      # 벌린 손끝이 TCP 아래 (음수 = 위)
+
+    def force(p):                                                       # 가짜 바닥: 벌린 손끝이 바닥 아래로 가면 1 mm 에 8 N
+        tip_z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0 - open_tip
+        return [0.0, 0.0, max(0.0, -8.0 * tip_z), 0.0, 0.0, 0.0]
+    srv.robot.force = force
     server.Gripper.holding, server.Gripper.held_width = True, 49.0
     out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
-    lift = mp.tip_below_tcp_mm(49.0, g) - mp.tip_below_tcp_mm(49.0 + g["open_margin_mm"], g) + cfg["clear_mm"]
-    assert floor_hit * 1000.0 + lift - 2.0 <= srv.held["tcp_above_floor_m"] * 1000.0 <= floor_hit * 1000.0 + lift + 0.5   # 닿은 뒤 멈춤까지 조금 더 눌림
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)   # 닫은 손끝 높이
+    assert cfg["clear_mm"] - 1.5 <= closed_tip <= cfg["clear_mm"] + 0.5
 
 
 def test_pick_touch_ignores_force_spike_above_floor(server):
@@ -1741,3 +1744,20 @@ def test_pick_touch_ignores_force_spike_above_floor(server):
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
     assert srv.held["tcp_above_floor_m"] * 1000.0 < 12.0                # 바닥(4 mm)에서 올린 높이 — 캐러멜 높이(16)에서 올린 게 아님
+
+
+def test_pick_height_by_tip_table_without_touch(server):
+    """[사용자 10/11 "벌림에 따라 높이 다르게"] 찍지 않는 방식: 닫은 손끝(잡는 폭)이 바닥 위 clear_mm 가 되게 TCP 높이 계산 — 물체 높이 안 씀."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    prm = srv.prm()
+    prm["pick"]["touch_floor"] = dict(prm["pick"]["touch_floor"], enabled=False, by_tip_table=True)
+    srv.prm = lambda: prm
+    g = prm["gripper"]
+    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
+              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    server.Gripper.holding, server.Gripper.held_width = True, 49.0
+    out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
+    assert out.success, out.reason
+    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(49.0, g)
+    assert closed_tip == pytest.approx(prm["pick"]["touch_floor"]["clear_mm"], abs=0.1)

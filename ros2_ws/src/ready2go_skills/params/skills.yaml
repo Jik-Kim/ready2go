@@ -32,8 +32,10 @@ pick:   # core/pick_plan.py (#15)
   touch_floor:                  # 서랍 안 집기 [사용자 10/11 PC2 — 예전 설계(물체 윗면 높이) 버리고 새로]: ① 교시 바닥 z + fast_above_floor_mm 까지 직선으로 빠르게
                                 #   ② 넛지 누르기와 같은 닿음 판단(drag.press_speed_mm_s·press_ignore_mm·touch_force_n·press_confirm·touch_retries·search_below_mm)으로 바닥 찍기
                                 #   ③ 닫을 때 손끝이 내려오는 만큼(gripper.tip_below_tcp_mm 표) + clear_mm 올려 닫기. 쌓였으면 바닥 = 받침 윗면
-    enabled: true
-    fast_above_floor_mm: 5.0    #   여기까지 빠르게 [사용자 10/11 "교시 z 보다 5 mm 위까지는 moveL 로 빠딱빠딱"]
+    enabled: true               #   true = 바닥 찍기. false + by_tip_table = 찍지 않고 손끝 표로 계산(빠름, 표가 정확해야 함 — 넓은 벌림 실측 후)
+    by_tip_table: true
+    fast_above_floor_mm: 5.0    #   벌린 손끝이 여기까지 빠르게 [사용자 10/11 "교시 z 보다 5 mm 위까지는 moveL 로 빠딱빠딱"] — TCP 기준이면 넓게 벌린 손끝이 바닥에 한참 못 미침
+    rise_margin: 0.3            #   손끝 표(넓게 벌리면 TCP 위로 감, 넓은 쪽은 대략값)가 틀려 손끝이 더 낮아도 빠르게 가다 박지 않게 올라간 양의 이 비율만큼 덜 내려감. 손끝 높이 실측하면 0
     clear_mm: 2.0               #   닫은 손끝을 바닥(받침) 위 이만큼
     settle_s: 0.3               #   힘 0점 멈춤
   tilt_align_deg: 15.0          # 기울여 잡기는 긴 변이 그 벽과 이 각도 안으로 나란할 때만, 손가락은 서랍 축에 맞춤(교시한 앞뒤·좌우 네 방향만) —
