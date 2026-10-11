@@ -76,8 +76,6 @@ clarify_prompts:
 pick_verify_lower_bound_m: 0.010 # 사용자 결정: 망치손잡이12.5mm - 여유2.5mm, 엄격 >. B 공용 min_width 대체 아님.
 resume_admission_window_sec: 10.0 # 사용자 결정: 실제 TTS 완료→Whisper SDK 호출 직전, 10.0 포함.
 resume_stt_result_timeout_sec: 15.0 # 승인 초기 운영값; SDK 호출→정상 STT 결과.
-resume_register_ack_timeout_sec: 5.0 # 등록 요청→현재 C 등록 확인.
-resume_question_tts_timeout_sec: 15.0 # 등록 확인→준비·실제 재생 완료.
 resume_independent_request_timeout_sec: 30.0 # 새 녹음→STT/분류/C 등록 확인 전체.
 place_admission_window_sec: 10.0 # 실제 TTS 완료→SDK 접수.
 place_stt_result_timeout_sec: 15.0 # SDK 호출→정상 STT 결과.

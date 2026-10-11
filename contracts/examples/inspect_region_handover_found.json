@@ -1,0 +1,45 @@
+{
+  "_note": "inspect_region(region=handover_zone, search_target=eraser) 응답 — 찾음. result_json 은 아래 result 를 JSON 문자열로 (#43, A 10/11 [팀 확정 필요])",
+  "success": true,
+  "error_code": "",
+  "result": {
+    "target_found": true,
+    "target": {
+      "id": "eraser#1",
+      "class": "eraser",
+      "pose": {
+        "frame": "handover_zone",
+        "position": [
+          0.023,
+          0.0875,
+          0.0
+        ],
+        "yaw": 1.5707,
+        "yaw_valid": true
+      },
+      "top_z": 0.0121,
+      "occluded_by": [],
+      "visible_area_m2": 0.001302
+    },
+    "candidates": [
+      {
+        "id": "lip_balm#1",
+        "class": "lip_balm",
+        "pose": {
+          "frame": "handover_zone",
+          "position": [
+            0.069,
+            0.088,
+            0.0
+          ],
+          "yaw": 1.5523,
+          "yaw_valid": true
+        },
+        "top_z": 0.0198,
+        "occluded_by": [],
+        "visible_area_m2": 0.001611
+      }
+    ],
+    "visible_count": 2
+  }
+}

@@ -284,16 +284,38 @@ def test_ack_must_match_current_work_and_sequence(work, revision, valid):
     assert p.work == WORK and p.question is None
 
 
-def test_registration_and_tts_deadlines_no_extension():
+def test_registration_and_tts_use_question_validity_without_extra_timers():
     p, q = unregistered()
-    assert not p.registered(q, WORK, 2, now=2+POLICY_CFG['resume_register_ack_timeout_sec'], valid_state=True)
-    assert p.work == WORK
+    assert not p.expire(now=8)  # previously the extra 5-second ACK timer expired here
+    assert p.registered(q, WORK, 3, now=8, valid_state=True)
+    assert not p.registered(q, WORK, 4, now=9, valid_state=True)
+    assert p.registered_at == 8 and p.revision == 3
+    assert not p.expire(now=25)  # no additional registration-to-TTS deadline
+    assert p.tts_started(q, now=25)
+    # Actual playback success still comes from the existing TTS timeout path.
+    assert p.delivered(q, now=26, success=True)
+    assert p.admit(q, captured_at=27, ended_at=28, started_at=29)
+    assert p.answer('재개해', q, captured_at=27, now=30, evidence=SAFE,
+                    request=p.request) == WORK
+    assert p.answer('재개해', q, captured_at=27, now=30, evidence=SAFE,
+                    request=p.request) is None
+
+
+@pytest.mark.parametrize('stage', ['ack', 'tts_start', 'tts_finish', 'expire', 'tts_failure'])
+def test_question_expiry_or_tts_failure_still_preserves_work(stage):
     p, q = unregistered()
-    assert p.registered(q, WORK, 2, now=3, valid_state=True)
-    assert not p.registered(q, WORK, 2, now=4, valid_state=True)
-    assert p.registered_at == 3
-    assert p.tts_started(q, now=4)
-    assert not p.delivered(q, now=3+POLICY_CFG['resume_question_tts_timeout_sec'], success=True)
+    if stage == 'ack':
+        assert not p.registered(q, WORK, 3, now=q.valid_until, valid_state=True)
+    elif stage == 'expire':
+        assert p.expire(now=q.valid_until)
+    else:
+        assert p.registered(q, WORK, 3, now=8, valid_state=True)
+        if stage == 'tts_start':
+            assert not p.tts_started(q, now=q.valid_until)
+        else:
+            assert p.tts_started(q, now=25)
+            assert not p.delivered(q, now=26 if stage == 'tts_failure' else q.valid_until,
+                                   success=stage != 'tts_failure')
     assert p.work == WORK and p.question is None
 
 
@@ -446,3 +468,101 @@ def test_current_independent_candidate_expiry_still_invalidates_only_current_req
     assert p.independent_candidate(request,
         now=21+POLICY_CFG['resume_independent_request_timeout_sec'], evidence=SAFE) is None
     assert p.independent is None and p.work == WORK
+
+
+def test_same_work_seq_reuses_receipt_but_consumption_rechecks_safety():
+    p, q = ready()
+    receipt = p.request
+    assert p.stopped(WORK, 3)
+    assert p.question is q and p.request is receipt
+    assert not p.stopped(WORK, 3)  # duplicate status is still rejected
+    assert p.question is q and p.request is receipt
+    assert p.answer('재개해', q, captured_at=4, now=6, evidence=Evidence(),
+                    request=receipt) is None
+    assert p.work == WORK and p.question is None
+
+
+def test_independent_same_state_reuses_recording_and_meaning_after_new_seq(monkeypatch):
+    p, request = independent_ready()
+    assert p.independent_stt(request, '이어서 해', now=24)
+    audio, result = p.independent_audio, p.independent_result
+    assert p.independent_registered(request, WORK, 3, now=25, valid_state=True)
+    assert p.stopped(WORK, 4)
+    assert p.independent_audio is audio and p.independent_result is result
+    assert p.independent_ack == 25
+    # The same recording's order and semantic classification are not rerun.
+    def must_not_classify_again(text):
+        raise AssertionError('already classified recording')
+    monkeypatch.setattr('ready2go_voice.core.recovery_confirmation.safety_utterance',
+                        must_not_classify_again)
+    assert p.independent_candidate(request, now=26, evidence=SAFE) == WORK
+    assert p.independent_candidate(request, now=26, evidence=SAFE) is None
+
+
+@pytest.mark.parametrize('change', ['new_halt', 'boot', 'voice_restart', 'semantic_conflict'])
+def test_reused_independent_checks_invalidated_by_actual_state_change(change):
+    p, request = independent_ready()
+    assert p.independent_stt(request, '이어서 해', now=24)
+    assert p.independent_registered(request, WORK, 3, now=25, valid_state=True)
+    if change == 'new_halt':
+        assert p.stopped(replace(WORK, stop='new_halt'), 4)
+    elif change == 'boot':
+        assert p.track_boot('next_boot', valid_state=True)
+    elif change == 'voice_restart':
+        p.voice_restarted()
+    else:
+        assert not p.stopped(replace(WORK, cause='SENSOR_INVALID'), 4)
+        assert not p.current_state_confirmed
+    assert p.independent_candidate(request, now=26, evidence=SAFE) is None
+    assert p.independent is None
+
+
+def test_old_semantic_conflict_does_not_discard_current_receipt():
+    p, q = ready()
+    receipt = p.request
+    assert not p.stopped(replace(WORK, cause='SENSOR_INVALID'), 1)
+    assert p.request is receipt and p.question is q
+    assert p.answer('재개해', q, captured_at=4, now=6, evidence=SAFE,
+                    request=receipt) == WORK
+
+
+@pytest.mark.parametrize('past_seq', [3, 4])
+def test_new_semantic_conflict_records_floor_and_old_status_ack_cannot_revive(past_seq):
+    p, request = independent_ready()  # Confirmed WORK seq2.
+    assert p.independent_stt(request, '이어서 해', now=24)
+    assert p.independent_registered(request, WORK, 2, now=25, valid_state=True)
+    assert not p.stopped(replace(WORK, cause='SENSOR_INVALID'), 4)
+    assert p.revision == 4 and p.sequences[('boot', 'run1', 'stop1')] == 4
+    assert p.work == WORK and not p.current_state_confirmed
+    assert not p.stopped(WORK, past_seq)
+    assert not p.current_state_confirmed
+    assert p.begin_independent(WORK, now=26, unique_target=True) is None
+    assert not p.independent_registered(request, WORK, past_seq, now=26, valid_state=True)
+    assert p.independent_candidate(request, now=27, evidence=SAFE) is None
+    # A fresh, valid, original semantic state may reconfirm at a higher seq.
+    assert p.stopped(WORK, 5) and p.current_state_confirmed
+    fresh = p.begin_independent(WORK, now=30, unique_target=True)
+    assert fresh and p.admit_independent(fresh, captured_at=31, ended_at=32, started_at=33)
+    assert p.independent_stt(fresh, '이어서 해', now=34)
+    assert not p.independent_registered(fresh, WORK, past_seq, now=35, valid_state=True)
+    assert p.independent_candidate(fresh, now=36, evidence=SAFE) is None
+    fresh = p.begin_independent(WORK, now=40, unique_target=True)
+    assert fresh and p.admit_independent(fresh, captured_at=41, ended_at=42, started_at=43)
+    assert p.independent_stt(fresh, '이어서 해', now=44)
+    assert p.independent_registered(fresh, WORK, 6, now=45, valid_state=True)
+    assert p.independent_candidate(fresh, now=46, evidence=SAFE) == WORK
+    assert p.independent_candidate(fresh, now=46, evidence=SAFE) is None
+
+
+@pytest.mark.parametrize('bad_work,bad_seq', [
+    (replace(WORK, session='other-boot'), 10),
+    (replace(WORK, cause=''), 10), (replace(WORK, skill=' '), 10),
+    (replace(WORK, task=''), 10), (WORK, True), (WORK, -1), (WORK, '10'),
+])
+def test_invalid_state_never_advances_conflict_floor(bad_work, bad_seq):
+    p, q = ready()
+    assert not p.stopped(bad_work, bad_seq)
+    assert p.revision == 2 and p.sequences[('boot', 'run1', 'stop1')] == 2
+    assert not p._ack_current(WORK, 10, valid_state=False)
+    assert p.revision == 2
+    assert p.stopped(WORK, 3) and p.question is q

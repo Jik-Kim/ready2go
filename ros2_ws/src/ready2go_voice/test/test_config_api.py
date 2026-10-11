@@ -106,7 +106,6 @@ def test_invalid_commissioning_configuration(cfg, tmp_path, updates):
 
 
 P2_BUDGET_KEYS = ('resume_admission_window_sec', 'resume_stt_result_timeout_sec',
-    'resume_register_ack_timeout_sec', 'resume_question_tts_timeout_sec',
     'resume_independent_request_timeout_sec', 'place_admission_window_sec', 'place_stt_result_timeout_sec')
 
 
@@ -130,7 +129,6 @@ def test_p2_null_budgets_hold_and_factories_use_yaml(cfg, tmp_path):
     from ready2go_voice.core.recovery_confirmation import RecoveryConfirmation
     from ready2go_voice.core.skill_confirmation import PlaceConfirmation
     p = RecoveryConfirmation.from_config('boot', cfg)
-    assert p.register_ack_timeout_sec == cfg['resume_register_ack_timeout_sec']
     assert p.independent_request_timeout_sec == cfg['resume_independent_request_timeout_sec']
     place = PlaceConfirmation.from_config(cfg, item_names={'eraser': '지우개'})
     assert place.admission_window_sec == cfg['place_admission_window_sec']
