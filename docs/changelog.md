@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-11 C 계약07 운영 구현 (Runner, 브랜치 `feat/c-request-run-runtime`, 모의)**: `request_id` 이번 기동 동안 기억(재전송 = 첫 결정 다시 발행·재실행 없음, 같은 ID + 다른 내용 = 첫 결정 유지·경고), 수락 때 노드가 `run_id` 를 정해 `Runner.run(run_id=…)` → `last_intent.run_id` = 최종 `last.run_id`, `accept_text` 는 `find_item` s2.1·계획 맨 앞 안내 1회(실패하면 첫 동작 없음), 없으면 기존 안내. 시험: 호스트 8 + ROS 노드 1(재전송·충돌·새 ID).
 - **2026-10-11 C 계약07 합류 — `/runner/status` 요청 상관 칸 (E-C-REQUEST-RUN-WIRE-20261011-07 사용자 승인, Runner 구현 전)**: `contracts/examples/runner_status.json`(새, 기존 칸 + `last_intent.request_id`·`run_id` 5개 사례: 수락 실행 중·빠른 완료·보류·다른 실행 중 BUSY·ID 없는 기존 요청), `docs/runner.md` 7.1 "요청 상관 — 계약07" 표(수락 시 `run_id` 고정, 같은 ID 재전송 = 같은 결정·재실행 없음, 같은 ID + 다른 내용 = 첫 결정 유지, `accept_text` 1회, 재기동 시 기억 비움), `docs/interfaces.md` 5.3 C 구간, 예시 검사 `test_runner_status_example.py`. #152 재개 칸은 섞지 않음.
 - **2026-10-10 B 실물 튜닝 (PC2, 브랜치 `claude/tender-bardeen-ki59od`)**: 위·아래 서랍 다시 교시(tf·탑뷰·경유점·aside·넓은 트레이), 닫기 → 홈 블렌딩 한 번, 넛지 앞뒤(x) 추가(손잡이 쪽은 안쪽으로 안 끎)·힘 0.5~1.2 N·끌기 직전 0점, 집기·놓기 손목은 경유점에서 J6 로만, 놓기는 바닥 닿으면(3 N) 놓음, 블렌딩이 다시 보내도 출발 안 하면 점마다 직선. 잡기: 넛지는 서랍 x·y 로만, 세로에 가까우면 짧은 변·가로면 긴 변 양끝(손잡이 쪽 가로는 손잡이 쪽 20° 기울여), 립밤은 항상 긴 변(옆벽은 직접교시 자세로 기울여). 계약 형식 변경 없음, 상세·트러블슈팅 `practice/B/2026-10-10_practice.md`.
 - **2026-10-10 C `select_obstacle` 박스 모델 판단 시점 main 반영 (#134 E 10/08 18:30 P1)**: 옮긴·보류한 물체를 뺀 뒤 남은 물체로 박스 모델을 판단해 '모름' 목표를 clear 로 바꾸던 것 → 빼기 전 촬영 결과 전체로 한 번만(고르기·prefer·clear 모두 같은 판단). `runner.md` `pick_object` 파지 높이 설명을 바닥 물체 / 쌓인 물체(B `allow_stacked`, #191) 분기로 (#134 E 10/10 13시 새 P2 1번). 계약 변경 없음.

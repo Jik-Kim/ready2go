@@ -148,3 +148,34 @@ def test_reset_state_is_refused_while_running(system):
     assert not reply.success and "실행 중" in reply.message
     assert runner.runner.state == before
 
+
+
+def _publish_intent(runner, payload, times=3):
+    pub = runner.create_publisher(String, "/voice/intent", 10)
+    for _ in range(times):                     # 첫 발행이 구독 연결 전에 사라지지 않게 몇 번 (같은 ID 라 한 번만 실행돼야 함)
+        pub.publish(String(data=json.dumps(payload, ensure_ascii=False)))
+        time.sleep(0.2)
+
+
+def test_request_id_run_id_resend_and_conflict(system):
+    """계약07: 수락한 run_id 가 last_intent 와 최종 last 에 같게, 같은 ID 재전송은 재실행 없음, 같은 ID + 다른 내용도 실행 안 함."""
+    runner, watcher, _ = system
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED"
+                        and w.status["phase"] == "idle")
+    first_run = watcher.status["last"]["run_id"]
+    request = {"intent": "find_item", "targets": ["eraser"], "confidence": 0.93, "request_id": "req-0007",
+               "accept_text": "지우개를 찾아올게요.", "source": {"stt_text": "지우개 찾아줘"}}
+    _publish_intent(runner, request)                                     # 3번 보냄 = 재전송 2번
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("run_id") not in (None, first_run)
+                        and w.status["phase"] == "idle"), watcher.status
+    accepted = watcher.status["last_intent"]
+    assert (accepted["request_id"], accepted["decision"]) == ("req-0007", "run")
+    assert accepted["run_id"] == watcher.status["last"]["run_id"]          # 수락 run = 최종 결과 run
+    run_id = accepted["run_id"]
+    _publish_intent(runner, {**request, "source": {"stt_text": "다른 내용"}})   # 충돌: 같은 ID, 다른 내용
+    time.sleep(1.0)
+    assert watcher.status["last"]["run_id"] == run_id and watcher.status["phase"] == "idle"
+    assert watcher.status["last_intent"]["run_id"] == run_id               # 첫 결정 그대로
+    _publish_intent(runner, {**request, "request_id": "req-0008"}, times=1)    # 새 ID 는 새 실행
+    assert watcher.wait(lambda w: (w.status.get("last_intent") or {}).get("request_id") == "req-0008"
+                        and w.status["last"]["run_id"] == w.status["last_intent"]["run_id"] != run_id), watcher.status

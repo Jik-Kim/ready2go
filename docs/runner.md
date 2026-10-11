@@ -202,7 +202,7 @@
 
 * 시작할 때 스키마(`/contracts`)·온톨로지(`/knowledge`, 초기 상태 포함)를 읽고 실행 이력은 MongoDB(`MONGO_URI`) → 실패 시 `/logs` JSONL.
 * `query_ontology`는 ICD 상 `OntologyManager` 담당이지만 아직 없어 Runner 현재 상태로 답함(물품 하나·상태 경로, E 확인 요청 #10).
-* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, **계약07 새 칸 `request_id`·`run_id`**(아래 요청 상관, 승인 10/11·Runner 구현 전), 없으면 `null`), `state_reset_at`(마지막 `/runner/reset_state` 시각 UTC, 없으면 `null`).
+* `/runner/status` (`std_msgs/String` JSON, 늦게 구독해도 마지막 값): `phase`(`idle`·`running`·`halted`), `task_id`, `current_step`, `halt_code`, `log_store`(`mongo`·`jsonl`), `last`(`task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`·`problems`·`log_errors`), `last_intent`(마지막으로 받은 음성 인텐트: `intent`·`targets`·`confidence`·`stt_text`·`decision`·`reason`·`task_id`, **계약07 새 칸 `request_id`·`run_id`**(아래 요청 상관, 승인 10/11·Runner 구현 `feat/c-request-run-runtime`), 없으면 `null`), `state_reset_at`(마지막 `/runner/reset_state` 시각 UTC, 없으면 `null`).
 * `/robot_state`: Runner 가 들고 있는 온톨로지 `state` JSON, 바뀔 때 발행.
 * `/runner/estop` (`std_srvs/Trigger`) → `halt()` → 진행 중인 goal 에 즉시 취소 요청(정지 확인 전에는 다음 동작 없음). **재개(`resume()`) 통로는 ICD 에 없음** — P1 재개 절차(B 실물 확인·복구 → Runner 상태 맞춤 → 재개, PR #64 E 권고)와 함께 ICD 추가를 E 와 협의. 그 전에는 Runner 노드를 다시 시작하면 잠김이 풀리고 상태는 초기값으로 돌아감.
 * `/runner/reset_state` (`std_srvs/Trigger`, #23·#107) → 온톨로지 상태를 **Runner 시작 때 상태(초기 상태)로 되돌림**. P1 은 실행 사이 사람이 물품을 원위치해도 관측으로 상태를 맞추지 못해, 켜 둔 Runner 에 연속 요청하면 1회차 끝 상태(지우개 = `handover_zone`)로 2회차가 트레이를 서랍 자리에 넣음(10/07 발견). 리스크 대응 "시연 전 상태 스냅샷 복원"(metrics_risks.md)을 **사람이 원위치(물품·서랍 닫힘·빈 그리퍼·홈)를 확인한 뒤 부르는 명시적 초기화**로 둠(팀 결정: 나중에 시연 화면 #59 버튼). Runner 가 스스로 되돌리지 않으므로 실패(예: 놓기 실패로 쥔 채 정지) 뒤 상태는 사람이 확인할 때까지 그대로(#107 D 리뷰). 실행 중이면 `success: false`로 거절, 중단 잠김은 풀지 않음(재개는 별도). 관측으로 맞추기는 P2(FR-ONT-02)·P3(FR-REC-01).
@@ -227,7 +227,7 @@
   | `cancel` ("멈춰", 신뢰도·잠김과 상관없이) | 실행 중이면 `/runner/estop`과 같은 `halt()` (잠김, 자동 재개 없음). 실행 중이 아니면 할 일 없음 | `cancel` / 실행 중 아님 `NOT_RUNNING` |
   | `status` ("지금 뭐 해?") | `/runner/status` 다시 발행 | `status` |
 
-  **요청 상관 — 계약07** ([E-C-REQUEST-RUN-WIRE-20261011-07](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594) 사용자 승인 10/11, 의미·책임은 정본 [수락 TTS](requirements.md#acceptance-tts-policy), 필드는 `contracts/intent.schema.json`(E)·`contracts/examples/runner_status.json`(C), 흐름은 [interfaces.md 5.3](interfaces.md#request-run-contract)). **Runner 구현 전** — 계약 병합 뒤 운영 PR:
+  **요청 상관 — 계약07** ([E-C-REQUEST-RUN-WIRE-20261011-07](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594) 사용자 승인 10/11, 의미·책임은 정본 [수락 TTS](requirements.md#acceptance-tts-policy), 필드는 `contracts/intent.schema.json`(E)·`contracts/examples/runner_status.json`(C), 흐름은 [interfaces.md 5.3](interfaces.md#request-run-contract)). **Runner 구현 (운영 PR, 브랜치 `feat/c-request-run-runtime`, 모의 시험)** — 기억은 `core/request_memory.py`, 수락 때 `run_id` 는 노드가 정해 `Runner.run(run_id=…)`, 수락 안내는 `find_item` s2(`accept_text` 있으면 s2.1, 없으면 기존 s2.2)·목표형 계획 맨 앞 `pa`(`intent_router.add_accept_speak`) — 안내 speak 가 실패하면 첫 동작 없이 실패:
 
   | 받은 것 | Runner 처리 | `/runner/status` |
   | :--- | :--- | :--- |

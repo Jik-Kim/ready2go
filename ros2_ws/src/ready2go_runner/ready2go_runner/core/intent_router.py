@@ -48,6 +48,7 @@ class Decision:
     intent: dict | None = None          # 받은 인텐트 (해석 실패면 None) — 실행 기록 헤더에 그대로
     goals: list | None = None           # plan 일 때 목표 (achieve_goal)
     plan: list | None = None            # 플래너 결과 설명 줄 (실행 기록 헤더 extra.plan, #150)
+    run_id: str | None = None           # 계약07: 실제로 수락(run)해 시작한 실행 ID — 노드가 수락할 때 정해 고정
 
     def summary(self) -> dict:
         """/runner/status last_intent 에 싣는 짧은 요약 (D 시연 화면 #59)."""
@@ -56,7 +57,9 @@ class Decision:
                 "confidence": intent.get("confidence"),
                 "stt_text": (intent.get("source") or {}).get("stt_text"),
                 "decision": self.kind, "reason": self.reason,
-                "task_id": self.task.get("task_id") if self.task else None}
+                "task_id": self.task.get("task_id") if self.task else None,
+                "request_id": intent.get("request_id"),          # 계약07: 받은 최상위 request_id (없으면 null)
+                "run_id": self.run_id if self.kind == RUN else None}   # 계약07: 수락한 run 만, 보류·거절은 null
 
 
 def tasks_by_intent(tasks: list[dict], overrides: dict[str, dict] | None = None) -> dict[str, dict]:
@@ -152,6 +155,7 @@ def _goal_inputs(intent: dict) -> dict[str, Any]:
     inputs: dict[str, Any] = {"source": "voice", "goals": intent["goals"], "intent_confidence": intent["confidence"]}
     if (intent.get("source") or {}).get("stt_text"):
         inputs["stt_text"] = intent["source"]["stt_text"]
+    _accept_text(inputs, intent)
     return inputs
 
 
@@ -162,4 +166,21 @@ def _inputs(target: str, intent: dict) -> dict[str, Any]:
     if source.get("stt_text"):
         inputs["stt_text"] = source["stt_text"]
     inputs["intent_confidence"] = intent["confidence"]
+    _accept_text(inputs, intent)
     return inputs
+
+
+def _accept_text(inputs: dict[str, Any], intent: dict) -> None:
+    """계약07: E 가 검증한 수락 문장 — 수락된 그 run 의 첫 안내 1회에만 (태스크 find_item s2·계획 맨 앞 안내).
+    없거나 null·빈 문자열이면 넣지 않음 → 태스크 기존 안내 (P1 호환)."""
+    text = intent.get("accept_text")
+    if isinstance(text, str) and text.strip():
+        inputs["accept_text"] = text
+
+
+def add_accept_speak(task: dict, inputs: dict) -> dict:
+    """계약07: 목표형 계획 태스크 앞(p0 다음)에 수락 문장 안내 1회. 안내 speak 가 실패하면 첫 동작 없이 실패
+    (find_item s2 와 같은 규칙). accept_text 가 없으면 태스크 그대로 (P1 호환)."""
+    if inputs.get("accept_text"):
+        task["sequence"].insert(1, {"id": "pa", "action": "speak", "params": {"text": "$inputs.accept_text"}})
+    return task

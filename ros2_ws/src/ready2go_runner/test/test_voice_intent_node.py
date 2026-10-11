@@ -192,7 +192,9 @@ def test_request_before_skill_servers_is_rejected_without_motion(tmp_path):
         end = time.monotonic() + 10.0
         while runner.missing_servers(runner.intents.tasks["find_item"]) and time.monotonic() < end:
             time.sleep(0.1)
-        voice.say(EXAMPLE)
+        again = json.loads(EXAMPLE)                  # 사용자가 다시 말함 = E 가 새 request_id (계약07: 같은 ID 는 첫 결정 그대로)
+        again["request_id"] = "example-find-07-again"
+        voice.say(json.dumps(again, ensure_ascii=False))
         assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
     finally:
         close()
