@@ -7,6 +7,8 @@ drawer_control:   # core/drawer_plan.py (#13, docs/domain.md 8.4). 모두 [팀 �
   approach_mm: 108.0            # [실측 B 10/04] drawer_approach → 손잡이 파지까지 직선 접근 거리 (poses.yaml drawer_approach 주석)
   pos_tol_m: 0.002              # 목표·닫힘 위치 도달 판정 여유
   stuck_force_n: 30.0           # [추정] 인출 중 저항이 이보다 크면 DRAWER_STUCK (즉시 정지). 정상 인출 저항을 재서 여유 두고 정함
+  stuck_force_by_drawer_n:       # 서랍별 덮어쓰기. 아래 칸은 위 칸보다 꽉 맞물려 출발할 때 저항이 큼 — 인출 7.3 mm 에서 34.9 N 으로 멈춤 [실측 PC2 10/11, 사용자 "아래 칸 결착력이 좋음"]
+    drawer_bottom: 45.0
   push_stop_force_n: 15.0       # 닫기: 닫힘 위치까지 위치로 밀되, 미는 축 힘이 이보다 크면 멈춤 (닫힘 여유 안이면 닫힘, 밖이면 CLOSE_NOT_CONFIRMED). 25 → 15: 끝에서 세게 밂 [사용자 10/06 저녁]
   close_force_n: 15.0           # [추정] 닫힘 판정 미는 축 저항 임계. 닫힘 위치에서 밀 때 힘을 재서 정함
   close_overtravel_m: 0.002     # 닫기: 닫힌 손잡이 위치(열 때 잡는 y)보다 이만큼 더 밂 [사용자 10/06: 2 mm면 잘 닫힘]

@@ -1625,3 +1625,22 @@ def test_yaml_cache_keeps_last_good_while_file_is_being_written(server, tmp_path
     assert yc(f) == {"a": 1}
     f.write_text("a: 22\n", encoding="utf-8")
     assert yc(f) == {"a": 22}
+
+
+@pytest.mark.parametrize("drawer, stuck", [("drawer_top", True), ("drawer_bottom", False)])
+def test_open_bottom_drawer_tolerates_stronger_start_resistance(server, monkeypatch, drawer, stuck):
+    """[실측 PC2 10/11] 아래 칸은 꽉 맞물려 인출 7.3 mm 에서 34.9 N → 30 N 기준으로 DRAWER_STUCK. 아래 칸만 stuck_force_by_drawer_n(45 N)."""
+    srv = server.srv
+    srv.disp = {}
+    srv.robot.j = list(srv.poses()["drawer_approach"][drawer])
+    server.Gripper.holding = True                                       # 손잡이 잡음
+    pulling = {}
+    srv.robot.force = lambda p: [0.0, -35.0 if pulling.get("on") else 0.0, 0.0, 0.0, 0.0, 0.0]   # 여는 방향(+y) 반대 저항 35 N
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        pulling["on"] = stage == "pull"
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, _ = server.run("drawer_control", {"drawer_id": drawer, "state": "open"})
+    assert (out.error_code == "DRAWER_STUCK") if stuck else out.success, out.reason

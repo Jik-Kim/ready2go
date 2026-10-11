@@ -829,6 +829,7 @@ class SkillServer(Node):
         base_f = self._tare()
         target = mp.offset_posx(handle, pull, distance * 1000.0)
         verdict = {}
+        stuck_n = (dc.get("stuck_force_by_drawer_n") or {}).get(drawer_id, dc["stuck_force_n"])   # 아래 칸은 결착이 커서 따로 [실측 10/11]
 
         def watch():
             now, f = self.robot.posx(), self.robot.tool_force()
@@ -836,7 +837,7 @@ class SkillServer(Node):
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="좌표·힘 조회 실패")
             moved = mp.travel_mm(start, now, pull) / 1000.0
             resist = abs(sum((f[i] - base_f[i]) * pull[i] for i in range(3)))
-            v = dp.judge_opening(moved, distance, resist, dc["stuck_force_n"], dc["pos_tol_m"])
+            v = dp.judge_opening(moved, distance, resist, stuck_n, dc["pos_tol_m"])
             if v.error_code:
                 verdict["v"], verdict["moved"] = v, moved
                 return sf.Outcome(False, v.error_code, reason=v.reason)
