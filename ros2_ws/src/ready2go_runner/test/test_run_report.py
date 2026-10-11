@@ -251,3 +251,10 @@ def test_region_photo_without_search_target_is_not_shown_as_not_found():
     assert rr.detail(photo) == "보인 물체 2개"
     missing = {**photo, "params": {"region": "drawer_top", "search_target": "eraser"}}
     assert rr.detail(missing) == "못 찾음 (보인 물체 2개)"
+
+
+def test_region_not_visible_has_korean_explanation():
+    """#220 비전 관측 오류 — '못 찾음'과 다른 관측 오류임을 보고서에서 바로 알 수 있게."""
+    step = {"action": "inspect_region", "params": {"region": "drawer_top", "search_target": "eraser"},
+            "error": {"code": "REGION_NOT_VISIBLE"}}
+    assert rr.detail(step).startswith("REGION_NOT_VISIBLE: 촬영 지역 바닥이 충분히 안 보임")
