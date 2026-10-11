@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-11 C `runner.md` 7.1 `pick_object` 파지 높이·받침 설명을 #206 구현에 맞춤 (#134 E 10/11 정기 검토)**: 받침은 처음 값(`top_z` − 물체 높이)이고 `scan`으로 밑 물체의 온톨로지 높이를 계산할 수 있으면 그 값으로 바뀜(못 하면 처음 값), 잡는 높이는 받침 위 온톨로지 높이 × `pick.grip_height_ratio`(물건별 예외·최소값·`touch_floor` 꺼짐) — 값은 B `skills.yaml`만 가리킴.
 - **2026-10-11 C Unpacking 가림 모름이면 한 번 다시 찍기 (A #214 권고)**: `tasks/find_with_unpack.json` — `select_obstacle` 결과가 `occlusion_unknown`이면 같은 자세에서 한 번만 다시 찍고 다시 고름(처음 `s6r`, 치운 뒤 `s7.9`). 두 번째도 모르면 목표를 집지 않음(기존 규칙), 다시 찍기 실패는 skip. 실물 덮개 장면 6회 중 2회 `null`(#214) 대비. 시험 4개.
 - **2026-10-11 C Unpacking 복구 오차 기록 (AC-ACT-03)**: `tasks/find_with_unpack.json` — 원래 자리로 되돌린 물체만 `restored`에 남기고, 복구가 끝나면 닫기 전 탑뷰에서 다시 찍어 `find_moved`(`record.placed` = 원래 자리)로 원래 자리·지금 자리(위치·yaw)를 실행 기록에. `run_report` 가 "복구 오차 (판정 아님): 위치 mm · 방향 °" 표시. 새 원자 동작·계약 변경 없음, 기준값 없음(정본 2 cm → 3 cm 반영 대기). 이전에는 되돌린 뒤 다시 찍지 않아 복구 오차 근거가 없었음.
 - **2026-10-11 A 가림 판정 노드 구현·seg 기본값 (#109 4단계, #196 항목 1·2)**: `inspect_region`이 분할 모델이면 결과 모든 물체에 `occluded_by`·`visible_area_m2`(모르면 `null`), 박스 모델이면 두 필드 없음(#185 규칙). 판정 `core/occlusion.py`, 임계값·기준 넓이 `vision_params.yaml` `occlusion`(시험 코드 값, [팀 확정 필요]). 노드 기본 가중치 `yolo11s_seg_ready2go_v1.pt`(박스 모델은 `VISION_WEIGHTS=models/yolo11n_ready2go_v1.pt`). 함께 고침: yaw ±90° 반올림이 범위를 넘어 `RESULT_INVALID`(`pose_rules.round_yaw`). 실물 덤프 77장 재계산 실패 0, 관계 36·`null` 16 — `docs/vision.md` 9장.
