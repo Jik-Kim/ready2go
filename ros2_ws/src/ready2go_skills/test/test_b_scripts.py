@@ -444,3 +444,9 @@ def test_b_sk_aside_places_held_object_in_drawer_slot_with_scan(monkeypatch, tmp
     action, params = sk.goal_for("aside")
     assert action == "place_object" and params["location"] == "drawer_top" and params["slot"] == "aside_1" and params["scan"] == scan
     assert sk.goal_for("aside2")[1]["slot"] == "aside_2" and "aside" in sk.NEEDS_DRAWER
+
+
+def test_b_sk_trayview_goes_to_taught_tray_view(monkeypatch):
+    """[사용자 10/11] B trayview = 트레이 탑뷰(poses.yaml tray_view, 서랍 인자 없음)."""
+    sk = _load_sk(monkeypatch)
+    assert sk.goal_for("trayview") == ("move_to_named_pose", {"pose_name": "tray_view"}) and "trayview" not in sk.NEEDS_DRAWER

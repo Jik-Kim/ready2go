@@ -1825,3 +1825,10 @@ def test_gripper_sensor_invalid_never_turns_held_into_empty_hand(server, monkeyp
     server.Gripper.holding, server.Gripper.held_width = True, float("nan")   # 닫은 폭부터 못 읽음
     out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
     assert out.error_code == "SENSOR_INVALID" and srv.held is not None and data["grasp_ok"] is False
+
+
+def test_tray_view_named_pose_goes_to_taught_joints(server):
+    """[실측 PC2 10/11] 새 트레이 탑뷰 tray_view — 교시 관절로 이동 (B trayview)."""
+    out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})
+    assert out.success, out.reason
+    assert server.srv.robot.j == pytest.approx(server.srv.poses()["tray_view"]["joints_deg"])

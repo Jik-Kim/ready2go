@@ -91,13 +91,15 @@ def goal_for(cmd):
         return "place_object", params
     if cmd == "home":
         return "move_to_named_pose", {"pose_name": "home"}
+    if cmd == "trayview":                              # 트레이 탑뷰 (poses.yaml tray_view, 놓은 뒤 비전 확인 자세) [사용자 10/11]
+        return "move_to_named_pose", {"pose_name": "tray_view"}
     if cmd == "view":
         return "move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": DRAWER}
     sys.exit(USAGE)
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2   서랍 없음: home pick place trayview\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
