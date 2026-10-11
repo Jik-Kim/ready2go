@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ready2go_vision.core.pose_rules import is_symmetric, normalize_yaw, pose_errors, result_errors
+from ready2go_vision.core.pose_rules import is_symmetric, normalize_yaw, pose_errors, result_errors, round_yaw
 
 PI = math.pi
 
@@ -156,3 +156,10 @@ def test_occluder_with_lower_top_z_is_valid():
                 "top_z": top, "occluded_by": occ, "visible_area_m2": 0.002}
     r = {"target_found": True, "target": it("toy_wrench#1", ["car_key#1"], 0.025), "candidates": [it("car_key#1", [], 0.022)], "visible_count": 2}
     assert result_errors(r) == []
+
+
+@pytest.mark.parametrize("raw", [math.pi / 2 - 1e-6, -math.pi / 2 + 1e-6, 0.123456, -1.2])
+def test_round_yaw_stays_in_range(raw):
+    y = round_yaw(raw)
+    assert pose_errors({"position": [0.1, 0.1, 0.0], "yaw": y, "yaw_valid": True}) == []
+    assert y == pytest.approx(raw, abs=1e-4) or abs(abs(raw) - math.pi / 2) < 1e-4

@@ -200,7 +200,7 @@ bash tools/dev/vision_real_check.sh call eraser                # 1회 호출: su
 bash tools/dev/vision_real_check.sh call eraser drawer_bottom  # 아래 칸 (places.yaml drawer_bottom.tf 측정 후, 전에는 UNKNOWN_REGION)
 ```
 
-- **새 PC 준비** (컨테이너 경로): ① `ready2go-vision` 이미지(`docker/vision/Dockerfile`, 버전 고정 torch 2.11.0+cu128·ultralytics 8.4.170) — 첫 실행에서 GPU 확인 `docker run --rm --gpus all ready2go-vision:latest python3 -c "import torch;print(torch.cuda.is_available())"` ② 모델은 Git LFS: `git lfs install && git lfs pull` 뒤 `sha256sum models/yolo11n_ready2go_v1.pt`가 [`models/README.md`](models/README.md) 값과 같아야 함(132 B 포인터 파일이면 노드가 시작하자마자 실패 [실측 PC2 10/07]) ③ `ros2-core`는 `BACKEND=real`(mock 이면 `mock_backend`가 같은 이름의 `/vision/inspect_region`을 띄움) ④ 카메라는 Compose `realsense` 하나만(호스트 `realsense2_camera`와 동시 실행 금지)
+- **새 PC 준비** (컨테이너 경로): ① `ready2go-vision` 이미지(`docker/vision/Dockerfile`, 버전 고정 torch 2.11.0+cu128·ultralytics 8.4.170) — 첫 실행에서 GPU 확인 `docker run --rm --gpus all ready2go-vision:latest python3 -c "import torch;print(torch.cuda.is_available())"` ② 모델은 Git LFS: `git lfs install && git lfs pull` 뒤 `sha256sum models/*.pt`가 [`models/README.md`](models/README.md) 값과 같아야 함(노드 기본은 분할 `yolo11s_seg_ready2go_v1.pt`)(132 B 포인터 파일이면 노드가 시작하자마자 실패 [실측 PC2 10/07]) ③ `ros2-core`는 `BACKEND=real`(mock 이면 `mock_backend`가 같은 이름의 `/vision/inspect_region`을 띄움) ④ 카메라는 Compose `realsense` 하나만(호스트 `realsense2_camera`와 동시 실행 금지)
 - **확인 기준**: 노드 시작 로그의 가중치·`places.yaml`·`vision_params.yaml` 해시와 `drawer_top.tf`를 기록합니다. Compose `vision` 서비스는 대기 컨테이너라 노드를 띄우지 않습니다. stub과 동시에 실행하지 않습니다(서비스 이름이 같음)
 - **실물 주의** [실측 PC2 10/07]: 카메라 케이블이 렌즈 앞으로 늘어지면 뎁스가 크게 비어 `DEPTH_INVALID` → 케이블을 손목에 고정. 서랍 영역 밖 오검출은 뎁스 계산 전에 제외됩니다(`region.detect_roi_margin_m`, #132)
 - 카메라·비전이 PC1, 로봇이 PC2인 구성은 양쪽 `DDS_MODE=multi`(`DDS_IFACE`·`PEER_PC1`·`PEER_PC2`, 스크립트 첫 부분). 사용법·`measure`·`replay`는 [`tools/yolo/README.md`](tools/yolo/README.md) "inspect_region 실제 노드 실행"
@@ -241,7 +241,7 @@ export ROS_LOG_DIR="logs/ros"
 mkdir -p "$ROS_LOG_DIR" logs/vision
 ros2 run ready2go_vision inspect_region --ros-args \
   -p config_dir:=config -p world_path:=knowledge/world.jsonld \
-  -p weights:=models/yolo11n_ready2go_v1.pt -p dump_dir:=logs/vision \
+  -p weights:=models/yolo11s_seg_ready2go_v1.pt -p dump_dir:=logs/vision \
   -p "code_sha:=\"$(git rev-parse HEAD)\"" -p 'device:="0"'
 ```
 
