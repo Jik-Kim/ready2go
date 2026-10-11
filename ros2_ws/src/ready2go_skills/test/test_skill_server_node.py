@@ -145,7 +145,7 @@ def server(monkeypatch):
     srv.robot, srv.disp, srv.held, srv.tray = Robot(), {"drawer_top": 0.226}, None, {}
     srv.state = sf.MotionState(srv.robot.state, srv.robot.posj)
     srv.move_timeout, srv.joint_vel, srv.joint_acc, srv.reach_tol = 30.0, 20.0, 20.0, 0.5
-    srv.get_logger = lambda: types.SimpleNamespace(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
+    srv.get_logger = lambda: types.SimpleNamespace(info=lambda *a: None, warn=lambda *a: None, warning=lambda *a: None, error=lambda *a: None)
     goal = types.SimpleNamespace(is_cancel_requested=False, publish_feedback=lambda f: None)
 
     def run(action, params):
@@ -387,7 +387,7 @@ def test_relax_gives_up_with_push_blocked_when_force_stays_high(server):
     """닿음 확인 뒤 정해진 칸만큼 올려도 2.5 N 넘으면 끌지 않고 PUSH_BLOCKED, 위로 빠짐."""
     server.srv.prm = (lambda real: (lambda: {**real(), "drag": {**real()["drag"], "relax_max_steps": 2}}))(server.srv.prm)
     server.srv._force_still = lambda s: [0.0, 0.0, 20.0, 0.0, 0.0, 0.0]
-    server.srv._tare = lambda: [0.0] * 6
+    server.srv._tare = lambda settle_s=None: [0.0] * 6
     contact = {}
     real_line = server.ss.SkillServer._line
 
@@ -1310,6 +1310,23 @@ def test_held_object_survives_server_restart_only_if_gripper_still_holds(server,
     assert not srv.held_file.exists()
 
 
+
+@pytest.mark.parametrize("bad", [float("nan"), -5.0, 150.0])
+def test_held_record_kept_when_gripper_width_invalid_at_restart(server, tmp_path, bad):
+    """[D #216 P1] 재시작 때 그리퍼 폭이 NaN·범위 밖(SENSOR_INVALID)이면 쥐었는지 모름 — 메모리엔 안 올리되 기록은 남김.
+    다음 재시작에 폭이 정상이면 복원."""
+    srv = server.srv
+    srv.held_file = tmp_path / "held.json"
+    srv.held = {"class": "eraser", "id": "eraser#1", "width_m": 0.0228, "drawer_id": "drawer_top", "tcp_above_floor_m": 0.03}
+    srv._held = None
+    server.Gripper.width = bad
+    srv._held = srv._restore_held()
+    assert srv.held is None and srv.held_file.exists()
+    server.Gripper.width = 22.4
+    srv._held = srv._restore_held()
+    assert srv.held is not None and srv.held["id"] == "eraser#1" and srv.held_file.exists()
+    srv.held = None
+
 def test_in_drawer_moves_sideways_only_above_rim(server):
     """[사용자 10/08] 서랍 안 옆 이동은 테두리 + in_drawer_clear_mm 위에서만, 목표 바로 위에서 수직으로 내려감 (쌓인 물건 약 55 mm).
     경유점(drag_down)이 그 높이보다 낮아도 먼저 수직으로 올린 뒤 옆으로."""
@@ -1809,3 +1826,43 @@ def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server)
     server.Gripper.holding, server.Gripper.held_width = True, 22.0
     out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1], "scan": scan})
     assert out.success and "받침 18.5 mm" in out.reason, out.reason
+
+
+def test_gripper_sensor_invalid_never_turns_held_into_empty_hand(server, monkeypatch):
+    """[P2 체크리스트 5 — B] 그리퍼 폭을 못 읽으면(NaN) 쥐었는지 모름 → OBJECT_DROPPED·빈손으로 바꾸지 않고 SENSOR_INVALID,
+    그리퍼 명령 없음. ① 옮기는 중(트레이) ② 서랍 안 놓기 직전 ③ 집고 들어 올린 뒤."""
+    srv = server.srv
+    grips = _holding_in_drawer(server)
+    server.Gripper.width = float("nan")
+    out, data = server.run("place_object", {"location": "handover_zone"})
+    assert out.error_code == "SENSOR_INVALID" and srv.held is not None and grips == []
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.error_code == "SENSOR_INVALID" and srv.held is not None and grips == [] and data["placed_pose"] is None
+    srv.held = None
+    server.Gripper.holding, server.Gripper.held_width = True, float("nan")   # 닫은 폭부터 못 읽음
+    out, data = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert out.error_code == "SENSOR_INVALID" and srv.held is not None and data["grasp_ok"] is False
+
+
+def test_tray_view_named_pose_goes_to_taught_joints(server):
+    """[실측 PC2 10/11] 새 트레이 탑뷰 tray_view — 교시 관절로 이동 (B trayview)."""
+    out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})
+    assert out.success, out.reason
+    assert server.srv.robot.j == pytest.approx(server.srv.poses()["tray_view"]["joints_deg"])
+
+
+def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
+    """[실측 PC2 10/11 분할 모델] 3단 윗면이 몽키 53.7·캐러멜 54·차키 53.7 로 번지고 관계 없음 → 캐러멜이 손가락 자리 이웃으로
+    NEIGHBOR_TOO_CLOSE 였음. 차키 위에 아무것도 없고 밑 물체가 더 크면 받침 → 받침 37 (몽키 18.5 + 캐러멜 18.5) 위에서 집음."""
+    srv = server.srv
+    f = "drawer_top"
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0537, "occluded_by": [],
+           "pose": {"frame": f, "position": [0.12, 0.19, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 세로 → 짧은 변 39
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.054, "occluded_by": [],
+           "pose": {"frame": f, "position": [0.135, 0.175, 0.0], "yaw": -1.5, "yaw_valid": True}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0537, "occluded_by": [],
+          "pose": {"frame": f, "position": [0.1333, 0.1573, 0.0], "yaw": -1.19, "yaw_valid": True}}
+    scan = {"target_found": True, "target": key, "candidates": [car, wr], "visible_count": 3}
+    server.Gripper.holding, server.Gripper.held_width = True, 39.0
+    out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
+    assert out.success and "받침 37.0 mm" in out.reason, out.reason
