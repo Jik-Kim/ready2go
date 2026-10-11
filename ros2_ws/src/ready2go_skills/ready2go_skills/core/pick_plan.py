@@ -76,8 +76,10 @@ class GraspPlan:
 
 
 def plan_drawer_grasp(*, target: Mapping, size_m: Sequence[float], tf: Mapping, params: Mapping,
-                      support_m: float = 0.0) -> GraspPlan:
-    """`target`은 motion_guard.precheck_pick을 통과한 것만 넘긴다(yaw_valid true, 바닥 위·허용된 쌓임)."""
+                      support_m: float = 0.0, long_side: bool = False) -> GraspPlan:
+    """`target`은 motion_guard.precheck_pick을 통과한 것만 넘긴다(yaw_valid true, 바닥 위·허용된 쌓임).
+    long_side: 긴 변 양끝을 잡음(손가락 닫힘 축 = 긴 변) — 짧은 변 잡기가 벽에 걸릴 때만 [사용자 10/10].
+    이때 long_axis_deg 는 90° 돌려 돌려줌(닫힘 축 = long_axis_deg + 90 규칙 유지), 벌림·기대 폭은 긴 변 기준."""
     if not _finite(support_m) or support_m < 0:
         raise ValueError(f"받침 높이는 0 이상 유한한 값: {support_m!r}")
     check_tf(tf)
@@ -93,7 +95,9 @@ def plan_drawer_grasp(*, target: Mapping, size_m: Sequence[float], tf: Mapping, 
         raise ValueError(f"size_m 규약은 [긴 변, 짧은 변, 높이]: {size_m}")
     above_floor = support_m + max(height + params["tcp_above_top_m"], params["min_tcp_above_floor_m"])
     pos = to_base(tf, (x, y, above_floor))
-    long_axis = wrap_line_deg(frame_yaw_deg(tf) + math.degrees(target["pose"]["yaw"]))
+    long_axis = wrap_line_deg(frame_yaw_deg(tf) + math.degrees(target["pose"]["yaw"]) + (90.0 if long_side else 0.0))
+    if long_side:
+        width = length
     open_w = width + params["open_margin_m"]
     if open_w > params["max_open_width_m"]:
         raise ValueError(f"벌림 폭 {open_w * 1000:.1f} mm > 최대 {params['max_open_width_m'] * 1000:.1f} mm")

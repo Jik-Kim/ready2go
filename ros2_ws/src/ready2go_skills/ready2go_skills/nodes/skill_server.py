@@ -17,6 +17,8 @@
     ros2 run ready2go_skills skill_server
     ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0   # 처음은 저속 (safety.md 11)
 """
+import copy
+import dataclasses
 import json
 import math
 import os
@@ -34,6 +36,7 @@ from ready2go_interfaces.action import Skill
 from ready2go_skills.adapters.dsr import Dsr
 from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_guard, motion_plan as mp
+from ready2go_skills.core import neighbor_check as nc
 from ready2go_skills.core import pick_plan as pp, place_plan as plp, pose_math as pm, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
@@ -55,6 +58,7 @@ NO_OBJECT_CONTACT = "NO_OBJECT_CONTACT"  # 끌기: 내려가도 물체 윗면 �
 PUSH_BLOCKED = "PUSH_BLOCKED"            # 끌기 중 힘이 너무 큼 (걸림, runner.md 기존 코드)
 WALL_TOO_CLOSE = "WALL_TOO_CLOSE"        # pick_object: 짧은 변으로 잡으면 손가락·관절이 서랍 벽에 닿음 → nudge_object 먼저 (움직이기 전)
 JOINT_LIMIT = "JOINT_LIMIT"              # 관절이 안전 제한(params joint_limits_deg, 펜던트 안전 설정보다 조금 안쪽)을 넘음/넘을 목표 → 정지·거부
+NEIGHBOR_TOO_CLOSE = nc.NEIGHBOR_TOO_CLOSE   # pick·nudge: scan 의 옆 물체가 벌린 손가락·끄는 길에 걸림 (움직이기 전) [사용자 10/09]
 PUSH_LIMIT = "PUSH_LIMIT"                # check_only 재판단에서 아직 잡을 수 없는 자리 (runner.md 기존 코드)
 GRASP_FAILED = "GRASP_FAILED"
 NOT_HOLDING = "NOT_HOLDING"
@@ -78,6 +82,28 @@ def find_config_dir():
         if (d / "config" / "poses.yaml").exists():
             return d / "config"
     return Path.home() / "ready2go" / "config"
+
+
+_YAML_CACHE = {}
+
+
+def _yaml_cached(path):
+    """YAML 을 파일 수정 시각·크기가 바뀔 때만 다시 파싱 (돌려줄 땐 복사 — 받은 쪽이 고쳐도 다음 호출에 안 섞임).
+    이동 감시 반복(0.05 s)마다 skills.yaml 을 다시 파싱하던 것(약 50 ms)이 감시 주기를 두 배로 늘렸음 [P2 시뮬레이션 10/10 측정]."""
+    path = Path(path)
+    st = path.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _YAML_CACHE.get(path)
+    if hit is None or hit[0] != key:
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            data = None
+        if not isinstance(data, dict) and hit is not None:
+            return copy.deepcopy(hit[1])                # 저장하는 중(빈 파일·반쯤 쓴 파일)에 읽음 → 전 값, 다음 호출에 다시 읽음
+        hit = (key, data)                                #   [P2 시뮬레이션 10/11: 돌리는 중 skills.yaml 저장 → None → SKILL_EXCEPTION]
+        _YAML_CACHE[path] = hit
+    return copy.deepcopy(hit[1])
 
 
 class SkillServer(Node):
@@ -156,14 +182,14 @@ class SkillServer(Node):
         return None
 
     def poses(self):
-        """매 호출마다 다시 읽음 — 교시값을 고친 뒤 서버를 재시작하지 않아도 되게."""
-        return yaml.safe_load((self.cfg_dir / "poses.yaml").read_text(encoding="utf-8"))
+        """파일이 바뀌면 다시 읽음 — 교시값을 고친 뒤 서버를 재시작하지 않아도 되게."""
+        return _yaml_cached(self.cfg_dir / "poses.yaml")
 
     def prm(self):
-        return yaml.safe_load(self.params_file.read_text(encoding="utf-8"))
+        return _yaml_cached(self.params_file)
 
     def places(self):
-        return yaml.safe_load((self.cfg_dir / "places.yaml").read_text(encoding="utf-8"))
+        return _yaml_cached(self.cfg_dir / "places.yaml")
 
     def item(self, cls):
         """온톨로지 size_m [긴 변, 짧은 변, 높이] 과 item_grasp.yaml 잡는 힘."""
@@ -237,8 +263,9 @@ class SkillServer(Node):
     def _do_move_to_named_pose(self, goal, params):
         return self._named(goal, params.get("pose_name", ""), params.get("drawer_id")), None
 
-    def _named(self, goal, pose_name, drawer_id=None):
-        """기준 포즈로 관절 이동 (낮으면 먼저 수직으로 올림). 성공이면 Outcome(True), 아니면 실패 Outcome."""
+    def _named(self, goal, pose_name, drawer_id=None, moving=False):
+        """기준 포즈로 관절 이동 (낮으면 먼저 수직으로 올림). 성공이면 Outcome(True), 아니면 실패 Outcome.
+        moving: 앞 직선이 반지름 안에서 아직 움직이는 중 (닫기 → 홈 한 동작 [사용자 10/10]) — 관절 이동이 거부되면 멈춘 뒤 다시."""
         joints, err = sf.pose_joints(self.poses(), pose_name, drawer_id)
         if err:
             return err
@@ -287,8 +314,8 @@ class SkillServer(Node):
             sp = self.prm()["speed"]
             vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
         ok = self.robot.movej_async(joints, vel, acc)
-        if ok is False and blend:                           # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
-            bad = self._wait_pose(goal, up, self._free_vel(cur), "lift")
+        if ok is False and (blend or moving):               # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
+            bad = self._wait_pose(goal, up, self._free_vel(cur), "lift") if blend else self._settle(goal)
             if bad:
                 return bad
             ok = self.robot.movej_async(joints, vel, acc)
@@ -358,10 +385,107 @@ class SkillServer(Node):
         o = self._named(goal, "drawer_top_view", drawer_id)
         return None if o.success else o
 
-    def _tare(self):
+    def _lower_touch(self, goal, target, vel, stage):
+        """놓기 마지막: 천천히 내리다 바닥(받침)에 닿으면(z 힘이 place.touch_n 넘게 변함) 그 자리에서 멈춤 — 계산한 높이보다
+        place.touch_overtravel_mm 까지 더 내려감, 그래도 안 닿으면 거기서 멈춤 [사용자 10/10 "2 mm 위에서 떨구는 느낌, 바닥에 얌전히"].
+        잡은 높이가 실제와 조금 달라도(서랍 바닥 tf 오차·비스듬히 잡힘) 바닥에 붙여 놓음. touch_n 0 이면 예전처럼 계산 높이까지."""
+        pl = self.prm()["place"]
+        n = float(pl.get("touch_n") or 0.0)
+        if n <= 0:
+            return self._line(goal, target, vel, stage)
+        base = self._tare(pl.get("touch_settle_s"))
+
+        def touched():
+            f = self.robot.tool_force()
+            if f is None or base is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            if abs(f[2] - base[2]) >= n:
+                return sf.Outcome(True, reason=f"바닥 닿음 {abs(f[2] - base[2]):.1f} N")
+            return None
+        deeper = mp.with_z(target, target[2] - float(pl.get("touch_overtravel_mm", 0.0)))
+        return self._line(goal, deeper, vel, stage, watch=touched)
+
+    def _pick_touch_down(self, goal, grasp, tf, target, support, plan, expected_w, cfg):
+        """집기 마지막 [사용자 10/11 PC2 — 예전 설계(물체 윗면 높이) 버리고 새로]:
+        ① 서랍 바닥(교시 tf z, 쌓였으면 받침 윗면) + fast_above_floor_mm 까지 직선으로 빠르게 (힘 상한만 봄)
+        ② 넛지 누르기와 같은 방식으로 천천히 내려가 바닥 닿음 확인 — 출발 press_ignore_mm 무시, touch_force_n 넘으면 멈추고
+           멈춘 채 press_confirm 번 모두 넘어야 닿음(튄 값이면 그 자리에서 다시), 바닥 − search_below_mm 까지
+        ③ 닫을 때 손끝이 내려오는 만큼(손끝 표: 잡는 폭 − 벌린 폭) + clear_mm 올림 → (호출한 쪽이) 닫음."""
+        prm = self.prm()
+        g, d = prm["gripper"], prm["drag"]
+        open_mm, close_mm = plan.open_width_m * 1000.0, expected_w * 1000.0
+        floor = 1000.0 * pp.to_base(tf, (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
+        # 기준은 TCP 가 아니라 벌린 손끝 — 크게 벌리면 손끝이 TCP 보다 위(88 mm 에서 약 15 mm) → TCP 를 바닥 + 5 로 보내면 손끝은 바닥에 한참 못 미침
+        # [사용자 10/11 PC2 "바닥까지 닿지도 않음"]. 손끝 표(넓은 쪽 [실측 10/06 대략])가 틀려도 빠르게 가다 박지 않게 위로 가는 양의 rise_margin 만큼 덜 내려감
+        tip = mp.tip_below_tcp_mm(open_mm, g)                       # 손끝이 TCP 아래 (음수 = 위)
+        margin = float(cfg.get("rise_margin", 0.3)) * max(0.0, -tip)
+        fast_to = mp.with_z(grasp, floor + float(cfg.get("fast_above_floor_mm", 5.0)) + tip + margin)
+        now = self.robot.posx()
+        if now is not None and now[2] > fast_to[2] + 0.5:
+            base = self._tare(0.2)
+
+            def guard():                                    # 빠르게 가다 뭔가에 세게 닿으면 멈춤 (물체 위에 내려앉음)
+                f = self.robot.tool_force()
+                if f is None or base is None:
+                    return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+                if abs(f[2] - base[2]) >= d["press_max_force_n"]:
+                    return sf.Outcome(False, GRASP_FAILED, reason=f"바닥 + {cfg.get('fast_above_floor_mm', 5.0):g} mm 로 내려가다 "
+                                                                 f"{abs(f[2] - base[2]):.1f} N — 물체 위에 내려앉음(위치·각도 확인)")
+                return None
+            bad = self._line(goal, fast_to, self._in_vel(), "descend_fast", watch=guard)
+            if bad:
+                p = self.robot.posx()
+                if p is not None and not sf.is_safety(bad):
+                    self._line(goal, mp.with_z(p, p[2] + 20.0), self._in_vel(), "lift")
+                return bad
+        base_f = self._tare()
+        z0 = (self.robot.posx() or fast_to)[2]
+        state = {}
+
+        def contact():                                      # 넛지 누르기(_press_relax)와 같은 닿음 판단
+            f, p = self.robot.tool_force(), self.robot.posx()
+            if f is None or p is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘·좌표 조회 실패")
+            if abs(f[2] - base_f[2]) >= d["press_max_force_n"]:
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason="상한")
+            if not state.get("resumed") and p[2] > z0 - d["press_ignore_mm"]:
+                return None                                 # 출발할 때 힘이 튐
+            state.setdefault("fz", f[2])
+            if abs(f[2] - state["fz"]) >= d["touch_force_n"]:
+                state["z1"] = p[2]
+                return sf.Outcome(True, reason="닿음")
+            return None
+
+        end = mp.with_z(grasp, floor - d["search_below_mm"] + tip - margin)     # 손끝이 바닥 − search_below (표보다 더 올라가 있어도 찾게)
+        touched = False
+        for k in range(int(d["touch_retries"]) + 1):
+            state.pop("z1", None)
+            bad = self._line_slow(goal, end, d["press_speed_mm_s"], "touch_floor" if k == 0 else f"touch_floor:{k + 1}", watch=contact)
+            if bad:
+                return bad
+            if "z1" not in state:
+                break                                       # 바닥 − search_below 까지 안 닿음 → 거기서 잡음
+            reads = self._force_reads(int(d["press_confirm"]), d["confirm_gap_s"])
+            if reads is None or base_f is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            if all(abs(f[2] - base_f[2]) >= d["touch_force_n"] for f in reads):
+                touched = True
+                break
+            state["resumed"] = True                         # 튄 값 → 그 자리에서 다시 내려감
+        now = self.robot.posx()
+        if now is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패")
+        clear = float((prm["pick"].get("tip_above_floor_by_class_mm") or {}).get(target.get("class"), cfg.get("clear_mm", 2.0)))   # 덮개 판은 판 높이 [#8]
+        lift = max(0.0, mp.tip_below_tcp_mm(close_mm, g) - mp.tip_below_tcp_mm(open_mm, g)) + clear
+        self.get_logger().info(f"[pick_object] 바닥 {'닿음' if touched else '안 닿음(찾기 끝)'} TCP z {now[2]:.1f} (교시 바닥 {floor:.1f}, "
+                               f"벌림 {open_mm:.1f} mm 손끝 표 {-tip:+.1f} mm) → {lift:.1f} mm 올려 닫음")
+        return self._line(goal, mp.with_z(now, now[2] + lift), self._in_vel(), "touch_up")
+
+    def _tare(self, settle_s=None):
         """멈춘 뒤 잠깐 기다렸다가 여러 번 읽은 평균 = 힘 기준값. 두산 툴 힘은 관절 토크 추정이라 멈춘 직후 흔들림 (10/06)."""
         sp = self.prm()["force"]
-        time.sleep(sp["tare_settle_s"])
+        time.sleep(sp["tare_settle_s"] if settle_s is None else settle_s)
         fs = [f for f in (self.robot.tool_force() for _ in range(int(sp["tare_samples"]))) if f is not None]
         return [sum(f[i] for f in fs) / len(fs) for i in range(6)] if fs else None
 
@@ -375,14 +499,16 @@ class SkillServer(Node):
             return cur_z
         return max(cur_z, 1000.0 * (tf["translation_m"][2] + inner[2]) + float(clear))
 
-    def _over_then_down(self, goal, drawer_id, cur, above, stage):
+    def _over_then_down(self, goal, drawer_id, cur, above, stage, turn_down=False):
         """서랍 안: (낮으면 수직으로 travel_z 까지) → travel_z 높이로 목표 바로 위까지 수평 → 목표 위(above)로 수직.
-        경유점 높이로 옆으로 가다 비스듬히 내려가면 쌓인 물건에 닿음 [사용자 10/08]. 블렌딩 한 번 (모서리 반지름 blend_mm)."""
+        경유점 높이로 옆으로 가다 비스듬히 내려가면 쌓인 물건에 닿음 [사용자 10/08]. 블렌딩 한 번 (모서리 반지름 blend_mm).
+        turn_down: 손목 방향은 내려가는 구간에서만 바꿈 — 옆으로 가는 구간이 짧은데 많이 돌면 제어기가 블렌딩을 받고도 출발 안 함
+        [실측 PC2 10/10 집기: 16 mm 옆 + 49° 회전 → NOT_REACHED 두 번]."""
         tz = max(self._travel_z(drawer_id, cur[2]), above[2])     # 쌓인 물체 위(above)가 이동 높이보다 높으면 그 높이로 옆 이동
         pts = []
         if tz - cur[2] > 1.0:
             pts.append(mp.with_z(cur, tz))
-        over = [above[0], above[1], tz] + list(above[3:])
+        over = [above[0], above[1], tz] + list(cur[3:] if turn_down else above[3:])
         if math.dist((pts[-1] if pts else cur)[:3], over[:3]) > 1.0:
             pts.append(over)
         if not pts or math.dist(pts[-1][:3], above[:3]) > 1.0:
@@ -409,7 +535,7 @@ class SkillServer(Node):
 
     def _movej(self, goal, joints, stage, in_drawer=False):
         """관절 이동 1번 (제한 확인 → 자동 모드 → 비동기 → 도착). 성공이면 Outcome(True).
-        in_drawer: 서랍 안으로 들어가는 경유점(drag_down) — speed.in_drawer_joint_* (관절 속도 설정보다 크지 않게)."""
+        in_drawer: 서랍 안으로 들어가는 경유점(drag_down) — speed.in_drawer_joint_* (서버 관절 속도와 따로, 탑뷰와 같게)."""
         err = self._joint_bad(joints, f"{stage} 목표")
         if err:
             return err
@@ -420,10 +546,10 @@ class SkillServer(Node):
         if early:
             return early
         vel, acc = self.joint_vel, self.joint_acc
-        if in_drawer:
+        if in_drawer:                                       # 탑뷰 → 경유점: 거의 손목(J6 약 170°)만 돌아감 → 탑뷰처럼 따로 빠르게 [사용자 10/10 "넛지하러 갈 때 돌리는 게 느림"]
             sp = self.prm()["speed"]
-            vel = min(vel, sp.get("in_drawer_joint_deg_s", vel))
-            acc = min(acc, sp.get("in_drawer_joint_acc_deg_s2", acc))
+            vel = sp.get("in_drawer_joint_deg_s", vel)
+            acc = sp.get("in_drawer_joint_acc_deg_s2", acc)
         bad = sf.after_command(self.robot.movej_async(joints, vel, acc), what=f"movej({stage})",
                                stop=self.robot.stop, get_state=self.state)
         if bad:
@@ -648,7 +774,21 @@ class SkillServer(Node):
             return sf.after_command(self.robot.moveb_async(points, radii, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"],
                                                            sp["turn_acc_deg_s2"]), what=f"moveb({stage})",
                                     stop=self.robot.stop, get_state=self.state)
-        return self._send_wait(goal, send, lambda: self._wait_pose(goal, points[-1], vel, stage), start, points[-1], stage)
+        bad = self._send_wait(goal, send, lambda: self._wait_pose(goal, points[-1], vel, stage), start, points[-1], stage)
+        if bad is None or bad.error_code != sf.NOT_REACHED or start is None:
+            return bad
+        now = self.robot.posx()
+        if (now is None or math.dist(now[:3], start[:3]) >= 1.0
+                or pm.rotation_angle(pm.rot(*now[3:6]), pm.rot(*start[3:6])) >= 0.5):
+            return bad                                      # 출발은 했다가 선 것 — 그대로 실패
+        # 다시 보내도 출발 안 함 = 제어기가 이 블렌딩을 못 받음(짧은 구간에서 손목 크게 돌림 등) [실측 PC2 10/10 "방향 1 s" 반복]
+        # → 멈추지 말고 점마다 직선으로 (끊기지만 끝까지 감)
+        self.get_logger().warn(f"[{stage}] 블렌딩이 출발 안 함 — 점마다 직선으로 ({bad.reason})")
+        for k, p in enumerate(points):
+            bad = self._settle(goal) or self._line(goal, p, vel, f"{stage}:{k + 1}")
+            if bad:
+                return bad
+        return None
 
     def _carry_route(self, drawer_id):
         """poses.yaml carry_line 경유점 posx (집은 뒤 → 트레이 직선 블렌딩). 없으면 None (예전 carry_out movesj)."""
@@ -711,8 +851,8 @@ class SkillServer(Node):
         handle = mp.handle_posx(closed, pull, disp)
         if state == "open":
             return self._open_drawer(goal, drawer_id, place, oc, dc, closed, pull, disp, params)
-        if state == "close":
-            return self._close_drawer(goal, drawer_id, oc, dc, closed, pull, handle)
+        if state == "close":                                # then_home: 닫고 빼면서 홈까지 한 동작 (B 명령 전용, Runner 는 안 씀) [사용자 10/10]
+            return self._close_drawer(goal, drawer_id, oc, dc, closed, pull, handle, then_home=params.get("then_home") is True)
         return sf.Outcome(False, sf.BAD_PARAMS, reason=f"state 는 open/close: {state!r}"), None
 
     def _open_drawer(self, goal, drawer_id, place, oc, dc, closed, pull, disp, params):
@@ -766,6 +906,7 @@ class SkillServer(Node):
         base_f = self._tare()
         target = mp.offset_posx(handle, pull, distance * 1000.0)
         verdict = {}
+        stuck_n = (dc.get("stuck_force_by_drawer_n") or {}).get(drawer_id, dc["stuck_force_n"])   # 아래 칸은 결착이 커서 따로 [실측 10/11]
 
         def watch():
             now, f = self.robot.posx(), self.robot.tool_force()
@@ -773,7 +914,7 @@ class SkillServer(Node):
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="좌표·힘 조회 실패")
             moved = mp.travel_mm(start, now, pull) / 1000.0
             resist = abs(sum((f[i] - base_f[i]) * pull[i] for i in range(3)))
-            v = dp.judge_opening(moved, distance, resist, dc["stuck_force_n"], dc["pos_tol_m"])
+            v = dp.judge_opening(moved, distance, resist, stuck_n, dc["pos_tol_m"])
             if v.error_code:
                 verdict["v"], verdict["moved"] = v, moved
                 return sf.Outcome(False, v.error_code, reason=v.reason)
@@ -800,7 +941,7 @@ class SkillServer(Node):
         out = {"drawer_displacement": round(self.disp[drawer_id], 4), "close_confirmed": False}
         return sf.Outcome(True, reason=f"열림 {self.disp[drawer_id] * 1000:.1f} mm"), out
 
-    def _close_drawer(self, goal, drawer_id, oc, dc, closed, pull, handle):
+    def _close_drawer(self, goal, drawer_id, oc, dc, closed, pull, handle, then_home=False):
         """닫기: 손잡이를 잡지 않고, 홈 자세(그리퍼 수직 아래) 그대로 손끝을 손잡이 높이에 두고 밀어서 닫는다 — 힘이 느껴질 때까지
         [사용자 제안 10/06]. 손잡이 쪽(ready, J2 반대) 자세로 가지 않아 열린 서랍 위를 돌아가지 않음."""
         if not oc.get("close_enabled", False):
@@ -810,7 +951,7 @@ class SkillServer(Node):
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"{self.held['class']} 를 든 채 닫지 않음"), None
         tilted = (oc.get("close_push") or {}).get(drawer_id)
         if tilted:
-            return self._close_drawer_tilted(goal, drawer_id, oc, dc, pull, tilted)
+            return self._close_drawer_tilted(goal, drawer_id, oc, dc, pull, tilted, then_home)
         if not (oc.get("vertical_close_ok") or {}).get(drawer_id, False):   # 아래 칸: 수직 그리퍼 몸통이 위 서랍 앞판에 닿음 [실측 B 10/08]
             return sf.Outcome(False, DRAWER_NOT_CONFIGURED, reason=f"{drawer_id} 닫기 자세(close_push) 교시 전"), None
         prm = self.prm()
@@ -841,9 +982,9 @@ class SkillServer(Node):
             return bad, None
         closed = list(closed[:2]) + [tip_z] + list(cur[3:])
         contact_closed = mp.offset_posx(closed, pull, off)  # 닫혔을 때 TCP 위치 (손끝 앞면이 닫힌 손잡이에)
-        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, contact_closed)
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, contact_closed, then_home)
 
-    def _push_closed(self, goal, drawer_id, oc, dc, pull, pre, contact_closed):
+    def _push_closed(self, goal, drawer_id, oc, dc, pull, pre, contact_closed, then_home=False):
         """pre(밀기 시작, 이미 도착)에서 닫히는 방향으로 contact_closed(닫혔을 때 TCP)보다 close_overtravel 만큼 더 밂.
         빠르게 → 마지막 push_slow_last_mm 천천히, 일찍 크게 걸리면 멈춤, 끝나면 여는 방향으로 retreat_mm 빼기 (홈은 안 감)."""
         speed = self.prm()["speed"]
@@ -886,16 +1027,37 @@ class SkillServer(Node):
             res = sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED, reason=f"닫힘 위치에 못 감 (남은 {rem * 1000:.1f} mm)")
         else:
             res = None
-        back = self._line(goal, mp.offset_posx(now, pull, oc["retreat_mm"]), speed["line_mm_s"], "retreat") if now else \
-            sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 후퇴 못 함")
+        # then_home: 지금 가던 길(빼기 → high_z 로 올리기 → exit_y 로 빼기 → 홈) 그대로, 모서리만 home_blend_mm 반지름으로 이어 한 번에
+        # (moveb) [사용자 10/10 "세 동작을 하나로, 뚝뚝 끊기는 게 싫음"]. 위·아래 칸 모두 관절 연속, J5 최대 113.5°, 홈 관절로 끝남 [계산 m0609_kin].
+        # 홈 TCP 는 이번 서버에서 홈에 도착했을 때 읽은 값(home_posx). 없으면 빼기 끝에서 이어서 _named 홈.
+        r = float(oc.get("home_blend_mm", 10.0)) if then_home and res is None else 0.0
+        home_x = getattr(self, "home_posx", None) if r else None
+        retreat = mp.offset_posx(now, pull, oc["retreat_mm"]) if now else None
+        if retreat is None:
+            back = sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 후퇴 못 함")
+        elif home_x:
+            tr = self.prm()["transit"]
+            z = max(retreat[2], tr["high_z_mm"])
+            pts = [retreat] + ([mp.with_z(retreat, z)] if retreat[2] < z - 0.5 else []) \
+                + [[retreat[0], tr["exit_y_mm"], z] + list(retreat[3:]), list(home_x)]
+            first = min(r, float(oc.get("home_blend_first_mm", r)))   # 빼기 끝 모서리는 작게 — 위 칸 손잡이·앞판에서 먼저 떨어진 뒤 올라가게
+            back = self._blend(goal, pts, [first] + [r] * (len(pts) - 2) + [0.0], speed["line_mm_s"], "retreat_home")
+        else:
+            back = self._line(goal, retreat, speed["line_mm_s"], "retreat", radius=r)
         res = sf.worse(res, back)
         if res:
             return res, out
         self.disp[drawer_id] = 0.0
         out["drawer_displacement"] = 0.0
-        return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)"), out
+        if r:
+            joints, _ = sf.pose_joints(self.poses(), "home")
+            if not (home_x and joints and sf.check_reached(joints, self.robot.posj(), self.reach_tol).success):
+                o = self._named(goal, "home", moving=not home_x)    # 홈 TCP 에 왔는데 관절이 조금 다르면 관절 이동으로 마무리
+                if not o.success:
+                    return o, out
+        return sf.Outcome(True, reason=f"닫힘 위치 도달 (남은 {rem * 1000:.1f} mm)" + (" → 홈" if r else "")), out
 
-    def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp):
+    def _close_drawer_tilted(self, goal, drawer_id, oc, dc, pull, cp, then_home=False):
         """닫기 (위·아래 공통) — 수직에서 로봇 쪽으로 기울인(45°, 20° 는 손잡이에 닿음) 손끝으로 앞판 중앙을 닫히는 방향(y)으로 밂 [사용자 10/08].
         교시(params close_push.<서랍>): start_posj·start_posx = 서랍 끝까지 연 상태 앞판 3 cm 앞, end_posx = 닫힌 상태 앞판에 손끝이 닿는 자리
         (같은 손목·높이). 서랍 위(탑뷰 등)면 먼저 홈 — 열린 앞판을 치지 않게 (#133). 그리퍼는 닫은 채 밂."""
@@ -931,7 +1093,7 @@ class SkillServer(Node):
         if off > tol:                                       # start_posj 와 start_posx 가 서로 다른 자리 (옮겨 적다 틀림) → 밀지 않음. 이미 움직였으므로 이동 뒤 코드
             return sf.Outcome(False, dp.CLOSE_NOT_CONFIRMED,
                               reason=f"닫기 시작 자세 도착 위치가 start_posx 와 {off:.1f} mm 다름 — 밀지 않고 멈춤, start_posj·start_posx 다시 교시"), None
-        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [pre[0], end[1], pre[2]] + list(pre[3:6]))
+        return self._push_closed(goal, drawer_id, oc, dc, pull, pre, [pre[0], end[1], pre[2]] + list(pre[3:6]), then_home)
 
     # --- 끌기 (nudge_object) ---
     def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
@@ -1079,7 +1241,12 @@ class SkillServer(Node):
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         size, _ = self.item(target.get("class"))
-        g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id))
+        g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
+                 wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id),
+                 reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id),
+                 max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+                 axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
+                 round=target.get("class") in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
                "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)
@@ -1090,9 +1257,19 @@ class SkillServer(Node):
             return sf.Outcome(True, reason=plan.reason), out
         if params.get("check_only"):                          # 재판단인데 아직 끌어야 함 → 집지 않게 멈춤 (runner.md, #83 D 리뷰)
             return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — {plan.reason}"), out
+        who, why = self._neighbor(params, drawer_id, lambda objs, nb: nc.drag_blocker(
+            target=target, size_m=size, shift_y_m=plan.shift_y_m, shift_x_m=plan.shift_x_m, objects=objs, size_of=self._size_or_none,
+            default_size_m=prm["place"]["default_obstacle_size_m"], margin_mm=nb["margin_mm"], support_m=0.0,
+            below_tol_m=nb["below_tol_m"]))
+        if why or who:                                      # 끌다가 옆 물체를 밀지 않게 — 움직이기 전 [사용자 10/09 랜덤 배치]
+            return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
+                    sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
-        wall = mp.dir_to_base(tf, (0.0, plan.wall_normal_y, 0.0))      # 옆벽 쪽 (base)
+        if plan.push_to_xy_m is not None:                               # 벽까지 밀기는 뒤에서 [사용자 10/11]
+            return self._push_from_behind(goal, drawer_id, target, plan, tf, d, out)
+        on_x = plan.axis == "x"                                         # 앞뒤 벽에서 끌기 [사용자 10/10]
+        wall = mp.dir_to_base(tf, (plan.wall_normal_x, 0.0, 0.0) if on_x else (0.0, plan.wall_normal_y, 0.0))   # 누르는 쪽 벽 (base)
         if d.get("close_axis", "object") == "wall":                    # 닫힘 축 = 옆벽 법선 [실측 B 10/06, 지우개 잘 끌림]
             tip_v = d["wall_tip_below_mm"]                             # 기울인 손끝이 TCP 아래 (실측)
             along = wall
@@ -1136,21 +1313,26 @@ class SkillServer(Node):
                 return bad, out
             self.get_logger().warn(f"[nudge_object] {attempt}/{attempts} 실패 ({bad.error_code}: {bad.reason}) — 다시 누르기")
             goal.publish_feedback(Skill.Feedback(stage=f"retry:{attempt + 1}"))
-        shift_y = plan.shift_y_m
-        if d.get("shift_mm"):                               # 누른 높이·각도 그대로 고정 거리만 수평 이동 [사용자 10/07 "3 cm 이동만, 힘만 맞으면 잘 끌림"]
+        shift_y, shift_x = plan.shift_y_m, plan.shift_x_m
+        if d.get("shift_mm") and not on_x:                  # 누른 높이·각도 그대로 고정 거리만 수평 이동 [사용자 10/07 "3 cm 이동만, 힘만 맞으면 잘 끌림"]
             shift_y = math.copysign(d["shift_mm"] / 1000.0, plan.shift_y_m)   # 방향은 계획(옆벽 반대)
-        shift = mp.dir_to_base(tf, (0.0, shift_y, 0.0))
+        shift = mp.dir_to_base(tf, (shift_x, shift_y, 0.0))
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
-        base_drag = self._held_f                            # 끄는 중 걸림 감시 기준 = 힘 맞추기 마지막 측정 (따로 0점 안 잡음 — 바로 이동)
+        # 끄기 직전 힘 0점 다시 [사용자 10/10 "옮기기 직전에 힘값 리셋"] — 힘 맞추기 마지막 측정보다 멈춘 뒤 평균이 안정
+        base_drag = self._tare() or self._held_f
+        max_z = d.get("max_force_z_n", d["max_force_n"])
 
         def blocked():
             f = self.robot.tool_force()
             if f is None or base_drag is None:
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
-            mag = math.sqrt(sum((f[i] - base_drag[i]) ** 2 for i in range(3)))
-            if mag > d["max_force_n"]:
-                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 힘 {mag:.1f} N > {d['max_force_n']:g} N")
+            side = math.hypot(f[0] - base_drag[0], f[1] - base_drag[1])   # 옆(끄는 쪽) — 잘 끌리다 8 N 에서 멈춤 → 15 [사용자 10/10]
+            dz = abs(f[2] - base_drag[2])                                  # 위아래 — 14 N 이면 열린 서랍이 앞으로 넘어감 [사용자 10/07]
+            if side > d["max_force_n"]:
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 옆 힘 {side:.1f} N > {d['max_force_n']:g} N")
+            if dz > max_z:
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 위아래 힘 {dz:.1f} N > {max_z:g} N")
             return None
 
         drag_to = [pressed[i] + 1000.0 * shift[i] for i in range(3)] + pressed[3:]
@@ -1163,14 +1345,96 @@ class SkillServer(Node):
         bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift"))
         moved = mp.from_base(tf, [v / 1000.0 for v in now[:3]])
         before = mp.from_base(tf, [v / 1000.0 for v in pressed[:3]])
-        dy = moved[1] - before[1]
+        dx = moved[0] - before[0] if (on_x or plan.shift_x_m) else 0.0     # 대각선(손잡이 쪽 비스듬)이면 둘 다 [사용자 10/10]
+        dy = moved[1] - before[1] if (not on_x or plan.shift_y_m) else 0.0
         after = json.loads(json.dumps(target))
-        after["pose"]["position"] = [target["pose"]["position"][0], target["pose"]["position"][1] + dy, 0.0]
-        out.update(pushed=True, push_vector_m=[0.0, round(dy, 4)])   # floor_z_m: 바닥은 서랍 좌표 z=0
+        after["pose"]["position"] = [target["pose"]["position"][0] + dx, target["pose"]["position"][1] + dy, 0.0]
+        out.update(pushed=True, push_vector_m=[round(dx, 4), round(dy, 4)])   # floor_z_m: 바닥은 서랍 좌표 z=0
         if bad:
             return bad, out                                 # target_after 는 None (실패 결과 좌표로 집지 않음)
         out["target_after"] = after
-        return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 옆으로 {dy * 1000:+.1f} mm 끌기"), out
+        return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 {'대각선 x·y' if dx and dy else ('앞뒤로 x' if on_x else '옆으로 y')} "
+                                 f"{f'{dx * 1000:+.1f}·{dy * 1000:+.1f}' if dx and dy else f'{(dx or dy) * 1000:+.1f}'} mm 끌기"), out
+
+    def _push_from_behind(self, goal, drawer_id, target, plan, tf, d, out):
+        """물체 뒤에서 닫은 손가락 옆면으로 벽까지 밂 [사용자 10/11 PC2 "벽으로 밀칠 땐 지우개 뒤에서 밀기, 공간 충분"].
+        탑뷰 → 닫기 → 서랍 안 경유점 → 테두리 위로 시작 자리 위 → 수직으로 손끝 바닥 위 push_tip_above_floor_mm 까지
+        → 벽 쪽으로 계산한 끝까지 수평 밀기(push_speed_mm_s, 힘은 안전 상한만) → push_back_mm 물러남 → 올라감 (다음은 탑뷰에서 다시 보기)."""
+        g = self.prm()["gripper"]
+        bad = self._to_drawer_view(goal, drawer_id)
+        if bad:
+            return bad, out
+        self._grip(0, 20)
+        down = (self.poses().get("drag_down") or {}).get(drawer_id)
+        if down:
+            o = self._movej(goal, down, "to_object:down", in_drawer=True)
+            if not o.success:
+                return o, out
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
+        tcp_z = (d.get("push_tip_above_floor_mm", 3.0) + mp.tip_below_tcp_mm(0.9, g)) / 1000.0   # 닫은 손끝 = TCP − 10 mm [실측]
+        nx, ny = plan.push_dir
+        close_dir = mp.dir_to_base(tf, (-ny, nx, 0.0))                 # 닫힘 축 ⟂ 미는 방향 — 손가락 두 개가 나란히 판처럼
+        (sx, sy), (ex, ey) = plan.press_xy_m, plan.push_to_xy_m
+        low = mp.gripper_posx([1000.0 * v for v in pp.to_base(tf, (sx, sy, tcp_z))], close_dir, cur[3:])
+        above = mp.with_z(low, low[2] + 30.0)
+        bad = self._over_then_down(goal, drawer_id, cur, above, "to_object:over")
+        if bad:
+            return bad, out
+        # 힘으로 끝을 찾지 않음 — 계산한 거리만 밂 [사용자 10/11 PC2 "넛지 말고 얼마나 밀면 끝에 도달할지만 계산해서"]. 힘은 안전 상한만
+        base_f = self._tare(settle_s=0.2)
+        max_z = d.get("max_force_z_n", d["max_force_n"])
+
+        def guard(stage_name):
+            def watch():
+                f = self.robot.tool_force()
+                if f is None or base_f is None:
+                    return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+                dz, side = abs(f[2] - base_f[2]), math.hypot(f[0] - base_f[0], f[1] - base_f[1])
+                if dz > max_z or side > d["max_force_n"]:
+                    return sf.Outcome(False, PUSH_BLOCKED, reason=f"{stage_name} 중 힘 위아래 {dz:.1f}·옆 {side:.1f} N — 상한 {max_z:g}·{d['max_force_n']:g} N")
+                return None
+            return watch
+        bad = self._line(goal, low, self.prm()["speed"]["grasp_mm_s"], "push_down", watch=guard("밀 자리로 내려가기"))
+        if bad:
+            now = self.robot.posx()
+            back = self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift") if now and not sf.is_safety(bad) else None
+            return sf.worse(bad, back) if back else bad, out
+        pressed = self.robot.posx() or low
+        end = mp.gripper_posx([1000.0 * v for v in pp.to_base(tf, (ex, ey, tcp_z))], close_dir, pressed[3:])
+        end = [end[0], end[1], pressed[2]] + list(pressed[3:])         # 수평으로만 (서랍 tf 기울기로 z 가 섞여 바닥을 긁지 않게)
+        push_v = d.get("push_speed_mm_s", d["speed_mm_s"])
+        bad = self._line(goal, end, push_v, "push", watch=guard("밀기"))
+        if sf.is_safety(bad):
+            return bad, out
+        now = self.robot.posx()
+        if now is not None and not bad:
+            # 벽과 손가락 사이에 낀 물체가 올릴 때 마찰로 딸려 올라옴 [사용자 10/11 PC2] → 미는 반대쪽으로 조금 물러난 뒤 올림
+            back_v = mp.dir_to_base(tf, (-nx, -ny, 0.0))
+            k = d.get("push_back_mm", 5.0)
+            bad = self._line(goal, [now[0] + back_v[0] * k, now[1] + back_v[1] * k, now[2]] + list(now[3:]), push_v, "push_back")
+            if sf.is_safety(bad):
+                return bad, out
+        now = self.robot.posx()
+        if now is None:
+            return sf.worse(bad, sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 올리지 못함")), out
+        bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift"))
+        a = mp.from_base(tf, [v / 1000.0 for v in pressed[:3]])
+        b = mp.from_base(tf, [v / 1000.0 for v in now[:3]])
+        tcp_move = (b[0] - a[0]) * nx + (b[1] - a[1]) * ny
+        gap = d.get("push_start_gap_mm", 10.0) / 1000.0
+        move = max(0.0, min(tcp_move - gap, abs(plan.shift_x_m) + abs(plan.shift_y_m)))   # 닿기 전 빈 거리 뺀 물체 이동 [추정]
+        dx, dy = nx * move, ny * move
+        out.update(pushed=True, push_vector_m=[round(dx, 4), round(dy, 4)])
+        if bad:
+            return bad, out
+        after = json.loads(json.dumps(target))
+        yaw = after["pose"]["yaw"]
+        after["pose"]["position"] = [target["pose"]["position"][0] + dx, target["pose"]["position"][1] + dy, 0.0]
+        after["pose"]["yaw"] = round(yaw / (math.pi / 2)) * (math.pi / 2)   # 벽에 붙어 누웠다고 봄 — 다시 찍어 확인
+        out["target_after"] = after
+        return sf.Outcome(True, reason=f"뒤에서 밀어 {'x' if nx else 'y'} {(dx or dy) * 1000:+.1f} mm (계산한 끝까지, {d.get('push_back_mm', 5.0):g} mm 물러나 올림)"), out
 
     # --- 집기 ---
     def _do_pick_object(self, goal, params):
@@ -1197,19 +1461,100 @@ class SkillServer(Node):
                                          max_top_m=max_top)
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
-        wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0],
-                                    g=dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id)))
-        if wall:                                            # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
+        gw = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
+                  reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id),
+                  max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+                  axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
+                  round=cls in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
+        wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+        # 짧은 변이 벽에 걸리면: 넛지할 수 있으면 넛지 먼저(WALL_TOO_CLOSE), 넛지를 못 하는 자리면 긴 변 양끝으로 [사용자 10/10 우선순위]
+        # 원통형이 옆벽에 붙으면 넛지 없이 긴 변 양끝 + 벽 쪽으로 기울임 (굴러감) [사용자 10/10 PC2 립밤]
+        long_side = False
+        ag = None                                           # 긴 변 양끝·서랍 축 파지 [사용자 10/10 "그리퍼 기준 파지"]
+        if gw["axis_grasp"] and not gw["round"] and mp.axis_grasp_fits(size, gw) and mp.is_crosswise(target["pose"]["yaw"]):
+            gd = dict(gw, wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
+            ag = mp.plan_axis_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gd,
+                                    drag=prm["drag"])
+            if ag.drag is not None:                         # 넛지 먼저 / 못 함 — 움직이기 전 거부
+                return sf.Outcome(False, WALL_TOO_CLOSE, reason=ag.reason), None
+            wall, long_side = None, True
+        round_side = (mp.round_edge_dir(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+                      if gw["round"] else None)             # 원통형 가장자리 → 넛지 없이 그 벽 쪽 기울여 긴 변 [사용자 10/10]
+        if round_side is not None:
+            long_side = True
+        elif ag is None and gw["round"] and mp.long_side_ok(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw):
+            wall, long_side = None, True                    # 원통형은 긴 변 양끝 먼저 — 짧은 변이 벽에 걸려도 넛지(굴러감) 없이 [사용자 10/10 "원통형만 긴 변"]
+        elif wall:
+            gd = dict(gw, wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
+            dp_ = mp.plan_drag(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gd, drag=prm["drag"])
+            long_side = not dp_.needed and dp_.error_code is None and mp.long_side_ok(
+                target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+        if wall and not long_side:                          # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0
-        plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=prm["pick"], support_m=support)
+        if support > 0 and params.get("scan") is not None:   # 쌓임: 높이는 깔린 물체의 온톨로지 높이로 (비전은 무엇이 밑인지만) [사용자 10/11]
+            objs_, why_ = plp.scan_objects(params.get("scan"), drawer_id)
+            s_ont = None if why_ else plp.ontology_support_m(target=target, objects=objs_, size_of=self._size_or_none)
+            if s_ont is not None:
+                support = s_ont
+        by_cls = (prm["pick"].get("tcp_above_top_by_class_m") or {}).get(cls)   # 물건별 잡는 높이 (윗면 기준, 음수 = 아래) — 키 큰 물건 [실측으로 채움]
+        pick_prm = dict(prm["pick"], tcp_above_top_m=by_cls) if by_cls is not None else prm["pick"]
+        plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=pick_prm, support_m=support,
+                                    long_side=long_side)
+        # 긴 변 잡기가 손잡이 쪽 벽 가까이면 그 벽 쪽으로 기울여 잡음 — 앞판이 테두리보다 높아 수직 몸통이 닿음 [사용자 10/10 PC2]
+        tilt = None                                         # (기울일 쪽 서랍 방향, 각도, 이름, 손가락 닫힘 축) — 서랍 축 네 방향만 [사용자 10/10 교시]
+        tilt_x = (mp.front_tilt_x_mm(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+                  if ag is None and long_side and round_side is None and prm["pick"].get("front_tilt_deg") else None)
+        if tilt_x is not None:
+            fz = mp.from_base(place["tf"], plan.position_m)[2] - prm["pick"].get("front_tilt_lower_mm", 0.0) / 1000.0
+            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (tilt_x / 1000.0, target["pose"]["position"][1], fz)))
+            tilt = ((-1.0, 0.0, 0.0), prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
+        if round_side is not None:                          # 교시 자세 기준: TCP 는 물체 가운데보다 벽 쪽·아래 [실측 사용자 10/10 PC2 립밤 왼벽]
+            rw = prm["pick"]["round_wall"]
+            ox, oy = target["pose"]["position"][:2]
+            vx, vy = round_side
+            tz = support + size[2] / 2.0 - rw["tcp_below_center_mm"] / 1000.0
+            k = rw["tcp_to_wall_mm"] / 1000.0
+            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (ox + vx * k, oy + vy * k, tz)))
+            name = "옆벽 쪽" if vy else ("손잡이 쪽" if vx < 0 else "안쪽 벽 쪽")
+            tilt = ((vx, vy, 0.0), rw["tilt_deg"], name, (1.0, 0.0, 0.0) if vy else (0.0, 1.0, 0.0))
+        if ag is not None and ag.tilt_dir is not None:      # 가로로 손잡이 쪽 벽에 붙음: 손잡이 쪽으로 기울이고 손가락은 서랍 y (교시 방향)
+            # 기울이면 손끝이 덜 내려가 윗부분만 잡혀 불안정 [사용자 10/11 PC2 "x·y 는 완벽, 더 깊이"] → front_tilt_lower_mm 더 내림
+            fz = mp.from_base(place["tf"], plan.position_m)[2] - prm["pick"].get("front_tilt_lower_mm", 0.0) / 1000.0
+            plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (*ag.tcp_xy_m, fz)))
+            tilt = (ag.tilt_dir, prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
         g, speed = prm["gripper"], prm["speed"]
-        expected_w = self.grasp_width(cls, size, prm) or plan.expected_width_m       # 벌림은 외접박스 짧은 변 그대로 (plan.open_width_m)
+        expected_w = (None if long_side else self.grasp_width(cls, size, prm)) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
         pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)   # 성공 하한 10 mm [사용자 10/08, #43] — 놓침 2 mm 와 별개
+        def neighbor(long_, open_m):
+            fp_t, fp_s = (({**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}, [size[1], size[0], size[2]])
+                          if long_ else (target, size))             # 손가락 자리: 긴 변 잡기면 90° 돌린 것과 같음
+            under = {o["id"] for o in plp.objects_under(target=target, objects=plp.scan_objects(params.get("scan"), drawer_id)[0] or [],
+                                                        size_of=self._size_or_none)} if support > 0 and params.get("scan") else set()
+            return self._neighbor(params, drawer_id, lambda objs, nb: nc.pick_blocker(   # 밑에 깔린 받침은 빼고 (비전 윗면이 높게 나와도) [사용자 10/11]
+                target=fp_t, size_m=fp_s, open_mm=open_m * 1000.0, objects=[o for o in objs if o["id"] not in under], size_of=self._size_or_none,
+                default_size_m=prm["place"]["default_obstacle_size_m"], finger_mm=g["fingertip_outer_mm"],
+                margin_mm=nb["margin_mm"], support_m=support, below_tol_m=nb["below_tol_m"],
+                finger_half_width_mm=g.get("tip_radius_mm")))
+        who, why = neighbor(long_side, plan.open_width_m)
+        if who and not why and not long_side and tilt is None and mp.long_side_ok(
+                target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw) \
+                and mp.front_tilt_x_mm(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw) is None:
+            # 짧은 변 손가락 자리에 이웃 → 긴 변 양끝(손가락이 끝으로 감)이 비면 긴 변으로 [P2 시뮬레이션 10/10: 가림막 밑 지우개 옆 립밤]
+            lplan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=pick_prm, support_m=support, long_side=True)
+            lwho, lwhy = neighbor(True, lplan.open_width_m)
+            if not lwho and not lwhy:
+                who, long_side, plan = None, True, lplan
+                expected_w = plan.expected_width_m
+        if why or who:                                      # 움직이기 전 거부 [사용자 10/09 랜덤 배치]
+            return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
+                    sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"벌린 손가락 자리에 {who} — 띄우거나 {who} 먼저 치우기")), None
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:
             return bad, None
         close_dir = mp.horizontal_angle_dir(plan.long_axis_deg + 90.0)
+        if tilt is not None:                                # 기울일 땐 손가락도 서랍 축에 딱 맞춤 — 교시한 앞뒤·좌우 자세 그대로, 대각선 금지 [사용자 10/10]
+            close_dir = mp.dir_to_base(place["tf"], tilt[3])
         off = params.get("approach_offset", 0.10)              # 태스크·온톨로지는 [0, 0, 0.1] (m) — z 만 씀
         approach = float(off[2] if isinstance(off, (list, tuple)) else off) * 1000.0
         down = (self.poses().get("drag_down") or {}).get(drawer_id)
@@ -1227,27 +1572,68 @@ class SkillServer(Node):
             # 잡는 손목 방향은 경유점에 도착한 뒤 그 손목 기준으로 (넛지와 같음). 탑뷰(그리퍼 180° 돌림)에서 미리 정하면
             # 경유점에서 손목을 반 바퀴 다시 돌리며 목표로 가 경유점을 안 지나는 것처럼 보임 [사용자 10/08]
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, cur[3:])
+            # 잡는 각도는 경유점(테두리 위)에서 J6 만 돌려 먼저 맞춤 — 내려가며 돌리면 벌린 손가락이 테두리 아래에서 한동안 옆벽 쪽으로
+            # 벌어져 있어 비스듬한 물체 옆 벽에 닿음 [실측 PC2 10/10]. 옆 구간에서 돌리면 제어기가 출발 안 함 [실측 PC2 10/10].
+            # 그리퍼 수직(B 180°)에서 J6 +θ = posx (C − A) +θ [계산 m0609_kin]
+            turn = (grasp[5] - grasp[3]) - (cur[5] - cur[3])
+            turn = (turn + 180.0) % 360.0 - 180.0
+            jnow = self.robot.posj()
+            if abs(turn) > 1.0 and jnow:
+                o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "to_object:turn", in_drawer=True)
+                if not o.success:
+                    return o, None
+                cur = self.robot.posx() or cur
+                grasp = list(grasp[:3]) + list(cur[3:])
+            by_height = prm["pick"].get("grip_height_ratio") is not None and round_side is None and not (prm["pick"].get("touch_floor") or {}).get("enabled")
+            if by_height:
+                # 온톨로지 높이로 계산 [사용자 10/11 "넛지 빼고 온톨로지 높이 반영해서, 벌려서 높이만큼 빠르게 내려가 집기"]: 닫은 손끝(잡는 폭 — 손끝 표)이
+                # 받침 위 물체 높이 × grip_height_ratio. 지우개 손끝 약 5~6 mm 3/3 [실측 10/04]·립밤 교시 손끝 약 11 mm [실측 10/10] = 높이 절반. 덮개 판 등은 물건별 값
+                floor_mm = 1000.0 * pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], support))[2]
+                tip_h = (prm["pick"].get("tip_above_floor_by_class_mm") or {}).get(cls)
+                if tip_h is None:
+                    tip_h = max(float(prm["pick"].get("min_tip_above_floor_mm", 2.0)), size[2] * 1000.0 * float(prm["pick"]["grip_height_ratio"]))
+                grasp = mp.with_z(grasp, floor_mm + float(tip_h) + mp.tip_below_tcp_mm(expected_w * 1000.0, g))
+            vert = list(grasp)                              # 기울이지 않은 잡는 자세 — 들고 나올 때 이걸로 되돌림 (놓으러 갈 때 J6 계산은 수직 기준)
+            if tilt is not None:                            # 손끝은 벽 쪽, 몸통은 서랍 안쪽 — 테두리 위 옆 구간에서 기울임 (넛지와 같음)
+                grasp = mp.gripper_posx(grasp[:3], close_dir, grasp[3:], tilt_toward=mp.dir_to_base(place["tf"], tilt[0]),
+                                        tilt_deg=tilt[1])
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
-            bad = self._over_then_down(goal, drawer_id, cur, above, "to_object:over")   # 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
+            # 경유점에서 미리 벌리고(테두리 위 높이라 안 닿음) 테두리 위로 목표 위 → 잡는 높이 1 cm 위까지 블렌딩 한 번 — 목표 위에서 멈춰
+            # 벌리고 다시 내려가지 않음 [사용자 10/10 "동작이 너무 많고 복잡"]. 마지막 1 cm 만 천천히 [사용자 10/07]
+            self._grip(plan.open_width_m * 1000.0, 20)
+            slow_mm = 0.0 if by_height else prm["pick"].get("slow_last_mm", 0.0)   # 높이 계산이면 한 번에 빠르게 [사용자 10/11 "존나 빠르게"]
+            near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
+            bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=tilt is None)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
         else:                                               # 경유점 교시 전 서랍: 예전처럼 safe_z 로 옮김
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, self._cur_angles())
+            vert = list(grasp)
             above = mp.with_z(grasp, max(prm["transit"]["safe_z_mm"], grasp[2] + min(approach, 30.0)))   # 서랍 테두리만 넘는 높이 (10/06 사용자: 쓸데없이 높이지 않음)
             bad = self._transit(goal, above, "to_object")
         if bad:
             return bad, None
-        self._grip(plan.open_width_m * 1000.0, 20)
-        slow_mm = prm["pick"].get("slow_last_mm", 0.0)     # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
+        if not down:
+            self._grip(plan.open_width_m * 1000.0, 20)
+        slow_mm = 0.0 if (down and by_height) else prm["pick"].get("slow_last_mm", 0.0)   # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
         bad = None
         if slow_mm > 0 and grasp[2] + slow_mm < self.robot.posx()[2] - 1.0:
             bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
-        bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
+        touch_cfg = prm["pick"].get("touch_floor") or {}
+        if touch_cfg.get("enabled") and down:                # 바닥 찍고 올려 잡기 — 모든 서랍 안 집기 [사용자 10/11 "싹 새롭게"]
+            bad = bad or self._pick_touch_down(goal, grasp, place["tf"], target, support, plan, expected_w, touch_cfg)
+        elif math.dist(self.robot.posx()[:3], grasp[:3]) > 0.5:              # 높이 계산이면 블렌딩이 이미 잡는 높이까지 → 안 움직임
+            bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, None
+        grasp_z_now = (self.robot.posx() or grasp)[2]                 # 실제로 닫은 TCP 높이 (바닥 닿아 정했으면 계산값과 다름)
         force = float(params.get("grip_force") or grip_force or g["default_grip_force_n"])
         goal.publish_feedback(Skill.Feedback(stage="close"))
         st = self._grip(0, force)
+        tol = g["grasp_width_tolerance_m"]
+        if long_side:                                       # 긴 변 양끝: 비전 각도가 조금 틀리면 비스듬히 물려 폭이 커짐 [실측 PC2 10/11 캐러멜 79.7/75 ≈ 6°]
+            th = math.radians(prm["pick"].get("long_side_yaw_slack_deg", 0.0))
+            tol += max(0.0, size[0] * math.cos(th) + size[1] * math.sin(th) - size[0])
         chk = gc.check_grasp(width_m=st.width_mm / 1000.0, grasp_detected=st.grip_detected, min_width_m=pick_min_w,
-                             expected_width_m=expected_w, width_tolerance_m=g["grasp_width_tolerance_m"])
+                             expected_width_m=expected_w, width_tolerance_m=tol)
         if not chk.ok:
             self._grip(plan.open_width_m * 1000.0, 20)
             back = self._line(goal, above, self._in_vel(), "lift")
@@ -1259,8 +1645,20 @@ class SkillServer(Node):
         # 도착 뒤 잠깐 멈춤 [사용자 10/06 저녁]
         if route:
             up = mp.with_z(grasp, self._travel_z(drawer_id, max(grasp[2], route[0][2])))
+            # 올리면서 서랍 x·y 각각 가운데 쪽으로 조금(미미한 대각선) — 벽에 붙은 물체가 벽에 끌려 기울지 않게
+            # [사용자 10/10 "올리다 윗벽에 부딪혀 기울어짐, x·y 2 mm 정도 간격 두며 올라오게"]
+            away = float(prm["pick"].get("lift_away_mm", 0.0))
+            if away > 0:
+                ox, oy = target["pose"]["position"][:2]
+                sx = math.copysign(away, place["interior_m"][0] / 2 - ox) / 1000.0
+                sy = math.copysign(away, place["interior_m"][1] / 2 - oy) / 1000.0
+                v = mp.dir_to_base(place["tf"], (sx, sy, 0.0))
+                up = [up[0] + 1000.0 * v[0], up[1] + 1000.0 * v[1]] + list(up[2:])
             r = self.prm()["transit"].get("blend_mm", 0.0)
-            bad = self._blend(goal, [up, list(route[0])], [r, 0.0], self._in_vel(), "lift")
+            # 경유점 1 은 위치만 — 손목은 잡은 방향 그대로 (짧은 옆 구간에서 크게 돌리면 제어기가 출발 안 함 [실측 PC2 10/10 45° 지우개
+            # 들어 올리기 NOT_REACHED]). 원래 방향은 놓으러 갈 때 긴 구간(들고 나오기 1→2)에서 돌아감
+            back = list(route[0][:3]) + list(vert[3:])      # 기울여 잡았으면 테두리 위 옆 구간에서 수직으로 되돌림
+            bad = self._blend(goal, [up, back], [r, 0.0], self._in_vel(), "lift")
         else:
             bad = self._line(goal, above, self._in_vel(), "lift")
         if bad:
@@ -1279,10 +1677,12 @@ class SkillServer(Node):
                 {"object_id": target.get("id"), "class": cls, "grasp_ok": False}
         floor_z = pp.to_base(place["tf"], (target["pose"]["position"][0], target["pose"]["position"][1], 0.0))[2]
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
-                     "tcp_above_floor_m": plan.position_m[2] - floor_z - support}   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
+                     "tcp_above_floor_m": grasp_z_now / 1000.0 - floor_z - support,   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
+                     "long_side": long_side}                                        # 긴 변 양끝을 쥠 → 놓을 때 손가락 방향 90° [사용자 10/10]
         out = {"object_id": target.get("id"), "class": cls, "pick_pose_drawer_frame": target.get("pose"),
                "grasp_ok": True}
-        stacked = f", 받침 {support * 1000:.1f} mm 위" if support else ""
+        stacked = (f", 받침 {support * 1000:.1f} mm 위" if support else "") + (", 긴 변 양끝" if long_side else "") + \
+            (f", {tilt[2]}으로 {tilt[1]:.0f}° 기울임" if tilt is not None else "") + (", 가로 → 긴 변" if ag is not None else "")
         return sf.Outcome(True, reason=f"{cls} 파지 (폭 {chk.width_m * 1000:.1f} mm, {hold.reason}{stacked})"), out
 
     # --- 놓기 ---
@@ -1309,7 +1709,7 @@ class SkillServer(Node):
         # 거기서 트레이 칸 위로 바로 (보는 자세·tray_view 를 거치지 않음 — 팔을 편 자세에서 특이점·꺾임)
         z_m = mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"])
         pos = [1000.0 * v for v in pp.to_base(tf, (slots[i][0], slots[i][1], z_m))]
-        close_dir = mp.dir_to_base(tf, (1.0, 0.0, 0.0))                 # 칸이 x로 늘어섬 → 물체 긴 변은 y, 손가락은 x로
+        close_dir = mp.dir_to_base(tf, (0.0, 1.0, 0.0) if self.held.get("long_side") else (1.0, 0.0, 0.0))   # 칸이 x로 늘어섬 → 물체 긴 변은 y, 손가락은 x로 (긴 변 잡기면 y로)
         target = mp.gripper_posx(pos, close_dir, self._cur_angles())
         above = mp.with_z(target, max(prm["transit"]["free_lift_z_mm"], target[2] + pl["approach_m"] * 1000.0))
         cur = self.robot.posx()
@@ -1325,7 +1725,22 @@ class SkillServer(Node):
                 if bad:
                     return bad, None
                 time.sleep(prm["carry"]["pause_s"])
-            pts = route[1:] + [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)까지 블렌딩, 거기서 정지
+                cur = self.robot.posx() or cur
+            # 집은 손목 방향 → 놓는 손목 방향은 경유점 1(서랍 가운데, 테두리 위)에서 J6 만 돌려 먼저 [실측 PC2 10/10: 1→2 구간(64 mm)에서
+            # 65° 되돌리는 블렌딩을 제어기가 출발 안 함]. 그리퍼 수직이면 J6 +θ = posx (C − A) +θ.
+            # 들고 나오기 경유점도 위치만 쓰고 손목은 놓는 방향 그대로 — 긴 변 잡기(손가락 y)는 경유점 방향(손가락 x)과 90° 달라
+            # 4번 → 칸 위에서 돌리다 제어기가 출발 안 함 [실측 PC2 10/10 손잡이 쪽 지우개 carry NOT_REACHED]
+            turn = ((target[5] - target[3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0
+            jnow = self.robot.posj()
+            if abs(turn) > 1.0 and jnow:
+                o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "carry:turn", in_drawer=True)
+                if not o.success:
+                    return o, None
+            pts = [list(p[:3]) + list(target[3:]) for p in route[1:]] + \
+                [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)
+            slow_c = pl.get("slow_last_mm", 0.0)
+            if slow_c > 0 and target[2] + slow_c < pts[-1][2] - 1.0:   # 칸 위에서 멈추지 않고 놓는 높이 1 cm 위까지 이어서 [사용자 10/10]
+                pts.append(mp.with_z(target, target[2] + slow_c))
             rad = prm["carry"]["radius_mm"]
             here = self.robot.posx() or route[0]
             seq = [here] + pts
@@ -1334,7 +1749,7 @@ class SkillServer(Node):
             bad = self._blend(goal, pts, radii, self._free_vel(), "carry")
             if bad:
                 return bad, None                            # 놓는 자리로는 grasp_mm_s 로 살포시 (10/06 저녁: 놓기는 빠르게 하지 않음)
-            above = list(pts[-1])                           # 이미 칸 위 — 다시 올리지 않음, 놓은 뒤에도 여기로
+            above = list(pts[-2] if len(pts) > len(route) else pts[-1])   # 칸 위(4번 높이) — 놓은 뒤 여기로
         elif self._over_drawer(cur):
             # 들고 나오기(carry_out): 직접교시 경유점 4개를 movesj 로 한 번에 — 서랍 안 → 서랍 위 → 앞판 넘음 → 트레이 쪽
             # [사용자 직접교시·실물 확인 B 10/06]. 그다음 트레이 칸 위로 직선 (4번 높이, y = 트레이 가운데)
@@ -1372,7 +1787,7 @@ class SkillServer(Node):
         now = self.robot.posx()
         if slow_mm > 0 and now and target[2] + slow_mm < now[2] - 1.0:
             bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), speed["line_mm_s"], "lower_fast")
-        bad = bad or self._line(goal, target, speed["grasp_mm_s"], "lower")
+        bad = bad or self._lower_touch(goal, target, speed["grasp_mm_s"], "lower")
         if bad:
             return bad, None
         goal.publish_feedback(Skill.Feedback(stage="release"))
@@ -1387,6 +1802,17 @@ class SkillServer(Node):
             return back, out
         return sf.Outcome(True, reason=f"{cls} → {loc} {i + 1}번 칸"), out
 
+
+    def _neighbor(self, params, drawer_id, check):
+        """입력 scan(직전 inspect_region 결과 전체)이 있으면 check(objs, params.neighbor) → (막는 이웃 id, None).
+        scan 형식·다른 서랍이면 (None, 이유) → BAD_PARAMS. scan 이 없으면 확인 안 함 (None, None) — 예전과 같음."""
+        scan = params.get("scan")
+        if scan is None:
+            return None, None
+        objs, why = plp.scan_objects(scan, drawer_id)
+        if why:
+            return None, why
+        return check(objs, self.prm()["neighbor"]), None
 
     def _size_or_none(self, cls):
         """이웃 footprint 용 온톨로지 size_m — 모르는 class 면 None (place.default_obstacle_size_m 을 씀)."""
@@ -1427,12 +1853,73 @@ class SkillServer(Node):
         g, pl, speed = prm["gripper"], prm["place"], prm["speed"]
         size, _ = self.item(self.held["class"])
         open_mm = self.held["width_m"] * 1000.0 + pl["release_extra_mm"]
-        bad = plp.check_place(pose=pose, held_id=held_id, held_size_m=size, open_mm=open_mm, objects=objs,
-                              size_of=self._size_or_none, interior_m=interior, place=pl,
-                              g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
+        gw = dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc),
+                  reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(loc),
+                  max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+                  axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
+                  wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(loc),
+                  round=self.held["class"] in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
+
+        long_held = bool(self.held.get("long_side"))
+        support = None                                      # 다른 물체 위에 놓기 (명령한 pose 만, place.allow_stack_place) — 받침은 이웃 확인에서 뺌
+        if not slot and pl.get("allow_stack_place"):
+            support = plp.stack_support(pose=pose, held_id=held_id, held_size_m=size, objects=objs, size_of=self._size_or_none,
+                                        max_top_m=interior[2] - prm["pick"]["stack_top_clear_m"])
+            if support is not None:
+                objs = [o for o in objs if o["id"] != support["id"]]
+
+        def check(p_):
+            # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 손가락 자리·벽 확인 (집기 footprint 와 같음)
+            pc, sc = ((dict(p_, yaw=p_["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (p_, size))
+            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
+                                   size_of=self._size_or_none, interior_m=interior, place=pl,
+                                   g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
+            if bad_ or not slot:
+                return bad_
+            # 남은 물건을 아직 집을 수 있어야 함 — 놓은 물체가 남은 물건의 벌린 손가락 자리에 들어가면 안 됨 [P2 무작위 배치 10/10]
+            me = {"id": held_id, "class": self.held["class"], "top_z": self.held.get("tcp_above_floor_m", 0.0) + size[2],
+                  "pose": dict(p_, yaw_valid=True)}
+            nb = prm.get("neighbor") or {}
+            for o in objs:
+                if o["id"] == held_id or not (o.get("pose") or {}).get("yaw_valid"):
+                    continue
+                osz = self._size_or_none(o.get("class"))
+                if not osz:
+                    continue
+                blocked = True
+                round_o = o.get("class") in (prm["pick"].get("round_classes") or [])
+                ways = (True,) if round_o else ((False, True) if mp.axis_grasp_fits(osz, gw) else (False,))   # 원통형은 긴 변으로 잡음
+                for long_ in ways:
+                    if long_ and not round_o and not mp.long_side_ok(target=o, size_m=osz, interior_m=interior, g=gw):
+                        continue                                    # 긴 변이 벽에 걸리면 그 길은 없음 (집기와 같은 판단)
+                    ot, os_ = (({**o, "pose": {**o["pose"], "yaw": o["pose"]["yaw"] + math.pi / 2}}, [osz[1], osz[0], osz[2]])
+                               if long_ else (o, osz))
+                    if not nc.pick_blocker(target=ot, size_m=os_, open_mm=os_[1] * 1000.0 + g["open_margin_mm"], objects=[me],
+                                           size_of=self._size_or_none, default_size_m=pl["default_obstacle_size_m"],
+                                           finger_mm=g["fingertip_outer_mm"], margin_mm=nb.get("margin_mm", 5.0), support_m=0.0,
+                                           below_tol_m=nb.get("below_tol_m", 0.003), finger_half_width_mm=g.get("tip_radius_mm")):
+                        blocked = False
+                        break
+                if blocked:
+                    return plp.Refusal(plp.PLACE_BLOCKED, f"놓으면 {o['id']} 를 집을 손가락 자리를 막음", o["id"])
+            # 고정 자리는 나중에 넛지 없이 다시 집을 수 있어야 함(되돌리기) [P2 시뮬레이션 10/10: aside 에 놓은 가림막을 못 다시 집음]
+            # 다시 볼 때 비전 오차(repick_noise_mm·deg)만큼 틀려도 넛지 없이 [P2 시뮬레이션 10/11: 아래 칸 aside_1 가림막을 ±3 mm 로 보면
+            # 손잡이 쪽 벽에 걸려 넛지 → 안쪽으로 못 끌어 NO_PUSH_ACCESS]
+            e_m, e_r = pl.get("repick_noise_mm", 0.0) / 1000.0, math.radians(pl.get("repick_noise_deg", 0.0))
+            for dx, dy, dyaw in ([(0.0, 0.0, 0.0)] + [(sx * e_m, sy * e_m, sr * e_r) for sx in (-1, 1) for sy in (-1, 1) for sr in (-1, 1)]
+                                 if e_m or e_r else [(0.0, 0.0, 0.0)]):
+                q_ = dict(p_, position=[p_["position"][0] + dx, p_["position"][1] + dy] + list(p_["position"][2:]), yaw=p_["yaw"] + dyaw,
+                          yaw_valid=True)
+                dp_ = mp.plan_drag(target={"pose": q_}, size_m=size, interior_m=interior, g=gw, drag=prm["drag"])
+                if dp_.needed or dp_.error_code:
+                    return plp.Refusal(WALL_TOO_CLOSE, f"놓으면 다시 집을 때 넛지 필요 ({dp_.reason})", "wall")
+            return None
+        # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 — 명령한 pose(되돌리기)는 그대로 [P2 시뮬레이션 10/10]
+        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0)
         if bad:
             return refuse(bad.error_code, bad.reason, bad.blocked_by)
-        pos_m, long_deg = plp.place_tcp_m(tf, pose, mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"]))
+        support_m = float(support["top_z"]) if support is not None else 0.0
+        pos_m, long_deg = plp.place_tcp_m(tf, pose, support_m + mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"]))
         travel_z = self._travel_z(loc, 0.0)                    # 서랍 안 옆 이동 높이 (넛지·집기와 같음) [사용자 10/08]
         # --- 여기부터 움직임 ---
         bad = self._to_drawer_view(goal, loc)
@@ -1445,7 +1932,7 @@ class SkillServer(Node):
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), dict(empty)
-        target = mp.gripper_posx([1000.0 * v for v in pos_m], mp.horizontal_angle_dir(long_deg + 90.0), cur[3:])
+        target = mp.gripper_posx([1000.0 * v for v in pos_m], mp.horizontal_angle_dir(long_deg + (0.0 if self.held.get("long_side") else 90.0)), cur[3:])
         above = mp.with_z(target, target[2] + min(pl["approach_m"] * 1000.0, 30.0))
         route = self._carry_route(loc)
         back = list(route[0]) if route else list(cur)          # 돌아갈 서랍 안 경유점 (= drag_down TCP)
@@ -1468,7 +1955,7 @@ class SkillServer(Node):
         now = self.robot.posx()
         if slow_mm > 0 and now and target[2] + slow_mm < now[2] - 1.0:
             bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), vel, "descend_fast")
-        bad = bad or self._line(goal, target, speed["grasp_mm_s"], "descend")
+        bad = bad or self._lower_touch(goal, target, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, dict(empty)
         bad = self._clear_to_continue(goal)                   # 그리퍼 열기 전: 취소·비상정지면 열지 않음
