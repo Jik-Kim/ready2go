@@ -31,8 +31,8 @@ case "$1" in
     server)
         ros_env
         cd "$R/ros2_ws/src/ready2go_skills" && RG2_HOST="${RG2_HOST:-192.168.1.1}" exec python3 -m ready2go_skills.nodes.skill_server \
-            --ros-args -p joint_vel_deg_s:="$(python3 -c "print(float('${VEL:-60}'))")" \
-            -p joint_acc_deg_s2:="$(python3 -c "print(float('${JACC:-40}'))")" -p config_dir:="$R/config" ;;   # 10/06 저녁 2배 (30·20 → 60·40)
+            --ros-args -p joint_vel_deg_s:="$(python3 -c "print(float('${VEL:-80}'))")" \
+            -p joint_acc_deg_s2:="$(python3 -c "print(float('${JACC:-60}'))")" -p config_dir:="$R/config" ;;   # 10/06 저녁 2배 (30·20 → 60·40) → 10/11 80·60 [사용자 "이동 답답"]
     demo)
         ros_env
         shift
