@@ -139,3 +139,52 @@ def test_place_tcp_matches_pick_frame_conversion():
     floor = pp.to_base(tf, (0.1, 0.15, 0.0))[2]
     pos, long_deg = plp.place_tcp_m(tf, pose(0.1, 0.15, 0.3), g.position_m[2] - floor)
     assert pos == pytest.approx(g.position_m, abs=1e-5) and long_deg == pytest.approx(g.long_axis_deg)
+
+
+def test_fit_slot_moves_big_object_least_inside():
+    """[P2 시뮬레이션 10/10] 고정 자리에 안 들어가는 큰 물체(가림막)는 자리 가운데에서 가장 적게 옮김. 다 막히면 원래 거부 그대로."""
+    def check(p):
+        x = p["position"][0] * 1000.0
+        return None if x >= 55.0 else plp.Refusal(plp.WALL_TOO_CLOSE, "벽")
+    pose = {"frame": "drawer_top", "position": [0.0514, 0.0614, 0.0], "yaw": 0.0}
+    got, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=40.0)
+    assert bad is None and got["position"][0] * 1000.0 == pytest.approx(55.4, abs=0.01) and got["position"][1] == pose["position"][1]
+    got, bad = plp.fit_slot(pose=pose, check=lambda p: plp.Refusal(plp.WALL_TOO_CLOSE, "벽"), max_shift_mm=40.0)
+    assert got == pose and bad.error_code == plp.WALL_TOO_CLOSE
+    got, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=0.0)                       # 0 = 안 옮김
+    assert got == pose and bad is not None
+
+
+def test_bottom_drawer_has_travel_reference():
+    """[P2 시뮬레이션 10/10] 아래 칸 tf_at_travel_m 이 없어 집기·넛지·서랍 안 놓기가 모두 DRAWER_NOT_AT_TRAVEL 이었음."""
+    places = yaml.safe_load((Path(__file__).resolve().parents[4] / "config" / "places.yaml").read_text(encoding="utf-8"))
+    for d in ("drawer_top", "drawer_bottom"):
+        assert places[d]["tf_at_travel_m"] == pytest.approx(places[d]["max_travel_m"])
+
+
+def test_stack_support_picks_top_object_under_center_within_rim():
+    """[P2 시뮬레이션 10/11] 쌓였던 차키를 캐러멜 위 원래 자리로 되돌림 — 가운데를 덮는 이웃 중 가장 높은 것, 테두리 여유 안일 때만."""
+    sizes = {"caramel": [0.08, 0.05, 0.02], "wrench": [0.20, 0.04, 0.012]}
+    objs = [{"id": "wrench#1", "class": "wrench", "top_z": 0.012, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}},
+            {"id": "caramel#1", "class": "caramel", "top_z": 0.032, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 1.5708}},
+            {"id": "key#1", "class": "car_key", "top_z": 0.05, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}}]
+    kw = dict(held_id="key#1", held_size_m=[0.06, 0.03, 0.018], objects=objs, size_of=sizes.get, max_top_m=0.06)
+    assert plp.stack_support(pose=pose(0.10, 0.15, 0.0), **kw)["id"] == "caramel#1"
+    assert plp.stack_support(pose=pose(0.10, 0.17, 0.0), **kw)["id"] == "caramel#1"           # 캐러멜 긴 변(y) 안
+    assert plp.stack_support(pose=pose(0.13, 0.15, 0.0), **kw)["id"] == "wrench#1"            # 캐러멜 짧은 변 밖, 몽키 위
+    assert plp.stack_support(pose=pose(0.10, 0.25, 0.0), **kw) is None                       # 바닥
+    assert plp.stack_support(pose=pose(0.10, 0.15, 0.0), **dict(kw, max_top_m=0.045)) is None  # 테두리 넘음
+
+
+def test_ontology_support_uses_heights_of_objects_underneath():
+    """[사용자 10/11 "온톨로지로 높이 파악"] 받침 = 밑에 깔린 물체 온톨로지 높이의 합 — 비전 top_z 는 무엇이 밑인지만.
+    비전이 캐러멜을 27 mm(온톨로지 18.5)로 봐도 지우개 받침은 18.5, 몽키(18.5) 위 캐러멜 위면 37."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "toy_wrench": [0.17, 0.061, 0.0185], "eraser": [0.0525, 0.022, 0.0115]}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.039, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}}
+    ca = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.027, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 1.5708}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.012, "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}}
+    assert plp.ontology_support_m(target=er, objects=[er, ca], size_of=sizes.get) == pytest.approx(0.0185)
+    assert plp.ontology_support_m(target=er, objects=[er, ca, wr], size_of=sizes.get) == pytest.approx(0.037)
+    assert plp.ontology_support_m(target=ca, objects=[er, ca], size_of=sizes.get) is None             # 밑에 없음 (지우개는 위)
+    far = dict(ca, pose={"position": [0.20, 0.25, 0.0], "yaw": 0.0})
+    assert plp.ontology_support_m(target=er, objects=[er, far], size_of=sizes.get) is None
