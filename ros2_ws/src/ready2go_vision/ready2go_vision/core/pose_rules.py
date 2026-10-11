@@ -17,6 +17,12 @@ def normalize_yaw(yaw: float) -> float:
     return yaw - math.pi * math.ceil(yaw / math.pi - 0.5)
 
 
+def round_yaw(yaw: float, ndigits: int = 4) -> float:
+    """결과 JSON 용 반올림. ±90° 근처는 반올림하면 범위를 벗어나므로(1.5708 > pi/2, -1.5708 < -pi/2) 같은 직선인 pi/2 로 쓴다."""
+    y = round(yaw, ndigits)
+    return math.pi / 2 if (y > math.pi / 2 or y <= -math.pi / 2) else y
+
+
 def is_symmetric(size_m, ratio: float = SYMMETRY_RATIO) -> bool:
     """온톨로지 명목 size_m 의 가로·세로 두 값(max/min)이 ratio 미만이면 대칭 물체 → yaw 0 고정.
     측정한 덩어리가 아니라 명목 치수로 계산해 재현성을 확보한다. 높이(size_m[2])는 쓰지 않고, 두 값의 순서와 무관하다."""
