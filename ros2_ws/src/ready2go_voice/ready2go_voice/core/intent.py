@@ -45,6 +45,7 @@ def intent(kind, targets=(), confidence=1.0, question=None):
 class IntentParser:
     def __init__(self, ontology, schema, cfg, llm=None, clock=time.monotonic):
         self.items = ontology['world']['items']
+        self.places = ontology['world']['places']
         self.validator = Draft7Validator(schema)
         self.cfg, self.llm, self.clock = cfg, llm, clock
         self.calls = DeadlineCall()
@@ -167,6 +168,99 @@ class IntentParser:
             return intent('clarify', question=self.cfg['clarify_prompts']['request'])
         return intent('unknown', question='등록된 물품 하나를 요청해 주세요.')
 
+    def _goal_requested(self, text):
+        return bool(re.search(r'열어|닫아|갖다(?:놔|놓)|가져다(?:놔|놓)|트레이.*(?:놔|놓)', normalize_control(text)))
+
+    def _expected_goals(self, text):
+        """Recognize explicit selected goals, never invent an action sequence/state."""
+        if self._nonrequest_context(text) or re.search(r'안|않|못|말고|하지마|지마|아래|임시|트레이에서', normalize_control(text)):
+            return None
+        catalog = self.cfg.get('p2_goal_catalog', [])
+        drawers = {g['subject'] for group in catalog for g in group if g['predicate'] == 'open'}
+        deliveries = {(g['subject'], g['value']) for group in catalog for g in group if g['predicate'] == 'located_in'}
+        value = normalize_control(text)
+        for drawer in drawers:
+            if drawer not in self.places or self.places[drawer].get('class') != 'Drawer':
+                continue
+            names = [normalize(self.places[drawer]['name_ko']), drawer]
+            if len(drawers) == 1:
+                names.append('서랍')  # unambiguous selected drawer only
+            d = '(?:' + '|'.join(re.escape(n) for n in names) + ')'
+            for state, verb in ((True, r'열어(?:둬|줘|두세요|두어줘)'), (False, r'닫아(?:줘|주세요)?')):
+                if re.fullmatch(d + r'(?:을|는|은)?' + verb, value):
+                    return [{'predicate': 'open', 'subject': drawer, 'value': state}]
+            for item, destination in deliveries:
+                if item not in self.items or destination not in self.places or self.places[destination].get('class') != 'Tray':
+                    continue
+                aliases = [a for a, keys in self.aliases.items() if keys == {item}]
+                item_re = '(?:' + '|'.join(re.escape(a) for a in aliases) + ')'
+                places = '(?:' + re.escape(normalize(self.places[destination]['name_ko'])) + '|트레이)'
+                delivery = item_re + r'(?:을|를)?(?:' + places + r'에)?(?:갖다|가져다)(?:놔|놓아|놓고)'
+                base = {'predicate': 'located_in', 'subject': item, 'value': destination}
+                if re.fullmatch(delivery, value):
+                    return [base]
+                if re.fullmatch(delivery + d + r'(?:은|는)?열어(?:둬|줘|두세요)', value):
+                    return [base, {'predicate': 'open', 'subject': drawer, 'value': True}]
+        return None
+
+    def _validate_goal(self, doc, text):
+        if self.cfg.get('p2_goal_enabled') is not True:
+            raise InvalidIntent('unsupported_intent', 'P2 opt-in required')
+        expected = self._expected_goals(text)
+        goals = doc.get('goals')
+        canonical = lambda values: sorted(json.dumps(g, sort_keys=True) for g in values)
+        if (not expected or not isinstance(goals, list) or
+                any(not isinstance(g, dict) or set(g) != {'predicate', 'subject', 'value'} for g in goals) or
+                doc.get('targets') or doc.get('query') or doc.get('rejection_reason') is not None or
+                type(doc.get('confidence')) not in (int, float) or not math.isfinite(doc['confidence']) or
+                doc['confidence'] < self.cfg['min_confidence'] or
+                canonical(goals) != canonical(expected) or
+                not any(canonical(goals) == canonical(group) for group in self.cfg.get('p2_goal_catalog', []))):
+            raise InvalidIntent('goal_mismatch', 'selected explicit goals required')
+        for g in goals:
+            if g['predicate'] == 'open':
+                if g['subject'] not in self.places or self.places[g['subject']].get('class') != 'Drawer' or type(g['value']) is not bool:
+                    raise InvalidIntent('goal_type', 'registered drawer/bool required')
+            elif (g['predicate'] != 'located_in' or g['subject'] not in self.items or
+                  g['value'] not in self.places or self.places[g['value']].get('class') != 'Tray'):
+                raise InvalidIntent('goal_type', 'registered delivery goal required')
+        self.validator.validate(doc)
+        result = intent('achieve_goal', confidence=doc['confidence'])
+        result['goals'] = goals
+        result['_voice'] = {'p2_goal_candidate': True}
+        return result
+
+    def _parse_goal(self, text, deadline):
+        from .response import final_response
+        diag = {'stt_text': text, 'llm_called': False, 'llm_validation': 'not_called',
+                'fallback_used': False, 'input_kind': 'text', 'execution_allowed': False}
+        doc = None
+        candidate = None
+        if self.llm is not None:
+            timeout = self.cfg['llm_timeout_sec']
+            if deadline is not None:
+                timeout = min(timeout, deadline - self.clock())
+            if timeout > 0:
+                diag['llm_called'] = True
+                try:
+                    raw = self.calls.call(lambda: self.llm(text, timeout), timeout)
+                    diag['llm_raw'] = raw
+                    decoded = json.loads(raw) if isinstance(raw, str) else dict(raw)
+                    candidate = decoded.get('response_text')
+                    doc = self.validate(raw, text)
+                    if doc['intent'] != 'achieve_goal':
+                        raise InvalidIntent('goal_not_confirmed', 'goal model must confirm selected goals')
+                    diag['llm_validation'] = 'passed'
+                except Exception as exc:
+                    doc = None
+                    diag.update(llm_validation='failed', llm_error=type(exc).__name__)
+        if doc is None:
+            doc = intent('clarify', question=self.cfg['clarify_prompts']['unconfirmed'])
+            doc['_voice'] = {'reason': 'p2_goal_unconfirmed'}
+        final_response(self, doc, candidate)
+        doc['source'] = diag
+        return doc
+
     def validate(self, raw, text):
         doc = json.loads(raw) if isinstance(raw, str) else dict(raw)
         doc.pop('response_text', None)  # 내부 후보 문장: 공개 계약의 clarify_question과 구분
@@ -176,6 +270,10 @@ class IntentParser:
             raise InvalidIntent('invalid_rejection_reason', '지원되는 내부 사유 필요')
         if isinstance(doc, dict) and type(doc.get('confidence')) in (int, float) and not math.isfinite(doc['confidence']):
             raise InvalidIntent('nonfinite_confidence', '유한 confidence 필요')
+        if doc.get('intent') == 'achieve_goal':
+            if reason is not None:
+                raise InvalidIntent('goal_reason', 'goal cannot have a rejection reason')
+            return self._validate_goal(doc, text)
         self.validator.validate(doc)
         if not math.isfinite(doc['confidence']):
             raise InvalidIntent('nonfinite_confidence', '유한 confidence 필요')
@@ -217,6 +315,8 @@ class IntentParser:
         return result
 
     def parse(self, text, deadline=None):
+        if self.cfg.get('p2_goal_enabled') is True and not self.control(text) and self._goal_requested(text):
+            return self._parse_goal(text, deadline)
         started = self.clock()
         diag = {'stt_text': text, 'llm_called': False, 'llm_validation': 'not_called',
                 'fallback_used': False, 'input_kind': 'text'}

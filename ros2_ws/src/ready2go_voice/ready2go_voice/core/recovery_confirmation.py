@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from functools import wraps
 import math
 import threading
+import uuid
 from .runner_notice import STATUS_PROMPTS, warning_kind
 
 RESUME_QUESTION = '복구 확인이 끝났어요. 멈춘 단계부터 작업을 이어서 할까요?'
@@ -23,8 +24,28 @@ def safety_utterance(text):
         return None
     return {'멈춰': 'stop', '정지해': 'stop', '복구해': 'recover',
             '상태 확인 후 복구해': 'recover', '재개해': 'resume',
-            '이어서 실행해': 'resume', '처음부터 시작해': 'new_start',
+            '이어서 실행해': 'resume', '이어서 해': 'resume', '처음부터 시작해': 'new_start',
             '새 작업 시작해': 'new_start'}.get(text.strip().rstrip('.!?').strip())
+
+
+def task_end_utterance(text):
+    """Narrow positive grammar, with negation scoped to ending this work."""
+    if not isinstance(text, str):
+        return False
+    text = ''.join(text.split()).rstrip('.!?。？！')
+    return text in ('종료', '종료해', '작업종료해', '이작업종료해', '계속하지말고종료해')
+
+
+@dataclass(frozen=True)
+class TaskEndCandidate:
+    work: 'StoppedWork'
+
+
+@dataclass(frozen=True)
+class IndependentRequest:
+    work: 'StoppedWork'
+    request_id: str
+    issued_at: float
 
 
 def serialized(method):
@@ -108,6 +129,7 @@ class Question:
     issued_at: float
     text: str = RESUME_QUESTION
     mode: str = 'resume'  # E-local only; not an intent enum
+    question_id: str = ''
 
 
 @dataclass(frozen=True)
@@ -120,17 +142,21 @@ class AudioRequest:
 
 
 class RecoveryConfirmation:
-    def __init__(self, session, *, admission_window_sec=10.0, stt_result_timeout_sec=None):
+    def __init__(self, session, *, admission_window_sec=None, stt_result_timeout_sec=None,
+                 register_ack_timeout_sec=None, question_tts_timeout_sec=None,
+                 independent_request_timeout_sec=None):
         if not isinstance(session, str) or not session.strip():
             raise ValueError('session required')
-        if not finite(admission_window_sec) or admission_window_sec <= 0:
-            raise ValueError('finite positive admission window required')
-        if stt_result_timeout_sec is not None and (
-                not finite(stt_result_timeout_sec) or stt_result_timeout_sec <= 0):
-            raise ValueError('finite positive STT result budget required')
+        for value in (admission_window_sec, stt_result_timeout_sec, register_ack_timeout_sec,
+                      question_tts_timeout_sec, independent_request_timeout_sec):
+            if value is not None and (not finite(value) or value <= 0):
+                raise ValueError('finite positive budget or None required')
         self.session = session
         self.admission_window_sec = admission_window_sec
         self.stt_result_timeout_sec = stt_result_timeout_sec
+        self.register_ack_timeout_sec = register_ack_timeout_sec
+        self.question_tts_timeout_sec = question_tts_timeout_sec
+        self.independent_request_timeout_sec = independent_request_timeout_sec
         self._lock = threading.RLock()
         self.retired_boots = set()
         self.sequences = {}
@@ -141,7 +167,27 @@ class RecoveryConfirmation:
         self.question = None
         self.finished_at = None
         self.request = None
+        self.registered_at = None
+        self.tts_started_at = None
+        self.independent = None
+        self.independent_audio = None
+        self.independent_result = None
+        self.independent_ack = None
+        self.audio_end = -1
+        self.current_state_confirmed = True
         self.restart_required_runs = set()  # candidate eligibility only, no global motion lock
+
+    @classmethod
+    def from_config(cls, session, cfg):
+        return cls(session, **{name: cfg.get('resume_' + name) for name in (
+            'admission_window_sec', 'stt_result_timeout_sec', 'register_ack_timeout_sec',
+            'question_tts_timeout_sec', 'independent_request_timeout_sec')})
+
+    @serialized
+    def voice_restarted(self):
+        """Require a fresh trusted C state; do not discard C's preserved work."""
+        self.invalidate()
+        self.current_state_confirmed = False
 
     @serialized
     def track_boot(self, session, *, valid_state):
@@ -155,6 +201,7 @@ class RecoveryConfirmation:
         self.retired_boots.add(self.session)
         self.session = session
         self.work = None
+        self.current_state_confirmed = False
         self.invalidate()
         self.sequences.clear()
         self.revision = -1
@@ -185,6 +232,12 @@ class RecoveryConfirmation:
         self.question = None
         self.finished_at = None
         self.request = None
+        self.registered_at = None
+        self.tts_started_at = None
+        self.independent = None
+        self.independent_audio = None
+        self.independent_result = None
+        self.independent_ack = None
 
     @serialized
     def stopped(self, work, revision):
@@ -193,10 +246,25 @@ class RecoveryConfirmation:
         if self.work is not None and work != self.work:
             self.retired_events.add((self.work.session, self.work.task, self.work.stop))
         self.work = work
+        self.current_state_confirmed = True
         if work.cause == 'OBJECT_DROPPED':
             self.restart_required_runs.add((work.session, work.task))
         self.invalidate()
         return True
+
+    @serialized
+    def completed(self, work, revision, *, valid_state):
+        """Trusted current C completion retires local work; no C state mutation."""
+        if valid_state is not True or work != self.work or not self._accept(work, revision):
+            return False
+        self._retire_work(work)
+        return True
+
+    def _retire_work(self, work):
+        # E-local retirement only; neither a C termination ACK nor a motion action.
+        self.retired_events.add((work.session, work.task, work.stop))
+        self.invalidate()
+        self.work = None
 
     @serialized
     def notice(self, evidence=None):
@@ -243,16 +311,15 @@ class RecoveryConfirmation:
         if question is None or question is not self.question:
             return False
         self.invalidate()
-        self.work = None
         return True
 
     @serialized
     def recovered(self, work, revision, evidence, *, now, valid_until):
-        if work != self.work or not self._accept(work, revision):
+        if not self.current_state_confirmed or work != self.work or not self._accept(work, revision):
             return None
         mode = self._recovery_mode(work, evidence)
         if (mode is None or
-                not finite(now) or not finite(valid_until) or valid_until <= now):
+                not finite(now) or now < 0 or not finite(valid_until) or valid_until <= now):
             self.invalidate()
             return None
         if work in self.asked:
@@ -260,18 +327,81 @@ class RecoveryConfirmation:
         self.asked.add(work)
         self.question = Question(work, revision, valid_until, now,
                                  NEW_START_QUESTION if mode == 'new_start' else RESUME_QUESTION,
-                                 mode)
+                                 mode, uuid.uuid4().hex)
         self.finished_at = None
         self.request = None
         return self.question
+
+    @serialized
+    def registered(self, question, work, revision, *, now, valid_state):
+        """Internal ACK event only; caller must supply the current trusted state."""
+        if question is None or question is not self.question:
+            return False
+        if self.registered_at is not None:
+            return False  # retransmission cannot extend deadlines or replay TTS
+        if (valid_state is not True or not self.current_state_confirmed or work != self.work or
+                type(revision) is not int or revision != self.revision or
+                self.register_ack_timeout_sec is None or not finite(now) or
+                not question.issued_at <= now < min(question.valid_until,
+                    question.issued_at + self.register_ack_timeout_sec)):
+            self.invalidate()
+            return False
+        self.registered_at = now
+        return True
+
+    @serialized
+    def tts_started(self, question, *, now):
+        if question is None or question is not self.question:
+            return False
+        if self.tts_started_at is not None:
+            return False
+        if (self.registered_at is None or self.question_tts_timeout_sec is None or
+                not finite(now) or not self.registered_at <= now < min(question.valid_until,
+                    self.registered_at + self.question_tts_timeout_sec)):
+            self.invalidate()
+            return False
+        self.tts_started_at = now
+        return True
+
+    @serialized
+    def expire(self, *, now):
+        if not finite(now) or now < 0:
+            self.invalidate()
+            return True
+        q = self.question
+        if q is None:
+            return False
+        limit = q.valid_until
+        if self.registered_at is None:
+            if self.register_ack_timeout_sec is None:
+                self.invalidate(); return True
+            limit = min(limit, q.issued_at + self.register_ack_timeout_sec)
+        elif self.finished_at is None:
+            if self.question_tts_timeout_sec is None:
+                self.invalidate(); return True
+            limit = min(limit, self.registered_at + self.question_tts_timeout_sec)
+        elif self.request is None:
+            if self.admission_window_sec is None:
+                self.invalidate(); return True
+            # The approved admission boundary itself is included.
+            if now <= self.finished_at + self.admission_window_sec and now < q.valid_until:
+                return False
+            limit = min(limit, self.finished_at + self.admission_window_sec)
+        else:
+            limit = min(limit, self.request.result_until)
+        if now >= limit:
+            self.invalidate(); return True
+        return False
 
     @serialized
     def delivered(self, question, *, now, success):
         """now must be actual successful TTS playback completion, not enqueue."""
         if question is None or question is not self.question:
             return False
-        if (success is not True or not finite(now) or
-                not question.issued_at <= now < question.valid_until):
+        if (success is not True or not finite(now) or self.registered_at is None or
+                self.tts_started_at is None or self.question_tts_timeout_sec is None or
+                not self.tts_started_at <= now < min(question.valid_until,
+                    self.registered_at + self.question_tts_timeout_sec)):
             self.invalidate()
             return False
         if self.finished_at is not None:
@@ -290,7 +420,7 @@ class RecoveryConfirmation:
         """
         if question is None or question is not self.question:
             return None
-        if (self.request is not None or self.stt_result_timeout_sec is None or
+        if (self.request is not None or self.stt_result_timeout_sec is None or self.admission_window_sec is None or
                 self.finished_at is None or not all(finite(v) for v in
                     (captured_at, ended_at, started_at)) or
                 not self.finished_at <= captured_at <= ended_at <= started_at or
@@ -302,6 +432,7 @@ class RecoveryConfirmation:
         if not finite(until):
             self.invalidate()
             return None
+        self.audio_end = max(self.audio_end, ended_at)
         self.request = AudioRequest(question, captured_at, ended_at, started_at, until)
         return self.request
 
@@ -314,7 +445,11 @@ class RecoveryConfirmation:
                 not request.started_at <= now < min(request.result_until, question.valid_until)):
             self.invalidate()
             return None
-        if isinstance(text, str) and text.strip().rstrip('.!?') in ('아니', '아니요', '포기'):
+        if task_end_utterance(text):
+            candidate = TaskEndCandidate(self.work)
+            self._retire_work(candidate.work)
+            return candidate
+        if isinstance(text, str) and text.strip().rstrip('.!?') in ('아니', '아니요'):
             self.abandon(question)
             return None
         if (safety_utterance(text) != question.mode or
@@ -324,3 +459,82 @@ class RecoveryConfirmation:
         self.invalidate()  # consume even if later C execution fails; never replay
         return (NewStartCandidate(question.work) if question.mode == 'new_start'
                 else question.work)
+
+
+    @serialized
+    def begin_independent(self, work, *, now, unique_target):
+        if (work is None or work != self.work or not self.current_state_confirmed or
+                unique_target is not True or not finite(now) or now < 0):
+            return None
+        self.invalidate()
+        self.independent = IndependentRequest(work, uuid.uuid4().hex, now)
+        return self.independent
+
+    @serialized
+    def admit_independent(self, request, *, captured_at, ended_at, started_at):
+        if request is None or request is not self.independent:
+            return False
+        if (self.independent_audio is not None or self.independent_request_timeout_sec is None or
+                self.stt_result_timeout_sec is None or not all(finite(v) for v in
+                    (captured_at, ended_at, started_at)) or
+                not request.issued_at <= captured_at <= ended_at <= started_at or
+                captured_at <= self.audio_end or
+                started_at >= captured_at + self.independent_request_timeout_sec):
+            self.invalidate(); return False
+        self.audio_end = ended_at
+        self.independent_audio = (captured_at, ended_at, started_at)
+        return True
+
+    def _independent_valid(self, request, now):
+        if (request is None or request is not self.independent or self.independent_audio is None or
+                request.work != self.work or not self.current_state_confirmed or
+                not finite(now)):
+            return False
+        captured, _, started = self.independent_audio
+        limit = captured + self.independent_request_timeout_sec
+        if self.independent_result is None:
+            limit = min(limit, started + self.stt_result_timeout_sec)
+        return started <= now < limit
+
+    @serialized
+    def independent_stt(self, request, text, *, now):
+        if request is None or request is not self.independent:
+            return False  # stale callbacks must not invalidate another current request
+        if not self._independent_valid(request, now) or self.independent_result is not None:
+            self.invalidate(); return False
+        kind = 'end' if task_end_utterance(text) else safety_utterance(text)
+        if kind != 'end' and kind != 'resume':
+            self.invalidate(); return False
+        self.independent_result = (kind, now)
+        return True
+
+    @serialized
+    def independent_registered(self, request, work, revision, *, now, valid_state):
+        if request is None or request is not self.independent:
+            return False
+        if self.independent_ack is not None:
+            return False
+        if (not self._independent_valid(request, now) or self.independent_result is None or
+                now < self.independent_result[1] or valid_state is not True or
+                work != self.work or type(revision) is not int or revision != self.revision):
+            self.invalidate(); return False
+        self.independent_ack = now
+        return True
+
+    @serialized
+    def independent_candidate(self, request, *, now, evidence):
+        if request is None or request is not self.independent:
+            return None  # preserve the current request's audio/result/ACK and deadlines
+        if (not self._independent_valid(request, now) or self.independent_ack is None or
+                now < self.independent_ack):
+            self.invalidate(); return None
+        kind = self.independent_result[0]
+        work = request.work
+        if kind == 'end':
+            candidate = TaskEndCandidate(work)
+            self._retire_work(work)
+            return candidate
+        if self._recovery_mode(work, evidence) != 'resume':
+            self.invalidate(); return None
+        self.invalidate()  # single use; cannot replay even if C later rejects
+        return work
