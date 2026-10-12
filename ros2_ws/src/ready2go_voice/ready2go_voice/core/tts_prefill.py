@@ -62,7 +62,8 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     texts.append(flow['empty_reply_prompt'])
     from .hotfix import prompts
     extra = prompts(cfg)
-    texts.extend(extra[k] for k in ('no_work','no_end_work','control_held','unknown_state','unknown_recorded_state'))
+    texts.extend(extra[k] for k in ('no_work','no_end_work','control_held','unknown_state','unknown_recorded_state',
+                                  'control_recover','control_resume','control_end','control_failed'))
     for item in items:
         texts.append(extra['availability'].format(item=item['name_ko']))
     if reference_state is not None and places is not None:

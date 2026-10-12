@@ -1,5 +1,22 @@
 # CURRENT — E 고희태
 
+<a id="end-stop-minimal-20261012-01"></a>
+## 종료·중지 최소 수정 — E-VOICE-END-STOP-MINIMAL-20261012-01
+
+- [문서: 승인·경계] 조율 인간 turn `01a12fe4-75e4-73a3-a26a-59e930d97bca` “진행해”와 계획 `01a12fdf-6fc5-7c72-979d-8a92f05d83d4`를 직접 확인했습니다. 시작20:39:59KST, 기준 d0f7aa81·기존 checkout/branch 유지. 중간 인간 높이 원복 요청과 부모 지시로 world/CURRENT만 별도 게시 커밋 `079232dfc29677f28d9fe3d20bc749f0dfc03b2f`에 고정했습니다. 이 종료 hotfix는 그 위의 별도 E 커밋이며 게시 승인을 포함하지 않습니다. world18.5·별칭과 미추적 models를 보호합니다. 요구사항은 P2 [FR-SAF-01/03](../../docs/requirements.md#fr-saf-01)·[FR-INT-03](../../docs/requirements.md#fr-int-03)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)·[종료 접수](../../docs/requirements.md#resume-admission-policy)를 대조했습니다.
+- [문서: 원인 근거 재사용] `voice_live_20261012_201413_4852eac1`의 정확 종료→not_explicit_stop/unknown no_end_work, running 상태 및 stdin complete 뒤 idle, “중지” 누락·제어 안내 prefill 누락·복구 TTS timeout은 조율/부모 확인을 재사용했습니다. 영상/원음 청취·전체 로그 재조사·실재현은 반복하지 않았습니다. 관련 Vault README/증상 검색에서 대응 기존 case가 없었고 과거 해결책을 적용하지 않았습니다.
+- [구현: 종료] 일반/독립 stopSTT 종료 의도는 기존 cancel과 현재 run·검증된 생산자 boot·세대에 연결합니다. 같은 현재 typed 정지 확인 후 기존 TaskEndCandidate/제어 TTS·proof·명시 수락에서만 더미 idle/새 요청으로 전환합니다. 원발화는 종료 의도 근거이고 새 SDK/독립 재개 등록 증빙이 아닙니다. 중복 전사·동일 halted heartbeat/동일 사건 seq·비동기 status/typed 도착 두 순서를 구분합니다. 재정지/타run/boot·source 변경/미확인/TTS 실패는 잘못된 idle을 차단하고 work를 보존합니다. typed dummy fixture는 local 현재 work를 원자적으로 준비한 뒤 node callback을 호출하고 거절/예외 때 rollback하여 지연 정지 callback의 후보 수신과 정합화했습니다. stop worker의 처리 오류는 기존 R1 오류 보고 후 다음 입력을 받을 수 있게 합니다.
+- [구현: 중지/힌트/캐시] 정확 “중지”를 config와 safety 분류로 연결하고 parser는 기존 공통 분류를 소비합니다. stop/safety SDK는 `stt_control_prompt`, 일반 물품/질문 SDK는 기존 prompt를 사용합니다. “요소희/이어서헥스” 강제 재개 없음. 제어4문장 prefill·공통 node/prepare 선택 및 identity를 확인했고 cap256·warmup·startup60·prepare120·모델·PCM·장치·임계값·원본 local/key/cache는 유지합니다. 현재 문장 identity로 사용자 prepare가 필요하며 실제 캐시 준비를 에이전트가 실행하지 않았습니다.
+- [실측: 최소 검사] Python3.12.3·ROS 미source·아래 source PYTHONPATH. 새 종료 직접 시험27건과 기존 R1 worker7건 최종 **34 passed**, 종료0(9.99초), 스레드 경고를 오류로 처리해 경고 없음. 실제 diagnostic writer/logger·Whisper adapter와 SDK 요청 prompt·Session 분류·stop 큐/worker·일반 worker·safety/notice worker·더미·_say를 유지하고 장치/OpenAI SDK/ROS 전송만 모의했습니다. running stopSTT 종료+일반 중복→cancel→정지확인→종료수락/TTS→idle→새지우개, 일반 worker 종료, halted 종료, 두 비동기 도착순서·대기중 재정지/타run/boot/미확인, TTS중 상태변경/실패, 동일 heartbeat/seq, 중지 긍정/부정/인용/전언/자기발화·오전사차단, idle 미완료run 구분, 실제 확인불가 notice 재생, SDK prompt 분리·prefill 선택/identity/cap을 확인했습니다. 동일 검사를 별도 전체 core/ROS/build/CI로 확대하지 않았습니다.
+- [실측: 실패 이력] 최초19사례 17 passed/2 failed(4.47초): 새 지우개 입력의 비동기 발행 전에 settled를 확인한 시험 동기화와 fixture의 /knowledge 경로 오류였습니다. 발행 Event·실제 repository ontology 경로로 보완해19 passed(3.97초). 대기/확인불가 안내를 추가한26사례26 passed(6.54초). heartbeat/idle 미완료run을 보완하고 최종34를 확인했으며 반복 수를 합산하지 않습니다. 최종 검사 뒤 runtime/시험 동작 추가 변경 없음(주석 정리만). 최종 AST9파일·YAML/고정 상한·기존 문서 제목/추가 로컬링크·앵커8개·diff·기존 models 해시·world/계약/정본 보존을 확인했습니다.
+- [문서: 인계·미검증] 공개 task_end enum/토픽/필드·SOT/계약·C/B/A/D 코드·다른 기능/시간 상한/의존성은 변경하지 않았습니다. 실제 C 요청/run/boot·재기동 바인딩, typed 현재 정지 증빙과 종료 후보/명시 수락·보존 폐기 adapter/공개 계약 협의는 C 인계입니다. 현재 cancel 전송과 실제 C 종료·잠금 해제·물리 완료를 구분하며 더미 종료를 COMPLETED/effect/빈손 증거로 바꾸지 않습니다. 실마이크/API/Melo/로봇·실C/B·실음성 재시험·실물 AC는 미검증입니다. 새 서브에이전트/독립 리뷰·상태 질문(P3)·집기 구성·기존 CI/컨테이너 조작·추가 전체 CI는 수행하지 않았습니다. 관련 E12파일(core/session·recovery_confirmation·tts_prefill·config, adapters/api, nodes/voice_node, tools/p2_voice_dummy, params/voice.yaml, test_end_stop_minimal·test_stop_cancel_hotfix, README, CURRENT)만 자동 로컬 커밋하며 push/PR 갱신은 하지 않습니다. 게시079232df와 이후 hotfix를 분리합니다.
+
+```bash
+PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge" .venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_end_stop_minimal.py ros2_ws/src/ready2go_voice/test/test_control_feedback_workers.py -q -p no:cacheprovider -W error::pytest.PytestUnhandledThreadExceptionWarning
+```
+
+검사 대상은079232df 위 E runtime/시험 미커밋 변경(이전 world18.5 포함)입니다. 로그 `/tmp/e-voice-end-stop-minimal{,-v2,-v3,-final}-20261012.log`, 최종 결과는 final입니다. 새 종료 hotfix의 최종 SHA는 Git/지시 세션 완료 메시지에서 확인하며079232df 게시 CI로 전용하지 않습니다.
+
 ## PR227 게시 높이 원복 — 2026-10-12
 
 - [문서: 사용자 원복] 조율 세션 인간 turn `01a12fed-e08c-79f0-95e9-fa921d3496e3` “19.5mm로 바꾸면 계약 충돌하는 것 같아서 내가 되돌린거야”를 직접 확인했습니다. `caramel_box.size_m[2]`를 사용자 원복값0.0185m로 보존하고 립밤/마스킹테이프의 승인 별칭 변경은 유지합니다. 새 실측·B 코드/시험 변경이 아닙니다.

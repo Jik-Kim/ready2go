@@ -8,12 +8,14 @@ from pathlib import Path
 class WhisperSTT:
     supports_request_boundary = True
     supports_context_hint = True
+    supports_control_hint = True
     def __init__(self, cfg, vocabulary, clock=time.monotonic):
         self.cfg = cfg
         self.clock = clock
         self.prompt = ', '.join(vocabulary)
+        self.control_prompt = cfg.get('stt_control_prompt', '')
 
-    def transcribe(self, wav_path, timeout, *, before_request=None, context_hint=None):
+    def transcribe(self, wav_path, timeout, *, before_request=None, context_hint=None, control=False):
         from openai import OpenAI
         # SDK 재시도를 끄고 호출자 deadline과 같은 제한을 적용합니다.
         with OpenAI(api_key=os.environ.get('OPENAI_API_KEY'), timeout=timeout, max_retries=0) as client:
@@ -22,9 +24,9 @@ class WhisperSTT:
                 # Optional internal guard. P1 behavior is unchanged without it.
                 if before_request is not None and before_request(self.clock()) is not True:
                     raise TimeoutError('STT_REQUEST_NOT_ADMITTED')
-                hint = context_hint() if callable(context_hint) else context_hint
+                hint = None if control else context_hint() if callable(context_hint) else context_hint
                 result = client.audio.transcriptions.create(
-                    model=self.cfg['stt_model'], file=audio, language='ko', prompt=self.prompt + ('\n' + hint if isinstance(hint,str) and hint else ''))
+                    model=self.cfg['stt_model'], file=audio, language='ko', prompt=(self.control_prompt if control else self.prompt) + ('\n' + hint if isinstance(hint,str) and hint else ''))
         return result.text
 
 

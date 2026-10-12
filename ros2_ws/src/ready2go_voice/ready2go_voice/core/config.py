@@ -12,6 +12,11 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
     if not isinstance(cfg, dict):
         raise ValueError('voice 설정 객체가 필요합니다')
     cfg.setdefault('evaluation_mode', False)
+    from .stt_error import _prompt_file
+    with _prompt_file().open(encoding='utf-8') as defaults:
+        cfg.setdefault('stt_control_prompt', yaml.safe_load(defaults)['stt_control_prompt'])
+    if not isinstance(cfg['stt_control_prompt'], str) or not cfg['stt_control_prompt'].strip():
+        raise ValueError('stt_control_prompt: 제어 힌트 문자열 필요')
     if evaluation_mode is not None:
         if not isinstance(evaluation_mode, bool):
             raise ValueError('evaluation_mode: bool 필요')
