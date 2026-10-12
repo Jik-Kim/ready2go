@@ -609,3 +609,14 @@ def test_b_free_uses_newer_rescan_adds_held_and_prefers_crosswise(monkeypatch, t
     ids = [o["id"] for o in [sc["target"]] + sc["candidates"]]
     assert ids == ["caramel_box#1", "car_key#1"]                      # 옛 scan 의 car_key#2 없음, 쥔 물체는 넣음
     assert cands and abs(math.sin(cands[0]["yaw"])) > 0.7                # 가로 먼저
+
+
+def test_b_plan_is_make_room_check_only(monkeypatch, tmp_path):
+    """[사용자 10/12] B plan top: 공간 만들기 다음 동작만 보기 — make_room + check_only (서버가 어떤 동작도 안 함)."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
+    action, params = sk.goal_for("plan")
+    assert action == "nudge_object" and params["make_room"] is True and params["check_only"] is True and "plan" in sk.NEEDS_DRAWER
