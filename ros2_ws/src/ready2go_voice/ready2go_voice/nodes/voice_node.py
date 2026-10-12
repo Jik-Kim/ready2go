@@ -85,6 +85,7 @@ class VoiceNode(Node):
         self.busy = threading.Event()
         self.speaking = threading.Event()
         self.requests = queue.Queue(maxsize=1)
+        self.request_running = None
         self.submit_lock = threading.RLock()
         self.goal_lock = threading.Lock()
         self.generation = 0
@@ -355,7 +356,7 @@ class VoiceNode(Node):
                     if self.place_pending is None:
                         self.place_activity.clear()
                         if not self.safety_activity.is_set():
-                            self.busy.clear()
+                            self._refresh_busy_locked()
                 if not self.tts.lock.locked():
                     self.speaking.clear()
 
@@ -377,7 +378,7 @@ class VoiceNode(Node):
         if self.safety_running is None:
             self.safety_activity.clear()
             if owned and not self.place_activity.is_set():
-                self.busy.clear()
+                self._refresh_busy_locked()
         self.place_condition.notify_all()
 
     def safety_stopped(self, work, revision, *, valid_state, evidence=None):
@@ -501,6 +502,40 @@ class VoiceNode(Node):
             self._diagnostic({'event':'task_end_accepted','reason':'trusted_termination_acceptance_not_physical_completion'})
             return True
 
+    def _refresh_busy_locked(self):
+        occupied = (getattr(self, 'request_running', None) is not None or self.requests.unfinished_tasks > 0
+                    or self.place_activity.is_set() or self.safety_activity.is_set())
+        self.busy.set() if occupied else self.busy.clear()
+
+    def _release_safety_locked(self, cancel):
+        if self.safety_running is cancel:
+            self.safety_running = None
+        if self.safety_running is None and self.safety_pending is None:
+            self.safety_activity.clear()
+        self._refresh_busy_locked()
+        self.place_condition.notify_all()
+
+    def _finish_feedback_locked(self, token):
+        if getattr(self, 'control_feedback', None) is token:
+            self.control_feedback = None
+        pending = getattr(self, 'pending_task_end', None)
+        if (token['kind'] == 'end' and pending is not None
+                and pending[0] is token['candidate'] and pending[1] == token['generation']):
+            self.pending_task_end = None  # 실패/취소된 후보도 재사용하지 않습니다. work는 보존합니다.
+
+    def _report_worker_failure(self, event, exc):
+        try:
+            self._diagnostic({'event':event, 'error_type':type(exc).__name__, 'published':False})
+        except Exception as diagnostic_exc:
+            # 진단 경로 자체의 실패를 숨기지 않고 최소 비밀값 없는 오류를 남깁니다.
+            print(json.dumps({'event':'voice_diagnostic_failed', 'operation':event,
+                              'error_type':type(exc).__name__,
+                              'diagnostic_error_type':type(diagnostic_exc).__name__}), flush=True)
+
+    def _voice_input_busy(self):
+        return (self.busy.is_set() or self.speaking.is_set() or self.tts.lock.locked()
+                or self.place_activity.is_set() or self.safety_activity.is_set())
+
     def safety_feedback(self, work, kind, *, candidate=None, reason=None):
         """권한 없는 안내 작업. 질문 객체·TTL·과거 답변을 생성하지 않습니다."""
         from ready2go_voice.core.hotfix import prompts
@@ -508,7 +543,8 @@ class VoiceNode(Node):
             p = self.safety_exchange.policy
             if (self.cfg['evaluation_mode'] or self.stop_event.is_set() or p is None
                     or not p.current_state_confirmed or self.safety_sender is None
-                    or getattr(self, 'control_feedback', None) is not None):
+                    or getattr(self, 'control_feedback', None) is not None
+                    or self.safety_pending is not None):
                 return None
             if p.question is not None:  # 유효한 기존 질문의 등록/재생/답변 경로를 보존합니다.
                 return None
@@ -526,12 +562,24 @@ class VoiceNode(Node):
                 self.pending_resume = None  # 후보는 한 번만 수락합니다.
             text = prompts(self.cfg)['control_' + kind]
             token = dict(work=work, kind=kind, candidate=candidate, generation=self.generation, text=text)
+            previous_cancel = self.safety_cancel
             self.control_feedback = token
             self.safety_cancel = threading.Event()
             self.safety_pending = ('feedback', token)
             self.safety_activity.set()
             self.busy.set()
-            self._diagnostic({'event':'control_feedback_queued','kind':kind,'reason':reason})
+            try:
+                self._diagnostic({'event':'control_feedback_queued','kind':kind,'reason':reason})
+            except Exception:
+                self.safety_cancel.set()
+                self.safety_cancel = previous_cancel
+                self.safety_pending = None
+                self._finish_feedback_locked(token)
+                if self.safety_running is None:
+                    self.safety_activity.clear()
+                self._refresh_busy_locked()
+                self.place_condition.notify_all()
+                raise
             self.place_condition.notify_all()
             return token
 
@@ -597,10 +645,7 @@ class VoiceNode(Node):
                 self._wait_safety_registration(target, cancel)
         finally:
             with self.place_condition:
-                if self.safety_running is cancel:
-                    self.safety_running = None
-                if cancel is self.safety_cancel:
-                    self.safety_activity.clear()
+                self._release_safety_locked(cancel)
 
     def _wait_safety_registration(self, target, cancel):
         # Keep the current request's single ownership until ACK or its existing deadline.
@@ -677,26 +722,21 @@ class VoiceNode(Node):
                 except Exception as exc:
                     if mode != 'feedback':
                         self.safety_exchange.fail(target)
-                    self._diagnostic({'event': 'safety_question_failed', 'error_type': type(exc).__name__})
+                    self._report_worker_failure('safety_question_failed', exc)
                 finally:
-                    with self.place_condition:
-                        if mode == 'feedback' and getattr(self, 'control_feedback', None) is target:
-                            self.control_feedback = None
-                        if self.safety_running is cancel:
-                            self.safety_running = None
-                        if cancel is self.safety_cancel and self.safety_pending is None:
-                            self.safety_activity.clear()
-                            if not self.place_activity.is_set():
-                                self.busy.clear()
                     if not self.tts.lock.locked():
                         self.speaking.clear()
+                    with self.place_condition:
+                        if mode == 'feedback':
+                            self._finish_feedback_locked(target)
+                        self._release_safety_locked(cancel)
 
     def _diagnostic(self, doc):
         value = dict(doc)
         context = getattr(self, 'local_context', None)
         if context is not None and getattr(context, 'request_id', None):
             value.setdefault('request_id', context.request_id)
-        meta = doc.get('intent', {}).get('_voice', {})
+        meta = (doc.get('intent') or {}).get('_voice') or {}
         value.update({k: v for k, v in meta.items() if k in ('request_id', 'question_id')})
         # 원본 LLM 전체는 interpretation에 한 번만; 공개 source 원본 자체는 삭제하지 않습니다.
         if value.get('event') != 'interpretation':
@@ -712,11 +752,12 @@ class VoiceNode(Node):
         event = doc.get('event')
         if event == 'stop_audio_held' and doc.get('reason') in ('empty_transcript', 'not_explicit_stop', 'overlapping_self_speech', 'canceled', 'stale_generation', 'NO_SPEECH'):
             return
+        reason = '' if doc.get('reason') is None else str(doc['reason'])
         messages = {
             'ready': '음성 준비 완료 (' + ('평가: 실행 보류' if doc.get('evaluation_mode') else '실행 모드') + ')', 'wake_waiting': f"웨이크 대기 (입력: {doc.get('input_device')})",
             'capture_ready': '말씀해 주세요 (새 녹음 준비)',
             'wake_cue_finished': '알림음 종료 · 수락 TTS 아님',
-            'wake_detected': f"웨이크 감지 (점수 {doc.get('score', 0):.3f})",
+            'wake_detected': f"웨이크 감지 (점수 {(doc.get('score') or 0):.3f})",
             'record_started': f"녹음 시작 ({doc.get('duration', '무음 종료')}초)",
             'record_finished': '녹음 완료', 'whisper_requested': 'Whisper 요청',
             'stt_result': f"STT 결과: {doc.get('text', '')}",
@@ -725,7 +766,7 @@ class VoiceNode(Node):
             'voice_state': f"Voice 상태: {doc.get('phase')} / 중단 작업 보존={doc.get('work_retained')} / 종료 수락 대기={doc.get('termination_pending')}",
             'task_end_candidate': '작업 종료 후보 · 수락 대기',
             'task_end_accepted': '현재 작업 종료 수락 · 물리 완료 아님',
-            'stop_audio_held': '정지 입력 보류: ' + doc.get('reason',''),
+            'stop_audio_held': '정지 입력 보류: ' + reason,
             'speech_check_started': '발화 검사', 'no_speech': '발화 없음: STT·LLM 생략',
             'speech_check_failed': f"발화 검사 보류: {doc.get('error_type', '')}",
             'stt_failed': f"STT 실패: {doc.get('error_type', '')}",
@@ -736,12 +777,13 @@ class VoiceNode(Node):
             'audio_unavailable': f"음성 장치/모델 오류: {doc.get('error_type', '')}",
             'processing_failed': f"처리 실패: {doc.get('error_type', '')}",
             'safety_audio_failed': f"중단 후 음성 실패 ({doc.get('stage','')}): {doc.get('reason',doc.get('error_type',''))}",
-            'safety_audio_held': '중단 후 음성 보류: ' + doc.get('reason',''),
-            'safety_input_held': '중단 후 입력 보류: ' + doc.get('reason',''),
-            'safety_result_held': '중단 후 후보 없음: ' + doc.get('reason',''),
-            'control_feedback_failed': '제어 안내 보류: ' + doc.get('reason',''),
+            'safety_audio_held': '중단 후 음성 보류: ' + reason,
+            'safety_input_held': '중단 후 입력 보류: ' + reason,
+            'safety_result_held': '중단 후 후보 없음: ' + reason,
+            'control_feedback_failed': '제어 안내 보류: ' + reason,
+            'safety_question_failed': f"중단 후 안내 실패: {doc.get('error_type', '')}",
             'safety_audio_result': '중단 후 음성 후보: ' + doc.get('candidate_type',''),
-            'execution_held': '원래 판정 ' + doc.get('original_intent','') + ' / 실행 보류: ' + doc.get('reason',''),
+            'execution_held': '원래 판정 ' + str(doc.get('original_intent') or '') + ' / 실행 보류: ' + reason,
             'request_accepted': 'Runner 요청 수락 확인',
             'request_decided': 'Runner 요청 보류·거절 확인',
             'request_completed': 'Runner 완료 확인 · 음성 안내 대기',
@@ -750,7 +792,7 @@ class VoiceNode(Node):
         if event == 'stt_failed' and doc.get('api_error'):
             info = doc['api_error']
             messages[event] += (' / ' + json.dumps(redact(info), ensure_ascii=False))
-        timing = doc.get('timing', {})
+        timing = doc.get('timing') or {}
         if event == 'tts_finished' and 'synthesis_wait_sec' in timing and 'playback_sec' in timing:
             messages[event] = (f"TTS 종료 (합성 대기 {timing['synthesis_wait_sec']:.3f}초, "
                                f"재생 {timing['playback_sec']:.3f}초)")
@@ -775,7 +817,7 @@ class VoiceNode(Node):
         if event == 'final_response':
             messages[event] = doc['text']
         if event == 'request_held':
-            messages[event] = '요청 보류: ' + doc.get('reason', '')
+            messages[event] = '요청 보류: ' + reason
         if event == 'cache_record_failed':
             messages[event] = doc['reason']
         if event == 'publish_failed':
@@ -1069,7 +1111,7 @@ class VoiceNode(Node):
 
     def _submit(self, request, generation=None, request_id=None):
         with self.submit_lock:
-            if (self.busy.is_set() or self.stop_event.is_set() or
+            if (self.busy.is_set() or self.place_activity.is_set() or self.safety_activity.is_set() or self.stop_event.is_set() or
                     (generation is not None and generation != self.generation)):
                 self._diagnostic({'event': 'request_held', 'reason': 'voice_busy'})
                 return False
@@ -1084,6 +1126,9 @@ class VoiceNode(Node):
                 kind, value, generation, request_id = self.requests.get(timeout=.1)
             except queue.Empty:
                 continue
+            owner = object()
+            with self.submit_lock:
+                self.request_running = owner
             try:
                 self.local_context.request_id = request_id
                 if kind == 'safety_audio':
@@ -1116,12 +1161,15 @@ class VoiceNode(Node):
                 self._diagnostic({'event': 'interpretation', 'intent': doc})
                 self._deliver(doc, generation)
             except Exception as exc:
-                self._diagnostic({'event': 'processing_failed', 'error_type': type(exc).__name__,
-                                  'published': False})
+                self._report_worker_failure('processing_failed', exc)
             finally:
                 self.local_context.request_id = None
-                self.busy.clear()
                 self.requests.task_done()
+                with self.place_condition:
+                    if self.request_running is owner:
+                        self.request_running = None
+                    self._refresh_busy_locked()
+                    self.place_condition.notify_all()
 
     def _deliver(self, doc, generation):
         with self.submit_lock:
@@ -1287,7 +1335,7 @@ class VoiceNode(Node):
             wake = WakeAudio(self.cfg, shared_input=self.shared_input)
             recorder = Recorder(self.cfg, clock=self.place_clock, shared_input=self.shared_input)
             while not self.stop_event.is_set():
-                if self.busy.is_set() or self.speaking.is_set() or self.tts.lock.locked():
+                if self._voice_input_busy():
                     self.stop_event.wait(.08)
                     continue
                 self.local_context.request_id = request_id = uuid.uuid4().hex
@@ -1295,10 +1343,10 @@ class VoiceNode(Node):
                 record_generation = self.generation
                 try:
                     with self.audio_lock, wake.stream() as stream:
-                        woke = wake.wait(stream, self.stop_event, lambda: self.speaking.is_set() or self.tts.lock.locked() or self.place_activity.is_set() or self.safety_activity.is_set())
+                        woke = wake.wait(stream, self.stop_event, self._voice_input_busy)
                         if not woke:
                             continue
-                        if self.speaking.is_set() or self.busy.is_set():
+                        if self._voice_input_busy():
                             continue
                         record_generation = self.generation
                         with self.submit_lock:
