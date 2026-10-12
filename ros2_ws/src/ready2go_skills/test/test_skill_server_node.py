@@ -1854,7 +1854,8 @@ def test_cover_plate_gripped_at_plate_height_not_floor(server):
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
     closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(74.2, g)
-    assert 23.0 < closed_tip < 26.0                                     # 판(21~29) 가운데 25
+    want = srv.prm()["pick"]["tip_above_floor_by_class_mm"]["cover_plate"]
+    assert want - 2.0 < closed_tip < want + 1.0                          # 물건별 손끝 높이 (10/12 사용자 실물 25 → 20)
 
 
 def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server):
@@ -2529,7 +2530,11 @@ def test_cover_plate_pick_ignores_lower_neighbors_under_fingertips(server):
     server.Gripper.holding, server.Gripper.held_width = True, 74.2
     try:
         out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1], "scan": scan})
-        assert out.success, out.reason
+        assert out.error_code == "NEIGHBOR_TOO_CLOSE" and "lip_balm#1" in out.reason    # 손끝 20 mm(10/12 실물)면 붙은 립밤(20~22)엔 닿음
+        srv.held = None
+        scan = {"target_found": True, "target": er, "candidates": [plate], "visible_count": 2}
+        out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason                                     # 지우개(11.5·관측 14.2)만이면 통과
         srv.held = None
         tall = dict(lip, id="airpods_case#1", **{"class": "airpods_case"}, top_z=0.0216,
                     pose={"frame": D, "position": [0.0914, 0.119 + 0.030, 0.0], "yaw": 0.0, "yaw_valid": True})
@@ -2586,3 +2591,26 @@ def test_cover_plate_pick_ignores_object_that_fits_under_it_even_if_relation_unk
             assert out.success is ok, (nb["id"], out.reason)
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+@pytest.mark.parametrize("top, occ, ok", [(0.0255, None, True), (0.0255, ["cover_plate#1"], True),
+                                          (0.035, None, False), (0.035, ["cover_plate#1"], False), (0.028, None, False)])
+def test_cover_plate_under_exception_keeps_observed_height_when_too_tall_to_be_under(server, top, occ, ok):
+    """#235 리뷰 P1: 판 footprint 와 일부 겹치는 지우개라도 관측 top_z 가 판 밑(21) + 번짐(5) = 26 mm 를 넘으면(쌓였거나 세워짐)
+    단품 높이로 바꾸지 않고 관측 값으로 막음 — 관계 null 이든 판을 가리키든. 번짐 범위(25.5)는 통과."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0351, "occluded_by": [], "visible_area_m2": 0.007237,
+             "pose": {"frame": D, "position": [0.0857, 0.1636, 0.0], "yaw": 0.0394, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": top, "occluded_by": occ, "visible_area_m2": 0.000415,
+          "pose": {"frame": D, "position": [0.0981, 0.2118, 0.0], "yaw": 0.0, "yaw_valid": False}}
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1],
+                                            "scan": {"target_found": True, "target": er, "candidates": [plate], "visible_count": 2}})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success is ok, out.reason
+    if not ok:
+        assert out.error_code == "NEIGHBOR_TOO_CLOSE" and "eraser#1" in out.reason
