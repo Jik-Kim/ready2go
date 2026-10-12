@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-12
 
 ## 지금 상태
+- **10/12 오후 2 (같은 브랜치, PR #241)**: Runner 통합 2회차 — aside 를 비워 뒀는데 판 밑 지우개 방향 모름 정사각형(57 mm)이 aside 에 6 mm 걸려 판을 쥔 채 정지(트러블슈팅 39). 쥔 물체에만 가려진 이웃은 보이는 부분 + 쥔 물체 자리로 봄(`place_plan.hidden_split`). `place_object` `check_only`(집기 전 판단)·`slot: "free"` 추가(제안, Runner 연결은 C 이슈).
 - **10/12 오후 (#235 머지 `14f9967` 뒤 같은 브랜치 새 PR)**: Unpacking 통합(C 절차) 실물 — PC2 `.env` 에 `RUNNER_INTENT_TASKS` 없어 P1 `find_item` 이 돌던 것 확인(트러블슈팅 31). 복구 때 원래 자리를 굴러 나온 립밤이 ~10 mm 막아 aside 에서 집어 aside 에 다시 놓던 것 → 되돌리기(명령한 pose, 바닥)는 방향 그대로 `place.restore_fit_max_mm` 20 mm 안으로 비켜 놓음(트러블슈팅 32, 제안). 남음: 한가운데가 막히면 헛동작 그대로 — `place_object` `check_only` + Runner 복구 순서(C).
 - **10/12 (#226 머지 `090c3b9` 뒤 같은 브랜치 새 PR)**: 뒤에서 밀기 시작 자리(손가락이 바닥 위 3 mm 까지 내려가는 곳)에 다른 물체가 있으면 움직이기 전 `NEIGHBOR_TOO_CLOSE` — 손잡이 벽 비스듬한 지우개 바로 뒤 에어팟 장면에서 `B plan` 이 에어팟 위로 손가락을 내리려던 것 발견. 기울여 집은 물체(손잡이 벽 립밤)는 원래 자리로 놓을 때 같은 자세로 거꾸로(`tilt_back`). 오늘 PC2 문제(커널 바뀌어 NVIDIA 모듈 없음, 비전 노드 옛 코드로 `OCCLUSION_UNKNOWN`, `B free` 4건, putback 짓누름)는 `2026-10-12_practice.md` 트러블슈팅 1~30.
 - **10/11 밤 2 (같은 브랜치, PR #226)**: 파지 공간 만들기 [사용자 10/11] — `core/clear_plan.py` + `nudge_object` `make_room`(제안, E 포함 2명 승인 전) + `B clear <서랍> <물체>`. 쌓인 것은 서랍 빈 자리로(고정 aside 대신), 목표 넛지·좌우 밀기·이웃 치우기, 한 동작마다 다시 보기. 방향·결과는 #117 댓글.
