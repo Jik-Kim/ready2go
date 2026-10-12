@@ -66,7 +66,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 | 스위치 | 사용자 시험 옵션 |
 |---|---|
 | E_VOICE_CUE=1 | 같은 출력장치/출력 lock의 미리 만든 로컬 띠딩. 입력 소비자 준비→실제 첫 DAC/PCM 유음 끝→finished/guard→capture_ready를 기록합니다. audible 띠딩 끝 직후 발화가 기준이며 guard/로그 표시를 기다린 발화만으로 첫 음절 검증을 대신하지 않습니다. |
-| E_VOICE_SAVE_WAV=1 | 해당 run 폴더 captures에 P1 원음 WAV와 최소 RMS/peak/샘플수/시각 증빙을 저장합니다. 기본 저장0·원격 수집0, 파일 실패는 경고/진단으로 분리합니다. 저장 대상은 일반 P1 음성 경로이며 독립 stop/#43/#152 원음 저장은 추가하지 않았습니다. |
+| E_VOICE_SAVE_WAV=1 | 해당 run 폴더 captures에 P1 원음 WAV와 최소 RMS/peak/샘플수/시각 증빙을 저장합니다. 기본 저장0·원격 수집0, 파일 실패는 경고/진단으로 분리합니다. 현재 저장 대상은 일반 P1과 독립 stop·복구/재개/종료 safety 입력이며 #43 전용 원음 저장은 변경하지 않았습니다. |
 | E_VOICE_TRIM=1 | 기존 RMS와 YAML padding으로 앞뒤 구간을 정리한 전송 WAV를 비교합니다. 원음은 저장 옵션에서 보존하고 start/end sample을 기록하며 원래 녹음 시각/AC 기준은 바꾸지 않습니다. |
 | E_VOICE_STT_HINT=0/1 | 현재 유효 P1 질문의 STT 문맥 힌트를 비교합니다. 빈값은 local/YAML 설정 그대로이며 실제 SDK 접수 직전에 기한·세대를 다시 확인합니다. 새 모델/재시도/추가 호출은 없습니다. |
 | E_VOICE_SILENCE=1 | 1은 복사본에서만 기존 silence 녹음을 비교하고 0은 원본 local 모드(현재 확인한 fixed)를 유지합니다. 기본 fixed5초·모델·임계값·commissioning 예산은 변경하지 않습니다. |
@@ -108,6 +108,20 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 [실측·한계] `_212053`/`_213609` 시험 로그의 과거 RateLimitError는 당시 최소 code/type이 없어 원인 미확정입니다. 이번 수정으로 과거 원인이 확정되거나 API 제한이 해소됐다고 판단하지 않습니다. 모의 예외·실제 노드 메서드·진단 파일 필터·설정/default·캐시 선택을 검사하며 [FR-INT-01–03](../../../docs/requirements.md#fr-int-01)·[AC-INT-01–03](../../../docs/requirements.md#ac-int-01)의 실제 음성/지연 수용 검증은 별도입니다.
 
+### 중단 명령·상태·정지 캡처 후속 — 2026-10-12
+
+[구현: E-VOICE-CONTROL-STATE-20261012-02] 일반·stop·safety STT 전사를 기존 redaction으로 같은 콘솔/상세 진단에 표시합니다. 실행 도구는 Python 출력과 ROS/native stdout·stderr의 fd1/2를 한 경로로 redaction 후 `console.log`에 한 번 저장합니다. stdin은 변경하지 않습니다. Voice 상태·중단 작업 보존·종료 수락 대기, 후보/수락/거절을 구분하며 SDK JSON 응답 전체나 키를 출력하지 않습니다.
+
+기존 정확 긍정 명령의 내부 띄어쓰기만 정규화하고 단독 “중단”·“복구”를 지원합니다. 부정·인용·전언은 계속 거절합니다. 문형 불일치와 요청/기한/상태·등록/증빙 불충족은 별도 reason으로 기록합니다. 종료 후보는 E 로컬 정책에서 작업을 퇴역시켜도 Voice의 수락 대기를 유지합니다. 신뢰된 현재 종료 수락은 후보 identity/세대를 확인해야 하며, 그 뒤에도 idle 관측이 있어야 일반 요청을 받습니다. 더미는 명시 typed 종료 후보 수락 뒤에만 필드를 정리하고 idle 시험 상태를 전달합니다. 실제 C 완료/모션 허가나 종료 ACK wire를 구현한 것이 아니며 실제 C adapter는 미연결입니다. 복구/재개·원본 #43/#152·일회 실행 조건은 그대로입니다.
+
+정지 녹음은 SDK worker1개와 최신 대기 캡처1개로 분리합니다. 네트워크 응답을 기다리는 동안 다음 새 발화를 녹음할 수 있으며 대기 중 더 최신 캡처가 오면 이전 대기만 교체합니다. 같은 세대·취소·자기TTS·정확 정지 검사는 그대로이고, 이전 세대/취소된 결과는 발행하지 않습니다. 입력/원격 처리의 기존 한도만 사용하며 새 운용 시간값·모델·KWS·LLM·무제한 큐·원음 재사용은 추가하지 않았습니다. 실제 SDK 속도/정지 성공 개선은 미실측입니다.
+
+기존 `capture_save_wav` opt-in은 독립 stop과 safety 입력에도 원본 WAV를 저장합니다(`captures/stop_<id>.wav`, `safety_<id>.wav`). NO_SPEECH 검사 전 원음을 보존하며 안전 입력에는 trim을 적용하지 않습니다. 모델·VAD/350 임계값·0.4초 무음·8초 보호 한도는 유지합니다. 캡처 식별자/입력 종류로 SDK/결과/보류 진단을 연결합니다. 실제 원음 없는 과거 NO_SPEECH 원인이나 녹음 미시작을 단정하지 않습니다.
+
+정상 종료 요청/실행 중 executor 예외/정리 실패를 구분해 기록합니다. stop/closing 뒤 executor 예외는 종료 중단으로 분류하고, 실행 중 실패는 더미 시험 불능으로 표시합니다. cleanup은 한 단계가 실패해도 나머지 정리를 시도하며, 이미 닫힌 ROS context에 shutdown을 다시 호출하지 않습니다. 닫힌 context의 RCLError는 operation/context 상태를 남깁니다. 과거 두 RCLError의 정확 발생 위치는 당시 로그에 없으므로 미확정이고 실제 ROS 종료 재시험은 이번에 수행하지 않았습니다.
+
+동일한 prepare/live 두 명령을 사용합니다. 사용자 재시험은 prepare 성공→live ready→일반 요청/정지 반복(대기 중 다음 발화 포함)→중단 후 새 웨이크 “복구”/“이어서 해”→현재 증빙·종료 수락→idle 뒤 지우개 새 요청 순서입니다. 전사/구체 reason·원음·종료 상태를 새 run 폴더에서 확인하십시오. 소프트웨어/모의 결과를 실음성·물리 정지 완료로 보고하지 않습니다.
+
 ### 사용자 직접 시험 — 재실행과 증빙
 
 [실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
@@ -121,7 +135,7 @@ bash ros2_ws/src/ready2go_voice/tools/voice_trial.sh live
 
 재실행마다 `logs/voice_eval/voice_prepare_<날짜>_<식별자>` 또는 `voice_live_<날짜>_<식별자>`를 새로 만들고 `voice.local.yaml`·`console.log`·`result.json`을 남깁니다. live 상세 진단과 일반 P1 원음 WAV도 해당 새 폴더에만 저장합니다. 원본 local·기존 run 로그·장치/모델/키/캐시는 덮어쓰지 않습니다. 시험 복사본의 누락 P1/P2 필수 키만 패키지 실행 원본에서 보충하고, 명시 null이면 시작을 거절합니다. 최신 원본 cap256·cue_gain·cancel 표현은 두 단계에 같이 적용합니다. 기본 옵션은 cue/WAV 켬·trim 끔·원본 일반 녹음 모드·수동 complete·기존 STT hint이며 일반 무음 비교는 live에 `--silence`, 모의 자동 완료는 `--auto-complete`를 붙입니다. 기존 E_VOICE 환경 옵션도 지원합니다.
 
-prepare와 live는 같은 함수로 온톨로지/상태를 반영한 prefill 목록을 선택합니다. 일반 startup60·prepare 전용120·AC 예산은 유지합니다. 최신 prepare의 성공과 TTS 설정/목록 identity가 맞아야 live를 시작합니다. 실패한 최신 prepare가 과거 성공을 대신하지 않으며 자동 재시도/자동 live를 실행하지 않습니다. 이 성공 기록은 준비 호출 완료의 근거이며 실제 모델/worker/cache identity는 노드가 다시 검사합니다. `result.json`의 success는 명령 종료 상태이고 음성·로봇 성공이 아닙니다. stdin은 그대로 연결되어 `complete`·`exit`를 입력할 수 있고 Ctrl+C는 기존 close/finally로 정리합니다.
+prepare와 live는 같은 함수로 온톨로지/상태를 반영한 prefill 목록을 선택합니다. 일반 startup60·prepare 전용120·AC 예산은 유지합니다. 최신 prepare의 성공과 TTS 설정/목록 identity가 맞아야 live를 시작합니다. 실패한 최신 prepare가 과거 성공을 대신하지 않으며 자동 재시도/자동 live를 실행하지 않습니다. 이 성공 기록은 준비 호출 완료의 근거이며 실제 모델/worker/cache identity는 노드가 다시 검사합니다. `result.json`의 success는 명령 종료 상태이고 음성·로봇 성공이 아닙니다. 실행 중 executor 실패/정리 오류는 별도 진단으로 확인합니다. stdin은 그대로 연결되어 `complete`·`exit`를 입력할 수 있고 Ctrl+C는 기존 close/finally로 정리합니다.
 
 [확인된 코드 조건] 중단 후 fixed 입력의 로컬 발화 검사가 False이면 `NO_SPEECH` ValueError로 SDK를 호출하지 않습니다. 실제 기존 로그의 ValueError가 이 조건인지·원음/장치 문제인지는 아직 미확정입니다. 실패는 capture_validation/speech_check/admission/sdk/classification 단계와 허용된 사유 코드로 표시하고, SDK 응답의 빈 전사·접수 확인 여부·후보 없음도 구분합니다. 후보 판정이 먼저 무효화한 뒤 남은 예약은 새 현재 질문/요청이 없는 경우에만 정리하여 다음 새 요청을 받을 수 있게 합니다. work·새 사건·기한·명시 재개·일회 실행·#43/#152 조건은 보존합니다. 실제 C의 현재 작업/증빙/등록 ACK가 없으면 복구/재개/종료를 완료했다고 보지 않습니다.
 

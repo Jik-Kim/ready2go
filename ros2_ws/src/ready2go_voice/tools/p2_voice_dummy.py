@@ -294,8 +294,13 @@ class LiveDummyBridge:
             elif kind == 'candidate':
                 from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
                 if isinstance(target, TaskEndCandidate):
-                    self.run = self.work = self.accepted_payload = None
-                    self.log('dummy_task_end_candidate_not_physical_result')
+                    if self.work != target.work or not self.voice.safety_task_end_accepted(target,valid_state=True):
+                        self.log('dummy_task_end_rejected_not_current')
+                        return
+                    self.run = self.work = self.accepted_payload = self.first_action = None
+                    self.voice._runner_status(self.String(data=json.dumps(dict(
+                        phase='idle',task_id=None,halt_code=None,last=None,last_intent=None))))
+                    self.log('dummy_task_end_accepted_idle_fixture_not_physical_result')
                 else:
                     self.log('dummy_resume_candidate_not_motion_permission')
             # 복구/재개/종료는 명시 모의 증빙/후보뿐이며 실제 해제·모션을 실행하지 않습니다.
@@ -316,6 +321,10 @@ def spin_live(executor, voice, bridge):
             raise RuntimeError('DUMMY_EXECUTOR_STOPPED')
     except Exception as exc:
         with voice.submit_lock:
+            if voice.stop_event.is_set() or getattr(bridge,'closing',False):
+                bridge.log('dummy_executor_shutdown_interrupted',error_type=type(exc).__name__)
+                return
+            bridge.executor_failed = True
             bridge.active = False
             bridge.first_action = None
             voice.stop_event.set()
@@ -375,6 +384,7 @@ def serve_live(config_file, *, auto_complete=None):
                         bridge.log('stdin_command_rejected', command=command, reason='dummy_test_unavailable')
                         break
                     if command == 'exit':
+                        bridge.log('dummy_shutdown_requested',reason='stdin_exit')
                         break
                     elif command == 'complete':
                         ok = bridge.complete()
@@ -398,20 +408,37 @@ def serve_live(config_file, *, auto_complete=None):
                 except (ValueError, TypeError, IndexError) as exc:
                     bridge.log('stdin_command_rejected', command=command if command in allowed else 'unknown', error_type=type(exc).__name__)
         except KeyboardInterrupt:
-            pass
+            if bridge is not None:
+                bridge.log('dummy_shutdown_requested',reason='keyboard_interrupt')
         finally:
+            cleanup_errors = []
             if bridge is not None:
+                bridge.closing = True
                 bridge.active = False
+            def cleanup(name, operation):
+                try:
+                    operation()
+                except Exception as exc:
+                    context_ok = getattr(rclpy,'ok',lambda:True)()
+                    info = dict(event='dummy_cleanup_error',operation=name,error_type=type(exc).__name__,context_ok=context_ok)
+                    print(json.dumps(info),flush=True)
+                    if context_ok or type(exc).__name__ != 'RCLError':
+                        cleanup_errors.append(name)
             if voice is not None:
-                voice.close()
-            executor.shutdown()
+                cleanup('voice_close',voice.close)
+            cleanup('executor_shutdown',executor.shutdown)
             if thread is not None:
-                thread.join(timeout=1)
+                cleanup('executor_join',lambda:thread.join(timeout=1))
             if bridge is not None:
-                bridge.close()
+                cleanup('bridge_close',bridge.close)
             if voice is not None:
-                voice.destroy_node()
-            rclpy.shutdown()
+                cleanup('voice_destroy',voice.destroy_node)
+            if getattr(rclpy,'ok',lambda:True)():
+                cleanup('context_shutdown',getattr(rclpy,'try_shutdown',rclpy.shutdown))
+            else:
+                print(json.dumps(dict(event='dummy_context_already_shutdown')),flush=True)
+        if cleanup_errors or bridge is not None and getattr(bridge,'executor_failed',False):
+            raise RuntimeError('DUMMY_EXECUTION_OR_CLEANUP_FAILED')
 
 
 def serve(cfg, *, smoke=False):

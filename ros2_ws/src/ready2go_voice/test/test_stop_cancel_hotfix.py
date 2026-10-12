@@ -95,7 +95,7 @@ def _dummy(monkeypatch):
     voice=SimpleNamespace(cfg={'voice_flow':{'dummy_auto_complete':False}},stop_event=threading.Event(),
         submit_lock=threading.RLock(),generation=0,request_run=SimpleNamespace(pending=None,run_id=None,finished=False),
         bind_request_source=lambda f:None,bind_safety_sender=lambda f:None,_request_run_connected=lambda:True,
-        safety_stopped=lambda *a,**kw:True)
+        safety_task_end_accepted=lambda *a,**kw:True,safety_stopped=lambda *a,**kw:True)
     def status(message):
         data=json.loads(message.data);decision=data.get('last_intent')
         if decision:voice.request_run.run_id=decision['run_id'];voice.request_run.finished=data['phase']=='idle'

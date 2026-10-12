@@ -13,6 +13,7 @@ import pytest
 from jsonschema import Draft7Validator
 from ready2go_voice.adapters.api import LangChainIntent
 from ready2go_voice.core.intent import intent, IntentParser
+from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
 from ready2go_voice.core.session import VoiceSession
 from ready2go_voice.core.response import final_response
 from ready2go_voice.core.diagnostics import redact
@@ -35,7 +36,7 @@ def node_class():
     namespace=dict(Node=object,deque=deque,json=json,queue=queue,threading=threading,time=time,uuid=uuid,
                    intent=intent,final_response=final_response,redact=redact,remember_text=remember_text,
                    Notice=Notice,RunnerNoticePolicy=RunnerNoticePolicy, Recorder=Recorder,
-                   finite=finite,safety_utterance=safety_utterance,task_end_utterance=task_end_utterance,
+                   TaskEndCandidate=TaskEndCandidate,finite=finite,safety_utterance=safety_utterance,task_end_utterance=task_end_utterance,
                    decode=decode,identity=identity,question_input=question_input,registered=registered,result_notice=result_notice,
                    IndependentRegistration=IndependentRegistration,QuestionDeclined=QuestionDeclined,RecoveryRequest=RecoveryRequest,
                    GoalResponse=SimpleNamespace(ACCEPT=1,REJECT=0),

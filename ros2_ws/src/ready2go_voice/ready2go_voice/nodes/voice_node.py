@@ -28,7 +28,7 @@ from ..core.request_run import RequestRun
 from ..core.place_exchange import PlaceExchange
 from ..core.place_input import decode, identity, question_input, registered, result_notice
 from ..core.safety_exchange import SafetyExchange, IndependentRegistration, QuestionDeclined, RecoveryRequest
-from ..core.recovery_confirmation import finite, safety_utterance, task_end_utterance
+from ..core.recovery_confirmation import finite, safety_utterance, task_end_utterance, TaskEndCandidate
 from ..adapters.api import LangChainIntent, WhisperSTT
 from ..adapters.audio import Recorder, WakeAudio, SharedInput
 from ..adapters.tts import create_tts
@@ -38,7 +38,7 @@ from ..adapters.cue import WakeCue
 def runner_blocks(node):
     policy = getattr(node, 'notice_policy', None)
     safety = getattr(node, 'safety_exchange', None)
-    return bool(policy and (policy.phase in ('running', 'halted') or policy.blocked)
+    return bool(getattr(node, 'pending_task_end', None) is not None or policy and (policy.phase in ('running', 'halted') or policy.blocked)
                 or safety and safety.policy and safety.policy.work is not None)
 
 
@@ -106,6 +106,9 @@ class VoiceNode(Node):
         self.stop_spoken = None  # 현재 정지 녹음과 겹친 자체 재생 문구만 보관합니다.
         self.shared_input = SharedInput(self.cfg, clock=clock) if self.cfg['audio_enabled'] and recorder is None else None
         self.stop_listener = None
+        self.stop_processor = None
+        self.stop_captures = queue.Queue(maxsize=1)
+        self.pending_task_end = None
         self.dialog_lock = threading.Lock()
         self.place_clock = clock
         # Explicit development boundary; question/registered/result are test fixtures.
@@ -379,6 +382,8 @@ class VoiceNode(Node):
             old = self.safety_exchange.policy.work if self.safety_exchange.policy else None
             accepted = self.safety_exchange.stopped(work, revision, valid_state=valid_state, evidence=evidence)
             policy = self.safety_exchange.policy
+            if accepted:
+                self.pending_task_end = None
             if policy is not None and (not policy.current_state_confirmed or accepted and old != policy.work):
                 self._cancel_safety_locked()
             return accepted
@@ -434,7 +439,9 @@ class VoiceNode(Node):
                 now=self.place_clock(), valid_state=valid_state, evidence=evidence)
             sender = self.safety_sender
             if result is not None and sender is not None:
-                sender('candidate', result)
+                self._send_safety_candidate_locked(result, sender)
+            elif result is None:
+                self._diagnostic({'event':'safety_result_held','reason':self.safety_exchange.last_rejection_reason or 'no_current_candidate'})
         return result
 
     def safety_completed(self, work, revision, *, valid_state):
@@ -450,8 +457,7 @@ class VoiceNode(Node):
 
     def _safety_result_locked(self, result, cancel, sender):
         if result is None:
-            self._diagnostic({'event':'safety_result_held','reason':'no_current_candidate'})
-            return
+            return  # Session/등록 측의 구체 사유를 중복하지 않습니다.
         if (sender is None or cancel is not self.safety_cancel or cancel.is_set()
                 or self.stop_event.is_set() or self.cfg['evaluation_mode']):
             return
@@ -464,7 +470,25 @@ class VoiceNode(Node):
         elif isinstance(result, RecoveryRequest):
             sender('recover', result.work)
         else:
-            sender('candidate', result)
+            self._send_safety_candidate_locked(result, sender)
+
+    def _send_safety_candidate_locked(self, result, sender):
+        if isinstance(result, TaskEndCandidate):
+            self.pending_task_end = (result, self.generation)
+            self._diagnostic({'event':'task_end_candidate','reason':'termination_acceptance_pending'})
+        sender('candidate', result)
+
+    def safety_task_end_accepted(self, candidate, *, valid_state):
+        # 신뢰된 현재 C 수락 adapter/명시 더미 입력만 호출합니다. 모션/물리완료 증거 아님.
+        with self.submit_lock:
+            pending = getattr(self, 'pending_task_end', None)
+            if (valid_state is not True or pending is None or pending[0] is not candidate
+                    or pending[1] != self.generation or self.stop_event.is_set()):
+                self._diagnostic({'event':'safety_result_held','reason':'termination_acceptance_not_current'})
+                return False
+            self.pending_task_end = None
+            self._diagnostic({'event':'task_end_accepted','reason':'trusted_termination_acceptance_not_physical_completion'})
+            return True
 
     def _safety_recording(self, recording, work):
         """새 웨이크 녹음만 독립 요청으로 처리하며 질문의 과거 답을 재분류하지 않습니다."""
@@ -605,6 +629,12 @@ class VoiceNode(Node):
             'record_started': f"녹음 시작 ({doc.get('duration', '무음 종료')}초)",
             'record_finished': '녹음 완료', 'whisper_requested': 'Whisper 요청',
             'stt_result': f"STT 결과: {doc.get('text', '')}",
+            'stop_stt_result': f"정지 STT 결과: {doc.get('text','')}",
+            'safety_stt_result': f"중단 후 STT 결과: {doc.get('text','')}",
+            'voice_state': f"Voice 상태: {doc.get('phase')} / 중단 작업 보존={doc.get('work_retained')} / 종료 수락 대기={doc.get('termination_pending')}",
+            'task_end_candidate': '작업 종료 후보 · 수락 대기',
+            'task_end_accepted': '현재 작업 종료 수락 · 물리 완료 아님',
+            'stop_audio_held': '정지 입력 보류: ' + doc.get('reason',''),
             'speech_check_started': '발화 검사', 'no_speech': '발화 없음: STT·LLM 생략',
             'speech_check_failed': f"발화 검사 보류: {doc.get('error_type', '')}",
             'stt_failed': f"STT 실패: {doc.get('error_type', '')}",
@@ -661,7 +691,12 @@ class VoiceNode(Node):
         # 일반 콘솔은 STT 전사/최종 응답/발행 상태/보류/오류를 표시합니다. 나머지 단계 증빙은 상세 파일에 보존합니다.
         hidden = {'record_started', 'record_finished', 'whisper_requested', 'speech_check_started', 'tts_started'}
         if event in messages and event not in hidden:
-            self.get_logger().info(redact(messages[event]).replace('\n', ' ').replace('\r', ' '))
+            try:
+                self.get_logger().info(redact(messages[event]).replace('\n', ' ').replace('\r', ' '))
+            except Exception as exc:
+                if not self.stop_event.is_set():
+                    raise
+                print(json.dumps({'event':'voice_logger_cleanup_error','error_type':type(exc).__name__}),flush=True)
 
     def _runner_status_with_info(self, message, info):
         # Jazzy 실제 metadata(시각/sequence)는 C 수락·재기동 근거를 대신하지 않습니다.
@@ -704,6 +739,9 @@ class VoiceNode(Node):
                     events = self.request_run.observe(status)
                 previous = self.notice_policy.revision
                 notice = self.notice_policy.observe(message.data)
+                self._diagnostic({'event':'voice_state','phase':self.notice_policy.phase,
+                    'work_retained':bool(self.safety_exchange.policy and self.safety_exchange.policy.work),
+                    'termination_pending':getattr(self,'pending_task_end',None) is not None})
                 if (self.notice_policy.blocked or self.notice_policy.phase == 'halted'
                         or notice and notice.kind != 'completed'):
                     if hasattr(self, 'safety_exchange'):
@@ -781,7 +819,47 @@ class VoiceNode(Node):
         self._diagnostic({'event': 'intent', 'intent': doc, 'published': published})
         return published
 
+    def _stop_process(self):
+        interval = self.cfg['frame_samples'] / self.cfg['sample_rate']
+        while not self.stop_event.is_set():
+            try:
+                recording, generation, spoken = self.stop_captures.get(timeout=interval)
+            except queue.Empty:
+                continue
+            try:
+                def interrupted():
+                    return self.stop_event.is_set() or generation != self.generation
+                if interrupted():
+                    self._diagnostic({'event':'stop_audio_held','reason':'stale_generation'})
+                    continue
+                doc = self.session.stop_audio(recording, paused=interrupted, spoken_texts=spoken)
+                if doc is not None:
+                    with self.submit_lock:
+                        self._stop_locked(doc, generation)
+            finally:
+                self.stop_captures.task_done()
+
+    def _queue_stop_capture(self, recording, generation, spoken):
+        with self.submit_lock:
+            if self.stop_event.is_set() or generation != self.generation:
+                return False
+            try:
+                self.stop_captures.put_nowait((recording,generation,frozenset(spoken)))
+            except queue.Full:
+                try:
+                    self.stop_captures.get_nowait();self.stop_captures.task_done()
+                except queue.Empty:
+                    pass
+                self.stop_captures.put_nowait((recording,generation,frozenset(spoken)))
+                self._diagnostic({'event':'stop_capture_replaced','reason':'newest_pending_capture_only'})
+            return True
+
     def _stop_listen(self):
+        if not hasattr(self,'stop_captures'):
+            self.stop_captures = queue.Queue(maxsize=1)
+        if getattr(self,'stop_processor',None) is None:
+            self.stop_processor = threading.Thread(target=self._stop_process,daemon=True)
+            self.stop_processor.start()
         # 일반 wake/fixed 설정과 무관하게 정지는 기존 RMS/무음 종료 녹음을 사용합니다.
         recorder = Recorder(self.cfg, clock=self.place_clock, shared_input=self.shared_input)
         interval = self.cfg['frame_samples'] / self.cfg['sample_rate']
@@ -815,10 +893,7 @@ class VoiceNode(Node):
                 self._diagnostic({'event':'stop_capture_finished','recording_started_monotonic':recording.recording_started_monotonic,
                     'recording_ended_monotonic':recording.recording_ended_monotonic,'speech_ended_monotonic':recording.ended_monotonic,
                     'sample_count':len(recording.pcm)//2})
-                doc = self.session.stop_audio(recording, paused=interrupted, spoken_texts=spoken)
-                if doc is not None:
-                    with self.submit_lock:
-                        self._stop_locked(doc, generation)
+                self._queue_stop_capture(recording, generation, spoken)
             except TimeoutError as exc:
                 code = str(exc)
                 self._diagnostic({'event':'stop_capture_held','reason':code if code in ('NO_SPEECH','RECORD_LIMIT') else type(exc).__name__})
@@ -1268,6 +1343,8 @@ class VoiceNode(Node):
             self.listener.join(timeout=1)
         if self.stop_listener:
             self.stop_listener.join(timeout=1)
+        if getattr(self,'stop_processor',None):
+            self.stop_processor.join(timeout=1)
         if hasattr(self.tts, 'close'):
             self.tts.close()
         writer = getattr(self, 'diagnostic_file', None)

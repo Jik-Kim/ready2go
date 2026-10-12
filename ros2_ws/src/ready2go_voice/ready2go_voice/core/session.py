@@ -251,15 +251,29 @@ class VoiceSession:
         doc['_voice']['recording_ended_monotonic'] = recording.recording_ended_monotonic
         return doc
 
+    def _control_capture(self, recording, kind):
+        """안전 입력의 원음 증빙만 기존 opt-in 경로에 저장합니다. trim/VAD/재사용 없음."""
+        from .signal import prepare
+        ident = kind + '_' + uuid.uuid4().hex
+        def emit(**data):
+            self.progress(**dict(data, control_capture_id=ident, capture_kind=kind))
+        cfg = dict(self.cfg, voice_flow=dict(self.flow, capture_trim=False))
+        try:
+            prepare(recording, cfg, ident, emit)
+        except Exception as exc:
+            emit(event='capture_invalid', error_type=type(exc).__name__)
+        return emit
+
     def stop_audio(self, recording, *, paused=lambda: False, spoken_texts=()):
         """새 무음 종료 녹음의 좁은 정지 판별. LLM·대화 문맥·일반 STT 슬롯은 사용하지 않습니다."""
         from ..adapters.audio import write_wav
         from .recovery_confirmation import finite, safety_utterance
+        emit = self._control_capture(recording, 'stop')
         start, end = recording.recording_started_monotonic, recording.recording_ended_monotonic
         if (paused() or recording.truncated or not recording.pcm
                 or recording.recording_mode != 'silence' or self.stt is None
                 or not all(finite(t) for t in (start, end)) or not start <= end <= self.clock()):
-            self.progress(event='stop_audio_held', reason='capture_unconfirmed')
+            emit(event='stop_audio_held', reason='capture_unconfirmed')
             return None
         timeout = self.cfg['stt_timeout_sec']
         try:
@@ -273,31 +287,31 @@ class VoiceSession:
                         def before_request(stamp):
                             if paused():
                                 return False
-                            self.progress(event='stop_sdk_request', requested_monotonic=stamp)
+                            emit(event='stop_sdk_request', requested_monotonic=stamp)
                             return True
                         return self.stt.transcribe(path, timeout, before_request=before_request)
                     return self.stt.transcribe(path, timeout)
             text = self.stop_stt_calls.call(transcribe, timeout)
-            self.progress(event='stop_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip())
+            emit(event='stop_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip())
             if not isinstance(text,str) or not text.strip():
-                self.progress(event='stop_audio_held', reason='empty_transcript')
+                emit(event='stop_audio_held', reason='empty_transcript')
                 return None
             # 기존 정확 문구 분류는 부정·인용·전언·모호 표현을 수용하지 않습니다.
             normalized_control = self.parser.control(text) if self.parser is not None else None
-            self.progress(event='stop_stt_result', text=text)
+            emit(event='stop_stt_result', text=text)
             if paused() or not (safety_utterance(text) == 'stop' or normalized_control and normalized_control['intent'] == 'cancel'):
-                self.progress(event='stop_audio_held', reason='canceled' if paused() else 'not_explicit_stop')
+                emit(event='stop_audio_held', reason='canceled' if paused() else 'not_explicit_stop')
                 return None
             normalized = ''.join(text.split()).rstrip('.!?')
             if any(normalized in ''.join(reference.split()) for reference in spoken_texts):
-                self.progress(event='stop_audio_held', reason='overlapping_self_speech')
+                emit(event='stop_audio_held', reason='overlapping_self_speech')
                 return None
             doc = intent('cancel')
             doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
                                  llm_called=False, fallback_used=False)
             return doc
         except Exception as exc:
-            self.progress(event='stop_audio_held', reason=type(exc).__name__, api_error=error_info(exc))
+            emit(event='stop_audio_held', reason=type(exc).__name__, api_error=error_info(exc))
             return None  # 네트워크 실패/늦은 결과는 로봇 정지 완료 증거가 아닙니다.
 
     def confirm_audio(self, exchange, envelope, recording, *, cancel=None, paused=lambda: False):
@@ -386,9 +400,10 @@ class VoiceSession:
         """현재 질문/새 독립 요청의 STT. 결과는 내부 후보이며 재개 wire가 아닙니다."""
         from ..adapters.audio import write_wav
         from .recovery_confirmation import finite, safety_utterance
+        emit = self._control_capture(recording, 'safety')
         capture = exchange.reserve(target)
         if capture is None:
-            self.progress(event='safety_audio_held', reason='capture_not_current_or_already_reserved')
+            emit(event='safety_audio_held', reason='capture_not_current_or_already_reserved')
             return None
         stage = 'capture_validation'
         interrupted = lambda: (cancel is not None and cancel.is_set()) or paused()
@@ -422,16 +437,17 @@ class VoiceSession:
                             return False
                         receipt = exchange.admit(target, capture, captured_at=start, ended_at=end, started_at=stamp)
                         if receipt is not None:
-                            self.progress(event='safety_sdk_request', requested_monotonic=stamp)
+                            emit(event='safety_sdk_request', requested_monotonic=stamp)
                         return receipt is not None
                     text = self.stt.transcribe(path, exchange.policy.stt_result_timeout_sec,
                                                before_request=before_request)
                     return text, receipt
             stage = 'sdk'
             text, receipt = self.stt_calls.call(transcribe, budget)
-            self.progress(event='safety_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip(), request_admitted=receipt is not None)
+            emit(event='safety_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip(), request_admitted=receipt is not None)
             if interrupted() or not exchange.current(target):
                 raise InterruptedError('SAFETY_CANCELED')
+            emit(event='safety_stt_result', text=text if isinstance(text,str) else '', result_monotonic=self.clock())
             if receipt is None:
                 raise ValueError('SAFETY_STT_UNCONFIRMED')
             if not isinstance(text,str) or not text.strip():
@@ -447,15 +463,15 @@ class VoiceSession:
             result = exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
             if result is None:
                 exchange.fail(target)  # 현재 요청만 정리; work와 새 사건은 보존합니다.
-                self.progress(event='safety_audio_held', reason='unrecognized_or_conditions_not_met', stage=stage)
+                emit(event='safety_audio_held', reason=exchange.last_rejection_reason or 'unrecognized_or_conditions_not_met', stage=stage)
             else:
-                self.progress(event='safety_audio_result', candidate_type=type(result).__name__)
+                emit(event='safety_audio_result', candidate_type=type(result).__name__)
             return result
         except Exception as exc:
             exchange.fail(target)
             allowed = {'SAFETY_AUDIO_UNCONFIRMED','NO_SPEECH','SAFETY_EXPIRED','SAFETY_CANCELED','SAFETY_STT_UNCONFIRMED','STT_REQUEST_NOT_ADMITTED','VAD_PCM_FORMAT','VAD_UNAVAILABLE','VAD_FAILED','SPEECH_CHECK_CANCELED','예산 소진','이전 호출 정리 중','호출 시간 초과'}
             reason = str(exc) if str(exc) in allowed else type(exc).__name__
-            self.progress(event='safety_audio_failed', reason=reason, stage=stage, error_type=type(exc).__name__, api_error=error_info(exc))
+            emit(event='safety_audio_failed', reason=reason, stage=stage, error_type=type(exc).__name__, api_error=error_info(exc))
             return None
 
     def _fingerprint(self, doc):

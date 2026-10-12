@@ -2,6 +2,7 @@
 """명시 prepare/live 실행. 원본 local·기존 로그를 보존하는 E 시험 도구."""
 import argparse
 import contextlib
+import codecs
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import yaml
 from ready2go_voice.core.config import load_config
+from ready2go_voice.core.diagnostics import redact
 from ready2go_voice.core.tts_prefill import prefill_texts
 from ready2go_knowledge.core.ontology import load
 
@@ -86,18 +88,59 @@ def require_prepared(run_root, identity):
     return latest.parent
 
 
-class Tee:
-    def __init__(self, console, logfile, lock):
-        self.console,self.logfile,self.lock = console,logfile,lock
-    def write(self,value):
-        with self.lock:
-            self.console.write(value);self.logfile.write(value)
+class PipeOutput:
+    def __init__(self, fd):self.fd = fd
+    def write(self, value):
+        data = value.encode('utf-8')
+        while data:
+            written = os.write(self.fd,data);data = data[written:]
         return len(value)
-    def flush(self):
-        with self.lock:
-            self.console.flush();self.logfile.flush()
-    def isatty(self):
-        return self.console.isatty()
+    def flush(self):pass
+    def fileno(self):return self.fd
+    encoding = 'utf-8'
+    errors = 'replace'
+    def isatty(self):return False
+
+
+@contextlib.contextmanager
+def console_capture(output):
+    """Python/ROS/native fd1·2를 한 번만 로컬 저장하며 stdin은 변경하지 않습니다."""
+    sys.stdout.flush();sys.stderr.flush()
+    saved = (os.dup(1),os.dup(2))
+    reader,writer = os.pipe()
+    errors = []
+    def pump():
+        decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+        pending = ''
+        def line(value):
+            clean = redact(value)
+            data = clean.encode('utf-8')
+            while data:
+                written = os.write(saved[0],data);data = data[written:]
+            output.write(clean);output.flush()
+        try:
+            while True:
+                chunk = os.read(reader,4096)
+                if not chunk:break
+                pending += decoder.decode(chunk)
+                while '\n' in pending:
+                    value,pending = pending.split('\n',1);line(value+'\n')
+            pending += decoder.decode(b'',final=True)
+            if pending:line(pending)
+        except Exception as exc:
+            errors.append(type(exc).__name__)
+        finally:
+            os.close(reader)
+    worker = threading.Thread(target=pump,daemon=True);worker.start()
+    os.dup2(writer,1);os.dup2(writer,2)
+    try:
+        with contextlib.redirect_stdout(PipeOutput(writer)), contextlib.redirect_stderr(PipeOutput(writer)):
+            yield
+    finally:
+        os.dup2(saved[0],1);os.dup2(saved[1],2);os.close(writer)
+        worker.join()
+        os.close(saved[0]);os.close(saved[1])
+        if errors:raise RuntimeError('CONSOLE_CAPTURE_FAILED')
 
 
 def prepare(cfg):
@@ -131,8 +174,7 @@ def run(mode, original, run_root, *, silence=False, auto_complete=False, prepare
     receipt.write_text(json.dumps(result))  # 최신 실패도 과거 준비 성공을 대신 사용하지 않습니다.
     code = 1
     with (folder/'console.log').open('x',encoding='utf-8') as output:
-        lock = threading.RLock()
-        with contextlib.redirect_stdout(Tee(sys.stdout,output,lock)), contextlib.redirect_stderr(Tee(sys.stderr,output,lock)):
+        with console_capture(output):
             print('시험 로그:',folder,flush=True)
             try:
                 path,cfg = trial_config(original,folder,silence=silence,auto_complete=auto_complete)

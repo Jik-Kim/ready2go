@@ -154,7 +154,7 @@ def test_safety_failure_reason_stage_and_fresh_retry_preserve_work(cfg,failure):
     last=events[-1]
     if failure=='fixed_no_speech':assert last['reason']=='NO_SPEECH' and last['stage']=='speech_check'
     elif failure=='empty':assert last['reason']=='NO_SPEECH' and last['stage']=='sdk'
-    elif failure=='no_candidate':assert last['reason']=='unrecognized_or_conditions_not_met'
+    elif failure=='no_candidate':assert last['reason']=='command_not_matched'
     else:assert last['reason']=='RuntimeError'
     assert ex.begin_independent(now=7.,unique_target=True) is not None  # 새 독립 요청만 허용
 
@@ -163,7 +163,7 @@ def test_stop_capture_sdk_and_publication_diagnostics_are_separate(node,node_cla
     node.now[0]=6.;events=[];node.session.progress=lambda **e:events.append(e)
     node.session.stt=STT('멈춰',node.now)
     doc=node.session.stop_audio(audio());assert doc['intent']=='cancel'
-    assert [e['event'] for e in events][:3]==['stop_sdk_request','stop_sdk_result','stop_stt_result']
+    assert [e['event'] for e in events if e['event'] in ('stop_sdk_request','stop_sdk_result','stop_stt_result')]==['stop_sdk_request','stop_sdk_result','stop_stt_result']
     with node.submit_lock:node_class._stop_locked(node,doc,node.generation)
     assert any(e['event']=='stop_request_published' and e['published'] for e in node.diagnostics)
     assert node.published[-1]['intent']=='cancel'

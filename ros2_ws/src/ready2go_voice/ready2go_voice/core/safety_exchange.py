@@ -31,6 +31,7 @@ class SafetyExchange:
         self.policy = None
         self.evidence = None
         self.capture = None
+        self.last_rejection_reason = None
         self._lock = threading.RLock()
 
     @serialized
@@ -149,7 +150,9 @@ class SafetyExchange:
 
     @serialized
     def answer(self, target, text, *, captured_at, now, request):
+        self.last_rejection_reason = None
         if not self.current(target) or request is None:
+            self.last_rejection_reason = 'request_not_current_or_not_admitted'
             return None
         if target is self.policy.question:
             valid_receipt = request is self.policy.request and request.question is target and captured_at == request.captured_at
@@ -158,23 +161,38 @@ class SafetyExchange:
             if (valid_receipt and candidate is None and isinstance(text, str) and text.strip().rstrip('.!?') in ('아니', '아니요')
                     and finite(now) and request.started_at <= now < min(request.result_until, target.valid_until)):
                 return QuestionDeclined(target)
+            if candidate is None:
+                self.last_rejection_reason = 'command_not_matched' if safety_utterance(text) is None else 'question_evidence_or_deadline_unconfirmed'
             return candidate
         if request is not self.policy.independent_audio:
+            self.last_rejection_reason = 'request_receipt_mismatch'
             return None
         if self.policy._independent_valid(target, now) and safety_utterance(text) == 'recover':
             work = target.work
             self.policy.invalidate()
             return RecoveryRequest(work)
+        valid = self.policy._independent_valid(target, now)
+        command = safety_utterance(text)
+        from .recovery_confirmation import task_end_utterance
         if self.policy.independent_stt(target, text, now=now):
             return IndependentRegistration(target)
+        self.last_rejection_reason = ('request_expired_or_state_unconfirmed' if not valid else
+            'command_not_matched' if command is None and not task_end_utterance(text) else 'command_not_available_in_current_path')
         return None
 
     @serialized
     def independent_registered(self, target, work, revision, *, now, valid_state, evidence):
+        self.last_rejection_reason = None
         if (not self.current(target) or not self.policy.independent_registered(target, work, revision,
                 now=now, valid_state=valid_state)):
+            self.last_rejection_reason = 'registration_work_revision_or_deadline_unconfirmed'
             return None
-        return self.policy.independent_candidate(target, now=now, evidence=evidence)
+        candidate = self.policy.independent_candidate(target, now=now, evidence=evidence)
+        if candidate is None:
+            missing = [key for key in ('stopped','recovered','conditions','resume_point','fresh')
+                       if isinstance(evidence, Evidence) and getattr(evidence,key) is not True]
+            self.last_rejection_reason = 'evidence_missing:' + ','.join(missing) if missing else 'current_recovery_mode_unconfirmed'
+        return candidate
 
     @serialized
     def fail(self, target):

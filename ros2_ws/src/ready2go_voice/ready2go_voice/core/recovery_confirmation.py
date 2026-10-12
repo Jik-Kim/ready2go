@@ -22,10 +22,12 @@ def finite(value):
 def safety_utterance(text):
     if not isinstance(text, str):
         return None
-    return {'멈춰': 'stop', '정지해': 'stop', '복구해': 'recover',
+    forms = {'멈춰': 'stop', '정지해': 'stop', '중단': 'stop', '중단해': 'stop', '복구': 'recover', '복구해': 'recover',
             '상태 확인 후 복구해': 'recover', '재개해': 'resume',
             '이어서 실행해': 'resume', '이어서 해': 'resume', '처음부터 시작해': 'new_start',
-            '새 작업 시작해': 'new_start'}.get(text.strip().rstrip('.!?').strip())
+            '새 작업 시작해': 'new_start'}
+    normalized = ''.join(text.split()).rstrip('.!?。？！')
+    return {''.join(key.split()):value for key,value in forms.items()}.get(normalized)
 
 
 def task_end_utterance(text):
