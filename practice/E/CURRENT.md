@@ -1,5 +1,14 @@
 # CURRENT — E 고희태
 
+<a id="pr227-publish-prep-20261012-01"></a>
+## PR227 게시 준비 — E-PR227-PUBLISH-PREP-20261012-01
+
+- [문서: 승인·기준] 지시 세션 v2의 인간 turn `01a12fcd-331c-75f3-8f08-ea7dbcf53a56` “world.jsonld 변경도 커밋하고 #227로 PR 진행해”를 직접 확인했습니다. 기준 `12e0c29d0d6c68699d2857f3ea5ff6b4f299eefd`, 기존 `codex/e-tray-confirm-integration-20261011` checkout 유지. 앞선 보호·제외 world 데이터의 현재 세 변경을 이번 승인에 포함하며 모델은 계속 제외합니다. E 소유 knowledge 원본과 CURRENT만 커밋합니다. [FR-ONT-01/P1](../../docs/requirements.md#fr-ont-01)·[FR-INT-02의 P1/P2 연결](../../docs/requirements.md#fr-int-02)을 대조했으며 요구사항·Phase·공개 계약은 바꾸지 않습니다.
+- [문서: 승인 데이터] `caramel_box.size_m[2]` 0.0185→0.0195m, `lip_balm.aliases_ko`의 “입술 보호제” 삭제, `masking_tape.aliases_ko`에 “테이프” 추가. 이름/ID/역할 및 다른 필드는 원본 비교로 보존 확인했습니다. 높이는 승인된 원본 수정이며 이번 직접 측정/실파지 성공 근거가 아닙니다.
+- [실측: 연결·검사] 공통 `core.ontology.load()`가 manifest sources.world를 읽고 높이0.0195를 반환하는 것을 확인했습니다. 실제 Voice `IntentParser`의 normalized alias 충돌0, “테이프 가져다줘”→masking_tape, “입술 보호제 가져다줘”→물품 언급 없음, “립밤 가져다줘”→lip_balm을 ROS/API 비의존으로 확인했습니다. 이는 언급/alias 소비 검사이며 요청 수락·실물 실행 성공이 아닙니다. B skill_server의 items size 조회·A inspect_real의 명목 size 조회·C unpack footprint 소비를 읽기 대조했고 해당 코드는 수정하지 않았습니다. `python3 tools/validate_contracts.py` 종료0/OK, 로그 `/tmp/e-pr227-publish-validate-20261012.log`. JSON 파싱만으로 연결 정합성을 판정하지 않았습니다.
+- [문서: 최종 검사·게시] world/CURRENT 커밋 뒤 정확 최종 전체 SHA로 `bash tools/dev/ci_local.sh <SHA>` 전체 CI를 실행합니다. 결과는 외부 로그 `/tmp/e-pr227-publish-ci-20261012.log`와 지시 세션/기존 [PR #227](https://github.com/Jik-Kim/ready2go/pull/227)의 최종 SHA 근거로 전달하며, 성공 뒤 이 파일에 수치를 덧붙여 검사 SHA를 바꾸지 않습니다. 기존 a412169 CI·12e0c29의 전체/부분 모의 회귀는 새 게시 HEAD CI로 전용하지 않습니다. PR 원격 a412169 이후의 승인된 로컬 후속/리뷰/world 커밋을 함께 게시하는 승인입니다. 실제 push/본문 갱신은 부모가 지정 PR 세션에 전달하며 이 작업자는 push하지 않습니다. 새 PR·main merge·병합·후속 집기 구성·타 파트 수정은 제외합니다.
+- [미검증] 실마이크/API/Melo·실제 C/B 운영·로봇/실물 AC는 수행하지 않습니다. 임계값/모델/원본 local 설정/키/캐시·공개 계약·현재 R1/검사 한계는 유지합니다. CI는 기존 스크립트의 격리 임시 checkout/DB/build 환경을 사용하며 작업 checkout과 미추적 models를 변경하지 않습니다.
+
 <a id="pr227-review-fix-20261012-01"></a>
 ## PR227 리뷰 수정 — E-PR227-REVIEW-FIX-20261012-01
 
