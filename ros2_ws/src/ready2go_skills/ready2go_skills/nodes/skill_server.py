@@ -2345,7 +2345,9 @@ class SkillServer(Node):
             pose, tb, tol_mm=float(pl.get("tilt_back_tol_mm", 0.0)), tol_deg=float(pl.get("tilt_back_tol_deg", 0.0))))
         support = None                                      # 다른 물체 위에 놓기 (명령한 pose 만, place.allow_stack_place) — 받침은 이웃 확인에서 뺌
         if not slot and not back_tilt and pl.get("allow_stack_place"):
-            support = plp.stack_support(pose=pose, held_id=held_id, held_size_m=size, objects=objs, size_of=self._size_or_none,
+            goal_id = ((params.get("scan") or {}).get("target") or {}).get("id")   # 찾는 목표 위에는 안 얹음 (Unpacking 중 목표는 꺼내야 함)
+            support = plp.stack_support(pose=pose, held_id=held_id, held_size_m=size, size_of=self._size_or_none,
+                                        objects=[o for o in objs if o["id"] != goal_id],
                                         max_top_m=interior[2] - prm["pick"]["stack_top_clear_m"])
             if support is not None:
                 objs = [o for o in objs if o["id"] != support["id"]]

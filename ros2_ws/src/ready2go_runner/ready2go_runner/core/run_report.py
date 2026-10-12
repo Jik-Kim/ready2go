@@ -357,7 +357,8 @@ def header(record: dict) -> list[str]:
              if st.get("action") == "push" and (st.get("params") or {}).get("stack") == "left_aside"
              and st.get("status") == "SUCCESS"]
     if aside:                                    # find_with_unpack: 원래 자리가 막혀 꺼냈던 빈 자리에 둔 물체 (사람이 찾을 수 있게)
-        lines.append("  원래 자리 대신 빈 자리: " + ", ".join(f"{a.get('class', '?')}({a.get('slot', '?')})" for a in aside))
+        lines.append("  원래 자리 대신 빈 자리: " + ", ".join(f"{a.get('class', '?')}({a.get('slot', '?')})" for a in aside)
+                     + " — 원위치 복구 아님 (A안은 2차 점검의 제한적 통과, AC-ACT-03 완료 아님 — #239 E 리뷰)")
     checks = [c for c in (restore_check(st) for st in steps) if c]
     if checks:                                   # AC-ACT-03 근거 — 판정 아님, 기준은 정본·시험표
         lines.append("  복구 오차 (판정 아님): " + "; ".join(f"{c['class']} {_restore_text(c)}" for c in checks))
