@@ -11,6 +11,17 @@ import pytest
 
 
 HERE = Path(__file__).resolve().parent
+S10_MACHINE_CHECKS = [
+    "explicit_recovery_request_linked",
+    "actual_stop_confirmed",
+    "safe_force_confirmed",
+    "fresh_sensor_and_communication_confirmed",
+    "controller_ready_and_recoverable",
+    "b_recovery_result_passed",
+    "c_unlock_after_b_result",
+    "automatic_resume_count_zero",
+]
+S10_HUMAN_CHECKS = ["H-STOP-01", "H-AREA-01", "H-HW-01"]
 SPEC = importlib.util.spec_from_file_location(
     "validate_issue196_artifacts", HERE / "validate_issue196_artifacts.py"
 )
@@ -86,9 +97,18 @@ def _append_trial(result_path: Path, result_set: dict, **updates: object) -> Non
         "started_at": "2026-10-12T00:00:01Z",
         "correlation": {},
         "input_reference": {},
-        "machine_checks": [],
-        "automatic_result": "not_evaluated",
-        "required_human_checks": [],
+        "machine_checks": [
+            {
+                "check_id": check_id,
+                "status": "pass",
+                "observed": True,
+                "expected": True,
+                "evidence": [f"evidence-{check_id}"],
+            }
+            for check_id in S10_MACHINE_CHECKS
+        ],
+        "automatic_result": "pass",
+        "required_human_checks": S10_HUMAN_CHECKS,
         "evidence": ["mock-evidence"],
     }
     trial.update(updates)
@@ -125,6 +145,132 @@ def test_wrong_suite_version_fails(tmp_path: Path) -> None:
         suite_version=result_set["suite_versions"]["part"],
     )
     with pytest.raises(VALIDATOR.ArtifactValidationError, match="suite_version"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_s10_missing_machine_check_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    checks = [
+        {
+            "check_id": check_id,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": ["evidence"],
+        }
+        for check_id in S10_MACHINE_CHECKS[:-1]
+    ]
+    _append_trial(result_path, result_set, machine_checks=checks)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="machine check set mismatch"):
+        VALIDATOR.validate_pair(result_path)
+
+
+@pytest.mark.parametrize("status", ["fail", "unverifiable"])
+def test_s10_nonpassing_machine_check_fails(tmp_path: Path, status: str) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    checks = [
+        {
+            "check_id": check_id,
+            "status": status if check_id == S10_MACHINE_CHECKS[0] else "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": ["evidence"],
+        }
+        for check_id in S10_MACHINE_CHECKS
+    ]
+    _append_trial(result_path, result_set, machine_checks=checks)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="status=pass"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_s10_missing_human_check_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(
+        result_path,
+        result_set,
+        required_human_checks=S10_HUMAN_CHECKS[:-1],
+    )
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="human check set mismatch"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_s10_missing_observed_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    checks = [
+        {
+            "check_id": check_id,
+            "status": "pass",
+            "expected": True,
+            "evidence": ["evidence"],
+        }
+        if check_id == S10_MACHINE_CHECKS[0]
+        else {
+            "check_id": check_id,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": ["evidence"],
+        }
+        for check_id in S10_MACHINE_CHECKS
+    ]
+    _append_trial(result_path, result_set, machine_checks=checks)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="missing required fields"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_s10_empty_evidence_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    checks = [
+        {
+            "check_id": check_id,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": [] if check_id == S10_MACHINE_CHECKS[0] else ["evidence"],
+        }
+        for check_id in S10_MACHINE_CHECKS
+    ]
+    _append_trial(result_path, result_set, machine_checks=checks)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="empty evidence"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_unknown_case_id_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, case_id="S999")
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="unknown or duplicate"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_part_case_machine_mapping_is_enforced(tmp_path: Path) -> None:
+    result_path, evaluation, result_set = _make_pair(tmp_path)
+    case_id = "A-01"
+    required = evaluation["suites"]["part"]["machine_check_requirements"][case_id]
+    human = next(
+        case["required_human_checks"]
+        for case in evaluation["suites"]["part"]["cases"]
+        if case["case_id"] == case_id
+    )
+    checks = [
+        {
+            "check_id": check_id,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": ["evidence"],
+        }
+        for check_id in required[:-1]
+    ]
+    _append_trial(
+        result_path,
+        result_set,
+        suite="part",
+        suite_version=result_set["suite_versions"]["part"],
+        case_id=case_id,
+        machine_checks=checks,
+        required_human_checks=human,
+    )
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="machine check set mismatch"):
         VALIDATOR.validate_pair(result_path)
 
 

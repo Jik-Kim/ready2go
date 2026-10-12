@@ -56,6 +56,123 @@ def _suite_versions(evaluation: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _find_case(cases: list[dict[str, Any]], key: str, value: str, suite: str) -> dict[str, Any]:
+    matches = [case for case in cases if case.get(key) == value]
+    if len(matches) != 1:
+        raise ArtifactValidationError(f"unknown or duplicate {suite} case_id: {value}")
+    return matches[0]
+
+
+def _case_requirements(
+    evaluation: dict[str, Any],
+    voice_evaluation: dict[str, Any],
+    suite: str,
+    case_id: str,
+) -> tuple[list[str] | None, list[str] | None]:
+    if suite == "part":
+        case = _find_case(evaluation["suites"]["part"]["cases"], "case_id", case_id, suite)
+        machine = evaluation["suites"]["part"]["machine_check_requirements"].get(case_id)
+        if not isinstance(machine, list) or not machine:
+            raise ArtifactValidationError(f"part case {case_id} has no machine check mapping")
+        return machine, case["required_human_checks"]
+    if suite == "recovery":
+        case = _find_case(
+            evaluation["suites"]["recovery"]["cases"], "case_id", case_id, suite
+        )
+        return case["required_machine_checks"], case["required_human_checks"]
+    if suite == "voice":
+        _find_case(voice_evaluation["test_cases"], "case_id", case_id, suite)
+        return None, None
+    if suite == "voice_issue194_regression":
+        _find_case(
+            voice_evaluation["issue_194_regression"]["scenarios"],
+            "scenario_id",
+            case_id,
+            suite,
+        )
+        return None, None
+    raise ArtifactValidationError(f"unknown suite: {suite}")
+
+
+def _validate_machine_checks(
+    trial: dict[str, Any], required_machine: list[str] | None
+) -> None:
+    checks = trial["machine_checks"]
+    if not isinstance(checks, list):
+        raise ArtifactValidationError(f"trial {trial['trial_id']} machine_checks must be a list")
+    allowed_statuses = {"not_evaluated", "pass", "fail", "unverifiable", "not_applicable"}
+    by_id: dict[str, dict[str, Any]] = {}
+    for position, check in enumerate(checks, 1):
+        if not isinstance(check, dict):
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} machine check {position} must be an object"
+            )
+        _require_fields(
+            check,
+            ["check_id", "status", "observed", "expected", "evidence"],
+            f"trial {trial['trial_id']} machine check {position}",
+        )
+        check_id = check["check_id"]
+        if not isinstance(check_id, str) or not check_id:
+            raise ArtifactValidationError(f"trial {trial['trial_id']} has invalid check_id")
+        if check_id in by_id:
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} has duplicate machine check: {check_id}"
+            )
+        if check["status"] not in allowed_statuses:
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} machine check {check_id} has invalid status"
+            )
+        if not check["evidence"]:
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} machine check {check_id} has empty evidence"
+            )
+        by_id[check_id] = check
+
+    if required_machine is None:
+        return
+    actual_ids = set(by_id)
+    required_ids = set(required_machine)
+    if actual_ids != required_ids:
+        missing = sorted(required_ids - actual_ids)
+        unexpected = sorted(actual_ids - required_ids)
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} machine check set mismatch: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    if trial["automatic_result"] != "pass":
+        return
+    for check_id in required_machine:
+        check = by_id[check_id]
+        if check["status"] != "pass":
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} pass requires {check_id} status=pass"
+            )
+        if check["observed"] is None or check["expected"] is None:
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} pass requires observed and expected for {check_id}"
+            )
+
+
+def _validate_human_checks(trial: dict[str, Any], required_human: list[str] | None) -> None:
+    actual = trial["required_human_checks"]
+    if not isinstance(actual, list) or any(not isinstance(value, str) or not value for value in actual):
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} required_human_checks must be non-empty strings"
+        )
+    if len(actual) != len(set(actual)):
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} has duplicate required human checks"
+        )
+    if required_human is not None and set(actual) != set(required_human):
+        missing = sorted(set(required_human) - set(actual))
+        unexpected = sorted(set(actual) - set(required_human))
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} human check set mismatch: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+
+
 def validate_pair(result_path: Path) -> dict[str, Any]:
     result_path = result_path.resolve()
     records = _load_jsonl(result_path)
@@ -118,6 +235,7 @@ def validate_pair(result_path: Path) -> dict[str, Any]:
         raise ArtifactValidationError(f"referenced voice evaluation missing: {voice['path']}")
     if voice.get("sha256") != sha256_file(voice_path):
         raise ArtifactValidationError("referenced voice evaluation sha256 mismatch")
+    voice_evaluation = json.loads(voice_path.read_text(encoding="utf-8"))
 
     definitions = evaluation["result_jsonl"]["record_types"]
     allowed_types = set(definitions)
@@ -153,6 +271,17 @@ def validate_pair(result_path: Path) -> dict[str, Any]:
             raise ArtifactValidationError(
                 f"trial {record['trial_id']} suite_version mismatch"
             )
+        if record["automatic_result"] not in evaluation["result_jsonl"][
+            "automatic_result_values"
+        ]:
+            raise ArtifactValidationError(
+                f"trial {record['trial_id']} has invalid automatic_result"
+            )
+        required_machine, required_human = _case_requirements(
+            evaluation, voice_evaluation, suite, record["case_id"]
+        )
+        _validate_machine_checks(record, required_machine)
+        _validate_human_checks(record, required_human)
 
     return {
         "evaluation": evaluation_path.name,

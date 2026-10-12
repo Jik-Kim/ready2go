@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-12
 
 ## 지금 상태
+- [문서·코드] PR #237 재검토의 S10 필수 안전 증거 P1을 반영함. 전용 검증기가 part/recovery trial의 suite·case_id를 실제 평가 정의에서 조회하고 필수 machine/human check 집합을 정확히 대조하도록 보강함. `automatic_result=pass`는 모든 필수 machine check가 `status=pass`이고 observed·expected·비어 있지 않은 evidence를 가질 때만 허용하며, 누락·실패·unverifiable·사람 확인 ID 누락·존재하지 않는 case_id를 거절하는 회귀 시험을 추가함. 평가 정의와 결과 파일의 0.5-draft 내용·SHA-256은 변경하지 않았고 실제 trial은 0건임.
 - [문서·코드] PR #237 재검토의 평가 버전 추적 P1을 반영함. `0.5-draft` 정의·결과를 `issue196_evaluation.v0.5-draft.json`·`issue196_results.v0.5-draft.jsonl`의 불변 파일 쌍으로 회전하고, 버전 변경 시 기존 파일을 덮어쓰지 않고 새 쌍을 생성하도록 고정함. `result_set`과 각 trial은 `result_set_id`·평가 버전·평가 원본 SHA-256·suite 버전으로 연결하며, Voice 참조 정답표도 원본 SHA-256으로 고정함. 전용 검사와 회귀 시험은 정의 해시 변경, 평가/suite 버전 혼합, 복수 result_set 및 허용하지 않은 레코드를 거절함. 실제 trial 레코드는 여전히 0건임.
 - [문서·코드] PR #237 리뷰의 결과 집계·자동 판정·안전 게이트 지적을 반영함. append-only JSONL의 첫 메타데이터에서 가변 `status`·`trial_count`를 제거하고 trial 레코드 수로 파생하도록 했으며, 파트 25건 전체에 사례별 필수 machine check 매핑과 같은 trial의 근거·상태 판정 규칙을 추가함. S10은 명시적 복구 요청·실제 정지·안전한 힘·최신 센서/통신·컨트롤러 준비·B 복구·C 잠금 해제·자동 재개 0회와 `H-STOP-01`·`H-AREA-01`·`H-HW-01`을 모두 필수화함. 전체 평가 `0.5-draft`, 파트 `0.4-draft`, 복구 `0.2-draft`이며 실제 trial 레코드는 0건임.
 - [문서·코드] 이슈 #196 체크리스트를 보조하는 신규 파일로 버전 고정 `issue196_evaluation.v0.5-draft.json`과 `issue196_results.v0.5-draft.jsonl`을 구성함. 요구사항 정본·런타임 계약을 대체하지 않는 D 평가 초안임을 `artifact_roles`에 명시하고, E/CE 5건의 시트 변경을 평가 JSON에 동기화함. 결과 JSONL은 같은 평가 버전을 참조하며 실제 시험 전에는 불변 메타데이터 한 줄만 두고 trial 수·상태는 trial 레코드에서 파생함. 로컬 분리 초안 6개는 추가하지 않음.
