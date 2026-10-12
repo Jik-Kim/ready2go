@@ -1,6 +1,7 @@
 """스킬 서버에 동작 하나 보내기 (b_flow.sh 가 부름). 끌기 결과 target_after 를 저장했다가 집기에 넘긴다.
 지우개 위치는 10/07 실측(위 서랍, 세로, 손잡이 쪽 오른쪽 모서리, 3번 수직 터치). 10/06 값 [0.1769, 0.2895] 은 #22 stub 과 같음."""
 import json
+import math
 import os
 import sys
 import time
@@ -13,7 +14,8 @@ from ready2go_interfaces.action import Skill
 
 ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,          # 10/07: 손잡이 쪽 오른쪽 모서리, 세로 [실측 B 3번 터치]
           "pose": {"frame": "drawer_top", "position": [0.0275, 0.2904, 0.0], "yaw": 0.0, "yaw_valid": True}}
-TRAY_FILE = "/tmp/r2g_skill_tray.json"   # 스킬 서버 트레이 쓴 칸 기록 (skill_server tray_file 기본값)
+TRAY_FILE = "/tmp/r2g_skill_tray.json"
+HELD_FILE = "/tmp/r2g_skill_held.json"   # 스킬 서버 쥔 물체 기록 (skill_server held_file 기본값) — B free 가 실제 폭·긴 변 쥠을 씀   # 스킬 서버 트레이 쓴 칸 기록 (skill_server tray_file 기본값)
 AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은 서랍 인자가 없음, target 의 frame 이 곧 서랍)
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
@@ -493,7 +495,15 @@ def free_poses(drawer):
     # 스킬 서버 서랍 안 놓기와 같은 겹침·벽 검사(core/place_plan.check_place)로 먼저 거름 — 벽에 붙인 후보는 벌린 손가락이
     # 벽에 걸려 대부분 거부됨 [P2 시뮬레이션 10/11: 앞 15개 중 통과 10배치에 2~3]. 쥔 폭은 온톨로지 잡는 폭(없으면 짧은 변)
     grasp = (yaml.safe_load(open(repo_file("config", "item_grasp.yaml"), encoding="utf-8")) or {}).get(held["class"]) or {}
-    open_mm = (grasp.get("grasp_width_m") or size[1]) * 1000.0 + prm["place"]["release_extra_mm"]
+    width, long_held = grasp.get("grasp_width_m") or size[1], False
+    try:                                                   # 서버가 기억하는 쥔 상태 — 실제 닫은 폭·긴 변으로 쥐었는지 [PC2 10/12: 긴 변 차키 15개 다 거부]
+        with open(HELD_FILE) as f:
+            h = json.load(f)
+        if h.get("id") == held["id"]:
+            width, long_held = h.get("width_m") or width, bool(h.get("long_side"))
+    except (OSError, ValueError):
+        pass
+    open_mm = width * 1000.0 + prm["place"]["release_extra_mm"]
     g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer))
     others = [o for o in objs if o["id"] not in {b["id"] for b in bases}] + bases
     out = []
@@ -501,7 +511,9 @@ def free_poses(drawer):
         pose = cp.as_pose(c)
         if reach is not None and pose["position"][0] * 1000.0 > reach:
             continue
-        if plp.check_place(pose=pose, held_id=held["id"], held_size_m=size, open_mm=open_mm, objects=others, size_of=size_of,
+        # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 확인 (서버 _place_in_drawer 와 같음)
+        pc, sc = ((dict(pose, yaw=pose["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (pose, size))
+        if plp.check_place(pose=pc, held_id=held["id"], held_size_m=sc, open_mm=open_mm, objects=others, size_of=size_of,
                            interior_m=interior, g=g, place=prm["place"]) is None:
             out.append(pose)
     return out, scan_
