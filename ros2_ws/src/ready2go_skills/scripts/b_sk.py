@@ -463,6 +463,9 @@ def free_poses(drawer):
     쥔 물체가 얹혀 있던 받침(다음에 꺼낼 것)에서는 25 mm 띄움. 아래 칸은 손 닿는 깊이(drawer_reach_x_mm) 안만.
     진짜로 놓을 수 있는지는 스킬 서버 서랍 안 놓기 검사가 봄(안 되면 움직이기 전 거부 → 다음 후보)."""
     import yaml
+    pkg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")   # 소스에서 돌리면 ROS 설치 없이도 core 를 찾게 (PC2 B 명령)
+    if os.path.isdir(os.path.join(pkg, "ready2go_skills")) and pkg not in sys.path:
+        sys.path.insert(0, pkg)
     from ready2go_skills.core import clear_plan as cp, place_plan as plp
     try:
         with open(picked_file()) as f:
