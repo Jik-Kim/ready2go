@@ -7,12 +7,32 @@ import argparse
 import hashlib
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
 class ArtifactValidationError(ValueError):
     """Raised when an evaluation/result pair is not reproducible."""
+
+
+RECOVERY_CORRELATION_REQUIREMENTS = {
+    "S14": {
+        "field": "halt_event_id",
+        "relation": "different",
+        "check_id": "active_and_referenced_ids_separated",
+    },
+    "S23": {
+        "field": "boot_id",
+        "relation": "different",
+        "check_id": "previous_boot_question_invalidated",
+    },
+    "S29": {
+        "field": "question_id",
+        "relation": "different",
+        "check_id": "active_and_referenced_ids_separated",
+    },
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -195,6 +215,71 @@ def _validate_trial_evidence(trial: dict[str, Any]) -> None:
     _validate_evidence_list(evidence, f"trial {trial['trial_id']}", required=required)
 
 
+def _validate_trial_identity(trial: dict[str, Any]) -> None:
+    started_at = trial["started_at"]
+    if not isinstance(started_at, str) or not started_at.strip():
+        raise ArtifactValidationError(f"trial {trial['trial_id']} has invalid started_at")
+    try:
+        parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} has invalid started_at"
+        ) from exc
+    if parsed.tzinfo is None:
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} started_at must include a timezone"
+        )
+
+    correlation = trial["correlation"]
+    if not isinstance(correlation, dict):
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} correlation must be an object"
+        )
+    if trial["suite"] == "recovery":
+        halt_event_id = correlation.get("halt_event_id")
+        if not isinstance(halt_event_id, str) or not halt_event_id.strip():
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} recovery trial requires halt_event_id"
+            )
+
+    input_reference = trial["input_reference"]
+    if not isinstance(input_reference, dict):
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} input_reference must be an object"
+        )
+
+
+def _correlation_requirement_error(trial: dict[str, Any]) -> str | None:
+    """Return the missing/invalid correlation reason for a mismatch scenario."""
+    if trial.get("suite") != "recovery":
+        return None
+    requirement = RECOVERY_CORRELATION_REQUIREMENTS.get(trial.get("case_id"))
+    if requirement is None:
+        return None
+    field = requirement["field"]
+    correlation = trial.get("correlation")
+    input_reference = trial.get("input_reference")
+    if not isinstance(correlation, dict) or not isinstance(input_reference, dict):
+        return f"requires correlation and input_reference objects for {field}"
+    active = correlation.get(field)
+    referenced = input_reference.get(field)
+    if not isinstance(active, str) or not active.strip():
+        return f"requires active correlation.{field}"
+    if not isinstance(referenced, str) or not referenced.strip():
+        return f"requires input_reference.{field}"
+    if requirement["relation"] == "different" and active == referenced:
+        return f"requires different active and referenced {field} values"
+    return None
+
+
+def _validate_case_correlation(trial: dict[str, Any]) -> None:
+    if trial["automatic_result"] != "pass":
+        return
+    reason = _correlation_requirement_error(trial)
+    if reason is not None:
+        raise ArtifactValidationError(f"trial {trial['trial_id']} pass {reason}")
+
+
 def _validate_human_checks(trial: dict[str, Any], required_human: list[str] | None) -> None:
     actual = trial["required_human_checks"]
     if not isinstance(actual, list) or any(not isinstance(value, str) or not value for value in actual):
@@ -348,6 +433,8 @@ def validate_pair(result_path: Path) -> dict[str, Any]:
         required_machine, required_human, automatic_pass_supported = _case_requirements(
             evaluation, voice_evaluation, suite, record["case_id"]
         )
+        _validate_trial_identity(record)
+        _validate_case_correlation(record)
         _validate_trial_evidence(record)
         _validate_machine_checks(record, required_machine, automatic_pass_supported)
         _validate_human_checks(record, required_human)

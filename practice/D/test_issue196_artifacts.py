@@ -22,6 +22,11 @@ S10_MACHINE_CHECKS = [
     "automatic_resume_count_zero",
 ]
 S10_HUMAN_CHECKS = ["H-STOP-01", "H-AREA-01", "H-HW-01"]
+MISMATCH_CASES = {
+    "S14": ("halt_event_id", "active_and_referenced_ids_separated"),
+    "S23": ("boot_id", "previous_boot_question_invalidated"),
+    "S29": ("question_id", "active_and_referenced_ids_separated"),
+}
 SPEC = importlib.util.spec_from_file_location(
     "validate_issue196_artifacts", HERE / "validate_issue196_artifacts.py"
 )
@@ -98,7 +103,7 @@ def _append_trial(result_path: Path, result_set: dict, **updates: object) -> Non
         "basis_id": "basis-1",
         "environment": "mock",
         "started_at": "2026-10-12T00:00:01Z",
-        "correlation": {},
+        "correlation": {"halt_event_id": "halt-1"},
         "input_reference": {},
         "machine_checks": [
             {
@@ -131,6 +136,135 @@ def test_matching_trial_passes(tmp_path: Path) -> None:
     result_path, _, result_set = _make_pair(tmp_path)
     _append_trial(result_path, result_set)
     assert VALIDATOR.validate_pair(result_path)["trial_count"] == 1
+
+
+def test_recovery_trial_without_halt_event_id_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, correlation={})
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="requires halt_event_id"):
+        VALIDATOR.validate_pair(result_path)
+
+
+@pytest.mark.parametrize(("case_id", "field", "check_id"), [
+    (case_id, field, check_id)
+    for case_id, (field, check_id) in MISMATCH_CASES.items()
+])
+def test_mismatch_pass_requires_active_and_referenced_ids(
+    tmp_path: Path, case_id: str, field: str, check_id: str
+) -> None:
+    result_path, evaluation, result_set = _make_pair(tmp_path)
+    case = next(
+        row
+        for row in evaluation["suites"]["recovery"]["cases"]
+        if row["case_id"] == case_id
+    )
+    checks = [
+        {
+            "check_id": required_check,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": [f"evidence-{required_check}"],
+        }
+        for required_check in case["required_machine_checks"]
+    ]
+    _append_trial(
+        result_path,
+        result_set,
+        case_id=case_id,
+        correlation={"halt_event_id": "halt-current", field: f"{field}-current"},
+        input_reference={},
+        machine_checks=checks,
+        required_human_checks=case["required_human_checks"],
+    )
+    with pytest.raises(
+        VALIDATOR.ArtifactValidationError,
+        match=rf"requires input_reference\.{field}",
+    ):
+        VALIDATOR.validate_pair(result_path)
+
+
+@pytest.mark.parametrize(("case_id", "field", "check_id"), [
+    (case_id, field, check_id)
+    for case_id, (field, check_id) in MISMATCH_CASES.items()
+])
+def test_mismatch_pass_rejects_equal_active_and_referenced_ids(
+    tmp_path: Path, case_id: str, field: str, check_id: str
+) -> None:
+    result_path, evaluation, result_set = _make_pair(tmp_path)
+    case = next(
+        row
+        for row in evaluation["suites"]["recovery"]["cases"]
+        if row["case_id"] == case_id
+    )
+    checks = [
+        {
+            "check_id": required_check,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": [f"evidence-{required_check}"],
+        }
+        for required_check in case["required_machine_checks"]
+    ]
+    value = f"{field}-same"
+    _append_trial(
+        result_path,
+        result_set,
+        case_id=case_id,
+        correlation={"halt_event_id": "halt-current", field: value},
+        input_reference={field: value},
+        machine_checks=checks,
+        required_human_checks=case["required_human_checks"],
+    )
+    with pytest.raises(
+        VALIDATOR.ArtifactValidationError,
+        match=rf"requires different active and referenced {field}",
+    ):
+        VALIDATOR.validate_pair(result_path)
+
+
+@pytest.mark.parametrize(("case_id", "field", "check_id"), [
+    (case_id, field, check_id)
+    for case_id, (field, check_id) in MISMATCH_CASES.items()
+])
+def test_mismatch_pass_accepts_distinct_active_and_referenced_ids(
+    tmp_path: Path, case_id: str, field: str, check_id: str
+) -> None:
+    result_path, evaluation, result_set = _make_pair(tmp_path)
+    case = next(
+        row
+        for row in evaluation["suites"]["recovery"]["cases"]
+        if row["case_id"] == case_id
+    )
+    checks = [
+        {
+            "check_id": required_check,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": [f"evidence-{required_check}"],
+        }
+        for required_check in case["required_machine_checks"]
+    ]
+    _append_trial(
+        result_path,
+        result_set,
+        case_id=case_id,
+        correlation={"halt_event_id": "halt-current", field: f"{field}-current"},
+        input_reference={field: f"{field}-previous"},
+        machine_checks=checks,
+        required_human_checks=case["required_human_checks"],
+    )
+    assert VALIDATOR.validate_pair(result_path)["trial_count"] == 1
+
+
+@pytest.mark.parametrize("started_at", [None, "", "not-a-time", "2026-10-12T00:00:01"])
+def test_invalid_trial_started_at_fails(tmp_path: Path, started_at: object) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, started_at=started_at)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="started_at"):
+        VALIDATOR.validate_pair(result_path)
 
 
 def test_mixed_evaluation_version_fails(tmp_path: Path) -> None:
