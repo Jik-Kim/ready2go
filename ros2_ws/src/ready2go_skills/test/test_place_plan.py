@@ -86,7 +86,10 @@ def test_finger_wall_clearance_like_pick():
     half = plp.place_half_mm(LIP, OPEN, G["fingertip_outer_mm"], PL["footprint_margin_mm"])
     x = half[1] + 1.0                                       # 짧은 변 쪽이 앞 벽(x=0) — footprint 는 안
     assert plp.wall_reason(x, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is not None   # across 간섭 약 38 mm
-    assert plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
+    assert plp.wall_reason(INTERIOR[0] * 1000.0 - 40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None   # 안쪽 벽은 옆벽 표 그대로
+    # 손잡이 쪽 벽은 앞판이 높아 더 필요 [실측 PC2 10/11 front_across] — 40 mm 는 이제 거부, 52 mm 는 됨
+    assert "손잡이 쪽 벽" in plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G)
+    assert plp.wall_reason(52.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
 
 
 def test_side_wall_offset_widens_y_max():
@@ -240,3 +243,16 @@ def test_objects_under_relation_still_needs_target_inside_footprint():
     edge = dict(side, pose={"position": [0.10, 0.1213, 0.0], "yaw": 0.0})      # 밖 4.2 mm — 끝에 걸침
     assert [o["id"] for o in plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get)] == ["caramel_box#1"]
     assert plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get, relation_margin_m=0.0) == []
+
+
+def test_same_place_within_tolerance_and_yaw_symmetric():
+    """[사용자 10/12] 기울여 집은 물체를 원래 자리로 되돌릴 때만 기울여 놓음 — 위치 tol_mm·각도 tol_deg(180° 대칭) 안."""
+    back = {"position": [0.0097, 0.1539], "yaw": 1.5625}
+
+    def ok(x, y, yaw):
+        return plp.same_place({"position": [x, y, 0.0], "yaw": yaw}, back, tol_mm=3.0, tol_deg=5.0)
+    assert ok(0.0097, 0.1539, 1.5625) and ok(0.0117, 0.1559, 1.5625 + 0.08)
+    assert ok(0.0097, 0.1539, 1.5625 - math.pi)                       # 180° 돌린 같은 자세
+    assert not ok(0.0137, 0.1539, 1.5625) and not ok(0.0097, 0.1539, 1.5625 + 0.1)
+    assert not plp.same_place({"position": [float("nan"), 0.0], "yaw": 0.0}, back, tol_mm=3.0, tol_deg=5.0)
+    assert not plp.same_place({}, back, tol_mm=3.0, tol_deg=5.0)

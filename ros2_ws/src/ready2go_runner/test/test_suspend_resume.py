@@ -63,7 +63,7 @@ def test_resume_reruns_interrupted_skill_then_continues_and_finishes():
     assert [s["id"] for s in saved["steps"]].count("s5.1") == 2          # 중단된 시도 + 재개 시도
     from ready2go_runner.core import run_report
     text = run_report.to_text(saved)
-    assert "✅ 성공" in text and "ESTOP · s5.1 → 재개" in text
+    assert "✅ 성공" in text and "ESTOP · 스킬 서버 · s5.1 · 응답 ESTOP" in text and "→ 재개" in text
 
 
 def test_resume_before_recovery_is_rejected_and_kept():

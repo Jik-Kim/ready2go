@@ -227,7 +227,7 @@ def places_record(cfg_dir: Path, assumed: bool) -> dict:
     import yaml
     raw = (cfg_dir / "places.yaml").read_bytes()
     pl = yaml.safe_load(raw)
-    keep = ("tf", "tf_at_travel_m", "max_travel_m", "interior_m", "slots")
+    keep = ("tf", "tf_at_travel_m", "max_travel_m", "interior_m", "floor_m", "slots")   # floor_m: 트레이 형상 — 씬 기록과 대조 (#215)
     return dict(cfg_dir=str(cfg_dir), assumed=assumed, places_sha256=hashlib.sha256(raw).hexdigest(),
                 places={k: {f: (pl.get(k) or {}).get(f) for f in keep} for k in PLACE_KEYS})
 

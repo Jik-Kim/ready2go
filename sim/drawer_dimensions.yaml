@@ -61,7 +61,8 @@ plan_view_cm:                         # [사용자 보고, 도면] 작업대 평
 
 trays:                                # handover_zone 만 남음 (임시 트레이 staging_tray 는 폐기: #6 확정, 서랍 안에서 옆으로 치우기)
   handover_zone:                      # [사용자 실측 10/11] 새 트레이. 위치·안쪽 범위의 정본은 config/places.yaml handover_zone (여기는 형상만)
-    outer_cm: [26.0, 20.5, 6.2]       # 바깥 x(긴 변) × y × 높이
-    wall_cm: 0.2                      # 벽·바닥 두께
+    outer_cm: [26.0, 20.5, 6.2]       # 바깥 x(긴 변) × y × 높이 — 실측 기록. 씬·비전은 이 값으로 계산한 config/places.yaml handover_zone.floor_m(안쪽 바닥)·interior_m[2](높이)를 읽음.
+                                    #   **바꾸면 places.yaml floor_m 도 함께** (floor_m = 바깥 − 벽 두께 2개, 원점 쪽은 손가락 반 두께 10 mm [추정])
+    wall_cm: 0.2                      # 벽·바닥 두께 (씬이 floor_m 바깥으로 이만큼 벽을 그림)
     walls: vertical                   # 벽이 직각으로 올라감 (예전 트레이는 위로 벌어지는 사다리꼴)
     slots: 3

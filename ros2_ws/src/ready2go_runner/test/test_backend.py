@@ -142,3 +142,13 @@ def test_skill_servers_lists_robot_actions_of_task_and_skills():
     assert {"/skills/move_to_named_pose", "/skills/drawer_control", "/skills/pick_object",
             "/skills/place_object"} <= names                          # skill expand 안의 동작까지
     assert all(n.startswith("/skills/") for n in names)                # speak·inspect·query·if 는 아님
+
+
+def test_failure_reply_keeps_result_json_for_records():
+    """실패 응답의 결과 JSON 도 넘김 (실패한 놓기 placed_pose #167, 집기 hand #223) — 전에는 버려서 실물 기록에 없었음."""
+    from ready2go_runner.core.backend import Reply, to_result
+    r = to_result(Reply(False, "GRASP_FAILED", '{"grasp_ok": false, "hand": "released"}'))
+    assert (r.success, r.error_code, r.output) == (False, "GRASP_FAILED", {"grasp_ok": False, "hand": "released"})
+    assert to_result(Reply(False, "TIMEOUT", "not json")).output is None          # 읽을 수 없으면 결과 없이 실패 그대로
+    assert to_result(Reply(False, "", "")).output is None and to_result(Reply(False, "", "")).error_code is None
+    assert to_result(Reply(False, "X", "[1, 2]")).output is None                   # 객체가 아니면 넣지 않음

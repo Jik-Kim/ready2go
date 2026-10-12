@@ -31,4 +31,4 @@
 - 단위 테스트: 저장소 루트에서 `PYTHONPATH=ros2_ws/src/ready2go_knowledge python3 -m pytest ros2_ws/src/ready2go_knowledge/test -q`.
 - 전체 파일 역할·담당별 인계: [`knowledge/README.md`](../../../knowledge/README.md).
 
-- 물품 파지 설정 정본 `config/item_grasp.yaml`도 로딩하여 기존 물품 조회에 grip_force(null 허용)·grasp_verified를 제공한다. `require_grasp_settings(onto, item)`은 미확정 설정을 거절하지만 실제 실행 경로 연결은 B·C 담당이다.
+- 물품 파지 설정 정본 `config/item_grasp.yaml`도 로딩하여 기존 물품 조회에 grip_force(null 허용)·grasp_verified와 선택 항목 grasp_width_m·grasp_width_long_m(B 실측 잡은 폭, size_m 해당 변 이하 양수)을 제공한다. `require_grasp_settings(onto, item)`은 미확정 설정을 거절하지만 실제 실행 경로 연결은 B·C 담당이다.

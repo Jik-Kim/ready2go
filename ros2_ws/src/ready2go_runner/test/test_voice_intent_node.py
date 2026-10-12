@@ -148,6 +148,8 @@ def test_cancel_stops_running_task_and_locks(slow_system):
     voice.say(intent("cancel", targets=(), confidence=0.5))
     assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"), voice.status
     assert voice.status["phase"] == "halted" and voice.status["halt_code"] == "HALTED"
+    halt = runner.log_store.read_run(voice.status["last"]["run_id"])["run"]["halts"][0]   # #187 정지 기록
+    assert halt["source"] == "voice" and halt["canceled_goals"] == 1 and halt["step_code"] == "CANCELED"
     voice.say(intent())                                 # 잠김: 사람이 확인하기 전 새 태스크 없음
     assert voice.wait(lambda s: last_intent(s).get("reason") == "LOCKED"), voice.status
 
@@ -259,3 +261,16 @@ def test_default_real_limits_still_run_p1_delivery_goal(system):
     assert voice.status["last"]["overall_status"] == "COMPLETED"
     assert runner.runner.state["located_in"]["eraser"] == "handover_zone"
 
+
+
+def test_stop_while_request_is_being_handled_does_not_start_it(system):
+    """#187: 요청을 처리하는 사이(플래너 계산 등) "멈춰"가 오면 그 요청은 시작하지 않음 — NOT_RUNNING 으로 새지 않게."""
+    runner, voice = system
+    token = runner.gate.token()                         # "지우개 찾아줘"를 받은 순간
+    voice.say(intent("cancel", targets=()))             # 그 처리 중 "멈춰"
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "NOT_RUNNING")
+    task = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))
+    assert runner.start_task(task, {"target": "eraser"}, token=token) is False
+    time.sleep(0.3)
+    assert voice.status["phase"] == "idle" and voice.status["last"] is None          # 실행 없음
+    assert runner.start_task(task, {"target": "eraser"}, token=runner.gate.token())   # 멈춰 뒤 새 요청은 정상

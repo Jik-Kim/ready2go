@@ -144,10 +144,13 @@ def wall_reason(x_mm: float, y_mm: float, yaw: float, half: tuple, open_mm: floa
             return f"놓을 footprint 가 서랍 벽 밖 (꼭짓점 {cx:.1f}, {cy:.1f} mm, 경계 x 0~{d:.1f}, y {y_lo:.1f}~{y_hi:.1f})"
     close_ang = yaw + math.pi / 2                           # 서랍 좌표 닫힘 축 = 긴 변에 수직 (집기와 같음)
     need_x = mp.wall_extent_mm(open_mm, close_ang, g) + g["wall_margin_mm"]
+    need_front = mp.wall_extent_mm(open_mm, close_ang, g, front=True) + g["wall_margin_mm"]   # 손잡이 쪽 앞판 [실측 PC2 10/11]
     need_y = mp.wall_extent_mm(open_mm, close_ang - math.pi / 2, g) + g["wall_margin_mm"]
-    gap_x, gap_y = min(x_mm, d - x_mm), min(y_mm - y_lo, y_hi - y_mm)
-    if gap_x < need_x:
-        return f"앞뒤 벽까지 {gap_x:.1f} mm < 손가락·관절 간섭 {need_x:.1f} mm"
+    gap_y = min(y_mm - y_lo, y_hi - y_mm)
+    if x_mm < need_front:
+        return f"손잡이 쪽 벽까지 {x_mm:.1f} mm < 손가락·관절 간섭 {need_front:.1f} mm"
+    if d - x_mm < need_x:
+        return f"안쪽 벽까지 {d - x_mm:.1f} mm < 손가락·관절 간섭 {need_x:.1f} mm"
     if gap_y < need_y:
         return f"옆벽까지 {gap_y:.1f} mm < 손가락·관절 간섭 {need_y:.1f} mm"
     return None
@@ -175,6 +178,20 @@ def check_place(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], op
     if why:
         return Refusal(WALL_TOO_CLOSE, why, "wall")
     return None
+
+
+def same_place(pose: Mapping, back: Mapping, *, tol_mm: float, tol_deg: float) -> bool:
+    """놓을 pose 가 집을 때 자리(back: position [x, y] m·yaw)와 같은가 — 위치 tol_mm·각도 tol_deg 안 (각도는 180° 대칭).
+    기울여 집은 물체를 원래 자리로 되돌릴 때만 같은 기울인 자세로 놓음 [사용자 10/12 PC2 립밤 putback]."""
+    try:
+        dx = (float(pose["position"][0]) - float(back["position"][0])) * 1000.0
+        dy = (float(pose["position"][1]) - float(back["position"][1])) * 1000.0
+        dyaw = (float(pose["yaw"]) - float(back["yaw"])) % math.pi
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False
+    if not _finite(dx, dy, dyaw):
+        return False
+    return math.hypot(dx, dy) <= tol_mm and math.degrees(min(dyaw, math.pi - dyaw)) <= tol_deg
 
 
 def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], max_shift_mm: float,
@@ -273,7 +290,21 @@ def objects_under(*, target: Mapping, objects: Sequence[Mapping], size_of: Calla
         dx, dy = x - ox, y - oy
         if abs(dx * c + dy * s_) <= size[0] * 500.0 + m and abs(-dx * s_ + dy * c) <= size[1] * 500.0 + m:
             out.append(o)
+        elif related and _rests_on(target, o, size, size_of, ambiguous_m):
+            out.append(o)
     return out
+
+
+def _rests_on(target: Mapping, o: Mapping, o_size: Sequence[float], size_of, tol_m: float) -> bool:
+    """가운데가 받침 밖으로 걸친 위 물체 [실측 PC2 10/12: 캐러멜 끝에 걸친 차키 가운데가 캐러멜 밖 약 10 mm → 캐러멜을 옆 물체로 봐
+    차키 집기 NEIGHBOR_TOO_CLOSE 두 번]. 분할 관계(o 위에 target)가 있고, o 윗면이 target 바닥 높이(비전 top_z − target 온톨로지 높이)와
+    tol_m 안이고, 두 footprint 가 겹칠 때만 — 옆 물체 헛관계는 높이가 안 맞아 빠짐(바닥 목표의 바닥 높이 ≈ 0) [A #216 우려]."""
+    ts = size_of(target.get("class"))
+    if not ts or not _finite(o.get("top_z"), target.get("top_z"), ts[2]):
+        return False
+    if abs(float(o["top_z"]) - (float(target["top_z"]) - float(ts[2]))) > tol_m:
+        return False
+    return rects_overlap(neighbor_rect_mm(target, ts), neighbor_rect_mm(o, o_size))
 
 
 def place_tcp_m(tf: Mapping, pose: Mapping, tcp_above_floor_m: float) -> tuple:

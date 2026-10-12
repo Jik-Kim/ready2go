@@ -99,6 +99,9 @@ class PlaceConfirmation:
         self.completed = set()
         self.procedures = {}  # immutable identity per run/step; no resetting by retransmission
         self.attempt = 0
+        self.asked_at = None
+        self.final_until = None
+        self.final_budget = None
 
     @classmethod
     def from_config(cls, cfg, *, item_names):
@@ -147,6 +150,7 @@ class PlaceConfirmation:
         self.procedures[key] = work
         self.final = None
         self.attempt = 0
+        self.asked_at = self.final_until = self.final_budget = None
         if normal_observation is not True or type(all_visible) is not bool:
             self._finish(work, False, 'observation_error'); return None
         if all_visible:
@@ -160,10 +164,48 @@ class PlaceConfirmation:
         return self.final
 
     @serialized
+    def asked(self, question, *, now, final_timeout_sec):
+        """Bind the first asked registration to one local clock interval.
+
+        The caller supplies the approved C budget, not a new E default. A C
+        acknowledgement must be mapped to this local clock; remote monotonic
+        timestamps cannot be compared here. C still checks its final deadline.
+        """
+        if question is None or question is not self.question:
+            return False
+        if (not finite(now) or now < 0 or not finite(final_timeout_sec) or
+                final_timeout_sec <= 0):
+            self.invalidate(); return False
+        if self.asked_at is not None:
+            if (now < self.asked_at or final_timeout_sec != self.final_budget or
+                    not self._within_final(now)):
+                self.invalidate(); return False
+            return True  # Same question or reask cannot restart the interval.
+        if question.attempt != 0 or self.finished_at is not None:
+            self.invalidate(); return False
+        until = now + final_timeout_sec
+        if not finite(until):
+            self.invalidate(); return False
+        self.asked_at, self.final_until, self.final_budget = now, until, final_timeout_sec
+        return True
+
+    def _within_final(self, now):
+        return self.final_until is None or self.asked_at <= now <= self.final_until
+
+    @serialized
+    def expire(self, *, now):
+        """Poll the existing whole interval; no timer thread or new wire."""
+        if self.question is None or self.final_until is None:
+            return False
+        if not finite(now) or not self._within_final(now):
+            self.invalidate(); return True
+        return False
+
+    @serialized
     def delivered(self, question, *, now, success):
         if question is None or question is not self.question:
             return False
-        if (success is not True or not finite(now) or now < 0 or
+        if (success is not True or not finite(now) or now < 0 or not self._within_final(now) or
                 self.admission_window_sec is None or self.stt_result_timeout_sec is None):
             self.invalidate(); return False
         if self.finished_at is not None:
@@ -178,6 +220,7 @@ class PlaceConfirmation:
         if (self.request is not None or self.finished_at is None or
                 not all(finite(v) for v in (captured_at, ended_at, started_at)) or
                 not self.finished_at <= captured_at <= ended_at <= started_at or
+                not self._within_final(started_at) or
                 started_at >= self.finished_at + self.admission_window_sec):
             self.invalidate(); return None
         until = started_at + self.stt_result_timeout_sec
@@ -192,7 +235,7 @@ class PlaceConfirmation:
             return None
         if (request is None or request is not self.request or request.question is not question or
                 captured_at != request.captured_at or not finite(now) or
-                not request.started_at <= now < request.result_until):
+                not request.started_at <= now < request.result_until or not self._within_final(now)):
             self.invalidate(); return None
         decision = classify_presence(text)
         if decision is not None:
