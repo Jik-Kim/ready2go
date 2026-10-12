@@ -91,8 +91,10 @@
 - Runner(C) 를 PC2 컨테이너로 (10/06 기록, **지금은 쓰지 않음**): `BACKEND=sim` 으로 `db`·`ros2-core` 를 띄우고, 기본 Runner 를 끈 뒤 10/06 시연 manifest·`p1_demo_eraser` 태스크를 지정해 Runner 를 다시 띄웠다. 그 시연 manifest·`pick_demo` 원본은 공통 pick 으로 대체되어 삭제됐다(E 정리, #17·#127). **지금 Runner 는 위 "현재" 방법대로 컨테이너가 공통 `/knowledge/robot_ontology.jsonld` 로 자동 기동** — 따로 띄우거나 manifest 를 지정하지 않는다.
 - 안 되는 것 [실측]: PC1 stub(multi, 멀티캐스트 끔) ↔ PC2 `lo` 는 목록만 보이고 호출 안 됨. roboton 을 multi xml 로 켜면 spawner 가 controller_manager 를 못 찾음. → stub 은 PC2 에서 돌리거나(설정 파일 `vision_stub` 에 지우개 [0.1769, 0.2895, 0.0] yaw 0, top_z 0.0115, `ready: true`) 설정 통일 필요.
 
-**10/11 비전(분할 모델 #214) 켜기** — 위 4절 터미널 그대로, 비전 창만:
-- B 명령 창: `git pull && git lfs pull` (모델 `models/yolo11s_seg_ready2go_v1.pt` LFS)
+**비전(분할 모델 v2, #247 10/12) 켜기** — 위 4절 터미널 그대로, 비전 창만:
+- B 명령 창: `git pull && git lfs pull` (모델 `models/yolo11s_seg_ready2go_v2.pt` LFS, `sha256sum` 앞자리 `b2ae5af07e2d`. 133 B 면 포인터만 받은 것 → `git lfs pull` 다시)
+- 비전 노드 시작 로그 `weights_sha256` 이 `b2ae5af07e2d` 인지 확인. v1 로 되돌릴 땐 `VISION_WEIGHTS=models/yolo11s_seg_ready2go_v1.pt bash tools/dev/vision_real_check.sh node`
+- B 방식(roboton·Bserver)으로 비전을 쓰면 **손목–카메라 TF 창**(4절 static_transform_publisher)도 켜 둠 — 없으면 `TF_UNAVAILABLE`. 카메라 컨테이너(`realsense`)가 꺼져 있으면 `CAMERA_TIMEOUT` → `docker ps` 로 확인 [실측 PC2 10/12]
 - 비전 창: `docker rm -f vision_check` → `export DDS_MODE=local; bash tools/dev/vision_real_check.sh node`
 - 서버 창: Ctrl+C → `Bserver`
 - `B scan top <물체>` 는 보인 물체를 전부 한 줄씩(높이·각도 믿을 수 있는지·위에 얹힌 것) 보여 줌.
