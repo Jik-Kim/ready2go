@@ -105,8 +105,9 @@ NO_MOTION_BY_ACTION = {
     # 이동 뒤 실패는 CLOSE_NOT_CONFIRMED 등이라 여기 없음)
     "drawer_control": NO_MOTION_DEFAULT | {"NOT_AT_START_POSE", "DRAWER_NOT_CONFIGURED", "DRAWER_STATE_UNKNOWN",
                                            "DRAWER_ALREADY_OPEN", "OTHER_DRAWER_OPEN", "HOLDING_OBJECT", "BAD_PARAMS"},
+    # slot "free"(B #241): NO_FREE_SPACE = 서랍 안 빈 자리 없음 (움직이기 전). check_only 는 코드와 무관하게 움직이지 않음(_moves_arm)
     "place_object": PRE_MOTION_COMMON | {"NOT_HOLDING", "UNSUPPORTED_PARAMS", "PLACE_NOT_CONFIGURED", "TRAY_FULL",
-                                         "BAD_PARAMS", "PLACE_BLOCKED"},
+                                         "BAD_PARAMS", "PLACE_BLOCKED", "NO_FREE_SPACE"},
 }
 NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region", "select_obstacle", "find_moved"}   # 팔을 움직이지 않는 원자 동작
 
@@ -200,6 +201,9 @@ class Runner:
         self._in_finally = False
         self._iterations: list[int] = []        # 반복 블록 안이면 몇 번째 회차인지 (스텝 기록 iteration)
         self._motions = 0                       # 팔을 움직였을 수 있는 동작을 보낸 횟수 (fallback 이 대안마다 비교)
+        # 팔이 지금 있는 이름 자세 (마지막 성공한 move_to_named_pose 의 params, 그 뒤 팔을 움직였을 수 있으면 None).
+        # 같은 자세로 다시 가라면 보내지 않음 — B 는 경유점을 거쳐 다시 와서 "위아래 왕복"이 됨 (#245)
+        self._at_pose: dict | None = None
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._halt_info: dict = {}              # 처음 멈춘 요청의 시각·출처·취소 요청한 동작 수 (halts[] 기록)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
@@ -277,6 +281,7 @@ class Runner:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
         meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
         self._aborted, self._in_finally = False, False
+        self._at_pose = None                    # 실행 사이에는 사람이 팔을 옮겼을 수 있음
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
         ctx = _Run(task, blackboard, [], {"run_id": new_run_id(), "task_id": task.get("task_id", ""),
                                           "inputs": blackboard["inputs"], "started_at": utc_iso(), "extra": meta},
@@ -421,6 +426,7 @@ class Runner:
             raise ResumeRejected(reasons)
         ctx, self._suspended, self._offered_at = self._suspended, None, None
         ctx.halts[-1]["resumed_at"] = utc_iso()
+        self._at_pose = None                    # 멈춘 동안 사람이 팔을 옮겼을 수 있음
         self._run_id, self._records = ctx.doc["run_id"], ctx.records
         return self._continue(ctx, ctx.path)
 
@@ -584,6 +590,7 @@ class Runner:
         self._notify("start", record, params)
         try:
             self._motions += 1
+            self._at_pose = None
             try:
                 result = self.execute("move_to_named_pose", params, None)
             except Exception:
@@ -600,7 +607,7 @@ class Runner:
         """결과가 온 뒤 걸린 시간을 판정. 이때는 동작이 이미 끝났을 수 있으므로 재시도하지 않는 TIMEOUT."""
         timeout = step.get("timeout_sec")
         if timeout is not None and self.clock() - attempt_started > timeout:
-            again = step.get("action") in NON_MOTION_ACTIONS and step.get("action") != "if"   # 팔 안 움직이는 원자 동작
+            again = not _moves_arm(step.get("action"), step.get("params")) and step.get("action") != "if"   # 팔 안 움직이는 원자 동작
             raise StepFailed(step["id"], "TIMEOUT", no_retry=None if again else "LATE_RESULT")
 
     def _dispatch(self, step: dict, blackboard: dict, record: dict, records: list[dict],
@@ -630,14 +637,18 @@ class Runner:
             self._stack(step, action, params, blackboard, record)
             return
 
-        motion = action not in NON_MOTION_ACTIONS
+        if action == "move_to_named_pose" and params == self._at_pose:
+            record["same_pose"] = True          # 이미 그 자세이고 그 뒤 팔을 움직이지 않음 → 보내지 않고 성공 (#245)
+            return
+        motion = _moves_arm(action, params)
+        at_pose, self._at_pose = self._at_pose, (None if motion else self._at_pose)
         try:
             result = self.execute(action, params, step.get("timeout_sec"))
         except Exception as e:                  # 통신 끊김 등 백엔드 예외도 스텝 실패로 처리해 finally 를 보장
             if motion:                          # 보낸 뒤 끊겼을 수 있음 → 결과 불확실 (재시도·다음 대안 금지)
                 self._motions += 1
             raise StepFailed(step["id"], "BACKEND_ERROR", no_retry="RESPONSE_LOST" if motion else None) from e
-        no_motion = not result.success and _no_motion(action, result.error_code)
+        no_motion = not result.success and (not motion or _no_motion(action, result.error_code))
         if motion and not no_motion:
             self._motions += 1                  # 움직이기 전 거부가 보장된 실패만 빼고 셈
         if not result.success:
@@ -656,6 +667,10 @@ class Runner:
                              no_retry="TIMEOUT" if result.error_code == "TIMEOUT" and motion else None,
                              no_motion=no_motion)
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
+        if action == "move_to_named_pose":
+            self._at_pose = dict(params)
+        elif action == "nudge_object" and _stayed(result.output):
+            self._at_pose = at_pose             # 밀지 않음 = 움직이지 않음 (runner.md 7.1 nudge_object)
         record["output"] = result.output
         if "output" in step:
             blackboard[step["output"]] = result.output
@@ -784,7 +799,7 @@ class Runner:
                 if e.no_retry is None and moved:
                     e.no_retry = "MOTION_UNCERTAIN"   # 앞서 팔을 움직였으면 어떤 실패든 스킬을 다시 보내지 않음
                 raise
-            moved = moved or sub["action"] not in NON_MOTION_ACTIONS
+            moved = moved or _moves_arm(sub["action"], sub.get("params"))
         with self._halt_lock:                   # 중단 확인과 반영 사이에 halt() 가 끼어들 수 없음 (PR #64 E 리뷰)
             self._check_halt(step["id"])        # 반영 전 중단 요청 → effect 반영 안 함
             self._check_timeout(step, attempt_started)
@@ -832,6 +847,19 @@ def _hand_uncertain(output) -> bool:
     """B 결과 hand(#223, 결정 10): holding·unknown 이면 실패여도 손에 물건이 있을 수 있음. 지금 B 는 이 경우를
     SENSOR_INVALID·ESTOP(HALT_CODES)로 보내므로 이 검사는 다른 코드로 오는 경우의 안전장치. released·empty·없음은 그대로."""
     return isinstance(output, dict) and output.get("hand") in ("holding", "unknown")
+
+
+def _moves_arm(action: str, params) -> bool:
+    """팔을 움직일 수 있는 원자 동작인지. place_object check_only(B #241)는 놓기 판단만 — 성공·거부 모두 어떤 동작도
+    하지 않고, 집기 전이면 집기 계획까지 판단만 해서 집기 거부 코드(NEIGHBOR_TOO_CLOSE 등)로도 실패한다(#242)."""
+    if action in NON_MOTION_ACTIONS:
+        return False
+    return not (action == "place_object" and isinstance(params, dict) and params.get("check_only") is True)
+
+
+def _stayed(output) -> bool:
+    """nudge_object 결과가 "잡을 수 있는 자리라 움직이지 않음"(pushed false, make_room 아님)인지."""
+    return isinstance(output, dict) and output.get("pushed") is False and not output.get("make_room")
 
 
 def _no_motion(action: str, code: str | None) -> bool:
