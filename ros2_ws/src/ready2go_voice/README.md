@@ -43,11 +43,17 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 더미 revision은 생성자에서 0으로 시작하고 cancel/완료/안전 fixture는 같은 submit_lock으로 처리합니다. stopped fixture 거절 시 더미의 첫 동작·run·revision을 부분 변경하지 않습니다. 중단 작업은 complete로 성공 처리하지 않고 기존 종료 후보 경로를 요구하며, 종료 뒤 다음 작업은 기존 수락→실제 TTS 성공→첫 동작→complete 검사로 완료합니다. executor 예외는 `dummy_test_unavailable_executor_failed`와 오류 타입만 기록하고 시험을 중단합니다. stdin은 허용 command의 접수/거절만 남기며 발화 원문 로그를 늘리지 않습니다.
 
-문형 폴백 밖의 “어, 그거.” 같은 관련 답도 유효 질문·대상·원문을 같은 LLM 호출에 먼저 전달한 뒤 판정/공통 검증과 현재 기한을 확인해 소비합니다. 부정·다른 대상·정보·미지원·만료는 이전 대상 권한을 받지 않습니다. 같은 질문을 보존하는 재확인은 기한을 연장하지 않습니다. 읽기 안내의 은/는은 기존 조사 helper를 쓰며, 초기 물품 위치와 초기 서랍 열림 및 그 값의 Runner 기록 기준 문장만 필수 prefill에 추가합니다. 다른 현재 상태/동적 문장은 최초 합성이 필요할 수 있습니다. 기존 128개 상한·실패 정책과 일반 startup60초는 유지합니다.
+문형 폴백 밖의 “어, 그거.” 같은 관련 답도 유효 질문·대상·원문을 같은 LLM 호출에 먼저 전달한 뒤 판정/공통 검증과 현재 기한을 확인해 소비합니다. 부정·다른 대상·정보·미지원·만료는 이전 대상 권한을 받지 않습니다. 같은 질문을 보존하는 재확인은 기한을 연장하지 않습니다. 읽기 안내의 은/는은 기존 조사 helper를 쓰며, 초기 물품 위치와 초기 서랍 열림 및 그 값의 Runner 기록 기준 문장만 필수 prefill에 추가합니다. 다른 현재 상태/동적 문장은 최초 합성이 필요할 수 있습니다. [당시 구현] 128개 상한·실패 정책과 일반 startup60초를 유지했습니다. 최신 문장 상한은 아래 승인된 256개 후속을 따릅니다.
 
 [사용자 승인] cue_gain은 0.12에서 0.18로 조정했고 시험 복사 명령은 최신 원본 gain과 cancel 표현을 적용합니다. 장치·공유 출력 lock·원본 local·모델·키·기존 캐시는 보존합니다. [실측: 오프라인] 준비 비프 PCM clipping은 0이며 TTS 캐시 PCM과 비교했습니다. 실제 청취에서 동일 음량인지는 미검증입니다. 같은 request의 확인된 수락 기록은 늦은 발행 로그에서 미확인으로 되돌리지 않으며, 이 로그 기억은 실행 허가에 사용하지 않습니다.
 
 재시작은 아래 복사 명령의 `E_VOICE_CUE=1 E_VOICE_SAVE_WAV=1`을 유지하고, stop 무음 종료는 일반 녹음 옵션과 독립입니다. 일반 요청도 무음 종료로 비교할 때만 `E_VOICE_SILENCE=1`을 사용합니다. 자동 완료는 기존 선택 옵션이며 중단 작업 complete 거절을 우회하지 않습니다. 실제 정지 발화·장치 DC 원인·비프 청취·C 상태 연결/모션은 미검증입니다.
+
+### 사전 캐시 문장 상한 — 256개 후속
+
+[사용자 승인: E-TTS-PREFILL-CAP-256-20261012-01] 실행 원본 `tts_prefill_max_texts`와 누락 기본값을 256으로 맞췄습니다. warmup 1개를 포함하므로 필수 문장 255개까지 허용하며 초과하면 기존 준비 실패 정책을 유지합니다. 문자 길이·UTF-8 용량 제한은 그대로입니다. 같은 cap을 사용하는 질문 중복 기록 deque도 누락 기본값만 맞췄으며 질문 소비·기한·일회 실행 권한을 바꾸지 않았습니다.
+
+시험 복사 명령은 상한을 패키지 YAML에서 읽어 적용하므로 명시된 old local128도 새 시험 복사본에서 256이 됩니다. 원본 local·기존 run 로그는 보존합니다. 과거 128개 상한/실측 목록은 당시 이력이며 이번 개수 상한 변경이 prepare/노드 목록 차이나 일반 startup60초 timeout을 해결했다는 뜻은 아닙니다. 일반 startup60·prepare 전용120·AC 시간·모델·키·캐시는 유지하며, 다음 사용자 재시작에서 새 설정을 적용해야 합니다. 실제 준비·음성은 이번에 시험하지 않았습니다.
 
 ### 통합 음성 흐름 — 사용자 직접 시험
 
@@ -152,6 +158,7 @@ if hint_switch:
     cfg['voice_flow']['stt_context_hint_enabled'] = hint_switch == '1'
 cfg['voice_flow']['cue_gain'] = base['voice_flow']['cue_gain']  # 승인 최신 원본: 기존 local 0.12를 시험 복사본에서만 갱신
 cfg['cancel_phrases'] = base['cancel_phrases']
+cfg['tts_prefill_max_texts'] = base['tts_prefill_max_texts']  # 원본 최신 상한; 명시 old local 128도 시험 복사본에서 갱신
 cfg['voice_flow']['dummy_auto_complete'] = os.environ.get('E_VOICE_AUTO_COMPLETE','0') == '1'
 if cfg['voice_flow']['capture_save_wav']:
     cfg['voice_flow']['capture_dir'] = str(folder / 'captures')

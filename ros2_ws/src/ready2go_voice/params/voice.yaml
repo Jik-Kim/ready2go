@@ -100,7 +100,7 @@ diagnostic_backups: 3
 diagnostic_queue_size: 128
 # 모델/내용 identity는 유지, 초기 필수 문장+자주 사용한 검증 문장만 bounded 선준비.
 tts_prefill_progress_every: 8 # 선준비 진행 표시 간격 제안
-tts_prefill_max_texts: 128
+tts_prefill_max_texts: 256
 tts_prefill_max_chars: 160
 tts_prefill_max_bytes: 65536 # UTF-8 선준비 문장 전체 용량 상한 제안
 tts_frequent_max_texts: 32
