@@ -6,6 +6,7 @@
 - contracts/examples/inspect_region_result.json 의 pose 규칙(position.z = 0, yaw 범위)
 - contracts/examples/nudge_object_result.json 의 target_after 규칙(성공일 때만 target 형식, 실패면 null)
 - contracts/examples/place_object_result.json 의 서랍 안 놓기 규칙(pose·scan, placed_pose 는 놓은 뒤에만, 거부는 blocked_by)
+- contracts/examples/pick_object_result.json 의 hand·grasp_evidence 규칙, drawer_control_result.json 의 열기·닫기 근거 규칙 (PR #223)
 - 온톨로지 목록 참조 · 스킬 파라미터($변수) 참조가 맞는지
 """
 import json
@@ -43,6 +44,49 @@ def place_pose_errors(pose, frame, where):
         errs.append(f"{where} 의 position x·y·yaw 는 유한한 수 — 값 {nums}")
     if pose.get("frame") != frame:
         errs.append(f"{where}.frame 은 location 과 같은 서랍 ({frame}) — 값 {pose.get('frame')}")
+    return errs
+
+
+HANDS = {"holding", "empty", "released", "unknown"}
+
+
+def pick_result_errors(doc):
+    """pick_object 결과 (PR #223): grasp_ok(파지 성공)와 hand(손 상태)를 따로. 빈손 확정(empty)은 들어 올리다 놓침(DROPPED, 폭 ≤ 2 mm)만
+    [#43 결정 E-B-C-GRIPPER-OBSERVATION-20261011-10], 성공은 같은 pick 의 닫은 폭 > 하한·grasp_detected·들어 올린 뒤 유지."""
+    errs = []
+    for c in doc["cases"]:
+        out, name = c["output"], c["case"]
+        hand, ev = out.get("hand"), out.get("grasp_evidence") or {}
+        if hand not in HANDS:
+            errs.append(f"{name}: hand 는 {sorted(HANDS)} 중 하나 — 값 {hand!r}")
+        if out.get("grasp_ok") is not c["success"]:
+            errs.append(f"{name}: grasp_ok 는 success 와 같음")
+        if c["success"]:
+            w, lo = ev.get("closed_width_m"), ev.get("min_width_m")
+            if hand != "holding" or ev.get("grasp_detected") is not True or ev.get("lift") not in ("HELD", "SLIPPED") \
+                    or not (isinstance(w, (int, float)) and isinstance(lo, (int, float)) and w > lo):
+                errs.append(f"{name}: 성공은 hand holding·grasp_detected·닫은 폭 > min_width_m·lift HELD/SLIPPED")
+            if not isinstance(out.get("pick_pose_drawer_frame"), dict):
+                errs.append(f"{name}: 성공 결과에 pick_pose_drawer_frame 필요")
+        if hand == "empty" and ev.get("lift") != "DROPPED":
+            errs.append(f"{name}: hand empty(빈손 확정)는 들어 올리다 폭이 빈손 닫힘까지 줄었을 때(lift DROPPED)만")
+    return errs
+
+
+def drawer_result_errors(doc):
+    """drawer_control 결과 (PR #223): 열기 성공은 drawer_displacement ≥ 0.9 × open_distance_m(open_drawer verify 근거),
+    close_confirmed 는 남은 거리 ≤ 허용오차이고 밀기가 중간에 멈추지 않았을 때만."""
+    errs = []
+    for c in doc["cases"]:
+        out, name, state = c["output"], c["case"], c["params"].get("state")
+        if state == "open" and c["success"] and not out["drawer_displacement"] >= 0.9 * out.get("open_distance_m", float("inf")):
+            errs.append(f"{name}: 열기 성공은 drawer_displacement ≥ 0.9 × open_distance_m")
+        if state == "close" and out.get("close_confirmed"):
+            rem, tol = out.get("close_remaining_m"), out.get("close_pos_tol_m")
+            if out.get("close_push_interrupted") is not False or rem is None or tol is None or rem > tol:
+                errs.append(f"{name}: close_confirmed 는 close_remaining_m ≤ close_pos_tol_m·close_push_interrupted false 일 때만")
+        if state == "close" and c["success"] != bool(out.get("close_confirmed")):
+            errs.append(f"{name}: 닫기 성공 = close_confirmed")
     return errs
 
 
@@ -112,6 +156,8 @@ def main() -> int:
                 errors += [f"nudge_object_result.json {c['case']}: {m}"
                            for m in result_errors({"target_found": True, "target": after, "candidates": [], "visible_count": 1})]
     errors += [f"place_object_result.json {m}" for m in place_result_errors(load(ROOT / "contracts/examples/place_object_result.json"))]
+    errors += [f"pick_object_result.json {m}" for m in pick_result_errors(load(ROOT / "contracts/examples/pick_object_result.json"))]
+    errors += [f"drawer_control_result.json {m}" for m in drawer_result_errors(load(ROOT / "contracts/examples/drawer_control_result.json"))]
     raw = load(ROOT / "knowledge/robot_ontology.jsonld")   # 서랍 물리 값(인출 거리 등)의 정본은 config/places.yaml. 온톨로지에 따로 두면 서로 어긋난다
     for pname, pdef in raw.get("world", {}).get("places", {}).items():
         if pdef.get("max_travel_m") is not None:

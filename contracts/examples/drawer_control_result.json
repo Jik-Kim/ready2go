@@ -1,0 +1,52 @@
+{
+  "_comment": "drawer_control 결과 예시 (runner.md 7.1, PR #223 — 기존 drawer_displacement·close_confirmed 는 그대로, 필드 추가는 B 제안·C 확인·E 포함 2명 승인 전, P2). 열기: drawer_displacement = 손잡이를 쥔 TCP 가 당긴 거리로 추정(서랍 거리 센서 없음), open_distance_m = 이번에 명령한 거리 → open_drawer verify drawer_displacement ≥ 0.9 × distance 근거. 닫기: close_confirmed = 밀기 끝 TCP 기준 닫힘 위치까지 남은 거리(close_remaining_m) ≤ close_pos_tol_m 이고 밀기가 중간에 멈추지 않음(close_push_interrupted false). 닫힘 확인 뒤 drawer_displacement 0. close_remaining_m 은 좌표를 못 읽으면 null. 값은 설명용",
+  "cases": [
+    {
+      "case": "open",
+      "params": {
+        "drawer_id": "drawer_top",
+        "state": "open"
+      },
+      "success": true,
+      "error_code": "",
+      "output": {
+        "drawer_displacement": 0.226,
+        "close_confirmed": false,
+        "open_distance_m": 0.226
+      }
+    },
+    {
+      "case": "close_confirmed",
+      "params": {
+        "drawer_id": "drawer_top",
+        "state": "close"
+      },
+      "success": true,
+      "error_code": "",
+      "output": {
+        "drawer_displacement": 0.0,
+        "close_confirmed": true,
+        "close_remaining_m": 0.0042,
+        "close_pos_tol_m": 0.015,
+        "close_push_interrupted": false
+      }
+    },
+    {
+      "case": "close_not_reached",
+      "_comment": "밀기는 끝났는데 닫힘 위치까지 남은 거리가 허용오차 밖",
+      "params": {
+        "drawer_id": "drawer_top",
+        "state": "close"
+      },
+      "success": false,
+      "error_code": "CLOSE_NOT_CONFIRMED",
+      "output": {
+        "drawer_displacement": 0.0312,
+        "close_confirmed": false,
+        "close_remaining_m": 0.0312,
+        "close_pos_tol_m": 0.015,
+        "close_push_interrupted": false
+      }
+    }
+  ]
+}

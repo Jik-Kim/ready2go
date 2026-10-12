@@ -6,6 +6,7 @@
   ros2 run ready2go_runner run_report --markdown          # GitHub 댓글용 표
   ros2 run ready2go_runner run_report --uri mongodb://172.24.0.3:27017   # 다른 PC(PC2) DB
   ros2 run ready2go_runner run_report --jsonl /logs       # DB 장애 때 남은 JSONL 예비 기록
+  ros2 run ready2go_runner run_report -n 20 --check       # 최근 20건 기록이 빠짐없는지 (FR-LOG-02·AC-LOG-01), 누락 있으면 종료 코드 1
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ import sys
 from pathlib import Path
 
 from ..core.logstore import DEFAULT_DB_NAME, DEFAULT_MONGO_URI, JsonlLogStore
-from ..core.run_report import to_markdown, to_text
+from ..core.run_report import check, check_line, to_markdown, to_text
 
 
 def jsonl_run_ids(directory: Path) -> list[str]:
@@ -58,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run", help="run_id (끝 글자만 써도 됨, 예: f45c86)")
     ap.add_argument("-n", "--last", type=int, default=1, help="최근 몇 건 (기본 1)")
     ap.add_argument("--markdown", action="store_true", help="GitHub 댓글용 Markdown 표")
+    ap.add_argument("--check", action="store_true", help="요약 대신 기록 누락 점검 (헤더·끝 기록·seq 빠짐/중복·결과 없는 스텝)")
     args, _ = ap.parse_known_args(argv)        # ros2 run 이 붙이는 --ros-args 무시
     try:
         records = (load_jsonl(args.jsonl, args.run, args.last) if args.jsonl
@@ -69,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
     if not records:
         print("해당 실행 기록 없음", file=sys.stderr)
         return 1
+    if args.check:
+        print("\n".join(check_line(r) for r in records))
+        bad = sum(1 for r in records if check(r))
+        print(f"\n{len(records)}건 중 누락 {bad}건")
+        return 1 if bad else 0
     render = to_markdown if args.markdown else to_text
     print("\n\n".join(render(r) for r in records))
     return 0

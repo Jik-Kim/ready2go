@@ -1,0 +1,109 @@
+{
+  "_comment": "pick_object 결과 예시 (runner.md 7.1, PR #223 — B 제안, C 확인·E 포함 2명 승인 전, P2). 각 항목 = Skill 액션 결과 {success, error_code, output_json(파싱한 값)}. grasp_ok = 파지 성공(#43 verify: 같은 pick 의 닫은 폭 > 10 mm·grasp_detected·들어 올린 뒤 유지). hand = 끝났을 때 손 상태, grasp_ok 와 별개 — holding(쥠 확인) / empty(빈손 확정: 닫힌 폭 ≤ gripper.min_width_m 2 mm) / released(다시 벌림 확인 — 쥐지 않았지만 빈손 확정 아님) / unknown(폭 못 읽음·잡은 채 멈춤). 빈손 기준은 #43 결정 E-B-C-GRIPPER-OBSERVATION-20261011-10. grasp_evidence: closed_width_m(같은 pick 의 닫은 폭, 못 읽으면 null)·grasp_detected·min_width_m(성공 하한)·close(check_grasp 결과)·lift(들어 올린 뒤 check_hold 결과)·lift_width_m·open_width_m(실패 뒤 다시 벌린 폭). 검사하지 않은 단계의 키는 없음. pick_pose_drawer_frame 은 성공일 때만. 값은 노드 시험(가짜 로봇·그리퍼) 출력이며 실측이 아님",
+  "cases": [
+    {
+      "case": "held",
+      "success": true,
+      "error_code": "",
+      "output": {
+        "object_id": "eraser#1",
+        "class": "eraser",
+        "grasp_ok": true,
+        "hand": "holding",
+        "grasp_evidence": {
+          "closed_width_m": 0.022,
+          "grasp_detected": true,
+          "min_width_m": 0.01,
+          "close": "OK",
+          "lift": "HELD",
+          "lift_width_m": 0.022
+        },
+        "pick_pose_drawer_frame": {
+          "frame": "drawer_top",
+          "position": [
+            0.1,
+            0.15,
+            0.0
+          ],
+          "yaw": 0.3,
+          "yaw_valid": true
+        }
+      }
+    },
+    {
+      "case": "empty_close",
+      "success": false,
+      "error_code": "GRASP_FAILED",
+      "output": {
+        "object_id": "eraser#1",
+        "class": "eraser",
+        "grasp_ok": false,
+        "hand": "released",
+        "grasp_evidence": {
+          "closed_width_m": 0.0009,
+          "grasp_detected": true,
+          "min_width_m": 0.01,
+          "close": "EMPTY_CLOSE",
+          "open_width_m": 0.035
+        }
+      },
+      "_comment": "빈 채 닫힘(0.9 mm ≤ 10 mm) → 다시 벌림. 벌린 폭이 명령 폭 ± slip_tolerance(2 mm)면 released, 아니면 unknown. released 는 빈손 확정 아님"
+    },
+    {
+      "case": "lift_dropped",
+      "success": false,
+      "error_code": "GRASP_FAILED",
+      "output": {
+        "object_id": "eraser#1",
+        "class": "eraser",
+        "grasp_ok": false,
+        "hand": "empty",
+        "grasp_evidence": {
+          "closed_width_m": 0.022,
+          "grasp_detected": true,
+          "min_width_m": 0.01,
+          "close": "OK",
+          "lift": "DROPPED",
+          "lift_width_m": 0.0009
+        }
+      },
+      "_comment": "들어 올리다 폭이 gripper.min_width_m(2 mm) 이하로 줄어듦 = 실측 빈손(empty). 스킬 서버 쥔 기억 지움"
+    },
+    {
+      "case": "close_width_invalid",
+      "success": false,
+      "error_code": "SENSOR_INVALID",
+      "output": {
+        "object_id": "eraser#1",
+        "class": "eraser",
+        "grasp_ok": false,
+        "hand": "unknown",
+        "grasp_evidence": {
+          "closed_width_m": null,
+          "grasp_detected": true,
+          "min_width_m": 0.01,
+          "close": "SENSOR_INVALID"
+        }
+      },
+      "_comment": "닫은 폭이 NaN·범위 밖 — 쥐었는지 모름. 쥔 것으로 기억, 그리퍼 명령 없이 멈춤. JSON 에 NaN 을 싣지 않고 null"
+    },
+    {
+      "case": "stopped_while_lifting",
+      "success": false,
+      "error_code": "ESTOP",
+      "output": {
+        "object_id": "eraser#1",
+        "class": "eraser",
+        "grasp_ok": false,
+        "hand": "unknown",
+        "grasp_evidence": {
+          "closed_width_m": 0.022,
+          "grasp_detected": true,
+          "min_width_m": 0.01,
+          "close": "OK"
+        }
+      },
+      "_comment": "닫아서 잡은 뒤 들어 올리다 비상정지 — 쥔 것으로 기억 유지(다음 pick 은 HOLDING_OBJECT). 들어 올린 뒤 검사 전이라 lift 없음"
+    }
+  ]
+}

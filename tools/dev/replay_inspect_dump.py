@@ -53,15 +53,16 @@ def main():
         if not detector:                                                       # 분할 모델 덤프: 저장된 마스크 복원
             restore_masks(dets, z["masks"] if "masks" in z.files else None, z["color"].shape[1])
         req = meta["request"]
-        debug = []
-        ok, err, js = inspect_scene(dets, depth, K, T, params, items, req["region"], req["search_target"], meta["interior_m"], debug)
+        debug, info = [], {}
+        ok, err, js = inspect_scene(dets, depth, K, T, params, items, req["region"], req["search_target"], meta["interior_m"], debug,
+                                    region_height_m=meta.get("region_height_m"), info=info)
         floor = floor_probe(depth, K, T, meta["interior_m"], [d["box"] for d in dets], params["floor_probe"])
         print(f"== {f.name} (저장 당시 success={meta['success']} {meta['error_code']}, 버전 {meta['versions'].get('code_sha') or '?'}, "
               f"검출 {'다시: ' + Path(a.weights).name if detector else '저장된 것'})")
         print(f"  재계산 success={ok} {err} {js}")
         for d in debug:
             print(f"  검출 {json.dumps(d, ensure_ascii=False)}")
-        print(f"  바닥(카메라, 서랍 z) {json.dumps(floor)}  원점 이동 {a.dz_mm:+.1f} mm")
+        print(f"  바닥(카메라, 서랍 z) {json.dumps(floor)}  지역 바닥 보인 비율 {info.get('region_visible_ratio')}  원점 이동 {a.dz_mm:+.1f} mm")
         if a.truth and ok and json.loads(js)["target_found"]:
             t = json.loads(js)["target"]["pose"]
             dx, dy = t["position"][0] - a.truth[0], t["position"][1] - a.truth[1]
