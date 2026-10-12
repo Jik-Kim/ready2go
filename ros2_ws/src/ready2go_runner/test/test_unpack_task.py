@@ -46,7 +46,16 @@ class SceneRobot:
         return [p["target"]["class"] for a, p in self.calls if a == "pick_object"]
 
     def placed(self):
-        return [p.get("slot") or ("origin" if "pose" in p else p["location"]) for a, p in self.calls if a == "place_object"]
+        """실제 놓기만 (check_only 판단은 빼고 — 움직이지 않음, #242)."""
+        return [_where(p) for a, p in self.calls if a == "place_object" and not p.get("check_only")]
+
+    def checked(self):
+        """놓기 판단만(check_only, B #241) 보낸 자리."""
+        return [_where(p) for a, p in self.calls if a == "place_object" and p.get("check_only")]
+
+
+def _where(p):
+    return p.get("slot") or ("origin" if "pose" in p else p["location"])
 
 
 def run(scene, target, failures=None):
@@ -63,13 +72,17 @@ def steps(result):
 
 
 def test_unpacks_two_delivers_and_restores_in_reverse():
-    """A #109 위 칸 시나리오(사용자 결정 10/08): 렌치 ← 캐러멜 상자 ← 차키. 차키(aside_1) → 상자(aside_1 막힘 →
-    aside_2) → 렌치 전달 → 거꾸로 상자 원래 자리 → 차키 원래 자리는 상자와 붙어 막힘 → 차키를 꺼낸 그 고정 자리
-    (aside_1)에 다시 둠, 빈손이라 계속(B·C 합의 #168) → 닫기 → 홈."""
+    """A #109 위 칸 시나리오(사용자 결정 10/08): 렌치 ← 캐러멜 상자 ← 차키. 집기 전에 놓을 자리부터 판단(#242):
+    차키(aside_1) → 상자(aside_1 은 차키가 있어 판단에서 거부 → aside_2 판단 통과 → aside_2 에 바로 놓음) → 렌치 전달
+    → 거꾸로 상자 원래 자리 → 차키 원래 자리는 상자와 붙어 판단에서 거부, 꺼낸 고정 자리(aside_1) 판단은 통과 → 차키는
+    집지 않고 그대로 둠(집었다 같은 자리에 다시 놓는 헛동작 없음, PC2 10/12 32초) → 닫기 → 홈."""
     runner, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED", steps(result)
-    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box", "car_key"]
-    assert robot.placed() == ["aside_1", "aside_1", "aside_2", "handover_zone", "origin", "origin", "aside_1"]
+    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
+    assert robot.placed() == ["aside_1", "aside_2", "handover_zone", "origin"]
+    assert robot.checked() == ["aside_1", "aside_1", "aside_2", "origin", "origin", "aside_1"]
+    pick_view = [s for s in result.steps if s.get("parent") == "s8.t1" and s["action"] == "move_to_named_pose"]
+    assert [bool(s.get("same_pose")) for s in pick_view] == [True, True]       # 방금 s7.6~7 탑뷰, 넛지 안 밀음 (#245)
     scene = robot.skills.scene
     assert scene.delivered == ["toy_wrench"] and scene.held is None
     assert scene.objects["caramel_box"]["xy"][1] == 0.14                      # 상자는 원래 자리로
@@ -84,8 +97,9 @@ def test_unpacks_two_delivers_and_restores_in_reverse():
 def test_restore_uses_original_pose_not_where_it_was_placed():
     """되돌리기 목적지는 치우기 전 관측 자리(origin) — 놓은 자리·다시 본 자리로 덮어쓰지 않음 (E #120 14:08 2번)."""
     _, robot, _ = run("occluded_top", "toy_wrench")
-    restore = [p["pose"]["position"][:2] for a, p in robot.calls if a == "place_object" and "pose" in p]
-    assert restore == [[0.12, 0.14], [0.12, 0.17]]
+    restore = [(p["pose"]["position"][:2], bool(p.get("check_only"))) for a, p in robot.calls
+               if a == "place_object" and "pose" in p]
+    assert restore == [([0.12, 0.14], True), ([0.12, 0.14], False), ([0.12, 0.17], True)]   # 차키는 판단에서 막힘
 
 
 def test_plate_over_eraser_moves_only_the_plate():
@@ -94,6 +108,7 @@ def test_plate_over_eraser_moves_only_the_plate():
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["cover_plate", "eraser", "cover_plate"]
     assert robot.placed() == ["aside_1", "handover_zone", "origin"]
+    assert robot.checked() == ["aside_1", "origin"]
 
 
 def test_clear_target_needs_no_unpacking():
@@ -107,6 +122,7 @@ def test_estop_while_holding_obstacle_sends_nothing_more():
     """장애물을 쥐고 놓다가 비상정지 → ABORTED: 복구 반복·닫기·홈 없음 (restore_stack·holding 은 사람 확인용)."""
     _, robot, result = run("occluded_top", "toy_wrench", {"place_object": ["ESTOP", 1]})
     assert (result.overall_status, result.error_code) == ("ABORTED", "ESTOP")
+    assert result.failed_step == "s7.3r"                                      # 실패 지정은 실제 놓기에 (판단은 안 셈)
     last = max(i for i, (a, _) in enumerate(robot.calls) if a == "place_object")
     assert [a for a, _ in robot.calls[last + 1:]] == []                       # 그 뒤 로봇 동작 없음
     assert result.blackboard["holding"] is True
@@ -134,7 +150,8 @@ def test_drop_while_moving_obstacle_halts_and_locks(code):
 
 
 def test_every_drawer_place_sends_scan_with_held_object():
-    """B #191: 서랍 안 놓기 scan 에 쥔 물체 id 가 없으면 BAD_PARAMS — 치우기·되돌리기 모두 집을 때 쓴 scan 을 넘김."""
+    """B #191: 서랍 안 놓기 scan 에 쥔 물체 id 가 없으면 BAD_PARAMS — 치우기·되돌리기 모두 집을 때 쓴 scan 을 넘김.
+    집기 전 판단(check_only)은 집을 물체(object)가 그 scan 에 있어야 함(B #241). 치울 물체 집기도 scan 을 같이 넘김."""
     _, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED", steps(result)
     held = None
@@ -142,8 +159,11 @@ def test_every_drawer_place_sends_scan_with_held_object():
         if action == "pick_object":
             held = p["target"]["id"]
         elif action == "place_object" and p["location"] != "handover_zone":
-            scan = p["scan"]
-            assert held in {o["id"] for o in [scan.get("target")] + scan["candidates"] if o}, (held, p)
+            scan, who = p["scan"], p["object"]["id"] if p.get("check_only") else held
+            assert who in {o["id"] for o in [scan.get("target")] + scan["candidates"] if o}, (who, p)
+    obstacle_picks = [s["params"] for s in result.steps if s["id"] in ("s7.1", "fr.5.1")]   # 치우기·되돌리기 집기
+    assert len(obstacle_picks) == 3                                            # 집기 전 이웃 확인용 scan (#242 5·B 댓글)
+    assert all(p["target"]["id"] in {o["id"] for o in p["scan"]["candidates"]} for p in obstacle_picks)
 
 
 def test_mock_place_rejects_scan_without_held_object():
@@ -167,16 +187,19 @@ def test_three_obstacles_hit_loop_limit_and_still_restore():
     runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
     result = runner.run(TASK, {"target": "toy_wrench"})
     assert (result.overall_status, result.error_code) == ("FAILED", "LOOP_LIMIT"), steps(result)
-    assert robot.picked() == ["lip_balm", "car_key", "car_key", "lip_balm"]   # 치운 2개 → 거꾸로 되돌리기
+    assert robot.picked() == ["lip_balm", "car_key", "lip_balm"]   # 치운 2개 → 거꾸로: 차키 원래 자리는 상자와 붙어
+    assert [c["class"] for c in result.blackboard["left_aside"]] == ["car_key"]   # 판단에서 막힘 → 안 집고 그대로
+    assert [c["class"] for c in result.blackboard["restored"]] == ["lip_balm"]
     assert "toy_wrench" not in robot.skills.scene.delivered
     assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
 
 
 class BlockedRestoreScene(MockScene):
-    """전달 뒤(되돌리기 때)는 서랍 안 어디에 놓아도 막힘 — 원래 자리·꺼낸 고정 자리 둘 다 막힌 경우."""
+    """전달 뒤(되돌리기 때)는 판단(check_only)은 통과하는데 실제로 놓으려 하면 서랍 안 어디든 막힘 — 판단과 놓기 사이에
+    자리가 막힌 경우(물체가 굴러옴 등). 원래 자리·꺼낸 고정 자리 둘 다 막힘."""
 
     def place(self, params):
-        if self.delivered and params.get("location") != "handover_zone":
+        if self.delivered and params.get("location") != "handover_zone" and not params.get("check_only"):
             return False, "PLACE_BLOCKED", {"slot": None, "placed_pose": None, "blocked_by": "toy_car#1"}
         return super().place(params)
 
@@ -215,8 +238,9 @@ def test_restore_check_records_origin_and_now_only_for_items_back_at_origin():
     assert check["params"]["record"]["origin"]["position"][:2] == [0.12, 0.14]
     assert check["output"]["status"] == "found" and check["output"]["distance_m"] == 0.003
     actions = [(a, p.get("pose_name"), p.get("state")) for a, p in robot.calls]
-    view = max(i for i, c in enumerate(actions) if c[:2] == ("move_to_named_pose", "drawer_top_view"))
-    assert actions[view + 1][0] == "inspect_region" and actions[view + 2] == ("drawer_control", None, "close")
+    close = actions.index(("drawer_control", None, "close"))
+    assert actions[close - 1][0] == "inspect_region"                          # 확인 촬영(fv.2) 바로 뒤 닫기
+    assert next(s for s in result.steps if s["id"] == "fv.1").get("same_pose")   # 이미 탑뷰 (복구 판단만 — 안 움직임)
     record = runner.log_store.read_run(result.run_id)
     from ready2go_runner.core import run_report
     assert "복구 오차 (판정 아님): caramel_box 위치 오차 3.0 mm · 방향 오차 0.0°" in run_report.to_text(record)
@@ -279,7 +303,7 @@ def run_blurry(blurry_calls):
 def test_first_photo_unknown_reshoots_once_and_continues():
     robot, result = run_blurry({1})
     assert result.overall_status == "COMPLETED", steps(result)
-    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box", "car_key"]   # 평소와 같은 순서
+    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]   # 평소와 같은 순서
     reshoot = [s for s in result.steps if s["id"] == "s6r.1"]
     assert len(reshoot) == 1 and reshoot[0]["status"] == "SUCCESS"
     first_pick = next(i for i, (a, _) in enumerate(robot.calls) if a == "pick_object")
@@ -333,7 +357,7 @@ def test_voice_find_item_starts_unpacking_with_intent_tasks_setting():
     runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
     result = runner.run(decision.task, decision.inputs)
     assert result.overall_status == "COMPLETED", steps(result)
-    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box", "car_key"]
+    assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
     run = runner.log_store.read_run(result.run_id)["run"]
     assert (run["inputs"]["source"], run["inputs"]["stt_text"]) == ("voice", "장난감 스패너 찾아줘")
     assert run["inputs"]["reid_tol_m"] == TASK["inputs"]["reid_tol_m"]        # 태스크 기본값은 그대로
@@ -400,14 +424,12 @@ NOT_BACK = "옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람
 
 
 class RestorePickRefusedScene(MockScene):
-    """전달 뒤 상자를 되돌리러 집을 때 한 번만 움직이기 전 거부(옆 물체가 손가락 자리에 걸림)."""
+    """전달 뒤 상자는 집기가 움직이기 전 거부(옆 물체가 손가락 자리에 걸림) — B 처럼 집기 전 놓기 판단도 같은 코드로 거부."""
 
-    def pick(self, params):
-        target = params.get("target") or {}
-        if self.delivered and target.get("class") == "caramel_box" and not getattr(self, "_refused", False):
-            self._refused = True
-            return False, "NEIGHBOR_TOO_CLOSE", None
-        return super().pick(params)
+    def pick_refusal(self, target):
+        if self.delivered and target.get("class") == "caramel_box":
+            return "NEIGHBOR_TOO_CLOSE"
+        return super().pick_refusal(target)
 
 
 class VanishedAfterDeliveryScene(MockScene):
@@ -420,12 +442,12 @@ class VanishedAfterDeliveryScene(MockScene):
         return out
 
 
-def _run_with(scene):
-    robot = SceneRobot("occluded_top")
+def _run_with(scene, target="toy_wrench"):
+    robot = SceneRobot(scene.name)
     robot.skills.scene = scene
     runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, log_store=MemoryLogStore())
     runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
-    return runner, robot, runner.run(TASK, {"target": "toy_wrench"})
+    return runner, robot, runner.run(TASK, {"target": target})
 
 
 @pytest.mark.parametrize("scene_cls", [RestorePickRefusedScene, VanishedAfterDeliveryScene])
@@ -435,6 +457,7 @@ def test_one_restore_fails_others_still_restored_then_failed(scene_cls):
     assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "RESTORE_INCOMPLETE", "fr"), \
         steps(result)
     assert robot.skills.scene.delivered == ["toy_wrench"]                     # 전달은 됨
+    assert robot.picked()[3:] == ["car_key"]                                  # 상자는 판단에서 거부 → 집지 않음 (#242)
     assert robot.skills.scene.objects["car_key"]["xy"][1] == 0.17              # 차키는 원래 자리로 (남은 복구 계속)
     assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
     assert result.blackboard["holding"] is False
@@ -482,3 +505,92 @@ def test_unpacking_first_announcement_failure_sends_no_robot_motion():
     result = _run_robot(robot, {"target": "eraser", "accept_text": "지우개를 찾아올게요."})
     assert (result.overall_status, result.failed_step) == ("FAILED", "s2.1")
     assert robot.calls == []                                                 # 서랍 열기·촬영·홈 모두 없음
+# ---- #242 놓을 자리 먼저 판단한 뒤 집기 (PC2 10/12 run 7d18c6: aside 두 곳 거부 → 판을 쥔 채 정지) ----
+
+def test_mock_check_only_judges_without_moving_and_free_avoids_target():
+    """mock 도 B #241 과 같게: check_only 는 장면을 바꾸지 않고(안 쥐었으면 object 로 판단) 예정 자리는 planned_pose,
+    slot "free" 는 다른 물체·목표 둘레를 피한 빈 자리, 빈 데가 없으면 움직이기 전 NO_FREE_SPACE."""
+    import copy
+    import math
+    scene = MockScene("plate_over_eraser")
+    scan = scene.inspect("drawer_top", "eraser")
+    plate = next(c for c in scan["candidates"] if c["class"] == "cover_plate")
+    before = copy.deepcopy(scene.objects)
+    check = {"location": "drawer_top", "scan": scan, "object": plate, "check_only": True}
+    ok, code, out = scene.place({**check, "slot": "aside_1"})
+    assert (ok, code, out["check_only"], out["placed_pose"]) == (True, "", True, None)
+    assert out["planned_pose"]["position"][:2] == [0.045, 0.045]
+    ok, _, out = scene.place({**check, "slot": "free"})
+    assert ok and out["slot"] == "free" and math.dist(out["planned_pose"]["position"][:2], [0.12, 0.12]) >= 0.1
+    assert scene.objects == before and scene.held is None                    # 판단만 — 아무것도 안 움직임
+    for i in range(30):                                                      # 서랍을 꽉 채움
+        scene.objects[f"box{i}"] = {"xy": [0.03 + 0.04 * (i % 5), 0.03 + 0.04 * (i // 5)], "on": []}
+    assert scene.place({**check, "slot": "free"})[:2] == (False, "NO_FREE_SPACE")
+
+
+class AsidesTakenScene(MockScene):
+    """aside 두 곳에 다른 물체가 있음 — PC2 10/12 15:11 처럼 고정 자리 둘 다 거부되는 장면(실물 원인은 가려진 지우개
+    footprint 과대 추정, B #241 에서 고침). 서랍 안 다른 빈 자리는 있음."""
+
+    def __init__(self, name):
+        super().__init__(name)
+        self.objects["toy_car"] = {"xy": [0.045, 0.045], "yaw": 0.0, "top_z": 0.03, "height": 0.03, "area": 0.002, "on": []}
+        self.objects["masking_tape"] = {"xy": [0.045, 0.25], "yaw": 0.0, "top_z": 0.02, "height": 0.02, "area": 0.002,
+                                        "on": []}
+
+
+def test_both_asides_blocked_moves_obstacle_to_free_spot_then_restores():
+    """#242 수락 기준 1: 집기 전에 aside_1·aside_2 거부 → free 통과 → 그때 집어서 free 에 놓음 → 전달 → 원래 자리로."""
+    runner, robot, result = _run_with(AsidesTakenScene("plate_over_eraser"), "eraser")
+    assert result.overall_status == "COMPLETED", steps(result)
+    first_pick = next(i for i, (a, _) in enumerate(robot.calls) if a == "pick_object")
+    assert [p["slot"] for a, p in robot.calls[:first_pick] if a == "place_object"] == ["aside_1", "aside_2", "free"]
+    assert robot.picked() == ["cover_plate", "eraser", "cover_plate"]
+    assert robot.placed() == ["free", "handover_zone", "origin"]               # 판단한 자리에 바로 놓음
+    assert result.blackboard["left_aside"] == [] and robot.skills.scene.objects["cover_plate"]["xy"][1] == 0.13
+    record = runner.log_store.read_run(result.run_id)
+    assert "판단만(움직이지 않음) → 놓을 수 있음: free" in run_report.to_text(record)
+
+
+class NoRoomScene(MockScene):
+    """서랍 안 어디에도 놓을 데가 없음 — aside 두 곳 막힘, 빈 자리도 없음 (#242 수락 기준 2)."""
+
+    def place(self, params):
+        if params.get("location") == "handover_zone":
+            return super().place(params)
+        code = "NO_FREE_SPACE" if params.get("slot") == "free" else "PLACE_BLOCKED"
+        return False, code, {"slot": None, "placed_pose": None, "check_only": bool(params.get("check_only"))}
+
+
+def test_no_room_anywhere_does_not_pick_and_never_stops_holding():
+    """놓을 데가 전혀 없으면 집지 않고 끝 — 쥔 채 멈추지 않고 '꺼내지 못했어요' → 닫기 → 홈."""
+    _, robot, result = _run_with(NoRoomScene("plate_over_eraser"), "eraser")
+    assert robot.picked() == [] and robot.placed() == []
+    assert robot.checked() == ["aside_1", "aside_2", "free"]
+    assert result.blackboard["sel"]["reason"] == "no_room" and result.blackboard["holding"] is False
+    assert "지우개를 꺼내지 못했어요" in robot.spoken
+    assert any(a == "drawer_control" and p.get("state") == "close" for a, p in robot.calls)
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+    assert not any(s.get("fallback_stopped") for s in result.steps)             # 판단 거부는 움직이기 전 → 다음 대안
+
+
+def test_restore_origin_blocked_leaves_item_without_picking():
+    """#242 4번: 되돌리기 전에 원래 자리를 판단 — 막히면 집지 않고 꺼낸 자리에 그대로(left_aside + 안내)."""
+    _, robot, result = run("occluded_top", "toy_wrench")
+    judged = [(s["status"], s.get("error_code")) for s in result.steps if s["id"] == "fr.5.0a"]
+    assert judged == [("SUCCESS", None), ("FAILURE", "PLACE_BLOCKED")]       # 상자 통과, 차키 거부
+    restore_picks = [s["params"]["target"]["class"] for s in result.steps if s["id"] == "fr.5.1"]
+    assert restore_picks == ["caramel_box"]
+    assert robot.skills.scene.objects["car_key"]["xy"] == [0.048, 0.045]      # aside_1 에 놓은 그대로 (mock 오차 3 mm)
+    assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "aside_1"}]
+
+
+def test_restore_judged_unpickable_is_failure_not_left_aside():
+    """원래 자리 판단도 꺼낸 자리 판단도 거부(집기부터 거부) → 집지 않고 복구 실패 — '빈 자리에 뒀어요'(A안 통과)로
+    세지 않음. 예전 되돌리기 집기 거부와 같은 분류, 쥔 채 멈추지 않음."""
+    _, robot, result = _run_with(RestorePickRefusedScene("occluded_top"))
+    judged = [(s["params"].get("slot") or "origin", s.get("error_code")) for s in result.steps
+              if s["id"] in ("fr.5.0a", "fr.5.0b") and s["status"] == "FAILURE"]
+    assert judged == [("origin", "NEIGHBOR_TOO_CLOSE"), ("aside_2", "NEIGHBOR_TOO_CLOSE")]
+    assert [c["class"] for c in result.blackboard["left_aside"]] == []
+    assert [c["class"] for c in result.blackboard["restore_failed"]] == ["caramel_box"]

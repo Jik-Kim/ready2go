@@ -3,6 +3,7 @@
 로봇 없이 태스크의 정상·실패 경로를 시험하기 위한 것 (FR-PLN-01 "mock 환경에서 정상·실패 경로 확인").
 반환값 모양은 docs/runner.md 7.1 표, 인식 결과는 contracts/examples/inspect_region_result.json 을 따른다.
 실패 지정: "동작=코드" 는 매번, "동작=코드*N" 은 처음 N번만 실패 (예: "pick_object=GRASP_FAILED*1").
+  place_object check_only(놓기 판단만, B #241)는 실패 지정을 쓰지도 세지도 않음 — 지정은 실제 놓기에 (#242 전과 같은 뜻).
 끌기(nudge) 성공 뒤 다시 인식하면 끌린 자리가 보이고(실물처럼), 집기 성공하면 처음 자리로 돌아간다(다음 회차).
 scene 을 주면 여러 물체가 겹친 장면(core/mock_scene.py)으로 인식·집기·놓기·끌기를 답한다 (Unpacking 시험).
 """
@@ -62,7 +63,8 @@ class MockSkills:
         return rule[0]
 
     def respond(self, action: str, params: dict) -> MockReply:
-        code = self._fail(action)
+        judge_only = action == "place_object" and bool(params.get("check_only"))
+        code = None if judge_only else self._fail(action)
         if code:
             return MockReply(False, code)
         if self.scene is not None and action in ("pick_object", "place_object", "nudge_object"):

@@ -1,6 +1,6 @@
 {
   "task_id": "find_with_unpack",
-  "description": "P2 Unpacking (FR-ACT-04 — 기준은 docs/requirements.md 가림·추적·복구 정책): find_item 흐름(열기 → 탑뷰 → 찾기 → 공통 pick → 트레이 → 닫기 → 홈)에 치우기와 역순 복구를 넣은 것. 찾기 결과로 select_obstacle 이 치울 물체를 고르면(덮은 물체를 따라 맨 위부터, 옮긴 물체 제외) 집어서 서랍 안 고정 자리(aside_1, 막히면 aside_2, #166)에 놓고 원래 자리·명령한 자리를 restore_stack 에 push → 탑뷰에서 다시 찍고 다시 고름 (최대 2개, B 고정 자리 2곳). 목표가 다 보이면 공통 pick·place 로 전달. finally: 쥔 장애물이 없을 때만 restore_stack 을 거꾸로 — 탑뷰에서 다시 찍고 find_moved 로 같은 물체를 찾아(재식별 #109) 집어 원래 자리로, 막히면 방금 꺼낸 그 고정 자리(기록한 slot)에 다시 둠 — 빈손이면 남은 복구 계속, 그것도 막혀 쥔 채면 남은 복구 안 함·안내·서랍 닫기·홈 안 감(B·C 합의 #168, D 체크시트 S-17, AC-ACT-03 미달로 기록). 못 찾거나 모호하면 그 물체는 두고 안내. 복구 실패가 나도 닫기·홈 규칙은 find_item 과 같음(쥔 채면 홈 안 감). 복구를 다 못 하면 실행 결과는 블랙보드 task_error = RESTORE_INCOMPLETE 로 FAILED(정본 requirements 137 — 복구 실패면 전체 FAILED, 앞선 실패·중단이 있으면 그 원인 우선)이고, 정리 동작은 조건별(#240): 빈손·비중단(되돌리기 집기 거부·다시 못 찾음 등)이면 남은 물체도 계속 시도 → 닫기 → 홈 → 안내 / 쥔 채(holding)면 남은 복구·닫기·홈 안 함 + 쥔 채 정지 안내(사람 복구) / 놓침·센서 이상·집기 뒤 쥐었는지 모름(hand unknown)·비상정지·취소면 즉시 정지·잠금(ABORTED). 원래 자리 대신 빈 자리에 둔 물체는 10/12 2차 점검 판정 A안(빈 자리 + 안내 + 닫힘·빈손 = 그 점검의 제한적 통과)이라 실행 결과를 FAILED 로 만들지 않음(안내·보고서 줄만) — 정본 복구 지지면은 바닥 또는 아래 물체 윗면(requirements 3.3)이라 원위치 복구·AC-ACT-03 완료가 아님(#239 E 리뷰, 정식 예외는 E 가 정본에 반영한 뒤). 중단(비상정지·취소)이면 복구 반복은 하지 않고 restore_stack 을 남김(사람 확인). 장애물 집기·놓기는 원자 동작이라 온톨로지 상태를 바꾸지 않으므로(같은 서랍 안 이동) 쥔 상태는 블랙보드 holding 으로 따로 기록. reid_tol_m 0.02 는 mock 값 — 비전·놓기 오차 실측 뒤 [팀 확정 필요]. 얹힌 물체 집기는 B 설정 pick.allow_stacked(#191 — 너무 높으면 움직이기 전 NOT_ON_FLOOR), 놓기는 바닥에만(#166). 놓침·센서 이상(OBJECT_DROPPED·SENSOR_INVALID)은 Runner 가 즉시 정지·잠금(#78) — 복구 반복·닫기·홈 없음, 안내 fh 는 쥠 여부를 단정하지 않는 문장(원인별 안내는 E). 원래 자리 대신 빈 자리 안내(10/12 2차 점검 대비): 원래 자리가 막혀(목표가 아직 그 아래 있음 등 — 놓기는 바닥에만) 꺼냈던 빈 자리에 돌려놓은 물체는 left_aside 에 남기고, 복구가 끝나면 닫기 전에 물체마다 \"○○은 원래 자리 대신 옆 빈 자리에 뒀어요\" 안내(fa). 가림 모름 다시 찍기(A #214 권고): 고른 결과가 occlusion_unknown(분할 모델 null 등)이면 같은 자세에서 한 번만 다시 찍고 다시 고름(s6r·s7.9) — 두 번째도 모르면 지금처럼 목표를 집지 않음, 다시 찍기 실패는 넘어감(skip). 복구 오차 기록(AC-ACT-03): 원래 자리(origin)에 되돌려 놓는 데 성공한 물체만 restored 에 push → 복구가 끝나면 닫기 전에 탑뷰에서 한 번 더 찍고(fv) find_moved(record.placed = origin)로 같은 물체를 찾아 실행 기록에 원래 자리와 지금 자리(위치·yaw)를 남김 — 합격/불합격은 판단하지 않음(run_report 가 위치·방향 오차 표시). 꺼낸 고정 자리로 돌려놓은(fr.5.3b) 물체는 원위치 복구 아님 → restored 에 넣지 않음. restore_check_tol_m 은 같은 물체를 찾는 창일 뿐 합격 기준이 아님. trigger 없음: 음성 연결 전, RUNNER_TASK_FILE·시험으로 실행 계약07 수락 문장(#249 E 리뷰 P2): 음성 요청에 E 가 검증한 accept_text 가 있으면 s2 첫 안내를 그 문장 1회로(s2.1), 없으면 기존 문장(s2.2) — find_item 과 같음. s2 첫 안내 직전 s2a 가 announce_pending 을 켜고 성공하면 s2k 가 끄는데, 안내가 실패해 켜진 채면 finally 홈 이동도 보내지 않음(f3g) — 로봇 동작 0번. s1 조회 실패 등 안내 전 실패와 이미 움직인 뒤 실패의 정리는 그대로.",
+  "description": "P2 Unpacking (FR-ACT-04 — 기준은 docs/requirements.md 가림·추적·복구 정책): find_item 흐름(열기 → 탑뷰 → 찾기 → 공통 pick → 트레이 → 닫기 → 홈)에 치우기와 역순 복구를 넣은 것. 찾기 결과로 select_obstacle 이 치울 물체를 고르면(덮은 물체를 따라 맨 위부터, 옮긴 물체 제외) 집기 전에 놓을 자리를 place_object check_only 로 먼저 판단(s7.0 — 움직이지 않음, aside_1 → aside_2 → 서랍 안 빈 자리 free, B #241·#242. 셋 다 안 되면 집지 않고 sel 을 no_room 으로 바꿔 루프를 끝냄 → '꺼내지 못했어요', 쥔 채 멈추지 않음. 판단 거부 코드는 s7.0 실패(넘어감)로 기록 — B 는 집기 전 판단을 실제 집기 계획대로 해서 집기 거부 코드로도 거부) → 집어서(scan 같이 넘김 — 집기 전 이웃 확인) 판단한 자리(room.slot)에 놓고 — 그 사이 막히면 고정 자리 aside_1 → aside_2 → free 차례로(#166·#241, 거부는 움직이기 전) — 원래 자리·명령한 자리를 restore_stack 에 push → 탑뷰에서 다시 찍고 다시 고름 (최대 2개, B 고정 자리 2곳). 목표가 다 보이면 공통 pick·place 로 전달. finally: 쥔 장애물이 없을 때만 restore_stack 을 거꾸로 — 탑뷰에서 다시 찍고 find_moved 로 같은 물체를 찾아(재식별 #109) 집기 전에 원래 자리를 check_only 로 먼저 보고(fr.5.0a, #242) 놓을 수 있으면 집어(scan 같이 넘김 — 집기 전 이웃 확인, #242 B 댓글) 원래 자리로 — 원래 자리가 안 되면 꺼낸 자리(기록한 slot)를 판단(fr.5.0b: 집을 수 있고 거기 둘 수 있음)해 되면 집지 않고 그대로 둠(left_aside, 집었다 같은 자리에 다시 놓는 헛동작 없음 — 분류는 예전 '집어서 꺼낸 자리에 다시 둠'과 같음), 둘 다 안 되면(집기부터 거부 등) 집지 않고 복구 실패(restore_failed — 예전 되돌리기 집기 거부와 같음, 쥔 채 멈추지 않음). 판단은 통과했는데 실제 놓기가 막히면 방금 꺼낸 그 고정 자리(기록한 slot, free 면 서버가 빈 자리를 다시 찾음)에 다시 둠 — 빈손이면 남은 복구 계속, 그것도 막혀 쥔 채면 남은 복구 안 함·안내·서랍 닫기·홈 안 감(B·C 합의 #168, D 체크시트 S-17, AC-ACT-03 미달로 기록). 못 찾거나 모호하면 그 물체는 두고 안내. 복구 실패가 나도 닫기·홈 규칙은 find_item 과 같음(쥔 채면 홈 안 감). 복구를 다 못 하면 실행 결과는 블랙보드 task_error = RESTORE_INCOMPLETE 로 FAILED(정본 requirements 137 — 복구 실패면 전체 FAILED, 앞선 실패·중단이 있으면 그 원인 우선)이고, 정리 동작은 조건별(#240): 빈손·비중단(되돌리기 집기 거부·다시 못 찾음 등)이면 남은 물체도 계속 시도 → 닫기 → 홈 → 안내 / 쥔 채(holding)면 남은 복구·닫기·홈 안 함 + 쥔 채 정지 안내(사람 복구) / 놓침·센서 이상·집기 뒤 쥐었는지 모름(hand unknown)·비상정지·취소면 즉시 정지·잠금(ABORTED). 원래 자리 대신 빈 자리에 둔 물체는 10/12 2차 점검 판정 A안(빈 자리 + 안내 + 닫힘·빈손 = 그 점검의 제한적 통과)이라 실행 결과를 FAILED 로 만들지 않음(안내·보고서 줄만) — 정본 복구 지지면은 바닥 또는 아래 물체 윗면(requirements 3.3)이라 원위치 복구·AC-ACT-03 완료가 아님(#239 E 리뷰, 정식 예외는 E 가 정본에 반영한 뒤). 중단(비상정지·취소)이면 복구 반복은 하지 않고 restore_stack 을 남김(사람 확인). 장애물 집기·놓기는 원자 동작이라 온톨로지 상태를 바꾸지 않으므로(같은 서랍 안 이동) 쥔 상태는 블랙보드 holding 으로 따로 기록. reid_tol_m 0.02 는 mock 값 — 비전·놓기 오차 실측 뒤 [팀 확정 필요]. 얹힌 물체 집기는 B 설정 pick.allow_stacked(#191 — 너무 높으면 움직이기 전 NOT_ON_FLOOR), 놓기는 바닥에만(#166 — 복구 때 pose 로 놓기는 B #243(10/12)부터 아래 물체 윗면도 됨 — 놓을 물체 가운데가 그 물체 위일 때만, 찾는 목표 위는 안 됨, 실물 미확인). 놓침·센서 이상(OBJECT_DROPPED·SENSOR_INVALID)은 Runner 가 즉시 정지·잠금(#78) — 복구 반복·닫기·홈 없음, 안내 fh 는 쥠 여부를 단정하지 않는 문장(원인별 안내는 E). 원래 자리 대신 빈 자리 안내(10/12 2차 점검 대비): 원래 자리가 막혀(목표가 아직 그 아래 있음 등 — 목표 위로는 놓지 않음, 그 밖에는 바닥에만(#243 전)) 꺼냈던 빈 자리에 돌려놓은(또는 판단만 하고 집지 않아 그 자리에 그대로 둔, fr.5.l) 물체는 left_aside 에 남기고, 복구가 끝나면 닫기 전에 물체마다 \"○○은 원래 자리 대신 옆 빈 자리에 뒀어요\" 안내(fa). 가림 모름 다시 찍기(A #214 권고): 고른 결과가 occlusion_unknown(분할 모델 null 등)이면 같은 자세에서 한 번만 다시 찍고 다시 고름(s6r·s7.9) — 두 번째도 모르면 지금처럼 목표를 집지 않음, 다시 찍기 실패는 넘어감(skip). 복구 오차 기록(AC-ACT-03): 원래 자리(origin)에 되돌려 놓는 데 성공한 물체만 restored 에 push → 복구가 끝나면 닫기 전에 탑뷰에서 한 번 더 찍고(fv) find_moved(record.placed = origin)로 같은 물체를 찾아 실행 기록에 원래 자리와 지금 자리(위치·yaw)를 남김 — 합격/불합격은 판단하지 않음(run_report 가 위치·방향 오차 표시). 꺼낸 고정 자리로 돌려놓은(fr.5.3b)·그대로 둔(fr.5.l) 물체는 원위치 복구 아님 → restored 에 넣지 않음. restore_check_tol_m 은 같은 물체를 찾는 창일 뿐 합격 기준이 아님. trigger 없음: 음성 연결 전, RUNNER_TASK_FILE·시험으로 실행 계약07 수락 문장(#249 E 리뷰 P2): 음성 요청에 E 가 검증한 accept_text 가 있으면 s2 첫 안내를 그 문장 1회로(s2.1), 없으면 기존 문장(s2.2) — find_item 과 같음. s2 첫 안내 직전 s2a 가 announce_pending 을 켜고 성공하면 s2k 가 끄는데, 안내가 실패해 켜진 채면 finally 홈 이동도 보내지 않음(f3g) — 로봇 동작 0번. s1 조회 실패 등 안내 전 실패와 이미 움직인 뒤 실패의 정리는 그대로.",
   "inputs": {
     "target": "toy_wrench",
     "reid_tol_m": 0.02,
@@ -197,138 +197,251 @@
       },
       "body": [
         {
-          "id": "s7.1",
-          "action": "pick_object",
-          "params": {
-            "target": "$sel.obstacle"
-          },
-          "timeout_sec": 60
-        },
-        {
-          "id": "s7.2",
+          "id": "s7.0z",
           "action": "set_var",
           "params": {
-            "name": "holding",
-            "value": true
+            "name": "room",
+            "value": null
           }
         },
         {
-          "id": "s7.3",
+          "id": "s7.0",
           "action": "fallback",
           "options": [
             [
               {
-                "id": "s7.3a",
+                "id": "s7.0a",
                 "action": "place_object",
-                "output": "placed",
-                "timeout_sec": 60,
+                "output": "room",
+                "timeout_sec": 30,
                 "params": {
                   "location": "$loc.drawer_id",
                   "slot": "aside_1",
-                  "scan": "$scan"
+                  "scan": "$scan",
+                  "object": "$sel.obstacle",
+                  "check_only": true
                 }
               }
             ],
             [
               {
-                "id": "s7.3b",
+                "id": "s7.0b",
                 "action": "place_object",
-                "output": "placed",
-                "timeout_sec": 60,
+                "output": "room",
+                "timeout_sec": 30,
                 "params": {
                   "location": "$loc.drawer_id",
                   "slot": "aside_2",
-                  "scan": "$scan"
+                  "scan": "$scan",
+                  "object": "$sel.obstacle",
+                  "check_only": true
+                }
+              }
+            ],
+            [
+              {
+                "id": "s7.0c",
+                "action": "place_object",
+                "output": "room",
+                "timeout_sec": 30,
+                "params": {
+                  "location": "$loc.drawer_id",
+                  "slot": "free",
+                  "scan": "$scan",
+                  "object": "$sel.obstacle",
+                  "check_only": true
                 }
               }
             ]
-          ]
+          ],
+          "on_failure": "skip"
         },
         {
-          "id": "s7.4",
-          "action": "set_var",
-          "params": {
-            "name": "holding",
-            "value": false
-          }
-        },
-        {
-          "id": "s7.5",
-          "action": "push",
-          "params": {
-            "stack": "restore_stack",
-            "value": {
-              "class": "$sel.obstacle.class",
-              "origin": "$sel.obstacle.pose",
-              "placed": "$placed.placed_pose",
-              "slot": "$placed.slot"
-            }
-          }
-        },
-        {
-          "id": "s7.6",
-          "action": "move_to_named_pose",
-          "params": {
-            "pose_name": "drawer_top_view",
-            "drawer_id": "$loc.drawer_id"
-          },
-          "timeout_sec": 60
-        },
-        {
-          "id": "s7.7",
-          "action": "inspect_region",
-          "params": {
-            "region": "$loc.drawer_id",
-            "search_target": "$inputs.target"
-          },
-          "output": "scan",
-          "on_failure": "retry",
-          "retry": 1,
-          "timeout_sec": 30
-        },
-        {
-          "id": "s7.8",
-          "action": "select_obstacle",
-          "params": {
-            "scan": "$scan",
-            "moved": "$restore_stack",
-            "tol_m": "$inputs.reid_tol_m"
-          },
-          "output": "sel"
-        },
-        {
-          "id": "s7.9",
+          "id": "s7.g",
           "action": "if",
-          "on_failure": "skip",
           "cond": {
-            "op": "==",
+            "op": "!=",
             "args": [
-              "$sel.reason",
-              "occlusion_unknown"
+              "$room",
+              null
             ]
           },
           "then": [
             {
-              "id": "s7.9.1",
+              "id": "s7.1",
+              "action": "pick_object",
+              "params": {
+                "target": "$sel.obstacle",
+                "scan": "$scan"
+              },
+              "timeout_sec": 60
+            },
+            {
+              "id": "s7.2",
+              "action": "set_var",
+              "params": {
+                "name": "holding",
+                "value": true
+              }
+            },
+            {
+              "id": "s7.3",
+              "action": "fallback",
+              "options": [
+                [
+                  {
+                    "id": "s7.3r",
+                    "action": "place_object",
+                    "output": "placed",
+                    "timeout_sec": 60,
+                    "params": {
+                      "location": "$loc.drawer_id",
+                      "slot": "$room.slot",
+                      "scan": "$scan"
+                    }
+                  }
+                ],
+                [
+                  {
+                    "id": "s7.3a",
+                    "action": "place_object",
+                    "output": "placed",
+                    "timeout_sec": 60,
+                    "params": {
+                      "location": "$loc.drawer_id",
+                      "slot": "aside_1",
+                      "scan": "$scan"
+                    }
+                  }
+                ],
+                [
+                  {
+                    "id": "s7.3b",
+                    "action": "place_object",
+                    "output": "placed",
+                    "timeout_sec": 60,
+                    "params": {
+                      "location": "$loc.drawer_id",
+                      "slot": "aside_2",
+                      "scan": "$scan"
+                    }
+                  }
+                ],
+                [
+                  {
+                    "id": "s7.3c",
+                    "action": "place_object",
+                    "output": "placed",
+                    "timeout_sec": 60,
+                    "params": {
+                      "location": "$loc.drawer_id",
+                      "slot": "free",
+                      "scan": "$scan"
+                    }
+                  }
+                ]
+              ]
+            },
+            {
+              "id": "s7.4",
+              "action": "set_var",
+              "params": {
+                "name": "holding",
+                "value": false
+              }
+            },
+            {
+              "id": "s7.5",
+              "action": "push",
+              "params": {
+                "stack": "restore_stack",
+                "value": {
+                  "class": "$sel.obstacle.class",
+                  "origin": "$sel.obstacle.pose",
+                  "placed": "$placed.placed_pose",
+                  "slot": "$placed.slot"
+                }
+              }
+            },
+            {
+              "id": "s7.6",
+              "action": "move_to_named_pose",
+              "params": {
+                "pose_name": "drawer_top_view",
+                "drawer_id": "$loc.drawer_id"
+              },
+              "timeout_sec": 60
+            },
+            {
+              "id": "s7.7",
               "action": "inspect_region",
               "params": {
                 "region": "$loc.drawer_id",
                 "search_target": "$inputs.target"
               },
               "output": "scan",
-              "on_failure": "skip",
+              "on_failure": "retry",
+              "retry": 1,
               "timeout_sec": 30
             },
             {
-              "id": "s7.9.2",
+              "id": "s7.8",
               "action": "select_obstacle",
               "params": {
                 "scan": "$scan",
                 "moved": "$restore_stack",
                 "tol_m": "$inputs.reid_tol_m"
               },
-              "output": "sel",
-              "on_failure": "skip"
+              "output": "sel"
+            },
+            {
+              "id": "s7.9",
+              "action": "if",
+              "on_failure": "skip",
+              "cond": {
+                "op": "==",
+                "args": [
+                  "$sel.reason",
+                  "occlusion_unknown"
+                ]
+              },
+              "then": [
+                {
+                  "id": "s7.9.1",
+                  "action": "inspect_region",
+                  "params": {
+                    "region": "$loc.drawer_id",
+                    "search_target": "$inputs.target"
+                  },
+                  "output": "scan",
+                  "on_failure": "skip",
+                  "timeout_sec": 30
+                },
+                {
+                  "id": "s7.9.2",
+                  "action": "select_obstacle",
+                  "params": {
+                    "scan": "$scan",
+                    "moved": "$restore_stack",
+                    "tol_m": "$inputs.reid_tol_m"
+                  },
+                  "output": "sel",
+                  "on_failure": "skip"
+                }
+              ]
+            }
+          ],
+          "else": [
+            {
+              "id": "s7.n",
+              "action": "set_var",
+              "params": {
+                "name": "sel",
+                "value": {
+                  "obstacle": null,
+                  "reason": "no_room"
+                }
+              }
             }
           ]
         }
@@ -508,93 +621,198 @@
               },
               "then": [
                 {
-                  "id": "fr.5.1",
-                  "action": "pick_object",
-                  "params": {
-                    "target": "$found.object"
-                  },
-                  "timeout_sec": 60
-                },
-                {
-                  "id": "fr.5.2",
+                  "id": "fr.5.0z",
                   "action": "set_var",
                   "params": {
-                    "name": "holding",
-                    "value": true
+                    "name": "restore_plan",
+                    "value": "none"
                   }
                 },
                 {
-                  "id": "fr.5.3",
+                  "id": "fr.5.0",
                   "action": "fallback",
+                  "on_failure": "skip",
                   "options": [
                     [
                       {
-                        "id": "fr.5.3a",
+                        "id": "fr.5.0a",
                         "action": "place_object",
-                        "timeout_sec": 60,
+                        "timeout_sec": 30,
                         "params": {
                           "location": "$loc.drawer_id",
                           "pose": "$item.origin",
-                          "scan": "$rescan"
+                          "scan": "$rescan",
+                          "object": "$found.object",
+                          "check_only": true
                         }
                       },
                       {
-                        "id": "fr.5.3r",
-                        "action": "push",
-                        "params": {
-                          "stack": "restored",
-                          "value": "$item"
-                        }
-                      },
-                      {
-                        "id": "fr.5.3k",
+                        "id": "fr.5.0k",
                         "action": "set_var",
                         "params": {
-                          "name": "restore_ok",
-                          "value": true
+                          "name": "restore_plan",
+                          "value": "origin"
                         }
                       }
                     ],
                     [
                       {
-                        "id": "fr.5.3b",
+                        "id": "fr.5.0b",
                         "action": "place_object",
-                        "timeout_sec": 60,
+                        "timeout_sec": 30,
                         "params": {
                           "location": "$loc.drawer_id",
                           "slot": "$item.slot",
-                          "scan": "$rescan"
+                          "scan": "$rescan",
+                          "object": "$found.object",
+                          "check_only": true
                         }
                       },
                       {
-                        "id": "fr.5.3l",
-                        "action": "push",
-                        "params": {
-                          "stack": "left_aside",
-                          "value": {
-                            "class": "$item.class",
-                            "slot": "$item.slot"
-                          }
-                        }
-                      },
-                      {
-                        "id": "fr.5.3m",
+                        "id": "fr.5.0l",
                         "action": "set_var",
                         "params": {
-                          "name": "restore_ok",
-                          "value": true
+                          "name": "restore_plan",
+                          "value": "aside"
                         }
                       }
                     ]
                   ]
                 },
                 {
-                  "id": "fr.5.4",
-                  "action": "set_var",
-                  "params": {
-                    "name": "holding",
-                    "value": false
-                  }
+                  "id": "fr.5.c",
+                  "action": "if",
+                  "cond": {
+                    "op": "==",
+                    "args": [
+                      "$restore_plan",
+                      "origin"
+                    ]
+                  },
+                  "then": [
+                    {
+                      "id": "fr.5.1",
+                      "action": "pick_object",
+                      "params": {
+                        "target": "$found.object",
+                        "scan": "$rescan"
+                      },
+                      "timeout_sec": 60
+                    },
+                    {
+                      "id": "fr.5.2",
+                      "action": "set_var",
+                      "params": {
+                        "name": "holding",
+                        "value": true
+                      }
+                    },
+                    {
+                      "id": "fr.5.3",
+                      "action": "fallback",
+                      "options": [
+                        [
+                          {
+                            "id": "fr.5.3a",
+                            "action": "place_object",
+                            "timeout_sec": 60,
+                            "params": {
+                              "location": "$loc.drawer_id",
+                              "pose": "$item.origin",
+                              "scan": "$rescan"
+                            }
+                          },
+                          {
+                            "id": "fr.5.3r",
+                            "action": "push",
+                            "params": {
+                              "stack": "restored",
+                              "value": "$item"
+                            }
+                          },
+                          {
+                            "id": "fr.5.3k",
+                            "action": "set_var",
+                            "params": {
+                              "name": "restore_ok",
+                              "value": true
+                            }
+                          }
+                        ],
+                        [
+                          {
+                            "id": "fr.5.3b",
+                            "action": "place_object",
+                            "timeout_sec": 60,
+                            "params": {
+                              "location": "$loc.drawer_id",
+                              "slot": "$item.slot",
+                              "scan": "$rescan"
+                            }
+                          },
+                          {
+                            "id": "fr.5.3l",
+                            "action": "push",
+                            "params": {
+                              "stack": "left_aside",
+                              "value": {
+                                "class": "$item.class",
+                                "slot": "$item.slot"
+                              }
+                            }
+                          },
+                          {
+                            "id": "fr.5.3m",
+                            "action": "set_var",
+                            "params": {
+                              "name": "restore_ok",
+                              "value": true
+                            }
+                          }
+                        ]
+                      ]
+                    },
+                    {
+                      "id": "fr.5.4",
+                      "action": "set_var",
+                      "params": {
+                        "name": "holding",
+                        "value": false
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "fr.5.d",
+                  "action": "if",
+                  "cond": {
+                    "op": "==",
+                    "args": [
+                      "$restore_plan",
+                      "aside"
+                    ]
+                  },
+                  "then": [
+                    {
+                      "id": "fr.5.l",
+                      "action": "push",
+                      "params": {
+                        "stack": "left_aside",
+                        "value": {
+                          "class": "$item.class",
+                          "slot": "$item.slot"
+                        }
+                      }
+                    },
+                    {
+                      "id": "fr.5.m",
+                      "action": "set_var",
+                      "params": {
+                        "name": "restore_ok",
+                        "value": true
+                      }
+                    }
+                  ]
                 }
               ]
             }
