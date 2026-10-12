@@ -10,6 +10,7 @@ import select
 import time
 import uuid
 from urllib.parse import urlsplit
+import sys
 
 import yaml
 
