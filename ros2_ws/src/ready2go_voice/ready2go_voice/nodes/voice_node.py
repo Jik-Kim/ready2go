@@ -627,9 +627,15 @@ class VoiceNode(Node):
             if meta.get('execution_hold_reason'):
                 messages[event] += ' / 실행 보류: ' + meta['execution_hold_reason']
         if event == 'intent':
-            messages[event] = ('실행 보류 (평가/확인 정책)' if not doc.get('published') else
-                '실행 요청 발행 · Runner 수락 미확인' if doc.get('intent', {}).get('intent') in ('find_item','achieve_goal') else
-                '안내/제어 메시지 발행 · 실행 요청 수락 아님')
+            if not doc.get('published'):
+                messages[event] = '실행 보류 (평가/확인 정책)'
+            elif doc.get('intent', {}).get('intent') in ('find_item','achieve_goal'):
+                pending = getattr(getattr(self, 'request_run', None), 'pending', None)
+                request = doc.get('intent', {}).get('request_id') or doc.get('intent', {}).get('_voice', {}).get('request_id')
+                accepted = pending is not None and pending.get('request_id') == request and self.request_run.run_id is not None
+                messages[event] = '실행 요청 발행 · 현재 요청 수락 확인' if accepted else '실행 요청 발행 · Runner 수락 미확인'
+            else:
+                messages[event] = '안내/제어 메시지 발행 · 실행 요청 수락 아님'
         if event == 'final_response':
             messages[event] = doc['text']
         if event == 'request_held':
@@ -772,6 +778,7 @@ class VoiceNode(Node):
                 continue
             with self.submit_lock:
                 generation = self.generation
+            self._diagnostic({'event':'stop_capture_started'})
             spoken = set()
             def interrupted():
                 return (self.stop_event.is_set() or generation != self.generation
@@ -790,7 +797,9 @@ class VoiceNode(Node):
                 if doc is not None:
                     with self.submit_lock:
                         self._stop_locked(doc, generation)
-            except TimeoutError:
+            except TimeoutError as exc:
+                code = str(exc)
+                self._diagnostic({'event':'stop_capture_held','reason':code if code in ('NO_SPEECH','RECORD_LIMIT') else type(exc).__name__})
                 continue  # 기존 음성 시작/최대 길이 경계. 무음은 API를 호출하지 않습니다.
             except InterruptedError:
                 if self.shared_input._closed:
@@ -944,6 +953,12 @@ class VoiceNode(Node):
             self.session.conversation.invalidate()
             self._diagnostic({'event':'request_held','reason':'runner_busy_or_locked','intent':doc,'published':False})
             return  # P2 목표 차단 계약은 불변입니다.
+        if doc.get('_voice', {}).get('safety_control'):
+            from ready2go_voice.core.hotfix import prompts
+            policy = getattr(getattr(self,'safety_exchange',None),'policy',None)
+            if policy is not None and policy.work is not None:
+                doc['_voice']['final_text'] = prompts(self.cfg)['control_held']
+                self._diagnostic({'event':'safety_control_held','reason':'fresh_typed_voice_path_required'})
         source = doc['source']
         text = doc.get('_voice', {}).get('final_text') or final_response(self.parser, doc)
         self._diagnostic({'event': 'final_response', 'text': text, 'intent': doc})

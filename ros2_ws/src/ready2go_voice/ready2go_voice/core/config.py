@@ -143,4 +143,6 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
     if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
         raise ValueError('pick_verify_lower_bound_m: finite positive number required')
     cfg['voice_flow'] = flow_settings(cfg)
+    from .hotfix import prompts
+    cfg['voice_hotfix'] = prompts(cfg)
     return cfg

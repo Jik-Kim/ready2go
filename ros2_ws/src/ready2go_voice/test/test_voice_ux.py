@@ -130,7 +130,7 @@ def test_unsupported_availability_and_raw_reasons(ontology, schema, cfg):
     doc = p.parse('립밤 되나?')
     assert doc['_voice']['availability'] and not doc['source']['llm_called']
     assert not doc['source']['execution_allowed'] and not doc['targets']
-    assert '등록된' in doc['_voice']['final_text'] and '확인하지 못' in doc['_voice']['final_text']
+    assert '등록 지원 대상' in doc['_voice']['final_text'] and '실제 재고와 파지는 확인하지 못' in doc['_voice']['final_text']
 
 
 @pytest.mark.parametrize('text,reason,expected', [

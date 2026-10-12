@@ -36,7 +36,7 @@
 
 사용자 확정 웨이크 기준은0.7이며 기존 점수>기준 비교입니다. 고정5초 녹음 완료 후 로컬 Silero의30ms 구간 VAD+RMS를 검사하고, 무발화/VAD불가·오류/취소는 STT·LLM 및 intent발행을 생략합니다. VAD0.5·연속0.15초는 소음/짧은 발화로 튜닝할 제안값이며 실제효과는 미검증입니다. 정상 발화는5초 전체를 STT에 보내고 발화종료를 새로 추정하지 않습니다. [문서]
 
-[문서: #194 구현] `clarify_prompts`는 기본/실패 안내이며, [승인된 음성 정책](requirements.md#voice-policy)에 따라 현재 대상·행동·판정과 의미 일치하는 내부 LLM `response_text`를 검증해 최종 문장으로 유지합니다. 공개 `clarify_question`은 질문에만 사용하며 내부 `_voice.final_text`와 실제 `tts.speak(text)`·최종 콘솔 안내는 동일 문자열입니다. 원본/대체 사유는 E 상세 파일에 보존합니다. 현재 질문의 후보·세대/epoch·유효성을 `Conversation`이 관리하고 실제 질문 TTS 완료 후 명확한 답/대상 정정을 한 번 결합합니다. 캐시 WAV를 읽거나 재시작해도 질문 권한이 복원되지 않습니다. 이 구현은 실음성/AC·C 수락 시험 결과가 아닙니다.
+[문서: #194 구현] `clarify_prompts`는 기본/실패 안내이며, [승인된 음성 정책](requirements.md#voice-policy)에 따라 현재 대상·행동·판정과 의미 일치하는 내부 LLM `response_text`를 검증해 최종 문장으로 유지합니다. 공개 `clarify_question`은 질문에만 사용하며 내부 `_voice.final_text`와 실제 `tts.speak(text)`·최종 콘솔 안내는 동일 문자열입니다. 원본/대체 사유는 E 상세 파일에 보존합니다. 현재 질문의 후보·세대/epoch·유효성을 `Conversation`이 관리하고 쉼표/복합 답의 판단 뒤 한 번 소비하며 실제 질문 TTS 완료 후 명확한 답/대상 정정을 한 번 결합합니다. 캐시 WAV를 읽거나 재시작해도 질문 권한이 복원되지 않습니다. 이 구현은 실음성/AC·C 수락 시험 결과가 아닙니다.
 
 원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 일반 노드는 동일 SharedInput reader의 prepared 캡처 경계에서16kHz/int16/mono 고정 녹음을 시작합니다. standalone Recorder의 공유 입력 없는 sd.rec fallback과 구분합니다. commissioning은 실행·평가 모드 모두에서 기존 유한 API 상한을 사용하며 3초 AC 예산을 적용하지 않습니다. 평가 true는 모든 intent 발행을 차단하고 false는 기존 확인 TTS·무발화·취소·실패·중복 게이트를 통과한 요청을 발행합니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
 
@@ -229,3 +229,5 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 [문장 수명] 발행 전에는 Session의 현재 질문/세대/변조 검사를 유지합니다. 발행한 사본의 문장은 C가 해당 요청에 연결해 사용하며 E의 시험용 `consume_acceptance_text`를 C 수락 증거로 사용하지 않습니다. 캐시나 latched 상태로 소비 권한을 복원하지 않습니다. PR207–209의 초기 내부 준비는 main 이력으로 상속했습니다.
 
 [검증·미완료] E core 및 실제 노드 메서드 모의는 공개 payload, 실제 수락 상관, 중복/충돌/빠른 완료, 실패/취소, 명시 연결 무효화 뒤 과거 run 차단, 미결정/진행 run의 후속 요청 덮어쓰기 방지, 근거 누락 보류와 halt 경고, evaluation/P1 보존을 검사합니다. PCM 형태의 시험 반환은 제어 흐름 검사이며 실제 청취 증거가 아닙니다. C 운영 수신·first gate, 실음성·로봇·실물 AC와 relay 재기동은 미검증입니다. #43 개발 입력 발신·#150 선정 목표 요청·#152 typed 후보의 노드 호출을 후속 연속 개발에서 작성했으며, 그 새 경로의 시험과 실제 C 공개 규약 매핑은 미완료입니다.
+
+[현재 구현: E-VOICE-DIALOGUE-HOTFIX-20261012-02] 가능 질문은 [기존 음성 정책](requirements.md#voice-policy)에 따라 실행하지 않고 등록 지원/실재고·파지 미확인과 대상 확인을 안내합니다. 위치/열림은 기존 load/get의 초기 state를 읽기만 하고 실제 현재 상태라고 주장하지 않습니다. 현재상태 공급자와 C 정지/복구/재개/종료 매핑은 미연결입니다. 더미의 현재 run 보존·typed 증빙은 모의 가정이며 실제 B/C 증거가 아닙니다. 독립 stop은 기존 cancel_phrases와 정확 정지 표현을 공유합니다. 사용자 재실행/옵션/미검증은 [패키지 핫픽스 안내](../ros2_ws/src/ready2go_voice/README.md#대화-핫픽스--오후-통합-전-사용자-확인)를 참조하십시오.

@@ -39,8 +39,8 @@ def final_response(parser, doc, candidate=None):
     key = doc.get('targets', [None])[0] if doc.get('targets') else meta.get('question_target')
     name = parser.items[key]['name_ko'] if key in parser.items else None
     if meta.get('availability'):
-        default = (f'{name} 물품은 등록된 물품이에요. '
-                   '지금 가져올 수 있는지는 아직 확인하지 못했어요.') if name else UNSUPPORTED_ITEM
+        from .hotfix import prompts
+        default = prompts(parser.cfg)['availability'].format(item=name) if name else UNSUPPORTED_ITEM
     elif kind == 'cancel':
         default = '취소 요청으로 이해했어요.'
     elif kind == 'status':

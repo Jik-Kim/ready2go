@@ -158,12 +158,19 @@ class LiveDummyBridge:
         payload = json.loads(message.data)
         kind = payload.get('intent')
         if kind == 'cancel':
-            self.run = None
+            from ready2go_voice.core.recovery_confirmation import StoppedWork, Evidence
+            run = self.run
             self.first_action = None
             self.log('cancel_received_not_physical_stop')
-            self.voice._runner_status(self.String(data=json.dumps(dict(
-                phase='idle', task_id=None, halt_code=None, last=None, last_intent=None))))
-            self.log('dummy_idle_after_cancel_not_physical_stop_evidence')
+            if run is not None and self.accepted_payload is not None:
+                revision = self.revision + 1
+                self.stopped_fixture(StoppedWork('dummy', uuid.uuid4().hex, run, 'dummy_step'),
+                    revision, Evidence(True, False, False, False, True))
+                self.voice._runner_status(self.String(data=json.dumps(dict(
+                    phase='halted', task_id='dummy', halt_code='CANCELED', last=None, last_intent=None))))
+                self.log('dummy_stopped_run_preserved_not_bc_evidence', run_id=run)
+            else:
+                self.log('dummy_no_active_run_to_preserve')
         elif kind == 'confirm':
             self.log('tray_answer', answer=payload['answer'])
             if payload['answer'] == 'asked':
@@ -220,6 +227,8 @@ class LiveDummyBridge:
             self.status(self.accepted_payload, self.run, completed=True)
             self.log('dummy_completed_not_robot_result', run_id=self.run)
             self.first_action = None
+            self.run = None
+            self.accepted_payload = None
 
     def tray_question(self, *, items, destination, final_timeout_sec):
         """담당자가 지정한 fixture 기한/등록만 사용합니다. 새로운 TTL은 없습니다."""
@@ -258,7 +267,20 @@ class LiveDummyBridge:
             self.revision += 1
             self.voice.safety_independent_registered(target, self.work, self.revision,
                                                     valid_state=True, evidence=self.evidence)
-        # recover/candidate는 로그만 남기며 실제 해제·재개·물리 완료는 생성하지 않습니다.
+        elif kind == 'recover' and self.work is not None:
+            from ready2go_voice.core.recovery_confirmation import Evidence
+            self.evidence = Evidence(True, True, True, True, True)
+            self.revision += 1
+            self.stopped_fixture(self.work, self.revision, self.evidence)
+            self.log('dummy_recovered_fixture_not_bc_evidence', run_id=self.work.task)
+        elif kind == 'candidate':
+            from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
+            if isinstance(target, TaskEndCandidate):
+                self.run = self.work = self.accepted_payload = None
+                self.log('dummy_task_end_candidate_not_physical_result')
+            else:
+                self.log('dummy_resume_candidate_not_motion_permission')
+        # 복구/재개/종료는 명시 모의 증빙/후보뿐이며 실제 해제·모션을 실행하지 않습니다.
 
     def close(self):
         self.active = False

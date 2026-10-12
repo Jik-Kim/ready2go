@@ -5,6 +5,13 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-12
 
+## 대화 핫픽스 — E-VOICE-DIALOGUE-HOTFIX-20261012-02
+
+- [문서: 승인·범위] 지시 세션이 조율 turn `01a12e38-73c3-7ba3-829e-e91958e83e6a`/user `01a12e38-7404-7550-b846-2861f5fc94ec`의 “수정 진행해 오후에 통합해야 하니까 테스트 최소한으로 해서 시간 줄여”를 직접 확인했습니다. HEAD31daff93ad22ab6216ddc5710535a8cdee7312c6/tracked clean/models 미추적에서 기존 branch로 시작했고 전달된 `_122619` 조사 근거를 재사용했습니다. 새 로그 재조사/Vault·Notion/agent/worktree/branch/게시 작업은 하지 않습니다.
+- [구현] 현재 질문을 쉼표/복합 답 판정 동안 보존하고 같은 세대/기한에서 판단 후 한 번 소비합니다. 가능 질문은 실행0·지원/재고·파지 미확인/대상 확인, 초기 위치/열림은 loader의 state/get 읽기 전용 안내로 처리합니다. 원문·정상 빈 전사/기한·부정/미지원/다른 대상 차단을 유지합니다. 더미 cancel은 같은 run의 명시 모의 stopped work를 보존하고 기존 typed safety에 연결합니다. 대상 없음은 일반 LLM으로 보내지 않고 안내합니다. 독립stop4표현·최소 진단, 동일request 수락 로그, 사용자복사본cue/WAV on을 반영했습니다. 값/핵심 문구는 params YAML 원본입니다.
+- [실측: 최소 검증] 대표묶음18 passed(1.03초), 현재run 모의 보존 회귀는 최종 검사에 포함했습니다. core 전체1회는2628 passed/24 skipped/1 failed(122.44초)로 기존 등록 안내의 부분문자열 기대 차이를 확인했습니다. 제품을 바꾸거나 의미검사를 약화하지 않고 새 등록지원·실재고/파지 미확인 문구를 정확히 검사하도록 기대를 보완했고 실패부분만1 passed(0.23초)/종료0입니다. 전체core 반복은 하지 않았습니다. Voice build 종료0(2.60초), test1362 passed(81.38초), test-result1362 tests/0 errors/0 failures/0 skipped/종료0입니다. 숫자는 겹치므로 합산하지 않습니다. 원본 출력 `/tmp/e-voice-dialogue-hotfix-20261012-representative.log`, `-core-final.log`, `-core-failed-part.log`, `-colcon-build.log`, `-colcon-test.log`, `-colcon-result.log`를 보존했습니다. 문법/설정·문서/diff 정합성 통과, 실제 STT/정지/복구/재개/실통합 검증은 아닙니다.
+- [미확인·C 인계] 실제 현재 위치/열림 공급자, C 정지/복구/재개/종료 매핑·B/C 안전 증거는 미연결입니다. 더미 증빙/후보가 실제 정지·잠금 해제·모션 성공은 아닙니다. 연속 무음 부재/RECORD_LIMIT·실STT 미검출 원인은 추정/미확인으로 유지하며 임계값·보호한도·모델·예산을 바꾸지 않았습니다. 실API/마이크/스피커·사용자프로세스·키/결제/모델자산·타 담당/공동wire는 변경하지 않습니다.
+
 ## 통합 음성 흐름 — E-VOICE-FLOW-20261012-01
 
 - [문서: 승인·범위] 지시 세션이 조율 계획 turn `01a12dc9-c09d-7952-bc3c-777d597129dd`와 최종 사용자 “수정해” turn `01a12dda-59de-7373-91da-a9d0a8a07171`/user `01a12dda-5a25-7fb0-9859-016b20da74db`를 직접 확인해 전체 계획을 전달했습니다. 기존 branch/HEAD `c99fee5df34845a3c233575280fb97604ec8fee4`, tracked clean/models 미추적에서 시작했습니다. [voice-policy](../../docs/requirements.md#voice-policy)를 먼저 갱신했고 FR-INT-01–03/AC-INT-01–03의 기존 P1 경로를 P2 시험에 재사용합니다. #43/#152·공개 wire·타 담당 코드는 변경하지 않았습니다.

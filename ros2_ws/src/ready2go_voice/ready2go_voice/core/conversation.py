@@ -45,7 +45,6 @@ class Conversation:
                 r'(?:아니|아니요)?[,，]?' + re.escape(alias) + r'(?:이야|야|말이야|로해줘|으로해줘|줘)?', value)
                 for alias, matches in parser.aliases.items() if matches == keys))
             if q and (reply or correction):
-                self.pending = None
                 target = next(iter(parser.mentioned(text))) if correction and len(parser.mentioned(text)) == 1 else q.target
                 if target is not None:
                     return parser.items[target]['name_ko'] + ' 가져다줘', q.id, target
@@ -54,6 +53,14 @@ class Conversation:
             self.pending = None
             self.epoch += 1
             return text, None, None
+
+    def consume(self, question, generation):
+        with self.lock:
+            if (self.pending is not question or question is None or question.generation != generation
+                    or self.clock() >= question.expires or self.epoch != question.epoch):
+                return False
+            self.pending = None
+            return True
 
     def delivered(self, doc, generation, success, blocked=False):
         """실제 질문 TTS 완료 뒤에만 새 권한을 생성합니다. WAV 캐시로 복원하지 않습니다."""

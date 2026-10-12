@@ -59,6 +59,11 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     flow = cfg.get('voice_flow') or flow_settings(cfg)
     texts.extend(flow['status_prompts'].values())
     texts.append(flow['empty_reply_prompt'])
+    from .hotfix import prompts
+    extra = prompts(cfg)
+    texts.extend(extra[k] for k in ('no_work','no_end_work','control_held','unknown_state'))
+    for item in items:
+        texts.append(extra['availability'].format(item=item['name_ko']))
     texts.extend((UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST))
     for item in items:
         name = item['name_ko']

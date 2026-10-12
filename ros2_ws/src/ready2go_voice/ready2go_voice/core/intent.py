@@ -45,6 +45,8 @@ def intent(kind, targets=(), confidence=1.0, question=None):
 class IntentParser:
     def __init__(self, ontology, schema, cfg, llm=None, clock=time.monotonic):
         self.items = ontology['world']['items']
+        self.reference_state = ontology.get('state', {})
+        self.state_provider = None  # TODO(E/C): 읽기 전용 현재 상태 공급자 주입, 지금은 초기 프리셋뿐입니다.
         self.places = ontology['world']['places']
         self.validator = Draft7Validator(schema)
         self.cfg, self.llm, self.clock = cfg, llm, clock
@@ -98,7 +100,7 @@ class IntentParser:
     def contextual_reply(self, text):
         # 현재 질문에만 사용하는 전체 문형. 부정/인용/제3자/다중/미지원은 선제 보류합니다.
         from .flow import settings
-        if (self.control(text) or self.mentioned(text) or self._unsupported_context(text.replace('그걸로', '그거'))
+        if (self.control(text) or self.mentioned(text) or self._unsupported_context(normalize_control(text).replace('그걸로', '그거'))
                 or self._nonrequest_context(text) or re.search(r'["\'“”‘’]|라고|라며|말했|그사람|엄마|아빠', text)):
             return False
         flow = self.cfg.get('voice_flow') or settings(self.cfg)
@@ -333,6 +335,13 @@ class IntentParser:
         return result
 
     def parse(self, text, deadline=None, *, context=None):
+        from .hotfix import reference_query
+        answer = reference_query(self, text)
+        if answer is not None:
+            doc = intent('unknown')
+            doc['_voice'] = {'final_text': answer, 'readonly_query': True}
+            doc['source'] = {'stt_text':text, 'input_kind':'text', 'llm_called':False, 'llm_validation':'not_called', 'fallback_used':False, 'execution_allowed':False}
+            return doc
         if self.cfg.get('p2_goal_enabled') is True and not self.control(text) and self._goal_requested(text):
             return self._parse_goal(text, deadline)
         started = self.clock()
@@ -342,10 +351,10 @@ class IntentParser:
         candidate = None
         stages = {'interpretation_started_monotonic': started}
         keys = self.mentioned(text)
-        availability = bool(re.fullmatch(r'.+(?:되나|되나요|가능해|가능한가|가능해요|가능한가요|지원해|지원하나요)[?？.!]*', normalize_control(text)))
+        availability = bool(re.fullmatch(r'.+(?:되나|되나요|가능해|가능한가|가능해요|가능한가요|지원해|지원하나요|가져올수있어|가져올수있나요|가져올수있어요)[?？.!]*', normalize_control(text)))
         doc = self.control(text) or self.guard(text)
         if availability:
-            doc = intent('unknown')
+            doc = intent('clarify' if len(keys) == 1 else 'unknown')
             doc['_voice'] = {'availability': True, 'question_target': next(iter(keys)) if len(keys) == 1 else None,
                              'reason': 'availability_only' if len(keys) == 1 else 'unregistered_item'}
         if doc is None:

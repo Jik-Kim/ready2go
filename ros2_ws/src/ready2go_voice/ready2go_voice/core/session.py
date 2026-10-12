@@ -28,11 +28,31 @@ class VoiceSession:
 
     def text(self, text, generation=0, blocked=False, deadline=None, request_id=None, *, preserve_empty=False, runner_state=None):
         self._acceptance = None  # 새 요청은 이전 내부 문장의 소비 권한을 폐기합니다.
+        from .recovery_confirmation import safety_utterance, task_end_utterance
+        from .hotfix import prompts
+        control = safety_utterance(text)
+        ending = task_end_utterance(text)
+        if control in ('recover','resume','new_start') or ending:
+            self.conversation.invalidate()
+            doc = intent('unknown')
+            doc['_voice'] = {'safety_control': 'task_end' if ending else control, 'final_text': prompts(self.cfg)['no_end_work' if ending else 'no_work']}
+            doc['source'] = {'stt_text':text, 'input_kind':'text', 'llm_called':False, 'llm_validation':'not_called', 'fallback_used':False, 'execution_allowed':False}
+            return doc
         previous = self.conversation.pending
         effective, qid, target = self.conversation.resolve(text, self.parser, generation, blocked, preserve_empty=preserve_empty)
         epoch = self.conversation.epoch
         context = {'target': target, 'reply': text} if qid else None
         doc = self.parser.parse(effective, deadline, context=context)
+        if qid and doc['intent'] == 'find_item' and not self.conversation.consume(previous, generation):
+            doc.update(intent='clarify', targets=[], clarify_question=self.cfg['clarify_prompts']['missing_item'])
+            doc['source']['execution_allowed'] = False
+            doc['_voice'] = {'reason':'question_no_longer_current', 'final_text':doc['clarify_question']}
+            qid = None
+        elif qid and doc['intent'] != 'find_item':
+            if doc['intent'] == 'clarify' and not doc['source'].get('llm_error') and self.conversation.pending is previous:
+                doc.setdefault('_voice', {}).update(preserve_question_id=previous.id, original_question_expires=previous.expires)
+            else:
+                self.conversation.consume(previous, generation)
         # Public correlation fields come from E, never from an LLM candidate.
         doc.pop('request_id', None)
         doc.pop('accept_text', None)
@@ -251,7 +271,9 @@ class VoiceSession:
                     return self.stt.transcribe(path, timeout)
             text = self.stop_stt_calls.call(transcribe, timeout)
             # 기존 정확 문구 분류는 부정·인용·전언·모호 표현을 수용하지 않습니다.
-            if paused() or safety_utterance(text) != 'stop':
+            normalized_control = self.parser.control(text) if self.parser is not None else None
+            self.progress(event='stop_stt_result', text=text)
+            if paused() or not (safety_utterance(text) == 'stop' or normalized_control and normalized_control['intent'] == 'cancel'):
                 return None
             normalized = ''.join(text.split()).rstrip('.!?')
             if any(normalized in ''.join(reference.split()) for reference in spoken_texts):
