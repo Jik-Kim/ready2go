@@ -2353,6 +2353,8 @@ class SkillServer(Node):
         if not place.get("interior_m"):
             return None, plp.Refusal(PLACE_NOT_CONFIGURED, f"{loc} interior_m 측정 전")
         prm, scan = self.prm(), params["scan"]
+        # 빈 자리 찾기 전용: occluded_by 모름(null·누락)을 [] 로 — '쌓임 없음'으로 보면 모든 물체를 바닥 물체로 세어 충돌을 다 검사함
+        # (보수적). 가림 관계 판단(make_room·select_obstacle)에 이 목록을 다시 쓰지 말 것 — 거기선 모름을 바꾸지 않음 (runner.md 7.1) [A·PM #241]
         objs = [dict(o, occluded_by=list(o.get("occluded_by") or [])) for o in objs]
         tid = (scan.get("target") or {}).get("id") if scan.get("target_found") else None
         cfg = clp.Config(interior_m=place["interior_m"], frame=loc, size_of=self._size_cached(),
