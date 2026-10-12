@@ -22,14 +22,8 @@ NUDGE_DY = -0.0417                       # mock 끌기: y 로 옮기는 거리 (
 # E 공통 pick (#122): 탑뷰 → 촬영 → 끌기 → 탑뷰 → 다시 촬영 → 다시 본 좌표로 집기
 PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
              "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
-
-# C 원본 공통 pick 호출열 (d8823de, #118의 s3v 추가 전)
-PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
-             "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
-
-# C 원본 공통 pick 호출열 (d8823de, #118의 s3v 추가 전)
-PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
-             "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
+# 바로 앞에서 같은 탑뷰로 가서 찍었으면 pick 첫 탑뷰 이동은 보내지 않음 (이미 그 자세, #245)
+PICK_SENT_AT_VIEW = PICK_SENT[1:]
 
 
 class MockRobot:
@@ -160,7 +154,7 @@ def test_success_delivers_item_and_cleans_up():
                           "/skills/move_to_named_pose", "/skills/drawer_control",           # s3 open_drawer
                           "/skills/move_to_named_pose",                                      # s3v 탑뷰 (열기 끝은 홈)
                           INSPECT_SERVICE,                                                   # s4 관측
-                          *PICK_SENT,                                                        # s5.1 pick (E #122)
+                          *PICK_SENT_AT_VIEW,                                                # s5.1 pick (E #122)
                           "/skills/place_object",                                            # s5.2 place
                           SPEAK_ACTION,
                           "/skills/drawer_control", SPEAK_ACTION,                            # finally 닫기 → "서랍을 닫았어요" (#138)

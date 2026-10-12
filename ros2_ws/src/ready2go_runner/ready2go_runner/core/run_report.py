@@ -133,7 +133,7 @@ def _detail_text(step: dict) -> str:
         elif "state" in params:
             text = f"{result.get('path', params['state'])} = {result.get('value')}"
     elif action == "move_to_named_pose":
-        text = params.get("pose_name", "")
+        text = params.get("pose_name", "") + (" · 이미 그 자세라 보내지 않음" if step.get("same_pose") else "")   # #245
     elif action == "drawer_control" and result:
         if params.get("state") == "open":
             text = f"{_mm(result.get('drawer_displacement', 0))} 열림"

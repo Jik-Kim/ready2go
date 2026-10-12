@@ -81,6 +81,8 @@ def test_unpacks_two_delivers_and_restores_in_reverse():
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
     assert robot.placed() == ["aside_1", "aside_2", "handover_zone", "origin"]
     assert robot.checked() == ["aside_1", "aside_1", "aside_2", "origin", "origin", "aside_1"]
+    pick_view = [s for s in result.steps if s.get("parent") == "s8.t1" and s["action"] == "move_to_named_pose"]
+    assert [bool(s.get("same_pose")) for s in pick_view] == [True, True]       # 방금 s7.6~7 탑뷰, 넛지 안 밀음 (#245)
     scene = robot.skills.scene
     assert scene.delivered == ["toy_wrench"] and scene.held is None
     assert scene.objects["caramel_box"]["xy"][1] == 0.14                      # 상자는 원래 자리로
@@ -159,8 +161,9 @@ def test_every_drawer_place_sends_scan_with_held_object():
         elif action == "place_object" and p["location"] != "handover_zone":
             scan, who = p["scan"], p["object"]["id"] if p.get("check_only") else held
             assert who in {o["id"] for o in [scan.get("target")] + scan["candidates"] if o}, (who, p)
-    first = next(p for a, p in robot.calls if a == "pick_object")
-    assert first["target"]["id"] in {o["id"] for o in first["scan"]["candidates"]}   # s7.1 집기에 scan (#242 5)
+    obstacle_picks = [s["params"] for s in result.steps if s["id"] in ("s7.1", "fr.5.1")]   # 치우기·되돌리기 집기
+    assert len(obstacle_picks) == 3                                            # 집기 전 이웃 확인용 scan (#242 5·B 댓글)
+    assert all(p["target"]["id"] in {o["id"] for o in p["scan"]["candidates"]} for p in obstacle_picks)
 
 
 def test_mock_place_rejects_scan_without_held_object():
@@ -235,8 +238,9 @@ def test_restore_check_records_origin_and_now_only_for_items_back_at_origin():
     assert check["params"]["record"]["origin"]["position"][:2] == [0.12, 0.14]
     assert check["output"]["status"] == "found" and check["output"]["distance_m"] == 0.003
     actions = [(a, p.get("pose_name"), p.get("state")) for a, p in robot.calls]
-    view = max(i for i, c in enumerate(actions) if c[:2] == ("move_to_named_pose", "drawer_top_view"))
-    assert actions[view + 1][0] == "inspect_region" and actions[view + 2] == ("drawer_control", None, "close")
+    close = actions.index(("drawer_control", None, "close"))
+    assert actions[close - 1][0] == "inspect_region"                          # 확인 촬영(fv.2) 바로 뒤 닫기
+    assert next(s for s in result.steps if s["id"] == "fv.1").get("same_pose")   # 이미 탑뷰 (복구 판단만 — 안 움직임)
     record = runner.log_store.read_run(result.run_id)
     from ready2go_runner.core import run_report
     assert "복구 오차 (판정 아님): caramel_box 위치 오차 3.0 mm · 방향 오차 0.0°" in run_report.to_text(record)

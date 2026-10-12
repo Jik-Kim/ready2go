@@ -201,6 +201,9 @@ class Runner:
         self._in_finally = False
         self._iterations: list[int] = []        # 반복 블록 안이면 몇 번째 회차인지 (스텝 기록 iteration)
         self._motions = 0                       # 팔을 움직였을 수 있는 동작을 보낸 횟수 (fallback 이 대안마다 비교)
+        # 팔이 지금 있는 이름 자세 (마지막 성공한 move_to_named_pose 의 params, 그 뒤 팔을 움직였을 수 있으면 None).
+        # 같은 자세로 다시 가라면 보내지 않음 — B 는 경유점을 거쳐 다시 와서 "위아래 왕복"이 됨 (#245)
+        self._at_pose: dict | None = None
         self._halt_code: str | None = None      # 처음 멈춘 이유 (HALTED / ESTOP)
         self._halt_info: dict = {}              # 처음 멈춘 요청의 시각·출처·취소 요청한 동작 수 (halts[] 기록)
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
@@ -278,6 +281,7 @@ class Runner:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
         meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
         self._aborted, self._in_finally = False, False
+        self._at_pose = None                    # 실행 사이에는 사람이 팔을 옮겼을 수 있음
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
         ctx = _Run(task, blackboard, [], {"run_id": new_run_id(), "task_id": task.get("task_id", ""),
                                           "inputs": blackboard["inputs"], "started_at": utc_iso(), "extra": meta},
@@ -422,6 +426,7 @@ class Runner:
             raise ResumeRejected(reasons)
         ctx, self._suspended, self._offered_at = self._suspended, None, None
         ctx.halts[-1]["resumed_at"] = utc_iso()
+        self._at_pose = None                    # 멈춘 동안 사람이 팔을 옮겼을 수 있음
         self._run_id, self._records = ctx.doc["run_id"], ctx.records
         return self._continue(ctx, ctx.path)
 
@@ -585,6 +590,7 @@ class Runner:
         self._notify("start", record, params)
         try:
             self._motions += 1
+            self._at_pose = None
             try:
                 result = self.execute("move_to_named_pose", params, None)
             except Exception:
@@ -631,7 +637,11 @@ class Runner:
             self._stack(step, action, params, blackboard, record)
             return
 
+        if action == "move_to_named_pose" and params == self._at_pose:
+            record["same_pose"] = True          # 이미 그 자세이고 그 뒤 팔을 움직이지 않음 → 보내지 않고 성공 (#245)
+            return
         motion = _moves_arm(action, params)
+        at_pose, self._at_pose = self._at_pose, (None if motion else self._at_pose)
         try:
             result = self.execute(action, params, step.get("timeout_sec"))
         except Exception as e:                  # 통신 끊김 등 백엔드 예외도 스텝 실패로 처리해 finally 를 보장
@@ -657,6 +667,10 @@ class Runner:
                              no_retry="TIMEOUT" if result.error_code == "TIMEOUT" and motion else None,
                              no_motion=no_motion)
         self._check_timeout(step, attempt_started)        # 늦게 성공한 결과는 쓰지 않음
+        if action == "move_to_named_pose":
+            self._at_pose = dict(params)
+        elif action == "nudge_object" and _stayed(result.output):
+            self._at_pose = at_pose             # 밀지 않음 = 움직이지 않음 (runner.md 7.1 nudge_object)
         record["output"] = result.output
         if "output" in step:
             blackboard[step["output"]] = result.output
@@ -841,6 +855,11 @@ def _moves_arm(action: str, params) -> bool:
     if action in NON_MOTION_ACTIONS:
         return False
     return not (action == "place_object" and isinstance(params, dict) and params.get("check_only") is True)
+
+
+def _stayed(output) -> bool:
+    """nudge_object 결과가 "잡을 수 있는 자리라 움직이지 않음"(pushed false, make_room 아님)인지."""
+    return isinstance(output, dict) and output.get("pushed") is False and not output.get("make_room")
 
 
 def _no_motion(action: str, code: str | None) -> bool:
