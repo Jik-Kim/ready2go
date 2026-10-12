@@ -69,21 +69,21 @@ def _case_requirements(
     voice_evaluation: dict[str, Any],
     suite: str,
     case_id: str,
-) -> tuple[list[str] | None, list[str] | None]:
+) -> tuple[list[str] | None, list[str] | None, bool]:
     if suite == "part":
         case = _find_case(evaluation["suites"]["part"]["cases"], "case_id", case_id, suite)
         machine = evaluation["suites"]["part"]["machine_check_requirements"].get(case_id)
         if not isinstance(machine, list) or not machine:
             raise ArtifactValidationError(f"part case {case_id} has no machine check mapping")
-        return machine, case["required_human_checks"]
+        return machine, case["required_human_checks"], True
     if suite == "recovery":
         case = _find_case(
             evaluation["suites"]["recovery"]["cases"], "case_id", case_id, suite
         )
-        return case["required_machine_checks"], case["required_human_checks"]
+        return case["required_machine_checks"], case["required_human_checks"], True
     if suite == "voice":
         _find_case(voice_evaluation["test_cases"], "case_id", case_id, suite)
-        return None, None
+        return None, None, False
     if suite == "voice_issue194_regression":
         _find_case(
             voice_evaluation["issue_194_regression"]["scenarios"],
@@ -91,12 +91,14 @@ def _case_requirements(
             case_id,
             suite,
         )
-        return None, None
+        return None, None, False
     raise ArtifactValidationError(f"unknown suite: {suite}")
 
 
 def _validate_machine_checks(
-    trial: dict[str, Any], required_machine: list[str] | None
+    trial: dict[str, Any],
+    required_machine: list[str] | None,
+    automatic_pass_supported: bool,
 ) -> None:
     checks = trial["machine_checks"]
     if not isinstance(checks, list):
@@ -130,21 +132,23 @@ def _validate_machine_checks(
             )
         by_id[check_id] = check
 
-    if required_machine is None:
-        return
-    actual_ids = set(by_id)
-    required_ids = set(required_machine)
-    if actual_ids != required_ids:
-        missing = sorted(required_ids - actual_ids)
-        unexpected = sorted(actual_ids - required_ids)
-        raise ArtifactValidationError(
-            f"trial {trial['trial_id']} machine check set mismatch: "
-            f"missing={missing}, unexpected={unexpected}"
-        )
+    if required_machine is not None:
+        actual_ids = set(by_id)
+        required_ids = set(required_machine)
+        if actual_ids != required_ids:
+            missing = sorted(required_ids - actual_ids)
+            unexpected = sorted(actual_ids - required_ids)
+            raise ArtifactValidationError(
+                f"trial {trial['trial_id']} machine check set mismatch: "
+                f"missing={missing}, unexpected={unexpected}"
+            )
     if trial["automatic_result"] != "pass":
         return
-    for check_id in required_machine:
-        check = by_id[check_id]
+    if not by_id:
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} pass requires non-empty machine_checks"
+        )
+    for check_id, check in by_id.items():
         if check["status"] != "pass":
             raise ArtifactValidationError(
                 f"trial {trial['trial_id']} pass requires {check_id} status=pass"
@@ -153,6 +157,21 @@ def _validate_machine_checks(
             raise ArtifactValidationError(
                 f"trial {trial['trial_id']} pass requires observed and expected for {check_id}"
             )
+    if not automatic_pass_supported:
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} automatic pass is unsupported for suite "
+            f"{trial['suite']} until an explicit voice check mapping or grader is connected"
+        )
+
+
+def _validate_trial_evidence(trial: dict[str, Any]) -> None:
+    evidence = trial["evidence"]
+    if not isinstance(evidence, list):
+        raise ArtifactValidationError(f"trial {trial['trial_id']} evidence must be a list")
+    if trial["automatic_result"] == "pass" and not evidence:
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} pass requires non-empty trial evidence"
+        )
 
 
 def _validate_human_checks(trial: dict[str, Any], required_human: list[str] | None) -> None:
@@ -305,10 +324,11 @@ def validate_pair(result_path: Path) -> dict[str, Any]:
             raise ArtifactValidationError(
                 f"trial {record['trial_id']} has invalid automatic_result"
             )
-        required_machine, required_human = _case_requirements(
+        required_machine, required_human, automatic_pass_supported = _case_requirements(
             evaluation, voice_evaluation, suite, record["case_id"]
         )
-        _validate_machine_checks(record, required_machine)
+        _validate_trial_evidence(record)
+        _validate_machine_checks(record, required_machine, automatic_pass_supported)
         _validate_human_checks(record, required_human)
         basis_id = record["basis_id"]
         if not isinstance(basis_id, str) or not basis_id.strip():

@@ -278,6 +278,109 @@ def test_part_case_machine_mapping_is_enforced(tmp_path: Path) -> None:
         VALIDATOR.validate_pair(result_path)
 
 
+def _voice_check(status: str = "pass") -> dict[str, object]:
+    return {
+        "check_id": "intent_match",
+        "status": status,
+        "observed": "find_item" if status == "pass" else "cancel",
+        "expected": "find_item",
+        "evidence": ["observed-intent-log"],
+    }
+
+
+def test_voice_failed_check_cannot_be_recorded_as_pass(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(
+        result_path,
+        result_set,
+        suite="voice",
+        suite_version=result_set["suite_versions"]["voice"],
+        case_id="TC-001",
+        machine_checks=[_voice_check("fail")],
+        required_human_checks=[],
+    )
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="status=pass"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_voice_empty_checks_cannot_be_recorded_as_pass(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(
+        result_path,
+        result_set,
+        suite="voice",
+        suite_version=result_set["suite_versions"]["voice"],
+        case_id="TC-001",
+        machine_checks=[],
+        required_human_checks=[],
+    )
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="non-empty machine_checks"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_voice_empty_trial_evidence_cannot_be_recorded_as_pass(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(
+        result_path,
+        result_set,
+        suite="voice",
+        suite_version=result_set["suite_versions"]["voice"],
+        case_id="TC-001",
+        machine_checks=[_voice_check()],
+        required_human_checks=[],
+        evidence=[],
+    )
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="trial evidence"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_voice_pass_is_held_until_explicit_grader_is_connected(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(
+        result_path,
+        result_set,
+        suite="voice",
+        suite_version=result_set["suite_versions"]["voice"],
+        case_id="TC-001",
+        machine_checks=[_voice_check()],
+        required_human_checks=[],
+    )
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="automatic pass is unsupported"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_voice_nonpassing_result_is_allowed_without_check_mapping(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(
+        result_path,
+        result_set,
+        suite="voice",
+        suite_version=result_set["suite_versions"]["voice"],
+        case_id="TC-001",
+        machine_checks=[_voice_check("fail")],
+        automatic_result="fail",
+        required_human_checks=[],
+    )
+    assert VALIDATOR.validate_pair(result_path)["trial_count"] == 1
+
+
+def test_issue194_voice_pass_is_held_until_explicit_grader_is_connected(
+    tmp_path: Path,
+) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(
+        result_path,
+        result_set,
+        suite="voice_issue194_regression",
+        suite_version=result_set["suite_versions"]["voice_issue194_regression"],
+        case_id="UX194-001",
+        machine_checks=[_voice_check()],
+        required_human_checks=[],
+    )
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="automatic pass is unsupported"):
+        VALIDATOR.validate_pair(result_path)
+
+
 def test_trial_with_missing_basis_fails(tmp_path: Path) -> None:
     result_path, _, result_set = _make_pair(tmp_path)
     _append_trial(result_path, result_set, include_basis=False)
