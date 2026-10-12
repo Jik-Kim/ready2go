@@ -5,7 +5,7 @@
 
 ## 지금 상태
 - **10/12 2차 점검일 (Unpacking 실물, PC2 한 대)** [실측: PC2 DB]: 14:30 `5ca017`·16:21 `7b8141` 성공(A안 — 판 원래 자리가 립밤 위라 빈 자리 + 안내), 16:36 `cfa886` 판 원위치 1.7 mm(단 **사람이 립밤을 뺀 회차**), 15:11 `7d18c6`·16:33 `440324` **판을 쥔 채 정지**(놓을 자리 확인 전에 집음). 판정 A안 = **그 점검의 제한적 통과**(#239 E 리뷰, AC-ACT-03 완료 아님). main 반영: #231·#232·#233(Unpacking)·#239(진행표·mock 되돌리기). 자세히 [10/12 기록](2026-10-12_practice.md).
-- **#242·#245 (로컬 `feat/c-unpack-check-first`, PR 전 — B #241 머지 대기)**: 집기 전에 놓을 자리 판단(aside_1 → aside_2 → `free`, 셋 다 안 되면 안 집고 "꺼내지 못했어요"), 복구 전 원래 자리 → 꺼낸 자리 판단(헛동작·쥔 채 정지 없음), `check_only` 는 코드와 무관하게 움직이지 않음으로 셈, **이미 그 자세면 이동 안 보냄**(목표 `pick` 탑뷰 왕복 제거), 되돌리기 집기 `scan`, P2 `RUNNER_INTENT_TASKS` 안내 [실측: 호스트 2573 passed, 컨테이너 runner 697 passed].
+- **#242·#245 — PR #250 (B #241 머지 뒤 main 기준, B·D 리뷰 대기 · E 리뷰 문서 정정 반영, 코드·mock 검증 완료, PC2 실물 미확인 → 10/13 [확인 목록](2026-10-13_pc2_checklist.md) U2)**: 집기 전에 놓을 자리 판단(aside_1 → aside_2 → `free`, 셋 다 안 되면 안 집고 "꺼내지 못했어요"), 복구 전 원래 자리 → 꺼낸 자리 판단(헛동작·쥔 채 정지 없음), `check_only` 는 코드와 무관하게 움직이지 않음으로 셈, **이미 그 자세면 이동 안 보냄**(목표 `pick` 탑뷰 왕복 제거), 되돌리기 집기 `scan`, P2 `RUNNER_INTENT_TASKS` 안내 [실측: 호스트 2573 passed, 컨테이너 runner 697 passed].
 - **#78 HALT_MOTION (10/10)**: `OBJECT_DROPPED`·`SENSOR_INVALID` → 즉시 ABORTED·잠금, finally 이동 없음, 재개 보존 안 함 [실측: 시험 4개, E 반례 그대로]. 남은 것: 복구 뒤 상태 맞추기·잠금 해제 절차(계약, B·E 협의), B `SENSOR_INVALID` 구분 PR, E 온톨로지 errors.
 - **#187 음성 정지 후속 C 몫 (브랜치 `feat/c-unpack-task`)**: [C 수락](https://github.com/Jik-Kim/ready2go/issues/187#issuecomment-6056813537) — 빠른 정지는 `/runner/estop` 재사용 권고, 요청 처리 사이 "멈춰" → 시작 안 함(`StartGate`), 정지 기록 `halts[]` 항상 [실측: 호스트 1692·컨테이너 ROS 632 passed]. 선행: B 정지 확인 결과 형식(#152), E 수신 방식.
 - **기록 누락 점검 `run_report --check` (FR-LOG-02 "DB 누락 확인", AC-LOG-01 증거, 브랜치 `feat/c-unpack-task`)**: [실측: 시험] 10/06 PC2 실물 기록 2건 빠짐없음, 일부러 망가뜨린 9가지 누락 모두 찾음, Runner 정상·거절·재개 기록 빠짐없음. PC2 DB 직접 점검은 10/08 저녁 연결 안 됨(PC2 꺼짐/IP 변경) → 다음 실물 때.
@@ -84,8 +84,8 @@
 | PC1↔PC2 통신 | 공용 Wi-Fi `Rokey_A`, `cyclonedds.multi.xml`(멀티캐스트 끔). PC2 `joint_states` 100 Hz → PC1 86~96 Hz | [실측] A·B 10/03, PR #40 |
 
 ## 막힌 점 · 필요한 도움 (10/12 기준)
-- **B**: #241(`check_only`·`free`·비켜 놓기) 머지 — 이게 있어야 C #242 PR 을 올림(옛 서버는 `check_only` 를 `NOT_HOLDING` 으로 거부). `reset_state` 와 같이 부를 B 정리 서비스(쥔 물체 기록·서랍 인출) 여부(#242 댓글 2). "립밤 굴러감" 설명 정정(측정 차이).
-- **E**: 계약07 계약 #221·E #225 **머지(10/12 17:08·17:25)** → C 운영 PR 가능(막힘 풀림). 온톨로지 `pick` "밀었을 때만 다시 보기"(#245) 협의, `initial_state.json` 아래 칸 물품(#242 댓글 5). #152 재개(`resume`·`confirm`·"종료"·독립 요청·`evidence`)·#43 확인 wire 는 아직 미확정 — C 몫 노드 연결이 여기에 걸림.
+- **B**: #250 리뷰. `reset_state` 와 같이 부를 B 정리 서비스(쥔 물체 기록·서랍 인출) — 생기면 연결(#242 C 회신). 10/13 PC2 #250 실물 확인(같은 배치).
+- **E**: #249(계약07 운영) 리뷰 P1·P2 반영 중 — 수락 안내 실패면 로봇 동작 0번, 요청 기억 동시 콜백, Unpacking 태스크 수락 문장. E voice 쪽 연결(`request_run_enabled`·source mapper)은 아직 — 실제 연결은 미검증. #238 A/B안 선택, #245 같은 자세 생략 유지 여부, 10/13 챌린지 작업 2종 결정.
 - **E + 1명**: `feat/c-status-contract`(#43·#152 C 몫 core, `runner.yaml`, 실행 기록 예시) 계약 승인 — 승인 전 PR·main 반영 안 함.
 - **B**: 그리퍼 기준(`pick_min_width_m` 10 mm·`empty_max_width_m` 2 mm·`gripper_max_age_s` 0.5 s) 실측 확정, 무동작 안전 check·정지 확인 증빙(#152), 립밤 파지 확인(#150 5번), 서랍 place 뒤 top view 이동(#43).
 - **A**: 실물 가림 출력 샘플(`occluded_by`·모름·재식별, #109), 트레이 `inspect_region(handover_zone)` 지원(#43 — 지금은 서랍 2곳만).
@@ -94,10 +94,11 @@
 
 ## 다음 할 일 (P2, 10/12 기준 — 진행 추적은 [#196](https://github.com/Jik-Kim/ready2go/issues/196))
 **지금 (10/12 저녁~)**
-- [ ] #242·#245 PR — B #241 머지 → main 합치기 → 로컬 CI → PR → #242·#245 답글
-- [ ] 계약07 운영 PR (`feat/c-request-run-runtime` `e2ceae6`, main 보다 229 커밋 뒤 — 충돌 정리)
-- [ ] `runner.md` 7.3·태스크 설명 "놓기는 바닥에만" → B #243 반영 + mock 도 물건 위 놓기
-- [ ] #196 C 항목 상태 댓글, #238(완전히 가려지면 묻기) C·E 역할 답글
+- [x] #242·#245 PR — #250 (리뷰 중, `Refs #242` — 실물 확인 뒤 이슈 닫기)
+- [x] 계약07 운영 PR — #249 / [ ] E 리뷰 P1·P2 반영
+- [x] `runner.md` 7.3·태스크 설명 B #243 반영 / [ ] mock 도 물건 위 놓기
+- [x] #196 C 항목 상태 댓글, #238 C 회신(A안 추천)
+- [ ] 10/13 3차 챌린지 새 복합 작업 2종 JSON + mock 검증 (E 결정 뒤)
 
 **10/11 에 적었던 것**
 - [x] Unpacking 실물 시험 — 10/12 PC2 (위 "지금 상태", [10/12 기록](2026-10-12_practice.md))
