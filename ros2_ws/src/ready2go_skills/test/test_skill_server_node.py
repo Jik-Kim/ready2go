@@ -1485,8 +1485,10 @@ def test_place_in_drawer_moves_sideways_only_above_rim(server):
     assert grips == [pytest.approx(19.5 + pl["release_extra_mm"])]       # 쥔 폭 + release_extra 로 한 번만 벌림
     log = srv.robot.log
     assert log[0] == ("movej", down)                                    # 서랍 안 경유점 (집기·넛지와 같은 길)
-    assert all(e[0] in ("movel", "moveb") for e in log[1:])
-    lines = [p for e in log[1:] for p in ([e[1]] if e[0] == "movel" else e[1])]   # 블렌딩 경유점까지 펼침
+    turns = [e for e in log[1:] if e[0] == "movej"]                     # 경유점에서 J6 만 돌림 (놓는 손목 먼저, ef9250)
+    assert all(t[1][:5] == pytest.approx(down[:5]) for t in turns) and len(turns) <= 1
+    assert all(e[0] in ("movel", "moveb") for e in log[1:] if e[0] != "movej")
+    lines = [p for e in log[1:] if e[0] != "movej" for p in ([e[1]] if e[0] == "movel" else e[1])]   # 블렌딩 경유점까지 펼침
     prev = list(waypoint)
     for p in lines:
         assert math.dist(prev[:2], p[:2]) < 0.01 or min(prev[2], p[2]) >= travel_z - 0.01, (prev, p)
@@ -1497,6 +1499,21 @@ def test_place_in_drawer_moves_sideways_only_above_rim(server):
     assert low[:3] == pytest.approx([1000.0 * v for v in pos_m[:2]] + [1000.0 * pos_m[2] - over], abs=1e-6)
     tz = max(travel_z, waypoint[2])                                     # 경유점이 travel_z 보다 높으면 그 높이로 옆 이동 (_travel_z)
     assert lines[0][2] == pytest.approx(tz, abs=1e-6) and lines[-1] == pytest.approx(mp.with_z(waypoint, tz), abs=1e-6)   # 먼저 수직으로, 끝은 경유점 위
+
+
+def test_place_turns_wrist_at_waypoint_before_moving_over(server):
+    """[실측 PC2 10/12 run ef9250] aside 로 손목을 크게 돌리며 옆으로 가면 제어기가 출발 안 함(1 s × 2 멈칫) →
+    경유점에서 J6 만 먼저 돌리고, 옆 이동 중엔 손목이 그대로."""
+    srv = server.srv
+    _holding_in_drawer(server)
+    out, _ = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    log = srv.robot.log
+    k = next(i for i, e in enumerate(log) if i > 0 and e[0] == "movej")
+    assert all(e[0] != "movej" for e in log[k + 1:])                    # 돌린 뒤엔 직선·블렌딩만
+    moves = [p for e in log[k + 1:] for p in ([e[1]] if e[0] == "movel" else e[1] if e[0] == "moveb" else [])]
+    ang = moves[0][3:]
+    assert all(p[3:] == pytest.approx(ang) for p in moves[:3])          # 옆으로 가는 동안 손목 그대로
 
 
 def test_place_in_drawer_cancel_before_release_keeps_object(server, monkeypatch):

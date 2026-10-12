@@ -2549,6 +2549,17 @@ class SkillServer(Node):
             xyz = ([1000.0 * v for v in pp.to_base(tf, tb["tcp_drawer_m"])] if tb.get("tcp_drawer_m") else list(tb["tcp_mm"]))
             target = [xyz[0], xyz[1], xyz[2] + 1000.0 * pl["drop_m"]] + list(tb["angles"])
             open_mm = min(open_mm, float(tb.get("open_mm") or open_mm))   # 집을 때 벌린 만큼만 (그 자리에서 손가락이 들어갔던 폭)
+        else:
+            # 놓는 손목 방향은 경유점(테두리 위)에서 J6 만 돌려 먼저 맞춤 (집기와 같음) — 옆으로 가며 크게 돌리면 제어기가 출발 안 함
+            # [실측 PC2 10/12 run ef9250: aside_1 로 99° 돌리며 place:over → 1 s 두 번 멈춘 뒤 점마다 직선, 2~3 s 지연]
+            turn = ((target[5] - target[3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0
+            jnow = self.robot.posj()
+            if abs(turn) > 1.0 and jnow:
+                o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "place:turn", in_drawer=True)
+                if not o.success:
+                    return o, dict(empty)
+                cur = self.robot.posx() or cur
+                target = list(target[:3]) + list(cur[3:])
         above = mp.with_z(target, target[2] + min(pl["approach_m"] * 1000.0, 30.0))
         route = self._carry_route(loc)
         back = list(route[0]) if route else list(cur)          # 돌아갈 서랍 안 경유점 (= drag_down TCP)
