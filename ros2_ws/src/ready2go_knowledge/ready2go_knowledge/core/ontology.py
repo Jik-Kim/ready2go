@@ -15,6 +15,11 @@ from typing import Any
 _OPS = {"==": lambda a, b: a == b, "!=": lambda a, b: a != b}
 
 
+
+GRASP_REQUIRED = {"grip_force", "grasp_verified"}
+# 선택: RG2 로 실제로 잡은 폭(m) → 비교할 size_m 칸 (짧은 변 잡기 1, 긴 변 양끝 잡기 0)
+GRASP_WIDTHS = {"grasp_width_m": 1, "grasp_width_long_m": 0}
+
 def _json_object(pairs: list[tuple[str, Any]]) -> dict:
     result = {}
     for key, value in pairs:
@@ -137,8 +142,13 @@ def load(path: str | Path) -> dict:
         ):
             raise ValueError(f"size_m은 양수 유한값 3개여야 합니다: {name}")
         config = grasp[name]
-        if not isinstance(config, dict) or set(config) != {"grip_force", "grasp_verified"}:
+        if not isinstance(config, dict) or not GRASP_REQUIRED <= set(config) <= GRASP_REQUIRED | GRASP_WIDTHS.keys():
             raise ValueError(f"물품 파지 설정 형식 오류: {name}")
+        for key, side in GRASP_WIDTHS.items():          # 실제로 잡은 폭(선택) — 그 변(외접 박스) 이하 양수 [B 실측]
+            if key in config:
+                w = config[key]
+                if isinstance(w, bool) or not isinstance(w, (int, float)) or not math.isfinite(w) or not 0 < w <= size[side]:
+                    raise ValueError(f"{key}는 0 초과·size_m[{side}] 이하 유한값이어야 합니다: {name}")
         if not isinstance(config["grasp_verified"], bool):
             raise ValueError(f"grasp_verified는 bool이어야 합니다: {name}")
         force = config["grip_force"]

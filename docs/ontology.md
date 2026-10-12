@@ -16,7 +16,7 @@
 | `knowledge/skills/*.jsonld` | 입력·사전 조건(`pre`)·전개(`expand`)·성공 후 결과(`effect`)·오류 정의 |
 | [`initial_state.json`](../knowledge/snapshots/initial_state.json) | 실제 상태와 대조한 뒤 적용할 초기화용 예시 프리셋 |
 | [`places.yaml`](../config/places.yaml) | 장소 좌표계·실측 치수·이동 거리·설정의 정본 |
-| [`item_grasp.yaml`](../config/item_grasp.yaml) | 물품별 파지 힘과 검증 승인 상태의 정본 |
+| [`item_grasp.yaml`](../config/item_grasp.yaml) | 물품별 파지 힘과 검증 승인 상태, 실제로 잡은 폭(선택, B 실측)의 정본 |
 
 `ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 상세 사용법은 [knowledge/README.md](../knowledge/README.md)를 참조합니다. [문서]
 
