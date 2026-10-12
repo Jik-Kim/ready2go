@@ -1745,7 +1745,7 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
     srv = server.srv
     tf = srv.places()["drawer_top"]["tf"]
     target = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
-              "pose": {"frame": "drawer_top", "position": [0.0129, 0.0614, 0.0], "yaw": -1.5644, "yaw_valid": True}}
+              "pose": {"frame": "drawer_top", "position": [0.0129, 0.0714, 0.0], "yaw": -1.5644, "yaw_valid": True}}   # y 는 옆벽 표(10/12) 여유
     lows = {}
     server.Gripper.holding, server.Gripper.held_width = True, 52.5        # 긴 변 양끝 쥠
     for lower in (0.0, 5.0):
@@ -1984,7 +1984,7 @@ def test_front_panel_clearance_table_matches_touch_measurements(server):
     g, mp = server.srv.prm()["gripper"], server.ss.mp
     assert mp.wall_extent_mm(66.0, 0.0, g, front=True) == pytest.approx(59.3)
     assert mp.wall_extent_mm(100.3, 0.0, g, front=True) == pytest.approx(75.1)
-    assert mp.wall_extent_mm(66.0, 0.0, g) < 50.0
+    assert mp.wall_extent_mm(66.0, 0.0, g) < 59.3                      # 옆벽 표(10/12 아래 칸 실측으로 고침)는 앞판보다 조금 작음
     assert mp.wall_extent_mm(66.0, math.pi / 2, g, front=True) == pytest.approx(g["wall_clearance_mm"]["along_mm"])   # 닫힘 축이 앞판과 나란하면 그대로
 
 
