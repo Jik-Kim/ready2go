@@ -72,3 +72,18 @@ def test_inspect_found_and_not_visible():
     assert found["target"]["pose"]["frame"] == "drawer_top" and found["target"]["pose"]["yaw_valid"] is True
     assert mock.inspect("drawer_top", "eraser").output == {"target_found": False, "target": None,
                                                            "candidates": [], "visible_count": 0}
+
+
+def test_reset_restores_scene_and_forgets_nudge():
+    """회차 사이 /runner/reset_state 와 같이: 전달·옮긴 물체·끌기 기억을 처음으로 (실패 지정 남은 횟수는 그대로)."""
+    from ready2go_runner.core.mock_scene import MockScene
+    skills = MockSkills(parse_failures("pick_object=GRASP_FAILED*2"), scene=MockScene("plate_over_eraser"))
+    skills.scene.held = "cover_plate"
+    skills.scene.objects.pop("cover_plate")
+    skills.scene.delivered.append("eraser")
+    skills.moved["eraser"] = {"position": [0, 0, 0]}
+    assert skills.respond("pick_object", {"target": {"class": "eraser"}}).error_code == "GRASP_FAILED"   # 1회 소비
+    skills.reset()
+    assert skills.scene.held is None and skills.scene.delivered == [] and "cover_plate" in skills.scene.objects
+    assert skills.moved == {}
+    assert skills.respond("pick_object", {"target": {"class": "eraser"}}).error_code == "GRASP_FAILED"   # 남은 1회

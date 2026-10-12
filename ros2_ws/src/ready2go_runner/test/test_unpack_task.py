@@ -366,7 +366,8 @@ def test_success_tells_which_item_went_to_a_spare_slot():
     assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "aside_1"}]
     assert robot.spoken[-2:] == ["차키는 원래 자리 대신 옆 빈 자리에 뒀어요", "서랍을 닫았어요"]
     from ready2go_runner.core import run_report
-    assert "  원래 자리 대신 빈 자리: car_key(aside_1)" in run_report.header(runner.log_store.read_run(result.run_id))
+    header = run_report.header(runner.log_store.read_run(result.run_id))
+    assert any(line.startswith("  원래 자리 대신 빈 자리: car_key(aside_1) — 원위치 복구 아님") for line in header)  # #239 E
 
 
 def test_target_pick_failure_restores_to_spare_slots_and_says_so():
