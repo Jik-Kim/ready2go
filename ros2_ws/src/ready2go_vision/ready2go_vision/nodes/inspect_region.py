@@ -9,7 +9,7 @@ drawer_top.tf 는 시작에 필수, drawer_bottom.tf 가 아직 null 이면 그 
 진단(결과에는 영향 없음): 요청마다 검출별 판단 근거와 카메라로 본 서랍 바닥 z(core/floor_probe.py)를 로그로 남긴다.
 dump_dir 파라미터를 주면 그 요청에 쓴 컬러·뎁스·K·TF·검출·결과를 .npz 로 저장한다(tools/dev/replay_inspect_dump.py 로 재계산).
 분할 모델(weights 가 yolo*-seg)이면 검출 마스크를 덤프 masks(packbits)로 함께 저장한다(meta.detections 순서와 같음).
-기본 가중치는 P2 분할 모델 yolo11s_seg_ready2go_v1(가림 필드 occluded_by·visible_area_m2 를 냄, #109 4단계). 박스 모델 v1(P1)은 weights 로 지정하면 가림 필드 없이 동작.
+기본 가중치는 P2 분할 모델 yolo11s_seg_ready2go_v2(가림 필드 occluded_by·visible_area_m2 를 냄, #109 4단계 — 10/12 3단 쌓기·판 밑 보강, #229). 이전 분할 v1 은 weights 로 지정해 되돌릴 수 있음. 박스 모델 v1(P1)은 weights 로 지정하면 가림 필드 없이 동작.
 """
 import datetime
 import hashlib
@@ -59,7 +59,7 @@ class InspectRegionNode(Node):
     def __init__(self):
         super().__init__("inspect_region")
         d = self.declare_parameter
-        d("config_dir", "/config"); d("world_path", "/knowledge/world.jsonld"); d("weights", "/models/yolo11s_seg_ready2go_v1.pt")
+        d("config_dir", "/config"); d("world_path", "/knowledge/world.jsonld"); d("weights", "/models/yolo11s_seg_ready2go_v2.pt")
         d("color_topic", "/wrist_cam/color/image_raw"); d("depth_topic", "/wrist_cam/aligned_depth_to_color/image_raw")
         d("info_topic", "/wrist_cam/color/camera_info"); d("base_frame", "base_link"); d("camera_frame", "wrist_cam_color_optical_frame")
         d("frame_timeout_s", 3.0); d("device", "0"); d("dump_dir", ""); d("code_sha", "")

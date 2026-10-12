@@ -31,7 +31,7 @@ def load(p):
 
 
 PLACE_BEFORE_MOTION = {"PLACE_BLOCKED", "WALL_TOO_CLOSE", "BAD_PARAMS", "NOT_HOLDING", "UNSUPPORTED_PARAMS",
-                       "PLACE_NOT_CONFIGURED", "TRAY_FULL", "DRAWER_NOT_AT_TRAVEL"}   # 움직이기 전 거부 — 놓지 않았으므로 placed_pose 없음
+                       "PLACE_NOT_CONFIGURED", "TRAY_FULL", "DRAWER_NOT_AT_TRAVEL", "NO_FREE_SPACE"}   # 움직이기 전 거부 — 놓지 않았으므로 placed_pose 없음
 
 
 def place_pose_errors(pose, frame, where):
@@ -115,6 +115,16 @@ def place_result_errors(doc):
             if code == "PLACE_BLOCKED" and by not in {o.get("id") for o in seen}:
                 errs.append(f"{name}: PLACE_BLOCKED 의 blocked_by 는 scan 의 target·candidates 중 하나의 id — 값 {by}")
         placed = out.get("placed_pose", "없음")
+        if p.get("check_only"):                              # 제안 10/12 B: 판단만 — 놓지 않았으므로 placed_pose null, 예정은 planned_pose [C #241 리뷰]
+            if placed is not None or out.get("check_only") is not True:
+                errs.append(f"{name}: check_only 결과는 placed_pose null + check_only: true")
+            if c["success"] and not isinstance(out.get("planned_pose"), dict):
+                errs.append(f"{name}: check_only 성공 결과에 planned_pose 필요")
+            if drawer and isinstance(out.get("planned_pose"), dict):
+                errs += [f"{name}: {m}" for m in place_pose_errors(out["planned_pose"], loc, "output.planned_pose")]
+            continue
+        if p.get("slot") == "free" and c["success"] and out.get("slot") != "free":
+            errs.append(f"{name}: slot \"free\" 성공 결과의 slot 은 \"free\"")
         if c["success"] and not isinstance(placed, dict):
             errs.append(f"{name}: 성공 결과에 placed_pose 필요")
         if not c["success"] and code in PLACE_BEFORE_MOTION and placed is not None:
@@ -147,6 +157,10 @@ def main() -> int:
     errors += [f"inspect_region_result.json: {m}" for m in result_errors(load(ROOT / "contracts/examples/inspect_region_result.json"))]   # pose 규칙: position.z=0, yaw (-pi/2, pi/2]
     for c in load(ROOT / "contracts/examples/nudge_object_result.json")["cases"]:   # target_after: 성공일 때만, 실패면 null (#83)
         after = c["output"].get("target_after", "없음")
+        if "needed" in c["output"] or "plan_code" in c["output"]:   # check_only 판단 결과 [E #245 제안]: needed bool, plan_code null|문자열, 거부 이유가 있으면 needed false
+            nd, pc = c["output"].get("needed"), c["output"].get("plan_code")
+            if not isinstance(nd, bool) or not (pc is None or isinstance(pc, str)) or (pc and nd):
+                errors.append(f"nudge_object_result.json {c['case']}: needed(bool)·plan_code(null|문자열), plan_code 가 있으면 needed false")
         if not c["success"] and after is not None:
             errors.append(f"nudge_object_result.json {c['case']}: 실패 결과의 target_after 는 null")
         if c["success"]:
