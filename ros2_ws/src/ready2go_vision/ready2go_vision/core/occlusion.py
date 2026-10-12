@@ -106,7 +106,7 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
             else:
                 rel["judge"] = "맞닿음(다 보임)"
             relations is not None and relations.append(rel)
-        if not covers and not unknown and (less or split):
+        if not covers and not unknown and (less or (split and ratio is None)):   # 다 보이는데(기준 넓이 이상) 조각만 났으면 마스크 잡조각 — 안 가려짐
             unknown.append("덜 보이거나 조각났는데 덮은 물체 없음")
             relations is not None and relations.append({"under": ids[j], "visible_ratio": None if ratio is None else round(ratio, 2),
                                                         "split": split, "judge": "모름: 덮은 물체 없음"})

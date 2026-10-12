@@ -10,6 +10,8 @@
     서랍 밖 책상 위 물체·케이블·그리퍼 손끝을 잘못 검출해도 뎁스 실패로 호출 전체가 DEPTH_INVALID 가 되지 않게 한다 [실측 PC2 10/07].
     TF 로 계산하므로 촬영 자세가 바뀌어도 따라간다. 값이 없으면(옛 설정) 끈다.
   footprint 가 서랍 안쪽(interior_m, 오차 여유 region.edge_tolerance_m)을 벗어난 검출은 결과에서 뺀다(서랍 밖 파지 방지).
+    박스 모델은 명목 크기를 박스 중심에 놓고, 분할 모델은 보이는 마스크를 바닥에 투영한 범위로 본다(일부 가려진 긴 물체, 10/12).
+    분할 모델은 윗면이 지역 벽 높이보다 높은 검출도 뺀다(트레이 안 손 오검출 등).
   분할 모델(모든 검출에 mask)이면 뎁스 전에 같은 클래스 중복 검출 중 신뢰도 높은 쪽만 남긴다(core/dedup.py, dedup.min_overlap, 합집합 안 함). 박스 모델은 그대로.
   뎁스를 쓸 수 없는 검출이 하나라도 있으면 policy.on_invalid_candidate 에 따라 전체 DEPTH_INVALID (기본 fail, 안전 우선).
   지역(region)은 서랍 칸마다 places.yaml 의 tf·interior_m 으로 계산하고 pose.frame = 요청 지역 (#155, 아래 칸 = drawer_bottom).
@@ -107,6 +109,26 @@ def footprint_inside(x, y, yaw, yaw_known, size, interior, tol):
     return (x - hx >= x0 - tol and x + hx <= x1 + tol) and (y - hy >= y0 - tol and y + hy <= y1 + tol)
 
 
+def mask_footprint_inside(mask, K: Intrinsics, T_drawer_cam, z_plane, interior, tol, trim_pct) -> bool:
+    """분할 모델: 보이는 마스크 픽셀을 서랍 좌표 z = z_plane 평면에 투영한 범위(양 끝 trim_pct % 제외)가 지역 안쪽 + tol 안인가.
+    일부 가려진 긴 물체는 보이는 중심이 치우쳐, 명목 크기를 그 중심에 놓으면(footprint_inside) 벽 밖으로 계산된다 [실측 10/12]."""
+    import numpy as np
+    vs, us = np.nonzero(mask)
+    if us.size == 0:
+        return False
+    R, o = T_drawer_cam[:3, :3], T_drawer_cam[:3, 3]
+    d = R @ np.stack([(us - K.cx) / K.fx, (vs - K.cy) / K.fy, np.ones(us.size)])
+    ok = np.abs(d[2]) > 1e-9
+    t = (z_plane - o[2]) / np.where(ok, d[2], 1.0)
+    ok &= t > 0
+    if not ok.any():
+        return False
+    P = o[:2, None] + d[:2] * t
+    lo, hi = np.percentile(P[:, ok], trim_pct, axis=1), np.percentile(P[:, ok], 100 - trim_pct, axis=1)
+    (x0, x1), (y0, y1) = region_bounds(interior)
+    return bool(lo[0] >= x0 - tol and hi[0] <= x1 + tol and lo[1] >= y0 - tol and hi[1] <= y1 + tol)
+
+
 def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict, items: dict,
                   region: str, search_target: str = "", interior_m=None, debug: list | None = None,
                   seg_model: bool | None = None, region_height_m: float | None = None, info: dict | None = None) -> tuple[bool, str, str]:
@@ -177,8 +199,18 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
             yaw_known = valid
         info = dict(**merged, depth_src=src, top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)], yaw=yaw, yaw_valid=valid, yaw_reason=blob.reason,
                     n_blob=blob.n_blob, blob_long_mm=round(blob.blob_long_m * 1000, 1), blob_short_mm=round(blob.blob_short_m * 1000, 1))
-        if interior_m is not None and not footprint_inside(xy[0], xy[1], yaw, yaw_known, size, interior_m,
-                                                           params.get("region", {}).get("edge_tolerance_m", 0.01)):
+        reg = params.get("region", {})
+        tol = reg.get("edge_tolerance_m", 0.01)
+        if mask is not None:                                               # 분할 모델: 보이는 마스크로 (명목 크기·보이는 중심은 가려지면 어긋남)
+            zlim = region_height_m if region_height_m is not None else reg.get("visible_z_max_m")
+            if zlim is not None and top_z > zlim:
+                note(det, skip="윗면이 지역 벽 높이보다 높음 (지역 밖·손 등)", **info)
+                continue
+            inside = interior_m is None or mask_footprint_inside(mask, K, T_drawer_cam, top_z / 2, interior_m, tol,
+                                                                 reg.get("mask_footprint_trim_pct", 1.0))
+        else:
+            inside = interior_m is None or footprint_inside(xy[0], xy[1], yaw, yaw_known, size, interior_m, tol)
+        if not inside:
             note(det, skip="footprint 가 서랍 안쪽 밖", **info)
             continue
         in_result[id(det)] = len(found)                                    # 가림 판정에서 결과 id 를 찾기 위해 (입력 dict 는 안 바꿈)
