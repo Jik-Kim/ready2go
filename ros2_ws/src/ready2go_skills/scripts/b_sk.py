@@ -517,7 +517,10 @@ def free_poses(drawer):
     open_mm = width * 1000.0 + prm["place"]["release_extra_mm"]
     g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer))
     others = [o for o in objs if o["id"] not in {b["id"] for b in bases}] + bases
-    out = []
+    held_state = {"class": held["class"], "id": held["id"], "width_m": width, "drawer_id": drawer, "long_side": long_held,
+                  "tcp_above_floor_m": size[2] * prm["pick"].get("grip_height_ratio", 0.5)}
+    dry = _dry_checks(drawer, held_state, places[drawer])
+    out, later = [], []
     for c in cp.free_poses(objs, held["id"], size_of, interior, drawer, avoid=bases):
         pose = cp.as_pose(c)
         if reach is not None and pose["position"][0] * 1000.0 > reach:
@@ -525,11 +528,61 @@ def free_poses(drawer):
         # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 확인 (서버 _place_in_drawer 와 같음)
         pc, sc = ((dict(pose, yaw=pose["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (pose, size))
         if plp.check_place(pose=pc, held_id=held["id"], held_size_m=sc, open_mm=open_mm, objects=others, size_of=size_of,
-                           interior_m=interior, g=g, place=prm["place"]) is None:
+                           interior_m=interior, g=g, place=prm["place"]) is not None:
+            continue
+        if dry is None:
             out.append(pose)
+            continue
+        # 스킬 서버의 실제 놓기·집기 사전 검사(움직이지 않음)로 — 놓을 수 있고, 놓은 뒤 다시 집을 수 있는 자리만
+        # [사용자 10/12 PC2 "free 로 놓은 뒤 다시 집으려니 너무 가깝다고 안 됨"]
+        if not dry["place"](scan_, pose):
+            continue
+        (out if dry["repick"](objs, held["id"], pose, size_of) else later).append(pose)
+        if len(out) >= FREE_TRIES:
+            break
     # 가로(긴 변이 손잡이 벽과 나란, 서랍 y 방향)로 눕힌 후보 먼저 — 서랍이 옆으로 넓어 앞·뒤 벽 쪽에 가로로 두면 가운데가 남음 [사용자 10/12]
     out.sort(key=lambda q: abs(math.sin(q["yaw"])) < 0.7)
+    if dry is not None and not out and later:
+        print("다시 바로 집을 수 있는 빈 자리는 없음 — 놓을 수만 있는 자리로 (다시 꺼낼 땐 넛지·공간 만들기 필요할 수 있음)")
+        out = later
     return out, scan_
+
+
+def _dry_checks(drawer, held_state, place):
+    """스킬 서버 코드를 이 프로세스에서 판단 전용으로 (움직이는 메서드는 막힘, 스킬 서버 DryOracle 과 같은 방식) —
+    place(scan, pose): 서랍 안 놓기 사전 검사, repick(objs, id, pose, size_of): 그 자리에 놓은 뒤 집기 사전 검사.
+    가져오지 못하면 None (그땐 place_plan 검사만, 서버가 다시 확인)."""
+    try:
+        from pathlib import Path
+        from ready2go_skills.nodes import skill_server as ss
+        srv = object.__new__(ss.SkillServer)
+        srv.cfg_dir, srv.params_file = Path(repo_file("config")), Path(repo_file("ros2_ws", "src", "ready2go_skills", "params", "skills.yaml"))
+        srv.rg2_ip, srv.robot, srv.hold_unknown, srv._held = "", None, None, None
+        srv.disp = {drawer: place.get("tf_at_travel_m")}
+        srv.get_logger = lambda: ss._QUIET
+    except Exception as e:                                      # noqa: BLE001 — ROS 없는 환경 등
+        print(f"(스킬 서버 검사 못 불러옴 — 놓기 겹침·벽만 봄: {e!r:.80})")
+        return None
+    goal = ss._DRY_GOAL
+
+    def place_ok(scan_, pose):
+        dry = ss._Dry(srv, held=held_state)
+        ok, code, _ = ss._dry_call(lambda: dry._place_in_drawer(goal, {"location": drawer, "pose": pose, "scan": scan_}, drawer))
+        return ok
+
+    def repick_ok(objs, held_id, pose, size_of):
+        after = []
+        for o in objs:
+            if o["id"] == held_id:
+                after.append(dict(o, pose=dict(pose, yaw_valid=True), occluded_by=[], top_z=size_of(o["class"])[2]))
+            else:
+                after.append(dict(o, occluded_by=[x for x in o.get("occluded_by") or [] if x != held_id]))
+        t = next(o for o in after if o["id"] == held_id)
+        sc = {"target_found": True, "target": t, "candidates": [o for o in after if o["id"] != held_id], "visible_count": len(after)}
+        dry = ss._Dry(srv)
+        ok, code, _ = ss._dry_call(lambda: dry._do_pick_object(goal, {"target": t, "approach_offset": [0, 0, 0.1], "scan": sc}))
+        return ok or code == ss.sf.SKILL_EXCEPTION                 # 계산 예외는 걸러내지 않음 (서버가 다시 봄)
+    return {"place": place_ok, "repick": repick_ok}
 
 
 def free(node):
