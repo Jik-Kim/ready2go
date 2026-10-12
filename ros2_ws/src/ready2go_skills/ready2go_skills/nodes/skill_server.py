@@ -1473,6 +1473,13 @@ class SkillServer(Node):
             return sf.Outcome(True, reason=plan.reason), out
         if params.get("check_only"):                          # 재판단인데 아직 끌어야 함 → 집지 않게 멈춤 (runner.md, #83 D 리뷰)
             return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — {plan.reason}"), out
+        stacked = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"])
+        if stacked > 0:
+            # 다른 물체 위에 얹힌 물체는 넛지 안 함 — 뒤에서 밀기는 손가락을 바닥 위 3 mm 까지 내리고(밑 물체가 비전에 안 보이면
+            # 이웃 확인도 못 함), 위에서 끌기는 밑 물체에서 떨어뜨림 [사용자 10/12 PC2: 몽키(미검출) 위 캐러멜이 손잡이 벽 쪽이라
+            # 집기가 "뒤에서 밀어 x −36 mm" 를 요구]. 움직이기 전 거부 — 위 물체부터 치우거나 사람이 쌓기 자리를 벽에서 띄우기
+            return sf.Outcome(False, motion_guard.NOT_ON_FLOOR,
+                              reason=f"다른 물체 위({stacked * 1000:.0f} mm 위)라 넛지 안 함 — 쌓은 자리를 손잡이·옆벽에서 띄우기"), out
         who, why = self._neighbor(params, drawer_id, lambda objs, nb: nc.drag_blocker(
             target=target, size_m=size, shift_y_m=plan.shift_y_m, shift_x_m=plan.shift_x_m, objects=objs, size_of=self._size_or_none,
             default_size_m=prm["place"]["default_obstacle_size_m"], margin_mm=nb["margin_mm"], support_m=0.0,

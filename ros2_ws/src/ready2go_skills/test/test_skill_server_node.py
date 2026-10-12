@@ -2397,3 +2397,17 @@ def test_putback_tilted_pick_places_back_with_same_tilt(server, drawer):
         assert low[3:] == pytest.approx(picked[3:], abs=0.5)                       # 같은 기울인 손목
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+def test_nudge_refuses_stacked_target_before_motion(server):
+    """[사용자 10/12 PC2] 몽키(미검출) 위 캐러멜이 손잡이 쪽이라 집기가 "뒤에서 밀어 x −36 mm" 를 요구 — 쌓인 물체를 넛지하면
+    뒤에서 밀기 손가락이 밑 물체 위로 내려가거나 끌어 떨어뜨림 → 넛지가 필요해도 움직이기 전 NOT_ON_FLOOR. 바닥 물체는 그대로."""
+    srv = server.srv
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0387, "occluded_by": [], "visible_area_m2": 0.0032,
+           "pose": {"frame": "drawer_top", "position": [0.0605, 0.2139, 0.0], "yaw": -0.7897, "yaw_valid": True}}
+    srv.robot.log.clear()
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": car})
+    assert not out.success and out.error_code == "NOT_ON_FLOOR" and data["pushed"] is False
+    assert not [e for e in srv.robot.log if e != "stop" and e[0] in ("movel", "movej", "moveb")]
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": dict(car, top_z=0.0185)})
+    assert out.error_code != "NOT_ON_FLOOR"

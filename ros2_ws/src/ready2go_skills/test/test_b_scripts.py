@@ -756,3 +756,30 @@ def test_b_unpack_goes_on_to_next_when_moved_object_still_listed_as_cover(monkey
     picks = [g[1]["target"]["id"] for cmd, g in zip(calls, sent) if cmd == "pick"]
     assert picks[:3] == ["car_key#1", "caramel_box#1", "toy_wrench#1"]
     assert "place" in calls and calls[-1] == "close"
+
+
+def test_b_unpack_obstacle_too_close_to_wall_nudges_then_picks_or_stops_if_stacked(monkeypatch):
+    """[사용자 10/12 PC2 로그] 치울 캐러멜 집기가 WALL_TOO_CLOSE → 예전엔 바로 복구로. 이제 넛지 → 다시 보기 → 다시 집기.
+    넛지가 거부되면(쌓인 물체 NOT_ON_FLOOR) 그만두고 옮긴 것 원위치."""
+    c = _o("caramel_box#1", "caramel_box", 0.0605, 0.2139, yaw=-0.79, frame="drawer_top")
+    w = _o("toy_wrench#1", "toy_wrench", 0.10, 0.18, under=["caramel_box#1"], frame="drawer_top")
+    c2 = _o("caramel_box#1", "caramel_box", 0.03, 0.2139, yaw=0.0, frame="drawer_top")
+    c_a = _o("caramel_box#1", "caramel_box", 0.057, 0.067, yaw=1.57, frame="drawer_top")
+    scans = [_scan(w, [c]), _scan(w, [c2]), _scan(dict(w, occluded_by=[]), [c_a]),
+             _scan(c_a, []), _scan(None, [c])]
+    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"pick": ["WALL_TOO_CLOSE"]})
+    sk.TARGET = "toy_wrench"
+    assert sk.unpack(None) is True
+    assert calls[:8] == ["ready", "open", "inspect:toy_wrench", "pick", "nudge", "inspect:toy_wrench", "pick", "aside"]
+    assert sent[calls.index("nudge")][1]["target"]["id"] == "caramel_box#1"
+    restore = sent[calls.index("restore")][1]
+    assert restore["pose"]["position"] == c["pose"]["position"]           # 원래 자리 = 넛지 전 처음 본 자리
+
+    k = _o("car_key#1", "car_key", 0.10, 0.18, frame="drawer_top")
+    cs = _o("caramel_box#1", "caramel_box", 0.0605, 0.2139, under=["car_key#1"], frame="drawer_top")
+    k_a = _o("car_key#1", "car_key", 0.057, 0.067, yaw=1.57, frame="drawer_top")
+    scans = [_scan(w, [cs, k]), _scan(w, [dict(cs, occluded_by=[]), k_a]), _scan(k_a, [cs]), _scan(None, [cs, k_a])]
+    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"pick": ["", "WALL_TOO_CLOSE"], "nudge": ["NOT_ON_FLOOR"]})
+    sk.TARGET = "toy_wrench"
+    assert sk.unpack(None) is False
+    assert "place" not in calls and calls.count("nudge") == 1 and "restore" in calls and calls[-1] == "close"

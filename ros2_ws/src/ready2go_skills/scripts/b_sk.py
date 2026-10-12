@@ -657,6 +657,35 @@ def _pick(node, obj, scan_):
     return timed("pick", lambda: run(node, "pick", ("pick_object", {"target": obj, "approach_offset": [0, 0, 0.1], "scan": scan_})))
 
 
+def _pick_retry(node, obj, res, search):
+    """집기 — 아직 못 잡는 자리(WALL_TOO_CLOSE)면 넛지 → 다시 보기 → 다시, 잡기 실패(RETRY_PICK)면 다시 보기 → 다시 (최대 RETRIES 번).
+    넛지가 거부되면(쌓인 물체 NOT_ON_FLOOR 등) 그만. 치울 물체·목표 둘 다 [사용자 10/12 PC2: 캐러멜 WALL_TOO_CLOSE 에 바로 복구로 감].
+    돌려줌 (성공, 마지막 인식 결과, 마지막 물체)."""
+    for n in range(RETRIES + 1):
+        print(f"\n----- {obj['id']} 집기{f' (다시 {n})' if n else ''} -----")
+        if _pick(node, obj, res):
+            return True, res, obj
+        if last["code"] in STOP_CODES:
+            sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
+        if last["code"] not in RETRY_PICK | REGRAB_CODES or n == RETRIES:
+            return False, res, obj
+        if last["code"] in REGRAB_CODES:                     # 벽에 붙어 아직 못 잡는 자리 → 넛지 뒤 다시 보기 (공통 pick 과 같음)
+            print("\n----- 아직 못 잡는 자리 → 넛지 → 다시 보기 -----")
+            if not timed("nudge", lambda: run(node, "nudge", ("nudge_object", {"drawer_id": DRAWER, "target": obj, "scan": res}))):
+                if last["code"] in STOP_CODES:
+                    sys.exit(f"nudge {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
+                if last["code"] not in RETRY_NUDGE:
+                    return False, res, obj
+        res = inspect_all(node, search)
+        same = [o for o in ([res["target"]] if (res or {}).get("target") else []) + list((res or {}).get("candidates") or [])
+                if o.get("class") == obj["class"]]
+        if len(same) != 1:
+            print(f"다시 보니 {obj['class']} {len(same)}개 — 멈춤")
+            return False, res, obj
+        obj = same[0]
+    return False, res, obj
+
+
 def _xy_yaw(pose):
     return [pose["position"][0], pose["position"][1]], float(pose.get("yaw") or 0.0)
 
@@ -709,10 +738,10 @@ def unpack(node):
     while sel.get("obstacle") and len(stack) < UNPACK_MAX:
         ob = sel["obstacle"]
         print(f"\n===== 치우기 {len(stack) + 1}: {ob['id']} ({sel['reason']}) =====")
-        if not _pick(node, ob, res):
-            if last["code"] in STOP_CODES:
-                sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
-            failed = f"치울 {ob['id']} 집기 {last['code']}"
+        ok, res, _ = _pick_retry(node, ob, res, TARGET)        # 원래 자리(복구 목표)는 처음 본 ob 자리 그대로
+        if not ok:
+            failed = f"치울 {ob['id']} 집기 {last['code']}" + (" — 쌓인 채 벽 쪽이라 넛지 못 함, 쌓기 자리를 벽에서 띄우기"
+                                                          if last["code"] == "NOT_ON_FLOOR" else "")
             break
         for slot in ("aside_1", "aside_2"):
             params = {"location": DRAWER, "slot": slot, "scan": res}
@@ -729,25 +758,10 @@ def unpack(node):
         res, sel = look_select()
     t = (res or {}).get("target") if (res or {}).get("target_found") else None
     if not failed and t is not None and sel.get("reason") == "target_clear":
-        for n in range(RETRIES + 1):
-            print(f"\n===== 목표 {t['id']} 집기 =====")
-            if _pick(node, t, res):
-                break
-            if last["code"] in STOP_CODES:
-                sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
-            if last["code"] not in RETRY_PICK | REGRAB_CODES or n == RETRIES:
-                failed = f"목표 집기 {last['code']}"
-                break
-            if last["code"] in REGRAB_CODES:                 # 벽에 붙어 아직 못 잡는 자리 → 넛지 뒤 다시 보기 (공통 pick 과 같음)
-                print("\n----- 아직 못 잡는 자리 → 넛지 → 다시 보기 -----")
-                if not timed("nudge", lambda: run(node, "nudge", ("nudge_object", {"drawer_id": DRAWER, "target": t, "scan": res}))) \
-                        and last["code"] in STOP_CODES:
-                    sys.exit(f"nudge {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
-            res = inspect_all(node, TARGET)
-            t = (res or {}).get("target") if (res or {}).get("target_found") else None
-            if t is None:
-                failed = "다시 보니 목표 못 찾음"
-                break
+        print(f"\n===== 목표 {t['id']} =====")
+        ok, res, t = _pick_retry(node, t, res, TARGET)
+        if not ok:
+            failed = f"목표 집기 {last['code']}"
         if not failed:
             print("\n===== 트레이 =====")
             if not timed("place", lambda: run(node, "place")):
