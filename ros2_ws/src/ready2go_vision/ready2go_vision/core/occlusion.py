@@ -6,6 +6,8 @@
     ① 두 마스크가 맞닿음: 서로를 contact_dilate_px 만큼 넓힌 띠와 겹친 픽셀이 양쪽 다 min_contact_px 이상
     ② 맞닿은 띠에서 A 높이(서랍 z) 중앙값 − B 높이 중앙값 >= min_height_diff_m (전역 top_z 순서가 아니라 경계 국소 높이)
        단, A 전체 윗면(마스크 z 백분위)이 B 전체 윗면보다 max_over_lower_m 넘게 낮으면 버림 — 띠가 가장자리라 뎁스가 바닥과 섞인 경우(10/12)
+    보조: B 가 덜 보이는데 위 규칙으로 덮은 물체를 못 찾으면, 맞닿은 이웃 중 전체 윗면이 fallback_cover_min_m 이상 높은 것이 하나뿐일 때
+       그것을 덮은 물체로 — 얇은 판이 바로 위를 덮어 띠 높이 차가 min_height_diff_m 보다 작은 경우(10/12 아래 칸 립밤)
     ③ B 가 덜 보임(visible_area_m2 / 클래스 기준 면적 < visible_ratio_max) 또는 A 가 B 를 조각으로 나눔
        (B 마스크에서 split_min_px 이상 조각 중 A 띠에 닿는 것이 2개 이상)
   모름(null): 마스크 없음 / 위 물체가 맞닿았는데 높이를 못 잼 / 위 물체가 맞닿았는데 기준 면적이 없어 덜 보임을 못 봄 /
@@ -88,12 +90,14 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
         less = ratio is not None and ratio < p["visible_ratio_max"]
         split = _pieces(mb, p["split_min_px"]) >= 2
         covers, unknown, why = [], [], []
+        touch = []                                             # 맞닿은 이웃 (보조 규칙용)
         for i, a in enumerate(dets):
             if i == j or masks[i] is None:
                 continue
             band_a, band_b = masks[i] & grown[j], mb & grown[i]
             if band_a.sum() < p["min_contact_px"] or band_b.sum() < p["min_contact_px"]:
                 continue
+            touch.append(i)
             za, zb = Z[band_a], Z[band_b]
             za, zb = za[np.isfinite(za)], zb[np.isfinite(zb)]
             rel = {"over": ids[i] or f"{a['class']}(결과 밖)", "under": ids[j]}
@@ -122,6 +126,13 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
             else:
                 rel["judge"] = "맞닿음(다 보임)"
             relations is not None and relations.append(rel)
+        fb = p.get("fallback_cover_min_m")                     # 얇은 판 밑(띠 높이 차 < min_height_diff): 덜 보이는데 덮은 물체가 없으면
+        if fb is not None and not covers and not unknown and less and tops[j] is not None:   # 맞닿은 이웃 중 전체 윗면이 fb 이상 높은 것이 하나뿐일 때 그것
+            hi = [i for i in touch if tops[i] is not None and tops[i] >= tops[j] + fb]
+            if len(hi) == 1 and ids[hi[0]] is not None:
+                covers.append(ids[hi[0]])
+                relations is not None and relations.append({"over": ids[hi[0]], "under": ids[j], "top_mm": [round(tops[hi[0]] * 1000, 1), round(tops[j] * 1000, 1)],
+                                                            "visible_ratio": None if ratio is None else round(ratio, 2), "judge": "얹힘(보조: 덜 보임 + 혼자 확실히 높은 이웃)"})
         if not covers and not unknown and (less or (split and ratio is None)):   # 다 보이는데(기준 넓이 이상) 조각만 났으면 마스크 잡조각 — 안 가려짐
             unknown.append("덜 보이거나 조각났는데 덮은 물체 없음")
             relations is not None and relations.append({"under": ids[j], "visible_ratio": None if ratio is None else round(ratio, 2),

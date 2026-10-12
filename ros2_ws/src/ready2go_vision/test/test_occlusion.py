@@ -182,3 +182,28 @@ def test_lower_object_is_not_over_higher_one_when_edge_depth_mixes():
     t = json.loads(js)["target"]
     assert ok and (t["occluded_by"] is None or "eraser#1" not in t["occluded_by"])
     assert any(d.get("occlusion", {}).get("judge", "").startswith("버림") for d in dbg)
+
+
+def test_thin_deck_over_object_falls_back_to_clearly_higher_neighbor():
+    """10/12 PC2 아래 칸 031339: 덮개 판이 립밤 끝을 얇게 덮어 맞닿은 띠 높이 차 2 mm(기준 4 mm 미만) → 립밤 null 이었다.
+    덜 보이는데 덮은 물체를 못 찾으면, 맞닿은 이웃 중 전체 윗면이 fallback_cover_min_m 이상 높은 것이 하나뿐이면 그것이 덮은 물체."""
+    objs = [("lip_balm", 0.10, 0.15, (0.0718, 0.02), 0.020),
+            ("cover_plate", 0.13, 0.15, (0.06, 0.06), 0.022),                      # 판(립밤 위 2 mm)
+            ("cover_plate", 0.15, 0.15, (0.02, 0.02), 0.034)]                      # 판 위 손잡이(전체 윗면 34 mm)
+    depth, masks = scene(objs)
+    dets = dets_of(objs[:2], [masks[0], masks[1] | masks[2]])
+    items = {**ITEMS, "cover_plate": {"size_m": [0.0985, 0.0742, 0.0405]}}
+    ok, _, js = inspect_scene(dets, depth, K, T, PARAMS, items, "drawer_top", "lip_balm", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] == ["cover_plate#1"]
+
+
+def test_fallback_needs_clearly_higher_neighbor():
+    """보조 규칙은 이웃 전체 윗면이 fallback_cover_min_m(10 mm) 이상 높을 때만 — 판 손잡이가 8 mm 높으면(지우개 옆 립밤 8.5 mm 같은 키 차이) 모름 그대로."""
+    objs = [("lip_balm", 0.10, 0.15, (0.0718, 0.02), 0.020),
+            ("cover_plate", 0.13, 0.15, (0.06, 0.06), 0.022),
+            ("cover_plate", 0.15, 0.15, (0.02, 0.02), 0.028)]                      # 전체 윗면 28 mm (립밤 + 8)
+    depth, masks = scene(objs)
+    dets = dets_of(objs[:2], [masks[0], masks[1] | masks[2]])
+    items = {**ITEMS, "cover_plate": {"size_m": [0.0985, 0.0742, 0.0405]}}
+    ok, _, js = inspect_scene(dets, depth, K, T, PARAMS, items, "drawer_top", "lip_balm", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
