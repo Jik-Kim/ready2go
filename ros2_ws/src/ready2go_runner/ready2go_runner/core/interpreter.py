@@ -93,8 +93,9 @@ VAR_NULL = "VAR_NULL"                   # 백엔드로 보낼 동작의 "$변수
 PRE_MOTION_COMMON = {"TOOL_NOT_SET", "DRAWER_NOT_AT_TRAVEL", "YAW_INVALID", "NOT_ON_FLOOR", "WALL_TOO_CLOSE"}
 NO_MOTION_DEFAULT = {"TOOL_NOT_SET"}    # 표에 없는 로봇 동작 (move_to_named_pose 등)
 NO_MOTION_BY_ACTION = {
-    "pick_object": PRE_MOTION_COMMON | {"BAD_PARAMS", "HOLDING_OBJECT", "UNSUPPORTED_PARAMS"},
-    "nudge_object": PRE_MOTION_COMMON | {"NO_PUSH_ACCESS", "BAD_PARAMS"},
+    # NEIGHBOR_TOO_CLOSE: scan 의 옆 물체가 벌린 손가락·끄는 길에 걸림 — B 가 움직이기 전 거부 (main 구현 10/09, runner.md 표)
+    "pick_object": PRE_MOTION_COMMON | {"BAD_PARAMS", "HOLDING_OBJECT", "UNSUPPORTED_PARAMS", "NEIGHBOR_TOO_CLOSE"},
+    "nudge_object": PRE_MOTION_COMMON | {"NO_PUSH_ACCESS", "BAD_PARAMS", "NEIGHBOR_TOO_CLOSE"},
     # #181 B 서랍 노드 (머지 10/08 예정): 설정·시작 자세·상태 확인은 모두 움직이기 전 (닫기 노드 안의 홈·시작 자세
     # 이동 뒤 실패는 CLOSE_NOT_CONFIRMED 등이라 여기 없음)
     "drawer_control": NO_MOTION_DEFAULT | {"NOT_AT_START_POSE", "DRAWER_NOT_CONFIGURED", "DRAWER_STATE_UNKNOWN",
