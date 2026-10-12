@@ -620,3 +620,22 @@ def test_b_plan_is_make_room_check_only(monkeypatch, tmp_path):
     (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
     action, params = sk.goal_for("plan")
     assert action == "nudge_object" and params["make_room"] is True and params["check_only"] is True and "plan" in sk.NEEDS_DRAWER
+
+
+def test_b_free_keeps_extra_wall_margin(monkeypatch, tmp_path):
+    """[사용자 10/12 PC2] 아래 칸 립밤(긴 변 쥠 72.5 mm) B free 첫 후보 (20, 60) mm 90° 에서 손가락 바깥 관절이 왼벽에 닿음
+    (표로는 4.3 mm 남음) → B free 후보만 place.free_wall_extra_mm 만큼 벽에서 더 띄움."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "HELD_FILE", str(tmp_path / "held.json"))
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0227, "occluded_by": [],
+           "pose": {"frame": "drawer_bottom", "position": [0.0097, 0.1539, 0.0], "yaw": 1.5625, "yaw_valid": True}}
+    scan = {"target_found": True, "target": lip, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_picked.json").write_text(json.dumps({"target": lip, "scan": scan}))
+    (tmp_path / "held.json").write_text(json.dumps({"id": "lip_balm#1", "class": "lip_balm", "width_m": 0.0725, "long_side": True}))
+    cands, _ = sk.free_poses("drawer_bottom")
+    assert cands
+    cross = [p for p in cands if abs(math.sin(p["yaw"])) > 0.7]         # 립밤이 서랍 y 로 누움 = 손가락이 옆벽 쪽으로 벌어짐
+    assert cross and cands[0] in cross
+    for p in cross:
+        assert p["position"][1] * 1000.0 >= 65.0                        # 닿은 (20, 60) 보다 y 0 벽에서 멀리

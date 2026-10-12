@@ -519,7 +519,10 @@ def free_poses(drawer):
     except (OSError, ValueError):
         pass
     open_mm = width * 1000.0 + prm["place"]["release_extra_mm"]
-    g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer))
+    # 벽 여유를 더 둠 — 손가락 바깥 관절 표(gripper.wall_clearance_mm.across, 위 칸 10/05)로 4.3 mm 남는다던 자리에서 아래 칸 왼벽에
+    # 닿음 [사용자 10/12 PC2: 립밤 긴 변 쥠 (20, 60) mm 90°, 내려가다가]. 표를 아래 칸에서 다시 재기 전 임시
+    g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer),
+             wall_margin_mm=prm["gripper"]["wall_margin_mm"] + float(prm["place"].get("free_wall_extra_mm", 0.0)))
     others = [o for o in objs if o["id"] not in {b["id"] for b in bases}] + bases
     held_state = {"class": held["class"], "id": held["id"], "width_m": width, "drawer_id": drawer, "long_side": long_held,
                   "tcp_above_floor_m": size[2] * prm["pick"].get("grip_height_ratio", 0.5)}
