@@ -1914,7 +1914,11 @@ class SkillServer(Node):
             objs_, why_ = plp.scan_objects(params.get("scan"), drawer_id)
             s_ont = None if why_ else plp.ontology_support_m(target=target, objects=objs_, size_of=self._size_or_none)
             if s_ont is not None:
-                support = s_ont
+                # 덮인 물체는 비전 윗면이 번져 높게 나옴 → 온톨로지 [사용자 10/11]. 맨 위 물체(위에 아무것도 없음)는 비전 윗면이 맞음
+                # (차키 52.8 = 몽키 18.5 + 캐러멜 18.5 + 차키 15.8) — 헛관계로 온톨로지 받침이 낮게 나오면 손가락이 받침 위로 내려감
+                # [실측 PC2 10/12: "몽키가 캐러멜 위" 헛관계로 받침 18.5, 실제 37] → 맨 위 물체는 둘 중 높은 값 (높게 틀리면 못 집을 뿐)
+                top_clear = isinstance(target.get("occluded_by"), list) and not target["occluded_by"]
+                support = max(s_ont, support) if top_clear else s_ont
         by_cls = (prm["pick"].get("tcp_above_top_by_class_m") or {}).get(cls)   # 물건별 잡는 높이 (윗면 기준, 음수 = 아래) — 키 큰 물건 [실측으로 채움]
         pick_prm = dict(prm["pick"], tcp_above_top_m=by_cls) if by_cls is not None else prm["pick"]
         plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=place["tf"], params=pick_prm, support_m=support,

@@ -2123,7 +2123,7 @@ def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
     scan = {"target_found": True, "target": key, "candidates": [car, wr], "visible_count": 3}
     server.Gripper.holding, server.Gripper.held_width = True, 39.0
     out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
-    assert out.success and "받침 37.0 mm" in out.reason, out.reason
+    assert out.success and "받침 37.9 mm" in out.reason, out.reason   # 맨 위 차키는 온톨로지 37 과 비전 37.9(53.7 − 15.8) 중 높은 값 [사용자 10/12]
 
 
 # ---- 파지 공간 만들기 nudge_object make_room [제안 10/11 B, 계약 승인 전] ----
@@ -2484,3 +2484,29 @@ def test_tilt_back_uses_current_drawer_tf(server, monkeypatch):
         assert low[0] == pytest.approx(tb["tcp_mm"][0] + 4.0, abs=0.2) and low[1] == pytest.approx(tb["tcp_mm"][1], abs=0.2)
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+@pytest.mark.parametrize("key, cara, wrench", [
+    ((0.0743, 0.2324, -0.1899), (0.0657, 0.1987, -0.2008, ["car_key#1"]), (0.1487, 0.2161, -0.1872, ["car_key#1", "caramel_box#1"])),
+    ((0.0782, 0.2146, -0.1714), (0.0698, 0.1804, -0.0991, ["car_key#1", "toy_wrench#1"]), (0.152, 0.1989, -0.2232, ["car_key#1"])),
+])
+def test_stacked_key_hanging_off_caramel_edge_picks_with_caramel_as_support(server, key, cara, wrench):
+    """[실측 PC2 10/12 B unpack top 몽키 두 번] 캐러멜 끝에 걸친 차키(가운데가 캐러멜 밖 약 10 mm) → 캐러멜을 옆 물체로 봐
+    NEIGHBOR_TOO_CLOSE. 분할 관계 + 캐러멜 윗면이 차키 바닥 높이와 맞고 겹치면 받침 → 집기 통과, 받침 37 mm (몽키 + 캐러멜)."""
+    def o(i, cls, xyz, top, occ):
+        return {"id": i, "class": cls, "top_z": top, "occluded_by": occ, "visible_area_m2": 0.002,
+                "pose": {"frame": "drawer_top", "position": [xyz[0], xyz[1], 0.0], "yaw": xyz[2], "yaw_valid": True}}
+    k = o("car_key#1", "car_key", key, 0.0528, [])
+    c = o("caramel_box#1", "caramel_box", cara[:3], 0.0386, cara[3])
+    w = o("toy_wrench#1", "toy_wrench", wrench[:3], 0.0176, wrench[3])
+    scan = {"target_found": True, "target": w, "candidates": [k, c], "visible_count": 3}
+    server.Gripper.holding, server.Gripper.held_width = True, 39.1
+    try:
+        out, _ = server.run("pick_object", {"target": k, "approach_offset": [0, 0, 0.1], "scan": scan})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success, out.reason
+    assert "받침 37.0" in out.reason or "받침 37.1" in out.reason or "받침 37.2" in out.reason   # 온톨로지 37 / 비전 52.8 − 15.8 = 37.0 중 높은 값
+    side = o("caramel_box#1", "caramel_box", (key[0], key[1] - 0.045, 0.0), 0.0185, ["car_key#1"])   # 바닥 차키 옆 헛관계 캐러멜
+    floor_key = dict(k, top_z=0.0158)
+    assert server.ss.plp.objects_under(target=floor_key, objects=[side], size_of=server.srv._size_or_none) == []
