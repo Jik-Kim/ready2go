@@ -2,6 +2,7 @@
 
 ROS 패키지가 없으면(CI의 코어 단계) 필요한 모듈만 이 테스트 안에서 가짜로 넣었다가 끝나면 되돌린다.
 """
+import dataclasses
 import importlib
 import json
 import math
@@ -167,6 +168,22 @@ def test_check_only_graspable_succeeds_with_same_target(server):
     assert out.success and data["pushed"] is False and data["target_after"] == ERASER_FREE
     assert server.srv.robot.log == []
 
+
+
+def test_check_only_reports_needed_and_plan_code(server, monkeypatch):
+    """[E #245 제안] nudge check_only 결과에 넛지 필요(needed)·넛지로도 안 되는 이유(plan_code). 기존 error_code 그대로, 움직이지 않음."""
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER, "check_only": True})
+    assert out.error_code == server.ss.PUSH_LIMIT and data["needed"] is True and data["plan_code"] is None
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_FREE, "check_only": True})
+    assert out.success and data["needed"] is False and data["plan_code"] is None
+    real = server.ss.mp.plan_drag
+    monkeypatch.setattr(server.ss.mp, "plan_drag", lambda **k: dataclasses.replace(
+        real(**k), needed=False, error_code=server.ss.mp.NO_PUSH_ACCESS, reason="시험: 넛지 못 함"))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER, "check_only": True})
+    assert out.error_code == server.ss.PUSH_LIMIT and data["needed"] is False and data["plan_code"] == server.ss.mp.NO_PUSH_ACCESS
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_FREE})
+    assert "needed" not in data                                         # check_only 가 아니면 예전 결과 그대로
+    assert server.srv.robot.log == []
 
 def test_drag_then_lift_failure_keeps_safety_code_and_drops_target_after(server, monkeypatch):
     """#37 E 검토 P1: 끌기 성공 뒤 lift 가 정지 미확인이면 그 코드, target_after 없음."""
@@ -581,6 +598,20 @@ def test_pick_goes_through_drag_down_like_nudge(server):
     assert blend[1][0][1] == pytest.approx(blend[1][1][1])              # 첫 점 = 목표 y
     assert blend[1][1][2] < 300.0                                       # safe_z(300) 로 올리지 않음
 
+
+
+def test_pick_skips_drag_down_when_already_there(server):
+    """[E #245 제안] 집기 시작 때 실측 관절이 이미 경유점(pick.at_waypoint_tol_deg 안)이면 경유점 movej 를 다시 보내지 않음.
+    Runner 기록이 아니라 실제 관절값으로 판단, 그리퍼 닫기는 그대로."""
+    srv = server.srv
+    down = srv.poses()["drag_down"]["drawer_top"]
+    srv.robot.j = [v + 0.2 for v in down]                              # 경유점 0.2° 안
+    srv.robot.p = [383.495, -214.323, 275.066, 140.290, 179.999, 140.293]
+    real_grip = srv._grip
+    srv._grip = lambda w, f: srv.robot.log.append(("grip", w)) or real_grip(w, f)
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert ("movej", down) not in srv.robot.log and ("grip", 0) in srv.robot.log
+    assert any(e[0] == "moveb" for e in srv.robot.log)                  # 목표로는 그대로 감
 
 HAMMER = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025,
           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
