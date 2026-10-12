@@ -2470,7 +2470,8 @@ class SkillServer(Node):
             pc, sc = ((dict(p_, yaw=p_["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (p_, size))
             bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
                                    size_of=self._size_or_none, interior_m=interior, place=pl,
-                                   g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
+                                   g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)),
+                                   finger_half_width_mm=g.get("tip_radius_mm"))   # 손가락 띠만 (집기와 같음)
             if back_tilt and bad_ is not None and bad_.error_code == WALL_TOO_CLOSE:
                 return None                                 # 집을 때 기울인 자세 그대로 되돌림 — 그 자세로 이미 거기 있었음 (이웃 확인은 위에서 통과)
             if bad_ or not slot:

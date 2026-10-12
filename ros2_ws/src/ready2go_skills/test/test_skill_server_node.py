@@ -2133,19 +2133,22 @@ def _plate_held(server, scan):
     return plate
 
 
-@pytest.mark.parametrize("slot", ["aside_1", "aside_2"])
-def test_aside_still_refused_by_unknown_yaw_neighbor_fail_closed(server, slot):
-    """[PC2 10/12 run 7d18c6] 판 밑 지우개는 방향 모름 → 명목 정사각형(57 mm) 그대로 aside 거부 (fail-closed).
-    보이는 면적만으로 줄이지 않음 — 위치는 검출 박스 중심이고 길쭉한 마스크는 면적 정사각형 밖으로 뻗음 [#241 리뷰 P1].
-    이 경우 Runner 는 집기 전 check_only → slot "free" 로 (#242)."""
+@pytest.mark.parametrize("slot, ok", [("aside_1", False), ("aside_2", True)])
+def test_aside_unknown_yaw_neighbor_only_blocks_object_or_finger_band(server, slot, ok):
+    """[PC2 10/12 run 7d18c6] 판 밑 지우개는 방향 모름 → 명목 정사각형(57 mm) 그대로 (fail-closed, 보이는 면적으로 안 줄임 [#241 리뷰 P1]).
+    다만 놓을 자리는 '판 + 여유'와 '손가락이 내려가는 띠'만 봄(집기와 같음) [사용자 10/12 PC2 립밤 되돌리기 거부]:
+    aside_2 는 정사각형이 판 끝 옆 빈 곳에만 걸려 통과, aside_1 은 판·손가락 띠에 걸려 그대로 거부."""
     scan = json.loads(json.dumps(SCAN_1012_PLATE))
     try:
         _plate_held(server, scan)
         out, data = server.run("place_object", {"location": "drawer_bottom", "slot": slot, "scan": scan})
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
-    assert not out.success and out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "eraser#1"
-    assert data["placed_pose"] is None and server.srv.held is not None
+    if ok:
+        assert out.success and data["placed_pose"] is not None and server.srv.held is None
+    else:
+        assert not out.success and out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "eraser#1"
+        assert data["placed_pose"] is None and server.srv.held is not None
 
 
 def test_place_check_only_before_pick_moves_nothing(server):

@@ -268,3 +268,23 @@ def test_fit_slot_without_turn_only_shifts():
     got, bad = plp.fit_slot(pose=pose, check=lambda p: turned.append(p["yaw"]) or plp.Refusal(plp.PLACE_BLOCKED, "립밤"),
                             max_shift_mm=20.0, turn=False)
     assert got == pose and bad.error_code == plp.PLACE_BLOCKED and {round(y, 3) for y in turned} == {-0.054}
+
+
+def test_place_blocks_only_object_and_finger_band():
+    """[사용자 10/12 PC2] 가림막 되돌리기가 굴러간 립밤(방향 모름)에 PLACE_BLOCKED → 꺼낸 aside 로.
+    벌린 손가락 폭 × 판 길이 전체가 아니라 '판 + 여유'와 '손가락 띠'만 봄 (집기 pick_blocker 와 같음).
+    방향 모르는 이웃은 그대로 대각선 정사각형 (fail-closed)."""
+    plate = [0.0985, 0.0742, 0.0405]
+    sizes = dict(SIZES, cover_plate=plate)
+    open_mm = 74.2 + PL["release_extra_mm"]
+
+    def chk(lx, ly, band=True):
+        return plp.check_place(pose=pose(0.10, 0.17), held_id="cover_plate#1", held_size_m=plate, open_mm=open_mm,
+                               objects=[obj("lip_balm#1", "lip_balm", lx, ly, valid=False)], size_of=sizes.get,
+                               interior_m=INTERIOR, g=G, place=PL,
+                               finger_half_width_mm=G["tip_radius_mm"] if band else None)
+
+    assert chk(0.165, 0.25) is None                                   # 판 끝 옆·손가락 띠 밖 — 통과
+    assert chk(0.165, 0.25, band=False).error_code == plp.PLACE_BLOCKED   # 예전(사각형 전체)은 막았음
+    assert chk(0.10, 0.25).blocked_by == "lip_balm#1"                 # 손가락 띠(긴 변 가운데 옆) — 막음
+    assert chk(0.15, 0.20).blocked_by == "lip_balm#1"                 # 판 위 — 막음
