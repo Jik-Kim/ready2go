@@ -5,6 +5,7 @@
   "A 가 B 위에 얹힘" (A 가 B 의 occluded_by 에 들어감):
     ① 두 마스크가 맞닿음: 서로를 contact_dilate_px 만큼 넓힌 띠와 겹친 픽셀이 양쪽 다 min_contact_px 이상
     ② 맞닿은 띠에서 A 높이(서랍 z) 중앙값 − B 높이 중앙값 >= min_height_diff_m (전역 top_z 순서가 아니라 경계 국소 높이)
+       단, A 전체 윗면(마스크 z 백분위)이 B 전체 윗면보다 max_over_lower_m 넘게 낮으면 버림 — 띠가 가장자리라 뎁스가 바닥과 섞인 경우(10/12)
     ③ B 가 덜 보임(visible_area_m2 / 클래스 기준 면적 < visible_ratio_max) 또는 A 가 B 를 조각으로 나눔
        (B 마스크에서 split_min_px 이상 조각 중 A 띠에 닿는 것이 2개 이상)
   모름(null): 마스크 없음 / 위 물체가 맞닿았는데 높이를 못 잼 / 위 물체가 맞닿았는데 기준 면적이 없어 덜 보임을 못 봄 /
@@ -51,6 +52,15 @@ def _pieces(mask: np.ndarray, min_px: int, touching: np.ndarray | None = None) -
     return sum(1 for L in range(1, n) if st[L, cv2.CC_STAT_AREA] >= min_px and (touching is None or (touching & (lab == L)).any()))
 
 
+def _top(Z: np.ndarray | None, mask: np.ndarray | None, pct: float) -> float | None:
+    """마스크 안 서랍 z 의 pct 백분위(전체 윗면, depth_blob top_z 와 같은 백분위). 잴 수 없으면 None."""
+    if Z is None or mask is None:
+        return None
+    z = Z[mask]
+    z = z[np.isfinite(z)]
+    return float(np.percentile(z, pct)) if z.size else None
+
+
 def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrinsics, T_drawer_cam: np.ndarray,
                      params: dict, min_depth: float, max_depth: float, relations: list | None = None) -> dict:
     """dets = 판정에 쓸 검출(결과에서 빠진 것도 포함 — '덮은 물체가 결과에서 빠짐'을 알기 위해), ids[i] = 결과 id 또는 None(결과에 없음).
@@ -64,6 +74,7 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
     Z = drawer_z_map(depth_m, K, T_drawer_cam, min_depth, max_depth) if any(m is not None for m in masks) else None
     grown = [None if m is None else cv2.dilate(m.astype(np.uint8), kern) > 0 for m in masks]
     area = [None if m is None else visible_area_m2(m, depth_m, K, min_depth, max_depth) for m in masks]
+    tops = [_top(Z, m, p.get("top_percentile", 95)) for m in masks]
     out = {}
     for j, b in enumerate(dets):
         if ids[j] is None:
@@ -94,6 +105,11 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
             rel["dz_mm"] = round(dz * 1000, 1)
             if dz < p["min_height_diff_m"]:
                 continue                                       # 같은 높이이거나 B 가 위 — 이 쌍에서 B 는 안 덮임
+            lower = p.get("max_over_lower_m")                  # 띠 높이는 가장자리 뎁스 섞임에 약함 — 위 물체 전체 윗면이 아래 물체보다 이만큼 넘게 낮으면 버림
+            if lower is not None and tops[i] is not None and tops[j] is not None and tops[i] < tops[j] - lower:
+                rel.update(top_mm=[round(tops[i] * 1000, 1), round(tops[j] * 1000, 1)], judge="버림: 위 물체 윗면이 더 낮음")
+                relations is not None and relations.append(rel)
+                continue
             cut = _pieces(mb, p["split_min_px"], grown[i]) >= 2
             rel.update(visible_ratio=None if ratio is None else round(ratio, 2), split=cut)
             if ratio is None and not cut:

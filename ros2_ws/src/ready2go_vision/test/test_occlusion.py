@@ -166,3 +166,19 @@ def test_split_but_fully_visible_object_is_not_unknown():
     m = masks[0].copy(); m[250:280, 800:830] = True                                 # 떨어진 900 px 조각(서랍 안 바닥 위)
     ok, _, js = inspect_scene(dets_of(objs, [m]), depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR)
     assert ok and json.loads(js)["target"]["occluded_by"] == []
+
+
+def test_lower_object_is_not_over_higher_one_when_edge_depth_mixes():
+    """10/12 PC2 024941: 캐러멜 가장자리 띠 뎁스가 바닥과 섞여(6.5 mm, 윗면 37) 몽키(띠 10.6)가 '캐러멜 위'로 나왔다.
+    위 물체의 전체 윗면이 아래 물체 윗면보다 max_over_lower_m 넘게 낮으면 그 관계는 버린다."""
+    objs = [("eraser", 0.07, 0.15, (0.0525, 0.022), 0.0115), ("caramel_box", 0.12, 0.15, (0.075, 0.049), 0.0185 + 0.0185)]
+    depth, masks = scene(objs)
+    import cv2
+    near = cv2.dilate(masks[0].astype(np.uint8), np.ones((25, 25), np.uint8)) > 0
+    depth[masks[1] & near] = H                                                     # 캐러멜 쪽 맞닿은 띠 = 바닥 뎁스 (가장자리 섞임)
+    m1 = masks[1].copy(); m1[:, 700:] = False                                      # 캐러멜은 덜 보임(다른 물체에 일부 가림)
+    dbg = []
+    ok, _, js = inspect_scene(dets_of(objs, [masks[0], m1]), depth, K, T, PARAMS, ITEMS, "drawer_top", "caramel_box", INTERIOR, dbg)
+    t = json.loads(js)["target"]
+    assert ok and (t["occluded_by"] is None or "eraser#1" not in t["occluded_by"])
+    assert any(d.get("occlusion", {}).get("judge", "").startswith("버림") for d in dbg)
