@@ -1,0 +1,232 @@
+{
+  "task_id": "show_drawer",
+  "description": "[3차 챌린지 후보 — C 초안 10/12, E 확정 전] 서랍 안 보여주기 (AC-PLN-02 새 복합 작업, Python 변경 없이 등록된 원자 동작·스킬만 조합): 안내 → 서랍 열기(open_drawer) → 탑뷰 → 서랍 전체 촬영(search_target 없음) → 보인 물체마다 온톨로지 이름 → \"서랍 안에 ○○, ○○이 있어요\" (없으면 \"보이는 물건이 없어요\") → finally 서랍 닫기·안내·빈손이면 홈. 로봇이 물건을 만지지 않으므로 상태 변화는 서랍 열림/닫힘뿐. 실행: RUNNER_TASK_FILE=/tasks/show_drawer.json (새 인텐트 이름은 intent 스키마 계약 변경 필요 — 그 전까지 trigger 없음).",
+  "inputs": {
+    "drawer_id": "drawer_top"
+  },
+  "sequence": [
+    {
+      "id": "s0",
+      "action": "set_var",
+      "params": {
+        "name": "names",
+        "value": []
+      }
+    },
+    {
+      "id": "s1",
+      "action": "speak",
+      "params": {
+        "text": "서랍 안을 보여 드릴게요"
+      }
+    },
+    {
+      "id": "s2",
+      "skill": "open_drawer",
+      "params": {
+        "drawer_id": "$inputs.drawer_id"
+      },
+      "timeout_sec": 60
+    },
+    {
+      "id": "s3",
+      "action": "move_to_named_pose",
+      "params": {
+        "pose_name": "drawer_top_view",
+        "drawer_id": "$inputs.drawer_id"
+      },
+      "timeout_sec": 60
+    },
+    {
+      "id": "s4",
+      "action": "inspect_region",
+      "params": {
+        "region": "$inputs.drawer_id"
+      },
+      "output": "scan",
+      "on_failure": "retry",
+      "retry": 1,
+      "timeout_sec": 30
+    },
+    {
+      "id": "s5",
+      "action": "for_each",
+      "in": "$scan.candidates",
+      "as": "o",
+      "body": [
+        {
+          "id": "s5.0",
+          "action": "set_var",
+          "params": {
+            "name": "info",
+            "value": null
+          }
+        },
+        {
+          "id": "s5.1",
+          "action": "query_ontology",
+          "params": {
+            "item": "$o.class"
+          },
+          "output": "info",
+          "on_failure": "skip"
+        },
+        {
+          "id": "s5.2",
+          "action": "if",
+          "on_failure": "skip",
+          "cond": {
+            "op": "!=",
+            "args": [
+              "$info",
+              null
+            ]
+          },
+          "then": [
+            {
+              "id": "s5.2.1",
+              "action": "push",
+              "params": {
+                "stack": "names",
+                "value": "$info.name_ko"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s6",
+      "action": "if",
+      "cond": {
+        "op": "not_empty",
+        "args": [
+          "$names"
+        ]
+      },
+      "then": [
+        {
+          "id": "s6.1",
+          "action": "speak",
+          "params": {
+            "text": "서랍 안에 {{names|목록|이}} 있어요"
+          },
+          "timeout_sec": 20
+        }
+      ],
+      "else": [
+        {
+          "id": "s6.2",
+          "action": "speak",
+          "params": {
+            "text": "서랍 안에 보이는 물건이 없어요"
+          },
+          "timeout_sec": 20
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "id": "f1",
+      "action": "query_ontology",
+      "params": {
+        "state": "gripper.robot"
+      },
+      "output": "hold"
+    },
+    {
+      "id": "f1d",
+      "action": "query_ontology",
+      "params": {
+        "state": "open.{{inputs.drawer_id}}"
+      },
+      "output": "drawer_before",
+      "on_failure": "skip"
+    },
+    {
+      "id": "f2",
+      "skill": "close_drawer",
+      "params": {
+        "drawer_id": "$inputs.drawer_id"
+      },
+      "on_failure": "skip",
+      "timeout_sec": 60
+    },
+    {
+      "id": "f2d",
+      "action": "query_ontology",
+      "params": {
+        "state": "open.{{inputs.drawer_id}}"
+      },
+      "output": "drawer_after",
+      "on_failure": "skip"
+    },
+    {
+      "id": "f2s",
+      "action": "if",
+      "on_failure": "skip",
+      "cond": {
+        "op": "and",
+        "args": [
+          {
+            "op": "==",
+            "args": [
+              "$drawer_before.value",
+              true
+            ]
+          },
+          {
+            "op": "==",
+            "args": [
+              "$drawer_after.value",
+              false
+            ]
+          }
+        ]
+      },
+      "then": [
+        {
+          "id": "f2s.1",
+          "action": "speak",
+          "params": {
+            "text": "서랍을 닫았어요"
+          },
+          "on_failure": "skip",
+          "timeout_sec": 20
+        }
+      ]
+    },
+    {
+      "id": "f3",
+      "action": "if",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$hold.value",
+          "empty"
+        ]
+      },
+      "then": [
+        {
+          "id": "f3.1",
+          "action": "move_to_named_pose",
+          "params": {
+            "pose_name": "home"
+          },
+          "timeout_sec": 60
+        }
+      ],
+      "else": [
+        {
+          "id": "f3.2",
+          "action": "set_var",
+          "params": {
+            "name": "stopped_holding",
+            "value": "물품을 쥔 채 정지 — 홈 이동 안 함, 사람 복구"
+          }
+        }
+      ]
+    }
+  ]
+}
