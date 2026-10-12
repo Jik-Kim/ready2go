@@ -252,7 +252,7 @@ Docker/compose 패키지·모델/runtime 배포는 별도 인계 대상입니다
 
 ## C/D 연결·진단·평가
 
-[문서] `diagnostic_detail=true`에서는 민감정보를 제거한 상세 JSONL을 **YAML `diagnostic_file`의 E 로컬 파일**에 저장합니다. ROS 로그/콘솔과 tee는 최종 안내·대상·발행/수락 미확인·보류/오류 요약입니다. 새 진단 토픽이나 DB를 만들지 않습니다. 실행 모드에서는 기존 intent의 `source`에도 정보를 전달하지만 C 로그/run_id·D 화면 수신이 자동 연결되는 것은 아닙니다. 아래 부가 정보의 수신·의미는 C/D 협의 대상입니다.
+[문서] `diagnostic_detail=true`에서는 민감정보를 제거한 상세 JSONL을 **YAML `diagnostic_file`의 E 로컬 파일**에 저장합니다. ROS 로그/콘솔과 tee는 비밀값을 필터한 STT 전사·최종 안내·대상·발행/수락 미확인·보류/오류 요약입니다. 새 진단 토픽이나 DB를 만들지 않습니다. 실행 모드에서는 기존 intent의 `source`에도 정보를 전달하지만 C 로그/run_id·D 화면 수신이 자동 연결되는 것은 아닙니다. 아래 부가 정보의 수신·의미는 C/D 협의 대상입니다.
 
 - STT 원문, 실제 intent/targets, LLM 호출 여부·원문·검증 passed/failed/not_returned/not_called, 폴백 여부, 실행 허용/보류. 상세 JSONL에서 발행 여부는 최상위 `published`, intent는 `intent`입니다. 발행 여부는 진단 이벤트의 최상위 `published`이며 `/voice/intent`의 `source`에는 없습니다. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공을 뜻하지 않습니다.
 - 음성의 발화 종료 Unix/monotonic 시각, TTS 재생 시각, 확인 지연. TTS는 합성 시작/완료나 요청 접수가 아니라 **첫 PCM의 PortAudio DAC 재생 시각**을 장치 callback 정보로 기록합니다(`tts_start_basis=portaudio_first_dac`). 물리 스피커 청취 지연은 별도 확인해야 합니다.
@@ -349,7 +349,7 @@ PYTHON
 
 기존 fixed5초/commissioning·API/TTS 상한·MeloTTS·wake0.7은 그대로 사용하며 두 모드 모두 실제 발화 종료/3초 지연은 null/not_measured입니다. 위 명령으로 실음성 정확도·지연·청취 품질·C/D 연결 완료를 선언하지 않습니다.
 
-실제 음성 입력이 준비된 경우 기본 콘솔에는 웨이크 대기·감지, 요약된 해석 결과, 발행/보류 상태와 오류가 표시됩니다. 녹음 시작/완료, Whisper 요청·STT 결과, TTS 시작 같은 단계 이벤트는 콘솔에서 생략됩니다. `diagnostic_detail:=true`는 설정된 `diagnostic_file`에 이벤트별 최상위 필드를 가진 상세 JSONL을 저장하며 `tee`로 받은 콘솔 요약에는 전체 증빙이 없습니다. 상세 진단은 [음성·LLM 문서의 현재 진단 절](../../../docs/voice_llm.md#voice-diagnostics-current)을 참조하십시오.
+실제 음성 입력이 준비된 경우 기본 콘솔에는 웨이크 대기·감지, 비밀값을 필터한 한 줄 STT 전사, 요약된 해석 결과, 발행/보류 상태와 오류가 표시됩니다. 녹음 시작/완료, Whisper 요청, TTS 시작 같은 단계 이벤트는 콘솔에서 생략됩니다. `diagnostic_detail:=true`는 설정된 `diagnostic_file`에 이벤트별 최상위 필드를 가진 상세 JSONL을 저장하며 `tee`로 받은 콘솔 요약에는 전체 증빙이 없습니다. 상세 진단은 [음성·LLM 문서의 현재 진단 절](../../../docs/voice_llm.md#voice-diagnostics-current)을 참조하십시오.
 
 ## MeloTTS 설치·재생 (P1 E, 사용자 선택)
 
@@ -537,7 +537,7 @@ PYTHON
 
 [문서] `clarify_prompts`는 기본/실패 안내입니다. #194 구현은 의미 검증된 내부 LLM 문장을 유지하고 대상·판정에 맞지 않는 후보만 대체하며 최종 콘솔/TTS 입력을 일치시킵니다. 현재 대상의 구체 질문과 실제 TTS 완료 뒤의 유효한 답/대상 정정은 `Conversation`에서 한 번 처리합니다. 정책 정본은 [음성 정책](../../../docs/requirements.md#voice-policy)이며 D 정답표 반영·실음성 평가는 별도 인계입니다. 시작 캐시는 합성만 하며 과거 질문 권한을 복원하지 않습니다.
 
-기본 콘솔은 최종 안내·intent/target·발행/수락 미확인·보류/오류와 간결한 준비/재생 정보를 표시합니다. 상세 단계 시각/LLM 원문은 `diagnostic_detail=true`의 로컬 JSONL에서 확인합니다.
+기본 콘솔은 비밀값을 필터한 한 줄 STT 전사·최종 안내·intent/target·발행/수락 미확인·보류/오류와 간결한 준비/재생 정보를 표시합니다. 상세 단계 시각/LLM 원문은 `diagnostic_detail=true`의 로컬 JSONL에서 확인합니다.
 
 [실측: 로컬 합성 입력] 실제 Silero는 무음·미세/큰 임의 잡음·200Hz 정현파를 무발화로, 기존 MeloTTS 생성 시험 WAV를 발화로 판정했습니다. 새 질문 사전캐시 준비36.26초, 일반 고정 clarify의 캐시 응답5~7ms(캐시 히트)였습니다. 마이크/STT/LLM/실제 첫DAC 지연 측정이 아닙니다. 90ms 순간 구간 거절·180ms 구간 허용은 모의 검사입니다. **180ms 이상의 웨이크 잔음도 통과할 수 있으며**, 실제 마이크에서 무발화/짧은 정상 명령·오탐을 재시험해야 합니다.
 
