@@ -95,6 +95,27 @@ def _case_requirements(
     raise ArtifactValidationError(f"unknown suite: {suite}")
 
 
+def _validate_evidence_list(value: Any, label: str, required: bool) -> None:
+    if not isinstance(value, list):
+        raise ArtifactValidationError(f"{label} evidence must be a list")
+    if required and not value:
+        raise ArtifactValidationError(f"{label} has empty evidence")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise ArtifactValidationError(
+            f"{label} evidence must contain only non-empty strings"
+        )
+
+
+def _is_empty_observation(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, dict)):
+        return not value
+    return False
+
+
 def _validate_machine_checks(
     trial: dict[str, Any],
     required_machine: list[str] | None,
@@ -126,10 +147,11 @@ def _validate_machine_checks(
             raise ArtifactValidationError(
                 f"trial {trial['trial_id']} machine check {check_id} has invalid status"
             )
-        if not check["evidence"]:
-            raise ArtifactValidationError(
-                f"trial {trial['trial_id']} machine check {check_id} has empty evidence"
-            )
+        _validate_evidence_list(
+            check["evidence"],
+            f"trial {trial['trial_id']} machine check {check_id}",
+            required=True,
+        )
         by_id[check_id] = check
 
     if required_machine is not None:
@@ -153,9 +175,12 @@ def _validate_machine_checks(
             raise ArtifactValidationError(
                 f"trial {trial['trial_id']} pass requires {check_id} status=pass"
             )
-        if check["observed"] is None or check["expected"] is None:
+        if _is_empty_observation(check["observed"]) or _is_empty_observation(
+            check["expected"]
+        ):
             raise ArtifactValidationError(
-                f"trial {trial['trial_id']} pass requires observed and expected for {check_id}"
+                f"trial {trial['trial_id']} pass requires non-empty observed and expected "
+                f"for {check_id}"
             )
     if not automatic_pass_supported:
         raise ArtifactValidationError(
@@ -166,12 +191,8 @@ def _validate_machine_checks(
 
 def _validate_trial_evidence(trial: dict[str, Any]) -> None:
     evidence = trial["evidence"]
-    if not isinstance(evidence, list):
-        raise ArtifactValidationError(f"trial {trial['trial_id']} evidence must be a list")
-    if trial["automatic_result"] == "pass" and not evidence:
-        raise ArtifactValidationError(
-            f"trial {trial['trial_id']} pass requires non-empty trial evidence"
-        )
+    required = trial["automatic_result"] == "pass"
+    _validate_evidence_list(evidence, f"trial {trial['trial_id']}", required=required)
 
 
 def _validate_human_checks(trial: dict[str, Any], required_human: list[str] | None) -> None:

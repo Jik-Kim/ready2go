@@ -239,6 +239,70 @@ def test_s10_empty_evidence_fails(tmp_path: Path) -> None:
         VALIDATOR.validate_pair(result_path)
 
 
+@pytest.mark.parametrize("field", ["observed", "expected"])
+def test_s10_blank_observed_or_expected_fails(tmp_path: Path, field: str) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    checks = copy.deepcopy(
+        [
+            {
+                "check_id": check_id,
+                "status": "pass",
+                "observed": True,
+                "expected": True,
+                "evidence": ["evidence"],
+            }
+            for check_id in S10_MACHINE_CHECKS
+        ]
+    )
+    checks[0][field] = ""
+    _append_trial(result_path, result_set, machine_checks=checks)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="non-empty observed"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_s10_blank_machine_evidence_item_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    checks = [
+        {
+            "check_id": check_id,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": [""] if check_id == S10_MACHINE_CHECKS[0] else ["evidence"],
+        }
+        for check_id in S10_MACHINE_CHECKS
+    ]
+    _append_trial(result_path, result_set, machine_checks=checks)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="non-empty strings"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_s10_non_list_machine_evidence_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    checks = [
+        {
+            "check_id": check_id,
+            "status": "pass",
+            "observed": True,
+            "expected": True,
+            "evidence": "not-a-list"
+            if check_id == S10_MACHINE_CHECKS[0]
+            else ["evidence"],
+        }
+        for check_id in S10_MACHINE_CHECKS
+    ]
+    _append_trial(result_path, result_set, machine_checks=checks)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="evidence must be a list"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_pass_trial_blank_evidence_item_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, evidence=[""])
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="non-empty strings"):
+        VALIDATOR.validate_pair(result_path)
+
+
 def test_unknown_case_id_fails(tmp_path: Path) -> None:
     result_path, _, result_set = _make_pair(tmp_path)
     _append_trial(result_path, result_set, case_id="S999")
@@ -330,7 +394,7 @@ def test_voice_empty_trial_evidence_cannot_be_recorded_as_pass(tmp_path: Path) -
         required_human_checks=[],
         evidence=[],
     )
-    with pytest.raises(VALIDATOR.ArtifactValidationError, match="trial evidence"):
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="empty evidence"):
         VALIDATOR.validate_pair(result_path)
 
 
