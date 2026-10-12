@@ -51,11 +51,17 @@
 
 - **#152 답이 안 와도 C 가 닫음** (`feat/c-status-contract` `954ed61`, 10/11 E 검토 03): 기한 지난 질문·독립 요청이 status 에 남아 새 재개를 막던 것 → status 조회·등록·답 때마다 C 시계로 먼저 닫음, 늦은 답 `RESUME_EXPIRED`, 옛 ID 연장 없음 [실측: 시험 3개, ROS 703 passed].
 
-- **Unpacking 실물 준비 10/11** (`feat/c-unpack-task` `be5a210`): 복구 오차 기록(되돌린 뒤 닫기 전 다시 찍어 원래 자리·지금 자리, `run_report` "복구 오차 (판정 아님)", AC-ACT-03), 가림 모름이면 같은 자세에서 한 번 다시 찍기(A #214 권고), 최신 main(#206 B 재교시·#214 A 가림 판정) 합침, `runner.md` 파지 높이·받침 설명 #206 에 맞춤(#134) [실측: 로컬 CI·ROS 617 passed]. 실물 결과는 10/11 오후.
+- **Unpacking 실물 준비 10/11** (`feat/c-unpack-task`): 복구 오차 기록(되돌린 뒤 닫기 전 다시 찍어 원래 자리·지금 자리, `run_report` "복구 오차 (판정 아님)", AC-ACT-03), 가림 모름이면 같은 자세에서 한 번 다시 찍기(A #214 권고), **원래 자리 대신 빈 자리에 둔 물체 안내·기록**(목표 집기 실패 시 목표 위였던 장애물 — 놓기는 바닥에만, 실패 회차 판정 기준은 #196 E 확인 중), **음성으로 시작**(코드 수정 없이 `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json`, ROS 노드 mock 끝까지 성공 — 10/12 2차 점검용), 최신 main(#206·#214·#216·#220) 합침, `runner.md` 파지 높이·받침 설명 #206 에 맞춤(#134) [실측: 로컬 CI·ROS 컨테이너 시험]. 실물 결과는 10/11 오후.
 
 - **계약07 요청 상관 C 합류** (E 공동 브랜치 `codex/e-c-request-run-contract-20261011` `bc7e0aa`, 10/11 사용자(E) 승인 E-C-REQUEST-RUN-WIRE-20261011-07): `runner_status.json`(새, `last_intent.request_id`·`run_id` 사례 5개)·`runner.md` 7.1 규칙 표·`interfaces.md` 5.3 C 구간·예시 검사 시험. Runner 구현은 계약 병합 뒤 운영 PR.
 
 - **목표 5종 시험표** (PR #213, 10/11): E 선정 5종(E-150-GOAL-CATALOG-20261010-01) 계획·근거·mock 실행 뒤 상태, 이미 만족·계획 불가 별도 시험, 실물 범위 = Runner `plan_limits` 기본값 확인. #150 C 수락. 실물 10/12.
+
+- **#43 트레이 place 사용자 확인** (`feat/c-tray-confirm` `5a11f88`, 10/11, E 승인08·09 C 몫): `verify_mode: enforce` — 다시 찍기·정상 미검출이면 `/runner/status` `confirm` 요청·E `confirm` 수신·최초 asked 부터 100 s·확인돼야 effect·`last.verify` 단계 결과, 서랍 열기 확인에 B `open_distance_m` [실측: 모의 21·ROS 노드 2]. 남은 것: E 답 2개·계약 PR·실물.
+
+- **계약07 Runner 운영** (`feat/c-request-run-runtime` `e2ceae6`, #221 위): `request_id` 기억(재전송·충돌), 수락 때 `run_id` 고정, `accept_text` 첫 안내 1회(실패면 첫 동작 없음) [실측: 호스트 8·ROS 노드 1]. 남은 것: #221 정리·병합 → 운영 PR.
+
+- **실패 응답 결과 기록** (`feat/c-unpack-task` `1d677d9`): `to_result` 가 실패 응답 결과를 버려 실물 실패 근거(`placed_pose`·`hand`)가 기록에 없던 빈틈 수정, 집기 실패 `hand` 모름이면 정지.
 
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |

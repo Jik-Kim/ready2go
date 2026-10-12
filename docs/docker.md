@@ -36,7 +36,7 @@
   * 스킬 관절 속도·가속 `SKILL_JOINT_VEL_DEG_S`·`SKILL_JOINT_ACC_DEG_S2`(기본 60·40 = B 호스트 `b_flow.sh server`와 같음). 첫 기동은 `safety.md` 11대로 낮춰서
 * PC1 (사전 검증): Isaac Sim 네이티브 실행 후 `docker compose --profile sim up` (`.env`: `BACKEND=sim`, `VISION_MODE=oracle`)
 * PC1 (실물 미러링 트윈): Isaac Sim 네이티브만 실행 (`DDS_MODE=multi`로 PC2의 `/dsr01/joint_states` 수신)
-* 개발: `docker compose --profile dev up` — `ros2-core`가 Runner 노드와 mock 백엔드를 띄움. 시험 태스크는 `.env`의 `RUNNER_TASK_FILE=/contracts/examples/task_skill_steps.json`, 실패 시험은 `MOCK_FAIL`·`MOCK_NOT_VISIBLE`, 동작 시간 `MOCK_DURATION_SEC`(기본 0.5, 영상은 2 정도), E 음성 노드와 같이 띄울 때 `MOCK_SPEAK=off`(`/voice/speak` 이름 겹침 방지) ([runner.md](runner.md) 7.1 "Runner 노드")
+* 개발: `docker compose --profile dev up` — `ros2-core`가 Runner 노드와 mock 백엔드를 띄움. 시험 태스크는 `.env`의 `RUNNER_TASK_FILE=/contracts/examples/task_skill_steps.json`, 실패 시험은 `MOCK_FAIL`·`MOCK_NOT_VISIBLE`, 동작 시간 `MOCK_DURATION_SEC`(기본 0.5, 영상은 2 정도), E 음성 노드와 같이 띄울 때 `MOCK_SPEAK=off`(`/voice/speak` 이름 겹침 방지), Unpacking 시험은 `MOCK_SCENE=occluded_top` + `RUNNER_TASK_FILE=/tasks/find_with_unpack.json` ([runner.md](runner.md) 7.1 "Runner 노드")
 * 장비별 값은 각 PC의 `.env`에 고정하여 실제 실행은 명령 1개로 유지.
 
 ### 4.3 운영 규칙 및 알려진 함정 (이미 겪은 이슈 포함)
