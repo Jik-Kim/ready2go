@@ -363,9 +363,11 @@ def test_report_nested_loops_attach_each_child_once():
     assert [row.children[0].step["params"]["drawer_id"] for row in skills] == ["ax", "ay", "bx", "by"]
 
 
-@pytest.mark.parametrize("code, tries", [("NEIGHBOR_TOO_CLOSE", 2), ("NO_PUSH_ACCESS", 2), ("PUSH_BLOCKED", 1)])
+@pytest.mark.parametrize("code, tries", [("NEIGHBOR_TOO_CLOSE", 2), ("NO_PUSH_ACCESS", 2), ("NO_FREE_SPACE", 2),
+                                         ("OCCLUSION_UNKNOWN", 2), ("PUSH_BLOCKED", 1)])
 def test_nudge_pre_motion_codes(code, tries):
-    """끌기: 끄는 길 옆 물체(NEIGHBOR_TOO_CLOSE, B 움직이기 전 거부)·끌 수 없는 자리면 다음 대안, 밀다 막힘은 멈춤."""
+    """끌기: 끄는 길 옆 물체(NEIGHBOR_TOO_CLOSE)·끌 수 없는 자리·make_room 빈 자리 없음·가림 모름(#226, 모두 B 움직이기
+    전 거부)이면 다음 대안, 밀다 막힘은 멈춤."""
     task = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
         [{"id": "s1.a", "action": "nudge_object", "params": {"target": {"id": "x#1"}, "drawer_id": "drawer_top"}}],
         [{"id": "s1.b", "action": "nudge_object", "params": {"target": {"id": "x#1"}, "drawer_id": "drawer_top"}}]]}]}

@@ -197,6 +197,25 @@ def test_verified_grasp_configuration_must_include_force(tmp_path):
     assert onto_lib.require_grasp_settings(onto_lib.load(manifest), "eraser") == {"grip_force": 5.0}
 
 
+def test_measured_grasp_widths_are_optional_and_bounded_by_size(tmp_path):
+    """[B 실측 10/11] item_grasp.yaml 의 grasp_width_m·grasp_width_long_m(선택): 물품에 실리고, 0 이하·외접 변 초과·다른 키는 거부."""
+    import pytest
+    import yaml
+    onto = _onto()
+    car = onto["world"]["items"]["toy_car"]
+    assert car["grasp_width_m"] == 0.0309 and car["grasp_width_long_m"] == 0.048
+    assert "grasp_width_m" not in onto["world"]["items"]["eraser"]
+    manifest = _split_copy(tmp_path)
+    path = tmp_path / "config/item_grasp.yaml"
+    original = path.read_text()
+    for bad in ({"grasp_width_m": 0.0}, {"grasp_width_m": 0.03}, {"grasp_width_long_m": 0.06}, {"grasp_width_m": True}, {"width": 0.01}):
+        grasp = yaml.safe_load(original)
+        grasp["eraser"].update(bad)        # 지우개 size_m [0.0525, 0.022, 0.0115]
+        path.write_text(yaml.safe_dump(grasp))
+        with pytest.raises(ValueError):
+            onto_lib.load(manifest)
+
+
 def test_item_configuration_and_geometry_reference_errors(tmp_path):
     import json
     import pytest

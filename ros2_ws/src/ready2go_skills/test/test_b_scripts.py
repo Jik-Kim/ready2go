@@ -6,6 +6,7 @@
 import importlib
 import importlib.util
 import json
+import math
 import sys
 import types
 from pathlib import Path
@@ -490,3 +491,132 @@ def test_b_sk_scan_prints_every_seen_object_with_relation(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "car_key#1" in out and "윗면 55.5 mm" in out and "caramel_box#1" in out and "위에 얹힘 ['car_key#1']" in out
     assert "(믿을 수 없음)" in out
+
+
+@pytest.mark.parametrize("results, want_calls, ok", [
+    ([("clear", "", {"action": "none", "ready_to_pick": True})],                       # 이미 잡을 수 있음 → 바로 집기
+     ["view", "scan", "clear", "pick", "place", "home"], True),
+    ([("clear", "", {"action": "unstack", "ready_to_pick": False}),                    # 위 물체 치우기 → 다시 보기 → 밀기 → 다시 보기 → 집기
+      ("clear", "", {"action": "sweep", "ready_to_pick": False}),
+      ("clear", "", {"action": "none", "ready_to_pick": True})],
+     ["view", "scan", "clear", "view", "scan", "clear", "view", "scan", "clear", "pick", "place", "home"], True),
+    ([("clear", "PUSH_BLOCKED", None), ("clear", "", {"action": "none", "ready_to_pick": True})],   # 밀다 걸림 → 다시 보고 다시
+     ["view", "scan", "clear", "view", "scan", "clear", "pick", "place", "home"], True),
+    ([("clear", "NO_FREE_SPACE", None)], ["view", "scan", "clear"], False),            # 빈 자리 없음 → 사람 할 일 출력하고 멈춤
+    ([("clear", "", {"action": "none", "ready_to_pick": True}), ("pick", "NOT_REACHED", None),
+      ("clear", "", {"action": "none", "ready_to_pick": True})],
+     ["view", "scan", "clear", "pick", "view", "scan", "clear", "pick", "place", "home"], True),
+])
+def test_b_clear_makes_room_until_ready_then_picks(monkeypatch, results, want_calls, ok):
+    """[사용자 10/11] B clear: 탑뷰 → 인식 → 공간 만들기 한 동작 → 다시 보기 … ready_to_pick 이면 집기 → 트레이 → 홈."""
+    sk = _load_sk(monkeypatch)
+    calls, queue = [], list(results)
+
+    def run(node, cmd):
+        calls.append(cmd)
+        if queue and queue[0][0] == cmd:
+            _, code, mr = queue.pop(0)
+        else:
+            code, mr = "", None
+        sk.last["code"], sk.last["make_room"] = code, mr
+        return code == ""
+
+    def scan(node, for_pick=False):
+        calls.append("scan")
+        return True
+    monkeypatch.setattr(sk, "run", run)
+    monkeypatch.setattr(sk, "scan", scan)
+    if ok:
+        sk.clear(None)
+    else:
+        with pytest.raises(SystemExit):
+            sk.clear(None)
+    assert calls == want_calls and "clear" in sk.NEEDS_DRAWER
+
+
+def test_b_sk_clear_goal_is_make_room_with_scan(monkeypatch, tmp_path):
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    with pytest.raises(SystemExit, match="B scan top"):
+        sk.goal_for("clear")
+    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
+    action, params = sk.goal_for("clear")
+    assert action == "nudge_object" and params["make_room"] is True and params["scan"] == full and params["target"] == TOP_T
+
+
+def test_b_free_places_held_object_in_found_free_spot(monkeypatch, tmp_path):
+    """[사용자 10/11] B free top: aside 고정 자리 대신 빈 자리 — 집을 때 본 scan 으로 후보를 골라 place_object(pose).
+    움직이기 전 거부(PLACE_BLOCKED·WALL_TOO_CLOSE)면 다음 후보, 받침(캐러멜)과는 떨어진 곳, 다른 실패면 멈춤."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "DRAWER", "drawer_top")
+    with pytest.raises(SystemExit, match="B pick"):
+        sk.free_poses("drawer_top")
+    base = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185, "occluded_by": ["car_key#1"],
+            "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0343, "occluded_by": [],
+           "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": key, "candidates": [base], "visible_count": 2}
+    (tmp_path / "b_picked.json").write_text(json.dumps({"target": key, "approach_offset": [0, 0, 0.1], "scan": scan}))
+    cands, sc = sk.free_poses("drawer_top")
+    assert cands and sc == scan
+    for p in cands:                                                     # 받침(다음에 꺼낼 캐러멜)과 겹치지 않음
+        assert abs(p["position"][0] - 0.1) > 0.05 or abs(p["position"][1] - 0.15) > 0.04
+    sent = []
+
+    def run(node, cmd, goal=None):
+        sent.append(goal)
+        sk.last["code"] = "PLACE_BLOCKED" if len(sent) < 3 else ""
+        return sk.last["code"] == ""
+    monkeypatch.setattr(sk, "run", run)
+    assert sk.free(None) is True and len(sent) == 3
+    assert all(g[0] == "place_object" and g[1]["location"] == "drawer_top" and g[1]["scan"] == scan for g in sent)
+    assert sent[2][1]["pose"] == cands[2] and "free" in sk.NEEDS_DRAWER
+
+    def run_moved(node, cmd, goal=None):
+        sk.last["code"] = "NOT_REACHED"
+        return False
+    monkeypatch.setattr(sk, "run", run_moved)
+    with pytest.raises(SystemExit, match="NOT_REACHED"):
+        sk.free(None)
+
+
+def test_b_free_uses_newer_rescan_adds_held_and_prefers_crosswise(monkeypatch, tmp_path):
+    """[PC2 10/12] 집은 뒤 B view → B scan 으로 다시 봤으면 그 결과로 고름(예전 scan 의 옛 자리 물체에 막히지 않게).
+    다시 본 결과엔 쥔 물체가 없으니 scan 에 넣어 보냄(서버 #166 요구). 가로(긴 변이 서랍 y) 후보 먼저 [사용자 10/12].
+    서버가 기억하는 긴 변 쥠이면 90° 돌린 footprint 로 거름."""
+    import os
+    import time
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "HELD_FILE", str(tmp_path / "held.json"))
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0343, "occluded_by": [],
+           "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    stale = {"id": "car_key#2", "class": "car_key", "top_z": 0.0158, "occluded_by": [],
+             "pose": {"frame": "drawer_top", "position": [0.05, 0.06, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    (tmp_path / "b_picked.json").write_text(json.dumps({"target": key, "scan": {"target": key, "candidates": [stale]}}))
+    cara = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185, "occluded_by": [],
+            "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    fresh = {"target_found": True, "target": cara, "candidates": [], "visible_count": 1}
+    f = tmp_path / "b_target_fullscan_drawer_top.json"
+    f.write_text(json.dumps(fresh))
+    later = time.time() + 5
+    os.utime(f, (later, later))
+    (tmp_path / "held.json").write_text(json.dumps({"id": "car_key#1", "class": "car_key", "width_m": 0.0701, "long_side": True}))
+    cands, sc = sk.free_poses("drawer_top")
+    ids = [o["id"] for o in [sc["target"]] + sc["candidates"]]
+    assert ids == ["caramel_box#1", "car_key#1"]                      # 옛 scan 의 car_key#2 없음, 쥔 물체는 넣음
+    assert cands and abs(math.sin(cands[0]["yaw"])) > 0.7                # 가로 먼저
+
+
+def test_b_plan_is_make_room_check_only(monkeypatch, tmp_path):
+    """[사용자 10/12] B plan top: 공간 만들기 다음 동작만 보기 — make_room + check_only (서버가 어떤 동작도 안 함)."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
+    action, params = sk.goal_for("plan")
+    assert action == "nudge_object" and params["make_room"] is True and params["check_only"] is True and "plan" in sk.NEEDS_DRAWER
