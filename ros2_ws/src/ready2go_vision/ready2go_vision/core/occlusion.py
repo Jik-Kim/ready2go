@@ -6,6 +6,7 @@
     ① 두 마스크가 맞닿음: 서로를 contact_dilate_px 만큼 넓힌 띠와 겹친 픽셀이 양쪽 다 min_contact_px 이상
     ② 맞닿은 띠에서 A 높이(서랍 z) 중앙값 − B 높이 중앙값 >= min_height_diff_m (전역 top_z 순서가 아니라 경계 국소 높이)
        단, A 전체 윗면(마스크 z 백분위)이 B 전체 윗면보다 max_over_lower_m 넘게 낮으면 버림 — 띠가 가장자리라 뎁스가 바닥과 섞인 경우(10/12)
+    버린 관계만 있고 다른 덮은 물체가 없으면 B 는 null — 얇은 물체가 키 큰 물체의 낮은 부분에 얹힌 경우를 [] 로 내지 않음.
     보조: B 가 덜 보이는데 위 규칙으로 덮은 물체를 못 찾으면, 맞닿은 이웃 중 전체 윗면이 fallback_cover_min_m 이상 높은 것이 하나뿐일 때
        그것을 덮은 물체로 — 얇은 판이 바로 위를 덮어 띠 높이 차가 min_height_diff_m 보다 작은 경우(10/12 아래 칸 립밤)
     ③ B 가 덜 보임(visible_area_m2 / 클래스 기준 면적 < visible_ratio_max) 또는 A 가 B 를 조각으로 나눔
@@ -91,6 +92,7 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
         split = _pieces(mb, p["split_min_px"]) >= 2
         covers, unknown, why = [], [], []
         touch = []                                             # 맞닿은 이웃 (보조 규칙용)
+        dropped = []                                           # 윗면 비교로 버린 '위' 이웃
         for i, a in enumerate(dets):
             if i == j or masks[i] is None:
                 continue
@@ -112,6 +114,7 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
             lower = p.get("max_over_lower_m")                  # 띠 높이는 가장자리 뎁스 섞임에 약함 — 위 물체 전체 윗면이 아래 물체보다 이만큼 넘게 낮으면 버림
             if lower is not None and tops[i] is not None and tops[j] is not None and tops[i] < tops[j] - lower:
                 rel.update(top_mm=[round(tops[i] * 1000, 1), round(tops[j] * 1000, 1)], judge="버림: 위 물체 윗면이 더 낮음")
+                dropped.append(i)
                 relations is not None and relations.append(rel)
                 continue
             cut = _pieces(mb, p["split_min_px"], grown[i]) >= 2
@@ -133,6 +136,9 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
                 covers.append(ids[hi[0]])
                 relations is not None and relations.append({"over": ids[hi[0]], "under": ids[j], "top_mm": [round(tops[hi[0]] * 1000, 1), round(tops[j] * 1000, 1)],
                                                             "visible_ratio": None if ratio is None else round(ratio, 2), "judge": "얹힘(보조: 덜 보임 + 혼자 확실히 높은 이웃)"})
+        if dropped and not covers and not unknown:             # 경계로는 위인데 버림 → 다른 덮은 물체가 없으면 모름 (얇은 물체가 키 큰 물체의
+            unknown.append("위아래 엇갈림(경계 vs 전체 윗면)")             # 낮은 부분에 얹힌 경우를 [] 로 내지 않게, PM #236 검토)
+            relations is not None and relations.append({"under": ids[j], "judge": "모름: 버린 관계만 있음"})
         if not covers and not unknown and (less or (split and ratio is None)):   # 다 보이는데(기준 넓이 이상) 조각만 났으면 마스크 잡조각 — 안 가려짐
             unknown.append("덜 보이거나 조각났는데 덮은 물체 없음")
             relations is not None and relations.append({"under": ids[j], "visible_ratio": None if ratio is None else round(ratio, 2),

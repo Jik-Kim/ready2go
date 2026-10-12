@@ -207,3 +207,17 @@ def test_fallback_needs_clearly_higher_neighbor():
     items = {**ITEMS, "cover_plate": {"size_m": [0.0985, 0.0742, 0.0405]}}
     ok, _, js = inspect_scene(dets, depth, K, T, PARAMS, items, "drawer_top", "lip_balm", INTERIOR)
     assert ok and json.loads(js)["target"]["occluded_by"] is None
+
+
+def test_dropped_relation_leaves_under_object_unknown_not_clear():
+    """PM #236 검토: 얇은 물체가 키 큰 물체의 낮은 부분에 얹혀 경계로는 '위'인데 전체 윗면이 낮아 관계를 버리면(max_over_lower_m),
+    아래 물체가 대부분 보여도 [](안 가려짐)이 아니라 null(모름) — 낮은 부분 위 물체를 못 보고 집지 않게 (runner.md 7.1)."""
+    objs = [("lip_balm", 0.08, 0.15, (0.06, 0.02), 0.010),                       # 키 큰 물체의 낮은 부분(손잡이)
+            ("lip_balm", 0.125, 0.15, (0.03, 0.02), 0.030),                      # 높은 부분(머리)
+            ("eraser", 0.08, 0.15, (0.012, 0.05), 0.015)]                         # 낮은 부분을 가로지른 얇은 물체 → 조각냄
+    depth, masks = scene(objs)
+    dets = dets_of([objs[0], objs[2]], [masks[0] | masks[1], masks[2]])
+    dbg = []
+    ok, _, js = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", "lip_balm", INTERIOR, dbg)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+    assert any(d.get("occlusion", {}).get("judge", "").startswith("버림") for d in dbg)
