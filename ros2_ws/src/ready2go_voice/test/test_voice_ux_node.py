@@ -102,16 +102,70 @@ def test_actual_work_passes_queue_identity_to_session_preparation(node, node_cla
     assert not node.texts and not node.published  # 내부 준비는 재생/발행하지 않습니다.
 
 
-def test_initial_question_then_different_affirmations_only_one_find(node):
+@pytest.mark.parametrize('first,second', [('응', '맞아'), ('응 맞아', '네 맞아요'), ('네 맞아요', '응 맞아')])
+def test_initial_question_then_different_affirmations_only_one_find(node, first, second):
     doc=ask(node)
     assert node.published[0]['intent']=='clarify'
     assert any(d['event']=='question_ready' and d['question_id']==doc['_voice']['question_id'] for d in node.diagnostics)
-    node.deliver(node.session.text('응',0))
-    node.deliver(node.session.text('맞아',0))
+    node.deliver(node.session.text(first,0))
+    node.deliver(node.session.text(second,0))
     assert sum(d['intent']=='find_item' for d in node.published)==1
+    accepted = next(d for d in node.published if d['intent'] == 'find_item')
+    assert accepted['targets'] == ['toy_hammer']
+    assert accepted['_voice']['question_id'] == doc['_voice']['question_id']
     assert len(node.texts)==3
     final=[d['text'] for d in node.diagnostics if d['event']=='final_response']
     assert final==node.texts
+
+
+@pytest.mark.parametrize('reply', ['응 맞아', '네 맞아요'])
+@pytest.mark.parametrize('state', ['absent', 'expired', 'tts_failure', 'running'])
+def test_compound_reply_requires_successful_current_question(node, reply, state):
+    if state == 'tts_failure':
+        node.tts.speak = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('mock'))
+    if state == 'running':
+        node.observe('running')
+    if state != 'absent':
+        question = node.session.text('망치', node.generation)
+        node.deliver(question)
+    if state == 'expired':
+        node.now[0] = node.session.conversation.pending.expires
+    if state in ('running', 'tts_failure'):
+        assert node.session.conversation.pending is None
+        assert not any(d['event'] == 'question_ready' for d in node.diagnostics)
+    doc = node.session.text(reply, node.generation, blocked=state == 'running')
+    assert doc['intent'] == 'clarify' and doc['targets'] == []
+    assert not doc['source']['execution_allowed']
+
+
+@pytest.mark.parametrize('reply', ['응 맞아 하지 마', '네 맞아요 아니요', '응 맞아 취소해', '응 맞아? 아니야'])
+def test_mixed_compound_reply_cannot_consume_target_as_positive(node, reply):
+    from ready2go_voice.core.intent import is_context_reply
+    assert not is_context_reply(reply)
+    ask(node)
+    doc = node.session.text(reply, node.generation)
+    assert doc['intent'] != 'find_item' and not doc['source']['execution_allowed']
+    assert doc['targets'] == [] and node.session.conversation.pending is None
+
+
+@pytest.mark.parametrize('stt_failure', [False, True])
+def test_empty_transcript_or_sdk_failure_does_not_restore_compound_reply_context(node, stt_failure):
+    from ready2go_voice.adapters.audio import Recording
+    question = ask(node)
+    expires = node.session.conversation.pending.expires
+    class STT:
+        def transcribe(self, *_):
+            if stt_failure: raise RuntimeError('mock SDK failure')
+            return ''
+    node.session.stt = STT()
+    node.session.speech_gate = SimpleNamespace(check=lambda *a, **k: True)
+    doc = node.session.audio(Recording(b'\0\0' * 1600, None, None, recording_mode='fixed'))
+    node.deliver(doc)
+    assert node.session.conversation.pending is None and node.now[0] < expires
+    assert question['_voice']['question_id']
+    later = node.session.text('응 맞아', node.generation)
+    assert later['intent'] == 'clarify' and later['targets'] == []
+    assert not later['source']['execution_allowed']
 
 
 def test_evaluation_question_and_answers_never_publish(node):

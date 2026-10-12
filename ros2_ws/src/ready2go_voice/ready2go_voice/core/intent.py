@@ -31,7 +31,7 @@ def normalize_control(text):
 
 def is_context_reply(text):
     """A reply needs a live question; the words themselves grant no target."""
-    return normalize_control(text) in {'응', '네', '예', '맞아', '맞아요', '그걸로',
+    return normalize_control(text) in {'응', '네', '예', '맞아', '맞아요', '응맞아', '네맞아요', '그걸로',
                                        '그거', '그거줘', '그걸로해줘'}
 
 

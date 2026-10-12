@@ -5,6 +5,14 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-12
 
+## P1 짧은 확인 답변 — E-VOICE-SHORT-REPLY-20261012-01
+
+- [문서: 승인·범위] 지시 세션이 조율 turn `01a12da6-3f38-7b52-8567-d7d6990a7e00`/user `01a12da6-3f80-7581-9bd3-82a3336ad52e`의 짧은 확인 답변 피드백을 직접 확인했고, [기존 음성 정책](../../docs/requirements.md#voice-policy)의 명확 답 결합 범위에서 최소 수정을 지시했습니다. 지정 branch/HEAD `12052994450b6f133402fb98bdb107c19ba5efe9`, tracked clean/models 미추적에서 시작했습니다. 새 모델·녹음·원음 정책 승인은 없습니다.
+- [구현] 기존 정확 표현 helper에 정규화된 응맞아/네맞아요2개만 추가했습니다. actual node 메서드 기반 시험과 README/CURRENT를 포함한4파일이며 node/config/harness/공동wire·타 담당 변경은 없습니다. 현재 유효 질문의 동일 대상/질문ID에서 한 번만 결합하고 부정 혼합·질문없음·만료·TTS실패·진행 중 차단 및 빈 전사/SDK 실패 뒤 권한 폐기를 유지합니다. 시간 연장·자동 재시도·빈 전사 긍정 해석·권한 복원은 하지 않습니다.
+- [실측·미확인] `_094102`147–184행에서 f225 질문 대상·실TTS 완료/clarify 발행 및 question_ready 없음, 후속166/179 빈 전사2회, local dialogue30을 확인했습니다. 앞선 더미 run 첫 동작이 있으나 완료/cancel이 없으며 running 주입→runner_blocks→질문 등록 차단과 부합합니다. 같은 조건은 모의로 재현하되 당시 정책 객체 전체가 없어 단독 원인 확정/제품 질문 준비 결함으로 단정하지 않습니다. 원음 없음·영상 음성 트랙 없음은 조율 증거를 재사용하며 실제 누락/STT 미검출·실짧은 답 인식 성공은 미확인입니다.
+- [실측: 검증] Python3.12 project venv에서 관련4시험파일(test_voice_ux_node/voice_ux/intent/semantic_requests.py)은 **566 passed**(12.98초), 이후 최종 `python -m pytest ros2_ws/src -q`1회는 **2545 passed, 24 skipped**(68.20초)/종료0입니다. 실제 node 메서드 기반 모의의 성공TTS→question_ready→동일대상/질문ID 한 번 수락·없음/만료/TTS실패/running 차단·부정 혼합·빈전사/SDK실패 폐기를 확인했습니다. 두 결과는 겹치므로 합산하지 않습니다. 로그 `/tmp/e-voice-short-reply-20261012-pytest.log`, `/tmp/e-voice-short-reply-20261012-core-final.log`, AST/diff 공백·문서 코드 블록/직접시험 순서 정합성도 통과했습니다. 제품 node 변경0으로 지시대로 앞 ROS build/test를 반복하지 않았으며 실제 API/마이크/스피커·실물 시험은 수행하지 않았습니다.
+- [후속 제안·보류] 진행 중에도 clarify 질문을 읽는 UX의 최소안은 기존 상태 안내를 재사용하고 새 질문 읽기를 보류하는 것입니다. 조율 판단 전이며 이번에는 구현하지 않았습니다. 진행 중 실행/질문 차단을 우회하지 않습니다. 실API/장치·사용자 프로세스·원본local·모델을 보존하며 push/PR·게시 CI·Notion 편집은 하지 않습니다.
+
 ## STT 전사 콘솔 — E-VOICE-STT-CONSOLE-20261012-01
 
 - [문서: 승인·범위] 지시 세션이 조율 turn `01a12d91-048d-7253-8ff7-09791fd226c7`/user `01a12d91-04de-71d0-9965-c4392e096c9a`의 “STT가 로그에 띄워줘야지 수정해”를 직접 확인해 전달했습니다. 기존 branch `codex/e-tray-confirm-integration-20261011`/HEAD `98449c0835dc44a4bec6d7853a35c39c81aaa9a0`, tracked clean/models 미추적에서 시작했습니다. [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[음성 정책](../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)의 기존 범위를 유지합니다.
