@@ -2335,11 +2335,30 @@ class SkillServer(Node):
         slow_mm = pl.get("slow_last_mm", 0.0)
         bad = None
         now = self.robot.posx()
+        landed = {}
         if slow_mm > 0 and now and target[2] + slow_mm < now[2] - 1.0:
-            bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), vel, "descend_fast")
-        bad = bad or self._lower_touch(goal, target, speed["grasp_mm_s"], "descend")
+            # 빠르게 내려가는 구간도 힘을 봄 — 쥔 물체가 비전이 못 본 물체(쌓였던 받침 등)에 먼저 닿으면 거기서 멈춤
+            # [사용자 10/12 PC2: 몽키 위 캐러멜 putback 이 바닥 높이까지 내려가며 몽키를 누름]
+            base_fast = self._tare(pl.get("touch_settle_s"))
+            fast_n = float(pl.get("fast_guard_n") or prm["drag"]["press_max_force_n"])
+
+            def hit():
+                f = self.robot.tool_force()
+                if f is None or base_fast is None:
+                    return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+                if abs(f[2] - base_fast[2]) >= fast_n:
+                    p_ = self.robot.posx()
+                    landed["z"] = p_[2] if p_ else None
+                    return sf.Outcome(True, reason=f"내려가다 {abs(f[2] - base_fast[2]):.1f} N — 다른 물체 위에 닿음")
+                return None
+            bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), vel, "descend_fast", watch=hit)
+        if not bad and "z" not in landed:
+            bad = self._lower_touch(goal, target, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, dict(empty)
+        if landed:                                            # 그 자리(받침 위)에 놓음 — 더 누르지 않음
+            above_mm = (landed["z"] - target[2]) if landed.get("z") is not None else float("nan")
+            self.get_logger().warn(f"[place_object] 계산한 놓는 높이보다 {above_mm:.1f} mm 위에서 닿음 — 다른 물체 위에 놓음 (비전이 못 본 받침?)")
         bad = self._clear_to_continue(goal)                   # 그리퍼 열기 전: 취소·비상정지면 열지 않음
         if bad:
             return bad, dict(empty)

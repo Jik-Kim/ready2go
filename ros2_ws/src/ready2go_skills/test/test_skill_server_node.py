@@ -2203,3 +2203,21 @@ def test_make_room_puts_rider_in_free_space_not_on_target(server):
     px, py = mr["placed_pose"]["position"][:2]
     assert math.hypot(px - 0.10, py - 0.15) > 0.06                        # 목표 위·바로 옆이 아님
     assert server.srv.held is None
+
+
+def test_place_in_drawer_fast_descent_stops_on_unseen_support(server):
+    """[사용자 10/12 PC2] 몽키 위 캐러멜 putback: scan 에 몽키가 없어 바닥 높이로 내려가다 쥔 물체가 몽키에 닿음
+    → 빠른 구간도 힘을 봐서(place.fast_guard_n) 거기서 멈추고 더 누르지 않고 그 자리에 놓음 (예전엔 바닥까지 누름)."""
+    srv = server.srv
+    grips = _holding_in_drawer(server)
+    pl = srv.prm()["place"]
+    from ready2go_skills.core import place_plan as plp
+    pos_m, _ = plp.place_tcp_m(srv.places()["drawer_top"]["tf"], ASIDE_POSE, 0.02 + pl["drop_m"])
+    support_z = 1000.0 * pos_m[2] + pl["slow_last_mm"] + 15.0              # 놓는 높이보다 25 mm 위에 받침 윗면
+    srv.robot.force = lambda p: [0.0, 0.0, 10.0 * (support_z - p[2]) if p[2] < support_z else 0.0, 0.0, 0.0, 0.0]
+    out, data = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    assert grips and srv.held is None                                    # 받침 위에서 벌림
+    assert "stop" in srv.robot.log                                       # 빠른 구간에서 닿아 멈춤
+    lines = [p for e in srv.robot.log if e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])]
+    assert all(p[2] > 1000.0 * pos_m[2] for p in lines)                  # 마지막 천천히 내리기(놓는 높이 − overtravel)는 안 보냄 = 더 안 누름
