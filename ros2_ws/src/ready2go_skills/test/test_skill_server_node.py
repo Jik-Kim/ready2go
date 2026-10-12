@@ -843,7 +843,6 @@ def test_lip_balm_on_left_wall_picked_by_ends_tilted_and_placed_turned(server):
     """[사용자 10/10 PC2 "원통형은 기울여서"] 왼쪽 벽에 세로로 붙은 립밤: 넛지하면 굴러감 → 넛지 없이 긴 변 양끝을 잡고(기대 폭 = 긴 변)
     왼벽 쪽으로 20° 기울임, TCP 는 교시대로 가운데보다 벽 쪽 4.6·아래 8.8 mm. 트레이에는 손가락을 y 로 돌려 놓음."""
     prm_ = server.srv.prm()
-    prm_["pick"]["touch_floor"] = {"enabled": False}                    # 교시 자세 높이 그대로인지 (바닥 찍기는 따로 시험)
     server.srv.prm = lambda: prm_
     srv = server.srv
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020,
@@ -1259,22 +1258,6 @@ def test_tilted_close_cancel_after_home_sends_no_grip(server):
     assert log[-1] == home and grips == []                              # 홈 movej 뒤 로봇·그리퍼 명령 없음
 
 
-def test_vertical_close_cancel_after_home_sends_no_grip(server):
-    """#181 E 리뷰: 수직 닫기도 같음 — 서랍 위에서 홈 이동 뒤 취소면 그리퍼·밀기 명령 없이 CANCELED."""
-    srv = server.srv
-    prm = srv.prm()
-    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": None}   # 위 칸 = 수직 방식
-    srv.prm = lambda: prm
-    srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
-    server.Gripper.width = 0.9                                          # 닫힌 채 → 원래라면 벌리는 명령을 보냄
-    grips = _cancel_after_home(server)
-    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "close"})
-    assert not out.success and out.error_code == sf.CANCELED
-    log = [e for e in srv.robot.log if e != "stop"]
-    home = ("movej", srv.poses()["home"]["joints_deg"])
-    assert log[-1] == home and grips == []
-
-
 def test_nudge_and_pick_refuse_other_drawer_frame_without_motion(server):
     """[#181 E 리뷰] 위 칸 좌표(frame drawer_top)로 아래 칸을 끌거나 집지 않음 — drawer_id 와 target.pose.frame 이 다르면 움직이기 전 BAD_PARAMS."""
     out, _ = server.run("nudge_object", {"drawer_id": "drawer_bottom", "target": ERASER_CORNER})
@@ -1287,13 +1270,14 @@ def test_nudge_and_pick_refuse_other_drawer_frame_without_motion(server):
 @pytest.mark.parametrize("state", [5, 6, 9, None])
 @pytest.mark.parametrize("drawer", ["drawer_top", "drawer_bottom"])
 def test_close_after_home_safety_stop_sends_nothing_more(server, state, drawer):
-    """#181 E 재리뷰 P1: 닫기(위 = 수직, 아래 = 45°)에서 홈 이동 직후 안전정지(5)·비상정지(6)·안전정지2(9)·상태 조회 실패면
-    그리퍼·다음 이동 명령 0건 — ESTOP / STATE_UNKNOWN."""
+    """#181 E 재리뷰 P1: 닫기(45° close_push)에서 홈 이동 직후 안전정지(5)·비상정지(6)·안전정지2(9)·상태 조회 실패면
+    그리퍼·다음 이동 명령 0건 — ESTOP / STATE_UNKNOWN. (예전 위 칸 수직 닫기는 10/12 코드 정리로 뺌)"""
     srv = server.srv
     prm = srv.prm()
     start = [21.9, 39.2, 115.7, 110.1, -99.3, -23.6]
     end = [381.9, -283.0, 100.0, 90.0, -135.0, 90.0]
-    prm["drawer_open_close"]["close_push"] = {"drawer_top": None, "drawer_bottom": {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}}
+    cp = {"start_posj": start, "start_posx": [381.9, -27.0, 100.0, 90.0, -135.0, 90.0], "end_posx": end}
+    prm["drawer_open_close"]["close_push"] = {"drawer_top": cp, "drawer_bottom": cp}
     srv.prm = lambda: prm
     srv.disp = {drawer: 0.226}
     srv.robot.p = [424.181, -294.601, 363.507, 0.0, 180.0, 0.0]        # 탑뷰 (서랍 위) → 홈부터
@@ -1803,7 +1787,6 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
     for lower in (0.0, 5.0):
         prm = srv.prm()
         prm["pick"]["front_tilt_lower_mm"] = lower
-        prm["pick"]["touch_floor"] = {"enabled": False}                  # 바닥 닿고 정하기를 끈 경우의 계산 높이
         prm["pick"]["grip_height_ratio"] = None                          # 예전(윗면 높이) 방식에서의 기울여 잡기 더 내림
         monkeypatch.setattr(srv, "prm", lambda prm=prm: prm)
         srv.robot.log.clear()
@@ -1813,50 +1796,6 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
         lows[lower] = min(mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] for p in pts)
         srv.held = None
     assert (lows[0.0] - lows[5.0]) * 1000.0 == pytest.approx(5.0, abs=0.05)
-
-
-def test_pick_touches_floor_then_lifts_by_tip_drop(server, monkeypatch):
-    """[사용자 10/11 PC2] 집기: 벌린 손끝이 교시 바닥 + 5 mm 까지 빠르게 → 넛지처럼 바닥 찍기 → 손끝 내려오는 만큼 + clear_mm 올려 닫기.
-    기준은 TCP 가 아니라 손끝 — 크게 벌리면 손끝이 TCP 보다 위 (TCP 기준이면 바닥까지 안 닿았음). 닫은 손끝은 바닥 위 clear_mm."""
-    from ready2go_skills.core import motion_plan as mp
-    srv = server.srv
-    tf = srv.places()["drawer_top"]["tf"]
-    prm = srv.prm()
-    prm["pick"]["touch_floor"]["enabled"] = True                        # 바닥 찍기 (꺼 둔 방식) 켰을 때
-    srv.prm = lambda: prm
-    cfg, g = prm["pick"]["touch_floor"], prm["gripper"]
-    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
-              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
-    open_tip = mp.tip_below_tcp_mm(49.0 + g["open_margin_mm"], g)      # 벌린 손끝이 TCP 아래 (음수 = 위)
-
-    def force(p):                                                       # 가짜 바닥: 벌린 손끝이 바닥 아래로 가면 1 mm 에 8 N
-        tip_z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0 - open_tip
-        return [0.0, 0.0, max(0.0, -8.0 * tip_z), 0.0, 0.0, 0.0]
-    srv.robot.force = force
-    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
-    out, data = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
-    assert out.success, out.reason
-    closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(43.2, g)   # 닫은 손끝 높이
-    assert cfg["clear_mm"] - 1.5 <= closed_tip <= cfg["clear_mm"] + 0.5
-
-
-def test_pick_touch_ignores_force_spike_above_floor(server):
-    """[사용자 10/11 PC2] 내려가기 시작할 때 힘이 튀어 캐러멜 높이에서 '바닥 닿음' → 올라와 윗면을 잡음.
-    바닥 근처(accept_above_mm 안)에서만 닿음으로 봄 — 위에서 튄 3~9 N 은 무시하고 바닥까지 내려감."""
-    from ready2go_skills.core import motion_plan as mp
-    srv = server.srv
-    tf = srv.places()["drawer_top"]["tf"]
-    target = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185,
-              "pose": {"frame": "drawer_top", "position": [0.1117, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
-
-    def force(p):
-        z = mp.from_base(tf, [v / 1000.0 for v in p[:3]])[2] * 1000.0
-        return [0.0, 0.0, 6.0 if (15.0 <= z <= 17.0 or z <= 4.0) else 0.0, 0.0, 0.0, 0.0]   # 캐러멜 높이 근처에서 튐 + 바닥
-    srv.robot.force = force
-    server.Gripper.holding, server.Gripper.held_width = True, 43.2   # 캐러멜 짧은 변 잡은 폭 [실측 PC2 10/11, grasp_width_m]
-    out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
-    assert out.success, out.reason
-    assert srv.held["tcp_above_floor_m"] * 1000.0 < 12.0                # 바닥(4 mm)에서 올린 높이 — 캐러멜 높이(16)에서 올린 게 아님
 
 
 def test_pick_height_by_tip_table_without_touch(server):
@@ -2597,7 +2536,6 @@ def test_putback_tilted_pick_places_back_with_same_tilt(server, drawer):
     from ready2go_skills.core import motion_plan as mp
     srv = server.srv
     prm = srv.prm()
-    prm["pick"]["touch_floor"] = {"enabled": False}
     srv.prm = lambda: prm
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0227, "occluded_by": [], "visible_area_m2": 0.00154,
            "pose": {"frame": drawer, "position": [0.0097, 0.1539, 0.0], "yaw": 1.5625, "yaw_valid": True}}
@@ -2707,7 +2645,6 @@ def test_tilt_back_uses_current_drawer_tf(server, monkeypatch):
     """#235 A·PM: tilt_back 위치는 서랍 좌표로 기억 → 그사이 서랍 tf 가 몇 mm 바뀌어도 지금 tf 로 같은 서랍 자리에 놓음."""
     srv = server.srv
     prm = srv.prm()
-    prm["pick"]["touch_floor"] = {"enabled": False}
     srv.prm = lambda: prm
     lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0227, "occluded_by": [], "visible_area_m2": 0.00154,
            "pose": {"frame": "drawer_top", "position": [0.0097, 0.1539, 0.0], "yaw": 1.5625, "yaw_valid": True}}
