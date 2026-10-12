@@ -243,3 +243,16 @@ def test_objects_under_relation_still_needs_target_inside_footprint():
     edge = dict(side, pose={"position": [0.10, 0.1213, 0.0], "yaw": 0.0})      # 밖 4.2 mm — 끝에 걸침
     assert [o["id"] for o in plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get)] == ["caramel_box#1"]
     assert plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get, relation_margin_m=0.0) == []
+
+
+def test_same_place_within_tolerance_and_yaw_symmetric():
+    """[사용자 10/12] 기울여 집은 물체를 원래 자리로 되돌릴 때만 기울여 놓음 — 위치 tol_mm·각도 tol_deg(180° 대칭) 안."""
+    back = {"position": [0.0097, 0.1539], "yaw": 1.5625}
+
+    def ok(x, y, yaw):
+        return plp.same_place({"position": [x, y, 0.0], "yaw": yaw}, back, tol_mm=3.0, tol_deg=5.0)
+    assert ok(0.0097, 0.1539, 1.5625) and ok(0.0117, 0.1559, 1.5625 + 0.08)
+    assert ok(0.0097, 0.1539, 1.5625 - math.pi)                       # 180° 돌린 같은 자세
+    assert not ok(0.0137, 0.1539, 1.5625) and not ok(0.0097, 0.1539, 1.5625 + 0.1)
+    assert not plp.same_place({"position": [float("nan"), 0.0], "yaw": 0.0}, back, tol_mm=3.0, tol_deg=5.0)
+    assert not plp.same_place({}, back, tol_mm=3.0, tol_deg=5.0)
