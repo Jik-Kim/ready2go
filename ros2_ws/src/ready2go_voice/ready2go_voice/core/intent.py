@@ -31,7 +31,7 @@ def normalize_control(text):
 
 def is_context_reply(text):
     """A reply needs a live question; the words themselves grant no target."""
-    return normalize_control(text) in {'응', '네', '예', '맞아', '맞아요', '그걸로',
+    return normalize_control(text) in {'응', '네', '예', '맞아', '맞아요', '어어', '응맞아', '네맞아요', '그걸로',
                                        '그거', '그거줘', '그걸로해줘'}
 
 
@@ -45,6 +45,8 @@ def intent(kind, targets=(), confidence=1.0, question=None):
 class IntentParser:
     def __init__(self, ontology, schema, cfg, llm=None, clock=time.monotonic):
         self.items = ontology['world']['items']
+        self.reference_state = ontology.get('state', {})
+        self.state_provider = None  # reference_query가 기존 state mapping callable을 호출합니다. 실제 C 바인딩은 미연결입니다.
         self.places = ontology['world']['places']
         self.validator = Draft7Validator(schema)
         self.cfg, self.llm, self.clock = cfg, llm, clock
@@ -95,6 +97,15 @@ class IntentParser:
                                  r'(?:을|를|이|가)?(?:하나|한개)?(?:만)?좀(?:요)?',
                                  normalize_control(text)))
 
+    def contextual_reply(self, text):
+        # 현재 질문에만 사용하는 전체 문형. 부정/인용/제3자/다중/미지원은 선제 보류합니다.
+        from .flow import settings
+        if (self.control(text) or self.mentioned(text) or self._unsupported_context(normalize_control(text).replace('그걸로', '그거'))
+                or self._nonrequest_context(text) or re.search(r'["\'“”‘’]|라고|라며|말했|그사람|엄마|아빠', text)):
+            return False
+        flow = self.cfg.get('voice_flow') or settings(self.cfg)
+        return bool(re.fullmatch(flow['context_reply_pattern'], normalize_control(text)))
+
     def explicit_request(self, text):
         # 폴백 전용: 기존 긍정 전체 문형 + 승인된 축약 부탁을 등록 어휘에 적용합니다.
         target = '|'.join(re.escape(alias) for alias in self.aliases)
@@ -142,6 +153,10 @@ class IntentParser:
     def guard(self, text):
         if not str(text).strip():
             return intent('clarify', question=self.cfg['clarify_prompts']['empty'])
+        if self.contextual_reply(text):
+            doc = intent('clarify', question=self.cfg['clarify_prompts']['missing_item'])
+            doc['_voice'] = {'asks_delivery_target': True}
+            return doc
         if self._unsupported_context(text):
             return intent('unknown', question='지금은 한 물품을 찾아 전달하는 요청만 지원합니다.')
         keys = self.mentioned(text)
@@ -319,7 +334,14 @@ class IntentParser:
             result['_voice'] = {'reason': reason}
         return result
 
-    def parse(self, text, deadline=None):
+    def parse(self, text, deadline=None, *, context=None):
+        from .hotfix import reference_query
+        answer = reference_query(self, text)
+        if answer is not None:
+            doc = intent('unknown')
+            doc['_voice'] = {'final_text': answer, 'readonly_query': True}
+            doc['source'] = {'stt_text':text, 'input_kind':'text', 'llm_called':False, 'llm_validation':'not_called', 'fallback_used':False, 'execution_allowed':False}
+            return doc
         if self.cfg.get('p2_goal_enabled') is True and not self.control(text) and self._goal_requested(text):
             return self._parse_goal(text, deadline)
         started = self.clock()
@@ -329,10 +351,13 @@ class IntentParser:
         candidate = None
         stages = {'interpretation_started_monotonic': started}
         keys = self.mentioned(text)
-        availability = bool(re.fullmatch(r'.+(?:되나|되나요|가능해|가능한가|가능해요|가능한가요|지원해|지원하나요)[?？.!]*', normalize_control(text)))
-        doc = self.control(text) or self.guard(text)
+        availability = bool(re.fullmatch(r'.+(?:되나|되나요|가능해|가능한가|가능해요|가능한가요|지원해|지원하나요|가져올수있어|가져올수있나요|가져올수있어요)[?？.!]*', normalize_control(text)))
+        contextual = bool(context and context.get('target') in self.items and not keys
+                          and not self.control(text) and not self._nonrequest_context(text)
+                          and not self._unsupported_context(text))
+        doc = self.control(text) or (None if contextual else self.guard(text))
         if availability:
-            doc = intent('unknown')
+            doc = intent('clarify' if len(keys) == 1 else 'unknown')
             doc['_voice'] = {'availability': True, 'question_target': next(iter(keys)) if len(keys) == 1 else None,
                              'reason': 'availability_only' if len(keys) == 1 else 'unregistered_item'}
         if doc is None:
@@ -344,13 +369,19 @@ class IntentParser:
                     diag['llm_called'] = True
                     stages['llm_started_monotonic'] = self.clock()
                     try:
-                        raw = self.calls.call(lambda: self.llm(text, remaining), remaining)
+                        raw = self.calls.call(lambda: self.llm(text, remaining, context=context)
+                            if context is not None and getattr(self.llm, 'supports_context', False) else self.llm(text, remaining), remaining)
                         stages['llm_result_monotonic'] = self.clock()
                         diag['llm_raw'] = raw
                         try:
                             decoded = json.loads(raw) if isinstance(raw, str) else raw
                             candidate = (decoded.get('response_text') if decoded.get('response_text') is not None else decoded.get('clarify_question')) if isinstance(decoded, dict) else None
-                            doc = self.validate(raw, text)
+                            validation_text = text
+                            if contextual and isinstance(decoded, dict) and decoded.get('intent') == 'find_item':
+                                if decoded.get('targets') != [context['target']]:
+                                    raise InvalidIntent('question_target_mismatch', '현재 질문 대상과 불일치')
+                                validation_text = self.items[context['target']]['name_ko'] + ' 가져다줘'
+                            doc = self.validate(raw, validation_text)
                             diag['llm_validation'] = 'passed'
                         except UnregisteredItem:
                             diag.update(llm_validation='failed', llm_error='UnregisteredItem', validation_reason='unregistered_item')
@@ -371,6 +402,8 @@ class IntentParser:
                 diag['fallback_used'] = True
         if doc['intent'] == 'clarify' and not doc.get('_voice', {}).get('question_target') and len(keys) == 1 and not self._nonrequest_context(text) and not self._unsupported_context(text):
             doc.setdefault('_voice', {})['question_target'] = next(iter(keys))
+        if contextual and doc['intent'] == 'clarify':
+            doc.setdefault('_voice', {})['question_target'] = context['target']
         doc.setdefault('_voice', {}).update(stages)
         if 'validation_reason' in diag:
             doc['_voice']['validation_reason'] = diag.pop('validation_reason')

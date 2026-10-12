@@ -2,6 +2,8 @@
 from pathlib import Path
 import math
 import yaml
+from .stt_error import error_prompts
+from .flow import settings as flow_settings
 
 
 def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
@@ -24,6 +26,7 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
             'general', 'audio_failure', 'no_speech', 'tts_failure')
     if not isinstance(prompts, dict) or any(not isinstance(prompts.get(k), str) or not prompts[k].strip() for k in keys):
         raise ValueError('clarify_prompts: 필수 고정 안내 설정 필요')
+    cfg['stt_error_prompts'] = error_prompts(cfg)
     value = cfg.get('speech_vad_threshold')
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 1:
         raise ValueError('speech_vad_threshold: 0초과 1이하 필요')
@@ -96,7 +99,7 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
         raise ValueError('dialogue_timeout_sec: null 또는 유한 양수 필요')
     defaults = {'response_max_chars': 160, 'diagnostic_max_bytes': 10485760,
                 'diagnostic_backups': 3, 'diagnostic_queue_size': 128,
-                'tts_prefill_progress_every': 8, 'tts_prefill_max_texts': 128, 'tts_prefill_max_chars': 160, 'tts_prefill_max_bytes': 65536,
+                'tts_prefill_progress_every': 8, 'tts_prefill_max_texts': 256, 'tts_prefill_max_chars': 160, 'tts_prefill_max_bytes': 65536,
                 'tts_frequent_max_texts': 32, 'tts_frequent_min_uses': 2,
                 'tts_frequent_max_bytes': 1048576}
     for key, default in defaults.items():
@@ -139,4 +142,7 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
     value = cfg['pick_verify_lower_bound_m']
     if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
         raise ValueError('pick_verify_lower_bound_m: finite positive number required')
+    cfg['voice_flow'] = flow_settings(cfg)
+    from .hotfix import prompts
+    cfg['voice_hotfix'] = prompts(cfg)
     return cfg

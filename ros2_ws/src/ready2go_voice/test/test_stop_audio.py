@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from types import SimpleNamespace
 import sys
+import queue
 import threading
 import numpy as np
 import pytest
@@ -32,7 +33,7 @@ def microphone(cfg, monkeypatch):
         size = cfg['frame_samples']
         period = size / cfg['sample_rate']
         stamp = SimpleNamespace(inputBufferAdcTime=0 if invalid else 10., currentTime=10.+2*period)
-        native[0].callback((np.ones(size,dtype=np.int16)*value).tobytes(),size,stamp,False)
+        native[0].callback((np.resize(np.array([1,-1],dtype=np.int16),size)*value).tobytes(),size,stamp,False)
     yield shared, clock, feed, native
     shared.close()
 
@@ -223,7 +224,10 @@ def test_stop_listener_recovers_from_audio_overflow_and_accepts_next_capture(nod
                 first[0]=False
                 reader.overflow=True
             else:
-                ready.set()
+                discard=reader.discard
+                def fresh():
+                    stamp=discard();ready.set();return stamp
+                reader.discard=fresh
             yield reader
     shared.stream=stream
     publish=node._publish
@@ -234,14 +238,125 @@ def test_stop_listener_recovers_from_audio_overflow_and_accepts_next_capture(nod
         feed(at=100.4);feed(0,at=100.8)
         worker.join(1)
         assert not worker.is_alive()
-        assert len(opened)==2 and opened[0] is not opened[1]
+        node.stop_processor.join(1)
+        # 큐/SDK 작업자가 분리돼 다음 reader를 미리 열 수 있습니다.
+        assert len(opened)>=2 and opened[0] is not opened[1]
+        assert all(reader.closed for reader in opened) and not node.stop_processor.is_alive()
+        assert node.session.stt.calls==1
         assert [doc['intent'] for doc in node.published]==['cancel']
-        assert any(d.get('event')=='stop_capture_overflow' for d in node.diagnostics)
+        assert any(d.get('event')=='stop_capture_held' and d.get('reason')=='AUDIO_OVERFLOW'
+                   for d in node.diagnostics)
     finally:
-        node.stop_event.set();shared.close();worker.join(1)
+        node.stop_event.set();shared.close();worker.join(1);node.stop_processor.join(1)
 
 
 def test_evaluation_cancel_clears_work_without_publication(node):
     node.cfg['evaluation_mode']=True
     with node.submit_lock:node._stop_locked(dict(intent='cancel',source={'stt_text':'멈춰','execution_allowed':False}),0)
     assert node.request_cancel.is_set() and node.generation==1 and not node.published
+
+
+@pytest.mark.parametrize('diagnostic_failure',[False,'held','capture'])
+def test_overflow_discards_reader_and_pcm_then_fresh_stop_reaches_publisher(node,microphone,diagnostic_failure,capsys):
+    shared,clock,feed,_=microphone
+    node.cfg.update(silence_sec=.08,max_record_sec=.5)
+    node.place_clock=lambda:clock[0];node.session.clock=lambda:clock[0]
+    node.shared_input=shared;node.busy.set()
+    diagnostics=[];readers=[];second_ready=threading.Event();received=[]
+    def diagnostic(doc):
+        diagnostics.append(doc)
+        if (diagnostic_failure=='held' and doc.get('reason')=='AUDIO_OVERFLOW'
+                or diagnostic_failure=='capture' and doc['event'].startswith('stop_capture')):
+            raise OSError('diagnostic unavailable')
+    node._diagnostic=diagnostic
+    class FreshSTT(STT):
+        def transcribe(self,path,*args,**kwargs):
+            import wave
+            with wave.open(str(path),'rb') as wav:
+                received.append(np.frombuffer(wav.readframes(wav.getnframes()),dtype=np.int16))
+            self.calls+=1
+            assert kwargs['before_request'](clock[0])
+            return self.text
+    node.session.stt=FreshSTT()
+    original=shared.stream
+    @contextmanager
+    def stream():
+        with original() as reader:
+            readers.append(reader)
+            if len(readers)==1:
+                read=reader.read
+                def overflow(frames):
+                    # 정상 callback으로 실제 reader 큐를 넘칩니다. 손상 PCM은 STT에 가지 않습니다.
+                    for i in range(reader.frames.maxsize+1):feed(7000,at=100.4+i*.01)
+                    return read(frames)
+                reader.read=overflow
+            else:
+                discard=reader.discard
+                def fresh():
+                    stamp=discard();second_ready.set();return stamp
+                reader.discard=fresh
+            yield reader
+    shared.stream=stream
+    publish=node._publish
+    node._publish=lambda doc:(publish(doc),node.stop_event.set())
+    worker=threading.Thread(target=node._stop_listen);worker.start()
+    try:
+        assert second_ready.wait(1)
+        assert readers[0].closed and readers[0] not in shared._readers
+        assert node.session.stt.calls==0 and not node.published
+        feed(1000,at=100.8);feed(0,at=101.)
+        worker.join(1);node.stop_processor.join(1)
+        assert not worker.is_alive() and not node.stop_processor.is_alive()
+        assert [d['intent'] for d in node.published]==['cancel']
+        assert node.session.stt.calls==1 and len(received)==1
+        assert 7000 not in received[0] and 1000 in received[0]
+        assert node.stop_spoken is None and not shared._readers
+        assert any(d.get('reason')=='AUDIO_OVERFLOW' for d in diagnostics)
+        assert any(d['event']=='stop_capture_diagnostic_failed' for d in diagnostics)==bool(diagnostic_failure)
+        if diagnostic_failure=='capture':
+            assert 'voice_diagnostic_failed' in capsys.readouterr().out
+    finally:
+        node.stop_event.set();shared.close();worker.join(1);node.stop_processor.join(1)
+
+
+def test_pending_stop_replacement_keeps_fresh_capture_when_diagnostic_fails(node,capsys):
+    node.stop_captures=queue.Queue(maxsize=1)
+    old=recording();fresh=recording()
+    def fail(doc):raise OSError('diagnostic unavailable')
+    node._diagnostic=fail
+    assert node._queue_stop_capture(old,0,())
+    assert node._queue_stop_capture(fresh,0,())
+    value=node.stop_captures.get_nowait()
+    assert value[0] is fresh and node.stop_captures.empty()
+    assert node.stop_captures.unfinished_tasks==1
+    node.stop_captures.task_done()
+    assert 'voice_diagnostic_failed' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('failure',['close','stop','unready','device','runtime','interrupted'])
+def test_stop_listener_exits_for_shutdown_or_unrecoverable_input_without_retry(node,microphone,failure):
+    shared,clock,_,_=microphone
+    node.shared_input=shared;node.place_clock=lambda:clock[0];node.busy.set()
+    attempts=[];original=shared.stream
+    @contextmanager
+    def stream():
+        attempts.append(1)
+        if failure=='close':shared.close()
+        if failure=='unready':shared._stream=None
+        if failure=='device':raise OSError('device unavailable')
+        if failure=='runtime':raise RuntimeError('different input error')
+        if failure=='interrupted':raise InterruptedError('unexpected device interruption')
+        with original() as reader:
+            if failure=='stop':node.stop_event.set()
+            yield reader
+    shared.stream=stream
+    worker=threading.Thread(target=node._stop_listen);worker.start()
+    try:
+        worker.join(1)
+        assert not worker.is_alive() and attempts==[1]
+        assert not node.published and node.stop_captures.empty()
+        assert node.stop_spoken is None and not shared._readers
+        assert any(d['event']=='stop_input_unavailable' for d in node.diagnostics)==(
+            failure in ('device','runtime','interrupted'))
+    finally:
+        node.stop_event.set();shared.close();worker.join(1);node.stop_processor.join(1)

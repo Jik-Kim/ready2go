@@ -269,7 +269,7 @@ def test_fixed_commissioning_runs_stt_llm_without_fake_speech_deadline(ontology,
 
 
 
-def test_stt_failure_progress_has_exception_type_only(ontology, schema, cfg):
+def test_stt_failure_progress_has_exception_type_and_allowed_metadata(ontology, schema, cfg):
     from ready2go_voice.adapters.audio import Recording
     events = []
     class Failed:
@@ -280,7 +280,8 @@ def test_stt_failure_progress_has_exception_type_only(ontology, schema, cfg):
                            speech_gate=SimpleNamespace(check=lambda *a, **k: True))
     doc = session.audio(Recording(b'\0\0', None, None, recording_mode='fixed'))
     assert doc['intent'] == 'clarify'
-    assert events[-1] == {'event': 'stt_failed', 'error_type': 'RuntimeError'}
+    assert events[-1] == {'event': 'stt_failed', 'error_type': 'RuntimeError',
+                          'api_error': {'status': None, 'code': None, 'type': None, 'category': 'other'}}
     assert 'SECRET' not in str(events)
 
 

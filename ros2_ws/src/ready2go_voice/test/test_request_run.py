@@ -1,4 +1,5 @@
 """계약07 E 상관 모의. 실제 ROS/Runner/로봇 검증이 아닙니다."""
+import copy
 import pytest
 from ready2go_voice.core.request_run import RequestRun
 
@@ -126,6 +127,67 @@ def test_explicit_dependency_invalidation_prevents_old_result_rebinding(tracker)
     assert tracker.register(dict(PAYLOAD,request_id='fresh'))
     assert not tracker.observe(status(accepted(),completed()))
     assert tracker.run_id is None
+
+
+@pytest.fixture
+def goal_tracker():
+    goals=[dict(predicate='located_in',subject='eraser',value='handover_zone'),
+           dict(predicate='open',subject='drawer_top',value=True)]
+    payload=dict(intent='achieve_goal',goals=goals,targets=[],request_id='goal',accept_text='목표 요청입니다.')
+    tracker=RequestRun();assert tracker.register(payload)
+    return tracker
+
+
+def goal_decision(**changes):
+    # 실제 계약07 요약처럼 goals echo가 없습니다.
+    return dict(dict(intent='achieve_goal',targets=[],request_id='goal',
+                     run_id='goal-run',decision='run'), **changes)
+
+
+def test_goal_accepts_without_echo_and_preserves_payload_until_same_run_completion(goal_tracker):
+    tracker=goal_tracker;original=copy.deepcopy(tracker.pending)
+    assert tracker.observe(status(goal_decision(),phase='running'))[0]['event']=='request_accepted'
+    assert not tracker.observe(status(goal_decision(),phase='running'))
+    assert tracker.pending==original
+    assert not tracker.register(dict(original,goals=[],request_id='goal'))
+    assert not tracker.observe(status(last=completed('other-run')))
+    assert tracker.observe(status(goal_decision(request_id='other'),completed('goal-run')))[0]['event']=='request_completed'
+    assert not tracker.observe(status(last=completed('goal-run')))
+
+
+def test_goal_fast_completion_without_echo(goal_tracker):
+    assert [e['event'] for e in goal_tracker.observe(status(goal_decision(),completed('goal-run')))]==[
+        'request_accepted','request_completed']
+
+
+@pytest.mark.parametrize('changes',[{'request_id':'other'},{'request_id':None},
+    {'intent':'find_item'},{'run_id':None},{'run_id':''},{'run_id':' '},{'decision':'unknown'}])
+def test_goal_rejects_uncorrelated_or_invalid_acceptance(goal_tracker,changes):
+    assert not goal_tracker.observe(status(goal_decision(**changes),completed('goal-run')))
+    assert goal_tracker.run_id is None and not goal_tracker.finished
+
+
+@pytest.mark.parametrize('changes',[{'run_id':'other'},{'decision':'reject'}, {'intent':'find_item'}])
+def test_goal_conflicting_current_decision_invalidates_without_rebinding(goal_tracker,changes):
+    goal_tracker.observe(status(goal_decision()))
+    assert not goal_tracker.observe(status(goal_decision(**changes),completed('goal-run')))
+    assert goal_tracker.pending is None
+    assert not goal_tracker.observe(status(goal_decision(),completed('goal-run')))
+
+
+def test_goal_reset_does_not_accept_previous_request(goal_tracker):
+    goal_tracker.observe(status(goal_decision()))
+    original=goal_tracker.pending
+    goal_tracker.invalidate()
+    assert goal_tracker.register(dict(original,request_id='fresh'))
+    assert not goal_tracker.observe(status(goal_decision(),completed('goal-run')))
+
+
+def test_find_item_still_requires_matching_targets(tracker):
+    assert not tracker.observe(status(dict(accepted(),targets=['car_key'])))
+    tracker.observe(status(accepted()))
+    assert not tracker.observe(status(dict(accepted(),targets=['car_key']),completed()))
+    assert tracker.pending is None
 
 
 def test_goal_status_without_goals_echo_correlates_by_request_and_run():

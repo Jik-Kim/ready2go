@@ -61,10 +61,14 @@ class SharedInput:
         item = (bytes(data), bool(status) or not valid, end, wall - (now - end))
         with self._lock:
             for reader in self._readers:
+                current_item = item
                 if valid and start < reader.started_at:
-                    continue  # 소비자 등록 전에 채운 물리 프레임도 새 녹음에 섞지 않습니다.
+                    if not reader.capture_mode or end <= reader.started_at:
+                        continue
+                    offset = min(frames, math.ceil((reader.started_at-start)*self.cfg['sample_rate']))
+                    current_item = (bytes(data)[offset*2:], item[1], end, item[3])
                 try:
-                    reader.frames.put_nowait(item)
+                    reader.frames.put_nowait(current_item)
                 except queue.Full:
                     reader.overflow = True
 
@@ -103,6 +107,7 @@ class _InputReader:
         # 기존 최대 녹음량으로만 제한하며 별도 보관/재전송 구간을 만들지 않습니다.
         self.frames = queue.Queue(maxsize=max(1, math.ceil(
             cfg['max_record_sec'] * cfg['sample_rate'] / cfg['frame_samples'])))
+        self.capture_mode = False
         self.closed = self.overflow = False
         self.last_frame_monotonic = self.last_frame_unix = None
         self.interrupted = lambda: False
@@ -114,6 +119,29 @@ class _InputReader:
             self.started_at = self.owner.clock()
             while not self.frames.empty():
                 self.frames.get_nowait()
+            return self.started_at
+
+    def begin_capture(self, after=None):
+        # cue 실제 종료 뒤 정상 샘플은 guard 동안 쌓여도 보존합니다. 경계를 걸친 프레임은 샘플 단위로 자릅니다.
+        with self.owner._lock:
+            if self.overflow:
+                raise RuntimeError('AUDIO_OVERFLOW')
+            boundary = self.owner.clock() if after is None else after
+            if type(boundary) not in (int,float) or not math.isfinite(boundary):
+                raise ValueError('CAPTURE_BOUNDARY')
+            self.capture_mode = True
+            self.started_at = max(self.started_at, boundary)
+            retained = []
+            while not self.frames.empty():
+                data, overflow, end, wall = self.frames.get_nowait()
+                if overflow:
+                    raise RuntimeError('AUDIO_OVERFLOW')
+                start = end - len(data)/2/self.owner.cfg['sample_rate']
+                if end > self.started_at:
+                    offset = max(0, math.ceil((self.started_at-start)*self.owner.cfg['sample_rate']))
+                    retained.append((data[offset*2:],overflow,end,wall))
+            for item in retained:
+                self.frames.put_nowait(item)
             return self.started_at
 
     def read(self, frames):
@@ -213,10 +241,10 @@ class Recorder:
                 finally:
                     stream.close()
 
-    def _fixed_shared(self, stream, stop, paused):
+    def _fixed_shared(self, stream, stop, paused, *, prepared_at=None):
         stream.interrupted = lambda: stop.is_set() or paused()
         count = int(self.cfg['record_duration_sec'] * self.cfg['sample_rate']) * 2
-        started, chunks, size = stream.discard(), [], 0
+        started, chunks, size = stream.discard() if prepared_at is None else prepared_at, [], 0
         while size < count:
             if stop.is_set() or paused():
                 raise InterruptedError('녹음 중단')
@@ -235,10 +263,10 @@ class Recorder:
                          recording_ended_monotonic=stream.last_frame_monotonic,
                          recording_ended_unix=stream.last_frame_unix)
 
-    def record(self, stream, stop, paused=lambda: False):
+    def record(self, stream, stop, paused=lambda: False, *, prepared_at=None):
         started = self.clock()
         if isinstance(stream, _InputReader):
-            started = stream.discard()  # 폐기 기준과 녹음 시작 시각을 같은 잠금 안에서 확정합니다.
+            started = stream.discard() if prepared_at is None else prepared_at  # 한 번 확정한 새 캡처 경계
             stream.interrupted = lambda: stop.is_set() or paused()
         chunks, last_voice, ended_wall = [], None, None
         while not stop.is_set():
@@ -249,7 +277,8 @@ class Recorder:
                 raise RuntimeError('AUDIO_OVERFLOW')
             pcm = bytes(data)
             samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float64)
-            rms = math.sqrt(float(np.mean(samples * samples))) if samples.size else 0
+            centered = samples - np.mean(samples) if samples.size else samples
+            rms = math.sqrt(float(np.mean(centered * centered))) if samples.size else 0  # 판정만 DC 제외, PCM 보존
             now = getattr(stream, 'last_frame_monotonic', None) or self.clock()
             if rms >= self.cfg['speech_rms']:
                 last_voice, ended_wall = now, getattr(stream, 'last_frame_unix', None) or self.wall()

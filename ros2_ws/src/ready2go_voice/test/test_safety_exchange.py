@@ -118,7 +118,7 @@ def test_independent_recovery_and_explicit_end_have_distinct_candidates(cfg,text
         assert isinstance(candidate,IndependentRegistration)
         final=ex.independent_registered(target,WORK,2,now=8.,valid_state=True,evidence=SAFE)
         assert isinstance(final,TaskEndCandidate) and final.work==WORK
-        assert ex.policy.work is None
+        assert ex.policy.work == WORK  # 명시 수락 전 작업 보존
 
 
 class STT:

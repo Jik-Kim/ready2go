@@ -22,10 +22,12 @@ def finite(value):
 def safety_utterance(text):
     if not isinstance(text, str):
         return None
-    return {'멈춰': 'stop', '정지해': 'stop', '복구해': 'recover',
+    forms = {'멈춰': 'stop', '정지해': 'stop', '중단': 'stop', '중단해': 'stop', '복구': 'recover', '복구해': 'recover',
             '상태 확인 후 복구해': 'recover', '재개해': 'resume',
             '이어서 실행해': 'resume', '이어서 해': 'resume', '처음부터 시작해': 'new_start',
-            '새 작업 시작해': 'new_start'}.get(text.strip().rstrip('.!?').strip())
+            '새 작업 시작해': 'new_start'}
+    normalized = ''.join(text.split()).rstrip('.!?。？！')
+    return {''.join(key.split()):value for key,value in forms.items()}.get(normalized)
 
 
 def task_end_utterance(text):
@@ -262,6 +264,23 @@ class RecoveryConfirmation:
         self._retire_work(work)
         return True
 
+    @serialized
+    def resumed(self, work, *, valid_state, evidence):
+        """명시 수락 adapter의 E 로컬 중단 사건 종료. 모션/작업 완료가 아닙니다."""
+        if (valid_state is not True or work != self.work or not self.current_state_confirmed
+                or self._recovery_mode(work, evidence) != 'resume'):
+            return False
+        self._retire_work(work)
+        return True
+
+    @serialized
+    def ended(self, work, *, valid_state):
+        """현재 명시 종료 수락만 중단 사건을 종료합니다. 물리 완료가 아닙니다."""
+        if valid_state is not True or self.work != work or not self.current_state_confirmed:
+            return False
+        self._retire_work(work)
+        return True
+
     def _retire_work(self, work):
         # E-local retirement only; neither a C termination ACK nor a motion action.
         self.retired_events.add((work.session, work.task, work.stop))
@@ -453,7 +472,7 @@ class RecoveryConfirmation:
             return None
         if task_end_utterance(text):
             candidate = TaskEndCandidate(self.work)
-            self._retire_work(candidate.work)
+            self.invalidate()  # 후보 소비; 중단 사건은 명시 종료 수락까지 보존합니다.
             return candidate
         if isinstance(text, str) and text.strip().rstrip('.!?') in ('아니', '아니요'):
             self.abandon(question)
@@ -540,7 +559,7 @@ class RecoveryConfirmation:
         work = request.work
         if kind == 'end':
             candidate = TaskEndCandidate(work)
-            self._retire_work(work)
+            self.invalidate()  # 후보 소비; 중단 사건은 명시 종료 수락까지 보존합니다.
             return candidate
         if self._recovery_mode(work, evidence) != 'resume':
             self.invalidate(); return None

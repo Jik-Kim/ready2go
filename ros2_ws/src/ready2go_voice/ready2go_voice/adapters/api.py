@@ -7,12 +7,13 @@ from pathlib import Path
 
 class WhisperSTT:
     supports_request_boundary = True
+    supports_context_hint = True
     def __init__(self, cfg, vocabulary, clock=time.monotonic):
         self.cfg = cfg
         self.clock = clock
         self.prompt = ', '.join(vocabulary)
 
-    def transcribe(self, wav_path, timeout, *, before_request=None):
+    def transcribe(self, wav_path, timeout, *, before_request=None, context_hint=None):
         from openai import OpenAI
         # SDK 재시도를 끄고 호출자 deadline과 같은 제한을 적용합니다.
         with OpenAI(api_key=os.environ.get('OPENAI_API_KEY'), timeout=timeout, max_retries=0) as client:
@@ -21,12 +22,14 @@ class WhisperSTT:
                 # Optional internal guard. P1 behavior is unchanged without it.
                 if before_request is not None and before_request(self.clock()) is not True:
                     raise TimeoutError('STT_REQUEST_NOT_ADMITTED')
+                hint = context_hint() if callable(context_hint) else context_hint
                 result = client.audio.transcriptions.create(
-                    model=self.cfg['stt_model'], file=audio, language='ko', prompt=self.prompt)
+                    model=self.cfg['stt_model'], file=audio, language='ko', prompt=self.prompt + ('\n' + hint if isinstance(hint,str) and hint else ''))
         return result.text
 
 
 class LangChainIntent:
+    supports_context = True
     def __init__(self, cfg, items):
         self.cfg = cfg
         self.vocabulary = json.dumps({k: {'name_ko': v['name_ko'], 'aliases_ko': v.get('aliases_ko', [])}
@@ -57,7 +60,7 @@ class LangChainIntent:
                     }, 'required': ['predicate', 'subject', 'value']}}
             self.schema['required'].append('goals')
 
-    def __call__(self, text, timeout):
+    def __call__(self, text, timeout, *, context=None):
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_openai import ChatOpenAI
         prompt = ChatPromptTemplate.from_messages([
@@ -86,9 +89,11 @@ class LangChainIntent:
              'find_item/clarify에서는 null입니다. 미등록 이름을 targets에 넣지 말고 '
              'unknown/빈 targets와 사유로 구분하십시오. response_text의 문구만으로 '
              '사유를 대신하지 마십시오. '
-             'find_item에서는 대상 이름과 요청으로 이해한 내용만 안내하고, 수락·실행·완료를 단정하지 않습니다. '
+             'find_item에서는 대상 이름과 가져오기 요청으로 이해했다는 한 문장을 response_text에 반드시 작성합니다. 예: 망치 가져오기 요청으로 이해했어요. C 수락·실행·완료를 단정하지 않습니다. '
              'clarify에서는 대상 이름을 사용해 가져오기 요청이 맞는지 질문합니다. '
              '공개 clarify_question은 확인 질문만이며 수락/완료 문장으로 쓰지 않습니다. '
+             'current_question이 있으면 실제 reply가 해당 질문의 긍정/대상 받기 답인지 먼저 판정하십시오. '
+             '관련 없는 새 요청·부정·다른 대상은 현재 질문 대상으로 보충하지 마십시오. '
              '실행 시작/완료/실재고/파지 가능을 확답하지 마십시오. 등록 물품: {vocabulary}'),
             *([('system', 'P2 내부 평가입니다. 아래 선정 목록에 일치하는 명시적 목표 요청만 '
                 'achieve_goal/targets=[]/goals로 출력합니다. 물품/서랍은 등록 키만 사용합니다. '
@@ -102,7 +107,7 @@ class LangChainIntent:
                          timeout=timeout, max_retries=0)
         chain = prompt | llm.bind(response_format={'type': 'json_schema', 'json_schema': {
             'name': 'p2_goal_candidate' if self.cfg.get('p2_goal_enabled') is True else 'p1_intent', 'strict': True, 'schema': self.schema}})
-        result = chain.invoke({'text': text, 'vocabulary': self.vocabulary,
+        result = chain.invoke({'text': text if context is None else json.dumps({'command': text, 'current_question': context}, ensure_ascii=False), 'vocabulary': self.vocabulary,
                                'goal_catalog': json.dumps(self.cfg.get('p2_goal_catalog', []), ensure_ascii=False)})
         if not isinstance(result.content, str):
             raise ValueError('문자열 JSON 응답 필요')

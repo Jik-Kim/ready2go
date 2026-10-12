@@ -278,7 +278,7 @@ def test_evaluation_policy_deliver_path(harness, text, kind):
 
 
 
-def test_fixed_listener_reuses_physical_input_after_wake_reader_closes(harness, monkeypatch):
+def test_fixed_listener_keeps_input_reader_for_fresh_capture(harness, monkeypatch):
     from contextlib import contextmanager
     from ready2go_voice.adapters.audio import Recording
     import ready2go_voice.nodes.voice_node as module
@@ -298,15 +298,15 @@ def test_fixed_listener_reuses_physical_input_after_wake_reader_closes(harness, 
         @contextmanager
         def stream(self):
             events.append('wake_open')
-            try: yield object()
+            try: yield SimpleNamespace(discard=lambda: events.append('fresh_capture') or 1.)
             finally: events.append('wake_close')
         def wait(self, *args): return True
     class Record:
         def __init__(self, cfg, *, clock, shared_input):
             self.cfg = cfg
             assert shared_input is harness.shared_input
-        def record_fixed(self, *args):
-            assert events[-1] == 'wake_close' and self.cfg['input_device'] == 4
+        def _fixed_shared(self, *args, **kwargs):
+            assert kwargs['prepared_at'] == 1. and events[-1] == 'fresh_capture' and self.cfg['input_device'] == 4
             events.append('record')
             return Recording(b'\0\0', None, None, recording_mode='fixed')
     def submit(*args, **kwargs): harness.stop_event.set(); return True
@@ -314,7 +314,7 @@ def test_fixed_listener_reuses_physical_input_after_wake_reader_closes(harness, 
     monkeypatch.setattr(module, 'WakeAudio', Wake)
     monkeypatch.setattr(module, 'Recorder', Record)
     VoiceNode._listen(harness)
-    assert events == ['input_start','stop_start','wake_open','wake_close','record']
+    assert events == ['input_start','stop_start','wake_open','fresh_capture','record','wake_close']
     assert 'input_close' not in events  # 소비자가 닫혀도 공유 물리 입력은 유지합니다.
 
 
