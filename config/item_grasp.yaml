@@ -2,14 +2,17 @@
 # grip_force 단위 N. 임의 기본 힘을 넣지 않는다. [팀 확정 필요]
 # verified는 장소·자세·반복성·힘을 포함한 B·E의 파지 승인 후에만 true.
 # 단일 성공 보고는 최종 승인과 다르다. 목록 등록·라벨링은 verified와 별개.
+# grasp_width_m / grasp_width_long_m (선택, m): RG2 로 실제로 잡은 폭 — world size_m 외접 박스와 다른 물품만 [B 실측]. 짧은 변 잡기 / 긴 변 양끝 잡기.
+#   B 스킬 서버가 잡은 폭 판정(± gripper.grasp_width_tolerance_m)에 씀. 외접 박스(size_m)는 그대로 — 넛지·벽·이웃 공간 판단용.
+#   같은 폭인 물품 [실측 PC2 10/11, 세로/가로]: 지우개 21.0/52.2, 립밤 19.7/72.5, 차키 39.7/70.1, 에어팟 45.2/60.5, 마스킹테이프 38.0, 캐러멜 가로 68.8(75 + 각도 여유 안).
 airpods_case: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
-caramel_box: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
+caramel_box: {grip_force: null, grasp_verified: false, grasp_width_m: 0.0432}  # [팀 확정 필요: B 파지 시험] 짧은 변 49(버니어)을 20 N 으로 잡은 폭 43.2 [실측 PC2 10/11, 종이 상자 눌림 추정]
 car_key: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 eraser: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 lip_balm: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 carrot_pen: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 masking_tape: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
-toy_car: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
-toy_wrench: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
-toy_hammer: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
+toy_car: {grip_force: null, grasp_verified: false, grasp_width_m: 0.0309, grasp_width_long_m: 0.048}  # [팀 확정 필요: B 파지 시험] 세로 30.9·가로 48.0 [실측 PC2 10/11] = 위쪽 얇은 부분(그리퍼가 딱 맞게 들어감)을 잡은 폭. 아래 몸통 버니어 35.1·54.8 [사용자 10/11]. 외접 40.5·57.5
+toy_wrench: {grip_force: null, grasp_verified: false, grasp_width_m: 0.0259}  # [팀 확정 필요: B 파지 시험] 길이 가운데(손잡이) 25.9 [실측 PC2 10/10], 10/11 세로·가로 24.9
+toy_hammer: {grip_force: null, grasp_verified: false, grasp_width_m: 0.0155}  # [팀 확정 필요: B 파지 시험] 손잡이 가로 15.3·세로 15.7 [실측 PC2 10/11] (예전 #43 12.5)
 cover_plate: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]

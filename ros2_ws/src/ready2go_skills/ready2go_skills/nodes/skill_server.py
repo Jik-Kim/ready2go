@@ -36,7 +36,7 @@ from ready2go_interfaces.action import Skill
 from ready2go_skills.adapters.dsr import Dsr
 from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_guard, motion_plan as mp
-from ready2go_skills.core import neighbor_check as nc
+from ready2go_skills.core import clear_plan as clp, neighbor_check as nc
 from ready2go_skills.core import pick_plan as pp, place_plan as plp, pose_math as pm, skill_flow as sf
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
@@ -111,6 +111,129 @@ def _width_m(width_mm):
     if isinstance(width_mm, bool) or not isinstance(width_mm, (int, float)) or not math.isfinite(width_mm):
         return None
     return round(width_mm / 1000.0, 4)
+
+
+# ---- 파지 공간 만들기 [제안 10/11 B, 계약 승인 전] — 계획(core/clear_plan)이 묻는 "집을 수 있나·놓을 수 있나"를
+#      서버의 실제 사전 검사로 답함. 움직이는 메서드는 막아 두고 처음 움직이려는 순간 = 가능으로 봄 (로봇은 안 움직임).
+NO_FREE_SPACE = "NO_FREE_SPACE"          # nudge_object make_room: 치울 물체를 놓을 빈 자리가 서랍에 없음 (움직이기 전)
+OCCLUSION_UNKNOWN = "OCCLUSION_UNKNOWN"  # nudge_object make_room: 가림 관계(occluded_by) 모름·박스 모델 — 움직이기 전, 다시 찍기
+_MOTION = ("_to_drawer_view", "_line", "_blend", "_named", "_movej", "_grip", "_over_then_down", "_line_slow", "_exit_drawer",
+           "_transit", "_step")
+_QUIET = type("_Quiet", (), {k: staticmethod(lambda *a, **kw: None) for k in ("info", "warn", "warning", "error", "debug")})()
+_DRY_GOAL = type("_DryGoal", (), {"is_cancel_requested": False, "publish_feedback": staticmethod(lambda f: None)})()
+
+
+class _WouldMove(Exception):
+    """사전 검사를 다 통과하고 처음으로 움직이려 함 = 가능."""
+
+
+def _would_move(*a, **kw):
+    raise _WouldMove()
+
+
+class _Dry:
+    """서버를 감싼 판단 전용 사본: 메서드는 서버 것을 이 사본에 묶어 부르고(self.<움직임> 이 막힘), 상태(held·disp)는 사본 것.
+    파일에 쓰는 held 저장(property setter)도 타지 않음."""
+
+    def __init__(self, srv, held=None):
+        self.__dict__.update(_srv=srv, held=held, disp=dict(srv.disp))
+
+    def __getattr__(self, name):
+        if name in _MOTION:
+            return _would_move
+        if name == "get_logger":
+            return lambda: _QUIET
+        attr = getattr(type(self._srv), name, None)
+        if isinstance(attr, property):
+            return attr.fget(self)
+        if callable(attr) and not isinstance(attr, type):
+            return attr.__get__(self)
+        return getattr(self._srv, name)
+
+
+def _dry_call(fn):
+    try:
+        out = fn()
+    except _WouldMove:
+        return True, "", ""
+    except Exception as e:                                       # 설정·계산 예외 = 못 함
+        return False, sf.SKILL_EXCEPTION, repr(e)[:120]
+    o = out[0] if isinstance(out, tuple) else out
+    return bool(o.success), o.error_code or "", o.reason or ""
+
+
+def _scan_of(objs, tid):
+    """계획 중인 물체 목록 → inspect_region 결과 형식 (목표 + 나머지)."""
+    t = next(o for o in objs if o["id"] == tid)
+    return {"target_found": True, "target": t, "candidates": [o for o in objs if o["id"] != tid], "visible_count": len(objs)}
+
+
+class DryOracle:
+    """core/clear_plan 의 oracle — pick(objs, id)·place(objs, held_id, pose|slot)·wall_nudge(objs, id). 로봇은 안 움직임."""
+
+    def __init__(self, srv, drawer_id):
+        self.srv, self.drawer = srv, drawer_id
+        self.calls = 0
+
+    def pick(self, objs, oid):
+        self.calls += 1
+        t = next(o for o in objs if o["id"] == oid)
+        if t.get("occluded_by"):                                 # 위에 얹힌 물체 (분할 비전 occluded_by)
+            return False, "COVERED", "위에 다른 물체"
+        dry = _Dry(self.srv)
+        return _dry_call(lambda: dry._do_pick_object(_DRY_GOAL, {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_of(objs, oid)}))
+
+    def place(self, objs, held_id, pose_or_slot):
+        self.calls += 1
+        h = next(o for o in objs if o["id"] == held_id)
+        srv, prm = self.srv, self.srv.prm()
+        size = srv._size_or_none(h["class"]) or prm["place"]["default_obstacle_size_m"]
+        gw = srv.grasp_width(h["class"], size, prm) or size[1]
+        dry = _Dry(srv, held={"class": h["class"], "id": held_id, "width_m": gw, "drawer_id": self.drawer,
+                              "tcp_above_floor_m": size[2] * prm["pick"].get("grip_height_ratio", 0.5), "long_side": False})
+        p = {"location": self.drawer, "scan": _scan_of(objs, held_id)}
+        p.update({"slot": pose_or_slot} if isinstance(pose_or_slot, str) else {"pose": pose_or_slot})
+        return _dry_call(lambda: dry._place_in_drawer(_DRY_GOAL, p, self.drawer))
+
+    def wall_nudge(self, objs, oid):
+        """기존 벽 넛지 계획(mp.plan_drag) → 예상 위치. 끄는 길에 높이가 겹치는 물체가 있으면 거부 (그땐 계획이 밀기로 넘김)."""
+        self.calls += 1
+        srv, prm = self.srv, self.srv.prm()
+        t = next(o for o in objs if o["id"] == oid)
+        place = srv.places()[self.drawer]
+        size = srv._size_or_none(t["class"])
+        if not size:
+            return None, sf.BAD_PARAMS, f"{t['class']} 크기 모름"
+        try:
+            plan = mp.plan_drag(target=t, size_m=size, interior_m=place["interior_m"], g=srv._drag_g(self.drawer, t["class"]),
+                                drag=prm["drag"])
+        except Exception as e:
+            return None, sf.SKILL_EXCEPTION, repr(e)[:100]
+        if plan.error_code:
+            return None, plan.error_code, plan.reason
+        if not plan.needed:
+            return None, "NOT_NEEDED", plan.reason
+        if plan.push_to_xy_m is not None:                        # 뒤에서 밀어 벽에 붙임 → 벽에 붙어 축에 맞춤 [예상]
+            px, py = plan.push_dir
+            half = size[1] / 2.0
+            p = list(t["pose"]["position"])
+            if px:
+                p[0] = half + 0.0005 if px < 0 else place["interior_m"][0] - half - 0.0005
+            else:
+                p[1] = half + 0.0005 if py < 0 else place["interior_m"][1] - half - 0.0005
+            after = dict(t, pose=dict(t["pose"], position=p, yaw=math.pi / 2 if px else 0.0))
+        else:
+            after = clp.moved(t, plan.shift_x_m, plan.shift_y_m)
+        size_of = srv._size_cached()
+        group = {oid} | clp.riders(objs, oid)
+        others = [o for o in objs if o["id"] not in group]
+        dx, dy = (after["pose"]["position"][i] - t["pose"]["position"][i] for i in (0, 1))
+        for k in range(1, 21):
+            mid = clp.moved(t, dx * k / 20.0, dy * k / 20.0)
+            hit = next((o["id"] for o in others if clp.collide(mid, o, size_of)), None)
+            if hit:
+                return None, NEIGHBOR_TOO_CLOSE, f"끄는 길에 {hit}"
+        return after, "", plan.reason
 
 
 class SkillServer(Node):
@@ -254,12 +377,12 @@ class SkillServer(Node):
         return [float(v) for v in items[cls]["size_m"]], force
 
     def grasp_width(self, cls, size_m, prm, long_side=False):
-        """skills.yaml `pick.grasp_width_m` — 실제로 잡는 부위의 폭 (망치는 외접박스 짧은 변 75 mm 가 아니라 손잡이).
-        long_side 면 `pick.grasp_width_long_m` (긴 변 양끝을 잡은 폭 — 장난감차는 바퀴 빼고 몸통) [실측 PC2 10/11].
-        없으면 None (온톨로지 변을 씀). 0 이하·그 변보다 큰 값은 움직이기 전에 거부 (#43).
-        item_grasp.yaml 은 E 온톨로지 검사가 grip_force·grasp_verified 만 허용해 B 파라미터에 둠."""
+        """온톨로지 `config/item_grasp.yaml` 의 `grasp_width_m` — 실제로 잡는 부위의 폭 (망치는 외접박스 짧은 변 75 mm 가 아니라 손잡이).
+        long_side 면 `grasp_width_long_m` (긴 변 양끝을 잡은 폭 — 장난감차는 바퀴 빼고 몸통) [실측 PC2 10/11].
+        없으면 None (온톨로지 변을 씀). 0 이하·그 변보다 큰 값은 움직이기 전에 거부 (#43). prm 은 쓰지 않음(호환)."""
         key, side = ("grasp_width_long_m", size_m[0]) if long_side else ("grasp_width_m", size_m[1])
-        w = (prm["pick"].get(key) or {}).get(cls)
+        grasp = _yaml_cached(self.cfg_dir / "item_grasp.yaml") or {}
+        w = (grasp.get(cls) or {}).get(key)
         if w is None:
             return None
         if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0.0 < w <= side:
@@ -1291,6 +1414,26 @@ class SkillServer(Node):
         """아주 짧은 직선 (힘 맞추기 0.1 mm) — 느린 이동이라 좌표로 판단 (_line_slow)."""
         return self._line_slow(goal, posx, self.prm()["drag"]["press_speed_mm_s"], stage)
 
+    def _drag_g(self, drawer_id, cls):
+        """끌기·벽 판단에 쓰는 그리퍼·서랍 값 (nudge_object 와 파지 공간 계획이 같은 값을 쓰게)."""
+        prm = self.prm()
+        return dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
+                    wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id),
+                    reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id),
+                    max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
+                    axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
+                    round=cls in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
+
+    def _size_cached(self):
+        """계획용 size_of — 온톨로지를 한 번만 읽음 (모르는 class 는 place.default_obstacle_size_m)."""
+        default, cache = self.prm()["place"]["default_obstacle_size_m"], {}
+
+        def size_of(cls):
+            if cls not in cache:
+                cache[cls] = self._size_or_none(cls) or list(default)
+            return cache[cls]
+        return size_of
+
     def _do_nudge_object(self, goal, params):
         if (err := self._refuse_if_hold_unknown()):
             return err, None
@@ -1305,13 +1448,10 @@ class SkillServer(Node):
                                           tf_at_travel_m=place.get("tf_at_travel_m"), params=prm["motion_guard"])
         if err:
             return sf.Outcome(False, err.error_code, reason=err.reason), None
+        if params.get("make_room"):                         # 파지 공간 만들기 한 단계 [제안 10/11 B, 계약 승인 전]
+            return self._make_room(goal, params, drawer_id, target)
         size, _ = self.item(target.get("class"))
-        g = dict(prm["gripper"], wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(drawer_id),
-                 wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id),
-                 reach_x_max_mm=(prm.get("drawer_reach_x_mm") or {}).get(drawer_id),
-                 max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
-                 axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
-                 round=target.get("class") in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
+        g = self._drag_g(drawer_id, target.get("class"))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
                "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)
@@ -1500,6 +1640,171 @@ class SkillServer(Node):
         after["pose"]["yaw"] = round(yaw / (math.pi / 2)) * (math.pi / 2)   # 벽에 붙어 누웠다고 봄 — 다시 찍어 확인
         out["target_after"] = after
         return sf.Outcome(True, reason=f"뒤에서 밀어 {'x' if nx else 'y'} {(dx or dy) * 1000:+.1f} mm (계산한 끝까지, {d.get('push_back_mm', 5.0):g} mm 물러나 올림)"), out
+
+    def _make_room(self, goal, params, drawer_id, target):
+        """파지 공간 만들기 한 단계 [제안 10/11 B, 계약 승인 전 — #117]. scan(직전 inspect_region 결과 전체) 필수.
+        core/clear_plan 이 다음 동작 하나를 고름: 위에 얹힌 것·막는 것을 집어 빈 자리에 / 목표를 빈 쪽으로 넛지 / 사방이 막히면
+        한쪽으로 쭉 밀고(옆 물체 같이) 일부 되돌아오기 / 벽 넛지. 판단은 이 서버의 사전 검사(DryOracle, 움직이지 않음).
+        지금 바로 집을 수 있으면 움직이지 않고 make_room.ready_to_pick. 동작 하나 뒤엔 다시 보고(inspect_region) 다시 부름."""
+        out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0, "target_after": None,
+               "make_room": None}
+        prm, place = self.prm(), self.places()[drawer_id]
+        scan = params.get("scan")
+        objs, why = plp.scan_objects(scan, drawer_id)
+        if why:
+            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"make_room: {why}"), out
+        tid = target.get("id")
+        if tid not in {o["id"] for o in objs}:
+            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"make_room: 목표 {tid!r} 가 scan 에 없음"), out
+        # 가림 필드 (runner.md 7.1): null = 모름, 결과 전체에 없음 = 박스 모델(관계 정보 없음). 모름을 '위에 없음'([])으로 바꾸지 않음 —
+        # 위에 얹힌 물체를 밀거나 누를 수 있음 [A·PM #226 리뷰 10/12]. 움직이기 전 거부 → 다시 찍기 (C select_obstacle occlusion_unknown 과 같은 방식)
+        if not any("occluded_by" in o for o in objs):
+            return sf.Outcome(False, OCCLUSION_UNKNOWN, reason="make_room: 가림 필드 없음(박스 모델) — 위에 얹힌 관계를 몰라 공간 만들기 안 함"), out
+        unknown = [o["id"] for o in objs if not isinstance(o.get("occluded_by"), list)]
+        if unknown:
+            return sf.Outcome(False, OCCLUSION_UNKNOWN, reason=f"make_room: 위에 얹힌 관계 모름(occluded_by null·누락) {unknown} — 다시 찍기"), out
+        objs = [dict(o, occluded_by=list(o["occluded_by"])) for o in objs]
+        mr = prm.get("make_room") or {}
+        cfg = clp.Config(interior_m=place["interior_m"], frame=drawer_id, size_of=self._size_cached(),
+                         axes=clp.AXES if prm["drag"].get("push_inward_ok") else clp.AXES[:3],
+                         max_shift_m=prm["drag"]["max_shift_mm"] / 1000.0, max_chain=int(mr.get("max_chain", 2)),
+                         round_classes=tuple(prm["pick"].get("round_classes") or ()),
+                         press_finger_r_mm=float(mr["press_finger_r_mm"]),
+                         remove_first=bool(mr.get("remove_first", True)),
+                         reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
+        a = clp.plan_next(objs, tid, DryOracle(self, drawer_id), cfg)
+        info = {"action": a.kind, "moved_id": a.target or None, "ready_to_pick": False, "reason": a.reason,
+                "pushed_ids": [], "pushed_after": []}
+        out["make_room"] = info
+        by = {o["id"]: o for o in objs}
+        self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason}")
+        if a.kind == "pick":
+            info.update(action="none", moved_id=None, ready_to_pick=True)
+            out["target_after"] = by[tid]
+            return sf.Outcome(True, reason="이미 집을 수 있음 — 움직이지 않음"), out
+        if a.kind == "fail":
+            info["moved_id"] = None                               # 움직이지 않음 — 옮기려던 물체는 reason 에 [C #226 리뷰]
+            code = a.code if a.code in (NEIGHBOR_TOO_CLOSE, NO_FREE_SPACE, mp.NO_PUSH_ACCESS) else mp.NO_PUSH_ACCESS
+            return sf.Outcome(False, code, reason=f"공간을 만들 수 없음: {a.reason}"), out
+        if params.get("check_only"):                              # 판단만 — 어떤 동작이든 움직이지 않음 [E #226 리뷰 P1]
+            info["moved_id"] = None
+            return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — 다음 동작 {a.kind} {a.target}: {a.reason}"), out
+        expect = clp.apply(objs, a, cfg)                          # 동작 뒤 예상 (목표 위치) — 실제는 다시 보고 확인
+        out["target_after"] = next(o for o in expect if o["id"] == tid)
+        info["moved_after"] = clp.as_pose(next(o for o in expect if o["id"] == a.target))   # 옮긴 물체 예상 자리 (다시 보기 전)
+        # 같이 밀린 물체 (sweep) — 역순 복구(FR-ACT-04)에 움직인 물체 전부가 필요 [C #226 리뷰]. 예상 자리, 다시 보기 전
+        info["pushed_ids"] = [i for i in a.pushed if i != a.target]
+        info["pushed_after"] = [dict(clp.as_pose(next(o for o in expect if o["id"] == i)), id=i) for i in info["pushed_ids"]]
+        moved = by[a.target]
+        if a.kind in ("unstack", "remove"):                       # 집어서 빈 자리에 내려놓기 (서랍 안 놓기 검사 그대로)
+            res, _ = self._do_pick_object(goal, {"target": moved, "approach_offset": [0, 0, 0.1], "scan": scan})
+            if not res.success:
+                out["target_after"] = None
+                return res, out
+            res, pl = self._place_in_drawer(goal, {"location": drawer_id, "pose": a.to_pose, "scan": scan}, drawer_id)
+            info["placed_pose"] = (pl or {}).get("placed_pose")
+            if not res.success:
+                out["target_after"] = None
+                return res, out
+            return sf.Outcome(True, reason=f"{a.reason} — 다시 보고 다시 부르기"), out
+        if a.kind == "wall_nudge":                                # 기존 벽 넛지 그대로 (끄는 길 이웃 확인 포함)
+            p2 = {k: v for k, v in params.items() if k not in ("make_room", "check_only")}
+            res, o2 = self._do_nudge_object(goal, dict(p2, target=moved))
+            o2 = o2 or {}
+            out.update({k: o2[k] for k in ("pushed", "push_vector_m", "clearance_before_m", "floor_z_m") if k in o2})
+            if a.target == tid:                                   # 목표 자신 — 끈 실제 거리로 낸 예상 위치
+                out["target_after"] = o2.get("target_after")
+            else:                                                 # 이웃을 끔 — 목표는 그대로, 안쪽 결과는 옮긴 물체 쪽으로 [E #226 리뷰 P2]
+                info["moved_after"] = clp.as_pose(o2["target_after"]) if o2.get("target_after") else None
+            if not res.success:
+                out["target_after"] = None
+            return res, out
+        res, o2 = self._press_move(goal, drawer_id, moved, a.dir, a.dist_m, a.back_m, bool(a.pushed), a.extra.get("press_xy_m"))
+        out.update(pushed=o2["pushed"], push_vector_m=o2["push_vector_m"])
+        if not res.success:
+            out["target_after"] = None
+        return res, out
+
+    def _press_move(self, goal, drawer_id, target, u, dist_m, back_m, push_others, press_xy_m=None):
+        """물체 윗면(press_xy_m, 없으면 가운데)을 닫은 손끝으로 눌러 서랍 축 u 로 dist_m 끌고(앞 물체는 같이 밀림), back_m 되돌아온 뒤 올라감
+        [제안 10/11 B — 파지 공간 만들기 넛지·좌우 밀기]. 누르기·힘 맞추기·끄는 중 힘 감시는 벽 넛지(_do_nudge_object)와 같음.
+        같이 밀 물체가 있으면 누르는 힘을 drag.sweep_force_n 으로 (손끝 밑에서 미끄러지지 않게 [추정 — 실물 확인 필요])."""
+        out = {"pushed": False, "push_vector_m": [0.0, 0.0]}
+        prm, place = self.prm(), self.places()[drawer_id]
+        tf, d, g, speed = place["tf"], prm["drag"], prm["gripper"], prm["speed"]
+        if push_others and d.get("sweep_force_n"):
+            d = dict(d, drag_force_n=d["sweep_force_n"])
+        size, _ = self.item(target.get("class"))
+        trail = mp.dir_to_base(tf, (-u[0], -u[1], 0.0))          # 손끝을 끄는 반대쪽으로 기울임 (벽 넛지: 벽 쪽 = 끄는 반대쪽)
+        if d.get("close_axis", "object") == "wall":
+            tip_h, tip_v, along = 0.0, d["wall_tip_below_mm"], trail
+        else:
+            tip_h, tip_v = mp.tip_contact(math.radians(d["tilt_deg"]), g)
+            yaw = target["pose"]["yaw"]
+            along = mp.dir_to_base(tf, (math.cos(yaw), math.sin(yaw), 0.0))
+        cx, cy = press_xy_m or target["pose"]["position"][:2]      # 누를 점 (계획: 더 높은 이웃에 손가락이 안 걸리는 점, 없으면 가운데)
+        px, py = cx + u[0] * tip_h / 1000.0, cy + u[1] * tip_h / 1000.0   # 닿는 점이 누를 점에 오게 TCP 를 끄는 쪽으로
+        contact_z_m = size[2] + tip_v / 1000.0
+        bad = self._to_drawer_view(goal, drawer_id)
+        if bad:
+            return bad, out
+        self._grip(0, 20)
+        down = (self.poses().get("drag_down") or {}).get(drawer_id)
+        if down:
+            o = self._movej(goal, down, "to_object:down", in_drawer=True)
+            if not o.success:
+                return o, out
+        start_mm = [1000.0 * v for v in pp.to_base(tf, (px, py, contact_z_m + d["start_above_mm"] / 1000.0))]
+        end_mm = [1000.0 * v for v in pp.to_base(tf, (px, py, contact_z_m - d["search_below_mm"] / 1000.0))]
+        expect_z = 1000.0 * pp.to_base(tf, (px, py, contact_z_m))[2]
+        cur = self.robot.posx()
+        if cur is None:
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
+        above = mp.gripper_posx(start_mm, along, cur[3:], tilt_toward=trail, tilt_deg=d["tilt_deg"])
+        if not down:
+            cur = mp.with_z(cur, prm["transit"]["safe_z_mm"])
+        bad = self._over_then_down(goal, drawer_id, cur, above, "to_object:over")
+        if bad:
+            return bad, out
+        for attempt in range(1, int(d.get("press_attempts", 1)) + 1):
+            bad, pressed, held_n = self._press_relax(goal, above, end_mm, expect_z, d, speed)
+            if not bad:
+                break
+            now = self.robot.posx()
+            if sf.is_safety(bad) or attempt == int(d.get("press_attempts", 1)) or now is None or math.dist(now[:3], above[:3]) > 1.0:
+                return bad, out
+            goal.publish_feedback(Skill.Feedback(stage=f"retry:{attempt + 1}"))
+        base_drag = self._tare(d.get("tare_settle_s")) or self._held_f
+        max_z = d.get("max_force_z_n", d["max_force_n"])
+
+        def blocked():
+            f = self.robot.tool_force()
+            if f is None or base_drag is None:
+                return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+            side, dz = math.hypot(f[0] - base_drag[0], f[1] - base_drag[1]), abs(f[2] - base_drag[2])
+            if side > d["max_force_n"] or dz > max_z:
+                return sf.Outcome(False, PUSH_BLOCKED, reason=f"끄는 중 힘 옆 {side:.1f}·위아래 {dz:.1f} N — 상한 {d['max_force_n']:g}·{max_z:g} N")
+            return None
+
+        v = mp.dir_to_base(tf, (u[0], u[1], 0.0))
+        to = [pressed[i] + dist_m * 1000.0 * (v[i] if i < 2 else 0.0) for i in range(3)] + list(pressed[3:])   # 수평으로만
+        bad = self._line(goal, to, d["speed_mm_s"], "drag", watch=blocked)
+        if not bad and back_m > 0.0:                              # 양쪽 공간: 민 만큼의 일부를 눌린 채 되돌아옴 [사용자 10/11]
+            now = self.robot.posx() or to
+            back = [now[i] - back_m * 1000.0 * (v[i] if i < 2 else 0.0) for i in range(3)] + list(now[3:])
+            bad = self._line(goal, back, d["speed_mm_s"], "drag_back", watch=blocked)
+        if sf.is_safety(bad):
+            return bad, out
+        now = self.robot.posx()
+        if now is None:
+            return sf.worse(bad, sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 올리지 못함")), out
+        bad = sf.worse(bad, self._line(goal, mp.with_z(now, now[2] + d["lift_mm"]), self._in_vel(), "lift"))
+        a, b = mp.from_base(tf, [x / 1000.0 for x in pressed[:3]]), mp.from_base(tf, [x / 1000.0 for x in now[:3]])
+        out.update(pushed=True, push_vector_m=[round(b[0] - a[0], 4), round(b[1] - a[1], 4)])
+        if bad:
+            return bad, out
+        return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 {dist_m * 1000:.0f} mm 끌고 {back_m * 1000:.0f} mm 되돌아옴"
+                                       f" (실제 {out['push_vector_m'][0] * 1000:+.1f}·{out['push_vector_m'][1] * 1000:+.1f} mm)"), out
 
     # --- 집기 ---
     def _do_pick_object(self, goal, params):
@@ -1705,7 +2010,8 @@ class SkillServer(Node):
             ev = {"closed_width_m": _width_m(st.width_mm),
                   "grasp_detected": st.grip_detected, "min_width_m": pick_min_w, **evidence}
             return {"object_id": target.get("id"), "class": cls, "grasp_ok": ok, "hand": hand, "grasp_evidence": ev}
-        force = float(params.get("grip_force") or grip_force or g["default_grip_force_n"])
+        force = float(params.get("grip_force") or grip_force or (g.get("grip_force_by_class_n") or {}).get(cls)   # 요청 > 온톨로지 > B 물건별 > 기본
+                      or g["default_grip_force_n"])
         goal.publish_feedback(Skill.Feedback(stage="close"))
         st = self._grip(0, force)
         tol = g["grasp_width_tolerance_m"]
@@ -2054,11 +2360,30 @@ class SkillServer(Node):
         slow_mm = pl.get("slow_last_mm", 0.0)
         bad = None
         now = self.robot.posx()
+        landed = {}
         if slow_mm > 0 and now and target[2] + slow_mm < now[2] - 1.0:
-            bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), vel, "descend_fast")
-        bad = bad or self._lower_touch(goal, target, speed["grasp_mm_s"], "descend")
+            # 빠르게 내려가는 구간도 힘을 봄 — 쥔 물체가 비전이 못 본 물체(쌓였던 받침 등)에 먼저 닿으면 거기서 멈춤
+            # [사용자 10/12 PC2: 몽키 위 캐러멜 putback 이 바닥 높이까지 내려가며 몽키를 누름]
+            base_fast = self._tare(pl.get("touch_settle_s"))
+            fast_n = float(pl.get("fast_guard_n") or prm["drag"]["press_max_force_n"])
+
+            def hit():
+                f = self.robot.tool_force()
+                if f is None or base_fast is None:
+                    return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
+                if abs(f[2] - base_fast[2]) >= fast_n:
+                    p_ = self.robot.posx()
+                    landed["z"] = p_[2] if p_ else None
+                    return sf.Outcome(True, reason=f"내려가다 {abs(f[2] - base_fast[2]):.1f} N — 다른 물체 위에 닿음")
+                return None
+            bad = self._line(goal, mp.with_z(target, target[2] + slow_mm), vel, "descend_fast", watch=hit)
+        if not bad and "z" not in landed:
+            bad = self._lower_touch(goal, target, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, dict(empty)
+        if landed:                                            # 그 자리(받침 위)에 놓음 — 더 누르지 않음
+            above_mm = (landed["z"] - target[2]) if landed.get("z") is not None else float("nan")
+            self.get_logger().warn(f"[place_object] 계산한 놓는 높이보다 {above_mm:.1f} mm 위에서 닿음 — 다른 물체 위에 놓음 (비전이 못 본 받침?)")
         bad = self._clear_to_continue(goal)                   # 그리퍼 열기 전: 취소·비상정지면 열지 않음
         if bad:
             return bad, dict(empty)
