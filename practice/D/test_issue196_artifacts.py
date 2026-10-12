@@ -72,6 +72,8 @@ def _make_pair(tmp_path: Path, version: str = "0.5-draft") -> tuple[Path, dict, 
 
 
 def _append_trial(result_path: Path, result_set: dict, **updates: object) -> None:
+    basis_updates = updates.pop("basis_updates", {})
+    include_basis = updates.pop("include_basis", True)
     basis = {
         "record_type": "basis",
         "schema_version": "1.1",
@@ -82,6 +84,7 @@ def _append_trial(result_path: Path, result_set: dict, **updates: object) -> Non
         "sources": [],
         "human_approvals": [],
     }
+    basis.update(basis_updates)
     trial = {
         "record_type": "trial",
         "schema_version": "1.1",
@@ -113,7 +116,8 @@ def _append_trial(result_path: Path, result_set: dict, **updates: object) -> Non
     }
     trial.update(updates)
     with result_path.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(basis) + "\n")
+        if include_basis:
+            stream.write(json.dumps(basis) + "\n")
         stream.write(json.dumps(trial) + "\n")
 
 
@@ -271,6 +275,78 @@ def test_part_case_machine_mapping_is_enforced(tmp_path: Path) -> None:
         required_human_checks=human,
     )
     with pytest.raises(VALIDATOR.ArtifactValidationError, match="machine check set mismatch"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_trial_with_missing_basis_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, include_basis=False)
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="missing basis_id"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_duplicate_basis_id_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set)
+    duplicate = {
+        "record_type": "basis",
+        "schema_version": "1.1",
+        "basis_id": "basis-1",
+        "captured_at": "2026-10-12T00:00:02Z",
+        "environment": "mock",
+        "code_sha": "1" * 40,
+        "sources": [],
+        "human_approvals": [],
+    }
+    with result_path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(duplicate) + "\n")
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="duplicate basis_id"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_blank_basis_id_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, basis_updates={"basis_id": ""})
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="invalid basis_id"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_unreferenced_basis_fails(tmp_path: Path) -> None:
+    result_path, _, _ = _make_pair(tmp_path)
+    basis = {
+        "record_type": "basis",
+        "schema_version": "1.1",
+        "basis_id": "orphan-basis",
+        "captured_at": "2026-10-12T00:00:00Z",
+        "environment": "mock",
+        "code_sha": "0" * 40,
+        "sources": [],
+        "human_approvals": [],
+    }
+    with result_path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(basis) + "\n")
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="unreferenced basis_id"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_invalid_basis_environment_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, basis_updates={"environment": "laboratory"})
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="invalid environment"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_invalid_basis_code_sha_fails(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, basis_updates={"code_sha": "short-sha"})
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="invalid code_sha"):
+        VALIDATOR.validate_pair(result_path)
+
+
+def test_trial_environment_must_match_basis(tmp_path: Path) -> None:
+    result_path, _, result_set = _make_pair(tmp_path)
+    _append_trial(result_path, result_set, environment="real")
+    with pytest.raises(VALIDATOR.ArtifactValidationError, match="does not match basis"):
         VALIDATOR.validate_pair(result_path)
 
 

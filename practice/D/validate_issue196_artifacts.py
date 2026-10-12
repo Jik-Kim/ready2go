@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -239,7 +240,10 @@ def validate_pair(result_path: Path) -> dict[str, Any]:
 
     definitions = evaluation["result_jsonl"]["record_types"]
     allowed_types = set(definitions)
-    trial_ids: set[str] = set()
+    basis_by_id: dict[str, dict[str, Any]] = {}
+    trial_records: list[tuple[int, dict[str, Any]]] = []
+    allowed_environments = set(evaluation["basis_policy"]["environment_values"])
+    code_sha_pattern = re.compile(r"[0-9a-f]{40}")
     for index, record in enumerate(records[1:], 2):
         record_type = record.get("record_type")
         if record_type not in allowed_types - {"result_set"}:
@@ -249,8 +253,32 @@ def validate_pair(result_path: Path) -> dict[str, Any]:
         _require_fields(record, definitions[record_type]["required"], f"record {index}")
         if record.get("schema_version") != result_set["schema_version"]:
             raise ArtifactValidationError(f"record {index} schema_version mismatch")
-        if record_type != "trial":
+        if record_type == "trial":
+            trial_records.append((index, record))
             continue
+
+        basis_id = record["basis_id"]
+        if not isinstance(basis_id, str) or not basis_id.strip():
+            raise ArtifactValidationError(f"record {index} has invalid basis_id")
+        if basis_id in basis_by_id:
+            raise ArtifactValidationError(f"duplicate basis_id: {basis_id}")
+        if record["environment"] not in allowed_environments:
+            raise ArtifactValidationError(
+                f"basis {basis_id} has invalid environment: {record['environment']!r}"
+            )
+        if not isinstance(record["code_sha"], str) or not code_sha_pattern.fullmatch(
+            record["code_sha"]
+        ):
+            raise ArtifactValidationError(f"basis {basis_id} has invalid code_sha")
+        if not isinstance(record["sources"], list):
+            raise ArtifactValidationError(f"basis {basis_id} sources must be a list")
+        if not isinstance(record["human_approvals"], list):
+            raise ArtifactValidationError(f"basis {basis_id} human_approvals must be a list")
+        basis_by_id[basis_id] = record
+
+    trial_ids: set[str] = set()
+    referenced_basis_ids: set[str] = set()
+    for index, record in trial_records:
         if record["trial_id"] in trial_ids:
             raise ArtifactValidationError(f"duplicate trial_id: {record['trial_id']}")
         trial_ids.add(record["trial_id"])
@@ -282,6 +310,25 @@ def validate_pair(result_path: Path) -> dict[str, Any]:
         )
         _validate_machine_checks(record, required_machine)
         _validate_human_checks(record, required_human)
+        basis_id = record["basis_id"]
+        if not isinstance(basis_id, str) or not basis_id.strip():
+            raise ArtifactValidationError(f"trial {record['trial_id']} has invalid basis_id")
+        basis = basis_by_id.get(basis_id)
+        if basis is None:
+            raise ArtifactValidationError(
+                f"trial {record['trial_id']} references missing basis_id: {basis_id}"
+            )
+        if record["environment"] != basis["environment"]:
+            raise ArtifactValidationError(
+                f"trial {record['trial_id']} environment does not match basis {basis_id}"
+            )
+        referenced_basis_ids.add(basis_id)
+
+    unreferenced_basis_ids = sorted(set(basis_by_id) - referenced_basis_ids)
+    if unreferenced_basis_ids:
+        raise ArtifactValidationError(
+            f"unreferenced basis_id records: {unreferenced_basis_ids}"
+        )
 
     return {
         "evaluation": evaluation_path.name,
