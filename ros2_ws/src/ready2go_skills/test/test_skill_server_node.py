@@ -2282,3 +2282,54 @@ def test_make_room_refusal_has_no_moved_id(server, monkeypatch):
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, key)})
     assert out.error_code == "NO_FREE_SPACE" and data["make_room"]["moved_id"] is None and "car_key#1" in out.reason
     assert server.srv.robot.log == []
+
+
+@pytest.mark.parametrize("kind", ["nudge", "sweep", "unstack", "remove", "wall_nudge"])
+def test_make_room_with_check_only_never_moves(server, monkeypatch, kind):
+    """[E #226 리뷰 P1] make_room + check_only = 판단만 — 계획이 어떤 동작을 고르든 로봇·그리퍼 명령 0, PUSH_LIMIT, target_after null."""
+    from ready2go_skills.core import clear_plan as clp
+    t = _seg(ERASER_FREE)
+    nb = _seg(CARAMEL_NEXT)
+    who = "eraser#1" if kind in ("nudge", "sweep", "wall_nudge") else "caramel_box#1"
+    a = clp.Action(kind, who, "주입", dir=(0.0, -1.0), dist_m=0.02, back_m=0.01 if kind == "sweep" else 0.0,
+                   to_pose={"frame": "drawer_top", "position": [0.05, 0.05, 0.0], "yaw": 0.0},
+                   extra={"after": dict(t, pose=dict(t["pose"], position=[0.10, 0.13, 0.0]))})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *x, **k: a)
+    grips = []
+    monkeypatch.setattr(server.ss.SkillServer, "_grip", lambda self, *x, **k: grips.append(x))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "check_only": True,
+                                            "scan": _scan_with(t, nb)})
+    assert out.error_code == server.ss.PUSH_LIMIT and kind in out.reason
+    assert data["make_room"]["action"] == kind and data["make_room"]["moved_id"] is None and data["target_after"] is None
+    assert server.srv.robot.log == [] and grips == []
+
+
+def test_make_room_neighbor_wall_nudge_keeps_target_after_for_original_target(server, monkeypatch):
+    """[E #226 리뷰 P2] 막는 이웃을 벽 넛지 → 안쪽 nudge 결과는 moved_after 로, 바깥 target_after 는 원래 목표(그대로).
+    실패면 target_after null."""
+    from ready2go_skills.core import clear_plan as clp
+    t = _seg(ERASER_FREE)
+    nb = _seg(dict(ERASER_CORNER, id="eraser#2"))
+    nb_after = json.loads(json.dumps(nb))
+    nb_after["pose"]["position"][1] -= 0.04
+    a = clp.Action("wall_nudge", "eraser#2", "옆벽 쪽 부족 → y −40 mm", to_pose=clp.as_pose(nb_after), extra={"after": nb_after})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *x, **k: a)
+    real = server.ss.SkillServer._do_nudge_object
+    inner = {"ok": True}
+
+    def nudge(self, goal, params):
+        if params.get("make_room"):
+            return real(self, goal, params)
+        assert params["target"]["id"] == "eraser#2" and "check_only" not in params
+        o = {"pushed": True, "push_vector_m": [0.0, -0.04], "clearance_before_m": 0.004, "floor_z_m": 0.0,
+             "target_after": nb_after if inner["ok"] else None}
+        return (sf.Outcome(True, reason="주입") if inner["ok"] else sf.Outcome(False, "PUSH_BLOCKED", reason="주입")), o
+    monkeypatch.setattr(server.ss.SkillServer, "_do_nudge_object", nudge)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, nb)})
+    assert out.success and data["target_after"]["id"] == "eraser#1"
+    assert data["target_after"]["pose"]["position"] == t["pose"]["position"]
+    assert data["make_room"]["moved_id"] == "eraser#2" and data["make_room"]["moved_after"]["position"][1] == pytest.approx(nb_after["pose"]["position"][1])
+    assert data["pushed"] is True and data["push_vector_m"] == [0.0, -0.04]
+    inner["ok"] = False
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, nb)})
+    assert out.error_code == "PUSH_BLOCKED" and data["target_after"] is None

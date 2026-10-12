@@ -1669,6 +1669,7 @@ class SkillServer(Node):
                          axes=clp.AXES if prm["drag"].get("push_inward_ok") else clp.AXES[:3],
                          max_shift_m=prm["drag"]["max_shift_mm"] / 1000.0, max_chain=int(mr.get("max_chain", 2)),
                          round_classes=tuple(prm["pick"].get("round_classes") or ()),
+                         press_finger_r_mm=float(mr["press_finger_r_mm"]),
                          reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
         a = clp.plan_next(objs, tid, DryOracle(self, drawer_id), cfg)
         info = {"action": a.kind, "moved_id": a.target or None, "ready_to_pick": False, "reason": a.reason,
@@ -1684,6 +1685,9 @@ class SkillServer(Node):
             info["moved_id"] = None                               # 움직이지 않음 — 옮기려던 물체는 reason 에 [C #226 리뷰]
             code = a.code if a.code in (NEIGHBOR_TOO_CLOSE, NO_FREE_SPACE, mp.NO_PUSH_ACCESS) else mp.NO_PUSH_ACCESS
             return sf.Outcome(False, code, reason=f"공간을 만들 수 없음: {a.reason}"), out
+        if params.get("check_only"):                              # 판단만 — 어떤 동작이든 움직이지 않음 [E #226 리뷰 P1]
+            info["moved_id"] = None
+            return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — 다음 동작 {a.kind} {a.target}: {a.reason}"), out
         expect = clp.apply(objs, a, cfg)                          # 동작 뒤 예상 (목표 위치) — 실제는 다시 보고 확인
         out["target_after"] = next(o for o in expect if o["id"] == tid)
         info["moved_after"] = clp.as_pose(next(o for o in expect if o["id"] == a.target))   # 옮긴 물체 예상 자리 (다시 보기 전)
@@ -1703,9 +1707,16 @@ class SkillServer(Node):
                 return res, out
             return sf.Outcome(True, reason=f"{a.reason} — 다시 보고 다시 부르기"), out
         if a.kind == "wall_nudge":                                # 기존 벽 넛지 그대로 (끄는 길 이웃 확인 포함)
-            p2 = {k: v for k, v in params.items() if k != "make_room"}
+            p2 = {k: v for k, v in params.items() if k not in ("make_room", "check_only")}
             res, o2 = self._do_nudge_object(goal, dict(p2, target=moved))
-            out.update({k: v for k, v in (o2 or {}).items() if k != "make_room"})
+            o2 = o2 or {}
+            out.update({k: o2[k] for k in ("pushed", "push_vector_m", "clearance_before_m", "floor_z_m") if k in o2})
+            if a.target == tid:                                   # 목표 자신 — 끈 실제 거리로 낸 예상 위치
+                out["target_after"] = o2.get("target_after")
+            else:                                                 # 이웃을 끔 — 목표는 그대로, 안쪽 결과는 옮긴 물체 쪽으로 [E #226 리뷰 P2]
+                info["moved_after"] = clp.as_pose(o2["target_after"]) if o2.get("target_after") else None
+            if not res.success:
+                out["target_after"] = None
             return res, out
         res, o2 = self._press_move(goal, drawer_id, moved, a.dir, a.dist_m, a.back_m, bool(a.pushed), a.extra.get("press_xy_m"))
         out.update(pushed=o2["pushed"], push_vector_m=o2["push_vector_m"])

@@ -169,7 +169,7 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     return [cur[i] for i in order], done, pushed
 
 
-def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, finger_r_mm: float = 16.0, rise_tol_m: float = 0.003,
+def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_r_mm: float, rise_tol_m: float = 0.003,
                 inset_mm: float = 4.0) -> Optional[tuple]:
     """닫은 손가락으로 목표 윗면을 누를 점 (서랍 좌표 m) — 가운데 먼저, 안 되면 긴 변을 따라 양끝 쪽으로.
     누르는 손가락(반지름 finger_r_mm)이 목표보다 높은 물체에 걸리지 않는 점. 위에 얹힌 것이 있으면 None [추정 — 손가락 띠 모양 실측 없음]."""
@@ -273,7 +273,8 @@ class Config:
     neighbor_r_m: float = 0.08               # 목표 둘레 이 거리 안 물체는 옮겨 볼 후보
     avoid_pad_mm: float = 25.0               # 치운 물체를 목표에서 이만큼 떨어뜨려 놓음 (먼저 봄)
     near_pad_mm: float = 5.0                 # 위가 없으면 이만큼까지 가까이 — 목표 집기 손가락 자리를 안 막을 때만
-    reach_x_m: Optional[float] = None        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
+    reach_x_m: Optional[float] = None
+    press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
 
 
 def _round_axis_ok(t: Mapping, u: tuple, cfg: Config) -> bool:
@@ -375,7 +376,7 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
                 return wall
         else:
             code, reason = c2 or code, r2 or reason
-    if not press_ok(objs, tid, cfg.size_of):
+    if not press_ok(objs, tid, cfg.size_of, finger_r_mm=cfg.press_finger_r_mm):
         if wall is not None:
             return wall
         return _remove_blocker(objs, tid, oracle, cfg, code, reason, _depth)
@@ -388,7 +389,7 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     for c1, a1, o1 in sorted(_self_moves(objs, tid, cfg, fine=False, coarse=True), key=lambda c: c[0]):
         if best is not None and c1 >= best[0]:
             break
-        if not press_ok(o1, tid, cfg.size_of):                     # 두 번째도 눌러서 움직여야 함
+        if not press_ok(o1, tid, cfg.size_of, finger_r_mm=cfg.press_finger_r_mm):   # 두 번째도 눌러서 움직여야 함
             continue
         for c2, a2, o2 in sorted(_self_moves(o1, tid, cfg, fine=False), key=lambda c: c[0]):
             if a2.dir in (a1.dir, (-a1.dir[0], -a1.dir[1])) or (best is not None and c1 + c2 >= best[0]):
@@ -412,7 +413,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
     t = next(o for o in objs if o["id"] == tid)
     step = cfg.nudge_step_m if fine else cfg.sweep_step_m
     out = []
-    pp_ = press_point(objs, tid, cfg.size_of)
+    pp_ = press_point(objs, tid, cfg.size_of, finger_r_mm=cfg.press_finger_r_mm)
     press = {"press_xy_m": [round(v, 4) for v in pp_]} if pp_ else {}
     for u in cfg.axes:
         if not _round_axis_ok(t, u, cfg):
@@ -473,7 +474,7 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
                       key=lambda o: (o["id"] != who, math.dist((tx, ty), o["pose"]["position"][:2])))
         best = None
         for o in near[:4]:
-            if not press_ok(objs, o["id"], cfg.size_of):
+            if not press_ok(objs, o["id"], cfg.size_of, finger_r_mm=cfg.press_finger_r_mm):
                 continue
             for c, a, after in sorted(_self_moves(objs, o["id"], cfg, fine=False), key=lambda c: c[0]):
                 if tid in a.pushed or (best is not None and c >= best[0]):
