@@ -2003,6 +2003,9 @@ class SkillServer(Node):
         if why or who:                                      # 움직이기 전 거부 [사용자 10/09 랜덤 배치]
             return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"벌린 손가락 자리에 {who} — 띄우거나 {who} 먼저 치우기")), None
+        # 집기 계획 그대로의 쥘 상태 — place_object check_only 가 집기 전에 이걸로 놓기를 판단 [#241 리뷰 P1: 짧은 변 가정 → 실제 긴 변]
+        self._pick_planned = {"class": cls, "id": target.get("id"), "width_m": expected_w, "drawer_id": drawer_id,
+                              "tcp_above_floor_m": size[2] * (prm["pick"].get("grip_height_ratio") or 0.5), "long_side": long_side}
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:
             return bad, None
@@ -2319,15 +2322,23 @@ class SkillServer(Node):
         except (ValueError, TypeError, OSError):
             return None
 
-    def _planned_held(self, obj, loc):
-        """check_only 를 집기 전에 부를 때: 집을 물체(scan 의 그 물체)를 쥐었다고 보는 상태 — DryOracle.place 와 같은 가정
-        (온톨로지 잡는 폭, 짧은 변 잡기). 형식이 틀리면 None."""
-        if not isinstance(obj, dict) or not obj.get("id") or not obj.get("class"):
-            return None
-        prm = self.prm()
-        size = self._size_or_none(obj["class"]) or prm["place"]["default_obstacle_size_m"]
-        return {"class": obj["class"], "id": obj["id"], "width_m": self.grasp_width(obj["class"], size, prm) or size[1],
-                "drawer_id": loc, "tcp_above_floor_m": size[2] * prm["pick"].get("grip_height_ratio", 0.5), "long_side": False}
+    def _planned_held(self, obj, loc, scan):
+        """check_only 를 집기 전에 부를 때: 실제 pick_object 를 판단 전용으로 돌려 그 집기 계획(긴 변·잡는 폭)대로 쥐었다고 봄
+        [#241 리뷰 P1: 짧은 변 가정이면 손잡이 벽 립밤처럼 실제로는 긴 변(72.5 mm)으로 잡을 때 놓기 판단이 달라짐].
+        → (held, None) | (None, 집기 거부 Outcome) — 집기가 움직이기 전 거부되면 놓기 판단도 통과시키지 않음."""
+        if not isinstance(obj, dict) or not obj.get("id") or not obj.get("class") or not isinstance(obj.get("pose"), dict):
+            return None, sf.Outcome(False, sf.BAD_PARAMS, reason="check_only: 쥔 물체가 없으면 object(scan 의 집을 물체)가 필요")
+        dry = _Dry(self)
+        try:
+            o, _ = dry._do_pick_object(_DRY_GOAL, {"target": obj, "approach_offset": [0, 0, 0.1], "scan": scan})
+        except _WouldMove:
+            planned = dry.__dict__.get("_pick_planned")
+            if planned and planned.get("drawer_id") == loc:
+                return dict(planned), None
+            return None, sf.Outcome(False, sf.BAD_PARAMS, reason=f"check_only: {obj['id']} 집기 계획이 {loc} 가 아님")
+        except Exception as e:                                    # 설정·계산 예외 = 판단 못 함 → 통과 아님
+            return None, sf.Outcome(False, sf.SKILL_EXCEPTION, reason=f"check_only: 집기 판단 예외 {e!r:.100}")
+        return None, sf.Outcome(False, o.error_code or sf.BAD_PARAMS, reason=f"check_only: 집기부터 거부 — {o.reason}")
 
     def _free_pose(self, params, loc, held):
         """slot "free": 서랍 안 빈 자리 — `B free`·make_room 과 같은 core/clear_plan.find_free_pose (벽·이웃 놓기 검사 통과,
@@ -2367,13 +2378,17 @@ class SkillServer(Node):
 
     def _place_check(self, params, loc):
         """check_only: 서랍 안 놓기 사전 검사만 — 어떤 동작도 하지 않음 [PC2 10/12 Unpacking: 놓을 데가 없는데 먼저 집어 쥔 채 정지].
-        쥐고 있으면 그 상태로, 아직 안 쥐었으면 `object`(scan 의 집을 물체)를 쥐었다고 보고 판단. slot "free" 면 빈 자리를 고름.
+        쥐고 있으면 그 상태로, 아직 안 쥐었으면 `object`(scan 의 집을 물체)를 실제 pick_object 집기 계획대로 쥐었다고 보고 판단
+        (집기가 움직이기 전 거부면 그 코드로 거부). slot "free" 면 빈 자리를 고름.
         통과 = 성공 + 놓을 예정 slot·planned_pose (placed_pose 는 null — 놓지 않았음), 거부 = 실제 놓기와 같은 오류 코드·blocked_by.
         결과에 늘 check_only: true — 실행 기록·run_report 에서 실제로 놓은 것처럼 보이지 않게 [C #241 리뷰]."""
         empty = {"slot": None, "placed_pose": None, "check_only": True}
-        held = dict(self.held) if self.held else self._planned_held(params.get("object"), loc)
-        if held is None:
-            return sf.Outcome(False, sf.BAD_PARAMS, reason="check_only: 쥔 물체가 없으면 object(scan 의 집을 물체)가 필요"), dict(empty)
+        if self.held:
+            held = dict(self.held)
+        else:
+            held, refused = self._planned_held(params.get("object"), loc, params.get("scan"))
+            if refused:
+                return refused, dict(empty)
         p = {k: v for k, v in params.items() if k not in ("check_only", "object")}
         slot_name = None
         if p.get("slot") == FREE_SLOT:
@@ -2446,13 +2461,10 @@ class SkillServer(Node):
             if support is not None:
                 objs = [o for o in objs if o["id"] != support["id"]]
 
-        # 쥔 물체에만 가려졌던 방향 모르는 이웃은 보이는 부분 + 쥔 물체가 있던 자리로 (방향 모름 정사각형 대신) [PC2 10/12 Unpacking]
-        near = plp.hidden_split(objs, held_id, self._size_or_none, pl["default_obstacle_size_m"])
-
         def check(p_):
             # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 손가락 자리·벽 확인 (집기 footprint 와 같음)
             pc, sc = ((dict(p_, yaw=p_["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (p_, size))
-            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=near,
+            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
                                    size_of=self._size_or_none, interior_m=interior, place=pl,
                                    g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
             if back_tilt and bad_ is not None and bad_.error_code == WALL_TOO_CLOSE:

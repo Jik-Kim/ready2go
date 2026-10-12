@@ -2117,51 +2117,70 @@ def _plate_held(server, scan):
 
 
 @pytest.mark.parametrize("slot", ["aside_1", "aside_2"])
-def test_aside_not_blocked_by_hidden_neighbor_guess(server, slot):
-    """[PC2 10/12] aside 를 비워 뒀는데 판 밑 지우개(보이는 492 mm²)를 방향 모름 57 mm 정사각형으로 봐 aside 두 곳 다 6 mm 겹쳐
-    PLACE_BLOCKED → 판을 쥔 채 정지. 쥔 판에만 가려진 이웃은 보이는 부분 + 판이 있던 자리로 봄 → 통과."""
+def test_aside_still_refused_by_unknown_yaw_neighbor_fail_closed(server, slot):
+    """[PC2 10/12 run 7d18c6] 판 밑 지우개는 방향 모름 → 명목 정사각형(57 mm) 그대로 aside 거부 (fail-closed).
+    보이는 면적만으로 줄이지 않음 — 위치는 검출 박스 중심이고 길쭉한 마스크는 면적 정사각형 밖으로 뻗음 [#241 리뷰 P1].
+    이 경우 Runner 는 집기 전 check_only → slot "free" 로 (#242)."""
     scan = json.loads(json.dumps(SCAN_1012_PLATE))
     try:
         _plate_held(server, scan)
         out, data = server.run("place_object", {"location": "drawer_bottom", "slot": slot, "scan": scan})
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
-    assert out.success, out.reason
-    assert data["slot"] == slot and server.srv.held is None
-
-
-def test_hidden_split_keeps_hidden_part_under_held_spot(server):
-    """가려진 부분은 쥔 물체가 있던 자리 밑 → 그 자리(판 원래 자리)에 다른 물체를 놓으면 여전히 막힘."""
-    plp = server.ss.plp
-    scan = SCAN_1012_PLATE
-    objs, _ = plp.scan_objects(scan, "drawer_bottom")
-    size_of = server.srv._size_or_none
-    near = plp.hidden_split(objs, "cover_plate#1", size_of, [0.05, 0.05, 0.05])
-    er = [o for o in near if o["id"] == "eraser#1"]
-    assert len(er) == 2                                                   # 보이는 부분 + 판 밑
-    vis = er[0]["footprint_mm"]
-    assert max(abs(x - 77.2) for x, _ in vis) == pytest.approx(22.18, abs=0.05)   # √492 mm², 방향 모름 정사각형 28.5 보다 작음
-    plate = next(o for o in objs if o["id"] == "cover_plate#1")
-    assert er[1]["footprint_mm"] == plp.neighbor_rect_mm(plate, size_of("cover_plate"))
-    other = [dict(o, occluded_by=["cover_plate#1", "x#1"]) if o["id"] == "eraser#1" else o for o in objs]
-    assert [o["id"] for o in plp.hidden_split(other, "cover_plate#1", size_of, [0.05] * 3)].count("eraser#1") == 1   # 다른 것에도 가려지면 그대로
+    assert not out.success and out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "eraser#1"
+    assert data["placed_pose"] is None and server.srv.held is not None
 
 
 def test_place_check_only_before_pick_moves_nothing(server):
-    """check_only: 아직 안 쥔 object(scan 의 판)로 놓기 판단만 — 로봇·그리퍼 명령 없음, 예정 slot·placed_pose."""
+    """check_only: 아직 안 쥔 object(scan 의 판)로 놓기 판단만 — 로봇·그리퍼 명령 없음, placed_pose null·planned_pose 예정.
+    (립밤을 뺀 장면: 판 밑 지우개만이면 aside_1 은 자리 안에서 비켜 통과, free 도 통과)"""
+    srv = server.srv
+    srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
+    scan = json.loads(json.dumps(SCAN_1012_PLATE))
+    scan["candidates"] = [c for c in scan["candidates"] if c["class"] != "lip_balm"]   # 립밤(20 mm)은 판 집기 손끝(20 mm)에 걸림 — 아래 시험
+    plate = scan["candidates"][0]
+    n = len(srv.robot.log)
+    for slot in ("aside_1", "free"):
+        out, data = server.run("place_object", {"location": "drawer_bottom", "slot": slot, "scan": scan, "object": plate, "check_only": True})
+        assert out.success and "움직이지 않음" in out.reason, out.reason
+        assert data["slot"] == slot and data["planned_pose"]["frame"] == "drawer_bottom"
+        assert data["placed_pose"] is None and data["check_only"] is True          # 놓지 않음 — 실행 기록에서 놓은 것처럼 안 보이게 [C #241]
+    assert len(srv.robot.log) == n and srv.held is None
+    out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "aside_1", "scan": scan, "check_only": True})
+    assert not out.success and out.error_code == "BAD_PARAMS"             # 쥔 것도 object 도 없음
+
+
+def test_place_check_only_refuses_when_pick_would_refuse(server):
+    """집기가 움직이기 전 거부될 물체면 놓기 판단도 통과 아님 — 그 집기 코드로 (판 손끝 20 mm 에 걸리는 판 옆 립밤)."""
     srv = server.srv
     srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
     plate = SCAN_1012_PLATE["candidates"][0]
-    n = len(srv.robot.log)
-    for slot in ("aside_1", "free"):
-        out, data = server.run("place_object", {"location": "drawer_bottom", "slot": slot, "scan": SCAN_1012_PLATE,
-                                                "object": plate, "check_only": True})
-        assert out.success and "움직이지 않음" in out.reason, out.reason
-        assert data["slot"] == slot and data["planned_pose"]["frame"] == "drawer_bottom"
-        assert data["placed_pose"] is None and data["check_only"] is True              # 놓지 않음 — 실행 기록에서 놓은 것처럼 안 보이게 [C #241]
-    assert len(srv.robot.log) == n and srv.held is None
-    out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "aside_1", "scan": SCAN_1012_PLATE, "check_only": True})
-    assert not out.success and out.error_code == "BAD_PARAMS"             # 쥔 것도 object 도 없음
+    out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "free", "scan": SCAN_1012_PLATE,
+                                            "object": plate, "check_only": True})
+    assert not out.success and out.error_code == "NEIGHBOR_TOO_CLOSE" and "집기부터 거부" in out.reason
+    assert data["placed_pose"] is None and data["check_only"] is True and srv.held is None
+
+
+@pytest.mark.parametrize("drawer", ["drawer_top", "drawer_bottom"])
+def test_place_check_only_uses_real_grasp_plan(server, drawer):
+    """[#241 리뷰 P1] 집기 전 판단은 실제 pick_object 집기 계획 그대로 — 손잡이 벽 립밤은 긴 변(72.5 mm)·기울여 잡음.
+    짧은 변(20 mm) 가정이면 (25, 30) mm 놓기가 통과로 나왔다가 실제로 쥔 뒤엔 WALL_TOO_CLOSE 였음 → 집기 전·후 판단이 같아야 함."""
+    srv = server.srv
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0227, "occluded_by": [], "visible_area_m2": 0.00154,
+           "pose": {"frame": drawer, "position": [0.0097, 0.1539, 0.0], "yaw": 1.5625, "yaw_valid": True}}
+    scan = {"target_found": True, "target": lip, "candidates": [], "visible_count": 1}
+    srv.disp[drawer] = srv.places()[drawer]["tf_at_travel_m"]
+    pose = {"frame": drawer, "position": [0.025, 0.030, 0.0], "yaw": 1.5707}
+    before, bdata = server.run("place_object", {"location": drawer, "pose": pose, "scan": scan, "object": lip, "check_only": True})
+    server.Gripper.holding, server.Gripper.held_width = True, 72.5
+    try:
+        out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success and srv.held["long_side"] is True, out.reason
+        after, adata = server.run("place_object", {"location": drawer, "pose": pose, "scan": scan, "check_only": True})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert (before.success, before.error_code) == (after.success, after.error_code), (before.reason, after.reason)
+    assert bdata.get("planned_pose") == adata.get("planned_pose")
 
 
 def test_place_check_only_reports_refusal_with_blocker(server):
@@ -2169,9 +2188,12 @@ def test_place_check_only_reports_refusal_with_blocker(server):
     srv = server.srv
     srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
     scan = json.loads(json.dumps(SCAN_1012_PLATE))
+    scan["candidates"] = [c for c in scan["candidates"] if c["class"] != "lip_balm"]   # 판 집기부터 막는 립밤은 뺌
     slot = srv.places()["drawer_bottom"]["place_slots"]["aside_1"]["position"]
     scan["candidates"].insert(0, {"id": "toy_car#1", "class": "toy_car", "top_z": 0.0325, "occluded_by": [],   # 자리 가운데 = 처음 검사에서 먼저
                                   "pose": {"frame": "drawer_bottom", "position": [slot[0], slot[1], 0.0], "yaw": 0.0, "yaw_valid": True}})
+    scan["candidates"].append(scan.pop("target"))                       # 목표 지우개는 뒤로 — 자리 가운데 장난감차가 먼저 걸림
+    scan["target_found"], scan["target"] = False, None
     n = len(srv.robot.log)
     out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "aside_1", "scan": scan,
                                             "object": scan["candidates"][1], "check_only": True})

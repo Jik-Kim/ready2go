@@ -123,10 +123,7 @@ def place_half_mm(size_m: Sequence[float], open_mm: float, finger_mm: float, mar
 
 
 def neighbor_rect_mm(obj: Mapping, size_m: Sequence[float]) -> list:
-    """이웃 footprint 꼭짓점 (mm). yaw_valid 가 true 가 아니면 방향을 모름 → 대각선 반을 반폭으로 하는 정사각형 [계산].
-    `footprint_mm`(꼭짓점 4개)이 있으면 그것 — 놓기 검사가 쥔 물체에 가려졌던 이웃을 보이는 범위로 줄일 때 (hidden_split)."""
-    if obj.get("footprint_mm"):
-        return [tuple(c) for c in obj["footprint_mm"]]
+    """이웃 footprint 꼭짓점 (mm). yaw_valid 가 true 가 아니면 방향을 모름 → 대각선 반을 반폭으로 하는 정사각형 [계산]."""
     pose = obj["pose"]
     x, y = pose["position"][0] * 1000.0, pose["position"][1] * 1000.0
     hl, hs = size_m[0] * 500.0, size_m[1] * 500.0
@@ -157,34 +154,6 @@ def wall_reason(x_mm: float, y_mm: float, yaw: float, half: tuple, open_mm: floa
     if gap_y < need_y:
         return f"옆벽까지 {gap_y:.1f} mm < 손가락·관절 간섭 {need_y:.1f} mm"
     return None
-
-
-def hidden_split(objects: Sequence[Mapping], held_id: str, size_of: Callable[[str], Optional[Sequence[float]]],
-                 default_size_m: Sequence[float]) -> list:
-    """놓기 이웃 검사용: 쥔 물체(held_id) 하나에만 가려졌던 방향 모르는 이웃은 '방향 모름 정사각형'(대각선 반 = 지우개 57 mm) 대신
-    ① 보이는 부분 = 보인 가운데에 반폭 √(visible_area) 정사각형(보인 면적의 4배) ② 가려진 부분 = 쥔 물체가 있던 자리 footprint
-    두 조각으로 봄 — 가려진 부분은 쥔 물체 밑에만 있음. 둘 다 원래 정사각형보다 크면 원래대로.
-    [PC2 10/12 Unpacking: aside 를 비워 뒀는데 판 밑 지우개(보이는 22 × 22 mm)를 57 mm 정사각형으로 봐 aside 두 곳이 6 mm 겹쳐 거부]"""
-    by = {o["id"]: o for o in objects}
-    held = by.get(held_id)
-    if held is None or (held.get("pose") or {}).get("yaw_valid") is not True:
-        return list(objects)
-    hsize = size_of(held.get("class")) or default_size_m
-    out = []
-    for o in objects:
-        pose = o.get("pose") or {}
-        area = o.get("visible_area_m2")
-        if (o["id"] == held_id or pose.get("yaw_valid") is True or list(o.get("occluded_by") or []) != [held_id]
-                or not _finite(area) or area <= 0):
-            out.append(o)
-            continue
-        size = size_of(o.get("class")) or default_size_m
-        r = math.hypot(size[0] * 500.0, size[1] * 500.0)
-        h = min(r, math.sqrt(area) * 1000.0)
-        x, y = pose["position"][0] * 1000.0, pose["position"][1] * 1000.0
-        out.append(dict(o, footprint_mm=corners(x, y, 0.0, h, h)))
-        out.append(dict(o, footprint_mm=neighbor_rect_mm(held, hsize)))
-    return out
 
 
 def check_place(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], open_mm: float, objects: Sequence[Mapping],
