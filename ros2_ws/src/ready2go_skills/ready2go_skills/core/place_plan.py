@@ -144,10 +144,13 @@ def wall_reason(x_mm: float, y_mm: float, yaw: float, half: tuple, open_mm: floa
             return f"놓을 footprint 가 서랍 벽 밖 (꼭짓점 {cx:.1f}, {cy:.1f} mm, 경계 x 0~{d:.1f}, y {y_lo:.1f}~{y_hi:.1f})"
     close_ang = yaw + math.pi / 2                           # 서랍 좌표 닫힘 축 = 긴 변에 수직 (집기와 같음)
     need_x = mp.wall_extent_mm(open_mm, close_ang, g) + g["wall_margin_mm"]
+    need_front = mp.wall_extent_mm(open_mm, close_ang, g, front=True) + g["wall_margin_mm"]   # 손잡이 쪽 앞판 [실측 PC2 10/11]
     need_y = mp.wall_extent_mm(open_mm, close_ang - math.pi / 2, g) + g["wall_margin_mm"]
-    gap_x, gap_y = min(x_mm, d - x_mm), min(y_mm - y_lo, y_hi - y_mm)
-    if gap_x < need_x:
-        return f"앞뒤 벽까지 {gap_x:.1f} mm < 손가락·관절 간섭 {need_x:.1f} mm"
+    gap_y = min(y_mm - y_lo, y_hi - y_mm)
+    if x_mm < need_front:
+        return f"손잡이 쪽 벽까지 {x_mm:.1f} mm < 손가락·관절 간섭 {need_front:.1f} mm"
+    if d - x_mm < need_x:
+        return f"안쪽 벽까지 {d - x_mm:.1f} mm < 손가락·관절 간섭 {need_x:.1f} mm"
     if gap_y < need_y:
         return f"옆벽까지 {gap_y:.1f} mm < 손가락·관절 간섭 {need_y:.1f} mm"
     return None
@@ -155,21 +158,30 @@ def wall_reason(x_mm: float, y_mm: float, yaw: float, half: tuple, open_mm: floa
 
 def check_place(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], open_mm: float, objects: Sequence[Mapping],
                 size_of: Callable[[str], Optional[Sequence[float]]], interior_m: Sequence[float], g: Mapping,
-                place: Mapping) -> Optional[Refusal]:
+                place: Mapping, finger_half_width_mm: Optional[float] = None) -> Optional[Refusal]:
     """움직이기 전 겹침 확인: ① 이웃(PLACE_BLOCKED) → ② 벽(WALL_TOO_CLOSE). 통과면 None.
-    size_of(class) = 온톨로지 size_m, 모르면 None → place.default_obstacle_size_m."""
+    size_of(class) = 온톨로지 size_m, 모르면 None → place.default_obstacle_size_m.
+    finger_half_width_mm: 손가락 반폭 — 주면 이웃은 '놓을 물체 + 여유'와 '손가락이 내려가는 띠(긴 변 방향으로 이 폭)'만 봄
+    (집기 neighbor_check.pick_blocker 와 같음). 없으면 예전처럼 물체 길이 전체 × 벌린 손가락 폭 사각형
+    [사용자 10/12 PC2: 가림막 되돌리기가 굴러간 립밤(손가락 자리 밖)에 PLACE_BLOCKED → 꺼낸 aside 로]. 벽 확인은 그대로 전체."""
     x, y = pose["position"][0] * 1000.0, pose["position"][1] * 1000.0
     yaw = pose["yaw"]
     vals = (x, y, yaw, open_mm, *held_size_m[:2], *interior_m[:2], g["fingertip_outer_mm"], place["footprint_margin_mm"])
     if not _finite(*vals):
         raise ValueError(f"놓기 확인 입력 비정상: {vals}")       # 로봇 목표로 보내지 않음 (fail-closed)
     half = place_half_mm(held_size_m, open_mm, g["fingertip_outer_mm"], place["footprint_margin_mm"])
-    mine = corners(x, y, yaw, *half)
+    if finger_half_width_mm is not None and _finite(finger_half_width_mm):
+        m = place["footprint_margin_mm"]
+        areas = [corners(x, y, yaw, held_size_m[0] * 500.0 + m, held_size_m[1] * 500.0 + m),       # 놓을 물체
+                 corners(x, y, yaw, min(half[0], finger_half_width_mm + m), half[1])]              # 손가락 띠
+    else:
+        areas = [corners(x, y, yaw, *half)]
     for o in objects:
         if o["id"] == held_id:
             continue
         size = size_of(o.get("class")) or place["default_obstacle_size_m"]
-        if rects_overlap(mine, neighbor_rect_mm(o, size)):
+        rect = neighbor_rect_mm(o, size)
+        if any(rects_overlap(a, rect) for a in areas):
             return Refusal(PLACE_BLOCKED, f"놓을 자리가 {o['id']} 와 겹침", o["id"])
     why = wall_reason(x, y, yaw, half, open_mm, interior_m, g)
     if why:
@@ -177,11 +189,26 @@ def check_place(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], op
     return None
 
 
+def same_place(pose: Mapping, back: Mapping, *, tol_mm: float, tol_deg: float) -> bool:
+    """놓을 pose 가 집을 때 자리(back: position [x, y] m·yaw)와 같은가 — 위치 tol_mm·각도 tol_deg 안 (각도는 180° 대칭).
+    기울여 집은 물체를 원래 자리로 되돌릴 때만 같은 기울인 자세로 놓음 [사용자 10/12 PC2 립밤 putback]."""
+    try:
+        dx = (float(pose["position"][0]) - float(back["position"][0])) * 1000.0
+        dy = (float(pose["position"][1]) - float(back["position"][1])) * 1000.0
+        dyaw = (float(pose["yaw"]) - float(back["yaw"])) % math.pi
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False
+    if not _finite(dx, dy, dyaw):
+        return False
+    return math.hypot(dx, dy) <= tol_mm and math.degrees(min(dyaw, math.pi - dyaw)) <= tol_deg
+
+
 def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], max_shift_mm: float,
-             step_mm: float = 2.0) -> tuple:
+             step_mm: float = 2.0, turn: bool = True) -> tuple:
     """고정 빈 자리(slot)에 쥔 물체가 안 들어가면(벽·이웃) 자리 가운데에서 가장 적게 옮긴(·90° 돌린) 자세를 찾음
     [P2 시연 시뮬레이션 10/10: 가림막 98.5 × 74.2 mm 가 aside_1 에서 손잡이 쪽 벽 밖 3 mm → WALL_TOO_CLOSE].
-    (자세, None) 또는 못 찾으면 (원래 자세, 원래 거부). 명령한 pose(되돌리기)는 쓰지 않음 — 원래 자리여야 하므로."""
+    (자세, None) 또는 못 찾으면 (원래 자세, 원래 거부). turn=False 면 방향은 그대로 옮기기만 — 명령한 pose(되돌리기)는
+    원래 자리에서 복구 허용 오차 안으로만 비켜 놓음 [PC2 10/12 Unpacking: 가림막 밑 립밤이 굴러 원래 자리 가장자리를 막음]."""
     first = check(pose)
     if first is None or max_shift_mm <= 0:
         return pose, first
@@ -189,7 +216,7 @@ def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], ma
     offs = sorted(((i * step_mm, j * step_mm) for i in range(-n, n + 1) for j in range(-n, n + 1)
                    if math.hypot(i, j) * step_mm <= max_shift_mm), key=lambda d: math.hypot(*d))
     x, y = pose["position"][:2]
-    for dyaw in (0.0, math.pi / 2):
+    for dyaw in ((0.0, math.pi / 2) if turn else (0.0,)):
         yaw = pose["yaw"] + dyaw
         yaw = (yaw + math.pi / 2) % math.pi - math.pi / 2          # (−π/2, π/2]
         if yaw <= -math.pi / 2 + 1e-9:
@@ -273,7 +300,21 @@ def objects_under(*, target: Mapping, objects: Sequence[Mapping], size_of: Calla
         dx, dy = x - ox, y - oy
         if abs(dx * c + dy * s_) <= size[0] * 500.0 + m and abs(-dx * s_ + dy * c) <= size[1] * 500.0 + m:
             out.append(o)
+        elif related and _rests_on(target, o, size, size_of, ambiguous_m):
+            out.append(o)
     return out
+
+
+def _rests_on(target: Mapping, o: Mapping, o_size: Sequence[float], size_of, tol_m: float) -> bool:
+    """가운데가 받침 밖으로 걸친 위 물체 [실측 PC2 10/12: 캐러멜 끝에 걸친 차키 가운데가 캐러멜 밖 약 10 mm → 캐러멜을 옆 물체로 봐
+    차키 집기 NEIGHBOR_TOO_CLOSE 두 번]. 분할 관계(o 위에 target)가 있고, o 윗면이 target 바닥 높이(비전 top_z − target 온톨로지 높이)와
+    tol_m 안이고, 두 footprint 가 겹칠 때만 — 옆 물체 헛관계는 높이가 안 맞아 빠짐(바닥 목표의 바닥 높이 ≈ 0) [A #216 우려]."""
+    ts = size_of(target.get("class"))
+    if not ts or not _finite(o.get("top_z"), target.get("top_z"), ts[2]):
+        return False
+    if abs(float(o["top_z"]) - (float(target["top_z"]) - float(ts[2]))) > tol_m:
+        return False
+    return rects_overlap(neighbor_rect_mm(target, ts), neighbor_rect_mm(o, o_size))
 
 
 def place_tcp_m(tf: Mapping, pose: Mapping, tcp_above_floor_m: float) -> tuple:

@@ -86,7 +86,10 @@ def test_finger_wall_clearance_like_pick():
     half = plp.place_half_mm(LIP, OPEN, G["fingertip_outer_mm"], PL["footprint_margin_mm"])
     x = half[1] + 1.0                                       # 짧은 변 쪽이 앞 벽(x=0) — footprint 는 안
     assert plp.wall_reason(x, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is not None   # across 간섭 약 38 mm
-    assert plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
+    assert plp.wall_reason(INTERIOR[0] * 1000.0 - 40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None   # 안쪽 벽은 옆벽 표 그대로
+    # 손잡이 쪽 벽은 앞판이 높아 더 필요 [실측 PC2 10/11 front_across] — 40 mm 는 이제 거부, 52 mm 는 됨
+    assert "손잡이 쪽 벽" in plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G)
+    assert plp.wall_reason(52.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
 
 
 def test_side_wall_offset_widens_y_max():
@@ -240,3 +243,48 @@ def test_objects_under_relation_still_needs_target_inside_footprint():
     edge = dict(side, pose={"position": [0.10, 0.1213, 0.0], "yaw": 0.0})      # 밖 4.2 mm — 끝에 걸침
     assert [o["id"] for o in plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get)] == ["caramel_box#1"]
     assert plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get, relation_margin_m=0.0) == []
+
+
+def test_same_place_within_tolerance_and_yaw_symmetric():
+    """[사용자 10/12] 기울여 집은 물체를 원래 자리로 되돌릴 때만 기울여 놓음 — 위치 tol_mm·각도 tol_deg(180° 대칭) 안."""
+    back = {"position": [0.0097, 0.1539], "yaw": 1.5625}
+
+    def ok(x, y, yaw):
+        return plp.same_place({"position": [x, y, 0.0], "yaw": yaw}, back, tol_mm=3.0, tol_deg=5.0)
+    assert ok(0.0097, 0.1539, 1.5625) and ok(0.0117, 0.1559, 1.5625 + 0.08)
+    assert ok(0.0097, 0.1539, 1.5625 - math.pi)                       # 180° 돌린 같은 자세
+    assert not ok(0.0137, 0.1539, 1.5625) and not ok(0.0097, 0.1539, 1.5625 + 0.1)
+    assert not plp.same_place({"position": [float("nan"), 0.0], "yaw": 0.0}, back, tol_mm=3.0, tol_deg=5.0)
+    assert not plp.same_place({}, back, tol_mm=3.0, tol_deg=5.0)
+
+
+def test_fit_slot_without_turn_only_shifts():
+    """[PC2 10/12 Unpacking] 되돌리기(turn=False)는 방향은 그대로 옮기기만 — 옮겨서 안 되면 90° 돌려 보지 않고 원래 거부."""
+    pose = {"frame": "drawer_bottom", "position": [0.091, 0.167, 0.0], "yaw": -0.054}
+    got, bad = plp.fit_slot(pose=pose, check=lambda p: None if p["position"][0] >= 0.1029 else plp.Refusal(plp.PLACE_BLOCKED, "립밤"),
+                            max_shift_mm=20.0, turn=False)
+    assert bad is None and got["yaw"] == pytest.approx(-0.054) and got["position"][0] == pytest.approx(0.103)
+    turned = []
+    got, bad = plp.fit_slot(pose=pose, check=lambda p: turned.append(p["yaw"]) or plp.Refusal(plp.PLACE_BLOCKED, "립밤"),
+                            max_shift_mm=20.0, turn=False)
+    assert got == pose and bad.error_code == plp.PLACE_BLOCKED and {round(y, 3) for y in turned} == {-0.054}
+
+
+def test_place_blocks_only_object_and_finger_band():
+    """[사용자 10/12 PC2] 가림막 되돌리기가 굴러간 립밤(방향 모름)에 PLACE_BLOCKED → 꺼낸 aside 로.
+    벌린 손가락 폭 × 판 길이 전체가 아니라 '판 + 여유'와 '손가락 띠'만 봄 (집기 pick_blocker 와 같음).
+    방향 모르는 이웃은 그대로 대각선 정사각형 (fail-closed)."""
+    plate = [0.0985, 0.0742, 0.0405]
+    sizes = dict(SIZES, cover_plate=plate)
+    open_mm = 74.2 + PL["release_extra_mm"]
+
+    def chk(lx, ly, band=True):
+        return plp.check_place(pose=pose(0.10, 0.17), held_id="cover_plate#1", held_size_m=plate, open_mm=open_mm,
+                               objects=[obj("lip_balm#1", "lip_balm", lx, ly, valid=False)], size_of=sizes.get,
+                               interior_m=INTERIOR, g=G, place=PL,
+                               finger_half_width_mm=G["tip_radius_mm"] if band else None)
+
+    assert chk(0.165, 0.25) is None                                   # 판 끝 옆·손가락 띠 밖 — 통과
+    assert chk(0.165, 0.25, band=False).error_code == plp.PLACE_BLOCKED   # 예전(사각형 전체)은 막았음
+    assert chk(0.10, 0.25).blocked_by == "lip_balm#1"                 # 손가락 띠(긴 변 가운데 옆) — 막음
+    assert chk(0.15, 0.20).blocked_by == "lip_balm#1"                 # 판 위 — 막음

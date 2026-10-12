@@ -1,0 +1,1420 @@
+{
+  "schema_version": "1.1",
+  "evaluation_version": "0.5-draft",
+  "status": "draft",
+  "issue": "https://github.com/Jik-Kim/ready2go/issues/196",
+  "phase": "P2",
+  "owner": "D",
+  "scope": "evaluation_artifact_only",
+  "artifact_roles": {
+    "evaluation_definition": "issue196_evaluation.v0.5-draft.json",
+    "execution_results": "issue196_results.v0.5-draft.jsonl",
+    "voice_evaluation_reference": "issue20_voice_evaluation.json",
+    "scope": "issue196_checklist_support",
+    "authority": "D evaluation draft; does not replace docs/requirements.md or runtime contracts",
+    "rule": "Each evaluation version uses one immutable definition file and one append-only result file. A version change creates a new file pair; existing pairs are never overwritten."
+  },
+  "sheet_source": "https://docs.google.com/spreadsheets/d/1oO9HGJd_ngiPMZzSuATGld86aGgjnGBdK-mIcoVddJY/edit",
+  "requirements_source": "../../docs/requirements.md",
+  "boundaries": [
+    "This file defines D evaluation expectations and does not declare runtime wire fields or enums.",
+    "Runtime values and reason codes must be checked against contracts, knowledge, config, params, tasks, and implementations before version freeze.",
+    "Draft expectations do not prove implementation, integration, simulation, or real-robot acceptance.",
+    "Machine-observed values belong in issue196_results.v0.5-draft.jsonl; field observation, final review, and deficiency follow-up remain in the Google Sheet."
+  ],
+  "voice_evaluation": {
+    "mode": "reference",
+    "path": "issue20_voice_evaluation.json",
+    "sha256": "51a06b347079d00422129a16fa0f196592ee4fa5e0afe0e66e9f0d42554142eb",
+    "schema_version": "1.8",
+    "evaluation_set_version": "0.6-draft",
+    "base_case_count": 40,
+    "issue_194_regression_version": "0.4-draft",
+    "issue_194_regression_case_count": 12,
+    "rule": "Do not duplicate the voice answer key in this file. Voice trials reference the existing case or scenario ID and its frozen version."
+  },
+  "basis_policy": {
+    "required_id": "basis_id",
+    "record_location": "issue196_results.v0.5-draft.jsonl record_type=basis",
+    "required_fields": [
+      "basis_id",
+      "captured_at",
+      "environment",
+      "code_sha",
+      "sources",
+      "human_approvals"
+    ],
+    "environment_values": [
+      "mock",
+      "sim",
+      "real"
+    ],
+    "source_kinds": [
+      "config",
+      "task",
+      "ontology",
+      "dataset",
+      "model",
+      "calibration",
+      "other"
+    ]
+  },
+  "runner_source_snapshots": [
+    {
+      "basis_id_hint": "main_80270cd",
+      "role": "main_reference",
+      "code_sha": "80270cdb80f4a08774d80a63c51a531233ba1db7",
+      "status": "main",
+      "note": "Runner base execution fields and the currently merged stop/recovery behavior. A trial basis still requires environment and source hashes before use."
+    },
+    {
+      "basis_id_hint": "c_check_e0faa0f",
+      "role": "c_second_check_branch",
+      "code_sha": "e0faa0f5c621d74e55d3d86a96d14929976827f8",
+      "status": "review_pending",
+      "note": "Records halts for every stop path on the C check branch; question and answer contract fields are not expected here."
+    },
+    {
+      "basis_id_hint": "c_contract_954ed61",
+      "role": "c_status_contract_branch",
+      "code_sha": "954ed61de614be216ab62c539fbd028ee30f4b22",
+      "status": "approval_pending",
+      "note": "Contains proposed question, answer, independent request, end-task, and Runner status fields. Do not treat these fields as main or an approved runtime contract before approval and merge."
+    }
+  ],
+  "id_policy": {
+    "always_required_in_result": [
+      "case_id",
+      "trial_id",
+      "basis_id"
+    ],
+    "conditional_correlation_ids": {
+      "intent_request_id": "Only when an initial ordinary voice task request exists.",
+      "run_id": "Only when Runner created an execution.",
+      "boot_id": "When stop/recovery correlation across a Runner generation is evaluated.",
+      "halt_event_id": "For a stop/recovery event.",
+      "question_id": "When the input answers a registered question.",
+      "resume_request_id": "Only for an independent explicit resume request; evaluation alias until the runtime contract approves a field name."
+    },
+    "mismatch_rule": "Store active IDs separately from the IDs referenced by the input.",
+    "prohibited_rule": "Do not require one generic request_id on every recovery row."
+  },
+  "human_check_catalog": {
+    "catalog_version": "0.1-draft",
+    "allowed_results": [
+      "pending",
+      "pass",
+      "fail",
+      "unverifiable",
+      "not_applicable"
+    ],
+    "checks": [
+      {
+        "check_id": "H-STOP-01",
+        "applies_to": "정지·복구",
+        "description": "로봇이 실제로 정지했는지 현장에서 확인",
+        "default_reviewers": [
+          "B",
+          "D"
+        ],
+        "required_when": "정지 요청 또는 복구 사례",
+        "recommended_evidence": [
+          "영상",
+          "B 정지 확인"
+        ]
+      },
+      {
+        "check_id": "H-AREA-01",
+        "applies_to": "실물 복구·재개",
+        "description": "위험 제거·작업영역 비움 확인",
+        "default_reviewers": [
+          "D"
+        ],
+        "required_when": "실물 재개 후보",
+        "recommended_evidence": [
+          "영상",
+          "현장 확인"
+        ]
+      },
+      {
+        "check_id": "H-HW-01",
+        "applies_to": "실물 복구·재개",
+        "description": "툴/TCP·컨트롤러·물리 E-stop 상태 확인",
+        "default_reviewers": [
+          "B"
+        ],
+        "required_when": "장치 복구 또는 재개 후보",
+        "recommended_evidence": [
+          "장치 점검 근거"
+        ]
+      },
+      {
+        "check_id": "H-OBJECT-01",
+        "applies_to": "놓침",
+        "description": "실제 대상·그리퍼·물체 복원 확인",
+        "default_reviewers": [
+          "B",
+          "D"
+        ],
+        "required_when": "OBJECT_DROPPED 사례",
+        "recommended_evidence": [
+          "영상",
+          "상태 확인"
+        ]
+      },
+      {
+        "check_id": "H-VOICE-01",
+        "applies_to": "음성·TTS",
+        "description": "실제 들림·내용·음질·자기음성 여부 확인",
+        "default_reviewers": [
+          "D",
+          "E"
+        ],
+        "required_when": "audio/TTS 경계 사례",
+        "recommended_evidence": [
+          "음원"
+        ]
+      },
+      {
+        "check_id": "H-MEASURE-01",
+        "applies_to": "비전·동작",
+        "description": "실물 위치·방향·좌표 측정 확인",
+        "default_reviewers": [
+          "A",
+          "B",
+          "D"
+        ],
+        "required_when": "정량 실물 측정 사례",
+        "recommended_evidence": [
+          "측정 기록",
+          "영상"
+        ]
+      },
+      {
+        "check_id": "H-EVIDENCE-01",
+        "applies_to": "공통",
+        "description": "로그·영상·시험 회차가 같은지 확인",
+        "default_reviewers": [
+          "D"
+        ],
+        "required_when": "표본 또는 이상 사례",
+        "recommended_evidence": [
+          "로그 링크",
+          "영상 링크"
+        ]
+      }
+    ]
+  },
+  "suites": {
+    "part": {
+      "suite_version": "0.4-draft",
+      "case_count": 25,
+      "cases": [
+        {
+          "case_id": "A-01",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "A"
+          ],
+          "test_item": "상·하단·트레이 촬영 자세 및 버전 인계 확인",
+          "basis": [
+            "FR-VIS-01",
+            "issue-155",
+            "pr-216"
+          ],
+          "expected": "drawer_top_view의 drawer_top·drawer_bottom과 tray_view 촬영 자세, 자세·TF·보정 버전 및 인계 근거 연결",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "A-02",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "A"
+          ],
+          "test_item": "새 촬영 세션 dataset·라벨·분할 모델 성능 검증",
+          "basis": [
+            "FR-VIS-01",
+            "FR-VIS-02",
+            "FR-ML-01"
+          ],
+          "expected": "원본 보존, 학습 미사용 검증셋 mAP50 0.9 이상, 촬영 세션·라벨·모델·가중치 SHA 연결",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "A-03",
+          "phase_scope": "P1 미달",
+          "owners": [
+            "A"
+          ],
+          "test_item": "분할 모델 기반 상·하단·트레이 3D 좌표 실측",
+          "basis": [
+            "FR-VIS-01",
+            "FR-VIS-02",
+            "AC-VIS-01"
+          ],
+          "expected": "현재 기본 분할 모델과 영역별 표본 수를 기록하고 실측 GT 대비 관측 좌표 오차 15 mm 이하 대조",
+          "required_human_checks": [
+            "H-MEASURE-01"
+          ]
+        },
+        {
+          "case_id": "B-01",
+          "phase_scope": "P2 선택",
+          "owners": [
+            "B"
+          ],
+          "test_item": "윗면 접촉 후 빈 방향 끌기",
+          "basis": [
+            "issue-110"
+          ],
+          "expected": "치수·빈 공간·힘·속도·거리·중단 기준 확인",
+          "required_human_checks": [
+            "H-AREA-01"
+          ]
+        },
+        {
+          "case_id": "B-02",
+          "phase_scope": "P2 선택",
+          "owners": [
+            "B"
+          ],
+          "test_item": "높은 이웃 노출 옆면·모서리 밀기",
+          "basis": [
+            "issue-110"
+          ],
+          "expected": "전후 위치·yaw·유격·파지 가능 비교",
+          "required_human_checks": [
+            "H-MEASURE-01"
+          ]
+        },
+        {
+          "case_id": "B-03",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "B"
+          ],
+          "test_item": "외력 감지·실제 정지·복구 상태 인계",
+          "basis": [
+            "FR-SAF-02",
+            "issue-152"
+          ],
+          "expected": "의도된 접촉과 비정상 외력을 구분한 B→C 근거",
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "C-01",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "C"
+          ],
+          "test_item": "pick 제한 시간 70초 반영 확인",
+          "basis": [
+            "issue-153"
+          ],
+          "expected": "승인된 태스크 설정과 실제 SHA 연결",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "C-02",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "C"
+          ],
+          "test_item": "BFS planned / 이미 만족 / 불가능",
+          "basis": [
+            "FR-PLN-02"
+          ],
+          "expected": "목표별 결과·이유와 미지원 경로 실행 금지",
+          "required_human_checks": []
+        },
+        {
+          "case_id": "CE-01",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "C",
+            "E"
+          ],
+          "test_item": "독립 관측 verify 성공·누락·실패·시간 초과",
+          "basis": [
+            "FR-ONT-02",
+            "AC-ONT-01",
+            "FR-LOG-02"
+          ],
+          "expected": "관측 성공 때만 effect를 반영한다. 누락·실패·시간 초과 때는 상태를 갱신하지 않고 불일치 사유와 근거를 기록한다.",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "E-01",
+          "phase_scope": "P1 미달",
+          "owners": [
+            "E"
+          ],
+          "test_item": "MeloTTS 캐시와 실제 재생 지연",
+          "basis": [
+            "AC-INT-03"
+          ],
+          "expected": "발화 종료부터 실제 첫 PortAudio DAC 출력까지 3초 이내인지 판정한다. 캐시 조회·합성 대기·재생 구간을 분리하고 실제 출력과 mock 결과를 구분한다.",
+          "required_human_checks": [
+            "H-VOICE-01"
+          ]
+        },
+        {
+          "case_id": "C-03",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "C",
+            "E"
+          ],
+          "test_item": "active run_id/error 안내와 정지 요청 전달",
+          "basis": [
+            "FR-SAF-01",
+            "issue-152"
+          ],
+          "expected": "활성 실행·오류·정지 요청/결과 연결",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "E-02",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "E"
+          ],
+          "test_item": "대표 목표 5종의 음성 목표 해석·대상 검증·발행 보류 경계",
+          "basis": [
+            "FR-INT-02",
+            "issue-150"
+          ],
+          "expected": "E는 목표·대상 추출과 미지원 목표의 발행 보류까지만 판정한다. C의 계획 생성·불가 판정·실행과 B의 실물 검증은 별도 후속 결과로 구분한다.",
+          "required_human_checks": []
+        },
+        {
+          "case_id": "E-03",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "E"
+          ],
+          "test_item": "P2 안전 요구사항·기술 문서·시험 절차",
+          "basis": [
+            "FR-SAF-01",
+            "FR-SAF-02",
+            "FR-SAF-03",
+            "AC-SAF-02",
+            "AC-SAF-03",
+            "AC-SAF-04",
+            "FR-LOG-02"
+          ],
+          "expected": "정본·현행 구현·계획·승인 대기를 구분하고, 문서 준비 완료와 운영 연결·실물 시험 통과를 별도 상태로 기록한다.",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "CE-02",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "C",
+            "E"
+          ],
+          "test_item": "P2 안전 계약 문서·스키마·예시 정합성 대조",
+          "basis": [
+            "issue-152",
+            "FR-SAF-01",
+            "FR-SAF-02",
+            "FR-SAF-03",
+            "AC-SAF-02",
+            "AC-SAF-03",
+            "AC-SAF-04",
+            "FR-LOG-02"
+          ],
+          "expected": "정지 요청과 조건부 복구·명시적 재개의 문서·스키마·예시가 동일한 승인·연결 상태를 나타내는지 확인하고, 계약 대조와 실제 기능 시험을 구분한다.",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "D-01",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "D"
+          ],
+          "test_item": "가림 GT·관측·재식별 결과 기록",
+          "basis": [
+            "AC-VIS-02",
+            "issue-196"
+          ],
+          "expected": "TP/FP/FN·모름·미검출과 장면 버전 기록",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "D-02",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "D"
+          ],
+          "test_item": "LIFO 복구 전후 pose·방향 기록",
+          "basis": [
+            "AC-ACT-03",
+            "issue-196"
+          ],
+          "expected": "복구 순서·위치·방향 오차 기록",
+          "required_human_checks": [
+            "H-MEASURE-01"
+          ]
+        },
+        {
+          "case_id": "D-03",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "D"
+          ],
+          "test_item": "계획·실행·상태·상세 로그 대조",
+          "basis": [
+            "FR-LOG-02"
+          ],
+          "expected": "조건·검증·effect·재시도·DB 누락 대조",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "D-04",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "D"
+          ],
+          "test_item": "정지·복구·명시적 재개 증빙·녹화",
+          "basis": [
+            "AC-SAF-02",
+            "AC-SAF-03",
+            "AC-SAF-04"
+          ],
+          "expected": "정지·잠금·차단·재진입·중복 effect 연결",
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "D-05",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "D"
+          ],
+          "test_item": "Voice 정책·사례 버전과 정답표 대조",
+          "basis": [
+            "issue-194",
+            "issue-20"
+          ],
+          "expected": "Voice 발행·Runner 수락·동작 성공 분리",
+          "required_human_checks": [
+            "H-VOICE-01"
+          ]
+        },
+        {
+          "case_id": "D-06",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "D"
+          ],
+          "test_item": "real·sim·mock 결과 경계",
+          "basis": [
+            "NFR-ABS-01",
+            "NFR-TWN-01"
+          ],
+          "expected": "backend·SHA·설정·관측 한계 구분",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "D-07",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "D"
+          ],
+          "test_item": "선택 Phase 최종 리허설·리셋",
+          "basis": [
+            "AC-DEMO-01",
+            "issue-21"
+          ],
+          "expected": "회차별 basis·run·배치·리셋·근거 기록",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "A-04",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "A"
+          ],
+          "test_item": "가림 관계 실물 출력 및 모름·미검출 구분",
+          "basis": [
+            "FR-VIS-03",
+            "pr-214"
+          ],
+          "expected": "occluded_by·visible_area_m2·null·미검출을 구분하고 모델 SHA·vision_params 해시·평가 장면 분리 근거 연결",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "A-05",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "A"
+          ],
+          "test_item": "놓기 후 재촬영 3종 결과 검증",
+          "basis": [
+            "FR-VIS-02",
+            "FR-ONT-02",
+            "FR-LOG-02",
+            "issue-43",
+            "pr-220",
+            "pr-228"
+          ],
+          "expected": "물체 발견·정상 미검출·REGION_NOT_VISIBLE을 구분하고 region_visible_ratio와 실제 관측 근거 연결",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "A-06",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "A"
+          ],
+          "test_item": "실물 관절 상태를 Isaac Sim 트윈에 미러링",
+          "basis": [
+            "FR-TWN-01",
+            "NFR-TWN-01",
+            "issue-196",
+            "pr-224"
+          ],
+          "expected": "real과 emulator를 구분하고 관절 상태 주기·지연·동작 시각화·씬/궤적 설정·그리퍼 연동 범위를 기록",
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "AC-01",
+          "phase_scope": "P2 준비",
+          "owners": [
+            "A",
+            "C"
+          ],
+          "test_item": "옮긴 물체 재관측·재식별",
+          "basis": [
+            "FR-VIS-03",
+            "issue-109"
+          ],
+          "expected": "정상 대조·허용 거리 밖·미검출·같은 클래스 복수 후보를 구분해 제외·재촬영·보류를 판정",
+          "required_human_checks": [
+            "H-EVIDENCE-01",
+            "H-MEASURE-01"
+          ]
+        }
+      ],
+      "machine_check_requirements": {
+        "A-01": [
+          "drawer_top_view_pose_recorded",
+          "drawer_bottom_view_pose_recorded",
+          "tray_view_pose_recorded",
+          "tf_and_calibration_version_linked"
+        ],
+        "A-02": [
+          "dataset_session_id_recorded",
+          "labels_version_linked",
+          "evaluation_split_not_used_for_training",
+          "map50_at_least_0_9",
+          "model_weight_sha_linked"
+        ],
+        "A-03": [
+          "segmentation_model_basis_linked",
+          "sample_count_by_region_recorded",
+          "coordinate_error_mm_at_most_15"
+        ],
+        "A-04": [
+          "occluded_by_and_visible_area_recorded",
+          "null_vs_not_detected_distinguished",
+          "model_and_vision_params_hash_linked",
+          "tuning_and_evaluation_scenes_separated"
+        ],
+        "A-05": [
+          "found_not_detected_region_not_visible_distinguished",
+          "region_visible_ratio_recorded",
+          "scene_evidence_linked"
+        ],
+        "A-06": [
+          "real_vs_emulator_distinguished",
+          "joint_update_rate_and_latency_recorded",
+          "scene_trajectory_config_linked",
+          "gripper_mirroring_scope_recorded"
+        ],
+        "AC-01": [
+          "reidentification_outcomes_recorded",
+          "distance_threshold_applied",
+          "ambiguous_candidates_excluded_or_reobserved_or_held"
+        ],
+        "B-01": [
+          "dimensions_and_clear_space_recorded",
+          "force_speed_distance_recorded",
+          "stop_criteria_applied"
+        ],
+        "B-02": [
+          "before_after_pose_and_yaw_recorded",
+          "clearance_recorded",
+          "graspability_compared"
+        ],
+        "B-03": [
+          "intended_contact_vs_abnormal_force_classified",
+          "b_stop_confirmation_recorded",
+          "handoff_to_c_linked"
+        ],
+        "C-01": [
+          "task_config_sha_linked",
+          "pick_timeout_seconds_equals_70"
+        ],
+        "C-02": [
+          "planner_outcome_recorded",
+          "planner_reason_recorded",
+          "unsupported_plan_execution_count_zero"
+        ],
+        "C-03": [
+          "active_run_id_linked",
+          "error_notice_linked",
+          "stop_request_and_result_linked"
+        ],
+        "CE-01": [
+          "verify_outcome_recorded",
+          "effect_applied_only_on_verify_pass",
+          "state_update_count_zero_on_missing_failed_timeout",
+          "mismatch_reason_and_evidence_recorded"
+        ],
+        "CE-02": [
+          "docs_schema_examples_same_approval_basis",
+          "contract_and_functional_test_status_separated"
+        ],
+        "E-01": [
+          "utterance_end_timestamp_recorded",
+          "portaudio_first_dac_timestamp_recorded",
+          "utterance_to_first_dac_ms_at_most_3000",
+          "cache_synthesis_playback_segments_recorded",
+          "actual_vs_mock_distinguished"
+        ],
+        "E-02": [
+          "goal_and_target_extracted_from_approved_catalog",
+          "unsupported_goal_publish_count_zero",
+          "planner_execution_results_excluded_from_e_grade"
+        ],
+        "E-03": [
+          "normative_current_planned_pending_states_distinguished",
+          "documentation_ready_separate_from_operational_and_real_acceptance"
+        ],
+        "D-01": [
+          "tp_fp_fn_recorded",
+          "unknown_vs_not_detected_distinguished",
+          "scene_version_linked"
+        ],
+        "D-02": [
+          "lifo_restore_order_recorded",
+          "before_after_pose_and_orientation_error_recorded"
+        ],
+        "D-03": [
+          "condition_verify_effect_retry_state_diff_recorded",
+          "db_and_execution_record_completeness_checked"
+        ],
+        "D-04": [
+          "stop_lock_block_reentry_duplicate_effect_evidence_linked"
+        ],
+        "D-05": [
+          "voice_publish_runner_acceptance_motion_result_separated",
+          "voice_evaluation_version_linked"
+        ],
+        "D-06": [
+          "backend_environment_recorded",
+          "code_config_basis_linked",
+          "observation_limitations_recorded"
+        ],
+        "D-07": [
+          "basis_run_layout_reset_evidence_linked",
+          "selected_phase_recorded"
+        ]
+      },
+      "grading": {
+        "machine_check_mapping": "Every part case_id must have a non-empty entry in machine_check_requirements.",
+        "machine_check_record": "Each required check is a trial machine_checks entry with check_id, status, observed, expected, and non-empty evidence.",
+        "automatic_result": "Pass only when every machine check ID mapped to the case exists in the same trial and has status pass. Missing, not_evaluated, fail, unverifiable, or not_applicable prevents pass.",
+        "human_result": "Required only for check IDs listed by the case.",
+        "final_result": "Cannot be pass until all required automatic and human checks pass."
+      }
+    },
+    "recovery": {
+      "suite_version": "0.2-draft",
+      "case_count": 30,
+      "contract_boundary": {
+        "status": "evaluation_only",
+        "rule": "This file records expected behavior without declaring new runtime fields or wire enums.",
+        "reason_code_status": "Draft evaluation expectations must be checked against the approved runtime source before version freeze."
+      },
+      "cases": [
+        {
+          "case_id": "S01",
+          "category": "stop",
+          "scenario": "음성 정지 요청",
+          "expected": {
+            "decision": "stop_requested",
+            "reason_codes": [],
+            "handling": "LLM·TTS를 기다리지 않고 정지 요청 전달"
+          },
+          "required_machine_checks": [
+            "stop_request_forwarded_without_llm_or_tts_wait",
+            "actual_stop_state_recorded"
+          ],
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "S02",
+          "category": "stop",
+          "scenario": "예상하지 않은 외력 감지",
+          "expected": {
+            "decision": "stop_requested",
+            "reason_codes": [],
+            "handling": "동작 취소·잠금·후속 이동/그리퍼 차단"
+          },
+          "required_machine_checks": [
+            "runner_locked",
+            "motion_commands_after_halt_zero",
+            "gripper_commands_after_halt_zero"
+          ],
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "S03",
+          "category": "stop",
+          "scenario": "활성 스킬의 의도된 접촉",
+          "expected": {
+            "decision": "classification_checked_by_b",
+            "reason_codes": [],
+            "handling": "의도 접촉과 보호 정지를 구분해 기록"
+          },
+          "required_machine_checks": [
+            "contact_classification_recorded"
+          ],
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "S04",
+          "category": "recovery",
+          "scenario": "센서·통신 또는 상태 확인 실패",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [],
+            "handling": "확인 불가·잠금 유지"
+          },
+          "required_machine_checks": [
+            "runner_locked",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "S05",
+          "category": "recovery",
+          "scenario": "외력이 계속 검출됨",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "force_high"
+            ],
+            "handling": "잠금과 명령 차단 유지"
+          },
+          "required_machine_checks": [
+            "runner_locked",
+            "motion_commands_after_halt_zero",
+            "gripper_commands_after_halt_zero"
+          ],
+          "required_human_checks": [
+            "H-AREA-01"
+          ]
+        },
+        {
+          "case_id": "S06",
+          "category": "recovery",
+          "scenario": "펜던트 E-stop 활성",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "estop_pressed"
+            ],
+            "handling": "음성 물리 해제 금지·수동 점검"
+          },
+          "required_machine_checks": [
+            "runner_locked",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-HW-01"
+          ]
+        },
+        {
+          "case_id": "S07",
+          "category": "recovery",
+          "scenario": "실제 정지 확인 불가",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "STOP_UNCONFIRMED"
+            ],
+            "handling": "잠금 유지·정지 확인 필요"
+          },
+          "required_machine_checks": [
+            "runner_locked",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "S08",
+          "category": "recovery",
+          "scenario": "작업영역 확인 안 됨",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [],
+            "handling": "잠금과 명령 차단 유지"
+          },
+          "required_machine_checks": [
+            "runner_locked",
+            "motion_commands_after_halt_zero",
+            "gripper_commands_after_halt_zero"
+          ],
+          "required_human_checks": [
+            "H-AREA-01"
+          ]
+        },
+        {
+          "case_id": "S09",
+          "category": "recovery",
+          "scenario": "컨트롤러 복구 실패",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [],
+            "handling": "복구 성공으로 간주하지 않음"
+          },
+          "required_machine_checks": [
+            "recovery_not_marked_successful",
+            "runner_locked"
+          ],
+          "required_human_checks": [
+            "H-HW-01"
+          ]
+        },
+        {
+          "case_id": "S10",
+          "category": "recovery",
+          "scenario": "모든 복구 조건 충족",
+          "expected": {
+            "decision": "allow_candidate",
+            "reason_codes": [],
+            "handling": "B 복구 결과 확인 후 C 잠금 해제"
+          },
+          "required_machine_checks": [
+            "explicit_recovery_request_linked",
+            "actual_stop_confirmed",
+            "safe_force_confirmed",
+            "fresh_sensor_and_communication_confirmed",
+            "controller_ready_and_recoverable",
+            "b_recovery_result_passed",
+            "c_unlock_after_b_result",
+            "automatic_resume_count_zero"
+          ],
+          "required_human_checks": [
+            "H-STOP-01",
+            "H-AREA-01",
+            "H-HW-01"
+          ]
+        },
+        {
+          "case_id": "S11",
+          "category": "resume",
+          "scenario": "현재 작업에 명시적 재개 응답",
+          "expected": {
+            "decision": "allow_candidate",
+            "reason_codes": [],
+            "handling": "B/C 재검사 후 중단 스킬 처음부터 재진입"
+          },
+          "required_machine_checks": [
+            "check_resume_passed",
+            "b_reentry_check_passed",
+            "restart_from_interrupted_skill_start",
+            "automatic_resume_false",
+            "duplicate_effect_false"
+          ],
+          "required_human_checks": [
+            "H-AREA-01"
+          ]
+        },
+        {
+          "case_id": "S12",
+          "category": "resume",
+          "scenario": "재개 질문에 무응답",
+          "expected": {
+            "decision": "no_resume",
+            "reason_codes": [
+              "RESUME_EXPIRED"
+            ],
+            "handling": "질문만 무효화·작업 보존·자동 재개 없음"
+          },
+          "required_machine_checks": [
+            "question_invalidated",
+            "interrupted_work_preserved",
+            "automatic_resume_false",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S13",
+          "category": "resume",
+          "scenario": "재개 질문에 거절 발화",
+          "expected": {
+            "decision": "no_resume",
+            "reason_codes": [
+              "answer: decline"
+            ],
+            "handling": "질문만 무효화·작업 보존·자동 재개 없음"
+          },
+          "required_machine_checks": [
+            "question_invalidated",
+            "interrupted_work_preserved",
+            "automatic_resume_false",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-VOICE-01"
+          ]
+        },
+        {
+          "case_id": "S14",
+          "category": "resume",
+          "scenario": "과거·다른 정지 사건 응답",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "HALT_EVENT_MISMATCH"
+            ],
+            "handling": "현재 사건에 명령 0회"
+          },
+          "required_machine_checks": [
+            "active_and_referenced_ids_separated",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S15",
+          "category": "resume",
+          "scenario": "같은 사건의 중복 재개 응답",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "NOTHING_TO_RESUME"
+            ],
+            "handling": "중복 동작·effect 0회"
+          },
+          "required_machine_checks": [
+            "resume_command_count_zero",
+            "duplicate_effect_false"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S16",
+          "category": "resume",
+          "scenario": "복구 후 다시 정지됨",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "HALT_EVENT_MISMATCH",
+              "NOT_RECOVERED"
+            ],
+            "handling": "이전 사건 응답 폐기·잠금 유지"
+          },
+          "required_machine_checks": [
+            "stale_response_discarded",
+            "runner_locked",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "S17",
+          "category": "resume",
+          "scenario": "복구 성공 전 재개 요청",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "NOT_RECOVERED"
+            ],
+            "handling": "잠금·명령 차단 유지"
+          },
+          "required_machine_checks": [
+            "runner_locked",
+            "motion_commands_after_halt_zero",
+            "gripper_commands_after_halt_zero"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S18",
+          "category": "resume",
+          "scenario": "서랍·그리퍼 실제 상태 관측 불가",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "STATE_UNOBSERVED"
+            ],
+            "handling": "재진입하지 않음"
+          },
+          "required_machine_checks": [
+            "reentry_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-HW-01"
+          ]
+        },
+        {
+          "case_id": "S19",
+          "category": "resume",
+          "scenario": "실제 상태와 Runner 상태 불일치",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "STATE_MISMATCH"
+            ],
+            "handling": "재진입하지 않음"
+          },
+          "required_machine_checks": [
+            "reentry_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-HW-01"
+          ]
+        },
+        {
+          "case_id": "S20",
+          "category": "resume",
+          "scenario": "중단 스킬 pre 불충족",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "PRE_UNMET"
+            ],
+            "handling": "재진입하지 않음"
+          },
+          "required_machine_checks": [
+            "check_resume_executed",
+            "reentry_command_count_zero"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S21",
+          "category": "resume",
+          "scenario": "B 스킬 재진입 조건 불충족",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "REENTRY_BLOCKED"
+            ],
+            "handling": "재진입하지 않음"
+          },
+          "required_machine_checks": [
+            "b_reentry_check_executed",
+            "reentry_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "S22",
+          "category": "resume",
+          "scenario": "같은 boot에서 이전 이하 seq",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [],
+            "handling": "과거·중복 상태 폐기"
+          },
+          "required_machine_checks": [
+            "stale_or_duplicate_state_discarded",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S23",
+          "category": "resume",
+          "scenario": "Runner 재기동 뒤 이전 boot 사건·응답",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "BOOT_MISMATCH"
+            ],
+            "handling": "이전 기동의 질문·응답 무효화"
+          },
+          "required_machine_checks": [
+            "previous_boot_question_invalidated",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S24",
+          "category": "resume",
+          "scenario": "질문 뒤 상태 변경으로 재검사 실패",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "PRE_UNMET 등"
+            ],
+            "handling": "check_resume와 B check 재실행·명령 0회"
+          },
+          "required_machine_checks": [
+            "check_resume_reexecuted",
+            "b_reentry_check_reexecuted",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-EVIDENCE-01"
+          ]
+        },
+        {
+          "case_id": "S25",
+          "category": "resume",
+          "scenario": "재개 질문 TTS 실패",
+          "expected": {
+            "decision": "no_resume",
+            "reason_codes": [
+              "tts_failed"
+            ],
+            "handling": "질문만 무효화·작업 보존·자동 재개 없음"
+          },
+          "required_machine_checks": [
+            "question_invalidated",
+            "interrupted_work_preserved",
+            "automatic_resume_false",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-VOICE-01"
+          ]
+        },
+        {
+          "case_id": "S26",
+          "category": "stop",
+          "scenario": "TTS/API 지연 중 음성 정지 요청",
+          "expected": {
+            "decision": "stop_requested",
+            "reason_codes": [],
+            "handling": "지연 작업을 기다리지 않고 정지 전달"
+          },
+          "required_machine_checks": [
+            "stop_request_forwarded_without_delayed_job_wait",
+            "actual_stop_state_recorded"
+          ],
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "S27",
+          "category": "stop",
+          "scenario": "TTS 재생 중 음성 정지 요청",
+          "expected": {
+            "decision": "stop_requested",
+            "reason_codes": [],
+            "handling": "재생 완료를 기다리지 않고 정지 전달"
+          },
+          "required_machine_checks": [
+            "stop_request_forwarded_without_playback_wait",
+            "actual_stop_state_recorded"
+          ],
+          "required_human_checks": [
+            "H-STOP-01"
+          ]
+        },
+        {
+          "case_id": "S28",
+          "category": "resume",
+          "scenario": "스피커 자기 음성이 재개 응답으로 인식",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "EVIDENCE_INVALID"
+            ],
+            "handling": "자기음성 제거·C 도착 시 2차 거절"
+          },
+          "required_machine_checks": [
+            "self_audio_evidence_rejected",
+            "runner_rejected_invalid_evidence",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-VOICE-01"
+          ]
+        },
+        {
+          "case_id": "S29",
+          "category": "resume",
+          "scenario": "다른 question_id의 응답",
+          "expected": {
+            "decision": "reject",
+            "reason_codes": [
+              "QUESTION_MISMATCH"
+            ],
+            "handling": "현재 질문에 명령 0회"
+          },
+          "required_machine_checks": [
+            "active_and_referenced_ids_separated",
+            "resume_command_count_zero"
+          ],
+          "required_human_checks": []
+        },
+        {
+          "case_id": "S30",
+          "category": "resume",
+          "scenario": "놓침·센서 이상",
+          "expected": {
+            "decision": "no_resume",
+            "reason_codes": [
+              "OBJECT_DROPPED",
+              "SENSOR_INVALID"
+            ],
+            "handling": "기존 run 종료·사람 복구 후 새 run"
+          },
+          "required_machine_checks": [
+            "previous_run_terminated",
+            "same_run_resume_command_count_zero"
+          ],
+          "required_human_checks": [
+            "H-OBJECT-01"
+          ]
+        }
+      ],
+      "grading": {
+        "machine_checks": "Every required machine check must be supported by the same trial's structured log evidence.",
+        "human_checks": "Only check IDs listed for the case are required; empty means no separate human observation is required.",
+        "safety_gate": "A resume candidate cannot pass unless actual stop, lock/command blocking, and required B/C rechecks are satisfied when applicable.",
+        "final_result": "Cannot be pass when any required machine or human check is missing, not_evaluated, fail, pending, unverifiable, or not_applicable."
+      }
+    }
+  },
+  "result_jsonl": {
+    "path": "issue196_results.v0.5-draft.jsonl",
+    "format": "jsonl",
+    "record_types": {
+      "result_set": {
+        "purpose": "Immutable file metadata; exactly one first record. Trial count and dataset status are derived from trial records and are not stored here.",
+        "required": [
+          "record_type",
+          "schema_version",
+          "result_set_id",
+          "evaluation_path",
+          "evaluation_version",
+          "evaluation_sha256",
+          "suite_versions"
+        ]
+      },
+      "basis": {
+        "purpose": "Code, configuration, model, calibration, and environment basis shared by trials.",
+        "required": [
+          "record_type",
+          "schema_version",
+          "basis_id",
+          "captured_at",
+          "environment",
+          "code_sha",
+          "sources",
+          "human_approvals"
+        ]
+      },
+      "trial": {
+        "purpose": "One actual execution attempt.",
+        "required": [
+          "record_type",
+          "schema_version",
+          "trial_id",
+          "result_set_id",
+          "evaluation_version",
+          "evaluation_sha256",
+          "suite",
+          "suite_version",
+          "case_id",
+          "basis_id",
+          "environment",
+          "started_at",
+          "correlation",
+          "input_reference",
+          "machine_checks",
+          "automatic_result",
+          "required_human_checks",
+          "evidence"
+        ]
+      }
+    },
+    "trial_rules": [
+      "The result_set first record is immutable and contains no mutable status or trial_count summary.",
+      "The result file contains exactly one result_set as its first record. A new evaluation version creates a new immutable evaluation file and a new append-only result file; never append another result_set to an existing result file.",
+      "Every trial result_set_id, evaluation_version, and evaluation_sha256 must equal the first result_set record, and trial suite_version must equal result_set.suite_versions[trial.suite]. Reject mixed evaluation or suite versions.",
+      "evaluation_sha256 is the SHA-256 of the committed evaluation definition's original bytes. The evaluation definition does not contain its own SHA-256.",
+      "Derive trial_count by counting records whose record_type is trial; derive dataset status as no_trials when that count is zero and has_trials otherwise.",
+      "Do not create a trial record until an actual trial exists.",
+      "case_id must exist in this file or the referenced voice evaluation.",
+      "trial_id, case_id, and basis_id are common identifiers; no generic request_id is required on every trial.",
+      "Keep active correlation IDs separate from IDs referenced by the input.",
+      "blocking_decision is evaluator-derived: require no robot motion step after halts[], halt.locked when that status field exists, and a following ABORTED or LOCKED rejection; it is not a direct Runner result field.",
+      "Populate question, answer, request, ended_at, boot_id, seq, and halt.resume observations only when the trial basis actually contains their approved source fields; otherwise record them as unavailable rather than fabricating values.",
+      "Every trial machine_checks entry contains check_id, status, observed, expected, and non-empty evidence; automatic_result cannot be pass when a required check is absent or has a status other than pass.",
+      "Human check results and final approval are recorded in the Google Sheet; JSONL stores required check IDs and machine evidence."
+    ],
+    "automatic_result_values": [
+      "not_evaluated",
+      "pass",
+      "fail",
+      "inconclusive"
+    ],
+    "machine_check_status_values": [
+      "not_evaluated",
+      "pass",
+      "fail",
+      "unverifiable",
+      "not_applicable"
+    ]
+  }
+}

@@ -129,3 +129,50 @@ def test_speak_server_can_be_turned_off(speak, expected):
         mock.destroy_node()
     finally:
         rclpy.shutdown(context=context)
+
+
+def test_scene_resets_on_runner_state_reset_and_service():
+    """Runner reset_state(state_reset_at 바뀜)·/mock/reset_scene → 겹친 장면 처음으로. 처음 받은 상태로는 되돌리지 않음."""
+    import time
+    from std_msgs.msg import String
+    from std_srvs.srv import Trigger
+    from ready2go_runner.nodes.mock_backend import LATCHED
+    context = rclpy.Context()
+    rclpy.init(context=context, domain_id=next(DOMAIN_IDS))
+    mock = MockBackendNode(context=context, parameter_overrides=[Parameter("scene", value="plate_over_eraser")])
+    client = rclpy.create_node("status_test", context=context)
+    executor = MultiThreadedExecutor(context=context)
+    executor.add_node(mock)
+    executor.add_node(client)
+    threading.Thread(target=executor.spin, daemon=True).start()
+
+    def wait(check, sec=5.0):
+        end = time.monotonic() + sec
+        while time.monotonic() < end and not check():
+            time.sleep(0.05)
+        return check()
+
+    def deliver():
+        mock.skills.scene.objects.pop("eraser", None)
+        mock.skills.scene.delivered[:] = ["eraser"]
+
+    try:
+        pub = client.create_publisher(String, "/runner/status", LATCHED)
+        pub.publish(String(data=json.dumps({"phase": "idle", "state_reset_at": "2026-10-12T03:00:00.000Z"})))
+        assert wait(lambda: mock._reset_at == "2026-10-12T03:00:00.000Z")
+        deliver()
+        assert mock.skills.scene.delivered == ["eraser"]                     # 처음 받은 값으로는 되돌리지 않음
+        pub.publish(String(data=json.dumps({"phase": "idle", "state_reset_at": "2026-10-12T03:05:00.000Z"})))
+        assert wait(lambda: mock.skills.scene.delivered == [] and "eraser" in mock.skills.scene.objects)
+
+        deliver()
+        cli = client.create_client(Trigger, "/mock/reset_scene")
+        assert cli.wait_for_service(timeout_sec=5.0)
+        done = threading.Event()
+        future = cli.call_async(Trigger.Request())
+        future.add_done_callback(lambda _: done.set())
+        assert done.wait(5.0) and future.result().success
+        assert mock.skills.scene.delivered == [] and "eraser" in mock.skills.scene.objects
+    finally:
+        executor.shutdown()
+        rclpy.shutdown(context=context)

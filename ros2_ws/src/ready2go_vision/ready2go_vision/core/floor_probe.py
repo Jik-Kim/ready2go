@@ -30,7 +30,9 @@ def floor_probe(depth_m: np.ndarray, K: Intrinsics, T_drawer_cam: np.ndarray, in
         return {"n": 0}
     pts = backproject(us[keep].astype(float), vs[keep].astype(float), d[keep].astype(float), K, T_drawer_cam)
     wm = params["wall_margin_m"]
-    inside = ((pts[:, 0] >= wm) & (pts[:, 0] <= interior[0] - wm) & (pts[:, 1] >= wm) & (pts[:, 1] <= interior[1] - wm)
+    from .inspect_real import region_bounds
+    (x0, x1), (y0, y1) = region_bounds(interior)
+    inside = ((pts[:, 0] >= x0 + wm) & (pts[:, 0] <= x1 - wm) & (pts[:, 1] >= y0 + wm) & (pts[:, 1] <= y1 - wm)
               & (np.abs(pts[:, 2]) <= params["max_abs_z_m"]))
     z = pts[inside, 2]
     if z.size == 0:

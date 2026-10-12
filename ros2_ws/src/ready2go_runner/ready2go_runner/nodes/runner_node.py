@@ -34,6 +34,7 @@ from ready2go_knowledge.core import ontology
 from ..adapters.ros_clients import RosClients
 from ..core.backend import RosBackend, skill_servers
 from ..core import intent_router, planner, step_console
+from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import RunResult, Runner
 from ..core.log_records import utc_iso
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
@@ -89,7 +90,8 @@ class RunnerNode(Node):
         self.create_timer(PUBLISH_PERIOD_SEC, self.publish, callback_group=group)
 
         self._lock = threading.Lock()
-        self._busy = False                      # 실행 중 (스레드 생존과 별개: 끝난 직후 발행할 때 이미 False)
+        self.gate = StartGate()                 # 실행 중 여부 + "멈춰"와 시작이 엇갈리지 않게 (#187)
+        self._refused: str | None = None        # 마지막 시작 거절 이유 (BUSY / CANCELED_BEFORE_START)
         self._task_id: str | None = None
         self._last: RunResult | None = None
         self._state_reset_at: str | None = None   # 마지막 /runner/reset_state 시각 (UTC)
@@ -120,16 +122,21 @@ class RunnerNode(Node):
 
     @property
     def running(self) -> bool:
-        return self._busy
+        return self.gate.busy
 
-    def start_task(self, task: dict, inputs: dict | None = None, meta: dict | None = None) -> bool:
+    def start_task(self, task: dict, inputs: dict | None = None, meta: dict | None = None,
+                   token: int | None = None) -> bool:
         """작업 스레드에서 태스크 실행. 이미 실행 중이면 거절(False). 중단 잠김 상태면 Runner 가 ABORTED 로 거절.
-        meta: 실행 기록 헤더에 덧붙일 값 (음성 인텐트 원문 등)."""
+        meta: 실행 기록 헤더에 덧붙일 값 (음성 인텐트 원문 등). token: 인텐트를 받은 순간의 gate.token() —
+        그 뒤로 "멈춰"가 왔으면 시작하지 않음 (#187)."""
         with self._lock:
-            if self.running:
-                self.get_logger().warning(f"실행 중이라 거절: {task.get('task_id')}")
+            outcome = self.gate.try_start(token)
+            if outcome != STARTED:
+                self._refused = outcome
+                self.get_logger().warning(f"{'실행 중' if outcome == GATE_BUSY else '시작 전 멈춤 요청'}이라 거절: "
+                                          f"{task.get('task_id')}")
                 return False
-            self._busy, self._task_id = True, task.get("task_id")
+            self._task_id = task.get("task_id")
             threading.Thread(target=self._run, args=(task, inputs, meta), daemon=True).start()
         return True
 
@@ -138,7 +145,7 @@ class RunnerNode(Node):
         try:
             result = self.runner.run(task, inputs, meta={**(meta or {}), "backend": os.environ.get("BACKEND", "mock")})
         finally:
-            self._busy = False
+            self.gate.finish()
         self._last, self._last_task_id = result, self._task_id
         message = (f"태스크 끝: {self._task_id} → {result.overall_status}"
                    + (f" ({result.error_code} @ {result.failed_step})" if result.error_code else "")
@@ -183,7 +190,12 @@ class RunnerNode(Node):
 
     def _on_intent(self, msg: String) -> None:
         """/voice/intent (#17). 판단은 core/intent_router, 여기서는 실행·정지·발행만."""
+        token = self.gate.token()               # 이 인텐트 이후 "멈춰"가 오면 시작하지 않음 (#187)
         decision = self.intents.decide(msg.data, running=self.running, locked=self.runner.halted)
+        if decision.kind == intent_router.CANCEL:   # 판단·정지를 시작과 같은 잠금 안에서 (NOT_RUNNING 으로 새지 않게)
+            was_running = self.gate.cancel()
+            decision = intent_router.Decision(intent_router.CANCEL, None if was_running else intent_router.NOT_RUNNING,
+                                              intent=decision.intent)
         if decision.kind == intent_router.PLAN:
             decision = self._plan(decision)
         missing = self.missing_servers(decision.task) if decision.kind == intent_router.RUN else []
@@ -192,10 +204,12 @@ class RunnerNode(Node):
             decision = intent_router.Decision(intent_router.REJECT, intent_router.NOT_READY, intent=decision.intent)
         elif decision.kind == intent_router.RUN and not self.start_task(
                 decision.task, decision.inputs,
-                {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})}):
-            decision = intent_router.Decision(intent_router.REJECT, intent_router.BUSY, intent=decision.intent)
+                {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})}, token):
+            reason = (intent_router.STOPPED_BEFORE_START if self._refused == CANCELED_BEFORE_START
+                      else intent_router.BUSY)
+            decision = intent_router.Decision(intent_router.REJECT, reason, intent=decision.intent)
         if decision.kind == intent_router.CANCEL and decision.reason is None:
-            self.runner.halt()                  # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
+            self.runner.halt(source="voice")    # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
         self._last_intent = decision.summary()
         text = f"/voice/intent: {self._last_intent}"
         if decision.kind in (intent_router.RUN, intent_router.STATUS):
@@ -210,7 +224,7 @@ class RunnerNode(Node):
         self.publish()
 
     def _estop(self, request, response):
-        self.runner.halt()                      # on_halt → 진행 중인 goal 에 취소 요청
+        self.runner.halt(source="service")      # on_halt → 진행 중인 goal 에 취소 요청
         self.get_logger().error("/runner/estop: 중단. 사람이 상태를 확인한 뒤 재개해야 합니다")
         response.success = True
         response.message = "halted: 진행 중 동작 취소는 백엔드 책임, 재개 전까지 새 태스크 거절"

@@ -1,10 +1,13 @@
 # CURRENT — C 이영훈
 
 - **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P2 (P1 통합 실험 10/08 종료)
-- **최종 갱신**: 2026-10-08
+- **최종 갱신**: 2026-10-11 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md)
 
 ## 지금 상태
 - **#78 HALT_MOTION (10/10)**: `OBJECT_DROPPED`·`SENSOR_INVALID` → 즉시 ABORTED·잠금, finally 이동 없음, 재개 보존 안 함 [실측: 시험 4개, E 반례 그대로]. 남은 것: 복구 뒤 상태 맞추기·잠금 해제 절차(계약, B·E 협의), B `SENSOR_INVALID` 구분 PR, E 온톨로지 errors.
+- **#187 음성 정지 후속 C 몫 (브랜치 `feat/c-unpack-task`)**: [C 수락](https://github.com/Jik-Kim/ready2go/issues/187#issuecomment-6056813537) — 빠른 정지는 `/runner/estop` 재사용 권고, 요청 처리 사이 "멈춰" → 시작 안 함(`StartGate`), 정지 기록 `halts[]` 항상 [실측: 호스트 1692·컨테이너 ROS 632 passed]. 선행: B 정지 확인 결과 형식(#152), E 수신 방식.
+- **기록 누락 점검 `run_report --check` (FR-LOG-02 "DB 누락 확인", AC-LOG-01 증거, 브랜치 `feat/c-unpack-task`)**: [실측: 시험] 10/06 PC2 실물 기록 2건 빠짐없음, 일부러 망가뜨린 9가지 누락 모두 찾음, Runner 정상·거절·재개 기록 빠짐없음. PC2 DB 직접 점검은 10/08 저녁 연결 안 됨(PC2 꺼짐/IP 변경) → 다음 실물 때.
+- **Unpacking 태스크 (10/11 실물 준비, 브랜치 `feat/c-unpack-task`, PR 전)**: `tasks/find_with_unpack.json` 재작성 + mock 겹친 장면 `MOCK_SCENE` [실측: 시험 7개 — 치우기 2개·막힌 자리·전달·역순 재식별 복구·되돌리기 두 번 막힘 → 쥔 채 정지(B·C 합의 #168)·비상정지·움직인 뒤 놓기 실패·장애물 3개 LOOP_LIMIT, 컨테이너 ROS 603 passed, mock 노드 장면 인식 확인]. **10/10**: main·#202 반영, mock 놓기가 B #191 과 같게(쥔 물체 id 가 scan 에 없으면 `BAD_PARAMS`), 치우던 중 놓침·센서 이상 → 즉시 정지·잠금 시험, 안내 문장은 쥠 여부를 단정하지 않게 [실측: 전체 1730 passed]. 남은 것: #191 병합(서랍 안 놓기·얹힌 물체 집기 `allow_stacked`), B 고정 자리 `aside_1`·`aside_2` 교시, A 가림 노드, `reid_tol_m` 실측, 음성 연결(`trigger`) 여부.
 - **#134 문서 정본화 C 항목 (#180 인계 12~18)**: C 문서 정책 문장 → 정본 링크 19개(main 앵커 확인), 병합·미구현 상태 표시, 정본 3.3 대조로 `select_obstacle` ③ 후보를 확인된 것만으로 [실측: 시험]. 협의 항목(7·8·9·19~22·24·26·28·29·31)은 주 담당 수정 때 C 확인.
 - **Unpacking 판단 원자 동작 계약안 (#120 치울 순서·#109 재식별, 승인 대기)**: `select_obstacle`·`find_moved` (`core/unpack.py`, 로봇 동작 없음), 예시 태스크 mock 끝까지 [실측: 시험 23개]. 남은 것: E 포함 2명 승인, `tol_m` B 놓기 실측, A 가림 필드 계약, 실물 `tasks/find_with_unpack.json`(10/10).
 - **#152 재개 대기 core (PR #170 main 병합 10/08 `78de8ca`, 기본 꺼짐 — 계약 v0·v1 승인 대기, 노드·E 운영 연결 미구현)**: 계약안 v0([#152 댓글](https://github.com/Jik-Kim/ready2go/issues/152#issuecomment-6051650081), 승인 대기)의 Runner 안쪽 — 보존·재개·거절·버림. [실측: 시험 `test_suspend_resume.py` 18개, B #152 스킬별 재진입 조건 포함] 실제 find_item 으로 집기 중 비상정지 → 재개 시 집기부터·열기 재전송 없음·상태 1회 반영. 남은 것: 계약 승인 → 노드(`/runner/status` `halt`, 인텐트 `recover`·`resume`, `/skills/recover`), B 재진입 조건·관측 검사.
@@ -40,6 +43,26 @@
 - **닫기 성공 안내** (#138 C, PR #140, 10/07): `tasks/find_item.json` finally — `f1d`·`f2d`로 닫기 전·후 `open.<서랍>`을 조회해 이번 실행에서 열림 → 닫힘일 때만 `f2s.1` "서랍을 닫았어요"(닫기 → 안내 → 홈). 처음부터 닫힘·닫기 실패/skip/`PRE_UNMET`·비상정지/취소는 안내 없음. 새 단계는 모두 `on_failure: skip`, 안내는 `timeout_sec` 20(음성 노드 무응답에도 홈이 막히지 않게, PM 리뷰). 시험 11개(정상 순서·집기 실패 후 닫음·닫기 실패·PRE_UNMET·비상정지 3곳·취소·TTS 실패·무응답 TIMEOUT·조회 실패·쥔 채 정지), mock 스택 실제 실행으로 순서 확인 [실측]. 남은 것: PC2 `logs/voice_eval/voice.local.yaml`의 `tts_engine`·`tts_melotts_speed` 확인, E 사전 캐시 뒤 PC2 실행 기록에서 닫기 → 안내 → 홈 구간 시간, E 중단·오류 안내와 순서(닫았어요 → 실패 원인) 맞추기.
 - **P1 실물 1회차 성공** (10/07 21:12 KST, PC2 `2026-10-07T12:12:46Z_4315ef`, main `55829e3`): 음성 → 열기 → 탑뷰 → 촬영 → 끌기 40.1 mm → 다시 촬영(예상과 0.2 mm) → 집기 → 놓기 → 닫기 → 홈, 116.0 s. 녹음 끝 → 놓기 끝 95.3 s, pick 41.0 s [실측 DB]. 같은 날 실패 7건은 Runner 밖(서랍 열린 채 시작 3·비전 `DEPTH_INVALID` 3·B 스킬 2). 남은 것: 3회 연속(AC-DEMO-01), 비상정지 정식 시험.
 
+- **실행 시작 전 그리퍼 관측** (`feat/c-status-contract`, 10/10·10/11): Runner 가 `/gripper/state`로 쥔 증거가 기억과 어긋나면 로봇 동작 없이 `STATE_MISMATCH`(#23). 10/11 #43 E Critical 반영 — `holding`/`gripping`(손잡이 7.9 mm)/`empty`(≤ 2 mm만 빈손 확정)/`released`, 관측은 막는 근거로만, 재개 값은 확정 빈손만. 서랍·물품 위치 관측은 P3(FR-REC-01).
+
+- **#152 수명 분리** (`feat/c-status-contract`, 10/11): E 10/10 결정 6건(질문 등록·시간·수명 분리·작업 종료·독립 요청·녹음 증빙) core 반영 — 질문만 닫고 작업 보존, `end_task`, 독립 요청 10 s, 증빙 순서 2차 확인, status ACK 규칙(같은 seq 비교 아님). 노드·인텐트 wire 는 승인 뒤.
+
+- **실행 기록 예시·운용값 YAML** (`feat/c-status-contract`, 10/11): `contracts/examples/execution_record.json`(구현된 기록 4건, 코드 대조 시험), `ready2go_runner/params/runner.yaml`(C 운용값 원본, core·노드가 읽음) — #196 소유표의 C 몫.
+
+- **#152 답이 안 와도 C 가 닫음** (`feat/c-status-contract` `954ed61`, 10/11 E 검토 03): 기한 지난 질문·독립 요청이 status 에 남아 새 재개를 막던 것 → status 조회·등록·답 때마다 C 시계로 먼저 닫음, 늦은 답 `RESUME_EXPIRED`, 옛 ID 연장 없음 [실측: 시험 3개, ROS 703 passed].
+
+- **Unpacking 실물 준비 10/11** (`feat/c-unpack-task`): 복구 오차 기록(되돌린 뒤 닫기 전 다시 찍어 원래 자리·지금 자리, `run_report` "복구 오차 (판정 아님)", AC-ACT-03), 가림 모름이면 같은 자세에서 한 번 다시 찍기(A #214 권고), **원래 자리 대신 빈 자리에 둔 물체 안내·기록**(목표 집기 실패 시 목표 위였던 장애물 — 놓기는 바닥에만, 실패 회차 판정 기준은 #196 E 확인 중), **음성으로 시작**(코드 수정 없이 `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json`, ROS 노드 mock 끝까지 성공 — 10/12 2차 점검용), 최신 main(#206·#214·#216·#220) 합침, `runner.md` 파지 높이·받침 설명 #206 에 맞춤(#134) [실측: 로컬 CI·ROS 컨테이너 시험]. 실물 결과는 10/11 오후.
+
+- **계약07 요청 상관 C 합류** (E 공동 브랜치 `codex/e-c-request-run-contract-20261011` `bc7e0aa`, 10/11 사용자(E) 승인 E-C-REQUEST-RUN-WIRE-20261011-07): `runner_status.json`(새, `last_intent.request_id`·`run_id` 사례 5개)·`runner.md` 7.1 규칙 표·`interfaces.md` 5.3 C 구간·예시 검사 시험. Runner 구현은 계약 병합 뒤 운영 PR.
+
+- **목표 5종 시험표** (PR #213, 10/11): E 선정 5종(E-150-GOAL-CATALOG-20261010-01) 계획·근거·mock 실행 뒤 상태, 이미 만족·계획 불가 별도 시험, 실물 범위 = Runner `plan_limits` 기본값 확인. #150 C 수락. 실물 10/12.
+
+- **#43 트레이 place 사용자 확인** (`feat/c-tray-confirm` `5a11f88`, 10/11, E 승인08·09 C 몫): `verify_mode: enforce` — 다시 찍기·정상 미검출이면 `/runner/status` `confirm` 요청·E `confirm` 수신·최초 asked 부터 100 s·확인돼야 effect·`last.verify` 단계 결과, 서랍 열기 확인에 B `open_distance_m` [실측: 모의 21·ROS 노드 2]. 남은 것: E 답 2개·계약 PR·실물.
+
+- **계약07 Runner 운영** (`feat/c-request-run-runtime` `e2ceae6`, #221 위): `request_id` 기억(재전송·충돌), 수락 때 `run_id` 고정, `accept_text` 첫 안내 1회(실패면 첫 동작 없음) [실측: 호스트 8·ROS 노드 1]. 남은 것: #221 정리·병합 → 운영 PR.
+
+- **실패 응답 결과 기록** (`feat/c-unpack-task` `1d677d9`): `to_result` 가 실패 응답 결과를 버려 실물 실패 근거(`placed_pose`·`hand`)가 기록에 없던 빈틈 수정, 집기 실패 `hand` 모름이면 정지.
+
 ## 확정 값 (근거 태그 필수)
 | 항목 | 값 | 근거 |
 | :--- | :--- | :--- |
@@ -58,24 +81,35 @@
 | dev 전체 흐름 | Runner 노드 → ROS → mock 백엔드로 예시 태스크 COMPLETED 약 4.5초, MongoDB `runs`·`steps` 14건, `/robot_state` 갱신 | [실측] 10/04 C 노트북 |
 | PC1↔PC2 통신 | 공용 Wi-Fi `Rokey_A`, `cyclonedds.multi.xml`(멀티캐스트 끔). PC2 `joint_states` 100 Hz → PC1 86~96 Hz | [실측] A·B 10/03, PR #40 |
 
-## 막힌 점 · 필요한 도움
-- PM: Day 3 목록의 `while`·`for_each`·`push`·`pop`·"7.3 예시 mock 실행"은 requirements.md 기준 P2 → 만들지 않음, 확인 요청 (#10 코멘트 10/04). → 10/08 P2 시작, PR #159 로 구현.
-- E: `query_ontology` 를 Runner 안에 둔 것 확인, 재개(`resume`) 통로 ICD 추가 협의.
-- D: `/runner/status` 내용이 #59 에 충분한지.
-- E 권고(10/04 PR #64, 새 설계 제안이며 합의 아님) → 후속:
-  - `NOT_VISIBLE`: A 는 미발견 `success + target_found=false` 유지, E 가 `pick` 스킬에 미발견 분기·오류 의미 정의, C 가 Runner 에서 실행·기록. `VAR_UNDEFINED` 일괄 변환은 하지 않음. 실패 TTS 후속 확인.
-  - `resume()`: P1 은 B 가 실물 확인·기준 상태 복구 → C 가 Runner 상태를 맞춘 뒤 재개하는 명시적 절차. 재개 서비스는 ICD 에 없어 E 협의 후 추가 (지금은 Runner 노드 재시작 = 잠김 해제·상태 초기화). 자동 검증·불일치 조정은 FR-ONT-02(P2)·FR-REC-01(P3).
-  - `pre_check`·`state_diff`: P1 진단용 부가 기록으로 허용 (runner.md 7.4 에 구분 반영).
-- B: 스킬 서버(`/skills/*`) — runner.md 7.1 "백엔드 구현 약속" 동의(Slack 10/04): 취소 시 `MoveStop` 후 `canceled`(물건은 놓지 않음), 비상정지·안전정지 `ESTOP`, 움직이기 전 `TOOL_NOT_SET`(재시도 대상 아님). **10/06 오전 PC2 에서 real 연결 확인**(#10 완료 기준). `sim` 드라이버·에뮬레이터 버전 맞추기 (P2).
-- B (#17 때): `finally` 서랍 닫기 실패 시 홈 복귀 여부(`on_failure` skip/abort).
+## 막힌 점 · 필요한 도움 (10/11 기준)
+- **E**: 일반 요청 `request_id`·`accept_text`는 **계약07 승인(10/11)**·C 합류 완료 → E 계약 PR 구성·검토 대기. #152 재개(`resume`·`confirm`·"종료"·독립 요청·`evidence`)·#43 확인 wire 는 아직 미확정 — C 몫 노드 연결이 여기에 걸림.
+- **E + 1명**: `feat/c-status-contract`(#43·#152 C 몫 core, `runner.yaml`, 실행 기록 예시) 계약 승인 — 승인 전 PR·main 반영 안 함.
+- **B**: 그리퍼 기준(`pick_min_width_m` 10 mm·`empty_max_width_m` 2 mm·`gripper_max_age_s` 0.5 s) 실측 확정, 무동작 안전 check·정지 확인 증빙(#152), 립밤 파지 확인(#150 5번), 서랍 place 뒤 top view 이동(#43).
+- **A**: 실물 가림 출력 샘플(`occluded_by`·모름·재식별, #109), 트레이 `inspect_region(handover_zone)` 지원(#43 — 지금은 서랍 2곳만).
+- **D**: 대시보드 초기화 버튼 → `/runner/reset_state`(#59), `basis_id`(코드 SHA·설정 버전) 받을 형식.
+- 유지 중인 합의: B 스킬 서버 "백엔드 구현 약속"(runner.md 7.1, 10/04) — 취소 시 `MoveStop` 후 `canceled`(물건은 놓지 않음), 비상정지 `ESTOP`, 움직이기 전 거절 코드.
 
-## 다음 할 일
-- [ ] #10 PC2 real 연결 확인(`home` → `drawer_approach` → `home`, B) → `Closes #10`
-- [ ] #22 1차 점검 (10/06 16:00 KST, B 실행·D 비상정지): `tasks/p1_demo_eraser.json`, MongoDB 스텝 기록 누락 0 확인 (AC-LOG-01)
-- [ ] 점검 뒤: 스킬 서버 bringup 자동 실행(NFR-ENV-01, B·C), B 잠금 코드 runner.md 확정, 놓기 실패로 쥔 경우 안전 종료·홈 이동 조건(B·C·E)
-- [ ] #10 후속: 재개(`resume`) 서비스 ICD 협의(E), Docker 가 만든 root 소유 `logs/` 정리
-- [ ] #17: `/voice/intent` 연결 PR → 리뷰·머지 → E 음성 노드와 mock 확인(10/07) → `Closes #17`
-- [ ] #23: 10/07 작업 종료 전 C 회신(수락·준비 상태·로봇 시간·막힌 것), 10/08 16:00 P1 음성 통합
+## 다음 할 일 (P2, 10/11 기준 — 진행 추적은 [#196](https://github.com/Jik-Kim/ready2go/issues/196))
+**오늘 10/11**
+- [ ] Unpacking 실물 시험 (B 와 PC2, main + `feat/c-unpack-task`) — 회차마다 `/runner/reset_state` → 실행 → `run_report`, 끝나고 `run_report --check` ([FR-ACT-04](../../docs/requirements.md#fr-act-04), [AC-ACT-02·03](../../docs/requirements.md#ac-act-02))
+- [x] 복구 오차를 위치·방향 둘 다 기록 — 없어서 추가함 (`ea8e161`, [AC-ACT-03](../../docs/requirements.md#ac-act-03))
+- [ ] 시험 결과로 Unpacking PR + #196 보고 (#204 병합·C → E 회신·Critical 1번 보완 체크 요청 함께)
+- [x] 목표 5종 시험표 PR #213 + #150 수락 댓글 (10/11 12:39)
+
+**10/12**
+- [ ] 목표 5종 실물 ([AC-PLN-01](../../docs/requirements.md#ac-pln-01)) — 시작 상태 관측 확인, 실행 기록 `plan` 근거, 립밤은 B 확인 뒤
+
+**E wire·승인 뒤**
+- [ ] 수락 TTS 게이트(수락 뒤 `accept_text` 1회 → 성공해야 첫 동작) + `request_id` 중복 막기·`last_intent.run_id` (#196 계약07 승인·C 합류 완료 → 계약 PR 병합 뒤 운영 PR)
+- [ ] #152 노드 연결: `/runner/status` `halt.resume`, 질문 등록·답, 독립 재개, "종료" → `end_task`
+- [ ] #43 노드 연결: 사후 검증으로 effect 막기, 확인 100 s·등록 5 s 를 `runner.yaml` 로
+- [ ] `feat/c-status-contract` PR (E 포함 2명 승인 뒤)
+
+**그 뒤 (P2 남은 것)**
+- [ ] #78 놓침 뒤 잠금 해제·상태 맞추기 절차 (B·E 계약)
+- [ ] #121 스킬 안 `if`·하위 스킬 호출 (#120 결정 뒤)
+- [ ] 정지·실패 주입 정식 시험 기록 ([AC-SAF-01](../../docs/requirements.md#ac-saf-01)·[AC-SAF-02–04](../../docs/requirements.md#ac-saf-02)), 3회 연속 ([AC-DEMO-01](../../docs/requirements.md#ac-demo-01))
+- [ ] 실행 기록 `code_sha`·설정 버전 (D `basis_id`, 계약)
 
 ## 철회한 결론
 - ~~bringup 고정 TF 를 `config/static_tf.yaml` 한 파일로 모은다~~ → 값이 두 곳에 복사되어 어긋날 수 있어 각 담당 파일을 직접 읽기로 함 (이슈 #3, 10/02).
