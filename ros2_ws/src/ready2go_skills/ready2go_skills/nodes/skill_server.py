@@ -503,9 +503,9 @@ class SkillServer(Node):
                 return bad
         goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
         vel, acc = self.joint_vel, self.joint_acc
-        if pose_name in ("drawer_top_view", "drawer_approach") or (pose_name == "home" and not self.held):
+        if pose_name in ("drawer_top_view", "drawer_approach") or (pose_name == "home" and not self.held and not getattr(self, "hold_unknown", None)):
             # 탑뷰·바텀뷰(J6 약 200° 회전)·손잡이 앞 → 이 이동만 따로 빠르게 [사용자 10/08]. 빈손 홈도 같은 속도
-            # [사용자 10/12 "서랍 닫고 홈 가는 게 느림, ready 갈 때랑 같게"] — 쥔 채 홈은 서버 관절 속도 그대로
+            # [사용자 10/12 "서랍 닫고 홈 가는 게 느림, ready 갈 때랑 같게"] — 쥔 채·쥐었는지 모름(hold_unknown, #223)이면 서버 관절 속도 그대로 (#235 A·PM)
             sp = self.prm()["speed"]
             vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
         ok = self.robot.movej_async(joints, vel, acc)
@@ -2092,6 +2092,8 @@ class SkillServer(Node):
             self.held = dict(self.held, tilt_back={
                 "drawer_id": drawer_id, "position": list(target["pose"]["position"][:2]), "yaw": float(target["pose"]["yaw"]),
                 "tcp_mm": [float(at[0]), float(at[1]), float(grasp_z_now)], "angles": [float(v) for v in grasp[3:]],
+                # 위치는 서랍 좌표로도 — 놓을 때 지금 tf 로 바꿈 (그사이 서랍 tf 다시 교시·몇 mm 밀림 대비, #235 A·PM)
+                "tcp_drawer_m": [float(v) for v in mp.from_base(place["tf"], [at[0] / 1000.0, at[1] / 1000.0, grasp_z_now / 1000.0])],
                 "vert_angles": [float(v) for v in vert[3:]], "deg": float(tilt[1]), "name": tilt[2],
                 "open_mm": plan.open_width_m * 1000.0})
         route = self._carry_route(drawer_id)
@@ -2410,7 +2412,8 @@ class SkillServer(Node):
                 if not o.success:
                     return o, dict(empty)
                 cur = self.robot.posx() or cur
-            target = [tb["tcp_mm"][0], tb["tcp_mm"][1], tb["tcp_mm"][2] + 1000.0 * pl["drop_m"]] + list(tb["angles"])
+            xyz = ([1000.0 * v for v in pp.to_base(tf, tb["tcp_drawer_m"])] if tb.get("tcp_drawer_m") else list(tb["tcp_mm"]))
+            target = [xyz[0], xyz[1], xyz[2] + 1000.0 * pl["drop_m"]] + list(tb["angles"])
             open_mm = min(open_mm, float(tb.get("open_mm") or open_mm))   # 집을 때 벌린 만큼만 (그 자리에서 손가락이 들어갔던 폭)
         above = mp.with_z(target, target[2] + min(pl["approach_m"] * 1000.0, 30.0))
         route = self._carry_route(loc)

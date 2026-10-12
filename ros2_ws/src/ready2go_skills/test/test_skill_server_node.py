@@ -2445,3 +2445,42 @@ def test_empty_hand_home_uses_view_joint_speed(server):
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out.success and seen[-1] == (srv.joint_vel, srv.joint_acc)
+
+
+def test_hold_unknown_home_uses_server_joint_speed(server):
+    """#235 A·PM: 재시작 뒤 쥐었는지 모름(hold_unknown)이면 held 가 None 이어도 빠른 빈손 홈 속도를 쓰지 않음."""
+    srv = server.srv
+    seen = []
+    real = srv.robot.movej_async
+    srv.robot.movej_async = lambda j, v, a: seen.append((v, a)) or real(j, v, a)
+    srv.robot.p = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0]
+    srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    assert out.success and seen[-1] == (srv.joint_vel, srv.joint_acc)
+
+
+def test_tilt_back_uses_current_drawer_tf(server, monkeypatch):
+    """#235 A·PM: tilt_back 위치는 서랍 좌표로 기억 → 그사이 서랍 tf 가 몇 mm 바뀌어도 지금 tf 로 같은 서랍 자리에 놓음."""
+    srv = server.srv
+    prm = srv.prm()
+    prm["pick"]["touch_floor"] = {"enabled": False}
+    srv.prm = lambda: prm
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0227, "occluded_by": [], "visible_area_m2": 0.00154,
+           "pose": {"frame": "drawer_top", "position": [0.0097, 0.1539, 0.0], "yaw": 1.5625, "yaw_valid": True}}
+    scan = {"target_found": True, "target": lip, "candidates": [], "visible_count": 1}
+    srv.disp["drawer_top"] = srv.places()["drawer_top"]["tf_at_travel_m"]
+    server.Gripper.holding, server.Gripper.held_width = True, 72.5
+    try:
+        assert server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1], "scan": scan})[0].success
+        tb = srv.held["tilt_back"]
+        places = json.loads(json.dumps(srv.places()))
+        places["drawer_top"]["tf"]["translation_m"][0] += 0.004          # 서랍이 base x 로 4 mm 밀림
+        monkeypatch.setattr(srv, "places", lambda: places)
+        srv.robot.log.clear()
+        pose = {k: lip["pose"][k] for k in ("frame", "position", "yaw")}
+        out, _ = server.run("place_object", {"location": "drawer_top", "pose": pose, "scan": scan})
+        assert out.success and "기울여" in out.reason, out.reason
+        low = min((e[1] for e in srv.robot.log if e[0] == "movel"), key=lambda p: p[2])
+        assert low[0] == pytest.approx(tb["tcp_mm"][0] + 4.0, abs=0.2) and low[1] == pytest.approx(tb["tcp_mm"][1], abs=0.2)
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
