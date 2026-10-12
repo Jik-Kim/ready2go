@@ -604,8 +604,8 @@ class VoiceNode(Node):
             'request_completed': 'Runner 완료 확인 · 음성 안내 대기',
             'request_canceled': '취소: 실행 보류', 'request_duplicate': '중복: 실행 보류',
         }
-        if event == 'stt_failed':
-            info = doc.get('api_error', {})
+        if event == 'stt_failed' and doc.get('api_error'):
+            info = doc['api_error']
             messages[event] += (' / ' + json.dumps(redact(info), ensure_ascii=False))
         timing = doc.get('timing', {})
         if event == 'tts_finished' and 'synthesis_wait_sec' in timing and 'playback_sec' in timing:

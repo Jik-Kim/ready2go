@@ -37,7 +37,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 ### STT API 오류 진단과 안내
 
-[구현: E-VOICE-API-ERROR-20261011-01] 일반 음성 STT 실패는 `stt_failed.api_error`와 `_voice.stt_failure`에 status/code/type/category만 저장합니다. SDK의 정규화된 속성에서 HTTP status는 100–599 정수만, code/type은 `core/stt_error.py`의 닫힌 허용 목록만 받습니다. 누락·이상값·속성 읽기 오류는 안전하게 미확정 처리합니다. API 키·전체 예외 문자열/본문/헤더·WAV·예외 내 전사 및 request ID/retry-after는 수집하지 않습니다. 일반 콘솔에도 이 최소 정보만 표시하며 상세 파일은 기존 redaction을 거칩니다. 새 공개 계약/source 필드는 없습니다.
+[구현: E-VOICE-API-ERROR-20261011-01] 일반 음성 STT 실패는 `stt_failed.api_error`와 `_voice.stt_failure`에 status/code/type/category만 저장합니다. SDK의 정규화된 속성에서 HTTP status는 100–599 정수만, code/type은 `core/stt_error.py`의 닫힌 허용 목록만 받습니다. 누락·이상값·속성 읽기 오류는 안전하게 미확정 처리합니다. API 키·전체 예외 문자열/본문/헤더·WAV·예외 내 전사 및 request ID/retry-after는 수집하지 않습니다. 일반 콘솔에도 이 최소 정보만 표시하며 상세 파일은 기존 redaction을 거칩니다. 메타정보 없는 기존 실패 이벤트는 오류 종류만 표시하고 빈 `{}`를 붙이지 않습니다. 새 공개 계약/source 필드는 없습니다.
 
 | 확인된 429 정보 | 내부 분류와 음성 안내 |
 |---|---|
