@@ -4,6 +4,8 @@ request_id 기억(재전송·충돌, 이번 기동만), 수락 때 run_id 고정
 import copy
 import json
 
+import pytest
+
 from ready2go_runner.core import intent_router as ir
 from ready2go_runner.core import planner as pl
 from ready2go_runner.core.backend import RosBackend
@@ -80,19 +82,56 @@ def test_without_accept_text_old_announcement_p1_compatible():
     assert robot.spoken[0] == "지우개를 찾아 올게요"
 
 
-def test_accept_announcement_failure_means_no_first_motion():
-    """수락 안내 speak 실패(TTS 실패·시간 초과·취소) → 서랍 열기 등 첫 동작 없이 실패."""
-    robot = MockRobot(fail={"speak": ["TTS_FAILED"]})
+@pytest.mark.parametrize("accept", ["지우개를 찾아올게요.", None])
+@pytest.mark.parametrize("code", ["TTS_FAILED", "TIMEOUT"])
+def test_first_announcement_failure_sends_no_robot_motion(accept, code):
+    """수락(첫) 안내 speak 실패(TTS 실패·시간 초과) → 로봇 동작 0번 — 서랍 열기는 물론 finally 홈 이동도 없음
+    (정본 수락 TTS, #249 E 리뷰 P1: 예전에는 finally 가 빈손이라 홈으로 갔음)."""
+    robot = MockRobot(fail={"speak": [code]})
+    result = run_find(robot, {"target": "eraser", **({"accept_text": accept} if accept else {})})
+    assert (result.overall_status, result.failed_step) == ("FAILED", "s2.1" if accept else "s2.2")
+    assert [name for name in robot.sent if name.startswith("/skills/")] == []
+    assert result.blackboard["announce_pending"] is True
+
+
+def test_after_first_announcement_cleanup_still_runs():
+    """첫 안내가 성공한 뒤 실패면 정리(닫기·홈)는 그대로 — 게이트는 첫 안내 전 실패에만."""
+    robot = MockRobot(fail={"pick_object": ["GRASP_FAILED", "GRASP_FAILED"]})
     result = run_find(robot, {"target": "eraser", "accept_text": "지우개를 찾아올게요."})
-    assert (result.overall_status, result.failed_step) == ("FAILED", "s2.1")
-    assert "/skills/drawer_control" not in robot.sent
+    assert result.overall_status == "FAILED" and result.blackboard["announce_pending"] is False
+    assert robot.sent[-1] == "/skills/move_to_named_pose"                  # 홈
 
 
 def test_goal_plan_gets_accept_speak_before_first_skill():
     onto = copy.deepcopy(ONTOLOGY)
     result = pl.plan(onto["state"], onto, [{"predicate": "open", "subject": "drawer_top", "value": True}])
     task = ir.add_accept_speak(pl.to_task(result, "plan_drawer_top_true"), {"accept_text": "위 서랍을 열어 둘게요."})
-    assert task["sequence"][1] == {"id": "pa", "action": "speak", "params": {"text": "$inputs.accept_text"}}
-    assert task["sequence"][2].get("skill") == "open_drawer"
+    assert [s["id"] for s in task["sequence"][:4]] == ["p0", "pa0", "pa", "pak"]
+    assert task["sequence"][2] == {"id": "pa", "action": "speak", "params": {"text": "$inputs.accept_text"}}
+    assert task["sequence"][4].get("skill") == "open_drawer"
+    gate = next(s for s in task["finally"] if s["id"] == "fg")
+    assert [s["id"] for s in gate["then"]] == ["fh"]                       # 홈 이동은 첫 안내 성공 뒤에만
     plain = ir.add_accept_speak(pl.to_task(result, "plan_drawer_top_true"), {})
     assert all(s.get("id") != "pa" for s in plain["sequence"])
+
+
+def _run_task(robot, task, inputs):
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    return runner.run(task, inputs)
+
+
+@pytest.mark.parametrize("fail", [True, False])
+def test_goal_plan_accept_failure_sends_no_robot_motion(fail):
+    """목표형 계획도 같음: 수락 안내(pa) 실패 → 로봇 동작 0번 / 성공이면 계획대로 열고 홈."""
+    onto = copy.deepcopy(ONTOLOGY)
+    result = pl.plan(onto["state"], onto, [{"predicate": "open", "subject": "drawer_top", "value": True}])
+    inputs = {"accept_text": "위 서랍을 열어 둘게요."}
+    task = ir.add_accept_speak(pl.to_task(result, "plan_drawer_top_true"), inputs)
+    robot = MockRobot(fail={"speak": ["TTS_FAILED"]} if fail else {})
+    run = _run_task(robot, task, inputs)
+    if fail:
+        assert (run.overall_status, run.failed_step) == ("FAILED", "pa")
+        assert [name for name in robot.sent if name.startswith("/skills/")] == []
+    else:
+        assert run.overall_status == "COMPLETED" and robot.sent[-1] == "/skills/move_to_named_pose"

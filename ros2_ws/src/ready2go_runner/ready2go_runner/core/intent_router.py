@@ -180,8 +180,14 @@ def _accept_text(inputs: dict[str, Any], intent: dict) -> None:
 
 
 def add_accept_speak(task: dict, inputs: dict) -> dict:
-    """계약07: 목표형 계획 태스크 앞(p0 다음)에 수락 문장 안내 1회. 안내 speak 가 실패하면 첫 동작 없이 실패
-    (find_item s2 와 같은 규칙). accept_text 가 없으면 태스크 그대로 (P1 호환)."""
+    """계약07: 목표형 계획 태스크 앞(p0 다음)에 수락 문장 안내 1회. 안내 speak 가 실패하면 **로봇 동작 0번**으로 실패
+    (find_item s2 와 같은 규칙) — 안내 직전 announce_pending 을 켜고 성공하면 끄는데, 안내가 실패해 켜진 채면 finally 홈 이동(fh)도
+    보내지 않음(#249 E 리뷰 P1). 연 서랍 닫기(fc)는 연 서랍이 없어 동작 없음. accept_text 가 없으면 태스크 그대로 (P1 호환)."""
     if inputs.get("accept_text"):
-        task["sequence"].insert(1, {"id": "pa", "action": "speak", "params": {"text": "$inputs.accept_text"}})
+        task["sequence"][1:1] = [
+            {"id": "pa0", "action": "set_var", "params": {"name": "announce_pending", "value": True}},
+            {"id": "pa", "action": "speak", "params": {"text": "$inputs.accept_text"}},
+            {"id": "pak", "action": "set_var", "params": {"name": "announce_pending", "value": False}}]
+        task["finally"] = [{"id": "fg", "action": "if", "cond": {"op": "==", "args": ["$announce_pending", False]},
+                            "then": [step]} if step.get("id") == "fh" else step for step in task["finally"]]
     return task

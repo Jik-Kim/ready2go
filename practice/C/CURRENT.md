@@ -59,7 +59,7 @@
 
 - **#43 트레이 place 사용자 확인** (`feat/c-tray-confirm` `5a11f88`, 10/11, E 승인08·09 C 몫): `verify_mode: enforce` — 다시 찍기·정상 미검출이면 `/runner/status` `confirm` 요청·E `confirm` 수신·최초 asked 부터 100 s·확인돼야 effect·`last.verify` 단계 결과, 서랍 열기 확인에 B `open_distance_m` [실측: 모의 21·ROS 노드 2]. 남은 것: E 답 2개·계약 PR·실물.
 
-- **계약07 Runner 운영** (`feat/c-request-run-runtime` `e2ceae6`, #221 위): `request_id` 기억(재전송·충돌), 수락 때 `run_id` 고정, `accept_text` 첫 안내 1회(실패면 첫 동작 없음) [실측: 호스트 8·ROS 노드 1]. 남은 것: #221 정리·병합 → 운영 PR.
+- **계약07 Runner 운영 — PR #249 (코드 작성·mock/ROS 시험 완료 / PR 미병합 / E 연결 미검증, 10/12)**: 계약 #221·E #225 머지 뒤 main 기준. `request_id` 기억(재전송·충돌, 동시 콜백에도 그 요청 자신의 결정), 수락 때 `run_id` 고정, `accept_text` 첫 안내 1회(`find_item`·`find_with_unpack`·목표형 계획, 실패면 **로봇 동작 0번** — finally 홈도 없음, #249 E 리뷰 P1·P2 반영) [실측: 호스트 8·ROS 노드 1]. 남은 것: #221 정리·병합 → 운영 PR.
 
 - **실패 응답 결과 기록** (`feat/c-unpack-task` `1d677d9`): `to_result` 가 실패 응답 결과를 버려 실물 실패 근거(`placed_pose`·`hand`)가 기록에 없던 빈틈 수정, 집기 실패 `hand` 모름이면 정지.
 
@@ -100,7 +100,7 @@
 - [ ] 목표 5종 실물 ([AC-PLN-01](../../docs/requirements.md#ac-pln-01)) — 시작 상태 관측 확인, 실행 기록 `plan` 근거, 립밤은 B 확인 뒤
 
 **E wire·승인 뒤**
-- [ ] 수락 TTS 게이트(수락 뒤 `accept_text` 1회 → 성공해야 첫 동작) + `request_id` 중복 막기·`last_intent.run_id` (#196 계약07 승인·C 합류 완료 → 계약 PR 병합 뒤 운영 PR)
+- [x] 수락 TTS 게이트·`request_id` 중복 막기·`last_intent.run_id` — PR #249 (E 리뷰 반영, 머지·E 연결 대기)
 - [ ] #152 노드 연결: `/runner/status` `halt.resume`, 질문 등록·답, 독립 재개, "종료" → `end_task`
 - [ ] #43 노드 연결: 사후 검증으로 effect 막기, 확인 100 s·등록 5 s 를 `runner.yaml` 로
 - [ ] `feat/c-status-contract` PR (E 포함 2명 승인 뒤)

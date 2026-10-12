@@ -202,9 +202,9 @@ class RunnerNode(Node):
             return
         with self.requests.lock:
             seen = self.requests.lookup(request_id)
-            if seen is None:
-                self._decide_intent(msg.data, token)
-                self.requests.remember(request_id, fingerprint, self._last_intent)
+            if seen is None:                    # 이 요청 자신의 결정을 기억 — 공유 _last_intent 는 그 사이 동시
+                summary = self._decide_intent(msg.data, token)   # status·cancel 콜백이 바꿀 수 있음 (#249 E 리뷰 P2)
+                self.requests.remember(request_id, fingerprint, summary)
                 return
             self._last_intent = seen.summary
         if seen.fingerprint == fingerprint:
@@ -214,7 +214,8 @@ class RunnerNode(Node):
         self._sent["status"] = None             # 바뀐 것이 없어도 다시 발행 (E 가 결정을 다시 받게)
         self.publish()
 
-    def _decide_intent(self, text: str, token: int | None) -> None:
+    def _decide_intent(self, text: str, token: int | None) -> dict:
+        """판단·실행·발행. 돌려주는 값 = 이 요청의 결정 요약 (계약07 기억용)."""
         decision = self.intents.decide(text, running=self.running, locked=self.runner.halted)
         if decision.kind == intent_router.CANCEL:   # 판단·정지를 시작과 같은 잠금 안에서 (NOT_RUNNING 으로 새지 않게)
             was_running = self.gate.cancel()
@@ -236,8 +237,9 @@ class RunnerNode(Node):
                 decision = intent_router.Decision(intent_router.REJECT, reason, intent=decision.intent)
         if decision.kind == intent_router.CANCEL and decision.reason is None:
             self.runner.halt(source="voice")    # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
-        self._last_intent = decision.summary()
-        text = f"/voice/intent: {self._last_intent}"
+        summary = decision.summary()
+        self._last_intent = summary
+        text = f"/voice/intent: {summary}"
         if decision.kind in (intent_router.RUN, intent_router.STATUS):
             self.get_logger().info(text)
         elif decision.kind == intent_router.CANCEL:
@@ -248,6 +250,7 @@ class RunnerNode(Node):
         if decision.kind == intent_router.STATUS:
             self._sent["status"] = None         # 바뀐 것이 없어도 다시 발행 ("지금 뭐 해?")
         self.publish()
+        return summary
 
     def _estop(self, request, response):
         self.runner.halt(source="service")      # on_halt → 진행 중인 goal 에 취소 요청

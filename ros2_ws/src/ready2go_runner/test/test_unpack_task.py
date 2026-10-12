@@ -450,3 +450,35 @@ def test_all_restored_or_left_aside_is_not_restore_failure():
     _, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED" and result.blackboard["restore_failed"] == []
     assert NOT_BACK not in robot.spoken
+
+
+# ---- 계약07 수락 문장 (#249 E 리뷰 P2): find_item → find_with_unpack 설정에서도 첫 안내 1회, 실패면 로봇 동작 0번 ----
+
+class SpeakFailsRobot(SceneRobot):
+    """안내(speak)가 TTS 실패로 끝나는 로봇."""
+
+    def call_action(self, name, params_json, timeout_sec):
+        if name == SPEAK_ACTION:
+            self.spoken.append(json.loads(params_json).get("text", ""))
+            return Reply(False, "TTS_FAILED")
+        return super().call_action(name, params_json, timeout_sec)
+
+
+def _run_robot(robot, inputs):
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    return runner.run(TASK, inputs)
+
+
+def test_accept_text_is_the_single_first_announcement_in_unpacking():
+    robot = SceneRobot("plate_over_eraser")
+    result = _run_robot(robot, {"target": "eraser", "accept_text": "지우개를 찾아올게요."})
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.spoken[0] == "지우개를 찾아올게요." and "지우개를 찾아 올게요" not in robot.spoken   # 기존 문장과 중복 없음
+
+
+def test_unpacking_first_announcement_failure_sends_no_robot_motion():
+    robot = SpeakFailsRobot("plate_over_eraser")
+    result = _run_robot(robot, {"target": "eraser", "accept_text": "지우개를 찾아올게요."})
+    assert (result.overall_status, result.failed_step) == ("FAILED", "s2.1")
+    assert robot.calls == []                                                 # 서랍 열기·촬영·홈 모두 없음

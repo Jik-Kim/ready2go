@@ -178,3 +178,24 @@ def test_request_id_run_id_resend_and_conflict(system):
     _publish_intent(runner, {**request, "request_id": "req-0008"}, times=1)    # 새 ID 는 새 실행
     assert watcher.wait(lambda w: (w.status.get("last_intent") or {}).get("request_id") == "req-0008"
                         and w.status["last"]["run_id"] == w.status["last_intent"]["run_id"] != run_id), watcher.status
+
+
+def test_concurrent_status_does_not_overwrite_remembered_decision(system, monkeypatch):
+    """#249 E 리뷰 P2: 첫 요청을 처리하는 사이(발행 시점) 다른 콜백의 status 가 와도, 기억하는 첫 결정은 그 요청 자신의 것."""
+    runner, watcher, _ = system
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED"
+                        and w.status["phase"] == "idle")
+    real_publish, injected = runner.publish, []
+
+    def publish():                              # 첫 요청의 발행 지점에 동시 status 콜백을 끼워 넣음
+        if not injected:
+            injected.append(True)
+            runner._on_intent(String(data=json.dumps({"intent": "status", "targets": [], "confidence": 0.9})))
+        real_publish()
+    monkeypatch.setattr(runner, "publish", publish)
+    request = {"intent": "find_item", "targets": ["eraser"], "confidence": 0.93, "request_id": "req-race",
+               "source": {"stt_text": "지우개 찾아줘"}}
+    runner._on_intent(String(data=json.dumps(request, ensure_ascii=False)))
+    seen = runner.requests.lookup("req-race")
+    assert injected and (seen.summary["decision"], seen.summary["request_id"]) == ("run", "req-race")
+    assert seen.summary["run_id"] is not None

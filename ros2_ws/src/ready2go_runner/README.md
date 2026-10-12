@@ -20,7 +20,7 @@
 
 ## 음성 요청 상관 (계약07)
 
-E 가 실행 요청(`find_item`·`achieve_goal`)에 최상위 `request_id`·`accept_text`를 실으면: 같은 ID 재전송·충돌은 첫 결정을 다시 발행만(재실행 없음, 이번 기동 동안), 수락할 때 정한 `run_id`가 `/runner/status` `last_intent.run_id`와 최종 `last.run_id`에 같게 나오고, `accept_text`는 그 run 의 첫 안내 1회(실패하면 첫 동작 없음). 둘 다 없으면 P1 그대로. 규칙은 [runner.md 7.1 "요청 상관 — 계약07"](../../../docs/runner.md).
+E 가 실행 요청(`find_item`·`achieve_goal`)에 최상위 `request_id`·`accept_text`를 실으면: 같은 ID 재전송·충돌은 첫 결정을 다시 발행만(재실행 없음, 이번 기동 동안), 수락할 때 정한 `run_id`가 `/runner/status` `last_intent.run_id`와 최종 `last.run_id`에 같게 나오고, `accept_text`는 그 run 의 첫 안내 1회(`find_item`·`find_with_unpack`·목표형 계획, 실패하면 로봇 동작 0번 — finally 홈도 없음). E 쪽 연결(`request_run_enabled`·source mapper)은 아직이라 지금은 오지 않음. 둘 다 없으면 P1 그대로. 규칙은 [runner.md 7.1 "요청 상관 — 계약07"](../../../docs/runner.md).
 
 ## 실행 기록 보기
 
