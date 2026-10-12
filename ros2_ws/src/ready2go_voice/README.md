@@ -431,7 +431,7 @@ PYTHON
 
 ## #43·#152 내부 확인 정책 — 운영 미연결
 
-[문서: 현재 E 개발·검증 단계] VoiceNode의 질문 작업·Session.confirm_audio/safety_audio·SafetyExchange 및 선정 목표 요청 상관 경로를 작성했습니다. [호출별 현황과 통합 선행](../../../docs/voice_llm.md#p2-safety-voice)을 참조하십시오. 개발 입력과 typed sender는 C 공개 규약의 확정이 아니며 기본 상태에서 실제 C 연결을 추정하지 않습니다. 관련 모의·회귀 및 격리 ROS 검증 이력이 있고, #227 리뷰 수정의 목표 요청 상관·오디오 overflow 회귀는 이번 작업에서 41건을 통과했습니다. 현재 수정 head의 전체 로컬 CI는 아직 확인 전입니다. 실제 C 운영 연결·음성 장치·실물 AC는 미검증입니다.
+[문서: 현재 E 개발·검증 단계] VoiceNode의 질문 작업·Session.confirm_audio/safety_audio·SafetyExchange 및 선정 목표 요청 상관 경로를 작성했습니다. [호출별 현황과 통합 선행](../../../docs/voice_llm.md#p2-safety-voice)을 참조하십시오. 개발 입력과 typed sender는 C 공개 규약의 확정이 아니며 기본 상태에서 실제 C 연결을 추정하지 않습니다. 관련 모의·회귀 및 격리 ROS 검증 이력이 있고, #227 리뷰 수정의 목표 요청 상관·오디오 overflow 회귀는 이번 작업에서 41건을 통과했습니다. 현재 수정 head의 전체 로컬 CI를 시도했으나 core는 격리 pip 의존성 설치의 DNS 실패, colcon build는 Docker 소켓 권한으로 완료하지 못했고 compose 설정 검사는 통과했습니다. 실제 C 운영 연결·음성 장치·실물 AC는 미검증입니다.
 
 [문서: #43 독립 준비] [core/place_exchange.py](ready2go_voice/core/place_exchange.py)는 기존 place 정책 위에 질문 식별·메시지 차수 변환·asked/응답 후보와 일회성 녹음 예약을 제공합니다. [VoiceSession.confirm_audio](ready2go_voice/core/session.py)는 Recording·Whisper의 SDK 직전 접수·DeadlineCall을 재사용하며 LLM 없이 분류합니다. [직접 회귀](test/test_place_exchange.py)는 새 교환과 STT 경계를 모의로 확인합니다. 현재 노드 호출·같은 실행의 개발 입력 결과 안내를 작성했으며 C 등록 증빙·공통 계약·실제 단계 결과 매핑은 미연결입니다. 반환된 메시지는 운영 승인이나 C 최종 판정이 아닙니다. 구현·선행 조건은 [상세 설명](../../../docs/voice_llm.md#p2-safety-voice)에 기록합니다.
 

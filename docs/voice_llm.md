@@ -152,7 +152,7 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 ### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
 
-[문서: E 경로·검증 상태] 아래 호출 경로는 작성되어 있고 관련 모의·회귀 및 격리 ROS 검증 이력이 있습니다. #227 리뷰 수정의 목표 요청 상관·오디오 overflow 회귀는 이번 작업에서 관련 시험 41건을 통과했습니다. 현재 수정 head의 전체 로컬 CI는 아직 확인 전이며 실제 C 운영 연결·음성 장치·실물 AC도 미검증입니다. 정책은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy), 실행 구간은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)을 참조합니다.
+[문서: E 경로·검증 상태] 아래 호출 경로는 작성되어 있고 관련 모의·회귀 및 격리 ROS 검증 이력이 있습니다. #227 리뷰 수정의 목표 요청 상관·오디오 overflow 회귀는 이번 작업에서 관련 시험 41건을 통과했습니다. 현재 수정 head의 전체 로컬 CI는 실행했으나 core는 격리 pip 의존성 설치의 DNS 실패, colcon build는 Docker 소켓 권한으로 완료하지 못했고 compose 설정 검사는 통과했습니다. 실제 C 운영 연결·음성 장치·실물 AC도 미검증입니다. 정책은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy), 실행 구간은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)을 참조합니다.
 
 | E 생산자·수신자 | 현재 작성한 호출 | 실제 통합 선행 |
 | :--- | :--- | :--- |
