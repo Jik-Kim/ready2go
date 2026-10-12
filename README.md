@@ -241,7 +241,7 @@ export ROS_LOG_DIR="logs/ros"
 mkdir -p "$ROS_LOG_DIR" logs/vision
 ros2 run ready2go_vision inspect_region --ros-args \
   -p config_dir:=config -p world_path:=knowledge/world.jsonld \
-  -p weights:=models/yolo11s_seg_ready2go_v1.pt -p dump_dir:=logs/vision \
+  -p weights:=models/yolo11s_seg_ready2go_v2.pt -p dump_dir:=logs/vision \
   -p "code_sha:=\"$(git rev-parse HEAD)\"" -p 'device:="0"'
 ```
 
