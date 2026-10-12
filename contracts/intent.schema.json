@@ -86,6 +86,18 @@
     "source": {
       "type": "object",
       "description": "로그용: stt_text, llm_raw, fallback_used, latency_ms"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "계약07 일반 요청 식별자. 스키마상 선택; E 실행 요청에 포함. docs/requirements.md#acceptance-tts-policy"
+    },
+    "accept_text": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "계약07 검증 문장. 스키마상 선택; E 실행 요청에 포함. 누락/null인 기존 입력은 태스크 안내 사용. docs/requirements.md#acceptance-tts-policy"
     }
   }
 }
