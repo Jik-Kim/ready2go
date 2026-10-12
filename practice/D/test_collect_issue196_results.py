@@ -4,6 +4,7 @@ import importlib.util
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -58,6 +59,28 @@ def _write_json(path: Path, value: object) -> None:
 def _durable_source(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return f"https://evidence.example/{path.name}?sha256={digest}"
+
+
+def _init_git_repo(path: Path) -> str:
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Issue196 Test"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(path), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-qm", "test evidence"], check=True
+    )
+    return subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 def _runner(
@@ -204,6 +227,39 @@ def test_runner_fallback_jsonl_is_loaded(tmp_path: Path) -> None:
     record = COLLECTOR.load_runner_record(path)
     assert record["run"]["overall_status"] == "COMPLETED"
     assert record["steps"][0]["seq"] == 1
+
+
+def test_runner_fallback_jsonl_preserves_records_around_truncated_line(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "runner.jsonl"
+    lines = [
+        json.dumps(
+            {
+                "collection": "runs",
+                "doc": {"run_id": "run-1", "started_at": "start"},
+            }
+        ),
+        '{"collection":"steps","doc":',
+        json.dumps(
+            {
+                "collection": "steps",
+                "doc": {"run_id": "run-1", "seq": 1, "status": "SUCCESS"},
+            }
+        ),
+        json.dumps(
+            {
+                "collection": "runs",
+                "doc": {"run_id": "run-1", "overall_status": "COMPLETED"},
+            }
+        ),
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    record = COLLECTOR.load_runner_record(path)
+    assert record["run"]["overall_status"] == "COMPLETED"
+    assert record["steps"] == [
+        {"run_id": "run-1", "seq": 1, "status": "SUCCESS"}
+    ]
 
 
 def test_invalid_measurement_evidence_fails(tmp_path: Path) -> None:
@@ -364,6 +420,34 @@ def test_pass_without_explicit_evidence_is_downgraded(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.parametrize("explicit_status", ["fail", None])
+def test_failure_without_explicit_evidence_is_downgraded(
+    tmp_path: Path, explicit_status: str | None
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    check = {"observed": False, "expected": True}
+    if explicit_status is not None:
+        check["status"] = explicit_status
+    checks_path = tmp_path / "checks.json"
+    _write_json(
+        checks_path,
+        {"machine_checks": {check_id: dict(check) for check_id in S10_CHECKS}},
+    )
+    _, trial = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=_runner(tmp_path / "runner.json"),
+        checks_path=checks_path,
+        suite="recovery",
+        case_id="S10",
+        environment="mock",
+        code_sha="a" * 40,
+    )
+    assert trial["automatic_result"] == "inconclusive"
+    assert {row["status"] for row in trial["machine_checks"]} == {
+        "unverifiable"
+    }
+
+
 def test_pass_without_observed_and_expected_is_downgraded(tmp_path: Path) -> None:
     result_path = _copy_pair(tmp_path)
     checks_path = tmp_path / "checks.json"
@@ -475,6 +559,64 @@ def test_external_artifact_requires_durable_source_before_append(tmp_path: Path)
     with pytest.raises(COLLECTOR.CollectionError, match="same sha256"):
         COLLECTOR.append_records(result_path, records)
     assert result_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("source_state", ["untracked", "modified"])
+def test_repository_worktree_evidence_requires_durable_source_before_append(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_state: str,
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    repository = tmp_path / "evidence-repo"
+    repository.mkdir()
+    tracked_runner = _runner(repository / "runner.json")
+    code_sha = _init_git_repo(repository)
+    if source_state == "untracked":
+        runner_path = _runner(repository / "untracked-runner.json")
+    else:
+        runner_path = tracked_runner
+        runner = json.loads(runner_path.read_text(encoding="utf-8"))
+        runner["run"]["overall_status"] = "FAILED"
+        _write_json(runner_path, runner)
+    monkeypatch.setattr(COLLECTOR, "REPO_ROOT", repository)
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=None,
+        suite="part",
+        case_id="C-03",
+        environment="mock",
+        code_sha=code_sha,
+    )
+    assert records[0]["sources"][0].startswith("artifact:")
+    with pytest.raises(COLLECTOR.CollectionError, match="requires a durable --source"):
+        COLLECTOR.append_records(result_path, records)
+
+
+def test_committed_repository_evidence_records_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    repository = tmp_path / "evidence-repo"
+    repository.mkdir()
+    runner_path = _runner(repository / "runner.json")
+    code_sha = _init_git_repo(repository)
+    monkeypatch.setattr(COLLECTOR, "REPO_ROOT", repository)
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=None,
+        suite="part",
+        case_id="C-03",
+        environment="mock",
+        code_sha=code_sha,
+    )
+    source = records[0]["sources"][0]
+    assert source.startswith("repo:runner.json?")
+    assert f"rev={code_sha}" in source
+    summary = COLLECTOR.append_records(result_path, records)
+    assert summary["trial_count"] == 1
 
 
 def test_each_external_artifact_requires_matching_durable_source(tmp_path: Path) -> None:
