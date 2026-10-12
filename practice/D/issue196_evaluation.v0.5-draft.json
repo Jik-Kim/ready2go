@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "evaluation_version": "0.5-draft",
   "status": "draft",
   "issue": "https://github.com/Jik-Kim/ready2go/issues/196",
@@ -7,12 +7,12 @@
   "owner": "D",
   "scope": "evaluation_artifact_only",
   "artifact_roles": {
-    "evaluation_definition": "issue196_evaluation.json",
-    "execution_results": "issue196_results.jsonl",
+    "evaluation_definition": "issue196_evaluation.v0.5-draft.json",
+    "execution_results": "issue196_results.v0.5-draft.jsonl",
     "voice_evaluation_reference": "issue20_voice_evaluation.json",
     "scope": "issue196_checklist_support",
     "authority": "D evaluation draft; does not replace docs/requirements.md or runtime contracts",
-    "rule": "Keep one machine-readable evaluation definition and one append-only execution-result file for this checklist draft."
+    "rule": "Each evaluation version uses one immutable definition file and one append-only result file. A version change creates a new file pair; existing pairs are never overwritten."
   },
   "sheet_source": "https://docs.google.com/spreadsheets/d/1oO9HGJd_ngiPMZzSuATGld86aGgjnGBdK-mIcoVddJY/edit",
   "requirements_source": "../../docs/requirements.md",
@@ -20,11 +20,12 @@
     "This file defines D evaluation expectations and does not declare runtime wire fields or enums.",
     "Runtime values and reason codes must be checked against contracts, knowledge, config, params, tasks, and implementations before version freeze.",
     "Draft expectations do not prove implementation, integration, simulation, or real-robot acceptance.",
-    "Machine-observed values belong in issue196_results.jsonl; field observation, final review, and deficiency follow-up remain in the Google Sheet."
+    "Machine-observed values belong in issue196_results.v0.5-draft.jsonl; field observation, final review, and deficiency follow-up remain in the Google Sheet."
   ],
   "voice_evaluation": {
     "mode": "reference",
     "path": "issue20_voice_evaluation.json",
+    "sha256": "51a06b347079d00422129a16fa0f196592ee4fa5e0afe0e66e9f0d42554142eb",
     "schema_version": "1.8",
     "evaluation_set_version": "0.6-draft",
     "base_case_count": 40,
@@ -34,7 +35,7 @@
   },
   "basis_policy": {
     "required_id": "basis_id",
-    "record_location": "issue196_results.jsonl record_type=basis",
+    "record_location": "issue196_results.v0.5-draft.jsonl record_type=basis",
     "required_fields": [
       "basis_id",
       "captured_at",
@@ -1335,7 +1336,7 @@
     }
   },
   "result_jsonl": {
-    "path": "issue196_results.jsonl",
+    "path": "issue196_results.v0.5-draft.jsonl",
     "format": "jsonl",
     "record_types": {
       "result_set": {
@@ -1343,8 +1344,11 @@
         "required": [
           "record_type",
           "schema_version",
+          "result_set_id",
           "evaluation_path",
-          "evaluation_version"
+          "evaluation_version",
+          "evaluation_sha256",
+          "suite_versions"
         ]
       },
       "basis": {
@@ -1366,7 +1370,11 @@
           "record_type",
           "schema_version",
           "trial_id",
+          "result_set_id",
+          "evaluation_version",
+          "evaluation_sha256",
           "suite",
+          "suite_version",
           "case_id",
           "basis_id",
           "environment",
@@ -1382,6 +1390,9 @@
     },
     "trial_rules": [
       "The result_set first record is immutable and contains no mutable status or trial_count summary.",
+      "The result file contains exactly one result_set as its first record. A new evaluation version creates a new immutable evaluation file and a new append-only result file; never append another result_set to an existing result file.",
+      "Every trial result_set_id, evaluation_version, and evaluation_sha256 must equal the first result_set record, and trial suite_version must equal result_set.suite_versions[trial.suite]. Reject mixed evaluation or suite versions.",
+      "evaluation_sha256 is the SHA-256 of the committed evaluation definition's original bytes. The evaluation definition does not contain its own SHA-256.",
       "Derive trial_count by counting records whose record_type is trial; derive dataset status as no_trials when that count is zero and has_trials otherwise.",
       "Do not create a trial record until an actual trial exists.",
       "case_id must exist in this file or the referenced voice evaluation.",
