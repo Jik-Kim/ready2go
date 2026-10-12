@@ -2199,6 +2199,8 @@ def test_make_room_moves_target_away_from_neighbor_then_ready(server, monkeypatc
     assert mr["action"] in ("nudge", "sweep") and mr["moved_id"] == "toy_hammer#1" and mr["ready_to_pick"] is False
     assert data["pushed"] is True and data["push_vector_m"][1] > 0             # 지우개 반대쪽(+y)으로
     assert mr["moved_after"]["position"][1] > cara["pose"]["position"][1]
+    assert isinstance(mr["pushed_ids"], list) and len(mr["pushed_after"]) == len(mr["pushed_ids"])   # 같이 밀린 물체 구조화 [C #226]
+    assert all(set(q) >= {"id", "frame", "position", "yaw"} for q in mr["pushed_after"])
     drags = [s for s in contact["stages"] if s[0] in ("drag", "drag_back")]
     assert drags and all(abs(end[2] - start[2]) < 0.06 for _, start, end in drags)   # 수평으로만
     assert data["target_after"]["pose"]["position"] == t["pose"]["position"]   # 목표는 그대로
@@ -2246,3 +2248,37 @@ def test_place_in_drawer_fast_descent_stops_on_unseen_support(server):
     assert "stop" in srv.robot.log                                       # 빠른 구간에서 닿아 멈춤
     lines = [p for e in srv.robot.log if e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])]
     assert all(p[2] > 1000.0 * pos_m[2] for p in lines)                  # 마지막 천천히 내리기(놓는 높이 − overtravel)는 안 보냄 = 더 안 누름
+
+
+def test_make_room_sweep_reports_pushed_ids_and_expected_poses(server, monkeypatch):
+    """[C #226 리뷰] sweep 로 같이 밀린 물체를 문장이 아니라 make_room.pushed_ids·pushed_after(예상 자리)로 — 역순 복구용.
+    계획(clear_plan)이 sweep 을 고른 경우를 그대로 주입해 서버가 결과에 싣는지만 봄."""
+    from ready2go_skills.core import clear_plan as clp
+    t = _seg(ERASER_FREE)
+    t["pose"]["yaw"] = 0.0
+    nb = _seg(CARAMEL_NEXT)
+    nb["pose"]["position"] = [0.10, 0.15 - 0.011 - 0.0245 - 0.002, 0.0]
+    sweep = clp.Action("sweep", "eraser#1", "30 mm 밀고 15 mm 되돌아옴", dir=(0.0, -1.0), dist_m=0.03, back_m=0.015,
+                       pushed=("caramel_box#1",), extra={})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: sweep)
+    contact, line = _press_contact(server)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, nb)})
+    mr = data["make_room"]
+    assert mr["action"] == "sweep" and mr["moved_id"] == "eraser#1" and mr["pushed_ids"] == ["caramel_box#1"]
+    (pa,) = mr["pushed_after"]
+    assert pa["id"] == "caramel_box#1" and pa["frame"] == "drawer_top" and pa["position"][1] < nb["pose"]["position"][1]
+
+
+def test_make_room_refusal_has_no_moved_id(server, monkeypatch):
+    """[C #226 리뷰] 거부(움직이지 않음)면 moved_id null — 옮기려던 물체는 reason 에."""
+    from ready2go_skills.core import clear_plan as clp
+    t = _seg(ERASER_FREE)
+    t["occluded_by"] = ["car_key#1"]
+    key = _seg({"id": "car_key#1", "class": "car_key", "top_z": 0.0273,
+                "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}})
+    fail = clp.Action("fail", "car_key#1", "car_key#1 놓을 빈 자리 없음", code="NO_FREE_SPACE")
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: fail)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, key)})
+    assert out.error_code == "NO_FREE_SPACE" and data["make_room"]["moved_id"] is None and "car_key#1" in out.reason
+    assert server.srv.robot.log == []

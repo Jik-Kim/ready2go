@@ -48,7 +48,7 @@
         "pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0,
         "target_after": {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
                          "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": true}},
-        "make_room": {"action": "none", "moved_id": null, "ready_to_pick": true, "reason": ""}
+        "make_room": {"action": "none", "moved_id": null, "ready_to_pick": true, "reason": "", "pushed_ids": [], "pushed_after": []}
       }
     },
     {
@@ -62,7 +62,9 @@
                          "pose": {"frame": "drawer_top", "position": [0.1, 0.13, 0.0], "yaw": 0.0, "yaw_valid": true}},
         "make_room": {"action": "sweep", "moved_id": "airpods_case#1", "ready_to_pick": false,
                       "reason": "30 mm 밀고 15 mm 되돌아옴 (같이 밀림 ['eraser#1'])",
-                      "moved_after": {"frame": "drawer_top", "position": [0.1, 0.13, 0.0], "yaw": 0.0}}
+                      "moved_after": {"frame": "drawer_top", "position": [0.1, 0.13, 0.0], "yaw": 0.0},
+                      "pushed_ids": ["eraser#1"],
+                      "pushed_after": [{"id": "eraser#1", "frame": "drawer_top", "position": [0.1, 0.0745, 0.0], "yaw": 0.0}]}
       }
     },
     {
@@ -71,7 +73,8 @@
       "success": false,
       "error_code": "NO_FREE_SPACE",
       "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0, "target_after": null,
-                 "make_room": {"action": "fail", "moved_id": "car_key#1", "ready_to_pick": false, "reason": "car_key#1 놓을 빈 자리 없음"}}
+                 "make_room": {"action": "fail", "moved_id": null, "ready_to_pick": false, "reason": "car_key#1 놓을 빈 자리 없음",
+                               "pushed_ids": [], "pushed_after": []}}
     }
   ]
 }

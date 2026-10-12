@@ -1671,7 +1671,8 @@ class SkillServer(Node):
                          round_classes=tuple(prm["pick"].get("round_classes") or ()),
                          reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
         a = clp.plan_next(objs, tid, DryOracle(self, drawer_id), cfg)
-        info = {"action": a.kind, "moved_id": a.target or None, "ready_to_pick": False, "reason": a.reason}
+        info = {"action": a.kind, "moved_id": a.target or None, "ready_to_pick": False, "reason": a.reason,
+                "pushed_ids": [], "pushed_after": []}
         out["make_room"] = info
         by = {o["id"]: o for o in objs}
         self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason}")
@@ -1680,11 +1681,15 @@ class SkillServer(Node):
             out["target_after"] = by[tid]
             return sf.Outcome(True, reason="이미 집을 수 있음 — 움직이지 않음"), out
         if a.kind == "fail":
+            info["moved_id"] = None                               # 움직이지 않음 — 옮기려던 물체는 reason 에 [C #226 리뷰]
             code = a.code if a.code in (NEIGHBOR_TOO_CLOSE, NO_FREE_SPACE, mp.NO_PUSH_ACCESS) else mp.NO_PUSH_ACCESS
             return sf.Outcome(False, code, reason=f"공간을 만들 수 없음: {a.reason}"), out
         expect = clp.apply(objs, a, cfg)                          # 동작 뒤 예상 (목표 위치) — 실제는 다시 보고 확인
         out["target_after"] = next(o for o in expect if o["id"] == tid)
         info["moved_after"] = clp.as_pose(next(o for o in expect if o["id"] == a.target))   # 옮긴 물체 예상 자리 (다시 보기 전)
+        # 같이 밀린 물체 (sweep) — 역순 복구(FR-ACT-04)에 움직인 물체 전부가 필요 [C #226 리뷰]. 예상 자리, 다시 보기 전
+        info["pushed_ids"] = [i for i in a.pushed if i != a.target]
+        info["pushed_after"] = [dict(clp.as_pose(next(o for o in expect if o["id"] == i)), id=i) for i in info["pushed_ids"]]
         moved = by[a.target]
         if a.kind in ("unstack", "remove"):                       # 집어서 빈 자리에 내려놓기 (서랍 안 놓기 검사 그대로)
             res, _ = self._do_pick_object(goal, {"target": moved, "approach_offset": [0, 0, 0.1], "scan": scan})
