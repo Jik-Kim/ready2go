@@ -734,3 +734,25 @@ def test_b_unpack_target_missing_still_restores(monkeypatch):
     sk.TARGET = "eraser"
     assert sk.unpack(None) is False
     assert "place" not in calls and calls[-1] == "close" and calls.count("restore") == 2
+
+
+def test_b_unpack_goes_on_to_next_when_moved_object_still_listed_as_cover(monkeypatch):
+    """[사용자 10/12 PC2] 차키 aside_1 뒤 다시 보니 캐러멜이 아직 '차키에 덮임'(이미 옮긴 차키) → 예전엔 덮은 사슬이 끊겨
+    치우기를 멈추고 복구로 가 차키를 다시 집음. 이제 옮긴 물체의 덮음 관계는 빼고 캐러멜 → aside_2 → 몽키 트레이.
+    한 번 캐러멜이 안 보이면(미검출) 다시 찍음."""
+    w = _o("toy_wrench#1", "toy_wrench", 0.10, 0.18, under=["caramel_box#1"], frame="drawer_top")
+    c = _o("caramel_box#1", "caramel_box", 0.10, 0.18, under=["car_key#1"], frame="drawer_top")
+    k = _o("car_key#1", "car_key", 0.10, 0.18, frame="drawer_top")
+    k_a = _o("car_key#1", "car_key", 0.057, 0.067, yaw=1.57, frame="drawer_top")
+    c_a = _o("caramel_box#1", "caramel_box", 0.12, 0.064, frame="drawer_top")
+    scans = [_scan(w, [c, k]),
+             _scan(w, [k_a]),                                            # 캐러멜 미검출 → 다시 찍기
+             _scan(w, [c, k_a]),                                         # 캐러멜이 아직 차키에 덮였다고 나옴 (차키는 aside_1)
+             _scan(dict(w, occluded_by=[]), [c_a, k_a]),
+             _scan(c_a, [k_a]), _scan(k_a, [dict(c, occluded_by=[])]), _scan(None, [dict(c, occluded_by=[]), k_a])]
+    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"aside": ["", "PLACE_BLOCKED", ""], "restore": ["", "PLACE_BLOCKED", ""]})
+    sk.TARGET = "toy_wrench"
+    assert sk.unpack(None) is True
+    picks = [g[1]["target"]["id"] for cmd, g in zip(calls, sent) if cmd == "pick"]
+    assert picks[:3] == ["car_key#1", "caramel_box#1", "toy_wrench#1"]
+    assert "place" in calls and calls[-1] == "close"

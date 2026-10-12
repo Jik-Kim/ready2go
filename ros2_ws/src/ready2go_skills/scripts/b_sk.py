@@ -615,6 +615,7 @@ def free(node):
 
 
 UNPACK_MAX = 2                              # 치울 물체 최대 — Runner find_with_unpack s7 max_iter 2 (B 고정 자리 aside_1·aside_2 두 곳)
+UNPACK_RESCAN = 2                           # 다음 치울 것을 못 정하면 다시 찍는 횟수 (태스크는 관계 모름일 때 1번) [사용자 10/12]
 REID_TOL_M = 0.02                           # 옮긴 물체 다시 찾기 거리 — 태스크 inputs.reid_tol_m [팀 확정 필요]
 RESTORE_CHECK_TOL_M = 0.10                  # 마지막 확인에서 원래 자리 물체로 볼 거리 — 태스크 inputs.restore_check_tol_m (판정은 기록표 3 cm)
 
@@ -673,17 +674,38 @@ def unpack(node):
         if not timed(step, lambda: run(node, step)) and last["code"] != "DRAWER_ALREADY_OPEN":
             sys.exit(f"{step} {last['code']} — 여기서 멈춤 (서랍 닫힘·빈손·홈에서 시작, 이미 열었으면 B opened {DRAWER.removeprefix('drawer_')} 뒤 다시)")
 
+    def drop_moved_cover(res):
+        """이미 옮겨 고정 자리에 있는 물체가 아직 다른 물체를 덮는다고 나오면 그 관계를 뺌 — 옮긴 자리에서 덮을 수 없음
+        [사용자 10/12 PC2: 차키 aside_1 뒤 다시 보니 캐러멜 대신 차키를 다시 집음 — 덮은 사슬이 끊겨 치우기를 멈추고 복구로 감]."""
+        moved_ids = set()
+        for rec in stack:
+            fm = up.find_moved({"scan": res, "record": rec, "tol_m": REID_TOL_M}, world).output or {}
+            if fm.get("status") == "found":
+                moved_ids.add(fm["object"]["id"])
+        for o in ([res["target"]] if res.get("target") else []) + list(res.get("candidates") or []):
+            occ = o.get("occluded_by")
+            if isinstance(occ, list) and moved_ids & set(occ):
+                print(f"  ({o['id']} 를 덮었다는 {sorted(moved_ids & set(occ))} 는 이미 옮겨 고정 자리에 있음 → 관계 뺌)")
+                o["occluded_by"] = [i for i in occ if i not in moved_ids]
+        return res
+
     def select(res):
-        r = up.select_obstacle({"scan": res, "moved": stack, "tol_m": REID_TOL_M}, world)
+        r = up.select_obstacle({"scan": drop_moved_cover(res), "moved": stack, "tol_m": REID_TOL_M}, world)
         return r.output if r.success else {"obstacle": None, "reason": "bad_scan"}
 
+    def look_select():
+        """탑뷰·인식·고르기. 판단이 막히면(관계 모름·덮은 물체 안 보임·인식 실패) 다시 찍기 (이미 2개 옮겼으면 안 함) —
+        태스크 s6r·s7.9 는 occlusion_unknown 만 한 번, 여기선 UNPACK_RESCAN 번 [사용자 10/12 "성공하면 다음 단계로"]."""
+        for n in range(UNPACK_RESCAN + 1):
+            res = inspect_all(node, TARGET)
+            sel = select(res) if res else {"obstacle": None, "reason": "no_scan"}
+            stuck = sel.get("obstacle") is None and sel["reason"] in ("occlusion_unknown", "occluder_unavailable", "no_scan")
+            if not stuck or n == UNPACK_RESCAN or len(stack) >= UNPACK_MAX:
+                return res, sel
+            print(f"\n----- 다음 치울 것을 못 정함 ({sel['reason']}) → 다시 찍기 {n + 1}/{UNPACK_RESCAN} -----")
+
     stack, left_aside, delivered, failed = [], [], False, ""
-    res = inspect_all(node, TARGET)
-    sel = select(res) if res else {"obstacle": None, "reason": "no_scan"}
-    if sel["reason"] == "occlusion_unknown":                 # 태스크 s6r: 관계 모름 → 한 번 다시 찍기
-        print("\n----- 가림 관계 모름 → 한 번 다시 찍기 -----")
-        res = inspect_all(node, TARGET)
-        sel = select(res) if res else sel
+    res, sel = look_select()
     while sel.get("obstacle") and len(stack) < UNPACK_MAX:
         ob = sel["obstacle"]
         print(f"\n===== 치우기 {len(stack) + 1}: {ob['id']} ({sel['reason']}) =====")
@@ -703,8 +725,8 @@ def unpack(node):
         out = last.get("out") or {}
         stack.append({"class": ob["class"], "id": ob["id"], "origin": {k: ob["pose"][k] for k in ("frame", "position", "yaw")},
                       "placed": out.get("placed_pose"), "slot": out.get("slot")})
-        res = inspect_all(node, TARGET)
-        sel = select(res) if res else {"obstacle": None, "reason": "no_scan"}
+        print(f"\n----- {ob['id']} → {stack[-1]['slot']} 끝 → 다시 보고 다음 -----")
+        res, sel = look_select()
     t = (res or {}).get("target") if (res or {}).get("target_found") else None
     if not failed and t is not None and sel.get("reason") == "target_clear":
         for n in range(RETRIES + 1):
@@ -733,7 +755,8 @@ def unpack(node):
             delivered = True
     elif not failed:
         failed = f"목표 {'못 찾음' if t is None else '아직 가려짐'} ({sel.get('reason')})"
-    print(f"\n>>> {'목표를 트레이에 놓았어요' if delivered else '목표를 꺼내지 못했어요 — ' + failed}")
+    print(f"\n>>> {'목표를 트레이에 놓았어요' if delivered else '목표를 꺼내지 못했어요 — ' + failed}"
+          + ("" if delivered or not stack else " → 옮긴 것 원위치로"))
 
     for item in reversed(stack):                             # 역순 복구 (태스크 finally fr)
         print(f"\n===== 원위치 {item['id']} =====")
