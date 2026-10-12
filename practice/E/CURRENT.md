@@ -1,5 +1,11 @@
 # CURRENT — E 고희태
 
+## PR227 원격 문서 합류 — 2026-10-12
+
+- [문서: 게시 경계] 고정 게시 부모079232dfc29677f28d9fe3d20bc749f0dfc03b2f와 원격 문서 부모a41216912d7e76dc0d354be787516025b4ae5900만 격리 detached checkout에서 합류합니다. 원격 문서 커밋은 로컬 조상에 없었으므로 normal push 전에 두 이력을 보존합니다. 주 checkout/브랜치는 바꾸지 않고 종료 hotfix940c1f83은 게시 합류에서 제외합니다.
+- [문서: 충돌 정리] voice_llm의 입력 표/고정 녹음 설명과 Voice README의 fixed 설명은 공통 SharedInput/RawInputStream·standalone sd.rec→sd.wait를 보존하고 후속 audible cue/prepared reader 경계를 함께 설명합니다. interfaces/CURRENT는 C 원본 합류·현재 #221/#225 병합과 실제 운영 미연결을 구분합니다. 최신 로컬 리뷰/검증 한계 기록·world18.5/별칭을 유지하며 runtime/설정/계약 tree는079232와 동일해야 합니다.
+- [문서: 검증/인계] 네 문서의 내용/링크/앵커·diff·두 부모·runtime/world 보존만 대조합니다. 고정 합류 SHA의 필수 CI/push/#227 본문 갱신은 PR 전담이 수행하며 이 문서 커밋 전에 CI 완료를 주장하지 않습니다. 새 main/타 파트 코드 합류·자체 전체 검사·force push·새 hotfix 게시 승인으로 확대하지 않습니다.
+
 ## PR227 게시 높이 원복 — 2026-10-12
 
 - [문서: 사용자 원복] 조율 세션 인간 turn `01a12fed-e08c-79f0-95e9-fa921d3496e3` “19.5mm로 바꾸면 계약 충돌하는 것 같아서 내가 되돌린거야”를 직접 확인했습니다. `caramel_box.size_m[2]`를 사용자 원복값0.0185m로 보존하고 립밤/마스킹테이프의 승인 별칭 변경은 유지합니다. 새 실측·B 코드/시험 변경이 아닙니다.
@@ -146,6 +152,13 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [실측: 문서 명령 검증] README의 최종 복사 Python 블록을 장치/API 없이 실행해 `/tmp/e-p2-live-handoff-20261011/voice.local.yaml` load_config 성공을 확인했습니다. 유효 dialogue30.0(제안 설정의 시험값), resume10.0/15.0/30.0, place10.0/15.0/max_reasks1, catalog5입니다. 원본 자산·장치·cache·startup60 유지, 준비 문장77 동일이며 shell 문법·문서 링크/앵커·diff 공백 검사를 통과했습니다. 이는 실음성 결과가 아닙니다.
 - [문서: 시험 순서·한계] 요청→현재 run 수락→실 speak DAC/finished gate→dummy first action 후에만 수동 complete, 미지원/확인 질문, processing/TTS 중 wake 없는 stop, 원본 합의 tray fixture/새 답/최대1재질문·명시 결과, stopped1회→question 60(이번 명시 더미 fixture, 운용/C/E 예산 변경 아님)→새 답을 진행하고, 독립 발화는 각 새 실행에서 stopped1회→independent→새 복구/재개/종료로 분리합니다. current harness의 반복 stopped(revision1)는 낮은 seq 거절 가능성이 있어 새 사건은 종료/재시작으로 분리하며 코드 수정0입니다. source/typed 등록·B 증빙/결과는 모의이고 후보는 로그뿐입니다. 현재 로그가 제공하지 않는 work ID/stop SDK 시각은 미확인으로 기록합니다. 실C·로봇 정지/복구/재개·echo/STT 지연/물리 AC는 완료가 아닙니다.
 - [문서: 문제 기록] Melo 최초 generic 준비 실패는 agent 준비 관측이고 원인 확정 아님; 별도prepare120 timeout은 runtime 코드/120.367초로 확인, 같은 identity/120 재시도로97.042초/exit0·77문장 준비 및 일반60 node ready를 확인했습니다. 반복 stopped/상세 진단 누락/P2 local 누락은 코드·설정 대조 발견이며 사용자가 재현한 결함으로 꾸미지 않습니다. 조율 Notion 기록에는 heading2 아래 출처/재현·확인 원인(미확정 분리)·해결·검증/미검증을 구분해 전달합니다. 문서 검사·정확2파일 자동 로컬 커밋 후 최종 head CI/push/PR은 별도 지시를 기다립니다.
+
+## E 문서 정합성 정정 — 계약07/공유 입력 경계
+
+- [문서·코드] 2026-10-12 합류 시점에 #221·#225 병합 및 C 소유 상태 예시·Runner 설명·ICD 구간/C 원본 검토를 확인했고 실제 C 런타임 수신/생산자 운영 연결 미완료와 구분합니다. #225/#227의 E payload 후보와 RequestRun 상관 로직도 실제 C source mapper 미설치·request_run_enabled 기본 false 상태를 넘지 않습니다.
+- [문서·코드] 기본 VoiceNode는 SharedInput RawInputStream을 WakeAudio와 Recorder가 공유하며 fixed 녹음은 기존 5초 프레임만 수집합니다. shared_input 없는 Recorder의 sd.rec→sd.wait 경로는 호환용으로 유지됩니다. fixed5초·commissioning·임계값은 변경하지 않습니다.
+- [문서] 기준은 [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[FR-LOG-02](../../docs/requirements.md#fr-log-02)·[수락 TTS 정책](../../docs/requirements.md#acceptance-tts-policy) 및 [FR-SAF-01/AC-SAF-02](../../docs/requirements.md#fr-saf-01)입니다. 이번 수정은 정책·Phase·계약·C 담당 파일을 바꾸지 않습니다.
+- [문서: 미검증] 실제 C 수신/운영 연결·마이크/장치·Whisper·실음성·실물 AC는 확인하지 않았습니다. 최종 head 전체 로컬 CI 결과는 이 PR 본문에 기록합니다.
 
 ## P2 모의·회귀 검증 — E-P2-VERIFY-20261011-01
 

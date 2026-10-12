@@ -28,7 +28,7 @@
 
 | 단계 | P1 현재 구현 | 미확정 설정·미구현 후보 |
 | :--- | :--- | :--- |
-| 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, SharedInput reader의 고정5초 시운전(standalone sd.rec fallback), 또는 RMS 무음 종료·보호 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
+| 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, 기본 VoiceNode는 공유 RawInputStream의 동일 reader에서 prepared 캡처 경계부터 fixed5초를 수집하며, shared_input 없는 Recorder는 기존 sd.rec→sd.wait 경로를 유지합니다. 또는 RMS 무음 종료·보호 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
 | STT | OpenAI `whisper-1`, 한국어·등록 물품 이름 prompt, API 단일 호출 슬롯 | 계정/지연 실측 필요. `faster-whisper small` 오프라인 폴백은 미구현 후보 |
 | 해석 | LangChain·`gpt-4o` 후보 strict JSON → 기존 계약·등록 물품·보류 문맥·요청 단서 검증; 오류/시간 초과/검증 실패 시 좁은 규칙 폴백 | 모델·프롬프트·E/D 정답표 미확정. 퍼지 매칭은 구현하지 않음 |
 | 확인 | 기본 `confirmation_enabled: true`: 검증된 “지우개 가져오기 요청으로 이해했어요.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | [수락 TTS 결정](requirements.md#acceptance-tts-policy)의 C 계약·실제 연결 대기 |
@@ -38,7 +38,7 @@
 
 [문서: #194 구현] `clarify_prompts`는 기본/실패 안내이며, [승인된 음성 정책](requirements.md#voice-policy)에 따라 현재 대상·행동·판정과 의미 일치하는 내부 LLM `response_text`를 검증해 최종 문장으로 유지합니다. 공개 `clarify_question`은 질문에만 사용하며 내부 `_voice.final_text`와 실제 `tts.speak(text)`·최종 콘솔 안내는 동일 문자열입니다. 원본/대체 사유는 E 상세 파일에 보존합니다. 현재 질문의 후보·세대/epoch·유효성을 `Conversation`이 관리하고 쉼표/복합 답의 판단 뒤 한 번 소비하며 실제 질문 TTS 완료 후 명확한 답/대상 정정을 한 번 결합합니다. 캐시 WAV를 읽거나 재시작해도 질문 권한이 복원되지 않습니다. 이 구현은 실음성/AC·C 수락 시험 결과가 아닙니다.
 
-원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 일반 노드는 동일 SharedInput reader의 prepared 캡처 경계에서16kHz/int16/mono 고정 녹음을 시작합니다. standalone Recorder의 공유 입력 없는 sd.rec fallback과 구분합니다. commissioning은 실행·평가 모드 모두에서 기존 유한 API 상한을 사용하며 3초 AC 예산을 적용하지 않습니다. 평가 true는 모든 intent 발행을 차단하고 false는 기존 확인 TTS·무발화·취소·실패·중복 게이트를 통과한 요청을 발행합니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
+원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 기본 VoiceNode는 하나의 SharedInput RawInputStream을 WakeAudio와 Recorder가 공유하고 fixed 녹음은 동일 reader의 prepared 캡처 경계부터 같은 프레임에서 기존 5초 분량만 수집합니다. shared_input 없이 쓰는 Recorder는 기존 sd.rec→sd.wait 호환 경로를 유지합니다. commissioning은 실행·평가 모드 모두에서 기존 유한 API 상한을 사용하며 3초 AC 예산을 적용하지 않습니다. 평가 true는 모든 intent 발행을 차단하고 false는 기존 확인 TTS·무발화·취소·실패·중복 게이트를 통과한 요청을 발행합니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
 
 [현재 설정 원본 voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)은 시운전 STT/LLM 상한 각각30초, silence_sec=0.4, tts_reserve_sec=0.7입니다. 이전 STT1.1초/LLM0.8초는 AC 준비 후보였으며 현재 원본 값이 아닙니다. AC 모드의 값은 별도 실측해 확정합니다. silence/ac_budget 모드에서는 [AC-INT-03](requirements.md#ac-int-03)의 예산에 무음 대기·API·TTS 준비를 포함합니다. 남은 예산에 따라 STT/LLM의 실제 제한은 더 짧아질 수 있으며, 값의 합이나 설정만으로 실제 3초 달성을 선언하지 않습니다. 늦은 API 결과는 폐기하고 재시도를 쌓지 않습니다.
 

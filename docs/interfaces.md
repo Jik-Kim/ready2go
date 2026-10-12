@@ -69,7 +69,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 <a id="request-run-contract"></a>
 ### 5.3 일반 요청 → 수락 → 완료 계약07 — 공동 원본 준비
 
-[문서: E 초안] 승인 의미·책임·호환 및 중복 처리 기준은 [수락 TTS 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이 절은 E 발신 원본의 연결을 기록하며 C 수신·상태 설명은 아래 담당 구간에 합류해야 합니다. 원본 준비는 현재 노드의 발신/수신 전환이나 통합 검증 완료가 아닙니다.
+[문서: E 초안] 승인 의미·책임·호환 및 중복 처리 기준은 [수락 TTS 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이 절은 E 발신 원본과 C 수신·상태 설명을 담당별로 기록합니다. C 소유 계약07 상태 예시·Runner 설명·ICD 구간은 이 head에 합류했고 C 원본 검토가 확인됐습니다. [PR #221](https://github.com/Jik-Kim/ready2go/pull/221)·[PR #225](https://github.com/Jik-Kim/ready2go/pull/225)는 병합됐으며 실제 C 런타임 수신·생산자 연결과 운영 통합 완료는 별도로 확인해야 합니다. 문서 합류나 PR 병합만으로 운영 연결 완료를 뜻하지 않습니다.
 
 #### E 담당 — 일반 요청 발신 원본
 
@@ -78,7 +78,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | `/voice/intent` JSON 최상위 두 필드 | [intent.schema.json](../contracts/intent.schema.json)의 `properties.request_id`·`properties.accept_text` | `required`는 기존 `intent`·`confidence` 그대로이며 내부 LLM/P1 입력에 새 필드를 강제하지 않음 |
 | E 실행 요청의 원본 예시 | [intent_find_item.json](../contracts/examples/intent_find_item.json), [intent_goal.json](../contracts/examples/intent_goal.json) | 공개 형식 예시이며 실제 Voice 발행·목표 실행의 증거가 아님. goal 예시의 기존 목표는 유지하며 선정 catalog 지원을 뜻하지 않음 |
 | 기존 source | 같은 스키마의 `properties.source` | 로그용 자유 객체는 유지. E 발신 ID를 `source.request_id`에 중복 작성하지 않음 |
-| 현재 Voice 발신/소비 | [VoiceNode](../ros2_ws/src/ready2go_voice/ready2go_voice/nodes/voice_node.py), [Session](../ros2_ws/src/ready2go_voice/ready2go_voice/core/session.py) | 로컬 `_voice.request_id`와 내부 문장 소비만 준비됨. 두 공개 필드의 운영 발신·C 결정/결과 연결은 후속 구현 |
+| 현재 Voice 발신/소비 | [VoiceNode](../ros2_ws/src/ready2go_voice/ready2go_voice/nodes/voice_node.py), [Session](../ros2_ws/src/ready2go_voice/ready2go_voice/core/session.py) | Session의 `prepare_request_payload`는 계약07 공개 payload 후보를 만들고 RequestRun/VoiceNode는 검증된 C source mapper가 주입된 모의에서 상관 경로를 검사합니다. 실제 노드는 source mapper 미설치 시 연결을 거절하고 `request_run_enabled` 기본값도 false이므로 공개 발신·C 결정/결과 운영 연결은 보류됩니다 |
 
 #### C 담당 — 수신·상태·결과
 
