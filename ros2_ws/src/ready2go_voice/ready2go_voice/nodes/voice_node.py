@@ -985,7 +985,10 @@ class VoiceNode(Node):
                 except queue.Empty:
                     pass
                 self.stop_captures.put_nowait((recording,generation,frozenset(spoken)))
-                self._diagnostic({'event':'stop_capture_replaced','reason':'newest_pending_capture_only'})
+                try:
+                    self._diagnostic({'event':'stop_capture_replaced','reason':'newest_pending_capture_only'})
+                except Exception as exc:
+                    self._report_worker_failure('stop_capture_diagnostic_failed', exc)
             return True
 
     def _quiet_stopped(self):
@@ -1008,6 +1011,11 @@ class VoiceNode(Node):
         # 일반 wake/fixed 설정과 무관하게 정지는 기존 RMS/무음 종료 녹음을 사용합니다.
         recorder = Recorder(self.cfg, clock=self.place_clock, shared_input=self.shared_input)
         interval = self.cfg['frame_samples'] / self.cfg['sample_rate']
+        def diagnostic(doc):
+            try:
+                self._diagnostic(doc)
+            except Exception as exc:
+                self._report_worker_failure('stop_capture_diagnostic_failed', exc)
         while not self.stop_event.is_set():
             cue_active = getattr(self, 'cue_active', None)
             if cue_active is not None and cue_active.is_set():
@@ -1020,7 +1028,7 @@ class VoiceNode(Node):
                 continue
             with self.submit_lock:
                 generation = self.generation
-            self._diagnostic({'event':'stop_capture_started'})
+            diagnostic({'event':'stop_capture_started'})
             spoken = set()
             def interrupted():
                 return (self.stop_event.is_set() or generation != self.generation
@@ -1035,20 +1043,27 @@ class VoiceNode(Node):
                 finally:
                     with self.playback_lock:
                         self.stop_spoken = None
-                self._diagnostic({'event':'stop_capture_finished','recording_started_monotonic':recording.recording_started_monotonic,
+                diagnostic({'event':'stop_capture_finished','recording_started_monotonic':recording.recording_started_monotonic,
                     'recording_ended_monotonic':recording.recording_ended_monotonic,'speech_ended_monotonic':recording.ended_monotonic,
                     'sample_count':len(recording.pcm)//2})
                 self._queue_stop_capture(recording, generation, spoken)
             except TimeoutError as exc:
                 code = str(exc)
-                self._diagnostic({'event':'stop_capture_held','reason':code if code in ('NO_SPEECH','RECORD_LIMIT') else type(exc).__name__})
+                diagnostic({'event':'stop_capture_held','reason':code if code in ('NO_SPEECH','RECORD_LIMIT') else type(exc).__name__})
                 continue  # 기존 음성 시작/최대 길이 경계. 무음은 API를 호출하지 않습니다.
-            except InterruptedError:
-                if self.shared_input._closed:
+            except InterruptedError as exc:
+                if (self.stop_event.is_set() or self.shared_input._closed
+                        or self.shared_input._stream is None):
+                    return
+                if not interrupted():
+                    diagnostic({'event':'stop_input_unavailable','error_type':type(exc).__name__})
                     return
                 continue
             except Exception as exc:
-                self._diagnostic({'event': 'stop_input_unavailable', 'error_type': type(exc).__name__})
+                if isinstance(exc, RuntimeError) and str(exc) == 'AUDIO_OVERFLOW':
+                    diagnostic({'event':'stop_capture_held','reason':'AUDIO_OVERFLOW'})
+                    continue  # stream context를 닫아 손상 PCM을 버리고 새 reader만 사용합니다.
+                diagnostic({'event': 'stop_input_unavailable', 'error_type': type(exc).__name__})
                 return
 
     def _notice_work(self):

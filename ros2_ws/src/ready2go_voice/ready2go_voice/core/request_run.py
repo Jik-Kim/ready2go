@@ -33,17 +33,14 @@ class RequestRun:
     def _matches(self, decision):
         if decision.get('intent') != self.pending['intent']:
             return False
-        key = 'goals' if self.pending['intent'] == 'achieve_goal' else 'targets'
-        expected = self.pending.get(key)
-        actual = decision.get(key)
+        # 계약07 last_intent는 목표 내용을 돌려주지 않습니다. 요청 ID는 observe에서,
+        # 현재 발신 근거는 노드에서 확인하며 목표 payload는 등록한 원본을 보존합니다.
+        if self.pending['intent'] == 'achieve_goal':
+            return True
+        expected = self.pending.get('targets')
+        actual = decision.get('targets')
         if not isinstance(expected, list) or not isinstance(actual, list):
             return False
-        if key == 'goals':
-            import json
-            try:
-                return sorted(json.dumps(g, sort_keys=True, allow_nan=False) for g in expected) == sorted(json.dumps(g, sort_keys=True, allow_nan=False) for g in actual)
-            except (ValueError, TypeError):
-                return False
         return actual == expected
 
     def observe(self, doc):

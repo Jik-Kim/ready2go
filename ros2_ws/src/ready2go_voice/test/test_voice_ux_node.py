@@ -55,7 +55,7 @@ def node(node_class,ontology,schema,cfg):
         generation=0,stop_event=threading.Event(),request_cancel=threading.Event(),speaking=threading.Event(),
         submit_lock=threading.RLock(),notice_condition=threading.Condition(),notice_policy=RunnerNoticePolicy(),
         normal_notice_cancel=threading.Event(),notice_cancel=threading.Event(),pending_notice=None,warning_epoch=0,
-        diagnostics=[],published=[],texts=[],now=now)
+        diagnostics=[],published=[],texts=[],now=now,requests=queue.Queue(),request_running=None)
     h.local_context=threading.local()
     h.place_clock=lambda:now[0]
     h.playback_lock=threading.Lock();h.playback_texts={};h.stop_spoken=None
@@ -648,9 +648,8 @@ def selected_request(node):
 
 
 def selected_decision(node,*,complete=False):
-    payload=node.request_run.pending
     return dict(phase='idle' if complete else 'running',task_id='achieve_goal',halt_code=None,
-        last_intent=dict(intent='achieve_goal',goals=copy.deepcopy(payload['goals']),request_id='goal-request',
+        last_intent=dict(intent='achieve_goal',targets=[],request_id='goal-request',
                          decision='run',run_id='goal-run'),
         last=dict(task_id='achieve_goal',run_id='goal-run',overall_status='COMPLETED',error_code=None) if complete else None)
 

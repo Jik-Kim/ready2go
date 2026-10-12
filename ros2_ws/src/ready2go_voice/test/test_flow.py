@@ -249,6 +249,22 @@ def dummy_class():
     return module.LiveDummyBridge
 
 
+@pytest.mark.parametrize('kind',['find_item','achieve_goal'])
+def test_dummy_status_uses_contract_summary_to_accept_and_complete_current_request(kind):
+    from ready2go_voice.core.request_run import RequestRun
+    payload=dict(intent=kind,request_id='current',targets=['eraser'] if kind=='find_item' else [],
+                 goals=[dict(predicate='open',subject='drawer_top',value=True)])
+    tracker=RequestRun();assert tracker.register(payload)
+    bridge=dummy_class().__new__(dummy_class());events=[];summaries=[]
+    def observe(message):
+        doc=json.loads(message.data);summaries.append(doc['last_intent'])
+        events.extend(tracker.observe(doc))
+    bridge.String=SimpleNamespace;bridge.voice=SimpleNamespace(_runner_status=observe)
+    bridge.status(payload,'current-run');bridge.status(payload,'current-run',completed=True)
+    assert [e['event'] for e in events]==['request_accepted','request_completed']
+    assert all('goals' not in summary for summary in summaries)
+
+
 @pytest.mark.parametrize('changed',['none','run','generation','cancel','tts_failure','finished'])
 def test_dummy_auto_complete_requires_current_real_speak_gate(changed):
     cls=dummy_class(); bridge=cls.__new__(cls)

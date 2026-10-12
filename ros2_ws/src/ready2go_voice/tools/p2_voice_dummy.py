@@ -150,8 +150,7 @@ class LiveDummyBridge:
     def status(self, payload, run, *, completed=False):
         # 기존 계약07 칸만 사용하며 status JSON을 인증 증거라고 표현하지 않습니다.
         decision = {k: payload[k] for k in ('intent', 'request_id')}
-        field = 'goals' if payload['intent'] == 'achieve_goal' else 'targets'
-        decision.update({field: payload[field], 'decision': 'run', 'run_id': run})
+        decision.update(targets=payload.get('targets'), decision='run', run_id=run)
         doc = dict(phase='idle' if completed else 'running',
             task_id=None if completed else 'dummy', halt_code=None, last_intent=decision,
             last=dict(run_id=run, overall_status='COMPLETED') if completed else None)

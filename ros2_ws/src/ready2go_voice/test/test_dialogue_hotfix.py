@@ -89,10 +89,16 @@ def test_dummy_cancel_preserves_current_run_in_existing_typed_fixture():
     import json
     from test_flow import dummy_class
     from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
-    cls=dummy_class();bridge=cls.__new__(cls);observed=[]
-    bridge.run='current-run';bridge.accepted_payload={'request_id':'request'}
+    cls=dummy_class();bridge=cls.__new__(cls);observed=[];feedback=[];accepted=[]
+    def safety_feedback(work,kind,**fields):
+        token=dict(work=work,kind=kind,generation=0,**fields)
+        feedback.append(token)
+        return token
+    bridge.run='current-run';bridge.active=True;bridge.accepted_payload={'request_id':'request'}
     bridge.first_action=('current-run',0);bridge.work=None;bridge.revision=0;bridge.evidence=None
-    bridge.voice=SimpleNamespace(submit_lock=threading.RLock(),safety_task_end_accepted=lambda *a,**kw:True,safety_stopped=lambda *a,**kw:observed.append(a) or True,
+    bridge.voice=SimpleNamespace(submit_lock=threading.RLock(),generation=0,safety_feedback=safety_feedback,
+        safety_task_end_accepted=lambda candidate,**kw:accepted.append(candidate) or True,
+        safety_stopped=lambda *a,**kw:observed.append(a) or True,
         _runner_status=lambda message:observed.append(json.loads(message.data)))
     bridge.String=lambda **kw:SimpleNamespace(**kw);bridge.log=lambda *a,**kw:None
     bridge.intent(SimpleNamespace(data=json.dumps({'intent':'cancel'})))
@@ -101,5 +107,13 @@ def test_dummy_cancel_preserves_current_run_in_existing_typed_fixture():
     assert observed[-1]['phase']=='halted'
     bridge.safety_event('recover',bridge.work)
     assert bridge.evidence.verified()  # 명시 모의 증빙뿐이며 실제 복구 증거가 아닙니다.
-    bridge.safety_event('candidate',TaskEndCandidate(bridge.work))
+    work=bridge.work;recover_feedback=feedback[-1];end=TaskEndCandidate(work)
+    bridge.safety_event('candidate',end)
+    assert bridge.work==work and bridge.run=='current-run' and not accepted
+    bridge.safety_event('feedback_delivered',recover_feedback)  # 과거 안내는 현재 종료 수락이 아닙니다.
+    assert bridge.work==work and not accepted
+    bridge.safety_event('feedback_delivered',feedback[-1])  # 명시 수락 fixture; 실제 TTS/물리 결과 아님
     assert bridge.work is None and bridge.run is None
+    assert accepted==[end] and observed[-1]['phase']=='idle'
+    bridge.safety_event('feedback_delivered',feedback[-1])
+    assert accepted==[end]
