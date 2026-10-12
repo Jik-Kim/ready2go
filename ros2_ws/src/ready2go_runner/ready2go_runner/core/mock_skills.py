@@ -4,12 +4,15 @@
 반환값 모양은 docs/runner.md 7.1 표, 인식 결과는 contracts/examples/inspect_region_result.json 을 따른다.
 실패 지정: "동작=코드" 는 매번, "동작=코드*N" 은 처음 N번만 실패 (예: "pick_object=GRASP_FAILED*1").
 끌기(nudge) 성공 뒤 다시 인식하면 끌린 자리가 보이고(실물처럼), 집기 성공하면 처음 자리로 돌아간다(다음 회차).
+scene 을 주면 여러 물체가 겹친 장면(core/mock_scene.py)으로 인식·집기·놓기·끌기를 답한다 (Unpacking 시험).
 """
 from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
 from typing import Any
+
+from .mock_scene import MockScene
 
 SKILL_ACTIONS = ("move_to_named_pose", "drawer_control", "pick_object", "place_object", "nudge_object")
 MOCK_NUDGE_DY = -0.04                   # mock 끌기: 서랍 옆(y)으로 옮기는 거리 (m). 실물 값은 B 계산 (10/07 PC2 40.1 mm)
@@ -36,8 +39,10 @@ def parse_failures(text: str) -> dict[str, list]:
 
 
 class MockSkills:
-    def __init__(self, failures: dict[str, list] | None = None, not_visible: set[str] | None = None):
+    def __init__(self, failures: dict[str, list] | None = None, not_visible: set[str] | None = None,
+                 scene: MockScene | None = None):
         self.failures = failures or {}
+        self.scene = scene                          # 여러 물체 장면 (없으면 물체 1개 — P1 지우개)
         self.not_visible = not_visible or set()     # 이 물품은 inspect_region 에서 못 찾음 (target_found=false)
         self.moved: dict[str, dict] = {}            # 끌기로 옮겨진 물품 → 새 pose (다시 인식할 때 보임)
 
@@ -53,6 +58,10 @@ class MockSkills:
         code = self._fail(action)
         if code:
             return MockReply(False, code)
+        if self.scene is not None and action in ("pick_object", "place_object", "nudge_object"):
+            ok, code, output = getattr(self.scene, {"pick_object": "pick", "place_object": "place",
+                                                    "nudge_object": "nudge"}[action])(params)
+            return MockReply(ok, code, output)
         output = _output(action, params)
         target = params.get("target") if isinstance(params.get("target"), dict) else {}
         name = target.get("class") or str(target.get("id", "")).split("#")[0]
@@ -66,6 +75,8 @@ class MockSkills:
         code = self._fail("inspect_region")
         if code:
             return MockReply(False, code)
+        if self.scene is not None:
+            return MockReply(True, output=self.scene.inspect(region, search_target))
         if not search_target or search_target in self.not_visible:
             return MockReply(True, output={"target_found": False, "target": None, "candidates": [],
                                            "visible_count": 0})

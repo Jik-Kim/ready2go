@@ -32,6 +32,7 @@ UNSUPPORTED_ITEM = "UNSUPPORTED_ITEM"   # 태스크 trigger.targets 에 없는 �
 BUSY = "BUSY"                           # 이미 태스크 실행 중 → 중복 요청 거절 (줄 세우지 않음)
 LOCKED = "LOCKED"                       # 중단 잠김 (사람 확인 전 새 태스크 없음, docs/safety.md)
 NOT_RUNNING = "NOT_RUNNING"             # cancel 을 받았지만 멈출 태스크가 없음
+STOPPED_BEFORE_START = "STOPPED_BEFORE_START"   # 이 요청을 처리하는 사이 "멈춰"가 와서 시작 안 함 (#187)
 NOT_READY = "NOT_READY"                 # 태스크에 필요한 /skills/* 서버가 아직 안 뜸 (기동 직후, #108) → 로봇 동작 없이 거절
 NO_GOAL = "NO_GOAL"                     # achieve_goal 인데 goals 가 없음
 PLAN_SATISFIED = "PLAN_SATISFIED"       # 목표가 이미 만족 → 실행 안 함 (플래너 근거는 로그, #150)
