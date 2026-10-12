@@ -719,7 +719,7 @@ def unpack(node):
                 res, sel = res2, select(res2)
         return res, sel
 
-    stack, left_aside, delivered, failed = [], [], False, ""
+    stack, left_aside, restore_failed, delivered, failed = [], [], [], False, ""
     res, sel = look_select()
     while sel.get("obstacle") and len(stack) < UNPACK_MAX:
         ob = sel["obstacle"]
@@ -763,12 +763,14 @@ def unpack(node):
         rescan = inspect_all(node, item["class"])
         found = up.find_moved({"scan": rescan, "record": item, "tol_m": REID_TOL_M}, world).output if rescan else None
         if not found or found.get("status") != "found":
-            print(f">>> 옮긴 {item['id']} 를 원래 자리로 못 돌려놨어요 ({(found or {}).get('status', '인식 실패')})")
+            print(f"  {item['id']} 다시 못 찾음 ({(found or {}).get('status', '인식 실패')}) — 남은 것 계속 (태스크 fr.x)")
+            restore_failed.append(item)
             continue
         if not _pick(node, found["object"], rescan):
             if last["code"] in STOP_CODES:
                 sys.exit(f"pick {last['code']} — 멈춤 (사람 확인)")
-            print(f">>> 옮긴 {item['id']} 를 원래 자리로 못 돌려놨어요 (집기 {last['code']})")
+            print(f"  {item['id']} 집기 {last['code']} — 남은 것 계속 (태스크 fr.x)")
+            restore_failed.append(item)
             continue
         if timed("restore", lambda: run(node, "restore", ("place_object", {"location": DRAWER, "pose": item["origin"], "scan": rescan}))):
             continue
@@ -779,6 +781,8 @@ def unpack(node):
         left_aside.append(item)
         print(f">>> {item['id']} 는 원래 자리 대신 옆 빈 자리({item['slot']})에 뒀어요")
 
+    if restore_failed:                                       # 태스크 fn·fe: 하나라도 못 돌려놓으면 안내 + FAILED RESTORE_INCOMPLETE
+        print(f"\n>>> 옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람이 확인해 주세요 ({', '.join(i['id'] for i in restore_failed)}) — RESTORE_INCOMPLETE")
     if stack:                                                # 마지막 확인 (태스크 fv) — 판정 아님, 자로 잰 값과 같이 기록
         final = inspect_all(node, TARGET)
         print("\n===== 복구 오차 (비전, 판정 아님 — 합격선 3 cm 은 기록표) =====")
@@ -798,8 +802,9 @@ def unpack(node):
     print("\n===== close (닫고 홈) =====")
     if not timed("close", lambda: run(node, "close")):
         sys.exit(f"close {last['code']} — 멈춤")
-    print(f"\nunpack 끝: 전달 {'O' if delivered else 'X'}, 치움 {len(stack)}개, 원래 자리 대신 고정 자리 {len(left_aside)}개")
-    return delivered
+    print(f"\nunpack 끝: 전달 {'O' if delivered else 'X'}, 치움 {len(stack)}개, 원래 자리 대신 고정 자리 {len(left_aside)}개"
+          + (f", 못 돌려놓음 {len(restore_failed)}개 (RESTORE_INCOMPLETE)" if restore_failed else ""))
+    return delivered and not restore_failed
 
 
 CLEAR_STEPS = 12                            # B clear: 다시 보기 사이 동작 최대 수 (넘으면 멈춤 — 같은 동작을 되풀이하지 않게) [제안]
