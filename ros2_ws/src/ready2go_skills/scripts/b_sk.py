@@ -615,7 +615,7 @@ def free(node):
 
 
 UNPACK_MAX = 2                              # 치울 물체 최대 — Runner find_with_unpack s7 max_iter 2 (B 고정 자리 aside_1·aside_2 두 곳)
-UNPACK_RESCAN = 2                           # 다음 치울 것을 못 정하면 다시 찍는 횟수 (태스크는 관계 모름일 때 1번) [사용자 10/12]
+UNPACK_PICK_RETRY = 1                       # 목표 집기 다시 — 태스크 s8.t1 on_failure retry 1
 REID_TOL_M = 0.02                           # 옮긴 물체 다시 찾기 거리 — 태스크 inputs.reid_tol_m [팀 확정 필요]
 RESTORE_CHECK_TOL_M = 0.10                  # 마지막 확인에서 원래 자리 물체로 볼 거리 — 태스크 inputs.restore_check_tol_m (판정은 기록표 3 cm)
 
@@ -658,16 +658,16 @@ def _pick(node, obj, scan_):
 
 
 def _pick_retry(node, obj, res, search):
-    """집기 — 아직 못 잡는 자리(WALL_TOO_CLOSE)면 넛지 → 다시 보기 → 다시, 잡기 실패(RETRY_PICK)면 다시 보기 → 다시 (최대 RETRIES 번).
-    넛지가 거부되면(쌓인 물체 NOT_ON_FLOOR 등) 그만. 치울 물체·목표 둘 다 [사용자 10/12 PC2: 캐러멜 WALL_TOO_CLOSE 에 바로 복구로 감].
+    """목표 집기 — 태스크 s8.t1 공통 pick 스킬(탑뷰 → 찾기 → 넛지 → 다시 보기 → 집기, retry 1)과 같게: 아직 못 잡는 자리
+    (WALL_TOO_CLOSE)면 넛지 → 다시 보기 → 다시, 잡기 실패(RETRY_PICK)면 다시 보기 → 다시. 치울 물체는 태스크가 pick_object 만 쓰므로 안 씀.
     돌려줌 (성공, 마지막 인식 결과, 마지막 물체)."""
-    for n in range(RETRIES + 1):
+    for n in range(UNPACK_PICK_RETRY + 1):
         print(f"\n----- {obj['id']} 집기{f' (다시 {n})' if n else ''} -----")
         if _pick(node, obj, res):
             return True, res, obj
         if last["code"] in STOP_CODES:
             sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
-        if last["code"] not in RETRY_PICK | REGRAB_CODES or n == RETRIES:
+        if last["code"] not in RETRY_PICK | REGRAB_CODES or n == UNPACK_PICK_RETRY:
             return False, res, obj
         if last["code"] in REGRAB_CODES:                     # 벽에 붙어 아직 못 잡는 자리 → 넛지 뒤 다시 보기 (공통 pick 과 같음)
             print("\n----- 아직 못 잡는 자리 → 넛지 → 다시 보기 -----")
@@ -703,45 +703,31 @@ def unpack(node):
         if not timed(step, lambda: run(node, step)) and last["code"] != "DRAWER_ALREADY_OPEN":
             sys.exit(f"{step} {last['code']} — 여기서 멈춤 (서랍 닫힘·빈손·홈에서 시작, 이미 열었으면 B opened {DRAWER.removeprefix('drawer_')} 뒤 다시)")
 
-    def drop_moved_cover(res):
-        """이미 옮겨 고정 자리에 있는 물체가 아직 다른 물체를 덮는다고 나오면 그 관계를 뺌 — 옮긴 자리에서 덮을 수 없음
-        [사용자 10/12 PC2: 차키 aside_1 뒤 다시 보니 캐러멜 대신 차키를 다시 집음 — 덮은 사슬이 끊겨 치우기를 멈추고 복구로 감]."""
-        moved_ids = set()
-        for rec in stack:
-            fm = up.find_moved({"scan": res, "record": rec, "tol_m": REID_TOL_M}, world).output or {}
-            if fm.get("status") == "found":
-                moved_ids.add(fm["object"]["id"])
-        for o in ([res["target"]] if res.get("target") else []) + list(res.get("candidates") or []):
-            occ = o.get("occluded_by")
-            if isinstance(occ, list) and moved_ids & set(occ):
-                print(f"  ({o['id']} 를 덮었다는 {sorted(moved_ids & set(occ))} 는 이미 옮겨 고정 자리에 있음 → 관계 뺌)")
-                o["occluded_by"] = [i for i in occ if i not in moved_ids]
-        return res
-
     def select(res):
-        r = up.select_obstacle({"scan": drop_moved_cover(res), "moved": stack, "tol_m": REID_TOL_M}, world)
+        r = up.select_obstacle({"scan": res, "moved": stack, "tol_m": REID_TOL_M}, world)
         return r.output if r.success else {"obstacle": None, "reason": "bad_scan"}
 
     def look_select():
-        """탑뷰·인식·고르기. 판단이 막히면(관계 모름·덮은 물체 안 보임·인식 실패) 다시 찍기 (이미 2개 옮겼으면 안 함) —
-        태스크 s6r·s7.9 는 occlusion_unknown 만 한 번, 여기선 UNPACK_RESCAN 번 [사용자 10/12 "성공하면 다음 단계로"]."""
-        for n in range(UNPACK_RESCAN + 1):
-            res = inspect_all(node, TARGET)
-            sel = select(res) if res else {"obstacle": None, "reason": "no_scan"}
-            stuck = sel.get("obstacle") is None and sel["reason"] in ("occlusion_unknown", "occluder_unavailable", "no_scan")
-            if not stuck or n == UNPACK_RESCAN or len(stack) >= UNPACK_MAX:
-                return res, sel
-            print(f"\n----- 다음 치울 것을 못 정함 ({sel['reason']}) → 다시 찍기 {n + 1}/{UNPACK_RESCAN} -----")
+        """탑뷰·인식·고르기 — 태스크 s4·s6·s6r(s7.6~s7.9)와 똑같이: 관계 모름(occlusion_unknown)일 때만 한 번 다시 찍기.
+        B 명령이 태스크보다 더 해 주면(관계 고치기·더 다시 찍기) 시연(Runner)에서 다르게 나옴 [사용자 10/12 "unpack 은 스킬 짜깁기 — 고치지 말 것"]."""
+        res = inspect_all(node, TARGET)
+        sel = select(res) if res else {"obstacle": None, "reason": "no_scan"}
+        if sel["reason"] == "occlusion_unknown":
+            print("\n----- 가림 관계 모름 → 한 번 다시 찍기 (태스크 s6r·s7.9) -----")
+            res2 = inspect_all(node, TARGET)
+            if res2:
+                res, sel = res2, select(res2)
+        return res, sel
 
     stack, left_aside, delivered, failed = [], [], False, ""
     res, sel = look_select()
     while sel.get("obstacle") and len(stack) < UNPACK_MAX:
         ob = sel["obstacle"]
         print(f"\n===== 치우기 {len(stack) + 1}: {ob['id']} ({sel['reason']}) =====")
-        ok, res, _ = _pick_retry(node, ob, res, TARGET)        # 원래 자리(복구 목표)는 처음 본 ob 자리 그대로
-        if not ok:
-            failed = f"치울 {ob['id']} 집기 {last['code']}" + (" — 쌓인 채 벽 쪽이라 넛지 못 함, 쌓기 자리를 벽에서 띄우기"
-                                                          if last["code"] == "NOT_ON_FLOOR" else "")
+        if not _pick(node, ob, res):                          # 태스크 s7.1 pick_object 그대로 (넛지·다시 하기 없음 — 실패면 복구로)
+            if last["code"] in STOP_CODES:
+                sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
+            failed = f"치울 {ob['id']} 집기 {last['code']}"
             break
         for slot in ("aside_1", "aside_2"):
             params = {"location": DRAWER, "slot": slot, "scan": res}
@@ -754,7 +740,7 @@ def unpack(node):
         out = last.get("out") or {}
         stack.append({"class": ob["class"], "id": ob["id"], "origin": {k: ob["pose"][k] for k in ("frame", "position", "yaw")},
                       "placed": out.get("placed_pose"), "slot": out.get("slot")})
-        print(f"\n----- {ob['id']} → {stack[-1]['slot']} 끝 → 다시 보고 다음 -----")
+        print(f"\n----- {ob['id']} → {stack[-1]['slot']} 끝 → 다시 보고 다음 (태스크 s7.6~s7.9) -----")
         res, sel = look_select()
     t = (res or {}).get("target") if (res or {}).get("target_found") else None
     if not failed and t is not None and sel.get("reason") == "target_clear":

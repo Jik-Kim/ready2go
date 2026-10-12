@@ -736,50 +736,39 @@ def test_b_unpack_target_missing_still_restores(monkeypatch):
     assert "place" not in calls and calls[-1] == "close" and calls.count("restore") == 2
 
 
-def test_b_unpack_goes_on_to_next_when_moved_object_still_listed_as_cover(monkeypatch):
-    """[사용자 10/12 PC2] 차키 aside_1 뒤 다시 보니 캐러멜이 아직 '차키에 덮임'(이미 옮긴 차키) → 예전엔 덮은 사슬이 끊겨
-    치우기를 멈추고 복구로 가 차키를 다시 집음. 이제 옮긴 물체의 덮음 관계는 빼고 캐러멜 → aside_2 → 몽키 트레이.
-    한 번 캐러멜이 안 보이면(미검출) 다시 찍음."""
+def test_b_unpack_follows_task_when_moved_object_still_listed_as_cover(monkeypatch):
+    """[사용자 10/12 "unpack 은 스킬 짜깁기 — 태스크와 같게"] 차키 aside_1 뒤 캐러멜이 아직 '차키에 덮임'이면 Runner select_obstacle 은
+    occluder_unavailable → 태스크처럼 더 치우지 않고(관계를 고치지도, 더 찍지도 않음) 목표 못 꺼냄 → 차키 원위치 → 닫기.
+    (Runner 쪽 문제 — C 에 알림. B 명령이 더 잘해 주면 시연에서 다르게 나옴)"""
     w = _o("toy_wrench#1", "toy_wrench", 0.10, 0.18, under=["caramel_box#1"], frame="drawer_top")
     c = _o("caramel_box#1", "caramel_box", 0.10, 0.18, under=["car_key#1"], frame="drawer_top")
     k = _o("car_key#1", "car_key", 0.10, 0.18, frame="drawer_top")
     k_a = _o("car_key#1", "car_key", 0.057, 0.067, yaw=1.57, frame="drawer_top")
-    c_a = _o("caramel_box#1", "caramel_box", 0.12, 0.064, frame="drawer_top")
-    scans = [_scan(w, [c, k]),
-             _scan(w, [k_a]),                                            # 캐러멜 미검출 → 다시 찍기
-             _scan(w, [c, k_a]),                                         # 캐러멜이 아직 차키에 덮였다고 나옴 (차키는 aside_1)
-             _scan(dict(w, occluded_by=[]), [c_a, k_a]),
-             _scan(c_a, [k_a]), _scan(k_a, [dict(c, occluded_by=[])]), _scan(None, [dict(c, occluded_by=[]), k_a])]
-    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"aside": ["", "PLACE_BLOCKED", ""], "restore": ["", "PLACE_BLOCKED", ""]})
+    scans = [_scan(w, [c, k]), _scan(w, [c, k_a]), _scan(k_a, [c]), _scan(None, [c, k_a])]
+    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"restore": ["PLACE_BLOCKED", ""]})
     sk.TARGET = "toy_wrench"
-    assert sk.unpack(None) is True
+    assert sk.unpack(None) is False
     picks = [g[1]["target"]["id"] for cmd, g in zip(calls, sent) if cmd == "pick"]
-    assert picks[:3] == ["car_key#1", "caramel_box#1", "toy_wrench#1"]
-    assert "place" in calls and calls[-1] == "close"
+    assert picks == ["car_key#1", "car_key#1"] and calls.count("inspect:toy_wrench") == 3 and calls[-1] == "close"
 
 
-def test_b_unpack_obstacle_too_close_to_wall_nudges_then_picks_or_stops_if_stacked(monkeypatch):
-    """[사용자 10/12 PC2 로그] 치울 캐러멜 집기가 WALL_TOO_CLOSE → 예전엔 바로 복구로. 이제 넛지 → 다시 보기 → 다시 집기.
-    넛지가 거부되면(쌓인 물체 NOT_ON_FLOOR) 그만두고 옮긴 것 원위치."""
-    c = _o("caramel_box#1", "caramel_box", 0.0605, 0.2139, yaw=-0.79, frame="drawer_top")
-    w = _o("toy_wrench#1", "toy_wrench", 0.10, 0.18, under=["caramel_box#1"], frame="drawer_top")
-    c2 = _o("caramel_box#1", "caramel_box", 0.03, 0.2139, yaw=0.0, frame="drawer_top")
-    c_a = _o("caramel_box#1", "caramel_box", 0.057, 0.067, yaw=1.57, frame="drawer_top")
-    scans = [_scan(w, [c]), _scan(w, [c2]), _scan(dict(w, occluded_by=[]), [c_a]),
-             _scan(c_a, []), _scan(None, [c])]
-    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"pick": ["WALL_TOO_CLOSE"]})
-    sk.TARGET = "toy_wrench"
-    assert sk.unpack(None) is True
-    assert calls[:8] == ["ready", "open", "inspect:toy_wrench", "pick", "nudge", "inspect:toy_wrench", "pick", "aside"]
-    assert sent[calls.index("nudge")][1]["target"]["id"] == "caramel_box#1"
-    restore = sent[calls.index("restore")][1]
-    assert restore["pose"]["position"] == c["pose"]["position"]           # 원래 자리 = 넛지 전 처음 본 자리
-
+def test_b_unpack_obstacle_pick_refused_goes_to_restore_like_task(monkeypatch):
+    """태스크 s7.1 은 치울 물체를 pick_object 로만 — 움직이기 전 거부(WALL_TOO_CLOSE)면 넛지하지 않고 복구로 (B 명령도 같게).
+    목표 집기는 공통 pick 스킬처럼 아직 못 잡는 자리면 넛지 → 다시 보기 → 다시 (retry 1)."""
     k = _o("car_key#1", "car_key", 0.10, 0.18, frame="drawer_top")
+    w = _o("toy_wrench#1", "toy_wrench", 0.10, 0.18, under=["caramel_box#1"], frame="drawer_top")
     cs = _o("caramel_box#1", "caramel_box", 0.0605, 0.2139, under=["car_key#1"], frame="drawer_top")
     k_a = _o("car_key#1", "car_key", 0.057, 0.067, yaw=1.57, frame="drawer_top")
     scans = [_scan(w, [cs, k]), _scan(w, [dict(cs, occluded_by=[]), k_a]), _scan(k_a, [cs]), _scan(None, [cs, k_a])]
-    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"pick": ["", "WALL_TOO_CLOSE"], "nudge": ["NOT_ON_FLOOR"]})
+    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"pick": ["", "WALL_TOO_CLOSE"], "restore": ["PLACE_BLOCKED", ""]})
     sk.TARGET = "toy_wrench"
     assert sk.unpack(None) is False
-    assert "place" not in calls and calls.count("nudge") == 1 and "restore" in calls and calls[-1] == "close"
+    assert "nudge" not in calls and "place" not in calls and "restore" in calls and calls[-1] == "close"
+
+    e = _o("eraser#1", "eraser", 0.02, 0.10)
+    e2 = _o("eraser#1", "eraser", 0.03, 0.10)
+    scans = [_scan(e, [_o("lip_balm#1", "lip_balm", 0.15, 0.25)]), _scan(e2, [])]
+    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"pick": ["WALL_TOO_CLOSE"]})
+    sk.TARGET = "eraser"
+    assert sk.unpack(None) is True
+    assert calls == ["ready", "open", "inspect:eraser", "pick", "nudge", "inspect:eraser", "pick", "place", "close"]
