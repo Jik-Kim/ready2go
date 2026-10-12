@@ -616,8 +616,8 @@ def test_bad_grasp_width_refused_before_motion(server, monkeypatch):
     srv = server.srv
     real = server.ss._yaml_cached
 
-    def cached(path):
-        d = real(path)
+    def cached(path, **kw):
+        d = real(path, **kw)
         if path.name == "item_grasp.yaml":
             d = {**d, "toy_hammer": {**d["toy_hammer"], "grasp_width_m": 0.2}}
         return d
@@ -1297,8 +1297,8 @@ def test_view_pose_uses_its_own_faster_joint_speed(server):
         assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])
     out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_approach", "drawer_id": "drawer_top"})
     assert out.success and speeds[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])   # 손잡이 앞도 [사용자 10/08]
-    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
-    assert out.success and speeds[-1] == (srv.joint_vel, srv.joint_acc)
+    out, _ = server.run("move_to_named_pose", {"pose_name": "tray_view"})
+    assert out.success and speeds[-1] == (srv.joint_vel, srv.joint_acc)   # 다른 기준 포즈는 서버 속도 (빈손 홈은 10/12 부터 빠르게)
 
 
 @pytest.mark.parametrize("width_now, restored", [(22.4, True), (0.9, False), (99.0, False), (26.0, False)])
@@ -2411,3 +2411,37 @@ def test_nudge_refuses_stacked_target_before_motion(server):
     assert not [e for e in srv.robot.log if e != "stop" and e[0] in ("movel", "movej", "moveb")]
     out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": dict(car, top_z=0.0185)})
     assert out.error_code != "NOT_ON_FLOOR"
+
+
+def test_named_top_view_from_tray_goes_home_first(server):
+    """[실측 PC2 10/12 B unpack] 트레이에 놓은 뒤(543.8, 225.5, z 100) 바로 탑뷰로: high_z 325 수직 상승은 팔이 거의 펴져
+    제어기가 출발 안 함(NOT_REACHED 두 번) → 트레이 위면 홈(free_lift_z 150 으로 올린 뒤 관절 이동)부터."""
+    srv = server.srv
+    srv.robot.p = [543.8, 225.5, 100.4, 21.2, -180.0, 21.6]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    assert out.success, out.reason
+    moves = [e for e in srv.robot.log if e != "stop" and e[0] in ("movel", "movej", "moveb")]
+    home = srv.poses()["home"]["joints_deg"]
+    assert moves[0][0] == "movel" and moves[0][1][2] == pytest.approx(150.0)
+    first_j = next(i for i, e in enumerate(moves) if e[0] == "movej")
+    assert list(moves[first_j][1])[:6] == pytest.approx(home)
+    assert not any(e[0] == "movel" and e[1][2] > 200.0 for e in moves[:first_j])   # 트레이 위에서 325 로 안 올림
+
+
+def test_empty_hand_home_uses_view_joint_speed(server):
+    """[사용자 10/12] 닫고 홈 가는 게 느림 → 빈손 홈은 손잡이 앞(ready)·탑뷰와 같은 speed.view_joint_deg_s. 쥔 채면 서버 속도 그대로."""
+    srv = server.srv
+    sp = srv.prm()["speed"]
+    seen = []
+    real = srv.robot.movej_async
+    srv.robot.movej_async = lambda j, v, a: seen.append((v, a)) or real(j, v, a)
+    srv.robot.p = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    assert out.success and seen[-1] == (sp["view_joint_deg_s"], sp["view_joint_acc_deg_s2"])
+    srv.held = {"class": "eraser", "id": "eraser#1", "width_m": 0.021, "drawer_id": "drawer_top", "tcp_above_floor_m": 0.006, "long_side": False}
+    server.Gripper.holding, server.Gripper.held_width = True, 21.0
+    try:
+        out, _ = server.run("move_to_named_pose", {"pose_name": "home"})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success and seen[-1] == (srv.joint_vel, srv.joint_acc)

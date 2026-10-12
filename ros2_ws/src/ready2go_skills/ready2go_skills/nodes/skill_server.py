@@ -87,23 +87,24 @@ def find_config_dir():
 _YAML_CACHE = {}
 
 
-def _yaml_cached(path):
+def _yaml_cached(path, loads=None, copy_=True):
     """YAML 을 파일 수정 시각·크기가 바뀔 때만 다시 파싱 (돌려줄 땐 복사 — 받은 쪽이 고쳐도 다음 호출에 안 섞임).
-    이동 감시 반복(0.05 s)마다 skills.yaml 을 다시 파싱하던 것(약 50 ms)이 감시 주기를 두 배로 늘렸음 [P2 시뮬레이션 10/10 측정]."""
+    이동 감시 반복(0.05 s)마다 skills.yaml 을 다시 파싱하던 것(약 50 ms)이 감시 주기를 두 배로 늘렸음 [P2 시뮬레이션 10/10 측정].
+    loads: 다른 형식(json.loads — world.jsonld). copy_=False 는 읽기만 하는 쪽 (복사 비용도 아낌)."""
     path = Path(path)
     st = path.stat()
     key = (st.st_mtime_ns, st.st_size)
     hit = _YAML_CACHE.get(path)
     if hit is None or hit[0] != key:
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError:
+            data = (loads or yaml.safe_load)(path.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, ValueError):
             data = None
         if not isinstance(data, dict) and hit is not None:
             return copy.deepcopy(hit[1])                # 저장하는 중(빈 파일·반쯤 쓴 파일)에 읽음 → 전 값, 다음 호출에 다시 읽음
         hit = (key, data)                                #   [P2 시뮬레이션 10/11: 돌리는 중 skills.yaml 저장 → None → SKILL_EXCEPTION]
         _YAML_CACHE[path] = hit
-    return copy.deepcopy(hit[1])
+    return copy.deepcopy(hit[1]) if copy_ else hit[1]
 
 
 def _width_m(width_mm):
@@ -371,11 +372,13 @@ class SkillServer(Node):
 
     def item(self, cls):
         """온톨로지 size_m [긴 변, 짧은 변, 높이] 과 item_grasp.yaml 잡는 힘."""
-        world = json.loads((self.cfg_dir.parent / "knowledge" / "world.jsonld").read_text(encoding="utf-8"))
+        # 파일이 바뀔 때만 다시 읽음 — 서랍 안 놓기 자리 맞춤이 후보마다 이웃 크기를 물어 매번 디스크에서 읽던 것(한 번 10 ms × 약 900)이
+        # 막힌 aside 에서 10~20 s 걸림 [PC2 10/12 B unpack "계산이 엄청 오래"]
+        world = _yaml_cached(self.cfg_dir.parent / "knowledge" / "world.jsonld", loads=json.loads, copy_=False) or {}
         items = world.get("world", {}).get("items", {})
         if cls not in items or "size_m" not in items[cls]:
             raise ValueError(f"온톨로지에 {cls!r} 크기 없음")
-        grasp = yaml.safe_load((self.cfg_dir / "item_grasp.yaml").read_text(encoding="utf-8")) or {}
+        grasp = _yaml_cached(self.cfg_dir / "item_grasp.yaml", copy_=False) or {}
         force = (grasp.get(cls) or {}).get("grip_force")
         return [float(v) for v in items[cls]["size_m"]], force
 
@@ -470,6 +473,16 @@ class SkillServer(Node):
             cur = self.robot.posx()
             if cur is None:
                 return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 서랍 밖으로 뺀 뒤 높이 확인 못 함")
+        if pose_name in ("drawer_top_view", "drawer_approach") and self._over_tray(cur):
+            # 트레이 위에서 서랍 쪽 자세로: 여기서 high_z(325)·safe_z(300)로 수직으로 올리면 팔이 거의 펴져 제어기가 출발 안 함
+            # [실측 PC2 10/12 B unpack: 트레이 놓기 → 탑뷰 lift (543.8, 225.5) z 100 → 325, 1 s 그대로 NOT_REACHED 두 번]
+            # → 트레이 놓은 뒤 늘 하던 대로 홈(free_lift_z 로 올린 뒤 관절 이동)을 거쳐 감 (Runner 도 놓기 → 탑뷰로 바로 감)
+            bad = self._named(goal, "home")
+            if not bad.success:
+                return bad
+            cur = self.robot.posx()
+            if cur is None:
+                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 홈 뒤 높이 확인 못 함")
         tr = self.prm()["transit"]
         # 관절 이동은 경로 높이를 보장하지 않음 → 낮으면 먼저 수직으로 올림 (#83 D 재검토 P1).
         # 서랍 위: safe_z(300). 그 밖(트레이 등): free_lift_z(150) — 트레이 쪽 z 300은 팔이 거의 펴져 위험
@@ -490,7 +503,9 @@ class SkillServer(Node):
                 return bad
         goal.publish_feedback(Skill.Feedback(stage=f"to_{pose_name}"))
         vel, acc = self.joint_vel, self.joint_acc
-        if pose_name in ("drawer_top_view", "drawer_approach"):   # 탑뷰·바텀뷰(J6 약 200° 회전)·손잡이 앞 → 이 이동만 따로 빠르게 [사용자 10/08]
+        if pose_name in ("drawer_top_view", "drawer_approach") or (pose_name == "home" and not self.held):
+            # 탑뷰·바텀뷰(J6 약 200° 회전)·손잡이 앞 → 이 이동만 따로 빠르게 [사용자 10/08]. 빈손 홈도 같은 속도
+            # [사용자 10/12 "서랍 닫고 홈 가는 게 느림, ready 갈 때랑 같게"] — 쥔 채 홈은 서버 관절 속도 그대로
             sp = self.prm()["speed"]
             vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
         ok = self.robot.movej_async(joints, vel, acc)
@@ -539,6 +554,15 @@ class SkillServer(Node):
                 return bad
         out = list(cur[:1]) + [tr["exit_y_mm"], z] + list(cur[3:])
         return self._line(goal, out, vel, "exit_drawer")
+
+    def _over_tray(self, cur, margin_m=0.06):
+        """TCP 가 전달 트레이(handover_zone) 바닥 위·둘레 margin 안에 있는지 (높이 상관없음)."""
+        pl = self.places().get("handover_zone") or {}
+        tf, size = pl.get("tf") or {}, pl.get("interior_m")
+        if not tf.get("translation_m") or not size:
+            return False
+        p = mp.from_base(tf, [v / 1000.0 for v in cur[:3]])
+        return -margin_m <= p[0] <= size[0] + margin_m and -margin_m <= p[1] <= size[1] + margin_m
 
     def _over_drawer(self, cur):
         """TCP 가 서랍 안쪽(벽 포함 여유 40 mm) 위에 있는지 — 최대 인출 tf 기준."""
@@ -2356,7 +2380,8 @@ class SkillServer(Node):
                     return plp.Refusal(WALL_TOO_CLOSE, f"놓으면 다시 집을 때 넛지 필요 ({dp_.reason})", "wall")
             return None
         # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 — 명령한 pose(되돌리기)는 그대로 [P2 시뮬레이션 10/10]
-        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0)
+        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0,
+                                 step_mm=float(pl.get("slot_fit_step_mm", 2.0)))
         if bad:
             return refuse(bad.error_code, bad.reason, bad.blocked_by)
         support_m = float(support["top_z"]) if support is not None else 0.0
