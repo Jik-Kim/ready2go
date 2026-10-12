@@ -27,13 +27,34 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 .venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-live --config-file logs/voice_eval/voice.local.yaml
 ```
 
+### 통합 음성 흐름 — 사용자 직접 시험
+
+[구현: E-VOICE-FLOW-20261012-01] [정본의 음성 정책](../../../docs/requirements.md#voice-policy)에 따라 현재 P1 질문의 자연스러운 답을 처리합니다. 빠른 정확 답은 유지하고 YAML의 전체 답 문형과 부정/인용/미지원 가드를 통과한 현재 대상만 LLM 문맥/공통 검증·규칙 폴백에 연결합니다. 대상이 없으면 물품 이름을 묻고, running/잠금 상태에서는 질문 읽기·권한 생성을 하지 않고 상태를 안내합니다. 정상 SDK 빈 문자열은 현재 질문 ID·세대·기한을 그대로 보존하며 새 question_ready를 만들지 않습니다. 녹음/SDK/TTS 실패·취소·만료·새 독립 요청·running/잠금은 보존 표식으로 복원하지 않습니다. #43/#152의 질문/접수 규약은 변경하지 않았습니다.
+
+[구현·진단] `interpretation.intent._voice.original_interpretation`·`execution_hold_reason`으로 원래 find 판정과 실행 보류를 구분합니다. 원본 LLM은 기존 interpretation에 한 번만 유지하고, `안내/제어 메시지 발행`은 실행 요청 수락이 아닙니다. 검증된 최종 문장·콘솔·TTS 입력은 일치하며 C 수락/완료 전 실행이나 성공을 단정하지 않습니다. 기존 STT 한 줄과 429 최소 정보 필터도 유지합니다.
+
+[시험 옵션] 값·문구·문형은 [params/voice.yaml](params/voice.yaml)의 `voice_flow` 한 곳에서 관리합니다. 누락된 오래된 local 설정은 source/설치-share YAML의 mapping을 읽으며 명시 local 값과 원본 파일은 보존합니다. 아래 복사 명령의 환경 스위치는 시험 복사본만 바꿉니다.
+
+| 스위치 | 사용자 시험 옵션 |
+|---|---|
+| E_VOICE_CUE=1 | 같은 출력장치/출력 lock의 미리 만든 로컬 띠딩. 입력 소비자 준비→실제 첫 DAC/PCM 유음 끝→finished/guard→capture_ready를 기록합니다. audible 띠딩 끝 직후 발화가 기준이며 guard/로그 표시를 기다린 발화만으로 첫 음절 검증을 대신하지 않습니다. |
+| E_VOICE_SAVE_WAV=1 | 해당 run 폴더 captures에 P1 원음 WAV와 최소 RMS/peak/샘플수/시각 증빙을 저장합니다. 기본 저장0·원격 수집0, 파일 실패는 경고/진단으로 분리합니다. 저장 대상은 일반 P1 음성 경로이며 독립 stop/#43/#152 원음 저장은 추가하지 않았습니다. |
+| E_VOICE_TRIM=1 | 기존 RMS와 YAML padding으로 앞뒤 구간을 정리한 전송 WAV를 비교합니다. 원음은 저장 옵션에서 보존하고 start/end sample을 기록하며 원래 녹음 시각/AC 기준은 바꾸지 않습니다. |
+| E_VOICE_STT_HINT=0/1 | 현재 유효 P1 질문의 STT 문맥 힌트를 비교합니다. 빈값은 local/YAML 설정 그대로이며 실제 SDK 접수 직전에 기한·세대를 다시 확인합니다. 새 모델/재시도/추가 호출은 없습니다. |
+| E_VOICE_SILENCE=1 | 1은 복사본에서만 기존 silence 녹음을 비교하고 0은 원본 local 모드(현재 확인한 fixed)를 유지합니다. 기본 fixed5초·모델·임계값·commissioning 예산은 변경하지 않습니다. |
+| E_VOICE_AUTO_COMPLETE=1 | 아래 명령에 --auto-complete를 붙입니다. 현재 run 수락→실제 수락 TTS 성공→더미 첫 동작 이후 기존 complete gate에서만 모의완료합니다. 이 복사 명령의 옵션0은 시험 복사본 dummy_auto_complete도 false로 맞춰 수동 complete 대기를 명시합니다. 원본 local true는 덮어쓰지 않습니다. 복사 명령을 생략한 직접 실행은 CLI 미지정 시 실제 local/YAML 값을 따릅니다. |
+
+[구현·미검증] 일반 노드는 같은 SharedInput reader를 웨이크/새 캡처 창에 사용합니다. 알림음의 audible 종료는 첫 출력 DAC와 실제 준비 PCM의 마지막 유음 샘플에서 계산하고, 그 이전 샘플만 제외합니다. 경계를 걸친 ADC 프레임은 샘플 단위로 나누며 종료 이후 짧은 발화는 출력 버퍼 drain/guard 동안 쌓여도 보존합니다. Recorder에는 같은 prepared 경계를 넘겨 다시 전체 discard하지 않습니다. cue 중 정지 녹음은 보류하고 세대/취소/다른 출력에는 캡처를 중단합니다. 계산 경계와 mock ADC/DAC 검사는 실제 마이크의 첫 음절/room echo/입출력 시계 정합성·알림음 청취 성공을 대신하지 않습니다.
+
+[사용자 재검증] 수동 모드는 첫 동작 뒤 complete→완료/idle을 확인한 뒤 대화 시험을 합니다. 자동 모드는 dummy_auto_complete_fixture_not_physical→모의완료/idle을 확인합니다. idle에서 대상만 망치→질문 TTS 완료/question_ready→웨이크 후 어어 맞아/어 그걸로 갖다줘/가져다줘를 시험하고 동일 대상·질문 ID의 한 번 수락을 대조합니다. 빈 전사가 나오면 기존 question ID/expires 보존 여부를 확인하며 부정/기한 만료/진행 중/SDK 오류가 자동 긍정이나 기한 연장으로 이어지지 않는지 확인합니다. cue/저장/trim/silence는 한 스위치씩 바꾼 새 run 폴더로 비교하고 띠딩 직후 짧은 응을 포함한 첫 음절, 원음의 cue 잔음, waveform·RMS/peak, 실제 STT/hint 적용·LLM 판정/보류·수락TTS/더미 완료를 구분합니다. 실음성·물리 수용 결과는 아직 없습니다.
+
 ### P1 짧은 확인 답변
 
-[구현: E-VOICE-SHORT-REPLY-20261012-01] 기존 `core/intent.py:is_context_reply`의 정확 표현 목록에 “응 맞아”·“네 맞아요”를 추가했고, 같은 작업의 추가 사용자 승인으로 단독 긍정 “어어”도 지원합니다. “어”·“어어어”·부정/인용/제3자 문맥은 긍정 표현으로 확대하지 않습니다. 기존 공백/끝 종결기호 정규화를 재사용하며 부분 문자열로 긍정을 판단하지 않습니다. 실제 질문 TTS 성공 뒤 `Conversation.delivered`가 등록한 현재 질문의 대상·세대·기한에서 한 번만 결합합니다. 질문 없음·만료·실패·진행 중/잠금·부정 혼합에서는 실행 후보를 확정하지 않습니다. 빈 전사와 STT 오류를 긍정으로 바꾸거나 질문 권한을 복원/연장하지 않습니다. node/config/녹음/모델/더미는 변경하지 않았습니다.
+[구현: E-VOICE-SHORT-REPLY-20261012-01] 기존 `core/intent.py:is_context_reply`의 정확 표현 목록에 “응 맞아”·“네 맞아요”를 추가했고, 같은 작업의 추가 사용자 승인으로 단독 긍정 “어어”도 지원합니다. “어”·“어어어”·부정/인용/제3자 문맥은 긍정 표현으로 확대하지 않습니다. 기존 공백/끝 종결기호 정규화를 재사용하며 부분 문자열로 긍정을 판단하지 않습니다. 실제 질문 TTS 성공 뒤 `Conversation.delivered`가 등록한 현재 질문의 대상·세대·기한에서 한 번만 결합합니다. 질문 없음·만료·실패·진행 중/잠금·부정 혼합에서는 실행 후보를 확정하지 않습니다. 빈 전사는 최신 정본 조정에 따라 현재 유효한 일반 P1 질문을 기존 기한으로 보존하지만 긍정 해석/권한 복원/연장은 하지 않습니다. SDK 오류는 계속 폐기합니다. 이 정확 답 목록의 앞선 작업은 node/config/녹음/모델/더미를 바꾸지 않았으며, 이후 통합 흐름 변경은 위 절을 참조하십시오.
 
 [실측·코드 대조] `_094102/diagnostic.jsonl`의147–184행에서 망치 질문의 실제 TTS 완료 뒤 question_ready가 없고, 후속 STT 결과166/179행이 빈 문자열이었습니다. 앞선 더미 첫 동작은 있지만 완료/cancel 로그가 없었고, 더미의 running 상태 주입과 `runner_blocks → delivered(blocked=True)` 경로는 이 질문 준비 차단과 부합합니다. 당시 정책 객체 전체가 기록되지 않아 이를 단독 원인으로 확정하거나 제품 질문 준비 결함으로 단정하지 않습니다. local dialogue30을 확인했으며 누락 설정을 새로 주입하지 않습니다. 영상 음성 트랙 없음은 조율 확인을 재사용했고 원음을 재조사/새 녹음하지 않았습니다. 빈 전사의 음향 누락과 STT 미검출 원인은 미확인입니다.
 
-[검증·후속] 실제 node 메서드 기반 모의에서 현재 질문→TTS 성공→question_ready→동일 대상/질문 ID의 복합 답→한 번 수락, 실패/만료/진행 중·빈 전사/SDK 실패 보류를 확인했습니다. API/마이크/스피커의 실제 짧은 답 인식 성공은 검증하지 않았습니다. 진행 중에도 clarify 질문을 읽는 UX는 현행입니다. 진행 중에는 질문 읽기를 보류하고 기존 상태 안내를 재사용하는 최소안을 조율에 보고했으며 이번에는 구현하지 않았습니다. 기준은 [음성 정책](../../../docs/requirements.md#voice-policy)입니다.
+[검증·후속] 실제 node 메서드 기반 모의에서 현재 질문→TTS 성공→question_ready→동일 대상/질문 ID의 복합 답→한 번 수락, 앞선 검사에서는 실패/만료/진행 중·빈 전사/SDK 실패 폐기를 확인했으며 정상 빈 전사의 현재 정책/구현은 위 통합 흐름과 정본을 참조합니다. API/마이크/스피커의 실제 짧은 답 인식 성공은 검증하지 않았습니다. 앞선 단계에서 보고한 진행 중 질문 읽기 UX는 통합 흐름에서 상태 안내로 변경했습니다. 기준은 [음성 정책](../../../docs/requirements.md#voice-policy)입니다.
 
 ### STT 전사 콘솔 확인
 
@@ -72,6 +93,9 @@ source ros2_ws/install/setup.bash
 export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PYTHONPATH"
 export E_P2_RUN_DIR="$PWD/logs/voice_eval/p2_dummy_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$E_P2_RUN_DIR"
+# 아래 값만 1로 바꿔 별도 run에서 비교합니다. 원본 local 설정은 덮어쓰지 않습니다.
+export E_VOICE_CUE=0 E_VOICE_SAVE_WAV=0 E_VOICE_TRIM=0 E_VOICE_SILENCE=0 E_VOICE_AUTO_COMPLETE=0
+export E_VOICE_STT_HINT='' # 빈값=local/YAML 유지, 0=off, 1=on
 if .venvs/project/bin/python - <<'PY'
 import os
 from pathlib import Path
@@ -90,19 +114,42 @@ for key in required:
         cfg[key] = base.get(key)
     if cfg.get(key) is None:
         raise ValueError(f'{key}: 원본 미설정, 관련 시험 보류')
+for env_key, field in [('E_VOICE_CUE','wake_cue_enabled'), ('E_VOICE_SAVE_WAV','capture_save_wav'),
+                       ('E_VOICE_TRIM','capture_trim')]:
+    switch = os.environ.get(env_key, '0')
+    if switch not in ('0','1'):
+        raise ValueError(f'{env_key}: 0/1 필요')
+    cfg['voice_flow'][field] = switch == '1'
+for key in ('E_VOICE_SILENCE','E_VOICE_AUTO_COMPLETE'):
+    if os.environ.get(key, '0') not in ('0','1'):
+        raise ValueError(f'{key}: 0/1 필요')
+hint_switch = os.environ.get('E_VOICE_STT_HINT', '')
+if hint_switch not in ('','0','1'):
+    raise ValueError('E_VOICE_STT_HINT: 빈값/0/1 필요')
+if hint_switch:
+    cfg['voice_flow']['stt_context_hint_enabled'] = hint_switch == '1'
+cfg['voice_flow']['dummy_auto_complete'] = os.environ.get('E_VOICE_AUTO_COMPLETE','0') == '1'
+if cfg['voice_flow']['capture_save_wav']:
+    cfg['voice_flow']['capture_dir'] = str(folder / 'captures')
+if os.environ.get('E_VOICE_SILENCE','0') == '1':
+    cfg['recording_mode'] = 'silence'
 cfg['diagnostic_detail'] = True
 cfg['diagnostic_file'] = str(folder / 'diagnostic.jsonl')
 target = folder / 'voice.local.yaml'
-target.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+with target.open('x', encoding='utf-8') as output:
+    output.write(yaml.safe_dump(cfg, allow_unicode=True))
 checked = load_config(target)
 print('유효 P1/P2 시험 설정:', {k: len(checked[k]) if k == 'p2_goal_catalog' else checked[k] for k in required})
+print('흐름 시험 옵션:', {k: checked['voice_flow'][k] for k in ('wake_cue_enabled','capture_save_wav','capture_trim','stt_context_hint_enabled','dummy_auto_complete')}, '녹음:', checked['recording_mode'])
 print('실행 설정:', target.resolve())
 print('시험 로그:', folder)
 PY
 then
+E_P2_EXTRA=()
+if [ "$E_VOICE_AUTO_COMPLETE" = 1 ]; then E_P2_EXTRA+=(--auto-complete); fi
 set -o pipefail
 .venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py \
-  --serve-live --config-file "$E_P2_RUN_DIR/voice.local.yaml" \
+  --serve-live --config-file "$E_P2_RUN_DIR/voice.local.yaml" "${E_P2_EXTRA[@]}" \
   2>&1 | tee "$E_P2_RUN_DIR/console.log"
 else
   printf '설정 생성/검증 실패: 실음성 실행을 보류합니다.\n' >&2
@@ -117,7 +164,7 @@ fi
 | 2. 첫 요청의 수락 TTS 종료까지 기다림 | `tts_started.source.tts_mock=false`, `tts_start_basis=portaudio_first_dac`; `tts_finished.timing.playback_end_basis=portaudio_finished_callback`·종료 시각; `dummy_first_action_after_real_speak_success` | 실제 소리/문장도 듣고 기록합니다. first action이 없거나 TTS 실패면 `complete`를 입력하지 않습니다. |
 | 3. 터미널 stdin `complete` | 같은 run의 `dummy_completed_not_robot_result`, 상세 `request_completed`와 완료 안내 | 첫 동작 전/취소 뒤 complete는 `completion_rejected_no_current_first_action`이어야 합니다. 물리 성공 증거가 아닙니다. |
 | 4. 완료 안내 후 웨이크 → 미지원 물품 요청(예: “사과 가져다줘”) | unknown/미지원 안내, 새 `accepted_fixture`·더미 첫 동작0 | 과거 첫 요청의 로그를 현재 요청의 결과로 세지 않습니다. |
-| 5. 웨이크 → 대상만 “망치”, 확인 질문 종료 뒤 다시 웨이크 → “응”/“응 맞아”/“네 맞아요”/“어어”/“아니요”/모호한 답 | 질문 문장·상세 JSONL question_ready·새 답 전사·확인/거절/보류; 긍정일 때만 수락과 TTS gate 이후 첫 동작 | 이전 더미 작업을 complete/cancel로 끝낸 뒤 idle과 상세 question_ready를 확인합니다. 진행 중 차단을 우회하지 않습니다. P1 답은 일반 WakeAudio를 다시 거치며 시험 복사본의 dialogue_timeout_sec=30.0(현재 제안 설정의 시험값) 문맥 안에서 진행합니다. 각 답 종류는 독립 시험으로 진행하고 active 질문/처리 중 다음 시험을 겹치지 않습니다. |
+| 5. 웨이크 → 대상만 “망치”, 확인 질문 종료 뒤 다시 웨이크 → “응”/“응 맞아”/“네 맞아요”/“어어”/“아니요”/모호한 답 | 질문 문장·상세 JSONL question_ready·새 답 전사·확인/거절/보류; 긍정일 때만 수락과 TTS gate 이후 첫 동작 | 수동 모드는 complete/cancel, 자동 모드는 모의완료로 이전 더미 작업을 끝낸 뒤 idle과 상세 question_ready를 확인합니다. 진행 중 차단을 우회하지 않습니다. P1 답은 일반 WakeAudio를 다시 거치며 시험 복사본의 dialogue_timeout_sec=30.0(현재 제안 설정의 시험값) 문맥 안에서 진행합니다. 각 답 종류는 독립 시험으로 진행하고 active 질문/처리 중 다음 시험을 겹치지 않습니다. |
 | 6. 새 망치 요청의 처리·TTS 중, 또는 첫 동작 후 complete 전에 웨이크 없이 “멈춰” | `cancel_received_not_physical_stop`, `dummy_idle_after_cancel_not_physical_stop_evidence`; old run의 추가 첫 동작/완료0 | STT 지연/실패·늦은 결과·자기 TTS 영향과 실제 소리를 기록합니다. 자기 발화 문구 대조는 음향 echo 제거가 아니며 물리 정지 시각/성공은 미검증입니다. |
 | 7. idle/이전 작업 종료 뒤 stdin `tray 100` | 질문 재생·`tray_answer`의 `asked`→동일 question 등록 fixture; 상세 `confirm_sdk_request` | 100은 [전체 확인 기한 정본](../../../docs/requirements.md#verification-policy)에 연결된 명시 모의 입력입니다. 임의 새 timeout이 아닙니다. 질문 후 답에는 웨이크를 붙이지 않습니다. |
 | 8. 질문 완료 뒤 “네”/“아니요”/모호 답 | yes/no/ambiguous 및 모호 답의 최대1회 재질문, 새 질문 ID/attempt·다시 새 녹음 | 각 종류는 별도 tray 시나리오입니다. yes 이후에만 stdin `tray_complete` 또는 `tray_partial`로 전달/복구 결과 fixture 안내를 확인합니다. C 관측/실물 결과가 아닙니다. |
@@ -186,7 +233,7 @@ E Voice를 거치는 음성/텍스트 입력에는 [설정과 동작 경계](#�
 - 실행 모드의 동일 find_item은 중복 시간창 안에서 TTS 전에 보류합니다. 중복 조회는 기록을 바꾸지 않으며 `/voice/intent` 발행 호출이 정상 반환한 뒤에만 기록합니다(C 수신·실행 성공 확인을 뜻하지 않습니다). TTS 실패·취소·시간 초과·발행 예외는 find_item을 소비하지 않아 재시도할 수 있습니다. 평가 모드는 동일 입력도 TTS/진단을 반복하고 모든 intent 발행을 금지합니다. unknown/clarify의 안내 및 기존 발행 중복 정책은 유지합니다. 무발화/VAD 검사 보류는 실행 모드에서도 intent를 발행하지 않습니다.
 - cancel/status는 기존 intent로 C에 전달합니다. voice는 로봇 제어·ESTOP·현재 실행 상태 조회를 대신하지 않습니다. cancel은 진행 중인 E 해석 결과의 추가 발행도 취소합니다. 음성 취소는 보조 수단이며 API 처리 중 새 웨이크 청취는 일시 중지됩니다.
 - STT/LLM 각각 단일 작업 슬롯과 SDK timeout/max_retries=0을 적용합니다. 늦은 결과는 폐기하며 후속 요청에 추가 발행하지 않습니다. 이미 끝나지 않은 작업이 있으면 새 API 작업을 쌓지 않고 보류/폴백합니다.
-- `recording_mode: fixed`, `record_duration_sec: 5.0`, `timing_mode: commissioning`은 원본 기반 기능 시운전 기본입니다. 16kHz/int16/mono 80,000프레임을 녹음하며 웨이크 스트림을 닫은 뒤 같은 입력으로 새 sd.rec 스트림을 엽니다. `VOICE_MIC_DEVICE`→명시 input_device→16kHz 입력 자동 선택→기본 장치 순으로 한 번 정한 입력을 공유합니다. 시운전 API 상한은 STT/LLM 각각30초 제안값이고 늦은 결과 폐기·취소·평가 발행 금지는 유지합니다. commissioning의 API/녹음 설정은 실행·평가 모드 모두에서 사용할 수 있고, 평가 true는 계속 모든 발행을 차단합니다.
+- `recording_mode: fixed`, `record_duration_sec: 5.0`, `timing_mode: commissioning`은 원본 기반 기능 시운전 기본입니다. 16kHz/int16/mono 80,000프레임을 녹음하며 일반 노드는 동일 SharedInput reader의 audible cue/새 prepared 캡처 경계에서 샘플을 수집합니다. 공유 입력 없는 standalone Recorder만 sd.rec→sd.wait fallback을 사용합니다. `VOICE_MIC_DEVICE`→명시 input_device→16kHz 입력 자동 선택→기본 장치 순으로 한 번 정한 입력을 공유합니다. 시운전 API 상한은 STT/LLM 각각30초 제안값이고 늦은 결과 폐기·취소·평가 발행 금지는 유지합니다. commissioning의 API/녹음 설정은 실행·평가 모드 모두에서 사용할 수 있고, 평가 true는 계속 모든 발행을 차단합니다.
 - 고정 녹음의 발화 종료·확인 지연은 null, latency_measurement=not_measured입니다. 녹음 완료 시각은 별도 recording_ended_*로 남기며 AC-INT-03 통과로 사용하지 않습니다. AC 준비는 recording_mode=silence/timing_mode=ac_budget로 설정하고 STT/LLM 상한·장치를 실측해 정합니다. 과거 설정에 신규 키가 없으면 기존 silence/ac_budget를 유지합니다.
 - 무음 종료는 마지막 유성 프레임 시각을 기록합니다. `silence_sec` 대기·STT·LLM·TTS 준비를 [AC-INT-03](../../../docs/requirements.md#ac-int-03)의 예산에 포함합니다. `max_record_sec`는 보호 한도이며 고정 녹음 시간이 아닙니다. 한도 초과로 잘린 명령은 실행하지 않습니다.
 - LLM 없는 경우 등록 별칭 규칙은 동작하지만 LLM 주 경로 및 자유 표현 완료를 의미하지 않습니다. faster-whisper 오프라인 STT는 현재 구현하지 않았습니다.
@@ -539,9 +586,9 @@ PYTHON
 
 ## 웨이크·무발화·clarify 후속 보완
 
-[문서] 사용자 확정 웨이크 기준은 `wake_threshold: 0.7`이며 기존 **점수 > 기준** 비교를 유지합니다(정확히0.7은 감지하지 않음). 녹음은 기존 `sd.rec`→`sd.wait` 고정5초/16kHz/int16/mono이며 추가 대기·자르기는 없습니다. 고정 녹음 완료 뒤 설치된 openwakeword의 Silero VAD를 로컬로 실행합니다. `speech_vad_model: null`은 패키지의 `resources/models/silero_vad.onnx` 자산을 뜻하며 다운로드하지 않습니다. 명시 경로도 설정할 수 있습니다.
+[문서] 사용자 확정 웨이크 기준은 `wake_threshold: 0.7`이며 기존 **점수 > 기준** 비교를 유지합니다(정확히0.7은 감지하지 않음). 기본 녹음은 동일 SharedInput reader의 고정5초/16kHz/int16/mono입니다. 공유 입력 없는 standalone Recorder는 sd.rec→sd.wait를 유지합니다. cue/guard·전송 구간 trim은 위 voice_flow 시험 옵션이며 기본모드/임계값을 확정 변경하지 않습니다. 고정 녹음 완료 뒤 설치된 openwakeword의 Silero VAD를 로컬로 실행합니다. `speech_vad_model: null`은 패키지의 `resources/models/silero_vad.onnx` 자산을 뜻하며 다운로드하지 않습니다. 명시 경로도 설정할 수 있습니다.
 
-[제안] 30ms 프레임의 VAD 점수≥`speech_vad_threshold: 0.5`와 RMS≥`speech_rms`를 함께 만족하는 연속 구간≥`speech_min_voiced_sec: 0.15`를 찾습니다. 두 VAD 튜닝값은 **[팀 확정 필요]**입니다. 전체5초 평균으로 짧은 요청을 버리지 않습니다. 무발화·모델 없음/오류·취소는 STT/LLM 호출 및 발행을 보류하며, 무발화는 `record_error=NO_SPEECH`, LLM `not_called`로 남습니다. 발화로 판정되면 5초 전체 WAV를 STT에 보냅니다. fixed의 실제 발화 종료/확인 지연은 계속 null/not_measured입니다.
+[제안] 30ms 프레임의 VAD 점수≥`speech_vad_threshold: 0.5`와 RMS≥`speech_rms`를 함께 만족하는 연속 구간≥`speech_min_voiced_sec: 0.15`를 찾습니다. 두 VAD 튜닝값은 **[팀 확정 필요]**입니다. 전체5초 평균으로 짧은 요청을 버리지 않습니다. 무발화·모델 없음/오류·취소는 STT/LLM 호출 및 발행을 보류하며, 무발화는 `record_error=NO_SPEECH`, LLM `not_called`로 남습니다. 기본은 발화로 판정한5초 전체 WAV를 STT에 보냅니다. trim 옵션은 VAD 판정 입력을 유지한 채 전송 구간만 비교하고 원래 녹음 시각을 보존합니다. fixed의 실제 발화 종료/확인 지연은 계속 null/not_measured입니다.
 
 [문서] `clarify_prompts`는 기본/실패 안내입니다. #194 구현은 의미 검증된 내부 LLM 문장을 유지하고 대상·판정에 맞지 않는 후보만 대체하며 최종 콘솔/TTS 입력을 일치시킵니다. 현재 대상의 구체 질문과 실제 TTS 완료 뒤의 유효한 답/대상 정정은 `Conversation`에서 한 번 처리합니다. 정책 정본은 [음성 정책](../../../docs/requirements.md#voice-policy)이며 D 정답표 반영·실음성 평가는 별도 인계입니다. 시작 캐시는 합성만 하며 과거 질문 권한을 복원하지 않습니다.
 

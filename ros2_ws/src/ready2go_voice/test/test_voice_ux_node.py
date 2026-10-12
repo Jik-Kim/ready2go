@@ -151,7 +151,7 @@ def test_mixed_or_unapproved_short_reply_cannot_consume_target_as_positive(node,
 
 @pytest.mark.parametrize('reply', ['응 맞아', '어어'])
 @pytest.mark.parametrize('stt_failure', [False, True])
-def test_empty_transcript_or_sdk_failure_does_not_restore_short_reply_context(node, stt_failure, reply):
+def test_empty_transcript_preserves_but_sdk_failure_drops_short_reply_context(node, stt_failure, reply):
     from ready2go_voice.adapters.audio import Recording
     question = ask(node)
     expires = node.session.conversation.pending.expires
@@ -163,11 +163,16 @@ def test_empty_transcript_or_sdk_failure_does_not_restore_short_reply_context(no
     node.session.speech_gate = SimpleNamespace(check=lambda *a, **k: True)
     doc = node.session.audio(Recording(b'\0\0' * 1600, None, None, recording_mode='fixed'))
     node.deliver(doc)
-    assert node.session.conversation.pending is None and node.now[0] < expires
-    assert question['_voice']['question_id']
+    assert node.now[0] < expires
+    if stt_failure:
+        assert node.session.conversation.pending is None
+    else:
+        assert node.session.conversation.pending.id == question['_voice']['question_id']
+        assert node.session.conversation.pending.expires == expires
     later = node.session.text(reply, node.generation)
-    assert later['intent'] == 'clarify' and later['targets'] == []
-    assert not later['source']['execution_allowed']
+    assert later['intent'] == ('clarify' if stt_failure else 'find_item')
+    assert later['targets'] == ([] if stt_failure else ['toy_hammer'])
+    assert later['source']['execution_allowed'] is not stt_failure
 
 
 def test_evaluation_question_and_answers_never_publish(node):

@@ -120,7 +120,7 @@ class LiveDummyBridge:
     live factory와 마찬가지로 현재 로컬 준비 CLI에서는 생성하지 않습니다.
     executor에 peer를 추가하고 기존 REMAPS로 두 노드를 초기화해야 합니다.
     """
-    def __init__(self, voice):
+    def __init__(self, voice, *, auto_complete=None):
         from rclpy.node import Node
         from rclpy.action import ActionClient
         from std_msgs.msg import String
@@ -128,6 +128,7 @@ class LiveDummyBridge:
         self.voice, self.String, self.Skill = voice, String, Skill
         self.peer = Node('e_p2_dummy_peer')
         self.active = True
+        self.auto_complete = voice.cfg['voice_flow']['dummy_auto_complete'] if auto_complete is None else auto_complete
         self.run = None
         self.accepted_payload = None
         self.first_action = None
@@ -187,18 +188,26 @@ class LiveDummyBridge:
                 else:
                     self.log('speak_rejected_no_first_action')
             def finished(future):
-                result = future.result().result
-                # VoiceNode._speak 자체가 real DAC/finished callback을 검사합니다.
-                with self.voice.submit_lock:
-                    current = self.voice.request_run
-                    if (not result.success or not self.active or self.run != run
-                            or self.voice.generation != generation or current.run_id != run
-                            or current.finished or not self.voice._request_run_connected()):
-                        self.log('speak_failed_or_stale_no_first_action')
-                        return
-                    self.log('dummy_first_action_after_real_speak_success', run_id=run)
-                    self.first_action = (run, generation)
+                self.finish_speak(future.result().result, run, generation)
             self.client.send_goal_async(goal).add_done_callback(accepted)
+
+    def finish_speak(self, result, run, generation):
+        # 실제 Voice._speak의 DAC/finished/non-mock 검사 결과가 선행합니다.
+        with self.voice.submit_lock:
+            current = self.voice.request_run
+            if (result.success is not True or not self.active or self.run != run
+                    or self.voice.generation != generation or current.run_id != run
+                    or current.finished or not self.voice._request_run_connected()):
+                self.log('speak_failed_or_stale_no_first_action')
+                return
+            self.log('dummy_first_action_after_real_speak_success', run_id=run)
+            self.first_action = (run, generation)
+        if self.auto_complete is True:
+            self.log('dummy_auto_complete_fixture_not_physical', run_id=run)
+            self.complete()  # 같은 현재run/세대/취소 gate를 다시 검사합니다.
+        else:
+            self.log('dummy_waiting_manual_complete', run_id=run,
+                     instruction='수동 완료 대기: 터미널에 complete를 입력해 주세요.')
 
     def complete(self):
         # 담당자가 stdin complete를 선택해야 끝납니다. 임의 실행 시간은 없습니다.
@@ -258,7 +267,7 @@ class LiveDummyBridge:
         self.peer.destroy_node()
 
 
-def serve_live(config_file):
+def serve_live(config_file, *, auto_complete=None):
     """전송·재생 승인 후의 명시 실행 단계. 사람의 발화를 코드로 대체하지 않습니다."""
     os.environ.update(ROS_DOMAIN_ID='166', ROS_LOCALHOST_ONLY='1',
                       HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1')
@@ -280,7 +289,7 @@ def serve_live(config_file):
         try:
             voice = create_live_voice(config_file, transmission_and_playback_approved=True,
                                       approved_destination_host='api.openai.com')
-            bridge = LiveDummyBridge(voice)
+            bridge = LiveDummyBridge(voice, auto_complete=auto_complete)
             executor.add_node(voice)
             executor.add_node(bridge.peer)
             thread = threading.Thread(target=executor.spin, daemon=True)
@@ -399,11 +408,12 @@ def main():
     mode.add_argument('--serve-local', action='store_true', help='녹음/API/재생 없는 격리 ROS 노드 유지')
     mode.add_argument('--smoke-local', action='store_true', help='같은 격리 노드 생성·종료 확인')
     mode.add_argument('--serve-live', action='store_true', help='승인된 시험 WAV/텍스트를 api.openai.com으로 전송하고 실제 Melo 재생')
+    parser.add_argument('--auto-complete', action='store_true', default=None, help='현재 run의 실제 수락TTS/첫동작 뒤에만 더미 자동완료')
     parser.add_argument('--config-file', type=Path, default=ROOT / 'logs/voice_eval/voice.local.yaml')
     args = parser.parse_args()
     cfg = local_config()
     if args.serve_live:
-        serve_live(args.config_file.resolve())
+        serve_live(args.config_file.resolve(), auto_complete=args.auto_complete)
     elif args.serve_local or args.smoke_local:
         serve(cfg, smoke=args.smoke_local)
     else:

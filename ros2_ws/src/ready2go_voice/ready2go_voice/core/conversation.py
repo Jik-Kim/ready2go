@@ -30,14 +30,16 @@ class Conversation:
             self.pending = None
             self.epoch += 1
 
-    def resolve(self, text, parser, generation, blocked=False):
+    def resolve(self, text, parser, generation, blocked=False, *, preserve_empty=False):
         """현재 질문의 답만 원문과 분리해 해석합니다. 후보 생성 직전 일회 소비합니다."""
         with self.lock:
             q = self.pending
             if blocked or (q and (q.generation != generation or self.clock() >= q.expires)):
                 self.pending = q = None
+            if q and preserve_empty and isinstance(text, str) and not text.strip():
+                return text, None, None  # 현재 질문/기한/epoch 그대로. 성공한 빈 STT만 호출자가 허용합니다.
             value = normalize_control(text)
-            reply = is_context_reply(text)
+            reply = is_context_reply(text) or bool(q and q.target and parser.contextual_reply(text))
             keys = parser.mentioned(text)
             correction = bool(q and len(keys) == 1 and any(re.fullmatch(
                 r'(?:아니|아니요)?[,，]?' + re.escape(alias) + r'(?:이야|야|말이야|로해줘|으로해줘|줘)?', value)
@@ -56,8 +58,14 @@ class Conversation:
     def delivered(self, doc, generation, success, blocked=False):
         """실제 질문 TTS 완료 뒤에만 새 권한을 생성합니다. WAV 캐시로 복원하지 않습니다."""
         with self.lock:
-            self.pending = None
             data = doc.get('_voice', {})
+            if data.get('preserve_question_id'):
+                q = self.pending
+                if not (success and not blocked and q and q.id == data['preserve_question_id']
+                        and q.generation == generation and self.clock() < q.expires):
+                    self.pending = None
+                return None  # 보존만; 새 question_ready/TTS 기준 기한을 만들지 않습니다.
+            self.pending = None
             target = data.get('question_target')
             timeout = self.cfg.get('dialogue_timeout_sec')
             if not (success and not blocked and doc['intent'] == 'clarify' and (target or data.get('asks_delivery_target'))

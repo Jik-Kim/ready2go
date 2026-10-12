@@ -112,3 +112,27 @@ stt_error_prompts:
   rate_limit: 음성 인식 요청이 너무 많아 처리하지 못했어요. 잠시 후 새 요청을 해 주세요.
   quota: 음성 인식 API의 크레딧이나 사용 한도를 확인해 주세요. 요청은 실행하지 않았어요.
   unknown_429: 음성 인식 API가 요청을 제한했지만 원인은 확인되지 않았어요. 오류 기록을 확인해 주세요.
+
+# E-VOICE-FLOW 승인 시험 옵션. 숫자는 시험 제안이며 [팀 확정 필요]. 기본 녹음/모델/예산은 불변.
+voice_flow:
+  wake_cue_enabled: false
+  cue_rate_hz: 16000
+  cue_tones_hz: [660.0, 880.0]
+  cue_tone_sec: 0.08
+  cue_gap_sec: 0.02
+  cue_gain: 0.12
+  cue_guard_sec: 0.12
+  cue_timeout_sec: 2.0
+  capture_save_wav: false
+  capture_dir: null
+  capture_trim: false
+  trim_padding_sec: 0.15
+  stt_context_hint_enabled: true
+  stt_hint_template: '현재 질문은 {item} 가져오기 확인입니다. 짧은 답: 응, 어어, 네, 맞아, 아니요, 가져다줘.'
+  context_reply_pattern: '(?:어어|어|응|네|예)?(?:맞아|맞아요|그걸로(?:가져다|갖다|가져|건네)?(?:줘|주세요)|(?:그거|그걸)?(?:가져다|갖다|가져|건네)(?:줘|주세요))'
+  status_prompts:
+    running: '현재 작업을 진행 중이에요. 작업이 끝난 뒤 새 요청을 해 주세요.'
+    locked: '작업이 중단되거나 잠겨 있어요. 상태를 확인해 주세요.'
+    unconfirmed: '현재 작업 상태를 확인할 수 없어 새 요청을 보류합니다.'
+  empty_reply_prompt: '답을 인식하지 못했어요. 같은 질문의 답을 다시 말씀해 주세요.'
+  dummy_auto_complete: false

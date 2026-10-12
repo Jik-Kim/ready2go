@@ -6,6 +6,7 @@ import time
 from .deadline import DeadlineCall
 from .intent import intent
 from .conversation import Conversation
+from .flow import settings as flow_settings, blocked_prompt
 import uuid
 from collections import deque
 from copy import deepcopy
@@ -14,6 +15,8 @@ from copy import deepcopy
 class VoiceSession:
     def __init__(self, parser, cfg, stt=None, clock=time.monotonic, progress=lambda **event: None, speech_gate=None):
         self.parser, self.cfg, self.stt, self.clock = parser, cfg, stt, clock
+        self.flow = cfg.get('voice_flow') or flow_settings(cfg)
+        cfg['voice_flow'] = self.flow
         self.progress = progress
         self.speech_gate = speech_gate
         self.stt_calls = DeadlineCall()
@@ -23,12 +26,13 @@ class VoiceSession:
         self.conversation = Conversation(cfg, clock)
         self._published_questions = deque(maxlen=cfg.get("tts_prefill_max_texts", 128))
 
-    def text(self, text, generation=0, blocked=False, deadline=None, request_id=None):
+    def text(self, text, generation=0, blocked=False, deadline=None, request_id=None, *, preserve_empty=False, runner_state=None):
         self._acceptance = None  # 새 요청은 이전 내부 문장의 소비 권한을 폐기합니다.
         previous = self.conversation.pending
-        effective, qid, target = self.conversation.resolve(text, self.parser, generation, blocked)
+        effective, qid, target = self.conversation.resolve(text, self.parser, generation, blocked, preserve_empty=preserve_empty)
         epoch = self.conversation.epoch
-        doc = self.parser.parse(effective, deadline)
+        context = {'target': target, 'reply': text} if qid else None
+        doc = self.parser.parse(effective, deadline, context=context)
         # Public correlation fields come from E, never from an LLM candidate.
         doc.pop('request_id', None)
         doc.pop('accept_text', None)
@@ -39,13 +43,18 @@ class VoiceSession:
         if qid:
             meta.update(context_answer=True, question_id=qid, question_expires=previous.expires, context_generation=generation, context_epoch=previous.epoch,
                         effective_text=effective)
-        if blocked and doc['intent'] == 'find_item':
-            from .response import final_response
-            doc.update(intent='clarify', targets=[], clarify_question=self.cfg['clarify_prompts']['general'])
-            meta.pop('question_target', None)
-            meta['reason'] = 'runner_busy_or_locked'
+        if preserve_empty and previous is not None and self.conversation.pending is previous:
+            meta.update(preserve_question_id=previous.id, original_question_expires=previous.expires,
+                        final_text=self.flow['empty_reply_prompt'])
+            doc['clarify_question'] = meta['final_text']
+        if blocked and doc['intent'] in ('find_item','clarify'):
+            meta['original_interpretation'] = {k: deepcopy(doc[k]) for k in ('intent','targets','goals','confidence') if k in doc}
+            meta['original_final_text'] = meta.get('final_text')
+            doc.update(intent='clarify', targets=[], clarify_question=blocked_prompt(self.cfg, runner_state))
+            meta.pop('question_target', None); meta.pop('asks_delivery_target', None)
+            meta.update(reason='runner_busy_or_locked', execution_hold_reason='runner_busy_or_locked',
+                        final_text=doc['clarify_question'])
             doc['source']['execution_allowed'] = False
-            final_response(self.parser, doc)
         self._prepare_acceptance(doc, generation)
         return doc
 
@@ -125,19 +134,26 @@ class VoiceSession:
         return (not meta.get('context_answer') or
                 (meta.get('context_generation') == generation and meta.get('context_epoch') == self.conversation.epoch and self.clock() < meta.get('question_expires', 0)))
 
-    def audio(self, recording, cancel=None, paused=lambda: False, generation=0, blocked=False, request_id=None):
+    def audio(self, recording, cancel=None, paused=lambda: False, generation=0, blocked=False, request_id=None, runner_state=None):
         self._acceptance = None
         local_request_id = request_id or uuid.uuid4().hex
         from ..adapters.audio import write_wav
-        commissioning = self.cfg.get('timing_mode', 'ac_budget') == 'commissioning'
+        from .signal import prepare
+        original_recording = recording
         held = None
-        if recording.recording_mode == 'fixed' and not recording.truncated:
+        try:
+            recording = prepare(recording, self.cfg, local_request_id, self.progress)
+        except Exception as exc:
+            held = 'RECORD_PCM_FORMAT'
+            self.progress(event='capture_invalid', error_type=type(exc).__name__)
+        commissioning = self.cfg.get('timing_mode', 'ac_budget') == 'commissioning'
+        if held is None and recording.recording_mode == 'fixed' and not recording.truncated:
             try:
                 if self.speech_gate is None:
                     from ..adapters.speech import SpeechPresence
                     self.speech_gate = SpeechPresence(self.cfg)
                 self.progress(event='speech_check_started')
-                if not self.speech_gate.check(recording, cancel=cancel, paused=paused):
+                if not self.speech_gate.check(original_recording, cancel=cancel, paused=paused):
                     held = 'NO_SPEECH'
                     self.progress(event='no_speech')
             except Exception as exc:
@@ -163,16 +179,28 @@ class VoiceSession:
                     write_wav(path, recording, self.cfg['sample_rate'])
                     if getattr(self.stt, 'supports_request_boundary', False):
                         def before_request(stamp):
+                            if (cancel and cancel.is_set()) or paused():
+                                return False
                             self.progress(event='whisper_sdk_request', request_id=local_request_id,
                                           requested_monotonic=stamp)
                             return True  # P1 시각 증빙만. P2의10초창/사건 정책은 적용하지 않습니다.
+                        def current_hint():
+                            q = self.conversation.pending
+                            if (self.flow['stt_context_hint_enabled'] and not blocked and q and q.target in self.parser.items
+                                    and q.generation == generation and self.clock() < q.expires):
+                                self.progress(event='stt_context_hint', request_id=local_request_id, question_id=q.id, target=q.target, applied=True)
+                                return self.flow['stt_hint_template'].format(item=self.parser.items[q.target]['name_ko'])
+                            return None
+                        if getattr(self.stt, 'supports_context_hint', False):
+                            return self.stt.transcribe(path, timeout, before_request=before_request, context_hint=current_hint)
                         return self.stt.transcribe(path, timeout, before_request=before_request)
                     return self.stt.transcribe(path, timeout)
             self.progress(event='whisper_requested')
             text = self.stt_calls.call(transcribe, timeout)
             self.progress(event='stt_result', text=text)
-            doc = self.text(text, generation, blocked, None if commissioning else deadline - self.cfg['tts_reserve_sec'], request_id=local_request_id)
+            doc = self.text(text, generation, blocked, None if commissioning else deadline - self.cfg['tts_reserve_sec'], request_id=local_request_id, preserve_empty=isinstance(text,str) and not text.strip(), runner_state=runner_state)
         except Exception as exc:
+            self.conversation.invalidate()
             info = error_info(exc) if not held else None
             if not held:
                 self.progress(event='stt_failed', error_type=type(exc).__name__, api_error=info)

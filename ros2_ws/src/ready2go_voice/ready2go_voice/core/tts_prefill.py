@@ -6,6 +6,7 @@ from .runner_notice import STATUS_PROMPTS
 from .response import confirmation, question, UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST
 from .diagnostics import redact
 from .stt_error import error_prompts
+from .flow import settings as flow_settings
 
 _LOCK = threading.Lock()
 
@@ -55,6 +56,9 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     texts = list(cfg.get('tts_melotts_prefill_texts', []))
     texts.extend(cfg['clarify_prompts'].values())
     texts.extend(error_prompts(cfg).values())
+    flow = cfg.get('voice_flow') or flow_settings(cfg)
+    texts.extend(flow['status_prompts'].values())
+    texts.append(flow['empty_reply_prompt'])
     texts.extend((UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST))
     for item in items:
         name = item['name_ko']

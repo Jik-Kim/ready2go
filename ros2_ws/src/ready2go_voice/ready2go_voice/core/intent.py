@@ -95,6 +95,15 @@ class IntentParser:
                                  r'(?:을|를|이|가)?(?:하나|한개)?(?:만)?좀(?:요)?',
                                  normalize_control(text)))
 
+    def contextual_reply(self, text):
+        # 현재 질문에만 사용하는 전체 문형. 부정/인용/제3자/다중/미지원은 선제 보류합니다.
+        from .flow import settings
+        if (self.control(text) or self.mentioned(text) or self._unsupported_context(text.replace('그걸로', '그거'))
+                or self._nonrequest_context(text) or re.search(r'["\'“”‘’]|라고|라며|말했|그사람|엄마|아빠', text)):
+            return False
+        flow = self.cfg.get('voice_flow') or settings(self.cfg)
+        return bool(re.fullmatch(flow['context_reply_pattern'], normalize_control(text)))
+
     def explicit_request(self, text):
         # 폴백 전용: 기존 긍정 전체 문형 + 승인된 축약 부탁을 등록 어휘에 적용합니다.
         target = '|'.join(re.escape(alias) for alias in self.aliases)
@@ -142,6 +151,10 @@ class IntentParser:
     def guard(self, text):
         if not str(text).strip():
             return intent('clarify', question=self.cfg['clarify_prompts']['empty'])
+        if self.contextual_reply(text):
+            doc = intent('clarify', question=self.cfg['clarify_prompts']['missing_item'])
+            doc['_voice'] = {'asks_delivery_target': True}
+            return doc
         if self._unsupported_context(text):
             return intent('unknown', question='지금은 한 물품을 찾아 전달하는 요청만 지원합니다.')
         keys = self.mentioned(text)
@@ -319,7 +332,7 @@ class IntentParser:
             result['_voice'] = {'reason': reason}
         return result
 
-    def parse(self, text, deadline=None):
+    def parse(self, text, deadline=None, *, context=None):
         if self.cfg.get('p2_goal_enabled') is True and not self.control(text) and self._goal_requested(text):
             return self._parse_goal(text, deadline)
         started = self.clock()
@@ -344,7 +357,8 @@ class IntentParser:
                     diag['llm_called'] = True
                     stages['llm_started_monotonic'] = self.clock()
                     try:
-                        raw = self.calls.call(lambda: self.llm(text, remaining), remaining)
+                        raw = self.calls.call(lambda: self.llm(text, remaining, context=context)
+                            if context is not None and getattr(self.llm, 'supports_context', False) else self.llm(text, remaining), remaining)
                         stages['llm_result_monotonic'] = self.clock()
                         diag['llm_raw'] = raw
                         try:

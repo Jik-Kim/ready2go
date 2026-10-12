@@ -213,7 +213,8 @@ def test_past_question_never_executes(dialogue, invalidate):
     elif invalidate == 'new_request': s.text('지우개 가져와',4)
     doc = s.text('응',5 if invalidate=='generation' else 4, blocked=invalidate=='blocked')
     assert doc['intent'] == 'clarify' and doc['targets'] == []
-    assert doc['_voice']['final_text'] == s.cfg['clarify_prompts']['missing_item']
+    assert doc['_voice']['final_text'] == (s.cfg['voice_flow']['status_prompts']['unconfirmed']
+        if (invalidate == 'blocked') else s.cfg['clarify_prompts']['missing_item'])
     assert not doc['_voice'].get('context_answer') and 'question_target' not in doc['_voice']
 
 
@@ -244,7 +245,8 @@ def test_contextless_replies_reask_target_without_restoring_previous_authority(
     doc = s.text(reply, generation, blocked=state == 'blocked')
     assert doc['intent'] == 'clarify' and doc['targets'] == []
     assert doc['source']['stt_text'] == reply and not doc['source']['execution_allowed']
-    assert doc['_voice']['final_text'] == s.cfg['clarify_prompts']['missing_item']
+    assert doc['_voice']['final_text'] == (s.cfg['voice_flow']['status_prompts']['unconfirmed']
+        if state == 'blocked' else s.cfg['clarify_prompts']['missing_item'])
     assert not calls and not doc['_voice'].get('context_answer')
     assert 'question_target' not in doc['_voice'] and 'question_id' not in doc['_voice']
     assert s.conversation.pending is None
