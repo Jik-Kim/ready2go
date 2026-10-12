@@ -25,7 +25,7 @@
 | :--- | :--- | :--- | :--- |
 | 0 | **호스트에서 켜 둔 것 끄기** | `roboton`·`b_flow.sh server`·호스트 `realsense2_camera` → Ctrl+C, `docker compose down` (같은 `/dsr01` 이름·카메라 단독 점유로 충돌, 제어기 이중 접속 — docker.md) | B |
 | 1 | 코드 받기 | `git status`(고친 파일 있으면 멈춤) → `git fetch origin && git checkout main && git pull --ff-only origin main` → `git log --oneline -1` 이 `85492c5` 이후 | B |
-| 2 | 모델 받기·확인 | `git lfs pull` → `sha256sum models/yolo11s_seg_ready2go_v1.pt` 가 `5b9527b78ebf…` (133 B 면 포인터 — 비전 노드가 꺼짐) | B·A |
+| 2 | 모델 받기·확인 | `git lfs pull` → `sha256sum models/yolo11s_seg_ready2go_v2.pt` 가 `b2ae5af07e2d…` (노드 기본 v2, #247·#253 — [models/README.md](../../models/README.md) "SHA-256" 줄. 133 B 면 포인터 — 비전 노드가 꺼짐. 10/12 오전 회차는 v1 `5b9527b78ebf…` 이었음) | B·A |
 | 3 | **`.env`** | `BACKEND=real` · `ROBOT_HOST`·`RG2_HOST`(B 확인, 인수인계 192.168.1.100·192.168.1.1) · `DDS_MODE=local`(PC1 트윈 안 쓸 때) · `VISION_MODE=yolo` · `MOCK_SCENE=` 비움 · 스킬 속도는 B 판단. **음성 → Unpacking**: `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json` (코드 수정 없음, [runner.md "음성으로 시작"](../../docs/runner.md)) | C |
 | 3a | **시작 상태 임시 변경 (PC2 에서만, 커밋 안 함)** | Runner 시작 상태 `knowledge/snapshots/initial_state.json` 이 모든 물품 `drawer_top` → 아래 칸 장면은 **지우개·립밤·덮개 판 3개만 `drawer_bottom`** 으로 (명령은 1-1절). E 소유 파일이라 E 에게 알림, **끝나면 7절에서 되돌림** | B |
 | 4 | 사후 검증 모드 | `.env` 그대로 — `verify_mode` 는 기본 `off` (#43 트레이 확인 `enforce` 는 계약 PR 전이라 쓰지 않음) | C |
