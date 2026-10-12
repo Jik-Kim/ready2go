@@ -165,6 +165,32 @@ def test_place_blocked_tries_other_slot():
     assert [p["slot"] for _, p in backend.calls] == ["aside_1", "aside_2"]
 
 
+CHECK_FIRST = {"task_id": "t", "sequence": [{"id": "s1", "action": "fallback", "options": [
+    [{"id": "s1.a", "action": "place_object", "params": {"location": "drawer_top", "slot": "aside_1", "check_only": True}}],
+    [{"id": "s1.b", "action": "place_object", "params": {"location": "drawer_top", "slot": "aside_2", "check_only": True}},
+     {"id": "s1.c", "action": "inspect_region", "params": {"region": "drawer_top"}}]]}]}
+
+
+@pytest.mark.parametrize("code", ["NEIGHBOR_TOO_CLOSE", "SKILL_EXCEPTION", "PLACE_BLOCKED"])
+def test_place_check_only_never_counts_as_motion(code):
+    """B #241 check_only = 판단만, 어떤 동작도 안 함 — 집기 전이면 집기 계획까지 판단해 집기 거부 코드로도 실패하므로
+    코드와 무관하게 다음 대안 (#242). 성공도 움직임으로 세지 않아 같은 대안 뒤 스텝 실패가 MOTION_UNCERTAIN 이 아님."""
+    backend = FakeBackend({"place_object": [ActionResult(False, error_code=code), ActionResult(True)],
+                           "inspect_region": [ActionResult(False, error_code="NOT_FOUND")]})
+    result = Runner(backend, schema=SCHEMA).run(CHECK_FIRST)
+    assert [p["slot"] for a, p in backend.calls if a == "place_object"] == ["aside_1", "aside_2"]
+    assert (result.overall_status, result.error_code) == ("FAILED", "NOT_FOUND")
+    assert "fallback_stopped" not in fallback_record(result)
+
+
+def test_real_place_with_pick_code_still_stops():
+    """check_only 가 아니면 그대로 — 실제 놓기의 목록에 없는 코드는 움직였을 수 있어 다음 대안을 보내지 않음."""
+    task = json.loads(json.dumps(CHECK_FIRST).replace(', "check_only": true', ""))
+    backend = FakeBackend({"place_object": [ActionResult(False, error_code="NEIGHBOR_TOO_CLOSE"), ActionResult(True)]})
+    result = Runner(backend, schema=SCHEMA).run(task)
+    assert len(backend.calls) == 1 and fallback_record(result)["fallback_stopped"] == "MOTION_UNCERTAIN"
+
+
 def test_place_no_free_space_tries_next_option():
     """B #241 slot "free": 서랍 안 빈 자리 없음(NO_FREE_SPACE)도 움직이기 전 거부 → 다음 대안 (#242)."""
     backend = FakeBackend({"place_object": [ActionResult(False, error_code="NO_FREE_SPACE"), ActionResult(True)]})

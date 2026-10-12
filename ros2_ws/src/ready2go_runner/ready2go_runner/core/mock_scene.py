@@ -8,9 +8,9 @@ MockSkills(scene=...) 가 inspect_region·pick_object·place_object·nudge_objec
 - 놓기: handover_zone 이면 전달(장면에서 빠짐). 서랍이면 slot 또는 pose 자리에 바닥으로 놓음 — 다른 물체와
   PLACE_GAP_M 보다 가까우면 움직이기 전 PLACE_BLOCKED(blocked_by), scan 없거나 쥔 물체 id 가 scan 에 없으면
   BAD_PARAMS (#166 계약, B #191 과 같게).
-  check_only(B #241): 판단만 하고 장면은 그대로 — 아직 안 쥐었으면 object 를 쥐었다고 보고, 결과는 placed_pose null +
-  planned_pose + check_only true (거부도 같은 코드·blocked_by + check_only true). slot "free": 서랍 안 빈 자리
-  (다른 물체·목표 둘레 피함, 없으면 NO_FREE_SPACE).
+  check_only(B #241): 판단만 하고 장면은 그대로 — 아직 안 쥐었으면 object 를 쥐었다고 보고(집기부터 거부면 그 코드),
+  결과는 placed_pose null + planned_pose + check_only true (거부도 같은 코드·blocked_by + check_only true).
+  slot "free": 서랍 안 빈 자리 (다른 물체·목표 둘레 피함, 없으면 NO_FREE_SPACE).
   placed_pose = 명령한 자리. 실물의 놓기 오차·미끄러짐은 PLACE_JITTER_M 만큼 흉내.
 - 끌기: 장면 물체는 벽에서 떨어져 있으므로 끌지 않음(pushed false).
 실물 B·A 동작(지지면·얹힌 물체 집기 NOT_ON_FLOOR 등)과 다를 수 있다 — 흐름 시험용.
@@ -92,15 +92,24 @@ class MockScene:
                 "visible_count": len(seen)}
 
     # ---- 동작 ----
+    def pick_refusal(self, target: dict) -> str | None:
+        """이 물체를 집으라고 보내면 거부될 코드(없으면 None) — 집기와 집기 전 놓기 판단(check_only)이 같이 씀
+        (B #241: 판단도 실제 집기 계획대로, 집기가 거부면 그 코드로 거부)."""
+        cls = target.get("class") or str(target.get("id", "")).split("#")[0]
+        if self.held:
+            return "HOLDING_OBJECT"
+        if cls not in self.objects:
+            return "GRASP_FAILED"
+        if any(cls in o["on"] for o in self.objects.values()):   # 위에 얹힌 물체가 있음 → 순서가 틀림
+            return "GRASP_FAILED"
+        return None
+
     def pick(self, params: dict) -> tuple[bool, str, dict | None]:
         target = params.get("target") if isinstance(params.get("target"), dict) else {}
         cls = target.get("class") or str(target.get("id", "")).split("#")[0]
-        if self.held:
-            return False, "HOLDING_OBJECT", None
-        if cls not in self.objects:
-            return False, "GRASP_FAILED", None
-        if any(cls in o["on"] for o in self.objects.values()):   # 위에 얹힌 물체가 있음 → 순서가 틀림
-            return False, "GRASP_FAILED", None
+        refused = self.pick_refusal(target)
+        if refused:
+            return False, refused, None
         self.held = cls
         self._held_info = self.objects.pop(cls)
         return True, "", {"object_id": f"{cls}#1", "class": cls, "pick_pose_drawer_frame": None, "grasp_ok": True}
@@ -116,6 +125,9 @@ class MockScene:
             held = obj.get("class") or str(obj.get("id", "")).split("#")[0] or None
             if held not in self.objects:
                 return False, "BAD_PARAMS", empty
+            refused = self.pick_refusal(obj)                    # 집기부터 거부면 그 코드 (움직이지 않음)
+            if refused:
+                return False, refused, empty
         if held is None:
             return False, "NOT_HOLDING", empty
         location = params.get("location")

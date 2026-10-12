@@ -74,13 +74,13 @@ def steps(result):
 def test_unpacks_two_delivers_and_restores_in_reverse():
     """A #109 위 칸 시나리오(사용자 결정 10/08): 렌치 ← 캐러멜 상자 ← 차키. 집기 전에 놓을 자리부터 판단(#242):
     차키(aside_1) → 상자(aside_1 은 차키가 있어 판단에서 거부 → aside_2 판단 통과 → aside_2 에 바로 놓음) → 렌치 전달
-    → 거꾸로 상자 원래 자리 → 차키 원래 자리는 상자와 붙어 판단에서 거부 → 차키는 집지 않고 꺼낸 고정 자리(aside_1)에
-    그대로 둠(집었다 같은 자리에 다시 놓는 헛동작 없음, PC2 10/12 32초) → 닫기 → 홈."""
+    → 거꾸로 상자 원래 자리 → 차키 원래 자리는 상자와 붙어 판단에서 거부, 꺼낸 고정 자리(aside_1) 판단은 통과 → 차키는
+    집지 않고 그대로 둠(집었다 같은 자리에 다시 놓는 헛동작 없음, PC2 10/12 32초) → 닫기 → 홈."""
     runner, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
     assert robot.placed() == ["aside_1", "aside_2", "handover_zone", "origin"]
-    assert robot.checked() == ["aside_1", "aside_1", "aside_2", "origin", "origin"]
+    assert robot.checked() == ["aside_1", "aside_1", "aside_2", "origin", "origin", "aside_1"]
     scene = robot.skills.scene
     assert scene.delivered == ["toy_wrench"] and scene.held is None
     assert scene.objects["caramel_box"]["xy"][1] == 0.14                      # 상자는 원래 자리로
@@ -419,14 +419,12 @@ NOT_BACK = "옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람
 
 
 class RestorePickRefusedScene(MockScene):
-    """전달 뒤 상자를 되돌리러 집을 때 한 번만 움직이기 전 거부(옆 물체가 손가락 자리에 걸림)."""
+    """전달 뒤 상자는 집기가 움직이기 전 거부(옆 물체가 손가락 자리에 걸림) — B 처럼 집기 전 놓기 판단도 같은 코드로 거부."""
 
-    def pick(self, params):
-        target = params.get("target") or {}
-        if self.delivered and target.get("class") == "caramel_box" and not getattr(self, "_refused", False):
-            self._refused = True
-            return False, "NEIGHBOR_TOO_CLOSE", None
-        return super().pick(params)
+    def pick_refusal(self, target):
+        if self.delivered and target.get("class") == "caramel_box":
+            return "NEIGHBOR_TOO_CLOSE"
+        return super().pick_refusal(target)
 
 
 class VanishedAfterDeliveryScene(MockScene):
@@ -454,6 +452,7 @@ def test_one_restore_fails_others_still_restored_then_failed(scene_cls):
     assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "RESTORE_INCOMPLETE", "fr"), \
         steps(result)
     assert robot.skills.scene.delivered == ["toy_wrench"]                     # 전달은 됨
+    assert robot.picked()[3:] == ["car_key"]                                  # 상자는 판단에서 거부 → 집지 않음 (#242)
     assert robot.skills.scene.objects["car_key"]["xy"][1] == 0.17              # 차키는 원래 자리로 (남은 복구 계속)
     assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
     assert result.blackboard["holding"] is False
@@ -549,3 +548,14 @@ def test_restore_origin_blocked_leaves_item_without_picking():
     assert restore_picks == ["caramel_box"]
     assert robot.skills.scene.objects["car_key"]["xy"] == [0.048, 0.045]      # aside_1 에 놓은 그대로 (mock 오차 3 mm)
     assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "aside_1"}]
+
+
+def test_restore_judged_unpickable_is_failure_not_left_aside():
+    """원래 자리 판단도 꺼낸 자리 판단도 거부(집기부터 거부) → 집지 않고 복구 실패 — '빈 자리에 뒀어요'(A안 통과)로
+    세지 않음. 예전 되돌리기 집기 거부와 같은 분류, 쥔 채 멈추지 않음."""
+    _, robot, result = _run_with(RestorePickRefusedScene("occluded_top"))
+    judged = [(s["params"].get("slot") or "origin", s.get("error_code")) for s in result.steps
+              if s["id"] in ("fr.5.0a", "fr.5.0b") and s["status"] == "FAILURE"]
+    assert judged == [("origin", "NEIGHBOR_TOO_CLOSE"), ("aside_2", "NEIGHBOR_TOO_CLOSE")]
+    assert [c["class"] for c in result.blackboard["left_aside"]] == []
+    assert [c["class"] for c in result.blackboard["restore_failed"]] == ["caramel_box"]
