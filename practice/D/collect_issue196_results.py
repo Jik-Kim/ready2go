@@ -36,6 +36,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -122,8 +123,10 @@ def load_runner_record(path: Path, raw: bytes | None = None) -> dict[str, Any]:
             continue
         try:
             entry = json.loads(raw_line)
-        except json.JSONDecodeError as exc:
-            raise CollectionError(f"runner JSONL line {line_number}: {exc}") from exc
+        except json.JSONDecodeError:
+            # JsonlLogStore deliberately preserves complete records around a
+            # power-loss-truncated line. Mirror that recovery behavior here.
+            continue
         if not isinstance(entry, dict) or not isinstance(entry.get("doc"), dict):
             raise CollectionError(f"runner JSONL line {line_number} has invalid record")
         if entry.get("collection") == "runs":
@@ -193,14 +196,25 @@ def _normalise_checks(value: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _source_ref(path: Path, raw: bytes) -> str:
+def _source_ref(path: Path, raw: bytes, code_sha: str) -> str:
     resolved = path.resolve()
     digest = hashlib.sha256(raw).hexdigest()
     try:
         relative = resolved.relative_to(REPO_ROOT)
     except ValueError:
         return f"artifact:{resolved.name}?sha256={digest}"
-    return f"repo:{relative.as_posix()}?sha256={digest}"
+    try:
+        committed = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"{code_sha}:{relative.as_posix()}"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        committed = None
+    if committed is None or committed.returncode != 0 or committed.stdout != raw:
+        return f"artifact:{resolved.name}?sha256={digest}"
+    return f"repo:{relative.as_posix()}?rev={code_sha}&sha256={digest}"
 
 
 def _object_field(value: Any, label: str) -> dict[str, Any]:
@@ -283,7 +297,7 @@ def _machine_checks(
         status = source.get("status")
         if status is None:
             status = "pass" if observed == expected else "fail"
-        if status == "pass" and (
+        if status in {"pass", "fail"} and (
             "observed" not in source
             or "expected" not in source
             or _empty_check_value(observed)
@@ -296,11 +310,11 @@ def _machine_checks(
         if evidence is None:
             origin = checks_ref or runner_ref
             evidence = [f"{origin}#missing-evidence:{check_id}"]
-            if status == "pass":
+            if status in {"pass", "fail"}:
                 status = "unverifiable"
         else:
             evidence = _string_list(evidence, f"machine check {check_id} evidence")
-            if status == "pass" and not evidence:
+            if status in {"pass", "fail"} and not evidence:
                 status = "unverifiable"
         rows.append(
             {
@@ -370,8 +384,9 @@ def build_records(
     except OSError as exc:
         raise CollectionError(f"cannot read runner record {runner_path}: {exc}") from exc
     runner_record = load_runner_record(runner_path, runner_raw)
-    runner_ref = _source_ref(runner_path, runner_raw)
     run = runner_record["run"]
+    resolved_sha = _code_sha(code_sha, run)
+    runner_ref = _source_ref(runner_path, runner_raw, resolved_sha)
     runner_environment = run.get("backend", run.get("environment"))
     if runner_environment is not None and runner_environment != environment:
         raise CollectionError(
@@ -389,7 +404,7 @@ def build_records(
         except OSError as exc:
             raise CollectionError(f"cannot read check results {checks_path}: {exc}") from exc
         measurement = _load_json_object_bytes(checks_raw, checks_path, "check results")
-        checks_ref = _source_ref(checks_path, checks_raw)
+        checks_ref = _source_ref(checks_path, checks_raw, resolved_sha)
     else:
         measurement = {}
     supplied = _normalise_checks(measurement.get("machine_checks"))
@@ -405,7 +420,6 @@ def build_records(
 
     now = _utc_now()
     token = uuid.uuid4().hex[:10]
-    resolved_sha = _code_sha(code_sha, run)
     resolved_basis_id = basis_id or f"basis-{environment}-{resolved_sha[:7]}-{token}"
     run_id = run.get("run_id")
     resolved_trial_id = trial_id or f"trial-{case_id.lower()}-{token}"
