@@ -74,13 +74,34 @@ def test_nudge_toward_empty_side():
 
 
 def test_sweep_when_both_sides_blocked():
+    """remove_first 끔(밀기를 치우기보다 먼저): 사방이 막히면 한쪽으로 쭉 밀고 일부 되돌아옴 [사용자 10/11]."""
+    import dataclasses
+    cfg = dataclasses.replace(CFG, remove_first=False)
     t = obj("airpods_case#1", "airpods_case", 0.1, 0.145)
     gap = 0.0225 + 0.011 + 0.008
     objs = [t, obj("eraser#1", "eraser", 0.1, 0.145 - gap), obj("eraser#2", "eraser", 0.1, 0.145 + gap)]
-    a = cp.plan_next(objs, "airpods_case#1", Oracle(), CFG)
+    a = cp.plan_next(objs, "airpods_case#1", Oracle(), cfg)
     assert a.kind == "sweep" and a.pushed and 0 < a.back_m < a.dist_m  # 한쪽으로 밀고 일부 되돌아옴
-    after = cp.apply(objs, a, CFG)
-    assert cp.plan_next(after, "airpods_case#1", Oracle(), CFG).kind == "pick"
+    after = cp.apply(objs, a, cfg)
+    assert cp.plan_next(after, "airpods_case#1", Oracle(), cfg).kind == "pick"
+
+
+def test_remove_first_moves_blockers_without_pushing_chain():
+    """[사용자 10/12] 목표 말고는 다 방해물: 기본(remove_first)은 옆 물체를 같이 미는 밀기 대신 막는 물체를 먼저 —
+    집을 수 있으면 집어 빈 자리로, 못 집으면 그 물체만 다른 것을 안 건드리고 넛지. 몇 단계 안에 목표를 집음."""
+    t = obj("airpods_case#1", "airpods_case", 0.1, 0.145)
+    gap = 0.0225 + 0.011 + 0.008
+    objs = [t, obj("eraser#1", "eraser", 0.1, 0.145 - gap), obj("eraser#2", "eraser", 0.1, 0.145 + gap)]
+    kinds = []
+    for _ in range(4):
+        a = cp.plan_next(objs, "airpods_case#1", Oracle(), CFG)
+        kinds.append((a.kind, a.target))
+        if a.kind in ("pick", "fail"):
+            break
+        assert not a.pushed                                            # 줄줄이 밀기 없음
+        assert a.target != "airpods_case#1"                             # 목표는 안 건드리고 방해물만
+        objs = cp.apply(objs, a, CFG)
+    assert kinds[-1] == ("pick", "airpods_case#1") and len(kinds) >= 2
 
 
 def test_push_stops_at_wall_and_unpushable():
