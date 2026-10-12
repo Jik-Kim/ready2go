@@ -22,10 +22,23 @@ def reference_query(parser, text):
     value = ''.join(str(text).split()).rstrip('.!?？')
     p = prompts(parser.cfg)
     keys = parser.mentioned(text)
+    provider = getattr(parser, 'state_provider', None)
+    def read(predicate, subject):
+        try:
+            state = parser.reference_state if provider is None else provider()
+            if not isinstance(state, dict):
+                return None
+            return get(state, predicate, subject)
+        except Exception:
+            return None  # 연결 실패/누락을 초기 프리셋으로 대체하지 않습니다.
+    location_prompt = p['initial_location'] if provider is None else p['recorded_location']
+    open_prompt = p['initial_open'] if provider is None else p['recorded_open']
+    unknown = p['unknown_state'] if provider is None else p['unknown_recorded_state']
+
     if len(keys) == 1 and re.fullmatch(r'.+(?:어딨어|어디있어|어디에있어|어디에있나요|위치알려줘)', value):
-        key = next(iter(keys)); place = get(parser.reference_state, 'located_in', key)
-        name = parser.places.get(place, {}).get('name_ko')
-        return p['initial_location'].format(item=parser.items[key]['name_ko'], place=name) if name else p['unknown_state']
+        key = next(iter(keys)); place = read('located_in', key)
+        name = parser.places.get(place, {}).get('name_ko') if isinstance(place,str) else None
+        return location_prompt.format(item=parser.items[key]['name_ko'], place=name) if name else unknown
     if re.fullmatch(r'.+(?:열려있어|열려있나요|닫혀있어|닫혀있나요)', value):
         places = []
         for key, definition in parser.places.items():
@@ -36,8 +49,8 @@ def reference_query(parser, text):
             if any(name in value for name in forms):
                 places.append(key)
         if len(places) == 1:
-            opened = get(parser.reference_state, 'open', places[0])
+            opened = read('open', places[0])
             if type(opened) is bool:
-                return p['initial_open'].format(place=parser.places[places[0]]['name_ko'], value=p['open_true' if opened else 'open_false'])
-            return p['unknown_state']
+                return open_prompt.format(place=parser.places[places[0]]['name_ko'], value=p['open_true' if opened else 'open_false'])
+            return unknown
     return None

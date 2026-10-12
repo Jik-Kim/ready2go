@@ -48,6 +48,24 @@ def test_readonly_initial_state_query_before_llm(node,text):
     assert not doc['source']['execution_allowed'] and node.parser.reference_state==initial
 
 
+@pytest.mark.parametrize('mode',['none','recorded','missing','exception'])
+@pytest.mark.parametrize('text',['지금 망치 어딨어?','위쪽 서랍 열려있어?'])
+def test_readonly_provider_boundary_no_fallback_after_connected_failure(node,mode,text):
+    initial=copy.deepcopy(node.parser.reference_state);calls=[]
+    state={'located_in':{'toy_hammer':'staging_tray'},'open':{'drawer_top':True}}
+    def provider():
+        calls.append(1)
+        if mode=='exception':raise RuntimeError('private')
+        return {} if mode=='missing' else state
+    node.parser.state_provider=None if mode=='none' else provider
+    doc=node.session.text(text);answer=doc['_voice']['final_text']
+    if mode=='none':assert '초기 배치 기준' in answer and not calls
+    elif mode=='recorded':assert 'Runner 기록 기준' in answer and calls==[1]
+    else:assert '확인하지 못' in answer and '초기 배치 기준' not in answer and calls==[1]
+    assert not doc['source']['execution_allowed']
+    assert node.parser.reference_state==initial and state=={'located_in':{'toy_hammer':'staging_tray'},'open':{'drawer_top':True}}
+
+
 @pytest.mark.parametrize('text',['복구해','이어서 해','종료해'])
 def test_no_work_control_does_not_leak_into_llm(node,text):
     node.parser.llm=lambda *a:pytest.fail('안전 제어는 일반 LLM으로 보내지 않습니다.')

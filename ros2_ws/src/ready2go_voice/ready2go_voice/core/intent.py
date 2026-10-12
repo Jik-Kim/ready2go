@@ -46,7 +46,7 @@ class IntentParser:
     def __init__(self, ontology, schema, cfg, llm=None, clock=time.monotonic):
         self.items = ontology['world']['items']
         self.reference_state = ontology.get('state', {})
-        self.state_provider = None  # TODO(E/C): 읽기 전용 현재 상태 공급자 주입, 지금은 초기 프리셋뿐입니다.
+        self.state_provider = None  # reference_query가 기존 state mapping callable을 호출합니다. 실제 C 바인딩은 미연결입니다.
         self.places = ontology['world']['places']
         self.validator = Draft7Validator(schema)
         self.cfg, self.llm, self.clock = cfg, llm, clock
