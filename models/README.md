@@ -6,7 +6,7 @@
 | :--- | :--- |
 | `yolo11n_ready2go_v1.pt` | **P1 박스 모델(가림 필드 없음).** 노드에서 쓰려면 `VISION_WEIGHTS=models/yolo11n_ready2go_v1.pt bash tools/dev/vision_real_check.sh node`. `yolo11n.pt`(COCO 사전학습)에서 우리 데이터로 미세조정한 11개 클래스 검출기. 학습 `tools/yolo/train.py --epochs 100`(imgsz 640, batch 16, seed 0, 이름 `11n`) 결과의 `best.pt` (epoch 46) |
 | `yolo11s_seg_ready2go_v2.pt` | **노드 기본값(P2, 10/12 보강, #229)** — v1 과 같은 조건(`yolo11s-seg.pt`, imgsz 640, batch 16, 100 epoch, seed 0, 이름 `11s_seg_v2`)에 3단 쌓기·판 밑·립밤 자세 세션을 더해 학습한 `best.pt`. 비교·근거는 [`tools/yolo/README.md`](../tools/yolo/README.md) "3단 쌓기·판 밑 보강 v2" |
-| `yolo11s_seg_ready2go_v1.pt` | **이전 분할 기본값(10/11~10/12)** — 되돌릴 때 `VISION_WEIGHTS=models/yolo11s_seg_ready2go_v1.pt`. 10/11 #196 항목 2 — 분할 모델이라 마스크 안 뎁스와 가림 필드(`occluded_by`·`visible_area_m2`)를 낸다. `yolo11s-seg.pt`(COCO 사전학습)에서 분할(마스크) 라벨로 미세조정한 11개 클래스 인스턴스 분할 모델. 학습 `tools/yolo/train.py` 조건 v1·v2와 같음(imgsz 640, batch 16, 100 epoch, seed 0, 이름 `11s_seg_v1`) 결과의 `best.pt`. 노드 기본(`VISION_WEIGHTS` 없이 `bash tools/dev/vision_real_check.sh node`), 판정 방법은 `docs/vision.md` 9장 |
+| `yolo11s_seg_ready2go_v1.pt` | **이전 분할 기본값(10/11~10/12)** — 되돌릴 때 `VISION_WEIGHTS=models/yolo11s_seg_ready2go_v1.pt`. 10/11 #196 항목 2 — 분할 모델이라 마스크 안 뎁스와 가림 필드(`occluded_by`·`visible_area_m2`)를 낸다. `yolo11s-seg.pt`(COCO 사전학습)에서 분할(마스크) 라벨로 미세조정한 11개 클래스 인스턴스 분할 모델. 학습 `tools/yolo/train.py` 조건 v1·v2와 같음(imgsz 640, batch 16, 100 epoch, seed 0, 이름 `11s_seg_v1`) 결과의 `best.pt`. 10/11~10/12 에는 노드 기본이었고(`VISION_WEIGHTS` 없이 실행), 지금은 위처럼 `VISION_WEIGHTS` 로 지정할 때만 쓴다. 판정 방법은 `docs/vision.md` 9장 |
 
 - 클래스 번호: `config/yolo_classes.txt` 줄 번호(0 `airpods_case` … 10 `cover_plate`)
 - 데이터 (`yolo11n_ready2go_v1.pt`): 학습 219장(`s01`~`s07`), 검증 20장(`s90_val_a`·`s91_val_b`), 10/04 수집분
