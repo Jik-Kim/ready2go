@@ -2368,8 +2368,9 @@ class SkillServer(Node):
     def _place_check(self, params, loc):
         """check_only: 서랍 안 놓기 사전 검사만 — 어떤 동작도 하지 않음 [PC2 10/12 Unpacking: 놓을 데가 없는데 먼저 집어 쥔 채 정지].
         쥐고 있으면 그 상태로, 아직 안 쥐었으면 `object`(scan 의 집을 물체)를 쥐었다고 보고 판단. slot "free" 면 빈 자리를 고름.
-        통과 = 성공 + 놓을 예정 slot·placed_pose(예정, 움직이지 않음), 거부 = 실제 놓기와 같은 오류 코드·blocked_by."""
-        empty = {"slot": None, "placed_pose": None}
+        통과 = 성공 + 놓을 예정 slot·planned_pose (placed_pose 는 null — 놓지 않았음), 거부 = 실제 놓기와 같은 오류 코드·blocked_by.
+        결과에 늘 check_only: true — 실행 기록·run_report 에서 실제로 놓은 것처럼 보이지 않게 [C #241 리뷰]."""
+        empty = {"slot": None, "placed_pose": None, "check_only": True}
         held = dict(self.held) if self.held else self._planned_held(params.get("object"), loc)
         if held is None:
             return sf.Outcome(False, sf.BAD_PARAMS, reason="check_only: 쥔 물체가 없으면 object(scan 의 집을 물체)가 필요"), dict(empty)
@@ -2387,9 +2388,10 @@ class SkillServer(Node):
             slot, pose = dry.__dict__.get("_place_planned") or (None, None)
             where = slot_name or slot or f"({pose['position'][0]:.3f}, {pose['position'][1]:.3f})"
             return sf.Outcome(True, reason=f"check_only: {held['class']} → {loc} {where} 놓을 수 있음 (움직이지 않음)"), \
-                {"slot": slot_name or slot, "placed_pose": pose}
+                {"slot": slot_name or slot, "placed_pose": None, "planned_pose": pose, "check_only": True}
         except Exception as e:                                    # 설정·계산 예외 = 못 함 (움직이지 않음)
             return sf.Outcome(False, sf.SKILL_EXCEPTION, reason=f"check_only: {e!r:.120}"), dict(empty)
+        out = dict(out or empty, placed_pose=None, check_only=True)
         if o.success:                                             # 움직이지 않고 끝난 성공은 없음 — 그래도 판단만으로 처리
             return sf.Outcome(True, reason=f"check_only: {o.reason}"), out
         return sf.Outcome(False, o.error_code, reason=f"check_only: {o.reason}"), out

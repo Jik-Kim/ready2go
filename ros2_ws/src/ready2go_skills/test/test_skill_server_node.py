@@ -2157,7 +2157,8 @@ def test_place_check_only_before_pick_moves_nothing(server):
         out, data = server.run("place_object", {"location": "drawer_bottom", "slot": slot, "scan": SCAN_1012_PLATE,
                                                 "object": plate, "check_only": True})
         assert out.success and "움직이지 않음" in out.reason, out.reason
-        assert data["slot"] == slot and data["placed_pose"]["frame"] == "drawer_bottom"
+        assert data["slot"] == slot and data["planned_pose"]["frame"] == "drawer_bottom"
+        assert data["placed_pose"] is None and data["check_only"] is True              # 놓지 않음 — 실행 기록에서 놓은 것처럼 안 보이게 [C #241]
     assert len(srv.robot.log) == n and srv.held is None
     out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "aside_1", "scan": SCAN_1012_PLATE, "check_only": True})
     assert not out.success and out.error_code == "BAD_PARAMS"             # 쥔 것도 object 도 없음
@@ -2175,7 +2176,7 @@ def test_place_check_only_reports_refusal_with_blocker(server):
     out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "aside_1", "scan": scan,
                                             "object": scan["candidates"][1], "check_only": True})
     assert not out.success and out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "toy_car#1"
-    assert len(srv.robot.log) == n
+    assert data["placed_pose"] is None and data["check_only"] is True and len(srv.robot.log) == n
 
 
 def test_place_free_slot_when_asides_taken(server):
