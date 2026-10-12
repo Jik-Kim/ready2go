@@ -14,6 +14,7 @@
     <script src="./app.js" defer></script>
   </head>
   <body>
+    <div id="dashboardView">
     <header class="app-header">
       <div class="brand-lockup" aria-label="ROKEY 출근 준비 도우미">
         <strong class="brand">ROKEY</strong>
@@ -23,6 +24,10 @@
       <div class="header-meta">
         <span class="demo-badge">데모 · 실제 장치 미연결</span>
         <div id="connectionStatus" class="connection-status" aria-label="장치 연결 상태"></div>
+        <button id="openAdminView" class="admin-entry-button" type="button">
+          <span aria-hidden="true">▣</span>
+          관리자
+        </button>
       </div>
     </header>
 
@@ -155,6 +160,16 @@
           >
             <ol id="progressSteps" class="progress-steps" aria-label="작업 진행 단계"></ol>
           </div>
+          <dl class="step-evidence" aria-label="현재 단계 확인 근거">
+            <div>
+              <dt>확인 이유</dt>
+              <dd id="currentStepReason"></dd>
+            </div>
+            <div>
+              <dt>관측 결과</dt>
+              <dd id="currentStepObservation"></dd>
+            </div>
+          </dl>
         </div>
       </section>
 
@@ -176,6 +191,104 @@
       <strong>ROKEY</strong>
       <span>P3 최종 시연 화면 검토용 mock UI</span>
     </footer>
+    </div>
+
+    <section id="adminView" class="admin-view" aria-labelledby="adminTitle" hidden>
+      <header class="admin-header">
+        <div class="brand-lockup" aria-label="ROKEY 관리자 검토 패널">
+          <strong class="brand">ROKEY</strong>
+          <h1 id="adminTitle" class="admin-title">관리자 검토 패널</h1>
+        </div>
+        <button id="exitAdminView" class="admin-exit-button" type="button">
+          <span aria-hidden="true">↪</span>
+          관리자 화면 나가기
+        </button>
+      </header>
+
+      <div class="admin-shell">
+        <p class="admin-demo-notice" role="note">
+          데모 검토 화면 · 인증 및 서버 API 접근 제어 미구현 · 화면 진입은 관리자 권한 확인을 의미하지 않습니다.
+        </p>
+
+        <nav class="admin-tabs-scroll" aria-label="관리자 검토 항목">
+          <div class="admin-tabs" role="tablist" aria-label="관리자 검토 탭">
+            <button id="tab-current" class="admin-tab is-selected" type="button" role="tab" aria-selected="true" aria-controls="panel-current" tabindex="0" data-admin-tab="current">
+              <span aria-hidden="true">▤</span>현재 상태
+            </button>
+            <button id="tab-ontology" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-ontology" tabindex="-1" data-admin-tab="ontology">
+              <span aria-hidden="true">⌘</span>온톨로지
+            </button>
+            <button id="tab-plan" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-plan" tabindex="-1" data-admin-tab="plan">
+              <span aria-hidden="true">▧</span>계획 근거
+            </button>
+            <button id="tab-history" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-admin-tab="history">
+              <span aria-hidden="true">☷</span>실행 기록
+            </button>
+          </div>
+        </nav>
+
+        <main class="admin-content">
+          <section id="panel-current" class="admin-panel" role="tabpanel" aria-labelledby="tab-current" data-admin-panel="current">
+            <div id="adminRunSummary" class="admin-summary" aria-label="현재 실행 요약"></div>
+            <section class="admin-card" aria-labelledby="currentStateHeading">
+              <div class="admin-section-heading">
+                <div>
+                  <span class="eyebrow">Runner 저장값과 관측 결과를 구분해 표시</span>
+                  <h2 id="currentStateHeading">현재 상태 조회</h2>
+                </div>
+                <span class="sample-label">데모 샘플</span>
+              </div>
+              <div class="admin-table-scroll" role="region" aria-label="현재 상태 표" tabindex="0">
+                <table class="admin-table">
+                  <thead>
+                    <tr><th scope="col">항목</th><th scope="col">값</th><th scope="col">출처</th><th scope="col">수신 시각</th></tr>
+                  </thead>
+                  <tbody id="adminCurrentStateBody"></tbody>
+                </table>
+              </div>
+              <p id="adminErrorStatus" class="admin-data-note"></p>
+            </section>
+          </section>
+
+          <section id="panel-ontology" class="admin-panel" role="tabpanel" aria-labelledby="tab-ontology" data-admin-panel="ontology" hidden>
+            <section class="admin-card" aria-labelledby="ontologyHeading">
+              <div class="admin-section-heading">
+                <div><span class="eyebrow">원본 온톨로지 미연동 · 데모 샘플</span><h2 id="ontologyHeading">등록 물품·장소·관계</h2></div>
+                <span class="sample-label">데모 샘플</span>
+              </div>
+              <div id="adminOntologyRelations" class="admin-definition-grid"></div>
+            </section>
+            <section class="admin-card" aria-labelledby="skillHeading">
+              <div class="admin-section-heading"><div><span class="eyebrow">사전 조건과 예상 결과</span><h2 id="skillHeading">스킬 정의</h2></div></div>
+              <div id="adminSkillDefinitions" class="admin-definition-grid"></div>
+            </section>
+          </section>
+
+          <section id="panel-plan" class="admin-panel" role="tabpanel" aria-labelledby="tab-plan" data-admin-panel="plan" hidden>
+            <section class="admin-card admin-empty-card" aria-labelledby="planHeading">
+              <span class="admin-empty-icon" aria-hidden="true">!</span>
+              <div>
+                <h2 id="planHeading">계획 근거 미연동</h2>
+                <p id="adminPlanMessage"></p>
+              </div>
+            </section>
+          </section>
+
+          <section id="panel-history" class="admin-panel" role="tabpanel" aria-labelledby="tab-history" data-admin-panel="history" hidden>
+            <div class="history-layout">
+              <section class="admin-card" aria-labelledby="historyListHeading">
+                <div class="admin-section-heading"><div><span class="eyebrow">실제 MongoDB 기록 미연동</span><h2 id="historyListHeading">과거 실행 목록</h2></div><span class="sample-label">데모 샘플</span></div>
+                <div id="adminHistoryList" class="history-list"></div>
+              </section>
+              <section class="admin-card" aria-labelledby="historyDetailHeading">
+                <div class="admin-section-heading"><div><span class="eyebrow">선택한 데모 실행</span><h2 id="historyDetailHeading">단계별 기록</h2></div></div>
+                <div id="adminHistoryDetails" class="history-details"></div>
+              </section>
+            </div>
+          </section>
+        </main>
+      </div>
+    </section>
 
     <dialog id="commandDialog" class="bottom-sheet" aria-labelledby="commandDialogTitle">
       <div class="dialog-header">

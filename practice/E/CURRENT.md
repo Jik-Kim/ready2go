@@ -20,6 +20,13 @@
 - [실측: E 초안 정적] `python3 tools/validate_contracts.py` OK. intent 예시2개·추가 전 P1 예시2개·유효 입력6개·빈 ID/타입 오류7개를 jsonschema로 대조했습니다. 두 새 속성을 제외한 전체 스키마와 두 예시의 기존 내용이 PR217 기준과 동일함을 확인했습니다. 변경5문서 로컬 링크/앵커375개·공백 검사 통과입니다. 기존 예시를 읽는 `tools/validate_contracts.py`는 수정하지 않았고 별도 생성기는 검색에서 발견되지 않았습니다.
 - [문서: 검증 계획] 계약 검증기·기존 intent 예시·P1 필드 누락 호환·두 선택 필드 타입/빈 ID·문서 원본 참조를 좁게 대조합니다. 코드 변경 없는 E 초안 단계의 전체 pytest/build/CI는 실행하지 않습니다. 최종 전체 CI는 C 소유 최소 커밋과 ICD가 합류한 계약 PR 최종 head에서 한 번 실행합니다. 중복/빠른 완료/TTS 성공의 운영 모의·실음성·실물 결과는 이번에 검증하지 않습니다.
 
+## PR217 순서 역행 리뷰 수정 — E-PR217-REVIEW-FIX-20261011
+
+- [문서: 기준선·소유] 기존218 `6cdeceb` 편집/게시 종료·추적 clean을 확인한 뒤 기존 `codex/e-p2-safety-trim-20261011`의 `8a83b12`로 전환했습니다. 원격 최신 main `41b456d118e1eec4d7e8b17955c04d58d02bc22f`를 정상 merge합니다. 전달 main `9b1b407` 이후 B216/219 이력은 이미 main에 포함된 변경이며 대신 편집하지 않습니다. CURRENT 충돌은 양쪽 이력을 보존하고 D 과거 기준 한 문장·녹음 진단 source/_voice 정정을 상속합니다. #218의 asked/core·trusted Session/node 변경과 공동07은 역합류하지 않습니다.
+- [구현: 리뷰] [리뷰 지적](https://github.com/Jik-Kim/ready2go/pull/217#discussion_r4240350283)에 따라 동일 boot/run/halt의 최신 신뢰 의미 충돌도 revision/sequences 하한에 기록한 뒤 기존 입력·현재 확인을 무효화합니다. 충돌 work는 채택하지 않고 seq 이하 상태/ACK의 재확인을 차단합니다. 정상 의미 고seq의 입력 보존, 잘못된 입력/미확인 ACK의 하한 불변·boot/종료 처리를 유지합니다. 직접 수정은 recovery core·직접 시험·voice_llm/VoiceREADME/CURRENT 5파일뿐이며 정본 정책·설정·wire·타 담당은 변경하지 않습니다.
+- [실측: 회귀] Python3.12 test_recovery_confirmation **105 passed**, 종료0. seq2→충돌4→과거3/4 거절·독립 요청 생성 불가·oldACK 거절, 고seq 유효 재확인·일회 소비, 정상seq 입력 보존·잘못된값의 하한 불변·boot/종료 회귀를 확인했습니다. 최종 안정 HEAD 전체 로컬 CI를 한 번 실행하고 본문·리뷰 답변에 결과를 기록합니다. 이전198/2257 결과로 이 head 검증을 대신하지 않습니다.
+- [미검증·보존] 실제 E-C ACK/clock/TTS timeout·마이크/API/ROS/로봇·실물 AC는 미검증입니다. 사용자 models SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`과 기존218/07/207~209 refs를 보존합니다. CI/push/리뷰답변 완료를 이 기록으로 미리 주장하지 않습니다.
+
 ## E 타이머·반복 검사 축소 — E-P2-SAFETY-TRIM-20261011-06
 
 - [문서: 승인·Git] 상위 인간 turn `01a1290f-14f1-73b3-a7d7-9ed08ac75208`의 E 한정 대체안과 후속 turn `01a12928-54e1-7981-9180-23c0dadbd7a5`의 “반복 검사 줄이는 안까지 같이 진행해” 원문을 직접 확인했습니다. 기존 root의 추적 clean·PR209 `929565a8c1c5ab58569eea877b6ecf7a2c4c8f53`에서 지시 세션이 통상 Git 선택으로 지정한 `codex/e-p2-safety-trim-20261011`을 생성했습니다. 인간이 브랜치 이름을 지정했다고 기록하지 않습니다. 완료 PR207~209는 수정하지 않습니다. 미추적 모델 파일 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존·커밋 제외합니다.
