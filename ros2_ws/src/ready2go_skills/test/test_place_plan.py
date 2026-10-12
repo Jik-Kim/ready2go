@@ -256,3 +256,15 @@ def test_same_place_within_tolerance_and_yaw_symmetric():
     assert not ok(0.0137, 0.1539, 1.5625) and not ok(0.0097, 0.1539, 1.5625 + 0.1)
     assert not plp.same_place({"position": [float("nan"), 0.0], "yaw": 0.0}, back, tol_mm=3.0, tol_deg=5.0)
     assert not plp.same_place({}, back, tol_mm=3.0, tol_deg=5.0)
+
+
+def test_fit_slot_without_turn_only_shifts():
+    """[PC2 10/12 Unpacking] 되돌리기(turn=False)는 방향은 그대로 옮기기만 — 옮겨서 안 되면 90° 돌려 보지 않고 원래 거부."""
+    pose = {"frame": "drawer_bottom", "position": [0.091, 0.167, 0.0], "yaw": -0.054}
+    got, bad = plp.fit_slot(pose=pose, check=lambda p: None if p["position"][0] >= 0.1029 else plp.Refusal(plp.PLACE_BLOCKED, "립밤"),
+                            max_shift_mm=20.0, turn=False)
+    assert bad is None and got["yaw"] == pytest.approx(-0.054) and got["position"][0] == pytest.approx(0.103)
+    turned = []
+    got, bad = plp.fit_slot(pose=pose, check=lambda p: turned.append(p["yaw"]) or plp.Refusal(plp.PLACE_BLOCKED, "립밤"),
+                            max_shift_mm=20.0, turn=False)
+    assert got == pose and bad.error_code == plp.PLACE_BLOCKED and {round(y, 3) for y in turned} == {-0.054}

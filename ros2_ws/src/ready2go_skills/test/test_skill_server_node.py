@@ -1581,8 +1581,12 @@ def test_p2_cover_plate_lifted_off_eraser_and_set_aside(server):
 
 
 def test_long_side_held_place_checks_fingers_at_the_ends(server):
-    """[P2 시뮬레이션 10/10] 긴 변 양끝을 쥔 물체를 서랍 안에 놓을 때 손가락은 긴 변 끝 — 끝 바로 옆 이웃(손가락 자리)이면 PLACE_BLOCKED."""
+    """[P2 시뮬레이션 10/10] 긴 변 양끝을 쥔 물체를 서랍 안에 놓을 때 손가락은 긴 변 끝 — 끝 바로 옆 이웃(손가락 자리)이면 PLACE_BLOCKED.
+    (명령한 자리 그대로의 판단만 보려고 되돌리기 비켜 놓기 restore_fit_max_mm 은 끔)"""
     srv = server.srv
+    prm = srv.prm()
+    prm["place"] = dict(prm["place"], restore_fit_max_mm=0.0)
+    srv.prm = lambda: prm
     er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": math.pi / 2, "yaw_valid": True}}   # 가로 → 긴 변
     server.Gripper.holding, server.Gripper.held_width = True, 52.0
@@ -2042,6 +2046,59 @@ def test_handle_items_open_by_grasp_width_not_head(server, cls, grasp_w, head_w)
     assert round(grasp_w + 13.0, 1) in opens and round(head_w + 13.0, 1) not in opens, opens
 
 
+@pytest.mark.parametrize("lip_x, ok", [(0.039, True), (0.090, False)])
+def test_restore_slightly_blocked_origin_shifts_within_tolerance(server, lip_x, ok):
+    """[PC2 10/12 Unpacking 덤프 05:31~05:32] 가림막을 들 때 밑에 깔린 립밤이 굴러 원래 자리 가장자리를 ~10 mm 막음 → 원래 자리
+    놓기 거부 → Runner 가 aside_1 에서 집어 aside_1 에 다시 놓음. 되돌리기(명령한 pose)는 restore_fit_max_mm 안에서 방향은 그대로
+    가장 적게 옮겨 놓음. 원래 자리 한가운데가 막히면(20 mm 로 못 비킴) 예전처럼 거부 — Runner 는 꺼낸 자리로."""
+    srv = server.srv
+    srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0352,
+             "pose": {"frame": "drawer_bottom", "position": [0.081, 0.066, 0.0], "yaw": -1.569, "yaw_valid": True}}
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0219,
+           "pose": {"frame": "drawer_bottom", "position": [lip_x, 0.202, 0.0], "yaw": 1.534, "yaw_valid": True}}
+    scan = {"target_found": False, "target": None, "candidates": [plate, lip], "visible_count": 2}
+    origin = {"frame": "drawer_bottom", "position": [0.091, 0.167, 0.0], "yaw": -0.054}
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason
+        out, data = server.run("place_object", {"location": "drawer_bottom", "pose": origin, "scan": scan})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success is ok, out.reason
+    if ok:
+        pp = data["placed_pose"]
+        moved = math.dist(pp["position"][:2], origin["position"][:2])
+        assert 0.0 < moved <= srv.prm()["place"]["restore_fit_max_mm"] / 1000.0 + 1e-9
+        assert pp["yaw"] == pytest.approx(origin["yaw"]) and srv.held is None
+    else:
+        assert data["placed_pose"] is None and data.get("blocked_by") == "lip_balm#1"
+
+
+def test_restore_fit_zero_keeps_old_refusal(server):
+    """restore_fit_max_mm 0 = 예전처럼 명령한 pose 그대로만 (막히면 거부)."""
+    srv = server.srv
+    srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
+    prm = srv.prm()
+    prm["place"] = dict(prm["place"], restore_fit_max_mm=0.0)
+    srv.prm = lambda: prm
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0352,
+             "pose": {"frame": "drawer_bottom", "position": [0.081, 0.066, 0.0], "yaw": -1.569, "yaw_valid": True}}
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0219,
+           "pose": {"frame": "drawer_bottom", "position": [0.039, 0.202, 0.0], "yaw": 1.534, "yaw_valid": True}}
+    scan = {"target_found": False, "target": None, "candidates": [plate, lip], "visible_count": 2}
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason
+        out, data = server.run("place_object", {"location": "drawer_bottom", "scan": scan,
+                                                "pose": {"frame": "drawer_bottom", "position": [0.091, 0.167, 0.0], "yaw": -0.054}})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert not out.success and data["blocked_by"] == "lip_balm#1"
+
+
 def test_putback_pick_then_place_at_pick_pose(server):
     """[사용자 10/11 B putback] 파지만 시험 — 집은 뒤 집기 전 pose 로 서랍 안 놓기: 받아지고 그 자리(placed_pose)에 놓고 빈손."""
     srv = server.srv
@@ -2377,9 +2434,17 @@ def test_putback_tilted_pick_places_back_with_same_tilt(server, drawer):
         picked = [e[1] for e in srv.robot.log if e[0] == "movel"][-1]
         held = dict(srv.held)
 
-        srv.held = {k: v for k, v in held.items() if k != "tilt_back"}       # 기억 없음 = 예전: 수직이라 벽 밖
+        srv.held = {k: v for k, v in held.items() if k != "tilt_back"}       # 기억 없음 = 예전: 수직이라 벽 밖 → 거부
+        prm = srv.prm()
+        no_fit = dict(prm, place=dict(prm["place"], restore_fit_max_mm=0.0))
+        real_prm, srv.prm = srv.prm, (lambda: no_fit)
         out, data = server.run("place_object", {"location": drawer, "pose": pose, "scan": scan})
         assert not out.success and out.error_code == "WALL_TOO_CLOSE" and data["blocked_by"] == "wall"
+        srv.prm = real_prm                                                    # 지금: 벽에서 복구 허용 오차 안으로 비켜 수직으로 놓음
+        srv.held = {k: v for k, v in held.items() if k != "tilt_back"}
+        out, data = server.run("place_object", {"location": drawer, "pose": pose, "scan": scan})
+        assert out.success and "기울여" not in out.reason
+        assert 0.0 < data["placed_pose"]["position"][0] - pose["position"][0] <= prm["place"]["restore_fit_max_mm"] / 1000.0 + 1e-9
 
         srv.held = dict(held)
         far = dict(pose, position=[pose["position"][0] + 0.010, pose["position"][1], 0.0])

@@ -2398,9 +2398,14 @@ class SkillServer(Node):
                 if dp_.needed or dp_.error_code:
                     return plp.Refusal(WALL_TOO_CLOSE, f"놓으면 다시 집을 때 넛지 필요 ({dp_.reason})", "wall")
             return None
-        # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 — 명령한 pose(되돌리기)는 그대로 [P2 시뮬레이션 10/10]
-        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0,
-                                 step_mm=float(pl.get("slot_fit_step_mm", 2.0)))
+        # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 [P2 시뮬레이션 10/10]. 명령한 pose(되돌리기)는
+        # 바닥에 그대로 놓을 때만 복구 허용 오차 안(restore_fit_max_mm)으로 방향은 그대로 옮기기만 — 원래 자리를 이웃이 살짝 막으면
+        # 놓을 수 있는 aside 에서 집어 aside 에 다시 놓던 것 [PC2 10/12 Unpacking: 가림막 밑 립밤이 굴러 원래 자리 가장자리 ~10 mm 막음]
+        # (기울여 되돌리기·쌓아 놓기는 집을 때 자세·받침 기준이라 옮기지 않음)
+        shift = (pl.get("slot_fit_max_mm", 0.0) if slot
+                 else 0.0 if back_tilt or support is not None else pl.get("restore_fit_max_mm", 0.0))
+        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=shift, step_mm=float(pl.get("slot_fit_step_mm", 2.0)),
+                                 turn=bool(slot))
         if bad:
             return refuse(bad.error_code, bad.reason, bad.blocked_by)
         support_m = float(support["top_z"]) if support is not None else 0.0

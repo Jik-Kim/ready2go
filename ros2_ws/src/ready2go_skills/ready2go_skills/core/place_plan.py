@@ -195,10 +195,11 @@ def same_place(pose: Mapping, back: Mapping, *, tol_mm: float, tol_deg: float) -
 
 
 def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], max_shift_mm: float,
-             step_mm: float = 2.0) -> tuple:
+             step_mm: float = 2.0, turn: bool = True) -> tuple:
     """고정 빈 자리(slot)에 쥔 물체가 안 들어가면(벽·이웃) 자리 가운데에서 가장 적게 옮긴(·90° 돌린) 자세를 찾음
     [P2 시연 시뮬레이션 10/10: 가림막 98.5 × 74.2 mm 가 aside_1 에서 손잡이 쪽 벽 밖 3 mm → WALL_TOO_CLOSE].
-    (자세, None) 또는 못 찾으면 (원래 자세, 원래 거부). 명령한 pose(되돌리기)는 쓰지 않음 — 원래 자리여야 하므로."""
+    (자세, None) 또는 못 찾으면 (원래 자세, 원래 거부). turn=False 면 방향은 그대로 옮기기만 — 명령한 pose(되돌리기)는
+    원래 자리에서 복구 허용 오차 안으로만 비켜 놓음 [PC2 10/12 Unpacking: 가림막 밑 립밤이 굴러 원래 자리 가장자리를 막음]."""
     first = check(pose)
     if first is None or max_shift_mm <= 0:
         return pose, first
@@ -206,7 +207,7 @@ def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], ma
     offs = sorted(((i * step_mm, j * step_mm) for i in range(-n, n + 1) for j in range(-n, n + 1)
                    if math.hypot(i, j) * step_mm <= max_shift_mm), key=lambda d: math.hypot(*d))
     x, y = pose["position"][:2]
-    for dyaw in (0.0, math.pi / 2):
+    for dyaw in ((0.0, math.pi / 2) if turn else (0.0,)):
         yaw = pose["yaw"] + dyaw
         yaw = (yaw + math.pi / 2) % math.pi - math.pi / 2          # (−π/2, π/2]
         if yaw <= -math.pi / 2 + 1e-9:
