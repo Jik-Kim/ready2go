@@ -48,8 +48,11 @@ def _under(obj: Mapping, target: Mapping, size_m: Sequence[float], obj_size_m: S
 def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, objects: Sequence[Mapping],
                  size_of: Callable[[str], Optional[Sequence[float]]], default_size_m: Sequence[float],
                  finger_mm: float, margin_mm: float, support_m: float, below_tol_m: float,
-                 finger_half_width_mm: Optional[float] = None) -> Optional[str]:
+                 finger_half_width_mm: Optional[float] = None, fingertip_floor_m: Optional[float] = None,
+                 fingertip_clear_m: float = 0.002) -> Optional[str]:
     """집을 때 벌린 손가락 footprint 와 겹치는 이웃 id (없으면 None).
+    fingertip_floor_m: 손끝이 내려가는 가장 낮은 높이(서랍 바닥 기준) — 주면 그보다 fingertip_clear_m 넘게 낮은 이웃은 안 닿으므로 무시.
+    이웃 높이는 비전 top_z 와 온톨로지 높이 중 큰 값 (덮개 판 손끝 25 mm 옆 지우개·립밤 [사용자 10/12 PC2]).
     finger_half_width_mm: 손가락 반폭(닫힘 축에 수직) — 주면 손가락이 실제로 내려가는 띠(긴 변 방향으로 이 폭)만 봄.
     없으면 예전처럼 물체 길이 전체 [P2 시뮬레이션 10/10: 몽키 170 mm 끝 옆 aside 차키까지 막음]."""
     x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
@@ -64,6 +67,9 @@ def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, ob
         osz = size_of(o.get("class")) or default_size_m
         if _under(o, target, size_m, osz, margin_mm):
             continue
+        if fingertip_floor_m is not None and _finite(o.get("top_z")) and len(osz) > 2 \
+                and max(float(o["top_z"]), float(osz[2])) <= fingertip_floor_m - fingertip_clear_m:
+            continue                                         # 손끝보다 낮음 — 손가락 자리에 있어도 안 닿음
         if plp.rects_overlap(mine, plp.neighbor_rect_mm(o, osz)):
             return o["id"]
     return None

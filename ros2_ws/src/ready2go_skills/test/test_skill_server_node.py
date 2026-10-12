@@ -2510,3 +2510,33 @@ def test_stacked_key_hanging_off_caramel_edge_picks_with_caramel_as_support(serv
     side = o("caramel_box#1", "caramel_box", (key[0], key[1] - 0.045, 0.0), 0.0185, ["car_key#1"])   # 바닥 차키 옆 헛관계 캐러멜
     floor_key = dict(k, top_z=0.0158)
     assert server.ss.plp.objects_under(target=floor_key, objects=[side], size_of=server.srv._size_or_none) == []
+
+
+def test_cover_plate_pick_ignores_lower_neighbors_under_fingertips(server):
+    """[사용자 10/12 PC2 "가림막 높이가 지우개·립밤보다 높아서 그냥 잡힘"] 가림막 긴 변(손가락 자리) 옆에 반쯤 나온 지우개(14.2)·
+    붙은 립밤(22.2) → 예전엔 NEIGHBOR_TOO_CLOSE. 닫은 손끝은 바닥 위 25 mm 아래로 안 내려가므로 그보다 2 mm 넘게 낮은 이웃은 무시.
+    낮은 물체(지우개, 손끝 약 5.8 mm)를 집을 땐 옆의 높은 물체는 예전처럼 막음."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0344, "occluded_by": [], "visible_area_m2": 0.007291,
+             "pose": {"frame": D, "position": [0.093, 0.1739, 0.0], "yaw": -0.0765, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0142, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.000799,
+          "pose": {"frame": D, "position": [0.0914, 0.119, 0.0], "yaw": 1.4835, "yaw_valid": True}}
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0222, "occluded_by": None, "visible_area_m2": 0.000992,
+           "pose": {"frame": D, "position": [0.0679, 0.1118, 0.0], "yaw": 1.3196, "yaw_valid": True}}
+    scan = {"target_found": True, "target": er, "candidates": [plate, lip], "visible_count": 3}
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason
+        srv.held = None
+        tall = dict(lip, id="airpods_case#1", **{"class": "airpods_case"}, top_z=0.0216,
+                    pose={"frame": D, "position": [0.0914, 0.119 + 0.030, 0.0], "yaw": 0.0, "yaw_valid": True})
+        er2 = dict(er, occluded_by=[])
+        server.Gripper.held_width = 21.0
+        out, _ = server.run("pick_object", {"target": er2, "approach_offset": [0, 0, 0.1],
+                                            "scan": {"target_found": True, "target": er2, "candidates": [tall], "visible_count": 2}})
+        assert out.error_code == "NEIGHBOR_TOO_CLOSE"                    # 지우개 손끝(약 6 mm)보다 높은 에어팟은 그대로 막음
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
