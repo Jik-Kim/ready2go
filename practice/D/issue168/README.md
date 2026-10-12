@@ -47,7 +47,9 @@ python3 tools/sync_issue168_checklist.py --apply
 - `--dry-run`: 인증이 있으면 현재 시트와 비교한 셀별 변경 내용을 출력하고, 인증이 없으면 관리·보호 열 계획만 출력합니다. 시트는 수정하지 않습니다.
 - `--apply`: `--dry-run`과 같은 비교를 수행한 뒤 변경된 자동 관리 셀만 반영합니다. 적용할 YAML은 현재 저장소 `HEAD`에 같은 내용으로 커밋되어 있어야 하며, 저장소 밖 파일·미추적 파일·미커밋 내용은 적용을 거부합니다.
 
-`source_catalog.type`은 `github_issue`, `github_comment`, `github_pull_request`, `repository_file`, `repository_files`만 허용합니다. GitHub 근거에는 비어 있지 않은 `url`, 단일 저장소 근거에는 `path`, 복수 저장소 근거에는 비어 있지 않은 `paths`가 필요합니다. 지원하지 않는 타입이나 타입별 필수 필드 누락은 동기화 전에 검증 실패로 처리합니다.
+`source_catalog.type`은 `github_issue`, `github_comment`, `github_pull_request`, `repository_file`, `repository_files`만 허용합니다. GitHub 근거는 `https://github.com/Jik-Kim/ready2go`의 이슈(`/issues/<번호>`), PR(`/pull/<번호>`), 댓글(`#issuecomment-<번호>`) 형식을 타입별로 확인합니다. 단일 저장소 근거에는 `path`, 복수 저장소 근거에는 비어 있지 않은 `paths`가 필요합니다. 지원하지 않는 타입, 다른 저장소·종류의 URL, 타입별 필수 필드 누락은 동기화 전에 검증 실패로 처리합니다.
+
+`sheet`에는 비어 있지 않은 `spreadsheet_id`, 같은 ID의 Google Sheets `url`, 실제 관리 탭과 일치하는 `tabs.progress/nodes/scenarios`, `sync_direction: yaml_to_sheet`가 필요합니다. 인증 없는 검증·미리보기에서도 이 설정을 먼저 검사합니다.
 
 시나리오 표의 자동 관리 열은 `ID`, `상황`, `노드·오류 코드`, `C Runner 다음 행동`, `B 확인`, `C 확인`, `E 확인`, `결정 상태`입니다. `mock 결과`, `실물 결과`, `증적 링크`, `판정`, 측정값과 현장 증적을 포함한 나머지 열은 쓰기 요청에 포함하지 않습니다.
 

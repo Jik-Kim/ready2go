@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -59,6 +60,17 @@ GITHUB_SOURCE_TYPES = {
     "github_comment",
     "github_pull_request",
 }
+GITHUB_HOST = "github.com"
+GITHUB_REPOSITORY_PATH = "/Jik-Kim/ready2go"
+GITHUB_NUMBERED_PATHS = {
+    "github_issue": re.compile(rf"^{GITHUB_REPOSITORY_PATH}/issues/[1-9][0-9]*/?$"),
+    "github_pull_request": re.compile(rf"^{GITHUB_REPOSITORY_PATH}/pull/[1-9][0-9]*/?$"),
+}
+GITHUB_COMMENT_PATH = re.compile(
+    rf"^{GITHUB_REPOSITORY_PATH}/(?:issues|pull)/[1-9][0-9]*/?$"
+)
+GITHUB_COMMENT_FRAGMENT = re.compile(r"^issuecomment-[1-9][0-9]*$")
+SPREADSHEET_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 CONFIRMATION_TO_SHEET = {
     "B": {
@@ -342,6 +354,87 @@ def validate_repository_path(source_id: str, field: str, value: Any) -> list[str
     return []
 
 
+def validate_github_url(source_id: str, source_type: str, value: Any) -> list[str]:
+    label = f"source_catalog.{source_id}.url"
+    if not isinstance(value, str) or not value:
+        return [f"{label} must be a non-empty string"]
+
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or parsed.netloc != GITHUB_HOST:
+        return [f"{label} must use https://{GITHUB_HOST}"]
+    if parsed.query or parsed.params:
+        return [f"{label} must not contain query parameters"]
+
+    if source_type == "github_comment":
+        if not GITHUB_COMMENT_PATH.fullmatch(parsed.path):
+            return [
+                f"{label} must point to {GITHUB_REPOSITORY_PATH}/issues/<number> "
+                "or /pull/<number>"
+            ]
+        if not GITHUB_COMMENT_FRAGMENT.fullmatch(parsed.fragment):
+            return [f"{label} must include #issuecomment-<number>"]
+        return []
+
+    pattern = GITHUB_NUMBERED_PATHS[source_type]
+    if not pattern.fullmatch(parsed.path) or parsed.fragment:
+        kind = "issues" if source_type == "github_issue" else "pull"
+        return [
+            f"{label} must match https://{GITHUB_HOST}{GITHUB_REPOSITORY_PATH}/"
+            f"{kind}/<number>"
+        ]
+    return []
+
+
+def validate_sheet_config(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return ["root.sheet must be a mapping"]
+
+    errors: list[str] = []
+    spreadsheet_id = value.get("spreadsheet_id")
+    if not isinstance(spreadsheet_id, str) or not spreadsheet_id:
+        errors.append("root.sheet.spreadsheet_id must be a non-empty string")
+    elif not SPREADSHEET_ID_PATTERN.fullmatch(spreadsheet_id):
+        errors.append("root.sheet.spreadsheet_id contains unsupported characters")
+
+    sheet_url = value.get("url")
+    if not isinstance(sheet_url, str) or not sheet_url:
+        errors.append("root.sheet.url must be a non-empty string")
+    elif isinstance(spreadsheet_id, str) and spreadsheet_id:
+        parsed = urlparse(sheet_url)
+        expected_path = f"/spreadsheets/d/{spreadsheet_id}"
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != "docs.google.com"
+            or parsed.path.rstrip("/") not in {expected_path, f"{expected_path}/edit"}
+        ):
+            errors.append("root.sheet.url must match root.sheet.spreadsheet_id")
+
+    tabs = value.get("tabs")
+    expected_tabs = {
+        "progress": SYNC_METADATA_SHEET,
+        "nodes": SHEET_SPECS["nodes"].title,
+        "scenarios": SHEET_SPECS["scenarios"].title,
+    }
+    if not isinstance(tabs, dict):
+        errors.append("root.sheet.tabs must be a mapping")
+    else:
+        for key, expected in expected_tabs.items():
+            actual = tabs.get(key)
+            if not isinstance(actual, str):
+                errors.append(f"root.sheet.tabs.{key} must be a string")
+            elif actual != expected:
+                errors.append(
+                    f"root.sheet.tabs.{key} must be '{expected}', found '{actual}'"
+                )
+
+    sync_direction = value.get("sync_direction")
+    if not isinstance(sync_direction, str):
+        errors.append("root.sheet.sync_direction must be a string")
+    elif sync_direction != "yaml_to_sheet":
+        errors.append("root.sheet.sync_direction must be 'yaml_to_sheet'")
+    return errors
+
+
 def validate_source_catalog_entry(source_id: str, source: Any) -> list[str]:
     label = f"source_catalog.{source_id}"
     if not isinstance(source, dict):
@@ -353,9 +446,7 @@ def validate_source_catalog_entry(source_id: str, source: Any) -> list[str]:
 
     errors: list[str] = []
     if source_type in GITHUB_SOURCE_TYPES:
-        source_url = source.get("url")
-        if not isinstance(source_url, str) or not source_url:
-            errors.append(f"{label}.url must be a non-empty string")
+        errors += validate_github_url(source_id, source_type, source.get("url"))
     elif source_type == "repository_file":
         errors += validate_repository_path(source_id, "path", source.get("path"))
     elif source_type == "repository_files":
@@ -382,6 +473,7 @@ def validate_checklist(data: dict[str, Any]) -> list[str]:
         ("schema_version", "checklist_id", "phase", "owner", "source_catalog", "status_legend"),
         "root",
     )
+    errors += validate_sheet_config(data.get("sheet"))
     nodes = data.get("node_cards")
     scenarios = data.get("scenarios")
     failures = data.get("node_failure_cases")

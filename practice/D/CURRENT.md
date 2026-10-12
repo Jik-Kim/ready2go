@@ -34,6 +34,7 @@
 - [실측] 정상 체크리스트 `PASS: 8 node cards, 18 scenarios`, 실행 원본 오류 코드 5종(`DRAWER_STUCK`·`CLOSE_NOT_CONFIRMED`·`TRAY_FULL`·`NOT_VISIBLE`·`CAMERA_TIMEOUT`) 수용, 잘못된 YAML 4종의 오류 목록 반환, 메타데이터 표식 3종의 허용·거부를 로컬에서 확인함. 실제 Google Sheet 쓰기 검증을 뜻하지 않음.
 - [실측] PR #205 리뷰를 반영해 복수 저장소 파일 근거와 담당자별 확인 상태의 시트 변환 가능 여부를 검증하고, 실제 `--apply`는 현재 `HEAD`에 같은 내용으로 커밋된 체크리스트만 허용하도록 보완함. 로컬 오류 주입으로 누락된 복수 경로·변환 불가 상태·외부 및 미커밋 YAML 차단을 확인했으며 실제 Google Sheet 쓰기 검증 상태는 계속 대기임.
 - [실측] PR #205 재검토의 P2 지적을 반영해 `source_catalog.type`을 다섯 가지 지원 타입으로 제한하고 GitHub URL·단일 경로·복수 경로의 타입별 필수 필드를 검증함. 오타 타입과 필수 필드 누락 오류 주입을 차단했으며 체크리스트 내용과 실제 Google Sheet 쓰기 검증 상태는 변경하지 않음.
+- [문서·실측] PR #205 추가 검토를 반영해 GitHub 근거 URL을 `Jik-Kim/ready2go`의 이슈·PR·`#issuecomment` 형식과 타입별로 대조하고, `sheet`의 ID·URL·관리 탭·단방향 설정을 인증 전에 검증함. 잘못된 URL 5종과 시트 설정 4종을 차단하고 유효한 URL 4종 및 기존 체크리스트 통과를 확인했으며, 링크의 실제 존재 확인이나 Google Sheet 쓰기 검증을 뜻하지 않음.
 
 ## 확정 값 (근거 태그 필수)
 - [문서] #153 P2 준비 범위에 맞춘 [Google 스프레드시트](https://docs.google.com/spreadsheets/d/14-W4kRl2PwarUf2W_R0VB2BggL5sMCX2om0YI2odnTo/edit)를 생성함. 준비현황·실행기준·파트별시험·음성평가·정지복구·미달후속 6개 탭에 파트별 준비 14건, 음성 40문장, 정지·복구 사례 28건을 구성함. 결과는 미실행이며 안전 요구사항 정본은 미확인·반영 보류, 미지원 음성의 unknown/clarify 정답은 미확정임. JSON 자동 동기화나 평가·안전 승인을 뜻하지 않음.
