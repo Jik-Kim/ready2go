@@ -126,12 +126,16 @@ def test_termination_acceptance_then_idle_fixture_allows_new_eraser_request(node
     node.bind_safety_sender(sender)
     node._safety_recording(audio(),WORK)  # 실제 입력 경로의 새 cancel/SDK/등록 gate를 통과합니다.
     end=sent[-1][1]
-    assert isinstance(end,TaskEndCandidate) and node.pending_task_end is not None and ex.policy.work is None
+    assert isinstance(end,TaskEndCandidate) and node.pending_task_end is not None and ex.policy.work == WORK
     assert not node.safety_task_end_accepted(TaskEndCandidate(WORK),valid_state=True)
     bridge=dummy_class().__new__(dummy_class())
     bridge.voice=node;bridge.work=WORK;bridge.run=WORK.task;bridge.accepted_payload={};bridge.first_action=None
+    bridge.active=True;bridge.feedback=None;node.place_test_devices=True
     bridge.String=lambda **kw:SimpleNamespace(**kw);bridge.log=lambda *a,**kw:None
     bridge.safety_event('candidate',end)
+    assert node.pending_task_end is not None and ex.policy.work == WORK and node.notice_policy.phase == 'halted'
+    from test_control_feedback import play
+    play(node,bridge)  # 실제 _say callback/proof→feedback_delivered→ended→idle
     assert node.pending_task_end is None and node.notice_policy.phase=='idle' and bridge.work is None
     assert not node.safety_task_end_accepted(end,valid_state=True)  # 수락도 일회
     doc=node.session.text('지우개 가져다줘',node.generation);node.deliver(doc)

@@ -109,6 +109,8 @@ class VoiceNode(Node):
         self.stop_processor = None
         self.stop_captures = queue.Queue(maxsize=1)
         self.pending_task_end = None
+        self.pending_resume = None
+        self.control_feedback = None
         self.dialog_lock = threading.Lock()
         self.place_clock = clock
         # Explicit development boundary; question/registered/result are test fixtures.
@@ -370,6 +372,8 @@ class VoiceNode(Node):
         self.safety_cancel.set()
         self.safety_exchange.cancel()
         self.safety_pending = None
+        self.control_feedback = None
+        self.pending_resume = None
         if self.safety_running is None:
             self.safety_activity.clear()
             if owned and not self.place_activity.is_set():
@@ -441,7 +445,9 @@ class VoiceNode(Node):
             if result is not None and sender is not None:
                 self._send_safety_candidate_locked(result, sender)
             elif result is None:
-                self._diagnostic({'event':'safety_result_held','reason':self.safety_exchange.last_rejection_reason or 'no_current_candidate'})
+                reason = self.safety_exchange.last_rejection_reason or 'no_current_candidate'
+                self._diagnostic({'event':'safety_result_held','reason':reason})
+                self.safety_feedback(work, 'failed', reason=reason)
         return result
 
     def safety_completed(self, work, revision, *, valid_state):
@@ -476,6 +482,8 @@ class VoiceNode(Node):
         if isinstance(result, TaskEndCandidate):
             self.pending_task_end = (result, self.generation)
             self._diagnostic({'event':'task_end_candidate','reason':'termination_acceptance_pending'})
+        else:
+            self.pending_resume = (result, self.generation)
         sender('candidate', result)
 
     def safety_task_end_accepted(self, candidate, *, valid_state):
@@ -486,9 +494,79 @@ class VoiceNode(Node):
                     or pending[1] != self.generation or self.stop_event.is_set()):
                 self._diagnostic({'event':'safety_result_held','reason':'termination_acceptance_not_current'})
                 return False
+            policy = self.safety_exchange.policy
+            if policy is None or not policy.ended(candidate.work, valid_state=True):
+                return False
             self.pending_task_end = None
             self._diagnostic({'event':'task_end_accepted','reason':'trusted_termination_acceptance_not_physical_completion'})
             return True
+
+    def safety_feedback(self, work, kind, *, candidate=None, reason=None):
+        """권한 없는 안내 작업. 질문 객체·TTL·과거 답변을 생성하지 않습니다."""
+        from ready2go_voice.core.hotfix import prompts
+        with self.place_condition:
+            p = self.safety_exchange.policy
+            if (self.cfg['evaluation_mode'] or self.stop_event.is_set() or p is None
+                    or not p.current_state_confirmed or self.safety_sender is None
+                    or getattr(self, 'control_feedback', None) is not None):
+                return None
+            if p.question is not None:  # 유효한 기존 질문의 등록/재생/답변 경로를 보존합니다.
+                return None
+            if kind == 'end':
+                pending = getattr(self, 'pending_task_end', None)
+                if pending != (candidate, self.generation) or pending[0] is not candidate:
+                    return None
+            elif p.work != work:
+                return None
+            if kind == 'resume':
+                pending = getattr(self, 'pending_resume', None)
+                if (pending != (candidate, self.generation) or pending[0] is not candidate
+                        or p._recovery_mode(work, self.safety_exchange.evidence) != 'resume'):
+                    return None
+                self.pending_resume = None  # 후보는 한 번만 수락합니다.
+            text = prompts(self.cfg)['control_' + kind]
+            token = dict(work=work, kind=kind, candidate=candidate, generation=self.generation, text=text)
+            self.control_feedback = token
+            self.safety_cancel = threading.Event()
+            self.safety_pending = ('feedback', token)
+            self.safety_activity.set()
+            self.busy.set()
+            self._diagnostic({'event':'control_feedback_queued','kind':kind,'reason':reason})
+            self.place_condition.notify_all()
+            return token
+
+    def _feedback_current(self, token, cancel):
+        p = self.safety_exchange.policy
+        return (getattr(self, 'control_feedback', None) is token and token['generation'] == self.generation
+                and cancel is self.safety_cancel and not cancel.is_set() and not self.stop_event.is_set()
+                and p is not None and p.current_state_confirmed
+                and (p.work == token['work'] if token['kind'] != 'end'
+                     else getattr(self, 'pending_task_end', None) == (token['candidate'], self.generation)))
+
+    def _safety_feedback_play(self, token, cancel, sender):
+        timing, started = {}, {}
+        with self.submit_lock:
+            if not self._feedback_current(token, cancel):
+                return
+        self.speaking.set()
+        self._say(token['text'], cancel=cancel, on_start=started.update, on_timing=timing.update)
+        end = timing.get('playback_ended_monotonic')
+        proof = (finite(end) and finite(started.get('tts_started_monotonic'))
+                 and started['tts_started_monotonic'] <= end <= self.place_clock()
+                 and started.get('tts_start_basis') == 'portaudio_first_dac'
+                 and timing.get('playback_end_basis') == 'portaudio_finished_callback'
+                 and (started.get('tts_mock') is False or self.place_test_devices))
+        with self.submit_lock:
+            if not proof or not self._feedback_current(token, cancel):
+                self._diagnostic({'event':'control_feedback_failed','reason':'tts_or_current_state_unconfirmed'})
+                return
+            sender('feedback_delivered', token)
+            self._diagnostic({'event':'control_feedback_delivered','kind':token['kind']})
+
+    def _safety_failure_feedback(self, work, generation, reason):
+        with self.submit_lock:
+            if generation == self.generation:
+                self.safety_feedback(work, 'failed', reason=reason)
 
     def _safety_recording(self, recording, work):
         """새 웨이크 녹음만 독립 요청으로 처리하며 질문의 과거 답을 재분류하지 않습니다."""
@@ -509,8 +587,10 @@ class VoiceNode(Node):
             self.safety_activity.set()
             sender = self.safety_sender
         try:
+            generation = self.generation
             result = self.session.safety_audio(self.safety_exchange, target, recording, cancel=cancel,
-                                               paused=lambda: self.stop_event.is_set())
+                                               paused=lambda: self.stop_event.is_set(),
+                                               on_failure=lambda reason: self._safety_failure_feedback(work, generation, reason))
             with self.place_condition:
                 self._safety_result_locked(result, cancel, sender)
             if isinstance(result, IndependentRegistration):
@@ -544,6 +624,10 @@ class VoiceNode(Node):
                 self.safety_running = cancel
             with self.dialog_lock:
                 try:
+                    if mode == 'feedback':
+                        if self.cfg['audio_enabled'] and sender is not None:
+                            self._safety_feedback_play(target, cancel, sender)
+                        continue
                     if self._safety_paused(target, cancel) or self.cfg['evaluation_mode'] or sender is None:
                         continue
                     if not self.cfg['audio_enabled']:
@@ -582,17 +666,22 @@ class VoiceNode(Node):
                         raise ValueError('SAFETY_AUDIO_DISABLED')
                     with self.audio_lock:
                         recording = self.place_recorder.capture(cancel, paused=lambda: self._safety_paused(target, cancel))
+                    generation = self.generation
                     result = self.session.safety_audio(self.safety_exchange, target, recording, cancel=cancel,
-                                                      paused=lambda: self.stop_event.is_set())
+                                                      paused=lambda: self.stop_event.is_set(),
+                                                      on_failure=lambda reason: self._safety_failure_feedback(target.work, generation, reason))
                     with self.submit_lock:
                         self._safety_result_locked(result, cancel, sender)
                     if isinstance(result, IndependentRegistration):
                         self._wait_safety_registration(target, cancel)
                 except Exception as exc:
-                    self.safety_exchange.fail(target)
+                    if mode != 'feedback':
+                        self.safety_exchange.fail(target)
                     self._diagnostic({'event': 'safety_question_failed', 'error_type': type(exc).__name__})
                 finally:
                     with self.place_condition:
+                        if mode == 'feedback' and getattr(self, 'control_feedback', None) is target:
+                            self.control_feedback = None
                         if self.safety_running is cancel:
                             self.safety_running = None
                         if cancel is self.safety_cancel and self.safety_pending is None:
@@ -621,6 +710,8 @@ class VoiceNode(Node):
         if writer is not None:
             writer.emit(value)
         event = doc.get('event')
+        if event == 'stop_audio_held' and doc.get('reason') in ('empty_transcript', 'not_explicit_stop', 'overlapping_self_speech', 'canceled', 'stale_generation', 'NO_SPEECH'):
+            return
         messages = {
             'ready': '음성 준비 완료 (' + ('평가: 실행 보류' if doc.get('evaluation_mode') else '실행 모드') + ')', 'wake_waiting': f"웨이크 대기 (입력: {doc.get('input_device')})",
             'capture_ready': '말씀해 주세요 (새 녹음 준비)',
@@ -648,6 +739,7 @@ class VoiceNode(Node):
             'safety_audio_held': '중단 후 음성 보류: ' + doc.get('reason',''),
             'safety_input_held': '중단 후 입력 보류: ' + doc.get('reason',''),
             'safety_result_held': '중단 후 후보 없음: ' + doc.get('reason',''),
+            'control_feedback_failed': '제어 안내 보류: ' + doc.get('reason',''),
             'safety_audio_result': '중단 후 음성 후보: ' + doc.get('candidate_type',''),
             'execution_held': '원래 판정 ' + doc.get('original_intent','') + ' / 실행 보류: ' + doc.get('reason',''),
             'request_accepted': 'Runner 요청 수락 확인',
@@ -854,6 +946,17 @@ class VoiceNode(Node):
                 self._diagnostic({'event':'stop_capture_replaced','reason':'newest_pending_capture_only'})
             return True
 
+    def _quiet_stopped(self):
+        with self.submit_lock:
+            exchange = self.safety_exchange
+            p = exchange.policy
+            return (p is not None and p.current_state_confirmed and p.work is not None
+                    and getattr(exchange.evidence, 'stopped', False) is True
+                    and self.notice_policy.phase == 'halted'
+                    and getattr(self, 'pending_resume', None) is None
+                    and getattr(self, 'pending_task_end', None) is None
+                    and getattr(self, 'control_feedback', None) is None)
+
     def _stop_listen(self):
         if not hasattr(self,'stop_captures'):
             self.stop_captures = queue.Queue(maxsize=1)
@@ -869,7 +972,7 @@ class VoiceNode(Node):
                 self.stop_event.wait(interval); continue
             active = (self.busy.is_set() or self.speaking.is_set() or self.tts.lock.locked()
                       or self.place_activity.is_set() or self.safety_activity.is_set()
-                      or runner_blocks(self))
+                      or runner_blocks(self) and not self._quiet_stopped())
             if not active:
                 self.stop_event.wait(interval)
                 continue

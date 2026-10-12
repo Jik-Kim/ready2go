@@ -396,7 +396,7 @@ class VoiceSession:
                           error_type=type(exc).__name__, api_error=error_info(exc))
             return exchange.fail(envelope, answer='expired' if isinstance(exc, TimeoutError) else 'error')
 
-    def safety_audio(self, exchange, target, recording, *, cancel=None, paused=lambda: False):
+    def safety_audio(self, exchange, target, recording, *, cancel=None, paused=lambda: False, on_failure=None):
         """현재 질문/새 독립 요청의 STT. 결과는 내부 후보이며 재개 wire가 아닙니다."""
         from ..adapters.audio import write_wav
         from .recovery_confirmation import finite, safety_utterance
@@ -460,18 +460,24 @@ class VoiceSession:
                 doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
                                      llm_called=False, fallback_used=False)
                 return doc
+            current = exchange.current(target)
             result = exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
             if result is None:
                 exchange.fail(target)  # 현재 요청만 정리; work와 새 사건은 보존합니다.
+                if current and not interrupted() and on_failure is not None:
+                    on_failure(exchange.last_rejection_reason or 'unrecognized_or_conditions_not_met')
                 emit(event='safety_audio_held', reason=exchange.last_rejection_reason or 'unrecognized_or_conditions_not_met', stage=stage)
             else:
                 emit(event='safety_audio_result', candidate_type=type(result).__name__)
             return result
         except Exception as exc:
+            current = exchange.current(target)
             exchange.fail(target)
             allowed = {'SAFETY_AUDIO_UNCONFIRMED','NO_SPEECH','SAFETY_EXPIRED','SAFETY_CANCELED','SAFETY_STT_UNCONFIRMED','STT_REQUEST_NOT_ADMITTED','VAD_PCM_FORMAT','VAD_UNAVAILABLE','VAD_FAILED','SPEECH_CHECK_CANCELED','예산 소진','이전 호출 정리 중','호출 시간 초과'}
             reason = str(exc) if str(exc) in allowed else type(exc).__name__
             emit(event='safety_audio_failed', reason=reason, stage=stage, error_type=type(exc).__name__, api_error=error_info(exc))
+            if current and not interrupted() and on_failure is not None:
+                on_failure(reason)
             return None
 
     def _fingerprint(self, doc):

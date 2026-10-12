@@ -16,7 +16,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 .venvs/project/bin/python ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-local
 ```
 
-[문서: 명시 live 단계] `create_live_voice`는 승인 bool 기본false·승인 hostname 미지정이면 거절합니다. `--serve-live`에서만 이 factory와 `LiveDummyBridge`를 격리 executor에 추가합니다. `logs/voice_eval/voice.local.yaml`과 `load_dotenv('secrets/voice.env', override=False)`를 재사용하고, STT/LLM의 실제 SDK hostname이 모두 `api.openai.com`인지 확인한 뒤 기존 실제 SharedInput·Whisper·LLM·Melo를 주입 대체 없이 사용합니다. HF/Transformers는 offline으로 기존 모델만 사용합니다. bridge의 명시 모의 current source callable과 계약07 수락/run·speak action을 연결하며, VoiceNode의 DAC 시작/재생 완료 검사를 통과한 action 성공 및 현재 세대/run이 유지될 때만 **더미** 첫 동작을 기록합니다. `complete` 입력 시 현재 첫 동작을 재검사한 뒤 더미 완료를 기록하며 실제 로봇 결과가 아닙니다. 트레이 질문·등록/결과 fixture, typed 정지 work·복구 질문/등록/독립 등록도 `dummy_assumption=true` 로그로 구분합니다. typed recover/candidate는 로그만 남기며 잠금 해제·모션을 하지 않습니다. 기한·revision·증빙은 시나리오 호출자가 지정하며 새 wire/시간 한계를 만들지 않습니다.
+[문서: 명시 live 단계] `create_live_voice`는 승인 bool 기본false·승인 hostname 미지정이면 거절합니다. `--serve-live`에서만 이 factory와 `LiveDummyBridge`를 격리 executor에 추가합니다. `logs/voice_eval/voice.local.yaml`과 `load_dotenv('secrets/voice.env', override=False)`를 재사용하고, STT/LLM의 실제 SDK hostname이 모두 `api.openai.com`인지 확인한 뒤 기존 실제 SharedInput·Whisper·LLM·Melo를 주입 대체 없이 사용합니다. HF/Transformers는 offline으로 기존 모델만 사용합니다. bridge의 명시 모의 current source callable과 계약07 수락/run·speak action을 연결하며, VoiceNode의 DAC 시작/재생 완료 검사를 통과한 action 성공 및 현재 세대/run이 유지될 때만 **더미** 첫 동작을 기록합니다. `complete` 입력 시 현재 첫 동작을 재검사한 뒤 더미 완료를 기록하며 실제 로봇 결과가 아닙니다. 트레이 질문·등록/결과 fixture, typed 정지 work·복구 질문/등록/독립 등록도 `dummy_assumption=true` 로그로 구분합니다. 현재 작업을 보존한 복구/재개/종료의 더미 수락과 TTS는 아래 [제어 안내 후속](#중단-작업-제어-안내--2026-10-12)을 따르며 실제 잠금 해제·모션은 하지 않습니다. 기한·revision·증빙은 시나리오 호출자가 지정하며 새 wire/시간 한계를 만들지 않습니다.
 
 [실측: 읽기 전용 준비 확인, 2026-10-11] 실제 local YAML은 audio=true, fixed, 16kHz, Melo 속도1.2, whisper-1/gpt-4o이며 입출력 장치 `None`은 시스템 기본 선택입니다. 지정 wake/Melo Python/ontology/schema 파일이 있고 지정 assets에 WAV109개가 있습니다. 파일 수는 현재 캐시 준비/재생 성공의 증거가 아닙니다. secrets 파일에는 키가 있으나 키 내용은 조회 결과에 출력하지 않았습니다. 현재 프로세스 환경 우선·dotenv override=false를 고려해 외부 요청 없이 만든 STT/LLM SDK의 hostname은 모두 `api.openai.com`입니다. 환경 override가 바뀌면 실행 직전 hostname을 다시 확인해야 합니다. 샌드박스 장치 metadata 조회는 빈 목록이며 호스트 장치 부재로 단정하지 않습니다.
 
@@ -121,6 +121,20 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 정상 종료 요청/실행 중 executor 예외/정리 실패를 구분해 기록합니다. stop/closing 뒤 executor 예외는 종료 중단으로 분류하고, 실행 중 실패는 더미 시험 불능으로 표시합니다. cleanup은 한 단계가 실패해도 나머지 정리를 시도하며, 이미 닫힌 ROS context에 shutdown을 다시 호출하지 않습니다. 닫힌 context의 RCLError는 operation/context 상태를 남깁니다. 과거 두 RCLError의 정확 발생 위치는 당시 로그에 없으므로 미확정이고 실제 ROS 종료 재시험은 이번에 수행하지 않았습니다.
 
 동일한 prepare/live 두 명령을 사용합니다. 사용자 재시험은 prepare 성공→live ready→일반 요청/정지 반복(대기 중 다음 발화 포함)→중단 후 새 웨이크 “복구”/“이어서 해”→현재 증빙·종료 수락→idle 뒤 지우개 새 요청 순서입니다. 전사/구체 reason·원음·종료 상태를 새 run 폴더에서 확인하십시오. 소프트웨어/모의 결과를 실음성·물리 정지 완료로 보고하지 않습니다.
+
+### 중단 작업 제어 안내 — 2026-10-12
+
+[구현: E-VOICE-CONTROL-FEEDBACK-20261012-03] 실제 수락한 더미 작업의 중단 뒤 새 웨이크 “복구해”는 명시 복구 fixture와 실제 TTS 경로의 안내를 연결합니다. 안내는 새 웨이크 후 “이어서 해”를 요청하며 자동 복구 질문·유효기간·등록을 만들지 않습니다. “응/네”, 안내 완료, 과거 전사만으로 재개하지 않습니다. 이미 유효한 등록 질문이 있으면 기존 등록·재생·새 답변 경로를 보존합니다. 기준은 [재개 정책](../../../docs/requirements.md#resume-admission-policy)을 참조합니다.
+
+새 녹음·SDK 경계·현재 등록 ACK/작업/세대·복구 증빙을 통과한 명시 후보에 한해 더미 수락 안내를 재생합니다. DAC 시작/finished callback 증명과 현재 후보/세대를 다시 확인한 뒤 재개는 running fixture, 종료는 idle fixture로 전환합니다. 종료 후보만으로 중단 작업을 지우지 않습니다. 재개는 원래 작업 인자와 run을 보존하고 더미 내부 요청 상관만 새로 연결하므로 이후 수동 complete로 모의 완료할 수 있습니다. 안내 중 재정지는 이전 후보의 running/idle 전환을 막습니다. 실제 C 해제·모션·물리 완료가 아니며 새 공개 wire는 없습니다. 원래 수락한 작업이 없는 수동 stopped fixture는 재개 가능한 작업으로 만들지 않습니다.
+
+인식·조건 실패는 작업을 보존하고 실패 TTS를 호출합니다. 정상 무음/빈 전사/비정지 입력의 반복 stop 보류는 일반 콘솔에서 줄이되 상세 진단은 남깁니다. 실제 오류·안전 STT·이유·상태 전환은 표시합니다. 확인된 halted에서는 중복 stop 처리를 줄이며 재생/복구·재개 전환 중에는 감시를 유지합니다. 새 제어 문장의 첫 TTS 합성은 필요할 수 있습니다. 모델·원음·VAD·시간 설정은 변경하지 않았습니다.
+
+[실측: 선택 모의] 기준 be010813 위 변경의 선택 25사례를 실패 부분 보완 후 모두 확인했습니다. 검토 지적의 기존 종료 시험도 후보→work 보존→실제 _say callback/proof→종료 수락→idle→새 지우개 요청을 확인합니다. 테스트 목록·실패 이력과 명령은 [E CURRENT](../../../practice/E/CURRENT.md)에 기록했습니다. 실제 장치/SDK/음향 재시험·C 연결은 미검증입니다.
+
+[실측: 오프라인 원음 비교] 16:50:42 실행의 stop 원음 0.96초가 같은 시간대 safety 원음 5초의 샘플 offset46325에 완전히 포함됩니다. 기존 SpeechPresence는 비교한 원본 3개 모두 false, 메모리 내 DC 제거 비교 복사본은 true였습니다. 원음/설정/PCM/모델/임계값은 수정하지 않았으며, 실제 NO_SPEECH/전사의 단일 원인이나 실음성 개선 완료를 뜻하지 않습니다. 원인은 미확정입니다.
+
+사용자 재시험은 아래 prepare/live 두 명령을 유지합니다. 일반 작업 수락→정지→새 웨이크 복구→안내 완료→새 웨이크 명시 재개→running→complete, 또는 정지→명시 종료→안내 완료→idle→새 지우개 요청을 새 로그에서 확인하십시오. 조건 실패 안내와 수락 안내 도중 재정지의 보존 상태도 확인해야 합니다. 실제 C 작업/정지/복구 증빙·등록 ACK·재개점 연결과 실물 시험은 선행 미완료 항목입니다.
 
 ### 사용자 직접 시험 — 재실행과 증빙
 

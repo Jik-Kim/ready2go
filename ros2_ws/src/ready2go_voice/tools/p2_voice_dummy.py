@@ -136,6 +136,7 @@ class LiveDummyBridge:
         self.first_action = None
         self.work = self.evidence = None
         self.revision = 0
+        self.feedback = None
         self.client = ActionClient(self.peer, Skill, REMAPS['/voice/speak'])
         self.subscription = self.peer.create_subscription(String, REMAPS['/voice/intent'], self.intent, 10)
         voice.bind_request_source(lambda: self.active and not voice.stop_event.is_set())
@@ -291,18 +292,53 @@ class LiveDummyBridge:
                 if not self.stopped_fixture(self.work, self.revision + 1, evidence):
                     raise RuntimeError('DUMMY_RECOVERY_FIXTURE_REJECTED')
                 self.log('dummy_recovered_fixture_not_bc_evidence', run_id=self.work.task)
+                self.feedback = self.voice.safety_feedback(self.work, 'recover')
             elif kind == 'candidate':
-                from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
+                from ready2go_voice.core.recovery_confirmation import TaskEndCandidate, StoppedWork
+                work = target.work if isinstance(target, TaskEndCandidate) else target
+                if (not self.active or work != self.work or self.run != self.work.task
+                        or self.accepted_payload is None):
+                    self.log('dummy_control_rejected_no_current_work')
+                    if self.work is not None:
+                        self.voice.safety_feedback(self.work, 'failed', reason='dummy_work_unconfirmed')
+                    return
                 if isinstance(target, TaskEndCandidate):
-                    if self.work != target.work or not self.voice.safety_task_end_accepted(target,valid_state=True):
-                        self.log('dummy_task_end_rejected_not_current')
+                    self.feedback = self.voice.safety_feedback(work, 'end', candidate=target)
+                elif isinstance(target, StoppedWork):
+                    self.feedback = self.voice.safety_feedback(work, 'resume', candidate=target)
+                else:
+                    self.log('dummy_unsupported_candidate_not_motion_permission')
+            elif kind == 'feedback_delivered':
+                if (target is not self.feedback or not self.active or self.work != target['work']
+                        or self.voice.generation != target['generation']):
+                    self.log('dummy_feedback_rejected_not_current')
+                    return
+                if target['kind'] == 'end':
+                    if not self.voice.safety_task_end_accepted(target['candidate'], valid_state=True):
                         return
                     self.run = self.work = self.accepted_payload = self.first_action = None
                     self.voice._runner_status(self.String(data=json.dumps(dict(
                         phase='idle',task_id=None,halt_code=None,last=None,last_intent=None))))
                     self.log('dummy_task_end_accepted_idle_fixture_not_physical_result')
-                else:
-                    self.log('dummy_resume_candidate_not_motion_permission')
+                elif target['kind'] == 'resume':
+                    # 기존 작업 인자는 보존하되 새 수락의 E 로컬 상관 ID만 만듭니다.
+                    payload = dict(self.accepted_payload, request_id=uuid.uuid4().hex)
+                    policy = self.voice.safety_exchange.policy
+                    if (self.run != self.work.task or not self.voice._request_run_connected()
+                            or policy is None or policy.work != self.work
+                            or policy._recovery_mode(self.work, self.voice.safety_exchange.evidence) != 'resume'
+                            or not self.voice.request_run.register(payload)):
+                        self.log('dummy_resume_rejected_current_evidence_or_correlation')
+                        return
+                    if not policy.resumed(self.work, valid_state=True, evidence=self.voice.safety_exchange.evidence):
+                        self.voice.request_run.invalidate()
+                        return
+                    self.accepted_payload = payload
+                    self.work = None
+                    self.status(payload, self.run)
+                    self.first_action = (self.run, self.voice.generation)
+                    self.log('dummy_resume_running_fixture_not_motion_permission', run_id=self.run)
+                self.feedback = None
             # 복구/재개/종료는 명시 모의 증빙/후보뿐이며 실제 해제·모션을 실행하지 않습니다.
 
 

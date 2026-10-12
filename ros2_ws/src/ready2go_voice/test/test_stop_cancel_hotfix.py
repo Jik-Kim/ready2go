@@ -95,7 +95,8 @@ def _dummy(monkeypatch):
     voice=SimpleNamespace(cfg={'voice_flow':{'dummy_auto_complete':False}},stop_event=threading.Event(),
         submit_lock=threading.RLock(),generation=0,request_run=SimpleNamespace(pending=None,run_id=None,finished=False),
         bind_request_source=lambda f:None,bind_safety_sender=lambda f:None,_request_run_connected=lambda:True,
-        safety_task_end_accepted=lambda *a,**kw:True,safety_stopped=lambda *a,**kw:True)
+        safety_task_end_accepted=lambda *a,**kw:True,safety_stopped=lambda *a,**kw:True,
+        safety_feedback=lambda work,kind,**kw:dict(work=work,kind=kind,candidate=kw.get('candidate'),generation=0))
     def status(message):
         data=json.loads(message.data);decision=data.get('last_intent')
         if decision:voice.request_run.run_id=decision['run_id'];voice.request_run.finished=data['phase']=='idle'
@@ -121,6 +122,8 @@ def test_actual_constructor_accept_first_action_cancel_end_next_complete(monkeyp
     assert bridge.complete() is False
     assert events[-1][0]=='completion_rejected_stopped_run_requires_existing_end_path'
     bridge.safety_event('candidate',TaskEndCandidate(bridge.work))
+    assert bridge.work is not None
+    bridge.safety_event('feedback_delivered',bridge.feedback)
     assert bridge.work is None and bridge.run is None
     _accept(bridge,'two');assert bridge.complete() is True
     assert bridge.voice.request_run.finished
