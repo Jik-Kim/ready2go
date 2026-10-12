@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-12 C 10/12 진행표 갱신 + mock 장면 되돌리기 (#233 C 리뷰 남김 3번)**: 진행표 — main 기준, 판정 기준 A안 확정(원래 자리가 다른 물건 위면 빈 자리 + 안내 = 통과), 준비 보완(호스트 방식 끄기·첫 빌드·음성 노드 `r2genv`·`/voice/speak` 없으면 첫 안내에서 실패)·DB 접속. mock 백엔드 — `/runner/reset_state`(status `state_reset_at` 바뀜) 또는 `/mock/reset_scene` 이면 겹친 장면·끌기 기억을 처음으로(컨테이너 재시작 없이 mock 반복). 실물 동작·계약 변경 없음.
 - **2026-10-12 C Unpacking 복구 미완료 = 실패 (정본 requirements 137, C 리뷰)**: 되돌리기 집기·놓기 실패·다시 못 찾음·쥔 채 멈춰 남은 복구가 있으면, 남은 물체도 계속 시도하고 닫기·홈 뒤 "옮긴 물건 일부를 원래 자리로 못 돌려놨어요" 안내 + 실행 결과 `FAILED`/`RESTORE_INCOMPLETE`(전에는 `COMPLETED`). Runner: 블랙보드 `task_error = {code, step}` 이면 정리 동작 뒤 결과만 실패(앞선 실패·중단 우선). 원래 자리 대신 빈 자리에 둔 물체는 E 판정 대기라 실패로 보지 않음. 계약(태스크 스키마) 변경 없음.
 - **2026-10-12 A 분할 모델 footprint를 보이는 마스크로 (#229)**: 손잡이가 가려진 긴 물체(3단 쌓기 몽키)가 "footprint 가 서랍 안쪽 밖"으로 결과에서 빠지던 것 — 분할 모델은 보이는 마스크를 바닥에 투영한 범위로 서랍 안을 보고, 윗면이 벽 높이보다 높은 검출은 뺌. 조각났어도 다 보이면 `occluded_by: []`(맨 위 물체가 `null`이던 것). 실물 덤프 120장 재계산 5장만 바뀜. 계약 형식 변경 없음, `vision_params.yaml` `region.mask_footprint_trim_pct` 추가.
 - **2026-10-12 C `NEIGHBOR_TOO_CLOSE`·`NO_FREE_SPACE`·`OCCLUSION_UNKNOWN` 을 Runner "움직이기 전 거부" 목록에**: #226(B `make_room`, 병합 10/12) 의 `NO_FREE_SPACE`·`OCCLUSION_UNKNOWN` 도 `nudge_object` 목록에(C 리뷰 약속). B 가 main 에서 집기·끌기 때 옆 물체가 손가락·끄는 길에 걸리면 움직이기 전 거부(10/09)하는데 Runner `NO_MOTION_BY_ACTION` 에 없어 "움직였을 수 있음"으로 보고 재시도·`fallback` 을 막던 것(안전 쪽) → `pick_object`·`nudge_object` 목록에 추가. 계약 변경 없음(runner.md 표에 이미 있는 코드).

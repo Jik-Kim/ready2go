@@ -46,6 +46,13 @@ class MockSkills:
         self.not_visible = not_visible or set()     # 이 물품은 inspect_region 에서 못 찾음 (target_found=false)
         self.moved: dict[str, dict] = {}            # 끌기로 옮겨진 물품 → 새 pose (다시 인식할 때 보임)
 
+    def reset(self) -> None:
+        """처음 장면으로 — 회차 사이 /runner/reset_state 와 같이 (사람이 물건을 원위치한 것과 같음).
+        끌기 기억과 겹친 장면만 되돌리고, 실패 지정("*N" 남은 횟수)은 그대로 둔다."""
+        self.moved = {}
+        if self.scene is not None:
+            self.scene = MockScene(self.scene.name, self.scene.region)
+
     def _fail(self, action: str) -> str | None:
         rule = self.failures.get(action)
         if rule is None or rule[1] == 0:

@@ -10,6 +10,9 @@ Runner 코드는 그대로 두고 백엔드만 바꿔 끼운다. 취소 요청�
 - fail: 실패 지정 "pick_object=GRASP_FAILED*1,drawer_control=DRAWER_STUCK" (core/mock_skills.py)
 - not_visible: inspect_region 에서 못 찾을 물품 "car_key,eraser"
 - scene: 여러 물체가 겹친 장면 이름 (core/mock_scene.py SCENES, 예: "occluded_top") — Unpacking 시험. 비우면 물체 1개
+
+장면 되돌리기: /runner/reset_state 를 부르면(/runner/status state_reset_at 이 바뀌면) 처음 장면으로 —
+실물에서 사람이 물건을 원위치하는 것과 같음. 따로 부를 때는 /mock/reset_scene (std_srvs/Trigger).
 """
 from __future__ import annotations
 
@@ -22,6 +25,9 @@ from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 from ready2go_interfaces.action import Skill
 from ready2go_interfaces.srv import InspectRegion
@@ -31,6 +37,8 @@ from ..core.mock_skills import SKILL_ACTIONS, MockSkills, parse_failures
 
 CANCELED = "CANCELED"
 STEP_SEC = 0.05                                 # 취소 요청을 확인하는 간격
+LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+_UNSEEN = object()
 
 
 class MockBackendNode(Node):
@@ -57,10 +65,31 @@ class MockBackendNode(Node):
             self._servers.append(ActionServer(self, Skill, f"{prefix}/voice/speak", self._executor_for("speak"),
                                               callback_group=group, cancel_callback=lambda _: CancelResponse.ACCEPT))
         self.create_service(InspectRegion, f"{prefix}/vision/inspect_region", self._inspect, callback_group=group)
+        self.create_service(Trigger, f"{prefix}/mock/reset_scene", self._reset_scene, callback_group=group)
+        self._reset_at = _UNSEEN                    # 마지막으로 본 Runner state_reset_at (처음 값은 되돌리지 않음)
+        self.create_subscription(String, f"{prefix}/runner/status", self._on_status, LATCHED, callback_group=group)
         self.get_logger().info(f"mock 백엔드 준비: /skills/{{{','.join(SKILL_ACTIONS)}}}, "
                                f"{'/voice/speak, ' if speak else '(/voice/speak 끔 — E 음성 노드 사용), '}"
                                f"/vision/inspect_region (동작 {self.duration}s, 실패 {fail or '없음'}, "
                                f"못 찾음 {hidden or '없음'}, 장면 {scene or '물체 1개'})")
+
+    def _reset_scene(self, request, response):
+        self.skills.reset()
+        name = self.skills.scene.name if self.skills.scene else "물체 1개"
+        response.success, response.message = True, f"mock 장면 처음으로 ({name})"
+        self.get_logger().info(response.message)
+        return response
+
+    def _on_status(self, msg: String) -> None:
+        """Runner 가 reset_state 를 하면 state_reset_at 이 바뀜 → 장면도 처음으로. 읽을 수 없는 메시지는 무시."""
+        try:
+            reset_at = json.loads(msg.data).get("state_reset_at")
+        except (ValueError, AttributeError):
+            return
+        seen, self._reset_at = self._reset_at, reset_at
+        if seen is not _UNSEEN and reset_at and reset_at != seen:
+            self.skills.reset()
+            self.get_logger().info("Runner 상태 초기화 → mock 장면 처음으로")
 
     def _executor_for(self, action: str):
         def execute(goal):
