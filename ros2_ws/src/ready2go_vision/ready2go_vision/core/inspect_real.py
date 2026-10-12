@@ -227,7 +227,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
     if seg_model:
         rels = [] if debug is not None else None
         occ = occlusion_fields(kept, [found[in_result[id(d)]]["id"] if id(d) in in_result else None for d in kept],
-                               depth_m, K, T_drawer_cam, params["occlusion"], blob_params["min_depth_m"], blob_params["max_depth_m"], rels)
+                               depth_m, K, T_drawer_cam, {"top_percentile": blob_params["top_percentile"], **params["occlusion"]}, blob_params["min_depth_m"], blob_params["max_depth_m"], rels)
         for it in found:
             it["occluded_by"], it["visible_area_m2"] = occ[it["id"]]
         if debug is not None:
