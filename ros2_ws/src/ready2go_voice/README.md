@@ -112,80 +112,22 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 [실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
 
-아래는 현재 파일/가상환경으로 재실행하는 복사 명령입니다. 원본 local YAML에 P1 dialogue와 새 P2 키가 없어 유효 dialogue/place/resume 예산은 None이었습니다. 따라서 원본을 보존한 **시험용 복사본에서만** 누락된 키를 현재 [패키지 실행 원본](params/voice.yaml)에서 읽어 보충합니다. 명시된 local 값은 보존하며 여전히 None이면 해당 시험을 시작하지 않습니다. 아래 if 분기는 설정 생성/검증에 성공했을 때만 live 명령을 실행합니다. `dialogue_timeout_sec`의 원본 30.0초는 현재 질문 문맥 상한 **제안 설정을 재사용한 시험값**이며 확정 정책으로 변경하지 않습니다. 일반 콘솔은 STT 전사를 표시하지만 DAC 시작 등 일부 이벤트는 숨기므로 기존 상세 진단도 켭니다. 장치·모델·기존 일반 startup60과 승인된 값·정책은 변경하지 않습니다. `tee`는 stdout/stderr만 저장하므로 터미널 stdin의 `complete`/fixture/`exit`가 Python에 전달됩니다. 가상환경 activate나 secrets의 shell source는 필요하지 않으며 내부 `load_dotenv(..., override=False)`와 SDK hostname 검사를 사용합니다.
+[구현: E-VOICE-LAUNCH-STOP-INPUT-20261012-01] 작업 폴더 `/home/jonny/rokey_proj/VLA/ready2go`에서 아래 두 명령을 **각각 명시 실행**합니다. 도구가 ROS 환경·시험 설정 복사·로그 저장을 처리합니다. prepare는 마이크/API/재생/live를 호출하지 않으며, 성공 뒤에만 별도 live 명령을 사용합니다. live는 실제 마이크/API/스피커를 사용하는 기존 격리 더미 시험입니다. 에이전트는 이번 변경에서 두 실제 실행을 수행하지 않았습니다.
 
 ```bash
-cd /home/jonny/rokey_proj/VLA/ready2go
-source /opt/ros/jazzy/setup.bash
-source ros2_ws/install/setup.bash
-export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PYTHONPATH"
-export E_P2_RUN_DIR="$PWD/logs/voice_eval/p2_dummy_$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$E_P2_RUN_DIR"
-# 아래 값만 1로 바꿔 별도 run에서 비교합니다. 원본 local 설정은 덮어쓰지 않습니다.
-export E_VOICE_CUE=1 E_VOICE_SAVE_WAV=1 E_VOICE_TRIM=0 E_VOICE_SILENCE=0 E_VOICE_AUTO_COMPLETE=0
-export E_VOICE_STT_HINT='' # 빈값=local/YAML 유지, 0=off, 1=on
-if .venvs/project/bin/python - <<'PY'
-import os
-from pathlib import Path
-import yaml
-from ready2go_voice.core.config import load_config
-folder = Path(os.environ['E_P2_RUN_DIR'])
-original = Path('logs/voice_eval/voice.local.yaml')
-raw = yaml.safe_load(original.read_text())
-cfg = load_config(original)
-base = yaml.safe_load(Path('ros2_ws/src/ready2go_voice/params/voice.yaml').read_text())
-required = ('dialogue_timeout_sec', 'resume_admission_window_sec', 'resume_stt_result_timeout_sec',
-            'resume_independent_request_timeout_sec', 'place_admission_window_sec',
-            'place_stt_result_timeout_sec', 'place_max_reasks', 'p2_goal_catalog')
-for key in required:
-    if key not in raw:
-        cfg[key] = base.get(key)
-    if cfg.get(key) is None:
-        raise ValueError(f'{key}: 원본 미설정, 관련 시험 보류')
-for env_key, field in [('E_VOICE_CUE','wake_cue_enabled'), ('E_VOICE_SAVE_WAV','capture_save_wav'),
-                       ('E_VOICE_TRIM','capture_trim')]:
-    switch = os.environ.get(env_key, '0')
-    if switch not in ('0','1'):
-        raise ValueError(f'{env_key}: 0/1 필요')
-    cfg['voice_flow'][field] = switch == '1'
-for key in ('E_VOICE_SILENCE','E_VOICE_AUTO_COMPLETE'):
-    if os.environ.get(key, '0') not in ('0','1'):
-        raise ValueError(f'{key}: 0/1 필요')
-hint_switch = os.environ.get('E_VOICE_STT_HINT', '')
-if hint_switch not in ('','0','1'):
-    raise ValueError('E_VOICE_STT_HINT: 빈값/0/1 필요')
-if hint_switch:
-    cfg['voice_flow']['stt_context_hint_enabled'] = hint_switch == '1'
-cfg['voice_flow']['cue_gain'] = base['voice_flow']['cue_gain']  # 승인 최신 원본: 기존 local 0.12를 시험 복사본에서만 갱신
-cfg['cancel_phrases'] = base['cancel_phrases']
-cfg['tts_prefill_max_texts'] = base['tts_prefill_max_texts']  # 원본 최신 상한; 명시 old local 128도 시험 복사본에서 갱신
-cfg['voice_flow']['dummy_auto_complete'] = os.environ.get('E_VOICE_AUTO_COMPLETE','0') == '1'
-if cfg['voice_flow']['capture_save_wav']:
-    cfg['voice_flow']['capture_dir'] = str(folder / 'captures')
-if os.environ.get('E_VOICE_SILENCE','0') == '1':
-    cfg['recording_mode'] = 'silence'
-cfg['diagnostic_detail'] = True
-cfg['diagnostic_file'] = str(folder / 'diagnostic.jsonl')
-target = folder / 'voice.local.yaml'
-with target.open('x', encoding='utf-8') as output:
-    output.write(yaml.safe_dump(cfg, allow_unicode=True))
-checked = load_config(target)
-print('유효 P1/P2 시험 설정:', {k: len(checked[k]) if k == 'p2_goal_catalog' else checked[k] for k in required})
-print('흐름 시험 옵션:', {k: checked['voice_flow'][k] for k in ('wake_cue_enabled','capture_save_wav','capture_trim','stt_context_hint_enabled','dummy_auto_complete')}, '녹음:', checked['recording_mode'])
-print('실행 설정:', target.resolve())
-print('시험 로그:', folder)
-PY
-then
-E_P2_EXTRA=()
-if [ "$E_VOICE_AUTO_COMPLETE" = 1 ]; then E_P2_EXTRA+=(--auto-complete); fi
-set -o pipefail
-.venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py \
-  --serve-live --config-file "$E_P2_RUN_DIR/voice.local.yaml" "${E_P2_EXTRA[@]}" \
-  2>&1 | tee "$E_P2_RUN_DIR/console.log"
-else
-  printf '설정 생성/검증 실패: 실음성 실행을 보류합니다.\n' >&2
-fi
+bash ros2_ws/src/ready2go_voice/tools/voice_trial.sh prepare
+bash ros2_ws/src/ready2go_voice/tools/voice_trial.sh live
 ```
+
+재실행마다 `logs/voice_eval/voice_prepare_<날짜>_<식별자>` 또는 `voice_live_<날짜>_<식별자>`를 새로 만들고 `voice.local.yaml`·`console.log`·`result.json`을 남깁니다. live 상세 진단과 일반 P1 원음 WAV도 해당 새 폴더에만 저장합니다. 원본 local·기존 run 로그·장치/모델/키/캐시는 덮어쓰지 않습니다. 시험 복사본의 누락 P1/P2 필수 키만 패키지 실행 원본에서 보충하고, 명시 null이면 시작을 거절합니다. 최신 원본 cap256·cue_gain·cancel 표현은 두 단계에 같이 적용합니다. 기본 옵션은 cue/WAV 켬·trim 끔·원본 일반 녹음 모드·수동 complete·기존 STT hint이며 일반 무음 비교는 live에 `--silence`, 모의 자동 완료는 `--auto-complete`를 붙입니다. 기존 E_VOICE 환경 옵션도 지원합니다.
+
+prepare와 live는 같은 함수로 온톨로지/상태를 반영한 prefill 목록을 선택합니다. 일반 startup60·prepare 전용120·AC 예산은 유지합니다. 최신 prepare의 성공과 TTS 설정/목록 identity가 맞아야 live를 시작합니다. 실패한 최신 prepare가 과거 성공을 대신하지 않으며 자동 재시도/자동 live를 실행하지 않습니다. 이 성공 기록은 준비 호출 완료의 근거이며 실제 모델/worker/cache identity는 노드가 다시 검사합니다. `result.json`의 success는 명령 종료 상태이고 음성·로봇 성공이 아닙니다. stdin은 그대로 연결되어 `complete`·`exit`를 입력할 수 있고 Ctrl+C는 기존 close/finally로 정리합니다.
+
+[확인된 코드 조건] 중단 후 fixed 입력의 로컬 발화 검사가 False이면 `NO_SPEECH` ValueError로 SDK를 호출하지 않습니다. 실제 기존 로그의 ValueError가 이 조건인지·원음/장치 문제인지는 아직 미확정입니다. 실패는 capture_validation/speech_check/admission/sdk/classification 단계와 허용된 사유 코드로 표시하고, SDK 응답의 빈 전사·접수 확인 여부·후보 없음도 구분합니다. 후보 판정이 먼저 무효화한 뒤 남은 예약은 새 현재 질문/요청이 없는 경우에만 정리하여 다음 새 요청을 받을 수 있게 합니다. work·새 사건·기한·명시 재개·일회 실행·#43/#152 조건은 보존합니다. 실제 C의 현재 작업/증빙/등록 ACK가 없으면 복구/재개/종료를 완료했다고 보지 않습니다.
+
+독립 stop 상세 진단은 capture 종료·SDK 요청/응답·빈 전사/정확 정지/자기TTS 보류·발행 시각을 나눕니다. `stop_request_published`는 보조 정지 메시지 발행이며 실제 물리 정지 확인이 아닙니다. SharedInput은 reader별로 전달하며 마이크 탈취/녹음 미시작으로 단정하지 않습니다. 모델·350 임계값·0.4초 무음·8초 보호한도·원음은 변경하지 않았습니다. 실제 짧은 정지 발화/속도·자기TTS 혼입·중단 후 인식은 사용자 재시험에서 확인합니다.
+
+
 
 먼저 `MeloTTS 준비 완료 (고정 안내 캐시 완료)`와 `웨이크 대기 (입력: …)`를 모두 확인합니다. `live_factory_started_not_recording_proof`만으로 입력 ready를 판정하지 않습니다. 당시 기본 장치는 input/output7이었지만 재실행 시 실제 선택을 다시 확인합니다. hostname이 승인된 `api.openai.com`과 다르면 factory가 시작을 거절합니다. 모델 준비 실패 시 아래 기존 [캐시 사전 준비](#노드-실행-전-사전-캐시-준비) 절차를 확인하고 ready 전에는 발화하지 않습니다. 패키지의 선정 목표 catalog도 그대로 보충되지만 이번 승인 발화 범위를 선정5종 시험으로 확대하지 않습니다.
 
@@ -527,40 +469,11 @@ PYTHON
 노드를 종료한 뒤 아래 **캐시 준비만** 먼저 수행합니다(마이크/API/출력 장치 사용 없음). [사용자 결정] 사전 준비 상한은 **120초**로 선택하며 이 명시 실행의 메모리 설정에만 적용합니다. 120초 이내 완료 여부는 미실측이며 충분한 시간이라고 보장하지 않습니다. 기존 YAML·일반 노드 준비상한·재생전체20초·AC3초 예산은 변경하지 않습니다. 실패하면 상한/worker.log/환경을 점검하고 일반 노드를 시작하지 않습니다. 완료 뒤 같은 worker·속도·모델·설정으로 일반 노드를 시작합니다. 동일 환경이라도 60초 안에 준비 가능한지 PC2에서 별도 확인해야 합니다. 일반 노드의 `tts_melotts_startup_timeout_sec: 60.0`은 유지합니다. 노드는 시작마다 `prepare()`로 모델 로딩과 캐시 확인을 수행하지만, 같은 캐시 키의 디스크 WAV는 재사용하고 없거나 키가 변경된 문장만 합성합니다. 모델 로딩·캐시 확인 비용이 없어지는 것은 아닙니다.
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source .venvs/project/bin/activate
-source ros2_ws/install/setup.bash
-export MELOTTS_PREFILL_TIMEOUT_SEC=120
-python3 - <<'PYTHON'
-import math
-import os
-import time
-from ready2go_knowledge.core.ontology import load
-from ready2go_voice.core.config import load_config
-from ready2go_voice.core.tts_prefill import prefill_texts
-from ready2go_voice.adapters.melotts import MeloTTS
-cfg = load_config('logs/voice_eval/voice.local.yaml')
-if cfg['tts_engine'] != 'melotts':
-    raise ValueError('MeloTTS 설정을 확인하십시오')
-limit = float(os.environ['MELOTTS_PREFILL_TIMEOUT_SEC'])
-if not math.isfinite(limit) or limit <= 0:
-    raise ValueError('준비 상한은 유한 양수 초 단위입니다')
-cfg['tts_melotts_startup_timeout_sec'] = limit
-ontology = load(cfg['ontology_file'])
-cfg['_tts_prefill_texts'] = prefill_texts(cfg, ontology['world']['items'].values(), reference_state=ontology['state'], places=ontology['world']['places'], item_names={k:v['name_ko'] for k,v in ontology['world']['items'].items()})
-started = time.monotonic()
-tts = MeloTTS(cfg)
-try:
-    tts.prepare()  # 모델·전체 문장 합성/조회만 수행하며 speak를 호출하지 않습니다.
-    print('전체 캐시 준비 완료(초):', round(time.monotonic() - started, 3))
-finally:
-    tts.close()
-PYTHON
-MELOTTS_PREFILL_EXIT_CODE=$?
-unset MELOTTS_PREFILL_TIMEOUT_SEC
-printf '캐시 준비 종료 코드: %s\n' "$MELOTTS_PREFILL_EXIT_CODE"
-test "$MELOTTS_PREFILL_EXIT_CODE" -eq 0
+bash ros2_ws/src/ready2go_voice/tools/voice_trial.sh prepare
 ```
+
+이 준비 명령은 위 live 명령과 같은 시험 복사/선택 함수를 사용하고 최신 준비 성공 기록을 남깁니다. 실패하면 live를 시작하지 않습니다. 기존 원본 local·일반 startup60은 유지합니다.
+
 
 **3. 완료 로그·실패 원인 확인**
 

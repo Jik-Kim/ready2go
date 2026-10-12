@@ -181,3 +181,5 @@ class SafetyExchange:
         if self.current(target):
             self.policy.invalidate()
             self.capture = None
+        elif self.policy is not None and self.policy.question is None and self.policy.independent is None:
+            self.capture = None  # answer가 먼저 무효화한 예약만 정리; 새 현재 요청은 보존합니다.

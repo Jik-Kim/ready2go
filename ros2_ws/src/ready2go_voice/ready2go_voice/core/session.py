@@ -259,6 +259,7 @@ class VoiceSession:
         if (paused() or recording.truncated or not recording.pcm
                 or recording.recording_mode != 'silence' or self.stt is None
                 or not all(finite(t) for t in (start, end)) or not start <= end <= self.clock()):
+            self.progress(event='stop_audio_held', reason='capture_unconfirmed')
             return None
         timeout = self.cfg['stt_timeout_sec']
         try:
@@ -269,13 +270,23 @@ class VoiceSession:
                     path = Path(directory) / 'speech.wav'
                     write_wav(path, recording, self.cfg['sample_rate'])
                     if getattr(self.stt, 'supports_request_boundary', False):
-                        return self.stt.transcribe(path, timeout, before_request=lambda stamp: not paused())
+                        def before_request(stamp):
+                            if paused():
+                                return False
+                            self.progress(event='stop_sdk_request', requested_monotonic=stamp)
+                            return True
+                        return self.stt.transcribe(path, timeout, before_request=before_request)
                     return self.stt.transcribe(path, timeout)
             text = self.stop_stt_calls.call(transcribe, timeout)
+            self.progress(event='stop_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip())
+            if not isinstance(text,str) or not text.strip():
+                self.progress(event='stop_audio_held', reason='empty_transcript')
+                return None
             # 기존 정확 문구 분류는 부정·인용·전언·모호 표현을 수용하지 않습니다.
             normalized_control = self.parser.control(text) if self.parser is not None else None
             self.progress(event='stop_stt_result', text=text)
             if paused() or not (safety_utterance(text) == 'stop' or normalized_control and normalized_control['intent'] == 'cancel'):
+                self.progress(event='stop_audio_held', reason='canceled' if paused() else 'not_explicit_stop')
                 return None
             normalized = ''.join(text.split()).rstrip('.!?')
             if any(normalized in ''.join(reference.split()) for reference in spoken_texts):
@@ -377,7 +388,9 @@ class VoiceSession:
         from .recovery_confirmation import finite, safety_utterance
         capture = exchange.reserve(target)
         if capture is None:
+            self.progress(event='safety_audio_held', reason='capture_not_current_or_already_reserved')
             return None
+        stage = 'capture_validation'
         interrupted = lambda: (cancel is not None and cancel.is_set()) or paused()
         try:
             start, end = recording.recording_started_monotonic, recording.recording_ended_monotonic
@@ -386,11 +399,13 @@ class VoiceSession:
                     or self.stt is None or not getattr(self.stt, 'supports_request_boundary', False)):
                 raise ValueError('SAFETY_AUDIO_UNCONFIRMED')
             if recording.recording_mode == 'fixed':
+                stage = 'speech_check'
                 if self.speech_gate is None:
                     from ..adapters.speech import SpeechPresence
                     self.speech_gate = SpeechPresence(self.cfg)
                 if not self.speech_gate.check(recording, cancel=cancel, paused=paused):
                     raise ValueError('NO_SPEECH')
+            stage = 'admission'
             budget = exchange.budget(target, now=self.clock(), captured_at=start)
             if budget is None or budget <= 0:
                 raise TimeoutError('SAFETY_EXPIRED')
@@ -412,11 +427,16 @@ class VoiceSession:
                     text = self.stt.transcribe(path, exchange.policy.stt_result_timeout_sec,
                                                before_request=before_request)
                     return text, receipt
+            stage = 'sdk'
             text, receipt = self.stt_calls.call(transcribe, budget)
+            self.progress(event='safety_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip(), request_admitted=receipt is not None)
             if interrupted() or not exchange.current(target):
                 raise InterruptedError('SAFETY_CANCELED')
-            if receipt is None or not isinstance(text, str) or not text.strip():
+            if receipt is None:
                 raise ValueError('SAFETY_STT_UNCONFIRMED')
+            if not isinstance(text,str) or not text.strip():
+                raise ValueError('NO_SPEECH')
+            stage = 'classification'
             control = self.parser.control(text) if self.parser is not None else None
             if safety_utterance(text) == 'stop' or control and control['intent'] == 'cancel':
                 exchange.cancel()
@@ -424,10 +444,18 @@ class VoiceSession:
                 doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
                                      llm_called=False, fallback_used=False)
                 return doc
-            return exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
+            result = exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
+            if result is None:
+                exchange.fail(target)  # 현재 요청만 정리; work와 새 사건은 보존합니다.
+                self.progress(event='safety_audio_held', reason='unrecognized_or_conditions_not_met', stage=stage)
+            else:
+                self.progress(event='safety_audio_result', candidate_type=type(result).__name__)
+            return result
         except Exception as exc:
             exchange.fail(target)
-            self.progress(event='safety_audio_failed', error_type=type(exc).__name__, api_error=error_info(exc))
+            allowed = {'SAFETY_AUDIO_UNCONFIRMED','NO_SPEECH','SAFETY_EXPIRED','SAFETY_CANCELED','SAFETY_STT_UNCONFIRMED','STT_REQUEST_NOT_ADMITTED','VAD_PCM_FORMAT','VAD_UNAVAILABLE','VAD_FAILED','SPEECH_CHECK_CANCELED','예산 소진','이전 호출 정리 중','호출 시간 초과'}
+            reason = str(exc) if str(exc) in allowed else type(exc).__name__
+            self.progress(event='safety_audio_failed', reason=reason, stage=stage, error_type=type(exc).__name__, api_error=error_info(exc))
             return None
 
     def _fingerprint(self, doc):

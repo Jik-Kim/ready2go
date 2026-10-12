@@ -449,7 +449,10 @@ class VoiceNode(Node):
         return cancel.is_set() or self.stop_event.is_set() or not self.safety_exchange.current(target)
 
     def _safety_result_locked(self, result, cancel, sender):
-        if (result is None or sender is None or cancel is not self.safety_cancel or cancel.is_set()
+        if result is None:
+            self._diagnostic({'event':'safety_result_held','reason':'no_current_candidate'})
+            return
+        if (sender is None or cancel is not self.safety_cancel or cancel.is_set()
                 or self.stop_event.is_set() or self.cfg['evaluation_mode']):
             return
         if isinstance(result, dict) and result.get('intent') == 'cancel':
@@ -470,10 +473,12 @@ class VoiceNode(Node):
             if (p is None or p.work != work or not p.current_state_confirmed
                     or self.safety_sender is None or self.cfg['evaluation_mode']
                     or not finite(recording.recording_started_monotonic)):
+                self._diagnostic({'event':'safety_input_held','reason':'work_state_sender_or_capture_unconfirmed'})
                 return
             target = self.safety_exchange.begin_independent(now=recording.recording_started_monotonic,
                                                            unique_target=True)
             if target is None:
+                self._diagnostic({'event':'safety_input_held','reason':'current_question_or_request_pending'})
                 return
             cancel = self.safety_cancel = threading.Event()
             self.safety_running = cancel
@@ -609,6 +614,11 @@ class VoiceNode(Node):
             'recording_held': f"녹음 보류: {doc.get('reason', '')}",
             'audio_unavailable': f"음성 장치/모델 오류: {doc.get('error_type', '')}",
             'processing_failed': f"처리 실패: {doc.get('error_type', '')}",
+            'safety_audio_failed': f"중단 후 음성 실패 ({doc.get('stage','')}): {doc.get('reason',doc.get('error_type',''))}",
+            'safety_audio_held': '중단 후 음성 보류: ' + doc.get('reason',''),
+            'safety_input_held': '중단 후 입력 보류: ' + doc.get('reason',''),
+            'safety_result_held': '중단 후 후보 없음: ' + doc.get('reason',''),
+            'safety_audio_result': '중단 후 음성 후보: ' + doc.get('candidate_type',''),
             'execution_held': '원래 판정 ' + doc.get('original_intent','') + ' / 실행 보류: ' + doc.get('reason',''),
             'request_accepted': 'Runner 요청 수락 확인',
             'request_decided': 'Runner 요청 보류·거절 확인',
@@ -767,6 +777,7 @@ class VoiceNode(Node):
         published = self.session.should_publish(doc)
         if published:
             self._publish(doc)
+        self._diagnostic({'event':'stop_request_published','published':published,'requested_monotonic':self.place_clock()})
         self._diagnostic({'event': 'intent', 'intent': doc, 'published': published})
         return published
 
@@ -801,6 +812,9 @@ class VoiceNode(Node):
                 finally:
                     with self.playback_lock:
                         self.stop_spoken = None
+                self._diagnostic({'event':'stop_capture_finished','recording_started_monotonic':recording.recording_started_monotonic,
+                    'recording_ended_monotonic':recording.recording_ended_monotonic,'speech_ended_monotonic':recording.ended_monotonic,
+                    'sample_count':len(recording.pcm)//2})
                 doc = self.session.stop_audio(recording, paused=interrupted, spoken_texts=spoken)
                 if doc is not None:
                     with self.submit_lock:

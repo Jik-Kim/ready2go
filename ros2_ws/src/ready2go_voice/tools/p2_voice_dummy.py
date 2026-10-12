@@ -323,6 +323,7 @@ def spin_live(executor, voice, bridge):
 
 def serve_live(config_file, *, auto_complete=None):
     """전송·재생 승인 후의 명시 실행 단계. 사람의 발화를 코드로 대체하지 않습니다."""
+    import sys  # stdin 선택의 함수 의존성; 기존 전역 미커밋 import와 독립입니다.
     os.environ.update(ROS_DOMAIN_ID='166', ROS_LOCALHOST_ONLY='1',
                       HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1')
     import rclpy
