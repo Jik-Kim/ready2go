@@ -27,6 +27,14 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 .venvs/project/bin/python -u ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-live --config-file logs/voice_eval/voice.local.yaml
 ```
 
+### STT 전사 콘솔 확인
+
+[구현: E-VOICE-STT-CONSOLE-20261012-01] 일반 음성의 기존 `stt_result`를 `STT 결과: …` 한 줄로 표시합니다. 기존 비밀값 redaction을 먼저 적용한 뒤 LF/CR을 공백으로 바꿉니다. 상세 JSONL의 동일 이벤트·전사는 기존 필터와 구조를 유지하며 콘솔/파일에 각각 한 번 기록합니다. 빈 STT 결과, `발화 없음: STT·LLM 생략`, 원인별 `STT 실패`는 구분합니다. 오류 안내·질문 문맥·요청 수락 정책과 설정은 변경하지 않습니다.
+
+[실측: 기존 사용자 시험 로그] `logs/voice_eval/p2_dummy_20261012_094102/diagnostic.jsonl`의 request `c3ab1221307448da88e4c9279bc270cb`은 34행 STT “망치, 망치, 망치, 망치”, 35행 LLM passed clarify·targets=[]·question_target=toy_hammer였습니다. “가져다줘”가 없는 전사를 실행 명령으로 강제하지 않으며 앞선 NO_SPEECH와 별도 결과입니다. 실제로 명확한 문장이 입력된 경우의 규칙/모의 LLM 후보 회귀는 실API의 전사·LLM 선택 성공을 뜻하지 않습니다.
+
+[문서: 입력 조사·미확인] SharedInput의 등록/discard 이전 프레임 배제·overflow 오류, WakeAudio→새 fixed 소비자의 고정 길이 수집, WAV의 전체 PCM 기록, Whisper의 전체 파일 전송을 대조했습니다. 기존 시험 설정 fixed5초/16kHz/1280프레임/whisper-1을 유지했습니다. 모의 fixed shared→WAV 검사는 80000샘플과 마지막 샘플 보존을 확인하며 실제 발화 누락 원인은 확정하지 않습니다. 당시 WAV/실제 음향·발화 타이밍 증빙이 없어 어느 단계에서 동작 말이 누락됐는지는 미확인입니다. 사용자 프로세스·원본 설정·모델·API/마이크/스피커는 조작하지 않았습니다. [FR-INT-01–03](../../../docs/requirements.md#fr-int-01)·[음성 정책](../../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../../docs/requirements.md#ac-int-01)의 실제 수용 검증은 별도입니다.
+
 ### STT API 오류 진단과 안내
 
 [구현: E-VOICE-API-ERROR-20261011-01] 일반 음성 STT 실패는 `stt_failed.api_error`와 `_voice.stt_failure`에 status/code/type/category만 저장합니다. SDK의 정규화된 속성에서 HTTP status는 100–599 정수만, code/type은 `core/stt_error.py`의 닫힌 허용 목록만 받습니다. 누락·이상값·속성 읽기 오류는 안전하게 미확정 처리합니다. API 키·전체 예외 문자열/본문/헤더·WAV·예외 내 전사 및 request ID/retry-after는 수집하지 않습니다. 일반 콘솔에도 이 최소 정보만 표시하며 상세 파일은 기존 redaction을 거칩니다. 새 공개 계약/source 필드는 없습니다.
@@ -47,7 +55,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 [실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
 
-아래는 현재 파일/가상환경으로 재실행하는 복사 명령입니다. 원본 local YAML에 P1 dialogue와 새 P2 키가 없어 유효 dialogue/place/resume 예산은 None이었습니다. 따라서 원본을 보존한 **시험용 복사본에서만** 누락된 키를 현재 [패키지 실행 원본](params/voice.yaml)에서 읽어 보충합니다. 명시된 local 값은 보존하며 여전히 None이면 해당 시험을 시작하지 않습니다. 아래 if 분기는 설정 생성/검증에 성공했을 때만 live 명령을 실행합니다. `dialogue_timeout_sec`의 원본 30.0초는 현재 질문 문맥 상한 **제안 설정을 재사용한 시험값**이며 확정 정책으로 변경하지 않습니다. 일반 콘솔은 STT 원문·DAC 시작 등 일부 이벤트를 숨기므로 기존 상세 진단도 켭니다. 장치·모델·기존 일반 startup60과 승인된 값·정책은 변경하지 않습니다. `tee`는 stdout/stderr만 저장하므로 터미널 stdin의 `complete`/fixture/`exit`가 Python에 전달됩니다. 가상환경 activate나 secrets의 shell source는 필요하지 않으며 내부 `load_dotenv(..., override=False)`와 SDK hostname 검사를 사용합니다.
+아래는 현재 파일/가상환경으로 재실행하는 복사 명령입니다. 원본 local YAML에 P1 dialogue와 새 P2 키가 없어 유효 dialogue/place/resume 예산은 None이었습니다. 따라서 원본을 보존한 **시험용 복사본에서만** 누락된 키를 현재 [패키지 실행 원본](params/voice.yaml)에서 읽어 보충합니다. 명시된 local 값은 보존하며 여전히 None이면 해당 시험을 시작하지 않습니다. 아래 if 분기는 설정 생성/검증에 성공했을 때만 live 명령을 실행합니다. `dialogue_timeout_sec`의 원본 30.0초는 현재 질문 문맥 상한 **제안 설정을 재사용한 시험값**이며 확정 정책으로 변경하지 않습니다. 일반 콘솔은 STT 전사를 표시하지만 DAC 시작 등 일부 이벤트는 숨기므로 기존 상세 진단도 켭니다. 장치·모델·기존 일반 startup60과 승인된 값·정책은 변경하지 않습니다. `tee`는 stdout/stderr만 저장하므로 터미널 stdin의 `complete`/fixture/`exit`가 Python에 전달됩니다. 가상환경 activate나 secrets의 shell source는 필요하지 않으며 내부 `load_dotenv(..., override=False)`와 SDK hostname 검사를 사용합니다.
 
 ```bash
 cd /home/jonny/rokey_proj/VLA/ready2go

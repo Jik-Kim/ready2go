@@ -194,6 +194,57 @@ def test_detail_file_gets_raw_once_and_console_never_full_json(node,node_class):
     assert '수락 미확인' in messages[-1]
 
 
+@pytest.mark.parametrize('text', ['망치 가져다줘', '', '망치\r\n가져다줘'])
+def test_stt_console_one_line_and_detail_redaction(node, node_class, tmp_path, monkeypatch, text):
+    from ready2go_voice.core.diagnostics import DiagnosticFile
+    secret = 'test-sensitive-transcription-token'
+    monkeypatch.setenv('OPENAI_API_KEY', secret)
+    messages = []
+    node.get_logger = lambda: SimpleNamespace(info=messages.append)
+    node.cfg['diagnostic_file'] = str(tmp_path/'diagnostic.jsonl')
+    writer = node.diagnostic_file = DiagnosticFile(node.cfg, messages.append)
+    try:
+        payload = text + ' ' + secret if text else ''
+        node_class._diagnostic(node, {'event': 'stt_result', 'text': payload})
+    finally:
+        writer.close()
+    expected = text + ' [REDACTED]' if text else ''
+    assert messages == ['STT 결과: ' + expected.replace('\n', ' ').replace('\r', ' ')]
+    assert '\n' not in messages[0] and '\r' not in messages[0]
+    records = [json.loads(line) for line in (tmp_path/'diagnostic.jsonl').read_text().splitlines()]
+    assert len(records) == 1 and records[0]['event'] == 'stt_result'
+    assert records[0]['text'] == expected
+    assert secret not in (tmp_path/'diagnostic.jsonl').read_text()
+
+
+def test_no_speech_and_stt_failure_are_distinct_console_events(node, node_class):
+    messages = []
+    node.get_logger = lambda: SimpleNamespace(info=messages.append)
+    node_class._diagnostic(node, {'event': 'no_speech'})
+    node_class._diagnostic(node, {'event': 'stt_failed', 'error_type': 'RateLimitError',
+        'api_error': {'status': 429, 'code': None, 'type': None, 'category': 'unknown_429'}})
+    assert len(messages) == 2
+    assert messages[0].startswith('발화 없음:') and messages[1].startswith('STT 실패:')
+    assert not any(m.startswith('STT 결과:') for m in messages)
+
+
+@pytest.mark.parametrize('text,expected', [('망치 가져다줘', 'find_item'), ('망치', 'clarify'),
+    ('망치, 망치, 망치, 망치', 'clarify'), ('망치 가져다주지 마', 'clarify'), ('응', 'clarify')])
+@pytest.mark.parametrize('mock_llm', [False, True])
+def test_hammer_delivery_and_noncommands_keep_decision(node, text, expected, mock_llm):
+    if mock_llm:
+        node.parser.llm = lambda *_: {'intent': 'find_item' if expected == 'find_item' else expected,
+            'targets': ['toy_hammer'] if expected == 'find_item' else [], 'confidence': .99,
+            'clarify_question': '장난감 망치 가져오기 요청이 맞나요?' if expected == 'clarify' else None}
+    doc = node.session.text(text)
+    assert doc['intent'] == expected
+    assert doc['source']['execution_allowed'] == (expected == 'find_item')
+    if expected == 'find_item':
+        assert doc['targets'] == ['toy_hammer'] and 'question_target' not in doc['_voice']
+    else:
+        assert doc['targets'] == []
+
+
 def test_submit_to_work_keeps_local_request_id(node,node_class):
     node.busy=threading.Event();node.requests=queue.Queue(maxsize=1);node.local_context=threading.local()
     assert node_class._submit(node,('text','지우개 가져와'),request_id='r-one')

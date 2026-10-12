@@ -625,10 +625,10 @@ class VoiceNode(Node):
             messages[event] = doc['reason']
         if event == 'publish_failed':
             messages[event] = '발행 실패: 수락 미확인·새 요청 필요'
-        # 일반 콘솔은 최종 응답/발행 상태/보류/오류만. 단계 증빙은 상세 파일에 보존합니다.
-        hidden = {'record_started', 'record_finished', 'whisper_requested', 'stt_result', 'speech_check_started', 'tts_started'}
+        # 일반 콘솔은 STT 전사/최종 응답/발행 상태/보류/오류를 표시합니다. 나머지 단계 증빙은 상세 파일에 보존합니다.
+        hidden = {'record_started', 'record_finished', 'whisper_requested', 'speech_check_started', 'tts_started'}
         if event in messages and event not in hidden:
-            self.get_logger().info(redact(messages[event]).replace('\n', ' '))
+            self.get_logger().info(redact(messages[event]).replace('\n', ' ').replace('\r', ' '))
 
     def _runner_status_with_info(self, message, info):
         # Jazzy 실제 metadata(시각/sequence)는 C 수락·재기동 근거를 대신하지 않습니다.

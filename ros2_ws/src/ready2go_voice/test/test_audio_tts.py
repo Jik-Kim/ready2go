@@ -9,6 +9,29 @@ from ready2go_voice.adapters.audio import Recorder
 from ready2go_voice.adapters.tts import EspeakTTS
 
 
+def test_fixed_shared_wav_preserves_last_sample_and_full_window(cfg, tmp_path):
+    from ready2go_voice.adapters.audio import write_wav
+    frames = int(cfg['record_duration_sec'] * cfg['sample_rate'])
+    pcm = (np.arange(frames + cfg['frame_samples']) % 30000).astype(np.int16).tobytes()
+    class SharedReader:
+        offset = 0
+        last_frame_monotonic = 6.
+        last_frame_unix = 100.
+        def discard(self): return 1.
+        def read(self, count):
+            start = self.offset
+            self.offset += count * 2
+            return pcm[start:self.offset], False
+    recording = Recorder(cfg, clock=lambda: 1.)._fixed_shared(SharedReader(), threading.Event(), lambda: False)
+    assert recording.pcm == pcm[:frames * 2]
+    path = tmp_path/'fixed.wav'
+    write_wav(path, recording, cfg['sample_rate'])
+    with wave.open(str(path)) as wav:
+        assert wav.getnframes() == frames and wav.getnchannels() == 1 and wav.getsampwidth() == 2
+        assert wav.getframerate() == cfg['sample_rate']
+        assert wav.readframes(frames) == pcm[:frames * 2]
+
+
 class Clock:
     now = 0
     def __call__(self):

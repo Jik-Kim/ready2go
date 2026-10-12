@@ -3,7 +3,15 @@
 
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장)
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
-- **최종 갱신**: 2026-10-11
+- **최종 갱신**: 2026-10-12
+
+## STT 전사 콘솔 — E-VOICE-STT-CONSOLE-20261012-01
+
+- [문서: 승인·범위] 지시 세션이 조율 turn `01a12d91-048d-7253-8ff7-09791fd226c7`/user `01a12d91-04de-71d0-9965-c4392e096c9a`의 “STT가 로그에 띄워줘야지 수정해”를 직접 확인해 전달했습니다. 기존 branch `codex/e-tray-confirm-integration-20261011`/HEAD `98449c0835dc44a4bec6d7853a35c39c81aaa9a0`, tracked clean/models 미추적에서 시작했습니다. [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[음성 정책](../../docs/requirements.md#voice-policy)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)의 기존 범위를 유지합니다.
+- [구현] node hidden에서 stt_result만 제외하고 redaction 뒤 LF/CR 공백화로 한 줄 콘솔을 표시합니다. 기존 상세 JSONL·무발화/오류 구분·98449c0 오류 안내·정상 clarify/요청 수락을 유지합니다. 변경은 노드1개·관련 시험2개·README/CURRENT입니다. 입력/core/설정/공통 wire·타 담당 코드는 수정하지 않습니다.
+- [실측·미확인] `_094102/diagnostic.jsonl` request `c3ab1221307448da88e4c9279bc270cb` 34행의 전사는 “망치, 망치, 망치, 망치”,35행은 LLM passed clarify/targets[]/question_target toy_hammer입니다. 명확 요청 “망치 가져다줘”의 실제 전사가 아니므로 강제 find나 LLM 오류로 단정하지 않습니다. SharedInput/Wake/새 fixed 소비자·버퍼/discard·PCM/WAV·SDK 호출·실제 설정 fixed5초/16k/1280/whisper-1을 대조했으나 실제 누락 원인/결함은 확정되지 않았습니다. 모의 마지막 샘플/전체 WAV와 규칙·모의 LLM 결과는 실음성 통과 증거가 아닙니다.
+- [실측: 검증] Python3.12 project venv·전체 패키지 source 경로에서 관련6시험파일(test_voice_ux_node/audio_tts/intent/config_api/stt_error/voice_followup.py) **342 passed**,8.48초/exit0입니다. 실제 node 콘솔 메서드·DiagnosticFile의 전사 한 줄/비밀값 필터/단일 기록·빈값/무발화/오류 구분, 규칙·모의 LLM 후보의 명확 망치 명령/단독·반복·부정·문맥 없는 응답, fixed shared→WAV 전체80000샘플·끝샘플을 확인했습니다. 첫 검사2실패는 신규시험의 부정을 unknown으로 한정한 기대를 현행 clarify/실행false로 보완했으며 제품 해석은 바꾸지 않았습니다. 최종 로그 `/tmp/e-voice-stt-console-20261012-pytest-final.log`, AST/diff 공백/문서 정합성 검사도 통과했습니다. 실제 ROS 장치/API/LLM 선택·발화 정상 전사·물리 수용은 검증하지 않았습니다.
+- [보존·게시] 원본 local/모델/사용자 프로세스·기존 시간 예산 유지, 실제 API/마이크/스피커 시험0입니다. 이번5파일만 자동 로컬 커밋하며 push/PR·게시용 CI는 수행하지 않습니다. Notion은 조율 담당입니다.
 
 ## STT API 오류 진단·안내 — E-VOICE-API-ERROR-20261011-01
 
