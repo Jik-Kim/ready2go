@@ -180,6 +180,20 @@ def check_place(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], op
     return None
 
 
+def same_place(pose: Mapping, back: Mapping, *, tol_mm: float, tol_deg: float) -> bool:
+    """놓을 pose 가 집을 때 자리(back: position [x, y] m·yaw)와 같은가 — 위치 tol_mm·각도 tol_deg 안 (각도는 180° 대칭).
+    기울여 집은 물체를 원래 자리로 되돌릴 때만 같은 기울인 자세로 놓음 [사용자 10/12 PC2 립밤 putback]."""
+    try:
+        dx = (float(pose["position"][0]) - float(back["position"][0])) * 1000.0
+        dy = (float(pose["position"][1]) - float(back["position"][1])) * 1000.0
+        dyaw = (float(pose["yaw"]) - float(back["yaw"])) % math.pi
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False
+    if not _finite(dx, dy, dyaw):
+        return False
+    return math.hypot(dx, dy) <= tol_mm and math.degrees(min(dyaw, math.pi - dyaw)) <= tol_deg
+
+
 def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], max_shift_mm: float,
              step_mm: float = 2.0) -> tuple:
     """고정 빈 자리(slot)에 쥔 물체가 안 들어가면(벽·이웃) 자리 가운데에서 가장 적게 옮긴(·90° 돌린) 자세를 찾음
@@ -276,7 +290,21 @@ def objects_under(*, target: Mapping, objects: Sequence[Mapping], size_of: Calla
         dx, dy = x - ox, y - oy
         if abs(dx * c + dy * s_) <= size[0] * 500.0 + m and abs(-dx * s_ + dy * c) <= size[1] * 500.0 + m:
             out.append(o)
+        elif related and _rests_on(target, o, size, size_of, ambiguous_m):
+            out.append(o)
     return out
+
+
+def _rests_on(target: Mapping, o: Mapping, o_size: Sequence[float], size_of, tol_m: float) -> bool:
+    """가운데가 받침 밖으로 걸친 위 물체 [실측 PC2 10/12: 캐러멜 끝에 걸친 차키 가운데가 캐러멜 밖 약 10 mm → 캐러멜을 옆 물체로 봐
+    차키 집기 NEIGHBOR_TOO_CLOSE 두 번]. 분할 관계(o 위에 target)가 있고, o 윗면이 target 바닥 높이(비전 top_z − target 온톨로지 높이)와
+    tol_m 안이고, 두 footprint 가 겹칠 때만 — 옆 물체 헛관계는 높이가 안 맞아 빠짐(바닥 목표의 바닥 높이 ≈ 0) [A #216 우려]."""
+    ts = size_of(target.get("class"))
+    if not ts or not _finite(o.get("top_z"), target.get("top_z"), ts[2]):
+        return False
+    if abs(float(o["top_z"]) - (float(target["top_z"]) - float(ts[2]))) > tol_m:
+        return False
+    return rects_overlap(neighbor_rect_mm(target, ts), neighbor_rect_mm(o, o_size))
 
 
 def place_tcp_m(tf: Mapping, pose: Mapping, tcp_above_floor_m: float) -> tuple:

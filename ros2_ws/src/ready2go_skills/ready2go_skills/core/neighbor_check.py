@@ -48,8 +48,16 @@ def _under(obj: Mapping, target: Mapping, size_m: Sequence[float], obj_size_m: S
 def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, objects: Sequence[Mapping],
                  size_of: Callable[[str], Optional[Sequence[float]]], default_size_m: Sequence[float],
                  finger_mm: float, margin_mm: float, support_m: float, below_tol_m: float,
-                 finger_half_width_mm: Optional[float] = None) -> Optional[str]:
+                 finger_half_width_mm: Optional[float] = None, fingertip_floor_m: Optional[float] = None,
+                 fingertip_clear_m: float = 0.002, under_clear_m: Optional[float] = None,
+                 under_smear_m: float = 0.005) -> Optional[str]:
     """집을 때 벌린 손가락 footprint 와 겹치는 이웃 id (없으면 None).
+    fingertip_floor_m: 손끝이 내려가는 가장 낮은 높이(서랍 바닥 기준) — 주면 그보다 fingertip_clear_m 넘게 낮은 이웃은 안 닿으므로 무시.
+    이웃 높이는 비전 top_z 와 온톨로지 높이 중 큰 값 (덮개 판 손끝 25 mm 옆 지우개·립밤 [사용자 10/12 PC2]).
+    under_clear_m: 목표 밑 여유 높이(덮개 판 아랫면 21 mm) — 목표 footprint 와 겹치고 온톨로지 높이가 이 이하인 이웃은 목표 밑에 있다고
+    보고 온톨로지 높이로 (밑에 깔린 물체 비전 top_z 번짐, 가림 관계 null 이어도) [사용자 10/12 "커버플레이트는 겹쳐도 집을 수 있게"].
+    단 관측 top_z 가 under_clear_m + under_smear_m 이하일 때만 — 그보다 높으면 판 밑일 수 없음(다른 물체 위에 쌓였거나 세워짐) → 관측 값으로
+    막음 [#235 리뷰 P1: top_z 35 mm 이웃을 단품 11.5 mm 로 보고 통과시킴]. 번짐 실측 23.4·23.5·25.5 mm(지우개 11.5) [PC2 10/12].
     finger_half_width_mm: 손가락 반폭(닫힘 축에 수직) — 주면 손가락이 실제로 내려가는 띠(긴 변 방향으로 이 폭)만 봄.
     없으면 예전처럼 물체 길이 전체 [P2 시뮬레이션 10/10: 몽키 170 mm 끝 옆 aside 차키까지 막음]."""
     x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
@@ -64,6 +72,16 @@ def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, ob
         osz = size_of(o.get("class")) or default_size_m
         if _under(o, target, size_m, osz, margin_mm):
             continue
+        if fingertip_floor_m is not None and _finite(o.get("top_z")) and len(osz) > 2:
+            # 목표(덮개 판) 밑에 깔린 이웃은 비전 윗면이 위로 번짐 → 온톨로지 높이 [사용자 10/12 PC2: 판 밑 지우개 top_z 23.4~25.5(실제 11.5)].
+            # 판 밑 여유(under_clear_m)가 있는 목표만, 관측이 그 + 번짐 범위 안일 때만. 그 밖은 비전·온톨로지 중 큰 값
+            under = (under_clear_m is not None and float(osz[2]) <= under_clear_m
+                     and float(o["top_z"]) <= under_clear_m + under_smear_m          # 관측이 판 밑 + 번짐 범위 안일 때만
+                     and (target.get("id") in (o.get("occluded_by") or [])
+                          or plp.rects_overlap(plp.corners(x, y, yaw, size_m[0] * 500.0, size_m[1] * 500.0), plp.neighbor_rect_mm(o, osz))))
+            h = float(osz[2]) if under else max(float(o["top_z"]), float(osz[2]))
+            if h <= fingertip_floor_m - fingertip_clear_m:
+                continue                                     # 손끝보다 낮음 — 손가락 자리에 있어도 안 닿음
         if plp.rects_overlap(mine, plp.neighbor_rect_mm(o, osz)):
             return o["id"]
     return None
@@ -88,5 +106,24 @@ def drag_blocker(*, target: Mapping, size_m: Sequence[float], shift_y_m: float, 
             continue
         rect = plp.neighbor_rect_mm(o, size_of(o.get("class")) or default_size_m)
         if any(plp.rects_overlap(p, rect) for p in path):
+            return o["id"]
+    return None
+
+
+def finger_spot_blocker(*, center_m: Sequence[float], push_dir: Sequence[float], target_id: Optional[str], objects: Sequence[Mapping],
+                        size_of: Callable[[str], Optional[Sequence[float]]], default_size_m: Sequence[float],
+                        half_along_mm: float, half_lat_mm: float, margin_mm: float) -> Optional[str]:
+    """뒤에서 밀기: 닫은 손가락이 수직으로 내려갈 자리(시작 TCP, 미는 방향으로 반 half_along_mm·옆으로 반 half_lat_mm + margin)와
+    겹치는 이웃 id (없으면 None). 손끝은 바닥 위 몇 mm 까지 내려가므로 높이와 상관없이 겹치면 막힘
+    [사용자 10/12 PC2: 손잡이 쪽 비스듬한 지우개 바로 뒤 에어팟 — 그 위로 손가락이 내려갈 뻔함]."""
+    x, y = center_m[0] * 1000.0, center_m[1] * 1000.0
+    nx, ny = push_dir
+    if not _finite(x, y, nx, ny, half_along_mm, half_lat_mm, margin_mm):
+        raise ValueError(f"뒤에서 밀 손가락 자리 입력 비정상: {center_m, push_dir}")
+    mine = plp.corners(x, y, math.atan2(ny, nx), half_along_mm + margin_mm, half_lat_mm + margin_mm)
+    for o in objects:
+        if o.get("id") == target_id:
+            continue
+        if plp.rects_overlap(mine, plp.neighbor_rect_mm(o, size_of(o.get("class")) or default_size_m)):
             return o["id"]
     return None

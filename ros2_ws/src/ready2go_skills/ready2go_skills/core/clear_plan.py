@@ -455,12 +455,18 @@ def _nudge_blocker(objs, tid, oracle, cfg: Config, reason: str = "") -> Optional
             if a.pushed:
                 continue
             if _opens_way(after, tid, oracle):
-                a.reason = f"막는 {o['id']} 를 " + a.reason + f" — 목표 {tid} 길 열림"
+                a.reason = f"{o['id']} 를 " + a.reason + f" — {tid} 집을 자리 열림"
                 return a
             if later is None and oracle.pick(after, o["id"])[0]:
-                a.reason = f"막는 {o['id']} 를 " + a.reason + " — 집을 수 있게 (다음에 빈 자리로)"
+                a.reason = f"{o['id']} 를 " + a.reason + " — 집을 수 있게 (다음에 빈 자리로)"
                 later = a
     return later
+
+
+def _dir_name(u) -> str:
+    """서랍 축 방향 이름 (x 0 = 손잡이 쪽 벽) — B plan 이유에 어느 쪽으로 움직이는지 보이게."""
+    return {(-1.0, 0.0): "-x 손잡이 쪽", (1.0, 0.0): "+x 안쪽", (0.0, 1.0): "+y", (0.0, -1.0): "-y"}.get(
+        (float(u[0]), float(u[1])), f"{u[0]:+.2f}, {u[1]:+.2f}")
 
 
 def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False) -> list:
@@ -478,7 +484,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
         can = free_move(objs, tid, u, cfg.max_shift_m, cfg.interior_m, cfg.size_of)
         dists = [k * step for k in range(1, int(can / step + 1e-6) + 1)]
         for s in dists:
-            out.append((s, Action("nudge", tid, f"빈 쪽으로 {s * 1000:.0f} mm", dir=u, dist_m=s, extra=dict(press)),
+            out.append((s, Action("nudge", tid, f"빈 쪽({_dir_name(u)})으로 {s * 1000:.0f} mm", dir=u, dist_m=s, extra=dict(press)),
                         _with(objs, moved(t, u[0] * s, u[1] * s))))
         d = (int(can / cfg.sweep_step_m + 1e-6) + 1) * cfg.sweep_step_m
         last = can
