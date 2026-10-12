@@ -7,7 +7,7 @@
 #   bash tools/dev/vision_real_check.sh camera                # 이 PC 에서 realsense (compose realsense 서비스, Ctrl+C 로 종료)
 #   bash tools/dev/vision_real_check.sh check                 # 카메라 토픽 주기·TF 확인 (약 20초)
 #   bash tools/dev/vision_real_check.sh node                  # 비전 노드 (Ctrl+C 로 종료). 요청마다 ~/ready2go_vision_dump/ 에 프레임 저장
-#       VISION_WEIGHTS=<가중치 .pt> 를 앞에 붙이면 그 모델로 (기본 models/yolo11s_seg_ready2go_v1.pt — P2 분할: 마스크 안 뎁스·가림 필드, #109).
+#       VISION_WEIGHTS=<가중치 .pt> 를 앞에 붙이면 그 모델로 (기본 models/yolo11s_seg_ready2go_v2.pt — P2 분할: 마스크 안 뎁스·가림 필드, #109, 10/12 보강. 이전 분할 v1 은 models/yolo11s_seg_ready2go_v1.pt).
 #       P1 박스 모델로 돌리려면 VISION_WEIGHTS=models/yolo11n_ready2go_v1.pt (가림 필드 없음)
 #   bash tools/dev/vision_real_check.sh call [eraser] [drawer_top]   # 서비스 호출 1회 (node 가 떠 있어야 함, 그 컨테이너 안에서 실행). 아래 칸은 drawer_bottom
 #   bash tools/dev/vision_real_check.sh measure X1 Y1 Z1 X2 Y2 Z2   # 펜던트 base 좌표(mm) 손끝 두 점 → 서랍 좌표 정답 (stub_measure.py)
