@@ -165,6 +165,13 @@ def test_place_blocked_tries_other_slot():
     assert [p["slot"] for _, p in backend.calls] == ["aside_1", "aside_2"]
 
 
+def test_place_no_free_space_tries_next_option():
+    """B #241 slot "free": 서랍 안 빈 자리 없음(NO_FREE_SPACE)도 움직이기 전 거부 → 다음 대안 (#242)."""
+    backend = FakeBackend({"place_object": [ActionResult(False, error_code="NO_FREE_SPACE"), ActionResult(True)]})
+    result = Runner(backend, schema=SCHEMA).run(PLACE_ASIDE)
+    assert result.overall_status == "COMPLETED" and len(backend.calls) == 2
+
+
 def test_place_failure_after_motion_does_not_try_other_slot():
     backend = FakeBackend({"place_object": [ActionResult(False, error_code="NOT_REACHED"), ActionResult(True)]})
     result = Runner(backend, schema=SCHEMA).run(PLACE_ASIDE)

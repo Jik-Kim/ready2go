@@ -105,8 +105,9 @@ NO_MOTION_BY_ACTION = {
     # 이동 뒤 실패는 CLOSE_NOT_CONFIRMED 등이라 여기 없음)
     "drawer_control": NO_MOTION_DEFAULT | {"NOT_AT_START_POSE", "DRAWER_NOT_CONFIGURED", "DRAWER_STATE_UNKNOWN",
                                            "DRAWER_ALREADY_OPEN", "OTHER_DRAWER_OPEN", "HOLDING_OBJECT", "BAD_PARAMS"},
+    # slot "free"(B #241): NO_FREE_SPACE = 서랍 안 빈 자리 없음 (움직이기 전). check_only 는 성공·실패 모두 움직이지 않음
     "place_object": PRE_MOTION_COMMON | {"NOT_HOLDING", "UNSUPPORTED_PARAMS", "PLACE_NOT_CONFIGURED", "TRAY_FULL",
-                                         "BAD_PARAMS", "PLACE_BLOCKED"},
+                                         "BAD_PARAMS", "PLACE_BLOCKED", "NO_FREE_SPACE"},
 }
 NON_MOTION_ACTIONS = ABORT_SAFE_ACTIONS | {"inspect_region", "select_obstacle", "find_moved"}   # 팔을 움직이지 않는 원자 동작
 

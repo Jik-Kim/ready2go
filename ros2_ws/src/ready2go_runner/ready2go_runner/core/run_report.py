@@ -165,10 +165,15 @@ def _detail_text(step: dict) -> str:
             hand = HAND_KO.get(result.get("hand"))     # #223 B: 실패 뒤 손 상태 (released ≠ 빈손)
             if hand and not result["grasp_ok"]:
                 text += f" ({hand})"
-    elif action == "place_object" and result:
-        position = (result.get("placed_pose") or {}).get("position")
-        text = str(result.get("slot") or "") or (               # 고정 자리 이름, 없으면 B 가 명령한 자리 (#166)
-            f"놓은 자리 ({float(position[0]) * 1000:.0f}, {float(position[1]) * 1000:.0f}) mm" if position else "")
+    elif action == "place_object" and (result or params.get("check_only")):
+        check = bool(params.get("check_only") or result.get("check_only"))   # #241 판단만 — 놓은 것처럼 보이지 않게
+        position = (result.get("planned_pose" if check else "placed_pose") or {}).get("position")
+        where = str(result.get("slot") or "") or (               # 고정 자리 이름, 없으면 B 가 명령한(놓을) 자리 (#166)
+            f"({float(position[0]) * 1000:.0f}, {float(position[1]) * 1000:.0f}) mm" if position else "")
+        if check:
+            text = "판단만(움직이지 않음)" + (f" → 놓을 수 있음: {where}" if where else "")
+        else:
+            text = where if result.get("slot") or not where else f"놓은 자리 {where}"
     elif action == "speak":
         text = f"\"{params.get('text', '')}\""
     elif action in ("while", "for_each") and step.get("iterations") is not None:
