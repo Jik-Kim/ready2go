@@ -1,5 +1,11 @@
 # CURRENT — E 고희태
 
+## PR227 게시 높이 원복 — 2026-10-12
+
+- [문서: 사용자 원복] 조율 세션 인간 turn `01a12fed-e08c-79f0-95e9-fa921d3496e3` “19.5mm로 바꾸면 계약 충돌하는 것 같아서 내가 되돌린거야”를 직접 확인했습니다. `caramel_box.size_m[2]`를 사용자 원복값0.0185m로 보존하고 립밤/마스킹테이프의 승인 별칭 변경은 유지합니다. 새 실측·B 코드/시험 변경이 아닙니다.
+- [문서: 게시 경계] 기존 world/#227 게시 승인에서 world와 이 기록만 별도 커밋해 게시 SHA를 고정합니다. 동시에 작성 중인 E-VOICE-END-STOP-MINIMAL-20261012-01의 종료 hotfix는 staging/커밋/게시에서 제외하고 별도 진행합니다. `python3 tools/validate_contracts.py` 종료0/OK, 로그 `/tmp/e-pr227-world-revert-validate-20261012.log`.
+- [문서: 이전 CI] d0f7aa81 CI core는3 failed/2689 passed/42 skipped이며 B 높이 기대18.5/37.0과 데이터19.5/38.0 불일치입니다. compose real/sim/dev 로그는 있고 build는 Starting ready2go_interfaces 이후 최종 결과를 확인하지 못했습니다. 실행 handle은 소실됐으며 전체 CI 성공으로 보고하지 않습니다. 기존 CI/컨테이너를 조작하거나 재기동하지 않았습니다. 다음 고정 게시 SHA의 전체 CI/push/본문 갱신은 지시 세션이 PR 전담에 맡깁니다. 이 작업자는 여기서 CI를 반복하지 않습니다.
+
 <a id="pr227-publish-prep-20261012-01"></a>
 ## PR227 게시 준비 — E-PR227-PUBLISH-PREP-20261012-01
 
