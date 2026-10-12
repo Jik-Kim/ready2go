@@ -73,6 +73,9 @@ HALT_MOTION_CODES = {"OBJECT_DROPPED", "SENSOR_INVALID"}
 HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"} | HALT_MOTION_CODES
 HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
+# 태스크가 정리 동작(닫기·홈)을 멈추지 않고 실행 결과만 실패로 남길 때 쓰는 블랙보드 변수 {code, step}
+# (예: find_with_unpack 복구 미완료 RESTORE_INCOMPLETE — 정본 requirements 137 "복구 실패면 전체 FAILED")
+TASK_ERROR_VAR = "task_error"
 ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
 # skill 스텝 (#12): 온톨로지 primitive 스킬. 로봇을 움직이므로 ABORTED 때는 건너뜀
 UNKNOWN_SKILL = "UNKNOWN_SKILL"         # 온톨로지에 없거나 primitive 가 아닌 스킬 (P1 은 primitive 만)
@@ -334,6 +337,8 @@ class Runner:
                 error = self._abort(e)
                 self._note_halt(ctx, e)
             # 이미 중단 상태면 처음 멈춘 위치·원인을 유지
+        if error is None and not self._aborted:
+            error = _marked_error(blackboard)   # 태스크가 남긴 실패 (앞선 실패·중단이 있으면 그 원인이 우선)
         if self._aborted:
             return self._finish(ctx, RunResult("ABORTED", blackboard, records, error.code, error.step_id))
         if error:
@@ -813,6 +818,14 @@ class Runner:
         finally:
             record["duration_sec"] = round(self.clock() - started, 3)
             self._log_step(record)
+
+
+def _marked_error(blackboard: dict) -> StepFailed | None:
+    """블랙보드 task_error = {code, step} 이 있으면 그 실패. 형식이 맞지 않으면 무시(실행 결과를 바꾸지 않음)."""
+    mark = blackboard.get(TASK_ERROR_VAR)
+    if isinstance(mark, dict) and isinstance(mark.get("code"), str) and mark["code"]:
+        return StepFailed(str(mark.get("step") or ""), mark["code"])
+    return None
 
 
 def _hand_uncertain(output) -> bool:

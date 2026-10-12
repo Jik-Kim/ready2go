@@ -41,6 +41,7 @@ ERROR_KO = {
     "WALL_TOO_CLOSE": "벽에 너무 붙어 집을 수 없음", "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리",
     "PUSH_BLOCKED": "끌다가 힘 초과", "NO_OBJECT_CONTACT": "끌기: 물체 접촉 없음",
     "GRASP_FAILED": "파지 실패", "UNKNOWN_SKILL": "알 수 없는 스킬",
+    "RESTORE_INCOMPLETE": "옮긴 물체를 원래 자리로 다 돌려놓지 못함 (되돌리기 실패·다시 못 찾음·쥔 채 멈춤) — 전달은 됐을 수 있음",
     "REGION_NOT_VISIBLE": "촬영 지역 바닥이 충분히 안 보임 (가림·뎁스 결손·다른 곳을 찍음) — 미검출 아님, 관측 오류",
     "TASK_INVALID": "태스크 검사 실패 — 실행 전 거절 (로봇 동작 없음)",
 }

@@ -874,3 +874,33 @@ def test_halt_motion_codes_stop_atomic_finally_too():
     assert runner.run({"task_id": "h", "sequence": [{"id": "s1", "action": "move_to_named_pose",
                                                      "params": {"pose_name": "home"}}]}).overall_status == "ABORTED"
     assert [a for a, _ in fake.calls] == ["place_object"]
+
+
+# ---- task_error: 태스크가 정리 동작을 마친 뒤 결과만 실패로 (find_with_unpack 복구 미완료, 정본 137) ----
+
+def _mark_task(value):
+    seq = [{"id": "s1", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]
+    return {"task_id": "t", "sequence": seq,
+            "finally": [{"id": "f1", "action": "set_var", "params": {"name": "task_error", "value": value}},
+                        {"id": "f2", "action": "move_to_named_pose", "params": {"pose_name": "home"}}]}
+
+
+def test_task_error_fails_run_after_cleanup_finishes():
+    backend = FakeBackend()
+    result = Runner(backend).run(_mark_task({"code": "RESTORE_INCOMPLETE", "step": "fr"}))
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "RESTORE_INCOMPLETE", "fr")
+    assert [a for a, _ in backend.calls] == ["move_to_named_pose", "move_to_named_pose"]   # 정리 동작(f2)은 그대로
+
+
+def test_earlier_failure_and_abort_win_over_task_error():
+    backend = FakeBackend({"move_to_named_pose": [ActionResult(False, error_code="NOT_REACHED"), ActionResult(True)]})
+    failed = Runner(backend).run(_mark_task({"code": "RESTORE_INCOMPLETE", "step": "fr"}))
+    assert (failed.overall_status, failed.error_code) == ("FAILED", "NOT_REACHED")
+    stopped = Runner(FakeBackend({"move_to_named_pose": ActionResult(False, error_code="ESTOP")})).run(
+        _mark_task({"code": "RESTORE_INCOMPLETE", "step": "fr"}))
+    assert (stopped.overall_status, stopped.error_code) == ("ABORTED", "ESTOP")
+
+
+@pytest.mark.parametrize("value", [None, "RESTORE_INCOMPLETE", {"step": "fr"}, {"code": ""}, {"code": 3}])
+def test_malformed_task_error_is_ignored(value):
+    assert Runner(FakeBackend()).run(_mark_task(value)).overall_status == "COMPLETED"

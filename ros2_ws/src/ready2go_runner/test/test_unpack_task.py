@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from ready2go_runner.core import run_report
 from ready2go_runner.core.backend import SPEAK_ACTION, Reply, RosBackend
 from ready2go_runner.core.interpreter import Runner
 from ready2go_runner.core.logstore import MemoryLogStore
@@ -187,7 +188,8 @@ def test_restore_blocked_twice_stops_holding_without_home():
     runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY)
     runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
     result = runner.run(TASK, {"target": "toy_wrench"})
-    assert result.overall_status == "COMPLETED", steps(result)                 # 전달은 됨, 복구는 skip
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "RESTORE_INCOMPLETE", "fr"), \
+        steps(result)                                                        # 전달은 됐지만 복구 미완료 = 실패 (정본 137)
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]   # 차키는 되돌리기 안 함
     assert robot.placed()[-2:] == ["origin", "aside_2"]                       # 상자: 원래 자리 → 꺼낸 자리, 둘 다 막힘
     assert result.blackboard["holding"] is True
@@ -389,3 +391,61 @@ def test_all_back_at_origin_says_nothing_extra():
 def test_estop_skips_aside_announcement_block():
     _, robot, result = run("occluded_top", "toy_wrench", {"place_object": ["ESTOP", 1]})
     assert result.overall_status == "ABORTED" and not any("빈 자리에 뒀어요" in t for t in robot.spoken)
+
+
+# ---- 복구 미완료 = 실패 (정본 requirements 137, C 리뷰 10/12): 남은 물체도 계속 시도, 닫기·홈 뒤 안내 + FAILED ----
+
+NOT_BACK = "옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람이 확인해 주세요"
+
+
+class RestorePickRefusedScene(MockScene):
+    """전달 뒤 상자를 되돌리러 집을 때 한 번만 움직이기 전 거부(옆 물체가 손가락 자리에 걸림)."""
+
+    def pick(self, params):
+        target = params.get("target") or {}
+        if self.delivered and target.get("class") == "caramel_box" and not getattr(self, "_refused", False):
+            self._refused = True
+            return False, "NEIGHBOR_TOO_CLOSE", None
+        return super().pick(params)
+
+
+class VanishedAfterDeliveryScene(MockScene):
+    """전달 뒤 다시 찍으면 상자가 안 보임(사람이 치움·미검출) — 놓기 검사에는 그대로 있음."""
+
+    def inspect(self, region, search_target):
+        out = super().inspect(region, search_target)
+        if self.delivered:
+            out["candidates"] = [c for c in out["candidates"] if c["class"] != "caramel_box"]
+        return out
+
+
+def _run_with(scene):
+    robot = SceneRobot("occluded_top")
+    robot.skills.scene = scene
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, log_store=MemoryLogStore())
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    return runner, robot, runner.run(TASK, {"target": "toy_wrench"})
+
+
+@pytest.mark.parametrize("scene_cls", [RestorePickRefusedScene, VanishedAfterDeliveryScene])
+def test_one_restore_fails_others_still_restored_then_failed(scene_cls):
+    """상자 되돌리기 실패(집기 거부 / 다시 못 찾음) → 차키는 계속 원래 자리로, 닫기·홈 → 안내 → RESTORE_INCOMPLETE."""
+    runner, robot, result = _run_with(scene_cls("occluded_top"))
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "RESTORE_INCOMPLETE", "fr"), \
+        steps(result)
+    assert robot.skills.scene.delivered == ["toy_wrench"]                     # 전달은 됨
+    assert robot.skills.scene.objects["car_key"]["xy"][1] == 0.17              # 차키는 원래 자리로 (남은 복구 계속)
+    assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
+    assert result.blackboard["holding"] is False
+    assert NOT_BACK in robot.spoken
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})   # 닫기·홈은 그대로
+    assert any(a == "drawer_control" and p.get("state") == "close" for a, p in robot.calls)
+    text = run_report.to_text(runner.log_store.read_run(result.run_id))
+    assert "RESTORE_INCOMPLETE" in text and "❌ 실패" in text
+
+
+def test_all_restored_or_left_aside_is_not_restore_failure():
+    """다 되돌렸거나 빈 자리 + 안내(E 판정 대기)는 실패로 보지 않음 — 안내도 없음."""
+    _, robot, result = run("occluded_top", "toy_wrench")
+    assert result.overall_status == "COMPLETED" and result.blackboard["restore_failed"] == []
+    assert NOT_BACK not in robot.spoken

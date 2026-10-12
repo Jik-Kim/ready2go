@@ -53,7 +53,7 @@
 | `while` | `cond`, `body[]`, `max_iter`(필수) | 조건 반복. `max_iter`번 돈 뒤에도 조건이 참이면 `LOOP_LIMIT` 에러. 기록: 블록 `iterations`, 안쪽 스텝 `iteration`(회차) — **P2 구현(10/08)** |
 | `for_each` | `in`, `as`, `body[]` | 리스트 순회 (번들 요청 처리). `in`이 리스트가 아니면 `NOT_A_LIST` — **P2 구현** |
 | `fallback` | `options[]` (각 항목은 스텝 배열) | 첫 대안부터 시도해 하나라도 성공하면 성공 (예: `pick_object`가 `YAW_INVALID`로 동작 없이 거절 → 다른 접근). **다음 대안은 앞 대안이 로봇을 움직이지 않았음이 확인된 실패일 때만** 보냄(스킬 재시도와 같은 규칙, #159 E 리뷰): 그 대안에서 팔을 움직이는 동작을 보냈으면 성공한 이동 뒤 인식 실패라도 멈춤(`fallback_stopped: MOTION_UNCERTAIN`), 결과 불확실이면 그 이유(`TIMEOUT`·`LATE_RESULT`·`RESPONSE_LOST`). 움직이지 않았다고 보는 실패: 팔을 움직이지 않는 동작(`inspect_region`·`speak` 등)의 실패, 사전 조건·변수 오류, 그 동작의 "움직이기 전 거부" 코드(`NO_MOTION_BY_ACTION`, 예: `place_object`의 `PLACE_BLOCKED` → 다른 고정 자리). 모두 실패하면 마지막 코드. 기록 `option`(성공한 대안 번호) — **P2 구현** |
-| `finally` (태스크 최상위 필드) | `finally[]` | `sequence`가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀) |
+| `finally` (태스크 최상위 필드) | `finally[]` | `sequence`가 성공·실패 어느 쪽으로 끝나도 실행 (복구·서랍 닫기·홈 복귀). 태스크가 블랙보드 `task_error = {code, step}`를 남기면(보통 `finally` 끝) **정리 동작은 다 한 뒤 실행 결과만 `FAILED`**(그 code·step) — 앞선 실패·중단이 있으면 그 원인이 우선, 형식이 맞지 않으면 무시. 예: `find_with_unpack` 복구 미완료 `RESTORE_INCOMPLETE`(정본 [requirements 137](requirements.md#occlusion-policy) "복구 실패면 전체 FAILED") |
 | `on_halt` (태스크 최상위 필드) | `on_halt[]` | 사용자 취소·비상정지 시 실행. **로봇 동작 없이** 상태 저장·로그·TTS 안내만 수행 — **미구현: 있으면 실행 전 거절(`TASK_INVALID`)** |
 | 스텝 공통 필드 | `timeout_sec`, `recovery[]` | `timeout_sec` 초과 시 `TIMEOUT` 실패. 실패 시 `recovery[]`(예: 그리퍼 열고 후퇴)를 실행한 뒤 `retry` 횟수만큼 재시도 — **`recovery`는 미구현: 있으면 실행 전 거절(`TASK_INVALID`)**, `timeout_sec`은 구현 |
 
