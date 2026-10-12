@@ -7,5 +7,7 @@
   "source": {
     "stt_text": "지우개 찾아줘",
     "fallback_used": false
-  }
+  },
+  "request_id": "example-find-07",
+  "accept_text": "지우개를 찾아올게요."
 }
