@@ -180,6 +180,20 @@ def check_place(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], op
     return None
 
 
+def same_place(pose: Mapping, back: Mapping, *, tol_mm: float, tol_deg: float) -> bool:
+    """놓을 pose 가 집을 때 자리(back: position [x, y] m·yaw)와 같은가 — 위치 tol_mm·각도 tol_deg 안 (각도는 180° 대칭).
+    기울여 집은 물체를 원래 자리로 되돌릴 때만 같은 기울인 자세로 놓음 [사용자 10/12 PC2 립밤 putback]."""
+    try:
+        dx = (float(pose["position"][0]) - float(back["position"][0])) * 1000.0
+        dy = (float(pose["position"][1]) - float(back["position"][1])) * 1000.0
+        dyaw = (float(pose["yaw"]) - float(back["yaw"])) % math.pi
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False
+    if not _finite(dx, dy, dyaw):
+        return False
+    return math.hypot(dx, dy) <= tol_mm and math.degrees(min(dyaw, math.pi - dyaw)) <= tol_deg
+
+
 def fit_slot(*, pose: Mapping, check: Callable[[Mapping], Optional[Refusal]], max_shift_mm: float,
              step_mm: float = 2.0) -> tuple:
     """고정 빈 자리(slot)에 쥔 물체가 안 들어가면(벽·이웃) 자리 가운데에서 가장 적게 옮긴(·90° 돌린) 자세를 찾음

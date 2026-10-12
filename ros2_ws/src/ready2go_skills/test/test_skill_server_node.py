@@ -2351,3 +2351,49 @@ def test_push_from_behind_refused_when_neighbor_in_finger_spot(server):
     assert plan_ok[0] is not None                                       # 이웃이 멀면 뒤에서 밀기 계획 그대로
     blocked = server.ss.DryOracle(server.srv, "drawer_top").wall_nudge([er, ap], "eraser#1")
     assert blocked[0] is None and blocked[1] == server.ss.NEIGHBOR_TOO_CLOSE   # 계획도 그 이웃부터 치우게
+
+
+@pytest.mark.parametrize("drawer", ["drawer_top", "drawer_bottom"])
+def test_putback_tilted_pick_places_back_with_same_tilt(server, drawer):
+    """[사용자 10/12 PC2] 손잡이 쪽 벽에 가로로 붙은 립밤(아래 칸 (9.7, 153.9) mm yaw 1.5625)은 손잡이 쪽으로 기울여 집음 →
+    `B putback` 이 수직으로 놓으려다 손가락 자리가 벽 밖(꼭짓점 x −5.8 mm) WALL_TOO_CLOSE. 원래 자리면 집을 때 자세 그대로 거꾸로 놓음:
+    같은 TCP(+ drop_m)·같은 기울임. 기억이 없으면(예전 동작) 그대로 거부, 원래 자리에서 벗어난 pose 도 거부."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    prm = srv.prm()
+    prm["pick"]["touch_floor"] = {"enabled": False}
+    srv.prm = lambda: prm
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0227, "occluded_by": [], "visible_area_m2": 0.00154,
+           "pose": {"frame": drawer, "position": [0.0097, 0.1539, 0.0], "yaw": 1.5625, "yaw_valid": True}}
+    scan = {"target_found": True, "target": lip, "candidates": [], "visible_count": 1}
+    srv.disp[drawer] = srv.places()[drawer]["tf_at_travel_m"]
+    pose = {k: lip["pose"][k] for k in ("frame", "position", "yaw")}
+    server.Gripper.holding, server.Gripper.held_width = True, 72.5
+    try:
+        out, _ = server.run("pick_object", {"target": lip, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success and "기울" in out.reason, out.reason
+        tb = srv.held["tilt_back"]
+        picked = [e[1] for e in srv.robot.log if e[0] == "movel"][-1]
+        held = dict(srv.held)
+
+        srv.held = {k: v for k, v in held.items() if k != "tilt_back"}       # 기억 없음 = 예전: 수직이라 벽 밖
+        out, data = server.run("place_object", {"location": drawer, "pose": pose, "scan": scan})
+        assert not out.success and out.error_code == "WALL_TOO_CLOSE" and data["blocked_by"] == "wall"
+
+        srv.held = dict(held)
+        far = dict(pose, position=[pose["position"][0] + 0.010, pose["position"][1], 0.0])
+        out, data = server.run("place_object", {"location": drawer, "pose": far, "scan": scan})
+        assert out.success and "기울여" not in out.reason                          # 원래 자리 아니면 보통 수직 놓기 (10 mm 안쪽은 수직으로 됨)
+
+        srv.held = dict(held)
+        srv.robot.log.clear()
+        out, data = server.run("place_object", {"location": drawer, "pose": pose, "scan": scan})
+        assert out.success and "기울여" in out.reason, out.reason
+        assert srv.held is None and data["placed_pose"]["position"] == pytest.approx(pose["position"])
+        lows = [e[1] for e in srv.robot.log if e[0] == "movel"]
+        low = min(lows, key=lambda p: p[2])
+        assert low[:2] == pytest.approx(tb["tcp_mm"][:2], abs=0.1)                # 집을 때 TCP 그대로
+        assert low[2] <= tb["tcp_mm"][2] + 1000.0 * prm["place"]["drop_m"] + 0.1
+        assert low[3:] == pytest.approx(picked[3:], abs=0.5)                       # 같은 기울인 손목
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0

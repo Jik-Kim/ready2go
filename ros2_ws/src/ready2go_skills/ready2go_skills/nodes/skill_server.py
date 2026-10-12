@@ -2054,6 +2054,15 @@ class SkillServer(Node):
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
                      "tcp_above_floor_m": grasp_z_now / 1000.0 - floor_z - support,   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
                      "long_side": long_side}                                        # 긴 변 양끝을 쥠 → 놓을 때 손가락 방향 90° [사용자 10/10]
+        if tilt is not None and down:
+            # 기울여 집었으면 그 자세를 기억 — 원래 자리로 되돌릴 때(putback·return_to_original_pose) 수직으로는 손가락이 벽 밖이라
+            # 거부됨 → 같은 자세로 거꾸로 놓음 [사용자 10/12 PC2: 손잡이 벽 립밤 putback WALL_TOO_CLOSE (꼭짓점 x −5.8 mm)]
+            at = self.robot.posx() or grasp
+            self.held = dict(self.held, tilt_back={
+                "drawer_id": drawer_id, "position": list(target["pose"]["position"][:2]), "yaw": float(target["pose"]["yaw"]),
+                "tcp_mm": [float(at[0]), float(at[1]), float(grasp_z_now)], "angles": [float(v) for v in grasp[3:]],
+                "vert_angles": [float(v) for v in vert[3:]], "deg": float(tilt[1]), "name": tilt[2],
+                "open_mm": plan.open_width_m * 1000.0})
         route = self._carry_route(drawer_id)
         # 집고 수직으로 테두리 위 높이까지 → 경유점 1(서랍 중앙, 같은 높이)로 수평, 블렌딩 한 번 — 비스듬히 가면 쌓인 물건에 닿음 [사용자 10/08].
         # 도착 뒤 잠깐 멈춤 [사용자 10/06 저녁]
@@ -2281,8 +2290,11 @@ class SkillServer(Node):
                   round=self.held["class"] in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
 
         long_held = bool(self.held.get("long_side"))
+        tb = self.held.get("tilt_back")
+        back_tilt = bool(tb and not slot and tb.get("drawer_id") == loc and plp.same_place(
+            pose, tb, tol_mm=float(pl.get("tilt_back_tol_mm", 0.0)), tol_deg=float(pl.get("tilt_back_tol_deg", 0.0))))
         support = None                                      # 다른 물체 위에 놓기 (명령한 pose 만, place.allow_stack_place) — 받침은 이웃 확인에서 뺌
-        if not slot and pl.get("allow_stack_place"):
+        if not slot and not back_tilt and pl.get("allow_stack_place"):
             support = plp.stack_support(pose=pose, held_id=held_id, held_size_m=size, objects=objs, size_of=self._size_or_none,
                                         max_top_m=interior[2] - prm["pick"]["stack_top_clear_m"])
             if support is not None:
@@ -2294,6 +2306,8 @@ class SkillServer(Node):
             bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
                                    size_of=self._size_or_none, interior_m=interior, place=pl,
                                    g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
+            if back_tilt and bad_ is not None and bad_.error_code == WALL_TOO_CLOSE:
+                return None                                 # 집을 때 기울인 자세 그대로 되돌림 — 그 자세로 이미 거기 있었음 (이웃 확인은 위에서 통과)
             if bad_ or not slot:
                 return bad_
             # 남은 물건을 아직 집을 수 있어야 함 — 놓은 물체가 남은 물건의 벌린 손가락 자리에 들어가면 안 됨 [P2 무작위 배치 10/10]
@@ -2353,11 +2367,24 @@ class SkillServer(Node):
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), dict(empty)
         target = mp.gripper_posx([1000.0 * v for v in pos_m], mp.horizontal_angle_dir(long_deg + (0.0 if self.held.get("long_side") else 90.0)), cur[3:])
+        if back_tilt:
+            # 집기 거꾸로: 경유점에서 J6 만 돌려 집을 때 수직 손목 방향 맞춤 → 집을 때 TCP(+ drop_m)·집을 때 기울인 손목 그대로
+            # (손가락 ± 를 다시 고르면 J6 가 반 바퀴 달라 손목 카메라가 벽 쪽으로 갈 수 있음 — 기억한 각도를 그대로 씀)
+            va = tb["vert_angles"]
+            turn = ((va[2] - va[0]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0
+            jnow = self.robot.posj()
+            if abs(turn) > 1.0 and jnow:
+                o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "place:turn", in_drawer=True)
+                if not o.success:
+                    return o, dict(empty)
+                cur = self.robot.posx() or cur
+            target = [tb["tcp_mm"][0], tb["tcp_mm"][1], tb["tcp_mm"][2] + 1000.0 * pl["drop_m"]] + list(tb["angles"])
+            open_mm = min(open_mm, float(tb.get("open_mm") or open_mm))   # 집을 때 벌린 만큼만 (그 자리에서 손가락이 들어갔던 폭)
         above = mp.with_z(target, target[2] + min(pl["approach_m"] * 1000.0, 30.0))
         route = self._carry_route(loc)
         back = list(route[0]) if route else list(cur)          # 돌아갈 서랍 안 경유점 (= drag_down TCP)
         vel = self._in_vel()
-        bad = self._over_then_down(goal, loc, cur, above, "place:over")   # 옆 이동은 travel_z 에서만, 내려가기는 수직 (넛지·집기와 같음)
+        bad = self._over_then_down(goal, loc, cur, above, "place:over", turn_down=not back_tilt)   # 옆 이동은 travel_z 에서만, 내려가기는 수직 (넛지·집기와 같음)
         if bad:
             return bad, dict(empty)
         r = Rg2(self.rg2_ip)
@@ -2411,7 +2438,8 @@ class SkillServer(Node):
             bad = self._line(goal, pose_x, vel, st)
             if bad:                                           # 놓기는 끝났지만 올라오지 못함 → 그 오류 + placed_pose
                 return bad, out
-        where = slot or f"({pose['position'][0]:.3f}, {pose['position'][1]:.3f}) yaw {pose['yaw']:.2f}"
+        where = (slot or f"({pose['position'][0]:.3f}, {pose['position'][1]:.3f}) yaw {pose['yaw']:.2f}") + (
+            f" — 집을 때처럼 {tb['name']}으로 {tb['deg']:.0f}° 기울여" if back_tilt else "")
         return sf.Outcome(True, reason=f"{cls} → {loc} {where}"), out
 
 
