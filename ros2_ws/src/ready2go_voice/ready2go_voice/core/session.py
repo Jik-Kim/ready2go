@@ -36,7 +36,10 @@ class VoiceSession:
         if control in ('recover','resume','new_start') or ending:
             self.conversation.invalidate()
             doc = intent('unknown')
-            doc['_voice'] = {'safety_control': 'task_end' if ending else control, 'final_text': prompts(self.cfg)['no_end_work' if ending else 'no_work']}
+            final_text = prompts(self.cfg)['no_end_work' if ending else 'no_work']
+            if ending and runner_state != 'idle':
+                final_text = self.flow['status_prompts']['unconfirmed']
+            doc['_voice'] = {'safety_control': 'task_end' if ending else control, 'final_text': final_text}
             doc['source'] = {'stt_text':text, 'input_kind':'text', 'llm_called':False, 'llm_validation':'not_called', 'fallback_used':False, 'execution_allowed':False}
             return doc
         previous = self.conversation.pending
@@ -267,7 +270,7 @@ class VoiceSession:
     def stop_audio(self, recording, *, paused=lambda: False, spoken_texts=()):
         """새 무음 종료 녹음의 좁은 정지 판별. LLM·대화 문맥·일반 STT 슬롯은 사용하지 않습니다."""
         from ..adapters.audio import write_wav
-        from .recovery_confirmation import finite, safety_utterance
+        from .recovery_confirmation import finite, safety_utterance, task_end_utterance
         emit = self._control_capture(recording, 'stop')
         start, end = recording.recording_started_monotonic, recording.recording_ended_monotonic
         if (paused() or recording.truncated or not recording.pcm
@@ -289,7 +292,8 @@ class VoiceSession:
                                 return False
                             emit(event='stop_sdk_request', requested_monotonic=stamp)
                             return True
-                        return self.stt.transcribe(path, timeout, before_request=before_request)
+                        extra = {'control': True} if getattr(self.stt, 'supports_control_hint', False) else {}
+                        return self.stt.transcribe(path, timeout, before_request=before_request, **extra)
                     return self.stt.transcribe(path, timeout)
             text = self.stop_stt_calls.call(transcribe, timeout)
             emit(event='stop_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip())
@@ -299,7 +303,8 @@ class VoiceSession:
             # 기존 정확 문구 분류는 부정·인용·전언·모호 표현을 수용하지 않습니다.
             normalized_control = self.parser.control(text) if self.parser is not None else None
             emit(event='stop_stt_result', text=text)
-            if paused() or not (safety_utterance(text) == 'stop' or normalized_control and normalized_control['intent'] == 'cancel'):
+            ending = task_end_utterance(text)
+            if paused() or not (ending or safety_utterance(text) == 'stop' or normalized_control and normalized_control['intent'] == 'cancel'):
                 emit(event='stop_audio_held', reason='canceled' if paused() else 'not_explicit_stop')
                 return None
             normalized = ''.join(text.split()).rstrip('.!?')
@@ -307,6 +312,8 @@ class VoiceSession:
                 emit(event='stop_audio_held', reason='overlapping_self_speech')
                 return None
             doc = intent('cancel')
+            if ending:
+                doc['_voice'] = {'safety_control':'task_end'}  # E 내부 라우팅만; 공개 종료 enum 아님
             doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
                                  llm_called=False, fallback_used=False)
             return doc
@@ -439,8 +446,9 @@ class VoiceSession:
                         if receipt is not None:
                             emit(event='safety_sdk_request', requested_monotonic=stamp)
                         return receipt is not None
+                    extra = {'control': True} if getattr(self.stt, 'supports_control_hint', False) else {}
                     text = self.stt.transcribe(path, exchange.policy.stt_result_timeout_sec,
-                                               before_request=before_request)
+                                               before_request=before_request, **extra)
                     return text, receipt
             stage = 'sdk'
             text, receipt = self.stt_calls.call(transcribe, budget)

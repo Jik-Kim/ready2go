@@ -1,5 +1,41 @@
 # CURRENT — E 고희태
 
+<a id="pr227-final-integration-20261012-01"></a>
+## PR227 최종 통합 — E-PR227-FINAL-INTEGRATION-20261012-01
+
+- [문서: 현재 승인·게시 경계] 조율 인간 turn `01a1300b-8df4-7f52-86cc-b4307e49fc40` “PR 작성해”를 직접 확인했습니다. 이전940c 게시 제외 지시는 대체됐으며 기존 #227의 최신 원격78ec1e68·게시 문서6971efe1·종료940c1f83을 함께 게시하는 범위입니다. 격리 `/tmp/ready2go-pr227-publish-union-20261012`의 기존 `pr227-union`을 재사용하고 주 checkout/branch940c·모델을 보존합니다. 원격의 이미 있는 main 합류/타 파트 코드는 유지하며 새 main/계약/설계 합류는 하지 않습니다.
+- [문서: 의미별 정리] 첫 정상merge 부모는78ec1e68/6971efe1(290a2dc4)이며 충돌6파일9블록을 정리했습니다. request_run의 중복 목표 echo 제거는 ID/intent/run 결정/run ID 상관·targets 보존의 한 구현으로 통합하고 양쪽 유효 목표 반례를 유지합니다. node는 원격 overflow 재청취를 로컬 R1 진단 실패 표시·큐/SDK 분리·점유 인계와 통합합니다. 원격 stop 시험의 동기식 reader수/진단이름 기대는 async 신규reader 폐기·STT/발신1회·held/AUDIO_OVERFLOW 의미로 대조합니다. 두 번째 정상merge로940c의 종료run/boot/세대·typed정지/수락proof·heartbeat·확인불가notice·source재기동·SDKhint/제어prefill을 포함하며 CURRENT 이력 충돌만 함께 보존합니다.
+- [문서: 정본/세계 승인] 기존 E-VOICE-FLOW-20261012-01의 voice-policy 단락은 인간 “수정해” turn01a12dda-59de-7373-91da-a9d0a8a07171 및 정본 먼저 반영 지시를 manager가 직접 확인해 포함했습니다. 일반P1 자연 후속답/정상빈전사 질문·기한보존의 기존 승인문단만 의미합류하며 P2 #43/#152·새 정책/Phase/wire를 바꾸지 않습니다. 원격의 정본 다른 부분·공개 계약/타파트 실행 원본은 유지합니다. world의 캐러멜18.5·lip 별칭삭제/tape별칭추가만 승인 최종값으로 보존하며 새 실측/파지승인이 아닙니다.
+- [문서: 과거 검증 구분] 원격73ba549의 직접41·38800a8 CI2632/skip41, 로컬 리뷰 회귀/079232 CI2692/skip42·940c 종료34는 각각 이전SHA/환경의 근거입니다. 수치를 합산하거나 이 통합 최종SHA의 CI로 전용하지 않습니다. 현재새SHA 전체CI는 아직 미실행이며 최종CI/push/본문/attach는 PR 전담이 고정SHA에서 수행합니다. 해당 성공 뒤 CURRENT를 덧붙여검사SHA를 바꾸지 않습니다.
+- [진행: 최소 영향 검증] 첫 목표/stop 2파일은63 passed/2 failed(2.66초): copy import 합류 누락과 async reader개수 기대 충돌. import/reader수명·준비Event/STT1회 보완 뒤2개 부분검사는1 passed/1 failed(0.39초,63 deselected), 남은실패는통합진단의 event명 차이였습니다. held/AUDIO_OVERFLOW로 실제사유를 유지한 해당부분1 passed/25 deselected(0.37초). 최종 통합에서는달라진직접회귀만검사하고실제diagnostic/worker/SDKprompt/TTSproof 경계를유지합니다. 전체 core/ROS/build/CI·모델/키/cache/환경/장치/API/로봇·추가agent는실행하지 않습니다. 최종 통합4파일 선택검사 **99 passed**, 종료0(12.45초), skip/스레드경고0을 확인했습니다. 아래 정확 명령은78ec 위290a2dc4+940c의 미커밋 통합 변경 대상입니다. 이후 runtime/시험 동작은 바꾸지 않고 문서 근거만 정리합니다. AST/YAML·4문서 링크/앵커·원격계약/타파트/승인 세계값과 최종세선조는커밋전후대조합니다.
+- [미검증·인계] 실제 C currentrun/boot·재기동·typed정지/종료wire·수락/보존폐기mapper와실B/음성/실물AC는미연결·미검증입니다. 더미idle/수락/TTS는COMPLETED/effect/잠금해제/실물성공증거가아닙니다. SharedInput 기본/standalone 경로·cue/prepared·cap256/startup60/prepare120을보존합니다. 주 branch를reset/checkout하지않고격리통합merge와최종SHA만PR전담에인계합니다.
+
+최종 직접 선택검사(격리 checkout 루트):
+
+```bash
+PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_end_stop_minimal.py ros2_ws/src/ready2go_voice/test/test_control_feedback_workers.py ros2_ws/src/ready2go_voice/test/test_request_run.py ros2_ws/src/ready2go_voice/test/test_stop_audio.py -q -p no:cacheprovider -W error::pytest.PytestUnhandledThreadExceptionWarning
+```
+
+로그 `/tmp/e-pr227-final-integration-{first,first-repair,overflow-repair,selected}-20261012.log`, 최종 결과는selected이며 부분 실행 수를 합산하지 않습니다. 최종 게시SHA/전체CI는 지시 세션과 PR #227 본문의 정확 HEAD 근거로 확인합니다.
+
+[문서: 이전 게시/종료 기록] 아래6971 문서합류와940c 종료 구현 기록은 당시 승인/검사 경계입니다. 새 최종 통합의 포함승인/검사는 위 통합 항목을 따릅니다.
+
+<a id="end-stop-minimal-20261012-01"></a>
+## 종료·중지 최소 수정 — E-VOICE-END-STOP-MINIMAL-20261012-01
+
+- [문서: 승인·경계] 조율 인간 turn `01a12fe4-75e4-73a3-a26a-59e930d97bca` “진행해”와 계획 `01a12fdf-6fc5-7c72-979d-8a92f05d83d4`를 직접 확인했습니다. 시작20:39:59KST, 기준 d0f7aa81·기존 checkout/branch 유지. 중간 인간 높이 원복 요청과 부모 지시로 world/CURRENT만 별도 게시 커밋 `079232dfc29677f28d9fe3d20bc749f0dfc03b2f`에 고정했습니다. 이 종료 hotfix는 그 위의 별도 E 커밋이며 게시 승인을 포함하지 않습니다. world18.5·별칭과 미추적 models를 보호합니다. 요구사항은 P2 [FR-SAF-01/03](../../docs/requirements.md#fr-saf-01)·[FR-INT-03](../../docs/requirements.md#fr-int-03)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)·[종료 접수](../../docs/requirements.md#resume-admission-policy)를 대조했습니다.
+- [문서: 원인 근거 재사용] `voice_live_20261012_201413_4852eac1`의 정확 종료→not_explicit_stop/unknown no_end_work, running 상태 및 stdin complete 뒤 idle, “중지” 누락·제어 안내 prefill 누락·복구 TTS timeout은 조율/부모 확인을 재사용했습니다. 영상/원음 청취·전체 로그 재조사·실재현은 반복하지 않았습니다. 관련 Vault README/증상 검색에서 대응 기존 case가 없었고 과거 해결책을 적용하지 않았습니다.
+- [구현: 종료] 일반/독립 stopSTT 종료 의도는 기존 cancel과 현재 run·검증된 생산자 boot·세대에 연결합니다. 같은 현재 typed 정지 확인 후 기존 TaskEndCandidate/제어 TTS·proof·명시 수락에서만 더미 idle/새 요청으로 전환합니다. 원발화는 종료 의도 근거이고 새 SDK/독립 재개 등록 증빙이 아닙니다. 중복 전사·동일 halted heartbeat/동일 사건 seq·비동기 status/typed 도착 두 순서를 구분합니다. 재정지/타run/boot·source 변경/미확인/TTS 실패는 잘못된 idle을 차단하고 work를 보존합니다. typed dummy fixture는 local 현재 work를 원자적으로 준비한 뒤 node callback을 호출하고 거절/예외 때 rollback하여 지연 정지 callback의 후보 수신과 정합화했습니다. stop worker의 처리 오류는 기존 R1 오류 보고 후 다음 입력을 받을 수 있게 합니다.
+- [구현: 중지/힌트/캐시] 정확 “중지”를 config와 safety 분류로 연결하고 parser는 기존 공통 분류를 소비합니다. stop/safety SDK는 `stt_control_prompt`, 일반 물품/질문 SDK는 기존 prompt를 사용합니다. “요소희/이어서헥스” 강제 재개 없음. 제어4문장 prefill·공통 node/prepare 선택 및 identity를 확인했고 cap256·warmup·startup60·prepare120·모델·PCM·장치·임계값·원본 local/key/cache는 유지합니다. 현재 문장 identity로 사용자 prepare가 필요하며 실제 캐시 준비를 에이전트가 실행하지 않았습니다.
+- [실측: 최소 검사] Python3.12.3·ROS 미source·아래 source PYTHONPATH. 새 종료 직접 시험27건과 기존 R1 worker7건 최종 **34 passed**, 종료0(9.99초), 스레드 경고를 오류로 처리해 경고 없음. 실제 diagnostic writer/logger·Whisper adapter와 SDK 요청 prompt·Session 분류·stop 큐/worker·일반 worker·safety/notice worker·더미·_say를 유지하고 장치/OpenAI SDK/ROS 전송만 모의했습니다. running stopSTT 종료+일반 중복→cancel→정지확인→종료수락/TTS→idle→새지우개, 일반 worker 종료, halted 종료, 두 비동기 도착순서·대기중 재정지/타run/boot/미확인, TTS중 상태변경/실패, 동일 heartbeat/seq, 중지 긍정/부정/인용/전언/자기발화·오전사차단, idle 미완료run 구분, 실제 확인불가 notice 재생, SDK prompt 분리·prefill 선택/identity/cap을 확인했습니다. 동일 검사를 별도 전체 core/ROS/build/CI로 확대하지 않았습니다.
+- [실측: 실패 이력] 최초19사례 17 passed/2 failed(4.47초): 새 지우개 입력의 비동기 발행 전에 settled를 확인한 시험 동기화와 fixture의 /knowledge 경로 오류였습니다. 발행 Event·실제 repository ontology 경로로 보완해19 passed(3.97초). 대기/확인불가 안내를 추가한26사례26 passed(6.54초). heartbeat/idle 미완료run을 보완하고 최종34를 확인했으며 반복 수를 합산하지 않습니다. 최종 검사 뒤 runtime/시험 동작 추가 변경 없음(주석 정리만). 최종 AST9파일·YAML/고정 상한·기존 문서 제목/추가 로컬링크·앵커8개·diff·기존 models 해시·world/계약/정본 보존을 확인했습니다.
+- [문서: 인계·미검증] 공개 task_end enum/토픽/필드·SOT/계약·C/B/A/D 코드·다른 기능/시간 상한/의존성은 변경하지 않았습니다. 실제 C 요청/run/boot·재기동 바인딩, typed 현재 정지 증빙과 종료 후보/명시 수락·보존 폐기 adapter/공개 계약 협의는 C 인계입니다. 현재 cancel 전송과 실제 C 종료·잠금 해제·물리 완료를 구분하며 더미 종료를 COMPLETED/effect/빈손 증거로 바꾸지 않습니다. 실마이크/API/Melo/로봇·실C/B·실음성 재시험·실물 AC는 미검증입니다. 새 서브에이전트/독립 리뷰·상태 질문(P3)·집기 구성·기존 CI/컨테이너 조작·추가 전체 CI는 수행하지 않았습니다. 관련 E12파일(core/session·recovery_confirmation·tts_prefill·config, adapters/api, nodes/voice_node, tools/p2_voice_dummy, params/voice.yaml, test_end_stop_minimal·test_stop_cancel_hotfix, README, CURRENT)만 자동 로컬 커밋하며 push/PR 갱신은 하지 않습니다. 게시079232df와 이후 hotfix를 분리합니다.
+
+```bash
+PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge" .venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_end_stop_minimal.py ros2_ws/src/ready2go_voice/test/test_control_feedback_workers.py -q -p no:cacheprovider -W error::pytest.PytestUnhandledThreadExceptionWarning
+```
+
+검사 대상은079232df 위 E runtime/시험 미커밋 변경(이전 world18.5 포함)입니다. 로그 `/tmp/e-voice-end-stop-minimal{,-v2,-v3,-final}-20261012.log`, 최종 결과는 final입니다. 새 종료 hotfix의 최종 SHA는 Git/지시 세션 완료 메시지에서 확인하며079232df 게시 CI로 전용하지 않습니다.
 ## PR227 원격 문서 합류 — 2026-10-12
 
 - [문서: 게시 경계] 고정 게시 부모079232dfc29677f28d9fe3d20bc749f0dfc03b2f와 원격 문서 부모a41216912d7e76dc0d354be787516025b4ae5900만 격리 detached checkout에서 합류합니다. 원격 문서 커밋은 로컬 조상에 없었으므로 normal push 전에 두 이력을 보존합니다. 주 checkout/브랜치는 바꾸지 않고 종료 hotfix940c1f83은 게시 합류에서 제외합니다.

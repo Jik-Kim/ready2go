@@ -94,7 +94,7 @@ def _dummy(monkeypatch):
     for name,value in [('rclpy.node',node_module),('rclpy.action',action),('std_msgs.msg',messages),('ready2go_interfaces.action',actions)]:monkeypatch.setitem(sys.modules,name,value)
     voice=SimpleNamespace(cfg={'voice_flow':{'dummy_auto_complete':False}},stop_event=threading.Event(),
         submit_lock=threading.RLock(),generation=0,request_run=SimpleNamespace(pending=None,run_id=None,finished=False),
-        bind_request_source=lambda f:None,bind_safety_sender=lambda f:None,_request_run_connected=lambda:True,
+        bind_request_source=lambda f,**kw:None,bind_safety_sender=lambda f:None,_request_run_connected=lambda:True,
         safety_task_end_accepted=lambda *a,**kw:True,safety_stopped=lambda *a,**kw:True,
         safety_feedback=lambda work,kind,**kw:dict(work=work,kind=kind,candidate=kw.get('candidate'),generation=0))
     def status(message):

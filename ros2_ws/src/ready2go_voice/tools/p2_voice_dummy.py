@@ -139,7 +139,7 @@ class LiveDummyBridge:
         self.feedback = None
         self.client = ActionClient(self.peer, Skill, REMAPS['/voice/speak'])
         self.subscription = self.peer.create_subscription(String, REMAPS['/voice/intent'], self.intent, 10)
-        voice.bind_request_source(lambda: self.active and not voice.stop_event.is_set())
+        voice.bind_request_source(lambda: self.active and not voice.stop_event.is_set(), boot='dummy')
         voice.bind_safety_sender(self.safety_event)
 
     @staticmethod
@@ -263,10 +263,16 @@ class LiveDummyBridge:
         with self.voice.submit_lock:
             if type(revision) is not int or revision <= self.revision:
                 return False
-            accepted = self.voice.safety_stopped(work, revision, valid_state=True, evidence=evidence)
-            if accepted is not True:
-                return False
+            previous = (self.work, self.revision, self.evidence)
             self.work, self.revision, self.evidence = work, revision, evidence
+            try:
+                accepted = self.voice.safety_stopped(work, revision, valid_state=True, evidence=evidence)
+            except Exception:
+                self.work, self.revision, self.evidence = previous
+                raise
+            if accepted is not True:
+                self.work, self.revision, self.evidence = previous
+                return False
             self.log('typed_stopped_fixture_not_bc_evidence')
             return True
 

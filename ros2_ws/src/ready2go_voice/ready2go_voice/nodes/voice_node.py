@@ -110,6 +110,8 @@ class VoiceNode(Node):
         self.stop_processor = None
         self.stop_captures = queue.Queue(maxsize=1)
         self.pending_task_end = None
+        self.task_end_request = self.task_end_source = None
+        self.request_source_boot = None
         self.pending_resume = None
         self.control_feedback = None
         self.dialog_lock = threading.Lock()
@@ -375,6 +377,8 @@ class VoiceNode(Node):
         self.safety_pending = None
         self.control_feedback = None
         self.pending_resume = None
+        self.pending_task_end = None
+        self.task_end_request = self.task_end_source = None
         if self.safety_running is None:
             self.safety_activity.clear()
             if owned and not self.place_activity.is_set():
@@ -384,14 +388,110 @@ class VoiceNode(Node):
     def safety_stopped(self, work, revision, *, valid_state, evidence=None):
         """실제 C 입력 매핑 전용. 상태 JSON이나 seq만으로 valid_state를 추정하지 않습니다."""
         with self.place_condition:
+            ending = getattr(self, 'task_end_request', None)
             old = self.safety_exchange.policy.work if self.safety_exchange.policy else None
             accepted = self.safety_exchange.stopped(work, revision, valid_state=valid_state, evidence=evidence)
             policy = self.safety_exchange.policy
-            if accepted:
+            if accepted and old != policy.work:
                 self.pending_task_end = None
             if policy is not None and (not policy.current_state_confirmed or accepted and old != policy.work):
                 self._cancel_safety_locked()
+            if valid_state is not True:
+                if policy is not None:
+                    policy.current_state_confirmed = False
+                self._cancel_safety_locked()
+            elif ending is not None:
+                if (accepted and work.task == ending['run'] and work.session == ending['boot']
+                        and ending['generation'] == self.generation):
+                    self.task_end_request = ending
+                    self.task_end_source = ending
+                else:
+                    self.task_end_request = self.task_end_source = None
+                    self._diagnostic({'event':'task_end_held','reason':'stop_identity_not_current'})
+            self._advance_task_end_locked()
             return accepted
+
+    def _task_end_source_current(self):
+        origin = getattr(self, 'task_end_source', None)
+        if origin is None:
+            return True  # 기존 typed 중단 작업 종료 경로
+        try:
+            return (origin['check'] is getattr(self, 'request_source_check', None)
+                    and origin['boot'] == getattr(self, 'request_source_boot', None)
+                    and origin['check']() is True)
+        except Exception:
+            return False
+
+    def _advance_task_end_locked(self):
+        ending = getattr(self, 'task_end_request', None)
+        if ending is None:
+            return
+        if ending['generation'] != self.generation or not self._task_end_source_current():
+            self.task_end_request = self.task_end_source = None
+            self._diagnostic({'event':'task_end_held','reason':'generation_or_source_changed'})
+            return
+        p = self.safety_exchange.policy
+        if (p is None or not p.current_state_confirmed or p.work is None
+                or self.notice_policy.phase != 'halted'
+                or getattr(self.safety_exchange.evidence, 'stopped', False) is not True):
+            return  # 실제 현재 정지 확인 없이 종료 후보/idle을 만들지 않습니다.
+        if (p.work.task, p.work.session) != (ending['run'], ending['boot']):
+            self.task_end_request = self.task_end_source = None
+            self._diagnostic({'event':'task_end_held','reason':'stop_identity_not_current'})
+            return
+        self.task_end_request = None
+        self._send_safety_candidate_locked(TaskEndCandidate(p.work), self.safety_sender)
+
+    def _task_end_locked(self, doc, generation):
+        """원래 명시 종료 의도를 현재 대상에 연결. STT/재개 등록 증빙 재사용 없음."""
+        if self.stop_event.is_set() or generation != self.generation or self.cfg['evaluation_mode']:
+            return True
+        if (getattr(self, 'task_end_request', None) is not None
+                or getattr(self, 'pending_task_end', None) is not None):
+            return True  # 일반/독립 전사 중복은 새 cancel·후보·TTS를 만들지 않습니다.
+        from ready2go_voice.core.hotfix import prompts
+        meta = doc.setdefault('_voice', {})
+        p = self.safety_exchange.policy
+        if self.notice_policy.phase == 'running':
+            check = getattr(self, 'request_source_check', None)
+            run, boot = self.request_run.run_id, getattr(self, 'request_source_boot', None)
+            connected = self._request_run_connected()
+            identified = (connected and isinstance(run, str) and bool(run.strip())
+                          and isinstance(boot, str) and bool(boot.strip()) and self.safety_sender is not None)
+            cancel = intent('cancel'); cancel['source'] = dict(doc['source'])
+            self._stop_locked(cancel, generation)  # 기존 공개 cancel만 발신; 정지 성공 아님
+            if not identified:
+                meta['final_text'] = self.session.flow['status_prompts']['unconfirmed']
+                self._diagnostic({'event':'task_end_held','reason':'current_run_boot_or_adapter_unconfirmed'})
+                self._task_end_notice_locked(meta['final_text'])
+                return True
+            ending = dict(run=run, boot=boot, check=check, generation=self.generation, halt_seen=False)
+            self.task_end_request = self.task_end_source = ending
+            self._diagnostic({'event':'task_end_stop_requested','run_id':run,'reason':'explicit_end_not_completion'})
+            self._advance_task_end_locked()
+            return True
+        if (self.notice_policy.phase == 'halted' and p is not None and p.work is not None
+                and p.current_state_confirmed and self.safety_sender is not None
+                and getattr(self.safety_exchange.evidence, 'stopped', False) is True):
+            self._send_safety_candidate_locked(TaskEndCandidate(p.work), self.safety_sender)
+            return True
+        empty = (self.notice_policy.phase == 'idle' and (p is None or p.work is None)
+                 and (self.request_run.run_id is None or self.request_run.finished))
+        meta['final_text'] = prompts(self.cfg)['no_end_work'] if empty else self.session.flow['status_prompts']['unconfirmed']
+        self._diagnostic({'event':'task_end_held','reason':'no_active_work' if empty else 'current_stop_unconfirmed'})
+        if doc['intent'] == 'cancel':
+            self._task_end_notice_locked(meta['final_text'])
+        return False
+
+    def _task_end_notice_locked(self, text):
+        # 기존 비권한 notice worker. 높은 안전 경고는 종료 보류 안내로 덮지 않습니다.
+        with self.notice_condition:
+            if self.pending_notice is not None and self.pending_notice.priority < 4:
+                return
+            self.notice_policy.revision += 1
+            self.notice_cancel.set()
+            self.pending_notice = Notice('task_end_held', text, 4, self.notice_policy.revision)
+            self.notice_condition.notify_all()
 
     def safety_offer(self, work, revision, evidence, *, valid_state, valid_until):
         """복구 확인된 현재 사건을 질문 작업에 연결합니다. valid_until은 E 로컬 시각입니다."""
@@ -496,7 +596,8 @@ class VoiceNode(Node):
                 self._diagnostic({'event':'safety_result_held','reason':'termination_acceptance_not_current'})
                 return False
             policy = self.safety_exchange.policy
-            if policy is None or not policy.ended(candidate.work, valid_state=True):
+            if (policy is None or getattr(self.safety_exchange.evidence, 'stopped', False) is not True
+                    or not self._task_end_source_current() or not policy.ended(candidate.work, valid_state=True)):
                 return False
             self.pending_task_end = None
             self._diagnostic({'event':'task_end_accepted','reason':'trusted_termination_acceptance_not_physical_completion'})
@@ -589,7 +690,9 @@ class VoiceNode(Node):
                 and cancel is self.safety_cancel and not cancel.is_set() and not self.stop_event.is_set()
                 and p is not None and p.current_state_confirmed
                 and (p.work == token['work'] if token['kind'] != 'end'
-                     else getattr(self, 'pending_task_end', None) == (token['candidate'], self.generation)))
+                     else p.work == token['work'] and self._task_end_source_current()
+                     and getattr(self.safety_exchange.evidence, 'stopped', False) is True
+                     and getattr(self, 'pending_task_end', None) == (token['candidate'], self.generation)))
 
     def _safety_feedback_play(self, token, cancel, sender):
         timing, started = {}, {}
@@ -851,13 +954,24 @@ class VoiceNode(Node):
                 self.request_run.invalidate()
         return connected
 
-    def bind_request_source(self, check):
+    def bind_request_source(self, check, *, boot=None):
         """실제 C 연결 확인 함수를 설치합니다. bool/readiness 캐시는 받지 않습니다."""
         if not callable(check):
             raise TypeError('current C source check callable required')
+        if boot is not None and (not isinstance(boot, str) or not boot.strip()):
+            raise TypeError('current verified producer boot identity required')
         with self.submit_lock:
+            if getattr(self, 'request_source_check', None) is not None:
+                self.generation += 1
+                self.request_cancel.set()
+                self.session.conversation.invalidate()
+            self._cancel_safety_locked()
             self.request_run.invalidate()
             self.request_source_check = check
+            self.request_source_boot = boot  # 내부 검증 adapter 입력; 새 공개 wire 필드 아님
+            p = self.safety_exchange.policy
+            if p is not None and boot is not None and p.session != boot:
+                p.current_state_confirmed = False
 
     def _runner_status(self, message):
         # 관측 상태 전환과 질문 무효화는 발행 게이트와 같은 E 로컬 lock으로 직렬화합니다.
@@ -872,14 +986,24 @@ class VoiceNode(Node):
                         return
                     events = self.request_run.observe(status)
                 previous = self.notice_policy.revision
+                previous_phase = self.notice_policy.phase
                 notice = self.notice_policy.observe(message.data)
                 self._diagnostic({'event':'voice_state','phase':self.notice_policy.phase,
                     'work_retained':bool(self.safety_exchange.policy and self.safety_exchange.policy.work),
                     'termination_pending':getattr(self,'pending_task_end',None) is not None})
+                ending = getattr(self, 'task_end_request', None)
+                first_end_stop = (ending is not None and not ending['halt_seen']
+                                  and ending['generation'] == self.generation and self.notice_policy.phase == 'halted')
+                same_end_halt = ((ending is not None or getattr(self, 'pending_task_end', None) is not None)
+                                 and previous_phase == self.notice_policy.phase == 'halted'
+                                 and notice is None and previous == self.notice_policy.revision
+                                 and self._task_end_source_current())
                 if (self.notice_policy.blocked or self.notice_policy.phase == 'halted'
                         or notice and notice.kind != 'completed'):
-                    if hasattr(self, 'safety_exchange'):
+                    if hasattr(self, 'safety_exchange') and not same_end_halt:
                         self._cancel_safety_locked()
+                        if first_end_stop:
+                            self.task_end_request = self.task_end_source = ending
                     if getattr(self, 'place_topic', ''):
                         self._cancel_place_locked()
                 if (not notice and not self.notice_policy.blocked
@@ -912,6 +1036,11 @@ class VoiceNode(Node):
                     self.request_cancel.set()
                     if getattr(self, 'cue_cancel', None) is not None:
                         self.cue_cancel.set()
+                if first_end_stop:
+                    ending.update(generation=self.generation, halt_seen=True)
+                if ending is not None and self.notice_policy.phase == 'idle':
+                    self.task_end_request = self.task_end_source = None
+                self._advance_task_end_locked()
 
     def _say(self, text, *, on_start=None, **kwargs):
         """실제 재생과 겹친 자체 문구만 정지 녹음의 echo 대조에 제공합니다."""
@@ -933,6 +1062,8 @@ class VoiceNode(Node):
         """submit_lock 안에서 현재 세대의 cancel을 한 번 발신하고 모든 E 작업을 무효화합니다."""
         if self.stop_event.is_set() or generation is not None and generation != self.generation:
             return False
+        if doc.get('_voice', {}).get('safety_control') == 'task_end':
+            return self._task_end_locked(doc, self.generation if generation is None else generation)
         self.session.conversation.invalidate()
         self._cancel_place_locked()
         self._cancel_safety_locked()
@@ -970,6 +1101,8 @@ class VoiceNode(Node):
                 if doc is not None:
                     with self.submit_lock:
                         self._stop_locked(doc, generation)
+            except Exception as exc:
+                self._report_worker_failure('stop_processing_failed', exc)
             finally:
                 self.stop_captures.task_done()
 
@@ -1216,7 +1349,11 @@ class VoiceNode(Node):
             self.session.conversation.invalidate()
             self._diagnostic({'event':'request_held','reason':'runner_busy_or_locked','intent':doc,'published':False})
             return  # P2 목표 차단 계약은 불변입니다.
-        if doc.get('_voice', {}).get('safety_control'):
+        if doc.get('_voice', {}).get('safety_control') == 'task_end':
+            with self.submit_lock:
+                if self._task_end_locked(doc, generation):
+                    return
+        if doc.get('_voice', {}).get('safety_control') not in (None, 'task_end'):
             from ready2go_voice.core.hotfix import prompts
             policy = getattr(getattr(self,'safety_exchange',None),'policy',None)
             if policy is not None and policy.work is not None:

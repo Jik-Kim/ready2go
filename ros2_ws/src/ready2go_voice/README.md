@@ -2,6 +2,16 @@
 
 - **담당**: E 고희태. 웨이크워드·STT·P1 단일 물품 LLM 해석/검증·규칙 폴백·TTS.
 
+## 종료·중지 최소 연결 — 2026-10-12
+
+[구현: E 내부/더미] 일반 음성·독립 stop SDK에서 정확한 종료 의도를 받고, running의 현재 요청 run과 검증된 생산자 boot에 고정합니다. 기존 공개 cancel로 정지를 요청한 뒤 같은 현재 typed 정지 확인에서 기존 TaskEndCandidate·제어 TTS/현재 세대·실제 재생 proof·명시 수락을 거쳐 더미 idle로 연결합니다. 종료 발화는 의도 근거이며 새 SDK 결과/독립 재개 등록 증빙으로 재사용하지 않습니다. 중복 전사는 새 cancel/후보를 만들지 않고 동일 halted heartbeat/같은 사건의 seq 진행은 유효 안내를 불필요하게 폐기하지 않습니다. 실제 재정지·다른 run/boot·생산자 변경·정지 미확인·TTS 실패에는 작업 보존/새 요청 차단을 유지합니다. idle도 아직 수락된 미완료 run이 있으면 “작업 없음”으로 단정하지 않습니다.
+
+[구현: 안내/입력] 정확 “중지”를 config/parser/stop/safety 분류에 포함하고 부정·인용·전언·자기 TTS는 기존 규칙으로 차단합니다. running 종료의 대상/adapter 확인 실패는 기존 비권한 notice worker로 확인 불가 안내를 전달하며 높은 안전 경고를 덮지 않습니다. 고정 control_recover/resume/end/failed 4문장을 node/prepare 공통 prefill에 포함했습니다. cap256·warmup·startup60·prepare120은 유지합니다. 문장 목록 identity가 달라져 기존 준비 receipt는 현재 준비를 대신하지 못하므로 기존 prepare/live 두 명령으로 사용자 재시험하십시오. 에이전트는 실제 캐시 생성·장치/API 실행을 하지 않았습니다.
+
+[구현: STT 힌트] `stt_control_prompt`는 stop/safety의 실제 Whisper SDK prompt에서만 사용하고 일반 물품/현재 질문 힌트는 유지합니다. “요소희/이어서헥스”를 재개로 강제 치환하지 않습니다. 모델/PCM/장치/임계값·TTS 상한은 바꾸지 않았습니다.
+
+[인계: 실제 C 미연결] `bind_request_source(check, boot=...)`의 boot는 검증된 현재 생산자 identity를 전달하는 E 내부 adapter 입력이며 새 공개 wire가 아닙니다. 실제 C의 현재 run/boot 및 재기동 바인딩, typed 정지 증빙·종료 후보/명시 수락·보존 폐기 adapter는 C 확인/계약 협의 선행입니다. 현재 공개 cancel 전송과 실제 작업 종료·잠금 해제는 구분합니다. 더미 idle은 COMPLETED/effect/빈손/실로봇 완료가 아닙니다. 실제 C/B·음성 재시험·실물 수용은 미검증이며 상태 질문은 P3 보류입니다. 기준은 [FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[FR-INT-03](../../../docs/requirements.md#fr-int-03)·[재개/종료 접수 정책](../../../docs/requirements.md#resume-admission-policy), 직접 검사/게시 경계는 [E CURRENT](../../../practice/E/CURRENT.md#end-stop-minimal-20261012-01)를 참조하십시오.
+
 ## P2 실음성 더미 준비
 
 [문서: 준비 단계] [p2_voice_dummy.py](tools/p2_voice_dummy.py)는 기본 명령에서 구성만 확인합니다. `--serve-local`은 기존 격리 시험 도메인 166·localhost에서 실제 VoiceNode를 유지하지만, 임시 설정의 audio=false·평가 모드·기존 opt-in=false와 STT/LLM 차단·무재생 TTS를 사용합니다. 제품 설정/게이트를 수정하지 않고 `/voice/intent`, `/voice/text_override`, `/runner/status`, `/voice/speak`를 `/e_p2_dummy/` 아래로 remap합니다. C/B/모션·DB는 시작하지 않습니다. Ctrl+C로 종료하며 `--smoke-local`은 같은 노드의 생성·종료만 확인합니다.
