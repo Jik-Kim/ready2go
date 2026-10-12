@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "evaluation_version": "0.4-draft",
+  "evaluation_version": "0.5-draft",
   "status": "draft",
   "issue": "https://github.com/Jik-Kim/ready2go/issues/196",
   "phase": "P2",
@@ -206,7 +206,7 @@
   },
   "suites": {
     "part": {
-      "suite_version": "0.3-draft",
+      "suite_version": "0.4-draft",
       "case_count": 25,
       "cases": [
         {
@@ -627,14 +627,142 @@
           ]
         }
       ],
+      "machine_check_requirements": {
+        "A-01": [
+          "drawer_top_view_pose_recorded",
+          "drawer_bottom_view_pose_recorded",
+          "tray_view_pose_recorded",
+          "tf_and_calibration_version_linked"
+        ],
+        "A-02": [
+          "dataset_session_id_recorded",
+          "labels_version_linked",
+          "evaluation_split_not_used_for_training",
+          "map50_at_least_0_9",
+          "model_weight_sha_linked"
+        ],
+        "A-03": [
+          "segmentation_model_basis_linked",
+          "sample_count_by_region_recorded",
+          "coordinate_error_mm_at_most_15"
+        ],
+        "A-04": [
+          "occluded_by_and_visible_area_recorded",
+          "null_vs_not_detected_distinguished",
+          "model_and_vision_params_hash_linked",
+          "tuning_and_evaluation_scenes_separated"
+        ],
+        "A-05": [
+          "found_not_detected_region_not_visible_distinguished",
+          "region_visible_ratio_recorded",
+          "scene_evidence_linked"
+        ],
+        "A-06": [
+          "real_vs_emulator_distinguished",
+          "joint_update_rate_and_latency_recorded",
+          "scene_trajectory_config_linked",
+          "gripper_mirroring_scope_recorded"
+        ],
+        "AC-01": [
+          "reidentification_outcomes_recorded",
+          "distance_threshold_applied",
+          "ambiguous_candidates_excluded_or_reobserved_or_held"
+        ],
+        "B-01": [
+          "dimensions_and_clear_space_recorded",
+          "force_speed_distance_recorded",
+          "stop_criteria_applied"
+        ],
+        "B-02": [
+          "before_after_pose_and_yaw_recorded",
+          "clearance_recorded",
+          "graspability_compared"
+        ],
+        "B-03": [
+          "intended_contact_vs_abnormal_force_classified",
+          "b_stop_confirmation_recorded",
+          "handoff_to_c_linked"
+        ],
+        "C-01": [
+          "task_config_sha_linked",
+          "pick_timeout_seconds_equals_70"
+        ],
+        "C-02": [
+          "planner_outcome_recorded",
+          "planner_reason_recorded",
+          "unsupported_plan_execution_count_zero"
+        ],
+        "C-03": [
+          "active_run_id_linked",
+          "error_notice_linked",
+          "stop_request_and_result_linked"
+        ],
+        "CE-01": [
+          "verify_outcome_recorded",
+          "effect_applied_only_on_verify_pass",
+          "state_update_count_zero_on_missing_failed_timeout",
+          "mismatch_reason_and_evidence_recorded"
+        ],
+        "CE-02": [
+          "docs_schema_examples_same_approval_basis",
+          "contract_and_functional_test_status_separated"
+        ],
+        "E-01": [
+          "utterance_end_timestamp_recorded",
+          "portaudio_first_dac_timestamp_recorded",
+          "utterance_to_first_dac_ms_at_most_3000",
+          "cache_synthesis_playback_segments_recorded",
+          "actual_vs_mock_distinguished"
+        ],
+        "E-02": [
+          "goal_and_target_extracted_from_approved_catalog",
+          "unsupported_goal_publish_count_zero",
+          "planner_execution_results_excluded_from_e_grade"
+        ],
+        "E-03": [
+          "normative_current_planned_pending_states_distinguished",
+          "documentation_ready_separate_from_operational_and_real_acceptance"
+        ],
+        "D-01": [
+          "tp_fp_fn_recorded",
+          "unknown_vs_not_detected_distinguished",
+          "scene_version_linked"
+        ],
+        "D-02": [
+          "lifo_restore_order_recorded",
+          "before_after_pose_and_orientation_error_recorded"
+        ],
+        "D-03": [
+          "condition_verify_effect_retry_state_diff_recorded",
+          "db_and_execution_record_completeness_checked"
+        ],
+        "D-04": [
+          "stop_lock_block_reentry_duplicate_effect_evidence_linked"
+        ],
+        "D-05": [
+          "voice_publish_runner_acceptance_motion_result_separated",
+          "voice_evaluation_version_linked"
+        ],
+        "D-06": [
+          "backend_environment_recorded",
+          "code_config_basis_linked",
+          "observation_limitations_recorded"
+        ],
+        "D-07": [
+          "basis_run_layout_reset_evidence_linked",
+          "selected_phase_recorded"
+        ]
+      },
       "grading": {
-        "automatic_result": "Computed from the case expectation and machine evidence in a trial result record.",
+        "machine_check_mapping": "Every part case_id must have a non-empty entry in machine_check_requirements.",
+        "machine_check_record": "Each required check is a trial machine_checks entry with check_id, status, observed, expected, and non-empty evidence.",
+        "automatic_result": "Pass only when every machine check ID mapped to the case exists in the same trial and has status pass. Missing, not_evaluated, fail, unverifiable, or not_applicable prevents pass.",
         "human_result": "Required only for check IDs listed by the case.",
         "final_result": "Cannot be pass until all required automatic and human checks pass."
       }
     },
     "recovery": {
-      "suite_version": "0.1-draft",
+      "suite_version": "0.2-draft",
       "case_count": 30,
       "contract_boundary": {
         "status": "evaluation_only",
@@ -813,10 +941,18 @@
             "handling": "B 복구 결과 확인 후 C 잠금 해제"
           },
           "required_machine_checks": [
+            "explicit_recovery_request_linked",
+            "actual_stop_confirmed",
+            "safe_force_confirmed",
+            "fresh_sensor_and_communication_confirmed",
+            "controller_ready_and_recoverable",
             "b_recovery_result_passed",
-            "c_unlock_after_b_result"
+            "c_unlock_after_b_result",
+            "automatic_resume_count_zero"
           ],
           "required_human_checks": [
+            "H-STOP-01",
+            "H-AREA-01",
             "H-HW-01"
           ]
         },
@@ -1194,7 +1330,7 @@
         "machine_checks": "Every required machine check must be supported by the same trial's structured log evidence.",
         "human_checks": "Only check IDs listed for the case are required; empty means no separate human observation is required.",
         "safety_gate": "A resume candidate cannot pass unless actual stop, lock/command blocking, and required B/C rechecks are satisfied when applicable.",
-        "final_result": "Cannot be pass when any required machine or human check is fail, pending, or unverifiable."
+        "final_result": "Cannot be pass when any required machine or human check is missing, not_evaluated, fail, pending, unverifiable, or not_applicable."
       }
     }
   },
@@ -1203,14 +1339,12 @@
     "format": "jsonl",
     "record_types": {
       "result_set": {
-        "purpose": "File metadata; exactly one first record.",
+        "purpose": "Immutable file metadata; exactly one first record. Trial count and dataset status are derived from trial records and are not stored here.",
         "required": [
           "record_type",
           "schema_version",
           "evaluation_path",
-          "evaluation_version",
-          "status",
-          "trial_count"
+          "evaluation_version"
         ]
       },
       "basis": {
@@ -1247,12 +1381,15 @@
       }
     },
     "trial_rules": [
+      "The result_set first record is immutable and contains no mutable status or trial_count summary.",
+      "Derive trial_count by counting records whose record_type is trial; derive dataset status as no_trials when that count is zero and has_trials otherwise.",
       "Do not create a trial record until an actual trial exists.",
       "case_id must exist in this file or the referenced voice evaluation.",
       "trial_id, case_id, and basis_id are common identifiers; no generic request_id is required on every trial.",
       "Keep active correlation IDs separate from IDs referenced by the input.",
       "blocking_decision is evaluator-derived: require no robot motion step after halts[], halt.locked when that status field exists, and a following ABORTED or LOCKED rejection; it is not a direct Runner result field.",
       "Populate question, answer, request, ended_at, boot_id, seq, and halt.resume observations only when the trial basis actually contains their approved source fields; otherwise record them as unavailable rather than fabricating values.",
+      "Every trial machine_checks entry contains check_id, status, observed, expected, and non-empty evidence; automatic_result cannot be pass when a required check is absent or has a status other than pass.",
       "Human check results and final approval are recorded in the Google Sheet; JSONL stores required check IDs and machine evidence."
     ],
     "automatic_result_values": [
