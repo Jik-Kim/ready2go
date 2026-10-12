@@ -9,6 +9,7 @@
 
 - [문서·코드] 계약07 상태의 `Decision.summary`에는 목표 본문 `goals`가 없으므로 `achieve_goal` 상관은 승인된 `request_id`·`run_id`와 intent/decision을 사용하도록 맞췄습니다. `find_item`은 기존 targets 대조를 유지합니다. C 계약·운영 mapper는 변경하지 않았습니다.
 - [실측: 관련 회귀·CI] 목표 상태에 `goals` echo가 없는 수락·동일 run 완료와 request ID/intent/run ID 반례, AUDIO_OVERFLOW 뒤 새 capture에서 정지 발신하는 경로를 포함해 관련 시험 41건이 통과했습니다. head `73ba549` 전체 로컬 CI는 시도했으나 core는 격리 pip 설치에서 DNS 실패, colcon build는 Docker socket 권한 거부로 미완료이며 compose real/sim/dev 설정 검사는 통과했습니다(`ci_local.sh@aa5aa0f`).
+- [실측: 최종 전체 로컬 CI] 같은 코드 head `38800a8`에서 승격 환경으로 재실행해 validate_contracts OK, pytest 2632 passed/41 skipped (Python 3.12, REQUIRE_MONGO=1), compose real/sim/dev OK, colcon build OK를 확인했습니다(`ci_local.sh@aa5aa0f`, 2026-10-12 21:04 KST). 이 검증은 다음 CURRENT 기록 전용 문서 커밋을 포함하지 않습니다.
 - [문서] E 경로를 정적 확인만 된 상태로 표현하던 문구를 기존 모의·격리 ROS 이력 및 이번 직접 회귀 결과와 맞췄습니다. 실제 C 운영 연결·마이크/장치·DAC 완료 callback·실물 AC는 미검증으로 유지합니다.
 - [인계] 별도 `codex/issue-227-review-fix` worktree(`/tmp/ready2go-issue227-review`)에서 최신 main을 PR 기준선에 병합해 준비 중입니다. 동시 E 세션의 같은 branch/files 작업은 손대지 않았습니다. 사용자가 push 보류를 지정했으므로 원격 PR 갱신은 하지 않습니다.
 
