@@ -21,7 +21,7 @@ TMP = "/tmp"                              # scan(인식) 결과 target 은 서�
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
 NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear",
-                "free", "plan"}   # home·pick·place 는 서랍 없음
+                "free", "plan", "unpack"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -143,7 +143,10 @@ USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
          "  clear = (서랍 열고 B opened 뒤) 파지 공간 만들기: 탑뷰 → 인식 → 한 동작(위에 얹힌 것·막는 것 빈 자리로 / 목표 넛지 /\n"
          "          좌우 밀기 / 벽 넛지) → 다시 인식 … 집을 수 있게 되면 집기 → 트레이 → 홈 [제안 10/11, 계약 승인 전]\n"
-         "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)")
+         "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)\n"
+         "  unpack = (서랍 닫힘·빈손·홈에서) Runner find_with_unpack 과 같은 순서 한 번에: 열기 → 탑뷰 → 인식 → 위에 덮은 것부터\n"
+         "           aside_1(막히면 aside_2)로 최대 2개 → 목표 트레이 → 옮긴 것 역순으로 원래 자리(막히면 꺼냈던 자리) → 복구 오차 출력 → 닫기·홈\n"
+         "           예: B unpack top 몽키 (쌓기 해체) / B unpack bottom 지우개 (가림막 빼기)")
 
 
 STEPS = ("ready", "open", "view", "scan", "nudge", "view", "rescan", "pick", "place", "close", "home")
@@ -297,7 +300,7 @@ def main():
         except FileNotFoundError:
             print("트레이 기억이 이미 비어 있음 — 다음 놓기는 1번 칸 (로봇 동작 없음)")
         return
-    if cmd in ("scan", "rescan", "find", "all", "dragtest", "clear"):
+    if cmd in ("scan", "rescan", "find", "all", "dragtest", "clear", "unpack"):
         print(f"찾을 물체: {TARGET}")
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node("b_sk")
@@ -321,6 +324,12 @@ def main():
         return
     if cmd == "free":
         free(node)
+        return
+    if cmd == "unpack":
+        try:
+            unpack(node)
+        finally:
+            report()
         return
     if cmd == "dragtest":
         try:
@@ -605,6 +614,171 @@ def free(node):
     sys.exit(f"빈 자리 후보 {min(len(cands), FREE_TRIES)}개가 모두 거부됨 — 서랍이 꽉 참 (사람이 자리 만들기)")
 
 
+UNPACK_MAX = 2                              # 치울 물체 최대 — Runner find_with_unpack s7 max_iter 2 (B 고정 자리 aside_1·aside_2 두 곳)
+REID_TOL_M = 0.02                           # 옮긴 물체 다시 찾기 거리 — 태스크 inputs.reid_tol_m [팀 확정 필요]
+RESTORE_CHECK_TOL_M = 0.10                  # 마지막 확인에서 원래 자리 물체로 볼 거리 — 태스크 inputs.restore_check_tol_m (판정은 기록표 3 cm)
+
+
+def _runner_unpack():
+    """Runner 의 Unpacking 판단(select_obstacle·find_moved, ROS 비의존)을 그대로 씀 — 태스크와 같은 물체를 고르게."""
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    for pkg in ("ready2go_runner", "ready2go_knowledge"):
+        d = os.path.join(src, pkg)
+        if os.path.isdir(d) and d not in sys.path:
+            sys.path.insert(0, d)
+    from ready2go_runner.core import unpack as up
+    return up
+
+
+def inspect_all(node, search):
+    """탑뷰로 가서 /vision/inspect_region 결과 전체(목표를 못 찾아도). 못 가거나 인식 실패면 None."""
+    from ready2go_interfaces.srv import InspectRegion
+    if not timed("view", lambda: run(node, "view")):
+        if last["code"] in STOP_CODES or not timed("view", lambda: run(node, "view")):
+            sys.exit(f"탑뷰로 못 감 {last['code']} — 멈춤")
+    c = node.create_client(InspectRegion, "/vision/inspect_region")
+    if not c.wait_for_service(timeout_sec=2.0):
+        sys.exit("비전 서비스 안 보임 — 비전 노드를 켜고 다시 (unpack 은 실제 인식이 필요)")
+    f = c.call_async(InspectRegion.Request(region=DRAWER, search_target=search))
+    rclpy.spin_until_future_complete(node, f, timeout_sec=30.0)
+    r = f.result()
+    if r is None or not r.success:
+        print(f"인식 실패: {getattr(r, 'error_code', '응답 없음')}")
+        return None
+    res = json.loads(r.result_json or "{}")
+    print_seen(res)
+    with open(full_scan_file(DRAWER), "w") as fp:          # B plan·B free 등 다음 B 명령도 이 결과를 씀
+        json.dump(res, fp)
+    return res
+
+
+def _pick(node, obj, scan_):
+    return timed("pick", lambda: run(node, "pick", ("pick_object", {"target": obj, "approach_offset": [0, 0, 0.1], "scan": scan_})))
+
+
+def _xy_yaw(pose):
+    return [pose["position"][0], pose["position"][1]], float(pose.get("yaw") or 0.0)
+
+
+def unpack(node):
+    """[사용자 10/12 "문서 그대로 풀로"] Runner tasks/find_with_unpack.json(C feat/c-unpack-task)과 같은 순서를 B 명령으로:
+    손잡이 앞 → 열기 → 탑뷰 → 인식 → select_obstacle(덮은 것 맨 위부터, 옮긴 것 제외, 관계 모르면 한 번 다시 찍기) →
+    집기 → aside_1(움직이기 전 거부면 aside_2) → 기록 → 다시 보기 … 최대 2개 → 목표가 다 보이면 집기 → 트레이 →
+    (쥔 게 없을 때) 옮긴 것을 역순으로: 다시 보기 → find_moved → 집기 → 원래 자리(막히면 꺼냈던 고정 자리 + 안내) →
+    마지막 다시 보기로 복구 오차(위치 mm·각도 °) 출력 → 닫기·홈. 판정(3 cm)은 기록표 — 자로 잰 값과 같이 적기."""
+    up = _runner_unpack()
+    world = {"items": json.load(open(repo_file("knowledge", "world.jsonld"), encoding="utf-8"))["world"]["items"]}
+    for step in ("ready", "open"):
+        print(f"\n===== {step} =====")
+        if not timed(step, lambda: run(node, step)) and last["code"] != "DRAWER_ALREADY_OPEN":
+            sys.exit(f"{step} {last['code']} — 여기서 멈춤 (서랍 닫힘·빈손·홈에서 시작, 이미 열었으면 B opened {DRAWER.removeprefix('drawer_')} 뒤 다시)")
+
+    def select(res):
+        r = up.select_obstacle({"scan": res, "moved": stack, "tol_m": REID_TOL_M}, world)
+        return r.output if r.success else {"obstacle": None, "reason": "bad_scan"}
+
+    stack, left_aside, delivered, failed = [], [], False, ""
+    res = inspect_all(node, TARGET)
+    sel = select(res) if res else {"obstacle": None, "reason": "no_scan"}
+    if sel["reason"] == "occlusion_unknown":                 # 태스크 s6r: 관계 모름 → 한 번 다시 찍기
+        print("\n----- 가림 관계 모름 → 한 번 다시 찍기 -----")
+        res = inspect_all(node, TARGET)
+        sel = select(res) if res else sel
+    while sel.get("obstacle") and len(stack) < UNPACK_MAX:
+        ob = sel["obstacle"]
+        print(f"\n===== 치우기 {len(stack) + 1}: {ob['id']} ({sel['reason']}) =====")
+        if not _pick(node, ob, res):
+            if last["code"] in STOP_CODES:
+                sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
+            failed = f"치울 {ob['id']} 집기 {last['code']}"
+            break
+        for slot in ("aside_1", "aside_2"):
+            params = {"location": DRAWER, "slot": slot, "scan": res}
+            if timed("aside", lambda: run(node, "aside", ("place_object", params))):
+                break
+            if last["code"] not in FREE_RETRY:
+                sys.exit(f"{slot} 놓기 {last['code']} — {ob['id']} 를 든 채 멈춤 (사람이 회수, 복구 안 함)")
+        else:
+            sys.exit(f"aside_1·aside_2 모두 거부 — {ob['id']} 를 든 채 멈춤 (사람이 회수)")
+        out = last.get("out") or {}
+        stack.append({"class": ob["class"], "id": ob["id"], "origin": {k: ob["pose"][k] for k in ("frame", "position", "yaw")},
+                      "placed": out.get("placed_pose"), "slot": out.get("slot")})
+        res = inspect_all(node, TARGET)
+        sel = select(res) if res else {"obstacle": None, "reason": "no_scan"}
+    t = (res or {}).get("target") if (res or {}).get("target_found") else None
+    if not failed and t is not None and sel.get("reason") == "target_clear":
+        for n in range(RETRIES + 1):
+            print(f"\n===== 목표 {t['id']} 집기 =====")
+            if _pick(node, t, res):
+                break
+            if last["code"] in STOP_CODES:
+                sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
+            if last["code"] not in RETRY_PICK | REGRAB_CODES or n == RETRIES:
+                failed = f"목표 집기 {last['code']}"
+                break
+            if last["code"] in REGRAB_CODES:                 # 벽에 붙어 아직 못 잡는 자리 → 넛지 뒤 다시 보기 (공통 pick 과 같음)
+                print("\n----- 아직 못 잡는 자리 → 넛지 → 다시 보기 -----")
+                if not timed("nudge", lambda: run(node, "nudge", ("nudge_object", {"drawer_id": DRAWER, "target": t, "scan": res}))) \
+                        and last["code"] in STOP_CODES:
+                    sys.exit(f"nudge {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
+            res = inspect_all(node, TARGET)
+            t = (res or {}).get("target") if (res or {}).get("target_found") else None
+            if t is None:
+                failed = "다시 보니 목표 못 찾음"
+                break
+        if not failed:
+            print("\n===== 트레이 =====")
+            if not timed("place", lambda: run(node, "place")):
+                sys.exit(f"트레이 놓기 {last['code']} — 목표를 든 채 멈춤 (복구 안 함)")
+            delivered = True
+    elif not failed:
+        failed = f"목표 {'못 찾음' if t is None else '아직 가려짐'} ({sel.get('reason')})"
+    print(f"\n>>> {'목표를 트레이에 놓았어요' if delivered else '목표를 꺼내지 못했어요 — ' + failed}")
+
+    for item in reversed(stack):                             # 역순 복구 (태스크 finally fr)
+        print(f"\n===== 원위치 {item['id']} =====")
+        rescan = inspect_all(node, item["class"])
+        found = up.find_moved({"scan": rescan, "record": item, "tol_m": REID_TOL_M}, world).output if rescan else None
+        if not found or found.get("status") != "found":
+            print(f">>> 옮긴 {item['id']} 를 원래 자리로 못 돌려놨어요 ({(found or {}).get('status', '인식 실패')})")
+            continue
+        if not _pick(node, found["object"], rescan):
+            if last["code"] in STOP_CODES:
+                sys.exit(f"pick {last['code']} — 멈춤 (사람 확인)")
+            print(f">>> 옮긴 {item['id']} 를 원래 자리로 못 돌려놨어요 (집기 {last['code']})")
+            continue
+        if timed("restore", lambda: run(node, "restore", ("place_object", {"location": DRAWER, "pose": item["origin"], "scan": rescan}))):
+            continue
+        if last["code"] not in FREE_RETRY:
+            sys.exit(f"원래 자리 놓기 {last['code']} — {item['id']} 를 든 채 멈춤 (사람이 회수)")
+        if not item.get("slot") or not timed("restore", lambda: run(node, "restore", ("place_object", {"location": DRAWER, "slot": item["slot"], "scan": rescan}))):
+            sys.exit(f"원래 자리·꺼냈던 자리 둘 다 안 됨 — {item['id']} 를 든 채 멈춤 (사람이 회수)")
+        left_aside.append(item)
+        print(f">>> {item['id']} 는 원래 자리 대신 옆 빈 자리({item['slot']})에 뒀어요")
+
+    if stack:                                                # 마지막 확인 (태스크 fv) — 판정 아님, 자로 잰 값과 같이 기록
+        final = inspect_all(node, TARGET)
+        print("\n===== 복구 오차 (비전, 판정 아님 — 합격선 3 cm 은 기록표) =====")
+        for item in stack:
+            rec = dict(item, placed=item["origin"])
+            fm = up.find_moved({"scan": final, "record": rec, "tol_m": RESTORE_CHECK_TOL_M}, world).output if final else {}
+            o = (fm or {}).get("object")
+            if item in left_aside:
+                print(f"  {item['id']}: 원래 자리 대신 {item['slot']}")
+            elif not o:
+                print(f"  {item['id']}: 원래 자리 근처에 안 보임 ({(fm or {}).get('status', '인식 실패')})")
+            else:
+                (x0, y0), w0 = _xy_yaw(item["origin"])
+                (x1, y1), w1 = _xy_yaw(o["pose"])
+                dw = math.degrees((w1 - w0 + math.pi / 2) % math.pi - math.pi / 2)
+                print(f"  {item['id']}: 위치 {math.dist((x0, y0), (x1, y1)) * 1000:.1f} mm (x {(x1 - x0) * 1000:+.1f}, y {(y1 - y0) * 1000:+.1f}), 각도 {dw:+.1f}°")
+    print("\n===== close (닫고 홈) =====")
+    if not timed("close", lambda: run(node, "close")):
+        sys.exit(f"close {last['code']} — 멈춤")
+    print(f"\nunpack 끝: 전달 {'O' if delivered else 'X'}, 치움 {len(stack)}개, 원래 자리 대신 고정 자리 {len(left_aside)}개")
+    return delivered
+
+
 CLEAR_STEPS = 12                            # B clear: 다시 보기 사이 동작 최대 수 (넘으면 멈춤 — 같은 동작을 되풀이하지 않게) [제안]
 
 
@@ -687,6 +861,7 @@ def run(node, cmd, goal=None, retried=False):
     last["pushed"] = None
     print(f"  끝  (+{time.monotonic() - t['last']:.1f} s)")
     out = json.loads(r.output_json) if r.output_json else None
+    last["out"] = out
     if cmd == "opened" and r.error_code == "DRAWER_ALREADY_OPEN":
         print("결과: 서버에 '끝까지 열림(226 mm)'으로 알림 — 로봇 동작 없음")
     else:
