@@ -117,6 +117,7 @@ def _width_m(width_mm):
 # ---- 파지 공간 만들기 [제안 10/11 B, 계약 승인 전] — 계획(core/clear_plan)이 묻는 "집을 수 있나·놓을 수 있나"를
 #      서버의 실제 사전 검사로 답함. 움직이는 메서드는 막아 두고 처음 움직이려는 순간 = 가능으로 봄 (로봇은 안 움직임).
 NO_FREE_SPACE = "NO_FREE_SPACE"          # nudge_object make_room: 치울 물체를 놓을 빈 자리가 서랍에 없음 (움직이기 전)
+FREE_SLOT = "free"                       # place_object slot "free": 고정 aside 대신 서랍 안 빈 자리 (B free·make_room 과 같은 core/clear_plan)
 OCCLUSION_UNKNOWN = "OCCLUSION_UNKNOWN"  # nudge_object make_room: 가림 관계(occluded_by) 모름·박스 모델 — 움직이기 전, 다시 찍기
 _MOTION = ("_to_drawer_view", "_line", "_blend", "_named", "_movej", "_grip", "_over_then_down", "_line_slow", "_exit_drawer",
            "_transit", "_step")
@@ -239,6 +240,20 @@ class DryOracle:
                 return None, NEIGHBOR_TOO_CLOSE, f"끄는 길에 {hit}"
         return after, "", plan.reason
 
+
+
+class _HeldOracle(DryOracle):
+    """빈 자리 찾기(clear_plan.find_free_pose)용 — 놓기 검사는 실제(또는 예정) 쥔 상태로, 다시 집기 검사는 DryOracle 그대로."""
+
+    def __init__(self, srv, drawer_id, held):
+        super().__init__(srv, drawer_id)
+        self.held = held
+
+    def place(self, objs, held_id, pose_or_slot):
+        self.calls += 1
+        dry = _Dry(self.srv, held=dict(self.held))
+        p = {"location": self.drawer, "scan": _scan_of(objs, held_id), "pose": pose_or_slot}
+        return _dry_call(lambda: dry._place_in_drawer(_DRY_GOAL, p, self.drawer))
 
 class SkillServer(Node):
     def __init__(self):
@@ -1992,6 +2007,9 @@ class SkillServer(Node):
         if why or who:                                      # 움직이기 전 거부 [사용자 10/09 랜덤 배치]
             return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"벌린 손가락 자리에 {who} — 띄우거나 {who} 먼저 치우기")), None
+        # 집기 계획 그대로의 쥘 상태 — place_object check_only 가 집기 전에 이걸로 놓기를 판단 [#241 리뷰 P1: 짧은 변 가정 → 실제 긴 변]
+        self._pick_planned = {"class": cls, "id": target.get("id"), "width_m": expected_w, "drawer_id": drawer_id,
+                              "tcp_above_floor_m": size[2] * (prm["pick"].get("grip_height_ratio") or 0.5), "long_side": long_side}
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:
             return bad, None
@@ -2174,6 +2192,10 @@ class SkillServer(Node):
             return err, None
         loc = params.get("location")
         if loc in ("drawer_top", "drawer_bottom"):
+            if params.get("check_only"):
+                return self._place_check(params, loc)
+            if params.get("slot") == FREE_SLOT:
+                return self._place_free(goal, params, loc)
             return self._place_in_drawer(goal, params, loc)
         if loc != "handover_zone":
             return sf.Outcome(False, UNSUPPORTED_PARAMS, reason=f"놓기는 handover_zone·drawer_top·drawer_bottom 만: {loc!r}"), None
@@ -2310,6 +2332,97 @@ class SkillServer(Node):
         except (ValueError, TypeError, OSError):
             return None
 
+    def _planned_held(self, obj, loc, scan):
+        """check_only 를 집기 전에 부를 때: 실제 pick_object 를 판단 전용으로 돌려 그 집기 계획(긴 변·잡는 폭)대로 쥐었다고 봄
+        [#241 리뷰 P1: 짧은 변 가정이면 손잡이 벽 립밤처럼 실제로는 긴 변(72.5 mm)으로 잡을 때 놓기 판단이 달라짐].
+        → (held, None) | (None, 집기 거부 Outcome) — 집기가 움직이기 전 거부되면 놓기 판단도 통과시키지 않음."""
+        if not isinstance(obj, dict) or not obj.get("id") or not obj.get("class") or not isinstance(obj.get("pose"), dict):
+            return None, sf.Outcome(False, sf.BAD_PARAMS, reason="check_only: 쥔 물체가 없으면 object(scan 의 집을 물체)가 필요")
+        dry = _Dry(self)
+        try:
+            o, _ = dry._do_pick_object(_DRY_GOAL, {"target": obj, "approach_offset": [0, 0, 0.1], "scan": scan})
+        except _WouldMove:
+            planned = dry.__dict__.get("_pick_planned")
+            if planned and planned.get("drawer_id") == loc:
+                return dict(planned), None
+            return None, sf.Outcome(False, sf.BAD_PARAMS, reason=f"check_only: {obj['id']} 집기 계획이 {loc} 가 아님")
+        except Exception as e:                                    # 설정·계산 예외 = 판단 못 함 → 통과 아님
+            return None, sf.Outcome(False, sf.SKILL_EXCEPTION, reason=f"check_only: 집기 판단 예외 {e!r:.100}")
+        return None, sf.Outcome(False, o.error_code or sf.BAD_PARAMS, reason=f"check_only: 집기부터 거부 — {o.reason}")
+
+    def _free_pose(self, params, loc, held):
+        """slot "free": 서랍 안 빈 자리 — `B free`·make_room 과 같은 core/clear_plan.find_free_pose (벽·이웃 놓기 검사 통과,
+        목표(scan.target) 둘레 비움, 다시 바로 집을 수 있는 곳 먼저, 아래 칸은 손 닿는 깊이 안). → (pose, None) | (None, Refusal)
+        [PC2 10/12 Unpacking: aside 두 곳이 가려진 지우개의 방향 모름 footprint 에 걸려 거부 → 쥔 채 정지. 같은 scan 으로 빈 자리 (120, 230) 있음]"""
+        objs, why = plp.scan_objects(params.get("scan"), loc)
+        if why:
+            return None, plp.Refusal(sf.BAD_PARAMS, why)
+        if held["id"] not in {o["id"] for o in objs}:
+            return None, plp.Refusal(sf.BAD_PARAMS, f"쥔(쥘) 물체 {held['id']!r} 가 scan 에 없음 — 집을 때 쓴 촬영 결과를 넘겨야 함")
+        place = self.places().get(loc) or {}
+        if not place.get("interior_m"):
+            return None, plp.Refusal(PLACE_NOT_CONFIGURED, f"{loc} interior_m 측정 전")
+        prm, scan = self.prm(), params["scan"]
+        # 빈 자리 찾기 전용: occluded_by 모름(null·누락)을 [] 로 — '쌓임 없음'으로 보면 모든 물체를 바닥 물체로 세어 충돌을 다 검사함
+        # (보수적). 가림 관계 판단(make_room·select_obstacle)에 이 목록을 다시 쓰지 말 것 — 거기선 모름을 바꾸지 않음 (runner.md 7.1) [A·PM #241]
+        objs = [dict(o, occluded_by=list(o.get("occluded_by") or [])) for o in objs]
+        tid = (scan.get("target") or {}).get("id") if scan.get("target_found") else None
+        cfg = clp.Config(interior_m=place["interior_m"], frame=loc, size_of=self._size_cached(),
+                         round_classes=tuple(prm["pick"].get("round_classes") or ()),
+                         reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(loc) or 0.0) / 1000.0 or None)
+        pose = clp.find_free_pose(objs, held["id"], [tid] if tid and tid != held["id"] else [], _HeldOracle(self, loc, held), cfg)
+        if pose is None:
+            return None, plp.Refusal(NO_FREE_SPACE, f"{loc} 안에 {held['class']} 를 놓을 빈 자리 없음")
+        return pose, None
+
+    def _place_free(self, goal, params, loc):
+        """slot "free" 놓기: 빈 자리를 고른 뒤 그 pose 로 서랍 안 놓기 — 결과 slot = "free", placed_pose = 놓은 자리."""
+        empty = {"slot": None, "placed_pose": None}
+        if not self.held:
+            return sf.Outcome(False, NOT_HOLDING, reason="들고 있는 물체 없음"), dict(empty)
+        pose, bad = self._free_pose(params, loc, self.held)
+        if bad:
+            return sf.Outcome(False, bad.error_code, reason=bad.reason), dict(empty)
+        o, out = self._place_in_drawer(goal, dict({k: v for k, v in params.items() if k != "slot"}, pose=pose), loc)
+        if out and out.get("placed_pose") is not None:
+            out["slot"] = FREE_SLOT
+        return o, out
+
+    def _place_check(self, params, loc):
+        """check_only: 서랍 안 놓기 사전 검사만 — 어떤 동작도 하지 않음 [PC2 10/12 Unpacking: 놓을 데가 없는데 먼저 집어 쥔 채 정지].
+        쥐고 있으면 그 상태로, 아직 안 쥐었으면 `object`(scan 의 집을 물체)를 실제 pick_object 집기 계획대로 쥐었다고 보고 판단
+        (집기가 움직이기 전 거부면 그 코드로 거부). slot "free" 면 빈 자리를 고름.
+        통과 = 성공 + 놓을 예정 slot·planned_pose (placed_pose 는 null — 놓지 않았음), 거부 = 실제 놓기와 같은 오류 코드·blocked_by.
+        결과에 늘 check_only: true — 실행 기록·run_report 에서 실제로 놓은 것처럼 보이지 않게 [C #241 리뷰]."""
+        empty = {"slot": None, "placed_pose": None, "check_only": True}
+        if self.held:
+            held = dict(self.held)
+        else:
+            held, refused = self._planned_held(params.get("object"), loc, params.get("scan"))
+            if refused:
+                return refused, dict(empty)
+        p = {k: v for k, v in params.items() if k not in ("check_only", "object")}
+        slot_name = None
+        if p.get("slot") == FREE_SLOT:
+            pose, bad = self._free_pose(p, loc, held)
+            if bad:
+                return sf.Outcome(False, bad.error_code, reason=f"check_only: {bad.reason}"), dict(empty)
+            p, slot_name = dict({k: v for k, v in p.items() if k != "slot"}, pose=pose), FREE_SLOT
+        dry = _Dry(self, held=held)
+        try:
+            o, out = dry._place_in_drawer(_DRY_GOAL, p, loc)
+        except _WouldMove:
+            slot, pose = dry.__dict__.get("_place_planned") or (None, None)
+            where = slot_name or slot or f"({pose['position'][0]:.3f}, {pose['position'][1]:.3f})"
+            return sf.Outcome(True, reason=f"check_only: {held['class']} → {loc} {where} 놓을 수 있음 (움직이지 않음)"), \
+                {"slot": slot_name or slot, "placed_pose": None, "planned_pose": pose, "check_only": True}
+        except Exception as e:                                    # 설정·계산 예외 = 못 함 (움직이지 않음)
+            return sf.Outcome(False, sf.SKILL_EXCEPTION, reason=f"check_only: {e!r:.120}"), dict(empty)
+        out = dict(out or empty, placed_pose=None, check_only=True)
+        if o.success:                                             # 움직이지 않고 끝난 성공은 없음 — 그래도 판단만으로 처리
+            return sf.Outcome(True, reason=f"check_only: {o.reason}"), out
+        return sf.Outcome(False, o.error_code, reason=f"check_only: {o.reason}"), out
+
     def _place_in_drawer(self, goal, params, loc):
         """서랍 안 놓기 (#120 ②, 계약 #166 — runner.md 7.1 place_object). 확인은 모두 움직이기 전, 거부면 placed_pose null.
         길 [사용자 10/08: 서랍 안 물건이 약 55 mm 쌓일 수 있음 → 서랍 안 옆 이동은 travel_z(테두리 + in_drawer_clear_mm) 높이에서만]:
@@ -2367,7 +2480,8 @@ class SkillServer(Node):
             pc, sc = ((dict(p_, yaw=p_["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (p_, size))
             bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
                                    size_of=self._size_or_none, interior_m=interior, place=pl,
-                                   g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)))
+                                   g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)),
+                                   finger_half_width_mm=g.get("tip_radius_mm"))   # 손가락 띠만 (집기와 같음)
             if back_tilt and bad_ is not None and bad_.error_code == WALL_TOO_CLOSE:
                 return None                                 # 집을 때 기울인 자세 그대로 되돌림 — 그 자세로 이미 거기 있었음 (이웃 확인은 위에서 통과)
             if bad_ or not slot:
@@ -2410,14 +2524,20 @@ class SkillServer(Node):
                 if dp_.needed or dp_.error_code:
                     return plp.Refusal(WALL_TOO_CLOSE, f"놓으면 다시 집을 때 넛지 필요 ({dp_.reason})", "wall")
             return None
-        # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 — 명령한 pose(되돌리기)는 그대로 [P2 시뮬레이션 10/10]
-        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=pl.get("slot_fit_max_mm", 0.0) if slot else 0.0,
-                                 step_mm=float(pl.get("slot_fit_step_mm", 2.0)))
+        # 고정 자리(slot)는 큰 물체(가림막)면 벽·이웃에 안 걸리게 가장 적게 옮겨 맞춤 [P2 시뮬레이션 10/10]. 명령한 pose(되돌리기)는
+        # 바닥에 그대로 놓을 때만 복구 허용 오차 안(restore_fit_max_mm)으로 방향은 그대로 옮기기만 — 원래 자리를 이웃이 살짝 막으면
+        # 놓을 수 있는 aside 에서 집어 aside 에 다시 놓던 것 [PC2 10/12 Unpacking: 가림막 밑 립밤이 굴러 원래 자리 가장자리 ~10 mm 막음]
+        # (기울여 되돌리기·쌓아 놓기는 집을 때 자세·받침 기준이라 옮기지 않음)
+        shift = (pl.get("slot_fit_max_mm", 0.0) if slot
+                 else 0.0 if back_tilt or support is not None else pl.get("restore_fit_max_mm", 0.0))
+        pose, bad = plp.fit_slot(pose=pose, check=check, max_shift_mm=shift, step_mm=float(pl.get("slot_fit_step_mm", 2.0)),
+                                 turn=bool(slot))
         if bad:
             return refuse(bad.error_code, bad.reason, bad.blocked_by)
         support_m = float(support["top_z"]) if support is not None else 0.0
         pos_m, long_deg = plp.place_tcp_m(tf, pose, support_m + mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"]))
         travel_z = self._travel_z(loc, 0.0)                    # 서랍 안 옆 이동 높이 (넛지·집기와 같음) [사용자 10/08]
+        self._place_planned = (slot, pose)                     # check_only 가 돌려줄 예정 자리 (판단 전용 사본에만 남음)
         # --- 여기부터 움직임 ---
         bad = self._to_drawer_view(goal, loc)
         if bad:
@@ -2444,6 +2564,17 @@ class SkillServer(Node):
             xyz = ([1000.0 * v for v in pp.to_base(tf, tb["tcp_drawer_m"])] if tb.get("tcp_drawer_m") else list(tb["tcp_mm"]))
             target = [xyz[0], xyz[1], xyz[2] + 1000.0 * pl["drop_m"]] + list(tb["angles"])
             open_mm = min(open_mm, float(tb.get("open_mm") or open_mm))   # 집을 때 벌린 만큼만 (그 자리에서 손가락이 들어갔던 폭)
+        else:
+            # 놓는 손목 방향은 경유점(테두리 위)에서 J6 만 돌려 먼저 맞춤 (집기와 같음) — 옆으로 가며 크게 돌리면 제어기가 출발 안 함
+            # [실측 PC2 10/12 run ef9250: aside_1 로 99° 돌리며 place:over → 1 s 두 번 멈춘 뒤 점마다 직선, 2~3 s 지연]
+            turn = ((target[5] - target[3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0
+            jnow = self.robot.posj()
+            if abs(turn) > 1.0 and jnow:
+                o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "place:turn", in_drawer=True)
+                if not o.success:
+                    return o, dict(empty)
+                cur = self.robot.posx() or cur
+                target = list(target[:3]) + list(cur[3:])
         above = mp.with_z(target, target[2] + min(pl["approach_m"] * 1000.0, 30.0))
         route = self._carry_route(loc)
         back = list(route[0]) if route else list(cur)          # 돌아갈 서랍 안 경유점 (= drag_down TCP)

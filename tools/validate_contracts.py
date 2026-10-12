@@ -31,7 +31,7 @@ def load(p):
 
 
 PLACE_BEFORE_MOTION = {"PLACE_BLOCKED", "WALL_TOO_CLOSE", "BAD_PARAMS", "NOT_HOLDING", "UNSUPPORTED_PARAMS",
-                       "PLACE_NOT_CONFIGURED", "TRAY_FULL", "DRAWER_NOT_AT_TRAVEL"}   # 움직이기 전 거부 — 놓지 않았으므로 placed_pose 없음
+                       "PLACE_NOT_CONFIGURED", "TRAY_FULL", "DRAWER_NOT_AT_TRAVEL", "NO_FREE_SPACE"}   # 움직이기 전 거부 — 놓지 않았으므로 placed_pose 없음
 
 
 def place_pose_errors(pose, frame, where):
@@ -115,6 +115,16 @@ def place_result_errors(doc):
             if code == "PLACE_BLOCKED" and by not in {o.get("id") for o in seen}:
                 errs.append(f"{name}: PLACE_BLOCKED 의 blocked_by 는 scan 의 target·candidates 중 하나의 id — 값 {by}")
         placed = out.get("placed_pose", "없음")
+        if p.get("check_only"):                              # 제안 10/12 B: 판단만 — 놓지 않았으므로 placed_pose null, 예정은 planned_pose [C #241 리뷰]
+            if placed is not None or out.get("check_only") is not True:
+                errs.append(f"{name}: check_only 결과는 placed_pose null + check_only: true")
+            if c["success"] and not isinstance(out.get("planned_pose"), dict):
+                errs.append(f"{name}: check_only 성공 결과에 planned_pose 필요")
+            if drawer and isinstance(out.get("planned_pose"), dict):
+                errs += [f"{name}: {m}" for m in place_pose_errors(out["planned_pose"], loc, "output.planned_pose")]
+            continue
+        if p.get("slot") == "free" and c["success"] and out.get("slot") != "free":
+            errs.append(f"{name}: slot \"free\" 성공 결과의 slot 은 \"free\"")
         if c["success"] and not isinstance(placed, dict):
             errs.append(f"{name}: 성공 결과에 placed_pose 필요")
         if not c["success"] and code in PLACE_BEFORE_MOTION and placed is not None:
