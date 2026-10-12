@@ -475,6 +475,16 @@ def free_poses(drawer):
     except (OSError, ValueError):
         sys.exit("쥔 물체 정보 없음 — B scan → B pick 으로 집은 뒤에 (보내지 않음)")
     held, scan_ = p.get("target") or {}, p.get("scan")
+    try:                                                   # 집은 뒤 다시 본 결과(B view → B scan)가 더 새것이면 그걸로 — 그사이 옮긴 물체 반영 [PC2 10/12]
+        if os.path.getmtime(full_scan_file(drawer)) > os.path.getmtime(picked_file()):
+            with open(full_scan_file(drawer)) as f:
+                scan_ = json.load(f)
+            print(f"집은 뒤 다시 본 인식 결과로 빈 자리 고름 ({full_scan_file(drawer)})")
+    except (OSError, ValueError):
+        pass
+    if scan_ and held.get("id") and held["id"] not in {o.get("id") for o in ([scan_.get("target")] if scan_.get("target") else [])
+                                                      + list(scan_.get("candidates") or [])}:
+        scan_ = dict(scan_, candidates=list(scan_.get("candidates") or []) + [held])   # 서버는 쥔 물체가 scan 에 있어야 받음(#166) — 이웃 검사에선 빠짐
     if (held.get("pose") or {}).get("frame") != drawer:
         sys.exit(f"쥔 물체는 {(held.get('pose') or {}).get('frame')} 에서 집음 — B free {drawer.removeprefix('drawer_')} 가 아님 (보내지 않음)")
     if not scan_:
@@ -516,6 +526,8 @@ def free_poses(drawer):
         if plp.check_place(pose=pc, held_id=held["id"], held_size_m=sc, open_mm=open_mm, objects=others, size_of=size_of,
                            interior_m=interior, g=g, place=prm["place"]) is None:
             out.append(pose)
+    # 가로(긴 변이 손잡이 벽과 나란, 서랍 y 방향)로 눕힌 후보 먼저 — 서랍이 옆으로 넓어 앞·뒤 벽 쪽에 가로로 두면 가운데가 남음 [사용자 10/12]
+    out.sort(key=lambda q: abs(math.sin(q["yaw"])) < 0.7)
     return out, scan_
 
 

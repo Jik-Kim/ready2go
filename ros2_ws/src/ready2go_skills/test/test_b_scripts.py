@@ -6,6 +6,7 @@
 import importlib
 import importlib.util
 import json
+import math
 import sys
 import types
 from pathlib import Path
@@ -580,3 +581,31 @@ def test_b_free_places_held_object_in_found_free_spot(monkeypatch, tmp_path):
     monkeypatch.setattr(sk, "run", run_moved)
     with pytest.raises(SystemExit, match="NOT_REACHED"):
         sk.free(None)
+
+
+def test_b_free_uses_newer_rescan_adds_held_and_prefers_crosswise(monkeypatch, tmp_path):
+    """[PC2 10/12] 집은 뒤 B view → B scan 으로 다시 봤으면 그 결과로 고름(예전 scan 의 옛 자리 물체에 막히지 않게).
+    다시 본 결과엔 쥔 물체가 없으니 scan 에 넣어 보냄(서버 #166 요구). 가로(긴 변이 서랍 y) 후보 먼저 [사용자 10/12].
+    서버가 기억하는 긴 변 쥠이면 90° 돌린 footprint 로 거름."""
+    import os
+    import time
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "HELD_FILE", str(tmp_path / "held.json"))
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0343, "occluded_by": [],
+           "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    stale = {"id": "car_key#2", "class": "car_key", "top_z": 0.0158, "occluded_by": [],
+             "pose": {"frame": "drawer_top", "position": [0.05, 0.06, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    (tmp_path / "b_picked.json").write_text(json.dumps({"target": key, "scan": {"target": key, "candidates": [stale]}}))
+    cara = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185, "occluded_by": [],
+            "pose": {"frame": "drawer_top", "position": [0.1, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    fresh = {"target_found": True, "target": cara, "candidates": [], "visible_count": 1}
+    f = tmp_path / "b_target_fullscan_drawer_top.json"
+    f.write_text(json.dumps(fresh))
+    later = time.time() + 5
+    os.utime(f, (later, later))
+    (tmp_path / "held.json").write_text(json.dumps({"id": "car_key#1", "class": "car_key", "width_m": 0.0701, "long_side": True}))
+    cands, sc = sk.free_poses("drawer_top")
+    ids = [o["id"] for o in [sc["target"]] + sc["candidates"]]
+    assert ids == ["caramel_box#1", "car_key#1"]                      # 옛 scan 의 car_key#2 없음, 쥔 물체는 넣음
+    assert cands and abs(math.sin(cands[0]["yaw"])) > 0.7                # 가로 먼저
