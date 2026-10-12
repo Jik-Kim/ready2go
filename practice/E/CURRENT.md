@@ -5,6 +5,12 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-12
 
+## #251 ICD 파지 폭 필드 복원 — PR #252
+
+- [문서] [FR-ONT-01](../../docs/requirements.md#fr-ont-01) 기준으로 `docs/interfaces.md` 물품 조회 행에 선택 `grasp_width_m`·`grasp_width_long_m`의 의미·단위와 `size_m` 외접 박스와의 구분, [원본 설정](../../config/item_grasp.yaml) 링크를 복원했습니다. 계약·필드·정책·Phase와 코드는 변경하지 않았습니다.
+- [실측: 이전 head] `77ec514734adc1fe8441b9f95a106404b07fe061` 전체 로컬 CI 통과(validate_contracts OK / pytest 2556 passed, 41 skipped / compose real·sim·dev OK / colcon build OK). 리뷰 반영으로 CURRENT를 추가했으므로 새 최종 head CI를 다시 실행하고 결과를 [PR #252](https://github.com/Jik-Kim/ready2go/pull/252) 본문에 기록합니다.
+- [문서: 상태·미검증] #252는 열려 있고 main 미반영입니다. 실물 파지, 새 PC·운영 연결, 담당자 수락은 미검증입니다.
+
 ## E 문서 정합성 정정 — 계약07/운영 연결·오디오 경계
 
 - [문서·코드] #221은 main에 병합됐고 C 소유 상태 예시·Runner 설명·ICD 구간과 원본 검토를 확인했습니다. E의 payload 후보·RequestRun 상관 로직은 #225에 포함됐지만 실제 C 런타임 수신·producer/source mapper·수락 후 첫 동작 연결은 미완료입니다. 실제 VoiceNode는 mapper 미설치 시 발행·speak 수락을 보류하며 설정 기본값은 `false`입니다.
