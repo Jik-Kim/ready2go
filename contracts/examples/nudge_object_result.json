@@ -29,9 +29,17 @@
     },
     {
       "case": "check_only_still_blocked",
+      "_comment": "check_only 판단 결과 needed·plan_code [E #245 제안 10/12, 승인 전]: needed true = 넛지하면 됨, plan_code null",
       "success": false,
       "error_code": "PUSH_LIMIT",
-      "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0042, "floor_z_m": 0.0, "target_after": null}
+      "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0042, "floor_z_m": 0.0, "target_after": null, "needed": true, "plan_code": null}
+    },
+    {
+      "case": "check_only_cannot_nudge",
+      "_comment": "check_only: 넛지로도 못 잡는 자리 → PUSH_LIMIT. needed false, plan_code = 넛지 계획의 거부 이유(NO_PUSH_ACCESS 등) [E #245 제안 10/12, 승인 전]",
+      "success": false,
+      "error_code": "PUSH_LIMIT",
+      "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0021, "floor_z_m": 0.0, "target_after": null, "needed": false, "plan_code": "NO_PUSH_ACCESS"}
     },
     {
       "case": "lift_after_drag_failed",

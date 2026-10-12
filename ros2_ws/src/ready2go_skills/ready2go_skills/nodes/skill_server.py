@@ -1490,6 +1490,8 @@ class SkillServer(Node):
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
         out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": round(plan.clearance_before_m, 4),
                "floor_z_m": 0.0, "target_after": None}         # 성공일 때만 채움 — 실패 결과의 좌표로 집지 않게 (#37 E)
+        if params.get("check_only"):                          # 판단 결과 공개 [E #245 제안]: 넛지가 필요한지·넛지로도 안 되는 이유 (기존 error_code 그대로)
+            out.update(needed=bool(plan.needed) and not plan.error_code, plan_code=plan.error_code or None)
         if plan.error_code:                                   # check_only 재판단이면 runner.md 대로 PUSH_LIMIT
             return sf.Outcome(False, PUSH_LIMIT if params.get("check_only") else plan.error_code, reason=plan.reason), out
         if not plan.needed:
@@ -1724,6 +1726,8 @@ class SkillServer(Node):
         out["make_room"] = info
         by = {o["id"]: o for o in objs}
         self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason}")
+        if params.get("check_only"):                              # 판단 결과 공개 [E #245 제안] — 일반 넛지 check_only 와 같은 필드
+            out.update(needed=a.kind not in ("pick", "fail"), plan_code=(a.code or mp.NO_PUSH_ACCESS) if a.kind == "fail" else None)
         if a.kind == "pick":
             info.update(action="none", moved_id=None, ready_to_pick=True)
             out["target_after"] = by[tid]
@@ -2002,9 +2006,15 @@ class SkillServer(Node):
             # → y 를 목표 y 로 → 목표 위(grasp + approach, 최대 30 mm)를 블렌딩 한 번에 (사이 멈춤 없음)
             # 경유점은 서랍 안 — 벌린 RG2 는 손끝이 더 내려옴 → 끌기처럼 닫고 지나감, 목표 위에서 벌림 [#136 PM 리뷰]
             self._grip(0, 20)
-            o = self._movej(goal, down, "to_object:down", in_drawer=True)
-            if not o.success:
-                return o, None
+            jnow = self.robot.posj()
+            tol = float(prm["pick"].get("at_waypoint_tol_deg", 0.5))
+            if jnow and len(jnow) >= 6 and all(math.isfinite(v) for v in jnow[:6]) and max(
+                    abs(a_ - b_) for a_, b_ in zip(jnow[:6], down)) <= tol:
+                self.get_logger().info(f"[pick] 이미 경유점(실측 관절 {tol}° 안) — 경유점 이동 건너뜀 [E #245]")
+            else:
+                o = self._movej(goal, down, "to_object:down", in_drawer=True)
+                if not o.success:
+                    return o, None
             cur = self.robot.posx()
             if cur is None:
                 return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
