@@ -208,6 +208,39 @@ def test_actual_stop_listener_bypasses_tts_and_p1_slot_and_suppresses_question_d
         node.tts.lock.release();node.session.stt_calls._lock.release()
 
 
+def test_stop_listener_recovers_from_audio_overflow_and_accepts_next_capture(node,microphone):
+    shared,clock,feed,_=microphone
+    node.cfg.update(silence_sec=.2)
+    node.now=clock;node.place_clock=lambda:clock[0];node.session.clock=lambda:clock[0]
+    node.shared_input=shared;node.session.stt=STT('멈춰');node.busy.set()
+    original=shared.stream
+    first=[True];ready=threading.Event();opened=[]
+    @contextmanager
+    def stream():
+        with original() as reader:
+            opened.append(reader)
+            if first[0]:
+                first[0]=False
+                reader.overflow=True
+            else:
+                ready.set()
+            yield reader
+    shared.stream=stream
+    publish=node._publish
+    node._publish=lambda doc:(publish(doc),node.stop_event.set())
+    worker=threading.Thread(target=node._stop_listen);worker.start()
+    try:
+        assert ready.wait(1)
+        feed(at=100.4);feed(0,at=100.8)
+        worker.join(1)
+        assert not worker.is_alive()
+        assert len(opened)==2 and opened[0] is not opened[1]
+        assert [doc['intent'] for doc in node.published]==['cancel']
+        assert any(d.get('event')=='stop_capture_overflow' for d in node.diagnostics)
+    finally:
+        node.stop_event.set();shared.close();worker.join(1)
+
+
 def test_evaluation_cancel_clears_work_without_publication(node):
     node.cfg['evaluation_mode']=True
     with node.submit_lock:node._stop_locked(dict(intent='cancel',source={'stt_text':'멈춰','execution_allowed':False}),0)

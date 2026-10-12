@@ -152,12 +152,12 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 ### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
 
-[문서: E 연속 기능 개발] 아래 호출은 작성 후 정적 확인 단계이며 실제 C 통합·음성 장치·ROS 연결 시험 완료가 아닙니다. 정책은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy), 실행 구간은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)을 참조합니다.
+[문서: E 경로·검증 상태] 아래 호출 경로는 작성되어 있고 관련 모의·회귀 및 격리 ROS 검증 이력이 있습니다. #227 리뷰 수정의 목표 요청 상관·오디오 overflow 회귀는 이번 작업에서 관련 시험 41건을 통과했습니다. 현재 수정 head의 전체 로컬 CI는 아직 확인 전이며 실제 C 운영 연결·음성 장치·실물 AC도 미검증입니다. 정책은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy), 실행 구간은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)을 참조합니다.
 
 | E 생산자·수신자 | 현재 작성한 호출 | 실제 통합 선행 |
 | :--- | :--- | :--- |
 | #43 입력 → VoiceNode 질문 작업 → Session.confirm_audio → 기존 publisher | asked 후보 송신·현재 등록 관측·TTS 증빙·새 capture·SDK 접수·답/한 번 재질문, 같은 실행 검증 결과 안내 | place_input의 question/registered/result는 개발 가정입니다. 실제 질문 출력·confirm 수신·등록/시계·단계 결과를 매핑해야 합니다. |
-| #150 parser → Session → RequestRun → VoiceNode._deliver/speak | 선정 목표와 최종 문장 재검증·요청 payload·목표 내용 상관·현재 수락 run에 문장 한 번 재생·같은 run 완료 안내 | 실제 현재 C 생산자 확인과 수락/first gate, B 파지 및 C 계획·검증 결과 |
+| #150 parser → Session → RequestRun → VoiceNode._deliver/speak | 선정 목표와 최종 문장 재검증·요청 payload·`request_id`/`run_id` 상관·현재 수락 run에 문장 한 번 재생·같은 run 완료 안내 | 실제 현재 C 생산자 확인과 수락/first gate, B 파지 및 C 계획·검증 결과 |
 | #187 독립 무음 종료 녹음/별도 STT·control 및 질문 STT → 기존 cancel publisher | 처리/TTS/질문·Runner 실행 중 웨이크 없는 새 입력, LLM/P1 STT 슬롯/TTS 종료 대기 없음, 동일 세대 발신·취소 우선 | 단일 물리 마이크/기존 임계값을 재사용한 경로 작성이며 실행 미검증입니다. 클라우드 지연/실패·자기 TTS 문구 대조 한계·실제 정지 AC는 후속입니다. 실제 정지·잠금·그리퍼 동작은 B/C 소유입니다. |
 | #152 typed 상태 → SafetyExchange → 질문 작업/Session.safety_audio → typed sender | 기존 RecoveryConfirmation의 등록·TTS·새 녹음·SDK·질문 답, 독립 새 발화의 등록 확인·재개/종료 후보, 복구 요청·일반 cancel 작업 보존 | 안전 상태/증빙·유효기간을 C/B 입력에 대응하고 typed sender를 승인된 공개 규약에 연결해야 합니다. |
 

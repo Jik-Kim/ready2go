@@ -33,17 +33,15 @@ class RequestRun:
     def _matches(self, decision):
         if decision.get('intent') != self.pending['intent']:
             return False
-        key = 'goals' if self.pending['intent'] == 'achieve_goal' else 'targets'
+        # contract07의 C Decision.summary에는 목표 본문 echo가 없습니다.
+        # 목표 요청은 request_id와 run_id로 상관하고, find_item은 기존 targets도 대조합니다.
+        if self.pending['intent'] == 'achieve_goal':
+            return True
+        key = 'targets'
         expected = self.pending.get(key)
         actual = decision.get(key)
         if not isinstance(expected, list) or not isinstance(actual, list):
             return False
-        if key == 'goals':
-            import json
-            try:
-                return sorted(json.dumps(g, sort_keys=True, allow_nan=False) for g in expected) == sorted(json.dumps(g, sort_keys=True, allow_nan=False) for g in actual)
-            except (ValueError, TypeError):
-                return False
         return actual == expected
 
     def observe(self, doc):

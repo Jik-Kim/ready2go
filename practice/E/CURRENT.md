@@ -5,6 +5,13 @@
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-12
 
+## #227 리뷰 수정 준비 — 독립 worktree, push 보류
+
+- [문서·코드] 계약07 상태의 `Decision.summary`에는 목표 본문 `goals`가 없으므로 `achieve_goal` 상관은 승인된 `request_id`·`run_id`와 intent/decision을 사용하도록 맞췄습니다. `find_item`은 기존 targets 대조를 유지합니다. C 계약·운영 mapper는 변경하지 않았습니다.
+- [실측: 관련 회귀] 목표 상태에 `goals` echo가 없는 수락·동일 run 완료와 request ID/intent/run ID 반례, AUDIO_OVERFLOW 뒤 새 capture에서 정지 발신하는 경로를 포함해 관련 시험 41건이 통과했습니다. 현재 수정 head 전체 로컬 CI는 실행 전입니다.
+- [문서] E 경로를 정적 확인만 된 상태로 표현하던 문구를 기존 모의·격리 ROS 이력 및 이번 직접 회귀 결과와 맞췄습니다. 실제 C 운영 연결·마이크/장치·DAC 완료 callback·실물 AC는 미검증으로 유지합니다.
+- [인계] 별도 `codex/issue-227-review-fix` worktree(`/tmp/ready2go-issue227-review`)에서 최신 main을 PR 기준선에 병합해 준비 중입니다. 동시 E 세션의 같은 branch/files 작업은 손대지 않았습니다. 사용자가 push 보류를 지정했으므로 원격 PR 갱신은 하지 않습니다.
+
 ## E 문서 정합성 정정 — 계약07/운영 연결·오디오 경계
 
 - [문서·코드] #221은 main에 병합됐고 C 소유 상태 예시·Runner 설명·ICD 구간과 원본 검토를 확인했습니다. E의 payload 후보·RequestRun 상관 로직은 #225에 포함됐지만 실제 C 런타임 수신·producer/source mapper·수락 후 첫 동작 연결은 미완료입니다. 실제 VoiceNode는 mapper 미설치 시 발행·speak 수락을 보류하며 설정 기본값은 `false`입니다.

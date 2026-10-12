@@ -768,6 +768,16 @@ class VoiceNode(Node):
                         self._stop_locked(doc, generation)
             except TimeoutError:
                 continue  # 기존 음성 시작/최대 길이 경계. 무음은 API를 호출하지 않습니다.
+            except RuntimeError as exc:
+                if str(exc) == 'AUDIO_OVERFLOW':
+                    # 손실된 capture만 버리고 새 reader로 정지 입력을 계속 받습니다.
+                    try:
+                        self._diagnostic({'event': 'stop_capture_overflow'})
+                    except Exception:
+                        pass  # 진단 기록 실패가 안전 정지 청취를 끝내지 않게 합니다.
+                    continue
+                self._diagnostic({'event': 'stop_input_unavailable', 'error_type': type(exc).__name__})
+                return
             except InterruptedError:
                 if self.shared_input._closed:
                     return
