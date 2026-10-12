@@ -80,7 +80,13 @@ ros2 run ready2go_skills skill_server --ros-args -p joint_vel_deg_s:=10.0     # 
 ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skill "{params_json: '{\"pose_name\": \"home\"}'}"
 ```
 
-**B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find`(`rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick` / `find` = 손으로 연 서랍에서 잡을 때까지 다시 넛지 → 트레이), 없음: `home pick place`. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
+**B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍] [물체]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 전체 목록·한 줄 설명은 `B` 를 인자 없이 실행했을 때 나오는 사용법(`b_sk.py` `USAGE`)이 원본. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
+- 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan` / 없음: `home pick place putback trayview trayclear`.
+  - `rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick` / `find` = 손으로 연 서랍에서 잡을 때까지 다시 넛지 → 트레이.
+- 파지 공간 만들기 (`nudge_object` `make_room` — **계약 제안, E 포함 2명 승인 전 · 실물 미검증**, 판단 순서·한계는 [runner.md 7.1](../../../docs/runner.md) `nudge_object`, 설정은 [`params/skills.yaml`](params/skills.yaml) `make_room`·`drag.sweep_force_n`):
+  - `plan` — `B scan` 뒤 다음 공간 만들기 동작을 **판단만, 움직이지 않음**(`make_room` + `check_only`). 바로 집을 수 있으면 성공(`ready_to_pick`), 아직 동작이 필요하면 `PUSH_LIMIT` 와 `make_room.action`(다음 동작 미리보기 — 실제 이동 실패가 아님).
+  - `clear` — **실행**: 탑뷰 → 인식 → 공간 만들기 한 동작 → 다시 인식을 반복, 집을 수 있게 되면 집기 → 트레이 → 홈.
+  - `free` — **실행**: `B pick` 으로 쥔 물체를 그 서랍의 계산된 빈 자리에 놓기(고정 aside 대신, 기존 `place_object` `pose` 계약). 스킬 서버의 놓기·다시 집기 사전 검사를 움직이지 않고 돌려 통과한 자리만 보냄.
 
 **과거 단독 시험 (10/06, 현재 P1 경로 아님)** — 위 서랍, 세로 지우개를 서동권 쪽-오른쪽 모서리에. 이때는 넛지 **예상 위치**(`target_after`)로 바로 집었음. **현재 공통 `pick` 은 끈 뒤 탑뷰에서 다시 찍은 `scan.target` 으로 집는다**(`knowledge/skills/pick.jsonld`, `docs/domain.md` 8.5). 하나씩 보내고 결과 확인 (`--feedback`로 단계 표시):
 ```bash
