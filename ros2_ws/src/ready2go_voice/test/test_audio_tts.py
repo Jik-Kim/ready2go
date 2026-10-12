@@ -43,7 +43,7 @@ class Input:
     def __init__(self, values):
         self.values = iter(values)
     def read(self, size):
-        return (np.ones(size, dtype=np.int16) * next(self.values, 0)).tobytes(), False
+        return (np.resize(np.array([-1, 1], dtype=np.int16), size) * next(self.values, 0)).tobytes(), False
 
 
 def test_silence_end_is_last_speech_not_fixed_duration(cfg):

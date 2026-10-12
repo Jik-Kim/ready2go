@@ -49,6 +49,15 @@ class Conversation:
                 if target is not None:
                     return parser.items[target]['name_ko'] + ' 가져다줘', q.id, target
                 return text, None, None
+            # 문형 폴백에 없더라도 현재 대상에 대한 답의 의미를 먼저 판정합니다.
+            # 명시 새 대상/제어/부정/정보/미지원/인용은 현재 대상 권한을 받지 않습니다.
+            if (q and q.target and not keys and not re.match(r'^(?:아니|아니요)', value)
+                    and not parser.control(text) and not parser._request_context(text)
+                    and not parser._nonrequest_context(text)
+                    and not parser._unsupported_context(text)
+                    and not re.search(r'["\'“”‘’]|라고|라며|말했|그사람|엄마|아빠', text)
+                    and str(text).strip()):
+                return text, q.id, q.target
             # 새 요청/부정/관련 없는 말도 이전 질문의 권한을 계속 보존하지 않습니다.
             self.pending = None
             self.epoch += 1

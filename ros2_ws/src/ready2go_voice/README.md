@@ -33,9 +33,21 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 가능 여부 질문(“립밤 가져올 수 있어?” 포함)은 실행하지 않고 등록 지원·실재고/파지 미확인을 안내한 뒤 대상 확인 질문을 합니다. 명시 긍정 후에도 기존 대상/요청 검증을 통과해야 합니다. 실제 시험의 “지금 망치 어딨어?”·“위쪽 서랍 열려있어?”와 끝마침표 형태도 위치/열림 질의로 처리합니다. 장소는 기존 위 서랍 이름의 방향 수식만 정규화하며 원본 장소/별칭을 추가하지 않습니다. 위치/열림 질의는 실행 분류 전에 기존 ontology.load/get의 초기 state를 읽기만 하며 “초기 배치 기준”이라고 안내합니다. IntentParser.state_provider에 바인딩된 읽기 전용 callable이 있으면 reference_query가 기존 state mapping을 실제 호출해 Runner 기록 기준으로 안내합니다. None일 때만 초기 배치를 사용하며 연결 실패/누락은 모름 안내입니다. 실제 C 공급자는 아직 바인딩하지 않았습니다.
 
-더미 cancel은 현재 run의 명시 stopped fixture를 보존합니다. 이후 새로운 음성의 복구/재개/종료는 기존 typed safety 경로를 사용하고 일반 LLM에 보내지 않습니다. 복구 증빙·재개/종료는 모의 가정/후보이며 실제 B/C 상태·잠금 해제·모션 성공이 아닙니다. 작업 없음/완료 후에는 보존된 작업이 없음을 안내합니다. 실제 C의 정지/복구/재개/종료 상태 매핑은 담당 인계 사항입니다. 독립 정지는 멈춰/정지/그만/정지해를 기존 cancel 경로로 보내며 자기TTS·부정/인용은 보류합니다. 연속무음/RECORD_LIMIT 원인은 추정이며 RMS·보호한도·모델은 변경하지 않았습니다.
+더미 cancel은 현재 run의 명시 stopped fixture를 보존합니다. 이후 새로운 음성의 복구/재개/종료는 기존 typed safety 경로를 사용하고 일반 LLM에 보내지 않습니다. 복구 증빙·재개/종료는 모의 가정/후보이며 실제 B/C 상태·잠금 해제·모션 성공이 아닙니다. 작업 없음/완료 후에는 보존된 작업이 없음을 안내합니다. 실제 C의 정지/복구/재개/종료 상태 매핑은 담당 인계 사항입니다. 독립 정지는 멈춰/정지/그만/정지해/중단해를 기존 cancel 경로로 보내며 자기TTS·부정/인용은 보류합니다. 아래 정지·더미 후속의 DC 제외 판정을 적용하며 기존 임계값·보호한도·모델은 유지합니다.
 
 아래 시험 복사 명령은 cue/WAV를 켜고 유효 옵션을 표시합니다. 원본 local·장치·모델·키·시간 예산은 보존합니다. 현재 요청 수락/발행 로그는 같은 request의 수락 상태를 사용합니다. 실제 마이크/스피커/API·정지/재개·초기 배치와 현재 상태 일치는 사용자 통합 시험에서 확인하십시오. 기준은 [음성 정책](../../../docs/requirements.md#voice-policy), [FR-SAF-01–03](../../../docs/requirements.md#fr-saf-01)입니다.
+
+### 정지·더미 후속 — 2026-10-12
+
+[구현: E-VOICE-STOP-CANCEL-HOTFIX-20261012-03] Recorder의 발화 판정은 프레임 평균을 뺀 AC RMS를 사용합니다. 원본 PCM과 350 임계값·0.4초 무음·8초 보호 상한은 유지합니다. 기존 두 로그의 저장 WAV를 재생 없이 재사용한 결과와 실제 마이크 정지 발화 검증은 구분합니다.
+
+더미 revision은 생성자에서 0으로 시작하고 cancel/완료/안전 fixture는 같은 submit_lock으로 처리합니다. stopped fixture 거절 시 더미의 첫 동작·run·revision을 부분 변경하지 않습니다. 중단 작업은 complete로 성공 처리하지 않고 기존 종료 후보 경로를 요구하며, 종료 뒤 다음 작업은 기존 수락→실제 TTS 성공→첫 동작→complete 검사로 완료합니다. executor 예외는 `dummy_test_unavailable_executor_failed`와 오류 타입만 기록하고 시험을 중단합니다. stdin은 허용 command의 접수/거절만 남기며 발화 원문 로그를 늘리지 않습니다.
+
+문형 폴백 밖의 “어, 그거.” 같은 관련 답도 유효 질문·대상·원문을 같은 LLM 호출에 먼저 전달한 뒤 판정/공통 검증과 현재 기한을 확인해 소비합니다. 부정·다른 대상·정보·미지원·만료는 이전 대상 권한을 받지 않습니다. 같은 질문을 보존하는 재확인은 기한을 연장하지 않습니다. 읽기 안내의 은/는은 기존 조사 helper를 쓰며, 초기 물품 위치와 초기 서랍 열림 및 그 값의 Runner 기록 기준 문장만 필수 prefill에 추가합니다. 다른 현재 상태/동적 문장은 최초 합성이 필요할 수 있습니다. 기존 128개 상한·실패 정책과 일반 startup60초는 유지합니다.
+
+[사용자 승인] cue_gain은 0.12에서 0.18로 조정했고 시험 복사 명령은 최신 원본 gain과 cancel 표현을 적용합니다. 장치·공유 출력 lock·원본 local·모델·키·기존 캐시는 보존합니다. [실측: 오프라인] 준비 비프 PCM clipping은 0이며 TTS 캐시 PCM과 비교했습니다. 실제 청취에서 동일 음량인지는 미검증입니다. 같은 request의 확인된 수락 기록은 늦은 발행 로그에서 미확인으로 되돌리지 않으며, 이 로그 기억은 실행 허가에 사용하지 않습니다.
+
+재시작은 아래 복사 명령의 `E_VOICE_CUE=1 E_VOICE_SAVE_WAV=1`을 유지하고, stop 무음 종료는 일반 녹음 옵션과 독립입니다. 일반 요청도 무음 종료로 비교할 때만 `E_VOICE_SILENCE=1`을 사용합니다. 자동 완료는 기존 선택 옵션이며 중단 작업 complete 거절을 우회하지 않습니다. 실제 정지 발화·장치 DC 원인·비프 청취·C 상태 연결/모션은 미검증입니다.
 
 ### 통합 음성 흐름 — 사용자 직접 시험
 
@@ -138,6 +150,8 @@ if hint_switch not in ('','0','1'):
     raise ValueError('E_VOICE_STT_HINT: 빈값/0/1 필요')
 if hint_switch:
     cfg['voice_flow']['stt_context_hint_enabled'] = hint_switch == '1'
+cfg['voice_flow']['cue_gain'] = base['voice_flow']['cue_gain']  # 승인 최신 원본: 기존 local 0.12를 시험 복사본에서만 갱신
+cfg['cancel_phrases'] = base['cancel_phrases']
 cfg['voice_flow']['dummy_auto_complete'] = os.environ.get('E_VOICE_AUTO_COMPLETE','0') == '1'
 if cfg['voice_flow']['capture_save_wav']:
     cfg['voice_flow']['capture_dir'] = str(folder / 'captures')
@@ -488,7 +502,7 @@ assets = Path(cfg['tts_melotts_assets']).expanduser().resolve()
 assert runtime.is_file() and os.access(runtime, os.X_OK), 'Melo 전용 Python 설치/경로를 확인하십시오'
 assert (assets / 'model_manifest.json').is_file(), 'Melo 모델 설치/경로를 확인하십시오'
 ontology = load(cfg['ontology_file'])
-texts = prefill_texts(cfg, ontology['world']['items'].values())
+texts = prefill_texts(cfg, ontology['world']['items'].values(), reference_state=ontology['state'], places=ontology['world']['places'], item_names={k:v['name_ko'] for k,v in ontology['world']['items'].items()})
 print('Melo Python:', runtime)
 print('Melo assets:', assets)
 print('현재 prefill 문장 수:', len(texts), '(warmup은 별도)')
@@ -526,7 +540,7 @@ if not math.isfinite(limit) or limit <= 0:
     raise ValueError('준비 상한은 유한 양수 초 단위입니다')
 cfg['tts_melotts_startup_timeout_sec'] = limit
 ontology = load(cfg['ontology_file'])
-cfg['_tts_prefill_texts'] = prefill_texts(cfg, ontology['world']['items'].values())
+cfg['_tts_prefill_texts'] = prefill_texts(cfg, ontology['world']['items'].values(), reference_state=ontology['state'], places=ontology['world']['places'], item_names={k:v['name_ko'] for k,v in ontology['world']['items'].items()})
 started = time.monotonic()
 tts = MeloTTS(cfg)
 try:
@@ -571,7 +585,8 @@ from ready2go_knowledge.core.ontology import load
 cfg = load_config('logs/voice_eval/voice.local.yaml')
 if cfg['tts_engine'] != 'melotts':
     raise ValueError('로컬 설정의 tts_engine을 확인하십시오: Melo 재생 시험입니다')
-cfg['_tts_prefill_texts'] = prefill_texts(cfg, load(cfg['ontology_file'])['world']['items'].values())
+ontology = load(cfg['ontology_file'])
+cfg['_tts_prefill_texts'] = prefill_texts(cfg, ontology['world']['items'].values(), reference_state=ontology['state'], places=ontology['world']['places'], item_names={k:v['name_ko'] for k,v in ontology['world']['items'].items()})
 tts = create_tts(cfg)
 try:
     tts.prepare()

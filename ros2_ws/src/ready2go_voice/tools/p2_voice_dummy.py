@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import select
 import time
 import uuid
 from urllib.parse import urlsplit
@@ -133,7 +134,7 @@ class LiveDummyBridge:
         self.accepted_payload = None
         self.first_action = None
         self.work = self.evidence = None
-        self.revision = None
+        self.revision = 0
         self.client = ActionClient(self.peer, Skill, REMAPS['/voice/speak'])
         self.subscription = self.peer.create_subscription(String, REMAPS['/voice/intent'], self.intent, 10)
         voice.bind_request_source(lambda: self.active and not voice.stop_event.is_set())
@@ -159,18 +160,22 @@ class LiveDummyBridge:
         kind = payload.get('intent')
         if kind == 'cancel':
             from ready2go_voice.core.recovery_confirmation import StoppedWork, Evidence
-            run = self.run
-            self.first_action = None
-            self.log('cancel_received_not_physical_stop')
-            if run is not None and self.accepted_payload is not None:
-                revision = self.revision + 1
-                self.stopped_fixture(StoppedWork('dummy', uuid.uuid4().hex, run, 'dummy_step'),
-                    revision, Evidence(True, False, False, False, True))
-                self.voice._runner_status(self.String(data=json.dumps(dict(
-                    phase='halted', task_id='dummy', halt_code='CANCELED', last=None, last_intent=None))))
-                self.log('dummy_stopped_run_preserved_not_bc_evidence', run_id=run)
-            else:
-                self.log('dummy_no_active_run_to_preserve')
+            with self.voice.submit_lock:
+                run = self.run
+                self.log('cancel_received_not_physical_stop')
+                if run is not None and self.accepted_payload is not None:
+                    revision = self.revision + 1  # 생성자 0에서 시작; 부분 변경 전 검사
+                    work = StoppedWork('dummy', uuid.uuid4().hex, run, 'dummy_step')
+                    evidence = Evidence(True, False, False, False, True)
+                    if self.stopped_fixture(work, revision, evidence) is not True:
+                        raise RuntimeError('DUMMY_STOP_FIXTURE_REJECTED')
+                    self.first_action = None
+                    self.voice._runner_status(self.String(data=json.dumps(dict(
+                        phase='halted', task_id='dummy', halt_code='CANCELED', last=None, last_intent=None))))
+                    self.log('dummy_stopped_run_preserved_not_bc_evidence', run_id=run)
+                else:
+                    self.first_action = None
+                    self.log('dummy_no_active_run_to_preserve')
         elif kind == 'confirm':
             self.log('tray_answer', answer=payload['answer'])
             if payload['answer'] == 'asked':
@@ -178,25 +183,26 @@ class LiveDummyBridge:
                 registered['type'] = 'registered'
                 self.voice._place_input(self.String(data=json.dumps(registered)))
         elif kind in ('find_item', 'achieve_goal') and self.active:
-            pending = self.voice.request_run.pending
-            if pending is None or pending['request_id'] != payload.get('request_id'):
-                return
-            run = self.run = uuid.uuid4().hex
-            self.accepted_payload = payload
-            generation = self.voice.generation
-            self.log('accepted_fixture', run_id=run)
-            self.status(payload, run)
-            goal = self.Skill.Goal()
-            goal.params_json = json.dumps({'text': payload['accept_text']}, ensure_ascii=False)
-            def accepted(future):
-                handle = future.result()
-                if handle.accepted:
-                    handle.get_result_async().add_done_callback(finished)
-                else:
-                    self.log('speak_rejected_no_first_action')
-            def finished(future):
-                self.finish_speak(future.result().result, run, generation)
-            self.client.send_goal_async(goal).add_done_callback(accepted)
+            with self.voice.submit_lock:
+                pending = self.voice.request_run.pending
+                if pending is None or pending['request_id'] != payload.get('request_id'):
+                    return
+                run = self.run = uuid.uuid4().hex
+                self.accepted_payload = payload
+                generation = self.voice.generation
+                self.log('accepted_fixture', run_id=run)
+                self.status(payload, run)
+                goal = self.Skill.Goal()
+                goal.params_json = json.dumps({'text': payload['accept_text']}, ensure_ascii=False)
+                def accepted(future):
+                    handle = future.result()
+                    if handle.accepted:
+                        handle.get_result_async().add_done_callback(finished)
+                    else:
+                        self.log('speak_rejected_no_first_action')
+                def finished(future):
+                    self.finish_speak(future.result().result, run, generation)
+                self.client.send_goal_async(goal).add_done_callback(accepted)
 
     def finish_speak(self, result, run, generation):
         # 실제 Voice._speak의 DAC/finished/non-mock 검사 결과가 선행합니다.
@@ -219,16 +225,20 @@ class LiveDummyBridge:
     def complete(self):
         # 담당자가 stdin complete를 선택해야 끝납니다. 임의 실행 시간은 없습니다.
         with self.voice.submit_lock:
+            if getattr(self, 'work', None) is not None:
+                self.log('completion_rejected_stopped_run_requires_existing_end_path')
+                return False
             if (self.first_action is None or self.first_action != (self.run, self.voice.generation)
                     or not self.active or self.voice.request_run.run_id != self.run
                     or self.voice.request_run.finished or not self.voice._request_run_connected()):
                 self.log('completion_rejected_no_current_first_action')
-                return
+                return False
             self.status(self.accepted_payload, self.run, completed=True)
             self.log('dummy_completed_not_robot_result', run_id=self.run)
             self.first_action = None
             self.run = None
             self.accepted_payload = None
+            return True
 
     def tray_question(self, *, items, destination, final_timeout_sec):
         """담당자가 지정한 fixture 기한/등록만 사용합니다. 새로운 TTL은 없습니다."""
@@ -249,9 +259,15 @@ class LiveDummyBridge:
         self.voice._place_input(self.String(data=json.dumps(doc)))
 
     def stopped_fixture(self, work, revision, evidence):
-        self.work, self.revision, self.evidence = work, revision, evidence
-        self.log('typed_stopped_fixture_not_bc_evidence')
-        return self.voice.safety_stopped(work, revision, valid_state=True, evidence=evidence)
+        with self.voice.submit_lock:
+            if type(revision) is not int or revision <= self.revision:
+                return False
+            accepted = self.voice.safety_stopped(work, revision, valid_state=True, evidence=evidence)
+            if accepted is not True:
+                return False
+            self.work, self.revision, self.evidence = work, revision, evidence
+            self.log('typed_stopped_fixture_not_bc_evidence')
+            return True
 
     def recovery_question(self, revision, *, valid_until):
         self.revision = revision
@@ -260,33 +276,49 @@ class LiveDummyBridge:
                                       valid_state=True, valid_until=valid_until)
 
     def safety_event(self, kind, target):
-        self.log('typed_safety_fixture', kind=kind)
-        if kind == 'register_question':
-            self.voice.safety_registered(target, target.work, target.revision, valid_state=True)
-        elif kind == 'register_independent':
-            self.revision += 1
-            self.voice.safety_independent_registered(target, self.work, self.revision,
-                                                    valid_state=True, evidence=self.evidence)
-        elif kind == 'recover' and self.work is not None:
-            from ready2go_voice.core.recovery_confirmation import Evidence
-            self.evidence = Evidence(True, True, True, True, True)
-            self.revision += 1
-            self.stopped_fixture(self.work, self.revision, self.evidence)
-            self.log('dummy_recovered_fixture_not_bc_evidence', run_id=self.work.task)
-        elif kind == 'candidate':
-            from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
-            if isinstance(target, TaskEndCandidate):
-                self.run = self.work = self.accepted_payload = None
-                self.log('dummy_task_end_candidate_not_physical_result')
-            else:
-                self.log('dummy_resume_candidate_not_motion_permission')
-        # 복구/재개/종료는 명시 모의 증빙/후보뿐이며 실제 해제·모션을 실행하지 않습니다.
+        with self.voice.submit_lock:
+            self.log('typed_safety_fixture', kind=kind)
+            if kind == 'register_question':
+                self.voice.safety_registered(target, target.work, target.revision, valid_state=True)
+            elif kind == 'register_independent':
+                self.revision += 1
+                self.voice.safety_independent_registered(target, self.work, self.revision,
+                                                        valid_state=True, evidence=self.evidence)
+            elif kind == 'recover' and self.work is not None:
+                from ready2go_voice.core.recovery_confirmation import Evidence
+                evidence = Evidence(True, True, True, True, True)
+                if not self.stopped_fixture(self.work, self.revision + 1, evidence):
+                    raise RuntimeError('DUMMY_RECOVERY_FIXTURE_REJECTED')
+                self.log('dummy_recovered_fixture_not_bc_evidence', run_id=self.work.task)
+            elif kind == 'candidate':
+                from ready2go_voice.core.recovery_confirmation import TaskEndCandidate
+                if isinstance(target, TaskEndCandidate):
+                    self.run = self.work = self.accepted_payload = None
+                    self.log('dummy_task_end_candidate_not_physical_result')
+                else:
+                    self.log('dummy_resume_candidate_not_motion_permission')
+            # 복구/재개/종료는 명시 모의 증빙/후보뿐이며 실제 해제·모션을 실행하지 않습니다.
+
 
     def close(self):
         self.active = False
         self.run = None
         self.client.destroy()
         self.peer.destroy_node()
+
+
+def spin_live(executor, voice, bridge):
+    """콜백 예외는 더미 시험 불능으로 표시하고 정상 요청 처리를 중단합니다."""
+    try:
+        executor.spin()
+        if not voice.stop_event.is_set():
+            raise RuntimeError('DUMMY_EXECUTOR_STOPPED')
+    except Exception as exc:
+        with voice.submit_lock:
+            bridge.active = False
+            bridge.first_action = None
+            voice.stop_event.set()
+            bridge.log('dummy_test_unavailable_executor_failed', error_type=type(exc).__name__)
 
 
 def serve_live(config_file, *, auto_complete=None):
@@ -314,7 +346,7 @@ def serve_live(config_file, *, auto_complete=None):
             bridge = LiveDummyBridge(voice, auto_complete=auto_complete)
             executor.add_node(voice)
             executor.add_node(bridge.peer)
-            thread = threading.Thread(target=executor.spin, daemon=True)
+            thread = threading.Thread(target=spin_live, args=(executor, voice, bridge), daemon=True)
             thread.start()
             bridge.log('live_factory_started_not_recording_proof', pid=os.getpid(),
                        config=str(config_file), domain=166, approved_host='api.openai.com')
@@ -322,6 +354,8 @@ def serve_live(config_file, *, auto_complete=None):
                   'stdin: complete / tray <기한초> / tray_complete / tray_partial / '
                   'stopped / question <기한초> / independent / exit', flush=True)
             while not voice.stop_event.is_set():
+                if not select.select([sys.stdin], [], [], .1)[0]:
+                    continue
                 try:
                     parts = input().split()
                 except EOFError:
@@ -330,10 +364,19 @@ def serve_live(config_file, *, auto_complete=None):
                     continue
                 try:
                     command = parts[0]
+                    allowed = {'exit','complete','tray','tray_complete','tray_partial','stopped','question','independent'}
+                    if command not in allowed:
+                        bridge.log('stdin_command_rejected', command='unknown')
+                        continue
+                    bridge.log('stdin_command_received', command=command)
+                    if not bridge.active or voice.stop_event.is_set():
+                        bridge.log('stdin_command_rejected', command=command, reason='dummy_test_unavailable')
+                        break
                     if command == 'exit':
                         break
                     elif command == 'complete':
-                        bridge.complete()
+                        ok = bridge.complete()
+                        bridge.log('stdin_command_accepted' if ok else 'stdin_command_rejected', command=command)
                     elif command == 'tray':
                         bridge.tray_question(items=['toy_hammer'], destination='handover_zone',
                                              final_timeout_sec=float(parts[1]))
@@ -341,7 +384,7 @@ def serve_live(config_file, *, auto_complete=None):
                         bridge.tray_result(restoration_verified=command == 'tray_complete')
                     elif command == 'stopped':
                         bridge.stopped_fixture(StoppedWork('dummy', uuid.uuid4().hex,
-                            uuid.uuid4().hex, 'dummy_step'), 1, Evidence(True, True, True, True, True))
+                            uuid.uuid4().hex, 'dummy_step'), bridge.revision + 1, Evidence(True, True, True, True, True))
                     elif command == 'question':
                         bridge.recovery_question(bridge.revision + 1,
                             valid_until=time.monotonic() + float(parts[1]))
@@ -351,7 +394,7 @@ def serve_live(config_file, *, auto_complete=None):
                     else:
                         bridge.log('unknown_stdin_command_no_voice_submission')
                 except (ValueError, TypeError, IndexError) as exc:
-                    bridge.log('fixture_input_error', error_type=type(exc).__name__)
+                    bridge.log('stdin_command_rejected', command=command if command in allowed else 'unknown', error_type=type(exc).__name__)
         except KeyboardInterrupt:
             pass
         finally:

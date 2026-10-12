@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 import queue
 import threading
+from collections import deque
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -71,7 +72,9 @@ class VoiceNode(Node):
         if self.cfg.get('tts_engine') == 'melotts':
             self.cfg['_tts_progress'] = self._diagnostic
             self.cfg['_tts_prefill_texts'] = prefill_texts(self.cfg, self.parser.items.values(), self.get_logger().warning,
-                lambda data: self._diagnostic(dict(data, event='prefill_selection')))
+                lambda data: self._diagnostic(dict(data, event='prefill_selection')),
+                reference_state=self.parser.reference_state, places=self.parser.places,
+                item_names={k:v['name_ko'] for k,v in self.parser.items.items()})
         self.tts = tts if tts is not None else create_tts(self.cfg)
         if self.cfg.get('tts_engine') == 'melotts':
             self.tts.prepare()  # 모델/캐시 완료 전 웨이크/ready를 시작하지 않음
@@ -88,6 +91,7 @@ class VoiceNode(Node):
         self.request_cancel = threading.Event()
         self.notice_policy = RunnerNoticePolicy()
         self.request_run = RequestRun()
+        self.accepted_request_logs = deque(maxlen=128)
         self.request_source_check = None  # Actual C producer/restart mapping is supplied at integration.
         self.request_speech_used = set()
         self.goal_request_run = None
@@ -632,7 +636,7 @@ class VoiceNode(Node):
             elif doc.get('intent', {}).get('intent') in ('find_item','achieve_goal'):
                 pending = getattr(getattr(self, 'request_run', None), 'pending', None)
                 request = doc.get('intent', {}).get('request_id') or doc.get('intent', {}).get('_voice', {}).get('request_id')
-                accepted = pending is not None and pending.get('request_id') == request and self.request_run.run_id is not None
+                accepted = request in getattr(self, 'accepted_request_logs', ()) or (pending is not None and pending.get('request_id') == request and self.request_run.run_id is not None)
                 messages[event] = '실행 요청 발행 · 현재 요청 수락 확인' if accepted else '실행 요청 발행 · Runner 수락 미확인'
             else:
                 messages[event] = '안내/제어 메시지 발행 · 실행 요청 수락 아님'
@@ -702,6 +706,10 @@ class VoiceNode(Node):
                     notice = Notice('completed', '요청한 작업을 완료했습니다.', 4,
                                     self.notice_policy.revision)
                 for event in events:
+                    if event['event'] == 'request_accepted':
+                        if not hasattr(self, 'accepted_request_logs'):
+                            self.accepted_request_logs = deque(maxlen=128)
+                        self.accepted_request_logs.append(event['request_id'])
                     self._diagnostic(event)
                 if self.notice_policy.blocked:
                     if self.cfg.get('request_run_enabled', False):
@@ -1044,8 +1052,8 @@ class VoiceNode(Node):
                     self.session.conversation.invalidate()
                     self._diagnostic({'event': 'publish_failed', 'intent': doc, 'error_type': type(exc).__name__, 'published': False})
                     return
-        self._diagnostic({'event': 'intent', 'intent': doc, 'published': published,
-                          'evaluation_mode': self.cfg['evaluation_mode']})
+            self._diagnostic({'event': 'intent', 'intent': doc, 'published': published,
+                              'evaluation_mode': self.cfg['evaluation_mode']})
 
     def _capture_after_wake(self, stream, recorder, generation):
         def paused():

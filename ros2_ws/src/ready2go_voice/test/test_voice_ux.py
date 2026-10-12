@@ -413,7 +413,7 @@ def test_silence_pcm_pause_and_fixed_vad_comparison(cfg):
     stop=threading.Event()
     def run(amplitudes):
         index=[0]
-        data=[(np.ones(cfg['frame_samples'],dtype=np.int16)*amp).tobytes() for amp in amplitudes]
+        data=[(np.resize(np.array([1,-1],dtype=np.int16),cfg['frame_samples'])*amp).tobytes() for amp in amplitudes]
         class Stream:
             def read(self,n):
                 index[0]+=1

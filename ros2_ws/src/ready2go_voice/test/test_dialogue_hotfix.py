@@ -1,5 +1,6 @@
 """승인 핫픽스 대표 묶음. 실제 STT/정지/복구/재개/물리 결과가 아닙니다."""
 import copy
+import threading
 from types import SimpleNamespace
 import pytest
 from ready2go_voice.adapters.audio import Recording
@@ -91,7 +92,7 @@ def test_dummy_cancel_preserves_current_run_in_existing_typed_fixture():
     cls=dummy_class();bridge=cls.__new__(cls);observed=[]
     bridge.run='current-run';bridge.accepted_payload={'request_id':'request'}
     bridge.first_action=('current-run',0);bridge.work=None;bridge.revision=0;bridge.evidence=None
-    bridge.voice=SimpleNamespace(safety_stopped=lambda *a,**kw:observed.append(a) or True,
+    bridge.voice=SimpleNamespace(submit_lock=threading.RLock(),safety_stopped=lambda *a,**kw:observed.append(a) or True,
         _runner_status=lambda message:observed.append(json.loads(message.data)))
     bridge.String=lambda **kw:SimpleNamespace(**kw);bridge.log=lambda *a,**kw:None
     bridge.intent(SimpleNamespace(data=json.dumps({'intent':'cancel'})))

@@ -52,7 +52,8 @@ def remember_text(cfg, text, warning=lambda message: None):
             warning('빈번한 안내 기록 실패: ' + type(exc).__name__)
 
 
-def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda data: None):
+def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda data: None, *, reference_state=None, places=None, item_names=None):
+    items = list(items)
     texts = list(cfg.get('tts_melotts_prefill_texts', []))
     texts.extend(cfg['clarify_prompts'].values())
     texts.extend(error_prompts(cfg).values())
@@ -61,9 +62,23 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     texts.append(flow['empty_reply_prompt'])
     from .hotfix import prompts
     extra = prompts(cfg)
-    texts.extend(extra[k] for k in ('no_work','no_end_work','control_held','unknown_state'))
+    texts.extend(extra[k] for k in ('no_work','no_end_work','control_held','unknown_state','unknown_recorded_state'))
     for item in items:
         texts.append(extra['availability'].format(item=item['name_ko']))
+    if reference_state is not None and places is not None:
+        from .recovery_confirmation import _particle
+        from ready2go_knowledge.core.ontology import get
+        for item_key, item in reference_state.get('located_in', {}).items():
+            name = (item_names or {}).get(item_key)
+            place = places.get(item, {}).get('name_ko') if isinstance(item, str) else None
+            if name and place:
+                for key in ('initial_location','recorded_location'):
+                    texts.append(extra[key].format(item=name,item_topic=_particle(name,'은','는'),place=place))
+        for key, place in places.items():
+            if place.get('class') == 'Drawer' and type(get(reference_state,'open',key)) is bool:
+                for prompt in ('initial_open','recorded_open'):
+                    opened = get(reference_state,'open',key)
+                    texts.append(extra[prompt].format(place=place['name_ko'],place_topic=_particle(place['name_ko'],'은','는'),value=extra['open_true' if opened else 'open_false']))
     texts.extend((UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST))
     for item in items:
         name = item['name_ko']

@@ -32,7 +32,7 @@ def microphone(cfg, monkeypatch):
         size = cfg['frame_samples']
         period = size / cfg['sample_rate']
         stamp = SimpleNamespace(inputBufferAdcTime=0 if invalid else 10., currentTime=10.+2*period)
-        native[0].callback((np.ones(size,dtype=np.int16)*value).tobytes(),size,stamp,False)
+        native[0].callback((np.resize(np.array([1,-1],dtype=np.int16),size)*value).tobytes(),size,stamp,False)
     yield shared, clock, feed, native
     shared.close()
 

@@ -1,6 +1,7 @@
 """실제 VoiceNode 메서드의 ROS 비의존 모의. ROS topic/action 시험과 구분합니다."""
 import ast
 import copy
+from collections import deque
 import json
 import queue
 from pathlib import Path
@@ -31,7 +32,7 @@ def node_class():
     source=Path(__file__).resolve().parents[1]/'ready2go_voice/nodes/voice_node.py'
     tree=ast.parse(source.read_text())
     tree.body=[n for n in tree.body if isinstance(n,ast.ClassDef) or isinstance(n,ast.FunctionDef) and n.name=='runner_blocks']
-    namespace=dict(Node=object,json=json,queue=queue,threading=threading,time=time,uuid=uuid,
+    namespace=dict(Node=object,deque=deque,json=json,queue=queue,threading=threading,time=time,uuid=uuid,
                    intent=intent,final_response=final_response,redact=redact,remember_text=remember_text,
                    Notice=Notice,RunnerNoticePolicy=RunnerNoticePolicy, Recorder=Recorder,
                    finite=finite,safety_utterance=safety_utterance,task_end_utterance=task_end_utterance,

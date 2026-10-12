@@ -277,7 +277,8 @@ class Recorder:
                 raise RuntimeError('AUDIO_OVERFLOW')
             pcm = bytes(data)
             samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float64)
-            rms = math.sqrt(float(np.mean(samples * samples))) if samples.size else 0
+            centered = samples - np.mean(samples) if samples.size else samples
+            rms = math.sqrt(float(np.mean(centered * centered))) if samples.size else 0  # 판정만 DC 제외, PCM 보존
             now = getattr(stream, 'last_frame_monotonic', None) or self.clock()
             if rms >= self.cfg['speech_rms']:
                 last_voice, ended_wall = now, getattr(stream, 'last_frame_unix', None) or self.wall()

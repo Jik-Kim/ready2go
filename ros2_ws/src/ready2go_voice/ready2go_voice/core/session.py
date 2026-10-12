@@ -5,6 +5,7 @@ import tempfile
 import time
 from .deadline import DeadlineCall
 from .intent import intent
+from .response import question
 from .conversation import Conversation
 from .flow import settings as flow_settings, blocked_prompt
 import uuid
@@ -41,7 +42,8 @@ class VoiceSession:
         previous = self.conversation.pending
         effective, qid, target = self.conversation.resolve(text, self.parser, generation, blocked, preserve_empty=preserve_empty)
         epoch = self.conversation.epoch
-        context = {'target': target, 'reply': text} if qid else None
+        context = {'target': target, 'reply': text, 'question_id': qid,
+                   'question': question(self.parser.items[target]['name_ko'])} if qid else None
         doc = self.parser.parse(effective, deadline, context=context)
         if qid and doc['intent'] == 'find_item' and not self.conversation.consume(previous, generation):
             doc.update(intent='clarify', targets=[], clarify_question=self.cfg['clarify_prompts']['missing_item'])
@@ -61,7 +63,7 @@ class VoiceSession:
         meta['request_id'] = request_id or uuid.uuid4().hex
         meta['request_epoch'] = epoch
         if qid:
-            meta.update(context_answer=True, question_id=qid, question_expires=previous.expires, context_generation=generation, context_epoch=previous.epoch,
+            meta.update(context_answer=doc['intent'] == 'find_item', question_id=qid, question_expires=previous.expires, context_generation=generation, context_epoch=previous.epoch,
                         effective_text=effective)
         if preserve_empty and previous is not None and self.conversation.pending is previous:
             meta.update(preserve_question_id=previous.id, original_question_expires=previous.expires,

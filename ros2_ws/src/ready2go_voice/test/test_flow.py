@@ -33,7 +33,8 @@ def test_natural_current_reply_is_one_target_once(node, reply, mode):
     doc = node.session.text(reply, node.generation)
     assert doc['intent'] == 'find_item' and doc['targets'] == ['toy_hammer']
     assert doc['_voice']['question_id'] == q['_voice']['question_id']
-    if calls: assert calls == [{'target':'toy_hammer','reply':reply}]
+    if calls: assert calls == [{'target':'toy_hammer','reply':reply,
+        'question_id':q['_voice']['question_id'],'question':'장난감 망치 가져오기 요청이 맞나요?'}]
     node.deliver(doc)
     again = node.session.text(reply, node.generation)
     assert not again['source']['execution_allowed'] and again['targets'] == []
