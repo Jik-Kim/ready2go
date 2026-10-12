@@ -2333,3 +2333,21 @@ def test_make_room_neighbor_wall_nudge_keeps_target_after_for_original_target(se
     inner["ok"] = False
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, nb)})
     assert out.error_code == "PUSH_BLOCKED" and data["target_after"] is None
+
+
+def test_push_from_behind_refused_when_neighbor_in_finger_spot(server):
+    """[사용자 10/12 PC2] 손잡이 쪽 벽 근처 비스듬한 지우개 바로 뒤에 에어팟 — 뒤에서 밀 손가락이 내려갈 자리에 이웃이면
+    움직이기 전 NEIGHBOR_TOO_CLOSE (예전엔 끄는 길만 봐서 손가락이 에어팟 위로 내려갈 수 있었음). 이웃이 없으면 그대로 밂."""
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0131, "occluded_by": [],
+          "pose": {"frame": "drawer_top", "position": [0.0301, 0.0502, 0.0], "yaw": -1.2977, "yaw_valid": True}}
+    ap = {"id": "airpods_case#1", "class": "airpods_case", "top_z": 0.0241, "occluded_by": [],
+          "pose": {"frame": "drawer_top", "position": [0.0665, 0.0695, 0.0], "yaw": -1.5698, "yaw_valid": True}}
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": er, "scan": _scan_with(er, ap)})
+    assert out.error_code == server.ss.NEIGHBOR_TOO_CLOSE and "뒤에서 밀 손가락" in out.reason and "airpods_case#1" in out.reason
+    assert data["target_after"] is None and server.srv.robot.log == []
+    far = json.loads(json.dumps(ap))
+    far["pose"]["position"] = [0.15, 0.20, 0.0]
+    plan_ok = server.ss.DryOracle(server.srv, "drawer_top").wall_nudge([er, far], "eraser#1")
+    assert plan_ok[0] is not None                                       # 이웃이 멀면 뒤에서 밀기 계획 그대로
+    blocked = server.ss.DryOracle(server.srv, "drawer_top").wall_nudge([er, ap], "eraser#1")
+    assert blocked[0] is None and blocked[1] == server.ss.NEIGHBOR_TOO_CLOSE   # 계획도 그 이웃부터 치우게

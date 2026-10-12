@@ -90,3 +90,22 @@ def drag_blocker(*, target: Mapping, size_m: Sequence[float], shift_y_m: float, 
         if any(plp.rects_overlap(p, rect) for p in path):
             return o["id"]
     return None
+
+
+def finger_spot_blocker(*, center_m: Sequence[float], push_dir: Sequence[float], target_id: Optional[str], objects: Sequence[Mapping],
+                        size_of: Callable[[str], Optional[Sequence[float]]], default_size_m: Sequence[float],
+                        half_along_mm: float, half_lat_mm: float, margin_mm: float) -> Optional[str]:
+    """뒤에서 밀기: 닫은 손가락이 수직으로 내려갈 자리(시작 TCP, 미는 방향으로 반 half_along_mm·옆으로 반 half_lat_mm + margin)와
+    겹치는 이웃 id (없으면 None). 손끝은 바닥 위 몇 mm 까지 내려가므로 높이와 상관없이 겹치면 막힘
+    [사용자 10/12 PC2: 손잡이 쪽 비스듬한 지우개 바로 뒤 에어팟 — 그 위로 손가락이 내려갈 뻔함]."""
+    x, y = center_m[0] * 1000.0, center_m[1] * 1000.0
+    nx, ny = push_dir
+    if not _finite(x, y, nx, ny, half_along_mm, half_lat_mm, margin_mm):
+        raise ValueError(f"뒤에서 밀 손가락 자리 입력 비정상: {center_m, push_dir}")
+    mine = plp.corners(x, y, math.atan2(ny, nx), half_along_mm + margin_mm, half_lat_mm + margin_mm)
+    for o in objects:
+        if o.get("id") == target_id:
+            continue
+        if plp.rects_overlap(mine, plp.neighbor_rect_mm(o, size_of(o.get("class")) or default_size_m)):
+            return o["id"]
+    return None

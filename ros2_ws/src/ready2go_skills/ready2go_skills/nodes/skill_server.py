@@ -214,6 +214,9 @@ class DryOracle:
         if not plan.needed:
             return None, "NOT_NEEDED", plan.reason
         if plan.push_to_xy_m is not None:                        # 뒤에서 밀어 벽에 붙임 → 벽에 붙어 축에 맞춤 [예상]
+            hit = srv._push_finger_blocker(plan, t, objs, prm.get("neighbor") or {"margin_mm": 5.0})
+            if hit:                                              # 손가락 내려갈 자리에 이웃 → 실제 넛지도 거부 (계획은 그 이웃부터)
+                return None, NEIGHBOR_TOO_CLOSE, f"뒤에서 밀 손가락 자리에 {hit}"
             px, py = plan.push_dir
             half = size[1] / 2.0
             p = list(t["pose"]["position"])
@@ -1414,6 +1417,14 @@ class SkillServer(Node):
         """아주 짧은 직선 (힘 맞추기 0.1 mm) — 느린 이동이라 좌표로 판단 (_line_slow)."""
         return self._line_slow(goal, posx, self.prm()["drag"]["press_speed_mm_s"], stage)
 
+    def _push_finger_blocker(self, plan, target, objs, nb):
+        """뒤에서 밀기 시작 자리(닫은 손가락이 내려갈 곳)와 겹치는 이웃 id — 손가락 반두께 = 옆면까지(along_mm), 옆으로 = 닫은 손끝 바깥(fingertip_outer_mm)."""
+        g = self.prm()["gripper"]
+        return nc.finger_spot_blocker(center_m=plan.press_xy_m, push_dir=plan.push_dir, target_id=target.get("id"), objects=objs,
+                                      size_of=self._size_or_none, default_size_m=self.prm()["place"]["default_obstacle_size_m"],
+                                      half_along_mm=g["wall_clearance_mm"]["along_mm"], half_lat_mm=g["fingertip_outer_mm"],
+                                      margin_mm=nb["margin_mm"])
+
     def _drag_g(self, drawer_id, cls):
         """끌기·벽 판단에 쓰는 그리퍼·서랍 값 (nudge_object 와 파지 공간 계획이 같은 값을 쓰게)."""
         prm = self.prm()
@@ -1472,6 +1483,10 @@ class SkillServer(Node):
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
         if plan.push_to_xy_m is not None:                               # 벽까지 밀기는 뒤에서 [사용자 10/11]
+            who, why = self._neighbor(params, drawer_id, lambda objs, nb: self._push_finger_blocker(plan, target, objs, nb))
+            if why or who:                                              # 손가락 내려갈 자리에 이웃 — 움직이기 전 [사용자 10/12 PC2]
+                return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
+                        sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"뒤에서 밀 손가락 자리에 {who} — {who} 먼저 치우기")), out
             return self._push_from_behind(goal, drawer_id, target, plan, tf, d, out)
         on_x = plan.axis == "x"                                         # 앞뒤 벽에서 끌기 [사용자 10/10]
         wall = mp.dir_to_base(tf, (plan.wall_normal_x, 0.0, 0.0) if on_x else (0.0, plan.wall_normal_y, 0.0))   # 누르는 쪽 벽 (base)
