@@ -27,6 +27,9 @@ class VoiceSession:
         effective, qid, target = self.conversation.resolve(text, self.parser, generation, blocked)
         epoch = self.conversation.epoch
         doc = self.parser.parse(effective, deadline)
+        # Public correlation fields come from E, never from an LLM candidate.
+        doc.pop('request_id', None)
+        doc.pop('accept_text', None)
         doc['source']['stt_text'] = text
         meta = doc.setdefault('_voice', {})
         meta['request_id'] = request_id or uuid.uuid4().hex
@@ -47,13 +50,13 @@ class VoiceSession:
     @staticmethod
     def _acceptance_signature(doc):
         meta, source = doc.get('_voice', {}), doc.get('source', {})
-        return deepcopy((doc.get('intent'), doc.get('targets'), doc.get('goals'),
+        return deepcopy((doc.get('intent'), doc.get('targets'), doc.get('goals'), doc.get('confidence'),
             source.get('stt_text'), source.get('execution_allowed'),
             {key: meta.get(key) for key in ('request_id', 'request_epoch', 'final_text',
                 'context_answer', 'context_generation', 'context_epoch', 'question_expires')}))
 
     def _prepare_acceptance(self, doc, generation):
-        """기존 검증 문장을 E 메모리에만 보관합니다. C 수락/공개 전달은 미연결입니다."""
+        """현재 요청의 검증 문장을 보관합니다. C 수락은 status에서 별도 확인합니다."""
         self._acceptance = None
         meta = doc.get('_voice', {})
         if (doc.get('intent') != 'find_item' or len(doc.get('targets', [])) != 1
@@ -69,6 +72,27 @@ class VoiceSession:
             return
         self._acceptance = (doc, generation, self.conversation.epoch,
                             self._acceptance_signature(doc), text)
+
+    def prepare_request_payload(self, doc, generation, *, request_id, blocked=False):
+        """Prepare a detached contract07 candidate without publishing/consuming.
+
+        Called under the node submit_lock with the actual queue identity. Opt-in
+        delivery publishes this candidate after registering local correlation. This
+        grants neither C acceptance nor permission for TTS or robot motion.
+        """
+        pending = self._acceptance
+        if (blocked or self.cfg['evaluation_mode'] or not isinstance(request_id, str)
+                or not request_id.strip() or pending is None or pending[0] is not doc
+                or pending[1] != generation or pending[2] != self.conversation.epoch
+                or doc.get('_voice', {}).get('request_id') != request_id
+                or not self.valid_context(doc, generation)
+                or pending[3] != self._acceptance_signature(doc)
+                or not self.should_publish(doc)):
+            return None
+        payload = deepcopy({key: value for key, value in doc.items()
+                            if not key.startswith('_')})
+        payload['request_id'], payload['accept_text'] = request_id, pending[4]
+        return payload
 
     def consume_acceptance_text(self, doc, generation):
         """E 내부 일회성 조회. 반환은 C 수락·TTS 성공·첫 동작 허가를 증명하지 않습니다.

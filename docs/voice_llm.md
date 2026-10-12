@@ -107,6 +107,8 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 상세 증빙은 `diagnostic_detail=true`일 때 설정된 `diagnostic_file`의 민감정보 필터 적용 JSONL에 기록됩니다. 각 줄은 이벤트 객체이며 `voice_diagnostic` 래퍼 없이 `event`, `request_id`와 이벤트별 필드를 최상위에 둡니다. 콘솔과 `tee` 로그는 요약이므로 전체 진단 JSON을 찾는 위치로 쓰지 않습니다. D의 증빙 확인은 저장된 JSONL에서 `interpretation.intent`, `intent.published`·`intent.intent`, `tts_finished.timing`을 확인하고 request_id와 이벤트 시각으로 이어 보십시오. `published=true`는 발행 호출 반환을 뜻하며 C 수신·실행 성공 증빙은 아닙니다. 원본 LLM 응답은 `interpretation` 이벤트에 한 번 보존되고 후속 이벤트에는 반복되지 않습니다. TTS `timing`은 합성 대기 `synthesis_wait_sec`, Melo `cache_hit`·`worker_synth_sec`, 성공 시 첫 DAC→PortAudio finished callback 구간 `playback_sec`·종료 시각/기준을 구분합니다. worker 처리 시간은 캐시 조회/합성 시간이며 Runner 요청부터 종료까지의 전체 시간을 합성으로 해석하지 않습니다. 이 정보는 로그에만 추가하며 기존 Skill 액션 결과·intent source 필드와 구분합니다. source 부가 필드 수신/의미와 D의 저장 예시·수집 절차는 담당자 확인이 필요하며 C run_id/DB 실행 로그의 inputs·D 화면 자동 연결은 미검증입니다. 물리 재생·모의 시각을 구분하며 합성 시작이나 텍스트 입력 시각을 AC-INT-03 실측으로 대신하지 않습니다.
 
+[문서: 실행 연결 대기] [부분 결과 정책](requirements.md#verification-policy)은 같은 run의 실제 단계별 검증 결과가 E에 전달되어야 구체 안내에 적용할 수 있습니다. 현재 `/runner/status.last`의 전체 상태·오류만으로 전달 검증이나 복구 실패를 추정하지 않습니다. C의 실제 결과 수신 원본이 확정되기 전에는 기존 원인 경고를 유지합니다. [빈손·신선도 승인](https://github.com/Jik-Kim/ready2go/issues/43#issuecomment-6105675499)의 값 원본·적용은 B/C 담당이며 E의 내부 모의 입력을 운영 허가로 사용하지 않습니다.
+
 ### 6.5 (Stretch) LLM 태스크 JSON 생성
 
 **P3 후속 계획**: [FR-PLN-03](requirements.md#fr-pln-03)·[FR-TWN-02](requirements.md#fr-twn-02), [AC-LLM-01](requirements.md#ac-llm-01)에 연결된 Stretch입니다. 현재 P1 voice 구현에 없으며 고정 Day 11 문구로 현 일정·착수 승인을 확정하지 않습니다. 착수·범위·담당 C/E/A 연결은 별도 합의가 필요합니다. [문서]
@@ -123,7 +125,7 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 [문서: 구현 대조 기준 `65148d4`] #144 상태 안내·Melo 캐시와 #165 내부 정책, #167 Runner 단계 재개 준비가 main에 병합됐습니다. C `resume()`은 잠금 해제이며 `resume_run()`은 별도 준비 경로입니다. 이 병합이 E 음성·장치 운영 연결이나 안전 수용 기준 완료를 뜻하지 않습니다. 기존 파서는 cancel/status와 일반 요청을 처리하며 새 복구/재개 wire enum은 없습니다. listener는 busy/speaking/TTS lock 중 입력을 제한합니다. 따라서 현재 항상 음성 정지를 받거나 TTS 뒤 음성 재개를 실제 수신·실행하는 기능으로 설명하지 않습니다. B MotionState는 관절 변화와 state를 사용하지만 조회 실패 시 상태 fallback, ESTOP 상태 즉시 반환 경로가 있어 ESTOP 응답을 완전한 물리 정지 증빙으로 쓰지 않습니다.
 
-[구현: ROS 비의존 준비] `core/recovery_confirmation.py`는 운영에서 호출하지 않는 내부 정책입니다. `from_config`가 E 구간 설정을 읽습니다. 현재 사건의 고유 질문 ID에 대해 `registered`의 같은 work/현재 seq ACK를 받은 뒤 `tts_started`·실제 `delivered`·`admit`·`answer`를 순서대로 검사합니다. 중복 등록은 기한을 갱신하지 않습니다. `expire`·거절·TTS/STT 실패는 질문을 무효화하며 work는 유지합니다. 명시 종료는 `TaskEndCandidate`로 구분하고 부정 종료는 받아들이지 않습니다. 두 종료 경로는 E 로컬 사건을 퇴역 처리해 같은 사건의 높은 seq 갱신으로 재개 대상을 복원하지 않습니다. 이는 C 종료 확정이나 운영 종료 요청 구현이 아닙니다. `begin_independent` 뒤 새 녹음·SDK·STT·현재 등록 확인·증빙을 통과한 요청만 일회성 후보를 반환합니다. 과거 질문의 응답을 전용하지 않습니다. 이전 독립 요청의 STT/후보 콜백은 현재 요청을 변경하지 않고 거절하며, 현재 요청 자체의 실패/만료만 현재 문맥을 무효화합니다. E 재기동은 질문/요청을 버리고 새 C 상태 확인 전 보류하며, Runner boot 변경·현재 C 완료는 보존 work를 폐기합니다. 이 입력과 후보는 실제 C 동작·잠금 해제·새 run을 생성하지 않습니다. 정책의 의미·책임은 [재개 접수 정본](requirements.md#resume-admission-policy)을 참조하십시오.
+[구현: ROS 비의존 준비] `core/recovery_confirmation.py`는 운영에서 호출하지 않는 내부 정책입니다. `from_config`가 E 구간 설정을 읽습니다. 현재 사건의 고유 질문 ID에 대해 `registered`의 같은 work/현재 seq ACK를 받은 뒤 `tts_started`·실제 `delivered`·`admit`·`answer`를 순서대로 검사합니다. 중복 등록은 기한을 갱신하지 않습니다. `expire`·거절·TTS/STT 실패는 질문을 무효화하며 work는 유지합니다. 명시 종료는 `TaskEndCandidate`로 구분하고 부정 종료는 받아들이지 않습니다. 두 종료 경로는 E 로컬 사건을 퇴역 처리해 같은 사건의 높은 seq 갱신으로 재개 대상을 복원하지 않습니다. 이는 C 종료 확정이나 운영 종료 요청 구현이 아닙니다. `begin_independent` 뒤 새 녹음·SDK·STT·현재 등록 확인·증빙을 통과한 요청만 일회성 후보를 반환합니다. 과거 질문의 응답을 전용하지 않습니다. 이전 독립 요청의 STT/후보 콜백은 현재 요청을 변경하지 않고 거절하며, 현재 요청 자체의 실패/만료만 현재 문맥을 무효화합니다. 같은 boot/run/halt의 최신 신뢰 상태가 기존 의미와 충돌해도 관측 seq를 순서 하한에 기록하고 현재 확인·기존 입력을 무효화합니다. 충돌 상태는 실행 대상으로 채택하지 않으며 그 seq 이하의 과거 상태/ACK로 확인을 복원할 수 없습니다. 잘못된 입력·미확인 ACK는 순서 하한을 올리지 않습니다. E 재기동은 질문/요청을 버리고 새 C 상태 확인 전 보류하며, Runner boot 변경·현재 C 완료는 보존 work를 폐기합니다. 이 입력과 후보는 실제 C 동작·잠금 해제·새 run을 생성하지 않습니다. 정책의 의미·책임은 [재개 접수 정본](requirements.md#resume-admission-policy)을 참조하십시오.
 
 [문서·코드 대조: E-P2-SAFETY-TRIM-20261011-06] E의 등록 ACK 대기·등록 확인→TTS 완료 전용 타이머 설정과 검사는 제거했습니다. `registered`와 `independent_registered`는 유지하며 현재 유효 등록 확인 없이는 TTS/후보를 만들지 않습니다. 질문의 `valid_until`은 신뢰된 C 유효성에 대응하는 E 로컬 기한 입력이며 C 절대 monotonic 값을 넣는 필드가 아닙니다. 기한 대응·C 만료 상태와 현재 등록을 전달하는 운영 adapter는 여전히 미연결입니다. 실제 재생은 기존 `PCMTTS.speak`의 `tts_timeout_sec` 제한을 통과한 완료만 `delivered(success=True)`로 전달해야 하며 timeout/실패/취소는 실패로 전달해야 합니다. 이 core가 기존 재생 제한이나 C 질문 기한을 대신 생성하지 않습니다.
 
@@ -150,9 +152,9 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 ### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
 
-[문서] 정책 정본은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy)입니다. E 내부 모듈은 [skill_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)·[recovery_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/recovery_confirmation.py)입니다. Whisper adapter의 optional before_request는 SDK 초기화·WAV 열기 뒤 create 직전 로컬 monotonic 시각으로 접수를 거절할 수 있습니다. 녹음 자료형에 시작/끝 로컬 시각을 보존합니다. P1 Session은 SDK 직전 callback을 시각 진단에만 사용하며 #152 접수창/재개 정책과 새 wire는 연결하지 않습니다. 노드의 실제 TTS 완료·취소·busy/listener 경계는 그대로이며 아직 정책 질문 TTS/녹음 연결은 없습니다. 승인된 내부 구간값은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)에서 읽으며 null이면 해당 내부 접수를 보류합니다. place는 같은 run/step의 절차와 종료 상태를 보존해 중복 begin으로 재질문 횟수를 초기화하지 않습니다. `PlaceAudioRequest`는 실제 TTS 완료 이후 녹음·SDK 접수와 별도 STT 만료를 결합합니다. 서랍 검증은 이 사용자 확인 core가 처리하지 않습니다.
+[문서] 정책 정본은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy)입니다. E 내부 모듈은 [skill_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/skill_confirmation.py)·[recovery_confirmation.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/recovery_confirmation.py)입니다. Whisper adapter의 optional before_request는 SDK 초기화·WAV 열기 뒤 create 직전 로컬 monotonic 시각으로 접수를 거절할 수 있습니다. 녹음 자료형에 시작/끝 로컬 시각을 보존합니다. P1 Session은 SDK 직전 callback을 시각 진단에만 사용하며 #152 접수창/재개 정책과 새 wire는 연결하지 않습니다. 노드의 실제 TTS 완료·취소·busy/listener 경계는 그대로이며 아직 정책 질문 TTS/녹음 연결은 없습니다. 승인된 내부 구간값은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)에서 읽으며 null이면 해당 내부 접수를 보류합니다. place는 같은 run/step의 절차와 종료 상태를 보존해 중복 begin으로 재질문 횟수를 초기화하지 않습니다. `PlaceAudioRequest`는 실제 TTS 완료 이후 녹음·SDK 접수와 별도 STT 만료를 결합합니다. `PlaceConfirmation.asked`는 호출자가 제공하는 승인된 전체 구간을 E 로컬 시계로 보관하며 재질문·중복 등록에서 최초 시각/기한을 보존합니다. `delivered`·`admit`·`answer`·`expire`는 같은 구간을 대조합니다. 원격 monotonic 시각을 직접 비교하지 않으며 실제 C 등록/ACK의 로컬 시계 대응과 C 최종 판정은 운영 수신 연결이 필요합니다. 기존 asked 없는 P1/내부 비전 검증 경로는 유지하며 이 준비를 운영 등록 증빙으로 사용하지 않습니다. 서랍 검증은 이 사용자 확인 core가 처리하지 않습니다.
 
-[승인 정책·미승인 wire] 질문 등록 ACK·시간 구간·작업 수명은 [정본](requirements.md#resume-admission-policy)의 사용자 결정에 따라 내부 구현했습니다. 구체 메시지·새 토픽/서비스/enum·프로세스별 clock 대응은 [계약안](interfaces.md#p2-safety-proposal)에 남아 있습니다. `answer: asked` 같은 미승인 값은 추가하지 않았습니다. C 등록을 나타내는 내부 시험 입력은 운영 ACK가 아닙니다. C 후보/질문/독립 요청의 시계·실행 직전 B/pre 검사·최종 effect는 C 영역이며, E의 구간 설정으로 대신하지 않습니다. 스키마·예시·ICD 동시 반영과 E 포함 승인 뒤 운영 adapter를 연결해야 합니다. 정확 포함 여부가 미확정인 시간 경계는 안전측 보류하며 확정된 접수 경계만 재사용합니다.
+[승인 정책·미승인 wire] 질문 등록 ACK·시간 구간·작업 수명은 [정본](requirements.md#resume-admission-policy)의 사용자 결정에 따라 내부 구현했습니다. 구체 메시지·새 토픽/서비스/enum·프로세스별 clock 대응은 [계약안](interfaces.md#p2-safety-proposal)에 남아 있습니다. [#43 승인08](https://github.com/Jik-Kim/ready2go/issues/43#issuecomment-6105498776)의 confirm·asked/응답 필드 구성은 승인됐으며 이 독립 E 구현에서는 공통 스키마·예시·ICD나 운영 발신을 추가하지 않았습니다. #152 구체 wire 전체의 승인으로 확대하지 않습니다. C 등록을 나타내는 내부 시험 입력은 운영 ACK가 아닙니다. C 후보/질문/독립 요청의 시계·실행 직전 B/pre 검사·최종 effect는 C 영역이며, E의 구간 설정으로 대신하지 않습니다. 스키마·예시·ICD 동시 반영과 E 포함 승인 뒤 운영 adapter를 연결해야 합니다. 정확 포함 여부가 미확정인 시간 경계는 안전측 보류하며 확정된 접수 경계만 재사용합니다.
 
 [인계] B: 실제 grip 완료/실측폭/expected_width 개선·lift 유지·외력 없음/신선도/확인 모드. A/B: handover inspect/TF/ROI·촬영 자세. C: verify evaluator/대기/최종 effect·상태/로그/성공 안내·재개 노드/hold·질문 등록. 실제 연결/실물 AC를 E 모의 시험 결과로 대체하지 않습니다.
 
@@ -183,37 +185,24 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 
 <a id="acceptance-tts-preparation"></a>
-### #196 수락 TTS — E 내부 준비와 계약 초안
+### #196 요청 발행·수락·완료 — E 연결 로직과 운영 보류
 
-[문서: E-C-ACCEPT-TTS-20261011-01] 책임·순서·차단 기준은 [요구사항 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 최초 내부 준비는 PR207 `ac96d66` 기반이며, 리뷰 정리에서는 [PR207](https://github.com/Jik-Kim/ready2go/pull/207) `e93ac41`과 [PR208](https://github.com/Jik-Kim/ready2go/pull/208) `6bb7a4c`를 합류했습니다. PR209의 비교 base는 PR208 브랜치입니다. 두 선행 PR은 미병합이며 main 기반 독립 완료가 아닙니다.
+[문서] 의미·책임·완료 조건은 [요구사항 정본](requirements.md#acceptance-tts-policy), 실행 필드는 [intent 스키마](../contracts/intent.schema.json)와 [Runner 상태 예시](../contracts/examples/runner_status.json), 공동 참조는 [ICD 5.3](interfaces.md#request-run-contract)입니다. 공동 계약 [#221](https://github.com/Jik-Kim/ready2go/pull/221)의 `e9edaf8` 원본을 합류했으며 새 계약 필드·enum·타이머는 추가하지 않았습니다.
 
-| 영향 범위 | 현재 실행 원본·호출 관계 | 이번 변경·후속 조건 |
+| 단계 | E 현재 실행 원본·호출 관계 | 확인 범위·선행 조건 |
 | :--- | :--- | :--- |
-| 정의 | [FR-INT-02·03](requirements.md#fr-int-02), [AC-INT-03](requirements.md#ac-int-03) | 승인된 P2 책임 방향 반영, 기존 Phase·3초 AC 유지 |
-| 문장 생산·보관 | [response.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/response.py) → [Session](../ros2_ws/src/ready2go_voice/ready2go_voice/core/session.py) | 기존 검증 최종 문장을 현재 로컬 요청·세대·epoch에 보관하고 원본 객체/내용 대조 후 한 번만 소비. 새 요청·문맥 무효화·다른 세대·변조·복사본·재시작은 재사용 불가 |
-| 노드 발신 | [VoiceNode](../ros2_ws/src/ready2go_voice/ready2go_voice/nodes/voice_node.py)의 `_work` → Session → `_deliver` → `_publish` | 큐의 로컬 ID를 해석 시작부터 동일하게 사용. `_voice`는 기존 발행 필터로 제외. 실제 소비/공개 전달 호출자는 미연결이며 기존 P1 확인 TTS·발행 유지 |
-| C 수신·재생 | [runner_node.py](../ros2_ws/src/ready2go_runner/ready2go_runner/nodes/runner_node.py), [backend.py](../ros2_ws/src/ready2go_runner/ready2go_runner/core/backend.py), [find_item.json](../tasks/find_item.json) → `/voice/speak` | 현재 태스크 s2의 별도 문장 유지. 요청별 수락→검증 문장 전달→실행 직전 검사와 중복 제거는 C 계약/연결 후 수행. C 파일은 읽기 전용 |
-| E 재생 결과 | VoiceNode `_goal`/`_speak` → [PCMTTS](../ros2_ws/src/ready2go_voice/ready2go_voice/adapters/tts.py) → [Skill.action](../ros2_ws/src/ready2go_interfaces/action/Skill.action) | 생성 완료·첫 DAC 시각·버퍼 배출 뒤 finished_callback·액션 성공은 서로 다른 단계. 현행 성공은 재생 반환 뒤 취소/경고 검사 후 확정하지만 요청/run 상관·C 첫 동작 게이트 증거는 아님 |
-| 설정·시험 | [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml), `test_voice_ux.py`, `test_voice_ux_node.py`, `test_audio_tts.py` | 새 설정/시간값 없음. Session의 일회성 문장과 기존 실제 노드 메서드의 P1·목표 차단 회귀를 확인. E/C 통합 수락 시험·실음성·실물 AC는 미검증 |
+| 문장 준비 | [Session](../ros2_ws/src/ready2go_voice/ready2go_voice/core/session.py)의 `prepare_request_payload` | 현재 원본 객체·confidence·검증 문장 signature·generation/epoch·큐 ID를 검사해 공개 사본을 만듭니다. LLM 최상위 ID/문장은 제거합니다. 내부 `_voice.prepared_request` 진단 후보를 발행 권한으로 사용하지 않습니다. |
+| 실제 발행 | [VoiceNode](../ros2_ws/src/ready2go_voice/ready2go_voice/nodes/voice_node.py) `_deliver` → 준비 재검사 → [RequestRun](../ros2_ws/src/ready2go_voice/ready2go_voice/core/request_run.py) 등록 → `_publish` | 검증된 C 연결을 주입한 모의에서 find_item은 수락 전 동일 문장을 재생하지 않고 큐 ID/검증 문장을 발행합니다. 실제 노드는 C 근거 연결 전 opt-in 실행 발행을 보류합니다. 발행 실패는 연결을 폐기하며 자동 재전송하지 않습니다. 평가는 전체 발행을 차단하고 목표 운영 발행은 계속 차단합니다. |
+| 실제 수락 관측 | `/runner/status` → 필수 2인자 `_runner_status_with_info` → `_runner_status` | 검증된 C 연결의 결정이 현재 발행 요청에 대한 `run`일 때만 run을 기억하는 로직을 구현했습니다. 실제 상태 콜백은 C 근거 연결 전 상관 처리를 호출하지 않습니다. 보류·거절은 수락으로 바뀌지 않고 같은 ID 결정 충돌은 연결을 폐기합니다. 다른 요청이 last_intent를 덮어써도 이미 수락된 run은 보존합니다. |
+| 재생 결과 | `/voice/speak` → 기존 [PCMTTS](../ros2_ws/src/ready2go_voice/ready2go_voice/adapters/tts.py) → Skill 결과 | opt-in은 실제 DAC 시작·finished_callback 종료 시각과 non-mock 반환을 확인한 뒤 성공합니다. no-op/mock·실패·취소·노드 종료·C 연결 보류는 성공하지 않습니다. 실제 opt-in 액션 수락도 C 연결 전 거절합니다. 새 재생 타이머는 없습니다. C의 요청별 speak 호출·s2 중복 제거·첫 동작 전 안전 재검사와 수락/재기동 근거는 C 운영 선행입니다. |
+| 완료 안내 | 수락된 run과 `last.run_id` 대조 → 기존 notice worker | 같은 run의 `COMPLETED`, idle, halt 없음에만 일반 완료 문장을 한 번 대기시킵니다. 빠른 수락/완료 한 표본도 처리합니다. 다른 run·FAILED/ABORTED·정지에는 성공 안내하지 않습니다. 경고와 cancel이 우선하며 전달/복구의 개별 성공은 추정하지 않습니다. |
 
-[문서: 내부 구현] `consume_acceptance_text(doc, generation)`은 E 메모리의 문장을 일회성으로 돌려주는 준비 API입니다. 재생하거나 C 수락 상태를 만들지 않습니다. 향후 실제 C 수락 핸들러 연결 시 노드의 submit_lock과 같은 경계에서 사용해야 합니다. 현재는 시험만 소비하며, publish 성공·runner_notice의 latched 상태·캐시 읽기로 소비 권한을 복원하지 않습니다. 목표형 후보의 운영 발행·TTS 차단은 그대로 유지하며 목표 수락 문장 준비도 계약 이후 연결 대상입니다. 새 run/boot/순서 검사는 이 로컬 API에 구현된 것으로 보고하지 않습니다.
+[운용] [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)의 `request_run_enabled` 기본값은 `false`이며 ROS bool override로 명시 opt-in할 수 있습니다. false에서는 기존 P1 확인 TTS·ID 없는 발행을 유지하고 `confirmation_enabled`·`evaluation_mode`의 기존 의미를 바꾸지 않습니다. **true 설정 전에 C의 실제 구현 ref, 계약 원본 동기화, 수락 ID/run 고정·중복 처리·speak 성공 후 첫 동작 게이트를 확인해야 합니다.** 단일 발행자의 idle 상태를 관측했다는 사실은 C의 계약07 구현 준비를 증명하지 않습니다.
 
-[문서: 계약07 승인·E 원본 초안 준비] 일반 요청의 승인 범위는 [요구사항 정본](requirements.md#acceptance-tts-policy), 필드·타입·선택 여부는 [intent.schema.json](../contracts/intent.schema.json), 공동 원본 준비는 [ICD](interfaces.md#request-run-contract)를 참조합니다. C 소유 예시/문서 합류와 원본 검토·운영 연결은 아직 완료되지 않았습니다. 아래는 원본 준비와 실제 발신/수신 연결의 구분이며 새 enum·기한은 추가하지 않습니다.
+[운영 보류 경계] `_request_run_connected()`는 현재 `False`를 반환하는 명시적 TODO(E/C) 경계입니다. 설정을 true로 바꿔도 실행 요청 발행·C 상태 수락/완료 상관·speak 액션 수락은 보류되며, 기존 Runner 경고·halt/cancel 관측은 유지합니다. 시험만 검증된 C 연결을 모의 주입합니다. 운영자가 설정만 바꿔 이 경계를 해제할 수 없습니다. C 실제 수락·첫 동작 게이트와 재기동/과거 결과 근거를 연결하는 후속 구현이 필요합니다.
 
-| 계약 초안의 전달 단계 | 합의할 내용·담당 |
-| :--- | :--- |
-| E 요청 → C 결정 | 현재 요청 식별과 검증 문장의 불변 연결, 중복 요청 처리, 실제 수락/거절/보류의 상관 근거. 공개 한 위치·기존 입력 호환은 계약07 승인에 따라 E 원본에 반영했습니다. 현재 `_voice.request_id`는 로컬 진단 ID이며 공개 두 필드 발신은 미구현입니다 |
-| C 결정 → 현재 run → E 재생 | 해당 요청에 대한 C 반환 run과 결과의 상관, 기존 상태의 boot 변경 감지·과거 상태·단절·재시작 처리. 일반 요청 payload의 boot 추가 구현은 없으며 [최소 범위 결정](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104884879)에 맞춰 후속 계약을 대조합니다 |
-| E 재생 → C 첫 동작 | 실제 재생 완료와 성공/실패/취소를 현재 요청·run에 연결, timeout/실패/취소·안전 불충족의 차단, 성공 뒤 안전 재검사와 s2 중복 제거. C 소유 게이트·E 결과 연결 |
+[실측: Jazzy API 조사] 로봇과 무관한 임시 토픽 probe에서 필수 2인자 콜백은 정상 수신됐지만 metadata는 dict의 source_timestamp·received_timestamp·publication_sequence_number·reception_sequence_number 네 키뿐이었습니다. 최초 객체 속성 가정은 AttributeError, dict의 publisher_gid 조회도 KeyError였습니다. graph의 endpoint_gid는 조회됐으나 개별 표본 발신 근거로 전용하지 않았습니다. 지원되지 않는 GID 연결 코드는 제거했으며 같은 endpoint의 Runner 재기동 감지·영구 잠금·운영자 강제 재시작·새 boot/epoch 필드를 만들지 않았습니다. 실제 wrapper는 metadata를 C 수락/재기동 증거로 쓰지 않고 기존 경고 관측을 보존합니다.
 
-[문서: PR209 리뷰 후속] [C 리뷰](https://github.com/Jik-Kim/ready2go/pull/209#pullrequestreview-5481624730)의 세 항목은 현재 내부 준비와 실제 수락 경로의 차이입니다. 아래 대조로 운영 연결이나 계약 승인을 완료한 것은 아닙니다.
+[문장 수명] 발행 전에는 Session의 현재 질문/세대/변조 검사를 유지합니다. 발행한 사본의 문장은 C가 해당 요청에 연결해 사용하며 E의 시험용 `consume_acceptance_text`를 C 수락 증거로 사용하지 않습니다. 캐시나 latched 상태로 소비 권한을 복원하지 않습니다. PR207–209의 초기 내부 준비는 main 이력으로 상속했습니다.
 
-| 후속 항목 | 확인된 현행 구현 | 별도 합의·연결 대상 |
-| :--- | :--- | :--- |
-| 발행 뒤 문장 보관 | `Session.text()`·`audio()`는 진입 때마다 이전 문장을 지웁니다. C 수락 대기 중 다른 비실행 발화도 Session을 거치면 내부 보관이 사라집니다. 노드의 제어 경로는 epoch/세대를 무효화하며 운영 소비 호출자는 없습니다. | C가 전달받은 검증 문장을 요청별로 보관하는 안과 E의 보관·소비 경계를 대조해야 합니다. 이 PR에서 소비 검사를 제거하거나 보관 기한을 추가하지 않았습니다. |
-| 공개 요청 ID | `_voice.request_id`는 큐부터 진단까지 연결하는 내부 값이며 `_publish`가 `_voice`를 제외합니다. | 계약07에서 최상위 위치·스키마 선택·E 실행 요청 포함·P1 누락 호환을 승인했습니다. E 원본 초안에 반영했으며 C 원본 검토·운영 발신 연결은 후속입니다. source 후보는 철회했습니다. |
-| 질문과 수락 문장 만료 | `consume_acceptance_text()`도 `valid_context()`를 호출합니다. 현재 질문 후속 응답은 소비 시점의 `question_expires`를 넘으면 반환되지 않습니다. 발행 전 유효해도 C 수락 전 만료될 수 있습니다. | 발행 전 질문 응답 권한과 C 수락 뒤 문장 사용 권한의 수명·담당을 구분해 합의해야 합니다. 현행 만료 검사는 유지합니다. |
-
-[문서: 별도 선행] [최소 계약 범위 결정](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104884879)을 참조해 후속 초안을 좁히며, 일반 요청의 boot/run/halt/question/token 추가 생성은 이번 구현에 없습니다. C의 [등록 만료 보완](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104802923)과 B 실제 안전 검사는 별도 선행입니다. `remaining=0`인 등록 표기를 유효 ACK로 간주하거나 E가 만료 알림을 만들어 우회하지 않습니다. D 연구 문서 인계는 여전히 반영 미확인입니다.
-
-[미완료] 계약07의 C 소유 원본/예시·공동 ICD를 같은 PR에 합류하고 E 승인과 C 원본 검토를 대조해야 합니다. 실제 발신/수신 핸들러 연결·모의는 별도 운영 작업입니다. 해당 통합에서 수락 전 음성0·수락 후 동일 문장1회·실패/취소/단절/과거 결과의 첫 동작0·C 안전 재검사·중복 s2 음성0을 확인해야 합니다. 내부 소비 시험은 이 통합 완료 조건을 대신하지 않습니다. B/A/D·공개 계약·태스크·설정·기존 `/voice/speak` 운영 처리와 PR207은 이번 변경 대상에서 제외합니다.
+[검증·미완료] E core 및 실제 노드 메서드 모의는 공개 payload, 실제 수락 상관, 중복/충돌/빠른 완료, 실패/취소, 명시 연결 무효화 뒤 과거 run 차단, 미결정/진행 run의 후속 요청 덮어쓰기 방지, 근거 누락 보류와 halt 경고, evaluation/P1 보존을 검사합니다. PCM 형태의 시험 반환은 제어 흐름 검사이며 실제 청취 증거가 아닙니다. C 운영 수신·first gate, 실음성·로봇·실물 AC와 relay 재기동은 미검증입니다. #43 confirm·#152 새 wire·부분 결과·#150 목표 발행은 이번에 연결하지 않습니다.

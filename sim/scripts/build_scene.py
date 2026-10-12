@@ -29,9 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 DIM = yaml.safe_load((ROOT / "sim/drawer_dimensions.yaml").read_text(encoding="utf-8"))
 CAL = yaml.safe_load((ROOT / "config/calibration/calibration_meta.yaml").read_text(encoding="utf-8"))
 # 시험용: 가짜 tf 로 확인할 때 READY2GO_PLACES(대체 places.yaml), READY2GO_SCENE(출력 경로)를 지정한다. 지정하지 않으면 정본 파일.
-PLACES = yaml.safe_load(Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml")).read_text(encoding="utf-8"))
+PLACES_PATH = Path(os.environ.get("READY2GO_PLACES", ROOT / "config/places.yaml"))
+PLACES_BYTES = PLACES_PATH.read_bytes()
+PLACES = yaml.safe_load(PLACES_BYTES)
 OUT = Path(os.environ.get("READY2GO_SCENE", ROOT / "sim/scenes/ready2go_t1.usd"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scene_record  # noqa: E402
 from _dims import cabinet_missing, cabinet_pose_from_tf, drawer_frame_tf, drawer_tf, quat_to_R, tray_pose_from_drawer  # noqa: E402
 ROBOT_REL = "../assets/m0609_camera_cube/m0609_camera_cube.usd"
 
@@ -113,10 +116,7 @@ def box(stage, path, size, center, color, collide=True):
     return prim
 
 
-HANDOVER_FINGER_M = 0.010    # [추정] interior_m 은 닫힌 손끝 "중심"이 닿는 범위 → 실제 바닥은 손가락 반 두께만큼 넓다고 봄
-HANDOVER_RIM_OUT_M = 0.0158  # [실측 B 10/05] 벽 윗면 중심이 바닥 끝(손끝 범위)에서 바깥으로 15.8 mm (서동권 쪽 벽). 네 벽 같다고 봄 [추정]
-HANDOVER_WALL_T = 0.004      # [추정]
-HANDOVER_CORNER_R = 0.012    # [추정] 모서리 둥글기 반경 (안쪽 면, 바닥 기준). 보이는 형상에만 씀
+HANDOVER_CORNER_R = 0.003    # 벽 직각 트레이 모서리 둥글기 반경 (안쪽 면). 보이는 형상에만 씀
 
 
 def _round_rect(d, w, e, r, z, k=10):
@@ -165,31 +165,28 @@ def rounded_tray_visual(stage, path, d, w, h, lo, hi, t, r, col):
 
 
 def handover_tray(stage):
-    """전달 트레이(places.yaml handover_zone). 형상은 sim/drawer_dimensions.yaml trays.handover_zone (벽 직각 [사용자 실측 10/11]),
-    값이 없으면 예전 사다리꼴(위로 갈수록 넓어짐). 좌표계 원점 = 앞쪽 오른쪽 바닥 모서리(손끝 범위),
-    바닥면 z = 0. 벽은 바닥 끝(손끝 범위 − HANDOVER_FINGER_M)에서 윗면(− HANDOVER_RIM_OUT_M, 높이 h)까지 기운 판. 고정 물체(충돌만)."""
+    """전달 트레이. 위치는 places.yaml handover_zone.tf, 안쪽 바닥 범위는 같은 곳의 floor_m(비전 inspect_region 과 같은 값 — 한 곳),
+    높이는 interior_m[2](바닥→테두리 윗면), 벽·바닥 두께만 sim/drawer_dimensions.yaml trays.handover_zone.wall_cm (벽 직각 [사용자 실측 10/11]).
+    벽 안쪽 면 = floor_m 경계, 바깥 면 = 거기서 벽 두께 바깥. interior_m x·y 는 놓기 범위라 형상에 쓰지 않는다. 고정 물체(충돌만)."""
     hz_ = PLACES.get("handover_zone") or {}
-    tf, inner = hz_.get("tf"), hz_.get("interior_m")
-    if not tf or not tf.get("translation_m") or not inner:
-        return "만들지 않음 (places.yaml handover_zone tf·interior_m 없음)"
-    d, w, h = (float(v) for v in inner)
-    m, o, t, r = HANDOVER_FINGER_M, HANDOVER_RIM_OUT_M, HANDOVER_WALL_T, HANDOVER_CORNER_R
+    tf, fl, inner = hz_.get("tf"), hz_.get("floor_m"), hz_.get("interior_m")
     shape = (DIM.get("trays") or {}).get("handover_zone") or {}
-    if shape.get("walls") == "vertical" and shape.get("wall_cm"):       # 새 트레이: 벽이 바닥 끝에서 곧게 올라감, 모서리는 거의 각짐
-        o, t, r = m, float(shape["wall_cm"]) * CM, 0.003
+    if not tf or not tf.get("translation_m"):
+        return "만들지 않음 (places.yaml handover_zone tf 없음)"
+    if not fl or not inner or inner[2] is None or not shape.get("wall_cm"):
+        return "만들지 않음 (places.yaml handover_zone floor_m·interior_m[2] 또는 sim/drawer_dimensions.yaml trays.handover_zone.wall_cm 없음)"
+    (x0, x1), (y0, y1) = fl["x"], fl["y"]
+    t, r, h = float(shape["wall_cm"]) * CM, HANDOVER_CORNER_R, float(inner[2])
+    d, w = x1 - x0, y1 - y0
     root = "/World/workspace/handover_tray"
     xform(stage, root, pose(tf["translation_m"], tf["quaternion_xyzw"]))
     col = (0.35, 0.45, 0.7)
-    hidden = [box(stage, f"{root}/floor", (d + 2 * m, w + 2 * m, t), (d / 2, w / 2, -t / 2), col)]   # 충돌용 (보이는 건 아래 둥근 메시)
-    slant = o - m                                                       # 높이 h 동안 바깥으로 벌어지는 거리
-    ang = math.atan2(slant, h)
-    # 벽 = 사다리꼴 판(아래 변은 바닥 끝, 위 변은 윗면 위치, 모서리에서 이웃 벽과 맞닿음) — 안쪽 면 4점 + 바깥으로 두께 t
-    lo, hi = m, o                                                       # 바닥 끝·윗면이 손끝 범위 끝에서 바깥으로 나간 거리
-    walls = {
-        "wall_near": ([(-lo, -lo, 0), (-lo, w + lo, 0), (-hi, w + hi, h), (-hi, -hi, h)], (-1, 0)),
-        "wall_far": ([(d + lo, -lo, 0), (d + lo, w + lo, 0), (d + hi, w + hi, h), (d + hi, -hi, h)], (1, 0)),
-        "wall_right": ([(-lo, -lo, 0), (d + lo, -lo, 0), (d + hi, -hi, h), (-hi, -hi, h)], (0, -1)),
-        "wall_left": ([(-lo, w + lo, 0), (d + lo, w + lo, 0), (d + hi, w + hi, h), (-hi, w + hi, h)], (0, 1)),
+    hidden = [box(stage, f"{root}/floor", (d + 2 * t, w + 2 * t, t), ((x0 + x1) / 2, (y0 + y1) / 2, -t / 2), col)]   # 충돌용 (보이는 건 아래 메시)
+    walls = {                                                           # 안쪽 면 4점 + 바깥 법선 방향으로 두께 t
+        "wall_near": ([(x0, y0, 0), (x0, y1, 0), (x0, y1, h), (x0, y0, h)], (-1, 0)),
+        "wall_far": ([(x1, y0, 0), (x1, y1, 0), (x1, y1, h), (x1, y0, h)], (1, 0)),
+        "wall_right": ([(x0, y0, 0), (x1, y0, 0), (x1, y0, h), (x0, y0, h)], (0, -1)),
+        "wall_left": ([(x0, y1, 0), (x1, y1, 0), (x1, y1, h), (x0, y1, h)], (0, 1)),
     }
     for nm, (inner_pts, (nx, ny)) in walls.items():
         pts = [Gf.Vec3f(*q) for q in inner_pts] + [Gf.Vec3f(q[0] + nx * t, q[1] + ny * t, q[2]) for q in inner_pts]
@@ -204,9 +201,21 @@ def handover_tray(stage):
         hidden.append(mesh.GetPrim())
     for prim in hidden:                                                  # 충돌만 하고 화면에는 안 보임
         UsdGeom.Imageable(prim).MakeInvisible()
-    rounded_tray_visual(stage, f"{root}/visual", d, w, h, lo, hi, t, r, col)
-    return (f"{root} 바닥 {(d + 2 * m) * 1000:.0f}×{(w + 2 * m) * 1000:.0f} mm, 윗면 {(d + 2 * o) * 1000:.0f}×{(w + 2 * o) * 1000:.0f} mm, "
-            f"높이 {h * 1000:.0f} mm (벽 기울기 {math.degrees(ang):.1f}°), 원점 {tf['translation_m']}")
+    xform(stage, f"{root}/visual_frame", pose([x0, y0, 0.0], [0.0, 0.0, 0.0, 1.0]))   # 보이는 메시는 0~d·0~w 기준이라 floor_m 시작점으로 옮김
+    rounded_tray_visual(stage, f"{root}/visual_frame/visual", d, w, h, 0.0, 0.0, t, r, col)
+    return (f"{root} 안쪽 바닥(floor_m) {d * 1000:.0f}×{w * 1000:.0f} mm, 바깥 {(d + 2 * t) * 1000:.0f}×{(w + 2 * t) * 1000:.0f}×{(h + t) * 1000:.0f} mm, "
+            f"벽 {t * 1000:.0f} mm, 놓기 범위(interior_m) {inner[0]}×{inner[1]} m, 원점 {tf['translation_m']}")
+
+
+def _code_sha() -> str:
+    """씬을 만든 저장소 코드 SHA(짧게). 커밋 안 된 변경이 있으면 +dirty. git 이 없으면 unknown."""
+    import subprocess
+    try:
+        sha = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--", "sim", "config"], capture_output=True, text=True).stdout.strip()
+        return sha + ("+dirty" if dirty else "")
+    except Exception:
+        return "unknown"
 
 
 def build():
@@ -395,8 +404,11 @@ def build():
             frame_marker(stage, f"/World/workspace/markers/{key}", pose(ft[0], ft[1]))
             markers.append(key)
 
+    rec = scene_record.build_record(PLACES, PLACES_BYTES, _code_sha(), str(PLACES_PATH))   # 생성 설정 — 재생기가 연 USD 의 이 기록과 궤적을 대조 (#215)
+    stage.GetRootLayer().customLayerData = {scene_record.RECORD_KEY: scene_record.dumps(rec)}
     OUT.parent.mkdir(parents=True, exist_ok=True)
     stage.GetRootLayer().Export(str(OUT))
+    print(f"[build] 생성 설정 기록: 코드 {rec['code_sha']}, places sha256 {rec['places_sha256'][:12]} ({PLACES_PATH})", flush=True)
     print(f"[build] 저장: {OUT}", flush=True)
     print(f"[build] 작업대 x[{x_left:.3f},{x_right:.3f}] y[{y_bottom:.3f},{y_top:.3f}]", flush=True)
     if cabinet:

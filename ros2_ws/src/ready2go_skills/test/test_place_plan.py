@@ -86,7 +86,10 @@ def test_finger_wall_clearance_like_pick():
     half = plp.place_half_mm(LIP, OPEN, G["fingertip_outer_mm"], PL["footprint_margin_mm"])
     x = half[1] + 1.0                                       # 짧은 변 쪽이 앞 벽(x=0) — footprint 는 안
     assert plp.wall_reason(x, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is not None   # across 간섭 약 38 mm
-    assert plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
+    assert plp.wall_reason(INTERIOR[0] * 1000.0 - 40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None   # 안쪽 벽은 옆벽 표 그대로
+    # 손잡이 쪽 벽은 앞판이 높아 더 필요 [실측 PC2 10/11 front_across] — 40 mm 는 이제 거부, 52 mm 는 됨
+    assert "손잡이 쪽 벽" in plp.wall_reason(40.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G)
+    assert plp.wall_reason(52.0, 150.0, math.pi / 2, half, OPEN, INTERIOR, G) is None
 
 
 def test_side_wall_offset_widens_y_max():
@@ -188,3 +191,68 @@ def test_ontology_support_uses_heights_of_objects_underneath():
     assert plp.ontology_support_m(target=ca, objects=[er, ca], size_of=sizes.get) is None             # 밑에 없음 (지우개는 위)
     far = dict(ca, pose={"position": [0.20, 0.25, 0.0], "yaw": 0.0})
     assert plp.ontology_support_m(target=er, objects=[er, far], size_of=sizes.get) is None
+
+
+def test_ontology_support_uses_occlusion_relation_when_top_z_bleeds():
+    """[실측 PC2 10/11 분할 모델] 몽키 위 캐러멜 위 차키: 캐러멜 top_z 54.6(실제 37, 마스크 번짐) ≈ 차키 55.5 — 높이 순서로는 밑인지 모름.
+    분할 관계(캐러멜 occluded_by 에 차키, 몽키 occluded_by 에 캐러멜)가 있으면 그걸로 → 받침 37."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "toy_wrench": [0.17, 0.061, 0.0185], "car_key": [0.0695, 0.039, 0.0158]}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0555, "occluded_by": [], "pose": {"position": [0.1119, 0.1961, 0.0], "yaw": 1.5679}}
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0546, "occluded_by": ["car_key#1"],
+           "pose": {"position": [0.1397, 0.1741, 0.0], "yaw": -1.5647}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.030, "occluded_by": ["caramel_box#1"],
+          "pose": {"position": [0.1221, 0.1913, 0.0], "yaw": 0.0}}
+    assert plp.ontology_support_m(target=key, objects=[key, car, wr], size_of=sizes.get) == pytest.approx(0.037)
+    assert {o["id"] for o in plp.objects_under(target=key, objects=[key, car, wr], size_of=sizes.get)} == {"caramel_box#1", "toy_wrench#1"}   # 둘 다 밑 (이웃 확인에서 뺌)
+
+
+def test_objects_under_when_all_stack_tops_bleed_to_the_top():
+    """[실측 PC2 10/11 분할 모델] 3단 윗면이 몽키 53.7·캐러멜 54·차키 53.7 로 비슷 + 관계 없음 → 캐러멜이 '손가락 자리 이웃'으로 NEIGHBOR_TOO_CLOSE.
+    차키 위에 아무것도 없고(occluded_by []) 가운데 밑 물체 윗면이 10 mm 안이면 밑에 깔린 것. 차키 위에 얹힌 물체·높이 차가 확실히 높은 물체는 아님."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "toy_wrench": [0.17, 0.061, 0.0185], "car_key": [0.0695, 0.039, 0.0158],
+             "cover_plate": [0.0985, 0.0742, 0.0405], "lip_balm": [0.0718, 0.02, 0.02]}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0537, "occluded_by": [], "pose": {"position": [0.12, 0.19, 0.0], "yaw": 1.57}}
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.054, "occluded_by": [], "pose": {"position": [0.135, 0.175, 0.0], "yaw": -1.5}}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0537, "occluded_by": [], "pose": {"position": [0.1333, 0.1573, 0.0], "yaw": -1.19}}
+    assert {o["id"] for o in plp.objects_under(target=key, objects=[key, car, wr], size_of=sizes.get)} == {"caramel_box#1", "toy_wrench#1"}
+    unknown = dict(key, occluded_by=None)                               # 관계 모름이면 높이 차로만 → 못 찾음 (모름을 받침으로 바꾸지 않음)
+    assert plp.objects_under(target=unknown, objects=[unknown, car, wr], size_of=sizes.get) == []
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.020, "occluded_by": [], "pose": {"position": [0.11, 0.15, 0.0], "yaw": 0.0}}
+    cov = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.035, "occluded_by": [], "pose": {"position": [0.11, 0.16, 0.0], "yaw": 0.0}}
+    assert plp.objects_under(target=lip, objects=[lip, cov], size_of=sizes.get) == []          # 덮개가 15 mm 높음 — 받침 아님
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.028, "occluded_by": ["cover_plate#1"], "pose": {"position": [0.11, 0.16, 0.0], "yaw": 0.0}}
+    assert plp.objects_under(target=er, objects=[er, cov], size_of=sizes.get) == []           # 위에 얹힌 덮개는 받침 아님
+
+
+def test_objects_under_ambiguous_height_never_takes_smaller_object_above():
+    """높이로 못 가르는 3단에서 몽키(맨 아래)를 목표로 하면, 그 위 캐러멜(더 작음)을 받침으로 보지 않음."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "toy_wrench": [0.17, 0.061, 0.0185]}
+    wr = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0537, "occluded_by": [], "pose": {"position": [0.13, 0.17, 0.0], "yaw": -1.5}}
+    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.054, "occluded_by": [], "pose": {"position": [0.135, 0.175, 0.0], "yaw": -1.5}}
+    assert plp.objects_under(target=wr, objects=[wr, car], size_of=sizes.get) == []
+
+
+def test_objects_under_relation_still_needs_target_inside_footprint():
+    """[A #216] 관계(occluded_by)는 높이 조건만 대신 — 목표 가운데가 o footprint(+5 mm) 밖이면 받침 아님.
+    가장자리에 걸려 덜 보인 옆 물체의 헛관계로 이웃 확인이 빠지지 않게. 끝에 걸친 차키(밖 3.2 mm [실측 PC2 10/11])는 받침."""
+    sizes = {"caramel_box": [0.075, 0.049, 0.0185], "car_key": [0.0695, 0.039, 0.0158]}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0555, "occluded_by": [], "pose": {"position": [0.10, 0.15, 0.0], "yaw": 0.0}}
+    side = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0546, "occluded_by": ["car_key#1"],
+            "pose": {"position": [0.10, 0.10, 0.0], "yaw": 0.0}}                 # 목표 가운데가 짧은 변 쪽 밖 25.5 mm — 옆
+    assert plp.objects_under(target=key, objects=[key, side], size_of=sizes.get) == []
+    edge = dict(side, pose={"position": [0.10, 0.1213, 0.0], "yaw": 0.0})      # 밖 4.2 mm — 끝에 걸침
+    assert [o["id"] for o in plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get)] == ["caramel_box#1"]
+    assert plp.objects_under(target=key, objects=[key, edge], size_of=sizes.get, relation_margin_m=0.0) == []
+
+
+def test_same_place_within_tolerance_and_yaw_symmetric():
+    """[사용자 10/12] 기울여 집은 물체를 원래 자리로 되돌릴 때만 기울여 놓음 — 위치 tol_mm·각도 tol_deg(180° 대칭) 안."""
+    back = {"position": [0.0097, 0.1539], "yaw": 1.5625}
+
+    def ok(x, y, yaw):
+        return plp.same_place({"position": [x, y, 0.0], "yaw": yaw}, back, tol_mm=3.0, tol_deg=5.0)
+    assert ok(0.0097, 0.1539, 1.5625) and ok(0.0117, 0.1559, 1.5625 + 0.08)
+    assert ok(0.0097, 0.1539, 1.5625 - math.pi)                       # 180° 돌린 같은 자세
+    assert not ok(0.0137, 0.1539, 1.5625) and not ok(0.0097, 0.1539, 1.5625 + 0.1)
+    assert not plp.same_place({"position": [float("nan"), 0.0], "yaw": 0.0}, back, tol_mm=3.0, tol_deg=5.0)
+    assert not plp.same_place({}, back, tol_mm=3.0, tol_deg=5.0)

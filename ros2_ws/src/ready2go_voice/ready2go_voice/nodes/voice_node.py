@@ -22,7 +22,8 @@ from ..core.session import VoiceSession
 from ..core.tts_prefill import prefill_texts, remember_text
 from ..core.diagnostics import DiagnosticFile, redact
 from ..core.response import final_response
-from ..core.runner_notice import RunnerNoticePolicy
+from ..core.runner_notice import RunnerNoticePolicy, Notice
+from ..core.request_run import RequestRun
 from ..adapters.api import LangChainIntent, WhisperSTT
 from ..adapters.audio import Recorder, WakeAudio
 from ..adapters.tts import create_tts
@@ -41,6 +42,10 @@ class VoiceNode(Node):
         # 시작 시 ROS bool 파라미터 > YAML. 미지정 기본은 false입니다.
         evaluation = self.declare_parameter('evaluation_mode', False).value
         self.cfg = load_config(path, evaluation_mode=evaluation)
+        request_run = self.declare_parameter('request_run_enabled', self.cfg['request_run_enabled']).value
+        if not isinstance(request_run, bool):
+            raise ValueError('request_run_enabled: bool 필요')
+        self.cfg['request_run_enabled'] = request_run
         self.cfg['diagnostic_detail'] = self.declare_parameter('diagnostic_detail', self.cfg['diagnostic_detail']).value
         self.local_context = threading.local()
         self.diagnostic_file = DiagnosticFile(self.cfg, self.get_logger().warning) if self.cfg['diagnostic_detail'] else None
@@ -68,6 +73,7 @@ class VoiceNode(Node):
         self.generation = 0
         self.request_cancel = threading.Event()
         self.notice_policy = RunnerNoticePolicy()
+        self.request_run = RequestRun()
         self.notice_condition = threading.Condition()
         self.pending_notice = None
         self.notice_cancel = threading.Event()
@@ -79,7 +85,7 @@ class VoiceNode(Node):
                                                      callback_group=group)
         status_qos = QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                 reliability=ReliabilityPolicy.RELIABLE)
-        self.status_subscription = self.create_subscription(String, '/runner/status', self._runner_status,
+        self.status_subscription = self.create_subscription(String, '/runner/status', self._runner_status_with_info,
                                                             status_qos, callback_group=MutuallyExclusiveCallbackGroup())
         self.server = ActionServer(self, Skill, '/voice/speak', execute_callback=self._speak,
                                    goal_callback=self._goal, cancel_callback=lambda _: CancelResponse.ACCEPT,
@@ -93,7 +99,8 @@ class VoiceNode(Node):
             self.listener = threading.Thread(target=self._listen, daemon=True)
             self.listener.start()
         self._diagnostic({'event': 'ready', 'evaluation_mode': self.cfg['evaluation_mode'],
-                          'audio_enabled': self.cfg['audio_enabled']})
+                          'audio_enabled': self.cfg['audio_enabled'],
+                          'request_run_enabled': self.cfg['request_run_enabled']})
 
     def _diagnostic(self, doc):
         value = dict(doc)
@@ -129,6 +136,9 @@ class VoiceNode(Node):
             'recording_held': f"녹음 보류: {doc.get('reason', '')}",
             'audio_unavailable': f"음성 장치/모델 오류: {doc.get('error_type', '')}",
             'processing_failed': f"처리 실패: {doc.get('error_type', '')}",
+            'request_accepted': 'Runner 요청 수락 확인',
+            'request_decided': 'Runner 요청 보류·거절 확인',
+            'request_completed': 'Runner 완료 확인 · 음성 안내 대기',
             'request_canceled': '취소: 실행 보류', 'request_duplicate': '중복: 실행 보류',
         }
         timing = doc.get('timing', {})
@@ -154,26 +164,51 @@ class VoiceNode(Node):
         if event in messages and event not in hidden:
             self.get_logger().info(redact(messages[event]).replace('\n', ' '))
 
+    def _runner_status_with_info(self, message, info):
+        # Jazzy 실제 metadata(시각/sequence)는 C 수락·재기동 근거를 대신하지 않습니다.
+        self._runner_status(message)
+
+    def _request_run_connected(self):
+        # TODO(E/C): 실제 수락 및 재기동/과거 결과 근거를 제공하는 C 연결 구현.
+        # 현재 Jazzy MessageInfo에는 sample publisher GID가 없으며 graph는 대체 증거가 아닙니다.
+        return False
+
     def _runner_status(self, message):
         # 관측 상태 전환과 질문 무효화는 발행 게이트와 같은 E 로컬 lock으로 직렬화합니다.
-        # 실제 C 수락과 요청 상관 여부를 확정하는 계약은 아닙니다.
+        # P1 경고는 유지하고 opt-in 요청만 실제 C 수락/결과에 연결합니다.
         with self.submit_lock:
             with self.notice_condition:
+                events = []
+                if self.cfg.get('request_run_enabled', False) and self._request_run_connected():
+                    try:
+                        status = json.loads(message.data)
+                    except (ValueError, TypeError):
+                        return
+                    events = self.request_run.observe(status)
                 previous = self.notice_policy.revision
                 notice = self.notice_policy.observe(message.data)
+                if (not notice and not self.notice_policy.blocked
+                        and any(event['event'] == 'request_completed' for event in events)):
+                    self.notice_policy.revision += 1
+                    notice = Notice('completed', '요청한 작업을 완료했습니다.', 4,
+                                    self.notice_policy.revision)
+                for event in events:
+                    self._diagnostic(event)
                 if self.notice_policy.blocked:
+                    if self.cfg.get('request_run_enabled', False):
+                        self.request_run.invalidate()
                     self.normal_notice_cancel.set()
                 else:
                     self.normal_notice_cancel.clear()
                 if self.notice_policy.revision != previous:
                     self.notice_cancel.set()
                     self.pending_notice = notice
-                    if notice:
+                    if notice and notice.kind != 'completed':
                         self.warning_epoch += 1
                     self.notice_condition.notify_all()
                 if self.notice_policy.phase in ('running', 'halted') or self.notice_policy.blocked or notice:
                     self.session.conversation.invalidate()
-                if notice:
+                if notice and notice.kind != 'completed':
                     self.generation += 1
                     self.request_cancel.set()
 
@@ -211,6 +246,11 @@ class VoiceNode(Node):
             with self.submit_lock:
                 self.session.conversation.invalidate()  # status도 새 독립 요청입니다.
                 if control['intent'] == 'cancel':
+                    if self.cfg.get('request_run_enabled', False):
+                        self.request_run.invalidate()
+                        self.warning_epoch += 1
+                        self.notice_cancel.set()
+                        self.pending_notice = None
                     self.generation += 1
                     self.request_cancel.set()
             # 취소/상태 요청은 API 처리 큐 뒤에서 기다리지 않지만 로봇 제어는 C가 담당.
@@ -254,6 +294,13 @@ class VoiceNode(Node):
                         paused=lambda: self.stop_event.is_set() or generation != self.generation,
                         generation=generation, blocked=blocked, request_id=request_id) if kind == 'audio' else self.session.text(value, generation, blocked, request_id=request_id)
                 doc.setdefault('_voice', {})['request_id'] = self.local_context.request_id
+                with self.submit_lock:
+                    if not self.stop_event.is_set() and generation == self.generation:
+                        prepared = self.session.prepare_request_payload(
+                            doc, generation, request_id=request_id, blocked=runner_blocks(self))
+                        if prepared is not None:
+                            # Internal candidate only; _publish still strips _voice.
+                            doc['_voice']['prepared_request'] = prepared
                 self._diagnostic({'event': 'interpretation', 'intent': doc})
                 self._deliver(doc, generation)
             except Exception as exc:
@@ -279,8 +326,9 @@ class VoiceNode(Node):
         source = doc['source']
         text = doc.get('_voice', {}).get('final_text') or final_response(self.parser, doc)
         self._diagnostic({'event': 'final_response', 'text': text, 'intent': doc})
+        request_run = self.cfg.get('request_run_enabled', False) and doc['intent'] == 'find_item'
         speak = doc['intent'] in ('unknown', 'clarify') or (
-            doc['intent'] == 'find_item' and self.cfg['confirmation_enabled'])
+            doc['intent'] == 'find_item' and self.cfg['confirmation_enabled'] and not request_run)
         if speak:
             try:
                 normal_cancel = getattr(self, 'normal_notice_cancel', None)
@@ -332,11 +380,28 @@ class VoiceNode(Node):
                 self._diagnostic({'event': 'request_held', 'reason': 'runner_busy_or_locked', 'intent': doc, 'published': False})
                 return
             published = self.session.should_publish(doc)
+            payload = doc
+            if published and request_run:
+                payload = self.session.prepare_request_payload(
+                    doc, generation, request_id=doc.get('_voice', {}).get('request_id'),
+                    blocked=runner_blocks(self))
+                if (not self._request_run_connected() or payload is None
+                        or not self.request_run.register(payload)):
+                    self._diagnostic({'event': 'request_held', 'reason': 'request_run_unconfirmed',
+                                      'published': False})
+                    return
+                with self.notice_condition:
+                    self.notice_cancel.set()
+                    self.notice_policy.revision += 1
+                    if self.pending_notice and self.pending_notice.kind == 'completed':
+                        self.pending_notice = None
             if published:
                 try:
-                    self._publish(doc)
+                    self._publish(payload)
                     self.session.mark_published(doc)
                 except Exception as exc:
+                    if request_run:
+                        self.request_run.invalidate()
                     self.session.conversation.invalidate()
                     self._diagnostic({'event': 'publish_failed', 'intent': doc, 'error_type': type(exc).__name__, 'published': False})
                     return
@@ -390,6 +455,9 @@ class VoiceNode(Node):
             self._diagnostic({'event': 'audio_unavailable', 'error_type': type(exc).__name__})
 
     def _goal(self, request):
+        if (self.cfg.get('request_run_enabled', False)
+                and not self._request_run_connected()):
+            return GoalResponse.REJECT
         normal_cancel = getattr(self, 'normal_notice_cancel', None)
         if normal_cancel is not None and normal_cancel.is_set(): return GoalResponse.REJECT
         try:
@@ -410,8 +478,11 @@ class VoiceNode(Node):
         epoch = getattr(self, 'goal_warning_epoch', getattr(self, 'warning_epoch', 0))
         def warning_changed():
             normal_cancel = getattr(self, 'normal_notice_cancel', None)
-            return ((normal_cancel is not None and normal_cancel.is_set())
-                    or epoch != getattr(self, 'warning_epoch', 0))
+            return (self.stop_event.is_set()
+                    or (normal_cancel is not None and normal_cancel.is_set())
+                    or epoch != getattr(self, 'warning_epoch', 0)
+                    or (self.cfg.get('request_run_enabled', False)
+                        and not self._request_run_connected()))
         def watch():
             while not done.wait(.02):
                 if goal.is_cancel_requested or self.stop_event.is_set() or warning_changed():
@@ -430,6 +501,17 @@ class VoiceNode(Node):
             self._diagnostic({'event': 'tts_finished', 'timing': dict(timing)})
             if cancel.is_set() or goal.is_cancel_requested or warning_changed():
                 raise InterruptedError('TTS_CANCELED')
+            if self.cfg.get('request_run_enabled', False):
+                import math
+                start = stamp.get('tts_started_monotonic') if isinstance(stamp, dict) else None
+                end = timing.get('playback_ended_monotonic')
+                if (not isinstance(stamp, dict) or stamp.get('tts_mock') is not False
+                        or stamp.get('tts_start_basis') != 'portaudio_first_dac'
+                        or timing.get('playback_end_basis') != 'portaudio_finished_callback'
+                        or any(isinstance(t, bool) or not isinstance(t, (int, float))
+                               or not math.isfinite(t) for t in (start, end))
+                        or end < start):
+                    raise RuntimeError('TTS_PLAYBACK_UNCONFIRMED')
             result.success = True
             result.output_json = json.dumps(stamp)
             goal.succeed()

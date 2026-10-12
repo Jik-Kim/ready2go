@@ -15,7 +15,8 @@ from ready2go_voice.core.intent import intent, IntentParser
 from ready2go_voice.core.session import VoiceSession
 from ready2go_voice.core.response import final_response
 from ready2go_voice.core.diagnostics import redact
-from ready2go_voice.core.runner_notice import RunnerNoticePolicy
+from ready2go_voice.core.runner_notice import RunnerNoticePolicy, Notice
+from ready2go_voice.core.request_run import RequestRun
 from ready2go_voice.core.tts_prefill import remember_text
 
 
@@ -26,7 +27,8 @@ def node_class():
     tree=ast.parse(source.read_text())
     tree.body=[n for n in tree.body if isinstance(n,ast.ClassDef) or isinstance(n,ast.FunctionDef) and n.name=='runner_blocks']
     namespace=dict(Node=object,json=json,queue=queue,threading=threading,time=time,uuid=uuid,
-                   intent=intent,final_response=final_response,redact=redact,remember_text=remember_text)
+                   intent=intent,final_response=final_response,redact=redact,remember_text=remember_text,
+                   Notice=Notice,RunnerNoticePolicy=RunnerNoticePolicy)
     exec(compile(tree,str(source),'exec'),namespace)
     return namespace['VoiceNode']
 
@@ -276,3 +278,217 @@ def test_internal_goal_console_diagnostics_only_no_tts_or_publish(node):
     assert '내부 평가' in final[0]['text']
     events = [d for d in node.diagnostics if d['event'] == 'intent']
     assert len(events) == 1 and events[0]['published'] is False
+
+
+def test_work_prepares_queue_bound_candidate_but_p1_publish_keeps_wire(node, node_class):
+    node.requests = queue.Queue()
+    node.requests.put(('text', '지우개 가져와', 0, 'actual-queue'))
+    node.busy = threading.Event()
+    node.local_context = threading.local()
+    docs = []
+    def deliver(doc, generation):
+        docs.append(doc)
+        node_class._deliver(node, doc, generation)
+        node.stop_event.set()
+    node._deliver = deliver
+    node_class._work(node)
+    prepared = docs[0]['_voice']['prepared_request']
+    assert prepared['request_id'] == 'actual-queue'
+    assert prepared['accept_text'] == docs[0]['_voice']['final_text']
+    # Use the actual serialization method, not the fixture's publishing stub.
+    sent = []
+    node.publisher = SimpleNamespace(publish=lambda msg: sent.append(json.loads(msg.data)))
+    node_class._publish.__globals__['String'] = SimpleNamespace
+    node_class._publish(node, node.published[0])
+    assert len(sent) == 1 and '_voice' not in sent[0]
+    assert 'request_id' not in sent[0] and 'accept_text' not in sent[0]
+    assert len(node.texts) == 1  # Existing P1 confirmation remains.
+
+
+@pytest.mark.parametrize('case', ['stale_generation', 'halted', 'evaluation', 'record_error', 'goal'])
+def test_work_never_prepares_unsafe_or_ineligible_public_candidate(node, node_class, case):
+    node.requests = queue.Queue()
+    node.busy = threading.Event()
+    node.local_context = threading.local()
+    if case == 'halted': node.observe('halted')
+    if case == 'evaluation': node.cfg['evaluation_mode'] = True
+    if case == 'stale_generation': node.generation = 1
+    value = '지우개 가져와'
+    kind = 'record_error' if case == 'record_error' else 'text'
+    if case == 'goal':
+        node.cfg['p2_goal_evaluation_enabled'] = True
+        value = '지우개를 아래 서랍에 넣어줘'
+    node.requests.put((kind, value, 0, 'queue-id'))
+    docs = []
+    def deliver(doc, generation):
+        docs.append(doc)
+        node.stop_event.set()
+    node._deliver = deliver
+    if case == 'stale_generation':
+        original_done = node.requests.task_done
+        node.requests.task_done = lambda: (original_done(), node.stop_event.set())
+    node_class._work(node)
+    assert not docs or 'prepared_request' not in docs[0].get('_voice', {})
+    assert not node.published and not node.texts
+
+
+@pytest.fixture
+def wire_node(node,node_class):
+    # C dependency injection for mocks only; production helper always holds.
+    node.cfg['request_run_enabled']=True
+    node.request_run=RequestRun()
+    node._request_run_connected=lambda:True
+    node.wire_status=lambda status:node_class._runner_status(node,SimpleNamespace(data=json.dumps(status)))
+    node.wire_status(dict(phase='idle',halt_code=None,last=None,last_intent=None))
+    return node
+
+
+def wire_request(node,request_id='queue1'):
+    return node.session.text('지우개 찾아줘',node.generation,request_id=request_id)
+
+
+def wire_result(request='queue1',run='run1',outcome='COMPLETED',phase='idle'):
+    return dict(phase=phase,task_id='find_item' if phase=='running' else None,halt_code=None,
+        last_intent=dict(intent='find_item',targets=['eraser'],request_id=request,run_id=run,decision='run'),
+        last=dict(task_id='find_item',run_id=run,overall_status=outcome,error_code=None))
+
+
+def test_wire_publication_has_trusted_fields_without_preacceptance_speech(wire_node):
+    doc=wire_request(wire_node)
+    wire_node.deliver(doc)
+    assert len(wire_node.published)==1 and not wire_node.texts
+    payload=wire_node.published[0]
+    assert payload['request_id']=='queue1'
+    assert payload['accept_text']==doc['_voice']['final_text']
+    assert '_voice' not in payload and wire_node.request_run.pending==payload
+
+
+def test_wire_fast_completed_status_is_once_and_same_run_only(wire_node):
+    wire_node.deliver(wire_request(wire_node))
+    wire_node.wire_status(wire_result())
+    assert wire_node.pending_notice.kind=='completed'
+    assert [d['event'] for d in wire_node.diagnostics if d['event'].startswith('request_')][-2:]==[
+        'request_accepted','request_completed']
+    wire_node.pending_notice=None
+    wire_node.wire_status(wire_result())
+    assert wire_node.pending_notice is None
+
+
+def test_wire_different_run_never_queues_completion(wire_node):
+    wire_node.deliver(wire_request(wire_node))
+    doc=wire_result();doc['last']['run_id']='old'
+    wire_node.wire_status(doc)
+    assert wire_node.request_run.run_id=='run1' and wire_node.pending_notice is None
+
+
+def test_wire_publish_failure_discards_local_connection(wire_node):
+    wire_node._publish=lambda _:(_ for _ in ()).throw(RuntimeError('publish failed'))
+    wire_node.deliver(wire_request(wire_node))
+    assert wire_node.request_run.pending is None
+    wire_node.wire_status(wire_result())
+    assert wire_node.pending_notice is None and not wire_node.texts
+
+
+
+
+
+
+def test_wire_evaluation_never_registers_or_publishes(wire_node):
+    wire_node.cfg['evaluation_mode']=True
+    wire_node.deliver(wire_request(wire_node))
+    assert not wire_node.published and wire_node.request_run.pending is None
+
+
+def test_wire_stop_clears_pending_and_completion(wire_node,node_class):
+    wire_node.deliver(wire_request(wire_node))
+    node_class._text(wire_node,SimpleNamespace(data='멈춰'))
+    wire_node.wire_status(wire_result())
+    assert wire_node.request_run.pending is None and wire_node.pending_notice is None
+    assert [d['intent'] for d in wire_node.published]==['find_item','cancel']
+
+
+def test_actual_subscription_uses_required_message_info_wrapper(node_class):
+    import inspect
+    signature=inspect.signature(node_class._runner_status_with_info)
+    with pytest.raises(TypeError):signature.bind(object(),object())
+    signature.bind(object(),object(),object())
+    source=Path(__file__).resolve().parents[1]/'ready2go_voice/nodes/voice_node.py'
+    tree=ast.parse(source.read_text())
+    calls=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
+           and n.func.attr=='create_subscription']
+    status_call=next(c for c in calls if any(isinstance(a,ast.Constant) and a.value=='/runner/status' for a in c.args))
+    assert status_call.args[2].attr=='_runner_status_with_info'
+
+
+@pytest.mark.parametrize('playback',['confirmed','noop','mock','failed','canceled'])
+def test_wire_speak_success_requires_pcm_completion(wire_node,node_class,playback):
+    # PCM-shaped mock proves control flow only, never real sound or C first motion.
+    namespace=node_class._speak.__globals__
+    namespace['Skill']=SimpleNamespace(Result=lambda:SimpleNamespace(success=False,error_code='',output_json=''))
+    outcomes=[]
+    goal=SimpleNamespace(request=SimpleNamespace(params_json=json.dumps({'text':'지우개를 가져올게요.'})),
+        is_cancel_requested=False,succeed=lambda:outcomes.append('success'),abort=lambda:outcomes.append('abort'),
+        canceled=lambda:outcomes.append('canceled'))
+    wire_node.goal_lock=threading.Lock();wire_node.goal_lock.acquire()
+    def speak(text,**kwargs):
+        if playback=='failed':raise RuntimeError('device failed')
+        if playback=='canceled':
+            goal.is_cancel_requested=True
+            raise InterruptedError('canceled')
+        if playback=='noop':return None
+        kwargs['on_timing'](dict(playback_ended_monotonic=2.,playback_end_basis='portaudio_finished_callback'))
+        return dict(tts_started_monotonic=1.,tts_start_basis='portaudio_first_dac',tts_mock=playback=='mock')
+    wire_node.tts=SimpleNamespace(speak=speak)
+    result=node_class._speak(wire_node,goal)
+    assert result.success is (playback=='confirmed')
+    assert outcomes==(['success'] if playback=='confirmed' else ['canceled'] if playback=='canceled' else ['abort'])
+    assert not wire_node.goal_lock.locked()
+
+
+@pytest.mark.parametrize('change',['disconnected','stop','cancel'])
+def test_inflight_wire_speak_cannot_succeed_after_transport_or_stop_change(wire_node,node_class,change):
+    node_class._speak.__globals__['Skill']=SimpleNamespace(Result=lambda:SimpleNamespace(success=False,error_code='',output_json=''))
+    outcomes=[]
+    goal=SimpleNamespace(request=SimpleNamespace(params_json=json.dumps({'text':'확인 안내'})),
+        is_cancel_requested=False,succeed=lambda:outcomes.append('success'),abort=lambda:outcomes.append('abort'))
+    wire_node.goal_lock=threading.Lock();wire_node.goal_lock.acquire()
+    def speak(text,**kwargs):
+        if change=='disconnected':wire_node._request_run_connected=lambda:False
+        elif change=='cancel':node_class._text(wire_node,SimpleNamespace(data='멈춰'))
+        else:wire_node.stop_event.set()
+        kwargs['on_timing'](dict(playback_ended_monotonic=2.,playback_end_basis='portaudio_finished_callback'))
+        return dict(tts_started_monotonic=1.,tts_start_basis='portaudio_first_dac',tts_mock=False)
+    wire_node.tts=SimpleNamespace(speak=speak)
+    result=node_class._speak(wire_node,goal)
+    assert not result.success and result.error_code=='CANCELED' and outcomes==['abort']
+
+
+
+
+def test_wire_pending_request_survives_second_request_and_releases_after_completion(wire_node):
+    wire_node.deliver(wire_request(wire_node))
+    second=wire_node.session.text('망치 좀',wire_node.generation,request_id='second')
+    wire_node.deliver(second)
+    assert len(wire_node.published)==1
+    assert wire_node.request_run.pending['request_id']=='queue1'
+    wire_node.wire_status(wire_result())
+    assert wire_node.pending_notice.kind=='completed'
+    third=wire_node.session.text('망치 좀',wire_node.generation,request_id='third')
+    wire_node.deliver(third)
+    assert [doc['request_id'] for doc in wire_node.published]==['queue1','third']
+    assert wire_node.request_run.pending['request_id']=='third'
+
+
+def test_unsupported_c_dependency_holds_opt_in_but_keeps_halt_warning(wire_node,node_class):
+    wire_node._request_run_connected=lambda:node_class._request_run_connected(wire_node)
+    wire_node._runner_status=lambda msg:node_class._runner_status(wire_node,msg)
+    wire_node.deliver(wire_request(wire_node))
+    assert not wire_node.published and not wire_node.texts and wire_node.request_run.pending is None
+    info=dict(source_timestamp=1,received_timestamp=2,publication_sequence_number=None,reception_sequence_number=None)
+    node_class._runner_status_with_info(wire_node,SimpleNamespace(data=json.dumps(wire_result())),info)
+    assert wire_node.request_run.run_id is None and wire_node.pending_notice is None
+    halted=dict(phase='halted',halt_code='ESTOP',task_id='find_item',last=None,last_intent=None)
+    node_class._runner_status_with_info(wire_node,SimpleNamespace(data=json.dumps(halted)),info)
+    assert wire_node.normal_notice_cancel.is_set() and wire_node.pending_notice.kind=='estop'
+    node_class._goal.__globals__['GoalResponse']=SimpleNamespace(REJECT='reject',ACCEPT='accept')
+    assert node_class._goal(wire_node,SimpleNamespace(params_json=json.dumps({'text':'수락 안내'})))=='reject'

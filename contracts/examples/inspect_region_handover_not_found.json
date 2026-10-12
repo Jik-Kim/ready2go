@@ -1,0 +1,29 @@
+{
+  "_note": "정상 미검출 — 지역 바닥이 region.visible_min_ratio 이상 보인 정상 관측에서 목표 없음 (트레이: C 가 사용자 확인 경로로, #43 결정). 물품·개수는 candidates·visible_count",
+  "success": true,
+  "error_code": "",
+  "result": {
+    "target_found": false,
+    "target": null,
+    "candidates": [
+      {
+        "id": "lip_balm#1",
+        "class": "lip_balm",
+        "pose": {
+          "frame": "handover_zone",
+          "position": [
+            0.069,
+            0.088,
+            0.0
+          ],
+          "yaw": 1.5523,
+          "yaw_valid": true
+        },
+        "top_z": 0.0198,
+        "occluded_by": [],
+        "visible_area_m2": 0.001611
+      }
+    ],
+    "visible_count": 1
+  }
+}

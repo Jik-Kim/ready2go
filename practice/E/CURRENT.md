@@ -3,9 +3,49 @@
 
 - **담당**: 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 (조장)
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
-- **최종 갱신**: 2026-10-11
+- **최종 갱신**: 2026-10-12
 
-## 공동 계약07 E 원본 초안 — E-C-REQUEST-RUN-WIRE-20261011-07
+## E 문서 정합성 정정 — 계약07/운영 연결·오디오 경계
+
+- [문서·코드] #221은 main에 병합됐고 C 소유 상태 예시·Runner 설명·ICD 구간과 원본 검토를 확인했습니다. E의 payload 후보·RequestRun 상관 로직은 #225에 포함됐지만 실제 C 런타임 수신·producer/source mapper·수락 후 첫 동작 연결은 미완료입니다. 실제 VoiceNode는 mapper 미설치 시 발행·speak 수락을 보류하며 설정 기본값은 `false`입니다.
+- [문서·코드] #227의 기본 VoiceNode 입력은 SharedInput의 RawInputStream을 WakeAudio·Recorder가 공유하고 fixed 녹음은 공유 프레임에서 기존 길이만 수집합니다. shared_input 없는 Recorder의 sd.rec→sd.wait 호환 경로도 구분합니다. fixed 5초·commissioning·임계값은 유지합니다.
+- [문서] 이 정합성 수정은 승인된 계약07 스키마/예시나 C 담당 구간을 수정하지 않습니다. 기준은 [FR-INT-02/03](../../docs/requirements.md#fr-int-02)·[FR-LOG-02](../../docs/requirements.md#fr-log-02)·[수락 TTS 정책](../../docs/requirements.md#acceptance-tts-policy)이며 policy/Phase/AC는 정본을 참조합니다.
+- [문서: 미검증] 실제 C producer/source mapper·운영 수락·첫 동작 연결은 미검증입니다. 최종 head 전체 로컬 CI 결과는 이 PR 본문에 기록합니다.
+
+## 계약07 E 요청 상관 로직·운영 보류 — E07-REQUEST-ACCEPT-COMPLETE-IMPLEMENT-20261011
+
+- [문서: 승인·Git] 조장 인간 turn `01a12983-fe9c-7ef0-8d57-efea3b4c3ecc`의 “진행하고 #43 구현사항 설명. 앞으로 하나 구현 -> PR 완료되면 다음 할 거 설명해”와 [계약07 승인](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594)을 직접 대조했습니다. 지정 branch `codex/e-request-accept-complete-20261011`은 PR218 `2545058`에서 시작했고 공동 계약221 `e9edaf8`을 merge `7ee59b0`으로 합류했습니다. 충돌3문서의 양쪽 이력과218준비를 보존했고 C 전체 운영 branch는 합류하지 않았습니다.
+- [구현: E 범위] Session/current payload 재검사, 소형 RequestRun, Voice node, cfg/YAML 기본false opt-in, 관련3시험, E 문서만 편집했습니다. 검증된 C 연결을 주입한 모의에서 큐 ID/문장을 발행하고 실제 run 결정·같은 run COMPLETED만 안내합니다. 수락 대기/진행 run을 후속 고유ID로 덮지 않으며 거절/종료/cancel 뒤 새 요청을 허용합니다. 실제 노드의 `_request_run_connected()`는 False인 TODO(E/C)로 실행 발행·수락/완료 상관·speak 수락을 보류하고 기존 P1/평가/목표 차단·halt/cancel 경고를 보존합니다. opt-in speak 로직은 실제 DAC/finished callback·non-mock·취소 검사 뒤에만 성공합니다.
+- [실측: 검증] 첫 관련3파일은 149 passed/3 skipped와 AST 시험 namespace 누락1실패, 보완 후154 passed/3 skipped였습니다. 이어 실제 Jazzy probe에서 info 객체 가정 AttributeError·dict publisher_gid KeyError를 확인했고 최종 probe는 실제4키 metadata/graph endpoint만 대조했습니다. 없는 GID 경로는 철회하고 graph를 표본 근거로 대체하지 않았습니다. 후속 요청 덮어쓰기 지적 수정·dict 모의8개 회귀를 좁게 확인했고, 최종 보류 경계/실metadata형태로 시험을 재정리한 관련3파일은149 passed/3 skipped입니다. 그 뒤 추가한 진행 중 명시 cancel 검사는 별도1 passed/79 deselected로 확인했습니다. 실물 결과로 합산하지 않습니다. 공동 계약 e9 전체 CI2262/39는 별도 head 결과이며 최종 운영 준비 stable HEAD CI를 한 번 실행해 PR 본문에 기록합니다.
+- [미완료·보존] C 실제 수락/중복/run 고정·speak first gate/안전 재검사·s2 중복 제거와 재기동/과거 결과 근거는 C 운영 선행입니다. 설정만 true로 바꿔 활성화하지 못하며 모의 수락과 실물 완료를 구분합니다. 새 timer/enum/boot/epoch·영구 잠금/강제 재시작·43/152/09/150 구현은 없습니다. 미추적 모델 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`과 기존refs를 보존합니다. PR 완료 후 다음 착수는 부모 설명/지시를 기다립니다.
+
+## PR218 최종217 기준선 상속 — E-PR218-BASE-SYNC-20261011
+
+- [문서: 범위] 기존 PR218 `6cdeceb80d8f3f033e7690fdcea14e20bc54afe5`에서 최종 PR217 `0bfda007345ebd77e6878de903b91bf5e1e465f1`을 정상 merge합니다. PR217의 main `41b456d` 이력·의미 충돌 seq 하한 차단·D/녹음 설명을 상속하며 기존218의 asked 전체 기한·trusted 요청 후보 준비와 시험을 보존합니다. 충돌은 CURRENT 한 구간이며 양쪽 기록을 모두 유지합니다. 이번 직접 편집은 이 동기화 기록뿐이고 새 정책·필드·운영 연결·#150 착수·타 담당 대리 수정은 없습니다.
+- [문서: 대조·검증] Session/node/skill_confirmation 및 대응 시험3개는 기존218과 동일하고 recovery core/직접 시험은 최종217과 동일함을 대조했습니다. 불변105 및 기존65/2291 검사를 반복하지 않으며 문서 파일 링크·공백·충돌 표식을 확인한 뒤 최종 HEAD 필수 전체 CI를 한 번 실행해 PR 본문에 기록합니다. 이전6c CI를 새 head 결과로 대신하지 않습니다. 보호 모델 해시와 기존217/07/207~209 refs는 유지합니다.
+- [미연결] 실제 C 수락/첫 동작·confirm/재개 수신/ACK/clock 대응·단계별 post_check E 전달, 실음성/ROS/로봇/실물 AC는 미완료입니다. 공동07 문장 정정과 #150 후속 큐는 별도로 보존합니다. 이 기록은 CI/push/게시 완료를 미리 주장하지 않습니다.
+
+## E trusted 요청 후보 연결 — E-P2-EXECUTION-20261011 후속
+
+- [구현: 범위] PR218 `a8e3c74faa4ebc7d4ee7fbc0b0c2065d08b36efa` 위 별도 후속 커밋으로 Session/node와 직접 시험2개·E 문서3개만 수정합니다. 실제 큐 ID와 검증 final_text·confidence·generation/epoch·원본 요청 객체를 대조해 분리된 후보를 만들고, LLM의 공개 ID/문장은 제거합니다. 실제 `_work`에서 취소/Runner 차단·평가/목표/중복 제한을 검사하고 `_voice.prepared_request`에만 둡니다. 준비는 문장을 소비하거나 C 수락/실행을 허가하지 않습니다.
+- [실측: 핵심 검증] Python3.12 변경 관련 두 파일 검사에서 273 passed 및 새 시험 구성 오류1건을 확인했고, 구성 오류 수정 후 해당 시험1 passed를 별도 확인했습니다(동일 실행 결과처럼 합산하지 않음). 실제 `_work`·`_publish` 메서드 모의로 기존 P1 wire에 후보 공개 필드가 섞이지 않음을 확인합니다. 사본 변조/원본 보존·다른 큐/요청/세대/epoch/confidence·소비 후 재사용·정지/평가/녹음 오류/목표 차단을 검사했습니다. 최종 HEAD 필수 CI가 전체 변경 시험을 포함합니다.
+- [미연결·보존] C 원본954의 confirm/재개 수신·ACK/clock 대응 및 단계별 post_check 결과 E 전달, 공동07의 실제 수락run/첫동작 게이트가 미연결입니다. s2/운영pub·C/B 코드·새wire/타이머/enum을 변경하지 않습니다. 기존 65 및 전체2273 결과는 재실행하지 않았으며 실음성/ROS/C수락/로봇·실물 AC는 미검증입니다. 보호 모델과 기존 refs는 보존합니다. 게시/CI 완료를 이 기록으로 미리 주장하지 않습니다.
+
+## E P2 실행 연결 준비 — E-P2-EXECUTION-20261011
+
+- [문서: 작업 위치] 인간의 작업 지시 세션 위임에 따라 지정된 `codex/e-p2-voice-integration-20261011`을 #217 `8a83b12`에서 생성하고 최종 #209 `f000c28`을 정상 merge했습니다(기준 `9bbe744f0d893ed7e29741ae8820ba1ec54dedbb`). CURRENT 양쪽 이력·#217 코드·D 한 문장/녹음 진단 정정을 보존하고 기존 07·207~209·217 ref는 변경하지 않습니다. 모델 이력은 기존 해시를 유지·커밋 제외합니다.
+- [구현: 독립 범위] PlaceConfirmation의 최초 asked 전체 구간을 호출자 입력으로 보존하고 재질문·재전송에 연장하지 않습니다. 최종 판정의 포함 경계·만료/중단·과거 질문 무변경을 검사합니다. 새 wire/enum·E 기본 전체 시간값·타이머·B/C 설정을 만들지 않습니다. 승인08·09는 정본 관련 구간에 반영하며 승인10 적용은 B/C 담당·운영 미확인으로 유지합니다.
+- [실측: 첫 핵심 검증] Python3.12 직접 test_e_verification_policy **65 passed**, 종료0입니다. 정확 100초/초과·재질문/중복·오래된 STT·정지·새 run·불변 비전 경로를 확인했습니다. 모의 시각/입력이며 실제 등록·음성·C effect/로그·실물 AC가 아닙니다.
+- [실제 blocker·소유] C 고정 원본 `954ed61`의 ROS 수신에는 confirm/재개 경로가 없고 `/runner/status.last`에 단계별 post_check 결과가 없습니다. E는 같은 run의 전달 성공을 전체 FAILED/오류만으로 추정하지 않습니다. C의 질문·응답 수신/ACK 및 검증 결과 발신 원본 확인을 작업 지시 세션에 요청했고 그 수신 위치가 확정되면 기존 notice/node 경로에 연결합니다. 07 문장 정정은 별도이며 이번 독립 준비 전체를 막지 않습니다. 최종 게시 HEAD CI·커밋/push/PR은 아직 실행하지 않았습니다.
+
+## PR217 순서 역행 리뷰 수정 — E-PR217-REVIEW-FIX-20261011
+
+- [문서: 기준선·소유] 기존218 `6cdeceb` 편집/게시 종료·추적 clean을 확인한 뒤 기존 `codex/e-p2-safety-trim-20261011`의 `8a83b12`로 전환했습니다. 원격 최신 main `41b456d118e1eec4d7e8b17955c04d58d02bc22f`를 정상 merge합니다. 전달 main `9b1b407` 이후 B216/219 이력은 이미 main에 포함된 변경이며 대신 편집하지 않습니다. CURRENT 충돌은 양쪽 이력을 보존하고 D 과거 기준 한 문장·녹음 진단 source/_voice 정정을 상속합니다. #218의 asked/core·trusted Session/node 변경과 공동07은 역합류하지 않습니다.
+- [구현: 리뷰] [리뷰 지적](https://github.com/Jik-Kim/ready2go/pull/217#discussion_r4240350283)에 따라 동일 boot/run/halt의 최신 신뢰 의미 충돌도 revision/sequences 하한에 기록한 뒤 기존 입력·현재 확인을 무효화합니다. 충돌 work는 채택하지 않고 seq 이하 상태/ACK의 재확인을 차단합니다. 정상 의미 고seq의 입력 보존, 잘못된 입력/미확인 ACK의 하한 불변·boot/종료 처리를 유지합니다. 직접 수정은 recovery core·직접 시험·voice_llm/VoiceREADME/CURRENT 5파일뿐이며 정본 정책·설정·wire·타 담당은 변경하지 않습니다.
+- [실측: 회귀] Python3.12 test_recovery_confirmation **105 passed**, 종료0. seq2→충돌4→과거3/4 거절·독립 요청 생성 불가·oldACK 거절, 고seq 유효 재확인·일회 소비, 정상seq 입력 보존·잘못된값의 하한 불변·boot/종료 회귀를 확인했습니다. 최종 안정 HEAD 전체 로컬 CI를 한 번 실행하고 본문·리뷰 답변에 결과를 기록합니다. 이전198/2257 결과로 이 head 검증을 대신하지 않습니다.
+- [미검증·보존] 실제 E-C ACK/clock/TTS timeout·마이크/API/ROS/로봇·실물 AC는 미검증입니다. 사용자 models SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`과 기존218/07/207~209 refs를 보존합니다. CI/push/리뷰답변 완료를 이 기록으로 미리 주장하지 않습니다.
+
+## 공동 계약07 E 원본 초안 — E-C-REQUEST-RUN-WIRE-20261011-07 (초안 작성 당시 기록)
 
 - [문서: 승인·Git] 상위 인간 turn `01a1292c-e625-7c40-a46b-abab4f8fac37`의 “승인”과 직전 C 구체안, [승인 기록](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105355594)·[C 제안](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6105074716)을 직접 대조했습니다. 기존 root의 추적 clean·PR217 `8a83b124f6dae4f09b8f14f8ef7a94852d57d8be`에서 지시 세션의 통상 Git 선택에 따라 `codex/e-c-request-run-contract-20261011`을 생성했습니다. PR217과 기존 E PR ref는 변경하지 않았습니다. 미추적 모델 이력의 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존·커밋 제외합니다.
 - [문서: E 범위] 승인 의미를 [정본](../../docs/requirements.md#acceptance-tts-policy)에 반영하고 intent 스키마에 두 선택 필드만 추가했습니다. 기존 required·enum·confidence·targets/goals는 유지하며 E 예시 두 파일에 필드만 추가했습니다. [공동 ICD](../../docs/interfaces.md#request-run-contract)의 E 발신 원본 구간과 Voice 문서의 승인/원본 준비/운영 미연결 구분을 정리했습니다. 기존 goal 예시는 공개 형식 예시로 보존했으며 선정 catalog나 목표 발행 지원을 주장하지 않습니다.
@@ -21,11 +61,22 @@
 - [실측: 직접 검증] Python 3.12·ROS 미source의 직접 영향 3시험 파일은 **198 passed**, 종료0입니다. 두 전용 타이머 없는 유효 ACK/실제 TTS 완료, 등록 미확인·질문 만료·TTS 실패 차단/작업 보존, 정상 seq의 녹음·분류·ACK 보존과 실제 상태 변경 무효화, 과거 콜백·종료 퇴역·중복 소비 회귀를 확인했습니다. AST 4파일·YAML의 제거 키 없음/보존 구간값·문서 링크/앵커350개·변경 공백 검사 통과입니다. 공통 계약과 운영 노드/adapter는 변경하지 않았습니다.
 - [미검증·검증 계획] C 기한/현재 등록에 대응하는 E 로컬 입력과 기존 TTS timeout 실패를 연결할 운영 소비자는 없습니다. 이 내부 준비로 실제 C ACK나 실음성/API/Melo/ROS/로봇·실물 AC를 통과했다고 보고하지 않습니다. 직접 영향 시험·정적/문서 대조 후 관련 파일만 커밋하고 최종 SHA 전체 CI 1회·push·새 stacked PR 게시를 진행합니다. 최종 CI 결과는 PR 본문/외부 로그에 기록해 추가 기록 커밋으로 SHA를 바꾸지 않습니다. C/B 공동 계약 합의·운영 연결은 별도 선행입니다.
 
+## PR209 최종208 합류 — E-PR207-209-D-DOC-REVIEW-FIX-20261011
+
+- [문서: 범위] 기존 PR209 `929565a8c1c5ab58569eea877b6ecf7a2c4c8f53`에 최종 PR208 `d19d692d4f9e19a2eb8d1a73132e88acf59159b4`를 일반 merge합니다. PR207 `a682bf7`의 승인된 D 연구 보고서 한 문장 정정과 최신 main 이력, PR208의 녹음 진단 공개 source/내부 `_voice` 경로 정정을 상속합니다. CURRENT 충돌은 양쪽 이력을 보존해 해결하며 D 문장과 정본을 추가 편집하지 않습니다. 이전 기록의 D 미확인은 이번 head에서 정정 완료로 갱신되며 main 병합·운영 연결·실물 완료와 구분합니다.
+- [문서: 보존·검증] PR209 내부 수락 코드·시험과 기존 P1 동작을 보존하고 #217·07·08 코드/계약은 합류하지 않습니다. 미추적 모델 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`은 보존·커밋 제외합니다. 최종 안정 HEAD의 전체 로컬 CI를 한 번 실행하고 결과·로그를 PR 본문에 기록합니다. 이전 직접 검증은 불변 코드에 재사용하며 실음성/API/Melo/ROS/로봇·실물 AC와 E/C 운영 연결은 미검증입니다. 이 기록은 CI·push 완료를 미리 주장하지 않습니다.
+
 ## PR209 리뷰·선행 문서 통합 — E-PR207-209-REVIEW-FIX
 
 - [문서: 범위] 기존 `codex/e-accept-tts-20261011`의 `393536f156d23384b07b5b12073c74334c444a00`에 최종 PR208 `6bb7a4c9bbd3db2396b164b449e07c372a7433e6`을 정상 merge했습니다. PR207 `e93ac41`의 main 기준선·질문/작업 수명·ACK/독립 요청과 PR208의 JSONL/SDK 진단 설명 및 PR209 내부 수락 문장 이력을 함께 보존했습니다. 합류 충돌은 없었고 이번 추가 편집은 E 문서 세 파일뿐입니다. PR209 base를 PR208 브랜치로 갱신하며 선행 PR 미병합 의존성은 유지합니다.
 - [문서·코드 대조] PR209 `393536f` 대비 Voice 구현·시험은 동일합니다. 운영 소비 호출자는 없고 Session text/audio 진입의 보관 폐기·질문 만료 재검사는 유지합니다. [C 리뷰 세 항목](https://github.com/Jik-Kim/ready2go/pull/209#pullrequestreview-5481624730)의 C 보관/문장 수명·공개 ID 한 위치/내부 파싱 호환·질문 권한과 수락 문장 권한을 [기술 문서](../../docs/voice_llm.md#acceptance-tts-preparation)의 계약 후속으로 정리했습니다. [최소 범위 결정](https://github.com/Jik-Kim/ready2go/issues/196#issuecomment-6104884879)은 후속 초안 기준이며 이번에 계약·코드·설정·timeout·TTL·enum을 추가하지 않습니다.
 - [미완료·검증 계획] C 등록 만료 보완·B 실제 안전 검사는 별도 선행이고 D 연구 문서 반영은 미확인입니다. 실음성/API/Melo/ROS/로봇·실물 AC와 E/C 실제 연결은 미검증입니다. 문서 링크·앵커·공백·선행 설명 보존과 코드 불변을 대조한 뒤 최종 커밋 SHA의 전체 로컬 CI를 한 번 실행하고 결과를 PR 본문에 기록합니다. 이전 CI로 이번 기준선 합류 검증을 대신하지 않고 별도 중복 영향 시험/전체 빌드는 실행하지 않습니다. 미추적 모델 이력은 기존 해시로 보존·커밋 제외합니다. 이 기록은 CI 실행·push·리뷰 답변 완료를 미리 주장하지 않습니다.
+
+## PR207 추가 리뷰·D 과거 기준 정정 — E-PR207-209-D-DOC-REVIEW-FIX-20261011
+
+- [문서: 승인·소유 예외] E 지시 세션의 인간 turn `01a1293f-85e4-74e0-9880-fe3bfa24303d`에서 “#207 ~ #209 리뷰 확인하고, D 쪽 문서 수정까지 한꺼번에 해 담당자 승인받았어” 원문을 직접 확인했습니다. 예외는 D 연구 보고서의 과거 복구 목표 문장과 현행 정본 참조만이며 다른 D 연구·수치·권고·출처 및 practice/D를 수정하지 않습니다.
+- [문서: Git·범위] root의 추적 clean·공동 계약07 로컬 `9bbcd776dc4e56cf40267e07c4c04c714d4cc981`에서 기존 PR207 `e93ac41294c2981d9e506d7b747f2c88a2111959`로 안전 전환했습니다. 공동 원격은 C 합류로 `bc7e0aa8a5162c95921176b259e1b198480635e7`이지만 그 ref·파일은 합류하거나 편집하지 않습니다. 확인 main `e7167fa2adbce7b64631f9481694c04c23545bda`를 충돌 없이 정상 merge했습니다. 최신 main의 A/웹 합류는 기존 이력이며 타 담당 코드를 대신 편집하지 않았습니다. D 문장의 2cm는 과거 작성 당시 기준으로 보존하고 현행 숫자를 복제하지 않은 채 [AC-ACT-03](../../docs/requirements.md#ac-act-03)으로 연결했습니다. 정본의 기존 위치/방향 기준은 변경하지 않습니다.
+- [문서: 검증·후속] 기존 PR207 대비 Voice 구현·시험은 동일합니다. D 수정 한 문장 외 내용 불변·정본 앵커·문맥·링크·공백과 모델 이력 SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467` 보존을 대조합니다. 기존 직접 시험을 재사용하며 최종 SHA 전체 CI를 한 번 실행해 PR 본문에 기록합니다. PR208 녹음 진단 정정의 재작성/직접 검사를 반복하지 않고 후속 담당의 최종 HEAD를 기다립니다. PR209·217·07 공동 브랜치는 이번 단계에서 수정하지 않습니다. 실음성/API/ROS/Melo/로봇·실물/운영 연결은 미검증이며 문서 정정과 PR 게시를 실물 완료로 판단하지 않습니다.
 
 ## PR207 최신 main 기준선 동기화
 

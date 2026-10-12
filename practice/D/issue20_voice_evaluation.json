@@ -1,14 +1,14 @@
 {
-  "schema_version": "1.3",
+  "schema_version": "1.8",
   "metadata": {
-    "title": "Issue #20 음성 평가 세트와 결과 기록",
+    "title": "Issue #20 음성 평가 세트와 Issue #194 회귀 결과 기록",
     "issue": "https://github.com/Jik-Kim/ready2go/issues/20",
     "phase": "P1",
     "owner": "D 김민준",
     "answer_policy_reviewer": "E 고희태",
-    "evaluation_set_version": "0.2-draft",
+    "evaluation_set_version": "0.6-draft",
     "created_at": "2026-10-06",
-    "updated_at": "2026-10-08",
+    "updated_at": "2026-10-11",
     "requirements": [
       "FR-INT-01",
       "FR-INT-02",
@@ -17,7 +17,11 @@
       "AC-INT-02",
       "AC-INT-03"
     ],
-    "basis": "[문서] docs/requirements.md와 Issue #20",
+    "basis": "[문서] docs/requirements.md와 Issue #20, Issue #194 결정 E-VOICE-UX-20261009-01",
+    "related_issues": [
+      "https://github.com/Jik-Kim/ready2go/issues/20",
+      "https://github.com/Jik-Kim/ready2go/issues/194"
+    ],
     "status": "draft",
     "result_record_authority": {
       "status": "defined_for_draft",
@@ -54,7 +58,7 @@
     },
     "answer_key_freeze": {
       "status": "not_frozen",
-      "version": "0.2-draft"
+      "version": "0.6-draft"
     },
     "freeze_rule": "승인 후 test_cases의 정답을 평가 결과에 맞춰 변경하지 않는다. 변경 시 evaluation_set_version을 올리고 재평가한다."
   },
@@ -993,9 +997,874 @@
       }
     }
   ],
+  "issue_194_regression": {
+    "status": "not_run",
+    "suite_version": "0.4-draft",
+    "basis": "[문서] Issue #194 결정 E-VOICE-UX-20261009-01과 병합된 PR #198의 최종 음성 정책",
+    "relationship_to_main_40": "기존 40문장 AC-INT-01 정확도 분모에는 포함하지 않고, #194 완료를 위한 별도 필수 회귀 세트로 판정한다.",
+    "basis_snapshot": {
+      "requirements_anchor": "docs/requirements.md#voice-policy",
+      "policy_issue": "https://github.com/Jik-Kim/ready2go/issues/194",
+      "policy_pr": "https://github.com/Jik-Kim/ready2go/pull/198",
+      "code_sha": "2296b5d22b64bd9ed46dd15502bc6106f0282b3c",
+      "merge_commit_sha": "667f0b8a0e59a459ac0e1fb1bcf5b100413edaab",
+      "policy_pr_state_at_snapshot": "merged",
+      "baseline_main_note": "PR #198의 최종 head와 merge commit을 기준으로 병합된 승인 정책을 검증한다. 관련 실행 원본이 바뀌면 snapshot과 해시를 갱신한다.",
+      "config_paths": [
+        "ros2_ws/src/ready2go_voice/params/voice.yaml"
+      ],
+      "ontology_path": "knowledge/world.jsonld",
+      "ontology_sha256": "d9dee3b9d8b4a7005dcee02f9dec79889c84ead97c0028b162f768e6189b83bc",
+      "alias_expectation": "PR #198 최종 head의 knowledge/world.jsonld에서 망치는 toy_hammer의 aliases_ko에 등록된다.",
+      "task_path": "tasks/find_item.json",
+      "task_sha256": "148ce4b47142ece1f3a18cd8cfa9795499f55753259a838292f837efedd9e331",
+      "status": "merged_policy_snapshot_recorded"
+    },
+    "approval": {
+      "status": "pending_d_acceptance",
+      "reviewers": [
+        "D 김민준",
+        "E 고희태"
+      ],
+      "freeze_rule": "D·E가 문장·순서·기대 결과를 수락한 뒤 suite_version을 동결한다. 동결 후 변경하면 버전을 올리고 전 시나리오를 재평가한다."
+    },
+    "external_verification": {
+      "diagnostic_file": {
+        "owner": "E",
+        "status": "pending",
+        "evidence_paths": []
+      },
+      "runner_acceptance": {
+        "owners": [
+          "C",
+          "E"
+        ],
+        "status": "c_verified_document_and_mock_e_pending",
+        "verified_scope": [
+          "[실측] PR #200 head 238ae08의 Runner 입력 기대 단계 31건을 main d52c1bb IntentRouter와 대조해 decision/reason 불일치 0건을 확인했다. Runner 입력이 없는 5건은 제외했다.",
+          "[실측] toy_hammer·toy_wrench·lip_balm은 hold/UNSUPPORTED_ITEM, unknown·clarify는 hold/NEEDS_CLARIFY, 유휴 cancel은 cancel/NOT_RUNNING, eraser find_item은 run과 일치했다.",
+          "[문서·코드] hold·reject 판단은 태스크 시작 전이므로 해당 단계의 로봇 실행 시도 0회 기대가 타당하다.",
+          "[실측: mock] 기존 Voice text_override→Runner ROS→mock backend 경로에서 실행·UNSUPPORTED_ITEM·NEEDS_CLARIFY·BUSY·cancel·LOCKED를 확인한 C 증빙을 연결했다."
+        ],
+        "pending_scope": [
+          "E 원본 기준 실제 Voice payload의 confidence와 clarify_question 포함 형태를 고정·대조해야 한다.",
+          "Runner 입력·판단은 로그와 /runner/status last_intent에서 일부 확인되지만 hold·reject 판단은 DB에 저장되지 않아 DB 기반 횟수 집계는 미검증이다.",
+          "실물 로봇과 실제 웨이크·STT 경로는 미검증이다."
+        ],
+        "evidence_paths": [
+          "https://github.com/Jik-Kim/ready2go/pull/200#issuecomment-6095749419"
+        ]
+      },
+      "alias_source": {
+        "owner": "E",
+        "status": "pending",
+        "evidence_paths": []
+      }
+    },
+    "common_rules": {
+      "registered_item_source": "basis_snapshot.code_sha의 knowledge/world.jsonld. 이 suite에서는 망치가 toy_hammer 별칭인 PR #198 적용 후 목표 원본을 사용한다.",
+      "runner_support_source": "tasks/find_item.json의 실행 시점 버전",
+      "runner_support_snapshot": "현재 tasks/find_item.json의 trigger.targets는 eraser만 허용한다. Voice는 등록 비지우개를 find_item 실행 후보로 해석하고 controlled 트랙에서는 발행하며, C IntentRouter가 UNSUPPORTED_ITEM으로 실행을 보류한다. 지원 원본이 바뀌면 basis_snapshot을 기록하고 suite_version을 올린 뒤 기대값을 변경한다.",
+      "runner_reason_mapping": {
+        "UNSUPPORTED_ITEM": "runner_task_unsupported",
+        "NEEDS_CLARIFY": "needs_clarify",
+        "NOT_RUNNING": "not_running"
+      },
+      "single_use_question": "후속 응답은 만료되지 않고 아직 소비되지 않은 현재 질문에만 한 번 적용한다.",
+      "context_clear": "취소·새 독립 요청·만료·프로세스 재시작 뒤에는 과거 질문을 재사용하지 않는다.",
+      "response_consistency": "검증된 최종 문장, 화면 안내, 실제 TTS 입력이 같아야 한다. 원시 LLM 후보는 비교 대상이 아니라 진단 근거다.",
+      "llm_test_double_validation": "LLM 테스트 더블은 IntentParser 주입 전에 ros2_ws/src/ready2go_voice/ready2go_voice/adapters/api.py의 LangChainIntent.schema로 검증한다. 스키마 검증 실패 응답을 주입해 parser 결과만 채점하지 않는다.",
+      "execution_safety": "hold 단계, TTS·발행 실패, 취소 경합, 이미 소비된 질문에서 새 실행을 확정하지 않는다.",
+      "unobserved_fact": "실물 재고·현재 관측·파지 가능은 대응 증빙 없이는 true로 채점하지 않는다."
+    },
+    "required_tracks": {
+      "controlled_context_regression": {
+        "purpose": "질문 상태와 일회성 소비, Voice 발행, C IntentRouter 판단, 실제 실행 미시도를 단계별로 결정론적으로 검사한다.",
+        "input_kind": "text_or_mock_audio",
+        "publish_sink": "test_double",
+        "runner_route": "Voice 테스트 더블이 받은 payload를 같은 basis의 C IntentRouter에 입력한다.",
+        "robot_motion": "blocked",
+        "count_rule": "voice_publish_attempt_count_delta는 Voice 발행 테스트 더블 호출 증가량, runner_input_count_delta는 그 payload를 C IntentRouter에 넣은 증가량, robot_execution_attempt_count_delta는 실제 로봇 동작 시도 증가량이다. 세 값을 서로 대신하지 않는다."
+      },
+      "actual_audio_motionless": {
+        "purpose": "실제 웨이크·STT·비모의 TTS와 안내 일치를 확인한다.",
+        "input_kind": "audio",
+        "evaluation_mode": "motionless",
+        "publish_sink": "blocked",
+        "robot_motion": "blocked",
+        "count_rule": "evaluation_mode=true이므로 actual_publish_count_delta, runner_input_count_delta, robot_execution_attempt_count_delta는 모두 0이어야 한다. controlled_context_regression의 Voice 발행·Runner 판단 기대값을 이 트랙에 적용하지 않는다."
+      }
+    },
+    "scenario_result_fields": {
+      "scenario_id": "시나리오 ID",
+      "step_id": "시나리오 안의 순서 ID",
+      "session_generation": "재시작 전후 세션 세대",
+      "question_id": "현재 확인 질문 식별자. 질문이 없으면 null",
+      "question_state_before": "none, pending, consumed, cleared 또는 expired",
+      "prior_question_state": "현재 질문과 구분해 보존한 직전 질문의 종결 상태. consumed, cleared, expired 또는 null",
+      "input_text": "STT 또는 텍스트 입력",
+      "actual_intent": "실제 intent",
+      "actual_targets": "실제 targets",
+      "question_state_after": "none, pending, consumed, cleared 또는 expired",
+      "new_question_created": "입력 처리와 확인 TTS 성공 뒤 이전 질문과 다른 새 질문이 생성됐는지 여부",
+      "question_id_changed_from_previous": "새 현재 질문 ID가 직전 질문 ID와 다른지 여부. 비교할 직전 질문이 없으면 null",
+      "context_clear_reason": "canceled, superseded, expired, restarted 또는 null",
+      "decision_reason": "Voice _voice.reason에서 직접 관측한 원본 사유 또는 null. 런타임에 없는 평가자 파생 사유는 기록하지 않는다.",
+      "verified_final_text": "구조화 결과와 대조를 마친 최종 문장",
+      "public_clarify_question": "사용자에게 공개한 검증된 확인 질문. 해당하지 않으면 null",
+      "display_text": "화면에 표시된 문장",
+      "tts_input_text": "실제 TTS에 전달한 문장",
+      "llm_raw_exposed_to_user": "원시 LLM 후보가 화면·TTS·공개 질문에 노출됐는지 여부",
+      "llm_test_double_schema_result": "IntentParser 주입 전 LangChainIntent.schema 검증 결과. pass 또는 fail이며 테스트 더블을 사용하지 않으면 not_applicable",
+      "past_target_restored": "무효화되거나 소비된 질문의 대상을 복원했는지 여부",
+      "failure_reason": "tts_failed, publish_failed 또는 null",
+      "tts_start_basis": "실제 TTS 첫 DAC 시각 기준. TTS가 첫 DAC 전에 실패하면 null",
+      "confirmation_latency_ms": "발화 종료부터 첫 DAC까지의 지연. TTS가 첫 DAC 전에 실패하면 null",
+      "timing_result": "pass, fail 또는 not_measured",
+      "voice_execution_allowed": "Voice source.execution_allowed에 기록된 해석 결과상 실행 후보 여부",
+      "voice_publish_attempt_count_delta": "controlled_context_regression에서 Voice 발행 테스트 더블 호출 증가량",
+      "runner_input_count_delta": "controlled_context_regression에서 Voice payload를 C IntentRouter에 입력한 증가량",
+      "runner_decision": "C IntentRouter의 원본 결정. run, hold, cancel, status, reject 또는 Voice payload가 도달하지 않은 not_reached",
+      "runner_reason": "C IntentRouter의 원본 사유 코드 또는 null",
+      "runner_reason_normalized": "runner_reason_mapping으로 정규화한 평가용 사유 또는 null",
+      "actual_publish_count_delta": "실제 ROS 발행 증가량. motionless 트랙에서는 0이어야 함",
+      "robot_execution_attempt_count_delta": "이 단계에서 증가한 실제 로봇 동작 시도 횟수",
+      "evidence_paths": "진단·화면·TTS·Runner 근거 경로"
+    },
+    "expected_result_mapping": {
+      "intent": "actual_intent와 정확히 비교한다.",
+      "intent_candidates": "actual_intent가 후보 배열에 포함되는지 비교한다.",
+      "structured_intent": "actual_intent와 정확히 비교한다.",
+      "targets": "actual_targets와 순서까지 정확히 비교한다.",
+      "structured_targets": "actual_targets와 순서까지 정확히 비교한다.",
+      "internal_reason": "Voice의 decision_reason과 정확히 비교한다.",
+      "public_final_text": "verified_final_text와 정확히 비교한다.",
+      "voice_execution_allowed": "Voice source.execution_allowed와 정확히 비교한다.",
+      "voice_publish_attempt_count_delta": "controlled_context_regression에서 Voice 발행 테스트 더블 호출 증가량과 비교한다.",
+      "runner_input_count_delta": "controlled_context_regression에서 C IntentRouter 입력 증가량과 비교한다.",
+      "runner_decision": "C IntentRouter Decision.kind와 정확히 비교한다.",
+      "runner_reason": "C IntentRouter Decision.reason 원본 코드와 정확히 비교한다.",
+      "runner_reason_normalized": "runner_reason_mapping으로 변환한 값과 비교한다.",
+      "robot_execution_attempt_count_delta": "실제 로봇 동작 시도 증가량과 비교한다.",
+      "llm_test_double_schema_result": "IntentParser 주입 전 실제 LangChainIntent.schema 검증 결과와 비교한다.",
+      "verified_final_equals_display": "verified_final_text와 display_text의 실제 동등성 결과와 비교한다.",
+      "verified_final_equals_tts_input": "verified_final_text와 tts_input_text의 실제 동등성 결과와 비교한다.",
+      "same_name_fields": "question 상태·context_clear_reason·decision_reason·failure_reason·노출/복원 플래그·TTS timing·발행/실행 횟수 등 나머지 판정 필드는 같은 이름의 실제 결과와 비교한다.",
+      "metadata_only": [
+        "note"
+      ]
+    },
+    "scoring_rules": {
+      "voice_interpretation_result": "intent/targets, Voice 판단 사유, voice_execution_allowed가 expected와 일치하면 pass다.",
+      "voice_publication_result": "controlled_context_regression에서 voice_publish_attempt_count_delta가 expected와 일치하면 pass다. actual_audio_motionless에서는 이 값을 채점하지 않는다.",
+      "runner_routing_result": "controlled_context_regression에서 runner_input_count_delta, runner_decision, runner_reason와 정규화 사유가 모두 expected와 일치하면 pass다. actual_audio_motionless에서는 Runner 미도달로 채점하지 않는다.",
+      "robot_execution_result": "robot_execution_attempt_count_delta가 expected와 일치하고 근거가 있으면 pass다.",
+      "step_result": "expected에 선언된 모든 판정 필드(note 제외)와 해당 트랙의 voice_interpretation_result, voice_publication_result, runner_routing_result, robot_execution_result가 일치해야 pass다. llm_test_double_response가 있으면 주입 전 llm_test_double_schema_result=pass도 필수다. Voice 발행 성공을 Runner run이나 실제 동작으로 대신 판정하지 않는다. response_constraints는 응답 문장과 evidence_paths로 충족 여부를 판정하며 필수 필드나 근거가 없으면 not_scored다.",
+      "response_consistency_result": "안내가 있는 단계에서 verified_final_text=display_text=tts_input_text이면 pass. TTS 실패 시험은 실패 전 tts_input_text와 화면 문장을 비교하고 성공 재생으로 채점하지 않는다.",
+      "scenario_result": "필수 단계의 step_result 또는 안내 단계의 response_consistency_result 중 하나라도 fail이면 fail이다. 필수 근거 누락, pending 기대값, not_scored 항목이 하나라도 있으면 not_scored이며 모든 필수 판정이 pass일 때만 pass다.",
+      "suite_result": "두 required_tracks에서 모든 필수 시나리오가 pass이고 not_scored가 없을 때만 pass다. 트랙별 count_rule은 서로 바꾸어 적용하지 않는다."
+    },
+    "scenarios": [
+      {
+        "scenario_id": "UX194-001",
+        "title": "승인 인용형 요청 해석과 등록 비지우개 Runner 차단",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "망치 가져오라고 말했잖아",
+            "expected": {
+              "intent": "find_item",
+              "targets": [
+                "toy_hammer"
+              ],
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "UNSUPPORTED_ITEM",
+              "runner_reason_normalized": "runner_task_unsupported",
+              "robot_execution_attempt_count_delta": 0,
+              "note": "Issue #194 승인 예문과 PR #198의 망치 별칭을 적용해 Voice는 요청 의미를 수용·발행하고, C IntentRouter가 현재 태스크 미지원으로 실행을 보류한다."
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "엄마가 망치 가져오라고 했어",
+            "expected": {
+              "intent": "find_item",
+              "targets": [
+                "toy_hammer"
+              ],
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "UNSUPPORTED_ITEM",
+              "runner_reason_normalized": "runner_task_unsupported",
+              "robot_execution_attempt_count_delta": 0,
+              "note": "Issue #194가 승인한 전언형 단일 물품 요청으로 Voice는 해석·발행하고, C IntentRouter가 현재 태스크 미지원으로 실행을 보류한다."
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "장난감 망치 가져와줘",
+            "expected": {
+              "intent": "find_item",
+              "targets": [
+                "toy_hammer"
+              ],
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "UNSUPPORTED_ITEM",
+              "runner_reason_normalized": "runner_task_unsupported",
+              "robot_execution_attempt_count_delta": 0,
+              "note": "등록 이름을 Voice가 해석·발행한 뒤 현재 tasks/find_item.json의 trigger.targets가 eraser만 지원하므로 C IntentRouter가 실행을 보류한다."
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-002",
+        "title": "부정·번역·설명 예문 차단",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "망치 가져오지 말라고 했어",
+            "expected": {
+              "intent_candidates": [
+                "unknown",
+                "clarify"
+              ],
+              "targets": [],
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "망치 가져오라고 말했잖아를 영어로 번역해줘",
+            "expected": {
+              "intent_candidates": [
+                "unknown",
+                "clarify"
+              ],
+              "targets": [],
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "망치 가져와라는 문장을 설명해줘",
+            "expected": {
+              "intent_candidates": [
+                "unknown",
+                "clarify"
+              ],
+              "targets": [],
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-003",
+        "title": "현재 질문의 생략 응답 일회성 소비",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "장난감 렌치 가져올까?",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_candidate_target": "toy_wrench",
+              "question_state_after": "pending",
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "그걸로",
+            "expected": {
+              "intent": "find_item",
+              "targets": [
+                "toy_wrench"
+              ],
+              "question_state_before": "pending",
+              "question_state_after": "consumed",
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "UNSUPPORTED_ITEM",
+              "runner_reason_normalized": "runner_task_unsupported",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "맞아",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_before": "none",
+              "prior_question_state": "consumed",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
+              "final_response_type": "clarify",
+              "past_target_restored": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-004",
+        "title": "대상 정정 후 현재 질문만 확정",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "그거 가져와줘",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_after": "pending",
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "아니, 장난감 스패너",
+            "expected": {
+              "intent": "find_item",
+              "targets": [
+                "toy_wrench"
+              ],
+              "question_state_before": "pending",
+              "question_state_after": "consumed",
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "UNSUPPORTED_ITEM",
+              "runner_reason_normalized": "runner_task_unsupported",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "그걸로",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_before": "none",
+              "prior_question_state": "consumed",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
+              "final_response_type": "clarify",
+              "past_target_restored": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-005",
+        "title": "취소 후 과거 질문 폐기",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "그거 가져와줘",
+            "expected": {
+              "intent": "clarify",
+              "question_state_after": "pending",
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "취소",
+            "expected": {
+              "intent": "cancel",
+              "targets": [],
+              "question_state_after": "cleared",
+              "context_clear_reason": "canceled",
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "cancel",
+              "runner_reason": "NOT_RUNNING",
+              "runner_reason_normalized": "not_running",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "응",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_before": "none",
+              "prior_question_state": "cleared",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
+              "context_clear_reason": "canceled",
+              "final_response_type": "clarify",
+              "past_target_restored": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-006",
+        "title": "새 독립 요청이 과거 질문을 대체",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "그거 가져와줘",
+            "expected": {
+              "intent": "clarify",
+              "question_state_after": "pending",
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "지우개 찾아줘",
+            "expected": {
+              "intent": "find_item",
+              "targets": [
+                "eraser"
+              ],
+              "question_state_after": "cleared",
+              "context_clear_reason": "superseded",
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "run",
+              "runner_reason": null,
+              "runner_reason_normalized": null,
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "맞아",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_before": "none",
+              "prior_question_state": "cleared",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
+              "context_clear_reason": "superseded",
+              "final_response_type": "clarify",
+              "past_target_restored": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-007",
+        "title": "만료와 재시작 후 과거 질문 차단",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "그거 가져와줘",
+            "expected": {
+              "intent": "clarify",
+              "question_state_after": "pending",
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "event": "question_timeout",
+            "expected": {
+              "question_state_after": "expired",
+              "context_clear_reason": "expired"
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "응",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_before": "expired",
+              "prior_question_state": "expired",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
+              "context_clear_reason": "expired",
+              "final_response_type": "clarify",
+              "past_target_restored": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "4",
+            "event": "process_restart",
+            "expected": {
+              "session_generation_delta": 1,
+              "question_state_after": "cleared",
+              "context_clear_reason": "restarted"
+            }
+          },
+          {
+            "step_id": "5",
+            "input_text": "그걸로",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "question_state_before": "none",
+              "prior_question_state": "cleared",
+              "question_state_after": "pending",
+              "question_candidate_target": null,
+              "new_question_created": true,
+              "question_id_changed_from_previous": true,
+              "context_clear_reason": "restarted",
+              "final_response_type": "clarify",
+              "past_target_restored": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-008",
+        "title": "가능 여부 질문은 실행하지 않음",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "립밤 되나?",
+            "expected": {
+              "intent_candidates": [
+                "unknown",
+                "clarify"
+              ],
+              "targets": [],
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0,
+              "response_constraints": [
+                "lip_balm 등록 여부와 현재 Runner 지원 여부를 구분한다.",
+                "실물 재고·현재 관측·파지 가능을 증빙 없이 단정하지 않는다."
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-009",
+        "title": "미등록·미지원·태스크 미지원 원인 구분",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "사과 가져다줘",
+            "expected": {
+              "structured_intent": "unknown",
+              "structured_targets": [],
+              "internal_reason": "unregistered_item",
+              "public_final_text": "그 물품은 지원하지 않습니다.",
+              "unregistered_key_exposed_as_target": false,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "노래 불러줘",
+            "expected": {
+              "structured_intent": "unknown",
+              "structured_targets": [],
+              "internal_reason": "unsupported_request",
+              "public_final_text": "그 요청은 지원하지 않습니다.",
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "input_text": "립밤 가져다줘",
+            "expected": {
+              "structured_intent": "find_item",
+              "structured_targets": [
+                "lip_balm"
+              ],
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "UNSUPPORTED_ITEM",
+              "runner_reason_normalized": "runner_task_unsupported",
+              "robot_execution_attempt_count_delta": 0,
+              "note": "평가 시 tasks/find_item.json이 lip_balm을 지원하게 바뀌었다면 해당 원본에 맞춰 시나리오 버전을 올려 기대값을 변경한다."
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-010",
+        "title": "검증된 최종 문장과 화면·TTS 입력 일치",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "지우개 찾아줘",
+            "expected": {
+              "intent": "find_item",
+              "targets": [
+                "eraser"
+              ],
+              "verified_final_equals_display": true,
+              "verified_final_equals_tts_input": true,
+              "llm_raw_exposed_to_user": false,
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "run",
+              "runner_reason": null,
+              "runner_reason_normalized": null,
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-011",
+        "title": "TTS·발행 실패와 취소 경합에서 중복 실행 차단",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "지우개 찾아줘",
+            "fault": "tts_failed_before_publish",
+            "expected": {
+              "failure_reason": "tts_failed",
+              "tts_start_basis": null,
+              "confirmation_latency_ms": null,
+              "timing_result": "not_measured",
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 0,
+              "runner_input_count_delta": 0,
+              "runner_decision": "not_reached",
+              "runner_reason": null,
+              "runner_reason_normalized": null,
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "2",
+            "input_text": "지우개 찾아줘",
+            "fault": "publish_failed",
+            "expected": {
+              "failure_reason": "publish_failed",
+              "voice_execution_allowed": true,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 0,
+              "runner_decision": "not_reached",
+              "runner_reason": null,
+              "runner_reason_normalized": null,
+              "robot_execution_attempt_count_delta": 0
+            }
+          },
+          {
+            "step_id": "3",
+            "event": "cancel_race_before_publish_commit",
+            "expected": {
+              "context_clear_reason": "canceled",
+              "voice_publish_attempt_count_delta": 0,
+              "runner_input_count_delta": 0,
+              "runner_decision": "not_reached",
+              "runner_reason": null,
+              "runner_reason_normalized": null,
+              "robot_execution_attempt_count_delta": 0,
+              "question_state_after": "cleared"
+            }
+          }
+        ]
+      },
+      {
+        "scenario_id": "UX194-012",
+        "title": "내부 LLM 응답과 공개 확인 안내 분리",
+        "steps": [
+          {
+            "step_id": "1",
+            "input_text": "알 수 없는 특수 요청입니다",
+            "fault": "untrusted_llm_clarify_question",
+            "llm_test_double_response": {
+              "intent": "clarify",
+              "targets": [],
+              "confidence": 0.99,
+              "clarify_question": "긴 임의 질문입니다.",
+              "response_text": null,
+              "rejection_reason": null
+            },
+            "llm_test_double_schema": "ros2_ws/src/ready2go_voice/ready2go_voice/adapters/api.py::LangChainIntent.schema",
+            "expected": {
+              "intent": "clarify",
+              "targets": [],
+              "llm_called": true,
+              "llm_test_double_schema_result": "pass",
+              "llm_validation": "passed",
+              "fallback_used": false,
+              "llm_raw_retained_for_diagnostic": true,
+              "llm_raw_exposed_to_user": false,
+              "public_clarify_question_from_config": true,
+              "verified_final_equals_display": true,
+              "verified_final_equals_tts_input": true,
+              "voice_execution_allowed": false,
+              "voice_publish_attempt_count_delta": 1,
+              "runner_input_count_delta": 1,
+              "runner_decision": "hold",
+              "runner_reason": "NEEDS_CLARIFY",
+              "runner_reason_normalized": "needs_clarify",
+              "robot_execution_attempt_count_delta": 0
+            }
+          }
+        ]
+      }
+    ],
+    "actual_audio_required": {
+      "input_kind": "audio",
+      "wakeword_detected": true,
+      "stt_mock": false,
+      "tts_mock": false,
+      "tts_timing_by_outcome": {
+        "tts_started": {
+          "tts_start_basis": "portaudio_first_dac",
+          "confirmation_latency_ms": "required",
+          "timing_result": "pass_or_fail"
+        },
+        "tts_failed_before_first_dac": {
+          "tts_start_basis": null,
+          "confirmation_latency_ms": null,
+          "timing_result": "not_measured",
+          "counted_as_ac_int_03_pass": false
+        }
+      },
+      "display_text": "required",
+      "tts_input_text": "required",
+      "actual_publish_count_delta": 0,
+      "runner_input_count_delta": 0,
+      "robot_execution_attempt_count_delta": 0
+    },
+    "results_by_track": {
+      "controlled_context_regression": [],
+      "actual_audio_motionless": []
+    }
+  },
   "evaluation_results": {
     "status": "not_run",
-    "evaluation_set_version": "0.2-draft",
+    "evaluation_set_version": "0.6-draft",
     "evaluation_mode": "motionless",
     "evaluation_mode_mapping": {
       "motionless": {
@@ -1014,6 +1883,37 @@
     },
     "tts_measurement_status": "not_measured",
     "tts_measurement_note": "AC-INT-03 측정 회차는 timing_mode=ac_budget으로 실행한다. 음성 노드가 monotonic 시각으로 계산한 confirmation_latency_ms를 그대로 기록하고 speech_ended_unix·tts_started_unix 차이로 재계산하지 않는다. commissioning, TTS 실패·미측정·모의 재생은 3초 성공으로 집계하지 않는다.",
+    "diagnostic_evidence_collection": {
+      "status": "procedure_defined_not_run",
+      "runtime_source": "Voice 실행 설정의 diagnostic_file이 가리키는 상세 JSONL. diagnostic_detail=true인 회차만 수집 대상으로 사용한다.",
+      "path_rule": "diagnostic_file이 상대 경로이면 Voice 실행 당시 cwd를 기준으로 해석한다. 평가 기록의 diagnostic_file_configured에는 실행 당시 원문 설정값을, diagnostic_jsonl_cwd에는 실행 cwd를, diagnostic_jsonl_path에는 실제로 읽은 해석 완료 JSONL 또는 회전 파일 경로를 남긴다.",
+      "console_rule": "콘솔과 tee 파일은 진행 요약이며 상세 증빙 원본으로 사용하지 않는다. record_started, record_finished, whisper_requested, stt_result, speech_check_started, tts_started는 정상 실행에서도 콘솔에서 숨겨질 수 있다.",
+      "record_shape": "각 JSONL 행은 event, request_id와 이벤트별 필드를 최상위에 둔다. voice_diagnostic 래퍼는 없으므로 voice_diagnostic.published, voice_diagnostic.intent, voice_diagnostic.timing 경로를 사용하지 않는다.",
+      "correlation_rule": "같은 request_id의 interpretation, tts_finished, intent 이벤트를 한 발화 기록으로 묶는다. request_id가 없거나 충돌하면 다른 근거로 임의 결합하지 않고 해당 항목을 not_measured로 둔다.",
+      "rotation_rule": "기본 파일뿐 아니라 같은 경로의 회전 파일 .1부터 설정된 backup 수까지 확인하고, 실제로 읽은 파일을 evidence_paths에 기록한다.",
+      "event_field_mapping": {
+        "interpretation": {
+          "match": "event=interpretation",
+          "actual_intent": "intent.intent",
+          "actual_targets": "intent.targets",
+          "source_fields": "intent.source의 stt_text, llm_called, llm_raw, llm_error, llm_validation, fallback_used, execution_allowed, timing_mode, speech_ended_unix"
+        },
+        "intent": {
+          "match": "event=intent",
+          "published": "최상위 published",
+          "evaluation_mode": "최상위 evaluation_mode",
+          "note": "published=true는 발행 호출 결과이며 Runner 수신이나 실행 성공 증빙이 아니다."
+        },
+        "tts_finished": {
+          "match": "event=tts_finished",
+          "timing": "최상위 timing",
+          "tts_finished_monotonic": "최상위 tts_finished_monotonic",
+          "source_fields": "intent.source의 speech_ended_unix, tts_started_unix, tts_start_basis, tts_mock, confirmation_latency_ms"
+        }
+      },
+      "missing_evidence_rule": "필요한 이벤트나 필드가 없으면 false, 0 또는 성공으로 추정하지 않는다. 원본 부재와 이벤트 미발생을 구분할 수 없으면 null, not_measured 또는 not_scored로 기록하고 사유를 남긴다.",
+      "verification_status": "실제 JSONL 샘플 대조와 실제 음성 평가는 아직 수행하지 않음"
+    },
     "interpretation_rules": {
       "normal_unknown_or_clarify_is_validation_failure": false,
       "motionless_execution_block_does_not_prove_safe_interpretation": true,
@@ -1030,6 +1930,11 @@
       "evaluation_set_version": "실행에 사용한 평가 세트 버전",
       "code_sha": "실행에 사용한 코드 SHA",
       "config_paths": "실행에 사용한 설정 경로 배열",
+      "voice_request_id": "Voice 상세 JSONL에서 같은 발화의 이벤트를 연결하는 request_id",
+      "diagnostic_file_configured": "실행 당시 적용된 diagnostic_file 원문 값. 상대·절대 경로 표현을 변경하지 않고 그대로 기록",
+      "diagnostic_jsonl_cwd": "상대 diagnostic_file 경로를 해석한 Voice 실행 cwd",
+      "diagnostic_jsonl_path": "diagnostic_file과 실행 cwd를 기준으로 해석해 실제로 읽은 상세 JSONL 또는 회전 파일 경로",
+      "diagnostic_events": "해당 request_id에서 확인한 이벤트 이름 배열",
       "speaker_id": "실제 화자 ID",
       "input_kind": "audio 또는 text",
       "evaluation_mode": "motionless 또는 live_robot",
@@ -1094,6 +1999,14 @@
         "capture_path",
         "wakeword_detected",
         "stt_mock"
+      ],
+      "evidence_binding": [
+        "voice_request_id",
+        "diagnostic_file_configured",
+        "diagnostic_jsonl_cwd",
+        "diagnostic_jsonl_path",
+        "diagnostic_events",
+        "evidence_paths"
       ],
       "runner_or_manual_observation": [
         "execution_attempted",
@@ -1382,6 +2295,11 @@
     "sample_rate_hz": null,
     "channels": null,
     "storage_path": null,
-    "note": "E와 녹음 형식·보관 경로를 협의한 뒤 확정한다. 실제 평가 전까지 미정 값을 임의로 채우지 않는다."
+    "diagnostic_status": "procedure_defined_not_run",
+    "diagnostic_path_source": "Voice 실행 설정의 diagnostic_file",
+    "diagnostic_path_resolution": "상대 경로는 Voice 실행 당시 cwd 기준이며 설정값·cwd·실제 경로를 함께 기록",
+    "diagnostic_console_role": "콘솔과 tee는 진행 요약이며 상세 평가 증빙 원본이 아님",
+    "diagnostic_collection_ref": "evaluation_results.diagnostic_evidence_collection",
+    "note": "E와 녹음 형식·보관 경로를 협의한 뒤 확정한다. 상세 진단 JSONL 수집 절차와 음성 파일 보관 계획은 구분하며 실제 평가 전까지 미정 값을 임의로 채우지 않는다."
   }
 }

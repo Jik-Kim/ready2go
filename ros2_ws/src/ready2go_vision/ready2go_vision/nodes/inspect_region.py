@@ -3,11 +3,13 @@
 요청이 올 때 요청 이후에 도착한 프레임 한 쌍을 쓰고(오래된 프레임 방지), 광학 프레임의 서랍 좌표 변환은
 TF base_link→광학 프레임(실시간)과 config/places.yaml 의 요청 지역 tf(서랍 정본: drawer_top, drawer_bottom)로 계산한다.
 drawer_top.tf 는 시작에 필수, drawer_bottom.tf 가 아직 null 이면 그 지역 요청만 UNKNOWN_REGION (#155).
-오류 코드: UNKNOWN_REGION, CAMERA_TIMEOUT, TF_UNAVAILABLE, DEPTH_INVALID, RESULT_INVALID (docs/runner.md).
+전달 트레이 handover_zone 은 tf·floor_m 이 있으면 지원(#43). 지역 바닥이 충분히 안 보이면 REGION_NOT_VISIBLE.
+오류 코드: UNKNOWN_REGION, CAMERA_TIMEOUT, TF_UNAVAILABLE, REGION_NOT_VISIBLE, DEPTH_INVALID, RESULT_INVALID (docs/runner.md).
 
 진단(결과에는 영향 없음): 요청마다 검출별 판단 근거와 카메라로 본 서랍 바닥 z(core/floor_probe.py)를 로그로 남긴다.
 dump_dir 파라미터를 주면 그 요청에 쓴 컬러·뎁스·K·TF·검출·결과를 .npz 로 저장한다(tools/dev/replay_inspect_dump.py 로 재계산).
 분할 모델(weights 가 yolo*-seg)이면 검출 마스크를 덤프 masks(packbits)로 함께 저장한다(meta.detections 순서와 같음).
+기본 가중치는 P2 분할 모델 yolo11s_seg_ready2go_v1(가림 필드 occluded_by·visible_area_m2 를 냄, #109 4단계). 박스 모델 v1(P1)은 weights 로 지정하면 가림 필드 없이 동작.
 """
 import datetime
 import hashlib
@@ -57,7 +59,7 @@ class InspectRegionNode(Node):
     def __init__(self):
         super().__init__("inspect_region")
         d = self.declare_parameter
-        d("config_dir", "/config"); d("world_path", "/knowledge/world.jsonld"); d("weights", "/models/yolo11n_ready2go_v1.pt")
+        d("config_dir", "/config"); d("world_path", "/knowledge/world.jsonld"); d("weights", "/models/yolo11s_seg_ready2go_v1.pt")
         d("color_topic", "/wrist_cam/color/image_raw"); d("depth_topic", "/wrist_cam/aligned_depth_to_color/image_raw")
         d("info_topic", "/wrist_cam/color/camera_info"); d("base_frame", "base_link"); d("camera_frame", "wrist_cam_color_optical_frame")
         d("frame_timeout_s", 3.0); d("device", "0"); d("dump_dir", ""); d("code_sha", "")
@@ -91,7 +93,7 @@ class InspectRegionNode(Node):
         self.create_subscription(Image, p("depth_topic"), lambda m: self._store("_depth", m), qos_profile_sensor_data, callback_group=cb)
         self.create_subscription(CameraInfo, p("info_topic"), lambda m: self._store("_info", m), qos_profile_sensor_data, callback_group=cb)
         self.create_service(InspectRegion, "/vision/inspect_region", self._handle, callback_group=cb)
-        self.get_logger().info(f"inspect_region 시작 (모델 {p('weights')}, 클래스 {list(self._detector.names.values())}, "
+        self.get_logger().info(f"inspect_region 시작 (모델 {p('weights')} {'분할 — 가림 필드 냄' if self._detector.is_seg else '박스 — 가림 필드 없음'}, 클래스 {list(self._detector.names.values())}, "
                                f"버전 {json.dumps(self._versions, ensure_ascii=False)}, 덤프 {self._dump or '끔'})")
 
     def _store(self, name, msg):
@@ -135,29 +137,30 @@ class InspectRegionNode(Node):
         K = Intrinsics(info.k[0], info.k[4], info.k[2], info.k[5])
         color, depth = image_to_numpy(color_m), image_to_numpy(depth_m)
         dets = self._detector.detect(color)
-        debug = []
+        debug, info = [], {}
         res.success, res.error_code, res.result_json = inspect_scene(
-            dets, depth, K, T_drawer_cam, self._params, self._items, req.region, req.search_target, region["interior_m"], debug)
+            dets, depth, K, T_drawer_cam, self._params, self._items, req.region, req.search_target, region["interior_m"], debug,
+            seg_model=self._detector.is_seg, region_height_m=region["height_m"], info=info)
         floor = floor_probe(depth, K, T_drawer_cam, region["interior_m"], [dt["box"] for dt in dets], self._params["floor_probe"])
         log = self.get_logger()
         log.info(f"inspect_region {req.region}/{req.search_target}: 검출 {len(dets)}개 → success={res.success} {res.error_code} {res.result_json[:300]}")
         for item in debug:
             log.info(f"  검출 {json.dumps(item, ensure_ascii=False)}")
-        log.info(f"  바닥(카메라, 서랍 z) {json.dumps(floor)}")
+        log.info(f"  바닥(카메라, 서랍 z) {json.dumps(floor)}  지역 바닥 보인 비율 {info.get('region_visible_ratio')}")
         if self._dump:
-            self._save(color, depth, K, ts, T_drawer_cam, region, dets, debug, floor, req, res)
+            self._save(color, depth, K, ts, T_drawer_cam, region, dets, debug, floor, req, res, info)
         return res
 
-    def _save(self, color, depth, K, ts, T_drawer_cam, region, dets, debug, floor, req, res):
+    def _save(self, color, depth, K, ts, T_drawer_cam, region, dets, debug, floor, req, res, info=None):
         now = datetime.datetime.now(datetime.timezone.utc)                     # UTC (컨테이너 시간대와 무관)
         stamp = f"{now:%Y%m%d_%H%M%S}_{now.microsecond // 1000:03d}Z"
         path = self._dump / f"inspect_{stamp}.npz"
         plain, extra = split_masks(dets)
         meta = {"request": {"region": req.region, "search_target": req.search_target}, "success": res.success,
                 "error_code": res.error_code, "result_json": res.result_json,
-                "detections": plain, "debug": debug, "floor": floor,
+                "detections": plain, "debug": debug, "floor": floor, "info": info or {},
                 "K": [K.fx, K.fy, K.cx, K.cy], "versions": self._versions,
-                "interior_m": region["interior_m"], "region_tf": region["tf"]}
+                "interior_m": region["interior_m"], "region_height_m": region["height_m"], "region_tf": region["tf"]}
         try:
             np.savez_compressed(path, **extra, color=color, depth_m=depth.astype(np.float32), T_base_cam=tf_to_T(ts),
                                 T_base_drawer=region["T_base_drawer"], T_drawer_cam=T_drawer_cam,
