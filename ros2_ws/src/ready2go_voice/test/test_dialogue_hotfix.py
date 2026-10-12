@@ -38,7 +38,8 @@ def test_availability_never_executes_then_explicit_confirmation_can_request(node
     assert lip['intent']=='clarify' and not lip['source']['execution_allowed']
 
 
-@pytest.mark.parametrize('text',['망치 어디있어?','위 서랍 열려있어?'])
+@pytest.mark.parametrize('text',['망치 어디있어?','위 서랍 열려있어?',
+    '지금 망치 어딨어?','지금 망치 어딨어.','위쪽 서랍 열려있어?','위쪽 서랍 열려있어.'])
 def test_readonly_initial_state_query_before_llm(node,text):
     initial=copy.deepcopy(node.parser.reference_state)
     node.parser.llm=lambda *a:pytest.fail('읽기 전용 질의는 실행 분류 전에 처리합니다.')

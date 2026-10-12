@@ -22,12 +22,19 @@ def reference_query(parser, text):
     value = ''.join(str(text).split()).rstrip('.!?？')
     p = prompts(parser.cfg)
     keys = parser.mentioned(text)
-    if len(keys) == 1 and re.fullmatch(r'.+(?:어디있어|어디에있어|어디에있나요|위치알려줘)', value):
+    if len(keys) == 1 and re.fullmatch(r'.+(?:어딨어|어디있어|어디에있어|어디에있나요|위치알려줘)', value):
         key = next(iter(keys)); place = get(parser.reference_state, 'located_in', key)
         name = parser.places.get(place, {}).get('name_ko')
         return p['initial_location'].format(item=parser.items[key]['name_ko'], place=name) if name else p['unknown_state']
     if re.fullmatch(r'.+(?:열려있어|열려있나요|닫혀있어|닫혀있나요)', value):
-        places = [k for k,v in parser.places.items() if ''.join(v.get('name_ko','').split()) in value]
+        places = []
+        for key, definition in parser.places.items():
+            names = [definition.get('name_ko',''), *(definition.get('aliases_ko') or [])]
+            forms = {''.join(name.split()) for name in names if name}
+            # 실제 이름 위 서랍의 방향 수식만 정규화합니다. 새 장소/원본 별칭은 추가하지 않습니다.
+            forms.update(re.sub(r'^위(?=서랍$)', '위쪽', name) for name in list(forms))
+            if any(name in value for name in forms):
+                places.append(key)
         if len(places) == 1:
             opened = get(parser.reference_state, 'open', places[0])
             if type(opened) is bool:
