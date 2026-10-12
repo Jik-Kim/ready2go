@@ -2540,3 +2540,27 @@ def test_cover_plate_pick_ignores_lower_neighbors_under_fingertips(server):
         assert out.error_code == "NEIGHBOR_TOO_CLOSE"                    # 지우개 손끝(약 6 mm)보다 높은 에어팟은 그대로 막음
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+def test_cover_plate_pick_uses_ontology_height_for_object_under_it(server):
+    """[사용자 10/12 PC2, #236 비전] 판 밑 지우개 occluded_by [판], 비전 top_z 23.4(번짐, 실제 11.5), yaw 모름 → 손끝 25 − 2 에 걸려
+    NEIGHBOR_TOO_CLOSE. 목표 밑에 깔린 이웃은 온톨로지 높이로 → 통과. 같은 높이의 옆 물체(덮이지 않음)는 비전 값 그대로 막음."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0349, "occluded_by": [], "visible_area_m2": 0.0073,
+             "pose": {"frame": D, "position": [0.0973, 0.1605, 0.0], "yaw": 0.009, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0234, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.0006,
+          "pose": {"frame": D, "position": [0.1023, 0.2105, 0.0], "yaw": 0.0, "yaw_valid": False}}
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1],
+                                            "scan": {"target_found": True, "target": er, "candidates": [plate], "visible_count": 2}})
+        assert out.success, out.reason
+        srv.held = None
+        side = dict(er, occluded_by=[])                                     # 덮이지 않은 23.4 mm 물체는 손끝 25 − 2 보다 높음
+        out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1],
+                                            "scan": {"target_found": True, "target": side, "candidates": [plate], "visible_count": 2}})
+        assert out.error_code == "NEIGHBOR_TOO_CLOSE"
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0

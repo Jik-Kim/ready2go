@@ -67,9 +67,13 @@ def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, ob
         osz = size_of(o.get("class")) or default_size_m
         if _under(o, target, size_m, osz, margin_mm):
             continue
-        if fingertip_floor_m is not None and _finite(o.get("top_z")) and len(osz) > 2 \
-                and max(float(o["top_z"]), float(osz[2])) <= fingertip_floor_m - fingertip_clear_m:
-            continue                                         # 손끝보다 낮음 — 손가락 자리에 있어도 안 닿음
+        if fingertip_floor_m is not None and _finite(o.get("top_z")) and len(osz) > 2:
+            # 목표 밑에 깔린 이웃(그 이웃 occluded_by 에 목표)은 비전 윗면이 위로 번짐 → 온톨로지 높이 [사용자 10/12 PC2: 판 밑 지우개
+            # top_z 23.4(실제 11.5)가 손끝 25 − 2 에 0.4 mm 걸려 NEIGHBOR_TOO_CLOSE]. 그 밖은 비전·온톨로지 중 큰 값
+            covered = target.get("id") in (o.get("occluded_by") or [])
+            h = float(osz[2]) if covered else max(float(o["top_z"]), float(osz[2]))
+            if h <= fingertip_floor_m - fingertip_clear_m:
+                continue                                     # 손끝보다 낮음 — 손가락 자리에 있어도 안 닿음
         if plp.rects_overlap(mine, plp.neighbor_rect_mm(o, osz)):
             return o["id"]
     return None
