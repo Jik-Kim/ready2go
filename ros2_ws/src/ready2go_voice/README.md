@@ -29,7 +29,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 ### P1 짧은 확인 답변
 
-[구현: E-VOICE-SHORT-REPLY-20261012-01] 기존 `core/intent.py:is_context_reply`의 정확 표현 목록에 “응 맞아”·“네 맞아요”만 추가했습니다. 기존 공백/끝 종결기호 정규화를 재사용하며 부분 문자열로 긍정을 판단하지 않습니다. 실제 질문 TTS 성공 뒤 `Conversation.delivered`가 등록한 현재 질문의 대상·세대·기한에서 한 번만 결합합니다. 질문 없음·만료·실패·진행 중/잠금·부정 혼합에서는 실행 후보를 확정하지 않습니다. 빈 전사와 STT 오류를 긍정으로 바꾸거나 질문 권한을 복원/연장하지 않습니다. node/config/녹음/모델/더미는 변경하지 않았습니다.
+[구현: E-VOICE-SHORT-REPLY-20261012-01] 기존 `core/intent.py:is_context_reply`의 정확 표현 목록에 “응 맞아”·“네 맞아요”를 추가했고, 같은 작업의 추가 사용자 승인으로 단독 긍정 “어어”도 지원합니다. “어”·“어어어”·부정/인용/제3자 문맥은 긍정 표현으로 확대하지 않습니다. 기존 공백/끝 종결기호 정규화를 재사용하며 부분 문자열로 긍정을 판단하지 않습니다. 실제 질문 TTS 성공 뒤 `Conversation.delivered`가 등록한 현재 질문의 대상·세대·기한에서 한 번만 결합합니다. 질문 없음·만료·실패·진행 중/잠금·부정 혼합에서는 실행 후보를 확정하지 않습니다. 빈 전사와 STT 오류를 긍정으로 바꾸거나 질문 권한을 복원/연장하지 않습니다. node/config/녹음/모델/더미는 변경하지 않았습니다.
 
 [실측·코드 대조] `_094102/diagnostic.jsonl`의147–184행에서 망치 질문의 실제 TTS 완료 뒤 question_ready가 없고, 후속 STT 결과166/179행이 빈 문자열이었습니다. 앞선 더미 첫 동작은 있지만 완료/cancel 로그가 없었고, 더미의 running 상태 주입과 `runner_blocks → delivered(blocked=True)` 경로는 이 질문 준비 차단과 부합합니다. 당시 정책 객체 전체가 기록되지 않아 이를 단독 원인으로 확정하거나 제품 질문 준비 결함으로 단정하지 않습니다. local dialogue30을 확인했으며 누락 설정을 새로 주입하지 않습니다. 영상 음성 트랙 없음은 조율 확인을 재사용했고 원음을 재조사/새 녹음하지 않았습니다. 빈 전사의 음향 누락과 STT 미검출 원인은 미확인입니다.
 
@@ -117,7 +117,7 @@ fi
 | 2. 첫 요청의 수락 TTS 종료까지 기다림 | `tts_started.source.tts_mock=false`, `tts_start_basis=portaudio_first_dac`; `tts_finished.timing.playback_end_basis=portaudio_finished_callback`·종료 시각; `dummy_first_action_after_real_speak_success` | 실제 소리/문장도 듣고 기록합니다. first action이 없거나 TTS 실패면 `complete`를 입력하지 않습니다. |
 | 3. 터미널 stdin `complete` | 같은 run의 `dummy_completed_not_robot_result`, 상세 `request_completed`와 완료 안내 | 첫 동작 전/취소 뒤 complete는 `completion_rejected_no_current_first_action`이어야 합니다. 물리 성공 증거가 아닙니다. |
 | 4. 완료 안내 후 웨이크 → 미지원 물품 요청(예: “사과 가져다줘”) | unknown/미지원 안내, 새 `accepted_fixture`·더미 첫 동작0 | 과거 첫 요청의 로그를 현재 요청의 결과로 세지 않습니다. |
-| 5. 웨이크 → 대상만 “망치”, 확인 질문 종료 뒤 다시 웨이크 → “응”/“응 맞아”/“네 맞아요”/“아니요”/모호한 답 | 질문 문장·상세 JSONL question_ready·새 답 전사·확인/거절/보류; 긍정일 때만 수락과 TTS gate 이후 첫 동작 | 이전 더미 작업을 complete/cancel로 끝낸 뒤 idle과 상세 question_ready를 확인합니다. 진행 중 차단을 우회하지 않습니다. P1 답은 일반 WakeAudio를 다시 거치며 시험 복사본의 dialogue_timeout_sec=30.0(현재 제안 설정의 시험값) 문맥 안에서 진행합니다. 각 답 종류는 독립 시험으로 진행하고 active 질문/처리 중 다음 시험을 겹치지 않습니다. |
+| 5. 웨이크 → 대상만 “망치”, 확인 질문 종료 뒤 다시 웨이크 → “응”/“응 맞아”/“네 맞아요”/“어어”/“아니요”/모호한 답 | 질문 문장·상세 JSONL question_ready·새 답 전사·확인/거절/보류; 긍정일 때만 수락과 TTS gate 이후 첫 동작 | 이전 더미 작업을 complete/cancel로 끝낸 뒤 idle과 상세 question_ready를 확인합니다. 진행 중 차단을 우회하지 않습니다. P1 답은 일반 WakeAudio를 다시 거치며 시험 복사본의 dialogue_timeout_sec=30.0(현재 제안 설정의 시험값) 문맥 안에서 진행합니다. 각 답 종류는 독립 시험으로 진행하고 active 질문/처리 중 다음 시험을 겹치지 않습니다. |
 | 6. 새 망치 요청의 처리·TTS 중, 또는 첫 동작 후 complete 전에 웨이크 없이 “멈춰” | `cancel_received_not_physical_stop`, `dummy_idle_after_cancel_not_physical_stop_evidence`; old run의 추가 첫 동작/완료0 | STT 지연/실패·늦은 결과·자기 TTS 영향과 실제 소리를 기록합니다. 자기 발화 문구 대조는 음향 echo 제거가 아니며 물리 정지 시각/성공은 미검증입니다. |
 | 7. idle/이전 작업 종료 뒤 stdin `tray 100` | 질문 재생·`tray_answer`의 `asked`→동일 question 등록 fixture; 상세 `confirm_sdk_request` | 100은 [전체 확인 기한 정본](../../../docs/requirements.md#verification-policy)에 연결된 명시 모의 입력입니다. 임의 새 timeout이 아닙니다. 질문 후 답에는 웨이크를 붙이지 않습니다. |
 | 8. 질문 완료 뒤 “네”/“아니요”/모호 답 | yes/no/ambiguous 및 모호 답의 최대1회 재질문, 새 질문 ID/attempt·다시 새 녹음 | 각 종류는 별도 tray 시나리오입니다. yes 이후에만 stdin `tray_complete` 또는 `tray_partial`로 전달/복구 결과 fixture 안내를 확인합니다. C 관측/실물 결과가 아닙니다. |
@@ -587,7 +587,7 @@ PYTHON
 
 [문서] 의미·정책은 [voice-policy](../../../docs/requirements.md#voice-policy), 실제 내부 필드/경계·로그/캐시·C/D 인계·녹음 비교는 [voice_llm.md](../../../docs/voice_llm.md#194-요청질문진단-연결과-138-bounded-캐시)를 참조합니다. `core/conversation.py`는 P1 질문의 로컬 권한, `core/response.py`는 최종 문장 검사, `core/diagnostics.py`는 비동기 상세 JSONL입니다. 내부 response_text/rejection_reason/_voice는 공개 wire 신규 필드가 아니고 `/voice/intent`의 새 필드로 발행하지 않습니다. parser는 사유를 검증 후 `_voice.reason`으로만 옮기며 node는 `_voice`를 제외합니다. 기존 source 소비 필드와 원본 `source.llm_raw`는 유지합니다. 실제 `LangChainIntent.schema`에 맞는 unknown/빈 targets/내부 사유로 물품 미등록과 요청 미지원을 구분하며, 미등록 target 예외 시험만으로 정상 LLM 안내 연결을 확인했다고 보고하지 않습니다.
 
-[문서] 예: “망치 가져오라고 말했잖아”/“엄마가 망치 가져오라고 했어”는 정상 LLM 요청 의미와 등록키 검증 경로입니다. “망치”의 구체 질문 TTS 완료 후 “응/맞아/응 맞아/네 맞아요/그걸로” 또는 “렌치/아니 렌치야”는 유효 현재 문맥에서 한 번 결합합니다. 번역/부정/제외·문맥 없는 응답·만료·재시작·취소·관측된 running/잠금은 새 실행을 만들지 않습니다. 유효한 질문 없는 “응/맞아/그걸로”는 LLM 호출 전 clarify/빈 targets로 대상 재확인을 안내하고, 성공 재생 뒤 새 질문에도 이전 물품을 복원하지 않습니다. “립밤 되나?”는 등록과 실행가능 미확인 안내만 하며 자동 실행하지 않습니다. 문장 검증과 실제 C 수락/동작 성공은 다릅니다.
+[문서] 예: “망치 가져오라고 말했잖아”/“엄마가 망치 가져오라고 했어”는 정상 LLM 요청 의미와 등록키 검증 경로입니다. “망치”의 구체 질문 TTS 완료 후 “응/맞아/응 맞아/네 맞아요/어어/그걸로” 또는 “렌치/아니 렌치야”는 유효 현재 문맥에서 한 번 결합합니다. 번역/부정/제외·문맥 없는 응답·만료·재시작·취소·관측된 running/잠금은 새 실행을 만들지 않습니다. 유효한 질문 없는 “응/맞아/그걸로”는 LLM 호출 전 clarify/빈 targets로 대상 재확인을 안내하고, 성공 재생 뒤 새 질문에도 이전 물품을 복원하지 않습니다. “립밤 되나?”는 등록과 실행가능 미확인 안내만 하며 자동 실행하지 않습니다. 문장 검증과 실제 C 수락/동작 성공은 다릅니다.
 
 [문서] YAML의 `dialogue_timeout_sec`·진단 경로/회전/큐·선준비 문장수/길이/UTF-8 용량·빈번 문장 기록/횟수는 제안/미확정 설정입니다. 일반 질문 시간은 P2 #152 정책과 독립이고 null이면 후속 결합을 보류합니다. 실패 후 질문 답을 자동 재시도하지 않고 새 독립 요청을 요구합니다. 상세파일은 비밀값을 필터한 원본 LLM/검증 사유/최종 문장/TTS/캐시/시각·로컬 요청/질문 ID를 남기며 파일/회전/큐/필터 오류는 경고합니다. 큐 포화·종료 정체 시 증빙 저장 미확인을 보고하며 음성/취소를 막지 않습니다. 파일은 설정 크기와 백업 수로 회전하며 큰 단일 원본은 보존 후 다음 기록에서 회전합니다. tee 요약 파일·C 실행 DB·worker.log는 별도 자료입니다.
 
