@@ -157,6 +157,10 @@ def main() -> int:
     errors += [f"inspect_region_result.json: {m}" for m in result_errors(load(ROOT / "contracts/examples/inspect_region_result.json"))]   # pose 규칙: position.z=0, yaw (-pi/2, pi/2]
     for c in load(ROOT / "contracts/examples/nudge_object_result.json")["cases"]:   # target_after: 성공일 때만, 실패면 null (#83)
         after = c["output"].get("target_after", "없음")
+        if "needed" in c["output"] or "plan_code" in c["output"]:   # check_only 판단 결과 [E #245 제안]: needed bool, plan_code null|문자열, 거부 이유가 있으면 needed false
+            nd, pc = c["output"].get("needed"), c["output"].get("plan_code")
+            if not isinstance(nd, bool) or not (pc is None or isinstance(pc, str)) or (pc and nd):
+                errors.append(f"nudge_object_result.json {c['case']}: needed(bool)·plan_code(null|문자열), plan_code 가 있으면 needed false")
         if not c["success"] and after is not None:
             errors.append(f"nudge_object_result.json {c['case']}: 실패 결과의 target_after 는 null")
         if c["success"]:

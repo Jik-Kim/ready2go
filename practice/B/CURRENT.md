@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-12
 
 ## 지금 상태
+- **10/12 저녁 (PR #241·#243·#247 머지, #248 열림)**: Unpacking 통합 — 막힌 것의 절반 이상이 C 태스크·E `pick` 묶음·Runner 설정 쪽(#245 정리, #242 C 반영 대기). B: 놓기 이웃 확인 손가락 띠만, 복구 때 물체 위에 놓기 켬, `nudge_object check_only` `needed`·`plan_code`·집기 경유점 중복 생략(#248, E 승인 대기). 비전 v2 실물 확인 통과. **사고: 손으로 연 서랍에 `B unpack` → 부딪힘(안내 오류, 트러블슈팅 47)** — 실행 순서는 `HANDOVER.md` 4절(평소/통합 구분)대로.
 - **10/12 오후 2 (같은 브랜치, PR #241)**: Runner 통합 2회차 — aside 를 비워 뒀는데 판 밑 지우개 방향 모름 정사각형(57 mm)이 aside 에 6 mm 걸려 판을 쥔 채 정지(트러블슈팅 39). 가려진 이웃 축소(`hidden_split`)는 #241 리뷰 P1 로 되돌림(fail-closed, A 에 마스크 경계 요청). `place_object` `check_only`(집기 전 판단)·`slot: "free"` 추가(제안, Runner 연결은 C 이슈).
 - **10/12 오후 (#235 머지 `14f9967` 뒤 같은 브랜치 새 PR)**: Unpacking 통합(C 절차) 실물 — PC2 `.env` 에 `RUNNER_INTENT_TASKS` 없어 P1 `find_item` 이 돌던 것 확인(트러블슈팅 31). 복구 때 원래 자리를 굴러 나온 립밤이 ~10 mm 막아 aside 에서 집어 aside 에 다시 놓던 것 → 되돌리기(명령한 pose, 바닥)는 방향 그대로 `place.restore_fit_max_mm` 20 mm 안으로 비켜 놓음(트러블슈팅 32, 제안). 남음: 한가운데가 막히면 헛동작 그대로 — `place_object` `check_only` + Runner 복구 순서(C).
 - **10/12 (#226 머지 `090c3b9` 뒤 같은 브랜치 새 PR)**: 뒤에서 밀기 시작 자리(손가락이 바닥 위 3 mm 까지 내려가는 곳)에 다른 물체가 있으면 움직이기 전 `NEIGHBOR_TOO_CLOSE` — 손잡이 벽 비스듬한 지우개 바로 뒤 에어팟 장면에서 `B plan` 이 에어팟 위로 손가락을 내리려던 것 발견. 기울여 집은 물체(손잡이 벽 립밤)는 원래 자리로 놓을 때 같은 자세로 거꾸로(`tilt_back`). 오늘 PC2 문제(커널 바뀌어 NVIDIA 모듈 없음, 비전 노드 옛 코드로 `OCCLUSION_UNKNOWN`, `B free` 4건, putback 짓누름)는 `2026-10-12_practice.md` 트러블슈팅 1~30.
