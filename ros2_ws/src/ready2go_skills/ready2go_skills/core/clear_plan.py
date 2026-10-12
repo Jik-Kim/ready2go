@@ -11,6 +11,8 @@
 (회전·넘어짐·마찰 없음 [추정 — 실물 확인 필요]).
 
 물체 = inspect_region 결과와 같은 dict: {id, class, top_z, pose{frame, position[x, y, 0], yaw}, occluded_by}. 좌표 m (서랍 좌표).
+occluded_by 는 리스트여야 함(모름 null·박스 모델은 부르는 쪽이 먼저 거부 — skill_server _make_room).
+한계: 빈 자리·밀기는 검출된 물체만 앎 — 검출 안 된 낮은 물체 자리를 빈 곳으로 볼 수 있음 [A·PM #226 리뷰, #228 세운 립밤 미검출].
 """
 import math
 from dataclasses import dataclass, field
@@ -291,27 +293,19 @@ def _with(objs, new_obj):
     return [new_obj if o["id"] == new_obj["id"] else o for o in objs]
 
 
-def _relocated(objs, oid, pose):
-    """oid 를 바닥의 pose 로 (받침에서 내림) — 받침의 occluded_by 에서 빼고 top_z 는 자기 높이."""
-    by = {o["id"]: o for o in objs}
+def _relocated(objs, oid, pose, size_of=None):
+    """oid 를 바닥의 pose 로 (받침에서 내림) — 받침의 occluded_by 에서 빼고 top_z 는 자기 온톨로지 높이.
+    비전 top_z − 받침 top_z 로 빼지 않음: 쌓인 물체 top_z 는 마스크 번짐으로 틀림(캐러멜 54.6 vs 실제 37 mm, #216) [A·PM #226 리뷰]."""
     out = []
     for o in objs:
         if o["id"] == oid:
-            out.append(dict(o, pose=dict(pose, yaw_valid=True), occluded_by=[], top_z=round(o["top_z"] - _support(objs, oid), 4)))
+            h = size_of(o["class"])[2] if size_of else o["top_z"]
+            out.append(dict(o, pose=dict(pose, yaw_valid=True), occluded_by=[], top_z=round(h, 4)))
         elif oid in (o.get("occluded_by") or []):
             out.append(dict(o, occluded_by=[x for x in o["occluded_by"] if x != oid]))
         else:
             out.append(o)
     return out
-
-
-def _support(objs, oid):
-    """oid 가 얹힌 받침 높이 (받침 top_z, 다리 물체 밑이면 0)."""
-    o = next(x for x in objs if x["id"] == oid)
-    base = [b for b in objs if oid in (b.get("occluded_by") or [])]
-    if not base or o.get("class") in LEG_CLASSES:
-        return 0.0
-    return max(b["top_z"] for b in base)
 
 
 def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
@@ -329,7 +323,7 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
             ok, _, _ = oracle.place(objs, held_id, pose)
             if not ok:
                 continue
-            after = _relocated(objs, held_id, pose)
+            after = _relocated(objs, held_id, pose, cfg.size_of)
             if pad < cfg.avoid_pad_mm and any(_blocks(after, a, held_id, oracle) for a in avoid_ids):
                 continue
             if oracle.pick(after, held_id)[0]:
@@ -518,7 +512,7 @@ def _opens_way(objs, tid, oracle, wall_steps: int = 3) -> bool:
 def apply(objs: Sequence[Mapping], a: Action, cfg: Config) -> list:
     """계획한 동작의 예상 결과 (시뮬레이션·다시 보기 전 예상). 실물은 동작 뒤 다시 보기로 확인."""
     if a.kind in ("unstack", "remove"):
-        return _relocated(objs, a.target, a.to_pose)
+        return _relocated(objs, a.target, a.to_pose, cfg.size_of)
     if a.kind == "wall_nudge":
         return _with(objs, dict(a.extra["after"], occluded_by=next(o for o in objs if o["id"] == a.target).get("occluded_by", [])))
     if a.kind == "nudge":

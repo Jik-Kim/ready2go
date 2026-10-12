@@ -2127,15 +2127,40 @@ def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
 
 
 # ---- 파지 공간 만들기 nudge_object make_room [제안 10/11 B, 계약 승인 전] ----
+def _seg(o):
+    """분할 모델 결과 물체 — 가림 필드 occluded_by 를 채움 (없으면 [] = 위에 얹힌 것 없음)."""
+    o = json.loads(json.dumps(o))
+    o.setdefault("occluded_by", [])
+    return o
+
+
 def test_make_room_needs_scan_and_is_noop_when_already_graspable(server):
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_FREE, "make_room": True})
+    t = _seg(ERASER_FREE)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True})
     assert out.error_code == "BAD_PARAMS" and server.srv.robot.log == []
-    far = json.loads(json.dumps(CARAMEL_NEXT))
+    far = _seg(CARAMEL_NEXT)
     far["pose"]["position"][1] = 0.26
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_FREE, "make_room": True,
-                                            "scan": _scan_with(ERASER_FREE, far)})
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True,
+                                            "scan": _scan_with(t, far)})
     assert out.success and data["make_room"]["ready_to_pick"] is True and data["make_room"]["action"] == "none"
     assert data["target_after"]["id"] == "eraser#1" and data["pushed"] is False and server.srv.robot.log == []
+
+
+@pytest.mark.parametrize("case", ["box_model", "target_null", "neighbor_null", "neighbor_missing"])
+def test_make_room_refuses_unknown_occlusion_before_motion(server, case):
+    """[A·PM #226 리뷰 10/12] 가림 필드 모름(null)·누락·박스 모델(필드 없음)을 '위에 없음'으로 바꾸지 않음 →
+    위에 얹힌 물체를 밀거나 누를 수 있으니 움직이기 전 OCCLUSION_UNKNOWN (다시 찍기)."""
+    t, nb = _seg(ERASER_FREE), _seg(CARAMEL_NEXT)
+    if case == "box_model":
+        t.pop("occluded_by"); nb.pop("occluded_by")
+    elif case == "target_null":
+        t["occluded_by"] = None
+    elif case == "neighbor_null":
+        nb["occluded_by"] = None
+    else:
+        nb.pop("occluded_by")
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, nb)})
+    assert out.error_code == server.ss.OCCLUSION_UNKNOWN and data["target_after"] is None and server.srv.robot.log == []
 
 
 def _press_contact(server):
@@ -2159,7 +2184,7 @@ def _press_contact(server):
 def test_make_room_moves_target_away_from_neighbor_then_ready(server, monkeypatch):
     """옆(+y)에 망치가 길게 붙어 짧은 변·긴 변 손가락 자리가 다 막힌 지우개 → 반대쪽(빈 쪽)으로 눌러 끌기 한 번, 수평으로만.
     그 뒤 예상 위치는 다시 부르면 바로 집을 수 있음."""
-    t = json.loads(json.dumps(ERASER_FREE))
+    t = _seg(ERASER_FREE)
     t["pose"]["yaw"] = 0.0
     cara = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025, "occluded_by": [],
             "pose": {"frame": "drawer_top", "position": [0.10, 0.15 + 0.011 + 0.0375 + 0.002, 0.0], "yaw": 0.0, "yaw_valid": True}}

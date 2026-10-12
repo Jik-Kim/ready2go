@@ -400,6 +400,7 @@ HUMAN_FIX = {"DRAWER_NOT_AT_TRAVEL": "서랍을 끝까지 열고 B opened <서�
              "HOLDING_OBJECT": "그리퍼에 든 물체를 빼고 서버 재시작",
              "NO_PUSH_ACCESS": "끌어도 잡을 수 없는 자리 — 사람이 옮기기",
              "NO_FREE_SPACE": "치울 물체를 놓을 빈 자리가 서랍에 없음 — 사람이 몇 개 빼기",
+             "OCCLUSION_UNKNOWN": "위에 얹힌 관계를 모름(분할 모델 아님·occluded_by null) — 비전 가중치 확인, 물체 조금 띄우고 다시",
              "JOINT_LIMIT": "관절 제한 — 자세·위치 확인",
              "SENSOR_INVALID": "그리퍼 폭·힘을 못 읽음 — 그리퍼에 물체가 있는지 보고 RG2 박스·케이블 확인 뒤 스킬 서버 재시작"}
 
@@ -565,7 +566,7 @@ def clear(node):
         if not ok:
             if last["code"] in STOP_CODES:
                 sys.exit(f"clear {last['code']} — 다시 할 수 없는 상태라 멈춤 (펜던트·터미널 확인)")
-            if last["code"] not in RETRY_NUDGE | RETRY_PICK:
+            if last["code"] not in RETRY_NUDGE | RETRY_PICK | {"OCCLUSION_UNKNOWN"}:   # 가림 관계 모름 → 다시 찍으면 풀릴 수 있음
                 _stop_unrecoverable("clear")
             print(f"\n----- clear {last['code']} → 탑뷰 → 다시 인식 → 다시 -----")
             look()

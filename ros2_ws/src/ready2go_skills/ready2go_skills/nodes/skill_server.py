@@ -116,6 +116,7 @@ def _width_m(width_mm):
 # ---- 파지 공간 만들기 [제안 10/11 B, 계약 승인 전] — 계획(core/clear_plan)이 묻는 "집을 수 있나·놓을 수 있나"를
 #      서버의 실제 사전 검사로 답함. 움직이는 메서드는 막아 두고 처음 움직이려는 순간 = 가능으로 봄 (로봇은 안 움직임).
 NO_FREE_SPACE = "NO_FREE_SPACE"          # nudge_object make_room: 치울 물체를 놓을 빈 자리가 서랍에 없음 (움직이기 전)
+OCCLUSION_UNKNOWN = "OCCLUSION_UNKNOWN"  # nudge_object make_room: 가림 관계(occluded_by) 모름·박스 모델 — 움직이기 전, 다시 찍기
 _MOTION = ("_to_drawer_view", "_line", "_blend", "_named", "_movej", "_grip", "_over_then_down", "_line_slow", "_exit_drawer",
            "_transit", "_step")
 _QUIET = type("_Quiet", (), {k: staticmethod(lambda *a, **kw: None) for k in ("info", "warn", "warning", "error", "debug")})()
@@ -1653,9 +1654,16 @@ class SkillServer(Node):
         if why:
             return sf.Outcome(False, sf.BAD_PARAMS, reason=f"make_room: {why}"), out
         tid = target.get("id")
-        objs = [dict(o, occluded_by=list(o.get("occluded_by") or [])) for o in objs]
         if tid not in {o["id"] for o in objs}:
             return sf.Outcome(False, sf.BAD_PARAMS, reason=f"make_room: 목표 {tid!r} 가 scan 에 없음"), out
+        # 가림 필드 (runner.md 7.1): null = 모름, 결과 전체에 없음 = 박스 모델(관계 정보 없음). 모름을 '위에 없음'([])으로 바꾸지 않음 —
+        # 위에 얹힌 물체를 밀거나 누를 수 있음 [A·PM #226 리뷰 10/12]. 움직이기 전 거부 → 다시 찍기 (C select_obstacle occlusion_unknown 과 같은 방식)
+        if not any("occluded_by" in o for o in objs):
+            return sf.Outcome(False, OCCLUSION_UNKNOWN, reason="make_room: 가림 필드 없음(박스 모델) — 위에 얹힌 관계를 몰라 공간 만들기 안 함"), out
+        unknown = [o["id"] for o in objs if not isinstance(o.get("occluded_by"), list)]
+        if unknown:
+            return sf.Outcome(False, OCCLUSION_UNKNOWN, reason=f"make_room: 위에 얹힌 관계 모름(occluded_by null·누락) {unknown} — 다시 찍기"), out
+        objs = [dict(o, occluded_by=list(o["occluded_by"])) for o in objs]
         mr = prm.get("make_room") or {}
         cfg = clp.Config(interior_m=place["interior_m"], frame=drawer_id, size_of=self._size_cached(),
                          axes=clp.AXES if prm["drag"].get("push_inward_ok") else clp.AXES[:3],

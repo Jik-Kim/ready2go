@@ -105,3 +105,12 @@ def test_rider_passes_over_base_without_collision():
 def test_as_pose_yaw_stays_in_range():
     o = obj("e", "eraser", 0.05, 0.05, yaw=1.5707963)
     assert cp.as_pose(o)["yaw"] <= 1.5707963267948966
+
+
+def test_relocated_rider_height_from_ontology_not_smeared_vision_top_z():
+    """[A·PM #226 리뷰] 쌓인 물체 비전 top_z 는 마스크 번짐으로 틀림(캐러멜 54.6 vs 37 mm) → 바닥에 내린 뒤 높이는 온톨로지."""
+    base = obj("caramel_box#1", "caramel_box", 0.1, 0.15, top=0.0546, under=["car_key#1"])
+    key = obj("car_key#1", "car_key", 0.1, 0.15, top=0.0700)
+    after = cp._relocated([base, key], "car_key#1", {"frame": "drawer_top", "position": [0.05, 0.05, 0.0], "yaw": 0.0}, SIZES.get)
+    k = next(o for o in after if o["id"] == "car_key#1")
+    assert k["top_z"] == SIZES["car_key"][2] and next(o for o in after if o["id"] == "caramel_box#1")["occluded_by"] == []
