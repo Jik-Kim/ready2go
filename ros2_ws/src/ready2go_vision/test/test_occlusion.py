@@ -135,3 +135,34 @@ def test_debug_has_relation_evidence():
     run(ERASER_ON_BOX, debug=dbg)
     rel = [d["occlusion"] for d in dbg if "occlusion" in d]
     assert any(r.get("judge") == "얹힘" and r["over"] == "eraser#1" and r["under"] == "caramel_box#1" and r["dz_mm"] >= 4 for r in rel)
+
+
+def test_partly_covered_long_object_near_wall_is_kept():
+    """10/12 PC2 3단 쌓기(inspect_20261012_021411): 손잡이가 덮인 긴 물체는 보이는 중심이 머리 쪽으로 치우친다.
+    명목 크기를 그 중심에 놓으면 벽 밖으로 계산돼 결과에서 빠졌다 → 분할 모델은 보이는 마스크로 서랍 안을 본다."""
+    objs = [("carrot_pen", 0.11, 0.15, (0.1512, 0.0154), 0.0154),                 # x 0.034~0.186 (벽 0.1997 안)
+            ("caramel_box", 0.06, 0.15, (0.075, 0.049), 0.0154 + 0.0185)]          # 펜 앞쪽 절반을 덮음 → 보이는 펜 중심 x ≈ 0.142
+    dbg = []
+    it, r = run(objs, target="carrot_pen", debug=dbg)
+    assert r["target_found"] and "carrot_pen#1" in it
+    assert not any(d.get("skip", "").startswith("footprint") for d in dbg if "class" in d)
+
+
+def test_floating_object_above_wall_height_is_excluded():
+    """분할 모델: 윗면이 지역 벽 높이보다 높은 검출(트레이 안 손을 carrot_pen 으로 오검출, 10/11 top_z 67.6 mm)은 결과에서 뺀다."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115), ("lip_balm", 0.10, 0.20, (0.0718, 0.02), 0.09)]
+    depth, masks = scene(objs)
+    dbg = []
+    ok, _, js = inspect_scene(dets_of(objs, masks), depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg, region_height_m=0.0684)
+    r = json.loads(js)
+    assert ok and r["visible_count"] == 1 and r["target"]["id"] == "eraser#1"
+    assert any(d.get("class") == "lip_balm" and "벽 높이" in d.get("skip", "") for d in dbg)
+
+
+def test_split_but_fully_visible_object_is_not_unknown():
+    """마스크에 떨어진 작은 조각이 붙어 '조각남'이어도 보이는 넓이가 기준 이상이면 가려진 게 아니다 → [] (10/12 맨 위 차키가 null 이던 것)."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115)]
+    depth, masks = scene(objs)
+    m = masks[0].copy(); m[250:280, 800:830] = True                                 # 떨어진 900 px 조각(서랍 안 바닥 위)
+    ok, _, js = inspect_scene(dets_of(objs, [m]), depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] == []
