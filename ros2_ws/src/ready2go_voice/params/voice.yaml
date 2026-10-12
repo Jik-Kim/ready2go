@@ -25,6 +25,8 @@ tts_executable: espeak-ng
 tts_voice: ko        # 한국어 설치/명료도 [팀 확정 필요]
 tts_speed: 180
 tts_timeout_sec: 20.0 # Melo CPU 시운전 상한 [팀 확정 필요], AC start_deadline은 별도 유지
+# C 계약07 수락/speak 첫 동작 게이트 구현과 직접 ROS 연결 확인 후 명시 opt-in.
+request_run_enabled: false
 confirmation_enabled: true # C 태스크 시작/확인 TTS 책임 분담 [팀 확정 필요]
 duplicate_window_sec: 2.0
 # 정상 LLM은 요청 의미를 해석하고 core가 보류 문맥/대상/형식을 검증합니다. 전체 문형은 폴백용입니다.

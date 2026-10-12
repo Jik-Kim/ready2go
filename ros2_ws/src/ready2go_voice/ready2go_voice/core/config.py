@@ -4,7 +4,7 @@ import math
 import yaml
 
 
-def load_config(path, *, evaluation_mode=None):
+def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
     with Path(path).open(encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     if not isinstance(cfg, dict):
@@ -14,6 +14,11 @@ def load_config(path, *, evaluation_mode=None):
         if not isinstance(evaluation_mode, bool):
             raise ValueError('evaluation_mode: bool 필요')
         cfg['evaluation_mode'] = evaluation_mode
+    cfg.setdefault('request_run_enabled', False)
+    if request_run_enabled is not None:
+        cfg['request_run_enabled'] = request_run_enabled
+    if not isinstance(cfg['request_run_enabled'], bool):
+        raise ValueError('request_run_enabled: bool 필요')
     prompts = cfg.get('clarify_prompts')
     keys = ('empty', 'multiple', 'bare', 'request', 'missing_item', 'unconfirmed',
             'general', 'audio_failure', 'no_speech', 'tts_failure')

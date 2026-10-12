@@ -56,7 +56,7 @@ class VoiceSession:
                 'context_answer', 'context_generation', 'context_epoch', 'question_expires')}))
 
     def _prepare_acceptance(self, doc, generation):
-        """기존 검증 문장을 E 메모리에만 보관합니다. C 수락/공개 전달은 미연결입니다."""
+        """현재 요청의 검증 문장을 보관합니다. C 수락은 status에서 별도 확인합니다."""
         self._acceptance = None
         meta = doc.get('_voice', {})
         if (doc.get('intent') != 'find_item' or len(doc.get('targets', [])) != 1
@@ -76,7 +76,8 @@ class VoiceSession:
     def prepare_request_payload(self, doc, generation, *, request_id, blocked=False):
         """Prepare a detached contract07 candidate without publishing/consuming.
 
-        Called under the node submit_lock with the actual queue identity. This
+        Called under the node submit_lock with the actual queue identity. Opt-in
+        delivery publishes this candidate after registering local correlation. This
         grants neither C acceptance nor permission for TTS or robot motion.
         """
         pending = self._acceptance
