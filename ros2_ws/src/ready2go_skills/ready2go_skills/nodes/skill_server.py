@@ -1962,7 +1962,8 @@ class SkillServer(Node):
                 default_size_m=prm["place"]["default_obstacle_size_m"], finger_mm=g["fingertip_outer_mm"],
                 margin_mm=nb["margin_mm"], support_m=support, below_tol_m=nb["below_tol_m"],
                 finger_half_width_mm=g.get("tip_radius_mm"), fingertip_floor_m=tip_floor_m,
-                fingertip_clear_m=float(nb.get("fingertip_clear_mm", 2.0)) / 1000.0))
+                fingertip_clear_m=float(nb.get("fingertip_clear_mm", 2.0)) / 1000.0,
+                under_clear_m=((prm["pick"].get("under_clear_by_class_mm") or {}).get(cls) or 0.0) / 1000.0 or None))
         # 손끝이 내려가는 가장 낮은 높이(닫은 손끝 = 받침 + 물건별·높이 비율, 벌린 손끝은 그보다 위) — 그보다 낮은 이웃은 손가락 자리에
         # 있어도 안 닿음 [사용자 10/12 PC2: 가림막(손끝 25 mm) 긴 변 옆 지우개 14.2·립밤 22.2 로 NEIGHBOR_TOO_CLOSE "높이가 더 높아 그냥 잡힘"].
         # 높이 계산으로 잡을 때만 (기울여 잡기·원통 벽·바닥 찍기는 손끝이 더 내려갈 수 있어 예전처럼 높이 안 봄)

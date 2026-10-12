@@ -2544,7 +2544,7 @@ def test_cover_plate_pick_ignores_lower_neighbors_under_fingertips(server):
 
 def test_cover_plate_pick_uses_ontology_height_for_object_under_it(server):
     """[사용자 10/12 PC2, #236 비전] 판 밑 지우개 occluded_by [판], 비전 top_z 23.4(번짐, 실제 11.5), yaw 모름 → 손끝 25 − 2 에 걸려
-    NEIGHBOR_TOO_CLOSE. 목표 밑에 깔린 이웃은 온톨로지 높이로 → 통과. 같은 높이의 옆 물체(덮이지 않음)는 비전 값 그대로 막음."""
+    NEIGHBOR_TOO_CLOSE. 목표 밑에 깔린 이웃은 온톨로지 높이로 → 통과. 판과 안 겹치는 옆 물체(덮이지 않음)는 비전 값 그대로 막음."""
     D = "drawer_bottom"
     srv = server.srv
     srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
@@ -2558,9 +2558,31 @@ def test_cover_plate_pick_uses_ontology_height_for_object_under_it(server):
                                             "scan": {"target_found": True, "target": er, "candidates": [plate], "visible_count": 2}})
         assert out.success, out.reason
         srv.held = None
-        side = dict(er, occluded_by=[])                                     # 덮이지 않은 23.4 mm 물체는 손끝 25 − 2 보다 높음
+        side = dict(er, occluded_by=[], pose=dict(er["pose"], position=[0.0973, 0.215, 0.0], yaw_valid=True))   # 판과 안 겹치고 손가락 자리에만 있는 23.4 mm 물체
         out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1],
                                             "scan": {"target_found": True, "target": side, "candidates": [plate], "visible_count": 2}})
         assert out.error_code == "NEIGHBOR_TOO_CLOSE"
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+def test_cover_plate_pick_ignores_object_that_fits_under_it_even_if_relation_unknown(server):
+    """[사용자 10/12 PC2 "커버플레이트는 겹쳐도 집을 수 있게"] 판 밑 지우개가 이번엔 occluded_by null(모름)·top_z 25.5(번짐) → 판 집기
+    NEIGHBOR_TOO_CLOSE. 판 footprint 와 겹치고 판 밑(21 mm)에 들어가는 크기면 온톨로지 높이로 → 통과. 판 밑에 못 들어가는 장난감차는 막음."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0351, "occluded_by": [], "visible_area_m2": 0.007237,
+             "pose": {"frame": D, "position": [0.0857, 0.1636, 0.0], "yaw": 0.0394, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0255, "occluded_by": None, "visible_area_m2": 0.000415,
+          "pose": {"frame": D, "position": [0.0981, 0.2118, 0.0], "yaw": 0.0, "yaw_valid": False}}
+    car = dict(er, id="toy_car#1", **{"class": "toy_car"}, top_z=0.0325)
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        for nb, ok in ((er, True), (car, False)):
+            srv.held = None
+            out, _ = server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1],
+                                                "scan": {"target_found": True, "target": nb, "candidates": [plate], "visible_count": 2}})
+            assert out.success is ok, (nb["id"], out.reason)
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
