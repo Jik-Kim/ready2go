@@ -62,9 +62,10 @@ def region_bounds(interior):
     return (0.0, float(interior[0])), (0.0, float(interior[1]))
 
 
-def region_visible_ratio(depth_m, K: Intrinsics, T_drawer_cam, interior, height_m, params: dict) -> float:
-    """지역 바닥 격자점(벽에서 wall_margin 안) 중 '보인' 비율: 화면 안 + 유효 뎁스 + 그 픽셀의 지역 z 가 [z_min, height_m]
-    (바닥이나 그 위 물체 — 그리퍼 손끝·위 서랍장 앞판·케이블처럼 더 높은 것에 가리거나, 바닥 높이가 안 맞으면 안 보인 것)."""
+def region_visible_ratio(depth_m, K: Intrinsics, T_drawer_cam, interior, height_m, params: dict, dets=()) -> float:
+    """지역 바닥 격자점(벽에서 wall_margin 안) 중 '보인' 비율: 화면 안 + 유효 뎁스 + 그 픽셀의 지역 z 가 [z_min, 물체 상한]
+    (바닥이나 그 위 물체). 물체 상한(visible_object_z_max_m)보다 높아도 검출(dets) 마스크 안(박스 모델은 박스 안)이면 벽 높이(height_m)까지 보인 것 (쌓인·세운 물체).
+    그리퍼 손끝·위 서랍장 앞판·케이블처럼 더 높은 것, 테두리에 걸친 종이·손처럼 검출 안 된 높은 면에 가리거나, 바닥 높이가 안 맞으면 안 보인 것."""
     import numpy as np
     (x0, x1), (y0, y1) = region_bounds(interior)
     st, wm = params["visible_step_m"], params["visible_wall_margin_m"]
@@ -83,7 +84,15 @@ def region_visible_ratio(depth_m, K: Intrinsics, T_drawer_cam, interior, height_
     T = T_drawer_cam
     z = T[2, 0] * (ui - K.cx) / K.fx * d + T[2, 1] * (vi - K.cy) / K.fy * d + T[2, 2] * d + T[2, 3]
     zmax = height_m if height_m is not None else params["visible_z_max_m"]
-    return float((ok & (z >= params["visible_z_min_m"]) & (z <= zmax)).sum() / X.size)
+    zobj = min(zmax, params.get("visible_object_z_max_m", zmax))
+    in_mask = np.zeros(ui.size, bool)
+    for d in dets:
+        if d.get("mask") is not None:
+            in_mask |= d["mask"][vi, ui]
+        else:
+            b = d["box"]
+            in_mask |= (ui >= b[0]) & (ui <= b[2]) & (vi >= b[1]) & (vi <= b[3])
+    return float((ok & (z >= params["visible_z_min_m"]) & ((z <= zobj) | (in_mask & (z <= zmax)))).sum() / X.size)
 
 
 def footprint_inside(x, y, yaw, yaw_known, size, interior, tol):
@@ -115,14 +124,6 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
     blob_params, policy = params["depth_blob"], params.get("policy", {})
     fail_on_invalid = policy.get("on_invalid_candidate", "fail") == "fail"
     roi_margin = params.get("region", {}).get("detect_roi_margin_m")
-    vis = params.get("region", {}).get("visible_min_ratio")
-    if vis is not None and interior_m is not None:                     # 관측 유효성 — 검출보다 먼저 (#43)
-        ratio = region_visible_ratio(depth_m, K, T_drawer_cam, interior_m, region_height_m, {**params["region"], **{
-            k: blob_params[k] for k in ("min_depth_m", "max_depth_m")}})
-        if info is not None:
-            info["region_visible_ratio"] = round(ratio, 3)
-        if ratio < vis:
-            return False, "REGION_NOT_VISIBLE", ""
     kept = []
     for det in sorted(detections, key=lambda d: -d["conf"]):
         if det["conf"] < params["detector"]["conf_min"] or det["class"] not in items:
@@ -141,6 +142,14 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         kept, dropped = merge_duplicates(kept, min_overlap)
         for d in dropped:
             note(d, skip=f"중복 검출 → 같은 클래스 conf {d['merged_into_conf']:.3f} 만 남기고 버림")
+    vis = params.get("region", {}).get("visible_min_ratio")
+    if vis is not None and interior_m is not None:                     # 관측 유효성 — 뎁스 계산보다 먼저 (#43). 남긴 검출(마스크·박스) 자리는 보인 물체로 셈
+        ratio = region_visible_ratio(depth_m, K, T_drawer_cam, interior_m, region_height_m, {**params["region"], **{
+            k: blob_params[k] for k in ("min_depth_m", "max_depth_m")}}, kept)
+        if info is not None:
+            info["region_visible_ratio"] = round(ratio, 3)
+        if ratio < vis:
+            return False, "REGION_NOT_VISIBLE", ""
     found, in_result = [], {}
     for det in kept:
         merged = {"merged_from": det["merged_from"]} if det.get("merged_from") else {}
