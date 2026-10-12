@@ -70,7 +70,6 @@ DRAWER_NOT_CONFIGURED = "DRAWER_NOT_CONFIGURED"
 DRAWER_STATE_UNKNOWN = "DRAWER_STATE_UNKNOWN"    # 서버가 인출 거리를 모름(재시작) — 열린 서랍에 닫힘 기준으로 다가가면 충돌
 DRAWER_ALREADY_OPEN = "DRAWER_ALREADY_OPEN"
 OTHER_DRAWER_OPEN = "OTHER_DRAWER_OPEN"        # 서랍은 한 번에 하나만 엶 (위·아래가 겹쳐 접근·시야를 막음)
-GRIPPER_ERROR = "GRIPPER_ERROR"
 NOT_AT_START_POSE = "NOT_AT_START_POSE"    # 노드 시작 자세가 아님 → 움직이기 전 거부 (노드 안에서 시작 자세로 알아서 가지 않음, #168)
 
 
