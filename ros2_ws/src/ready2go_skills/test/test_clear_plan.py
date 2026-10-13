@@ -1,4 +1,6 @@
 """core/clear_plan.py — 파지 공간 만들기 (쌓인 것 빈 곳에 치우기·넛지·좌우 밀기) [사용자 10/11 제안, 미연결]."""
+import pytest
+
 from ready2go_skills.core import clear_plan as cp
 
 INTERIOR = [0.21, 0.29, 0.07]
@@ -135,3 +137,14 @@ def test_relocated_rider_height_from_ontology_not_smeared_vision_top_z():
     after = cp._relocated([base, key], "car_key#1", {"frame": "drawer_top", "position": [0.05, 0.05, 0.0], "yaw": 0.0}, SIZES.get)
     k = next(o for o in after if o["id"] == "car_key#1")
     assert k["top_z"] == SIZES["car_key"][2] and next(o for o in after if o["id"] == "caramel_box#1")["occluded_by"] == []
+
+
+def test_free_move_ignores_already_overlapping_object_behind():
+    """처음부터 겹친(맞붙은) 물체에서 멀어지는 쪽은 막지 않고, 다가가는 쪽은 그대로 막음 [실측 PC2 10/13]."""
+    a = obj("caramel_box#1", "caramel_box", 0.105, 0.135)
+    b = obj("airpods_case#1", "airpods_case", 0.105, 0.135 + 0.0465)          # 0.5 mm 겹침 (+y 쪽)
+    objs = [a, b]
+    assert cp.free_move(objs, "caramel_box#1", (0.0, -1.0), 0.03, INTERIOR, SIZES.get) == pytest.approx(0.03)
+    assert cp.free_move(objs, "caramel_box#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get) == 0.0
+    _, done, pushed = cp.push_move(objs, "caramel_box#1", (0.0, -1.0), 0.02, INTERIOR, SIZES.get, cp.pushable)
+    assert done == pytest.approx(0.02) and pushed == []                         # 뒤에 겹친 에어팟을 끌고 가지 않음

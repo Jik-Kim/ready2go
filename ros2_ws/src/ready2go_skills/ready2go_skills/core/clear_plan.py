@@ -112,12 +112,31 @@ def _blocking(objs, group) -> list:
     return [o for o in objs if o["id"] not in group]
 
 
+def _behind(objs: Sequence[Mapping], mover: str, u: tuple, size_of) -> set:
+    """처음부터 mover 와 footprint 가 겹친 물체 중 u 반대쪽(가운데끼리 u 성분 ≤ 0)에 있는 것 — 멀어지는 쪽이라 겹침이 줄기만 함.
+    온톨로지 외접 박스가 실제보다 커서(몽키 머리 61 × 길이 170) 맞붙은 물체끼리 처음부터 겹치면 어느 쪽으로도 0 mm 로 나와
+    아무 동작도 못 고르던 것 [실측 PC2 10/13 B clear top 에어팟: 에어팟·캐러멜·몽키·지우개 서로 1~2 mm 겹침 → fail]."""
+    by = {o["id"]: o for o in objs}
+    m = by[mover]
+    mx, my = m["pose"]["position"][:2]
+    out = set()
+    for o in objs:
+        if o["id"] == mover or not overlaps(m, o, size_of):
+            continue
+        ox, oy = o["pose"]["position"][:2]
+        if (ox - mx) * u[0] + (oy - my) * u[1] <= 0.0:
+            out.add(o["id"])
+    return out
+
+
 def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, interior_m, size_of, step_mm: float = 1.0,
               gap_mm: float = 0.0) -> float:
-    """mover(위 물체 포함)를 u 로 dist_m 까지 — 다른 바닥 물체·벽에 닿기 전까지 갈 수 있는 거리(m). 밀지 않음."""
+    """mover(위 물체 포함)를 u 로 dist_m 까지 — 다른 바닥 물체·벽에 닿기 전까지 갈 수 있는 거리(m). 밀지 않음.
+    처음부터 겹친 물체 중 뒤쪽(멀어지는 쪽)은 막지 않음 (_behind)."""
     group = {mover} | riders(objs, mover)
     by = {o["id"]: o for o in objs}
-    others = _blocking(objs, group)
+    behind = _behind(objs, mover, u, size_of)
+    others = [o for o in _blocking(objs, group) if o["id"] not in behind]
     done = 0.0
     for k in range(1, int(round(dist_m * 1000.0 / step_mm)) + 1):
         s = k * step_mm / 1000.0
@@ -135,6 +154,7 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     order = [o["id"] for o in objs]
     cur = {o["id"]: dict(o) for o in objs}
     base = [mover] + sorted(riders(objs, mover))
+    behind = _behind(objs, mover, u, size_of)                # 처음부터 겹친 뒤쪽 물체는 밀지도 막지도 않음
     pushed = []
     done = 0.0
     dx, dy = u[0] * step_mm / 1000.0, u[1] * step_mm / 1000.0
@@ -149,7 +169,7 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
             changed = False
             tl = list(trial.values())
             for oid in order:
-                if oid in moving:
+                if oid in moving or oid in behind:
                     continue
                 if not any(collide(trial[m], trial[oid], size_of) for m in moving):
                     continue
