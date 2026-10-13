@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-12 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
+- **PC2 터미널 3개 묶음 (10/13 PR)**: `tools/dev/pc2_up.sh`·`pc2_voice.sh`·`pc2_cmd.sh`·`pc2_down.sh` + compose `vision-node`(`pc2` 프로필). mock 으로 명령 확인, 비전 컨테이너·실물은 PC2 에서 1-1절 방식과 시작 줄 비교 필요.
 - **recover B 실제 호출 (10/13, B #297 위)**: `recover_check: b`·`params/recovery.yaml`·서랍 거리 변환·`recover_call_b`(W2, 기본 꺼짐). D 리뷰 P1 반영(서랍 칸 누락 = 모름). E·B 결정 대기: 외력 칸 P2 처리, W2 호출 주체 [실측: 호스트 803·임시 컨테이너 ROS 819 passed].
 - **상태 칸 W4 (10/13, #285 위 PR #286)**: `boot_id`·`seq`·`stamp`·`halt.resume`. E 리뷰 반영: `hold_until` 고정(만료 뒤 상태·seq 안 바뀜) [실측: 호스트 752·임시 컨테이너 ROS 포함 770 passed]. 다음: recover → 재개 질문·답.
 - **recover (10/13, W4 PR 위 PR #289)**: `resumable` 기본 꺼짐. D·E 리뷰 반영: W1 필수 칸 전부 fail-closed(기준 미정이면 거절), 그리퍼 enum, mock 조회는 mock 백엔드에서만 [실측: 호스트 777·임시 컨테이너 ROS 포함 797 passed]. 다음: 재개 질문·답, B W1·W2 PR 오면 실제 조회 연결.
