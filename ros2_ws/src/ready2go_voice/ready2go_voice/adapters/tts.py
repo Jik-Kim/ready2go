@@ -21,6 +21,8 @@ class PCMTTS:
         try:
             if cancel and cancel.is_set():
                 raise InterruptedError('TTS_CANCELED')
+            if self.cfg.get('voice_flow', {}).get('wake_cue_enabled') and self.cfg.get('output_device') is None:
+                self.cfg['output_device'] = sd.default.device[1]  # cue/TTS가 같은 첫 선택을 공유합니다.
             synth_deadline = min(deadline, start_deadline) if start_deadline is not None else deadline
             if time.monotonic() >= synth_deadline:
                 raise TimeoutError('TTS_START_TIMEOUT')
