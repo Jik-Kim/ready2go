@@ -35,7 +35,7 @@
 - 지우개 예외의 근거는 **새 서랍 가운데 조건의 파지 3/3 성공**임([B 시험 기록](https://github.com/Jik-Kim/ready2go/issues/8#issuecomment-5977034169)). 벽 옆·전체 배치·다른 물품의 파지 검증 완료를 뜻하지 않음. 물품별 파지 힘·최종 실물 실행 검증은 [#15](https://github.com/Jik-Kim/ready2go/issues/15), 벽 옆 대응은 [#37](https://github.com/Jik-Kim/ready2go/issues/37)에서 확인함. [실측: B 보고] [문서]
 - 그리퍼 손끝 개조는 하지 않음. 파지 높이는 서랍 바닥/실제 지지면을 기준으로 잡고 RG2 폭 피드백 등을 함께 확인함. 검정·광택·얇은 벽·원뿔 물품은 개별 검증함.
 - 등록 물품은 장애물 포함 **10종·11개**(지우개 2개). 단일 요청은 등록 목록 전체를 대상으로 함. 아래 표의 등록은 최종 파지 승인이나 시도마다 성공한다는 뜻이 아님.
-- [문서] 당근 펜은 활성 목록에서 제외했습니다. 기존 학습 클래스 11종과 class_id=5 및 과거 실측 기록은 유지하며 A의 은퇴 클래스 호환 지원은 별도입니다. 장면 프리셋·실물 미검증 구분은 [Knowledge 안내](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조하십시오.
+- [문서] 당근 펜은 활성 목록에서 제외했습니다. 기존 학습 클래스 11종과 class_id=5 및 과거 실측 기록은 유지하며 A의 은퇴 클래스 호환 지원은 별도입니다. 단일 초기 정의·S3 실물 시험·미검증 구분은 [Knowledge 안내](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조하십시오.
 - 파지 설정 정본은 `config/item_grasp.yaml`. 힘과 승인 조건이 미확정이면 `grip_force: null`, `grasp_verified: false`로 유지함. 다른 파트가 기본값으로 실행하지 않도록 B/C 연결이 필요함.
 - 선정·시험·높이 기준 결정은 [#8](https://github.com/Jik-Kim/ready2go/issues/8), 반영 작업은 [#11](https://github.com/Jik-Kim/ready2go/issues/11)에 추적함. `docs/decisions.md`는 현재 없음.
 

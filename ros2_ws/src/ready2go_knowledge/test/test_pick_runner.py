@@ -46,7 +46,7 @@ class ObservationStub:
     @staticmethod
     def target(y):
         return {"id": "eraser#1", "class": "eraser",
-                "pose": {"frame": "drawer_top", "position": [0.1769, y, 0.0],
+                "pose": {"frame": "drawer_bottom", "position": [0.1769, y, 0.0],
                          "yaw": 0.0, "yaw_valid": True}, "top_z": 0.0115}
 
     def call_action(self, name, params_json, timeout):
@@ -119,9 +119,11 @@ def test_pick_first_uses_new_scan_without_unconditional_nudge_or_second_look():
     assert calls(stub, "pick_object")[0]["target"] == stub.initial != stub.task_seen
     assert calls(stub, "pick_object")[0]["scan"] == record(result, "s5.1.e2")["output"]
     assert record(result, "s5.1.e3")["option"] == 1
+    assert stub.states_before_pick[0]["gripper"]["robot"] == "empty"
+    assert stub.states_before_pick[0]["located_in"]["eraser"] == "drawer_bottom"
     assert record(result, "s5.1.e1")["same_pose"] is True  # C 자세 중복 억제; 관측 유효성 증거 아님
     assert record(result, "s5.1")["state_diff"] == {
-        "gripper.robot": ["empty", "eraser"], "located_in.eraser": ["drawer_top", "gripper"]}
+        "gripper.robot": ["empty", "eraser"], "located_in.eraser": ["drawer_bottom", "gripper"]}
     assert runner.state["located_in"]["eraser"] == "handover_zone"
 
 
@@ -136,7 +138,7 @@ def test_wall_only_nudges_once_then_uses_new_target_and_whole_scan(pushed):
     assert record(result, "s5.1.e3.o1.1")["error_code"] == "WALL_TOO_CLOSE"
     assert record(result, "s5.1.e3")["option"] == 2
     assert stub.scans == 3
-    assert calls(stub, "nudge_object") == [{"target": stub.initial, "drawer_id": "drawer_top",
+    assert calls(stub, "nudge_object") == [{"target": stub.initial, "drawer_id": "drawer_bottom",
                                             "scan": record(result, "s5.1.e2")["output"]}]
     first, second = calls(stub, "pick_object")
     assert first["target"] == first["scan"]["target"] == stub.initial
@@ -191,7 +193,7 @@ def test_null_or_missed_observation_blocks_next_pick(scan, absent):
     assert len(calls(stub, "pick_object")) == (0 if scan == 2 else 1)
     assert len(calls(stub, "nudge_object")) == (0 if scan == 2 else 1)
     assert "state_diff" not in record(result, "s5.1")
-    assert runner.state["located_in"]["eraser"] == "drawer_top"
+    assert runner.state["located_in"]["eraser"] == "drawer_bottom"
 
 
 def test_initial_task_miss_keeps_existing_notice_branch_without_pick():
@@ -200,7 +202,7 @@ def test_initial_task_miss_keeps_existing_notice_branch_without_pick():
     assert result.overall_status == "COMPLETED"
     assert stub.scans == 1
     assert not calls(stub, "nudge_object") and not calls(stub, "pick_object")
-    assert runner.state["located_in"]["eraser"] == "drawer_top"
+    assert runner.state["located_in"]["eraser"] == "drawer_bottom"
 
 
 @pytest.mark.parametrize("stage", ["pick", "nudge", "scan3"])

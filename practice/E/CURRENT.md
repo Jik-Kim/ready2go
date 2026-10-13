@@ -1,5 +1,11 @@
 # CURRENT — E 고희태
 
+## pr283-main-refresh-20261013-02
+
+- [문서: 승인·이력] 기존 사용자 “#283 conflict 해결” 승인과 최신 main 합류 요청에 따라 기존 head `62d9ed5de62fec27ddf3aa87584d255cd37d88fb`에 main `0436fe18bad1d2f34636b7c24da0649a27108aac`를 정상 병합합니다. #323의 독립 C fixture·하단/one_open 지원과 #324의 Mock `recover_call_b=False`를 main 원본대로 보존합니다.
+- [해결·범위] 충돌은 이 CURRENT의 상단 기록 한 곳이며 main의 #315 후속 기록과 기존 #283 단일 초기 상태·검증 이력을 모두 유지합니다. Voice README 자동 합류의 현행 runtime 설명과 단일 초기 상태 참조도 유지합니다. 자체 변경은 기존 E13파일 범위이며 초기 상태 6종/S3 지우개 등록/프리셋 3개 삭제·선택 load API·공통 pick은 보존합니다. 타 담당 파일은 main 이력 합류로만 수신하며 직접 편집하지 않습니다.
+- [검증·미결] 기존 E53·C31 호환·ROS822 검사는 각각의 당시 SHA/환경 근거입니다. 이번에는 main 대비 diff·원본 보존·충돌 마커/형식 정합성만 확인하며 전체 core·colcon·필수 CI를 반복하지 않습니다. 새 최종 HEAD의 전체 CI·normal push·#283 본문/Ready 갱신은 게시 담당의 후속이며 실제 ROS/장치/API·실물 완료를 뜻하지 않습니다.
+
 ## e-c-w3-wire-runtime-20261013
 
 - [문서: 승인/목표/범위] 조율 human 01a1347e/01a13482의 기존 C 연결 보완 실제 반영 정정과 최초 01a13427의 E 구현·끝값 포함 승인을 직접 확인했습니다. 8b1541b5의 hook/core 보고에는 운영 binding 호출자·실제 C 최종 결정 소비 누락이 있었습니다. 이번은 같은 승인 범위의 실제 E 호출 경로 보완이며 아래 8b 기록은 당시 이력입니다. P2 [FR-SAF-01/03](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)·[접수 정책](../../docs/requirements.md#resume-admission-policy)을 대조했습니다. 역할은 E Voice core/node·신규 adapters/runner_control.py·신규 직접 C 연동 test_c_control_wire.py·관련 E 시험/문서/CURRENT입니다. 공유 계약/설정/C·B·A/카드/초기 데이터 직접 수정·카라멜21mm·S2 사용자 문서·agent/게시/실물은 제외합니다.
@@ -65,6 +71,49 @@ env -u PYTEST_ADDOPTS -u REQUIRE_MONGO PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=ros2
 - [문서: 승인/범위] 검토 SHA `b007efd3bc2929a6c2d9f4decd812f0afb30fb84`의 `ros2_ws/src/ready2go_voice/README.md` C #17 인계 문장만 정정합니다. 연결 기준은 P1 [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../../docs/requirements.md#fr-act-05), P2 caller는 [FR-ACT-04](../../docs/requirements.md#fr-act-04)입니다. 기준·계약·코드는 변경하지 않습니다.
 - [문서: 원본 대조] `knowledge/skills/pick.jsonld`의 expand는 새 scan으로 직접 `pick_object`를 먼저 실행하고, 움직임 전 `WALL_TOO_CLOSE`일 때만 nudge→탑뷰→새 scan→새 target/전체 scan 집기로 갑니다. 직접 성공은 재관측이 없습니다. [ontology.md](../../docs/ontology.md#p1-공통-pick-실행-연결)와 [knowledge README](../../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결) 설명에 맞춰 기존 `target_after` 비사용, 기존 `NO_PUSH_ACCESS`·안전 인계 문장과 기록은 보존합니다.
 - [미실측] 문서 정합성 수정이며 로봇·실물 관측·AC 수행을 의미하지 않습니다.
+
+## pr283-main-conflict-20261013-01
+
+- [문서: 승인/실제 부모] E-PR283-MAIN-CONFLICT-20261013-01, 관리 세션 human `01a13408-87b9-7e51-8f3d-56c834aa151b`의 “#283 conflict 해결”을 직접 확인했습니다. API/fetch 기준 #277 merge `0c36127f7838dda3ed0fbad1b06185b0dd0f78ee`가 최신 main `2b5b6ea05291d971413c46013322fb7b1535e716`의 선조임을 확인한 뒤 기존 #283 원격 head `3a57fb72d185205239d063083e2040b01033f547`에 정상 merge했습니다. 부모 둘의 history를 유지하며 작업 경로/branch는 `/tmp/ready2go-e-p2-ontology-integration-20261013`·`codex/e-single-initial-state-20261013`입니다. primary edb/fixfb28 ref·모델/receipt는 보존합니다.
+- [문서: 의미/정본] [FR-ONT-01/02](../../docs/requirements.md#fr-ont-01)·[FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[AC-ONT-01](../../docs/requirements.md#ac-ont-01)·[AC-PLN-01](../../docs/requirements.md#ac-pln-01)·기존 [FR-ACT-04/05](../../docs/requirements.md#fr-act-04)·[AC-ACT-05](../../docs/requirements.md#ac-act-05)를 유지합니다. source edb의 초기 JSON 바이트/위3·아래3/S3 eraser 아래 유지·scene3삭제·world10/위치6/미기입4와 선택 API를 보존합니다. main 공통 pick의 fresh 관측→직접pick→움직임 전 WALL만nudge/view/inspect/새target+전체scan pick, 실패/정지/null 차단과 params/pre/hold/effect/verify/errors를 그대로 수신했습니다.
+- [해결: 실제 E 충돌4] docs/ontology는 단일 초기 원본 설명과 main 조건부 pick 절을 함께 유지, knowledge/README는 단일 초기 상태/시험 API와 현재 조건부 pick 링크·재사용 미연결을 결합했습니다. CURRENT는 data/Voice fixture 이력과 277 JSONL/조건부 pick의 각 SHA/검사 기록을 모두 보존했습니다. test_pick_runner는 main의 조건부 전체 호출열·WALL 전용/새target/전체scan·실패/정지 차단 검사를 보존하고 source default eraser 아래 프레임·초기 위치/효과를 맞췄습니다. 첫 집기 전 빈손/아래 위치 검사도 명시 보존했습니다. 위 칸 `occluded_top/toy_wrench` 시나리오의 닫힘은 **drawer_top**을 확인하며, 처음부터 닫힌 bottom만 검사하는 약화를 최종 대조에서 수정했습니다. ours/theirs 파일 통째 선택·카드/data 원복·새값/정책·skip은 없습니다.
+- [실측: 합류 직접 검사] validator 첫1회 `OK`/종료0. E test_ontology/test_pick_runner **53 passed in 1.10s/종료0**, source/카드 실제 로더·Runner 연결을 검사했습니다. 이후 위 칸 닫힘/첫pick state 검사를 명시한 두 사례만 최종 재검사했고 나머지51은 불변 근거로 재사용합니다. 해당 두 사례는 **2 passed in 0.33s/종료0**으로 재확인했습니다. 고유53개를 분할 확인하고 반복을 합산하지 않았습니다. 전체core/compose/build·이전Voice39/27729·카드139는 반복하지 않았으며 이 부분검사를 새head 전체CI 성공으로 표시하지 않습니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_ontology.py ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py::test_pick_first_uses_new_scan_without_unconditional_nudge_or_second_look ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py::test_common_card_completes_formal_unpacking_with_one_direct_pick_view -q -p no:cacheprovider
+```
+
+- [보존/인계] C #279 6시험/277JSONL 동기화/282문서와 최신 main의 B/C 변경은 수신 원본 그대로이며 타 담당 충돌은 없었습니다. source JSON/삭제·API·card/타 담당 원본·마커/형식/문서 링크와 실제두부모를 대조했습니다. Voice README의 자동 합류는 data 단일 상태 설명1문단과 main #282 실행 준비 안내1줄을 각각 유지한 결과로 바이트 대조했습니다. main 대비 정확 기존 E13파일 범위이며 다른 담당 수신 내용은 원본 그대로입니다. C 회귀/아래 칸 goal plan_limits와 하단 물품 충돌은 협의 대기이고 E가 수정하지 않습니다. B domain58–63/103·D/C demo_scenario11은 전달만 확인됐으며 수락/완료를 선언하지 않습니다. #285 end_task·관측 재사용·실API/음성/ROS/장치/로봇·실물은 별도/미검증입니다. E 충돌 담당 범위 완료 뒤 전담이 새 exact mergehead 전체CI1회/normalFF push/기존283본문 갱신을 수행하며 새PR/main직접병합/force/rebase/agent/설치는 하지 않습니다.
+
+
+## single-initial-state-20261013-01
+
+- [문서: 승인·기준] E-SINGLE-INITIAL-STATE-20261013-01. 조율 human `01a13399-f427-76d2-b0a8-8e9c0c3e93fd`의 “일단 빠르게 해결할 수 있는 방안으로 가자”와 단일 배치 반영 계획을 직접 확인했습니다. 사용자 source `edb989f9e905c3ded5ea99df2305670a8d601cec`의 initial_state 내용/scene 삭제만 최신 main `bd8d65e40229901579b13d36d477d77eed5834e0` 기반 `codex/e-single-initial-state-20261013`에 반영합니다. 경로는 기존 격리 `/tmp/ready2go-e-p2-ontology-integration-20261013`입니다. [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[물품 정책](../../docs/requirements.md#item-policy)·P2 [FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[FR-ACT-04/AC-ACT-03](../../docs/requirements.md#fr-act-04)·[AC-ONT-01](../../docs/requirements.md#ac-ont-01)을 참조하며 정본/Phase/공개 계약을 바꾸지 않습니다.
+- [구현: 단일 정의] [`initial_state.json`](../../knowledge/snapshots/initial_state.json)은 source의 description/state를 바이트 그대로 반영했습니다. 위 칸 wrench/caramel/key·아래 칸 plate/eraser/lip 6종 위치와 나머지 source home/empty/닫힘/handover 값은 [Knowledge 안내](../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. 등록 world 10종과 위치 기입 6종을 구분하고 나머지 4종을 미등록/재고 없음으로 정의하지 않습니다. S3도 JSON eraser 아래 칸 위치는 유지하고 실물에서만 제외하는 시험입니다. 관측/LLM 전달·상태 갱신의 운영 검증 완료를 뜻하지 않습니다.
+- [삭제/유지] source와 대조해 장면 파일 p2_s1/p2_s2/p2_s3 3개만 삭제했습니다. 선택 load API는 보존하고 양성/참조/중복/경로/legacy 시험 입력은 tmp_path 파일로 분리했습니다. 사용자 배치를 옛 시험에 맞춰 되돌리지 않으며 E pick 연결 시험은 default eraser가 아래 칸인 기대만 맞췄습니다. Knowledge/ontology·hardware·패키지 Knowledge/Voice README의 현재 설명/링크와 E 시험2파일을 갱신했습니다. 기존 앵커는 명시 alias로 보존하며 과거 CURRENT/실측/changelog·archive·타 담당 문서는 재작성하지 않았습니다.
+- [보호] primary edb·단일 초기 배치/삭제scene·실 cache/receipt, world/grasp/places·캐러멜18.5·학습11/id5·모델/라벨·원 manifest/loader·모든 skill의 expand/pre/effect/place·공개 계약·진행 중 다른 세션을 보존합니다. 카드 branch `codex/e-pick-conditional-nudge-20261013`의 `ea7eb266cff7cbd72d91a6aa5c892a2f85cec6ce`는 별도이며 data branch에 merge/cherry-pick/편집하지 않았습니다. user edb 전체 merge도 하지 않습니다.
+- [실측: 직접 검증] source 바이트 일치/삭제3개/JSON·AST와 기본 loader/반환 구조·임시 선택 API를 확인했습니다. `PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py` 첫 1회 OK/종료0. ontology/test_pick_runner 2파일 43사례 선택은 42 passed/1 failed(1.01초): E 닫힘 검사에 남은 옛 open.drawer_top 기대를 source의 eraser drawer_bottom에 맞췄습니다. 데이터/런타임을 바꾸지 않고 그 실패1사례만 1 passed in 0.04s/종료0으로 재검사하여 고유 43개를 분할 확인했습니다. 이전 카드30통과/C옛view1실패를 이번 data 검사 결과로 전용하지 않습니다. 전체 core/Mongo/ROS/build/fullCI는 E 단계에서 실행하지 않고 게시 전담이 최종 고정 SHA에서 한 번 수행합니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_ontology.py ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_ontology.py::test_pick_blocked_when_drawer_closed -q -p no:cacheprovider
+```
+
+- [실측: 정합성/보존] 정확 E 12파일 diff, source 초기 JSON SHA256 `9338850e54b270ec88649b901dbde8a25e444238675b7ec4aa0e6c0790b84f2c`와 3파일 삭제 일치, AST/JSON/YAML·추가 문서 링크/명시 alias 앵커·world10/grasp10/state6·캐러멜18.5·고정11/id5를 대조했습니다. loader/API·manifest·모든 skill·설정과 primary 6원본 hash/scene 삭제·카드 ref ea7는 불변이며 data branch에는 카드 선조가 없습니다.
+- [인계/미검증] C default 위치/서랍·옛 P1 모든 물품 top·C test_tasks/test_unpack_task fixtures의 frame/expectation은 새 단일 파일과 담당자 대조가 필요합니다. B HANDOVER의 임시 배치 편집/원복 안내, C `practice/C/2026-10-12_checkpoint2_runbook.md`의 초기 위치 임시 편집 및 docs/demo_scenario의 옛 위 칸 기본 설명은 담당 인계입니다. C 등록 물품의 위치 누락 UNKNOWN_ITEM 구분·S3 실물 미검출 결과/LLM 전달·관측 유효성/무효화와 실음성/API/ROS/로봇/실물 수용은 미검증/후속입니다. 새 이웃 우선/check_scan/W3 안전/도달깊이/모션을 추가하지 않습니다.
+- [전담 CI: 이전 head 실패] `385cf8dcba140f6d1b289209b51dd91c21725a13`의 전체 CI core 로그 `/home/jonny/.cache/ready2go-ci/logs/385cf8d_20261013_141921_LBzq/core.log`에서 실패가 발생했습니다. manager 분류는 C31/E4 실패이며 43skip은 별도입니다. E4의 실제 로그를 확인했고 모두 망치가 초기 위치에 있다는 옛 readonly 기대였습니다. 등록 물품의 위치 미기입을 정상 미확인으로 보존했으며 C31·의존성 skip을 E fixture 수정이나 실행 성공으로 바꾸지 않습니다.
+- [실측: E Voice fixture 보완] 추가 허용 파일은 `ready2go_voice/test/test_dialogue_hotfix.py`와 이 CURRENT입니다(총 data diff13파일). 등록 망치/초기 위치 없음 전제와 정확 초기 미확인 응답을 명시하고, 기입6종의 초기 위치 및 연결 provider 누락/예외에서 알려진 초기 지우개 위치로 대신하지 않는 경계를 확인합니다. readonly·LLM 미호출·targets 빈 배열·실행허용 false와 참조/현재 mapping 불변을 유지했습니다. 전체 unknown wire 발행0은 현 구현과 다른 주장입니다: intent.parse는 보류 unknown을 만들고 session/Node는 보류 intent 발행을 허용할 수 있으므로 이번 시험은 실행 후보/권한 차단을 확인합니다. runtime/API·단일 source/state/world·C 파일은 수정하지 않았습니다.
+- [실측: 최소 재검사 결과] AST 후 해당 Voice 파일 최초1회 **33 passed/6 failed(3.79초)**: 원 CI E4는 통과했고, 강화한 실패 응답 조건이 “초기 배치를 대신 안내하지 않는다”는 설명 문구의 단어를 잘못 배제했습니다. 두 predicate를 정확 현재 기록 미확인 응답으로 보완한 뒤 실패6만 **6 passed/33 deselected(0.91초), 종료0**으로 재검사했습니다. 고유39개 분할 확인이며 반복을 더하지 않았습니다. 기존 E43·validator·data/runtime 검사는 변경이 없어 재실행하지 않았고 이전 385 전체 CI를 새 head 성공으로 전용하지 않습니다. 새 head의 normal push/전체CI1회·C31 미결 공개 draft PR은 manager/게시 전담 단계입니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_voice" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_dialogue_hotfix.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_voice" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_dialogue_hotfix.py -k '(provider_boundary and (missing or exception)) or known_initial_location_does_not_fill' -q -p no:cacheprovider
+```
+
+- [게시 경계] 승인 E data/문서/시험만 로컬 커밋 후 manager 실제 diff 검증에 전달합니다. publisher 진행 중인 카드 작업을 덮지 않고 data 최종 CI·정상 push·별도 PR 지시는 manager가 순차 담당합니다. E 자체 CI/push/PR/main 병합·새 agent/설치·Notion/외부 게시를 수행하지 않습니다. 아래 과거 기록은 각 당시 SHA·검사/배치이며 새 단일 정의로 재해석하지 않습니다.
 
 ## pr277-jsonl-review-fix-20261013-01
 

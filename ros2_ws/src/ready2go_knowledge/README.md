@@ -26,7 +26,7 @@
 - `core.ontology.load(<저장소>/knowledge/robot_ontology.jsonld)`가 `sources`의 JSON-LD·초기 상태 JSON·장소 YAML을 읽는다.
 - 반환 구조는 `classes`·`world`·`state`·`skills`로 유지한다. 장소 설정은 `config/places.yaml`을 정본으로 하며 공통 식별자로 결합한다.
 - `robot_ontology.jsonld`는 이제 참조 목록이므로 `json.load()`만 호출하면 전체 지식을 얻을 수 없다.
-- 선택 입력 `load(manifest, snapshot="snapshots/p2_s3.json")`은 manifest 폴더 기준 상태 파일을 읽는다. 생략하면 기존 P1 기본값을 유지한다. 파일별 위치·호환·C 미연결 경계는 [P2 시작 배치 선택](../../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)을 참조한다.
+- 기본 load는 manifest의 단일 initial_state를 읽는다. 선택 입력 `load(manifest, snapshot=provided_state_path)`은 사용자가 별도로 제공한 시험 파일을 읽으며 상대 경로는 manifest 폴더 기준이다. 현재 6종 위치·S3 실물 제외·API 호환/운영 경계는 [단일 초기 상태와 선택 API](../../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)을 참조한다.
 - `state`는 초기화용 프리셋 복사다. 실제 상태 확인과 현재 상태 적용·저장은 Runner 책임이다.
 - Python 실행 의존성: `PyYAML` (`setup.py`), ROS/시스템 의존성: `python3-yaml` (`package.xml`). CI에서도 `PyYAML`을 설치한다.
 - 단위 테스트: 저장소 루트에서 `PYTHONPATH=ros2_ws/src/ready2go_knowledge python3 -m pytest ros2_ws/src/ready2go_knowledge/test -q`.

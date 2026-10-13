@@ -45,7 +45,12 @@ def test_readonly_initial_state_query_before_llm(node,text):
     initial=copy.deepcopy(node.parser.reference_state)
     node.parser.llm=lambda *a:pytest.fail('읽기 전용 질의는 실행 분류 전에 처리합니다.')
     doc=node.session.text(text)
-    assert '초기 배치 기준' in doc['_voice']['final_text']
+    if '망치' in text:
+        assert 'toy_hammer' in node.parser.items and 'toy_hammer' not in initial['located_in']
+        assert doc['_voice']['final_text']=='초기 배치에서도 해당 상태를 확인하지 못했어요.'
+    else:
+        assert '초기 배치 기준' in doc['_voice']['final_text']
+    assert doc['_voice']['readonly_query'] and not doc['source']['llm_called'] and doc['targets']==[]
     assert not doc['source']['execution_allowed'] and node.parser.reference_state==initial
 
 
@@ -60,11 +65,48 @@ def test_readonly_provider_boundary_no_fallback_after_connected_failure(node,mod
         return {} if mode=='missing' else state
     node.parser.state_provider=None if mode=='none' else provider
     doc=node.session.text(text);answer=doc['_voice']['final_text']
-    if mode=='none':assert '초기 배치 기준' in answer and not calls
+    if mode=='none':
+        if '망치' in text:
+            assert 'toy_hammer' in node.parser.items and 'toy_hammer' not in initial['located_in']
+            assert answer=='초기 배치에서도 해당 상태를 확인하지 못했어요.'
+        else:
+            assert '초기 배치 기준' in answer
+        assert not calls
     elif mode=='recorded':assert 'Runner 기록 기준' in answer and calls==[1]
-    else:assert '확인하지 못' in answer and '초기 배치 기준' not in answer and calls==[1]
+    else:assert answer=='Runner 기록에서 해당 상태를 확인하지 못했어요. 초기 배치를 현재 상태로 대신 안내하지 않습니다.' and calls==[1]
     assert not doc['source']['execution_allowed']
     assert node.parser.reference_state==initial and state=={'located_in':{'toy_hammer':'staging_tray'},'open':{'drawer_top':True}}
+
+
+@pytest.mark.parametrize('item,place',[
+    ('toy_wrench','drawer_top'),('caramel_box','drawer_top'),('car_key','drawer_top'),
+    ('cover_plate','drawer_bottom'),('eraser','drawer_bottom'),('lip_balm','drawer_bottom')])
+def test_known_single_initial_location_remains_readonly(node,item,place):
+    initial=copy.deepcopy(node.parser.reference_state)
+    assert initial['located_in'][item]==place
+    node.parser.llm=lambda *a:pytest.fail('읽기 전용 질의는 LLM을 호출하지 않습니다.')
+    doc=node.session.text(node.parser.items[item]['name_ko']+' 어디있어?')
+    answer=doc['_voice']['final_text']
+    assert '초기 배치 기준' in answer and node.parser.items[item]['name_ko'] in answer
+    assert node.parser.places[place]['name_ko'] in answer
+    assert doc['_voice']['readonly_query'] and doc['targets']==[] and not doc['source']['llm_called']
+    assert not doc['source']['execution_allowed'] and node.parser.reference_state==initial
+
+
+@pytest.mark.parametrize('mode',['missing','exception'])
+def test_known_initial_location_does_not_fill_connected_provider_failure(node,mode):
+    initial=copy.deepcopy(node.parser.reference_state);calls=[]
+    assert initial['located_in']['eraser']=='drawer_bottom'
+    def provider():
+        calls.append(1)
+        if mode=='exception':raise RuntimeError('private')
+        return {}
+    node.parser.state_provider=provider
+    node.parser.llm=lambda *a:pytest.fail('읽기 전용 질의는 LLM을 호출하지 않습니다.')
+    doc=node.session.text('지우개 어디있어?');answer=doc['_voice']['final_text']
+    assert answer=='Runner 기록에서 해당 상태를 확인하지 못했어요. 초기 배치를 현재 상태로 대신 안내하지 않습니다.' and calls==[1]
+    assert doc['_voice']['readonly_query'] and doc['targets']==[] and not doc['source']['llm_called']
+    assert not doc['source']['execution_allowed'] and node.parser.reference_state==initial
 
 
 @pytest.mark.parametrize('text',['복구해','이어서 해','종료해'])
