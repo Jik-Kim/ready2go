@@ -87,7 +87,7 @@
   - 전: 들어 올린 뒤 검사까지 가야 기억해서, 그 사이 멈추면 빈손으로 남았음.
 - 놓침은 폭이 빈손 닫힘(≤ 2 mm)까지 줄어든 **실측**일 때만 기억을 지움(`hand: empty`).
 
-## 5. 무동작 안전 확인 — B → C/E 제안 초안 (**10/13 구현 #296 — 제안, C 확인·E 포함 2명 승인 전**)
+## 5. 무동작 안전 확인 — B → C/E 제안 초안 (**10/13 구현 — W1·W2 PR(#296 에서 분리), 제안, C 확인·E 포함 2명 승인 전**)
 > 10/13: W1 `/skills/check_state`·W2 `/skills/recover` 로 구현(`std_srvs/Trigger`, 응답 `message` = JSON, 칸은 `ros2_ws/src/ready2go_skills/README.md`). 남은 것: `external_force`(지속 외력) 판정 — 아래 B 실측 뒤까지 `null`. 아래는 10/11 초안 기록.
 재개 판정 3개 중 "B 안전 상태"용. 로봇을 움직이지 않고 한 번에 읽어 돌려주는 액션(이름 예: `/skills/check_state`)을 제안한다.
 - 돌려줄 것(모두 지금 B 가 읽을 수 있는 값): 로봇 상태값(이동 중·안전/비상정지 `ESTOP_STATES`), 서버 잠금 사유, 펜던트 TCP·툴 이름 일치(`motion_guard.check_tool`), 그리퍼 폭·`grasp_detected`·safety error 와 `hand`(holding/empty/unknown), 쥔 기억·`hold_unknown`, 툴 힘(멈춘 채 평균)과 읽은 시각, 서랍 인출 기억(`disp`).
