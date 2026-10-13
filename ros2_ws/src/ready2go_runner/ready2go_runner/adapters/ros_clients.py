@@ -18,6 +18,7 @@ Runner 는 블로킹으로 실행되므로, 노드는 다른 스레드의 execut
 """
 from __future__ import annotations
 
+import json
 import threading
 
 from rclpy.action import ActionClient
@@ -33,6 +34,9 @@ from ..core.interpreter import HALTED, HALT_CODES
 TIMEOUT = "TIMEOUT"
 STOP_UNCONFIRMED = "STOP_UNCONFIRMED"   # 취소 후 백엔드의 정지 확인(최종 결과)이 없음 → Runner 잠금 (HALT_CODES)
 CANCELED = "CANCELED"
+# 어댑터가 스스로 만든 실패(서버 없음·거절·보내지 않음·정지 확인 시간 초과) 표시 — 백엔드 최종 결과가 아님.
+# Runner 는 이 응답을 /runner/status halt 의 "백엔드 응답 받음"으로 세지 않는다 (#259 E 리뷰 P1)
+NO_BACKEND_RESULT = json.dumps({"no_backend_result": True})
 CANCEL_CONFIRM_SEC = 5.0                # 취소 요청 뒤 최종 결과를 기다리는 최대 시간 [추정, 실측 후 조정]
 SERVER_WAIT_SEC = 2.0                   # 서버를 찾는 최대 시간 [추정, 실측 후 조정]. 없으면 BACKEND_ERROR (동작 안 함)
 GOAL_ACCEPT_SEC = 5.0                   # goal 수락 응답을 기다리는 최대 시간 [추정]
@@ -53,15 +57,17 @@ class RosClients:
         self._active: dict[int, tuple] = {}     # 진행 중인 goal: id → (handle, 깨우기 Event, 취소 요청 여부 [bool])
 
     def cancel_all(self) -> int:
-        """진행 중인 모든 goal 에 취소를 요청한다 (/runner/estop·halt). 기다림은 각 call_action 이 한다."""
+        """진행 중인 모든 goal 에 취소를 요청한다 (/runner/estop·halt). 기다림은 각 call_action 이 한다.
+        돌려주는 수 = 취소를 보낸 **로봇 스킬**(/skills/*) goal 수 — 음성(/voice/speak) 등은 취소하되 세지 않음
+        (/runner/status halt.canceled_goals·실행 기록 halts[], #259 D 리뷰: TTS 취소를 로봇 정지로 보지 않게)."""
         with self._lock:
             active = list(self._active.values())
-        for handle, wake, canceled in active:
+        for handle, wake, canceled, _ in active:
             if not canceled[0]:
                 canceled[0] = True
                 handle.cancel_goal_async()
             wake.set()
-        return len(active)
+        return sum(1 for *_, name in active if "/skills/" in name)
 
     def _action_client(self, name: str) -> ActionClient:
         client = self._actions.get(name)
@@ -77,9 +83,9 @@ class RosClients:
         client = self._action_client(name)
         if not client.wait_for_server(timeout_sec=self.server_wait_sec):
             self.node.get_logger().error(f"{name}: 액션 서버 없음")
-            return Reply(False, BACKEND_ERROR)
+            return Reply(False, BACKEND_ERROR, NO_BACKEND_RESULT)
         if self.stopping():                     # 서버를 찾는 사이 중단 요청 → 보내지 않음
-            return Reply(False, HALTED)
+            return Reply(False, HALTED, NO_BACKEND_RESULT)
 
         sent = client.send_goal_async(Skill.Goal(params_json=params_json))
         if not _wait(sent, self.goal_accept_sec):
@@ -87,7 +93,7 @@ class RosClients:
         handle = sent.result()
         if handle is None or not handle.accepted:
             self.node.get_logger().error(f"{name}: goal 거절")
-            return Reply(False, BACKEND_ERROR)
+            return Reply(False, BACKEND_ERROR, NO_BACKEND_RESULT)
         return self._follow(name, handle, timeout_sec)
 
     def _settle_late_goal(self, name: str, sent) -> Reply:
@@ -100,14 +106,14 @@ class RosClients:
                 handle.cancel_goal_async()
         sent.add_done_callback(cancel_if_accepted)          # 여기서 포기한 뒤에 수락돼도 취소됨
         if not _wait(sent, self.cancel_confirm_sec):
-            return Reply(False, STOP_UNCONFIRMED)           # 끝내 수락 여부를 모름 → 잠금
+            return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)   # 끝내 수락 여부를 모름 → 잠금
         handle = sent.result()
         if handle is None or not handle.accepted:
-            return Reply(False, BACKEND_ERROR)              # 거절 = 움직이지 않음
+            return Reply(False, BACKEND_ERROR, NO_BACKEND_RESULT)   # 거절 = 움직이지 않음
         done = handle.get_result_async()
         if not _wait(done, self.cancel_confirm_sec):
-            return Reply(False, STOP_UNCONFIRMED)
-        return Reply(False, _keep_safety_code(done.result().result.error_code, TIMEOUT))
+            return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)
+        return _timeout_reply(done.result().result)
 
     def _follow(self, name: str, handle, timeout_sec: float | None) -> Reply:
         """수락된 goal 의 결과를 기다림. 시간 초과·중단이면 취소 후 정지 확인까지."""
@@ -116,7 +122,7 @@ class RosClients:
         done.add_done_callback(lambda _: wake.set())
         key = id(handle)
         with self._lock:
-            self._active[key] = (handle, wake, canceled)
+            self._active[key] = (handle, wake, canceled, name)
         try:
             if self.stopping():                 # 보내는 사이에 중단 요청이 들어옴
                 self.cancel_all()
@@ -131,9 +137,9 @@ class RosClients:
                 self.node.get_logger().warning(f"{name}: {timeout_sec}초 초과 → 취소 요청, 정지 확인 대기")
             if not _wait(done, self.cancel_confirm_sec):   # 백엔드가 멈추고 최종 결과를 줄 때까지
                 self.node.get_logger().error(f"{name}: 취소 뒤 {self.cancel_confirm_sec}초 안에 정지 확인 없음")
-                return Reply(False, STOP_UNCONFIRMED)
+                return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)
             if timed_out:                       # 결과가 왔다고 정지 성공은 아님: 안전 코드는 그대로 (E 리뷰)
-                return Reply(False, _keep_safety_code(done.result().result.error_code, TIMEOUT))
+                return _timeout_reply(done.result().result)
             result = done.result().result         # 중단 요청으로 취소됨 (또는 직전에 끝남)
             return Reply(result.success, result.error_code or ("" if result.success else CANCELED),
                          result.output_json)
@@ -160,6 +166,19 @@ class RosClients:
 def _keep_safety_code(code: str, otherwise: str) -> str:
     """취소 뒤 최종 결과의 코드가 Runner 잠금 대상(HALT_CODES)이면 그대로, 아니면 otherwise."""
     return code if code in HALT_CODES else otherwise
+
+
+def _timeout_reply(result) -> Reply:
+    """시간 초과로 취소한 뒤 백엔드가 준 최종 결과. 실행 코드는 지금처럼 TIMEOUT(안전 코드는 그대로)이고,
+    백엔드 원래 코드·성공 여부는 결과 JSON backend_code·backend_success 로 따로 넘김 — 그 사이 정지 요청이 있었으면
+    Runner 가 /runner/status halt.response_code 에 원래 코드를 씀 (#259 E 리뷰: CANCELED 가 TIMEOUT 으로 바뀌던 것)."""
+    try:
+        output = json.loads(result.output_json) if result.output_json else {}
+    except ValueError:
+        output = {}
+    output = output if isinstance(output, dict) else {}
+    output.update(backend_code=result.error_code or "", backend_success=bool(result.success))
+    return Reply(False, _keep_safety_code(result.error_code, TIMEOUT), json.dumps(output))
 
 
 def _wait(future, timeout_sec: float | None) -> bool:

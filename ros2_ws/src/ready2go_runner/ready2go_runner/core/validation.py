@@ -6,7 +6,7 @@
    push/pop 의 stack, fallback 의 options, 스텝 ID 중복, retry 횟수)
 ④ skill 스텝 (#12): 온톨로지에 있는 primitive 스킬인지, params 이름이 스킬 정의와 맞는지
    (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_BY_ACTION)
-⑤ 스킬 expand 안 블록 (#121·#245 계약안): fallback·if 만, fallback 은 next_on 필수, 넛지 뒤 집기·놓기는
+⑤ 스킬 expand 안 블록 (#121·#245 계약): fallback·if 만, fallback 은 next_on 필수, 넛지 뒤 집기·놓기는
    넛지 뒤 새로 찍은 관측의 target·scan 만 (분기 뒤엔 모든 경로에서 새로 찍은 것), target_after 는 집기·놓기에 안 씀
 문제가 하나라도 있으면 로봇을 움직이기 전에 실행하지 않는다.
 """

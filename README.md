@@ -119,7 +119,22 @@ BACKEND=real RUNNER_TASK_FILE= SKILL_JOINT_VEL_DEG_S=10.0 \
 docker compose logs -f ros2-core realsense
 ```
 
-빌드 완료·DSR 연결·Runner와 자동 스킬 서버 준비를 로그·상태로 확인한 뒤, 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다.
+빌드 완료·DSR 연결·Runner와 자동 스킬 서버 준비를 로그·상태로 확인한 뒤, 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다. 아래 10°/s는 B의 첫 저속 실행 예이며, 실물 운용 한계는 안전 절차를 따릅니다.
+
+```bash
+mkdir -p logs/skills
+SKILL_CONSOLE_LOG=$(mktemp "logs/skills/console.XXXXXX.log")
+set -o pipefail
+docker compose exec -T ros2-core bash -lc '
+  source /opt/ros/jazzy/setup.bash
+  source /opt/dsr_ws/install/setup.bash
+  source /colcon/install/setup.bash
+  export ROS_LOG_DIR=/logs/ros
+  ros2 run ready2go_skills skill_server --ros-args -p config_dir:=/config -p joint_vel_deg_s:=10.0
+' 2>&1 | tee "$SKILL_CONSOLE_LOG"
+```
+
+이어서 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다.
 
 **로봇 없는 모의 플로우**: 모의 서버로 `find_item.json`을 한 번 실행합니다. 웨이크워드·STT·실물 동작 검사는 아닙니다.
 

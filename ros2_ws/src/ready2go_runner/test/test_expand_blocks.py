@@ -1,4 +1,4 @@
-"""스킬 expand 안 fallback·if 블록과 fallback.next_on (#121·#245 계약안, E 포함 2명 승인 전).
+"""스킬 expand 안 fallback·if 블록과 fallback.next_on (#121·#245 계약, E 대화 승인 10/13, 사용자 전달 — #263).
 E 가 공통 pick 을 "탑뷰 → 찍기 → fallback(next_on WALL_TOO_CLOSE)[ 집기 | 넛지 → 탑뷰 → 찍기 → 집기 ]" 로 바꿨을 때
 Runner 가 그대로 돌리는지 — 지금 knowledge/skills/pick.jsonld 는 그대로 두고 시험 안에서만 바꾼 온톨로지로 본다."""
 import copy

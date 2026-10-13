@@ -5,7 +5,8 @@
 
 ## 지금 상태
 - **10/12 2차 점검일 (Unpacking 실물, PC2 한 대)** [실측: PC2 DB]: 14:30 `5ca017`·16:21 `7b8141` 성공(A안 — 판 원래 자리가 립밤 위라 빈 자리 + 안내), 16:36 `cfa886` 판 원위치 1.7 mm(단 **사람이 립밤을 뺀 회차**), 15:11 `7d18c6`·16:33 `440324` **판을 쥔 채 정지**(놓을 자리 확인 전에 집음). 판정 A안 = **그 점검의 제한적 통과**(#239 E 리뷰, AC-ACT-03 완료 아님). main 반영: #231·#232·#233(Unpacking)·#239(진행표·mock 되돌리기). 자세히 [10/12 기록](2026-10-12_practice.md).
-- **#121·#245 스킬 expand 블록 (10/13 브랜치 `feat/c-expand-blocks`, 계약안 — E 포함 2명 승인 전)**: expand 안 `fallback`(next_on 필수)·`if`, `fallback.next_on`, 넛지 뒤 다시 찍기 검사 [실측: 시험 8개, 기존 시험 그대로]. 다음: E 문법 확인 → PR → E `pick.jsonld` 전환 + C 회귀.
+- **#121·#245 스킬 expand 블록 (10/13 #263 병합, E 대화 승인 10/13, 사용자 전달 — #263)**: expand 안 `fallback`(next_on 필수)·`if`, `fallback.next_on`, 넛지 뒤 다시 찍기 검사 [실측: 시험 8개, 기존 시험 그대로]. 다음: E `pick.jsonld` 전환 + C P1·Unpacking 회귀, B `next_on` 코드 확정.
+- **`/runner/status` `halt` 계약 (10/13 #259 병합, E 대화 승인 10/13, 사용자 전달 — #259)**: 정지 요청과 실제 정지 확인 구분(`stop`: requested·confirmed·unconfirmed·none, `response_code`·`response_received_at`, `boot_id`·`run_id`·`event_id`) — E 10/12 P2 음성 안전 연결 요청 1번. 남은 C 몫: 잠금 해제(B 복구 확인 뒤만)·`recover`·`resume`·종료 인텐트 수신(계약), 10/13 PC2 음성 "멈춰" 실물 1회.
 - **3차 챌린지 작업 2종 (10/13 E 선정, #256)**: `tasks/show_drawer.json`(서랍 안 보여주기)·`tasks/move_aside.json`(○○ 옆 빈 자리로 치우기) — JSON 만, Python 변경 없음. 최신 main(#250 포함) 위 [실측: mock] 보여주기·옮기기(차키·덮개 판)·빈 자리 없음(안 집음)·못 찾음 의도대로, `check_task` 통과, runner·knowledge 시험 678 passed. 실행은 `RUNNER_TASK_FILE`(새 인텐트 이름은 계약 변경). 실물은 10/13 [확인 목록](2026-10-13_pc2_checklist.md) 3절.
 - **#242·#245 — PR #250 (B #241 머지 뒤 main 기준, B·D 리뷰 대기 · E 리뷰 문서 정정 반영, 코드·mock 검증 완료, PC2 실물 미확인 → 10/13 [확인 목록](2026-10-13_pc2_checklist.md) U2)**: 집기 전에 놓을 자리 판단(aside_1 → aside_2 → `free`, 셋 다 안 되면 안 집고 "꺼내지 못했어요"), 복구 전 원래 자리 → 꺼낸 자리 판단(헛동작·쥔 채 정지 없음), `check_only` 는 코드와 무관하게 움직이지 않음으로 셈, **이미 그 자세면 이동 안 보냄**(목표 `pick` 탑뷰 왕복 제거), 되돌리기 집기 `scan`, P2 `RUNNER_INTENT_TASKS` 안내 [실측: 호스트 2573 passed, 컨테이너 runner 697 passed].
 - **#78 HALT_MOTION (10/10)**: `OBJECT_DROPPED`·`SENSOR_INVALID` → 즉시 ABORTED·잠금, finally 이동 없음, 재개 보존 안 함 [실측: 시험 4개, E 반례 그대로]. 남은 것: 복구 뒤 상태 맞추기·잠금 해제 절차(계약, B·E 협의), B `SENSOR_INVALID` 구분 PR, E 온톨로지 errors.
@@ -63,7 +64,7 @@
 
 - **#43 트레이 place 사용자 확인** (`feat/c-tray-confirm` `5a11f88`, 10/11, E 승인08·09 C 몫): `verify_mode: enforce` — 다시 찍기·정상 미검출이면 `/runner/status` `confirm` 요청·E `confirm` 수신·최초 asked 부터 100 s·확인돼야 effect·`last.verify` 단계 결과, 서랍 열기 확인에 B `open_distance_m` [실측: 모의 21·ROS 노드 2]. 남은 것: E 답 2개·계약 PR·실물.
 
-- **계약07 Runner 운영** (`feat/c-request-run-runtime` `e2ceae6`, #221 위): `request_id` 기억(재전송·충돌), 수락 때 `run_id` 고정, `accept_text` 첫 안내 1회(실패면 첫 동작 없음) [실측: 호스트 8·ROS 노드 1]. 남은 것: #221 정리·병합 → 운영 PR.
+- **계약07 Runner 운영 — PR #249 (코드 작성·mock/ROS 시험 완료 / PR 미병합 / E 연결 미검증, 10/12)**: 계약 #221·E #225 머지 뒤 main 기준. `request_id` 기억(재전송·충돌, 동시 콜백에도 그 요청 자신의 결정), 수락 때 `run_id` 고정, `accept_text` 첫 안내 1회(`find_item`·`find_with_unpack`·목표형 계획, 실패면 **로봇 동작 0번** — finally 홈도 없음, #249 E 리뷰 P1·P2 반영) [실측: 호스트 8·ROS 노드 1]. 남은 것: #221 정리·병합 → 운영 PR.
 
 - **실패 응답 결과 기록** (`feat/c-unpack-task` `1d677d9`): `to_result` 가 실패 응답 결과를 버려 실물 실패 근거(`placed_pose`·`hand`)가 기록에 없던 빈틈 수정, 집기 실패 `hand` 모름이면 정지.
 
@@ -112,7 +113,7 @@
 - [ ] 목표 5종 실물 ([AC-PLN-01](../../docs/requirements.md#ac-pln-01)) — 시작 상태 관측 확인, 실행 기록 `plan` 근거, 립밤은 B 확인 뒤 (10/12 은 Unpacking 만 돌림)
 
 **E wire·승인 뒤**
-- [ ] 수락 TTS 게이트(수락 뒤 `accept_text` 1회 → 성공해야 첫 동작) + `request_id` 중복 막기·`last_intent.run_id` — **계약 #221 머지(10/12) → 위 "지금"의 운영 PR**
+- [x] 수락 TTS 게이트·`request_id` 중복 막기·`last_intent.run_id` — PR #249 (E 리뷰 반영, 머지·E 연결 대기)
 - [ ] #152 노드 연결: `/runner/status` `halt.resume`, 질문 등록·답, 독립 재개, "종료" → `end_task`
 - [ ] #43 노드 연결: 사후 검증으로 effect 막기, 확인 100 s·등록 5 s 를 `runner.yaml` 로
 - [ ] `feat/c-status-contract` PR (E 포함 2명 승인 뒤)

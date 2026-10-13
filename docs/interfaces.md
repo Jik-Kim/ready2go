@@ -20,7 +20,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 그리퍼 명령 (sim 전용) | `/gripper/command` | JSON 문자열 | **P2 트윈 계획, 미구현:** sim 백엔드 → Isaac Sim |
 | 서랍 상태 | `/drawers/state` | JSON 문자열 (`drawer_id`, `displacement`) | **P2 트윈·관측 계획, 미구현:** 백엔드 → Runner·트윈. P1은 `drawer_control` 액션 응답의 `drawer_displacement`를 사용 |
 | 카메라 | `/wrist_cam/color/image_raw`, `/wrist_cam/color/camera_info`, `/wrist_cam/aligned_depth_to_color/image_raw` (컬러에 정렬된 뎁스, 내부 파라미터는 컬러와 동일) | `sensor_msgs` | realsense / Isaac Sim → vision (결정 #24) |
-| Runner 상태 · 비상정지 · 상태 초기화 | `/runner/status`, `/runner/estop`, `/runner/reset_state` | `std_msgs/String`, `std_srvs/Trigger`, `std_srvs/Trigger` | **P1 Runner 구현.** 테스트·사람의 ROS 호출 외에 Voice가 `/runner/status`를 읽어 실행 결과 안내에 사용함(PR #144). 시연 화면 #59 연결은 후속이며, Voice는 정지·초기화 서비스를 호출하지 않음 |
+| Runner 상태 · 비상정지 · 상태 초기화 | `/runner/status`, `/runner/estop`, `/runner/reset_state` | `std_msgs/String`, `std_srvs/Trigger`, `std_srvs/Trigger` | **P1 Runner 구현.** 테스트·사람의 ROS 호출 외에 Voice가 `/runner/status`를 읽어 실행 결과 안내에 사용함(PR #144). 시연 화면 #59 연결은 후속이며, Voice는 정지·초기화 서비스를 호출하지 않음. **계약(E 대화 승인 10/13, 사용자 전달 — #259)**: `/runner/status` `halt` — 정지 요청과 실제 정지 확인(`stop`: `requested`·`confirmed`·`unconfirmed`·`none`) 구분, [runner.md](runner.md)·[예시](../contracts/examples/runner_status.json), #152·#187 |
 | TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_link`, `wrist_cam_color_optical_frame`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core: `ready2go_bringup` launch가 `config/calibration/`·`config/places.yaml`을 읽어 static TF 발행 (결정 #23). 로봇 TF는 DSR 드라이버. **`wrist_cam_link`**: 캘리브레이션 결과를 거는 프레임(`link_6 → wrist_cam_link`, bringup 발행). **`wrist_cam_color_optical_frame`**: 컬러·정렬 뎁스 이미지의 `frame_id`, `wrist_cam_link` 아래 트리는 realsense 드라이버가 `/tf_static`으로 발행(끄지 않음). Isaac Sim 트윈 카메라도 같은 `frame_id`를 사용. 강의 URDF(`m0609_rg2_bringup`)에 CAD 기반 `camera_*` 프레임이 따로 있어 TF에 카메라가 두 개 생길 수 있으나, **비전은 `wrist_cam_color_optical_frame`만 사용**(CAD 위치는 캘리브레이션과 x·y 약 1.8 cm 차이, 5점 검증에서 캘리브레이션이 맞음 [실측 B 10/03]). `base_link`·`link_6` 접두어 없음 [실측 B 10/02], `tool0`은 `link_6`과 원점이 같고 축만 회전하므로 사용하지 않음 |
 
 **ROS 인터페이스가 아닌 호출 (같은 프로세스 또는 외부 서비스)**
@@ -86,9 +86,9 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 
 | 연결 | 실행 원본·예시 | 현행 구현과의 구분 |
 | :--- | :--- | :--- |
-| E 요청 → C 결정 | `/runner/status` `last_intent.request_id`·`run_id` — [runner_status.json](../contracts/examples/runner_status.json) `accepted_running`·`hold_low_confidence`·`reject_busy_while_other_run` | 현재 `last_intent`에는 두 칸이 없음(구현 전). 기존 `decision`·`reason`은 그대로 |
+| E 요청 → C 결정 | `/runner/status` `last_intent.request_id`·`run_id` — [runner_status.json](../contracts/examples/runner_status.json) `accepted_running`·`hold_low_confidence`·`reject_busy_while_other_run` | C 운영 구현(Runner, 모의 시험 — 계약 #221 뒤 운영 PR) — 수락 때 `run_id` 고정. 기존 `decision`·`reason`은 그대로 |
 | 수락 → 최종 결과 | 기존 `last.run_id` — 같은 예시 `accepted_fast_completed`(빠른 완료에도 같은 `run_id`) | `last`는 현재 구현 그대로. E 완료 안내 조건 = `last.run_id`가 그 요청의 수락 `run_id`와 같음 |
 | 실행 기록 | 실행 헤더 `intent`(받은 payload 그대로, #89) → `intent.request_id` | 이미 저장 중 — 새 칸 없음 |
 | ID 없는 기존 요청 | 같은 예시 `legacy_without_request_id` — 입력에 `request_id` 필드가 **없으면** 상태 `last_intent.request_id: null`. 입력 `request_id: null`·빈 문자열은 스키마 위반 → `hold`/`BAD_INTENT` | 지금 동작 그대로 |
 | 수락 문장 없음 | 입력 `accept_text` 없음·`null` → 수락된 run 의 안내는 태스크 기존 문장 | 지금 동작 그대로 |
-| 중복·충돌·재기동 | runner.md 표 — 같은 ID 재전송은 같은 결정, 다른 내용은 첫 결정 유지, 기억은 이번 기동만 | 구현 전 |
+| 중복·충돌·재기동 | runner.md 표 — 같은 ID 재전송은 같은 결정, 다른 내용은 첫 결정 유지, 기억은 이번 기동만 | C 운영 구현 (Runner, 모의 — 계약 #221 뒤 운영 PR) |
