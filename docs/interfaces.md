@@ -34,6 +34,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 로그 저장 | **P1 구현:** Python `pymongo`로 MongoDB(`cobot2` DB: `runs`·`steps`)에 `LogStore` 경유 저장, 연결 실패 시 `logs/*.jsonl` 폴백. **P2 계획(FR-LOG-02):** `states` 컬렉션·사후 관측 상세 로그 | Runner (7.4). 별도 Logger 프로세스는 없음 |
 | STT · LLM | HTTPS로 OpenAI API 호출 (`secrets/voice.env`의 키 사용) | `voice` 컨테이너 (6장) |
 | 웹 상태 조회 | `GET /api/status`, 같은 origin의 JSON·`Cache-Control: no-store` | **이슈 #267 3~4단계 구현:** Flask 웹 브리지 → PC·휴대폰 브라우저. 약 1초 polling이며 ROS 발행 주기나 실시간 보장이 아님. `sources.runner`와 `sources.robot_state`를 활성화하고 REST 오류 뒤 이전 값을 정상으로 표시하지 않음. 상세 실행·시험은 [web README](../web/README.md#3단계-rest-형식)를 참조 |
+| 웹 등록 정의 조회 | `GET /api/definitions`, 같은 origin의 JSON·`Cache-Control: no-store` | **이슈 #267 5단계 구현:** Flask → PC·휴대폰 브라우저. 서버 시작 때 공통 `ontology.load`와 `tasks/*.json`을 한 번 읽은 `web_file_snapshot`이며 Runner 내부 snapshot·hot reload·현재 상태가 아님. 원본 경로·웹 로딩 시각·manifest SHA와 등록 물품·장소·목록·스킬·태스크 요약을 제공. 상세 형식은 [web README](../web/README.md#5단계-등록-정의-rest-형식)를 참조 |
 
 <a id="web-status-rest"></a>
 #### 웹 상태 REST — 이슈 #267 3단계
@@ -43,6 +44,13 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 `/runner/status`와 `/robot_state`는 0.5초 비교 뒤 내용이 바뀔 때만 발행하고 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`을 사용한다. 따라서 웹 연결 판정은 메시지 나이에 대한 freshness timeout을 두지 않고 publisher 존재와 마지막 보존 메시지를 사용한다. 현재 최상위 실행 `run_id`가 없어 실행 중 상태와 `last_intent`를 항상 확정적으로 연결할 수 없으며, 불명확한 경우 화면은 `확인 전`으로 표시한다. Runner가 제공하는 `boot_id`·`seq`·`stamp`·`halt.resume`은 REST 원본 `sources.runner.data`에 그대로 포함되며, 웹은 `boot_id`를 GID 보조 기동 경계로 사용하지만 `seq`·`stamp`·`halt.resume`은 아직 화면 의미로 변환하지 않는다. `current_skill`은 Runner가 제공하지 않는 미구현 제안이므로 현재 REST 계약과 화면에 추가하지 않는다.
 
 캐시가 없으면 HTTP 503 `STATE_CACHE_UNAVAILABLE`, 스냅샷 생성에 실패하면 HTTP 500 `STATE_SNAPSHOT_FAILED`를 반환한다. 두 오류 모두 `status=error`와 안정된 `error.code`·`error.message`를 사용하며 내부 예외 상세는 응답에 넣지 않는다. 브라우저는 HTTP 오류·JSON 형식 오류·지원하지 않는 버전을 REST 연결 오류로 표시하고, 이전 성공 응답을 현재 정상 상태로 계속 사용하지 않는다.
+
+<a id="web-definitions-rest"></a>
+#### 웹 등록 정의 REST — 이슈 #267 5단계
+
+`GET /api/definitions`는 상태 polling과 분리해 브라우저 시작 때 한 번 조회한다. 응답의 `snapshot.schema_version=1`, `snapshot_kind=web_file_snapshot`, `loaded_at`, `runner_hot_reload_applied=false`, `sources`, `counts`, `definitions`가 웹이 읽은 원본과 시점을 구분한다. `definitions`에는 classes·items·places·lists·skills·tasks 요약만 포함하며 Runner 현재 `state`는 `/robot_state`와 혼동하지 않도록 제외한다.
+
+서버는 `RUNNER_ONTOLOGY_FILE`(기본 `/knowledge/robot_ontology.jsonld`)과 `WEB_TASKS_DIR`(Runner `tasks_dir` 기본값과 같은 `/tasks`)를 시작 때 읽는다. 온톨로지는 `ready2go_knowledge.core.ontology.load()`를 재사용하며 태스크는 바로 아래 `*.json`의 고유하고 비어 있지 않은 `task_id`를 검사한다. 파일 변경은 실행 중인 Runner나 웹에 자동 반영되지 않는다. 정의 로딩 실패는 HTTP 503 `DEFINITIONS_UNAVAILABLE`로 해당 API에만 표시하고 `/api/status`와 정적 UI는 계속 제공한다.
 
 ### 5.1 물품 식별자·좌표·조회 결과의 공유 규칙
 

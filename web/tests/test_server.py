@@ -10,6 +10,7 @@ import pytest
 from ready2go_web.core.state_cache import StateCache
 from ready2go_web.server import (
     API_SCHEMA_VERSION,
+    DEFINITIONS_API_PATH,
     POLL_INTERVAL_MS,
     PUBLIC_ASSETS,
     STATUS_API_PATH,
@@ -218,6 +219,73 @@ def test_status_api_reports_missing_runtime_cache_as_service_unavailable(client)
     assert payload["status"] == "error"
     assert payload["error"]["code"] == "STATE_CACHE_UNAVAILABLE"
     assert "sources" not in payload
+
+
+def test_definitions_api_returns_startup_snapshot_without_mutating_it() -> None:
+    """5단계 REST가 서버 시작 시 읽은 정의 스냅샷을 별도 경로로 반환한다."""
+
+    # 실제 로더와 같은 최소 스냅샷 구조를 시험에 주입한다.
+    definition_snapshot = {
+        "schema_version": 1,
+        "snapshot_kind": "web_file_snapshot",
+        "loaded_at": "2026-10-13T10:00:00Z",
+        "runner_hot_reload_applied": False,
+        "sources": {"ontology_manifest": {"path": "/knowledge/robot_ontology.jsonld"}},
+        "counts": {"items": 1, "places": 1, "lists": 0, "skills": 1, "tasks": 1},
+        "definitions": {
+            "classes": [],
+            "items": [{"id": "car_key", "name_ko": "차 키"}],
+            "places": [{"id": "drawer_top", "name_ko": "위 서랍"}],
+            "lists": [],
+            "skills": [{"id": "pick", "name_ko": "집기"}],
+            "tasks": [{"id": "find_item", "source_file": "find_item.json"}],
+        },
+    }
+    # 요청 생성 시각과 파일 로딩 시각이 서로 다른 의미임을 확인할 고정 시계를 만든다.
+    fixed_now = lambda: datetime(2026, 10, 13, 10, 1, tzinfo=timezone.utc)
+    # ROS cache 없이도 정의 전용 API는 독립적으로 제공되어야 한다.
+    app = create_app(definition_snapshot=definition_snapshot, utcnow=fixed_now)
+    # 시험 예외를 바로 실패로 전달한다.
+    app.config.update(TESTING=True)
+
+    # Flask 시험 클라이언트로 정의 경로만 호출한다.
+    with app.test_client() as test_client:
+        response = test_client.get(DEFINITIONS_API_PATH)
+
+    # 읽기 전용 JSON 응답과 재사용 금지 헤더를 확인한다.
+    assert response.status_code == 200
+    assert response.mimetype == "application/json"
+    assert response.headers["Cache-Control"] == "no-store"
+    # served_at은 요청 시각이고 snapshot.loaded_at은 파일 로딩 시각이어야 한다.
+    payload = response.get_json()
+    assert payload["served_at"] == "2026-10-13T10:01:00Z"
+    assert payload["status"] == "ok"
+    assert payload["snapshot"] == definition_snapshot
+    assert payload["snapshot"]["loaded_at"] == "2026-10-13T10:00:00Z"
+
+
+def test_definitions_api_reports_startup_loading_error() -> None:
+    """정의 원본 오류를 빈 정상 목록이나 목업 데이터로 바꾸지 않는다."""
+
+    # 시작 코드가 포착한 파일 오류를 Flask app에 전달한다.
+    app = create_app(definition_error="FileNotFoundError: manifest missing")
+    # 시험 중 예외를 숨기지 않는다.
+    app.config.update(TESTING=True)
+
+    # 정의 경로를 호출해 상태 API와 독립된 실패 응답을 확인한다.
+    with app.test_client() as test_client:
+        response = test_client.get(DEFINITIONS_API_PATH)
+
+    # 서비스는 살아 있지만 정의만 준비되지 않았으므로 503이어야 한다.
+    assert response.status_code == 503
+    assert response.headers["Cache-Control"] == "no-store"
+    # 안정된 오류 코드와 시작 시 받은 원인을 반환한다.
+    payload = response.get_json()
+    assert payload["status"] == "error"
+    assert payload["error"] == {
+        "code": "DEFINITIONS_UNAVAILABLE",
+        "message": "FileNotFoundError: manifest missing",
+    }
 
 
 def test_status_api_hides_internal_snapshot_exception() -> None:

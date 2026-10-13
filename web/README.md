@@ -1,6 +1,6 @@
 # ROKEY 웹 대시보드
 
-> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 유지합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 4단계까지 Flask 정적 파일 제공, `/runner/status`·`/robot_state` rclpy 수신·잠금 캐시, 읽기 전용 REST와 약 1초 브라우저 조회가 구현됐습니다. Runner 연결과 기억 상태만 실데이터이며 작업·준비물·등록 정의는 계속 `목업 데이터`입니다.
+> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 현재 작업 진행과 실행 결과는 계속 목업이며 등록 정의와 구분합니다.
 
 기능의 의미·Phase·수용 기준은 정본인 [FR-COM-01](../docs/requirements.md#fr-com-01), [FR-INT-02](../docs/requirements.md#fr-int-02), [FR-ONT-02](../docs/requirements.md#fr-ont-02), [FR-PLN-02](../docs/requirements.md#fr-pln-02), [FR-LOG-01–02](../docs/requirements.md#fr-log-01), [NFR-SAF-02](../docs/requirements.md#nfr-saf-02)를 참조합니다. 이 문서는 요구사항을 재정의하지 않습니다.
 
@@ -21,12 +21,13 @@
 | `index.html` | 사용자 대시보드·읽기 전용 검토 화면의 HTML 구조와 CSS·JavaScript 진입점 | 화면 구조는 유지하고 `demo-data.js` 로딩을 데이터 어댑터 진입점으로 교체합니다. |
 | `styles.css` | 흰색·남색·청록색 디자인, PC·모바일 배치, 서랍 모양, PC 가로·모바일 세로 단계 | 데이터 연결과 무관합니다. 상태 종류가 추가될 때 표시 스타일만 보완합니다. |
 | `demo-data.js` | PC·모바일이 함께 읽는 목업 데이터와 `long`·`empty`·`error` 시나리오 | 우선 교체 대상입니다. 서버 응답을 같은 화면 모델로 변환하는 어댑터가 이 역할을 맡습니다. |
-| `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 성공·실패를 UI에 전달 | 기본 URL에서 Runner 연결과 기억 상태를 실데이터로 갱신합니다. |
+| `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 `/api/definitions`를 시작 때 한 번 읽음 | Runner 연결·기억 상태와 웹 파일 정의 스냅샷을 서로 다른 시점의 데이터로 전달합니다. |
 | `app.js` | 상태 렌더링, 서랍 조회, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
 | `README.md` | 현재 구현, 실행·접속·시나리오, 실제 연동 경계를 설명 | 연결 경로가 구현된 뒤 실제 실행법과 검증 결과를 갱신합니다. |
 | `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 스냅샷을 `GET /api/status`로 반환 | 응답은 캐시하지 않으며 내부 예외 세부 내용은 브라우저에 노출하지 않습니다. |
 | `ready2go_web/nodes/dashboard_bridge.py` | 단일 rclpy 노드로 선택한 ROS source를 구독·관찰 | 4단계 실행에서는 `/runner/status`와 `/robot_state`를 활성화합니다. |
 | `ready2go_web/core/state_cache.py` | ROS 콜백과 Flask 요청 사이의 최신 상태를 잠금으로 보호 | REST에는 깊은 복사 스냅샷만 전달합니다. |
+| `ready2go_web/core/definition_catalog.py` | 공통 `ontology.load`와 `tasks/*.json`으로 등록 정의 스냅샷 생성 | Runner hot reload가 아닌 웹 시작 시 파일 조회임을 출처·시각·manifest SHA와 함께 기록합니다. |
 | `ready2go_web/runtime.py` | 전용 ROS context와 별도 executor 스레드의 시작·종료를 관리 | Flask 요청 스레드와 ROS 콜백을 분리합니다. |
 
 ```text
@@ -52,7 +53,7 @@ index.html
 | 준비물과 완료 수 | `supplies[]`; `status === "delivered"`만 완료로 계산 |
 | 현재 작업·단계·근거 | `task.currentAction`, `workDrawerId`, `steps[].reason`, `steps[].observation` |
 | 검토 화면 현재 상태 | `adminReview.current`과 공통 `task` 상태 |
-| 온톨로지 목업 | `adminReview.ontology` |
+| 등록 정의 | 기본 시나리오는 `/api/definitions`; 고정 URL 시나리오는 `adminReview.ontology` 목업 |
 | 후속 연결 안내 | `adminReview.plan.message`, `adminReview.history.message` |
 
 서랍 선택은 등록 물품 조회만 바꾸며 로봇 명령을 만들지 않습니다. 작업 상세, 모바일 명령 상세·서랍 보기, 검토 화면과 탭 전환도 브라우저 안의 표시만 바꿉니다.
@@ -67,7 +68,7 @@ index.html
 4. 온톨로지 원본 읽기
 5. PC·휴대폰의 동일 상태 표시
 
-[문서] 1단계 정적 UI, 2단계 `/runner/status` 수신·캐시, 3단계 REST·약 1초 조회, 4단계 `/robot_state` 수신·화면 반영이 구현됐습니다. 현재 화면에는 Runner 연결 진단과 Runner가 기억한 `robot_pose`·`gripper`·`open`·`located_in`이 실제 값으로 나타납니다. MongoDB/JSONL 실행 기록, 작업 중단·재개·초기화, 실시간 계획 근거, STT 원문, 등록 정의와 확정되지 않은 음성·로봇 연결 판정은 녹화 우선 연결 범위에서 제외합니다.
+[문서] 1단계 정적 UI, 2단계 `/runner/status` 수신·캐시, 3단계 상태 REST·약 1초 조회, 4단계 `/robot_state` 수신·화면 반영, 5단계 등록 온톨로지·태스크·스킬 정의 로딩이 구현됐습니다. 현재 화면에는 Runner 연결·기억 상태와 웹이 시작할 때 읽은 정의 파일 스냅샷이 각각의 출처로 나타납니다. MongoDB/JSONL 실행 기록, 작업 중단·재개·초기화, 실시간 계획 근거, STT 원문과 확정되지 않은 음성·로봇 연결 판정은 제외합니다.
 
 ### 표시를 바꾼 이유
 
@@ -82,7 +83,8 @@ index.html
 /runner/status → DashboardBridge → StateCache → GET /api/status
 /robot_state  ────────────────────┘                 ↓ 약 1초 polling
                                         Runner 연결·기억 상태 UI
-온톨로지 원본 ─── 후속 5단계
+온톨로지 manifest ─ common ontology.load ─┐
+tasks/*.json ─────────────────────────────┼→ 시작 시 정의 스냅샷 → GET /api/definitions → 등록 정의 UI
 ```
 
 [문서] 브라우저는 ROS 2·온톨로지 파일·MongoDB에 직접 연결하지 않습니다. 현재 Flask 프로세스가 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하며 `/runner/status`와 `/robot_state`를 활성화합니다. 두 `std_msgs/msg/String`의 JSON 객체를 source별 캐시에 저장하고 publisher 존재, 메시지 수신, 파싱 오류를 구분합니다. 브라우저는 REST 응답이 끝난 뒤 다음 조회를 예약하므로 느린 요청이 서로 겹치지 않습니다.
@@ -92,9 +94,8 @@ index.html
 1. Flask가 공유 `StateCache`의 스냅샷을 읽기 전용 REST로 반환합니다.
 2. 기본 화면은 약 1초마다 API를 조회하고 Runner 연결과 기억 상태를 변환합니다.
 3. `long`·`empty`·`error` 시나리오 URL은 고정 목업 검토를 위해 polling하지 않습니다.
-4. 후속 5단계에서 온톨로지 원본을 활성화합니다.
-
-`TODO(D)`: 5단계 등록 정의는 아래 기동 원본과 E 확인값을 대조한 뒤 연결합니다. 계약을 바꿔야 하면 저장소 루트 [`AGENTS.md`](../AGENTS.md)의 승인 절차를 따릅니다.
+4. `/api/definitions`는 페이지 시작 때 한 번만 읽고 상태 polling에 섞지 않습니다.
+5. 정의 파일 변경은 현재 Runner나 이미 실행 중인 웹에 자동 적용되지 않으며, 두 프로세스를 각각 재기동해야 새 스냅샷을 읽습니다.
 
 ### C 확인값과 후속 단계 입력
 
@@ -116,7 +117,7 @@ index.html
 상단 `검토 화면` 버튼은 인증 없이 같은 정적 페이지의 `#admin` 화면으로 이동합니다. 관리자 인증, 권한 획득, 서버 API 접근 제어가 구현된 것이 아닙니다.
 
 - **현재 상태**: Runner 연결 진단과 기억 상태는 `/runner/status`·`/robot_state`·REST의 실제 값입니다. `/robot_state`는 관측값이 아니며 값 누락·형식 불일치는 `확인 전`으로 표시합니다.
-- **온톨로지**: 서버가 읽은 원본 정의 연결을 우선 검토하며 지금은 목업 데이터입니다.
+- **온톨로지**: 서버가 공통 `ontology.load`로 읽은 등록 물품·장소·목록·스킬과 `tasks/*.json` 태스크를 표시합니다. 원본 경로·웹 로딩 시각·manifest SHA를 함께 보여 주며 Runner 내부 현재 상태나 hot reload를 뜻하지 않습니다.
 - **계획 근거**: 후속 연결 예정이며 현재 제공 경로가 확정되지 않았다는 안내만 표시합니다.
 - **실행 기록**: 후속 연결 예정이며 실제 MongoDB/JSONL 조회가 연결되지 않았다는 안내만 표시합니다.
 
@@ -134,6 +135,9 @@ export ROS_DOMAIN_ID=70
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI="file://$PWD/config/cyclonedds.local.xml"
 export ROS_LOG_DIR="$PWD/logs/ros"
+# 5단계 웹 정의 스냅샷이 Runner와 같은 저장소 원본을 읽도록 절대 경로를 지정합니다.
+export RUNNER_ONTOLOGY_FILE="$PWD/knowledge/robot_ontology.jsonld"
+export WEB_TASKS_DIR="$PWD/tasks"
 mkdir -p "$ROS_LOG_DIR"
 cd web
 WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
@@ -141,7 +145,7 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 
 의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../README.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 루트 README의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
 
-이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state` ROS executor와 읽기 전용 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. Runner 연결·기억 상태 외 화면 값은 목업입니다.
+이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state` ROS executor, 상태 REST와 등록 정의 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 현재 작업 진행·요청 결과는 목업이며 상태·정의와 구분됩니다.
 
 휴대폰이나 다른 PC에서는 서버 PC와 같은 네트워크에 연결한 뒤 서버 PC에서 주소를 확인합니다. `config/cyclonedds.local.xml`은 DDS를 loopback으로 제한하므로 Runner와 웹 브리지는 같은 PC2에서 실행해야 합니다. 외부 브라우저 접속이 필요할 때만 `WEB_HOST=0.0.0.0`으로 실행하고, 실제 포트(`ss -ltnp`), PC 방화벽과 Wi-Fi AP의 단말 간 통신 차단 여부를 현장에서 확인합니다.
 
@@ -206,7 +210,64 @@ publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보�
 curl -i http://127.0.0.1:4173/api/status
 ```
 
-### 4단계 자동 검증
+### 5단계 등록 정의 REST 형식
+
+브라우저는 같은 origin의 `GET /api/definitions`를 페이지 시작 때 한 번 조회합니다. 서버도 기동할 때 한 번만 파일을 읽으므로 응답의 `loaded_at`은 요청 시각 `served_at`과 구분됩니다. `snapshot_kind=web_file_snapshot`, `runner_hot_reload_applied=false`는 이 값이 Runner 내부 스냅샷이나 실행 중 갱신 결과가 아님을 뜻합니다.
+
+```json
+{
+  "schema_version": 1,
+  "served_at": "2026-10-13T10:01:00Z",
+  "poll_interval_ms": 1000,
+  "status": "ok",
+  "snapshot": {
+    "schema_version": 1,
+    "snapshot_kind": "web_file_snapshot",
+    "loaded_at": "2026-10-13T10:00:00Z",
+    "runner_hot_reload_applied": false,
+    "sources": {
+      "ontology_manifest": {
+        "path": "/knowledge/robot_ontology.jsonld",
+        "sha256": "..."
+      },
+      "tasks_dir": {
+        "path": "/tasks",
+        "files": ["find_item.json"]
+      }
+    },
+    "counts": {
+      "classes": 7,
+      "items": 10,
+      "places": 4,
+      "lists": 1,
+      "skills": 5,
+      "tasks": 6
+    },
+    "definitions": {
+      "classes": [],
+      "items": [],
+      "places": [],
+      "lists": [],
+      "skills": [],
+      "tasks": []
+    }
+  }
+}
+```
+
+온톨로지는 Runner와 같은 `ready2go_knowledge.core.ontology.load()`로 manifest의 classes·world·skills·places·item_grasp를 검증하며, API는 등록 정의 요약만 반환합니다. 현재 상태 `state`는 `/robot_state`의 책임이므로 정의 응답에 포함하지 않습니다. 태스크는 `WEB_TASKS_DIR` 바로 아래의 모든 `*.json`을 읽고 비어 있거나 중복된 `task_id`를 오류로 처리합니다.
+
+| HTTP | `error.code` | 의미 |
+|---|---|---|
+| 503 | `DEFINITIONS_UNAVAILABLE` | manifest·태스크 경로 누락 또는 정의 형식 오류로 서버 시작 시 스냅샷을 만들지 못함 |
+
+직접 확인할 때는 다음 명령을 사용합니다.
+
+```bash
+curl -sS http://127.0.0.1:4173/api/definitions | python3 -m json.tool
+```
+
+### 5단계 자동 검증
 
 저장소 루트에서 다음 명령을 실행합니다. DDS 시험은 실제 rclpy publisher와 별도 executor 사이의 `/runner/status`·`/robot_state` 전달을 확인합니다.
 
@@ -228,6 +289,12 @@ python3 -m pytest web/tests -q
 - PC·모바일 서랍 선택기가 위 서랍·아래 서랍 순서이고 관리자 요약·현재 상태 값과 실데이터 배지가 두 source를 반영하는지
 - 캐시 미연결 503과 스냅샷 실패 500 오류 형식
 - REST 실패 뒤 UI가 이전 Runner 값을 정상으로 유지하지 않고 복구 응답을 다시 반영하는지
+- 공통 `ontology.load`로 실제 manifest를 읽고 등록 물품·장소·목록·스킬을 제공하는지
+- `tasks/*.json`의 태스크 ID·단계 수·파일 SHA를 제공하고 중복 ID를 거절하는지
+- 정의 API가 웹 파일 스냅샷 경계·원본 경로·로딩 시각·manifest SHA를 제공하는지
+- 정의 로딩 실패가 상태 REST를 중단시키지 않고 정의 영역만 `확인 전`으로 전환하는지
+- 빈 정의 경로 설정도 Flask 전체 종료가 아니라 정의 API 오류로 격리되는지
+- 복수 등록 목록에서 배열 첫 항목이 아닌 `commute_set`만 출근 준비물로 선택하는지
 
 실제 Runner와 함께 확인할 때는 웹 서버를 실행한 상태에서 다른 터미널에서 다음을 사용합니다.
 
@@ -240,7 +307,7 @@ ros2 topic echo /robot_state --once
 
 웹 브리지가 두 토픽의 구독자로 표시되고 Runner가 발행한 JSON이 출력되면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
 
-[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `69 passed`를 확인했습니다. 실제 진입점과 시험 publisher를 포트 4176·ROS domain 170으로 실행해 두 토픽이 단일 `ready2go_web_bridge`의 구독자로 표시되고, REST의 두 source가 `receiving`·`message_valid=true`이며 원본 JSON 객체를 제공하는 것을 확인했습니다. 브라우저에서는 `/robot_state`의 위·아래 서랍이 물리 순서로 표시되고 열림·닫힘과 물품 기억 위치가 반영됐으며, 관리자 화면의 Runner 요약·현재 상태 값과 `실데이터` 배지를 확인했습니다. publisher가 연결된 상태에서 `open`을 map 대신 배열로 보낸 경우 REST 수신은 유지됐지만 대시보드와 관리자 현재 상태는 목업으로 대체하지 않고 `확인 전`으로 바뀌었습니다. 캐시 시험에서는 publisher 재발견 또는 endpoint GID 교체 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것, 새 콜백이 graph 확인보다 먼저 도착하면 새 값을 보존하는 것, GID 관찰 없이 Runner `boot_id`가 바뀌어도 새 기동 payload로 교체하는 것을 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
+[실측] 2026-10-13 5단계까지 로컬 CycloneDDS 웹 시험 `79 passed`를 확인했습니다. 실제 저장소 원본에서 클래스 7개·물품 10개·장소 4개·목록 1개·스킬 5개·태스크 6개가 로드됐고, `/api/definitions`와 관리자/대시보드 표시에서 웹 파일 스냅샷의 출처·시각·SHA와 등록 정의 구분을 확인했습니다. 상태 REST 실패·정의 성공 순서, 정의 실패의 `확인 전` 표시, 복수 목록의 `commute_set` 선택도 브라우저에서 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
 
 ## 7. URL 데모 시나리오
 

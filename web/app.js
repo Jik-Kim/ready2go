@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  // 작업·준비물·정의는 아직 목업이며 4단계에서는 Runner 연결 진단과 기억 상태만 REST로 덮어쓴다.
+  // 기본 화면 객체는 정적 목업에서 시작하지만 기본 시나리오에서는 상태와 등록 정의를 REST 결과로 교체한다.
   const state = window.ROKEY_DEMO_DATA;
 
   // status-api.js가 제공하는 polling 구현을 렌더링 코드에서 한 번만 참조한다.
@@ -44,12 +44,21 @@
     drawer_bottom: "아래 서랍",
   };
 
+  // 5단계 정의 API가 제공한 물품 표시명을 Runner 원본 ID와 연결한다.
+  const itemLabels = {};
+
+  // 정의보다 상태 응답이 먼저 도착해도 나중에 등록명을 다시 적용할 수 있게 마지막 source를 보관한다.
+  let latestRobotStateSource = null;
+
   // Runner core의 실제 phase 세 값만 사용자 표시 문구와 기존 화면 색상 키로 변환한다.
   const runnerPhaseViews = {
     idle: { label: "대기", status: "waiting" },
     running: { label: "실행 중", status: "running" },
     halted: { label: "정지(잠김)", status: "stopped" },
   };
+
+  // 출근 준비물 영역은 등록 목록 중 의미가 확정된 commute_set만 사용한다.
+  const DASHBOARD_LIST_ID = "commute_set";
 
   // 서랍 ID의 문자순에서는 bottom이 top보다 먼저 오므로 실제 위·아래 위치를
   // 명시한다. 새 ID는 두 기본 서랍 뒤에서 이름순으로 정렬한다.
@@ -201,11 +210,175 @@
   }
 
   function itemIconForId(itemId) {
-    // 5단계 정의 로딩 전에는 기존 화면 아이콘과 명확히 일치하는 ID만 재사용한다.
+    // 등록 정의에 전용 아이콘 정보가 없으므로 기존 화면과 명확히 일치하는 ID만 재사용한다.
     const normalized = itemId.replaceAll("_", "-");
     if (normalized === "car-key") return "key";
     if (["wallet", "watch", "note", "box", "charger"].includes(normalized)) return normalized;
     return "box";
+  }
+
+  function itemLabelForId(itemId) {
+    // 공통 온톨로지에서 읽은 한국어 이름이 있으면 사용하고 없으면 원본 ID를 보존한다.
+    return itemLabels[itemId] || itemId;
+  }
+
+  function definitionConditionSummary(value) {
+    // 조건·효과 배열은 개수로 표시해 원본 의미를 임의의 자연어 규칙으로 재해석하지 않는다.
+    if (Array.isArray(value)) return value.length === 0 ? "없음" : `${value.length}개 정의`;
+    // composite 스킬의 sensing 같은 문자열 효과는 원본 값을 그대로 보여준다.
+    if (typeof value === "string" && value) return value;
+    // null·누락 값은 정의가 없다는 뜻으로만 표시한다.
+    return "없음";
+  }
+
+  function setDefinitionsUnknown(detail) {
+    // 정의 API 수신 전이나 실패 시 목업 정의를 실제 등록값처럼 남겨 두지 않는다.
+    state.definitionsLive = false;
+    // 고정 목업 시나리오와 실제 정의 확인 실패를 렌더러가 구분할 수 있게 상태를 기록한다.
+    state.definitionsStatus = "unknown";
+    // 등록 준비물도 목업 목록을 제거해 원본을 확인하지 못한 상태를 분명히 한다.
+    state.supplies = [];
+    // 준비물 집계가 빈 요청이 아니라 정의 확인 전임을 렌더러에 알린다.
+    state.suppliesDefinitionName = "등록 정의 확인 전";
+    // 관리자 온톨로지 탭에는 오류 원인과 확인 전 카드만 제공한다.
+    state.adminReview.ontology = {
+      live: false,
+      loadedAt: null,
+      sourcePath: null,
+      manifestSha: null,
+      error: detail || "등록 정의를 아직 읽지 못했습니다.",
+      relations: [
+        { title: "등록 정의", value: "확인 전", meta: detail || "정의 API 미수신" },
+      ],
+      skills: [],
+    };
+  }
+
+  function applyDefinitionSnapshot(snapshot) {
+    // status-api.js가 검증한 여섯 정의 구역을 화면 모델로 변환한다.
+    const definitions = snapshot.definitions;
+    // 물품 ID와 한국어 등록명을 이후 /robot_state 렌더링에서 재사용한다.
+    definitions.items.forEach((item) => {
+      // ID가 없거나 문자열이 아니면 해당 항목만 표시명 사전에서 제외한다.
+      if (!item || typeof item.id !== "string") return;
+      // 한국어 이름이 없으면 원본 ID를 그대로 사용하도록 사전에 넣지 않는다.
+      if (typeof item.name_ko === "string" && item.name_ko) itemLabels[item.id] = item.name_ko;
+    });
+    // 장소 등록명도 서랍 및 물품 위치 표시에 같은 방식으로 적용한다.
+    definitions.places.forEach((place) => {
+      // 장소 ID와 이름이 모두 문자열일 때만 안전하게 표시명 사전을 갱신한다.
+      if (place && typeof place.id === "string" && typeof place.name_ko === "string"
+        && place.name_ko) drawerLabels[place.id] = place.name_ko;
+    });
+
+    // 관리자 카드에서 긴 객체 전체 대신 등록 ID와 표시명을 대조할 수 있게 만든다.
+    const itemNames = definitions.items.map((item) => item.name_ko || item.id).join(" · ") || "없음";
+    // 장소도 같은 방식으로 실제 등록 순서를 사용한다.
+    const placeNames = definitions.places.map((place) => place.name_ko || place.id).join(" · ") || "없음";
+    // 태스크는 화면 진행률이 아니라 등록 파일 목록임을 source_file 메타로 구분한다.
+    const taskIds = definitions.tasks.map((task) => task.id).join(" · ") || "없음";
+    // P3 목록 정의는 목록 이름과 구성 물품 수만 요약한다.
+    const listDescriptions = definitions.lists.map((entry) => {
+      const label = entry.name_ko || entry.id;
+      return `${label}(${entry.item_ids.length}개)`;
+    }).join(" · ") || "없음";
+
+    // 실제 manifest 경로와 해시를 관리자 메타데이터에 보존한다.
+    const manifest = snapshot.sources?.ontology_manifest || {};
+    // 화면 모델을 실제 정의 스냅샷으로 교체한다.
+    state.adminReview.ontology = {
+      live: true,
+      loadedAt: snapshot.loaded_at,
+      sourcePath: manifest.path || "확인 전",
+      manifestSha: manifest.sha256 || null,
+      error: null,
+      relations: [
+        { title: "등록 물품", value: itemNames, meta: `${definitions.items.length}개 · 웹 파일 스냅샷` },
+        { title: "등록 장소", value: placeNames, meta: `${definitions.places.length}개 · 웹 파일 스냅샷` },
+        { title: "등록 목록", value: listDescriptions, meta: `${definitions.lists.length}개 · 목록 정의` },
+        { title: "등록 태스크", value: taskIds, meta: `${definitions.tasks.length}개 · 실행 상태 아님` },
+      ],
+      skills: definitions.skills.map((skill) => ({
+        title: skill.name_ko ? `${skill.name_ko} (${skill.id})` : skill.id,
+        before: definitionConditionSummary(skill.pre),
+        after: definitionConditionSummary(skill.effect),
+      })),
+    };
+    // 정의가 정상 적용됐음을 다른 렌더러가 확인할 수 있게 기록한다.
+    state.definitionsLive = true;
+
+    // 배열 순서에 기대지 않고 출근 준비물 화면과 의미가 일치하는 목록 ID를 선택한다.
+    const registeredList = definitions.lists.find((entry) => entry?.id === DASHBOARD_LIST_ID) || null;
+    // commute_set이 없으면 다른 목록을 대신 보여 주지 않고 확인 전 상태를 유지한다.
+    const registeredItemIds = registeredList ? registeredList.item_ids : [];
+    // 준비물 카드는 전달 상태가 아니라 등록 여부만 표시한다.
+    state.supplies = registeredItemIds.map((itemId) => ({
+      id: itemId,
+      name: itemLabelForId(itemId),
+      icon: itemIconForId(itemId),
+      status: "pending",
+      statusLabel: "등록 정의",
+    }));
+    // 집계 문구에서 어떤 등록 목록인지 표시한다.
+    state.suppliesDefinitionName = registeredList?.name_ko || registeredList?.id || "출근 준비물 정의 확인 전";
+    // 정의 API 자체는 정상이며 화면이 사용할 등록 목록 선택까지 마쳤음을 기록한다.
+    state.definitionsStatus = "live";
+
+    // 상태가 먼저 수신됐다면 새 등록명을 현재 서랍·물품 화면에 즉시 다시 적용한다.
+    if (latestRobotStateSource) applyRobotStateSource(latestRobotStateSource);
+    // 호출자는 실제 정의 적용 성공 여부를 사용할 수 있다.
+    return true;
+  }
+
+  function applyDefinitionsFailure(error) {
+    // 네트워크·HTTP·형식 오류 모두 정의를 확인 전으로 전환한다.
+    setDefinitionsUnknown(error instanceof Error ? error.message : "정의 API 오류");
+    // 상태 REST와 정의 REST의 현재 조합으로 상단 안내를 다시 계산한다.
+    refreshDefinitionAwareMetaDescription();
+    // 기본 화면의 준비물과 관리자 온톨로지 탭을 즉시 다시 그린다.
+    renderMockNotice();
+    renderSupplies();
+    renderAdminOntology();
+    renderAdminDataMeta();
+  }
+
+  function applyDefinitionsSuccess(snapshot) {
+    // 검증된 스냅샷을 화면 모델에 적용한다.
+    applyDefinitionSnapshot(snapshot);
+    // 상태 요청보다 늦게 성공해도 현재 조합에 맞는 상단 안내로 다시 계산한다.
+    refreshDefinitionAwareMetaDescription();
+    // 등록 준비물·현재 위치 표시·관리자 정의 탭을 새 정의명으로 다시 그린다.
+    renderMockNotice();
+    renderSupplies();
+    renderDrawerSelectors();
+    renderInventory();
+    renderAdminOntology();
+    renderAdminDataMeta();
+  }
+
+  function refreshDefinitionAwareMetaDescription() {
+    // 상태 REST 오류 중에도 이미 읽은 정의 스냅샷의 성공 여부는 독립적으로 알린다.
+    if (state.meta.mode === "rest-error") {
+      state.meta.description = state.definitionsLive
+        ? "Runner 현재 상태를 조회할 수 없습니다. 등록 정의 파일 스냅샷만 표시합니다."
+        : "Runner 현재 상태와 등록 정의가 확인 전입니다.";
+      return;
+    }
+    // 상태 REST 성공 시에는 /robot_state 적용 여부와 정의 스냅샷 여부를 함께 설명한다.
+    if (state.meta.mode === "partial-live") {
+      if (!state.definitionsLive) {
+        state.meta.description = "Runner 상태는 실제 데이터이며 등록 정의는 확인 전입니다. 작업 진행은 목업입니다.";
+        return;
+      }
+      state.meta.description = state.robotStateLive
+        ? "Runner 연결과 기억 상태는 실제 데이터이며 등록 정의는 웹 파일 스냅샷입니다. 작업 진행은 목업입니다."
+        : "Runner 연결은 실제 데이터이고 등록 정의는 웹 파일 스냅샷이며 /robot_state는 확인 전입니다. 작업 진행은 목업입니다.";
+      return;
+    }
+    // 상태 응답 전에도 정의만 먼저 도착했다면 현재 사용할 수 있는 범위를 정확히 표시한다.
+    state.meta.description = state.definitionsLive
+      ? "등록 정의는 웹 파일 스냅샷이며 Runner 현재 상태는 확인 전입니다. 작업 진행은 목업입니다."
+      : "Runner 현재 상태와 등록 정의가 확인 전입니다.";
   }
 
   function setRobotStateUnknown(source, detail) {
@@ -234,7 +407,7 @@
     }
 
     // open과 located_in의 현재 Runner 기억값으로 서랍·물품 행을 다시 만든다.
-    // 등록명·별칭은 5단계 범위이므로 여기서는 원본 ID를 그대로 사용한다.
+    // 정의가 준비됐으면 등록명을 사용하고, 없으면 추정하지 않고 원본 ID를 유지한다.
     const drawerIds = new Set(
       Object.keys(data.open).filter((id) => id.startsWith("drawer_")),
     );
@@ -250,7 +423,7 @@
         .filter(([, location]) => location === drawerId)
         .map(([itemId]) => ({
           id: itemId,
-          name: itemId,
+          name: itemLabelForId(itemId),
           icon: itemIconForId(itemId),
           status: "pending",
           statusLabel: "Runner 기억 위치",
@@ -279,7 +452,7 @@
       ? openEntries.map(([id, value]) => `${drawerLabels[id] || id}: ${value ? "열림" : "닫힘"}`).join(" · ")
       : "확인 전";
     const locationSummary = Object.entries(data.located_in).length
-      ? Object.entries(data.located_in).map(([id, value]) => `${id} → ${drawerLabels[value] || value}`).join(" · ")
+      ? Object.entries(data.located_in).map(([id, value]) => `${itemLabelForId(id)} → ${drawerLabels[value] || value}`).join(" · ")
       : "확인 전";
     const sourceLabel = "/robot_state · Runner 기억 상태";
     state.adminReview.current.rows = [
@@ -296,6 +469,8 @@
     // validatePayload를 통과한 두 source를 Runner 연결과 기억 상태에 각각 사용한다.
     const source = payload.sources.runner;
     const robotStateSource = payload.sources.robot_state;
+    // 정의 API가 나중에 도착해도 등록명을 다시 적용할 수 있도록 최신 source를 보관한다.
+    latestRobotStateSource = robotStateSource;
     const view = runnerConnectionView(source);
     const connection = getRunnerConnection();
     if (!connection) return;
@@ -318,9 +493,14 @@
     state.meta.label = "REST 연결됨 · 부분 실데이터";
     const runnerSummaryApplied = applyRunnerSummary(source);
     const robotStateApplied = applyRobotStateSource(robotStateSource);
+    // 정의 연결 여부를 상태 연결과 구분해 현재 화면에 실제인 범위를 정확히 설명한다.
+    const definitionText = state.definitionsLive
+      ? "등록 정의는 웹 시작 시 읽은 파일 스냅샷입니다."
+      : "등록 정의는 확인 전입니다.";
+    // 현재 상태와 정의의 출처를 합치지 않고 각각의 범위를 문장으로 알린다.
     state.meta.description = robotStateApplied
-      ? "Runner 연결과 기억 상태는 실제 데이터입니다. 작업·준비물·등록 정의는 아직 목업입니다."
-      : "Runner 연결은 실제 데이터이며 /robot_state 표시는 확인 전입니다. 작업·준비물·등록 정의는 아직 목업입니다.";
+      ? `Runner 연결과 기억 상태는 실제 데이터입니다. ${definitionText} 작업 진행은 목업입니다.`
+      : `Runner 연결은 실제 데이터이며 /robot_state 표시는 확인 전입니다. ${definitionText} 작업 진행은 목업입니다.`;
 
     updateAdminRunnerRow(view, source, "/runner/status · Flask REST");
     state.adminReview.current.liveConnected = runnerSummaryApplied && robotStateApplied;
@@ -353,8 +533,11 @@
       description: `현재 상태를 사용하지 않습니다. REST 마지막 성공 ${lastSuccess}`,
     });
     state.meta.mode = "rest-error";
-    state.meta.label = "REST 연결 오류 · 목업 화면";
-    state.meta.description = "Runner 현재 상태를 조회할 수 없습니다. 나머지 화면 값은 목업입니다.";
+    state.meta.label = "REST 연결 오류 · 상태 확인 전";
+    // 상태 REST 실패가 이미 읽은 정의 파일 스냅샷까지 무효화한 것처럼 표현하지 않는다.
+    state.meta.description = state.definitionsLive
+      ? "Runner 현재 상태를 조회할 수 없습니다. 등록 정의 파일 스냅샷만 표시합니다."
+      : "Runner 현재 상태와 등록 정의를 확인할 수 없습니다.";
 
     setRobotStateUnknown(null, "Flask REST 미수신");
     setRunnerSummaryUnknown();
@@ -501,7 +684,20 @@
     list.replaceChildren();
 
     const completed = state.supplies.filter((item) => item.status === "delivered").length;
-    getById("completionCount").textContent = `${completed} / ${state.supplies.length} 전달 완료`;
+    // 실제 정의를 확인하지 못한 기본 화면은 빈 요청이나 전달 완료 결과로 단정하지 않는다.
+    getById("completionCount").textContent = state.definitionsStatus === "unknown"
+      ? "등록 정의 확인 전"
+      // 정상 정의는 실행 결과가 아니라 등록된 목록의 개수와 이름만 표시한다.
+      : state.definitionsLive
+        ? `${state.supplies.length}개 등록 · ${state.suppliesDefinitionName}`
+        // 고정 URL 목업 시나리오는 기존 전달 완료 예시를 그대로 유지한다.
+        : `${completed} / ${state.supplies.length} 전달 완료`;
+    // 빈 목록 안내도 정의 실패·정상 빈 정의·고정 목업을 서로 다른 문구로 구분한다.
+    getById("suppliesEmpty").textContent = state.definitionsStatus === "unknown"
+      ? "등록 정의를 확인하지 못했습니다."
+      : state.definitionsLive
+        ? "등록된 출근 준비물이 없습니다."
+        : "요청된 준비물이 없습니다.";
     getById("suppliesEmpty").hidden = state.supplies.length !== 0;
 
     state.supplies.forEach((item) => {
@@ -612,17 +808,25 @@
   }
 
   function renderAdminDataMeta() {
-    // 현재 상태 탭만 실데이터 연결 여부를 표시하며 후속 탭의 목업 표시는 유지한다.
+    // 현재 상태와 등록 정의의 연결 여부를 각각 표시하고 후속 탭은 그대로 유지한다.
     const current = state.adminReview.current;
     const connected = current.liveConnected === true;
+    // 온톨로지 탭은 Runner 상태와 독립적인 웹 파일 스냅샷 연결 상태를 사용한다.
+    const definitionsConnected = state.adminReview.ontology?.live === true;
     const restError = state.meta.mode === "rest-error";
     getById("adminDataNotice").textContent = connected
-      ? "부분 실데이터 · 인증 미구현 읽기 전용 화면 · 현재 상태는 Runner에서 수신하며 온톨로지·계획 근거·실행 기록은 아직 목업 또는 후속 연결입니다."
+      ? definitionsConnected
+        ? "부분 실데이터 · 현재 상태는 Runner에서 수신하고 등록 정의는 웹 시작 시 파일에서 읽었습니다. 계획 근거·실행 기록은 후속 연결입니다."
+        : "부분 실데이터 · 현재 상태는 Runner에서 수신하며 등록 정의는 확인 전입니다. 계획 근거·실행 기록은 후속 연결입니다."
       : restError
-        ? "REST 연결 오류 · 현재 상태는 확인 전이며 온톨로지·계획 근거·실행 기록은 아직 목업 또는 후속 연결입니다."
+        ? definitionsConnected
+          ? "상태 REST 연결 오류 · 현재 상태는 확인 전이며 등록 정의 파일 스냅샷만 사용할 수 있습니다."
+          : "REST 연결 오류 · 현재 상태와 등록 정의가 확인 전입니다."
         : state.meta.mode === "partial-live"
           ? "부분 실데이터 · 인증 미구현 읽기 전용 화면 · Runner 응답은 수신했지만 현재 상태 일부는 확인 전입니다."
-          : "목업 데이터 · 인증 미구현 읽기 전용 화면 · 현재 상태와 온톨로지만 녹화 우선 연결 예정입니다.";
+          : definitionsConnected
+            ? "등록 정의 연결됨 · 현재 Runner 상태는 확인 전이며 등록 정의는 웹 파일 스냅샷입니다."
+            : "확인 전 · 현재 상태와 등록 정의를 아직 조회하지 못했습니다.";
     getById("adminCurrentTabStatus").textContent = connected ? "연결됨" : "확인 전";
     getById("adminCurrentSourceLabel").textContent = connected
       ? "/runner/status · /robot_state 연결됨"
@@ -666,6 +870,17 @@
     const skills = getById("adminSkillDefinitions");
     relations.replaceChildren();
     skills.replaceChildren();
+
+    // 탭 머리말은 정의 스냅샷 성공 여부를 상태 REST와 독립적으로 표시한다.
+    getById("adminOntologySourceLabel").textContent = ontology.live
+      ? "공통 ontology.load · 웹 파일 스냅샷"
+      : "등록 정의 확인 전";
+    // 목업 배지 대신 실제 정의 또는 확인 전 상태를 표시한다.
+    getById("adminOntologyDataLabel").textContent = ontology.live ? "등록 정의" : "확인 전";
+    // 경로·로딩 시각·manifest 해시 앞 12자를 한 줄로 제공해 배포 원본을 대조할 수 있게 한다.
+    getById("adminOntologyMeta").textContent = ontology.live
+      ? `원본 ${ontology.sourcePath} · 웹 로딩 ${formatReceivedTime(ontology.loadedAt)} · SHA-256 ${ontology.manifestSha?.slice(0, 12) || "확인 전"}`
+      : ontology.error || "등록 정의를 읽지 못했습니다.";
 
     ontology.relations.forEach((entry) => {
       const card = makeElement("article", "definition-item");
@@ -814,6 +1029,8 @@
     setRunnerSummaryUnknown();
     state.adminReview.current.liveConnected = false;
     setRobotStateUnknown(null, "/robot_state · 수신 전");
+    // 정의 API 응답 전에는 demo-data.js의 샘플 정의와 준비물을 실제 등록값처럼 보이지 않게 한다.
+    setDefinitionsUnknown("/api/definitions 수신 전");
   }
 
   renderAll();
@@ -823,6 +1040,12 @@
 
   // long·empty·error URL은 고정 목업 검토용으로 유지하고 기본 화면에서만 REST를 연결한다.
   if (statusApi && window.ROKEY_DEMO_SCENARIO === "default") {
+    // 등록 정의는 서버 기동 시 고정된 스냅샷이므로 상태 polling과 달리 페이지에서 한 번만 요청한다.
+    void statusApi.loadDefinitions(window.fetch.bind(window))
+      // 정상 스냅샷은 물품·장소 이름, 등록 목록, 태스크와 스킬 카드에 적용한다.
+      .then(applyDefinitionsSuccess)
+      // 정의만 실패해도 상태 polling은 계속 유지하고 정의 영역만 확인 전으로 둔다.
+      .catch(applyDefinitionsFailure);
     const poller = statusApi.createPoller({
       fetchStatus: window.fetch.bind(window),
       onSuccess: applyStatusApiSuccess,

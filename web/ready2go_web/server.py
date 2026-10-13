@@ -2,7 +2,8 @@
 
 이 모듈은 기존 HTML·CSS·JavaScript 목업을 Flask를 통해 동일하게 제공한다.
 이슈 #267의 3~4단계에서는 실행 진입점이 전달한 ROS 상태 캐시의 일관된 복사본을
-읽기 전용 REST로 제공한다. 브라우저는 같은 origin의 이 응답만 읽고 ROS에 직접
+읽기 전용 REST로 제공한다. 5단계에서는 시작 시 읽은 등록 정의 스냅샷도 별도
+REST로 제공한다. 브라우저는 같은 origin의 응답만 읽고 ROS나 원본 파일에 직접
 접속하지 않는다.
 """
 
@@ -28,6 +29,9 @@ API_SCHEMA_VERSION = 1
 
 # 브라우저가 같은 origin에서 조회할 읽기 전용 상태 경로다.
 STATUS_API_PATH = "/api/status"
+
+# 브라우저가 시작할 때 한 번 조회할 등록 정의 스냅샷 경로다.
+DEFINITIONS_API_PATH = "/api/definitions"
 
 # 이 값은 이슈 #267에서 정한 브라우저 권장 조회 간격이며 ROS 발행 주기가 아니다.
 POLL_INTERVAL_MS = 1_000
@@ -93,6 +97,8 @@ def create_app(
     web_root: str | Path | None = None,
     *,
     state_cache: StateCache | None = None,
+    definition_snapshot: Mapping[str, object] | None = None,
+    definition_error: str | None = None,
     utcnow: Callable[[], datetime] = _utc_now,
 ) -> Flask:
     """기존 UI를 제공하는 Flask app을 생성한다.
@@ -112,6 +118,10 @@ def create_app(
         "static_root": str(static_root),
         # REST 핸들러는 요청마다 이 같은 캐시에서 잠금 스냅샷만 가져온다.
         "state_cache": state_cache,
+        # 정의는 서버 시작 때 한 번 읽은 웹 파일 스냅샷이며 요청마다 다시 읽지 않는다.
+        "definition_snapshot": definition_snapshot,
+        # 정의 로딩 실패도 상태 REST와 정적 UI를 중단하지 않고 별도 오류로 제공한다.
+        "definition_error": definition_error,
     }
 
     def api_response(payload: Mapping[str, object], status_code: int = 200):
@@ -167,6 +177,33 @@ def create_app(
         # 성공 시에는 가공하지 않은 source 진단과 마지막 정상 payload를 함께 제공한다.
         payload = response_envelope()
         payload.update({"status": "ok", "sources": sources})
+        return api_response(payload)
+
+    @app.get(DEFINITIONS_API_PATH)
+    def definitions_api():
+        """웹 시작 시 읽은 등록 정의 스냅샷을 파일 재조회 없이 반환한다."""
+        # 로딩에 실패했거나 정의가 주입되지 않은 앱은 목업을 정상 정의처럼 반환하지 않는다.
+        if definition_snapshot is None:
+            # 상태 API와 같은 공통 envelope에 정의 전용 오류를 추가한다.
+            payload = response_envelope()
+            # 브라우저가 설정 누락과 정상 빈 정의를 구분할 수 있는 안정된 오류 형식이다.
+            payload.update(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "DEFINITIONS_UNAVAILABLE",
+                        "message": definition_error or "등록 정의를 사용할 수 없습니다.",
+                    },
+                }
+            )
+            # 정의 오류가 있어도 상태 API는 계속 제공하므로 이 경로만 503으로 응답한다.
+            return api_response(payload, 503)
+
+        # 로더가 만든 스냅샷과 요청 시각을 섞지 않도록 새 응답 객체를 만든다.
+        payload = response_envelope()
+        # status는 HTTP 성공을, snapshot은 서버 시작 때 고정된 정의를 뜻한다.
+        payload.update({"status": "ok", "snapshot": definition_snapshot})
+        # 등록 정의도 브라우저 캐시가 이전 기동 값을 재사용하지 않도록 no-store로 반환한다.
         return api_response(payload)
 
     @app.get("/")
