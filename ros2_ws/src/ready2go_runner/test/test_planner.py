@@ -15,7 +15,10 @@ from ready2go_runner.core.validation import check_task
 from test_tasks import MockRobot  # noqa: E402  (mock 로봇: 실제 연결표·RosBackend 경로)
 
 ROOT = Path(__file__).resolve().parents[4]
-ONTO = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")
+from start_states import P1_TOP, with_state  # noqa: E402
+
+# 플래너 기본 시험: 시작 상태는 시험이 정함(위 칸 10종) — 운영 initial_state 와 무관
+ONTO = with_state(ontology.load(ROOT / "knowledge/robot_ontology.jsonld"), P1_TOP)
 SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
 
 
@@ -233,3 +236,18 @@ def test_real_limits_refuse_plans_the_robot_cannot_do(initial, goals):
     r = pl.plan(initial, ONTO, goals, limits=REAL)
     assert r.status == pl.UNPLANNABLE and "지원 범위 안에서" in r.reason and r.steps == []
     assert pl.plan(initial, ONTO, goals).status == pl.PLANNED                 # 제한 없으면(mock) 계획됨 — 기호상 가능
+
+
+def test_one_open_rule_closes_one_drawer_before_opening_another():
+    """open_drawer.one_open=true (P2 기본): 위 칸이 열리면 아래 칸 위를 덮음 → 두 서랍을 같이 열고 집는 계획을 만들지 않음."""
+    both = pl.parse_limits("open_drawer.drawer_id=drawer_top|drawer_bottom,close_drawer.drawer_id=drawer_top|drawer_bottom,"
+                           "pick.from=drawer_top|drawer_bottom,place.to=handover_zone")
+    rule = {**both, "open_drawer": {**both["open_drawer"], "one_open": {"true"}}}
+    goals = [goal("eraser", "handover_zone"), goal("drawer_top", True, "open")]
+    start = state(eraser="drawer_bottom")
+    free = pl.plan(start, ONTO, goals, limits=both)                       # 규칙 없으면 두 칸을 같이 엶
+    assert labels(free)[:2] == ["open_drawer(drawer_bottom)", "open_drawer(drawer_top)"]
+    safe = pl.plan(start, ONTO, goals, limits=rule)
+    assert labels(safe) == ["open_drawer(drawer_bottom)", "pick(eraser, drawer_bottom)", "place(eraser, handover_zone)",
+                            "close_drawer(drawer_bottom)", "open_drawer(drawer_top)"]
+    assert pl.parse_limits(pl.DEFAULT_PLAN_LIMITS)["open_drawer"]["one_open"] == {"true"}

@@ -14,7 +14,10 @@ from ready2go_runner.core.logstore import MemoryLogStore
 from ready2go_runner.core.validation import check_task
 
 ROOT = Path(__file__).resolve().parents[4]
-ONTOLOGY = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")
+from start_states import P1_TOP, with_state  # noqa: E402
+
+# P1 태스크 시험: 시작 상태는 시험이 정함(위 칸 10종) — 운영 initial_state(#283 P2 단일 배치)와 무관
+ONTOLOGY = with_state(ontology.load(ROOT / "knowledge/robot_ontology.jsonld"), P1_TOP)
 SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
 TASK = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))
 CHECK = json.loads((ROOT / "tasks/p1_demo_eraser.json").read_text(encoding="utf-8"))

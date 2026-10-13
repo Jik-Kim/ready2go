@@ -23,7 +23,9 @@ from ready2go_runner.nodes.mock_backend import MockBackendNode  # noqa: E402
 # 시험마다 다른 Domain ID (파일마다 범위를 나눠, 앞 시험의 남은 서버와 섞이지 않게)
 DOMAIN_IDS = itertools.count(180)
 ROOT = Path(__file__).resolve().parents[4]
-ONTOLOGY = ontology.load(ROOT / "knowledge/robot_ontology.jsonld")
+from start_states import P1_TOP, with_state  # noqa: E402
+
+ONTOLOGY = with_state(ontology.load(ROOT / "knowledge/robot_ontology.jsonld"), P1_TOP)   # P1 태스크 — 시작 상태는 시험이 정함
 SCHEMA = json.loads((ROOT / "contracts/task.schema.json").read_text(encoding="utf-8"))
 TASK = json.loads((ROOT / "contracts/examples/task_skill_steps.json").read_text(encoding="utf-8"))
 P1_TASK = json.loads((ROOT / "tasks/find_item.json").read_text(encoding="utf-8"))   # #17
