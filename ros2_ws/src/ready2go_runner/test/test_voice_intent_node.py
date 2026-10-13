@@ -1,6 +1,7 @@
 """#17 /voice/intent → Runner 노드: mock 백엔드와 함께 띄워 음성 인텐트로 태스크 실행·보류·중복 거절·cancel·status 확인.
 E 통합 공지(#23): find_item → P1 태스크, cancel/status, 모호·미지원 요청 보류, 중복 실행 처리, 입력 명령 기록.
 rclpy·ready2go_interfaces 필요 → 호스트 pytest 는 건너뛰고 ros2-core 컨테이너·colcon test 에서 실행."""
+import copy
 import json
 import itertools
 import threading
@@ -19,6 +20,8 @@ from std_msgs.msg import String  # noqa: E402
 from ready2go_runner.nodes.mock_backend import MockBackendNode  # noqa: E402
 from ready2go_runner.nodes.runner_node import LATCHED, RunnerNode  # noqa: E402
 
+from start_states import P1_TOP, start_state  # noqa: E402
+
 DOMAIN_IDS = itertools.count(100)       # 파일마다 Domain ID 범위를 나눔 (stop_safety 150, mock_backend 180, runner_node 200). ROS Domain ID 는 최대 232 → 220 에서 시작하면 14번째 시험이 233 으로 프로세스 종료 (#150)
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE = (ROOT / "contracts/examples/intent_find_item.json").read_text(encoding="utf-8")
@@ -32,6 +35,7 @@ class Voice:
     """E 음성 노드처럼 /voice/intent 를 발행하고 /runner/status 를 본다."""
 
     def __init__(self, node):
+        self.node = node                        # 시험용 B 서비스(/skills/check_state 등)를 이 노드에 띄움
         self.status = None
         node.create_subscription(String, "/runner/status", lambda m: setattr(self, "status", json.loads(m.data)), LATCHED)
         self.pub = node.create_publisher(String, "/voice/intent", 10)
@@ -56,7 +60,7 @@ def last_intent(s):
 
 
 def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks="",
-                skills_up=True, plan_limits=None):
+                skills_up=True, plan_limits=None, extra=(), located=None):
     """skills_up=False: mock 백엔드(/skills/* 서버) 없이 시작 — 기동 직후 스킬 서버가 늦게 뜨는 상황 (#108).
     나중에 voice.start_skills() 로 띄운다."""
     context = rclpy.Context()
@@ -68,7 +72,11 @@ def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology
         Parameter("tasks_dir", value=str(ROOT / "tasks")),
         Parameter("intent_tasks", value=intent_tasks),
         *([Parameter("plan_limits", value=plan_limits)] if plan_limits is not None else []),
+        *[Parameter(k, value=v) for k, v in extra],
         Parameter("log_dir", value=str(tmp_path))])
+    # 시작 상태는 시험이 정함 (기본 P1 위 칸 10종 — 운영 initial_state #283 P2 단일 배치와 무관). reset_state 도 이 값으로
+    start = start_state(P1_TOP if located is None else located)
+    runner.runner._initial_state, runner.runner._state = copy.deepcopy(start), copy.deepcopy(start)
     voice_node = rclpy.create_node("voice_test", context=context)
     voice = Voice(voice_node)
     executor = MultiThreadedExecutor(context=context)
@@ -289,3 +297,298 @@ def test_stop_while_request_is_being_handled_does_not_start_it(system):
     time.sleep(0.3)
     assert voice.status["phase"] == "idle" and voice.status["last"] is None          # 실행 없음
     assert runner.start_task(task, {"target": "eraser"}, token=runner.gate.token())   # 멈춰 뒤 새 요청은 정상
+
+
+def end_task(boot, run, request_id="end-1"):
+    return json.dumps({"intent": "end_task", "targets": [], "confidence": 0.9, "request_id": request_id,
+                       "boot_id": boot, "run_id": run, "source": {"stt_text": "작업 종료해"}})
+
+
+def test_end_task_stops_only_the_current_run_and_keeps_lock(long_action_system):
+    """계약 W3 end_task (#271, E3): 다른 run_id → NOTHING_TO_END, 다른 기동 → BOOT_MISMATCH (둘 다 실행 그대로),
+    지금 실행 → cancel 과 같은 정지 → ABORTED·잠김(잠금 해제·새 작업 허용 아님), 같은 ID 재전송 → 첫 결정 재발행."""
+    runner, voice = long_action_system
+    boot = runner.runner.boot_id
+    voice.say(intent())
+    assert voice.wait(lambda s: s["phase"] == "running" and last_intent(s).get("run_id")), voice.status
+    run_id = last_intent(voice.status)["run_id"]
+    voice.say(end_task(boot, "2026-01-01T00:00:00Z_000000", "end-x"))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "NOTHING_TO_END"), voice.status
+    voice.say(end_task("other-boot", run_id, "end-y"))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "BOOT_MISMATCH"), voice.status
+    assert voice.status["phase"] == "running"                                     # 거절은 실행에 영향 없음
+    voice.say(end_task(boot, run_id))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"), voice.status
+    assert voice.status["phase"] == "halted" and voice.status["last"]["run_id"] == run_id
+    voice.say(intent())                                                         # 잠김 유지
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "LOCKED"), voice.status
+    voice.say(end_task(boot, run_id))                                           # 같은 ID 재전송 → 첫 결정(end) 다시
+    assert voice.wait(lambda s: last_intent(s).get("decision") == "end"
+                      and last_intent(s).get("request_id") == "end-1"), voice.status
+    assert voice.status["phase"] == "halted"
+
+
+def test_end_task_when_idle_is_nothing_to_end(system):
+    runner, voice = system
+    voice.say(end_task(runner.runner.boot_id, "2026-01-01T00:00:00Z_000000"))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "NOTHING_TO_END"), voice.status
+    assert voice.status["phase"] == "idle"
+
+
+def recover(boot, event, request_id="rec-1"):
+    return json.dumps({"intent": "recover", "targets": [], "confidence": 0.9, "request_id": request_id,
+                       "boot_id": boot, "event_id": event, "source": {"stt_text": "복구해"}})
+
+
+def test_recover_unlocks_preserved_work_without_resuming(tmp_path):
+    """계약 W3 recover (#271, FR-SAF-03): 재개 대기(resumable)에서 멈춰 → 작업 보존·잠김 → 다른 사건 recover 거절 →
+    지금 사건 recover = B 조회(mock) 충족 → 잠금 해제·halt.resume.offered (재개 아님, 로봇 동작 없음) →
+    보존 중 새 요청은 RESUME_PENDING → end_task 로 폐기."""
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[("resumable", True)])
+    try:
+        boot = runner.runner.boot_id
+        voice.say(intent())
+        assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+        voice.say(intent("cancel", targets=(), confidence=0.9))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+        halt = voice.status["halt"]
+        assert voice.status["phase"] == "halted" and halt["locked"] and halt["resume"]["offered"] is False
+        run_id, event = voice.status["last"]["run_id"], halt["event_id"]
+        voice.say(recover(boot, "h0-old", "rec-x"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "HALT_EVENT_MISMATCH"), voice.status
+        voice.say(recover(boot, event))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "recover" and s["phase"] == "idle"), voice.status
+        resume = voice.status["halt"]["resume"]
+        assert resume["offered"] and resume["from_step"] and voice.status["halt"]["locked"] is False
+        voice.say(json.dumps({"intent": "find_item", "targets": ["eraser"], "confidence": 0.9}))
+        assert voice.wait(lambda s: (s["last"] or {}).get("error_code") == "RESUME_PENDING"), voice.status
+        voice.say(end_task(boot, run_id, "end-r"))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "end"
+                          and (s["last"] or {}).get("run_id") == run_id
+                          and s["last"]["overall_status"] == "ABORTED"), voice.status
+        assert voice.status["halt"] is None                                      # 보존 작업 없음, 잠금 없음
+    finally:
+        close()
+
+
+def test_recover_without_b_check_keeps_the_lock(tmp_path):
+    """B 상태 조회(W1) 없음(real 기본 recover_check none) → B_CHECK_UNAVAILABLE, 잠금 유지."""
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[("recover_check", "none")])
+    try:
+        voice.say(intent())
+        assert voice.wait(lambda s: s["phase"] == "running"), voice.status
+        voice.say(intent("cancel", targets=(), confidence=0.9))
+        assert voice.wait(lambda s: s["phase"] == "halted" and s["halt"]), voice.status
+        voice.say(recover(runner.runner.boot_id, voice.status["halt"]["event_id"]))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "B_CHECK_UNAVAILABLE"), voice.status
+        assert voice.status["phase"] == "halted" and runner.runner.halted
+    finally:
+        close()
+
+
+ANSWER_EV = {"rec_start_after_tts_s": 0.4, "rec_end_after_tts_s": 2.1, "request_after_tts_s": 2.3, "stt_s": 1.2}
+REQUEST_EV = {"rec_end_s": 1.8, "request_s": 2.0, "stt_s": 1.1}
+
+
+def control(name, halt, **fields):
+    return json.dumps({"intent": name, "targets": [], "confidence": 0.9, "boot_id": halt["boot_id"],
+                       "event_id": halt["event_id"], "run_id": halt["run_id"], **fields})
+
+
+def suspend_and_recover(voice, boot):
+    """find_item 실행 중 멈춰 → 보존 → recover → 잠금 해제·질문 제안. 그때 halt 를 돌려줌."""
+    voice.say(intent())
+    assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+    voice.say(intent("cancel", targets=(), confidence=0.9))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+    voice.say(recover(boot, voice.status["halt"]["event_id"]))
+    assert voice.wait(lambda s: (s["halt"] or {}).get("resume", {}).get("offered")), voice.status
+    return voice.status["halt"]
+
+
+def test_resume_question_registered_then_answer_resumes_same_run(tmp_path):
+    """계약 W3 (#271, AC-SAF-04 정상 재개 1경로): 질문 등록(E TTS 전) → C 등록 확인(halt.resume.question) → 재전송은
+    그대로 → 증빙 틀린 "응" 은 소비 안 함 → 유효한 "응" = B 재조회(mock)·재진입 검사 → 같은 run_id 로 이어 실행·완료."""
+    runner, voice, close = make_system(tmp_path, duration=0.5, extra=[("resumable", True)])
+    try:
+        halt = suspend_and_recover(voice, runner.runner.boot_id)
+        voice.say(control("resume_register", halt, question_id="q-01", source={"stt_text": None}))
+        assert voice.wait(lambda s: ((s["halt"] or {}).get("resume") or {}).get("question")), voice.status
+        assert last_intent(voice.status)["decision"] == "registered"
+        assert voice.status["halt"]["resume"]["question"]["state"] == "registered"
+        voice.say(control("resume_register", halt, question_id="q-02", source={"stt_text": None}))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "QUESTION_MISMATCH"), voice.status
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="resume",
+                          evidence={**ANSWER_EV, "request_after_tts_s": 12.0}))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "EVIDENCE_INVALID"), voice.status
+        assert voice.status["halt"]["resume"]["question"]["state"] == "registered"     # 소비 안 함
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="resume", evidence=ANSWER_EV))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED", timeout=40), voice.status
+        assert voice.status["last"]["run_id"] == halt["run_id"] and voice.status["halt"] is None
+        assert last_intent(voice.status)["decision"] == "resume"
+    finally:
+        close()
+
+
+def test_decline_keeps_work_then_independent_request_resumes(tmp_path):
+    """"아니" = 질문만 닫고 작업 보존 → 질문이 닫힌 뒤 "이어서 해" 독립 요청: register(C 등록 확인) → request 일회 소비 → 이어 실행.
+    다른 run_id 는 RUN_MISMATCH, 등록 안 된 요청 ID 소비는 REQUEST_MISMATCH."""
+    runner, voice, close = make_system(tmp_path, duration=0.5, extra=[("resumable", True)])
+    try:
+        halt = suspend_and_recover(voice, runner.runner.boot_id)
+        voice.say(control("resume_register", halt, question_id="q-01", source={"stt_text": None}))
+        assert voice.wait(lambda s: ((s["halt"] or {}).get("resume") or {}).get("question")), voice.status
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="decline", source={"stt_text": "아니"}))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "closed"), voice.status
+        assert voice.status["halt"]["resume"]["question"]["state"] == "declined" and voice.status["phase"] == "idle"
+        voice.say(control("resume", {**halt, "run_id": "other"}, request_id="req-1", phase="register"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "RUN_MISMATCH"), voice.status
+        voice.say(control("resume", halt, request_id="req-x", phase="request", evidence=REQUEST_EV))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "REQUEST_MISMATCH"), voice.status
+        voice.say(control("resume", halt, request_id="req-1", phase="register"))
+        assert voice.wait(lambda s: (((s["halt"] or {}).get("resume") or {}).get("request") or {}).get("id") == "req-1")
+        voice.say(control("resume", halt, request_id="req-1", phase="request", evidence=REQUEST_EV))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED", timeout=40), voice.status
+        assert voice.status["last"]["run_id"] == halt["run_id"]
+    finally:
+        close()
+
+
+def test_reset_state_ends_preserved_work(tmp_path):
+    """정본 resume-admission-policy: 상태 초기화는 보존 작업을 끝냄 (finally 비동작만) — 잠금은 풀지 않음."""
+    from std_srvs.srv import Trigger
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[("resumable", True)])
+    try:
+        voice.say(intent())
+        assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+        voice.say(intent("cancel", targets=(), confidence=0.9))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+        run_id = voice.status["last"]["run_id"]
+        reply = runner._reset_state(Trigger.Request(), Trigger.Response())
+        assert reply.success and runner.runner.suspended is None and runner.runner.halted
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"
+                          and s["last"]["run_id"] == run_id), voice.status
+    finally:
+        close()
+
+
+def test_resume_refused_by_final_check_is_published_as_reject(tmp_path):
+    """#291 E 리뷰 P2: 유효한 "응" 이어도 최종 검사(B 재조회)가 거절하면 결정은 reject·이유, 질문은 refused, 작업 보존."""
+    runner, voice, close = make_system(tmp_path, duration=0.5, extra=[("resumable", True)])
+    try:
+        halt = suspend_and_recover(voice, runner.runner.boot_id)
+        voice.say(control("resume_register", halt, question_id="q-01", source={"stt_text": None}))
+        assert voice.wait(lambda s: ((s["halt"] or {}).get("resume") or {}).get("question")), voice.status
+        runner.recover_check = "none"                                  # 그 사이 B 조회 불가가 됨
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="resume", evidence=ANSWER_EV))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "B_CHECK_UNAVAILABLE"), voice.status
+        assert last_intent(voice.status)["decision"] == "reject"
+        assert voice.status["halt"]["resume"]["question"]["state"] == "refused" and runner.runner.suspended
+    finally:
+        close()
+
+
+def b_service(voice, name, reply):
+    """시험용 B 서비스 (#297 형식: std_srvs/Trigger, message JSON). reply = (success, dict)."""
+    from std_srvs.srv import Trigger
+
+    def handle(_, response):
+        response.success, response.message = reply[0], json.dumps(reply[1])
+        return response
+    voice.node.create_service(Trigger, name, handle)
+
+
+def b_state(runner, **over):
+    from datetime import datetime, timezone
+    memory = runner.runner.state
+    return {"stopped": True, "external_force": 0.5, "sensors_ok": True, "comm_ok": True, "controller_ready": True,
+            "estop_active": False, "tcp_tool_ok": True, "b_locked": False,
+            "gripper": {"state": "empty" if memory["gripper"]["robot"] == "empty" else "holding",
+                        "held_id": None if memory["gripper"]["robot"] == "empty" else f"{memory['gripper']['robot']}#1"},
+            "drawers": {k: (0.2 if v else 0.0) for k, v in memory["open"].items() if k.startswith("drawer")},
+            "stamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), **over}
+
+
+def suspended_halt(voice):
+    voice.say(intent())
+    assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+    voice.say(intent("cancel", targets=(), confidence=0.9))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+    return voice.status["halt"]
+
+
+def test_recover_with_real_b_check_service(tmp_path):
+    """recover_check=b (#297 /skills/check_state): B 응답을 그대로 판정 — 실물 기준 파일의 외력 기준이 null 이면
+    EXTERNAL_FORCE_LIMIT_UNSET 으로 잠금 유지, 기준을 넣은 파일이면 잠금 해제."""
+    limits = tmp_path / "recovery.yaml"
+    limits.write_text("external_force_max_n: 5.0\nstamp_max_age_s: 2.0\ndrawer_open_min_m: 0.01\n", encoding="utf-8")
+    for limits_file, expect in ((None, "EXTERNAL_FORCE_LIMIT_UNSET"), (str(limits), None)):
+        extra = [("resumable", True), ("recover_check", "b")] + ([("recovery_params_file", limits_file)] if limits_file else [])
+        runner, voice, close = make_system(tmp_path, duration=2.0, extra=extra)
+        try:
+            halt = suspended_halt(voice)
+            b_service(voice, "/skills/recover", (True, {"recovered": True, "code": None, "cleared": [], "blockers": [],
+                                                       "state": {}}))      # W2 성공 → 새 W1 → 판정 (B 답: C 가 부름)
+            b_service(voice, "/skills/check_state", (True, b_state(runner)))
+            time.sleep(0.5)
+            voice.say(recover(halt["boot_id"], halt["event_id"], f"rec-{expect}"))
+            if expect:
+                assert voice.wait(lambda s: last_intent(s).get("reason") == expect), voice.status
+                assert runner.runner.halted
+            else:
+                assert voice.wait(lambda s: last_intent(s).get("decision") == "recover"), voice.status
+                assert not runner.runner.halted and voice.status["halt"]["resume"]["offered"]
+        finally:
+            close()
+
+
+def test_recover_b_unavailable_and_b_recover_first(tmp_path):
+    """B 서비스 없음 → W2 먼저(기본)면 B_RECOVER_UNAVAILABLE, W2 끄면 B_CHECK_UNAVAILABLE. W2 실패면 B code 로 거절."""
+    for call_b, expect in ((True, "B_RECOVER_UNAVAILABLE"), (False, "B_CHECK_UNAVAILABLE")):
+        runner, voice, close = make_system(tmp_path, duration=2.0, extra=[
+            ("resumable", True), ("recover_check", "b"), ("b_check_timeout_s", 1.0), ("recover_call_b", call_b)])
+        try:
+            halt = suspended_halt(voice)
+            voice.say(recover(halt["boot_id"], halt["event_id"], f"rec-{expect}"))
+            assert voice.wait(lambda s: last_intent(s).get("reason") == expect), voice.status
+        finally:
+            close()
+    runner, voice, close = make_system(tmp_path, duration=2.0,
+                                       extra=[("resumable", True), ("recover_check", "b"), ("recover_call_b", True)])
+    try:
+        halt = suspended_halt(voice)
+        b_service(voice, "/skills/recover", (False, {"recovered": False, "code": "ESTOP_ACTIVE", "cleared": [],
+                                                     "blockers": ["ESTOP_ACTIVE"], "state": {}}))
+        b_service(voice, "/skills/check_state", (True, b_state(runner)))
+        time.sleep(0.5)
+        voice.say(recover(halt["boot_id"], halt["event_id"], "rec-w2"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "ESTOP_ACTIVE"), voice.status
+        assert runner.runner.halted
+    finally:
+        close()
+
+
+def test_recover_rejects_when_stopped_again_during_b_check(tmp_path):
+    """#304 E 리뷰 P1: B 조회(W1)를 기다리는 사이 새 정지 요청(이미 잠긴 채 다시 멈춤 — 사건 ID 는 그대로)이 오면
+    W1 결과가 정상이어도 잠금 해제하지 않음 → STOPPED_DURING_RECOVER, 잠금 유지. (새 정지 없는 정상 해제는 위 시험)"""
+    from std_srvs.srv import Trigger
+    limits = tmp_path / "recovery.yaml"
+    limits.write_text("external_force_max_n: 5.0\nstamp_max_age_s: 2.0\ndrawer_open_min_m: 0.01\n", encoding="utf-8")
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[
+        ("resumable", True), ("recover_check", "b"), ("recover_call_b", False), ("recovery_params_file", str(limits))])
+    try:
+        halt = suspended_halt(voice)
+        event = runner.runner.halt_event_id
+
+        def slow_check(_, response):            # 응답 전에 정지 요청이 들어옴 (/runner/estop 과 같은 경로)
+            runner.runner.halt(source="service")
+            time.sleep(0.3)
+            response.success, response.message = True, json.dumps(b_state(runner))
+            return response
+        voice.node.create_service(Trigger, "/skills/check_state", slow_check)
+        time.sleep(0.5)
+        voice.say(recover(halt["boot_id"], halt["event_id"], "rec-race"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "STOPPED_DURING_RECOVER"), voice.status
+        assert runner.runner.halted and runner.runner.halt_event_id == event   # 같은 사건, 잠금 유지
+    finally:
+        close()

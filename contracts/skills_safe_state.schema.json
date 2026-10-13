@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "B 무동작 안전 상태 조회 W1 /skills/check_state · B 복구 W2 /skills/recover — 응답 message JSON",
+  "description": "두 서비스 모두 std_srvs/srv/Trigger (요청 비어 있음). 응답 message 는 아래 JSON 을 문자열로 담음. 로봇·그리퍼 명령 없음. 계약안 #297 (B 제안, C 확인·E 포함 2명 승인 전, P2). 예시: examples/skills_check_state.json·skills_recover.json. 문서: ros2_ws/src/ready2go_skills/README.md W1·W2, docs/interfaces.md.",
+  "oneOf": [
+    {"$ref": "#/$defs/check_state"},
+    {"$ref": "#/$defs/check_state_error"},
+    {"$ref": "#/$defs/recover"},
+    {"$ref": "#/$defs/recover_error"}
+  ],
+  "$defs": {
+    "check_state": {
+      "description": "W1 success=true (조회 끝남 — 값이 좋은지와 무관). 모르는 값은 null, null 을 허가로 보지 않음.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stopped", "external_force", "sensors_ok", "comm_ok", "controller_ready", "estop_active", "tcp_tool_ok",
+                   "gripper", "drawers", "b_locked", "b_lock_reason", "robot_state", "busy", "stamp"],
+      "properties": {
+        "stopped": {"type": ["boolean", "null"], "description": "스킬 동작 실행 중 아님 + DSR 상태가 이동 중(2) 아님 + 관절 변화 없음. 로봇 상태를 못 읽으면 null"},
+        "external_force": {"type": "null", "description": "지속 외력 — 판정 기준(임계·유지 시간) 실측 전이라 항상 null. 실물 복구 완료로 해석하지 않음"},
+        "sensors_ok": {"type": "boolean", "description": "RG2 를 읽었고 안전 오류 없음·폭 정상 범위"},
+        "comm_ok": {"type": "boolean", "description": "로봇 상태와 RG2 를 둘 다 읽음"},
+        "controller_ready": {"type": ["boolean", "null"], "description": "DSR 상태가 대기(1). 못 읽으면 null"},
+        "estop_active": {"type": ["boolean", "null"], "description": "DSR 상태가 안전 정지·비상정지·안전 정지2(5·6·9). 못 읽으면 null"},
+        "tcp_tool_ok": {"type": ["boolean", "null"], "description": "펜던트 TCP·툴 이름이 교정 기록과 같음. 이름을 못 읽으면 null"},
+        "gripper": {"$ref": "#/$defs/gripper"},
+        "drawers": {
+          "type": "object",
+          "description": "서랍마다 B 서버가 기억한 인출 거리(m) — 센서 실측값 아님. 연 적 없는 서랍은 0.0 (서버는 닫힌 서랍에서 시작한다고 봄)",
+          "additionalProperties": {"type": ["number", "null"], "minimum": 0}
+        },
+        "b_locked": {"type": "boolean", "description": "B 서버 잠금(이동 확인 실패 등) — W2 로만 풂. C 잠금과 별개"},
+        "b_lock_reason": {"type": ["string", "null"], "description": "\"<스킬>: <이유>\". 잠금 없으면 null"},
+        "robot_state": {"type": ["integer", "null"], "description": "DSR GetRobotState 원값 (참고용). 못 읽으면 null"},
+        "busy": {"type": "boolean", "description": "스킬 동작 실행 중 (W2 가 잡은 gate 는 제외)"},
+        "stamp": {"type": "string", "format": "date-time", "description": "조회 시각 UTC ISO 8601 (ms)"}
+      }
+    },
+    "gripper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "held_id", "width_m", "grasp_detected", "reason"],
+      "properties": {
+        "state": {"enum": ["holding", "empty", null], "description": "null = 모름: RG2 못 읽음·안전 오류·폭 이상·쥐었는지 모름 기록(hold_unknown)"},
+        "held_id": {"type": ["string", "null"], "description": "B 가 기억한 쥔 물체 id (모름 기록이면 그 기록의 id). 기억 없이 물체만 감지되면 null"},
+        "width_m": {"type": ["number", "null"], "description": "지금 RG2 폭(m) 원값. 못 읽으면 null"},
+        "grasp_detected": {"type": ["boolean", "null"], "description": "RG2 물체 감지. 못 읽으면 null"},
+        "reason": {"type": "string", "description": "판정 근거 (check_hold 의 HELD·SLIPPED 등 또는 설명). 정상 빈손이면 \"\""}
+      }
+    },
+    "check_state_error": {
+      "description": "W1 success=false — 조회 자체 실패(서버 안 예외). 상태 칸 없음. C 는 조회 없음으로 봄",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {"error": {"type": "string"}}
+    },
+    "recover": {
+      "description": "W2 — success = recovered. C 잠금 해제·재개 허가와 별개 (사람이 펜던트·로봇을 확인한 뒤 부름)",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recovered", "code", "cleared", "blockers", "state"],
+      "properties": {
+        "recovered": {"type": "boolean", "description": "B 잠금·쥐었는지 모름을 풀었음 (풀 것이 없어도 조건이 맞으면 true)"},
+        "code": {"description": "복구면 \"\", 거절이면 blockers[0]", "anyOf": [{"const": ""}, {"$ref": "#/$defs/blocker"}]},
+        "cleared": {"type": "array", "items": {"type": "string"}, "description": "푼 것 설명 (거절이면 [])"},
+        "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}, "description": "거절 이유 전체 (복구면 [])"},
+        "state": {"$ref": "#/$defs/check_state", "description": "W1 과 같은 지금 상태 — 복구면 푼 뒤, 거절이면 그대로"}
+      }
+    },
+    "recover_error": {
+      "description": "W2 success=false — 서버 안 예외. state·blockers 없음, 아무것도 안 풂",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recovered", "code", "error"],
+      "properties": {
+        "recovered": {"const": false},
+        "code": {"const": "SKILL_EXCEPTION"},
+        "error": {"type": "string"}
+      }
+    },
+    "blocker": {
+      "enum": ["BUSY", "NOT_STOPPED", "ESTOP_ACTIVE", "CONTROLLER_NOT_READY", "TOOL_MISMATCH", "COMM_FAILED", "SENSOR_INVALID",
+               "STOPPED_UNKNOWN", "ESTOP_ACTIVE_UNKNOWN", "CONTROLLER_READY_UNKNOWN", "TCP_TOOL_OK_UNKNOWN", "COMM_OK_UNKNOWN",
+               "SENSORS_OK_UNKNOWN", "GRIPPER_UNKNOWN", "HOLD_UNCERTAIN"],
+      "description": "BUSY 다른 동작 실행 중 · <칸>_UNKNOWN 그 칸 null · GRIPPER_UNKNOWN 그리퍼 상태 모름 · HOLD_UNCERTAIN 쥐었는지 모름 기록인데 지금 폭이 저장 폭과 다르고 빈손 닫힘도 아님 (기록·잠금 유지)"
+    }
+  }
+}

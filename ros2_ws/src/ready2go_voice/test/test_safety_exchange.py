@@ -115,9 +115,8 @@ def test_independent_recovery_and_explicit_end_have_distinct_candidates(cfg,text
     if text=='복구해':
         assert isinstance(candidate,RecoveryRequest) and candidate.work==WORK and ex.policy.work==WORK
     else:
-        assert isinstance(candidate,IndependentRegistration)
-        final=ex.independent_registered(target,WORK,2,now=8.,valid_state=True,evidence=SAFE)
-        assert isinstance(final,TaskEndCandidate) and final.work==WORK
+        assert isinstance(candidate,TaskEndCandidate) and candidate.work==WORK
+        assert ex.independent_registered(target,WORK,2,now=8.,valid_state=True,evidence=SAFE) is None
         assert ex.policy.work == WORK  # 명시 수락 전 작업 보존
 
 

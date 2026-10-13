@@ -1,4 +1,4 @@
-import sys, math, yaml
+import sys, yaml
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 from demo_sim import run_scenario, obj
 PL = yaml.safe_load(open(str(__import__("pathlib").Path(__file__).resolve().parents[3] / "config/places.yaml")))

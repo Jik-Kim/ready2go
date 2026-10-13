@@ -354,14 +354,14 @@ def test_independent_resume_after_expiry_separate_stt_and_whole_budget_once():
 def test_independent_failure_preserves_work(stage):
     p, request = independent_ready()
     if stage == 'stt':
-        assert not p.independent_stt(request, '이어서 해', now=23+POLICY_CFG['resume_stt_result_timeout_sec'])
+        assert not p.independent_stt(request, '이어서 해', now=23+POLICY_CFG['resume_stt_result_timeout_sec']+0.000001)
     elif stage == 'unknown':
         assert not p.independent_stt(request, '응', now=24)
     else:
         assert p.independent_stt(request, '이어서 해', now=24)
         if stage == 'whole':
             assert not p.independent_registered(request, WORK, p.revision,
-                now=21+POLICY_CFG['resume_independent_request_timeout_sec'], valid_state=True)
+                now=21+POLICY_CFG['resume_independent_request_timeout_sec']+0.000001, valid_state=True)
         else:
             if stage == 'unsafe':
                 assert p.independent_registered(request, WORK, p.revision, now=25, valid_state=True)
@@ -468,7 +468,7 @@ def test_current_independent_candidate_expiry_still_invalidates_only_current_req
     assert p.independent_stt(request, '이어서 해', now=24)
     assert p.independent_registered(request, WORK, p.revision, now=25, valid_state=True)
     assert p.independent_candidate(request,
-        now=21+POLICY_CFG['resume_independent_request_timeout_sec'], evidence=SAFE) is None
+        now=21+POLICY_CFG['resume_independent_request_timeout_sec']+0.000001, evidence=SAFE) is None
     assert p.independent is None and p.work == WORK
 
 

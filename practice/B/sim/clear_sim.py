@@ -7,7 +7,7 @@
 rules: 시연 배치 규칙 [사용자 10/11 제안] — 큰 공구(망치·몽키)·가림막은 위 칸, 망치·몽키는 손잡이 벽 쪽에 가로로 두지 않음,
 아래 칸은 손이 닿는 깊이(drawer_reach_x_mm) 안에만, 물체 사이 RULE_GAP_MM 이상 띄움.
 """
-import sys, math, random, json, types, collections, time
+import sys, math, random, json, collections, time, dataclasses
 from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -29,7 +29,7 @@ rnd = random.Random(SEED)
 robot = demo_sim.Robot(tsf.HOME_J)
 robot.sleep_s = 0.0
 ss, sf, srv = demo_sim.load(robot)
-from ready2go_skills.core import clear_plan as cp, motion_plan as mp, place_plan as plp
+from ready2go_skills.core import clear_plan as cp
 
 WORLD = json.loads((REPO / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]
 SIZE = {k: v["size_m"] for k, v in WORLD.items()}
@@ -194,10 +194,8 @@ def plan_old(objs, tid, oracle, cfg, used_slots):
 
 def retrieve(objs, tid, drawer, old):
     oracle = Oracle(drawer, old)
-    reach = (srv.prm().get("drawer_reach_x_mm") or {}).get(drawer)
-    cfg = cp.Config(interior_m=PLACES[drawer]["interior_m"], frame=drawer, size_of=cp_size, reach_x_m=reach / 1000.0 if reach else None,
-                    press_finger_r_mm=float(srv.prm()["make_room"]["press_finger_r_mm"]))
-    used, steps, last = set(), [], None
+    cfg = dataclasses.replace(srv._room_cfg(drawer), size_of=cp_size)   # 스킬 서버와 같은 설정(skills.yaml make_room 등, 10/13 정리)
+    used, steps = set(), []
     for _ in range(10):
         a = plan_old(objs, tid, oracle, cfg, used) if old else cp.plan_next(objs, tid, oracle, cfg)
         if a.kind == "pick":
@@ -206,7 +204,6 @@ def retrieve(objs, tid, drawer, old):
             return False, steps, (a.code or "?") + " " + (a.reason or "")[:70], oracle.calls
         steps.append(a.kind)
         objs = cp.apply(objs, a, cfg)
-        last = a
     return False, steps, "STEP_LIMIT", oracle.calls
 
 

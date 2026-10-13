@@ -6,6 +6,18 @@
 
 [문서] 음성 별칭·LLM targets enum은 로딩한 `world.items`를 사용합니다. 현재 당근 펜을 제외한 활성 10종이며 은퇴 물품 요청은 실행 대상으로 허용하지 않습니다. 기존 학습 11종·과거 prefill 실측/개수와 현재 활성 목록을 구분합니다. 캐시·모델·키·실음성은 이번 변경으로 갱신/검증하지 않았습니다. 단일 초기 위치는 [Knowledge 안내](../../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)을 참조합니다. Voice·Runner의 기본 로딩은 manifest의 단일 초기 상태입니다. S3도 JSON에는 지우개의 아래 서랍 위치를 유지하고 실물에서만 제외하는 시험이며, 관측 불일치·LLM 결과 전달의 실제 연결/검증은 별도입니다. 공개 intent·실행 게이트·opt-in·제어 정책은 유지합니다.
 
+## C 제어 wire 매핑 준비 — 2026-10-13
+
+[구현: 실제 호출 경로] `main()` → `VoiceNode.__init__()` → `_init_runner_control_source()` → 기존 `/runner/status` 수신 → `bind_control_source/bind_request_source`로 연결합니다. 기존 `request_run_enabled` opt-in을 사용하고 기본 false·평가 모드·명시 더미 binding은 보존합니다. [RunnerSource](ready2go_voice/adapters/runner_control.py)는 선택한 Runner의 이름/namespace·String 타입·단일 실제 graph endpoint의 현재성을 확인합니다. 선택 ROS 파라미터는 `control_runner_name`(기본 runner)·`control_runner_namespace`(기본 /)입니다. missing/multiple/교체·boot 변경은 세대/현재 요청을 무효화하고, 같은 boot의 낮은/중복 seq와 이전 boot는 폐기합니다. 소스 복귀만으로 과거 SDK/요청을 복원하지 않습니다. 일반 요청도 같은 실제 연결 확인 뒤 기존 request_id/run_id 수락·첫 안내 경로를 사용합니다.
+
+[구현: 계약/증명 한계] [현재 설치 intent 원본](../../../contracts/intent.schema.json)을 검증해 recover·end_task·resume_register·resume_answer·resume를 기존 publisher로 발신합니다. 8b 이력 뒤 C 원본이 포함된 main5c를 정상 merge한 a440이 작업 기준입니다. Jazzy의 실제 dict 메타데이터 4개 시각/sequence 키를 받으며 없는 `info.publisher_gid`를 요구하지 않습니다. graph endpoint_gid는 연결 identity이고 개별 표본 GID·암호학적 발신 인증·B 센서 신선도 증거가 아닙니다. 별도 source handshake·새 공개 필드·자동 제어 발신은 없습니다.
+
+[구현: 질문/최종 결정] `RunnerOffer`는 현재 source/boot/event/run·C 제안/등록의 내부 표현입니다. `offered`에서 질문 등록 후보를 만들고 현재 question.state=registered를 확인한 뒤에만 실제 TTS를 시작합니다. 등록 전에는 새 E ACK 타이머를 만들지 않으며 C 거절/만료/상태 변경으로 질문을 닫습니다. 등록 echo의 잔여시간은 해당 기존 E 등록 송신 시각+remaining으로 보수적으로 대응하고 수신 now+remaining·UTC·C/E 절대 monotonic 비교로 기한을 늘리지 않습니다. 동일 ID/정상 seq는 기한을 연장하지 않습니다. 선택 legacy `SafetyProof/provider`는 제품 C의 추가 필수 인터페이스가 아닙니다. C 제안은 실행 허가가 아니며 B 정상/empty 플래그를 E에서 만들어 넣지 않습니다. 실제 B 상태·pre/재진입·부분 effect 검사는 C가 소비 직전에 수행합니다.
+
+[구현: 답/종료] 현재 등록·실제 TTS 완료·새 SDK receipt에 묶인 “응/네/예”와 명시 재개를 처리하고, 질문답·거절·만료에도 기존 선택 request_id를 보내 C 최종 decision/reason을 상관합니다. `decision=resume`은 현재 대상 상관을 지우기 전에 1회 소비하고 E 보존 대상을 종료하며, reject/hold/closed는 질문/요청만 닫고 작업을 보존합니다. 없어지는 terminal echo만 기다리지 않습니다. 진행 중 명시 종료는 현재 수락 run/boot로 event_id 없이 end_task를 직접 발신하며, C requested/unconfirmed에서는 완료로 처리하지 않습니다. 동일 대상의 실제 정지 confirmed·ABORTED·보존 폐기 확인 뒤에만 종료를 확정합니다. 정지 후 END도 현재 실제 C 결과를 대조하며 C의 from_step과 최종 failed_step 하위 ID를 다른 사건으로 오인하지 않습니다. C 잠금/phase는 E가 변경하지 않습니다.
+
+[실측: 모의/미검증] 실제 C core/라우터/노드 상태 생성 본문과 E Node/Session을 연결한 직접 13사례, 관련 mapper 포함 39사례가 통과했습니다. PCM·SDK·ROS 전송은 모의이며 실ROS/실물 수용이 아닙니다. 실제 C strict 시간 경계, C304 재정지 P1, B 실제 조회/외력은 타 담당 미결입니다. 값/책임/완료 기준은 P2 [FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../../docs/requirements.md#ac-saf-02)·[접수 정책](../../../docs/requirements.md#resume-admission-policy), 정확 source/검사/최종 상태는 [E CURRENT](../../../practice/E/CURRENT.md#e-c-w3-wire-runtime-20261013)를 참조하십시오. 아래 10/12 typed/dummy 준비는 당시 이력이며 현재 runtime 연결과 구분합니다.
+
 ## 종료·중지 최소 연결 — 2026-10-12
 
 [구현: E 내부/더미] 일반 음성·독립 stop SDK에서 정확한 종료 의도를 받고, running의 현재 요청 run과 검증된 생산자 boot에 고정합니다. 기존 공개 cancel로 정지를 요청한 뒤 같은 현재 typed 정지 확인에서 기존 TaskEndCandidate·제어 TTS/현재 세대·실제 재생 proof·명시 수락을 거쳐 더미 idle로 연결합니다. 종료 발화는 의도 근거이며 새 SDK 결과/독립 재개 등록 증빙으로 재사용하지 않습니다. 중복 전사는 새 cancel/후보를 만들지 않고 동일 halted heartbeat/같은 사건의 seq 진행은 유효 안내를 불필요하게 폐기하지 않습니다. 실제 재정지·다른 run/boot·생산자 변경·정지 미확인·TTS 실패에는 작업 보존/새 요청 차단을 유지합니다. idle도 아직 수락된 미완료 run이 있으면 “작업 없음”으로 단정하지 않습니다.
@@ -336,7 +348,7 @@ Docker/compose 패키지·모델/runtime 배포는 별도 인계 대상입니다
 - 음성의 발화 종료 Unix/monotonic 시각, TTS 재생 시각, 확인 지연. TTS는 합성 시작/완료나 요청 접수가 아니라 **첫 PCM의 PortAudio DAC 재생 시각**을 장치 callback 정보로 기록합니다(`tts_start_basis=portaudio_first_dac`). 물리 스피커 청취 지연은 별도 확인해야 합니다.
 - 실제 어댑터의 `tts_mock=false`와 테스트의 `tts_mock=true`를 구분합니다. 모의 시각·텍스트 입력으로 AC-INT-03 통과를 선언하지 않습니다. TTS 실패/장치 없음은 성공이나 실제 시작으로 기록하지 않습니다.
 
-C #17 인계: 단일 find_item→태스크 수신, cancel/status, 모호/미지원 보류, 중복 요청, 확인 TTS/태스크 시작 책임, source→실행 로그/run_id 연결. voice는 nudge/pick을 직접 실행하지 않습니다. 현재 공통 pick은 탑뷰 관측→B 공간 판단/필요 시 끌기→탑뷰 재관측→새 target 집기를 수행하며, nudge.target_after 예상값을 집기에 사용하지 않습니다. 정식 find_item·점검용 p1_demo_eraser는 공통 robot_ontology.jsonld를 사용합니다. 실제 재관측·NO_PUSH_ACCESS·안전 종료 정합성 확인은 A/B/C/E 인계 사항입니다.
+C #17 인계: 단일 find_item→태스크 수신, cancel/status, 모호/미지원 보류, 중복 요청, 확인 TTS/태스크 시작 책임, source→실행 로그/run_id 연결. voice는 nudge/pick을 직접 실행하지 않습니다. 현재 공통 pick은 탑뷰에서 `inspect_region`으로 새 scan을 받은 뒤 `pick_object`를 먼저 실행합니다. 움직임 전 `WALL_TOO_CLOSE` 거부일 때만 nudge→탑뷰→새 scan 관측 1회→그 scan의 새 target으로 다시 집기하며, 두 pick 모두 해당 관측의 전체 scan을 전달합니다. 직접 집기 성공에는 추가 nudge·재관측이 없습니다. 상세 호출 경로·관측 횟수는 [공통 pick 실행 연결](../../../docs/ontology.md#p1-공통-pick-실행-연결)을 참조하며, `nudge.target_after` 예상값은 집기에 사용하지 않습니다. 정식 find_item·점검용 p1_demo_eraser는 공통 robot_ontology.jsonld를 사용합니다. 실제 재관측·NO_PUSH_ACCESS·안전 종료 정합성 확인은 A/B/C/E 인계 사항입니다.
 
 D #20 인계: [AC-INT-01–03](../../../docs/requirements.md#ac-int-01)·[음성 정책](../../../docs/requirements.md#voice-policy)에 연결해 평가자료 승인·문장별 정답을 먼저 고정하고 위 평가 모드에서 측정합니다. D 초안(JSON SHA256 `5995fc225c0a2cc78aa1c9264eee6a07518ad674ed4923763acf5017377aec84`)의 TC-008은 “지우개 찾아서 건네줘.”입니다. 당시 텍스트40개 회귀는 실제 음성 평가·자료 승인 완료를 대신하지 않습니다. 전체·종류별 정확도, LLM 호출 분모/검증 실패/폴백, STT·확인 지연·실행 시도를 분리해 기록하며 실제 측정은 남아 있습니다.
 

@@ -87,6 +87,14 @@ def _candidates(want: str, onto: dict, relevant_items: set[str]) -> list[str]:
     return sorted(out)
 
 
+# Runner 노드 plan_limits 기본값 = P2 실물 지원 범위 [B 확인 필요]. 서랍은 위·아래 칸(B 아래 칸 열기 교시·S2 꺼내기 실물 10/12),
+# 집기는 서랍에서만, 놓기는 전달 트레이만. open_drawer.one_open=true = 서랍은 한 번에 하나만 엶(위 칸이 열리면 아래 칸 위를 덮음 —
+# 두 칸을 같이 열고 아래 칸에서 집는 계획을 만들지 않음). P3 다중 서랍 동시 작업은 범위 밖.
+DEFAULT_PLAN_LIMITS = ("open_drawer.drawer_id=drawer_top|drawer_bottom,open_drawer.one_open=true,"
+                       "close_drawer.drawer_id=drawer_top|drawer_bottom,pick.from=drawer_top|drawer_bottom,"
+                       "place.to=handover_zone")
+
+
 def parse_limits(text: str) -> dict[str, dict[str, set[str]]]:
     """"place.to=handover_zone,pick.from=drawer_top|drawer_bottom" → {"place": {"to": {"handover_zone"}}, ...}.
     빈 문자열이면 제한 없음."""
@@ -143,6 +151,7 @@ def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH,
     relevant = {g["subject"] for g in goals} | {g["value"] for g in goals if isinstance(g["value"], str)}
     relevant |= {held} if held and held != "empty" else set()
     actions = _groundings(skills, onto, relevant, limits)
+    one_open = (limits or {}).get("open_drawer", {}).get("one_open") == {"true"}   # 서랍은 한 번에 하나만
 
     start = state
     queue: deque = deque([(start, [])])
@@ -152,6 +161,9 @@ def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH,
         if len(path) >= max_depth:
             continue
         for name, skill, binding in actions:
+            if one_open and name == "open_drawer" and any(
+                    v is True for k, v in (current.get("open") or {}).items() if k.startswith("drawer")):
+                continue                        # 다른 서랍이 열려 있으면 열지 않음 (먼저 닫는 계획만)
             if not all(c["pass"] for c in ontology.check(current, skill.get("pre", []), binding)):
                 continue
             nxt, _ = ontology.apply(current, skill.get("effect", []), binding)

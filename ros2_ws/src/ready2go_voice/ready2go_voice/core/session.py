@@ -406,7 +406,7 @@ class VoiceSession:
     def safety_audio(self, exchange, target, recording, *, cancel=None, paused=lambda: False, on_failure=None):
         """현재 질문/새 독립 요청의 STT. 결과는 내부 후보이며 재개 wire가 아닙니다."""
         from ..adapters.audio import write_wav
-        from .recovery_confirmation import finite, safety_utterance
+        from .recovery_confirmation import finite, safety_utterance, task_end_utterance
         emit = self._control_capture(recording, 'safety')
         capture = exchange.reserve(target)
         if capture is None:
@@ -449,10 +449,10 @@ class VoiceSession:
                     extra = {'control': True} if getattr(self.stt, 'supports_control_hint', False) else {}
                     text = self.stt.transcribe(path, exchange.policy.stt_result_timeout_sec,
                                                before_request=before_request, **extra)
-                    return text, receipt
+                    return text, receipt, self.clock()  # actual normal SDK return, before classification
             stage = 'sdk'
-            text, receipt = self.stt_calls.call(transcribe, budget)
-            emit(event='safety_sdk_result', result_monotonic=self.clock(), empty=not isinstance(text,str) or not text.strip(), request_admitted=receipt is not None)
+            text, receipt, result_at = self.stt_calls.call(transcribe, budget)
+            emit(event='safety_sdk_result', result_monotonic=result_at, empty=not isinstance(text,str) or not text.strip(), request_admitted=receipt is not None)
             if interrupted() or not exchange.current(target):
                 raise InterruptedError('SAFETY_CANCELED')
             emit(event='safety_stt_result', text=text if isinstance(text,str) else '', result_monotonic=self.clock())
@@ -462,14 +462,14 @@ class VoiceSession:
                 raise ValueError('NO_SPEECH')
             stage = 'classification'
             control = self.parser.control(text) if self.parser is not None else None
-            if safety_utterance(text) == 'stop' or control and control['intent'] == 'cancel':
+            if not task_end_utterance(text) and (safety_utterance(text) == 'stop' or control and control['intent'] == 'cancel'):
                 exchange.cancel()
                 doc = intent('cancel')
                 doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
                                      llm_called=False, fallback_used=False)
                 return doc
             current = exchange.current(target)
-            result = exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt)
+            result = exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt, result_at=result_at)
             if result is None:
                 exchange.fail(target)  # 현재 요청만 정리; work와 새 사건은 보존합니다.
                 if current and not interrupted() and on_failure is not None:
