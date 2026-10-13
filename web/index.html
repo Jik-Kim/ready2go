@@ -10,7 +10,7 @@
     <title>ROKEY · 출근 준비 도우미</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./styles.css" />
-    <!-- 목업 화면 모델 위에 status-api.js가 실제 Runner 연결 상태만 안전하게 덮어씁니다. -->
+    <!-- 목업 화면 모델 위에 status-api.js가 실제 Runner 연결과 기억 상태를 안전하게 덮어씁니다. -->
     <script src="./demo-data.js" defer></script>
     <script src="./status-api.js" defer></script>
     <script src="./app.js" defer></script>
@@ -205,14 +205,14 @@
       </header>
 
       <div class="admin-shell">
-        <p class="admin-demo-notice" role="note">
+        <p id="adminDataNotice" class="admin-demo-notice" role="note">
           목업 데이터 · 인증 미구현 읽기 전용 화면 · 현재 상태와 온톨로지만 녹화 우선 연결 예정입니다.
         </p>
 
         <nav class="admin-tabs-scroll" aria-label="관리자 검토 항목">
           <div class="admin-tabs" role="tablist" aria-label="관리자 검토 탭">
             <button id="tab-current" class="admin-tab is-selected" type="button" role="tab" aria-selected="true" aria-controls="panel-current" tabindex="0" data-admin-tab="current">
-              <span aria-hidden="true">▤</span>현재 상태 <small>우선 연결</small>
+              <span aria-hidden="true">▤</span>현재 상태 <small id="adminCurrentTabStatus">우선 연결</small>
             </button>
             <button id="tab-ontology" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-ontology" tabindex="-1" data-admin-tab="ontology">
               <span aria-hidden="true">⌘</span>온톨로지 <small>우선 연결</small>
@@ -232,10 +232,10 @@
             <section class="admin-card" aria-labelledby="currentStateHeading">
               <div class="admin-section-heading">
                 <div>
-                  <span class="eyebrow">/runner/status · /robot_state 우선 연결 예정</span>
+                  <span id="adminCurrentSourceLabel" class="eyebrow">/runner/status · /robot_state 우선 연결 예정</span>
                   <h2 id="currentStateHeading">현재 상태 조회</h2>
                 </div>
-                <span class="sample-label">목업 데이터</span>
+                <span id="adminCurrentDataLabel" class="sample-label">목업 데이터</span>
               </div>
               <div class="admin-table-scroll" role="region" aria-label="현재 상태 표" tabindex="0">
                 <table class="admin-table">

@@ -21,9 +21,13 @@
     if (payload.schema_version !== 1) {
       throw new Error("지원하지 않는 상태 API 버전입니다.");
     }
-    // 이번 단계의 유일한 실데이터 source인 runner가 반드시 객체여야 한다.
+    // 4단계의 두 실데이터 source가 모두 객체인지 확인한다. 세부 robot_state
+    // 필드 검사는 화면 어댑터가 담당해 누락·형식 불일치를 `확인 전`으로 표시한다.
     if (!payload.sources || typeof payload.sources.runner !== "object" || payload.sources.runner === null) {
       throw new Error("Runner 상태가 응답에 없습니다.");
+    }
+    if (typeof payload.sources.robot_state !== "object" || payload.sources.robot_state === null) {
+      throw new Error("로봇 기억 상태가 응답에 없습니다.");
     }
     return payload;
   }

@@ -1,6 +1,6 @@
 # ROKEY 웹 대시보드
 
-> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 유지합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 3단계까지 Flask 정적 파일 제공, `/runner/status` rclpy 수신·잠금 캐시, 읽기 전용 REST와 약 1초 브라우저 조회가 구현됐습니다. Runner 연결 진단만 실데이터이며 작업·서랍·준비물은 계속 `목업 데이터`입니다.
+> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 유지합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 4단계까지 Flask 정적 파일 제공, `/runner/status`·`/robot_state` rclpy 수신·잠금 캐시, 읽기 전용 REST와 약 1초 브라우저 조회가 구현됐습니다. Runner 연결과 기억 상태만 실데이터이며 작업·준비물·등록 정의는 계속 `목업 데이터`입니다.
 
 기능의 의미·Phase·수용 기준은 정본인 [FR-COM-01](../docs/requirements.md#fr-com-01), [FR-INT-02](../docs/requirements.md#fr-int-02), [FR-ONT-02](../docs/requirements.md#fr-ont-02), [FR-PLN-02](../docs/requirements.md#fr-pln-02), [FR-LOG-01–02](../docs/requirements.md#fr-log-01), [NFR-SAF-02](../docs/requirements.md#nfr-saf-02)를 참조합니다. 이 문서는 요구사항을 재정의하지 않습니다.
 
@@ -21,11 +21,11 @@
 | `index.html` | 사용자 대시보드·읽기 전용 검토 화면의 HTML 구조와 CSS·JavaScript 진입점 | 화면 구조는 유지하고 `demo-data.js` 로딩을 데이터 어댑터 진입점으로 교체합니다. |
 | `styles.css` | 흰색·남색·청록색 디자인, PC·모바일 배치, 서랍 모양, PC 가로·모바일 세로 단계 | 데이터 연결과 무관합니다. 상태 종류가 추가될 때 표시 스타일만 보완합니다. |
 | `demo-data.js` | PC·모바일이 함께 읽는 목업 데이터와 `long`·`empty`·`error` 시나리오 | 우선 교체 대상입니다. 서버 응답을 같은 화면 모델로 변환하는 어댑터가 이 역할을 맡습니다. |
-| `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 성공·실패를 UI에 전달 | 기본 URL에서 Runner 연결 진단만 실데이터로 갱신합니다. |
+| `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 성공·실패를 UI에 전달 | 기본 URL에서 Runner 연결과 기억 상태를 실데이터로 갱신합니다. |
 | `app.js` | 상태 렌더링, 서랍 조회, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
 | `README.md` | 현재 구현, 실행·접속·시나리오, 실제 연동 경계를 설명 | 연결 경로가 구현된 뒤 실제 실행법과 검증 결과를 갱신합니다. |
 | `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 스냅샷을 `GET /api/status`로 반환 | 응답은 캐시하지 않으며 내부 예외 세부 내용은 브라우저에 노출하지 않습니다. |
-| `ready2go_web/nodes/dashboard_bridge.py` | 단일 rclpy 노드로 선택한 ROS source를 구독·관찰 | 2단계 실행에서는 `/runner/status`만 활성화합니다. |
+| `ready2go_web/nodes/dashboard_bridge.py` | 단일 rclpy 노드로 선택한 ROS source를 구독·관찰 | 4단계 실행에서는 `/runner/status`와 `/robot_state`를 활성화합니다. |
 | `ready2go_web/core/state_cache.py` | ROS 콜백과 Flask 요청 사이의 최신 상태를 잠금으로 보호 | REST에는 깊은 복사 스냅샷만 전달합니다. |
 | `ready2go_web/runtime.py` | 전용 ROS context와 별도 executor 스레드의 시작·종료를 관리 | Flask 요청 스레드와 ROS 콜백을 분리합니다. |
 
@@ -67,7 +67,7 @@ index.html
 4. 온톨로지 원본 읽기
 5. PC·휴대폰의 동일 상태 표시
 
-[문서] 1단계 정적 UI, 2단계 `/runner/status` 수신·캐시, 3단계 REST·약 1초 조회가 구현됐습니다. 현재 화면에는 Runner의 publisher·유효 수신·오류와 ROS/REST 최근 시각만 실제 값으로 나타납니다. MongoDB/JSONL 실행 기록, 작업 중단·재개·초기화, 실시간 계획 근거, STT 원문, 확정되지 않은 음성·로봇 연결 판정은 녹화 우선 연결 범위에서 제외합니다.
+[문서] 1단계 정적 UI, 2단계 `/runner/status` 수신·캐시, 3단계 REST·약 1초 조회, 4단계 `/robot_state` 수신·화면 반영이 구현됐습니다. 현재 화면에는 Runner 연결 진단과 Runner가 기억한 `robot_pose`·`gripper`·`open`·`located_in`이 실제 값으로 나타납니다. MongoDB/JSONL 실행 기록, 작업 중단·재개·초기화, 실시간 계획 근거, STT 원문, 등록 정의와 확정되지 않은 음성·로봇 연결 판정은 녹화 우선 연결 범위에서 제외합니다.
 
 ### 표시를 바꾼 이유
 
@@ -80,21 +80,21 @@ index.html
 
 ```text
 /runner/status → DashboardBridge → StateCache → GET /api/status
-                                                     ↓ 약 1초 polling
-                                               Runner 연결 상태 UI
-/robot_state·온톨로지 원본 ─── 후속 단계
+/robot_state  ────────────────────┘                 ↓ 약 1초 polling
+                                        Runner 연결·기억 상태 UI
+온톨로지 원본 ─── 후속 5단계
 ```
 
-[문서] 브라우저는 ROS 2·온톨로지 파일·MongoDB에 직접 연결하지 않습니다. 현재 Flask 프로세스가 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하며 `/runner/status`만 활성화합니다. `std_msgs/msg/String`의 JSON 객체를 캐시에 저장하고 publisher 존재, 메시지 수신, 파싱 오류를 구분합니다. 브라우저는 REST 응답이 끝난 뒤 다음 조회를 예약하므로 느린 요청이 서로 겹치지 않습니다.
+[문서] 브라우저는 ROS 2·온톨로지 파일·MongoDB에 직접 연결하지 않습니다. 현재 Flask 프로세스가 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하며 `/runner/status`와 `/robot_state`를 활성화합니다. 두 `std_msgs/msg/String`의 JSON 객체를 source별 캐시에 저장하고 publisher 존재, 메시지 수신, 파싱 오류를 구분합니다. 브라우저는 REST 응답이 끝난 뒤 다음 조회를 예약하므로 느린 요청이 서로 겹치지 않습니다.
 
 실제 연결 시에는 다음 순서로 교체할 수 있습니다.
 
 1. Flask가 공유 `StateCache`의 스냅샷을 읽기 전용 REST로 반환합니다.
-2. 기본 화면은 약 1초마다 API를 조회하고 Runner 연결 상태만 변환합니다.
+2. 기본 화면은 약 1초마다 API를 조회하고 Runner 연결과 기억 상태를 변환합니다.
 3. `long`·`empty`·`error` 시나리오 URL은 고정 목업 검토를 위해 polling하지 않습니다.
-4. 후속 단계에서 `/robot_state`와 온톨로지 원본을 순서대로 활성화합니다.
+4. 후속 5단계에서 온톨로지 원본을 활성화합니다.
 
-`TODO(D)`: 4단계 `/robot_state`는 C가 확인한 현재 계약을 기준으로 후속 구현합니다. 5단계 등록 정의는 아래 기동 원본과 E 확인값을 대조한 뒤 연결합니다. 계약을 바꿔야 하면 저장소 루트 [`AGENTS.md`](../AGENTS.md)의 승인 절차를 따릅니다.
+`TODO(D)`: 5단계 등록 정의는 아래 기동 원본과 E 확인값을 대조한 뒤 연결합니다. 계약을 바꿔야 하면 저장소 루트 [`AGENTS.md`](../AGENTS.md)의 승인 절차를 따릅니다.
 
 ### C 확인값과 후속 단계 입력
 
@@ -105,6 +105,8 @@ index.html
 - `phase`는 `idle`·`running`·`halted`입니다. `task_id`와 `current_step`은 실행 중에만 있으며, `halt_code`는 잠금 상태에서만 있습니다. `current_step`은 확장 또는 fallback 단계 ID일 수 있고 `achieve_goal`의 `plan_*`은 태스크 파일에 없으므로 화면은 원본 ID를 그대로 표시합니다.
 - 현재 실행과 요청 결과를 직접 연결하는 최상위 `run_id`는 없습니다. `last_intent`는 뒤이은 `BUSY` 결정으로 덮일 수 있으므로, 계약이 추가되기 전에는 `task_id`와 가장 최근 실행 결정이 같은 경우만 연결하고 불명확하면 `확인 전`으로 표시합니다.
 - `/robot_state`의 현재 필드는 `robot_pose`, `gripper`, `open`, `located_in`입니다. 좌표는 없으며 모두 스킬 effect 뒤 Runner가 기억한 상태입니다. 현재 관측값이나 관측 시각으로 해석하지 않습니다.
+- 4단계 UI에서 `/robot_state` 값이 없거나 예상한 형식과 다르면 목업 데이터로 대체하지 않고 모두 `확인 전`으로 표시합니다. `상태 데이터 없음`은 별도 표시 문구로 사용하지 않습니다.
+- 서랍은 문자열 ID 순서가 아니라 `drawer_top`·`drawer_bottom`의 물리 순서로 표시합니다. 관리자 현재 상태 탭은 `task_id`·`current_step`·`phase`와 Runner 기억 상태를 실데이터로 표시하며, 별도 `run_id`가 없으므로 목업 실행 ID를 사용하지 않습니다.
 - Runner는 기동할 때 `RUNNER_ONTOLOGY_FILE`(기본 `/knowledge/robot_ontology.jsonld`), `tasks_dir`(기본 `/tasks`), `/contracts/intent.schema.json`, `RUNNER_INTENT_TASKS`를 한 번 읽습니다. 실행 중 파일 변경은 반영되지 않고 `reset_state`도 기동 때 읽은 상태로 되돌립니다.
 
 후속 구현은 이 현재 계약만 소비합니다. 최상위 실행 `run_id`와 `current_skill`은 별도 계약 승인 전까지 REST나 화면의 확정 필드로 만들지 않습니다.
@@ -113,7 +115,7 @@ index.html
 
 상단 `검토 화면` 버튼은 인증 없이 같은 정적 페이지의 `#admin` 화면으로 이동합니다. 관리자 인증, 권한 획득, 서버 API 접근 제어가 구현된 것이 아닙니다.
 
-- **현재 상태**: Runner 연결 진단은 `/runner/status`와 REST의 실제 값입니다. 작업 의미와 `/robot_state` 행은 아직 출처가 표시된 목업 데이터입니다.
+- **현재 상태**: Runner 연결 진단과 기억 상태는 `/runner/status`·`/robot_state`·REST의 실제 값입니다. `/robot_state`는 관측값이 아니며 값 누락·형식 불일치는 `확인 전`으로 표시합니다.
 - **온톨로지**: 서버가 읽은 원본 정의 연결을 우선 검토하며 지금은 목업 데이터입니다.
 - **계획 근거**: 후속 연결 예정이며 현재 제공 경로가 확정되지 않았다는 안내만 표시합니다.
 - **실행 기록**: 후속 연결 예정이며 실제 MongoDB/JSONL 조회가 연결되지 않았다는 안내만 표시합니다.
@@ -139,7 +141,7 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 
 의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../README.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 루트 README의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
 
-이 명령은 Flask 정적 서버, `/runner/status` 전용 ROS executor와 읽기 전용 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. Runner 연결 진단 외 화면 값은 목업입니다.
+이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state` ROS executor와 읽기 전용 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. Runner 연결·기억 상태 외 화면 값은 목업입니다.
 
 휴대폰이나 다른 PC에서는 서버 PC와 같은 네트워크에 연결한 뒤 서버 PC에서 주소를 확인합니다. `config/cyclonedds.local.xml`은 DDS를 loopback으로 제한하므로 Runner와 웹 브리지는 같은 PC2에서 실행해야 합니다. 외부 브라우저 접속이 필요할 때만 `WEB_HOST=0.0.0.0`으로 실행하고, 실제 포트(`ss -ltnp`), PC 방화벽과 Wi-Fi AP의 단말 간 통신 차단 여부를 현장에서 확인합니다.
 
@@ -204,9 +206,9 @@ publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보�
 curl -i http://127.0.0.1:4173/api/status
 ```
 
-### 3단계 자동 검증
+### 4단계 자동 검증
 
-저장소 루트에서 다음 명령을 실행합니다. DDS 시험은 실제 rclpy publisher와 별도 executor 사이의 `/runner/status` 전달을 확인합니다.
+저장소 루트에서 다음 명령을 실행합니다. DDS 시험은 실제 rclpy publisher와 별도 executor 사이의 `/runner/status`·`/robot_state` 전달을 확인합니다.
 
 ```bash
 ROS_LOG_DIR=/tmp/ready2go-issue267-ros-logs \
@@ -216,12 +218,14 @@ python3 -m pytest web/tests -q
 
 주요 확인 항목은 다음과 같습니다.
 
-- 3단계 실행에서도 `runner` source만 활성화되는지
+- 4단계 실행에서 `runner`와 `robot_state` source만 활성화되는지
 - Runner와 같은 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)` QoS로 수신하는지
-- 정상 JSON 객체와 깨진 JSON·객체가 아닌 JSON을 구분하는지
+- 두 source의 정상 JSON 객체와 깨진 JSON·객체가 아닌 JSON을 구분하는지
 - 별도 ROS context와 executor 스레드에서 실제 DDS 메시지가 캐시에 도착하는지
 - 이중 시작을 거절하고 반복 종료를 안전하게 처리하는지
-- REST 성공 응답의 버전·시각·조회 간격·캐시 복사와 `no-store` 헤더
+- REST 성공 응답에 두 source의 버전·시각·조회 간격·캐시 복사와 `no-store` 헤더가 있는지
+- `/robot_state` 네 필드의 값 누락·형식 불일치를 목업으로 대체하지 않고 `확인 전`으로 표시하는지
+- PC·모바일 서랍 선택기가 위 서랍·아래 서랍 순서이고 관리자 요약·현재 상태 값과 실데이터 배지가 두 source를 반영하는지
 - 캐시 미연결 503과 스냅샷 실패 500 오류 형식
 - REST 실패 뒤 UI가 이전 Runner 값을 정상으로 유지하지 않고 복구 응답을 다시 반영하는지
 
@@ -230,11 +234,13 @@ python3 -m pytest web/tests -q
 ```bash
 ros2 topic info /runner/status --verbose
 ros2 topic echo /runner/status --once
+ros2 topic info /robot_state --verbose
+ros2 topic echo /robot_state --once
 ```
 
-웹 브리지가 구독자로 표시되고 Runner가 발행한 JSON이 출력되면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
+웹 브리지가 두 토픽의 구독자로 표시되고 Runner가 발행한 JSON이 출력되면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
 
-[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `63 passed`를 확인했습니다. 실제 진입점을 임시 포트 4175로 실행하고 시험 publisher를 연결해 REST가 `receiving`과 `/runner/status` 원본 JSON을 반환하는 것을 확인했습니다. 브라우저에서는 약 1초 조회, 서버 중단 시 `REST 연결 오류`, 서버 재시작 뒤 자동 복구, publisher 종료 뒤 `연결 끊김` 전환을 확인했습니다. 캐시 시험에서는 publisher 재발견 또는 endpoint GID 교체 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것과, 새 콜백이 graph 확인보다 먼저 도착하면 새 값을 보존하는 것을 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
+[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `63 passed`를 확인했습니다. 실제 진입점과 시험 publisher를 포트 4176·ROS domain 170으로 실행해 두 토픽이 단일 `ready2go_web_bridge`의 구독자로 표시되고, REST의 두 source가 `receiving`·`message_valid=true`이며 원본 JSON 객체를 제공하는 것을 확인했습니다. 브라우저에서는 `/robot_state`의 위·아래 서랍이 물리 순서로 표시되고 열림·닫힘과 물품 기억 위치가 반영됐으며, 관리자 화면의 Runner 요약·현재 상태 값과 `실데이터` 배지를 확인했습니다. publisher가 연결된 상태에서 `open`을 map 대신 배열로 보낸 경우 REST 수신은 유지됐지만 대시보드와 관리자 현재 상태는 목업으로 대체하지 않고 `확인 전`으로 바뀌었습니다. 캐시 시험에서는 publisher 재발견 또는 endpoint GID 교체 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것과, 새 콜백이 graph 확인보다 먼저 도착하면 새 값을 보존하는 것을 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
 
 ## 7. URL 데모 시나리오
 

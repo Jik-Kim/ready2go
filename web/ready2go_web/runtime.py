@@ -1,8 +1,8 @@
 """Flask 프로세스 안에서 ROS 웹 브리지를 별도 executor로 실행한다.
 
-이 모듈은 이슈 #267의 2~3단계 실행 수명주기를 담당한다. Flask 요청 스레드는
+이 모듈은 이슈 #267의 2~4단계 실행 수명주기를 담당한다. Flask 요청 스레드는
 ``rclpy.spin``을 호출하지 않으며, 전용 스레드가 단일 ``DashboardBridge`` 노드를
-처리한다. 이번 단계의 기본 활성 소스는 ``/runner/status`` 하나다.
+처리한다. 4단계의 기본 활성 소스는 ``/runner/status``와 ``/robot_state``다.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from ready2go_web.core.state_cache import StateCache
 from ready2go_web.nodes.dashboard_bridge import (
     BridgeTopics,
     DashboardBridge,
+    ROBOT_STATE_SOURCE,
     RUNNER_SOURCE,
 )
 
@@ -64,7 +65,7 @@ class RosBridgeRuntime:
             return self._thread is not None and self._thread.is_alive()
 
     def start(self) -> None:
-        """Runner 전용 DashboardBridge를 만들고 별도 executor를 시작한다."""
+        """Runner 상태 두 종류를 받는 DashboardBridge와 별도 executor를 시작한다."""
         with self._lifecycle_lock:
             # 같은 runtime의 이중 시작은 노드명·구독 endpoint 중복을 만들므로 거절한다.
             if self._context is not None:
@@ -77,11 +78,12 @@ class RosBridgeRuntime:
             try:
                 rclpy.init(args=None, context=context)
 
-                # 이번 3단계까지는 runner만 켜서 후속 /robot_state·카메라 연결을 앞당기지 않는다.
+                # 4단계에서는 Runner 연결 상태와 기억 상태를 함께 켠다. 카메라·Voice·
+                # 로봇 드라이버 연결 판정은 담당 기준이 확정된 후속 단계로 유지한다.
                 bridge = DashboardBridge(
                     topics=self._topics,
                     node_name=self._node_name,
-                    enabled_sources={RUNNER_SOURCE},
+                    enabled_sources={RUNNER_SOURCE, ROBOT_STATE_SOURCE},
                     context=context,
                 )
 
@@ -124,11 +126,11 @@ class RosBridgeRuntime:
             # shutdown이 호출될 때까지 subscription과 graph timer 콜백을 처리한다.
             executor.spin()
         except Exception as exc:
-            # 스레드 예외가 터미널에만 남지 않도록 이후 REST가 읽을 runner 오류로 보존한다.
-            bridge.cache.record_bridge_error(
-                RUNNER_SOURCE,
-                f"ROS executor failed: {type(exc).__name__}",
-            )
+            # 스레드 예외는 두 source 모두 수신할 수 없게 하므로 각각 같은 브리지
+            # 오류를 남겨 REST가 한 source만 정상인 것처럼 보이지 않게 한다.
+            error = f"ROS executor failed: {type(exc).__name__}"
+            bridge.cache.record_bridge_error(RUNNER_SOURCE, error)
+            bridge.cache.record_bridge_error(ROBOT_STATE_SOURCE, error)
 
     def stop(self) -> None:
         """executor를 깨우고 스레드·노드·context를 안전한 순서로 정리한다."""

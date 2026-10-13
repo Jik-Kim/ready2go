@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  // 등록 물품·작업 단계는 아직 목업이며 3단계에서는 Runner 연결 진단만 REST로 덮어쓴다.
+  // 작업·준비물·정의는 아직 목업이며 4단계에서는 Runner 연결 진단과 기억 상태만 REST로 덮어쓴다.
   const state = window.ROKEY_DEMO_DATA;
 
   // status-api.js가 제공하는 polling 구현을 렌더링 코드에서 한 번만 참조한다.
@@ -37,6 +37,20 @@
     gripper: "⌘",
   };
 
+  // 5단계 온톨로지 정의를 읽기 전에도 현재 화면의 두 서랍 ID는 일관되게 표시한다.
+  // 그 밖의 ID는 임의 번역하지 않고 Runner 원본을 그대로 보여준다.
+  const drawerLabels = {
+    drawer_top: "위 서랍",
+    drawer_bottom: "아래 서랍",
+  };
+
+  // 서랍 ID의 문자순에서는 bottom이 top보다 먼저 오므로 실제 위·아래 위치를
+  // 명시한다. 새 ID는 두 기본 서랍 뒤에서 이름순으로 정렬한다.
+  const drawerOrder = {
+    drawer_top: 0,
+    drawer_bottom: 1,
+  };
+
   function getById(id) {
     return document.getElementById(id);
   }
@@ -64,7 +78,9 @@
   }
 
   function getSelectedDrawer() {
-    return state.drawers.find((drawer) => drawer.id === state.selectedDrawerId) || state.drawers[0];
+    return state.drawers.find((drawer) => drawer.id === state.selectedDrawerId)
+      || state.drawers[0]
+      || { id: "unknown", label: "확인 전", items: [] };
   }
 
   function getWorkDrawer() {
@@ -121,9 +137,154 @@
     runnerRow.receivedAt = source ? formatReceivedTime(source.last_received_at) : null;
   }
 
+  function isRecord(value) {
+    // 배열·null을 제외한 JSON 객체만 Runner 상태 map으로 허용한다.
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function compareDrawerIds(left, right) {
+    // 정의된 물리 순서를 먼저 적용하고 같은 순위의 추가 ID만 이름순으로 정렬한다.
+    const leftOrder = drawerOrder[left] ?? 100;
+    const rightOrder = drawerOrder[right] ?? 100;
+    return leftOrder - rightOrder || left.localeCompare(right);
+  }
+
+  function setRunnerSummaryUnknown() {
+    // 기본 화면에서 목업 실행 요약이 실제 Runner 값처럼 보이지 않게 초기화한다.
+    state.adminReview.current.liveSummary = {
+      taskId: "확인 전",
+      currentStep: "확인 전",
+      phase: "확인 전",
+      status: "waiting",
+    };
+  }
+
+  function applyRunnerSummary(source) {
+    // JSON 객체 수신이 정상일 때만 Runner 요약 필드를 관리자 화면에 사용한다.
+    const data = source?.connection_state === "receiving" && source.message_valid === true
+      && isRecord(source.data) ? source.data : null;
+    if (!data) {
+      setRunnerSummaryUnknown();
+      return false;
+    }
+    const phase = typeof data.phase === "string" ? data.phase : "확인 전";
+    state.adminReview.current.liveSummary = {
+      taskId: typeof data.task_id === "string" ? data.task_id : "확인 전",
+      currentStep: typeof data.current_step === "string" ? data.current_step : "확인 전",
+      phase,
+      status: ["running", "complete", "stopped", "error"].includes(phase) ? phase : "waiting",
+    };
+    return true;
+  }
+
+  function validateRobotStateData(source) {
+    // 연결·파싱이 정상이어도 네 필드가 현재 Runner 형식과 다르면 UI가 목업을
+    // 대신 보여주지 않고 전체 robot_state 표시를 `확인 전`으로 유지한다.
+    if (!source || source.connection_state !== "receiving" || source.message_valid !== true) return null;
+    const data = source.data;
+    if (!isRecord(data)) return null;
+    const fields = ["robot_pose", "gripper", "open", "located_in"];
+    if (!fields.every((field) => isRecord(data[field]))) return null;
+    if (!Object.values(data.robot_pose).every((value) => typeof value === "string")) return null;
+    if (!Object.values(data.gripper).every((value) => typeof value === "string")) return null;
+    if (!Object.values(data.open).every((value) => typeof value === "boolean")) return null;
+    if (!Object.values(data.located_in).every((value) => typeof value === "string")) return null;
+    return data;
+  }
+
+  function itemIconForId(itemId) {
+    // 5단계 정의 로딩 전에는 기존 화면 아이콘과 명확히 일치하는 ID만 재사용한다.
+    const normalized = itemId.replaceAll("_", "-");
+    if (normalized === "car-key") return "key";
+    if (["wallet", "watch", "note", "box", "charger"].includes(normalized)) return normalized;
+    return "box";
+  }
+
+  function setRobotStateUnknown(source, detail) {
+    // 초기 수신 전·연결 끊김·필드 누락·형식 불일치 모두 같은 사용자 문구를 쓴다.
+    state.robotStateLive = false;
+    state.drawers = [{ id: "unknown", label: "확인 전", items: [] }];
+    state.selectedDrawerId = "unknown";
+    const receivedAt = source ? formatReceivedTime(source.last_received_at) : null;
+    const sourceLabel = detail || "/robot_state · 확인 전";
+    state.adminReview.current.rows = [
+      { id: "robot-pose", icon: "drawer", label: "로봇 위치", value: "확인 전", valueStatus: "waiting", source: sourceLabel, receivedAt },
+      { id: "gripper", icon: "gripper", label: "그리퍼", value: "확인 전", valueStatus: "waiting", source: sourceLabel, receivedAt },
+      { id: "drawer-state", icon: "drawer", label: "서랍 상태", value: "확인 전", valueStatus: "waiting", source: sourceLabel, receivedAt },
+      { id: "item-location", icon: "box", label: "물품 위치", value: "확인 전", valueStatus: "waiting", source: sourceLabel, receivedAt },
+    ];
+  }
+
+  function applyRobotStateSource(source) {
+    const data = validateRobotStateData(source);
+    if (!data) {
+      const detail = source?.last_error
+        ? `/robot_state · ${source.last_error}`
+        : "/robot_state · 값 누락 또는 형식 불일치";
+      setRobotStateUnknown(source, detail);
+      return false;
+    }
+
+    // open과 located_in의 현재 Runner 기억값으로 서랍·물품 행을 다시 만든다.
+    // 등록명·별칭은 5단계 범위이므로 여기서는 원본 ID를 그대로 사용한다.
+    const drawerIds = new Set(
+      Object.keys(data.open).filter((id) => id.startsWith("drawer_")),
+    );
+    Object.values(data.located_in)
+      .filter((id) => id.startsWith("drawer_"))
+      .forEach((id) => drawerIds.add(id));
+
+    const receivedAt = formatReceivedTime(source.last_received_at);
+    state.drawers = [...drawerIds].sort(compareDrawerIds).map((drawerId) => {
+      const open = data.open[drawerId];
+      const openLabel = typeof open === "boolean" ? (open ? "열림" : "닫힘") : "확인 전";
+      const items = Object.entries(data.located_in)
+        .filter(([, location]) => location === drawerId)
+        .map(([itemId]) => ({
+          id: itemId,
+          name: itemId,
+          icon: itemIconForId(itemId),
+          status: "pending",
+          statusLabel: "Runner 기억 위치",
+          checkedAt: receivedAt,
+        }));
+      return {
+        id: drawerId,
+        label: `${drawerLabels[drawerId] || drawerId} · ${openLabel}`,
+        items,
+      };
+    });
+    if (state.drawers.length === 0) {
+      state.drawers = [{ id: "unknown", label: "확인 전", items: [] }];
+    }
+    if (!state.drawers.some((drawer) => drawer.id === state.selectedDrawerId)) {
+      state.selectedDrawerId = state.drawers[0].id;
+    }
+
+    const pose = typeof data.robot_pose.robot === "string" ? data.robot_pose.robot : "확인 전";
+    const gripper = typeof data.gripper.robot === "string" ? data.gripper.robot : "확인 전";
+    const openEntries = Object.entries(data.open).sort(([left], [right]) => compareDrawerIds(left, right));
+    const openSummary = openEntries.length
+      ? openEntries.map(([id, value]) => `${drawerLabels[id] || id}: ${value ? "열림" : "닫힘"}`).join(" · ")
+      : "확인 전";
+    const locationSummary = Object.entries(data.located_in).length
+      ? Object.entries(data.located_in).map(([id, value]) => `${id} → ${drawerLabels[value] || value}`).join(" · ")
+      : "확인 전";
+    const sourceLabel = "/robot_state · Runner 기억 상태";
+    state.adminReview.current.rows = [
+      { id: "robot-pose", icon: "drawer", label: "로봇 위치", value: pose, valueStatus: pose === "확인 전" ? "waiting" : "pending", source: sourceLabel, receivedAt },
+      { id: "gripper", icon: "gripper", label: "그리퍼", value: gripper, valueStatus: gripper === "확인 전" ? "waiting" : "pending", source: sourceLabel, receivedAt },
+      { id: "drawer-state", icon: "drawer", label: "서랍 상태", value: openSummary, valueStatus: openSummary === "확인 전" ? "waiting" : "pending", source: sourceLabel, receivedAt },
+      { id: "item-location", icon: "box", label: "물품 위치", value: locationSummary, valueStatus: locationSummary === "확인 전" ? "waiting" : "pending", source: sourceLabel, receivedAt },
+    ];
+    state.robotStateLive = true;
+    return true;
+  }
+
   function applyStatusApiSuccess(payload, lastSuccessAt) {
-    // validatePayload를 통과한 응답이므로 runner source를 실제 연결 진단에 사용한다.
+    // validatePayload를 통과한 두 source를 Runner 연결과 기억 상태에 각각 사용한다.
     const source = payload.sources.runner;
+    const robotStateSource = payload.sources.robot_state;
     const view = runnerConnectionView(source);
     const connection = getRunnerConnection();
     if (!connection) return;
@@ -144,16 +305,29 @@
     });
     state.meta.mode = "partial-live";
     state.meta.label = "REST 연결됨 · 부분 실데이터";
-    state.meta.description = "Runner 연결 상태만 실제 데이터입니다. 작업·서랍·준비물은 아직 목업입니다.";
+    const runnerSummaryApplied = applyRunnerSummary(source);
+    const robotStateApplied = applyRobotStateSource(robotStateSource);
+    state.meta.description = robotStateApplied
+      ? "Runner 연결과 기억 상태는 실제 데이터입니다. 작업·준비물·등록 정의는 아직 목업입니다."
+      : "Runner 연결은 실제 데이터이며 /robot_state 표시는 확인 전입니다. 작업·준비물·등록 정의는 아직 목업입니다.";
 
     updateAdminRunnerRow(view, source, "/runner/status · Flask REST");
+    state.adminReview.current.liveConnected = runnerSummaryApplied && robotStateApplied;
     state.adminReview.current.error = source.last_error
       ? { label: "현재 오류: Runner", detail: source.last_error }
-      : { label: "현재 오류: 없음", detail: "Runner 상태 캐시를 정상 조회했습니다." };
+      : robotStateSource.last_error
+        ? { label: "현재 오류: robot_state", detail: robotStateSource.last_error }
+        : !robotStateApplied
+          ? { label: "현재 오류: robot_state 형식", detail: "필수 필드가 없거나 예상한 형식과 달라 확인 전으로 표시합니다." }
+          : { label: "현재 오류: 없음", detail: "Runner 상태 캐시를 정상 조회했습니다." };
 
     // 바뀐 부분만 다시 그려 사용자가 연 펼침·선택 상태를 불필요하게 초기화하지 않는다.
     renderMockNotice();
     renderConnections();
+    renderDrawerSelectors();
+    renderInventory();
+    renderAdminSummary();
+    renderAdminDataMeta();
     renderAdminCurrentState();
   }
 
@@ -171,6 +345,10 @@
     state.meta.label = "REST 연결 오류 · 목업 화면";
     state.meta.description = "Runner 현재 상태를 조회할 수 없습니다. 나머지 화면 값은 목업입니다.";
 
+    setRobotStateUnknown(null, "Flask REST 미수신");
+    setRunnerSummaryUnknown();
+    state.adminReview.current.liveConnected = false;
+
     const view = { status: "error", label: "REST 연결 오류" };
     updateAdminRunnerRow(view, null, "Flask REST 미수신");
     state.adminReview.current.error = {
@@ -180,6 +358,10 @@
 
     renderMockNotice();
     renderConnections();
+    renderDrawerSelectors();
+    renderInventory();
+    renderAdminSummary();
+    renderAdminDataMeta();
     renderAdminCurrentState();
   }
 
@@ -272,7 +454,11 @@
     tableBody.replaceChildren();
     mobileList.replaceChildren();
 
-    getById("inventoryTitle").textContent = `${drawer.label} · 등록 물품`;
+    getById("inventoryTitle").textContent = state.robotStateLive === true
+      ? `${drawer.label} · Runner 기억 물품`
+      : state.robotStateLive === false
+        ? `${drawer.label} · 확인 전`
+        : `${drawer.label} · 등록 물품`;
     getById("inventoryCount").textContent = `${drawer.items.length}개`;
     getById("selectedDrawerLabel").textContent = drawer.label;
 
@@ -390,14 +576,18 @@
 
   function renderAdminSummary() {
     const data = state.adminReview.current;
-    const currentStep = getCurrentTaskStep();
-    const executionStatus = getTaskExecutionStatus();
+    // 기본 화면은 Runner 실데이터 요약을 사용하고 고정 검토 시나리오는 기존 목업을 유지한다.
+    const liveSummary = data.liveSummary;
+    const currentStep = liveSummary ? null : getCurrentTaskStep();
+    const executionStatus = liveSummary
+      ? { label: liveSummary.phase, key: liveSummary.status }
+      : getTaskExecutionStatus();
     const summary = getById("adminRunSummary");
     summary.replaceChildren();
 
     [
-      { label: "실행 ID", value: data.runId || "미수신", icon: "▧" },
-      { label: "현재 단계", value: currentStep?.label || "확인 전", icon: "⚙" },
+      { label: liveSummary ? "태스크 ID" : "실행 ID", value: liveSummary?.taskId || data.runId || "미수신", icon: "▧" },
+      { label: "현재 단계", value: liveSummary?.currentStep || currentStep?.label || "확인 전", icon: "⚙" },
       { label: "실행 상태", value: executionStatus.label, icon: "●", status: executionStatus.key },
     ].forEach((entry) => {
       const item = makeElement("article", `admin-summary-item${entry.status ? ` is-${entry.status}` : ""}`);
@@ -408,6 +598,25 @@
       item.append(icon, text);
       summary.append(item);
     });
+  }
+
+  function renderAdminDataMeta() {
+    // 현재 상태 탭만 실데이터 연결 여부를 표시하며 후속 탭의 목업 표시는 유지한다.
+    const current = state.adminReview.current;
+    const connected = current.liveConnected === true;
+    const restError = state.meta.mode === "rest-error";
+    getById("adminDataNotice").textContent = connected
+      ? "부분 실데이터 · 인증 미구현 읽기 전용 화면 · 현재 상태는 Runner에서 수신하며 온톨로지·계획 근거·실행 기록은 아직 목업 또는 후속 연결입니다."
+      : restError
+        ? "REST 연결 오류 · 현재 상태는 확인 전이며 온톨로지·계획 근거·실행 기록은 아직 목업 또는 후속 연결입니다."
+        : state.meta.mode === "partial-live"
+          ? "부분 실데이터 · 인증 미구현 읽기 전용 화면 · Runner 응답은 수신했지만 현재 상태 일부는 확인 전입니다."
+          : "목업 데이터 · 인증 미구현 읽기 전용 화면 · 현재 상태와 온톨로지만 녹화 우선 연결 예정입니다.";
+    getById("adminCurrentTabStatus").textContent = connected ? "연결됨" : "확인 전";
+    getById("adminCurrentSourceLabel").textContent = connected
+      ? "/runner/status · /robot_state 연결됨"
+      : "/runner/status · /robot_state 확인 전";
+    getById("adminCurrentDataLabel").textContent = connected ? "실데이터" : "확인 전";
   }
 
   function renderAdminCurrentState() {
@@ -477,6 +686,7 @@
   function renderAdmin() {
     if (!state.adminReview) return;
     renderAdminSummary();
+    renderAdminDataMeta();
     renderAdminCurrentState();
     renderAdminOntology();
     getById("adminPlanMessage").textContent = state.adminReview.plan.message;
@@ -586,6 +796,14 @@
       closeDialog(dialog);
     });
   });
+
+  // 기본 화면은 첫 REST 응답 전부터 robot_state 목업을 숨기고 `확인 전`으로 시작한다.
+  // 고정 long·empty·error 시나리오는 UI 검토용 목업이므로 기존 데이터를 유지한다.
+  if (window.ROKEY_DEMO_SCENARIO === "default") {
+    setRunnerSummaryUnknown();
+    state.adminReview.current.liveConnected = false;
+    setRobotStateUnknown(null, "/robot_state · 수신 전");
+  }
 
   renderAll();
   renderAdmin();

@@ -37,8 +37,8 @@ def _wait_until(predicate, timeout_sec: float = 3.0) -> bool:
     return False
 
 
-def test_runtime_receives_runner_status_on_its_own_executor_thread() -> None:
-    """실제 DDS 메시지가 runtime 전용 executor를 거쳐 공유 캐시에 도착한다."""
+def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() -> None:
+    """두 실제 DDS 상태가 runtime 전용 executor를 거쳐 공유 캐시에 도착한다."""
     prefix = f"/test_ready2go_runtime_{uuid.uuid4().hex}"
     topics = BridgeTopics(
         runner_status=f"{prefix}/runner/status",
@@ -58,9 +58,14 @@ def test_runtime_receives_runner_status_on_its_own_executor_thread() -> None:
         f"runtime_publisher_{uuid.uuid4().hex}",
         context=publisher_context,
     )
-    publisher = publisher_node.create_publisher(
+    runner_publisher = publisher_node.create_publisher(
         String,
         topics.runner_status,
+        RUNNER_PUBLISHER_QOS,
+    )
+    robot_state_publisher = publisher_node.create_publisher(
+        String,
+        topics.robot_state,
         RUNNER_PUBLISHER_QOS,
     )
 
@@ -68,18 +73,32 @@ def test_runtime_receives_runner_status_on_its_own_executor_thread() -> None:
         runtime.start()
         assert runtime.is_running is True
 
-        # 2단계 runtime은 후속 source 없이 runner 캐시 하나만 만든다.
-        assert set(runtime.cache.snapshot()) == {"runner"}
+        # 4단계 runtime은 한 노드에서 Runner 연결 상태와 기억 상태를 함께 관리한다.
+        assert set(runtime.cache.snapshot()) == {"runner", "robot_state"}
 
-        # DDS discovery 뒤 실제 String JSON을 발행해 executor 콜백 수신을 확인한다.
+        # DDS discovery 뒤 두 String JSON을 발행해 각각의 콜백 수신을 확인한다.
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.runner_status) == 1)
-        payload = {"phase": "running", "task_id": "demo_task", "current_step": "open"}
-        publisher.publish(String(data=json.dumps(payload)))
-        assert _wait_until(lambda: runtime.cache.snapshot()["runner"]["message_valid"])
+        assert _wait_until(lambda: publisher_node.count_subscribers(topics.robot_state) == 1)
+        runner_payload = {"phase": "running", "task_id": "demo_task", "current_step": "open"}
+        robot_state_payload = {
+            "robot_pose": {"robot": "home"},
+            "gripper": {"robot": "empty"},
+            "open": {"drawer_top": True},
+            "located_in": {"car_key": "drawer_top"},
+        }
+        runner_publisher.publish(String(data=json.dumps(runner_payload)))
+        robot_state_publisher.publish(String(data=json.dumps(robot_state_payload)))
+        assert _wait_until(
+            lambda: runtime.cache.snapshot()["runner"]["message_valid"]
+            and runtime.cache.snapshot()["robot_state"]["message_valid"]
+        )
 
         runner = runtime.cache.snapshot()["runner"]
         assert runner["publisher_present"] is True
-        assert runner["data"] == payload
+        assert runner["data"] == runner_payload
+        robot_state = runtime.cache.snapshot()["robot_state"]
+        assert robot_state["publisher_present"] is True
+        assert robot_state["data"] == robot_state_payload
 
         # 동일 객체의 이중 시작은 구독 노드를 중복 생성하지 않고 명시적으로 실패한다.
         with pytest.raises(RuntimeError, match="이미 시작"):

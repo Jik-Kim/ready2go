@@ -145,14 +145,25 @@ def test_custom_web_root_can_be_injected_without_exposing_other_files(tmp_path: 
         assert test_client.get("/private.txt").status_code == 404
 
 
-def test_status_api_returns_consistent_runner_snapshot_without_cache_reuse() -> None:
-    """3단계 REST가 캐시의 Runner 진단과 payload를 버전 응답으로 반환한다."""
-    cache = StateCache({"runner": None})
+def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> None:
+    """4단계 REST가 Runner 진단과 기억 상태를 같은 스냅샷으로 반환한다."""
+    cache = StateCache({"runner": None, "robot_state": None})
     cache.set_publisher_present("runner", True)
     cache.record_message(
         "runner",
         {"phase": "running", "task_id": "manual_test", "current_step": "open_drawer"},
         received_at=datetime(2026, 10, 13, 6, 30, tzinfo=timezone.utc),
+    )
+    robot_state_data = {
+        "robot_pose": {"robot": "home"},
+        "gripper": {"robot": "empty"},
+        "open": {"drawer_top": False, "drawer_bottom": True},
+        "located_in": {"car_key": "drawer_top", "wallet": "drawer_bottom"},
+    }
+    cache.record_message(
+        "robot_state",
+        robot_state_data,
+        received_at=datetime(2026, 10, 13, 6, 30, 1, tzinfo=timezone.utc),
     )
     fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
 
@@ -184,6 +195,11 @@ def test_status_api_returns_consistent_runner_snapshot_without_cache_reuse() -> 
         "task_id": "manual_test",
         "current_step": "open_drawer",
     }
+    robot_state = payload["sources"]["robot_state"]
+    assert robot_state["connection_state"] == "receiving"
+    assert robot_state["message_valid"] is True
+    assert robot_state["last_received_at"] == "2026-10-13T06:30:01Z"
+    assert robot_state["data"] == robot_state_data
 
 
 def test_status_api_reports_missing_runtime_cache_as_service_unavailable(client) -> None:
