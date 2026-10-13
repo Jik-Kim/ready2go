@@ -94,7 +94,20 @@ index.html
 3. `long`·`empty`·`error` 시나리오 URL은 고정 목업 검토를 위해 polling하지 않습니다.
 4. 후속 단계에서 `/robot_state`와 온톨로지 원본을 순서대로 활성화합니다.
 
-`TODO(D)`: 4단계 `/robot_state`와 5단계 등록 정의는 C·E 확인값을 반영해 후속 구현합니다. 계약을 바꿔야 하면 저장소 루트 [`AGENTS.md`](../AGENTS.md)의 승인 절차를 따릅니다.
+`TODO(D)`: 4단계 `/robot_state`는 C가 확인한 현재 계약을 기준으로 후속 구현합니다. 5단계 등록 정의는 아래 기동 원본과 E 확인값을 대조한 뒤 연결합니다. 계약을 바꿔야 하면 저장소 루트 [`AGENTS.md`](../AGENTS.md)의 승인 절차를 따릅니다.
+
+### C 확인값과 후속 단계 입력
+
+[문서] 이슈 [#267 C 회신](https://github.com/Jik-Kim/ready2go/issues/267#issuecomment-6140239576)을 기준으로 현재 Runner 동작과 아직 승인되지 않은 제안을 구분합니다.
+
+- `/runner/status`와 `/robot_state`는 내용을 0.5초마다 비교하되 **내용이 달라졌을 때만** 발행합니다. 둘 다 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`이며, 긴 유휴 시간에 새 메시지가 없어도 publisher가 존재하면 연결된 것으로 판단합니다.
+- 현재 `/runner/status`에는 `phase`, 실행 중의 `task_id`·`current_step`, 잠금 상태의 `halt_code`, `halt`, `last`, `last_intent`, `log_store`, `state_reset_at`가 포함될 수 있습니다. `boot_id`·`seq`·`stamp`와 `halt.resume`은 PR #286 제안이므로 현재 필드로 간주하지 않습니다.
+- `phase`는 `idle`·`running`·`halted`입니다. `task_id`와 `current_step`은 실행 중에만 있으며, `halt_code`는 잠금 상태에서만 있습니다. `current_step`은 확장 또는 fallback 단계 ID일 수 있고 `achieve_goal`의 `plan_*`은 태스크 파일에 없으므로 화면은 원본 ID를 그대로 표시합니다.
+- 현재 실행과 요청 결과를 직접 연결하는 최상위 `run_id`는 없습니다. `last_intent`는 뒤이은 `BUSY` 결정으로 덮일 수 있으므로, 계약이 추가되기 전에는 `task_id`와 가장 최근 실행 결정이 같은 경우만 연결하고 불명확하면 `확인 전`으로 표시합니다.
+- `/robot_state`의 현재 필드는 `robot_pose`, `gripper`, `open`, `located_in`입니다. 좌표는 없으며 모두 스킬 effect 뒤 Runner가 기억한 상태입니다. 현재 관측값이나 관측 시각으로 해석하지 않습니다.
+- Runner는 기동할 때 `RUNNER_ONTOLOGY_FILE`(기본 `/knowledge/robot_ontology.jsonld`), `tasks_dir`(기본 `/tasks`), `/contracts/intent.schema.json`, `RUNNER_INTENT_TASKS`를 한 번 읽습니다. 실행 중 파일 변경은 반영되지 않고 `reset_state`도 기동 때 읽은 상태로 되돌립니다.
+
+후속 구현은 이 현재 계약만 소비합니다. 최상위 실행 `run_id`와 `current_skill`은 별도 계약 승인 전까지 REST나 화면의 확정 필드로 만들지 않습니다.
 
 ## 5. 읽기 전용 검토 화면
 
@@ -128,7 +141,7 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 
 이 명령은 Flask 정적 서버, `/runner/status` 전용 ROS executor와 읽기 전용 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. Runner 연결 진단 외 화면 값은 목업입니다.
 
-휴대폰이나 다른 PC에서는 서버 PC와 같은 네트워크에 연결한 뒤 서버 PC에서 주소를 확인합니다.
+휴대폰이나 다른 PC에서는 서버 PC와 같은 네트워크에 연결한 뒤 서버 PC에서 주소를 확인합니다. `config/cyclonedds.local.xml`은 DDS를 loopback으로 제한하므로 Runner와 웹 브리지는 같은 PC2에서 실행해야 합니다. 외부 브라우저 접속이 필요할 때만 `WEB_HOST=0.0.0.0`으로 실행하고, 실제 포트(`ss -ltnp`), PC 방화벽과 Wi-Fi AP의 단말 간 통신 차단 여부를 현장에서 확인합니다.
 
 ```bash
 hostname -I
@@ -172,7 +185,7 @@ Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 `h
 }
 ```
 
-`data`는 마지막으로 정상 해석한 `/runner/status` JSON 원본입니다. 비정상 메시지를 받으면 진단을 위해 마지막 정상 `data`는 보존하지만 `message_valid=false`, `connection_state=error`로 반환하므로 현재 정상값으로 해석하지 않습니다. Runner는 변경 시·주기 상태 토픽이므로 단순히 `age_sec`이 증가했다는 이유로 끊김 처리하지 않습니다.
+`data`는 마지막으로 정상 해석한 `/runner/status` JSON 원본입니다. 비정상 메시지를 받으면 진단을 위해 마지막 정상 `data`는 보존하지만 `message_valid=false`, `connection_state=error`로 반환하므로 현재 정상값으로 해석하지 않습니다. Runner는 내용이 변경될 때만 상태 토픽을 발행하므로 단순히 `age_sec`이 증가했다는 이유로 끊김 처리하지 않습니다.
 
 publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보존합니다. 이후 publisher가 다시 발견되면 이전 endpoint·boot의 메시지와 시각을 무효화하고, 새 유효 메시지를 받을 때까지 `connection_state=waiting`, `data=null`로 반환합니다.
 

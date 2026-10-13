@@ -9,7 +9,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 인터페이스 | 이름 | 타입 | 제공 → 사용 |
 | :--- | :--- | :--- | :--- |
 | 인텐트 | `/voice/intent` | topic `std_msgs/String` (JSON) | voice → ros2-core |
-| 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | **P1 구현:** Runner가 응답 기준 현재 상태를 발행하며 Runner 통합 테스트가 구독. 시연 화면·트윈·voice의 직접 구독은 후속 연결이고, 관측으로 검증된 상태라는 뜻이 아님 |
+| 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | **P1 구현:** 현재 필드는 `robot_pose`·`gripper`·`open`·`located_in`이며 좌표와 관측 시각은 없음. Runner가 스킬 effect 뒤 기억한 상태로, 관측으로 검증된 현재 상태라는 뜻이 아님. 시연 화면·트윈·voice의 직접 구독은 후속 연결 |
 | 생성된 계획 | `/planner/plan` | topic `std_msgs/String` (7.2 형식 JSON) | **토픽 발행·시연 화면 소비 미구현.** P2 플래너 핵심과 `achieve_goal` → Runner 실행 연결은 구현됐으며, 계획은 현재 실행 기록 헤더 `plan`과 콘솔에 남음 |
 | 텍스트 디버그 입력 | `/voice/text_override` | topic `std_msgs/String` | 테스트 → voice |
 | TTS 요청 (`speak` 원자 동작) | `/voice/speak` | action `Skill` | ros2-core → voice |
@@ -39,6 +39,8 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 #### 웹 상태 REST — 이슈 #267 3단계
 
 성공 응답은 `schema_version=1`, UTC `served_at`, 권장 `poll_interval_ms=1000`, `status=ok`, `sources`를 포함한다. `sources.<name>`은 publisher 존재, 메시지 수신·유효 여부, 마지막 전체·정상 수신 시각, 나이, freshness·stale, 연결 요약, 메시지/브리지 오류와 마지막 정상 `data`를 구분한다. 현재 실행 source는 `runner` 하나이며 `/runner/status` 원본 JSON의 업무 의미를 REST가 새로 추론하지 않는다.
+
+`/runner/status`와 `/robot_state`는 0.5초 비교 뒤 내용이 바뀔 때만 발행하고 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`을 사용한다. 따라서 웹 연결 판정은 메시지 나이에 대한 freshness timeout을 두지 않고 publisher 존재와 마지막 보존 메시지를 사용한다. 현재 최상위 실행 `run_id`가 없어 실행 중 상태와 `last_intent`를 항상 확정적으로 연결할 수 없으며, 불명확한 경우 화면은 `확인 전`으로 표시한다. `boot_id`·`seq`·`stamp`·`halt.resume`과 `current_skill`은 승인 전 제안이므로 현재 REST 계약에 추가하지 않는다.
 
 캐시가 없으면 HTTP 503 `STATE_CACHE_UNAVAILABLE`, 스냅샷 생성에 실패하면 HTTP 500 `STATE_SNAPSHOT_FAILED`를 반환한다. 두 오류 모두 `status=error`와 안정된 `error.code`·`error.message`를 사용하며 내부 예외 상세는 응답에 넣지 않는다. 브라우저는 HTTP 오류·JSON 형식 오류·지원하지 않는 버전을 REST 연결 오류로 표시하고, 이전 성공 응답을 현재 정상 상태로 계속 사용하지 않는다.
 

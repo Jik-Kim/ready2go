@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-13
 
 ## 지금 상태
+- [문서] 이슈 #267 C 회신을 반영해 `/runner/status`·`/robot_state`가 내용 변경 때만 발행되고 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`을 사용한다는 현재 동작을 기록함. `/robot_state`의 실제 필드(`robot_pose`·`gripper`·`open`·`located_in`)는 effect 뒤 Runner 기억 상태이며 좌표·관측 시각이 없음을 구분하고, Runner 기동 때 한 번 읽는 온톨로지·태스크·인텐트 원본 경로를 정리함. 최상위 실행 `run_id`·`current_skill`과 PR #286 필드는 승인 전 제안으로 남겼으며 실제 4·5단계 구현 완료를 뜻하지 않음.
 - [코드·문서·실측] 이슈 #267 3단계 읽기 전용 REST를 `web/ready2go_web/server.py`에 구현하고 브라우저가 `web/status-api.js`를 통해 `GET /api/status`를 약 1초마다 조회하도록 연결함. 응답에는 형식 버전·서버 시각·권장 조회 간격과 잠금 캐시 스냅샷을 담고, 캐시 미연결 503·스냅샷 실패 500을 구분함. 기본 화면은 Runner 연결 진단만 실제 값으로 갱신하며 고정 목업 시나리오는 조회하지 않음. 로컬 CycloneDDS 시험 `61 passed`, 실제 시험 publisher로 REST `receiving`·원본 JSON 수신, 서버 중단 오류 표시·재시작 자동 복구, publisher 종료 뒤 연결 끊김 전환을 확인함. publisher 재발견 때 이전 boot payload를 무효화하고 새 메시지 전까지 `waiting`으로 두는 회귀 시험도 통과함. 실제 Runner·다중 PC·실물 장비는 미검증임.
 - [코드·문서·실측] 이슈 #267 2단계 `/runner/status` 연결을 `web/ready2go_web`에 구현함. Flask 프로세스가 전용 ROS context와 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하고, `std_msgs/msg/String` JSON 객체를 잠금 `StateCache`에 저장함. 2단계 당시에는 runner source만 활성화하고 REST·화면 반영을 보류했음. 당시 로컬 CycloneDDS 전체 시험 `57 passed`, 실제 진입점의 HTTP 200·ROS graph 단일 구독·종료 후 노드 제거를 확인했으며 실제 Runner·다중 PC·실물 연결은 미검증이었음.
 - [문서·코드] PR #237 재검토의 빈 관측·근거 자동 통과 P1을 로컬에서 보완함. 전용 검증기는 machine check evidence를 비어 있지 않은 문자열 목록으로 강제하고 문자열 단독·빈 문자열 항목을 거절하며, `automatic_result=pass`의 observed·expected가 `None`·공백 문자열·빈 목록·빈 객체이면 통과시키지 않음. trial evidence도 목록 타입과 비어 있지 않은 문자열 항목을 검사함. S10의 빈 observed·expected, `evidence=[""]`, 문자열 evidence와 pass trial의 빈 근거 항목 반례를 추가함. 평가 JSON·결과 JSONL·Voice 정답표는 변경하지 않았고 실제 trial은 0건임.
@@ -62,10 +63,10 @@
 ## 막힌 점 · 필요한 도움
 - 이슈 #20 TC-031~TC-040의 문장별 `unknown`/`clarify` 및 허용 응답 정책을 E·D가 확정해야 함.
 - 화자 2명의 화자 ID별 녹음·현장 발화 배정을 확정해야 함. 실제 이름은 필수 항목이 아님.
-- [문서] 웹 연결 구현은 이슈 #267의 순서를 따름. `/runner/status` 수신·캐시와 REST 응답·화면 반영은 구현됐으며 후속 `/robot_state`·온톨로지 연결에는 담당자가 확정한 source 계약이 필요함.
+- [문서] 웹 연결 구현은 이슈 #267의 순서를 따름. `/runner/status` 수신·캐시와 REST 응답·화면 반영은 구현됐고 `/robot_state` 현재 source 계약도 C 회신으로 확인됨. 다만 실행 상태와 요청 결과를 항상 연결할 최상위 `run_id`, 선택 `current_skill`, PC2 포트·방화벽·Wi-Fi 단말 간 통신은 별도 확정 또는 현장 확인이 필요함.
 
 ## 다음 할 일
-- [ ] 이슈 #267 4단계 `/robot_state` source 계약이 확정되면 같은 캐시·REST 경계에 연결
+- [ ] 이슈 #267 4단계 `/robot_state`를 확인된 필드와 기억 상태 의미 그대로 같은 캐시·REST 경계에 연결
 - [문서] 2026-10-07: P3 PC·모바일 웹 대시보드 제안 [#112](https://github.com/Jik-Kim/ready2go/issues/112)을 목업과 함께 등록하고, 최신 작업 상세 목업까지 기존 `web/` 시제품에 반영함. 이벤트 기록은 제외했으며 기존 P1 표시 이슈 #59와 구분함. 연동 담당·계약·일정은 협의 전이고 구현 완료를 의미하지 않음.
 - [ ] E와 이슈 #20 기본 정답표 및 #194 회귀 시나리오를 승인하고 `evaluation_set_version`·`suite_version`을 고정
 - [ ] 화자 ID별 발화 배정·녹음 형식·보관 경로를 반영
