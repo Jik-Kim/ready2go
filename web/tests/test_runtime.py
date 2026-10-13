@@ -106,11 +106,21 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         robot_state_publisher.publish(String(data=json.dumps(robot_state_payload)))
         robot_message = JointState()
         robot_message.name = [f"joint_{index}" for index in range(1, 7)]
-        robot_publisher.publish(robot_message)
+
+        def publish_robot_until_received() -> bool:
+            """VOLATILE JointState를 실제 주기 발행처럼 수신 확인 전까지 반복한다."""
+            # subscriber 수가 보여도 DDS 데이터 경로 매칭이 끝나기 전일 수 있으므로,
+            # 한 번만 발행해 생기는 경합 대신 제한 시간 동안 20ms 간격으로 재발행한다.
+            if runtime.cache.snapshot()["robot"]["message_valid"]:
+                return True
+            robot_publisher.publish(robot_message)
+            return False
+
+        # 약 100 Hz인 운영 발행과 같은 지속 발행 조건에서 VOLATILE 전달을 확인한다.
+        assert _wait_until(publish_robot_until_received)
         assert _wait_until(
             lambda: runtime.cache.snapshot()["runner"]["message_valid"]
             and runtime.cache.snapshot()["robot_state"]["message_valid"]
-            and runtime.cache.snapshot()["robot"]["message_valid"]
         )
 
         runner = runtime.cache.snapshot()["runner"]
