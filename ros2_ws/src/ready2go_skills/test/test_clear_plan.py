@@ -148,3 +148,11 @@ def test_free_move_ignores_already_overlapping_object_behind():
     assert cp.free_move(objs, "caramel_box#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get) == 0.0
     _, done, pushed = cp.push_move(objs, "caramel_box#1", (0.0, -1.0), 0.02, INTERIOR, SIZES.get, cp.pushable)
     assert done == pytest.approx(0.02) and pushed == []                         # 뒤에 겹친 에어팟을 끌고 가지 않음
+
+
+def test_ahead_cone_and_out_of_bounds_slack():
+    """옆에 맞붙은 물체는 '앞'이 아님, 처음부터 경계 밖으로 그려진 물체는 그만큼 봐줌 [실측 PC2 10/13]."""
+    assert cp.ahead(0.0, 40.0, (0.0, 1.0)) and not cp.ahead(-70.0, 2.0, (0.0, 1.0)) and not cp.ahead(0.0, -5.0, (0.0, 1.0))
+    c = obj("caramel_box#1", "caramel_box", 0.040, 0.029, yaw=-0.25)            # 14° — 외접 박스가 y 0 벽 밖으로 약 4 mm
+    assert cp.out_mm(c, SIZES.get, INTERIOR) > 3.0
+    assert cp.free_move([c], "caramel_box#1", (0.0, 1.0), 0.02, INTERIOR, SIZES.get) == pytest.approx(0.02)   # 벽에서 멀어지는 쪽은 감

@@ -112,8 +112,24 @@ def _blocking(objs, group) -> list:
     return [o for o in objs if o["id"] not in group]
 
 
+def ahead(dx: float, dy: float, u: tuple) -> bool:
+    """가운데끼리 차이 (dx, dy) 인 물체가 u 방향 '앞'인지 — u 성분이 옆 성분의 절반보다 커야 앞(약 63° 원뿔 안).
+    옆에 맞붙은 물체(u 성분이 몇 mm 뿐)는 앞이 아님 [실측 PC2 10/13: 벽 쪽 에어팟을 +y 로 밀 때 -x 옆에 맞붙은 캐러멜(가운데 차
+    y +2 mm)을 앞으로 보고 같이 밀려다 막힘]."""
+    along = dx * u[0] + dy * u[1]
+    side = abs(-dx * u[1] + dy * u[0])
+    return along > 0.5 * side
+
+
+def out_mm(o: Mapping, size_of: Callable, interior_m: Sequence[float]) -> float:
+    """footprint 가 서랍 경계 밖으로 나간 최대 거리(mm, 안이면 0) — 비전 각도·외접 박스로 벽에 맞붙은 물체가 경계를 몇 mm
+    넘게 그려짐(캐러멜 14° → 4 mm). 움직일 때 처음부터 나간 만큼은 봐줌."""
+    d, w = interior_m[0] * 1000.0, interior_m[1] * 1000.0
+    return max([0.0] + [max(-x, x - d, -y, y - w) for x, y in footprint_mm(o, size_of)])
+
+
 def _behind(objs: Sequence[Mapping], mover: str, u: tuple, size_of) -> set:
-    """처음부터 mover 와 footprint 가 겹친 물체 중 u 반대쪽(가운데끼리 u 성분 ≤ 0)에 있는 것 — 멀어지는 쪽이라 겹침이 줄기만 함.
+    """처음부터 mover 와 footprint 가 겹친 물체 중 u 쪽 '앞'(ahead)이 아닌 것(뒤·옆) — 멀어지거나 옆으로 스치므로 겹침이 늘지 않음.
     온톨로지 외접 박스가 실제보다 커서(몽키 머리 61 × 길이 170) 맞붙은 물체끼리 처음부터 겹치면 어느 쪽으로도 0 mm 로 나와
     아무 동작도 못 고르던 것 [실측 PC2 10/13 B clear top 에어팟: 에어팟·캐러멜·몽키·지우개 서로 1~2 mm 겹침 → fail]."""
     by = {o["id"]: o for o in objs}
@@ -124,7 +140,7 @@ def _behind(objs: Sequence[Mapping], mover: str, u: tuple, size_of) -> set:
         if o["id"] == mover or not overlaps(m, o, size_of):
             continue
         ox, oy = o["pose"]["position"][:2]
-        if (ox - mx) * u[0] + (oy - my) * u[1] <= 0.0:
+        if not ahead((ox - mx) * 1000.0, (oy - my) * 1000.0, u):
             out.add(o["id"])
     return out
 
@@ -137,11 +153,12 @@ def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     by = {o["id"]: o for o in objs}
     behind = _behind(objs, mover, u, size_of)
     others = [o for o in _blocking(objs, group) if o["id"] not in behind]
+    slack = out_mm(by[mover], size_of, interior_m)               # 처음부터 경계 밖으로 그려진 만큼은 봐줌
     done = 0.0
     for k in range(1, int(round(dist_m * 1000.0 / step_mm)) + 1):
         s = k * step_mm / 1000.0
         m = moved(by[mover], u[0] * s, u[1] * s)
-        if not inside(m, size_of, interior_m) or any(collide(m, o, size_of, gap_mm) for o in others):
+        if not inside(m, size_of, interior_m, -slack) or any(collide(m, o, size_of, gap_mm) for o in others):
             break
         done = s
     return done
@@ -154,7 +171,8 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     order = [o["id"] for o in objs]
     cur = {o["id"]: dict(o) for o in objs}
     base = [mover] + sorted(riders(objs, mover))
-    behind = _behind(objs, mover, u, size_of)                # 처음부터 겹친 뒤쪽 물체는 밀지도 막지도 않음
+    behind = _behind(objs, mover, u, size_of)                # 처음부터 겹친 뒤·옆 물체는 밀지도 막지도 않음
+    slack = {o["id"]: out_mm(o, size_of, interior_m) for o in objs}   # 처음부터 경계 밖으로 그려진 만큼은 봐줌
     pushed = []
     done = 0.0
     dx, dy = u[0] * step_mm / 1000.0, u[1] * step_mm / 1000.0
@@ -182,7 +200,8 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
                     moving.append(gid)
                 changed = True
                 break
-        if not ok or not all(inside(trial[m], size_of, interior_m) for m in moving if on_floor(list(trial.values()), m)):
+        if not ok or not all(inside(trial[m], size_of, interior_m, -slack.get(m, 0.0)) for m in moving
+                             if on_floor(list(trial.values()), m)):
             break
         cur = trial
         done += step_mm / 1000.0

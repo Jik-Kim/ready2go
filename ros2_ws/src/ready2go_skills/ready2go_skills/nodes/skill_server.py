@@ -232,6 +232,10 @@ class DryOracle:
         group = {oid} | clp.riders(objs, oid)
         others = [o for o in objs if o["id"] not in group]
         dx, dy = (after["pose"]["position"][i] - t["pose"]["position"][i] for i in (0, 1))
+        n_ = math.hypot(dx, dy)
+        if n_ > 0:                                               # 처음부터 뒤·옆에 맞붙은 물체는 끄는 길에서 뺌 (clear_plan._behind, 실측 PC2 10/13)
+            side = clp._behind(objs, oid, (dx / n_, dy / n_), size_of)
+            others = [o for o in others if o["id"] not in side]
         for k in range(1, 21):
             mid = clp.moved(t, dx * k / 20.0, dy * k / 20.0)
             hit = next((o["id"] for o in others if clp.collide(mid, o, size_of)), None)
