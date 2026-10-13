@@ -520,6 +520,50 @@ def test_b_clear_makes_room_until_ready_then_picks(monkeypatch, results, want_ca
     assert calls == want_calls and "clear" in sk.NEEDS_DRAWER
 
 
+def test_b_clear_stops_when_same_move_repeats_without_progress(monkeypatch, tmp_path):
+    """[사용자 10/13 PC2 "몽키 민 뒤 다시 보면 집을 각이 안 나와 그 자리 계속 쓸고 반복"] 같은 동작(종류·이유)을 다시 했는데
+    목표 위치가 5 mm 안에서 그대로면 12번까지 되풀이하지 않고 멈춤. 목표가 움직였으면 계속."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    sk.DRAWER = "drawer_top"
+    mr = {"action": "sweep", "ready_to_pick": False, "reason": "70 mm 밀고 30 mm 되돌아옴 (같이 밀림 ['toy_wrench#1'])"}
+    calls = []
+    pos = {"x": 0.11}
+
+    opts = []
+
+    def run(node, cmd):
+        calls.append(cmd)
+        if cmd == "clear":
+            opts.append(dict(sk.CLEAR_OPTS))
+        sk.last["code"], sk.last["make_room"] = "", dict(mr)
+        return True
+
+    def scan(node, for_pick=False):
+        calls.append("scan")
+        (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps({"pose": {"position": [pos["x"], 0.05, 0.0]}}))
+        return True
+    monkeypatch.setattr(sk, "run", run)
+    monkeypatch.setattr(sk, "scan", scan)
+    sk.CLEAR_OPTS["remove_first"] = True                  # 이전 실행에서 남은 값은 지움
+    with pytest.raises(SystemExit, match="되풀이"):
+        sk.clear(None)
+    # 처음 되풀이 → 막는 물체 치우기 먼저(remove_first)로 바꿔 계속, 그래도 되풀이면 멈춤 [사용자 10/13 "sweep 후 안 되면 다른 물건 빼내기"]
+    assert calls.count("clear") == 4
+    assert opts[:2] == [{}, {}] and opts[2:] == [{"remove_first": True}] * 2
+
+
+def test_b_sk_clear_goal_carries_remove_first_after_switch(monkeypatch, tmp_path):
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
+    monkeypatch.setattr(sk, "CLEAR_OPTS", {"remove_first": True})
+    assert sk.goal_for("clear")[1]["remove_first"] is True
+    assert sk.goal_for("plan")[1]["remove_first"] is True
+
+
 def test_b_sk_clear_goal_is_make_room_with_scan(monkeypatch, tmp_path):
     sk = _load_sk(monkeypatch)
     monkeypatch.setattr(sk, "TMP", str(tmp_path))

@@ -156,3 +156,17 @@ def test_ahead_cone_and_out_of_bounds_slack():
     c = obj("caramel_box#1", "caramel_box", 0.040, 0.029, yaw=-0.25)            # 14° — 외접 박스가 y 0 벽 밖으로 약 4 mm
     assert cp.out_mm(c, SIZES.get, INTERIOR) > 3.0
     assert cp.free_move([c], "caramel_box#1", (0.0, 1.0), 0.02, INTERIOR, SIZES.get) == pytest.approx(0.02)   # 벽에서 멀어지는 쪽은 감
+
+
+def test_with_slack_prefers_more_back_off_when_still_pickable():
+    """밀기·넛지는 집기 검사가 딱 통과하는 거리보다 slack_mm 더 여유 있는 같은 후보 (없으면 그대로) [사용자 10/13]."""
+    acts = [(0.05, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.02), None),
+            (0.06, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.03), None),
+            (0.07, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.04), None)]
+
+    class Ok:
+        def pick(self, objs, tid):
+            return True, "", ""
+    assert cp._with_slack(acts, acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.03)
+    assert cp._with_slack(acts, acts[0][1], "t", Ok(), 0.0).back_m == pytest.approx(0.02)
+    assert cp._with_slack(acts[:1], acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.02)
