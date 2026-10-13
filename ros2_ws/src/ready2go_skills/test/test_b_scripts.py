@@ -650,9 +650,12 @@ def _scan(target, others):
     return {"target_found": target is not None, "target": target, "candidates": list(others), "visible_count": len(others) + (target is not None)}
 
 
-def _unpack_run(monkeypatch, scans, codes=None):
-    """B unpack 을 가짜 서버·가짜 인식으로: scans = inspect_all 이 차례로 돌려줄 결과, codes = {cmd: [실패 코드 …]}."""
+def _unpack_run(monkeypatch, scans, codes=None, slots=("aside_1", "aside_2")):
+    """B unpack 을 가짜 서버·가짜 인식으로: scans = inspect_all 이 차례로 돌려줄 결과, codes = {cmd: [실패 코드 …]}.
+    slots = 치운 물체 놓을 자리 순서 (None 이면 b_sk 기본 UNPACK_SLOTS 그대로 — 기본은 free, 10/13)."""
     sk = _load_sk(monkeypatch)
+    if slots is not None:
+        monkeypatch.setattr(sk, "UNPACK_SLOTS", tuple(slots))
     monkeypatch.setattr(sk, "DRAWER", scans[0]["candidates"][0]["pose"]["frame"])
     calls, sent, queue, codes = [], [], list(scans), {k: list(v) for k, v in (codes or {}).items()}
 
@@ -665,7 +668,8 @@ def _unpack_run(monkeypatch, scans, codes=None):
         if goal and goal[0] == "place_object" and not code:
             p = goal[1]
             slots = {"aside_1": {"frame": sk.DRAWER, "position": [0.057, 0.067, 0.0], "yaw": 1.57},
-                     "aside_2": {"frame": sk.DRAWER, "position": [0.12, 0.064, 0.0], "yaw": 0.0}}
+                     "aside_2": {"frame": sk.DRAWER, "position": [0.12, 0.064, 0.0], "yaw": 0.0},
+                     "free": {"frame": sk.DRAWER, "position": [0.057, 0.067, 0.0], "yaw": 1.57}}   # 서버가 고른 빈 자리 (가짜)
             out = {"slot": p.get("slot"), "placed_pose": slots.get(p.get("slot")) or p.get("pose")}
         sk.last["out"] = out
         return code == ""
@@ -680,7 +684,8 @@ def _unpack_run(monkeypatch, scans, codes=None):
 
 
 def test_b_unpack_cover_moves_plate_delivers_and_restores(monkeypatch):
-    """[사용자 10/12 "문서 그대로 풀로"] 가림막 밑 지우개 (C 진행표 S2): 판 → aside_1 → 지우개 트레이 → 판 원래 자리 → 복구 오차 → 닫기."""
+    """[사용자 10/12 "문서 그대로 풀로"] 가림막 밑 지우개 (C 진행표 S2): 판 → 서랍 빈 자리(free, 사용자 10/13 "aside 빼고 free") →
+    지우개 트레이 → 판 원래 자리 → 복구 오차 → 닫기."""
     plate = _o("cover_plate#1", "cover_plate", 0.10, 0.18)
     er = _o("eraser#1", "eraser", 0.10, 0.18, under=["cover_plate#1"])
     lip = _o("lip_balm#1", "lip_balm", 0.15, 0.25)
@@ -689,7 +694,7 @@ def test_b_unpack_cover_moves_plate_delivers_and_restores(monkeypatch):
              _scan(dict(er, occluded_by=[]), [plate_aside, lip]),        # 판 치운 뒤
              _scan(plate_aside, [lip]),                                  # 원위치 전 판 다시 찾기
              _scan(None, [plate, lip])]                                  # 마지막 확인
-    sk, calls, sent = _unpack_run(monkeypatch, scans)
+    sk, calls, sent = _unpack_run(monkeypatch, scans, slots=None)
     sk.TARGET = "eraser"
     assert sk.unpack(None) is True
     assert calls == ["ready", "open", "inspect:eraser", "pick", "aside", "inspect:eraser", "pick", "place",
@@ -698,7 +703,18 @@ def test_b_unpack_cover_moves_plate_delivers_and_restores(monkeypatch):
     assert picks == ["cover_plate#1", "eraser#1", "cover_plate#1"]
     restore = sent[calls.index("restore")][1]
     assert restore["pose"] == {k: plate["pose"][k] for k in ("frame", "position", "yaw")} and restore["scan"] == scans[2]
-    assert sent[calls.index("aside")][1]["slot"] == "aside_1" and "unpack" in sk.NEEDS_DRAWER
+    assert sent[calls.index("aside")][1]["slot"] == "free" and calls.count("aside") == 1 and "unpack" in sk.NEEDS_DRAWER
+
+
+def test_b_unpack_free_refused_stops_holding(monkeypatch):
+    """기본 놓을 자리는 free 하나 — 움직이기 전 거부(NO_FREE_SPACE)면 aside 로 넘어가지 않고 든 채 멈춤(사람이 회수)."""
+    plate = _o("cover_plate#1", "cover_plate", 0.10, 0.18)
+    er = _o("eraser#1", "eraser", 0.10, 0.18, under=["cover_plate#1"])
+    sk, calls, sent = _unpack_run(monkeypatch, [_scan(er, [plate])], codes={"aside": ["NO_FREE_SPACE"]}, slots=None)
+    sk.TARGET = "eraser"
+    with pytest.raises(SystemExit, match="든 채 멈춤"):
+        sk.unpack(None)
+    assert [g[1]["slot"] for c, g in zip(calls, sent) if c == "aside"] == ["free"]
 
 
 def test_b_unpack_stack_restores_in_reverse_and_leaves_blocked_one_aside(monkeypatch):

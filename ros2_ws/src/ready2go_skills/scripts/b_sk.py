@@ -615,7 +615,8 @@ def free(node):
     sys.exit(f"빈 자리 후보 {min(len(cands), FREE_TRIES)}개가 모두 거부됨 — 서랍이 꽉 참 (사람이 자리 만들기)")
 
 
-UNPACK_MAX = 2                              # 치울 물체 최대 — Runner find_with_unpack s7 max_iter 2 (B 고정 자리 aside_1·aside_2 두 곳)
+UNPACK_MAX = 2                              # 치울 물체 최대 — Runner find_with_unpack s7 max_iter 2
+UNPACK_SLOTS = ("free",)                    # 치운 물체 놓을 자리 — 서랍 빈 자리(서버 slot free) [사용자 10/13 "aside 빼고 free"]. 예전 ("aside_1", "aside_2")
 UNPACK_PICK_RETRY = 1                       # 목표 집기 다시 — 태스크 s8.t1 on_failure retry 1
 REID_TOL_M = 0.02                           # 옮긴 물체 다시 찾기 거리 — 태스크 inputs.reid_tol_m [팀 확정 필요]
 RESTORE_CHECK_TOL_M = 0.10                  # 마지막 확인에서 원래 자리 물체로 볼 거리 — 태스크 inputs.restore_check_tol_m (판정은 기록표 3 cm)
@@ -694,7 +695,7 @@ def _xy_yaw(pose):
 def unpack(node):
     """[사용자 10/12 "문서 그대로 풀로"] Runner tasks/find_with_unpack.json(C feat/c-unpack-task)과 같은 순서를 B 명령으로:
     손잡이 앞 → 열기 → 탑뷰 → 인식 → select_obstacle(덮은 것 맨 위부터, 옮긴 것 제외, 관계 모르면 한 번 다시 찍기) →
-    집기 → aside_1(움직이기 전 거부면 aside_2) → 기록 → 다시 보기 … 최대 2개 → 목표가 다 보이면 집기 → 트레이 →
+    집기 → UNPACK_SLOTS(서랍 빈 자리 free, 움직이기 전 거부면 다음) → 기록 → 다시 보기 … 최대 2개 → 목표가 다 보이면 집기 → 트레이 →
     (쥔 게 없을 때) 옮긴 것을 역순으로: 다시 보기 → find_moved → 집기 → 원래 자리(막히면 꺼냈던 고정 자리 + 안내) →
     마지막 다시 보기로 복구 오차(위치 mm·각도 °) 출력 → 닫기·홈. 판정(3 cm)은 기록표 — 자로 잰 값과 같이 적기."""
     up = _runner_unpack()
@@ -730,14 +731,14 @@ def unpack(node):
                 sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
             failed = f"치울 {ob['id']} 집기 {last['code']}"
             break
-        for slot in ("aside_1", "aside_2"):
+        for slot in UNPACK_SLOTS:
             params = {"location": DRAWER, "slot": slot, "scan": res}
             if timed("aside", lambda: run(node, "aside", ("place_object", params))):
                 break
             if last["code"] not in FREE_RETRY:
                 sys.exit(f"{slot} 놓기 {last['code']} — {ob['id']} 를 든 채 멈춤 (사람이 회수, 복구 안 함)")
         else:
-            sys.exit(f"aside_1·aside_2 모두 거부 — {ob['id']} 를 든 채 멈춤 (사람이 회수)")
+            sys.exit(f"{'·'.join(UNPACK_SLOTS)} 모두 거부 — {ob['id']} 를 든 채 멈춤 (사람이 회수)")
         out = last.get("out") or {}
         stack.append({"class": ob["class"], "id": ob["id"], "origin": {k: ob["pose"][k] for k in ("frame", "position", "yaw")},
                       "placed": out.get("placed_pose"), "slot": out.get("slot")})
