@@ -225,3 +225,16 @@ def test_end_task_without_required_fields_is_bad_intent():
     for drop in ("boot_id", "run_id", "request_id"):
         doc = {k: v for k, v in END_TASK.items() if k != drop}
         assert router().decide(json.dumps(doc), running=True, locked=False).reason == ir.BAD_INTENT, drop
+
+
+RECOVER = {"intent": "recover", "targets": [], "confidence": 0.9, "request_id": "r-1", "boot_id": "b", "event_id": "h1"}
+
+
+def test_recover_needs_confidence_and_required_fields():
+    """계약 W3 recover: 잠금을 푸는 쪽이라 신뢰도는 일반 요청과 같게 — 판단·B 조회·해제는 노드가."""
+    assert router().decide(json.dumps(RECOVER), running=False, locked=True).kind == ir.RECOVER
+    low = router().decide(json.dumps({**RECOVER, "confidence": 0.3}), running=False, locked=True)
+    assert (low.kind, low.reason) == (ir.HOLD, ir.LOW_CONFIDENCE)
+    for drop in ("boot_id", "event_id", "request_id"):
+        doc = {k: v for k, v in RECOVER.items() if k != drop}
+        assert router().decide(json.dumps(doc), running=False, locked=True).reason == ir.BAD_INTENT, drop

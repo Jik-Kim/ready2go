@@ -328,11 +328,61 @@ def test_end_task_when_idle_is_nothing_to_end(system):
     assert voice.status["phase"] == "idle"
 
 
+def recover(boot, event, request_id="rec-1"):
+    return json.dumps({"intent": "recover", "targets": [], "confidence": 0.9, "request_id": request_id,
+                       "boot_id": boot, "event_id": event, "source": {"stt_text": "복구해"}})
+
+
+def test_recover_unlocks_preserved_work_without_resuming(tmp_path):
+    """계약 W3 recover (#271, FR-SAF-03): 재개 대기(resumable)에서 멈춰 → 작업 보존·잠김 → 다른 사건 recover 거절 →
+    지금 사건 recover = B 조회(mock) 충족 → 잠금 해제·halt.resume.offered (재개 아님, 로봇 동작 없음) →
+    보존 중 새 요청은 RESUME_PENDING → end_task 로 폐기."""
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[("resumable", True)])
+    try:
+        boot = runner.runner.boot_id
+        voice.say(intent())
+        assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+        voice.say(intent("cancel", targets=(), confidence=0.9))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+        halt = voice.status["halt"]
+        assert voice.status["phase"] == "halted" and halt["locked"] and halt["resume"]["offered"] is False
+        run_id, event = voice.status["last"]["run_id"], halt["event_id"]
+        voice.say(recover(boot, "h0-old", "rec-x"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "HALT_EVENT_MISMATCH"), voice.status
+        voice.say(recover(boot, event))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "recover" and s["phase"] == "idle"), voice.status
+        resume = voice.status["halt"]["resume"]
+        assert resume["offered"] and resume["from_step"] and voice.status["halt"]["locked"] is False
+        voice.say(json.dumps({"intent": "find_item", "targets": ["eraser"], "confidence": 0.9}))
+        assert voice.wait(lambda s: (s["last"] or {}).get("error_code") == "RESUME_PENDING"), voice.status
+        voice.say(end_task(boot, run_id, "end-r"))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "end"
+                          and (s["last"] or {}).get("run_id") == run_id
+                          and s["last"]["overall_status"] == "ABORTED"), voice.status
+        assert voice.status["halt"] is None                                      # 보존 작업 없음, 잠금 없음
+    finally:
+        close()
+
+
+def test_recover_without_b_check_keeps_the_lock(tmp_path):
+    """B 상태 조회(W1) 없음(real 기본 recover_check none) → B_CHECK_UNAVAILABLE, 잠금 유지."""
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[("recover_check", "none")])
+    try:
+        voice.say(intent())
+        assert voice.wait(lambda s: s["phase"] == "running"), voice.status
+        voice.say(intent("cancel", targets=(), confidence=0.9))
+        assert voice.wait(lambda s: s["phase"] == "halted" and s["halt"]), voice.status
+        voice.say(recover(runner.runner.boot_id, voice.status["halt"]["event_id"]))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "B_CHECK_UNAVAILABLE"), voice.status
+        assert voice.status["phase"] == "halted" and runner.runner.halted
+    finally:
+        close()
+
+
 def test_reset_state_ends_preserved_work(tmp_path):
     """정본 resume-admission-policy: 상태 초기화는 보존 작업을 끝냄 (finally 비동작만) — 잠금은 풀지 않음."""
     from std_srvs.srv import Trigger
-    runner, voice, close = make_system(tmp_path, duration=2.0)
-    runner.runner.resumable = True                  # 노드 파라미터(resumable)는 recover PR 에서
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[("resumable", True)])
     try:
         voice.say(intent())
         assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status

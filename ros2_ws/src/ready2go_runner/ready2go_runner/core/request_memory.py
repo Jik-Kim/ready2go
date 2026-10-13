@@ -13,7 +13,7 @@ import json
 import threading
 from dataclasses import dataclass
 
-REQUEST_INTENTS = {"find_item", "achieve_goal", "end_task"}   # end_task: 같은 ID 재전송 = 첫 결정 재발행 (#271 같은 ID 처리)
+REQUEST_INTENTS = {"find_item", "achieve_goal", "end_task", "recover"}   # end_task: 같은 ID 재전송 = 첫 결정 재발행 (#271 같은 ID 처리)
 
 
 @dataclass
