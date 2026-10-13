@@ -170,3 +170,32 @@ def test_with_slack_prefers_more_back_off_when_still_pickable():
     assert cp._with_slack(acts, acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.03)
     assert cp._with_slack(acts, acts[0][1], "t", Ok(), 0.0).back_m == pytest.approx(0.02)
     assert cp._with_slack(acts[:1], acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.02)
+
+
+def test_push_chain_ignores_pushed_objects_initial_overlap_behind():
+    """[실측 PC2 10/13 inspect_20261013_060416_812Z] 에어팟을 +y 로 밀면 몽키가 같이 밀림 — 몽키 외접 박스(170 × 61)가 손잡이 쪽
+    캐러멜과 처음부터 겹쳐도 캐러멜은 +y 쪽 뒤라 같이 밀지도 막지도 않음 (예전: 캐러멜까지 밀려다 0 mm)."""
+    sizes = dict(SIZES, toy_wrench=[0.17, 0.061, 0.0185])
+    objs = [obj("airpods_case#1", "airpods_case", 0.1079, 0.0219, yaw=0.0061),
+            obj("caramel_box#1", "caramel_box", 0.0361, 0.0221, yaw=-0.0083),
+            dict(obj("toy_wrench#1", "eraser", 0.1135, 0.0524, yaw=-0.1916), **{"class": "toy_wrench"}),
+            obj("eraser#1", "eraser", 0.1732, 0.0103, yaw=0.0208)]
+    assert cp.overlaps(objs[2], objs[1], sizes.get)
+    _, done, pushed = cp.push_move(objs, "airpods_case#1", (0.0, 1.0), 0.06, [0.2099, 0.286, 0.0684], sizes.get, cp.pushable)
+    assert done == pytest.approx(0.06) and pushed == ["toy_wrench#1"]
+
+
+def test_press_point_side_offset_and_no_end():
+    """[실측 PC2 10/13] 더 높은 에어팟 옆 몽키: 가운데는 손가락이 에어팟에 걸림 → 예전엔 머리 끝(입 벌어진 곳)을 눌러 접촉 없음.
+    지금은 손잡이 폭 안에서 비켜 누르고, no_end 종류는 끝을 안 누름."""
+    sizes = dict(SIZES, toy_wrench=[0.17, 0.061, 0.0185])
+    air = obj("airpods_case#1", "airpods_case", 0.1079, 0.0219, top=0.0229)
+    w = dict(obj("w", "eraser", 0.1135, 0.0524, yaw=-0.1916, top=0.016), **{"class": "toy_wrench"})
+    old = cp.press_point([air, w], "w", sizes.get, finger_r_mm=16.0, narrow_of=lambda c: 0.0259, no_end=())
+    new = cp.press_point([air, w], "w", sizes.get, finger_r_mm=16.0, narrow_of=lambda c: 0.0259, no_end=("toy_wrench",))
+    assert new is not None
+    along = lambda p: abs((p[0] - 0.1135) * 0.9817 - (p[1] - 0.0524) * 0.1904)   # 긴 변 방향 거리 (yaw −0.19)
+    assert along(new) <= 0.5 * 0.081 + 1e-6                                     # 끝이 아니라 절반 안쪽
+    side = abs((new[0] - 0.1135) * 0.1904 + (new[1] - 0.0524) * 0.9817)
+    assert side <= 0.0259 / 2 - 0.008 + 1e-6                                    # 손잡이 폭 안
+    assert old is not None
