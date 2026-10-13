@@ -82,7 +82,7 @@ def test_unpacks_two_delivers_and_restores_in_reverse():
     assert robot.placed() == ["aside_1", "aside_2", "handover_zone", "origin"]
     assert robot.checked() == ["aside_1", "aside_1", "aside_2", "origin", "origin", "aside_1"]
     pick_view = [s for s in result.steps if s.get("parent") == "s8.t1" and s["action"] == "move_to_named_pose"]
-    assert [bool(s.get("same_pose")) for s in pick_view] == [True, True]       # 방금 s7.6~7 탑뷰, 넛지 안 밀음 (#245)
+    assert [bool(s.get("same_pose")) for s in pick_view] == [True]             # 방금 s7.6~7 탑뷰라 보내지 않음 (#245), 바로 집기라 두 번째 탑뷰 없음 (E 10/13 pick)
     scene = robot.skills.scene
     assert scene.delivered == ["toy_wrench"] and scene.held is None
     assert scene.objects["caramel_box"]["xy"][1] == 0.14                      # 상자는 원래 자리로
