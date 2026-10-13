@@ -1,8 +1,9 @@
 """E-local P2 confirmation policy; no ROS, wire publisher, unlock or motion.
 
 Caller serializes trusted C state into StoppedWork. Local monotonic values must
-come from one Voice process. Evidence flags require real B/C adapters; seq alone
-is not fresh robot observation. No adapter is enabled by this module.
+come from one Voice process. Legacy Evidence flags require actual observations. Runtime RunnerOffer is a C
+proposal/registration candidate; C final decision grants execution after its own
+B/pre/reentry checks. Sequence alone is not B observation freshness.
 """
 from dataclasses import dataclass
 from functools import wraps
@@ -36,6 +37,13 @@ def task_end_utterance(text):
         return False
     text = ''.join(text.split()).rstrip('.!?。？！')
     return text in ('종료', '종료해', '작업종료해', '이작업종료해', '계속하지말고종료해')
+
+
+@dataclass(frozen=True)
+class ActiveRun:
+    """Accepted running C target; no invented halt event or resume step."""
+    session: str
+    task: str
 
 
 @dataclass(frozen=True)
@@ -83,6 +91,33 @@ class Evidence:
 
 
 @dataclass(frozen=True)
+class RunnerOffer:
+    """Verified current C proposal/registration, never B safety flags or permission.
+
+    C repeats actual B/pre/reentry checks when consuming the request. Pending
+    registration has no invented E ACK timer; C's registered reply supplies it.
+    """
+    work: StoppedWork
+    revision: int
+    offered: bool
+    stop: str
+    locked: bool
+    needs: str
+    question_id: str | None = None
+    request_id: str | None = None
+    valid_until: float | None = None
+
+    @property
+    def stopped(self):
+        return self.stop == 'confirmed'
+
+    def eligible(self, work):
+        return (work == self.work and self.stopped and self.locked is False
+            and isinstance(self.needs, str) and bool(self.needs)
+            and (self.offered is True or bool(self.question_id) or bool(self.request_id)))
+
+
+@dataclass(frozen=True)
 class NewStartEvidence:
     """B/C observations for a place drop; speech alone cannot set these flags."""
     work: StoppedWork
@@ -127,7 +162,7 @@ def _particle(name, with_jong, without_jong):
 class Question:
     work: StoppedWork
     revision: int
-    valid_until: float
+    valid_until: float | None
     issued_at: float
     text: str = RESUME_QUESTION
     mode: str = 'resume'  # E-local only; not an intent enum
@@ -165,6 +200,7 @@ class RecoveryConfirmation:
         self.question = None
         self.finished_at = None
         self.request = None
+        self.question_until = None
         self.registered_at = None
         self.tts_started_at = None
         self.independent = None
@@ -233,6 +269,7 @@ class RecoveryConfirmation:
         self.question = None
         self.finished_at = None
         self.request = None
+        self.question_until = None
         self.registered_at = None
         self.tts_started_at = None
         self.independent = None
@@ -269,6 +306,15 @@ class RecoveryConfirmation:
         """명시 수락 adapter의 E 로컬 중단 사건 종료. 모션/작업 완료가 아닙니다."""
         if (valid_state is not True or work != self.work or not self.current_state_confirmed
                 or self._recovery_mode(work, evidence) != 'resume'):
+            return False
+        self._retire_work(work)
+        return True
+
+    @serialized
+    def c_resume_accepted(self, work, request_id, *, valid_state):
+        """Caller has matched a current C final decision; no motion permission here."""
+        if (valid_state is not True or self.work != work or
+                not isinstance(request_id, str) or not request_id.strip()):
             return False
         self._retire_work(work)
         return True
@@ -317,6 +363,8 @@ class RecoveryConfirmation:
                     evidence.verified()):
                 return 'new_start'
             return None
+        if isinstance(evidence, RunnerOffer) and evidence.eligible(work):
+            return 'resume'  # E candidate only; C final checks grant execution.
         if (isinstance(evidence, Evidence) and evidence.verified() and
                 (work.cause != 'SENSOR_INVALID' or evidence.sensor_normal is True)):
             return 'resume'
@@ -336,11 +384,13 @@ class RecoveryConfirmation:
 
     @serialized
     def recovered(self, work, revision, evidence, *, now, valid_until):
-        if not self.current_state_confirmed or work != self.work or not self._accept(work, revision):
+        if not self._ack_current(work, revision, True):
             return None
         mode = self._recovery_mode(work, evidence)
         if (mode is None or
-                not finite(now) or now < 0 or not finite(valid_until) or valid_until <= now):
+                not finite(now) or now < 0 or
+                not (valid_until is None and isinstance(evidence, RunnerOffer)
+                     or finite(valid_until) and valid_until > now)):
             self.invalidate()
             return None
         if work in self.asked:
@@ -350,6 +400,7 @@ class RecoveryConfirmation:
                                  NEW_START_QUESTION if mode == 'new_start' else RESUME_QUESTION,
                                  mode, uuid.uuid4().hex)
         self.finished_at = None
+        self.question_until = valid_until
         self.request = None
         return self.question
 
@@ -362,20 +413,23 @@ class RecoveryConfirmation:
         return revision == self.revision or self._accept(work, revision)
 
     @serialized
-    def registered(self, question, work, revision, *, now, valid_state):
+    def registered(self, question, work, revision, *, now, valid_state, valid_until=None):
         """Current trusted C registration only; no extra E ACK timer.
 
         valid_until is an E-local bound supplied from trusted C validity, never
-        a raw C monotonic timestamp. A wire/clock adapter is still not enabled.
+        a raw C monotonic timestamp. Runtime maps C remaining to the existing E
+        registration send; legacy typed callers supply their verified local bound.
         """
         if question is None or question is not self.question:
             return False
         if self.registered_at is not None:
             return False  # retransmission cannot extend deadlines or replay TTS
-        if (not finite(now) or not question.issued_at <= now < question.valid_until or
+        limit = question.valid_until if valid_until is None else valid_until
+        if (not finite(limit) or not finite(now) or not question.issued_at <= now < limit or
                 not self._ack_current(work, revision, valid_state)):
             self.invalidate()
             return False
+        self.question_until = limit
         self.registered_at = now
         return True
 
@@ -386,7 +440,7 @@ class RecoveryConfirmation:
         if self.tts_started_at is not None:
             return False
         if (self.registered_at is None or not finite(now) or
-                not self.registered_at <= now < question.valid_until):
+                not self.registered_at <= now < self.question_until):
             self.invalidate()
             return False
         self.tts_started_at = now
@@ -400,15 +454,19 @@ class RecoveryConfirmation:
         q = self.question
         if q is None:
             return False
-        limit = q.valid_until
+        limit = self.question_until
+        if limit is None:
+            return False  # current C registration/rejection, not a new E ACK timer
         if self.finished_at is not None and self.request is None:
             if self.admission_window_sec is None:
                 self.invalidate(); return True
             # The approved admission boundary itself is included.
-            if now <= self.finished_at + self.admission_window_sec and now < q.valid_until:
+            if now <= self.finished_at + self.admission_window_sec and now < self.question_until:
                 return False
             limit = min(limit, self.finished_at + self.admission_window_sec)
         elif self.request is not None:
+            if now <= self.request.result_until and now < self.question_until:
+                return False
             limit = min(limit, self.request.result_until)
         if now >= limit:
             self.invalidate(); return True
@@ -419,13 +477,13 @@ class RecoveryConfirmation:
         """Actual completion after the existing PCMTTS timeout checks, not enqueue.
 
         The future caller must report timeout/cancel/failure as success=False.
-        No operational recovery TTS caller is connected here.
+        VoiceNode reports actual playback timing; this core never plays audio.
         """
         if question is None or question is not self.question:
             return False
         if (success is not True or not finite(now) or self.registered_at is None or
                 self.tts_started_at is None or
-                not self.tts_started_at <= now < question.valid_until):
+                not self.tts_started_at <= now < self.question_until):
             self.invalidate()
             return False
         if self.finished_at is not None:
@@ -449,7 +507,7 @@ class RecoveryConfirmation:
                 self.finished_at is None or not all(finite(v) for v in
                     (captured_at, ended_at, started_at)) or
                 not self.finished_at <= captured_at <= ended_at <= started_at or
-                not question.issued_at <= started_at < question.valid_until or
+                not question.issued_at <= started_at < self.question_until or
                 started_at > self.finished_at + self.admission_window_sec):
             self.invalidate()
             return None
@@ -462,12 +520,14 @@ class RecoveryConfirmation:
         return self.request
 
     @serialized
-    def answer(self, text, question, *, captured_at, now, evidence, request=None):
+    def answer(self, text, question, *, captured_at, now, evidence, request=None, result_at=None):
         if question is None or question is not self.question:
             return None
+        result_at = now if result_at is None else result_at
         if (request is None or request is not self.request or request.question is not question or
                 captured_at != request.captured_at or not finite(now) or
-                not request.started_at <= now < min(request.result_until, question.valid_until)):
+                not finite(result_at) or not request.started_at <= result_at <= now or
+                result_at > request.result_until or now >= self.question_until):
             self.invalidate()
             return None
         if task_end_utterance(text):
@@ -477,7 +537,11 @@ class RecoveryConfirmation:
         if isinstance(text, str) and text.strip().rstrip('.!?') in ('아니', '아니요'):
             self.abandon(question)
             return None
-        if (safety_utterance(text) != question.mode or
+        reply = safety_utterance(text)
+        if (isinstance(evidence, RunnerOffer) and question.mode == 'resume' and isinstance(text,str)
+                and ''.join(text.split()).rstrip('.!?。？！') in ('응','네','예')):
+            reply = 'resume'  # current registered/delivered question receipt only
+        if (reply != question.mode or
                 self._recovery_mode(question.work, evidence) != question.mode):
             self.invalidate()
             return None
@@ -504,7 +568,7 @@ class RecoveryConfirmation:
                     (captured_at, ended_at, started_at)) or
                 not request.issued_at <= captured_at <= ended_at <= started_at or
                 captured_at <= self.audio_end or
-                started_at >= captured_at + self.independent_request_timeout_sec):
+                started_at > captured_at + self.independent_request_timeout_sec):
             self.invalidate(); return False
         self.audio_end = ended_at
         self.independent_audio = (captured_at, ended_at, started_at)
@@ -519,13 +583,17 @@ class RecoveryConfirmation:
         limit = captured + self.independent_request_timeout_sec
         if self.independent_result is None:
             limit = min(limit, started + self.stt_result_timeout_sec)
-        return started <= now < limit
+        return started <= now <= limit
 
     @serialized
-    def independent_stt(self, request, text, *, now):
+    def independent_stt(self, request, text, *, now, result_at=None):
         if request is None or request is not self.independent:
             return False  # stale callbacks must not invalidate another current request
-        if not self._independent_valid(request, now) or self.independent_result is not None:
+        result_at = now if result_at is None else result_at
+        audio = self.independent_audio
+        if (not self._independent_valid(request, result_at) or not finite(now) or
+                not result_at <= now <= audio[0] + self.independent_request_timeout_sec or
+                self.independent_result is not None):
             self.invalidate(); return False
         kind = 'end' if task_end_utterance(text) else safety_utterance(text)
         if kind != 'end' and kind != 'resume':
@@ -534,6 +602,16 @@ class RecoveryConfirmation:
         # or semantic invalidation clears it, while normal seq progress does not.
         self.independent_result = (kind, now)
         return True
+
+    @serialized
+    def independent_end(self, request, *, now):
+        """Explicit END consumes its recording; no resume registration/permission."""
+        if (not self._independent_valid(request, now) or self.independent_result is None
+                or self.independent_result[0] != 'end' or now < self.independent_result[1]):
+            return None
+        candidate = TaskEndCandidate(request.work)
+        self.invalidate()
+        return candidate
 
     @serialized
     def independent_registered(self, request, work, revision, *, now, valid_state):
