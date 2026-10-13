@@ -54,7 +54,7 @@ def server(monkeypatch):
     _stub(monkeypatch, "dsr_msgs2")
     _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
         "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetRobotMode GetRobotState GetToolForce "
-        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
+        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode TaskComplianceCtrl SetDesiredForce ReleaseForce ReleaseComplianceCtrl").split()})
     _stub(monkeypatch, "pymodbus")
     _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
     for m in ("ready2go_skills.adapters.dsr", "ready2go_skills.adapters.rg2", "ready2go_skills.nodes.skill_server"):
@@ -3290,3 +3290,86 @@ def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):
     assert b[1] > a[1] + d["hole_slack_mm"] / 1000.0 and abs(b[0] - a[0]) < 1e-3                  # +y(벽 반대)로만 밂
     assert (b[1] - c[1]) * 1000.0 == pytest.approx(d["hole_back_mm"], abs=0.1)
     assert data["target_after"]["pose"]["position"][1] > tape["pose"]["position"][1]
+
+
+def test_force_mode_presses_by_force_and_releases_before_lift(server, monkeypatch):
+    """drag.force_mode [사용자 10/13 힘 제어]: 위치로 내려가며 5 N 문턱·멈춘 채 확인·0.1 mm 힘 맞추기 대신 누를 자리 위에서
+    두산 힘 제어(z 만, sweep 은 sweep_force_n 가운데)를 켜면 내려가 닿고 그 힘 그대로 끈 뒤, 올리기 전에 풂. 누르기 직선(press) 없음."""
+    import copy
+    from ready2go_skills.core import clear_plan as clp
+    srv = server.srv
+    prm = copy.deepcopy(srv.prm())
+    prm["drag"]["force_mode"] = True
+    monkeypatch.setattr(srv, "prm", lambda: prm)
+    calls, held = [], {}
+
+    def force_on(fz, stx, ramp=0.2):                       # 가짜 제어기: 켜면 3 mm 내려가 물체에 닿아 그 힘으로 멈춤
+        calls.append(("on", round(fz, 2)))
+        srv.robot.p[2] -= 3.0
+        held["f"] = fz
+        return True
+
+    def force_off(ramp=0.2):
+        calls.append(("off",))
+        held.pop("f", None)
+        return True
+    srv.robot.force_on, srv.robot.force_off = force_on, force_off
+    srv.robot.force = lambda p: [0.0, 0.0, -held.get("f", 0.0), 0.0, 0.0, 0.0]
+    t = _seg(ERASER_FREE)
+    t["pose"]["yaw"] = 0.0
+    nb = _seg(CARAMEL_NEXT)
+    nb["pose"]["position"] = [0.10, 0.15 - 0.011 - 0.0245 - 0.002, 0.0]
+    sweep = clp.Action("sweep", "eraser#1", "30 mm 밀고 15 mm 되돌아옴", dir=(0.0, -1.0), dist_m=0.03, back_m=0.015,
+                       pushed=("caramel_box#1",), extra={})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: sweep)
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        calls.append(("line", stage))
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, nb)})
+    assert out.success, out.reason
+    seq = [c[0] if c[0] != "line" else c[1] for c in calls]
+    lo, hi = prm["drag"]["sweep_force_n"]
+    assert ("on", round((lo + hi) / 2, 2)) in calls and "press" not in seq
+    i_on, i_off = seq.index("on"), seq.index("off")
+    assert i_on < seq.index("drag") < seq.index("drag_back") < i_off < len(seq) - 1 - seq[::-1].index("lift")
+    assert seq.count("on") == 1 and seq.count("off") == 1 and not srv._force_active
+
+
+def test_force_mode_no_object_releases_and_refuses(server, monkeypatch):
+    """힘 제어로 내려가도 예상 윗면 아래 force_search_below_mm 넘게 빠지면(구멍·빈 자리) 풀고 NO_OBJECT_CONTACT, 끌지 않음."""
+    import copy
+    from ready2go_skills.core import clear_plan as clp
+    srv = server.srv
+    prm = copy.deepcopy(srv.prm())
+    prm["drag"]["force_mode"] = True
+    monkeypatch.setattr(srv, "prm", lambda: prm)
+    calls = []
+
+    def force_on(fz, stx, ramp=0.2):
+        calls.append("on")
+        srv.robot.p[2] -= 40.0                                                       # 닿을 것 없이 쭉 내려감
+        return True
+    srv.robot.force_on = force_on
+    srv.robot.force_off = lambda ramp=0.2: calls.append("off") or True
+    t = _seg(ERASER_FREE)
+    t["pose"]["yaw"] = 0.0
+    nudge = clp.Action("nudge", "eraser#1", "빈 쪽(-y)으로 20 mm", dir=(0.0, -1.0), dist_m=0.02, extra={})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: nudge)
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t)})
+    n = int(prm["drag"].get("press_attempts", 1))                                     # 끌기 전 실패는 같은 자리에서 다시 (기존 규칙)
+    assert out.error_code == server.ss.NO_OBJECT_CONTACT and calls == ["on", "off"] * n, (out, calls)
+    assert not srv._force_active
+
+
+def test_force_mode_off_is_unchanged_and_release_is_safety_net(server):
+    """force_mode 기본 false — 힘 제어를 부르지 않음. 켜져 있던 힘 제어 해제가 실패하면 STATE_UNKNOWN(서버 잠금 코드)."""
+    srv = server.srv
+    assert srv.prm()["drag"]["force_mode"] is False
+    assert srv._force_release() is None                                               # 켜진 적 없으면 아무것도 안 함
+    srv._force_active = True
+    srv.robot.force_off = lambda ramp=0.2: False
+    r = srv._force_release()
+    assert r is not None and r.error_code == server.ss.sf.STATE_UNKNOWN and not srv._force_active

@@ -251,7 +251,6 @@ def run_scenario(name, drawer, steps):
         segs = robot.segments[n0:]
         ikf = sum(s.get("ik_fail", 0) for s in segs)
         bad = [s for s in segs if s["kind"] in ("movel", "moveb") and (s["min_abs_j3"] < 15 or s["min_abs_j5"] < 10)]
-        jmax = max((max(abs(v) for v in s["joints"][-1]) for s in segs), default=0)
         t_step = sum(seg_time(s_) for s_ in segs) + GRIP_S * (len(robot.grip_events) - g0) + (robot.sleep_s - z0)
         TIMES.append((name, drawer, label, t_step))
         print(f"  {label:26s} {'OK ' if out.success else 'FAIL'} {out.error_code or ''} {(out.reason or '')[:110]}  [{t_step:.1f} s]")
