@@ -20,6 +20,7 @@ import jsonschema
 
 RUN, CANCEL, STATUS, HOLD, REJECT = "run", "cancel", "status", "hold", "reject"
 RECOVER = "recover"                     # 계약 W3 recover (#152·#271): B 조회 충족이면 C 잠금 해제 — 재개 허가 아님 (노드가 처리)
+RESUME = "resume"                       # 계약 W3 resume_register·resume_answer·resume (#152·#271): 접수·재개는 노드가 (core/resume_admission)
 END = "end"                             # 계약 W3 end_task (#152·#271): 지금 작업 종료 — 실행 중이면 정지, 보존 작업이면 폐기 (노드가 처리)
 PLAN = "plan"                           # achieve_goal: 노드가 플래너로 계획한 뒤 run 또는 hold 로 바꿈 (#150)
 # 보류·거절 이유 (/runner/status last_intent.reason, 로그)
@@ -116,6 +117,12 @@ class IntentRouter:
             if intent["confidence"] < self.min_confidence:
                 return Decision(HOLD, LOW_CONFIDENCE, intent=intent)
             return Decision(RECOVER, intent=intent)
+        if name in ("resume_register", "resume_answer", "resume"):
+            # 사용자 발화(답 resume·decline, 독립 요청 request)만 신뢰도 확인. E 자동 등록·만료(stt_text null)는 확인 안 함
+            spoken = intent.get("answer") in ("resume", "decline") or intent.get("phase") == "request"
+            if spoken and intent["confidence"] < self.min_confidence:
+                return Decision(HOLD, LOW_CONFIDENCE, intent=intent)
+            return Decision(RESUME, intent=intent)
         if name in ("unknown", "clarify"):
             return Decision(HOLD, NEEDS_CLARIFY, intent=intent)
         if name == "achieve_goal" and name not in self.tasks:     # 목표형: 동작 순서는 플래너가 (#150, FR-PLN-02)
