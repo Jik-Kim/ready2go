@@ -1,4 +1,6 @@
 """core/clear_plan.py — 파지 공간 만들기 (쌓인 것 빈 곳에 치우기·넛지·좌우 밀기) [사용자 10/11 제안, 미연결]."""
+import dataclasses
+
 import pytest
 
 from ready2go_skills.core import clear_plan as cp
@@ -210,3 +212,49 @@ def test_opens_way_with_one_target_move_after_neighbor_moved():
     assert not orc.pick([t, c], "eraser#1")[0]
     assert not cp._opens_way([t, c], "eraser#1", orc)
     assert cp._opens_way([t, c], "eraser#1", orc, wall_steps=0, cfg=CFG)              # -y 로 넛지하면 집힘
+
+
+class TiltOracle(Oracle):
+    """다시 집을 때 손잡이 쪽 벽(x 작음) tilt_x_m 안이면 기울여 잡는다고 알림 (skill_server DryOracle.last_pick_tilted 흉내)."""
+
+    def __init__(self, tilt_x_m, **kw):
+        super().__init__(**kw)
+        self.tilt_x_m, self.last_pick_tilted = tilt_x_m, False
+
+    def pick(self, objs, oid):
+        r = super().pick(objs, oid)
+        x = next(o for o in objs if o["id"] == oid)["pose"]["position"][0]
+        self.last_pick_tilted = bool(r[0]) and x < self.tilt_x_m
+        return r
+
+
+def test_free_pose_avoids_tilted_repick_zone_when_upright_spot_exists():
+    """[트윈 재생 10/13 A] free 가 차키를 손잡이 쪽 벽 30 mm 에 둠 → 다시 집을 때 20° 기울임 → 다른 자리 복구 때 기울어진 채 놓임.
+    수직으로 다시 집을 자리가 있으면 그쪽, 기울임 구역뿐이면 그래도 놓음."""
+    objs = [obj("car_key#1", "car_key", 0.15, 0.15)]
+    cfg = dataclasses.replace(CFG, free_try=100, allow_unpickable_place=False)   # 가짜 검사는 벽 자리 60개를 다 거부함
+    first = cp.find_free_pose(objs, "car_key#1", [], Oracle(), cfg)
+    tilt_x = first["position"][0] + 0.005                                  # 기울임 없을 때 처음 고르는 자리가 기울임 구역이 되게
+    pose = cp.find_free_pose(objs, "car_key#1", [], TiltOracle(tilt_x), cfg)
+    assert pose is not None and pose["position"][0] >= tilt_x, pose
+    everywhere = cp.find_free_pose(objs, "car_key#1", [], TiltOracle(1.0), cfg)   # 전부 기울임 구역 — 놓을 수는 있음
+    assert everywhere == first
+
+
+def test_hole_class_is_not_pressed():
+    """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 누르면 손끝이 구멍으로 빠짐 → 공간 만들기에서 누를 점 없음(같이 밀리기·집기만)."""
+    sizes = dict(SIZES, masking_tape=[0.0385, 0.0385, 0.0152])
+    t = dict(obj("t", "eraser", 0.10, 0.15), **{"class": "masking_tape"})
+    assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0) is not None
+    assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0, hole=("masking_tape",)) is None
+
+
+def test_front_wall_penalty_only_for_newly_touching_handle_wall():
+    """[사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] 손잡이 쪽 벽(x 0) front_keep_mm 안으로 새로 들어가는 동작만 벌점."""
+    t = obj("eraser#1", "eraser", 0.045, 0.15)                                     # 손잡이 쪽 끝 x 18.75 mm
+    near = [cp.moved(t, -0.015, 0.0)]                                              # 3.75 mm — 새로 붙음
+    side = [cp.moved(t, 0.0, 0.02)]                                                # 옆으로 — x 그대로
+    assert cp._front_cost([t], near, CFG) == pytest.approx(CFG.front_penalty_m)
+    assert cp._front_cost([t], side, CFG) == 0.0
+    already = obj("eraser#1", "eraser", 0.03, 0.15)                                # 이미 붙어 있던 물체를 옆으로
+    assert cp._front_cost([already], [cp.moved(already, 0.0, 0.02)], CFG) == 0.0

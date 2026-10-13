@@ -54,7 +54,7 @@ def server(monkeypatch):
     _stub(monkeypatch, "dsr_msgs2")
     _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
         "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetRobotMode GetRobotState GetToolForce "
-        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
+        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode TaskComplianceCtrl SetDesiredForce ReleaseForce ReleaseComplianceCtrl").split()})
     _stub(monkeypatch, "pymodbus")
     _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
     for m in ("ready2go_skills.adapters.dsr", "ready2go_skills.adapters.rg2", "ready2go_skills.nodes.skill_server"):
@@ -676,7 +676,7 @@ def test_stacked_eraser_picked_on_support_and_remembered_from_own_bottom(server,
     server.Gripper.holding = True
     try:
         floor, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-        z_floor, floor_held = srv.held["tcp_above_floor_m"], dict(srv.held)   # 잡은 TCP 높이 (바닥 위)
+        floor_held = dict(srv.held)
         seen[:], srv.held = [], None                                    # 놓았다고 치고 다시 집기
         out, data = server.run("pick_object", {"target": _stacked_eraser(0.0115 + 0.0435), "approach_offset": [0, 0, 0.1]})
     finally:
@@ -794,9 +794,8 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
         server.ss.SkillServer._line = real
         server.Gripper.holding = False
     st = {s: (v, z) for s, v, z in speeds}
-    sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
+    # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
     # 경유점이 있는 서랍: 목표 위로 가는 블렌딩이 잡는 높이 1 cm 위에서 끝남(따로 빠르게 내려가기 없음) → 마지막 1 cm 만 천천히 [사용자 10/10]
-    blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
     # 집기 [사용자 10/11 "벌려서 높이만큼 빠르게 내려가 집기"]: 목표 위 → 잡는 높이까지 블렌딩 한 번(서랍 안 속도), 천천히 내려가기 없음
     assert "descend" not in st and "descend_fast" not in st
     assert out2.success and "lower_fast" not in st and st["lower"][0] == 15.0   # 칸 위 → 1 cm 위는 들고 나오기 블렌딩에 포함 [사용자 10/10]
@@ -1798,6 +1797,20 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
     assert (lows[0.0] - lows[5.0]) * 1000.0 == pytest.approx(5.0, abs=0.05)
 
 
+def test_dry_pick_reports_handle_side_tilt(server):
+    """빈 자리 고르기(clear_plan.find_free_pose)가 읽는 DryOracle.last_pick_tilted — 손잡이 쪽 벽에 가로로 붙은 지우개는 기울여 잡음,
+    가운데는 수직 [트윈 재생 10/13 A]. 판단만 — 로봇 명령 없음."""
+    srv = server.srv
+    near = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115, "occluded_by": [],
+            "pose": {"frame": "drawer_top", "position": [0.0129, 0.0714, 0.0], "yaw": -1.5644, "yaw_valid": True}}
+    mid = dict(near, pose=dict(near["pose"], position=[0.1, 0.15, 0.0], yaw=0.0))
+    oracle = server.ss.DryOracle(srv, "drawer_top")
+    n = len(srv.robot.log)
+    assert oracle.pick([near], "eraser#1")[0] and oracle.last_pick_tilted
+    assert oracle.pick([mid], "eraser#1")[0] and not oracle.last_pick_tilted
+    assert len(srv.robot.log) == n
+
+
 def test_pick_height_by_tip_table_without_touch(server):
     """[사용자 10/11 "넛지 빼고 온톨로지 높이 반영, 벌려서 높이만큼 빠르게 내려가 집기"]: 닫은 손끝(잡는 폭 — 손끝 표)이
     바닥 위 온톨로지 높이 × grip_height_ratio. 바닥 찍기·천천히 내려가기 없이 블렌딩 한 번으로 잡는 높이까지."""
@@ -1852,7 +1865,6 @@ def test_cover_plate_gripped_at_plate_height_not_floor(server):
 def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server):
     """[사용자 10/11 PC2] 비전이 캐러멜 윗면을 7~9 mm 높게 봄(25~27 / 18.5) → 지우개 받침을 비전으로 재면 높게 헛잡음.
     scan 에 밑에 깔린 캐러멜이 있으면 받침 = 캐러멜 온톨로지 높이 18.5."""
-    srv = server.srv
     er = {"id": "eraser#1", "class": "eraser", "top_z": 0.039,
           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
     ca = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.027,
@@ -2192,6 +2204,40 @@ def test_key_on_cover_plate_picks_and_restores_at_its_own_height(server, on, top
     assert lows[0] - lows[1] == pytest.approx(1000.0 * (top - 0.0158 - 0.035), abs=0.6)
 
 
+def test_remembered_support_dropped_when_support_moved(server):
+    """[트윈 재생 10/13 A] 몽키 → 캐러멜 → 차키 3단: 차키를 받침 37 mm 로 기억 → 캐러멜을 바닥에 복구한 뒤에도 37 mm 에 놓아
+    16.5 mm 위에서 떨어뜨림. 받침이던 물체를 옮기면(집기) 그 기억은 버리고 지금 받침 비전 top_z 로 놓음. 받침이 그대로면 기억값."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.035, "occluded_by": ["car_key#1"], "visible_area_m2": 0.006,
+             "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.029 + 0.0158, "occluded_by": [], "visible_area_m2": 0.0027,
+           "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": key, "candidates": [plate], "visible_count": 2}
+    pose = {k: key["pose"][k] for k in ("frame", "position", "yaw")}
+    server.Gripper.holding, server.Gripper.held_width = True, 39.0
+    try:
+        out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason
+        assert srv.picked_from[-1]["under"] == ["cover_plate"]
+        held = dict(srv.held)
+        lows = []
+        for moved in (False, True):
+            srv.held = dict(held)
+            if moved:                                               # 판을 집어 옮겼다 (다시 같은 자리에 놓였더라도 높이는 다시 봄)
+                srv._remember_pick("cover_plate", D, plate["pose"], 0.0)
+                assert not any(r["class"] == "car_key" for r in srv.picked_from)
+            n = len(srv.robot.log)
+            rescan = {"target_found": True, "target": dict(key), "candidates": [dict(plate, occluded_by=[])], "visible_count": 2}
+            out, _ = server.run("place_object", {"location": D, "pose": pose, "scan": rescan})
+            assert out.success, out.reason
+            lows.append(min(e[1][2] for e in srv.robot.log[n:] if e != "stop" and e[0] == "movel"))
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert lows[1] - lows[0] == pytest.approx(1000.0 * (0.035 - 0.029), abs=0.6)   # 기억(판 면 29) 대신 지금 판 top_z 35
+
+
 def test_putback_onto_cover_plate_when_plate_center_test_misses(server):
     """[사용자 10/13 PC2 "판 위 너무 잘 집는데 putback 이 안 됨 — PLACE_BLOCKED cover_plate#1 와 겹침"] 판 위 물체 가운데가 판 비전
     footprint 밖(가려진 판 위치 치우침·판 끝 나사 위)이면 가운데 기준 받침 찾기(stack_support)가 못 찾음 → 집었던 자리로 되돌릴 땐
@@ -2343,7 +2389,6 @@ def test_putback_pick_then_place_at_pick_pose(server):
 def test_toy_car_judged_by_measured_body_width(server, yaw, width, ok):
     """[실측 PC2 10/11] 장난감차: 세로(짧은 변) 30.9·가로(긴 변 양끝) 48.0 — 외접 박스 40.5·57.5 보다 몸통이 좁아 WIDTH_MISMATCH 였음.
     item_grasp.yaml grasp_width_m / grasp_width_long_m 실측으로 판정 (외접 박스 폭이면 이제 실패)."""
-    srv = server.srv
     t = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.0325,
          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": yaw, "yaw_valid": True}}
     server.Gripper.holding, server.Gripper.held_width = True, width
@@ -2396,7 +2441,6 @@ def test_tray_view_named_pose_goes_to_taught_joints(server):
 def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
     """[실측 PC2 10/11 분할 모델] 3단 윗면이 몽키 53.7·캐러멜 54·차키 53.7 로 번지고 관계 없음 → 캐러멜이 손가락 자리 이웃으로
     NEIGHBOR_TOO_CLOSE 였음. 차키 위에 아무것도 없고 밑 물체가 더 크면 받침 → 받침 37 (몽키 18.5 + 캐러멜 18.5) 위에서 집음."""
-    srv = server.srv
     f = "drawer_top"
     key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0537, "occluded_by": [],
            "pose": {"frame": f, "position": [0.12, 0.19, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 세로 → 짧은 변 39
@@ -2642,7 +2686,6 @@ def test_putback_tilted_pick_places_back_with_same_tilt(server, drawer):
     """[사용자 10/12 PC2] 손잡이 쪽 벽에 가로로 붙은 립밤(아래 칸 (9.7, 153.9) mm yaw 1.5625)은 손잡이 쪽으로 기울여 집음 →
     `B putback` 이 수직으로 놓으려다 손가락 자리가 벽 밖(꼭짓점 x −5.8 mm) WALL_TOO_CLOSE. 원래 자리면 집을 때 자세 그대로 거꾸로 놓음:
     같은 TCP(+ drop_m)·같은 기울임. 기억이 없으면(예전 동작) 그대로 거부, 원래 자리에서 벗어난 pose 도 거부."""
-    from ready2go_skills.core import motion_plan as mp
     srv = server.srv
     prm = srv.prm()
     srv.prm = lambda: prm
@@ -3151,3 +3194,114 @@ def test_wrench_wall_check_uses_handle_width(server):
     ok, code, reason = server.ss.DryOracle(srv, D).pick([w], w["id"])
     assert ok, (code, reason)
     assert srv.robot.log == []
+
+
+def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):
+    """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 넛지 대신 닫은 손가락을
+    구멍(가운데)에 넣어 계획한 방향·거리 + hole_slack_mm 만큼 수평으로 밂, hole_back_mm 물러났다가 올림. 누르기(press) 없음."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    d = srv.prm()["drag"]
+    tf = srv.places()["drawer_top"]["tf"]
+    tape = {"id": "masking_tape#1", "class": "masking_tape", "top_z": 0.0152,
+            "pose": {"frame": "drawer_top", "position": [0.10, 0.021, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 오른쪽 벽(y 0)에 붙음
+    stages = []
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        stages.append(stage)
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": tape})
+    assert out.success and "구멍" in out.reason, out.reason
+    i = stages.index("push")
+    assert stages[i - 1] == "push_down" and stages[i + 1:i + 3] == ["push_back", "lift"] and "press" not in stages
+    moves = [e[1] for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    a, b, c = (mp.from_base(tf, [v / 1000.0 for v in m[:3]]) for m in moves[i - 1:i + 2])
+    assert a[0] == pytest.approx(0.10, abs=1e-3) and a[1] == pytest.approx(0.021, abs=1e-3)       # 구멍(가운데)에 내려감
+    assert b[1] > a[1] + d["hole_slack_mm"] / 1000.0 and abs(b[0] - a[0]) < 1e-3                  # +y(벽 반대)로만 밂
+    assert (b[1] - c[1]) * 1000.0 == pytest.approx(d["hole_back_mm"], abs=0.1)
+    assert data["target_after"]["pose"]["position"][1] > tape["pose"]["position"][1]
+
+
+def test_force_mode_presses_by_force_and_releases_before_lift(server, monkeypatch):
+    """drag.force_mode [사용자 10/13 힘 제어]: 위치로 내려가며 5 N 문턱·멈춘 채 확인·0.1 mm 힘 맞추기 대신 누를 자리 위에서
+    두산 힘 제어(z 만, sweep 은 sweep_force_n 가운데)를 켜면 내려가 닿고 그 힘 그대로 끈 뒤, 올리기 전에 풂. 누르기 직선(press) 없음."""
+    import copy
+    from ready2go_skills.core import clear_plan as clp
+    srv = server.srv
+    prm = copy.deepcopy(srv.prm())
+    prm["drag"]["force_mode"] = True
+    monkeypatch.setattr(srv, "prm", lambda: prm)
+    calls, held = [], {}
+
+    def force_on(fz, stx, ramp=0.2):                       # 가짜 제어기: 켜면 3 mm 내려가 물체에 닿아 그 힘으로 멈춤
+        calls.append(("on", round(fz, 2)))
+        srv.robot.p[2] -= 3.0
+        held["f"] = fz
+        return True
+
+    def force_off(ramp=0.2):
+        calls.append(("off",))
+        held.pop("f", None)
+        return True
+    srv.robot.force_on, srv.robot.force_off = force_on, force_off
+    srv.robot.force = lambda p: [0.0, 0.0, -held.get("f", 0.0), 0.0, 0.0, 0.0]
+    t = _seg(ERASER_FREE)
+    t["pose"]["yaw"] = 0.0
+    nb = _seg(CARAMEL_NEXT)
+    nb["pose"]["position"] = [0.10, 0.15 - 0.011 - 0.0245 - 0.002, 0.0]
+    sweep = clp.Action("sweep", "eraser#1", "30 mm 밀고 15 mm 되돌아옴", dir=(0.0, -1.0), dist_m=0.03, back_m=0.015,
+                       pushed=("caramel_box#1",), extra={})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: sweep)
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        calls.append(("line", stage))
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, nb)})
+    assert out.success, out.reason
+    seq = [c[0] if c[0] != "line" else c[1] for c in calls]
+    lo, hi = prm["drag"]["sweep_force_n"]
+    assert ("on", round((lo + hi) / 2, 2)) in calls and "press" not in seq
+    i_on, i_off = seq.index("on"), seq.index("off")
+    assert i_on < seq.index("drag") < seq.index("drag_back") < i_off < len(seq) - 1 - seq[::-1].index("lift")
+    assert seq.count("on") == 1 and seq.count("off") == 1 and not srv._force_active
+
+
+def test_force_mode_no_object_releases_and_refuses(server, monkeypatch):
+    """힘 제어로 내려가도 예상 윗면 아래 force_search_below_mm 넘게 빠지면(구멍·빈 자리) 풀고 NO_OBJECT_CONTACT, 끌지 않음."""
+    import copy
+    from ready2go_skills.core import clear_plan as clp
+    srv = server.srv
+    prm = copy.deepcopy(srv.prm())
+    prm["drag"]["force_mode"] = True
+    monkeypatch.setattr(srv, "prm", lambda: prm)
+    calls = []
+
+    def force_on(fz, stx, ramp=0.2):
+        calls.append("on")
+        srv.robot.p[2] -= 40.0                                                       # 닿을 것 없이 쭉 내려감
+        return True
+    srv.robot.force_on = force_on
+    srv.robot.force_off = lambda ramp=0.2: calls.append("off") or True
+    t = _seg(ERASER_FREE)
+    t["pose"]["yaw"] = 0.0
+    nudge = clp.Action("nudge", "eraser#1", "빈 쪽(-y)으로 20 mm", dir=(0.0, -1.0), dist_m=0.02, extra={})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: nudge)
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t)})
+    n = int(prm["drag"].get("press_attempts", 1))                                     # 끌기 전 실패는 같은 자리에서 다시 (기존 규칙)
+    assert out.error_code == server.ss.NO_OBJECT_CONTACT and calls == ["on", "off"] * n, (out, calls)
+    assert not srv._force_active
+
+
+def test_force_mode_off_is_unchanged_and_release_is_safety_net(server):
+    """force_mode 기본 false — 힘 제어를 부르지 않음. 켜져 있던 힘 제어 해제가 실패하면 STATE_UNKNOWN(서버 잠금 코드)."""
+    srv = server.srv
+    assert srv.prm()["drag"]["force_mode"] is False
+    assert srv._force_release() is None                                               # 켜진 적 없으면 아무것도 안 함
+    srv._force_active = True
+    srv.robot.force_off = lambda ramp=0.2: False
+    r = srv._force_release()
+    assert r is not None and r.error_code == server.ss.sf.STATE_UNKNOWN and not srv._force_active

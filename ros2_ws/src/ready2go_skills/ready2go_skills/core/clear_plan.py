@@ -214,7 +214,8 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
 
 
 def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_r_mm: float, rise_tol_m: float = 0.003,
-                inset_mm: float = 4.0, narrow_of: Optional[Callable] = None, center_only: Sequence[str] = ()) -> Optional[tuple]:
+                inset_mm: float = 4.0, narrow_of: Optional[Callable] = None, center_only: Sequence[str] = (),
+                hole: Sequence[str] = ()) -> Optional[tuple]:
     """닫은 손가락으로 목표 윗면을 누를 점 (서랍 좌표 m) — 가운데에서 가까운 점부터: 긴 변을 따라 가운데·절반·끝,
     폭 방향으로 (손잡이 폭(narrow_of, m) 또는 짧은 변)/2 − 8 mm 까지 비켜서.
     center_only 종류는 가운데(폭 방향 비킴만)만 — 윗면 높이가 고르지 않아 머리·끝은 top_z 보다 낮아 접촉 없음
@@ -225,6 +226,8 @@ def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_
     접촉 없음 → 폭 방향으로 비켜 가운데 근처를 누름]"""
     by = {o["id"]: o for o in objs}
     t = by[tid]
+    if t["class"] in hole:                                       # 가운데가 뚫림(마스킹테이프) — 누르면 손끝이 구멍으로 빠짐 [사용자 10/13]
+        return None
     if t.get("occluded_by") or t.get("top_z") is None:
         return None if t.get("occluded_by") else tuple(t["pose"]["position"][:2])
     tx, ty, yaw = t["pose"]["position"][0] * 1000.0, t["pose"]["position"][1] * 1000.0, t["pose"]["yaw"]
@@ -248,7 +251,8 @@ def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_
 
 def _pkw(cfg) -> dict:
     """press_point 설정값 (Config 에서)."""
-    return {"finger_r_mm": cfg.press_finger_r_mm, "narrow_of": cfg.narrow_of, "center_only": cfg.press_center_only_classes}
+    return {"finger_r_mm": cfg.press_finger_r_mm, "narrow_of": cfg.narrow_of, "center_only": cfg.press_center_only_classes,
+            "hole": cfg.hole_classes}
 
 
 def press_ok(objs: Sequence[Mapping], tid: str, size_of: Callable, **kw) -> bool:
@@ -340,6 +344,9 @@ class Config:
     remove_first: bool = True                # 옆 물체를 같이 미는 밀기보다 막는 물체 집어 치우기 먼저 — 실행 값 make_room.remove_first [사용자 10/12]
     narrow_of: Optional[Callable] = None     # 손잡이 폭(m) — 누를 점을 폭 방향으로 비킬 범위 (몽키·망치 item_grasp)
     press_center_only_classes: Sequence[str] = ("toy_wrench",)   # 가운데만 누름 — 머리·끝은 윗면이 낮음 [사용자 10/13 PC2]
+    hole_classes: Sequence[str] = ("masking_tape",)            # 가운데가 뚫림 — 공간 만들기에서 안 누름(같이 밀리기·집기만) [사용자 10/13]
+    front_keep_mm: float = 10.0              # 손잡이 쪽 벽(x 0)에서 이만큼 안으로 새로 들어오게 미는 동작은 벌점 — 앞벽에 붙으면 안쪽으로 못 끌어
+    front_penalty_m: float = 0.05            # (서랍이 닫힘) 사방이 막혀 못 풂 [사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] — 이동 거리로 셈
     sweep_max_m: Optional[float] = None      # 밀기(sweep) 최대 거리 — 없으면 max_shift_m. 실행 값 make_room.sweep_max_mm
     press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
 
@@ -380,13 +387,18 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
     """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 목표(avoid_ids) 둘레 비움.
     먼저 목표에서 cfg.avoid_pad_mm 떨어진 곳, 없으면 더 가까이(near_pad_mm)도 보되 놓은 물체가 목표를 집을 손가락 자리를
     막지 않는지 집기 검사로 확인 (가운데 가로로 놓인 몽키 위 차키 [P2 시뮬레이션 10/11: 25 mm 비우면 놓을 데가 없음]).
-    놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기)."""
-    fallback = None
+    놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기).
+    다시 집을 때 그리퍼를 기울여야 하는 곳(oracle.last_pick_tilted, 손잡이 쪽 벽 가까이)은 수직으로 집을 곳이 없을 때만 (그때는
+    free_try 두 배까지 더 찾아봄 — 후보가 벽에 붙은 자리부터라 손잡이 쪽 벽 자리가 앞에 몰림) —
+    기울여 쥔 물체를 다른 자리에 수직으로 놓으면 손 안에서 기울어진 채 놓임 [트윈 재생 10/13 A]."""
+    fallback = tilted = None
     for pad in (cfg.avoid_pad_mm, cfg.near_pad_mm):
         avoid = [o for o in objs if o["id"] in avoid_ids]
         cands = [c for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid, avoid_pad_mm=pad)
                  if cfg.reach_x_m is None or c["pose"]["position"][0] <= cfg.reach_x_m]   # 안쪽 벽에 붙여도 손이 안 닿으면 못 놓음
-        for c in cands[: cfg.free_try]:
+        for i, c in enumerate(cands):
+            if i >= cfg.free_try * (2 if tilted is not None else 1):   # 기울임 자리만 찾았으면 수직 자리를 두 배까지 더 찾아봄
+                break
             pose = as_pose(c)
             ok, _, _ = oracle.place(objs, held_id, pose)
             if not ok:
@@ -395,9 +407,14 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
             if pad < cfg.avoid_pad_mm and any(_blocks(after, a, held_id, oracle) for a in avoid_ids):
                 continue
             if oracle.pick(after, held_id)[0]:
-                return pose
+                if not getattr(oracle, "last_pick_tilted", False):
+                    return pose
+                tilted = tilted or pose
+                continue
             if fallback is None and cfg.allow_unpickable_place:
                 fallback = pose
+        if tilted is not None:
+            return tilted
         if fallback is not None:
             return fallback
     return None
@@ -417,7 +434,6 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     순서 [사용자 10/11]: ① 파지 공간 확보 — 위에 얹힌 것 빈 곳에 치우기 / 옆이 막히면 목표 넛지(빈 쪽)·좌우 밀기(사방 막힘)
     ② (다시 보기는 부르는 쪽) ③ 집기. 긴 변(가로) 잡기는 pick 검사 안에서 먼저 봄(우선순위 1)."""
     by = {o["id"]: o for o in objs}
-    t = by[tid]
     tops = [r for r in riders(objs, tid) if not riders(objs, r)]
     if tops:                                                       # 쌓임: 맨 위부터 빈 곳으로
         top = max(tops, key=lambda r: by[r]["top_z"])
@@ -450,7 +466,9 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     # 한 번 움직여 잡힘: 빈 쪽 넛지(안 밂) 또는 한쪽으로 쭉 밀고(옆 물체 같이) 되돌아오기 — 덜 움직이는 것부터.
     # remove_first: 목표 말고는 다 방해물 — 벽은 못 움직이고 물체는 옮길 수 있음 [사용자 10/12]. 다른 물체를 건드리지 않는
     # 넛지 → 막는 물체를 집어 빈 자리로 → (그래도 안 되면) 옆 물체를 같이 미는 밀기 순서
-    moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: c[0])
+    # 순서 [사용자 10/13 "넛지로 넓은 공간으로 끌어온 뒤 집기 → 안 되면 sweep 으로 근처 정리 → 그래도 안 되면 다른 놈들 치우기"]:
+    # 다른 물체를 안 건드리는 넛지 먼저(그중 덜 움직이는 것), 그다음 옆 물체를 같이 미는 sweep. 치우기는 아래(remove_first 면 sweep 보다 먼저)
+    moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: (bool(c[1].pushed), c[0]))
     for cost, act, after in moves:
         if (not cfg.remove_first or not act.pushed) and oracle.pick(after, tid)[0]:
             return _with_slack(moves, act, tid, oracle, cfg.slack_mm)
@@ -561,6 +579,21 @@ def _with_slack(moves, act: "Action", tid: str, oracle, slack_mm: float) -> "Act
     return best[1] if best else act
 
 
+def _front_cost(before, after, cfg: Config) -> float:
+    """움직인 물체(목표·같이 밀린 것) 중 손잡이 쪽 벽(x 0)에 front_keep_mm 안으로 새로 붙는 게 있으면 front_penalty_m (아니면 0)."""
+    if cfg.front_penalty_m <= 0:
+        return 0.0
+    old = {o["id"]: o for o in before}
+    for o in after:
+        b = old.get(o["id"])
+        if b is None or b["pose"]["position"][:2] == o["pose"]["position"][:2]:
+            continue
+        x_new = min(x for x, _ in footprint_mm(o, cfg.size_of))
+        if x_new < cfg.front_keep_mm and x_new < min(x for x, _ in footprint_mm(b, cfg.size_of)) - 0.5:
+            return cfg.front_penalty_m
+    return 0.0
+
+
 def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False) -> list:
     """목표 자신을 서랍 축으로 움직이는 후보 → [(움직인 거리 m, Action, 예상 물체 목록)].
     nudge: 막힘 없이 끌기 / sweep: 앞 물체를 같이 밀고(최대 max_chain) back 만큼 되돌아오기 (양쪽 공간) [사용자 10/11].
@@ -576,8 +609,9 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
         can = free_move(objs, tid, u, cfg.max_shift_m, cfg.interior_m, cfg.size_of)
         dists = [k * step for k in range(1, int(can / step + 1e-6) + 1)]
         for s in dists:
-            out.append((s, Action("nudge", tid, f"빈 쪽({_dir_name(u)})으로 {s * 1000:.0f} mm", dir=u, dist_m=s, extra=dict(press)),
-                        _with(objs, moved(t, u[0] * s, u[1] * s))))
+            after = _with(objs, moved(t, u[0] * s, u[1] * s))
+            out.append((s + _front_cost(objs, after, cfg),
+                        Action("nudge", tid, f"빈 쪽({_dir_name(u)})으로 {s * 1000:.0f} mm", dir=u, dist_m=s, extra=dict(press)), after))
         d = (int(can / cfg.sweep_step_m + 1e-6) + 1) * cfg.sweep_step_m
         last = can
         while d <= (cfg.sweep_max_m or cfg.max_shift_m) + 1e-9:
@@ -594,7 +628,8 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
             for bk in backs:
                 act = Action("sweep", tid, f"{done * 1000:.0f} mm 밀고 {bk * 1000:.0f} mm 되돌아옴 (같이 밀림 {list(pushed)})",
                              dir=u, dist_m=done, back_m=bk, pushed=tuple(pushed), extra=dict(press))
-                out.append((done + bk, act, _with(o2, moved(t2, -u[0] * bk, -u[1] * bk))))
+                after = _with(o2, moved(t2, -u[0] * bk, -u[1] * bk))
+                out.append((done + bk + _front_cost(objs, after, cfg), act, after))
             d += cfg.sweep_step_m
     if coarse:                                                         # 종류·방향마다 짧게·중간·끝까지만
         keep = []

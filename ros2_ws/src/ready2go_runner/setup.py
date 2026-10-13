@@ -10,6 +10,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/ready2go_runner']),
         ('share/ready2go_runner', ['package.xml']),
+        ('share/ready2go_runner/params', glob('params/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

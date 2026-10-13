@@ -1,0 +1,11 @@
+{
+  "intent": "end_task",
+  "targets": [],
+  "confidence": 0.94,
+  "source": {
+    "stt_text": "작업 종료해"
+  },
+  "boot_id": "3f9c1a7b2e44",
+  "run_id": "2026-10-13T05:10:05Z_4b2e91",
+  "request_id": "req-end-01"
+}
