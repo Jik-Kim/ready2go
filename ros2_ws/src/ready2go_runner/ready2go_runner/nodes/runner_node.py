@@ -42,6 +42,9 @@ from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
 from ..core.runner_status import build_status
 
 PUBLISH_PERIOD_SEC = 0.5                # 상태가 바뀌었는지 확인하는 주기 (바뀐 경우에만 발행)
+BOOT_MISMATCH = "BOOT_MISMATCH"         # 계약 W3: 다른 Runner 기동(boot_id)에 대한 제어 인텐트
+NOTHING_TO_END = "NOTHING_TO_END"       # end_task 대상(그 run_id 의 실행·보존 작업)이 없음
+STOP_NOT_CONFIRMED = "STOP_NOT_CONFIRMED"   # 보존 작업의 정지 확인이 없음(halt.stop unconfirmed) → 폐기 보류, 작업·잠금 유지
 LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
 
 
@@ -102,6 +105,7 @@ class RunnerNode(Node):
         # 발행 잠금: 상태를 만들고 보내는 동안, 그리고 결정을 last_intent 에 넣고 보내는 동안 다른 콜백(status·cancel·주기 발행)이
         # 끼어들지 않게 — 각 요청 자신의 결정이 적어도 한 번 발행됨 (#249 E 리뷰). 짧게만 잡음 (정지 경로가 기다리지 않게)
         self._pub_lock = threading.RLock()
+        self._end_requested: str | None = None   # end_task 로 정지를 요청한 run_id (끝난 뒤 보존됐으면 폐기)
         self.requests = RequestMemory()          # 계약07: 이번 기동 동안 request_id → 첫 결정 (재기동하면 빔)
         self.get_logger().info(f"Runner 준비: 스키마 {schema_file}, 온톨로지 {ontology_file}, "
                                f"백엔드 {os.environ.get('BACKEND', 'mock')}, 예비 기록 {log_dir}, "
@@ -150,6 +154,9 @@ class RunnerNode(Node):
         try:
             result = self.runner.run(task, inputs, meta={**(meta or {}), "backend": os.environ.get("BACKEND", "mock")},
                                      run_id=run_id)
+            if self._end_requested == result.run_id:     # end_task 로 멈춘 실행이 보존됐으면 폐기 (재개 모드일 때)
+                self._end_requested = None              # 실행 문(gate)을 닫기 전에 — 폐기 중 새 실행이 끼지 않게
+                result = self._discard_after_stop(result.run_id) or result
         finally:
             self.gate.finish()
         self._last, self._last_task_id = result, self._task_id
@@ -222,6 +229,8 @@ class RunnerNode(Node):
             was_running = self.gate.cancel()
             decision = intent_router.Decision(intent_router.CANCEL, None if was_running else intent_router.NOT_RUNNING,
                                               intent=decision.intent)
+        if decision.kind == intent_router.END:
+            decision = self._end_task(decision)
         if decision.kind == intent_router.PLAN:
             decision = self._plan(decision)
         missing = self.missing_servers(decision.task) if decision.kind == intent_router.RUN else []
@@ -250,6 +259,47 @@ class RunnerNode(Node):
         self._announce(summary, force=decision.kind == intent_router.STATUS)   # status: 바뀐 것이 없어도 ("지금 뭐 해?")
         return summary
 
+    def _end_task(self, decision: intent_router.Decision) -> intent_router.Decision:
+        """계약 W3 end_task (#152·#271, E3): 같은 기동·지금 작업일 때만. 실행 중이면 cancel 과 같은 정지(정지 확인은
+        halt.stop) → 끝난 뒤 보존됐으면 폐기, 이미 보존(재개 대기) 중이면 바로 폐기(ABORTED, finally 비동작만).
+        잠금은 풀지 않고 새 작업도 허용하지 않는다. 대상이 없으면 NOTHING_TO_END, 다른 기동이면 BOOT_MISMATCH."""
+        intent = decision.intent or {}
+        if intent.get("boot_id") != self.runner.boot_id:
+            return intent_router.Decision(intent_router.REJECT, BOOT_MISMATCH, intent=intent)
+        target = intent.get("run_id")
+        with self._lock:                         # 대상 확인·정지를 start_task 와 같은 잠금 안에서 (#285 E 리뷰)
+            if self.running and self.runner.active_run_id == target:
+                self._end_requested = target
+                self.gate.cancel()
+                # 그 run 이 지금 실행 중일 때만 멈춤 — 확인 직후 끝났으면 멈추지 않음(새 실행은 이 잠금 때문에 아직 못 시작)
+                if self.runner.halt(source="voice", run_id=target):
+                    return intent_router.Decision(intent_router.END, intent=intent)
+                self._end_requested = None
+            suspended = self.runner.suspended
+            if not (suspended and suspended["run_id"] == target):
+                return intent_router.Decision(intent_router.REJECT, NOTHING_TO_END, intent=intent)
+            if not self.runner.stop_settled:     # 실제 정지를 모르면 폐기 보류 — 작업·잠금 유지 (#285 E 리뷰)
+                return intent_router.Decision(intent_router.REJECT, STOP_NOT_CONFIRMED, intent=intent)
+            if self.gate.try_start() != STARTED:  # 폐기(finally 비동작) 중 새 실행이 끼지 않게
+                return intent_router.Decision(intent_router.REJECT, intent_router.BUSY, intent=intent)
+        try:
+            result = self.runner.discard_suspended()
+        finally:
+            self.gate.finish()
+        if result is not None:
+            self._last, self._last_task_id = result, suspended["task_id"]
+        return intent_router.Decision(intent_router.END, intent=intent)
+
+    def _discard_after_stop(self, run_id: str) -> RunResult | None:
+        """end_task 로 멈춘 실행이 보존됐으면 폐기 — 정지 확인(halt.stop confirmed·none)일 때만. 아니면 작업·잠금 유지."""
+        suspended = self.runner.suspended
+        if not (suspended and suspended["run_id"] == run_id):
+            return None
+        if not self.runner.stop_settled:
+            self.get_logger().error(f"end_task: {run_id} 정지 확인 없음 — 보존 작업 폐기 보류 (사람 확인 → reset_state)")
+            return None
+        return self.runner.discard_suspended()
+
     def _announce(self, summary: dict, force: bool = False) -> None:
         """이 결정을 last_intent 에 넣고 바로 발행 — 사이에 다른 콜백이 last_intent 를 바꿔 이 결정이 안 나가는 일 없게."""
         with self._pub_lock:
@@ -274,6 +324,13 @@ class RunnerNode(Node):
                 response.message = f"실행 중({self._task_id}) — 끝난 뒤 원위치 확인 후 다시 요청"
                 self.get_logger().warning(f"/runner/reset_state: 거절 — {response.message}")
                 return response
+            suspended = self.runner.suspended
+            if suspended:                       # 상태 초기화 = 보존 작업 끝 (정본 resume-admission-policy) — finally 비동작만
+                self.gate.try_start()           # 폐기 중 새 실행이 끼지 않게 (실행 중이 아님은 위에서 확인)
+                try:
+                    self._last, self._last_task_id = self.runner.discard_suspended(), suspended["task_id"]
+                finally:
+                    self.gate.finish()
             self.runner.reset_state()
             self._state_reset_at = utc_iso()
         locked = self.runner.halted

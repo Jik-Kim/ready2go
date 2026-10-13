@@ -201,3 +201,40 @@ def test_backend_original_code_survives_timeout_path():
         assert bool(halt["response_received_at"]) == (stop == "confirmed") and halt["locked"]
         move = next(s for s in result.steps if s["id"] == "s2")
         assert move["error_code"] == "TIMEOUT"   # 실행 기록 정책은 그대로
+
+
+def test_halt_for_run_id_only_stops_that_run():
+    """end_task 대상 확인 뒤 그 실행이 끝나고 새 실행이 시작됐으면 새 실행을 멈추지 않음 (#285 E 리뷰 P2)."""
+    seen = {}
+
+    def backend(action, params, timeout_sec):
+        seen["other"] = runner.halt(source="voice", run_id="old-run")        # 이미 끝난 실행 대상
+        seen["locked_after_other"] = runner.halted
+        seen["this"] = runner.halt(source="voice", run_id=runner.active_run_id)
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    result = runner.run({"task_id": "t", "sequence": [SPEAK]})
+    assert (seen["other"], seen["locked_after_other"], seen["this"]) == (False, False, True)
+    assert result.overall_status == "ABORTED" and runner.halted
+    assert runner.halt(source="voice", run_id=result.run_id) is False      # 실행 사이: 대상 없음
+
+
+def test_stop_settled_only_when_stop_confirmed_or_nothing_was_moving():
+    """보존 작업 폐기 조건 (#285 E 리뷰 P2): confirmed·none 만. unconfirmed 면 폐기 보류."""
+    def suspended_after(final_code):
+        def backend(action, params, timeout_sec):
+            if action == "move_to_named_pose":
+                runner.halt(source="voice")
+                return ActionResult(False, error_code=final_code)
+            return ActionResult(True)
+        runner = Runner(backend, resumable=True)
+        runner.on_halt = lambda: 1
+        result = runner.run({"task_id": "t", "sequence": [SPEAK, MOVE]})
+        return runner, result
+
+    runner, result = suspended_after("STOP_UNCONFIRMED")
+    assert result.overall_status == "SUSPENDED" and runner.halt_summary["stop"] == "unconfirmed"
+    assert runner.stop_settled is False
+    runner, result = suspended_after("CANCELED")
+    assert result.overall_status == "SUSPENDED" and runner.stop_settled is True

@@ -19,6 +19,7 @@ from typing import Any
 import jsonschema
 
 RUN, CANCEL, STATUS, HOLD, REJECT = "run", "cancel", "status", "hold", "reject"
+END = "end"                             # 계약 W3 end_task (#152·#271): 지금 작업 종료 — 실행 중이면 정지, 보존 작업이면 폐기 (노드가 처리)
 PLAN = "plan"                           # achieve_goal: 노드가 플래너로 계획한 뒤 run 또는 hold 로 바꿈 (#150)
 # 보류·거절 이유 (/runner/status last_intent.reason, 로그)
 BAD_INTENT = "BAD_INTENT"               # JSON 이 아니거나 intent.schema.json 위반
@@ -108,6 +109,8 @@ class IntentRouter:
             return Decision(CANCEL, None if running else NOT_RUNNING, intent=intent)
         if name == "status":
             return Decision(STATUS, intent=intent)
+        if name == "end_task":              # 종료도 정지처럼 신뢰도·잠김과 상관없이 받음 — 잠금 해제·새 작업 허용은 아님 (E3)
+            return Decision(END, intent=intent)
         if name in ("unknown", "clarify"):
             return Decision(HOLD, NEEDS_CLARIFY, intent=intent)
         if name == "achieve_goal" and name not in self.tasks:     # 목표형: 동작 순서는 플래너가 (#150, FR-PLN-02)
