@@ -123,10 +123,8 @@ def test_example_task_through_backend():
     drawer = ONTOLOGY["state"]["located_in"]["car_key"]
     assert sent == [SPEAK_ACTION,                                        # s1 query_ontology 는 프로세스 안
                     "/skills/move_to_named_pose", "/skills/drawer_control",   # s3 open_drawer
-                    "/skills/move_to_named_pose", INSPECT_SERVICE,        # s4 pick (E #122): 탑뷰·촬영
-                    "/skills/nudge_object",                               #   끌기
-                    "/skills/move_to_named_pose", INSPECT_SERVICE,        #   탑뷰·다시 촬영
-                    "/skills/pick_object",                                #   다시 본 좌표로 집기
+                    "/skills/move_to_named_pose", INSPECT_SERVICE,        # s4 pick (E 10/13 전환): 탑뷰·촬영
+                    "/skills/pick_object",                                #   바로 집기 (WALL_TOO_CLOSE 일 때만 끌기 경로)
                     "/skills/place_object",                               # s5 place
                     SPEAK_ACTION,
                     "/skills/drawer_control", "/skills/move_to_named_pose"]   # finally
