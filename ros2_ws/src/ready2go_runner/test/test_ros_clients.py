@@ -33,6 +33,8 @@ class FakeServers:
         ActionServer(node, Skill, f"{PREFIX}/skills/fail", self._fail, callback_group=group)
         ActionServer(node, Skill, f"{PREFIX}/skills/slow", self._slow, callback_group=group,
                      cancel_callback=self._cancel)
+        ActionServer(node, Skill, f"{PREFIX}/voice/speak", self._slow, callback_group=group,   # 음성 goal (로봇 아님)
+                     cancel_callback=self._cancel)
         node.create_service(InspectRegion, f"{PREFIX}/vision/inspect_region", self._inspect, callback_group=group)
         ActionServer(node, Skill, f"{PREFIX}/skills/late", self._late, callback_group=group,
                      goal_callback=self._late_accept, cancel_callback=self._late_cancel)
@@ -133,6 +135,21 @@ def test_action_timeout_requests_cancel(ros):
     assert (reply.success, reply.error_code) == (False, "TIMEOUT")
     assert time.monotonic() - started < 2.0                     # 5초짜리 동작을 끝까지 기다리지 않음
     assert servers.cancel_requested.wait(2.0)                   # 서버가 취소 요청을 받음
+    assert json.loads(reply.payload_json)["backend_code"] == "CANCELED"   # B 원래 코드는 따로 (#259 E 리뷰)
+
+
+def test_cancel_all_counts_only_robot_skill_goals(ros):
+    """#259 D 리뷰: 음성 goal 도 취소하지만 halt.canceled_goals 에는 로봇 스킬(/skills/*) goal 만 센다."""
+    clients, _ = ros
+    counts = {}
+    for name in ("voice/speak", "skills/slow"):
+        done = threading.Event()
+        threading.Thread(target=lambda n=name: (clients.call_action(f"{PREFIX}/{n}", "{}", 10), done.set()),
+                         daemon=True).start()
+        time.sleep(0.5)                                         # goal 이 수락돼 진행 중일 때
+        counts[name] = clients.cancel_all()
+        assert done.wait(5.0)                                   # 둘 다 실제로 취소돼 끝남
+    assert counts == {"voice/speak": 0, "skills/slow": 1}
 
 
 def test_missing_action_server_is_backend_error(ros):
@@ -183,6 +200,7 @@ def test_late_accept_never_confirmed_locks(ros):
     late = RosClients(clients.node, server_wait_sec=1.0, goal_accept_sec=0.3, cancel_confirm_sec=0.5)
     reply = late.call_action(f"{PREFIX}/skills/late", "{}", 5)
     assert (reply.success, reply.error_code) == (False, "STOP_UNCONFIRMED")
+    assert json.loads(reply.payload_json) == {"no_backend_result": True}   # 어댑터가 만든 미확인 — B 응답 아님 (#259)
     assert servers.late_cancel.wait(5.0)                           # 포기한 뒤 수락돼도 취소가 감
     servers.accept_delay = 0.0
 
@@ -192,3 +210,5 @@ def test_safety_code_after_timeout_is_kept(ros, code):
     clients, _ = ros
     reply = clients.call_action(f"{PREFIX}/skills/stop_{code.lower()}", "{}", 0.3)
     assert (reply.success, reply.error_code) == (False, code)       # TIMEOUT 으로 덮지 않음
+    assert "no_backend_result" not in (reply.payload_json or "")   # 서버가 준 최종 결과 = B 응답
+    assert json.loads(reply.payload_json)["backend_code"] == code    # 원래 코드도 따로 (#259 E 리뷰)

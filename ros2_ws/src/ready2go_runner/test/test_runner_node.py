@@ -104,6 +104,8 @@ def test_estop_halts_and_refuses_next_task(system):
     future.add_done_callback(lambda _: done.set())
     assert done.wait(5) and future.result().success
     assert watcher.wait(lambda w: w.status["phase"] == "halted" and w.status["halt_code"] == "HALTED")
+    halt = watcher.status["halt"]               # 실행이 끝난 뒤 정지 요청 → 취소할 동작 없음 (계약안 halt.stop)
+    assert (halt["source"], halt["canceled_goals"], halt["stop"], halt["locked"]) == ("service", 0, "none", True)
 
     task = json.loads(TASK_FILE.read_text(encoding="utf-8"))
     assert runner.start_task(task)
