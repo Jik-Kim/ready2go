@@ -19,6 +19,7 @@
 """
 import copy
 import dataclasses
+import datetime
 import json
 import math
 import os
@@ -38,6 +39,7 @@ from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_guard, motion_plan as mp
 from ready2go_skills.core import clear_plan as clp, neighbor_check as nc
 from ready2go_skills.core import pick_plan as pp, place_plan as plp, pose_math as pm, skill_flow as sf
+from ready2go_skills.core import safe_state as ss_
 
 ACTIONS = ("move_to_named_pose", "drawer_control", "nudge_object", "pick_object", "place_object")
 IN_DRAWER_POSES = ("drawer_top_view", "drag_down")   # 서랍 위에서 서랍 위로 가는 기준 포즈 — 서랍 밖으로 빼지 않고 바로 관절 이동
@@ -294,6 +296,12 @@ class SkillServer(Node):
         self._servers = [ActionServer(self, Skill, f"/skills/{a}", self._execute_for(a), callback_group=group,
                                       goal_callback=self._on_goal,
                                       cancel_callback=lambda _: CancelResponse.ACCEPT) for a in ACTIONS]
+        try:                                 # 무동작 안전 상태 조회 W1·B 복구 W2 [#152·#271 C 계약, 제안 10/13 B] — 응답 message = JSON
+            from std_srvs.srv import Trigger
+            self._state_srvs = [self.create_service(Trigger, "/skills/check_state", self._srv_check_state, callback_group=group),
+                                self.create_service(Trigger, "/skills/recover", self._srv_recover, callback_group=group)]
+        except ImportError as e:             # std_srvs 없는 환경 — 동작 액션은 그대로
+            self.get_logger().warning(f"/skills/check_state·/skills/recover 못 띄움 (std_srvs 없음: {e})")
         self.get_logger().info(f"스킬 서버 준비: /skills/{{{','.join(ACTIONS)}}} (관절 {self.joint_vel}°/s, "
                                f"기대 TCP {self.expected_tcp}·툴 {self.expected_tool}, config {cfg})")
 
@@ -483,6 +491,115 @@ class SkillServer(Node):
                                                get_state=self.state)
             return self._finish(goal, action, outcome, output)
         return execute
+
+    # --- 무동작 안전 상태 조회(W1)·B 복구(W2) — 로봇·그리퍼를 움직이지 않음 ---
+    def _read_gripper(self):
+        """RG2 한 번 읽기 → (width_m, grasp_detected, safety_error) 또는 읽기 실패면 (None, None, None)."""
+        try:
+            rg = Rg2(self.rg2_ip)
+            try:
+                st = rg.status()
+            finally:
+                rg.close()
+            w = float(st.width_mm) / 1000.0
+            return (w if math.isfinite(w) else None), bool(st.grip_detected), bool(st.safety_error)
+        except Exception as e:                               # 읽기 실패 = 모름 (빈손으로 보지 않음)
+            self.get_logger().warning(f"[check_state] 그리퍼 읽기 실패: {e}")
+            return None, None, None
+
+    def safe_state(self, hold=None, in_gate=False):
+        """W1 결과 dict (core/safe_state.build_state). 모르는 값은 None. hold: 쥔 기억 대신 볼 기록(W2 가 hold_unknown 을 다시 볼 때).
+        in_gate: 복구(W2)가 gate 를 잡은 채 부름 — 그 gate 는 동작 실행이 아님."""
+        g = self.prm()["gripper"]
+        robot_state = self.robot.state()
+        try:
+            motion_state = self.state()
+        except Exception:                                    # 상태 조회 실패 — 모름
+            motion_state = None
+        names = self.robot.tool_names()
+        tool_ok = None if None in names else motion_guard.check_tool(*names, self.expected_tcp, self.expected_tool) is None
+        width, detected, safety = self._read_gripper()
+        grip = ss_.gripper_view(width_m=width, grasp_detected=detected, safety_error=safety,
+                                held=hold if hold is not None else self.held,
+                                hold_unknown=None if hold is not None else getattr(self, "hold_unknown", None),
+                                min_width_m=float(g["min_width_m"]), slip_tolerance_m=float(g["slip_tolerance_m"]))
+        return ss_.build_state(robot_state=robot_state, motion_state=motion_state, busy=self.gate.busy() and not in_gate, tool_ok=tool_ok,
+                               gripper=grip, gripper_read=width is not None, locked=self.locked, disp=self._drawer_disp(),
+                               stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds"))
+
+    def _drawer_disp(self):
+        """W1 drawers — 서랍마다 서버가 기억한 인출 거리(m). 연 적 없는 서랍은 0.0 (서버는 닫힌 서랍에서 시작한다고 봄 — README 시작 조건)
+        [C #297 확인 요청 10/13: "연 적 없는 서랍도 0.0 으로"]."""
+        ids = [k for k, v in (self.places() or {}).items() if k.startswith("drawer_") and isinstance(v, dict) and v.get("tf")]
+        return {d: float(self.disp.get(d) or 0.0) for d in sorted(set(ids) | set(self.disp))}
+
+    def _srv_check_state(self, _request, response):
+        """W1 `/skills/check_state` (std_srvs/Trigger): success = 읽기 끝남(값이 좋은지와 무관), message = 상태 JSON."""
+        try:
+            st = self.safe_state()
+            response.success, response.message = True, json.dumps(st, ensure_ascii=False)
+        except Exception as e:                               # 조회 자체 실패 — C 는 조회 없음(B_CHECK_UNAVAILABLE)으로 봄
+            self.get_logger().error(f"[check_state] 실패: {e!r}")
+            response.success, response.message = False, json.dumps({"error": repr(e)[:200]}, ensure_ascii=False)
+        return response
+
+    def recover(self):
+        """W2 B 복구 — 로봇이 멈췄고 비상정지 아님·제어기 준비·툴 일치·통신이 되면: 쥐었는지 모름(hold_unknown)을 그리퍼를
+        다시 읽어 풀고(저장 폭과 허용 오차 안이면 쥔 기억 복원, 빈손 닫힘이면 기록 지움, 그 밖·못 읽으면 HOLD_UNCERTAIN·
+        GRIPPER_UNKNOWN 으로 거절하고 기록·잠금 유지), B 서버 잠금(locked)을 품. 상태는 처음 한 번만 읽고 응답을 다 만든 뒤에 바꿈 —
+        예외(SKILL_EXCEPTION)로 끝나면 아무것도 안 풀림. 로봇·그리퍼 명령 없음. 다른 동작 실행 중이면 BUSY. → {recovered, code, cleared, blockers, state}"""
+        if not self.gate.try_enter():                        # 복구 중 동작이 시작되지 않게 (동작 중이면 거절)
+            return {"recovered": False, "code": sf.BUSY, "cleared": [], "blockers": ["BUSY"], "state": self.safe_state()}
+        try:
+            unknown = getattr(self, "hold_unknown", None)
+            st = self.safe_state(hold=unknown, in_gate=True) if unknown else self.safe_state(in_gate=True)
+            blockers = ss_.recover_blockers(st)                # 센서 오류·그리퍼 모름도 여기서 막음 (쥔 기록 유무와 무관)
+            g = self.prm()["gripper"]
+            decision = None
+            if unknown and not blockers:                      # 모름 기록은 재시작 복원과 같은 기준: 같은 폭이면 복원, 빈손 닫힘이면 지움, 그 밖은 유지
+                decision = ss_.unknown_hold_decision(width_m=st["gripper"].get("width_m"), record=unknown,
+                                                     min_width_m=float(g["min_width_m"]), slip_tolerance_m=float(g["slip_tolerance_m"]))
+                if decision is None:
+                    blockers = ["HOLD_UNCERTAIN"]
+            if blockers:
+                self.get_logger().warning(f"[recover] 거절 — {blockers} (잠금 {self.locked}, 쥔 모름 {bool(unknown)})")
+                # 돌려주는 state 는 W1 과 같은 지금 상태 — 모름 기록을 임시로 쥔 기억처럼 본 판정(holding·SLIPPED)을 내보내지 않음
+                return {"recovered": False, "code": blockers[0], "cleared": [], "blockers": blockers,
+                        "state": self.safe_state(in_gate=True) if unknown else st}
+            # 푼 뒤 상태·응답을 먼저 다 만들고(위에서 읽은 값으로 계산만, 다시 읽지 않음) 그다음에 바꿈 — 바꾼 뒤엔 예외 날 곳이 없게
+            # [E #297 재리뷰 P2: 잠금을 푼 뒤 마지막 조회가 실패하면 recovered=false 인데 잠금은 이미 풀려 있었음]
+            cleared, held = [], self.held
+            if unknown:
+                held = unknown if decision == "restore" else None   # 저장 폭과 허용 오차 안 → 복원 / 빈손 닫힘 확정 → 지움
+                cleared.append(f"hold_unknown → 쥔 기억 복원 ({unknown.get('class')})" if held else "hold_unknown → 빈손")
+                grip = st["gripper"]
+                view = ss_.gripper_view(width_m=grip["width_m"], grasp_detected=grip["grasp_detected"], safety_error=False,
+                                        held=held, hold_unknown=None, min_width_m=float(g["min_width_m"]),
+                                        slip_tolerance_m=float(g["slip_tolerance_m"]))
+                st = dict(st, gripper={k: view.get(k) for k in ("state", "held_id", "width_m", "grasp_detected", "reason")})
+            if self.locked:
+                cleared.append(f"locked ({self.locked})")
+            result = {"recovered": True, "code": "", "cleared": cleared, "blockers": [],
+                      "state": dict(st, b_locked=False, b_lock_reason=None)}
+            json.dumps(result, ensure_ascii=False)          # 응답으로 못 바꾸면 여기서 예외 — 아직 아무것도 안 바꿈
+            self.get_logger().info(f"[recover] 복구 — {cleared or '풀 것 없음'}")
+            if unknown:
+                self.held, self.hold_unknown = held, None    # held 저장 실패는 setter 가 경고만 (예외 없음)
+            self.locked = None
+            return result
+        finally:
+            self.gate.exit()
+
+    def _srv_recover(self, _request, response):
+        """W2 `/skills/recover` (std_srvs/Trigger): success = recovered, message = 결과 JSON."""
+        try:
+            r = self.recover()
+            response.success, response.message = bool(r["recovered"]), json.dumps(r, ensure_ascii=False)
+        except Exception as e:
+            self.get_logger().error(f"[recover] 실패: {e!r}")
+            response.success, response.message = False, json.dumps({"recovered": False, "code": sf.SKILL_EXCEPTION,
+                                                                     "error": repr(e)[:200]}, ensure_ascii=False)
+        return response
 
     def _check_tool(self):
         err = motion_guard.check_tool(*self.robot.tool_names(), self.expected_tcp, self.expected_tool)

@@ -3216,6 +3216,175 @@ def test_wrench_wall_check_uses_handle_width(server):
     assert srv.robot.log == []
 
 
+def _srv_state(server):
+    srv = server.srv
+    srv.gate = server.ss.sf.MotionGate()
+    srv.locked, srv.hold_unknown = None, None
+    srv.expected_tcp, srv.expected_tool = "tcp", "tool"
+    srv.robot.tool_names = lambda: ("tcp", "tool")
+    return srv
+
+
+def test_check_state_service_reports_without_motion(server):
+    """W1 /skills/check_state [#152·#271 C 계약, 제안 10/13 B]: 멈춤·비상정지 아님·제어기 준비·B 잠금 없음·그리퍼 빈손 — 로봇·그리퍼 명령 없음."""
+    srv = _srv_state(server)
+    server.Gripper.width = 0.9
+    resp = srv._srv_check_state(None, types.SimpleNamespace(success=None, message=None))
+    st = json.loads(resp.message)
+    assert resp.success and st["stopped"] is True and st["estop_active"] is False and st["controller_ready"] is True
+    assert st["b_locked"] is False and st["gripper"]["state"] == "empty" and st["tcp_tool_ok"] is True
+    assert st["drawers"] == {"drawer_bottom": 0.0, "drawer_top": 0.226}                # 연 적 없는 서랍도 0.0 [C #297]
+    assert srv.robot.log == []
+    srv.robot.tool_names = lambda: (None, None)
+    assert json.loads(srv._srv_check_state(None, types.SimpleNamespace(success=None, message=None)).message)["tcp_tool_ok"] is None
+
+
+def test_recover_service_clears_b_lock_and_unknown_hold(server):
+    """W2 /skills/recover: 조건(멈춤·비상정지 아님·제어기 준비·툴·통신)이 되면 B 잠금을 풀고, 쥐었는지 모름은 그리퍼를 다시 읽어
+    같은 폭이면 쥔 기억 복원. 비상정지면 아무것도 안 풂. 로봇·그리퍼 명령 없음."""
+    srv = _srv_state(server)
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+    server.Gripper.width = 21.0
+    real_state = srv.robot.state
+    srv.robot.state = lambda: 6                                                     # 비상정지
+    r = srv.recover()
+    assert not r["recovered"] and "ESTOP_ACTIVE" in r["blockers"] and srv.locked and srv.hold_unknown
+    srv.robot.state = real_state
+    resp = srv._srv_recover(None, types.SimpleNamespace(success=None, message=None))
+    r = json.loads(resp.message)
+    assert resp.success and r["recovered"] and srv.locked is None and srv.hold_unknown is None
+    assert srv.held and srv.held["id"] == "eraser#1" and r["state"]["gripper"]["state"] == "holding"
+    assert srv.robot.log == []
+    srv.held = None
+    # [E #297 재리뷰 P1] 쥐었는지 모름 기록 21 mm 인데 지금 100 mm(열림)·30 mm(다른 물체) → 복원하지 않고 기록·잠금 유지
+    for w in (100.0, 30.0):
+        srv.locked = "pick_object: MOVE_UNCONFIRMED"
+        srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+        server.Gripper.width = w
+        r = srv.recover()
+        assert not r["recovered"] and r["blockers"] == ["HOLD_UNCERTAIN"] and srv.locked and srv.hold_unknown and not srv.held, w
+    server.Gripper.width = 0.9                                                        # 빈손 닫힘 확정 → 기록 지우고 풂
+    r = srv.recover()
+    assert r["recovered"] and srv.hold_unknown is None and srv.held is None and srv.locked is None
+    # [E #297 리뷰 P1] 쥔 기록이 없어도 RG2 안전 오류·폭 이상이면 잠금을 안 풂
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    real_status = server.Gripper.status
+    try:
+        from ready2go_skills.core.rg2_protocol import Rg2Status
+        server.Gripper.status = lambda self: Rg2Status(0.9, False, True, True)          # safety_error
+        r = srv.recover()
+        assert not r["recovered"] and "SENSOR_INVALID" in r["blockers"] and srv.locked
+        server.Gripper.status = lambda self: Rg2Status(-5.0, False, False, False)       # 폭 −5 mm
+        st = srv.safe_state()
+        assert st["gripper"]["state"] is None and st["sensors_ok"] is False
+        assert not srv.recover()["recovered"] and srv.locked
+    finally:
+        server.Gripper.status = real_status
+        srv.locked = None
+
+
+
+SAFE_STATE_EXAMPLES = {name: {c["case"]: c for c in json.loads((REPO / f"contracts/examples/{name}.json").read_text(encoding="utf-8"))["cases"]}
+                       for name in ("skills_check_state", "skills_recover")}
+
+
+def _safe_state_cases(server):
+    """W1·W2 예시 경우를 노드(가짜 로봇)로 만듦 → {(예시 파일, case): (success, message JSON 푼 것)}. stamp 는 비교에서 뺌."""
+    srv, out = _srv_state(server), {}
+    trig = lambda f: f(None, types.SimpleNamespace(success=None, message=None))       # noqa: E731
+    w1 = lambda: trig(srv._srv_check_state)                                          # noqa: E731
+    w2 = lambda: trig(srv._srv_recover)                                              # noqa: E731
+
+    def put(name, case, resp):
+        out[(name, case)] = (resp.success, json.loads(resp.message))
+    unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+    real_state = srv.robot.state
+    server.Gripper.width = 0.9
+    put("skills_check_state", "stopped_empty", w1())
+    srv.held, server.Gripper.width = dict(unknown), 21.0
+    put("skills_check_state", "holding_eraser", w1())
+    srv.held = None
+    srv.robot.state, server.Gripper.width = (lambda: 6), 0.9                          # 펜던트 비상정지 (DSR 6)
+    put("skills_check_state", "estop", w1())
+    srv.robot.state = real_state
+    srv.locked, srv.hold_unknown, server.Gripper.width = "pick_object: MOVE_UNCONFIRMED", dict(unknown), 21.0
+    put("skills_check_state", "hold_unknown_locked", w1())
+    real_safe = srv.safe_state
+    srv.safe_state = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("robot state service timeout"))
+    put("skills_check_state", "query_error", w1())
+    put("skills_recover", "server_error", w2())
+    srv.safe_state = real_safe
+    srv.robot.state = lambda: 6
+    put("skills_recover", "refused_estop", w2())
+    srv.robot.state, server.Gripper.width = real_state, 100.0                         # 21 mm 기록인데 100 mm 열림
+    put("skills_recover", "refused_hold_uncertain", w2())
+    assert srv.gate.try_enter()                                                      # 다른 동작 실행 중
+    try:
+        put("skills_recover", "busy", w2())
+    finally:
+        srv.gate.exit()
+    server.Gripper.width = 21.0
+    put("skills_recover", "recovered_restore", w2())
+    srv.held = None
+    return out
+
+
+def _no_stamp(m):
+    m = json.loads(json.dumps(m))
+    for st in (m, m.get("state") or {}):
+        st.pop("stamp", None)
+    return m
+
+
+def test_safe_state_examples_match_node_output(server):
+    """contracts/examples/skills_check_state.json·skills_recover.json 의 경우를 노드로 그대로 — success·message 가 예시와 같음
+    (stamp 만 뺌) [E #297 재리뷰: 예시를 검사하는 검증]. 로봇·그리퍼 명령 없음."""
+    got = _safe_state_cases(server)
+    want = {(n, c): (ex["success"], ex["message"]) for n, cases in SAFE_STATE_EXAMPLES.items() for c, ex in cases.items()}
+    assert set(got) == set(want)
+    for k in want:
+        assert (got[k][0], _no_stamp(got[k][1])) == (want[k][0], _no_stamp(want[k][1])), k
+    assert server.srv.robot.log == []
+
+
+def test_recover_reads_state_once_and_changes_nothing_on_error(server):
+    """[E #297 재리뷰 P2] 복구는 상태를 처음 한 번만 읽고 응답을 다 만든 뒤에 잠금·쥔 기억을 바꿈 — 예전엔 잠금을 푼 뒤 응답용으로
+    다시 읽다 예외가 나면 recovered=false 인데 잠금은 이미 풀려 있었음. 첫 조회 성공 → 두 번째부터 예외여도 정상 복구, 응답 state 는
+    푼 뒤 값. 첫 조회부터 예외면 SKILL_EXCEPTION 이고 잠금·모름 기록 그대로."""
+    srv = _srv_state(server)
+    real = srv.safe_state
+    calls = []
+
+    def once(*a, **k):
+        calls.append(k)
+        if len(calls) > 1:
+            raise RuntimeError("second read")
+        return real(*a, **k)
+    for width, held_id in ((21.0, "eraser#1"), (0.9, None)):                # 같은 폭 → 복원 / 빈손 닫힘 → 지움
+        srv.locked, srv.held = "pick_object: MOVE_UNCONFIRMED", None
+        srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+        server.Gripper.width, calls[:] = width, []
+        srv.safe_state = once
+        resp = srv._srv_recover(None, types.SimpleNamespace(success=None, message=None))
+        srv.safe_state = real
+        r = json.loads(resp.message)
+        assert resp.success and r["recovered"] and len(calls) == 1, (width, r)
+        assert srv.locked is None and srv.hold_unknown is None and (srv.held or {}).get("id") == held_id
+        st = r["state"]
+        assert st["b_locked"] is False and st["b_lock_reason"] is None and st["gripper"]["held_id"] == held_id
+        assert st["gripper"]["state"] == ("holding" if held_id else "empty") and st["gripper"]["reason"] == ("HELD" if held_id else "")
+        assert {k: v for k, v in st.items() if k != "stamp"} == {k: v for k, v in srv.safe_state().items() if k != "stamp"}   # 다시 읽은 W1 과 같음
+    srv.locked, srv.held = "pick_object: MOVE_UNCONFIRMED", None
+    srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+    srv.safe_state = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("first read"))
+    resp = srv._srv_recover(None, types.SimpleNamespace(success=None, message=None))
+    srv.safe_state = real
+    assert not resp.success and json.loads(resp.message)["code"] == "SKILL_EXCEPTION"
+    assert srv.locked == "pick_object: MOVE_UNCONFIRMED" and srv.hold_unknown and srv.held is None
+    assert srv.robot.log == []
+    srv.locked = srv.hold_unknown = None
+
 def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):
     """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 넛지 대신 닫은 손가락을
     구멍(가운데)에 넣어 계획한 방향·거리 + hole_slack_mm 만큼 수평으로 밂, hole_back_mm 물러났다가 올림. 누르기(press) 없음."""
