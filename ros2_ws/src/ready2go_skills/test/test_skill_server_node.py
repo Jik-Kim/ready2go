@@ -3138,3 +3138,16 @@ def test_make_room_wall_airpods_sweeps_once_without_pressing_wrench(server):
     mr = data["make_room"]
     assert mr["action"] == "sweep" and "toy_wrench#1" in mr["reason"] and "caramel_box#1" not in mr["reason"], mr
     assert srv.robot.log == []
+
+
+def test_wrench_wall_check_uses_handle_width(server):
+    """[실측 PC2 10/13 inspect_20261013_064400_105Z] 앞벽에서 56 mm 떨어져 거의 y 로 누운 몽키 — 손가락은 손잡이 폭(item_grasp 25.9)
+    만큼만 벌어지는데 벽 확인을 외접 짧은 변(머리 폭 61)으로 해 "앞뒤 벽에 걸려 짧은 변으로 못 잡음". 손잡이 폭으로 확인."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    w = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.0162, "occluded_by": [], "visible_area_m2": 0.005,
+         "pose": {"frame": D, "position": [0.0557, 0.1542, 0.0], "yaw": -1.379, "yaw_valid": True}}
+    ok, code, reason = server.ss.DryOracle(srv, D).pick([w], w["id"])
+    assert ok, (code, reason)
+    assert srv.robot.log == []

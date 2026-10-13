@@ -199,3 +199,14 @@ def test_press_point_center_only_class():
     p = cp.press_point([air, far], "w", sizes.get, center_only=("toy_wrench",), **kw)
     assert p is not None and abs((p[0] - 0.1135) * 0.9817 - (p[1] - 0.0574) * 0.1904) < 1e-6   # 긴 변 방향으로는 가운데
     assert cp.press_point([far], "w", sizes.get, center_only=("toy_wrench",), **kw) == pytest.approx((0.1135, 0.0574))
+
+
+def test_opens_way_with_one_target_move_after_neighbor_moved():
+    """[사용자 10/13 "sweep 해도 각이 안 나오면 다음 순서"] 이웃을 옮긴 뒤 목표를 바로는 못 집어도, 목표를 한 번 넛지하면 집히면
+    cfg 를 줄 때만 '길이 열림' (막는 물체 치우기 → 목표 넛지·밀기)."""
+    t = obj("eraser#1", "eraser", 0.10, 0.15)
+    c = obj("caramel_box#1", "caramel_box", 0.10, 0.15 + 0.011 + 0.0245 + 0.010)     # +y 로 10 mm — 손가락 자리(20)에 걸림
+    orc = Oracle()
+    assert not orc.pick([t, c], "eraser#1")[0]
+    assert not cp._opens_way([t, c], "eraser#1", orc)
+    assert cp._opens_way([t, c], "eraser#1", orc, wall_steps=0, cfg=CFG)              # -y 로 넛지하면 집힘
