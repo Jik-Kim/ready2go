@@ -284,3 +284,20 @@ def test_status_resume_offer_follows_lock_and_c_window():
     assert runner.halt_summary["locked"] is False
     clock.now += 25
     assert runner.halt_summary["resume"]["offered"] is False and runner.suspended   # 기한 지남 — 작업은 보존
+
+
+def test_offer_until_is_fixed_and_status_stops_changing_after_expiry():
+    """#286 E 리뷰 P2: hold_until 은 제안 창을 열 때 정한 고정 시각. 열려 있는 동안 남은 시간만 줄고, 만료 뒤에는
+    같은 내용 그대로 → 노드가 바뀐 것으로 보지 않아 seq 가 늘지 않음."""
+    clock = FakeClock()
+    runner, _, _, _ = suspended_at_pick(clock)
+    runner.resume()
+    first = runner.resume_offer
+    clock.now += 10
+    counting = runner.resume_offer
+    assert counting["hold_until"] == first["hold_until"] and counting["hold_remaining_s"] == 20.0
+    clock.now += 25
+    expired = runner.resume_offer
+    clock.now += 40
+    assert runner.resume_offer == expired and expired["hold_until"] == first["hold_until"]
+    assert (expired["offered"], expired["hold_remaining_s"]) == (False, 0.0)
