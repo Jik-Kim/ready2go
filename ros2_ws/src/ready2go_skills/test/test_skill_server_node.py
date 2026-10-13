@@ -2479,18 +2479,18 @@ def test_make_room_moves_target_away_from_neighbor_then_ready(server, monkeypatc
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": scan})
     assert out.success, out.reason
-    mr = data["make_room"]                         # 지우개를 누르면 손가락이 더 높은 망치에 걸림 → 망치를 지우개 반대쪽으로 [press_ok]
-    assert mr["action"] in ("nudge", "sweep") and mr["moved_id"] == "toy_hammer#1" and mr["ready_to_pick"] is False
-    assert data["pushed"] is True and data["push_vector_m"][1] > 0             # 지우개 반대쪽(+y)으로
-    assert mr["moved_after"]["position"][1] > cara["pose"]["position"][1]
-    assert isinstance(mr["pushed_ids"], list) and len(mr["pushed_after"]) == len(mr["pushed_ids"])   # 같이 밀린 물체 구조화 [C #226]
-    assert all(set(q) >= {"id", "frame", "position", "yaw"} for q in mr["pushed_after"])
+    mr = data["make_room"]
+    # 지우개 가운데는 손가락이 더 높은 망치에 걸림 → 예전엔 망치를 밀었음. 10/13 누를 점을 폭 방향으로 비킴(press_point) →
+    # 다른 물체를 안 건드리고 지우개 자신을 빈 쪽(-y)으로 넛지 [실측 PC2 10/13 몽키 머리 끝 누름 수정]
+    assert mr["action"] == "nudge" and mr["moved_id"] == "eraser#1" and mr["ready_to_pick"] is False, mr
+    assert data["pushed"] is True and data["push_vector_m"][1] < 0             # 망치 반대쪽(-y)으로
+    assert mr["pushed_ids"] == [] and mr["pushed_after"] == []                  # 같이 밀린 물체 없음 [C #226]
     drags = [s for s in contact["stages"] if s[0] in ("drag", "drag_back")]
     assert drags and all(abs(end[2] - start[2]) < 0.06 for _, start, end in drags)   # 수평으로만
-    assert data["target_after"]["pose"]["position"] == t["pose"]["position"]   # 목표는 그대로
-    moved = dict(cara, pose=dict(cara["pose"], **mr["moved_after"]))
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True,
-                                            "scan": _scan_with(t, moved)})
+    after = data["target_after"]
+    assert after["pose"]["position"][1] < t["pose"]["position"][1]
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": after, "make_room": True,
+                                            "scan": _scan_with(after, cara)})
     assert out.success and data["make_room"]["ready_to_pick"] is True       # 다시 보면 바로 집기
 
 
