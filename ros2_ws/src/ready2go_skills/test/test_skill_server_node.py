@@ -3193,3 +3193,31 @@ def test_recover_service_clears_b_lock_and_unknown_hold(server):
     assert srv.held and srv.held["id"] == "eraser#1" and r["state"]["gripper"]["state"] == "holding"
     assert srv.robot.log == []
     srv.held = None
+
+
+def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):
+    """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 넛지 대신 닫은 손가락을
+    구멍(가운데)에 넣어 계획한 방향·거리 + hole_slack_mm 만큼 수평으로 밂, hole_back_mm 물러났다가 올림. 누르기(press) 없음."""
+    from ready2go_skills.core import motion_plan as mp
+    srv = server.srv
+    d = srv.prm()["drag"]
+    tf = srv.places()["drawer_top"]["tf"]
+    tape = {"id": "masking_tape#1", "class": "masking_tape", "top_z": 0.0152,
+            "pose": {"frame": "drawer_top", "position": [0.10, 0.021, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 오른쪽 벽(y 0)에 붙음
+    stages = []
+    real_line = server.ss.SkillServer._line
+
+    def line(self, goal, posx, vel, stage, watch=None, **kw):
+        stages.append(stage)
+        return real_line(self, goal, posx, vel, stage, watch, **kw)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": tape})
+    assert out.success and "구멍" in out.reason, out.reason
+    i = stages.index("push")
+    assert stages[i - 1] == "push_down" and stages[i + 1:i + 3] == ["push_back", "lift"] and "press" not in stages
+    moves = [e[1] for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    a, b, c = (mp.from_base(tf, [v / 1000.0 for v in m[:3]]) for m in moves[i - 1:i + 2])
+    assert a[0] == pytest.approx(0.10, abs=1e-3) and a[1] == pytest.approx(0.021, abs=1e-3)       # 구멍(가운데)에 내려감
+    assert b[1] > a[1] + d["hole_slack_mm"] / 1000.0 and abs(b[0] - a[0]) < 1e-3                  # +y(벽 반대)로만 밂
+    assert (b[1] - c[1]) * 1000.0 == pytest.approx(d["hole_back_mm"], abs=0.1)
+    assert data["target_after"]["pose"]["position"][1] > tape["pose"]["position"][1]

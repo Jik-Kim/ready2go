@@ -1554,6 +1554,21 @@ class SkillServer(Node):
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
+        if target.get("class") in (d.get("hole_classes") or []) and plan.push_to_xy_m is None and stacked <= 0:
+            # 가운데가 뚫린 물체(마스킹테이프): 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 닫은 손가락을 구멍에 넣어 같은 방향·거리로
+            # 밀기 [사용자 10/13 "넛지 말고 안에 넣어서 밀기, 예외로"]. 구멍 안쪽 벽에 닿기 전 빈 거리(hole_slack_mm)만큼 더 감 [추정]
+            sx, sy = plan.shift_x_m, plan.shift_y_m
+            n = math.hypot(sx, sy)
+            ux, uy = sx / n, sy / n
+            cx, cy = target["pose"]["position"][:2]
+            slack = float(d.get("hole_slack_mm", 5.0)) / 1000.0
+            hplan = dataclasses.replace(plan, press_xy_m=(cx, cy), push_to_xy_m=(cx + ux * (n + slack), cy + uy * (n + slack)),
+                                        push_dir=(ux, uy))
+            hd = dict(d, push_start_gap_mm=slack * 1000.0, push_back_mm=float(d.get("hole_back_mm", 2.0)))
+            res, out = self._push_from_behind(goal, drawer_id, target, hplan, tf, hd, out)
+            if res.success:
+                res = sf.Outcome(True, reason=f"구멍에 손가락 넣어 밀기 — {res.reason}")
+            return res, out
         if plan.push_to_xy_m is not None:                               # 벽까지 밀기는 뒤에서 [사용자 10/11]
             who, why = self._neighbor(params, drawer_id, lambda objs, nb: self._push_finger_blocker(plan, target, not_under(objs), nb))
             if why or who:                                              # 손가락 내려갈 자리에 이웃 — 움직이기 전 [사용자 10/12 PC2]
@@ -1754,6 +1769,7 @@ class SkillServer(Node):
                           round_classes=tuple(prm["pick"].get("round_classes") or ()),
                           press_finger_r_mm=float(mr["press_finger_r_mm"]), narrow_of=self._narrow_width,
                           press_center_only_classes=tuple(mr.get("press_center_only_classes", ("toy_wrench",))),
+                          hole_classes=tuple(prm["drag"].get("hole_classes") or ()),
                           sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
                           remove_first=bool(mr.get("remove_first", True)), slack_mm=float(mr.get("slack_mm", 0.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)

@@ -210,3 +210,11 @@ def test_opens_way_with_one_target_move_after_neighbor_moved():
     assert not orc.pick([t, c], "eraser#1")[0]
     assert not cp._opens_way([t, c], "eraser#1", orc)
     assert cp._opens_way([t, c], "eraser#1", orc, wall_steps=0, cfg=CFG)              # -y 로 넛지하면 집힘
+
+
+def test_hole_class_is_not_pressed():
+    """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 누르면 손끝이 구멍으로 빠짐 → 공간 만들기에서 누를 점 없음(같이 밀리기·집기만)."""
+    sizes = dict(SIZES, masking_tape=[0.0385, 0.0385, 0.0152])
+    t = dict(obj("t", "eraser", 0.10, 0.15), **{"class": "masking_tape"})
+    assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0) is not None
+    assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0, hole=("masking_tape",)) is None
