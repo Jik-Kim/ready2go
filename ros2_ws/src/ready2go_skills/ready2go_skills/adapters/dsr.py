@@ -31,6 +31,7 @@ SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
 AUTO = 1
 REF_BASE = 0
 QUICK_STOP = 2          # jog_gui 와 같은 stop_mode
+FORCE_KEYS = ("compliance", "desired_force", "release_force", "release_compliance")
 FC_MOD_REL = 1          # set_desired_force: 부른 순간 힘을 0 으로 보고 상대값으로 (힘 0점이 흐름 [실측 B 10/06])
 
 
@@ -43,7 +44,8 @@ class Dsr:
                     for k, (t, name) in SPEC.items()}
 
     def ready(self, timeout=3.0):
-        return all(c.wait_for_service(timeout_sec=timeout) for c in self.cli.values())
+        """기본 서비스가 다 떴는지 — 힘 제어(drag.force_mode 에서만 씀)는 빼고 봄 (힘 제어가 없는 시뮬·트윈에서도 준비로)."""
+        return all(c.wait_for_service(timeout_sec=timeout) for k, c in self.cli.items() if k not in FORCE_KEYS)
 
     def call(self, key, timeout=2.0, **kw):
         fut = self.cli[key].call_async(self.T[key].Request(**kw))
