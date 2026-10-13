@@ -116,7 +116,6 @@ def _width_m(width_mm):
 # ---- 파지 공간 만들기 [제안 10/11 B, 계약 승인 전] — 계획(core/clear_plan)이 묻는 "집을 수 있나·놓을 수 있나"를
 #      서버의 실제 사전 검사로 답함. 움직이는 메서드는 막아 두고 처음 움직이려는 순간 = 가능으로 봄 (로봇은 안 움직임).
 NO_FREE_SPACE = "NO_FREE_SPACE"          # nudge_object make_room: 치울 물체를 놓을 빈 자리가 서랍에 없음 (움직이기 전)
-TRAY = "handover_zone"                   # 전달 트레이 — pick_object 가 트레이에서도 집음 (return_items, 3차 챌린지 전 10/12)
 FREE_SLOT = "free"                       # place_object slot "free": 고정 aside 대신 서랍 안 빈 자리 (B free·make_room 과 같은 core/clear_plan)
 OCCLUSION_UNKNOWN = "OCCLUSION_UNKNOWN"  # nudge_object make_room: 가림 관계(occluded_by) 모름·박스 모델 — 움직이기 전, 다시 찍기
 _MOTION = ("_to_drawer_view", "_line", "_blend", "_named", "_movej", "_grip", "_over_then_down", "_line_slow", "_exit_drawer",
@@ -967,7 +966,7 @@ class SkillServer(Node):
         if state == "open" and disp > 0.01:
             return sf.Outcome(False, DRAWER_ALREADY_OPEN, reason=f"이미 {disp * 1000:.0f} mm 열림"), \
                 {"drawer_displacement": round(disp, 4), "close_confirmed": False}
-        if state == "open" and self.held:                    # 손잡이를 잡으려면 그리퍼를 벌림 → 쥔 물체가 떨어짐 (트레이에서 집은 뒤 열기 등) — 움직이기 전
+        if state == "open" and self.held:                    # 손잡이를 잡으려면 그리퍼를 벌림 → 쥔 물체가 떨어짐 — 움직이기 전
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"{self.held['class']} 를 든 채 열지 않음 — 먼저 놓기"), None
         if state == "open":
             return self._open_drawer(goal, drawer_id, place, oc, dc, closed, pull, disp, params)
@@ -1804,14 +1803,12 @@ class SkillServer(Node):
     def _do_pick_object(self, goal, params):
         if (err := self._refuse_if_hold_unknown()):
             return err, None
-        if "source_slot" in params:                         # 칸 번호로 집기는 안 함 — 트레이를 찍은 target(pose.frame handover_zone)으로
-            return sf.Outcome(False, UNSUPPORTED_PARAMS, reason="트레이에서 집기는 source_slot 대신 inspect_region(handover_zone) 의 target"), None
+        if "source_slot" in params:
+            return sf.Outcome(False, UNSUPPORTED_PARAMS, reason="트레이에서 집기는 P2"), None
         if self.held:
             return sf.Outcome(False, HOLDING_OBJECT, reason=f"이미 {self.held['class']} 를 들고 있음"), None
         target = params.get("target") or {}
         frame = (target.get("pose") or {}).get("frame")
-        if frame == TRAY and params.get("drawer_id") in (None, TRAY):
-            return self._pick_from_tray(goal, params, target)
         drawer_id = params.get("drawer_id") or frame       # 계약엔 drawer_id 없음 → pose.frame
         if drawer_id != frame:                              # 둘 다 왔는데 다르면 어느 칸인지 모름 — 움직이기 전 거부 (#181 E 리뷰)
             return sf.Outcome(False, sf.BAD_PARAMS, reason=f"target.pose.frame {frame!r} ≠ drawer_id {drawer_id!r}"), None
@@ -2113,158 +2110,6 @@ class SkillServer(Node):
             (f", {tilt[2]}으로 {tilt[1]:.0f}° 기울임" if tilt is not None else "") + (", 가로 → 긴 변" if ag is not None else "")
         return sf.Outcome(True, reason=f"{cls} 파지 (폭 {chk.width_m * 1000:.1f} mm, {hold.reason}{stacked})"), out
 
-    def _pick_from_tray(self, goal, params, target):
-        """전달 트레이(handover_zone)에서 집기 — return_items 처럼 트레이 물건을 서랍에 다시 넣을 때 [사용자 10/12 "트레이뷰로 보고 물체 집으면 됨"].
-        target = inspect_region(handover_zone) 결과의 target 그대로 (pose.frame handover_zone), scan(선택) = 그 결과 전체 → 옆 물체 확인.
-        확인은 모두 움직이기 전: yaw_valid → 바닥 위(top_z, 쌓임 없음) → 손 닿는 범위(interior_m) → 벌린 손가락 자리의 이웃.
-        길: 트레이 위가 아니면 tray_view 로 → J6 만 돌려 잡는 방향 → 목표 위 free_lift_z → 수직으로 내려(1 cm 전까지 빠르게) 닫기 → free_lift_z 로.
-        트레이는 서랍과 달리 벽에 붙여 놓지 않음(칸 가운데) → 넛지·기울이기 없이 짧은 변, 원통형만 긴 변 양끝 (서랍과 같은 규칙, 놓을 때 쥔 방향 그대로).
-        잡는 높이도 서랍과 같음: 닫은 손끝 = 바닥 + 물체 높이 × grip_height_ratio (물건별 tip_above_floor_by_class_mm)."""
-        prm, place = self.prm(), self.places().get(TRAY) or {}
-        tf, interior = place.get("tf") or {}, place.get("interior_m")
-        if not tf.get("translation_m") or not interior:
-            return sf.Outcome(False, PLACE_NOT_CONFIGURED, reason=f"{TRAY} tf·interior_m 측정 전"), None
-        cls = target.get("class")
-        size, grip_force = self.item(cls)
-        err = motion_guard.check_yaw(target) or motion_guard.check_on_floor(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"])
-        if err:
-            return sf.Outcome(False, err.error_code, reason=err.reason), None
-        x, y = target["pose"]["position"][:2]
-        if not (0.0 <= x <= interior[0] and 0.0 <= y <= interior[1]):    # 손 닿는 범위(닫힌 손끝 중심) 밖 — 사람이 옮겨 놓은 물체 등
-            return sf.Outcome(False, sf.BAD_PARAMS, reason=f"트레이 손 닿는 범위 밖 ({x * 1000:.0f}, {y * 1000:.0f}) mm — "
-                                                          f"interior_m {interior[0] * 1000:.0f} × {interior[1] * 1000:.0f}"), None
-        g, speed, pk = prm["gripper"], prm["speed"], prm["pick"]
-        long_side = cls in (pk.get("round_classes") or [])
-        plan = pp.plan_drawer_grasp(target=target, size_m=size, tf=tf, params=pk, support_m=0.0, long_side=long_side)
-        expected_w = self.grasp_width(cls, size, prm, long_side=long_side) or plan.expected_width_m
-        if not long_side and cls in (pk.get("open_by_grasp_width") or []) and self.grasp_width(cls, size, prm):
-            plan = dataclasses.replace(plan, open_width_m=expected_w + pk["open_margin_m"])
-        tip_h = (pk.get("tip_above_floor_by_class_mm") or {}).get(cls)
-        ratio = float(pk.get("grip_height_ratio") or 0.5)
-        if tip_h is None:
-            tip_h = max(float(pk.get("min_tip_above_floor_mm", 2.0)), size[2] * 1000.0 * ratio)
-        fp_t, fp_s = (({**target, "pose": {**target["pose"], "yaw": target["pose"]["yaw"] + math.pi / 2}}, [size[1], size[0], size[2]])
-                      if long_side else (target, size))             # 손가락 자리: 긴 변 잡기면 90° 돌린 것과 같음 (서랍과 같음)
-        who, why = self._neighbor(params, TRAY, lambda objs, nb: nc.pick_blocker(
-            target=fp_t, size_m=fp_s, open_mm=plan.open_width_m * 1000.0, objects=objs, size_of=self._size_or_none,
-            default_size_m=prm["place"]["default_obstacle_size_m"], finger_mm=g["fingertip_outer_mm"],
-            margin_mm=nb["margin_mm"], support_m=0.0, below_tol_m=nb["below_tol_m"], finger_half_width_mm=g.get("tip_radius_mm"),
-            fingertip_floor_m=float(tip_h) / 1000.0, fingertip_clear_m=float(nb.get("fingertip_clear_mm", 2.0)) / 1000.0))
-        if why or who:
-            return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
-                    sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"트레이에서 벌린 손가락 자리에 {who} — 띄우거나 {who} 먼저")), None
-        # 쥔 물체 id 는 트레이 것임을 붙여 둠 — 서랍 scan 의 같은 이름(eraser#1 등)과 섞이지 않게 (놓기 판단에서 서랍 물체로 오인 방지)
-        held_id = f"{TRAY}/{target.get('id')}"
-        self._pick_planned = {"class": cls, "id": held_id, "width_m": expected_w, "drawer_id": TRAY,
-                              "tcp_above_floor_m": size[2] * ratio, "long_side": long_side}
-        # --- 여기부터 움직임 ---
-        cur = self.robot.posx()
-        if cur is None:
-            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
-        if not self._over_tray(cur):                        # 서랍 위·홈 등 → 트레이 탑뷰로 (서랍 밖으로 빼기·올리기는 _named 가)
-            o = self._named(goal, "tray_view")
-            if not o.success:
-                return o, None
-            cur = self.robot.posx()
-            if cur is None:
-                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — tray_view 뒤"), None
-        floor_mm = 1000.0 * pp.to_base(tf, (x, y, 0.0))[2]
-        grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], mp.horizontal_angle_dir(plan.long_axis_deg + 90.0), cur[3:])
-        grasp = mp.with_z(grasp, floor_mm + float(tip_h) + mp.tip_below_tcp_mm(expected_w * 1000.0, g))
-        # 잡는 손목 방향은 지금 자리에서 J6 만 돌려 먼저 (서랍·놓기와 같음 — 옆으로 가며 크게 돌리면 제어기가 출발 안 함 [실측 PC2 10/10·10/12])
-        turn = ((grasp[5] - grasp[3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0
-        jnow = self.robot.posj()
-        if abs(turn) > 1.0 and jnow:
-            o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "tray:turn", in_drawer=True)   # 손목만 — 서랍 경유점과 같은 관절 속도
-            if not o.success:
-                return o, None
-            cur = self.robot.posx() or cur
-            grasp = list(grasp[:3]) + list(cur[3:])
-        off = params.get("approach_offset", 0.10)
-        approach = float(off[2] if isinstance(off, (list, tuple)) else off) * 1000.0
-        above = mp.with_z(grasp, max(prm["transit"]["free_lift_z_mm"], grasp[2] + min(approach, 30.0)))   # 트레이 테두리 위 (놓기와 같은 높이)
-        self._grip(plan.open_width_m * 1000.0, 20)
-        bad = self._line(goal, above, self._free_vel(), "tray:over")
-        slow_mm = pk.get("slow_last_mm", 0.0)               # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 (트레이 바닥 휨 1.9 mm [실측 10/10])
-        if not bad and slow_mm > 0 and grasp[2] + slow_mm < above[2] - 1.0:
-            bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), speed["line_mm_s"], "descend_fast")
-        bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
-        if bad:
-            return bad, None
-        grasp_z_now = (self.robot.posx() or grasp)[2]
-        pick_min_w = max(g["min_width_m"], g.get("pick_min_width_m") or 0.0)
-
-        def pick_out(ok, hand, **evidence):                 # 서랍 집기와 같은 결과 형식 (contracts/examples/pick_object_result.json)
-            ev = {"closed_width_m": _width_m(st.width_mm), "grasp_detected": st.grip_detected, "min_width_m": pick_min_w, **evidence}
-            return {"object_id": target.get("id"), "class": cls, "grasp_ok": ok, "hand": hand, "grasp_evidence": ev}
-        force = float(params.get("grip_force") or grip_force or (g.get("grip_force_by_class_n") or {}).get(cls)
-                      or g["default_grip_force_n"])
-        goal.publish_feedback(Skill.Feedback(stage="close"))
-        st = self._grip(0, force)
-        tol = g["grasp_width_tolerance_m"]
-        if long_side:
-            th = math.radians(pk.get("long_side_yaw_slack_deg", 0.0))
-            tol += max(0.0, size[0] * math.cos(th) + size[1] * math.sin(th) - size[0])
-        chk = gc.check_grasp(width_m=st.width_mm / 1000.0, grasp_detected=st.grip_detected, min_width_m=pick_min_w,
-                             expected_width_m=expected_w, width_tolerance_m=tol)
-        held = {"class": cls, "id": held_id, "width_m": expected_w, "drawer_id": TRAY,
-                "tcp_above_floor_m": (grasp_z_now - floor_mm) / 1000.0, "long_side": long_side}
-        if chk.reason == gc.SENSOR_INVALID:                    # 쥐었는지 모름 → 쥔 것으로 기억하고 그 자리에서 멈춤 (서랍과 같음)
-            self.held = held
-            return sf.Outcome(False, dp.SENSOR_INVALID, reason=f"닫은 뒤 그리퍼 폭 이상 ({st.width_mm!r}) — 쥔 것으로 기억, 확인 필요"), \
-                pick_out(False, "unknown", close=chk.reason)
-        if not chk.ok:
-            st_open = self._grip(plan.open_width_m * 1000.0, 20)
-            back = self._line(goal, above, self._free_vel(), "lift")
-            w_open = _width_m(st_open.width_mm)
-            opened = w_open is not None and abs(w_open - plan.open_width_m) <= g["slip_tolerance_m"]
-            return sf.worse(sf.Outcome(False, GRASP_FAILED, reason=f"파지 실패 {chk.reason} (폭 {st.width_mm:.1f} mm, "
-                                                                 f"기대 {expected_w * 1000:.1f} mm)"),
-                            back), pick_out(False, "released" if opened else "unknown", close=chk.reason, open_width_m=w_open)
-        self.held = dict(held, width_m=chk.width_m)          # 닫아서 잡음 → 바로 쥔 것으로 (올리다 멈춰도 빈손으로 보지 않음)
-        bad = self._line(goal, above, self._in_vel(), "lift")
-        if bad:
-            return bad, pick_out(False, "unknown", close=chk.reason)
-        st2 = Rg2(self.rg2_ip)
-        try:
-            w2 = st2.status().width_mm / 1000.0
-        finally:
-            st2.close()
-        hold = gc.check_hold(width_m=w2, width_at_grasp_m=chk.width_m, min_width_m=g["min_width_m"],
-                             slip_tolerance_m=g["slip_tolerance_m"])
-        if hold.reason == gc.SENSOR_INVALID:
-            return sf.Outcome(False, dp.SENSOR_INVALID, reason=f"들어 올린 뒤 그리퍼 폭 이상 ({w2!r}) — 쥔 것으로 기억, 확인 필요"), \
-                pick_out(False, "unknown", close=chk.reason, lift=hold.reason)
-        if not hold.held:
-            self.held = None
-            return sf.Outcome(False, GRASP_FAILED, reason=f"들어 올리다 놓침 ({hold.reason})"), \
-                pick_out(False, "empty", close=chk.reason, lift=hold.reason, lift_width_m=_width_m(w2 * 1000.0))
-        # 집은 칸은 빈 칸으로 (다음 트레이 놓기가 그 칸을 다시 씀) — 칸 x 폭 안에 있을 때만
-        n = int(place.get("slots") or 1)
-        i = min(range(n), key=lambda k: abs(pp.slot_centers(interior[:2], n)[k][0] - x))
-        tray = self.tray
-        if i in (tray.get(TRAY) or []) and abs(pp.slot_centers(interior[:2], n)[i][0] - x) <= interior[0] / n / 2.0:
-            tray[TRAY] = [k for k in tray[TRAY] if k != i]
-            self.tray = tray
-        out = dict(pick_out(True, "holding", close=chk.reason, lift=hold.reason, lift_width_m=_width_m(w2 * 1000.0)),
-                   pick_pose_drawer_frame=target.get("pose"))
-        return sf.Outcome(True, reason=f"{cls} 트레이에서 파지 (폭 {chk.width_m * 1000:.1f} mm, {hold.reason}"
-                                       f"{', 긴 변 양끝' if long_side else ''})"), out
-
-    def _with_tray_held(self, params, loc, held):
-        """트레이에서 집은(집을) 물체는 서랍 scan 에 없음 → 서랍 안 놓기 판단(이웃·빈 자리)용으로 그 물체를 서랍 밖 자리(−1 m)에 넣은 scan.
-        놓기·빈 자리 검사는 쥔 물체를 빼고 이웃을 보므로 이 자리는 판단에 쓰이지 않음. 서랍에서 집은 물체는 그대로(scan 에 있어야 함, #166)."""
-        scan = params.get("scan")
-        if not held or held.get("drawer_id") != TRAY or not isinstance(scan, dict):
-            return params
-        objs, why = plp.scan_objects(scan, loc)
-        if why or held["id"] in {o["id"] for o in objs}:
-            return params                                   # 형식 오류는 놓기가 그대로 거부
-        size = self._size_or_none(held["class"]) or self.prm()["place"]["default_obstacle_size_m"]
-        me = {"id": held["id"], "class": held["class"], "top_z": float(size[2]), "occluded_by": [],
-              "pose": {"frame": loc, "position": [-1.0, -1.0, 0.0], "yaw": 0.0, "yaw_valid": True}}
-        return dict(params, scan=dict(scan, candidates=list(scan.get("candidates") or []) + [me]))
-
     # --- 놓기 ---
     def _do_place_object(self, goal, params):
         if (err := self._refuse_if_hold_unknown()):
@@ -2273,7 +2118,6 @@ class SkillServer(Node):
         if loc in ("drawer_top", "drawer_bottom"):
             if params.get("check_only"):
                 return self._place_check(params, loc)
-            params = self._with_tray_held(params, loc, self.held)   # 트레이에서 집은 물체를 서랍에 (return_items)
             if params.get("slot") == FREE_SLOT:
                 return self._place_free(goal, params, loc)
             return self._place_in_drawer(goal, params, loc)
@@ -2407,11 +2251,10 @@ class SkillServer(Node):
             return None, sf.Outcome(False, sf.BAD_PARAMS, reason="check_only: 쥔 물체가 없으면 object(scan 의 집을 물체)가 필요")
         dry = _Dry(self)
         try:
-            from_tray = (obj.get("pose") or {}).get("frame") == TRAY       # 트레이 물체: scan 은 놓을 서랍 것 → 트레이 이웃 확인은 실제 집기에서
-            o, _ = dry._do_pick_object(_DRY_GOAL, {"target": obj, "approach_offset": [0, 0, 0.1], "scan": None if from_tray else scan})
+            o, _ = dry._do_pick_object(_DRY_GOAL, {"target": obj, "approach_offset": [0, 0, 0.1], "scan": scan})
         except _WouldMove:
             planned = dry.__dict__.get("_pick_planned")
-            if planned and planned.get("drawer_id") in (loc, TRAY):
+            if planned and planned.get("drawer_id") == loc:
                 return dict(planned), None
             return None, sf.Outcome(False, sf.BAD_PARAMS, reason=f"check_only: {obj['id']} 집기 계획이 {loc} 가 아님")
         except Exception as e:                                    # 설정·계산 예외 = 판단 못 함 → 통과 아님
@@ -2469,7 +2312,7 @@ class SkillServer(Node):
             held, refused = self._planned_held(params.get("object"), loc, params.get("scan"))
             if refused:
                 return refused, dict(empty)
-        p = self._with_tray_held({k: v for k, v in params.items() if k not in ("check_only", "object")}, loc, held)
+        p = {k: v for k, v in params.items() if k not in ("check_only", "object")}
         slot_name = None
         if p.get("slot") == FREE_SLOT:
             pose, bad = self._free_pose(p, loc, held)

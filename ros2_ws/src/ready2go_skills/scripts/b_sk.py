@@ -21,8 +21,7 @@ TMP = "/tmp"                              # scan(인식) 결과 target 은 서�
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
 NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear",
-                "free", "plan", "unpack", "putin", "topple"}   # home·pick·place 는 서랍 없음
-TRAY = "handover_zone"                    # B trayscan: 트레이 인식 결과도 서랍처럼 b_target_scan_handover_zone.json — B pick 이 가장 최근 것을 집음
+                "free", "plan", "unpack", "topple"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -92,8 +91,7 @@ def goal_for(cmd):
             sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 먼저 (보내지 않음)")
         return "nudge_object", params
     if cmd == "pick":                                  # 가장 최근 좌표: 끌기 결과·다시 보기(target_after) 또는 그냥 B scan [사용자 10/10 넛지 없이 집기]
-        srcs = [p for p in (AFTER, f"{TMP}/b_target_scan_drawer_top.json", f"{TMP}/b_target_scan_drawer_bottom.json",
-                            f"{TMP}/b_target_scan_{TRAY}.json") if os.path.exists(p)]   # B trayscan 뒤면 트레이에서 집음 [10/12 return_items]
+        srcs = [p for p in (AFTER, f"{TMP}/b_target_scan_drawer_top.json", f"{TMP}/b_target_scan_drawer_bottom.json") if os.path.exists(p)]
         if not srcs:
             sys.exit("집을 좌표 없음 — B scan <서랍> 먼저 (보내지 않음)")
         src = max(srcs, key=os.path.getmtime)
@@ -131,11 +129,6 @@ def goal_for(cmd):
         if "scan" not in params:
             sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} <맨 위 물체> 먼저 (보내지 않음)")
         return "nudge_object", params
-    if cmd == "putin":                                 # 쥔 물체(트레이에서 집은 것 등)를 그 서랍 빈 자리에 — 서버가 고름(place_object slot free) [10/12 return_items]
-        params = with_scan({"location": DRAWER, "slot": "free"}, DRAWER)
-        if "scan" not in params:
-            sys.exit(f"{DRAWER} 인식 결과 없음 — 서랍 열고 B scan {DRAWER.removeprefix('drawer_')} 먼저 (옆 물체를 알아야 빈 자리를 고름, 보내지 않음)")
-        return "place_object", params
     if cmd == "home":
         return "move_to_named_pose", {"pose_name": "home"}
     if cmd == "trayview":                              # 트레이 탑뷰 (poses.yaml tray_view, 놓은 뒤 비전 확인 자세) [사용자 10/11]
@@ -146,11 +139,9 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan putin topple\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan topple\n"
          "  topple = (B scan <서랍> <맨 위 물체> 뒤) 쌓인 맨 위 물체를 눌러 끌어 받침 밖 바닥으로 떨어뜨림 → B view·B scan 으로 다시 보고 집기\n"
-         "  서랍 없음: home pick place putback trayview trayscan trayclear\n"
-         "  trayscan = (B trayview 뒤) 트레이 인식 → B pick 이 트레이에서 집음. putin = 쥔 물체를 그 서랍 빈 자리에 (서버가 고름)\n"
-         "    반납 순서: B open top → B view top → B scan top → B trayview → B trayscan 지우개 → B pick → B putin top → B close top\n"
+         "  서랍 없음: home pick place putback trayview trayclear\n"
          "  putback = 파지만 시험 — B pick 으로 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음\n"
          "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
@@ -306,13 +297,9 @@ def parse_drawer(cmd, arg):
 def main():
     global DRAWER
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    DRAWER = parse_drawer(cmd, sys.argv[2] if len(sys.argv) > 2 else None)
     global TARGET
-    if cmd == "trayscan":                          # 트레이는 서랍 인자 없음: B trayscan [물체]
-        DRAWER = TRAY
-        TARGET = parse_target(" ".join(sys.argv[2:]) if len(sys.argv) > 2 else None)
-    else:
-        DRAWER = parse_drawer(cmd, sys.argv[2] if len(sys.argv) > 2 else None)
-        TARGET = parse_target(" ".join(sys.argv[3:]) if len(sys.argv) > 3 else None)
+    TARGET = parse_target(" ".join(sys.argv[3:]) if len(sys.argv) > 3 else None)
     if cmd == "trayclear":                         # 트레이를 사람이 비움 → 서버 기억 지우기 (서버가 매 놓기마다 이 파일을 읽음) [사용자 10/11]
         try:
             os.remove(TRAY_FILE)
@@ -320,11 +307,11 @@ def main():
         except FileNotFoundError:
             print("트레이 기억이 이미 비어 있음 — 다음 놓기는 1번 칸 (로봇 동작 없음)")
         return
-    if cmd in ("scan", "rescan", "find", "all", "dragtest", "clear", "unpack", "trayscan"):
+    if cmd in ("scan", "rescan", "find", "all", "dragtest", "clear", "unpack"):
         print(f"찾을 물체: {TARGET}")
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node("b_sk")
-    if cmd in ("scan", "trayscan"):
+    if cmd == "scan":
         scan(node)
         return
     if cmd == "rescan":                            # 끌기 뒤 다시 인식 — 찾은 좌표를 집기(B pick)에 넘김 (all 의 rescan 과 같음, #181 E 리뷰)
