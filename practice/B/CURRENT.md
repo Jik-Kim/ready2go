@@ -9,6 +9,7 @@
   - 무너뜨리기(`topple`) 제거 [사용자 10/13 "높이 상관없이 넛지가 되면 topple 필요가 있나?"]: 실물 `NO_OBJECT_CONTACT`, 쌓인 넛지 + `free` 로 충분. `make_room` 은 놓을 자리가 없으면 다시 `NO_FREE_SPACE`.
   - `B unpack` 치운 물체를 고정 aside 대신 서랍 빈 자리(`slot: "free"`)에 [사용자 10/13 "free 가 상위호환, aside 다 지움"]. `B aside`·`B aside2` 명령도 지움. 서버 `slot: aside_1/aside_2` 와 `places.yaml` `place_slots` 는 C `find_with_unpack`(aside_1 → aside_2 → free)이 써서 남김 — C 에 free 만 쓰기 제안(#260 R8).
   - 판 밑 물체: 분할 모델이 판 밑이라고 한 물체가 다리 사이(65 × 35) 폭이면 판 집기 손가락 확인에서 뺌 — 판 밑 립밤·몽키·망치 [사용자 10/13]. `pick.under_gap_by_class_mm`.
+  - 판 되돌리기도 판 밑 물체 허용(다리 자리만 피함), 판 위 물체는 집을 때 비전 높이·되돌릴 때 기억한 받침 높이(판 면·나사 위) [사용자 10/13].
   - 불안정하게 기대 쌓은 배치(캐러멜 상자를 렌치·지우개에 비스듬히): 못 함 — 비전 pose 에 기울기가 없고 B 는 평평하다고 봄. 시연 배치에서 금지, 발표 개선 사항으로.
 - **10/13 새벽 (3차 챌린지 전, PR #258)**: 쌓인 물체 넛지·무너뜨리기(무너뜨리기는 10/13 낮 PR 에서 뺌). 트레이에서 집기(`return_items`)는 PM 결정(10/13 — 반납은 P3)으로 #258 에서 빼 별도 PR 로.
   - 무너뜨리기 [사용자 10/13 "집을 위치 없다고 포기하는 것도 웃김"]: `nudge_object` `topple`(맨 위 물체를 눌러 받침 밖 바닥으로 끎, `core/clear_plan.topple_move`) + `make_room` 이 놓을 자리 없을 때 이걸로. `B topple top`. 실물 `NO_OBJECT_CONTACT` ×3 → 10/13 낮 PR 에서 뺌.

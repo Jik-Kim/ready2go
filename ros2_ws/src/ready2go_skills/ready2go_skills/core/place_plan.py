@@ -288,15 +288,20 @@ def stack_support(*, pose: Mapping, held_id: str, held_size_m: Sequence[float], 
 
 
 def ontology_support_m(*, target: Mapping, objects: Sequence[Mapping], size_of: Callable[[str], Optional[Sequence[float]]],
-                       gap_m: float = 0.005, _depth: int = 0) -> Optional[float]:
+                       gap_m: float = 0.005, vision_classes: Sequence[str] = (), _depth: int = 0) -> Optional[float]:
     """쌓인 물체의 받침 높이를 온톨로지 높이로 [사용자 10/11 "온톨로지로 높이 파악해서"]: 비전은 무엇이 밑에 깔렸는지(가운데가 그 물체
     footprint 안이고 윗면이 gap_m 넘게 낮음)만 보고, 높이는 깔린 물체의 size_m[2] 를 아래로 차례로 더함. 비전 깊이는 캐러멜을 7~9 mm 높게 봄
-    [실측 PC2 10/11 top_z 25~27 / 18.5]. 밑에 깔린 게 없으면 None (호출한 쪽이 비전 값 또는 바닥)."""
+    [실측 PC2 10/11 top_z 25~27 / 18.5]. 밑에 깔린 게 없으면 None (호출한 쪽이 비전 값 또는 바닥).
+    vision_classes(다리 있는 덮개 판): 온톨로지 높이(나사 머리 포함 40.5)가 놓인 면 높이가 아님 — 판 면(약 29)·나사 위(약 40)
+    어디든 놓일 수 있음 [사용자 10/13 PC2 사진] → 그런 받침이 있으면 None (호출한 쪽이 목표 자기 윗면 − 자기 높이)."""
     if _depth > 5:
         return None
     best = None
     for o in objects_under(target=target, objects=objects, size_of=size_of, gap_m=gap_m):
-        below = ontology_support_m(target=o, objects=objects, size_of=size_of, gap_m=gap_m, _depth=_depth + 1) or 0.0
+        if o.get("class") in vision_classes:
+            return None
+        below = ontology_support_m(target=o, objects=objects, size_of=size_of, gap_m=gap_m, vision_classes=vision_classes,
+                                   _depth=_depth + 1) or 0.0
         h = below + float(size_of(o.get("class"))[2])
         best = h if best is None else max(best, h)
     return best

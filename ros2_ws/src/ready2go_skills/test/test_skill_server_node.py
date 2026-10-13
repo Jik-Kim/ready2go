@@ -2157,6 +2157,41 @@ def test_cover_plate_restore_over_object_that_fits_under(server, where, ok):
         assert not out.success and out.error_code == "PLACE_BLOCKED", out.reason
 
 
+@pytest.mark.parametrize("on, top", [("surface", 0.029 + 0.0158), ("bolts", 0.0405 + 0.0158)])
+def test_key_on_cover_plate_picks_and_restores_at_its_own_height(server, on, top):
+    """[사용자 10/13 PC2 사진] 덮개 판 위 차키는 판 면(약 29 mm)에도, 나사 머리 위(약 40 mm)에도 놓임 — 판 온톨로지 높이 40.5
+    (나사 포함)·판 비전 top_z(나사, 약 35)는 놓인 면이 아님. 집을 때 받침 = 차키 자기 윗면 − 차키 높이(비전), 되돌릴 때 그 높이 그대로."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.035, "occluded_by": ["car_key#1"], "visible_area_m2": 0.006,
+             "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": top, "occluded_by": [], "visible_area_m2": 0.0027,
+           "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 세로 → 짧은 변(39) 잡기
+    scan = {"target_found": True, "target": key, "candidates": [plate], "visible_count": 2}
+    server.Gripper.holding, server.Gripper.held_width = True, 39.0
+    try:
+        out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason
+        assert srv.picked_from[-1]["support_m"] == pytest.approx(top - 0.0158, abs=1e-4)   # 판 온톨로지 40.5 아님
+        held = dict(srv.held)
+        lows = []
+        for keep in (True, False):
+            srv.held = dict(held)
+            if not keep:
+                srv.picked_from = []
+            n = len(srv.robot.log)
+            rescan = {"target_found": True, "target": dict(key), "candidates": [dict(plate, occluded_by=[])], "visible_count": 2}
+            out, data = server.run("place_object", {"location": D, "pose": {k: key["pose"][k] for k in ("frame", "position", "yaw")},
+                                                    "scan": rescan})
+            assert out.success, out.reason
+            lows.append(min(e[1][2] for e in srv.robot.log[n:] if e != "stop" and e[0] == "movel"))
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    # 기억한 받침(판 면 29 / 나사 40.5) vs 기억 없을 때 판 비전 top_z 35 — 차이만큼 낮게·높게 내려놓음
+    assert lows[0] - lows[1] == pytest.approx(1000.0 * (top - 0.0158 - 0.035), abs=0.6)
+
+
 def test_place_check_only_before_pick_moves_nothing(server):
     """check_only: 아직 안 쥔 object(scan 의 판)로 놓기 판단만 — 로봇·그리퍼 명령 없음, placed_pose null·planned_pose 예정.
     (립밤을 뺀 장면: 판 밑 지우개만이면 aside_1 은 자리 안에서 비켜 통과, free 도 통과)"""
