@@ -377,3 +377,21 @@ def test_recover_without_b_check_keeps_the_lock(tmp_path):
         assert voice.status["phase"] == "halted" and runner.runner.halted
     finally:
         close()
+
+
+def test_reset_state_ends_preserved_work(tmp_path):
+    """정본 resume-admission-policy: 상태 초기화는 보존 작업을 끝냄 (finally 비동작만) — 잠금은 풀지 않음."""
+    from std_srvs.srv import Trigger
+    runner, voice, close = make_system(tmp_path, duration=2.0, extra=[("resumable", True)])
+    try:
+        voice.say(intent())
+        assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+        voice.say(intent("cancel", targets=(), confidence=0.9))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+        run_id = voice.status["last"]["run_id"]
+        reply = runner._reset_state(Trigger.Request(), Trigger.Response())
+        assert reply.success and runner.runner.suspended is None and runner.runner.halted
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"
+                          and s["last"]["run_id"] == run_id), voice.status
+    finally:
+        close()

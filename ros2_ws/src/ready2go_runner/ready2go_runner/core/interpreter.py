@@ -253,17 +253,22 @@ class Runner:
         self._event_id: str | None = None       # 정지 사건 ID: 잠길 때마다 새로 (재개 요청이 이 사건에 대한 것인지)
         self._suspended: _Run | None = None     # 재개 대기 중인 실행
         self._offered_at: float | None = None   # 재개 대기 중 잠금이 풀린 시각 (clock)
+        self._offer_until: str | None = None    # 그때 정한 제안 기한 표시 시각 (UTC) — 조회마다 다시 계산하지 않음 (#286 E 리뷰)
         self._pos: list[tuple[int, str]] = []   # 지금 실행 중인 스텝 위치 (바깥 → 안쪽)
         self._branch_at: dict[tuple, str] = {}  # 지금 실행 문맥의 _Run.branch_at
         self._halt_path: list | None = None     # 중단이 처음 난 스텝 위치
         self._halt_started = False              # 그 스텝이 시작된 뒤 멈췄는지
         self._step_started = False              # 가장 최근 _run_step 이 기록을 만들었는지 (시작 전 중단 구분)
 
-    def halt(self, code: str = HALTED, source: str = "runner") -> None:
+    def halt(self, code: str = HALTED, source: str = "runner", run_id: str | None = None) -> bool:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임.
         source: 정지 요청 출처 — "service"(/runner/estop)·"voice"(음성 cancel)·"backend"(스킬 서버 ESTOP 등 중단 코드).
-        정지 요청 시각·출처·취소 요청한 동작 수는 실행 기록 halts[] 에 남는다 (#187, AC-SAF-02 C 몫)."""
+        정지 요청 시각·출처·취소 요청한 동작 수는 실행 기록 halts[] 에 남는다 (#187, AC-SAF-02 C 몫).
+        run_id: 그 실행이 지금 실행 중일 때만 멈춤 (end_task, #285 E 리뷰 — 대상 확인 뒤 끝나고 새 실행이 시작됐으면
+        새 실행을 멈추지 않음). 멈추지 않았으면 False."""
         with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
+            if run_id is not None and not (self._in_run and self._run_id == run_id):
+                return False
             first = not self._halt.is_set()
             if first:
                 self._halt_code = code
@@ -278,6 +283,7 @@ class Runner:
             canceled = self.on_halt()
             if isinstance(canceled, int) and not isinstance(canceled, bool):
                 self._halt_info["canceled_goals"] = canceled
+        return True
 
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
@@ -286,6 +292,8 @@ class Runner:
             self._halt.clear()
             if self._suspended is not None:     # 재개 대기: 이때부터 resume_window_sec 안에 재개 요청을 받음
                 self._offered_at = self.clock()
+                self._offer_until = (datetime.now(timezone.utc) + timedelta(seconds=self.resume_window_sec)) \
+                    .isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     @property
     def halted(self) -> bool:
@@ -309,8 +317,7 @@ class Runner:
         remaining = None
         if self._offered_at is not None:
             remaining = max(0.0, self.resume_window_sec - (self.clock() - self._offered_at))
-        until = None if remaining is None else \
-            (datetime.now(timezone.utc) + timedelta(seconds=remaining)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        until = None if remaining is None else self._offer_until   # 고정: 만료 뒤에도 같은 값 → 상태가 바뀌지 않음
         return {"offered": not self._halt.is_set() and bool(remaining),
                 "from_step": step.get("id") if step else None,
                 "needs": _reentry_need(step) if ctx.step_started else "none",
@@ -521,6 +528,12 @@ class Runner:
         self._at_pose = None                    # 멈춘 동안 사람이 팔을 옮겼을 수 있음
         self._run_id, self._records = ctx.doc["run_id"], ctx.records
         return self._continue(ctx, ctx.path)
+
+    @property
+    def stop_settled(self) -> bool:
+        """지금 정지 사건의 정지가 끝났는지 — halt.stop confirmed(백엔드 최종 결과 받음) 또는 none(요청 때 보낸 동작 없음).
+        requested·unconfirmed 면 False: 실제 정지를 모르므로 보존 작업을 end_task 로 폐기하지 않음 (#285 E 리뷰)."""
+        return stop_state(dict(self._halt_info), self._in_run) in ("confirmed", "none")
 
     def discard_suspended(self) -> RunResult | None:
         """재개하지 않음 ("아니"·시간 초과·상태 초기화): 지금까지처럼 ABORTED 로 끝냄. finally 는 비동작만."""
