@@ -267,3 +267,20 @@ def test_run_duration_stays_wall_clock_through_suspend(finish):
     result = runner.resume_run(runner.halt_event_id, observed=EMPTY) if finish == "resume" else runner.discard_suspended()
     assert result.overall_status == ("COMPLETED" if finish == "resume" else "ABORTED")
     assert store.read_run(first.run_id)["run"]["total_duration_sec"] == 5.0
+
+
+def test_status_resume_offer_follows_lock_and_c_window():
+    """계약 W4 halt.resume (#271): 보존 직후(잠김)는 offered false·기한 없음 → 잠금 해제(resume) 뒤 offered true·남은 시간 →
+    C 제안 기한(resume_window_sec)이 지나면 offered false. 질문·요청은 재개 질문·답 구현 전 null. 보존 작업은 그대로."""
+    from test_interpreter import FakeClock
+    clock = FakeClock()
+    runner, _, _, _ = suspended_at_pick(clock)
+    offer = runner.halt_summary["resume"]
+    assert (offer["offered"], offer["from_step"], offer["hold_remaining_s"], offer["question"]) == (False, "s5.1", None, None)
+    runner.resume()
+    clock.now += 10
+    offer = runner.halt_summary["resume"]
+    assert offer["offered"] and offer["hold_remaining_s"] == 20.0 and offer["hold_until"].endswith("Z")
+    assert runner.halt_summary["locked"] is False
+    clock.now += 25
+    assert runner.halt_summary["resume"]["offered"] is False and runner.suspended   # 기한 지남 — 작업은 보존

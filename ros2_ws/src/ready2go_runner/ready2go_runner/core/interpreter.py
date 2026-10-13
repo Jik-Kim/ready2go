@@ -27,6 +27,7 @@ discard_suspended() 는 보존한 실행을 지금까지처럼 ABORTED 로 끝�
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timedelta, timezone
 import threading
 import time
 import uuid
@@ -297,6 +298,26 @@ class Runner:
         return self._halt.is_set() and not self._aborted
 
     @property
+    def resume_offer(self) -> dict | None:
+        """재개 대기(보존 작업)가 있을 때 /runner/status halt.resume (계약 W4, #271). 없으면 None.
+        offered = 잠금이 풀렸고 C 제안 기한(resume_window_sec) 안 — 재개 허가가 아님. question·request 는 재개 질문·답
+        구현 전이라 null. hold_until·hold_remaining_s = 지금 열린 C 기한(제안 창)의 남은 시간, 보존 작업 기한 아님."""
+        ctx = self._suspended
+        if ctx is None:
+            return None
+        step = _step_at(ctx, ctx.path)
+        remaining = None
+        if self._offered_at is not None:
+            remaining = max(0.0, self.resume_window_sec - (self.clock() - self._offered_at))
+        until = None if remaining is None else \
+            (datetime.now(timezone.utc) + timedelta(seconds=remaining)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        return {"offered": not self._halt.is_set() and bool(remaining),
+                "from_step": step.get("id") if step else None,
+                "needs": _reentry_need(step) if ctx.step_started else "none",
+                "question": None, "request": None,
+                "hold_until": until, "hold_remaining_s": None if remaining is None else round(remaining, 1)}
+
+    @property
     def active_run_id(self) -> str | None:
         """지금 실행 중인 run_id (없으면 None) — end_task 가 대상 실행을 확인할 때 (#271)."""
         return self._run_id if self._in_run else None
@@ -316,6 +337,7 @@ class Runner:
                 "canceled_goals": info.get("canceled_goals"), "stop": stop_state(info, self._in_run),
                 "response_code": info.get("response_code"),
                 "response_received_at": info.get("response_received_at"),
+                "resume": self.resume_offer,
                 "locked": self._halt.is_set()}
 
     @property
