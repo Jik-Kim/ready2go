@@ -54,6 +54,9 @@ def replay_dump(npz: Path, target: str):
     return json.loads(js), m["request"]["region"]
 
 
+LEGGED = {"cover_plate"}                                 # 다리로 서는 물체 — 밑에 다른 물체가 들어감 (B clear_plan LEG_CLASSES 와 같은 뜻)
+
+
 class Scene:
     """가상 인식: 물체 목록(inspect_region 결과 항목)을 들고, 집기·놓기 결과로 갱신한다."""
 
@@ -76,8 +79,9 @@ class Scene:
         for o in objs:                                          # 가상 인식: 높이로 보아 불가능한 얹힘(덮은 것 윗면 < 두 물체 온톨로지 높이 합 − 6 mm)은 뺌
             if o.get("occluded_by"):                            # — 실물 경계 높이 헛관계(10/13 030105 립밤)는 덮개를 치우고 다시 찍으면 대개 사라짐 [추정]
                 h = self.items[o["class"]]["size_m"][2]
-                o["occluded_by"] = [c for c in o["occluded_by"] if c not in tops or
-                                    tops[c] >= h + self.items[next(x["class"] for x in objs if x["id"] == c)]["size_m"][2] - 0.006]
+                cls = {x["id"]: x["class"] for x in objs}
+                o["occluded_by"] = [c for c in o["occluded_by"] if c not in tops or cls[c] in LEGGED or
+                                    tops[c] >= h + self.items[cls[c]]["size_m"][2] - 0.006]
         t = next((o for o in objs if o["class"] == search), None)
         return {"target_found": t is not None, "target": t, "candidates": [o for o in objs if o is not t], "visible_count": len(objs)}
 
@@ -87,6 +91,13 @@ class Scene:
             if x.get("occluded_by"):
                 x["occluded_by"] = [i for i in x["occluded_by"] if i != oid]
         self.held = o
+
+    def move(self, oid: str, pose: dict | None):
+        """넛지·밀기로 옮겨진 물체 (스킬 서버의 예상 자리 — 실물은 다시 찍어 확인)."""
+        if pose and oid in self.objs:
+            o = self.objs[oid]
+            o["pose"] = dict(o["pose"], position=[round(pose["position"][0], 4), round(pose["position"][1], 4), 0.0],
+                             yaw=round(float(pose.get("yaw", o["pose"]["yaw"])), 4))
 
     def place(self, pose: dict | None):
         """pose = 놓은 자리(서랍 좌표, placed_pose). None = 서랍 밖(트레이)."""
@@ -121,6 +132,9 @@ def main():
     ap.add_argument("--dump", required=True, nargs="+", help="인식에 차례로 쓸 실물 덤프 .npz (첫 번째는 필수, 모자라면 가상 인식)")
     ap.add_argument("--target", required=True, help="꺼낼 물체 클래스 (예: toy_wrench, eraser)")
     ap.add_argument("--out", default="unpack_trace.json")
+    ap.add_argument("--mode", default="unpack", choices=("unpack", "clear"),
+                    help="unpack = B unpack (Runner find_with_unpack 순서) / clear = B clear (nudge_object make_room 반복 → 집기 → 트레이)")
+    ap.add_argument("--pre-remove", default="", help="시작 전에 이 id 들을 집어 서랍 빈 자리(free)에 둠 (쉼표). 예: cover_plate#1")
     a = ap.parse_args()
     first, drawer = replay_dump(Path(a.dump[0]), a.target)
     items = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]
@@ -128,6 +142,9 @@ def main():
 
     robot = tsf.KinRobot(tsf.HOME_J)
     ss, sf, srv, Gripper = tsf.load_server(ROOT, robot)
+    _log = types.SimpleNamespace(info=lambda m: print(f"  [서버] {m}"), warn=lambda m: print(f"  [서버 경고] {m}"),
+                                 warning=lambda m: print(f"  [서버 경고] {m}"), error=lambda m: print(f"  [서버 오류] {m}"))
+    srv.get_logger = lambda: _log                                # 가짜 서버(object.__new__)엔 ROS 로거가 없음
     real_check = ss.gc.check_grasp
 
     def check_grasp(**kw):                                       # 집기는 항상 성공(폭 = 기대 폭) — 미끄러짐·접촉은 흉내 내지 않음
@@ -159,6 +176,7 @@ def main():
         for s in robot.segments[n0:]:
             s["step"] = cmd
         b.last["code"], b.last["out"] = out.error_code, data
+        b.last["make_room"] = (data or {}).get("make_room") if cmd == "clear" else None   # b_sk run 과 같게 (clear 가 ready_to_pick 을 봄)
         results.append(dict(step=cmd, action=action, success=out.success, error=out.error_code, reason=getattr(out, "reason", ""),
                             segments=len(robot.segments) - n0, first_segment=n0,
                             target=((params.get("target") or {}).get("id")), slot=params.get("slot"), location=params.get("location")))
@@ -170,6 +188,19 @@ def main():
             pose = (data or {}).get("placed_pose") if params.get("location") != "handover_zone" else None
             scene.place(pose)
             scene.snapshot(len(robot.segments), f"놓음 {params.get('location')} {params.get('slot') or ''}")
+        elif out.success and action == "nudge_object" and data:
+            mr = data.get("make_room") or {}
+            tid = (params.get("target") or {}).get("id")
+            moved = []
+            if mr.get("moved_id"):
+                moved.append((mr["moved_id"], mr.get("placed_pose") or mr.get("moved_after")))
+            moved += [(p_["id"], p_) for p_ in mr.get("pushed_after") or []]
+            if data.get("target_after") and (not mr or mr.get("moved_id") == tid):
+                moved.append((tid, data["target_after"].get("pose") if "pose" in data["target_after"] else data["target_after"]))
+            for oid, pose in moved:
+                scene.move(oid, pose)
+            if moved:
+                scene.snapshot(len(robot.segments), f"옮김 {[m[0] for m in moved]} ({mr.get('action') or 'nudge'})")
         return out.success
 
     scans = []
@@ -191,13 +222,47 @@ def main():
         b.print_seen(res)
         return res
 
-    b.run, b.inspect_all = run, inspect_all
+    def scan(node, for_pick=False):                              # B clear 의 인식 (탑뷰 이동은 clear 의 look 이 먼저 함)
+        k = len(scans)
+        if k < len(a.dump):
+            res = replay_dump(Path(a.dump[k]), a.target)[0] if k else first
+            if k:
+                scene.reset(res)
+            scans.append({"n": k + 1, "source": Path(a.dump[k]).name, "segment": len(robot.segments)})
+        else:
+            res = scene.scan(a.target)
+            scans.append({"n": k + 1, "source": "가상", "segment": len(robot.segments)})
+        print(f"  (인식 {k + 1}: {scans[-1]['source']})")
+        b.print_seen(res)
+        with open(b.full_scan_file(drawer), "w") as f:
+            json.dump(res, f)
+        if res.get("target"):
+            with open(b.scan_file(), "w") as f:
+                json.dump(res["target"], f)
+        return bool(res.get("target_found"))
+
+    b.run, b.inspect_all, b.scan = run, inspect_all, scan
     scene.snapshot(0, "첫 장면 (덤프 다시 계산)")
     log = io.StringIO()
     code = 0
     try:
         with contextlib.redirect_stdout(log):
-            ok = b.unpack(None)
+            if a.mode == "clear" or a.pre_remove:
+                for step in ("ready", "open"):
+                    if not run(None, step):
+                        sys.exit(f"{step} {b.last['code']}")
+            for oid in [x for x in a.pre_remove.split(",") if x]:   # 시작 전 치우기: 집기 → 서랍 빈 자리 (B free 와 같은 slot "free")
+                res0 = scene.scan(a.target)
+                obj = next(o for o in [res0["target"]] + res0["candidates"] if o and o["id"] == oid)
+                if not run(None, "pick", ("pick_object", {"target": obj, "approach_offset": [0, 0, 0.1], "scan": res0})) or \
+                        not run(None, "free", ("place_object", {"location": drawer, "slot": "free", "scan": res0})):
+                    sys.exit(f"시작 전 치우기 {oid} 실패 {b.last['code']}")
+            if a.mode == "clear":
+                scans.append({"n": 0, "source": "첫 장면(시작 전 치우기 반영)", "segment": len(robot.segments)}) if a.pre_remove else None
+                b.clear(None)
+                ok = True
+            else:
+                ok = b.unpack(None)
     except SystemExit as e:
         ok, code = False, e.code
     text = log.getvalue()
