@@ -140,7 +140,7 @@ pm = UsdPhysics.MaterialAPI.Apply(mat.GetPrim())
 pm.CreateStaticFrictionAttr(0.5)
 pm.CreateDynamicFrictionAttr(0.4)
 pm.CreateRestitutionAttr(0.0)
-cls_of = {}
+cls_of, XOPS = {}, {}
 for e in EVENTS:
     for o in e["objects"]:
         cls_of[o["id"]] = o["class"]
@@ -150,8 +150,9 @@ for oid, cls in cls_of.items():
     prim.GetReferences().AddReference(str(MESH_DIR / f"{cls}.usda"))
     xf = UsdGeom.Xformable(prim)
     xf.ClearXformOpOrder()
-    xf.AddTranslateOp().Set(Gf.Vec3d(0, 0, -1.0))
-    xf.AddOrientOp().Set(Gf.Quatf(1, 0, 0, 0))
+    XOPS[oid] = (xf.AddTranslateOp(), xf.AddOrientOp())
+    XOPS[oid][0].Set(Gf.Vec3d(0, 0, -1.0))
+    XOPS[oid][1].Set(Gf.Quatf(1, 0, 0, 0))
     UsdPhysics.RigidBodyAPI.Apply(prim)
     UsdPhysics.MassAPI.Apply(prim).CreateMassAttr(MASS.get(cls, 0.04))
     PhysxSchema.PhysxRigidBodyAPI.Apply(prim).CreateEnableCCDAttr(True)
@@ -256,7 +257,14 @@ def obj_world(o, travel):
 
 
 def put(oid, T):
-    bodies[oid].set_world_pose(position=T[:3, 3], orientation=R_to_wxyz(T[:3, :3]))
+    """운동학(쥔 것·서랍 따라가는 것)은 USD 위치로 옮김(PhysX 가 운동학 목표로 따라감) — 물리 API 로 옮기면 무시되고 속도 설정은
+    'Body must be non-kinematic' 오류 [사용자 영상 10/13: 그리퍼만 움직이고 물체는 제자리]. 물리 물체는 순간 이동 + 속도 0."""
+    q = R_to_wxyz(T[:3, :3])
+    if kin_attr[oid].Get():
+        XOPS[oid][0].Set(Gf.Vec3d(*[float(v) for v in T[:3, 3]]))
+        XOPS[oid][1].Set(Gf.Quatf(float(q[0]), float(q[1]), float(q[2]), float(q[3])))
+        return
+    bodies[oid].set_world_pose(position=T[:3, 3], orientation=q)
     bodies[oid].set_linear_velocity(np.zeros(3))
     bodies[oid].set_angular_velocity(np.zeros(3))
 
@@ -467,16 +475,29 @@ for s in TRACE["segments"]:
             for oid, Tr in T_in.items():
                 put(oid, W @ T_bd @ shift @ Tr)
         if held is not None:
-            put(held, W @ kin.fk(q) @ rel)
+            Tc = W @ kin.fk(q) @ rel
+            put(held, Tc)
         if drag_obj:                                                       # 위치만 따라감(자세는 끌기 시작 자세 유지, 높이 그대로)
             Tn = W @ kin.fk(q) @ drag_rel
             T0d = pose_of(drag_obj)
             Tn[:3, :3], Tn[2, 3] = T0d[:3, :3], T0d[2, 3]
             put(drag_obj, Tn)
         apply(q, finger_deg(width), travel)
+        if held is not None and k == n:                                    # 쥔 물체가 실제로(물리 엔진에서) 손을 따라왔는지 — 화면 없이도 확인
+            err = np.linalg.norm(pose_of(held)[:3, 3] - Tc[:3, 3]) * 1000
+            if err > 5.0:
+                print(f"[phys]   **쥔 {held} 이 손을 안 따라옴: {err:.0f} mm** (구간 #{s['i']})", flush=True)
+                report.setdefault("follow_error", []).append({"segment": s["i"], "id": held, "err_mm": round(err, 1)})
     if moving_drawer:
         for oid in T_in:
+            Tk = W @ T_bd @ shift @ T_in[oid]
             set_kin(oid, False)
+            put(oid, Tk)                                                    # 운동학 → 물리로 바꿀 때 마지막 자리 그대로 넘김
+            x_, y_, _ = drawer_xy_yaw(pose_of(oid), travel)
+            o0 = objs.get(oid)
+            if o0 is not None:
+                print(f"[phys]     서랍 {'열림' if s['stage'] == 'pull' else '닫힘'} 뒤 {oid} 서랍 좌표 ({x_ * 1000:.1f}, {y_ * 1000:.1f}) mm "
+                      f"(처음 {o0['pose']['position'][0] * 1000:.1f}, {o0['pose']['position'][1] * 1000:.1f})", flush=True)
     if drag_obj:
         set_kin(drag_obj, False)
         grip_filter(drag_obj, False)
