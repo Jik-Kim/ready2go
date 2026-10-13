@@ -21,7 +21,7 @@ TMP = "/tmp"                              # scan(인식) 결과 target 은 서�
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
 NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear",
-                "free", "plan", "unpack", "putin"}   # home·pick·place 는 서랍 없음
+                "free", "plan", "unpack", "putin", "topple"}   # home·pick·place 는 서랍 없음
 TRAY = "handover_zone"                    # B trayscan: 트레이 인식 결과도 서랍처럼 b_target_scan_handover_zone.json — B pick 이 가장 최근 것을 집음
 
 
@@ -126,6 +126,11 @@ def goal_for(cmd):
         if "scan" not in params:
             sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 로 집기 전에 본 결과가 있어야 함 (보내지 않음)")
         return "place_object", params
+    if cmd == "topple":                                # 쌓인 맨 위 물체를 눌러 끌어 받침 밖 바닥으로 (nudge_object topple) [사용자 10/13]
+        params = with_scan({"drawer_id": DRAWER, "target": target(), "topple": True}, DRAWER)
+        if "scan" not in params:
+            sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} <맨 위 물체> 먼저 (보내지 않음)")
+        return "nudge_object", params
     if cmd == "putin":                                 # 쥔 물체(트레이에서 집은 것 등)를 그 서랍 빈 자리에 — 서버가 고름(place_object slot free) [10/12 return_items]
         params = with_scan({"location": DRAWER, "slot": "free"}, DRAWER)
         if "scan" not in params:
@@ -141,7 +146,8 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan putin\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan putin topple\n"
+         "  topple = (B scan <서랍> <맨 위 물체> 뒤) 쌓인 맨 위 물체를 눌러 끌어 받침 밖 바닥으로 떨어뜨림 → B view·B scan 으로 다시 보고 집기\n"
          "  서랍 없음: home pick place putback trayview trayscan trayclear\n"
          "  trayscan = (B trayview 뒤) 트레이 인식 → B pick 이 트레이에서 집음. putin = 쥔 물체를 그 서랍 빈 자리에 (서버가 고름)\n"
          "    반납 순서: B open top → B view top → B scan top → B trayview → B trayscan 지우개 → B pick → B putin top → B close top\n"
