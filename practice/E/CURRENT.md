@@ -135,6 +135,11 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - **현재 Phase**: P2 준비(P1 통합 종료 유지). 목표·정책·책임·완료 기준은 [requirements.md](../../docs/requirements.md#phase-scope)를 참조합니다.
 - **최종 갱신**: 2026-10-12
 
+## #251 ICD 파지 폭 필드 복원 — PR #252
+
+- [문서] [FR-ONT-01](../../docs/requirements.md#fr-ont-01) 기준으로 `docs/interfaces.md` 물품 조회 행에 선택 `grasp_width_m`·`grasp_width_long_m`의 의미·단위와 `size_m` 외접 박스와의 구분, [원본 설정](../../config/item_grasp.yaml) 링크를 복원했습니다. 계약·필드·정책·Phase와 코드는 변경하지 않았습니다.
+- [실측: 이전 head] `77ec514734adc1fe8441b9f95a106404b07fe061` 전체 로컬 CI 통과(validate_contracts OK / pytest 2556 passed, 41 skipped / compose real·sim·dev OK / colcon build OK). 리뷰 반영으로 CURRENT를 추가했으므로 새 최종 head CI를 다시 실행하고 결과를 [PR #252](https://github.com/Jik-Kim/ready2go/pull/252) 본문에 기록합니다.
+- [문서: 상태·미검증] #252는 열려 있고 main 미반영입니다. 실물 파지, 새 PC·운영 연결, 담당자 수락은 미검증입니다.
 [문서: 원격 당시 이력] 아래 별도 worktree 준비/보류·41회귀·CI는73ba549/38800a8/78ec1e68 대상의 원격 이력이며, 새 통합SHA의 상태나 검사 결과가 아닙니다. 이후 기존 로컬 이력도 별도 보존합니다.
 
 ## #227 리뷰 수정 준비 — 독립 worktree, push 보류
@@ -151,6 +156,7 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [문서·코드] #227의 기본 VoiceNode 입력은 SharedInput의 RawInputStream을 WakeAudio·Recorder가 공유하고 fixed 녹음은 공유 프레임에서 기존 길이만 수집합니다. shared_input 없는 Recorder의 sd.rec→sd.wait 호환 경로도 구분합니다. fixed 5초·commissioning·임계값은 유지합니다.
 - [문서] 이 정합성 수정은 승인된 계약07 스키마/예시나 C 담당 구간을 수정하지 않습니다. 기준은 [FR-INT-02/03](../../docs/requirements.md#fr-int-02)·[FR-LOG-02](../../docs/requirements.md#fr-log-02)·[수락 TTS 정책](../../docs/requirements.md#acceptance-tts-policy)이며 policy/Phase/AC는 정본을 참조합니다.
 - [문서: 미검증] 실제 C producer/source mapper·운영 수락·첫 동작 연결은 미검증입니다. 최종 head 전체 로컬 CI 결과는 이 PR 본문에 기록합니다.
+- 
 ## 대화 핫픽스 — E-VOICE-DIALOGUE-HOTFIX-20261012-02
 
 - [문서: 승인·범위] 지시 세션이 조율 turn `01a12e38-73c3-7ba3-829e-e91958e83e6a`/user `01a12e38-7404-7550-b846-2861f5fc94ec`의 “수정 진행해 오후에 통합해야 하니까 테스트 최소한으로 해서 시간 줄여”를 직접 확인했습니다. HEAD31daff93ad22ab6216ddc5710535a8cdee7312c6/tracked clean/models 미추적에서 기존 branch로 시작했고 전달된 `_122619` 조사 근거를 재사용했습니다. 새 로그 재조사/Vault·Notion/agent/worktree/branch/게시 작업은 하지 않습니다.
