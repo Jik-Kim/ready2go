@@ -24,9 +24,9 @@ def test_examples_pass_and_general_request_unchanged():
 
 @pytest.mark.parametrize("name,drop", [
     ("recover", "boot_id"), ("recover", "event_id"), ("recover", "request_id"),
-    ("resume_register", "question_id"), ("resume_register", "event_id"),
-    ("resume_answer", "question_id"), ("resume_answer", "answer"), ("resume_answer", "evidence"),
-    ("resume_request", "phase"), ("resume_request", "request_id"), ("resume_request", "evidence"),
+    ("resume_register", "question_id"), ("resume_register", "event_id"), ("resume_register", "run_id"),
+    ("resume_answer", "question_id"), ("resume_answer", "answer"), ("resume_answer", "evidence"), ("resume_answer", "run_id"),
+    ("resume_request", "phase"), ("resume_request", "request_id"), ("resume_request", "evidence"), ("resume_request", "run_id"),
     ("end_task", "run_id"), ("end_task", "boot_id"), ("end_task", "request_id"),
 ])
 def test_missing_required_field_is_rejected(name, drop):

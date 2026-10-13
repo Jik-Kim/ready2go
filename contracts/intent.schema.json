@@ -211,6 +211,7 @@
         "required": [
           "boot_id",
           "event_id",
+          "run_id",
           "question_id"
         ]
       }
@@ -230,6 +231,7 @@
         "required": [
           "boot_id",
           "event_id",
+          "run_id",
           "question_id",
           "answer"
         ]
@@ -302,6 +304,7 @@
         "required": [
           "boot_id",
           "event_id",
+          "run_id",
           "request_id",
           "phase"
         ]
