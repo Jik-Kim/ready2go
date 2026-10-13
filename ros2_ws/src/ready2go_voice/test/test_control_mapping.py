@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from jsonschema import Draft7Validator
 from ready2go_voice.core.control_mapping import ControlMapper, SafetyProof
-from ready2go_voice.core.recovery_confirmation import Evidence, StoppedWork, TaskEndCandidate
+from ready2go_voice.core.recovery_confirmation import Evidence, StoppedWork, TaskEndCandidate, RunnerOffer
 from ready2go_voice.core.safety_exchange import SafetyExchange, IndependentRegistration
 from test_voice_ux_node import node, node_class
 
@@ -32,7 +32,7 @@ def wire(node, *, provider=True):
     proof = (lambda doc,work,now:SafetyProof(work,doc['seq'],MOCK_SAFE,100.)) if provider else None
     mapper=node.bind_control_source(lambda:True,boot='boot',publisher_gid=GID,proof_provider=proof)
     def receive(doc,gid=GID):
-        node._runner_status_with_info(SimpleNamespace(data=json.dumps(doc)),SimpleNamespace(publisher_gid=gid))
+        node._runner_status_with_info(SimpleNamespace(data=json.dumps(doc)),dict(source_timestamp=1,received_timestamp=2,publication_sequence_number=1,reception_sequence_number=1))
     return mapper,receive
 
 
@@ -48,23 +48,24 @@ def independent(node,mapper, *, text='이어서 해', result_at=18., classified_
     return target
 
 
-def test_main_schema_blocks_wire_without_changing_normal_opt_in(node):
+def test_installed_schema_allows_current_recover_without_changing_normal_opt_in(node):
     node.cfg['request_run_enabled']=True
     node.bind_control_source(lambda:True,boot='boot',publisher_gid=GID)
-    node._runner_status_with_info(SimpleNamespace(data=json.dumps(status())),SimpleNamespace(publisher_gid=GID))
+    node._runner_status_with_info(SimpleNamespace(data=json.dumps(status())),dict(source_timestamp=1,received_timestamp=2,publication_sequence_number=1,reception_sequence_number=1))
     assert node.safety_exchange.policy.work==WORK
-    assert not node.safety_sender('recover',WORK)
-    assert not node.published
-    assert node.control_mapper.reason=='public_contract_unavailable'
+    assert node.safety_sender('recover',WORK)
+    assert node.published[-1]['intent']=='recover'
+    node.parser.validator.validate(node.published[-1])
 
 
-def test_no_source_opt_in_proof_or_wrong_gid_cannot_offer_or_play(node):
+def test_proposal_needs_no_extra_provider_but_registration_precedes_tts(node):
     mapper,receive=wire(node,provider=False)
     receive(status(offered=True))
     assert node.safety_exchange.policy.work==WORK
-    assert node.safety_exchange.evidence==Evidence(stopped=True)
-    assert node.safety_exchange.policy.question is None and not node.texts
-    receive(status(2,offered=True),bytes([2]*16))
+    assert isinstance(node.safety_exchange.evidence,RunnerOffer)
+    assert node.safety_exchange.policy.question is not None and not node.texts
+    assert node.safety_exchange.policy.registered_at is None
+    assert not mapper.accept(json.dumps(status(2,offered=True)),bytes([2]*16))
     assert mapper.seq==1
     node.cfg['request_run_enabled']=False
     receive(status(2,offered=True))
@@ -77,7 +78,9 @@ def test_verified_question_registration_echo_preserves_same_event_and_receipt(no
     ex=node.safety_exchange;q=ex.policy.question
     assert q and q.question_id and not node.texts
     assert node.safety_sender('register_question',q)
-    assert node.published[-1]==dict(intent='resume_register',confidence=1.,boot_id='boot',event_id='event',run_id='run',question_id=q.question_id)
+    doc=node.published[-1]
+    assert doc['request_id']
+    assert {k:v for k,v in doc.items() if k!='request_id'}==dict(intent='resume_register',confidence=1.,boot_id='boot',event_id='event',run_id='run',question_id=q.question_id)
     receive(status(2,offered=True,question={'id':'other','state':'registered'}))
     assert ex.policy.registered_at is None and ex.current(q)
     node.now[0]=1.

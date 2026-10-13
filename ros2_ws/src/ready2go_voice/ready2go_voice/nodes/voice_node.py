@@ -152,6 +152,11 @@ class VoiceNode(Node):
                                 reliability=ReliabilityPolicy.RELIABLE)
         self.status_subscription = self.create_subscription(String, '/runner/status', self._runner_status_with_info,
                                                             status_qos, callback_group=MutuallyExclusiveCallbackGroup())
+        self.runner_control_source = None
+        self._runtime_control_check = None
+        self._control_binding = None
+        self._control_source_lost = False
+        self._init_runner_control_source()
         if self.place_topic:
             self.place_subscription = self.create_subscription(String, self.place_topic, self._place_input, 10,
                                                                 callback_group=group)
@@ -457,6 +462,19 @@ class VoiceNode(Node):
             check = getattr(self, 'request_source_check', None)
             run, boot = self.request_run.run_id, getattr(self, 'request_source_boot', None)
             connected = self._request_run_connected()
+            mapper = getattr(self, 'control_mapper', None)
+            if mapper is not None and mapper.proof_provider is None and connected:
+                from ready2go_voice.core.recovery_confirmation import ActiveRun
+                run = run or mapper.active_run
+                if isinstance(run,str) and run.strip() and boot == mapper.boot:
+                    candidate = TaskEndCandidate(ActiveRun(boot,run))
+                    self.pending_task_end = (candidate,self.generation)
+                    if mapper.send_running_end(candidate):
+                        self._diagnostic({'event':'task_end_requested','run_id':run,'reason':'current_running_target'})
+                    else:
+                        self.pending_task_end = None
+                        self._diagnostic({'event':'task_end_held','reason':'running_source_not_current'})
+                    return True
             identified = (connected and isinstance(run, str) and bool(run.strip())
                           and isinstance(boot, str) and bool(boot.strip()) and self.safety_sender is not None)
             cancel = intent('cancel'); cancel['source'] = dict(doc['source'])
@@ -485,13 +503,16 @@ class VoiceNode(Node):
         return False
 
     def _task_end_notice_locked(self, text):
+        self._control_notice_locked('task_end_held',text)
+
+    def _control_notice_locked(self, kind, text):
         # 기존 비권한 notice worker. 높은 안전 경고는 종료 보류 안내로 덮지 않습니다.
         with self.notice_condition:
             if self.pending_notice is not None and self.pending_notice.priority < 4:
                 return
             self.notice_policy.revision += 1
             self.notice_cancel.set()
-            self.pending_notice = Notice('task_end_held', text, 4, self.notice_policy.revision)
+            self.pending_notice = Notice(kind, text, 4, self.notice_policy.revision)
             self.notice_condition.notify_all()
 
     def safety_offer(self, work, revision, evidence, *, valid_state, valid_until):
@@ -514,10 +535,10 @@ class VoiceNode(Node):
             self.place_condition.notify_all()
             return q
 
-    def safety_registered(self, q, work, revision, *, valid_state):
+    def safety_registered(self, q, work, revision, *, valid_state, valid_until=None):
         with self.place_condition:
             accepted = self.safety_exchange.registered(q, work, revision, now=self.place_clock(),
-                                                       valid_state=valid_state)
+                                                       valid_state=valid_state, valid_until=valid_until)
             self.place_condition.notify_all()
             return accepted
 
@@ -587,6 +608,18 @@ class VoiceNode(Node):
         else:
             self.pending_resume = (result, self.generation)
         sender('candidate', result)
+
+    def running_end_completed(self, candidate):
+        pending = getattr(self,'pending_task_end',None)
+        if (pending is None or pending != (candidate,self.generation)
+                or not self._request_run_connected()):
+            return False
+        self.pending_task_end = None
+        self._cancel_safety_locked()
+        self._diagnostic({'event':'task_end_accepted','reason':'current_c_stop_and_disposal_confirmed'})
+        from ready2go_voice.core.hotfix import prompts
+        self._control_notice_locked('control_end',prompts(self.cfg)['control_end'])
+        return True
 
     def safety_task_end_accepted(self, candidate, *, valid_state):
         # 신뢰된 현재 C 수락 adapter/명시 더미 입력만 호출합니다. 모션/물리완료 증거 아님.
@@ -788,11 +821,12 @@ class VoiceNode(Node):
                             sender('register_question', target)
                         with self.place_condition:
                             while self.safety_exchange.policy.registered_at is None and not self._safety_paused(target, cancel):
-                                remaining = target.valid_until - self.place_clock()
-                                if remaining <= 0:
+                                limit = self.safety_exchange.policy.question_until
+                                remaining = limit - self.place_clock() if limit is not None else None
+                                if remaining is not None and remaining <= 0:
                                     raise TimeoutError('SAFETY_REGISTRATION_EXPIRED')
-                                self.place_condition.wait(min(.1, remaining))
-                        if self._safety_paused(target, cancel) or self.place_clock() >= target.valid_until:
+                                self.place_condition.wait(.1 if remaining is None else min(.1, remaining))
+                        if self._safety_paused(target, cancel) or self.place_clock() >= self.safety_exchange.policy.question_until:
                             raise InterruptedError('SAFETY_CANCELED')
                         timing, started = {}, {}
                         def on_start(stamp):
@@ -938,41 +972,139 @@ class VoiceNode(Node):
                     raise
                 print(json.dumps({'event':'voice_logger_cleanup_error','error_type':type(exc).__name__}),flush=True)
 
+    def _init_runner_control_source(self):
+        """Opt-in real ROS caller, without a handshake or extra control intent."""
+        if not self.cfg.get('request_run_enabled') or self.cfg['evaluation_mode']:
+            return
+        from ready2go_voice.adapters.runner_control import RunnerSource
+        name = self.declare_parameter('control_runner_name', 'runner').value
+        namespace = self.declare_parameter('control_runner_namespace', '/').value
+        if not isinstance(name,str) or not name or not isinstance(namespace,str) or not namespace.startswith('/'):
+            raise ValueError('selected Runner name/namespace required')
+        topic = getattr(self.status_subscription, 'topic_name', '/runner/status')
+        self.runner_control_source = RunnerSource(self.get_publishers_info_by_topic,topic,name=name,namespace=namespace)
+
+    def _lose_control_source_locked(self):
+        if not getattr(self, '_control_source_lost', False):
+            self.generation += 1
+            self.request_cancel.set()
+            self.session.conversation.invalidate()
+        self._control_source_lost = True
+        self._control_binding = None
+        self._cancel_safety_locked()
+        self.request_run.invalidate()
+
+    def _runtime_control_current(self, source, binding):
+        if not source.check(binding):
+            with self.submit_lock:
+                self._lose_control_source_locked()
+            return False
+        return not getattr(self, '_control_source_lost', False)
+
+    def _consume_control_decision(self, result):
+        sent = result.sent
+        if sent.generation != self.generation or not self._request_run_connected():
+            return None
+        from ready2go_voice.core.recovery_confirmation import ActiveRun
+        if isinstance(sent.work,ActiveRun):
+            if result.decision in ('reject','hold'):
+                pending = getattr(self,'pending_task_end',None)
+                if pending == (sent.candidate,self.generation):
+                    self.pending_task_end = None
+                    self.control_mapper.pending = None
+                    return 'failed'
+            return None
+        policy = self.safety_exchange.policy
+        if policy is None or policy.work != sent.work:
+            return None
+        if result.decision == 'resume':
+            pending = getattr(self, 'pending_resume', None)
+            if pending is None or pending != (sent.candidate,self.generation):
+                return None
+            if not policy.c_resume_accepted(sent.work,sent.request_id,valid_state=True):
+                return None
+            self.pending_resume = None
+            self.control_mapper.pending = None
+            self._cancel_safety_locked()
+            return 'resume'
+        if result.decision in ('reject','hold','closed'):
+            self._cancel_safety_locked()  # local question/request only, preserved work
+            self.control_mapper.pending = None
+            self._diagnostic({'event':'control_decision','intent':sent.intent,
+                'decision':result.decision,'request_id':sent.request_id,'reason':result.reason})
+            return 'failed' if result.decision in ('reject','hold') else None
+        if result.decision == 'recover':
+            return 'recover'
+        return None  # END admission is not disposal; existing terminal checks remain.
+
     def _runner_status_with_info(self, message, info):
+        source = getattr(self, 'runner_control_source', None)
+        if source is not None:
+            with self.submit_lock:
+                binding = source.observe(message.data, info)
+                if binding is None:
+                    if source.reason not in ('runner_sequence_not_current','runner_boot_retired'):
+                        self._lose_control_source_locked()
+                    self._diagnostic({'event':'control_status_held','reason':source.reason})
+                    return
+                if binding != self._control_binding:
+                    self._control_source_lost = False
+                    self._runtime_control_check = lambda: self._runtime_control_current(source,binding)
+                    self.bind_control_source(self._runtime_control_check,boot=binding.boot,
+                        publisher_gid=binding.endpoint_gid)
+                    self._control_binding = binding
         mapper = getattr(self, 'control_mapper', None)
         if mapper is None:
             self._runner_status(message)
             return
         with self.submit_lock:
-            try:
-                gid = bytes(info.publisher_gid)
-            except (AttributeError, TypeError, ValueError):
-                gid = None
+            # Jazzy supplies four-key dict metadata, no per-sample publisher GID.
+            gid = info.get('publisher_gid') if isinstance(info,dict) else None
+            if gid is not None:
+                try:
+                    gid = bytes(gid)
+                except (TypeError,ValueError):
+                    return
             if not mapper.accept(message.data, gid):
                 if not mapper.connected() or mapper.reason in ('invalid_current_status','producer_boot_changed'):
-                    self._cancel_safety_locked()
-                    self.request_run.invalidate()
+                    if source is not None:
+                        self._lose_control_source_locked()
+                    else:
+                        self._cancel_safety_locked()
+                        self.request_run.invalidate()
                 self._diagnostic({'event':'control_status_held','reason':mapper.reason})
                 return
+            notices = [kind for result in mapper.results
+                       if (kind := self._consume_control_decision(result)) is not None]
             pending = getattr(self, 'pending_task_end', None)
             origin = getattr(self, 'task_end_source', None)
             end_current = (pending is not None and mapper.pending is not None
                 and mapper.pending[0] == 'end_task' and mapper.pending[2] is pending[0]
-                and pending[1] == self.generation and pending[0].work == mapper.work
-                and mapper.evidence().stopped)
+                and pending[1] == self.generation and (pending[0].work == mapper.work
+                    and mapper.evidence().stopped or getattr(pending[0].work,'stop',None) is None
+                    and (mapper.status.get('halt') or {}).get('run_id') == pending[0].work.task))
             self._runner_status(message, preserve_safety=mapper.same_work, control_verified=True)
             if end_current and mapper.connected():
                 # A terminal phase transition may invalidate ordinary requests.
                 # Restore only this verified END's pending feedback correlation.
                 self.pending_task_end = (pending[0], self.generation)
+                if mapper.pending is not None:
+                    from dataclasses import replace
+                    operation = mapper.operations.get(mapper.pending[1])
+                    if operation is not None:
+                        mapper.operations[mapper.pending[1]] = replace(operation,generation=self.generation)
                 self.task_end_source = origin
             mapper.dispatch(self)
+            if notices:
+                from ready2go_voice.core.hotfix import prompts
+                self._control_notice_locked('control_' + notices[-1],prompts(self.cfg)['control_' + notices[-1]])
 
     def bind_control_source(self, check, *, boot, publisher_gid, proof_provider=None):
         """Explicit verified C binding; existing request_run opt-in still required.
 
-        proof_provider is a trusted B/C adapter, not a JSON offered/empty mapper.
-        It must supply SafetyProof with an E-local validity bound. Default absent.
+        Runtime initializes from RunnerSource and uses current C proposals/ACKs.
+        proof_provider is an optional legacy typed adapter; it is not a required
+        C public interface. Endpoint GID here is graph identity, not sample proof.
         """
         from ready2go_voice.core.control_mapping import ControlMapper
         mapper = ControlMapper(boot=boot, publisher_gid=publisher_gid, source_check=check,
@@ -980,11 +1112,14 @@ class VoiceNode(Node):
                 and not self.cfg['evaluation_mode'] and not self.stop_event.is_set()),
             schema=self.parser.validator.schema,
             clock=self.place_clock, cfg=self.cfg, publish=self._publish,
-            exchange=self.safety_exchange, proof_provider=proof_provider)
+            exchange=self.safety_exchange, proof_provider=proof_provider, generation=lambda: self.generation)
         with self.submit_lock:
             self.bind_request_source(check, boot=boot)
             self.control_mapper = mapper
             self.safety_sender = self._send_control
+            policy = self.safety_exchange.policy
+            if policy is not None and policy.session != boot and mapper.connected():
+                policy.track_boot(boot,valid_state=True)
         return mapper
 
     def _send_control(self, kind, value):
@@ -1009,7 +1144,8 @@ class VoiceNode(Node):
                 elif value['kind'] == 'resume':
                     key = 'question' if pending[0] == 'resume_answer' else 'request'
                     echo = ((mapper.status.get('halt') or {}).get('resume') or {}).get(key) or {}
-                    accepted = (echo.get('id') == pending[1] and echo.get('state') == 'resumed'
+                    expected = mapper.operations[pending[1]].question_id if key == 'question' else pending[1]
+                    accepted = (echo.get('id') == expected and echo.get('state') == 'resumed'
                         and self.safety_exchange.policy.resumed(mapper.work, valid_state=True, evidence=mapper.evidence()))
                 else:
                     return False
@@ -1056,6 +1192,8 @@ class VoiceNode(Node):
         if boot is not None and (not isinstance(boot, str) or not boot.strip()):
             raise TypeError('current verified producer boot identity required')
         with self.submit_lock:
+            if check is not getattr(self, '_runtime_control_check', None):
+                self.runner_control_source = None  # explicit legacy/dummy binding keeps its workflow
             if getattr(self, 'control_mapper', None) is not None:
                 self.control_mapper.invalidate()
                 self.control_mapper = None

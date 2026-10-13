@@ -1,6 +1,36 @@
 # CURRENT — E 고희태
 
+## e-c-w3-wire-runtime-20261013
+
+- [문서: 승인/목표/범위] 조율 human 01a1347e/01a13482의 기존 C 연결 보완 실제 반영 정정과 최초 01a13427의 E 구현·끝값 포함 승인을 직접 확인했습니다. 8b1541b5의 hook/core 보고에는 운영 binding 호출자·실제 C 최종 결정 소비 누락이 있었습니다. 이번은 같은 승인 범위의 실제 E 호출 경로 보완이며 아래 8b 기록은 당시 이력입니다. P2 [FR-SAF-01/03](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)·[접수 정책](../../docs/requirements.md#resume-admission-policy)을 대조했습니다. 역할은 E Voice core/node·신규 adapters/runner_control.py·신규 직접 C 연동 test_c_control_wire.py·관련 E 시험/문서/CURRENT입니다. 공유 계약/설정/C·B·A/카드/초기 데이터 직접 수정·카라멜21mm·S2 사용자 문서·agent/게시/실물은 제외합니다.
+- [문서: 실제 기준/보호] `/tmp/ready2go-e-c-w3-wire-20261013`, `codex/e-c-w3-wire-20261013`에서 8b1541b50800fb3ace719fd7498cff1ea936bf22를 보존하고 C 계약/코드가 포함된 origin/main5c108b0fea9cab7b36052d6cd37320b74adce669를 정상 merge한 a440620을 기준으로 구현했습니다. merge가 포함한 C/B main 이력과 E가 직접 편집한 파일을 구분합니다. primary edb의 S2 demo_scenario/CURRENT 미커밋 사용자 문서 두 개, 별도 #283 62d9 및 모델/키/config/receipt/프로세스를 보존합니다. 신규 Source handshake/nonce/자동 제어 발신·새 public field가 없습니다.
+
+| 기존 C 체크리스트 | 실제 E 호출/소비 경로 | 이번 확인 |
+| :--- | :--- | :--- |
+| 운영 진입/기존 5종 발신 | main→VoiceNode.__init__→_init_runner_control_source→기존 status callback→bind_control_source/bind_request_source | opt-in의 실제 선택 Runner graph 연결/type/단일 endpoint·현재 boot/seq. 실제 Jazzy dict 4키, 없는 표본 GID 필수 제거 |
+| offered→등록→registered→TTS | ControlMapper→RunnerOffer→SafetyExchange→실제 safety worker | 추가 provider 없이 제안/등록 후보 분리. registered 전에 TTS 없음, 실제 TTS/새 SDK receipt 뒤 응/아니/명시 재개 |
+| 기존 결정/ID 소비 | register/answer/decline/expired 선택 request_id 및 기존 독립 UUID→C summary→E current decision | halt 소멸 전에 현재 요청/대상/세대를 대조해 resume/reject/hold/closed를 1회 소비. 거절 작업 보존/새 독립 요청 허용 |
+| 일반 요청/첫 안내 유지 | 같은 runtime source→RequestRun.observe→기존 E goal/speak | 실제 C find_item 라우팅·run 수락과 첫 안내, 중복 금지/opt-in off/평가 모드 보존 |
+| 진행 중 END | 현재 accepted run/boot→event_id 없이 end_task 직접 발신→실제 C stop/disposal | cancel 뒤 새 halt 대기를 유일 경로로 두지 않음. requested/unconfirmed 대상 보존, confirmed+동일 run ABORTED+보존 폐기 후만 확정 |
+| 정지 후 END/기한 | 현재 boot/event/run·기존 receipt/publish_guard/실제 C 결과 | C resume.from_step과 최종 failed_step 하위 ID를 다른 사건으로 오인하지 않음. E STT15/whole30 끝 포함 유지 |
+
+- [구현: 자격/책임/기한] RunnerOffer는 C 제안/등록의 내부 표현이고 실행 허가·B 정상 flags가 아닙니다. C 최종 B/pre/재진입·effect 검사 뒤 decision=resume을 소비하며 SafetyProof/provider는 선택 legacy 경로로만 보존합니다. 등록 전 새 E ACK timer를 만들지 않고 C 거절/만료/상태 변경을 처리합니다. 현재 등록 ID echo의 remaining을 기존 E 등록 송신 시각+remaining으로 보수적으로 대응하며 수신 now+remaining·UTC/C-E 절대 monotonic 비교·정상 seq/재전송 기한 연장은 없습니다. graph endpoint GID는 연결 identity이고 실제 per-message GID/암호학적 발신 인증/B 신선도로 표현하지 않습니다. missing/multiple/연결 교체·boot 변경은 현재 세대와 SDK/요청을 무효화하고 복귀/old boot·seq로 부활시키지 않습니다.
+- [실측: 직접 C 연동] 실제 현재 C schema/router/ResumeAdmission/Runner·node status/publish 본문과 실제 E Node/Session을 연결한 test_c_control_wire.py **13 passed(2.47초)**, test_control_mapping 포함 **39 passed(4.45초)**입니다. 정상 복구→등록 전 TTS 없음→현재 ACK→실제 worker의 응/아니·독립 재개·최종 C 결정, 등록 거절/기간 만료·B check 없음 최종 거절/1회소비, 다른 question ID, C 재기동/old boot·seq, graph 소스 단절/복귀와 늦은 SDK, 일반 find_item 수락/첫 안내, 정지 후 END, 실제 active-run 음성 END의 requested→confirmed/STOP_UNCONFIRMED→실제 C 폐기를 확인했습니다. C/E clock은 모의에서 서로 다른 절대 offset을 사용했습니다. ROS 전송·SDK·PCM/하드웨어 proof 입력은 모의이고 실제 장치/발신 인증/실물 증거가 아닙니다. 일반 첫 안내는 기존 E 실제 goal/speak 본문의 수락·PCM proof·1회 처리 분기를 모의했습니다.
+- [실측: 실패/보완] 초기 연동 fixture에서 C ResumeAdmission의 실제 생성자 keyword를 맞췄습니다. 실제 C 종료 결과의 parent from_step/failed child 차이와 진행 중 stop phase 변경에서 pending을 보존하는 수명 경계를 수정했습니다. 관련 8파일 직접 검사는 5 failed/376 passed(34.43초)였으며 새 END 분기에서 bare StoppedWork에 .work를 읽는 타입 가드 누락 5개였습니다. 수정 후 해당 두 파일 39개를 재검증했습니다. 사용자 요청에 따라 검사를 확대/중복하지 않고 부모가 검토한 결과를 재사용합니다. Python compile/diff 형식 검사와 문서 정합성 확인 뒤 최종 core는 부모 검토 지적 반영 후 한 번 실행합니다.
+- [운영/실물 미검증·실제 타 담당 미결] runtime 호출자와 기존 C 결과 소비 코드는 연결했으며 실ROS/실제 endpoint·장치/API/실물은 미실행입니다. C의 STT>=15/부분합<30 strict는 E 승인 끝값 포함과 불일치하여 C 보완 미결입니다. C304 재정지 P1 및 B 실제 조회/외력 준비는 조율에서 따로 인계/검토하며 이번 E가 C/B 코드를 고치거나 해결됐다고 보고하지 않습니다. C accepted-before-active END 경계도 C 원본 미결로 남기고 E의 실제 active-run 직접 발신과 구분합니다. E 사용자가 실행할 설치/환경·현재 Runner 선택/기존 opt-in·C/B 실물 수용은 별도 운용 확인입니다. 현재 main #283 초기상태 미반영과 카라멜/S2 작업은 이번 범위 밖입니다.
+- [실측: 최종 core/문서 검증] 부모의 핵심 diff/source-loss 보완 검토는 추가 차단 결함 없이 종료됐고 옛 미연결 문단을 당시 이력/현행 runtime 링크로 구분했습니다. 최종 현재 제품/시험으로 필수 `python -m pytest ros2_ws/src -q -p no:cacheprovider -rs`를 한 번 실행하여 **3188 passed/24 skipped**, 종료0(268.59초)을 확인했습니다. 로그는 `/tmp/e_c_w3_runtime_final_core.log`입니다. 기존 project Python3.12.3·명시 source6 PYTHONPATH, ROS 미source·PYTEST_ADDOPTS/REQUIRE_MONGO 비노출 환경입니다. ROS6모듈+startup8사례(rclpy/인터페이스 없음)·MongoDB10사례(접속 불가)의 skip은 통과가 아닙니다. 이전 8b3103과 직접39 결과를 새 전체 검사로 전용하거나 합산하지 않습니다. Python compile·diff 형식·변경 로컬 링크/앵커28개·E 후속10파일 범위·primary edb S2 두 문서/#28362d9/보호 모델·data/config/receipt6개 및 타 담당 원본 불변을 확인했습니다. 검사 뒤 제품/시험은 변경하지 않고 이 결과 기록만 갱신하여 E 후속10파일을 로컬 커밋합니다.
+- [상태: E 연결 구현/로컬 검증 완료·운용/게시 대기] 실제 runtime 호출자와 기존 C 최종 결정 소비를 구현하고 C 원본 모의 연동 및 최종 core로 확인했습니다. 실제 ROS/하드웨어/스피커·마이크/SDK/API/실물 수용과 C strict 경계·C304 재정지/B 실관측은 별개 미검증/타 담당 선행입니다. 새 source handshake/publicfield/provider 필수 요구·자동 control·추가 agent/whole CI/colcon·실ROS/서비스/설치·PR/push/main 직접 병합은 없습니다. 정상 main 합류 이력 a440 및 이전8b를 보존하고 E 후속 변경만 커밋합니다.
+
+최종 실행 명령(작업 checkout 기준):
+
+```bash
+env -u PYTEST_ADDOPTS -u REQUIRE_MONGO PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=ros2_ws/src/ready2go_voice:ros2_ws/src/ready2go_knowledge:ros2_ws/src/ready2go_runner:ros2_ws/src/ready2go_skills:ros2_ws/src/ready2go_vision:ros2_ws/src/ready2go_bringup /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src -q -p no:cacheprovider -rs
+```
+
+
 ## e-c-w3-wire-20261013-02
+
+[이력] 아래는 8b 당시의 binding/provider 미설치·기한/결정 미연결 기록이며, 현행은 [runtime 후속](#e-c-w3-wire-runtime-20261013)을 기준으로 보십시오.
 
 - [문서: 승인/기준/보호] E-C-W3-WIRE-20261013-02. 조율 human `01a13427-19ae-7b63-8c15-69acbc70ceb0`의 E 구현·STT/전체 끝값 포함·독립 전체 시간 수정 승인을 직접 확인했습니다. 별도 `/tmp/ready2go-e-c-w3-wire-20261013`, `codex/e-c-w3-wire-20261013`, 기준 `2d6551b93c66b6b1882dc790742ad8a529006950`입니다. E Voice/core/node/직접시험·README/기술 문서/CURRENT만 수정합니다. P2 [FR-SAF-01/03](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)·[접수 정책](../../docs/requirements.md#resume-admission-policy)을 대조했습니다. 공개 계약/C·B 제품/RequestRun/설정값·USD·운영/설치·새 agent·push/PR/전체 CI는 제외합니다. primary edb와 모델/config/receipt 및 #283 공유 checkout 62d9를 보호하며, primary에 조율이 새로 승인한 S2 demo_scenario/CURRENT 두 문서 변경도 덮어쓰기/스테이지/커밋하지 않습니다.
 - [구현] 실제 SDK 정상 반환→분류 immutable ControlReceipt, 설정 원본의 끝값 포함 STT/전체 검사와 송신 직전 대상/등록/전체 기한 재검사, 선택 ControlMapper와 실제 Node pub/status 호출을 작성했습니다. 작업 기준 2d6551b9의 설치 계약/W3 미지원·binding/provider 미설치는 보류입니다. source/boot/GID·증가 seq·현재 work/UUID echo, 등록 전 TTS/소비 차단·정상 같은 사건 receipt 보존·과거/변경/소스 상실 차단을 적용합니다. recover/end는 현재 정지 근거, 질문/TTS/resume는 qualified typed B/C 증빙/E 기한이 필요합니다. E mock boolean은 운영 wire proof가 아닙니다. END 접수만으로 사건을 지우거나 idle/잠금 해제를 만들지 않으며 실제 안내 후에도 C 상태를 유지합니다. expired/decline은 현재 등록 질문만 닫고 work를 보존합니다.

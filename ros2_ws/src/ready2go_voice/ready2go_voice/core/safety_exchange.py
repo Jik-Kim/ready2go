@@ -6,7 +6,7 @@
 from dataclasses import dataclass, replace
 import threading
 from .recovery_confirmation import (RecoveryConfirmation, StoppedWork, Evidence,
-    NewStartEvidence, finite, serialized)
+    NewStartEvidence, RunnerOffer, finite, serialized)
 from .recovery_confirmation import safety_utterance
 
 
@@ -21,6 +21,7 @@ class ControlReceipt:
     classified_at: float
     tts_finished_at: float | None = None
     registered_at: float | None = None
+    valid_until: float | None = None
 
 
 @dataclass(frozen=True)
@@ -63,14 +64,14 @@ class SafetyExchange:
         if old != self.policy.work or not self.policy.current_state_confirmed:
             self.capture = self.evidence = None
             self.last_context = self.last_candidate = None
-        if accepted and isinstance(evidence, (Evidence, NewStartEvidence)):
+        if accepted and isinstance(evidence, (Evidence, NewStartEvidence, RunnerOffer)):
             self.evidence = evidence
         return accepted
 
     @serialized
     def offer(self, work, revision, evidence, *, now, valid_until, valid_state):
         if (valid_state is not True or self.policy is None
-                or not isinstance(evidence, (Evidence, NewStartEvidence))):
+                or not isinstance(evidence, (Evidence, NewStartEvidence, RunnerOffer))):
             return None
         q = self.policy.recovered(work, revision, evidence, now=now, valid_until=valid_until)
         if q is not None:
@@ -93,8 +94,8 @@ class SafetyExchange:
         self.last_context = self.last_candidate = None
 
     @serialized
-    def registered(self, q, work, revision, *, now, valid_state):
-        return self.current(q) and self.policy.registered(q, work, revision, now=now, valid_state=valid_state)
+    def registered(self, q, work, revision, *, now, valid_state, valid_until=None):
+        return self.current(q) and self.policy.registered(q, work, revision, now=now, valid_state=valid_state, valid_until=valid_until)
 
     @serialized
     def tts_started(self, q, *, now):
@@ -110,7 +111,7 @@ class SafetyExchange:
             return None
         p = self.policy
         if p.question is not None:
-            if now < p.question.valid_until:
+            if p.question_until is None or now < p.question_until:
                 return None
             p.expire(now=now)
         if p.independent is not None:
@@ -145,7 +146,7 @@ class SafetyExchange:
         if target is p.question:
             if p.finished_at is None or p.admission_window_sec is None or p.stt_result_timeout_sec is None:
                 return None
-            return min(target.valid_until, p.finished_at + p.admission_window_sec + p.stt_result_timeout_sec) - now
+            return min(p.question_until, p.finished_at + p.admission_window_sec + p.stt_result_timeout_sec) - now
         if p.independent_request_timeout_sec is None:
             return None
         if p.independent_audio is not None:
@@ -175,13 +176,14 @@ class SafetyExchange:
             return None
         if target is self.policy.question:
             valid_receipt = request is self.policy.request and request.question is target and captured_at == request.captured_at
+            until = self.policy.question_until
             context = ControlReceipt(target, request.captured_at, request.ended_at,
-                request.started_at, result_at, now, self.policy.finished_at, self.policy.registered_at) if valid_receipt else None
+                request.started_at, result_at, now, self.policy.finished_at, self.policy.registered_at, until) if valid_receipt else None
             candidate = self.policy.answer(text, target, captured_at=captured_at, now=now,
                                             evidence=self.evidence, request=request, result_at=result_at)
             if (valid_receipt and candidate is None and isinstance(text, str) and text.strip().rstrip('.!?') in ('아니', '아니요')
                     and finite(result_at) and finite(now) and request.started_at <= result_at <= now
-                    and result_at <= request.result_until and now < target.valid_until):
+                    and result_at <= request.result_until and finite(until) and now < until):
                 candidate = QuestionDeclined(target)
             if candidate is None:
                 self.last_rejection_reason = 'command_not_matched' if safety_utterance(text) is None else 'question_evidence_or_deadline_unconfirmed'
@@ -227,7 +229,8 @@ class SafetyExchange:
             self.last_rejection_reason = 'evidence_missing:' + ','.join(missing) if missing else 'current_recovery_mode_unconfirmed'
         if candidate is not None:
             if self.last_context is not None:
-                self.last_context = replace(self.last_context, registered_at=now)
+                self.last_context = replace(self.last_context, registered_at=now,
+                    valid_until=getattr(evidence, 'valid_until', None))
             self.last_candidate = candidate
         return candidate
 
