@@ -4,7 +4,8 @@
 입력 구조:  data/labeled/<세션>/images/*.png  +  data/labeled/<세션>/labels/*.txt  (YOLO 형식, 클래스 id = 아래 클래스 목록 순서)
 클래스 목록: **config/yolo_classes.txt (한 줄에 클래스 하나, 줄 번호 = 클래스 id, 깃으로 추적)** 가 원본이다. 온톨로지(world.items) 순서를 그대로 쓰면
              물품이 추가·재정렬될 때 이미 만든 라벨의 번호가 어긋나므로, 라벨링을 시작하기 전에 `--init-classes`로 고정한다.
-             yolo_classes.txt 의 모든 이름은 온톨로지 world.items 에 있어야 한다(tools/validate_contracts.py 가 검사). 물품을 추가하면 맨 뒤에 덧붙인다(앞의 번호를 바꾸지 말 것).
+             yolo_classes.txt 의 모든 이름은 온톨로지 world.items 또는 은퇴 목록 config/yolo_retired_classes.txt 에 있어야 한다(class_errors, tools/validate_contracts.py 도 같은 검사).
+             물품을 추가하면 맨 뒤에 덧붙인다(앞의 번호를 바꾸지 말 것). 물품을 빼도 줄은 지우지 않고 은퇴 목록에 적는다(뒤 번호가 밀리지 않게, #23 당근 펜).
 출력:        data/yolo/{train,val}/{images,labels}/<세션>__<파일>  (심볼릭 링크) + data/yolo/dataset.yaml
 
   python3 tools/yolo/build_dataset.py --val s03_overlap s05_light      # 검증 세션 지정 (권장)
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 ONTOLOGY = ROOT / "knowledge/robot_ontology.jsonld"
 CLASSES_FILE = ROOT / "config/yolo_classes.txt"
+RETIRED_NAME = "yolo_retired_classes.txt"   # 클래스 파일과 같은 폴더. 시연에서 뺀 물품의 학습 클래스(번호는 그대로, 온톨로지에서는 빠져도 됨)
 
 
 def ontology_items(ontology=None) -> list[str]:
@@ -40,7 +42,28 @@ def ontology_items(ontology=None) -> list[str]:
         raise ValueError(f"{path}: world.items 를 찾지 못했습니다") from None
 
 
-def load_classes(classes_file: Path | None = None, ontology=None, allow_ontology_order: bool = False) -> tuple[list[str], list[str]]:
+def read_names(path: Path) -> list[str]:
+    """한 줄에 이름 하나(빈 줄 무시). 파일이 없으면 빈 목록."""
+    path = Path(path)
+    return [l.strip() for l in path.read_text(encoding="utf-8").splitlines() if l.strip()] if path.exists() else []
+
+
+def class_errors(names: list[str], items, retired: list[str]) -> list[str]:
+    """고정 클래스 목록(names) 검사: 이름은 온톨로지 world.items 또는 은퇴 목록(retired)에 있어야 한다(오타·미등록 거부).
+    은퇴 이름은 고정 목록에 실제로 있어야 하고 중복이 없어야 한다. 은퇴 이름이 아직 온톨로지에 있어도 된다(제거 전후 모두 통과).
+    validate_contracts.py 와 같은 함수를 쓴다."""
+    errs = []
+    if len(set(names)) != len(names):
+        errs.append("yolo_classes.txt: 중복된 클래스 이름")
+    if len(set(retired)) != len(retired):
+        errs.append("yolo_retired_classes.txt: 중복된 이름")
+    errs += [f"yolo_retired_classes.txt: yolo_classes.txt 에 없는 이름 {n}" for n in dict.fromkeys(retired) if n not in names]
+    errs += [f"yolo_classes.txt: 온톨로지 world.items 에도 은퇴 목록에도 없는 클래스 {n}" for n in names if n not in items and n not in retired]
+    return errs
+
+
+def load_classes(classes_file: Path | None = None, ontology=None, allow_ontology_order: bool = False,
+                 retired_file: Path | None = None) -> tuple[list[str], list[str]]:
     """(클래스 목록, 경고 목록). classes_file 이 있으면 그 순서를 쓰고 온톨로지에 없는 이름은 오류(ValueError).
     파일이 없으면 오류(ValueError) — 온톨로지 순서가 바뀌면 이미 만든 라벨이 조용히 다른 클래스로 해석되기 때문.
     합성 점검처럼 명시적으로 허용한 경우(allow_ontology_order=True)에만 온톨로지 순서로 대체하고 경고를 돌려준다."""
@@ -50,14 +73,15 @@ def load_classes(classes_file: Path | None = None, ontology=None, allow_ontology
         if not allow_ontology_order:
             raise ValueError(f"{f} 가 없습니다. 라벨 번호가 물품 목록 변경에 흔들리지 않도록 먼저 --init-classes 로 클래스 번호를 고정하세요 (합성 점검만 --allow-ontology-order 로 허용)")
         return items, [f"{f.name} 가 없어 온톨로지 순서를 씁니다 (점검 전용 — 실제 라벨링에는 쓰지 마세요)"]
-    names = [l.strip() for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
-    if len(set(names)) != len(names):
-        raise ValueError(f"{f}: 중복된 클래스 이름이 있습니다")
-    unknown = [n for n in names if n not in items]
-    if unknown:
-        raise ValueError(f"{f}: 온톨로지 world.items 에 없는 클래스: {unknown}")
+    names = read_names(f)
+    retired = read_names(f.with_name(RETIRED_NAME) if retired_file is None else retired_file)
+    errs = class_errors(names, items, retired)
+    if errs:
+        raise ValueError(f"{f}: " + " / ".join(errs))
     new = [i for i in items if i not in names]
-    return names, ([f"온톨로지에는 있지만 yolo_classes.txt 에 없는 물품(학습 대상 아님): {new}"] if new else [])
+    warns = [f"온톨로지에는 있지만 yolo_classes.txt 에 없는 물품(학습 대상 아님): {new}"] if new else []
+    gone = [n for n in names if n in retired and n not in items]
+    return names, warns + ([f"은퇴 클래스(번호 유지, 온톨로지에 없음 — 노드는 검출을 버림): {gone}"] if gone else [])
 
 
 def split_sessions(sessions: list[str], val: list[str] | None, val_ratio: float) -> tuple[list[str], list[str]]:

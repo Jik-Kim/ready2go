@@ -24,6 +24,8 @@ sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_vision"))
 from ready2go_runner.core.validation import check_task  # noqa: E402
 from ready2go_knowledge.core import ontology as onto_lib  # noqa: E402
 from ready2go_vision.core.pose_rules import pose_errors, result_errors  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools/yolo"))
+from build_dataset import RETIRED_NAME, class_errors, read_names  # noqa: E402
 
 
 def load(p):
@@ -210,12 +212,10 @@ def main() -> int:
         if pdef.get("max_travel_m") is not None:
             errors.append(f"knowledge/robot_ontology.jsonld: places.{pname}.max_travel_m 은 config/places.yaml 이 정본이므로 온톨로지에는 null 로 둔다")
     onto = onto_lib.load(ROOT / "knowledge/robot_ontology.jsonld")
-    classes_f = ROOT / "config/yolo_classes.txt"   # YOLO 클래스 고정 목록: 온톨로지에 없는 이름이 있으면 라벨 번호가 깨진다
+    classes_f = ROOT / "config/yolo_classes.txt"   # YOLO 클래스 고정 목록: 온톨로지에도 은퇴 목록에도 없는 이름이 있으면 라벨 번호가 깨진다
     if classes_f.exists():
-        names = [l.strip() for l in classes_f.read_text(encoding="utf-8").splitlines() if l.strip()]
-        errors += [f"config/yolo_classes.txt: 온톨로지 world.items 에 없는 클래스 {n}" for n in names if n not in onto.get("world", {}).get("items", {})]
-        if len(set(names)) != len(names):
-            errors.append("config/yolo_classes.txt: 중복된 클래스 이름")
+        errors += [f"config/{e}" for e in class_errors(read_names(classes_f), onto.get("world", {}).get("items", {}),
+                                                      read_names(classes_f.with_name(RETIRED_NAME)))]
     errors += onto_lib.list_reference_errors(onto)
     for name, skill in onto.get("skills", {}).items():
         if skill.get("kind") != "primitive":
