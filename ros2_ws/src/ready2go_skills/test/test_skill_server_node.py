@@ -2983,6 +2983,28 @@ def test_cover_plate_pick_ignores_objects_passing_under_between_legs(server):
     assert out.error_code == "NEIGHBOR_TOO_CLOSE", out.reason
 
 
+def test_make_room_cluster_touching_bboxes_still_plans(server):
+    """[실측 PC2 10/13 B clear top 에어팟, 덤프 inspect_20261013_051358_386Z] 에어팟 둘레에 캐러멜·몽키·지우개가 맞붙음 — 온톨로지
+    외접 박스(몽키 머리 61 × 170)가 처음부터 서로 1~2 mm 겹쳐 어느 쪽으로도 0 mm 로 계산 → make_room fail(NEIGHBOR_TOO_CLOSE).
+    처음부터 겹친 물체에서 멀어지는 쪽은 막지 않음 → 캐러멜을 빈 쪽(-y)으로 넛지 (check_only, 로봇 안 움직임)."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1069, 0.1802, 0.0246, 0.0061)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.1047, 0.1346, 0.0234, 0.0061),
+                           o("toy_wrench#1", "toy_wrench", 0.1046, 0.215, 0.0167, -0.1088),
+                           o("eraser#1", "eraser", 0.0562, 0.1729, 0.0136, -1.5254)]}
+    out, data = server.run("nudge_object", {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True})
+    mr = data["make_room"]
+    assert mr["action"] == "nudge" and "caramel_box#1" in mr["reason"] and "-y" in mr["reason"], mr   # check_only 라 moved_id null
+    assert srv.robot.log == []
+
+
 def test_open_refused_while_holding(server):
     """손잡이를 잡으려면 그리퍼를 벌림 → 쥔 물체가 떨어짐 — 열기는 움직이기 전 HOLDING_OBJECT.
     열림 알림(displacement, 로봇 동작 없음)과 서랍 상태는 그대로."""
