@@ -21,7 +21,7 @@ TMP = "/tmp"                              # scan(인식) 결과 target 은 서�
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
 NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear",
-                "free", "plan", "unpack"}   # home·pick·place 는 서랍 없음
+                "free", "plan", "unpack", "topple"}   # home·pick·place 는 서랍 없음
 
 
 def scan_file():
@@ -124,6 +124,11 @@ def goal_for(cmd):
         if "scan" not in params:
             sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 로 집기 전에 본 결과가 있어야 함 (보내지 않음)")
         return "place_object", params
+    if cmd == "topple":                                # 쌓인 맨 위 물체를 눌러 끌어 받침 밖 바닥으로 (nudge_object topple) [사용자 10/13]
+        params = with_scan({"drawer_id": DRAWER, "target": target(), "topple": True}, DRAWER)
+        if "scan" not in params:
+            sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} <맨 위 물체> 먼저 (보내지 않음)")
+        return "nudge_object", params
     if cmd == "home":
         return "move_to_named_pose", {"pose_name": "home"}
     if cmd == "trayview":                              # 트레이 탑뷰 (poses.yaml tray_view, 놓은 뒤 비전 확인 자세) [사용자 10/11]
@@ -134,7 +139,9 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan   서랍 없음: home pick place putback trayview trayclear\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan topple\n"
+         "  topple = (B scan <서랍> <맨 위 물체> 뒤) 쌓인 맨 위 물체를 눌러 끌어 받침 밖 바닥으로 떨어뜨림 → B view·B scan 으로 다시 보고 집기\n"
+         "  서랍 없음: home pick place putback trayview trayclear\n"
          "  putback = 파지만 시험 — B pick 으로 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음\n"
          "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
          "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"

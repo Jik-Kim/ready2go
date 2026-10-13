@@ -73,6 +73,38 @@ def pick_result_errors(doc):
     return errs
 
 
+def topple_errors(c):
+    """nudge_object topple [제안 10/13 B]: topple = {dir(서랍 축 단위 벡터), dist_m > 0, landed_pose{frame, position(z 0), yaw}, reason}.
+    성공이면 topple 필수, target_after 는 떨어질 예상 자리 = landed_pose (방향 모름 → yaw_valid false — 바로 집지 않고 다시 보기).
+    실패면 topple null 또는 같은 형식. make_room action topple 은 moved_id·moved_after 필수."""
+    out, errs = c["output"], []
+    mr = out.get("make_room") or {}
+    if mr.get("action") == "topple" and (not isinstance(mr.get("moved_id"), str) or not isinstance(mr.get("moved_after"), dict)):
+        errs.append("make_room topple 은 moved_id(문자열)·moved_after(떨어질 예상 pose) 필요")
+    if "topple" not in out:
+        return errs
+    t = out["topple"]
+    if t is None:
+        if c["success"]:
+            errs.append("topple 성공 결과에 topple 필요")
+        return errs
+    d, lp = t.get("dir"), t.get("landed_pose") or {}
+    if not (isinstance(d, list) and len(d) == 2 and sorted(abs(v) for v in d) == [0.0, 1.0]):
+        errs.append(f"topple.dir 는 서랍 축 단위 벡터 [±1, 0]·[0, ±1] — 값 {d!r}")
+    if not (isinstance(t.get("dist_m"), (int, float)) and t["dist_m"] > 0) or not isinstance(t.get("reason"), str):
+        errs.append("topple.dist_m(> 0)·reason(문자열) 필요")
+    pos = lp.get("position")
+    if not (isinstance(lp.get("frame"), str) and isinstance(pos, list) and len(pos) == 3 and pos[2] == 0.0
+            and isinstance(lp.get("yaw"), (int, float))):
+        errs.append("topple.landed_pose 는 {frame, position[x, y, 0], yaw}")
+    after = out.get("target_after")
+    if c["success"] and isinstance(after, dict):
+        ap = after.get("pose") or {}
+        if ap.get("yaw_valid") is not False or ap.get("position") != pos or ap.get("frame") != lp.get("frame"):
+            errs.append("topple 성공의 target_after 는 landed_pose 자리·yaw_valid false (떨어진 방향 모름 → 다시 보기)")
+    return errs
+
+
 def drawer_result_errors(doc):
     """drawer_control 결과 (PR #223): 열기 성공은 drawer_displacement ≥ 0.9 × open_distance_m(open_drawer verify 근거),
     close_confirmed 는 남은 거리 ≤ 허용오차이고 밀기가 중간에 멈추지 않았을 때만."""
@@ -163,6 +195,7 @@ def main() -> int:
                 errors.append(f"nudge_object_result.json {c['case']}: needed(bool)·plan_code(null|문자열), plan_code 가 있으면 needed false")
         if not c["success"] and after is not None:
             errors.append(f"nudge_object_result.json {c['case']}: 실패 결과의 target_after 는 null")
+        errors += [f"nudge_object_result.json {c['case']}: {m}" for m in topple_errors(c)]
         if c["success"]:
             if not isinstance(after, dict):
                 errors.append(f"nudge_object_result.json {c['case']}: 성공 결과에 target_after(target 형식) 필요")
