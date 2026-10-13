@@ -13,16 +13,14 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/r
 ```
 
 - [실측: 정적/문서 정합성] AST·JSON/YAML 파싱, 추가 상대 링크/앵커를 확인했습니다. base 대비 world/initial_state/grasp의 승인 항목만 제거됨과 manifest·모든 skill·places·학습 번호·ignore의 바이트 보존을 대조했습니다. 변경 15파일 외 기존 변경은 포함하지 않습니다.
-- [문서/합류: A 지원 선행 충족] manager가 확인한 [A PR #262](https://github.com/Jik-Kim/ready2go/pull/262)의 정확 head `87fa5e5bd4b53d795d98dca2343483fe1e436aff`를 fetched ref와 대조하고 E 브랜치에 정상 merge했습니다(merge `2738b10bbb72c762ce0b29b85151cfd26fe6290f`, 충돌 없음). A base 및 확인 시 최신 main은 `2c696620f4538876c02befdd2bc9a7842318800d`이며 A patch는 지원 7파일입니다. #262는 open·main 미병합이며 E 브랜치 합류를 main 병합 완료로 보고하지 않습니다. `config/yolo_retired_classes.txt`는 carrot_pen 하나, 공통 class_errors는 world.items 또는 명시 은퇴 목록의 고정 이름만 허용합니다. E는 A 파일을 직접 편집하지 않았습니다. 기존 예상 불일치는 지원 전 정적 판단이었고 실행 실패가 아니며 A 지원 SHA 미회신 상태는 해소했습니다.
+- [문서/합류: A 지원 선행 충족] manager가 확인한 [A PR #262](https://github.com/Jik-Kim/ready2go/pull/262)의 정확 head `87fa5e5bd4b53d795d98dca2343483fe1e436aff`를 fetched ref와 대조하고 E 브랜치에 정상 merge했습니다(merge `2738b10bbb72c762ce0b29b85151cfd26fe6290f`, 충돌 없음). A base 및 확인 시 최신 main은 `2c696620f4538876c02befdd2bc9a7842318800d`이며 A patch는 지원 7파일입니다. #262는 open·main 미병합이며 E 브랜치 합류를 main 병합 완료로 보고하지 않습니다. `config/yolo_retired_classes.txt`는 carrot_pen 하나, 공통 class_errors는 world.items 또는 명시 은퇴 목록의 고정 이름만 허용합니다. E는 A 파일을 직접 편집하지 않았습니다. 기존 예상 불일치는 지원 전 정적 판단이었고 실행 실패가 아니며 A 지원 SHA 미회신 상태는 해소했습니다. 최종 PR diff 검사에서 기준 51aca06e부터 남아 있던 CURRENT 충돌 표식 3줄을 확인해 양쪽 ignore/PR227 기록을 모두 보존하고 표식만 제거했으며 전체 PR diff 형식 검사를 통과했습니다.
 - [미연결/인계 C: manager 확인 원본 재사용] `runner_node.py:70`의 기본 load 호출은 선택 입력을 소비하지 않으며 기동/reset 파라미터는 미확정입니다. `ontology_query.py:35–39`는 등록 여부와 별개로 위치 None을 UNKNOWN_ITEM 처리하고 find_with_unpack.s1→s3/s4가 loc.drawer_id를 소비해 S3 지우개 탐색이 막힙니다. `interpreter.reset_state()`는 저장된 초기 상태 복사이며 B 기억 정리/물리 확인/잠금 해제가 아닙니다. C #121 [답변](https://github.com/Jik-Kim/ready2go/issues/121#issuecomment-6124296926)의 스킬 expand 제어 블록 미지원으로 조건부 pick 전환은 지원 PR·E 포함 2인 승인 전 보류합니다. 현재 태스크의 내부 이동/LIFO/aside/RESTORE_INCOMPLETE 구현과 실물 복구 완료를 구분해 E 문서만 정정했습니다.
 - [후속/제외: 조율 대조 보고 재사용] C #260 시연표의 S2/S3 혼용은 승인 snapshot과 대조해야 하며 fallback.next_on·scan 재사용/스코프·하단 task와 top-only achieve_goal 범위·서랍 place/관측·다른 서랍 닫힘 pre·무동작 오류 목록·view 이동 후 retry·B 기억조회/무동작 정리 service·pushed=false 의미·free/aside 배치 실물 검증은 별도 협의입니다. 새 필드·정책·pre/effect/계약을 임의 적용하지 않았습니다. docs/vision·tools/yolo 안내·A CURRENT의 활성 목록, B checklist/CURRENT·C checkpoint2_runbook의 현재 배치/reset 안내는 각 담당 인계 대상입니다. 과거 changelog·담당별 실측/학습/작업기록은 당시 기록으로 보존합니다. C 외부 payload 게시의 자동 검토 거절을 우회해 GitHub/Slack/C 세션으로 전송하지 않습니다.
 - [검증 재사용/새 경계] E 143통과는 11537e65의 runtime·test·data가 합류 후 바이트 그대로여서 재사용하며, A의 조율 검사 10통과/가상 물품 목록 검사는 전달 근거로만 재사용합니다. A head의 과거 CI 2929통과/43skip은 E 합류 최종 CI가 아닙니다. [실측] 합류 후 `test_yolo_tools.py::test_repo_class_list_and_retired_list_are_consistent` 1 passed in 0.02s/종료0으로 실제 10종·고정11/id5·은퇴 목록 연결을 확인했습니다(project venv·격리 source·bytecode/cache 생성 끔). JSON/YAML/AST·default/3snapshot 선택·S3 eraser None 및 E runtime/test/data·A 7지원파일·manifest/skills/places/학습번호/ignore/receipt 보존 대조 PASS. 최신 main `2c696620f4538876c02befdd2bc9a7842318800d` 대비 E15+A7+기존 ignore 총23파일 외 변경이 없음을 확인했습니다. 전체 CI는 게시 전담이 최종 SHA에서 수행합니다. C 기동/reset/S3 조회·조건부 pick과 실물 검증은 계속 미결입니다.
 - [게시/검증 경계] E 담당 변경 로컬 커밋까지만 수행하며 PR 승인 재질문 없이 manager에게 전달합니다. A 호환이 포함된 고정 최종 SHA의 전체 core/Mongo·계약·compose 3프로파일·colcon build는 PR 전담이 `ci_local.sh` 전체 1회로 수행합니다. 이번 E 단계에서 전체 CI·추가 agent·설치·실음성/API/마이크/ROS/로봇·모델/캐시/키/WAV·타 담당 수정·push/PR/병합을 실행하지 않았습니다. 직접 검사 통과는 E 범위 준비이며 A/C 인계·실물 통합 전체 완료를 뜻하지 않습니다.
 
 
-<<<<<<< HEAD
 - [문서: E-GITIGNORE-VALIDATED-PHRASES-20261013-01] 사용자 “gitignore에 추가해”(지시 세션 turn01a132c1-c201-7662-ae8e-894dbb74cade)를 직접 확인하고, 기존 MeloTTS 구역에 `/ros2_ws/src/ready2go_voice/models/tts/melotts/validated_phrases.json` 한 패턴만 추가했습니다. `git check-ignore -v`·`git diff --check`로 적용/형식을 확인하며 실제 이력 파일77바이트·SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존합니다. 기능/Phase/정본·다른 모델/코드/설정은 변경하지 않고 이2파일만 로컬 커밋합니다. 테스트/빌드/CI·push/PR·원격 동기화는 수행하지 않습니다.
-=======
 <a id="pr227-final-integration-20261012-01"></a>
 ## PR227 최종 통합 — E-PR227-FINAL-INTEGRATION-20261012-01
 
@@ -42,7 +40,6 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 로그 `/tmp/e-pr227-final-integration-{first,first-repair,overflow-repair,selected}-20261012.log`, 최종 결과는selected이며 부분 실행 수를 합산하지 않습니다. 최종 게시SHA/전체CI는 지시 세션과 PR #227 본문의 정확 HEAD 근거로 확인합니다.
 
 [문서: 이전 게시/종료 기록] 아래6971 문서합류와940c 종료 구현 기록은 당시 승인/검사 경계입니다. 새 최종 통합의 포함승인/검사는 위 통합 항목을 따릅니다.
->>>>>>> b8dae07b7432262ba6faa70a3b71d7221a32be1b
 
 <a id="end-stop-minimal-20261012-01"></a>
 ## 종료·중지 최소 수정 — E-VOICE-END-STOP-MINIMAL-20261012-01
