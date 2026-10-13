@@ -5,6 +5,7 @@
 
 ## 지금 상태
 - **10/12 2차 점검일 (Unpacking 실물, PC2 한 대)** [실측: PC2 DB]: 14:30 `5ca017`·16:21 `7b8141` 성공(A안 — 판 원래 자리가 립밤 위라 빈 자리 + 안내), 16:36 `cfa886` 판 원위치 1.7 mm(단 **사람이 립밤을 뺀 회차**), 15:11 `7d18c6`·16:33 `440324` **판을 쥔 채 정지**(놓을 자리 확인 전에 집음). 판정 A안 = **그 점검의 제한적 통과**(#239 E 리뷰, AC-ACT-03 완료 아님). main 반영: #231·#232·#233(Unpacking)·#239(진행표·mock 되돌리기). 자세히 [10/12 기록](2026-10-12_practice.md).
+- **#121·#245 스킬 expand 블록 (10/13 브랜치 `feat/c-expand-blocks`, 계약안 — E 포함 2명 승인 전)**: expand 안 `fallback`(next_on 필수)·`if`, `fallback.next_on`, 넛지 뒤 다시 찍기 검사 [실측: 시험 8개, 기존 시험 그대로]. 다음: E 문법 확인 → PR → E `pick.jsonld` 전환 + C 회귀.
 - **#242·#245 — PR #250 (B #241 머지 뒤 main 기준, B·D 리뷰 대기 · E 리뷰 문서 정정 반영, 코드·mock 검증 완료, PC2 실물 미확인 → 10/13 [확인 목록](2026-10-13_pc2_checklist.md) U2)**: 집기 전에 놓을 자리 판단(aside_1 → aside_2 → `free`, 셋 다 안 되면 안 집고 "꺼내지 못했어요"), 복구 전 원래 자리 → 꺼낸 자리 판단(헛동작·쥔 채 정지 없음), `check_only` 는 코드와 무관하게 움직이지 않음으로 셈, **이미 그 자세면 이동 안 보냄**(목표 `pick` 탑뷰 왕복 제거), 되돌리기 집기 `scan`, P2 `RUNNER_INTENT_TASKS` 안내 [실측: 호스트 2573 passed, 컨테이너 runner 697 passed].
 - **#78 HALT_MOTION (10/10)**: `OBJECT_DROPPED`·`SENSOR_INVALID` → 즉시 ABORTED·잠금, finally 이동 없음, 재개 보존 안 함 [실측: 시험 4개, E 반례 그대로]. 남은 것: 복구 뒤 상태 맞추기·잠금 해제 절차(계약, B·E 협의), B `SENSOR_INVALID` 구분 PR, E 온톨로지 errors.
 - **#187 음성 정지 후속 C 몫 (브랜치 `feat/c-unpack-task`)**: [C 수락](https://github.com/Jik-Kim/ready2go/issues/187#issuecomment-6056813537) — 빠른 정지는 `/runner/estop` 재사용 권고, 요청 처리 사이 "멈춰" → 시작 안 함(`StartGate`), 정지 기록 `halts[]` 항상 [실측: 호스트 1692·컨테이너 ROS 632 passed]. 선행: B 정지 확인 결과 형식(#152), E 수신 방식.

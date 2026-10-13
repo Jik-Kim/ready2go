@@ -1,0 +1,38 @@
+{
+  "task_id": "fallback_next_on_example",
+  "description": "계약안 예시 (#121·#245, C 제안 — E 포함 2명 승인 전): fallback.next_on. 트레이에 놓기가 움직이기 전 PLACE_BLOCKED·TRAY_FULL 로 거부됐을 때만 다음 대안(안내)으로 가고, 다른 움직이기 전 거부(예: WALL_TOO_CLOSE)나 움직였을 수 있는 실패는 그 코드로 멈춘다. next_on 이 없으면 지금처럼 움직이지 않은 실패면 다음 대안. 스킬 expand 안 fallback 은 next_on 필수(runner.md 7.5 skill 스텝). 실물 태스크가 아님",
+  "inputs": {},
+  "sequence": [
+    {
+      "id": "s1",
+      "action": "fallback",
+      "next_on": [
+        "PLACE_BLOCKED",
+        "TRAY_FULL"
+      ],
+      "options": [
+        [
+          {
+            "id": "s1.a",
+            "action": "place_object",
+            "params": {
+              "location": "handover_zone"
+            },
+            "timeout_sec": 60
+          }
+        ],
+        [
+          {
+            "id": "s1.b",
+            "action": "speak",
+            "params": {
+              "text": "트레이에 자리가 없어요"
+            },
+            "timeout_sec": 20
+          }
+        ]
+      ]
+    }
+  ],
+  "finally": []
+}

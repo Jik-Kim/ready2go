@@ -6,6 +6,8 @@
    push/pop 의 stack, fallback 의 options, 스텝 ID 중복, retry 횟수)
 ④ skill 스텝 (#12): 온톨로지에 있는 primitive 스킬인지, params 이름이 스킬 정의와 맞는지
    (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_BY_ACTION)
+⑤ 스킬 expand 안 블록 (#121·#245 계약안): fallback·if 만, fallback 은 next_on 필수, 넛지 뒤 $scan 을 쓰는
+   집기·놓기 앞에는 다시 찍기(inspect_region → scan) — 넛지 전 관측으로 집지 않게
 문제가 하나라도 있으면 로봇을 움직이기 전에 실행하지 않는다.
 """
 from __future__ import annotations
@@ -67,9 +69,59 @@ def _check_block(step: dict, action: str | None, label: str) -> list[str]:
         options = step.get("options")
         if not isinstance(options, list) or not options or not all(isinstance(o, list) and o for o in options):
             errors.append(f"{label}: fallback 의 options 는 스텝 배열 1개 이상의 목록이어야 함")
+        if "next_on" in step and not (isinstance(step["next_on"], list) and step["next_on"]
+                                      and all(isinstance(c, str) and c for c in step["next_on"])):
+            errors.append(f"{label}: fallback 의 next_on 은 오류 코드 문자열 1개 이상의 목록이어야 함")
     if action in ("while", "for_each") and not step.get("body"):
         errors.append(f"{label}: {action} 에 body 가 없음")
     return errors
+
+
+RESCAN_NEEDED_BY = ("pick_object", "place_object")   # $scan 을 쓰는 동작 — 넛지 뒤엔 새 관측이 있어야 함
+
+
+def _check_expand(subs: list, prefix: str, label: str, ids: list[str], stale: bool = False) -> tuple[list[str], bool]:
+    """스킬 expand 목록 검사 (#121). (문제 목록, 끝났을 때 $scan 이 넛지 전 관측인지)를 돌려준다."""
+    errors: list[str] = []
+    for m, sub in enumerate(subs if isinstance(subs, list) else [], 1):
+        cid, action = f"{prefix}{m}", sub.get("action") if isinstance(sub, dict) else None
+        ids.append(cid)
+        where = f"{label} {cid}"
+        if not action or "skill" in sub:
+            errors.append(f"{where}: 스킬 expand 에는 원자 동작이나 fallback·if 만 (스킬 안 스킬 미지원)")
+            continue
+        if action == "fallback":
+            options = sub.get("options")
+            if not isinstance(options, list) or not options or not all(isinstance(o, list) and o for o in options):
+                errors.append(f"{where}: fallback 의 options 는 스텝 배열 1개 이상의 목록이어야 함")
+                continue
+            if not (isinstance(sub.get("next_on"), list) and sub["next_on"]
+                    and all(isinstance(c, str) and c for c in sub["next_on"])):
+                errors.append(f"{where}: 스킬 expand 안 fallback 은 next_on(다음 대안으로 갈 오류 코드)이 필수")
+            ends = []
+            for k, option in enumerate(options, 1):
+                errs, end = _check_expand(option, f"{cid}.o{k}.", label, ids, stale)
+                errors += errs
+                ends.append(end)
+            stale = any(ends)
+        elif action == "if":
+            if "cond" not in sub:
+                errors.append(f"{where}: if 에 cond 가 없음")
+            ends = []
+            for key, mark in (("then", "t"), ("else", "f")):
+                errs, end = _check_expand(sub.get(key, []), f"{cid}.{mark}", label, ids, stale)
+                errors += errs
+                ends.append(end)
+            stale = any(ends)
+        elif action in ("while", "for_each", "push", "pop"):
+            errors.append(f"{where}: 스킬 expand 안 {action} 미지원 (fallback·if 만)")
+        elif action == "nudge_object":
+            stale = True                        # 밀었을 수 있음 → 그 전 관측은 쓰지 않음
+        elif action == "inspect_region" and sub.get("output") == "scan":
+            stale = False
+        elif action in RESCAN_NEEDED_BY and stale and "$scan" in str(sub.get("params", {})):
+            errors.append(f"{where}: 넛지 뒤 {action} 앞에 다시 찍기(inspect_region → scan)가 없음 — 넛지 전 관측으로 집지 않음")
+    return errors, stale
 
 
 def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> list[str]:
@@ -97,11 +149,12 @@ def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> l
                 errors += _check_skill(step, label, skills)
                 skill = skills.get(step["skill"])
                 expand = skill.get("expand", []) if isinstance(skill, dict) else []
-                for i in range(1, len(expand) + 1):   # Runner 가 붙일 하위 기록 ID (<id>.e<n>)
-                    child = f"{sid}.e{i}"
+                ids: list[str] = []             # Runner 가 붙일 하위 기록 ID (<id>.e<n>, 블록 안 .o<k>.<m>·.t<m>·.f<m>)
+                errors += _check_expand(expand, f"{sid}.e", f"{label} 스킬 '{step['skill']}' expand", ids)[0]
+                for child in ids:
                     if child in seen:
                         errors.append(f"스텝 ID 중복: '{child}' ({seen[child]}, {where} 스킬의 하위 동작)")
-                    seen.setdefault(child, f"{where}.e{i}")
+                    seen.setdefault(child, f"{where} → {child}")
             if action == "set_var" and "name" not in step.get("params", {}):
                 errors.append(f"{label}: set_var 에 params.name 이 없음")
             if action == "if" and "cond" not in step:

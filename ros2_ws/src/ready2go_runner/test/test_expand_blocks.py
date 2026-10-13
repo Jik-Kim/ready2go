@@ -1,0 +1,130 @@
+"""스킬 expand 안 fallback·if 블록과 fallback.next_on (#121·#245 계약안, E 포함 2명 승인 전).
+E 가 공통 pick 을 "탑뷰 → 찍기 → fallback(next_on WALL_TOO_CLOSE)[ 집기 | 넛지 → 탑뷰 → 찍기 → 집기 ]" 로 바꿨을 때
+Runner 가 그대로 돌리는지 — 지금 knowledge/skills/pick.jsonld 는 그대로 두고 시험 안에서만 바꾼 온톨로지로 본다."""
+import copy
+
+from ready2go_runner.core.interpreter import ActionResult, Runner
+from ready2go_runner.core.validation import check_task
+
+from test_tasks import ONTOLOGY, SCHEMA, TASK, MockRobot, run, step  # noqa: E402
+
+VIEW = {"action": "move_to_named_pose", "params": {"pose_name": "drawer_top_view", "drawer_id": "$from"}}
+LOOK = {"action": "inspect_region", "params": {"region": "$from", "search_target": "$item"}, "output": "scan"}
+PICK = {"action": "pick_object", "params": {"target": "$scan.target", "scan": "$scan", "approach_offset": [0, 0, 0.1]}}
+NUDGE = {"action": "nudge_object", "params": {"target": "$scan.target", "drawer_id": "$from", "scan": "$scan"},
+         "output": "nudge"}
+PROPOSED_EXPAND = [VIEW, LOOK, {"action": "fallback", "next_on": ["WALL_TOO_CLOSE"],
+                                "options": [[PICK], [NUDGE, VIEW, LOOK, PICK]]}]
+
+
+def onto_with(expand):
+    onto = copy.deepcopy(ONTOLOGY)
+    onto["skills"]["pick"]["expand"] = expand
+    return onto
+
+
+ONTO = onto_with(PROPOSED_EXPAND)
+
+
+def sent_in_pick(robot):
+    """s4 촬영 뒤(= pick 스킬 안) 보낸 동작 이름."""
+    names = [n.rsplit("/", 1)[-1] for n in robot.sent]
+    first_pick_look = names.index("inspect_region", names.index("inspect_region") + 1)
+    end = len(names) - names[::-1].index("pick_object") if "pick_object" in names else len(names)
+    return names[first_pick_look:end]
+
+
+def block(result):
+    return next(s for s in result.steps if s["id"] == "s5.1.e3")
+
+
+def test_proposed_pick_passes_validation_with_find_item():
+    assert check_task(TASK, SCHEMA, ONTO["skills"]) == []
+
+
+def test_pick_first_without_nudge_when_grasp_is_possible():
+    """넛지가 필요 없으면 촬영 1번 → 바로 집기 (지금 pick 은 넛지 판단 뒤 탑뷰·촬영을 한 번 더 함)."""
+    robot = MockRobot()
+    _, result, _ = run(robot, onto=ONTO)
+    assert result.overall_status == "COMPLETED", result.steps
+    assert sent_in_pick(robot) == ["inspect_region", "pick_object"]
+    assert (block(result)["status"], block(result)["option"]) == ("SUCCESS", 1)
+
+
+def test_wall_too_close_goes_nudge_rescan_pick_with_new_scan():
+    robot = MockRobot(fail={"pick_object": ["WALL_TOO_CLOSE"]}, seen_y=[0.2895, 0.2895, 0.2478])
+    _, result, _ = run(robot, onto=ONTO)
+    assert result.overall_status == "COMPLETED", result.steps
+    assert sent_in_pick(robot) == ["inspect_region", "pick_object", "nudge_object", "move_to_named_pose",
+                                   "inspect_region", "pick_object"]
+    first, second = robot.params["pick_object"]
+    assert first["target"]["pose"]["position"][1] == 0.2895
+    assert second["target"]["pose"]["position"][1] == 0.2478     # 넛지 뒤 새로 찍은 값 (target_after 아님)
+    assert second["scan"]["target"] == second["target"]          # 그 새 scan 전체를 같이 넘김
+    assert (block(result)["option"], step(result, "s5.1.e3.o2.1")["action"]) == (2, "nudge_object")
+
+
+def test_other_no_motion_refusal_does_not_nudge():
+    """움직이기 전 거부라도 next_on 밖 코드(NEIGHBOR_TOO_CLOSE)면 넛지로 가지 않고 그 코드로 멈춤 (#260 E)."""
+    robot = MockRobot(fail={"pick_object": ["NEIGHBOR_TOO_CLOSE"]})
+    _, result, _ = run(robot, onto=ONTO)
+    assert "nudge_object" not in sent_in_pick(robot)
+    assert (block(result)["status"], block(result)["fallback_stopped"]) == ("FAILURE", "NOT_IN_NEXT_ON")
+    assert step(result, "s5.1")["error_code"] == "NEIGHBOR_TOO_CLOSE"
+
+
+def test_nudge_failure_or_moved_failure_stops_without_next_pick():
+    for fail, stopped in (({"pick_object": ["WALL_TOO_CLOSE"], "nudge_object": ["NO_PUSH_ACCESS"]}, "NOT_IN_NEXT_ON"),
+                          ({"pick_object": ["GRASP_FAILED"]}, "MOTION_UNCERTAIN")):   # 집다 실패 = 움직였을 수 있음
+        robot = MockRobot(fail=fail)
+        _, result, _ = run(robot, onto=ONTO)
+        assert [n for n in sent_in_pick(robot) if n == "pick_object"] == ["pick_object"], fail
+        assert block(result)["fallback_stopped"] == stopped, fail
+        assert result.overall_status == "FAILED"
+
+
+def test_halt_inside_option_aborts_without_further_motion():
+    class StopAtNudge(MockRobot):
+        def call_action(self, name, params_json, timeout_sec):
+            reply = super().call_action(name, params_json, timeout_sec)
+            if name.endswith("nudge_object"):
+                runner.halt(source="voice")
+            return reply
+
+    robot = StopAtNudge(fail={"pick_object": ["WALL_TOO_CLOSE"]})
+    runner = Runner(None, schema=SCHEMA, ontology=ONTO)
+    from ready2go_runner.core.backend import RosBackend
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTO["world"])
+    result = runner.run(TASK)
+    assert result.overall_status == "ABORTED"
+    assert robot.motion_after("/skills/nudge_object") == []      # 넛지 뒤 탑뷰·집기·닫기·홈 없음
+
+
+def test_expand_rules_are_checked_before_running():
+    no_next_on = onto_with([VIEW, LOOK, {"action": "fallback", "options": [[PICK], [NUDGE, VIEW, LOOK, PICK]]}])
+    stale_scan = onto_with([VIEW, LOOK, {"action": "fallback", "next_on": ["WALL_TOO_CLOSE"],
+                                         "options": [[PICK], [NUDGE, PICK]]}])          # 넛지 뒤 다시 안 찍음
+    loop = onto_with([VIEW, LOOK, {"action": "while", "cond": True, "max_iter": 2, "body": [PICK]}])
+    for onto, expected in ((no_next_on, "next_on"), (stale_scan, "다시 찍기"), (loop, "while 미지원")):
+        problems = check_task(TASK, SCHEMA, onto["skills"])
+        assert any(expected in p for p in problems), problems
+
+
+def test_task_level_next_on_limits_next_option():
+    def task(next_on):
+        fb = {"id": "s1", "action": "fallback", "options": [
+            [{"id": "s1.a", "action": "place_object", "params": {"location": "handover_zone"}}],
+            [{"id": "s1.b", "action": "speak", "params": {"text": "다른 길"}}]]}
+        if next_on is not None:
+            fb["next_on"] = next_on
+        return {"task_id": "t", "sequence": [fb]}
+
+    def backend(action, params, timeout_sec):
+        return ActionResult(False, error_code="WALL_TOO_CLOSE") if action == "place_object" else ActionResult(True)
+
+    for next_on, status, stopped in ((None, "COMPLETED", None),                    # 기존: 움직이지 않은 실패면 다음
+                                     (["PLACE_BLOCKED"], "FAILED", "NOT_IN_NEXT_ON"),
+                                     (["WALL_TOO_CLOSE"], "COMPLETED", None)):
+        result = Runner(backend, schema=SCHEMA).run(task(next_on))
+        assert result.overall_status == status, next_on
+        assert next(s for s in result.steps if s["id"] == "s1").get("fallback_stopped") == stopped
