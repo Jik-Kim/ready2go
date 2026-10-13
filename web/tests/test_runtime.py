@@ -11,10 +11,11 @@ import rclpy
 from rclpy.context import Context
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
 from ready2go_web.nodes.dashboard_bridge import BridgeTopics
-from ready2go_web.runtime import RosBridgeRuntime
+from ready2go_web.runtime import RosBridgeRuntime, settings_from_env
 
 
 # 실제 Runner와 동일한 late-joiner용 상태 발행 QoS를 시험 publisher에도 적용한다.
@@ -45,6 +46,7 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         robot_state=f"{prefix}/robot_state",
         camera_info=f"{prefix}/camera_info",
         voice_intent=f"{prefix}/voice/intent",
+        robot_connection=f"{prefix}/joint_states",
     )
     runtime = RosBridgeRuntime(
         topics=topics,
@@ -68,17 +70,31 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         topics.robot_state,
         RUNNER_PUBLISHER_QOS,
     )
+    # 시험용 RELIABLE/VOLATILE/depth10 발행자로 sensor-data 구독의 호환성을 확인한다.
+    # PC2의 실제 publisher QoS는 담당 실측 회신 전이므로 이 시험값과 구분한다.
+    robot_publisher_qos = QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=10,
+        reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+    robot_publisher = publisher_node.create_publisher(
+        JointState,
+        topics.robot_connection,
+        robot_publisher_qos,
+    )
 
     try:
         runtime.start()
         assert runtime.is_running is True
 
-        # 4단계 runtime은 한 노드에서 Runner 연결 상태와 기억 상태를 함께 관리한다.
-        assert set(runtime.cache.snapshot()) == {"runner", "robot_state"}
+        # runtime은 Runner 두 상태와 B의 로봇 관절 상태를 한 노드에서 함께 관리한다.
+        assert set(runtime.cache.snapshot()) == {"runner", "robot_state", "robot"}
 
         # DDS discovery 뒤 두 String JSON을 발행해 각각의 콜백 수신을 확인한다.
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.runner_status) == 1)
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.robot_state) == 1)
+        assert _wait_until(lambda: publisher_node.count_subscribers(topics.robot_connection) == 1)
         runner_payload = {"phase": "running", "task_id": "demo_task", "current_step": "open"}
         robot_state_payload = {
             "robot_pose": {"robot": "home"},
@@ -88,9 +104,13 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         }
         runner_publisher.publish(String(data=json.dumps(runner_payload)))
         robot_state_publisher.publish(String(data=json.dumps(robot_state_payload)))
+        robot_message = JointState()
+        robot_message.name = [f"joint_{index}" for index in range(1, 7)]
+        robot_publisher.publish(robot_message)
         assert _wait_until(
             lambda: runtime.cache.snapshot()["runner"]["message_valid"]
             and runtime.cache.snapshot()["robot_state"]["message_valid"]
+            and runtime.cache.snapshot()["robot"]["message_valid"]
         )
 
         runner = runtime.cache.snapshot()["runner"]
@@ -99,6 +119,10 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         robot_state = runtime.cache.snapshot()["robot_state"]
         assert robot_state["publisher_present"] is True
         assert robot_state["data"] == robot_state_payload
+        robot = runtime.cache.snapshot()["robot"]
+        assert robot["publisher_present"] is True
+        assert robot["connection_state"] == "receiving"
+        assert robot["data"]["joint_count"] == 6
 
         # 동일 객체의 이중 시작은 구독 노드를 중복 생성하지 않고 명시적으로 실패한다.
         with pytest.raises(RuntimeError, match="이미 시작"):
@@ -115,3 +139,39 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
     runtime.stop()
     with pytest.raises(RuntimeError, match="시작되지"):
         _ = runtime.cache
+
+
+def test_runtime_settings_use_b_defaults_and_accept_profile_overrides() -> None:
+    """B 기본 토픽·timeout과 sim/dev 실행 프로필을 환경 설정으로 변경할 수 있다."""
+    defaults = settings_from_env({})
+    assert defaults.robot_topic == "/dsr01/joint_states"
+    assert defaults.robot_timeout_sec == 2.0
+    assert defaults.profile == "real"
+
+    configured = settings_from_env(
+        {
+            "WEB_ROBOT_TOPIC": "/test/joint_states",
+            "WEB_ROBOT_TIMEOUT_SEC": "3.5",
+            "WEB_RUNTIME_PROFILE": "SIM",
+        }
+    )
+    assert configured.robot_topic == "/test/joint_states"
+    assert configured.robot_timeout_sec == 3.5
+    assert configured.profile == "sim"
+
+
+@pytest.mark.parametrize(
+    ("environ", "message"),
+    [
+        ({"WEB_ROBOT_TOPIC": "relative"}, "WEB_ROBOT_TOPIC"),
+        ({"WEB_ROBOT_TOPIC": "/"}, "WEB_ROBOT_TOPIC"),
+        ({"WEB_ROBOT_TIMEOUT_SEC": "none"}, "숫자"),
+        ({"WEB_ROBOT_TIMEOUT_SEC": "0"}, "0보다"),
+        ({"WEB_ROBOT_TIMEOUT_SEC": "nan"}, "0보다"),
+        ({"WEB_RUNTIME_PROFILE": "stage"}, "real, sim, dev"),
+    ],
+)
+def test_invalid_runtime_settings_are_rejected(environ: dict[str, str], message: str) -> None:
+    """잘못된 로봇 토픽·timeout·프로필을 ROS 노드 생성 전에 거절한다."""
+    with pytest.raises(ValueError, match=message):
+        settings_from_env(environ)

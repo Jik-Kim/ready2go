@@ -12,12 +12,13 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import CameraInfo
+from sensor_msgs.msg import CameraInfo, JointState
 from std_msgs.msg import String
 
 from ready2go_web.nodes.dashboard_bridge import (
     BridgeTopics,
     DashboardBridge,
+    ROBOT_SOURCE,
     RUNNER_SOURCE,
 )
 
@@ -54,7 +55,7 @@ def unique_topics() -> BridgeTopics:
         robot_state=f"{prefix}/robot_state",
         camera_info=f"{prefix}/camera_info",
         voice_intent=f"{prefix}/voice/intent",
-        robot_connection=None,
+        robot_connection=f"{prefix}/joint_states",
     )
 
 
@@ -138,6 +139,7 @@ def test_runner_only_stage_does_not_connect_later_sources(ros_context) -> None:
         assert bridge._runner_subscription is not None
         assert bridge._robot_state_subscription is None
         assert bridge._camera_subscription is None
+        assert bridge._robot_subscription is None
     finally:
         bridge.destroy_node()
 
@@ -183,6 +185,8 @@ def test_camera_callback_keeps_only_connection_metadata(ros_context) -> None:
     [
         ("camera_timeout_sec", 0, "camera_timeout_sec"),
         ("camera_timeout_sec", True, "camera_timeout_sec"),
+        ("robot_timeout_sec", 0, "robot_timeout_sec"),
+        ("robot_timeout_sec", True, "robot_timeout_sec"),
         ("graph_poll_period_sec", -1, "graph_poll_period_sec"),
         ("graph_poll_period_sec", True, "graph_poll_period_sec"),
     ],
@@ -280,23 +284,44 @@ def test_endpoint_gid_change_invalidates_old_payload_without_graph_gap(
         bridge.destroy_node()
 
 
-def test_optional_robot_topic_is_only_added_when_configured(ros_context) -> None:
-    """B 기준이 주어진 경우에만 로봇 publisher 관찰 항목을 활성화한다."""
+def test_robot_joint_state_callback_keeps_only_connection_metadata(ros_context) -> None:
+    """100 Hz JointState에서 연결 판정용 이름·시각만 캐시에 보관한다."""
     base = unique_topics()
-    # 아직 타입을 추측해 구독하지 않고 별도 graph 확인용 토픽 이름만 제공한다.
     topics = BridgeTopics(
         runner_status=base.runner_status,
         robot_state=base.robot_state,
         camera_info=base.camera_info,
         voice_intent=base.voice_intent,
-        robot_connection=f"{base.runner_status}/robot_connection",
+        robot_connection=f"{base.runner_status}/joint_states",
     )
-    bridge = DashboardBridge(topics=topics, node_name=f"robot_graph_bridge_{uuid.uuid4().hex}")
+    bridge = DashboardBridge(
+        topics=topics,
+        node_name=f"robot_joint_bridge_{uuid.uuid4().hex}",
+        robot_timeout_sec=2.5,
+    )
     try:
-        # 설정한 이름이 source→topic 그래프 관찰표에 정확히 들어가야 한다.
+        # 설정 토픽은 실제 JointState 구독과 publisher 관찰에 동일하게 사용한다.
         assert bridge._publisher_topics["robot"] == topics.robot_connection
-        # publisher가 아직 없으므로 추측 없이 disconnected로 확인된다.
-        assert bridge.cache.snapshot()["robot"]["publisher_present"] is False
+        assert bridge._robot_subscription is not None
+        message = JointState()
+        message.header.frame_id = "base"
+        message.header.stamp.sec = 12
+        message.header.stamp.nanosec = 34
+        message.name = [f"joint_{index}" for index in range(1, 7)]
+        message.position = [float(index) for index in range(6)]
+        bridge._on_robot_joint_state(message)
+
+        # 고주기 위치 배열은 버리고 UI 연결 판정에 필요한 작은 메타데이터만 남긴다.
+        state = bridge.cache.snapshot()[ROBOT_SOURCE]
+        assert state["message_valid"] is True
+        assert state["freshness_timeout_sec"] == 2.5
+        assert state["data"] == {
+            "joint_count": 6,
+            "joint_names": [f"joint_{index}" for index in range(1, 7)],
+            "frame_id": "base",
+            "stamp": {"sec": 12, "nanosec": 34},
+        }
+        assert "position" not in state["data"]
     finally:
         bridge.destroy_node()
 
@@ -325,6 +350,10 @@ def test_real_ros_delivery_and_publisher_discovery(ros_context) -> None:
         )
         camera_pub = publisher_node.create_publisher(CameraInfo, topics.camera_info, camera_qos)
 
+        # 시험용 RELIABLE/VOLATILE 발행자와 웹의 sensor-data 구독 QoS 호환성을 확인한다.
+        # PC2의 실제 publisher QoS는 담당 실측 회신 전이므로 이 설정을 확정값으로 보지 않는다.
+        robot_pub = publisher_node.create_publisher(JointState, topics.robot_connection, camera_qos)
+
         # Voice는 메시지를 발행하지 않고 publisher endpoint 존재만 제공한다.
         voice_pub = publisher_node.create_publisher(String, topics.voice_intent, 10)
 
@@ -342,6 +371,7 @@ def test_real_ros_delivery_and_publisher_discovery(ros_context) -> None:
                     topics.robot_state,
                     topics.camera_info,
                     topics.voice_intent,
+                    topics.robot_connection,
                 )
             ),
         )
@@ -355,6 +385,9 @@ def test_real_ros_delivery_and_publisher_discovery(ros_context) -> None:
         camera_message.width = 1280
         camera_message.height = 720
         camera_pub.publish(camera_message)
+        robot_message = JointState()
+        robot_message.name = [f"joint_{index}" for index in range(1, 7)]
+        robot_pub.publish(robot_message)
 
         # 세 메시지 수신과 graph timer의 Voice publisher 확인을 모두 기다린다.
         received = spin_until(
@@ -364,6 +397,7 @@ def test_real_ros_delivery_and_publisher_discovery(ros_context) -> None:
                 and bridge.cache.snapshot()["robot_state"]["message_valid"]
                 and bridge.cache.snapshot()["camera"]["message_valid"]
                 and bridge.cache.snapshot()["voice"]["publisher_present"] is True
+                and bridge.cache.snapshot()["robot"]["message_valid"]
             ),
         )
         assert received
@@ -376,9 +410,10 @@ def test_real_ros_delivery_and_publisher_discovery(ros_context) -> None:
         assert snapshot["voice"]["publisher_present"] is True
         assert snapshot["voice"]["message_received"] is False
         assert snapshot["voice"]["connection_state"] == "waiting"
-        # B 토픽은 설정하지 않았으므로 추측 없이 확인 전 상태를 유지한다.
-        assert snapshot["robot"]["publisher_present"] is None
-        assert snapshot["robot"]["connection_state"] == "unknown"
+        # 로봇 source는 JointState의 최근 유효 수신과 2초 freshness 기준을 제공한다.
+        assert snapshot["robot"]["publisher_present"] is True
+        assert snapshot["robot"]["connection_state"] == "receiving"
+        assert snapshot["robot"]["data"]["joint_count"] == 6
 
         # 변수 참조를 유지해 publisher가 시험 중간에 가비지 컬렉션되지 않게 한다.
         assert voice_pub is not None

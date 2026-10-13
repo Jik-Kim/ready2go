@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+import math
+import os
 import threading
 from typing import Final
 
@@ -18,6 +22,7 @@ from ready2go_web.core.state_cache import StateCache
 from ready2go_web.nodes.dashboard_bridge import (
     BridgeTopics,
     DashboardBridge,
+    ROBOT_SOURCE,
     ROBOT_STATE_SOURCE,
     RUNNER_SOURCE,
 )
@@ -27,6 +32,38 @@ from ready2go_web.nodes.dashboard_bridge import (
 EXECUTOR_THREAD_NAME: Final = "ready2go-web-ros-executor"
 
 
+@dataclass(frozen=True)
+class RuntimeSettings:
+    """ROS 웹 브리지의 로봇 연결 판정과 실행 프로필 설정."""
+
+    robot_topic: str  # B가 확인한 실물·에뮬레이터 공통 JointState 토픽.
+    robot_timeout_sec: float  # 최근 유효 JointState의 무수신 판정 시간.
+    profile: str  # real은 단절 판정, sim/dev는 미기동 시 확인 전 표시에 사용한다.
+
+
+def settings_from_env(environ: Mapping[str, str] | None = None) -> RuntimeSettings:
+    """로봇 토픽·timeout·실행 프로필을 환경변수에서 읽어 검증한다."""
+    # 시험은 mapping을 주입하고 실제 실행은 현재 프로세스 환경을 사용한다.
+    values = os.environ if environ is None else environ
+    # 실물과 에뮬레이터에서 같은 B 확정 토픽을 기본값으로 사용한다.
+    robot_topic = values.get("WEB_ROBOT_TOPIC", "/dsr01/joint_states").strip()
+    if robot_topic == "/" or not robot_topic.startswith("/"):
+        raise ValueError("WEB_ROBOT_TOPIC은 /로 시작하는 절대 ROS 토픽이어야 합니다")
+    # 제안값은 코드 분기 안에 숨기지 않고 운영에서 바꿀 수 있는 환경 설정으로 둔다.
+    raw_timeout = values.get("WEB_ROBOT_TIMEOUT_SEC", "2.0").strip()
+    try:
+        robot_timeout_sec = float(raw_timeout)
+    except ValueError as exc:
+        raise ValueError("WEB_ROBOT_TIMEOUT_SEC은 숫자여야 합니다") from exc
+    if not math.isfinite(robot_timeout_sec) or robot_timeout_sec <= 0:
+        raise ValueError("WEB_ROBOT_TIMEOUT_SEC은 0보다 커야 합니다")
+    # 알려지지 않은 프로필을 real로 추측하면 장애를 잘못 표시하므로 세 값만 허용한다.
+    profile = values.get("WEB_RUNTIME_PROFILE", "real").strip().lower()
+    if profile not in {"real", "sim", "dev"}:
+        raise ValueError("WEB_RUNTIME_PROFILE은 real, sim, dev 중 하나여야 합니다")
+    return RuntimeSettings(robot_topic, robot_timeout_sec, profile)
+
+
 class RosBridgeRuntime:
     """하나의 ROS context, 노드, executor와 스레드의 수명주기를 소유한다."""
 
@@ -34,10 +71,13 @@ class RosBridgeRuntime:
         self,
         *,
         topics: BridgeTopics | None = None,
+        robot_timeout_sec: float = 2.0,
         node_name: str = "ready2go_web_bridge",
     ) -> None:
         # 토픽과 노드 이름은 실제 실행뿐 아니라 격리된 통합시험에서도 주입할 수 있다.
         self._topics = topics
+        # B가 제안한 timeout을 DashboardBridge의 generic cache 설정으로 전달한다.
+        self._robot_timeout_sec = robot_timeout_sec
         self._node_name = node_name
 
         # start·stop이 다른 스레드에서 동시에 호출돼도 중복 ROS 자원을 만들지 않게 한다.
@@ -65,7 +105,7 @@ class RosBridgeRuntime:
             return self._thread is not None and self._thread.is_alive()
 
     def start(self) -> None:
-        """Runner 상태 두 종류를 받는 DashboardBridge와 별도 executor를 시작한다."""
+        """Runner 상태 두 종류와 로봇 JointState를 받는 브리지·executor를 시작한다."""
         with self._lifecycle_lock:
             # 같은 runtime의 이중 시작은 노드명·구독 endpoint 중복을 만들므로 거절한다.
             if self._context is not None:
@@ -78,12 +118,12 @@ class RosBridgeRuntime:
             try:
                 rclpy.init(args=None, context=context)
 
-                # 4단계에서는 Runner 연결 상태와 기억 상태를 함께 켠다. 카메라·Voice·
-                # 로봇 드라이버 연결 판정은 담당 기준이 확정된 후속 단계로 유지한다.
+                # Runner 두 상태와 B가 확정한 관절 상태 수신 source를 한 노드에서 처리한다.
                 bridge = DashboardBridge(
                     topics=self._topics,
+                    robot_timeout_sec=self._robot_timeout_sec,
                     node_name=self._node_name,
-                    enabled_sources={RUNNER_SOURCE, ROBOT_STATE_SOURCE},
+                    enabled_sources={RUNNER_SOURCE, ROBOT_STATE_SOURCE, ROBOT_SOURCE},
                     context=context,
                 )
 
@@ -131,6 +171,8 @@ class RosBridgeRuntime:
             error = f"ROS executor failed: {type(exc).__name__}"
             bridge.cache.record_bridge_error(RUNNER_SOURCE, error)
             bridge.cache.record_bridge_error(ROBOT_STATE_SOURCE, error)
+            # 같은 executor의 JointState 구독도 중단되므로 robot source에도 오류를 남긴다.
+            bridge.cache.record_bridge_error(ROBOT_SOURCE, error)
 
     def stop(self) -> None:
         """executor를 깨우고 스레드·노드·context를 안전한 순서로 정리한다."""

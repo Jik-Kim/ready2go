@@ -99,6 +99,8 @@ def create_app(
     state_cache: StateCache | None = None,
     definition_snapshot: Mapping[str, object] | None = None,
     definition_error: str | None = None,
+    runtime_profile: str = "real",
+    robot_topic: str = "/dsr01/joint_states",
     utcnow: Callable[[], datetime] = _utc_now,
 ) -> Flask:
     """기존 UI를 제공하는 Flask app을 생성한다.
@@ -122,6 +124,10 @@ def create_app(
         "definition_snapshot": definition_snapshot,
         # 정의 로딩 실패도 상태 REST와 정적 UI를 중단하지 않고 별도 오류로 제공한다.
         "definition_error": definition_error,
+        # UI가 sim/dev의 의도된 미발행을 실물 단절로 오해하지 않게 실행 프로필을 제공한다.
+        "runtime_profile": runtime_profile,
+        # 환경변수로 바꾼 실제 관절 토픽을 UI 문구도 그대로 사용하게 보존한다.
+        "robot_topic": robot_topic,
     }
 
     def api_response(payload: Mapping[str, object], status_code: int = 200):
@@ -176,7 +182,14 @@ def create_app(
 
         # 성공 시에는 가공하지 않은 source 진단과 마지막 정상 payload를 함께 제공한다.
         payload = response_envelope()
-        payload.update({"status": "ok", "sources": sources})
+        payload.update(
+            {
+                "status": "ok",
+                "runtime_profile": runtime_profile,
+                "robot_topic": robot_topic,
+                "sources": sources,
+            }
+        )
         return api_response(payload)
 
     @app.get(DEFINITIONS_API_PATH)

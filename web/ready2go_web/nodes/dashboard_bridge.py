@@ -21,7 +21,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from sensor_msgs.msg import CameraInfo
+from sensor_msgs.msg import CameraInfo, JointState
 from std_msgs.msg import String
 
 from ready2go_web.core.state_cache import StateCache
@@ -59,16 +59,15 @@ ALL_SOURCES: Final = frozenset(
 class BridgeTopics:
     """웹 브리지가 관찰할 토픽 이름 모음.
 
-    robot_connection은 B의 실제 연결 기준이 확정되기 전까지 ``None``이다. 값이
-    주어져도 메시지 형식을 추측해 구독하지 않고 ROS 그래프의 publisher 존재만
-    확인한다.
+    robot_connection은 B가 #267에서 정한 관절 상태 토픽이다. 이름은 실물과
+    에뮬레이터가 같고, 실행 프로필별 발행자 유무는 화면 어댑터가 구분한다.
     """
 
     runner_status: str = "/runner/status"  # C Runner 실행·요청·결과 상태 JSON.
     robot_state: str = "/robot_state"  # C Runner가 기억하는 현재 상태 JSON.
     camera_info: str = "/wrist_cam/color/camera_info"  # A가 실측한 카메라 연결 근거.
     voice_intent: str = "/voice/intent"  # E VoiceNode의 간헐적 intent 발행 토픽.
-    robot_connection: str | None = None  # TODO(B): 실제 로봇 연결 판정 토픽 확정 뒤 설정.
+    robot_connection: str = "/dsr01/joint_states"  # B가 확인한 관절 상태 수신 근거.
 
 
 class DashboardBridge(Node):
@@ -79,6 +78,7 @@ class DashboardBridge(Node):
         *,
         topics: BridgeTopics | None = None,
         camera_timeout_sec: float = 2.0,
+        robot_timeout_sec: float = 2.0,
         graph_poll_period_sec: float = 1.0,
         node_name: str = "ready2go_web_bridge",
         enabled_sources: Collection[str] | None = None,
@@ -87,12 +87,15 @@ class DashboardBridge(Node):
         # bool은 int의 하위 타입이므로 True가 1초 설정으로 들어오는 경우도 막는다.
         if isinstance(camera_timeout_sec, bool) or camera_timeout_sec <= 0:
             raise ValueError("camera_timeout_sec은 0보다 커야 합니다")
+        # B의 2초 제안값은 환경 설정으로 주입하며 0 이하이면 단절 판정이 무의미하다.
+        if isinstance(robot_timeout_sec, bool) or robot_timeout_sec <= 0:
+            raise ValueError("robot_timeout_sec은 0보다 커야 합니다")
         # 주기가 0 이하면 timer 폭주를 만들므로 ROS 노드를 만들기 전에 거절한다.
         if isinstance(graph_poll_period_sec, bool) or graph_poll_period_sec <= 0:
             raise ValueError("graph_poll_period_sec은 0보다 커야 합니다")
 
-        # None은 기존 전체 브리지 시험과 최종 구성을 뜻한다. 실행 진입점은 이슈의
-        # 단계 순서를 지키기 위해 이번 단계에서 runner 하나만 명시적으로 전달한다.
+        # None은 전체 source를 쓰는 브리지 시험을 뜻한다. 실행 진입점은 현재 구현된
+        # Runner 상태·기억 상태·관절 상태 세 source를 명시해 후속 source를 자동으로 켜지 않는다.
         active_sources = ALL_SOURCES if enabled_sources is None else frozenset(enabled_sources)
         unknown_sources = active_sources - ALL_SOURCES
         if unknown_sources:
@@ -110,13 +113,13 @@ class DashboardBridge(Node):
         self.topics = topics or BridgeTopics()
 
         # Runner 두 상태와 Voice는 메시지 나이만으로 끊김을 판정하지 않는다.
-        # 카메라만 A 실측에 따른 설정 가능한 2초 기본 freshness timeout을 사용한다.
+        # 카메라와 로봇 관절 상태는 각각 설정 가능한 freshness timeout을 사용한다.
         source_timeouts = {
             RUNNER_SOURCE: None,
             ROBOT_STATE_SOURCE: None,
             CAMERA_SOURCE: camera_timeout_sec,
             VOICE_SOURCE: None,
-            ROBOT_SOURCE: None,
+            ROBOT_SOURCE: robot_timeout_sec,
         }
         self.cache = StateCache(
             {source: source_timeouts[source] for source in active_sources}
@@ -126,6 +129,7 @@ class DashboardBridge(Node):
         self._runner_subscription = None
         self._robot_state_subscription = None
         self._camera_subscription = None
+        self._robot_subscription = None
         # 상태 콜백의 MessageInfo에서 실제 발행자 GID를 기록한다. graph GID 교체를
         # 확인할 때 새 publisher의 메시지가 먼저 도착했는지 직접 구분하는 근거다.
         self._message_publisher_gids: dict[str, bytes] = {}
@@ -157,6 +161,15 @@ class DashboardBridge(Node):
                 qos_profile_sensor_data,
             )
 
+        # B가 정한 JointState는 100 Hz 전체 값을 보존하지 않고 최근 유효 수신만 판정한다.
+        if ROBOT_SOURCE in active_sources and self.topics.robot_connection:
+            self._robot_subscription = self.create_subscription(
+                JointState,
+                self.topics.robot_connection,
+                self._on_robot_joint_state,
+                qos_profile_sensor_data,
+            )
+
         # source와 topic의 대응을 한곳에 두고 같은 timer에서 ROS 그래프를 확인한다.
         # Voice는 최근 메시지가 없어도 정상일 수 있어 구독하지 않고 publisher만 본다.
         candidate_topics: dict[str, str] = {
@@ -171,7 +184,7 @@ class DashboardBridge(Node):
             if source in active_sources
         }
 
-        # B가 로봇 연결 근거를 정한 경우에만 선택 토픽을 publisher 관찰 대상에 넣는다.
+        # 활성화된 로봇 source의 JointState 토픽도 같은 graph timer에서 관찰한다.
         if ROBOT_SOURCE in active_sources and self.topics.robot_connection:
             self._publisher_topics[ROBOT_SOURCE] = self.topics.robot_connection
 
@@ -237,6 +250,21 @@ class DashboardBridge(Node):
         }
         # 실제 메시지 콜백이 실행됐을 때만 카메라를 정상 수신으로 기록한다.
         self.cache.record_message(CAMERA_SOURCE, summary)
+
+    def _on_robot_joint_state(self, message: JointState) -> None:
+        """고주기 JointState에서 관절 상태 수신 판정에 필요한 메타데이터만 저장한다."""
+        # 위치·속도·토크 배열은 화면 기능 범위가 아니므로 캐시에 복사하지 않는다.
+        summary = {
+            "joint_count": len(message.name),
+            "joint_names": list(message.name),
+            "frame_id": message.header.frame_id,
+            "stamp": {
+                "sec": message.header.stamp.sec,
+                "nanosec": message.header.stamp.nanosec,
+            },
+        }
+        # 이 수신은 관절 상태 발행만 뜻하며 제어기·E-stop·모션 가능 판정으로 확장하지 않는다.
+        self.cache.record_message(ROBOT_SOURCE, summary)
 
     def _poll_publishers(self) -> None:
         """ROS 그래프에서 source별 publisher 존재를 확인하고 캐시와 분리해 기록한다."""

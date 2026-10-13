@@ -182,6 +182,22 @@ def test_periodic_source_becomes_stale_after_configured_timeout(clock: FakeClock
     state = cache.snapshot()["camera"]
     assert state["stale"] is True
     assert state["connection_state"] == "disconnected"
+
+
+def test_robot_joint_state_becomes_disconnected_after_two_seconds(clock: FakeClock) -> None:
+    """B가 제안한 JointState 2초 무수신 경계를 robot source에 그대로 적용한다."""
+    # 실제 구독 콜백이 저장하는 최소 메타데이터와 같은 형태로 정상 수신을 기록한다.
+    cache = make_cache(clock, robot=2.0)
+    cache.record_message("robot", {"joint_count": 6, "joint_names": ["joint_1"]})
+
+    # 2초 경계까지는 최신값이고, 경계를 넘긴 뒤에는 발행자 정보와 무관하게 끊김이다.
+    clock.advance(2.0)
+    assert cache.snapshot()["robot"]["connection_state"] == "receiving"
+    clock.advance(0.001)
+    state = cache.snapshot()["robot"]
+    assert state["stale"] is True
+    assert state["connection_state"] == "disconnected"
+    assert state["freshness_timeout_sec"] == 2.0
     assert state["valid_age_sec"] == pytest.approx(2.001)
 
 

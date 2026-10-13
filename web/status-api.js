@@ -32,6 +32,18 @@
     if (typeof payload.sources.robot_state !== "object" || payload.sources.robot_state === null) {
       throw new Error("로봇 기억 상태가 응답에 없습니다.");
     }
+    // B가 확정한 JointState source가 없으면 로봇 배지를 목업으로 남기지 않고 오류로 처리한다.
+    if (typeof payload.sources.robot !== "object" || payload.sources.robot === null) {
+      throw new Error("로봇 관절 상태가 응답에 없습니다.");
+    }
+    // 실행 프로필은 실물 단절과 sim/dev의 의도된 미기동을 구분하는 근거다.
+    if (!["real", "sim", "dev"].includes(payload.runtime_profile)) {
+      throw new Error("웹 실행 프로필을 확인할 수 없습니다.");
+    }
+    // UI 설명은 기본값을 하드코딩하지 않고 서버가 실제 구독한 절대 토픽명을 사용한다.
+    if (typeof payload.robot_topic !== "string" || !payload.robot_topic.startsWith("/")) {
+      throw new Error("로봇 관절 상태 토픽을 확인할 수 없습니다.");
+    }
     return payload;
   }
 

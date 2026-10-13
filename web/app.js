@@ -117,6 +117,11 @@
     return state.connections.find((connection) => connection.id === "runner");
   }
 
+  function getRobotConnection() {
+    // 상단 로봇 배지는 /robot_state 기억값이 아니라 B의 JointState 수신 진단을 표시한다.
+    return state.connections.find((connection) => connection.id === "robot");
+  }
+
   function formatReceivedTime(value) {
     // 수신 전 null과 잘못된 시각을 화면에서 임의의 현재 시각으로 바꾸지 않는다.
     if (!value) return "미수신";
@@ -192,6 +197,55 @@
       status: phaseView?.status || "waiting",
     };
     return true;
+  }
+
+  function applyRobotConnectionSource(source, runtimeProfile, robotTopic) {
+    // 로봇 관절 상태 source를 상단 배지에 반영하되 모션 가능 상태로 확대 해석하지 않는다.
+    const connection = getRobotConnection();
+    if (!connection) return;
+    const simulation = runtimeProfile === "sim" || runtimeProfile === "dev";
+    const receivedAt = formatReceivedTime(source?.last_valid_received_at);
+    const disclaimer = "모션 가능·E-stop 해제·그리퍼·스킬 서버 준비를 의미하지 않습니다.";
+
+    if (source?.last_error) {
+      Object.assign(connection, {
+        status: "error",
+        statusLabel: "로봇 상태 확인 오류",
+        description: `${source.last_error} · ${disclaimer}`,
+      });
+      return;
+    }
+    if (source?.connection_state === "receiving" && source.message_valid === true) {
+      Object.assign(connection, {
+        status: "ok",
+        statusLabel: "관절 상태 수신",
+        description: `${robotTopic} 최근 수신 ${receivedAt} · ${disclaimer}`,
+      });
+      return;
+    }
+    // sim/dev에서 한 번도 받은 적 없는 미기동만 `확인 전`으로 둔다. 한 번 수신한 뒤
+    // 발행이 멈춘 경우에는 아래의 `수신 끊김`으로 내려 실제 단절을 숨기지 않는다.
+    if (simulation && source?.publisher_present !== true && source?.message_received !== true) {
+      Object.assign(connection, {
+        status: "waiting",
+        statusLabel: "확인 전(시뮬레이션)",
+        description: `${runtimeProfile} 프로필에서 로봇 드라이버를 실행하지 않았습니다.`,
+      });
+      return;
+    }
+    if (source?.connection_state === "waiting") {
+      Object.assign(connection, {
+        status: "pending",
+        statusLabel: "관절 상태 수신 대기",
+        description: `ROS 발행자는 있으나 유효 JointState를 아직 받지 못했습니다. ${disclaimer}`,
+      });
+      return;
+    }
+    Object.assign(connection, {
+      status: "disconnected",
+      statusLabel: "관절 상태 수신 끊김",
+      description: `JointState 발행자 없음 또는 ${source?.freshness_timeout_sec ?? 2}초 무수신 · ${disclaimer}`,
+    });
   }
 
   function validateRobotStateData(source) {
@@ -469,6 +523,7 @@
     // validatePayload를 통과한 두 source를 Runner 연결과 기억 상태에 각각 사용한다.
     const source = payload.sources.runner;
     const robotStateSource = payload.sources.robot_state;
+    const robotConnectionSource = payload.sources.robot;
     // 정의 API가 나중에 도착해도 등록명을 다시 적용할 수 있도록 최신 source를 보관한다.
     latestRobotStateSource = robotStateSource;
     const view = runnerConnectionView(source);
@@ -493,6 +548,8 @@
     state.meta.label = "REST 연결됨 · 부분 실데이터";
     const runnerSummaryApplied = applyRunnerSummary(source);
     const robotStateApplied = applyRobotStateSource(robotStateSource);
+    // B의 관절 상태는 Runner 기억 상태와 별도 연결 진단으로 상단 로봇 배지에만 반영한다.
+    applyRobotConnectionSource(robotConnectionSource, payload.runtime_profile, payload.robot_topic);
     // 정의 연결 여부를 상태 연결과 구분해 현재 화면에 실제인 범위를 정확히 설명한다.
     const definitionText = state.definitionsLive
       ? "등록 정의는 웹 시작 시 읽은 파일 스냅샷입니다."
@@ -532,6 +589,15 @@
       statusLabel: "REST 연결 오류",
       description: `현재 상태를 사용하지 않습니다. REST 마지막 성공 ${lastSuccess}`,
     });
+    // REST 단절 뒤 이전 JointState 수신값이 계속 정상처럼 보이지 않도록 로봇 배지도 전환한다.
+    const robotConnection = getRobotConnection();
+    if (robotConnection) {
+      Object.assign(robotConnection, {
+        status: "error",
+        statusLabel: "REST 연결 오류",
+        description: `현재 로봇 관절 상태를 사용할 수 없습니다. REST 마지막 성공 ${lastSuccess}`,
+      });
+    }
     state.meta.mode = "rest-error";
     state.meta.label = "REST 연결 오류 · 상태 확인 전";
     // 상태 REST 실패가 이미 읽은 정의 파일 스냅샷까지 무효화한 것처럼 표현하지 않는다.

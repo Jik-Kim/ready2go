@@ -6,7 +6,8 @@ from ready2go_web.core.definition_catalog import (
     load_definition_snapshot,
     settings_from_env as definition_settings_from_env,
 )
-from ready2go_web.runtime import RosBridgeRuntime
+from ready2go_web.nodes.dashboard_bridge import BridgeTopics
+from ready2go_web.runtime import RosBridgeRuntime, settings_from_env as runtime_settings_from_env
 from ready2go_web.server import create_app, settings_from_env
 
 
@@ -27,10 +28,15 @@ def main() -> None:
     """환경 설정과 등록 정의를 읽고 Flask·ROS 브리지를 한 번만 실행한다."""
     # host와 port는 코드 상수가 아니라 WEB_HOST·WEB_PORT 환경변수에서 검증해 가져온다.
     settings = settings_from_env()
+    # B 로봇 연결 기준과 real/sim/dev 표시를 코드 상수가 아닌 환경 설정에서 읽는다.
+    runtime_settings = runtime_settings_from_env()
     # 정의 설정·로딩 오류가 있어도 ROS 상태 화면을 시작할 수 있도록 결과를 분리한다.
     definition_snapshot, definition_error = _load_definitions_for_startup()
     # ROS runtime이 /runner/status를 받는 별도 executor 스레드를 먼저 시작한다.
-    runtime = RosBridgeRuntime()
+    runtime = RosBridgeRuntime(
+        topics=BridgeTopics(robot_connection=runtime_settings.robot_topic),
+        robot_timeout_sec=runtime_settings.robot_timeout_sec,
+    )
     runtime.start()
     try:
         # Flask에는 ROS 캐시와 시작 시 고정한 정의 결과를 각각의 REST 원본으로 전달한다.
@@ -38,6 +44,8 @@ def main() -> None:
             state_cache=runtime.cache,
             definition_snapshot=definition_snapshot,
             definition_error=definition_error,
+            runtime_profile=runtime_settings.profile,
+            robot_topic=runtime_settings.robot_topic,
         )
         # reloader를 끄면 개발 서버가 프로세스를 복제해 ROS 노드를 두 개 만들지 않는다.
         app.run(

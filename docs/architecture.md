@@ -21,7 +21,7 @@
                ▼
    Isaac Sim 디지털 트윈 (PC1, 네이티브): 사전 검증 모드 / 실물 미러링 모드
 
-[/runner/status · /robot_state] → 단일 rclpy 웹 브리지 → 잠금 캐시 → Flask 상태 REST
+[/runner/status · /robot_state · /dsr01/joint_states] → 단일 rclpy 웹 브리지 → 잠금 캐시 → Flask 상태 REST
 [knowledge manifest · tasks/] → 공통 ontology.load · 시작 시 파일 스냅샷 → Flask 정의 REST
                                                                     ↓
                                                         PC·모바일 읽기 전용 UI

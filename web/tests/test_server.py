@@ -147,8 +147,8 @@ def test_custom_web_root_can_be_injected_without_exposing_other_files(tmp_path: 
 
 
 def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> None:
-    """4단계 REST가 Runner 진단과 기억 상태를 같은 스냅샷으로 반환한다."""
-    cache = StateCache({"runner": None, "robot_state": None})
+    """REST가 Runner·기억 상태·로봇 관절 수신을 같은 스냅샷으로 반환한다."""
+    cache = StateCache({"runner": None, "robot_state": None, "robot": 2.0})
     cache.set_publisher_present("runner", True)
     cache.record_message(
         "runner",
@@ -171,10 +171,21 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
         robot_state_data,
         received_at=datetime(2026, 10, 13, 6, 30, 1, tzinfo=timezone.utc),
     )
+    # JointState 콜백이 만든 최소 연결 메타데이터를 REST 원본에 함께 넣는다.
+    cache.record_message(
+        "robot",
+        {"joint_count": 6, "joint_names": [f"joint_{index}" for index in range(1, 7)]},
+        received_at=datetime(2026, 10, 13, 6, 30, 2, tzinfo=timezone.utc),
+    )
     fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
 
     # app factory가 runtime과 같은 캐시를 보관하고 요청 때마다 snapshot을 읽는다.
-    app = create_app(state_cache=cache, utcnow=fixed_now)
+    app = create_app(
+        state_cache=cache,
+        runtime_profile="dev",
+        robot_topic="/test/joint_states",
+        utcnow=fixed_now,
+    )
     assert app.extensions["ready2go_web"]["state_cache"] is cache
 
     app.config.update(TESTING=True)
@@ -190,6 +201,8 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     assert payload["served_at"] == "2026-10-13T06:31:00Z"
     assert payload["poll_interval_ms"] == POLL_INTERVAL_MS
     assert payload["status"] == "ok"
+    assert payload["runtime_profile"] == "dev"
+    assert payload["robot_topic"] == "/test/joint_states"
 
     # 의미 변환 전 원본 Runner JSON과 연결 진단이 손실 없이 함께 반환돼야 한다.
     runner = payload["sources"]["runner"]
@@ -206,6 +219,10 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     assert robot_state["message_valid"] is True
     assert robot_state["last_received_at"] == "2026-10-13T06:30:01Z"
     assert robot_state["data"] == robot_state_data
+    robot = payload["sources"]["robot"]
+    assert robot["connection_state"] == "receiving"
+    assert robot["freshness_timeout_sec"] == 2.0
+    assert robot["data"]["joint_count"] == 6
 
 
 def test_status_api_reports_missing_runtime_cache_as_service_unavailable(client) -> None:
