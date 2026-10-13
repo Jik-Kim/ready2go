@@ -102,6 +102,7 @@ class RunnerNode(Node):
         self._last_task_id: str | None = None
         self._last_intent: dict | None = None   # 마지막으로 받은 인텐트와 처리 결과 (시연 화면 #59)
         self._sent = {"status": None, "state": None}
+        self._seq = 0                           # /runner/status 발행 번호 (같은 boot_id 안에서 +1, 큰 것이 최신 — 계약 W4)
         # 발행 잠금: 상태를 만들고 보내는 동안, 그리고 결정을 last_intent 에 넣고 보내는 동안 다른 콜백(status·cancel·주기 발행)이
         # 끼어들지 않게 — 각 요청 자신의 결정이 적어도 한 번 발행됨 (#249 E 리뷰). 짧게만 잡음 (정지 경로가 기다리지 않게)
         self._pub_lock = threading.RLock()
@@ -347,6 +348,7 @@ class RunnerNode(Node):
                               halt=self.runner.halt_summary)
         status["last_intent"] = self._last_intent
         status["state_reset_at"] = self._state_reset_at   # 마지막 상태 초기화 시각 (UTC, 없으면 null)
+        status["boot_id"] = self.runner.boot_id          # 계약 W4 (#271): 이 Runner 기동 — 재기동하면 새 값
         return status
 
     def publish(self) -> None:
@@ -357,7 +359,11 @@ class RunnerNode(Node):
                                     ("state", self.state_pub, self.runner.state)):
                 text = json.dumps(value, ensure_ascii=False, sort_keys=True)
                 if text != self._sent[key]:
-                    pub.publish(String(data=text))
+                    out = text
+                    if key == "status":         # 계약 W4: 바뀐 내용을 보낼 때만 seq +1·stamp (비교에는 넣지 않음 — 주기 발행이 매번 새 값이 되지 않게)
+                        self._seq += 1
+                        out = json.dumps({**value, "seq": self._seq, "stamp": utc_iso()}, ensure_ascii=False, sort_keys=True)
+                    pub.publish(String(data=out))
                     self._sent[key] = text
 
 

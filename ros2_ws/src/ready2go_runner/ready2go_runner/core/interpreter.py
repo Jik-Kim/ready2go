@@ -27,6 +27,7 @@ discard_suspended() 는 보존한 실행을 지금까지처럼 ABORTED 로 끝�
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timedelta, timezone
 import threading
 import time
 import uuid
@@ -252,6 +253,7 @@ class Runner:
         self._event_id: str | None = None       # 정지 사건 ID: 잠길 때마다 새로 (재개 요청이 이 사건에 대한 것인지)
         self._suspended: _Run | None = None     # 재개 대기 중인 실행
         self._offered_at: float | None = None   # 재개 대기 중 잠금이 풀린 시각 (clock)
+        self._offer_until: str | None = None    # 그때 정한 제안 기한 표시 시각 (UTC) — 조회마다 다시 계산하지 않음 (#286 E 리뷰)
         self._pos: list[tuple[int, str]] = []   # 지금 실행 중인 스텝 위치 (바깥 → 안쪽)
         self._branch_at: dict[tuple, str] = {}  # 지금 실행 문맥의 _Run.branch_at
         self._halt_path: list | None = None     # 중단이 처음 난 스텝 위치
@@ -290,6 +292,8 @@ class Runner:
             self._halt.clear()
             if self._suspended is not None:     # 재개 대기: 이때부터 resume_window_sec 안에 재개 요청을 받음
                 self._offered_at = self.clock()
+                self._offer_until = (datetime.now(timezone.utc) + timedelta(seconds=self.resume_window_sec)) \
+                    .isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     @property
     def halted(self) -> bool:
@@ -300,6 +304,25 @@ class Runner:
         """중단 요청이 들어왔지만 이번 실행이 아직 중단 처리 전. 이때 새 원자 동작을 보내지 않는다(RosClients).
         중단 처리 뒤 finally 의 비동작(speak 등)은 Runner 가 골라 보내므로 막지 않는다."""
         return self._halt.is_set() and not self._aborted
+
+    @property
+    def resume_offer(self) -> dict | None:
+        """재개 대기(보존 작업)가 있을 때 /runner/status halt.resume (계약 W4, #271). 없으면 None.
+        offered = 잠금이 풀렸고 C 제안 기한(resume_window_sec) 안 — 재개 허가가 아님. question·request 는 재개 질문·답
+        구현 전이라 null. hold_until·hold_remaining_s = 지금 열린 C 기한(제안 창)의 남은 시간, 보존 작업 기한 아님."""
+        ctx = self._suspended
+        if ctx is None:
+            return None
+        step = _step_at(ctx, ctx.path)
+        remaining = None
+        if self._offered_at is not None:
+            remaining = max(0.0, self.resume_window_sec - (self.clock() - self._offered_at))
+        until = None if remaining is None else self._offer_until   # 고정: 만료 뒤에도 같은 값 → 상태가 바뀌지 않음
+        return {"offered": not self._halt.is_set() and bool(remaining),
+                "from_step": step.get("id") if step else None,
+                "needs": _reentry_need(step) if ctx.step_started else "none",
+                "question": None, "request": None,
+                "hold_until": until, "hold_remaining_s": None if remaining is None else round(remaining, 1)}
 
     @property
     def active_run_id(self) -> str | None:
@@ -321,6 +344,7 @@ class Runner:
                 "canceled_goals": info.get("canceled_goals"), "stop": stop_state(info, self._in_run),
                 "response_code": info.get("response_code"),
                 "response_received_at": info.get("response_received_at"),
+                "resume": self.resume_offer,
                 "locked": self._halt.is_set()}
 
     @property
