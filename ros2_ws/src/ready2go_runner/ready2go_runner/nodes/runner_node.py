@@ -37,6 +37,7 @@ from ..core import intent_router, planner, step_console
 from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import RunResult, Runner
 from ..core.log_records import new_run_id, utc_iso
+from ..core.recovery import mock_check, recover_blockers
 from ..core.request_memory import RequestMemory
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
 from ..core.runner_status import build_status
@@ -44,6 +45,8 @@ from ..core.runner_status import build_status
 PUBLISH_PERIOD_SEC = 0.5                # 상태가 바뀌었는지 확인하는 주기 (바뀐 경우에만 발행)
 BOOT_MISMATCH = "BOOT_MISMATCH"         # 계약 W3: 다른 Runner 기동(boot_id)에 대한 제어 인텐트
 NOTHING_TO_END = "NOTHING_TO_END"       # end_task 대상(그 run_id 의 실행·보존 작업)이 없음
+NOT_LOCKED = "NOT_LOCKED"               # recover 인데 이미 잠겨 있지 않음
+HALT_EVENT_MISMATCH = "HALT_EVENT_MISMATCH"   # 지금 정지 사건이 아님 (과거·지연 요청, 그 뒤 다시 멈춤)
 LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
 
 
@@ -58,6 +61,10 @@ class RunnerNode(Node):
         intent_schema_file = param("intent_schema_file", "/contracts/intent.schema.json")
         tasks_dir = param("tasks_dir", "/tasks")
         intent_tasks = param("intent_tasks", "")   # 인텐트=태스크파일 (trigger 대신, 예: 시연 find_item=/tasks/p1_demo_eraser.json)
+        # 재개 대기(#152): 켜면 정지된 작업을 버리지 않고 보존 → recover·resume·end_task 로 처리. 기본 꺼짐(지금 동작 그대로)
+        resumable = param("resumable", os.environ.get("RUNNER_RESUMABLE", "") in ("1", "true", "on"))
+        # 복구 때 B 상태 조회(W1): mock = mock 백엔드 흉내, none = 조회 불가 → 복구 거절 (B /skills/check_state PR 전)
+        self.recover_check = param("recover_check", "mock" if os.environ.get("BACKEND", "mock") == "mock" else "none")
         min_confidence = param("min_confidence", 0.6)   # [추정, E 확정 필요] E 음성 노드 임계값과 같게
         # 플래너 계획 스텝 제한 시간 (스킬=초). [팀 확정 필요] tasks/find_item.json 과 같은 값 (#150)
         self.plan_timeouts = _parse_timeouts(param(
@@ -73,7 +80,7 @@ class RunnerNode(Node):
         onto = ontology.load(ontology_file)
         self.onto = onto                        # 플래너가 스킬 pre·effect·world 를 씀 (#150)
         self.log_store = _make_log_store(log_dir, self.get_logger())
-        self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store)
+        self.runner = Runner(None, schema=schema, ontology=onto, log_store=self.log_store, resumable=resumable)
         self.ros_clients = RosClients(self, stopping=lambda: self.runner.stop_requested)
         self.runner.on_halt = self.ros_clients.cancel_all   # /runner/estop → 진행 중인 goal 즉시 취소
         self.runner.on_step = self._on_step                  # 스텝 진행 콘솔 (#98)
@@ -233,6 +240,8 @@ class RunnerNode(Node):
                                               intent=decision.intent)
         if decision.kind == intent_router.END:
             decision = self._end_task(decision)
+        if decision.kind == intent_router.RECOVER:
+            decision = self._recover(decision)
         if decision.kind == intent_router.PLAN:
             decision = self._plan(decision)
         missing = self.missing_servers(decision.task) if decision.kind == intent_router.RUN else []
@@ -284,6 +293,29 @@ class RunnerNode(Node):
                 self._last, self._last_task_id = result, suspended["task_id"]
             return intent_router.Decision(intent_router.END, intent=intent)
         return intent_router.Decision(intent_router.REJECT, NOTHING_TO_END, intent=intent)
+
+    def _recover(self, decision: intent_router.Decision) -> intent_router.Decision:
+        """계약 W3 recover (#152·#271, FR-SAF-03): 같은 기동·지금 정지 사건이고 B 상태 조회(W1)가 모두 충족일 때만
+        C 잠금 해제(Runner.resume). 해제는 재개 허가가 아님 — 보존 작업이 있으면 halt.resume.offered 로 제안만.
+        불충족·모름이면 잠금 유지(이유 = 첫 차단 코드, 콘솔에 전부). 로봇 동작 없음."""
+        intent = decision.intent or {}
+        reject = lambda reason: intent_router.Decision(intent_router.REJECT, reason, intent=intent)  # noqa: E731
+        if intent.get("boot_id") != self.runner.boot_id:
+            return reject(BOOT_MISMATCH)
+        if not self.runner.halted:
+            return reject(NOT_LOCKED)
+        if intent.get("event_id") != self.runner.halt_event_id:
+            return reject(HALT_EVENT_MISMATCH)
+        if self.running:                       # 아직 멈추는 중 (진행 중 동작의 최종 결과 대기)
+            return reject(intent_router.BUSY)
+        check = mock_check(self.runner.state) if self.recover_check == "mock" else None
+        blockers = recover_blockers(check, self.runner.state)
+        if blockers:
+            self.get_logger().warning(f"recover 거절 — 잠금 유지: {blockers} (B 조회 {check})")
+            return reject(blockers[0])
+        self.runner.resume()
+        self.get_logger().info(f"recover: 잠금 해제 (B 조회 {check}) — 재개 허가 아님, 보존 작업 {self.runner.suspended}")
+        return intent_router.Decision(intent_router.RECOVER, intent=intent)
 
     def _announce(self, summary: dict, force: bool = False) -> None:
         """이 결정을 last_intent 에 넣고 바로 발행 — 사이에 다른 콜백이 last_intent 를 바꿔 이 결정이 안 나가는 일 없게."""

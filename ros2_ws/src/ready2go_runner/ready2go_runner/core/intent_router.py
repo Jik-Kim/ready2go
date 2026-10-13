@@ -19,6 +19,7 @@ from typing import Any
 import jsonschema
 
 RUN, CANCEL, STATUS, HOLD, REJECT = "run", "cancel", "status", "hold", "reject"
+RECOVER = "recover"                     # 계약 W3 recover (#152·#271): B 조회 충족이면 C 잠금 해제 — 재개 허가 아님 (노드가 처리)
 END = "end"                             # 계약 W3 end_task (#152·#271): 지금 작업 종료 — 실행 중이면 정지, 보존 작업이면 폐기 (노드가 처리)
 PLAN = "plan"                           # achieve_goal: 노드가 플래너로 계획한 뒤 run 또는 hold 로 바꿈 (#150)
 # 보류·거절 이유 (/runner/status last_intent.reason, 로그)
@@ -111,6 +112,10 @@ class IntentRouter:
             return Decision(STATUS, intent=intent)
         if name == "end_task":              # 종료도 정지처럼 신뢰도·잠김과 상관없이 받음 — 잠금 해제·새 작업 허용은 아님 (E3)
             return Decision(END, intent=intent)
+        if name == "recover":               # 잠금을 푸는 쪽이라 신뢰도는 일반 요청과 같게 확인
+            if intent["confidence"] < self.min_confidence:
+                return Decision(HOLD, LOW_CONFIDENCE, intent=intent)
+            return Decision(RECOVER, intent=intent)
         if name in ("unknown", "clarify"):
             return Decision(HOLD, NEEDS_CLARIFY, intent=intent)
         if name == "achieve_goal" and name not in self.tasks:     # 목표형: 동작 순서는 플래너가 (#150, FR-PLN-02)
