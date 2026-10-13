@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "ready2go/skills_safe_state.schema.json",
   "title": "B 무동작 안전 상태 조회 W1 /skills/check_state · B 복구 W2 /skills/recover — 응답 message JSON",
   "description": "두 서비스 모두 std_srvs/srv/Trigger (요청 비어 있음). 응답 message 는 아래 JSON 을 문자열로 담음. 로봇·그리퍼 명령 없음. 계약안 #297 (B 제안, C 확인·E 포함 2명 승인 전, P2). 예시: examples/skills_check_state.json·skills_recover.json. 문서: ros2_ws/src/ready2go_skills/README.md W1·W2, docs/interfaces.md.",
   "oneOf": [
