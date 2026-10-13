@@ -1,5 +1,11 @@
 # CURRENT — E 고희태
 
+## e-pick-handoff-doc-20261013-01
+
+- [문서: 승인/범위] 검토 SHA `b007efd3bc2929a6c2d9f4decd812f0afb30fb84`의 `ros2_ws/src/ready2go_voice/README.md` C #17 인계 문장만 정정합니다. 연결 기준은 P1 [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../../docs/requirements.md#fr-act-05), P2 caller는 [FR-ACT-04](../../docs/requirements.md#fr-act-04)입니다. 기준·계약·코드는 변경하지 않습니다.
+- [문서: 원본 대조] `knowledge/skills/pick.jsonld`의 expand는 새 scan으로 직접 `pick_object`를 먼저 실행하고, 움직임 전 `WALL_TOO_CLOSE`일 때만 nudge→탑뷰→새 scan→새 target/전체 scan 집기로 갑니다. 직접 성공은 재관측이 없습니다. [ontology.md](../../docs/ontology.md#p1-공통-pick-실행-연결)와 [knowledge README](../../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결) 설명에 맞춰 기존 `target_after` 비사용, 기존 `NO_PUSH_ACCESS`·안전 인계 문장과 기록은 보존합니다.
+- [미실측] 문서 정합성 수정이며 로봇·실물 관측·AC 수행을 의미하지 않습니다.
+
 ## pr277-jsonl-review-fix-20261013-01
 
 - [문서: 승인/기준] E-PR277-JSONL-REVIEW-FIX-20261013-01. 조율 human `01a133e8-c589-7e80-9f85-5e2c029e7257`의 “셋 다 코멘트 확인 후 보완및정리”를 직접 확인했습니다. #277 review5499508634와 정확 원격 head `83b89836b95390a2d5b56d732e60681f8ebc9520`에서 별도 `codex/e-pr277-jsonl-review-fix-20261013`을 준비했습니다. 기존 격리 `/tmp/ready2go-e-p2-ontology-integration-20261013` 단독 사용을 manager에 전달했고 data branch `3a57fb72d185205239d063083e2040b01033f547`·primary edb·카드/C #279·모델/receipt를 보존합니다. [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)·기존 [종료 접수 정책](../../docs/requirements.md#resume-admission-policy)을 유지하며 새 정책/공개 계약·장치·API·main 병합은 제외합니다.
