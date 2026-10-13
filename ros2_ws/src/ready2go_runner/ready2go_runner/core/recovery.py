@@ -6,8 +6,8 @@ C 잠금 해제는 B 상태 조회(W1)의 **모든 필수 칸이 충족**할 때
 B 복구 결과(W2)와 C 잠금 해제는 분리 — 여기서는 조회 결과만 판단하고, 잠금 해제는 노드가 Runner.resume() 으로.
 B 조회: `b` = B 서비스 `/skills/check_state`(std_srvs/Trigger, 응답 message JSON — #297 제안)를 노드가 호출,
 `mock` = mock 백엔드에서만 mock_check, `none` = 조회 불가(None → B_CHECK_UNAVAILABLE). real 에서 mock 을 골라도 쓰지 않음.
-서랍(`drawers`)은 B 서버가 기억하는 서랍별 인출 거리(m) — 기준(`drawer_open_min_m`)보다 크면 열림, 칸이 없으면 닫힘
-(B 서버는 재시작 때 닫힘으로 시작). bool 도 받음(mock).
+서랍(`drawers`)은 B 서버가 기억하는 서랍별 인출 거리(m, 연 적 없는 서랍은 0.0 — B #297) — 기준(`drawer_open_min_m`)보다
+크면 열림. Runner 가 기억하는 서랍 칸이 하나라도 빠지면 불완전한 응답으로 보고 거절(#304 D 리뷰 P1). bool 도 받음(mock).
 """
 from __future__ import annotations
 
@@ -129,13 +129,15 @@ def recover_blockers(check: dict | None, runner_state: dict, limits: dict | None
 
 
 def drawers_open(drawers, runner_state: dict, open_min_m) -> dict | None:
-    """B drawers → {서랍: 열림}. 인출 거리(m) > open_min_m 이면 열림, 칸 없음 = 닫힘(0), bool 은 그대로.
-    dict 가 아님·값이 null/음수/다른 형·숫자인데 기준 없음 → None (모름 = 거절)."""
+    """B drawers → {서랍: 열림}. 인출 거리(m) > open_min_m 이면 열림, bool 은 그대로.
+    dict 가 아님·Runner 가 기억하는 서랍 칸 없음·값이 null/음수/다른 형·숫자인데 기준 없음 → None (모름 = 거절)."""
     if not isinstance(drawers, dict):
         return None
     out = {}
     for name in (k for k in (runner_state.get("open") or {}) if k.startswith("drawer")):
-        value = drawers.get(name, 0.0)
+        if name not in drawers:                 # 칸 누락 = 불완전·버전 불일치 응답 — 닫힘으로 추정하지 않음 (#304 D 리뷰 P1)
+            return None
+        value = drawers[name]
         if isinstance(value, bool):
             out[name] = value
         elif isinstance(value, (int, float)) and value >= 0 and open_min_m is not None:

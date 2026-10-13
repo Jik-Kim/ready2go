@@ -2,4 +2,4 @@
 # B 조회(W1 /skills/check_state, #297 제안)의 값과 비교. 값은 B·팀 확정 전 [팀 확정 필요]
 external_force_max_n: null   # 지속 외력 상한 N — B 기준 미측정(#297: external_force 항상 null). P2 처리 방식 E·B 결정 대기
 stamp_max_age_s: 2.0         # 조회 시각(stamp)이 이보다 오래되면 STATE_STALE — 같은 PC2(B·Runner) 기준 C 제안 [팀 확정 필요]
-drawer_open_min_m: 0.01      # B 서랍 인출 거리(m)가 이보다 크면 열림 — C 제안, B 확인 필요 [팀 확정 필요]
+drawer_open_min_m: 0.01      # B 서랍 인출 거리(m)가 이보다 크면 열림 — B 확인 10/13(#297: 다 연 거리 약 0.226, 0.01 넘으면 열림)

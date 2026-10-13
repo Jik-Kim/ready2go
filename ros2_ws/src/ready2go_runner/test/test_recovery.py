@@ -42,7 +42,9 @@ def test_all_good_unlocks_and_mock_matches_memory():
     ("stamp", None, "STAMP_UNKNOWN"), ("stamp", "어제", "STAMP_UNKNOWN"),
     ("stamp", (NOW - timedelta(seconds=5)).isoformat(), STATE_STALE),
     ("drawers", None, "DRAWERS_UNKNOWN"), ("drawers", {"drawer_top": None}, "DRAWERS_UNKNOWN"),
-    ("drawers", {"drawer_top": -0.1}, "DRAWERS_UNKNOWN"), ("drawers", {"drawer_top": 0.226}, STATE_MISMATCH),
+    ("drawers", {"drawer_top": -0.1, "drawer_bottom": 0.0}, "DRAWERS_UNKNOWN"),
+    ("drawers", {"drawer_top": 0.226, "drawer_bottom": 0.0}, STATE_MISMATCH),
+    ("drawers", {"drawer_top": 0.0}, "DRAWERS_UNKNOWN"),          # 칸 누락 — 닫힘으로 추정 안 함 (#304 D 리뷰 P1)
     ("drawers", {"drawer_top": True, "drawer_bottom": False}, STATE_MISMATCH),
     ("gripper", {"state": "unknown", "held_id": None}, "GRIPPER_UNKNOWN"),
     ("gripper", {}, "GRIPPER_UNKNOWN"),
@@ -86,17 +88,18 @@ RECOVERY_FILE = Path(__file__).resolve().parents[1] / "params/recovery.yaml"
 B_EXAMPLE = {"stopped": True, "external_force": None, "sensors_ok": True, "comm_ok": True, "controller_ready": True,
              "estop_active": False, "tcp_tool_ok": True,
              "gripper": {"state": "empty", "held_id": None, "width_m": 0.0009, "grasp_detected": True, "reason": ""},
-             "drawers": {"drawer_top": 0.226}, "b_locked": False, "b_lock_reason": None, "robot_state": 1, "busy": False,
+             "drawers": {"drawer_top": 0.226, "drawer_bottom": 0.0}, "b_locked": False, "b_lock_reason": None, "robot_state": 1, "busy": False,
              "stamp": (NOW - timedelta(seconds=0.5)).isoformat(timespec="milliseconds")}
 TOP_OPEN = {**EMPTY, "open": {**EMPTY["open"], "drawer_top": True}}
 
 
-def test_b_drawer_distance_means_open_and_missing_means_closed():
-    """B #297: drawers = B 서버가 기억한 서랍별 인출 거리(m), 연 적 없는 서랍은 칸 없음(재시작 때 닫힘으로 시작)."""
-    assert drawers_open({"drawer_top": 0.226}, EMPTY, 0.01) == {"drawer_top": True, "drawer_bottom": False}
-    assert drawers_open({}, EMPTY, 0.01) == {"drawer_top": False, "drawer_bottom": False}
-    assert drawers_open({"drawer_top": 0.005}, EMPTY, 0.01) == {"drawer_top": False, "drawer_bottom": False}
-    assert drawers_open({"drawer_top": 0.226}, EMPTY, None) is None          # 거리인데 기준 없음 → 모름
+def test_b_drawer_distance_means_open_and_missing_key_is_unknown():
+    """B #297: drawers = B 서버가 기억한 서랍별 인출 거리(m), 연 적 없는 서랍은 0.0. 칸이 빠지면 모름(#304 D 리뷰 P1)."""
+    assert drawers_open({"drawer_top": 0.226, "drawer_bottom": 0.0}, EMPTY, 0.01) == {"drawer_top": True, "drawer_bottom": False}
+    assert drawers_open({"drawer_top": 0.005, "drawer_bottom": 0.0}, EMPTY, 0.01) == {"drawer_top": False, "drawer_bottom": False}
+    assert drawers_open({"drawer_top": 0.0}, EMPTY, 0.01) is None             # 아래 칸 누락
+    assert drawers_open({}, EMPTY, 0.01) is None
+    assert drawers_open({"drawer_top": 0.226, "drawer_bottom": 0.0}, EMPTY, None) is None   # 거리인데 기준 없음 → 모름
     assert drawers_open([0.2], EMPTY, 0.01) is None
 
 
