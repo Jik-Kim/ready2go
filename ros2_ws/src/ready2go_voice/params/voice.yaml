@@ -14,6 +14,7 @@ silence_sec: 0.4      # [팀 확정 필요] 발화 종료 지연도 3초 측정�
 speech_start_timeout_sec: 3.0
 max_record_sec: 8.0   # 최대 보호 한도이며 고정 8초 녹음이 아님
 stt_model: whisper-1
+stt_control_prompt: '멈춰, 정지, 중지, 취소, 그만, 중단해, 복구해, 이어서 해, 재개해, 종료, 작업 종료해, 네, 아니요'
 llm_model: gpt-4o     # 참고 코드 후보, 계정 접근·실측 지연 [팀 확정 필요]
 stt_timeout_sec: 30.0
 llm_timeout_sec: 30.0
@@ -34,7 +35,7 @@ duplicate_window_sec: 2.0
 # 모호=clarify 정책은 사용자 확정. D 자료의 E/D 승인·후속 확인 대화는 [팀 확정 필요].
 request_patterns: ['찾아', '찾아줘', '꺼내', '가져', '갖다', '줄래', '주세요', '주면', '필요']
 unsupported_patterns: ['넣어', '옮겨', '정리', '전부', '모두', '아래 서랍', '닫아', '열어', '분류', '찾지', '꺼내지', '가져오지', '하지 마', '하지마']
-cancel_phrases: ['멈춰', '정지', '취소', '그만']
+cancel_phrases: ['멈춰', '정지', '중지', '취소', '그만', '중단해']
 status_phrases: ['지금 뭐 해', '지금 뭐해', '상태 알려', '진행 상황']
 
 # 원본 기반 기능 시운전 [팀 확정 필요]: 실제 발화 종료/AC 지연은 미측정
@@ -82,7 +83,7 @@ resume_independent_request_timeout_sec: 30.0 # 새 녹음→STT/분류/C 등록 
 place_admission_window_sec: 10.0 # 실제 TTS 완료→SDK 접수.
 place_stt_result_timeout_sec: 15.0 # SDK 호출→정상 STT 결과.
 place_max_reasks: 1 # 최초 질문 외 모호 응답 재질문 상한.
-p2_goal_enabled: false # 옵트인도 1단계 내부 평가만; 운영 발행 금지.
+p2_goal_enabled: false # 선정 목표의 명시 opt-in. 발신은 request_run_enabled와 현재 C 연결 확인도 필요.
 p2_goal_catalog: # #150 선정 목표 원본. 관측 초기 상태·행동 순서는 포함하지 않음.
   - [{predicate: located_in, subject: eraser, value: handover_zone}]
   - [{predicate: open, subject: drawer_top, value: true}]
@@ -100,9 +101,59 @@ diagnostic_backups: 3
 diagnostic_queue_size: 128
 # 모델/내용 identity는 유지, 초기 필수 문장+자주 사용한 검증 문장만 bounded 선준비.
 tts_prefill_progress_every: 8 # 선준비 진행 표시 간격 제안
-tts_prefill_max_texts: 128
+tts_prefill_max_texts: 256
 tts_prefill_max_chars: 160
 tts_prefill_max_bytes: 65536 # UTF-8 선준비 문장 전체 용량 상한 제안
 tts_frequent_max_texts: 32
 tts_frequent_min_uses: 2
 tts_frequent_max_bytes: 1048576 # 검증문장 선택 기록 용량; 기존 WAV/로컬자산 삭제하지 않음.
+
+# STT 제한 원인별 고정 안내. 누락된 오래된 local 설정은 loader 기본값을 사용합니다.
+stt_error_prompts:
+  rate_limit: 음성 인식 요청이 너무 많아 처리하지 못했어요. 잠시 후 새 요청을 해 주세요.
+  quota: 음성 인식 API의 크레딧이나 사용 한도를 확인해 주세요. 요청은 실행하지 않았어요.
+  unknown_429: 음성 인식 API가 요청을 제한했지만 원인은 확인되지 않았어요. 오류 기록을 확인해 주세요.
+
+# E-VOICE-FLOW 승인 시험 옵션. 숫자는 시험 제안이며 [팀 확정 필요]. 기본 녹음/모델/예산은 불변.
+voice_flow:
+  wake_cue_enabled: false
+  cue_rate_hz: 16000
+  cue_tones_hz: [660.0, 880.0]
+  cue_tone_sec: 0.08
+  cue_gap_sec: 0.02
+  cue_gain: 0.18
+  cue_guard_sec: 0.12
+  cue_timeout_sec: 2.0
+  capture_save_wav: false
+  capture_dir: null
+  capture_trim: false
+  trim_padding_sec: 0.15
+  stt_context_hint_enabled: true
+  stt_hint_template: '현재 질문은 {item} 가져오기 확인입니다. 짧은 답: 응, 어어, 네, 맞아, 아니요, 가져다줘.'
+  context_reply_pattern: '(?:(?:어어|어|응|네|예)[,，]?)?(?:(?:맞아|맞아요)[,，]?)?(?:(?:그거|그걸로|그걸)?[,，]?(?:가져다|갖다|가져|건네)(?:줘|주세요)|그걸로|맞아|맞아요)'
+  status_prompts:
+    running: '현재 작업을 진행 중이에요. 작업이 끝난 뒤 새 요청을 해 주세요.'
+    locked: '작업이 중단되거나 잠겨 있어요. 상태를 확인해 주세요.'
+    unconfirmed: '현재 작업 상태를 확인할 수 없어 새 요청을 보류합니다.'
+  empty_reply_prompt: '답을 인식하지 못했어요. 같은 질문의 답을 다시 말씀해 주세요.'
+  dummy_auto_complete: false
+
+# 승인 핫픽스의 안내 문구. 단일 값 원본이며 실제 현재 상태/모션을 단정하지 않습니다.
+voice_hotfix:
+  control_recover: '더미 복구 확인이 끝났습니다. 새 웨이크 후 이어서 해라고 말씀해 주세요. 실제 로봇 복구 확인은 아닙니다.'
+  control_resume: '더미 작업 재개를 수락했습니다. 안내가 끝나면 더미 실행 상태로 돌아갑니다. 실제 로봇은 움직이지 않습니다.'
+  control_end: '더미 작업 종료를 수락했습니다. 안내가 끝나면 새 요청을 받을 수 있습니다. 물리 작업 완료는 아닙니다.'
+  control_failed: '음성 인식 또는 재개 조건이 확인되지 않아 중단 작업을 유지합니다. 새 웨이크 후 다시 명시적으로 말씀해 주세요.'
+  availability: '{item} 물품은 등록 지원 대상입니다. 실제 재고와 파지는 확인하지 못했어요. 가져오기 요청이 맞나요?'
+  initial_location: '{item_topic} 초기 배치 기준 {place}에 있습니다. 실제 현재 위치는 확인하지 못했어요.'
+  initial_open: '{place_topic} 초기 배치 기준 {value} 상태입니다. 실제 현재 상태는 확인하지 못했어요.'
+  open_true: 열림
+  open_false: 닫힘
+  unknown_state: 초기 배치에서도 해당 상태를 확인하지 못했어요.
+  no_work: 보존된 중단 작업이 없습니다. 상태를 확인해 주세요.
+  no_end_work: 종료할 작업이 없습니다.
+  control_held: 중단 작업의 기존 안전 확인 경로로 요청을 전달합니다. 실제 복구나 재개 완료는 아닙니다.
+
+  recorded_location: '{item_topic} Runner 기록 기준 {place}에 있습니다. 실제 현재 위치는 별도 확인이 필요합니다.'
+  recorded_open: '{place_topic} Runner 기록 기준 {value} 상태입니다. 실제 현재 상태는 별도 확인이 필요합니다.'
+  unknown_recorded_state: Runner 기록에서 해당 상태를 확인하지 못했어요. 초기 배치를 현재 상태로 대신 안내하지 않습니다.
