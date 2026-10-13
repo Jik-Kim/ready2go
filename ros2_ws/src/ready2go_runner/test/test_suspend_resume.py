@@ -164,7 +164,7 @@ def test_halt_between_steps_resumes_from_next_step():
         return reply
     runner.execute = execute
     first = runner.run(TASK)
-    assert first.overall_status == "SUSPENDED" and runner.suspended["from_step"] == "s3"
+    assert first.overall_status == "SUSPENDED" and runner.suspended["from_step"] == "s2k"   # 안내 성공 표시(#249)부터
     runner.resume()
     assert runner.resume_run(runner.halt_event_id, observed=EMPTY).overall_status == "COMPLETED"
     assert robot.spoken.count(FOUND) == 1

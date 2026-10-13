@@ -141,10 +141,21 @@ def test_duplicate_request_while_running_is_rejected(slow_system):
     assert {voice.status["last"]["run_id"]} == run_ids                               # 두 번째 요청은 실행 안 됨
 
 
-def test_cancel_stops_running_task_and_locks(slow_system):
-    runner, voice = slow_system
+@pytest.fixture
+def long_action_system(tmp_path):
+    """동작마다 2 s — /runner/status 는 PUBLISH_PERIOD_SEC(0.5 s)마다 발행돼 시험이 단계를 최대 0.5 s 늦게 본다.
+    0.4 s 동작이면 "멈춰"가 닿을 때 그 동작이 이미 끝나 다음 스텝 경계에서 멈춤(HALTED) — 진행 중 goal 취소를 못 봄."""
+    runner, voice, close = make_system(tmp_path, duration=2.0)
+    yield runner, voice
+    close()
+
+
+def test_cancel_stops_running_task_and_locks(long_action_system):
+    """진행 중인 동작(첫 안내 speak)에 "멈춰" → 그 goal 취소(CANCELED), 정지 기록, 잠김."""
+    runner, voice = long_action_system
     voice.say(intent())
-    assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] not in (None, "s1"))
+    # 첫 안내 speak 가 나가 있는 동안 멈춤 (계약07 뒤 s2 는 accept_text if — 안내는 s2.1/s2.2)
+    assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2"))
     voice.say(intent("cancel", targets=(), confidence=0.5))
     assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"), voice.status
     assert voice.status["phase"] == "halted" and voice.status["halt_code"] == "HALTED"
@@ -194,7 +205,9 @@ def test_request_before_skill_servers_is_rejected_without_motion(tmp_path):
         end = time.monotonic() + 10.0
         while runner.missing_servers(runner.intents.tasks["find_item"]) and time.monotonic() < end:
             time.sleep(0.1)
-        voice.say(EXAMPLE)
+        again = json.loads(EXAMPLE)                  # 사용자가 다시 말함 = E 가 새 request_id (계약07: 같은 ID 는 첫 결정 그대로)
+        again["request_id"] = "example-find-07-again"
+        voice.say(json.dumps(again, ensure_ascii=False))
         assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
     finally:
         close()

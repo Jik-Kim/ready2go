@@ -277,13 +277,15 @@ class Runner:
         with self._halt_lock:                   # effect 반영과 끼어들지 않게
             self._state = copy.deepcopy(self._initial_state)
 
-    def run(self, task: dict, inputs: dict | None = None, meta: dict | None = None) -> RunResult:
+    def run(self, task: dict, inputs: dict | None = None, meta: dict | None = None,
+            run_id: str | None = None) -> RunResult:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
-        meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
+        meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4).
+        run_id: 노드가 요청을 수락할 때 미리 정한 실행 ID (계약07 — 수락 시 고정, 빠른 완료에도 같은 값). 없으면 새로."""
         self._aborted, self._in_finally = False, False
         self._at_pose = None                    # 실행 사이에는 사람이 팔을 옮겼을 수 있음
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
-        ctx = _Run(task, blackboard, [], {"run_id": new_run_id(), "task_id": task.get("task_id", ""),
+        ctx = _Run(task, blackboard, [], {"run_id": run_id or new_run_id(), "task_id": task.get("task_id", ""),
                                           "inputs": blackboard["inputs"], "started_at": utc_iso(), "extra": meta},
                    self.clock())
         self._run_id, self._records, self._log_errors = ctx.doc["run_id"], ctx.records, []
