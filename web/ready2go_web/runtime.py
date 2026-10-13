@@ -1,8 +1,8 @@
 """Flask 프로세스 안에서 ROS 웹 브리지를 별도 executor로 실행한다.
 
-이 모듈은 이슈 #267의 2~4단계 실행 수명주기를 담당한다. Flask 요청 스레드는
-``rclpy.spin``을 호출하지 않으며, 전용 스레드가 단일 ``DashboardBridge`` 노드를
-처리한다. 4단계의 기본 활성 소스는 ``/runner/status``와 ``/robot_state``다.
+이 모듈은 이슈 #267의 웹 브리지 실행 수명주기를 담당한다. Flask 요청 스레드는
+``rclpy.spin``을 호출하지 않으며, 전용 스레드가 단일 ``DashboardBridge`` 노드와
+Runner·로봇·카메라·Voice 상태 source를 함께 처리한다.
 """
 
 from __future__ import annotations
@@ -21,10 +21,12 @@ from rclpy.executors import SingleThreadedExecutor
 from ready2go_web.core.state_cache import StateCache
 from ready2go_web.nodes.dashboard_bridge import (
     BridgeTopics,
+    CAMERA_SOURCE,
     DashboardBridge,
     ROBOT_SOURCE,
     ROBOT_STATE_SOURCE,
     RUNNER_SOURCE,
+    VOICE_SOURCE,
 )
 
 
@@ -105,7 +107,7 @@ class RosBridgeRuntime:
             return self._thread is not None and self._thread.is_alive()
 
     def start(self) -> None:
-        """Runner 상태 두 종류와 로봇 JointState를 받는 브리지·executor를 시작한다."""
+        """Runner·로봇·카메라·Voice 상태를 다루는 브리지·executor를 시작한다."""
         with self._lifecycle_lock:
             # 같은 runtime의 이중 시작은 노드명·구독 endpoint 중복을 만들므로 거절한다.
             if self._context is not None:
@@ -118,12 +120,18 @@ class RosBridgeRuntime:
             try:
                 rclpy.init(args=None, context=context)
 
-                # Runner 두 상태와 B가 확정한 관절 상태 수신 source를 한 노드에서 처리한다.
+                # 준비된 다섯 source를 한 노드에서 활성화해 같은 캐시와 REST로 전달한다.
                 bridge = DashboardBridge(
                     topics=self._topics,
                     robot_timeout_sec=self._robot_timeout_sec,
                     node_name=self._node_name,
-                    enabled_sources={RUNNER_SOURCE, ROBOT_STATE_SOURCE, ROBOT_SOURCE},
+                    enabled_sources={
+                        RUNNER_SOURCE,
+                        ROBOT_STATE_SOURCE,
+                        ROBOT_SOURCE,
+                        CAMERA_SOURCE,
+                        VOICE_SOURCE,
+                    },
                     context=context,
                 )
 
@@ -173,6 +181,9 @@ class RosBridgeRuntime:
             bridge.cache.record_bridge_error(ROBOT_STATE_SOURCE, error)
             # 같은 executor의 JointState 구독도 중단되므로 robot source에도 오류를 남긴다.
             bridge.cache.record_bridge_error(ROBOT_SOURCE, error)
+            # 카메라 구독과 Voice graph 관찰도 같은 executor에 있으므로 함께 오류 처리한다.
+            bridge.cache.record_bridge_error(CAMERA_SOURCE, error)
+            bridge.cache.record_bridge_error(VOICE_SOURCE, error)
 
     def stop(self) -> None:
         """executor를 깨우고 스레드·노드·context를 안전한 순서로 정리한다."""

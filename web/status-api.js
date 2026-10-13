@@ -36,6 +36,13 @@
     if (typeof payload.sources.robot !== "object" || payload.sources.robot === null) {
       throw new Error("로봇 관절 상태가 응답에 없습니다.");
     }
+    // 활성화한 카메라와 Voice source도 없으면 목업 배지를 그대로 두지 않고 오류로 처리한다.
+    if (typeof payload.sources.camera !== "object" || payload.sources.camera === null) {
+      throw new Error("카메라 상태가 응답에 없습니다.");
+    }
+    if (typeof payload.sources.voice !== "object" || payload.sources.voice === null) {
+      throw new Error("Voice 상태가 응답에 없습니다.");
+    }
     // 실행 프로필은 실물 단절과 sim/dev의 의도된 미기동을 구분하는 근거다.
     if (!["real", "sim", "dev"].includes(payload.runtime_profile)) {
       throw new Error("웹 실행 프로필을 확인할 수 없습니다.");

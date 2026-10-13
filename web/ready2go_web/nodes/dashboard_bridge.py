@@ -94,8 +94,8 @@ class DashboardBridge(Node):
         if isinstance(graph_poll_period_sec, bool) or graph_poll_period_sec <= 0:
             raise ValueError("graph_poll_period_sec은 0보다 커야 합니다")
 
-        # None은 전체 source를 쓰는 브리지 시험을 뜻한다. 실행 진입점은 현재 구현된
-        # Runner 상태·기억 상태·관절 상태 세 source를 명시해 후속 source를 자동으로 켜지 않는다.
+        # None은 전체 source를 쓰는 브리지 시험을 뜻한다. 실행 진입점은 현재 합의된
+        # Runner·로봇·카메라·Voice 다섯 source를 명시해 새 source가 자동 활성화되지 않게 한다.
         active_sources = ALL_SOURCES if enabled_sources is None else frozenset(enabled_sources)
         unknown_sources = active_sources - ALL_SOURCES
         if unknown_sources:

@@ -74,7 +74,7 @@ index.html
 
 - **STT 원문 미표시**: 기존 인텐트의 `source.stt_text`는 Runner에서 `/runner/status.last_intent.stt_text`로 제공됩니다. 다만 이번 정적 목업·녹화 범위에서는 표시하지 않으며, 실제 연결 시 웹 어댑터와 값 누락 처리를 함께 구현해야 합니다.
 - **작업 중단 숨김**: 실제 중단 요청 경로가 이번 범위에 없으므로 버튼과 로컬 `중단 완료` 동작을 제거했습니다.
-- **연결 상태 `확인 전`**: 웨이크워드·마이크와 로봇 드라이버의 판정 근거가 확정되지 않았습니다. 카메라는 이후 `/wrist_cam/color/camera_info`, Runner는 `/runner/status` 수신 여부로 판단할 예정이므로 목업 기본값을 각각 `확인 전`과 `상태 수신 대기`로 둡니다.
+- **장치 연결 상태**: 카메라는 `/wrist_cam/color/camera_info`의 최근 2초 수신, Voice는 `/voice/intent` publisher 존재, 로봇은 `/dsr01/joint_states`의 최근 2초 수신 여부를 표시합니다. Voice 표시는 마이크·STT 처리 성공을 뜻하지 않습니다.
 - **성공 상태의 의미**: 목업의 명령 접수·전달 완료·관측 확인 표시는 시각 검토용 예시입니다. 화면 상단 안내가 실제 성공 결과가 아님을 명시합니다.
 
 ## 4. 현재 연결 경계
@@ -149,7 +149,7 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 
 의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../README.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 루트 README의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
 
-이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states` ROS executor, 상태 REST와 등록 정의 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 현재 작업 진행·요청 결과는 목업이며 상태·정의와 구분됩니다.
+이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info` 구독과 `/voice/intent` publisher 관찰, 상태 REST와 등록 정의 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 현재 작업 진행·요청 결과는 목업이며 상태·정의와 구분됩니다.
 
 휴대폰이나 다른 PC에서는 서버 PC와 같은 네트워크에 연결한 뒤 서버 PC에서 주소를 확인합니다. `config/cyclonedds.local.xml`은 DDS를 loopback으로 제한하므로 Runner와 웹 브리지는 같은 PC2에서 실행해야 합니다. 외부 브라우저 접속이 필요할 때만 `WEB_HOST=0.0.0.0`으로 실행하고, 실제 포트(`ss -ltnp`), PC 방화벽과 Wi-Fi AP의 단말 간 통신 차단 여부를 현장에서 확인합니다.
 
@@ -208,6 +208,28 @@ Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 `h
         "joint_count": 6,
         "joint_names": ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
       }
+    },
+    "camera": {
+      "publisher_present": true,
+      "message_received": true,
+      "message_valid": true,
+      "freshness_timeout_sec": 2.0,
+      "stale": false,
+      "connection_state": "receiving",
+      "data": {
+        "frame_id": "wrist_cam_color_optical_frame",
+        "width": 1280,
+        "height": 720
+      }
+    },
+    "voice": {
+      "publisher_present": true,
+      "message_received": false,
+      "message_valid": false,
+      "freshness_timeout_sec": null,
+      "stale": false,
+      "connection_state": "waiting",
+      "data": null
     }
   }
 }
@@ -216,6 +238,8 @@ Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 `h
 `data`는 마지막으로 정상 해석한 `/runner/status` JSON 원본입니다. 비정상 메시지를 받으면 진단을 위해 마지막 정상 `data`는 보존하지만 `message_valid=false`, `connection_state=error`로 반환하므로 현재 정상값으로 해석하지 않습니다. Runner는 내용이 변경될 때만 상태 토픽을 발행하므로 단순히 `age_sec`이 증가했다는 이유로 끊김 처리하지 않습니다.
 
 `sources.robot`은 `/dsr01/joint_states`의 최근 유효 수신만 나타냅니다. 기본 웹 구독은 `qos_profile_sensor_data`, 기본 무수신 기준은 환경 설정 `WEB_ROBOT_TIMEOUT_SEC=2.0`입니다. 화면 문구 `로봇 관절 상태 수신`은 모션 가능, E-stop 해제, 로봇 모드, 그리퍼 또는 스킬 서버 준비를 뜻하지 않습니다. `WEB_RUNTIME_PROFILE=sim|dev`에서 발행자가 없으면 장애로 단정하지 않고 `확인 전(시뮬레이션)`으로 표시합니다.
+
+`sources.camera`는 `/wrist_cam/color/camera_info`를 `qos_profile_sensor_data`로 구독한 최근 수신 여부이며 기본 2초 timeout을 사용합니다. `sources.voice`는 간헐적인 intent 메시지 나이를 사용하지 않고 `/voice/intent` publisher endpoint 존재 여부만 나타냅니다. 따라서 Voice 정상 표시는 해당 노드의 발행 경로가 존재한다는 뜻이며 마이크·웨이크워드·STT 처리 성공을 보장하지 않습니다.
 
 publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보존합니다. 이후 publisher가 다시 발견되거나 graph 조회 사이에 publisher endpoint GID 집합이 바뀌면 이전 endpoint·boot의 메시지와 시각을 무효화하고, 새 유효 메시지를 받을 때까지 `connection_state=waiting`, `data=null`로 반환합니다. 새 publisher의 콜백이 graph 확인보다 먼저 도착한 경우에는 그 새 값을 보존합니다.
 
@@ -299,14 +323,15 @@ python3 -m pytest web/tests -q
 
 주요 확인 항목은 다음과 같습니다.
 
-- 실행 시 `runner`·`robot_state`·`robot` source가 한 노드에서 활성화되는지
+- 실행 시 `runner`·`robot_state`·`robot`·`camera`·`voice` source가 한 노드에서 활성화되는지
 - Runner와 같은 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)` QoS로 수신하는지
-- 두 source의 정상 JSON 객체와 깨진 JSON·객체가 아닌 JSON을 구분하는지
+- Runner 두 JSON source의 정상 객체와 깨진 JSON·객체가 아닌 JSON을 구분하는지
 - 별도 ROS context와 executor 스레드에서 실제 DDS 메시지가 캐시에 도착하는지
 - JointState는 위치·속도·토크 배열을 보존하지 않고 관절 이름·개수·수신 시각만 캐시하는지
 - 로봇 source가 2초 무수신 뒤 stale/disconnected가 되고 sim/dev 미발행은 `확인 전(시뮬레이션)`으로 표시되는지
+- 카메라는 최근 2초 CameraInfo 수신, Voice는 intent 메시지 없이 publisher 존재만 표시하는지
 - 이중 시작을 거절하고 반복 종료를 안전하게 처리하는지
-- REST 성공 응답에 두 source의 버전·시각·조회 간격·캐시 복사와 `no-store` 헤더가 있는지
+- REST 성공 응답에 다섯 source의 버전·시각·조회 간격·캐시 복사와 `no-store` 헤더가 있는지
 - `/robot_state` 네 필드의 값 누락·형식 불일치를 목업으로 대체하지 않고 `확인 전`으로 표시하는지
 - PC·모바일 서랍 선택기가 위 서랍·아래 서랍 순서이고 관리자 요약·현재 상태 값과 실데이터 배지가 두 source를 반영하는지
 - 캐시 미연결 503과 스냅샷 실패 500 오류 형식
@@ -327,11 +352,16 @@ ros2 topic info /robot_state --verbose
 ros2 topic echo /robot_state --once
 ros2 topic info /dsr01/joint_states --verbose
 ros2 topic echo /dsr01/joint_states --once
+ros2 topic info /wrist_cam/color/camera_info --verbose
+ros2 topic echo /wrist_cam/color/camera_info --once
+ros2 topic info /voice/intent --verbose
 ```
 
-웹 브리지가 세 토픽의 구독자로 표시되고 Runner JSON과 JointState가 출력되면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
+웹 브리지가 Runner·robot_state·JointState·CameraInfo 구독자로 표시되고 `/voice/intent` publisher를 발견하면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
 
 [실측] 2026-10-13 5단계까지 로컬 CycloneDDS 웹 시험 `79 passed`를 확인했습니다. 실제 저장소 원본에서 클래스 7개·물품 10개·장소 4개·목록 1개·스킬 5개·태스크 6개가 로드됐고, `/api/definitions`와 관리자/대시보드 표시에서 웹 파일 스냅샷의 출처·시각·SHA와 등록 정의 구분을 확인했습니다. 상태 REST 실패·정의 성공 순서, 정의 실패의 `확인 전` 표시, 복수 목록의 `commute_set` 선택도 브라우저에서 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
+
+[실측] 2026-10-13 카메라·Voice source 활성화 뒤 로컬 CycloneDDS 웹 시험 `89 passed`, 계약 검사 `OK`를 확인했습니다. 시험 publisher 실행 중 `/api/status`에서 카메라 `receiving`과 Voice `publisher_present=true`, 종료 뒤 카메라 2초 초과 stale/단절과 Voice `publisher_present=false`를 확인했으며 브라우저 상단 배지도 각각 정상·끊김 상태로 전환됐습니다. 이 시험은 ROS 연결 판정 검증이며 실제 카메라 영상, 마이크 입력, 웨이크워드 또는 STT 성공 검증은 아닙니다.
 
 [실측] 같은 날 B 회신 반영 뒤 로컬 CycloneDDS 웹 시험 `89 passed`와 계약 검사 `OK`를 확인했습니다. dev 프로필에서 JointState 발행 전 `확인 전(시뮬레이션)`, 발행 뒤 `관절 상태 수신` 배지가 표시됐습니다. PC2 실물의 실제 QoS·100 Hz 주기와 제어기 LAN 분리 동작은 담당 실측 회신 뒤 확인합니다.
 

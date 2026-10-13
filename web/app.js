@@ -122,6 +122,16 @@
     return state.connections.find((connection) => connection.id === "robot");
   }
 
+  function getCameraConnection() {
+    // 상단 카메라 배지는 CameraInfo의 최근 수신 여부만 표시한다.
+    return state.connections.find((connection) => connection.id === "camera");
+  }
+
+  function getVoiceConnection() {
+    // 상단 음성 배지는 /voice/intent publisher 존재 여부만 표시한다.
+    return state.connections.find((connection) => connection.id === "voice");
+  }
+
   function formatReceivedTime(value) {
     // 수신 전 null과 잘못된 시각을 화면에서 임의의 현재 시각으로 바꾸지 않는다.
     if (!value) return "미수신";
@@ -245,6 +255,86 @@
       status: "disconnected",
       statusLabel: "관절 상태 수신 끊김",
       description: `JointState 발행자 없음 또는 ${source?.freshness_timeout_sec ?? 2}초 무수신 · ${disclaimer}`,
+    });
+  }
+
+  function applyCameraConnectionSource(source) {
+    // CameraInfo가 최근 2초 안에 들어왔을 때만 카메라 정보 수신으로 표시한다.
+    const connection = getCameraConnection();
+    if (!connection) return;
+    const receivedAt = formatReceivedTime(source?.last_valid_received_at);
+    if (source?.last_error) {
+      Object.assign(connection, {
+        status: "error",
+        statusLabel: "카메라 상태 확인 오류",
+        description: source.last_error,
+      });
+      return;
+    }
+    if (source?.connection_state === "receiving" && source.message_valid === true) {
+      Object.assign(connection, {
+        status: "ok",
+        statusLabel: "카메라 정보 수신",
+        description: `/wrist_cam/color/camera_info 최근 수신 ${receivedAt}`,
+      });
+      return;
+    }
+    if (source?.connection_state === "unknown") {
+      Object.assign(connection, {
+        status: "waiting",
+        statusLabel: "확인 전",
+        description: "카메라 publisher를 아직 확인하지 못했습니다.",
+      });
+      return;
+    }
+    if (source?.connection_state === "waiting") {
+      Object.assign(connection, {
+        status: "pending",
+        statusLabel: "카메라 정보 수신 대기",
+        description: "publisher는 있으나 CameraInfo를 아직 받지 못했습니다.",
+      });
+      return;
+    }
+    Object.assign(connection, {
+      status: "disconnected",
+      statusLabel: "카메라 정보 수신 끊김",
+      description: `publisher 없음 또는 ${source?.freshness_timeout_sec ?? 2}초 무수신`,
+    });
+  }
+
+  function applyVoiceConnectionSource(source) {
+    // Voice는 간헐적 intent 메시지 대신 /voice/intent publisher 존재 여부만 표시한다.
+    const connection = getVoiceConnection();
+    if (!connection) return;
+    const scope = "마이크·STT 처리 성공을 의미하지 않습니다.";
+    if (source?.last_error) {
+      Object.assign(connection, {
+        status: "error",
+        statusLabel: "Voice 상태 확인 오류",
+        description: `${source.last_error} · ${scope}`,
+      });
+      return;
+    }
+    if (source?.publisher_present === true) {
+      Object.assign(connection, {
+        status: "ok",
+        statusLabel: "publisher 확인",
+        description: `/voice/intent 발행자 존재 · ${scope}`,
+      });
+      return;
+    }
+    if (source?.publisher_present === false) {
+      Object.assign(connection, {
+        status: "disconnected",
+        statusLabel: "publisher 없음",
+        description: `/voice/intent 발행자를 찾지 못했습니다. ${scope}`,
+      });
+      return;
+    }
+    Object.assign(connection, {
+      status: "waiting",
+      statusLabel: "확인 전",
+      description: "/voice/intent publisher를 아직 확인하지 못했습니다.",
     });
   }
 
@@ -520,10 +610,12 @@
   }
 
   function applyStatusApiSuccess(payload, lastSuccessAt) {
-    // validatePayload를 통과한 두 source를 Runner 연결과 기억 상태에 각각 사용한다.
+    // validatePayload를 통과한 상태와 장치 연결 source를 각 화면 영역에 사용한다.
     const source = payload.sources.runner;
     const robotStateSource = payload.sources.robot_state;
     const robotConnectionSource = payload.sources.robot;
+    const cameraConnectionSource = payload.sources.camera;
+    const voiceConnectionSource = payload.sources.voice;
     // 정의 API가 나중에 도착해도 등록명을 다시 적용할 수 있도록 최신 source를 보관한다.
     latestRobotStateSource = robotStateSource;
     const view = runnerConnectionView(source);
@@ -550,6 +642,9 @@
     const robotStateApplied = applyRobotStateSource(robotStateSource);
     // B의 관절 상태는 Runner 기억 상태와 별도 연결 진단으로 상단 로봇 배지에만 반영한다.
     applyRobotConnectionSource(robotConnectionSource, payload.runtime_profile, payload.robot_topic);
+    // 카메라 최근 수신과 Voice publisher 존재를 각각의 상단 장치 배지에 반영한다.
+    applyCameraConnectionSource(cameraConnectionSource);
+    applyVoiceConnectionSource(voiceConnectionSource);
     // 정의 연결 여부를 상태 연결과 구분해 현재 화면에 실제인 범위를 정확히 설명한다.
     const definitionText = state.definitionsLive
       ? "등록 정의는 웹 시작 시 읽은 파일 스냅샷입니다."
@@ -596,6 +691,15 @@
         status: "error",
         statusLabel: "REST 연결 오류",
         description: `현재 로봇 관절 상태를 사용할 수 없습니다. REST 마지막 성공 ${lastSuccess}`,
+      });
+    }
+    // 같은 REST 응답을 사용하는 카메라·Voice도 이전 정상 배지를 즉시 무효화한다.
+    for (const deviceConnection of [getCameraConnection(), getVoiceConnection()]) {
+      if (!deviceConnection) continue;
+      Object.assign(deviceConnection, {
+        status: "error",
+        statusLabel: "REST 연결 오류",
+        description: `현재 장치 상태를 사용할 수 없습니다. REST 마지막 성공 ${lastSuccess}`,
       });
     }
     state.meta.mode = "rest-error";

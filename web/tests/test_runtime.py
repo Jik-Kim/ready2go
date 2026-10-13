@@ -11,7 +11,7 @@ import rclpy
 from rclpy.context import Context
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import CameraInfo, JointState
 from std_msgs.msg import String
 
 from ready2go_web.nodes.dashboard_bridge import BridgeTopics
@@ -38,8 +38,8 @@ def _wait_until(predicate, timeout_sec: float = 3.0) -> bool:
     return False
 
 
-def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() -> None:
-    """두 실제 DDS 상태가 runtime 전용 executor를 거쳐 공유 캐시에 도착한다."""
+def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> None:
+    """활성화한 다섯 source가 전용 executor를 거쳐 공유 캐시에 도착한다."""
     prefix = f"/test_ready2go_runtime_{uuid.uuid4().hex}"
     topics = BridgeTopics(
         runner_status=f"{prefix}/runner/status",
@@ -83,18 +83,33 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         topics.robot_connection,
         robot_publisher_qos,
     )
+    # 카메라도 sensor-data subscriber와 호환되는 VOLATILE 시험 publisher를 사용한다.
+    camera_publisher = publisher_node.create_publisher(
+        CameraInfo,
+        topics.camera_info,
+        robot_publisher_qos,
+    )
+    # Voice는 intent 내용을 보내지 않고 publisher endpoint 존재만 제공한다.
+    voice_publisher = publisher_node.create_publisher(String, topics.voice_intent, 10)
 
     try:
         runtime.start()
         assert runtime.is_running is True
 
-        # runtime은 Runner 두 상태와 B의 로봇 관절 상태를 한 노드에서 함께 관리한다.
-        assert set(runtime.cache.snapshot()) == {"runner", "robot_state", "robot"}
+        # runtime은 다섯 상태 source를 한 노드와 캐시에서 함께 관리한다.
+        assert set(runtime.cache.snapshot()) == {
+            "runner",
+            "robot_state",
+            "robot",
+            "camera",
+            "voice",
+        }
 
-        # DDS discovery 뒤 두 String JSON을 발행해 각각의 콜백 수신을 확인한다.
+        # DDS discovery 뒤 두 String 상태와 두 주기 센서 수신 경로를 확인한다.
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.runner_status) == 1)
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.robot_state) == 1)
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.robot_connection) == 1)
+        assert _wait_until(lambda: publisher_node.count_subscribers(topics.camera_info) == 1)
         runner_payload = {"phase": "running", "task_id": "demo_task", "current_step": "open"}
         robot_state_payload = {
             "robot_pose": {"robot": "home"},
@@ -106,21 +121,28 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         robot_state_publisher.publish(String(data=json.dumps(robot_state_payload)))
         robot_message = JointState()
         robot_message.name = [f"joint_{index}" for index in range(1, 7)]
+        camera_message = CameraInfo()
+        camera_message.header.frame_id = "wrist_cam"
+        camera_message.width = 1280
+        camera_message.height = 720
 
-        def publish_robot_until_received() -> bool:
-            """VOLATILE JointState를 실제 주기 발행처럼 수신 확인 전까지 반복한다."""
+        def publish_periodic_sources_until_received() -> bool:
+            """VOLATILE JointState·CameraInfo를 실제 주기 발행처럼 반복한다."""
             # subscriber 수가 보여도 DDS 데이터 경로 매칭이 끝나기 전일 수 있으므로,
             # 한 번만 발행해 생기는 경합 대신 제한 시간 동안 20ms 간격으로 재발행한다.
-            if runtime.cache.snapshot()["robot"]["message_valid"]:
+            snapshot = runtime.cache.snapshot()
+            if snapshot["robot"]["message_valid"] and snapshot["camera"]["message_valid"]:
                 return True
             robot_publisher.publish(robot_message)
+            camera_publisher.publish(camera_message)
             return False
 
-        # 약 100 Hz인 운영 발행과 같은 지속 발행 조건에서 VOLATILE 전달을 확인한다.
-        assert _wait_until(publish_robot_until_received)
+        # 주기 source의 지속 발행 조건에서 두 VOLATILE 메시지 전달을 확인한다.
+        assert _wait_until(publish_periodic_sources_until_received)
         assert _wait_until(
             lambda: runtime.cache.snapshot()["runner"]["message_valid"]
             and runtime.cache.snapshot()["robot_state"]["message_valid"]
+            and runtime.cache.snapshot()["voice"]["publisher_present"] is True
         )
 
         runner = runtime.cache.snapshot()["runner"]
@@ -133,6 +155,16 @@ def test_runtime_receives_runner_and_robot_state_on_its_own_executor_thread() ->
         assert robot["publisher_present"] is True
         assert robot["connection_state"] == "receiving"
         assert robot["data"]["joint_count"] == 6
+        camera = runtime.cache.snapshot()["camera"]
+        assert camera["publisher_present"] is True
+        assert camera["connection_state"] == "receiving"
+        assert camera["freshness_timeout_sec"] == 2.0
+        assert camera["data"]["frame_id"] == "wrist_cam"
+        voice = runtime.cache.snapshot()["voice"]
+        assert voice["publisher_present"] is True
+        assert voice["message_received"] is False
+        assert voice["connection_state"] == "waiting"
+        assert voice_publisher is not None
 
         # 동일 객체의 이중 시작은 구독 노드를 중복 생성하지 않고 명시적으로 실패한다.
         with pytest.raises(RuntimeError, match="이미 시작"):

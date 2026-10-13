@@ -147,8 +147,10 @@ def test_custom_web_root_can_be_injected_without_exposing_other_files(tmp_path: 
 
 
 def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> None:
-    """REST가 Runner·기억 상태·로봇 관절 수신을 같은 스냅샷으로 반환한다."""
-    cache = StateCache({"runner": None, "robot_state": None, "robot": 2.0})
+    """REST가 Runner와 세 장치 진단을 같은 스냅샷으로 반환한다."""
+    cache = StateCache(
+        {"runner": None, "robot_state": None, "robot": 2.0, "camera": 2.0, "voice": None}
+    )
     cache.set_publisher_present("runner", True)
     cache.record_message(
         "runner",
@@ -177,6 +179,13 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
         {"joint_count": 6, "joint_names": [f"joint_{index}" for index in range(1, 7)]},
         received_at=datetime(2026, 10, 13, 6, 30, 2, tzinfo=timezone.utc),
     )
+    # 카메라는 최근 CameraInfo 수신을, Voice는 publisher endpoint만 기록한다.
+    cache.record_message(
+        "camera",
+        {"frame_id": "wrist_cam", "width": 1280, "height": 720},
+        received_at=datetime(2026, 10, 13, 6, 30, 3, tzinfo=timezone.utc),
+    )
+    cache.set_publisher_present("voice", True)
     fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
 
     # app factory가 runtime과 같은 캐시를 보관하고 요청 때마다 snapshot을 읽는다.
@@ -223,6 +232,14 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     assert robot["connection_state"] == "receiving"
     assert robot["freshness_timeout_sec"] == 2.0
     assert robot["data"]["joint_count"] == 6
+    camera = payload["sources"]["camera"]
+    assert camera["connection_state"] == "receiving"
+    assert camera["freshness_timeout_sec"] == 2.0
+    assert camera["data"]["frame_id"] == "wrist_cam"
+    voice = payload["sources"]["voice"]
+    assert voice["publisher_present"] is True
+    assert voice["message_received"] is False
+    assert voice["connection_state"] == "waiting"
 
 
 def test_status_api_reports_missing_runtime_cache_as_service_unavailable(client) -> None:
