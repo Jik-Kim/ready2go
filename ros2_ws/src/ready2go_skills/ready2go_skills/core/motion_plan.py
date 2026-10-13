@@ -287,6 +287,10 @@ def wall_blocks_grasp(*, target: Mapping, size_m: Sequence[float], interior_m: S
     if not _finite(cx, cy, yaw, *size_m[:2], *interior_m[:2]):
         return f"위치·크기 값 비정상: {cx, cy, yaw, size_m, interior_m}"
     x_blocked, lack_mm, _ = _grasp_blocked(cx, cy, yaw, size_m, interior_m, g, g.get("pick_wall_margin_mm", g["wall_margin_mm"]))
+    reach = g.get("reach_x_max_mm")
+    if reach is not None and cx * 1000.0 > reach:           # 벽이 아니라 깊이 한계 — 문구를 나눔 [A Isaac 사전 검증 10/13 030225]
+        return (f"물체 가운데 x {cx * 1000.0:.1f} mm 가 수직으로 닿는 깊이 {reach:g} mm 밖 "
+                "(아래 칸은 위 서랍장에 막힘) — 손잡이 쪽으로 넛지하거나 더 앞에 두기")
     if x_blocked:
         return "앞뒤 벽에 걸려 짧은 변으로 못 잡음"
     if lack_mm > 0:

@@ -2391,6 +2391,17 @@ class SkillServer(Node):
                                         max_top_m=interior[2] - prm["pick"]["stack_top_clear_m"])
             if support is not None:
                 objs = [o for o in objs if o["id"] != support["id"]]
+            elif (self._picked_support(self.held["class"], loc, pose, pl) or 0.0) > 0.0:
+                # 집었던 자리(받침 위)로 되돌리기인데 가운데 기준으론 받침을 못 찾음 — 판 위 물체가 판을 가려 판 비전 위치·각도가
+                # 치우치거나(A 10/13 "가려진 물체는 보이는 쪽으로 치우치고 90° 돌 수 있음"), 판 끝 나사에 걸쳐 가운데가 판 밖
+                # [사용자 10/13 PC2 "판 위 너무 잘 집는데 putback 이 안 됨 — PLACE_BLOCKED cover_plate#1 와 겹침"].
+                # 그 자리에 이 물체 몸통이 있었으니 몸통과 겹치는 물체는 밑에 있던 받침 → 확인에서 빼고 높이는 기억한 값
+                body = plp.corners(pose["position"][0] * 1000.0, pose["position"][1] * 1000.0, pose["yaw"], size[0] * 500.0, size[1] * 500.0)
+                under = [o for o in objs if o["id"] not in (held_id, goal_id) and self._size_or_none(o.get("class"))
+                         and plp.rects_overlap(body, plp.neighbor_rect_mm(o, self._size_or_none(o.get("class"))))]
+                if under:
+                    support = max(under, key=lambda o: o.get("top_z") or 0.0)
+                    objs = [o for o in objs if o not in under]
 
         def check(p_):
             # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 손가락 자리·벽 확인 (집기 footprint 와 같음)
