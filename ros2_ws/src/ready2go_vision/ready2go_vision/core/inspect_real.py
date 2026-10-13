@@ -4,6 +4,7 @@
   규칙 (docs/vision.md V2):
     position = YOLO 박스 중심 픽셀을 서랍 좌표 z = top_z/2 평면에 투영한 x·y, position.z = 0
     top_z    = 박스 안 뎁스 덩어리의 높이 (서랍 바닥 기준). 검출에 mask(분할 모델)가 있으면 마스크 안 뎁스만 (#109)
+               분할 모델은 더 높은 이웃 마스크 근처(depth_blob.top_exclude_near_px)를 빼고 잰다 — 마스크가 이웃에 걸친 번짐(10/13), 명목 높이 아래로는 안 낮춤
     yaw      = 덩어리 긴 변 방향. 대칭 물체(pose_rules.is_symmetric)는 0 + yaw_valid true,
                덩어리가 비정상이면 0 + yaw_valid false
   서랍 영역 ROI: 박스 중심 광선이 서랍 바닥(z=0)과 만나는 점이 서랍 안쪽 + region.detect_roi_margin_m 밖이면 뎁스 계산 전에 뺀다.
@@ -29,7 +30,7 @@ import math
 from .dedup import merge_duplicates
 from .depth_blob import analyze_box
 from .geometry import Intrinsics, make_T, ray_plane_xy
-from .occlusion import occlusion_fields
+from .occlusion import drawer_z_map, occlusion_fields, top_masks
 from .pose_rules import is_symmetric, result_errors, round_yaw
 
 SUPPORTED_REGIONS = ("drawer_top", "drawer_bottom", "handover_zone")
@@ -172,7 +173,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
             info["region_visible_ratio"] = round(ratio, 3)
         if ratio < vis:
             return False, "REGION_NOT_VISIBLE", ""
-    found, in_result = [], {}
+    found, in_result, found_det, found_note = [], {}, [], []
     for det in kept:
         merged = {"merged_from": det["merged_from"]} if det.get("merged_from") else {}
         size = items[det["class"]]["size_m"]
@@ -215,8 +216,32 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
             continue
         in_result[id(det)] = len(found)                                    # 가림 판정에서 결과 id 를 찾기 위해 (입력 dict 는 안 바꿈)
         note(det, **info)                                                  # 서랍 밖(시야에 잡힌 다른 물체·TF 오차)은 결과에 넣지 않는다
+        found_det.append(det)
+        found_note.append(debug[-1] if debug is not None else None)
         found.append({"class": det["class"], "pose": {"frame": region, "position": [round(xy[0], 4), round(xy[1], 4), 0.0],
                                                       "yaw": yaw, "yaw_valid": valid}, "top_z": top_z})
+    top_mask = {}                                                          # 분할 모델: 높은 이웃 근처를 뺀 마스크로 top_z 다시 (occlusion.top_masks)
+    if seg_model and int(blob_params.get("top_exclude_near_px", 0)) > 0 and len(found) > 1:
+        Z = drawer_z_map(depth_m, K, T_drawer_cam, blob_params["min_depth_m"], blob_params["max_depth_m"])
+        for i, t in enumerate(top_masks([d.get("mask") for d in found_det], Z, blob_params)):
+            if t is None:
+                continue
+            det = found_det[i]
+            b = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, mask=t)
+            if not b.depth_ok or b.top_z is None:                          # 덜어낸 마스크로 못 재면 원래 값 유지
+                continue
+            nominal = items[det["class"]]["size_m"][2]
+            top_z = round(max(b.top_z, min(found[i]["top_z"], nominal)), 4)  # 번짐 보정으로 명목 높이보다 낮추지는 않음 (검은 물체 뎁스가 낮게 잡힘, 10/07 판 밑 립밤)
+            u, v = (det["box"][0] + det["box"][2]) / 2, (det["box"][1] + det["box"][3]) / 2
+            xy = ray_plane_xy(u, v, K, T_drawer_cam, top_z / 2)
+            if xy is None:
+                continue
+            top_mask[id(det)] = t
+            if found_note[i] is not None:
+                found_note[i].update(top_z_near_higher={"before": found[i]["top_z"], "kept_ratio": round(float(t.sum()) / float(det["mask"].sum()), 3)},
+                                     top_z=top_z, xy=[round(xy[0], 4), round(xy[1], 4)])
+            found[i]["top_z"] = top_z
+            found[i]["pose"]["position"] = [round(xy[0], 4), round(xy[1], 4), 0.0]
     order = sorted(range(len(found)), key=lambda i: found[i]["top_z"], reverse=True)
     n = {}
     for i in order:
@@ -226,7 +251,7 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         it["pose"] = {k: it["pose"][k] for k in ("frame", "position", "yaw", "yaw_valid")}
     if seg_model:
         rels = [] if debug is not None else None
-        occ = occlusion_fields(kept, [found[in_result[id(d)]]["id"] if id(d) in in_result else None for d in kept],
+        occ = occlusion_fields([{**d, "top_mask": top_mask[id(d)]} if id(d) in top_mask else d for d in kept], [found[in_result[id(d)]]["id"] if id(d) in in_result else None for d in kept],
                                depth_m, K, T_drawer_cam, {"top_percentile": blob_params["top_percentile"], **params["occlusion"]}, blob_params["min_depth_m"], blob_params["max_depth_m"], rels)
         for it in found:
             it["occluded_by"], it["visible_area_m2"] = occ[it["id"]]
