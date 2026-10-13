@@ -58,6 +58,20 @@ def gripper_view(*, width_m: Optional[float], grasp_detected: Optional[bool], sa
     return out
 
 
+def unknown_hold_decision(*, width_m: Optional[float], record: Mapping, min_width_m: float, slip_tolerance_m: float) -> Optional[str]:
+    """W2 에서 쥐었는지 모름(hold_unknown) 기록을 어떻게 풀지 — 재시작 복원(_restore_held)과 같은 기준.
+    "restore" = 저장 폭과 허용 오차 안(HELD) → 쥔 기억 복원 / "empty" = 빈손 닫힘(폭 ≤ 최소, DROPPED) → 기록 지움 /
+    None = 불확실(폭이 저장값과 크게 다름·활짝 열림·다른 물체·못 읽음) → 기록·잠금 유지 [E #297 재리뷰 P1: 21 mm 기록인데 100 mm 열림을 복원]."""
+    if width_m is None or not gc._width_ok(width_m):
+        return None
+    try:
+        h = gc.check_hold(width_m=width_m, width_at_grasp_m=float(record["width_m"]), min_width_m=min_width_m,
+                          slip_tolerance_m=slip_tolerance_m)
+    except (ValueError, KeyError, TypeError):
+        return None
+    return {gc.HELD: "restore", gc.DROPPED: "empty"}.get(h.reason)
+
+
 def build_state(*, robot_state: Optional[int], motion_state: Optional[int], busy: bool, tool_ok: Optional[bool],
                 gripper: dict, gripper_read: bool, locked: Optional[str], disp: Mapping, stamp: str) -> dict:
     """W1 결과 (#271 칸): stopped·external_force·sensors_ok·comm_ok·controller_ready·estop_active·tcp_tool_ok·gripper·drawers·

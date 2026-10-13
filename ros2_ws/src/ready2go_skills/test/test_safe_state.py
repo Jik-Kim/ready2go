@@ -57,3 +57,13 @@ def test_recover_blockers():
     assert s.recover_blockers(state(gripper=bad)) == ["SENSOR_INVALID", "GRIPPER_UNKNOWN"]
     neg = view(width_m=-0.005, grasp_detected=False)
     assert state(gripper=neg)["sensors_ok"] is False and "GRIPPER_UNKNOWN" in s.recover_blockers(state(gripper=neg))
+
+
+def test_unknown_hold_decision_same_as_restart_restore():
+    """[E #297 재리뷰 P1] 쥐었는지 모름 기록(21 mm)은 같은 폭이면 복원, 빈손 닫힘이면 지움, 그 밖은 불확실(None)."""
+    rec = {"id": "eraser#1", "class": "eraser", "width_m": 0.021}
+    d = lambda w: s.unknown_hold_decision(width_m=w, record=rec, **G)                 # noqa: E731
+    assert d(0.0212) == "restore"                                                    # 같은 폭
+    assert d(0.0009) == "empty"                                                      # 빈손 닫힘
+    assert d(0.100) is None and d(0.030) is None                                     # 활짝 열림·다른 물체 폭
+    assert d(None) is None and d(-0.005) is None and d(float("nan")) is None

@@ -3237,6 +3237,16 @@ def test_recover_service_clears_b_lock_and_unknown_hold(server):
     assert srv.held and srv.held["id"] == "eraser#1" and r["state"]["gripper"]["state"] == "holding"
     assert srv.robot.log == []
     srv.held = None
+    # [E #297 재리뷰 P1] 쥐었는지 모름 기록 21 mm 인데 지금 100 mm(열림)·30 mm(다른 물체) → 복원하지 않고 기록·잠금 유지
+    for w in (100.0, 30.0):
+        srv.locked = "pick_object: MOVE_UNCONFIRMED"
+        srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+        server.Gripper.width = w
+        r = srv.recover()
+        assert not r["recovered"] and r["blockers"] == ["HOLD_UNCERTAIN"] and srv.locked and srv.hold_unknown and not srv.held, w
+    server.Gripper.width = 0.9                                                        # 빈손 닫힘 확정 → 기록 지우고 풂
+    r = srv.recover()
+    assert r["recovered"] and srv.hold_unknown is None and srv.held is None and srv.locked is None
     # [E #297 리뷰 P1] 쥔 기록이 없어도 RG2 안전 오류·폭 이상이면 잠금을 안 풂
     srv.locked = "pick_object: MOVE_UNCONFIRMED"
     real_status = server.Gripper.status

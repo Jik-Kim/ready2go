@@ -545,7 +545,8 @@ class SkillServer(Node):
 
     def recover(self):
         """W2 B 복구 — 로봇이 멈췄고 비상정지 아님·제어기 준비·툴 일치·통신이 되면: 쥐었는지 모름(hold_unknown)을 그리퍼를
-        다시 읽어 풀고(같은 폭이면 쥔 기억 복원, 빈손이면 기록 지움, 그래도 못 읽으면 실패), B 서버 잠금(locked)을 품.
+        다시 읽어 풀고(저장 폭과 허용 오차 안이면 쥔 기억 복원, 빈손 닫힘이면 기록 지움, 그 밖·못 읽으면 HOLD_UNCERTAIN·
+        GRIPPER_UNKNOWN 으로 거절하고 기록·잠금 유지), B 서버 잠금(locked)을 품.
         로봇·그리퍼 명령 없음. 다른 동작 실행 중이면 BUSY. → {recovered, code, cleared, blockers, state}"""
         if not self.gate.try_enter():                        # 복구 중 동작이 시작되지 않게 (동작 중이면 거절)
             return {"recovered": False, "code": sf.BUSY, "cleared": [], "blockers": ["BUSY"], "state": self.safe_state()}
@@ -553,16 +554,23 @@ class SkillServer(Node):
             unknown = getattr(self, "hold_unknown", None)
             st = self.safe_state(hold=unknown, in_gate=True) if unknown else self.safe_state(in_gate=True)
             blockers = ss_.recover_blockers(st)                # 센서 오류·그리퍼 모름도 여기서 막음 (쥔 기록 유무와 무관)
+            decision = None
+            if unknown and not blockers:                      # 모름 기록은 재시작 복원과 같은 기준: 같은 폭이면 복원, 빈손 닫힘이면 지움, 그 밖은 유지
+                g = self.prm()["gripper"]
+                decision = ss_.unknown_hold_decision(width_m=st["gripper"].get("width_m"), record=unknown,
+                                                     min_width_m=float(g["min_width_m"]), slip_tolerance_m=float(g["slip_tolerance_m"]))
+                if decision is None:
+                    blockers = ["HOLD_UNCERTAIN"]
             if blockers:
                 self.get_logger().warning(f"[recover] 거절 — {blockers} (잠금 {self.locked}, 쥔 모름 {bool(unknown)})")
                 return {"recovered": False, "code": blockers[0], "cleared": [], "blockers": blockers, "state": st}
             cleared = []
             if unknown:
-                if st["gripper"]["state"] == "holding":
-                    self.held = unknown                      # 같은 폭으로 쥐고 있음 → 쥔 기억 복원
+                if decision == "restore":
+                    self.held = unknown                      # 저장 폭과 허용 오차 안 → 쥔 기억 복원
                     cleared.append(f"hold_unknown → 쥔 기억 복원 ({unknown.get('class')})")
                 else:
-                    self.held = None                         # 빈손 → 기록 지움
+                    self.held = None                         # 빈손 닫힘 확정 → 기록 지움
                     cleared.append("hold_unknown → 빈손")
                 self.hold_unknown = None
             if self.locked:
