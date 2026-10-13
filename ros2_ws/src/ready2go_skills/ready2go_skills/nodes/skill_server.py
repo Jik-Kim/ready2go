@@ -546,9 +546,7 @@ class SkillServer(Node):
         try:
             unknown = getattr(self, "hold_unknown", None)
             st = self.safe_state(hold=unknown, in_gate=True) if unknown else self.safe_state(in_gate=True)
-            blockers = ss_.recover_blockers(st)
-            if unknown and st["gripper"]["state"] is None:
-                blockers.append("GRIPPER_UNKNOWN")
+            blockers = ss_.recover_blockers(st)                # 센서 오류·그리퍼 모름도 여기서 막음 (쥔 기록 유무와 무관)
             if blockers:
                 self.get_logger().warning(f"[recover] 거절 — {blockers} (잠금 {self.locked}, 쥔 모름 {bool(unknown)})")
                 return {"recovered": False, "code": blockers[0], "cleared": [], "blockers": blockers, "state": st}

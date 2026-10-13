@@ -23,6 +23,8 @@ def test_gripper_view_empty_holding_unknown():
     assert view(width_m=None, grasp_detected=None)["state"] is None                   # 못 읽음 = 모름
     assert view(safety_error=True)["state"] is None
     assert view(hold_unknown={"id": "eraser#1", "width_m": 0.021})["state"] is None   # 재시작 때 폭 못 읽음
+    for bad in (-0.005, 0.5, float("nan"), float("inf")):                            # 쥔 기록 없어도 폭 이상 = 모름 [E #297 P1]
+        assert view(width_m=bad, grasp_detected=False)["state"] is None, bad
 
 
 def state(**kw):
@@ -51,3 +53,7 @@ def test_recover_blockers():
     assert s.recover_blockers(state(robot_state=None))[0] == "STOPPED_UNKNOWN"
     assert s.recover_blockers(state(tool_ok=False)) == ["TOOL_MISMATCH"]
     assert s.recover_blockers(state(locked="x")) == []                               # 잠금은 복구가 푸는 것 — 막지 않음
+    bad = view(safety_error=True)                                                    # RG2 안전 오류 — 쥔 기록 없어도 막음 [E #297 P1]
+    assert s.recover_blockers(state(gripper=bad)) == ["SENSOR_INVALID", "GRIPPER_UNKNOWN"]
+    neg = view(width_m=-0.005, grasp_detected=False)
+    assert state(gripper=neg)["sensors_ok"] is False and "GRIPPER_UNKNOWN" in s.recover_blockers(state(gripper=neg))

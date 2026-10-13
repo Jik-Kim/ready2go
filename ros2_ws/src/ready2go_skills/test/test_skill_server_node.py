@@ -3236,6 +3236,21 @@ def test_recover_service_clears_b_lock_and_unknown_hold(server):
     assert srv.held and srv.held["id"] == "eraser#1" and r["state"]["gripper"]["state"] == "holding"
     assert srv.robot.log == []
     srv.held = None
+    # [E #297 리뷰 P1] 쥔 기록이 없어도 RG2 안전 오류·폭 이상이면 잠금을 안 풂
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    real_status = server.Gripper.status
+    try:
+        from ready2go_skills.core.rg2_protocol import Rg2Status
+        server.Gripper.status = lambda self: Rg2Status(0.9, False, True, True)          # safety_error
+        r = srv.recover()
+        assert not r["recovered"] and "SENSOR_INVALID" in r["blockers"] and srv.locked
+        server.Gripper.status = lambda self: Rg2Status(-5.0, False, False, False)       # 폭 −5 mm
+        st = srv.safe_state()
+        assert st["gripper"]["state"] is None and st["sensors_ok"] is False
+        assert not srv.recover()["recovered"] and srv.locked
+    finally:
+        server.Gripper.status = real_status
+        srv.locked = None
 
 
 def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):

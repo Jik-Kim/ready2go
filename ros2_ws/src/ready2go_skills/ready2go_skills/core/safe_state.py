@@ -30,6 +30,9 @@ def gripper_view(*, width_m: Optional[float], grasp_detected: Optional[bool], sa
     if width_m is None or grasp_detected is None:
         out["reason"] = "그리퍼 읽기 실패"
         return out
+    if not gc._width_ok(width_m):                           # 음수·RG2 범위 밖·NaN/inf — 쥔 기록과 무관하게 모름 [E #297 리뷰 P1]
+        out["reason"] = "그리퍼 폭 이상"
+        return out
     if safety_error:
         out["reason"] = "RG2 안전 오류"
         return out
@@ -65,7 +68,7 @@ def build_state(*, robot_state: Optional[int], motion_state: Optional[int], busy
     return {
         "stopped": (not busy and motion_state != STATE_MOVING and robot_state != STATE_MOVING) if known else None,
         "external_force": None,
-        "sensors_ok": gripper_read and gripper.get("reason") != "RG2 안전 오류",
+        "sensors_ok": gripper_read and gripper.get("reason") not in ("RG2 안전 오류", "그리퍼 폭 이상"),
         "comm_ok": robot_state is not None and gripper_read,
         "controller_ready": (robot_state == STANDBY) if robot_state is not None else None,
         "estop_active": (robot_state in ESTOP_STATES) if robot_state is not None else None,
@@ -81,15 +84,18 @@ def build_state(*, robot_state: Optional[int], motion_state: Optional[int], busy
 
 
 def recover_blockers(state: Mapping) -> list:
-    """B 복구(W2)로 잠금을 풀기 전 조건 — 로봇이 멈춰 있고 비상정지 아니고 제어기 준비·툴 일치·그리퍼를 읽을 수 있음.
-    모르는 값(None)은 통과로 보지 않음. 빈 목록이면 복구 가능."""
+    """B 복구(W2)로 잠금을 풀기 전 조건 — 로봇이 멈춰 있고 비상정지 아니고 제어기 준비·툴 일치·통신·센서 정상,
+    그리퍼 상태를 앎(holding|empty). 모르는 값(None)은 통과로 보지 않음. 빈 목록이면 복구 가능.
+    센서 오류·그리퍼 모름이면 쥔 기록 유무와 무관하게 막음 [E #297 리뷰 P1: RG2 safety_error 인데 MOVE_UNCONFIRMED 잠금을 풂]."""
     out = []
     for key, want, code in (("stopped", True, "NOT_STOPPED"), ("estop_active", False, "ESTOP_ACTIVE"),
                             ("controller_ready", True, "CONTROLLER_NOT_READY"), ("tcp_tool_ok", True, "TOOL_MISMATCH"),
-                            ("comm_ok", True, "COMM_FAILED")):
+                            ("comm_ok", True, "COMM_FAILED"), ("sensors_ok", True, "SENSOR_INVALID")):
         v = state.get(key)
         if v is None:
             out.append(f"{key.upper()}_UNKNOWN")
         elif v is not want:
             out.append(code)
+    if (state.get("gripper") or {}).get("state") not in ("holding", "empty"):
+        out.append("GRIPPER_UNKNOWN")
     return out
