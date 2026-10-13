@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from ready2go_runner.core.interpreter import ActionResult, Runner
 from ready2go_runner.core.intent_router import Decision
 from ready2go_runner.core.runner_status import build_status
 
@@ -58,3 +59,37 @@ def test_request_id_null_input_is_bad_intent_but_missing_is_legacy():
         decision = router.decide(json.dumps({**base, "request_id": bad}), False, False)
         assert (decision.kind, decision.reason) == ("hold", "BAD_INTENT")
     jsonschema.validate({**base, "request_id": "r-1", "accept_text": None}, schema)
+
+
+def test_halt_cases_match_code_and_separate_request_from_stop_confirmation():
+    """halt 계약안(#152·#187): 칸은 Runner.halt_summary 와 같고, 요청(requested)과 실제 정지 확인을 섞지 않는다."""
+    runner = Runner(lambda a, p, t: ActionResult(True))
+    runner.halt()
+    keys = set(runner.halt_summary)
+    seen = set()
+    for name, status in cases().items():
+        halt = status["halt"]
+        assert (halt is not None) == name.startswith(("stop_", "halted_")), name
+        if halt is None:
+            continue
+        assert set(halt) == keys and halt["stop"] in {"requested", "confirmed", "unconfirmed", "none"}, name
+        seen.add(halt["stop"])
+        if halt["stop"] == "requested":         # 백엔드 최종 결과 전 — 실행은 아직 running, 결과 칸 없음
+            assert status["phase"] == "running" and halt["response_code"] is None and halt["response_received_at"] is None, name
+        if halt["stop"] in ("confirmed", "unconfirmed"):
+            assert status["phase"] == "halted", name
+        if halt["stop"] == "confirmed":         # 백엔드 최종 결과를 받았을 때만 (#259 E P1)
+            assert halt["response_received_at"], name
+        if halt["stop"] == "unconfirmed":       # B 의 미확인 코드(시각 있음) 또는 결과 없음(둘 다 null)
+            assert (halt["response_code"] in {"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"}
+                    and halt["response_received_at"]) or (halt["response_code"], halt["response_received_at"]) == (None, None), name
+        if halt["stop"] == "none":
+            assert halt["canceled_goals"] == 0, name
+        assert halt["locked"] == (status["phase"] == "halted" or halt["stop"] == "requested"), name
+        assert halt["boot_id"] and (halt["run_id"] is None) == (halt["source"] == "service" and halt["stop"] == "none"), name
+    refused = cases()["stop_confirmed_then_refused_new_request"]   # 잠긴 동안 새 요청: last 는 거절 실행, halt 는 그대로
+    assert refused["last"]["run_id"] != refused["halt"]["run_id"]
+    assert refused["halt"] == cases()["stop_confirmed_halted"]["halt"]
+    assert seen == {"requested", "confirmed", "unconfirmed", "none"}
+    lost = cases()["stop_no_backend_result"]["halt"]
+    assert (lost["stop"], lost["response_code"], lost["response_received_at"]) == ("unconfirmed", None, None)

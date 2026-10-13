@@ -6,10 +6,13 @@
    push/pop 의 stack, fallback 의 options, 스텝 ID 중복, retry 횟수)
 ④ skill 스텝 (#12): 온톨로지에 있는 primitive 스킬인지, params 이름이 스킬 정의와 맞는지
    (skill 의 retry 는 Runner 가 로봇이 움직이지 않은 실패에만 적용, interpreter.NO_MOTION_BY_ACTION)
+⑤ 스킬 expand 안 블록 (#121·#245 계약): fallback·if 만, fallback 은 next_on 필수, 넛지 뒤 집기·놓기는
+   넛지 뒤 새로 찍은 관측의 target·scan 만 (분기 뒤엔 모든 경로에서 새로 찍은 것), target_after 는 집기·놓기에 안 씀
 문제가 하나라도 있으면 로봇을 움직이기 전에 실행하지 않는다.
 """
 from __future__ import annotations
 
+import re
 from typing import Iterator
 
 import jsonschema
@@ -67,9 +70,103 @@ def _check_block(step: dict, action: str | None, label: str) -> list[str]:
         options = step.get("options")
         if not isinstance(options, list) or not options or not all(isinstance(o, list) and o for o in options):
             errors.append(f"{label}: fallback 의 options 는 스텝 배열 1개 이상의 목록이어야 함")
+        if "next_on" in step and not (isinstance(step["next_on"], list) and step["next_on"]
+                                      and all(isinstance(c, str) and c for c in step["next_on"])):
+            errors.append(f"{label}: fallback 의 next_on 은 오류 코드 문자열 1개 이상의 목록이어야 함")
     if action in ("while", "for_each") and not step.get("body"):
         errors.append(f"{label}: {action} 에 body 가 없음")
     return errors
+
+
+RESCAN_NEEDED_BY = ("pick_object", "place_object")   # 관측을 쓰는 동작 — 넛지 뒤엔 그 뒤 새 관측의 값만
+_TARGET_REF = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)\.target$")
+_VAR_REF = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
+
+
+def _rescan_errors(action: str, params: dict, fresh: set[str] | None) -> list[str]:
+    """넛지 뒤 집기·놓기가 **넛지 뒤 새로 찍은 관측**만 쓰는지 (#263 E 리뷰: 글자 포함 검사는 우회됨).
+    fresh: 마지막 넛지 뒤 inspect_region 출력 변수들(None = 아직 넛지 없음). 집기 target 은 "$<새 관측>.target",
+    scan 을 주면 "$<같은 새 관측>" 이어야 함. target_after(넛지 예상값)는 넛지 여부와 무관하게 집기·놓기에 쓰지 않음."""
+    params = params if isinstance(params, dict) else {}
+    target, scan = params.get("target"), params.get("scan")
+    errors = []
+    if any(isinstance(v, str) and "target_after" in v for v in (target, scan)):
+        errors.append(f"{action} 에 넛지 예상값(target_after)을 씀 — 다시 찍은 관측으로만")
+    if fresh is None:
+        return errors
+    m = _TARGET_REF.match(target) if isinstance(target, str) else None
+    if action == "pick_object" and not (m and m.group(1) in fresh):
+        errors.append(f"넛지 뒤 {action} 의 target 이 넛지 뒤 새로 찍은 관측(inspect_region 출력)의 .target 이 아님")
+    if scan is not None:
+        v = _VAR_REF.match(scan) if isinstance(scan, str) else None
+        if not (v and v.group(1) in fresh and (not m or v.group(1) == m.group(1))):
+            errors.append(f"넛지 뒤 {action} 의 scan 이 target 과 같은, 넛지 뒤 새 관측 전체가 아님")
+    return errors
+
+
+def _check_expand(subs: list, prefix: str, label: str, ids: list[str],
+                  fresh: set[str] | None = None) -> tuple[list[str], set[str] | None]:
+    """스킬 expand 목록 검사 (#121). (문제 목록, 끝났을 때의 fresh)를 돌려준다 — fresh 는 마지막 넛지 뒤
+    inspect_region 출력 변수(None = 넛지 없음). 분기 뒤에는 모든 경로에서 새로 찍은 변수만 남김(보수적)."""
+    errors: list[str] = []
+    for m, sub in enumerate(subs if isinstance(subs, list) else [], 1):
+        cid, action = f"{prefix}{m}", sub.get("action") if isinstance(sub, dict) else None
+        ids.append(cid)
+        where = f"{label} {cid}"
+        if not action or "skill" in sub:
+            errors.append(f"{where}: 스킬 expand 에는 원자 동작이나 fallback·if 만 (스킬 안 스킬 미지원)")
+            continue
+        if action in ("fallback", "if"):
+            if action == "fallback":
+                branches = sub.get("options")
+                if not isinstance(branches, list) or not branches or not all(isinstance(o, list) and o for o in branches):
+                    errors.append(f"{where}: fallback 의 options 는 스텝 배열 1개 이상의 목록이어야 함")
+                    continue
+                if not (isinstance(sub.get("next_on"), list) and sub["next_on"]
+                        and all(isinstance(c, str) and c for c in sub["next_on"])):
+                    errors.append(f"{where}: 스킬 expand 안 fallback 은 next_on(다음 대안으로 갈 오류 코드)이 필수")
+                parts = [(f"{cid}.o{k}.", o) for k, o in enumerate(branches, 1)]
+            else:
+                if "cond" not in sub:
+                    errors.append(f"{where}: if 에 cond 가 없음")
+                parts = [(f"{cid}.t", sub.get("then", [])), (f"{cid}.f", sub.get("else", []))]
+            ends = []
+            for pre, branch in parts:
+                errs, end = _check_expand(branch, pre, label, ids, None if fresh is None else set(fresh))
+                errors += errs
+                ends.append(end)
+            nudged = [e for e in ends if e is not None]
+            fresh = None if not nudged else set.intersection(*nudged)   # 한 경로라도 넛지했으면 모든 경로의 새 관측만
+        elif action in ("while", "for_each", "push", "pop"):
+            errors.append(f"{where}: 스킬 expand 안 {action} 미지원 (fallback·if 만)")
+        else:
+            if action in RESCAN_NEEDED_BY:      # 입력 먼저 검사한 뒤, 이 동작이 쓰는 변수를 반영
+                errors += [f"{where}: {e}" for e in _rescan_errors(action, sub.get("params", {}), fresh)]
+            if action == "nudge_object":
+                fresh = set()                   # 밀었을 수 있음 → 그 전 관측은 모두 버림
+            elif fresh is not None:
+                fresh = _after_writes(action, sub, fresh)
+    return errors, fresh
+
+
+def _after_writes(action: str, sub: dict, fresh: set[str]) -> set[str]:
+    """동작이 변수를 쓰면 그 변수는 '넛지 뒤 새 관측' 자격을 잃음 — inspect_region 출력만 다시 얻음 (#263 E 재리뷰:
+    set_var 로 새 관측 변수를 넛지 전 값으로 되돌리면 검사가 통과하던 것). 쓰기 대상을 정적으로 모르면 전부 버림."""
+    fresh = set(fresh)
+    out = sub.get("output")
+    if action == "inspect_region":
+        if isinstance(out, str):
+            fresh.add(out)
+        return fresh
+    if isinstance(out, str):
+        fresh.discard(out)
+    if action == "set_var":
+        name = (sub.get("params") or {}).get("name")
+        if isinstance(name, str) and name and not name.startswith("$"):
+            fresh.discard(name)
+        else:
+            fresh.clear()                       # 동적·누락 이름 → 어느 변수를 바꿨는지 모름
+    return fresh
 
 
 def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> list[str]:
@@ -97,11 +194,12 @@ def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> l
                 errors += _check_skill(step, label, skills)
                 skill = skills.get(step["skill"])
                 expand = skill.get("expand", []) if isinstance(skill, dict) else []
-                for i in range(1, len(expand) + 1):   # Runner 가 붙일 하위 기록 ID (<id>.e<n>)
-                    child = f"{sid}.e{i}"
+                ids: list[str] = []             # Runner 가 붙일 하위 기록 ID (<id>.e<n>, 블록 안 .o<k>.<m>·.t<m>·.f<m>)
+                errors += _check_expand(expand, f"{sid}.e", f"{label} 스킬 '{step['skill']}' expand", ids)[0]
+                for child in ids:
                     if child in seen:
                         errors.append(f"스텝 ID 중복: '{child}' ({seen[child]}, {where} 스킬의 하위 동작)")
-                    seen.setdefault(child, f"{where}.e{i}")
+                    seen.setdefault(child, f"{where} → {child}")
             if action == "set_var" and "name" not in step.get("params", {}):
                 errors.append(f"{label}: set_var 에 params.name 이 없음")
             if action == "if" and "cond" not in step:

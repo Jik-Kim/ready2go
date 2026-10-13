@@ -10,7 +10,6 @@
     "open": {
       "drawer_top": false,
       "drawer_bottom": false,
-      "staging_tray": true,
       "handover_zone": true
     },
     "located_in": {
@@ -19,7 +18,6 @@
       "car_key": "drawer_top",
       "eraser": "drawer_top",
       "lip_balm": "drawer_top",
-      "carrot_pen": "drawer_top",
       "masking_tape": "drawer_top",
       "toy_car": "drawer_top",
       "toy_wrench": "drawer_top",

@@ -31,8 +31,9 @@ def test_contract_example_runs_find_item_with_target_and_voice_inputs():
     d = router().decide(EXAMPLE, running=False, locked=False)
     assert d.kind == ir.RUN and d.task is FIND
     assert d.inputs == {"target": "eraser", "source": "voice", "stt_text": "지우개 찾아줘",
-                        "intent_confidence": 0.93}
+                        "intent_confidence": 0.93, "accept_text": "지우개를 찾아올게요."}   # 계약07 예시
     assert d.summary()["stt_text"] == "지우개 찾아줘" and d.summary()["task_id"] == "find_item"
+    assert d.summary()["request_id"] == "example-find-07" and d.summary()["run_id"] is None   # run_id 는 노드가 수락할 때
 
 
 @pytest.mark.parametrize("item", ["car_key", "masking_tape", "lip_balm"])
