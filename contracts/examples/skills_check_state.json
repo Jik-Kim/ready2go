@@ -1,0 +1,135 @@
+{
+  "service": "/skills/check_state",
+  "type": "std_srvs/srv/Trigger",
+  "note": "W1 무동작 안전 상태 조회. success = 조회 끝남(값이 좋은지와 무관). message 는 아래 JSON 을 문자열로 담음. 스키마 ../skills_safe_state.schema.json (#/$defs/check_state·check_state_error). 계약안 #297 (B 제안, C 확인·E 포함 2명 승인 전, P2). 실물 출력 아님 — B 노드 시험(test_safe_state_examples_match_node_output)이 가짜 로봇으로 같은 출력을 확인(stamp 제외)",
+  "cases": [
+    {
+      "case": "stopped_empty",
+      "desc": "멈춤·대기·툴 일치·빈손 닫힘(0.9 mm). C 가 재개를 판단할 수 있는 정상 값",
+      "success": true,
+      "message": {
+        "stopped": true,
+        "external_force": null,
+        "sensors_ok": true,
+        "comm_ok": true,
+        "controller_ready": true,
+        "estop_active": false,
+        "tcp_tool_ok": true,
+        "gripper": {
+          "state": "empty",
+          "held_id": null,
+          "width_m": 0.0009,
+          "grasp_detected": true,
+          "reason": ""
+        },
+        "drawers": {
+          "drawer_bottom": 0.0,
+          "drawer_top": 0.226
+        },
+        "b_locked": false,
+        "b_lock_reason": null,
+        "robot_state": 1,
+        "busy": false,
+        "stamp": "2026-10-13T07:20:00.000+00:00"
+      }
+    },
+    {
+      "case": "holding_eraser",
+      "desc": "지우개를 쥔 기억(21 mm)과 지금 폭이 같음 → holding·HELD",
+      "success": true,
+      "message": {
+        "stopped": true,
+        "external_force": null,
+        "sensors_ok": true,
+        "comm_ok": true,
+        "controller_ready": true,
+        "estop_active": false,
+        "tcp_tool_ok": true,
+        "gripper": {
+          "state": "holding",
+          "held_id": "eraser#1",
+          "width_m": 0.021,
+          "grasp_detected": true,
+          "reason": "HELD"
+        },
+        "drawers": {
+          "drawer_bottom": 0.0,
+          "drawer_top": 0.226
+        },
+        "b_locked": false,
+        "b_lock_reason": null,
+        "robot_state": 1,
+        "busy": false,
+        "stamp": "2026-10-13T07:20:00.000+00:00"
+      }
+    },
+    {
+      "case": "estop",
+      "desc": "펜던트 비상정지(DSR 6) — estop_active true, controller_ready false. 조회는 끝났으므로 success true",
+      "success": true,
+      "message": {
+        "stopped": true,
+        "external_force": null,
+        "sensors_ok": true,
+        "comm_ok": true,
+        "controller_ready": false,
+        "estop_active": true,
+        "tcp_tool_ok": true,
+        "gripper": {
+          "state": "empty",
+          "held_id": null,
+          "width_m": 0.0009,
+          "grasp_detected": true,
+          "reason": ""
+        },
+        "drawers": {
+          "drawer_bottom": 0.0,
+          "drawer_top": 0.226
+        },
+        "b_locked": false,
+        "b_lock_reason": null,
+        "robot_state": 6,
+        "busy": false,
+        "stamp": "2026-10-13T07:20:00.000+00:00"
+      }
+    },
+    {
+      "case": "hold_unknown_locked",
+      "desc": "재시작 때 폭을 못 읽어 쥐었는지 모름 + B 잠금(MOVE_UNCONFIRMED) — gripper.state null, b_locked true. W2 필요",
+      "success": true,
+      "message": {
+        "stopped": true,
+        "external_force": null,
+        "sensors_ok": true,
+        "comm_ok": true,
+        "controller_ready": true,
+        "estop_active": false,
+        "tcp_tool_ok": true,
+        "gripper": {
+          "state": null,
+          "held_id": "eraser#1",
+          "width_m": 0.021,
+          "grasp_detected": true,
+          "reason": "쥐었는지 모름 — 재시작 때 그리퍼 폭 못 읽음 (B 복구 필요)"
+        },
+        "drawers": {
+          "drawer_bottom": 0.0,
+          "drawer_top": 0.226
+        },
+        "b_locked": true,
+        "b_lock_reason": "pick_object: MOVE_UNCONFIRMED",
+        "robot_state": 1,
+        "busy": false,
+        "stamp": "2026-10-13T07:20:00.000+00:00"
+      }
+    },
+    {
+      "case": "query_error",
+      "desc": "조회 자체 실패(서버 안 예외) — success false, 상태 칸 없음",
+      "success": false,
+      "message": {
+        "error": "RuntimeError('robot state service timeout')"
+      }
+    }
+  ]
+}

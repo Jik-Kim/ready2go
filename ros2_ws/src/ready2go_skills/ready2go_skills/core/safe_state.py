@@ -1,7 +1,8 @@
 """무동작 안전 상태 조회(W1 `/skills/check_state`)·B 복구(W2 `/skills/recover`) 판단 — ROS 비의존 [#152·#271 C 계약 W1·W2, 제안 10/13 B].
 
-로봇·그리퍼를 움직이지 않고 지금 읽을 수 있는 값만 모아 C 가 잠금 해제 판단(C `ready2go_runner/core/recovery.py` recover_blockers — PR #289, 10/13 미머지)에 쓰게 한다.
-**모르는 값은 None(JSON null)** — C 는 null 을 허가로 보지 않는다. 읽기 실패를 "괜찮음"으로 바꾸지 않는다.
+로봇·그리퍼를 움직이지 않고 지금 읽을 수 있는 값만 모아 C 가 잠금 해제 판단(C `ready2go_runner/core/recovery.py` recover_blockers)에 쓰게 한다.
+**모르는 값은 None(JSON null)** — C 는 자기가 보는 칸의 null 을 허가로 보지 않는다. 읽기 실패를 "괜찮음"으로 바꾸지 않는다.
+응답 계약(계약안 #297): contracts/skills_safe_state.schema.json · contracts/examples/skills_check_state.json·skills_recover.json.
 B 복구(W2)는 B 서버 잠금(이동 확인 실패 `LOCKING_CODES`)과 쥐었는지 모름(`hold_unknown`)만 푼다. C 잠금 해제와는 별개.
 """
 from __future__ import annotations
@@ -113,3 +114,35 @@ def recover_blockers(state: Mapping) -> list:
     if (state.get("gripper") or {}).get("state") not in ("holding", "empty"):
         out.append("GRIPPER_UNKNOWN")
     return out
+
+
+def response_errors(service: str, success: bool, message: Mapping) -> list:
+    """W1·W2 응답 규칙 중 JSON 스키마(contracts/skills_safe_state.schema.json)로 못 쓰는 칸 사이 규칙 → 어긋난 것 목록 (빈 목록 = 맞음).
+    W1: success = 조회 끝남 — true 면 상태 칸, false 면 error 만. W2: success = recovered — 복구면 code ""·blockers []·B 잠금 없음·
+    그리퍼 앎, 거절이면 code = blockers[0]·푼 것 없음, 서버 예외면 SKILL_EXCEPTION 에 state 없음 [E #297 재리뷰]."""
+    errs = []
+    if service == "/skills/check_state":
+        if success is ("error" in message):
+            errs.append("W1 success 는 조회 끝남 — true 면 상태 칸, false 면 error 만")
+        return errs
+    if service != "/skills/recover":
+        return [f"모르는 서비스 {service}"]
+    if success is not message.get("recovered"):
+        errs.append("W2 success 는 recovered 와 같아야 함")
+    if "error" in message:
+        if message.get("code") != "SKILL_EXCEPTION" or "state" in message or message.get("recovered") is not False:
+            errs.append("W2 서버 예외는 recovered false·SKILL_EXCEPTION·state 없음")
+        return errs
+    st = message.get("state") or {}
+    if message.get("recovered"):
+        if message.get("code") != "" or message.get("blockers"):
+            errs.append("W2 복구면 code \"\"·blockers []")
+        if st.get("b_locked") or (st.get("gripper") or {}).get("state") not in ("holding", "empty"):
+            errs.append("W2 복구 뒤 state 는 B 잠금 없음·그리퍼 앎")
+    else:
+        b = message.get("blockers") or []
+        if not b or message.get("code") != b[0]:
+            errs.append("W2 거절이면 code = blockers[0]")
+        if message.get("cleared"):
+            errs.append("W2 거절이면 푼 것 없음(cleared [])")
+    return errs

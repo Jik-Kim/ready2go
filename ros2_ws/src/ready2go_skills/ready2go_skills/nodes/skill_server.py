@@ -563,7 +563,9 @@ class SkillServer(Node):
                     blockers = ["HOLD_UNCERTAIN"]
             if blockers:
                 self.get_logger().warning(f"[recover] 거절 — {blockers} (잠금 {self.locked}, 쥔 모름 {bool(unknown)})")
-                return {"recovered": False, "code": blockers[0], "cleared": [], "blockers": blockers, "state": st}
+                # 돌려주는 state 는 W1 과 같은 지금 상태 — 모름 기록을 임시로 쥔 기억처럼 본 판정(holding·SLIPPED)을 내보내지 않음
+                return {"recovered": False, "code": blockers[0], "cleared": [], "blockers": blockers,
+                        "state": self.safe_state(in_gate=True) if unknown else st}
             cleared = []
             if unknown:
                 if decision == "restore":

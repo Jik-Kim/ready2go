@@ -3264,6 +3264,69 @@ def test_recover_service_clears_b_lock_and_unknown_hold(server):
         srv.locked = None
 
 
+
+SAFE_STATE_EXAMPLES = {name: {c["case"]: c for c in json.loads((REPO / f"contracts/examples/{name}.json").read_text(encoding="utf-8"))["cases"]}
+                       for name in ("skills_check_state", "skills_recover")}
+
+
+def _safe_state_cases(server):
+    """W1·W2 예시 경우를 노드(가짜 로봇)로 만듦 → {(예시 파일, case): (success, message JSON 푼 것)}. stamp 는 비교에서 뺌."""
+    srv, out = _srv_state(server), {}
+    trig = lambda f: f(None, types.SimpleNamespace(success=None, message=None))       # noqa: E731
+    w1 = lambda: trig(srv._srv_check_state)                                          # noqa: E731
+    w2 = lambda: trig(srv._srv_recover)                                              # noqa: E731
+
+    def put(name, case, resp):
+        out[(name, case)] = (resp.success, json.loads(resp.message))
+    unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+    real_state = srv.robot.state
+    server.Gripper.width = 0.9
+    put("skills_check_state", "stopped_empty", w1())
+    srv.held, server.Gripper.width = dict(unknown), 21.0
+    put("skills_check_state", "holding_eraser", w1())
+    srv.held = None
+    srv.robot.state, server.Gripper.width = (lambda: 6), 0.9                          # 펜던트 비상정지 (DSR 6)
+    put("skills_check_state", "estop", w1())
+    srv.robot.state = real_state
+    srv.locked, srv.hold_unknown, server.Gripper.width = "pick_object: MOVE_UNCONFIRMED", dict(unknown), 21.0
+    put("skills_check_state", "hold_unknown_locked", w1())
+    real_safe = srv.safe_state
+    srv.safe_state = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("robot state service timeout"))
+    put("skills_check_state", "query_error", w1())
+    put("skills_recover", "server_error", w2())
+    srv.safe_state = real_safe
+    srv.robot.state = lambda: 6
+    put("skills_recover", "refused_estop", w2())
+    srv.robot.state, server.Gripper.width = real_state, 100.0                         # 21 mm 기록인데 100 mm 열림
+    put("skills_recover", "refused_hold_uncertain", w2())
+    assert srv.gate.try_enter()                                                      # 다른 동작 실행 중
+    try:
+        put("skills_recover", "busy", w2())
+    finally:
+        srv.gate.exit()
+    server.Gripper.width = 21.0
+    put("skills_recover", "recovered_restore", w2())
+    srv.held = None
+    return out
+
+
+def _no_stamp(m):
+    m = json.loads(json.dumps(m))
+    for st in (m, m.get("state") or {}):
+        st.pop("stamp", None)
+    return m
+
+
+def test_safe_state_examples_match_node_output(server):
+    """contracts/examples/skills_check_state.json·skills_recover.json 의 경우를 노드로 그대로 — success·message 가 예시와 같음
+    (stamp 만 뺌) [E #297 재리뷰: 예시를 검사하는 검증]. 로봇·그리퍼 명령 없음."""
+    got = _safe_state_cases(server)
+    want = {(n, c): (ex["success"], ex["message"]) for n, cases in SAFE_STATE_EXAMPLES.items() for c, ex in cases.items()}
+    assert set(got) == set(want)
+    for k in want:
+        assert (got[k][0], _no_stamp(got[k][1])) == (want[k][0], _no_stamp(want[k][1])), k
+    assert server.srv.robot.log == []
+
 def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):
     """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 넛지 대신 닫은 손가락을
     구멍(가운데)에 넣어 계획한 방향·거리 + hole_slack_mm 만큼 수평으로 밂, hole_back_mm 물러났다가 올림. 누르기(press) 없음."""
