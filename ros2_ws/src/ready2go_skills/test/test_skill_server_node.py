@@ -3327,6 +3327,44 @@ def test_safe_state_examples_match_node_output(server):
         assert (got[k][0], _no_stamp(got[k][1])) == (want[k][0], _no_stamp(want[k][1])), k
     assert server.srv.robot.log == []
 
+
+def test_recover_reads_state_once_and_changes_nothing_on_error(server):
+    """[E #297 재리뷰 P2] 복구는 상태를 처음 한 번만 읽고 응답을 다 만든 뒤에 잠금·쥔 기억을 바꿈 — 예전엔 잠금을 푼 뒤 응답용으로
+    다시 읽다 예외가 나면 recovered=false 인데 잠금은 이미 풀려 있었음. 첫 조회 성공 → 두 번째부터 예외여도 정상 복구, 응답 state 는
+    푼 뒤 값. 첫 조회부터 예외면 SKILL_EXCEPTION 이고 잠금·모름 기록 그대로."""
+    srv = _srv_state(server)
+    real = srv.safe_state
+    calls = []
+
+    def once(*a, **k):
+        calls.append(k)
+        if len(calls) > 1:
+            raise RuntimeError("second read")
+        return real(*a, **k)
+    for width, held_id in ((21.0, "eraser#1"), (0.9, None)):                # 같은 폭 → 복원 / 빈손 닫힘 → 지움
+        srv.locked, srv.held = "pick_object: MOVE_UNCONFIRMED", None
+        srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+        server.Gripper.width, calls[:] = width, []
+        srv.safe_state = once
+        resp = srv._srv_recover(None, types.SimpleNamespace(success=None, message=None))
+        srv.safe_state = real
+        r = json.loads(resp.message)
+        assert resp.success and r["recovered"] and len(calls) == 1, (width, r)
+        assert srv.locked is None and srv.hold_unknown is None and (srv.held or {}).get("id") == held_id
+        st = r["state"]
+        assert st["b_locked"] is False and st["b_lock_reason"] is None and st["gripper"]["held_id"] == held_id
+        assert st["gripper"]["state"] == ("holding" if held_id else "empty") and st["gripper"]["reason"] == ("HELD" if held_id else "")
+        assert {k: v for k, v in st.items() if k != "stamp"} == {k: v for k, v in srv.safe_state().items() if k != "stamp"}   # 다시 읽은 W1 과 같음
+    srv.locked, srv.held = "pick_object: MOVE_UNCONFIRMED", None
+    srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+    srv.safe_state = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("first read"))
+    resp = srv._srv_recover(None, types.SimpleNamespace(success=None, message=None))
+    srv.safe_state = real
+    assert not resp.success and json.loads(resp.message)["code"] == "SKILL_EXCEPTION"
+    assert srv.locked == "pick_object: MOVE_UNCONFIRMED" and srv.hold_unknown and srv.held is None
+    assert srv.robot.log == []
+    srv.locked = srv.hold_unknown = None
+
 def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):
     """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 넛지 대신 닫은 손가락을
     구멍(가운데)에 넣어 계획한 방향·거리 + hole_slack_mm 만큼 수평으로 밂, hole_back_mm 물러났다가 올림. 누르기(press) 없음."""

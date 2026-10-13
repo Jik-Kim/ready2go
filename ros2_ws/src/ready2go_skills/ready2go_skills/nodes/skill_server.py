@@ -546,17 +546,17 @@ class SkillServer(Node):
     def recover(self):
         """W2 B 복구 — 로봇이 멈췄고 비상정지 아님·제어기 준비·툴 일치·통신이 되면: 쥐었는지 모름(hold_unknown)을 그리퍼를
         다시 읽어 풀고(저장 폭과 허용 오차 안이면 쥔 기억 복원, 빈손 닫힘이면 기록 지움, 그 밖·못 읽으면 HOLD_UNCERTAIN·
-        GRIPPER_UNKNOWN 으로 거절하고 기록·잠금 유지), B 서버 잠금(locked)을 품.
-        로봇·그리퍼 명령 없음. 다른 동작 실행 중이면 BUSY. → {recovered, code, cleared, blockers, state}"""
+        GRIPPER_UNKNOWN 으로 거절하고 기록·잠금 유지), B 서버 잠금(locked)을 품. 상태는 처음 한 번만 읽고 응답을 다 만든 뒤에 바꿈 —
+        예외(SKILL_EXCEPTION)로 끝나면 아무것도 안 풀림. 로봇·그리퍼 명령 없음. 다른 동작 실행 중이면 BUSY. → {recovered, code, cleared, blockers, state}"""
         if not self.gate.try_enter():                        # 복구 중 동작이 시작되지 않게 (동작 중이면 거절)
             return {"recovered": False, "code": sf.BUSY, "cleared": [], "blockers": ["BUSY"], "state": self.safe_state()}
         try:
             unknown = getattr(self, "hold_unknown", None)
             st = self.safe_state(hold=unknown, in_gate=True) if unknown else self.safe_state(in_gate=True)
             blockers = ss_.recover_blockers(st)                # 센서 오류·그리퍼 모름도 여기서 막음 (쥔 기록 유무와 무관)
+            g = self.prm()["gripper"]
             decision = None
             if unknown and not blockers:                      # 모름 기록은 재시작 복원과 같은 기준: 같은 폭이면 복원, 빈손 닫힘이면 지움, 그 밖은 유지
-                g = self.prm()["gripper"]
                 decision = ss_.unknown_hold_decision(width_m=st["gripper"].get("width_m"), record=unknown,
                                                      min_width_m=float(g["min_width_m"]), slip_tolerance_m=float(g["slip_tolerance_m"]))
                 if decision is None:
@@ -566,20 +566,27 @@ class SkillServer(Node):
                 # 돌려주는 state 는 W1 과 같은 지금 상태 — 모름 기록을 임시로 쥔 기억처럼 본 판정(holding·SLIPPED)을 내보내지 않음
                 return {"recovered": False, "code": blockers[0], "cleared": [], "blockers": blockers,
                         "state": self.safe_state(in_gate=True) if unknown else st}
-            cleared = []
+            # 푼 뒤 상태·응답을 먼저 다 만들고(위에서 읽은 값으로 계산만, 다시 읽지 않음) 그다음에 바꿈 — 바꾼 뒤엔 예외 날 곳이 없게
+            # [E #297 재리뷰 P2: 잠금을 푼 뒤 마지막 조회가 실패하면 recovered=false 인데 잠금은 이미 풀려 있었음]
+            cleared, held = [], self.held
             if unknown:
-                if decision == "restore":
-                    self.held = unknown                      # 저장 폭과 허용 오차 안 → 쥔 기억 복원
-                    cleared.append(f"hold_unknown → 쥔 기억 복원 ({unknown.get('class')})")
-                else:
-                    self.held = None                         # 빈손 닫힘 확정 → 기록 지움
-                    cleared.append("hold_unknown → 빈손")
-                self.hold_unknown = None
+                held = unknown if decision == "restore" else None   # 저장 폭과 허용 오차 안 → 복원 / 빈손 닫힘 확정 → 지움
+                cleared.append(f"hold_unknown → 쥔 기억 복원 ({unknown.get('class')})" if held else "hold_unknown → 빈손")
+                grip = st["gripper"]
+                view = ss_.gripper_view(width_m=grip["width_m"], grasp_detected=grip["grasp_detected"], safety_error=False,
+                                        held=held, hold_unknown=None, min_width_m=float(g["min_width_m"]),
+                                        slip_tolerance_m=float(g["slip_tolerance_m"]))
+                st = dict(st, gripper={k: view.get(k) for k in ("state", "held_id", "width_m", "grasp_detected", "reason")})
             if self.locked:
                 cleared.append(f"locked ({self.locked})")
-                self.locked = None
+            result = {"recovered": True, "code": "", "cleared": cleared, "blockers": [],
+                      "state": dict(st, b_locked=False, b_lock_reason=None)}
+            json.dumps(result, ensure_ascii=False)          # 응답으로 못 바꾸면 여기서 예외 — 아직 아무것도 안 바꿈
             self.get_logger().info(f"[recover] 복구 — {cleared or '풀 것 없음'}")
-            return {"recovered": True, "code": "", "cleared": cleared, "blockers": [], "state": self.safe_state(in_gate=True)}
+            if unknown:
+                self.held, self.hold_unknown = held, None    # held 저장 실패는 setter 가 경고만 (예외 없음)
+            self.locked = None
+            return result
         finally:
             self.gate.exit()
 
