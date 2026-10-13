@@ -1,0 +1,11 @@
+{
+  "intent": "recover",
+  "targets": [],
+  "confidence": 0.95,
+  "source": {
+    "stt_text": "복구해"
+  },
+  "request_id": "req-rec-01",
+  "boot_id": "3f9c1a7b2e44",
+  "event_id": "h1-2026-10-13T05:10:31.204Z"
+}
