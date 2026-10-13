@@ -39,6 +39,29 @@ services:
         reservations:
           devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
 
+  vision-node:                       # PC2 한 대 통합점검(tools/dev/pc2_up.sh): 비전 노드까지 compose 로. 기존 vision_real_check.sh node 와 같은 노드·설정
+    profiles: ["pc2"]                # real 과 함께 켤 때만 (--profile real --profile pc2) — 기존 real·sim 기동은 그대로
+    image: ready2go-vision:latest    # vision 서비스가 만든 이미지 (없으면 docker compose --profile real build vision)
+    network_mode: host
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # 덤프 파일을 내 계정 소유로 (스크립트 --user 와 같게)
+    environment: { <<: *ros-env, HOME: /tmp, YOLO_CONFIG_DIR: /tmp/y, CODE_SHA: "${CODE_SHA:-unknown}" }
+    volumes:
+      - ./ros2_ws:/ros2_ws:ro        # 시작할 때 /tmp 에 빌드 (스크립트와 같음)
+      - ./config:/config:ro
+      - ./knowledge:/knowledge:ro
+      - ./models:/models:ro
+      - ${VISION_DUMP:-${HOME}/ready2go_vision_dump}:/dump   # 요청마다 프레임 저장 (A 원인 확인용)
+    command: >-
+      bash -lc 'source /opt/ros/jazzy/setup.bash && cd /ros2_ws &&
+      colcon --log-base /tmp/clog build --build-base /tmp/build --install-base /tmp/install --packages-up-to ready2go_vision >/tmp/build.log 2>&1
+      || { tail -30 /tmp/build.log; exit 1; };
+      source /tmp/install/setup.bash &&
+      exec ros2 run ready2go_vision inspect_region --ros-args -p config_dir:=/config -p dump_dir:=/dump -p "code_sha:=\"$${CODE_SHA}\""'
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
   realsense:
     profiles: ["real"]
     build: ./docker/realsense
