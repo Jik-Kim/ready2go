@@ -49,6 +49,7 @@ NOTHING_TO_END = "NOTHING_TO_END"       # end_task 대상(그 run_id 의 실행�
 STOP_NOT_CONFIRMED = "STOP_NOT_CONFIRMED"   # 보존 작업의 정지 확인이 없음(halt.stop unconfirmed) → 폐기 보류, 작업·잠금 유지
 NOT_LOCKED = "NOT_LOCKED"               # recover 인데 이미 잠겨 있지 않음
 HALT_EVENT_MISMATCH = "HALT_EVENT_MISMATCH"   # 지금 정지 사건이 아님 (과거·지연 요청, 그 뒤 다시 멈춤)
+STOPPED_DURING_RECOVER = "STOPPED_DURING_RECOVER"   # recover 의 B 조회를 기다리는 사이 새 정지 요청 → 잠금 유지
 B_RECOVER_UNAVAILABLE = "B_RECOVER_UNAVAILABLE"   # B 복구(W2) 서비스 없음·응답 없음 → 잠금 유지
 B_RECOVER_FAILED = "B_RECOVER_FAILED"           # B 복구가 recovered=false 인데 code 를 안 줌
 RUN_MISMATCH = "RUN_MISMATCH"           # 재개 인텐트의 run_id 가 보존 작업과 다름 (#271 D 리뷰)
@@ -76,8 +77,10 @@ class RunnerNode(Node):
         if warning:
             self.get_logger().error(warning)
         self.b_timeout_s = param("b_check_timeout_s", 2.0)   # B 조회·복구 서비스 응답 대기 [팀 확정 필요]
-        # recover 때 B 복구(W2 /skills/recover)를 먼저 부를지 — 호출 주체 E·B 결정 대기(C 제안: C 가 부름). 기본 꺼짐
-        self.recover_call_b = param("recover_call_b", False)
+        # recover 때 B 복구(W2 /skills/recover)를 먼저 부를지 — B 답 10/13 "C 가 recover 처리 중 호출"(C 제안과 같음). 기본 켜짐,
+        # RUNNER_RECOVER_CALL_B=0 이면 끔. recover_check 가 b 일 때만 (mock·none 은 B 서비스를 안 부름)
+        self.recover_call_b = param("recover_call_b",
+                                    os.environ.get("RUNNER_RECOVER_CALL_B", "1") not in ("0", "false", "off"))
         # 실물 판정 기준 (params/recovery.yaml [팀 확정 필요]) — 못 읽으면 기준 없음 → 실물 복구 거절
         recovery_file = param("recovery_params_file", _param_file("ready2go_runner", "recovery.yaml"))
         try:
@@ -407,6 +410,7 @@ class RunnerNode(Node):
             return reject(HALT_EVENT_MISMATCH)
         if self.running:                       # 아직 멈추는 중 (진행 중 동작의 최종 결과 대기)
             return reject(intent_router.BUSY)
+        generation = self.runner.halt_generation   # B 조회를 기다리는 사이 새 정지가 오면 해제하지 않음 (#304 E 리뷰 P1)
         if self.recover_call_b and self.recover_check == "b":   # W2 성공 뒤 W1 (계약: B 복구가 필요한 사건이면 그 성공 뒤)
             failed = self._b_recover()
             if failed:
@@ -417,7 +421,9 @@ class RunnerNode(Node):
         if blockers:
             self.get_logger().warning(f"recover 거절 — 잠금 유지: {blockers} (B 조회 {check})")
             return reject(blockers[0])
-        self.runner.resume()
+        if not self.runner.resume_if(generation):   # 조회 중 새 정지(잠긴 채 다시 멈춤 포함) → 잠금 유지
+            self.get_logger().warning("recover 거절 — B 조회 중 새 정지 요청: 잠금 유지")
+            return reject(STOPPED_DURING_RECOVER)
         self.get_logger().info(f"recover: 잠금 해제 (B 조회 {check}) — 재개 허가 아님, 보존 작업 {self.runner.suspended}")
         return intent_router.Decision(intent_router.RECOVER, intent=intent)
 
