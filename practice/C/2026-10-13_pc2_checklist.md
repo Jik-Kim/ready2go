@@ -40,8 +40,8 @@
 | 단계 | 할 일 | 누가 |
 | :--- | :--- | :--- |
 | 1 | 새 JSON 을 `tasks/` 에 추가 → mock 으로 끝까지 (`MOCK_SCENE`·`RUNNER_TASK_FILE`) → `check_task` 통과 | C |
-| 2 | PC2: 파일만 받기(`git pull`) → `docker compose restart ros2-core` (Python 은 그대로) | B |
-| 3 | 실행: `.env` `RUNNER_TASK_FILE=/tasks/<새 파일>` → `docker compose restart ros2-core` (Runner 가 켜질 때 한 번 실행, 회차마다 재시작). 음성으로 부르려면 인텐트 이름이 `contracts/intent.schema.json` 목록(`find_item`·`achieve_goal` 등)에 있어야 해서, 새 이름은 계약 변경(E 포함 2명) — 이번엔 파일 실행으로 | C·B |
+| 2 | PC2: 파일만 받기(`git pull`) — `tasks/` 는 컨테이너에 그대로 보이는 폴더(마운트)라 Python·이미지는 그대로 | B |
+| 3 | 실행: `.env` `RUNNER_TASK_FILE=/tasks/<새 파일>` → **컨테이너를 다시 만들어야 새 값이 들어감** — 터미널 ② Ctrl+C → `docker compose --profile real up --force-recreate ros2-core db`. **`restart` 는 예전 환경 그대로라 새 파일이 안 돎**(#256 E 리뷰). 다시 만들면 B 스킬 서버 기억(`/tmp` 쥔 물체·서랍 열림)도 지워지므로 **그 전에 사람이 빈손·서랍 닫힘·원위치를 확인**. 같은 파일을 한 번 더 돌릴 때(같은 `.env`)만 `docker compose restart ros2-core` (Runner 가 켜질 때 한 번 실행). 음성으로 부르려면 인텐트 이름이 `contracts/intent.schema.json` 목록(`find_item`·`achieve_goal` 등)에 있어야 해서, 새 이름은 계약 변경(E 포함 2명) — 이번엔 파일 실행으로 | C·B |
 | 4 | 기록: `run_report -n 1` (스텝별 결과·상태 변화) + `run_report -n 5 --markdown` 로 **실물 로그 비교표** | C |
 | 5 | **Python 0줄**: `git diff --stat <기준점> -- '*.py'` 빈 출력 캡처 | C |
 
@@ -56,7 +56,7 @@
 | 보기 | 로봇이 실제로 멈췄는지(영상·눈), B 스킬 서버 로그의 정지 확인 줄(`CANCELED` / `STOP_UNCONFIRMED`) | B |
 | 막히는지 | 멈춘 뒤 새 요청 1번(예: "지우개 찾아줘") → **거절되고 로봇 동작 0** 인지 | C |
 | 기록 | `run_report -n 1` 머리 "정지 시각 · 코드 · 출처 · 스텝 · 응답 +초" (`halts[]`: `requested_at`·`step_code`·`stopped_at`), E 쪽 발화 끝·STT·안내 시각, B 정지 확인 시각 → 5절 + #152 | C·E·B |
-| 끝 | 사람이 그리퍼·서랍 상태 확인 → 쥔 물체·열린 서랍은 손으로 정리 → **잠금 해제 통로가 아직 없어 `docker compose restart ros2-core`** → `/runner/reset_state` | B·C |
+| 끝 | 사람이 그리퍼·서랍 상태 확인 → 쥔 물체·열린 서랍은 손으로 정리 → **잠금 해제 통로가 아직 없어 `docker compose restart ros2-core`**(Runner 잠금만 풀림, B 스킬 서버 기억은 남음 — 쥔 채였으면 B 복구 순서 #260 1절) → `/runner/reset_state` | B·C |
 
 판정은 E 가 한다. 이 회차는 **요청 → 실제 정지 → 잠금 → 안내 시각을 처음 재는 것**이고, 복구·재개(FR-SAF-03·AC-SAF-04)는 계약 전이라 하지 않는다. `STOP_UNCONFIRMED` 가 나오면 그대로 기록하고 사람 확인 뒤 재시작.
 
