@@ -25,7 +25,7 @@
 | :--- | :--- | :--- | :--- |
 | 0 | **호스트에서 켜 둔 것 끄기** | `roboton`·`b_flow.sh server`·호스트 `realsense2_camera` → Ctrl+C, `docker compose down` (같은 `/dsr01` 이름·카메라 단독 점유로 충돌, 제어기 이중 접속 — docker.md) | B |
 | 1 | 코드 받기 | `git status`(고친 파일 있으면 멈춤) → `git fetch origin && git checkout main && git pull --ff-only origin main` → `git log --oneline -1` 이 `85492c5` 이후 | B |
-| 2 | 모델 받기·확인 | `git lfs pull` → `sha256sum models/yolo11s_seg_ready2go_v1.pt` 가 `5b9527b78ebf…` (133 B 면 포인터 — 비전 노드가 꺼짐) | B·A |
+| 2 | 모델 받기·확인 | `git lfs pull` → `sha256sum models/yolo11s_seg_ready2go_v2.pt` 가 `b2ae5af07e2d…` (노드 기본 v2, #247·#253 — [models/README.md](../../models/README.md) "SHA-256" 줄. 133 B 면 포인터 — 비전 노드가 꺼짐. 10/12 오전 회차는 v1 `5b9527b78ebf…` 이었음) | B·A |
 | 3 | **`.env`** | `BACKEND=real` · `ROBOT_HOST`·`RG2_HOST`(B 확인, 인수인계 192.168.1.100·192.168.1.1) · `DDS_MODE=local`(PC1 트윈 안 쓸 때) · `VISION_MODE=yolo` · `MOCK_SCENE=` 비움 · 스킬 속도는 B 판단. **음성 → Unpacking**: `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json` (코드 수정 없음, [runner.md "음성으로 시작"](../../docs/runner.md)) | C |
 | 3a | **시작 상태 임시 변경 (PC2 에서만, 커밋 안 함)** | Runner 시작 상태 `knowledge/snapshots/initial_state.json` 이 모든 물품 `drawer_top` → 아래 칸 장면은 **지우개·립밤·덮개 판 3개만 `drawer_bottom`** 으로 (명령은 1-1절). E 소유 파일이라 E 에게 알림, **끝나면 7절에서 되돌림** | B |
 | 4 | 사후 검증 모드 | `.env` 그대로 — `verify_mode` 는 기본 `off` (#43 트레이 확인 `enforce` 는 계약 PR 전이라 쓰지 않음) | C |
@@ -77,7 +77,7 @@ git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정
 - 음성이 안 될 때 직접 시작: `docker compose exec ros2-core /entrypoint.sh ros2 topic pub --once /voice/intent std_msgs/msg/String "data: '{\"intent\": \"find_item\", \"targets\": [\"eraser\"], \"confidence\": 0.95, \"source\": {\"stt_text\": \"지우개 찾아줘\"}}'"`
 - 마지막에 `run_report -n 20 --check` (기록 빠짐 점검, AC-LOG-01).
 - **회차 중 사람 개입 금지 — 개입했으면 기록.** 실행 중에 물건을 빼거나 옮기면 그 회차는 기록표 "비고"에 **사람 개입(무엇을, 언제)** 으로 적고 자동 성공으로 세지 않는다. 예: 10/12 16:36 `cfa886` — 지우개 전달 뒤 사람이 립밤을 빼서 판이 원래 자리로 돌아감(위치 오차 1.7 mm).
-- **배치는 시작 전에 정한다.** 판이 립밤 위에 걸친 배치는 판의 원래 자리가 립밤과 겹쳐 B 놓기 검사가 거부한다(구조적 → A안 빈 자리 + 안내). 원위치 복구를 보려면 **시작 전에** 립밤을 빼고 S2(판이 지우개만 덮음)로 배치. 가려졌던 물체의 위치는 보이는 조각 가운데라 판을 치운 뒤 값이 크게 바뀜(립밤 (80, 222) → (39, 202) mm, 실제로는 안 움직임) — "굴러갔다"로 보지 않는다.
+- **배치는 시작 전에 정한다.** 판이 립밤 위에 걸친 배치는 판의 원래 자리가 립밤과 겹쳐 B 놓기 검사가 거부한다(구조적 → A안 빈 자리 + 안내). 원위치 복구를 보려면 **시작 전에** #109 배치 제안대로 립밤을 판에서 떨어뜨려 둠(S2 = 판이 지우개 일부를 덮고 립밤은 떨어진 곳, [E 10/08 #109](https://github.com/Jik-Kim/ready2go/issues/109#issuecomment-6052957079) — 실물 고정 전, 10/13 정정: 립밤을 빼는 게 아님). 가려졌던 물체의 위치는 보이는 조각 가운데라 판을 치운 뒤 값이 크게 바뀜(립밤 (80, 222) → (39, 202) mm, 실제로는 안 움직임) — "굴러갔다"로 보지 않는다.
 - 결과 공유용 표: `ros2 run ready2go_runner run_report -n 3 --markdown`.
 
 ## 3. 장면 (성공·실패 둘 다)
@@ -85,7 +85,7 @@ git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정
 | 장면 | 배치 | 기대 흐름 | "원래대로" 확인 |
 | :--- | :--- | :--- | :--- |
 | **S1 성공 (위 칸)** ⚠️ | 렌치 ← 캐러멜 상자 ← 차키 (A #109 시나리오) — **B #229: 3단 인식 불안정(캐러멜·몽키 미검출, 차키 집다 캐러멜까지 듦) → B 가 확인한 배치로만, S2·S3 뒤에** | 차키·상자 치움 → 렌치 트레이 → 상자·차키 되돌림 | 상자 원위치, 차키는 원래 자리가 상자와 붙어 **빈 자리 + 안내** 가능 |
-| **S2 성공 (아래 칸)** | 덮개 판이 지우개를 덮음 | 판 치움 → 지우개 트레이 → 판 되돌림 | 판 원위치 |
+| **S2 성공 (아래 칸)** | 덮개 판이 지우개 일부를 덮음, **립밤은 판에서 떨어진 곳**(#109 배치 제안, 실물 고정 전) | 판 치움 → 지우개 트레이 → 판 되돌림 | 판 원위치 |
 | **S3 실패: 목표 없음** | S2 배치에서 지우개만 빼고 "지우개 찾아줘" | 못 찾음 → 위에 아무것도 없는 물건부터 치움(판 → 립밤, 최대 2) → 그래도 없음 → "지우개를 꺼내지 못했어요" → 되돌림 → 닫기 → 홈 [실측: mock] | 판·립밤 **둘 다 원위치** (밑에 목표가 없어 바닥이 빔) |
 | **S4 실패: 목표 집기 실패** | (자연 발생 시에만 — 일부러 만들지 않음) | 치운 장애물이 목표 위였으면 원래 자리 막힘 → **빈 자리 + "○○은 원래 자리 대신 옆 빈 자리에 뒀어요"** | **A안 확정**: 빈 자리 + 안내 + 닫힘·빈손이면 **이번 점검 통과**(제한적 — 원위치 복구·AC-ACT-03 완료 아님, 3절 끝) |
 

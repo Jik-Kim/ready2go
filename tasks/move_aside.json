@@ -1,0 +1,372 @@
+{
+  "task_id": "move_aside",
+  "description": "[3차 챌린지 작업 — E 선정 10/13 (#256)] ○○ 옆으로 치우기 (AC-PLN-02 새 복합 작업, Python 변경 없이): 물품 위치 조회 → 안내 → 서랍 열기 → 탑뷰 → 찾기 → (찾으면) 집기 전에 서랍 빈 자리 판단(place_object check_only slot free, B #241 — 움직이지 않음) → 되면 집기(scan 같이) → 빈 자리(free)에 놓기 → 안내 / 빈 자리가 없으면 안 집고 안내 / 못 찾으면 안내 → finally: 쥔 채면 정지 안내만(닫기·홈 안 함), 빈손이면 서랍 닫기·홈. 같은 서랍 안 이동이라 온톨로지 위치는 그대로(쥔 상태는 블랙보드 holding). 첫 안내가 실패·시간 초과면 로봇 동작 0회(announce_pending — find_item #249 와 같은 경계, 정본 수락 TTS·#256 E 리뷰): 서랍 닫기는 열린 서랍이 없어 pre 에서 거부, 홈 이동 안 함. 안내 전 실패(물품 조회 등)는 기존처럼 홈. 실행: RUNNER_TASK_FILE=/tasks/move_aside.json (새 인텐트는 계약 뒤). 필요: B #241 check_only·free, Runner #250 판단만 처리.",
+  "inputs": {
+    "target": "cover_plate"
+  },
+  "sequence": [
+    {
+      "id": "s0g",
+      "action": "set_var",
+      "params": {
+        "name": "announce_pending",
+        "value": false
+      }
+    },
+    {
+      "id": "s0",
+      "action": "set_var",
+      "params": {
+        "name": "holding",
+        "value": false
+      }
+    },
+    {
+      "id": "s1",
+      "action": "query_ontology",
+      "params": {
+        "item": "$inputs.target"
+      },
+      "output": "loc"
+    },
+    {
+      "id": "s2a",
+      "action": "set_var",
+      "params": {
+        "name": "announce_pending",
+        "value": true
+      }
+    },
+    {
+      "id": "s2",
+      "action": "speak",
+      "params": {
+        "text": "{{loc.name_ko|을}} 옆으로 옮길게요"
+      }
+    },
+    {
+      "id": "s2k",
+      "action": "set_var",
+      "params": {
+        "name": "announce_pending",
+        "value": false
+      }
+    },
+    {
+      "id": "s3",
+      "skill": "open_drawer",
+      "params": {
+        "drawer_id": "$loc.drawer_id"
+      },
+      "timeout_sec": 60
+    },
+    {
+      "id": "s3v",
+      "action": "move_to_named_pose",
+      "params": {
+        "pose_name": "drawer_top_view",
+        "drawer_id": "$loc.drawer_id"
+      },
+      "timeout_sec": 60
+    },
+    {
+      "id": "s4",
+      "action": "inspect_region",
+      "params": {
+        "region": "$loc.drawer_id",
+        "search_target": "$inputs.target"
+      },
+      "output": "scan",
+      "on_failure": "retry",
+      "retry": 1,
+      "timeout_sec": 30
+    },
+    {
+      "id": "s5",
+      "action": "if",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$scan.target_found",
+          true
+        ]
+      },
+      "then": [
+        {
+          "id": "s5.0",
+          "action": "set_var",
+          "params": {
+            "name": "room",
+            "value": null
+          }
+        },
+        {
+          "id": "s5.1",
+          "action": "place_object",
+          "output": "room",
+          "on_failure": "skip",
+          "timeout_sec": 30,
+          "params": {
+            "location": "$loc.drawer_id",
+            "slot": "free",
+            "scan": "$scan",
+            "object": "$scan.target",
+            "check_only": true
+          }
+        },
+        {
+          "id": "s5.2",
+          "action": "if",
+          "cond": {
+            "op": "!=",
+            "args": [
+              "$room",
+              null
+            ]
+          },
+          "then": [
+            {
+              "id": "s5.2.1",
+              "action": "pick_object",
+              "params": {
+                "target": "$scan.target",
+                "scan": "$scan"
+              },
+              "timeout_sec": 60
+            },
+            {
+              "id": "s5.2.2",
+              "action": "set_var",
+              "params": {
+                "name": "holding",
+                "value": true
+              }
+            },
+            {
+              "id": "s5.2.3",
+              "action": "place_object",
+              "output": "placed",
+              "timeout_sec": 60,
+              "params": {
+                "location": "$loc.drawer_id",
+                "slot": "free",
+                "scan": "$scan"
+              }
+            },
+            {
+              "id": "s5.2.4",
+              "action": "set_var",
+              "params": {
+                "name": "holding",
+                "value": false
+              }
+            },
+            {
+              "id": "s5.2.5",
+              "action": "speak",
+              "params": {
+                "text": "{{loc.name_ko|을}} 옆 빈 자리로 옮겼어요"
+              },
+              "timeout_sec": 20
+            }
+          ],
+          "else": [
+            {
+              "id": "s5.2.6",
+              "action": "speak",
+              "params": {
+                "text": "{{loc.name_ko|을}} 옮길 빈 자리가 없어요"
+              },
+              "timeout_sec": 20
+            }
+          ]
+        }
+      ],
+      "else": [
+        {
+          "id": "s5.3",
+          "action": "speak",
+          "params": {
+            "text": "{{loc.name_ko|을}} 찾지 못했어요"
+          },
+          "timeout_sec": 20
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "id": "f1",
+      "action": "query_ontology",
+      "params": {
+        "state": "gripper.robot"
+      },
+      "output": "hold"
+    },
+    {
+      "id": "fh",
+      "action": "if",
+      "on_failure": "skip",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$holding",
+          true
+        ]
+      },
+      "then": [
+        {
+          "id": "fh.1",
+          "action": "speak",
+          "on_failure": "skip",
+          "timeout_sec": 20,
+          "params": {
+            "text": "물건을 옮기다 멈췄어요. 사람이 확인해 주세요"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fc",
+      "action": "if",
+      "on_failure": "skip",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$holding",
+          false
+        ]
+      },
+      "then": [
+        {
+          "id": "f1d",
+          "action": "query_ontology",
+          "params": {
+            "state": "open.{{loc.drawer_id}}"
+          },
+          "output": "drawer_before",
+          "on_failure": "skip"
+        },
+        {
+          "id": "f2",
+          "skill": "close_drawer",
+          "params": {
+            "drawer_id": "$loc.drawer_id"
+          },
+          "on_failure": "skip",
+          "timeout_sec": 60
+        },
+        {
+          "id": "f2d",
+          "action": "query_ontology",
+          "params": {
+            "state": "open.{{loc.drawer_id}}"
+          },
+          "output": "drawer_after",
+          "on_failure": "skip"
+        },
+        {
+          "id": "f2s",
+          "action": "if",
+          "on_failure": "skip",
+          "cond": {
+            "op": "and",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "$drawer_before.value",
+                  true
+                ]
+              },
+              {
+                "op": "==",
+                "args": [
+                  "$drawer_after.value",
+                  false
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "id": "f2s.1",
+              "action": "speak",
+              "params": {
+                "text": "서랍을 닫았어요"
+              },
+              "on_failure": "skip",
+              "timeout_sec": 20
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "f3g",
+      "action": "if",
+      "cond": {
+        "op": "==",
+        "args": [
+          "$announce_pending",
+          false
+        ]
+      },
+      "then": [
+        {
+          "id": "f3",
+          "action": "if",
+          "cond": {
+            "op": "and",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "$hold.value",
+                  "empty"
+                ]
+              },
+              {
+                "op": "==",
+                "args": [
+                  "$holding",
+                  false
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "id": "f3.1",
+              "action": "move_to_named_pose",
+              "params": {
+                "pose_name": "home"
+              },
+              "timeout_sec": 60
+            }
+          ],
+          "else": [
+            {
+              "id": "f3.2",
+              "action": "set_var",
+              "params": {
+                "name": "stopped_holding",
+                "value": "물품을 쥔 채 정지 — 서랍 닫기·홈 이동 안 함, 사람 복구 (#168 S-17)"
+              }
+            }
+          ]
+        }
+      ],
+      "else": [
+        {
+          "id": "f3n",
+          "action": "set_var",
+          "params": {
+            "name": "no_motion_reason",
+            "value": "첫 안내 실패 — 로봇 동작 없음 (정본 수락 TTS, #249·#256 E 리뷰)"
+          }
+        }
+      ]
+    }
+  ]
+}
