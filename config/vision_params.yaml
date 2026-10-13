@@ -12,6 +12,11 @@ depth_blob:
   min_valid_px: 50             # 유효 뎁스 픽셀이 이보다 적으면 DEPTH_INVALID
   min_blob_px: 40              # 덩어리가 이보다 작으면 yaw_valid=false
   top_percentile: 95           # top_z = 덩어리 높이의 백분위 (이상치 완충)
+  top_exclude_near_px: 15      # [추정 10/13] 분할 모델: top_z 를 잴 때 자기 높이 중앙값보다 top_exclude_min_dz_m 이상 높은 이웃(결과에 남은 검출) 마스크에서
+                               # 이 거리(px) 안 픽셀은 뺀다 — 마스크 가장자리가 높은 이웃에 걸쳐 p95 가 튐(10/12 판 밑 지우개 25.8 mm, 실제 11.5).
+                               # 0 이면 끔(이전과 같음). 가림 판정 전체 윗면(occlusion max_over_lower_m·fallback_cover_min_m)도 같은 마스크, position x·y 는 새 top_z/2 로 다시 투영
+  top_exclude_min_dz_m: 0.004  # [추정 10/13] 위 '높은 이웃' 기준. occlusion.max_over_lower_m(4 mm)과 값만 같고 뜻은 다름(이웃 고르기 vs 관계 버리기)
+                               # 덜어낸 윗면은 min(원래 값, 온톨로지 높이 size_m z) 아래로 낮추지 않음 — 검은 립밤 뎁스가 낮게 잡혀 15.9 mm 까지 내려감(10/07 판 밑) [실측 PC1 덤프 158장 10/13]
   min_short_side_m: 0.008      # 덩어리 짧은 변이 이보다 얇으면 yaw_valid=false
   size_tolerance: 0.5          # 덩어리 긴 변이 명목 긴 변의 ±50% 를 벗어나면 yaw_valid=false (겹침·병합 의심)
 region:

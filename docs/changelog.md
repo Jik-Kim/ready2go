@@ -2,6 +2,7 @@
 
 > 상위 인덱스: [docs/README.md](README.md)
 
+- **2026-10-13 A 분할 모델 top_z 높은 이웃 번짐 보정 (#229 남은 관찰)**: `core/inspect_real.py`·`core/occlusion.py`(`top_masks`) — 자기보다 4 mm 이상 높은 이웃 마스크에서 15 px 안 픽셀을 빼고 `top_z`·가림 판정 전체 윗면을 잼, min(원래, 명목 높이) 아래로는 안 낮춤, 보정된 물체는 position x·y 도 다시 투영(최대 1.0 mm)하고 서랍 안 검사를 다시 해 벽 밖이면 원래 값. `vision_params.yaml` `depth_blob.top_exclude_near_px`·`top_exclude_min_dz_m`(0 이면 끔). 판 밑 지우개 보정 전 25.8 → 보정 후 17.8 mm, 덤프 158장 main 대비 목표·오류 변화 0. 결과 형식 무변(값만: top_z·position), `docs/vision.md`.
 - **2026-10-13 A YOLO 은퇴 클래스 (#23 당근 펜, E 요청)**: `config/yolo_retired_classes.txt`(새, `carrot_pen`) — `yolo_classes.txt` 11개·번호는 그대로 두고, `tools/yolo/build_dataset.py` `class_errors`(validate_contracts 도 같은 함수)가 온톨로지 또는 은퇴 목록에 있는 이름만 허용(미등록·오타·중복·고정 목록에 없는 은퇴 이름은 실패). E 의 온톨로지 당근 펜 제거 선행. `tools/yolo/README.md`·`models/README.md`.
 - **2026-10-12 C 10/13 PC2 회차 확인 목록**: `practice/C/2026-10-13_pc2_checklist.md`(새) — 코드 기준(#249·#250)·Python 0줄 기준점, 10/12 남은 Unpacking 확인 4가지(깨끗한 S2·#250 실물·S3·S1), 목표 5종, 3차 챌린지 새 복합 작업 2종 절차(`return_items` 는 트레이 집기가 필요해 지금 실물 불가, C 후보 2개).
 - **2026-10-12 C 10/12 기록·진행표를 실제 진행 방식으로**: `practice/C/2026-10-12_practice.md`(새) — PC2 Unpacking 실물 회차(14:30·16:21 A안 성공, 16:36 원위치 1.7 mm 단 사람 개입, 15:11·16:33 쥔 채 정지)와 "립밤 굴러감"은 가려진 조각 가운데 위치의 측정 차이였음, 리뷰로 잡힌 C 실수. 진행표 — PC2 한 대 터미널 5개(1-1절)·시작 상태 임시 변경과 되돌리기·회차 중 사람 개입은 기록·배치는 시작 전에·B #243 물건 위 놓기 메모. `CURRENT.md` 10/12 기준.
