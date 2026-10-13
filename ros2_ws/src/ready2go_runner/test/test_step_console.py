@@ -76,25 +76,25 @@ def test_console_follows_run_order_and_matches_saved_steps():
     assert all(result.run_id[-6:] in line for _, line in lines)
     texts = "\n".join(line for _, line in lines)
     assert texts.index("▶ s3.e2 서랍 열기") < texts.index("✅ s3.e2 서랍 열기")           # 시작 → 끝
-    assert "finally ✅ f2s.1 안내 음성 (speak)" in texts and "✅ s5.1.e5 물체 조회" in texts
+    assert "finally ✅ f2s.1 안내 음성 (speak)" in texts and "✅ s5.1.e2 물체 조회" in texts
     assert all(level == sc.INFO for level, _ in lines if level != "start")             # 성공 실행은 경고·오류 없음
 
 
 def test_failure_run_shows_failed_step_then_finally():
     result, lines, _ = run_with_console(MockRobot(fail={"pick_object": ["GRASP_FAILED"]}))
-    assert (result.overall_status, result.failed_step) == ("FAILED", "s5.1.e6")
+    assert (result.overall_status, result.failed_step) == ("FAILED", "s5.1.e3.o1.1")   # 첫 집기 (E 10/13 pick)
     errors = [line for level, line in lines if level == sc.ERROR]
-    assert any("❌ s5.1.e6 집기" in line for line in errors)
+    assert any("❌ s5.1.e3.o1.1 집기" in line for line in errors)
     assert not any("✅ s5.1 " in line for _, line in lines)                          # 실패를 성공으로 찍지 않음
     after = [line for _, line in lines][[line for _, line in lines].index(errors[0]):]
     assert any("finally ✅ f2 서랍 닫기" in line for line in after)
 
 
 def test_estop_run_marks_stop_and_skipped_finally():
-    result, lines, _ = run_with_console(MockRobot(fail={"nudge_object": ["ESTOP"]}))
+    result, lines, _ = run_with_console(MockRobot(fail={"pick_object": ["WALL_TOO_CLOSE"], "nudge_object": ["ESTOP"]}))
     assert result.overall_status == "ABORTED"
     texts = "\n".join(line for _, line in lines)
-    assert "🛑 s5.1.e3 끌기" in texts and "finally ⏭ f2 서랍 닫기 (close_drawer) · 건너뜀 (ABORTED)" in texts
+    assert "🛑 s5.1.e3.o2.1 끌기" in texts and "finally ⏭ f2 서랍 닫기 (close_drawer) · 건너뜀 (ABORTED)" in texts
 
 
 def test_console_errors_never_change_run_or_records():
