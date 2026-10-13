@@ -209,3 +209,47 @@ def test_registered_achieve_goal_task_still_wins():
     d = router({"achieve_goal": custom}).decide(json.dumps(GOAL, ensure_ascii=False), running=False, locked=False)
     assert d.kind == ir.RUN and d.task is custom
 
+
+
+END_TASK = {"intent": "end_task", "targets": [], "confidence": 0.3, "request_id": "e-1", "boot_id": "b", "run_id": "r"}
+
+
+@pytest.mark.parametrize("running, locked", [(True, False), (False, True), (False, False)])
+def test_end_task_is_accepted_regardless_of_confidence_and_lock(running, locked):
+    """계약 W3 end_task (#271, E3): 정지처럼 신뢰도·잠김과 상관없이 END — 대상 확인·정지·폐기는 노드가 (잠금 해제 아님)."""
+    d = router().decide(json.dumps(END_TASK), running=running, locked=locked)
+    assert (d.kind, d.reason) == (ir.END, None) and d.summary()["decision"] == "end"
+
+
+def test_end_task_without_required_fields_is_bad_intent():
+    for drop in ("boot_id", "run_id", "request_id"):
+        doc = {k: v for k, v in END_TASK.items() if k != drop}
+        assert router().decide(json.dumps(doc), running=True, locked=False).reason == ir.BAD_INTENT, drop
+
+
+RECOVER = {"intent": "recover", "targets": [], "confidence": 0.9, "request_id": "r-1", "boot_id": "b", "event_id": "h1"}
+
+
+def test_recover_needs_confidence_and_required_fields():
+    """계약 W3 recover: 잠금을 푸는 쪽이라 신뢰도는 일반 요청과 같게 — 판단·B 조회·해제는 노드가."""
+    assert router().decide(json.dumps(RECOVER), running=False, locked=True).kind == ir.RECOVER
+    low = router().decide(json.dumps({**RECOVER, "confidence": 0.3}), running=False, locked=True)
+    assert (low.kind, low.reason) == (ir.HOLD, ir.LOW_CONFIDENCE)
+    for drop in ("boot_id", "event_id", "request_id"):
+        doc = {k: v for k, v in RECOVER.items() if k != drop}
+        assert router().decide(json.dumps(doc), running=False, locked=True).reason == ir.BAD_INTENT, drop
+
+
+def test_resume_intents_route_and_only_spoken_ones_need_confidence():
+    base = {"targets": [], "boot_id": "b", "event_id": "h1", "run_id": "r1"}
+    register = {**base, "intent": "resume_register", "confidence": 0.1, "question_id": "q", "source": {"stt_text": None}}
+    expired = {**base, "intent": "resume_answer", "confidence": 0.1, "question_id": "q", "answer": "expired",
+               "answer_reason": "no_answer"}
+    spoken = {**base, "intent": "resume_answer", "confidence": 0.3, "question_id": "q", "answer": "decline"}
+    request = {**base, "intent": "resume", "confidence": 0.3, "request_id": "x", "phase": "request",
+               "evidence": {"rec_end_s": 1.0, "request_s": 1.1, "stt_s": 1.0}}
+    assert router().decide(json.dumps(register), running=False, locked=False).kind == ir.RESUME
+    assert router().decide(json.dumps(expired), running=False, locked=False).kind == ir.RESUME
+    assert router().decide(json.dumps(spoken), running=False, locked=False).reason == ir.LOW_CONFIDENCE
+    assert router().decide(json.dumps(request), running=False, locked=False).reason == ir.LOW_CONFIDENCE
+    assert router().decide(json.dumps({**spoken, "confidence": 0.9}), running=False, locked=False).kind == ir.RESUME

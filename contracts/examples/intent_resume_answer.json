@@ -1,0 +1,19 @@
+{
+  "intent": "resume_answer",
+  "targets": [],
+  "confidence": 0.92,
+  "source": {
+    "stt_text": "응 이어서 해"
+  },
+  "boot_id": "3f9c1a7b2e44",
+  "event_id": "h1-2026-10-13T05:10:31.204Z",
+  "run_id": "2026-10-13T05:10:05Z_4b2e91",
+  "question_id": "q-01",
+  "answer": "resume",
+  "evidence": {
+    "rec_start_after_tts_s": 0.4,
+    "rec_end_after_tts_s": 2.1,
+    "request_after_tts_s": 2.3,
+    "stt_s": 1.2
+  }
+}

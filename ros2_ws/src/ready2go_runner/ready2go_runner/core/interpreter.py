@@ -27,6 +27,7 @@ discard_suspended() 는 보존한 실행을 지금까지처럼 ABORTED 로 끝�
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timedelta, timezone
 import threading
 import time
 import uuid
@@ -217,10 +218,12 @@ class Halted(Exception):
 class Runner:
     def __init__(self, execute: Execute, schema: dict | None = None,
                  clock: Callable[[], float] = time.monotonic, log_store: LogStore | None = None,
-                 ontology: dict | None = None, resumable: bool = False, resume_window_sec: float = 30.0):
+                 ontology: dict | None = None, resumable: bool = False, resume_window_sec: float = 30.0,
+                 admission=None):
         self.execute = execute
         self.resumable = resumable              # #152: 중단 시 재개 대기로 보존 (기본 꺼짐 = 지금 동작)
         self.resume_window_sec = resume_window_sec   # 잠금이 풀린 뒤 재개를 받는 시간 [팀 확정 필요]
+        self.admission = admission              # 재개 질문·답·독립 요청 접수 (core/resume_admission, 노드가 연결)
         self.schema = schema                    # contracts/task.schema.json 내용 (노드가 읽어서 전달)
         self.clock = clock                      # 소요 시간·timeout 측정용 (테스트에서 가짜 시계 주입)
         self.log_store = log_store              # 실행 이력 저장 (FallbackLogStore: MongoDB → JSONL), None 이면 기록 안 함
@@ -252,17 +255,22 @@ class Runner:
         self._event_id: str | None = None       # 정지 사건 ID: 잠길 때마다 새로 (재개 요청이 이 사건에 대한 것인지)
         self._suspended: _Run | None = None     # 재개 대기 중인 실행
         self._offered_at: float | None = None   # 재개 대기 중 잠금이 풀린 시각 (clock)
+        self._offer_until: str | None = None    # 그때 정한 제안 기한 표시 시각 (UTC) — 조회마다 다시 계산하지 않음 (#286 E 리뷰)
         self._pos: list[tuple[int, str]] = []   # 지금 실행 중인 스텝 위치 (바깥 → 안쪽)
         self._branch_at: dict[tuple, str] = {}  # 지금 실행 문맥의 _Run.branch_at
         self._halt_path: list | None = None     # 중단이 처음 난 스텝 위치
         self._halt_started = False              # 그 스텝이 시작된 뒤 멈췄는지
         self._step_started = False              # 가장 최근 _run_step 이 기록을 만들었는지 (시작 전 중단 구분)
 
-    def halt(self, code: str = HALTED, source: str = "runner") -> None:
+    def halt(self, code: str = HALTED, source: str = "runner", run_id: str | None = None) -> bool:
         """실행 중인 태스크를 멈추고 resume() 전까지 잠근다. 진행 중인 동작의 취소는 백엔드 책임.
         source: 정지 요청 출처 — "service"(/runner/estop)·"voice"(음성 cancel)·"backend"(스킬 서버 ESTOP 등 중단 코드).
-        정지 요청 시각·출처·취소 요청한 동작 수는 실행 기록 halts[] 에 남는다 (#187, AC-SAF-02 C 몫)."""
+        정지 요청 시각·출처·취소 요청한 동작 수는 실행 기록 halts[] 에 남는다 (#187, AC-SAF-02 C 몫).
+        run_id: 그 실행이 지금 실행 중일 때만 멈춤 (end_task, #285 E 리뷰 — 대상 확인 뒤 끝나고 새 실행이 시작됐으면
+        새 실행을 멈추지 않음). 멈추지 않았으면 False."""
         with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
+            if run_id is not None and not (self._in_run and self._run_id == run_id):
+                return False
             first = not self._halt.is_set()
             if first:
                 self._halt_code = code
@@ -277,6 +285,7 @@ class Runner:
             canceled = self.on_halt()
             if isinstance(canceled, int) and not isinstance(canceled, bool):
                 self._halt_info["canceled_goals"] = canceled
+        return True
 
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
@@ -285,6 +294,8 @@ class Runner:
             self._halt.clear()
             if self._suspended is not None:     # 재개 대기: 이때부터 resume_window_sec 안에 재개 요청을 받음
                 self._offered_at = self.clock()
+                self._offer_until = (datetime.now(timezone.utc) + timedelta(seconds=self.resume_window_sec)) \
+                    .isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     @property
     def halted(self) -> bool:
@@ -295,6 +306,34 @@ class Runner:
         """중단 요청이 들어왔지만 이번 실행이 아직 중단 처리 전. 이때 새 원자 동작을 보내지 않는다(RosClients).
         중단 처리 뒤 finally 의 비동작(speak 등)은 Runner 가 골라 보내므로 막지 않는다."""
         return self._halt.is_set() and not self._aborted
+
+    @property
+    def resume_offer(self) -> dict | None:
+        """재개 대기(보존 작업)가 있을 때 /runner/status halt.resume (계약 W4, #271). 없으면 None.
+        offered = 잠금이 풀렸고 C 제안 기한(resume_window_sec) 안 — 재개 허가가 아님. question·request = 접수 기록
+        ({id, state, registered_at}, 없으면 null). hold_until·hold_remaining_s = 지금 열린 C 기한(열린 질문·요청, 없으면
+        제안 창)의 남은 시간, 보존 작업 기한 아님."""
+        ctx = self._suspended
+        if ctx is None:
+            return None
+        step = _step_at(ctx, ctx.path)
+        window = None
+        if self._offered_at is not None:
+            window = max(0.0, self.resume_window_sec - (self.clock() - self._offered_at))
+        view = self.admission.view(self._event_id, ctx.doc["run_id"]) if self.admission else {}
+        remaining, until = window, (None if window is None else self._offer_until)   # 고정 시각 (#286 E 리뷰)
+        if view.get("remaining") is not None:   # 열린 질문·요청이 있으면 그 C 기한 (등록 때 정한 고정 시각)
+            remaining, until = view["remaining"], view["until"]
+        return {"offered": not self._halt.is_set() and bool(window),
+                "from_step": step.get("id") if step else None,
+                "needs": _reentry_need(step) if ctx.step_started else "none",
+                "question": view.get("question"), "request": view.get("request"),
+                "hold_until": until, "hold_remaining_s": None if remaining is None else round(remaining, 1)}
+
+    @property
+    def active_run_id(self) -> str | None:
+        """지금 실행 중인 run_id (없으면 None) — end_task 가 대상 실행을 확인할 때 (#271)."""
+        return self._run_id if self._in_run else None
 
     @property
     def halt_summary(self) -> dict | None:
@@ -311,6 +350,7 @@ class Runner:
                 "canceled_goals": info.get("canceled_goals"), "stop": stop_state(info, self._in_run),
                 "response_code": info.get("response_code"),
                 "response_received_at": info.get("response_received_at"),
+                "resume": self.resume_offer,
                 "locked": self._halt.is_set()}
 
     @property
@@ -450,9 +490,11 @@ class Runner:
                 "step_started": ctx.step_started, "needs": _reentry_need(step) if ctx.step_started else "none",
                 "recovered": not self._halt.is_set()}
 
-    def check_resume(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None) -> list[str]:
+    def check_resume(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None,
+                     window: bool = True) -> list[str]:
         """재개 거절 이유 목록 (비면 재개 가능). blockers: 호출 쪽 관측 검사 결과 (STATE_MISMATCH 등).
-        observed: 실제 상태 {"gripper": "empty"|"holding"} — 시작된 스텝에서 멈췄으면 REENTRY_GRIPPER 로 판단."""
+        observed: 실제 상태 {"gripper": "empty"|"holding"} — 시작된 스텝에서 멈췄으면 REENTRY_GRIPPER 로 판단.
+        window=False: 제안 창(resume_window_sec)을 보지 않음 — 질문 답·독립 요청은 접수(admission)가 자기 C 기한을 확인."""
         ctx = self._suspended
         if ctx is None:
             return [NOTHING_TO_RESUME]
@@ -461,7 +503,7 @@ class Runner:
             reasons.append(HALT_EVENT_MISMATCH)
         if self._halt.is_set():
             reasons.append(NOT_RECOVERED)
-        elif self._offered_at is not None and self.clock() - self._offered_at > self.resume_window_sec:
+        elif window and self._offered_at is not None and self.clock() - self._offered_at > self.resume_window_sec:
             reasons.append(RESUME_EXPIRED)
         step = _step_at(ctx, ctx.path)
         if ctx.step_started:                    # 시작 뒤 멈춤 → 실물에 부분 동작이 남았을 수 있음 (B #152)
@@ -484,16 +526,34 @@ class Runner:
                     reasons.append(PRE_UNMET)
         return reasons + [b for b in blockers if b not in reasons]
 
-    def resume_run(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None) -> RunResult:
+    def resume_run(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None,
+                   window: bool = True) -> RunResult:
         """재개 대기 실행을 중단된 스텝부터 이어 실행. 거절이면 ResumeRejected (보존·잠금 상태 그대로)."""
-        reasons = self.check_resume(event_id, blockers, observed)
-        if reasons:
-            raise ResumeRejected(reasons)
-        ctx, self._suspended, self._offered_at = self._suspended, None, None
-        ctx.halts[-1]["resumed_at"] = utc_iso()
-        self._at_pose = None                    # 멈춘 동안 사람이 팔을 옮겼을 수 있음
-        self._run_id, self._records = ctx.doc["run_id"], ctx.records
+        return self.continue_resumed(self.begin_resume(event_id, blockers, observed, window))
+
+    def begin_resume(self, event_id: str | None, blockers: list[str] = (), observed: dict | None = None,
+                     window: bool = True) -> _Run:
+        """재개 최종 검사 + 시작 전이 (거절이면 ResumeRejected, 보존 그대로). 통과하면 보존을 꺼내 실행 중으로 바꿈 —
+        노드가 결정 발행 전에 부르고(최종 검사 결과 = 외부 결정, #291 E 리뷰), 이어 실행은 continue_resumed 로 작업 스레드에서."""
+        with self._halt_lock:                   # 검사와 전이 사이에 정지가 끼지 않게 — 뒤에 온 정지는 이 실행의 새 사건
+            reasons = self.check_resume(event_id, blockers, observed, window)
+            if reasons:
+                raise ResumeRejected(reasons)
+            ctx, self._suspended, self._offered_at = self._suspended, None, None
+            ctx.halts[-1]["resumed_at"] = utc_iso()
+            self._at_pose = None                # 멈춘 동안 사람이 팔을 옮겼을 수 있음
+            self._run_id, self._records = ctx.doc["run_id"], ctx.records
+            self._in_run = True
+        return ctx
+
+    def continue_resumed(self, ctx: _Run) -> RunResult:
         return self._continue(ctx, ctx.path)
+
+    @property
+    def stop_settled(self) -> bool:
+        """지금 정지 사건의 정지가 끝났는지 — halt.stop confirmed(백엔드 최종 결과 받음) 또는 none(요청 때 보낸 동작 없음).
+        requested·unconfirmed 면 False: 실제 정지를 모르므로 보존 작업을 end_task 로 폐기하지 않음 (#285 E 리뷰)."""
+        return stop_state(dict(self._halt_info), self._in_run) in ("confirmed", "none")
 
     def discard_suspended(self) -> RunResult | None:
         """재개하지 않음 ("아니"·시간 초과·상태 초기화): 지금까지처럼 ABORTED 로 끝냄. finally 는 비동작만."""
