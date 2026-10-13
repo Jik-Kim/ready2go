@@ -198,7 +198,7 @@ J='{"intent": "achieve_goal", "goals": [{"predicate": "located_in", "subject": "
 
 | 상황 | 할 일 |
 | :--- | :--- |
-| 비상정지·"멈춰" | Runner 잠김(`/runner/status` `phase: halted`). B 가 실물 확인 → 원위치 → Runner 재시작 또는 B 절차. 자동 재개 없음 |
+| 비상정지·"멈춰" | Runner 잠김(`/runner/status` `phase: halted`). B 가 실물 확인 → 원위치 → Runner 재시작 또는 B 절차. 자동 재개 없음. **펜던트 비상정지를 풀었으면 펜던트에서 TCP·툴을 다시 선택**(풀면 선택이 풀려 B 가 모든 동작을 `TOOL_NOT_SET` 으로 거부 — B 실측 10/13). 재개 모드의 "복구해"도 W1 `tcp_tool_ok: false` 면 C 가 `TCP_TOOL_NOT_OK` 로 거절 |
 | 놓침·센서 이상 (`OBJECT_DROPPED`·`SENSOR_INVALID`) | 즉시 정지·잠금(#78). 사람이 물건 회수·원위치 → `reset_state` → 새 요청 |
 | 쥔 채 멈춤 ("물건을 옮기다 멈췄어요") | 홈 이동 없음. B 가 그리퍼 확인 후 수동 처리 |
 | 관측 오류 반복 (`REGION_NOT_VISIBLE`) | 카메라 앞 가림·케이블 확인 (A), 로그 "지역 바닥 보인 비율" |

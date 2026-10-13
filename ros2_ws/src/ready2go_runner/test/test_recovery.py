@@ -39,6 +39,7 @@ def test_all_good_unlocks_and_mock_matches_memory():
     ("sensors_ok", False, "SENSORS_NOT_OK"), ("comm_ok", False, "COMM_NOT_OK"), ("tcp_tool_ok", False, "TCP_TOOL_NOT_OK"),
     ("sensors_ok", None, "SENSORS_OK_UNKNOWN"), ("stopped", "yes", "STOPPED_UNKNOWN"),
     ("external_force", 99.0, "EXTERNAL_FORCE"), ("external_force", None, "EXTERNAL_FORCE_UNKNOWN"),
+    ("external_force", True, "EXTERNAL_FORCE"), ("external_force", "push", "EXTERNAL_FORCE_UNKNOWN"),
     ("stamp", None, "STAMP_UNKNOWN"), ("stamp", "어제", "STAMP_UNKNOWN"),
     ("stamp", (NOW - timedelta(seconds=5)).isoformat(), STATE_STALE),
     ("drawers", None, "DRAWERS_UNKNOWN"), ("drawers", {"drawer_top": None}, "DRAWERS_UNKNOWN"),
@@ -104,12 +105,12 @@ def test_b_drawer_distance_means_open_and_missing_key_is_unknown():
 
 
 def test_b_example_response_with_real_limits():
-    """#297 응답 그대로 + 실물 기준 파일: 외력 기준 미정(null)이라 아직 거절 — 나머지 칸은 통과."""
+    """#297 응답 그대로(외력 null) + 실물 기준 파일: 외력 모름이라 아직 거절 — 나머지 칸은 통과."""
     limits = load_limits(str(RECOVERY_FILE))
     assert limits["external_force_max_n"] is None and limits["stamp_max_age_s"] == 2.0
     check = parse_check(True, json.dumps(B_EXAMPLE))
-    assert recover_blockers(check, TOP_OPEN, limits, now=NOW) == ["EXTERNAL_FORCE_LIMIT_UNSET"]
-    assert recover_blockers(check, EMPTY, limits, now=NOW) == ["EXTERNAL_FORCE_LIMIT_UNSET", STATE_MISMATCH]
+    assert recover_blockers(check, TOP_OPEN, limits, now=NOW) == ["EXTERNAL_FORCE_UNKNOWN"]
+    assert recover_blockers(check, EMPTY, limits, now=NOW) == ["EXTERNAL_FORCE_UNKNOWN", STATE_MISMATCH]
     with_force = {**limits, "external_force_max_n": 5.0}
     assert recover_blockers({**check, "external_force": 1.0}, TOP_OPEN, with_force, now=NOW) == []
 
@@ -118,3 +119,13 @@ def test_b_read_failure_or_bad_json_is_unavailable():
     assert parse_check(False, json.dumps(B_EXAMPLE)) is None                # B 가 값을 다 못 읽음
     assert parse_check(True, "not json") is None and parse_check(True, "[1]") is None
     assert recover_blockers(parse_check(False, "{}"), EMPTY, MOCK_LIMITS, now=NOW) == [B_CHECK_UNAVAILABLE]
+
+
+def test_external_force_bool_from_b_is_used_as_is():
+    """B 계약 예정(10/13 실측): external_force = B 판정 bool. false 면 C 기준 없이도 통과, true 면 거절, null 은 모름."""
+    limits = load_limits(str(RECOVERY_FILE))                             # external_force_max_n null 그대로
+    base = parse_check(True, json.dumps(B_EXAMPLE))
+    assert recover_blockers({**base, "external_force": False}, TOP_OPEN, limits, now=NOW) == []
+    assert recover_blockers({**base, "external_force": True}, TOP_OPEN, limits, now=NOW) == ["EXTERNAL_FORCE"]
+    assert recover_blockers({**base, "external_force": None}, TOP_OPEN, limits, now=NOW) == ["EXTERNAL_FORCE_UNKNOWN"]
+    assert recover_blockers({**base, "external_force": 1.0}, TOP_OPEN, limits, now=NOW) == ["EXTERNAL_FORCE_LIMIT_UNSET"]

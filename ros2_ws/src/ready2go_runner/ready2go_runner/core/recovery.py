@@ -94,13 +94,19 @@ def recover_blockers(check: dict | None, runner_state: dict, limits: dict | None
         elif value is not want:
             blockers.append(code)
 
+    # 외력: B 가 판정한 bool(true = 지속 외력, B 실측 기준 |F| > 5 N 이 0.5 s 넘게 — B 계약 PR 예정 10/13) 이면 그대로,
+    # 숫자(N)면 C 기준 external_force_max_n 으로, 그 밖(null·없음·다른 형)은 모름 → 거절
     force, force_max = check.get("external_force"), limits.get("external_force_max_n")
-    if force_max is None:
-        blockers.append("EXTERNAL_FORCE_LIMIT_UNSET")        # 힘 기준 미합의 → 임의 수치로 허가 안 함
-    elif not isinstance(force, (int, float)) or isinstance(force, bool):
+    if isinstance(force, bool):
+        if force:
+            blockers.append("EXTERNAL_FORCE")
+    elif isinstance(force, (int, float)):
+        if force_max is None:
+            blockers.append("EXTERNAL_FORCE_LIMIT_UNSET")    # 숫자인데 C 기준 미합의 → 임의 수치로 허가 안 함
+        elif abs(force) > force_max:
+            blockers.append("EXTERNAL_FORCE")
+    else:
         blockers.append("EXTERNAL_FORCE_UNKNOWN")
-    elif abs(force) > force_max:
-        blockers.append("EXTERNAL_FORCE")
 
     age, age_max = _age_s(check.get("stamp"), now), limits.get("stamp_max_age_s")
     if age_max is None:
@@ -154,7 +160,7 @@ def mock_check(runner_state: dict, now: datetime | None = None) -> dict:
     drawers = {k: v for k, v in (runner_state.get("open") or {}).items() if k.startswith("drawer")}
     stamp = (now or datetime.now(timezone.utc)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     return {"stopped": True, "estop_active": False, "controller_ready": True, "b_locked": False,
-            "sensors_ok": True, "comm_ok": True, "tcp_tool_ok": True, "external_force": 0.0,
+            "sensors_ok": True, "comm_ok": True, "tcp_tool_ok": True, "external_force": False,   # B 판정 bool 형식
             "gripper": {"state": "empty" if remembered == "empty" else "holding",
                         "held_id": None if remembered == "empty" else f"{remembered}#1"},
             "drawers": drawers, "stamp": stamp, "mock": True}
