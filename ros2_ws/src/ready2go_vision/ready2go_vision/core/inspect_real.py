@@ -236,6 +236,12 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
             xy = ray_plane_xy(u, v, K, T_drawer_cam, top_z / 2)
             if xy is None:
                 continue
+            reg = params.get("region", {})                                 # 바뀐 투영 평면(top_z/2)으로 서랍 안 검사를 다시 — 넘으면 보정을 버리고 원래 값 (E #261 리뷰)
+            if interior_m is not None and not mask_footprint_inside(det["mask"], K, T_drawer_cam, top_z / 2, interior_m, reg.get("edge_tolerance_m", 0.01),
+                                                                    reg.get("mask_footprint_trim_pct", 1.0)):
+                if found_note[i] is not None:
+                    found_note[i].update(top_z_near_higher={"kept_original": top_z, "reason": "보정 값으로는 footprint 가 서랍 안쪽 밖"})
+                continue
             top_mask[id(det)] = t
             if found_note[i] is not None:
                 found_note[i].update(top_z_near_higher={"before": found[i]["top_z"], "kept_ratio": round(float(t.sum()) / float(det["mask"].sum()), 3)},

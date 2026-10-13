@@ -248,3 +248,23 @@ def test_top_z_not_lowered_below_nominal():
     """번짐을 덜어도 명목 높이보다 낮추지 않는다(검은 물체 뎁스가 낮게 잡히는 경우)."""
     on, _ = _bled(0.009)
     assert on["top_z"] == pytest.approx(ITEMS["eraser"]["size_m"][2])
+
+
+def test_top_z_correction_rechecks_drawer_boundary():
+    """보정 값(낮아진 top_z)으로 position·footprint 투영 평면(top_z/2)이 바뀌므로 서랍 안 검사를 다시 한다.
+    보정 값으로 벽 밖이 되면 보정을 버리고 원래 값 — 이 PR 로 결과에서 물체가 빠지지 않게 (E #261 리뷰)."""
+    objs = [("eraser", 0.188, 0.15, (0.0525, 0.022), 0.0115),                       # 벽(x 0.1997) 쪽 끝 0.2143
+            ("caramel_box", 0.182, 0.15 + 0.011 + 0.0375 - 0.003, (0.049, 0.075), 0.035)]
+    depth, masks = scene(objs)
+    vv, uu = np.nonzero(masks[0])
+    m = masks[0].copy(); m[vv.min() - 10:vv.min(), uu.min():uu.max() + 1] = True     # 높은 이웃 쪽 번짐
+    out = {}
+    for near in (0, 15):
+        params = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], "top_exclude_near_px": near}}
+        dbg = []
+        ok, _, js = inspect_scene(dets_of(objs, [m, masks[1]]), depth, K, T, params, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+        assert ok
+        out[near] = (json.loads(js)["target"], next(d for d in dbg if d.get("class") == "eraser"))
+    assert out[0][0] is not None and out[15][0] is not None                          # 끈 상태에서 결과에 있던 물체는 그대로 남음
+    assert out[15][0]["top_z"] == out[0][0]["top_z"] and out[15][0]["pose"] == out[0][0]["pose"]
+    assert "footprint" in out[15][1]["top_z_near_higher"]["reason"]
