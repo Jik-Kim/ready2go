@@ -1,18 +1,21 @@
 """기존 web/ 정적 대시보드를 제공하는 Flask 애플리케이션.
 
 이 모듈은 기존 HTML·CSS·JavaScript 목업을 Flask를 통해 동일하게 제공한다.
-이슈 #267의 2단계에서는 실행 진입점이 전달한 ROS 상태 캐시를 보관하지만 아직
-REST API로 공개하지 않는다. 다음 단계에서 같은 app factory에 읽기 전용 API를 추가한다.
+이슈 #267의 3단계에서는 실행 진입점이 전달한 ROS 상태 캐시의 일관된 복사본을
+읽기 전용 REST로 제공한다. 브라우저는 같은 origin의 이 응답만 읽고 ROS에 직접
+접속하지 않는다.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from typing import Mapping
 
-from flask import Flask, abort, send_from_directory
+from flask import Flask, abort, jsonify, send_from_directory
 
 from ready2go_web.core.state_cache import StateCache
 
@@ -20,11 +23,21 @@ from ready2go_web.core.state_cache import StateCache
 # Python 패키지는 web/ready2go_web/에 있으므로 부모 폴더가 기존 정적 UI의 루트다.
 DEFAULT_WEB_ROOT = Path(__file__).resolve().parents[1]
 
+# 이번 웹 내부 REST 형식의 버전이다. ROS wire 계약 버전과는 별개다.
+API_SCHEMA_VERSION = 1
+
+# 브라우저가 같은 origin에서 조회할 읽기 전용 상태 경로다.
+STATUS_API_PATH = "/api/status"
+
+# 이 값은 이슈 #267에서 정한 브라우저 권장 조회 간격이며 ROS 발행 주기가 아니다.
+POLL_INTERVAL_MS = 1_000
+
 # 현재 index.html이 직접 요청하는 파일만 공개한다. 저장소의 다른 파일은 제공하지 않는다.
 PUBLIC_ASSETS = frozenset(
     {
         "app.js",
         "demo-data.js",
+        "status-api.js",
         "styles.css",
     }
 )
@@ -61,10 +74,26 @@ def settings_from_env(environ: Mapping[str, str] | None = None) -> ServerSetting
     return ServerSettings(host=host, port=port)
 
 
+def _utc_now() -> datetime:
+    """REST 응답 생성 시각을 시간대가 포함된 UTC로 만든다."""
+    # 서버 PC의 로컬 시간대 설정과 무관한 절대 시각을 제공한다.
+    return datetime.now(timezone.utc)
+
+
+def _isoformat_utc(value: datetime) -> str:
+    """시간대가 있는 시각만 REST용 UTC ISO 8601 문자열로 변환한다."""
+    # naive datetime은 PC마다 다르게 해석될 수 있으므로 시험 주입값도 허용하지 않는다.
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("REST 응답 시각은 timezone-aware datetime이어야 합니다")
+    # 브라우저 Date가 바로 처리할 수 있도록 UTC의 +00:00을 Z로 정규화한다.
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def create_app(
     web_root: str | Path | None = None,
     *,
     state_cache: StateCache | None = None,
+    utcnow: Callable[[], datetime] = _utc_now,
 ) -> Flask:
     """기존 UI를 제공하는 Flask app을 생성한다.
 
@@ -81,9 +110,64 @@ def create_app(
     # 후속 REST 구현과 시험이 실제 정적 루트를 확인할 수 있도록 문자열로 기록한다.
     app.extensions["ready2go_web"] = {
         "static_root": str(static_root),
-        # 2단계에서는 서버와 ROS가 같은 객체를 공유하는지만 구성하고 외부로 노출하지 않는다.
+        # REST 핸들러는 요청마다 이 같은 캐시에서 잠금 스냅샷만 가져온다.
         "state_cache": state_cache,
     }
+
+    def api_response(payload: Mapping[str, object], status_code: int = 200):
+        """모든 API 응답에 JSON MIME과 재사용 금지 헤더를 동일하게 적용한다."""
+        # Flask jsonify는 Content-Type을 application/json으로 설정하고 안전하게 직렬화한다.
+        response = jsonify(payload)
+        # 상태 화면이 브라우저·프록시 캐시에 남아 현재값처럼 재사용되지 않게 한다.
+        response.headers["Cache-Control"] = "no-store"
+        return response, status_code
+
+    def response_envelope() -> dict[str, object]:
+        """성공·오류 응답이 공유하는 버전·시각·조회 간격 필드를 만든다."""
+        return {
+            "schema_version": API_SCHEMA_VERSION,
+            "served_at": _isoformat_utc(utcnow()),
+            "poll_interval_ms": POLL_INTERVAL_MS,
+        }
+
+    @app.get(STATUS_API_PATH)
+    def status_api():
+        """ROS 상태 캐시의 한 시점 복사본을 읽기 전용 JSON으로 반환한다."""
+        # 정적 UI만 만든 시험/오구성 앱은 빈 정상 응답 대신 명시적인 503을 반환한다.
+        if state_cache is None:
+            payload = response_envelope()
+            payload.update(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "STATE_CACHE_UNAVAILABLE",
+                        "message": "ROS 상태 캐시를 사용할 수 없습니다.",
+                    },
+                }
+            )
+            return api_response(payload, 503)
+
+        try:
+            # StateCache.snapshot이 잠금 안에서 모든 source를 깊은 복사한다.
+            sources = state_cache.snapshot()
+        except Exception:
+            # 내부 예외 상세는 브라우저에 노출하지 않고 안정된 오류 코드만 반환한다.
+            payload = response_envelope()
+            payload.update(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "STATE_SNAPSHOT_FAILED",
+                        "message": "상태 스냅샷을 만들 수 없습니다.",
+                    },
+                }
+            )
+            return api_response(payload, 500)
+
+        # 성공 시에는 가공하지 않은 source 진단과 마지막 정상 payload를 함께 제공한다.
+        payload = response_envelope()
+        payload.update({"status": "ok", "sources": sources})
+        return api_response(payload)
 
     @app.get("/")
     def index():

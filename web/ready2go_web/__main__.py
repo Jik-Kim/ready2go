@@ -14,7 +14,7 @@ def main() -> None:
     runtime = RosBridgeRuntime()
     runtime.start()
     try:
-        # Flask에는 ROS 콜백이 갱신하는 같은 캐시를 전달한다. REST 공개는 다음 단계다.
+        # Flask에는 ROS 콜백이 갱신하는 같은 캐시를 전달해 REST가 잠금 스냅샷을 읽게 한다.
         app = create_app(state_cache=runtime.cache)
         # reloader를 끄면 개발 서버가 프로세스를 복제해 ROS 노드를 두 개 만들지 않는다.
         app.run(

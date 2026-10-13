@@ -1,16 +1,21 @@
-"""이슈 #267 1단계 Flask 정적 UI 제공 경계를 검증하기 위한 시험.
-
-이 파일은 이번 구현 단계에서 작성만 하며 사용자가 요청한 검증 단계에서 실행한다.
-"""
+"""이슈 #267 Flask 정적 UI와 3단계 읽기 전용 REST 경계를 검증한다."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from ready2go_web.core.state_cache import StateCache
-from ready2go_web.server import PUBLIC_ASSETS, create_app, settings_from_env
+from ready2go_web.server import (
+    API_SCHEMA_VERSION,
+    POLL_INTERVAL_MS,
+    PUBLIC_ASSETS,
+    STATUS_API_PATH,
+    create_app,
+    settings_from_env,
+)
 
 
 @pytest.fixture
@@ -38,6 +43,7 @@ def test_root_serves_existing_dashboard_html(client) -> None:
     assert "ROKEY · 출근 준비 도우미" in body
     assert 'name="viewport"' in body
     assert 'id="mockDataNotice"' in body
+    assert '<script src="./status-api.js" defer></script>' in body
 
     # 읽기 전용 범위에서 제거한 작업 중단 버튼이 다시 나타나면 안 된다.
     assert 'id="stopTask"' not in body
@@ -49,6 +55,7 @@ def test_root_serves_existing_dashboard_html(client) -> None:
         ("styles.css", "text/css"),
         ("app.js", "text/javascript"),
         ("demo-data.js", "text/javascript"),
+        ("status-api.js", "text/javascript"),
     ],
 )
 def test_public_assets_are_served_with_expected_mimetype(
@@ -67,8 +74,10 @@ def test_public_assets_are_served_with_expected_mimetype(
 
 
 def test_public_asset_allowlist_matches_current_dashboard_dependencies() -> None:
-    """정적 파일 공개 범위가 현재 index.html의 세 의존성으로 제한돼 있는지 확인한다."""
-    assert PUBLIC_ASSETS == frozenset({"app.js", "demo-data.js", "styles.css"})
+    """정적 공개 범위가 현재 HTML의 네 의존성으로 제한돼 있는지 확인한다."""
+    assert PUBLIC_ASSETS == frozenset(
+        {"app.js", "demo-data.js", "status-api.js", "styles.css"}
+    )
 
 
 @pytest.mark.parametrize(
@@ -136,15 +145,77 @@ def test_custom_web_root_can_be_injected_without_exposing_other_files(tmp_path: 
         assert test_client.get("/private.txt").status_code == 404
 
 
-def test_app_keeps_injected_ros_cache_without_exposing_api() -> None:
-    """2단계 Flask 앱은 ROS 캐시를 공유하되 아직 REST 경로를 만들지 않는다."""
+def test_status_api_returns_consistent_runner_snapshot_without_cache_reuse() -> None:
+    """3단계 REST가 캐시의 Runner 진단과 payload를 버전 응답으로 반환한다."""
     cache = StateCache({"runner": None})
+    cache.set_publisher_present("runner", True)
+    cache.record_message(
+        "runner",
+        {"phase": "running", "task_id": "manual_test", "current_step": "open_drawer"},
+        received_at=datetime(2026, 10, 13, 6, 30, tzinfo=timezone.utc),
+    )
+    fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
 
-    # app factory가 runtime의 동일 객체를 보관해야 다음 단계에서 복사 없이 읽을 수 있다.
-    app = create_app(state_cache=cache)
+    # app factory가 runtime과 같은 캐시를 보관하고 요청 때마다 snapshot을 읽는다.
+    app = create_app(state_cache=cache, utcnow=fixed_now)
     assert app.extensions["ready2go_web"]["state_cache"] is cache
 
-    # REST 공개는 3단계 범위이므로 현재 예상 API 경로는 정적 allowlist에서 404다.
     app.config.update(TESTING=True)
     with app.test_client() as test_client:
-        assert test_client.get("/api/status").status_code == 404
+        response = test_client.get(STATUS_API_PATH)
+
+    # 성공·형식·재사용 금지 헤더가 브라우저 polling 계약과 일치해야 한다.
+    assert response.status_code == 200
+    assert response.mimetype == "application/json"
+    assert response.headers["Cache-Control"] == "no-store"
+    payload = response.get_json()
+    assert payload["schema_version"] == API_SCHEMA_VERSION
+    assert payload["served_at"] == "2026-10-13T06:31:00Z"
+    assert payload["poll_interval_ms"] == POLL_INTERVAL_MS
+    assert payload["status"] == "ok"
+
+    # 의미 변환 전 원본 Runner JSON과 연결 진단이 손실 없이 함께 반환돼야 한다.
+    runner = payload["sources"]["runner"]
+    assert runner["connection_state"] == "receiving"
+    assert runner["publisher_present"] is True
+    assert runner["last_received_at"] == "2026-10-13T06:30:00Z"
+    assert runner["data"] == {
+        "phase": "running",
+        "task_id": "manual_test",
+        "current_step": "open_drawer",
+    }
+
+
+def test_status_api_reports_missing_runtime_cache_as_service_unavailable(client) -> None:
+    """ROS 캐시 없이 만든 앱은 빈 정상값 대신 안정된 JSON 503을 반환한다."""
+    response = client.get(STATUS_API_PATH)
+
+    assert response.status_code == 503
+    assert response.mimetype == "application/json"
+    assert response.headers["Cache-Control"] == "no-store"
+    payload = response.get_json()
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "STATE_CACHE_UNAVAILABLE"
+    assert "sources" not in payload
+
+
+def test_status_api_hides_internal_snapshot_exception() -> None:
+    """캐시 읽기 예외는 내부 상세를 노출하지 않는 JSON 500으로 변환한다."""
+
+    class BrokenCache:
+        """REST 예외 경계만 검증하기 위해 snapshot에서 실패하는 시험 대역."""
+
+        def snapshot(self):
+            """실제 오류 문자열이 응답에 새지 않는지 확인할 예외를 발생시킨다."""
+            raise RuntimeError("private implementation detail")
+
+    # Python 타입은 다르지만 공개 snapshot 경계를 가진 실패 대역을 의도적으로 주입한다.
+    app = create_app(state_cache=BrokenCache())  # type: ignore[arg-type]
+    app.config.update(TESTING=True)
+    with app.test_client() as test_client:
+        response = test_client.get(STATUS_API_PATH)
+
+    assert response.status_code == 500
+    payload = response.get_json()
+    assert payload["error"]["code"] == "STATE_SNAPSHOT_FAILED"
+    assert "private implementation detail" not in response.get_data(as_text=True)

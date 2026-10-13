@@ -1,6 +1,6 @@
 """Flask 프로세스 안에서 ROS 웹 브리지를 별도 executor로 실행한다.
 
-이 모듈은 이슈 #267의 2단계 실행 수명주기를 담당한다. Flask 요청 스레드는
+이 모듈은 이슈 #267의 2~3단계 실행 수명주기를 담당한다. Flask 요청 스레드는
 ``rclpy.spin``을 호출하지 않으며, 전용 스레드가 단일 ``DashboardBridge`` 노드를
 처리한다. 이번 단계의 기본 활성 소스는 ``/runner/status`` 하나다.
 """
@@ -77,7 +77,7 @@ class RosBridgeRuntime:
             try:
                 rclpy.init(args=None, context=context)
 
-                # 이번 2단계에서는 runner만 켜서 후속 /robot_state·카메라 연결을 앞당기지 않는다.
+                # 이번 3단계까지는 runner만 켜서 후속 /robot_state·카메라 연결을 앞당기지 않는다.
                 bridge = DashboardBridge(
                     topics=self._topics,
                     node_name=self._node_name,

@@ -1,8 +1,11 @@
 (function () {
   "use strict";
 
-  // 실제 연동 시 이 데이터 공급원만 웹 API 어댑터 값으로 교체합니다. 자세한 내용: web/README.md
+  // 등록 물품·작업 단계는 아직 목업이며 3단계에서는 Runner 연결 진단만 REST로 덮어쓴다.
   const state = window.ROKEY_DEMO_DATA;
+
+  // status-api.js가 제공하는 polling 구현을 렌더링 코드에서 한 번만 참조한다.
+  const statusApi = window.ROKEY_STATUS_API;
 
   const statusIcons = {
     waiting: "○",
@@ -72,7 +75,112 @@
     getById("mockDataLabel").textContent = state.meta.label || "목업 데이터";
     getById("mockDataDescription").textContent = state.meta.description
       || "실제 장치와 연결되지 않은 화면입니다.";
-    getById("mockDataNotice").classList.toggle("is-error-scenario", window.ROKEY_DEMO_SCENARIO === "error");
+    // 목업 오류 시나리오와 실제 REST 오류를 같은 경고 색으로 분명히 표시한다.
+    const showError = window.ROKEY_DEMO_SCENARIO === "error" || state.meta.mode === "rest-error";
+    getById("mockDataNotice").classList.toggle("is-error-scenario", showError);
+  }
+
+  function getRunnerConnection() {
+    // id로 찾으면 연결 카드 순서가 바뀌어도 Runner 항목을 안전하게 갱신할 수 있다.
+    return state.connections.find((connection) => connection.id === "runner");
+  }
+
+  function formatReceivedTime(value) {
+    // 수신 전 null과 잘못된 시각을 화면에서 임의의 현재 시각으로 바꾸지 않는다.
+    if (!value) return "미수신";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "확인 전";
+    // PC·휴대폰의 로컬 시간대로 시·분·초를 읽기 쉽게 표시한다.
+    return parsed.toLocaleTimeString("ko-KR", { hour12: false });
+  }
+
+  function runnerConnectionView(source) {
+    // StateCache의 상세 필드는 유지하고 connection_state만 카드 표시값으로 변환한다.
+    const views = {
+      unknown: { status: "waiting", label: "확인 전" },
+      waiting: { status: "pending", label: "상태 수신 대기" },
+      receiving: { status: "ok", label: "상태 수신" },
+      disconnected: { status: "disconnected", label: "연결 끊김" },
+      error: { status: "error", label: "브리지 오류" },
+    };
+    return views[source.connection_state] || views.unknown;
+  }
+
+  function updateAdminRunnerRow(view, source, sourceLabel) {
+    // 검토 화면에는 작업 의미를 추정하지 않고 연결 진단과 원본 수신 시각만 반영한다.
+    const rows = state.adminReview?.current?.rows;
+    if (!rows) return;
+    let runnerRow = rows.find((row) => row.id === "runner");
+    if (!runnerRow) {
+      runnerRow = { id: "runner", icon: "drawer", label: "Runner 상태" };
+      rows.unshift(runnerRow);
+    }
+    runnerRow.value = view.label;
+    runnerRow.valueStatus = view.status;
+    runnerRow.source = sourceLabel;
+    runnerRow.receivedAt = source ? formatReceivedTime(source.last_received_at) : null;
+  }
+
+  function applyStatusApiSuccess(payload, lastSuccessAt) {
+    // validatePayload를 통과한 응답이므로 runner source를 실제 연결 진단에 사용한다.
+    const source = payload.sources.runner;
+    const view = runnerConnectionView(source);
+    const connection = getRunnerConnection();
+    if (!connection) return;
+
+    const publisher = source.publisher_present === true
+      ? "ROS 발행자 발견"
+      : source.publisher_present === false
+        ? "ROS 발행자 없음"
+        : "ROS 발행자 확인 전";
+    const received = formatReceivedTime(source.last_received_at);
+    const restSuccess = formatReceivedTime(lastSuccessAt);
+
+    // REST 성공과 ROS 수신 상태를 한 문구로 합치지 않고 각각 설명한다.
+    Object.assign(connection, {
+      status: view.status,
+      statusLabel: view.label,
+      description: `${publisher} · ROS 최근 수신 ${received} · REST 최근 성공 ${restSuccess}`,
+    });
+    state.meta.mode = "partial-live";
+    state.meta.label = "REST 연결됨 · 부분 실데이터";
+    state.meta.description = "Runner 연결 상태만 실제 데이터입니다. 작업·서랍·준비물은 아직 목업입니다.";
+
+    updateAdminRunnerRow(view, source, "/runner/status · Flask REST");
+    state.adminReview.current.error = source.last_error
+      ? { label: "현재 오류: Runner", detail: source.last_error }
+      : { label: "현재 오류: 없음", detail: "Runner 상태 캐시를 정상 조회했습니다." };
+
+    // 바뀐 부분만 다시 그려 사용자가 연 펼침·선택 상태를 불필요하게 초기화하지 않는다.
+    renderMockNotice();
+    renderConnections();
+    renderAdminCurrentState();
+  }
+
+  function applyStatusApiFailure(_error, lastSuccessAt) {
+    // 이전 성공 응답이 있어도 현재 REST 단절 뒤 정상 연결로 계속 보이지 않게 즉시 덮어쓴다.
+    const connection = getRunnerConnection();
+    if (!connection) return;
+    const lastSuccess = formatReceivedTime(lastSuccessAt);
+    Object.assign(connection, {
+      status: "error",
+      statusLabel: "REST 연결 오류",
+      description: `현재 상태를 사용하지 않습니다. REST 마지막 성공 ${lastSuccess}`,
+    });
+    state.meta.mode = "rest-error";
+    state.meta.label = "REST 연결 오류 · 목업 화면";
+    state.meta.description = "Runner 현재 상태를 조회할 수 없습니다. 나머지 화면 값은 목업입니다.";
+
+    const view = { status: "error", label: "REST 연결 오류" };
+    updateAdminRunnerRow(view, null, "Flask REST 미수신");
+    state.adminReview.current.error = {
+      label: "현재 오류: REST 연결",
+      detail: "이전 Runner 값을 현재 정상 상태로 표시하지 않습니다.",
+    };
+
+    renderMockNotice();
+    renderConnections();
+    renderAdminCurrentState();
   }
 
   function renderConnections() {
@@ -483,4 +591,16 @@
   renderAdmin();
   selectAdminTab("current", false);
   syncViewFromHash();
+
+  // long·empty·error URL은 고정 목업 검토용으로 유지하고 기본 화면에서만 REST를 연결한다.
+  if (statusApi && window.ROKEY_DEMO_SCENARIO === "default") {
+    const poller = statusApi.createPoller({
+      fetchStatus: window.fetch.bind(window),
+      onSuccess: applyStatusApiSuccess,
+      onFailure: applyStatusApiFailure,
+    });
+    poller.start();
+    // 페이지를 떠날 때 예약 timer를 정리해 백그라운드 요청이 남지 않게 한다.
+    window.addEventListener("pagehide", () => poller.stop(), { once: true });
+  }
 })();

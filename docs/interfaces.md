@@ -33,6 +33,14 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | `update_ontology` 원자 동작 | **P1 미지원(`NOT_SUPPORTED`).** P1 상태 변경은 성공 응답 뒤 스킬 `effect` 적용으로만 수행 | Runner 후속 범위 (7.1 ②) |
 | 로그 저장 | **P1 구현:** Python `pymongo`로 MongoDB(`cobot2` DB: `runs`·`steps`)에 `LogStore` 경유 저장, 연결 실패 시 `logs/*.jsonl` 폴백. **P2 계획(FR-LOG-02):** `states` 컬렉션·사후 관측 상세 로그 | Runner (7.4). 별도 Logger 프로세스는 없음 |
 | STT · LLM | HTTPS로 OpenAI API 호출 (`secrets/voice.env`의 키 사용) | `voice` 컨테이너 (6장) |
+| 웹 상태 조회 | `GET /api/status`, 같은 origin의 JSON·`Cache-Control: no-store` | **이슈 #267 3단계 구현:** Flask 웹 브리지 → PC·휴대폰 브라우저. 약 1초 polling이며 ROS 발행 주기나 실시간 보장이 아님. 현재 `sources.runner`만 활성화하고 REST 오류 뒤 이전 값을 정상으로 표시하지 않음. 상세 실행·시험은 [web README](../web/README.md#3단계-rest-형식)를 참조 |
+
+<a id="web-status-rest"></a>
+#### 웹 상태 REST — 이슈 #267 3단계
+
+성공 응답은 `schema_version=1`, UTC `served_at`, 권장 `poll_interval_ms=1000`, `status=ok`, `sources`를 포함한다. `sources.<name>`은 publisher 존재, 메시지 수신·유효 여부, 마지막 전체·정상 수신 시각, 나이, freshness·stale, 연결 요약, 메시지/브리지 오류와 마지막 정상 `data`를 구분한다. 현재 실행 source는 `runner` 하나이며 `/runner/status` 원본 JSON의 업무 의미를 REST가 새로 추론하지 않는다.
+
+캐시가 없으면 HTTP 503 `STATE_CACHE_UNAVAILABLE`, 스냅샷 생성에 실패하면 HTTP 500 `STATE_SNAPSHOT_FAILED`를 반환한다. 두 오류 모두 `status=error`와 안정된 `error.code`·`error.message`를 사용하며 내부 예외 상세는 응답에 넣지 않는다. 브라우저는 HTTP 오류·JSON 형식 오류·지원하지 않는 버전을 REST 연결 오류로 표시하고, 이전 성공 응답을 현재 정상 상태로 계속 사용하지 않는다.
 
 ### 5.1 물품 식별자·좌표·조회 결과의 공유 규칙
 

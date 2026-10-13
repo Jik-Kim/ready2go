@@ -4,7 +4,8 @@
 - **최종 갱신**: 2026-10-13
 
 ## 지금 상태
-- [코드·문서·실측] 이슈 #267 2단계 `/runner/status` 연결을 `web/ready2go_web`에 구현함. Flask 프로세스가 전용 ROS context와 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하고, `std_msgs/msg/String` JSON 객체를 잠금 `StateCache`에 저장함. 단계 경계를 위해 현재 실행은 runner source만 활성화하며 REST·화면 반영, `/robot_state`, 온톨로지 연결은 아직 하지 않음. 로컬 CycloneDDS 전체 시험 `57 passed`, 실제 진입점의 HTTP 200·ROS graph 단일 구독·종료 후 노드 제거를 확인했으며 실제 Runner·다중 PC·실물 연결은 미검증임.
+- [코드·문서·실측] 이슈 #267 3단계 읽기 전용 REST를 `web/ready2go_web/server.py`에 구현하고 브라우저가 `web/status-api.js`를 통해 `GET /api/status`를 약 1초마다 조회하도록 연결함. 응답에는 형식 버전·서버 시각·권장 조회 간격과 잠금 캐시 스냅샷을 담고, 캐시 미연결 503·스냅샷 실패 500을 구분함. 기본 화면은 Runner 연결 진단만 실제 값으로 갱신하며 고정 목업 시나리오는 조회하지 않음. 로컬 CycloneDDS 시험 `60 passed`, 실제 시험 publisher로 REST `receiving`·원본 JSON 수신, 서버 중단 오류 표시·재시작 자동 복구, publisher 종료 뒤 연결 끊김 전환을 확인함. 실제 Runner·다중 PC·실물 장비는 미검증임.
+- [코드·문서·실측] 이슈 #267 2단계 `/runner/status` 연결을 `web/ready2go_web`에 구현함. Flask 프로세스가 전용 ROS context와 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하고, `std_msgs/msg/String` JSON 객체를 잠금 `StateCache`에 저장함. 2단계 당시에는 runner source만 활성화하고 REST·화면 반영을 보류했음. 당시 로컬 CycloneDDS 전체 시험 `57 passed`, 실제 진입점의 HTTP 200·ROS graph 단일 구독·종료 후 노드 제거를 확인했으며 실제 Runner·다중 PC·실물 연결은 미검증이었음.
 - [문서·코드] PR #237 재검토의 빈 관측·근거 자동 통과 P1을 로컬에서 보완함. 전용 검증기는 machine check evidence를 비어 있지 않은 문자열 목록으로 강제하고 문자열 단독·빈 문자열 항목을 거절하며, `automatic_result=pass`의 observed·expected가 `None`·공백 문자열·빈 목록·빈 객체이면 통과시키지 않음. trial evidence도 목록 타입과 비어 있지 않은 문자열 항목을 검사함. S10의 빈 observed·expected, `evidence=[""]`, 문자열 evidence와 pass trial의 빈 근거 항목 반례를 추가함. 평가 JSON·결과 JSONL·Voice 정답표는 변경하지 않았고 실제 trial은 0건임.
 - [문서·코드] PR #237 최신 재검토의 Voice 자동 판정 P2를 반영함. 전용 검증기는 모든 suite의 `automatic_result=pass`에 비어 있지 않은 trial 근거와 machine check를 요구하고, 각 check가 `status=pass`이며 observed·expected·evidence를 갖는지 공통 검사함. `voice`·`voice_issue194_regression`은 기존 Voice 정답표에 JSONL용 필수 check ID 매핑이나 별도 판정기 계약이 없으므로 이를 임의 생성하지 않고 자동 pass를 보류하며 fail·inconclusive·not_evaluated 기록만 허용함. 실패 check를 포함한 pass, 빈 check·빈 trial evidence의 pass, #194 회귀 pass 우회를 거절하는 회귀 시험을 추가함. `0.5-draft` 평가 JSON·결과 JSONL·고정 SHA-256은 변경하지 않았고 실제 trial은 0건임.
 - [문서·코드] PR #237 재검토의 basis 참조 무결성 P1을 반영함. 전용 검증기가 basis 레코드를 먼저 수집해 비어 있지 않은 고유 `basis_id`, `mock`/`sim`/`real` 환경, 40자리 git `code_sha`, sources·human_approvals 목록 형식을 검사하고, 모든 trial이 정확히 하나의 basis를 참조하며 trial·basis 환경이 일치하도록 강제함. 누락·중복·미참조 basis와 잘못된 환경·SHA·환경 불일치를 거절하는 회귀 시험을 추가함. 평가 정의·결과 JSONL과 0.5-draft SHA-256은 변경하지 않았고 실제 trial은 0건임.
@@ -61,10 +62,10 @@
 ## 막힌 점 · 필요한 도움
 - 이슈 #20 TC-031~TC-040의 문장별 `unknown`/`clarify` 및 허용 응답 정책을 E·D가 확정해야 함.
 - 화자 2명의 화자 ID별 녹음·현장 발화 배정을 확정해야 함. 실제 이름은 필수 항목이 아님.
-- [문서] 웹 연결 구현은 이슈 #267의 순서를 따름. `/runner/status` 수신·캐시는 구현됐지만 REST 응답·화면 반영과 후속 `/robot_state`·온톨로지 연결은 아직 필요함.
+- [문서] 웹 연결 구현은 이슈 #267의 순서를 따름. `/runner/status` 수신·캐시와 REST 응답·화면 반영은 구현됐으며 후속 `/robot_state`·온톨로지 연결에는 담당자가 확정한 source 계약이 필요함.
 
 ## 다음 할 일
-- [ ] 이슈 #267 3단계에서 잠금 캐시의 읽기 전용 REST 응답과 브라우저 약 1초 조회를 연결
+- [ ] 이슈 #267 4단계 `/robot_state` source 계약이 확정되면 같은 캐시·REST 경계에 연결
 - [문서] 2026-10-07: P3 PC·모바일 웹 대시보드 제안 [#112](https://github.com/Jik-Kim/ready2go/issues/112)을 목업과 함께 등록하고, 최신 작업 상세 목업까지 기존 `web/` 시제품에 반영함. 이벤트 기록은 제외했으며 기존 P1 표시 이슈 #59와 구분함. 연동 담당·계약·일정은 협의 전이고 구현 완료를 의미하지 않음.
 - [ ] E와 이슈 #20 기본 정답표 및 #194 회귀 시나리오를 승인하고 `evaluation_set_version`·`suite_version`을 고정
 - [ ] 화자 ID별 발화 배정·녹음 형식·보관 경로를 반영
