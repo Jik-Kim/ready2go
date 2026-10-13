@@ -3116,3 +3116,25 @@ def test_make_room_remove_first_param_overrides_config(server):
     assert base["make_room"]["action"] == "sweep"
     assert mr["action"] != "sweep" and "toy_wrench#1" in mr["reason"], mr   # 몽키만 빈 쪽으로 (에어팟 그대로)
     assert srv.robot.log == []
+
+
+def test_make_room_wall_airpods_sweeps_once_without_pressing_wrench(server):
+    """[실측 PC2 10/13 inspect_20261013_060416_812Z·062342_604Z] 오른쪽 벽 에어팟, 옆(+y) 몽키, 아래 캐러멜, 위 지우개 —
+    예전: 몽키 머리를 눌러 +y 45 mm(접촉 없음). 지금: 몽키는 안 누르고 에어팟을 +y 로 밀며 몽키를 같이 밀고 되돌아오기 한 번
+    (sweep 최대 make_room.sweep_max_mm) [사용자 10/13 "sweep 먼저", "몽키 헤드 낮은 부분을 자꾸 건드림"]."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1079, 0.0219, 0.0229, 0.0065)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.0361, 0.0221, 0.0229, -0.0055),
+                           o("toy_wrench#1", "toy_wrench", 0.1135, 0.0525, 0.0161, -0.2055),
+                           o("eraser#1", "eraser", 0.1731, 0.0102, 0.0138, 0.0042)]}
+    out, data = server.run("nudge_object", {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True})
+    mr = data["make_room"]
+    assert mr["action"] == "sweep" and "toy_wrench#1" in mr["reason"] and "caramel_box#1" not in mr["reason"], mr
+    assert srv.robot.log == []

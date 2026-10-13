@@ -185,17 +185,17 @@ def test_push_chain_ignores_pushed_objects_initial_overlap_behind():
     assert done == pytest.approx(0.06) and pushed == ["toy_wrench#1"]
 
 
-def test_press_point_side_offset_and_no_end():
-    """[실측 PC2 10/13] 더 높은 에어팟 옆 몽키: 가운데는 손가락이 에어팟에 걸림 → 예전엔 머리 끝(입 벌어진 곳)을 눌러 접촉 없음.
-    지금은 손잡이 폭 안에서 비켜 누르고, no_end 종류는 끝을 안 누름."""
+def test_press_point_center_only_class():
+    """[실측 PC2 10/13] 더 높은 에어팟 옆 몽키: 가운데는 손가락이 에어팟에 걸림 → 예전엔 긴 변 따라 머리 쪽(윗면이 top_z 보다
+    낮음)을 눌러 접촉 없음. center_only 종류는 가운데(폭 방향 비킴만)만 — 막히면 None. 에어팟에서 떨어지면 가운데 근처를 누름
+    [사용자 10/13 "몽키 중앙 부분을 눌러야지"]."""
     sizes = dict(SIZES, toy_wrench=[0.17, 0.061, 0.0185])
     air = obj("airpods_case#1", "airpods_case", 0.1079, 0.0219, top=0.0229)
     w = dict(obj("w", "eraser", 0.1135, 0.0524, yaw=-0.1916, top=0.016), **{"class": "toy_wrench"})
-    old = cp.press_point([air, w], "w", sizes.get, finger_r_mm=16.0, narrow_of=lambda c: 0.0259, no_end=())
-    new = cp.press_point([air, w], "w", sizes.get, finger_r_mm=16.0, narrow_of=lambda c: 0.0259, no_end=("toy_wrench",))
-    assert new is not None
-    along = lambda p: abs((p[0] - 0.1135) * 0.9817 - (p[1] - 0.0524) * 0.1904)   # 긴 변 방향 거리 (yaw −0.19)
-    assert along(new) <= 0.5 * 0.081 + 1e-6                                     # 끝이 아니라 절반 안쪽
-    side = abs((new[0] - 0.1135) * 0.1904 + (new[1] - 0.0524) * 0.9817)
-    assert side <= 0.0259 / 2 - 0.008 + 1e-6                                    # 손잡이 폭 안
-    assert old is not None
+    kw = {"finger_r_mm": 16.0, "narrow_of": lambda c: 0.0259}
+    assert cp.press_point([air, w], "w", sizes.get, **kw) is not None                     # 아무 데나 → 머리 쪽
+    assert cp.press_point([air, w], "w", sizes.get, center_only=("toy_wrench",), **kw) is None
+    far = dict(w, pose=dict(w["pose"], position=[0.1135, 0.0574, 0.0]))                 # 5 mm 떨어지면 폭 방향으로 비켜 가운데
+    p = cp.press_point([air, far], "w", sizes.get, center_only=("toy_wrench",), **kw)
+    assert p is not None and abs((p[0] - 0.1135) * 0.9817 - (p[1] - 0.0574) * 0.1904) < 1e-6   # 긴 변 방향으로는 가운데
+    assert cp.press_point([far], "w", sizes.get, center_only=("toy_wrench",), **kw) == pytest.approx((0.1135, 0.0574))

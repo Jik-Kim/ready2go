@@ -214,9 +214,12 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
 
 
 def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_r_mm: float, rise_tol_m: float = 0.003,
-                inset_mm: float = 4.0, narrow_of: Optional[Callable] = None, no_end: Sequence[str] = ()) -> Optional[tuple]:
+                inset_mm: float = 4.0, narrow_of: Optional[Callable] = None, center_only: Sequence[str] = ()) -> Optional[tuple]:
     """닫은 손가락으로 목표 윗면을 누를 점 (서랍 좌표 m) — 가운데에서 가까운 점부터: 긴 변을 따라 가운데·절반·끝,
-    폭 방향으로 (손잡이 폭(narrow_of, m) 또는 짧은 변)/2 − 8 mm 까지 비켜서. no_end 종류는 끝(몽키 입 벌어진 머리·손잡이 구멍)은 안 누름.
+    폭 방향으로 (손잡이 폭(narrow_of, m) 또는 짧은 변)/2 − 8 mm 까지 비켜서.
+    center_only 종류는 가운데(폭 방향 비킴만)만 — 윗면 높이가 고르지 않아 머리·끝은 top_z 보다 낮아 접촉 없음
+    [사용자 10/13 PC2 "몽키 헤드 중 가장 낮은 부분을 자꾸 건드림", "옮겨도 몽키 중앙 부분을 눌러야지"]. 가운데가 막히면 None
+    (그땐 같이 밀리기·집어서 치우기).
     누르는 손가락(반지름 finger_r_mm)이 목표보다 높은 물체에 걸리지 않는 점. 위에 얹힌 것이 있으면 None [추정 — 손가락 띠 모양 실측 없음].
     [실측 PC2 10/13 inspect_20261013_060416_812Z: 에어팟 옆 몽키 — 가운데·절반은 에어팟에 걸려 머리 끝(입 벌어진 곳)을 눌러
     접촉 없음 → 폭 방향으로 비켜 가운데 근처를 누름]"""
@@ -231,7 +234,7 @@ def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_
     side = max(0.0, nw * 500.0 - 8.0)
     high = [footprint_mm(o, size_of) for o in objs
             if o["id"] != tid and o.get("top_z") is not None and o["top_z"] > t["top_z"] + rise_tol_m]
-    ks = (0.0, 0.5, -0.5) + (() if t["class"] in no_end else (1.0, -1.0))
+    ks = (0.0,) if t["class"] in center_only else (0.0, 0.5, -0.5, 1.0, -1.0)
     cand = sorted(((k * half, w) for k in ks for w in ((0.0, side, -side) if side else (0.0,))),
                   key=lambda c: (round(math.hypot(*c), 3), c[1] != 0.0))
     c_, s_ = math.cos(yaw), math.sin(yaw)
@@ -245,7 +248,7 @@ def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_
 
 def _pkw(cfg) -> dict:
     """press_point 설정값 (Config 에서)."""
-    return {"finger_r_mm": cfg.press_finger_r_mm, "narrow_of": cfg.narrow_of, "no_end": cfg.press_no_end_classes}
+    return {"finger_r_mm": cfg.press_finger_r_mm, "narrow_of": cfg.narrow_of, "center_only": cfg.press_center_only_classes}
 
 
 def press_ok(objs: Sequence[Mapping], tid: str, size_of: Callable, **kw) -> bool:
@@ -336,7 +339,8 @@ class Config:
     reach_x_m: Optional[float] = None
     remove_first: bool = True                # 옆 물체를 같이 미는 밀기보다 막는 물체 집어 치우기 먼저 — 실행 값 make_room.remove_first [사용자 10/12]
     narrow_of: Optional[Callable] = None     # 손잡이 폭(m) — 누를 점을 폭 방향으로 비킬 범위 (몽키·망치 item_grasp)
-    press_no_end_classes: Sequence[str] = ("toy_wrench",)   # 끝은 안 누름 — 몽키 머리 입·손잡이 구멍 [실측 PC2 10/13]
+    press_center_only_classes: Sequence[str] = ("toy_wrench",)   # 가운데만 누름 — 머리·끝은 윗면이 낮음 [사용자 10/13 PC2]
+    sweep_max_m: Optional[float] = None      # 밀기(sweep) 최대 거리 — 없으면 max_shift_m. 실행 값 make_room.sweep_max_mm
     press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
 
 
@@ -571,7 +575,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
                         _with(objs, moved(t, u[0] * s, u[1] * s))))
         d = (int(can / cfg.sweep_step_m + 1e-6) + 1) * cfg.sweep_step_m
         last = can
-        while d <= cfg.max_shift_m + 1e-9:
+        while d <= (cfg.sweep_max_m or cfg.max_shift_m) + 1e-9:
             o2, done, pushed = push_move(objs, tid, u, d, cfg.interior_m, cfg.size_of, pushable, cfg.max_chain)
             if done <= last + 0.0015:                                  # 더 못 밂
                 break
