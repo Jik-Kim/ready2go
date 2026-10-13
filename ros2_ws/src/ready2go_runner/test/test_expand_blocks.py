@@ -105,7 +105,7 @@ def test_expand_rules_are_checked_before_running():
     stale_scan = onto_with([VIEW, LOOK, {"action": "fallback", "next_on": ["WALL_TOO_CLOSE"],
                                          "options": [[PICK], [NUDGE, PICK]]}])          # 넛지 뒤 다시 안 찍음
     loop = onto_with([VIEW, LOOK, {"action": "while", "cond": True, "max_iter": 2, "body": [PICK]}])
-    for onto, expected in ((no_next_on, "next_on"), (stale_scan, "다시 찍기"), (loop, "while 미지원")):
+    for onto, expected in ((no_next_on, "next_on"), (stale_scan, "새로 찍은 관측"), (loop, "while 미지원")):
         problems = check_task(TASK, SCHEMA, onto["skills"])
         assert any(expected in p for p in problems), problems
 
@@ -128,3 +128,45 @@ def test_task_level_next_on_limits_next_option():
         result = Runner(backend, schema=SCHEMA).run(task(next_on))
         assert result.overall_status == status, next_on
         assert next(s for s in result.steps if s["id"] == "s1").get("fallback_stopped") == stopped
+
+
+def _fb(*second):
+    return [VIEW, LOOK, {"action": "fallback", "next_on": ["WALL_TOO_CLOSE"], "options": [[PICK], list(second)]}]
+
+
+def test_after_nudge_only_fresh_observation_can_be_grasped():
+    """#263 E 리뷰 P2: 글자 포함이 아니라 넛지 뒤 새로 찍은 관측의 target·scan 으로만 집는지 본다."""
+    after = {"action": "pick_object", "params": {"target": "$nudge.target_after"}}
+    fresh = {"action": "inspect_region", "params": {"region": "$from", "search_target": "$item"}, "output": "fresh"}
+    bad = {
+        "scan 생략 + target_after": _fb(NUDGE, VIEW, after),
+        "새로 찍었지만 target 은 target_after": _fb(NUDGE, VIEW, fresh,
+                                                {"action": "pick_object", "params": {"target": "$nudge.target_after",
+                                                                                     "scan": "$fresh"}}),
+        "새로 찍었지만 target 은 넛지 전 scan": _fb(NUDGE, VIEW, fresh,
+                                              {"action": "pick_object", "params": {"target": "$scan.target",
+                                                                                   "scan": "$fresh"}}),
+        "target·scan 출처가 다름": _fb(NUDGE, VIEW, fresh, LOOK,
+                                    {"action": "pick_object", "params": {"target": "$fresh.target", "scan": "$scan"}}),
+        "넛지 전 target_after": [VIEW, LOOK, {"action": "pick_object", "params": {"target": "$scan.target_after"}}],
+    }
+    for name, expand in bad.items():
+        assert check_task(TASK, SCHEMA, onto_with(expand)["skills"]), name
+    good = {
+        "다른 변수 이름으로 새로 찍음": _fb(NUDGE, VIEW, fresh,
+                                       {"action": "pick_object", "params": {"target": "$fresh.target", "scan": "$fresh"}}),
+        "scan 없이 새 관측 target": _fb(NUDGE, VIEW, LOOK, {"action": "pick_object", "params": {"target": "$scan.target"}}),
+        "지금 flat pick (넛지 → 다시 찍기 → 집기)": ONTOLOGY["skills"]["pick"]["expand"],
+    }
+    for name, expand in good.items():
+        assert check_task(TASK, SCHEMA, onto_with(expand)["skills"]) == [], name
+
+
+def test_after_branch_only_observation_fresh_on_every_path_counts():
+    """분기 뒤에는 모든 경로에서 넛지 뒤 새로 찍은 관측만 — 한 경로만 다시 찍었으면 블록 뒤 집기는 거절."""
+    one_path = [VIEW, LOOK, {"action": "fallback", "next_on": ["WALL_TOO_CLOSE"],
+                             "options": [[NUDGE], [NUDGE, VIEW, LOOK]]}, PICK]
+    both = [VIEW, LOOK, {"action": "fallback", "next_on": ["WALL_TOO_CLOSE"],
+                         "options": [[NUDGE, VIEW, LOOK], [NUDGE, VIEW, LOOK]]}, PICK]
+    assert check_task(TASK, SCHEMA, onto_with(one_path)["skills"])
+    assert check_task(TASK, SCHEMA, onto_with(both)["skills"]) == []
