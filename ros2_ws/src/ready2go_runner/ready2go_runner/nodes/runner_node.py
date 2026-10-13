@@ -99,6 +99,9 @@ class RunnerNode(Node):
         self._last_task_id: str | None = None
         self._last_intent: dict | None = None   # 마지막으로 받은 인텐트와 처리 결과 (시연 화면 #59)
         self._sent = {"status": None, "state": None}
+        # 발행 잠금: 상태를 만들고 보내는 동안, 그리고 결정을 last_intent 에 넣고 보내는 동안 다른 콜백(status·cancel·주기 발행)이
+        # 끼어들지 않게 — 각 요청 자신의 결정이 적어도 한 번 발행됨 (#249 E 리뷰). 짧게만 잡음 (정지 경로가 기다리지 않게)
+        self._pub_lock = threading.RLock()
         self.requests = RequestMemory()          # 계약07: 이번 기동 동안 request_id → 첫 결정 (재기동하면 빔)
         self.get_logger().info(f"Runner 준비: 스키마 {schema_file}, 온톨로지 {ontology_file}, "
                                f"백엔드 {os.environ.get('BACKEND', 'mock')}, 예비 기록 {log_dir}, "
@@ -206,13 +209,11 @@ class RunnerNode(Node):
                 summary = self._decide_intent(msg.data, token)   # status·cancel 콜백이 바꿀 수 있음 (#249 E 리뷰 P2)
                 self.requests.remember(request_id, fingerprint, summary)
                 return
-            self._last_intent = seen.summary
         if seen.fingerprint == fingerprint:
             self.get_logger().info(f"/voice/intent 재전송 {request_id}: 첫 결정 그대로 다시 발행 (재실행 없음)")
         else:
             self.get_logger().warning(f"/voice/intent 충돌 {request_id}: 같은 ID 에 다른 내용 — 첫 결정 유지, 새 내용 실행 안 함")
-        self._sent["status"] = None             # 바뀐 것이 없어도 다시 발행 (E 가 결정을 다시 받게)
-        self.publish()
+        self._announce(seen.summary, force=True)   # 바뀐 것이 없어도 다시 발행 (E 가 결정을 다시 받게)
 
     def _decide_intent(self, text: str, token: int | None) -> dict:
         """판단·실행·발행. 돌려주는 값 = 이 요청의 결정 요약 (계약07 기억용)."""
@@ -238,7 +239,6 @@ class RunnerNode(Node):
         if decision.kind == intent_router.CANCEL and decision.reason is None:
             self.runner.halt(source="voice")    # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
         summary = decision.summary()
-        self._last_intent = summary
         text = f"/voice/intent: {summary}"
         if decision.kind in (intent_router.RUN, intent_router.STATUS):
             self.get_logger().info(text)
@@ -247,10 +247,16 @@ class RunnerNode(Node):
                                             if decision.reason is None else ""))
         else:
             self.get_logger().warning(text)
-        if decision.kind == intent_router.STATUS:
-            self._sent["status"] = None         # 바뀐 것이 없어도 다시 발행 ("지금 뭐 해?")
-        self.publish()
+        self._announce(summary, force=decision.kind == intent_router.STATUS)   # status: 바뀐 것이 없어도 ("지금 뭐 해?")
         return summary
+
+    def _announce(self, summary: dict, force: bool = False) -> None:
+        """이 결정을 last_intent 에 넣고 바로 발행 — 사이에 다른 콜백이 last_intent 를 바꿔 이 결정이 안 나가는 일 없게."""
+        with self._pub_lock:
+            self._last_intent = summary
+            if force:
+                self._sent["status"] = None
+            self.publish()
 
     def _estop(self, request, response):
         self.runner.halt(source="service")      # on_halt → 진행 중인 goal 에 취소 요청
@@ -286,13 +292,15 @@ class RunnerNode(Node):
         return status
 
     def publish(self) -> None:
-        """바뀐 경우에만 발행 (늦게 구독한 쪽은 TRANSIENT_LOCAL 로 마지막 값을 받음)."""
-        for key, pub, value in (("status", self.status_pub, self.status()),
-                                ("state", self.state_pub, self.runner.state)):
-            text = json.dumps(value, ensure_ascii=False, sort_keys=True)
-            if text != self._sent[key]:
-                pub.publish(String(data=text))
-                self._sent[key] = text
+        """바뀐 경우에만 발행 (늦게 구독한 쪽은 TRANSIENT_LOCAL 로 마지막 값을 받음). 만들기·보내기를 한 잠금 안에서 —
+        주기 발행이 앞서 만든 옛 상태를 새 결정 뒤에 보내 덮지 않게."""
+        with self._pub_lock:
+            for key, pub, value in (("status", self.status_pub, self.status()),
+                                    ("state", self.state_pub, self.runner.state)):
+                text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+                if text != self._sent[key]:
+                    pub.publish(String(data=text))
+                    self._sent[key] = text
 
 
 def _parse_timeouts(text: str) -> dict[str, float]:

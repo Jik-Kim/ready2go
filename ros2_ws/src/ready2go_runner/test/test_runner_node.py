@@ -180,22 +180,66 @@ def test_request_id_run_id_resend_and_conflict(system):
                         and w.status["last"]["run_id"] == w.status["last_intent"]["run_id"] != run_id), watcher.status
 
 
-def test_concurrent_status_does_not_overwrite_remembered_decision(system, monkeypatch):
-    """#249 E 리뷰 P2: 첫 요청을 처리하는 사이(발행 시점) 다른 콜백의 status 가 와도, 기억하는 첫 결정은 그 요청 자신의 것."""
+def _record_status(runner, monkeypatch):
+    """실제로 발행된 /runner/status 의 last_intent 를 차례로 모은다."""
+    sent, real = [], runner.status_pub.publish
+
+    def publish(msg):
+        sent.append(json.loads(msg.data)["last_intent"])
+        real(msg)
+    monkeypatch.setattr(runner.status_pub, "publish", publish)
+    return sent
+
+
+def _inject_once(runner, monkeypatch, payload, payload_for):
+    """요청의 결정을 발행하려고 상태를 만드는 순간, 다른 스레드(다른 콜백)가 payload 인텐트를 보낸다.
+    잠금이 없으면 그 콜백이 last_intent 를 먼저 바꿔 이 요청의 결정이 발행되지 않는다(#249 E 재현)."""
+    real_status, threads = runner.status, []
+
+    def status():                               # 이 요청의 결정을 발행하려는 순간에만 (주기 발행 등은 그냥 통과)
+        if not threads and (runner._last_intent or {}).get("request_id") == payload_for:
+            t = threading.Thread(target=runner._on_intent, args=(String(data=json.dumps(payload)),))
+            threads.append(t)
+            t.start()
+            t.join(0.3)                         # 잠금이 없으면 이 사이에 끼어든 콜백이 끝남
+        return real_status()
+    monkeypatch.setattr(runner, "status", status)
+    return threads
+
+
+def test_each_request_decision_is_published_despite_concurrent_status_and_cancel(system, monkeypatch):
+    """#249 E 리뷰: 첫 요청·같은 ID 재전송의 결정 발행 사이에 status·cancel 이 와도, 그 요청 자신의 결정
+    (request_id·decision·run_id)이 실제 발행 메시지로 적어도 한 번 나가고, 재전송은 다시 실행하지 않는다."""
     runner, watcher, _ = system
     assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED"
                         and w.status["phase"] == "idle")
-    real_publish, injected = runner.publish, []
-
-    def publish():                              # 첫 요청의 발행 지점에 동시 status 콜백을 끼워 넣음
-        if not injected:
-            injected.append(True)
-            runner._on_intent(String(data=json.dumps({"intent": "status", "targets": [], "confidence": 0.9})))
-        real_publish()
-    monkeypatch.setattr(runner, "publish", publish)
+    sent = _record_status(runner, monkeypatch)
+    starts = []
+    real_start = runner.start_task
+    monkeypatch.setattr(runner, "start_task", lambda *a, **k: starts.append(a) or real_start(*a, **k))
     request = {"intent": "find_item", "targets": ["eraser"], "confidence": 0.93, "request_id": "req-race",
                "source": {"stt_text": "지우개 찾아줘"}}
-    runner._on_intent(String(data=json.dumps(request, ensure_ascii=False)))
-    seen = runner.requests.lookup("req-race")
-    assert injected and (seen.summary["decision"], seen.summary["request_id"]) == ("run", "req-race")
-    assert seen.summary["run_id"] is not None
+    for injected in ({"intent": "status", "targets": [], "confidence": 0.9},     # 첫 요청 + status
+                     {"intent": "cancel", "targets": [], "confidence": 0.9}):    # 같은 ID 재전송 + cancel
+        sent.clear()
+        threads = _inject_once(runner, monkeypatch, injected, "req-race")
+        runner._on_intent(String(data=json.dumps(request, ensure_ascii=False)))
+        threads[0].join(5)
+        mine = [m for m in sent if m and m.get("request_id") == "req-race"]
+        assert mine and (mine[0]["decision"], mine[0]["run_id"]) == ("run", runner.requests.lookup("req-race").summary["run_id"]), sent
+        assert mine[0]["run_id"] is not None
+        assert any(m and m["intent"] == injected["intent"] for m in sent), sent   # 끼어든 콜백도 자기 결정을 발행
+    assert len(starts) == 1                     # 재전송은 재실행 없음
+
+
+def test_cancel_does_not_wait_behind_request_lock(system):
+    """정지 경로 보존: 요청 기억 잠금(긴 판단·계획 중)을 누가 잡고 있어도 cancel 은 바로 처리된다."""
+    runner, watcher, _ = system
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED")
+    with runner.requests.lock:
+        t = threading.Thread(target=runner._on_intent,
+                             args=(String(data=json.dumps({"intent": "cancel", "targets": [], "confidence": 0.9})),))
+        t.start()
+        t.join(2)
+        assert not t.is_alive()
+    assert runner._last_intent["intent"] == "cancel"
