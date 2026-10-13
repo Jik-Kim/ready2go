@@ -130,7 +130,7 @@ def test_unsupported_availability_and_raw_reasons(ontology, schema, cfg):
     doc = p.parse('립밤 되나?')
     assert doc['_voice']['availability'] and not doc['source']['llm_called']
     assert not doc['source']['execution_allowed'] and not doc['targets']
-    assert '등록된' in doc['_voice']['final_text'] and '확인하지 못' in doc['_voice']['final_text']
+    assert '등록 지원 대상' in doc['_voice']['final_text'] and '실제 재고와 파지는 확인하지 못' in doc['_voice']['final_text']
 
 
 @pytest.mark.parametrize('text,reason,expected', [
@@ -213,7 +213,8 @@ def test_past_question_never_executes(dialogue, invalidate):
     elif invalidate == 'new_request': s.text('지우개 가져와',4)
     doc = s.text('응',5 if invalidate=='generation' else 4, blocked=invalidate=='blocked')
     assert doc['intent'] == 'clarify' and doc['targets'] == []
-    assert doc['_voice']['final_text'] == s.cfg['clarify_prompts']['missing_item']
+    assert doc['_voice']['final_text'] == (s.cfg['voice_flow']['status_prompts']['unconfirmed']
+        if (invalidate == 'blocked') else s.cfg['clarify_prompts']['missing_item'])
     assert not doc['_voice'].get('context_answer') and 'question_target' not in doc['_voice']
 
 
@@ -244,7 +245,8 @@ def test_contextless_replies_reask_target_without_restoring_previous_authority(
     doc = s.text(reply, generation, blocked=state == 'blocked')
     assert doc['intent'] == 'clarify' and doc['targets'] == []
     assert doc['source']['stt_text'] == reply and not doc['source']['execution_allowed']
-    assert doc['_voice']['final_text'] == s.cfg['clarify_prompts']['missing_item']
+    assert doc['_voice']['final_text'] == (s.cfg['voice_flow']['status_prompts']['unconfirmed']
+        if state == 'blocked' else s.cfg['clarify_prompts']['missing_item'])
     assert not calls and not doc['_voice'].get('context_answer')
     assert 'question_target' not in doc['_voice'] and 'question_id' not in doc['_voice']
     assert s.conversation.pending is None
@@ -411,7 +413,7 @@ def test_silence_pcm_pause_and_fixed_vad_comparison(cfg):
     stop=threading.Event()
     def run(amplitudes):
         index=[0]
-        data=[(np.ones(cfg['frame_samples'],dtype=np.int16)*amp).tobytes() for amp in amplitudes]
+        data=[(np.resize(np.array([1,-1],dtype=np.int16),cfg['frame_samples'])*amp).tobytes() for amp in amplitudes]
         class Stream:
             def read(self,n):
                 index[0]+=1
@@ -464,7 +466,7 @@ def test_opt_in_goal_response_preserves_requested_open_without_completion_promis
             '지우개 갖다 놓고 서랍은 열어 둬')
     assert doc['goals'][1]['value'] is True
     text = doc['_voice']['final_text']
-    assert '열림' in text and '내부 평가' in text and '완료했어요' not in text and '닫고' not in text
+    assert '열림' in text and '목표 요청' in text and '완료했어요' not in text and '닫고' not in text
 
 
 def test_prepared_payload_uses_queue_id_validated_text_and_detached_copy(ontology, schema, cfg):
@@ -504,3 +506,54 @@ def test_prepared_payload_rejects_stale_modified_or_untrusted_inputs(ontology, s
     elif change == 'blocked': blocked = True
     elif change == 'evaluation': cfg['evaluation_mode'] = True
     assert session.prepare_request_payload(doc, generation, request_id=request_id, blocked=blocked) is None
+
+
+@pytest.mark.parametrize('total',[256,257])
+def test_prefill_256_includes_warmup_and_rejects_overflow(cfg,ontology,tmp_path,total):
+    cfg['tts_melotts_assets']=str(tmp_path)
+    items=list(ontology['world']['items'].values())
+    initial=prefill_texts(cfg,items)
+    assert cfg['tts_prefill_max_texts']==256
+    cfg['tts_melotts_prefill_texts'].extend(f'모의 상한 문장 {i}' for i in range(total-1-len(initial)))
+    if total==256:
+        assert len(prefill_texts(cfg,items))+1==256
+    else:
+        with pytest.raises(ValueError,match='PREFILL_REQUIRED_LIMIT'):prefill_texts(cfg,items)
+
+
+@pytest.mark.parametrize('limit',['chars','bytes'])
+def test_prefill_256_keeps_character_and_utf8_limits(cfg,ontology,tmp_path,limit):
+    cfg['tts_melotts_assets']=str(tmp_path)
+    if limit=='chars':
+        cfg['tts_melotts_prefill_texts'].append('가'*(cfg['tts_prefill_max_chars']+1))
+    else:
+        initial=prefill_texts(cfg,ontology['world']['items'].values())
+        cfg['tts_prefill_max_bytes']=sum(len(t.encode()) for t in [*initial,cfg['tts_melotts_warmup_text']])-1
+    with pytest.raises(ValueError,match='PREFILL_REQUIRED_LIMIT'):
+        prefill_texts(cfg,ontology['world']['items'].values())
+
+
+@pytest.mark.parametrize('missing',[False,True])
+def test_prefill_256_session_duplicate_capacity_does_not_restore_question(cfg,ontology,schema,missing):
+    cfg['evaluation_mode']=False
+    if missing:cfg.pop('tts_prefill_max_texts')
+    session=VoiceSession(IntentParser(ontology,schema,cfg),cfg)
+    assert session._published_questions.maxlen==256
+    for i in range(257):
+        session.mark_published({'intent':'find_item','targets':['toy_hammer'],
+            'source':{'stt_text':str(i)},'_voice':{'question_id':f'mock:{i}','context_answer':True}})
+    assert len(session._published_questions)==256 and 'mock:0' not in session._published_questions
+    assert 'mock:256' in session._published_questions
+    assert session.conversation.pending is None
+    answer=session.text('응')
+    assert not answer['source']['execution_allowed'] and not answer['targets']
+
+
+def test_prefill_256_config_missing_default_and_explicit_old_local_preserved(cfg,tmp_path):
+    import yaml
+    from ready2go_voice.core.config import load_config
+    path=tmp_path/'old.yaml'
+    cfg.pop('tts_prefill_max_texts');path.write_text(yaml.safe_dump(cfg,allow_unicode=True))
+    assert load_config(path)['tts_prefill_max_texts']==256
+    cfg['tts_prefill_max_texts']=128;path.write_text(yaml.safe_dump(cfg,allow_unicode=True))
+    assert load_config(path)['tts_prefill_max_texts']==128  # 최신값 강제 적용은 승인된 시험 복사본에만 수행합니다.

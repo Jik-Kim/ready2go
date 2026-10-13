@@ -16,9 +16,11 @@ class RequestRun:
         self.decided = self.finished = False
 
     def register(self, payload):
+        if not isinstance(payload, dict):
+            return False
         request_id = payload.get('request_id')
         if (not isinstance(request_id, str) or not request_id.strip()
-                or request_id in self.seen_requests or payload.get('intent') != 'find_item'):
+                or request_id in self.seen_requests or payload.get('intent') not in ('find_item', 'achieve_goal')):
             return False
         if self.pending is not None and (not self.decided or (self.run_id and not self.finished)):
             return False  # 수락 대기·진행 중 run을 후속 요청으로 덮지 않습니다.
@@ -27,6 +29,19 @@ class RequestRun:
         self.run_id = None
         self.decided = self.finished = False
         return True
+
+    def _matches(self, decision):
+        if decision.get('intent') != self.pending['intent']:
+            return False
+        # 계약07 summary는 goals를 echo하지 않습니다. ID/intent/결정/run 상관은 observe에서,
+        # 현재 source는 노드에서 검증하고 find_item의 targets 대조는 유지합니다.
+        if self.pending['intent'] == 'achieve_goal':
+            return True
+        expected = self.pending.get('targets')
+        actual = decision.get('targets')
+        if not isinstance(expected, list) or not isinstance(actual, list):
+            return False
+        return actual == expected
 
     def observe(self, doc):
         """검증된 C 연결 어댑터/모의 호출자 전용. JSON만으로 발신 근거를 증명하지 않습니다."""
@@ -48,8 +63,7 @@ class RequestRun:
                     self.decided = True
                     events.append(dict(event='request_decided', request_id=self.pending['request_id'],
                                        decision=decision['decision']))
-                elif (decision.get('decision') == 'run' and decision.get('intent') == 'find_item'
-                      and decision.get('targets') == self.pending.get('targets')
+                elif (decision.get('decision') == 'run' and self._matches(decision)
                       and isinstance(decision.get('run_id'), str) and decision['run_id'].strip()):
                     self.decided = True
                     self.run_id = decision['run_id']
@@ -57,7 +71,7 @@ class RequestRun:
                                        run_id=self.run_id))
             elif self.run_id and (decision.get('decision') != 'run'
                                  or decision.get('run_id') != self.run_id
-                                 or decision.get('targets') != self.pending.get('targets')):
+                                 or not self._matches(decision)):
                 self.invalidate()  # 같은 ID의 결정 충돌은 새 run으로 재연결하지 않습니다.
                 return []
         last = doc.get('last')

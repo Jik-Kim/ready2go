@@ -42,7 +42,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | `pose` | `{frame, position, yaw}` 형식 유지. 위치·yaw·`top_z` 의미는 병합된 PR #61의 [runner.md 7.1](runner.md#71-원자-동작primitive-action-정의-규격)을 참조함. 서랍 좌표계 정의는 [`config/places.yaml` 첫 부분](../config/places.yaml)이 정본. 규칙 함수·예시 검사는 제공되지만 실제 비전 추론·B 실행 경로 연결 완료를 뜻하지 않음 |
 | `size_m` | 물체 로컬 x 긴 변·y 짧은 변·z 높이 순서의 외접 박스(m). 치수 원본은 E의 `world.jsonld`. 스패너·망치 머리 폭을 파지 손잡이 폭으로 해석하지 않음 |
 | `top_z` | 관측 시 지지면·배치를 포함한 물체 윗면의 프레임 z 높이(m). 바닥에 놓인 예시에서만 물품 높이와 같을 수 있음. 항상 `size_m[2]`로 대체하지 않음 |
-| 물품 조회 | E 공통 로더의 `world.items.<key>`: 기존 이름·종류·별칭·치수와 `roles`, `grip_force`(양수 또는 null), `grasp_verified`(bool). 물품 등록과 파지 승인은 별개 |
+| 물품 조회 | E 공통 로더의 `world.items.<key>`: 기존 이름·종류·별칭·치수와 `roles`, `grip_force`(양수 또는 null), `grasp_verified`(bool), 선택 `grasp_width_m`·`grasp_width_long_m`(실제 RG2 파지 폭, m; 각각 짧은 변 잡기·긴 변 양끝 잡기. 외접 박스 `size_m`와 다른 물품에서만 설정; [원본 설정](../config/item_grasp.yaml)). 물품 등록과 파지 승인은 별개 |
 | 초기 위치 | `initial_state.json`은 배치 예시. 실제 위치라고 발행하려면 확인·초기화가 필요하며, 현재 상태와 개별 인스턴스 위치는 C가 관리 |
 | 인식 결과 | `target_found/target/candidates/visible_count` 형식 유지. 미발견은 `success=true, target_found=false`; 통신·관측 실패와 구분. 예시 좌표는 실측 증빙이 아님 |
 
@@ -69,7 +69,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 <a id="request-run-contract"></a>
 ### 5.3 일반 요청 → 수락 → 완료 계약07 — 공동 원본 준비
 
-[문서: E 초안] 승인 의미·책임·호환 및 중복 처리 기준은 [수락 TTS 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이 절은 E 발신 원본과 C 수신·상태 설명을 담당별로 기록합니다. C 소유 계약07 상태 예시·Runner 설명·ICD 구간은 이 head에 합류했고 C 원본 검토가 확인됐습니다. E 계약 검토/PR 병합과 실제 C 런타임 수신·생산자 연결은 별도 미완료이며, 문서 합류만으로 운영 통합을 뜻하지 않습니다.
+[문서: E 초안] 승인 의미·책임·호환 및 중복 처리 기준은 [수락 TTS 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이 절은 E 발신 원본과 C 수신·상태 설명을 담당별로 기록합니다. C 소유 계약07 상태 예시·Runner 설명·ICD 구간은 이 head에 합류했고 C 원본 검토가 확인됐습니다. [PR #221](https://github.com/Jik-Kim/ready2go/pull/221)·[PR #225](https://github.com/Jik-Kim/ready2go/pull/225)는 병합됐으며 실제 C 런타임 수신·생산자 연결과 운영 통합 완료는 별도로 확인해야 합니다. 문서 합류나 PR 병합만으로 운영 연결 완료를 뜻하지 않습니다.
 
 #### E 담당 — 일반 요청 발신 원본
 
