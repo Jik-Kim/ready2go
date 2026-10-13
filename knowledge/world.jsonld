@@ -88,23 +88,6 @@
         ],
         "size_source": "https://github.com/Jik-Kim/ready2go/issues/8"
       },
-      "carrot_pen": {
-        "class": "Item",
-        "name_ko": "당근 펜",
-        "aliases_ko": [
-          "당근 펜",
-          "당근펜"
-        ],
-        "size_m": [
-          0.1512,
-          0.0154,
-          0.0154
-        ],
-        "roles": [
-          "request_target"
-        ],
-        "size_source": "https://github.com/Jik-Kim/ready2go/issues/8"
-      },
       "masking_tape": {
         "class": "Item",
         "name_ko": "마스킹테이프",

@@ -14,11 +14,12 @@
 | [`classes.jsonld`](../knowledge/classes.jsonld) | 종류와 계층 정의 |
 | [`world.jsonld`](../knowledge/world.jsonld) | 물품·목록·장소 정의 |
 | `knowledge/skills/*.jsonld` | 입력·사전 조건(`pre`)·전개(`expand`)·성공 후 결과(`effect`)·오류 정의 |
-| [`initial_state.json`](../knowledge/snapshots/initial_state.json) | 실제 상태와 대조한 뒤 적용할 초기화용 예시 프리셋 |
+| [`initial_state.json`](../knowledge/snapshots/initial_state.json) | 기본 P1 초기화용 예시 프리셋 |
+| `knowledge/snapshots/p2_s1.json`·`p2_s2.json`·`p2_s3.json` | 승인된 P2 시작 배치; C 선택 소비는 미연결 |
 | [`places.yaml`](../config/places.yaml) | 장소 좌표계·실측 치수·이동 거리·설정의 정본 |
 | [`item_grasp.yaml`](../config/item_grasp.yaml) | 물품별 파지 힘과 검증 승인 상태, 실제로 잡은 폭(선택, B 실측)의 정본 |
 
-`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 상세 사용법은 [knowledge/README.md](../knowledge/README.md)를 참조합니다. [문서]
+`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 선택 입력 `snapshot`은 상태 파일만 대체하며 생략하면 기본 P1 상태를 유지합니다. 활성 10종·고정 학습 11종의 구분, 장면 위치와 미배치 물품, C 기동/reset 미연결 및 조건부 pick 보류는 [knowledge/README.md](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. [문서]
 
 **현재 분리 형식에서 검사하는 항목**: 필수 sources와 객체 형식, JSON/YAML 중복 키, 중복 스킬 ID, 장소 설정 누락·중복, 물품과 파지 설정 ID 일치, 양수 유한값 3개의 `size_m`, 파지 설정 형식·값, 물품·장소의 class 참조, 초기 located_in의 물품·장소 참조, 목록의 물품 참조입니다. 기존 단일 파일 호환 경로는 JSON을 읽어 그대로 반환하며 이 전체 검사를 수행하지 않습니다. [문서]
 
@@ -45,7 +46,7 @@
 
 ### 7.6 확장 정의와 연결 경계
 
-기존 복합 스킬 이름은 `handover_with_unpack`이며 참조 태스크는 `tasks/find_with_unpack.json`입니다. P2 목표·재식별·복구 기준은 [FR-ACT-04](requirements.md#fr-act-04)·[가림 정책](requirements.md#occlusion-policy)을 참조합니다. 현재 참조 태스크는 이전 외부 트레이 예시이며 내부 이동 계약 반영·실행 검증은 [domain.md 인계표](domain.md)를 따릅니다. 옮긴 장애물의 located_in은 서랍 그대로이고 pose 추적/복구 기록은 C·E 합의가 필요합니다. staging_tray 정의는 소비자 잔존참조 때문에 이번에 삭제하지 않습니다. 등록된 데이터가 P1 실물 경로에서 가림 탐색을 실행할 수 있다는 뜻은 아닙니다. [문서]
+기존 복합 스킬 이름은 `handover_with_unpack`이며 참조 태스크는 `tasks/find_with_unpack.json`입니다. P2 목표·재식별·복구 기준은 [FR-ACT-04](requirements.md#fr-act-04)·[가림 정책](requirements.md#occlusion-policy)을 참조합니다. 현재 참조 태스크는 내부 이동·LIFO 복구·aside 및 RESTORE_INCOMPLETE 경로를 포함하며 실제 연결·실물 검증은 [domain.md 인계표](domain.md)를 따릅니다. aside는 원위치 복구 완료가 아닙니다. 옮긴 장애물의 located_in은 서랍 그대로이며 pose 추적/복구 검증은 별도입니다. staging_tray는 초기 open에서만 제외하고 world·설정 정의는 소비자 잔존참조 때문에 유지합니다. 등록된 데이터가 P1 실물 경로에서 가림 탐색을 실행할 수 있다는 뜻은 아닙니다. [문서]
 
 자동 계획은 [FR-PLN-02](requirements.md#fr-pln-02), 복합 작업 추가는 [FR-PLN-03](requirements.md#fr-pln-03), 목록·분류 조회는 [FR-ONT-03](requirements.md#fr-ont-03)에 따릅니다. 스킬 파일과 sources 등록만으로 음성 프롬프트·플래너·태스크 레지스트리에 자동 반영된다고 보장하지 않습니다. 담당 모듈의 연결 확인이 필요합니다. 계획 설계는 [planner.md](planner.md)를 참조합니다. [문서]
 
