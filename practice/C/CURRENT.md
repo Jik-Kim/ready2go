@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-12 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
+- **C 시험 시작 상태 독립 + 플래너 아래 칸 (10/13 PR, E #283 선행)**: `test/start_states.py`(P1_TOP·P2_SINGLE), `planner.DEFAULT_PLAN_LIMITS`(위·아래 칸, `one_open`) [실측: main 데이터 호스트 805·ROS 822 / #283 데이터 호스트 806·ROS 822 passed]. B 아래 칸 지원 확인 필요.
 - **재개 증빙 경계 (10/13 PR)**: STT 15 s·독립 요청 30 s 끝값 포함으로 E #315·#196 과 맞춤 [실측: 호스트 804 passed].
 - **PC2 터미널 3개 묶음 (10/13 PR)**: `tools/dev/pc2_up.sh`·`pc2_voice.sh`·`pc2_cmd.sh`·`pc2_down.sh` + compose `vision-node`(`pc2` 프로필). mock 으로 명령 확인, 비전 컨테이너·실물은 PC2 에서 1-1절 방식과 시작 줄 비교 필요.
 - **#304 P1 후속 (10/13 PR)**: recover 중 재정지 → 세대 비교로 잠금 유지(`STOPPED_DURING_RECOVER`), W2 기본 켜짐(B 답) [실측: 호스트 804·임시 컨테이너 ROS 821 passed]. 남음: 외력 칸(B (가) vs E 미승인), 증빙 경계(E 확인).

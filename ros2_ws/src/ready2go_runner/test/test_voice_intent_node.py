@@ -1,6 +1,7 @@
 """#17 /voice/intent → Runner 노드: mock 백엔드와 함께 띄워 음성 인텐트로 태스크 실행·보류·중복 거절·cancel·status 확인.
 E 통합 공지(#23): find_item → P1 태스크, cancel/status, 모호·미지원 요청 보류, 중복 실행 처리, 입력 명령 기록.
 rclpy·ready2go_interfaces 필요 → 호스트 pytest 는 건너뛰고 ros2-core 컨테이너·colcon test 에서 실행."""
+import copy
 import json
 import itertools
 import threading
@@ -18,6 +19,8 @@ from std_msgs.msg import String  # noqa: E402
 
 from ready2go_runner.nodes.mock_backend import MockBackendNode  # noqa: E402
 from ready2go_runner.nodes.runner_node import LATCHED, RunnerNode  # noqa: E402
+
+from start_states import P1_TOP, start_state  # noqa: E402
 
 DOMAIN_IDS = itertools.count(100)       # 파일마다 Domain ID 범위를 나눔 (stop_safety 150, mock_backend 180, runner_node 200). ROS Domain ID 는 최대 232 → 220 에서 시작하면 14번째 시험이 233 으로 프로세스 종료 (#150)
 ROOT = Path(__file__).resolve().parents[4]
@@ -57,7 +60,7 @@ def last_intent(s):
 
 
 def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks="",
-                skills_up=True, plan_limits=None, extra=()):
+                skills_up=True, plan_limits=None, extra=(), located=None):
     """skills_up=False: mock 백엔드(/skills/* 서버) 없이 시작 — 기동 직후 스킬 서버가 늦게 뜨는 상황 (#108).
     나중에 voice.start_skills() 로 띄운다."""
     context = rclpy.Context()
@@ -71,6 +74,9 @@ def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology
         *([Parameter("plan_limits", value=plan_limits)] if plan_limits is not None else []),
         *[Parameter(k, value=v) for k, v in extra],
         Parameter("log_dir", value=str(tmp_path))])
+    # 시작 상태는 시험이 정함 (기본 P1 위 칸 10종 — 운영 initial_state #283 P2 단일 배치와 무관). reset_state 도 이 값으로
+    start = start_state(P1_TOP if located is None else located)
+    runner.runner._initial_state, runner.runner._state = copy.deepcopy(start), copy.deepcopy(start)
     voice_node = rclpy.create_node("voice_test", context=context)
     voice = Voice(voice_node)
     executor = MultiThreadedExecutor(context=context)
