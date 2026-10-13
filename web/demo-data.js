@@ -3,28 +3,29 @@
 
   const baseData = {
     meta: {
-      mode: "demo",
+      mode: "mock",
       deviceConnected: false,
+      label: "목업 데이터",
+      description: "실제 장치와 연결되지 않은 화면입니다. 아래 상태·시각·결과는 모두 화면 검토용 예시입니다.",
     },
     connections: [
       {
         id: "voice",
         label: "음성",
         status: "waiting",
-        statusLabel: "장치 미연동",
-        description: "실제 음성 장치 연결 정보 없음",
-        callStatus: "listening",
-        callStatusLabel: "호출: 데모 청취 중",
+        statusLabel: "확인 전",
+        description: "웨이크워드·마이크 상태 제공 경로 미확정",
       },
-      { id: "robot", label: "로봇", status: "waiting", statusLabel: "미연동", description: "실제 로봇 연결 정보 없음" },
-      { id: "camera", label: "카메라", status: "waiting", statusLabel: "미연동", description: "실제 카메라 연결 정보 없음" },
+      { id: "robot", label: "로봇", status: "waiting", statusLabel: "확인 전", description: "연결 판단에 사용할 드라이버 토픽 미확정" },
+      { id: "camera", label: "카메라", status: "waiting", statusLabel: "확인 전", description: "향후 /wrist_cam/color/camera_info 수신 여부로 판정 예정" },
+      { id: "runner", label: "Runner", status: "pending", statusLabel: "상태 수신 대기", description: "향후 /runner/status로 연결 예정" },
     ],
     command: {
-      heard: "헬로 로키, 출근 준비물 꺼내줘",
       understood: "차 키·지갑·시계를 찾아 전달합니다.",
-      receipt: { status: "accepted", label: "명령 접수 완료" },
-      recognition: { status: "listening", label: "데모 음성 원문" },
-      interpretation: { status: "confirmed", label: "데모 명령 해석" },
+      interpretation: { status: "confirmed", label: "요청 해석 완료 · 목업 예시" },
+      receipt: { status: "accepted", label: "명령 접수 · 목업 예시" },
+      processing: { status: "verifying", label: "관측 결과 확인 중 · 목업 예시" },
+      confirmation: null,
     },
     selectedDrawerId: "top",
     drawers: [
@@ -58,21 +59,20 @@
       currentAction: "지갑의 전달 결과를 확인하는 중",
       detailsExpanded: true,
       steps: [
-        { id: "open-bottom", label: "아래 서랍 열기", status: "complete", statusLabel: "완료", reason: "등록 위치의 물품에 접근", observation: "서랍 열림 상태 확인" },
-        { id: "pick-wallet", label: "지갑 확인·집기", status: "complete", statusLabel: "완료", reason: "요청 물품과 등록 물품 일치 확인", observation: "지갑 집기 완료" },
-        { id: "place-wallet", label: "전달 위치에 놓기", status: "complete", statusLabel: "완료", reason: "사용자에게 물품 전달", observation: "전달 위치 배치 완료" },
-        { id: "verify-wallet", label: "배치 결과 검증", status: "current", statusLabel: "진행 중", reason: "지갑이 전달 위치에 놓였는지 확인", observation: "확인 대기" },
-        { id: "close-bottom", label: "아래 서랍 닫기", status: "waiting", statusLabel: "대기", reason: "작업 후 서랍 상태 복구", observation: "미수행" },
+        { id: "open-bottom", label: "아래 서랍 열기", status: "complete", statusLabel: "완료", reason: "등록 위치의 물품에 접근", observation: "목업 예시 · 서랍 열림 상태 확인" },
+        { id: "pick-wallet", label: "지갑 확인·집기", status: "complete", statusLabel: "완료", reason: "요청 물품과 등록 물품 일치 확인", observation: "목업 예시 · 지갑 집기 완료" },
+        { id: "place-wallet", label: "전달 위치에 놓기", status: "complete", statusLabel: "완료", reason: "사용자에게 물품 전달", observation: "목업 예시 · 전달 위치 배치 완료" },
+        { id: "verify-wallet", label: "배치 결과 검증", status: "current", statusLabel: "진행 중", reason: "지갑이 전달 위치에 놓였는지 확인", observation: "목업 예시 · 확인 대기" },
+        { id: "close-bottom", label: "아래 서랍 닫기", status: "waiting", statusLabel: "대기", reason: "작업 후 서랍 상태 복구", observation: "목업 예시 · 미수행" },
       ],
     },
     adminReview: {
-      dataModeLabel: "데모 샘플 · 실제 관리자 API 미연동",
       current: {
         runId: "demo_001",
         rows: [
-          { id: "bottom-drawer", icon: "drawer", label: "아래 서랍", value: "열림", valueStatus: "confirmed", source: "Runner 저장 상태", receivedAt: "08:12:19" },
-          { id: "gripper", icon: "gripper", label: "그리퍼", value: "열림", valueStatus: "confirmed", source: "Runner 저장 상태", receivedAt: "08:12:20" },
-          { id: "wallet-placement", icon: "wallet", label: "지갑 배치", value: "확인 대기", valueStatus: "verifying", source: "관측 결과 미수신", receivedAt: null },
+          { id: "bottom-drawer", icon: "drawer", label: "아래 서랍", value: "열림", valueStatus: "confirmed", source: "목업 · Runner 저장 상태 예시", receivedAt: "08:12:19" },
+          { id: "gripper", icon: "gripper", label: "그리퍼", value: "열림", valueStatus: "confirmed", source: "목업 · Runner 저장 상태 예시", receivedAt: "08:12:20" },
+          { id: "wallet-placement", icon: "wallet", label: "지갑 배치", value: "확인 대기", valueStatus: "verifying", source: "목업 · 관측 결과 미수신", receivedAt: null },
         ],
         error: { label: "현재 오류: 미수신", detail: "오류 데이터 제공 경로가 연결되지 않아 오류 유무를 판단할 수 없습니다." },
       },
@@ -89,39 +89,58 @@
       },
       plan: {
         connected: false,
-        message: "해당 실행의 목표·생성 순서·단계별 이유를 제공하는 웹 API 경로가 없습니다. 실제 제공 경로가 합의되기 전에는 프런트엔드에서 계획이나 선택 이유를 생성하지 않습니다.",
+        message: "현재 제공 경로가 확정되지 않았습니다. 녹화 우선 범위에서는 실시간 계획이나 선택 이유를 표시하지 않습니다.",
       },
       history: {
         connected: false,
-        selectedRunId: "demo_history_001",
-        runs: [
-          { id: "demo_history_001", title: "출근 준비물 전달", status: "데모 완료", startedAt: "08:03:11" },
-          { id: "demo_history_002", title: "등록 물품 확인", status: "데모 중단", startedAt: "07:54:26" },
-        ],
-        detailsByRun: {
-          demo_history_001: [
-            { step: "요청 확인", result: "완료", condition: "샘플 요청 있음", change: "데모 실행 생성", error: "미수신" },
-            { step: "물품 탐색", result: "완료", condition: "샘플 등록 위치 있음", change: "대상 확인 표시", error: "미수신" },
-            { step: "전달 결과 확인", result: "완료", condition: "샘플 관측값", change: "데모 완료 표시", error: "미수신" },
-          ],
-          demo_history_002: [
-            { step: "등록 물품 확인", result: "중단", condition: "샘플 등록 정보 있음", change: "데모 중단 표시", error: "오류 정보 미수신" },
-          ],
-        },
+        message: "표시할 실제 실행 기록이 연결되지 않았습니다. MongoDB·JSONL 조회는 녹화 이후 후속 연결 범위입니다.",
       },
     },
   };
 
   const scenarios = {
     error(data) {
+      data.meta.label = "목업 오류 시나리오";
+      data.meta.description = "실제 장치 오류가 아닙니다. 확인 전·상태 수신 실패·오류·데이터 없음 표시를 검토합니다.";
+      data.connections[0].statusLabel = "연결 확인 전";
       data.connections[1] = {
         id: "robot",
         label: "로봇",
         status: "error",
-        statusLabel: "연결 오류",
-        description: "샘플 상태: 연결 오류",
+        statusLabel: "오류",
+        description: "목업 오류 시나리오",
       };
-      data.task.currentAction = "로봇 연결 오류 · 확인 필요";
+      data.connections[2] = {
+        id: "camera",
+        label: "카메라",
+        status: "pending",
+        statusLabel: "데이터 없음",
+        description: "목업 오류 시나리오 · camera_info 미수신 예시",
+      };
+      data.connections[3] = {
+        id: "runner",
+        label: "Runner",
+        status: "disconnected",
+        statusLabel: "상태 수신 실패",
+        description: "목업 오류 시나리오 · /runner/status 미수신 예시",
+      };
+      data.command.processing = { status: "error", label: "처리 상태 확인 불가 · 목업 예시" };
+      data.task.status = "error";
+      data.task.currentAction = "상태 데이터 없음 · 확인 필요 (목업 예시)";
+      data.task.steps[3] = {
+        ...data.task.steps[3],
+        status: "error",
+        statusLabel: "오류",
+        reason: "배치 결과 상태를 수신하지 못해 확인 필요",
+        observation: "데이터 없음",
+      };
+      data.adminReview.current.rows = [
+        { id: "runner", icon: "drawer", label: "Runner 상태", value: "데이터 없음", valueStatus: "waiting", source: "목업 오류 시나리오", receivedAt: null },
+      ];
+      data.adminReview.current.error = {
+        label: "목업 오류 시나리오",
+        detail: "실제 장치 오류가 아니라 상태 수신 실패 화면을 검토하기 위한 예시입니다.",
+      };
     },
     empty(data) {
       data.drawers[1].items = [];
