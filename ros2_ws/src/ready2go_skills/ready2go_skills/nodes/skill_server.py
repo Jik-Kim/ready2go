@@ -1383,28 +1383,36 @@ class SkillServer(Node):
             return sf.Outcome(True, reason=plan.reason), out
         if params.get("check_only"):                          # 재판단인데 아직 끌어야 함 → 집지 않게 멈춤 (runner.md, #83 D 리뷰)
             return sf.Outcome(False, PUSH_LIMIT, reason=f"check_only: 아직 잡을 수 없는 자리 — {plan.reason}"), out
+        # 다른 물체 위에 얹힌 물체도 높이 상관없이 넛지 [사용자 10/13 "높이상관없이 넛지로가자", #254 시뮬레이션: 구석 쌓임은 위에서 눌러
+        # 끌기로 대부분 떨어뜨리거나 넘어뜨림 → 다시 보고 집기]. 받침 = 비전 top_z − 물체 높이 (맨 위 물체는 비전 윗면이 맞음, 10/11):
+        # 누르는 높이·뒤에서 미는 손끝은 받침 위 기준, 밑에 깔린 받침은 이웃 확인에서 뺌. (10/12 까지는 NOT_ON_FLOOR 로 거부 — 손끝을
+        # 바닥 위 3 mm 로 내려 받침 위로 떨어질 뻔함 [사용자 10/12 PC2 몽키 위 캐러멜])
         stacked = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"])
-        if stacked > 0:
-            # 다른 물체 위에 얹힌 물체는 넛지 안 함 — 뒤에서 밀기는 손가락을 바닥 위 3 mm 까지 내리고(밑 물체가 비전에 안 보이면
-            # 이웃 확인도 못 함), 위에서 끌기는 밑 물체에서 떨어뜨림 [사용자 10/12 PC2: 몽키(미검출) 위 캐러멜이 손잡이 벽 쪽이라
-            # 집기가 "뒤에서 밀어 x −36 mm" 를 요구]. 움직이기 전 거부 — 위 물체부터 치우거나 사람이 쌓기 자리를 벽에서 띄우기
-            return sf.Outcome(False, motion_guard.NOT_ON_FLOOR,
-                              reason=f"다른 물체 위({stacked * 1000:.0f} mm 위)라 넛지 안 함 — 쌓은 자리를 손잡이·옆벽에서 띄우기"), out
+        top_max = place["interior_m"][2] - prm["pick"]["stack_top_clear_m"]
+        if stacked > 0 and stacked + size[2] > top_max:     # 테두리 가까이 높이 쌓임 — 서랍 안 옆 이동 높이와 닿음 (집기와 같은 상한)
+            return sf.Outcome(False, motion_guard.NOT_ON_FLOOR, reason=f"쌓인 윗면 {(stacked + size[2]) * 1000:.0f} mm > "
+                                                                       f"{top_max * 1000:.0f} mm (테두리 − stack_top_clear_m)"), out
+
+        def not_under(objs):                                # 받침(밑에 깔린 것)은 끄는 길·손가락 자리 이웃이 아님 — 손끝이 그 위에 있음
+            if stacked <= 0:
+                return objs
+            under = {o["id"] for o in plp.objects_under(target=target, objects=objs, size_of=self._size_or_none)}
+            return [o for o in objs if o["id"] not in under]
         who, why = self._neighbor(params, drawer_id, lambda objs, nb: nc.drag_blocker(
-            target=target, size_m=size, shift_y_m=plan.shift_y_m, shift_x_m=plan.shift_x_m, objects=objs, size_of=self._size_or_none,
-            default_size_m=prm["place"]["default_obstacle_size_m"], margin_mm=nb["margin_mm"], support_m=0.0,
-            below_tol_m=nb["below_tol_m"]))
+            target=target, size_m=size, shift_y_m=plan.shift_y_m, shift_x_m=plan.shift_x_m, objects=not_under(objs),
+            size_of=self._size_or_none, default_size_m=prm["place"]["default_obstacle_size_m"], margin_mm=nb["margin_mm"],
+            support_m=stacked, below_tol_m=nb["below_tol_m"]))
         if why or who:                                      # 끌다가 옆 물체를 밀지 않게 — 움직이기 전 [사용자 10/09 랜덤 배치]
             return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
         if plan.push_to_xy_m is not None:                               # 벽까지 밀기는 뒤에서 [사용자 10/11]
-            who, why = self._neighbor(params, drawer_id, lambda objs, nb: self._push_finger_blocker(plan, target, objs, nb))
+            who, why = self._neighbor(params, drawer_id, lambda objs, nb: self._push_finger_blocker(plan, target, not_under(objs), nb))
             if why or who:                                              # 손가락 내려갈 자리에 이웃 — 움직이기 전 [사용자 10/12 PC2]
                 return (sf.Outcome(False, sf.BAD_PARAMS, reason=why) if why else
                         sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"뒤에서 밀 손가락 자리에 {who} — {who} 먼저 치우기")), out
-            return self._push_from_behind(goal, drawer_id, target, plan, tf, d, out)
+            return self._push_from_behind(goal, drawer_id, target, plan, tf, d, out, support_m=stacked)
         on_x = plan.axis == "x"                                         # 앞뒤 벽에서 끌기 [사용자 10/10]
         wall = mp.dir_to_base(tf, (plan.wall_normal_x, 0.0, 0.0) if on_x else (0.0, plan.wall_normal_y, 0.0))   # 누르는 쪽 벽 (base)
         if d.get("close_axis", "object") == "wall":                    # 닫힘 축 = 옆벽 법선 [실측 B 10/06, 지우개 잘 끌림]
@@ -1414,7 +1422,7 @@ class SkillServer(Node):
             tip_v = mp.tip_contact(math.radians(d["tilt_deg"]), g)[1]  # 기울인 닫은 손끝의 가장 낮은 점 깊이 (TCP 아래, 계산)
             yaw = target["pose"]["yaw"]
             along = mp.dir_to_base(tf, (math.cos(yaw), math.sin(yaw), 0.0))  # 닫힘 축 = 물체 긴 변 (얇은 쪽이 옆벽)
-        contact_z_m = size[2] + tip_v / 1000.0
+        contact_z_m = stacked + size[2] + tip_v / 1000.0                    # 쌓였으면 받침 위 윗면
         # 10/06 실물로 맞춘 순서 (scripts/b_demo.py 와 같음): 탑뷰 → 서랍 안 경유점 movej → y 를 누를 자리 y 로 →
         # 제자리 기울이기 → 누를 자리 위 start_above_mm → 누르기(오검출 대책) → 옆으로 끌기 → 올라감
         bad = self._to_drawer_view(goal, drawer_id)
@@ -1493,10 +1501,11 @@ class SkillServer(Node):
         return sf.Outcome(True, reason=f"{held_n:.1f} N 으로 눌러 {'대각선 x·y' if dx and dy else ('앞뒤로 x' if on_x else '옆으로 y')} "
                                  f"{f'{dx * 1000:+.1f}·{dy * 1000:+.1f}' if dx and dy else f'{(dx or dy) * 1000:+.1f}'} mm 끌기"), out
 
-    def _push_from_behind(self, goal, drawer_id, target, plan, tf, d, out):
+    def _push_from_behind(self, goal, drawer_id, target, plan, tf, d, out, support_m=0.0):
         """물체 뒤에서 닫은 손가락 옆면으로 벽까지 밂 [사용자 10/11 PC2 "벽으로 밀칠 땐 지우개 뒤에서 밀기, 공간 충분"].
         탑뷰 → 닫기 → 서랍 안 경유점 → 테두리 위로 시작 자리 위 → 수직으로 손끝 바닥 위 push_tip_above_floor_mm 까지
-        → 벽 쪽으로 계산한 끝까지 수평 밀기(push_speed_mm_s, 힘은 안전 상한만) → push_back_mm 물러남 → 올라감 (다음은 탑뷰에서 다시 보기)."""
+        → 벽 쪽으로 계산한 끝까지 수평 밀기(push_speed_mm_s, 힘은 안전 상한만) → push_back_mm 물러남 → 올라감 (다음은 탑뷰에서 다시 보기).
+        support_m: 쌓인 물체면 받침 높이 — 손끝은 받침 위 push_tip_above_floor_mm [사용자 10/13]."""
         g = self.prm()["gripper"]
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:
@@ -1510,7 +1519,7 @@ class SkillServer(Node):
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), out
-        tcp_z = (d.get("push_tip_above_floor_mm", 3.0) + mp.tip_below_tcp_mm(0.9, g)) / 1000.0   # 닫은 손끝 = TCP − 10 mm [실측]
+        tcp_z = support_m + (d.get("push_tip_above_floor_mm", 3.0) + mp.tip_below_tcp_mm(0.9, g)) / 1000.0   # 닫은 손끝 = TCP − 10 mm [실측]
         nx, ny = plan.push_dir
         close_dir = mp.dir_to_base(tf, (-ny, nx, 0.0))                 # 닫힘 축 ⟂ 미는 방향 — 손가락 두 개가 나란히 판처럼
         (sx, sy), (ex, ey) = plan.press_xy_m, plan.push_to_xy_m

@@ -2581,18 +2581,48 @@ def test_putback_tilted_pick_places_back_with_same_tilt(server, drawer):
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
 
 
-def test_nudge_refuses_stacked_target_before_motion(server):
-    """[사용자 10/12 PC2] 몽키(미검출) 위 캐러멜이 손잡이 쪽이라 집기가 "뒤에서 밀어 x −36 mm" 를 요구 — 쌓인 물체를 넛지하면
-    뒤에서 밀기 손가락이 밑 물체 위로 내려가거나 끌어 떨어뜨림 → 넛지가 필요해도 움직이기 전 NOT_ON_FLOOR. 바닥 물체는 그대로."""
+@pytest.mark.parametrize("target", ["caramel_wall", "eraser_corner"])
+def test_nudge_stacked_target_from_support_height(server, target):
+    """[사용자 10/13 "높이상관없이 넛지로가자"] 쌓인 물체도 넛지 — 10/12 PC2 몽키(미검출) 위 캐러멜(손잡이 벽, 뒤에서 밀기)·
+    구석 지우개(위에서 눌러 끌기). 손끝·누르는 높이는 받침(top_z − 물체 높이) 위만큼 올라감 — 바닥 물체와 같은 길, 높이만 다름."""
     srv = server.srv
-    car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0387, "occluded_by": [], "visible_area_m2": 0.0032,
-           "pose": {"frame": "drawer_top", "position": [0.0605, 0.2139, 0.0], "yaw": -0.7897, "yaw_valid": True}}
+    if target == "caramel_wall":
+        t = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185, "occluded_by": [], "visible_area_m2": 0.0032,
+             "pose": {"frame": "drawer_top", "position": [0.0605, 0.2139, 0.0], "yaw": -0.7897, "yaw_valid": True}}
+    else:
+        t = dict(ERASER_CORNER)
+    lows = []
+    for lift in (0.0, 0.0202):                                           # 바닥 / 몽키(18.5) 위 정도
+        srv.robot.log.clear()
+        srv.robot.p = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0]
+        out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": dict(t, top_z=t["top_z"] + lift)})
+        assert out.error_code != "NOT_ON_FLOOR", out.reason
+        moves = [e[1] for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+        assert moves, out.reason
+        lows.append(min(p[2] for p in moves))
+    assert lows[1] - lows[0] == pytest.approx(20.2, abs=1.5), lows
+
+
+def test_nudge_stacked_ignores_support_but_not_others(server):
+    """쌓인 물체 넛지: 밑에 깔린 받침은 끄는 길 이웃이 아님(손끝이 그 위), 너무 높이 쌓이면(테두리 − 10 mm 넘음) 움직이기 전 NOT_ON_FLOOR."""
+    srv = server.srv
+    x, y = ERASER_CORNER["pose"]["position"][:2]
+    base = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.030, "occluded_by": ["eraser#1"],   # 덮인 받침 윗면 번짐 (실제 18.5)
+            "pose": {"frame": "drawer_top", "position": [x, y - 0.03, 0.0], "yaw": 1.5707, "yaw_valid": True}}   # 끄는 쪽(−y)으로 걸침
+    t = dict(ERASER_CORNER, top_z=0.0185 + 0.0115)
+    scan = {"target_found": True, "target": t, "candidates": [base], "visible_count": 2}
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "scan": scan})
+    assert out.error_code not in ("NEIGHBOR_TOO_CLOSE", "NOT_ON_FLOOR"), out.reason
+    other = dict(base, id="toy_car#1", class_="x", occluded_by=[])                  # 받침 관계가 없으면 그대로 막음
+    other = {k: v for k, v in other.items() if k != "class_"}
+    other["pose"] = dict(base["pose"], position=[x, y - 0.06, 0.0])
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t,
+                                         "scan": dict(scan, candidates=[base, other], visible_count=3)})
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE" and "toy_car#1" in out.reason, out.reason
     srv.robot.log.clear()
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": car})
-    assert not out.success and out.error_code == "NOT_ON_FLOOR" and data["pushed"] is False
-    assert not [e for e in srv.robot.log if e != "stop" and e[0] in ("movel", "movej", "moveb")]
-    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": dict(car, top_z=0.0185)})
-    assert out.error_code != "NOT_ON_FLOOR"
+    high = dict(ERASER_CORNER, top_z=srv.places()["drawer_top"]["interior_m"][2])
+    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": high})
+    assert not out.success and out.error_code == "NOT_ON_FLOOR" and srv.robot.log == []
 
 
 def test_named_top_view_from_tray_goes_home_first(server):
