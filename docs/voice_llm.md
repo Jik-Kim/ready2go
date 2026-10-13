@@ -28,7 +28,7 @@
 
 | 단계 | P1 현재 구현 | 미확정 설정·미구현 후보 |
 | :--- | :--- | :--- |
-| 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, SharedInput reader의 고정5초 시운전(standalone sd.rec fallback), 또는 RMS 무음 종료·보호 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
+| 입력 | 외부 강의 `hello_rokey_8332_32.tflite` 읽기, 기본 VoiceNode는 공유 RawInputStream의 동일 reader에서 prepared 캡처 경계부터 fixed5초를 수집하며, shared_input 없는 Recorder는 기존 sd.rec→sd.wait 경로를 유지합니다. 또는 RMS 무음 종료·보호 한도 | 장치·모델 배포·임계값은 팀 확정 필요. Push-to-talk는 미구현 후보 |
 | STT | OpenAI `whisper-1`, 한국어·등록 물품 이름 prompt, API 단일 호출 슬롯 | 계정/지연 실측 필요. `faster-whisper small` 오프라인 폴백은 미구현 후보 |
 | 해석 | LangChain·`gpt-4o` 후보 strict JSON → 기존 계약·등록 물품·보류 문맥·요청 단서 검증; 오류/시간 초과/검증 실패 시 좁은 규칙 폴백 | 모델·프롬프트·E/D 정답표 미확정. 퍼지 매칭은 구현하지 않음 |
 | 확인 | 기본 `confirmation_enabled: true`: 검증된 “지우개 가져오기 요청으로 이해했어요.” 재생 성공 뒤 find_item 발행. 실패는 clarify 보류 | [수락 TTS 결정](requirements.md#acceptance-tts-policy)의 C 계약·실제 연결 대기 |
@@ -38,7 +38,7 @@
 
 [문서: #194 구현] `clarify_prompts`는 기본/실패 안내이며, [승인된 음성 정책](requirements.md#voice-policy)에 따라 현재 대상·행동·판정과 의미 일치하는 내부 LLM `response_text`를 검증해 최종 문장으로 유지합니다. 공개 `clarify_question`은 질문에만 사용하며 내부 `_voice.final_text`와 실제 `tts.speak(text)`·최종 콘솔 안내는 동일 문자열입니다. 원본/대체 사유는 E 상세 파일에 보존합니다. 현재 질문의 후보·세대/epoch·유효성을 `Conversation`이 관리하고 쉼표/복합 답의 판단 뒤 한 번 소비하며 실제 질문 TTS 완료 후 명확한 답/대상 정정을 한 번 결합합니다. 캐시 WAV를 읽거나 재시작해도 질문 권한이 복원되지 않습니다. 이 구현은 실음성/AC·C 수락 시험 결과가 아닙니다.
 
-원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 일반 노드는 동일 SharedInput reader의 prepared 캡처 경계에서16kHz/int16/mono 고정 녹음을 시작합니다. standalone Recorder의 공유 입력 없는 sd.rec fallback과 구분합니다. commissioning은 실행·평가 모드 모두에서 기존 유한 API 상한을 사용하며 3초 AC 예산을 적용하지 않습니다. 평가 true는 모든 intent 발행을 차단하고 false는 기존 확인 TTS·무발화·취소·실패·중복 게이트를 통과한 요청을 발행합니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
+원본 기반 기능 시운전 기본은 recording_mode=fixed/record_duration_sec=5/timing_mode=commissioning이며 STT/LLM 유한 상한은 각각30초 제안값입니다. 기본 VoiceNode는 하나의 SharedInput RawInputStream을 WakeAudio와 Recorder가 공유하고 fixed 녹음은 동일 reader의 prepared 캡처 경계부터 같은 프레임에서 기존 5초 분량만 수집합니다. shared_input 없이 쓰는 Recorder는 기존 sd.rec→sd.wait 호환 경로를 유지합니다. commissioning은 실행·평가 모드 모두에서 기존 유한 API 상한을 사용하며 3초 AC 예산을 적용하지 않습니다. 평가 true는 모든 intent 발행을 차단하고 false는 기존 확인 TTS·무발화·취소·실패·중복 게이트를 통과한 요청을 발행합니다. 고정 녹음 완료는 실제 발화 종료가 아니므로 speech_ended_*와 확인 지연은 null/not_measured, recording_ended_*만 별도로 기록합니다. 이 모드로 AC-INT-03을 통과했다고 보고하지 않습니다.
 
 [현재 설정 원본 voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)은 시운전 STT/LLM 상한 각각30초, silence_sec=0.4, tts_reserve_sec=0.7입니다. 이전 STT1.1초/LLM0.8초는 AC 준비 후보였으며 현재 원본 값이 아닙니다. AC 모드의 값은 별도 실측해 확정합니다. silence/ac_budget 모드에서는 [AC-INT-03](requirements.md#ac-int-03)의 예산에 무음 대기·API·TTS 준비를 포함합니다. 남은 예산에 따라 STT/LLM의 실제 제한은 더 짧아질 수 있으며, 값의 합이나 설정만으로 실제 3초 달성을 선언하지 않습니다. 늦은 API 결과는 폐기하고 재시도를 쌓지 않습니다.
 
@@ -154,7 +154,7 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 ### #43·#152 E 내부 정책과 C v2 회신안 (미승인 계약)
 
-[문서: E 연속 기능 개발] 아래 호출은 E-P2-VERIFY-20261011-01 당시 직접 모의·격리 ROS 검사를 수행한 E 내부 연결입니다. PR #227 본문의 전체 CI 근거는 원격 head `a41216912d7e76dc0d354be787516025b4ae5900` 대상이며 이후 로컬 변경의 검사로 전용하지 않습니다. 이번 리뷰 수정의 검사 기준·결과는 [E CURRENT](../practice/E/CURRENT.md#pr227-review-fix-20261012-01)를 참조하십시오. 실제 C 통합·음성 장치·로봇 수용 검증은 남아 있습니다. 정책은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy), 실행 구간은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)을 참조합니다.
+[문서: E 통합 준비·검증 이력] 아래 호출은 E 내부 모의·회귀/격리 ROS 검증 이력이 있습니다. 원격73ba549의 직접41건·38800a8의 전체CI2632 passed/41 skipped, 로컬12e0c29의 리뷰 회귀와079232/940c1f83의 검사는 각각 이전 대상의 근거입니다. 이번 통합의 새 최종SHA 전체CI는 아직 미실행이며 수치를 합산하거나 전용하지 않습니다. 실패/부분 검사·실제C 운영 미연결·실음성/실물 미검증은 [E CURRENT](../practice/E/CURRENT.md#pr227-final-integration-20261012-01)에서 구분합니다. 정책은 [사후 검증](requirements.md#verification-policy)·[재개 접수](requirements.md#resume-admission-policy), 실행 구간은 [voice.yaml](../ros2_ws/src/ready2go_voice/params/voice.yaml)을 참조합니다.
 
 | E 생산자·수신자 | 현재 작성한 호출 | 실제 통합 선행 |
 | :--- | :--- | :--- |
@@ -162,6 +162,8 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 | #150 parser → Session → RequestRun → VoiceNode._deliver/speak | 선정 목표와 최종 문장 재검증·요청 payload 보존·계약07 요청 ID/intent/run 결정/run ID 상관(goals echo 없음)·현재 수락 run에 문장 한 번 재생·같은 run 완료 안내 | 실제 현재 C 생산자 확인과 수락/first gate, B 파지 및 C 계획·검증 결과 |
 | #187 독립 무음 종료 녹음/별도 STT·control 및 질문 STT → 기존 cancel publisher | 처리/TTS/질문·Runner 실행 중 웨이크 없는 새 입력, LLM/P1 STT 슬롯/TTS 종료 대기 없음, 동일 세대 발신·취소 우선 | 단일 SharedInput·기존 임계값을 재사용하며 녹음/별도 STT/기존 cancel 발행은 모의로 확인했습니다. 일시 AUDIO_OVERFLOW는 손상 reader/PCM을 버리고 새 reader로 재청취하며, close·stop_event·비복구 입력 오류는 청취를 종료합니다. 진단 실패는 기존 오류 보고로 표시합니다. 실제 장치 경합·overflow 복구는 미검증입니다. 클라우드 지연/실패·자기 TTS 문구 대조 한계·실제 정지 AC는 후속입니다. 실제 정지·잠금·그리퍼 동작은 B/C 소유입니다. |
 | #152 typed 상태 → SafetyExchange → 질문 작업/Session.safety_audio → typed sender | 기존 RecoveryConfirmation의 등록·TTS·새 녹음·SDK·질문 답, 독립 새 발화의 등록 확인·재개/종료 후보, 복구 요청·일반 cancel 작업 보존 | 안전 상태/증빙·유효기간을 C/B 입력에 대응하고 typed sender를 승인된 공개 규약에 연결해야 합니다. |
+
+[문서: 종료940c 통합] 일반·독립 stop SDK의 명시 종료는 현재 run/검증된 boot/세대에 묶어 기존 cancel과 현재 typed 정지 확인 뒤 종료 후보·TTS proof·명시 수락으로 연결합니다. 원발화는 새 SDK/독립 재개 등록 증빙으로 재사용하지 않습니다. 동일 heartbeat는 유효 안내를 유지하고 재정지/타run/boot·미확인/TTS 실패는 잘못된 idle을 차단합니다. 정확 “중지”, 제어4문장 공통 prefill과 stop/safety `stt_control_prompt`는 [Voice README](../ros2_ws/src/ready2go_voice/README.md#종료중지-최소-연결--2026-10-12)를 참조하십시오. 기존 cap256/startup60/prepare120과 일반 물품 힌트를 유지합니다. 실제 C 종료 wire/수락·보존 폐기 adapter와 실음성·실물 검증은 선행 미완료이며 더미 종료는 COMPLETED/effect/잠금 해제가 아닙니다.
 
 [문서: 복구 입력 경계] [safety_exchange.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/safety_exchange.py)는 기존 core를 호출하며 공개 intent를 추가하지 않습니다. VoiceNode의 safety_stopped/offer/registered/independent_registered/completed는 실제 통합 매핑용 typed 입력입니다. valid_state와 Evidence는 호출자가 실제 원본으로 확인해야 하며 seq나 발화만으로 채우지 않습니다. bind_safety_sender의 작업 이름은 E 내부 호출 구분으로서 공개 enum/ACK 규약이 아닙니다. 새 웨이크 녹음은 녹음 당시 보존 work에 연결하며, 열린 질문·현재 독립 요청을 새 begin으로 덮지 않습니다. 명시 종료 후보는 C 종료 확정·잠금 해제·새 작업 허가가 아닙니다.
 

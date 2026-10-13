@@ -15,8 +15,8 @@ def accepted(run='run1', request='req1'):
     return dict(intent='find_item', targets=['eraser'], decision='run', request_id=request, run_id=run)
 
 
-def completed(run='run1', outcome='COMPLETED'):
-    return dict(run_id=run, task_id='find_item', overall_status=outcome, error_code=None)
+def completed(run='run1', outcome='COMPLETED', task='find_item'):
+    return dict(run_id=run, task_id=task, overall_status=outcome, error_code=None)
 
 
 @pytest.fixture
@@ -188,3 +188,27 @@ def test_find_item_still_requires_matching_targets(tracker):
     tracker.observe(status(accepted()))
     assert not tracker.observe(status(dict(accepted(),targets=['car_key']),completed()))
     assert tracker.pending is None
+
+
+def test_goal_status_without_goals_echo_correlates_by_request_and_run():
+    goals=[dict(predicate='located_in',subject='eraser',value='handover_zone'),
+           dict(predicate='open',subject='drawer_top',value=True)]
+    payload=dict(intent='achieve_goal',goals=goals,targets=[],request_id='goal',accept_text='목표 요청입니다.')
+    tracker=RequestRun();assert tracker.register(payload)
+    # contract07 summary는 goals를 echo하지 않습니다.
+    decision=dict(intent='achieve_goal',request_id='goal',run_id='goal-run',decision='run')
+    assert tracker.observe(status(decision))[0]['event']=='request_accepted'
+    assert not tracker.observe(status(dict(decision,request_id='other')))
+    events=tracker.observe(status(decision,completed('goal-run',task='achieve_goal')))
+    assert [event['event'] for event in events]==['request_completed']
+    assert not tracker.observe(status(decision,completed('goal-run',task='achieve_goal')))
+
+
+def test_goal_status_requires_matching_intent_and_nonempty_run_id():
+    goals=[dict(predicate='open',subject='drawer_top',value=True)]
+    payload=dict(intent='achieve_goal',goals=goals,targets=[],request_id='goal',accept_text='목표 요청입니다.')
+    tracker=RequestRun();assert tracker.register(payload)
+    wrong_intent=dict(intent='find_item',request_id='goal',run_id='goal-run',decision='run')
+    assert not tracker.observe(status(wrong_intent))
+    assert not tracker.observe(status(dict(wrong_intent,intent='achieve_goal',run_id='')))
+    assert tracker.run_id is None and not tracker.decided

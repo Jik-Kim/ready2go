@@ -22,14 +22,8 @@ NUDGE_DY = -0.0417                       # mock 끌기: y 로 옮기는 거리 (
 # E 공통 pick (#122): 탑뷰 → 촬영 → 끌기 → 탑뷰 → 다시 촬영 → 다시 본 좌표로 집기
 PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
              "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
-
-# C 원본 공통 pick 호출열 (d8823de, #118의 s3v 추가 전)
-PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
-             "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
-
-# C 원본 공통 pick 호출열 (d8823de, #118의 s3v 추가 전)
-PICK_SENT = ["/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/nudge_object",
-             "/skills/move_to_named_pose", INSPECT_SERVICE, "/skills/pick_object"]
+# 바로 앞에서 같은 탑뷰로 가서 찍었으면 pick 첫 탑뷰 이동은 보내지 않음 (이미 그 자세, #245)
+PICK_SENT_AT_VIEW = PICK_SENT[1:]
 
 
 class MockRobot:
@@ -160,7 +154,7 @@ def test_success_delivers_item_and_cleans_up():
                           "/skills/move_to_named_pose", "/skills/drawer_control",           # s3 open_drawer
                           "/skills/move_to_named_pose",                                      # s3v 탑뷰 (열기 끝은 홈)
                           INSPECT_SERVICE,                                                   # s4 관측
-                          *PICK_SENT,                                                        # s5.1 pick (E #122)
+                          *PICK_SENT_AT_VIEW,                                                # s5.1 pick (E #122)
                           "/skills/place_object",                                            # s5.2 place
                           SPEAK_ACTION,
                           "/skills/drawer_control", SPEAK_ACTION,                            # finally 닫기 → "서랍을 닫았어요" (#138)
@@ -554,3 +548,38 @@ def test_drop_is_not_kept_for_resume():
     runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
     result = runner.run(TASK)
     assert result.overall_status == "ABORTED" and runner.suspended is None and runner.halted
+
+
+# ---- #223 B pick 결과 hand: 실패 뒤 손 상태 (결정 10, released ≠ 빈손) ----
+
+class HandRobot(MockRobot):
+    """pick_object 를 B #223 예시처럼 실패시킴: (code, hand)."""
+
+    def __init__(self, code, hand):
+        super().__init__()
+        self.code, self.hand = code, hand
+
+    def call_action(self, name, params_json, timeout_sec):
+        if name.endswith("/pick_object"):
+            self.sent.append(name)
+            return Reply(False, self.code, json.dumps({"grasp_ok": False, "hand": self.hand}))
+        return super().call_action(name, params_json, timeout_sec)
+
+
+@pytest.mark.parametrize("code, hand, aborted", [
+    ("GRASP_FAILED", "released", False),      # 다시 벌림: 손 열림 → 일반 실패, 닫기·홈 (지금 그대로)
+    ("GRASP_FAILED", "empty", False),         # 놓침 확인
+    ("SENSOR_INVALID", "unknown", True),      # B 예시: 폭 못 읽음 → HALT_MOTION (지금도)
+    ("ESTOP", "unknown", True),               # B 예시: 들어 올리다 비상정지
+    ("GRASP_FAILED", "unknown", True),        # 안전장치: 다른 코드로 와도 모름이면 정지·잠금
+    ("GRASP_FAILED", "holding", True),
+])
+def test_pick_failure_hand_uncertain_never_moves_after(code, hand, aborted):
+    robot = HandRobot(code, hand)
+    _, result, _ = run(robot)
+    assert result.overall_status == ("ABORTED" if aborted else "FAILED"), [(s["id"], s.get("status"), s.get("error_code")) for s in result.steps]
+    after = robot.sent[robot.sent.index("/skills/pick_object") + 1:]
+    if aborted:
+        assert [a for a in after if a != SPEAK_ACTION] == []                 # 그 뒤 로봇 동작 없음 (닫기·홈 없음)
+    else:
+        assert "/skills/move_to_named_pose" in after                         # 손이 열려 있어 정리 모션

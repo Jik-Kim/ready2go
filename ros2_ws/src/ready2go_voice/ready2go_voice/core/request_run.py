@@ -33,8 +33,8 @@ class RequestRun:
     def _matches(self, decision):
         if decision.get('intent') != self.pending['intent']:
             return False
-        # 계약07 last_intent는 목표 내용을 돌려주지 않습니다. 요청 ID는 observe에서,
-        # 현재 발신 근거는 노드에서 확인하며 목표 payload는 등록한 원본을 보존합니다.
+        # 계약07 summary는 goals를 echo하지 않습니다. ID/intent/결정/run 상관은 observe에서,
+        # 현재 source는 노드에서 검증하고 find_item의 targets 대조는 유지합니다.
         if self.pending['intent'] == 'achieve_goal':
             return True
         expected = self.pending.get('targets')

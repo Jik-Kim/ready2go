@@ -209,7 +209,7 @@ prepare와 live는 같은 함수로 온톨로지/상태를 반영한 prefill 목
 | `nodes/voice_node.py` | 기존 `/voice/text_override` 입력·`/voice/intent` 발행·`/voice/speak` Skill 액션·ROS 진단 로그, 질문 작업·수락 상관·typed 안전 입력 경계 |
 | `core/place_exchange.py`, `core/place_input.py` | 트레이 질문 상관·발신 후보·현재 개발 입력 정규화. C 실제 입력 매핑은 후속 |
 | `core/safety_exchange.py`, `core/recovery_confirmation.py` | 복구 질문·독립 새 발화·현재 등록/증빙·재개/종료 내부 후보. 공개 wire/모션 없음 |
-| `core/request_run.py` | 일반/선정 목표의 현재 요청 내용과 C 수락 run·최종 결과 상관 |
+| `core/request_run.py` | 일반 요청 targets 또는 선정 목표 요청 ID와 C 수락 run·최종 결과 상관 |
 | `test/` | 해석/실패/지연·기록 종료·재생/취소·노드 평가 게이트의 모의 검사 |
 
 [문서] 참고 코드 `keyword_extraction.py`·`STT.py`의 프롬프트/호출·녹음→Whisper 구조를 사용했습니다. 원본 `sd.rec`→`sd.wait`의 고정 5초 녹음을 시운전 기본으로 적용했습니다. 고정 도구 목록, `/` 문자열 분해, import 시 dotenv, 임시파일 누수는 옮기지 않았습니다. SciPy 대신 표준 `wave`를 사용합니다. 웨이크 모델 원본을 복제/수정하거나 모델을 자동 다운로드하지 않습니다.
@@ -252,7 +252,7 @@ E Voice를 거치는 음성/텍스트 입력에는 [설정과 동작 경계](#�
 - 실행 모드의 동일 find_item은 중복 시간창 안에서 TTS 전에 보류합니다. 중복 조회는 기록을 바꾸지 않으며 `/voice/intent` 발행 호출이 정상 반환한 뒤에만 기록합니다(C 수신·실행 성공 확인을 뜻하지 않습니다). TTS 실패·취소·시간 초과·발행 예외는 find_item을 소비하지 않아 재시도할 수 있습니다. 평가 모드는 동일 입력도 TTS/진단을 반복하고 모든 intent 발행을 금지합니다. unknown/clarify의 안내 및 기존 발행 중복 정책은 유지합니다. 무발화/VAD 검사 보류는 실행 모드에서도 intent를 발행하지 않습니다.
 - cancel/status는 기존 intent로 C에 전달합니다. voice는 로봇 제어·ESTOP·현재 실행 상태 조회를 대신하지 않습니다. cancel은 진행 중인 E 해석 결과의 추가 발행도 취소합니다. 음성 취소는 보조 수단이며 API 처리 중 새 웨이크 청취는 일시 중지됩니다.
 - STT/LLM 각각 단일 작업 슬롯과 SDK timeout/max_retries=0을 적용합니다. 늦은 결과는 폐기하며 후속 요청에 추가 발행하지 않습니다. 이미 끝나지 않은 작업이 있으면 새 API 작업을 쌓지 않고 보류/폴백합니다.
-- `recording_mode: fixed`, `record_duration_sec: 5.0`, `timing_mode: commissioning`은 원본 기반 기능 시운전 기본입니다. 16kHz/int16/mono 80,000프레임을 녹음하며 일반 노드는 동일 SharedInput reader의 audible cue/새 prepared 캡처 경계에서 샘플을 수집합니다. 공유 입력 없는 standalone Recorder만 sd.rec→sd.wait fallback을 사용합니다. `VOICE_MIC_DEVICE`→명시 input_device→16kHz 입력 자동 선택→기본 장치 순으로 한 번 정한 입력을 공유합니다. 시운전 API 상한은 STT/LLM 각각30초 제안값이고 늦은 결과 폐기·취소·평가 발행 금지는 유지합니다. commissioning의 API/녹음 설정은 실행·평가 모드 모두에서 사용할 수 있고, 평가 true는 계속 모든 발행을 차단합니다.
+- `recording_mode: fixed`, `record_duration_sec: 5.0`, `timing_mode: commissioning`은 원본 기반 기능 시운전 기본입니다. 기본 VoiceNode는 SharedInput의 RawInputStream을 WakeAudio와 Recorder가 공유하고 audible cue/새 prepared 캡처 경계 뒤 동일 reader의 fixed 모드에서 기존 16kHz/int16/mono 80,000프레임만 수집합니다. shared_input 없이 만든 Recorder는 기존 sd.rec→sd.wait 경로를 사용합니다. `VOICE_MIC_DEVICE`→명시 input_device→16kHz 입력 자동 선택→기본 장치 순으로 한 번 정한 입력을 공유합니다. 시운전 API 상한은 STT/LLM 각각30초 제안값이고 늦은 결과 폐기·취소·평가 발행 금지는 유지합니다. commissioning의 API/녹음 설정은 실행·평가 모드 모두에서 사용할 수 있고, 평가 true는 계속 모든 발행을 차단합니다.
 - 고정 녹음의 발화 종료·확인 지연은 null, latency_measurement=not_measured입니다. 녹음 완료 시각은 별도 recording_ended_*로 남기며 AC-INT-03 통과로 사용하지 않습니다. AC 준비는 recording_mode=silence/timing_mode=ac_budget로 설정하고 STT/LLM 상한·장치를 실측해 정합니다. 과거 설정에 신규 키가 없으면 기존 silence/ac_budget를 유지합니다.
 - 무음 종료는 마지막 유성 프레임 시각을 기록합니다. `silence_sec` 대기·STT·LLM·TTS 준비를 [AC-INT-03](../../../docs/requirements.md#ac-int-03)의 예산에 포함합니다. `max_record_sec`는 보호 한도이며 고정 녹음 시간이 아닙니다. 한도 초과로 잘린 명령은 실행하지 않습니다.
 - LLM 없는 경우 등록 별칭 규칙은 동작하지만 LLM 주 경로 및 자유 표현 완료를 의미하지 않습니다. faster-whisper 오프라인 STT는 현재 구현하지 않았습니다.
@@ -595,7 +595,7 @@ PYTHON
 
 ## #43·#152 내부 확인 정책 — 운영 미연결
 
-[문서: 현재 E 개발 단계] VoiceNode의 질문 작업·Session.confirm_audio/safety_audio·SafetyExchange 및 선정 목표 요청 상관 경로를 작성했습니다. [호출별 현황과 통합 선행](../../../docs/voice_llm.md#p2-safety-voice)을 참조하십시오. 개발 입력과 typed sender는 C 공개 규약의 확정이 아니며 기본 상태에서 실제 C 연결을 추정하지 않습니다. 기존 E-P2-VERIFY-20261011-01의 직접 8파일 510 passed/9 skipped와 격리 ROS test_node.py 48 passed는 당시 변경의 근거입니다. PR #227 본문의 전체 CI는 원격 head `a41216912d7e76dc0d354be787516025b4ae5900` 대상이며 이후 로컬 수정의 검사로 전용하지 않습니다. 기존 36/105 결과도 이전 core 범위로 구분합니다. 이번 리뷰 수정의 대상·명령·결과는 [E CURRENT](../../../practice/E/CURRENT.md#pr227-review-fix-20261012-01)를 참조하십시오. 실제 C/장치/로봇 수용 검증은 후속입니다.
+[문서: E 통합 준비·검증 이력] VoiceNode의 질문 작업·Session.confirm_audio/safety_audio·SafetyExchange 및 선정 목표 상관 경로를 작성했습니다. [호출별 현황](../../../docs/voice_llm.md#p2-safety-voice)을 참조하십시오. 개발 typed 입력은 C 공개 규약 확정이나 실제 생산자 증거가 아닙니다. 기존 직접510/skip9·격리ROS48, 원격73ba549의 직접41·38800a8 CI2632/skip41, 로컬12e0c29의 리뷰 및940c1f83 종료34는 각 이전SHA/환경의 이력입니다. 이번 통합의 최종SHA 전체CI는 아직 미실행이며 결과를 합산하거나 전용하지 않습니다. 상세한 실패/부분 검사/현재 통합 근거는 [E CURRENT](../../../practice/E/CURRENT.md#pr227-final-integration-20261012-01)를 참조하십시오. 실제 C/B 운영·음성 장치·실물 수용은 미검증입니다.
 
 [문서: #43 독립 준비] [core/place_exchange.py](ready2go_voice/core/place_exchange.py)는 기존 place 정책 위에 질문 식별·메시지 차수 변환·asked/응답 후보와 일회성 녹음 예약을 제공합니다. [VoiceSession.confirm_audio](ready2go_voice/core/session.py)는 Recording·Whisper의 SDK 직전 접수·DeadlineCall을 재사용하며 LLM 없이 분류합니다. [직접 회귀](test/test_place_exchange.py)는 새 교환과 STT 경계를 모의로 확인합니다. 현재 노드 호출·같은 실행의 개발 입력 결과 안내를 작성했으며 C 등록 증빙·공통 계약·실제 단계 결과 매핑은 미연결입니다. 반환된 메시지는 운영 승인이나 C 최종 판정이 아닙니다. 구현·선행 조건은 [상세 설명](../../../docs/voice_llm.md#p2-safety-voice)에 기록합니다.
 
@@ -603,7 +603,7 @@ PYTHON
 
 [문서] recovery 정책은 boot 변경·동일 run/halt의 seq·질문/TTS 완료·녹음 시작/끝·SDK 직전 접수·등록 ACK 뒤 TTS 시작·별도 결과 만료·일회성·재정지·질문 거절·명시 작업 종료를 분리합니다. 일반 cancel은 대상 보존이며 포기와 다르고, 질문 실패/거절도 work를 보존합니다. 독립 요청은 고유 ID·새 녹음·STT 처리 구간·전체 구간·현재 등록 확인을 검사합니다. E 재기동 후 새 C 상태를 확인하고 Runner boot 변경/현재 C 완료는 보존 대상을 폐기합니다. 현재 P1 Session은 WhisperSTT의 optional `before_request` callback을 연결해 실제 SDK 호출 직전 `whisper_sdk_request.requested_monotonic` 진단 이벤트를 기록합니다. 기존 progress `whisper_requested`는 그보다 앞선 진행 표시이므로 SDK 접수 증빙으로 쓰지 않습니다. `interpretation.intent.source.recording_ended_monotonic`과 내부 `interpretation.intent._voice.recording_started_monotonic`·`interpretation.intent._voice.recording_ended_monotonic`에 기록됩니다. 필드가 누락되거나 null이면 유효한 녹음 증빙으로 추정하지 않습니다. P1 시각 진단 자체는 P2 접수 권한이 아닙니다. 별도 Session.safety_audio·VoiceNode typed 호출에서 P2 정책을 연결하도록 작성했으며 실제 C 공개 입력/후보 매핑은 미연결입니다. 독립 stop_audio는 복구/재개 접수와 구분됩니다. 실제 TTS 종료는 PortAudio 완료 증빙이 필요합니다. B unknown이나 처리 예산 미정일 때 운영 재개 요청을 만들지 않습니다. 같은 사건의 최신 신뢰 의미 충돌은 seq 하한을 보존해 과거 상태/ACK의 재확인을 차단합니다. 충돌 상태 자체를 실행 대상으로 채택하지 않습니다.
 
-설정 원본 [params/voice.yaml](params/voice.yaml)의 승인 내부값과 미정 null을 구분하십시오. E의 두 등록/TTS 전용 추가 타이머는 제거했으며 기존 등록 ACK·질문 유효 기한·음성 TTS timeout은 유지합니다. 동일 요청의 녹음/분류와 정상 seq에서의 재사용, 실제 상태 변경 시 무효화는 [구현 설명](../../../docs/voice_llm.md#p2-safety-voice)을 참조하십시오. C 기한과 ACK의 실제 E 입력 매핑은 미완료이며, E 질문 작업의 재생 완료 증빙 검사는 모의 DAC/완료 입력으로 확인했으며 실제 장치 재생은 미검증입니다. 제거된 `place_answer_timeout_sec`는 설정 오류로 거절하며 접수와 STT 키를 각각 사용합니다. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. 미승인 wire enum/등록 ACK 형식/프로세스별 clock 대응과 C hold·B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.
+설정 원본 [params/voice.yaml](params/voice.yaml)의 승인 내부값과 미정 null을 구분하십시오. E의 두 등록/TTS 전용 추가 타이머는 제거했으며 기존 등록 ACK·질문 유효 기한·음성 TTS timeout은 유지합니다. 동일 요청의 녹음/분류와 정상 seq에서의 재사용, 실제 상태 변경 시 무효화는 [구현 설명](../../../docs/voice_llm.md#p2-safety-voice)을 참조하십시오. C 기한과 ACK의 실제 E 입력 매핑은 미완료이며, E 질문 작업의 재생 완료 증빙 경로는 작성·모의 검증했지만 실제 DAC 완료 callback/장치 재생은 미검증입니다. 제거된 `place_answer_timeout_sec`는 설정 오류로 거절하며 접수와 STT 키를 각각 사용합니다. P1 STT/API/AC 예산을 새 정책의 처리 예산으로 복사하지 않습니다. 미승인 wire enum/등록 ACK 형식/프로세스별 clock 대응과 C hold·B 확인 모드·관측은 [회신안·인계](../../../docs/voice_llm.md)에서 협의하며 미승인 wire/운영 adapter는 추가하지 않습니다. 이 준비는 기존 지원 명령 표의 P2 미연결 상태를 바꾸지 않습니다.
 
 
 ## P2 선정 목표 — E 발신 경로 개발

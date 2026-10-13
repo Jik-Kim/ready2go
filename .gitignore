@@ -18,9 +18,11 @@ db_data/
 models/*.pt
 !models/yolo11n_ready2go_v1.pt
 !models/yolo11s_seg_ready2go_v1.pt
+!models/yolo11s_seg_ready2go_v2.pt
 !models/.gitkeep
 data/
 runs/
+practice/B/sim/clear_sim_examples_*.json
 # wakeword
 models/wakeword/
 /:memory:.ses

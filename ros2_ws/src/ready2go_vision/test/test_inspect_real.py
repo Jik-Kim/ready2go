@@ -93,7 +93,7 @@ def test_depth_hole_fails_whole_request():
 
 def test_unknown_region_and_low_confidence_and_unknown_class():
     depth = scene(0.1, 0.1, 0, (0.05, 0.02), 0.0115)
-    assert inspect_scene([], depth, K, T, PARAMS, ITEMS, "handover_zone", "eraser")[:2] == (False, "UNKNOWN_REGION")
+    assert inspect_scene([], depth, K, T, PARAMS, ITEMS, "staging_tray", "eraser")[:2] == (False, "UNKNOWN_REGION")
     b = box_of(0.1, 0.1, (0.0525, 0.022), 0)
     ok, _, js = run(depth, [{"class": "eraser", "conf": 0.1, "box": b}, {"class": "not_an_item", "conf": 0.9, "box": b}])
     assert ok and json.loads(js)["visible_count"] == 0
@@ -239,12 +239,12 @@ def test_drawer_bottom_region_uses_requested_frame():
 def test_region_frames_skips_unmeasured_tf_and_keeps_each_interior():
     places = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
     places["drawer_bottom"]["tf"] = {"parent": "base_link", "child": "drawer_bottom", "translation_m": None, "quaternion_xyzw": None}
-    assert set(region_frames(places)) == {"drawer_top"}
+    assert set(region_frames(places)) == {"drawer_top", "handover_zone"}
     places["drawer_bottom"]["tf"] = {"parent": "base_link", "child": "drawer_bottom",
                                      "translation_m": [0.24, -0.11, 0.047], "quaternion_xyzw": [0.0, 0.0, -0.7071068, 0.7071068]}
     places["drawer_bottom"]["interior_m"] = [0.19, 0.28, 0.06]
     fr = region_frames(places)
-    assert set(fr) == {"drawer_top", "drawer_bottom"}
+    assert set(fr) == {"drawer_top", "drawer_bottom", "handover_zone"}
     assert fr["drawer_bottom"]["interior_m"] == [0.19, 0.28] and fr["drawer_top"]["interior_m"] == places["drawer_top"]["interior_m"][:2]
     assert fr["drawer_bottom"]["T_base_drawer"][:3, 3] == pytest.approx([0.24, -0.11, 0.047])
     assert fr["drawer_bottom"]["T_base_drawer"][:3, :3] @ [1, 0, 0] == pytest.approx([0, -1, 0], abs=1e-6)

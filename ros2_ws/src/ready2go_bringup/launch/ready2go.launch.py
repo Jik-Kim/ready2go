@@ -12,7 +12,8 @@ BACKEND(real|sim|mock)는 compose의 환경변수로 전달됨 (docs/docker.md).
   RUNNER_ONTOLOGY_FILE·RUNNER_INTENT_TASKS (docs/docker.md). 시연 사이 상태 초기화는 /runner/reset_state (#107)
 - mock: mock 백엔드(ready2go_runner mock_backend) — /skills/*·/voice/speak·/vision/inspect_region 을
   로봇·음성·비전 없이 같은 이름으로 응답 (#10). 실패 시험은 MOCK_FAIL·MOCK_NOT_VISIBLE 환경변수,
-  동작 시간 MOCK_DURATION_SEC(기본 0.5), E 음성 노드와 같이 쓸 때 MOCK_SPEAK=off
+  동작 시간 MOCK_DURATION_SEC(기본 0.5), E 음성 노드와 같이 쓸 때 MOCK_SPEAK=off,
+  여러 물체가 겹친 장면(Unpacking) MOCK_SCENE=occluded_top
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction, TimerAction
@@ -79,6 +80,7 @@ def generate_launch_description():
         package="ready2go_runner", executable="mock_backend", name="mock_backend",
         parameters=[{"fail": EnvironmentVariable("MOCK_FAIL", default_value=""),
                      "not_visible": EnvironmentVariable("MOCK_NOT_VISIBLE", default_value=""),
+                     "scene": EnvironmentVariable("MOCK_SCENE", default_value=""),
                      "duration_sec": ParameterValue(EnvironmentVariable("MOCK_DURATION_SEC", default_value="0.5"),
                                                     value_type=float),
                      "speak": ParameterValue(EnvironmentVariable("MOCK_SPEAK", default_value="on"), value_type=str)}],

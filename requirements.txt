@@ -21,6 +21,7 @@ onnxruntime>=1.10,<2
 tqdm>=4,<5
 scikit-learn>=1,<2
 requests>=2,<3
+google-auth>=2,<3
 # 테스트 (실물/API/모델 설치를 대신하지 않음)
 pytest>=7,<9
 # 환경별 필수 보조 설치 (이 파일에 -r로 합치지 않음):
