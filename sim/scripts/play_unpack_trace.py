@@ -44,9 +44,8 @@ import scene_record  # noqa: E402
 TRACE = json.loads(Path(args.trace).read_text(encoding="utf-8"))
 ITEMS = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]
 JOINT_VEL, PHYS_DT = 20.0, 1.0 / 60.0
-_DEG = [0, 10, 20, 30, 40, 50, 60, 67.6]                                # play_motion_trace.py 와 같은 RG2 폭 ↔ finger_joint 표 [추정]
-_GAP = [137.3, 129.2, 118.2, 104.7, 89.0, 71.7, 53.2, 38.7]
-_W = [(g - 38.7) / (137.3 - 38.7) * 110.0 for g in _GAP]
+_DEG = [0, 5, 10, 20, 30, 40, 50, 60, 67.6]                             # RG2 폭 ↔ finger_joint: 트윈 손가락 충돌 형상 사이 틈 [실측 트윈 10/13]
+_W = [99.1, 95.4, 91.0, 80.0, 66.4, 50.6, 33.2, 14.7, 0.2]
 COLORS = {"eraser": (0.95, 0.85, 0.2), "lip_balm": (0.1, 0.1, 0.1), "caramel_box": (0.85, 0.55, 0.2), "car_key": (0.3, 0.3, 0.35),
           "cover_plate": (0.75, 0.75, 0.8), "toy_wrench": (0.1, 0.6, 0.6), "toy_hammer": (0.8, 0.2, 0.2)}
 

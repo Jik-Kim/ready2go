@@ -52,9 +52,10 @@ MASS = {"eraser": 0.020, "lip_balm": 0.015, "caramel_box": 0.030, "car_key": 0.0
         "toy_hammer": 0.080, "airpods_case": 0.050, "masking_tape": 0.020, "toy_car": 0.050}       # [추정] — 무게 실측 없음
 CONCAVE = {"toy_wrench", "toy_hammer", "cover_plate", "masking_tape", "toy_car"}                # 볼록 분해 (나머지는 볼록 껍질)
 MOVE_MM, TURN_DEG = 3.0, 5.0
-_DEG = [0, 10, 20, 30, 40, 50, 60, 67.6]
-_GAP = [137.3, 129.2, 118.2, 104.7, 89.0, 71.7, 53.2, 38.7]
-_W = [(g - 38.7) / (137.3 - 38.7) * 110.0 for g in _GAP]
+# RG2 손가락 사이 폭(mm) ↔ finger_joint(도): 트윈 안쪽 손가락 충돌 형상 사이 틈을 각도마다 잰 값 [실측 트윈 10/13].
+# 예전 표(손가락 원점 간격 비례)는 같은 각도에서 최대 7 mm 넓게 봐서 긴 변 잡기(차키 69.5)에서 손가락이 물체를 파고들었음 [사용자 영상 10/13]
+_DEG = [0, 5, 10, 20, 30, 40, 50, 60, 67.6]
+_W = [99.1, 95.4, 91.0, 80.0, 66.4, 50.6, 33.2, 14.7, 0.2]
 
 
 def finger_deg(width_mm):
@@ -402,6 +403,26 @@ for s in TRACE["segments"]:
                 clr = (tz - sup) * 1000
                 report.setdefault("grasp_clearance", []).append({"segment": s["i"], "id": held, "tip_above_support_mm": round(clr, 1)})
                 print(f"[phys]     집기 손끝-받침 여유 {held}: {clr:+.1f} mm{'  ◀ 손끝이 받침 윗면보다 낮음 (받침 옆으로 내려간 것인지 화면 확인)' if clr < 0 else ''}", flush=True)
+            for tp in TIP_PRIMS + [p for p in GRIP_LINKS if "knuckle" in p]:   # 잡는 순간 손가락·마디가 다른 물체와 겹치는지 (축 정렬 상자)
+                _bbc.Clear()
+                rt = _bbc.ComputeWorldBound(stage.GetPrimAtPath(tp)).ComputeAlignedRange()
+                for o2 in present:
+                    if o2 == held:
+                        continue
+                    ro = _bbc.ComputeWorldBound(stage.GetPrimAtPath(f"/World/phys_objs/{o2.replace('#', '_')}")).ComputeAlignedRange()
+                    ov = [min(rt.GetMax()[k], ro.GetMax()[k]) - max(rt.GetMin()[k], ro.GetMin()[k]) for k in range(3)]
+                    if min(ov) > 0:
+                        cw = (np.array(rt.GetMin()) + np.array(rt.GetMax())) / 2
+                        Tf = np.eye(4); Tf[:3, 3] = cw
+                        fx_, fy_, _ = drawer_xy_yaw(Tf, travel)
+                        Tq = pose_of(o2)
+                        ox_, oy_, oyaw_ = drawer_xy_yaw(Tq, travel)
+                        c_, s_ = math.cos(oyaw_), math.sin(oyaw_)
+                        lx, ly = (fx_ - ox_) * c_ + (fy_ - oy_) * s_, -(fx_ - ox_) * s_ + (fy_ - oy_) * c_
+                        print(f"[phys]       손가락 가운데 서랍 ({fx_*1000:.1f}, {fy_*1000:.1f}) mm, 높이 {cw[2]*1000:.1f} / {o2} 가운데 ({ox_*1000:.1f}, {oy_*1000:.1f}) yaw {math.degrees(oyaw_):.1f}° "
+                              f"→ 물체 좌표 (긴 {lx*1000:+.1f}, 짧은 {ly*1000:+.1f}) mm, 반폭 {ITEMS[cls_of[o2]]['size_m'][0]*500:.1f}/{ITEMS[cls_of[o2]]['size_m'][1]*500:.1f}; 물체 윗면 z {(Tq[2,3]+ITEMS[cls_of[o2]]['size_m'][2])*1000:.1f}", flush=True)
+                        print(f"[phys]       {tp.split('/')[-1] if 'collisions' not in tp else tp.split('/collisions/')[1].split('/')[0]} ↔ {o2} 겹침 "
+                              f"x {ov[0]*1000:.1f} y {ov[1]*1000:.1f} z {ov[2]*1000:.1f} mm (축 정렬 상자)", flush=True)
             set_kin(held, True)
             grip_filter(held, True, trays=True)
             rel = np.linalg.inv(W @ kin.fk(s["joints"][0])) @ pose_of(held)
@@ -476,6 +497,14 @@ for s in TRACE["segments"]:
                 put(oid, W @ T_bd @ shift @ Tr)
         if held is not None:
             Tc = W @ kin.fk(q) @ rel
+            sup = support_z(held) if s["step"] in ("aside", "restore", "free", "place") else None
+            if sup is not None and Tc[2, 3] < sup:                         # 내려가다 바닥·아래 물체에 먼저 닿음 → 손 안에서 위로 밀림
+                d_mm = (sup - Tc[2, 3]) * 1000                              # (실물은 힘 감시가 멈추는 자리) — 얼마나 먼저 닿았는지 기록
+                fl = report.setdefault("place_early_touch", {})
+                key = f"{s['i']}:{held}"
+                fl[key] = max(fl.get(key, 0.0), round(d_mm, 1))
+                Tc[2, 3] = sup
+                rel = np.linalg.inv(W @ kin.fk(q)) @ Tc
             put(held, Tc)
         if drag_obj:                                                       # 위치만 따라감(자세는 끌기 시작 자세 유지, 높이 그대로)
             Tn = W @ kin.fk(q) @ drag_rel

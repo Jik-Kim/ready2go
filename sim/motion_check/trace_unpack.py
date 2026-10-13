@@ -63,6 +63,7 @@ class Scene:
     def __init__(self, first: dict, drawer: str, items: dict):
         self.objs = {o["id"]: copy.deepcopy(o) for o in ([first["target"]] if first.get("target") else []) + list(first.get("candidates") or [])}
         self.drawer, self.items, self.held, self.away = drawer, items, None, []
+        self.placed = {}                                        # 이번 시뮬에서 놓은 자리 (실물 덤프와 갈렸는지 볼 때)
         self.events = []
 
     def snapshot(self, seg_i: int, why: str):
@@ -112,6 +113,7 @@ class Scene:
         o["pose"] = {"frame": self.drawer, "position": [round(x, 4), round(y, 4), 0.0], "yaw": round(float(pose.get("yaw") or 0.0), 4), "yaw_valid": True}
         o["top_z"] = round(base + size[2], 4)
         o["occluded_by"] = []
+        self.placed[o["id"]] = (x, y)
         for u in under:
             if u["top_z"] < o["top_z"]:
                 u["occluded_by"] = sorted(set((u.get("occluded_by") or []) + [o["id"]]))
@@ -149,6 +151,8 @@ def main():
 
     def check_grasp(**kw):                                       # 집기는 항상 성공(폭 = 기대 폭) — 미끄러짐·접촉은 흉내 내지 않음
         Gripper.width = kw["expected_width_m"] * 1000.0          # 들어 올린 뒤 폭 확인(미끄러짐)도 같은 폭
+        if robot.grip_events:                                    # 재생기가 닫는 폭 = 잡은 물체 폭 (가짜 그리퍼의 고정 닫힘 21·0.9 mm 가 아니라)
+            robot.grip_events[-1]["width_mm"] = Gripper.width    # — 예전엔 손가락이 물체를 뚫고 닫혀 옆 물체까지 파고듦 [사용자 영상 10/13]
         return real_check(**dict(kw, width_m=kw["expected_width_m"], grasp_detected=True))
     ss.gc.check_grasp = check_grasp
 
@@ -204,13 +208,42 @@ def main():
         return out.success
 
     scans = []
+    diverged = []
+
+    def use_dump(k, search):
+        """k 번째 실물 덤프를 쓸 수 있으면 그 인식. 이번 시뮬에서 놓은 물체가 덤프와 20 mm 넘게 다르면(B 가 실물 회차와 다른 자리에 놓음)
+        그 물체만 시뮬 자리로 바꿔 합침 — 손대지 않은 물체(예: 덮개를 치운 뒤 다 보이는 캐러멜)는 실물 인식 그대로 [가려진 자리 오차 방지]."""
+        if k >= len(a.dump):
+            return None
+        res = replay_dump(Path(a.dump[k]), search)[0] if k else first
+        objs_ = {o["id"]: o for o in ([res["target"]] if res.get("target") else []) + list(res.get("candidates") or [])}
+        moved = set(scene.placed) | set(scene.away) | ({scene.held["id"]} if scene.held else set())
+        off = []
+        for oid in moved:
+            o = objs_.get(oid)
+            sim = scene.objs.get(oid)
+            if sim is None:                                    # 트레이로 갔거나 쥔 것 — 덤프에 있으면 빼야 함
+                if o is not None:
+                    off.append(oid)
+                continue
+            if o is None or math.hypot(o["pose"]["position"][0] - sim["pose"]["position"][0], o["pose"]["position"][1] - sim["pose"]["position"][1]) > 0.02:
+                off.append(oid)
+        if not off:
+            return res
+        note = f"인식 {k + 1}: {off} 이(가) 실물 덤프와 다른 자리 — 그 물체만 시뮬 자리로 바꿔 합침"
+        diverged.append(note)
+        print(f"  ** {note}")
+        keep = [copy.deepcopy(o) for oid, o in objs_.items() if oid not in moved]
+        keep += [copy.deepcopy(scene.objs[oid]) for oid in moved if oid in scene.objs]
+        t = next((o for o in keep if o["class"] == search), None)
+        return {"target_found": t is not None, "target": t, "candidates": [o for o in keep if o is not t], "visible_count": len(keep)}
 
     def inspect_all(node, search):
         if not b.timed("view", lambda: run(node, "view")):
             sys.exit(f"탑뷰로 못 감 {b.last['code']}")
         k = len(scans)
-        if k < len(a.dump):
-            res, _ = replay_dump(Path(a.dump[k]), search) if k else (first, None)
+        res = use_dump(k, search)
+        if res is not None:
             if k:
                 scene.reset(res)
                 scene.snapshot(len(robot.segments), f"인식 {k + 1}: 실물 덤프 {Path(a.dump[k]).name}")
@@ -224,8 +257,8 @@ def main():
 
     def scan(node, for_pick=False):                              # B clear 의 인식 (탑뷰 이동은 clear 의 look 이 먼저 함)
         k = len(scans)
-        if k < len(a.dump):
-            res = replay_dump(Path(a.dump[k]), a.target)[0] if k else first
+        res = use_dump(k, a.target)
+        if res is not None:
             if k:
                 scene.reset(res)
             scans.append({"n": k + 1, "source": Path(a.dump[k]).name, "segment": len(robot.segments)})
@@ -271,7 +304,7 @@ def main():
         print(f"*** b_sk unpack 중단: {code}")
     tsf.save_trace(robot, ROOT, a.out, results, first.get("target") or {}, None)
     d = json.loads(Path(a.out).read_text())
-    d.update(scene_events=scene.events, scans=scans, log=text, stopped=str(code) if code else "", unpack_ok=bool(ok), dump=[str(x) for x in a.dump], target_class=a.target)
+    d.update(scene_events=scene.events, scans=scans, diverged=diverged, log=text, stopped=str(code) if code else "", unpack_ok=bool(ok), dump=[str(x) for x in a.dump], target_class=a.target)
     Path(a.out).write_text(json.dumps(d, ensure_ascii=False))
     print(f"\nunpack {'성공' if ok else '실패/중단'} — 장면 기록 {len(scene.events)}개 → {a.out}")
 
