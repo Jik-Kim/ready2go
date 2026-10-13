@@ -10,7 +10,6 @@ caramel_box: {grip_force: null, grasp_verified: false, grasp_width_m: 0.0432}  #
 car_key: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 eraser: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 lip_balm: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
-carrot_pen: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 masking_tape: {grip_force: null, grasp_verified: false}  # [팀 확정 필요: B 파지 시험]
 toy_car: {grip_force: null, grasp_verified: false, grasp_width_m: 0.0309, grasp_width_long_m: 0.048}  # [팀 확정 필요: B 파지 시험] 세로 30.9·가로 48.0 [실측 PC2 10/11] = 위쪽 얇은 부분(그리퍼가 딱 맞게 들어감)을 잡은 폭. 아래 몸통 버니어 35.1·54.8 [사용자 10/11]. 외접 40.5·57.5
 toy_wrench: {grip_force: null, grasp_verified: false, grasp_width_m: 0.0259}  # [팀 확정 필요: B 파지 시험] 길이 가운데(손잡이) 25.9 [실측 PC2 10/10], 10/11 세로·가로 24.9

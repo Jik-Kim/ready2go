@@ -170,7 +170,7 @@ def test_legacy_single_file_can_still_load(tmp_path):
 def test_all_registered_items_are_request_targets_but_grasp_is_pending():
     import pytest
     onto = _onto()
-    assert len(onto["world"]["items"]) == 11
+    assert len(onto["world"]["items"]) == 10
     assert {"eraser", "cover_plate", "car_key"} <= onto["world"]["items"].keys()
     for name, item in onto["world"]["items"].items():
         assert "request_target" in item["roles"]
@@ -235,3 +235,70 @@ def test_item_configuration_and_geometry_reference_errors(tmp_path):
     world.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="size_m"):
         onto_lib.load(manifest)
+
+
+def test_p2_scene_selection_preserves_registry_and_default_state():
+    expected = {
+        "p2_s1": {"toy_wrench": "drawer_top", "caramel_box": "drawer_top", "car_key": "drawer_top"},
+        "p2_s2": {"cover_plate": "drawer_bottom", "eraser": "drawer_bottom", "lip_balm": "drawer_bottom"},
+        "p2_s3": {"cover_plate": "drawer_bottom", "lip_balm": "drawer_bottom"},
+    }
+    default = _onto()
+    active = set(default["world"]["items"])
+    assert len(active) == 10 and "carrot_pen" not in active
+    assert default["state"]["located_in"] == dict.fromkeys(active, "drawer_top")
+    assert "staging_tray" not in default["state"]["open"]
+    assert "staging_tray" in default["world"]["places"]  # 잔존 소비자 호환 정의
+    shared = {k: v for k, v in default["state"].items() if k != "located_in"}
+    union = set()
+    for scene, locations in expected.items():
+        selected = onto_lib.load(ONTO, snapshot=f"snapshots/{scene}.json")
+        assert set(selected["world"]["items"]) == active
+        assert selected["state"]["located_in"] == locations
+        assert {k: v for k, v in selected["state"].items() if k != "located_in"} == shared
+        assert onto_lib.list_reference_errors(selected) == []
+        union.update(locations)
+    assert active - union == {"airpods_case", "masking_tape", "toy_car", "toy_hammer"}
+    s3 = onto_lib.load(ONTO, snapshot="snapshots/p2_s3.json")
+    assert "eraser" in s3["world"]["items"]
+    assert onto_lib.get(s3["state"], "located_in", "eraser") is None
+    s3["state"]["open"]["drawer_bottom"] = True
+    assert onto_lib.load(ONTO, snapshot=ONTO.parent / "snapshots/p2_s3.json")["state"]["open"]["drawer_bottom"] is False
+    assert _onto()["state"] == default["state"]
+
+
+def test_selected_snapshot_validates_references(tmp_path):
+    import json
+    import pytest
+    manifest = _split_copy(tmp_path)
+    selected = manifest.parent / "snapshots/p2_s3.json"
+    data = json.loads(selected.read_text())
+    for item, place in [("carrot_pen", "drawer_bottom"), ("eraser", "missing_drawer")]:
+        data["state"]["located_in"] = {item: place}
+        selected.write_text(json.dumps(data))
+        with pytest.raises(ValueError, match="초기 위치의 물품/장소 참조가 없습니다"):
+            onto_lib.load(manifest, snapshot="snapshots/p2_s3.json")
+
+
+def test_selected_snapshot_rejects_duplicate_keys(tmp_path):
+    import pytest
+    manifest = _split_copy(tmp_path)
+    selected = manifest.parent / "snapshots/p2_s3.json"
+    selected.write_text('{"state":{"located_in":{"eraser":"drawer_top","eraser":"drawer_bottom"}}}')
+    with pytest.raises(ValueError, match="중복 JSON 키"):
+        onto_lib.load(manifest, snapshot=selected)
+
+
+def test_snapshot_selection_errors_are_explicit(tmp_path):
+    import json
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        onto_lib.load(ONTO, snapshot="snapshots/missing.json")
+    with pytest.raises(ValueError, match="snapshot은 파일 경로"):
+        onto_lib.load(ONTO, snapshot=5)
+    legacy = tmp_path / "legacy.jsonld"
+    data = {"world": {"items": {"eraser": {}}}, "state": {}}
+    legacy.write_text(json.dumps(data))
+    assert onto_lib.load(legacy) == data
+    with pytest.raises(ValueError, match="sources manifest"):
+        onto_lib.load(legacy, snapshot="snapshots/p2_s3.json")

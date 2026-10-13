@@ -13,8 +13,9 @@
 | `skills/close_drawer.jsonld` | `skills.close_drawer`: 서랍 닫기 |
 | `skills/pick.jsonld` | `skills.pick`: 집기 |
 | `skills/place.jsonld` | `skills.place`: 놓기 |
-| `skills/handover_with_unpack.jsonld` | 가림 탐색 복합 스킬 등록. 참조 `tasks/find_with_unpack.json`은 이전 외부 트레이 예시; 현재 P2 내부 이동 계약 반영 전 실행 기준 아님 |
-| `snapshots/initial_state.json` | 초기 상태 프리셋. 실제 상태 확인 후 명시적 초기화 시 사용 |
+| `skills/handover_with_unpack.jsonld` | 가림 탐색 복합 스킬 등록. `tasks/find_with_unpack.json`의 현재 내부 이동·복구 경로를 참조; 실물 통합 검증은 별도 |
+| `snapshots/initial_state.json` | 기본 P1 초기 상태 프리셋. 실제 상태 확인 후 명시적 초기화 시 사용 |
+| `snapshots/p2_s1.json`·`p2_s2.json`·`p2_s3.json` | 승인된 P2 시작 배치 프리셋. C 기동/reset 자동 적용은 미연결 |
 | `../config/places.yaml` | 장소 TF·치수·인출 거리·처짐·복구 위치·슬롯 설정의 정본 |
 
 ## 연결 규칙
@@ -37,10 +38,29 @@
 
 ## 물품 목록 갱신 (#8)
 
-- `world.items`는 제공된 실측/외접박스 표의 11종·12개를 반영한다. 최초 11종 번호는 공식 생성기로 만든 `config/yolo_classes.txt`에 고정했으며 여기의 순서를 다시 바꿔 기존 라벨을 해석하지 않는다.
+- [문서] 현재 `world.items`는 당근 펜을 제외한 활성 10종·실물 11개(지우개 2개)다. 온톨로지 키는 종류 단위이며 지우개 instance를 새로 만들지 않았다. 학습 클래스는 기존 11종·`carrot_pen` class_id=5를 포함해 `config/yolo_classes.txt`의 번호를 유지한다. A의 은퇴 클래스 목록·학습/검사 도구 호환 지원이 게시 선행 조건이며 모델·라벨을 재생성하지 않는다.
 - 요청 범위·등록과 승인 구분은 [물품 정책](../docs/requirements.md#item-policy)을 참조한다. 현재 `commute_set`·`roles`는 로더가 반환하는 데이터이며 음성/파지 연결 상태는 별도 확인한다.
 - `sources.item_grasp`의 `config/item_grasp.yaml`을 읽어 `grip_force`와 `grasp_verified`, 선택 항목 `grasp_width_m`·`grasp_width_long_m`(B 실측 잡은 폭, 외접 박스와 다른 물품만, 그 변 이하 양수)을 물품에 제공한다. 미확정 값은 null/false로 유지한다. 미확정 상태를 거절하는 E 함수와 실제 실행 경로 연결은 구분한다.
 - 치수·분류·역할·초기 상태의 의미는 [물품 정책](../docs/requirements.md#item-policy), 값·검증 상태는 실행 원본, 구현/인계는 공용 기술 문서를 참조한다. 과거 예시값 설명은 현재 실측 원본에 적용하지 않는다.
+
+## P2 시작 배치 선택 — E 구현·C 연결 대기
+
+[문서] 기본 `load(manifest)`는 기존 `sources.initial_state`를 사용합니다. E 로더의 선택 입력 예시는 다음과 같습니다. 상대 snapshot 경로는 manifest 폴더 기준이며 절대 `Path`도 지원합니다. 선택 파일에도 기존 중복 키·located_in 참조 검사가 적용됩니다. 단일 파일 호환 형식은 기본 호출만 지원하고 선택 입력은 명시적으로 거절합니다.
+
+```python
+from ready2go_knowledge.core.ontology import load
+onto = load("knowledge/robot_ontology.jsonld", snapshot="snapshots/p2_s3.json")
+```
+
+| 프리셋 | 기입한 위치 |
+| :--- | :--- |
+| [S1](snapshots/p2_s1.json) | toy_wrench·caramel_box·car_key → drawer_top |
+| [S2](snapshots/p2_s2.json) | cover_plate·eraser·lip_balm → drawer_bottom |
+| [S3](snapshots/p2_s3.json) | cover_plate·lip_balm → drawer_bottom; eraser 위치 생략 |
+
+[문서] 세 장면은 같은 활성 10종을 조회하며 비등장 물품의 위치를 채우지 않습니다. 세 장면 합집합에 없는 활성 물품은 airpods_case·masking_tape·toy_car·toy_hammer 4종입니다. 비위치 상태는 기본 프리셋의 home·empty·서랍 닫힘·handover_zone 값을 보존합니다. 시작 예시값은 실제 빈손·닫힘·물리 reset 증거가 아닙니다. 쌓임/가림/pose는 미리 확정하지 않고 관측의 `occluded_by`·`target=null`을 보존합니다.
+
+[미연결/인계] C `runner_node.py`는 현재 기본 `load(ontology_file)`만 호출합니다. 기동/명시 reset에서의 snapshot 선택 인자와 소비 방식은 C 협의·구현 전이며 이 Python 입력을 ROS 파라미터로 확정하지 않습니다. C `ontology_query.query()`는 등록 물품도 located_in이 없으면 `UNKNOWN_ITEM`을 반환하고 `find_with_unpack`의 s1→s3/s4는 조회 drawer_id를 소비합니다. 따라서 S3 지우개의 C 탐색 경로는 후속 수정 전 미연결입니다. 위치를 거짓 기입하지 않으며 reset은 저장된 시작 상태 복사일 뿐 B 기억 정리·잠금 해제·물리 검증을 수행하지 않습니다. 조건부 pick은 C 스킬 expand 제어 블록 지원 PR과 E 포함 2인 승인 전 보류하며 이번 pick/pre/effect/place는 유지합니다.
 
 ## P1 공통 pick의 벽 인접 끌기·재관측 연결
 
@@ -69,7 +89,7 @@
 
 [문서] 삭제 반영 후속 완료: `ready2go_runner/test/test_intent_router.py`의 물품 목록 로딩은 공통 진입점으로 정정됐고(PR #130), B의 HANDOVER 현재 실행 명령도 공통 온톨로지 진입점을 사용하도록 정리됐습니다(PR #129). 삭제된 시연 manifest를 쓰던 과거 로그·fixture·보고서는 당시 결과 해석용으로 보존하며 현재 실행 안내로 사용하지 않습니다. 이 문서 정리와 CI 성공만으로 배포·장치·실물 검증 완료를 선언하지 않습니다.
 
-[문서] P2 목표는 [FR-ACT-04](../docs/requirements.md#fr-act-04)·[가림 정책](../docs/requirements.md#occlusion-policy)을 참조하십시오. 현재 `tasks/find_with_unpack.json`과 `handover_with_unpack`에는 이전 외부 트레이 참조가 남습니다. `staging_tray`의 world/초기상태 정의는 config·계약·소비자 잔존참조를 정리할 때까지 유지합니다. 실제 재식별/pose 기록·내부 배치/복구 연결은 [domain.md 인계표](../docs/domain.md)와 담당 구현을 대조해야 합니다.
+[문서] P2 목표는 [FR-ACT-04](../docs/requirements.md#fr-act-04)·[가림 정책](../docs/requirements.md#occlusion-policy)을 참조하십시오. 현재 `tasks/find_with_unpack.json`은 서랍 내부 이동과 LIFO 복구 경로, `aside` 처리 및 `RESTORE_INCOMPLETE` 종료 경로를 포함합니다. `aside`는 원위치 복구 완료가 아니며 코드상의 완료 상태만으로 실물 복구를 보장하지 않습니다. `staging_tray`는 초기 상태의 open에서만 제외했고, world·`config/places.yaml` 정의는 config·계약·소비자 잔존참조 때문에 유지합니다. 실제 재식별/pose 기록·내부 배치/복구 검증은 [domain.md 인계표](../docs/domain.md)와 담당 구현을 대조해야 합니다.
 
 ## #43 P2 verify 준비·소비자 경계
 

@@ -1,5 +1,24 @@
 # CURRENT — E 고희태
 
+## p2-ontology-integration-20261013-01
+
+- [문서: 승인/기준] E-P2-ONTOLOGY-INTEGRATION-20261013-01. 조율 계획 turn `01a132cf-f3a0-75d1-9752-b8b566c4801b` 및 사용자 수정 승인 turn `01a132d4-f4dc-7c92-90b2-b8d57cd9dab4`의 “수정해”, 이어진 “온톨로지 수정 후 .gitignore 커밋과 함께 PR 작성”을 확인했습니다. 관련 정본: [FR-ONT-01/02](../../docs/requirements.md#fr-ont-01)·[FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[FR-ACT-04](../../docs/requirements.md#fr-act-04)·[AC-ONT-01](../../docs/requirements.md#ac-ont-01)·[AC-ACT-03](../../docs/requirements.md#ac-act-03)·[물품](../../docs/requirements.md#item-policy)/[가림 정책](../../docs/requirements.md#occlusion-policy). P1 기본 호환을 유지한 P2 준비이며 FR-ONT-03/P3 기능은 추가하지 않았습니다.
+- [문서: 작업 기준/보호] base `51aca06e8c7fc5bbdc3d0a49607717ee5bca9442`; 격리 branch `codex/e-p2-ontology-integration-20261013`, 경로 `/tmp/ready2go-e-p2-ontology-integration-20261013`. 기존 작업 폴더·다른 담당 변경을 보호합니다. 기존 ignore 커밋 `2bc607ef6b63544ba33666d86078bf0a35cb001d`는 선조로 포함하며 해당 한 줄·로컬 준비 receipt는 그대로 유지합니다. 중복 cherry-pick/ignore 커밋은 만들지 않습니다.
+- [구현: 승인 범위] world·파지 설정·기본 위치에서 carrot_pen만 제거해 활성 10종/실물 11개(지우개 2개)를 반영했습니다. initial_state.open의 staging_tray만 제거하고 나머지 기본값을 유지했습니다. S1/S2/S3는 [실행 원본과 안내](../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)에 연결했습니다. E `load(..., snapshot=...)`는 선택 상태 파일만 읽으며 생략 시 기존 manifest 기본 P1, legacy 기본 읽기와 반환 구조를 보존합니다. 소비자/공개 wire·정본 정책은 변경하지 않습니다.
+- [유지/제외] 학습 11종 및 carrot_pen class_id=5·후속 번호·모델/라벨·B의 나머지 실측 치수/파지 폭·모든 pick/pre/effect/place·관측 occluded_by/null은 유지합니다. staging_tray의 world/places 설정은 잔존 소비자 때문에 유지합니다. 제거/이름 변경은 승인된 carrot 항목·initial open 항목 외 없습니다. 지우개 instance/쌓임/가림/pose·비등장 위치는 만들지 않았습니다.
+- [실측: 직접 영향 검사] 격리 작업 폴더에서 원 작업 폴더 `.venvs/project/bin/python`, Knowledge/Voice source PYTHONPATH, bytecode/cache 생성을 끈 환경으로 ontology/test_intent 두 파일 **143 passed in 8.27s**, 종료 0. 기본값/참조/파지 기존 회귀, 선택 파일의 위치·활성 목록·누락·참조 오류·중복 키·경로 오류·legacy·별도 로드 상태 독립성, 규칙/LLM 은퇴 물품 차단을 확인했습니다. JSON 파싱만으로 의미 정합성을 판정하지 않고 원본별 제거 범위·장면 위치·소비 경계를 대조했습니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_voice" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_ontology.py ros2_ws/src/ready2go_voice/test/test_intent.py -q -p no:cacheprovider
+```
+
+- [실측: 정적/문서 정합성] AST·JSON/YAML 파싱, 추가 상대 링크/앵커를 확인했습니다. base 대비 world/initial_state/grasp의 승인 항목만 제거됨과 manifest·모든 skill·places·학습 번호·ignore의 바이트 보존을 대조했습니다. 변경 15파일 외 기존 변경은 포함하지 않습니다.
+- [미검증/선행 A] A `tools/validate_contracts.py`와 `tools/yolo/build_dataset.py`는 고정 학습 이름이 world.items에 없으면 현재 거절합니다. [추정: 정적 대조] carrot 제거 시 A 은퇴 클래스 예외 지원 전 전역 검사 불일치가 예상되며 이번 실행 실패로 보고하지 않습니다. A #23 요청은 조율이 이미 게시한 [댓글](https://github.com/Jik-Kim/ready2go/issues/23#issuecomment-6135988146)을 재사용합니다. A 지원 SHA/반영 승인을 확인한 후에만 최종 조합 게시가 가능합니다. E는 A 파일을 수정하지 않았습니다.
+- [미연결/인계 C: manager 확인 원본 재사용] `runner_node.py:70`의 기본 load 호출은 선택 입력을 소비하지 않으며 기동/reset 파라미터는 미확정입니다. `ontology_query.py:35–39`는 등록 여부와 별개로 위치 None을 UNKNOWN_ITEM 처리하고 find_with_unpack.s1→s3/s4가 loc.drawer_id를 소비해 S3 지우개 탐색이 막힙니다. `interpreter.reset_state()`는 저장된 초기 상태 복사이며 B 기억 정리/물리 확인/잠금 해제가 아닙니다. C #121 [답변](https://github.com/Jik-Kim/ready2go/issues/121#issuecomment-6124296926)의 스킬 expand 제어 블록 미지원으로 조건부 pick 전환은 지원 PR·E 포함 2인 승인 전 보류합니다. 현재 태스크의 내부 이동/LIFO/aside/RESTORE_INCOMPLETE 구현과 실물 복구 완료를 구분해 E 문서만 정정했습니다.
+- [후속/제외: 조율 대조 보고 재사용] C #260 시연표의 S2/S3 혼용은 승인 snapshot과 대조해야 하며 fallback.next_on·scan 재사용/스코프·하단 task와 top-only achieve_goal 범위·서랍 place/관측·다른 서랍 닫힘 pre·무동작 오류 목록·view 이동 후 retry·B 기억조회/무동작 정리 service·pushed=false 의미·free/aside 배치 실물 검증은 별도 협의입니다. 새 필드·정책·pre/effect/계약을 임의 적용하지 않았습니다. docs/vision·tools/yolo 안내·A CURRENT의 활성 목록, B checklist/CURRENT·C checkpoint2_runbook의 현재 배치/reset 안내는 각 담당 인계 대상입니다. 과거 changelog·담당별 실측/학습/작업기록은 당시 기록으로 보존합니다. C 외부 payload 게시의 자동 검토 거절을 우회해 GitHub/Slack/C 세션으로 전송하지 않습니다.
+- [게시/검증 경계] E 담당 변경 로컬 커밋까지만 수행하며 PR 승인 재질문 없이 manager에게 전달합니다. A 호환이 포함된 고정 최종 SHA의 전체 core/Mongo·계약·compose 3프로파일·colcon build는 PR 전담이 `ci_local.sh` 전체 1회로 수행합니다. 이번 E 단계에서 전체 CI·추가 agent·설치·실음성/API/마이크/ROS/로봇·모델/캐시/키/WAV·타 담당 수정·push/PR/병합을 실행하지 않았습니다. 직접 검사 통과는 E 범위 준비이며 A/C 인계·실물 통합 전체 완료를 뜻하지 않습니다.
+
+
 <<<<<<< HEAD
 - [문서: E-GITIGNORE-VALIDATED-PHRASES-20261013-01] 사용자 “gitignore에 추가해”(지시 세션 turn01a132c1-c201-7662-ae8e-894dbb74cade)를 직접 확인하고, 기존 MeloTTS 구역에 `/ros2_ws/src/ready2go_voice/models/tts/melotts/validated_phrases.json` 한 패턴만 추가했습니다. `git check-ignore -v`·`git diff --check`로 적용/형식을 확인하며 실제 이력 파일77바이트·SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존합니다. 기능/Phase/정본·다른 모델/코드/설정은 변경하지 않고 이2파일만 로컬 커밋합니다. 테스트/빌드/CI·push/PR·원격 동기화는 수행하지 않습니다.
 =======

@@ -77,16 +77,21 @@ def _read_places(path: Path) -> dict:
     return settings
 
 
-def load(path: str | Path) -> dict:
+def load(path: str | Path, *, snapshot: str | Path | None = None) -> dict:
     """진입점의 참조를 읽어 기존 classes/world/state/skills 구조로 반환.
 
     상대 경로는 진입점 파일의 폴더 기준이다. state는 초기화용 프리셋이며
     실제 로봇 상태 확인이나 Runner 현재 상태 덮어쓰기를 수행하지 않는다.
+    snapshot은 선택 초기 상태 파일이며 상대 경로는 진입점 폴더 기준이다.
+    생략하면 sources.initial_state를 사용한다. 선택 결과는 새로운 조회 구조일 뿐
+    C 기동/reset·실제 현재 상태에 자동 적용하지 않는다.
     단일 파일 형식도 기존 호출자·외부 테스트 데이터용으로 계속 읽을 수 있다.
     """
     path = Path(path).resolve()
     manifest = _read_json(path)
     if "sources" not in manifest:
+        if snapshot is not None:
+            raise ValueError("snapshot 선택은 sources manifest 진입점이 필요합니다")
         return manifest
     sources = _section(manifest, "sources", path)
     required = {"classes", "world", "skills", "initial_state", "places", "item_grasp"}
@@ -94,7 +99,9 @@ def load(path: str | Path) -> dict:
         raise ValueError(f"sources 키는 {sorted(required)}여야 합니다")
     classes_path = _source(path.parent, sources["classes"])
     world_path = _source(path.parent, sources["world"])
-    state_path = _source(path.parent, sources["initial_state"])
+    if snapshot is not None and not isinstance(snapshot, (str, Path)):
+        raise ValueError("snapshot은 파일 경로 문자열 또는 Path여야 합니다")
+    state_path = _source(path.parent, sources["initial_state"] if snapshot is None else str(snapshot))
     classes = _section(_read_json(classes_path), "classes", classes_path)
     world = _section(_read_json(world_path), "world", world_path)
     state = _section(_read_json(state_path), "state", state_path)
