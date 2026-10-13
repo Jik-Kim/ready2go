@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-12 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
+- **재개 증빙 경계 (10/13 PR)**: STT 15 s·독립 요청 30 s 끝값 포함으로 E #315·#196 과 맞춤 [실측: 호스트 804 passed].
 - **PC2 터미널 3개 묶음 (10/13 PR)**: `tools/dev/pc2_up.sh`·`pc2_voice.sh`·`pc2_cmd.sh`·`pc2_down.sh` + compose `vision-node`(`pc2` 프로필). mock 으로 명령 확인, 비전 컨테이너·실물은 PC2 에서 1-1절 방식과 시작 줄 비교 필요.
 - **#304 P1 후속 (10/13 PR)**: recover 중 재정지 → 세대 비교로 잠금 유지(`STOPPED_DURING_RECOVER`), W2 기본 켜짐(B 답) [실측: 호스트 804·임시 컨테이너 ROS 821 passed]. 남음: 외력 칸(B (가) vs E 미승인), 증빙 경계(E 확인).
 - **recover B 실제 호출 (10/13, B #297 위)**: `recover_check: b`·`params/recovery.yaml`·서랍 거리 변환·`recover_call_b`(W2, 기본 꺼짐). D 리뷰 P1 반영(서랍 칸 누락 = 모름). E·B 결정 대기: 외력 칸 P2 처리, W2 호출 주체 [실측: 호스트 803·임시 컨테이너 ROS 819 passed].

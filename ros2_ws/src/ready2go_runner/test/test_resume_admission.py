@@ -43,8 +43,8 @@ def test_evidence_order_bounds_and_missing_fields():
     assert ra.evidence_ok("answer", {**ANSWER_EV, "request_after_tts_s": 10.0}, limits)          # 10.0 포함
     assert not ra.evidence_ok("answer", {**ANSWER_EV, "request_after_tts_s": 10.01}, limits)
     assert not ra.evidence_ok("answer", {**ANSWER_EV, "rec_start_after_tts_s": 2.2}, limits)      # 녹음 시작 > 끝
-    assert not ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": 15.0}, limits)                    # 15 s 그 값이면 거절 (E 와 같음)
-    assert ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": 14.99}, limits)
+    assert ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": 15.0}, limits)                        # 15 s 끝값 포함 (E #315·#196)
+    assert not ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": 15.01}, limits)
     assert not ra.evidence_ok("answer", {k: v for k, v in ANSWER_EV.items() if k != "stt_s"}, limits)
     assert not ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": True}, limits)
     assert not ra.evidence_ok("request", {**REQUEST_EV, "rec_end_s": 2.5}, limits)
@@ -98,13 +98,14 @@ def test_question_deadline_and_new_event_invalidates(adm):
 
 
 def test_independent_request_total_time_like_e():
-    """E 회신 10/13·#291 E 리뷰: 독립 요청 30 s 는 녹음부터 STT·분류·등록 확인까지 전체, 그 값이면 거절.
-    C 는 증빙에 있는 일부 구간(SDK 요청 시각 + STT — 전체 시간 아님)이 30 s 미만인지 본다."""
+    """#291 E 리뷰·E #315·#196: 독립 요청 30 s 는 녹음부터 STT·분류·등록 확인까지 전체 상한, 끝값 포함.
+    C 는 증빙에 있는 일부 구간(SDK 요청 시각 + STT — 전체 시간 아님)이 30 s 이하인지 본다."""
     limits = ra.load_limits(str(RESUME_FILE), str(VOICE_FILE))
     assert not ra.evidence_ok("request", {"rec_end_s": 28, "request_s": 29, "stt_s": 14}, limits)   # 리뷰 반례 계열
-    assert not ra.evidence_ok("request", {"rec_end_s": 19, "request_s": 20, "stt_s": 10}, limits)   # 정확히 30 → 거절
-    assert ra.evidence_ok("request", {"rec_end_s": 19, "request_s": 20, "stt_s": 9.9}, limits)
-    assert not ra.evidence_ok("request", {"rec_end_s": 1, "request_s": 2, "stt_s": 15}, limits)      # STT 15 그 값
+    assert ra.evidence_ok("request", {"rec_end_s": 19, "request_s": 20, "stt_s": 10}, limits)       # 정확히 30 → 포함
+    assert not ra.evidence_ok("request", {"rec_end_s": 19, "request_s": 20, "stt_s": 10.01}, limits)
+    assert ra.evidence_ok("request", {"rec_end_s": 1, "request_s": 2, "stt_s": 15}, limits)          # STT 15 끝값 포함
+    assert not ra.evidence_ok("request", {"rec_end_s": 1, "request_s": 2, "stt_s": 15.01}, limits)
 
 
 def test_open_question_deadline_is_fixed_at_registration(adm):
