@@ -90,16 +90,20 @@ def halt_cause(code: str | None) -> str | None:
 def stop_state(info: dict, in_run: bool) -> str:
     """정지 요청과 실제 정지 확인을 구분 (/runner/status halt.stop, FR-SAF-01·AC-SAF-02 — 계약안, 승인 대기).
     requested = 요청했고 진행 중이던 동작의 최종 결과를 기다리는 중 / confirmed = 백엔드가 최종 결과를 줌(멈춤·끝남)
-    / unconfirmed = 정해진 시간 안에 정지 확인 없음(STOP_UNCONFIRMED 등, 잠금) / none = 요청 때 보낸 동작이 없었음.
+    / unconfirmed = 백엔드 최종 결과 없음(응답 유실·통신 예외·어댑터 정지 확인 시간 초과) 또는 백엔드가 STOP_UNCONFIRMED 등
+    / none = 요청 때 보낸 동작이 없었음. Runner 안에서 멈춘 기록(_check_halt 의 HALTED)은 백엔드 응답으로 세지 않는다(#259 E P1).
     한 번 정해진 confirmed·unconfirmed 는 그 사건 안에서 바뀌지 않음 — 늦게 온 백엔드 응답은 반영하지 않음."""
-    code = info.get("response_code")
-    if code is None:
-        return "requested" if in_run else "none"
-    if code in STOP_UNCONFIRMED_CODES:
-        return "unconfirmed"
-    if info.get("source") != "backend" and info.get("canceled_goals") == 0:
-        return "none"                           # 스텝 사이·비동작 중 요청 — 취소할 동작이 없었음
-    return "confirmed"
+    if info.get("response_received_at"):
+        if info.get("response_code") in STOP_UNCONFIRMED_CODES:
+            return "unconfirmed"
+        if info.get("source") != "backend" and info.get("canceled_goals") == 0:
+            return "none"                       # 스텝 사이·비동작 중 요청 — 취소할 동작이 없었음
+        return "confirmed"
+    if in_run and not info.get("noted"):
+        return "requested"
+    if info.get("canceled_goals") == 0:
+        return "none"
+    return "unconfirmed"                        # 진행 중이던 동작이 있었는데 백엔드 최종 결과를 못 받음
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
 # 태스크가 정리 동작(닫기·홈)을 멈추지 않고 실행 결과만 실패로 남길 때 쓰는 블랙보드 변수 {code, step}
 # (예: find_with_unpack 복구 미완료 RESTORE_INCOMPLETE — 정본 requirements 137 "복구 실패면 전체 FAILED")
@@ -198,9 +202,10 @@ class Halted(Exception):
     """E-stop·사용자 취소. StepFailed 와 달리 retry·skip·safe_home 을 거치지 않고 바로 위로 전달된다.
     step_code: 스텝 기록에 남길 백엔드 응답 코드 (예: 중단 요청으로 취소된 동작의 CANCELED). 없으면 code."""
 
-    def __init__(self, step_id: str, code: str, step_code: str | None = None):
+    def __init__(self, step_id: str, code: str, step_code: str | None = None, answered: bool = False):
         super().__init__(f"{step_id}: {code}")
         self.step_id, self.code, self.step_code = step_id, code, step_code
+        self.answered = answered                # 백엔드 최종 결과에서 나온 중단인지 (Runner 안 확인·어댑터 실패는 False)
 
 
 class Runner:
@@ -260,7 +265,7 @@ class Runner:
                 self._offered_at = None
                 self._halt_info = {"requested_at": utc_iso(), "source": source, "canceled_goals": None,
                                    "run_id": self._run_id if self._in_run else None,   # 실행 사이 요청이면 null
-                                   "response_code": None, "response_received_at": None}
+                                   "response_code": None, "response_received_at": None, "noted": False}
             self._halt.set()
         if first and self.on_halt is not None:  # 진행 중인 로봇 동작에 즉시 취소 요청 (기다림은 클라이언트가 함)
             canceled = self.on_halt()
@@ -535,10 +540,16 @@ class Runner:
                  "step": step_id or e.step_id, "action_step": e.step_id,
                  "step_code": e.step_code or e.code, "stopped_at": utc_iso(), "in_finally": self._in_finally}
         ctx.halts.append(entry)
-        if entry["event_id"] == self._event_id and self._halt_info.get("response_code") is None:
-            # 이 정지 사건의 백엔드 최종 응답(첫 번째만) → /runner/status halt.stop
-            self._halt_info.update(response_code=entry["step_code"], response_received_at=entry["stopped_at"])
+        if entry["event_id"] == self._event_id:
+            if e.answered:                      # 백엔드가 돌려준 중단 코드(ESTOP·STOP_UNCONFIRMED 등)면 그 응답
+                self._halt_answered(e.step_code or e.code, entry["stopped_at"])
+            self._halt_info["noted"] = True     # 이 사건의 정지 처리 끝 (응답이 없었으면 unconfirmed·none)
         return entry
+
+    def _halt_answered(self, code: str | None, at: str | None = None) -> None:
+        """이 정지 사건에서 진행 중이던 동작의 백엔드 최종 결과를 처음 받았을 때만 남김 (/runner/status halt)."""
+        if self._halt_info.get("response_received_at") is None:
+            self._halt_info.update(response_code=code, response_received_at=at or utc_iso())
 
     def _check_halt(self, step_id: str) -> None:
         """중단 요청이 있으면 로봇 동작 전에 멈춘다. 스텝 시작·재시도·safe_home 직전에 확인."""
@@ -654,7 +665,7 @@ class Runner:
             if not result.success:
                 record["error_code"] = result.error_code or "ACTION_FAILED"
                 if result.error_code in HALT_CODES:
-                    raise Halted(record["id"], result.error_code)
+                    raise Halted(record["id"], result.error_code, answered=_answered(result))
         finally:
             self._log_step(record)
 
@@ -703,6 +714,8 @@ class Runner:
             if motion:                          # 보낸 뒤 끊겼을 수 있음 → 결과 불확실 (재시도·다음 대안 금지)
                 self._motions += 1
             raise StepFailed(step["id"], "BACKEND_ERROR", no_retry="RESPONSE_LOST" if motion else None) from e
+        if self._halt.is_set() and not self._aborted and _answered(result):
+            self._halt_answered(result.error_code or None)   # 정지 요청 뒤 받은 백엔드 최종 결과 (성공으로 끝났으면 코드 null)
         no_motion = not result.success and (not motion or _no_motion(action, result.error_code))
         if motion and not no_motion:
             self._motions += 1                  # 움직이기 전 거부가 보장된 실패만 빼고 셈
@@ -710,10 +723,10 @@ class Runner:
             if result.output is not None:       # 실패 응답의 결과도 기록만 (예: 그리퍼를 연 뒤 실패한 place_object 의
                 record["output"] = result.output   # placed_pose, #166). 블랙보드에는 넣지 않음 — 뒤 스텝이 성공 값으로 쓰지 않게
             if result.error_code in HALT_CODES:
-                raise Halted(step["id"], result.error_code)
+                raise Halted(step["id"], result.error_code, answered=_answered(result))
             if _hand_uncertain(result.output):  # #223: 실패했는데 B 가 "쥐었는지 모름·쥠"이라고 함 → 빈손으로 보지 않고
                 record["hand_uncertain"] = (result.output or {}).get("hand")   # 정지·잠금(finally 비동작) — 사람 확인
-                raise Halted(step["id"], result.error_code or "ACTION_FAILED")
+                raise Halted(step["id"], result.error_code or "ACTION_FAILED", answered=_answered(result))
             if self._halt.is_set() and not self._aborted:   # 중단 요청으로 취소된 동작 → 그 자리에서 중단
                 raise Halted(step["id"], self._halt_code or HALTED, step_code=result.error_code or None)
             # 백엔드 TIMEOUT(제한 시간에 끝나지 않아 취소 요청)도 결과가 불확실하므로 재시도하지 않음.
@@ -896,6 +909,12 @@ def _marked_error(blackboard: dict) -> StepFailed | None:
     if isinstance(mark, dict) and isinstance(mark.get("code"), str) and mark["code"]:
         return StepFailed(str(mark.get("step") or ""), mark["code"])
     return None
+
+
+def _answered(result: ActionResult) -> bool:
+    """백엔드가 실제로 돌려준 최종 결과인지. 어댑터가 만든 실패(서버 없음·보내지 않음·정지 확인 시간 초과)는
+    결과에 no_backend_result 를 붙여 보냄 (adapters/ros_clients.NO_BACKEND_RESULT, #259 E 리뷰 P1)."""
+    return not (isinstance(result.output, dict) and result.output.get("no_backend_result"))
 
 
 def _hand_uncertain(output) -> bool:

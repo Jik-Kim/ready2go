@@ -18,6 +18,7 @@ Runner 는 블로킹으로 실행되므로, 노드는 다른 스레드의 execut
 """
 from __future__ import annotations
 
+import json
 import threading
 
 from rclpy.action import ActionClient
@@ -33,6 +34,9 @@ from ..core.interpreter import HALTED, HALT_CODES
 TIMEOUT = "TIMEOUT"
 STOP_UNCONFIRMED = "STOP_UNCONFIRMED"   # 취소 후 백엔드의 정지 확인(최종 결과)이 없음 → Runner 잠금 (HALT_CODES)
 CANCELED = "CANCELED"
+# 어댑터가 스스로 만든 실패(서버 없음·거절·보내지 않음·정지 확인 시간 초과) 표시 — 백엔드 최종 결과가 아님.
+# Runner 는 이 응답을 /runner/status halt 의 "백엔드 응답 받음"으로 세지 않는다 (#259 E 리뷰 P1)
+NO_BACKEND_RESULT = json.dumps({"no_backend_result": True})
 CANCEL_CONFIRM_SEC = 5.0                # 취소 요청 뒤 최종 결과를 기다리는 최대 시간 [추정, 실측 후 조정]
 SERVER_WAIT_SEC = 2.0                   # 서버를 찾는 최대 시간 [추정, 실측 후 조정]. 없으면 BACKEND_ERROR (동작 안 함)
 GOAL_ACCEPT_SEC = 5.0                   # goal 수락 응답을 기다리는 최대 시간 [추정]
@@ -77,9 +81,9 @@ class RosClients:
         client = self._action_client(name)
         if not client.wait_for_server(timeout_sec=self.server_wait_sec):
             self.node.get_logger().error(f"{name}: 액션 서버 없음")
-            return Reply(False, BACKEND_ERROR)
+            return Reply(False, BACKEND_ERROR, NO_BACKEND_RESULT)
         if self.stopping():                     # 서버를 찾는 사이 중단 요청 → 보내지 않음
-            return Reply(False, HALTED)
+            return Reply(False, HALTED, NO_BACKEND_RESULT)
 
         sent = client.send_goal_async(Skill.Goal(params_json=params_json))
         if not _wait(sent, self.goal_accept_sec):
@@ -87,7 +91,7 @@ class RosClients:
         handle = sent.result()
         if handle is None or not handle.accepted:
             self.node.get_logger().error(f"{name}: goal 거절")
-            return Reply(False, BACKEND_ERROR)
+            return Reply(False, BACKEND_ERROR, NO_BACKEND_RESULT)
         return self._follow(name, handle, timeout_sec)
 
     def _settle_late_goal(self, name: str, sent) -> Reply:
@@ -100,13 +104,13 @@ class RosClients:
                 handle.cancel_goal_async()
         sent.add_done_callback(cancel_if_accepted)          # 여기서 포기한 뒤에 수락돼도 취소됨
         if not _wait(sent, self.cancel_confirm_sec):
-            return Reply(False, STOP_UNCONFIRMED)           # 끝내 수락 여부를 모름 → 잠금
+            return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)   # 끝내 수락 여부를 모름 → 잠금
         handle = sent.result()
         if handle is None or not handle.accepted:
-            return Reply(False, BACKEND_ERROR)              # 거절 = 움직이지 않음
+            return Reply(False, BACKEND_ERROR, NO_BACKEND_RESULT)   # 거절 = 움직이지 않음
         done = handle.get_result_async()
         if not _wait(done, self.cancel_confirm_sec):
-            return Reply(False, STOP_UNCONFIRMED)
+            return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)
         return Reply(False, _keep_safety_code(done.result().result.error_code, TIMEOUT))
 
     def _follow(self, name: str, handle, timeout_sec: float | None) -> Reply:
@@ -131,7 +135,7 @@ class RosClients:
                 self.node.get_logger().warning(f"{name}: {timeout_sec}초 초과 → 취소 요청, 정지 확인 대기")
             if not _wait(done, self.cancel_confirm_sec):   # 백엔드가 멈추고 최종 결과를 줄 때까지
                 self.node.get_logger().error(f"{name}: 취소 뒤 {self.cancel_confirm_sec}초 안에 정지 확인 없음")
-                return Reply(False, STOP_UNCONFIRMED)
+                return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)
             if timed_out:                       # 결과가 왔다고 정지 성공은 아님: 안전 코드는 그대로 (E 리뷰)
                 return Reply(False, _keep_safety_code(done.result().result.error_code, TIMEOUT))
             result = done.result().result         # 중단 요청으로 취소됨 (또는 직전에 끝남)

@@ -85,7 +85,7 @@ def test_halt_between_steps_has_nothing_to_stop():
     runner = Runner(backend)
     runner.on_halt = lambda: 0
     runner.run({"task_id": "t", "sequence": [SPEAK, MOVE]})
-    assert (runner.halt_summary["stop"], runner.halt_summary["response_code"]) == ("none", "HALTED")
+    assert (runner.halt_summary["stop"], runner.halt_summary["response_code"]) == ("none", None)   # Runner 안 확인은 백엔드 응답 아님
 
 
 def test_backend_safety_stop_is_confirmed_with_its_cause():
@@ -133,3 +133,41 @@ def test_restop_refused_request_and_late_events_do_not_change_the_answer():
     refused = runner.run({"task_id": "t2", "sequence": [SPEAK]})   # 잠긴 동안 새 요청 → 로봇 동작 없이 거절
     assert refused.overall_status == "ABORTED" and refused.run_id != first["run_id"]
     assert runner.halt_summary == first and first["stop"] == "unconfirmed"
+
+
+def stop_then(reply, steps=(SPEAK, MOVE)):
+    """move 진행 중 정지 요청 → reply() 가 백엔드 결과(또는 예외). 끝난 뒤 halt 요약."""
+    def backend(action, params, timeout_sec):
+        if action == "move_to_named_pose":
+            runner.halt(source="voice")
+            return reply()
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    runner.on_halt = lambda: 1
+    result = runner.run({"task_id": "t", "sequence": list(steps), "finally": [{"id": "f1", "action": "speak",
+                                                                              "params": {"text": "멈췄어요"}}]})
+    return runner.halt_summary, result
+
+
+def test_no_backend_result_is_never_confirmed():
+    """#259 E 리뷰 P1: 백엔드 최종 결과 없이 Runner 안에서 멈춘 기록은 confirmed·수신 시각을 만들지 않는다."""
+    def lost():
+        raise ConnectionError("응답 유실")
+    adapter_timeout = lambda: ActionResult(False, {"no_backend_result": True}, error_code="STOP_UNCONFIRMED")   # noqa: E731
+    for reply, steps in ((lost, (SPEAK, MOVE)),                 # E 재현: 진행 중 동작에서 통신 예외
+                         (lost, (MOVE,)),                       # 마지막 스텝 예외 → finally 진입 전 확인
+                         (adapter_timeout, (SPEAK, MOVE))):     # 어댑터가 5 s 안에 결과를 못 받음
+        halt, result = stop_then(reply, steps)
+        assert result.overall_status == "ABORTED"
+        assert (halt["stop"], halt["response_code"], halt["response_received_at"]) == ("unconfirmed", None, None), halt
+
+
+def test_backend_final_results_are_answers():
+    """백엔드가 돌려준 최종 결과만 응답: CANCELED → confirmed, B 의 STOP_UNCONFIRMED → unconfirmed(코드·시각 있음),
+    취소 직전에 성공으로 끝남 → confirmed(코드 null)."""
+    for reply, stop, code in ((lambda: ActionResult(False, error_code="CANCELED"), "confirmed", "CANCELED"),
+                              (lambda: ActionResult(False, error_code="STOP_UNCONFIRMED"), "unconfirmed", "STOP_UNCONFIRMED"),
+                              (lambda: ActionResult(True), "confirmed", None)):
+        halt, _ = stop_then(reply)
+        assert (halt["stop"], halt["response_code"]) == (stop, code) and halt["response_received_at"], halt

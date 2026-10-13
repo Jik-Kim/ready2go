@@ -183,6 +183,7 @@ def test_late_accept_never_confirmed_locks(ros):
     late = RosClients(clients.node, server_wait_sec=1.0, goal_accept_sec=0.3, cancel_confirm_sec=0.5)
     reply = late.call_action(f"{PREFIX}/skills/late", "{}", 5)
     assert (reply.success, reply.error_code) == (False, "STOP_UNCONFIRMED")
+    assert json.loads(reply.payload_json) == {"no_backend_result": True}   # 어댑터가 만든 미확인 — B 응답 아님 (#259)
     assert servers.late_cancel.wait(5.0)                           # 포기한 뒤 수락돼도 취소가 감
     servers.accept_delay = 0.0
 
@@ -192,3 +193,4 @@ def test_safety_code_after_timeout_is_kept(ros, code):
     clients, _ = ros
     reply = clients.call_action(f"{PREFIX}/skills/stop_{code.lower()}", "{}", 0.3)
     assert (reply.success, reply.error_code) == (False, code)       # TIMEOUT 으로 덮지 않음
+    assert "no_backend_result" not in (reply.payload_json or "")   # 서버가 준 최종 결과 = B 응답

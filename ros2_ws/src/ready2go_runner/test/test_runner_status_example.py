@@ -77,9 +77,12 @@ def test_halt_cases_match_code_and_separate_request_from_stop_confirmation():
         if halt["stop"] == "requested":         # 백엔드 최종 결과 전 — 실행은 아직 running, 결과 칸 없음
             assert status["phase"] == "running" and halt["response_code"] is None and halt["response_received_at"] is None, name
         if halt["stop"] in ("confirmed", "unconfirmed"):
-            assert halt["response_code"] and halt["response_received_at"] and status["phase"] == "halted", name
-        if halt["stop"] == "unconfirmed":
-            assert halt["response_code"] in {"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"}, name
+            assert status["phase"] == "halted", name
+        if halt["stop"] == "confirmed":         # 백엔드 최종 결과를 받았을 때만 (#259 E P1)
+            assert halt["response_received_at"], name
+        if halt["stop"] == "unconfirmed":       # B 의 미확인 코드(시각 있음) 또는 결과 없음(둘 다 null)
+            assert (halt["response_code"] in {"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"}
+                    and halt["response_received_at"]) or (halt["response_code"], halt["response_received_at"]) == (None, None), name
         if halt["stop"] == "none":
             assert halt["canceled_goals"] == 0, name
         assert halt["locked"] == (status["phase"] == "halted" or halt["stop"] == "requested"), name
@@ -88,3 +91,5 @@ def test_halt_cases_match_code_and_separate_request_from_stop_confirmation():
     assert refused["last"]["run_id"] != refused["halt"]["run_id"]
     assert refused["halt"] == cases()["stop_confirmed_halted"]["halt"]
     assert seen == {"requested", "confirmed", "unconfirmed", "none"}
+    lost = cases()["stop_no_backend_result"]["halt"]
+    assert (lost["stop"], lost["response_code"], lost["response_received_at"]) == ("unconfirmed", None, None)
