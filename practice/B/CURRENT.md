@@ -1,9 +1,13 @@
 # CURRENT — B 서동권
 
-- **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-12
+- **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P2 (Unpacking 통합·실물 확인 중, P3 트레이 집기는 별도 PR 대기)
+- **최종 갱신**: 2026-10-13
 
 ## 지금 상태
+- **10/13 새벽 (3차 챌린지 전, PR #258)**: 쌓인 물체 넛지·무너뜨리기. 트레이에서 집기(`return_items`)는 PM 결정(10/13 — 반납은 P3)으로 #258 에서 빼 별도 PR 로.
+  - 무너뜨리기 [사용자 10/13 "집을 위치 없다고 포기하는 것도 웃김"]: `nudge_object` `topple`(맨 위 물체를 눌러 받침 밖 바닥으로 끎, `core/clear_plan.topple_move`) + `make_room` 이 놓을 자리 없을 때 이걸로. `B topple top`. Runner `find_with_unpack` 에 넣는 건 C(JSON) — 제안 조각은 PR #258. 실물 미확인.
+  - 쌓인 물체도 넛지 [사용자 10/13 "높이 상관없이 넛지로", #254]: 10/12 의 `NOT_ON_FLOOR` 거부를 풀고, 누르는 높이·뒤에서 미는 손끝을 받침(top_z − 높이) 위로, 받침은 이웃 확인에서 뺌. 테두리 − 10 mm 넘게 쌓였을 때만 거부. 실물 미확인 — 끌 때 받침이 같이 끌리는지, 떨어진 물체가 구르는지(#254 위험).
+- **10/12 밤 (3차 챌린지 전 코드 정리, 동작 변화 없음)**: 안 쓰는 코드 정리 — 옛 넛지 계획 모듈(`core/nudge_plan.py`), 닫기 판정 함수 2개, 안 읽는 파라미터 14개, 지금 설정으로 안 타는 경로 3개(바닥 찍기 집기 `touch_floor`, 위 칸 수직 손끝 닫기, 옛 들고 나오기 `carry_out` movesj). 시험 644 passed, `demo_sim`·`p2_demo` 결과 정리 전과 같음.
 - **10/12 저녁 (PR #241·#243·#247 머지, #248 열림)**: Unpacking 통합 — 막힌 것의 절반 이상이 C 태스크·E `pick` 묶음·Runner 설정 쪽(#245 정리, #242 C 반영 대기). B: 놓기 이웃 확인 손가락 띠만, 복구 때 물체 위에 놓기 켬, `nudge_object check_only` `needed`·`plan_code`·집기 경유점 중복 생략(#248, E 승인 대기). 비전 v2 실물 확인 통과. **사고: 손으로 연 서랍에 `B unpack` → 부딪힘(안내 오류, 트러블슈팅 47)** — 실행 순서는 `HANDOVER.md` 4절(평소/통합 구분)대로.
 - **10/12 오후 2 (같은 브랜치, PR #241)**: Runner 통합 2회차 — aside 를 비워 뒀는데 판 밑 지우개 방향 모름 정사각형(57 mm)이 aside 에 6 mm 걸려 판을 쥔 채 정지(트러블슈팅 39). 가려진 이웃 축소(`hidden_split`)는 #241 리뷰 P1 로 되돌림(fail-closed, A 에 마스크 경계 요청). `place_object` `check_only`(집기 전 판단)·`slot: "free"` 추가(제안, Runner 연결은 C 이슈).
 - **10/12 오후 (#235 머지 `14f9967` 뒤 같은 브랜치 새 PR)**: Unpacking 통합(C 절차) 실물 — PC2 `.env` 에 `RUNNER_INTENT_TASKS` 없어 P1 `find_item` 이 돌던 것 확인(트러블슈팅 31). 복구 때 원래 자리를 굴러 나온 립밤이 ~10 mm 막아 aside 에서 집어 aside 에 다시 놓던 것 → 되돌리기(명령한 pose, 바닥)는 방향 그대로 `place.restore_fit_max_mm` 20 mm 안으로 비켜 놓음(트러블슈팅 32, 제안). 남음: 한가운데가 막히면 헛동작 그대로 — `place_object` `check_only` + Runner 복구 순서(C).

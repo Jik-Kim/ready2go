@@ -84,3 +84,41 @@ def test_synthetic_generator_uses_the_pinned_list(tmp_path, monkeypatch):
     ms.main()
     ids = {int(l.split()[0]) for f in (tmp_path / "syn").rglob("*.txt") for l in f.read_text(encoding="utf-8").splitlines() if l.strip()}
     assert ids and max(ids) <= 1, "합성 라벨이 고정 목록(2개)이 아니라 온톨로지(3개) 번호를 썼음"
+
+
+def test_retired_class_keeps_numbers_after_removed_from_ontology(tmp_path, monkeypatch):
+    """#23 당근 펜: 물품을 온톨로지에서 빼도 고정 목록 줄은 그대로 두고 은퇴 목록에 적는다 → 번호(뒤 클래스 포함) 그대로, 빼기 전·후 모두 통과."""
+    make_sessions(tmp_path)
+    (tmp_path / "classes.txt").write_text("a\nb\nc\n", encoding="utf-8")
+    (tmp_path / bd.RETIRED_NAME).write_text("b\n", encoding="utf-8")
+    for items in (("a", "b", "c"), ("a", "c")):                       # 빼기 전(11종) · 뺀 뒤(10종)
+        onto = make_ontology(tmp_path, items=items)
+        assert run_main(monkeypatch, tmp_path, onto) == 0
+        assert (tmp_path / "out" / "classes.txt").read_text(encoding="utf-8").split() == ["a", "b", "c"]   # b = 1, c = 2 그대로
+    names, warns = bd.load_classes(tmp_path / "classes.txt", make_ontology(tmp_path, items=("a", "c")))
+    assert names == ["a", "b", "c"] and any("은퇴" in w for w in warns)
+
+
+def test_removed_class_without_retired_entry_fails(tmp_path, monkeypatch):
+    make_sessions(tmp_path)
+    (tmp_path / "classes.txt").write_text("a\nb\nc\n", encoding="utf-8")
+    assert run_main(monkeypatch, tmp_path, make_ontology(tmp_path, items=("a", "c"))) == 1
+
+
+def test_class_errors_rules():
+    items = {"a": {}, "c": {}}
+    assert bd.class_errors(["a", "b", "c"], items, ["b"]) == []
+    assert bd.class_errors(["a", "b", "c"], {**items, "b": {}}, ["b"]) == []          # 은퇴 이름이 아직 온톨로지에 있어도 통과
+    assert any("banana" in e for e in bd.class_errors(["a", "banana", "c"], items, ["b"]))   # 오타·미등록은 은퇴 목록과 무관하게 실패
+    assert any("yolo_classes.txt 에 없는 이름 x" in e for e in bd.class_errors(["a", "b", "c"], items, ["b", "x"]))   # 은퇴 목록 오타
+    assert any("중복된 이름" in e for e in bd.class_errors(["a", "b", "c"], items, ["b", "b"]))
+    assert any("중복된 클래스" in e for e in bd.class_errors(["a", "b", "b", "c"], items, ["b"]))
+
+
+def test_repo_class_list_and_retired_list_are_consistent():
+    """저장소 고정 목록: 11개·당근 펜 5번 그대로, 은퇴 목록 검사 통과 (validate_contracts 와 같은 함수)."""
+    names = bd.read_names(bd.CLASSES_FILE)
+    assert len(names) == 11 and names[5] == "carrot_pen" and names[10] == "cover_plate"
+    retired = bd.read_names(bd.CLASSES_FILE.with_name(bd.RETIRED_NAME))
+    assert retired == ["carrot_pen"]
+    assert bd.class_errors(names, dict.fromkeys(bd.ontology_items()), retired) == []
