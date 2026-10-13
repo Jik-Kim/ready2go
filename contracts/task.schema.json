@@ -62,6 +62,7 @@
         "timeout_sec": { "type": "number", "exclusiveMinimum": 0 },
         "recovery": { "type": "array", "items": { "$ref": "#/definitions/step" } },
         "options": { "type": "array", "items": { "type": "array", "items": { "$ref": "#/definitions/step" } } },
+        "next_on": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "fallback 전용 (#121·#245 계약, E 대화 승인 10/13, 사용자 전달 — #263): 앞 대안이 로봇을 움직이지 않고 이 코드 중 하나로 실패했을 때만 다음 대안. 없으면 움직이지 않은 실패면 다음 대안(기존). 스킬 expand 안 fallback 은 필수" },
         "retry": { "type": "integer", "minimum": 0, "default": 0 }
       }
     }

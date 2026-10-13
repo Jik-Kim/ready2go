@@ -117,6 +117,8 @@ LOOP_LIMIT = "LOOP_LIMIT"               # while 이 max_iter 번 돈 뒤에도 �
 STACK_EMPTY = "STACK_EMPTY"             # pop 할 기록이 없음
 NOT_A_LIST = "NOT_A_LIST"               # for_each 의 in·push/pop 의 stack 이 리스트가 아님
 FALLBACK_FAILED = "FALLBACK_FAILED"     # fallback 대안이 하나도 없음
+NOT_IN_NEXT_ON = "NOT_IN_NEXT_ON"       # fallback_stopped: 움직이지 않은 실패지만 next_on 에 없는 코드 → 다음 대안 없음 (#121)
+EXPAND_BLOCKS = ("fallback", "if")      # 스킬 expand 안에서 쓸 수 있는 블록 (#121·#245 계약)
 VAR_NULL = "VAR_NULL"                   # 백엔드로 보낼 동작의 "$변수" 값이 null (예: 실패한 nudge 의 target_after, #23)
 # 스킬 재시도 (P1): 앞 동작이 실행됐거나 끝났을 수 있으면 다시 보내지 않는다(PR #64 D 리뷰). 다만 백엔드가
 # 로봇을 움직이지 않았음을 보장하는 실패이고, 그 시도에서 앞서 보낸 동작도 팔을 움직이지 않았으면 재시도한다.
@@ -828,6 +830,9 @@ class Runner:
                 if e.no_retry:
                     record["fallback_stopped"] = e.no_retry
                     raise
+                if "next_on" in step and e.code not in step["next_on"]:   # #121: 정한 코드일 때만 다음 대안
+                    record["fallback_stopped"] = NOT_IN_NEXT_ON
+                    raise
         raise StepFailed(step["id"], last.code if last else FALLBACK_FAILED)
 
     def _stack(self, step: dict, action: str, params: dict, blackboard: dict, record: dict) -> None:
@@ -870,18 +875,86 @@ class Runner:
         scope = {**blackboard, **params}        # expand 의 $drawer_id·$scan 등은 스킬 안에서만 보임
         moved = False                           # 이 시도에서 팔을 움직이는 동작을 이미 보냈는지
         for i, sub in enumerate(skill.get("expand", []), 1):
+            motions = self._motions
             try:
-                self._run_expanded({**sub, "id": f"{step['id']}.e{i}"}, step, scope, records, attempt_started)
+                self._run_expand_item(sub, f"{step['id']}.e{i}", step, scope, records, attempt_started)
             except StepFailed as e:
                 if e.no_retry is None and moved:
                     e.no_retry = "MOTION_UNCERTAIN"   # 앞서 팔을 움직였으면 어떤 실패든 스킬을 다시 보내지 않음
                 raise
-            moved = moved or _moves_arm(sub["action"], sub.get("params"))
+            moved = moved or (self._motions != motions if sub["action"] in EXPAND_BLOCKS
+                              else _moves_arm(sub["action"], sub.get("params")))
         with self._halt_lock:                   # 중단 확인과 반영 사이에 halt() 가 끼어들 수 없음 (PR #64 E 리뷰)
             self._check_halt(step["id"])        # 반영 전 중단 요청 → effect 반영 안 함
             self._check_timeout(step, attempt_started)
             self._state, diff = ontology.apply(self._state, skill.get("effect", []), params)
         record["state_diff"] = diff             # 반영 뒤 들어온 중단은 다음 경계(스텝 시작·실행 끝)에서 ABORTED
+
+    def _run_expand_item(self, sub: dict, child_id: str, step: dict, scope: dict, records: list[dict],
+                         attempt_started: float) -> None:
+        """스킬 expand 한 줄: 원자 동작이거나 fallback·if 블록 (#121). 하위 ID: <스텝>.e<n>.o<k>.<m> / .t<m> / .f<m>."""
+        if sub.get("action") == "fallback":
+            self._run_expand_fallback(sub, child_id, step, scope, records, attempt_started)
+        elif sub.get("action") == "if":
+            self._run_expand_if(sub, child_id, step, scope, records, attempt_started)
+        else:
+            self._run_expanded({**sub, "id": child_id}, step, scope, records, attempt_started)
+
+    def _expand_block(self, block_id: str, action: str, step: dict, records: list[dict], body) -> None:
+        """expand 안 블록의 기록 하나(부모 = 스킬 스텝)를 남기며 body(record) 실행."""
+        record = {"id": block_id, "action": action, "parent": step["id"], "started_at": utc_iso()}
+        if self._iterations:
+            record["iteration"] = self._iterations[-1]
+        records.append(record)
+        self._notify("start", record, None)
+        started = self.clock()
+        try:
+            body(record)
+            record["status"] = "SUCCESS"
+        except (StepFailed, Halted) as e:
+            record.update(status="FAILURE", error_code=getattr(e, "step_code", None) or e.code)
+            raise
+        finally:
+            record["duration_sec"] = round(self.clock() - started, 3)
+            self._log_step(record)
+
+    def _run_expand_fallback(self, sub: dict, block_id: str, step: dict, scope: dict, records: list[dict],
+                             attempt_started: float) -> None:
+        """expand 안 fallback: 앞 대안이 로봇을 움직이지 않았고(태스크 fallback 과 같은 규칙) 실패 코드가
+        next_on 안일 때만 다음 대안. 그 밖(움직였을 수 있음·결과 불확실·정지·목록 밖 코드)은 그 실패로 멈춤."""
+        next_on = set(sub.get("next_on") or ())
+
+        def body(record):
+            last = None
+            for k, option in enumerate(sub.get("options", []), 1):
+                record["option"] = k
+                motions = self._motions
+                try:
+                    for m, child in enumerate(option, 1):
+                        self._run_expand_item(child, f"{block_id}.o{k}.{m}", step, scope, records, attempt_started)
+                    return
+                except StepFailed as e:
+                    last = e
+                    if e.no_retry is None and self._motions != motions:
+                        e.no_retry = "MOTION_UNCERTAIN"
+                    if e.no_retry or e.code not in next_on:
+                        record["fallback_stopped"] = e.no_retry or NOT_IN_NEXT_ON
+                        raise
+            raise StepFailed(step["id"], last.code if last else FALLBACK_FAILED)
+        self._expand_block(block_id, "fallback", step, records, body)
+
+    def _run_expand_if(self, sub: dict, block_id: str, step: dict, scope: dict, records: list[dict],
+                       attempt_started: float) -> None:
+        def body(record):
+            try:
+                taken = evaluate(sub["cond"], scope)
+            except (BadCondition, VarUndefined, BadFilter) as e:
+                raise StepFailed(step["id"], e.code) from e
+            record["branch"] = "then" if taken else "else"
+            mark = "t" if taken else "f"
+            for m, child in enumerate(sub.get("then" if taken else "else", []), 1):
+                self._run_expand_item(child, f"{block_id}.{mark}{m}", step, scope, records, attempt_started)
+        self._expand_block(block_id, "if", step, records, body)
 
     def _run_expanded(self, child: dict, step: dict, scope: dict, records: list[dict],
                       attempt_started: float) -> None:
