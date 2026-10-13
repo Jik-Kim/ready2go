@@ -68,7 +68,8 @@ def test_bottom_drawer_deep_object_pulled_inside_reach():
     p = mp.plan_drag(target=tgt(0.150, 0.15, 0.0), size_m=ERASER, interior_m=INTERIOR, g=g, drag=DRAG)
     assert p.needed and p.axis == "x" and p.wall_normal_x == 1.0
     assert 150.0 + p.shift_x_m * 1000.0 <= 129.0
-    assert mp.wall_blocks_grasp(target=tgt(0.150, 0.15, 0.0), size_m=ERASER, interior_m=INTERIOR, g=g)   # 넛지 전 집기는 거부
+    why = mp.wall_blocks_grasp(target=tgt(0.150, 0.15, 0.0), size_m=ERASER, interior_m=INTERIOR, g=g)   # 넛지 전 집기는 거부
+    assert why and "깊이 129 mm 밖" in why and "앞뒤 벽" not in why        # 벽이 아니라 깊이 한계 문구 [A 10/13]
 
 
 def test_free_object_needs_no_drag():

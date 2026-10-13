@@ -245,3 +245,16 @@ def test_cancel_does_not_wait_behind_request_lock(system):
         t.join(2)
         assert not t.is_alive()
     assert runner._last_intent["intent"] == "cancel"
+
+
+def test_status_has_boot_id_and_seq_grows_only_on_change(system):
+    """계약 W4 (#271): boot_id 는 이 Runner 기동 값, seq 는 바뀐 상태를 보낼 때만 +1 (0.5 s 주기 발행이 매번 늘리지 않음)."""
+    runner, watcher, _ = system
+    assert watcher.wait(lambda w: (w.status.get("last") or {}).get("overall_status") == "COMPLETED"
+                        and w.status["phase"] == "idle")
+    assert watcher.status["boot_id"] == runner.runner.boot_id and watcher.status["stamp"].endswith("Z")
+    seq = watcher.status["seq"]
+    time.sleep(1.5)                                  # 주기 발행 3번 — 내용이 같으면 보내지 않음
+    assert watcher.status["seq"] == seq
+    watcher.call(watcher.reset)                      # 상태가 바뀜 (state_reset_at) → seq +1 이상
+    assert watcher.wait(lambda w: w.status["seq"] > seq and w.status["state_reset_at"])

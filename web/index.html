@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="ROKEY 출근 준비 도우미 P3 최종 시연 검토용 반응형 mock UI"
+      content="ROKEY 출근 준비 도우미 녹화 범위 검토용 반응형 정적 목업"
     />
     <title>ROKEY · 출근 준비 도우미</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./styles.css" />
     <!-- 실제 연동 시 demo-data.js를 웹 API 어댑터로 교체합니다. 자세한 내용: web/README.md -->
     <script src="./demo-data.js" defer></script>
@@ -22,11 +23,14 @@
       </div>
 
       <div class="header-meta">
-        <span class="demo-badge">데모 · 실제 장치 미연결</span>
+        <div id="mockDataNotice" class="demo-badge" role="note">
+          <strong id="mockDataLabel">목업 데이터</strong>
+          <span id="mockDataDescription">실제 장치와 연결되지 않은 화면입니다.</span>
+        </div>
         <div id="connectionStatus" class="connection-status" aria-label="장치 연결 상태"></div>
         <button id="openAdminView" class="admin-entry-button" type="button">
           <span aria-hidden="true">▣</span>
-          관리자
+          검토 화면
         </button>
       </div>
     </header>
@@ -34,18 +38,19 @@
     <main class="app-shell">
       <section class="command-overview desktop-command" aria-labelledby="commandHeading">
         <h1 id="commandHeading" class="sr-only">명령 정보</h1>
-        <div class="command-field heard-field">
-          <span class="round-icon" aria-hidden="true">≋</span>
-          <div>
-            <span class="eyebrow">들은 말</span>
-            <p id="heardText"></p>
-          </div>
-        </div>
         <div class="command-field understood-field">
           <span class="round-icon" aria-hidden="true">✓</span>
           <div>
-            <span class="eyebrow">이해한 요청</span>
+            <span class="eyebrow">해석한 요청</span>
             <p id="understoodText"></p>
+            <div id="commandInterpretationStatus" class="inline-command-status"></div>
+          </div>
+        </div>
+        <div class="command-field command-status-field">
+          <span class="round-icon" aria-hidden="true">●</span>
+          <div>
+            <span class="eyebrow">명령 처리 상태</span>
+            <div id="commandProcessingStatus"></div>
           </div>
         </div>
       </section>
@@ -54,7 +59,7 @@
         <div class="section-heading compact-heading">
           <span class="section-icon" aria-hidden="true">✓</span>
           <div>
-            <span class="eyebrow">이해한 요청</span>
+            <span class="eyebrow">해석한 요청</span>
             <h1 id="mobileCommandHeading"></h1>
           </div>
         </div>
@@ -137,10 +142,6 @@
               작업 상세 보기 <span aria-hidden="true">▾</span>
             </button>
           </div>
-          <button id="stopTask" class="stop-button" type="button">
-            <span aria-hidden="true">■</span>
-            작업 중단
-          </button>
         </div>
 
         <div id="taskDetails" class="task-details">
@@ -150,7 +151,7 @@
               <span class="detail-label">실제 작업 위치</span>
               <strong id="taskLocation"></strong>
             </div>
-            <span class="demo-detail-note">시연용 샘플 작업 상태</span>
+            <span class="demo-detail-note">목업 데이터 · 실제 실행 결과 아님</span>
           </div>
           <div
             class="progress-scroll"
@@ -182,47 +183,44 @@
         <span aria-hidden="true">›</span>
       </button>
 
-      <p class="stop-disclaimer">
-        작업 중단은 로컬 데모 상태만 바꾸며 물리적 E-stop을 대체하지 않습니다.
-      </p>
     </main>
 
     <footer>
       <strong>ROKEY</strong>
-      <span>P3 최종 시연 화면 검토용 mock UI</span>
+      <span>녹화 범위 검토용 정적 목업 UI</span>
     </footer>
     </div>
 
     <section id="adminView" class="admin-view" aria-labelledby="adminTitle" hidden>
       <header class="admin-header">
-        <div class="brand-lockup" aria-label="ROKEY 관리자 검토 패널">
+        <div class="brand-lockup" aria-label="ROKEY 읽기 전용 검토 화면">
           <strong class="brand">ROKEY</strong>
-          <h1 id="adminTitle" class="admin-title">관리자 검토 패널</h1>
+          <h1 id="adminTitle" class="admin-title">읽기 전용 검토 화면</h1>
         </div>
         <button id="exitAdminView" class="admin-exit-button" type="button">
           <span aria-hidden="true">↪</span>
-          관리자 화면 나가기
+          대시보드로 돌아가기
         </button>
       </header>
 
       <div class="admin-shell">
         <p class="admin-demo-notice" role="note">
-          데모 검토 화면 · 인증 및 서버 API 접근 제어 미구현 · 화면 진입은 관리자 권한 확인을 의미하지 않습니다.
+          목업 데이터 · 인증 미구현 읽기 전용 화면 · 현재 상태와 온톨로지만 녹화 우선 연결 예정입니다.
         </p>
 
         <nav class="admin-tabs-scroll" aria-label="관리자 검토 항목">
           <div class="admin-tabs" role="tablist" aria-label="관리자 검토 탭">
             <button id="tab-current" class="admin-tab is-selected" type="button" role="tab" aria-selected="true" aria-controls="panel-current" tabindex="0" data-admin-tab="current">
-              <span aria-hidden="true">▤</span>현재 상태
+              <span aria-hidden="true">▤</span>현재 상태 <small>우선 연결</small>
             </button>
             <button id="tab-ontology" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-ontology" tabindex="-1" data-admin-tab="ontology">
-              <span aria-hidden="true">⌘</span>온톨로지
+              <span aria-hidden="true">⌘</span>온톨로지 <small>우선 연결</small>
             </button>
             <button id="tab-plan" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-plan" tabindex="-1" data-admin-tab="plan">
-              <span aria-hidden="true">▧</span>계획 근거
+              <span aria-hidden="true">▧</span>계획 근거 <small>후속</small>
             </button>
             <button id="tab-history" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-admin-tab="history">
-              <span aria-hidden="true">☷</span>실행 기록
+              <span aria-hidden="true">☷</span>실행 기록 <small>후속</small>
             </button>
           </div>
         </nav>
@@ -233,10 +231,10 @@
             <section class="admin-card" aria-labelledby="currentStateHeading">
               <div class="admin-section-heading">
                 <div>
-                  <span class="eyebrow">Runner 저장값과 관측 결과를 구분해 표시</span>
+                  <span class="eyebrow">/runner/status · /robot_state 우선 연결 예정</span>
                   <h2 id="currentStateHeading">현재 상태 조회</h2>
                 </div>
-                <span class="sample-label">데모 샘플</span>
+                <span class="sample-label">목업 데이터</span>
               </div>
               <div class="admin-table-scroll" role="region" aria-label="현재 상태 표" tabindex="0">
                 <table class="admin-table">
@@ -253,8 +251,8 @@
           <section id="panel-ontology" class="admin-panel" role="tabpanel" aria-labelledby="tab-ontology" data-admin-panel="ontology" hidden>
             <section class="admin-card" aria-labelledby="ontologyHeading">
               <div class="admin-section-heading">
-                <div><span class="eyebrow">원본 온톨로지 미연동 · 데모 샘플</span><h2 id="ontologyHeading">등록 물품·장소·관계</h2></div>
-                <span class="sample-label">데모 샘플</span>
+                <div><span class="eyebrow">온톨로지 원본 읽기 우선 연결 예정</span><h2 id="ontologyHeading">등록 물품·장소·관계</h2></div>
+                <span class="sample-label">목업 데이터</span>
               </div>
               <div id="adminOntologyRelations" class="admin-definition-grid"></div>
             </section>
@@ -268,23 +266,22 @@
             <section class="admin-card admin-empty-card" aria-labelledby="planHeading">
               <span class="admin-empty-icon" aria-hidden="true">!</span>
               <div>
-                <h2 id="planHeading">계획 근거 미연동</h2>
+                <span class="follow-up-label">후속 연결 예정</span>
+                <h2 id="planHeading">계획 근거</h2>
                 <p id="adminPlanMessage"></p>
               </div>
             </section>
           </section>
 
           <section id="panel-history" class="admin-panel" role="tabpanel" aria-labelledby="tab-history" data-admin-panel="history" hidden>
-            <div class="history-layout">
-              <section class="admin-card" aria-labelledby="historyListHeading">
-                <div class="admin-section-heading"><div><span class="eyebrow">실제 MongoDB 기록 미연동</span><h2 id="historyListHeading">과거 실행 목록</h2></div><span class="sample-label">데모 샘플</span></div>
-                <div id="adminHistoryList" class="history-list"></div>
-              </section>
-              <section class="admin-card" aria-labelledby="historyDetailHeading">
-                <div class="admin-section-heading"><div><span class="eyebrow">선택한 데모 실행</span><h2 id="historyDetailHeading">단계별 기록</h2></div></div>
-                <div id="adminHistoryDetails" class="history-details"></div>
-              </section>
-            </div>
+            <section class="admin-card admin-empty-card" aria-labelledby="historyHeading">
+              <span class="admin-empty-icon" aria-hidden="true">!</span>
+              <div>
+                <span class="follow-up-label">후속 연결 예정</span>
+                <h2 id="historyHeading">실행 기록</h2>
+                <p id="adminHistoryMessage"></p>
+              </div>
+            </section>
           </section>
         </main>
       </div>
@@ -300,16 +297,24 @@
       </div>
       <dl class="detail-list">
         <div>
-          <dt>들은 말</dt>
-          <dd id="mobileHeardText"></dd>
+          <dt>해석한 요청</dt>
+          <dd id="mobileUnderstoodText"></dd>
         </div>
         <div>
-          <dt>음성 인식 상태</dt>
-          <dd id="mobileRecognitionStatus"></dd>
-        </div>
-        <div>
-          <dt>명령 해석 상태</dt>
+          <dt>요청 해석 상태</dt>
           <dd id="mobileInterpretationStatus"></dd>
+        </div>
+        <div>
+          <dt>명령 처리 상태</dt>
+          <dd id="mobileProcessingStatus"></dd>
+        </div>
+        <div>
+          <dt>명령 접수 상태</dt>
+          <dd id="mobileReceiptStatus"></dd>
+        </div>
+        <div id="mobileConfirmationRow" hidden>
+          <dt>확인 요청</dt>
+          <dd id="mobileConfirmationText"></dd>
         </div>
       </dl>
     </dialog>
@@ -331,7 +336,5 @@
       <div id="mobileInventoryList" class="mobile-inventory-list"></div>
       <p id="mobileInventoryEmpty" class="empty-state" hidden>등록된 물품이 없습니다.</p>
     </dialog>
-
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </body>
 </html>

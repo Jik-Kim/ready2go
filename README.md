@@ -119,22 +119,16 @@ BACKEND=real RUNNER_TASK_FILE= SKILL_JOINT_VEL_DEG_S=10.0 \
 docker compose logs -f ros2-core realsense
 ```
 
-빌드 완료·DSR 연결·Runner와 자동 스킬 서버 준비를 로그·상태로 확인한 뒤, 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다. 아래 10°/s는 B의 첫 저속 실행 예이며, 실물 운용 한계는 안전 절차를 따릅니다.
+빌드 완료·DSR 연결·Runner와 자동 스킬 서버 준비를 로그·상태로 확인한 뒤, 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다. 아래 10°/s는 B의 첫 저속 실행 예이며(위 `SKILL_JOINT_VEL_DEG_S`로 자동 서버에 전달), 실물 운용 한계는 안전 절차를 따릅니다.
+
+**스킬 서버는 이미 떠 있습니다 — 다시 실행하지 않습니다.** 자동 서버 하나만 써야 같은 이름의 `/skills/*` 액션 서버가 둘이 되지 않습니다(파라미터가 서로 다르게 적용될 수 있음). 서버가 하나인지와 콘솔 저장은 아래처럼 확인합니다. 자동 서버를 쓰지 않고 호스트에서 따로 띄우는 경우는 아래 "그리퍼 상태·실물 스킬(호스트 개별 실행 대안)"만 따릅니다.
 
 ```bash
-mkdir -p logs/skills
-SKILL_CONSOLE_LOG=$(mktemp "logs/skills/console.XXXXXX.log")
-set -o pipefail
-docker compose exec -T ros2-core bash -lc '
-  source /opt/ros/jazzy/setup.bash
-  source /opt/dsr_ws/install/setup.bash
-  source /colcon/install/setup.bash
-  export ROS_LOG_DIR=/logs/ros
-  ros2 run ready2go_skills skill_server --ros-args -p config_dir:=/config -p joint_vel_deg_s:=10.0
-' 2>&1 | tee "$SKILL_CONSOLE_LOG"
+docker compose exec -T ros2-core bash -lc 'source /opt/ros/jazzy/setup.bash && ros2 node list | grep -c skill_server'   # 1 이어야 함
+mkdir -p logs
+CORE_CONSOLE_LOG=$(mktemp "logs/ros2-core.console.XXXXXX.log")
+docker compose logs --no-color -f ros2-core 2>&1 | tee "$CORE_CONSOLE_LOG"
 ```
-
-이어서 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다.
 
 **로봇 없는 모의 플로우**: 모의 서버로 `find_item.json`을 한 번 실행합니다. 웨이크워드·STT·실물 동작 검사는 아닙니다.
 
@@ -373,7 +367,7 @@ ros2 service call /runner/reset_state std_srvs/srv/Trigger '{}'
 | `docker/` | 서비스별 Dockerfile |
 | `sim/` | Isaac Sim 스크립트 (USD는 Git LFS) |
 | `tools/` | 검증·측정 스크립트 |
-| `web/` | P3 최종 시연 검토용 PC·모바일 웹 UI와 [실행·연동 안내](web/README.md) |
+| `web/` | 녹화 범위 검토용 PC·모바일 정적 목업과 [실행·연동 안내](web/README.md) |
 | `practice/` | 담당별 현재 상태(`CURRENT.md`) |
 
 ## 팀

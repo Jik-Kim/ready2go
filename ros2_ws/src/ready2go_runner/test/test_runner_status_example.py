@@ -8,7 +8,7 @@ from ready2go_runner.core.intent_router import Decision
 from ready2go_runner.core.runner_status import build_status
 
 EXAMPLE = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/runner_status.json").read_text(encoding="utf-8"))
-NODE_KEYS = {"last_intent", "state_reset_at"}                      # runner_node 가 build_status 뒤에 붙이는 칸
+NODE_KEYS = {"last_intent", "state_reset_at", "boot_id", "seq", "stamp"}   # runner_node 가 붙이는 칸 (boot_id·seq·stamp 계약 W4)
 NEW_INTENT_KEYS = {"request_id", "run_id"}                          # 계약07
 
 
@@ -69,15 +69,15 @@ def test_halt_cases_match_code_and_separate_request_from_stop_confirmation():
     seen = set()
     for name, status in cases().items():
         halt = status["halt"]
-        assert (halt is not None) == name.startswith(("stop_", "halted_")), name
+        assert (halt is not None) == name.startswith(("stop_", "halted_", "suspended_")), name
         if halt is None:
             continue
         assert set(halt) == keys and halt["stop"] in {"requested", "confirmed", "unconfirmed", "none"}, name
         seen.add(halt["stop"])
         if halt["stop"] == "requested":         # 백엔드 최종 결과 전 — 실행은 아직 running, 결과 칸 없음
             assert status["phase"] == "running" and halt["response_code"] is None and halt["response_received_at"] is None, name
-        if halt["stop"] in ("confirmed", "unconfirmed"):
-            assert status["phase"] == "halted", name
+        if halt["stop"] in ("confirmed", "unconfirmed") and not name.startswith("suspended_"):
+            assert status["phase"] == "halted", name    # 재개 대기는 잠금이 풀려 idle (W4 halt.resume)
         if halt["stop"] == "confirmed":         # 백엔드 최종 결과를 받았을 때만 (#259 E P1)
             assert halt["response_received_at"], name
         if halt["stop"] == "unconfirmed":       # B 의 미확인 코드(시각 있음) 또는 결과 없음(둘 다 null)
@@ -93,3 +93,16 @@ def test_halt_cases_match_code_and_separate_request_from_stop_confirmation():
     assert seen == {"requested", "confirmed", "unconfirmed", "none"}
     lost = cases()["stop_no_backend_result"]["halt"]
     assert (lost["stop"], lost["response_code"], lost["response_received_at"]) == ("unconfirmed", None, None)
+
+
+def test_w4_boot_seq_and_resume_offer():
+    """계약 W4 (#271): 모든 상태에 boot_id·seq·stamp, halt.boot_id 와 최상위 boot_id 같음, halt.resume 은 재개 대기에만 —
+    offered 면 잠금 풀림(locked false), 질문·요청은 재개 질문·답 구현 전 null."""
+    for name, status in cases().items():
+        assert status["boot_id"] and isinstance(status["seq"], int) and status["stamp"], name
+        halt = status["halt"]
+        if halt:
+            assert halt["boot_id"] == status["boot_id"], name
+            assert (halt["resume"] is not None) == name.startswith("suspended_"), name
+    offer = cases()["suspended_resume_offered"]["halt"]
+    assert offer["resume"]["offered"] and not offer["locked"] and offer["resume"]["question"] is None

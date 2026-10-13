@@ -65,38 +65,64 @@
           "output": "scan"
         },
         {
-          "action": "nudge_object",
-          "params": {
-            "target": "$scan.target",
-            "drawer_id": "$from"
-          },
-          "output": "nudge"
-        },
-        {
-          "action": "move_to_named_pose",
-          "params": {
-            "pose_name": "drawer_top_view",
-            "drawer_id": "$from"
-          }
-        },
-        {
-          "action": "inspect_region",
-          "params": {
-            "region": "$from",
-            "search_target": "$item"
-          },
-          "output": "scan"
-        },
-        {
-          "action": "pick_object",
-          "params": {
-            "target": "$scan.target",
-            "approach_offset": [
-              0,
-              0,
-              0.1
+          "action": "fallback",
+          "next_on": [
+            "WALL_TOO_CLOSE"
+          ],
+          "options": [
+            [
+              {
+                "action": "pick_object",
+                "params": {
+                  "target": "$scan.target",
+                  "approach_offset": [
+                    0,
+                    0,
+                    0.1
+                  ],
+                  "scan": "$scan"
+                }
+              }
+            ],
+            [
+              {
+                "action": "nudge_object",
+                "params": {
+                  "target": "$scan.target",
+                  "drawer_id": "$from",
+                  "scan": "$scan"
+                },
+                "output": "nudge"
+              },
+              {
+                "action": "move_to_named_pose",
+                "params": {
+                  "pose_name": "drawer_top_view",
+                  "drawer_id": "$from"
+                }
+              },
+              {
+                "action": "inspect_region",
+                "params": {
+                  "region": "$from",
+                  "search_target": "$item"
+                },
+                "output": "scan"
+              },
+              {
+                "action": "pick_object",
+                "params": {
+                  "target": "$scan.target",
+                  "approach_offset": [
+                    0,
+                    0,
+                    0.1
+                  ],
+                  "scan": "$scan"
+                }
+              }
             ]
-          }
+          ]
         }
       ],
       "errors": [

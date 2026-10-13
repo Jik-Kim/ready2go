@@ -4,6 +4,14 @@
 - **최종 갱신**: 2026-10-12 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
+- **PC2 터미널 3개 묶음 (10/13 PR)**: `tools/dev/pc2_up.sh`·`pc2_voice.sh`·`pc2_cmd.sh`·`pc2_down.sh` + compose `vision-node`(`pc2` 프로필). mock 으로 명령 확인, 비전 컨테이너·실물은 PC2 에서 1-1절 방식과 시작 줄 비교 필요.
+- **#304 P1 후속 (10/13 PR)**: recover 중 재정지 → 세대 비교로 잠금 유지(`STOPPED_DURING_RECOVER`), W2 기본 켜짐(B 답) [실측: 호스트 804·임시 컨테이너 ROS 821 passed]. 남음: 외력 칸(B (가) vs E 미승인), 증빙 경계(E 확인).
+- **recover B 실제 호출 (10/13, B #297 위)**: `recover_check: b`·`params/recovery.yaml`·서랍 거리 변환·`recover_call_b`(W2, 기본 꺼짐). D 리뷰 P1 반영(서랍 칸 누락 = 모름). E·B 결정 대기: 외력 칸 P2 처리, W2 호출 주체 [실측: 호스트 803·임시 컨테이너 ROS 819 passed].
+- **상태 칸 W4 (10/13, #285 위 PR #286)**: `boot_id`·`seq`·`stamp`·`halt.resume`. E 리뷰 반영: `hold_until` 고정(만료 뒤 상태·seq 안 바뀜) [실측: 호스트 752·임시 컨테이너 ROS 포함 770 passed]. 다음: recover → 재개 질문·답.
+- **recover (10/13, W4 PR 위 PR #289)**: `resumable` 기본 꺼짐. D·E 리뷰 반영: W1 필수 칸 전부 fail-closed(기준 미정이면 거절), 그리퍼 enum, mock 조회는 mock 백엔드에서만 [실측: 호스트 777·임시 컨테이너 ROS 포함 797 passed]. 다음: 재개 질문·답, B W1·W2 PR 오면 실제 조회 연결.
+- **재개 질문·답 (10/13, #289 위 PR #291)**: 질문 등록·답·독립 요청 접수, C 기한 `params/resume.yaml` [팀 확정 필요], E 증빙 상한 `voice.yaml` 직접. E 리뷰·회신 반영: 독립 요청 전체 시간·경계(STT·30 s 그 값 거절, 10.0 포함), 최종 검사를 결정 전에 [실측: 호스트 787·임시 컨테이너 ROS 포함 810 passed]. 다음: B W1·W2 PR 오면 실제 조회 연결, 실물 힘·신선도 기준.
+- **end_task 구현 (10/13, #271 위 쌓은 PR — #271 승인 뒤 머지)**: 다른 run·기동 거절, 지금 실행 종료 = 정지·잠금(해제 아님), 보존 작업 폐기, 같은 ID 재전송. E 리뷰 반영: 대상 실행만 정지, 정지 확인 뒤에만 폐기(STOP_NOT_CONFIRMED), reset_state 가 보존 작업 끝냄 [실측: 호스트 749·임시 컨테이너 ROS 포함 766 passed].
+- **제어 인텐트 계약안 W3·W4 (10/13 PR, E 포함 2명 승인 대기)**: 종료·복구·재개 인텐트 5개 스키마·예시·문서. E 동의: P2 판정 범위(실물 재개 1 + "아니" 1 + 거절 1), 인텐트 이름. 다음: 승인 → Runner 구현(end_task 먼저, B 조회는 mock) → B W1·W2 → 실물.
 - **10/12 2차 점검일 (Unpacking 실물, PC2 한 대)** [실측: PC2 DB]: 14:30 `5ca017`·16:21 `7b8141` 성공(A안 — 판 원래 자리가 립밤 위라 빈 자리 + 안내), 16:36 `cfa886` 판 원위치 1.7 mm(단 **사람이 립밤을 뺀 회차**), 15:11 `7d18c6`·16:33 `440324` **판을 쥔 채 정지**(놓을 자리 확인 전에 집음). 판정 A안 = **그 점검의 제한적 통과**(#239 E 리뷰, AC-ACT-03 완료 아님). main 반영: #231·#232·#233(Unpacking)·#239(진행표·mock 되돌리기). 자세히 [10/12 기록](2026-10-12_practice.md).
 - **#121·#245 스킬 expand 블록 (10/13 #263 병합, E 대화 승인 10/13, 사용자 전달 — #263)**: expand 안 `fallback`(next_on 필수)·`if`, `fallback.next_on`, 넛지 뒤 다시 찍기 검사 [실측: 시험 8개, 기존 시험 그대로]. 다음: E `pick.jsonld` 전환 + C P1·Unpacking 회귀, B `next_on` 코드 확정.
 - **`/runner/status` `halt` 계약 (10/13 #259 병합, E 대화 승인 10/13, 사용자 전달 — #259)**: 정지 요청과 실제 정지 확인 구분(`stop`: requested·confirmed·unconfirmed·none, `response_code`·`response_received_at`, `boot_id`·`run_id`·`event_id`) — E 10/12 P2 음성 안전 연결 요청 1번. 남은 C 몫: 잠금 해제(B 복구 확인 뒤만)·`recover`·`resume`·종료 인텐트 수신(계약), 10/13 PC2 음성 "멈춰" 실물 1회.

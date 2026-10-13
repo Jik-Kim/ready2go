@@ -213,12 +213,14 @@ def test_failed_place_inside_skill_keeps_placed_pose_in_child_record():
     assert "놓은 자리 (60, 220) mm" in rr.to_text(store.read_run(result.run_id))
 
 
-def _restore_step(origin_yaw, now, status="found", distance=0.004):
+def _restore_step(origin_yaw, now, status="found", distance=0.004, occluded_by=()):
     origin = {"frame": "drawer_top", "position": [0.12, 0.14, 0.0], "yaw": origin_yaw, "yaw_valid": True}
     return {"run_id": "r", "seq": 0, "id": "fv.3.1", "action": "find_moved", "status": "SUCCESS",
             "params": {"record": {"class": "caramel_box", "origin": origin, "placed": origin}, "tol_m": 0.1},
             "result": {"status": status, "distance_m": distance,
-                       "object": None if now is None else {"class": "caramel_box", "pose": now}}}
+                       "object": None if now is None else {"class": "caramel_box", "pose": now,
+                                                           **({} if occluded_by == "missing" else
+                                                              {"occluded_by": [] if occluded_by == () else occluded_by})}}}
 
 
 def test_restore_error_shows_position_and_direction_not_a_verdict():
@@ -267,3 +269,24 @@ def test_pick_failure_shows_hand_state():
     assert rr.detail({**step, "result": {"grasp_ok": False, "hand": "unknown"}}) == "못 잡음 (쥐었는지 모름)"
     assert rr.detail({**step, "result": {"grasp_ok": True, "hand": "holding"}}) == "잡음"
     assert rr.detail({**step, "result": {"grasp_ok": False}}) == "못 잡음"            # hand 없는 예전 기록
+
+
+def test_restore_check_flags_object_covered_at_final_scan():
+    """A Isaac 10/13: 복구 뒤 위에 다시 올린 물체(차키)가 가리면 마지막 촬영은 보이는 조각 가운데라 18.3 mm·−89.7° 로
+    나옴(실제 0.3 mm) → 위치 오차로 쓰지 않고 가려짐으로 표시. 다 보이면(occluded_by []) 지금처럼 오차."""
+    now = {"frame": "drawer_top", "position": [0.138, 0.14, 0.0], "yaw": -1.565, "yaw_valid": False}
+    step = _restore_step(0.0, now, distance=0.0183, occluded_by=["car_key#1"])
+    assert rr.detail(step) == "복구 확인 caramel_box: 가려짐(위에 car_key#1) — 보이는 조각 기준 18.3 mm, 위치 오차로 쓰지 않음"
+    record = {"run": {"run_id": "r", "task_id": "find_with_unpack"}, "steps": [step]}
+    assert "위치 오차로 쓰지 않음" in "\n".join(rr.header(record))
+    clear = _restore_step(1.55, {"frame": "drawer_top", "position": [0.124, 0.14, 0.0], "yaw": -1.55, "yaw_valid": True},
+                          occluded_by=[])
+    assert rr.detail(clear) == "복구 확인 caramel_box: 위치 오차 4.0 mm · 방향 오차 2.4°"
+
+
+def test_restore_check_unknown_occlusion_is_not_an_error():
+    """#273 D 리뷰 P2: occluded_by null(가림 관계 모름)·칸 없음(박스 모델)은 다 보였는지 모르므로 위치 오차로 쓰지 않음."""
+    now = {"frame": "drawer_top", "position": [0.124, 0.14, 0.0], "yaw": -1.55, "yaw_valid": True}
+    for occ in (None, "missing"):
+        assert rr.detail(_restore_step(1.55, now, occluded_by=occ)) == \
+            "복구 확인 caramel_box: 가림 여부 미확인 — 관측 기준 4.0 mm, 위치 오차로 쓰지 않음", occ

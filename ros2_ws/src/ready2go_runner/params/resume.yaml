@@ -1,0 +1,6 @@
+# C 재개 기한 (C 시계 = Runner monotonic 초) — #271 계약 W3 C 제안값 [팀 확정 필요]
+# E 구간 상한(TTS 완료→SDK 접수 등)은 여기 두지 않음: 원본 ros2_ws/src/ready2go_voice/params/voice.yaml 을 Runner 가 직접 읽음.
+# 질문·요청 기한은 보존 작업 기한이 아님 — 작업은 end_task·재개 완료·Runner 재기동·reset_state 로만 끝남.
+question_offer_sec: 30.0    # 잠금 해제(recover) 뒤 E 가 재개 질문을 등록할 수 있는 시간 (halt.resume.offered)
+question_answer_sec: 60.0   # 질문 등록 뒤 답(resume_answer)을 받는 시간. 지나면 질문만 만료(작업 보존)
+request_sec: 10.0           # 독립 요청 등록(resume register) 뒤 소비(resume request)까지

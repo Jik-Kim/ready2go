@@ -35,7 +35,7 @@
 | 8 | 시작 상태 | 서랍 **닫힘**, 그리퍼 **빈손**, 로봇 **홈**, 트레이 비어 있음 | B |
 | 9 | **리허설 1회 (점검 전)** | **S2(아래 칸 덮개 판)** 를 2절 순서대로 1회 — 10/11 에 Runner 로 Unpacking 실물을 돌리지 못해 첫 실물 실행. 음성 대신 `RUNNER_TASK_FILE` 로 시작해도 됨. 문제 생기면 6절 → C 가 `run_report -n 1` 로 원인 확인 뒤 본 점검 | B·C |
 
-### 1-1. PC2 한 대 — 터미널 5개 (10/12 실제 방식)
+### 1-1. PC2 한 대 — 터미널 5개 (10/12 실제 방식, 묶은 방식은 1-2절)
 
 PC1 은 쓰지 않는다. 로봇·카메라·비전·음성·Runner·DB 모두 PC2. 시험 중에는 `B unpack`·`B clear` 등 **B 명령을 쓰지 않는다**(같은 로봇·비전을 부름).
 
@@ -60,6 +60,18 @@ PY
 git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정상
 ```
 이미 ② 가 떠 있으면 `docker compose restart ros2-core` 뒤 ⑤ 로 확인. 음성 인식이 막히면 글자로 넣기(E 음성 노드 해석을 거침): `docker compose exec ros2-core /entrypoint.sh ros2 topic pub --once /voice/text_override std_msgs/msg/String "data: '지우개 찾아줘'"`
+
+### 1-2. PC2 한 대 — 터미널 3개 (스크립트, 10/13 추가 · PC2 실물 확인 전)
+
+1-1절과 **같은 서비스·같은 설정**을 스크립트로 묶은 것. 비전 노드만 `vision_real_check.sh node` 대신 compose `vision-node`(`pc2` 프로필 — 같은 이미지·같은 노드, 사용자·`code_sha`·덤프 폴더·`HOME`/`YOLO_CONFIG_DIR` 도 스크립트와 같게). 처음 쓸 때는 비전 노드 시작 줄(모델·`places`·`vision_params` 해시·`code_sha`)이 1-1절 방식과 같은지 비교. 1-1절 방식도 그대로 쓸 수 있음(둘을 동시에 띄우지 않음 — 비전 노드가 둘이 됨).
+
+| 터미널 | 명령 | 하는 일 |
+| :--- | :--- | :--- |
+| ① 도커 | `bash tools/dev/pc2_up.sh` (`--check` = 띄우지 않고 확인만) | `.env`·호스트 충돌·모델 v2·비전 이미지·시작 상태 확인 → `realsense`·`ros2-core`·`db`·`vision-node` 를 백그라운드로 → `Runner 준비`·`find_with_unpack`·비전 v2 시작 줄 확인 → 기준점 SHA 출력 → **Runner 로그를 계속 보여 줌**(Ctrl+C 는 보기만 멈춤). 로그는 `~/ready2go_pc2_logs/<시각>/` (저장소 `logs/` 는 root 소유일 수 있어 밖에 둠) |
+| ② 음성 | `bash tools/dev/pc2_voice.sh` | 1절 7번과 같음 — Jazzy·Domain 70·CycloneDDS local(`r2genv` 가 하던 것)·`.venvs/project`·`install_host`·`evaluation_mode:=false`. `audio_enabled`·`secrets/voice.env` 확인 |
+| ③ 명령 | `bash tools/dev/pc2_cmd.sh help` | `status`·`state`(전체 JSON 보기 좋게)·`reset`·`report [n]`·`check`·`md`·`say <문장>`(음성 해석 거침)·`find <물품>`(직접)·`goal 1~5`(5절)·`unlock`(Runner 재시작)·`logs [서비스]` — 받는 쪽이 없으면 10 s 뒤 안내 |
+
+끄기: `bash tools/dev/pc2_down.sh` (로그 저장 → `down` → 시작 상태 임시 변경이 남았으면 되돌리기 안내). 시작 상태 임시 변경(3a)은 ① 전에 그대로 한다.
 
 ## 2. 회차마다 순서
 

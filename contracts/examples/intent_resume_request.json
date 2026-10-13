@@ -1,0 +1,18 @@
+{
+  "intent": "resume",
+  "targets": [],
+  "confidence": 0.9,
+  "source": {
+    "stt_text": "이어서 해"
+  },
+  "boot_id": "3f9c1a7b2e44",
+  "event_id": "h1-2026-10-13T05:10:31.204Z",
+  "run_id": "2026-10-13T05:10:05Z_4b2e91",
+  "request_id": "req-res-01",
+  "phase": "request",
+  "evidence": {
+    "rec_end_s": 1.8,
+    "request_s": 2.0,
+    "stt_s": 1.1
+  }
+}

@@ -37,7 +37,7 @@ def _load(monkeypatch, name):
     _stub(monkeypatch, "dsr_msgs2")
     _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
         "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetToolForce "
-        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode").split()})
+        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode TaskComplianceCtrl SetDesiredForce ReleaseForce ReleaseComplianceCtrl").split()})
     _stub(monkeypatch, "pymodbus")
     _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
     spec = importlib.util.spec_from_file_location(f"_test_{name}", SCRIPTS / f"{name}.py")
@@ -433,20 +433,6 @@ def test_b_sk_sends_full_scan_for_neighbor_check_only_same_drawer(monkeypatch, t
     assert "scan" not in sk.goal_for("pick")[1]
 
 
-def test_b_sk_aside_places_held_object_in_drawer_slot_with_scan(monkeypatch, tmp_path):
-    """[사용자 10/11] 캐러멜 위 지우개를 집어 aside 에 — B aside top = place_object(location 서랍, slot aside_1, 집을 때 본 scan).
-    aside2 는 aside_2. 그 서랍 인식 결과가 없으면 보내지 않고 멈춤."""
-    sk = _load_sk(monkeypatch)
-    monkeypatch.setattr(sk, "TMP", str(tmp_path))
-    with pytest.raises(SystemExit, match="B scan top"):
-        sk.goal_for("aside")
-    scan = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
-    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(scan))
-    action, params = sk.goal_for("aside")
-    assert action == "place_object" and params["location"] == "drawer_top" and params["slot"] == "aside_1" and params["scan"] == scan
-    assert sk.goal_for("aside2")[1]["slot"] == "aside_2" and "aside" in sk.NEEDS_DRAWER
-
-
 def test_b_sk_putback_returns_picked_object_to_its_pick_pose(monkeypatch, tmp_path):
     """[사용자 10/11] 파지만 시험: B pick → B putback = place_object(서랍, 집기 전 pose(yaw_valid 없음), 집을 때 본 scan).
     pick 뒤 다시 찍어 scan 이 바뀌어도 집을 때 scan 을 씀(쥔 물체가 scan 에 있어야 서랍 안 놓기가 받음). 집은 적 없으면 보내지 않음."""
@@ -532,6 +518,50 @@ def test_b_clear_makes_room_until_ready_then_picks(monkeypatch, results, want_ca
         with pytest.raises(SystemExit):
             sk.clear(None)
     assert calls == want_calls and "clear" in sk.NEEDS_DRAWER
+
+
+def test_b_clear_stops_when_same_move_repeats_without_progress(monkeypatch, tmp_path):
+    """[사용자 10/13 PC2 "몽키 민 뒤 다시 보면 집을 각이 안 나와 그 자리 계속 쓸고 반복"] 같은 동작(종류·이유)을 다시 했는데
+    목표 위치가 5 mm 안에서 그대로면 12번까지 되풀이하지 않고 멈춤. 목표가 움직였으면 계속."""
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    sk.DRAWER = "drawer_top"
+    mr = {"action": "sweep", "ready_to_pick": False, "reason": "70 mm 밀고 30 mm 되돌아옴 (같이 밀림 ['toy_wrench#1'])"}
+    calls = []
+    pos = {"x": 0.11}
+
+    opts = []
+
+    def run(node, cmd):
+        calls.append(cmd)
+        if cmd == "clear":
+            opts.append(dict(sk.CLEAR_OPTS))
+        sk.last["code"], sk.last["make_room"] = "", dict(mr)
+        return True
+
+    def scan(node, for_pick=False):
+        calls.append("scan")
+        (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps({"pose": {"position": [pos["x"], 0.05, 0.0]}}))
+        return True
+    monkeypatch.setattr(sk, "run", run)
+    monkeypatch.setattr(sk, "scan", scan)
+    sk.CLEAR_OPTS["remove_first"] = True                  # 이전 실행에서 남은 값은 지움
+    with pytest.raises(SystemExit, match="되풀이"):
+        sk.clear(None)
+    # 처음 되풀이 → 막는 물체 치우기 먼저(remove_first)로 바꿔 계속, 그래도 되풀이면 멈춤 [사용자 10/13 "sweep 후 안 되면 다른 물건 빼내기"]
+    assert calls.count("clear") == 4
+    assert opts[:2] == [{}, {}] and opts[2:] == [{"remove_first": True}] * 2
+
+
+def test_b_sk_clear_goal_carries_remove_first_after_switch(monkeypatch, tmp_path):
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
+    monkeypatch.setattr(sk, "CLEAR_OPTS", {"remove_first": True})
+    assert sk.goal_for("clear")[1]["remove_first"] is True
+    assert sk.goal_for("plan")[1]["remove_first"] is True
 
 
 def test_b_sk_clear_goal_is_make_room_with_scan(monkeypatch, tmp_path):
@@ -650,9 +680,11 @@ def _scan(target, others):
     return {"target_found": target is not None, "target": target, "candidates": list(others), "visible_count": len(others) + (target is not None)}
 
 
-def _unpack_run(monkeypatch, scans, codes=None):
-    """B unpack 을 가짜 서버·가짜 인식으로: scans = inspect_all 이 차례로 돌려줄 결과, codes = {cmd: [실패 코드 …]}."""
+def _unpack_run(monkeypatch, scans, codes=None, free_at=None):
+    """B unpack 을 가짜 서버·가짜 인식으로: scans = inspect_all 이 차례로 돌려줄 결과, codes = {cmd: [실패 코드 …]}.
+    free_at = 서버가 slot free 로 고른 자리 (차례로, 없으면 (0.057, 0.067) 90°)."""
     sk = _load_sk(monkeypatch)
+    free_at = list(free_at or [])
     monkeypatch.setattr(sk, "DRAWER", scans[0]["candidates"][0]["pose"]["frame"])
     calls, sent, queue, codes = [], [], list(scans), {k: list(v) for k, v in (codes or {}).items()}
 
@@ -664,9 +696,8 @@ def _unpack_run(monkeypatch, scans, codes=None):
         out = None
         if goal and goal[0] == "place_object" and not code:
             p = goal[1]
-            slots = {"aside_1": {"frame": sk.DRAWER, "position": [0.057, 0.067, 0.0], "yaw": 1.57},
-                     "aside_2": {"frame": sk.DRAWER, "position": [0.12, 0.064, 0.0], "yaw": 0.0}}
-            out = {"slot": p.get("slot"), "placed_pose": slots.get(p.get("slot")) or p.get("pose")}
+            free = dict(free_at.pop(0) if free_at else {"position": [0.057, 0.067, 0.0], "yaw": 1.57}, frame=sk.DRAWER)   # 서버가 고른 빈 자리 (가짜)
+            out = {"slot": p.get("slot"), "placed_pose": free if p.get("slot") == "free" else p.get("pose")}
         sk.last["out"] = out
         return code == ""
 
@@ -680,7 +711,8 @@ def _unpack_run(monkeypatch, scans, codes=None):
 
 
 def test_b_unpack_cover_moves_plate_delivers_and_restores(monkeypatch):
-    """[사용자 10/12 "문서 그대로 풀로"] 가림막 밑 지우개 (C 진행표 S2): 판 → aside_1 → 지우개 트레이 → 판 원래 자리 → 복구 오차 → 닫기."""
+    """[사용자 10/12 "문서 그대로 풀로"] 가림막 밑 지우개 (C 진행표 S2): 판 → 서랍 빈 자리(free, 사용자 10/13 "aside 빼고 free") →
+    지우개 트레이 → 판 원래 자리 → 복구 오차 → 닫기."""
     plate = _o("cover_plate#1", "cover_plate", 0.10, 0.18)
     er = _o("eraser#1", "eraser", 0.10, 0.18, under=["cover_plate#1"])
     lip = _o("lip_balm#1", "lip_balm", 0.15, 0.25)
@@ -692,18 +724,30 @@ def test_b_unpack_cover_moves_plate_delivers_and_restores(monkeypatch):
     sk, calls, sent = _unpack_run(monkeypatch, scans)
     sk.TARGET = "eraser"
     assert sk.unpack(None) is True
-    assert calls == ["ready", "open", "inspect:eraser", "pick", "aside", "inspect:eraser", "pick", "place",
+    assert calls == ["ready", "open", "inspect:eraser", "pick", "free", "inspect:eraser", "pick", "place",
                      "inspect:cover_plate", "pick", "restore", "inspect:eraser", "close"]
     picks = [g[1]["target"]["id"] for c, g in zip(calls, sent) if c == "pick"]
     assert picks == ["cover_plate#1", "eraser#1", "cover_plate#1"]
     restore = sent[calls.index("restore")][1]
     assert restore["pose"] == {k: plate["pose"][k] for k in ("frame", "position", "yaw")} and restore["scan"] == scans[2]
-    assert sent[calls.index("aside")][1]["slot"] == "aside_1" and "unpack" in sk.NEEDS_DRAWER
+    assert sent[calls.index("free")][1] == {"location": sk.DRAWER, "slot": "free", "scan": scans[0]} and "unpack" in sk.NEEDS_DRAWER
+    assert "aside" not in sk.NEEDS_DRAWER and "aside2" not in sk.NEEDS_DRAWER                  # B aside·aside2 지움 (10/13)
 
 
-def test_b_unpack_stack_restores_in_reverse_and_leaves_blocked_one_aside(monkeypatch):
-    """쌓기 (몽키 위 캐러멜 위 차키, C 진행표 S1): 차키 aside_1 → 캐러멜 aside_1 거부 → aside_2 → 몽키 트레이 →
-    역순: 캐러멜 원래 자리, 차키는 원래 자리(캐러멜 위)가 거부되면 꺼냈던 aside_1 (A안: 빈 자리 + 안내)."""
+def test_b_unpack_free_refused_stops_holding(monkeypatch):
+    """치운 물체는 빈 자리(free) 하나 — 움직이기 전 거부(NO_FREE_SPACE)면 든 채 멈춤(사람이 회수)."""
+    plate = _o("cover_plate#1", "cover_plate", 0.10, 0.18)
+    er = _o("eraser#1", "eraser", 0.10, 0.18, under=["cover_plate#1"])
+    sk, calls, sent = _unpack_run(monkeypatch, [_scan(er, [plate])], codes={"free": ["NO_FREE_SPACE"]})
+    sk.TARGET = "eraser"
+    with pytest.raises(SystemExit, match="든 채 멈춤"):
+        sk.unpack(None)
+    assert calls.count("free") == 1 and "restore" not in calls and "close" not in calls
+
+
+def test_b_unpack_stack_restores_in_reverse_and_leaves_blocked_one_free(monkeypatch):
+    """쌓기 (몽키 위 캐러멜 위 차키, C 진행표 S1): 차키 빈 자리 → 캐러멜 빈 자리 → 몽키 트레이 →
+    역순: 캐러멜 원래 자리, 차키는 원래 자리(캐러멜 위)가 거부되면 다시 빈 자리(free) (A안: 빈 자리 + 안내)."""
     w = _o("toy_wrench#1", "toy_wrench", 0.10, 0.18, under=["caramel_box#1"], frame="drawer_top")
     c = _o("caramel_box#1", "caramel_box", 0.10, 0.18, under=["car_key#1"], frame="drawer_top")
     k = _o("car_key#1", "car_key", 0.10, 0.18, frame="drawer_top")
@@ -711,15 +755,15 @@ def test_b_unpack_stack_restores_in_reverse_and_leaves_blocked_one_aside(monkeyp
     c_a = _o("caramel_box#1", "caramel_box", 0.12, 0.064, frame="drawer_top")
     scans = [_scan(w, [c, k]), _scan(w, [dict(c, occluded_by=[]), k_a]), _scan(dict(w, occluded_by=[]), [c_a, k_a]),
              _scan(c_a, [k_a]), _scan(k_a, [dict(c, occluded_by=[])]), _scan(None, [dict(c, occluded_by=[]), k_a])]
-    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"aside": ["", "PLACE_BLOCKED", ""], "restore": ["", "PLACE_BLOCKED", ""]})
+    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"restore": ["", "PLACE_BLOCKED", ""]},
+                                  free_at=[{"position": [0.057, 0.067, 0.0], "yaw": 1.57}, {"position": [0.12, 0.064, 0.0], "yaw": 0.0}])
     sk.TARGET = "toy_wrench"
     assert sk.unpack(None) is True
     picks = [g[1]["target"]["id"] for cmd, g in zip(calls, sent) if cmd == "pick"]
     assert picks == ["car_key#1", "caramel_box#1", "toy_wrench#1", "caramel_box#1", "car_key#1"]
-    asides = [g[1]["slot"] for cmd, g in zip(calls, sent) if cmd == "aside"]
-    assert asides == ["aside_1", "aside_1", "aside_2"]
+    assert [g[1]["slot"] for cmd, g in zip(calls, sent) if cmd == "free"] == ["free", "free"]
     restores = [g[1].get("pose", g[1].get("slot")) for cmd, g in zip(calls, sent) if cmd == "restore"]
-    assert restores[0]["position"] == c["pose"]["position"] and restores[1]["position"] == k["pose"]["position"] and restores[2] == "aside_1"
+    assert restores[0]["position"] == c["pose"]["position"] and restores[1]["position"] == k["pose"]["position"] and restores[2] == "free"
 
 
 def test_b_unpack_target_missing_still_restores(monkeypatch):
@@ -730,14 +774,15 @@ def test_b_unpack_target_missing_still_restores(monkeypatch):
     lip_a = _o("lip_balm#1", "lip_balm", 0.12, 0.064)
     scans = [_scan(None, [plate, lip]), _scan(None, [plate_a, lip]), _scan(None, [plate_a, lip_a]),
              _scan(lip_a, [plate_a]), _scan(plate_a, [lip]), _scan(None, [plate, lip])]
-    sk, calls, sent = _unpack_run(monkeypatch, scans, codes={"aside": ["", "PLACE_BLOCKED", ""]})
+    sk, calls, sent = _unpack_run(monkeypatch, scans, free_at=[{"position": [0.057, 0.067, 0.0], "yaw": 1.57},
+                                                              {"position": [0.12, 0.064, 0.0], "yaw": 0.0}])
     sk.TARGET = "eraser"
     assert sk.unpack(None) is False
     assert "place" not in calls and calls[-1] == "close" and calls.count("restore") == 2
 
 
 def test_b_unpack_follows_task_when_moved_object_still_listed_as_cover(monkeypatch):
-    """[사용자 10/12 "unpack 은 스킬 짜깁기 — 태스크와 같게"] 차키 aside_1 뒤 캐러멜이 아직 '차키에 덮임'이면 Runner select_obstacle 은
+    """[사용자 10/12 "unpack 은 스킬 짜깁기 — 태스크와 같게"] 차키 빈 자리로 치운 뒤 캐러멜이 아직 '차키에 덮임'이면 Runner select_obstacle 은
     occluder_unavailable → 태스크처럼 더 치우지 않고(관계를 고치지도, 더 찍지도 않음) 목표 못 꺼냄 → 차키 원위치 → 닫기.
     (Runner 쪽 문제 — C 에 알림. B 명령이 더 잘해 주면 시연에서 다르게 나옴)"""
     w = _o("toy_wrench#1", "toy_wrench", 0.10, 0.18, under=["caramel_box#1"], frame="drawer_top")
@@ -773,15 +818,3 @@ def test_b_unpack_obstacle_pick_refused_goes_to_restore_like_task(monkeypatch):
     assert sk.unpack(None) is True
     assert calls == ["ready", "open", "inspect:eraser", "pick", "nudge", "inspect:eraser", "pick", "place", "close"]
 
-
-def test_b_sk_topple_sends_nudge_topple_with_scan(monkeypatch, tmp_path):
-    """[사용자 10/13] B topple top = nudge_object(topple, 맨 위 물체 target + 그 서랍 scan). 인식 결과 없으면 보내지 않음."""
-    sk = _load_sk(monkeypatch)
-    monkeypatch.setattr(sk, "TMP", str(tmp_path))
-    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
-    with pytest.raises(SystemExit, match="B scan top"):
-        sk.goal_for("topple")
-    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
-    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
-    assert sk.goal_for("topple") == ("nudge_object", {"drawer_id": "drawer_top", "target": TOP_T, "topple": True, "scan": full})
-    assert "topple" in sk.NEEDS_DRAWER

@@ -86,6 +86,7 @@ p {
   top: 0;
   z-index: 10;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   min-height: 82px;
@@ -125,18 +126,36 @@ p {
 }
 
 .header-meta {
+  min-width: 0;
   gap: 14px;
 }
 
 .demo-badge {
-  padding: 8px 11px;
+  display: grid;
+  max-width: 265px;
+  padding: 7px 11px;
   border: 1px solid #f1d899;
-  border-radius: 999px;
+  border-radius: 11px;
   background: #fff8df;
   color: #765608;
-  font-size: 0.78rem;
-  font-weight: 750;
-  white-space: nowrap;
+  line-height: 1.25;
+}
+
+.demo-badge strong {
+  font-size: 0.75rem;
+}
+
+.demo-badge span {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.demo-badge.is-error-scenario {
+  border-color: #efaaaa;
+  background: var(--red-100);
+  color: var(--red-700);
 }
 
 .admin-entry-button,
@@ -199,6 +218,16 @@ p {
   background: var(--blue-100);
 }
 
+.connection-block--pending {
+  color: #0b65bd;
+  background: var(--blue-100);
+}
+
+.connection-block--disconnected {
+  color: var(--red-700);
+  background: var(--red-100);
+}
+
 .connection-block--error {
   color: var(--red-700);
   background: var(--red-100);
@@ -225,7 +254,7 @@ p {
 
 .command-overview {
   display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(380px, 1.15fr);
+  grid-template-columns: minmax(380px, 1.35fr) minmax(250px, 0.65fr);
   align-items: center;
   gap: 20px;
   padding: 18px 20px;
@@ -237,7 +266,7 @@ p {
   gap: 13px;
 }
 
-.understood-field {
+.command-status-field {
   padding-left: 20px;
   border-left: 1px solid var(--gray-200);
 }
@@ -270,6 +299,10 @@ p {
   color: var(--navy-950);
   font-size: 1rem;
   font-weight: 750;
+}
+
+.inline-command-status {
+  margin-top: 7px;
 }
 
 .status {
@@ -308,7 +341,8 @@ p {
 }
 
 .status--searching,
-.status--listening {
+.status--listening,
+.status--pending {
   color: #086fcb;
 }
 
@@ -324,7 +358,8 @@ p {
 }
 
 .status--searching .status-icon,
-.status--listening .status-icon {
+.status--listening .status-icon,
+.status--pending .status-icon {
   color: var(--white);
   background: #1785e6;
 }
@@ -339,12 +374,14 @@ p {
 }
 
 .status--error,
-.status--stopped {
+.status--stopped,
+.status--disconnected {
   color: var(--red-700);
 }
 
 .status--error .status-icon,
-.status--stopped .status-icon {
+.status--stopped .status-icon,
+.status--disconnected .status-icon {
   color: var(--white);
   background: var(--red-700);
 }
@@ -619,7 +656,7 @@ td {
 
 .task-toolbar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 22px;
   min-height: 54px;
@@ -673,28 +710,6 @@ td {
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 800;
-}
-
-.stop-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  min-height: 46px;
-  padding: 10px 18px;
-  border: 1.5px solid #e42121;
-  border-radius: 10px;
-  background: var(--white);
-  color: #d51c1c;
-  cursor: pointer;
-  font-weight: 850;
-}
-
-.stop-button:disabled {
-  border-color: #d7a4a4;
-  background: var(--red-100);
-  color: #944040;
-  cursor: default;
 }
 
 .task-details {
@@ -828,7 +843,8 @@ td {
   box-shadow: 0 0 0 6px rgba(240, 160, 22, 0.14);
 }
 
-.is-stopped .step-dot {
+.is-stopped .step-dot,
+.is-error .step-dot {
   border-color: var(--red-700);
   background: var(--red-100);
   color: var(--red-700);
@@ -859,13 +875,14 @@ td {
 }
 
 .is-stopped .step-label,
-.is-stopped .step-status {
+.is-stopped .step-status,
+.is-error .step-label,
+.is-error .step-status {
   color: var(--red-700);
 }
 
 .mobile-command,
-.mobile-drawer-button,
-.stop-disclaimer {
+.mobile-drawer-button {
   display: none;
 }
 
@@ -1021,21 +1038,6 @@ dialog::backdrop {
   font-size: 0.72rem;
 }
 
-.toast {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 30;
-  max-width: min(420px, calc(100% - 32px));
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: var(--navy-950);
-  color: var(--white);
-  box-shadow: var(--shadow);
-  font-size: 0.84rem;
-  font-weight: 750;
-}
-
 .admin-view {
   min-height: 100vh;
   background: var(--gray-100);
@@ -1118,6 +1120,19 @@ dialog::backdrop {
   color: var(--white);
 }
 
+.admin-tab small {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  font-size: 0.62rem;
+}
+
+.admin-tab.is-selected small {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--white);
+}
+
 .admin-content {
   margin-top: 12px;
 }
@@ -1161,7 +1176,11 @@ dialog::backdrop {
 }
 
 .admin-summary-item.is-stopped strong {
-  color: var(--danger);
+  color: var(--red-700);
+}
+
+.admin-summary-item.is-error strong {
+  color: var(--red-700);
 }
 
 .admin-summary-icon {
@@ -1295,29 +1314,25 @@ dialog::backdrop {
   color: var(--navy-900);
 }
 
-.skill-definition dl,
-.history-step dl {
+.skill-definition dl {
   display: grid;
   gap: 7px;
   margin: 0;
 }
 
-.skill-definition dl div,
-.history-step dl div {
+.skill-definition dl div {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   gap: 8px;
 }
 
-.skill-definition dt,
-.history-step dt {
+.skill-definition dt {
   color: var(--gray-700);
   font-size: 0.72rem;
   font-weight: 750;
 }
 
-.skill-definition dd,
-.history-step dd {
+.skill-definition dd {
   margin: 0;
   overflow-wrap: anywhere;
   font-size: 0.78rem;
@@ -1337,6 +1352,17 @@ dialog::backdrop {
   color: var(--gray-700);
 }
 
+.follow-up-label {
+  display: inline-block;
+  margin-bottom: 5px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff3d7;
+  color: #9b5c00;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
 .admin-empty-icon {
   display: grid;
   place-items: center;
@@ -1350,67 +1376,24 @@ dialog::backdrop {
   font-weight: 900;
 }
 
-.history-layout {
-  display: grid;
-  grid-template-columns: minmax(250px, 0.7fr) minmax(420px, 1.3fr);
-  gap: 12px;
-}
-
-.history-list,
-.history-details {
-  display: grid;
-  gap: 8px;
-}
-
-.history-run {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 12px;
-  border: 1px solid var(--gray-200);
-  border-radius: 10px;
-  background: var(--white);
-  color: var(--navy-950);
-  text-align: left;
-  cursor: pointer;
-}
-
-.history-run.is-selected {
-  border-color: var(--teal-600);
-  background: var(--mint-50);
-}
-
-.history-run span:first-child {
-  display: grid;
-}
-
-.history-run small,
-.history-run-meta {
-  color: var(--gray-700);
-  font-size: 0.7rem;
-}
-
-.history-run-meta {
-  flex: 0 0 auto;
-}
-
-.history-step {
-  padding: 12px;
-  border: 1px solid var(--gray-200);
-  border-radius: 10px;
-}
-
-.history-step h3 {
-  margin: 0 0 9px;
-  color: var(--navy-900);
-  font-size: 0.9rem;
-}
-
 @media (max-width: 1020px) {
+  .header-meta {
+    flex: 1 1 100%;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
   .demo-badge {
-    display: none;
+    max-width: 220px;
+  }
+
+  .connection-status {
+    gap: 6px;
+  }
+
+  .connection-block {
+    min-width: 88px;
+    padding-inline: 8px;
   }
 
   .admin-definition-grid {
@@ -1469,24 +1452,23 @@ dialog::backdrop {
 
   .header-meta {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
   }
 
   .demo-badge {
-    display: inline-flex;
-    grid-column: 1 / span 2;
+    grid-column: 1 / span 3;
     grid-row: 1;
-    align-items: center;
     justify-content: center;
+    max-width: none;
     width: 100%;
     min-height: 44px;
     padding: 5px 7px;
-    font-size: 0.7rem;
+    text-align: center;
   }
 
   .admin-entry-button {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 1;
     justify-self: stretch;
     min-width: 0;
@@ -1499,14 +1481,16 @@ dialog::backdrop {
     display: grid;
     grid-column: 1 / -1;
     grid-row: 2;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 
   .connection-block {
+    flex-direction: column;
+    gap: 2px;
     min-width: 0;
-    min-height: 44px;
+    min-height: 56px;
     padding: 8px 5px;
-    font-size: 0.76rem;
+    font-size: 0.7rem;
   }
 
   .connection-text {
@@ -1641,7 +1625,7 @@ dialog::backdrop {
   }
 
   .task-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -1674,13 +1658,6 @@ dialog::backdrop {
     min-height: 38px;
     padding: 7px 12px;
     font-size: 0.78rem;
-  }
-
-  .task-toolbar > .stop-button {
-    align-self: end;
-    min-height: 42px;
-    padding: 8px 12px;
-    font-size: 0.8rem;
   }
 
   .task-detail-meta {
@@ -1770,23 +1747,10 @@ dialog::backdrop {
     font-weight: 650;
   }
 
-  .stop-disclaimer {
-    display: block;
-    margin-top: 7px;
-    color: var(--gray-700);
-    font-size: 0.67rem;
-    text-align: center;
-  }
-
   footer {
     display: grid;
     gap: 2px;
     padding: 15px 16px;
-  }
-
-  .toast {
-    right: 16px;
-    bottom: 16px;
   }
 
   .admin-header {
@@ -1863,14 +1827,8 @@ dialog::backdrop {
     align-items: flex-start;
   }
 
-  .admin-definition-grid,
-  .history-layout {
+  .admin-definition-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .history-run {
-    align-items: flex-start;
-    flex-direction: column;
   }
 
   .admin-empty-card {

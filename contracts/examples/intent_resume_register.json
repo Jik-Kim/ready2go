@@ -1,0 +1,13 @@
+{
+  "intent": "resume_register",
+  "targets": [],
+  "confidence": 1.0,
+  "source": {
+    "stt_text": null,
+    "note": "E 가 TTS 전에 질문을 등록 — 사용자 발화 아님"
+  },
+  "boot_id": "3f9c1a7b2e44",
+  "event_id": "h1-2026-10-13T05:10:31.204Z",
+  "run_id": "2026-10-13T05:10:05Z_4b2e91",
+  "question_id": "q-01"
+}

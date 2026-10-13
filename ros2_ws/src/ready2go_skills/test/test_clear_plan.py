@@ -1,4 +1,8 @@
 """core/clear_plan.py — 파지 공간 만들기 (쌓인 것 빈 곳에 치우기·넛지·좌우 밀기) [사용자 10/11 제안, 미연결]."""
+import dataclasses
+
+import pytest
+
 from ready2go_skills.core import clear_plan as cp
 
 INTERIOR = [0.21, 0.29, 0.07]
@@ -137,73 +141,120 @@ def test_relocated_rider_height_from_ontology_not_smeared_vision_top_z():
     assert k["top_z"] == SIZES["car_key"][2] and next(o for o in after if o["id"] == "caramel_box#1")["occluded_by"] == []
 
 
-class NoRoomOracle(Oracle):
-    """놓을 빈 자리가 하나도 없음 (aside·free 다 막힘). 집기는 밑에 깔린 받침을 이웃으로 안 봄 (서버 집기와 같음)."""
+def test_free_move_ignores_already_overlapping_object_behind():
+    """처음부터 겹친(맞붙은) 물체에서 멀어지는 쪽은 막지 않고, 다가가는 쪽은 그대로 막음 [실측 PC2 10/13]."""
+    a = obj("caramel_box#1", "caramel_box", 0.105, 0.135)
+    b = obj("airpods_case#1", "airpods_case", 0.105, 0.135 + 0.0465)          # 0.5 mm 겹침 (+y 쪽)
+    objs = [a, b]
+    assert cp.free_move(objs, "caramel_box#1", (0.0, -1.0), 0.03, INTERIOR, SIZES.get) == pytest.approx(0.03)
+    assert cp.free_move(objs, "caramel_box#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get) == 0.0
+    _, done, pushed = cp.push_move(objs, "caramel_box#1", (0.0, -1.0), 0.02, INTERIOR, SIZES.get, cp.pushable)
+    assert done == pytest.approx(0.02) and pushed == []                         # 뒤에 겹친 에어팟을 끌고 가지 않음
+
+
+def test_ahead_cone_and_out_of_bounds_slack():
+    """옆에 맞붙은 물체는 '앞'이 아님, 처음부터 경계 밖으로 그려진 물체는 그만큼 봐줌 [실측 PC2 10/13]."""
+    assert cp.ahead(0.0, 40.0, (0.0, 1.0)) and not cp.ahead(-70.0, 2.0, (0.0, 1.0)) and not cp.ahead(0.0, -5.0, (0.0, 1.0))
+    c = obj("caramel_box#1", "caramel_box", 0.040, 0.029, yaw=-0.25)            # 14° — 외접 박스가 y 0 벽 밖으로 약 4 mm
+    assert cp.out_mm(c, SIZES.get, INTERIOR) > 3.0
+    assert cp.free_move([c], "caramel_box#1", (0.0, 1.0), 0.02, INTERIOR, SIZES.get) == pytest.approx(0.02)   # 벽에서 멀어지는 쪽은 감
+
+
+def test_with_slack_prefers_more_back_off_when_still_pickable():
+    """밀기·넛지는 집기 검사가 딱 통과하는 거리보다 slack_mm 더 여유 있는 같은 후보 (없으면 그대로) [사용자 10/13]."""
+    acts = [(0.05, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.02), None),
+            (0.06, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.03), None),
+            (0.07, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.04), None)]
+
+    class Ok:
+        def pick(self, objs, tid):
+            return True, "", ""
+    assert cp._with_slack(acts, acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.03)
+    assert cp._with_slack(acts, acts[0][1], "t", Ok(), 0.0).back_m == pytest.approx(0.02)
+    assert cp._with_slack(acts[:1], acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.02)
+
+
+def test_push_chain_ignores_pushed_objects_initial_overlap_behind():
+    """[실측 PC2 10/13 inspect_20261013_060416_812Z] 에어팟을 +y 로 밀면 몽키가 같이 밀림 — 몽키 외접 박스(170 × 61)가 손잡이 쪽
+    캐러멜과 처음부터 겹쳐도 캐러멜은 +y 쪽 뒤라 같이 밀지도 막지도 않음 (예전: 캐러멜까지 밀려다 0 mm)."""
+    sizes = dict(SIZES, toy_wrench=[0.17, 0.061, 0.0185])
+    objs = [obj("airpods_case#1", "airpods_case", 0.1079, 0.0219, yaw=0.0061),
+            obj("caramel_box#1", "caramel_box", 0.0361, 0.0221, yaw=-0.0083),
+            dict(obj("toy_wrench#1", "eraser", 0.1135, 0.0524, yaw=-0.1916), **{"class": "toy_wrench"}),
+            obj("eraser#1", "eraser", 0.1732, 0.0103, yaw=0.0208)]
+    assert cp.overlaps(objs[2], objs[1], sizes.get)
+    _, done, pushed = cp.push_move(objs, "airpods_case#1", (0.0, 1.0), 0.06, [0.2099, 0.286, 0.0684], sizes.get, cp.pushable)
+    assert done == pytest.approx(0.06) and pushed == ["toy_wrench#1"]
+
+
+def test_press_point_center_only_class():
+    """[실측 PC2 10/13] 더 높은 에어팟 옆 몽키: 가운데는 손가락이 에어팟에 걸림 → 예전엔 긴 변 따라 머리 쪽(윗면이 top_z 보다
+    낮음)을 눌러 접촉 없음. center_only 종류는 가운데(폭 방향 비킴만)만 — 막히면 None. 에어팟에서 떨어지면 가운데 근처를 누름
+    [사용자 10/13 "몽키 중앙 부분을 눌러야지"]."""
+    sizes = dict(SIZES, toy_wrench=[0.17, 0.061, 0.0185])
+    air = obj("airpods_case#1", "airpods_case", 0.1079, 0.0219, top=0.0229)
+    w = dict(obj("w", "eraser", 0.1135, 0.0524, yaw=-0.1916, top=0.016), **{"class": "toy_wrench"})
+    kw = {"finger_r_mm": 16.0, "narrow_of": lambda c: 0.0259}
+    assert cp.press_point([air, w], "w", sizes.get, **kw) is not None                     # 아무 데나 → 머리 쪽
+    assert cp.press_point([air, w], "w", sizes.get, center_only=("toy_wrench",), **kw) is None
+    far = dict(w, pose=dict(w["pose"], position=[0.1135, 0.0574, 0.0]))                 # 5 mm 떨어지면 폭 방향으로 비켜 가운데
+    p = cp.press_point([air, far], "w", sizes.get, center_only=("toy_wrench",), **kw)
+    assert p is not None and abs((p[0] - 0.1135) * 0.9817 - (p[1] - 0.0574) * 0.1904) < 1e-6   # 긴 변 방향으로는 가운데
+    assert cp.press_point([far], "w", sizes.get, center_only=("toy_wrench",), **kw) == pytest.approx((0.1135, 0.0574))
+
+
+def test_opens_way_with_one_target_move_after_neighbor_moved():
+    """[사용자 10/13 "sweep 해도 각이 안 나오면 다음 순서"] 이웃을 옮긴 뒤 목표를 바로는 못 집어도, 목표를 한 번 넛지하면 집히면
+    cfg 를 줄 때만 '길이 열림' (막는 물체 치우기 → 목표 넛지·밀기)."""
+    t = obj("eraser#1", "eraser", 0.10, 0.15)
+    c = obj("caramel_box#1", "caramel_box", 0.10, 0.15 + 0.011 + 0.0245 + 0.010)     # +y 로 10 mm — 손가락 자리(20)에 걸림
+    orc = Oracle()
+    assert not orc.pick([t, c], "eraser#1")[0]
+    assert not cp._opens_way([t, c], "eraser#1", orc)
+    assert cp._opens_way([t, c], "eraser#1", orc, wall_steps=0, cfg=CFG)              # -y 로 넛지하면 집힘
+
+
+class TiltOracle(Oracle):
+    """다시 집을 때 손잡이 쪽 벽(x 작음) tilt_x_m 안이면 기울여 잡는다고 알림 (skill_server DryOracle.last_pick_tilted 흉내)."""
+
+    def __init__(self, tilt_x_m, **kw):
+        super().__init__(**kw)
+        self.tilt_x_m, self.last_pick_tilted = tilt_x_m, False
 
     def pick(self, objs, oid):
-        under = {o["id"] for o in cp.below(objs, oid)}
-        return super().pick([o for o in objs if o["id"] not in under], oid)
-
-    def place(self, objs, held_id, pose):
-        return False, "PLACE_BLOCKED", "자리 없음"
-
-
-def _key_on_caramel(x=0.1, y=0.15):
-    base = obj("caramel_box#1", "caramel_box", x, y, under=["car_key#1"])
-    top = obj("car_key#1", "car_key", x, y, top=0.0185 + 0.0158)
-    return [base, top]
+        r = super().pick(objs, oid)
+        x = next(o for o in objs if o["id"] == oid)["pose"]["position"][0]
+        self.last_pick_tilted = bool(r[0]) and x < self.tilt_x_m
+        return r
 
 
-def test_no_free_space_topples_top_off_its_base():
-    """[사용자 10/13] 위 물체를 놓을 데가 없으면 포기하지 않고 윗면을 눌러 받침 밖 바닥으로 끌어 떨어뜨림 → 다시 보고 집기."""
-    objs = _key_on_caramel()
-    a = cp.plan_next(objs, "caramel_box#1", NoRoomOracle(), CFG)
-    assert a.kind == "topple" and a.target == "car_key#1", a
-    assert 0.0 < a.dist_m <= CFG.max_shift_m and a.extra["press_xy_m"]
-    after = cp.apply(objs, a, CFG)
-    key = next(o for o in after if o["id"] == "car_key#1")
-    base = next(o for o in after if o["id"] == "caramel_box#1")
-    assert not cp.overlaps(key, base, SIZES.get) and cp.inside(key, SIZES.get, INTERIOR)   # 받침 밖 바닥, 서랍 안
-    assert key["top_z"] == SIZES["car_key"][2] and base["occluded_by"] == [] and cp.below(after, "car_key#1") == []
+def test_free_pose_avoids_tilted_repick_zone_when_upright_spot_exists():
+    """[트윈 재생 10/13 A] free 가 차키를 손잡이 쪽 벽 30 mm 에 둠 → 다시 집을 때 20° 기울임 → 다른 자리 복구 때 기울어진 채 놓임.
+    수직으로 다시 집을 자리가 있으면 그쪽, 기울임 구역뿐이면 그래도 놓음."""
+    objs = [obj("car_key#1", "car_key", 0.15, 0.15)]
+    cfg = dataclasses.replace(CFG, free_try=100, allow_unpickable_place=False)   # 가짜 검사는 벽 자리 60개를 다 거부함
+    first = cp.find_free_pose(objs, "car_key#1", [], Oracle(), cfg)
+    tilt_x = first["position"][0] + 0.005                                  # 기울임 없을 때 처음 고르는 자리가 기울임 구역이 되게
+    pose = cp.find_free_pose(objs, "car_key#1", [], TiltOracle(tilt_x), cfg)
+    assert pose is not None and pose["position"][0] >= tilt_x, pose
+    everywhere = cp.find_free_pose(objs, "car_key#1", [], TiltOracle(1.0), cfg)   # 전부 기울임 구역 — 놓을 수는 있음
+    assert everywhere == first
 
 
-def test_topple_prefers_side_that_keeps_target_graspable():
-    """떨어뜨릴 쪽이 여럿이면 찾는 목표(받침)의 손가락 자리를 막지 않는 쪽 먼저 — 더 멀어도. 다음 계획은 바로 집기."""
-    objs = _key_on_caramel(0.13, 0.15)
-    a = cp.plan_next(objs, "caramel_box#1", NoRoomOracle(), CFG)
-    assert a.kind == "topple" and a.dir == (-1.0, 0.0), a                     # ±y 는 더 짧지만 캐러멜 짧은 변 손가락 자리에 떨어짐
-    assert cp.plan_next(cp.apply(objs, a, CFG), "caramel_box#1", NoRoomOracle(), CFG).kind == "pick"
+def test_hole_class_is_not_pressed():
+    """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 누르면 손끝이 구멍으로 빠짐 → 공간 만들기에서 누를 점 없음(같이 밀리기·집기만)."""
+    sizes = dict(SIZES, masking_tape=[0.0385, 0.0385, 0.0152])
+    t = dict(obj("t", "eraser", 0.10, 0.15), **{"class": "masking_tape"})
+    assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0) is not None
+    assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0, hole=("masking_tape",)) is None
 
 
-def test_topple_three_stack_lands_on_floor_clear_of_all_layers():
-    """세 개 쌓임(에어팟 케이스 ← 캐러멜 ← 차키): 맨 위 차키를 밑 두 층 모두 밖으로 — 가운데 캐러멜 위에 다시 얹히지 않게."""
-    air = obj("airpods_case#1", "airpods_case", 0.1, 0.15, under=["caramel_box#1"])
-    car = obj("caramel_box#1", "caramel_box", 0.1, 0.15, top=0.0216 + 0.0185, under=["car_key#1"])
-    key = obj("car_key#1", "car_key", 0.1, 0.15, top=0.0216 + 0.0185 + 0.0158)
-    objs = [air, car, key]
-    a = cp.plan_next(objs, "airpods_case#1", NoRoomOracle(), CFG)
-    assert a.kind == "topple" and a.target == "car_key#1"
-    landed = next(o for o in cp.apply(objs, a, CFG) if o["id"] == "car_key#1")
-    assert not any(cp.overlaps(landed, o, SIZES.get) for o in (air, car))
-    assert {b["id"] for b in cp.below(objs, "car_key#1")} == {"airpods_case#1", "caramel_box#1"}
-
-
-def test_topple_avoids_neighbors_and_walls_or_gives_up():
-    """떨어질 자리에 다른 물체가 있는 쪽은 안 고름. 서랍이 꽉 차 사방이 막히면 그대로 실패 — 움직이지 않음."""
-    objs = _key_on_caramel()
-    first = cp.topple_move(objs, "car_key#1", CFG)
-    p = first.to_pose["position"]
-    blocker = obj("eraser#1", "eraser", p[0], p[1])                           # 처음 고른 자리에 지우개
-    second = cp.topple_move(objs + [blocker], "car_key#1", CFG)
-    assert second is not None and second.dir != first.dir
-    tight = cp.Config(interior_m=[0.08, 0.055, 0.07], frame="drawer_top", size_of=SIZES.get)
-    objs_t = _key_on_caramel(0.04, 0.0275)
-    assert cp.topple_move(objs_t, "car_key#1", tight) is None
-    assert cp.plan_next(objs_t, "caramel_box#1", NoRoomOracle(), tight).kind == "fail"
-
-
-def test_topple_needs_top_object_on_a_base():
-    """바닥 물체·위에 뭐가 얹힌 물체는 무너뜨리기 대상이 아님."""
-    objs = _key_on_caramel()
-    assert cp.topple_move(objs, "caramel_box#1", CFG) is None
-    assert cp.topple_move([obj("eraser#1", "eraser", 0.1, 0.15)], "eraser#1", CFG) is None
+def test_front_wall_penalty_only_for_newly_touching_handle_wall():
+    """[사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] 손잡이 쪽 벽(x 0) front_keep_mm 안으로 새로 들어가는 동작만 벌점."""
+    t = obj("eraser#1", "eraser", 0.045, 0.15)                                     # 손잡이 쪽 끝 x 18.75 mm
+    near = [cp.moved(t, -0.015, 0.0)]                                              # 3.75 mm — 새로 붙음
+    side = [cp.moved(t, 0.0, 0.02)]                                                # 옆으로 — x 그대로
+    assert cp._front_cost([t], near, CFG) == pytest.approx(CFG.front_penalty_m)
+    assert cp._front_cost([t], side, CFG) == 0.0
+    already = obj("eraser#1", "eraser", 0.03, 0.15)                                # 이미 붙어 있던 물체를 옆으로
+    assert cp._front_cost([already], [cp.moved(already, 0.0, 0.02)], CFG) == 0.0
