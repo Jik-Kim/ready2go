@@ -8,6 +8,7 @@
   위에서만 찍어 아랫면은 모름(옆면은 수직). 윗면 색은 사진 색(면마다). 높이는 99 백분위가 온톨로지 높이가 되게 비례로 맞춤.
   벽 근처·뎁스 빈 사진(외접이 온톨로지와 15 %·25 % 넘게 다름)은 뺌, 뎁스 빈 마스크 픽셀은 물체 중앙 높이로 채움(검은 물체 윤곽).
 - 립밤: 원통(온톨로지 길이·지름, 축 = x) — 사용자 10/13 "그냥 원통, 굴러다니는 걸로".
+- 지우개·캐러멜 상자: 직육면체(온톨로지 크기), 마스킹테이프: 가운데 빈 원통(안지름 24 mm [추정]) — 사용자 10/13.
 - 덮개 판: 치수로 만든 모양 [사용자 10/13 실측]: 판 98.5×74.2 두께 5, 구멍·볼트 25 mm 격자(3열×4줄, 모서리 4곳 볼트),
   볼트 중심 간격 50(가로)·75(세로), 와셔 지름 28, 육각 머리 폭 17·높이 10, 판 밑 21(B under_clear) — 와셔 두께 = 40.5 − 21 − 5 − 10 = 4.5 [계산].
   구멍 지름 17 mm·볼트 몸통(다리) 지름 8 mm 는 사진으로 본 [추정].
@@ -28,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[2]
 K = (909.4756, 909.0836, 652.0347, 371.2673)        # 손목 D435 컬러 1280×720 (덤프 meta K, 10/12)
 CELL = 0.002                                        # 높이 지도 격자 (m)
 SESSION = "s01_single_v0"
-SCANNED = ["airpods_case", "caramel_box", "car_key", "eraser", "masking_tape", "toy_car", "toy_wrench", "toy_hammer"]
+SCANNED = ["airpods_case", "car_key", "toy_car", "toy_wrench", "toy_hammer"]
 
 
 # ---------- 메시 ----------
@@ -134,6 +135,33 @@ def lip_balm(size) -> Mesh:
     for sx in (-1, 1):
         cap = [(sx * L / 2, y, z + r) for y, z in ring]
         m.quad(cap if sx > 0 else cap[::-1], (0.7, 0.1, 0.1) if sx > 0 else col)   # 한쪽 끝 빨간 띠(뚜껑 쪽 구분)
+    return m
+
+
+def box(size, color) -> Mesh:
+    """직육면체 (지우개·캐러멜 상자 — 사용자 10/13 "정육면체 형상"), 온톨로지 외접 크기 그대로."""
+    hx, hy, h = size[0] / 2, size[1] / 2, size[2]
+    m = Mesh()
+    c = np.array(color, float)
+    m.quad([(-hx, -hy, h), (hx, -hy, h), (hx, hy, h), (-hx, hy, h)], c)
+    m.quad([(-hx, -hy, 0), (-hx, hy, 0), (hx, hy, 0), (hx, -hy, 0)], c * 0.7)
+    for (x0, y0), (x1, y1) in (((-hx, -hy), (hx, -hy)), ((hx, -hy), (hx, hy)), ((hx, hy), (-hx, hy)), ((-hx, hy), (-hx, -hy))):
+        m.quad([(x0, y0, 0), (x1, y1, 0), (x1, y1, h), (x0, y0, h)], c * 0.85)
+    return m
+
+
+def tape(size, inner_d=0.024) -> Mesh:
+    """가운데가 빈 원통 (마스킹테이프 — 사용자 10/13). 바깥 지름·높이 = 온톨로지, 안지름 24 mm = 단독 사진 2.5D 로 잰 안쪽 반지름 약 12 mm [추정]."""
+    ro, ri, h, n = size[0] / 2, inner_d / 2, size[2], 48
+    m = Mesh()
+    a = [2 * math.pi * k / n for k in range(n)]
+    tan, side = (0.85, 0.78, 0.55), (0.75, 0.68, 0.48)
+    for k in range(n):
+        c0, s0, c1, s1 = math.cos(a[k]), math.sin(a[k]), math.cos(a[(k + 1) % n]), math.sin(a[(k + 1) % n])
+        m.quad([(ro * c0, ro * s0, 0), (ro * c1, ro * s1, 0), (ro * c1, ro * s1, h), (ro * c0, ro * s0, h)], side)        # 바깥 옆면
+        m.quad([(ri * c1, ri * s1, 0), (ri * c0, ri * s0, 0), (ri * c0, ri * s0, h), (ri * c1, ri * s1, h)], (0.6, 0.55, 0.4))  # 안 옆면
+        m.quad([(ri * c0, ri * s0, h), (ro * c0, ro * s0, h), (ro * c1, ro * s1, h), (ri * c1, ri * s1, h)], tan)        # 윗면 고리
+        m.quad([(ri * c1, ri * s1, 0), (ro * c1, ro * s1, 0), (ro * c0, ro * s0, 0), (ri * c0, ri * s0, 0)], side)       # 아랫면 고리
     return m
 
 
@@ -307,6 +335,10 @@ def main():
             m, how = lip_balm(size), "원통 (온톨로지 길이·지름)"
         elif cls == "cover_plate":
             m, how = cover_plate(size), "치수 모양 (사용자 실측 10/13)"
+        elif cls in ("eraser", "caramel_box"):
+            m, how = box(size, {"eraser": (0.95, 0.85, 0.35), "caramel_box": (0.85, 0.55, 0.2)}[cls]), "직육면체 (온톨로지 크기)"
+        elif cls == "masking_tape":
+            m, how = tape(size), "가운데 빈 원통 (안지름 24 mm 추정)"
         else:
             m, n = scanned(data, cls, size)
             how = f"2.5D 사진 {n}장 ({SESSION})"
