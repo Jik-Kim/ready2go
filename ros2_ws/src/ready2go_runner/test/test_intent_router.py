@@ -209,3 +209,19 @@ def test_registered_achieve_goal_task_still_wins():
     d = router({"achieve_goal": custom}).decide(json.dumps(GOAL, ensure_ascii=False), running=False, locked=False)
     assert d.kind == ir.RUN and d.task is custom
 
+
+
+END_TASK = {"intent": "end_task", "targets": [], "confidence": 0.3, "request_id": "e-1", "boot_id": "b", "run_id": "r"}
+
+
+@pytest.mark.parametrize("running, locked", [(True, False), (False, True), (False, False)])
+def test_end_task_is_accepted_regardless_of_confidence_and_lock(running, locked):
+    """계약 W3 end_task (#271, E3): 정지처럼 신뢰도·잠김과 상관없이 END — 대상 확인·정지·폐기는 노드가 (잠금 해제 아님)."""
+    d = router().decide(json.dumps(END_TASK), running=running, locked=locked)
+    assert (d.kind, d.reason) == (ir.END, None) and d.summary()["decision"] == "end"
+
+
+def test_end_task_without_required_fields_is_bad_intent():
+    for drop in ("boot_id", "run_id", "request_id"):
+        doc = {k: v for k, v in END_TASK.items() if k != drop}
+        assert router().decide(json.dumps(doc), running=True, locked=False).reason == ir.BAD_INTENT, drop

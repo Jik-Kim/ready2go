@@ -42,6 +42,8 @@ from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
 from ..core.runner_status import build_status
 
 PUBLISH_PERIOD_SEC = 0.5                # 상태가 바뀌었는지 확인하는 주기 (바뀐 경우에만 발행)
+BOOT_MISMATCH = "BOOT_MISMATCH"         # 계약 W3: 다른 Runner 기동(boot_id)에 대한 제어 인텐트
+NOTHING_TO_END = "NOTHING_TO_END"       # end_task 대상(그 run_id 의 실행·보존 작업)이 없음
 LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
 
 
@@ -102,6 +104,7 @@ class RunnerNode(Node):
         # 발행 잠금: 상태를 만들고 보내는 동안, 그리고 결정을 last_intent 에 넣고 보내는 동안 다른 콜백(status·cancel·주기 발행)이
         # 끼어들지 않게 — 각 요청 자신의 결정이 적어도 한 번 발행됨 (#249 E 리뷰). 짧게만 잡음 (정지 경로가 기다리지 않게)
         self._pub_lock = threading.RLock()
+        self._end_requested: str | None = None   # end_task 로 정지를 요청한 run_id (끝난 뒤 보존됐으면 폐기)
         self.requests = RequestMemory()          # 계약07: 이번 기동 동안 request_id → 첫 결정 (재기동하면 빔)
         self.get_logger().info(f"Runner 준비: 스키마 {schema_file}, 온톨로지 {ontology_file}, "
                                f"백엔드 {os.environ.get('BACKEND', 'mock')}, 예비 기록 {log_dir}, "
@@ -153,6 +156,11 @@ class RunnerNode(Node):
         finally:
             self.gate.finish()
         self._last, self._last_task_id = result, self._task_id
+        if self._end_requested == result.run_id:     # end_task 로 멈춘 실행이 보존됐으면 폐기 (재개 모드일 때)
+            self._end_requested = None
+            suspended = self.runner.suspended
+            if suspended and suspended["run_id"] == result.run_id:
+                self._last = self.runner.discard_suspended() or result
         message = (f"태스크 끝: {self._task_id} → {result.overall_status}"
                    + (f" ({result.error_code} @ {result.failed_step})" if result.error_code else "")
                    + (f" 거절 이유: {result.problems}" if result.problems else "")
@@ -222,6 +230,8 @@ class RunnerNode(Node):
             was_running = self.gate.cancel()
             decision = intent_router.Decision(intent_router.CANCEL, None if was_running else intent_router.NOT_RUNNING,
                                               intent=decision.intent)
+        if decision.kind == intent_router.END:
+            decision = self._end_task(decision)
         if decision.kind == intent_router.PLAN:
             decision = self._plan(decision)
         missing = self.missing_servers(decision.task) if decision.kind == intent_router.RUN else []
@@ -249,6 +259,30 @@ class RunnerNode(Node):
             self.get_logger().warning(text)
         self._announce(summary, force=decision.kind == intent_router.STATUS)   # status: 바뀐 것이 없어도 ("지금 뭐 해?")
         return summary
+
+    def _end_task(self, decision: intent_router.Decision) -> intent_router.Decision:
+        """계약 W3 end_task (#152·#271, E3): 같은 기동·지금 작업일 때만. 실행 중이면 cancel 과 같은 정지(정지 확인은
+        halt.stop) → 끝난 뒤 보존됐으면 폐기, 이미 보존(재개 대기) 중이면 바로 폐기(ABORTED, finally 비동작만).
+        잠금은 풀지 않고 새 작업도 허용하지 않는다. 대상이 없으면 NOTHING_TO_END, 다른 기동이면 BOOT_MISMATCH."""
+        intent = decision.intent or {}
+        if intent.get("boot_id") != self.runner.boot_id:
+            return intent_router.Decision(intent_router.REJECT, BOOT_MISMATCH, intent=intent)
+        target = intent.get("run_id")
+        suspended = self.runner.suspended
+        with self._lock:
+            running = self.running and self.runner.active_run_id == target
+            if running:
+                self._end_requested = target
+                self.gate.cancel()
+        if running:
+            self.runner.halt(source="voice")     # cancel 과 같은 경로: 진행 중 goal 취소, 잠금
+            return intent_router.Decision(intent_router.END, intent=intent)
+        if suspended and suspended["run_id"] == target:
+            result = self.runner.discard_suspended()
+            if result is not None:
+                self._last, self._last_task_id = result, suspended["task_id"]
+            return intent_router.Decision(intent_router.END, intent=intent)
+        return intent_router.Decision(intent_router.REJECT, NOTHING_TO_END, intent=intent)
 
     def _announce(self, summary: dict, force: bool = False) -> None:
         """이 결정을 last_intent 에 넣고 바로 발행 — 사이에 다른 콜백이 last_intent 를 바꿔 이 결정이 안 나가는 일 없게."""

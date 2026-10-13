@@ -289,3 +289,39 @@ def test_stop_while_request_is_being_handled_does_not_start_it(system):
     time.sleep(0.3)
     assert voice.status["phase"] == "idle" and voice.status["last"] is None          # 실행 없음
     assert runner.start_task(task, {"target": "eraser"}, token=runner.gate.token())   # 멈춰 뒤 새 요청은 정상
+
+
+def end_task(boot, run, request_id="end-1"):
+    return json.dumps({"intent": "end_task", "targets": [], "confidence": 0.9, "request_id": request_id,
+                       "boot_id": boot, "run_id": run, "source": {"stt_text": "작업 종료해"}})
+
+
+def test_end_task_stops_only_the_current_run_and_keeps_lock(long_action_system):
+    """계약 W3 end_task (#271, E3): 다른 run_id → NOTHING_TO_END, 다른 기동 → BOOT_MISMATCH (둘 다 실행 그대로),
+    지금 실행 → cancel 과 같은 정지 → ABORTED·잠김(잠금 해제·새 작업 허용 아님), 같은 ID 재전송 → 첫 결정 재발행."""
+    runner, voice = long_action_system
+    boot = runner.runner.boot_id
+    voice.say(intent())
+    assert voice.wait(lambda s: s["phase"] == "running" and last_intent(s).get("run_id")), voice.status
+    run_id = last_intent(voice.status)["run_id"]
+    voice.say(end_task(boot, "2026-01-01T00:00:00Z_000000", "end-x"))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "NOTHING_TO_END"), voice.status
+    voice.say(end_task("other-boot", run_id, "end-y"))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "BOOT_MISMATCH"), voice.status
+    assert voice.status["phase"] == "running"                                     # 거절은 실행에 영향 없음
+    voice.say(end_task(boot, run_id))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"), voice.status
+    assert voice.status["phase"] == "halted" and voice.status["last"]["run_id"] == run_id
+    voice.say(intent())                                                         # 잠김 유지
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "LOCKED"), voice.status
+    voice.say(end_task(boot, run_id))                                           # 같은 ID 재전송 → 첫 결정(end) 다시
+    assert voice.wait(lambda s: last_intent(s).get("decision") == "end"
+                      and last_intent(s).get("request_id") == "end-1"), voice.status
+    assert voice.status["phase"] == "halted"
+
+
+def test_end_task_when_idle_is_nothing_to_end(system):
+    runner, voice = system
+    voice.say(end_task(runner.runner.boot_id, "2026-01-01T00:00:00Z_000000"))
+    assert voice.wait(lambda s: last_intent(s).get("reason") == "NOTHING_TO_END"), voice.status
+    assert voice.status["phase"] == "idle"

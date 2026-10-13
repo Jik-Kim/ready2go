@@ -297,6 +297,11 @@ class Runner:
         return self._halt.is_set() and not self._aborted
 
     @property
+    def active_run_id(self) -> str | None:
+        """지금 실행 중인 run_id (없으면 None) — end_task 가 대상 실행을 확인할 때 (#271)."""
+        return self._run_id if self._in_run else None
+
+    @property
     def halt_summary(self) -> dict | None:
         """잠겨 있거나 재개 대기 중일 때 정지 사건 요약 (/runner/status halt — 계약, E 대화 승인 10/13, 사용자 전달 — #259). 아니면 None.
         code·cause = 왜 멈췄나, stop·response_code·response_received_at = 진행 중이던 동작의 백엔드 최종 응답과
