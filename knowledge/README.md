@@ -60,30 +60,29 @@ onto = load("knowledge/robot_ontology.jsonld", snapshot="snapshots/p2_s3.json")
 
 [문서] 세 장면은 같은 활성 10종을 조회하며 비등장 물품의 위치를 채우지 않습니다. 세 장면 합집합에 없는 활성 물품은 airpods_case·masking_tape·toy_car·toy_hammer 4종입니다. 비위치 상태는 기본 프리셋의 home·empty·서랍 닫힘·handover_zone 값을 보존합니다. 시작 예시값은 실제 빈손·닫힘·물리 reset 증거가 아닙니다. 쌓임/가림/pose는 미리 확정하지 않고 관측의 `occluded_by`·`target=null`을 보존합니다.
 
-[미연결/인계] C `runner_node.py`는 현재 기본 `load(ontology_file)`만 호출합니다. 기동/명시 reset에서의 snapshot 선택 인자와 소비 방식은 C 협의·구현 전이며 이 Python 입력을 ROS 파라미터로 확정하지 않습니다. C `ontology_query.query()`는 등록 물품도 located_in이 없으면 `UNKNOWN_ITEM`을 반환하고 `find_with_unpack`의 s1→s3/s4는 조회 drawer_id를 소비합니다. 따라서 S3 지우개의 C 탐색 경로는 후속 수정 전 미연결입니다. 위치를 거짓 기입하지 않으며 reset은 저장된 시작 상태 복사일 뿐 B 기억 정리·잠금 해제·물리 검증을 수행하지 않습니다. 조건부 pick은 C 스킬 expand 제어 블록 지원 PR과 E 포함 2인 승인 전 보류하며 이번 pick/pre/effect/place는 유지합니다.
+[미연결/인계] C `runner_node.py`는 현재 기본 `load(ontology_file)`만 호출합니다. 기동/명시 reset에서의 snapshot 선택 인자와 소비 방식은 C 협의·구현 전이며 이 Python 입력을 ROS 파라미터로 확정하지 않습니다. C `ontology_query.query()`는 등록 물품도 located_in이 없으면 `UNKNOWN_ITEM`을 반환하고 `find_with_unpack`의 s1→s3/s4는 조회 drawer_id를 소비합니다. 따라서 S3 지우개의 C 탐색 경로는 후속 수정 전 미연결입니다. 위치를 거짓 기입하지 않으며 reset은 저장된 시작 상태 복사일 뿐 B 기억 정리·잠금 해제·물리 검증을 수행하지 않습니다. 조건부 pick의 현재 E 연결은 아래 [공통 pick](#p1-공통-pick의-벽-인접-끌기재관측-연결)을 참조합니다. 유효 scan 재사용은 미연결이며 pre/effect/place는 유지합니다.
 
 ## P1 공통 pick의 벽 인접 끌기·재관측 연결
 
-[문서] 공통 [`robot_ontology.jsonld`](robot_ontology.jsonld)는 기존 [`skills/pick.jsonld`](skills/pick.jsonld)를 등록합니다. 정식 [`tasks/find_item.json`](../tasks/find_item.json)의 `s5.1`이 호출하는 pick은 `item/from`, pre/hold/effect/verify를 유지하고 다음 원자 동작을 선형으로 전개합니다.
+[문서: E-PICK-CONDITIONAL-NUDGE-20261013-01] 공통 [`robot_ontology.jsonld`](robot_ontology.jsonld)는 기존 [`skills/pick.jsonld`](skills/pick.jsonld)를 등록합니다. pick 이름·`item/from`·pre/hold/effect/verify·errors는 유지하고 **expand만** C #263/#269 지원에 맞춰 전환했습니다. 정식 [`tasks/find_item.json`](../tasks/find_item.json)의 `s5.1`과 공통 pick을 쓰는 P2 caller가 같은 카드를 사용합니다.
 
-1. `move_to_named_pose(pose_name=drawer_top_view, drawer_id=$from)`
-2. `inspect_region(region=$from, search_target=$item)` → `scan`
-3. `nudge_object(target=$scan.target, drawer_id=$from)` → `nudge`
-4. 같은 서랍 탑뷰로 이동
-5. 같은 대상 재관측 → 스킬 로컬 `scan` 갱신
-6. `pick_object(target=$scan.target, approach_offset=[0,0,0.1])`
+1. 같은 서랍 탑뷰 → `inspect_region(region=$from, search_target=$item)` → 로컬 `scan`.
+2. `pick_object(target=$scan.target, scan=$scan, approach_offset=[0,0,0.1])`를 먼저 실행합니다.
+3. 움직임 전 `WALL_TOO_CLOSE` 거부만 `fallback.next_on`의 다음 대안으로 넘어갑니다: `nudge_object(target=$scan.target, drawer_id=$from, scan=$scan)` → 탑뷰 → 재관측 **1회**로 로컬 `scan` → 새 target과 같은 전체 scan으로 집기.
 
-[문서] P1 공간 판단은 B의 기존 `plan_drag/nudge_object`가 맡습니다. 충분하면 B가 `pushed=false`로 이동 없이 성공하고, 부족하면 접촉 힘을 확인하며 끕니다. 두 경우 모두 두 번째 관측을 수행합니다. 같은 스킬 로컬 `scan`을 두 번째 응답으로 갱신하므로 집기는 `nudge.target_after` 예상값이나 최초 관측 대신 **재관측 전체 target**을 사용하며, B의 기존 pick wall guard도 유지됩니다. 최초/재관측 응답은 각각 e2/e5 기록에, 예상 출력은 e3 기록에 보존되며 e6의 params에는 두 번째 관측 target이 남습니다. 스킬 내부 if/다른 스킬 호출이나 독립 nudge 온톨로지 스킬은 추가하지 않습니다. P2 이후 주변 물체 간격 판단 주체·필드는 미확정이며 [이슈 #120](https://github.com/Jik-Kim/ready2go/issues/120)의 후속 합의 대상입니다.
+[문서] 직접 집기 성공이면 skill 관측 1회, WALL 대안 성공이면 2회입니다. 기존 정식 P1 태스크의 최초 관측까지 합하면 각각 2회/3회이며, C의 같은 자세 이동 억제는 관측 재사용을 의미하지 않습니다. B no-op `pushed=false`라도 WALL 대안에 들어간 뒤에는 재관측 1회를 수행합니다. `target_after`·needed·plan_code를 집기 입력이나 재분기 조건으로 사용하지 않으며 독립 nudge 스킬·반복·새 공개 필드·TTL은 추가하지 않습니다. B의 그리퍼 닫기/drag_down/접근·벽 검사와 place 책임은 유지합니다.
 
-[문서] 기존 Runner는 하위 동작 실패를 전파하고 전체 성공 뒤에만 effect를 적용합니다. 최초/재관측 `target=null`은 현재 main의 `VAR_NULL` 검사로 다음 nudge/pick 전송 전에 차단합니다. errors에는 기존 NOT_VISIBLE/GRASP_FAILED와 A 조회·B 탑뷰/끌기/집기 및 Runner null 차단의 기존 코드를 반영했습니다. errors는 선언 데이터이며 오류를 변환하거나 새로 생성하지 않습니다. B 공통 안전·통신 오류도 원래 코드로 전파되며 이 목록이 모든 장애의 허용 목록은 아닙니다. hold/verify는 보존 선언이며 관측 기반 상태 검증을 새로 구현하지 않습니다.
+[문서] C #263의 자동 하위 ID·부모 timeout/취소·로컬 scope와 #269의 넛지 뒤 새 관측 변수 출처/덮어쓰기 검사를 사용합니다. 기본 `scan`은 호출자 blackboard에서 전달될 수 있지만 이번 카드는 새 관측으로 덮어쓰고, 넛지 뒤에는 같은 로컬 `scan`을 inspect 응답으로 갱신합니다. 최초/재관측 null은 기존 `VAR_NULL`로 후속 pick 전송 전에 차단합니다. YAW_INVALID·NEIGHBOR_TOO_CLOSE·NOT_ON_FLOOR·BAD_PARAMS·안전 코드와 움직였을 수 있는 실패는 다음 대안으로 보내지 않습니다. nudge/탑뷰/재관측 실패·정지 때 뒤 집기는 없고 두 번째 WALL도 반복하지 않습니다. 실제 Runner의 전체 성공 뒤 effect 경로를 유지하며 hold/verify 선언은 관측 기반 성공 검증의 구현이 아닙니다.
 
-[문서] C 인계 반영 완료(PR #130): 정식 태스크의 관측이 기존 2회에서 3회(태스크 1회+pick 2회)로 늘어난 호출열·횟수와, 재관측 `scan.target`이 실제 집기 입력인지 `test_tasks.py`에서 확인합니다. 탑뷰/nudge는 현재 NON_MOTION_ACTIONS에 없으므로 기존 `YAW_INVALID` retry 1도 선행 이동 뒤에는 억제됩니다. 이를 임의 우회하지 않으며, 공통 pick의 시간 예산은 PR #164에서 정식 태스크와 점검 태스크 및 테스트에 반영됐습니다. 현재 값은 [정식 태스크 원본](../tasks/find_item.json)에서 확인하며 전체 pick 전개를 포함합니다. 실물 소요 시간에 따른 예산 재검토는 별도입니다. finally는 기존 그리퍼·중단/잠금 조건을 따르며 ESTOP/서버 잠금에서 자동 닫기·홈을 보장하지 않습니다. 코드·테스트 반영은 B 배포 SHA·no-op/실패·탑뷰·wall guard와 A의 실제 새 프레임/좌표를 확인한 전체 실물 통합 완료를 뜻하지 않습니다.
+[미연결/인계] 같은 run·현재 대상·서랍 및 stop/resume/불확실 이동에 연결된 **전체 scan의 유효성 판정·무효화**는 현재 C에 확인되지 않았습니다. `interpreter._run_skill()`의 scope 전달과 `_dispatch()`의 output 저장만으로 유효 관측 재사용을 선언하지 않습니다. 따라서 이번 카드는 항상 탑뷰/새 관측으로 시작하고 #245의 관측 재사용 전체 완료는 아닙니다. 최소 C 후속은 해당 출처·대상·서랍·실행 경계와 무효화 근거를 소비자가 확인할 수 있게 지원한 뒤 E 조건 분기를 연결하는 것입니다. 새 필드명이나 항상 유효 flag는 확정하지 않습니다.
 
-[문서] 기준은 P1 [FR-ONT-01](../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../docs/requirements.md#fr-act-05)입니다. FR-ACT-05의 “닫은 그리퍼로 밀기”와 B의 누르고 끄는 구현 표현은 정본 담당 확인·별도 인계 사항입니다. 이 문서에서 요구사항·AC를 변경하지 않습니다. E 모의 통합 테스트의 이동 후 좌표 변화는 스텁 데이터이며 실제 재인식 성공·[AC-ACT-05](../docs/requirements.md#ac-act-05) 실측 근거가 아닙니다. B의 [domain.md 8.5](../docs/domain.md#85-벽-인접-물체-밀어오기-담당-b)는 현재 P1 공통 pick의 6단계·no-op 후 재관측·이동 후 재시도 억제를 설명하며, 과거 예시와 P2 계획을 별도로 구분합니다.
+[문서/검사] E [`test_pick_runner.py`](../ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py)는 실제 수정 카드·C Runner/backend로 직접 집기/WALL·다른 거부·새 전체 scan·null·실패/정지 경계를 검사합니다. C의 `test_tasks.py` 호출열/횟수·하위 ID 기대와 P1/Unpacking 회귀 갱신은 담당 C 인계 사항입니다. PR #130의 6단계/3회 검사는 당시 선형 카드의 결과이며 이번 현재 호출열의 근거로 전용하지 않습니다. 태스크 시간 예산은 [원본](../tasks/find_item.json)을 유지하고 finally·retry는 현재 C 안전 조건을 따릅니다. B [domain.md 8.5](../docs/domain.md#85-벽-인접-물체-밀어오기-담당-b)의 6단계 현재 설명 갱신도 담당 인계입니다.
+
+[문서] 기준은 P1 [FR-ONT-01](../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../docs/requirements.md#fr-act-05), P2 연결은 [FR-PLN-02](../docs/requirements.md#fr-pln-02)·[FR-ACT-04](../docs/requirements.md#fr-act-04)를 참조합니다. 정본 정책·Phase·공개 계약은 바꾸지 않았습니다. 스텁 좌표 변화·모의 중단은 실제 A 재인식/새 프레임·B 공간 판단/배포/안전·실물 성공률 증거가 아니며 실음성/ROS/장치/로봇·AC-ACT-05 실측은 미검증입니다.
 
 ## 현재 실행 진입점과 과거 기록
 
-[문서] 현재 실행 진입점은 공통 [`robot_ontology.jsonld`](robot_ontology.jsonld)이며 집기는 [`skills/pick.jsonld`](skills/pick.jsonld)의 위 6단계 재관측 경로를 사용합니다. 정식 [`tasks/find_item.json`](../tasks/find_item.json)과 점검용 [`tasks/p1_demo_eraser.json`](../tasks/p1_demo_eraser.json)은 모두 공통 `pick`을 호출합니다. 점검 태스크 이름의 demo는 별도 온톨로지 사용을 뜻하지 않습니다.
+[문서] 현재 실행 진입점은 공통 [`robot_ontology.jsonld`](robot_ontology.jsonld)이며 집기는 [`skills/pick.jsonld`](skills/pick.jsonld)의 위 조건부 넛지·재관측 경로를 사용합니다. 정식 [`tasks/find_item.json`](../tasks/find_item.json)과 점검용 [`tasks/p1_demo_eraser.json`](../tasks/p1_demo_eraser.json)은 모두 공통 `pick`을 호출합니다. 점검 태스크 이름의 demo는 별도 온톨로지 사용을 뜻하지 않습니다.
 
 [문서] 10/06 시연 전용 온톨로지·집기 정의는 제거했습니다. 과거 실측 로그·fixture·보고서의 레이블과 변경 이력은 당시 결과 해석용으로 보존하며 현재 실행 안내로 사용하지 않습니다. 현재 경로는 끌기 예상값 대신 재관측 target으로 집습니다. 실물 AC-ACT-05 성공률·배포·안전 연결 검증 완료를 문서 정리만으로 선언하지 않습니다.
 

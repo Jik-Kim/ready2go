@@ -19,7 +19,7 @@
 | [`places.yaml`](../config/places.yaml) | 장소 좌표계·실측 치수·이동 거리·설정의 정본 |
 | [`item_grasp.yaml`](../config/item_grasp.yaml) | 물품별 파지 힘과 검증 승인 상태, 실제로 잡은 폭(선택, B 실측)의 정본 |
 
-`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 선택 입력 `snapshot`은 상태 파일만 대체하며 생략하면 기본 P1 상태를 유지합니다. 활성 10종·고정 학습 11종의 구분, 장면 위치와 미배치 물품, C 기동/reset 미연결 및 조건부 pick 보류는 [knowledge/README.md](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. [문서]
+`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 선택 입력 `snapshot`은 상태 파일만 대체하며 생략하면 기본 P1 상태를 유지합니다. 활성 10종·고정 학습 11종의 구분, 장면 위치와 미배치 물품, C 기동/reset 미연결은 [knowledge/README.md](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. [문서]
 
 **현재 분리 형식에서 검사하는 항목**: 필수 sources와 객체 형식, JSON/YAML 중복 키, 중복 스킬 ID, 장소 설정 누락·중복, 물품과 파지 설정 ID 일치, 양수 유한값 3개의 `size_m`, 파지 설정 형식·값, 물품·장소의 class 참조, 초기 located_in의 물품·장소 참조, 목록의 물품 참조입니다. 기존 단일 파일 호환 경로는 JSON을 읽어 그대로 반환하며 이 전체 검사를 수행하지 않습니다. [문서]
 
@@ -29,11 +29,11 @@
 
 ### P1 공통 pick 실행 연결
 
-[문서] [공통 pick](../knowledge/skills/pick.jsonld)은 기존 manifest 등록·`item/from`·pre/hold/effect/verify를 유지합니다. 정식 [find_item 태스크](../tasks/find_item.json)의 `s5.1`에서 탑뷰 이동 → 최초 관측 `scan` → B `nudge_object` → 탑뷰 이동 → 재관측으로 스킬 로컬 `scan` 갱신 → `pick_object(target=$scan.target)`를 전개합니다. 최초/재관측 응답은 각각 e2/e5 기록에 보존하며 e6은 갱신된 두 번째 응답을 사용합니다. 끌기 예상값 `nudge.target_after`는 집기에 사용하지 않습니다. P1 공간 판단은 B의 기존 코드가 담당하며 충분하면 `pushed=false`로 이동 없이 성공합니다. 선형 전개를 유지하므로 이 경우도 재관측합니다. B pick의 벽 간섭 검사는 유지합니다. 독립 스킬·내부 분기·Runner 확장·새 비전 clearance 필드는 추가하지 않습니다.
+[문서: E-PICK-CONDITIONAL-NUDGE-20261013-01] [공통 pick](../knowledge/skills/pick.jsonld)은 manifest·이름·`item/from`·pre/hold/effect/verify·errors를 유지하고 expand만 조건부 흐름으로 바꿉니다. 같은 서랍 탑뷰 → 새 관측 `scan` → 전체 scan을 함께 전달한 집기를 먼저 실행합니다. `fallback.next_on=[WALL_TOO_CLOSE]`에 해당하는 움직임 전 거부만 넛지 → 탑뷰 → 새 `scan` 관측 1회 → 새 target/같은 전체 scan 집기로 진행합니다. 직접 성공 때 skill 관측은 1회, WALL 대안은 2회이며 nudge no-op도 대안의 재관측을 생략하지 않습니다. target_after·needed·plan_code·새 스킬·자동 반복은 쓰지 않습니다. B 접근/그리퍼/drag_down·place 책임은 유지합니다.
 
-[문서] 현재 main Runner의 null 참조 차단(`VAR_NULL`)과 하위 실패 전파를 사용합니다. 최초/재관측 target이 null이면 각각 nudge/pick을 보내지 않고, 전체 pick 성공에만 effect를 적용합니다. 탑뷰 이동 뒤에는 기존 YAW_INVALID 재시도도 억제됩니다. hold/verify 보존은 P2 사후 관측 검증 구현이 아닙니다. [Knowledge 연결·인계](../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결)에 호출 순서·오류 선언·모의 테스트 한계를 기록합니다.
+[문서] 실제 C #263/#269의 자동 하위 ID·fallback 오류 제한·부모 timeout/취소·로컬 scope·넛지 뒤 새 관측 출처 검사를 사용합니다. 최초/재관측 null은 VAR_NULL로 차단하고 다른 거부·움직임 불확실·nudge/관측 실패·정지는 뒤 집기를 보내지 않습니다. effect는 기존 전체 성공 뒤에만 적용하며 hold/verify는 보존 선언입니다. 자세 중복 억제와 전체 scan의 유효성은 별개이며, run/대상/서랍·stop/resume/불확실 이동에 따른 scan 재사용 자격은 C 미연결입니다. 이번 카드는 항상 새 관측을 받아 #245 전체 재사용 완료로 보고하지 않습니다.
 
-[문서] 기준은 P1 FR-ONT-01·FR-PLN-01 및 [FR-ACT-05/AC-ACT-05](requirements.md#fr-act-05)입니다. [AC-ACT-05](requirements.md#ac-act-05)의 실물 성공률은 미측정입니다. C 호출열/횟수 검사는 PR #130, pick 시간 예산은 PR #164로 반영됐으며 현재 값은 [태스크 원본](../tasks/find_item.json)에서 확인합니다. 후속 통합에서 B는 배포 SHA·끌기 no-op/실패·탑뷰/wall guard, A는 실제 재관측 새 프레임·좌표를 확인해야 합니다. finally는 기존 안전 조건에 따르며 ESTOP/잠금에서 자동 닫기·홈을 단정하지 않습니다. 과거 시연 전용 온톨로지·집기 원본은 제거했으며 현재 실행 기준은 공통 manifest와 pick입니다. 정식 find_item과 점검용 p1_demo_eraser 태스크는 모두 공통 pick을 호출합니다. 과거 실측 로그·fixture·변경 이력은 보존하지만 현재 실행 기준이나 재관측 검증 완료의 근거로 사용하지 않습니다. P2부터의 공간 판단 주체는 미확정이며 [이슈 #120](https://github.com/Jik-Kim/ready2go/issues/120) 후속 합의 대상으로 남깁니다. FR-ACT-05의 밀기 표현과 실제 누르고 끄는 구현의 문구 차이는 정본 담당 인계이며 이번에 요구사항/계약을 바꾸지 않습니다.
+[문서] 기준은 P1 [FR-ONT-01](requirements.md#fr-ont-01)·[FR-PLN-01](requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](requirements.md#fr-act-05), P2 연결은 [FR-PLN-02](requirements.md#fr-pln-02)·[FR-ACT-04](requirements.md#fr-act-04)입니다. 현재 호출열·E 실제 카드 시험·C/B 문서와 회귀 인계·실물 미검증은 [Knowledge 연결](../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결)을 참조합니다. 과거 #130의 6단계 검사와 #164 시간 예산을 이번 실물 성공이나 유효 scan 재사용 증거로 전용하지 않습니다.
 
 ### 물품 정의·치수·요청 범위 (P1, #8 반영)
 

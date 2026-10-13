@@ -130,11 +130,16 @@ def drag_blocker(*, target: Mapping, size_m: Sequence[float], shift_y_m: float, 
     half = (size_m[0] * 500.0 + margin_mm, size_m[1] * 500.0 + margin_mm)
     n = max(1, math.ceil(math.hypot(sx, sy) / step_mm))
     path = [plp.corners(x + sx * i / n, y + sy * i / n, yaw, *half) for i in range(1, n + 1)]
+    start = plp.corners(x, y, yaw, *half)
+    n_ = math.hypot(sx, sy) or 1.0
     for o in _others(objects, target.get("id"), support_m, below_tol_m):
         ox, oy = o["pose"]["position"][0] * 1000.0 - x, o["pose"]["position"][1] * 1000.0 - y
         if ox * sx + oy * sy <= 0:                                    # 끄는 쪽 뒤(반대편)는 멀어지므로 안 막음
             continue
         rect = plp.neighbor_rect_mm(o, size_of(o.get("class")) or default_size_m)
+        along, side = (ox * sx + oy * sy) / n_, abs(-ox * sy + oy * sx) / n_
+        if along <= 0.5 * side and plp.rects_overlap(start, rect):
+            continue                                                  # 처음부터 옆에 맞붙은 물체 — 옆으로 스치므로 안 막음 [실측 PC2 10/13]
         if any(plp.rects_overlap(p, rect) for p in path):
             return o["id"]
     return None

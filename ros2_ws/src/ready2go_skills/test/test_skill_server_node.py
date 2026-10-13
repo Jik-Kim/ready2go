@@ -2479,18 +2479,18 @@ def test_make_room_moves_target_away_from_neighbor_then_ready(server, monkeypatc
     monkeypatch.setattr(server.ss.SkillServer, "_line", line)
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": scan})
     assert out.success, out.reason
-    mr = data["make_room"]                         # 지우개를 누르면 손가락이 더 높은 망치에 걸림 → 망치를 지우개 반대쪽으로 [press_ok]
-    assert mr["action"] in ("nudge", "sweep") and mr["moved_id"] == "toy_hammer#1" and mr["ready_to_pick"] is False
-    assert data["pushed"] is True and data["push_vector_m"][1] > 0             # 지우개 반대쪽(+y)으로
-    assert mr["moved_after"]["position"][1] > cara["pose"]["position"][1]
-    assert isinstance(mr["pushed_ids"], list) and len(mr["pushed_after"]) == len(mr["pushed_ids"])   # 같이 밀린 물체 구조화 [C #226]
-    assert all(set(q) >= {"id", "frame", "position", "yaw"} for q in mr["pushed_after"])
+    mr = data["make_room"]
+    # 지우개 가운데는 손가락이 더 높은 망치에 걸림 → 예전엔 망치를 밀었음. 10/13 누를 점을 폭 방향으로 비킴(press_point) →
+    # 다른 물체를 안 건드리고 지우개 자신을 빈 쪽(-y)으로 넛지 [실측 PC2 10/13 몽키 머리 끝 누름 수정]
+    assert mr["action"] == "nudge" and mr["moved_id"] == "eraser#1" and mr["ready_to_pick"] is False, mr
+    assert data["pushed"] is True and data["push_vector_m"][1] < 0             # 망치 반대쪽(-y)으로
+    assert mr["pushed_ids"] == [] and mr["pushed_after"] == []                  # 같이 밀린 물체 없음 [C #226]
     drags = [s for s in contact["stages"] if s[0] in ("drag", "drag_back")]
     assert drags and all(abs(end[2] - start[2]) < 0.06 for _, start, end in drags)   # 수평으로만
-    assert data["target_after"]["pose"]["position"] == t["pose"]["position"]   # 목표는 그대로
-    moved = dict(cara, pose=dict(cara["pose"], **mr["moved_after"]))
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True,
-                                            "scan": _scan_with(t, moved)})
+    after = data["target_after"]
+    assert after["pose"]["position"][1] < t["pose"]["position"][1]
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": after, "make_room": True,
+                                            "scan": _scan_with(after, cara)})
     assert out.success and data["make_room"]["ready_to_pick"] is True       # 다시 보면 바로 집기
 
 
@@ -2983,6 +2983,51 @@ def test_cover_plate_pick_ignores_objects_passing_under_between_legs(server):
     assert out.error_code == "NEIGHBOR_TOO_CLOSE", out.reason
 
 
+def test_make_room_cluster_touching_bboxes_still_plans(server):
+    """[실측 PC2 10/13 B clear top 에어팟, 덤프 inspect_20261013_051358_386Z] 에어팟 둘레에 캐러멜·몽키·지우개가 맞붙음 — 온톨로지
+    외접 박스(몽키 머리 61 × 170)가 처음부터 서로 1~2 mm 겹쳐 어느 쪽으로도 0 mm 로 계산 → make_room fail(NEIGHBOR_TOO_CLOSE).
+    처음부터 겹친 물체에서 멀어지는 쪽은 막지 않음 → 에어팟 밀기(sweep, check_only, 로봇 안 움직임)."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1069, 0.1802, 0.0246, 0.0061)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.1047, 0.1346, 0.0234, 0.0061),
+                           o("toy_wrench#1", "toy_wrench", 0.1046, 0.215, 0.0167, -0.1088),
+                           o("eraser#1", "eraser", 0.0562, 0.1729, 0.0136, -1.5254)]}
+    out, data = server.run("nudge_object", {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True})
+    mr = data["make_room"]
+    # make_room.remove_first false(10/13): 에어팟을 -y 로 밀며 캐러멜·지우개를 같이 밀기 한 번 → 집기 [사용자 10/13]
+    assert mr["action"] == "sweep" and "caramel_box#1" in mr["reason"], mr
+    assert srv.robot.log == []
+
+
+def test_make_room_wall_cluster_sweeps_away_from_wall(server):
+    """[실측 PC2 10/13 덤프 inspect_20261013_053849_242Z] 오른쪽 벽(y 0)에 붙은 에어팟 — 손잡이 쪽 옆에 14° 돌아 벽에 닿은 캐러멜
+    (외접 박스가 벽 밖 4 mm), +y 에 몽키, 안쪽에 지우개 → make_room fail "끄는 길에 caramel_box#1". 옆에 맞붙은 물체는 '앞'이
+    아니고, 처음부터 경계 밖으로 그려진 만큼은 봐줌 → 에어팟을 +y 로 밀며 몽키를 같이 밀기(sweep)."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1099, 0.0272, 0.0229, -0.0166)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.04, 0.0293, 0.0229, -0.25),
+                           o("toy_wrench#1", "toy_wrench", 0.1085, 0.0689, 0.0151, -0.1574),
+                           o("eraser#1", "eraser", 0.1723, 0.0119, 0.0128, 0.0064)]}
+    out, data = server.run("nudge_object", {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True})
+    mr = data["make_room"]
+    assert mr["action"] == "sweep" and "toy_wrench#1" in mr["reason"] and "caramel_box#1" not in mr["reason"], mr
+    assert srv.robot.log == []
+
+
 def test_open_refused_while_holding(server):
     """손잡이를 잡으려면 그리퍼를 벌림 → 쥔 물체가 떨어짐 — 열기는 움직이기 전 HOLDING_OBJECT.
     열림 알림(displacement, 로봇 동작 없음)과 서랍 상태는 그대로."""
@@ -3017,3 +3062,79 @@ def test_make_room_no_free_space_refused_before_motion(server):
         server.ss.clp.find_free_pose = real
     assert not out.success and out.error_code == "NO_FREE_SPACE", out.reason
     assert data["make_room"]["action"] == "fail" and srv.robot.log == []
+
+
+def test_nudge_moves_use_slower_nudge_speeds_only_during_nudge(server):
+    """[사용자 10/13 PC2 "clear 할 때 넛지하러 갈 때 기울이거나 하는 게 진짜 빨라서 무섭다, 이동 자체도 빨라"] 넛지 동작 중에만
+    speed.nudge(서랍 안 직선·경유점 관절·손목 회전)를 씀. 넛지가 끝나면 평소 속도로 돌아옴(탑뷰 등은 그대로)."""
+    srv = server.srv
+    seen = []
+    rb = srv.robot
+    ml, mb, mj = rb.movel_async, rb.moveb_async, rb.movej_async
+    rb.movel_async = lambda p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0: (seen.append(("l", vel, rot_vel)), ml(p, vel, acc, rot_vel, rot_acc, radius))[1]
+    rb.moveb_async = lambda pts, radii, vel, acc, rot_vel=30.0, rot_acc=60.0: (seen.append(("b", vel, rot_vel)), mb(pts, radii, vel, acc, rot_vel, rot_acc))[1]
+    rb.movej_async = lambda j, vel, acc: (seen.append(("j", vel, None)), mj(j, vel, acc))[1]
+    import copy
+    real = srv.prm()
+    prm = copy.deepcopy(real)
+    prm["speed"]["nudge"] = nz = {"turn_deg_s": 25.0, "in_drawer_joint_deg_s": 45.0, "view_joint_deg_s": 45.0, "in_drawer_mm_s": 75.0}   # 10/13 기본은 비움(평소 속도)
+    srv.prm = lambda: prm
+    try:
+        server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    finally:
+        del srv.prm
+    assert seen and srv._careful is False
+    assert all(rv == nz["turn_deg_s"] for k, _, rv in seen if k in "lb")               # 손목 회전·기울이기 느리게
+    assert all(v <= max(nz["in_drawer_joint_deg_s"], nz["view_joint_deg_s"]) for k, v, _ in seen if k == "j")   # 관절 이동 느리게
+    assert srv._speed()["turn_deg_s"] == srv.prm()["speed"]["turn_deg_s"]             # 넛지 밖은 평소 값
+    srv._careful = True
+    try:                                                                               # 기본 nudge {} = 넛지 중에도 평소 속도 [사용자 10/13]
+        assert srv._speed() == srv.prm()["speed"]
+    finally:
+        srv._careful = False
+
+
+def test_make_room_remove_first_param_overrides_config(server):
+    """[사용자 10/13 "sweep 후 안 되면 어떤 게 방해되는지 파악해서 다른 물건을 빼내기"] B clear 가 같은 밀기를 되풀이했는데 목표가
+    그대로면 다음 부름에 remove_first: true — 같은 벽 뭉침에서 밀기 대신 막는 물체를 집어 빈 자리로 옮기는 쪽을 먼저 (check_only)."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1099, 0.0272, 0.0229, -0.0166)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.04, 0.0293, 0.0229, -0.25),
+                           o("toy_wrench#1", "toy_wrench", 0.1085, 0.0689, 0.0151, -0.1574),
+                           o("eraser#1", "eraser", 0.1723, 0.0119, 0.0128, 0.0064)]}
+    goal = {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True}
+    _, base = server.run("nudge_object", goal)
+    _, data = server.run("nudge_object", dict(goal, remove_first=True))
+    mr = data["make_room"]
+    assert base["make_room"]["action"] == "sweep"
+    assert mr["action"] != "sweep" and "toy_wrench#1" in mr["reason"], mr   # 몽키만 빈 쪽으로 (에어팟 그대로)
+    assert srv.robot.log == []
+
+
+def test_make_room_wall_airpods_sweeps_once_without_pressing_wrench(server):
+    """[실측 PC2 10/13 inspect_20261013_060416_812Z·062342_604Z] 오른쪽 벽 에어팟, 옆(+y) 몽키, 아래 캐러멜, 위 지우개 —
+    예전: 몽키 머리를 눌러 +y 45 mm(접촉 없음). 지금: 몽키는 안 누르고 에어팟을 +y 로 밀며 몽키를 같이 밀고 되돌아오기 한 번
+    (sweep 최대 make_room.sweep_max_mm) [사용자 10/13 "sweep 먼저", "몽키 헤드 낮은 부분을 자꾸 건드림"]."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1079, 0.0219, 0.0229, 0.0065)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.0361, 0.0221, 0.0229, -0.0055),
+                           o("toy_wrench#1", "toy_wrench", 0.1135, 0.0525, 0.0161, -0.2055),
+                           o("eraser#1", "eraser", 0.1731, 0.0102, 0.0138, 0.0042)]}
+    out, data = server.run("nudge_object", {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True})
+    mr = data["make_room"]
+    assert mr["action"] == "sweep" and "toy_wrench#1" in mr["reason"] and "caramel_box#1" not in mr["reason"], mr
+    assert srv.robot.log == []

@@ -1,6 +1,7 @@
 """종료 최소 연결. 실제 메서드/진단/SDK prompt, 장치·API·ROS 전송만 모의."""
 from dataclasses import replace
 import json
+import queue
 import sys
 import threading
 from pathlib import Path
@@ -52,7 +53,65 @@ def end_capture(h):
 
 
 def diagnostics(h):
-    return [json.loads(line) for line in Path(h.node.cfg['diagnostic_file']).read_text().splitlines()]
+    # task_done은 _append의 파일 close 뒤입니다. 완료 후에도 큐 mutex를
+    # 유지해 다음 enqueue/get/append가 이 읽기와 겹치지 않게 합니다.
+    completed = h.writer.queue.all_tasks_done
+    with completed:
+        assert completed.wait_for(lambda: h.writer.queue.unfinished_tasks == 0, timeout=5), '진단 기록 미완료'
+        return [json.loads(line) for line in Path(h.node.cfg['diagnostic_file']).read_text().splitlines()]
+
+
+def test_diagnostics_waits_for_complete_jsonl_record(cfg, tmp_path, monkeypatch):
+    from ready2go_voice.core.diagnostics import DiagnosticFile
+    partial = threading.Event(); release = threading.Event(); waiting = threading.Event(); done = threading.Event()
+    cfg = dict(cfg, diagnostic_file=str(tmp_path / 'diagnostic.jsonl'))
+    warnings = []; records = []; failures = []
+    class PausedWriter(DiagnosticFile):
+        def _append(self, raw):
+            # 실제 큐/worker/task_done을 유지하고 파일 I/O의 부분쓰기 경계만 제어합니다.
+            with self.path.open('w', encoding='utf-8') as f:
+                cut = len(raw) // 2
+                f.write(raw[:cut]); f.flush(); partial.set()
+                assert release.wait(5), '시험용 부분쓰기 해제 신호 누락'
+                f.write(raw[cut:] + '\n')
+    writer = PausedWriter(cfg, warnings.append)
+    h = SimpleNamespace(node=SimpleNamespace(cfg=cfg), writer=writer)
+    wait = writer.queue.all_tasks_done.wait
+    def observed_wait(timeout=None):
+        waiting.set()
+        return wait(timeout)
+    monkeypatch.setattr(writer.queue.all_tasks_done, 'wait', observed_wait)
+    def read():
+        try: records.extend(diagnostics(h))
+        except BaseException as exc: failures.append(exc)
+        finally: done.set()
+    reader = threading.Thread(target=read)
+    try:
+        writer.emit({'event': 'completed_record', 'value': '한글 기록'})
+        assert partial.wait(5)
+        reader.start()
+        assert waiting.wait(5), '진단 읽기가 기록 완료 경계에서 대기하지 않음'
+        assert not done.is_set()
+        release.set()
+        assert done.wait(5)
+        assert not failures and not warnings
+        assert len(records) == 1 and records[0]['event'] == 'completed_record'
+        assert records[0]['value'] == '한글 기록'
+    finally:
+        release.set()
+        if reader.ident is not None:
+            reader.join(5)
+            assert not reader.is_alive()
+        writer.close()
+
+
+def test_diagnostics_does_not_discard_completed_malformed_record(tmp_path):
+    path = tmp_path / 'malformed.jsonl'
+    path.write_text('{"event":\n', encoding='utf-8')
+    h = SimpleNamespace(node=SimpleNamespace(cfg={'diagnostic_file': str(path)}),
+                        writer=SimpleNamespace(queue=queue.Queue()))
+    with pytest.raises(json.JSONDecodeError):
+        diagnostics(h)
 
 
 def test_running_stop_sdk_end_and_general_duplicate_then_idle_new_request(end_boundary):

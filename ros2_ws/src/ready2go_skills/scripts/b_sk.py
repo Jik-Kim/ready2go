@@ -86,7 +86,7 @@ def goal_for(cmd):
         action, params = goal_for("clear")
         return action, dict(params, check_only=True)
     if cmd == "clear":                                 # 파지 공간 만들기 한 단계 (nudge_object make_room) [제안 10/11 B, 계약 승인 전]
-        params = with_scan({"drawer_id": DRAWER, "target": target(), "make_room": True}, DRAWER)
+        params = with_scan({"drawer_id": DRAWER, "target": target(), "make_room": True, **CLEAR_OPTS}, DRAWER)
         if "scan" not in params:
             sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 먼저 (보내지 않음)")
         return "nudge_object", params
@@ -800,6 +800,8 @@ def unpack(node):
 
 
 CLEAR_STEPS = 12                            # B clear: 다시 보기 사이 동작 최대 수 (넘으면 멈춤 — 같은 동작을 되풀이하지 않게) [제안]
+CLEAR_SAME_M = 0.005                        # B clear: 같은 동작(종류·이유)을 다시 했는데 목표가 이 거리 안에서 그대로면 멈춤 [사용자 10/13 "그 자리 계속 쓸고 반복"]
+CLEAR_OPTS = {}                             # B clear 가 make_room 에 더 보내는 값 — 밀기가 제자리면 remove_first(막는 물체 집어 빈 자리로) [사용자 10/13]
 
 
 def clear(node):
@@ -812,11 +814,31 @@ def clear(node):
         if not timed("scan", lambda: scan(node)):
             sys.exit("목표를 못 찾음 — 어디 있는지 몰라 멈춤 (서랍 안 확인)")
 
+    def target_xy():
+        try:
+            with open(scan_file()) as f:
+                return json.load(f)["pose"]["position"][:2]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    CLEAR_OPTS.clear()
     look()
+    prev = None                                            # (동작, 이유, 목표 위치) — 같은 동작인데 목표가 안 움직이면 멈춤
     for n in range(1, CLEAR_STEPS + 1):
         print(f"\n===== {n}. clear (공간 만들기) =====")
+        before = target_xy()
         ok = timed("clear", lambda: run(node, "clear"))
         mr = last.get("make_room") or {}
+        key = (mr.get("action"), mr.get("reason"))
+        if ok and prev and prev[0] == key and before and prev[1] and math.dist(before, prev[1]) < CLEAR_SAME_M:
+            if CLEAR_OPTS.get("remove_first"):
+                sys.exit(f"같은 동작({key[0]})을 다시 했는데 목표가 {CLEAR_SAME_M * 1000:.0f} mm 안에서 그대로 — 되풀이라 멈춤 "
+                         f"(같이 밀린 물체가 덜 밀렸거나 돌아감 — B scan·B plan 결과와 Bserver WARN 확인) [사용자 10/13]")
+            # 밀기가 제자리 → 막는 물체를 집어 빈 자리로 옮기는 쪽을 먼저 (make_room remove_first) [사용자 10/13 "sweep 후 안 되면 다른 물건 빼내기"]
+            CLEAR_OPTS["remove_first"] = True
+            print(f"\n----- 같은 {key[0]} 인데 목표가 그대로 → 막는 물체 치우기 먼저로 바꿔 다시 -----")
+            key = None
+        prev = (key, before)
         if not ok:
             if last["code"] in STOP_CODES:
                 sys.exit(f"clear {last['code']} — 다시 할 수 없는 상태라 멈춤 (펜던트·터미널 확인)")
