@@ -11,6 +11,9 @@ import json
 import math
 import sys
 from collections import defaultdict
+from pathlib import Path
+
+import yaml
 
 SERVER_JOINT = (80.0, 60.0)      # Bserver 관절 속도·가속 (트레이스 도구는 20 으로 둠 → 실물 값으로 바꿔 계산) [실측 설정 10/11]
 GRIP_S = 1.0                     # 그리퍼 열기·닫기 한 번 [추정]
@@ -75,9 +78,91 @@ def seg_time(s, sc):
     return max(t_lin, trap(s.get("rot_deg", 0.0), rv, s.get("rot_acc", 60.0) * sc.get("rot_scale", 1.0)))
 
 
+HOME = (0.0, 0.0, 90.0, 0.0, 90.0, 0.0)
+VIEW_J6 = -202.0                 # 탑뷰 J6 — +158 도 같은 자세(360° 차이), 가까운 쪽으로 감
+
+
+def _q(s, end=True):
+    return list(s["joints"][-1 if end else 0])
+
+
+def _is_home(q):
+    return max(abs(a - b) for a, b in zip(q, HOME)) < 0.5
+
+
+def _direct(q0, q1, stage, vel=(150.0, 120.0)):
+    """한 번의 관절 이동(movej)으로 바로 — 탑뷰(J6 −202)면 +158 중 가까운 쪽."""
+    q1 = list(q1)
+    if abs(q1[5] - VIEW_J6) < 2.0 and abs(q0[5] - (q1[5] + 360.0)) < abs(q0[5] - q1[5]):
+        q1[5] += 360.0
+    return {"kind": "movej", "stage": stage, "step": "direct", "vel": vel[0], "acc": vel[1], "joints": [list(q0), q1],
+            "joint_travel_deg": [abs(b - a) for a, b in zip(q0, q1)], "new": True}
+
+
+def prune(segs, only="abcd"):
+    """⑦ 불필요한 동작 빼기 [제안 — 바로 가는 관절 이동의 경로는 check_direct 로 높이 확인]:
+    a) 홈 들렀다 올라가서 탑뷰/닫기 시작 → 바로 (서랍 열고 나서·트레이에 놓고 나서·닫기 전)
+    b) 서랍 안에 놓고 경유점으로 되돌리기(back) + 올리기(lift) + 탑뷰 → 놓고 올린 자리에서 탑뷰로 바로
+    c) 같은 자리에서 손목만 돌리는 관절 이동이 연달아 → 한 번
+    d) 올리기(lift) 두 번 연달아 → 한 번"""
+    out, i, n = [], 0, len(segs)
+    while i < n:
+        s = segs[i]
+        nxt = segs[i + 1] if i + 1 < n else None
+        # a) X → 홈(movej) → [lift] → movej Y  ⇒  X → Y
+        if "a" in only and s["kind"] == "movej" and _is_home(_q(s)) and nxt is not None:
+            j = i + 1
+            if segs[j]["kind"] == "movel" and segs[j]["stage"] == "lift" and j + 1 < n:
+                j += 1
+            if segs[j]["kind"] == "movej":
+                out.append(_direct(_q(s, False), _q(segs[j]), "home 안 들르고 바로"))
+                i = j + 1
+                continue
+        # b) back → lift → movej(탑뷰)  ⇒  movej(탑뷰)
+        if "b" in only and s["stage"] == "back" and i + 2 < n and segs[i + 1]["stage"] == "lift" and segs[i + 2]["kind"] == "movej":
+            out.append(_direct(_q(s, False), _q(segs[i + 2]), "되돌리기 없이 탑뷰로"))
+            i += 3
+            continue
+        # c) movej → movej (같은 TCP)  ⇒  하나
+        if "c" in only and s["kind"] == "movej" and nxt is not None and nxt["kind"] == "movej" and max(s["joint_travel_deg"]) < 15.0 \
+                and not s.get("new") and nxt.get("step") == s.get("step"):
+            out.append(_direct(_q(s, False), _q(nxt), "손목 돌리기 합침", (s["vel"], s["acc"])))
+            i += 2
+            continue
+        # d) lift → lift  ⇒  하나
+        if "d" in only and s["stage"] == "lift" and nxt is not None and nxt["stage"] == "lift" and s["kind"] == nxt["kind"] == "movel":
+            out.append(dict(s, dist_mm=s["dist_mm"] + nxt["dist_mm"], stage="lift 합침", step="direct", new=True,
+                            joints=[_q(s, False), _q(nxt)]))
+            i += 2
+            continue
+        out.append(s)
+        i += 1
+    return out
+
+
+def check_direct(segs, places):
+    """바로 가는 관절 이동 경로(관절 직선 보간)의 TCP 최저 높이 — 서랍 테두리·트레이 테두리보다 높은지 [계산]."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "sim/motion_check"))
+    import m0609_kin as kin
+    rims = {d: 1000.0 * (places[d]["tf"]["translation_m"][2] + places[d]["interior_m"][2]) for d in ("drawer_top", "drawer_bottom")}
+    rows = []
+    for s in segs:
+        if not (s.get("new") and s["kind"] == "movej"):
+            continue
+        q0, q1 = s["joints"][0], s["joints"][-1]
+        zs = []
+        for t in [k / 40.0 for k in range(41)]:
+            q = [a + (b - a) * t for a, b in zip(q0, q1)]
+            zs.append(kin.fk(q)[:3, 3] * 1000.0)
+        low = min(zs, key=lambda p: p[2])
+        rows.append((s["stage"], round(float(zs[0][2])), round(float(zs[-1][2])), [round(float(v)) for v in low]))
+    return rows, rims
+
+
 def flow_time(tr, sc):
     by_step, by_kind = defaultdict(float), defaultdict(float)
-    for s in tr["segments"]:
+    segs = prune(tr["segments"], sc["prune"] if isinstance(sc.get("prune"), str) else "abcd") if sc.get("prune") else tr["segments"]
+    for s in segs:
         t = seg_time(s, sc) + CMD_S
         by_step[s.get("step", "?")] += t
         key = "느린 마지막(≤20 mm/s)" if s["kind"] != "movej" and s["vel"] <= 20 else s["kind"]
@@ -100,6 +185,12 @@ SCENARIOS = [
     ("④ 회전 속도 60 → 90 °/s", {"rot_scale": 1.5}),
     ("⑤ 들고 나오기 멈춤 0.5 s 빼기 + movesx (moveb 구간 −5%)", {"pause_scale": 0.0, "blend_save": 0.05}),
     ("⑥ 손목 덜 돌리기 (탑뷰 J6 +158°, 경유점 J6 +150°, 손잡이 자세 손목 뒤집기) — 실물 간섭 확인 전", {"wrist": True}),
+    ("⑦a 홈 안 들르고 바로 (열고 나서·트레이 놓고·닫기 전)", {"prune": "a"}),
+    ("⑦b 서랍 안 놓고 되돌리기(back)·올리기 없이 탑뷰로", {"prune": "b"}),
+    ("⑦c 같은 자리 손목 돌리기 합치기", {"prune": "c"}),
+    ("⑦d 올리기 두 번 → 한 번", {"prune": "d"}),
+    ("⑦ 불필요한 동작 빼기 (a~d)", {"prune": True}),
+    ("⑦ + ①②⑤ (속도·손목 자세 그대로)", {"prune": True, "slow_acc": 100.0, "acc_ratio": 1.5, "pause_scale": 0.0, "blend_save": 0.05}),
     ("①+②+④+⑤ (속도는 그대로)", {"slow_acc": 100.0, "acc_ratio": 1.5, "rot_scale": 1.5, "pause_scale": 0.0, "blend_save": 0.05}),
     ("①+②+④+⑤+⑥ (속도는 그대로)", {"slow_acc": 100.0, "acc_ratio": 1.5, "rot_scale": 1.5, "pause_scale": 0.0,
                                    "blend_save": 0.05, "wrist": True}),
@@ -119,6 +210,13 @@ def main():
         for name, sc in SCENARIOS:
             t, _, _ = flow_time(tr, sc)
             print(f"  {t:6.1f} s  ({t - base:+5.1f} s, {100 * (t - base) / base:+4.0f}%)  {name}")
+        segs = prune(tr["segments"])
+        print(f"  ⑦ 명령 {len(tr['segments'])} → {len(segs)}개. 바로 가는 관절 이동의 TCP 높이 (시작 → 끝, 가장 낮은 점 [x, y, z] mm):")
+        places = yaml.safe_load((Path(__file__).resolve().parents[3] / "config/places.yaml").read_text(encoding="utf-8"))
+        rows, rims = check_direct(segs, places)
+        for stage, z0, z1, low in rows:
+            print(f"    {stage:16s} z {z0} → {z1}, 최저 {low}")
+        print(f"    (테두리 z: 위 칸 {rims['drawer_top']:.0f}, 아래 칸 {rims['drawer_bottom']:.0f})")
 
 
 if __name__ == "__main__":
