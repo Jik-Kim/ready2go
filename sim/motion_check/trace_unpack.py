@@ -99,6 +99,11 @@ class Scene:
             o = self.objs[oid]
             o["pose"] = dict(o["pose"], position=[round(pose["position"][0], 4), round(pose["position"][1], 4), 0.0],
                              yaw=round(float(pose.get("yaw", o["pose"]["yaw"])), 4))
+            # 옮긴 물체가 덮던 물체: 새 자리 밑에 없으면 관계 뺌 (10/13 main: unstack 을 nudge_object 로 함 → 판을 치워도
+            # 지우개가 계속 판 밑으로 남아 같은 unstack 되풀이). 판정은 놓기와 같이 아래 물체 가운데가 옮긴 물체 외접 사각형 안인지
+            for x in self.objs.values():
+                if x is not o and oid in (x.get("occluded_by") or []) and not _inside(*x["pose"]["position"][:2], o, self.items):
+                    x["occluded_by"] = [i for i in x["occluded_by"] if i != oid]
 
     def place(self, pose: dict | None):
         """pose = 놓은 자리(서랍 좌표, placed_pose). None = 서랍 밖(트레이)."""
@@ -184,6 +189,9 @@ def main():
         results.append(dict(step=cmd, action=action, success=out.success, error=out.error_code, reason=getattr(out, "reason", ""),
                             segments=len(robot.segments) - n0, first_segment=n0,
                             target=((params.get("target") or {}).get("id")), slot=params.get("slot"), location=params.get("location")))
+        mr_ = ((data or {}).get("make_room") or {}) if action == "nudge_object" else {}
+        if out.success and mr_.get("action") == "unstack" and mr_.get("moved_id"):
+            results[-1]["carried"] = mr_["moved_id"]              # make_room unstack = 서버 안에서 집어 빈 자리에 놓음 → 물리 재생이 쥔 물체로 봄
         print(f"[{cmd}] {action} success={out.success} {out.error_code or ''} {getattr(out, 'reason', '') or ''} (이동 {len(robot.segments) - n0}개)")
         if out.success and action == "pick_object":
             scene.pick(params["target"]["id"])

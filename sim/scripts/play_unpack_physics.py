@@ -241,8 +241,14 @@ def support_z(oid):
             continue
         T2 = pose_of(o2)
         sz = ITEMS[cls_of[o2]]["size_m"]
-        d = np.linalg.inv(T2[:3, :3]) @ (T[:3, 3] - T2[:3, 3])
-        top2 = T2[2, 3] + sz[2]
+        _bbc.Clear()                                                        # 윗면·가운데는 실제 외곽 상자로 — 구른 원통(립밤)은 기준점(바닥 가운데)이
+        r2 = _bbc.ComputeWorldBound(stage.GetPrimAtPath(f"/World/phys_objs/{o2.replace('#', '_')}")).ComputeAlignedRange()   # 축 둘레로 돌아 위로 뜸 (10/13 -21.8 mm 헛보고)
+        c2 = (np.array(r2.GetMin()) + np.array(r2.GetMax())) / 2
+        yaw2 = math.atan2(T2[1, 0], T2[0, 0])                               # 긴 축(x)은 굴러도 수평 — 그 방향이 yaw
+        c_, s_ = math.cos(yaw2), math.sin(yaw2)
+        dx_, dy_ = T[0, 3] - c2[0], T[1, 3] - c2[1]
+        d = np.array([dx_ * c_ + dy_ * s_, -dx_ * s_ + dy_ * c_])
+        top2 = r2.GetMax()[2]
         if abs(d[0]) <= sz[0] / 2 and abs(d[1]) <= sz[1] / 2 and top2 <= bottom + 0.03:
             z = top2 if z is None else max(z, top2)
     return z
@@ -305,7 +311,16 @@ def apply(q_arm, f_deg, travel):
 grips = {}
 for g in TRACE.get("grip_events", []):
     grips.setdefault(g["before_segment"], []).append(g["width_mm"])
-acts = [r for r in TRACE["results"] if r.get("success") and r["action"] in ("pick_object", "place_object")]
+acts = [r for r in TRACE["results"] if r.get("success") and (r["action"] in ("pick_object", "place_object") or r.get("carried"))]
+# carried = make_room unstack(nudge_object 안에서 집어 빈 자리에 놓음, 10/13 main) — 닫으면 그 물체를 쥐고 벌리면 서랍에 놓음
+
+
+def pick_target(a):
+    return (a or {}).get("carried") or ((a or {}).get("target") if a and a["action"] == "pick_object" else None)
+
+
+def is_place(a):
+    return bool(a) and (a["action"] == "place_object" or bool(a.get("carried")))
 rescans = {e["before_segment"]: e for e in EVENTS[1:] if e["why"].startswith("인식")}
 scan_src = {s["segment"]: s["source"] for s in TRACE.get("scans", [])}
 
@@ -393,15 +408,15 @@ for s in TRACE["segments"]:
             set_kin(o["id"], False)
             put(o["id"], obj_world(o, travel))
     a = act_at(s["i"])
-    tgt = (a or {}).get("target") if a and a["action"] == "pick_object" else (held if a and a["action"] == "place_object" else None)
+    tgt = held if held is not None and is_place(a) else pick_target(a)
     for oid in cls_of:
         grip_filter(oid, oid == tgt, trays=(oid == held))
     for w_new in grips.get(s["i"], []):
         for k in range(1, 31):
             apply(s["joints"][0], finger_deg(width + (w_new - width) * k / 30), travel)
         closing, width = w_new < width, w_new
-        if a and a["action"] == "pick_object" and closing and held is None and w_new > 3.0 and a.get("target") in present:
-            held = a["target"]
+        if pick_target(a) and closing and held is None and w_new > 3.0 and pick_target(a) in present:
+            held = pick_target(a)
             tz, sup = tip_low_z(), support_z(held)                         # 닫은 순간 손끝 최저점 vs 물체 밑 받침(바닥·아래 물체) 윗면
             if tz is not None and sup is not None:
                 clr = (tz - sup) * 1000
@@ -432,7 +447,7 @@ for s in TRACE["segments"]:
             rel = np.linalg.inv(W @ kin.fk(s["joints"][0])) @ pose_of(held)
             in_drawer.discard(held)
             print(f"[phys]     잡음 {held}", flush=True)
-        elif a and a["action"] == "place_object" and not closing and held is not None:
+        elif is_place(a) and not closing and held is not None:
             sz_ = support_z(held)                                          # 놓는 순간 바닥·아래 물체 속이면 그 위로 (흉내 잡기라 파묻힐 수 있음)
             Th = pose_of(held)
             tilt = math.degrees(math.acos(max(-1.0, min(1.0, Th[2, 2]))))
@@ -505,7 +520,7 @@ for s in TRACE["segments"]:
                 put(oid, W @ T_bd @ shift @ Tr)
         if held is not None:
             Tc = W @ kin.fk(q) @ rel
-            sup = support_z(held) if s["step"] in ("aside", "restore", "free", "place") else None
+            sup = support_z(held) if s["step"] in ("aside", "restore", "free", "place", "clear") else None
             if sup is not None and Tc[2, 3] < sup:                         # 내려가다 바닥·아래 물체에 먼저 닿음 → 손 안에서 위로 밀림
                 d_mm = (sup - Tc[2, 3]) * 1000                              # (실물은 힘 감시가 멈추는 자리) — 얼마나 먼저 닿았는지 기록
                 fl = report.setdefault("place_early_touch", {})
