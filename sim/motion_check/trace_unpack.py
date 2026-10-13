@@ -104,6 +104,15 @@ class Scene:
             for x in self.objs.values():
                 if x is not o and oid in (x.get("occluded_by") or []) and not _inside(*x["pose"]["position"][:2], o, self.items):
                     x["occluded_by"] = [i for i in x["occluded_by"] if i != oid]
+            self.placed[oid] = tuple(o["pose"]["position"][:2])          # 시뮬이 옮긴 자리 — 다음 실물 덤프와 다르면 이 자리를 씀 (#306 E 리뷰 2)
+
+    def unstack(self, oid: str, pose: dict | None):
+        """make_room unstack = 서버 안에서 집어 빈 자리에 놓음 → 집기·놓기와 같이 갱신(받침 높이·top_z·가림·놓은 자리)
+        [#306 E 리뷰 1: 평면 이동으로만 바꾸면 쌓였던 top_z 52.8 mm 가 바닥에서도 남음]."""
+        if oid not in self.objs or not pose:
+            return
+        self.pick(oid)
+        self.place(pose)
 
     def place(self, pose: dict | None):
         """pose = 놓은 자리(서랍 좌표, placed_pose). None = 서랍 밖(트레이)."""
@@ -123,6 +132,29 @@ class Scene:
             if u["top_z"] < o["top_z"]:
                 u["occluded_by"] = sorted(set((u.get("occluded_by") or []) + [o["id"]]))
         self.objs[o["id"]] = o
+
+
+def merge_dump(scene: Scene, res: dict, search: str) -> tuple[dict, list]:
+    """실물 덤프 인식 res 에 시뮬 결과를 합침: 이번 시뮬에서 놓거나 옮기거나(넛지·sweep·unstack·--set-pose) 트레이로 보낸·쥔
+    물체가 덤프와 20 mm 넘게 다르면 그 물체만 시뮬 자리로 — 손대지 않은 물체는 실물 인식 그대로. (합친 결과, 다른 물체 id 목록)"""
+    objs_ = {o["id"]: o for o in ([res["target"]] if res.get("target") else []) + list(res.get("candidates") or [])}
+    moved = set(scene.placed) | set(scene.away) | ({scene.held["id"]} if scene.held else set())
+    off = []
+    for oid in moved:
+        o = objs_.get(oid)
+        sim = scene.objs.get(oid)
+        if sim is None:                                        # 트레이로 갔거나 쥔 것 — 덤프에 있으면 빼야 함
+            if o is not None:
+                off.append(oid)
+            continue
+        if o is None or math.hypot(o["pose"]["position"][0] - sim["pose"]["position"][0], o["pose"]["position"][1] - sim["pose"]["position"][1]) > 0.02:
+            off.append(oid)
+    if not off:
+        return res, off
+    keep = [copy.deepcopy(o) for oid, o in objs_.items() if oid not in moved]
+    keep += [copy.deepcopy(scene.objs[oid]) for oid in moved if oid in scene.objs]
+    t = next((o for o in keep if o["class"] == search), None)
+    return {"target_found": t is not None, "target": t, "candidates": [o for o in keep if o is not t], "visible_count": len(keep)}, off
 
 
 def _inside(x, y, u, items) -> bool:
@@ -163,6 +195,8 @@ def main():
         edited.append({"id": oid, "pose": o["pose"]})
         print(f"  ** 첫 장면 배치 바꿈: {oid} → ({nums[0]:.1f}, {nums[1]:.1f}) mm" + (f" yaw {nums[2]:.1f}°" if len(nums) > 2 else ""))
     scene = Scene(first, drawer, items)
+    for e_ in edited:                                             # 바꾼 배치는 시뮬 자리 — 다음 실물 덤프가 원래 자리를 보여도 이 자리 유지 (#306 E 리뷰 2)
+        scene.placed[e_["id"]] = tuple(e_["pose"]["position"][:2])
 
     robot = tsf.KinRobot(tsf.HOME_J)
     ss, sf, srv, Gripper = tsf.load_server(ROOT, robot)
@@ -227,7 +261,10 @@ def main():
             if data.get("target_after") and (not mr or mr.get("moved_id") == tid):
                 moved.append((tid, data["target_after"].get("pose") if "pose" in data["target_after"] else data["target_after"]))
             for oid, pose in moved:
-                scene.move(oid, pose)
+                if mr.get("action") == "unstack" and oid == mr.get("moved_id"):
+                    scene.unstack(oid, mr.get("placed_pose") or pose)
+                else:
+                    scene.move(oid, pose)
             if moved:
                 scene.snapshot(len(robot.segments), f"옮김 {[m[0] for m in moved]} ({mr.get('action') or 'nudge'})")
         return out.success
@@ -241,27 +278,12 @@ def main():
         if k >= len(a.dump):
             return None
         res = replay_dump(Path(a.dump[k]), search)[0] if k else first
-        objs_ = {o["id"]: o for o in ([res["target"]] if res.get("target") else []) + list(res.get("candidates") or [])}
-        moved = set(scene.placed) | set(scene.away) | ({scene.held["id"]} if scene.held else set())
-        off = []
-        for oid in moved:
-            o = objs_.get(oid)
-            sim = scene.objs.get(oid)
-            if sim is None:                                    # 트레이로 갔거나 쥔 것 — 덤프에 있으면 빼야 함
-                if o is not None:
-                    off.append(oid)
-                continue
-            if o is None or math.hypot(o["pose"]["position"][0] - sim["pose"]["position"][0], o["pose"]["position"][1] - sim["pose"]["position"][1]) > 0.02:
-                off.append(oid)
-        if not off:
-            return res
-        note = f"인식 {k + 1}: {off} 이(가) 실물 덤프와 다른 자리 — 그 물체만 시뮬 자리로 바꿔 합침"
-        diverged.append(note)
-        print(f"  ** {note}")
-        keep = [copy.deepcopy(o) for oid, o in objs_.items() if oid not in moved]
-        keep += [copy.deepcopy(scene.objs[oid]) for oid in moved if oid in scene.objs]
-        t = next((o for o in keep if o["class"] == search), None)
-        return {"target_found": t is not None, "target": t, "candidates": [o for o in keep if o is not t], "visible_count": len(keep)}
+        res, off = merge_dump(scene, res, search)
+        if off:
+            note = f"인식 {k + 1}: {off} 이(가) 실물 덤프와 다른 자리 — 그 물체만 시뮬 자리로 바꿔 합침"
+            diverged.append(note)
+            print(f"  ** {note}")
+        return res
 
     def inspect_all(node, search):
         if not b.timed("view", lambda: run(node, "view")):

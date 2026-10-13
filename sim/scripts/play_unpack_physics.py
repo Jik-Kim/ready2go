@@ -196,11 +196,32 @@ def set_kin(oid, on):
 _bbc = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default", "proxy", "render", "guide"], useExtentsHint=False)   # 충돌 형상은 guide 일 수 있음
 
 
+TIP_APPROX = {"bbox": 0}                                                # 꼭짓점을 못 구해 상자로 잰 횟수 (보고)
+
+
 def tip_low_z():
-    """손끝(안쪽 손가락 충돌 형상) 가장 낮은 점의 월드 z."""
-    _bbc.Clear()
-    rs = [_bbc.ComputeWorldBound(stage.GetPrimAtPath(p)).ComputeAlignedRange() for p in TIP_PRIMS]
-    zs = [r.GetMin()[2] for r in rs if not r.IsEmpty()]
+    """손끝(안쪽 손가락 충돌 형상) 가장 낮은 점의 월드 z — 충돌 메시 꼭짓점을 월드로 바꾼 z 최소값.
+    축 정렬 상자는 손가락을 기울이면 모서리가 실제 곡면보다 아래로 내려감(20° 에서 약 4 mm, #306 B 리뷰 1) → 메시가 아니면만 상자로."""
+    xc = UsdGeom.XformCache(Usd.TimeCode.Default())
+    zs = []
+    for path in TIP_PRIMS:
+        root = stage.GetPrimAtPath(path)
+        meshes = [q for q in Usd.PrimRange(root, Usd.TraverseInstanceProxies()) if q.IsA(UsdGeom.Mesh)]
+        got = False
+        for q in meshes:
+            pts = UsdGeom.Mesh(q).GetPointsAttr().Get()
+            if not pts:
+                continue
+            M = gf_to_np(xc.GetLocalToWorldTransform(q))                    # 열 벡터 규약 (M · p)
+            P = (M @ np.hstack([np.array(pts, dtype=float), np.ones((len(pts), 1))]).T).T
+            zs.append(float(P[:, 2].min()))
+            got = True
+        if not got:
+            _bbc.Clear()
+            r = _bbc.ComputeWorldBound(root).ComputeAlignedRange()
+            if not r.IsEmpty():
+                zs.append(r.GetMin()[2])
+                TIP_APPROX["bbox"] += 1
     return min(zs) if zs else None                                        # 못 구하면 None (TCP 기준으로)
 
 
@@ -480,7 +501,7 @@ for s in TRACE["segments"]:
             if tz is not None and sup is not None:
                 clr = (tz - sup) * 1000
                 report.setdefault("grasp_clearance", []).append({"segment": s["i"], "id": held, "tip_above_support_mm": round(clr, 1)})
-                print(f"[phys]     집기 손끝-받침 여유 {held}: {clr:+.1f} mm{'  ◀ 손끝이 받침 윗면보다 낮음 (받침 옆으로 내려간 것인지 화면 확인)' if clr < 0 else ''}", flush=True)
+                print(f"[phys]     집기 손끝-받침 여유 {held}: {clr:+.1f} mm{'  ◀ 손끝이 받침 윗면보다 낮음 (받침 옆으로 내려간 것인지 화면 확인)' if clr < -0.5 else ''}", flush=True)
             for tp in TIP_PRIMS + [p for p in GRIP_LINKS if "knuckle" in p]:   # 잡는 순간 손가락·마디가 다른 물체와 겹치는지 (축 정렬 상자)
                 _bbc.Clear()
                 rt = _bbc.ComputeWorldBound(stage.GetPrimAtPath(tp)).ComputeAlignedRange()
@@ -628,6 +649,7 @@ for s in TRACE["segments"]:
             report["moves"].append(rec)
             print(f"[phys]   ▶ {oid} 움직임 {d:.1f} mm, 회전 {ang:.1f}° (높이 {rec['dz_mm']:+.1f} mm) — 구간 #{s['i']} {s['step']}/{s['stage']}", flush=True)
 print(f"[phys] 끝 — 잡지 않은 물체 움직임 {len(report['moves'])}건, 다시 인식 차이 기록 {len(report['scan_drift'])}건", flush=True)
+report["tip_bbox_approx"] = TIP_APPROX["bbox"]                         # 손끝을 상자로 잰 횟수 (0 이면 전부 메시 꼭짓점)
 if args.report:
     Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"[phys] 보고 → {args.report}", flush=True)
