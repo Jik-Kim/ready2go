@@ -151,7 +151,8 @@ def long_action_system(tmp_path):
 
 
 def test_cancel_stops_running_task_and_locks(long_action_system):
-    """진행 중인 동작(첫 안내 speak)에 "멈춰" → 그 goal 취소(CANCELED), 정지 기록, 잠김."""
+    """진행 중인 동작(첫 안내 speak)에 "멈춰" → 그 goal 취소(CANCELED), 정지 기록, 잠김.
+    #259: 음성 goal 은 취소하지만 로봇 goal 이 아니라 canceled_goals 0, halt.stop none(멈출 로봇 동작 없었음)."""
     runner, voice = long_action_system
     voice.say(intent())
     # 첫 안내 speak 가 나가 있는 동안 멈춤 (계약07 뒤 s2 는 accept_text if — 안내는 s2.1/s2.2)
@@ -160,7 +161,8 @@ def test_cancel_stops_running_task_and_locks(long_action_system):
     assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"), voice.status
     assert voice.status["phase"] == "halted" and voice.status["halt_code"] == "HALTED"
     halt = runner.log_store.read_run(voice.status["last"]["run_id"])["run"]["halts"][0]   # #187 정지 기록
-    assert halt["source"] == "voice" and halt["canceled_goals"] == 1 and halt["step_code"] == "CANCELED"
+    assert halt["source"] == "voice" and halt["canceled_goals"] == 0 and halt["step_code"] == "CANCELED"
+    assert (voice.status["halt"]["stop"], voice.status["halt"]["response_code"]) == ("none", None)
     voice.say(intent())                                 # 잠김: 사람이 확인하기 전 새 태스크 없음
     assert voice.wait(lambda s: last_intent(s).get("reason") == "LOCKED"), voice.status
 
