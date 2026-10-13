@@ -5,6 +5,7 @@
 
 > **갱신 10/12 12:15 (C)**: 코드 = **main**(#233 Unpacking 병합 `85492c5` 이후) · 판정 기준 **A안 확정**(3절 끝) · 준비 보완 — 호스트 방식 끄기·첫 빌드 시간·음성 노드 `r2genv`·**`/voice/speak` 없으면 첫 안내에서 실패**·DB 접속(7절). 오늘 12:00 예정이었다가 미뤄짐(시각 E 공지).
 > **갱신 10/12 16:10 (C, #239 E 리뷰 P2)**: A안 문구 정정 — 정본은 원래 자리가 다른 물건 위인 경우도 정해 둠(복구 지지면 = 바닥 또는 아래 물체 윗면). A안은 **이번 점검의 제한적 통과**이고 원위치 복구·AC-ACT-03 완료가 아님(3절 끝).
+> **갱신 10/12 17:50 (C)**: 오늘 실제 진행 방식 반영 — **PC2 한 대·터미널 5개**(1-1절, PC1 안 씀), 시작 상태 임시 변경(1절 3a·7절 되돌리기), **회차 중 사람 개입은 기록**·배치는 시작 전에(2절), B #243(16:06 머지) 복구 때 물건 위 놓기(3절). 오늘 결과는 [10/12 기록](2026-10-12_practice.md).
 >
 > 갱신 10/12 10:05 (C): 시험 브랜치 `26c0b5b` 이후(최신 main — B #226 놓기 하강 힘 감시·운용 힘·잡는 폭 포함 — + 움직이기 전 거부 코드 #232) · 점검 전 **S2 리허설 1회**(10/11 Runner 실물 미실행) · **S1 은 B 확인 배치만**(#229) · 원래 자리가 다른 물건 위였을 때 판정 기준 칸(3절 끝, E 답 대기).
 
@@ -26,12 +27,39 @@
 | 1 | 코드 받기 | `git status`(고친 파일 있으면 멈춤) → `git fetch origin && git checkout main && git pull --ff-only origin main` → `git log --oneline -1` 이 `85492c5` 이후 | B |
 | 2 | 모델 받기·확인 | `git lfs pull` → `sha256sum models/yolo11s_seg_ready2go_v1.pt` 가 `5b9527b78ebf…` (133 B 면 포인터 — 비전 노드가 꺼짐) | B·A |
 | 3 | **`.env`** | `BACKEND=real` · `ROBOT_HOST`·`RG2_HOST`(B 확인, 인수인계 192.168.1.100·192.168.1.1) · `DDS_MODE=local`(PC1 트윈 안 쓸 때) · `VISION_MODE=yolo` · `MOCK_SCENE=` 비움 · 스킬 속도는 B 판단. **음성 → Unpacking**: `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json` (코드 수정 없음, [runner.md "음성으로 시작"](../../docs/runner.md)) | C |
+| 3a | **시작 상태 임시 변경 (PC2 에서만, 커밋 안 함)** | Runner 시작 상태 `knowledge/snapshots/initial_state.json` 이 모든 물품 `drawer_top` → 아래 칸 장면은 **지우개·립밤·덮개 판 3개만 `drawer_bottom`** 으로 (명령은 1-1절). E 소유 파일이라 E 에게 알림, **끝나면 7절에서 되돌림** | B |
 | 4 | 사후 검증 모드 | `.env` 그대로 — `verify_mode` 는 기본 `off` (#43 트레이 확인 `enforce` 는 계약 PR 전이라 쓰지 않음) | C |
-| 5 | 기동 | `docker compose --profile real up` — 처음엔 컨테이너 안 빌드(colcon)로 몇 분, 이미지 오류면 `docker compose --profile real build` 뒤 다시 `up`. 확인: DSR 드라이버·`/gripper/state` / 스킬 서버(`SKILL_START_DELAY_S` 뒤) / realsense·vision | B |
+| 5 | 기동 | **1-1절 터미널 순서대로**. `docker compose --profile real up` 한 번으로는 **비전·음성 노드가 안 뜸**(`vision`·`voice` 컨테이너는 대기만) — 처음엔 컨테이너 안 빌드(colcon)로 몇 분, 이미지 오류면 `docker compose --profile real build` | B |
 | 6 | Runner 준비 줄 확인 | 콘솔 `Runner 준비: … 인텐트 {… 'find_item': 'find_with_unpack'}` | C |
-| 7 | 음성 노드 | PC2 호스트 터미널에서 **먼저 `r2genv`**(ROS_DOMAIN_ID 70·CycloneDDS — 없으면 컨테이너 Runner 와 통신 안 됨) → 로컬 YAML `audio_enabled: true` → **Runner 연동용 `evaluation_mode:=false`**(Voice README "사용자 PC 시운전 명령"). "○○ 찾아줘" 가 `find_item` 으로 나가는지. ⚠️ 음성 노드가 **`/voice/speak`(TTS)** 를 맡음 — 없으면 태스크 첫 안내 s2 "○○을 찾아 올게요"에서 바로 실패(로봇 동작 없음). 음성 입력이 안 돼도 노드는 켜 둠 | E |
+| 7 | 음성 노드 | PC2 호스트 터미널에서 **먼저 `r2genv`**(ROS_DOMAIN_ID 70·CycloneDDS — 없으면 컨테이너 Runner 와 통신 안 됨) → `source .venvs/project/bin/activate` → **`source ros2_ws/install_host/setup.bash`**(컨테이너가 만든 `ros2_ws/install` 과 충돌하지 않게) → 로컬 YAML `logs/voice_eval/voice.local.yaml` **원래대로**(`audio_enabled: true`, 웨이크·마이크·스피커 경로, TTS `melotts` — 10/12 오전 임시 `audio_enabled: false`·espeak 되돌리기) → **Runner 연동용 `evaluation_mode:=false`**(Voice README "사용자 PC 시운전 명령"). "○○ 찾아줘" 가 `find_item` 으로 나가는지. ⚠️ 음성 노드가 **`/voice/speak`(TTS)** 를 맡음 — 없으면 태스크 첫 안내 s2 "○○을 찾아 올게요"에서 바로 실패(로봇 동작 없음). 음성 입력이 안 돼도 노드는 켜 둠 | E |
 | 8 | 시작 상태 | 서랍 **닫힘**, 그리퍼 **빈손**, 로봇 **홈**, 트레이 비어 있음 | B |
 | 9 | **리허설 1회 (점검 전)** | **S2(아래 칸 덮개 판)** 를 2절 순서대로 1회 — 10/11 에 Runner 로 Unpacking 실물을 돌리지 못해 첫 실물 실행. 음성 대신 `RUNNER_TASK_FILE` 로 시작해도 됨. 문제 생기면 6절 → C 가 `run_report -n 1` 로 원인 확인 뒤 본 점검 | B·C |
+
+### 1-1. PC2 한 대 — 터미널 5개 (10/12 실제 방식)
+
+PC1 은 쓰지 않는다. 로봇·카메라·비전·음성·Runner·DB 모두 PC2. 시험 중에는 `B unpack`·`B clear` 등 **B 명령을 쓰지 않는다**(같은 로봇·비전을 부름).
+
+| 터미널 | 누가 | 명령 | 확인 |
+| :--- | :--- | :--- | :--- |
+| ① 카메라 | B | `docker compose --profile real up realsense` | |
+| ② 로봇·Runner·DB | B | `docker compose --profile real up ros2-core db` | DSR 드라이버 연결 → `gripper_state` → 스킬 서버 준비 → `Runner 준비: … 'find_item': 'find_with_unpack'` |
+| ③ 비전 | A | `bash tools/dev/vision_real_check.sh check` → `bash tools/dev/vision_real_check.sh node` | `check`: 뎁스 약 30 Hz, TF `base_link → wrist_cam_color_optical_frame`. 이미지가 없으면 `docker compose --profile real build vision` |
+| ④ 음성 | E | PC2 호스트 — 1절 7번 순서(`r2genv` → `.venvs/project` → `install_host` → `evaluation_mode:=false`) | "헬로 로키" → "지우개 찾아줘" → 음성 콘솔 `find_item` 발행 → Runner 콘솔 `decision: run` |
+| ⑤ C 명령 | C | `docker compose exec ros2-core /entrypoint.sh …` (2절) | `/robot_state` 에서 지우개·립밤·덮개 판 = `drawer_bottom` |
+
+시작 상태 임시 변경 (1절 3a, ② 띄우기 전에):
+```bash
+cd ~/ready2go && python3 - <<'PY'
+import json
+f = "knowledge/snapshots/initial_state.json"
+d = json.load(open(f, encoding="utf-8"))
+for item in ("eraser", "lip_balm", "cover_plate"):
+    d["state"]["located_in"][item] = "drawer_bottom"
+open(f, "w", encoding="utf-8").write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+PY
+git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정상
+```
+이미 ② 가 떠 있으면 `docker compose restart ros2-core` 뒤 ⑤ 로 확인. 음성 인식이 막히면 글자로 넣기(E 음성 노드 해석을 거침): `docker compose exec ros2-core /entrypoint.sh ros2 topic pub --once /voice/text_override std_msgs/msg/String "data: '지우개 찾아줘'"`
 
 ## 2. 회차마다 순서
 
@@ -48,6 +76,8 @@
 - C 명령은 PC2 저장소 폴더에서 `docker compose exec ros2-core /entrypoint.sh …` 로 (호스트에서 `r2genv` 뒤 `ros2 …` 로 해도 됨).
 - 음성이 안 될 때 직접 시작: `docker compose exec ros2-core /entrypoint.sh ros2 topic pub --once /voice/intent std_msgs/msg/String "data: '{\"intent\": \"find_item\", \"targets\": [\"eraser\"], \"confidence\": 0.95, \"source\": {\"stt_text\": \"지우개 찾아줘\"}}'"`
 - 마지막에 `run_report -n 20 --check` (기록 빠짐 점검, AC-LOG-01).
+- **회차 중 사람 개입 금지 — 개입했으면 기록.** 실행 중에 물건을 빼거나 옮기면 그 회차는 기록표 "비고"에 **사람 개입(무엇을, 언제)** 으로 적고 자동 성공으로 세지 않는다. 예: 10/12 16:36 `cfa886` — 지우개 전달 뒤 사람이 립밤을 빼서 판이 원래 자리로 돌아감(위치 오차 1.7 mm).
+- **배치는 시작 전에 정한다.** 판이 립밤 위에 걸친 배치는 판의 원래 자리가 립밤과 겹쳐 B 놓기 검사가 거부한다(구조적 → A안 빈 자리 + 안내). 원위치 복구를 보려면 **시작 전에** 립밤을 빼고 S2(판이 지우개만 덮음)로 배치. 가려졌던 물체의 위치는 보이는 조각 가운데라 판을 치운 뒤 값이 크게 바뀜(립밤 (80, 222) → (39, 202) mm, 실제로는 안 움직임) — "굴러갔다"로 보지 않는다.
 - 결과 공유용 표: `ros2 run ready2go_runner run_report -n 3 --markdown`.
 
 ## 3. 장면 (성공·실패 둘 다)
@@ -72,7 +102,7 @@
 
 ### 판정 기준 — 원래 자리가 다른 물건 위였을 때 (A안 확정 10/12)
 
-정본은 이 경우도 정해 둠: 복구 목표의 지지면은 **바닥 또는 아래 물체 윗면**([3.3 가림·추적·복구 정책](../../docs/requirements.md#occlusion-policy)) — 원래 자리가 다른 물건 위면 **그 위로** 되돌려야 정본 복구이고, 전체 성공은 역순 원위치 복구·재식별·복구 후 실제 관측까지([사후 검증 정책](../../docs/requirements.md#verification-policy) 마지막 문단, 원위치 오차는 AC-ACT-03). 지금 놓기는 **바닥에만**(B #166 첫 구현 범위 — 정본과의 차이는 #134 협의 항목)이라 오늘은 그 위로 되돌릴 수 없음 → B·C 합의(#168)대로 **빈 자리 + 안내**. 생기는 경우: S1 성공 회차의 차키(원래 자리 = 캐러멜 위), S4 실패 회차의 덮개 판(원래 자리 = 목표 위).
+정본은 이 경우도 정해 둠: 복구 목표의 지지면은 **바닥 또는 아래 물체 윗면**([3.3 가림·추적·복구 정책](../../docs/requirements.md#occlusion-policy)) — 원래 자리가 다른 물건 위면 **그 위로** 되돌려야 정본 복구이고, 전체 성공은 역순 원위치 복구·재식별·복구 후 실제 관측까지([사후 검증 정책](../../docs/requirements.md#verification-policy) 마지막 문단, 원위치 오차는 AC-ACT-03). 지금 놓기는 **바닥에만**(B #166 첫 구현 범위 — 정본과의 차이는 #134 협의 항목)이라 오늘은 그 위로 되돌릴 수 없음 → B·C 합의(#168)대로 **빈 자리 + 안내**. (16:06 B #243 머지로 복구 때 **물건 위 놓기가 켜짐** — 놓을 물체 가운데가 아래 물체 위일 때만, 찾는 목표 위는 안 됨, 실물 미확인. 판처럼 가운데는 바닥이고 가장자리만 걸쳤던 경우는 여전히 거부) 생기는 경우: S1 성공 회차의 차키(원래 자리 = 캐러멜 위), S4 실패 회차의 덮개 판(원래 자리 = 목표 위).
 
 | 안 | 판정 |
 | :--- | :--- |
@@ -163,6 +193,7 @@ J='{"intent": "achieve_goal", "goals": [{"predicate": "located_in", "subject": "
 | 기록 빠짐 점검 | `run_report -n 20 --check` | C |
 | 결과 공유용 표 | `run_report -n 5 --markdown` | C |
 | 정리 | 로봇 홈·서랍 닫힘 → **컨테이너 내리기 전 로그 보존**(docker.md 4.3) → `docker compose down` | B |
-| 기록표 | 정리 → #196 에 결과 링크 | D |
+| **시작 상태 되돌리기** | `git checkout knowledge/snapshots/initial_state.json && git status --short knowledge/` (아무것도 안 나오면 원래대로) | B |
+| 기록표 | 정리 → #196 에 결과 링크. "시작 상태 임시 변경(3개 `drawer_bottom`)"·사람 개입 회차 함께 | D |
 | **DB 접속 (C PC Compass)** | PC2 와이파이 IP `hostname -I` 공유 → 접속이 막히면 `sudo ufw allow from <C PC IP> to any port 27017` → Compass `mongodb://<PC2 IP>:27017` → DB `cobot2` → `runs`·`steps`. **점검 끝나면 허용 지우기**(DB 비밀번호 없음) | B |
 | DB 점검 | C PC 에서 `run_report --uri mongodb://<PC2 IP>:27017 -n 20 --check` + 회차별 대조 → #196 보고 | C |

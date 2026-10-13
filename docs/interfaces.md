@@ -69,7 +69,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 <a id="request-run-contract"></a>
 ### 5.3 일반 요청 → 수락 → 완료 계약07 — 공동 원본 준비
 
-[문서: E 초안] 승인 의미·책임·호환 및 중복 처리 기준은 [수락 TTS 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이 절은 E 발신 원본과 C 수신·상태 설명을 담당별로 기록합니다. C 소유 계약07 상태 예시·Runner 설명·ICD 구간은 이 head에 합류했고 C 원본 검토가 확인됐습니다. E 계약 검토/PR 병합과 실제 C 런타임 수신·생산자 연결은 별도 미완료이며, 문서 합류만으로 운영 통합을 뜻하지 않습니다.
+[문서: E 초안] 승인 의미·책임·호환 및 중복 처리 기준은 [수락 TTS 정본](requirements.md#acceptance-tts-policy)을 참조합니다. 이 절은 E 발신 원본과 C 수신·상태 설명을 담당별로 기록합니다. C 소유 계약07 상태 예시·Runner 설명·ICD 구간은 이 head에 합류했고 C 원본 검토가 확인됐습니다. [PR #221](https://github.com/Jik-Kim/ready2go/pull/221)·[PR #225](https://github.com/Jik-Kim/ready2go/pull/225)는 병합됐으며 실제 C 런타임 수신·생산자 연결과 운영 통합 완료는 별도로 확인해야 합니다. 문서 합류나 PR 병합만으로 운영 연결 완료를 뜻하지 않습니다.
 
 #### E 담당 — 일반 요청 발신 원본
 

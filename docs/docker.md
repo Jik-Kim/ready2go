@@ -33,6 +33,7 @@
 **실행 절차 (장비별 명령 1개)**
 * PC2 (실물): `docker compose --profile real up` (`.env`: `BACKEND=real`, `ROBOT_HOST=<제어기 IP>`, `RG2_HOST=<RG2 IP>`, `DDS_MODE=local`) — DSR 드라이버·`/gripper/state`·**스킬 서버(`/skills/*`, `SKILL_START_DELAY_S`초 뒤)**·Runner가 함께 기동 (NFR-ENV-01). 호스트에서 DSR 드라이버(roboton)·`b_flow.sh server`를 띄운 채 같이 실행하지 않는다(제어기 이중 접속·서버 중복). 스킬 서버가 뜨기 전 음성 요청은 Runner 가 `NOT_READY`로 거절(로봇 동작 없음)
   * Runner 설정(`.env`): P1 은 **둘 다 비움** — 공통 온톨로지 + `find_item` → `tasks/find_item.json`(`trigger.intent`, E #17). 다른 온톨로지·태스크로 띄울 때만 `RUNNER_ONTOLOGY_FILE`·`RUNNER_INTENT_TASKS`(인텐트=태스크파일). 시연 사이 상태 초기화는 서비스 `/runner/reset_state`(#107)
+  * **P2 Unpacking 시연·점검**: `.env`에 `RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json` **필수** — 비우면 음성 "○○ 찾아줘"가 P1 `find_item`(치우기·복구 없음)으로 돈다(PC2 10/12, B #242 댓글). 바꾼 뒤 `ros2-core`를 다시 띄우고 콘솔 `Runner 준비: … 인텐트 {… 'find_item': 'find_with_unpack'}`로 확인
   * 스킬 관절 속도·가속 `SKILL_JOINT_VEL_DEG_S`·`SKILL_JOINT_ACC_DEG_S2`(기본 60·40 = B 호스트 `b_flow.sh server`와 같음). 첫 기동은 `safety.md` 11대로 낮춰서
 * PC1 (사전 검증): Isaac Sim 네이티브 실행 후 `docker compose --profile sim up` (`.env`: `BACKEND=sim`, `VISION_MODE=oracle`)
 * PC1 (실물 미러링 트윈): Isaac Sim 네이티브만 실행 (`DDS_MODE=multi`로 PC2의 `/dsr01/joint_states` 수신)

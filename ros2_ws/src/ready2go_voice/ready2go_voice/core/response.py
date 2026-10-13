@@ -15,16 +15,20 @@ def question(name):
     return name + ' 가져오기 요청이 맞나요?'
 
 
+def goal_confirmation(parser, goals):
+    parts = []
+    for goal in goals:
+        if goal['predicate'] == 'open':
+            parts.append(parser.places[goal['subject']]['name_ko'] + (' 열림' if goal['value'] else ' 닫힘'))
+        else:
+            parts.append(parser.items[goal['subject']]['name_ko'] + ' ' + parser.places[goal['value']]['name_ko'] + ' 놓기')
+    return ', '.join(parts) + ' 목표 요청으로 이해했어요.'
+
+
 def final_response(parser, doc, candidate=None):
     kind = doc['intent']
     if kind == 'achieve_goal':
-        parts = []
-        for goal in doc['goals']:
-            if goal['predicate'] == 'open':
-                parts.append(parser.places[goal['subject']]['name_ko'] + (' 열림' if goal['value'] else ' 닫힘'))
-            else:
-                parts.append(parser.items[goal['subject']]['name_ko'] + ' ' + parser.places[goal['value']]['name_ko'] + ' 놓기')
-        default = ', '.join(parts) + ' 목표 요청으로 이해했어요. 현재는 내부 평가만 가능합니다.'
+        default = goal_confirmation(parser, doc['goals'])
         doc.setdefault('_voice', {}).update(final_text=default, response_candidate=candidate,
             response_replacement_reason=None if candidate in (None, default) else 'response_goal_mismatch_or_promise')
         doc.pop('clarify_question', None)
@@ -35,8 +39,8 @@ def final_response(parser, doc, candidate=None):
     key = doc.get('targets', [None])[0] if doc.get('targets') else meta.get('question_target')
     name = parser.items[key]['name_ko'] if key in parser.items else None
     if meta.get('availability'):
-        default = (f'{name} 물품은 등록된 물품이에요. '
-                   '지금 가져올 수 있는지는 아직 확인하지 못했어요.') if name else UNSUPPORTED_ITEM
+        from .hotfix import prompts
+        default = prompts(parser.cfg)['availability'].format(item=name) if name else UNSUPPORTED_ITEM
     elif kind == 'cancel':
         default = '취소 요청으로 이해했어요.'
     elif kind == 'status':

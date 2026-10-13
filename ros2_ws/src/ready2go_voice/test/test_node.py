@@ -28,16 +28,15 @@ class FakeTTS:
         return stamp
 
 
+from test_voice_ux_node import node_class, node
+
+
 @pytest.fixture
-def harness(cfg, ontology, schema, tmp_path):
-    cfg['tts_melotts_assets'] = str(tmp_path/'assets')
-    node = SimpleNamespace(cfg=cfg, parser=IntentParser(ontology, schema, cfg),
-        stop_event=threading.Event(), request_cancel=threading.Event(), speaking=threading.Event(),
-        submit_lock=threading.Lock(), generation=0, tts=FakeTTS(), published=[], diagnostics=[],
-        local_context=threading.local())
-    node.session = VoiceSession(node.parser, cfg)
-    node._publish = lambda doc: node.published.append(copy.deepcopy(doc))
-    node._diagnostic = lambda doc: node.diagnostics.append(copy.deepcopy(doc))
+def harness(node, tmp_path):
+    # 동일한 실제 메서드/상태 fixture를 재사용합니다. ROS 장치/API는 호출하지 않습니다.
+    node.cfg.update(evaluation_mode=True)
+    node.cfg['tts_melotts_assets'] = str(tmp_path/'assets')
+    node.tts = FakeTTS()
     return node
 
 
@@ -279,26 +278,35 @@ def test_evaluation_policy_deliver_path(harness, text, kind):
 
 
 
-def test_fixed_listener_closes_wake_before_recording(harness, monkeypatch):
+def test_fixed_listener_keeps_input_reader_for_fresh_capture(harness, monkeypatch):
     from contextlib import contextmanager
     from ready2go_voice.adapters.audio import Recording
     import ready2go_voice.nodes.voice_node as module
     events = []
-    harness.cfg.update(recording_mode='fixed', record_duration_sec=5)
+    harness.cfg.update(audio_enabled=True, recording_mode='fixed', record_duration_sec=5)
+    def start_input():
+        harness.cfg['input_device']=4
+        events.append('input_start')
+    harness.shared_input=SimpleNamespace(start=start_input,close=lambda:events.append('input_close'))
+    harness.stop_listener=None
+    monkeypatch.setattr(module.threading,'Thread',lambda **kw:SimpleNamespace(start=lambda:events.append('stop_start')))
     harness.busy = threading.Event()
     class Wake:
         last_score = .8
-        def __init__(self, cfg): cfg['input_device'] = 4
+        def __init__(self, cfg, shared_input=None):
+            assert shared_input is harness.shared_input and cfg['input_device']==4
         @contextmanager
         def stream(self):
             events.append('wake_open')
-            try: yield object()
+            try: yield SimpleNamespace(discard=lambda: events.append('fresh_capture') or 1.)
             finally: events.append('wake_close')
         def wait(self, *args): return True
     class Record:
-        def __init__(self, cfg): self.cfg = cfg
-        def record_fixed(self, *args):
-            assert events[-1] == 'wake_close' and self.cfg['input_device'] == 4
+        def __init__(self, cfg, *, clock, shared_input):
+            self.cfg = cfg
+            assert shared_input is harness.shared_input
+        def _fixed_shared(self, *args, **kwargs):
+            assert kwargs['prepared_at'] == 1. and events[-1] == 'fresh_capture' and self.cfg['input_device'] == 4
             events.append('record')
             return Recording(b'\0\0', None, None, recording_mode='fixed')
     def submit(*args, **kwargs): harness.stop_event.set(); return True
@@ -306,7 +314,8 @@ def test_fixed_listener_closes_wake_before_recording(harness, monkeypatch):
     monkeypatch.setattr(module, 'WakeAudio', Wake)
     monkeypatch.setattr(module, 'Recorder', Record)
     VoiceNode._listen(harness)
-    assert events == ['wake_open', 'wake_close', 'record']
+    assert events == ['input_start','stop_start','wake_open','fresh_capture','record','wake_close']
+    assert 'input_close' not in events  # 소비자가 닫혀도 공유 물리 입력은 유지합니다.
 
 
 def test_fixed_tts_cannot_report_ac_latency(harness):
@@ -392,7 +401,8 @@ def test_melo_prepare_precedes_listener_and_ready(cfg, ontology, schema, monkeyp
         assert order == ['prefill_selection', 'prepare']
     else:
         node = VoiceNode()
-        assert order == ['prefill_selection', 'prepare', 'thread_start', 'thread_start', 'thread_start', 'ready']
+        assert order[:2] == ['prefill_selection', 'prepare'] and order[-1] == 'ready'
+        assert order[2:-1] and all(event=='thread_start' for event in order[2:-1])
         assert '서랍을 닫았어요' in node.cfg['_tts_prefill_texts']
 
 
@@ -617,7 +627,8 @@ def test_active_lower_priority_warning_is_canceled_then_estop_is_spoken(status_h
         h.observe_status('running','ESTOP')
         worker.join(timeout=1)
         assert not worker.is_alive() and len(calls)==2
-        assert calls[1].startswith('비상정지가 감지') and not h.published
+        from ready2go_voice.core.runner_notice import STATUS_PROMPTS
+        assert calls[1]==STATUS_PROMPTS['estop'] and not h.published
     finally:
         h.stop_event.set()
         with h.notice_condition:h.notice_condition.notify_all()

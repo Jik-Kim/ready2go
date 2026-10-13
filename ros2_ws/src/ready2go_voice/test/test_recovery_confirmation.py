@@ -327,7 +327,7 @@ def test_ending_negation_and_question_rejection_have_distinct_lifetimes(text, en
     p, q = ready()
     result = p.answer(text, q, captured_at=4, now=6, evidence=SAFE, request=p.request)
     assert isinstance(result, TaskEndCandidate) is end
-    assert p.work == (None if end else WORK)
+    assert p.work == WORK  # 후보는 종료 수락/물리 완료가 아닙니다.
     assert p.question is None
 
 
@@ -422,6 +422,8 @@ def test_explicit_end_retires_same_event_even_with_higher_seq_but_allows_new_eve
         assert p.independent_registered(request, WORK, p.revision, now=25, valid_state=True)
         candidate = p.independent_candidate(request, now=26, evidence=SAFE)
     assert isinstance(candidate, TaskEndCandidate) and candidate.work == WORK
+    assert p.work == WORK
+    assert p.ended(candidate.work, valid_state=True)
     assert p.work is None
     assert not p.stopped(WORK, 100)
     assert p.begin_independent(WORK, now=30, unique_target=True) is None

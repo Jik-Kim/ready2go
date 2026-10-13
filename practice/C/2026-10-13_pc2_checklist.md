@@ -1,0 +1,49 @@
+# 10/13 (화) PC2 회차 확인 목록 — C 작성
+
+> 기준: [schedule.md Day 11](../../docs/schedule.md) 3차 챌린지 점검 "코드 수정 없이 새로운 JSON 파일만으로 실물 로봇이 완전히 다른 동작을 수행하고 그 이력이 기록되는가?" (진행·판정 E, [AC-PLN-02](../../docs/requirements.md#ac-pln-02)) + 10/12 에 못 끝낸 Unpacking·목표 5종.
+> 기동·명령·멈췄을 때는 [10/12 진행표](2026-10-12_checkpoint2_runbook.md) 1-1절(PC2 한 대 터미널 5개)·2절·6절을 그대로 쓴다. 시각은 KST.
+
+## 0. 코드 기준 (시작 전 C 가 정해서 알림)
+
+| PR | 내용 | 머지 안 됐으면 |
+| :--- | :--- | :--- |
+| #250 | Unpacking 놓을 자리 먼저 판단·복구 전 판단·같은 자세 이동 생략 | 1절 U2 는 못 함 (판을 쥔 채 정지가 그대로 날 수 있음) |
+| #249 | 계약07 운영 (요청 ID·`run_id`·첫 안내) — E voice `request_run_enabled` 기본 꺼짐이라 동작 변화 없음 | 영향 없음 |
+
+- **"Python 0줄" 증거 기준점**: 시작할 때 `git rev-parse --short HEAD` 를 적어 둠 → 챌린지 뒤 `git diff --stat <기준점> -- '*.py'` 가 비어 있어야 함 (`tasks/*.json` 만 바뀜).
+- 아래 칸 장면이면 시작 상태 임시 변경(진행표 1절 3a) — 끝나면 되돌림(진행표 7절).
+- **비전 노드가 v2 모델로 떠 있는지 확인** (A): 노드 시작 줄 `inspect_region 시작 (모델 …/yolo11s_seg_ready2go_v2.pt 분할 — 가림 필드 냄 …)`. 10/12 19:47 에는 v1 로 떠 있었음(A #255) — `VISION_WEIGHTS` 를 붙이지 말고 `bash tools/dev/vision_real_check.sh node`(기본 v2), 모델 파일은 `git lfs pull` 뒤 `ls -l models/yolo11s_seg_ready2go_v2.pt`(포인터면 133 B).
+
+## 1. 10/12 남은 확인 — Unpacking (`find_with_unpack`)
+
+| # | 배치 | 확인할 것 | 근거 칸 |
+| :--- | :--- | :--- | :--- |
+| U1 | **S2 깨끗한 배치**: 판이 지우개만 덮음 (**립밤 없음**) | 판 원위치 복구 위치 오차 ≤ 3 cm ([AC-ACT-03](../../docs/requirements.md#ac-act-03)), **회차 중 사람 개입 없음** | `run_report` 머리 "복구 오차", B 자 |
+| U2 | 10/12 배치 (판이 지우개·립밤을 덮음) — **#250 머지 뒤** | ① 판을 쥔 채 정지 없음 ② 원래 자리가 막히면 **판을 집지 않고** aside 그대로 + "옆 빈 자리에 뒀어요" ③ 목표 집기 전 탑뷰 이동 줄 "이미 그 자세라 보내지 않음" | `run_report` `s7.0`·`fr.5.0`·`s8.t1.e1/e4` |
+| U3 | S3 실패: U1 배치에서 **지우개만 빼고** "지우개 찾아줘" | "꺼내지 못했어요" → 치운 물건 **둘 다 원위치** → 닫기 → 홈 | `run_report` `s8.1`, 복구 오차 |
+| U4 | S1 (위 칸 렌치 ← 캐러멜 ← 차키) — **v2 로 `B unpack top 몽키` 끝까지 성공(10/12 20:00, A #255·#229 닫힘)** → Runner `find_with_unpack` 으로 같은 배치. 비전 v2 확인 뒤 | 장애물 2개 치우기 → 전달 → 역순 복구. 차키는 #243 으로 캐러멜 위 복구가 될 수도(실물 미확인) | `run_report` |
+
+## 2. 목표 5종 실물 ([AC-PLN-01](../../docs/requirements.md#ac-pln-01), #150)
+
+[10/12 진행표 5절](2026-10-12_checkpoint2_runbook.md) 명령 그대로 (`achieve_goal` 직접 발행). 순서 1 → (reset) → 2 → 3 → (reset) → 4 → (reset) → 5. 5번 립밤은 B 파지 확인 뒤. 결과는 [planner.md 시험표](../../docs/planner.md) "실물 결과" 칸.
+
+## 3. 3차 챌린지 — 새 복합 작업 2종 ([AC-PLN-02](../../docs/requirements.md#ac-pln-02))
+
+**전날 C·E 가 정할 것**: 새 태스크 JSON 2종 — 지금 실물에서 되는 동작(서랍 열기·닫기, 서랍 안 집기·놓기(aside·`free`·pose), 트레이에 놓기, 촬영, 안내)만 조합.
+- `tasks/return_items.json`(예시)은 형식 검사는 통과하지만 **트레이에서 집기**가 필요 → 지금 B 집기는 서랍 전용이라 실물 불가(#150 "아직 아님"). B 가 트레이 집기를 열지 않으면 다른 2종으로.
+- C 후보(제안, E 확정 필요):
+  1. **"서랍 안 보여줘"** — 열기 → 탑뷰 → 촬영 → "○○, ○○가 있어요" 안내(보인 물체) → 닫기 → 홈
+  2. **"○○ 옆으로 치워줘"** — 열기 → 탑뷰 → 촬영 → 집기(`scan`) → 서랍 빈 자리(`free`)에 놓기 → 닫기 → 홈
+
+| 단계 | 할 일 | 누가 |
+| :--- | :--- | :--- |
+| 1 | 새 JSON 을 `tasks/` 에 추가 → mock 으로 끝까지 (`MOCK_SCENE`·`RUNNER_TASK_FILE`) → `check_task` 통과 | C |
+| 2 | PC2: 파일만 받기(`git pull`) → `docker compose restart ros2-core` (Python 은 그대로) | B |
+| 3 | 실행: `.env` `RUNNER_TASK_FILE=/tasks/<새 파일>` → `docker compose restart ros2-core` (Runner 가 켜질 때 한 번 실행, 회차마다 재시작). 음성으로 부르려면 인텐트 이름이 `contracts/intent.schema.json` 목록(`find_item`·`achieve_goal` 등)에 있어야 해서, 새 이름은 계약 변경(E 포함 2명) — 이번엔 파일 실행으로 | C·B |
+| 4 | 기록: `run_report -n 1` (스텝별 결과·상태 변화) + `run_report -n 5 --markdown` 로 **실물 로그 비교표** | C |
+| 5 | **Python 0줄**: `git diff --stat <기준점> -- '*.py'` 빈 출력 캡처 | C |
+
+## 4. 회차마다 남길 것
+
+- run id · 장면 · 시작 방법(음성/직접) · 결과 · **사람 개입(있으면 무엇을, 언제)** · 시작 상태 임시 변경 여부 → D 기록표·#196.
+- 끝나면 `run_report -n 20 --check`(누락 0), 시작 상태 되돌리기, DB 방화벽 허용 지우기(진행표 7절).

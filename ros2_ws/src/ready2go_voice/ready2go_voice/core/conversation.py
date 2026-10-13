@@ -30,34 +30,58 @@ class Conversation:
             self.pending = None
             self.epoch += 1
 
-    def resolve(self, text, parser, generation, blocked=False):
+    def resolve(self, text, parser, generation, blocked=False, *, preserve_empty=False):
         """현재 질문의 답만 원문과 분리해 해석합니다. 후보 생성 직전 일회 소비합니다."""
         with self.lock:
             q = self.pending
             if blocked or (q and (q.generation != generation or self.clock() >= q.expires)):
                 self.pending = q = None
+            if q and preserve_empty and isinstance(text, str) and not text.strip():
+                return text, None, None  # 현재 질문/기한/epoch 그대로. 성공한 빈 STT만 호출자가 허용합니다.
             value = normalize_control(text)
-            reply = is_context_reply(text)
+            reply = is_context_reply(text) or bool(q and q.target and parser.contextual_reply(text))
             keys = parser.mentioned(text)
             correction = bool(q and len(keys) == 1 and any(re.fullmatch(
                 r'(?:아니|아니요)?[,，]?' + re.escape(alias) + r'(?:이야|야|말이야|로해줘|으로해줘|줘)?', value)
                 for alias, matches in parser.aliases.items() if matches == keys))
             if q and (reply or correction):
-                self.pending = None
                 target = next(iter(parser.mentioned(text))) if correction and len(parser.mentioned(text)) == 1 else q.target
                 if target is not None:
                     return parser.items[target]['name_ko'] + ' 가져다줘', q.id, target
                 return text, None, None
+            # 문형 폴백에 없더라도 현재 대상에 대한 답의 의미를 먼저 판정합니다.
+            # 명시 새 대상/제어/부정/정보/미지원/인용은 현재 대상 권한을 받지 않습니다.
+            if (q and q.target and not keys and not re.match(r'^(?:아니|아니요)', value)
+                    and not parser.control(text) and not parser._request_context(text)
+                    and not parser._nonrequest_context(text)
+                    and not parser._unsupported_context(text)
+                    and not re.search(r'["\'“”‘’]|라고|라며|말했|그사람|엄마|아빠', text)
+                    and str(text).strip()):
+                return text, q.id, q.target
             # 새 요청/부정/관련 없는 말도 이전 질문의 권한을 계속 보존하지 않습니다.
             self.pending = None
             self.epoch += 1
             return text, None, None
 
+    def consume(self, question, generation):
+        with self.lock:
+            if (self.pending is not question or question is None or question.generation != generation
+                    or self.clock() >= question.expires or self.epoch != question.epoch):
+                return False
+            self.pending = None
+            return True
+
     def delivered(self, doc, generation, success, blocked=False):
         """실제 질문 TTS 완료 뒤에만 새 권한을 생성합니다. WAV 캐시로 복원하지 않습니다."""
         with self.lock:
-            self.pending = None
             data = doc.get('_voice', {})
+            if data.get('preserve_question_id'):
+                q = self.pending
+                if not (success and not blocked and q and q.id == data['preserve_question_id']
+                        and q.generation == generation and self.clock() < q.expires):
+                    self.pending = None
+                return None  # 보존만; 새 question_ready/TTS 기준 기한을 만들지 않습니다.
+            self.pending = None
             target = data.get('question_target')
             timeout = self.cfg.get('dialogue_timeout_sec')
             if not (success and not blocked and doc['intent'] == 'clarify' and (target or data.get('asks_delivery_target'))
