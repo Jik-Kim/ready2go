@@ -89,7 +89,8 @@ class Wire:
         c.__dict__.update(runner=runner,log_store=store,gate=StartGate(),requests=RequestMemory(),
             _lock=threading.RLock(),_pub_lock=threading.RLock(),_last=result,
             _last_task_id='find_item' if suspended else None,_task_id=None,_end_requested=None,
-            _last_intent=None,_state_reset_at=None,_seq=0,_sent={'status':None,'state':None},recover_check='mock')
+            _last_intent=None,_state_reset_at=None,_seq=0,_sent={'status':None,'state':None},recover_check='mock',
+            recover_call_b=False)   # C #316: W2 호출 여부 — mock 조회에서는 쓰지 않음
         c.intents=intent_router.IntentRouter(json.loads((ROOT/'contracts/intent.schema.json').read_text()),
             {'find_item':module.TASK},module.ONTOLOGY['world']['items'],0.65)
         c.get_logger=lambda:SimpleNamespace(info=lambda *a,**k:None,warning=lambda *a,**k:None,error=lambda *a,**k:None)
