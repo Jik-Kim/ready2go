@@ -45,12 +45,37 @@ def _under(obj: Mapping, target: Mapping, size_m: Sequence[float], obj_size_m: S
     return True
 
 
+def _passes_under(obj: Mapping, target: Mapping, obj_size_m: Sequence[float], under_clear_m: Optional[float],
+                  under_smear_m: float, under_gap_mm: Optional[Sequence[float]],
+                  width_of: Optional[Callable[[str], Optional[float]]] = None) -> bool:
+    """분할 모델이 목표(다리 있는 판) 밑이라고 한 이웃이 다리 사이로 지나갈 수 있는 폭인지 (pick_blocker under_gap_mm 설명).
+    폭 = 외접 박스 짧은 변, 잡는 부위 폭(width_of — item_grasp grasp_width_m, 몽키·망치 손잡이)이 있으면 그것 —
+    머리는 판 밖으로 삐져나오고 손잡이가 다리 사이로 지나감 (망치 외접 75 mm > 65, 손잡이 15.5)."""
+    if under_clear_m is None or not under_gap_mm or target.get("id") not in (obj.get("occluded_by") or []):
+        return False
+    top = obj.get("top_z")
+    if not _finite(top) or len(obj_size_m) < 3 or top > max(under_clear_m, float(obj_size_m[2])) + under_smear_m:
+        return False
+    width = float(obj_size_m[1]) * 1000.0
+    narrow = width_of(obj.get("class")) if width_of else None
+    if _finite(narrow) and narrow > 0:
+        width = min(width, narrow * 1000.0)
+    pose = obj.get("pose") or {}
+    if pose.get("yaw_valid") is True:
+        rel = pose["yaw"] - target["pose"]["yaw"]                        # 이웃 긴 변과 판 긴 변 사이 각
+        limit = under_gap_mm[1] if abs(math.cos(rel)) >= abs(math.sin(rel)) else under_gap_mm[0]   # 판 긴 변과 나란하면 짧은 변 쪽 다리 사이(35)
+    else:
+        limit = max(under_gap_mm)
+    return width <= float(limit)
+
+
 def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, objects: Sequence[Mapping],
                  size_of: Callable[[str], Optional[Sequence[float]]], default_size_m: Sequence[float],
                  finger_mm: float, margin_mm: float, support_m: float, below_tol_m: float,
                  finger_half_width_mm: Optional[float] = None, fingertip_floor_m: Optional[float] = None,
                  fingertip_clear_m: float = 0.002, under_clear_m: Optional[float] = None,
-                 under_smear_m: float = 0.005) -> Optional[str]:
+                 under_smear_m: float = 0.005, under_gap_mm: Optional[Sequence[float]] = None,
+                 width_of: Optional[Callable[[str], Optional[float]]] = None) -> Optional[str]:
     """집을 때 벌린 손가락 footprint 와 겹치는 이웃 id (없으면 None).
     fingertip_floor_m: 손끝이 내려가는 가장 낮은 높이(서랍 바닥 기준) — 주면 그보다 fingertip_clear_m 넘게 낮은 이웃은 안 닿으므로 무시.
     이웃 높이는 비전 top_z 와 온톨로지 높이 중 큰 값 (덮개 판 손끝 25 mm 옆 지우개·립밤 [사용자 10/12 PC2]).
@@ -58,6 +83,11 @@ def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, ob
     보고 온톨로지 높이로 (밑에 깔린 물체 비전 top_z 번짐, 가림 관계 null 이어도) [사용자 10/12 "커버플레이트는 겹쳐도 집을 수 있게"].
     단 관측 top_z 가 under_clear_m + under_smear_m 이하일 때만 — 그보다 높으면 판 밑일 수 없음(다른 물체 위에 쌓였거나 세워짐) → 관측 값으로
     막음 [#235 리뷰 P1: top_z 35 mm 이웃을 단품 11.5 mm 로 보고 통과시킴]. 번짐 실측 23.4·23.5·25.5 mm(지우개 11.5) [PC2 10/12].
+    under_gap_mm: 목표 다리 안쪽 간격 [긴 변 방향, 짧은 변 방향] mm (덮개 판 65 × 35, #8) — 분할 모델이 목표 밑이라고 한 이웃
+    (occluded_by 에 목표)이 다리 사이로 지나갈 폭이면(긴 변이 판 짧은 변 쪽이면 폭 ≤ 65, 판 긴 변 쪽이면 ≤ 35, 방향 모르면 ≤ 65)
+    손가락 확인에서 뺌 — 손가락은 판 몸통(아랫면 위)을 잡고, 밑으로 지나간 물체는 판 아랫면보다 낮음. 몽키·망치처럼 판보다 길어
+    양쪽으로 삐져나와도(폭은 width_of 잡는 부위 폭 — 손잡이) [사용자 10/13 "모든 물건은 넓이가 다리 사이보다 작으면 들어갈 수 있어"]. 관측 top_z 가
+    max(판 밑 여유, 온톨로지 높이) + under_smear_m 을 넘으면(판 위에 얹힘 등) 빼지 않음.
     finger_half_width_mm: 손가락 반폭(닫힘 축에 수직) — 주면 손가락이 실제로 내려가는 띠(긴 변 방향으로 이 폭)만 봄.
     없으면 예전처럼 물체 길이 전체 [P2 시뮬레이션 10/10: 몽키 170 mm 끝 옆 aside 차키까지 막음]."""
     x, y = target["pose"]["position"][0] * 1000.0, target["pose"]["position"][1] * 1000.0
@@ -70,7 +100,7 @@ def pick_blocker(*, target: Mapping, size_m: Sequence[float], open_mm: float, ob
     mine = plp.corners(x, y, yaw, hl, hs)
     for o in _others(objects, target.get("id"), support_m, below_tol_m):
         osz = size_of(o.get("class")) or default_size_m
-        if _under(o, target, size_m, osz, margin_mm):
+        if _under(o, target, size_m, osz, margin_mm) or _passes_under(o, target, osz, under_clear_m, under_smear_m, under_gap_mm, width_of):
             continue
         if fingertip_floor_m is not None and _finite(o.get("top_z")) and len(osz) > 2:
             # 목표(덮개 판) 밑에 깔린 이웃은 비전 윗면이 위로 번짐 → 온톨로지 높이 [사용자 10/12 PC2: 판 밑 지우개 top_z 23.4~25.5(실제 11.5)].

@@ -6,7 +6,9 @@
 
   const statusIcons = {
     waiting: "○",
+    pending: "…",
     ok: "✓",
+    disconnected: "×",
     listening: "≋",
     error: "!",
     accepted: "✓",
@@ -18,6 +20,7 @@
     complete: "✓",
     current: "●",
     stopped: "■",
+    unavailable: "?",
   };
 
   const itemIcons = {
@@ -65,6 +68,13 @@
     return state.drawers.find((drawer) => drawer.id === state.task.workDrawerId);
   }
 
+  function renderMockNotice() {
+    getById("mockDataLabel").textContent = state.meta.label || "목업 데이터";
+    getById("mockDataDescription").textContent = state.meta.description
+      || "실제 장치와 연결되지 않은 화면입니다.";
+    getById("mockDataNotice").classList.toggle("is-error-scenario", window.ROKEY_DEMO_SCENARIO === "error");
+  }
+
   function renderConnections() {
     const container = getById("connectionStatus");
     container.replaceChildren();
@@ -72,16 +82,13 @@
     state.connections.forEach((connection) => {
       const block = makeElement("div", `connection-block connection-block--${connection.status}`);
       block.setAttribute("role", "img");
-      const accessibleStatus = connection.callStatusLabel
-        ? `${connection.description}, ${connection.callStatusLabel}`
-        : connection.description;
-      block.setAttribute("aria-label", `${connection.label}: ${accessibleStatus}`);
+      block.setAttribute("aria-label", `${connection.label}: ${connection.statusLabel || "확인 전"}. ${connection.description}`);
       const icon = makeElement("span", "connection-icon", statusIcons[connection.status] || "○");
       icon.setAttribute("aria-hidden", "true");
       const text = makeElement("span", "connection-text");
       text.append(
         makeElement("span", "connection-label", connection.label),
-        makeElement("small", "connection-detail", connection.callStatusLabel || connection.statusLabel || "확인 전"),
+        makeElement("small", "connection-detail", connection.statusLabel || "확인 전"),
       );
       block.append(icon, text);
       container.append(block);
@@ -89,17 +96,30 @@
   }
 
   function renderCommand() {
-    getById("heardText").textContent = `“${state.command.heard}”`;
     getById("understoodText").textContent = state.command.understood;
     getById("mobileCommandHeading").textContent = state.command.understood;
-    getById("mobileHeardText").textContent = `“${state.command.heard}”`;
+    getById("mobileUnderstoodText").textContent = state.command.understood;
 
-    getById("mobileRecognitionStatus").replaceChildren(
-      makeStatus(state.command.recognition.status, state.command.recognition.label),
+    getById("commandInterpretationStatus").replaceChildren(
+      makeStatus(state.command.interpretation.status, state.command.interpretation.label),
     );
     getById("mobileInterpretationStatus").replaceChildren(
       makeStatus(state.command.interpretation.status, state.command.interpretation.label),
     );
+
+    getById("commandProcessingStatus").replaceChildren(
+      makeStatus(state.command.processing.status, state.command.processing.label),
+    );
+    getById("mobileProcessingStatus").replaceChildren(
+      makeStatus(state.command.processing.status, state.command.processing.label),
+    );
+    getById("mobileReceiptStatus").replaceChildren(
+      makeStatus(state.command.receipt.status, state.command.receipt.label),
+    );
+
+    const confirmationRow = getById("mobileConfirmationRow");
+    confirmationRow.hidden = !state.command.confirmation;
+    getById("mobileConfirmationText").textContent = state.command.confirmation || "";
   }
 
   function createDrawerButton(drawer, compact) {
@@ -219,6 +239,8 @@
           ? "●"
           : step.status === "stopped"
             ? "■"
+            : step.status === "error"
+              ? "!"
             : String(index + 1);
       const dot = makeElement("span", "step-dot", dotText);
       dot.setAttribute("aria-hidden", "true");
@@ -236,14 +258,12 @@
     getById("currentStepReason").textContent = evidenceStep?.reason || "확인 전";
     getById("currentStepObservation").textContent = evidenceStep?.observation || "미수신";
 
-    const stopButton = getById("stopTask");
-    const stopped = state.task.status === "stopped";
-    stopButton.disabled = stopped;
-    stopButton.lastChild.textContent = stopped ? "데모 작업 중단" : "작업 중단";
   }
 
   function getCurrentTaskStep() {
     return state.task.steps.find((step) => step.status === "current")
+      || state.task.steps.find((step) => step.status === "error")
+      || state.task.steps.find((step) => step.status === "unavailable")
       || state.task.steps.find((step) => step.status === "stopped")
       || state.task.steps.at(-1);
   }
@@ -254,6 +274,8 @@
       verifying: { label: "확인 중", key: "verifying" },
       complete: { label: "완료", key: "complete" },
       stopped: { label: "중단됨", key: "stopped" },
+      error: { label: "오류", key: "error" },
+      unavailable: { label: "확인 불가", key: "unavailable" },
     };
     return statuses[state.task.status] || { label: "확인 전", key: "waiting" };
   }
@@ -344,59 +366,13 @@
     });
   }
 
-  function renderAdminHistory() {
-    const history = state.adminReview.history;
-    const list = getById("adminHistoryList");
-    const details = getById("adminHistoryDetails");
-    list.replaceChildren();
-    details.replaceChildren();
-
-    history.runs.forEach((run) => {
-      const button = makeElement("button", `history-run${run.id === history.selectedRunId ? " is-selected" : ""}`);
-      button.type = "button";
-      button.setAttribute("aria-pressed", String(run.id === history.selectedRunId));
-      const title = makeElement("span");
-      title.append(makeElement("strong", "", run.title), makeElement("small", "", run.id));
-      button.append(title, makeElement("span", "history-run-meta", `${run.status} · ${run.startedAt || "시각 미수신"}`));
-      button.addEventListener("click", () => {
-        history.selectedRunId = run.id;
-        renderAdminHistory();
-      });
-      list.append(button);
-    });
-
-    const runDetails = history.detailsByRun?.[history.selectedRunId] || [];
-    if (runDetails.length === 0) {
-      details.append(makeElement("p", "empty-state", "선택한 데모 실행의 단계 기록이 없습니다."));
-      return;
-    }
-
-    runDetails.forEach((entry) => {
-      const card = makeElement("article", "history-step");
-      card.append(makeElement("h3", "", entry.step));
-      const listElement = document.createElement("dl");
-      [
-        ["결과", entry.result],
-        ["조건 검사", entry.condition],
-        ["상태 변경", entry.change],
-        ["오류 기록", entry.error],
-      ].forEach(([label, value]) => {
-        const row = document.createElement("div");
-        row.append(makeElement("dt", "", label), makeElement("dd", "", value || "미수신"));
-        listElement.append(row);
-      });
-      card.append(listElement);
-      details.append(card);
-    });
-  }
-
   function renderAdmin() {
     if (!state.adminReview) return;
     renderAdminSummary();
     renderAdminCurrentState();
     renderAdminOntology();
     getById("adminPlanMessage").textContent = state.adminReview.plan.message;
-    renderAdminHistory();
+    getById("adminHistoryMessage").textContent = state.adminReview.history.message;
   }
 
   function selectAdminTab(tabName, moveFocus) {
@@ -416,7 +392,7 @@
     const adminVisible = window.location.hash === "#admin";
     getById("dashboardView").hidden = adminVisible;
     getById("adminView").hidden = !adminVisible;
-    document.title = adminVisible ? "ROKEY · 관리자 검토 패널" : "ROKEY · 출근 준비 도우미";
+    document.title = adminVisible ? "ROKEY · 읽기 전용 검토 화면" : "ROKEY · 출근 준비 도우미";
     if (adminVisible) {
       window.scrollTo(0, 0);
       getById("exitAdminView").focus();
@@ -424,6 +400,7 @@
   }
 
   function renderAll() {
+    renderMockNotice();
     renderConnections();
     renderCommand();
     renderDrawerSelectors();
@@ -437,28 +414,6 @@
     state.selectedDrawerId = drawerId;
     renderDrawerSelectors();
     renderInventory();
-  }
-
-  function stopDemoTask() {
-    // 실제 중단 API가 확정되면 이 함수만 서버 요청/응답 상태 처리로 교체합니다.
-    if (state.task.status === "stopped") return;
-    state.task.status = "stopped";
-    state.task.currentAction = "데모 작업 중단";
-    state.task.steps.forEach((step) => {
-      if (step.status === "current") {
-        step.status = "stopped";
-        step.statusLabel = "중단됨";
-      }
-    });
-    renderTask();
-    renderAdminSummary();
-
-    const toast = getById("toast");
-    toast.textContent = "로컬 샘플 상태만 ‘데모 작업 중단’으로 변경했습니다.";
-    toast.hidden = false;
-    window.setTimeout(() => {
-      toast.hidden = true;
-    }, 3500);
   }
 
   function toggleTaskDetails() {
@@ -483,7 +438,6 @@
   getById("openCommandDetails").addEventListener("click", (event) => openDialog("commandDialog", event.currentTarget));
   getById("openDrawerPanel").addEventListener("click", (event) => openDialog("drawerDialog", event.currentTarget));
   getById("taskDetailsToggle").addEventListener("click", toggleTaskDetails);
-  getById("stopTask").addEventListener("click", stopDemoTask);
   getById("openAdminView").addEventListener("click", () => {
     selectAdminTab("current", false);
     window.location.hash = "admin";
