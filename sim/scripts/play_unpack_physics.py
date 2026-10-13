@@ -210,10 +210,40 @@ def tcp_shift(q, dz):
     return kin.ik(np.linalg.inv(W) @ Tw, q)[0]
 
 
-def grip_filter(oid, on):
-    """oid 와 그리퍼 링크 사이 충돌 끔(on)/켬. 넛지 대상·다른 물체는 그대로 부딪힘."""
+TRAY_BODIES = [p for p in (f"/World/workspace/cabinet/{DKEY}_tray", "/World/workspace/handover_tray") if stage.GetPrimAtPath(p).IsValid()]
+
+
+def grip_filter(oid, on, trays=False):
+    """oid 와 그리퍼 링크(+ trays 면 서랍·트레이 몸체) 사이 충돌 끔(on)/켬. 넛지 대상·다른 물체는 그대로 부딪힘.
+    쥔 물체(운동학)가 서랍 바닥을 파고들면 서랍 몸체를 밀어 서랍 안 물체가 다 같이 출렁임 → 쥔 동안 서랍·트레이와도 끔."""
     rel_ = UsdPhysics.FilteredPairsAPI(stage.GetPrimAtPath(f"/World/phys_objs/{oid.replace('#', '_')}")).GetFilteredPairsRel()
-    rel_.SetTargets([Sdf.Path(p) for p in GRIP_LINKS] if on else [])
+    rel_.SetTargets([Sdf.Path(p) for p in GRIP_LINKS + (TRAY_BODIES if trays else [])] if on else [])
+
+
+def support_z(oid):
+    """oid 를 놓을 때 받칠 면의 월드 z: 서랍 바닥(또는 트레이 바닥)과 그 밑 다른 물체 윗면 중 가장 높은 것 [근사: 물체 평평하게 놓임]."""
+    T = pose_of(oid)
+    x, y = T[0, 3], T[1, 3]
+    floors = []
+    for p in TRAY_BODIES:                                                  # 몸체 아래 floor 상자 윗면
+        fp = stage.GetPrimAtPath(f"{p}/floor")
+        if fp.IsValid():
+            _bbc.Clear()
+            r = _bbc.ComputeWorldBound(fp).ComputeAlignedRange()
+            if not r.IsEmpty() and r.GetMin()[0] <= x <= r.GetMax()[0] and r.GetMin()[1] <= y <= r.GetMax()[1]:
+                floors.append(r.GetMax()[2])
+    z = max(floors) if floors else None
+    bottom = T[2, 3]
+    for o2 in present:
+        if o2 == oid:
+            continue
+        T2 = pose_of(o2)
+        sz = ITEMS[cls_of[o2]]["size_m"]
+        d = np.linalg.inv(T2[:3, :3]) @ (T[:3, 3] - T2[:3, 3])
+        top2 = T2[2, 3] + sz[2]
+        if abs(d[0]) <= sz[0] / 2 and abs(d[1]) <= sz[1] / 2 and top2 <= bottom + 0.03:
+            z = top2 if z is None else max(z, top2)
+    return z
 
 
 def obj_world(o, travel):
@@ -289,11 +319,36 @@ for _s in TRACE["segments"] + [{"stage": ""}]:
 report = {"trace": args.trace, "robot_colliders": len(robot_colliders), "gripper_colliders": len(finger_col), "moves": [], "scan_drift": []}
 present = {o["id"] for o in EVENTS[0]["objects"]}
 objs = {o["id"]: dict(o) for o in EVENTS[0]["objects"]}
+# 첫 장면에서 가려진 물체(occluded_by 있음)는 보이는 부분만으로 위치가 치우침(10/13: 3단 캐러멜 17 mm·90°) → 그 물체를 집기 전
+# 실물 다시 인식에서 같은 id 가 다 보이면 그 자리로 바로잡음 (받침이 어긋나 위 물체가 떨어지는 것 방지). 바로잡은 것은 보고에 남김
+_pick_seg = {r["target"]: r["first_segment"] for r in reversed(TRACE["results"]) if r["action"] == "pick_object" and r.get("success")}
+report["refined"] = []
+for oid, o in objs.items():
+    if not o.get("occluded_by"):
+        continue
+    for e in sorted(rescans.values(), key=lambda e: e["before_segment"]):
+        if e["before_segment"] > _pick_seg.get(oid, 10 ** 9):
+            break
+        o2 = next((x for x in e["objects"] if x["id"] == oid and not x.get("occluded_by")), None)
+        if o2 is not None:
+            dd = math.hypot(o2["pose"]["position"][0] - o["pose"]["position"][0], o2["pose"]["position"][1] - o["pose"]["position"][1]) * 1000
+            report["refined"].append({"id": oid, "from": e["why"], "shift_mm": round(dd, 1),
+                                      "dyaw_deg": round(math.degrees(o2["pose"]["yaw"] - o["pose"]["yaw"]), 1)})
+            print(f"[phys]   첫 장면 {oid}: 가려진 자리 → {e['why']} 자리로 바로잡음 ({dd:.1f} mm)", flush=True)
+            objs[oid] = dict(o, pose=o2["pose"])
+            break
 travel, width, held, rel = 0.0, 110.0, None, None
 for oid in cls_of:
     set_kin(oid, oid not in present)
-    if oid in present:
-        put(oid, obj_world(objs[oid], travel))
+report["stack_lift"] = []
+for oid in sorted(present, key=lambda k: objs[k]["top_z"]):              # 아래부터: 비전 top_z − 높이가 받침 윗면보다 낮으면(파묻힘) 받침 위로
+    T = obj_world(objs[oid], travel)
+    put(oid, T)
+    sz_ = support_z(oid)
+    if sz_ is not None and T[2, 3] < sz_ + 0.0005:
+        report["stack_lift"].append({"id": oid, "lift_mm": round((sz_ + 0.0005 - T[2, 3]) * 1000, 1)})
+        T[2, 3] = sz_ + 0.0005
+        put(oid, T)
 _T0 = {oid: pose_of(oid) for oid in present}
 for _ in range(int(1.0 / PHYS_DT)):                                       # 내려앉기 1 s — 인식 위치끼리 겹치면 여기서 밀려남(보고에 따로)
     apply(TRACE["segments"][0]["joints"][0], finger_deg(width), travel)
@@ -327,18 +382,31 @@ for s in TRACE["segments"]:
     a = act_at(s["i"])
     tgt = (a or {}).get("target") if a and a["action"] == "pick_object" else (held if a and a["action"] == "place_object" else None)
     for oid in cls_of:
-        grip_filter(oid, oid == tgt)
+        grip_filter(oid, oid == tgt, trays=(oid == held))
     for w_new in grips.get(s["i"], []):
         for k in range(1, 31):
             apply(s["joints"][0], finger_deg(width + (w_new - width) * k / 30), travel)
         closing, width = w_new < width, w_new
         if a and a["action"] == "pick_object" and closing and held is None and w_new > 3.0 and a.get("target") in present:
             held = a["target"]
+            tz, sup = tip_low_z(), support_z(held)                         # 닫은 순간 손끝 최저점 vs 물체 밑 받침(바닥·아래 물체) 윗면
+            if tz is not None and sup is not None:
+                clr = (tz - sup) * 1000
+                report.setdefault("grasp_clearance", []).append({"segment": s["i"], "id": held, "tip_above_support_mm": round(clr, 1)})
+                print(f"[phys]     집기 손끝-받침 여유 {held}: {clr:+.1f} mm{'  ◀ 손끝이 받침 윗면보다 낮음 (받침 옆으로 내려간 것인지 화면 확인)' if clr < 0 else ''}", flush=True)
             set_kin(held, True)
+            grip_filter(held, True, trays=True)
             rel = np.linalg.inv(W @ kin.fk(s["joints"][0])) @ pose_of(held)
             in_drawer.discard(held)
             print(f"[phys]     잡음 {held}", flush=True)
         elif a and a["action"] == "place_object" and not closing and held is not None:
+            sz_ = support_z(held)                                          # 놓는 순간 바닥·아래 물체 속이면 그 위로 (흉내 잡기라 파묻힐 수 있음)
+            Th = pose_of(held)
+            if sz_ is not None and Th[2, 3] < sz_ + 0.0005:
+                report.setdefault("release_lift", []).append({"segment": s["i"], "id": held, "lift_mm": round((sz_ + 0.001 - Th[2, 3]) * 1000, 1)})
+                Th[2, 3] = sz_ + 0.001
+                put(held, Th)
+            grip_filter(held, True)                                        # 서랍·트레이와는 다시 부딪힘 (그리퍼와는 이번 동작 동안 끔)
             set_kin(held, False)                                           # 놓음 → 물리로 떨어짐
             if a.get("location") in (DKEY, None) and a.get("location") != "handover_zone":
                 in_drawer.add(held)
