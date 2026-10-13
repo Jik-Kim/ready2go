@@ -78,7 +78,7 @@ STOP_UNCONFIRMED_CODES = {"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED
 
 
 def halt_cause(code: str | None) -> str | None:
-    """정지 코드 → 분류 (/runner/status halt.cause, E 원인별 안내용 — #78·#152 계약안, 승인 대기).
+    """정지 코드 → 분류 (/runner/status halt.cause, E 원인별 안내용 — #78·#152 계약, E 대화 승인 10/13, 사용자 전달 — #259).
     halt_motion = 놓침·센서 이상(재개 없음, 사람 복구) / estop / stop = 음성·서비스 정지 / unconfirmed = 정지·상태 미확인 / locked."""
     if code is None:
         return None
@@ -88,7 +88,7 @@ def halt_cause(code: str | None) -> str | None:
 
 
 def stop_state(info: dict, in_run: bool) -> str:
-    """정지 요청과 실제 정지 확인을 구분 (/runner/status halt.stop, FR-SAF-01·AC-SAF-02 — 계약안, 승인 대기).
+    """정지 요청과 실제 정지 확인을 구분 (/runner/status halt.stop, FR-SAF-01·AC-SAF-02 — 계약, E 대화 승인 10/13, 사용자 전달 — #259).
     requested = 요청했고 진행 중이던 동작의 최종 결과를 기다리는 중 / confirmed = 백엔드가 최종 결과를 줌(멈춤·끝남)
     / unconfirmed = 백엔드 최종 결과 없음(응답 유실·통신 예외·어댑터 정지 확인 시간 초과) 또는 백엔드가 STOP_UNCONFIRMED 등
     / none = 요청 때 보낸 동작이 없었음. Runner 안에서 멈춘 기록(_check_halt 의 HALTED)은 백엔드 응답으로 세지 않는다(#259 E P1).
@@ -296,7 +296,7 @@ class Runner:
 
     @property
     def halt_summary(self) -> dict | None:
-        """잠겨 있거나 재개 대기 중일 때 정지 사건 요약 (/runner/status halt — 계약안, 승인 대기). 아니면 None.
+        """잠겨 있거나 재개 대기 중일 때 정지 사건 요약 (/runner/status halt — 계약, E 대화 승인 10/13, 사용자 전달 — #259). 아니면 None.
         code·cause = 왜 멈췄나, stop·response_code·response_received_at = 진행 중이던 동작의 백엔드 최종 응답과
         Runner 가 그 응답을 받은 시각(실제 로봇 정지 시각 아님). boot_id·run_id·event_id 로 어느 기동·실행·사건인지."""
         if not self._halt.is_set() and self._suspended is None:

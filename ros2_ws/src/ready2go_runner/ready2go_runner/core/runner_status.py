@@ -1,7 +1,7 @@
 """/runner/status 메시지 내용 (ROS 비의존) — docs/interfaces.md "Runner 상태" (std_msgs/String JSON, #10).
 
 phase: idle(대기) / running(실행 중) / halted(중단 잠김 — 사람이 확인 후 재개 전까지 새 태스크 거절)
-halt: 정지 사건 요약 (계약안 — #152·#187·FR-SAF-01, E 포함 2명 승인 전). 잠김·재개 대기일 때만, 아니면 null.
+halt: 정지 사건 요약 (계약 — #152·#187·FR-SAF-01, E 대화 승인 10/13, 사용자 전달 — #259). 잠김·재개 대기일 때만, 아니면 null.
   정지를 요청해도 실행은 진행 중이던 동작의 최종 결과를 받을 때까지 running 이므로, 요청(stop "requested")과
   실제 정지 확인(stop "confirmed"·"unconfirmed"·"none")을 이 칸으로 구분한다 — Runner.halt_summary.
 """
