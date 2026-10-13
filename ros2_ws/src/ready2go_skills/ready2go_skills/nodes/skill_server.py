@@ -180,11 +180,16 @@ class DryOracle:
 
     def pick(self, objs, oid):
         self.calls += 1
+        self.last_pick_tilted = False
         t = next(o for o in objs if o["id"] == oid)
         if t.get("occluded_by"):                                 # 위에 얹힌 물체 (분할 비전 occluded_by)
             return False, "COVERED", "위에 다른 물체"
         dry = _Dry(self.srv)
-        return _dry_call(lambda: dry._do_pick_object(_DRY_GOAL, {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_of(objs, oid)}))
+        r = _dry_call(lambda: dry._do_pick_object(_DRY_GOAL, {"target": t, "approach_offset": [0, 0, 0.1], "scan": _scan_of(objs, oid)}))
+        # 집을 수 있는데 그리퍼를 기울여야 함 — 다른 자리에 놓을 땐 수직이라 손 안에서 기울어진 채 놓임 [트윈 재생 10/13 A: free 가
+        # 차키를 손잡이 쪽 벽 30 mm 에 둠 → 다시 집을 때 20° → 복구 자리에 기울어진 채]. clear_plan.find_free_pose 가 읽음
+        self.last_pick_tilted = bool(r[0]) and dry.__dict__.get("_pick_tilt") is not None
+        return r
 
     def place(self, objs, held_id, pose_or_slot):
         self.calls += 1
@@ -423,12 +428,23 @@ class SkillServer(Node):
             raise ValueError(f"{cls} {key} 은 0 초과·그 변({side}) 이하: {w!r}")
         return float(w)
 
-    def _remember_pick(self, cls, drawer_id, pose, support_m):
-        """집은 자리·받침 높이 기억 (같은 class·같은 자리는 새 값으로, 최근 12개). 놓을 때 _picked_support 로 찾음."""
+    def _remember_pick(self, cls, drawer_id, pose, support_m, under_classes=()):
+        """집은 자리·받침 높이 기억 (같은 class·같은 자리는 새 값으로, 최근 12개). 놓을 때 _picked_support 로 찾음.
+        under_classes = 그때 밑에 깔린 물체(받침)의 class — 그 물체를 옮기면 이 기억은 버림 (_forget_support)."""
+        self._forget_support(drawer_id, [cls])               # 이 물체를 집음 = 이 물체가 받치던 기억은 틀림
         rec = {"class": cls, "drawer_id": drawer_id, "position": [float(v) for v in pose["position"][:2]],
-               "yaw": float(pose["yaw"]), "support_m": float(support_m)}
+               "yaw": float(pose["yaw"]), "support_m": float(support_m), "under": sorted(set(under_classes))}
         self.picked_from = [r for r in getattr(self, "picked_from", []) if not (r["class"] == cls and r["drawer_id"] == drawer_id and plp.same_place(
             rec, r, tol_mm=3.0, tol_deg=5.0))][-11:] + [rec]
+
+    def _forget_support(self, drawer_id, classes):
+        """classes 물체를 옮김(집기·넛지·밀기) → 그 물체를 받침으로 기억한 높이는 버림 [트윈 재생 10/13 A: 몽키→캐러멜→차키 3단에서
+        차키를 받침 37 mm 로 기억 → 캐러멜을 바닥에 복구한 뒤에도 차키를 37 mm 에 놓아 16.5 mm 위에서 떨어뜨림]. 같은 class 면 버림
+        (비전 id 번호는 촬영마다 바뀔 수 있음 — 같은 class 두 개면 더 버리는 쪽, 그때는 지금 받침 top_z 로 놓음). 받침을 몰랐던
+        기억(under 없음, scan 없이 집음)은 그대로."""
+        gone = {c for c in classes if c}
+        self.picked_from = [r for r in getattr(self, "picked_from", [])
+                            if not (r["drawer_id"] == drawer_id and gone & set(r.get("under") or ()))]
 
     def _picked_support(self, cls, drawer_id, pose, pl):
         """놓을 pose 가 이 class 를 집었던 자리면 그때 받침 높이 (m), 아니면 None [사용자 10/13: 덮개 판 위 차키 — 판 면(약 29)에
@@ -1544,6 +1560,7 @@ class SkillServer(Node):
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
+        self._forget_support(drawer_id, [target.get("class")])   # 이제 끎 — 이 물체를 받침으로 기억한 높이는 버림
         if target.get("class") in (d.get("hole_classes") or []) and plan.push_to_xy_m is None and stacked <= 0:
             # 가운데가 뚫린 물체(마스킹테이프): 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 닫은 손가락을 구멍에 넣어 같은 방향·거리로
             # 밀기 [사용자 10/13 "넛지 말고 안에 넣어서 밀기, 예외로"]. 구멍 안쪽 벽에 닿기 전 빈 거리(hole_slack_mm)만큼 더 감 [추정]
@@ -1830,6 +1847,7 @@ class SkillServer(Node):
             if not res.success:
                 out["target_after"] = None
             return res, out
+        self._forget_support(drawer_id, [moved.get("class")] + [by[i].get("class") for i in a.pushed if i in by])   # 같이 밀린 것도
         res, o2 = self._press_move(goal, drawer_id, moved, a.dir, a.dist_m, a.back_m, bool(a.pushed), a.extra.get("press_xy_m"))
         out.update(pushed=o2["pushed"], push_vector_m=o2["push_vector_m"])
         if not res.success:
@@ -1980,8 +1998,11 @@ class SkillServer(Node):
         if wall and not long_side:                          # 움직이기 전 거부 (#83 A 요청, #80 D P1 후속)
             return sf.Outcome(False, WALL_TOO_CLOSE, reason=wall), None
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0
+        under_classes = []                                  # 받침 class — 놓을 때 기억 높이를 쓸지 (_forget_support)
         if support > 0 and params.get("scan") is not None:   # 쌓임: 높이는 깔린 물체의 온톨로지 높이로 (비전은 무엇이 밑인지만) [사용자 10/11]
             objs_, why_ = plp.scan_objects(params.get("scan"), drawer_id)
+            if not why_:
+                under_classes = [o.get("class") for o in plp.objects_under(target=target, objects=objs_, size_of=self._size_or_none)]
             s_ont = None if why_ else plp.ontology_support_m(target=target, objects=objs_, size_of=self._size_or_none,
                                                              vision_classes=tuple(prm["pick"].get("under_gap_by_class_mm") or {}))
             if s_ont is not None:
@@ -2016,6 +2037,9 @@ class SkillServer(Node):
             fz = mp.from_base(place["tf"], plan.position_m)[2] - prm["pick"].get("front_tilt_lower_mm", 0.0) / 1000.0
             plan = dataclasses.replace(plan, position_m=pp.to_base(place["tf"], (*ag.tcp_xy_m, fz)))
             tilt = (ag.tilt_dir, prm["pick"]["front_tilt_deg"], "손잡이 쪽", (0.0, 1.0, 0.0))
+        # 판단 사본(DryOracle.pick)이 읽음 — 빈 자리 고를 때 손잡이 쪽으로 기울여 잡는 자리는 뒤로. 원통형 옆벽 기울임(립밤)은 그대로
+        # (트윈 재생에서 나온 것은 손잡이 쪽 20°뿐, 원통형은 실물 확인 전)
+        self._pick_tilt = tilt if (tilt_x is not None or (ag is not None and ag.tilt_dir is not None)) else None
         g, speed = prm["gripper"], prm["speed"]
         expected_w = self.grasp_width(cls, size, prm, long_side=long_side) or plan.expected_width_m   # 벌림은 외접박스 짧은 변(긴 변 잡기면 긴 변) 그대로
         if not long_side and cls in (prm["pick"].get("open_by_grasp_width") or []) and self.grasp_width(cls, size, prm):
@@ -2179,7 +2203,7 @@ class SkillServer(Node):
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
                      "tcp_above_floor_m": grasp_z_now / 1000.0 - floor_z - support,   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
                      "long_side": long_side}                                        # 긴 변 양끝을 쥠 → 놓을 때 손가락 방향 90° [사용자 10/10]
-        self._remember_pick(cls, drawer_id, target["pose"], support)
+        self._remember_pick(cls, drawer_id, target["pose"], support, under_classes)
         if tilt is not None and down:
             # 기울여 집었으면 그 자세를 기억 — 원래 자리로 되돌릴 때(putback·return_to_original_pose) 수직으로는 손가락이 벽 밖이라
             # 거부됨 → 같은 자세로 거꾸로 놓음 [사용자 10/12 PC2: 손잡이 벽 립밤 putback WALL_TOO_CLOSE (꼭짓점 x −5.8 mm)]
