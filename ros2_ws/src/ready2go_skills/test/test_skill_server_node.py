@@ -6,6 +6,7 @@ import dataclasses
 import importlib
 import json
 import math
+import re
 import sys
 import types
 from pathlib import Path
@@ -18,6 +19,18 @@ from ready2go_skills.core.rg2_protocol import Rg2Status
 
 REPO = Path(__file__).resolve().parents[4]
 # 옆벽(y_max)에 붙은 지우개: 10/07 실측 0.2904 = 그때 폭 0.2937 − 3.3 mm. 서랍 좌표계를 다시 재면 폭이 바뀌므로 저장소 places.yaml 폭 기준으로 둔다 (10/10 다시 교시)
+# 물건 높이(mm)는 온톨로지 원본에서 — 높이를 실측으로 고치면(#318 캐러멜 18.5 → 21) 시험 기대값도 같이 따라감
+ONTO_H_MM = {k: v["size_m"][2] * 1000.0 for k, v in json.loads((REPO / "knowledge" / "world.jsonld").read_text(encoding="utf-8"))["world"]["items"].items()
+             if isinstance(v, dict) and v.get("size_m")}
+
+
+def _support_mm(reason):
+    """pick 결과 reason 의 "받침 NN.N mm" 숫자."""
+    m = re.search(r"받침 ([\d.]+) mm", reason)
+    assert m, reason
+    return float(m.group(1))
+
+
 WALL_Y = round(yaml.safe_load((REPO / "config" / "places.yaml").read_text(encoding="utf-8"))["drawer_top"]["interior_m"][1] - 0.0033, 4)
 ERASER_CORNER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115,
                  "pose": {"frame": "drawer_top", "position": [0.0275, WALL_Y, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 10/07 실측 (벽에서 3.3 mm)
@@ -1824,7 +1837,7 @@ def test_pick_height_by_tip_table_without_touch(server):
     out, _ = server.run("pick_object", {"target": target, "approach_offset": [0, 0, 0.1]})
     assert out.success, out.reason
     closed_tip = srv.held["tcp_above_floor_m"] * 1000.0 - mp.tip_below_tcp_mm(43.2, g)
-    assert closed_tip == pytest.approx(18.5 * prm["pick"]["grip_height_ratio"], abs=0.1)
+    assert closed_tip == pytest.approx(ONTO_H_MM["caramel_box"] * prm["pick"]["grip_height_ratio"], abs=0.1)
     stages = [e for e in srv.robot.log if e != "stop" and e[0] == "movel"]
     assert not any(e[3] == prm["speed"]["grasp_mm_s"] for e in stages if len(e) > 3)
 
@@ -1872,7 +1885,7 @@ def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server)
     scan = {"target_found": True, "target": er, "candidates": [ca], "visible_count": 2}
     server.Gripper.holding, server.Gripper.held_width = True, 22.0
     out, _ = server.run("pick_object", {"target": er, "approach_offset": [0, 0, 0.1], "scan": scan})
-    assert out.success and "받침 18.5 mm" in out.reason, out.reason
+    assert out.success and _support_mm(out.reason) == pytest.approx(ONTO_H_MM["caramel_box"], abs=0.05), out.reason
 
 
 def test_gripper_sensor_invalid_never_turns_held_into_empty_hand(server, monkeypatch):
@@ -2451,7 +2464,9 @@ def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
     scan = {"target_found": True, "target": key, "candidates": [car, wr], "visible_count": 3}
     server.Gripper.holding, server.Gripper.held_width = True, 39.0
     out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
-    assert out.success and "받침 37.9 mm" in out.reason, out.reason   # 맨 위 차키는 온톨로지 37 과 비전 37.9(53.7 − 15.8) 중 높은 값 [사용자 10/12]
+    # 맨 위 차키는 온톨로지(몽키 + 캐러멜)와 비전 37.9(53.7 − 15.8) 중 높은 값 [사용자 10/12]
+    want = max(ONTO_H_MM["toy_wrench"] + ONTO_H_MM["caramel_box"], 53.7 - ONTO_H_MM["car_key"])
+    assert out.success and _support_mm(out.reason) == pytest.approx(want, abs=0.05), out.reason
 
 
 # ---- 파지 공간 만들기 nudge_object make_room [제안 10/11 B, 계약 승인 전] ----
@@ -2752,7 +2767,9 @@ def test_nudge_stacked_target_from_support_height(server, target):
         moves = [e[1] for e in srv.robot.log if e != "stop" and e[0] == "movel"]
         assert moves, out.reason
         lows.append(min(p[2] for p in moves))
-    assert lows[1] - lows[0] == pytest.approx(20.2, abs=1.5), lows
+    h = ONTO_H_MM[t["class"]]                                             # 받침 = top_z − 물체 높이 (바닥이면 0)
+    want = max(0.0, (t["top_z"] + 0.0202) * 1000.0 - h) - max(0.0, t["top_z"] * 1000.0 - h)
+    assert lows[1] - lows[0] == pytest.approx(want, abs=1.5), lows
 
 
 def test_nudge_stacked_ignores_support_but_not_others(server):
@@ -2849,11 +2866,12 @@ def test_tilt_back_uses_current_drawer_tf(server, monkeypatch):
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
 
 
-@pytest.mark.parametrize("key, cara, wrench", [
-    ((0.0743, 0.2324, -0.1899), (0.0657, 0.1987, -0.2008, ["car_key#1"]), (0.1487, 0.2161, -0.1872, ["car_key#1", "caramel_box#1"])),
-    ((0.0782, 0.2146, -0.1714), (0.0698, 0.1804, -0.0991, ["car_key#1", "toy_wrench#1"]), (0.152, 0.1989, -0.2232, ["car_key#1"])),
+@pytest.mark.parametrize("key, cara, wrench, chain", [
+    ((0.0743, 0.2324, -0.1899), (0.0657, 0.1987, -0.2008, ["car_key#1"]), (0.1487, 0.2161, -0.1872, ["car_key#1", "caramel_box#1"]), True),
+    # 두 번째 덤프: "몽키가 캐러멜 위" 헛관계 → 온톨로지 받침이 한 단(캐러멜)만 — 맨 위 차키라 비전 값이 더 높아 그쪽
+    ((0.0782, 0.2146, -0.1714), (0.0698, 0.1804, -0.0991, ["car_key#1", "toy_wrench#1"]), (0.152, 0.1989, -0.2232, ["car_key#1"]), False),
 ])
-def test_stacked_key_hanging_off_caramel_edge_picks_with_caramel_as_support(server, key, cara, wrench):
+def test_stacked_key_hanging_off_caramel_edge_picks_with_caramel_as_support(server, key, cara, wrench, chain):
     """[실측 PC2 10/12 B unpack top 몽키 두 번] 캐러멜 끝에 걸친 차키(가운데가 캐러멜 밖 약 10 mm) → 캐러멜을 옆 물체로 봐
     NEIGHBOR_TOO_CLOSE. 분할 관계 + 캐러멜 윗면이 차키 바닥 높이와 맞고 겹치면 받침 → 집기 통과, 받침 37 mm (몽키 + 캐러멜)."""
     def o(i, cls, xyz, top, occ):
@@ -2869,7 +2887,9 @@ def test_stacked_key_hanging_off_caramel_edge_picks_with_caramel_as_support(serv
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
     assert out.success, out.reason
-    assert "받침 37.0" in out.reason or "받침 37.1" in out.reason or "받침 37.2" in out.reason   # 온톨로지 37 / 비전 52.8 − 15.8 = 37.0 중 높은 값
+    w, c = ONTO_H_MM["toy_wrench"], ONTO_H_MM["caramel_box"]
+    want = max(w + c if chain else max(w, c), 52.8 - ONTO_H_MM["car_key"])   # 온톨로지(몽키 + 캐러멜) / 비전 52.8 − 15.8 중 높은 값
+    assert _support_mm(out.reason) == pytest.approx(want, abs=0.25), out.reason
     side = o("caramel_box#1", "caramel_box", (key[0], key[1] - 0.045, 0.0), 0.0185, ["car_key#1"])   # 바닥 차키 옆 헛관계 캐러멜
     floor_key = dict(k, top_z=0.0158)
     assert server.ss.plp.objects_under(target=floor_key, objects=[side], size_of=server.srv._size_or_none) == []

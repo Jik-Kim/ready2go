@@ -35,7 +35,7 @@
 | 8 | 시작 상태 | 서랍 **닫힘**, 그리퍼 **빈손**, 로봇 **홈**, 트레이 비어 있음 | B |
 | 9 | **리허설 1회 (점검 전)** | **S2(아래 칸 덮개 판)** 를 2절 순서대로 1회 — 10/11 에 Runner 로 Unpacking 실물을 돌리지 못해 첫 실물 실행. 음성 대신 `RUNNER_TASK_FILE` 로 시작해도 됨. 문제 생기면 6절 → C 가 `run_report -n 1` 로 원인 확인 뒤 본 점검 | B·C |
 
-### 1-1. PC2 한 대 — 터미널 5개 (10/12 실제 방식)
+### 1-1. PC2 한 대 — 터미널 5개 (10/12 실제 방식, 묶은 방식은 1-2절)
 
 PC1 은 쓰지 않는다. 로봇·카메라·비전·음성·Runner·DB 모두 PC2. 시험 중에는 `B unpack`·`B clear` 등 **B 명령을 쓰지 않는다**(같은 로봇·비전을 부름).
 
@@ -60,6 +60,25 @@ PY
 git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정상
 ```
 이미 ② 가 떠 있으면 `docker compose restart ros2-core` 뒤 ⑤ 로 확인. 음성 인식이 막히면 글자로 넣기(E 음성 노드 해석을 거침): `docker compose exec ros2-core /entrypoint.sh ros2 topic pub --once /voice/text_override std_msgs/msg/String "data: '지우개 찾아줘'"`
+
+### 1-2. PC2 한 대 — 터미널 3개 (스크립트, 10/13 추가 · PC2 실물 확인 전)
+
+1-1절과 **같은 서비스·같은 설정**을 스크립트로 묶은 것. 비전 노드만 `vision_real_check.sh node` 대신 compose `vision-node`(`pc2` 프로필 — 같은 이미지·같은 노드, 사용자·`code_sha`·덤프 폴더·`HOME`/`YOLO_CONFIG_DIR` 도 스크립트와 같게). 처음 쓸 때는 비전 노드 시작 줄(모델·`places`·`vision_params` 해시·`code_sha`)이 1-1절 방식과 같은지 비교. 1-1절 방식도 그대로 쓸 수 있음(둘을 동시에 띄우지 않음 — 비전 노드가 둘이 됨).
+
+| 터미널 | 명령 | 하는 일 |
+| :--- | :--- | :--- |
+| ① 도커 | `bash tools/dev/pc2_up.sh` (`--check` = 띄우지 않고 확인만) | `.env`·호스트 충돌·모델 v2·비전 이미지·시작 상태 확인 → `realsense`·`ros2-core`·`db`·`vision-node` 를 백그라운드로 → `Runner 준비`·`find_with_unpack`·비전 v2 시작 줄 확인 → 기준점 SHA 출력 → **Runner 로그를 계속 보여 줌**(Ctrl+C 는 보기만 멈춤). 로그는 `~/ready2go_pc2_logs/<시각>/` (저장소 `logs/` 는 root 소유일 수 있어 밖에 둠) |
+| ② 음성 | `bash tools/dev/pc2_voice.sh` | 1절 7번과 같음 — Jazzy·Domain 70·CycloneDDS local(`r2genv` 가 하던 것)·`.venvs/project`·`install_host`·`evaluation_mode:=false`. `audio_enabled`·`secrets/voice.env` 확인 |
+| ③ 명령 | `bash tools/dev/pc2_cmd.sh help` | `status`·`state`(전체 JSON 보기 좋게)·`reset`·`report [n]`·`check`·`md`·`say <문장>`(음성 해석 거침)·`find <물품>`(직접)·`goal 1~5`(5절)·`unlock`(Runner 재시작)·`logs [서비스]` — 받는 쪽이 없으면 10 s 뒤 안내 |
+
+끄기: `bash tools/dev/pc2_down.sh` (로그 저장 → `down` → 시작 상태 임시 변경이 남았으면 되돌리기 안내). 시작 상태 임시 변경(3a)은 ① 전에 그대로 한다.
+
+- **이미 떠 있으면 멈춤**: compose 컨테이너가 떠 있으면 `pc2_up.sh` 는 띄우지 않고 종료(코드 1) — 떠 있는 `ros2-core` 를 이어 쓰면 지금 checkout·시작 상태와 다른 기동을 "준비 끝"으로 볼 수 있음. `pc2_down.sh` 뒤 다시. 준비 확인은 이번 기동 시각 뒤 로그만 보고, 실패하면 로그 보기 없이 종료 코드 1(`~/ready2go_pc2_logs/<시각>/ready.txt`).
+- **`pc2_cmd.sh`**: `say`·`find`·`goal` 은 메시지를 Python 으로 만들어 문장에 따옴표가 있어도 깨지지 않음, `find` 물품 키는 영문 소문자·숫자·`_` 만. 전달 실패면 안내 후 0 이 아닌 종료 코드.
+- **범위 (#313 E 리뷰)**:
+  - **1단계 = 지금 통합점검**: `RUNNER_RESUMABLE` 비움(재개 모드 끔), 음성 `pc2_voice.sh`(기본 — E 제어 연결 꺼짐). S1~S3·목표 5종·음성 정지.
+  - **2단계 = 종료·복구·재개 실물**: `RUNNER_RESUMABLE=1` + 음성 `pc2_voice.sh --control`(`request_run_enabled:=true` — `evaluation_mode:=false` 만으로는 켜지지 않음) + E #315·B #297 머지 + 외력 칸 결정. 이 스크립트만으로 2단계 준비가 됐다고 보지 않음.
+- 시작 상태: `pc2_up.sh` 가 `initial_state.json` 의 위 칸·아래 칸 물품을 보여 줌. E #283(단일 P2 시작 상태 — 위 S1·아래 S2)이 머지되면 3a 임시 변경은 필요 없음.
 
 ## 2. 회차마다 순서
 
