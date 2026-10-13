@@ -367,7 +367,7 @@ ros2 service call /runner/reset_state std_srvs/srv/Trigger '{}'
 | `docker/` | 서비스별 Dockerfile |
 | `sim/` | Isaac Sim 스크립트 (USD는 Git LFS) |
 | `tools/` | 검증·측정 스크립트 |
-| `web/` | P3 최종 시연 검토용 PC·모바일 웹 UI와 [실행·연동 안내](web/README.md) |
+| `web/` | 녹화 범위 검토용 PC·모바일 정적 목업과 [실행·연동 안내](web/README.md) |
 | `practice/` | 담당별 현재 상태(`CURRENT.md`) |
 
 ## 팀
