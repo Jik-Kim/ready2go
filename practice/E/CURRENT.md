@@ -16,6 +16,15 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/r
 
 - [실측: 정합성/보존] 정확 E 12파일 diff, source 초기 JSON SHA256 `9338850e54b270ec88649b901dbde8a25e444238675b7ec4aa0e6c0790b84f2c`와 3파일 삭제 일치, AST/JSON/YAML·추가 문서 링크/명시 alias 앵커·world10/grasp10/state6·캐러멜18.5·고정11/id5를 대조했습니다. loader/API·manifest·모든 skill·설정과 primary 6원본 hash/scene 삭제·카드 ref ea7는 불변이며 data branch에는 카드 선조가 없습니다.
 - [인계/미검증] C default 위치/서랍·옛 P1 모든 물품 top·C test_tasks/test_unpack_task fixtures의 frame/expectation은 새 단일 파일과 담당자 대조가 필요합니다. B HANDOVER의 임시 배치 편집/원복 안내, C `practice/C/2026-10-12_checkpoint2_runbook.md`의 초기 위치 임시 편집 및 docs/demo_scenario의 옛 위 칸 기본 설명은 담당 인계입니다. C 등록 물품의 위치 누락 UNKNOWN_ITEM 구분·S3 실물 미검출 결과/LLM 전달·관측 유효성/무효화와 실음성/API/ROS/로봇/실물 수용은 미검증/후속입니다. 새 이웃 우선/check_scan/W3 안전/도달깊이/모션을 추가하지 않습니다.
+- [전담 CI: 이전 head 실패] `385cf8dcba140f6d1b289209b51dd91c21725a13`의 전체 CI core 로그 `/home/jonny/.cache/ready2go-ci/logs/385cf8d_20261013_141921_LBzq/core.log`에서 실패가 발생했습니다. manager 분류는 C31/E4 실패이며 43skip은 별도입니다. E4의 실제 로그를 확인했고 모두 망치가 초기 위치에 있다는 옛 readonly 기대였습니다. 등록 물품의 위치 미기입을 정상 미확인으로 보존했으며 C31·의존성 skip을 E fixture 수정이나 실행 성공으로 바꾸지 않습니다.
+- [실측: E Voice fixture 보완] 추가 허용 파일은 `ready2go_voice/test/test_dialogue_hotfix.py`와 이 CURRENT입니다(총 data diff13파일). 등록 망치/초기 위치 없음 전제와 정확 초기 미확인 응답을 명시하고, 기입6종의 초기 위치 및 연결 provider 누락/예외에서 알려진 초기 지우개 위치로 대신하지 않는 경계를 확인합니다. readonly·LLM 미호출·targets 빈 배열·실행허용 false와 참조/현재 mapping 불변을 유지했습니다. 전체 unknown wire 발행0은 현 구현과 다른 주장입니다: intent.parse는 보류 unknown을 만들고 session/Node는 보류 intent 발행을 허용할 수 있으므로 이번 시험은 실행 후보/권한 차단을 확인합니다. runtime/API·단일 source/state/world·C 파일은 수정하지 않았습니다.
+- [실측: 최소 재검사 결과] AST 후 해당 Voice 파일 최초1회 **33 passed/6 failed(3.79초)**: 원 CI E4는 통과했고, 강화한 실패 응답 조건이 “초기 배치를 대신 안내하지 않는다”는 설명 문구의 단어를 잘못 배제했습니다. 두 predicate를 정확 현재 기록 미확인 응답으로 보완한 뒤 실패6만 **6 passed/33 deselected(0.91초), 종료0**으로 재검사했습니다. 고유39개 분할 확인이며 반복을 더하지 않았습니다. 기존 E43·validator·data/runtime 검사는 변경이 없어 재실행하지 않았고 이전 385 전체 CI를 새 head 성공으로 전용하지 않습니다. 새 head의 normal push/전체CI1회·C31 미결 공개 draft PR은 manager/게시 전담 단계입니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_voice" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_dialogue_hotfix.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_voice" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_dialogue_hotfix.py -k '(provider_boundary and (missing or exception)) or known_initial_location_does_not_fill' -q -p no:cacheprovider
+```
+
 - [게시 경계] 승인 E data/문서/시험만 로컬 커밋 후 manager 실제 diff 검증에 전달합니다. publisher 진행 중인 카드 작업을 덮지 않고 data 최종 CI·정상 push·별도 PR 지시는 manager가 순차 담당합니다. E 자체 CI/push/PR/main 병합·새 agent/설치·Notion/외부 게시를 수행하지 않습니다. 아래 과거 기록은 각 당시 SHA·검사/배치이며 새 단일 정의로 재해석하지 않습니다.
 
 
