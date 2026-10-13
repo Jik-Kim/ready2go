@@ -480,10 +480,14 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
         return a1
     if wall is not None:                                           # 벽 넛지만으론 아직 안 잡히지만 벽에서는 벗어남
         return wall
+    # 목표만 움직여선 안 됨 → 막는 물체를 집어 빈 자리로 옮긴 뒤 목표를 한 번 움직이면(넛지·밀기) 집힘 [사용자 10/13]
+    a = _remove_to_open(objs, tid, oracle, cfg, reason, then_move=True) if _depth == 0 else None
+    if a is not None:
+        return a
     return _remove_blocker(objs, tid, oracle, cfg, code, reason, _depth)
 
 
-def _remove_to_open(objs, tid, oracle, cfg: Config, reason: str = "") -> Optional[Action]:
+def _remove_to_open(objs, tid, oracle, cfg: Config, reason: str = "", then_move: bool = False) -> Optional[Action]:
     """막는 물체를 집어 빈 자리로 옮기면 목표를 바로(또는 벽 넛지 몇 번으로) 집을 수 있게 되는지 — 거부 이유에 나온 물체 먼저,
     그다음 목표 가까운 바닥 물체. 그 물체를 지금 집을 수 없으면 건너뜀(그 물체 둘레 공간 만들기는 _remove_blocker)."""
     near = _near_blockers(objs, tid, cfg, reason)
@@ -493,8 +497,9 @@ def _remove_to_open(objs, tid, oracle, cfg: Config, reason: str = "") -> Optiona
         pose = find_free_pose(objs, o["id"], [tid], oracle, cfg)
         if pose is None:
             continue
-        if _opens_way(_relocated(objs, o["id"], pose, cfg.size_of), tid, oracle):
-            return Action("remove", o["id"], f"막는 {o['id']} → 빈 자리 (목표 {tid} 손가락·끄는 길 비움)", to_pose=pose)
+        if _opens_way(_relocated(objs, o["id"], pose, cfg.size_of), tid, oracle, cfg=cfg if then_move else None):
+            return Action("remove", o["id"], f"막는 {o['id']} → 빈 자리 (목표 {tid} 손가락·끄는 길 비움"
+                          + (", 다음에 목표 넛지·밀기" if then_move else "") + ")", to_pose=pose)
     return None
 
 
@@ -622,7 +627,7 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
                        and (o["id"] == who or
                             math.dist((tx, ty), o["pose"]["position"][:2]) <= cfg.neighbor_r_m + 0.5 * max(cfg.size_of(o["class"])[:2]))),
                       key=lambda o: (o["id"] != who, math.dist((tx, ty), o["pose"]["position"][:2])))
-        best = None
+        best = then = None
         for o in near[:4]:
             if not press_ok(objs, o["id"], cfg.size_of, **_pkw(cfg)):
                 continue
@@ -632,10 +637,15 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
                 if _opens_way(after, tid, oracle):
                     best = (c, a)
                     break
+                if then is None and _opens_way(after, tid, oracle, wall_steps=0, cfg=cfg):   # 이웃 옮긴 뒤 목표 넛지·밀기 한 번 [사용자 10/13]
+                    then = a
         if best:
             a = best[1]
             a.reason = f"목표 {tid} 옆 {a.target} 를 " + a.reason
             return a
+        if then:
+            then.reason = f"목표 {tid} 옆 {then.target} 를 " + then.reason + f" — 다음에 {tid} 넛지·밀기"
+            return then
     if who and depth == 0 and not riders(objs, who):               # 막는 물체도 못 집으면 그 물체 둘레부터 공간 만들기 (한 단계만)
         a = plan_next(objs, who, oracle, cfg, depth + 1)
         if a.kind in ("nudge", "sweep", "wall_nudge", "unstack", "remove"):
@@ -644,19 +654,24 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
     return Action("fail", tid, reason or "", code=code or "")
 
 
-def _opens_way(objs, tid, oracle, wall_steps: int = 3) -> bool:
+def _opens_way(objs, tid, oracle, wall_steps: int = 3, cfg: Optional[Config] = None) -> bool:
     """이웃을 옮긴 뒤 목표를 바로 집거나, 벽 넛지만 몇 번(끄는 길이 비어서, 예: 안쪽 벽 → 옆벽)으로 집을 수 있게 되는지
-    (예: 아래 칸 안쪽 구석 물체를 손잡이 쪽으로 끌어야 하는데 지우개가 가로막음 → 지우개를 옆으로 밀면 길이 열림)."""
+    (예: 아래 칸 안쪽 구석 물체를 손잡이 쪽으로 끌어야 하는데 지우개가 가로막음 → 지우개를 옆으로 밀면 길이 열림).
+    cfg 를 주면 목표를 한 번 움직여(넛지·밀기) 집히는 것도 됨 — 막는 물체 치우기 → 목표 sweep [사용자 10/13 "sweep 해도 각이
+    안 나오면 다음 순서를 찾아야지": 앞벽 에어팟 뒤 몽키를 빈 자리로 → 에어팟 sweep]."""
+    cur = objs
     for _ in range(wall_steps + 1):
-        ok, code, _ = oracle.pick(objs, tid)
+        ok, code, _ = oracle.pick(cur, tid)
         if ok:
             return True
         if code != "WALL_TOO_CLOSE":
-            return False
-        after, _, _ = oracle.wall_nudge(objs, tid)
+            break
+        after, _, _ = oracle.wall_nudge(cur, tid)
         if after is None:
-            return False
-        objs = _with(objs, after)
+            break
+        cur = _with(cur, after)
+    if cfg is not None and press_ok(objs, tid, cfg.size_of, **_pkw(cfg)):
+        return any(oracle.pick(after, tid)[0] for _, _, after in sorted(_self_moves(objs, tid, cfg, fine=False), key=lambda c: c[0]))
     return False
 
 
