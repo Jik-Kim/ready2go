@@ -3006,6 +3006,28 @@ def test_make_room_cluster_touching_bboxes_still_plans(server):
     assert srv.robot.log == []
 
 
+def test_make_room_wall_cluster_sweeps_away_from_wall(server):
+    """[실측 PC2 10/13 덤프 inspect_20261013_053849_242Z] 오른쪽 벽(y 0)에 붙은 에어팟 — 손잡이 쪽 옆에 14° 돌아 벽에 닿은 캐러멜
+    (외접 박스가 벽 밖 4 mm), +y 에 몽키, 안쪽에 지우개 → make_room fail "끄는 길에 caramel_box#1". 옆에 맞붙은 물체는 '앞'이
+    아니고, 처음부터 경계 밖으로 그려진 만큼은 봐줌 → 에어팟을 +y 로 밀며 몽키를 같이 밀기(sweep)."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1099, 0.0272, 0.0229, -0.0166)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.04, 0.0293, 0.0229, -0.25),
+                           o("toy_wrench#1", "toy_wrench", 0.1085, 0.0689, 0.0151, -0.1574),
+                           o("eraser#1", "eraser", 0.1723, 0.0119, 0.0128, 0.0064)]}
+    out, data = server.run("nudge_object", {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True})
+    mr = data["make_room"]
+    assert mr["action"] == "sweep" and "toy_wrench#1" in mr["reason"] and "caramel_box#1" not in mr["reason"], mr
+    assert srv.robot.log == []
+
+
 def test_open_refused_while_holding(server):
     """손잡이를 잡으려면 그리퍼를 벌림 → 쥔 물체가 떨어짐 — 열기는 움직이기 전 HOLDING_OBJECT.
     열림 알림(displacement, 로봇 동작 없음)과 서랍 상태는 그대로."""
