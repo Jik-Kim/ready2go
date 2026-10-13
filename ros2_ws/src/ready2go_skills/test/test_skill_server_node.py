@@ -2794,3 +2794,130 @@ def test_cover_plate_under_exception_keeps_observed_height_when_too_tall_to_be_u
     assert out.success is ok, out.reason
     if not ok:
         assert out.error_code == "NEIGHBOR_TOO_CLOSE" and "eraser#1" in out.reason
+
+
+# ---- 트레이에서 집기 (return_items, 3차 챌린지 전 10/12) — target = inspect_region(handover_zone) 결과 그대로
+TRAY_ERASER = {"id": "eraser#1", "class": "eraser", "top_z": 0.0121, "occluded_by": [],     # contracts/examples/inspect_region_handover_found.json
+               "pose": {"frame": "handover_zone", "position": [0.023, 0.0875, 0.0], "yaw": 1.5707, "yaw_valid": True}}
+OVER_TRAY = [600.0, 220.0, 146.0, 21.2, -180.0, 21.6]                    # tray_view 근처 (그리퍼 수직)
+
+
+def _tray_scan(target, *others):
+    return {"target_found": True, "target": target, "candidates": list(others), "visible_count": 1 + len(others)}
+
+
+def _pick_from_tray(server, target=TRAY_ERASER, width=22.0, **extra):
+    server.srv.robot.p = list(OVER_TRAY)
+    server.Gripper.holding, server.Gripper.held_width = True, width
+    t = json.loads(json.dumps(target))
+    return server.run("pick_object", dict({"target": t, "approach_offset": [0, 0, 0.1], "scan": _tray_scan(t)}, **extra))
+
+
+def test_tray_pick_from_handover_target(server):
+    """트레이 target(pose.frame handover_zone)으로 집기: 트레이 위에서 J6 → free_lift_z 위 → 수직으로 내려 닫기 → free_lift_z 로.
+    쥔 기억은 트레이 것(drawer_id handover_zone, id 앞에 트레이) — 결과 object_id 는 비전 id 그대로. 집은 칸은 빈 칸으로."""
+    srv = server.srv
+    srv.tray = {"handover_zone": [0, 1]}
+    try:
+        out, data = _pick_from_tray(server)
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success and "트레이에서 파지" in out.reason, out.reason
+    assert data["grasp_ok"] is True and data["hand"] == "holding" and data["object_id"] == "eraser#1"
+    assert data["pick_pose_drawer_frame"]["frame"] == "handover_zone"
+    assert srv.held["drawer_id"] == "handover_zone" and srv.held["id"] == "handover_zone/eraser#1" and srv.held["long_side"] is False
+    assert 0.0 < srv.held["tcp_above_floor_m"] < 0.03
+    lines = [e[1] for e in srv.robot.log if e != "stop" and e[0] == "movel"]
+    lift = srv.prm()["transit"]["free_lift_z_mm"]
+    assert lines[0][2] == pytest.approx(lift) and lines[-1][2] == pytest.approx(lift)   # 테두리 위로 와서 내려가고 다시 그 높이로
+    floor = 1000.0 * server.ss.pp.to_base(srv.places()["handover_zone"]["tf"], (0.023, 0.0875, 0.0))[2]
+    assert floor < min(p[2] for p in lines) < floor + 40.0                               # 잡는 높이 = 트레이 바닥 위
+    assert not any(e[0] == "movej" and e[1] == srv.poses()["tray_view"]["joints_deg"] for e in srv.robot.log if e != "stop")
+    assert srv.tray == {"handover_zone": [1]}                                          # 1번 칸(지우개)이 빔
+
+
+def test_tray_pick_from_elsewhere_goes_to_tray_view_first(server):
+    """트레이 위가 아니면(홈·서랍 위 등) tray_view 관절 이동부터 — 직선으로 바로 트레이로 가지 않음."""
+    srv = server.srv
+    server.Gripper.holding, server.Gripper.held_width = True, 22.0
+    try:
+        out, _ = server.run("pick_object", {"target": TRAY_ERASER, "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    moves = [e for e in srv.robot.log if e != "stop" and e[0] in ("movel", "movej")]
+    first_j = next(i for i, e in enumerate(moves) if e[0] == "movej")
+    assert list(moves[first_j][1]) == pytest.approx(srv.poses()["tray_view"]["joints_deg"]), moves[:first_j + 1]
+    assert out.success, out.reason
+
+
+@pytest.mark.parametrize("change, code", [
+    ({"pose": {"yaw_valid": False}}, "YAW_INVALID"),
+    ({"top_z": 0.05}, "NOT_ON_FLOOR"),                                  # 다른 물체 위 (트레이에서는 쌓인 것 안 집음)
+    ({"pose": {"position": [0.20, 0.0875, 0.0]}}, "BAD_PARAMS"),        # 손 닿는 범위(interior_m x 137 mm) 밖
+])
+def test_tray_pick_refuses_before_motion(server, change, code):
+    srv = server.srv
+    t = json.loads(json.dumps(TRAY_ERASER))
+    t.update({k: v for k, v in change.items() if k != "pose"})
+    t["pose"].update(change.get("pose") or {})
+    srv.robot.p = list(OVER_TRAY)
+    out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+    assert not out.success and out.error_code == code, out.reason
+    assert srv.robot.log == [] and srv.held is None
+
+
+def test_tray_pick_neighbor_and_source_slot_refused(server):
+    """트레이 scan 의 옆 물체가 벌린 손가락 자리에 있으면 NEIGHBOR_TOO_CLOSE, 예전 source_slot 은 UNSUPPORTED_PARAMS — 둘 다 움직이기 전."""
+    srv = server.srv
+    srv.robot.p = list(OVER_TRAY)
+    car = {"id": "car_key#1", "class": "car_key", "top_z": 0.0158, "occluded_by": [],
+           "pose": {"frame": "handover_zone", "position": [0.023 + 0.030, 0.0875, 0.0], "yaw": 1.5707, "yaw_valid": True}}
+    out, _ = server.run("pick_object", {"target": TRAY_ERASER, "scan": _tray_scan(TRAY_ERASER, car)})
+    assert not out.success and out.error_code == "NEIGHBOR_TOO_CLOSE" and "car_key#1" in out.reason, out.reason
+    out, _ = server.run("pick_object", {"source_slot": "handover_zone_1", "object_id": "eraser#1"})
+    assert not out.success and out.error_code == "UNSUPPORTED_PARAMS"
+    assert srv.robot.log == [] and srv.held is None
+
+
+def test_tray_pick_round_item_long_side(server):
+    """원통형(립밤)은 서랍처럼 긴 변 양끝 — 트레이에 놓을 때도 그 방향으로 쥐었음."""
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0198, "occluded_by": [],
+           "pose": {"frame": "handover_zone", "position": [0.069, 0.088, 0.0], "yaw": 1.5523, "yaw_valid": True}}
+    try:
+        out, _ = _pick_from_tray(server, lip, width=72.5)
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success and "긴 변 양끝" in out.reason and server.srv.held["long_side"] is True, out.reason
+
+
+def test_tray_pick_then_place_free_in_drawer(server):
+    """return_items: 트레이에서 집은 물체를 서랍 빈 자리(slot free)에 — 서랍 scan 에 쥔 물체가 없어도 받음.
+    서랍에 같은 이름(eraser#1) 물체가 있어도 쥔 것으로 착각하지 않음(그 자리를 비우지 않고 피해서 놓음)."""
+    srv = server.srv
+    drawer_eraser = json.loads(json.dumps(ERASER_FREE))
+    dscan = {"target_found": False, "target": None, "candidates": [drawer_eraser], "visible_count": 1}
+    n0 = len(srv.robot.log)
+    out, data = server.run("place_object", {"location": "drawer_top", "slot": "free", "scan": dscan,      # 집기 전 판단
+                                            "object": TRAY_ERASER, "check_only": True})
+    assert out.success and data["check_only"] is True and data["planned_pose"]["frame"] == "drawer_top", out.reason
+    assert len(srv.robot.log) == n0 and srv.held is None
+    try:
+        out, _ = _pick_from_tray(server)
+        assert out.success, out.reason
+        out, data = server.run("place_object", {"location": "drawer_top", "slot": "free", "scan": dscan})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert out.success and data["slot"] == "free" and srv.held is None, out.reason
+    p = data["placed_pose"]["position"]
+    assert math.dist(p[:2], drawer_eraser["pose"]["position"][:2]) > 0.03              # 서랍 지우개 자리에 겹쳐 놓지 않음
+
+
+def test_open_refused_while_holding(server):
+    """손잡이를 잡으려면 그리퍼를 벌림 → 쥔 물체(트레이에서 집은 것 등)가 떨어짐 — 열기는 움직이기 전 HOLDING_OBJECT.
+    열림 알림(displacement, 로봇 동작 없음)과 서랍 상태는 그대로."""
+    srv = server.srv
+    srv.disp = {}
+    srv.held = {"class": "eraser", "id": "handover_zone/eraser#1", "width_m": 0.022, "drawer_id": "handover_zone",
+                "tcp_above_floor_m": 0.011, "long_side": False}
+    out, _ = server.run("drawer_control", {"drawer_id": "drawer_top", "state": "open"})
+    assert not out.success and out.error_code == "HOLDING_OBJECT" and srv.robot.log == [] and srv.disp == {}

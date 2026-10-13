@@ -772,3 +772,27 @@ def test_b_unpack_obstacle_pick_refused_goes_to_restore_like_task(monkeypatch):
     sk.TARGET = "eraser"
     assert sk.unpack(None) is True
     assert calls == ["ready", "open", "inspect:eraser", "pick", "nudge", "inspect:eraser", "pick", "place", "close"]
+
+
+def test_b_sk_tray_pick_and_putin(monkeypatch, tmp_path):
+    """[10/12 return_items] B trayscan 결과가 가장 최근이면 B pick 이 트레이에서 집음(트레이 scan 을 같이),
+    B putin top = 쥔 물체를 그 서랍 빈 자리에(place_object slot free + 서랍 scan). 서랍 인식 결과가 없으면 보내지 않음."""
+    import os
+    sk = _load_sk(monkeypatch)
+    monkeypatch.setattr(sk, "TMP", str(tmp_path))
+    monkeypatch.setattr(sk, "AFTER", str(tmp_path / "after.json"))
+    tray_t = {"id": "eraser#1", "class": "eraser", "top_z": 0.0121,
+              "pose": {"frame": "handover_zone", "position": [0.023, 0.0875, 0.0], "yaw": 1.5707, "yaw_valid": True}}
+    tray_full = {"target_found": True, "target": tray_t, "candidates": [], "visible_count": 1}
+    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
+    os.utime(tmp_path / "b_target_scan_drawer_top.json", (1, 1))
+    (tmp_path / "b_target_scan_handover_zone.json").write_text(json.dumps(tray_t))
+    (tmp_path / "b_target_fullscan_handover_zone.json").write_text(json.dumps(tray_full))
+    action, params = sk.goal_for("pick")
+    assert action == "pick_object" and params["target"] == tray_t and params["scan"] == tray_full
+    assert "putin" in sk.NEEDS_DRAWER and "trayscan" not in sk.NEEDS_DRAWER
+    with pytest.raises(SystemExit, match="B scan top"):
+        sk.goal_for("putin")
+    dscan = {"target_found": False, "target": None, "candidates": [TOP_T], "visible_count": 1}
+    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(dscan))
+    assert sk.goal_for("putin") == ("place_object", {"location": "drawer_top", "slot": "free", "scan": dscan})

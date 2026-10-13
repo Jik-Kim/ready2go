@@ -31,6 +31,36 @@
       }
     },
     {
+      "case": "tray_held",
+      "_note": "트레이에서 집기 (제안 10/12 B, return_items) — 입력 target = inspect_region(handover_zone) 결과의 target 그대로. pick_pose_drawer_frame 은 그 pose(frame handover_zone)",
+      "success": true,
+      "error_code": "",
+      "output": {
+        "object_id": "eraser#1",
+        "class": "eraser",
+        "grasp_ok": true,
+        "hand": "holding",
+        "grasp_evidence": {
+          "closed_width_m": 0.022,
+          "grasp_detected": true,
+          "min_width_m": 0.01,
+          "close": "OK",
+          "lift": "HELD",
+          "lift_width_m": 0.022
+        },
+        "pick_pose_drawer_frame": {
+          "frame": "handover_zone",
+          "position": [
+            0.023,
+            0.0875,
+            0.0
+          ],
+          "yaw": 1.5707,
+          "yaw_valid": true
+        }
+      }
+    },
+    {
       "case": "empty_close",
       "success": false,
       "error_code": "GRASP_FAILED",

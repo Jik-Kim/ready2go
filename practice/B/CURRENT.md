@@ -1,9 +1,14 @@
 # CURRENT — B 서동권
 
 - **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P1
-- **최종 갱신**: 2026-10-12
+- **최종 갱신**: 2026-10-13
 
 ## 지금 상태
+- **10/13 새벽 (3차 챌린지 전, PR #258 위에 이어서)**: 트레이에서 집기 [사용자 10/12 "트레이뷰로 보고 물체 집으면 됨"] — `return_items`(트레이 → 서랍 반납)용.
+  - `pick_object` `target` 이 `inspect_region(handover_zone)` 결과(`pose.frame` `handover_zone`)면 트레이에서 집음: 움직이기 전 `yaw_valid`·바닥 위·손 닿는 범위(`interior_m`)·이웃, 트레이 위 아니면 `tray_view` → J6 → 목표 위 150 mm → 수직으로 내려 닫기 → 150 mm. 짧은 변(립밤만 긴 변), 높이는 서랍과 같은 규칙. 예전 `source_slot` 은 거부 그대로.
+  - 트레이에서 쥔 물체도 서랍 안 놓기(`pose`·`slot`·`free`·`check_only`)를 받음 — 서랍 scan 에 쥔 물체가 없어도. 쥔 채 서랍 열기는 움직이기 전 `HOLDING_OBJECT`(그리퍼를 벌려 떨어뜨림).
+  - B 명령: `B trayscan <물체>`(트레이 인식) → `B pick`(가장 최근 인식) → `B putin top|bottom`(쥔 물체를 그 서랍 빈 자리에). 계약은 제안(C 확인·E 포함 2명 승인 전), `tasks/return_items.json` 은 C 담당.
+  - 실물 미확인: 트레이 잡는 높이(바닥 휨 1.9 mm), tray_view 에서 J6 돌리기, 트레이 → 서랍 탑뷰(홈 경유) 쥔 채 이동.
 - **10/12 밤 (3차 챌린지 전 코드 정리, 동작 변화 없음)**: 안 쓰는 코드 정리 — 옛 넛지 계획 모듈(`core/nudge_plan.py`), 닫기 판정 함수 2개, 안 읽는 파라미터 14개, 지금 설정으로 안 타는 경로 3개(바닥 찍기 집기 `touch_floor`, 위 칸 수직 손끝 닫기, 옛 들고 나오기 `carry_out` movesj). 시험 644 passed, `demo_sim`·`p2_demo` 결과 정리 전과 같음.
 - **10/12 저녁 (PR #241·#243·#247 머지, #248 열림)**: Unpacking 통합 — 막힌 것의 절반 이상이 C 태스크·E `pick` 묶음·Runner 설정 쪽(#245 정리, #242 C 반영 대기). B: 놓기 이웃 확인 손가락 띠만, 복구 때 물체 위에 놓기 켬, `nudge_object check_only` `needed`·`plan_code`·집기 경유점 중복 생략(#248, E 승인 대기). 비전 v2 실물 확인 통과. **사고: 손으로 연 서랍에 `B unpack` → 부딪힘(안내 오류, 트러블슈팅 47)** — 실행 순서는 `HANDOVER.md` 4절(평소/통합 구분)대로.
 - **10/12 오후 2 (같은 브랜치, PR #241)**: Runner 통합 2회차 — aside 를 비워 뒀는데 판 밑 지우개 방향 모름 정사각형(57 mm)이 aside 에 6 mm 걸려 판을 쥔 채 정지(트러블슈팅 39). 가려진 이웃 축소(`hidden_split`)는 #241 리뷰 P1 로 되돌림(fail-closed, A 에 마스크 경계 요청). `place_object` `check_only`(집기 전 판단)·`slot: "free"` 추가(제안, Runner 연결은 C 이슈).
