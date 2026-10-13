@@ -238,3 +238,18 @@ def test_recover_needs_confidence_and_required_fields():
     for drop in ("boot_id", "event_id", "request_id"):
         doc = {k: v for k, v in RECOVER.items() if k != drop}
         assert router().decide(json.dumps(doc), running=False, locked=True).reason == ir.BAD_INTENT, drop
+
+
+def test_resume_intents_route_and_only_spoken_ones_need_confidence():
+    base = {"targets": [], "boot_id": "b", "event_id": "h1", "run_id": "r1"}
+    register = {**base, "intent": "resume_register", "confidence": 0.1, "question_id": "q", "source": {"stt_text": None}}
+    expired = {**base, "intent": "resume_answer", "confidence": 0.1, "question_id": "q", "answer": "expired",
+               "answer_reason": "no_answer"}
+    spoken = {**base, "intent": "resume_answer", "confidence": 0.3, "question_id": "q", "answer": "decline"}
+    request = {**base, "intent": "resume", "confidence": 0.3, "request_id": "x", "phase": "request",
+               "evidence": {"rec_end_s": 1.0, "request_s": 1.1, "stt_s": 1.0}}
+    assert router().decide(json.dumps(register), running=False, locked=False).kind == ir.RESUME
+    assert router().decide(json.dumps(expired), running=False, locked=False).kind == ir.RESUME
+    assert router().decide(json.dumps(spoken), running=False, locked=False).reason == ir.LOW_CONFIDENCE
+    assert router().decide(json.dumps(request), running=False, locked=False).reason == ir.LOW_CONFIDENCE
+    assert router().decide(json.dumps({**spoken, "confidence": 0.9}), running=False, locked=False).kind == ir.RESUME

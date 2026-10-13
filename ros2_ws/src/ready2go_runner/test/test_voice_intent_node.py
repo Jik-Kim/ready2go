@@ -379,6 +379,74 @@ def test_recover_without_b_check_keeps_the_lock(tmp_path):
         close()
 
 
+ANSWER_EV = {"rec_start_after_tts_s": 0.4, "rec_end_after_tts_s": 2.1, "request_after_tts_s": 2.3, "stt_s": 1.2}
+REQUEST_EV = {"rec_end_s": 1.8, "request_s": 2.0, "stt_s": 1.1}
+
+
+def control(name, halt, **fields):
+    return json.dumps({"intent": name, "targets": [], "confidence": 0.9, "boot_id": halt["boot_id"],
+                       "event_id": halt["event_id"], "run_id": halt["run_id"], **fields})
+
+
+def suspend_and_recover(voice, boot):
+    """find_item 실행 중 멈춰 → 보존 → recover → 잠금 해제·질문 제안. 그때 halt 를 돌려줌."""
+    voice.say(intent())
+    assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+    voice.say(intent("cancel", targets=(), confidence=0.9))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+    voice.say(recover(boot, voice.status["halt"]["event_id"]))
+    assert voice.wait(lambda s: (s["halt"] or {}).get("resume", {}).get("offered")), voice.status
+    return voice.status["halt"]
+
+
+def test_resume_question_registered_then_answer_resumes_same_run(tmp_path):
+    """계약 W3 (#271, AC-SAF-04 정상 재개 1경로): 질문 등록(E TTS 전) → C 등록 확인(halt.resume.question) → 재전송은
+    그대로 → 증빙 틀린 "응" 은 소비 안 함 → 유효한 "응" = B 재조회(mock)·재진입 검사 → 같은 run_id 로 이어 실행·완료."""
+    runner, voice, close = make_system(tmp_path, duration=0.5, extra=[("resumable", True)])
+    try:
+        halt = suspend_and_recover(voice, runner.runner.boot_id)
+        voice.say(control("resume_register", halt, question_id="q-01", source={"stt_text": None}))
+        assert voice.wait(lambda s: ((s["halt"] or {}).get("resume") or {}).get("question")), voice.status
+        assert last_intent(voice.status)["decision"] == "registered"
+        assert voice.status["halt"]["resume"]["question"]["state"] == "registered"
+        voice.say(control("resume_register", halt, question_id="q-02", source={"stt_text": None}))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "QUESTION_MISMATCH"), voice.status
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="resume",
+                          evidence={**ANSWER_EV, "request_after_tts_s": 12.0}))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "EVIDENCE_INVALID"), voice.status
+        assert voice.status["halt"]["resume"]["question"]["state"] == "registered"     # 소비 안 함
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="resume", evidence=ANSWER_EV))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED", timeout=40), voice.status
+        assert voice.status["last"]["run_id"] == halt["run_id"] and voice.status["halt"] is None
+        assert last_intent(voice.status)["decision"] == "resume"
+    finally:
+        close()
+
+
+def test_decline_keeps_work_then_independent_request_resumes(tmp_path):
+    """"아니" = 질문만 닫고 작업 보존 → 질문이 닫힌 뒤 "이어서 해" 독립 요청: register(C 등록 확인) → request 일회 소비 → 이어 실행.
+    다른 run_id 는 RUN_MISMATCH, 등록 안 된 요청 ID 소비는 REQUEST_MISMATCH."""
+    runner, voice, close = make_system(tmp_path, duration=0.5, extra=[("resumable", True)])
+    try:
+        halt = suspend_and_recover(voice, runner.runner.boot_id)
+        voice.say(control("resume_register", halt, question_id="q-01", source={"stt_text": None}))
+        assert voice.wait(lambda s: ((s["halt"] or {}).get("resume") or {}).get("question")), voice.status
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="decline", source={"stt_text": "아니"}))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "closed"), voice.status
+        assert voice.status["halt"]["resume"]["question"]["state"] == "declined" and voice.status["phase"] == "idle"
+        voice.say(control("resume", {**halt, "run_id": "other"}, request_id="req-1", phase="register"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "RUN_MISMATCH"), voice.status
+        voice.say(control("resume", halt, request_id="req-x", phase="request", evidence=REQUEST_EV))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "REQUEST_MISMATCH"), voice.status
+        voice.say(control("resume", halt, request_id="req-1", phase="register"))
+        assert voice.wait(lambda s: (((s["halt"] or {}).get("resume") or {}).get("request") or {}).get("id") == "req-1")
+        voice.say(control("resume", halt, request_id="req-1", phase="request", evidence=REQUEST_EV))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED", timeout=40), voice.status
+        assert voice.status["last"]["run_id"] == halt["run_id"]
+    finally:
+        close()
+
+
 def test_reset_state_ends_preserved_work(tmp_path):
     """정본 resume-admission-policy: 상태 초기화는 보존 작업을 끝냄 (finally 비동작만) — 잠금은 풀지 않음."""
     from std_srvs.srv import Trigger
@@ -393,5 +461,21 @@ def test_reset_state_ends_preserved_work(tmp_path):
         assert reply.success and runner.runner.suspended is None and runner.runner.halted
         assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"
                           and s["last"]["run_id"] == run_id), voice.status
+    finally:
+        close()
+
+
+def test_resume_refused_by_final_check_is_published_as_reject(tmp_path):
+    """#291 E 리뷰 P2: 유효한 "응" 이어도 최종 검사(B 재조회)가 거절하면 결정은 reject·이유, 질문은 refused, 작업 보존."""
+    runner, voice, close = make_system(tmp_path, duration=0.5, extra=[("resumable", True)])
+    try:
+        halt = suspend_and_recover(voice, runner.runner.boot_id)
+        voice.say(control("resume_register", halt, question_id="q-01", source={"stt_text": None}))
+        assert voice.wait(lambda s: ((s["halt"] or {}).get("resume") or {}).get("question")), voice.status
+        runner.recover_check = "none"                                  # 그 사이 B 조회 불가가 됨
+        voice.say(control("resume_answer", halt, question_id="q-01", answer="resume", evidence=ANSWER_EV))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "B_CHECK_UNAVAILABLE"), voice.status
+        assert last_intent(voice.status)["decision"] == "reject"
+        assert voice.status["halt"]["resume"]["question"]["state"] == "refused" and runner.runner.suspended
     finally:
         close()

@@ -271,7 +271,7 @@ def test_run_duration_stays_wall_clock_through_suspend(finish):
 
 def test_status_resume_offer_follows_lock_and_c_window():
     """계약 W4 halt.resume (#271): 보존 직후(잠김)는 offered false·기한 없음 → 잠금 해제(resume) 뒤 offered true·남은 시간 →
-    C 제안 기한(resume_window_sec)이 지나면 offered false. 질문·요청은 재개 질문·답 구현 전 null. 보존 작업은 그대로."""
+    C 제안 기한(resume_window_sec)이 지나면 offered false. 접수(admission) 없으면 질문·요청 null. 보존 작업은 그대로."""
     from test_interpreter import FakeClock
     clock = FakeClock()
     runner, _, _, _ = suspended_at_pick(clock)
@@ -284,6 +284,27 @@ def test_status_resume_offer_follows_lock_and_c_window():
     assert runner.halt_summary["locked"] is False
     clock.now += 25
     assert runner.halt_summary["resume"]["offered"] is False and runner.suspended   # 기한 지남 — 작업은 보존
+
+
+def test_offer_shows_admission_question_and_answer_window_bypasses_offer_window():
+    """재개 질문·답 (#271 W3): 등록된 질문은 halt.resume.question 으로 확인, 기한(hold_*)은 질문 답 기한.
+    제안 창(30 s)이 지나도 접수가 확인한 답이면 window=False 로 재개 가능 — 질문 답 기한은 접수가 따로 확인."""
+    from ready2go_runner.core.resume_admission import ResumeAdmission
+    from test_resume_admission import RESUME_FILE, VOICE_FILE, ra
+    clock = FakeClock()
+    runner, robot, _, _ = suspended_at_pick(clock)
+    runner.admission = ResumeAdmission(clock, ra.load_limits(str(RESUME_FILE), str(VOICE_FILE)))
+    runner.resume()
+    event, run = runner.halt_event_id, runner.suspended["run_id"]
+    assert runner.admission.register_question(event, run, "q-01", runner.resume_offer["offered"]) is None
+    clock.now += 40                                                     # 제안 창 지남, 질문 답 기한(60 s) 안
+    offer = runner.resume_offer
+    assert offer["question"]["id"] == "q-01" and offer["question"]["state"] == "registered"
+    assert offer["offered"] is False and offer["hold_remaining_s"] == 20.0
+    assert runner.check_resume(event, observed=EMPTY) == [RESUME_EXPIRED]
+    assert runner.check_resume(event, observed=EMPTY, window=False) == []
+    result = runner.resume_run(event, observed=EMPTY, window=False)
+    assert result.overall_status == "COMPLETED" and runner.resume_offer is None
 
 
 def test_offer_until_is_fixed_and_status_stops_changing_after_expiry():
@@ -301,3 +322,16 @@ def test_offer_until_is_fixed_and_status_stops_changing_after_expiry():
     clock.now += 40
     assert runner.resume_offer == expired and expired["hold_until"] == first["hold_until"]
     assert (expired["offered"], expired["hold_remaining_s"]) == (False, 0.0)
+
+
+def test_begin_resume_rejects_without_touching_preserved_work():
+    """#291 E 리뷰 P2: 최종 검사는 결정 발행 전 begin_resume 에서 — 거절이면 보존 그대로, 통과하면 실행 중으로 전이."""
+    runner, robot, _, _ = suspended_at_pick()
+    event = runner.halt_event_id
+    with pytest.raises(ResumeRejected) as e:
+        runner.begin_resume(event, observed=EMPTY)                      # 아직 잠김
+    assert e.value.reasons == [NOT_RECOVERED] and runner.suspended
+    runner.resume()
+    ctx = runner.begin_resume(event, observed=EMPTY)
+    assert runner.suspended is None and runner.active_run_id == ctx.doc["run_id"]
+    assert runner.continue_resumed(ctx).overall_status == "COMPLETED"
