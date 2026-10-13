@@ -1798,6 +1798,20 @@ def test_handle_side_tilted_long_grasp_goes_deeper(server, monkeypatch):
     assert (lows[0.0] - lows[5.0]) * 1000.0 == pytest.approx(5.0, abs=0.05)
 
 
+def test_dry_pick_reports_handle_side_tilt(server):
+    """빈 자리 고르기(clear_plan.find_free_pose)가 읽는 DryOracle.last_pick_tilted — 손잡이 쪽 벽에 가로로 붙은 지우개는 기울여 잡음,
+    가운데는 수직 [트윈 재생 10/13 A]. 판단만 — 로봇 명령 없음."""
+    srv = server.srv
+    near = {"id": "eraser#1", "class": "eraser", "top_z": 0.0115, "occluded_by": [],
+            "pose": {"frame": "drawer_top", "position": [0.0129, 0.0714, 0.0], "yaw": -1.5644, "yaw_valid": True}}
+    mid = dict(near, pose=dict(near["pose"], position=[0.1, 0.15, 0.0], yaw=0.0))
+    oracle = server.ss.DryOracle(srv, "drawer_top")
+    n = len(srv.robot.log)
+    assert oracle.pick([near], "eraser#1")[0] and oracle.last_pick_tilted
+    assert oracle.pick([mid], "eraser#1")[0] and not oracle.last_pick_tilted
+    assert len(srv.robot.log) == n
+
+
 def test_pick_height_by_tip_table_without_touch(server):
     """[사용자 10/11 "넛지 빼고 온톨로지 높이 반영, 벌려서 높이만큼 빠르게 내려가 집기"]: 닫은 손끝(잡는 폭 — 손끝 표)이
     바닥 위 온톨로지 높이 × grip_height_ratio. 바닥 찍기·천천히 내려가기 없이 블렌딩 한 번으로 잡는 높이까지."""
@@ -2190,6 +2204,40 @@ def test_key_on_cover_plate_picks_and_restores_at_its_own_height(server, on, top
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
     # 기억한 받침(판 면 29 / 나사 40.5) vs 기억 없을 때 판 비전 top_z 35 — 차이만큼 낮게·높게 내려놓음
     assert lows[0] - lows[1] == pytest.approx(1000.0 * (top - 0.0158 - 0.035), abs=0.6)
+
+
+def test_remembered_support_dropped_when_support_moved(server):
+    """[트윈 재생 10/13 A] 몽키 → 캐러멜 → 차키 3단: 차키를 받침 37 mm 로 기억 → 캐러멜을 바닥에 복구한 뒤에도 37 mm 에 놓아
+    16.5 mm 위에서 떨어뜨림. 받침이던 물체를 옮기면(집기) 그 기억은 버리고 지금 받침 비전 top_z 로 놓음. 받침이 그대로면 기억값."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.035, "occluded_by": ["car_key#1"], "visible_area_m2": 0.006,
+             "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": 0.029 + 0.0158, "occluded_by": [], "visible_area_m2": 0.0027,
+           "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    scan = {"target_found": True, "target": key, "candidates": [plate], "visible_count": 2}
+    pose = {k: key["pose"][k] for k in ("frame", "position", "yaw")}
+    server.Gripper.holding, server.Gripper.held_width = True, 39.0
+    try:
+        out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason
+        assert srv.picked_from[-1]["under"] == ["cover_plate"]
+        held = dict(srv.held)
+        lows = []
+        for moved in (False, True):
+            srv.held = dict(held)
+            if moved:                                               # 판을 집어 옮겼다 (다시 같은 자리에 놓였더라도 높이는 다시 봄)
+                srv._remember_pick("cover_plate", D, plate["pose"], 0.0)
+                assert not any(r["class"] == "car_key" for r in srv.picked_from)
+            n = len(srv.robot.log)
+            rescan = {"target_found": True, "target": dict(key), "candidates": [dict(plate, occluded_by=[])], "visible_count": 2}
+            out, _ = server.run("place_object", {"location": D, "pose": pose, "scan": rescan})
+            assert out.success, out.reason
+            lows.append(min(e[1][2] for e in srv.robot.log[n:] if e != "stop" and e[0] == "movel"))
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    assert lows[1] - lows[0] == pytest.approx(1000.0 * (0.035 - 0.029), abs=0.6)   # 기억(판 면 29) 대신 지금 판 top_z 35
 
 
 def test_putback_onto_cover_plate_when_plate_center_test_misses(server):
