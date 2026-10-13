@@ -383,6 +383,10 @@ for s in TRACE["segments"]:
                                              "dx_mm": round(dx, 1), "dy_mm": round(dy, 1), "dyaw_deg": round(dyaw, 1)})
                 if math.hypot(dx, dy) > MOVE_MM or abs(dyaw) > TURN_DEG:
                     print(f"[phys]   {e['why']}: {o['id']} 물리 위치와 인식 차이 {math.hypot(dx, dy):.1f} mm, {dyaw:+.1f}°", flush=True)
+                if o.get("occluded_by") or any(o["id"] in (x.get("occluded_by") or []) for x in e["objects"]):
+                    # 가려진 물체·그 위 물체는 인식 자리로 옮기지 않음 — 가려진 자리는 치우침(10/13 인식 6: 캐러멜 18 mm·90°, 윗면 25.7)
+                    # → 옮기면 위 차키가 받침을 잃고 떨어짐(서랍 나올 때 캐러멜 7.7·차키 14 mm). 물리 자리 유지
+                    continue
             objs[o["id"]] = dict(o)
             present.add(o["id"])
             in_drawer.add(o["id"])
@@ -431,6 +435,10 @@ for s in TRACE["segments"]:
         elif a and a["action"] == "place_object" and not closing and held is not None:
             sz_ = support_z(held)                                          # 놓는 순간 바닥·아래 물체 속이면 그 위로 (흉내 잡기라 파묻힐 수 있음)
             Th = pose_of(held)
+            tilt = math.degrees(math.acos(max(-1.0, min(1.0, Th[2, 2]))))
+            gap = None if sz_ is None else round((Th[2, 3] - sz_) * 1000, 1)
+            report.setdefault("release", []).append({"segment": s["i"], "id": held, "tilt_deg": round(tilt, 1), "above_support_mm": gap})
+            print(f"[phys]     놓는 순간 {held}: 기울기 {tilt:.1f}°, 받침 위 {gap} mm", flush=True)
             if sz_ is not None and Th[2, 3] < sz_ + 0.0005:
                 report.setdefault("release_lift", []).append({"segment": s["i"], "id": held, "lift_mm": round((sz_ + 0.001 - Th[2, 3]) * 1000, 1)})
                 Th[2, 3] = sz_ + 0.001
