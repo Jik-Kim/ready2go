@@ -7,7 +7,8 @@ import time
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetRobotMode, GetRobotState,
-                           GetToolForce, MoveBlending, MoveJoint, MoveLine, MoveSplineJoint, MoveStop, SetRobotMode)
+                           GetToolForce, MoveBlending, MoveJoint, MoveLine, MoveSplineJoint, MoveStop, ReleaseComplianceCtrl,
+                           ReleaseForce, SetDesiredForce, SetRobotMode, TaskComplianceCtrl)
 
 SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
         "posx": (GetCurrentPosx, "aux_control/get_current_posx"),
@@ -21,10 +22,16 @@ SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
         "movej": (MoveJoint, "motion/move_joint"),
         "stop": (MoveStop, "motion/move_stop"),
         "tcp": (GetCurrentTcp, "tcp/get_current_tcp"),
-        "tool": (GetCurrentTool, "tool/get_current_tool")}
+        "tool": (GetCurrentTool, "tool/get_current_tool"),
+        # 힘 제어 [PC2 `ros2 interface show dsr_msgs2/srv/…` 10/13 확인] — 넛지 drag.force_mode
+        "compliance": (TaskComplianceCtrl, "force/task_compliance_ctrl"),
+        "desired_force": (SetDesiredForce, "force/set_desired_force"),
+        "release_force": (ReleaseForce, "force/release_force"),
+        "release_compliance": (ReleaseComplianceCtrl, "force/release_compliance_ctrl")}
 AUTO = 1
 REF_BASE = 0
 QUICK_STOP = 2          # jog_gui 와 같은 stop_mode
+FC_MOD_REL = 1          # set_desired_force: 부른 순간 힘을 0 으로 보고 상대값으로 (힘 0점이 흐름 [실측 B 10/06])
 
 
 class Dsr:
@@ -63,6 +70,22 @@ class Dsr:
         [실측 B 10/06]. 실패하면 None."""
         r = self.call("force", timeout=0.5, ref=REF_BASE)
         return list(r.tool_force) if r else None
+
+    def force_on(self, fz_n, stiffness, ramp_s=0.2):
+        """base 기준 z 만 힘 제어로 아래로 fz_n(N) 누름 — 컴플라이언스(강성 stiffness[6]) 켠 뒤 목표 힘. 둘 다 성공해야 True.
+        누르는 동안 x·y 이동 명령은 그대로 따라가고 z 는 제어기가 힘으로 맞춤."""
+        r = self.call("compliance", stx=[float(v) for v in stiffness], ref=REF_BASE, time=0.0)
+        if not (r and r.success):
+            return False
+        r = self.call("desired_force", fd=[0.0, 0.0, -float(fz_n), 0.0, 0.0, 0.0], dir=[0, 0, 1, 0, 0, 0], ref=REF_BASE,
+                      time=float(ramp_s), mod=FC_MOD_REL)
+        return bool(r and r.success)
+
+    def force_off(self, ramp_s=0.2):
+        """힘 제어 → 컴플라이언스 순서로 해제. 둘 다 성공해야 True (실패면 부르는 쪽이 멈추고 사람 확인)."""
+        a = self.call("release_force", time=float(ramp_s))
+        b = self.call("release_compliance")
+        return bool(a and a.success) and bool(b and b.success)
 
     def tool_names(self):
         tcp, tool = self.call("tcp"), self.call("tool")
