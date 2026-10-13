@@ -13,6 +13,9 @@
 | #259 | `/runner/status` `halt` — 정지 요청과 실제 정지 확인 구분 (계약안) | 4절 D1 은 그대로 함 — 기록은 `run_report` `halts` 로 봄 |
 
 - **"Python 0줄" 증거 기준점**: 시작할 때 `git rev-parse --short HEAD` 를 적어 둠 → 챌린지 뒤 `git diff --stat <기준점> -- '*.py'` 가 비어 있어야 함 (`tasks/*.json` 만 바뀜).
+  - **기준점은 오늘 첫 회차 전, 회차 전에 병합할 PR(#256, A 판 밑 `top_z` 보정 등)을 다 받은 뒤** 적는다 — 그래야 Unpacking·목표 5종·챌린지가 같은 코드로 돎.
+  - **기준점을 적은 뒤에는 챌린지가 끝날 때까지 PC2 에서 `git pull` 하지 않는다** — 그 사이 다른 `.py` PR(#249·#259 등)이 병합돼 받으면 기준점 diff 에 잡혀 증거가 깨짐.
+  - 회차 중 `config/*.yaml` 을 바꾸면(예: A `depth_blob.top_exclude_near_px: 0` 로 보정 끄기) `.py` 가 아니라 diff 에는 안 나오지만 **어느 회차부터인지 5절 기록에 남긴다**.
 - 아래 칸 장면이면 시작 상태 임시 변경(진행표 1절 3a) — 끝나면 되돌림(진행표 7절).
 - **비전 노드가 v2 모델로 떠 있는지 확인** (A): 노드 시작 줄 `inspect_region 시작 (모델 …/yolo11s_seg_ready2go_v2.pt 분할 — 가림 필드 냄 …)`. 10/12 19:47 에는 v1 로 떠 있었음(A #255) — `VISION_WEIGHTS` 를 붙이지 말고 `bash tools/dev/vision_real_check.sh node`(기본 v2), 모델 파일은 `git lfs pull` 뒤 `ls -l models/yolo11s_seg_ready2go_v2.pt`(포인터면 133 B).
 
