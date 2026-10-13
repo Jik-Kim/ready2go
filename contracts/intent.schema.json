@@ -146,7 +146,7 @@
     },
     "evidence": {
       "type": "object",
-      "description": "녹음 증빙 (E 1차 판정, C 2차 형식·순서·상한 확인 — requirements resume-admission-policy). 값은 E 로컬 상대 초. resume_answer: rec_start_after_tts_s ≤ rec_end_after_tts_s ≤ request_after_tts_s, stt_s / resume(request): rec_end_s ≤ request_s, stt_s. C 상한은 Runner 설정(params) 원본",
+      "description": "녹음 증빙 (E 1차 판정, C 2차 형식·순서·상한 확인 — requirements resume-admission-policy). 값은 E 로컬 상대 초. resume_answer: rec_start_after_tts_s ≤ rec_end_after_tts_s ≤ request_after_tts_s, stt_s / resume(request): rec_end_s ≤ request_s, stt_s. E 구간 상한 원본은 ros2_ws/src/ready2go_voice/params/voice.yaml(resume_admission_window_sec 등), C 기한은 미확정 제안(C 설정 미작성 — runner.md 제어 인텐트)",
       "properties": {
         "rec_start_after_tts_s": {
           "type": "number",
