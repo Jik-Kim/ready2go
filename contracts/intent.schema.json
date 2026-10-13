@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Intent",
-  "description": "voice → ros2-core (/voice/intent). docs/voice_llm.md 6.4",
+  "description": "voice → ros2-core (/voice/intent). docs/voice_llm.md 6.4. 계약 W3 (#152, 이름 E 동의 10/13 — 필드는 E 포함 2명 승인 전): 제어 인텐트 recover·resume_register·resume_answer·resume·end_task 는 allOf 의 인텐트별 필수 칸을 따른다. 일반 요청(find_item 등)은 그대로",
   "type": "object",
   "required": [
     "intent",
@@ -18,7 +18,12 @@
         "cancel",
         "status",
         "unknown",
-        "clarify"
+        "clarify",
+        "recover",
+        "resume_register",
+        "resume_answer",
+        "resume",
+        "end_task"
       ],
       "description": "레지스트리 인텐트(P3)는 tasks/의 trigger.intent로 런타임에 추가"
     },
@@ -98,6 +103,261 @@
         "null"
       ],
       "description": "계약07 검증 문장. 스키마상 선택; E 실행 요청에 포함. 누락/null인 기존 입력은 태스크 안내 사용. docs/requirements.md#acceptance-tts-policy"
+    },
+    "boot_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "계약 W3 (#152): 제어 대상 Runner 기동 — /runner/status halt.boot_id 그대로. 다르면 C 가 BOOT_MISMATCH 로 거절"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "계약 W3: 제어 대상 정지 사건 — /runner/status halt.event_id 그대로. 다르면 HALT_EVENT_MISMATCH"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "계약 W3: 제어 대상 실행 — halt.run_id 또는 실행 중 last_intent.run_id. end_task 필수"
+    },
+    "question_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "계약 W3: 재개 질문 ID (E 가 TTS 전에 resume_register 로 등록, 사건당 1개)"
+    },
+    "answer": {
+      "enum": [
+        "resume",
+        "decline",
+        "expired"
+      ],
+      "description": "resume_answer 의 답 분류: resume = \"응/이어서 해\"(증빙 필수), decline = \"아니\"(작업 보존), expired = 무응답·TTS 실패 등 자동 종료(작업 보존, answer_reason 필수)"
+    },
+    "answer_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "answer expired 의 이유 (예: no_answer·tts_failed·stt_failed). 사용자 발화가 아닌 자동 종료를 구분"
+    },
+    "phase": {
+      "enum": [
+        "register",
+        "request"
+      ],
+      "description": "resume(독립 재개 요청) 단계: register = request_id 등록(C 등록 확인 뒤 소비), request = 소비(증빙 필수)"
+    },
+    "evidence": {
+      "type": "object",
+      "description": "녹음 증빙 (E 1차 판정, C 2차 형식·순서·상한 확인 — requirements resume-admission-policy). 값은 E 로컬 상대 초. resume_answer: rec_start_after_tts_s ≤ rec_end_after_tts_s ≤ request_after_tts_s, stt_s / resume(request): rec_end_s ≤ request_s, stt_s. E 구간 상한 원본은 ros2_ws/src/ready2go_voice/params/voice.yaml(resume_admission_window_sec 등), C 기한은 미확정 제안(C 설정 미작성 — runner.md 제어 인텐트)",
+      "properties": {
+        "rec_start_after_tts_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rec_end_after_tts_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "request_after_tts_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rec_end_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "request_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stt_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "recover"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "then": {
+        "required": [
+          "boot_id",
+          "event_id",
+          "request_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "resume_register"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "then": {
+        "required": [
+          "boot_id",
+          "event_id",
+          "run_id",
+          "question_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "resume_answer"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "then": {
+        "required": [
+          "boot_id",
+          "event_id",
+          "run_id",
+          "question_id",
+          "answer"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "resume_answer"
+          },
+          "answer": {
+            "const": "resume"
+          }
+        },
+        "required": [
+          "intent",
+          "answer"
+        ]
+      },
+      "then": {
+        "required": [
+          "evidence"
+        ],
+        "properties": {
+          "evidence": {
+            "required": [
+              "rec_start_after_tts_s",
+              "rec_end_after_tts_s",
+              "request_after_tts_s",
+              "stt_s"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "resume_answer"
+          },
+          "answer": {
+            "const": "expired"
+          }
+        },
+        "required": [
+          "intent",
+          "answer"
+        ]
+      },
+      "then": {
+        "required": [
+          "answer_reason"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "resume"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "then": {
+        "required": [
+          "boot_id",
+          "event_id",
+          "run_id",
+          "request_id",
+          "phase"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "resume"
+          },
+          "phase": {
+            "const": "request"
+          }
+        },
+        "required": [
+          "intent",
+          "phase"
+        ]
+      },
+      "then": {
+        "required": [
+          "evidence"
+        ],
+        "properties": {
+          "evidence": {
+            "required": [
+              "rec_end_s",
+              "request_s",
+              "stt_s"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "end_task"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "then": {
+        "required": [
+          "boot_id",
+          "run_id",
+          "request_id"
+        ]
+      }
+    }
+  ]
 }

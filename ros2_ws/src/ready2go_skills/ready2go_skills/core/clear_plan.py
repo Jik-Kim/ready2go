@@ -387,13 +387,18 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
     """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 목표(avoid_ids) 둘레 비움.
     먼저 목표에서 cfg.avoid_pad_mm 떨어진 곳, 없으면 더 가까이(near_pad_mm)도 보되 놓은 물체가 목표를 집을 손가락 자리를
     막지 않는지 집기 검사로 확인 (가운데 가로로 놓인 몽키 위 차키 [P2 시뮬레이션 10/11: 25 mm 비우면 놓을 데가 없음]).
-    놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기)."""
-    fallback = None
+    놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기).
+    다시 집을 때 그리퍼를 기울여야 하는 곳(oracle.last_pick_tilted, 손잡이 쪽 벽 가까이)은 수직으로 집을 곳이 없을 때만 (그때는
+    free_try 두 배까지 더 찾아봄 — 후보가 벽에 붙은 자리부터라 손잡이 쪽 벽 자리가 앞에 몰림) —
+    기울여 쥔 물체를 다른 자리에 수직으로 놓으면 손 안에서 기울어진 채 놓임 [트윈 재생 10/13 A]."""
+    fallback = tilted = None
     for pad in (cfg.avoid_pad_mm, cfg.near_pad_mm):
         avoid = [o for o in objs if o["id"] in avoid_ids]
         cands = [c for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid, avoid_pad_mm=pad)
                  if cfg.reach_x_m is None or c["pose"]["position"][0] <= cfg.reach_x_m]   # 안쪽 벽에 붙여도 손이 안 닿으면 못 놓음
-        for c in cands[: cfg.free_try]:
+        for i, c in enumerate(cands):
+            if i >= cfg.free_try * (2 if tilted is not None else 1):   # 기울임 자리만 찾았으면 수직 자리를 두 배까지 더 찾아봄
+                break
             pose = as_pose(c)
             ok, _, _ = oracle.place(objs, held_id, pose)
             if not ok:
@@ -402,9 +407,14 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
             if pad < cfg.avoid_pad_mm and any(_blocks(after, a, held_id, oracle) for a in avoid_ids):
                 continue
             if oracle.pick(after, held_id)[0]:
-                return pose
+                if not getattr(oracle, "last_pick_tilted", False):
+                    return pose
+                tilted = tilted or pose
+                continue
             if fallback is None and cfg.allow_unpickable_place:
                 fallback = pose
+        if tilted is not None:
+            return tilted
         if fallback is not None:
             return fallback
     return None
@@ -456,7 +466,9 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     # 한 번 움직여 잡힘: 빈 쪽 넛지(안 밂) 또는 한쪽으로 쭉 밀고(옆 물체 같이) 되돌아오기 — 덜 움직이는 것부터.
     # remove_first: 목표 말고는 다 방해물 — 벽은 못 움직이고 물체는 옮길 수 있음 [사용자 10/12]. 다른 물체를 건드리지 않는
     # 넛지 → 막는 물체를 집어 빈 자리로 → (그래도 안 되면) 옆 물체를 같이 미는 밀기 순서
-    moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: c[0])
+    # 순서 [사용자 10/13 "넛지로 넓은 공간으로 끌어온 뒤 집기 → 안 되면 sweep 으로 근처 정리 → 그래도 안 되면 다른 놈들 치우기"]:
+    # 다른 물체를 안 건드리는 넛지 먼저(그중 덜 움직이는 것), 그다음 옆 물체를 같이 미는 sweep. 치우기는 아래(remove_first 면 sweep 보다 먼저)
+    moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: (bool(c[1].pushed), c[0]))
     for cost, act, after in moves:
         if (not cfg.remove_first or not act.pushed) and oracle.pick(after, tid)[0]:
             return _with_slack(moves, act, tid, oracle, cfg.slack_mm)
