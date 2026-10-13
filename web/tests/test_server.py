@@ -157,7 +157,12 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     robot_state_data = {
         "robot_pose": {"robot": "home"},
         "gripper": {"robot": "empty"},
-        "open": {"drawer_top": False, "drawer_bottom": True},
+        # 전달 트레이 상태도 REST 원본에는 보존하고 UI의 서랍 요약에서만 제외한다.
+        "open": {
+            "drawer_top": False,
+            "drawer_bottom": True,
+            "handover_zone": True,
+        },
         "located_in": {"car_key": "drawer_top", "wallet": "drawer_bottom"},
     }
     cache.record_message(

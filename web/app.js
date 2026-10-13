@@ -263,7 +263,10 @@
 
     const pose = typeof data.robot_pose.robot === "string" ? data.robot_pose.robot : "확인 전";
     const gripper = typeof data.gripper.robot === "string" ? data.gripper.robot : "확인 전";
-    const openEntries = Object.entries(data.open).sort(([left], [right]) => compareDrawerIds(left, right));
+    // 전달 트레이 같은 비서랍 장소는 상태 원본에 보존하되 관리자 서랍 요약에서는 제외한다.
+    const openEntries = Object.entries(data.open)
+      .filter(([id]) => id.startsWith("drawer_"))
+      .sort(([left], [right]) => compareDrawerIds(left, right));
     const openSummary = openEntries.length
       ? openEntries.map(([id, value]) => `${drawerLabels[id] || id}: ${value ? "열림" : "닫힘"}`).join(" · ")
       : "확인 전";
