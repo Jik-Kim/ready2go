@@ -60,6 +60,11 @@ env -u PYTEST_ADDOPTS -u REQUIRE_MONGO PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=ros2
 env -u PYTEST_ADDOPTS -u REQUIRE_MONGO PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=ros2_ws/src/ready2go_voice:ros2_ws/src/ready2go_knowledge:ros2_ws/src/ready2go_runner:ros2_ws/src/ready2go_skills:ros2_ws/src/ready2go_vision:ros2_ws/src/ready2go_bringup /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src -q -p no:cacheprovider -rs
 ```
 
+## e-pick-handoff-doc-20261013-01
+
+- [문서: 승인/범위] 검토 SHA `b007efd3bc2929a6c2d9f4decd812f0afb30fb84`의 `ros2_ws/src/ready2go_voice/README.md` C #17 인계 문장만 정정합니다. 연결 기준은 P1 [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../../docs/requirements.md#fr-act-05), P2 caller는 [FR-ACT-04](../../docs/requirements.md#fr-act-04)입니다. 기준·계약·코드는 변경하지 않습니다.
+- [문서: 원본 대조] `knowledge/skills/pick.jsonld`의 expand는 새 scan으로 직접 `pick_object`를 먼저 실행하고, 움직임 전 `WALL_TOO_CLOSE`일 때만 nudge→탑뷰→새 scan→새 target/전체 scan 집기로 갑니다. 직접 성공은 재관측이 없습니다. [ontology.md](../../docs/ontology.md#p1-공통-pick-실행-연결)와 [knowledge README](../../knowledge/README.md#p1-공통-pick의-벽-인접-끌기재관측-연결) 설명에 맞춰 기존 `target_after` 비사용, 기존 `NO_PUSH_ACCESS`·안전 인계 문장과 기록은 보존합니다.
+- [미실측] 문서 정합성 수정이며 로봇·실물 관측·AC 수행을 의미하지 않습니다.
 
 ## pr277-jsonl-review-fix-20261013-01
 

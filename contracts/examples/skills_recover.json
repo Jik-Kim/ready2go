@@ -1,0 +1,171 @@
+{
+  "service": "/skills/recover",
+  "type": "std_srvs/srv/Trigger",
+  "note": "W2 B 복구. success = recovered. C 잠금 해제·재개 허가와 별개. message 는 아래 JSON 을 문자열로 담음. 스키마 ../skills_safe_state.schema.json (#/$defs/recover·recover_error). 계약안 #297 (B 제안, C 확인·E 포함 2명 승인 전, P2). 실물 출력 아님 — B 노드 시험이 가짜 로봇으로 같은 출력을 확인(stamp 제외)",
+  "cases": [
+    {
+      "case": "recovered_restore",
+      "desc": "조건이 맞고 지금 폭이 모름 기록(21 mm)과 같음 → 쥔 기억 복원 + B 잠금 해제. success = recovered = true",
+      "success": true,
+      "message": {
+        "recovered": true,
+        "code": "",
+        "cleared": [
+          "hold_unknown → 쥔 기억 복원 (eraser)",
+          "locked (pick_object: MOVE_UNCONFIRMED)"
+        ],
+        "blockers": [],
+        "state": {
+          "stopped": true,
+          "external_force": null,
+          "sensors_ok": true,
+          "comm_ok": true,
+          "controller_ready": true,
+          "estop_active": false,
+          "tcp_tool_ok": true,
+          "gripper": {
+            "state": "holding",
+            "held_id": "eraser#1",
+            "width_m": 0.021,
+            "grasp_detected": true,
+            "reason": "HELD"
+          },
+          "drawers": {
+            "drawer_bottom": 0.0,
+            "drawer_top": 0.226
+          },
+          "b_locked": false,
+          "b_lock_reason": null,
+          "robot_state": 1,
+          "busy": false,
+          "stamp": "2026-10-13T07:20:00.000+00:00"
+        }
+      }
+    },
+    {
+      "case": "refused_estop",
+      "desc": "비상정지 중 — 아무것도 안 풂. code = blockers[0]. state 는 지금 W1 상태(모름 기록 → gripper.state null)",
+      "success": false,
+      "message": {
+        "recovered": false,
+        "code": "ESTOP_ACTIVE",
+        "cleared": [],
+        "blockers": [
+          "ESTOP_ACTIVE",
+          "CONTROLLER_NOT_READY"
+        ],
+        "state": {
+          "stopped": true,
+          "external_force": null,
+          "sensors_ok": true,
+          "comm_ok": true,
+          "controller_ready": false,
+          "estop_active": true,
+          "tcp_tool_ok": true,
+          "gripper": {
+            "state": null,
+            "held_id": "eraser#1",
+            "width_m": 0.021,
+            "grasp_detected": true,
+            "reason": "쥐었는지 모름 — 재시작 때 그리퍼 폭 못 읽음 (B 복구 필요)"
+          },
+          "drawers": {
+            "drawer_bottom": 0.0,
+            "drawer_top": 0.226
+          },
+          "b_locked": true,
+          "b_lock_reason": "pick_object: MOVE_UNCONFIRMED",
+          "robot_state": 6,
+          "busy": false,
+          "stamp": "2026-10-13T07:20:00.000+00:00"
+        }
+      }
+    },
+    {
+      "case": "refused_hold_uncertain",
+      "desc": "모름 기록 21 mm 인데 지금 100 mm(열림) — 같은 물체로 볼 수 없음 → HOLD_UNCERTAIN, 기록·잠금 유지 [E #297 재리뷰 P1]",
+      "success": false,
+      "message": {
+        "recovered": false,
+        "code": "HOLD_UNCERTAIN",
+        "cleared": [],
+        "blockers": [
+          "HOLD_UNCERTAIN"
+        ],
+        "state": {
+          "stopped": true,
+          "external_force": null,
+          "sensors_ok": true,
+          "comm_ok": true,
+          "controller_ready": true,
+          "estop_active": false,
+          "tcp_tool_ok": true,
+          "gripper": {
+            "state": null,
+            "held_id": "eraser#1",
+            "width_m": 0.1,
+            "grasp_detected": true,
+            "reason": "쥐었는지 모름 — 재시작 때 그리퍼 폭 못 읽음 (B 복구 필요)"
+          },
+          "drawers": {
+            "drawer_bottom": 0.0,
+            "drawer_top": 0.226
+          },
+          "b_locked": true,
+          "b_lock_reason": "pick_object: MOVE_UNCONFIRMED",
+          "robot_state": 1,
+          "busy": false,
+          "stamp": "2026-10-13T07:20:00.000+00:00"
+        }
+      }
+    },
+    {
+      "case": "busy",
+      "desc": "다른 스킬 동작 실행 중 — BUSY, 아무것도 안 풂",
+      "success": false,
+      "message": {
+        "recovered": false,
+        "code": "BUSY",
+        "cleared": [],
+        "blockers": [
+          "BUSY"
+        ],
+        "state": {
+          "stopped": false,
+          "external_force": null,
+          "sensors_ok": true,
+          "comm_ok": true,
+          "controller_ready": true,
+          "estop_active": false,
+          "tcp_tool_ok": true,
+          "gripper": {
+            "state": null,
+            "held_id": "eraser#1",
+            "width_m": 0.1,
+            "grasp_detected": true,
+            "reason": "쥐었는지 모름 — 재시작 때 그리퍼 폭 못 읽음 (B 복구 필요)"
+          },
+          "drawers": {
+            "drawer_bottom": 0.0,
+            "drawer_top": 0.226
+          },
+          "b_locked": true,
+          "b_lock_reason": "pick_object: MOVE_UNCONFIRMED",
+          "robot_state": 1,
+          "busy": true,
+          "stamp": "2026-10-13T07:20:00.000+00:00"
+        }
+      }
+    },
+    {
+      "case": "server_error",
+      "desc": "서버 안 예외 — code SKILL_EXCEPTION, state·blockers 없음, 아무것도 안 풂",
+      "success": false,
+      "message": {
+        "recovered": false,
+        "code": "SKILL_EXCEPTION",
+        "error": "RuntimeError('robot state service timeout')"
+      }
+    }
+  ]
+}

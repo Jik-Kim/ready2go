@@ -25,6 +25,7 @@
 | T2 미러링 | `/dsr01/joint_states` → 트윈 조인트 위치 구동 (에뮬레이터·실물 공통) | Day 4 | **에뮬레이터 미러링 구현([FR-TWN-01](requirements.md#fr-twn-01)), 실물 미러링은 미확인** [실측 10/03]: 입력은 `joint_1`~`joint_6`·라디안·약 100 Hz, 시험 토픽 50 Hz에서 지연 2.2 ms·추종 오차 0.24°, 사용자가 GUI에서 팔 추종 확인. 그리퍼는 이 토픽에 없어 열림(0°)으로 고정(안 붙잡으면 팔 이동 중 손가락이 닫힘 [실측 10/03]); 실물 그리퍼 폭 연동은 후속. 근거: [`sim/README.md`](../sim/README.md) |
 | T3 사전 검증 | 손목 카메라 oracle, 시뮬 그리퍼(attach 폴백), `BACKEND=sim`으로 7.3 예시 실행 | Day 6~7 | **카메라 oracle·`BACKEND=sim`은 미착수, 궤적 검사는 선행 구현**(아래 T3 선행) |
 | T3 선행: 스킬 흐름 궤적·특이점 검사 | `sim/motion_check/`(기구학 `m0609_kin.py`, 스킬 서버 흐름 `trace_skill_flow.py`, 시연 스크립트 흐름 `trace_b_demo.py`) + 재생 `sim/scripts/play_motion_trace.py` ([#92](https://github.com/Jik-Kim/ready2go/pull/92)) | 10/06 | **구현** [계산 10/06]: main(#83 머지 뒤) 스킬 서버 흐름·`b_demo.py` 모두 ◀ 없음. 사용법·결과: [`sim/README.md`](../sim/README.md) |
+| T3 선행: Unpacking 사전 검증 (B unpack·clear 재생·물리 재생) | `sim/motion_check/trace_unpack.py` + 재생 `sim/scripts/play_unpack_trace.py`·`play_unpack_physics.py` + 물품 외형 `sim/scripts/build_object_meshes.py` | 10/13 | **선행 도구 구현** [트윈 10/13] — FR-TWN-02 완료 아님: 위 칸 S1·아래 칸 지우개 끝까지 재생, 트윈에서 찾은 B 복구 높이·free 기울임 구역 문제 B 전달. 사용법·결과·한계: [`sim/README.md`](../sim/README.md) |
 
 * **T3 선행 도구(`sim/motion_check`)의 위치와 한계**:
   * [FR-TWN-02](requirements.md#fr-twn-02)(트윈 사전 검증)의 선행 도구다. 선행 작업 병행 기준은 [Phase 범위](requirements.md#phase-scope)를 따르며, FR-TWN-02 완료로 세지 않는다.

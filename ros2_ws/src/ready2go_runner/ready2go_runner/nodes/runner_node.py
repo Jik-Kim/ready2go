@@ -37,7 +37,7 @@ from ..core import intent_router, planner, step_console
 from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import NOTHING_TO_RESUME, ResumeRejected, RunResult, Runner
 from ..core.log_records import new_run_id, utc_iso
-from ..core.recovery import MOCK_LIMITS, choose_check, mock_check, recover_blockers
+from ..core.recovery import MOCK_LIMITS, choose_check, load_limits as load_recovery_limits, mock_check, parse_check, recover_blockers
 from ..core.request_memory import RequestMemory
 from ..core.resume_admission import ResumeAdmission, load_limits
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
@@ -49,6 +49,9 @@ NOTHING_TO_END = "NOTHING_TO_END"       # end_task 대상(그 run_id 의 실행�
 STOP_NOT_CONFIRMED = "STOP_NOT_CONFIRMED"   # 보존 작업의 정지 확인이 없음(halt.stop unconfirmed) → 폐기 보류, 작업·잠금 유지
 NOT_LOCKED = "NOT_LOCKED"               # recover 인데 이미 잠겨 있지 않음
 HALT_EVENT_MISMATCH = "HALT_EVENT_MISMATCH"   # 지금 정지 사건이 아님 (과거·지연 요청, 그 뒤 다시 멈춤)
+STOPPED_DURING_RECOVER = "STOPPED_DURING_RECOVER"   # recover 의 B 조회를 기다리는 사이 새 정지 요청 → 잠금 유지
+B_RECOVER_UNAVAILABLE = "B_RECOVER_UNAVAILABLE"   # B 복구(W2) 서비스 없음·응답 없음 → 잠금 유지
+B_RECOVER_FAILED = "B_RECOVER_FAILED"           # B 복구가 recovered=false 인데 code 를 안 줌
 RUN_MISMATCH = "RUN_MISMATCH"           # 재개 인텐트의 run_id 가 보존 작업과 다름 (#271 D 리뷰)
 REGISTERED, CLOSED = "registered", "closed"   # 재개 결정: 질문·독립 요청 등록 확인 / 질문만 닫음(작업 보존)
 LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
@@ -67,11 +70,24 @@ class RunnerNode(Node):
         intent_tasks = param("intent_tasks", "")   # 인텐트=태스크파일 (trigger 대신, 예: 시연 find_item=/tasks/p1_demo_eraser.json)
         # 재개 대기(#152): 켜면 정지된 작업을 버리지 않고 보존 → recover·resume·end_task 로 처리. 기본 꺼짐(지금 동작 그대로)
         resumable = param("resumable", os.environ.get("RUNNER_RESUMABLE", "") in ("1", "true", "on"))
-        # 복구 때 B 상태 조회(W1): mock = mock 백엔드 흉내(mock 백엔드에서만), none = 조회 불가 → 복구 거절 (B PR 전)
+        # 복구 때 B 상태 조회(W1): b = B /skills/check_state (#297 제안, real·sim 기본), mock = mock 백엔드 흉내(mock 백엔드에서만),
+        # none = 조회 불가 → 복구 거절. B 서비스가 없거나 응답이 없으면 조회 불가로 거절
         backend = os.environ.get("BACKEND", "mock")
-        self.recover_check, warning = choose_check(param("recover_check", "mock" if backend == "mock" else "none"), backend)
+        self.recover_check, warning = choose_check(param("recover_check", "mock" if backend == "mock" else "b"), backend)
         if warning:
             self.get_logger().error(warning)
+        self.b_timeout_s = param("b_check_timeout_s", 2.0)   # B 조회·복구 서비스 응답 대기 [팀 확정 필요]
+        # recover 때 B 복구(W2 /skills/recover)를 먼저 부를지 — B 답 10/13 "C 가 recover 처리 중 호출"(C 제안과 같음). 기본 켜짐,
+        # RUNNER_RECOVER_CALL_B=0 이면 끔. recover_check 가 b 일 때만 (mock·none 은 B 서비스를 안 부름)
+        self.recover_call_b = param("recover_call_b",
+                                    os.environ.get("RUNNER_RECOVER_CALL_B", "1") not in ("0", "false", "off"))
+        # 실물 판정 기준 (params/recovery.yaml [팀 확정 필요]) — 못 읽으면 기준 없음 → 실물 복구 거절
+        recovery_file = param("recovery_params_file", _param_file("ready2go_runner", "recovery.yaml"))
+        try:
+            self.recover_limits = load_recovery_limits(recovery_file)
+        except (OSError, TypeError, ValueError) as e:
+            self.recover_limits = None
+            self.get_logger().warning(f"복구 기준을 못 읽음 ({recovery_file}): {e} — 실물 복구는 거절")
         # 재개 기한: C 값(이 패키지 params/resume.yaml [팀 확정 필요]) + E 증빙 상한(voice.yaml 원본). 못 읽으면 재개 인텐트 보류
         resume_file = param("resume_params_file", _param_file("ready2go_runner", "resume.yaml"))
         voice_file = param("voice_params_file", _param_file("ready2go_voice", "voice.yaml"))
@@ -114,6 +130,8 @@ class RunnerNode(Node):
         self.state_pub = self.create_publisher(String, "/robot_state", LATCHED)
         self.create_service(Trigger, "/runner/estop", self._estop, callback_group=group)
         self.create_service(Trigger, "/runner/reset_state", self._reset_state, callback_group=group)
+        self.b_check_client = self.create_client(Trigger, "/skills/check_state", callback_group=group)   # W1 (#297)
+        self.b_recover_client = self.create_client(Trigger, "/skills/recover", callback_group=group)    # W2 (#297)
         self.create_subscription(String, "/voice/intent", self._on_intent, 10, callback_group=group)
         self.create_timer(PUBLISH_PERIOD_SEC, self.publish, callback_group=group)
 
@@ -346,7 +364,37 @@ class RunnerNode(Node):
         실물 기준(힘·신선도)은 B·팀 확정 뒤 연결 — 그 전까지 None 이라 recover_blockers 가 거절."""
         if self.recover_check == "mock" and os.environ.get("BACKEND", "mock") == "mock":
             return mock_check(self.runner.state), MOCK_LIMITS
+        if self.recover_check == "b":
+            reply = self._call_trigger(self.b_check_client)
+            return (parse_check(*reply) if reply else None), self.recover_limits
         return None, None
+
+    def _call_trigger(self, client) -> tuple[bool, str] | None:
+        """B 서비스(std_srvs/Trigger) 호출 → (success, message). 서비스 없음·시간 초과·예외 → None (호출 쪽이 거절).
+        콜백 안에서 부르므로 future 를 기다림(ReentrantCallbackGroup + MultiThreadedExecutor 라 응답 콜백이 따로 돎)."""
+        if not client.service_is_ready():
+            return None
+        done = threading.Event()
+        future = client.call_async(Trigger.Request())
+        future.add_done_callback(lambda _: done.set())
+        if not done.wait(self.b_timeout_s):
+            future.cancel()
+            return None
+        try:
+            reply = future.result()
+        except Exception:                       # noqa: BLE001 — 서비스 쪽 예외도 조회 불가로
+            return None
+        return (bool(reply.success), reply.message) if reply is not None else None
+
+    def _b_recover(self) -> str | None:
+        """B 복구(W2 /skills/recover, #297): 성공이면 None, 아니면 거절 이유 (B code 그대로, 없음·응답 없음은 C 코드)."""
+        reply = self._call_trigger(self.b_recover_client)
+        if reply is None:
+            return B_RECOVER_UNAVAILABLE
+        result = parse_check(True, reply[1]) or {}
+        if reply[0] and result.get("recovered") is True:
+            return None
+        return result.get("code") or B_RECOVER_FAILED
 
     def _recover(self, decision: intent_router.Decision) -> intent_router.Decision:
         """계약 W3 recover (#152·#271, FR-SAF-03): 같은 기동·지금 정지 사건이고 B 상태 조회(W1)가 모두 충족일 때만
@@ -362,12 +410,20 @@ class RunnerNode(Node):
             return reject(HALT_EVENT_MISMATCH)
         if self.running:                       # 아직 멈추는 중 (진행 중 동작의 최종 결과 대기)
             return reject(intent_router.BUSY)
+        generation = self.runner.halt_generation   # B 조회를 기다리는 사이 새 정지가 오면 해제하지 않음 (#304 E 리뷰 P1)
+        if self.recover_call_b and self.recover_check == "b":   # W2 성공 뒤 W1 (계약: B 복구가 필요한 사건이면 그 성공 뒤)
+            failed = self._b_recover()
+            if failed:
+                self.get_logger().warning(f"recover 거절 — B 복구 실패: {failed}")
+                return reject(failed)
         check, limits = self._b_check()
         blockers = recover_blockers(check, self.runner.state, limits)
         if blockers:
             self.get_logger().warning(f"recover 거절 — 잠금 유지: {blockers} (B 조회 {check})")
             return reject(blockers[0])
-        self.runner.resume()
+        if not self.runner.resume_if(generation):   # 조회 중 새 정지(잠긴 채 다시 멈춤 포함) → 잠금 유지
+            self.get_logger().warning("recover 거절 — B 조회 중 새 정지 요청: 잠금 유지")
+            return reject(STOPPED_DURING_RECOVER)
         self.get_logger().info(f"recover: 잠금 해제 (B 조회 {check}) — 재개 허가 아님, 보존 작업 {self.runner.suspended}")
         return intent_router.Decision(intent_router.RECOVER, intent=intent)
 

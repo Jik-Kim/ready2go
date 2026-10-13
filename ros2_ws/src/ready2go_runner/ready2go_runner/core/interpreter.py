@@ -253,6 +253,7 @@ class Runner:
         self._aborted = False                   # 이번 실행이 E-stop·취소로 중단되었는지
         self._event_seq = 0
         self._event_id: str | None = None       # 정지 사건 ID: 잠길 때마다 새로 (재개 요청이 이 사건에 대한 것인지)
+        self._halt_gen = 0                      # 정지 요청 세대: 이미 잠겨 있어도 정지 요청마다 +1 (복구 중 재정지 확인, #304 E 리뷰 P1)
         self._suspended: _Run | None = None     # 재개 대기 중인 실행
         self._offered_at: float | None = None   # 재개 대기 중 잠금이 풀린 시각 (clock)
         self._offer_until: str | None = None    # 그때 정한 제안 기한 표시 시각 (UTC) — 조회마다 다시 계산하지 않음 (#286 E 리뷰)
@@ -271,6 +272,7 @@ class Runner:
         with self._halt_lock:                   # effect 반영 중이면 끝날 때까지 기다림 → 반영 전/후가 분명함
             if run_id is not None and not (self._in_run and self._run_id == run_id):
                 return False
+            self._halt_gen += 1                 # 잠긴 채 다시 멈춰도 늘어남 — 사건 ID 는 그대로라 이것으로 구분
             first = not self._halt.is_set()
             if first:
                 self._halt_code = code
@@ -287,15 +289,33 @@ class Runner:
                 self._halt_info["canceled_goals"] = canceled
         return True
 
+    @property
+    def halt_generation(self) -> int:
+        """정지 요청 세대 — recover 가 B 조회 전에 읽어 두고 resume_if 로 넘김."""
+        return self._halt_gen
+
+    def resume_if(self, generation: int) -> bool:
+        """그 사이 새 정지 요청이 없을 때만 잠금 해제 (확인과 해제를 같은 잠금 안에서, #304 E 리뷰 P1).
+        B 조회를 기다리는 동안 들어온 정지(이미 잠긴 채 다시 멈춤 포함)가 있으면 False — 잠금 유지."""
+        with self._halt_lock:
+            if self._halt_gen != generation or not self._halt.is_set():
+                return False
+            self._resume_locked()
+            return True
+
     def resume(self) -> None:
         """사람이 상태를 확인한 뒤 중단 잠김을 푼다 (docs/safety.md "비상정지 후 처리")."""
         with self._halt_lock:
-            self._halt_code = None
-            self._halt.clear()
-            if self._suspended is not None:     # 재개 대기: 이때부터 resume_window_sec 안에 재개 요청을 받음
-                self._offered_at = self.clock()
-                self._offer_until = (datetime.now(timezone.utc) + timedelta(seconds=self.resume_window_sec)) \
-                    .isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            self._resume_locked()
+
+    def _resume_locked(self) -> None:
+        """잠금 해제 본체 — _halt_lock 을 잡은 채로 부름."""
+        self._halt_code = None
+        self._halt.clear()
+        if self._suspended is not None:         # 재개 대기: 이때부터 resume_window_sec 안에 재개 요청을 받음
+            self._offered_at = self.clock()
+            self._offer_until = (datetime.now(timezone.utc) + timedelta(seconds=self.resume_window_sec)) \
+                .isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     @property
     def halted(self) -> bool:
