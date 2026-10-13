@@ -123,3 +123,23 @@ python3 -m pytest sim/motion_check -q   # 기구학 시험 (CI 대상 아님)
 - **한계**: 기하(IK)만 본다 — 두산 제어기의 실제 보간·특이점 처리·`movesj` 곡선과 다를 수 있다 [추정]. 트윈에 손목 카메라(D435i)·케이블 형상이 없다
 - main(#83 머지 뒤) [계산 10/06]: 스킬 서버 흐름·`b_demo.py` 모두 끝까지 성공, ◀ 없음 — 스킬 서버도 탑뷰에서 내려가기를 관절 이동으로 바꿈. 가짜 로봇은 조회할 때마다 경로를 한 칸씩 나아감(B 의 새 누르기 판정이 내려가는 중의 힘 변화를 보기 때문), 경로 끝 자세는 명령값 그대로(ZYZ 는 B≈180°에서 A·C 표현이 여러 개)
 - 결과 [계산 10/06, #83 `1ecafb6` `b_demo.py`]: 탑뷰에서 내려가기를 관절 이동(`DOWN`)으로 바꿔 예전 직선 하강(10 mm당 11.8°, J3 10°)이 사라짐. 바뀐 기준으로 ◀ 없음 — 제자리 30° 기울이기(10 mm당 5.8°), 집기 전 수직 복귀(12.7°, J3 25°), 집기 하강·상승(4.6°)은 실물에서도 특이점 없음 [사용자 확인 10/06]. 들고 나오기(`carry_out` movesj)는 ◀ 없음. 다만 쥔 지우개가 열린 위 서랍 앞판 위를 약 12 mm로 지남(경유점 2·3 을 +30 mm 올리면 38 mm) [메시 간격 계산, 스플라인 근사]
+
+## Unpacking 사전 검증 — B unpack·clear 재생과 물리 재생 (`trace_unpack.py`, `play_unpack_trace.py`, `play_unpack_physics.py`) [계산·트윈 10/13]
+
+P2 Unpacking 을 실물 전에 트윈에서 돌려 이상 동작(잘못된 높이·끌림·떨어짐·되풀이)을 찾고 어디 문제인지(B·C·E·비전·트윈) 가른다. 기준·Phase 는 [FR-TWN-02](../docs/requirements.md#fr-twn-02)·[NFR-TWN-01](../docs/requirements.md#nfr-twn-01) — 여기는 도구·근사·결과만.
+
+```bash
+python3 sim/motion_check/trace_unpack.py --dump <실물 덤프 .npz> [<다음 인식 덤프> ...] --target toy_wrench --out /tmp/unpack.json   # B b_sk unpack
+python3 sim/motion_check/trace_unpack.py --dump <덤프> --target eraser --mode clear --out /tmp/clear.json                         # B b_sk clear (make_room 반복 → 집기 → 트레이)
+ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/play_unpack_trace.py --trace /tmp/unpack.json     # 위치 재생 (물체는 장면 기록대로)
+ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/play_unpack_physics.py --trace /tmp/unpack.json [--report r.json] [--headless --quit]   # 물리 재생
+python3 sim/scripts/build_object_meshes.py   # 물품 10종 외형 메시 다시 만들기 (sim/assets/objects/*.usda, LFS)
+```
+- **`trace_unpack.py`**: B `scripts/b_sk.py` 의 `unpack`·`clear` 를 그대로 불러 스킬 서버를 기구학 가짜 로봇에 연결(`trace_skill_flow.py` 와 같은 방식). 인식은 `--dump` 를 n 번째 인식에 n 번째 실물 덤프를 이 저장소 비전 코드로 다시 계산해 씀. 이번 시뮬에서 B 가 실물 회차와 다른 자리(20 mm 넘게)에 놓은 물체만 시뮬 자리로 바꿔 합침, 덤프가 모자라면 가상 인식(집기·놓기·넛지 결과로 갱신). 가짜 그리퍼는 집기를 늘 성공(폭 = 기대 폭)으로 봄. 결과: 구간·그립 이벤트 + `scene_events`(구간마다 물체 상태·쥔 물체) + `log`(b_sk 출력)
+- **가상 인식 근사**: 높이로 불가능한 얹힘 관계는 뺌(다리 있는 덮개판은 밑 관계 유지). 넛지·make_room 으로 옮긴 물체가 더는 덮지 않는 물체의 관계는 뺌. make_room `unstack`(`nudge_object` 안에서 집어 빈 자리에 놓음)은 결과에 `carried` 로 남겨 물리 재생이 쥔 물체로 봄
+- **물체 외형 (`build_object_meshes.py`)**: 지우개·캐러멜 직육면체, 마스킹테이프 빈 원통(안쪽 반지름 16 mm [사용자 실측]), 립밤 원통, 덮개판은 사용자 치수(볼트 중심 50×75 mm, 와셔 지름 28, 육각 머리 폭·높이 10, 판 5 mm) [사용자 10/13]. 나머지 5종(에어팟 케이스·차키·장난감 차·몽키·망치)은 단독 촬영 컬러·뎁스·분할 다각형으로 만든 2.5D 외형을 온톨로지 크기로 맞춤. 기준점은 바닥 가운데
+- **물리 재생 (`play_unpack_physics.py`)**: 물체는 강체(질량 [추정]), 오목한 5종은 볼록 분해 충돌. 로봇·서랍은 궤적대로 위치를 정함(텔레포트). 쥔 물체·서랍을 따라가는 물체는 운동학으로 USD 위치를 옮김(물리 API 로 옮기면 무시됨 [사용자 영상 10/13]). 집기·놓기 대상과 그리퍼, 쥔 동안 쥔 물체와 서랍·트레이 사이 충돌은 끔. 그리퍼 닫는 폭 = 잡은 물체 폭, RG2 폭 ↔ 손가락 각도는 트윈 실측 표. 누르기는 손끝을 트윈 물체 윗면에 맞추고 끌기는 끄는 물체가 손끝을 따라간다고 가정(미끄러짐 없음). 첫 장면의 가려진 물체는 그 물체를 집기 전 다시 인식에서 다 보이면 그 자리로 바로잡고, 다시 인식 때 가려진 물체·그 위 물체는 인식 자리로 옮기지 않음(가려진 자리는 치우침). 보고(`--report`): 잡지 않은 물체 움직임, 다시 인식 차이, 집기 손끝-받침 여유, 놓는 순간 기울기·받침 위 높이, 놓기 먼저 닿음, 쥔 물체 손 따라옴 오차
+- **한계**: 마찰·질량·그리퍼 힘은 [추정]. 집기는 단단히 쥔 것으로 봄(손가락 사이에서 돌거나 미끄러지지 않음). 놓기 힘 감시(`touch_n`)는 흉내 안 냄 — 계산 높이까지 내려가 놓음. 화면 없이 읽은 자세만으로 판정하지 말 것(사용자 재생·영상으로 확인)
+- **결과 [트윈 10/13, B 코드 main `62766ce` 합친 `a4f0190`·`8debb5d`]**:
+  - 위 칸 S1(10/12 실물 덤프 6장, 몽키 꺼내기): 끝까지 성공. 차키 복구 때 20.6° 기울어 캐러멜 윗면 16.5 mm 위에서 놓음 → 떨어져 캐러멜 위에 눕음 [사용자 화면 확인 "실제와 동일"]. 원인은 B — 집을 때 기억한 받침 높이(몽키+캐러멜 37 mm)를 몽키가 빠진 뒤에도 씀(`_picked_support`), free 가 손잡이 벽 30 mm(기울여 잡는 구역)를 골라 다시 집을 때 20° 기울임. B 확인·수정 예정(슬랙 10/13)
+  - 아래 칸 지우개(10/13 덤프 `030105`): clear 모드 끝까지 성공 — 덮개판 unstack(손끝 여유 18 mm), 지우개 10 mm 끌고 5 mm 되돌리기 때 립밤 7.9 mm 굴러감(B sweep 예상대로), 지우개 집기 여유 +2.5 mm·다른 물체 안 움직임 [사용자 화면 확인]. unpack 모드는 지우개 집기 `NEIGHBOR_TOO_CLOSE`(립밤) — make_room 연결 전
