@@ -37,7 +37,7 @@ from ..core import intent_router, planner, step_console
 from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import RunResult, Runner
 from ..core.log_records import new_run_id, utc_iso
-from ..core.recovery import mock_check, recover_blockers
+from ..core.recovery import MOCK_LIMITS, choose_check, mock_check, recover_blockers
 from ..core.request_memory import RequestMemory
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
 from ..core.runner_status import build_status
@@ -64,8 +64,11 @@ class RunnerNode(Node):
         intent_tasks = param("intent_tasks", "")   # 인텐트=태스크파일 (trigger 대신, 예: 시연 find_item=/tasks/p1_demo_eraser.json)
         # 재개 대기(#152): 켜면 정지된 작업을 버리지 않고 보존 → recover·resume·end_task 로 처리. 기본 꺼짐(지금 동작 그대로)
         resumable = param("resumable", os.environ.get("RUNNER_RESUMABLE", "") in ("1", "true", "on"))
-        # 복구 때 B 상태 조회(W1): mock = mock 백엔드 흉내, none = 조회 불가 → 복구 거절 (B /skills/check_state PR 전)
-        self.recover_check = param("recover_check", "mock" if os.environ.get("BACKEND", "mock") == "mock" else "none")
+        # 복구 때 B 상태 조회(W1): mock = mock 백엔드 흉내(mock 백엔드에서만), none = 조회 불가 → 복구 거절 (B PR 전)
+        backend = os.environ.get("BACKEND", "mock")
+        self.recover_check, warning = choose_check(param("recover_check", "mock" if backend == "mock" else "none"), backend)
+        if warning:
+            self.get_logger().error(warning)
         min_confidence = param("min_confidence", 0.6)   # [추정, E 확정 필요] E 음성 노드 임계값과 같게
         # 플래너 계획 스텝 제한 시간 (스킬=초). [팀 확정 필요] tasks/find_item.json 과 같은 값 (#150)
         self.plan_timeouts = _parse_timeouts(param(
@@ -310,6 +313,13 @@ class RunnerNode(Node):
             return None
         return self.runner.discard_suspended()
 
+    def _b_check(self) -> tuple[dict | None, dict | None]:
+        """B 상태 조회(W1)와 판정 기준. mock 백엔드만 흉내 조회·시험 기준(MOCK_LIMITS), 그 밖은 조회 불가(None).
+        실물 기준(힘·신선도)은 B·팀 확정 뒤 연결 — 그 전까지 None 이라 recover_blockers 가 거절."""
+        if self.recover_check == "mock" and os.environ.get("BACKEND", "mock") == "mock":
+            return mock_check(self.runner.state), MOCK_LIMITS
+        return None, None
+
     def _recover(self, decision: intent_router.Decision) -> intent_router.Decision:
         """계약 W3 recover (#152·#271, FR-SAF-03): 같은 기동·지금 정지 사건이고 B 상태 조회(W1)가 모두 충족일 때만
         C 잠금 해제(Runner.resume). 해제는 재개 허가가 아님 — 보존 작업이 있으면 halt.resume.offered 로 제안만.
@@ -324,8 +334,8 @@ class RunnerNode(Node):
             return reject(HALT_EVENT_MISMATCH)
         if self.running:                       # 아직 멈추는 중 (진행 중 동작의 최종 결과 대기)
             return reject(intent_router.BUSY)
-        check = mock_check(self.runner.state) if self.recover_check == "mock" else None
-        blockers = recover_blockers(check, self.runner.state)
+        check, limits = self._b_check()
+        blockers = recover_blockers(check, self.runner.state, limits)
         if blockers:
             self.get_logger().warning(f"recover 거절 — 잠금 유지: {blockers} (B 조회 {check})")
             return reject(blockers[0])
