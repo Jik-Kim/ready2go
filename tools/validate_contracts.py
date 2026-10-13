@@ -24,6 +24,8 @@ sys.path.insert(0, str(ROOT / "ros2_ws/src/ready2go_vision"))
 from ready2go_runner.core.validation import check_task  # noqa: E402
 from ready2go_knowledge.core import ontology as onto_lib  # noqa: E402
 from ready2go_vision.core.pose_rules import pose_errors, result_errors  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools/yolo"))
+from build_dataset import RETIRED_NAME, class_errors, read_names  # noqa: E402
 
 
 def load(p):
@@ -70,6 +72,38 @@ def pick_result_errors(doc):
                 errs.append(f"{name}: 성공 결과에 pick_pose_drawer_frame 필요")
         if hand == "empty" and ev.get("lift") != "DROPPED":
             errs.append(f"{name}: hand empty(빈손 확정)는 들어 올리다 폭이 빈손 닫힘까지 줄었을 때(lift DROPPED)만")
+    return errs
+
+
+def topple_errors(c):
+    """nudge_object topple [제안 10/13 B]: topple = {dir(서랍 축 단위 벡터), dist_m > 0, landed_pose{frame, position(z 0), yaw}, reason}.
+    성공이면 topple 필수, target_after 는 떨어질 예상 자리 = landed_pose (방향 모름 → yaw_valid false — 바로 집지 않고 다시 보기).
+    실패면 topple null 또는 같은 형식. make_room action topple 은 moved_id·moved_after 필수."""
+    out, errs = c["output"], []
+    mr = out.get("make_room") or {}
+    if mr.get("action") == "topple" and (not isinstance(mr.get("moved_id"), str) or not isinstance(mr.get("moved_after"), dict)):
+        errs.append("make_room topple 은 moved_id(문자열)·moved_after(떨어질 예상 pose) 필요")
+    if "topple" not in out:
+        return errs
+    t = out["topple"]
+    if t is None:
+        if c["success"]:
+            errs.append("topple 성공 결과에 topple 필요")
+        return errs
+    d, lp = t.get("dir"), t.get("landed_pose") or {}
+    if not (isinstance(d, list) and len(d) == 2 and sorted(abs(v) for v in d) == [0.0, 1.0]):
+        errs.append(f"topple.dir 는 서랍 축 단위 벡터 [±1, 0]·[0, ±1] — 값 {d!r}")
+    if not (isinstance(t.get("dist_m"), (int, float)) and t["dist_m"] > 0) or not isinstance(t.get("reason"), str):
+        errs.append("topple.dist_m(> 0)·reason(문자열) 필요")
+    pos = lp.get("position")
+    if not (isinstance(lp.get("frame"), str) and isinstance(pos, list) and len(pos) == 3 and pos[2] == 0.0
+            and isinstance(lp.get("yaw"), (int, float))):
+        errs.append("topple.landed_pose 는 {frame, position[x, y, 0], yaw}")
+    after = out.get("target_after")
+    if c["success"] and isinstance(after, dict):
+        ap = after.get("pose") or {}
+        if ap.get("yaw_valid") is not False or ap.get("position") != pos or ap.get("frame") != lp.get("frame"):
+            errs.append("topple 성공의 target_after 는 landed_pose 자리·yaw_valid false (떨어진 방향 모름 → 다시 보기)")
     return errs
 
 
@@ -163,6 +197,7 @@ def main() -> int:
                 errors.append(f"nudge_object_result.json {c['case']}: needed(bool)·plan_code(null|문자열), plan_code 가 있으면 needed false")
         if not c["success"] and after is not None:
             errors.append(f"nudge_object_result.json {c['case']}: 실패 결과의 target_after 는 null")
+        errors += [f"nudge_object_result.json {c['case']}: {m}" for m in topple_errors(c)]
         if c["success"]:
             if not isinstance(after, dict):
                 errors.append(f"nudge_object_result.json {c['case']}: 성공 결과에 target_after(target 형식) 필요")
@@ -177,12 +212,10 @@ def main() -> int:
         if pdef.get("max_travel_m") is not None:
             errors.append(f"knowledge/robot_ontology.jsonld: places.{pname}.max_travel_m 은 config/places.yaml 이 정본이므로 온톨로지에는 null 로 둔다")
     onto = onto_lib.load(ROOT / "knowledge/robot_ontology.jsonld")
-    classes_f = ROOT / "config/yolo_classes.txt"   # YOLO 클래스 고정 목록: 온톨로지에 없는 이름이 있으면 라벨 번호가 깨진다
+    classes_f = ROOT / "config/yolo_classes.txt"   # YOLO 클래스 고정 목록: 온톨로지에도 은퇴 목록에도 없는 이름이 있으면 라벨 번호가 깨진다
     if classes_f.exists():
-        names = [l.strip() for l in classes_f.read_text(encoding="utf-8").splitlines() if l.strip()]
-        errors += [f"config/yolo_classes.txt: 온톨로지 world.items 에 없는 클래스 {n}" for n in names if n not in onto.get("world", {}).get("items", {})]
-        if len(set(names)) != len(names):
-            errors.append("config/yolo_classes.txt: 중복된 클래스 이름")
+        errors += [f"config/{e}" for e in class_errors(read_names(classes_f), onto.get("world", {}).get("items", {}),
+                                                      read_names(classes_f.with_name(RETIRED_NAME)))]
     errors += onto_lib.list_reference_errors(onto)
     for name, skill in onto.get("skills", {}).items():
         if skill.get("kind") != "primitive":

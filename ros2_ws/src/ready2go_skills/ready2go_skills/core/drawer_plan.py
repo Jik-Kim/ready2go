@@ -1,11 +1,8 @@
 """`drawer_control` 판단 (#13, docs/domain.md 8.4, ROS 비의존·pytest 대상).
 
-노드는 이 함수들로 방향·거리·판정을 구하고, 실제 이동(movel 상대 이동, 컴플라이언스, 힘 읽기)은 DSR 서비스로 한다.
-  열기: drawer_approach → 손잡이까지 직선 접근(approach_mm) → 파지 → 인출 방향으로 distance 당김(걸림 감시) → 해제 → 후퇴
-  닫기: 그리퍼 닫고 서랍 앞면을 미는 방향으로 이동, 닫힘 = 닫힘 위치 도달 AND 미는 축 저항력 ≥ 임계 (둘 다)
+노드는 이 함수들로 방향·거리·열기 판정을 구하고, 실제 이동·힘 읽기는 DSR 서비스로 한다.
+닫기는 손잡이를 잡지 않고 45° 자세(params `drawer_open_close.close_push`)로 앞판을 밀어 닫힘 위치 도달로 판정한다(노드).
 방향: 서랍 좌표계 x축은 안쪽(places.yaml 첫 부분)이라 인출 = −x. 수평 성분만 쓴다(tf 기울기 약 0.9°).
-힘 부호 [추정, 10/06 실측으로 확인]: `get_tool_force(ref=BASE)`가 공구가 받는 외력이면, 움직이는 방향을 막는 힘은
-  F·dir < 0 이다. 그래서 저항력 = −F·dir 로 쓴다. 실측에서 부호가 반대면 `force_sign`을 −1로 둔다(params).
 임계값·거리는 params/skills.yaml `drawer_control` [팀 확정 필요].
 """
 import math
@@ -42,11 +39,6 @@ def displacement_m(start_tcp_m: Sequence[float], now_tcp_m: Sequence[float], dir
     return sum((n - s) * d for s, n, d in zip(start_tcp_m, now_tcp_m, direction))
 
 
-def resist_force_n(force_n: Sequence[float], direction: Sequence[float], force_sign: float = 1.0) -> float:
-    """움직이는 방향을 막는 힘의 크기(N, 막으면 양수). 방향을 보므로 옆으로 걸린 힘과 구분된다."""
-    return -force_sign * sum(f * d for f, d in zip(force_n[:3], direction))
-
-
 def _finite(*values) -> bool:
     return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
@@ -77,18 +69,3 @@ def judge_opening(moved_m: float, target_m: float, resist_n: float, stuck_force_
     if moved_m >= target_m - pos_tol_m:
         return Verdict(True, None, f"인출 {moved_m * 1000:.1f} mm 도달")
     return Verdict(False, None, "인출 중")
-
-
-def judge_closing(remaining_m: float, resist_n: float, close_force_n: float, pos_tol_m: float) -> Verdict:
-    """닫는 중 주기적으로 호출. `remaining_m` = 닫힘 위치까지 남은 거리.
-    닫힘 = 위치 도달 AND 힘 임계. 위치 전에 힘 임계 → CLOSE_NOT_CONFIRMED(튀어나온 물품·레일 걸림, 8.4 복구 절차)."""
-    if not _finite(remaining_m, resist_n, close_force_n, pos_tol_m):
-        return Verdict(True, SENSOR_INVALID, f"값 비정상 (남은 거리 {remaining_m!r}, 저항 {resist_n!r})")
-    reached = remaining_m <= pos_tol_m
-    pushed = resist_n >= close_force_n
-    if reached and pushed:
-        return Verdict(True, None, f"닫힘 확인 (남은 {remaining_m * 1000:.1f} mm, 저항 {resist_n:.1f} N)")
-    if pushed:
-        return Verdict(True, CLOSE_NOT_CONFIRMED,
-                       f"닫힘 위치 {remaining_m * 1000:.1f} mm 전에 저항 {resist_n:.1f} N ≥ {close_force_n:g} N")
-    return Verdict(False, None, "닫는 중")

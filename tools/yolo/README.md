@@ -9,7 +9,8 @@ docker run --rm --gpus all --ipc=host --user $(id -u):$(id -g) -e HOME=/tmp -e Y
   python3 tools/yolo/train.py --base /w/yolo11n.pt --epochs 100 --name 11n_v2 --data $D/yolo_v2/dataset.yaml
 ```
 
-- **먼저 준비**: `config/yolo_classes.txt`(클래스 번호 고정, 깃 추적)가 있어야 `build_dataset.py`가 동작한다(없으면 중단, 아래 "클래스 고정"). 사전학습 가중치(`yolo11n.pt` 등)는 저장소 밖에 두고 내려받기는 따로 승인받는다
+- **먼저 준비**: `config/yolo_classes.txt`(클래스 번호 고정, 깃 추적)가 있어야 `build_dataset.py`가 동작한다(없으면 중단, 아래 "클래스 고정").
+- **은퇴 클래스**: 시연에서 뺀 물품도 `yolo_classes.txt` 줄은 지우지 않는다(뒤 번호가 밀려 기존 라벨·모델이 어긋남). 대신 `config/yolo_retired_classes.txt`에 이름을 적으면 온톨로지에서 빠져도 `build_dataset.py`·`tools/validate_contracts.py`가 통과한다(그 밖의 미등록 이름·오타·중복은 실패, 은퇴 이름은 고정 목록에 있어야 함). 비전 노드는 온톨로지에 없는 클래스 검출을 버린다. 지금 `carrot_pen`(5번, #23). 사전학습 가중치(`yolo11n.pt` 등)는 저장소 밖에 두고 내려받기는 따로 승인받는다
 - 예전 안내의 `docker cp tools knowledge yolo-detection:/작업폴더/`는 원본 여러 개를 한 번에 복사하지 못하는 잘못된 명령이었다(#134). 옛 `yolo-detection` 컨테이너는 10/03 점검 기록용
 
 | 단계 | 명령 | 비고 |

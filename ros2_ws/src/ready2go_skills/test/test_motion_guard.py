@@ -4,7 +4,6 @@ import pytest
 import yaml
 
 from ready2go_skills.core import motion_guard as mg
-from ready2go_skills.core import nudge_plan
 
 ROOT = Path(__file__).resolve().parents[4]
 PARAMS = yaml.safe_load((ROOT / "ros2_ws/src/ready2go_skills/params/skills.yaml").read_text(encoding="utf-8"))["motion_guard"]
@@ -72,8 +71,8 @@ def test_valid_yaw_including_zero_passes():
     assert mg.check_yaw(_pose(yaw=0.0)) is None
 
 
-def test_yaw_code_is_shared_with_nudge():
-    assert nudge_plan.YAW_INVALID == mg.YAW_INVALID == "YAW_INVALID"
+def test_yaw_code_name():
+    assert mg.YAW_INVALID == "YAW_INVALID"
 
 
 # ---- NOT_ON_FLOOR
