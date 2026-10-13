@@ -1244,7 +1244,10 @@ class SkillServer(Node):
     # --- 끌기 (nudge_object) ---
     def _press_relax(self, goal, above, end_mm, expect_z, d, speed):
         """누를 자리 위(above)에서 내려가 닿음 확인 → 끄는 힘으로 맞춤. (실패 Outcome 또는 None, 누른 posx, 그때 힘 N).
-        안전 코드가 아닌 실패는 above 로 올라간 뒤 돌려줌 → 호출자가 같은 자리에서 다시 시도할 수 있음."""
+        안전 코드가 아닌 실패는 above 로 올라간 뒤 돌려줌 → 호출자가 같은 자리에서 다시 시도할 수 있음.
+        drag.force_mode 면 위치로 내려가 닿음을 찾지 않고 힘 제어로 내려가 누름 (_force_press)."""
+        if d.get("force_mode"):
+            return self._force_press(goal, above, expect_z, d)
         base_f = self._tare(d.get("tare_settle_s"))           # 넛지는 0.4 s [사용자 10/11 "넛지 너무 느림"], 없으면 force.tare_settle_s
         z0 = above[2]
         state = {}
@@ -1300,6 +1303,63 @@ class SkillServer(Node):
         if pressed is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 끌기 시작 위치 모름"), None, None
         return None, pressed, held_n
+
+    def _force_press(self, goal, above, expect_z, d):
+        """drag.force_mode [사용자 10/13 힘 제어]: 누를 자리 위(above)에서 두산 힘 제어(z 만, 끄는 힘 drag_force_n 가운데)를 켜면
+        제어기가 내려가 닿고 그 힘을 유지 — 위치로 내려가며 5 N 문턱·멈춘 채 3번 확인·0.1 mm 힘 맞추기를 하지 않음.
+        → 휘는 빈 상자(확인 중 힘이 빠짐, 10/13 트러블슈팅 1)·윗면이 예상보다 낮은 곳(몽키 머리 19)도 닿을 때까지 내려감.
+        닿음 = 힘이 목표의 force_touch_ratio 이상 + z 가 force_still_s 동안 force_still_mm 안. z 가 예상 윗면보다 force_search_below_mm
+        넘게 내려가거나 force_search_s 안에 못 닿으면 물체가 아님(구멍·빈 자리) → 풀고 NO_OBJECT_CONTACT. 바닥에 닿아도 힘은 목표 힘뿐.
+        → (Outcome|None, 끌기 시작 posx, 힘 N). 힘 제어는 끌기 뒤 _force_release 로 풂 (_do_nudge_object finally 가 안전망)."""
+        lo, hi = (float(v) for v in d["drag_force_n"])
+        hold = (lo + hi) / 2.0
+        floor_z = expect_z - float(d.get("force_search_below_mm", 12.0))
+        goal.publish_feedback(Skill.Feedback(stage="force_press"))
+        base_f = self.robot.tool_force()                    # 켜기 직전 힘 (상대 목표 힘 FC_MOD_REL 과 같은 기준)
+        self._force_active = True
+        if base_f is None or not self.robot.force_on(hold, d.get("force_stiffness", [3000.0, 3000.0, 200.0, 200.0, 200.0, 200.0]),
+                                                       d.get("force_ramp_s", 0.2)):
+            bad = self._force_release() or sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 제어 켜기 실패 — drag.force_mode false 로")
+            return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, self._in_vel(), "lift"))), None, None
+        t0, still_since, last_z = time.monotonic(), None, None
+        why = None
+        while True:
+            if goal.is_cancel_requested:
+                bad = sf.worse(self._force_release(), sf.Outcome(False, sf.CANCELED, canceled=True, reason="취소 — 힘 제어 풂"))
+                return bad, None, None
+            p, f, st = self.robot.posx(), self.robot.tool_force(), self.robot.state()
+            if p is None or f is None:
+                return sf.worse(sf.Outcome(False, sf.STATE_UNKNOWN, reason="좌표·힘 조회 실패 (힘 제어 중)"), self._force_release()), None, None
+            if sf.stopped_by_estop(st):
+                return sf.worse(sf.Outcome(False, sf.ESTOP, reason="안전 정지 (힘 제어 중)"), self._force_release()), None, None
+            if p[2] < floor_z:
+                why = f"예상 윗면 아래 {d.get('force_search_below_mm', 12.0):g} mm 까지 내려가도 물체 없음 (구멍·빈 자리)"
+                break
+            pushed = base_f[2] - f[2]                       # 아래로 누르는 힘 (base z, 위가 +)
+            if last_z is not None and abs(p[2] - last_z) <= float(d.get("force_still_mm", 0.05)) and pushed >= hold * float(d.get("force_touch_ratio", 0.7)):
+                still_since = still_since or time.monotonic()
+                if time.monotonic() - still_since >= float(d.get("force_still_s", 0.2)):
+                    return None, p, hold
+            else:
+                still_since = None
+            last_z = p[2]
+            if time.monotonic() - t0 > float(d.get("force_search_s", 4.0)):
+                why = f"{d.get('force_search_s', 4.0):g} s 안에 목표 힘으로 멈추지 않음"
+                break
+            time.sleep(0.05)
+        bad = self._force_release() or sf.Outcome(False, NO_OBJECT_CONTACT, reason=f"힘 제어 누르기: {why}")
+        return (bad if sf.is_safety(bad) else sf.worse(bad, self._line(goal, above, self._in_vel(), "lift"))), None, None
+
+    def _force_release(self):
+        """힘 제어 켜져 있으면 풂. 실패면 STATE_UNKNOWN(서버 잠금 — 힘 제어가 남은 채 움직이지 않게, 펜던트 확인), 아니면 None."""
+        if not getattr(self, "_force_active", False):
+            return None
+        ok = self.robot.force_off(0.2)
+        self._force_active = False
+        if ok:
+            return None
+        self.get_logger().error("힘 제어 해제 실패 — 펜던트에서 힘 제어·컴플라이언스 끄고 확인")
+        return sf.Outcome(False, sf.STATE_UNKNOWN, reason="힘 제어 해제 실패 — 펜던트 확인 (서버 잠금)")
 
     def _relax(self, goal, pressed, base_f, d):
         """닿음 확인 뒤 멈춘 자리에서 relax_step_mm 씩 올리며, 멈춘 뒤 잰 힘 z 가 drag_force_n [하한, 상한] 의 상한 이하가 되면 그 높이.
@@ -1406,9 +1466,13 @@ class SkillServer(Node):
         prev = getattr(self, "_careful", False)
         self._careful = True
         try:
-            return self._do_nudge_object_inner(goal, params)
+            outcome, out = self._do_nudge_object_inner(goal, params)
         finally:
             self._careful = prev
+            left = self._force_release()                    # 어느 경로로 끝나든 힘 제어가 남지 않게 (정상 경로는 올리기 전에 이미 풂)
+        if left is not None:
+            return sf.worse(outcome, left), out
+        return outcome, out
 
     def _do_nudge_object_inner(self, goal, params):
         if (err := self._refuse_if_hold_unknown()):
@@ -1554,9 +1618,13 @@ class SkillServer(Node):
             return None
 
         drag_to = [pressed[i] + 1000.0 * shift[i] for i in range(3)] + pressed[3:]
-        bad = self._line(goal, drag_to, d["speed_mm_s"], "drag", watch=blocked)
+        ftol = {"tol_mm": float(d.get("force_reach_tol_mm", 5.0))} if d.get("force_mode") else {}   # 힘 제어면 z 는 제어기가 맞춤
+        bad = self._line(goal, drag_to, d["speed_mm_s"], "drag", watch=blocked, **ftol)
         if sf.is_safety(bad):                               # 안전 정지·취소 뒤엔 올리지도 않음
             return bad, out
+        rel = self._force_release()                         # 올리기 전에 힘 제어 풂 (켜져 있을 때만)
+        if rel is not None:
+            return sf.worse(bad, rel), out
         now = self.robot.posx()
         if now is None:
             return sf.worse(bad, sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 올리지 못함")), out
@@ -1822,13 +1890,17 @@ class SkillServer(Node):
 
         v = mp.dir_to_base(tf, (u[0], u[1], 0.0))
         to = [pressed[i] + dist_m * 1000.0 * (v[i] if i < 2 else 0.0) for i in range(3)] + list(pressed[3:])   # 수평으로만
-        bad = self._line(goal, to, d["speed_mm_s"], "drag", watch=blocked)
+        ftol = {"tol_mm": float(d.get("force_reach_tol_mm", 5.0))} if d.get("force_mode") else {}   # 힘 제어면 z 는 제어기가 맞춤
+        bad = self._line(goal, to, d["speed_mm_s"], "drag", watch=blocked, **ftol)
         if not bad and back_m > 0.0:                              # 양쪽 공간: 민 만큼의 일부를 눌린 채 되돌아옴 [사용자 10/11]
             now = self.robot.posx() or to
             back = [now[i] - back_m * 1000.0 * (v[i] if i < 2 else 0.0) for i in range(3)] + list(now[3:])
-            bad = self._line(goal, back, d["speed_mm_s"], "drag_back", watch=blocked)
+            bad = self._line(goal, back, d["speed_mm_s"], "drag_back", watch=blocked, **ftol)
         if sf.is_safety(bad):
             return bad, out
+        rel = self._force_release()                               # 올리기 전에 힘 제어 풂 (켜져 있을 때만)
+        if rel is not None:
+            return sf.worse(bad, rel), out
         now = self.robot.posx()
         if now is None:
             return sf.worse(bad, sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패 — 올리지 못함")), out
