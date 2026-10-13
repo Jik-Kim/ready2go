@@ -4,12 +4,17 @@ C 잠금 해제는 B 상태 조회(W1)의 **모든 필수 칸이 충족**할 때
 모르는 값(null·칸 없음·지원하지 않는 값)은 허가로 보지 않는다. 힘·신선도 기준이 팀에서 정해지지 않았으면
 임의 수치로 허가하지 않고 그 칸을 미확인으로 거절한다(*_LIMIT_UNSET).
 B 복구 결과(W2)와 C 잠금 해제는 분리 — 여기서는 조회 결과만 판단하고, 잠금 해제는 노드가 Runner.resume() 으로.
-B 조회 인터페이스(/skills/check_state)는 B PR 전이라 노드는 mock 백엔드에서만 mock_check 를 쓰고,
-real·sim 은 조회 불가(None → B_CHECK_UNAVAILABLE)로 거절한다 — 설정으로 real 에서 mock 을 골라도 쓰지 않음.
+B 조회: `b` = B 서비스 `/skills/check_state`(std_srvs/Trigger, 응답 message JSON — #297 제안)를 노드가 호출,
+`mock` = mock 백엔드에서만 mock_check, `none` = 조회 불가(None → B_CHECK_UNAVAILABLE). real 에서 mock 을 골라도 쓰지 않음.
+서랍(`drawers`)은 B 서버가 기억하는 서랍별 인출 거리(m) — 기준(`drawer_open_min_m`)보다 크면 열림, 칸이 없으면 닫힘
+(B 서버는 재시작 때 닫힘으로 시작). bool 도 받음(mock).
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+
+import yaml
 
 B_CHECK_UNAVAILABLE = "B_CHECK_UNAVAILABLE"   # B 상태 조회를 할 수 없음 (W1 미연결·응답 없음) → 잠금 유지
 STATE_MISMATCH = "STATE_MISMATCH"             # B 가 본 그리퍼·서랍이 Runner 기억과 다름
@@ -20,12 +25,37 @@ REQUIRED = (("stopped", True, "NOT_STOPPED"), ("estop_active", False, "ESTOP_ACT
             ("sensors_ok", True, "SENSORS_NOT_OK"), ("comm_ok", True, "COMM_NOT_OK"),
             ("tcp_tool_ok", True, "TCP_TOOL_NOT_OK"))
 GRIPPER_STATES = ("empty", "holding")
-# mock 백엔드 시험용 기준 — 실물 기준 아님. real 기준(external_force_max_n·stamp_max_age_s)은 B·팀 확정 전 None
-MOCK_LIMITS = {"external_force_max_n": 5.0, "stamp_max_age_s": 2.0}
+# mock 백엔드 시험용 기준 — 실물 기준 아님. 실물 기준은 params/recovery.yaml [팀 확정 필요] (없음·null 이면 그 칸 거절)
+MOCK_LIMITS = {"external_force_max_n": 5.0, "stamp_max_age_s": 2.0, "drawer_open_min_m": 0.01}
+CHECK_MODES = ("b", "mock", "none")
+
+
+def load_limits(path: str) -> dict:
+    """실물 판정 기준 (params/recovery.yaml). 값이 null 이면 그 칸은 미확인으로 거절(*_LIMIT_UNSET)."""
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    limits = {k: raw.get(k) for k in ("external_force_max_n", "stamp_max_age_s", "drawer_open_min_m")}
+    for key, value in limits.items():
+        if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0):
+            raise ValueError(f"복구 기준 {key} 는 0 이상 숫자 또는 null: {value!r}")
+    return limits
+
+
+def parse_check(success: bool, message: str) -> dict | None:
+    """B /skills/check_state 응답 → 조회 결과. 읽기 실패(success false)·JSON 아님 → None (조회 불가 = 거절)."""
+    if not success:
+        return None
+    try:
+        check = json.loads(message)
+    except (TypeError, ValueError):
+        return None
+    return check if isinstance(check, dict) else None
 
 
 def choose_check(requested: str, backend: str) -> tuple[str, str | None]:
     """recover_check 파라미터 → 실제로 쓸 조회 방식과 경고. mock 조회는 mock 백엔드에서만 (#289 E 리뷰 P1)."""
+    if requested == "b":
+        return "b", None
     if requested == "mock" and backend == "mock":
         return "mock", None
     if requested == "mock":
@@ -50,7 +80,7 @@ def _age_s(stamp, now: datetime) -> float | None:
 def recover_blockers(check: dict | None, runner_state: dict, limits: dict | None = None,
                      now: datetime | None = None) -> list[str]:
     """B 조회 결과로 잠금 해제를 막는 이유 목록. 빈 목록이면 해제 가능.
-    limits: {"external_force_max_n", "stamp_max_age_s"} — None·없음이면 그 칸은 미확인으로 거절.
+    limits: {"external_force_max_n", "stamp_max_age_s", "drawer_open_min_m"} — None·없음이면 그 칸은 미확인으로 거절.
     그리퍼·서랍: B 가 본 상태가 Runner 기억(gripper.robot·open)과 다르면 STATE_MISMATCH."""
     if not isinstance(check, dict):
         return [B_CHECK_UNAVAILABLE]
@@ -88,14 +118,31 @@ def recover_blockers(check: dict | None, runner_state: dict, limits: dict | None
     elif (seen == "empty") != (remembered == "empty") or (seen == "holding" and held.split("#")[0] != remembered):
         blockers.append(STATE_MISMATCH)
 
-    drawers = check.get("drawers")
+    seen_open = drawers_open(check.get("drawers"), runner_state, limits.get("drawer_open_min_m"))
     remembered_open = {k: v for k, v in (runner_state.get("open") or {}).items() if k.startswith("drawer")}
-    if not isinstance(drawers, dict) or any(not isinstance(drawers.get(k), bool) for k in remembered_open):
-        blockers.append("DRAWERS_UNKNOWN")                   # {서랍: 열림 bool} — 기억하는 서랍마다 있어야 함
-    elif any(drawers[k] != v for k, v in remembered_open.items()):
+    if seen_open is None:
+        blockers.append("DRAWERS_UNKNOWN")
+    elif any(seen_open[k] != v for k, v in remembered_open.items()):
         if STATE_MISMATCH not in blockers:
             blockers.append(STATE_MISMATCH)
     return blockers
+
+
+def drawers_open(drawers, runner_state: dict, open_min_m) -> dict | None:
+    """B drawers → {서랍: 열림}. 인출 거리(m) > open_min_m 이면 열림, 칸 없음 = 닫힘(0), bool 은 그대로.
+    dict 가 아님·값이 null/음수/다른 형·숫자인데 기준 없음 → None (모름 = 거절)."""
+    if not isinstance(drawers, dict):
+        return None
+    out = {}
+    for name in (k for k in (runner_state.get("open") or {}) if k.startswith("drawer")):
+        value = drawers.get(name, 0.0)
+        if isinstance(value, bool):
+            out[name] = value
+        elif isinstance(value, (int, float)) and value >= 0 and open_min_m is not None:
+            out[name] = value > open_min_m
+        else:
+            return None
+    return out
 
 
 def mock_check(runner_state: dict, now: datetime | None = None) -> dict:
