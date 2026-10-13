@@ -10,6 +10,7 @@
   같은 회차의 덤프를 순서대로 주면 실물과 같은 인식으로 로봇 동작만 본다). 덤프가 모자라면 그 뒤는 가상 인식: 장면 기록에서 만든다
   (집으면 빠지고, 놓으면 놓은 자리에 온톨로지 높이로 생김, 다른 물체 위에 놓으면 그 위 높이 + occluded_by).
   가상 인식 한계: 가려졌던 물체는 덮은 것을 치워도 처음 (치우친) 위치·각도 그대로 — 실물은 다시 찍으면 바로잡힘. 결과 scans 에 출처 표시.
+  가상 인식은 높이로 보아 불가능한 얹힘 관계(덮은 것 윗면 < 두 물체 높이 합 − 6 mm)를 뺀다(경계 높이 헛관계는 다시 찍으면 대개 사라짐 [추정]).
 - 집기는 항상 성공한다고 본다(그리퍼 폭 = 기대 폭). 미끄러짐·무너짐·접촉은 흉내 내지 않는다.
 - 결과: trace_skill_flow 형식(segments·grip_events) + `scene_events`(구간 번호마다 물체 상태·쥔 물체) + `log`(b_sk 출력).
 """
@@ -71,6 +72,12 @@ class Scene:
 
     def scan(self, search: str) -> dict:
         objs = [copy.deepcopy(o) for o in self.objs.values()]
+        tops = {o["id"]: o["top_z"] for o in objs}
+        for o in objs:                                          # 가상 인식: 높이로 보아 불가능한 얹힘(덮은 것 윗면 < 두 물체 온톨로지 높이 합 − 6 mm)은 뺌
+            if o.get("occluded_by"):                            # — 실물 경계 높이 헛관계(10/13 030105 립밤)는 덮개를 치우고 다시 찍으면 대개 사라짐 [추정]
+                h = self.items[o["class"]]["size_m"][2]
+                o["occluded_by"] = [c for c in o["occluded_by"] if c not in tops or
+                                    tops[c] >= h + self.items[next(x["class"] for x in objs if x["id"] == c)]["size_m"][2] - 0.006]
         t = next((o for o in objs if o["class"] == search), None)
         return {"target_found": t is not None, "target": t, "candidates": [o for o in objs if o is not t], "visible_count": len(objs)}
 
