@@ -2,7 +2,7 @@
 
   ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/play_unpack_trace.py --trace /tmp/unpack.json
 옵션: --speed 배속 / --flag-slow 2 (◀ 구간 느리게) / --loop / --headless --quit (시험용) / --allow-mismatch (play_motion_trace 와 같음)
-- 물체는 온톨로지 외접 박스(색은 클래스별). 첫 장면 = 덤프를 다시 계산한 인식 결과, 그 뒤는 trace 의 scene_events.
+- 물체는 sim/assets/objects/<class>.usda 외형(build_object_meshes.py), 없으면 온톨로지 외접 박스(색은 클래스별). 첫 장면 = 덤프를 다시 계산한 인식 결과, 그 뒤는 trace 의 scene_events.
 - 집기에서 그리퍼가 닫히는 순간 그 물체를 손끝에 붙이고, 놓기에서 벌리는 순간 뗀다(물리 아님 — 위치만 따라감).
 - 서랍 안에 있는 물체는 서랍 인출을 따라간다. 트레이에 놓은 물체는 놓은 자리에 남는다.
 - 로봇 관절·서랍·그리퍼 그리기는 play_motion_trace.py 와 같은 방식(텔레포트 + 구동 목표, 씬·궤적 설정 대조).
@@ -109,24 +109,38 @@ W = gf_to_np(UsdGeom.Xformable(base_prim if base_prim.IsValid() else stage.GetPr
 ops = {}
 
 
+MESH_DIR = ROOT / "sim/assets/objects"                                   # build_object_meshes.py 결과 — 있으면 상자 대신 외형
+
+
 def cube_for(oid, cls):
     if oid not in ops:
-        c = UsdGeom.Cube.Define(stage, f"/World/unpack_objs/{oid.replace('#', '_')}")
-        c.CreateSizeAttr(1.0)
-        c.GetDisplayColorAttr().Set([Gf.Vec3f(*COLORS.get(cls, (0.5, 0.5, 0.9)))])
-        xf = UsdGeom.Xformable(c.GetPrim())
+        path = f"/World/unpack_objs/{oid.replace('#', '_')}"
+        usd = MESH_DIR / f"{cls}.usda"
+        if usd.exists():                                                  # 외형 메시: 원점 = 바닥 가운데, x 긴 변 (온톨로지 size_m 과 같음)
+            prim = stage.DefinePrim(path, "Xform")
+            prim.GetReferences().AddReference(str(usd))
+            S = np.eye(4)
+        else:                                                             # 없으면 외접 상자 (가운데 원점 → 바닥으로 h/2 올림)
+            c = UsdGeom.Cube.Define(stage, path)
+            c.CreateSizeAttr(1.0)
+            c.GetDisplayColorAttr().Set([Gf.Vec3f(*COLORS.get(cls, (0.5, 0.5, 0.9)))])
+            prim = c.GetPrim()
+            sz = ITEMS[cls]["size_m"]
+            S = np.diag(list(sz) + [1.0])
+            S[2, 3] = sz[2] / 2
+        xf = UsdGeom.Xformable(prim)
         xf.ClearXformOpOrder()
-        ops[oid] = (xf.AddTransformOp(), np.diag(list(ITEMS[cls]["size_m"]) + [1.0]))
+        ops[oid] = (xf.AddTransformOp(), S)
     return ops[oid]
 
 
 def obj_world(o, travel):
-    """물체 o(서랍 좌표 pose·top_z) → 월드 변환(박스 가운데)."""
+    """물체 o(서랍 좌표 pose·top_z) → 월드 변환(물체 바닥 가운데). 바닥 높이 = top_z − 온톨로지 높이(받침 위면 그 높이)."""
     x, y = o["pose"]["position"][:2]
     h = ITEMS[o["class"]]["size_m"][2]
     T = np.eye(4)
     T[:3, :3] = T_bd[:3, :3] @ kin._rz(o["pose"]["yaw"])
-    T[:3, 3] = (T_bd @ np.array([x, y, max(o["top_z"] - h / 2, h / 2), 1.0]))[:3] + T_bd[:3, 0] * (max_travel - travel)
+    T[:3, 3] = (T_bd @ np.array([x, y, max(o["top_z"] - h, 0.0), 1.0]))[:3] + T_bd[:3, 0] * (max_travel - travel)
     return W @ T
 
 
@@ -229,7 +243,7 @@ while app.is_running():
         if e is not None:                                                  # 다시 찍은 실물 인식으로 서랍 안 물체를 바꿈 (쥔 것은 그대로)
             for oid in [k for k in objs if k != held]:
                 objs.pop(oid)
-                ops[oid][0].Set(np_to_gf(np.diag([0.0, 0.0, 0.0, 1.0])))
+                ops[oid][0].Set(np_to_gf(np.diag([1e-6, 1e-6, 1e-6, 1.0])))
             for o in e["objects"]:
                 if o["id"] != held:
                     objs[o["id"]] = dict(o)
