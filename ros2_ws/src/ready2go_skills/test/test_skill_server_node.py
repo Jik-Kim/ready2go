@@ -3148,6 +3148,48 @@ def test_wrench_wall_check_uses_handle_width(server):
     assert srv.robot.log == []
 
 
+def _srv_state(server):
+    srv = server.srv
+    srv.gate = server.ss.sf.MotionGate()
+    srv.locked, srv.hold_unknown = None, None
+    srv.expected_tcp, srv.expected_tool = "tcp", "tool"
+    srv.robot.tool_names = lambda: ("tcp", "tool")
+    return srv
+
+
+def test_check_state_service_reports_without_motion(server):
+    """W1 /skills/check_state [#152·#271 C 계약, 제안 10/13 B]: 멈춤·비상정지 아님·제어기 준비·B 잠금 없음·그리퍼 빈손 — 로봇·그리퍼 명령 없음."""
+    srv = _srv_state(server)
+    server.Gripper.width = 0.9
+    resp = srv._srv_check_state(None, types.SimpleNamespace(success=None, message=None))
+    st = json.loads(resp.message)
+    assert resp.success and st["stopped"] is True and st["estop_active"] is False and st["controller_ready"] is True
+    assert st["b_locked"] is False and st["gripper"]["state"] == "empty" and st["tcp_tool_ok"] is True
+    assert srv.robot.log == []
+    srv.robot.tool_names = lambda: (None, None)
+    assert json.loads(srv._srv_check_state(None, types.SimpleNamespace(success=None, message=None)).message)["tcp_tool_ok"] is None
+
+
+def test_recover_service_clears_b_lock_and_unknown_hold(server):
+    """W2 /skills/recover: 조건(멈춤·비상정지 아님·제어기 준비·툴·통신)이 되면 B 잠금을 풀고, 쥐었는지 모름은 그리퍼를 다시 읽어
+    같은 폭이면 쥔 기억 복원. 비상정지면 아무것도 안 풂. 로봇·그리퍼 명령 없음."""
+    srv = _srv_state(server)
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    srv.hold_unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
+    server.Gripper.width = 21.0
+    real_state = srv.robot.state
+    srv.robot.state = lambda: 6                                                     # 비상정지
+    r = srv.recover()
+    assert not r["recovered"] and "ESTOP_ACTIVE" in r["blockers"] and srv.locked and srv.hold_unknown
+    srv.robot.state = real_state
+    resp = srv._srv_recover(None, types.SimpleNamespace(success=None, message=None))
+    r = json.loads(resp.message)
+    assert resp.success and r["recovered"] and srv.locked is None and srv.hold_unknown is None
+    assert srv.held and srv.held["id"] == "eraser#1" and r["state"]["gripper"]["state"] == "holding"
+    assert srv.robot.log == []
+    srv.held = None
+
+
 def test_masking_tape_nudge_pushes_inside_hole(server, monkeypatch):
     """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 넛지 대신 닫은 손가락을
     구멍(가운데)에 넣어 계획한 방향·거리 + hole_slack_mm 만큼 수평으로 밂, hole_back_mm 물러났다가 올림. 누르기(press) 없음."""
