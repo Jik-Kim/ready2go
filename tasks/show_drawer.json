@@ -1,6 +1,6 @@
 {
   "task_id": "show_drawer",
-  "description": "[3차 챌린지 후보 — C 초안 10/12, E 확정 전] 서랍 안 보여주기 (AC-PLN-02 새 복합 작업, Python 변경 없이 등록된 원자 동작·스킬만 조합): 안내 → 서랍 열기(open_drawer) → 탑뷰 → 서랍 전체 촬영(search_target 없음) → 보인 물체마다 온톨로지 이름 → \"서랍 안에 ○○, ○○이 있어요\" (없으면 \"보이는 물건이 없어요\") → finally 서랍 닫기·안내·빈손이면 홈. 로봇이 물건을 만지지 않으므로 상태 변화는 서랍 열림/닫힘뿐. 첫 안내가 실패·시간 초과면 로봇 동작 0회(announce_pending — find_item #249 와 같은 경계, 정본 수락 TTS·#256 E 리뷰): 서랍 닫기는 열린 서랍이 없어 pre 에서 거부, 홈 이동 안 함. 안내 전 실패(물품 조회 등)는 기존처럼 홈. 실행: RUNNER_TASK_FILE=/tasks/show_drawer.json (새 인텐트 이름은 intent 스키마 계약 변경 필요 — 그 전까지 trigger 없음).",
+  "description": "[3차 챌린지 작업 — E 선정 10/13 (#256)] 서랍 안 보여주기 (AC-PLN-02 새 복합 작업, Python 변경 없이 등록된 원자 동작·스킬만 조합): 안내 → 서랍 열기(open_drawer) → 탑뷰 → 서랍 전체 촬영(search_target 없음) → 보인 물체마다 온톨로지 이름 → \"서랍 안에 ○○, ○○이 있어요\" (없으면 \"보이는 물건이 없어요\") → finally 서랍 닫기·안내·빈손이면 홈. 로봇이 물건을 만지지 않으므로 상태 변화는 서랍 열림/닫힘뿐. 첫 안내가 실패·시간 초과면 로봇 동작 0회(announce_pending — find_item #249 와 같은 경계, 정본 수락 TTS·#256 E 리뷰): 서랍 닫기는 열린 서랍이 없어 pre 에서 거부, 홈 이동 안 함. 안내 전 실패(물품 조회 등)는 기존처럼 홈. 실행: RUNNER_TASK_FILE=/tasks/show_drawer.json (새 인텐트 이름은 intent 스키마 계약 변경 필요 — 그 전까지 trigger 없음).",
   "inputs": {
     "drawer_id": "drawer_top"
   },

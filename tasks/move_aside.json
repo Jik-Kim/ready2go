@@ -1,6 +1,6 @@
 {
   "task_id": "move_aside",
-  "description": "[3차 챌린지 후보 — C 초안 10/12, E 확정 전] ○○ 옆으로 치우기 (AC-PLN-02 새 복합 작업, Python 변경 없이): 물품 위치 조회 → 안내 → 서랍 열기 → 탑뷰 → 찾기 → (찾으면) 집기 전에 서랍 빈 자리 판단(place_object check_only slot free, B #241 — 움직이지 않음) → 되면 집기(scan 같이) → 빈 자리(free)에 놓기 → 안내 / 빈 자리가 없으면 안 집고 안내 / 못 찾으면 안내 → finally: 쥔 채면 정지 안내만(닫기·홈 안 함), 빈손이면 서랍 닫기·홈. 같은 서랍 안 이동이라 온톨로지 위치는 그대로(쥔 상태는 블랙보드 holding). 첫 안내가 실패·시간 초과면 로봇 동작 0회(announce_pending — find_item #249 와 같은 경계, 정본 수락 TTS·#256 E 리뷰): 서랍 닫기는 열린 서랍이 없어 pre 에서 거부, 홈 이동 안 함. 안내 전 실패(물품 조회 등)는 기존처럼 홈. 실행: RUNNER_TASK_FILE=/tasks/move_aside.json (새 인텐트는 계약 뒤). 필요: B #241 check_only·free, Runner #250 판단만 처리.",
+  "description": "[3차 챌린지 작업 — E 선정 10/13 (#256)] ○○ 옆으로 치우기 (AC-PLN-02 새 복합 작업, Python 변경 없이): 물품 위치 조회 → 안내 → 서랍 열기 → 탑뷰 → 찾기 → (찾으면) 집기 전에 서랍 빈 자리 판단(place_object check_only slot free, B #241 — 움직이지 않음) → 되면 집기(scan 같이) → 빈 자리(free)에 놓기 → 안내 / 빈 자리가 없으면 안 집고 안내 / 못 찾으면 안내 → finally: 쥔 채면 정지 안내만(닫기·홈 안 함), 빈손이면 서랍 닫기·홈. 같은 서랍 안 이동이라 온톨로지 위치는 그대로(쥔 상태는 블랙보드 holding). 첫 안내가 실패·시간 초과면 로봇 동작 0회(announce_pending — find_item #249 와 같은 경계, 정본 수락 TTS·#256 E 리뷰): 서랍 닫기는 열린 서랍이 없어 pre 에서 거부, 홈 이동 안 함. 안내 전 실패(물품 조회 등)는 기존처럼 홈. 실행: RUNNER_TASK_FILE=/tasks/move_aside.json (새 인텐트는 계약 뒤). 필요: B #241 check_only·free, Runner #250 판단만 처리.",
   "inputs": {
     "target": "cover_plate"
   },
