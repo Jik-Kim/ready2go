@@ -6,8 +6,8 @@
 - 질문이 닫힌 뒤(아니·만료·거절) "이어서 해" = 독립 요청: register(C 등록 확인) → request 로 일회 소비
 - C 시계(monotonic) 기한: 질문 답(등록 뒤)·독립 요청(등록 뒤 소비까지). 질문 제안 기한은 Runner.resume_window_sec(잠금 해제 뒤)
 - 증빙 2차 검사: 순서 + E 원본(voice.yaml) 상한. 경계는 E 와 같게 (E 회신 10/13): 접수창 10.0 은 포함,
-  STT 15 s·독립 요청 30 s 는 그 값이면 거절. 독립 요청 30 s 는 녹음부터 STT·분류·등록 확인까지 전체 — C 는 증빙으로 알 수 있는
-  최소 전체(SDK 요청 시각 + STT 시간)로 확인
+  STT 15 s·독립 요청 30 s 는 그 값이면 거절([E 확인 필요] — E #196 은 끝값 포함). 독립 요청 30 s 는 녹음부터 STT·분류·등록 확인까지
+  전체 상한 — C 가 증빙으로 볼 수 있는 것은 일부 구간(SDK 요청 시각 + STT 시간)뿐이라 전체 시간 검사가 아님(전체 검사는 E)
 - 여기서는 접수만 판단. 실제 재개(B 상태 재조회·재진입·pre 검사·이어 실행)는 노드가 Runner.resume_run 으로 하고 settle() 로 알림
 같은 ID 재전송(등록 ACK 유실 대비)은 기존 결과를 다시 알리고 기한을 늘리지 않는다. 소비·종료 뒤 재사용·다른 사건의 같은 ID 는 거절.
 """
@@ -66,7 +66,7 @@ def evidence_ok(kind: str, evidence: dict | None, limits: dict) -> bool:
     if kind == "answer":
         return (evidence["rec_start_after_tts_s"] <= evidence["rec_end_after_tts_s"] <= evidence["request_after_tts_s"]
                 <= limits["admission_window_sec"])                        # 접수창 10.0 은 포함
-    # 독립 요청: 녹음 시작 기준 SDK 요청 + STT = 증빙으로 아는 최소 전체 시간. 분류·등록 확인은 그 뒤라 이 합이 상한 미만이어야 함
+    # 독립 요청: 녹음 시작 기준 SDK 요청 + STT = 증빙에 있는 일부 구간(전체 시간 아님 — 분류·등록 확인은 E 검사). 이 합이 이미 상한이면 거절
     return (evidence["rec_end_s"] <= evidence["request_s"]
             and evidence["request_s"] + evidence["stt_s"] < limits["independent_request_timeout_sec"])
 

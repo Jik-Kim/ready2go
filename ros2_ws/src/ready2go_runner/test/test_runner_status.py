@@ -238,3 +238,15 @@ def test_stop_settled_only_when_stop_confirmed_or_nothing_was_moving():
     assert runner.stop_settled is False
     runner, result = suspended_after("CANCELED")
     assert result.overall_status == "SUSPENDED" and runner.stop_settled is True
+
+
+def test_halt_generation_counts_every_stop_and_resume_if_checks_it():
+    """#304 E 리뷰 P1: 이미 잠긴 채 다시 멈춰도 세대는 늘고(사건 ID 는 그대로), resume_if 는 세대가 같을 때만 해제."""
+    runner = Runner(lambda *a: ActionResult(True))
+    runner.halt(source="voice")
+    event, gen = runner.halt_event_id, runner.halt_generation
+    runner.halt(source="service")                                        # 잠긴 채 다시 멈춤
+    assert runner.halt_event_id == event and runner.halt_generation == gen + 1
+    assert runner.resume_if(gen) is False and runner.halted              # 조회 전 세대 → 해제 안 함
+    assert runner.resume_if(runner.halt_generation) is True and not runner.halted
+    assert runner.resume_if(runner.halt_generation) is False             # 이미 풀림

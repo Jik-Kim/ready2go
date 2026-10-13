@@ -99,7 +99,7 @@ def test_question_deadline_and_new_event_invalidates(adm):
 
 def test_independent_request_total_time_like_e():
     """E 회신 10/13·#291 E 리뷰: 독립 요청 30 s 는 녹음부터 STT·분류·등록 확인까지 전체, 그 값이면 거절.
-    C 는 증빙으로 아는 최소 전체(SDK 요청 시각 + STT)가 30 s 미만인지 본다."""
+    C 는 증빙에 있는 일부 구간(SDK 요청 시각 + STT — 전체 시간 아님)이 30 s 미만인지 본다."""
     limits = ra.load_limits(str(RESUME_FILE), str(VOICE_FILE))
     assert not ra.evidence_ok("request", {"rec_end_s": 28, "request_s": 29, "stt_s": 14}, limits)   # 리뷰 반례 계열
     assert not ra.evidence_ok("request", {"rec_end_s": 19, "request_s": 20, "stt_s": 10}, limits)   # 정확히 30 → 거절
