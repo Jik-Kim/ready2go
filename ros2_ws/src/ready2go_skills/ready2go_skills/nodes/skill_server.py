@@ -1657,7 +1657,7 @@ class SkillServer(Node):
                           max_shift_m=prm["drag"]["max_shift_mm"] / 1000.0, max_chain=int(mr.get("max_chain", 2)),
                           round_classes=tuple(prm["pick"].get("round_classes") or ()),
                           press_finger_r_mm=float(mr["press_finger_r_mm"]),
-                          remove_first=bool(mr.get("remove_first", True)),
+                          remove_first=bool(mr.get("remove_first", True)), slack_mm=float(mr.get("slack_mm", 0.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
     def _make_room(self, goal, params, drawer_id, target):
@@ -1673,6 +1673,8 @@ class SkillServer(Node):
         if bad:
             return bad, out
         cfg = self._room_cfg(drawer_id)
+        if "remove_first" in params:                              # 부르는 쪽이 이번만 바꿈 — B clear 가 밀기가 제자리일 때 [사용자 10/13]
+            cfg = dataclasses.replace(cfg, remove_first=bool(params["remove_first"]))
         a = clp.plan_next(objs, tid, DryOracle(self, drawer_id), cfg)
         info = {"action": a.kind, "moved_id": a.target or None, "ready_to_pick": False, "reason": a.reason,
                 "pushed_ids": [], "pushed_after": []}

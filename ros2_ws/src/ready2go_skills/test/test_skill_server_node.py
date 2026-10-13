@@ -3074,9 +3074,45 @@ def test_nudge_moves_use_slower_nudge_speeds_only_during_nudge(server):
     rb.movel_async = lambda p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0: (seen.append(("l", vel, rot_vel)), ml(p, vel, acc, rot_vel, rot_acc, radius))[1]
     rb.moveb_async = lambda pts, radii, vel, acc, rot_vel=30.0, rot_acc=60.0: (seen.append(("b", vel, rot_vel)), mb(pts, radii, vel, acc, rot_vel, rot_acc))[1]
     rb.movej_async = lambda j, vel, acc: (seen.append(("j", vel, None)), mj(j, vel, acc))[1]
-    nz = srv.prm()["speed"]["nudge"]
-    server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    import copy
+    real = srv.prm()
+    prm = copy.deepcopy(real)
+    prm["speed"]["nudge"] = nz = {"turn_deg_s": 25.0, "in_drawer_joint_deg_s": 45.0, "view_joint_deg_s": 45.0, "in_drawer_mm_s": 75.0}   # 10/13 기본은 비움(평소 속도)
+    srv.prm = lambda: prm
+    try:
+        server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    finally:
+        del srv.prm
     assert seen and srv._careful is False
     assert all(rv == nz["turn_deg_s"] for k, _, rv in seen if k in "lb")               # 손목 회전·기울이기 느리게
     assert all(v <= max(nz["in_drawer_joint_deg_s"], nz["view_joint_deg_s"]) for k, v, _ in seen if k == "j")   # 관절 이동 느리게
     assert srv._speed()["turn_deg_s"] == srv.prm()["speed"]["turn_deg_s"]             # 넛지 밖은 평소 값
+    srv._careful = True
+    try:                                                                               # 기본 nudge {} = 넛지 중에도 평소 속도 [사용자 10/13]
+        assert srv._speed() == srv.prm()["speed"]
+    finally:
+        srv._careful = False
+
+
+def test_make_room_remove_first_param_overrides_config(server):
+    """[사용자 10/13 "sweep 후 안 되면 어떤 게 방해되는지 파악해서 다른 물건을 빼내기"] B clear 가 같은 밀기를 되풀이했는데 목표가
+    그대로면 다음 부름에 remove_first: true — 같은 벽 뭉침에서 밀기 대신 막는 물체를 집어 빈 자리로 옮기는 쪽을 먼저 (check_only)."""
+    D = "drawer_top"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+
+    def o(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": D, "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = o("airpods_case#1", "airpods_case", 0.1099, 0.0272, 0.0229, -0.0166)
+    scan = {"target_found": True, "target": air, "visible_count": 4,
+            "candidates": [o("caramel_box#1", "caramel_box", 0.04, 0.0293, 0.0229, -0.25),
+                           o("toy_wrench#1", "toy_wrench", 0.1085, 0.0689, 0.0151, -0.1574),
+                           o("eraser#1", "eraser", 0.1723, 0.0119, 0.0128, 0.0064)]}
+    goal = {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True}
+    _, base = server.run("nudge_object", goal)
+    _, data = server.run("nudge_object", dict(goal, remove_first=True))
+    mr = data["make_room"]
+    assert base["make_room"]["action"] == "sweep"
+    assert mr["action"] != "sweep" and "toy_wrench#1" in mr["reason"], mr   # 몽키만 빈 쪽으로 (에어팟 그대로)
+    assert srv.robot.log == []

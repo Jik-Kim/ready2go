@@ -306,6 +306,7 @@ class Config:
     nudge_step_m: float = 0.005
     sweep_step_m: float = 0.01
     max_chain: int = 2                       # 한 번에 같이 밀 물체 수 [추정 — 실물 확인 필요]
+    slack_mm: float = 0.0                    # 넛지·밀기 뒤 여유 — 집기 검사가 딱 통과하는 거리보다 이만큼 더 (실행 값 make_room.slack_mm)
     round_classes: Sequence[str] = ("lip_balm",)
     free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수
     allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선)
@@ -426,14 +427,14 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: c[0])
     for cost, act, after in moves:
         if (not cfg.remove_first or not act.pushed) and oracle.pick(after, tid)[0]:
-            return act
+            return _with_slack(moves, act, tid, oracle, cfg.slack_mm)
     if cfg.remove_first:
         a = _remove_to_open(objs, tid, oracle, cfg, reason) or _nudge_blocker(objs, tid, oracle, cfg, reason)
         if a is not None:
             return a
         for cost, act, after in moves:
             if act.pushed and oracle.pick(after, tid)[0]:
-                return act
+                return _with_slack(moves, act, tid, oracle, cfg.slack_mm)
     # 두 번 움직여야 잡힘 (예: 뒷벽에서 빼고 → 옆벽에서 빼기): 첫 동작만 하고 다시 보기 [사용자 10/11 순서]
     best = None
     for c1, a1, o1 in sorted(_self_moves(objs, tid, cfg, fine=False, coarse=True), key=lambda c: c[0]):
@@ -506,6 +507,27 @@ def _dir_name(u) -> str:
     """서랍 축 방향 이름 (x 0 = 손잡이 쪽 벽) — B plan 이유에 어느 쪽으로 움직이는지 보이게."""
     return {(-1.0, 0.0): "-x 손잡이 쪽", (1.0, 0.0): "+x 안쪽", (0.0, 1.0): "+y", (0.0, -1.0): "-y"}.get(
         (float(u[0]), float(u[1])), f"{u[0]:+.2f}, {u[1]:+.2f}")
+
+
+def _with_slack(moves, act: "Action", tid: str, oracle, slack_mm: float) -> "Action":
+    """고른 넛지·밀기보다 slack_mm 더 여유 있는 같은 종류·방향 후보 (넛지는 더 멀리, 밀기는 같은 거리 밀고 더 많이 되돌아옴) 중
+    집기 검사를 통과하는 가장 가까운 것. 없으면 그대로 [사용자 10/13 PC2: 딱 통과하는 최소값이라 실물에서 다시 막혀 같은 밀기 반복]."""
+    if slack_mm <= 0 or act.kind not in ("nudge", "sweep"):
+        return act
+    need = slack_mm / 1000.0 - 1e-9
+    best = None
+    for _, a, after in moves:
+        if a.kind != act.kind or a.dir != act.dir:
+            continue
+        if a.kind == "nudge" and a.dist_m >= act.dist_m + need:
+            key = a.dist_m
+        elif a.kind == "sweep" and abs(a.dist_m - act.dist_m) < 1e-6 and a.back_m >= act.back_m + need:
+            key = a.back_m
+        else:
+            continue
+        if (best is None or key < best[0]) and oracle.pick(after, tid)[0]:
+            best = (key, a)
+    return best[1] if best else act
 
 
 def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False) -> list:
