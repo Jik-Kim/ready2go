@@ -524,8 +524,14 @@ class SkillServer(Node):
                                 hold_unknown=None if hold is not None else getattr(self, "hold_unknown", None),
                                 min_width_m=float(g["min_width_m"]), slip_tolerance_m=float(g["slip_tolerance_m"]))
         return ss_.build_state(robot_state=robot_state, motion_state=motion_state, busy=self.gate.busy() and not in_gate, tool_ok=tool_ok,
-                               gripper=grip, gripper_read=width is not None, locked=self.locked, disp=self.disp,
+                               gripper=grip, gripper_read=width is not None, locked=self.locked, disp=self._drawer_disp(),
                                stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds"))
+
+    def _drawer_disp(self):
+        """W1 drawers — 서랍마다 서버가 기억한 인출 거리(m). 연 적 없는 서랍은 0.0 (서버는 닫힌 서랍에서 시작한다고 봄 — README 시작 조건)
+        [C #297 확인 요청 10/13: "연 적 없는 서랍도 0.0 으로"]."""
+        ids = [k for k, v in (self.places() or {}).items() if k.startswith("drawer_") and isinstance(v, dict) and v.get("tf")]
+        return {d: float(self.disp.get(d) or 0.0) for d in sorted(set(ids) | set(self.disp))}
 
     def _srv_check_state(self, _request, response):
         """W1 `/skills/check_state` (std_srvs/Trigger): success = 읽기 끝남(값이 좋은지와 무관), message = 상태 JSON."""

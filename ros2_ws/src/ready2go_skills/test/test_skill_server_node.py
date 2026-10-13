@@ -3213,6 +3213,7 @@ def test_check_state_service_reports_without_motion(server):
     st = json.loads(resp.message)
     assert resp.success and st["stopped"] is True and st["estop_active"] is False and st["controller_ready"] is True
     assert st["b_locked"] is False and st["gripper"]["state"] == "empty" and st["tcp_tool_ok"] is True
+    assert st["drawers"] == {"drawer_bottom": 0.0, "drawer_top": 0.226}                # 연 적 없는 서랍도 0.0 [C #297]
     assert srv.robot.log == []
     srv.robot.tool_names = lambda: (None, None)
     assert json.loads(srv._srv_check_state(None, types.SimpleNamespace(success=None, message=None)).message)["tcp_tool_ok"] is None
