@@ -170,3 +170,22 @@ def test_after_branch_only_observation_fresh_on_every_path_counts():
                          "options": [[NUDGE, VIEW, LOOK], [NUDGE, VIEW, LOOK]]}, PICK]
     assert check_task(TASK, SCHEMA, onto_with(one_path)["skills"])
     assert check_task(TASK, SCHEMA, onto_with(both)["skills"]) == []
+
+
+def test_overwritten_fresh_observation_loses_its_status():
+    """#263 E 재리뷰 P2: 다시 찍은 관측 변수를 set_var·다른 output 이 덮어쓰면 '새 관측' 자격을 잃는다 —
+    old 저장 → 넛지 → 다시 찍기(scan) → scan 을 old 로 되돌림 → 집기 는 실행 전 거절 (E 재현: 넛지 전 0.2895 로 집었음)."""
+    save = {"action": "set_var", "params": {"name": "old", "value": "$scan"}}
+    restore = {"action": "set_var", "params": {"name": "scan", "value": "$old"}}
+    dynamic = {"action": "set_var", "params": {"name": "$which", "value": "$old"}}
+    other_out = {"action": "move_to_named_pose", "params": {"pose_name": "drawer_top_view", "drawer_id": "$from"},
+                 "output": "scan"}
+    for name, second in (("set_var 로 되돌림", [save, NUDGE, VIEW, LOOK, restore, PICK]),
+                         ("동적 이름 set_var", [save, NUDGE, VIEW, LOOK, dynamic, PICK]),
+                         ("다른 동작 output 이 덮어씀", [NUDGE, VIEW, LOOK, other_out, PICK])):
+        problems = check_task(TASK, SCHEMA, onto_with(_fb(*second))["skills"])
+        assert any("새로 찍은 관측" in p for p in problems), (name, problems)
+    ok = [save, NUDGE, VIEW, LOOK, {"action": "set_var", "params": {"name": "note", "value": "$old"}}, PICK]
+    assert check_task(TASK, SCHEMA, onto_with(_fb(*ok))["skills"]) == []     # 다른 변수를 쓰면 그대로
+    again = [save, NUDGE, VIEW, LOOK, restore, VIEW, LOOK, PICK]               # 되돌린 뒤 다시 찍으면 통과
+    assert check_task(TASK, SCHEMA, onto_with(_fb(*again))["skills"]) == []

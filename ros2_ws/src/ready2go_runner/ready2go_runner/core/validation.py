@@ -139,14 +139,34 @@ def _check_expand(subs: list, prefix: str, label: str, ids: list[str],
             fresh = None if not nudged else set.intersection(*nudged)   # 한 경로라도 넛지했으면 모든 경로의 새 관측만
         elif action in ("while", "for_each", "push", "pop"):
             errors.append(f"{where}: 스킬 expand 안 {action} 미지원 (fallback·if 만)")
-        elif action == "nudge_object":
-            fresh = set()                       # 밀었을 수 있음 → 그 전 관측은 모두 버림
-        elif action == "inspect_region" and isinstance(sub.get("output"), str):
-            if fresh is not None:
-                fresh.add(sub["output"])
-        elif action in RESCAN_NEEDED_BY:
-            errors += [f"{where}: {e}" for e in _rescan_errors(action, sub.get("params", {}), fresh)]
+        else:
+            if action in RESCAN_NEEDED_BY:      # 입력 먼저 검사한 뒤, 이 동작이 쓰는 변수를 반영
+                errors += [f"{where}: {e}" for e in _rescan_errors(action, sub.get("params", {}), fresh)]
+            if action == "nudge_object":
+                fresh = set()                   # 밀었을 수 있음 → 그 전 관측은 모두 버림
+            elif fresh is not None:
+                fresh = _after_writes(action, sub, fresh)
     return errors, fresh
+
+
+def _after_writes(action: str, sub: dict, fresh: set[str]) -> set[str]:
+    """동작이 변수를 쓰면 그 변수는 '넛지 뒤 새 관측' 자격을 잃음 — inspect_region 출력만 다시 얻음 (#263 E 재리뷰:
+    set_var 로 새 관측 변수를 넛지 전 값으로 되돌리면 검사가 통과하던 것). 쓰기 대상을 정적으로 모르면 전부 버림."""
+    fresh = set(fresh)
+    out = sub.get("output")
+    if action == "inspect_region":
+        if isinstance(out, str):
+            fresh.add(out)
+        return fresh
+    if isinstance(out, str):
+        fresh.discard(out)
+    if action == "set_var":
+        name = (sub.get("params") or {}).get("name")
+        if isinstance(name, str) and name and not name.startswith("$"):
+            fresh.discard(name)
+        else:
+            fresh.clear()                       # 동적·누락 이름 → 어느 변수를 바꿨는지 모름
+    return fresh
 
 
 def check_task(task: dict, schema: dict | None, skills: dict | None = None) -> list[str]:
