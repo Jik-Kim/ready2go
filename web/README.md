@@ -98,18 +98,18 @@ index.html
 
 ### C 확인값과 후속 단계 입력
 
-[문서] 이슈 [#267 C 회신](https://github.com/Jik-Kim/ready2go/issues/267#issuecomment-6140239576)을 기준으로 현재 Runner 동작과 아직 승인되지 않은 제안을 구분합니다.
+[문서] 이슈 [#267 C 회신](https://github.com/Jik-Kim/ready2go/issues/267#issuecomment-6140239576)과 병합된 W4 구현을 기준으로 현재 Runner 동작과 아직 구현되지 않은 제안을 구분합니다.
 
 - `/runner/status`와 `/robot_state`는 내용을 0.5초마다 비교하되 **내용이 달라졌을 때만** 발행합니다. 둘 다 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`이며, 긴 유휴 시간에 새 메시지가 없어도 publisher가 존재하면 연결된 것으로 판단합니다.
-- 현재 `/runner/status`에는 `phase`, 실행 중의 `task_id`·`current_step`, 잠금 상태의 `halt_code`, `halt`, `last`, `last_intent`, `log_store`, `state_reset_at`가 포함될 수 있습니다. `boot_id`·`seq`·`stamp`와 `halt.resume`은 PR #286 제안이므로 현재 필드로 간주하지 않습니다.
-- `phase`는 `idle`·`running`·`halted`입니다. `task_id`와 `current_step`은 실행 중에만 있으며, `halt_code`는 잠금 상태에서만 있습니다. `current_step`은 확장 또는 fallback 단계 ID일 수 있고 `achieve_goal`의 `plan_*`은 태스크 파일에 없으므로 화면은 원본 ID를 그대로 표시합니다.
+- 현재 `/runner/status`에는 `phase`, 실행 중의 `task_id`·`current_step`, 잠금 상태의 `halt_code`, `halt`, `last`, `last_intent`, `log_store`, `state_reset_at`, `boot_id`가 포함되고 실제 발행에는 `seq`·`stamp`가 붙습니다. 재개 대기 중에는 `halt.resume`도 제공됩니다. REST는 이 원본을 그대로 전달하며 화면은 `boot_id`만 GID를 보조하는 기동 경계로 사용합니다.
+- `phase`는 `idle`·`running`·`halted`이며 화면에는 각각 `대기`·`실행 중`·`정지(잠김)`으로 표시합니다. 계약에 없는 값은 `확인 전`으로 표시합니다. `task_id`와 `current_step`은 실행 중에만 있으며, `halt_code`는 잠금 상태에서만 있습니다. `current_step`은 확장 또는 fallback 단계 ID일 수 있고 `achieve_goal`의 `plan_*`은 태스크 파일에 없으므로 화면은 원본 ID를 그대로 표시합니다.
 - 현재 실행과 요청 결과를 직접 연결하는 최상위 `run_id`는 없습니다. `last_intent`는 뒤이은 `BUSY` 결정으로 덮일 수 있으므로, 계약이 추가되기 전에는 `task_id`와 가장 최근 실행 결정이 같은 경우만 연결하고 불명확하면 `확인 전`으로 표시합니다.
 - `/robot_state`의 현재 필드는 `robot_pose`, `gripper`, `open`, `located_in`입니다. 좌표는 없으며 모두 스킬 effect 뒤 Runner가 기억한 상태입니다. 현재 관측값이나 관측 시각으로 해석하지 않습니다.
 - 4단계 UI에서 `/robot_state` 값이 없거나 예상한 형식과 다르면 목업 데이터로 대체하지 않고 모두 `확인 전`으로 표시합니다. `상태 데이터 없음`은 별도 표시 문구로 사용하지 않습니다.
 - 서랍은 문자열 ID 순서가 아니라 `drawer_top`·`drawer_bottom`의 물리 순서로 표시합니다. 관리자 현재 상태 탭은 `task_id`·`current_step`·`phase`와 Runner 기억 상태를 실데이터로 표시하며, 별도 `run_id`가 없으므로 목업 실행 ID를 사용하지 않습니다.
 - Runner는 기동할 때 `RUNNER_ONTOLOGY_FILE`(기본 `/knowledge/robot_ontology.jsonld`), `tasks_dir`(기본 `/tasks`), `/contracts/intent.schema.json`, `RUNNER_INTENT_TASKS`를 한 번 읽습니다. 실행 중 파일 변경은 반영되지 않고 `reset_state`도 기동 때 읽은 상태로 되돌립니다.
 
-후속 구현은 이 현재 계약만 소비합니다. 최상위 실행 `run_id`와 `current_skill`은 별도 계약 승인 전까지 REST나 화면의 확정 필드로 만들지 않습니다.
+후속 구현은 이 현재 계약만 소비합니다. 최상위 실행 `run_id`와 아직 Runner가 제공하지 않는 `current_skill`은 별도 계약·구현 전까지 REST나 화면의 확정 필드로 만들지 않습니다.
 
 ## 5. 읽기 전용 검토 화면
 
@@ -240,7 +240,7 @@ ros2 topic echo /robot_state --once
 
 웹 브리지가 두 토픽의 구독자로 표시되고 Runner가 발행한 JSON이 출력되면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
 
-[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `63 passed`를 확인했습니다. 실제 진입점과 시험 publisher를 포트 4176·ROS domain 170으로 실행해 두 토픽이 단일 `ready2go_web_bridge`의 구독자로 표시되고, REST의 두 source가 `receiving`·`message_valid=true`이며 원본 JSON 객체를 제공하는 것을 확인했습니다. 브라우저에서는 `/robot_state`의 위·아래 서랍이 물리 순서로 표시되고 열림·닫힘과 물품 기억 위치가 반영됐으며, 관리자 화면의 Runner 요약·현재 상태 값과 `실데이터` 배지를 확인했습니다. publisher가 연결된 상태에서 `open`을 map 대신 배열로 보낸 경우 REST 수신은 유지됐지만 대시보드와 관리자 현재 상태는 목업으로 대체하지 않고 `확인 전`으로 바뀌었습니다. 캐시 시험에서는 publisher 재발견 또는 endpoint GID 교체 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것과, 새 콜백이 graph 확인보다 먼저 도착하면 새 값을 보존하는 것을 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
+[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `69 passed`를 확인했습니다. 실제 진입점과 시험 publisher를 포트 4176·ROS domain 170으로 실행해 두 토픽이 단일 `ready2go_web_bridge`의 구독자로 표시되고, REST의 두 source가 `receiving`·`message_valid=true`이며 원본 JSON 객체를 제공하는 것을 확인했습니다. 브라우저에서는 `/robot_state`의 위·아래 서랍이 물리 순서로 표시되고 열림·닫힘과 물품 기억 위치가 반영됐으며, 관리자 화면의 Runner 요약·현재 상태 값과 `실데이터` 배지를 확인했습니다. publisher가 연결된 상태에서 `open`을 map 대신 배열로 보낸 경우 REST 수신은 유지됐지만 대시보드와 관리자 현재 상태는 목업으로 대체하지 않고 `확인 전`으로 바뀌었습니다. 캐시 시험에서는 publisher 재발견 또는 endpoint GID 교체 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것, 새 콜백이 graph 확인보다 먼저 도착하면 새 값을 보존하는 것, GID 관찰 없이 Runner `boot_id`가 바뀌어도 새 기동 payload로 교체하는 것을 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
 
 ## 7. URL 데모 시나리오
 

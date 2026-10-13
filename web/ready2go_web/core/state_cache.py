@@ -64,6 +64,7 @@ class _SourceState:
     bridge_error: str | None = None  # executor나 ROS 그래프처럼 메시지 외부의 브리지 오류.
     data: Any = None  # 마지막 정상 메시지. 비정상 메시지가 와도 진단을 위해 보존한다.
     message_revision: int = 0  # 정상·비정상 메시지 콜백이 처리될 때마다 증가하는 내부 세대 표식.
+    generation_id: str | None = None  # Runner boot_id처럼 메시지가 직접 제공하는 내부 기동 표식.
 
 
 class StateCache:
@@ -166,8 +167,14 @@ class StateCache:
         data: Any,
         *,
         received_at: datetime | None = None,
+        generation_id: str | None = None,
     ) -> None:
-        """정상 해석한 메시지를 기록하고 앞선 오류를 해제한다."""
+        """정상 메시지를 기록하고 선택한 기동 식별자로 이전 세대를 분리한다."""
+        # 기동 식별자를 제공한 source는 빈 값이나 다른 타입을 조용히 허용하지 않는다.
+        if generation_id is not None and (
+            not isinstance(generation_id, str) or not generation_id.strip()
+        ):
+            raise ValueError("generation_id는 비어 있지 않은 문자열이어야 합니다")
         # wall clock은 REST 표시용이고 timezone-aware인지 즉시 확인한다.
         wall_time = _require_aware(received_at or self._utcnow())
         # monotonic clock은 NTP나 수동 시간 변경과 무관한 timeout 계산에 사용한다.
@@ -177,6 +184,18 @@ class StateCache:
         # 관련 필드를 한 잠금 구간에서 함께 바꿔 Flask가 부분 갱신 상태를 보지 않게 한다.
         with self._lock:
             source = self._source(name)
+            # Runner boot_id가 달라지면 GID 교체를 놓쳤더라도 이전 기동의 payload와
+            # 수신 시각을 새 기동의 현재값으로 재사용하지 않는다. 초기화와 새 메시지
+            # 기록을 같은 잠금 안에서 수행해 REST가 중간 waiting 상태를 보지 않게 한다.
+            if (
+                generation_id is not None
+                and source.generation_id is not None
+                and source.generation_id != generation_id
+            ):
+                self._clear_message_state(source)
+            # 식별자가 없는 기존 source는 세대 판정을 추가하지 않고 기존 동작을 유지한다.
+            if generation_id is not None:
+                source.generation_id = generation_id
             source.publisher_present = True  # 메시지 자체가 publisher 존재의 직접 증거다.
             source.message_received = True  # 수신 여부와 유효 여부는 별도 필드로 유지한다.
             source.message_valid = True  # 이번 메시지는 정상 파싱을 통과했다.

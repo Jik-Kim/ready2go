@@ -99,6 +99,28 @@ def test_json_callbacks_distinguish_valid_object_and_invalid_json(ros_context) -
         bridge.destroy_node()
 
 
+def test_runner_boot_id_change_replaces_payload_without_gid_observation(ros_context) -> None:
+    """MessageInfo가 없어도 Runner boot_id 변경을 추가 기동 경계로 사용한다."""
+    bridge = DashboardBridge(topics=unique_topics(), node_name=f"boot_bridge_{uuid.uuid4().hex}")
+    try:
+        # 첫 기동의 실행 상태를 GID 정보 없이 직접 콜백에 전달한다.
+        bridge._on_runner_status(
+            String(data=json.dumps({"boot_id": "boot-a", "phase": "running", "task_id": "old"})),
+        )
+        # 새 기동은 같은 콜백 경로에서 다른 boot_id와 idle 상태를 보낸다.
+        bridge._on_runner_status(
+            String(data=json.dumps({"boot_id": "boot-b", "phase": "idle", "task_id": None})),
+        )
+
+        # GID 교체 관찰이 없어도 캐시는 새 Runner 기동의 payload만 반환해야 한다.
+        state = bridge.cache.snapshot()[RUNNER_SOURCE]
+        assert state["connection_state"] == "receiving"
+        assert state["data"] == {"boot_id": "boot-b", "phase": "idle", "task_id": None}
+    finally:
+        # 시험 노드의 DDS endpoint를 다음 시험 전에 명시적으로 정리한다.
+        bridge.destroy_node()
+
+
 def test_runner_only_stage_does_not_connect_later_sources(ros_context) -> None:
     """2단계 설정은 단일 노드에서 Runner 외 후속 source를 활성화하지 않는다."""
     topics = unique_topics()

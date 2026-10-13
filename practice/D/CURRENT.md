@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-13
 
 ## 지금 상태
+- [코드·문서·실측] PR #288 C 검토를 반영해 관리자 Runner `phase`를 실제 `idle`·`running`·`halted`에 맞춰 `대기`·`실행 중`·`정지(잠김)`으로 표시하고 그 밖의 값은 `확인 전`으로 처리함. `/runner/status.boot_id`를 캐시 내부의 GID 보조 기동 경계로 사용해 GID 교체를 관찰하지 못해도 다른 boot의 payload와 수신 시각을 새 기동 메시지로 원자적으로 교체함. 병합된 W4의 `boot_id`·`seq`·`stamp`·`halt.resume`을 현재 Runner 필드로 문서화하고 `current_skill`만 미구현으로 구분함. 로컬 CycloneDDS 웹 시험 `69 passed`, 계약 검사 OK이며 브라우저에서 `halted`가 `정지(잠김)`, `handover_zone`이 빠진 두 서랍만 표시됨을 확인함.
 - [코드·실측] PR #288 P2 검토를 반영해 관리자 `서랍 상태`가 `/robot_state.open` 중 `drawer_` 접두어 항목만 요약하도록 수정함. `handover_zone` 같은 비서랍 장소는 REST 원본에 그대로 보존하며 관리자 서랍 요약에서만 제외함. REST 원본 보존 시험을 보강하고 로컬 CycloneDDS 웹 시험 `63 passed`, 브라우저에서 `위 서랍: 열림 · 아래 서랍: 닫힘`만 표시됨을 확인함.
 - [문서] PR #288 작업 브랜치에 2026-10-13 최신 `origin/main`(`5c108b0`)을 병합함. `docs/interfaces.md`의 `/runner/status` 충돌은 현재 구현 필드·변경 시 발행 설명과 W3·W4 복구/재개 승인 전 계약안을 함께 보존해 해결했으며, 기능 완료·계약 승인을 새로 선언하지 않음.
 - [코드·문서·실측] 이슈 #267 4단계로 단일 `DashboardBridge`의 `/robot_state` 구독을 실제 runtime에 활성화하고 `sources.robot_state`를 기존 REST와 약 1초 UI 조회에 연결함. `robot_pose`·`gripper`·`open`·`located_in` map 형식을 검사해 Runner 기억 상태로 표시하며 값 누락·형식 불일치·미수신 때 목업으로 대체하지 않고 `확인 전`으로 통일함. 서랍은 `drawer_top`·`drawer_bottom` 물리 순서로 표시하고, 관리자 현재 상태 탭은 `task_id`·`current_step`·`phase`와 기억 상태 및 실데이터 연결 배지를 반영하며 별도 `run_id`가 없는 동안 목업 실행 ID를 사용하지 않음. 등록명·작업·준비물은 5단계 전까지 목업으로 구분함. 로컬 CycloneDDS 웹 시험 `63 passed`; 실제 진입점·두 시험 publisher로 REST 수신, 위·아래 서랍 순서, 관리자 실데이터 값·배지를 확인하고, publisher 연결 중 `open` 형식 오류에서 관리자 값·배지·오류가 `확인 전`으로 전환됨을 확인함. 실제 Runner·휴대폰·실물 장비는 미검증임.

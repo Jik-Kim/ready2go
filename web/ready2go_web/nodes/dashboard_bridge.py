@@ -216,8 +216,12 @@ class DashboardBridge(Node):
             self.cache.record_invalid_message(source, "JSON object required")
             return
 
-        # 정상 객체는 깊은 복사와 시각 기록을 StateCache에 맡긴다.
-        self.cache.record_message(source, parsed)
+        # 현재 Runner가 제공하는 비어 있지 않은 boot_id만 추가 기동 구분 근거로 쓴다.
+        # 이전 Runner나 다른 JSON source에는 이 필드가 없어도 기존 수신 동작을 유지한다.
+        boot_id = parsed.get("boot_id") if source == RUNNER_SOURCE else None
+        generation_id = boot_id if isinstance(boot_id, str) and boot_id.strip() else None
+        # 깊은 복사·시각 기록과 boot_id 변경 시 이전 기동 초기화를 캐시에 맡긴다.
+        self.cache.record_message(source, parsed, generation_id=generation_id)
 
     def _on_camera_info(self, message: CameraInfo) -> None:
         """고주기 CameraInfo에서 연결 진단에 필요한 작은 메타데이터만 보관한다."""

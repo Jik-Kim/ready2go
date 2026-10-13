@@ -97,6 +97,54 @@ def test_valid_message_is_copied_on_write_and_snapshot(clock: FakeClock) -> None
     assert second["data"]["last"]["run_id"] == "run-1"
 
 
+def test_generation_id_change_replaces_previous_boot_payload(clock: FakeClock) -> None:
+    """GID 교체를 못 봐도 Runner boot_id 변경으로 이전 기동 상태를 교체한다."""
+    cache = make_cache(clock, runner=None)
+    # 첫 Runner 기동의 실행 중 상태와 기동 식별자를 함께 기록한다.
+    cache.record_message(
+        "runner",
+        {"boot_id": "boot-a", "phase": "running", "task_id": "old-task"},
+        generation_id="boot-a",
+    )
+    clock.advance(1.0)
+
+    # publisher graph 관찰 없이 다른 boot_id의 새 Runner 메시지가 바로 도착한 상황이다.
+    cache.record_message(
+        "runner",
+        {"boot_id": "boot-b", "phase": "idle", "task_id": None},
+        generation_id="boot-b",
+    )
+    state = cache.snapshot()["runner"]
+
+    # 이전 기동의 payload·시각을 노출하지 않고 새 기동 메시지만 현재값으로 사용한다.
+    assert state["connection_state"] == "receiving"
+    assert state["last_received_at"] == "2026-10-13T04:00:01Z"
+    assert state["last_valid_received_at"] == "2026-10-13T04:00:01Z"
+    assert state["data"] == {"boot_id": "boot-b", "phase": "idle", "task_id": None}
+    # 내부 기동 추적값을 새 REST 공개 필드로 노출하지 않는다.
+    assert "generation_id" not in state
+
+
+@pytest.mark.parametrize("generation_id", ["", "   ", 1, True])
+def test_invalid_generation_id_is_rejected(
+    clock: FakeClock,
+    generation_id: object,
+) -> None:
+    """빈 값과 문자열이 아닌 기동 식별자는 캐시 세대값으로 받지 않는다."""
+    cache = make_cache(clock, runner=None)
+
+    # 잘못된 세대값이 내부 상태를 일부 갱신하기 전에 즉시 실패해야 한다.
+    with pytest.raises(ValueError, match="generation_id"):
+        cache.record_message(
+            "runner",
+            {"phase": "idle"},
+            generation_id=generation_id,  # type: ignore[arg-type]
+        )
+
+    # 실패한 입력은 메시지 수신으로 기록되지 않는다.
+    assert cache.snapshot()["runner"]["message_received"] is False
+
+
 def test_invalid_message_reports_error_and_preserves_last_valid_data(clock: FakeClock) -> None:
     """잘못된 JSON은 오류로 표시하되 마지막 정상 상태를 진단용으로 보존한다."""
     cache = make_cache(clock, runner=None)

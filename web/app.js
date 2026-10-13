@@ -44,6 +44,13 @@
     drawer_bottom: "아래 서랍",
   };
 
+  // Runner core의 실제 phase 세 값만 사용자 표시 문구와 기존 화면 색상 키로 변환한다.
+  const runnerPhaseViews = {
+    idle: { label: "대기", status: "waiting" },
+    running: { label: "실행 중", status: "running" },
+    halted: { label: "정지(잠김)", status: "stopped" },
+  };
+
   // 서랍 ID의 문자순에서는 bottom이 top보다 먼저 오므로 실제 위·아래 위치를
   // 명시한다. 새 ID는 두 기본 서랍 뒤에서 이름순으로 정렬한다.
   const drawerOrder = {
@@ -167,12 +174,13 @@
       setRunnerSummaryUnknown();
       return false;
     }
-    const phase = typeof data.phase === "string" ? data.phase : "확인 전";
+    // 계약에 없는 phase를 대기로 추정하지 않고 확인이 필요한 값으로 표시한다.
+    const phaseView = typeof data.phase === "string" ? runnerPhaseViews[data.phase] : null;
     state.adminReview.current.liveSummary = {
       taskId: typeof data.task_id === "string" ? data.task_id : "확인 전",
       currentStep: typeof data.current_step === "string" ? data.current_step : "확인 전",
-      phase,
-      status: ["running", "complete", "stopped", "error"].includes(phase) ? phase : "waiting",
+      phase: phaseView?.label || "확인 전",
+      status: phaseView?.status || "waiting",
     };
     return true;
   }
