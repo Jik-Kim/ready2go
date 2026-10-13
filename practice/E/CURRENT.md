@@ -1,5 +1,7 @@
 # CURRENT — E 고희태
 
+- [문서: E-GITIGNORE-VALIDATED-PHRASES-20261013-01] 사용자 “gitignore에 추가해”(지시 세션 turn01a132c1-c201-7662-ae8e-894dbb74cade)를 직접 확인하고, 기존 MeloTTS 구역에 `/ros2_ws/src/ready2go_voice/models/tts/melotts/validated_phrases.json` 한 패턴만 추가했습니다. `git check-ignore -v`·`git diff --check`로 적용/형식을 확인하며 실제 이력 파일77바이트·SHA256 `afa5e005ff158f55be6206adef2637021188f65940ad8d00e2ec9c8697f39467`을 보존합니다. 기능/Phase/정본·다른 모델/코드/설정은 변경하지 않고 이2파일만 로컬 커밋합니다. 테스트/빌드/CI·push/PR·원격 동기화는 수행하지 않습니다.
+
 <a id="end-stop-minimal-20261012-01"></a>
 ## 종료·중지 최소 수정 — E-VOICE-END-STOP-MINIMAL-20261012-01
 
