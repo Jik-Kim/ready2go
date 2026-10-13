@@ -1846,7 +1846,11 @@ class SkillServer(Node):
                   max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
                   axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
                   round=cls in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
-        wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+        # 손잡이를 잡는 물건(몽키·망치)은 손가락이 손잡이 폭만큼만 벌어짐 → 벽 확인도 그 폭으로 (외접 짧은 변 = 머리 폭 61 이면
+        # 앞벽에서 60 mm 떨어진 몽키도 "앞뒤 벽에 걸림") [실측 PC2 10/13 inspect_20261013_064400_105Z]
+        nw = self._narrow_width(cls)
+        wsize = [size[0], nw] + list(size[2:]) if nw and nw < size[1] else size
+        wall = mp.wall_blocks_grasp(target=target, size_m=wsize, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
         # 짧은 변이 벽에 걸리면: 넛지할 수 있으면 넛지 먼저(WALL_TOO_CLOSE), 넛지를 못 하는 자리면 긴 변 양끝으로 [사용자 10/10 우선순위]
         # 원통형이 옆벽에 붙으면 넛지 없이 긴 변 양끝 + 벽 쪽으로 기울임 (굴러감) [사용자 10/10 PC2 립밤]
         long_side = False

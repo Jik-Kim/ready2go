@@ -56,8 +56,8 @@ def test_runner_without_ontology_works_as_before():
 from test_interpreter import FakeBackend, FakeClock  # noqa: E402
 
 FOUND_WATCH = ActionResult(True, {"target_found": True, "target": {"id": "watch#1"}})
-# E 공통 pick (#122): 탑뷰 → 촬영 → 끌기 → 탑뷰 → 다시 촬영 → 다시 본 좌표로 집기
-PICK_CALLS = ["move_to_named_pose", "inspect_region", "nudge_object", "move_to_named_pose", "inspect_region", "pick_object"]
+# E 공통 pick (10/13 전환, #245·#260): 탑뷰 → 촬영 → 바로 집기 (움직이기 전 WALL_TOO_CLOSE 일 때만 끌기 → 다시 촬영 → 집기)
+PICK_CALLS = ["move_to_named_pose", "inspect_region", "pick_object"]
 
 
 def skill_task(*steps, final=()):
@@ -112,7 +112,8 @@ def test_state_carries_across_steps_and_tasks():
         {"id": "s1", "skill": "open_drawer", "params": {"drawer_id": "drawer_top"}},
         {"id": "s2", "skill": "pick", "params": {"item": "watch", "from": "drawer_top"}}))
     assert first.overall_status == "COMPLETED"
-    assert ("pick_object", {"target": {"id": "watch#1"}, "approach_offset": [0, 0, 0.1]}) in backend.calls   # $scan.target 통째로 (runner.md 7.1 v5.13)
+    assert ("pick_object", {"target": {"id": "watch#1"}, "approach_offset": [0, 0, 0.1],
+                            "scan": FOUND_WATCH.output}) in backend.calls   # $scan.target 통째로 + 전체 scan (B #191·#245)
     assert "scan" not in first.blackboard                      # 스킬 안 출력은 태스크 변수로 새지 않음
 
     # 다음 태스크: 앞 태스크가 남긴 상태(시계를 들고 있음)에서 이어짐
@@ -151,9 +152,8 @@ PICK_WITH_RETRY = {"id": "s1", "skill": "pick", "params": {"item": "watch", "fro
 
 
 def test_yaw_invalid_after_reobserve_is_not_retried():
-    # E #122 부터 pick 은 끌기 뒤 다시 촬영한 좌표로 집는다(재인식이 스킬 안에 있음). 그 뒤 YAW_INVALID 면
-    # 앞에서 팔이 움직였으므로(탑뷰·끌기) 태스크에 retry 가 있어도 pick 전체를 다시 보내지 않는다.
-    # (예전 PR #65·#66 의 "다시 살펴보고 집기 1회"는 pick 이 촬영 → 집기만 하던 때의 동작)
+    # pick 은 탑뷰 이동 뒤 촬영해서 집으므로, 집기가 YAW_INVALID 면 앞에서 팔이 움직였으므로(탑뷰) 태스크에 retry 가
+    # 있어도 pick 전체를 다시 보내지 않는다. YAW_INVALID 는 next_on(WALL_TOO_CLOSE) 밖이라 끌기로도 가지 않음 (E 10/13 전환)
     backend = FakeBackend({"inspect_region": FOUND_WATCH, "pick_object": ActionResult(False, error_code="YAW_INVALID")})
     runner = opened_drawer_runner(backend)
     result = runner.run(skill_task(PICK_WITH_RETRY))
@@ -382,7 +382,8 @@ def test_skill_and_child_records_are_saved_in_order(store):  # noqa: F811
     # 스킬은 하위 동작보다 늦게 끝나지만 seq 는 시작 순서
     assert [(s["seq"], s["id"], s.get("parent")) for s in steps] == [
         (0, "s1", None), (1, "s1.e1", "s1"), (2, "s1.e2", "s1"),
-        (3, "s2", None), *[(3 + i, f"s2.e{i}", "s2") for i in range(1, 7)]]
+        (3, "s2", None), (4, "s2.e1", "s2"), (5, "s2.e2", "s2"),
+        (6, "s2.e3", "s2"), (7, "s2.e3.o1.1", "s2")]                   # 대안 블록 기록(e3) → 첫 집기 (#263)
     s1, s2 = steps[0], steps[3]
     assert (s1["action"], s1["skill"], s1["params"]) == ("skill", "open_drawer", {"drawer_id": "drawer_top"})
     assert all(c["pass"] for c in s1["pre_check"])
@@ -493,8 +494,8 @@ def test_example_item_not_visible_still_closes_drawer():
     result = runner.run(EXAMPLE)
 
     assert result.overall_status == "FAILED"
-    # 못 찾으면 끌기에 넘길 $scan.target 이 없어 변수 없음으로 실패 → 끌기·집기 안 보냄 (E #122)
-    assert (result.error_code, result.failed_step) == ("VAR_UNDEFINED", "s4.e3")
+    # 못 찾으면 집기에 넘길 $scan.target 이 없어 변수 없음으로 실패 → 끌기·집기 안 보냄 (next_on 밖)
+    assert (result.error_code, result.failed_step) == ("VAR_UNDEFINED", "s4.e3.o1.1")
     assert robot.calls.count("inspect_region") == 1                    # 재시도 없음
     assert "nudge_object" not in robot.calls and "pick_object" not in robot.calls
     assert runner.state["open"]["drawer_top"] is False                 # finally 에서 서랍 닫음
@@ -506,7 +507,7 @@ def test_example_estop_during_pick_keeps_drawer_open_in_state():
     runner = robot_runner(robot)
     result = runner.run(EXAMPLE)
 
-    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "ESTOP", "s4.e6")
+    assert (result.overall_status, result.error_code, result.failed_step) == ("ABORTED", "ESTOP", "s4.e3.o1.1")
     assert [(s["id"], s["status"]) for s in result.steps if s["id"] in ("f1", "f2")] == [
         ("f1", "SKIPPED"), ("f2", "SKIPPED")]                         # 비상정지 후 서랍 닫기·홈 이동 안 함
     assert runner.state["open"]["drawer_top"] is True                  # 실제처럼 서랍은 열린 채
