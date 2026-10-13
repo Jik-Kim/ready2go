@@ -22,7 +22,8 @@ bad() { say "⚠️  $*"; warn=1; }
 
 say "== 1. .env 확인"
 [ -f .env ] || { say "❌ .env 없음 — .env.example 을 복사해 채우기"; exit 1; }
-want() { local v; v=$(grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//; s/[[:space:]]*$//'); [ "$v" = "$2" ] || bad ".env $1='$v' (기대 '$2')"; }
+# 줄이 없으면 빈 값 — grep 이 못 찾아도 set -e·pipefail 로 조용히 끝나지 않게 || true (PC2 .env 에 MOCK_SCENE 줄 없음 10/13)
+want() { local v; v=$( { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//; s/[[:space:]]*$//'); [ "$v" = "$2" ] || bad ".env $1='$v' (기대 '$2')"; }
 want BACKEND real; want DDS_MODE local; want VISION_MODE yolo; want MOCK_SCENE ""
 want RUNNER_INTENT_TASKS "find_item=/tasks/find_with_unpack.json"
 grep -qE '^RUNNER_RESUMABLE=(1|true|on)' .env && bad "RUNNER_RESUMABLE 켜짐 — 통합점검은 비움(재개 모드 끔)"
@@ -48,7 +49,7 @@ elif ! sha256sum "$m" | grep -q '^b2ae5af07e2d'; then bad "$m SHA 다름"; fi
 docker image inspect ready2go-vision:latest >/dev/null 2>&1 || bad "ready2go-vision 이미지 없음 — docker compose --profile real build vision"
 
 say "== 4. 시작 상태 (Runner 가 기동 때 한 번 읽음)"
-git diff --quiet -- knowledge/snapshots/initial_state.json && say "   initial_state.json 저장소 그대로" \
+git diff --quiet -- knowledge/snapshots/initial_state.json 2>/dev/null && say "   initial_state.json 저장소 그대로" \
   || say "   initial_state.json 이 저장소와 다름 (임시 변경 — 끝나면 pc2_down.sh 가 되돌리라고 알려 줌)"
 python3 -c 'import json; d=json.load(open("knowledge/snapshots/initial_state.json", encoding="utf-8"))["state"]["located_in"]
 print("   위 칸:", ", ".join(k for k, v in d.items() if v == "drawer_top") or "없음")

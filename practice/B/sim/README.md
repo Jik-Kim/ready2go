@@ -16,6 +16,8 @@
 | `clear_sim.py` | 무작위 배치(쌓기·가림막 밑 포함)에서 꺼내기 — 예전 방식(aside·벽 넛지) vs 공간 만들기(`clear_plan`). 설정은 스킬 서버와 같음(`_room_cfg`) | `clear_sim.py 40 1 [rules]` | 10/13 (10 배치: 31.8% → 68.2%) |
 | `p2_clear_sim.py` | P2 시연 배치만으로 같은 비교 | `p2_clear_sim.py 50 1` | 10/11 |
 | `cluster_sim.py` | 뭉친 물체 공간 만들기 — 덤프 장면 재생(`test_real`)·무작위 뭉침(`test_rand`), 스킬 서버 판단으로 집힐 때까지 반복 (pytest 로 실행) | `NSIM=400 SEED=3 python3 -m pytest -q -s practice/B/sim/cluster_sim.py -k rand` | 10/13 (3 seed 성공 346 — #300) |
+| `movesx_carry_sim.py` | 들고 나오기 moveb vs movesx(스플라인) 경로 — 교시 경유점을 그대로 스플라인에 넣은 것·moveb 둥근 경로 위 8점(guided) 비교, 서랍 앞벽·트레이 벽 높이 여유·곡률 | `python3 practice/B/sim/movesx_carry_sim.py --png out.png` | 10/13 (경유점 그대로는 위로 90 mm 부풂 → guided 제안, 그림 `img/2026-10-13_movesx_carry_sim.png`) |
+| `flow_time_sim.py` | 전체 흐름(unpack) 시간 어림 — A `trace_unpack.py` 결과(B 실제 코드 명령 목록)에 속도·가속 사다리꼴 + 고정 시간(그리퍼·비전 [추정]), 줄이는 방법 ①~⑥ 비교 | `python3 sim/motion_check/trace_unpack.py --dump <덤프> --target eraser --out s2.json` → `python3 practice/B/sim/flow_time_sim.py s2.json` | 10/13 (S2 126 s·S1 170 s 어림, 속도 그대로 −18~22%, 손목(J6) 172° 왕복이 가장 큼 — 카메라 쪽 간섭 확인 전) |
 | `force_drag_sim.py` | 넛지 누르기·끌기 — 위치 방식 vs 힘 제어(`drag.force_mode`) 1차원 접촉 모델 | `force_drag_sim.py` | 10/13 (일지 29번) |
 
 `cluster_sim.py` 는 저장소 CI(`pytest ros2_ws/src`)에 들어가지 않는다 — 직접 경로를 줘서 돌린다.
