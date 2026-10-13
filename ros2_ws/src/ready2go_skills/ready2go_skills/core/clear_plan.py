@@ -456,7 +456,9 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     # 한 번 움직여 잡힘: 빈 쪽 넛지(안 밂) 또는 한쪽으로 쭉 밀고(옆 물체 같이) 되돌아오기 — 덜 움직이는 것부터.
     # remove_first: 목표 말고는 다 방해물 — 벽은 못 움직이고 물체는 옮길 수 있음 [사용자 10/12]. 다른 물체를 건드리지 않는
     # 넛지 → 막는 물체를 집어 빈 자리로 → (그래도 안 되면) 옆 물체를 같이 미는 밀기 순서
-    moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: c[0])
+    # 순서 [사용자 10/13 "넛지로 넓은 공간으로 끌어온 뒤 집기 → 안 되면 sweep 으로 근처 정리 → 그래도 안 되면 다른 놈들 치우기"]:
+    # 다른 물체를 안 건드리는 넛지 먼저(그중 덜 움직이는 것), 그다음 옆 물체를 같이 미는 sweep. 치우기는 아래(remove_first 면 sweep 보다 먼저)
+    moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: (bool(c[1].pushed), c[0]))
     for cost, act, after in moves:
         if (not cfg.remove_first or not act.pushed) and oracle.pick(after, tid)[0]:
             return _with_slack(moves, act, tid, oracle, cfg.slack_mm)
