@@ -218,3 +218,14 @@ def test_hole_class_is_not_pressed():
     t = dict(obj("t", "eraser", 0.10, 0.15), **{"class": "masking_tape"})
     assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0) is not None
     assert cp.press_point([t], "t", sizes.get, finger_r_mm=16.0, hole=("masking_tape",)) is None
+
+
+def test_front_wall_penalty_only_for_newly_touching_handle_wall():
+    """[사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] 손잡이 쪽 벽(x 0) front_keep_mm 안으로 새로 들어가는 동작만 벌점."""
+    t = obj("eraser#1", "eraser", 0.045, 0.15)                                     # 손잡이 쪽 끝 x 18.75 mm
+    near = [cp.moved(t, -0.015, 0.0)]                                              # 3.75 mm — 새로 붙음
+    side = [cp.moved(t, 0.0, 0.02)]                                                # 옆으로 — x 그대로
+    assert cp._front_cost([t], near, CFG) == pytest.approx(CFG.front_penalty_m)
+    assert cp._front_cost([t], side, CFG) == 0.0
+    already = obj("eraser#1", "eraser", 0.03, 0.15)                                # 이미 붙어 있던 물체를 옆으로
+    assert cp._front_cost([already], [cp.moved(already, 0.0, 0.02)], CFG) == 0.0

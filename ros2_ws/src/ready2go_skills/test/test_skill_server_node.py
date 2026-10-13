@@ -676,7 +676,7 @@ def test_stacked_eraser_picked_on_support_and_remembered_from_own_bottom(server,
     server.Gripper.holding = True
     try:
         floor, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-        z_floor, floor_held = srv.held["tcp_above_floor_m"], dict(srv.held)   # 잡은 TCP 높이 (바닥 위)
+        floor_held = dict(srv.held)
         seen[:], srv.held = [], None                                    # 놓았다고 치고 다시 집기
         out, data = server.run("pick_object", {"target": _stacked_eraser(0.0115 + 0.0435), "approach_offset": [0, 0, 0.1]})
     finally:
@@ -794,9 +794,8 @@ def test_pick_and_place_go_fast_until_1cm_then_slow(server):
         server.ss.SkillServer._line = real
         server.Gripper.holding = False
     st = {s: (v, z) for s, v, z in speeds}
-    sp = server.srv.prm()["speed"]                                      # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
+    # 서랍 안 내려가기는 in_drawer_mm_s [사용자 10/07 밤], 트레이는 line_mm_s
     # 경유점이 있는 서랍: 목표 위로 가는 블렌딩이 잡는 높이 1 cm 위에서 끝남(따로 빠르게 내려가기 없음) → 마지막 1 cm 만 천천히 [사용자 10/10]
-    blends = [e for e in server.srv.robot.log if e[0] == "moveb"]
     # 집기 [사용자 10/11 "벌려서 높이만큼 빠르게 내려가 집기"]: 목표 위 → 잡는 높이까지 블렌딩 한 번(서랍 안 속도), 천천히 내려가기 없음
     assert "descend" not in st and "descend_fast" not in st
     assert out2.success and "lower_fast" not in st and st["lower"][0] == 15.0   # 칸 위 → 1 cm 위는 들고 나오기 블렌딩에 포함 [사용자 10/10]
@@ -1852,7 +1851,6 @@ def test_cover_plate_gripped_at_plate_height_not_floor(server):
 def test_stacked_eraser_on_caramel_uses_ontology_height_not_vision_depth(server):
     """[사용자 10/11 PC2] 비전이 캐러멜 윗면을 7~9 mm 높게 봄(25~27 / 18.5) → 지우개 받침을 비전으로 재면 높게 헛잡음.
     scan 에 밑에 깔린 캐러멜이 있으면 받침 = 캐러멜 온톨로지 높이 18.5."""
-    srv = server.srv
     er = {"id": "eraser#1", "class": "eraser", "top_z": 0.039,
           "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0, "yaw_valid": True}}
     ca = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.027,
@@ -2343,7 +2341,6 @@ def test_putback_pick_then_place_at_pick_pose(server):
 def test_toy_car_judged_by_measured_body_width(server, yaw, width, ok):
     """[실측 PC2 10/11] 장난감차: 세로(짧은 변) 30.9·가로(긴 변 양끝) 48.0 — 외접 박스 40.5·57.5 보다 몸통이 좁아 WIDTH_MISMATCH 였음.
     item_grasp.yaml grasp_width_m / grasp_width_long_m 실측으로 판정 (외접 박스 폭이면 이제 실패)."""
-    srv = server.srv
     t = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.0325,
          "pose": {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": yaw, "yaw_valid": True}}
     server.Gripper.holding, server.Gripper.held_width = True, width
@@ -2396,7 +2393,6 @@ def test_tray_view_named_pose_goes_to_taught_joints(server):
 def test_stacked_key_pick_not_blocked_by_bleeding_stack_below(server):
     """[실측 PC2 10/11 분할 모델] 3단 윗면이 몽키 53.7·캐러멜 54·차키 53.7 로 번지고 관계 없음 → 캐러멜이 손가락 자리 이웃으로
     NEIGHBOR_TOO_CLOSE 였음. 차키 위에 아무것도 없고 밑 물체가 더 크면 받침 → 받침 37 (몽키 18.5 + 캐러멜 18.5) 위에서 집음."""
-    srv = server.srv
     f = "drawer_top"
     key = {"id": "car_key#1", "class": "car_key", "top_z": 0.0537, "occluded_by": [],
            "pose": {"frame": f, "position": [0.12, 0.19, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 세로 → 짧은 변 39
@@ -2642,7 +2638,6 @@ def test_putback_tilted_pick_places_back_with_same_tilt(server, drawer):
     """[사용자 10/12 PC2] 손잡이 쪽 벽에 가로로 붙은 립밤(아래 칸 (9.7, 153.9) mm yaw 1.5625)은 손잡이 쪽으로 기울여 집음 →
     `B putback` 이 수직으로 놓으려다 손가락 자리가 벽 밖(꼭짓점 x −5.8 mm) WALL_TOO_CLOSE. 원래 자리면 집을 때 자세 그대로 거꾸로 놓음:
     같은 TCP(+ drop_m)·같은 기울임. 기억이 없으면(예전 동작) 그대로 거부, 원래 자리에서 벗어난 pose 도 거부."""
-    from ready2go_skills.core import motion_plan as mp
     srv = server.srv
     prm = srv.prm()
     srv.prm = lambda: prm

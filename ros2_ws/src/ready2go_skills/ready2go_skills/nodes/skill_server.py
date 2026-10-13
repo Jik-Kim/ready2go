@@ -1419,16 +1419,6 @@ class SkillServer(Node):
             out.append(f)
         return out
 
-    def _grip_width(self):
-        """지금 그리퍼 폭 mm (조회 실패면 0 — 그러면 벌리는 명령을 보냄)."""
-        r = Rg2(self.rg2_ip)
-        try:
-            return float(r.status().width_mm)
-        except Exception:
-            return 0.0
-        finally:
-            r.close()
-
     def _force_quick(self):
         """기다리지 않고 0.03 s 간격 3번 평균 (조회 실패만이면 None)."""
         fs = self._force_reads(3, 0.03)
@@ -1770,8 +1760,9 @@ class SkillServer(Node):
                           press_finger_r_mm=float(mr["press_finger_r_mm"]), narrow_of=self._narrow_width,
                           press_center_only_classes=tuple(mr.get("press_center_only_classes", ("toy_wrench",))),
                           hole_classes=tuple(prm["drag"].get("hole_classes") or ()),
+                          front_keep_mm=float(mr.get("front_keep_mm", 10.0)), front_penalty_m=float(mr.get("front_penalty_m", 0.05)),
                           sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
-                          remove_first=bool(mr.get("remove_first", True)), slack_mm=float(mr.get("slack_mm", 0.0)),
+                          remove_first=bool(mr.get("remove_first", False)), slack_mm=float(mr.get("slack_mm", 10.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
     def _make_room(self, goal, params, drawer_id, target):
@@ -1796,7 +1787,8 @@ class SkillServer(Node):
         by = {o["id"]: o for o in objs}
         self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason}")
         if params.get("check_only"):                              # 판단 결과 공개 [E #245 제안] — 일반 넛지 check_only 와 같은 필드
-            out.update(needed=a.kind not in ("pick", "fail"), plan_code=(a.code or mp.NO_PUSH_ACCESS) if a.kind == "fail" else None)
+            fail_code = a.code if a.code in (NEIGHBOR_TOO_CLOSE, NO_FREE_SPACE, mp.NO_PUSH_ACCESS) else mp.NO_PUSH_ACCESS
+            out.update(needed=a.kind not in ("pick", "fail"), plan_code=fail_code if a.kind == "fail" else None)   # 결과 error_code 와 같게
         if a.kind == "pick":
             info.update(action="none", moved_id=None, ready_to_pick=True)
             out["target_after"] = by[tid]

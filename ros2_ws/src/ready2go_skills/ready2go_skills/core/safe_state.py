@@ -1,6 +1,6 @@
 """무동작 안전 상태 조회(W1 `/skills/check_state`)·B 복구(W2 `/skills/recover`) 판단 — ROS 비의존 [#152·#271 C 계약 W1·W2, 제안 10/13 B].
 
-로봇·그리퍼를 움직이지 않고 지금 읽을 수 있는 값만 모아 C 가 잠금 해제 판단(`core/recovery.py` recover_blockers)에 쓰게 한다.
+로봇·그리퍼를 움직이지 않고 지금 읽을 수 있는 값만 모아 C 가 잠금 해제 판단(C `ready2go_runner/core/recovery.py` recover_blockers — PR #289, 10/13 미머지)에 쓰게 한다.
 **모르는 값은 None(JSON null)** — C 는 null 을 허가로 보지 않는다. 읽기 실패를 "괜찮음"으로 바꾸지 않는다.
 B 복구(W2)는 B 서버 잠금(이동 확인 실패 `LOCKING_CODES`)과 쥐었는지 모름(`hold_unknown`)만 푼다. C 잠금 해제와는 별개.
 """
