@@ -214,15 +214,22 @@ def restore_check(step: dict) -> dict | None:
     result = step.get("result") or {}
     check = {"class": record.get("class"), "status": result.get("status"),
              "position_m": result.get("distance_m"), "yaw_rad": None}
-    now = (result.get("object") or {}).get("pose") or {}
+    seen = result.get("object") or {}
+    now = seen.get("pose") or {}
     if origin.get("yaw_valid") and now.get("yaw_valid"):
         check["yaw_rad"] = _yaw_error(origin.get("yaw"), now.get("yaw"))
+    above = seen.get("occluded_by")
+    if isinstance(above, list) and above:       # 마지막 촬영에서 위에 다른 물체(되돌린 차키 등)가 올라가 가려짐 → 보이는 조각
+        check["occluded_by"] = above            # 가운데라 실제 자리와 다름 (A Isaac 10/13: 캐러멜 실제 0.3 mm 가 18.3 mm 로)
     return check
 
 
 def _restore_text(check: dict) -> str:
     if check["position_m"] is None:
         return f"못 찾음({check['status']})"
+    if check.get("occluded_by"):                # 가려진 조각 기준 값 — 위치 오차로 쓰지 않음 (AC-ACT-03 근거 아님)
+        return (f"가려짐(위에 {', '.join(check['occluded_by'])}) — 보이는 조각 기준 {_mm(check['position_m'])}, "
+                f"위치 오차로 쓰지 않음")
     yaw = "방향 모름" if check["yaw_rad"] is None else f"방향 오차 {math.degrees(check['yaw_rad']):.1f}°"
     return f"위치 오차 {_mm(check['position_m'])} · {yaw}" + ("" if check["status"] == "found" else f" ({check['status']})")
 

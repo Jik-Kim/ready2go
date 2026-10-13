@@ -7,7 +7,7 @@
 - 사용자 = **B 서동권** (GitHub `aszx4880-star`), 실물 로봇 모션 `ros2_ws/src/ready2go_skills` 담당. 작업 PC = **PC2 `ms-07`** (M0609 + RG2).
 - 팀: A 김병직(비전·PM, PC1), C 이영훈(Runner), D 김민준(검수·로컬 CI), E 고희태(계약·P2 판정).
 - 일정(`docs/schedule.md`): 10/12 P2 2차 점검(E, Unpacking 통합 진행 중) → 10/13 3차 챌린지 → 10/14 리허설 → 10/15 녹화 → 10/16 제출.
-- P2 시연: 위·아래 서랍. 쌓기 = 몽키(밑) 위 캐러멜 위 차키(캐러멜 한쪽 끝), 가림막 밑 지우개·립밤. aside 2곳 → 트레이.
+- P2 시연: 위·아래 서랍. 쌓기 = 몽키(밑) 위 캐러멜 위 차키(캐러멜 한쪽 끝), 가림막 밑 지우개·립밤. 치운 것은 서랍 빈 자리(free, 10/13부터 — B 명령은 aside 안 씀) → 트레이.
 - 할일 보드: https://claude.ai/artifact/Mm71Vvp2Spbqwe7TY5xM2f (ArtifactData `tasks`, `meta/info.sub` 에 PR·커밋 적음). 맨 위 ★ `demo1` = 시연 전 체크리스트.
 
 ## 2. 사용자 규칙 (꼭 지킴)
@@ -36,7 +36,7 @@
 - `nodes/skill_server.py` — 액션 `/skills/{move_to_named_pose, drawer_control, nudge_object, pick_object, place_object}`. `_do_pick_object`(by_height 집기), `_push_from_behind`, `_restore_held`, `_yaml_cached`.
 - `core/place_plan.py` — `objects_under`·`ontology_support_m`·`stack_support`, 놓기 겹침. `core/motion_plan.py` 손끝 표·벽 간섭. `core/grasp_check.py` HELD/SLIPPED/DROPPED/SENSOR_INVALID.
 - `params/skills.yaml` — 속도·힘·집기·넛지 값. `config/poses.yaml`·`places.yaml`(서랍·트레이 tf·aside). `config/item_grasp.yaml` 은 E 온톨로지 시험 규칙 때문에 grip_force null 유지(바꾸면 시험 깨짐).
-- `scripts/b_sk.py` — `B <동작> top|bottom [물체]`. 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan unpack` / 서랍 없음: `home pick place putback trayview trayclear`. 두 단어 이름·별명(몽키·가림막 등). `scripts/b_flow.sh`(build·server).
+- `scripts/b_sk.py` — `B <동작> top|bottom [물체]`. 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find clear free plan unpack` / 서랍 없음: `home pick place putback trayview trayclear`. 두 단어 이름·별명(몽키·가림막 등). `scripts/b_flow.sh`(build·server).
   - **시작 상태가 다름 — 틀리면 부딪힘**: `B find`·`clear`·`free`는 **서랍을 손으로 열고 `B opened` 뒤**. `B unpack`·`B all`은 **서랍 닫힘·빈손·홈에서** — 스스로 손잡이 앞(`ready`)으로 가서 엶. 손으로 연 서랍에 `B unpack`/`B ready` 를 치면 손잡이 앞 자세가 열린 서랍 안이라 **부딪힘** [실측 PC2 10/12 사고].
 
 ## 4. PC2 실행 방법 — **평소(B 방식)와 통합(컨테이너)은 다른 구성. 섞으면 서버·드라이버가 두 개 뜸**
