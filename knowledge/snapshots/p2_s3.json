@@ -1,0 +1,20 @@
+{
+  "description": "p2_s3: 사용자 승인 P2 시작 배치 프리셋. 명시된 물품 위치만 기입하며 비등장/미위치는 생략. 실제 관측·쌓임/가림·실빈손/닫힘/잠금 해제 증거가 아니며 C 기동/reset 적용은 별도 연결.",
+  "state": {
+    "robot_pose": {
+      "robot": "home"
+    },
+    "gripper": {
+      "robot": "empty"
+    },
+    "open": {
+      "drawer_top": false,
+      "drawer_bottom": false,
+      "handover_zone": true
+    },
+    "located_in": {
+      "cover_plate": "drawer_bottom",
+      "lip_balm": "drawer_bottom"
+    }
+  }
+}
