@@ -162,7 +162,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 [실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
 
-[구현: E-VOICE-LAUNCH-STOP-INPUT-20261012-01] 작업 폴더 `/home/jonny/rokey_proj/VLA/ready2go`에서 아래 두 명령을 **각각 명시 실행**합니다. 도구가 ROS 환경·시험 설정 복사·로그 저장을 처리합니다. prepare는 마이크/API/재생/live를 호출하지 않으며, 성공 뒤에만 별도 live 명령을 사용합니다. live는 실제 마이크/API/스피커를 사용하는 기존 격리 더미 시험입니다. 에이전트는 이번 변경에서 두 실제 실행을 수행하지 않았습니다.
+[구현: E-VOICE-LAUNCH-STOP-INPUT-20261012-01] [프로젝트 Python 의존성 설치](../../../README.md#프로젝트-의존성-설치), [공통 호스트 build/install·새 터미널 준비](../../../README.md#실행), [Voice 패키지 빌드/install 준비](#실행-준비와-의존성)를 마친 뒤 **저장소 루트에서** 아래 두 명령을 각각 명시 실행합니다. 스크립트는 자신의 위치에서 저장소 루트를 계산해 이동하고 ROS Jazzy·기존 `ros2_ws/install`을 source한 뒤 `.venvs/project/bin/python`으로 실행합니다. 시험 설정 복사와 로그 저장도 도구가 처리합니다. prepare는 마이크/API/재생/live를 호출하지 않으며, 성공 뒤에만 별도 live 명령을 사용합니다. live는 실제 마이크/API/스피커를 사용하는 기존 격리 더미 시험입니다. 에이전트는 이번 변경에서 두 실제 실행을 수행하지 않았습니다.
 
 ```bash
 bash ros2_ws/src/ready2go_voice/tools/voice_trial.sh prepare

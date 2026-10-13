@@ -112,17 +112,53 @@ def _blocking(objs, group) -> list:
     return [o for o in objs if o["id"] not in group]
 
 
+def ahead(dx: float, dy: float, u: tuple) -> bool:
+    """가운데끼리 차이 (dx, dy) 인 물체가 u 방향 '앞'인지 — u 성분이 옆 성분의 절반보다 커야 앞(약 63° 원뿔 안).
+    옆에 맞붙은 물체(u 성분이 몇 mm 뿐)는 앞이 아님 [실측 PC2 10/13: 벽 쪽 에어팟을 +y 로 밀 때 -x 옆에 맞붙은 캐러멜(가운데 차
+    y +2 mm)을 앞으로 보고 같이 밀려다 막힘]."""
+    along = dx * u[0] + dy * u[1]
+    side = abs(-dx * u[1] + dy * u[0])
+    return along > 0.5 * side
+
+
+def out_mm(o: Mapping, size_of: Callable, interior_m: Sequence[float]) -> float:
+    """footprint 가 서랍 경계 밖으로 나간 최대 거리(mm, 안이면 0) — 비전 각도·외접 박스로 벽에 맞붙은 물체가 경계를 몇 mm
+    넘게 그려짐(캐러멜 14° → 4 mm). 움직일 때 처음부터 나간 만큼은 봐줌."""
+    d, w = interior_m[0] * 1000.0, interior_m[1] * 1000.0
+    return max([0.0] + [max(-x, x - d, -y, y - w) for x, y in footprint_mm(o, size_of)])
+
+
+def _behind(objs: Sequence[Mapping], mover: str, u: tuple, size_of) -> set:
+    """처음부터 mover 와 footprint 가 겹친 물체 중 u 쪽 '앞'(ahead)이 아닌 것(뒤·옆) — 멀어지거나 옆으로 스치므로 겹침이 늘지 않음.
+    온톨로지 외접 박스가 실제보다 커서(몽키 머리 61 × 길이 170) 맞붙은 물체끼리 처음부터 겹치면 어느 쪽으로도 0 mm 로 나와
+    아무 동작도 못 고르던 것 [실측 PC2 10/13 B clear top 에어팟: 에어팟·캐러멜·몽키·지우개 서로 1~2 mm 겹침 → fail]."""
+    by = {o["id"]: o for o in objs}
+    m = by[mover]
+    mx, my = m["pose"]["position"][:2]
+    out = set()
+    for o in objs:
+        if o["id"] == mover or not overlaps(m, o, size_of):
+            continue
+        ox, oy = o["pose"]["position"][:2]
+        if not ahead((ox - mx) * 1000.0, (oy - my) * 1000.0, u):
+            out.add(o["id"])
+    return out
+
+
 def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, interior_m, size_of, step_mm: float = 1.0,
               gap_mm: float = 0.0) -> float:
-    """mover(위 물체 포함)를 u 로 dist_m 까지 — 다른 바닥 물체·벽에 닿기 전까지 갈 수 있는 거리(m). 밀지 않음."""
+    """mover(위 물체 포함)를 u 로 dist_m 까지 — 다른 바닥 물체·벽에 닿기 전까지 갈 수 있는 거리(m). 밀지 않음.
+    처음부터 겹친 물체 중 뒤쪽(멀어지는 쪽)은 막지 않음 (_behind)."""
     group = {mover} | riders(objs, mover)
     by = {o["id"]: o for o in objs}
-    others = _blocking(objs, group)
+    behind = _behind(objs, mover, u, size_of)
+    others = [o for o in _blocking(objs, group) if o["id"] not in behind]
+    slack = out_mm(by[mover], size_of, interior_m)               # 처음부터 경계 밖으로 그려진 만큼은 봐줌
     done = 0.0
     for k in range(1, int(round(dist_m * 1000.0 / step_mm)) + 1):
         s = k * step_mm / 1000.0
         m = moved(by[mover], u[0] * s, u[1] * s)
-        if not inside(m, size_of, interior_m) or any(collide(m, o, size_of, gap_mm) for o in others):
+        if not inside(m, size_of, interior_m, -slack) or any(collide(m, o, size_of, gap_mm) for o in others):
             break
         done = s
     return done
@@ -135,6 +171,11 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     order = [o["id"] for o in objs]
     cur = {o["id"]: dict(o) for o in objs}
     base = [mover] + sorted(riders(objs, mover))
+    # 처음부터 겹친 뒤·옆 물체는 밀지도 막지도 않음 — 목표만이 아니라 같이 밀리기 시작한 물체도 그때 겹친 뒤·옆 물체는 봐줌
+    # [실측 PC2 10/13 inspect_20261013_060416_812Z: 에어팟 +y 밀기 → 몽키 외접 박스(길이 170 × 머리 폭 61)가 손잡이 쪽
+    # 캐러멜과 처음부터 겹쳐 캐러멜까지 같이 밀려다 0 mm → 밀기 후보 없음 → 몽키 머리 넛지(접촉 없음)]
+    ign = {g: _behind(objs, g, u, size_of) for g in base}
+    slack = {o["id"]: out_mm(o, size_of, interior_m) for o in objs}   # 처음부터 경계 밖으로 그려진 만큼은 봐줌
     pushed = []
     done = 0.0
     dx, dy = u[0] * step_mm / 1000.0, u[1] * step_mm / 1000.0
@@ -151,18 +192,21 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
             for oid in order:
                 if oid in moving:
                     continue
-                if not any(collide(trial[m], trial[oid], size_of) for m in moving):
+                if not any(oid not in ign.get(m, ()) and collide(trial[m], trial[oid], size_of) for m in moving):
                     continue
                 if not pushable(trial[oid]) or len(set(pushed) | {oid}) > max_chain:
                     ok = False
                     break
                 pushed.append(oid)
+                cl = list(cur.values())
                 for gid in [oid] + sorted(riders(tl, oid)):
+                    ign.setdefault(gid, _behind(cl, gid, u, size_of))
                     trial[gid] = moved(cur[gid], dx, dy)
                     moving.append(gid)
                 changed = True
                 break
-        if not ok or not all(inside(trial[m], size_of, interior_m) for m in moving if on_floor(list(trial.values()), m)):
+        if not ok or not all(inside(trial[m], size_of, interior_m, -slack.get(m, 0.0)) for m in moving
+                             if on_floor(list(trial.values()), m)):
             break
         cur = trial
         done += step_mm / 1000.0
@@ -170,23 +214,41 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
 
 
 def press_point(objs: Sequence[Mapping], tid: str, size_of: Callable, *, finger_r_mm: float, rise_tol_m: float = 0.003,
-                inset_mm: float = 4.0) -> Optional[tuple]:
-    """닫은 손가락으로 목표 윗면을 누를 점 (서랍 좌표 m) — 가운데 먼저, 안 되면 긴 변을 따라 양끝 쪽으로.
-    누르는 손가락(반지름 finger_r_mm)이 목표보다 높은 물체에 걸리지 않는 점. 위에 얹힌 것이 있으면 None [추정 — 손가락 띠 모양 실측 없음]."""
+                inset_mm: float = 4.0, narrow_of: Optional[Callable] = None, center_only: Sequence[str] = ()) -> Optional[tuple]:
+    """닫은 손가락으로 목표 윗면을 누를 점 (서랍 좌표 m) — 가운데에서 가까운 점부터: 긴 변을 따라 가운데·절반·끝,
+    폭 방향으로 (손잡이 폭(narrow_of, m) 또는 짧은 변)/2 − 8 mm 까지 비켜서.
+    center_only 종류는 가운데(폭 방향 비킴만)만 — 윗면 높이가 고르지 않아 머리·끝은 top_z 보다 낮아 접촉 없음
+    [사용자 10/13 PC2 "몽키 헤드 중 가장 낮은 부분을 자꾸 건드림", "옮겨도 몽키 중앙 부분을 눌러야지"]. 가운데가 막히면 None
+    (그땐 같이 밀리기·집어서 치우기).
+    누르는 손가락(반지름 finger_r_mm)이 목표보다 높은 물체에 걸리지 않는 점. 위에 얹힌 것이 있으면 None [추정 — 손가락 띠 모양 실측 없음].
+    [실측 PC2 10/13 inspect_20261013_060416_812Z: 에어팟 옆 몽키 — 가운데·절반은 에어팟에 걸려 머리 끝(입 벌어진 곳)을 눌러
+    접촉 없음 → 폭 방향으로 비켜 가운데 근처를 누름]"""
     by = {o["id"]: o for o in objs}
     t = by[tid]
     if t.get("occluded_by") or t.get("top_z") is None:
         return None if t.get("occluded_by") else tuple(t["pose"]["position"][:2])
     tx, ty, yaw = t["pose"]["position"][0] * 1000.0, t["pose"]["position"][1] * 1000.0, t["pose"]["yaw"]
-    half = max(0.0, size_of(t["class"])[0] * 500.0 - inset_mm)
+    size = size_of(t["class"])
+    half = max(0.0, size[0] * 500.0 - inset_mm)
+    nw = (narrow_of(t["class"]) if narrow_of else None) or size[1]
+    side = max(0.0, nw * 500.0 - 8.0)
     high = [footprint_mm(o, size_of) for o in objs
             if o["id"] != tid and o.get("top_z") is not None and o["top_z"] > t["top_z"] + rise_tol_m]
-    for k in (0.0, 0.5, -0.5, 1.0, -1.0):
-        x, y = tx + k * half * math.cos(yaw), ty + k * half * math.sin(yaw)
+    ks = (0.0,) if t["class"] in center_only else (0.0, 0.5, -0.5, 1.0, -1.0)
+    cand = sorted(((k * half, w) for k in ks for w in ((0.0, side, -side) if side else (0.0,))),
+                  key=lambda c: (round(math.hypot(*c), 3), c[1] != 0.0))
+    c_, s_ = math.cos(yaw), math.sin(yaw)
+    for a, w in cand:
+        x, y = tx + a * c_ - w * s_, ty + a * s_ + w * c_
         circle = plp.corners(x, y, 0.0, finger_r_mm, finger_r_mm)
         if not any(plp.rects_overlap(circle, fp) for fp in high):
             return x / 1000.0, y / 1000.0
     return None
+
+
+def _pkw(cfg) -> dict:
+    """press_point 설정값 (Config 에서)."""
+    return {"finger_r_mm": cfg.press_finger_r_mm, "narrow_of": cfg.narrow_of, "center_only": cfg.press_center_only_classes}
 
 
 def press_ok(objs: Sequence[Mapping], tid: str, size_of: Callable, **kw) -> bool:
@@ -267,6 +329,7 @@ class Config:
     nudge_step_m: float = 0.005
     sweep_step_m: float = 0.01
     max_chain: int = 2                       # 한 번에 같이 밀 물체 수 [추정 — 실물 확인 필요]
+    slack_mm: float = 0.0                    # 넛지·밀기 뒤 여유 — 집기 검사가 딱 통과하는 거리보다 이만큼 더 (실행 값 make_room.slack_mm)
     round_classes: Sequence[str] = ("lip_balm",)
     free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수
     allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선)
@@ -275,6 +338,9 @@ class Config:
     near_pad_mm: float = 5.0                 # 위가 없으면 이만큼까지 가까이 — 목표 집기 손가락 자리를 안 막을 때만
     reach_x_m: Optional[float] = None
     remove_first: bool = True                # 옆 물체를 같이 미는 밀기보다 막는 물체 집어 치우기 먼저 — 실행 값 make_room.remove_first [사용자 10/12]
+    narrow_of: Optional[Callable] = None     # 손잡이 폭(m) — 누를 점을 폭 방향으로 비킬 범위 (몽키·망치 item_grasp)
+    press_center_only_classes: Sequence[str] = ("toy_wrench",)   # 가운데만 누름 — 머리·끝은 윗면이 낮음 [사용자 10/13 PC2]
+    sweep_max_m: Optional[float] = None      # 밀기(sweep) 최대 거리 — 없으면 max_shift_m. 실행 값 make_room.sweep_max_mm
     press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
 
 
@@ -377,7 +443,7 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
                 return wall
         else:
             code, reason = c2 or code, r2 or reason
-    if not press_ok(objs, tid, cfg.size_of, finger_r_mm=cfg.press_finger_r_mm):
+    if not press_ok(objs, tid, cfg.size_of, **_pkw(cfg)):
         if wall is not None:
             return wall
         return _remove_blocker(objs, tid, oracle, cfg, code, reason, _depth)
@@ -387,20 +453,20 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     moves = sorted(_self_moves(objs, tid, cfg, fine=True), key=lambda c: c[0])
     for cost, act, after in moves:
         if (not cfg.remove_first or not act.pushed) and oracle.pick(after, tid)[0]:
-            return act
+            return _with_slack(moves, act, tid, oracle, cfg.slack_mm)
     if cfg.remove_first:
         a = _remove_to_open(objs, tid, oracle, cfg, reason) or _nudge_blocker(objs, tid, oracle, cfg, reason)
         if a is not None:
             return a
         for cost, act, after in moves:
             if act.pushed and oracle.pick(after, tid)[0]:
-                return act
+                return _with_slack(moves, act, tid, oracle, cfg.slack_mm)
     # 두 번 움직여야 잡힘 (예: 뒷벽에서 빼고 → 옆벽에서 빼기): 첫 동작만 하고 다시 보기 [사용자 10/11 순서]
     best = None
     for c1, a1, o1 in sorted(_self_moves(objs, tid, cfg, fine=False, coarse=True), key=lambda c: c[0]):
         if best is not None and c1 >= best[0]:
             break
-        if not press_ok(o1, tid, cfg.size_of, finger_r_mm=cfg.press_finger_r_mm):   # 두 번째도 눌러서 움직여야 함
+        if not press_ok(o1, tid, cfg.size_of, **_pkw(cfg)):   # 두 번째도 눌러서 움직여야 함
             continue
         for c2, a2, o2 in sorted(_self_moves(o1, tid, cfg, fine=False), key=lambda c: c[0]):
             if a2.dir in (a1.dir, (-a1.dir[0], -a1.dir[1])) or (best is not None and c1 + c2 >= best[0]):
@@ -449,7 +515,7 @@ def _nudge_blocker(objs, tid, oracle, cfg: Config, reason: str = "") -> Optional
     ① 그것만으로 목표 길이 열리면 ② 아니면 그 물체를 집을 수 있게 되면(다음 단계에서 집어 빈 자리로) [사용자 10/12]."""
     later = None
     for o in _near_blockers(objs, tid, cfg, reason):
-        if oracle.pick(objs, o["id"])[0] or not press_ok(objs, o["id"], cfg.size_of, finger_r_mm=cfg.press_finger_r_mm):
+        if oracle.pick(objs, o["id"])[0] or not press_ok(objs, o["id"], cfg.size_of, **_pkw(cfg)):
             continue
         for c, a, after in sorted(_self_moves(objs, o["id"], cfg, fine=False), key=lambda c: c[0]):
             if a.pushed:
@@ -469,6 +535,27 @@ def _dir_name(u) -> str:
         (float(u[0]), float(u[1])), f"{u[0]:+.2f}, {u[1]:+.2f}")
 
 
+def _with_slack(moves, act: "Action", tid: str, oracle, slack_mm: float) -> "Action":
+    """고른 넛지·밀기보다 slack_mm 더 여유 있는 같은 종류·방향 후보 (넛지는 더 멀리, 밀기는 같은 거리 밀고 더 많이 되돌아옴) 중
+    집기 검사를 통과하는 가장 가까운 것. 없으면 그대로 [사용자 10/13 PC2: 딱 통과하는 최소값이라 실물에서 다시 막혀 같은 밀기 반복]."""
+    if slack_mm <= 0 or act.kind not in ("nudge", "sweep"):
+        return act
+    need = slack_mm / 1000.0 - 1e-9
+    best = None
+    for _, a, after in moves:
+        if a.kind != act.kind or a.dir != act.dir:
+            continue
+        if a.kind == "nudge" and a.dist_m >= act.dist_m + need:
+            key = a.dist_m
+        elif a.kind == "sweep" and abs(a.dist_m - act.dist_m) < 1e-6 and a.back_m >= act.back_m + need:
+            key = a.back_m
+        else:
+            continue
+        if (best is None or key < best[0]) and oracle.pick(after, tid)[0]:
+            best = (key, a)
+    return best[1] if best else act
+
+
 def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False) -> list:
     """목표 자신을 서랍 축으로 움직이는 후보 → [(움직인 거리 m, Action, 예상 물체 목록)].
     nudge: 막힘 없이 끌기 / sweep: 앞 물체를 같이 밀고(최대 max_chain) back 만큼 되돌아오기 (양쪽 공간) [사용자 10/11].
@@ -476,7 +563,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
     t = next(o for o in objs if o["id"] == tid)
     step = cfg.nudge_step_m if fine else cfg.sweep_step_m
     out = []
-    pp_ = press_point(objs, tid, cfg.size_of, finger_r_mm=cfg.press_finger_r_mm)
+    pp_ = press_point(objs, tid, cfg.size_of, **_pkw(cfg))
     press = {"press_xy_m": [round(v, 4) for v in pp_]} if pp_ else {}
     for u in cfg.axes:
         if not _round_axis_ok(t, u, cfg):
@@ -488,7 +575,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
                         _with(objs, moved(t, u[0] * s, u[1] * s))))
         d = (int(can / cfg.sweep_step_m + 1e-6) + 1) * cfg.sweep_step_m
         last = can
-        while d <= cfg.max_shift_m + 1e-9:
+        while d <= (cfg.sweep_max_m or cfg.max_shift_m) + 1e-9:
             o2, done, pushed = push_move(objs, tid, u, d, cfg.interior_m, cfg.size_of, pushable, cfg.max_chain)
             if done <= last + 0.0015:                                  # 더 못 밂
                 break
@@ -537,7 +624,7 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
                       key=lambda o: (o["id"] != who, math.dist((tx, ty), o["pose"]["position"][:2])))
         best = None
         for o in near[:4]:
-            if not press_ok(objs, o["id"], cfg.size_of, finger_r_mm=cfg.press_finger_r_mm):
+            if not press_ok(objs, o["id"], cfg.size_of, **_pkw(cfg)):
                 continue
             for c, a, after in sorted(_self_moves(objs, o["id"], cfg, fine=False), key=lambda c: c[0]):
                 if tid in a.pushed or (best is not None and c >= best[0]):

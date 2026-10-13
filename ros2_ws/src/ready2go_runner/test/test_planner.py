@@ -164,10 +164,10 @@ def test_plan_failure_runs_safe_finally():
 def test_plan_estop_sends_no_more_motion():
     initial = state()
     r = pl.plan(initial, ONTO, [goal("eraser", "handover_zone")])
-    robot = MockRobot(fail={"nudge_object": ["ESTOP"]})
+    robot = MockRobot(fail={"pick_object": ["ESTOP"]})          # pick 첫 집기에서 비상정지 (E 10/13 pick 전환)
     runner, result = run_plan(robot, r, initial)
     assert result.overall_status == "ABORTED" and runner.halted
-    assert robot.motion_after("/skills/nudge_object") == []
+    assert robot.motion_after("/skills/pick_object") == []
 
 
 def test_to_task_rejects_non_planned():

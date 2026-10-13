@@ -1,4 +1,6 @@
 """core/clear_plan.py — 파지 공간 만들기 (쌓인 것 빈 곳에 치우기·넛지·좌우 밀기) [사용자 10/11 제안, 미연결]."""
+import pytest
+
 from ready2go_skills.core import clear_plan as cp
 
 INTERIOR = [0.21, 0.29, 0.07]
@@ -135,3 +137,65 @@ def test_relocated_rider_height_from_ontology_not_smeared_vision_top_z():
     after = cp._relocated([base, key], "car_key#1", {"frame": "drawer_top", "position": [0.05, 0.05, 0.0], "yaw": 0.0}, SIZES.get)
     k = next(o for o in after if o["id"] == "car_key#1")
     assert k["top_z"] == SIZES["car_key"][2] and next(o for o in after if o["id"] == "caramel_box#1")["occluded_by"] == []
+
+
+def test_free_move_ignores_already_overlapping_object_behind():
+    """처음부터 겹친(맞붙은) 물체에서 멀어지는 쪽은 막지 않고, 다가가는 쪽은 그대로 막음 [실측 PC2 10/13]."""
+    a = obj("caramel_box#1", "caramel_box", 0.105, 0.135)
+    b = obj("airpods_case#1", "airpods_case", 0.105, 0.135 + 0.0465)          # 0.5 mm 겹침 (+y 쪽)
+    objs = [a, b]
+    assert cp.free_move(objs, "caramel_box#1", (0.0, -1.0), 0.03, INTERIOR, SIZES.get) == pytest.approx(0.03)
+    assert cp.free_move(objs, "caramel_box#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get) == 0.0
+    _, done, pushed = cp.push_move(objs, "caramel_box#1", (0.0, -1.0), 0.02, INTERIOR, SIZES.get, cp.pushable)
+    assert done == pytest.approx(0.02) and pushed == []                         # 뒤에 겹친 에어팟을 끌고 가지 않음
+
+
+def test_ahead_cone_and_out_of_bounds_slack():
+    """옆에 맞붙은 물체는 '앞'이 아님, 처음부터 경계 밖으로 그려진 물체는 그만큼 봐줌 [실측 PC2 10/13]."""
+    assert cp.ahead(0.0, 40.0, (0.0, 1.0)) and not cp.ahead(-70.0, 2.0, (0.0, 1.0)) and not cp.ahead(0.0, -5.0, (0.0, 1.0))
+    c = obj("caramel_box#1", "caramel_box", 0.040, 0.029, yaw=-0.25)            # 14° — 외접 박스가 y 0 벽 밖으로 약 4 mm
+    assert cp.out_mm(c, SIZES.get, INTERIOR) > 3.0
+    assert cp.free_move([c], "caramel_box#1", (0.0, 1.0), 0.02, INTERIOR, SIZES.get) == pytest.approx(0.02)   # 벽에서 멀어지는 쪽은 감
+
+
+def test_with_slack_prefers_more_back_off_when_still_pickable():
+    """밀기·넛지는 집기 검사가 딱 통과하는 거리보다 slack_mm 더 여유 있는 같은 후보 (없으면 그대로) [사용자 10/13]."""
+    acts = [(0.05, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.02), None),
+            (0.06, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.03), None),
+            (0.07, cp.Action("sweep", "t", dir=(0.0, 1.0), dist_m=0.07, back_m=0.04), None)]
+
+    class Ok:
+        def pick(self, objs, tid):
+            return True, "", ""
+    assert cp._with_slack(acts, acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.03)
+    assert cp._with_slack(acts, acts[0][1], "t", Ok(), 0.0).back_m == pytest.approx(0.02)
+    assert cp._with_slack(acts[:1], acts[0][1], "t", Ok(), 10.0).back_m == pytest.approx(0.02)
+
+
+def test_push_chain_ignores_pushed_objects_initial_overlap_behind():
+    """[실측 PC2 10/13 inspect_20261013_060416_812Z] 에어팟을 +y 로 밀면 몽키가 같이 밀림 — 몽키 외접 박스(170 × 61)가 손잡이 쪽
+    캐러멜과 처음부터 겹쳐도 캐러멜은 +y 쪽 뒤라 같이 밀지도 막지도 않음 (예전: 캐러멜까지 밀려다 0 mm)."""
+    sizes = dict(SIZES, toy_wrench=[0.17, 0.061, 0.0185])
+    objs = [obj("airpods_case#1", "airpods_case", 0.1079, 0.0219, yaw=0.0061),
+            obj("caramel_box#1", "caramel_box", 0.0361, 0.0221, yaw=-0.0083),
+            dict(obj("toy_wrench#1", "eraser", 0.1135, 0.0524, yaw=-0.1916), **{"class": "toy_wrench"}),
+            obj("eraser#1", "eraser", 0.1732, 0.0103, yaw=0.0208)]
+    assert cp.overlaps(objs[2], objs[1], sizes.get)
+    _, done, pushed = cp.push_move(objs, "airpods_case#1", (0.0, 1.0), 0.06, [0.2099, 0.286, 0.0684], sizes.get, cp.pushable)
+    assert done == pytest.approx(0.06) and pushed == ["toy_wrench#1"]
+
+
+def test_press_point_center_only_class():
+    """[실측 PC2 10/13] 더 높은 에어팟 옆 몽키: 가운데는 손가락이 에어팟에 걸림 → 예전엔 긴 변 따라 머리 쪽(윗면이 top_z 보다
+    낮음)을 눌러 접촉 없음. center_only 종류는 가운데(폭 방향 비킴만)만 — 막히면 None. 에어팟에서 떨어지면 가운데 근처를 누름
+    [사용자 10/13 "몽키 중앙 부분을 눌러야지"]."""
+    sizes = dict(SIZES, toy_wrench=[0.17, 0.061, 0.0185])
+    air = obj("airpods_case#1", "airpods_case", 0.1079, 0.0219, top=0.0229)
+    w = dict(obj("w", "eraser", 0.1135, 0.0524, yaw=-0.1916, top=0.016), **{"class": "toy_wrench"})
+    kw = {"finger_r_mm": 16.0, "narrow_of": lambda c: 0.0259}
+    assert cp.press_point([air, w], "w", sizes.get, **kw) is not None                     # 아무 데나 → 머리 쪽
+    assert cp.press_point([air, w], "w", sizes.get, center_only=("toy_wrench",), **kw) is None
+    far = dict(w, pose=dict(w["pose"], position=[0.1135, 0.0574, 0.0]))                 # 5 mm 떨어지면 폭 방향으로 비켜 가운데
+    p = cp.press_point([air, far], "w", sizes.get, center_only=("toy_wrench",), **kw)
+    assert p is not None and abs((p[0] - 0.1135) * 0.9817 - (p[1] - 0.0574) * 0.1904) < 1e-6   # 긴 변 방향으로는 가운데
+    assert cp.press_point([far], "w", sizes.get, center_only=("toy_wrench",), **kw) == pytest.approx((0.1135, 0.0574))

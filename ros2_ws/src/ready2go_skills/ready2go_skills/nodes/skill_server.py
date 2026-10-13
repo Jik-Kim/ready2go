@@ -232,6 +232,10 @@ class DryOracle:
         group = {oid} | clp.riders(objs, oid)
         others = [o for o in objs if o["id"] not in group]
         dx, dy = (after["pose"]["position"][i] - t["pose"]["position"][i] for i in (0, 1))
+        n_ = math.hypot(dx, dy)
+        if n_ > 0:                                               # 처음부터 뒤·옆에 맞붙은 물체는 끄는 길에서 뺌 (clear_plan._behind, 실측 PC2 10/13)
+            side = clp._behind(objs, oid, (dx / n_, dy / n_), size_of)
+            others = [o for o in others if o["id"] not in side]
         for k in range(1, 21):
             mid = clp.moved(t, dx * k / 20.0, dy * k / 20.0)
             hit = next((o["id"] for o in others if clp.collide(mid, o, size_of)), None)
@@ -550,7 +554,7 @@ class SkillServer(Node):
         if pose_name in ("drawer_top_view", "drawer_approach") or (pose_name == "home" and not self.held and not getattr(self, "hold_unknown", None)):
             # 탑뷰·바텀뷰(J6 약 200° 회전)·손잡이 앞 → 이 이동만 따로 빠르게 [사용자 10/08]. 빈손 홈도 같은 속도
             # [사용자 10/12 "서랍 닫고 홈 가는 게 느림, ready 갈 때랑 같게"] — 쥔 채·쥐었는지 모름(hold_unknown, #223)이면 서버 관절 속도 그대로 (#235 A·PM)
-            sp = self.prm()["speed"]
+            sp = self._speed()
             vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
         ok = self.robot.movej_async(joints, vel, acc)
         if ok is False and (blend or moving):               # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
@@ -577,7 +581,7 @@ class SkillServer(Node):
     def _free_vel(self, cur=None):
         """빈 공간 직선 속도 (서랍 밖으로 빼기·들고 나오기·트레이 위 올리기 등). cur 를 주면 서랍 위에서는 line_mm_s 로 —
         누르기·끌기·집기/놓기 마지막·손잡이 접근은 각자 속도 그대로 [사용자 10/07 저녁 "이동은 빠르게, 넛지·주요 기능은 조심"]."""
-        sp = self.prm()["speed"]
+        sp = self._speed()
         if cur is not None and self._over_drawer(cur):
             return self._in_vel()
         return sp.get("free_mm_s", sp["line_mm_s"])
@@ -585,7 +589,7 @@ class SkillServer(Node):
     def _in_vel(self):
         """서랍 안·위 직선 속도 (경유점 → 물체 위, 집으러 내려가기, 서랍 안에서 올리기) — 큰 이동보다 느리게
         [사용자 10/07 밤 "탑뷰·옮기기·문 열고 닫기는 크게 빠르게, 서랍 안 움직임은 속도 낮춰"]."""
-        sp = self.prm()["speed"]
+        sp = self._speed()
         return sp.get("in_drawer_mm_s", sp["line_mm_s"])
 
     def _exit_drawer(self, goal, cur):
@@ -718,7 +722,7 @@ class SkillServer(Node):
             return early
         vel, acc = self.joint_vel, self.joint_acc
         if in_drawer:                                       # 탑뷰 → 경유점: 거의 손목(J6 약 170°)만 돌아감 → 탑뷰처럼 따로 빠르게 [사용자 10/10 "넛지하러 갈 때 돌리는 게 느림"]
-            sp = self.prm()["speed"]
+            sp = self._speed()
             vel = sp.get("in_drawer_joint_deg_s", vel)
             acc = sp.get("in_drawer_joint_acc_deg_s2", acc)
         bad = sf.after_command(self.robot.movej_async(joints, vel, acc), what=f"movej({stage})",
@@ -797,7 +801,7 @@ class SkillServer(Node):
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
         if early:
             return early
-        sp = self.prm()["speed"]                          # 부드럽게: 가속 = 속도(1 s에 최고 속도), 회전 따로 (10/06 기울일 때 쿵쿵)
+        sp = self._speed()                          # 부드럽게: 가속 = 속도(1 s에 최고 속도), 회전 따로 (10/06 기울일 때 쿵쿵)
         kw = {"radius": radius} if radius > 0 else {}
         start = self.robot.posx() if resend and watch is None else None
 
@@ -908,7 +912,7 @@ class SkillServer(Node):
         early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
         if early:
             return early
-        sp = self.prm()["speed"]
+        sp = self._speed()
         start = self.robot.posx()
         if start is not None:                               # 반지름이 구간 절반에 딱 맞으면 제어기가 반올림으로 거부 → 여유 (모든 블렌딩 공통) [실측 PC2 10/08]
             radii = mp.safe_blend_radii(start, points, radii)
@@ -1382,7 +1386,25 @@ class SkillServer(Node):
             return cache[cls]
         return size_of
 
+    def _speed(self):
+        """speed 설정 — 넛지 동작 중(nudge_object, make_room 포함)이면 speed.nudge 값으로 덮어씀 [사용자 10/13 PC2 "clear 할 때
+        넛지하러 갈 때 기울이거나 하는 게 진짜 빨라서 무섭다, 이동 자체도 빨라"]. 서랍 안 직선·경유점 관절·손목 회전에 적용.
+        탑뷰·손잡이 앞 이동(move_to_named_pose)·서랍 열고 닫기·집기 마지막·끌기 속도는 그대로."""
+        sp = self.prm()["speed"]
+        if getattr(self, "_careful", False) and sp.get("nudge"):
+            return {**sp, **sp["nudge"]}
+        return sp
+
     def _do_nudge_object(self, goal, params):
+        """nudge_object — 넛지 속도(speed.nudge)로 (_speed)."""
+        prev = getattr(self, "_careful", False)
+        self._careful = True
+        try:
+            return self._do_nudge_object_inner(goal, params)
+        finally:
+            self._careful = prev
+
+    def _do_nudge_object_inner(self, goal, params):
         if (err := self._refuse_if_hold_unknown()):
             return err, None
         target, drawer_id = params.get("target") or {}, params.get("drawer_id")
@@ -1634,8 +1656,10 @@ class SkillServer(Node):
                           axes=clp.AXES if prm["drag"].get("push_inward_ok") else clp.AXES[:3],
                           max_shift_m=prm["drag"]["max_shift_mm"] / 1000.0, max_chain=int(mr.get("max_chain", 2)),
                           round_classes=tuple(prm["pick"].get("round_classes") or ()),
-                          press_finger_r_mm=float(mr["press_finger_r_mm"]),
-                          remove_first=bool(mr.get("remove_first", True)),
+                          press_finger_r_mm=float(mr["press_finger_r_mm"]), narrow_of=self._narrow_width,
+                          press_center_only_classes=tuple(mr.get("press_center_only_classes", ("toy_wrench",))),
+                          sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
+                          remove_first=bool(mr.get("remove_first", True)), slack_mm=float(mr.get("slack_mm", 0.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
     def _make_room(self, goal, params, drawer_id, target):
@@ -1651,6 +1675,8 @@ class SkillServer(Node):
         if bad:
             return bad, out
         cfg = self._room_cfg(drawer_id)
+        if "remove_first" in params:                              # 부르는 쪽이 이번만 바꿈 — B clear 가 밀기가 제자리일 때 [사용자 10/13]
+            cfg = dataclasses.replace(cfg, remove_first=bool(params["remove_first"]))
         a = clp.plan_next(objs, tid, DryOracle(self, drawer_id), cfg)
         info = {"action": a.kind, "moved_id": a.target or None, "ready_to_pick": False, "reason": a.reason,
                 "pushed_ids": [], "pushed_after": []}

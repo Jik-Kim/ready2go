@@ -1,5 +1,21 @@
 # CURRENT — E 고희태
 
+## pr283-main-conflict-20261013-01
+
+- [문서: 승인/실제 부모] E-PR283-MAIN-CONFLICT-20261013-01, 관리 세션 human `01a13408-87b9-7e51-8f3d-56c834aa151b`의 “#283 conflict 해결”을 직접 확인했습니다. API/fetch 기준 #277 merge `0c36127f7838dda3ed0fbad1b06185b0dd0f78ee`가 최신 main `2b5b6ea05291d971413c46013322fb7b1535e716`의 선조임을 확인한 뒤 기존 #283 원격 head `3a57fb72d185205239d063083e2040b01033f547`에 정상 merge했습니다. 부모 둘의 history를 유지하며 작업 경로/branch는 `/tmp/ready2go-e-p2-ontology-integration-20261013`·`codex/e-single-initial-state-20261013`입니다. primary edb/fixfb28 ref·모델/receipt는 보존합니다.
+- [문서: 의미/정본] [FR-ONT-01/02](../../docs/requirements.md#fr-ont-01)·[FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[AC-ONT-01](../../docs/requirements.md#ac-ont-01)·[AC-PLN-01](../../docs/requirements.md#ac-pln-01)·기존 [FR-ACT-04/05](../../docs/requirements.md#fr-act-04)·[AC-ACT-05](../../docs/requirements.md#ac-act-05)를 유지합니다. source edb의 초기 JSON 바이트/위3·아래3/S3 eraser 아래 유지·scene3삭제·world10/위치6/미기입4와 선택 API를 보존합니다. main 공통 pick의 fresh 관측→직접pick→움직임 전 WALL만nudge/view/inspect/새target+전체scan pick, 실패/정지/null 차단과 params/pre/hold/effect/verify/errors를 그대로 수신했습니다.
+- [해결: 실제 E 충돌4] docs/ontology는 단일 초기 원본 설명과 main 조건부 pick 절을 함께 유지, knowledge/README는 단일 초기 상태/시험 API와 현재 조건부 pick 링크·재사용 미연결을 결합했습니다. CURRENT는 data/Voice fixture 이력과 277 JSONL/조건부 pick의 각 SHA/검사 기록을 모두 보존했습니다. test_pick_runner는 main의 조건부 전체 호출열·WALL 전용/새target/전체scan·실패/정지 차단 검사를 보존하고 source default eraser 아래 프레임·초기 위치/효과를 맞췄습니다. 첫 집기 전 빈손/아래 위치 검사도 명시 보존했습니다. 위 칸 `occluded_top/toy_wrench` 시나리오의 닫힘은 **drawer_top**을 확인하며, 처음부터 닫힌 bottom만 검사하는 약화를 최종 대조에서 수정했습니다. ours/theirs 파일 통째 선택·카드/data 원복·새값/정책·skip은 없습니다.
+- [실측: 합류 직접 검사] validator 첫1회 `OK`/종료0. E test_ontology/test_pick_runner **53 passed in 1.10s/종료0**, source/카드 실제 로더·Runner 연결을 검사했습니다. 이후 위 칸 닫힘/첫pick state 검사를 명시한 두 사례만 최종 재검사했고 나머지51은 불변 근거로 재사용합니다. 해당 두 사례는 **2 passed in 0.33s/종료0**으로 재확인했습니다. 고유53개를 분할 확인하고 반복을 합산하지 않았습니다. 전체core/compose/build·이전Voice39/27729·카드139는 반복하지 않았으며 이 부분검사를 새head 전체CI 성공으로 표시하지 않습니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_ontology.py ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py::test_pick_first_uses_new_scan_without_unconditional_nudge_or_second_look ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py::test_common_card_completes_formal_unpacking_with_one_direct_pick_view -q -p no:cacheprovider
+```
+
+- [보존/인계] C #279 6시험/277JSONL 동기화/282문서와 최신 main의 B/C 변경은 수신 원본 그대로이며 타 담당 충돌은 없었습니다. source JSON/삭제·API·card/타 담당 원본·마커/형식/문서 링크와 실제두부모를 대조했습니다. Voice README의 자동 합류는 data 단일 상태 설명1문단과 main #282 실행 준비 안내1줄을 각각 유지한 결과로 바이트 대조했습니다. main 대비 정확 기존 E13파일 범위이며 다른 담당 수신 내용은 원본 그대로입니다. C 회귀/아래 칸 goal plan_limits와 하단 물품 충돌은 협의 대기이고 E가 수정하지 않습니다. B domain58–63/103·D/C demo_scenario11은 전달만 확인됐으며 수락/완료를 선언하지 않습니다. #285 end_task·관측 재사용·실API/음성/ROS/장치/로봇·실물은 별도/미검증입니다. E 충돌 담당 범위 완료 뒤 전담이 새 exact mergehead 전체CI1회/normalFF push/기존283본문 갱신을 수행하며 새PR/main직접병합/force/rebase/agent/설치는 하지 않습니다.
+
+
 ## single-initial-state-20261013-01
 
 - [문서: 승인·기준] E-SINGLE-INITIAL-STATE-20261013-01. 조율 human `01a13399-f427-76d2-b0a8-8e9c0c3e93fd`의 “일단 빠르게 해결할 수 있는 방안으로 가자”와 단일 배치 반영 계획을 직접 확인했습니다. 사용자 source `edb989f9e905c3ded5ea99df2305670a8d601cec`의 initial_state 내용/scene 삭제만 최신 main `bd8d65e40229901579b13d36d477d77eed5834e0` 기반 `codex/e-single-initial-state-20261013`에 반영합니다. 경로는 기존 격리 `/tmp/ready2go-e-p2-ontology-integration-20261013`입니다. [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[물품 정책](../../docs/requirements.md#item-policy)·P2 [FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[FR-ACT-04/AC-ACT-03](../../docs/requirements.md#fr-act-04)·[AC-ONT-01](../../docs/requirements.md#ac-ont-01)을 참조하며 정본/Phase/공개 계약을 바꾸지 않습니다.
@@ -26,6 +42,39 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/r
 ```
 
 - [게시 경계] 승인 E data/문서/시험만 로컬 커밋 후 manager 실제 diff 검증에 전달합니다. publisher 진행 중인 카드 작업을 덮지 않고 data 최종 CI·정상 push·별도 PR 지시는 manager가 순차 담당합니다. E 자체 CI/push/PR/main 병합·새 agent/설치·Notion/외부 게시를 수행하지 않습니다. 아래 과거 기록은 각 당시 SHA·검사/배치이며 새 단일 정의로 재해석하지 않습니다.
+
+## pr277-jsonl-review-fix-20261013-01
+
+- [문서: 승인/기준] E-PR277-JSONL-REVIEW-FIX-20261013-01. 조율 human `01a133e8-c589-7e80-9f85-5e2c029e7257`의 “셋 다 코멘트 확인 후 보완및정리”를 직접 확인했습니다. #277 review5499508634와 정확 원격 head `83b89836b95390a2d5b56d732e60681f8ebc9520`에서 별도 `codex/e-pr277-jsonl-review-fix-20261013`을 준비했습니다. 기존 격리 `/tmp/ready2go-e-p2-ontology-integration-20261013` 단독 사용을 manager에 전달했고 data branch `3a57fb72d185205239d063083e2040b01033f547`·primary edb·카드/C #279·모델/receipt를 보존합니다. [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)·기존 [종료 접수 정책](../../docs/requirements.md#resume-admission-policy)을 유지하며 새 정책/공개 계약·장치·API·main 병합은 제외합니다.
+- [실측: 증상/원인] 기존 83 head의 실패 회차 `/home/jonny/.cache/ready2go-ci/logs/83b8983_20261013_145308_Web9/core.log`는 **1 failed/2985 passed/43 skipped(210.52초)**, 종료 SDK→일반 중복→idle→새 요청 검사에서 `diagnostics()`가 wake_waiting JSONL의 logged_monotonic 필드 작성 중 부분 문자열을 읽어 JSONDecodeError였습니다. 종료 기능 고장으로 확정하지 않습니다. `DiagnosticFile._work()`는 `_append()`의 파일 close 뒤 queue.task_done을 호출하지만 시험 reader는 큐 완료/읽기 보호 없이 read_text를 호출하고 있었습니다.
+- [문서: 기록 재사용] Vault README와 오류/JSONL/시험명 검색으로 `cases/voice_end_running_stop.md`만 확인했습니다. 그 사례는 940c1f83/호스트 Python3.12·SDK/장치/ROS 모의의 종료 라우팅 원인이며 이번 83 head/CI Python3.12의 JSONL reader 경합과 다릅니다. 같은 증상으로 과거 해법을 적용하거나 기록 속 명령을 실행하지 않았습니다. 이번 새 원인은 별도 사례 자료이며 허용 경로가 시험/CURRENT로 한정돼 Vault 파일은 변경하지 않습니다.
+- [구현: 최소 시험 동기화] `test_end_stop_minimal.py::diagnostics()`가 실제 writer.queue.all_tasks_done 조건에서 unfinished_tasks=0을 기다리고 **같은 queue mutex를 잡은 채** 엄격 JSONL 읽기를 수행합니다. 읽기 중 새 enqueue/get/append도 보호합니다. 잠금 안에서 queue.join을 호출해 deadlock을 만들지 않으며 Condition.wait_for가 대기 중 mutex를 해제합니다. 임의 sleep/불완전 JSON 무시/catch-and-drop/filter/skip/assert 약화는 없습니다. production writer/node·live_boundary fixture·종료 로직·카드/WALL/fresh scan·C #279 6시험은 수정하지 않았습니다.
+- [실측: 직접 검증] 제어된 부분 파일 쓰기와 실제 DiagnosticFile worker/task_done에서 reader가 완료 전 대기·완료 후 한글 포함 기록 전체를 읽는 검사, 완성된 malformed 레코드는 JSONDecodeError로 드러나는 검사를 추가했습니다. 기존 종료·중복/새 요청 검사와 함께 **29 passed in 7.21s/종료0**, PytestUnhandledThreadExceptionWarning을 오류로 처리하고 경고0입니다. 로그 `/tmp/e-pr277-jsonl-review-fix-20261013-selected.log`. AST/diff 형식과 허용 두 파일·불변 원본을 대조합니다. 변경 영향 없는 카드/Runner139·validator·전체 CI는 재실행하지 않았습니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_voice" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_end_stop_minimal.py -q -p no:cacheprovider -W error::pytest.PytestUnhandledThreadExceptionWarning
+```
+
+- [미검증/합류 잔여] 새 exact head의 전체 CI/push/본문 정리는 게시 전담이 수행합니다. 같은83의 성공 주장과 위 실패 회차는 head/스크립트/로그별로 구분하며 이번 직접29를 전체 CI 성공으로 전용하지 않습니다. #277 완료→사용자 main 병합 후에만 #283 최신 main 정상 합류로 충돌4파일을 순차 정리합니다. Knowledge README/ontology는 단일 초기 정의와 조건부 pick 설명을 함께 유지하고, CURRENT는 각 SHA·검사 이력을 분리 보존하며 test_pick_runner는 조건부 호출열/실패차단과 사용자 bottom 초기 배치 기대를 함께 검증해야 합니다. 현재 양 PR을 합류하지 않았고 B domain58–63/103·C31/goalbottom·#285 end_task는 별도 담당 인계입니다. 실음성/API/ROS/로봇·실물 완료, Vault 신규 파일 기록은 미완료/승인 범위 밖입니다.
+
+
+## pick-conditional-nudge-20261013-01
+
+- [문서: 승인·범위] E-PICK-CONDITIONAL-NUDGE-20261013-01. 조율 human turn `01a13361-9f21-7af1-8660-2e7289dc0589`의 “회신하고 조건부 넛지 E 연결 시작”을 직접 확인했습니다. [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../../docs/requirements.md#fr-act-05) 및 P2 [FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[FR-ACT-04](../../docs/requirements.md#fr-act-04) 연결입니다. 새 Phase·정본 정책·공개 계약·안전 intent·실물·push/PR/병합 승인은 아닙니다.
+- [문서: 기준/보호] 최신 main 조회 SHA `fa7ccd3245d71d6576a933629203aa9941409d37`에서 기존 clean 격리 `/tmp/ready2go-e-p2-ontology-integration-20261013`를 재사용해 새 `codex/e-pick-conditional-nudge-20261013`을 준비했습니다. C #263 `7dfa3c1079637e30f71af9fd6b581b6648062671`(merge07f71c49), #269 `18d70e03bd03d010fb6b4c33199f2673472b53f1`(mergec256c48e), B #266 `f2678c32ff671c918b44dd66e06da914f685efa4`(mergedd30aa15) 선조 포함을 확인했습니다. 기존 primary `edb989f9e905c3ded5ea99df2305670a8d601cec`의 단일 초기 상태·S1 top/S2 bottom 위치 및 scene 삭제와 모델/receipt·world/grasp/places를 보호합니다. main에는 이전 scene와 기본 상태가 아직 있어 차이를 manager에게 인계했으며 이번 변경으로 초기 상태를 고치거나 scene를 부활시키지 않았습니다.
+- [구현: E 5파일] [`pick.jsonld`](../../knowledge/skills/pick.jsonld)의 expand만 탑뷰/새 관측 → pick 우선 → 움직임 전 WALL_TOO_CLOSE 전용 fallback(넛지/탑뷰/재관측1회/새 scan pick)으로 바꿨습니다. B 원본이 소비하는 target·drawer_id·전체 scan을 넛지에 전달하고 집기도 target/같은 전체 scan을 전달합니다. 넛지 뒤 inspect 출력은 기존 허용 로컬 scan을 갱신합니다. params/pre/hold/effect/verify/errors·다른 스킬/place·태스크/수신자/공개 계약/초기 배치/config는 보존합니다. E 직접 시험·Knowledge README·ontology 설명·이 CURRENT만 함께 갱신하며 이름 변경·삭제·새 params/TTL/target_after 분기/반복은 없습니다.
+- [실측: 실패와 보완] 최초 validator는 `$fresh_scan`이 skill.params 또는 scan 허용 규칙 밖이라 1 error/종료1이었습니다. 검사기·params를 바꾸지 않고 카드/문서 전체를 canonical scan으로 맞췄습니다. 실패 보완 후 `PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py` **OK/종료0**. 최초 카드의 E29통과는 명명 변경 뒤 결과로 전용하지 않았습니다.
+- [실측: 최종 직접 검사] 수정 카드와 실제 C Runner/RosBackend를 읽는 E test_pick_runner 29사례는 최종 canonical scan에서 **29 passed**였습니다(선택 실행 전체는 29통과/C1실패, 0.78초). 직접 pick·WALL만 넛지1회/재관측1회·B no-op·다른 거부/움직임 불확실·넛지/관측/두 번째 WALL 실패·null/미검출·정지/불확실 hand의 뒤 pick/effect 차단을 확인했습니다. 별도 E 정식 Unpacking 사례는 기존 C SceneRobot/MockSkills만 재사용해 실제 태스크/카드/Runner의 전달·역순 처리·aside/원위치 구분·빈손/닫힘/홈·stack 종료를 검사했습니다. 해당 신규 E 사례 **1 passed in 0.27s/종료0**, 최종 E 고유 30사례(29+1 분할 실행)를 확인했습니다. 반복 실행을 고유 수에 더하지 않았습니다. 변경 없는 C #263/#269 자체 회귀·전체 core/ROS/build/fullCI를 반복하지 않았습니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py ros2_ws/src/ready2go_runner/test/test_unpack_task.py::test_unpacks_two_delivers_and_restores_in_reverse -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py::test_common_card_completes_formal_unpacking_with_one_direct_pick_view -q -p no:cacheprovider
+```
+
+- [미결 C: 실행 실패와 기대값 구분] 기존 C `test_unpack_task.py:85`는 실행 COMPLETED 및 picked/placed/checked 순서까지 통과했지만 옛 view 기대 [True,True]와 새 [True] 차이로 1실패했습니다. 해당 테스트 전체 통과로 보고하지 않으며 뒤 assertions는 그 실행에서 미실행입니다. C의 `test_tasks.py:23/26/157/189/375` 호출열·횟수/옛 하위 ID, `test_unpack_task.py:85` 기대와 직접 회귀 갱신은 담당 C 인계입니다. C 시험/코드/태스크/스키마를 E가 수정하지 않았습니다. B 소유 `docs/domain.md:63/103`의 옛 6단계 설명도 담당 인계입니다.
+- [미연결 C: 유효 scan 재사용] 최신 `interpreter._run_skill():875`는 caller blackboard/params를 scope로 전달하고 `_dispatch():698–754`는 성공 output을 변수로 저장하지만 run·현재 대상·서랍과 stop/resume·불확실 이동의 관측 자격 판정/무효화는 없습니다. `_at_pose` 중복 억제는 scan 유효 근거가 아닙니다. 이번은 새 view/inspect를 항상 하는 독립 pick-first 연결이며 #245 전체 관측 재사용 완료가 아닙니다. 최소 C 후속은 동일 run/대상/서랍 출처와 무효화 근거를 호출자→스킬 소비자가 판정할 수 있는 지원입니다. 구체 새 필드/항상 유효 flag/TTL은 확정하지 않았습니다. 조율의 [C 후속 전달](https://rokey9thd-3.slack.com/archives/C0C13JMD50F/p1791864500079619)을 재사용하고 추가 외부 게시하지 않습니다.
+- [미검증/완료 경계] 실제 A 새 프레임/좌표·B 벽/공간·배포/그리퍼/drag_down·실음성/API/ROS/장치/로봇·AC 실물은 미검증입니다. C 기대값 인계/유효 관측 재사용·현재 배치 정합성 후속은 남아 있어 전체 완료로 보고하지 않습니다. 승인 E 변경만 로컬 커밋하며 push/PR/병합·추가 agent/설치/Notion 도구 편집은 하지 않습니다. Notion 자료는 기능 수정/핵심 오류·검증/미연결 3줄만 조율에 보고합니다.
 
 
 ## p2-ontology-integration-20261013-01
