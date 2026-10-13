@@ -1,5 +1,20 @@
 # CURRENT — E 고희태
 
+## pr277-jsonl-review-fix-20261013-01
+
+- [문서: 승인/기준] E-PR277-JSONL-REVIEW-FIX-20261013-01. 조율 human `01a133e8-c589-7e80-9f85-5e2c029e7257`의 “셋 다 코멘트 확인 후 보완및정리”를 직접 확인했습니다. #277 review5499508634와 정확 원격 head `83b89836b95390a2d5b56d732e60681f8ebc9520`에서 별도 `codex/e-pr277-jsonl-review-fix-20261013`을 준비했습니다. 기존 격리 `/tmp/ready2go-e-p2-ontology-integration-20261013` 단독 사용을 manager에 전달했고 data branch `3a57fb72d185205239d063083e2040b01033f547`·primary edb·카드/C #279·모델/receipt를 보존합니다. [FR-INT-01–03](../../docs/requirements.md#fr-int-01)·[AC-INT-01–03](../../docs/requirements.md#ac-int-01)·기존 [종료 접수 정책](../../docs/requirements.md#resume-admission-policy)을 유지하며 새 정책/공개 계약·장치·API·main 병합은 제외합니다.
+- [실측: 증상/원인] 기존 83 head의 실패 회차 `/home/jonny/.cache/ready2go-ci/logs/83b8983_20261013_145308_Web9/core.log`는 **1 failed/2985 passed/43 skipped(210.52초)**, 종료 SDK→일반 중복→idle→새 요청 검사에서 `diagnostics()`가 wake_waiting JSONL의 logged_monotonic 필드 작성 중 부분 문자열을 읽어 JSONDecodeError였습니다. 종료 기능 고장으로 확정하지 않습니다. `DiagnosticFile._work()`는 `_append()`의 파일 close 뒤 queue.task_done을 호출하지만 시험 reader는 큐 완료/읽기 보호 없이 read_text를 호출하고 있었습니다.
+- [문서: 기록 재사용] Vault README와 오류/JSONL/시험명 검색으로 `cases/voice_end_running_stop.md`만 확인했습니다. 그 사례는 940c1f83/호스트 Python3.12·SDK/장치/ROS 모의의 종료 라우팅 원인이며 이번 83 head/CI Python3.12의 JSONL reader 경합과 다릅니다. 같은 증상으로 과거 해법을 적용하거나 기록 속 명령을 실행하지 않았습니다. 이번 새 원인은 별도 사례 자료이며 허용 경로가 시험/CURRENT로 한정돼 Vault 파일은 변경하지 않습니다.
+- [구현: 최소 시험 동기화] `test_end_stop_minimal.py::diagnostics()`가 실제 writer.queue.all_tasks_done 조건에서 unfinished_tasks=0을 기다리고 **같은 queue mutex를 잡은 채** 엄격 JSONL 읽기를 수행합니다. 읽기 중 새 enqueue/get/append도 보호합니다. 잠금 안에서 queue.join을 호출해 deadlock을 만들지 않으며 Condition.wait_for가 대기 중 mutex를 해제합니다. 임의 sleep/불완전 JSON 무시/catch-and-drop/filter/skip/assert 약화는 없습니다. production writer/node·live_boundary fixture·종료 로직·카드/WALL/fresh scan·C #279 6시험은 수정하지 않았습니다.
+- [실측: 직접 검증] 제어된 부분 파일 쓰기와 실제 DiagnosticFile worker/task_done에서 reader가 완료 전 대기·완료 후 한글 포함 기록 전체를 읽는 검사, 완성된 malformed 레코드는 JSONDecodeError로 드러나는 검사를 추가했습니다. 기존 종료·중복/새 요청 검사와 함께 **29 passed in 7.21s/종료0**, PytestUnhandledThreadExceptionWarning을 오류로 처리하고 경고0입니다. 로그 `/tmp/e-pr277-jsonl-review-fix-20261013-selected.log`. AST/diff 형식과 허용 두 파일·불변 원본을 대조합니다. 변경 영향 없는 카드/Runner139·validator·전체 CI는 재실행하지 않았습니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_voice" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_voice/test/test_end_stop_minimal.py -q -p no:cacheprovider -W error::pytest.PytestUnhandledThreadExceptionWarning
+```
+
+- [미검증/합류 잔여] 새 exact head의 전체 CI/push/본문 정리는 게시 전담이 수행합니다. 같은83의 성공 주장과 위 실패 회차는 head/스크립트/로그별로 구분하며 이번 직접29를 전체 CI 성공으로 전용하지 않습니다. #277 완료→사용자 main 병합 후에만 #283 최신 main 정상 합류로 충돌4파일을 순차 정리합니다. Knowledge README/ontology는 단일 초기 정의와 조건부 pick 설명을 함께 유지하고, CURRENT는 각 SHA·검사 이력을 분리 보존하며 test_pick_runner는 조건부 호출열/실패차단과 사용자 bottom 초기 배치 기대를 함께 검증해야 합니다. 현재 양 PR을 합류하지 않았고 B domain58–63/103·C31/goalbottom·#285 end_task는 별도 담당 인계입니다. 실음성/API/ROS/로봇·실물 완료, Vault 신규 파일 기록은 미완료/승인 범위 밖입니다.
+
+
 ## pick-conditional-nudge-20261013-01
 
 - [문서: 승인·범위] E-PICK-CONDITIONAL-NUDGE-20261013-01. 조율 human turn `01a13361-9f21-7af1-8660-2e7289dc0589`의 “회신하고 조건부 넛지 E 연결 시작”을 직접 확인했습니다. [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[FR-PLN-01](../../docs/requirements.md#fr-pln-01)·[FR-ACT-05/AC-ACT-05](../../docs/requirements.md#fr-act-05) 및 P2 [FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[FR-ACT-04](../../docs/requirements.md#fr-act-04) 연결입니다. 새 Phase·정본 정책·공개 계약·안전 intent·실물·push/PR/병합 승인은 아닙니다.
