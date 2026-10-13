@@ -5,9 +5,27 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 X=(docker compose exec ros2-core /entrypoint.sh)
 W=(-w 1 --max-wait-time-secs 10)   # 받는 쪽(Runner·음성 노드)이 없으면 10 s 뒤 그만 (계속 기다리지 않게)
-pub() { "${X[@]}" ros2 topic pub --once "${W[@]}" /voice/intent std_msgs/msg/String "data: '$1'" || echo "⚠️  Runner 가 안 받음 — pc2_up.sh 확인"; }
+# ROS 메시지 YAML 을 Python 으로 만든다 — 문장에 따옴표가 있어도 깨지지 않게 (#313 E 리뷰 P2). data 값은 JSON 문자열 표기(YAML 호환)
+msg() { python3 -c 'import json, sys; print("data: " + json.dumps(sys.argv[1], ensure_ascii=False))' "$1"; }
+intent_json() {  # goal <목표 JSON 목록> <문장> | find <물품 키> → /voice/intent JSON
+  python3 - "$@" <<'PY'
+import json, sys
+kind, args = sys.argv[1], sys.argv[2:]
+if kind == "goal":
+    doc = {"intent": "achieve_goal", "goals": json.loads(args[0]), "confidence": 0.95, "source": {"stt_text": args[1]}}
+else:
+    doc = {"intent": "find_item", "targets": [args[0]], "confidence": 0.95, "source": {"stt_text": f"{args[0]} 찾아줘"}}
+print(json.dumps(doc, ensure_ascii=False))
+PY
+}
+pub() {   # 실패하면 안내 후 실패 코드 그대로 (#313 E 리뷰 P2)
+  local rc=0
+  "${X[@]}" ros2 topic pub --once "${W[@]}" /voice/intent std_msgs/msg/String "$(msg "$1")" || rc=$?
+  [ "$rc" = 0 ] || echo "⚠️  Runner 가 안 받음 (종료 코드 $rc) — pc2_up.sh 확인" >&2
+  return "$rc"
+}
 goal() {  # $1 = 목표 JSON 목록, $2 = 문장
-  pub "{\"intent\": \"achieve_goal\", \"goals\": $1, \"confidence\": 0.95, \"source\": {\"stt_text\": \"$2\"}}"
+  pub "$(intent_json goal "$1" "$2")"
 }
 case "${1:-help}" in
   status|state)   # 긴 JSON 을 자르지 않고(--full-length) 보기 좋게
@@ -21,9 +39,12 @@ print(json.dumps(data, ensure_ascii=False, indent=2))'" ;;
   report) "${X[@]}" ros2 run ready2go_runner run_report -n "${2:-1}" ;;
   check)  "${X[@]}" ros2 run ready2go_runner run_report -n "${2:-20}" --check ;;
   md)     "${X[@]}" ros2 run ready2go_runner run_report -n "${2:-5}" --markdown ;;
-  say)    shift; "${X[@]}" ros2 topic pub --once "${W[@]}" /voice/text_override std_msgs/msg/String "data: '$*'" \
-            || echo "⚠️  음성 노드가 안 받음 — 터미널 ② pc2_voice.sh 확인 (급하면 find <물품>)" ;;   # E 음성 해석을 거침
-  find)   item=${2:?물품 키 (예: eraser)}; pub "{\"intent\": \"find_item\", \"targets\": [\"$item\"], \"confidence\": 0.95, \"source\": {\"stt_text\": \"$item 찾아줘\"}}" ;;
+  say)    shift; [ $# -gt 0 ] || { echo "say <문장>"; exit 2; }
+          rc=0; "${X[@]}" ros2 topic pub --once "${W[@]}" /voice/text_override std_msgs/msg/String "$(msg "$*")" || rc=$?
+          [ "$rc" = 0 ] || { echo "⚠️  음성 노드가 안 받음 (종료 코드 $rc) — 터미널 ② pc2_voice.sh 확인 (급하면 find <물품>)" >&2; exit "$rc"; } ;;
+  find)   item=${2:?물품 키 (예: eraser)}
+          [[ "$item" =~ ^[a-z][a-z0-9_]*$ ]] || { echo "물품 키는 영문 소문자·숫자·_ 만 (예: eraser, lip_balm)"; exit 2; }
+          pub "$(intent_json find "$item")" ;;
   goal)
     case "${2:-}" in
       1) goal '[{"predicate": "located_in", "subject": "eraser", "value": "handover_zone"}]' "지우개 트레이에 갖다 놔" ;;

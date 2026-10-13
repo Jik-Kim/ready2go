@@ -73,6 +73,13 @@ git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정
 
 끄기: `bash tools/dev/pc2_down.sh` (로그 저장 → `down` → 시작 상태 임시 변경이 남았으면 되돌리기 안내). 시작 상태 임시 변경(3a)은 ① 전에 그대로 한다.
 
+- **이미 떠 있으면 멈춤**: compose 컨테이너가 떠 있으면 `pc2_up.sh` 는 띄우지 않고 종료(코드 1) — 떠 있는 `ros2-core` 를 이어 쓰면 지금 checkout·시작 상태와 다른 기동을 "준비 끝"으로 볼 수 있음. `pc2_down.sh` 뒤 다시. 준비 확인은 이번 기동 시각 뒤 로그만 보고, 실패하면 로그 보기 없이 종료 코드 1(`~/ready2go_pc2_logs/<시각>/ready.txt`).
+- **`pc2_cmd.sh`**: `say`·`find`·`goal` 은 메시지를 Python 으로 만들어 문장에 따옴표가 있어도 깨지지 않음, `find` 물품 키는 영문 소문자·숫자·`_` 만. 전달 실패면 안내 후 0 이 아닌 종료 코드.
+- **범위 (#313 E 리뷰)**:
+  - **1단계 = 지금 통합점검**: `RUNNER_RESUMABLE` 비움(재개 모드 끔), 음성 `pc2_voice.sh`(기본 — E 제어 연결 꺼짐). S1~S3·목표 5종·음성 정지.
+  - **2단계 = 종료·복구·재개 실물**: `RUNNER_RESUMABLE=1` + 음성 `pc2_voice.sh --control`(`request_run_enabled:=true` — `evaluation_mode:=false` 만으로는 켜지지 않음) + E #315·B #297 머지 + 외력 칸 결정. 이 스크립트만으로 2단계 준비가 됐다고 보지 않음.
+- 시작 상태: `pc2_up.sh` 가 `initial_state.json` 의 위 칸·아래 칸 물품을 보여 줌. E #283(단일 P2 시작 상태 — 위 S1·아래 S2)이 머지되면 3a 임시 변경은 필요 없음.
+
 ## 2. 회차마다 순서
 
 ```
