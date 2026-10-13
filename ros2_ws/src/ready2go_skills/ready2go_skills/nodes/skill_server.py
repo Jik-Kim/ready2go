@@ -1323,16 +1323,6 @@ class SkillServer(Node):
             out.append(f)
         return out
 
-    def _grip_width(self):
-        """지금 그리퍼 폭 mm (조회 실패면 0 — 그러면 벌리는 명령을 보냄)."""
-        r = Rg2(self.rg2_ip)
-        try:
-            return float(r.status().width_mm)
-        except Exception:
-            return 0.0
-        finally:
-            r.close()
-
     def _force_quick(self):
         """기다리지 않고 0.03 s 간격 3번 평균 (조회 실패만이면 None)."""
         fs = self._force_reads(3, 0.03)
@@ -1458,6 +1448,21 @@ class SkillServer(Node):
                     sf.Outcome(False, NEIGHBOR_TOO_CLOSE, reason=f"끄는 길에 {who} — 띄우거나 {who} 먼저 치우기")), out
         tf, d = place["tf"], prm["drag"]
         speed = prm["speed"]
+        if target.get("class") in (d.get("hole_classes") or []) and plan.push_to_xy_m is None and stacked <= 0:
+            # 가운데가 뚫린 물체(마스킹테이프): 위에서 누르면 손끝이 구멍으로 빠져 바닥에 닿음 → 닫은 손가락을 구멍에 넣어 같은 방향·거리로
+            # 밀기 [사용자 10/13 "넛지 말고 안에 넣어서 밀기, 예외로"]. 구멍 안쪽 벽에 닿기 전 빈 거리(hole_slack_mm)만큼 더 감 [추정]
+            sx, sy = plan.shift_x_m, plan.shift_y_m
+            n = math.hypot(sx, sy)
+            ux, uy = sx / n, sy / n
+            cx, cy = target["pose"]["position"][:2]
+            slack = float(d.get("hole_slack_mm", 5.0)) / 1000.0
+            hplan = dataclasses.replace(plan, press_xy_m=(cx, cy), push_to_xy_m=(cx + ux * (n + slack), cy + uy * (n + slack)),
+                                        push_dir=(ux, uy))
+            hd = dict(d, push_start_gap_mm=slack * 1000.0, push_back_mm=float(d.get("hole_back_mm", 2.0)))
+            res, out = self._push_from_behind(goal, drawer_id, target, hplan, tf, hd, out)
+            if res.success:
+                res = sf.Outcome(True, reason=f"구멍에 손가락 넣어 밀기 — {res.reason}")
+            return res, out
         if plan.push_to_xy_m is not None:                               # 벽까지 밀기는 뒤에서 [사용자 10/11]
             who, why = self._neighbor(params, drawer_id, lambda objs, nb: self._push_finger_blocker(plan, target, not_under(objs), nb))
             if why or who:                                              # 손가락 내려갈 자리에 이웃 — 움직이기 전 [사용자 10/12 PC2]
@@ -1658,8 +1663,10 @@ class SkillServer(Node):
                           round_classes=tuple(prm["pick"].get("round_classes") or ()),
                           press_finger_r_mm=float(mr["press_finger_r_mm"]), narrow_of=self._narrow_width,
                           press_center_only_classes=tuple(mr.get("press_center_only_classes", ("toy_wrench",))),
+                          hole_classes=tuple(prm["drag"].get("hole_classes") or ()),
+                          front_keep_mm=float(mr.get("front_keep_mm", 10.0)), front_penalty_m=float(mr.get("front_penalty_m", 0.05)),
                           sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
-                          remove_first=bool(mr.get("remove_first", True)), slack_mm=float(mr.get("slack_mm", 0.0)),
+                          remove_first=bool(mr.get("remove_first", False)), slack_mm=float(mr.get("slack_mm", 10.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
     def _make_room(self, goal, params, drawer_id, target):
@@ -1684,7 +1691,8 @@ class SkillServer(Node):
         by = {o["id"]: o for o in objs}
         self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason}")
         if params.get("check_only"):                              # 판단 결과 공개 [E #245 제안] — 일반 넛지 check_only 와 같은 필드
-            out.update(needed=a.kind not in ("pick", "fail"), plan_code=(a.code or mp.NO_PUSH_ACCESS) if a.kind == "fail" else None)
+            fail_code = a.code if a.code in (NEIGHBOR_TOO_CLOSE, NO_FREE_SPACE, mp.NO_PUSH_ACCESS) else mp.NO_PUSH_ACCESS
+            out.update(needed=a.kind not in ("pick", "fail"), plan_code=fail_code if a.kind == "fail" else None)   # 결과 error_code 와 같게
         if a.kind == "pick":
             info.update(action="none", moved_id=None, ready_to_pick=True)
             out["target_after"] = by[tid]
@@ -1846,7 +1854,11 @@ class SkillServer(Node):
                   max_open_mm=prm["pick"]["max_open_width_m"] * 1000.0, tilt_align_deg=prm["pick"]["tilt_align_deg"],
                   axis_grasp=bool(prm["pick"].get("axis_grasp")), front_tilt_within_mm=prm["pick"].get("front_tilt_within_mm"),
                   round=cls in (prm["pick"].get("round_classes") or []) and bool(prm["pick"].get("round_wall")))
-        wall = mp.wall_blocks_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
+        # 손잡이를 잡는 물건(몽키·망치)은 손가락이 손잡이 폭만큼만 벌어짐 → 벽 확인도 그 폭으로 (외접 짧은 변 = 머리 폭 61 이면
+        # 앞벽에서 60 mm 떨어진 몽키도 "앞뒤 벽에 걸림") [실측 PC2 10/13 inspect_20261013_064400_105Z]
+        nw = self._narrow_width(cls)
+        wsize = [size[0], nw] + list(size[2:]) if nw and nw < size[1] else size
+        wall = mp.wall_blocks_grasp(target=target, size_m=wsize, interior_m=place.get("interior_m") or [0, 0, 0], g=gw)
         # 짧은 변이 벽에 걸리면: 넛지할 수 있으면 넛지 먼저(WALL_TOO_CLOSE), 넛지를 못 하는 자리면 긴 변 양끝으로 [사용자 10/10 우선순위]
         # 원통형이 옆벽에 붙으면 넛지 없이 긴 변 양끝 + 벽 쪽으로 기울임 (굴러감) [사용자 10/10 PC2 립밤]
         long_side = False
