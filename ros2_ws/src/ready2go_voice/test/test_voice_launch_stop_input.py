@@ -116,7 +116,7 @@ def test_actual_dummy_stdin_and_ctrlc_cleanup_without_ros_devices(monkeypatch,mo
     assert ('complete' in events)==(mode=='complete_exit') and stop.is_set()
 
 
-@pytest.mark.parametrize('text,kind',[('복구해',RecoveryRequest),('재개해',IndependentRegistration),('종료해',IndependentRegistration)])
+@pytest.mark.parametrize('text,kind',[('복구해',RecoveryRequest),('재개해',IndependentRegistration),('종료해',TaskEndCandidate)])
 def test_post_stop_explicit_audio_recovery_resume_end_remain_typed_and_single_use(cfg,text,kind):
     cfg['evaluation_mode']=False;ex=stopped(cfg);now=[6.];target=ex.begin_independent(now=5.,unique_target=True)
     events=[];session=VoiceSession(None,cfg,STT(text,now),clock=lambda:now[0],progress=lambda **e:events.append(e))
@@ -124,9 +124,14 @@ def test_post_stop_explicit_audio_recovery_resume_end_remain_typed_and_single_us
     assert any(e['event']=='safety_sdk_result' for e in events)
     if isinstance(candidate,IndependentRegistration):
         final=ex.independent_registered(target,WORK,2,now=7.,valid_state=True,evidence=SAFE)
-        assert isinstance(final,TaskEndCandidate) if text=='종료해' else final==WORK
+        assert final==WORK
         assert ex.independent_registered(target,WORK,2,now=7.,valid_state=True,evidence=SAFE) is None
-    else:assert ex.policy.work==WORK
+    else:
+        assert ex.policy.work==WORK
+        if isinstance(candidate,TaskEndCandidate):
+            assert candidate.work==WORK
+            assert ex.independent_registered(target,WORK,2,now=7.,valid_state=True,evidence=SAFE) is None
+            assert session.safety_audio(ex,target,audio()) is None
 
 
 def test_resume_without_recovery_evidence_is_rejected_and_work_preserved(cfg):

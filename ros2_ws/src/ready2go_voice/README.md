@@ -6,6 +6,18 @@
 
 [문서] 음성 별칭·LLM targets enum은 로딩한 `world.items`를 사용합니다. 현재 당근 펜을 제외한 활성 10종이며 은퇴 물품 요청은 실행 대상으로 허용하지 않습니다. 기존 학습 11종·과거 prefill 실측/개수와 현재 활성 목록을 구분합니다. 캐시·모델·키·실음성은 이번 변경으로 갱신/검증하지 않았습니다. 장면별 위치는 [Knowledge 선택 프리셋](../../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)을 참조합니다. Voice·Runner의 기본 로딩은 기존 P1이며 E 선택 로더를 추가한 것만으로 C의 기동/reset·S3 미배치 지우개 탐색이 연결되지 않습니다. 공개 intent·실행 게이트·opt-in·제어 정책은 유지합니다.
 
+## C 제어 wire 매핑 준비 — 2026-10-13
+
+[구현: E 작성·운영 보류] `VoiceNode.bind_control_source(check, boot=..., publisher_gid=..., proof_provider=...)`가 설치된 경우 기존 `/runner/status` 구독·`/voice/intent` publisher와 `request_run_enabled` opt-in을 사용합니다. [control_mapping.py](ready2go_voice/core/control_mapping.py)는 검증된 현재 source/boot와 표본 GID·증가 seq, 현재 boot/event/run 및 E 생성 question/request ID를 대조합니다. 등록 echo 확인 전에는 질문 TTS/독립 재개 요청 소비를 진행하지 않습니다. 새 녹음의 명시 종료는 재개 등록/가짜 ACK 없이 현재 정지·녹음 증빙을 검사해 end_task로 연결합니다. 같은 사건의 정상 seq는 질문·녹음 receipt를 보존하고 낮은 seq·다른 ID·재기동·소스 상실·현재 상태 오류는 소비를 차단합니다. C 재기동 뒤에는 새 검증 binding이 필요합니다.
+
+[구현: 발신] recover·end_task·resume_register·resume_answer·resume 후보는 **설치된** [intent 원본](../../../contracts/intent.schema.json)으로 검증한 뒤 기존 publisher로 한 번 발행합니다. 작업 기준 `2d6551b9`에 설치된 계약에는 W3 이름이 없어 발행을 보류합니다. 이후 C 계약/구현 5개 PR이 main에 병합됐으며, 이 E checkout에 병합/배포한 것은 아닙니다. E 시험의 최소 mock schema·source·SafetyProof는 운영 계약/증빙이 아닙니다. 기본은 binding/provider 미설치이며 ROS GID가 누락된 표본도 받지 않습니다. 현재 Jazzy 표본 GID 연결은 미검증이고 기존 확인에서 metadata에 GID가 없었으므로 실제 producer 증빙 adapter의 통합 확인이 필요합니다. C 구현/계약 승인·배포 없이 이 hook만으로 운용할 수 없습니다.
+
+[구현: 시간 증빙] 실제 Whisper 정상 반환 직후의 E 시각을 분류 전에 보존합니다. 원본 [voice.yaml](params/voice.yaml)의 SDK 접수/STT/독립 전체 구간 설정은 유지합니다. E helper는 STT와 독립 전체 구간의 끝값을 포함하며, 독립 녹음 시작→정상 STT 완료→분류→현재 등록 echo→소비/발행 직전까지 전체 구간을 다시 검사합니다. 질문의 별도 유효기한은 기존 엄격 경계를 유지합니다. 진단/UTC/C monotonic 시각을 녹음 증빙으로 쓰지 않습니다.
+
+[구현: 보류/안내] `SafetyProof(work, revision, evidence, valid_until)`는 실제 B/C 안전·신선도 및 E-local 기한을 검증한 adapter 입력입니다. 기본 provider가 없으면 정지 확인과 recover/end 발신 매핑만 준비되며 복구 질문·TTS·재개는 보류합니다. C `offered`·`needs`, B `empty`/성공·미확인 그리퍼·외력·센서를 정상 증빙으로 변환하지 않습니다. 질문 실패는 같은 등록 ID에 expired 사유를 보내고 작업을 보존합니다. END 결정만으로 폐기를 확정하지 않으며 현재 request echo·정지 확인·같은 run ABORTED·명시 resume=null 및 실제 안내 재생을 대조한 뒤 E 내부 사건만 종료합니다. C 잠금/phase를 바꾸지 않습니다. 재개 terminal echo가 공개 상태에서 소실되면 E 수락 안내/사건 종료는 보류합니다.
+
+[인계] 운영 증빙·시계·terminal echo 부족과 소비 C source SHA, 부모 검토/직접 검사·미검증 항목은 [E CURRENT](../../../practice/E/CURRENT.md#e-c-w3-wire-20261013-02)를 참조하십시오. 범위는 P2 [FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../../docs/requirements.md#ac-saf-02)·[접수 정책](../../../docs/requirements.md#resume-admission-policy)입니다. 공개 계약/C·B 코드·RequestRun·설정값·실물은 이번 E 수정 범위 밖입니다. 아래 10/12 더미/typed 경로의 검증 이력과 이번 선택 binding을 구분합니다.
+
 ## 종료·중지 최소 연결 — 2026-10-12
 
 [구현: E 내부/더미] 일반 음성·독립 stop SDK에서 정확한 종료 의도를 받고, running의 현재 요청 run과 검증된 생산자 boot에 고정합니다. 기존 공개 cancel로 정지를 요청한 뒤 같은 현재 typed 정지 확인에서 기존 TaskEndCandidate·제어 TTS/현재 세대·실제 재생 proof·명시 수락을 거쳐 더미 idle로 연결합니다. 종료 발화는 의도 근거이며 새 SDK 결과/독립 재개 등록 증빙으로 재사용하지 않습니다. 중복 전사는 새 cancel/후보를 만들지 않고 동일 halted heartbeat/같은 사건의 seq 진행은 유효 안내를 불필요하게 폐기하지 않습니다. 실제 재정지·다른 run/boot·생산자 변경·정지 미확인·TTS 실패에는 작업 보존/새 요청 차단을 유지합니다. idle도 아직 수락된 미완료 run이 있으면 “작업 없음”으로 단정하지 않습니다.

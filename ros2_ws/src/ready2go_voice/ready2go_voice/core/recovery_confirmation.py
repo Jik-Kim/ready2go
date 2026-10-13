@@ -336,7 +336,7 @@ class RecoveryConfirmation:
 
     @serialized
     def recovered(self, work, revision, evidence, *, now, valid_until):
-        if not self.current_state_confirmed or work != self.work or not self._accept(work, revision):
+        if not self._ack_current(work, revision, True):
             return None
         mode = self._recovery_mode(work, evidence)
         if (mode is None or
@@ -409,6 +409,8 @@ class RecoveryConfirmation:
                 return False
             limit = min(limit, self.finished_at + self.admission_window_sec)
         elif self.request is not None:
+            if now <= self.request.result_until and now < q.valid_until:
+                return False
             limit = min(limit, self.request.result_until)
         if now >= limit:
             self.invalidate(); return True
@@ -462,12 +464,14 @@ class RecoveryConfirmation:
         return self.request
 
     @serialized
-    def answer(self, text, question, *, captured_at, now, evidence, request=None):
+    def answer(self, text, question, *, captured_at, now, evidence, request=None, result_at=None):
         if question is None or question is not self.question:
             return None
+        result_at = now if result_at is None else result_at
         if (request is None or request is not self.request or request.question is not question or
                 captured_at != request.captured_at or not finite(now) or
-                not request.started_at <= now < min(request.result_until, question.valid_until)):
+                not finite(result_at) or not request.started_at <= result_at <= now or
+                result_at > request.result_until or now >= question.valid_until):
             self.invalidate()
             return None
         if task_end_utterance(text):
@@ -504,7 +508,7 @@ class RecoveryConfirmation:
                     (captured_at, ended_at, started_at)) or
                 not request.issued_at <= captured_at <= ended_at <= started_at or
                 captured_at <= self.audio_end or
-                started_at >= captured_at + self.independent_request_timeout_sec):
+                started_at > captured_at + self.independent_request_timeout_sec):
             self.invalidate(); return False
         self.audio_end = ended_at
         self.independent_audio = (captured_at, ended_at, started_at)
@@ -519,13 +523,17 @@ class RecoveryConfirmation:
         limit = captured + self.independent_request_timeout_sec
         if self.independent_result is None:
             limit = min(limit, started + self.stt_result_timeout_sec)
-        return started <= now < limit
+        return started <= now <= limit
 
     @serialized
-    def independent_stt(self, request, text, *, now):
+    def independent_stt(self, request, text, *, now, result_at=None):
         if request is None or request is not self.independent:
             return False  # stale callbacks must not invalidate another current request
-        if not self._independent_valid(request, now) or self.independent_result is not None:
+        result_at = now if result_at is None else result_at
+        audio = self.independent_audio
+        if (not self._independent_valid(request, result_at) or not finite(now) or
+                not result_at <= now <= audio[0] + self.independent_request_timeout_sec or
+                self.independent_result is not None):
             self.invalidate(); return False
         kind = 'end' if task_end_utterance(text) else safety_utterance(text)
         if kind != 'end' and kind != 'resume':
@@ -534,6 +542,16 @@ class RecoveryConfirmation:
         # or semantic invalidation clears it, while normal seq progress does not.
         self.independent_result = (kind, now)
         return True
+
+    @serialized
+    def independent_end(self, request, *, now):
+        """Explicit END consumes its recording; no resume registration/permission."""
+        if (not self._independent_valid(request, now) or self.independent_result is None
+                or self.independent_result[0] != 'end' or now < self.independent_result[1]):
+            return None
+        candidate = TaskEndCandidate(request.work)
+        self.invalidate()
+        return candidate
 
     @serialized
     def independent_registered(self, request, work, revision, *, now, valid_state):

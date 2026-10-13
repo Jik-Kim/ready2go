@@ -138,6 +138,12 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 
 [미연결] 복구 결과 ROS 수신, 질문 실제 TTS·캐시, 발화 채취/자기 음성 억제, 우선 정지 경로, C 잠금/재개 요청은 아직 연결하지 않았습니다. P2 복구 정책은 ordinary intent·Runner notice·prefill·listener 운영 경로에 연결하지 않았습니다. TTS 완료 뒤 녹음 시작 검사는 실제 스피커 자기 발화가 완전히 차단됐다는 증거가 아닙니다. 모의 정책 시험은 실제 음성 수신·로봇 정지·복구·재개 완료의 근거가 아닙니다.
 
+### E-C W3/W4 매핑 준비 — 2026-10-13
+
+[구현: E 작성·운영 보류] [control_mapping.py](../ros2_ws/src/ready2go_voice/ready2go_voice/core/control_mapping.py)와 VoiceNode의 선택 `bind_control_source`가 기존 pub/status 경로·요청 상관 opt-in을 재사용합니다. 설치된 계약 검증과 검증 source/boot/GID·증가 seq·현재 work/질문/요청 echo를 통과한 후보만 소비하며 실제 SDK 반환 receipt를 분류·등록·송신까지 보존합니다. 질문 실패의 expired와 END 접수·현재 정지/보존 폐기·안내 재생을 구분합니다. 실제 C 잠금/상태/로봇을 E가 변경하지 않습니다.
+
+[문서: 통합 선행] 작업 기준 `2d6551b9`에 설치된 [intent 원본](../contracts/intent.schema.json)은 W3를 허용하지 않아 발행을 보류합니다. 이후 C 5개 PR main 병합과 E 설치/운영 연결은 구분하며, source binding·실제 GID·B/C 안전/신선도 `SafetyProof`·E-local 유효기한 provider는 기본 미설치입니다. C offered/needs·잔여초/UTC와 B empty/성공을 증빙으로 추정하지 않습니다. 재개 terminal echo가 소실되면 수락 안내/사건 종료도 보류합니다. 현재 작성 범위·사용 방법·시간 helper의 실제 경계·부족한 원본/시계·담당별 인계는 [Voice README](../ros2_ws/src/ready2go_voice/README.md#c-제어-wire-매핑-준비--2026-10-13)·[CURRENT](../practice/E/CURRENT.md#e-c-w3-wire-20261013-02)를 참조하십시오. 기준은 [FR-SAF-01/03](requirements.md#fr-saf-01)·[AC-SAF-02/04](requirements.md#ac-saf-02)·[접수 정책](requirements.md#resume-admission-policy)입니다. 아래 기존 더미/typed 준비와 당시 검증 이력은 실제 C 운영 연결 완료를 뜻하지 않습니다.
+
 ### #78 E 안내·새 실행 후보 준비
 
 [문서] 기준은 [모션 차단·놓침 후 새 실행 정본](requirements.md#halt-motion-policy)·[일반 재개 접수](requirements.md#resume-admission-policy)입니다. `runner_notice.py`는 기존 C 상태의 `OBJECT_DROPPED`/`SENSOR_INVALID`를 각각 놓침 보고/센서 이상 보고로 분류하고 실제 정지·상태 확인을 안내합니다. `HALT_MOTION`은 이 core의 분류 상수이며 C 잠금을 구현하거나 재개를 허용하지 않습니다. 현재 상태 JSON에는 실제 정지·대상·놓침 관측을 증명하는 연결이 없습니다. `phase=halted`나 `task_id`로 물체 회수 안내를 만들지 않습니다. B의 현재 place는 `check_hold`의 센서 이상도 운반 중 놓침 코드로 반환하므로 코드만으로 실제 낙하를 확정하지 않습니다.

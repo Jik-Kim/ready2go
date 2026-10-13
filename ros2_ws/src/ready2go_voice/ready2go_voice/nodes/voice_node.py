@@ -138,6 +138,7 @@ class VoiceNode(Node):
         self.place_running = None
         self.safety_exchange = SafetyExchange(self.cfg)
         self.safety_sender = None
+        self.control_mapper = None
         self.safety_pending = None
         self.safety_running = None
         self.safety_cancel = threading.Event()
@@ -755,10 +756,10 @@ class VoiceNode(Node):
         with self.place_condition:
             while self.safety_exchange.current(target) and not cancel.is_set() and not self.stop_event.is_set():
                 remaining = self.safety_exchange.budget(target, now=self.place_clock())
-                if remaining is None or remaining <= 0:
+                if remaining is None or remaining < 0:
                     self.safety_exchange.fail(target)
                     break
-                self.place_condition.wait(min(.1, remaining))
+                self.place_condition.wait(.001 if remaining == 0 else min(.1, remaining))
 
     def _safety_work(self):
         while not self.stop_event.is_set():
@@ -830,6 +831,8 @@ class VoiceNode(Node):
                     if not self.tts.lock.locked():
                         self.speaking.clear()
                     with self.place_condition:
+                        if mode == 'question' and getattr(self, 'control_mapper', None) is not None:
+                            sender('expired', target)  # close only this C-registered unanswered question
                         if mode == 'feedback':
                             self._finish_feedback_locked(target)
                         self._release_safety_locked(cancel)
@@ -936,8 +939,99 @@ class VoiceNode(Node):
                 print(json.dumps({'event':'voice_logger_cleanup_error','error_type':type(exc).__name__}),flush=True)
 
     def _runner_status_with_info(self, message, info):
-        # Jazzy 실제 metadata(시각/sequence)는 C 수락·재기동 근거를 대신하지 않습니다.
-        self._runner_status(message)
+        mapper = getattr(self, 'control_mapper', None)
+        if mapper is None:
+            self._runner_status(message)
+            return
+        with self.submit_lock:
+            try:
+                gid = bytes(info.publisher_gid)
+            except (AttributeError, TypeError, ValueError):
+                gid = None
+            if not mapper.accept(message.data, gid):
+                if not mapper.connected() or mapper.reason in ('invalid_current_status','producer_boot_changed'):
+                    self._cancel_safety_locked()
+                    self.request_run.invalidate()
+                self._diagnostic({'event':'control_status_held','reason':mapper.reason})
+                return
+            pending = getattr(self, 'pending_task_end', None)
+            origin = getattr(self, 'task_end_source', None)
+            end_current = (pending is not None and mapper.pending is not None
+                and mapper.pending[0] == 'end_task' and mapper.pending[2] is pending[0]
+                and pending[1] == self.generation and pending[0].work == mapper.work
+                and mapper.evidence().stopped)
+            self._runner_status(message, preserve_safety=mapper.same_work, control_verified=True)
+            if end_current and mapper.connected():
+                # A terminal phase transition may invalidate ordinary requests.
+                # Restore only this verified END's pending feedback correlation.
+                self.pending_task_end = (pending[0], self.generation)
+                self.task_end_source = origin
+            mapper.dispatch(self)
+
+    def bind_control_source(self, check, *, boot, publisher_gid, proof_provider=None):
+        """Explicit verified C binding; existing request_run opt-in still required.
+
+        proof_provider is a trusted B/C adapter, not a JSON offered/empty mapper.
+        It must supply SafetyProof with an E-local validity bound. Default absent.
+        """
+        from ready2go_voice.core.control_mapping import ControlMapper
+        mapper = ControlMapper(boot=boot, publisher_gid=publisher_gid, source_check=check,
+            enabled=lambda: (self.cfg.get('request_run_enabled', False) is True
+                and not self.cfg['evaluation_mode'] and not self.stop_event.is_set()),
+            schema=self.parser.validator.schema,
+            clock=self.place_clock, cfg=self.cfg, publish=self._publish,
+            exchange=self.safety_exchange, proof_provider=proof_provider)
+        with self.submit_lock:
+            self.bind_request_source(check, boot=boot)
+            self.control_mapper = mapper
+            self.safety_sender = self._send_control
+        return mapper
+
+    def _send_control(self, kind, value):
+        with self.submit_lock:
+            mapper = getattr(self, 'control_mapper', None)
+            if mapper is None:
+                return False
+            if kind == 'feedback_delivered':
+                pending = mapper.pending
+                if (pending is None or value.get('candidate') is not pending[2]
+                        or value.get('generation') != self.generation or not mapper.connected()
+                        or value.get('work') != mapper.work):
+                    return False
+                if value['kind'] == 'end':
+                    doc = mapper.status
+                    decision, halt, last = doc.get('last_intent') or {}, doc.get('halt') or {}, doc.get('last') or {}
+                    valid = (pending[0] == 'end_task' and decision.get('intent') == 'end_task'
+                        and decision.get('decision') == 'end' and decision.get('request_id') == pending[1]
+                        and 'resume' in halt and halt['resume'] is None and mapper.evidence().stopped is True
+                        and last.get('run_id') == mapper.work.task and last.get('overall_status') == 'ABORTED')
+                    accepted = self.safety_task_end_accepted(pending[2], valid_state=valid)
+                elif value['kind'] == 'resume':
+                    key = 'question' if pending[0] == 'resume_answer' else 'request'
+                    echo = ((mapper.status.get('halt') or {}).get('resume') or {}).get(key) or {}
+                    accepted = (echo.get('id') == pending[1] and echo.get('state') == 'resumed'
+                        and self.safety_exchange.policy.resumed(mapper.work, valid_state=True, evidence=mapper.evidence()))
+                else:
+                    return False
+                if accepted:
+                    mapper.pending = None
+                return accepted
+            accepted = mapper.send(kind, value)
+            if not accepted:
+                self._diagnostic({'event':'control_publish_held','kind':kind,'reason':mapper.reason or 'proof_or_target_unconfirmed'})
+                if kind in ('register_question','register_independent'):
+                    self.safety_exchange.fail(value)
+                    self.place_condition.notify_all()
+                elif kind == 'candidate':
+                    if isinstance(value, TaskEndCandidate):
+                        self.pending_task_end = None
+                    else:
+                        self.pending_resume = None
+                if not mapper.connected():
+                    mapper.invalidate()
+                    self._cancel_safety_locked()
+                    self.request_run.invalidate()
+            return accepted
 
     def _request_run_connected(self):
         # The integration mapper verifies the current producer and restart boundary.
@@ -946,7 +1040,8 @@ class VoiceNode(Node):
         if check is None:
             return False
         try:
-            connected = check() is True
+            mapper = getattr(self, 'control_mapper', None)
+            connected = (check() is True and (mapper is None or mapper.connected() and mapper.status is not None))
         except Exception:
             connected = False
         if not connected:
@@ -961,6 +1056,10 @@ class VoiceNode(Node):
         if boot is not None and (not isinstance(boot, str) or not boot.strip()):
             raise TypeError('current verified producer boot identity required')
         with self.submit_lock:
+            if getattr(self, 'control_mapper', None) is not None:
+                self.control_mapper.invalidate()
+                self.control_mapper = None
+                self.safety_sender = None
             if getattr(self, 'request_source_check', None) is not None:
                 self.generation += 1
                 self.request_cancel.set()
@@ -973,7 +1072,9 @@ class VoiceNode(Node):
             if p is not None and boot is not None and p.session != boot:
                 p.current_state_confirmed = False
 
-    def _runner_status(self, message):
+    def _runner_status(self, message, *, preserve_safety=False, control_verified=False):
+        if getattr(self, 'control_mapper', None) is not None and not control_verified:
+            return  # active W4 binding cannot be bypassed by a raw status callback
         # 관측 상태 전환과 질문 무효화는 발행 게이트와 같은 E 로컬 lock으로 직렬화합니다.
         # P1 경고는 유지하고 opt-in 요청만 실제 C 수락/결과에 연결합니다.
         with self.submit_lock:
@@ -1000,7 +1101,8 @@ class VoiceNode(Node):
                                  and self._task_end_source_current())
                 if (self.notice_policy.blocked or self.notice_policy.phase == 'halted'
                         or notice and notice.kind != 'completed'):
-                    if hasattr(self, 'safety_exchange') and not same_end_halt:
+                    if (hasattr(self, 'safety_exchange') and not same_end_halt
+                            and not (preserve_safety and notice is None)):
                         self._cancel_safety_locked()
                         if first_end_stop:
                             self.task_end_request = self.task_end_source = ending
@@ -1225,6 +1327,9 @@ class VoiceNode(Node):
     def _publish(self, doc):
         message = String()
         message.data = json.dumps(redact({k: v for k, v in doc.items() if not k.startswith('_')}), ensure_ascii=False)
+        mapper = getattr(self, 'control_mapper', None)
+        if mapper is not None and mapper.publishing is not None and not mapper.publish_guard(doc):
+            return False  # serialized payload still needs a current send-boundary proof
         self.publisher.publish(message)
 
     def _text(self, message):

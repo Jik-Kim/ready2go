@@ -148,6 +148,10 @@ def test_actual_sdk_boundary_window_and_late_stt(elapsed, admitted):
 def test_stt_processing_expiry_separate_unagreed_budget_and_unreceipted_result():
     p, q = ready(budget=2)
     receipt = p.admit(q, captured_at=4, ended_at=5, started_at=6)
+    assert p.answer('재개해', q, captured_at=4, now=8.000001, evidence=SAFE, request=receipt) is None
+    p, q = ready(budget=2)
+    receipt = p.admit(q, captured_at=4, ended_at=5, started_at=6)
+    assert p.answer('재개해', q, captured_at=4, now=8, evidence=SAFE, request=receipt) == WORK
     assert p.answer('재개해', q, captured_at=4, now=8, evidence=SAFE, request=receipt) is None
     p, q = ready(budget=None)
     assert p.admit(q, captured_at=4, ended_at=5, started_at=6) is None
