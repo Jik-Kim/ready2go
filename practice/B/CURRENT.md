@@ -8,6 +8,7 @@
   - 쌓인 물체 넛지(위 칸 렌치 ← 캐러멜 ← 지우개): main 값으로는 `NO_OBJECT_CONTACT` — 빈 캐러멜 상자가 휘어 확인 중 힘이 5 N 아래로 빠짐. PC2 임시 `search_below_mm`·`contact_z_tol_mm` 12 로 성공, 3개가 통째로 끌려옴, 그 뒤 지우개 집기 성공. 임시 값은 되돌림(챌린지 기준 `e22a0af`), 쌓인 물체만 더 깊이 찾기는 다음 PR.
   - 무너뜨리기(`topple`) 제거 [사용자 10/13 "높이 상관없이 넛지가 되면 topple 필요가 있나?"]: 실물 `NO_OBJECT_CONTACT`, 쌓인 넛지 + `free` 로 충분. `make_room` 은 놓을 자리가 없으면 다시 `NO_FREE_SPACE`.
   - `B unpack` 치운 물체를 고정 aside 대신 서랍 빈 자리(`slot: "free"`)에 [사용자 10/13 "free 가 상위호환, aside 다 지움"]. `B aside`·`B aside2` 명령도 지움. 서버 `slot: aside_1/aside_2` 와 `places.yaml` `place_slots` 는 C `find_with_unpack`(aside_1 → aside_2 → free)이 써서 남김 — C 에 free 만 쓰기 제안(#260 R8).
+  - 판 밑 물체: 분할 모델이 판 밑이라고 한 물체가 다리 사이(65 × 35) 폭이면 판 집기 손가락 확인에서 뺌 — 판 밑 립밤·몽키·망치 [사용자 10/13]. `pick.under_gap_by_class_mm`.
   - 불안정하게 기대 쌓은 배치(캐러멜 상자를 렌치·지우개에 비스듬히): 못 함 — 비전 pose 에 기울기가 없고 B 는 평평하다고 봄. 시연 배치에서 금지, 발표 개선 사항으로.
 - **10/13 새벽 (3차 챌린지 전, PR #258)**: 쌓인 물체 넛지·무너뜨리기(무너뜨리기는 10/13 낮 PR 에서 뺌). 트레이에서 집기(`return_items`)는 PM 결정(10/13 — 반납은 P3)으로 #258 에서 빼 별도 PR 로.
   - 무너뜨리기 [사용자 10/13 "집을 위치 없다고 포기하는 것도 웃김"]: `nudge_object` `topple`(맨 위 물체를 눌러 받침 밖 바닥으로 끎, `core/clear_plan.topple_move`) + `make_room` 이 놓을 자리 없을 때 이걸로. `B topple top`. 실물 `NO_OBJECT_CONTACT` ×3 → 10/13 낮 PR 에서 뺌.

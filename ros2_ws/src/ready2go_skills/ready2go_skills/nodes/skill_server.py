@@ -409,6 +409,14 @@ class SkillServer(Node):
             raise ValueError(f"{cls} {key} 은 0 초과·그 변({side}) 이하: {w!r}")
         return float(w)
 
+    def _narrow_width(self, cls):
+        """판 밑으로 지나가는 부위 폭(m) — item_grasp grasp_width_m (몽키·망치 손잡이). 없거나 이상하면 None (외접 박스 짧은 변을 씀)."""
+        size = self._size_or_none(cls)
+        try:
+            return self.grasp_width(cls, size, None) if size else None
+        except ValueError:
+            return None
+
     def _on_goal(self, _request):
         """실행 중인 동작이 있으면 새 goal 을 받지 않음 (Runner 는 거절로 받음, 로봇 동작 없음)."""
         return GoalResponse.REJECT if self.gate.busy() else GoalResponse.ACCEPT
@@ -1870,7 +1878,8 @@ class SkillServer(Node):
                 finger_half_width_mm=g.get("tip_radius_mm"), fingertip_floor_m=tip_floor_m,
                 fingertip_clear_m=float(nb.get("fingertip_clear_mm", 2.0)) / 1000.0,
                 under_clear_m=((prm["pick"].get("under_clear_by_class_mm") or {}).get(cls) or 0.0) / 1000.0 or None,
-                under_smear_m=float(prm["pick"].get("under_smear_mm", 5.0)) / 1000.0))
+                under_smear_m=float(prm["pick"].get("under_smear_mm", 5.0)) / 1000.0,
+                under_gap_mm=(prm["pick"].get("under_gap_by_class_mm") or {}).get(cls), width_of=self._narrow_width))
         # 손끝이 내려가는 가장 낮은 높이(닫은 손끝 = 받침 + 물건별·높이 비율, 벌린 손끝은 그보다 위) — 그보다 낮은 이웃은 손가락 자리에
         # 있어도 안 닿음 [사용자 10/12 PC2: 가림막(손끝 25 mm) 긴 변 옆 지우개 14.2·립밤 22.2 로 NEIGHBOR_TOO_CLOSE "높이가 더 높아 그냥 잡힘"].
         # 높이 계산으로 잡을 때만 (기울여 잡기·원통 벽은 손끝이 더 내려갈 수 있어 예전처럼 높이 안 봄)

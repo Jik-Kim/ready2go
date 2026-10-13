@@ -2141,11 +2141,18 @@ def test_place_check_only_before_pick_moves_nothing(server):
 
 
 def test_place_check_only_refuses_when_pick_would_refuse(server):
-    """집기가 움직이기 전 거부될 물체면 놓기 판단도 통과 아님 — 그 집기 코드로 (판 손끝 20 mm 에 걸리는 판 옆 립밤)."""
+    """집기가 움직이기 전 거부될 물체면 놓기 판단도 통과 아님 — 그 집기 코드로 (판 손끝 20 mm 에 걸리는 판 옆 립밤).
+    10/12 PC2 장면의 립밤은 분할 모델이 판 밑(occluded_by 판)이라 해서 10/13부터 통과(다리 사이로 지나감, 사용자 10/13) →
+    관계가 없는(판 옆) 립밤으로 바꿔 봄."""
     srv = server.srv
     srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
     plate = SCAN_1012_PLATE["candidates"][0]
-    out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "free", "scan": SCAN_1012_PLATE,
+    out, _ = server.run("place_object", {"location": "drawer_bottom", "slot": "free", "scan": SCAN_1012_PLATE,
+                                         "object": plate, "check_only": True})
+    assert out.success, out.reason
+    side = json.loads(json.dumps(SCAN_1012_PLATE))
+    side["candidates"][1]["occluded_by"] = []
+    out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "free", "scan": side,
                                             "object": plate, "check_only": True})
     assert not out.success and out.error_code == "NEIGHBOR_TOO_CLOSE" and "집기부터 거부" in out.reason
     assert data["placed_pose"] is None and data["check_only"] is True and srv.held is None
@@ -2824,6 +2831,54 @@ def test_cover_plate_under_exception_keeps_observed_height_when_too_tall_to_be_u
     assert out.success is ok, out.reason
     if not ok:
         assert out.error_code == "NEIGHBOR_TOO_CLOSE" and "eraser#1" in out.reason
+
+
+def _plate_pick(server, plate, cands, target=None):
+    srv = server.srv
+    srv.held = None
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        return server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1],
+                                          "scan": {"target_found": True, "target": target or cands[0], "candidates": [plate] + cands[1:],
+                                                   "visible_count": len(cands) + 1}})[0]
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+def test_cover_plate_pick_ignores_objects_passing_under_between_legs(server):
+    """[사용자 10/13 PC2 "립밤 들어가도 그냥 집을 수 있도록", "몽키·망치도 — 넓이가 다리 사이보다 작으면 들어감"]
+    분할 모델이 판 밑이라고 한(occluded_by 판) 물체가 다리 안쪽(65 × 35, #8) 사이로 지나갈 폭이면 판 집기 손가락 확인에서 뺌.
+    오늘 PC2 장면 그대로: 판 밑 립밤(20 mm, yaw 모름)이 손끝(20 mm) 자리에 걸려 NEIGHBOR_TOO_CLOSE 였음.
+    몽키(외접 61)·망치(외접 75, 손잡이 15.5)가 판 짧은 변 쪽으로 가로질러 양쪽 손가락 자리로 삐져나와도 통과."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0358, "occluded_by": [], "visible_area_m2": 0.007305,
+             "pose": {"frame": D, "position": [0.0948, 0.2042, 0.0], "yaw": -0.0158, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0143, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.000435,
+          "pose": {"frame": D, "position": [0.098, 0.1563, 0.0], "yaw": 0.0, "yaw_valid": False}}
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0204, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.000609,
+           "pose": {"frame": D, "position": [0.076, 0.1513, 0.0], "yaw": 0.0, "yaw_valid": False}}
+    out = _plate_pick(server, plate, [er, plate, lip])
+    assert out.success, out.reason
+    across = {"frame": D, "position": [0.0948, 0.2042, 0.0], "yaw": 1.5708 - 0.0158, "yaw_valid": True}   # 판 짧은 변 쪽으로 가로지름
+    for cls, top in (("toy_wrench", 0.0195), ("toy_hammer", 0.026)):
+        o = {"id": f"{cls}#1", "class": cls, "top_z": top, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.004, "pose": across}
+        out = _plate_pick(server, plate, [o, plate])
+        assert out.success, (cls, out.reason)
+        # 관계 모름(null)이면 예전 규칙 — 손끝(20) 자리에 18.5·25 mm 는 막음
+        out = _plate_pick(server, plate, [dict(o, occluded_by=None), plate])
+        assert out.error_code == "NEIGHBOR_TOO_CLOSE" and cls in out.reason, (cls, out.reason)
+    # 판 위에 얹힌 몽키(관측 윗면이 판 밑 여유·자기 높이 + 번짐보다 높음)는 빼지 않음
+    on_top = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.058, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.004,
+              "pose": across}
+    out = _plate_pick(server, plate, [on_top, plate])
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE", out.reason
+    # 판 긴 변과 나란히 들어간 장난감차(폭 30.9 ≤ 35 지만 높이 32.5 + 5 < 관측 40)도 관측이 높으면 막음
+    car = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.040, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.002,
+           "pose": dict(across, yaw=-0.0158, position=[0.0948, 0.1563, 0.0])}
+    out = _plate_pick(server, plate, [car, plate])
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE", out.reason
 
 
 def test_open_refused_while_holding(server):
