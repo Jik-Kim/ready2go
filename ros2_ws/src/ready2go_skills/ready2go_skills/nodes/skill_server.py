@@ -1657,7 +1657,8 @@ class SkillServer(Node):
                           max_shift_m=prm["drag"]["max_shift_mm"] / 1000.0, max_chain=int(mr.get("max_chain", 2)),
                           round_classes=tuple(prm["pick"].get("round_classes") or ()),
                           press_finger_r_mm=float(mr["press_finger_r_mm"]), narrow_of=self._narrow_width,
-                          press_no_end_classes=tuple(mr.get("press_no_end_classes", ("toy_wrench",))),
+                          press_center_only_classes=tuple(mr.get("press_center_only_classes", ("toy_wrench",))),
+                          sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
                           remove_first=bool(mr.get("remove_first", True)), slack_mm=float(mr.get("slack_mm", 0.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
