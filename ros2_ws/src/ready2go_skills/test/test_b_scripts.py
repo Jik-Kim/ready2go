@@ -773,15 +773,3 @@ def test_b_unpack_obstacle_pick_refused_goes_to_restore_like_task(monkeypatch):
     assert sk.unpack(None) is True
     assert calls == ["ready", "open", "inspect:eraser", "pick", "nudge", "inspect:eraser", "pick", "place", "close"]
 
-
-def test_b_sk_topple_sends_nudge_topple_with_scan(monkeypatch, tmp_path):
-    """[사용자 10/13] B topple top = nudge_object(topple, 맨 위 물체 target + 그 서랍 scan). 인식 결과 없으면 보내지 않음."""
-    sk = _load_sk(monkeypatch)
-    monkeypatch.setattr(sk, "TMP", str(tmp_path))
-    (tmp_path / "b_target_scan_drawer_top.json").write_text(json.dumps(TOP_T))
-    with pytest.raises(SystemExit, match="B scan top"):
-        sk.goal_for("topple")
-    full = {"target_found": True, "target": TOP_T, "candidates": [], "visible_count": 1}
-    (tmp_path / "b_target_fullscan_drawer_top.json").write_text(json.dumps(full))
-    assert sk.goal_for("topple") == ("nudge_object", {"drawer_id": "drawer_top", "target": TOP_T, "topple": True, "scan": full})
-    assert "topple" in sk.NEEDS_DRAWER

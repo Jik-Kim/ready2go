@@ -1368,8 +1368,6 @@ class SkillServer(Node):
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         if params.get("make_room"):                         # 파지 공간 만들기 한 단계 [제안 10/11 B, 계약 승인 전]
             return self._make_room(goal, params, drawer_id, target)
-        if params.get("topple"):                            # 쌓인 물체 무너뜨리기 [사용자 10/13, 제안]
-            return self._topple(goal, params, drawer_id, target)
         size, _ = self.item(target.get("class"))
         g = self._drag_g(drawer_id, target.get("class"))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
@@ -1584,7 +1582,7 @@ class SkillServer(Node):
         return sf.Outcome(True, reason=f"뒤에서 밀어 {'x' if nx else 'y'} {(dx or dy) * 1000:+.1f} mm (계산한 끝까지, {d.get('push_back_mm', 5.0):g} mm 물러나 올림)"), out
 
     def _room_objs(self, params, drawer_id, tid, what):
-        """make_room·topple 공통: scan 물체 목록(가림 관계 occluded_by 확인) → (objs, None) | (None, 거부 Outcome).
+        """make_room: scan 물체 목록(가림 관계 occluded_by 확인) → (objs, None) | (None, 거부 Outcome).
         가림 필드 (runner.md 7.1): null = 모름, 결과 전체에 없음 = 박스 모델(관계 정보 없음). 모름을 '위에 없음'([])으로 바꾸지 않음 —
         위에 얹힌 물체를 밀거나 누를 수 있음 [A·PM #226 리뷰 10/12]. 움직이기 전 거부 → 다시 찍기 (C select_obstacle occlusion_unknown 과 같은 방식)"""
         objs, why = plp.scan_objects(params.get("scan"), drawer_id)
@@ -1608,46 +1606,7 @@ class SkillServer(Node):
                           round_classes=tuple(prm["pick"].get("round_classes") or ()),
                           press_finger_r_mm=float(mr["press_finger_r_mm"]),
                           remove_first=bool(mr.get("remove_first", True)),
-                          topple_extra_mm=float(mr.get("topple_extra_mm", 5.0)), topple_gap_mm=float(mr.get("topple_gap_mm", 5.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
-
-    def _topple(self, goal, params, drawer_id, target):
-        """쌓인 물체 무너뜨리기 [사용자 10/13 "집을 위치 없다고 포기하는 것도 웃김 — 비전으로 다시 보고 집으면 됨", 제안 — 계약 승인 전].
-        nudge_object topple: true + target(맨 위 물체) + scan(직전 inspect_region 결과 전체, 가림 관계 필요). core/clear_plan.topple_move 로
-        받침 밖 바닥까지 끄는 가장 짧은 서랍 축 방향·거리를 고르고(끄는 길·떨어질 자리 확인), 윗면을 눌러 끎 — 끈 뒤 자세는 모름 → 다시 보고 집기.
-        check_only 면 고르기만 (움직이지 않음). 받침 관계가 없으면 높이·footprint 로 밑 물체를 찾아 씀 (pick 의 쌓임 판단과 같음)."""
-        out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0, "target_after": None,
-               "topple": None}
-        tid = target.get("id")
-        objs, bad = self._room_objs(params, drawer_id, tid, "topple")
-        if bad:
-            return bad, out
-        t = next(o for o in objs if o["id"] == tid)
-        if not clp.below(objs, tid):                              # 분할 관계가 없어도 높이로 받침이 보이면 그걸로
-            for b in plp.objects_under(target=t, objects=objs, size_of=self._size_or_none):
-                b["occluded_by"] = list(b["occluded_by"]) + [tid]
-        a = clp.topple_move(objs, tid, self._room_cfg(drawer_id))
-        if a is None:
-            why = ("밑에 깔린 물체 없음 (쌓이지 않음)" if not clp.below(objs, tid) else
-                   "위에 다른 물체가 얹힘 — 맨 위부터" if clp.riders(objs, tid) else
-                   "누를 점·끌 방향·떨어질 빈 자리 없음")
-            return sf.Outcome(False, mp.NO_PUSH_ACCESS, reason=f"무너뜨리기 못 함: {why}"), out
-        out["topple"] = {"dir": list(a.dir), "dist_m": round(a.dist_m, 4), "landed_pose": a.to_pose, "reason": a.reason}
-        # 성공이면 target_after = 떨어질 예상 자리 (계약: 성공일 때만 target 형식, 예상값·재인식 아님). 떨어진 방향은 모름 → yaw_valid false —
-        # 이걸로 바로 집으면 움직이기 전 YAW_INVALID → 다시 inspect_region 뒤 집기 [#258 리뷰 P2]
-        size, _ = self.item(t["class"])
-        landed = {"id": tid, "class": t["class"], "top_z": round(size[2], 4),     # 가림 필드(occluded_by·visible_area_m2)는 모름 → 둘 다 없음
-                  "pose": dict(a.to_pose, yaw_valid=False)}
-        self.get_logger().info(f"[topple] {a.reason}")
-        if params.get("check_only"):
-            out["target_after"] = landed
-            return sf.Outcome(True, reason=f"check_only: {a.reason} (움직이지 않음)"), out
-        res, o2 = self._press_move(goal, drawer_id, t, a.dir, a.dist_m, 0.0, False, a.extra.get("press_xy_m"))
-        out.update(pushed=o2["pushed"], push_vector_m=o2["push_vector_m"])
-        if res.success:
-            out["target_after"] = landed
-            res = sf.Outcome(True, reason=f"{a.reason} ({res.reason})")
-        return res, out
 
     def _make_room(self, goal, params, drawer_id, target):
         """파지 공간 만들기 한 단계 [제안 10/11 B, 계약 승인 전 — #117]. scan(직전 inspect_region 결과 전체) 필수.
@@ -1736,7 +1695,7 @@ class SkillServer(Node):
             along = mp.dir_to_base(tf, (math.cos(yaw), math.sin(yaw), 0.0))
         cx, cy = press_xy_m or target["pose"]["position"][:2]      # 누를 점 (계획: 더 높은 이웃에 손가락이 안 걸리는 점, 없으면 가운데)
         px, py = cx + u[0] * tip_h / 1000.0, cy + u[1] * tip_h / 1000.0   # 닿는 점이 누를 점에 오게 TCP 를 끄는 쪽으로
-        support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"])   # 쌓였으면 받침 위 윗면 (무너뜨리기)
+        support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"])   # 쌓였으면 받침 위 윗면
         contact_z_m = support + size[2] + tip_v / 1000.0
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:

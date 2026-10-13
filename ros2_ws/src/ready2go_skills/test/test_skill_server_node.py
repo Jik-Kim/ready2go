@@ -2837,7 +2837,7 @@ def test_open_refused_while_holding(server):
     assert not out.success and out.error_code == "HOLDING_OBJECT" and srv.robot.log == [] and srv.disp == {}
 
 
-# ---- 쌓인 물체 무너뜨리기 [사용자 10/13] — nudge_object topple / make_room 놓을 자리 없을 때
+# ---- 쌓인 물체 무너뜨리기(topple)는 뺌 [사용자 10/13 — 실물 NO_OBJECT_CONTACT, 쌓인 넛지로 충분]
 def _key_on_caramel_scan(x=0.13, y=0.15):
     car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185, "occluded_by": ["car_key#1"],
            "pose": {"frame": "drawer_top", "position": [x, y, 0.0], "yaw": 0.0, "yaw_valid": True}}
@@ -2846,42 +2846,8 @@ def _key_on_caramel_scan(x=0.13, y=0.15):
     return key, {"target_found": True, "target": key, "candidates": [car], "visible_count": 2}
 
 
-def test_topple_check_only_then_drags_top_off_base(server):
-    """nudge_object topple: check_only 는 방향·거리·떨어질 자리만 (움직이지 않음). 실제는 윗면(받침 위 높이)을 눌러 그만큼 끎."""
-    srv = server.srv
-    key, scan = _key_on_caramel_scan()
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": key, "scan": scan, "topple": True, "check_only": True})
-    assert out.success and "움직이지 않음" in out.reason and srv.robot.log == [], out.reason
-    tp = data["topple"]
-    assert 0.0 < tp["dist_m"] <= srv.prm()["drag"]["max_shift_mm"] / 1000.0 and tp["landed_pose"]["frame"] == "drawer_top"
-    after = data["target_after"]                                                  # 계약: 성공이면 target 형식 — 떨어질 예상 자리, 방향 모름
-    assert after["pose"]["yaw_valid"] is False and after["pose"]["position"] == tp["landed_pose"]["position"]
-    assert "occluded_by" not in after and "visible_area_m2" not in after
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": key, "scan": scan, "topple": True})
-    assert out.error_code != "BAD_PARAMS" and data["topple"] == tp, out.reason
-    tf = srv.places()["drawer_top"]["tf"]
-    floor = 1000.0 * server.ss.pp.to_base(tf, (0.13, 0.15, 0.0))[2]
-    low = min(e[1][2] for e in srv.robot.log if e != "stop" and e[0] == "movel")
-    assert low > floor + 1000.0 * 0.0185                                          # 받침(캐러멜) 윗면보다 위에서 누름
-
-
-def test_topple_refused_before_motion(server):
-    """받침이 없는(바닥) 물체·가림 관계 모름은 움직이기 전 거부."""
-    srv = server.srv
-    key, scan = _key_on_caramel_scan()
-    car = scan["candidates"][0]
-    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": car, "scan": dict(scan, target=car, candidates=[key]),
-                                         "topple": True})
-    assert not out.success and out.error_code == "NO_PUSH_ACCESS" and "쌓이지 않음" in out.reason   # 받침 자신(바닥)
-    bad = json.loads(json.dumps(scan))
-    bad["candidates"][0]["occluded_by"] = None
-    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": key, "scan": bad, "topple": True})
-    assert not out.success and out.error_code == "OCCLUSION_UNKNOWN"
-    assert srv.robot.log == []
-
-
-def test_make_room_topples_when_no_free_space(server):
-    """make_room: 위 물체를 놓을 빈 자리가 없으면(예전엔 NO_FREE_SPACE 로 포기) 받침 밖으로 끌어 떨어뜨림 → 다시 보고 다시 부르기."""
+def test_make_room_no_free_space_refused_before_motion(server):
+    """make_room: 위 물체를 놓을 빈 자리가 없으면 움직이기 전 NO_FREE_SPACE (무너뜨리기로 넘어가지 않음)."""
     srv = server.srv
     key, scan = _key_on_caramel_scan()
     car = scan["candidates"][0]
@@ -2892,6 +2858,5 @@ def test_make_room_topples_when_no_free_space(server):
                                                 "scan": dict(scan, target=car, candidates=[key])})
     finally:
         server.ss.clp.find_free_pose = real
-    assert data["make_room"]["action"] == "topple" and data["make_room"]["moved_id"] == "car_key#1", data["make_room"]
-    assert out.error_code not in ("NO_FREE_SPACE", "BAD_PARAMS"), out.reason
-    assert any(e != "stop" and e[0] == "movel" for e in srv.robot.log)
+    assert not out.success and out.error_code == "NO_FREE_SPACE", out.reason
+    assert data["make_room"]["action"] == "fail" and srv.robot.log == []
