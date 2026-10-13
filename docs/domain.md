@@ -52,16 +52,21 @@
 * 이전 설계안(DRL 컴플라이언스 제어로 인출 축 외 방향 부드럽게, 닫힘 실패 시 5 cm 다시 열고 재시도)은 **구현하지 않음** — 위치 이동 + 축 방향 힘 감시로 대신함.
 
 ### 8.5 벽 인접 물체 밀어오기 (담당 B)
-> 10/07 기준. 아래를 **① 현재 P1 실행 경로**, **② 과거 예시(현재 경로 아님)**, **③ P2 이후 후보**로 나눈다. 원자 동작 입출력·에러 코드는 [runner.md 7.1](runner.md) `nudge_object` 행이 정본이다. 실제 동작은 위에서 눌러 옆으로 **끄는** 것이며, FR-ACT-05의 "밀기" 표현과의 차이는 요구사항 정본 담당에게 인계한 상태다(#122).
+> 10/07 기준, ① 실행 경로는 10/13 #277 기준. 아래를 **① 현재 P1 실행 경로**, **② 과거 예시(현재 경로 아님)**, **③ P2 이후 후보**로 나눈다. 원자 동작 입출력·에러 코드는 [runner.md 7.1](runner.md) `nudge_object` 행이 정본이다. 실제 동작은 위에서 눌러 옆으로 **끄는** 것이며, FR-ACT-05의 "밀기" 표현과의 차이는 요구사항 정본 담당에게 인계한 상태다(#122).
 
 * **배경**: 얇은 물체(예: 지우개 1.15 cm)는 서랍 가운데에서만 잡히고, 벽 근처에서는 손가락이 들어갈 자리가 없다 [실측 10/03, A]. 그래서 닫은 그리퍼로 물체를 가운데 쪽으로 끌어온 뒤 **다시 보고** 집는다. 상세 작업 명세: GitHub 이슈 #37.
 
-**① 현재 P1 실행 경로 — 공통 `pick` 스킬 안에서 선형 전개** ([`knowledge/skills/pick.jsonld`](../knowledge/skills/pick.jsonld), E #122; 정식 태스크 [`tasks/find_item.json`](../tasks/find_item.json) `s5.1`)
-1. `move_to_named_pose(drawer_top_view)` → 2. `inspect_region` → `scan` → 3. `nudge_object(target=$scan.target)` → 4. 같은 서랍 탑뷰로 이동 → 5. `inspect_region` 재관측(스킬 로컬 `scan` 갱신) → 6. `pick_object(target=$scan.target)`.
-* **끌지 않아도 될 때도 재관측한다.** 공간이 충분하면 `nudge_object`가 움직이지 않고 `pushed: false`로 성공하고, 그래도 4·5단계를 그대로 한다. 스킬 안에 분기·`check_only` 단계를 두지 않는다.
-* **집기는 재관측 좌표로만 한다.** `nudge_object`의 `target_after`는 끈 거리만큼 옮긴 **예상** 위치로 기록(e3)만 하고 집기에 쓰지 않는다. 최초·재관측 응답은 각각 e2·e5 기록에 남는다.
-* **관측 실패**: 최초 또는 재관측 `target`이 `null`이면 Runner가 `VAR_NULL`로 다음 `nudge_object`/`pick_object`를 보내지 않는다. 스킬 effect는 6단계 전체가 성공했을 때만 반영된다.
-* **재시도**: 태스크의 `pick` `retry: 1`은 팔이 움직이기 전 실패에만 적용된다. 1단계 탑뷰 이동이나 3단계 끌기 뒤의 실패는 `YAW_INVALID`를 포함해 Runner가 스킬을 다시 보내지 않는다(`retry_stopped: MOTION_UNCERTAIN`, `interpreter.py` `NON_MOTION_ACTIONS`). 이 제약을 우회하지 않는다.
+**① 현재 P1 실행 경로 — 공통 `pick` 스킬 안에서 집기 먼저, 벽 거부 때만 넛지** ([`knowledge/skills/pick.jsonld`](../knowledge/skills/pick.jsonld), E #277; C expand `fallback` #263·#269; 정식 태스크 [`tasks/find_item.json`](../tasks/find_item.json) `s5.1`)
+1. `move_to_named_pose(drawer_top_view)`(`.e1`) → 2. `inspect_region` → 스킬 로컬 `scan`(`.e2`) → 3. `fallback`(`.e3`, `next_on: [WALL_TOO_CLOSE]`)
+   * 첫 대안: `pick_object(target=$scan.target, scan=$scan)`(`.e3.o1.1`). **성공하면 넛지·추가 촬영 없이 끝난다.**
+   * 두 번째 대안 — 첫 집기가 **움직이기 전 `WALL_TOO_CLOSE`로 거부된 경우만**: `nudge_object(target=$scan.target, scan=$scan)`(`.e3.o2.1`) → 같은 서랍 탑뷰(`.e3.o2.2`) → `inspect_region` 재관측 1회로 로컬 `scan` 갱신(`.e3.o2.3`) → 새 `target`과 그 관측의 전체 `scan`으로 `pick_object`(`.e3.o2.4`).
+* **다음 대안을 보내지 않는 경우**: 첫 집기의 다른 거부(`NEIGHBOR_TOO_CLOSE`·`NOT_ON_FLOOR`·`YAW_INVALID`·`BAD_PARAMS` 등)·안전 코드·움직였을 수 있는 실패·정지, 넛지/탑뷰/재관측 실패. 두 번째 집기의 `WALL_TOO_CLOSE`도 넛지를 반복하지 않고 그 코드로 끝난다(Runner `_run_expand_fallback`).
+* **넛지가 끌지 않아도(`pushed: false`) 재관측한다.** 두 번째 대안에 들어갔으면 탑뷰·재관측을 그대로 한다. 이때 물체가 그대로라 재집기가 다시 `WALL_TOO_CLOSE`로 끝날 수 있고, 반복하지 않는다 [문서·코드, 실물 미확인].
+* **집기는 그때의 관측 좌표로만 한다.** `nudge_object`의 `target_after`는 끈 거리만큼 옮긴 **예상** 위치로 기록(`.e3.o2.1`)만 하고 집기에 쓰지 않는다. 최초 관측은 `.e2`, 재관측은 `.e3.o2.3` 기록에 남는다. `scan`(이웃·쌓임 확인용 전체 관측)도 집기마다 그 직전 관측을 쓴다.
+* **`scan`을 넘기므로 B 이웃 확인이 켜진다**: 스킬 서버는 입력 `scan`이 있을 때만 이웃·쌓임 확인을 하고(`_neighbor`, 없으면 예전처럼 확인 안 함) 형식이 틀리면 `BAD_PARAMS`로 거부한다. #277 전 공통 pick은 `scan` 없이 보냈으므로, 이웃이 가까운 장면에서는 이제 움직이기 전 `NEIGHBOR_TOO_CLOSE`로 끝날 수 있다(다음 대안 아님, `make_room` 연결은 이번 범위 밖) [코드, 실물 미확인].
+* **자세 이동 생략 ≠ 관측 재사용**: C가 같은 자세 이동을 생략하더라도 관측은 이 스킬에서 매번 새로 한다(직접 성공 1회, 넛지 대안 2회). 이전 관측 재사용은 C 유효성 판정 전이라 쓰지 않는다(#245).
+* **관측 실패**: 최초 또는 재관측 `target`이 `null`이면 Runner가 `VAR_NULL`로 다음 `pick_object`/`nudge_object`를 보내지 않는다. 스킬 effect는 전체가 성공했을 때만 반영된다.
+* **재시도**: 태스크의 `pick` `retry: 1`은 팔이 움직이기 전 실패에만 적용된다. `.e1` 탑뷰 이동(과 넛지) 뒤의 실패는 `YAW_INVALID`를 포함해 Runner가 스킬을 다시 보내지 않는다(`retry_stopped: MOTION_UNCERTAIN`, `interpreter.py` `NON_MOTION_ACTIONS`). 이 제약을 우회하지 않는다.
 * **실패 뒤**: 태스크 `finally`의 서랍 닫기·홈은 Runner의 기존 안전 조건을 따른다. ESTOP·잠금(`HALT_CODES`)이면 로봇을 움직이는 finally 동작은 건너뛰고, 물품을 쥔 채면 홈으로 가지 않는다(`find_item` 설명). 실패하면 항상 닫고 홈으로 간다고 가정하지 않는다.
 * **`nudge_object` 백엔드 동작** (스킬 서버 `_do_nudge_object`, 값은 `ros2_ws/src/ready2go_skills/params/skills.yaml` `drag`)
   * **판단** (`core/motion_plan.plan_drag`, ROS 없이 테스트): 물체 크기(온톨로지 `size_m`) + `yaw` + 서랍 `interior_m` + 옆벽 실제 위치 보정(`drawer_wall_offset_mm`)으로 짧은 변 파지 여유를 계산 → 잡을 수 있으면 움직이지 않고 `pushed: false`. 앞뒤 벽 때문에 옆으로 끌어도 안 되거나, 누를 점이 물체 위 밖이면 움직이지 않고 `NO_PUSH_ACCESS`.
@@ -100,7 +105,7 @@
   * 놓치면 RG2가 계속 닫혀 폭이 빈손 닫힘(0.9 mm)까지 줄어든다 [실측 B 10/03]. 고무 물체는 잡는 힘에 조금 눌리므로(지우개 22 → 21.4 mm [실측 B 10/04]) 작은 변화는 정상으로 본다.
   * 옮기는 동안 `/gripper/state`를 계속 감시하지는 않는다. 확인은 위 세 시점뿐이다.
 * **실패 뒤 흐름 — 현재 P1** (공통 `pick`, 8.5 ①)
-  * `pick_object`는 6단계 중 마지막이라 앞서 탑뷰 이동(과 끌기)이 이미 있었다. 그래서 `GRASP_FAILED` 등 어떤 실패든 Runner는 `pick` 스킬을 다시 보내지 않는다(`MOTION_UNCERTAIN`). 태스크의 `retry: 1`이 있어도 같다.
+  * `pick_object`(첫 집기 `.e3.o1.1`, 넛지 뒤 재집기 `.e3.o2.4`) 앞에는 항상 탑뷰 이동(넛지 대안이면 끌기까지)이 있었다. 그래서 `GRASP_FAILED` 등 집기 실패는 넛지 대안으로 넘어가지 않고(`next_on`은 `WALL_TOO_CLOSE`만), Runner는 `pick` 스킬도 다시 보내지 않는다(`MOTION_UNCERTAIN`). 태스크의 `retry: 1`이 있어도 같다.
   * 실패는 태스크로 전파되어 `finally`로 간다. 서랍 닫기·홈·TTS 안내는 Runner 안전 조건을 따른다: ESTOP·잠금이면 움직이는 동작은 건너뛰고, 물품을 쥔 채(놓기 실패 등)면 홈으로 가지 않고 사람 복구를 기다린다.
   * P1 Runner에는 `recovery`가 없어 "다시 보고 다시 집기"를 자동으로 하지 않는다. 호스트 시험 스크립트 `ros2_ws/src/ready2go_skills/scripts/b_sk.py`의 재시도(탑뷰 → 재관측 → 실패한 단계부터 다시, 최대 2회)는 B 실물 시험용이며 Runner 경로가 아니다.
 * **P2 계획 (미구현)**: 실패한 `pick_object` 스텝에 `recovery`로 `move_to_named_pose(drawer_top_view)` → `inspect_region`(출력 `scan`)을 두고 새로 본 `$scan` 좌표로 다시 집는다 (C 확인: Runner는 시도마다 `params`를 그때의 블랙보드로 다시 푼다, #72). ③ 뒤 다시 봐도 목표가 서랍에 없으면 작업대로 떨어진 것으로 보고 TTS로 사람에게 확인을 요청한다(로봇이 작업대를 찾아 집지는 않음). Runner `recovery`·이동 뒤 재시도 허용 조건은 C·E 합의가 필요하다.
