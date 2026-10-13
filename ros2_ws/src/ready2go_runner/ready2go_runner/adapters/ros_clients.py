@@ -57,15 +57,17 @@ class RosClients:
         self._active: dict[int, tuple] = {}     # 진행 중인 goal: id → (handle, 깨우기 Event, 취소 요청 여부 [bool])
 
     def cancel_all(self) -> int:
-        """진행 중인 모든 goal 에 취소를 요청한다 (/runner/estop·halt). 기다림은 각 call_action 이 한다."""
+        """진행 중인 모든 goal 에 취소를 요청한다 (/runner/estop·halt). 기다림은 각 call_action 이 한다.
+        돌려주는 수 = 취소를 보낸 **로봇 스킬**(/skills/*) goal 수 — 음성(/voice/speak) 등은 취소하되 세지 않음
+        (/runner/status halt.canceled_goals·실행 기록 halts[], #259 D 리뷰: TTS 취소를 로봇 정지로 보지 않게)."""
         with self._lock:
             active = list(self._active.values())
-        for handle, wake, canceled in active:
+        for handle, wake, canceled, _ in active:
             if not canceled[0]:
                 canceled[0] = True
                 handle.cancel_goal_async()
             wake.set()
-        return len(active)
+        return sum(1 for *_, name in active if "/skills/" in name)
 
     def _action_client(self, name: str) -> ActionClient:
         client = self._actions.get(name)
@@ -111,7 +113,7 @@ class RosClients:
         done = handle.get_result_async()
         if not _wait(done, self.cancel_confirm_sec):
             return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)
-        return Reply(False, _keep_safety_code(done.result().result.error_code, TIMEOUT))
+        return _timeout_reply(done.result().result)
 
     def _follow(self, name: str, handle, timeout_sec: float | None) -> Reply:
         """수락된 goal 의 결과를 기다림. 시간 초과·중단이면 취소 후 정지 확인까지."""
@@ -120,7 +122,7 @@ class RosClients:
         done.add_done_callback(lambda _: wake.set())
         key = id(handle)
         with self._lock:
-            self._active[key] = (handle, wake, canceled)
+            self._active[key] = (handle, wake, canceled, name)
         try:
             if self.stopping():                 # 보내는 사이에 중단 요청이 들어옴
                 self.cancel_all()
@@ -137,7 +139,7 @@ class RosClients:
                 self.node.get_logger().error(f"{name}: 취소 뒤 {self.cancel_confirm_sec}초 안에 정지 확인 없음")
                 return Reply(False, STOP_UNCONFIRMED, NO_BACKEND_RESULT)
             if timed_out:                       # 결과가 왔다고 정지 성공은 아님: 안전 코드는 그대로 (E 리뷰)
-                return Reply(False, _keep_safety_code(done.result().result.error_code, TIMEOUT))
+                return _timeout_reply(done.result().result)
             result = done.result().result         # 중단 요청으로 취소됨 (또는 직전에 끝남)
             return Reply(result.success, result.error_code or ("" if result.success else CANCELED),
                          result.output_json)
@@ -164,6 +166,19 @@ class RosClients:
 def _keep_safety_code(code: str, otherwise: str) -> str:
     """취소 뒤 최종 결과의 코드가 Runner 잠금 대상(HALT_CODES)이면 그대로, 아니면 otherwise."""
     return code if code in HALT_CODES else otherwise
+
+
+def _timeout_reply(result) -> Reply:
+    """시간 초과로 취소한 뒤 백엔드가 준 최종 결과. 실행 코드는 지금처럼 TIMEOUT(안전 코드는 그대로)이고,
+    백엔드 원래 코드·성공 여부는 결과 JSON backend_code·backend_success 로 따로 넘김 — 그 사이 정지 요청이 있었으면
+    Runner 가 /runner/status halt.response_code 에 원래 코드를 씀 (#259 E 리뷰: CANCELED 가 TIMEOUT 으로 바뀌던 것)."""
+    try:
+        output = json.loads(result.output_json) if result.output_json else {}
+    except ValueError:
+        output = {}
+    output = output if isinstance(output, dict) else {}
+    output.update(backend_code=result.error_code or "", backend_success=bool(result.success))
+    return Reply(False, _keep_safety_code(result.error_code, TIMEOUT), json.dumps(output))
 
 
 def _wait(future, timeout_sec: float | None) -> bool:

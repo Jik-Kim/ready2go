@@ -171,3 +171,33 @@ def test_backend_final_results_are_answers():
                               (lambda: ActionResult(True), "confirmed", None)):
         halt, _ = stop_then(reply)
         assert (halt["stop"], halt["response_code"]) == (stop, code) and halt["response_received_at"], halt
+
+
+def test_tts_cancel_is_not_a_robot_stop_answer():
+    """#259 D 리뷰 P1: 말하는 중(speak) 정지 → TTS 의 CANCELED 는 로봇 정지 응답이 아님. 취소한 로봇 goal 0 → none."""
+    def backend(action, params, timeout_sec):
+        if action == "speak":
+            runner.halt(source="voice")
+            return ActionResult(False, error_code="CANCELED")
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    runner.on_halt = lambda: 0                  # RosClients.cancel_all: 음성 goal 은 취소하되 세지 않음
+    result = runner.run({"task_id": "t", "sequence": [SPEAK, MOVE]})
+    halt = runner.halt_summary
+    assert result.overall_status == "ABORTED"
+    assert (halt["stop"], halt["response_code"], halt["response_received_at"]) == ("none", None, None), halt
+
+
+def test_backend_original_code_survives_timeout_path():
+    """#259 E 리뷰: 시간 초과로 취소를 기다리던 중 정지 요청 → B 최종 CANCELED·성공은 halt 에 원래 코드로,
+    실행 기록 코드는 지금처럼 TIMEOUT. 최종 결과가 없으면 null·unconfirmed."""
+    cases = (({"backend_code": "CANCELED", "backend_success": False}, "confirmed", "CANCELED"),
+             ({"backend_code": "", "backend_success": True}, "confirmed", None),
+             ({"no_backend_result": True}, "unconfirmed", None))
+    for output, stop, code in cases:
+        halt, result = stop_then(lambda o=output: ActionResult(False, o, error_code="TIMEOUT"))
+        assert (halt["stop"], halt["response_code"]) == (stop, code), (output, halt)
+        assert bool(halt["response_received_at"]) == (stop == "confirmed") and halt["locked"]
+        move = next(s for s in result.steps if s["id"] == "s2")
+        assert move["error_code"] == "TIMEOUT"   # 실행 기록 정책은 그대로
