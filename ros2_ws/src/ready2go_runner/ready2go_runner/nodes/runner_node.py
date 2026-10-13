@@ -251,7 +251,8 @@ class RunnerNode(Node):
     def status(self) -> dict:
         degraded = getattr(self.log_store, "degraded", False)
         status = build_status(self.running, self.runner.halted, self.runner.halt_code, self._task_id,
-                              self.runner.current_step, self._last, self._last_task_id, degraded)
+                              self.runner.current_step, self._last, self._last_task_id, degraded,
+                              halt=self.runner.halt_summary)
         status["last_intent"] = self._last_intent
         status["state_reset_at"] = self._state_reset_at   # 마지막 상태 초기화 시각 (UTC, 없으면 null)
         return status

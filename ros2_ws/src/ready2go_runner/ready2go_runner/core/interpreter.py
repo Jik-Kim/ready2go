@@ -72,6 +72,32 @@ SAFE_HOME_POSE = "home"                 # on_failure: safe_home 이 이동할 �
 HALT_MOTION_CODES = {"OBJECT_DROPPED", "SENSOR_INVALID"}
 HALT_CODES = {"ESTOP", "STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED", "LOCKED"} | HALT_MOTION_CODES
 HALTED = "HALTED"                       # halt() 로 멈춘 경우의 코드 (/runner/estop 서비스·음성 "멈춰")
+# 정지 요청 뒤 백엔드가 "멈췄다"는 최종 결과를 주지 못한 코드 → /runner/status halt.stop "unconfirmed"
+STOP_UNCONFIRMED_CODES = {"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"}
+
+
+def halt_cause(code: str | None) -> str | None:
+    """정지 코드 → 분류 (/runner/status halt.cause, E 원인별 안내용 — #78·#152 계약안, 승인 대기).
+    halt_motion = 놓침·센서 이상(재개 없음, 사람 복구) / estop / stop = 음성·서비스 정지 / unconfirmed = 정지·상태 미확인 / locked."""
+    if code is None:
+        return None
+    if code in HALT_MOTION_CODES:
+        return "halt_motion"
+    return {"ESTOP": "estop", HALTED: "stop", "LOCKED": "locked"}.get(code, "unconfirmed")
+
+
+def stop_state(info: dict, in_run: bool) -> str:
+    """정지 요청과 실제 정지 확인을 구분 (/runner/status halt.stop, FR-SAF-01·AC-SAF-02 — 계약안, 승인 대기).
+    requested = 요청했고 진행 중이던 동작의 최종 결과를 기다리는 중 / confirmed = 백엔드가 최종 결과를 줌(멈춤·끝남)
+    / unconfirmed = 정해진 시간 안에 정지 확인 없음(STOP_UNCONFIRMED 등, 잠금) / none = 요청 때 보낸 동작이 없었음."""
+    code = info.get("stop_code")
+    if code is None:
+        return "requested" if in_run else "none"
+    if code in STOP_UNCONFIRMED_CODES:
+        return "unconfirmed"
+    if info.get("source") != "backend" and info.get("canceled_goals") == 0:
+        return "none"                           # 스텝 사이·비동작 중 요청 — 취소할 동작이 없었음
+    return "confirmed"
 # ABORTED 일 때 finally 에서도 실행해도 되는 동작 (로봇을 움직이지 않음). 허용 목록이라 새 동작은 기본 생략
 # 태스크가 정리 동작(닫기·홈)을 멈추지 않고 실행 결과만 실패로 남길 때 쓰는 블랙보드 변수 {code, step}
 # (예: find_with_unpack 복구 미완료 RESTORE_INCOMPLETE — 정본 requirements 137 "복구 실패면 전체 FAILED")
@@ -198,6 +224,7 @@ class Runner:
         # 스텝 시작·끝 알림 (#98 콘솔 진행 표시). (event "start"|"end", record, {"run_id", "finally"}).
         # 보기용: 예외가 나도 실행·기록·안전 처리에 영향 없음
         self.on_step: Callable[[str, dict, dict], object] | None = None
+        self._in_run = False                    # run()·재개·버림이 실행 기록을 끝내기 전 (halt.stop "requested" 판단)
         self._in_finally = False
         self._iterations: list[int] = []        # 반복 블록 안이면 몇 번째 회차인지 (스텝 기록 iteration)
         self._motions = 0                       # 팔을 움직였을 수 있는 동작을 보낸 횟수 (fallback 이 대안마다 비교)
@@ -228,7 +255,8 @@ class Runner:
                 self._event_seq += 1
                 self._event_id = f"h{self._event_seq}-{utc_iso()}"
                 self._offered_at = None
-                self._halt_info = {"requested_at": utc_iso(), "source": source, "canceled_goals": None}
+                self._halt_info = {"requested_at": utc_iso(), "source": source, "canceled_goals": None,
+                                   "stop_code": None, "stopped_at": None}
             self._halt.set()
         if first and self.on_halt is not None:  # 진행 중인 로봇 동작에 즉시 취소 요청 (기다림은 클라이언트가 함)
             canceled = self.on_halt()
@@ -252,6 +280,20 @@ class Runner:
         """중단 요청이 들어왔지만 이번 실행이 아직 중단 처리 전. 이때 새 원자 동작을 보내지 않는다(RosClients).
         중단 처리 뒤 finally 의 비동작(speak 등)은 Runner 가 골라 보내므로 막지 않는다."""
         return self._halt.is_set() and not self._aborted
+
+    @property
+    def halt_summary(self) -> dict | None:
+        """잠겨 있거나 재개 대기 중일 때 정지 사건 요약 (/runner/status halt — 계약안, 승인 대기). 아니면 None.
+        code·cause = 왜 멈췄나, stop·stop_code·stopped_at = 진행 중이던 동작이 실제로 멈췄다는 결과를 받았나."""
+        if not self._halt.is_set() and self._suspended is None:
+            return None
+        code = self._halt_code if self._halt.is_set() else self._suspended.error.code
+        info = dict(self._halt_info)
+        return {"event_id": self._event_id, "code": code, "cause": halt_cause(code),
+                "source": info.get("source"), "requested_at": info.get("requested_at"),
+                "canceled_goals": info.get("canceled_goals"), "stop": stop_state(info, self._in_run),
+                "stop_code": info.get("stop_code"), "stopped_at": info.get("stopped_at"),
+                "locked": self._halt.is_set()}
 
     @property
     def halt_code(self) -> str | None:
@@ -281,6 +323,7 @@ class Runner:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
         meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
         self._aborted, self._in_finally = False, False
+        self._in_run = True
         self._at_pose = None                    # 실행 사이에는 사람이 팔을 옮겼을 수 있음
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
         ctx = _Run(task, blackboard, [], {"run_id": new_run_id(), "task_id": task.get("task_id", ""),
@@ -303,6 +346,7 @@ class Runner:
     def _continue(self, ctx: _Run, path: list | None = None) -> RunResult:
         """sequence(path 가 있으면 그 스텝부터) → finally. 재개 가능한 중단이면 finally 전에 보존하고 돌아감."""
         self._aborted, self._in_finally, self._halt_path = False, False, None
+        self._in_run = True
         self._branch_at = ctx.branch_at
         blackboard, records = ctx.blackboard, ctx.records
         error: StepFailed | Halted | None = None
@@ -331,7 +375,7 @@ class Runner:
 
     def _run_finally(self, ctx: _Run, error: StepFailed | Halted | None) -> RunResult:
         blackboard, records = ctx.blackboard, ctx.records
-        self._in_finally = True
+        self._in_finally, self._in_run = True, True
         try:
             self._run_steps(ctx.task.get("finally", []), blackboard, records)
             self._check_halt(records[-1]["id"] if records else "")
@@ -351,6 +395,7 @@ class Runner:
         return self._finish(ctx, RunResult("COMPLETED", blackboard, records))
 
     def _finish(self, ctx: _Run, result: RunResult) -> RunResult:
+        self._in_run = False
         result.run_id, result.log_errors = ctx.doc["run_id"], self._log_errors
         doc = dict(ctx.doc)
         if ctx.halts:
@@ -483,6 +528,8 @@ class Runner:
                  "step": step_id or e.step_id, "action_step": e.step_id,
                  "step_code": e.step_code or e.code, "stopped_at": utc_iso(), "in_finally": self._in_finally}
         ctx.halts.append(entry)
+        if entry["event_id"] == self._event_id:    # 이 정지 사건의 백엔드 최종 결과 → /runner/status halt.stop
+            self._halt_info.update(stop_code=entry["step_code"], stopped_at=entry["stopped_at"])
         return entry
 
     def _check_halt(self, step_id: str) -> None:
