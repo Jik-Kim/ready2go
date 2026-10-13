@@ -38,7 +38,7 @@
 
 ## 물품 목록 갱신 (#8)
 
-- [문서] 현재 `world.items`는 당근 펜을 제외한 활성 10종·실물 11개(지우개 2개)다. 온톨로지 키는 종류 단위이며 지우개 instance를 새로 만들지 않았다. 학습 클래스는 기존 11종·`carrot_pen` class_id=5를 포함해 `config/yolo_classes.txt`의 번호를 유지한다. A의 은퇴 클래스 목록·학습/검사 도구 호환 지원이 게시 선행 조건이며 모델·라벨을 재생성하지 않는다.
+- [문서] 현재 `world.items`는 당근 펜을 제외한 활성 10종·실물 11개(지우개 2개)다. 온톨로지 키는 종류 단위이며 지우개 instance를 새로 만들지 않았다. 학습 클래스는 기존 11종·`carrot_pen` class_id=5를 포함해 `config/yolo_classes.txt`의 번호를 유지한다. A [PR #262](https://github.com/Jik-Kim/ready2go/pull/262)의 head `87fa5e5bd4b53d795d98dca2343483fe1e436aff`를 E 작업 브랜치에 정상 합류했다. `config/yolo_retired_classes.txt`의 carrot_pen과 공통 `class_errors`로 활성 목록 제거 후에도 고정 번호를 검사한다. #262는 확인 시 open·main 미병합이며 최종 합류 SHA의 전체 CI·게시와 모델/실물 검증은 별도다. 모델·라벨은 재생성하지 않는다.
 - 요청 범위·등록과 승인 구분은 [물품 정책](../docs/requirements.md#item-policy)을 참조한다. 현재 `commute_set`·`roles`는 로더가 반환하는 데이터이며 음성/파지 연결 상태는 별도 확인한다.
 - `sources.item_grasp`의 `config/item_grasp.yaml`을 읽어 `grip_force`와 `grasp_verified`, 선택 항목 `grasp_width_m`·`grasp_width_long_m`(B 실측 잡은 폭, 외접 박스와 다른 물품만, 그 변 이하 양수)을 물품에 제공한다. 미확정 값은 null/false로 유지한다. 미확정 상태를 거절하는 E 함수와 실제 실행 경로 연결은 구분한다.
 - 치수·분류·역할·초기 상태의 의미는 [물품 정책](../docs/requirements.md#item-policy), 값·검증 상태는 실행 원본, 구현/인계는 공용 기술 문서를 참조한다. 과거 예시값 설명은 현재 실측 원본에 적용하지 않는다.
