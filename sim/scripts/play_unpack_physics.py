@@ -361,6 +361,61 @@ for oid, o in objs.items():
             print(f"[phys]   첫 장면 {oid}: 가려진 자리 → {e['why']} 자리로 바로잡음 ({dd:.1f} mm)", flush=True)
             objs[oid] = dict(o, pose=o2["pose"])
             break
+# 앞뒤가 다른 물체(몽키·망치)는 비전 위치(검출 상자 가운데)·yaw(뎁스 덩어리 방향)가 메시 기준점(외곽 가운데)과 몇 mm·몇 도
+# 어긋나고 머리 방향(180°)도 못 가름 → 붙어 있는 장면에서 메시가 이웃·벽에 파묻혀 첫 장면에서 튕김(10/13 060416 캐러멜 95 mm,
+# 064400 몽키 뒤집힘). 첫 장면에서 머리 2방향 × 위치 ±15 mm × 각도 ±10° 안에서 바닥(같은 층) 이웃 외곽 사각형·벽과 겹치는
+# 메시 칸이 가장 적은 자리로 놓음(겹침 없으면 그대로). 다시 인식 때는 두 방향 중 물리 자세에 가까운 쪽. 보고 asym_fit
+ASYM = {"toy_wrench", "toy_hammer"}
+
+
+def _mesh_cells(cls, g=0.002):
+    import re as _re
+    txt = (MESH_DIR / f"{cls}.usda").read_text(encoding="utf-8")
+    m = _re.search(r"point3f\[\] points = \[(.*?)\]", txt, _re.S)
+    pts = np.array([[float(v) for v in t.split(",")] for t in _re.findall(r"\(([^()]*)\)", m.group(1))])
+    return np.unique(np.round(pts[:, :2] / g).astype(int), axis=0) * g
+
+
+def _overlap_cells(xy, others, interior):
+    n = int(np.sum((xy[:, 0] < 0) | (xy[:, 1] < 0) | (xy[:, 0] > interior[0]) | (xy[:, 1] > interior[1])))
+    for o2 in others:
+        L, Wd = ITEMS[o2["class"]]["size_m"][:2]
+        c, s_ = math.cos(o2["pose"]["yaw"]), math.sin(o2["pose"]["yaw"])
+        d = xy - np.array(o2["pose"]["position"][:2])
+        n += int(np.sum((np.abs(d[:, 0] * c + d[:, 1] * s_) < L / 2) & (np.abs(-d[:, 0] * s_ + d[:, 1] * c) < Wd / 2)))
+    return n
+
+
+INTERIOR = TRACE["config"]["places"][DKEY]["interior_m"]
+report["asym_fit"] = []
+for oid, o in list(objs.items()):
+    if o["class"] not in ASYM:
+        continue
+    cells = _mesh_cells(o["class"])
+    h = ITEMS[o["class"]]["size_m"][2]
+    others = [x for x in objs.values() if x["id"] != oid and x["top_z"] - ITEMS[x["class"]]["size_m"][2] < o["top_z"] - 0.005]   # 같은 층(위에 얹힌 것 제외)
+    x0, y0, yaw0 = o["pose"]["position"][0], o["pose"]["position"][1], o["pose"]["yaw"]
+
+    def _cost(dx, dy, dyaw):
+        c, s_ = math.cos(yaw0 + dyaw), math.sin(yaw0 + dyaw)
+        return _overlap_cells(cells @ np.array([[c, s_], [-s_, c]]) + np.array([x0 + dx, y0 + dy]), others, INTERIOR)
+    n0 = _cost(0.0, 0.0, 0.0)
+    best = (n0 * 4.0, n0, 0.0, 0.0, 0.0)
+    if n0 > 0:
+        for fl in (0.0, math.pi):
+            for dyaw in np.radians(np.arange(-10.0, 10.1, 2.5)):
+                for dx in np.arange(-0.015, 0.0151, 0.003):
+                    for dy in np.arange(-0.015, 0.0151, 0.003):
+                        n_ = _cost(dx, dy, fl + dyaw)
+                        sc = n_ * 4.0 + math.hypot(dx, dy) * 2000.0 + abs(math.degrees(dyaw))   # 겹침 mm² + 옮김 2/mm + 1/°
+                        if sc < best[0]:
+                            best = (sc, n_, dx, dy, fl + dyaw)
+    _, n1, dx, dy, dyaw = best
+    rec = {"id": oid, "overlap_mm2": [n0 * 4, n1 * 4], "shift_mm": [round(dx * 1000, 1), round(dy * 1000, 1)], "dyaw_deg": round(math.degrees(dyaw), 1)}
+    report["asym_fit"].append(rec)
+    if (dx, dy, dyaw) != (0.0, 0.0, 0.0):
+        objs[oid] = dict(o, pose=dict(o["pose"], position=[x0 + dx, y0 + dy, 0.0], yaw=yaw0 + dyaw))
+        print(f"[phys]   첫 장면 {oid}: 이웃·벽 겹침 {n0 * 4} → {n1 * 4} mm² 로 자리 맞춤 (옮김 {dx * 1000:+.0f}, {dy * 1000:+.0f} mm, {math.degrees(dyaw):+.1f}°)", flush=True)
 travel, width, held, rel = 0.0, 110.0, None, None
 for oid in cls_of:
     set_kin(oid, oid not in present)
@@ -402,6 +457,10 @@ for s in TRACE["segments"]:
                     # 가려진 물체·그 위 물체는 인식 자리로 옮기지 않음 — 가려진 자리는 치우침(10/13 인식 6: 캐러멜 18 mm·90°, 윗면 25.7)
                     # → 옮기면 위 차키가 받침을 잃고 떨어짐(서랍 나올 때 캐러멜 7.7·차키 14 mm). 물리 자리 유지
                     continue
+            if o["class"] in ASYM and o["id"] in present:                  # 머리 방향: 물리 자세에 가까운 쪽 (비전은 180° 모호)
+                yaw_now = drawer_xy_yaw(pose_of(o["id"]), travel)[2]
+                if abs((o["pose"]["yaw"] - yaw_now + math.pi) % (2 * math.pi) - math.pi) > math.pi / 2:
+                    o = dict(o, pose=dict(o["pose"], yaw=o["pose"]["yaw"] + math.pi))
             objs[o["id"]] = dict(o)
             present.add(o["id"])
             in_drawer.add(o["id"])
