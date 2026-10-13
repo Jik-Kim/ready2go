@@ -81,8 +81,8 @@ ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skil
 ```
 
 **B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍] [물체]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 전체 목록·한 줄 설명은 `B` 를 인자 없이 실행했을 때 나오는 사용법(`b_sk.py` `USAGE`)이 원본. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
-- 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan unpack` / 없음: `home pick place putback trayview trayclear`.
-- `unpack <서랍> <목표>` — Runner `find_with_unpack`(C `feat/c-unpack-task`)과 같은 순서를 B 명령 하나로: 열기 → 덮은 것 맨 위부터 `aside_1`(거부면 `aside_2`) 최대 2개 → 목표 트레이 → 옮긴 것 역순 원래 자리(거부면 꺼냈던 고정 자리 + 안내) → 복구 오차(비전) 출력 → 닫기·홈. 치울 것 고르기·다시 찾기는 Runner `core/unpack.py` 를 그대로 씀. 서랍 닫힘·빈손·홈에서 시작. 예: `B unpack top 몽키`(쌓기), `B unpack bottom 지우개`(가림막).
+- 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find clear free plan unpack` / 없음: `home pick place putback trayview trayclear`.
+- `unpack <서랍> <목표>` — Runner `find_with_unpack`(C `feat/c-unpack-task`)과 같은 순서를 B 명령 하나로: 열기 → 덮은 것 맨 위부터 서랍 빈 자리(`place_object` `slot: "free"`, 10/13부터 — 고정 aside 안 씀, 빈 자리 없으면 든 채 멈춤) 최대 2개 → 목표 트레이 → 옮긴 것 역순 원래 자리(거부면 다시 빈 자리 + 안내) → 복구 오차(비전) 출력 → 닫기·홈. 치울 것 고르기·다시 찾기는 Runner `core/unpack.py` 를 그대로 씀. 서랍 닫힘·빈손·홈에서 시작. 예: `B unpack top 몽키`(쌓기), `B unpack bottom 지우개`(가림막).
   - `rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick` / `find` = 손으로 연 서랍에서 잡을 때까지 다시 넛지 → 트레이.
 - 파지 공간 만들기 (`nudge_object` `make_room` — **계약 제안, E 포함 2명 승인 전 · 실물 미검증**, 판단 순서·한계는 [runner.md 7.1](../../../docs/runner.md) `nudge_object`, 설정은 [`params/skills.yaml`](params/skills.yaml) `make_room`·`drag.sweep_force_n`):
   - `plan` — `B scan` 뒤 다음 공간 만들기 동작을 **판단만, 움직이지 않음**(`make_room` + `check_only`). 바로 집을 수 있으면 성공(`ready_to_pick`), 아직 동작이 필요하면 `PUSH_LIMIT` 와 `make_room.action`(다음 동작 미리보기 — 실제 이동 실패가 아님).

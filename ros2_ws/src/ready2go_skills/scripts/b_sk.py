@@ -20,7 +20,7 @@ AFTER = "/tmp/b_target_after.json"       # 끌기 결과 — 하나만 (pick 은
 TMP = "/tmp"                              # scan(인식) 결과 target 은 서랍마다 따로 scan_file() — 있으면 nudge 가 이걸 씀, 없으면 위 고정값(stub)
 DRAWER = "drawer_top"                     # 두 번째 인자로 고름 (서랍 필요한 동작은 필수): B open top|bottom|drawer_top|drawer_bottom [사용자 10/08]
 DRAWER_ALIASES = {"top": "drawer_top", "bottom": "drawer_bottom", "drawer_top": "drawer_top", "drawer_bottom": "drawer_bottom"}
-NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "aside", "aside2", "clear",
+NEEDS_DRAWER = {"ready", "open", "opened", "close", "view", "scan", "rescan", "nudge", "all", "dragtest", "find", "clear",
                 "free", "plan", "unpack"}   # home·pick·place 는 서랍 없음
 
 
@@ -119,11 +119,6 @@ def goal_for(cmd):
         return "place_object", params
     if cmd == "place":
         return "place_object", {"location": "handover_zone"}
-    if cmd in ("aside", "aside2"):                    # 쥔 물체를 그 서랍 빈 자리(aside_1·aside_2)에 — 집을 때 쓴 인식 결과 전체를 같이 [사용자 10/11 쌓기 치우기]
-        params = with_scan({"location": DRAWER, "slot": "aside_1" if cmd == "aside" else "aside_2"}, DRAWER)
-        if "scan" not in params:
-            sys.exit(f"{DRAWER} 인식 결과 없음 — B scan {DRAWER.removeprefix('drawer_')} 로 집기 전에 본 결과가 있어야 함 (보내지 않음)")
-        return "place_object", params
     if cmd == "home":
         return "move_to_named_pose", {"pose_name": "home"}
     if cmd == "trayview":                              # 트레이 탑뷰 (poses.yaml tray_view, 놓은 뒤 비전 확인 자세) [사용자 10/11]
@@ -134,11 +129,10 @@ def goal_for(cmd):
 
 
 USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_top | drawer_bottom), 물체 = 지우개·캐러멜·차키·립밤… (안 쓰면 마지막에 고른 것)\n"
-         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find aside aside2 clear free plan\n"
+         "  서랍 필요: ready open opened close view scan rescan nudge all dragtest find clear free plan\n"
          "  서랍 없음: home pick place putback trayview trayclear\n"
          "  putback = 파지만 시험 — B pick 으로 집은 물체를 집기 전 그 자리·각도로 되돌려 놓음\n"
          "  trayclear = 트레이를 손으로 다 비운 뒤 — 스킬 서버의 쓴 칸 기억을 지움(다음 놓기부터 1번 칸, 로봇 안 움직임)\n"
-         "  aside / aside2 = 쥔 물체를 그 서랍 aside_1 / aside_2 에 (B scan → B pick → B aside top)\n"
          "  plan = (B scan 뒤) 공간 만들기가 다음에 할 동작만 출력, 로봇 안 움직임 — B clear 전에 미리 보기\n"
          "  free = 쥔 물체를 그 서랍 빈 자리에 — 고정 aside 대신 집을 때 본 인식 결과로 빈 곳을 골라 놓음 (B scan → B pick → B free top)\n"
          "  find = (서랍은 손으로 열고 B opened 뒤) 탑뷰 → 인식 → 넛지 → 다시 인식 → 집기(잡을 때까지 다시) → 트레이 → 홈\n"
@@ -146,7 +140,7 @@ USAGE = ("사용: B <동작> [서랍] [물체]  서랍 = top | bottom (= drawer_
          "          좌우 밀기 / 벽 넛지) → 다시 인식 … 집을 수 있게 되면 집기 → 트레이 → 홈 [제안 10/11, 계약 승인 전]\n"
          "  rescan = 끌기 뒤 다시 인식, 찾은 좌표로 B pick (scan 은 확인·끌기용)\n"
          "  unpack = (서랍 닫힘·빈손·홈에서) Runner find_with_unpack 과 같은 순서 한 번에: 열기 → 탑뷰 → 인식 → 위에 덮은 것부터\n"
-         "           aside_1(막히면 aside_2)로 최대 2개 → 목표 트레이 → 옮긴 것 역순으로 원래 자리(막히면 꺼냈던 자리) → 복구 오차 출력 → 닫기·홈\n"
+         "           서랍 빈 자리(free)로 최대 2개 → 목표 트레이 → 옮긴 것 역순으로 원래 자리(막히면 다시 빈 자리) → 복구 오차 출력 → 닫기·홈\n"
          "           예: B unpack top 몽키 (쌓기 해체) / B unpack bottom 지우개 (가림막 빼기)")
 
 
@@ -616,7 +610,6 @@ def free(node):
 
 
 UNPACK_MAX = 2                              # 치울 물체 최대 — Runner find_with_unpack s7 max_iter 2
-UNPACK_SLOTS = ("free",)                    # 치운 물체 놓을 자리 — 서랍 빈 자리(서버 slot free) [사용자 10/13 "aside 빼고 free"]. 예전 ("aside_1", "aside_2")
 UNPACK_PICK_RETRY = 1                       # 목표 집기 다시 — 태스크 s8.t1 on_failure retry 1
 REID_TOL_M = 0.02                           # 옮긴 물체 다시 찾기 거리 — 태스크 inputs.reid_tol_m [팀 확정 필요]
 RESTORE_CHECK_TOL_M = 0.10                  # 마지막 확인에서 원래 자리 물체로 볼 거리 — 태스크 inputs.restore_check_tol_m (판정은 기록표 3 cm)
@@ -695,8 +688,10 @@ def _xy_yaw(pose):
 def unpack(node):
     """[사용자 10/12 "문서 그대로 풀로"] Runner tasks/find_with_unpack.json(C feat/c-unpack-task)과 같은 순서를 B 명령으로:
     손잡이 앞 → 열기 → 탑뷰 → 인식 → select_obstacle(덮은 것 맨 위부터, 옮긴 것 제외, 관계 모르면 한 번 다시 찍기) →
-    집기 → UNPACK_SLOTS(서랍 빈 자리 free, 움직이기 전 거부면 다음) → 기록 → 다시 보기 … 최대 2개 → 목표가 다 보이면 집기 → 트레이 →
-    (쥔 게 없을 때) 옮긴 것을 역순으로: 다시 보기 → find_moved → 집기 → 원래 자리(막히면 꺼냈던 고정 자리 + 안내) →
+    집기 → 서랍 빈 자리(slot free) → 기록 → 다시 보기 … 최대 2개 → 목표가 다 보이면 집기 → 트레이 →
+    (쥔 게 없을 때) 옮긴 것을 역순으로: 다시 보기 → find_moved → 집기 → 원래 자리(막히면 다시 빈 자리 + 안내) →
+    치운 물체는 고정 aside 대신 늘 빈 자리(free) [사용자 10/13 "free 가 상위호환, aside 다 지움"] — 서버가 집는 물체 자리는 빈 것으로 보고,
+    목표(scan.target) 둘레를 비우고, 놓은 뒤 다시 집을 수 있는 곳을 고름. 빈 자리가 없으면 든 채 멈춤 (Runner 태스크는 집기 전에 판단, #250).
     마지막 다시 보기로 복구 오차(위치 mm·각도 °) 출력 → 닫기·홈. 판정(3 cm)은 기록표 — 자로 잰 값과 같이 적기."""
     up = _runner_unpack()
     world = {"items": json.load(open(repo_file("knowledge", "world.jsonld"), encoding="utf-8"))["world"]["items"]}
@@ -721,7 +716,7 @@ def unpack(node):
                 res, sel = res2, select(res2)
         return res, sel
 
-    stack, left_aside, restore_failed, delivered, failed = [], [], [], False, ""
+    stack, left_free, restore_failed, delivered, failed = [], [], [], False, ""
     res, sel = look_select()
     while sel.get("obstacle") and len(stack) < UNPACK_MAX:
         ob = sel["obstacle"]
@@ -731,14 +726,9 @@ def unpack(node):
                 sys.exit(f"pick {last['code']} — 멈춤 (복구 안 함, 사람 확인)")
             failed = f"치울 {ob['id']} 집기 {last['code']}"
             break
-        for slot in UNPACK_SLOTS:
-            params = {"location": DRAWER, "slot": slot, "scan": res}
-            if timed("aside", lambda: run(node, "aside", ("place_object", params))):
-                break
-            if last["code"] not in FREE_RETRY:
-                sys.exit(f"{slot} 놓기 {last['code']} — {ob['id']} 를 든 채 멈춤 (사람이 회수, 복구 안 함)")
-        else:
-            sys.exit(f"{'·'.join(UNPACK_SLOTS)} 모두 거부 — {ob['id']} 를 든 채 멈춤 (사람이 회수)")
+        params = {"location": DRAWER, "slot": "free", "scan": res}
+        if not timed("free", lambda: run(node, "free", ("place_object", params))):
+            sys.exit(f"빈 자리 놓기 {last['code']} — {ob['id']} 를 든 채 멈춤 (사람이 회수, 복구 안 함)")
         out = last.get("out") or {}
         stack.append({"class": ob["class"], "id": ob["id"], "origin": {k: ob["pose"][k] for k in ("frame", "position", "yaw")},
                       "placed": out.get("placed_pose"), "slot": out.get("slot")})
@@ -780,7 +770,7 @@ def unpack(node):
             sys.exit(f"원래 자리 놓기 {last['code']} — {item['id']} 를 든 채 멈춤 (사람이 회수)")
         if not item.get("slot") or not timed("restore", lambda: run(node, "restore", ("place_object", {"location": DRAWER, "slot": item["slot"], "scan": rescan}))):
             sys.exit(f"원래 자리·꺼냈던 자리 둘 다 안 됨 — {item['id']} 를 든 채 멈춤 (사람이 회수)")
-        left_aside.append(item)
+        left_free.append(item)
         print(f">>> {item['id']} 는 원래 자리 대신 옆 빈 자리({item['slot']})에 뒀어요")
 
     if restore_failed:                                       # 태스크 fn·fe: 하나라도 못 돌려놓으면 안내 + FAILED RESTORE_INCOMPLETE
@@ -792,7 +782,7 @@ def unpack(node):
             rec = dict(item, placed=item["origin"])
             fm = up.find_moved({"scan": final, "record": rec, "tol_m": RESTORE_CHECK_TOL_M}, world).output if final else {}
             o = (fm or {}).get("object")
-            if item in left_aside:
+            if item in left_free:
                 print(f"  {item['id']}: 원래 자리 대신 {item['slot']}")
             elif not o:
                 print(f"  {item['id']}: 원래 자리 근처에 안 보임 ({(fm or {}).get('status', '인식 실패')})")
@@ -804,7 +794,7 @@ def unpack(node):
     print("\n===== close (닫고 홈) =====")
     if not timed("close", lambda: run(node, "close")):
         sys.exit(f"close {last['code']} — 멈춤")
-    print(f"\nunpack 끝: 전달 {'O' if delivered else 'X'}, 치움 {len(stack)}개, 원래 자리 대신 고정 자리 {len(left_aside)}개"
+    print(f"\nunpack 끝: 전달 {'O' if delivered else 'X'}, 치움 {len(stack)}개, 원래 자리 대신 빈 자리 {len(left_free)}개"
           + (f", 못 돌려놓음 {len(restore_failed)}개 (RESTORE_INCOMPLETE)" if restore_failed else ""))
     return delivered and not restore_failed
 
