@@ -340,3 +340,15 @@ def test_default_p1_schema_and_parser_remain_without_goals(ontology, schema, cfg
     assert 'goals' not in LangChainIntent(cfg, ontology['world']['items']).schema['properties']
     doc = IntentParser(ontology, schema, cfg).parse('지우개 가져다줘')
     assert doc['intent'] == 'find_item' and doc['source']['execution_allowed'] and 'goals' not in doc
+
+
+@pytest.mark.parametrize('text', ['당근 펜 가져다줘', '당근펜 찾아줘', 'carrot_pen 가져다줘'])
+def test_retired_item_cannot_become_execution_target(ontology, schema, cfg, text):
+    from ready2go_voice.adapters.api import LangChainIntent
+    items = ontology['world']['items']
+    assert len(items) == 10 and 'carrot_pen' not in items
+    assert 'carrot_pen' not in LangChainIntent(cfg, items).schema['properties']['targets']['items']['enum']
+    for llm in (None, lambda *_: dict(intent='find_item', targets=['carrot_pen'], confidence=.99)):
+        doc = IntentParser(ontology, schema, cfg, llm).parse(text)
+        assert doc['intent'] in ('unknown', 'clarify') and doc['targets'] == []
+        assert not doc['source']['execution_allowed']

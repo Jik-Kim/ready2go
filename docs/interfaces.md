@@ -86,9 +86,9 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 
 | 연결 | 실행 원본·예시 | 현행 구현과의 구분 |
 | :--- | :--- | :--- |
-| E 요청 → C 결정 | `/runner/status` `last_intent.request_id`·`run_id` — [runner_status.json](../contracts/examples/runner_status.json) `accepted_running`·`hold_low_confidence`·`reject_busy_while_other_run` | 현재 `last_intent`에는 두 칸이 없음(구현 전). 기존 `decision`·`reason`은 그대로 |
+| E 요청 → C 결정 | `/runner/status` `last_intent.request_id`·`run_id` — [runner_status.json](../contracts/examples/runner_status.json) `accepted_running`·`hold_low_confidence`·`reject_busy_while_other_run` | C 운영 구현(Runner, 모의 시험 — 계약 #221 뒤 운영 PR) — 수락 때 `run_id` 고정. 기존 `decision`·`reason`은 그대로 |
 | 수락 → 최종 결과 | 기존 `last.run_id` — 같은 예시 `accepted_fast_completed`(빠른 완료에도 같은 `run_id`) | `last`는 현재 구현 그대로. E 완료 안내 조건 = `last.run_id`가 그 요청의 수락 `run_id`와 같음 |
 | 실행 기록 | 실행 헤더 `intent`(받은 payload 그대로, #89) → `intent.request_id` | 이미 저장 중 — 새 칸 없음 |
 | ID 없는 기존 요청 | 같은 예시 `legacy_without_request_id` — 입력에 `request_id` 필드가 **없으면** 상태 `last_intent.request_id: null`. 입력 `request_id: null`·빈 문자열은 스키마 위반 → `hold`/`BAD_INTENT` | 지금 동작 그대로 |
 | 수락 문장 없음 | 입력 `accept_text` 없음·`null` → 수락된 run 의 안내는 태스크 기존 문장 | 지금 동작 그대로 |
-| 중복·충돌·재기동 | runner.md 표 — 같은 ID 재전송은 같은 결정, 다른 내용은 첫 결정 유지, 기억은 이번 기동만 | 구현 전 |
+| 중복·충돌·재기동 | runner.md 표 — 같은 ID 재전송은 같은 결정, 다른 내용은 첫 결정 유지, 기억은 이번 기동만 | C 운영 구현 (Runner, 모의 — 계약 #221 뒤 운영 PR) |

@@ -29,3 +29,4 @@ models/wakeword/
 # E MeloTTS isolated runtime and downloaded assets
 .venvs/
 models/tts/melotts/
+/ros2_ws/src/ready2go_voice/models/tts/melotts/validated_phrases.json

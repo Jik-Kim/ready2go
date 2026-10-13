@@ -36,7 +36,8 @@ from ..core.backend import RosBackend, skill_servers
 from ..core import intent_router, planner, step_console
 from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import RunResult, Runner
-from ..core.log_records import utc_iso
+from ..core.log_records import new_run_id, utc_iso
+from ..core.request_memory import RequestMemory
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
 from ..core.runner_status import build_status
 
@@ -98,6 +99,10 @@ class RunnerNode(Node):
         self._last_task_id: str | None = None
         self._last_intent: dict | None = None   # 마지막으로 받은 인텐트와 처리 결과 (시연 화면 #59)
         self._sent = {"status": None, "state": None}
+        # 발행 잠금: 상태를 만들고 보내는 동안, 그리고 결정을 last_intent 에 넣고 보내는 동안 다른 콜백(status·cancel·주기 발행)이
+        # 끼어들지 않게 — 각 요청 자신의 결정이 적어도 한 번 발행됨 (#249 E 리뷰). 짧게만 잡음 (정지 경로가 기다리지 않게)
+        self._pub_lock = threading.RLock()
+        self.requests = RequestMemory()          # 계약07: 이번 기동 동안 request_id → 첫 결정 (재기동하면 빔)
         self.get_logger().info(f"Runner 준비: 스키마 {schema_file}, 온톨로지 {ontology_file}, "
                                f"백엔드 {os.environ.get('BACKEND', 'mock')}, 예비 기록 {log_dir}, "
                                f"인텐트 {({k: v.get('task_id') for k, v in tasks.items()})}")
@@ -125,10 +130,10 @@ class RunnerNode(Node):
         return self.gate.busy
 
     def start_task(self, task: dict, inputs: dict | None = None, meta: dict | None = None,
-                   token: int | None = None) -> bool:
+                   token: int | None = None, run_id: str | None = None) -> bool:
         """작업 스레드에서 태스크 실행. 이미 실행 중이면 거절(False). 중단 잠김 상태면 Runner 가 ABORTED 로 거절.
         meta: 실행 기록 헤더에 덧붙일 값 (음성 인텐트 원문 등). token: 인텐트를 받은 순간의 gate.token() —
-        그 뒤로 "멈춰"가 왔으면 시작하지 않음 (#187)."""
+        그 뒤로 "멈춰"가 왔으면 시작하지 않음 (#187). run_id: 수락할 때 정한 실행 ID (계약07)."""
         with self._lock:
             outcome = self.gate.try_start(token)
             if outcome != STARTED:
@@ -137,13 +142,14 @@ class RunnerNode(Node):
                                           f"{task.get('task_id')}")
                 return False
             self._task_id = task.get("task_id")
-            threading.Thread(target=self._run, args=(task, inputs, meta), daemon=True).start()
+            threading.Thread(target=self._run, args=(task, inputs, meta, run_id), daemon=True).start()
         return True
 
-    def _run(self, task: dict, inputs: dict | None, meta: dict | None) -> None:
+    def _run(self, task: dict, inputs: dict | None, meta: dict | None, run_id: str | None = None) -> None:
         self.get_logger().info(f"태스크 시작: {self._task_id}")
         try:
-            result = self.runner.run(task, inputs, meta={**(meta or {}), "backend": os.environ.get("BACKEND", "mock")})
+            result = self.runner.run(task, inputs, meta={**(meta or {}), "backend": os.environ.get("BACKEND", "mock")},
+                                     run_id=run_id)
         finally:
             self.gate.finish()
         self._last, self._last_task_id = result, self._task_id
@@ -183,15 +189,35 @@ class RunnerNode(Node):
         if result.status == planner.PLANNED:
             first = decision.goals[0]
             task_id = f"plan_{first['subject']}_{first['value']}".lower()
-            return intent_router.Decision(intent_router.RUN, task=planner.to_task(result, task_id, self.plan_timeouts),
-                                          inputs=decision.inputs, intent=decision.intent, plan=lines)
+            task = intent_router.add_accept_speak(planner.to_task(result, task_id, self.plan_timeouts), decision.inputs)
+            return intent_router.Decision(intent_router.RUN, task=task, inputs=decision.inputs, intent=decision.intent,
+                                          plan=lines)
         reason = intent_router.PLAN_SATISFIED if result.status == planner.SATISFIED else intent_router.UNPLANNABLE
         return intent_router.Decision(intent_router.HOLD, reason, intent=decision.intent, plan=lines)
 
     def _on_intent(self, msg: String) -> None:
-        """/voice/intent (#17). 판단은 core/intent_router, 여기서는 실행·정지·발행만."""
+        """/voice/intent (#17). 판단은 core/intent_router, 여기서는 실행·정지·발행만.
+        계약07: request_id 가 있는 실행 요청은 이번 기동 동안 첫 결정을 기억 — 재전송·충돌은 다시 판단·실행하지 않음."""
         token = self.gate.token()               # 이 인텐트 이후 "멈춰"가 오면 시작하지 않음 (#187)
-        decision = self.intents.decide(msg.data, running=self.running, locked=self.runner.halted)
+        request_id, fingerprint = self.requests.key(msg.data)
+        if request_id is None:
+            self._decide_intent(msg.data, token)
+            return
+        with self.requests.lock:
+            seen = self.requests.lookup(request_id)
+            if seen is None:                    # 이 요청 자신의 결정을 기억 — 공유 _last_intent 는 그 사이 동시
+                summary = self._decide_intent(msg.data, token)   # status·cancel 콜백이 바꿀 수 있음 (#249 E 리뷰 P2)
+                self.requests.remember(request_id, fingerprint, summary)
+                return
+        if seen.fingerprint == fingerprint:
+            self.get_logger().info(f"/voice/intent 재전송 {request_id}: 첫 결정 그대로 다시 발행 (재실행 없음)")
+        else:
+            self.get_logger().warning(f"/voice/intent 충돌 {request_id}: 같은 ID 에 다른 내용 — 첫 결정 유지, 새 내용 실행 안 함")
+        self._announce(seen.summary, force=True)   # 바뀐 것이 없어도 다시 발행 (E 가 결정을 다시 받게)
+
+    def _decide_intent(self, text: str, token: int | None) -> dict:
+        """판단·실행·발행. 돌려주는 값 = 이 요청의 결정 요약 (계약07 기억용)."""
+        decision = self.intents.decide(text, running=self.running, locked=self.runner.halted)
         if decision.kind == intent_router.CANCEL:   # 판단·정지를 시작과 같은 잠금 안에서 (NOT_RUNNING 으로 새지 않게)
             was_running = self.gate.cancel()
             decision = intent_router.Decision(intent_router.CANCEL, None if was_running else intent_router.NOT_RUNNING,
@@ -202,16 +228,18 @@ class RunnerNode(Node):
         if missing:                             # 기동 직후 스킬 서버가 아직 없음 → 움직이기 전에 거절 (#108 D P1)
             self.get_logger().warning(f"스킬 서버 준비 전이라 거절: {missing}")
             decision = intent_router.Decision(intent_router.REJECT, intent_router.NOT_READY, intent=decision.intent)
-        elif decision.kind == intent_router.RUN and not self.start_task(
-                decision.task, decision.inputs,
-                {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})}, token):
-            reason = (intent_router.STOPPED_BEFORE_START if self._refused == CANCELED_BEFORE_START
-                      else intent_router.BUSY)
-            decision = intent_router.Decision(intent_router.REJECT, reason, intent=decision.intent)
+        elif decision.kind == intent_router.RUN:
+            decision.run_id = new_run_id()      # 계약07: 수락할 때 정하고 바꾸지 않음 (빠른 완료에도 같은 값)
+            if not self.start_task(decision.task, decision.inputs,
+                                   {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})},
+                                   token, run_id=decision.run_id):
+                reason = (intent_router.STOPPED_BEFORE_START if self._refused == CANCELED_BEFORE_START
+                          else intent_router.BUSY)
+                decision = intent_router.Decision(intent_router.REJECT, reason, intent=decision.intent)
         if decision.kind == intent_router.CANCEL and decision.reason is None:
             self.runner.halt(source="voice")    # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
-        self._last_intent = decision.summary()
-        text = f"/voice/intent: {self._last_intent}"
+        summary = decision.summary()
+        text = f"/voice/intent: {summary}"
         if decision.kind in (intent_router.RUN, intent_router.STATUS):
             self.get_logger().info(text)
         elif decision.kind == intent_router.CANCEL:
@@ -219,9 +247,16 @@ class RunnerNode(Node):
                                             if decision.reason is None else ""))
         else:
             self.get_logger().warning(text)
-        if decision.kind == intent_router.STATUS:
-            self._sent["status"] = None         # 바뀐 것이 없어도 다시 발행 ("지금 뭐 해?")
-        self.publish()
+        self._announce(summary, force=decision.kind == intent_router.STATUS)   # status: 바뀐 것이 없어도 ("지금 뭐 해?")
+        return summary
+
+    def _announce(self, summary: dict, force: bool = False) -> None:
+        """이 결정을 last_intent 에 넣고 바로 발행 — 사이에 다른 콜백이 last_intent 를 바꿔 이 결정이 안 나가는 일 없게."""
+        with self._pub_lock:
+            self._last_intent = summary
+            if force:
+                self._sent["status"] = None
+            self.publish()
 
     def _estop(self, request, response):
         self.runner.halt(source="service")      # on_halt → 진행 중인 goal 에 취소 요청
@@ -258,13 +293,15 @@ class RunnerNode(Node):
         return status
 
     def publish(self) -> None:
-        """바뀐 경우에만 발행 (늦게 구독한 쪽은 TRANSIENT_LOCAL 로 마지막 값을 받음)."""
-        for key, pub, value in (("status", self.status_pub, self.status()),
-                                ("state", self.state_pub, self.runner.state)):
-            text = json.dumps(value, ensure_ascii=False, sort_keys=True)
-            if text != self._sent[key]:
-                pub.publish(String(data=text))
-                self._sent[key] = text
+        """바뀐 경우에만 발행 (늦게 구독한 쪽은 TRANSIENT_LOCAL 로 마지막 값을 받음). 만들기·보내기를 한 잠금 안에서 —
+        주기 발행이 앞서 만든 옛 상태를 새 결정 뒤에 보내 덮지 않게."""
+        with self._pub_lock:
+            for key, pub, value in (("status", self.status_pub, self.status()),
+                                    ("state", self.state_pub, self.runner.state)):
+                text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+                if text != self._sent[key]:
+                    pub.publish(String(data=text))
+                    self._sent[key] = text
 
 
 def _parse_timeouts(text: str) -> dict[str, float]:
