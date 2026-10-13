@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from collections.abc import Collection
-from typing import Final
+from typing import Any, Final
 
 from rclpy.context import Context
 from rclpy.node import Node
@@ -126,6 +126,9 @@ class DashboardBridge(Node):
         self._runner_subscription = None
         self._robot_state_subscription = None
         self._camera_subscription = None
+        # 상태 콜백의 MessageInfo에서 실제 발행자 GID를 기록한다. graph GID 교체를
+        # 확인할 때 새 publisher의 메시지가 먼저 도착했는지 직접 구분하는 근거다.
+        self._message_publisher_gids: dict[str, bytes] = {}
 
         # /runner/status는 std_msgs/String JSON이며 Runner의 latched QoS와 맞춘다.
         if RUNNER_SOURCE in active_sources:
@@ -172,22 +175,31 @@ class DashboardBridge(Node):
         if ROBOT_SOURCE in active_sources and self.topics.robot_connection:
             self._publisher_topics[ROBOT_SOURCE] = self.topics.robot_connection
 
+        # source별 마지막 endpoint GID 집합과 당시 메시지 revision을 함께 보관한다.
+        # publisher 수가 계속 1이어도 GID가 바뀌면 Runner 재기동으로 판정할 수 있다.
+        self._publisher_observations: dict[str, tuple[frozenset[bytes], int]] = {}
+
         # 메시지 주기와 별개로 publisher 존재를 확인하는 저빈도 graph timer다.
         self._graph_timer = self.create_timer(graph_poll_period_sec, self._poll_publishers)
 
         # timer의 첫 호출을 기다리는 동안도 초기 그래프 상태를 빨리 제공하도록 한 번 조회한다.
         self._poll_publishers()
 
-    def _on_runner_status(self, message: String) -> None:
+    def _on_runner_status(self, message: String, message_info: Any = None) -> None:
         """Runner 상태 JSON을 객체로 해석해 runner source에 기록한다."""
-        self._record_json_message(RUNNER_SOURCE, message.data)
+        self._record_json_message(RUNNER_SOURCE, message.data, message_info=message_info)
 
-    def _on_robot_state(self, message: String) -> None:
+    def _on_robot_state(self, message: String, message_info: Any = None) -> None:
         """Runner 저장 상태 JSON을 객체로 해석해 robot_state source에 기록한다."""
-        self._record_json_message(ROBOT_STATE_SOURCE, message.data)
+        self._record_json_message(ROBOT_STATE_SOURCE, message.data, message_info=message_info)
 
-    def _record_json_message(self, source: str, raw: str) -> None:
+    def _record_json_message(self, source: str, raw: str, *, message_info: Any = None) -> None:
         """String 메시지를 JSON 객체로 제한하고 정상·오류를 캐시에 분리한다."""
+        # 실제 rclpy 콜백은 MessageInfo에 publisher GID를 제공한다. 직접 호출 단위
+        # 시험처럼 정보가 없는 경우에는 revision 비교 경로를 사용한다.
+        publisher_gid = getattr(message_info, "publisher_gid", None)
+        if publisher_gid is not None:
+            self._message_publisher_gids[source] = bytes(publisher_gid)
         try:
             # std_msgs/String의 data 전체를 JSON으로 해석하며 부분 성공은 허용하지 않는다.
             parsed = json.loads(raw)
@@ -238,5 +250,38 @@ class DashboardBridge(Node):
 
             # 그래프 조회가 다시 성공하면 앞서 기록한 bridge 오류만 선택적으로 해제한다.
             self.cache.clear_bridge_error(source)
+            # endpoint 수가 끊김 없이 유지돼도 GID 집합이 바뀌면 publisher 세대가
+            # 교체된 것이다. 이전 graph 관찰 뒤 콜백이 없었던 경우에만 옛 payload를
+            # 지워, 새 publisher 메시지가 graph 조회보다 먼저 온 경합에서는 새 값을 보존한다.
+            endpoint_ids = frozenset(bytes(info.endpoint_gid) for info in publishers)
+            previous = self._publisher_observations.get(source)
+            if (
+                previous is not None
+                and previous[0]
+                and endpoint_ids
+                and previous[0] != endpoint_ids
+            ):
+                # 새 endpoint GID가 메시지 콜백에도 확인되면 그 payload는 새 세대다.
+                # MessageInfo가 없는 경로는 이전 graph 관찰 뒤 revision 증가 여부로
+                # 보수적으로 판단한다.
+                new_message_already_received = (
+                    self._message_publisher_gids.get(source) in endpoint_ids
+                )
+                expected_revision = (
+                    self.cache.message_revision(source)
+                    if self._message_publisher_gids.get(source) is not None
+                    else previous[1]
+                )
+                if not new_message_already_received:
+                    self.cache.reset_for_publisher_change(
+                        source,
+                        expected_revision=expected_revision,
+                    )
             # publisher 존재와 유효 메시지 수신 여부는 StateCache의 서로 다른 필드다.
             self.cache.set_publisher_present(source, bool(publishers))
+            # set_publisher_present의 false→true 초기화와 동시 콜백까지 반영한 revision을
+            # 다음 graph 비교 기준으로 저장한다.
+            self._publisher_observations[source] = (
+                endpoint_ids,
+                self.cache.message_revision(source),
+            )

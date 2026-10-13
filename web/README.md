@@ -144,6 +144,10 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 휴대폰이나 다른 PC에서는 서버 PC와 같은 네트워크에 연결한 뒤 서버 PC에서 주소를 확인합니다. `config/cyclonedds.local.xml`은 DDS를 loopback으로 제한하므로 Runner와 웹 브리지는 같은 PC2에서 실행해야 합니다. 외부 브라우저 접속이 필요할 때만 `WEB_HOST=0.0.0.0`으로 실행하고, 실제 포트(`ss -ltnp`), PC 방화벽과 Wi-Fi AP의 단말 간 통신 차단 여부를 현장에서 확인합니다.
 
 ```bash
+# PC2의 모든 네트워크 인터페이스에서 웹 접속을 받습니다.
+WEB_HOST=0.0.0.0 WEB_PORT=4173 python3 -m ready2go_web
+
+# 다른 터미널에서 PC2의 LAN 주소를 확인합니다.
 hostname -I
 ```
 
@@ -187,7 +191,7 @@ Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 `h
 
 `data`는 마지막으로 정상 해석한 `/runner/status` JSON 원본입니다. 비정상 메시지를 받으면 진단을 위해 마지막 정상 `data`는 보존하지만 `message_valid=false`, `connection_state=error`로 반환하므로 현재 정상값으로 해석하지 않습니다. Runner는 내용이 변경될 때만 상태 토픽을 발행하므로 단순히 `age_sec`이 증가했다는 이유로 끊김 처리하지 않습니다.
 
-publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보존합니다. 이후 publisher가 다시 발견되면 이전 endpoint·boot의 메시지와 시각을 무효화하고, 새 유효 메시지를 받을 때까지 `connection_state=waiting`, `data=null`로 반환합니다.
+publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보존합니다. 이후 publisher가 다시 발견되거나 graph 조회 사이에 publisher endpoint GID 집합이 바뀌면 이전 endpoint·boot의 메시지와 시각을 무효화하고, 새 유효 메시지를 받을 때까지 `connection_state=waiting`, `data=null`로 반환합니다. 새 publisher의 콜백이 graph 확인보다 먼저 도착한 경우에는 그 새 값을 보존합니다.
 
 | HTTP | `error.code` | 의미 |
 |---|---|---|
@@ -230,7 +234,7 @@ ros2 topic echo /runner/status --once
 
 웹 브리지가 구독자로 표시되고 Runner가 발행한 JSON이 출력되면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
 
-[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `61 passed`를 확인했습니다. 실제 진입점을 임시 포트 4175로 실행하고 시험 publisher를 연결해 REST가 `receiving`과 `/runner/status` 원본 JSON을 반환하는 것을 확인했습니다. 브라우저에서는 약 1초 조회, 서버 중단 시 `REST 연결 오류`, 서버 재시작 뒤 자동 복구, publisher 종료 뒤 `연결 끊김` 전환을 확인했습니다. 캐시 시험에서는 publisher 재발견 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것도 확인했습니다. 실제 Runner 프로세스·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
+[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `63 passed`를 확인했습니다. 실제 진입점을 임시 포트 4175로 실행하고 시험 publisher를 연결해 REST가 `receiving`과 `/runner/status` 원본 JSON을 반환하는 것을 확인했습니다. 브라우저에서는 약 1초 조회, 서버 중단 시 `REST 연결 오류`, 서버 재시작 뒤 자동 복구, publisher 종료 뒤 `연결 끊김` 전환을 확인했습니다. 캐시 시험에서는 publisher 재발견 또는 endpoint GID 교체 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것과, 새 콜백이 graph 확인보다 먼저 도착하면 새 값을 보존하는 것을 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
 
 ## 7. URL 데모 시나리오
 

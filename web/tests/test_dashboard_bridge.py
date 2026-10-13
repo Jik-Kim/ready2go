@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -199,6 +200,60 @@ def test_graph_error_recovery_keeps_message_error(ros_context, monkeypatch: pyte
         assert recovered["bridge_error"] is None
         assert recovered["message_error"] is not None
         assert recovered["last_error_kind"] == "message"
+    finally:
+        bridge.destroy_node()
+
+
+def test_endpoint_gid_change_invalidates_old_payload_without_graph_gap(
+    ros_context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """publisher count가 계속 1이어도 GID가 바뀌면 이전 세대 상태를 비운다."""
+    topics = unique_topics()
+    bridge = DashboardBridge(
+        topics=topics,
+        node_name=f"endpoint_generation_bridge_{uuid.uuid4().hex}",
+        enabled_sources={RUNNER_SOURCE},
+    )
+    try:
+        # 첫 publisher의 메시지와 GID가 이미 관찰된 상태를 만든다.
+        old_gid = bytes(range(16))
+        bridge._on_runner_status(
+            String(data='{"boot":"old"}'),
+            SimpleNamespace(publisher_gid=old_gid),
+        )
+        bridge._publisher_observations[RUNNER_SOURCE] = (
+            frozenset({old_gid}),
+            bridge.cache.message_revision(RUNNER_SOURCE),
+        )
+
+        # graph 공백 없이 publisher GID만 교체된 결과를 주입한다.
+        new_gid = bytes(range(1, 17))
+        monkeypatch.setattr(
+            bridge,
+            "get_publishers_info_by_topic",
+            lambda _topic: [SimpleNamespace(endpoint_gid=new_gid)],
+        )
+        bridge._poll_publishers()
+
+        waiting = bridge.cache.snapshot()[RUNNER_SOURCE]
+        assert waiting["publisher_present"] is True
+        assert waiting["connection_state"] == "waiting"
+        assert waiting["data"] is None
+
+        # 새 publisher 콜백이 graph 확인보다 먼저 온 경우에는 그 새 값을 지우지 않는다.
+        bridge._on_runner_status(
+            String(data='{"boot":"new"}'),
+            SimpleNamespace(publisher_gid=new_gid),
+        )
+        bridge._publisher_observations[RUNNER_SOURCE] = (
+            frozenset({old_gid}),
+            bridge.cache.message_revision(RUNNER_SOURCE) - 1,
+        )
+        bridge._poll_publishers()
+        receiving = bridge.cache.snapshot()[RUNNER_SOURCE]
+        assert receiving["connection_state"] == "receiving"
+        assert receiving["data"] == {"boot": "new"}
     finally:
         bridge.destroy_node()
 

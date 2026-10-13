@@ -63,6 +63,7 @@ class _SourceState:
     message_error: str | None = None  # 최신 메시지의 JSON 형식·내용 해석 오류.
     bridge_error: str | None = None  # executor나 ROS 그래프처럼 메시지 외부의 브리지 오류.
     data: Any = None  # 마지막 정상 메시지. 비정상 메시지가 와도 진단을 위해 보존한다.
+    message_revision: int = 0  # 정상·비정상 메시지 콜백이 처리될 때마다 증가하는 내부 세대 표식.
 
 
 class StateCache:
@@ -124,17 +125,40 @@ class StateCache:
             # 사라졌던 publisher가 다시 발견되면 이전 endpoint/boot의 상태를 현재값으로
             # 재사용하지 않는다. 새 메시지가 도착할 때까지 snapshot은 waiting을 반환한다.
             if present and source.publisher_present is False:
-                source.message_received = False
-                source.message_valid = False
-                source.last_received_at = None
-                source.last_valid_received_at = None
-                source.last_received_monotonic = None
-                source.last_valid_monotonic = None
-                source.message_error = None
-                source.data = None
+                self._clear_message_state(source)
             # 메시지 콜백이 먼저 새 값을 기록한 경우 publisher_present가 이미 True이므로
             # 뒤늦은 graph poll이 그 새 메시지를 지우지 않는다.
             source.publisher_present = present
+
+    def message_revision(self, name: str) -> int:
+        """graph 관찰 사이에 새 메시지가 처리됐는지 비교할 내부 revision을 반환한다."""
+        # REST 공개 필드가 아니라 publisher endpoint 교체와 콜백 경합을 구분하는 용도다.
+        with self._lock:
+            return self._source(name).message_revision
+
+    def reset_for_publisher_change(self, name: str, *, expected_revision: int) -> bool:
+        """endpoint 집합이 바뀌었고 이후 메시지가 없을 때만 이전 payload를 지운다."""
+        # graph 조회보다 먼저 새 publisher의 콜백이 도착할 수 있으므로, 이전 graph
+        # 관찰 당시 revision과 현재 revision이 같을 때만 오래된 세대로 확정한다.
+        with self._lock:
+            source = self._source(name)
+            if source.message_revision != expected_revision:
+                return False
+            self._clear_message_state(source)
+            return True
+
+    @staticmethod
+    def _clear_message_state(source: _SourceState) -> None:
+        """publisher 세대가 바뀔 때 이전 세대의 메시지 관련 필드만 초기화한다."""
+        # publisher 존재와 graph 오류는 호출자가 별도로 갱신하므로 여기서 바꾸지 않는다.
+        source.message_received = False
+        source.message_valid = False
+        source.last_received_at = None
+        source.last_valid_received_at = None
+        source.last_received_monotonic = None
+        source.last_valid_monotonic = None
+        source.message_error = None
+        source.data = None
 
     def record_message(
         self,
@@ -163,6 +187,7 @@ class StateCache:
             source.message_error = None  # 새 정상 메시지는 앞선 메시지 파싱 오류를 회복시킨다.
             # 그래프 조회 오류는 별도 경로가 성공해야 회복되므로 여기서 지우지 않는다.
             source.data = copied  # REST가 읽을 마지막 정상 payload를 교체한다.
+            source.message_revision += 1  # graph 관찰과 콜백 순서를 비교할 내부 revision을 전진시킨다.
 
     def record_invalid_message(
         self,
@@ -187,6 +212,7 @@ class StateCache:
             source.last_received_monotonic = monotonic_time  # age_sec은 마지막 전체 수신을 가리킨다.
             source.message_error = error  # REST/UI가 구체적인 파싱 실패를 표시할 수 있게 한다.
             # data와 last_valid_*는 마지막 정상 값을 보존하므로 여기서 수정하지 않는다.
+            source.message_revision += 1  # 비정상 메시지도 새 publisher가 보낸 수신 사건으로 센다.
 
     def record_bridge_error(self, name: str, error: str) -> None:
         """executor/브리지 오류를 메시지 수신 시각과 섞지 않고 기록한다."""

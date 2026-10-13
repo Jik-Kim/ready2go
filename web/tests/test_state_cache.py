@@ -199,6 +199,27 @@ def test_reappearing_publisher_waits_for_new_message_instead_of_reusing_old_data
     assert recovered["data"] == {"boot": "new", "phase": "idle"}
 
 
+def test_endpoint_change_resets_only_when_no_new_message_arrived(clock: FakeClock) -> None:
+    """GID 교체 뒤 콜백 경합 여부를 revision으로 구분해 새 payload를 지키는지 확인한다."""
+    cache = make_cache(clock, runner=None)
+    cache.record_message("runner", {"boot": "old"})
+    old_revision = cache.message_revision("runner")
+
+    # graph에서 끊김을 보지 못한 채 endpoint만 바뀌고 새 메시지가 없으면 옛 값을 지운다.
+    assert cache.reset_for_publisher_change("runner", expected_revision=old_revision) is True
+    waiting = cache.snapshot()["runner"]
+    assert waiting["message_received"] is False
+    assert waiting["data"] is None
+
+    # 다음 세대 메시지가 graph 확인보다 먼저 도착하면 오래된 expected revision은
+    # 더 이상 일치하지 않으므로 새 payload를 지우지 않는다.
+    cache.record_message("runner", {"boot": "new"})
+    assert cache.reset_for_publisher_change("runner", expected_revision=old_revision) is False
+    receiving = cache.snapshot()["runner"]
+    assert receiving["connection_state"] == "receiving"
+    assert receiving["data"] == {"boot": "new"}
+
+
 def test_bridge_error_does_not_change_last_received_time(clock: FakeClock) -> None:
     """executor 오류를 ROS 메시지 수신 사건으로 잘못 기록하지 않는다."""
     cache = make_cache(clock, robot_state=None)
