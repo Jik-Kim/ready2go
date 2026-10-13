@@ -25,12 +25,12 @@ AXES = ((-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (1.0, 0.0))   # 서랍 축만 [사
 
 @dataclass
 class Action:
-    kind: str                     # "pick" | "unstack" | "remove" | "nudge" | "sweep" | "wall_nudge" | "fail"
+    kind: str                     # "pick" | "unstack" | "remove" | "nudge" | "sweep" | "wall_nudge" | "topple" | "fail"
     target: str = ""              # 움직이는 물체 id
     reason: str = ""
-    to_pose: Optional[dict] = None          # unstack·remove: 놓을 pose {frame, position, yaw}
-    dir: tuple = (0.0, 0.0)                 # nudge·sweep: 서랍 축 방향
-    dist_m: float = 0.0                     # nudge: 끌 거리 / sweep: 밀 거리
+    to_pose: Optional[dict] = None          # unstack·remove: 놓을 pose {frame, position, yaw} / topple: 떨어질 예상 자리
+    dir: tuple = (0.0, 0.0)                 # nudge·sweep·topple: 서랍 축 방향
+    dist_m: float = 0.0                     # nudge·topple: 끌 거리 / sweep: 밀 거리
     back_m: float = 0.0                     # sweep: 되돌아올 거리
     pushed: tuple = ()                      # sweep: 같이 밀린 물체 (예상)
     code: str = ""                          # fail: 마지막 거부 코드
@@ -275,6 +275,8 @@ class Config:
     near_pad_mm: float = 5.0                 # 위가 없으면 이만큼까지 가까이 — 목표 집기 손가락 자리를 안 막을 때만
     reach_x_m: Optional[float] = None
     remove_first: bool = True                # 옆 물체를 같이 미는 밀기보다 막는 물체 집어 치우기 먼저 — 실행 값 make_room.remove_first [사용자 10/12]
+    topple_extra_mm: float = 5.0             # 무너뜨리기: 받침 footprint 를 다 벗어난 뒤 더 끄는 거리 — 실행 값 make_room.topple_extra_mm
+    topple_gap_mm: float = 5.0               # 무너뜨리기: 떨어질 자리와 다른 물체 사이 빈 거리
     press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
 
 
@@ -360,10 +362,13 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
             if _depth >= 1:
                 return Action("fail", top, f"위 물체 {top} 못 집음: {reason}", code=code)
             a = plan_next(objs, top, oracle, cfg, _depth + 1)      # 위 물체부터 공간 만들기
+            if a.kind == "fail":                                   # 위 물체를 집을 수 없으면 받침 밖으로 끌어 떨어뜨림 [사용자 10/13]
+                return topple_move(objs, top, cfg, lambda after: not _blocks(after, tid, top, oracle)) or a
             return a if a.kind != "pick" else Action("fail", top, "계획 오류", code=code)
         pose = find_free_pose(objs, top, [tid], oracle, cfg)
-        if pose is None:
-            return Action("fail", top, f"{top} 놓을 빈 자리 없음", code="NO_FREE_SPACE")
+        if pose is None:                                           # 놓을 데가 없으면 받침 밖으로 끌어 떨어뜨림 [사용자 10/13]
+            return (topple_move(objs, top, cfg, lambda after: not _blocks(after, tid, top, oracle))
+                    or Action("fail", top, f"{top} 놓을 빈 자리 없음·무너뜨릴 쪽 없음", code="NO_FREE_SPACE"))
         return Action("unstack", top, f"{top} → 빈 자리", to_pose=pose)
     ok, code, reason = oracle.pick(objs, tid)
     if ok:
@@ -415,6 +420,56 @@ def plan_next(objs: Sequence[Mapping], tid: str, oracle, cfg: Config, _depth: in
     if wall is not None:                                           # 벽 넛지만으론 아직 안 잡히지만 벽에서는 벗어남
         return wall
     return _remove_blocker(objs, tid, oracle, cfg, code, reason, _depth)
+
+
+def below(objs: Sequence[Mapping], tid: str) -> list:
+    """tid 밑에 깔린 물체 전부 (받침, 받침의 받침 …) — occluded_by 를 거꾸로 따라감."""
+    return [o for o in objs if o["id"] != tid and tid in riders(objs, o["id"])]
+
+
+def topple_move(objs: Sequence[Mapping], tid: str, cfg: Config, keep_clear: Optional[Callable] = None) -> Optional[Action]:
+    """쌓인 물체 무너뜨리기 [사용자 10/13 "집을 위치 없다고 포기하는 것도 웃김, 비전으로 다시 보고 집으면 됨"]: 윗면을 눌러 서랍 축으로
+    끌어 밑 물체(받침 전부) 밖 바닥으로 떨어뜨림. 고르는 것: 받침 footprint 를 다 벗어나는(+ topple_extra_mm) 가장 짧은 거리·방향 —
+    끄는 길에 더 높은 물체·벽이 없고, 떨어질 자리(바닥, 자기 높이)가 서랍 안이고 다른 물체와 topple_gap_mm 떨어짐.
+    위에 다른 물체가 얹혀 있거나 누를 점이 없으면 None. 떨어진 자세는 모름(넘어짐·굴러감) → 다시 보고 집기 [#254 시뮬레이션: 45~73 mm].
+    keep_clear(떨어진 뒤 물체 목록) → 참이면 그 자리를 먼저 (찾는 목표의 손가락 자리를 막지 않는 쪽), 없으면 가장 짧은 것."""
+    by = {o["id"]: o for o in objs}
+    t = by[tid]
+    under = below(objs, tid)
+    if not under or riders(objs, tid):
+        return None
+    pp_ = press_point(objs, tid, cfg.size_of, finger_r_mm=cfg.press_finger_r_mm)
+    if pp_ is None:
+        return None
+    h = cfg.size_of(t["class"])[2]
+    best = None
+    for u in cfg.axes:
+        if not _round_axis_ok(t, u, cfg):
+            continue
+        s = cfg.nudge_step_m
+        while s <= cfg.max_shift_m + 1e-9:
+            m = moved(t, u[0] * s, u[1] * s)
+            if not any(overlaps(m, b, cfg.size_of) for b in under):
+                break
+            s += cfg.nudge_step_m
+        else:
+            continue
+        s = min(cfg.max_shift_m, s + cfg.topple_extra_mm / 1000.0)
+        if free_move(objs, tid, u, s, cfg.interior_m, cfg.size_of) < s - 1e-6:   # 끄는 길에 더 높은 물체·벽
+            continue
+        landed = dict(moved(t, u[0] * s, u[1] * s), top_z=round(h, 4), occluded_by=[])
+        if not inside(landed, cfg.size_of, cfg.interior_m) or any(
+                overlaps(landed, o, cfg.size_of, cfg.topple_gap_mm) for o in objs if o["id"] != tid):
+            continue
+        clear = keep_clear is None or bool(keep_clear(_relocated(objs, tid, as_pose(landed), cfg.size_of)))
+        key = (not clear, s)
+        if best is None or key < best[0]:
+            best = (key, u, landed)
+    if best is None:
+        return None
+    (_, s), u, landed = best
+    return Action("topple", tid, f"{tid} 를 {_dir_name(u)} 으로 {s * 1000:.0f} mm 끌어 {[b['id'] for b in under]} 밖으로 떨어뜨림 — 다시 보고 집기",
+                  to_pose=as_pose(landed), dir=u, dist_m=s, extra={"press_xy_m": [round(v, 4) for v in pp_]})
 
 
 def _remove_to_open(objs, tid, oracle, cfg: Config, reason: str = "") -> Optional[Action]:
@@ -575,7 +630,7 @@ def _opens_way(objs, tid, oracle, wall_steps: int = 3) -> bool:
 
 def apply(objs: Sequence[Mapping], a: Action, cfg: Config) -> list:
     """계획한 동작의 예상 결과 (시뮬레이션·다시 보기 전 예상). 실물은 동작 뒤 다시 보기로 확인."""
-    if a.kind in ("unstack", "remove"):
+    if a.kind in ("unstack", "remove", "topple"):                  # topple: 떨어진 자리 예상 (자세는 다시 보기로)
         return _relocated(objs, a.target, a.to_pose, cfg.size_of)
     if a.kind == "wall_nudge":
         return _with(objs, dict(a.extra["after"], occluded_by=next(o for o in objs if o["id"] == a.target).get("occluded_by", [])))
