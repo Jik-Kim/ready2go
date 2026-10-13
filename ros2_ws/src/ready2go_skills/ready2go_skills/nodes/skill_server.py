@@ -1634,12 +1634,19 @@ class SkillServer(Node):
                    "누를 점·끌 방향·떨어질 빈 자리 없음")
             return sf.Outcome(False, mp.NO_PUSH_ACCESS, reason=f"무너뜨리기 못 함: {why}"), out
         out["topple"] = {"dir": list(a.dir), "dist_m": round(a.dist_m, 4), "landed_pose": a.to_pose, "reason": a.reason}
+        # 성공이면 target_after = 떨어질 예상 자리 (계약: 성공일 때만 target 형식, 예상값·재인식 아님). 떨어진 방향은 모름 → yaw_valid false —
+        # 이걸로 바로 집으면 움직이기 전 YAW_INVALID → 다시 inspect_region 뒤 집기 [#258 리뷰 P2]
+        size, _ = self.item(t["class"])
+        landed = {"id": tid, "class": t["class"], "top_z": round(size[2], 4),     # 가림 필드(occluded_by·visible_area_m2)는 모름 → 둘 다 없음
+                  "pose": dict(a.to_pose, yaw_valid=False)}
         self.get_logger().info(f"[topple] {a.reason}")
         if params.get("check_only"):
+            out["target_after"] = landed
             return sf.Outcome(True, reason=f"check_only: {a.reason} (움직이지 않음)"), out
         res, o2 = self._press_move(goal, drawer_id, t, a.dir, a.dist_m, 0.0, False, a.extra.get("press_xy_m"))
         out.update(pushed=o2["pushed"], push_vector_m=o2["push_vector_m"])
         if res.success:
+            out["target_after"] = landed
             res = sf.Outcome(True, reason=f"{a.reason} ({res.reason})")
         return res, out
 

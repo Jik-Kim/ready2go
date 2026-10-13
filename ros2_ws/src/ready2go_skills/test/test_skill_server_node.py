@@ -2970,6 +2970,9 @@ def test_topple_check_only_then_drags_top_off_base(server):
     assert out.success and "움직이지 않음" in out.reason and srv.robot.log == [], out.reason
     tp = data["topple"]
     assert 0.0 < tp["dist_m"] <= srv.prm()["drag"]["max_shift_mm"] / 1000.0 and tp["landed_pose"]["frame"] == "drawer_top"
+    after = data["target_after"]                                                  # 계약: 성공이면 target 형식 — 떨어질 예상 자리, 방향 모름
+    assert after["pose"]["yaw_valid"] is False and after["pose"]["position"] == tp["landed_pose"]["position"]
+    assert "occluded_by" not in after and "visible_area_m2" not in after
     out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": key, "scan": scan, "topple": True})
     assert out.error_code != "BAD_PARAMS" and data["topple"] == tp, out.reason
     tf = srv.places()["drawer_top"]["tf"]
