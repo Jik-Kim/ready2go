@@ -1,5 +1,24 @@
 # CURRENT — E 고희태
 
+## single-initial-state-20261013-01
+
+- [문서: 승인·기준] E-SINGLE-INITIAL-STATE-20261013-01. 조율 human `01a13399-f427-76d2-b0a8-8e9c0c3e93fd`의 “일단 빠르게 해결할 수 있는 방안으로 가자”와 단일 배치 반영 계획을 직접 확인했습니다. 사용자 source `edb989f9e905c3ded5ea99df2305670a8d601cec`의 initial_state 내용/scene 삭제만 최신 main `bd8d65e40229901579b13d36d477d77eed5834e0` 기반 `codex/e-single-initial-state-20261013`에 반영합니다. 경로는 기존 격리 `/tmp/ready2go-e-p2-ontology-integration-20261013`입니다. [FR-ONT-01](../../docs/requirements.md#fr-ont-01)·[물품 정책](../../docs/requirements.md#item-policy)·P2 [FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[FR-ACT-04/AC-ACT-03](../../docs/requirements.md#fr-act-04)·[AC-ONT-01](../../docs/requirements.md#ac-ont-01)을 참조하며 정본/Phase/공개 계약을 바꾸지 않습니다.
+- [구현: 단일 정의] [`initial_state.json`](../../knowledge/snapshots/initial_state.json)은 source의 description/state를 바이트 그대로 반영했습니다. 위 칸 wrench/caramel/key·아래 칸 plate/eraser/lip 6종 위치와 나머지 source home/empty/닫힘/handover 값은 [Knowledge 안내](../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. 등록 world 10종과 위치 기입 6종을 구분하고 나머지 4종을 미등록/재고 없음으로 정의하지 않습니다. S3도 JSON eraser 아래 칸 위치는 유지하고 실물에서만 제외하는 시험입니다. 관측/LLM 전달·상태 갱신의 운영 검증 완료를 뜻하지 않습니다.
+- [삭제/유지] source와 대조해 장면 파일 p2_s1/p2_s2/p2_s3 3개만 삭제했습니다. 선택 load API는 보존하고 양성/참조/중복/경로/legacy 시험 입력은 tmp_path 파일로 분리했습니다. 사용자 배치를 옛 시험에 맞춰 되돌리지 않으며 E pick 연결 시험은 default eraser가 아래 칸인 기대만 맞췄습니다. Knowledge/ontology·hardware·패키지 Knowledge/Voice README의 현재 설명/링크와 E 시험2파일을 갱신했습니다. 기존 앵커는 명시 alias로 보존하며 과거 CURRENT/실측/changelog·archive·타 담당 문서는 재작성하지 않았습니다.
+- [보호] primary edb·단일 초기 배치/삭제scene·실 cache/receipt, world/grasp/places·캐러멜18.5·학습11/id5·모델/라벨·원 manifest/loader·모든 skill의 expand/pre/effect/place·공개 계약·진행 중 다른 세션을 보존합니다. 카드 branch `codex/e-pick-conditional-nudge-20261013`의 `ea7eb266cff7cbd72d91a6aa5c892a2f85cec6ce`는 별도이며 data branch에 merge/cherry-pick/편집하지 않았습니다. user edb 전체 merge도 하지 않습니다.
+- [실측: 직접 검증] source 바이트 일치/삭제3개/JSON·AST와 기본 loader/반환 구조·임시 선택 API를 확인했습니다. `PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py` 첫 1회 OK/종료0. ontology/test_pick_runner 2파일 43사례 선택은 42 passed/1 failed(1.01초): E 닫힘 검사에 남은 옛 open.drawer_top 기대를 source의 eraser drawer_bottom에 맞췄습니다. 데이터/런타임을 바꾸지 않고 그 실패1사례만 1 passed in 0.04s/종료0으로 재검사하여 고유 43개를 분할 확인했습니다. 이전 카드30통과/C옛view1실패를 이번 data 검사 결과로 전용하지 않습니다. 전체 core/Mongo/ROS/build/fullCI는 E 단계에서 실행하지 않고 게시 전담이 최종 고정 SHA에서 한 번 수행합니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_ontology.py ros2_ws/src/ready2go_knowledge/test/test_pick_runner.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner" /home/jonny/rokey_proj/VLA/ready2go/.venvs/project/bin/python -m pytest ros2_ws/src/ready2go_knowledge/test/test_ontology.py::test_pick_blocked_when_drawer_closed -q -p no:cacheprovider
+```
+
+- [실측: 정합성/보존] 정확 E 12파일 diff, source 초기 JSON SHA256 `9338850e54b270ec88649b901dbde8a25e444238675b7ec4aa0e6c0790b84f2c`와 3파일 삭제 일치, AST/JSON/YAML·추가 문서 링크/명시 alias 앵커·world10/grasp10/state6·캐러멜18.5·고정11/id5를 대조했습니다. loader/API·manifest·모든 skill·설정과 primary 6원본 hash/scene 삭제·카드 ref ea7는 불변이며 data branch에는 카드 선조가 없습니다.
+- [인계/미검증] C default 위치/서랍·옛 P1 모든 물품 top·C test_tasks/test_unpack_task fixtures의 frame/expectation은 새 단일 파일과 담당자 대조가 필요합니다. B HANDOVER의 임시 배치 편집/원복 안내, C `practice/C/2026-10-12_checkpoint2_runbook.md`의 초기 위치 임시 편집 및 docs/demo_scenario의 옛 위 칸 기본 설명은 담당 인계입니다. C 등록 물품의 위치 누락 UNKNOWN_ITEM 구분·S3 실물 미검출 결과/LLM 전달·관측 유효성/무효화와 실음성/API/ROS/로봇/실물 수용은 미검증/후속입니다. 새 이웃 우선/check_scan/W3 안전/도달깊이/모션을 추가하지 않습니다.
+- [게시 경계] 승인 E data/문서/시험만 로컬 커밋 후 manager 실제 diff 검증에 전달합니다. publisher 진행 중인 카드 작업을 덮지 않고 data 최종 CI·정상 push·별도 PR 지시는 manager가 순차 담당합니다. E 자체 CI/push/PR/main 병합·새 agent/설치·Notion/외부 게시를 수행하지 않습니다. 아래 과거 기록은 각 당시 SHA·검사/배치이며 새 단일 정의로 재해석하지 않습니다.
+
+
 ## p2-ontology-integration-20261013-01
 
 - [문서: 승인/기준] E-P2-ONTOLOGY-INTEGRATION-20261013-01. 조율 계획 turn `01a132cf-f3a0-75d1-9752-b8b566c4801b` 및 사용자 수정 승인 turn `01a132d4-f4dc-7c92-90b2-b8d57cd9dab4`의 “수정해”, 이어진 “온톨로지 수정 후 .gitignore 커밋과 함께 PR 작성”을 확인했습니다. 관련 정본: [FR-ONT-01/02](../../docs/requirements.md#fr-ont-01)·[FR-PLN-02](../../docs/requirements.md#fr-pln-02)·[FR-ACT-04](../../docs/requirements.md#fr-act-04)·[AC-ONT-01](../../docs/requirements.md#ac-ont-01)·[AC-ACT-03](../../docs/requirements.md#ac-act-03)·[물품](../../docs/requirements.md#item-policy)/[가림 정책](../../docs/requirements.md#occlusion-policy). P1 기본 호환을 유지한 P2 준비이며 FR-ONT-03/P3 기능은 추가하지 않았습니다.

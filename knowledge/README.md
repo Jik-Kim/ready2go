@@ -14,8 +14,7 @@
 | `skills/pick.jsonld` | `skills.pick`: 집기 |
 | `skills/place.jsonld` | `skills.place`: 놓기 |
 | `skills/handover_with_unpack.jsonld` | 가림 탐색 복합 스킬 등록. `tasks/find_with_unpack.json`의 현재 내부 이동·복구 경로를 참조; 실물 통합 검증은 별도 |
-| `snapshots/initial_state.json` | 기본 P1 초기 상태 프리셋. 실제 상태 확인 후 명시적 초기화 시 사용 |
-| `snapshots/p2_s1.json`·`p2_s2.json`·`p2_s3.json` | 승인된 P2 시작 배치 프리셋. C 기동/reset 자동 적용은 미연결 |
+| `snapshots/initial_state.json` | 기본 로딩의 단일 초기 상태 정의. 실제 상태 확인 후 명시적 초기화 시 사용 |
 | `../config/places.yaml` | 장소 TF·치수·인출 거리·처짐·복구 위치·슬롯 설정의 정본 |
 
 ## 연결 규칙
@@ -43,24 +42,23 @@
 - `sources.item_grasp`의 `config/item_grasp.yaml`을 읽어 `grip_force`와 `grasp_verified`, 선택 항목 `grasp_width_m`·`grasp_width_long_m`(B 실측 잡은 폭, 외접 박스와 다른 물품만, 그 변 이하 양수)을 물품에 제공한다. 미확정 값은 null/false로 유지한다. 미확정 상태를 거절하는 E 함수와 실제 실행 경로 연결은 구분한다.
 - 치수·분류·역할·초기 상태의 의미는 [물품 정책](../docs/requirements.md#item-policy), 값·검증 상태는 실행 원본, 구현/인계는 공용 기술 문서를 참조한다. 과거 예시값 설명은 현재 실측 원본에 적용하지 않는다.
 
-## P2 시작 배치 선택 — E 구현·C 연결 대기
+<a id="p2-시작-배치-선택--e-구현c-연결-대기"></a>
+## 단일 초기 상태와 선택 API
 
-[문서] 기본 `load(manifest)`는 기존 `sources.initial_state`를 사용합니다. E 로더의 선택 입력 예시는 다음과 같습니다. 상대 snapshot 경로는 manifest 폴더 기준이며 절대 `Path`도 지원합니다. 선택 파일에도 기존 중복 키·located_in 참조 검사가 적용됩니다. 단일 파일 호환 형식은 기본 호출만 지원하고 선택 입력은 명시적으로 거절합니다.
+[문서] 기본 `load(manifest)`는 [`sources.initial_state`](robot_ontology.jsonld)의 [`initial_state.json`](snapshots/initial_state.json)만 읽습니다. 사용자 배치 원문을 반영한 단일 초기 상태이며 운영 장면별 파일 3개는 제거했습니다. 등록 world 10종과 이 파일에 위치를 기입한 6종은 구분합니다.
 
-```python
-from ready2go_knowledge.core.ontology import load
-onto = load("knowledge/robot_ontology.jsonld", snapshot="snapshots/p2_s3.json")
-```
-
-| 프리셋 | 기입한 위치 |
+| 초기 위치 | 기입한 물품 |
 | :--- | :--- |
-| [S1](snapshots/p2_s1.json) | toy_wrench·caramel_box·car_key → drawer_top |
-| [S2](snapshots/p2_s2.json) | cover_plate·eraser·lip_balm → drawer_bottom |
-| [S3](snapshots/p2_s3.json) | cover_plate·lip_balm → drawer_bottom; eraser 위치 생략 |
+| drawer_top | toy_wrench·caramel_box·car_key |
+| drawer_bottom | cover_plate·eraser·lip_balm |
 
-[문서] 세 장면은 같은 활성 10종을 조회하며 비등장 물품의 위치를 채우지 않습니다. 세 장면 합집합에 없는 활성 물품은 airpods_case·masking_tape·toy_car·toy_hammer 4종입니다. 비위치 상태는 기본 프리셋의 home·empty·서랍 닫힘·handover_zone 값을 보존합니다. 시작 예시값은 실제 빈손·닫힘·물리 reset 증거가 아닙니다. 쌓임/가림/pose는 미리 확정하지 않고 관측의 `occluded_by`·`target=null`을 보존합니다.
+[문서] 위치가 없는 airpods_case·masking_tape·toy_car·toy_hammer는 등록 물품입니다. 위치 생략을 미등록이나 실물 재고 없음으로 정의하지 않습니다. home·empty·두 서랍 닫힘·handover_zone 값도 사용자 초기 파일 그대로이며 실제 빈손·닫힘·쌓임/가림/pose 증거가 아닙니다.
 
-[미연결/인계] C `runner_node.py`는 현재 기본 `load(ontology_file)`만 호출합니다. 기동/명시 reset에서의 snapshot 선택 인자와 소비 방식은 C 협의·구현 전이며 이 Python 입력을 ROS 파라미터로 확정하지 않습니다. C `ontology_query.query()`는 등록 물품도 located_in이 없으면 `UNKNOWN_ITEM`을 반환하고 `find_with_unpack`의 s1→s3/s4는 조회 drawer_id를 소비합니다. 따라서 S3 지우개의 C 탐색 경로는 후속 수정 전 미연결입니다. 위치를 거짓 기입하지 않으며 reset은 저장된 시작 상태 복사일 뿐 B 기억 정리·잠금 해제·물리 검증을 수행하지 않습니다. 조건부 pick은 C 스킬 expand 제어 블록 지원 PR과 E 포함 2인 승인 전 보류하며 이번 pick/pre/effect/place는 유지합니다.
+[문서] S3도 같은 JSON의 eraser → drawer_bottom을 유지하고 **실물에서만 지우개를 제외하는 시험**입니다. 초기 정의와 실제 관측의 차이를 확인하기 위한 배치이며, 이 파일만으로 LLM 전달·재식별·자동 상태 갱신의 운영 연결이나 검증 완료를 선언하지 않습니다. 관측의 `occluded_by`·`target=null`은 별도 관측 결과로 보존합니다.
+
+[문서] 기존 `load(manifest, snapshot=provided_state_path)` API는 유지합니다. 사용자가 별도로 제공한 시험용 초기 상태 파일을 선택할 수 있으며 상대 경로는 manifest 폴더 기준, 절대 Path도 지원합니다. 기존 중복 키·located_in 참조 검사가 적용되고 단일 파일 legacy는 기본 호출만 지원합니다. E 양성/오류 선택 시험은 tmp_path에만 입력을 만들어 운영 폴더에 장면 파일을 생성하지 않습니다.
+
+[미연결/인계] C `runner_node.py`는 기본 `load(ontology_file)`로 시작 상태를 읽습니다. 파일을 수정한 것만으로 이미 기동한 Runner의 상태가 자동 갱신되지 않으며 reset은 저장된 시작 상태 복사입니다. 실물 검증·B 기억 정리·잠금 해제를 뜻하지 않습니다. C `ontology_query.query()`는 등록돼 있어도 위치가 없으면 `UNKNOWN_ITEM`을 반환하므로 미기입 4종 처리와 실제 관측 결과·LLM 전달은 C 후속입니다. 조건부 pick 카드는 별도 작업이며 이번 단일 배치 반영은 현재 main의 pick/pre/effect/place를 유지합니다.
 
 ## P1 공통 pick의 벽 인접 끌기·재관측 연결
 

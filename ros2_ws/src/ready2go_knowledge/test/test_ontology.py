@@ -29,9 +29,9 @@ def test_open_drawer_pre_and_effect():
 
 def test_pick_blocked_when_drawer_closed():
     onto = _onto()
-    results = onto_lib.check(onto["state"], onto["skills"]["pick"]["pre"], {"item": "eraser", "from": "drawer_top"})
+    results = onto_lib.check(onto["state"], onto["skills"]["pick"]["pre"], {"item": "eraser", "from": "drawer_bottom"})
     failed = [r for r in results if not r["pass"]]
-    assert [(r["predicate"], r["subject"]) for r in failed] == [("open", "drawer_top")]
+    assert [(r["predicate"], r["subject"]) for r in failed] == [("open", "drawer_bottom")]
 
 
 def _split_copy(tmp_path):
@@ -237,53 +237,66 @@ def test_item_configuration_and_geometry_reference_errors(tmp_path):
         onto_lib.load(manifest)
 
 
-def test_p2_scene_selection_preserves_registry_and_default_state():
-    expected = {
-        "p2_s1": {"toy_wrench": "drawer_top", "caramel_box": "drawer_top", "car_key": "drawer_top"},
-        "p2_s2": {"cover_plate": "drawer_bottom", "eraser": "drawer_bottom", "lip_balm": "drawer_bottom"},
-        "p2_s3": {"cover_plate": "drawer_bottom", "lip_balm": "drawer_bottom"},
-    }
-    default = _onto()
-    active = set(default["world"]["items"])
-    assert len(active) == 10 and "carrot_pen" not in active
-    assert default["state"]["located_in"] == dict.fromkeys(active, "drawer_top")
-    assert "staging_tray" not in default["state"]["open"]
-    assert "staging_tray" in default["world"]["places"]  # 잔존 소비자 호환 정의
-    shared = {k: v for k, v in default["state"].items() if k != "located_in"}
-    union = set()
-    for scene, locations in expected.items():
-        selected = onto_lib.load(ONTO, snapshot=f"snapshots/{scene}.json")
-        assert set(selected["world"]["items"]) == active
-        assert selected["state"]["located_in"] == locations
-        assert {k: v for k, v in selected["state"].items() if k != "located_in"} == shared
-        assert onto_lib.list_reference_errors(selected) == []
-        union.update(locations)
-    assert active - union == {"airpods_case", "masking_tape", "toy_car", "toy_hammer"}
-    s3 = onto_lib.load(ONTO, snapshot="snapshots/p2_s3.json")
-    assert "eraser" in s3["world"]["items"]
-    assert onto_lib.get(s3["state"], "located_in", "eraser") is None
-    s3["state"]["open"]["drawer_bottom"] = True
-    assert onto_lib.load(ONTO, snapshot=ONTO.parent / "snapshots/p2_s3.json")["state"]["open"]["drawer_bottom"] is False
-    assert _onto()["state"] == default["state"]
+def test_single_initial_state_preserves_active_registry():
+    onto = _onto()
+    locations = {"toy_wrench": "drawer_top", "caramel_box": "drawer_top", "car_key": "drawer_top",
+                 "cover_plate": "drawer_bottom", "eraser": "drawer_bottom", "lip_balm": "drawer_bottom"}
+    assert onto["state"]["located_in"] == locations
+    assert len(onto["world"]["items"]) == 10 and "carrot_pen" not in onto["world"]["items"]
+    assert set(onto["world"]["items"]) - locations.keys() == {"airpods_case", "masking_tape", "toy_car", "toy_hammer"}
+    assert onto["state"]["robot_pose"] == {"robot": "home"}
+    assert onto["state"]["gripper"] == {"robot": "empty"}
+    assert onto["state"]["open"] == {"drawer_top": False, "drawer_bottom": False, "handover_zone": True}
+    assert "staging_tray" in onto["world"]["places"]
+    assert onto_lib.get(onto["state"], "located_in", "eraser") == "drawer_bottom"
+    assert not any((ONTO.parent / "snapshots" / name).exists() for name in ("p2_s1.json", "p2_s2.json", "p2_s3.json"))
+
+
+def _selected_test_file(manifest):
+    """API 선택 입력은 tmp_path 안에만 생성하며 운영 프리셋을 늘리지 않습니다."""
+    import json
+    path = manifest.parent / "snapshots/test_selected.json"
+    data = json.loads((manifest.parent / "snapshots/initial_state.json").read_text())
+    data["description"] = "test-only selected input"
+    data["state"]["located_in"] = {"cover_plate": "drawer_bottom"}
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_optional_snapshot_api_preserves_default_and_independent_state(tmp_path):
+    manifest = _split_copy(tmp_path)
+    path = _selected_test_file(manifest)
+    default = onto_lib.load(manifest)
+    selected = onto_lib.load(manifest, snapshot="snapshots/test_selected.json")
+    assert selected == onto_lib.load(manifest, snapshot=path)
+    assert selected["world"] == default["world"]
+    assert selected["state"]["located_in"] == {"cover_plate": "drawer_bottom"}
+    assert onto_lib.get(selected["state"], "located_in", "eraser") is None
+    assert "eraser" in selected["world"]["items"]
+    assert onto_lib.get(default["state"], "located_in", "eraser") == "drawer_bottom"
+    assert onto_lib.list_reference_errors(selected) == []
+    selected["state"]["open"]["drawer_bottom"] = True
+    assert onto_lib.load(manifest, snapshot=path)["state"]["open"]["drawer_bottom"] is False
+    assert onto_lib.load(manifest)["state"] == default["state"]
 
 
 def test_selected_snapshot_validates_references(tmp_path):
     import json
     import pytest
     manifest = _split_copy(tmp_path)
-    selected = manifest.parent / "snapshots/p2_s3.json"
+    selected = _selected_test_file(manifest)
     data = json.loads(selected.read_text())
     for item, place in [("carrot_pen", "drawer_bottom"), ("eraser", "missing_drawer")]:
         data["state"]["located_in"] = {item: place}
         selected.write_text(json.dumps(data))
         with pytest.raises(ValueError, match="초기 위치의 물품/장소 참조가 없습니다"):
-            onto_lib.load(manifest, snapshot="snapshots/p2_s3.json")
+            onto_lib.load(manifest, snapshot="snapshots/test_selected.json")
 
 
 def test_selected_snapshot_rejects_duplicate_keys(tmp_path):
     import pytest
     manifest = _split_copy(tmp_path)
-    selected = manifest.parent / "snapshots/p2_s3.json"
+    selected = _selected_test_file(manifest)
     selected.write_text('{"state":{"located_in":{"eraser":"drawer_top","eraser":"drawer_bottom"}}}')
     with pytest.raises(ValueError, match="중복 JSON 키"):
         onto_lib.load(manifest, snapshot=selected)
@@ -301,4 +314,4 @@ def test_snapshot_selection_errors_are_explicit(tmp_path):
     legacy.write_text(json.dumps(data))
     assert onto_lib.load(legacy) == data
     with pytest.raises(ValueError, match="sources manifest"):
-        onto_lib.load(legacy, snapshot="snapshots/p2_s3.json")
+        onto_lib.load(legacy, snapshot="snapshots/test_selected.json")

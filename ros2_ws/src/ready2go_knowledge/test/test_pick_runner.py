@@ -40,7 +40,7 @@ class ObservationStub:
     @staticmethod
     def target(y):
         return {"id": "eraser#1", "class": "eraser",
-                "pose": {"frame": "drawer_top", "position": [0.1769, y, 0.0],
+                "pose": {"frame": "drawer_bottom", "position": [0.1769, y, 0.0],
                          "yaw": 0.0, "yaw_valid": True}, "top_z": 0.0115}
 
     def call_action(self, name, params_json, timeout):
@@ -106,9 +106,9 @@ def test_common_pick_uses_new_observation_and_applies_effect_only_after_success(
         "move_to_named_pose", "inspect_region", "pick_object"]
     assert all(step["status"] == "SUCCESS" for step in expanded)
     assert [step["params"] for step in (expanded[0], expanded[3])] == [
-        {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"}] * 2
+        {"pose_name": "drawer_top_view", "drawer_id": "drawer_bottom"}] * 2
     assert stub.scans == 3  # 태스크 최초 관측 + pick 최초/재관측
-    assert calls(stub, "nudge_object") == [{"target": stub.initial, "drawer_id": "drawer_top"}]
+    assert calls(stub, "nudge_object") == [{"target": stub.initial, "drawer_id": "drawer_bottom"}]
     assert calls(stub, "pick_object") == [{"target": stub.observed, "approach_offset": [0, 0, 0.1]}]
     assert stub.observed != stub.predicted and stub.observed != stub.initial
     assert record(result, "s5.1.e2")["output"]["target"] == stub.initial
@@ -117,9 +117,9 @@ def test_common_pick_uses_new_observation_and_applies_effect_only_after_success(
     assert record(result, "s5.1.e2")["output"] != record(result, "s5.1.e5")["output"]
     assert record(result, "s5.1.e3")["output"]["pushed"] is pushed
     assert stub.states_before_pick[0]["gripper"]["robot"] == "empty"
-    assert stub.states_before_pick[0]["located_in"]["eraser"] == "drawer_top"
+    assert stub.states_before_pick[0]["located_in"]["eraser"] == "drawer_bottom"
     assert record(result, "s5.1")["state_diff"] == {
-        "gripper.robot": ["empty", "eraser"], "located_in.eraser": ["drawer_top", "gripper"]}
+        "gripper.robot": ["empty", "eraser"], "located_in.eraser": ["drawer_bottom", "gripper"]}
     assert runner.state["located_in"]["eraser"] == "handover_zone"
     assert runner.state["gripper"]["robot"] == "empty"
 
@@ -146,7 +146,7 @@ def test_failures_propagate_without_effect_or_retry_after_motion(stage, code, fa
     assert parent["attempts"] == 1 and parent["retry_stopped"] == "MOTION_UNCERTAIN"
     assert "state_diff" not in parent
     assert runner.state["gripper"]["robot"] == "empty"
-    assert runner.state["located_in"]["eraser"] == "drawer_top"
+    assert runner.state["located_in"]["eraser"] == "drawer_bottom"
     assert len(calls(stub, "pick_object")) == (1 if stage == "pick" else 0)
     assert len(calls(stub, "nudge_object")) <= 1
     assert not calls(stub, "place_object")
@@ -163,7 +163,7 @@ def test_null_or_missed_observation_blocks_next_motion(scan, absent):
     assert not calls(stub, "pick_object")
     assert "state_diff" not in record(result, "s5.1")
     assert record(result, "s5.1")["attempts"] == 1
-    assert runner.state["located_in"]["eraser"] == "drawer_top"
+    assert runner.state["located_in"]["eraser"] == "drawer_bottom"
 
 
 def test_initial_task_miss_keeps_existing_notice_branch_without_pick():
@@ -172,7 +172,7 @@ def test_initial_task_miss_keeps_existing_notice_branch_without_pick():
     assert result.overall_status == "COMPLETED"
     assert stub.scans == 1
     assert not calls(stub, "nudge_object") and not calls(stub, "pick_object")
-    assert runner.state["located_in"]["eraser"] == "drawer_top"
+    assert runner.state["located_in"]["eraser"] == "drawer_bottom"
 
 
 @pytest.mark.parametrize("code", ["ESTOP", "LOCKED"])

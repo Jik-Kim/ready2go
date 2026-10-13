@@ -14,12 +14,11 @@
 | [`classes.jsonld`](../knowledge/classes.jsonld) | 종류와 계층 정의 |
 | [`world.jsonld`](../knowledge/world.jsonld) | 물품·목록·장소 정의 |
 | `knowledge/skills/*.jsonld` | 입력·사전 조건(`pre`)·전개(`expand`)·성공 후 결과(`effect`)·오류 정의 |
-| [`initial_state.json`](../knowledge/snapshots/initial_state.json) | 기본 P1 초기화용 예시 프리셋 |
-| `knowledge/snapshots/p2_s1.json`·`p2_s2.json`·`p2_s3.json` | 승인된 P2 시작 배치; C 선택 소비는 미연결 |
+| [`initial_state.json`](../knowledge/snapshots/initial_state.json) | 기본 로딩의 단일 초기 상태 정의; 실제 상태 확인은 별도 |
 | [`places.yaml`](../config/places.yaml) | 장소 좌표계·실측 치수·이동 거리·설정의 정본 |
 | [`item_grasp.yaml`](../config/item_grasp.yaml) | 물품별 파지 힘과 검증 승인 상태, 실제로 잡은 폭(선택, B 실측)의 정본 |
 
-`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 선택 입력 `snapshot`은 상태 파일만 대체하며 생략하면 기본 P1 상태를 유지합니다. 활성 10종·고정 학습 11종의 구분, 장면 위치와 미배치 물품, C 기동/reset 미연결 및 조건부 pick 보류는 [knowledge/README.md](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. [문서]
+`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 선택 입력 `snapshot`은 상태 파일만 대체하며 생략하면 sources.initial_state의 단일 정의를 사용합니다. 활성 10종·초기 위치 6종, S3 실물 제외와 초기 JSON 유지, 선택 API 및 C 기동/reset 경계는 [knowledge/README.md](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. [문서]
 
 **현재 분리 형식에서 검사하는 항목**: 필수 sources와 객체 형식, JSON/YAML 중복 키, 중복 스킬 ID, 장소 설정 누락·중복, 물품과 파지 설정 ID 일치, 양수 유한값 3개의 `size_m`, 파지 설정 형식·값, 물품·장소의 class 참조, 초기 located_in의 물품·장소 참조, 목록의 물품 참조입니다. 기존 단일 파일 호환 경로는 JSON을 읽어 그대로 반환하며 이 전체 검사를 수행하지 않습니다. [문서]
 
