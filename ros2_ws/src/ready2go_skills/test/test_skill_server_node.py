@@ -2986,7 +2986,7 @@ def test_cover_plate_pick_ignores_objects_passing_under_between_legs(server):
 def test_make_room_cluster_touching_bboxes_still_plans(server):
     """[실측 PC2 10/13 B clear top 에어팟, 덤프 inspect_20261013_051358_386Z] 에어팟 둘레에 캐러멜·몽키·지우개가 맞붙음 — 온톨로지
     외접 박스(몽키 머리 61 × 170)가 처음부터 서로 1~2 mm 겹쳐 어느 쪽으로도 0 mm 로 계산 → make_room fail(NEIGHBOR_TOO_CLOSE).
-    처음부터 겹친 물체에서 멀어지는 쪽은 막지 않음 → 캐러멜을 빈 쪽(-y)으로 넛지 (check_only, 로봇 안 움직임)."""
+    처음부터 겹친 물체에서 멀어지는 쪽은 막지 않음 → 에어팟 밀기(sweep, check_only, 로봇 안 움직임)."""
     D = "drawer_top"
     srv = server.srv
     srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
@@ -3001,7 +3001,8 @@ def test_make_room_cluster_touching_bboxes_still_plans(server):
                            o("eraser#1", "eraser", 0.0562, 0.1729, 0.0136, -1.5254)]}
     out, data = server.run("nudge_object", {"drawer_id": D, "target": air, "scan": scan, "make_room": True, "check_only": True})
     mr = data["make_room"]
-    assert mr["action"] == "nudge" and "caramel_box#1" in mr["reason"] and "-y" in mr["reason"], mr   # check_only 라 moved_id null
+    # make_room.remove_first false(10/13): 에어팟을 -y 로 밀며 캐러멜·지우개를 같이 밀기 한 번 → 집기 [사용자 10/13]
+    assert mr["action"] == "sweep" and "caramel_box#1" in mr["reason"], mr
     assert srv.robot.log == []
 
 
@@ -3039,3 +3040,21 @@ def test_make_room_no_free_space_refused_before_motion(server):
         server.ss.clp.find_free_pose = real
     assert not out.success and out.error_code == "NO_FREE_SPACE", out.reason
     assert data["make_room"]["action"] == "fail" and srv.robot.log == []
+
+
+def test_nudge_moves_use_slower_nudge_speeds_only_during_nudge(server):
+    """[사용자 10/13 PC2 "clear 할 때 넛지하러 갈 때 기울이거나 하는 게 진짜 빨라서 무섭다, 이동 자체도 빨라"] 넛지 동작 중에만
+    speed.nudge(서랍 안 직선·경유점 관절·손목 회전)를 씀. 넛지가 끝나면 평소 속도로 돌아옴(탑뷰 등은 그대로)."""
+    srv = server.srv
+    seen = []
+    rb = srv.robot
+    ml, mb, mj = rb.movel_async, rb.moveb_async, rb.movej_async
+    rb.movel_async = lambda p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0: (seen.append(("l", vel, rot_vel)), ml(p, vel, acc, rot_vel, rot_acc, radius))[1]
+    rb.moveb_async = lambda pts, radii, vel, acc, rot_vel=30.0, rot_acc=60.0: (seen.append(("b", vel, rot_vel)), mb(pts, radii, vel, acc, rot_vel, rot_acc))[1]
+    rb.movej_async = lambda j, vel, acc: (seen.append(("j", vel, None)), mj(j, vel, acc))[1]
+    nz = srv.prm()["speed"]["nudge"]
+    server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_CORNER})
+    assert seen and srv._careful is False
+    assert all(rv == nz["turn_deg_s"] for k, _, rv in seen if k in "lb")               # 손목 회전·기울이기 느리게
+    assert all(v <= max(nz["in_drawer_joint_deg_s"], nz["view_joint_deg_s"]) for k, v, _ in seen if k == "j")   # 관절 이동 느리게
+    assert srv._speed()["turn_deg_s"] == srv.prm()["speed"]["turn_deg_s"]             # 넛지 밖은 평소 값
