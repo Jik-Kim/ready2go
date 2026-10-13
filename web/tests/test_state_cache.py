@@ -166,6 +166,39 @@ def test_publisher_disappearance_is_distinct_from_cached_data(clock: FakeClock) 
     assert state["data"] == {"phase": "idle"}
 
 
+def test_reappearing_publisher_waits_for_new_message_instead_of_reusing_old_data(
+    clock: FakeClock,
+) -> None:
+    """publisher 재기동 뒤 이전 세대 payload를 현재 상태로 다시 노출하지 않는다."""
+    cache = make_cache(clock, runner=None)
+    cache.record_message("runner", {"boot": "old", "phase": "running"})
+
+    # 기존 endpoint가 사라진 동안에는 마지막 상태를 진단용으로 확인할 수 있다.
+    cache.set_publisher_present("runner", False)
+    disconnected = cache.snapshot()["runner"]
+    assert disconnected["connection_state"] == "disconnected"
+    assert disconnected["data"] == {"boot": "old", "phase": "running"}
+
+    # 새 endpoint 발견만으로 이전 boot의 메시지가 다시 receiving이 되면 안 된다.
+    cache.set_publisher_present("runner", True)
+    waiting = cache.snapshot()["runner"]
+    assert waiting["connection_state"] == "waiting"
+    assert waiting["message_received"] is False
+    assert waiting["message_valid"] is False
+    assert waiting["last_received_at"] is None
+    assert waiting["last_valid_received_at"] is None
+    assert waiting["age_sec"] is None
+    assert waiting["valid_age_sec"] is None
+    assert waiting["data"] is None
+
+    # 새 publisher의 유효 메시지를 받은 뒤에만 새 payload로 receiving을 회복한다.
+    cache.record_message("runner", {"boot": "new", "phase": "idle"})
+    recovered = cache.snapshot()["runner"]
+    assert recovered["connection_state"] == "receiving"
+    assert recovered["message_valid"] is True
+    assert recovered["data"] == {"boot": "new", "phase": "idle"}
+
+
 def test_bridge_error_does_not_change_last_received_time(clock: FakeClock) -> None:
     """executor 오류를 ROS 메시지 수신 사건으로 잘못 기록하지 않는다."""
     cache = make_cache(clock, robot_state=None)

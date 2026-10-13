@@ -174,6 +174,8 @@ Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 `h
 
 `data`는 마지막으로 정상 해석한 `/runner/status` JSON 원본입니다. 비정상 메시지를 받으면 진단을 위해 마지막 정상 `data`는 보존하지만 `message_valid=false`, `connection_state=error`로 반환하므로 현재 정상값으로 해석하지 않습니다. Runner는 변경 시·주기 상태 토픽이므로 단순히 `age_sec`이 증가했다는 이유로 끊김 처리하지 않습니다.
 
+publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보존합니다. 이후 publisher가 다시 발견되면 이전 endpoint·boot의 메시지와 시각을 무효화하고, 새 유효 메시지를 받을 때까지 `connection_state=waiting`, `data=null`로 반환합니다.
+
 | HTTP | `error.code` | 의미 |
 |---|---|---|
 | 503 | `STATE_CACHE_UNAVAILABLE` | Flask 앱에 ROS 캐시가 연결되지 않음 |
@@ -215,7 +217,7 @@ ros2 topic echo /runner/status --once
 
 웹 브리지가 구독자로 표시되고 Runner가 발행한 JSON이 출력되면 ROS graph와 발행 측을 확인할 수 있습니다. 같은 시점의 캐시 내용은 `/api/status`로 확인합니다.
 
-[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `60 passed`를 확인했습니다. 실제 진입점을 임시 포트 4175로 실행하고 시험 publisher를 연결해 REST가 `receiving`과 `/runner/status` 원본 JSON을 반환하는 것을 확인했습니다. 브라우저에서는 약 1초 조회, 서버 중단 시 `REST 연결 오류`, 서버 재시작 뒤 자동 복구, publisher 종료 뒤 `연결 끊김` 전환을 확인했습니다. 실제 Runner 프로세스·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
+[실측] 2026-10-13 로컬 CycloneDDS에서 전체 웹 시험 `61 passed`를 확인했습니다. 실제 진입점을 임시 포트 4175로 실행하고 시험 publisher를 연결해 REST가 `receiving`과 `/runner/status` 원본 JSON을 반환하는 것을 확인했습니다. 브라우저에서는 약 1초 조회, 서버 중단 시 `REST 연결 오류`, 서버 재시작 뒤 자동 복구, publisher 종료 뒤 `연결 끊김` 전환을 확인했습니다. 캐시 시험에서는 publisher 재발견 뒤 이전 boot payload를 비우고 새 메시지 전까지 `waiting`인 것도 확인했습니다. 실제 Runner 프로세스·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
 
 ## 7. URL 데모 시나리오
 

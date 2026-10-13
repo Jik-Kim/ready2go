@@ -114,13 +114,27 @@ class StateCache:
             self._sources[name] = _SourceState(freshness_timeout_sec)
 
     def set_publisher_present(self, name: str, present: bool) -> None:
-        """ROS 그래프에서 확인한 publisher 존재 여부만 갱신한다."""
+        """ROS 그래프의 publisher 여부를 기록하고 새 세대의 수신 상태를 분리한다."""
         # 0/1이나 문자열을 허용하면 확인 전 상태와 실제 bool이 섞이므로 엄격히 검사한다.
         if not isinstance(present, bool):
             raise TypeError("present는 bool이어야 합니다")
-        # publisher가 사라져도 마지막 정상 데이터는 진단용으로 지우지 않는다.
+        # publisher가 사라진 동안에는 마지막 정상 데이터를 진단용으로 보존한다.
         with self._lock:
-            self._source(name).publisher_present = present
+            source = self._source(name)
+            # 사라졌던 publisher가 다시 발견되면 이전 endpoint/boot의 상태를 현재값으로
+            # 재사용하지 않는다. 새 메시지가 도착할 때까지 snapshot은 waiting을 반환한다.
+            if present and source.publisher_present is False:
+                source.message_received = False
+                source.message_valid = False
+                source.last_received_at = None
+                source.last_valid_received_at = None
+                source.last_received_monotonic = None
+                source.last_valid_monotonic = None
+                source.message_error = None
+                source.data = None
+            # 메시지 콜백이 먼저 새 값을 기록한 경우 publisher_present가 이미 True이므로
+            # 뒤늦은 graph poll이 그 새 메시지를 지우지 않는다.
+            source.publisher_present = present
 
     def record_message(
         self,
