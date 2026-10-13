@@ -221,3 +221,50 @@ def test_dropped_relation_leaves_under_object_unknown_not_clear():
     ok, _, js = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", "lip_balm", INTERIOR, dbg)
     assert ok and json.loads(js)["target"]["occluded_by"] is None
     assert any(d.get("occlusion", {}).get("judge", "").startswith("버림") for d in dbg)
+
+
+def _bled(eraser_top, near_px=None):
+    """바닥 지우개 옆에 높은 물체(윗면 35 mm). 지우개 마스크가 이웃 쪽으로 10 px 번짐(10/12 판 밑 지우개)."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), eraser_top), ("caramel_box", 0.10, 0.15 + 0.011 + 0.0245 - 0.003, (0.075, 0.049), 0.035)]   # 3 mm 겹쳐 맞닿음
+    depth, masks = scene(objs)
+    vv, uu = np.nonzero(masks[0])
+    m = masks[0].copy(); m[vv.min() - 10:vv.min(), uu.min():uu.max() + 1] = True    # 이미지 위쪽(+y) = 이웃 쪽
+    params = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], **({} if near_px is None else {"top_exclude_near_px": near_px})}}
+    dbg = []
+    ok, _, js = inspect_scene(dets_of(objs, [m, masks[1]]), depth, K, T, params, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    assert ok
+    return json.loads(js)["target"], next(d for d in dbg if d.get("class") == "eraser")
+
+
+def test_top_z_ignores_mask_bleed_onto_higher_neighbor():
+    """분할 마스크가 높은 이웃에 걸치면 p95 윗면이 이웃 높이로 튄다 → 높은 이웃 근처 픽셀을 빼고 잰다. 0 이면 끔(이전과 같음)."""
+    off, _ = _bled(0.0115, near_px=0)
+    on, note = _bled(0.0115)
+    assert off["top_z"] > 0.03
+    assert on["top_z"] == pytest.approx(0.0115, abs=0.0015) and note["top_z_near_higher"]["before"] == off["top_z"]
+
+
+def test_top_z_not_lowered_below_nominal():
+    """번짐을 덜어도 명목 높이보다 낮추지 않는다(검은 물체 뎁스가 낮게 잡히는 경우)."""
+    on, _ = _bled(0.009)
+    assert on["top_z"] == pytest.approx(ITEMS["eraser"]["size_m"][2])
+
+
+def test_top_z_correction_rechecks_drawer_boundary():
+    """보정 값(낮아진 top_z)으로 position·footprint 투영 평면(top_z/2)이 바뀌므로 서랍 안 검사를 다시 한다.
+    보정 값으로 벽 밖이 되면 보정을 버리고 원래 값 — 이 PR 로 결과에서 물체가 빠지지 않게 (E #261 리뷰)."""
+    objs = [("eraser", 0.188, 0.15, (0.0525, 0.022), 0.0115),                       # 벽(x 0.1997) 쪽 끝 0.2143
+            ("caramel_box", 0.182, 0.15 + 0.011 + 0.0375 - 0.003, (0.049, 0.075), 0.035)]
+    depth, masks = scene(objs)
+    vv, uu = np.nonzero(masks[0])
+    m = masks[0].copy(); m[vv.min() - 10:vv.min(), uu.min():uu.max() + 1] = True     # 높은 이웃 쪽 번짐
+    out = {}
+    for near in (0, 15):
+        params = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], "top_exclude_near_px": near}}
+        dbg = []
+        ok, _, js = inspect_scene(dets_of(objs, [m, masks[1]]), depth, K, T, params, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+        assert ok
+        out[near] = (json.loads(js)["target"], next(d for d in dbg if d.get("class") == "eraser"))
+    assert out[0][0] is not None and out[15][0] is not None                          # 끈 상태에서 결과에 있던 물체는 그대로 남음
+    assert out[15][0]["top_z"] == out[0][0]["top_z"] and out[15][0]["pose"] == out[0][0]["pose"]
+    assert "footprint" in out[15][1]["top_z_near_higher"]["reason"]

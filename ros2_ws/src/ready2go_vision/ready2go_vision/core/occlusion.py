@@ -55,6 +55,33 @@ def _pieces(mask: np.ndarray, min_px: int, touching: np.ndarray | None = None) -
     return sum(1 for L in range(1, n) if st[L, cv2.CC_STAT_AREA] >= min_px and (touching is None or (touching & (lab == L)).any()))
 
 
+def top_masks(masks: list, Z: np.ndarray | None, params: dict) -> list:
+    """top_z 를 잴 마스크: 자기 마스크 높이 중앙값보다 top_exclude_min_dz_m 이상 높은 이웃 마스크를 top_exclude_near_px 만큼 넓힌 자리를 뺀다.
+    분할 마스크 가장자리가 옆의 높은 물체(덮개 판 모서리 등)에 걸쳐 p95 윗면이 튀는 것을 막는다(10/12 판 밑 지우개 25.8 mm, 실제 11.5).
+    params = depth_blob 설정. 바뀌지 않거나(이웃 없음·끔) 덜어내서 비면 None(원래 마스크). 명목 높이 아래로 낮추지 않는 것은 호출자(inspect_real).
+    높이 중앙값은 바닥(floor_margin_m) 위 픽셀만. masks 는 결과에 남은 최종 검출만 넣는다(오검출·중복이 멀쩡한 물체를 깎지 않게)."""
+    k, dz = int(params.get("top_exclude_near_px", 0)), params.get("top_exclude_min_dz_m", 0.0)
+    if Z is None or k <= 0 or len(masks) < 2:
+        return [None] * len(masks)
+    cv2 = _cv2()
+    med = []
+    for m in masks:
+        z = Z[m] if m is not None else np.empty(0)
+        z = z[np.isfinite(z) & (z > params["floor_margin_m"])]
+        med.append(float(np.median(z)) if z.size else None)
+    kern = np.ones((2 * k + 1, 2 * k + 1), np.uint8)
+    out = []
+    for i, m in enumerate(masks):
+        hi = [j for j in range(len(masks)) if j != i and med[i] is not None and med[j] is not None and med[j] >= med[i] + dz]
+        if m is None or not hi:
+            out.append(None)
+            continue
+        near = cv2.dilate(np.any([masks[j] for j in hi], axis=0).astype(np.uint8), kern) > 0
+        t = m & ~near
+        out.append(t if t.any() else None)
+    return out
+
+
 def _top(Z: np.ndarray | None, mask: np.ndarray | None, pct: float) -> float | None:
     """마스크 안 서랍 z 의 pct 백분위(전체 윗면, depth_blob top_z 와 같은 백분위). 잴 수 없으면 None."""
     if Z is None or mask is None:
@@ -77,7 +104,7 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
     Z = drawer_z_map(depth_m, K, T_drawer_cam, min_depth, max_depth) if any(m is not None for m in masks) else None
     grown = [None if m is None else cv2.dilate(m.astype(np.uint8), kern) > 0 for m in masks]
     area = [None if m is None else visible_area_m2(m, depth_m, K, min_depth, max_depth) for m in masks]
-    tops = [_top(Z, m, p.get("top_percentile", 95)) for m in masks]
+    tops = [_top(Z, d.get("top_mask", m), p.get("top_percentile", 95)) for d, m in zip(dets, masks)]   # top_mask = 높은 이웃 근처를 뺀 마스크(있으면)
     out = {}
     for j, b in enumerate(dets):
         if ids[j] is None:
