@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-13 저녁
 
 ## 지금 상태
+- **10/14 할 일**: 아침 들고 나오기 movesx 스플라인(기본 꺼짐, moveb 비교 그래프 — 강사님 피드백), 시간 나면 VLM 위험 배치 감지(학습 없이 프롬프트 + 사진 평가). 나중 실물 검증: 힘 제어 넛지(d13d)·마스킹테이프·W1(d13e). sim 목록 `practice/B/sim/README.md`.
 - **10/13 밤 3**: 넛지 힘 제어 모드 `drag.force_mode`(두산 compliance + desired force, **기본 꺼짐 — 동작 그대로**). sim 에서 접촉 찾기(몽키 머리·빈 상자) 나음 → **통합·P2 뒤 실물 검증 필요**(작업표 d13d, 일지 29번).
 - **10/13 밤 2 (PR #300 머지 `3e3fd0e`)**: 공간 만들기 순서 = 넛지(다른 물체 안 건드림) → sweep → 다른 물체 치우기 [사용자 결정]. 트러블슈팅 22~28(`2026-10-13_practice.md`), 날짜별 트러블슈팅 모음 `TROUBLESHOOTING.md`. B 수정은 브랜치 `claude/practical-darwin-z6akw4-b`, W1·W2 #297 은 `claude/practical-darwin-z6akw4`(승인 대기).
 - **10/13 밤 (PR #296 머지 — 마스킹테이프·손잡이 벽 회피·정리 / W1·W2 는 따로 PR, 계약 제안이라 C 확인·E 포함 2명 승인 전)**: 마스킹테이프 넛지 = 닫은 손가락을 구멍에 넣어 밀기(`drag.hole_classes`, 실물 미확인), 공간 만들기에서 손잡이 쪽 벽에 새로 붙이는 동작 벌점(`make_room.front_keep_mm`), 코드·문서 정리(안 쓰는 함수, 기본값 = yaml, `domain.md` 8.5 값·make_room 항목, README `plan`·`clear`). W1 `/skills/check_state`·W2 `/skills/recover`(`std_srvs/Trigger` + JSON, 로봇 동작 없음, 모름은 null)는 분리한 PR 에서 승인 대기. PC2 기준 `1b1780c`(#277 포함).
