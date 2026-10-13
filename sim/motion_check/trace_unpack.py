@@ -142,9 +142,26 @@ def main():
     ap.add_argument("--mode", default="unpack", choices=("unpack", "clear"),
                     help="unpack = B unpack (Runner find_with_unpack 순서) / clear = B clear (nudge_object make_room 반복 → 집기 → 트레이)")
     ap.add_argument("--pre-remove", default="", help="시작 전에 이 id 들을 집어 서랍 빈 자리(free)에 둠 (쉼표). 예: cover_plate#1")
+    ap.add_argument("--set-pose", action="append", default=[], metavar="ID=X,Y[,YAW°]",
+                    help="첫 장면에서 이 물체를 서랍 좌표 X,Y mm(·yaw 도)로 옮겨 놓고 시작 (배치 바꿔 보기, 여러 번 가능). 예: lip_balm#1=29,127")
     a = ap.parse_args()
     first, drawer = replay_dump(Path(a.dump[0]), a.target)
     items = json.loads((ROOT / "knowledge/world.jsonld").read_text(encoding="utf-8"))["world"]["items"]
+    edited = []
+    for sp in a.set_pose:                                         # 배치 바꿔 보기 [B 10/13 "S2 립밤은 지우개 가운데에서 80 mm 이상"]
+        oid, v = sp.split("=", 1)
+        nums = [float(x) for x in v.split(",")]
+        allo = ([first["target"]] if first.get("target") else []) + list(first.get("candidates") or [])
+        o = next(x for x in allo if x["id"] == oid)
+        o["pose"] = dict(o["pose"], position=[nums[0] / 1000.0, nums[1] / 1000.0, 0.0],
+                         yaw=math.radians(nums[2]) if len(nums) > 2 else o["pose"]["yaw"])
+        o["top_z"] = items[o["class"]]["size_m"][2]                # 바닥에 놓음
+        o["occluded_by"] = []
+        for x in allo:                                             # 옮긴 물체가 덮던 관계는 새 자리 밑에 없으면 뺌
+            if x is not o and oid in (x.get("occluded_by") or []) and not _inside(*x["pose"]["position"][:2], o, items):
+                x["occluded_by"] = [i for i in x["occluded_by"] if i != oid]
+        edited.append({"id": oid, "pose": o["pose"]})
+        print(f"  ** 첫 장면 배치 바꿈: {oid} → ({nums[0]:.1f}, {nums[1]:.1f}) mm" + (f" yaw {nums[2]:.1f}°" if len(nums) > 2 else ""))
     scene = Scene(first, drawer, items)
 
     robot = tsf.KinRobot(tsf.HOME_J)
@@ -312,7 +329,7 @@ def main():
         print(f"*** b_sk unpack 중단: {code}")
     tsf.save_trace(robot, ROOT, a.out, results, first.get("target") or {}, None)
     d = json.loads(Path(a.out).read_text())
-    d.update(scene_events=scene.events, scans=scans, diverged=diverged, log=text, stopped=str(code) if code else "", unpack_ok=bool(ok), dump=[str(x) for x in a.dump], target_class=a.target)
+    d.update(scene_events=scene.events, scans=scans, diverged=diverged, log=text, stopped=str(code) if code else "", unpack_ok=bool(ok), dump=[str(x) for x in a.dump], target_class=a.target, edited=edited)
     Path(a.out).write_text(json.dumps(d, ensure_ascii=False))
     print(f"\nunpack {'성공' if ok else '실패/중단'} — 장면 기록 {len(scene.events)}개 → {a.out}")
 
