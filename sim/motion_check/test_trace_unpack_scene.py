@@ -76,3 +76,22 @@ def test_untouched_objects_use_dump():
     sc = tu.Scene(first, "drawer_bottom", ITEMS)
     res, off = _merge_after_dump(sc, first)
     assert off == [] and res["target"]["pose"]["position"][0] == 0.109
+
+
+def test_unstacked_cover_relation_not_revived_by_next_dump():
+    """판을 unstack 한 뒤 원래 S2형 덤프를 합쳐도 지우개 occluded_by 에 판이 되살아나지 않음 (#306 E 재리뷰 P2).
+    판은 새 자리, 지우개 위치는 덤프 그대로, null(모름)은 null 로 둠."""
+    plate = _obj("cover_plate#1", "cover_plate", 0.108, 0.179, 0.0356)
+    eraser = _obj("eraser#1", "eraser", 0.109, 0.127, 0.0141, occluded_by=["cover_plate#1"])
+    lip = _obj("lip_balm#1", "lip_balm", 0.079, 0.125, 0.0213)
+    lip["occluded_by"] = None
+    dump = {"target": eraser, "candidates": [plate, lip]}
+    sc = tu.Scene(copy.deepcopy(dump), "drawer_bottom", ITEMS)
+    sc.unstack("cover_plate#1", {"position": [0.035, 0.060, 0.0], "yaw": 0.0})
+    assert sc.objs["eraser#1"]["occluded_by"] == []
+    res, off = _merge_after_dump(sc, dump)
+    assert off == ["cover_plate#1"]
+    assert res["target"]["occluded_by"] == [] and res["target"]["pose"]["position"][:2] == [0.109, 0.127]
+    plate_m = next(o for o in res["candidates"] if o["id"] == "cover_plate#1")
+    assert plate_m["pose"]["position"][:2] == [0.035, 0.060]
+    assert next(o for o in res["candidates"] if o["id"] == "lip_balm#1")["occluded_by"] is None

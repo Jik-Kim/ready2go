@@ -152,6 +152,16 @@ def merge_dump(scene: Scene, res: dict, search: str) -> tuple[dict, list]:
     if not off:
         return res, off
     keep = [copy.deepcopy(o) for oid, o in objs_.items() if oid not in moved]
+    for x in keep:                                             # 손대지 않은 물체의 가림 관계를 합친 장면에 맞춤 (#306 E 재리뷰:
+        ob = x.get("occluded_by")                              # 치운 판이 옛 덤프 관계로 되살아나 같은 unstack 후보가 됨). 위치·각도는 덤프 그대로,
+        if ob is None:                                         # null(모름)은 그대로
+            continue
+        xy = x["pose"]["position"][:2]
+        x["occluded_by"] = [i for i in ob if i not in moved or (i in scene.objs and _inside(*xy, scene.objs[i], scene.items))]
+        sim_x = scene.objs.get(x["id"])                        # 시뮬에서 옮긴 물체가 새로 덮었으면 넣음
+        for i in (sim_x or {}).get("occluded_by") or []:
+            if i in moved and i in scene.objs and i not in x["occluded_by"] and _inside(*xy, scene.objs[i], scene.items):
+                x["occluded_by"].append(i)
     keep += [copy.deepcopy(scene.objs[oid]) for oid in moved if oid in scene.objs]
     t = next((o for o in keep if o["class"] == search), None)
     return {"target_found": t is not None, "target": t, "candidates": [o for o in keep if o is not t], "visible_count": len(keep)}, off
