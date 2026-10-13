@@ -1,4 +1,6 @@
 """core/neighbor_check.py — 집기·끌기 전 옆 물체 확인 [사용자 10/09 서랍 안 랜덤 배치]."""
+import math
+
 import pytest
 
 from ready2go_skills.core import neighbor_check as nc
@@ -75,3 +77,20 @@ def test_finger_band_only_for_long_object():
                   default_size_m=[0.06, 0.06, 0.06], finger_mm=13.0, margin_mm=5.0, support_m=0.0, below_tol_m=0.003)
     assert nc.pick_blocker(**common) == "car_key#1"                          # 예전: 물체 길이 전체
     assert nc.pick_blocker(finger_half_width_mm=15.8, **common) is None
+
+
+def test_passes_under_uses_leg_gap_by_direction_and_narrow_part():
+    """판 밑(occluded_by 판) 물체가 다리 안쪽 [긴 변 방향 65, 짧은 변 방향 35] 사이로 지나가는 폭인지 [사용자 10/13]."""
+    plate = {"id": "cover_plate#1", "pose": {"position": [0.1, 0.2, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    def o(yaw, valid=True, top=0.019, occ=("cover_plate#1",)):
+        return {"id": "w", "class": "toy_wrench", "top_z": top, "occluded_by": list(occ),
+                "pose": {"position": [0.1, 0.2, 0.0], "yaw": yaw, "yaw_valid": valid}}
+    W = [0.170, 0.061, 0.0185]
+    gap = [65.0, 35.0]
+    assert nc._passes_under(o(math.pi / 2), plate, W, 0.021, 0.005, gap)            # 판 짧은 변 쪽으로 가로지름: 61 ≤ 65
+    assert not nc._passes_under(o(0.0), plate, W, 0.021, 0.005, gap)                # 판 긴 변과 나란: 61 > 35
+    assert nc._passes_under(o(0.0), plate, W, 0.021, 0.005, gap, width_of=lambda c: 0.0259)   # 손잡이 25.9 ≤ 35
+    assert nc._passes_under(o(0.0, valid=False), plate, W, 0.021, 0.005, gap)       # 방향 모름: 큰 쪽(65)
+    assert not nc._passes_under(o(math.pi / 2, occ=()), plate, W, 0.021, 0.005, gap)   # 관계 없음
+    assert not nc._passes_under(o(math.pi / 2, top=0.03), plate, W, 0.021, 0.005, gap)  # 21·18.5 + 5 넘음 (판 위 등)
+    assert not nc._passes_under(o(math.pi / 2), plate, W, 0.021, 0.005, None)      # 간격 설정 없으면 예전 그대로

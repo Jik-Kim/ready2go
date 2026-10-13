@@ -272,6 +272,8 @@ class SkillServer(Node):
         self.params_file = Path(self.declare_parameter("params_file", str(PARAMS_FILE)).value)
         self.rg2_ip = os.environ.get("RG2_HOST") or self.prm()["gripper"]["rg2_ip"]
         self.disp = {}                       # 서랍별 인출 거리(m) — drawer_control 결과. 서버 재시작 후엔 모름 → 집기 거부
+        self.picked_from = []                # 최근 집은 자리와 그때 받침 높이 [{class, drawer_id, position, yaw, support_m}] — 원래 자리로
+                                             # 되돌릴 때 같은 높이로 (덮개 판 면·나사 위) [사용자 10/13]. 재시작하면 비움
         self.held_file = Path(self.declare_parameter("held_file", "/tmp/r2g_skill_held.json").value)
         self.hold_unknown = None             # 재시작 때 쥔 기록이 있는데 그리퍼 폭을 못 읽음 = 쥐었는지 모름 → 그리퍼 쓰는 동작 거부 (P2 5절)
         self._held = self._restore_held()    # 들고 있는 물체 {class, id, width_m, drawer_id, tcp_above_floor_m} — 파일에도 저장(재시작 뒤 복원)
@@ -408,6 +410,34 @@ class SkillServer(Node):
         if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0.0 < w <= side:
             raise ValueError(f"{cls} {key} 은 0 초과·그 변({side}) 이하: {w!r}")
         return float(w)
+
+    def _remember_pick(self, cls, drawer_id, pose, support_m):
+        """집은 자리·받침 높이 기억 (같은 class·같은 자리는 새 값으로, 최근 12개). 놓을 때 _picked_support 로 찾음."""
+        rec = {"class": cls, "drawer_id": drawer_id, "position": [float(v) for v in pose["position"][:2]],
+               "yaw": float(pose["yaw"]), "support_m": float(support_m)}
+        self.picked_from = [r for r in getattr(self, "picked_from", []) if not (r["class"] == cls and r["drawer_id"] == drawer_id and plp.same_place(
+            rec, r, tol_mm=3.0, tol_deg=5.0))][-11:] + [rec]
+
+    def _picked_support(self, cls, drawer_id, pose, pl):
+        """놓을 pose 가 이 class 를 집었던 자리면 그때 받침 높이 (m), 아니면 None [사용자 10/13: 덮개 판 위 차키 — 판 면(약 29)에
+        있었는지 나사 머리 위(약 40)에 있었는지는 집을 때 차키 자기 윗면으로 앎. 되돌릴 땐 판 top_z(나사, 약 35)가 아니라 그 높이로].
+        허용 오차는 기울여 되돌리기와 같은 place.tilt_back_tol_mm·tilt_back_tol_deg. 가장 최근 것."""
+        tol_mm, tol_deg = float(pl.get("tilt_back_tol_mm", 3.0)), float(pl.get("tilt_back_tol_deg", 5.0))
+        for r in reversed(getattr(self, "picked_from", [])):
+            if r["class"] == cls and r["drawer_id"] == drawer_id and plp.same_place(pose, r, tol_mm=tol_mm, tol_deg=tol_deg):
+                return r["support_m"]
+        return None
+
+    def _narrow_width(self, cls):
+        """판 밑으로 지나가는 부위 폭(m) — 손잡이를 잡는 물건(pick.open_by_grasp_width: 몽키·망치)의 item_grasp grasp_width_m.
+        그 밖(장난감차 위쪽 얇은 부분 등)·없거나 이상하면 None (외접 박스 짧은 변을 씀)."""
+        if cls not in (self.prm()["pick"].get("open_by_grasp_width") or []):
+            return None
+        size = self._size_or_none(cls)
+        try:
+            return self.grasp_width(cls, size, None) if size else None
+        except ValueError:
+            return None
 
     def _on_goal(self, _request):
         """실행 중인 동작이 있으면 새 goal 을 받지 않음 (Runner 는 거절로 받음, 로봇 동작 없음)."""
@@ -1368,8 +1398,6 @@ class SkillServer(Node):
             return sf.Outcome(False, err.error_code, reason=err.reason), None
         if params.get("make_room"):                         # 파지 공간 만들기 한 단계 [제안 10/11 B, 계약 승인 전]
             return self._make_room(goal, params, drawer_id, target)
-        if params.get("topple"):                            # 쌓인 물체 무너뜨리기 [사용자 10/13, 제안]
-            return self._topple(goal, params, drawer_id, target)
         size, _ = self.item(target.get("class"))
         g = self._drag_g(drawer_id, target.get("class"))
         plan = mp.plan_drag(target=target, size_m=size, interior_m=place["interior_m"], g=g, drag=prm["drag"])
@@ -1584,7 +1612,7 @@ class SkillServer(Node):
         return sf.Outcome(True, reason=f"뒤에서 밀어 {'x' if nx else 'y'} {(dx or dy) * 1000:+.1f} mm (계산한 끝까지, {d.get('push_back_mm', 5.0):g} mm 물러나 올림)"), out
 
     def _room_objs(self, params, drawer_id, tid, what):
-        """make_room·topple 공통: scan 물체 목록(가림 관계 occluded_by 확인) → (objs, None) | (None, 거부 Outcome).
+        """make_room: scan 물체 목록(가림 관계 occluded_by 확인) → (objs, None) | (None, 거부 Outcome).
         가림 필드 (runner.md 7.1): null = 모름, 결과 전체에 없음 = 박스 모델(관계 정보 없음). 모름을 '위에 없음'([])으로 바꾸지 않음 —
         위에 얹힌 물체를 밀거나 누를 수 있음 [A·PM #226 리뷰 10/12]. 움직이기 전 거부 → 다시 찍기 (C select_obstacle occlusion_unknown 과 같은 방식)"""
         objs, why = plp.scan_objects(params.get("scan"), drawer_id)
@@ -1608,46 +1636,7 @@ class SkillServer(Node):
                           round_classes=tuple(prm["pick"].get("round_classes") or ()),
                           press_finger_r_mm=float(mr["press_finger_r_mm"]),
                           remove_first=bool(mr.get("remove_first", True)),
-                          topple_extra_mm=float(mr.get("topple_extra_mm", 5.0)), topple_gap_mm=float(mr.get("topple_gap_mm", 5.0)),
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
-
-    def _topple(self, goal, params, drawer_id, target):
-        """쌓인 물체 무너뜨리기 [사용자 10/13 "집을 위치 없다고 포기하는 것도 웃김 — 비전으로 다시 보고 집으면 됨", 제안 — 계약 승인 전].
-        nudge_object topple: true + target(맨 위 물체) + scan(직전 inspect_region 결과 전체, 가림 관계 필요). core/clear_plan.topple_move 로
-        받침 밖 바닥까지 끄는 가장 짧은 서랍 축 방향·거리를 고르고(끄는 길·떨어질 자리 확인), 윗면을 눌러 끎 — 끈 뒤 자세는 모름 → 다시 보고 집기.
-        check_only 면 고르기만 (움직이지 않음). 받침 관계가 없으면 높이·footprint 로 밑 물체를 찾아 씀 (pick 의 쌓임 판단과 같음)."""
-        out = {"pushed": False, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0, "target_after": None,
-               "topple": None}
-        tid = target.get("id")
-        objs, bad = self._room_objs(params, drawer_id, tid, "topple")
-        if bad:
-            return bad, out
-        t = next(o for o in objs if o["id"] == tid)
-        if not clp.below(objs, tid):                              # 분할 관계가 없어도 높이로 받침이 보이면 그걸로
-            for b in plp.objects_under(target=t, objects=objs, size_of=self._size_or_none):
-                b["occluded_by"] = list(b["occluded_by"]) + [tid]
-        a = clp.topple_move(objs, tid, self._room_cfg(drawer_id))
-        if a is None:
-            why = ("밑에 깔린 물체 없음 (쌓이지 않음)" if not clp.below(objs, tid) else
-                   "위에 다른 물체가 얹힘 — 맨 위부터" if clp.riders(objs, tid) else
-                   "누를 점·끌 방향·떨어질 빈 자리 없음")
-            return sf.Outcome(False, mp.NO_PUSH_ACCESS, reason=f"무너뜨리기 못 함: {why}"), out
-        out["topple"] = {"dir": list(a.dir), "dist_m": round(a.dist_m, 4), "landed_pose": a.to_pose, "reason": a.reason}
-        # 성공이면 target_after = 떨어질 예상 자리 (계약: 성공일 때만 target 형식, 예상값·재인식 아님). 떨어진 방향은 모름 → yaw_valid false —
-        # 이걸로 바로 집으면 움직이기 전 YAW_INVALID → 다시 inspect_region 뒤 집기 [#258 리뷰 P2]
-        size, _ = self.item(t["class"])
-        landed = {"id": tid, "class": t["class"], "top_z": round(size[2], 4),     # 가림 필드(occluded_by·visible_area_m2)는 모름 → 둘 다 없음
-                  "pose": dict(a.to_pose, yaw_valid=False)}
-        self.get_logger().info(f"[topple] {a.reason}")
-        if params.get("check_only"):
-            out["target_after"] = landed
-            return sf.Outcome(True, reason=f"check_only: {a.reason} (움직이지 않음)"), out
-        res, o2 = self._press_move(goal, drawer_id, t, a.dir, a.dist_m, 0.0, False, a.extra.get("press_xy_m"))
-        out.update(pushed=o2["pushed"], push_vector_m=o2["push_vector_m"])
-        if res.success:
-            out["target_after"] = landed
-            res = sf.Outcome(True, reason=f"{a.reason} ({res.reason})")
-        return res, out
 
     def _make_room(self, goal, params, drawer_id, target):
         """파지 공간 만들기 한 단계 [제안 10/11 B, 계약 승인 전 — #117]. scan(직전 inspect_region 결과 전체) 필수.
@@ -1736,7 +1725,7 @@ class SkillServer(Node):
             along = mp.dir_to_base(tf, (math.cos(yaw), math.sin(yaw), 0.0))
         cx, cy = press_xy_m or target["pose"]["position"][:2]      # 누를 점 (계획: 더 높은 이웃에 손가락이 안 걸리는 점, 없으면 가운데)
         px, py = cx + u[0] * tip_h / 1000.0, cy + u[1] * tip_h / 1000.0   # 닿는 점이 누를 점에 오게 TCP 를 끄는 쪽으로
-        support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"])   # 쌓였으면 받침 위 윗면 (무너뜨리기)
+        support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"])   # 쌓였으면 받침 위 윗면
         contact_z_m = support + size[2] + tip_v / 1000.0
         bad = self._to_drawer_view(goal, drawer_id)
         if bad:
@@ -1859,7 +1848,8 @@ class SkillServer(Node):
         support = motion_guard.support_m(target, size[2], prm["motion_guard"]["on_floor_tolerance_m"]) if max_top else 0.0
         if support > 0 and params.get("scan") is not None:   # 쌓임: 높이는 깔린 물체의 온톨로지 높이로 (비전은 무엇이 밑인지만) [사용자 10/11]
             objs_, why_ = plp.scan_objects(params.get("scan"), drawer_id)
-            s_ont = None if why_ else plp.ontology_support_m(target=target, objects=objs_, size_of=self._size_or_none)
+            s_ont = None if why_ else plp.ontology_support_m(target=target, objects=objs_, size_of=self._size_or_none,
+                                                             vision_classes=tuple(prm["pick"].get("under_gap_by_class_mm") or {}))
             if s_ont is not None:
                 # 덮인 물체는 비전 윗면이 번져 높게 나옴 → 온톨로지 [사용자 10/11]. 맨 위 물체(위에 아무것도 없음)는 비전 윗면이 맞음
                 # (차키 52.8 = 몽키 18.5 + 캐러멜 18.5 + 차키 15.8) — 헛관계로 온톨로지 받침이 낮게 나오면 손가락이 받침 위로 내려감
@@ -1911,7 +1901,8 @@ class SkillServer(Node):
                 finger_half_width_mm=g.get("tip_radius_mm"), fingertip_floor_m=tip_floor_m,
                 fingertip_clear_m=float(nb.get("fingertip_clear_mm", 2.0)) / 1000.0,
                 under_clear_m=((prm["pick"].get("under_clear_by_class_mm") or {}).get(cls) or 0.0) / 1000.0 or None,
-                under_smear_m=float(prm["pick"].get("under_smear_mm", 5.0)) / 1000.0))
+                under_smear_m=float(prm["pick"].get("under_smear_mm", 5.0)) / 1000.0,
+                under_gap_mm=(prm["pick"].get("under_gap_by_class_mm") or {}).get(cls), width_of=self._narrow_width))
         # 손끝이 내려가는 가장 낮은 높이(닫은 손끝 = 받침 + 물건별·높이 비율, 벌린 손끝은 그보다 위) — 그보다 낮은 이웃은 손가락 자리에
         # 있어도 안 닿음 [사용자 10/12 PC2: 가림막(손끝 25 mm) 긴 변 옆 지우개 14.2·립밤 22.2 로 NEIGHBOR_TOO_CLOSE "높이가 더 높아 그냥 잡힘"].
         # 높이 계산으로 잡을 때만 (기울여 잡기·원통 벽은 손끝이 더 내려갈 수 있어 예전처럼 높이 안 봄)
@@ -2054,6 +2045,7 @@ class SkillServer(Node):
         self.held = {"class": cls, "id": target.get("id"), "width_m": chk.width_m, "drawer_id": drawer_id,
                      "tcp_above_floor_m": grasp_z_now / 1000.0 - floor_z - support,   # 물체 자기 바닥 기준 — 놓을 땐 바닥에 놓음
                      "long_side": long_side}                                        # 긴 변 양끝을 쥠 → 놓을 때 손가락 방향 90° [사용자 10/10]
+        self._remember_pick(cls, drawer_id, target["pose"], support)
         if tilt is not None and down:
             # 기울여 집었으면 그 자세를 기억 — 원래 자리로 되돌릴 때(putback·return_to_original_pose) 수직으로는 손가락이 벽 밖이라
             # 거부됨 → 같은 자세로 거꾸로 놓음 [사용자 10/12 PC2: 손잡이 벽 립밤 putback WALL_TOO_CLOSE (꼭짓점 x −5.8 mm)]
@@ -2377,11 +2369,25 @@ class SkillServer(Node):
         tb = self.held.get("tilt_back")
         back_tilt = bool(tb and not slot and tb.get("drawer_id") == loc and plp.same_place(
             pose, tb, tol_mm=float(pl.get("tilt_back_tol_mm", 0.0)), tol_deg=float(pl.get("tilt_back_tol_deg", 0.0))))
+        gap = (prm["pick"].get("under_gap_by_class_mm") or {}).get(self.held["class"])
+        clear_m = ((prm["pick"].get("under_clear_by_class_mm") or {}).get(self.held["class"]) or 0.0) / 1000.0
+        smear_m = float(prm["pick"].get("under_smear_mm", 5.0)) / 1000.0
+
+        goal_id = ((params.get("scan") or {}).get("target") or {}).get("id")   # 찾는 목표
+
+        def above(p_, objs_):
+            """다리 있는 판을 명령한 pose(되돌리기) p_ 에 놓으면 판 밑으로 들어가는 물체(다리 사이·판 아랫면 밑)는 놓기 확인·받침에서 뺌
+            [사용자 10/13 PC2 "가림판 원상복구에 립밤이 있어 안 됨 — 원복 때도 판 밑엔 물건이 들어갈 수 있다"]. 집기 쪽은
+            neighbor_check._passes_under. 빈 자리·고정 자리(slot)와 찾는 목표(scan.target — 다시 덮으면 못 꺼냄)는 그대로."""
+            if not gap or not clear_m or slot:
+                return objs_
+            return [o for o in objs_ if o["id"] in (held_id, goal_id) or not (self._size_or_none(o.get("class")) and plp.passes_under_at(
+                obj=o, pose=p_, size_m=size, obj_size_m=self._size_or_none(o.get("class")), under_clear_m=clear_m,
+                under_smear_m=smear_m, gap_mm=gap, narrow_m=self._narrow_width(o.get("class"))))]
         support = None                                      # 다른 물체 위에 놓기 (명령한 pose 만, place.allow_stack_place) — 받침은 이웃 확인에서 뺌
-        if not slot and not back_tilt and pl.get("allow_stack_place"):
-            goal_id = ((params.get("scan") or {}).get("target") or {}).get("id")   # 찾는 목표 위에는 안 얹음 (Unpacking 중 목표는 꺼내야 함)
+        if not slot and not back_tilt and pl.get("allow_stack_place"):        # 찾는 목표 위에는 안 얹음 (Unpacking 중 목표는 꺼내야 함)
             support = plp.stack_support(pose=pose, held_id=held_id, held_size_m=size, size_of=self._size_or_none,
-                                        objects=[o for o in objs if o["id"] != goal_id],
+                                        objects=[o for o in above(pose, objs) if o["id"] != goal_id],
                                         max_top_m=interior[2] - prm["pick"]["stack_top_clear_m"])
             if support is not None:
                 objs = [o for o in objs if o["id"] != support["id"]]
@@ -2389,7 +2395,7 @@ class SkillServer(Node):
         def check(p_):
             # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 손가락 자리·벽 확인 (집기 footprint 와 같음)
             pc, sc = ((dict(p_, yaw=p_["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (p_, size))
-            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
+            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=above(p_, objs),
                                    size_of=self._size_or_none, interior_m=interior, place=pl,
                                    g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)),
                                    finger_half_width_mm=g.get("tip_radius_mm"))   # 손가락 띠만 (집기와 같음)
@@ -2446,6 +2452,10 @@ class SkillServer(Node):
         if bad:
             return refuse(bad.error_code, bad.reason, bad.blocked_by)
         support_m = float(support["top_z"]) if support is not None else 0.0
+        remembered = (self._picked_support(self.held["class"], loc, pose, pl)
+                      if not slot and not back_tilt and pl.get("allow_stack_place") else None)
+        if remembered is not None and support is not None and remembered > 0.0:
+            support_m = remembered                          # 원래 자리로 되돌리기: 집을 때 받침 높이 그대로 (받침 비전 top_z 대신)
         pos_m, long_deg = plp.place_tcp_m(tf, pose, support_m + mp.place_tcp_above_floor_m(self.held["tcp_above_floor_m"], pl["drop_m"]))
         travel_z = self._travel_z(loc, 0.0)                    # 서랍 안 옆 이동 높이 (넛지·집기와 같음) [사용자 10/08]
         self._place_planned = (slot, pose)                     # check_only 가 돌려줄 예정 자리 (판단 전용 사본에만 남음)

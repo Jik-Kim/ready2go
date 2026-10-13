@@ -2033,11 +2033,12 @@ def test_handle_items_open_by_grasp_width_not_head(server, cls, grasp_w, head_w)
     assert round(grasp_w + 13.0, 1) in opens and round(head_w + 13.0, 1) not in opens, opens
 
 
-@pytest.mark.parametrize("lip_x, ok", [(0.039, True), (0.090, False)])
+@pytest.mark.parametrize("lip_x, ok", [(0.039, True), (0.090, "under")])
 def test_restore_slightly_blocked_origin_shifts_within_tolerance(server, lip_x, ok):
     """[PC2 10/12 Unpacking 덤프 05:31~05:32] 가림막을 들 때 밑에 깔린 립밤이 굴러 원래 자리 가장자리를 ~10 mm 막음 → 원래 자리
     놓기 거부 → Runner 가 aside_1 에서 집어 aside_1 에 다시 놓음. 되돌리기(명령한 pose)는 restore_fit_max_mm 안에서 방향은 그대로
-    가장 적게 옮겨 놓음. 원래 자리 한가운데가 막히면(20 mm 로 못 비킴) 예전처럼 거부 — Runner 는 꺼낸 자리로."""
+    가장 적게 옮겨 놓음. 원래 자리 한가운데(판 가운데 밑으로 다리 사이를 지나는 립밤)는 10/13부터 판 밑에 들어가는 것으로 보고
+    그 자리 그대로 놓음 [사용자 10/13 "원복 때도 판 밑엔 물건이 들어갈 수 있다"] — 예전엔 거부(20 mm 로 못 비킴)."""
     srv = server.srv
     srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
     plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0352,
@@ -2053,14 +2054,14 @@ def test_restore_slightly_blocked_origin_shifts_within_tolerance(server, lip_x, 
         out, data = server.run("place_object", {"location": "drawer_bottom", "pose": origin, "scan": scan})
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
-    assert out.success is ok, out.reason
-    if ok:
+    assert out.success, out.reason
+    if ok == "under":
+        assert data["placed_pose"]["position"][:2] == pytest.approx(origin["position"][:2])
+    else:
         pp = data["placed_pose"]
         moved = math.dist(pp["position"][:2], origin["position"][:2])
         assert 0.0 < moved <= srv.prm()["place"]["restore_fit_max_mm"] / 1000.0 + 1e-9
         assert pp["yaw"] == pytest.approx(origin["yaw"]) and srv.held is None
-    else:
-        assert data["placed_pose"] is None and data.get("blocked_by") == "lip_balm#1"
 
 
 def test_restore_fit_zero_keeps_old_refusal(server):
@@ -2121,6 +2122,76 @@ def test_aside_unknown_yaw_neighbor_only_blocks_object_or_finger_band(server, sl
         assert data["placed_pose"] is None and server.srv.held is not None
 
 
+@pytest.mark.parametrize("where, ok", [("center_along", True), ("center_across", True), ("leg_corner", "shift"), ("tall", False),
+                                       ("target", False)])
+def test_cover_plate_restore_over_object_that_fits_under(server, where, ok):
+    """[사용자 10/13 PC2 "가림판 원상복구에 립밤이 있어 안 됨 — 원복 때도 판 밑엔 물건이 들어갈 수 있다"] 판을 원래 자리(pose)로
+    되돌릴 때 판 밑(아랫면 21 mm)·다리 사이(65 × 35)로 들어가는 물체는 놓기 확인·받침에서 뺌. 다리 자리에 있으면 그 물체를 피해
+    되돌리기 허용 거리(place.restore_fit_max_mm) 안에서 비켜 놓음. 키 큰 물체(장난감차)·찾는 목표는 그대로 막음."""
+    scan = json.loads(json.dumps(SCAN_1012_PLATE))
+    scan["candidates"] = [c for c in scan["candidates"] if c["class"] == "cover_plate"]
+    try:
+        plate = _plate_held(server, scan)
+        x, y, yaw = plate["pose"]["position"][0], plate["pose"]["position"][1], plate["pose"]["yaw"]
+        c, s_ = math.cos(yaw), math.sin(yaw)
+        u, v, oy = {"center_along": (0.0, 0.0, yaw), "center_across": (0.0, 0.0, yaw + math.pi / 2),
+                    "leg_corner": (0.041, 0.028, yaw), "tall": (0.0, 0.0, yaw), "target": (0.0, 0.0, yaw)}[where]
+        lip = {"id": "lip_balm#1", "class": "lip_balm" if where != "tall" else "toy_car", "top_z": 0.0215 if where != "tall" else 0.0325,
+               "occluded_by": [], "visible_area_m2": 0.0013,
+               "pose": {"frame": "drawer_bottom", "position": [x + u * c - v * s_, y + u * s_ + v * c, 0.0], "yaw": oy, "yaw_valid": True}}
+        rescan = ({"target_found": True, "target": lip, "candidates": [plate], "visible_count": 2} if where == "target" else
+                  {"target_found": True, "target": plate, "candidates": [lip], "visible_count": 2})
+        out, data = server.run("place_object", {"location": "drawer_bottom", "pose": {k: plate["pose"][k] for k in ("frame", "position", "yaw")},
+                                                "scan": rescan})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    if ok == "shift":                                               # 다리가 립밤 위로 — 비켜 놓음 (다리 자리 밖으로)
+        moved = math.dist(data["placed_pose"]["position"][:2], plate["pose"]["position"][:2])
+        assert out.success and 0.0 < moved <= 0.021, (out.reason, moved)
+    elif ok:
+        assert out.success and data["placed_pose"] is not None, out.reason
+        floor = 1000.0 * server.ss.pp.to_base(server.srv.places()["drawer_bottom"]["tf"], (x, y, 0.0))[2]
+        low = min(e[1][2] for e in server.srv.robot.log if e != "stop" and e[0] == "movel")
+        assert low < floor + 40.0                                   # 립밤 위(받침)가 아니라 바닥 기준으로 내려놓음
+    else:
+        assert not out.success and out.error_code == "PLACE_BLOCKED", out.reason
+
+
+@pytest.mark.parametrize("on, top", [("surface", 0.029 + 0.0158), ("bolts", 0.0405 + 0.0158)])
+def test_key_on_cover_plate_picks_and_restores_at_its_own_height(server, on, top):
+    """[사용자 10/13 PC2 사진] 덮개 판 위 차키는 판 면(약 29 mm)에도, 나사 머리 위(약 40 mm)에도 놓임 — 판 온톨로지 높이 40.5
+    (나사 포함)·판 비전 top_z(나사, 약 35)는 놓인 면이 아님. 집을 때 받침 = 차키 자기 윗면 − 차키 높이(비전), 되돌릴 때 그 높이 그대로."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.035, "occluded_by": ["car_key#1"], "visible_area_m2": 0.006,
+             "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    key = {"id": "car_key#1", "class": "car_key", "top_z": top, "occluded_by": [], "visible_area_m2": 0.0027,
+           "pose": {"frame": D, "position": [0.090, 0.170, 0.0], "yaw": 0.0, "yaw_valid": True}}   # 세로 → 짧은 변(39) 잡기
+    scan = {"target_found": True, "target": key, "candidates": [plate], "visible_count": 2}
+    server.Gripper.holding, server.Gripper.held_width = True, 39.0
+    try:
+        out, _ = server.run("pick_object", {"target": key, "approach_offset": [0, 0, 0.1], "scan": scan})
+        assert out.success, out.reason
+        assert srv.picked_from[-1]["support_m"] == pytest.approx(top - 0.0158, abs=1e-4)   # 판 온톨로지 40.5 아님
+        held = dict(srv.held)
+        lows = []
+        for keep in (True, False):
+            srv.held = dict(held)
+            if not keep:
+                srv.picked_from = []
+            n = len(srv.robot.log)
+            rescan = {"target_found": True, "target": dict(key), "candidates": [dict(plate, occluded_by=[])], "visible_count": 2}
+            out, data = server.run("place_object", {"location": D, "pose": {k: key["pose"][k] for k in ("frame", "position", "yaw")},
+                                                    "scan": rescan})
+            assert out.success, out.reason
+            lows.append(min(e[1][2] for e in srv.robot.log[n:] if e != "stop" and e[0] == "movel"))
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    # 기억한 받침(판 면 29 / 나사 40.5) vs 기억 없을 때 판 비전 top_z 35 — 차이만큼 낮게·높게 내려놓음
+    assert lows[0] - lows[1] == pytest.approx(1000.0 * (top - 0.0158 - 0.035), abs=0.6)
+
+
 def test_place_check_only_before_pick_moves_nothing(server):
     """check_only: 아직 안 쥔 object(scan 의 판)로 놓기 판단만 — 로봇·그리퍼 명령 없음, placed_pose null·planned_pose 예정.
     (립밤을 뺀 장면: 판 밑 지우개만이면 aside_1 은 자리 안에서 비켜 통과, free 도 통과)"""
@@ -2141,11 +2212,18 @@ def test_place_check_only_before_pick_moves_nothing(server):
 
 
 def test_place_check_only_refuses_when_pick_would_refuse(server):
-    """집기가 움직이기 전 거부될 물체면 놓기 판단도 통과 아님 — 그 집기 코드로 (판 손끝 20 mm 에 걸리는 판 옆 립밤)."""
+    """집기가 움직이기 전 거부될 물체면 놓기 판단도 통과 아님 — 그 집기 코드로 (판 손끝 20 mm 에 걸리는 판 옆 립밤).
+    10/12 PC2 장면의 립밤은 분할 모델이 판 밑(occluded_by 판)이라 해서 10/13부터 통과(다리 사이로 지나감, 사용자 10/13) →
+    관계가 없는(판 옆) 립밤으로 바꿔 봄."""
     srv = server.srv
     srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
     plate = SCAN_1012_PLATE["candidates"][0]
-    out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "free", "scan": SCAN_1012_PLATE,
+    out, _ = server.run("place_object", {"location": "drawer_bottom", "slot": "free", "scan": SCAN_1012_PLATE,
+                                         "object": plate, "check_only": True})
+    assert out.success, out.reason
+    side = json.loads(json.dumps(SCAN_1012_PLATE))
+    side["candidates"][1]["occluded_by"] = []
+    out, data = server.run("place_object", {"location": "drawer_bottom", "slot": "free", "scan": side,
                                             "object": plate, "check_only": True})
     assert not out.success and out.error_code == "NEIGHBOR_TOO_CLOSE" and "집기부터 거부" in out.reason
     assert data["placed_pose"] is None and data["check_only"] is True and srv.held is None
@@ -2826,6 +2904,54 @@ def test_cover_plate_under_exception_keeps_observed_height_when_too_tall_to_be_u
         assert out.error_code == "NEIGHBOR_TOO_CLOSE" and "eraser#1" in out.reason
 
 
+def _plate_pick(server, plate, cands, target=None):
+    srv = server.srv
+    srv.held = None
+    server.Gripper.holding, server.Gripper.held_width = True, 74.2
+    try:
+        return server.run("pick_object", {"target": plate, "approach_offset": [0, 0, 0.1],
+                                          "scan": {"target_found": True, "target": target or cands[0], "candidates": [plate] + cands[1:],
+                                                   "visible_count": len(cands) + 1}})[0]
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+
+
+def test_cover_plate_pick_ignores_objects_passing_under_between_legs(server):
+    """[사용자 10/13 PC2 "립밤 들어가도 그냥 집을 수 있도록", "몽키·망치도 — 넓이가 다리 사이보다 작으면 들어감"]
+    분할 모델이 판 밑이라고 한(occluded_by 판) 물체가 다리 안쪽(65 × 35, #8) 사이로 지나갈 폭이면 판 집기 손가락 확인에서 뺌.
+    오늘 PC2 장면 그대로: 판 밑 립밤(20 mm, yaw 모름)이 손끝(20 mm) 자리에 걸려 NEIGHBOR_TOO_CLOSE 였음.
+    몽키(외접 61)·망치(외접 75, 손잡이 15.5)가 판 짧은 변 쪽으로 가로질러 양쪽 손가락 자리로 삐져나와도 통과."""
+    D = "drawer_bottom"
+    srv = server.srv
+    srv.disp[D] = srv.places()[D]["tf_at_travel_m"]
+    plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0358, "occluded_by": [], "visible_area_m2": 0.007305,
+             "pose": {"frame": D, "position": [0.0948, 0.2042, 0.0], "yaw": -0.0158, "yaw_valid": True}}
+    er = {"id": "eraser#1", "class": "eraser", "top_z": 0.0143, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.000435,
+          "pose": {"frame": D, "position": [0.098, 0.1563, 0.0], "yaw": 0.0, "yaw_valid": False}}
+    lip = {"id": "lip_balm#1", "class": "lip_balm", "top_z": 0.0204, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.000609,
+           "pose": {"frame": D, "position": [0.076, 0.1513, 0.0], "yaw": 0.0, "yaw_valid": False}}
+    out = _plate_pick(server, plate, [er, plate, lip])
+    assert out.success, out.reason
+    across = {"frame": D, "position": [0.0948, 0.2042, 0.0], "yaw": 1.5708 - 0.0158, "yaw_valid": True}   # 판 짧은 변 쪽으로 가로지름
+    for cls, top in (("toy_wrench", 0.0195), ("toy_hammer", 0.026)):
+        o = {"id": f"{cls}#1", "class": cls, "top_z": top, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.004, "pose": across}
+        out = _plate_pick(server, plate, [o, plate])
+        assert out.success, (cls, out.reason)
+        # 관계 모름(null)이면 예전 규칙 — 손끝(20) 자리에 18.5·25 mm 는 막음
+        out = _plate_pick(server, plate, [dict(o, occluded_by=None), plate])
+        assert out.error_code == "NEIGHBOR_TOO_CLOSE" and cls in out.reason, (cls, out.reason)
+    # 판 위에 얹힌 몽키(관측 윗면이 판 밑 여유·자기 높이 + 번짐보다 높음)는 빼지 않음
+    on_top = {"id": "toy_wrench#1", "class": "toy_wrench", "top_z": 0.058, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.004,
+              "pose": across}
+    out = _plate_pick(server, plate, [on_top, plate])
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE", out.reason
+    # 판 긴 변과 나란히 들어간 장난감차(폭 30.9 ≤ 35 지만 높이 32.5 + 5 < 관측 40)도 관측이 높으면 막음
+    car = {"id": "toy_car#1", "class": "toy_car", "top_z": 0.040, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.002,
+           "pose": dict(across, yaw=-0.0158, position=[0.0948, 0.1563, 0.0])}
+    out = _plate_pick(server, plate, [car, plate])
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE", out.reason
+
+
 def test_open_refused_while_holding(server):
     """손잡이를 잡으려면 그리퍼를 벌림 → 쥔 물체가 떨어짐 — 열기는 움직이기 전 HOLDING_OBJECT.
     열림 알림(displacement, 로봇 동작 없음)과 서랍 상태는 그대로."""
@@ -2837,7 +2963,7 @@ def test_open_refused_while_holding(server):
     assert not out.success and out.error_code == "HOLDING_OBJECT" and srv.robot.log == [] and srv.disp == {}
 
 
-# ---- 쌓인 물체 무너뜨리기 [사용자 10/13] — nudge_object topple / make_room 놓을 자리 없을 때
+# ---- 쌓인 물체 무너뜨리기(topple)는 뺌 [사용자 10/13 — 실물 NO_OBJECT_CONTACT, 쌓인 넛지로 충분]
 def _key_on_caramel_scan(x=0.13, y=0.15):
     car = {"id": "caramel_box#1", "class": "caramel_box", "top_z": 0.0185, "occluded_by": ["car_key#1"],
            "pose": {"frame": "drawer_top", "position": [x, y, 0.0], "yaw": 0.0, "yaw_valid": True}}
@@ -2846,42 +2972,8 @@ def _key_on_caramel_scan(x=0.13, y=0.15):
     return key, {"target_found": True, "target": key, "candidates": [car], "visible_count": 2}
 
 
-def test_topple_check_only_then_drags_top_off_base(server):
-    """nudge_object topple: check_only 는 방향·거리·떨어질 자리만 (움직이지 않음). 실제는 윗면(받침 위 높이)을 눌러 그만큼 끎."""
-    srv = server.srv
-    key, scan = _key_on_caramel_scan()
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": key, "scan": scan, "topple": True, "check_only": True})
-    assert out.success and "움직이지 않음" in out.reason and srv.robot.log == [], out.reason
-    tp = data["topple"]
-    assert 0.0 < tp["dist_m"] <= srv.prm()["drag"]["max_shift_mm"] / 1000.0 and tp["landed_pose"]["frame"] == "drawer_top"
-    after = data["target_after"]                                                  # 계약: 성공이면 target 형식 — 떨어질 예상 자리, 방향 모름
-    assert after["pose"]["yaw_valid"] is False and after["pose"]["position"] == tp["landed_pose"]["position"]
-    assert "occluded_by" not in after and "visible_area_m2" not in after
-    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": key, "scan": scan, "topple": True})
-    assert out.error_code != "BAD_PARAMS" and data["topple"] == tp, out.reason
-    tf = srv.places()["drawer_top"]["tf"]
-    floor = 1000.0 * server.ss.pp.to_base(tf, (0.13, 0.15, 0.0))[2]
-    low = min(e[1][2] for e in srv.robot.log if e != "stop" and e[0] == "movel")
-    assert low > floor + 1000.0 * 0.0185                                          # 받침(캐러멜) 윗면보다 위에서 누름
-
-
-def test_topple_refused_before_motion(server):
-    """받침이 없는(바닥) 물체·가림 관계 모름은 움직이기 전 거부."""
-    srv = server.srv
-    key, scan = _key_on_caramel_scan()
-    car = scan["candidates"][0]
-    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": car, "scan": dict(scan, target=car, candidates=[key]),
-                                         "topple": True})
-    assert not out.success and out.error_code == "NO_PUSH_ACCESS" and "쌓이지 않음" in out.reason   # 받침 자신(바닥)
-    bad = json.loads(json.dumps(scan))
-    bad["candidates"][0]["occluded_by"] = None
-    out, _ = server.run("nudge_object", {"drawer_id": "drawer_top", "target": key, "scan": bad, "topple": True})
-    assert not out.success and out.error_code == "OCCLUSION_UNKNOWN"
-    assert srv.robot.log == []
-
-
-def test_make_room_topples_when_no_free_space(server):
-    """make_room: 위 물체를 놓을 빈 자리가 없으면(예전엔 NO_FREE_SPACE 로 포기) 받침 밖으로 끌어 떨어뜨림 → 다시 보고 다시 부르기."""
+def test_make_room_no_free_space_refused_before_motion(server):
+    """make_room: 위 물체를 놓을 빈 자리가 없으면 움직이기 전 NO_FREE_SPACE (무너뜨리기로 넘어가지 않음)."""
     srv = server.srv
     key, scan = _key_on_caramel_scan()
     car = scan["candidates"][0]
@@ -2892,6 +2984,5 @@ def test_make_room_topples_when_no_free_space(server):
                                                 "scan": dict(scan, target=car, candidates=[key])})
     finally:
         server.ss.clp.find_free_pose = real
-    assert data["make_room"]["action"] == "topple" and data["make_room"]["moved_id"] == "car_key#1", data["make_room"]
-    assert out.error_code not in ("NO_FREE_SPACE", "BAD_PARAMS"), out.reason
-    assert any(e != "stop" and e[0] == "movel" for e in srv.robot.log)
+    assert not out.success and out.error_code == "NO_FREE_SPACE", out.reason
+    assert data["make_room"]["action"] == "fail" and srv.robot.log == []
