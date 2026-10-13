@@ -122,6 +122,41 @@ def place_half_mm(size_m: Sequence[float], open_mm: float, finger_mm: float, mar
     return size_m[0] * 500.0 + margin_mm, half_short + margin_mm
 
 
+def leg_rects_mm(pose: Mapping, size_m: Sequence[float], gap_mm: Sequence[float]) -> list:
+    """다리 있는 판(덮개 판)을 pose 에 놓을 때 네 다리가 차지하는 자리 (꼭짓점 목록 4개, mm) — 판 footprint 중
+    다리 안쪽 간격 [긴 변 방향, 짧은 변 방향] 밖의 네 모서리 (#8 "다리 안쪽 65×35"). 실제 다리(볼트·너트)보다 넓게 봄."""
+    x, y, yaw = pose["position"][0] * 1000.0, pose["position"][1] * 1000.0, pose["yaw"]
+    hl, hs = size_m[0] * 500.0, size_m[1] * 500.0
+    gl, gs = min(float(gap_mm[0]) / 2.0, hl), min(float(gap_mm[1]) / 2.0, hs)
+    c, s = math.cos(yaw), math.sin(yaw)
+    out = []
+    for a in (1, -1):
+        for b in (1, -1):
+            u, v = a * (gl + hl) / 2.0, b * (gs + hs) / 2.0
+            out.append(corners(x + u * c - v * s, y + u * s + v * c, yaw, (hl - gl) / 2.0, (hs - gs) / 2.0))
+    return out
+
+
+def passes_under_at(*, obj: Mapping, pose: Mapping, size_m: Sequence[float], obj_size_m: Sequence[float],
+                    under_clear_m: float, under_smear_m: float, gap_mm: Sequence[float],
+                    narrow_m: Optional[float] = None) -> bool:
+    """다리 있는 판을 pose 에 놓으면 obj 가 판 밑으로 들어가는지 [사용자 10/13 "원복할 때도 가림판 아래에는 물건이 들어갈 수
+    있다"]: 판 아랫면(under_clear_m) 밑 높이 — 온톨로지 높이가 그 이하이거나 손잡이로 지나가는 긴 물건(narrow_m 잡는 부위 폭이 있음,
+    몽키·망치) — 이고, 관측 top_z 가 max(판 밑, 온톨로지) + under_smear_m 이하(다른 물체 위에 얹히지 않음), 그리고 footprint
+    (폭은 잡는 부위 폭이 있으면 그것)가 네 다리 자리와 안 겹침. 방향 모르는 물체는 대각선 정사각형이라 다리에 걸리기 쉬움(보수적)."""
+    top = obj.get("top_z")
+    if len(obj_size_m) < 3 or not isinstance(top, (int, float)) or not math.isfinite(top):
+        return False
+    h = float(obj_size_m[2])
+    if not (h <= under_clear_m or (narrow_m is not None and narrow_m > 0)):
+        return False
+    if top > max(under_clear_m, h) + under_smear_m:
+        return False
+    width = min(float(obj_size_m[1]), float(narrow_m)) if narrow_m else float(obj_size_m[1])
+    rect = neighbor_rect_mm(obj, [obj_size_m[0], width])
+    return not any(rects_overlap(rect, leg) for leg in leg_rects_mm(pose, size_m, gap_mm))
+
+
 def neighbor_rect_mm(obj: Mapping, size_m: Sequence[float]) -> list:
     """이웃 footprint 꼭짓점 (mm). yaw_valid 가 true 가 아니면 방향을 모름 → 대각선 반을 반폭으로 하는 정사각형 [계산]."""
     pose = obj["pose"]

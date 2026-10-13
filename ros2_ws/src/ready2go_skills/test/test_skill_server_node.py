@@ -2033,11 +2033,12 @@ def test_handle_items_open_by_grasp_width_not_head(server, cls, grasp_w, head_w)
     assert round(grasp_w + 13.0, 1) in opens and round(head_w + 13.0, 1) not in opens, opens
 
 
-@pytest.mark.parametrize("lip_x, ok", [(0.039, True), (0.090, False)])
+@pytest.mark.parametrize("lip_x, ok", [(0.039, True), (0.090, "under")])
 def test_restore_slightly_blocked_origin_shifts_within_tolerance(server, lip_x, ok):
     """[PC2 10/12 Unpacking 덤프 05:31~05:32] 가림막을 들 때 밑에 깔린 립밤이 굴러 원래 자리 가장자리를 ~10 mm 막음 → 원래 자리
     놓기 거부 → Runner 가 aside_1 에서 집어 aside_1 에 다시 놓음. 되돌리기(명령한 pose)는 restore_fit_max_mm 안에서 방향은 그대로
-    가장 적게 옮겨 놓음. 원래 자리 한가운데가 막히면(20 mm 로 못 비킴) 예전처럼 거부 — Runner 는 꺼낸 자리로."""
+    가장 적게 옮겨 놓음. 원래 자리 한가운데(판 가운데 밑으로 다리 사이를 지나는 립밤)는 10/13부터 판 밑에 들어가는 것으로 보고
+    그 자리 그대로 놓음 [사용자 10/13 "원복 때도 판 밑엔 물건이 들어갈 수 있다"] — 예전엔 거부(20 mm 로 못 비킴)."""
     srv = server.srv
     srv.disp["drawer_bottom"] = srv.places()["drawer_bottom"]["tf_at_travel_m"]
     plate = {"id": "cover_plate#1", "class": "cover_plate", "top_z": 0.0352,
@@ -2053,14 +2054,14 @@ def test_restore_slightly_blocked_origin_shifts_within_tolerance(server, lip_x, 
         out, data = server.run("place_object", {"location": "drawer_bottom", "pose": origin, "scan": scan})
     finally:
         server.Gripper.holding, server.Gripper.held_width = False, 21.0
-    assert out.success is ok, out.reason
-    if ok:
+    assert out.success, out.reason
+    if ok == "under":
+        assert data["placed_pose"]["position"][:2] == pytest.approx(origin["position"][:2])
+    else:
         pp = data["placed_pose"]
         moved = math.dist(pp["position"][:2], origin["position"][:2])
         assert 0.0 < moved <= srv.prm()["place"]["restore_fit_max_mm"] / 1000.0 + 1e-9
         assert pp["yaw"] == pytest.approx(origin["yaw"]) and srv.held is None
-    else:
-        assert data["placed_pose"] is None and data.get("blocked_by") == "lip_balm#1"
 
 
 def test_restore_fit_zero_keeps_old_refusal(server):
@@ -2119,6 +2120,41 @@ def test_aside_unknown_yaw_neighbor_only_blocks_object_or_finger_band(server, sl
     else:
         assert not out.success and out.error_code == "PLACE_BLOCKED" and data["blocked_by"] == "eraser#1"
         assert data["placed_pose"] is None and server.srv.held is not None
+
+
+@pytest.mark.parametrize("where, ok", [("center_along", True), ("center_across", True), ("leg_corner", "shift"), ("tall", False),
+                                       ("target", False)])
+def test_cover_plate_restore_over_object_that_fits_under(server, where, ok):
+    """[사용자 10/13 PC2 "가림판 원상복구에 립밤이 있어 안 됨 — 원복 때도 판 밑엔 물건이 들어갈 수 있다"] 판을 원래 자리(pose)로
+    되돌릴 때 판 밑(아랫면 21 mm)·다리 사이(65 × 35)로 들어가는 물체는 놓기 확인·받침에서 뺌. 다리 자리에 있으면 그 물체를 피해
+    되돌리기 허용 거리(place.restore_fit_max_mm) 안에서 비켜 놓음. 키 큰 물체(장난감차)·찾는 목표는 그대로 막음."""
+    scan = json.loads(json.dumps(SCAN_1012_PLATE))
+    scan["candidates"] = [c for c in scan["candidates"] if c["class"] == "cover_plate"]
+    try:
+        plate = _plate_held(server, scan)
+        x, y, yaw = plate["pose"]["position"][0], plate["pose"]["position"][1], plate["pose"]["yaw"]
+        c, s_ = math.cos(yaw), math.sin(yaw)
+        u, v, oy = {"center_along": (0.0, 0.0, yaw), "center_across": (0.0, 0.0, yaw + math.pi / 2),
+                    "leg_corner": (0.041, 0.028, yaw), "tall": (0.0, 0.0, yaw), "target": (0.0, 0.0, yaw)}[where]
+        lip = {"id": "lip_balm#1", "class": "lip_balm" if where != "tall" else "toy_car", "top_z": 0.0215 if where != "tall" else 0.0325,
+               "occluded_by": [], "visible_area_m2": 0.0013,
+               "pose": {"frame": "drawer_bottom", "position": [x + u * c - v * s_, y + u * s_ + v * c, 0.0], "yaw": oy, "yaw_valid": True}}
+        rescan = ({"target_found": True, "target": lip, "candidates": [plate], "visible_count": 2} if where == "target" else
+                  {"target_found": True, "target": plate, "candidates": [lip], "visible_count": 2})
+        out, data = server.run("place_object", {"location": "drawer_bottom", "pose": {k: plate["pose"][k] for k in ("frame", "position", "yaw")},
+                                                "scan": rescan})
+    finally:
+        server.Gripper.holding, server.Gripper.held_width = False, 21.0
+    if ok == "shift":                                               # 다리가 립밤 위로 — 비켜 놓음 (다리 자리 밖으로)
+        moved = math.dist(data["placed_pose"]["position"][:2], plate["pose"]["position"][:2])
+        assert out.success and 0.0 < moved <= 0.021, (out.reason, moved)
+    elif ok:
+        assert out.success and data["placed_pose"] is not None, out.reason
+        floor = 1000.0 * server.ss.pp.to_base(server.srv.places()["drawer_bottom"]["tf"], (x, y, 0.0))[2]
+        low = min(e[1][2] for e in server.srv.robot.log if e != "stop" and e[0] == "movel")
+        assert low < floor + 40.0                                   # 립밤 위(받침)가 아니라 바닥 기준으로 내려놓음
+    else:
+        assert not out.success and out.error_code == "PLACE_BLOCKED", out.reason
 
 
 def test_place_check_only_before_pick_moves_nothing(server):

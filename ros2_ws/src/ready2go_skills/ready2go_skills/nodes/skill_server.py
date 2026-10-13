@@ -410,7 +410,10 @@ class SkillServer(Node):
         return float(w)
 
     def _narrow_width(self, cls):
-        """판 밑으로 지나가는 부위 폭(m) — item_grasp grasp_width_m (몽키·망치 손잡이). 없거나 이상하면 None (외접 박스 짧은 변을 씀)."""
+        """판 밑으로 지나가는 부위 폭(m) — 손잡이를 잡는 물건(pick.open_by_grasp_width: 몽키·망치)의 item_grasp grasp_width_m.
+        그 밖(장난감차 위쪽 얇은 부분 등)·없거나 이상하면 None (외접 박스 짧은 변을 씀)."""
+        if cls not in (self.prm()["pick"].get("open_by_grasp_width") or []):
+            return None
         size = self._size_or_none(cls)
         try:
             return self.grasp_width(cls, size, None) if size else None
@@ -2345,11 +2348,25 @@ class SkillServer(Node):
         tb = self.held.get("tilt_back")
         back_tilt = bool(tb and not slot and tb.get("drawer_id") == loc and plp.same_place(
             pose, tb, tol_mm=float(pl.get("tilt_back_tol_mm", 0.0)), tol_deg=float(pl.get("tilt_back_tol_deg", 0.0))))
+        gap = (prm["pick"].get("under_gap_by_class_mm") or {}).get(self.held["class"])
+        clear_m = ((prm["pick"].get("under_clear_by_class_mm") or {}).get(self.held["class"]) or 0.0) / 1000.0
+        smear_m = float(prm["pick"].get("under_smear_mm", 5.0)) / 1000.0
+
+        goal_id = ((params.get("scan") or {}).get("target") or {}).get("id")   # 찾는 목표
+
+        def above(p_, objs_):
+            """다리 있는 판을 명령한 pose(되돌리기) p_ 에 놓으면 판 밑으로 들어가는 물체(다리 사이·판 아랫면 밑)는 놓기 확인·받침에서 뺌
+            [사용자 10/13 PC2 "가림판 원상복구에 립밤이 있어 안 됨 — 원복 때도 판 밑엔 물건이 들어갈 수 있다"]. 집기 쪽은
+            neighbor_check._passes_under. 빈 자리·고정 자리(slot)와 찾는 목표(scan.target — 다시 덮으면 못 꺼냄)는 그대로."""
+            if not gap or not clear_m or slot:
+                return objs_
+            return [o for o in objs_ if o["id"] in (held_id, goal_id) or not (self._size_or_none(o.get("class")) and plp.passes_under_at(
+                obj=o, pose=p_, size_m=size, obj_size_m=self._size_or_none(o.get("class")), under_clear_m=clear_m,
+                under_smear_m=smear_m, gap_mm=gap, narrow_m=self._narrow_width(o.get("class"))))]
         support = None                                      # 다른 물체 위에 놓기 (명령한 pose 만, place.allow_stack_place) — 받침은 이웃 확인에서 뺌
-        if not slot and not back_tilt and pl.get("allow_stack_place"):
-            goal_id = ((params.get("scan") or {}).get("target") or {}).get("id")   # 찾는 목표 위에는 안 얹음 (Unpacking 중 목표는 꺼내야 함)
+        if not slot and not back_tilt and pl.get("allow_stack_place"):        # 찾는 목표 위에는 안 얹음 (Unpacking 중 목표는 꺼내야 함)
             support = plp.stack_support(pose=pose, held_id=held_id, held_size_m=size, size_of=self._size_or_none,
-                                        objects=[o for o in objs if o["id"] != goal_id],
+                                        objects=[o for o in above(pose, objs) if o["id"] != goal_id],
                                         max_top_m=interior[2] - prm["pick"]["stack_top_clear_m"])
             if support is not None:
                 objs = [o for o in objs if o["id"] != support["id"]]
@@ -2357,7 +2374,7 @@ class SkillServer(Node):
         def check(p_):
             # 긴 변 양끝을 쥐었으면 손가락이 긴 변 끝에 있음 → 90° 돌린 물체로 손가락 자리·벽 확인 (집기 footprint 와 같음)
             pc, sc = ((dict(p_, yaw=p_["yaw"] + math.pi / 2), [size[1], size[0]] + list(size[2:])) if long_held else (p_, size))
-            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=objs,
+            bad_ = plp.check_place(pose=pc, held_id=held_id, held_size_m=sc, open_mm=open_mm, objects=above(p_, objs),
                                    size_of=self._size_or_none, interior_m=interior, place=pl,
                                    g=dict(g, wall_offset_mm=(prm.get("drawer_wall_offset_mm") or {}).get(loc)),
                                    finger_half_width_mm=g.get("tip_radius_mm"))   # 손가락 띠만 (집기와 같음)
