@@ -5,14 +5,16 @@
 - 질문은 사건당 1개: E 가 TTS 전에 등록(resume_register) → C 등록 확인(halt.resume.question) → 첫 유효 답 1개만 소비
 - 질문이 닫힌 뒤(아니·만료·거절) "이어서 해" = 독립 요청: register(C 등록 확인) → request 로 일회 소비
 - C 시계(monotonic) 기한: 질문 답(등록 뒤)·독립 요청(등록 뒤 소비까지). 질문 제안 기한은 Runner.resume_window_sec(잠금 해제 뒤)
-- 증빙 2차 검사: 순서 + E 원본(voice.yaml) 상한. 시간 원점·경계 포함 여부는 E·C 합의 전 [E·C 합의 필요] — 지금은 상한 포함
+- 증빙 2차 검사: 순서 + E 원본(voice.yaml) 상한. 경계는 E 와 같게 (E 회신 10/13): 접수창 10.0 은 포함,
+  STT 15 s·독립 요청 30 s 는 그 값이면 거절. 독립 요청 30 s 는 녹음부터 STT·분류·등록 확인까지 전체 — C 는 증빙으로 알 수 있는
+  최소 전체(SDK 요청 시각 + STT 시간)로 확인
 - 여기서는 접수만 판단. 실제 재개(B 상태 재조회·재진입·pre 검사·이어 실행)는 노드가 Runner.resume_run 으로 하고 settle() 로 알림
 같은 ID 재전송(등록 ACK 유실 대비)은 기존 결과를 다시 알리고 기한을 늘리지 않는다. 소비·종료 뒤 재사용·다른 사건의 같은 ID 는 거절.
 """
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import yaml
 
@@ -59,16 +61,18 @@ def evidence_ok(kind: str, evidence: dict | None, limits: dict) -> bool:
     keys = ANSWER_KEYS if kind == "answer" else REQUEST_KEYS
     if not isinstance(evidence, dict) or not all(_number(evidence.get(k)) and evidence[k] >= 0 for k in keys):
         return False
-    if evidence["stt_s"] > limits["stt_result_timeout_sec"]:
+    if evidence["stt_s"] >= limits["stt_result_timeout_sec"]:           # 15 s 그 값이면 거절 (E 와 같음)
         return False
     if kind == "answer":
         return (evidence["rec_start_after_tts_s"] <= evidence["rec_end_after_tts_s"] <= evidence["request_after_tts_s"]
-                <= limits["admission_window_sec"])
-    return evidence["rec_end_s"] <= evidence["request_s"] <= limits["independent_request_timeout_sec"]
+                <= limits["admission_window_sec"])                        # 접수창 10.0 은 포함
+    # 독립 요청: 녹음 시작 기준 SDK 요청 + STT = 증빙으로 아는 최소 전체 시간. 분류·등록 확인은 그 뒤라 이 합이 상한 미만이어야 함
+    return (evidence["rec_end_s"] <= evidence["request_s"]
+            and evidence["request_s"] + evidence["stt_s"] < limits["independent_request_timeout_sec"])
 
 
-def _utc() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+def _utc(after_s: float = 0.0) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=after_s)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 class ResumeAdmission:
@@ -108,7 +112,8 @@ class ResumeAdmission:
                 return QUESTION_MISMATCH
             if not offered:
                 return NOT_OFFERED
-            self._question = {"id": question_id, "state": OPEN, "registered_at": _utc(), "t": self.clock()}
+            self._question = {"id": question_id, "state": OPEN, "registered_at": _utc(), "t": self.clock(),
+                              "until": _utc(self.limits["question_answer_sec"])}   # 표시용 고정 기한 (#286 E 리뷰와 같게)
             self._used_questions.add(question_id)
             return None
 
@@ -146,7 +151,8 @@ class ResumeAdmission:
                 return REQUEST_MISMATCH
             if not unlocked:
                 return NOT_RECOVERED
-            self._request = {"id": request_id, "state": OPEN, "registered_at": _utc(), "t": self.clock()}
+            self._request = {"id": request_id, "state": OPEN, "registered_at": _utc(), "t": self.clock(),
+                             "until": _utc(self.limits["request_sec"])}
             self._used_requests.add(request_id)
             return None
 
@@ -177,16 +183,19 @@ class ResumeAdmission:
 
     # ---- 상태 (/runner/status halt.resume) ----
     def view(self, event_id, run_id) -> dict:
-        """{"question": {id, state, registered_at}|None, "request": …, "remaining": 열린 질문·요청의 C 기한 남은 초|None}."""
+        """{"question": {id, state, registered_at}|None, "request": …, "remaining": 열린 질문·요청의 C 기한 남은 초|None,
+        "until": 그 기한의 고정 UTC 시각(등록 때 정함)|None}."""
         with self._lock:
             if self._key != (event_id, run_id):
-                return {"question": None, "request": None, "remaining": None}
+                return {"question": None, "request": None, "remaining": None, "until": None}
             self._expire()
-            remaining = None
+            remaining = until = None
             for item, limit in ((self._question, "question_answer_sec"), (self._request, "request_sec")):
                 if item and item["state"] in (OPEN, "admitted") and remaining is None:
                     remaining = max(0.0, self.limits[limit] - (self.clock() - item["t"]))
+                    until = item["until"]
             show = lambda item: None if item is None else {  # noqa: E731
                 "id": item["id"], "state": OPEN if item["state"] == "admitted" else item["state"],
                 "registered_at": item["registered_at"]}
-            return {"question": show(self._question), "request": show(self._request), "remaining": remaining}
+            return {"question": show(self._question), "request": show(self._request), "remaining": remaining,
+                    "until": until}

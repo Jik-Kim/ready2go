@@ -43,7 +43,8 @@ def test_evidence_order_bounds_and_missing_fields():
     assert ra.evidence_ok("answer", {**ANSWER_EV, "request_after_tts_s": 10.0}, limits)          # 10.0 포함
     assert not ra.evidence_ok("answer", {**ANSWER_EV, "request_after_tts_s": 10.01}, limits)
     assert not ra.evidence_ok("answer", {**ANSWER_EV, "rec_start_after_tts_s": 2.2}, limits)      # 녹음 시작 > 끝
-    assert not ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": 15.5}, limits)
+    assert not ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": 15.0}, limits)                    # 15 s 그 값이면 거절 (E 와 같음)
+    assert ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": 14.99}, limits)
     assert not ra.evidence_ok("answer", {k: v for k, v in ANSWER_EV.items() if k != "stt_s"}, limits)
     assert not ra.evidence_ok("answer", {**ANSWER_EV, "stt_s": True}, limits)
     assert not ra.evidence_ok("request", {**REQUEST_EV, "rec_end_s": 2.5}, limits)
@@ -91,6 +92,26 @@ def test_question_deadline_and_new_event_invalidates(adm):
     assert adm.answer("h1", "r1", "q-01", "resume", ANSWER_EV) == ra.RESUME_EXPIRED     # 만료 뒤 "응" 은 재개 아님
     assert adm.view("h1", "r1")["question"]["state"] == "expired"
     assert adm.answer("h1", "r1", "q-01", "expired", None) == ra.QUESTION_CLOSED
-    assert adm.view("h2", "r1") == {"question": None, "request": None, "remaining": None}   # 다시 멈춤 = 새 사건
+    assert adm.view("h2", "r1") == {"question": None, "request": None, "remaining": None, "until": None}   # 새 사건
     assert adm.register_question("h2", "r1", "q-01", offered=True) == ra.QUESTION_MISMATCH   # 쓴 ID 재사용 거절
     assert adm.register_question("h2", "r1", "q-02", offered=True) is None
+
+
+def test_independent_request_total_time_like_e():
+    """E 회신 10/13·#291 E 리뷰: 독립 요청 30 s 는 녹음부터 STT·분류·등록 확인까지 전체, 그 값이면 거절.
+    C 는 증빙으로 아는 최소 전체(SDK 요청 시각 + STT)가 30 s 미만인지 본다."""
+    limits = ra.load_limits(str(RESUME_FILE), str(VOICE_FILE))
+    assert not ra.evidence_ok("request", {"rec_end_s": 28, "request_s": 29, "stt_s": 14}, limits)   # 리뷰 반례 계열
+    assert not ra.evidence_ok("request", {"rec_end_s": 19, "request_s": 20, "stt_s": 10}, limits)   # 정확히 30 → 거절
+    assert ra.evidence_ok("request", {"rec_end_s": 19, "request_s": 20, "stt_s": 9.9}, limits)
+    assert not ra.evidence_ok("request", {"rec_end_s": 1, "request_s": 2, "stt_s": 15}, limits)      # STT 15 그 값
+
+
+def test_open_question_deadline_is_fixed_at_registration(adm):
+    adm.register_question("h1", "r1", "q-01", offered=True)
+    first = adm.view("h1", "r1")
+    adm.clock_.t += 30
+    later = adm.view("h1", "r1")
+    assert later["until"] == first["until"] and later["remaining"] == pytest.approx(30.0)
+    adm.clock_.t += 40                                                  # 만료 → 열린 기한 없음
+    assert adm.view("h1", "r1")["until"] is None

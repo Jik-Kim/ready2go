@@ -37,7 +37,7 @@ from ..core import intent_router, planner, step_console
 from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import NOTHING_TO_RESUME, ResumeRejected, RunResult, Runner
 from ..core.log_records import new_run_id, utc_iso
-from ..core.recovery import mock_check, recover_blockers
+from ..core.recovery import MOCK_LIMITS, choose_check, mock_check, recover_blockers
 from ..core.request_memory import RequestMemory
 from ..core.resume_admission import ResumeAdmission, load_limits
 from ..core.logstore import FallbackLogStore, JsonlLogStore, MongoLogStore
@@ -46,6 +46,7 @@ from ..core.runner_status import build_status
 PUBLISH_PERIOD_SEC = 0.5                # 상태가 바뀌었는지 확인하는 주기 (바뀐 경우에만 발행)
 BOOT_MISMATCH = "BOOT_MISMATCH"         # 계약 W3: 다른 Runner 기동(boot_id)에 대한 제어 인텐트
 NOTHING_TO_END = "NOTHING_TO_END"       # end_task 대상(그 run_id 의 실행·보존 작업)이 없음
+STOP_NOT_CONFIRMED = "STOP_NOT_CONFIRMED"   # 보존 작업의 정지 확인이 없음(halt.stop unconfirmed) → 폐기 보류, 작업·잠금 유지
 NOT_LOCKED = "NOT_LOCKED"               # recover 인데 이미 잠겨 있지 않음
 HALT_EVENT_MISMATCH = "HALT_EVENT_MISMATCH"   # 지금 정지 사건이 아님 (과거·지연 요청, 그 뒤 다시 멈춤)
 RUN_MISMATCH = "RUN_MISMATCH"           # 재개 인텐트의 run_id 가 보존 작업과 다름 (#271 D 리뷰)
@@ -66,8 +67,11 @@ class RunnerNode(Node):
         intent_tasks = param("intent_tasks", "")   # 인텐트=태스크파일 (trigger 대신, 예: 시연 find_item=/tasks/p1_demo_eraser.json)
         # 재개 대기(#152): 켜면 정지된 작업을 버리지 않고 보존 → recover·resume·end_task 로 처리. 기본 꺼짐(지금 동작 그대로)
         resumable = param("resumable", os.environ.get("RUNNER_RESUMABLE", "") in ("1", "true", "on"))
-        # 복구 때 B 상태 조회(W1): mock = mock 백엔드 흉내, none = 조회 불가 → 복구 거절 (B /skills/check_state PR 전)
-        self.recover_check = param("recover_check", "mock" if os.environ.get("BACKEND", "mock") == "mock" else "none")
+        # 복구 때 B 상태 조회(W1): mock = mock 백엔드 흉내(mock 백엔드에서만), none = 조회 불가 → 복구 거절 (B PR 전)
+        backend = os.environ.get("BACKEND", "mock")
+        self.recover_check, warning = choose_check(param("recover_check", "mock" if backend == "mock" else "none"), backend)
+        if warning:
+            self.get_logger().error(warning)
         # 재개 기한: C 값(이 패키지 params/resume.yaml [팀 확정 필요]) + E 증빙 상한(voice.yaml 원본). 못 읽으면 재개 인텐트 보류
         resume_file = param("resume_params_file", _param_file("ready2go_runner", "resume.yaml"))
         voice_file = param("voice_params_file", _param_file("ready2go_voice", "voice.yaml"))
@@ -175,32 +179,24 @@ class RunnerNode(Node):
         try:
             result = self.runner.run(task, inputs, meta={**(meta or {}), "backend": os.environ.get("BACKEND", "mock")},
                                      run_id=run_id)
+            if self._end_requested == result.run_id:     # end_task 로 멈춘 실행이 보존됐으면 폐기 (재개 모드일 때)
+                self._end_requested = None              # 실행 문(gate)을 닫기 전에 — 폐기 중 새 실행이 끼지 않게
+                result = self._discard_after_stop(result.run_id) or result
         finally:
             self.gate.finish()
         self._finished(result)
 
-    def _run_resume(self, event_id: str, observed: dict) -> None:
-        """재개: 보존 작업을 중단된 스텝부터 이어 실행 (Runner 가 실행 직전 다시 검사 — 그 사이 바뀌었으면 거절·보존)."""
-        self.get_logger().info(f"재개 시작: {self._task_id} (사건 {event_id})")
-        result = None
+    def _run_resume(self, ctx) -> None:
+        """재개: 최종 검사·시작 전이(Runner.begin_resume)를 통과한 보존 작업을 중단된 스텝부터 이어 실행."""
+        self.get_logger().info(f"재개 시작: {self._task_id} run_id={ctx.doc['run_id']}")
         try:
-            result = self.runner.resume_run(event_id, observed=observed, window=False)
-        except ResumeRejected as e:
-            self.get_logger().error(f"재개 직전 재검사 거절 — 작업 보존: {e.reasons}")
+            result = self.runner.continue_resumed(ctx)
         finally:
             self.gate.finish()
-        if result is None:
-            self.publish()
-            return
         self._finished(result)
 
     def _finished(self, result: RunResult) -> None:
         self._last, self._last_task_id = result, self._task_id
-        if self._end_requested == result.run_id:     # end_task 로 멈춘 실행이 보존됐으면 폐기 (재개 모드일 때)
-            self._end_requested = None
-            suspended = self.runner.suspended
-            if suspended and suspended["run_id"] == result.run_id:
-                self._last = self.runner.discard_suspended() or result
         message = (f"태스크 끝: {self._task_id} → {result.overall_status}"
                    + (f" ({result.error_code} @ {result.failed_step})" if result.error_code else "")
                    + (f" 거절 이유: {result.problems}" if result.problems else "")
@@ -312,21 +308,45 @@ class RunnerNode(Node):
         if intent.get("boot_id") != self.runner.boot_id:
             return intent_router.Decision(intent_router.REJECT, BOOT_MISMATCH, intent=intent)
         target = intent.get("run_id")
-        suspended = self.runner.suspended
-        with self._lock:
-            running = self.running and self.runner.active_run_id == target
-            if running:
+        with self._lock:                         # 대상 확인·정지를 start_task 와 같은 잠금 안에서 (#285 E 리뷰)
+            if self.running and self.runner.active_run_id == target:
                 self._end_requested = target
                 self.gate.cancel()
-        if running:
-            self.runner.halt(source="voice")     # cancel 과 같은 경로: 진행 중 goal 취소, 잠금
-            return intent_router.Decision(intent_router.END, intent=intent)
-        if suspended and suspended["run_id"] == target:
+                # 그 run 이 지금 실행 중일 때만 멈춤 — 확인 직후 끝났으면 멈추지 않음(새 실행은 이 잠금 때문에 아직 못 시작)
+                if self.runner.halt(source="voice", run_id=target):
+                    return intent_router.Decision(intent_router.END, intent=intent)
+                self._end_requested = None
+            suspended = self.runner.suspended
+            if not (suspended and suspended["run_id"] == target):
+                return intent_router.Decision(intent_router.REJECT, NOTHING_TO_END, intent=intent)
+            if not self.runner.stop_settled:     # 실제 정지를 모르면 폐기 보류 — 작업·잠금 유지 (#285 E 리뷰)
+                return intent_router.Decision(intent_router.REJECT, STOP_NOT_CONFIRMED, intent=intent)
+            if self.gate.try_start() != STARTED:  # 폐기(finally 비동작) 중 새 실행이 끼지 않게
+                return intent_router.Decision(intent_router.REJECT, intent_router.BUSY, intent=intent)
+        try:
             result = self.runner.discard_suspended()
-            if result is not None:
-                self._last, self._last_task_id = result, suspended["task_id"]
-            return intent_router.Decision(intent_router.END, intent=intent)
-        return intent_router.Decision(intent_router.REJECT, NOTHING_TO_END, intent=intent)
+        finally:
+            self.gate.finish()
+        if result is not None:
+            self._last, self._last_task_id = result, suspended["task_id"]
+        return intent_router.Decision(intent_router.END, intent=intent)
+
+    def _discard_after_stop(self, run_id: str) -> RunResult | None:
+        """end_task 로 멈춘 실행이 보존됐으면 폐기 — 정지 확인(halt.stop confirmed·none)일 때만. 아니면 작업·잠금 유지."""
+        suspended = self.runner.suspended
+        if not (suspended and suspended["run_id"] == run_id):
+            return None
+        if not self.runner.stop_settled:
+            self.get_logger().error(f"end_task: {run_id} 정지 확인 없음 — 보존 작업 폐기 보류 (사람 확인 → reset_state)")
+            return None
+        return self.runner.discard_suspended()
+
+    def _b_check(self) -> tuple[dict | None, dict | None]:
+        """B 상태 조회(W1)와 판정 기준. mock 백엔드만 흉내 조회·시험 기준(MOCK_LIMITS), 그 밖은 조회 불가(None).
+        실물 기준(힘·신선도)은 B·팀 확정 뒤 연결 — 그 전까지 None 이라 recover_blockers 가 거절."""
+        if self.recover_check == "mock" and os.environ.get("BACKEND", "mock") == "mock":
+            return mock_check(self.runner.state), MOCK_LIMITS
+        return None, None
 
     def _recover(self, decision: intent_router.Decision) -> intent_router.Decision:
         """계약 W3 recover (#152·#271, FR-SAF-03): 같은 기동·지금 정지 사건이고 B 상태 조회(W1)가 모두 충족일 때만
@@ -342,8 +362,8 @@ class RunnerNode(Node):
             return reject(HALT_EVENT_MISMATCH)
         if self.running:                       # 아직 멈추는 중 (진행 중 동작의 최종 결과 대기)
             return reject(intent_router.BUSY)
-        check = mock_check(self.runner.state) if self.recover_check == "mock" else None
-        blockers = recover_blockers(check, self.runner.state)
+        check, limits = self._b_check()
+        blockers = recover_blockers(check, self.runner.state, limits)
         if blockers:
             self.get_logger().warning(f"recover 거절 — 잠금 유지: {blockers} (B 조회 {check})")
             return reject(blockers[0])
@@ -387,17 +407,23 @@ class RunnerNode(Node):
             reason = admission.consume_request(event, run, intent["request_id"], intent.get("evidence"))
             if reason:
                 return reject(reason)
-        check = mock_check(self.runner.state) if self.recover_check == "mock" else None
+        check, limits = self._b_check()
         observed = {"gripper": ((check or {}).get("gripper") or {}).get("state")}
-        reasons = self.runner.check_resume(event, recover_blockers(check, self.runner.state), observed, window=False)
-        if not reasons:
-            with self._lock:
-                outcome = self.gate.try_start(token)
-                if outcome == STARTED:
-                    self._task_id = suspended["task_id"]
-                    threading.Thread(target=self._run_resume, args=(event, observed), daemon=True).start()
+        blockers = recover_blockers(check, self.runner.state, limits)
+        with self._lock:                        # 최종 검사·시작 전이를 결정 발행 전에 (#291 E 리뷰) — 거절이면 그대로 결정
+            outcome = self.gate.try_start(token)
             if outcome != STARTED:
                 reasons = [intent_router.STOPPED_BEFORE_START if outcome == CANCELED_BEFORE_START else intent_router.BUSY]
+            else:
+                try:
+                    ctx = self.runner.begin_resume(event, blockers, observed, window=False)
+                except ResumeRejected as e:
+                    self.gate.finish()
+                    reasons = e.reasons
+                else:
+                    reasons = []
+                    self._task_id = suspended["task_id"]
+                    threading.Thread(target=self._run_resume, args=(ctx,), daemon=True).start()
         admission.settle(event, run, resumed=not reasons)
         if reasons:
             self.get_logger().warning(f"재개 거절 — 작업 보존: {reasons} (B 조회 {check})")
@@ -428,6 +454,13 @@ class RunnerNode(Node):
                 response.message = f"실행 중({self._task_id}) — 끝난 뒤 원위치 확인 후 다시 요청"
                 self.get_logger().warning(f"/runner/reset_state: 거절 — {response.message}")
                 return response
+            suspended = self.runner.suspended
+            if suspended:                       # 상태 초기화 = 보존 작업 끝 (정본 resume-admission-policy) — finally 비동작만
+                self.gate.try_start()           # 폐기 중 새 실행이 끼지 않게 (실행 중이 아님은 위에서 확인)
+                try:
+                    self._last, self._last_task_id = self.runner.discard_suspended(), suspended["task_id"]
+                finally:
+                    self.gate.finish()
             self.runner.reset_state()
             self._state_reset_at = utc_iso()
         locked = self.runner.halted

@@ -305,3 +305,33 @@ def test_offer_shows_admission_question_and_answer_window_bypasses_offer_window(
     assert runner.check_resume(event, observed=EMPTY, window=False) == []
     result = runner.resume_run(event, observed=EMPTY, window=False)
     assert result.overall_status == "COMPLETED" and runner.resume_offer is None
+
+
+def test_offer_until_is_fixed_and_status_stops_changing_after_expiry():
+    """#286 E 리뷰 P2: hold_until 은 제안 창을 열 때 정한 고정 시각. 열려 있는 동안 남은 시간만 줄고, 만료 뒤에는
+    같은 내용 그대로 → 노드가 바뀐 것으로 보지 않아 seq 가 늘지 않음."""
+    clock = FakeClock()
+    runner, _, _, _ = suspended_at_pick(clock)
+    runner.resume()
+    first = runner.resume_offer
+    clock.now += 10
+    counting = runner.resume_offer
+    assert counting["hold_until"] == first["hold_until"] and counting["hold_remaining_s"] == 20.0
+    clock.now += 25
+    expired = runner.resume_offer
+    clock.now += 40
+    assert runner.resume_offer == expired and expired["hold_until"] == first["hold_until"]
+    assert (expired["offered"], expired["hold_remaining_s"]) == (False, 0.0)
+
+
+def test_begin_resume_rejects_without_touching_preserved_work():
+    """#291 E 리뷰 P2: 최종 검사는 결정 발행 전 begin_resume 에서 — 거절이면 보존 그대로, 통과하면 실행 중으로 전이."""
+    runner, robot, _, _ = suspended_at_pick()
+    event = runner.halt_event_id
+    with pytest.raises(ResumeRejected) as e:
+        runner.begin_resume(event, observed=EMPTY)                      # 아직 잠김
+    assert e.value.reasons == [NOT_RECOVERED] and runner.suspended
+    runner.resume()
+    ctx = runner.begin_resume(event, observed=EMPTY)
+    assert runner.suspended is None and runner.active_run_id == ctx.doc["run_id"]
+    assert runner.continue_resumed(ctx).overall_status == "COMPLETED"
