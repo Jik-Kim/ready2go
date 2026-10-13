@@ -32,6 +32,7 @@ class Voice:
     """E 음성 노드처럼 /voice/intent 를 발행하고 /runner/status 를 본다."""
 
     def __init__(self, node):
+        self.node = node                        # 시험용 B 서비스(/skills/check_state 등)를 이 노드에 띄움
         self.status = None
         node.create_subscription(String, "/runner/status", lambda m: setattr(self, "status", json.loads(m.data)), LATCHED)
         self.pub = node.create_publisher(String, "/voice/intent", 10)
@@ -477,5 +478,82 @@ def test_resume_refused_by_final_check_is_published_as_reject(tmp_path):
         assert voice.wait(lambda s: last_intent(s).get("reason") == "B_CHECK_UNAVAILABLE"), voice.status
         assert last_intent(voice.status)["decision"] == "reject"
         assert voice.status["halt"]["resume"]["question"]["state"] == "refused" and runner.runner.suspended
+    finally:
+        close()
+
+
+def b_service(voice, name, reply):
+    """시험용 B 서비스 (#297 형식: std_srvs/Trigger, message JSON). reply = (success, dict)."""
+    from std_srvs.srv import Trigger
+
+    def handle(_, response):
+        response.success, response.message = reply[0], json.dumps(reply[1])
+        return response
+    voice.node.create_service(Trigger, name, handle)
+
+
+def b_state(runner, **over):
+    from datetime import datetime, timezone
+    memory = runner.runner.state
+    return {"stopped": True, "external_force": 0.5, "sensors_ok": True, "comm_ok": True, "controller_ready": True,
+            "estop_active": False, "tcp_tool_ok": True, "b_locked": False,
+            "gripper": {"state": "empty" if memory["gripper"]["robot"] == "empty" else "holding",
+                        "held_id": None if memory["gripper"]["robot"] == "empty" else f"{memory['gripper']['robot']}#1"},
+            "drawers": {k: (0.2 if v else 0.0) for k, v in memory["open"].items() if k.startswith("drawer")},
+            "stamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), **over}
+
+
+def suspended_halt(voice):
+    voice.say(intent())
+    assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+    voice.say(intent("cancel", targets=(), confidence=0.9))
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+    return voice.status["halt"]
+
+
+def test_recover_with_real_b_check_service(tmp_path):
+    """recover_check=b (#297 /skills/check_state): B 응답을 그대로 판정 — 실물 기준 파일의 외력 기준이 null 이면
+    EXTERNAL_FORCE_LIMIT_UNSET 으로 잠금 유지, 기준을 넣은 파일이면 잠금 해제."""
+    limits = tmp_path / "recovery.yaml"
+    limits.write_text("external_force_max_n: 5.0\nstamp_max_age_s: 2.0\ndrawer_open_min_m: 0.01\n", encoding="utf-8")
+    for limits_file, expect in ((None, "EXTERNAL_FORCE_LIMIT_UNSET"), (str(limits), None)):
+        extra = [("resumable", True), ("recover_check", "b")] + ([("recovery_params_file", limits_file)] if limits_file else [])
+        runner, voice, close = make_system(tmp_path, duration=2.0, extra=extra)
+        try:
+            halt = suspended_halt(voice)
+            b_service(voice, "/skills/check_state", (True, b_state(runner)))
+            time.sleep(0.5)
+            voice.say(recover(halt["boot_id"], halt["event_id"], f"rec-{expect}"))
+            if expect:
+                assert voice.wait(lambda s: last_intent(s).get("reason") == expect), voice.status
+                assert runner.runner.halted
+            else:
+                assert voice.wait(lambda s: last_intent(s).get("decision") == "recover"), voice.status
+                assert not runner.runner.halted and voice.status["halt"]["resume"]["offered"]
+        finally:
+            close()
+
+
+def test_recover_b_unavailable_and_b_recover_first(tmp_path):
+    """B 서비스 없음 → B_CHECK_UNAVAILABLE. recover_call_b=true 면 W2(/skills/recover)를 먼저 — 실패면 B code 로 거절."""
+    runner, voice, close = make_system(tmp_path, duration=2.0,
+                                       extra=[("resumable", True), ("recover_check", "b"), ("b_check_timeout_s", 1.0)])
+    try:
+        halt = suspended_halt(voice)
+        voice.say(recover(halt["boot_id"], halt["event_id"], "rec-none"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "B_CHECK_UNAVAILABLE"), voice.status
+    finally:
+        close()
+    runner, voice, close = make_system(tmp_path, duration=2.0,
+                                       extra=[("resumable", True), ("recover_check", "b"), ("recover_call_b", True)])
+    try:
+        halt = suspended_halt(voice)
+        b_service(voice, "/skills/recover", (False, {"recovered": False, "code": "ESTOP_ACTIVE", "cleared": [],
+                                                     "blockers": ["ESTOP_ACTIVE"], "state": {}}))
+        b_service(voice, "/skills/check_state", (True, b_state(runner)))
+        time.sleep(0.5)
+        voice.say(recover(halt["boot_id"], halt["event_id"], "rec-w2"))
+        assert voice.wait(lambda s: last_intent(s).get("reason") == "ESTOP_ACTIVE"), voice.status
+        assert runner.runner.halted
     finally:
         close()
