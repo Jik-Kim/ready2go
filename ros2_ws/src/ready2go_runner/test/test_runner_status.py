@@ -55,16 +55,16 @@ def stop_during_move(final_code, source="voice"):
 
 def test_voice_stop_is_requested_then_confirmed_by_backend_cancel():
     during, after, result = stop_during_move("CANCELED")
-    assert (during["stop"], during["stop_code"], during["stopped_at"], during["locked"]) == ("requested", None, None, True)
+    assert (during["stop"], during["response_code"], during["response_received_at"], during["locked"]) == ("requested", None, None, True)
     assert (during["code"], during["cause"], during["source"], during["canceled_goals"]) == ("HALTED", "stop", "voice", 1)
-    assert (after["stop"], after["stop_code"]) == ("confirmed", "CANCELED") and after["stopped_at"]
+    assert (after["stop"], after["response_code"]) == ("confirmed", "CANCELED") and after["response_received_at"]
     assert after["event_id"] == during["event_id"] and after["requested_at"] == during["requested_at"]
     assert result.overall_status == "ABORTED"
 
 
 def test_no_stop_confirmation_is_unconfirmed_not_confirmed():
     _, after, _ = stop_during_move("STOP_UNCONFIRMED")
-    assert (after["stop"], after["stop_code"], after["code"], after["locked"]) == (
+    assert (after["stop"], after["response_code"], after["code"], after["locked"]) == (
         "unconfirmed", "STOP_UNCONFIRMED", "HALTED", True)
 
 
@@ -73,7 +73,7 @@ def test_halt_while_idle_has_nothing_to_stop():
     runner.on_halt = lambda: 0
     runner.halt(source="service")
     summary = runner.halt_summary
-    assert (summary["stop"], summary["canceled_goals"], summary["stop_code"], summary["source"]) == (
+    assert (summary["stop"], summary["canceled_goals"], summary["response_code"], summary["source"]) == (
         "none", 0, None, "service")
 
 
@@ -85,7 +85,7 @@ def test_halt_between_steps_has_nothing_to_stop():
     runner = Runner(backend)
     runner.on_halt = lambda: 0
     runner.run({"task_id": "t", "sequence": [SPEAK, MOVE]})
-    assert (runner.halt_summary["stop"], runner.halt_summary["stop_code"]) == ("none", "HALTED")
+    assert (runner.halt_summary["stop"], runner.halt_summary["response_code"]) == ("none", "HALTED")
 
 
 def test_backend_safety_stop_is_confirmed_with_its_cause():
@@ -94,7 +94,7 @@ def test_backend_safety_stop_is_confirmed_with_its_cause():
         runner.on_halt = lambda: 0              # 백엔드가 이미 끝낸 뒤 잠금 → 취소할 goal 없음
         runner.run({"task_id": "t", "sequence": [SPEAK, MOVE]})
         summary = runner.halt_summary
-        assert (summary["source"], summary["code"], summary["cause"], summary["stop"], summary["stop_code"]) == (
+        assert (summary["source"], summary["code"], summary["cause"], summary["stop"], summary["response_code"]) == (
             "backend", code, cause, "confirmed", code)
 
 
@@ -105,3 +105,31 @@ def test_halt_is_null_after_unlock_and_passed_through_status():
     runner.halt()
     runner.resume()
     assert runner.halt_summary is None
+
+
+def test_halt_belongs_to_this_boot_run_and_event():
+    """E #152 야간 검토: 같은 기동(boot_id)·실행(run_id)·사건(event_id)의 응답만. 실행 사이 요청은 run_id null."""
+    during, after, result = stop_during_move("CANCELED")
+    assert during["run_id"] == after["run_id"] == result.run_id and during["boot_id"] == after["boot_id"]
+    idle = Runner(lambda a, p, t: ActionResult(True))
+    idle.halt(source="service")
+    assert idle.halt_summary["run_id"] is None and idle.halt_summary["boot_id"] != after["boot_id"]   # 새 기동 = 새 boot_id
+
+
+def test_restop_refused_request_and_late_events_do_not_change_the_answer():
+    """다시 정지·잠긴 동안 새 요청(거절 실행)·같은 사건의 두 번째 기록은 첫 사건·첫 응답을 바꾸지 않음 —
+    confirmed·unconfirmed 는 늦은 응답으로 뒤집히지 않는다(늦은 백엔드 결과는 RosClients 가 이미 STOP_UNCONFIRMED 로 끝낸 뒤라 오지 않음)."""
+    def backend(action, params, timeout_sec):
+        if action == "move_to_named_pose":
+            runner.halt(source="voice")
+            return ActionResult(False, error_code="STOP_UNCONFIRMED")
+        return ActionResult(True)
+
+    runner = Runner(backend)
+    runner.on_halt = lambda: 1
+    runner.run({"task_id": "t", "sequence": [SPEAK, MOVE]})
+    first = runner.halt_summary
+    runner.halt(source="voice")                 # 다시 "멈춰" (잠긴 채) → 같은 사건
+    refused = runner.run({"task_id": "t2", "sequence": [SPEAK]})   # 잠긴 동안 새 요청 → 로봇 동작 없이 거절
+    assert refused.overall_status == "ABORTED" and refused.run_id != first["run_id"]
+    assert runner.halt_summary == first and first["stop"] == "unconfirmed"

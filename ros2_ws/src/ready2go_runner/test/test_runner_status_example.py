@@ -75,12 +75,16 @@ def test_halt_cases_match_code_and_separate_request_from_stop_confirmation():
         assert set(halt) == keys and halt["stop"] in {"requested", "confirmed", "unconfirmed", "none"}, name
         seen.add(halt["stop"])
         if halt["stop"] == "requested":         # 백엔드 최종 결과 전 — 실행은 아직 running, 결과 칸 없음
-            assert status["phase"] == "running" and halt["stop_code"] is None and halt["stopped_at"] is None, name
+            assert status["phase"] == "running" and halt["response_code"] is None and halt["response_received_at"] is None, name
         if halt["stop"] in ("confirmed", "unconfirmed"):
-            assert halt["stop_code"] and halt["stopped_at"] and status["phase"] == "halted", name
+            assert halt["response_code"] and halt["response_received_at"] and status["phase"] == "halted", name
         if halt["stop"] == "unconfirmed":
-            assert halt["stop_code"] in {"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"}, name
+            assert halt["response_code"] in {"STOP_UNCONFIRMED", "STATE_UNKNOWN", "MOVE_UNCONFIRMED"}, name
         if halt["stop"] == "none":
             assert halt["canceled_goals"] == 0, name
         assert halt["locked"] == (status["phase"] == "halted" or halt["stop"] == "requested"), name
+        assert halt["boot_id"] and (halt["run_id"] is None) == (halt["source"] == "service" and halt["stop"] == "none"), name
+    refused = cases()["stop_confirmed_then_refused_new_request"]   # 잠긴 동안 새 요청: last 는 거절 실행, halt 는 그대로
+    assert refused["last"]["run_id"] != refused["halt"]["run_id"]
+    assert refused["halt"] == cases()["stop_confirmed_halted"]["halt"]
     assert seen == {"requested", "confirmed", "unconfirmed", "none"}

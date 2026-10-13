@@ -1,5 +1,5 @@
 {
-  "_comment": "/runner/status (std_msgs/String JSON, TRANSIENT_LOCAL) 예시 — docs/runner.md 7.1 `/runner/status`·`/voice/intent` 처리. 이 공동 계약 PR(계약07, E-C-REQUEST-RUN-WIRE-20261011-07 사용자 승인)에서는 기존 칸(phase·task_id·current_step·halt_code·log_store·last·last_intent·state_reset_at)과 last_intent 의 새 칸 request_id·run_id 만 보인다. request_id = 받은 /voice/intent 최상위 request_id 그대로 — 입력에 필드가 없으면 null(입력 request_id 는 있으면 비어 있지 않은 문자열만, null·빈 문자열은 스키마 위반 hold BAD_INTENT). run_id = Runner 가 실제로 수락(decision run)할 때 정한 실행 ID — 보류·거절·cancel·status 는 null, 빠른 완료로 결정 발행 전에 실행이 끝나도 같은 값. 최종 결과는 기존 last.run_id 로 대조(E 는 last.run_id == 그 요청의 run_id 일 때만 완료 안내). last_intent 는 마지막 요청 1건의 결정만 — 실행 중 다른 요청이 오면 last_intent 가 그 요청(reject BUSY)으로 바뀌므로 E 는 앞 요청의 run_id 를 자기 쪽에 보관한다. 같은 boot 안 같은 request_id 재전송은 같은 결정을 다시 발행(재실행·TTS 없음), 같은 ID + 다른 내용은 첫 결정 유지(새 내용 실행 없음, 경고 기록). halt(정지 사건 요약)는 #152·#187 C 계약안(E 포함 2명 승인 전, 이 파일 halt 사례 — `stop_*`·`halted_object_dropped`): 잠김·재개 대기일 때만, 아니면 null. code·cause(halt_motion·estop·stop·unconfirmed·locked) = 왜 멈췄나, source(service·voice·backend)·requested_at = 정지 요청, canceled_goals = 요청 때 취소를 보낸 진행 중 동작 수, stop = 요청과 실제 정지 확인 구분(requested = 진행 중이던 동작의 최종 결과 대기 — 이때 phase 는 아직 running / confirmed = 백엔드 최종 결과 받음 / unconfirmed = 정해진 시간 안에 정지 확인 없음, 잠금 / none = 요청 때 보낸 동작이 없었음), stop_code·stopped_at = 백엔드 최종 코드(CANCELED·STOP_UNCONFIRMED·ESTOP 등)와 Runner 가 받은 시각(UTC), locked = Runner 잠김. 같은 내용이 실행 기록 extra.halts[] 에 남음. 잠금 해제·재개(halt.resume)·boot_id·seq 는 이 칸에 넣지 않음(다음 계약안). 값은 형식 예시이며 실측 아님. Runner 구현은 계약 병합 뒤 운영 PR.",
+  "_comment": "/runner/status (std_msgs/String JSON, TRANSIENT_LOCAL) 예시 — docs/runner.md 7.1 `/runner/status`·`/voice/intent` 처리. 이 공동 계약 PR(계약07, E-C-REQUEST-RUN-WIRE-20261011-07 사용자 승인)에서는 기존 칸(phase·task_id·current_step·halt_code·log_store·last·last_intent·state_reset_at)과 last_intent 의 새 칸 request_id·run_id 만 보인다. request_id = 받은 /voice/intent 최상위 request_id 그대로 — 입력에 필드가 없으면 null(입력 request_id 는 있으면 비어 있지 않은 문자열만, null·빈 문자열은 스키마 위반 hold BAD_INTENT). run_id = Runner 가 실제로 수락(decision run)할 때 정한 실행 ID — 보류·거절·cancel·status 는 null, 빠른 완료로 결정 발행 전에 실행이 끝나도 같은 값. 최종 결과는 기존 last.run_id 로 대조(E 는 last.run_id == 그 요청의 run_id 일 때만 완료 안내). last_intent 는 마지막 요청 1건의 결정만 — 실행 중 다른 요청이 오면 last_intent 가 그 요청(reject BUSY)으로 바뀌므로 E 는 앞 요청의 run_id 를 자기 쪽에 보관한다. 같은 boot 안 같은 request_id 재전송은 같은 결정을 다시 발행(재실행·TTS 없음), 같은 ID + 다른 내용은 첫 결정 유지(새 내용 실행 없음, 경고 기록). halt(정지 사건 요약)는 #152·#187 C 계약안(E 포함 2명 승인 전, 이 파일 halt 사례 — `stop_*`·`halted_object_dropped`): 잠김·재개 대기일 때만, 아니면 null. code·cause(halt_motion·estop·stop·unconfirmed·locked) = 왜 멈췄나, source(service·voice·backend)·requested_at = 정지 요청, canceled_goals = 요청 때 취소를 보낸 진행 중 동작 수, stop = 요청과 실제 정지 확인 구분(requested = 진행 중이던 동작의 최종 결과 대기 — 이때 phase 는 아직 running / confirmed = 백엔드 최종 결과 받음 / unconfirmed = 정해진 시간 안에 정지 확인 없음, 잠금 / none = 요청 때 보낸 동작이 없었음), response_code·response_received_at = 진행 중이던 동작의 백엔드 최종 응답 코드(CANCELED·STOP_UNCONFIRMED·ESTOP 등)와 Runner 가 그 응답을 받은 시각(UTC — 실제 로봇 정지 시각 아님, B 실측 시각은 별도), locked = Runner 잠김. boot_id = Runner 기동마다 새 값, run_id = 정지 요청 때 진행 중이던 실행(실행 사이 요청이면 null) — E 는 boot_id·run_id·event_id 가 같은 halt 만 같은 사건으로 본다. 한 사건의 첫 응답만 쓰고 바꾸지 않음: 다시 정지(잠긴 채 \"멈춰\")·잠긴 동안 새 요청(거절 실행, last.run_id 는 그 거절 실행 — stop_confirmed_then_refused_new_request)·반복 발행은 halt 를 바꾸지 않음. 늦은 백엔드 응답(5 s 대기 뒤)은 Runner 가 이미 STOP_UNCONFIRMED 로 끝내 반영하지 않음(unconfirmed 가 confirmed 로 바뀌지 않음). unconfirmed 는 B 가 STOP_UNCONFIRMED 를 준 경우와 C 가 5 s 안에 응답을 못 받은 경우가 같은 값(둘 다 정지 확인 없음). stop 이 confirmed 가 아니면 \"멈췄다\"고 안내하지 않음. 같은 내용이 실행 기록 extra.halts[] 에 남음. 잠금 해제·재개(halt.resume)·boot_id·seq 는 이 칸에 넣지 않음(다음 계약안). 값은 형식 예시이며 실측 아님. Runner 구현은 계약 병합 뒤 운영 PR.",
   "cases": [
     {
       "case": "accepted_running",
@@ -165,6 +165,8 @@
         "log_store": "mongo",
         "last": null,
         "halt": {
+          "boot_id": "3f9c1a7b2e44",
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
           "event_id": "h1-2026-10-12T13:00:31.204Z",
           "code": "HALTED",
           "cause": "stop",
@@ -172,8 +174,8 @@
           "requested_at": "2026-10-12T13:00:31.204Z",
           "canceled_goals": 1,
           "stop": "requested",
-          "stop_code": null,
-          "stopped_at": null,
+          "response_code": null,
+          "response_received_at": null,
           "locked": true
         },
         "last_intent": {
@@ -208,6 +210,8 @@
           "log_errors": []
         },
         "halt": {
+          "boot_id": "3f9c1a7b2e44",
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
           "event_id": "h1-2026-10-12T13:00:31.204Z",
           "code": "HALTED",
           "cause": "stop",
@@ -215,8 +219,8 @@
           "requested_at": "2026-10-12T13:00:31.204Z",
           "canceled_goals": 1,
           "stop": "confirmed",
-          "stop_code": "CANCELED",
-          "stopped_at": "2026-10-12T13:00:31.912Z",
+          "response_code": "CANCELED",
+          "response_received_at": "2026-10-12T13:00:31.912Z",
           "locked": true
         },
         "last_intent": {
@@ -251,6 +255,8 @@
           "log_errors": []
         },
         "halt": {
+          "boot_id": "3f9c1a7b2e44",
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
           "event_id": "h1-2026-10-12T13:00:31.204Z",
           "code": "HALTED",
           "cause": "stop",
@@ -258,8 +264,8 @@
           "requested_at": "2026-10-12T13:00:31.204Z",
           "canceled_goals": 1,
           "stop": "unconfirmed",
-          "stop_code": "STOP_UNCONFIRMED",
-          "stopped_at": "2026-10-12T13:00:36.230Z",
+          "response_code": "STOP_UNCONFIRMED",
+          "response_received_at": "2026-10-12T13:00:36.230Z",
           "locked": true
         },
         "last_intent": {
@@ -286,6 +292,8 @@
         "log_store": "mongo",
         "last": null,
         "halt": {
+          "boot_id": "3f9c1a7b2e44",
+          "run_id": null,
           "event_id": "h2-2026-10-12T13:05:00.000Z",
           "code": "HALTED",
           "cause": "stop",
@@ -293,8 +301,8 @@
           "requested_at": "2026-10-12T13:05:00.000Z",
           "canceled_goals": 0,
           "stop": "none",
-          "stop_code": null,
-          "stopped_at": null,
+          "response_code": null,
+          "response_received_at": null,
           "locked": true
         },
         "last_intent": {
@@ -331,6 +339,8 @@
           "log_errors": []
         },
         "halt": {
+          "boot_id": "3f9c1a7b2e44",
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
           "event_id": "h3-2026-10-12T13:10:42.100Z",
           "code": "OBJECT_DROPPED",
           "cause": "halt_motion",
@@ -338,8 +348,8 @@
           "requested_at": "2026-10-12T13:10:42.100Z",
           "canceled_goals": 0,
           "stop": "confirmed",
-          "stop_code": "OBJECT_DROPPED",
-          "stopped_at": "2026-10-12T13:10:42.101Z",
+          "response_code": "OBJECT_DROPPED",
+          "response_received_at": "2026-10-12T13:10:42.101Z",
           "locked": true
         },
         "last_intent": {
@@ -354,6 +364,55 @@
           "task_id": "find_item",
           "request_id": "req-0011",
           "run_id": "2026-10-12T13:00:05Z_4b2e91"
+        },
+        "state_reset_at": null
+      }
+    },
+    {
+      "case": "stop_confirmed_then_refused_new_request",
+      "status": {
+        "phase": "halted",
+        "task_id": null,
+        "current_step": null,
+        "halt_code": "HALTED",
+        "log_store": "mongo",
+        "last": {
+          "task_id": "find_item",
+          "run_id": "2026-10-12T13:01:10Z_8d77a0",
+          "overall_status": "ABORTED",
+          "error_code": "HALTED",
+          "failed_step": null,
+          "problems": [
+            "중단 상태입니다. 사람이 확인한 뒤 resume() 해야 실행합니다"
+          ],
+          "log_errors": []
+        },
+        "halt": {
+          "boot_id": "3f9c1a7b2e44",
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
+          "event_id": "h1-2026-10-12T13:00:31.204Z",
+          "code": "HALTED",
+          "cause": "stop",
+          "source": "voice",
+          "requested_at": "2026-10-12T13:00:31.204Z",
+          "canceled_goals": 1,
+          "stop": "confirmed",
+          "response_code": "CANCELED",
+          "response_received_at": "2026-10-12T13:00:31.912Z",
+          "locked": true
+        },
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "eraser"
+          ],
+          "confidence": 0.93,
+          "stt_text": "지우개 찾아줘",
+          "decision": "run",
+          "reason": null,
+          "task_id": "find_item",
+          "request_id": "req-0012",
+          "run_id": "2026-10-12T13:01:10Z_8d77a0"
         },
         "state_reset_at": null
       }

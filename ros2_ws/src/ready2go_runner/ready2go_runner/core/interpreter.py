@@ -29,6 +29,7 @@ from __future__ import annotations
 import copy
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -89,8 +90,9 @@ def halt_cause(code: str | None) -> str | None:
 def stop_state(info: dict, in_run: bool) -> str:
     """정지 요청과 실제 정지 확인을 구분 (/runner/status halt.stop, FR-SAF-01·AC-SAF-02 — 계약안, 승인 대기).
     requested = 요청했고 진행 중이던 동작의 최종 결과를 기다리는 중 / confirmed = 백엔드가 최종 결과를 줌(멈춤·끝남)
-    / unconfirmed = 정해진 시간 안에 정지 확인 없음(STOP_UNCONFIRMED 등, 잠금) / none = 요청 때 보낸 동작이 없었음."""
-    code = info.get("stop_code")
+    / unconfirmed = 정해진 시간 안에 정지 확인 없음(STOP_UNCONFIRMED 등, 잠금) / none = 요청 때 보낸 동작이 없었음.
+    한 번 정해진 confirmed·unconfirmed 는 그 사건 안에서 바뀌지 않음 — 늦게 온 백엔드 응답은 반영하지 않음."""
+    code = info.get("response_code")
     if code is None:
         return "requested" if in_run else "none"
     if code in STOP_UNCONFIRMED_CODES:
@@ -216,6 +218,7 @@ class Runner:
         self._state: dict = copy.deepcopy((ontology or {}).get("state", {}))   # 원본은 바꾸지 않음, 태스크 사이에 유지
         self._initial_state: dict = copy.deepcopy(self._state)   # reset_state() 가 되돌릴 시작 상태
         self._run_id: str | None = None
+        self.boot_id = uuid.uuid4().hex[:12]    # 이 Runner(노드 기동)마다 새로 — /runner/status halt.boot_id
         self._records: list[dict] = []
         self._log_errors: list[str] = []
         self._halt = threading.Event()          # 중단 잠김 (다른 스레드의 ROS 서비스 콜백에서 halt() 호출)
@@ -256,7 +259,8 @@ class Runner:
                 self._event_id = f"h{self._event_seq}-{utc_iso()}"
                 self._offered_at = None
                 self._halt_info = {"requested_at": utc_iso(), "source": source, "canceled_goals": None,
-                                   "stop_code": None, "stopped_at": None}
+                                   "run_id": self._run_id if self._in_run else None,   # 실행 사이 요청이면 null
+                                   "response_code": None, "response_received_at": None}
             self._halt.set()
         if first and self.on_halt is not None:  # 진행 중인 로봇 동작에 즉시 취소 요청 (기다림은 클라이언트가 함)
             canceled = self.on_halt()
@@ -284,15 +288,18 @@ class Runner:
     @property
     def halt_summary(self) -> dict | None:
         """잠겨 있거나 재개 대기 중일 때 정지 사건 요약 (/runner/status halt — 계약안, 승인 대기). 아니면 None.
-        code·cause = 왜 멈췄나, stop·stop_code·stopped_at = 진행 중이던 동작이 실제로 멈췄다는 결과를 받았나."""
+        code·cause = 왜 멈췄나, stop·response_code·response_received_at = 진행 중이던 동작의 백엔드 최종 응답과
+        Runner 가 그 응답을 받은 시각(실제 로봇 정지 시각 아님). boot_id·run_id·event_id 로 어느 기동·실행·사건인지."""
         if not self._halt.is_set() and self._suspended is None:
             return None
         code = self._halt_code if self._halt.is_set() else self._suspended.error.code
         info = dict(self._halt_info)
-        return {"event_id": self._event_id, "code": code, "cause": halt_cause(code),
+        return {"boot_id": self.boot_id, "run_id": info.get("run_id"), "event_id": self._event_id,
+                "code": code, "cause": halt_cause(code),
                 "source": info.get("source"), "requested_at": info.get("requested_at"),
                 "canceled_goals": info.get("canceled_goals"), "stop": stop_state(info, self._in_run),
-                "stop_code": info.get("stop_code"), "stopped_at": info.get("stopped_at"),
+                "response_code": info.get("response_code"),
+                "response_received_at": info.get("response_received_at"),
                 "locked": self._halt.is_set()}
 
     @property
@@ -323,13 +330,13 @@ class Runner:
         """태스크를 실행한다. inputs 는 태스크 기본 inputs 를 덮어쓴다(음성 인텐트 바인딩).
         meta: 실행 기록 헤더에 덧붙일 값 (backend·STT 원문 등, docs/runner.md 7.4)."""
         self._aborted, self._in_finally = False, False
-        self._in_run = True
         self._at_pose = None                    # 실행 사이에는 사람이 팔을 옮겼을 수 있음
         blackboard = {"inputs": {**task.get("inputs", {}), **(inputs or {})}}
         ctx = _Run(task, blackboard, [], {"run_id": new_run_id(), "task_id": task.get("task_id", ""),
                                           "inputs": blackboard["inputs"], "started_at": utc_iso(), "extra": meta},
                    self.clock())
         self._run_id, self._records, self._log_errors = ctx.doc["run_id"], ctx.records, []
+        self._in_run = True                     # 이제부터 정지 요청은 이 실행(run_id)의 사건
         self._log("start_run", run_document(**ctx.doc))
 
         if self._halt.is_set():                 # E-stop 뒤 resume() 전에는 로봇을 움직이지 않음
@@ -528,8 +535,9 @@ class Runner:
                  "step": step_id or e.step_id, "action_step": e.step_id,
                  "step_code": e.step_code or e.code, "stopped_at": utc_iso(), "in_finally": self._in_finally}
         ctx.halts.append(entry)
-        if entry["event_id"] == self._event_id:    # 이 정지 사건의 백엔드 최종 결과 → /runner/status halt.stop
-            self._halt_info.update(stop_code=entry["step_code"], stopped_at=entry["stopped_at"])
+        if entry["event_id"] == self._event_id and self._halt_info.get("response_code") is None:
+            # 이 정지 사건의 백엔드 최종 응답(첫 번째만) → /runner/status halt.stop
+            self._halt_info.update(response_code=entry["step_code"], response_received_at=entry["stopped_at"])
         return entry
 
     def _check_halt(self, step_id: str) -> None:
