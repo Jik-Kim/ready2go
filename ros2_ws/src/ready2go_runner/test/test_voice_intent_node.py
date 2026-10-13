@@ -56,7 +56,7 @@ def last_intent(s):
 
 
 def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks="",
-                skills_up=True, plan_limits=None):
+                skills_up=True, plan_limits=None, extra=()):
     """skills_up=False: mock 백엔드(/skills/* 서버) 없이 시작 — 기동 직후 스킬 서버가 늦게 뜨는 상황 (#108).
     나중에 voice.start_skills() 로 띄운다."""
     context = rclpy.Context()
@@ -68,6 +68,7 @@ def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology
         Parameter("tasks_dir", value=str(ROOT / "tasks")),
         Parameter("intent_tasks", value=intent_tasks),
         *([Parameter("plan_limits", value=plan_limits)] if plan_limits is not None else []),
+        *[Parameter(k, value=v) for k, v in extra],
         Parameter("log_dir", value=str(tmp_path))])
     voice_node = rclpy.create_node("voice_test", context=context)
     voice = Voice(voice_node)
@@ -325,3 +326,22 @@ def test_end_task_when_idle_is_nothing_to_end(system):
     voice.say(end_task(runner.runner.boot_id, "2026-01-01T00:00:00Z_000000"))
     assert voice.wait(lambda s: last_intent(s).get("reason") == "NOTHING_TO_END"), voice.status
     assert voice.status["phase"] == "idle"
+
+
+def test_reset_state_ends_preserved_work(tmp_path):
+    """정본 resume-admission-policy: 상태 초기화는 보존 작업을 끝냄 (finally 비동작만) — 잠금은 풀지 않음."""
+    from std_srvs.srv import Trigger
+    runner, voice, close = make_system(tmp_path, duration=2.0)
+    runner.runner.resumable = True                  # 노드 파라미터(resumable)는 recover PR 에서
+    try:
+        voice.say(intent())
+        assert voice.wait(lambda s: s["phase"] == "running" and s["current_step"] in ("s2.1", "s2.2")), voice.status
+        voice.say(intent("cancel", targets=(), confidence=0.9))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "SUSPENDED"), voice.status
+        run_id = voice.status["last"]["run_id"]
+        reply = runner._reset_state(Trigger.Request(), Trigger.Response())
+        assert reply.success and runner.runner.suspended is None and runner.runner.halted
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED"
+                          and s["last"]["run_id"] == run_id), voice.status
+    finally:
+        close()
