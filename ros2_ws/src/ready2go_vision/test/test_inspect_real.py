@@ -369,3 +369,16 @@ def test_fragment_yaw_off_switch_keeps_old_behavior():
     off = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], "fragment_min_area_ratio": 0.0}}
     ok, _, js = inspect_scene([det], depth, K, T, off, BAR, "drawer_top", "long_bar", INTERIOR)
     assert ok and json.loads(js)["target"]["pose"]["yaw_valid"] is False
+
+
+def test_fragment_yaw_needs_tighter_size_match_than_blob():
+    """조각 전체 외접 사각형은 depth_blob.fragment_size_tolerance(덩어리 검사보다 좁게)로 명목과 맞아야 함 — 실물 170 mm 를
+    명목 230 mm 로 보면 ±50% 안이지만 ±20% 밖이라 yaw 를 믿지 않음(방향이 틀린 채 true 가 되지 않게, #344 B 리뷰)."""
+    depth, m, bar = _split_bar(0.3)
+    det = {"class": "long_bar", "conf": 0.9, "box": box_of(bar[0], bar[1], bar[3], bar[2], margin=0.02), "mask": m}
+    longer = {"long_bar": {"size_m": [0.230, 0.040, 0.0185]}}
+    ok, _, js = inspect_scene([det], depth, K, T, PARAMS, longer, "drawer_top", "long_bar", INTERIOR)
+    assert ok and json.loads(js)["target"]["pose"]["yaw_valid"] is False
+    wide = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], "fragment_size_tolerance": 0.5}}
+    ok, _, js = inspect_scene([det], depth, K, T, wide, longer, "drawer_top", "long_bar", INTERIOR)
+    assert ok and json.loads(js)["target"]["pose"]["yaw_valid"] is True
