@@ -1577,15 +1577,35 @@ class VoiceNode(Node):
         with self.submit_lock:
             with self.notice_condition:
                 events = []
+                cause = None
                 if self.cfg.get('request_run_enabled', False) and self._request_run_connected():
                     try:
                         status = json.loads(message.data)
                     except (ValueError, TypeError):
                         return
+                    if (not isinstance(status, dict) or status.get('phase') not in ('idle', 'running', 'halted')
+                            or status.get('last_intent') is not None and not isinstance(status['last_intent'], dict)
+                            or status.get('halt') is not None and not isinstance(status['halt'], dict)):
+                        return
+                    pending = self.request_run.pending
+                    token = ((pending['request_id'], self.request_run.run_id,
+                              self.request_source_boot, self.generation) if pending else None)
+                    evidence = getattr(self, 'cause_speech', None)
+                    if evidence is not None and evidence[0] == token:
+                        cause = (token[1], evidence[1], evidence[2])
+                    continuity = getattr(self, 'request_speech_current', None)
+                    decision = status.get('last_intent') or {}
+                    if continuity is not None and (status['phase'] != 'running'
+                            or (status.get('halt') or {}).get('locked') is True
+                            or status.get('task_id') != continuity[1]
+                            or decision.get('decision') == 'run' and decision.get('run_id') != continuity[0][1]):
+                        self.request_speech_current = self.request_speech_completed = None
                     events = self.request_run.observe(status)
                 previous = self.notice_policy.revision
                 previous_phase = self.notice_policy.phase
-                notice = self.notice_policy.observe(message.data)
+                notice = self.notice_policy.observe(message.data, cause=cause)
+                if self.notice_policy.phase != 'running':
+                    self.cause_speech = None
                 self._diagnostic({'event':'voice_state','phase':self.notice_policy.phase,
                     'work_retained':bool(self.safety_exchange.policy and self.safety_exchange.policy.work
                                          or getattr(self, 'deferred_task_end', None)),
@@ -1613,6 +1633,8 @@ class VoiceNode(Node):
                                     self.notice_policy.revision)
                 for event in events:
                     if event['event'] == 'request_accepted':
+                        self.request_speech_current = ((event['request_id'], event['run_id'],
+                            self.request_source_boot, self.generation), status.get('task_id'))
                         if not hasattr(self, 'accepted_request_logs'):
                             self.accepted_request_logs = deque(maxlen=128)
                         self.accepted_request_logs.append(event['request_id'])
@@ -2196,12 +2218,16 @@ class VoiceNode(Node):
                 or pending is None or run is None or self.request_run.finished):
             return None
         decision = doc.get('last_intent') or {}
+        token = (pending['request_id'], run, getattr(self, 'request_source_boot', None), self.generation)
+        if (getattr(self, 'request_speech_current', None) == (token, doc['task_id'])
+                and not (decision.get('decision') == 'run' and decision.get('run_id') != run)):
+            return token
         if (decision.get('decision') != 'run' or decision.get('run_id') != run
                 or decision.get('request_id') != pending['request_id']
                 or decision.get('intent') != pending['intent']
                 or pending['intent'] == 'find_item' and decision.get('targets') != pending.get('targets')):
             return None
-        return (pending['request_id'], run, getattr(self, 'request_source_boot', None), self.generation)
+        return token
 
     def _goal(self, request):
         if self.stop_event.is_set() or self.cfg.get('request_run_enabled') and self.cfg['evaluation_mode']:
@@ -2222,6 +2248,7 @@ class VoiceNode(Node):
         with self.submit_lock:
             self.goal_request_run = None
             self.goal_first_speech = False
+            self.goal_cause_speech = None
             self.goal_request_boot = getattr(self, 'request_source_boot', None)
             self.goal_generation = self.generation
             if self.cfg.get('request_run_enabled', False):
@@ -2236,6 +2263,12 @@ class VoiceNode(Node):
                     return GoalResponse.REJECT
                 self.goal_request_run = (pending['request_id'], run, params['text'])
                 self.goal_first_speech = first
+                status = self._current_runner_status()
+                if (not first and status is not None
+                        and status.get('current_step') == 'fx.1'
+                        and self.notice_policy.task_steps.get(status['task_id'], {}).get('fx.1', {}).get('params', {}).get('text') == '$run_failure.text'
+                        and params['text'] in self.notice_policy.failure_texts):
+                    self.goal_cause_speech = (token, status['task_id'], params['text'])
                 if first:
                     self.request_speech_used.add((pending['request_id'], run))
         self.goal_warning_epoch = getattr(self, 'warning_epoch', 0)
@@ -2301,6 +2334,12 @@ class VoiceNode(Node):
                     raise InterruptedError('TTS_CANCELED')
                 if request_identity is not None and first_speech:
                     self.request_speech_completed = token  # Only actual successful first playback.
+                    status = self._current_runner_status()
+                    if status is not None and self._current_speech_run() == token:
+                        self.request_speech_current = (token, status['task_id'])
+                evidence = getattr(self, 'goal_cause_speech', None)
+                if evidence is not None:
+                    self.cause_speech = evidence  # Same-run fx.1 + verified playback only.
             result.success = True
             result.output_json = json.dumps(stamp)
             goal.succeed()

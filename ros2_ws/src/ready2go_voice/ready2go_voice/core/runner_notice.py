@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import json
 from pathlib import Path
+from .runner_speech import task_steps, final_failure_text, failure_texts
 
 STATUS_PROMPTS = {
     'estop': '비상정지가 보고됐어요. 로봇의 실제 정지와 상태를 확인해 주세요.',
@@ -85,6 +86,8 @@ class RunnerNoticePolicy:
     def __init__(self, cfg=None):
         self.vision_steps = vision_steps(cfg) if cfg is not None else {}
         self.speech_steps = vision_steps(cfg, 'speak') if cfg is not None else {}
+        self.task_steps = task_steps(cfg) if cfg is not None else {}
+        self.failure_texts = failure_texts()
         self.prompts = dict(STATUS_PROMPTS)
         if cfg is not None:
             self.prompts.update({kind: feedback_prompts(cfg)['notice_' + kind] for kind in CAUSE_KINDS})
@@ -99,7 +102,7 @@ class RunnerNoticePolicy:
         self.blocked = False  # 오래된 정상 음성만 억제; Runner/로봇 제어 게이트 아님.
         self.revision = 0
 
-    def observe(self, raw):
+    def observe(self, raw, *, cause=None):
         try:
             doc = json.loads(raw) if isinstance(raw, str) else raw
         except (ValueError, TypeError, RecursionError): return None
@@ -140,10 +143,14 @@ class RunnerNoticePolicy:
                 self.awaiting_result = False
                 outcome, error = last.get('overall_status'), last.get('error_code')
                 if outcome in ('FAILED', 'ABORTED'):
-                    candidates.append(warning_kind(error if isinstance(error, str) else None,
+                    warning = warning_kind(error if isinstance(error, str) else None,
                                                    aborted=outcome == 'ABORTED',
                                                    vision_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.vision_steps.get(last.get('task_id'), set()),
-                                                   speech_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.speech_steps.get(last.get('task_id'), set())))
+                                                   speech_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.speech_steps.get(last.get('task_id'), set()))
+                    expected = final_failure_text(self.task_steps, last)
+                    if not (warning[1] == 3 and expected is not None
+                            and cause == (run_id, last.get('task_id'), expected)):
+                        candidates.append(warning)
         self.phase, self.previous_halt = phase, halt
         self.blocked = bool(halt)
         if not candidates: return None

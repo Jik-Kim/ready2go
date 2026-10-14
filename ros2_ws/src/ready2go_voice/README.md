@@ -2,6 +2,16 @@
 
 - **담당**: E 고희태. 웨이크워드·STT·P1 단일 물품 LLM 해석/검증·규칙 폴백·TTS.
 
+## #351 최신 코멘트 보완 — 2026-10-14
+
+[구현] 첫 C 수락에서 확인한 request/run/boot/source·세대·태스크의 연속성을 유지하므로, 다른 요청의 BUSY/status 결정이 현재 실행의 후속 안내를 폐기하지 않습니다. 실제 새 RUN·idle/종료·중단/잠금·재기동·연결 유실은 해당 재생 권한을 폐기합니다. 첫 수락의 실제 재생 성공 조건과 실패 시 첫 모션 차단은 유지합니다.
+
+[원본 연결] `core/runner_speech.py`가 C `ready2go_runner.core.failure_speech`와 현재 `tasks/find_item.json`·`find_with_unpack.json`을 읽습니다. no_room 템플릿은 C의 보간/조사 함수로 물품별 생성하며, 원인·TIMEOUT·동작 실패·generic 문구는 C factory를 사용합니다. `package.xml`에 Runner 실행 의존성을 선언하고 `setup.py`가 두 태스크 원본을 E share/tasks에 설치합니다. 소스 실행은 현재 태스크를 우선하고 설치 실행은 패키지 산출물을 사용하므로 태스크 변경 뒤 E 재빌드/설치가 필요합니다. 타 담당 원본은 직접 편집하지 않았습니다.
+
+[구현·한계] 현재 실행의 실제 `fx.1` 원인 안내 호출이 확인된 factory 문장이며 DAC 시작/재생 완료 검증을 통과한 경우에만 그 근거를 보존합니다. 최종 결과의 동일 run·태스크·실패 단계의 실제 동작·오류 factory 문장이 일치하면 낮은 최종 안내만 생략합니다. 재생 실패/거절·다른 실행·다른 오류·미확인/일반 완료·닫기 안내는 생략 근거가 아니며 중단·상태 불명 등 높은 안전 경고는 유지합니다. text-only 호출의 원래 실행 출처 식별 한계는 아래 설명과 동일하며 새 계약은 추가하지 않았습니다.
+
+[실측: 선택·모의] 직접 회귀 17개 통과. node/prepare 공통 목록은 source·기존 local 각각 필수246+warmup1, frequent0, 15519bytes이며 cap256·중복·누락·용량 검사 통과입니다. startup60/prepare120·속도1.2·history/models/cache는 유지합니다. 실제 새 WAV 캐시 준비·PC2/API/마이크/스피커·ROS/DDS·실로봇은 미검증이며 기존 prepare 절차와 통합 시험이 남습니다. 근거/요구사항은 [CURRENT](../../../practice/E/CURRENT.md#voice-351-latest-comments-20261014)와 [FR-INT-03](../../../docs/requirements.md#fr-int-03)·[P2 수락 TTS 책임](../../../docs/requirements.md#acceptance-tts-policy)을 참조하십시오.
+
 ## #351 수신 경로 보완 — 2026-10-14
 
 [구현·중단 음성 조회] `_listen`의 safety_audio → `_safety_recording`/질문 worker → Session의 실제 STT 결과 → 읽기 전용 결과 수신 → 기존 notice 경로를 연결했습니다. 등록된 고정 상태·위치 질의에만 받은 전사를 재사용하고 STT/LLM 재호출·intent 발행·재개 권한을 만들지 않습니다. 해당 녹음 receipt만 정리하고 중단 work·기존 질문 객체/등록/기한은 보존합니다. 읽기 안내는 질문/녹음·dialog 소유권 종료 뒤에 전달하며 기존 질문의 다음 새 녹음도 기존 접수·결과 기한으로 검사합니다.
@@ -20,7 +30,7 @@
 
 [원인 안내·선행] 실제 CAMERA_TIMEOUT·TF_UNAVAILABLE/DEPTH_INVALID·REGION_NOT_VISIBLE·파지·벽/이웃 간섭·NO_FREE_SPACE·원위치 복구 불완전과 안전 복구 실패를 구분합니다. 일반 TIMEOUT은 현재의 두 기본 태스크 정의에서 task_id/failed_step이 정확한 inspect_region 단계일 때만 비전 단계 지연으로 분류하고, 근거가 없으면 일반 timeout을 유지합니다. NOT_REACHED나 pushed=false를 비전 단절/넛지 불필요로 해석하지 않습니다. 물품 원위치 복구 실패에는 기존 fn.1 안내를 재사용하며 잠금 유지/안전 해제로 설명하지 않습니다. 결과/높은 경고의 기존 중복·우선순위를 유지합니다. 현재 last 결과는 finally 뒤에 도착하므로 E 결과 안내가 서랍 정리 전 원인 전달을 구현한 것은 아닙니다. 정리 전에는 C의 실제 기존 speak 호출/원인·현재 실행 상관이 선행이며, 첫 수락 게이트와 현재 run의 후속 speak 구분은 위 수신 경로 보완에 반영했으며, text-only 원천 run 식별 한계는 남아 있습니다. C 파일/계약은 이 보완에서 변경하지 않습니다.
 
-[준비·미검증] 새 문장은 node/prepare 공통 필수 목록에 포함하고 e28의 실패·중단 12문장을 유지합니다. 현재 source와 기존 local YAML의 선택은 각각 필수209+warmup1로 cap256 이내이며 startup60/prepare120·속도1.2·history는 유지합니다. 코드/목록 변경 뒤 기존 prepare와 적용 확인이 필요하지만 cache/receipt를 생성·삭제하지 않습니다. 선택·모의 검사와 실제 API/마이크/스피커·beep/음성·ROS·PC2/로봇/물리 AC는 구분하며 후자는 미검증입니다. [이번 CURRENT](../../../practice/E/CURRENT.md#voice-five-log-fixes-20261014)에서 버전·검사·담당 후속을 확인하십시오.
+[준비·미검증] 새 문장은 node/prepare 공통 필수 목록에 포함하고 e28의 실패·중단 12문장을 유지합니다. 수신 경로 보완 당시 source와 기존 local YAML의 선택은 각각 필수209+warmup1로 cap256 이내이며 startup60/prepare120·속도1.2·history는 유지합니다. 코드/목록 변경 뒤 기존 prepare와 적용 확인이 필요하지만 cache/receipt를 생성·삭제하지 않습니다. 선택·모의 검사와 실제 API/마이크/스피커·beep/음성·ROS·PC2/로봇/물리 AC는 구분하며 후자는 미검증입니다. [이번 CURRENT](../../../practice/E/CURRENT.md#voice-five-log-fixes-20261014)에서 버전·검사·담당 후속을 확인하십시오.
 
 ## 위 서랍 열기·닫기 명시 실행 옵션 — 2026-10-14
 
@@ -81,7 +91,7 @@
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ros2_ws/install/setup.bash
-export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PYTHONPATH"
+export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner:$PYTHONPATH"
 .venvs/project/bin/python ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py
 .venvs/project/bin/python ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-local
 ```
@@ -324,7 +334,7 @@ E Voice를 거치는 음성/텍스트 입력에는 [설정과 동작 경계](#�
 | Python 기본 | 실제 core imports: jsonschema, PyYAML, numpy. `setup.py`에 선언 |
 | Python API | `openai>=1,<3`, `langchain-openai>=0.2,<2`, `langchain-core>=0.3,<2` (`api` extra). 실제 SDK timeout/JSON 호출을 모의 검증 |
 | Python 오디오 | sounddevice, openwakeword 0.6.0 (`audio` extra), 모델에 맞는 tflite_runtime 및 openwakeword 전처리 모델 자산. Python/CPU 호환 runtime은 배포 PC에서 확인 |
-| ROS | rclpy, ament_index_python, std_msgs, ready2go_interfaces, ready2go_knowledge (`package.xml`). 기존 Skill 메시지 생성 필요 |
+| ROS | rclpy, ament_index_python, std_msgs, ready2go_interfaces, ready2go_knowledge, ready2go_runner (`package.xml`; C 실패 factory/조사 함수 사용). 기존 Skill 메시지 생성 필요 |
 | 시스템 | PortAudio, 오디오 서버/권한·실제 마이크/스피커. Melo는 별도 CPU 환경 사용; espeak 선택 시만 espeak-ng 설치·한국어 음성 확인 필요 |
 | 벤더/자산 | `OPENAI_API_KEY`는 기존 환경에서만 읽음. whisper-1/gpt-4o 계정 접근·네트워크·지연은 별도 확인. 외부 강의 `hello_rokey_8332_32.tflite` 경로를 설정하며 모델 원본/키를 커밋하지 않음 |
 | 선택/미구현 | faster-whisper·Piper는 현재 imports/실행 경로에 없음. 기본 설치에 포함하지 않음 |

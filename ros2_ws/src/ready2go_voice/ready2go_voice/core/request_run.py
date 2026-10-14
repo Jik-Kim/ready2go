@@ -57,6 +57,10 @@ class RequestRun:
             return []  # latched 결과를 새 요청 수락으로 사용하지 않습니다.
         events = []
         decision = doc.get('last_intent')
+        if (self.run_id and isinstance(decision, dict) and decision.get('decision') == 'run'
+                and isinstance(decision.get('run_id'), str) and decision['run_id'] != self.run_id):
+            self.invalidate()  # A verified new run retires the old correlation; BUSY/status do not.
+            return []
         if isinstance(decision, dict) and decision.get('request_id') == self.pending['request_id']:
             if not self.decided:
                 if decision.get('decision') in ('hold', 'reject'):

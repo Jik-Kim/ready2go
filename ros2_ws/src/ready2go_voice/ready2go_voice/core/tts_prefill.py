@@ -109,6 +109,8 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
                   '물건을 옮기다 멈췄어요. 사람이 확인해 주세요'))
     texts.append('서랍을 닫았어요')
     texts.extend(STATUS_PROMPTS.values())
+    from .runner_speech import required_texts
+    texts.extend(required_texts(cfg, items))
     result = list(dict.fromkeys(texts))
     max_count = cfg.get('tts_prefill_max_texts', 256)
     max_chars = cfg.get('tts_prefill_max_chars', 160)

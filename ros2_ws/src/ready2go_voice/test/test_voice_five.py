@@ -16,9 +16,9 @@ from test_runtime_322 import memory_node
 from conftest import ROOT, PACKAGE
 
 
-def packet(node, *, phase='idle',seq=1,boot='boot',halt=None,last=None,decision=None):
+def packet(node, *, phase='idle',seq=1,boot='boot',halt=None,last=None,decision=None,step='s7.1'):
     result=build_status(phase=='running',phase=='halted','HALTED' if phase=='halted' else None,
-        'find_with_unpack' if phase=='running' else None,'s7.1' if phase=='running' else None,
+        'find_with_unpack' if phase=='running' else None,step if phase=='running' else None,
         last,'find_with_unpack' if last else None,False,halt=halt)
     result.update(boot_id=boot,seq=seq,last_intent=decision)
     node._runner_status_with_info(SimpleNamespace(data=json.dumps(result)),
@@ -558,3 +558,62 @@ def test_351_backend_error_only_exact_speak_step_is_audio_failure_and_required(c
         if kind == 'speech': assert notice.text == prompts(cfg)['notice_speech']
     cfg['tts_melotts_assets']=str(tmp_path)
     assert prompts(cfg)['notice_speech'] in prefill_texts(cfg,ontology['world']['items'].values())
+
+
+def test_351_busy_preserves_current_speech_but_new_run_does_not(node):
+    _, decision = speech_run(node); first_speech(node)
+    busy = dict(request_id='other-request', intent='find_item', targets=['car_key'],
+                decision='reject', reason='BUSY')
+    packet(node, phase='running', seq=3, decision=busy)
+    result, outcomes = receive_speech(node, '서랍을 닫을게요')
+    assert result.success and outcomes == ['success']
+    packet(node, phase='running', seq=4, decision=dict(busy, decision='run', run_id='new-run'))
+    assert node._goal(SimpleNamespace(params_json=json.dumps({'text':'서랍을 닫을게요'}))) == 0
+    # An old decision heartbeat cannot restore the retired first-playback token.
+    packet(node, phase='running', seq=5, decision=decision)
+    assert node._goal(SimpleNamespace(params_json=json.dumps({'text':'서랍을 닫을게요'}))) == 0
+
+
+@pytest.mark.parametrize('case', ['success', 'playback_failure', 'other_run', 'unrelated_speech', 'different_error', 'safety'])
+def test_351_final_notice_suppression_requires_same_run_cause_playback(node, case):
+    from ready2go_runner.core import failure_speech
+    node.notice_policy = RunnerNoticePolicy(node.cfg)
+    _, decision = speech_run(node); first_speech(node)
+    packet(node, phase='running', seq=3, decision=decision, step='fx.1')
+    text = failure_speech.text('CAMERA_TIMEOUT', 'inspect_region')
+    if case == 'playback_failure':
+        def failed(text, **kwargs): raise RuntimeError('playback failed')
+        node.tts.speak = failed
+    result, _ = receive_speech(node, '서랍을 닫았어요' if case == 'unrelated_speech' else text)
+    assert result.success == (case != 'playback_failure')
+    if case == 'other_run':
+        packet(node, phase='running', seq=4, decision=dict(decision, request_id='other', run_id='new-run'))
+    # Actual C status construction and actual E status receiver, no physical playback.
+    last = RunResult('FAILED', {}, error_code='DEPTH_INVALID' if case == 'different_error' else 'CAMERA_TIMEOUT', failed_step='s4',
+                     run_id='new-run' if case == 'other_run' else 'speech-run')
+    packet(node, phase='halted' if case == 'safety' else 'idle', seq=5, last=last, decision=decision)
+    if case == 'success': assert node.pending_notice is None
+    else:
+        assert node.pending_notice is not None
+        assert node.pending_notice.priority < 3 if case == 'safety' else node.pending_notice.kind == ('coordinates' if case == 'different_error' else 'camera')
+
+
+def test_351_c_failure_factory_and_no_room_are_required_prefill(cfg, ontology, tmp_path):
+    from ready2go_voice.core.runner_speech import required_texts, failure_texts
+    from ready2go_runner.core import failure_speech
+    from ready2go_runner.core.variables import interpolate
+    cfg['tts_melotts_assets'] = str(tmp_path)
+    items = list(ontology['world']['items'].values())
+    selections = []
+    texts = prefill_texts(cfg, items, on_selection=selections.append)
+    assert set(required_texts(cfg, items)) <= set(texts)
+    template = next(s for s in RunnerNoticePolicy(cfg).task_steps['find_with_unpack'].values()
+                    if s['id'] == 's8.n1')['params']['text']
+    assert {interpolate(template, {'loc': item}) for item in items} <= set(texts)
+    assert set(failure_speech.BY_CODE.values()) <= failure_texts()
+    assert failure_speech.GENERIC in texts
+    for action in failure_speech.ACTION_KO:
+        assert failure_speech.text('TIMEOUT', action) in texts
+        assert failure_speech.text(None, action) in texts
+    assert len(texts) == len(set(texts)) and len(texts) + 1 <= 256
+    assert selections[0]['frequent_count'] == 0

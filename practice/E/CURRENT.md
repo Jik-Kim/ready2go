@@ -1,5 +1,16 @@
 # CURRENT — E 고희태
 
+## voice-351-latest-comments-20261014
+
+- [승인] 조율 세션의 인간 지시 “최신 코멘트 확인해서 수정해 최대한 빨리 해”(turn `01a1398e-3956-77c1-a543-c5d9ef16266e`)를 직접 확인했습니다. #351 코멘트 세 항목만 E 소유 코드/필요 문서·검사에서 보완하고 정상 push/본문 갱신합니다. 추가 리뷰·계약 변경·타 담당 직접 편집·실물 시험은 범위 밖입니다.
+- [기준/합류] 이전 PR head `046e106969c109ee08cc8aabf77b1d6484a36b59`에서 시작했고 최신 main `a45b63c7`(#346/#347 포함)을 정상 병합했습니다. C 원본은 병합으로만 포함됐으며 primary 미커밋 두 문서·local YAML·모델·history·cache/receipt는 수정하지 않았습니다.
+- [구현/호출] 실제 C status → E RequestRun/첫 수락 상관 → `_goal/_speak` 첫 실제 재생 성공 → 같은 실행 후속 안내입니다. 다른 request BUSY/status는 연속성을 유지하고 실제 새 RUN·idle/종료·중단/잠금·source/boot/세대 변화는 폐기합니다. 첫 안내 실패 모션0 조건은 유지합니다. C 최상위 run_id와 text-only 과거 호출의 원래 실행 식별은 미해결 타 담당 계약 인계이며 임의 추가하지 않았습니다.
+- [구현/캐시] E `runner_speech.py`가 C failure_speech factory·변수 보간과 두 실제 태스크의 no_room 원본을 공통 selector에 연결합니다. E package.xml Runner 실행 의존성, setup.py 원본 태스크 설치 산출물, E voice_trial source 경로와 README를 함께 갱신했습니다. 문구를 이중 정의하지 않고 source/node/prepare와 설치 산출물 경로를 대조했습니다. 새 C 원본 변경 뒤 E 재빌드/설치·prepare가 필요합니다.
+- [구현/중복] 현재 run의 실제 fx.1 factory 문장이 실제 재생 증빙을 통과한 경우만 보존하며, 최종 same run/task/failed_step 실제 action/error factory 문장과 일치하는 낮은 경고만 억제합니다. 실패/거절·다른 run/error·완료/닫기·미확인은 최종 경고를 유지하고 높은 안전 경고는 항상 우선합니다. C s8.t3/on_failure/정리·성공 정책은 변경하지 않았습니다.
+- [실측: 직접 모의] 최종 `test_voice_five.py -k test_351` **17 passed/51 deselected**(3.21초): 기존9+BUSY/new-run1+중복 성공/재생 실패/다른 run/일반 안내/다른 오류/안전6+factory/no_room/cap1. 실제 E goal/speak/status 수신과 C status 생성기·첫 동작 Runner 게이트를 사용했고 장치/API/DDS는 모의입니다. 초기 fixture의 태스크 경로/실패 단계 오류를 실제 원본에 맞춰 수정했으며 제품 재생 증빙을 완화하지 않았습니다. 로그 `/tmp/e-351-latest-final-direct.log`.
+- [실측: 목록] 현재 source·기존 local 설정을 읽어 선택만 검사했습니다(ontology 경로는 검사 작업 원본으로 메모리에서 지정). 각각 필수246/frequent0/warmup1/15519bytes, 중복/누락·문장 길이/용량·cap256 정상, 경고0. startup60/prepare120·속도1.2 유지. 실제 캐시 준비/삭제는 하지 않았습니다.
+- [요구사항/미검증] FR-INT-03(P1), 기존 P2 수락 TTS 책임·FR-SAF-01/03의 경계를 유지합니다. 실제 PC2/마이크/API/TTS/ROS·DDS·실로봇 AC는 미검증입니다. 최종 커밋의 필수 전체 CI는 PR 본문에 실제 head별 결과로 기록하며 이전046 CI를 새 head 검사로 전용하지 않습니다.
+
 ## voice-351-receive-supplement-20261014
 
 - [문서: 승인·범위] Root가 직접 확인한 사용자 “#351 보완 요청해”의 P1 두 수신 경로와 실제 speak 실패 분류 보완입니다. 기존 `c8d27ed23406e86b545c42e837d6b39590dbe273`·#350 dict guard를 보존합니다. [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-03/P2](../../docs/requirements.md#fr-saf-03)의 기존 안내/질문/수락 경로이며 C/B/공용 계약·task 결과/skip 정책·새 TTL/권한을 변경하지 않습니다.
