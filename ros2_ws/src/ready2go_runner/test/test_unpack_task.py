@@ -612,9 +612,12 @@ def _judged_origin(result):
 
 
 def test_records_what_each_obstacle_covered_from_its_own_scan():
-    """차키(첫 촬영에서 상자 위) → under [상자], 상자(차키 치운 뒤 촬영, 목표 렌치만 덮음 — 목표는 복구 대상 아님) → []."""
+    """차키(첫 촬영에서 상자 위) → under [상자], 상자(차키 치운 뒤 촬영, 목표 렌치만 덮음 — 목표는 복구 대상 아님) → [].
+    그 촬영에 보인 물체(목표 빼고)는 seen 에 — 안 보인 물체와의 관계는 모름으로 보기 위함 (E #339 P1)."""
     _, _, result = run("occluded_top", "toy_wrench")
     assert _under(result) == {"car_key": ["caramel_box"], "caramel_box": []}
+    seen = {s["params"]["value"]["class"]: s["params"]["value"]["seen"] for s in result.steps if s["id"] == "s7.5"}
+    assert seen == {"car_key": ["car_key", "caramel_box"], "caramel_box": ["caramel_box", "car_key"]}
 
 
 def test_support_restored_then_upper_item_restored_normally():
@@ -691,6 +694,33 @@ def test_unknown_relation_but_support_restored_is_normal():
     _, _, result = _run_with(UnknownRelationOkScene("occluded_top"))
     assert result.blackboard["restore_failed"] == []
     assert _judged_origin(result) == ["caramel_box", "car_key"]
+
+
+class FirstScanMissesCaramelScene(RestorePickRefusedScene):
+    """첫 촬영(차키가 아직 원래 자리)에서 상자가 아예 검출 안 됨 — 렌치는 차키에 덮인 것으로만 보임. 차키를 치운 뒤
+    촬영부터 상자가 보임. 전달 뒤 상자 되돌리기는 집기 거부."""
+
+    def inspect(self, region, search_target):
+        out = super().inspect(region, search_target)
+        if self.objects["car_key"]["xy"] == [0.12, 0.17]:
+            out["candidates"] = [c for c in out["candidates"] if c["class"] != "caramel_box"]
+            out["target"]["occluded_by"] = ["car_key#1"]
+            out["visible_count"] -= 1
+        return out
+
+
+def test_support_unseen_in_first_scan_still_holds_upper_item():
+    """[E #339 P1] 차키를 고른 촬영에 상자가 없었으면 under 에 상자가 안 남음 → '관계 없음'이 아니라 모름(seen 에 없음)으로
+    보고, 상자 복구가 실패하면 차키도 보류 — 차키 집기·원래 자리 놓기 0회."""
+    _, robot, result = _run_with(FirstScanMissesCaramelScene("occluded_top"))
+    assert _under(result) == {"car_key": [], "caramel_box": []}
+    assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
+    deliver = next(i for i, (a, p) in enumerate(robot.calls) if a == "place_object" and p.get("location") == "handover_zone")
+    after = robot.calls[deliver + 1:]
+    assert [p for a, p in after if a == "pick_object"] == []                          # 되돌리기 집기 0회
+    assert [p for a, p in after if a == "place_object" and not p.get("check_only")] == []   # 실제 놓기 0회
+    assert "car_key" not in _judged_origin(result)
+    assert [c["class"] for c in result.blackboard["left_aside"]] == ["car_key"]
 
 
 def test_missing_under_record_holds_conservatively():
