@@ -243,12 +243,12 @@ def test_common_card_completes_formal_unpacking_with_one_direct_pick_view(monkey
     runner, robot, result = run_unpack("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED"
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
-    assert robot.placed() == ["aside_1", "aside_2", "handover_zone", "origin"]
+    assert robot.placed() == ["free", "free", "handover_zone", "origin"]   # C 태스크 free 만 (B 10/13 #265)
     view = [s for s in result.steps if s.get("parent") == "s8.t1" and s["action"] == "move_to_named_pose"]
     assert [s.get("same_pose", False) for s in view] == [True]
     assert robot.skills.scene.delivered == ["toy_wrench"] and robot.skills.scene.held is None
     assert robot.skills.scene.objects["caramel_box"]["xy"][1] == 0.14
-    assert robot.skills.scene.objects["car_key"]["xy"][1] == 0.045  # aside ≠ 원위치 복구
+    assert robot.skills.scene.objects["car_key"]["xy"] == [0.033, 0.03]  # 꺼낸 빈 자리(free) ≠ 원위치 복구
     assert runner.state["located_in"]["toy_wrench"] == "handover_zone"
     assert runner.state["open"]["drawer_top"] is False
     assert result.blackboard["restore_stack"] == [] and result.blackboard["holding"] is False

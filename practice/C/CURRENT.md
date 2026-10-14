@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-12 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
+- **Unpacking free 만 (10/14 PR, B 요청)**: s7.0·s7.3 aside 제거 [실측: 호스트 809 passed]. PC2 는 오늘 회차 비교 뒤 JSON 만 받기(`git checkout origin/main -- tasks/find_with_unpack.json`)·바뀐 회차 기록. 다음: 받침 복구 실패 시 위 물체 처리(챌린지 뒤).
 - **외력 bool 받기 (10/13 PR)**: B 계약 PR(외력 true/false) 대비 — C 는 bool 이면 B 판정 그대로, null 은 거절. 진행표 6절 TCP·툴 재선택 [실측: 호스트 809 passed].
 - **C 시험 시작 상태 독립 + 플래너 아래 칸 (10/13 PR, E #283 선행)**: `test/start_states.py`(P1_TOP·P2_SINGLE), `planner.DEFAULT_PLAN_LIMITS`(위·아래 칸, `one_open`) [실측: main 데이터 호스트 805·ROS 822 / #283 데이터 호스트 806·ROS 822 passed]. B 아래 칸 지원 확인 필요.
 - **재개 증빙 경계 (10/13 PR)**: STT 15 s·독립 요청 30 s 끝값 포함으로 E #315·#196 과 맞춤 [실측: 호스트 804 passed].

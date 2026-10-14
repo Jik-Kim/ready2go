@@ -72,21 +72,21 @@ def steps(result):
 
 
 def test_unpacks_two_delivers_and_restores_in_reverse():
-    """A #109 위 칸 시나리오(사용자 결정 10/08): 렌치 ← 캐러멜 상자 ← 차키. 집기 전에 놓을 자리부터 판단(#242):
-    차키(aside_1) → 상자(aside_1 은 차키가 있어 판단에서 거부 → aside_2 판단 통과 → aside_2 에 바로 놓음) → 렌치 전달
-    → 거꾸로 상자 원래 자리 → 차키 원래 자리는 상자와 붙어 판단에서 거부, 꺼낸 고정 자리(aside_1) 판단은 통과 → 차키는
-    집지 않고 그대로 둠(집었다 같은 자리에 다시 놓는 헛동작 없음, PC2 10/12 32초) → 닫기 → 홈."""
+    """A #109 위 칸 시나리오(사용자 결정 10/08): 렌치 ← 캐러멜 상자 ← 차키. 집기 전에 놓을 자리부터 판단(#242).
+    놓을 자리는 서랍 안 빈 자리(free)만 (B 10/13 #265 — aside 고정 자리 안 씀, PC2 10/14 S1 aside 헛판단):
+    차키(free) → 상자(free) → 렌치 전달 → 거꾸로 상자 원래 자리 → 차키 원래 자리는 상자와 붙어 판단에서 거부, 꺼낸 자리(free)
+    판단은 통과 → 차키는 집지 않고 그대로 둠(집었다 같은 자리에 다시 놓는 헛동작 없음, PC2 10/12 32초) → 닫기 → 홈."""
     runner, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
-    assert robot.placed() == ["aside_1", "aside_2", "handover_zone", "origin"]
-    assert robot.checked() == ["aside_1", "aside_1", "aside_2", "origin", "origin", "aside_1"]
+    assert robot.placed() == ["free", "free", "handover_zone", "origin"]
+    assert robot.checked() == ["free", "free", "origin", "origin", "free"]   # aside 헛판단 없음
     pick_view = [s for s in result.steps if s.get("parent") == "s8.t1" and s["action"] == "move_to_named_pose"]
     assert [bool(s.get("same_pose")) for s in pick_view] == [True]             # 방금 s7.6~7 탑뷰라 보내지 않음 (#245), 바로 집기라 두 번째 탑뷰 없음 (E 10/13 pick)
     scene = robot.skills.scene
     assert scene.delivered == ["toy_wrench"] and scene.held is None
     assert scene.objects["caramel_box"]["xy"][1] == 0.14                      # 상자는 원래 자리로
-    assert scene.objects["car_key"]["xy"][1] == 0.045                         # 차키는 꺼낸 고정 자리(aside_1)
+    assert scene.objects["car_key"]["xy"] == [0.033, 0.03]                    # 차키는 꺼낸 빈 자리(free) 그대로
     assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
     assert "서랍을 닫았어요" in robot.spoken
     state = runner.state
@@ -107,8 +107,8 @@ def test_plate_over_eraser_moves_only_the_plate():
     _, robot, result = run("plate_over_eraser", "eraser")
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["cover_plate", "eraser", "cover_plate"]
-    assert robot.placed() == ["aside_1", "handover_zone", "origin"]
-    assert robot.checked() == ["aside_1", "origin"]
+    assert robot.placed() == ["free", "handover_zone", "origin"]
+    assert robot.checked() == ["free", "origin"]
 
 
 def test_clear_target_needs_no_unpacking():
@@ -214,7 +214,7 @@ def test_restore_blocked_twice_stops_holding_without_home():
     assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "RESTORE_INCOMPLETE", "fr"), \
         steps(result)                                                        # 전달은 됐지만 복구 미완료 = 실패 (정본 137)
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]   # 차키는 되돌리기 안 함
-    assert robot.placed()[-2:] == ["origin", "aside_2"]                       # 상자: 원래 자리 → 꺼낸 자리, 둘 다 막힘
+    assert robot.placed()[-2:] == ["origin", "free"]                          # 상자: 원래 자리 → 꺼낸 자리(free), 둘 다 막힘
     assert result.blackboard["holding"] is True
     assert "물건을 옮기다 멈췄어요. 사람이 확인해 주세요" in robot.spoken
     assert ("move_to_named_pose", {"pose_name": "home"}) not in robot.calls
@@ -387,11 +387,11 @@ def test_success_tells_which_item_went_to_a_spare_slot():
     """성공: 상자는 원래 자리, 차키는 원래 자리가 상자와 붙어 막혀 꺼낸 빈 자리 → 차키만 안내·기록, 닫기 전에."""
     runner, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED", steps(result)
-    assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "aside_1"}]
+    assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "free"}]
     assert robot.spoken[-2:] == ["차키는 원래 자리 대신 옆 빈 자리에 뒀어요", "서랍을 닫았어요"]
     from ready2go_runner.core import run_report
     header = run_report.header(runner.log_store.read_run(result.run_id))
-    assert any(line.startswith("  원래 자리 대신 빈 자리: car_key(aside_1) — 원위치 복구 아님") for line in header)  # #239 E
+    assert any(line.startswith("  원래 자리 대신 빈 자리: car_key(free) — 원위치 복구 아님") for line in header)  # #239 E
 
 
 def test_target_pick_failure_restores_to_spare_slots_and_says_so():
@@ -539,12 +539,13 @@ class AsidesTakenScene(MockScene):
                                         "on": []}
 
 
-def test_both_asides_blocked_moves_obstacle_to_free_spot_then_restores():
-    """#242 수락 기준 1: 집기 전에 aside_1·aside_2 거부 → free 통과 → 그때 집어서 free 에 놓음 → 전달 → 원래 자리로."""
+def test_free_only_judges_free_spot_then_restores():
+    """#242 수락 기준 1 + B 10/13 #265(aside 안 씀): 집기 전에 free 만 판단 → 통과 → 집어서 free 에 놓음 → 전달 → 원래 자리로.
+    aside 가 막혀 있어도(AsidesTakenScene) 판단하지 않음 — PC2 10/14 S1 처럼 aside 두 번 헛판단하지 않게."""
     runner, robot, result = _run_with(AsidesTakenScene("plate_over_eraser"), "eraser")
     assert result.overall_status == "COMPLETED", steps(result)
     first_pick = next(i for i, (a, _) in enumerate(robot.calls) if a == "pick_object")
-    assert [p["slot"] for a, p in robot.calls[:first_pick] if a == "place_object"] == ["aside_1", "aside_2", "free"]
+    assert [p["slot"] for a, p in robot.calls[:first_pick] if a == "place_object"] == ["free"]
     assert robot.picked() == ["cover_plate", "eraser", "cover_plate"]
     assert robot.placed() == ["free", "handover_zone", "origin"]               # 판단한 자리에 바로 놓음
     assert result.blackboard["left_aside"] == [] and robot.skills.scene.objects["cover_plate"]["xy"][1] == 0.13
@@ -553,7 +554,7 @@ def test_both_asides_blocked_moves_obstacle_to_free_spot_then_restores():
 
 
 class NoRoomScene(MockScene):
-    """서랍 안 어디에도 놓을 데가 없음 — aside 두 곳 막힘, 빈 자리도 없음 (#242 수락 기준 2)."""
+    """서랍 안 어디에도 놓을 데가 없음 — 빈 자리 없음 (#242 수락 기준 2, aside 는 태스크가 안 씀)."""
 
     def place(self, params):
         if params.get("location") == "handover_zone":
@@ -566,7 +567,7 @@ def test_no_room_anywhere_does_not_pick_and_never_stops_holding():
     """놓을 데가 전혀 없으면 집지 않고 끝 — 쥔 채 멈추지 않고 '꺼내지 못했어요' → 닫기 → 홈."""
     _, robot, result = _run_with(NoRoomScene("plate_over_eraser"), "eraser")
     assert robot.picked() == [] and robot.placed() == []
-    assert robot.checked() == ["aside_1", "aside_2", "free"]
+    assert robot.checked() == ["free"]                                          # 빈 자리 판단 하나 (aside 안 씀)
     assert result.blackboard["sel"]["reason"] == "no_room" and result.blackboard["holding"] is False
     assert "지우개를 꺼내지 못했어요" in robot.spoken
     assert any(a == "drawer_control" and p.get("state") == "close" for a, p in robot.calls)
@@ -581,8 +582,8 @@ def test_restore_origin_blocked_leaves_item_without_picking():
     assert judged == [("SUCCESS", None), ("FAILURE", "PLACE_BLOCKED")]       # 상자 통과, 차키 거부
     restore_picks = [s["params"]["target"]["class"] for s in result.steps if s["id"] == "fr.5.1"]
     assert restore_picks == ["caramel_box"]
-    assert robot.skills.scene.objects["car_key"]["xy"] == [0.048, 0.045]      # aside_1 에 놓은 그대로 (mock 오차 3 mm)
-    assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "aside_1"}]
+    assert robot.skills.scene.objects["car_key"]["xy"] == [0.033, 0.03]       # 꺼낸 빈 자리(free)에 놓은 그대로
+    assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "free"}]
 
 
 def test_restore_judged_unpickable_is_failure_not_left_aside():
@@ -591,6 +592,6 @@ def test_restore_judged_unpickable_is_failure_not_left_aside():
     _, robot, result = _run_with(RestorePickRefusedScene("occluded_top"))
     judged = [(s["params"].get("slot") or "origin", s.get("error_code")) for s in result.steps
               if s["id"] in ("fr.5.0a", "fr.5.0b") and s["status"] == "FAILURE"]
-    assert judged == [("origin", "NEIGHBOR_TOO_CLOSE"), ("aside_2", "NEIGHBOR_TOO_CLOSE")]
+    assert judged == [("origin", "NEIGHBOR_TOO_CLOSE"), ("free", "NEIGHBOR_TOO_CLOSE")]
     assert [c["class"] for c in result.blackboard["left_aside"]] == []
     assert [c["class"] for c in result.blackboard["restore_failed"]] == ["caramel_box"]
