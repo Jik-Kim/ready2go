@@ -41,6 +41,7 @@ PUBLIC_ASSETS = frozenset(
     {
         "app.js",
         "demo-data.js",
+        "runner-status-model.js",
         "status-api.js",
         "styles.css",
     }
