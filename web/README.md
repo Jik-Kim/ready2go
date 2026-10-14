@@ -239,7 +239,7 @@ Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 `h
 
 `sources.robot`은 `/dsr01/joint_states`의 최근 유효 수신만 나타냅니다. 기본 웹 구독은 `qos_profile_sensor_data`, 기본 무수신 기준은 환경 설정 `WEB_ROBOT_TIMEOUT_SEC=2.0`입니다. 화면 문구 `로봇 관절 상태 수신`은 모션 가능, E-stop 해제, 로봇 모드, 그리퍼 또는 스킬 서버 준비를 뜻하지 않습니다. `WEB_RUNTIME_PROFILE=sim|dev`에서 발행자가 없으면 장애로 단정하지 않고 `확인 전(시뮬레이션)`으로 표시합니다.
 
-`sources.camera`는 `/wrist_cam/color/camera_info`를 `qos_profile_sensor_data`로 구독한 최근 수신 여부이며 기본 2초 timeout을 사용합니다. `sources.voice`는 간헐적인 intent 메시지 나이를 사용하지 않고 `/voice/intent` publisher endpoint 존재 여부만 나타냅니다. 따라서 Voice 정상 표시는 해당 노드의 발행 경로가 존재한다는 뜻이며 마이크·웨이크워드·STT 처리 성공을 보장하지 않습니다.
+`sources.camera`는 `/wrist_cam/color/camera_info`를 `qos_profile_sensor_data`로 구독한 최근 수신 여부이며 기본 2초 timeout을 사용합니다. `WEB_RUNTIME_PROFILE=sim|dev`에서 한 번도 수신하지 않은 미발행은 `확인 전(시뮬레이션)`으로 표시하고, 한 번 수신한 뒤 publisher가 사라지거나 timeout을 넘긴 경우에는 `카메라 정보 수신 끊김`으로 표시합니다. `sources.voice`는 간헐적인 intent 메시지 나이를 사용하지 않고 `/voice/intent` publisher endpoint 존재 여부만 나타냅니다. 따라서 Voice 정상 표시는 해당 노드의 발행 경로가 존재한다는 뜻이며 마이크·웨이크워드·STT 처리 성공을 보장하지 않습니다.
 
 publisher가 사라진 동안에는 마지막 값을 단절 진단용으로 보존합니다. 이후 publisher가 다시 발견되거나 graph 조회 사이에 publisher endpoint GID 집합이 바뀌면 이전 endpoint·boot의 메시지와 시각을 무효화하고, 새 유효 메시지를 받을 때까지 `connection_state=waiting`, `data=null`로 반환합니다. 새 publisher의 콜백이 graph 확인보다 먼저 도착한 경우에는 그 새 값을 보존합니다.
 
@@ -330,6 +330,7 @@ python3 -m pytest web/tests -q
 - JointState는 위치·속도·토크 배열을 보존하지 않고 관절 이름·개수·수신 시각만 캐시하는지
 - 로봇 source가 2초 무수신 뒤 stale/disconnected가 되고 sim/dev 미발행은 `확인 전(시뮬레이션)`으로 표시되는지
 - 카메라는 최근 2초 CameraInfo 수신, Voice는 intent 메시지 없이 publisher 존재만 표시하는지
+- sim/dev 카메라 최초 미발행은 `확인 전(시뮬레이션)`, 과거 수신 뒤 단절은 `수신 끊김`으로 구분하는지
 - 이중 시작을 거절하고 반복 종료를 안전하게 처리하는지
 - REST 성공 응답에 다섯 source의 버전·시각·조회 간격·캐시 복사와 `no-store` 헤더가 있는지
 - `/robot_state` 네 필드의 값 누락·형식 불일치를 목업으로 대체하지 않고 `확인 전`으로 표시하는지
@@ -362,6 +363,8 @@ ros2 topic info /voice/intent --verbose
 [실측] 2026-10-13 5단계까지 로컬 CycloneDDS 웹 시험 `79 passed`를 확인했습니다. 실제 저장소 원본에서 클래스 7개·물품 10개·장소 4개·목록 1개·스킬 5개·태스크 6개가 로드됐고, `/api/definitions`와 관리자/대시보드 표시에서 웹 파일 스냅샷의 출처·시각·SHA와 등록 정의 구분을 확인했습니다. 상태 REST 실패·정의 성공 순서, 정의 실패의 `확인 전` 표시, 복수 목록의 `commute_set` 선택도 브라우저에서 확인했습니다. 실제 Runner 프로세스·빠른 재기동·다중 PC·실물 장비 연결 검증은 아직 수행하지 않았습니다.
 
 [실측] 2026-10-13 카메라·Voice source 활성화 뒤 로컬 CycloneDDS 웹 시험 `89 passed`, 계약 검사 `OK`를 확인했습니다. 시험 publisher 실행 중 `/api/status`에서 카메라 `receiving`과 Voice `publisher_present=true`, 종료 뒤 카메라 2초 초과 stale/단절과 Voice `publisher_present=false`를 확인했으며 브라우저 상단 배지도 각각 정상·끊김 상태로 전환됐습니다. 이 시험은 ROS 연결 판정 검증이며 실제 카메라 영상, 마이크 입력, 웨이크워드 또는 STT 성공 검증은 아닙니다.
+
+[실측] 2026-10-14 PR #288 재검토 뒤 실제 Flask UI를 headless Chrome으로 열어 dev·sim 카메라 최초 미발행은 `확인 전(시뮬레이션)`, dev 과거 수신 뒤 단절과 real 최초 미발행은 `카메라 정보 수신 끊김`으로 표시되는 회귀 시험 4건을 확인했습니다. 카메라·Voice를 포함한 로컬 웹·DDS 전체 시험은 `93 passed`입니다.
 
 [실측] 같은 날 B 회신 반영 뒤 로컬 CycloneDDS 웹 시험 `89 passed`와 계약 검사 `OK`를 확인했습니다. dev 프로필에서 JointState 발행 전 `확인 전(시뮬레이션)`, 발행 뒤 `관절 상태 수신` 배지가 표시됐습니다. PC2 실물의 실제 QoS·100 Hz 주기와 제어기 LAN 분리 동작은 담당 실측 회신 뒤 확인합니다.
 

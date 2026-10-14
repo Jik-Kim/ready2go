@@ -258,10 +258,12 @@
     });
   }
 
-  function applyCameraConnectionSource(source) {
+  function applyCameraConnectionSource(source, runtimeProfile) {
     // CameraInfo가 최근 2초 안에 들어왔을 때만 카메라 정보 수신으로 표시한다.
     const connection = getCameraConnection();
     if (!connection) return;
+    // sim/dev의 의도된 미기동과 한 번 수신한 뒤 발생한 실제 단절을 구분한다.
+    const simulation = runtimeProfile === "sim" || runtimeProfile === "dev";
     const receivedAt = formatReceivedTime(source?.last_valid_received_at);
     if (source?.last_error) {
       Object.assign(connection, {
@@ -276,6 +278,16 @@
         status: "ok",
         statusLabel: "카메라 정보 수신",
         description: `/wrist_cam/color/camera_info 최근 수신 ${receivedAt}`,
+      });
+      return;
+    }
+    // sim/dev에서 한 번도 받은 적 없는 미발행만 장애로 표시하지 않는다. 과거 수신
+    // 기록이 있으면 아래의 `수신 끊김`으로 내려 카메라 단절을 숨기지 않는다.
+    if (simulation && source?.publisher_present !== true && source?.message_received !== true) {
+      Object.assign(connection, {
+        status: "waiting",
+        statusLabel: "확인 전(시뮬레이션)",
+        description: `${runtimeProfile} 프로필에서 카메라 publisher를 실행하지 않았습니다.`,
       });
       return;
     }
@@ -643,7 +655,7 @@
     // B의 관절 상태는 Runner 기억 상태와 별도 연결 진단으로 상단 로봇 배지에만 반영한다.
     applyRobotConnectionSource(robotConnectionSource, payload.runtime_profile, payload.robot_topic);
     // 카메라 최근 수신과 Voice publisher 존재를 각각의 상단 장치 배지에 반영한다.
-    applyCameraConnectionSource(cameraConnectionSource);
+    applyCameraConnectionSource(cameraConnectionSource, payload.runtime_profile);
     applyVoiceConnectionSource(voiceConnectionSource);
     // 정의 연결 여부를 상태 연결과 구분해 현재 화면에 실제인 범위를 정확히 설명한다.
     const definitionText = state.definitionsLive
