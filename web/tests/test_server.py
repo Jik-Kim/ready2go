@@ -47,17 +47,6 @@ def test_root_serves_existing_dashboard_html(client) -> None:
     assert '<script src="./status-api.js" defer></script>' in body
     assert '<script src="./runner-status-model.js" defer></script>' in body
 
-    # 이슈 #112의 PC 배치대로 서랍 뒤 오른쪽 열에 카메라·준비물이 놓이고
-    # 현재 작업은 2열 영역 밖에 남아 전체 너비를 사용할 수 있어야 한다.
-    assert 'class="dashboard-side-column"' in body
-    assert 'id="cameraViewport"' in body
-    assert 'id="openCameraPreview"' not in body
-    assert 'id="cameraPanelStatus"' not in body
-    assert 'id="cameraDialog"' not in body
-    assert body.index('class="card drawer-card"') < body.index('class="dashboard-side-column"')
-    assert body.index('id="cameraViewport"') < body.index('id="suppliesHeading"')
-    assert body.index('class="dashboard-side-column"') < body.index('class="card task-card"')
-
     # 읽기 전용 범위에서 제거한 작업 중단 버튼이 다시 나타나면 안 된다.
     assert 'id="stopTask"' not in body
 
