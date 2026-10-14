@@ -2580,8 +2580,9 @@ class SkillServer(Node):
         objs = [dict(o, occluded_by=list(o.get("occluded_by") or [])) for o in objs]
         tid = (scan.get("target") or {}).get("id") if scan.get("target_found") else None
         pl = prm.get("place") or {}
-        # 놓은 물체는 나중에 원래 자리로 되돌려야 함(unpack·Runner) → 다시 집을 수 있는 자리만, 비전 오차만큼 어긋나도 집히는 곳
-        # [PC2 10/14 S1 RESTORE_INCOMPLETE: 옆벽 가까이 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE — #196·#260]
+        # 놓은 물체는 나중에 원래 자리로 되돌려야 함(unpack·Runner) → 다시 집을 수 있는 자리(비전 오차만큼 어긋나도 집히는 곳)를 먼저
+        # [PC2 10/14 S1 RESTORE_INCOMPLETE: 옆벽 가까이 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE — #196·#260]. 없으면
+        # free_repickable_only false 일 때 놓기만 되는 자리 — 원복 때 부르는 쪽이 넛지 뒤 집기 [사용자 10/14 PC2 통합]
         cfg = clp.Config(interior_m=place["interior_m"], frame=loc, size_of=self._size_cached(),
                          round_classes=tuple(prm["pick"].get("round_classes") or ()),
                          reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(loc) or 0.0) / 1000.0 or None,
