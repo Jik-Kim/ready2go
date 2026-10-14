@@ -1,9 +1,10 @@
 # CURRENT — C 이영훈
 
 - **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P2 (P1 통합 실험 10/08 종료)
-- **최종 갱신**: 2026-10-12 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
+- **최종 갱신**: 2026-10-14 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
+- **실패 결과·정리 전 원인 안내 (10/14 PR #346, E 요청)**: ① 치울 물건을 못 옮겨 목표를 못 꺼내면 `NO_FREE_SPACE` → FAILED(예전 COMPLETED) ② 일반 실패면 Runner 가 finally 시작 때 `run_failure` → `fx` 가 닫기·복구·홈 전에 원인 한 문장(`core/failure_speech.py`, 문구 E 대조) ③ 보고서 끌기 실패 문구. [실측: mock 호스트 829·ROS 843, CI 3216] **미연결(E #346 재검토 P1)**: 음성 제어 연결(`--control`/`--p2`)에서는 E 게이트가 첫 수락 안내 뒤 Runner 후속 speak 를 거절 → 원인 안내가 실제로 안 들림(넘어감, 결과 영향 없음) — E·C 후속(E #351), 새 문장 사전 캐시 E 후속. PC2 는 Runner Python 이라 pull 필요.
 - **Unpacking free 만 (10/14 PR, B 요청)**: s7.0·s7.3 aside 제거 [실측: 호스트 809 passed]. PC2 는 오늘 회차 비교 뒤 JSON 만 받기(`git checkout origin/main -- tasks/find_with_unpack.json`)·바뀐 회차 기록. 다음: 받침 복구 실패 시 위 물체 처리(챌린지 뒤).
 - **외력 bool 받기 (10/13 PR)**: B 계약 PR(외력 true/false) 대비 — C 는 bool 이면 B 판정 그대로, null 은 거절. 진행표 6절 TCP·툴 재선택 [실측: 호스트 809 passed].
 - **C 시험 시작 상태 독립 + 플래너 아래 칸 (10/13 PR, E #283 선행)**: `test/start_states.py`(P1_TOP·P2_SINGLE), `planner.DEFAULT_PLAN_LIMITS`(위·아래 칸, `one_open`) [실측: main 데이터 호스트 805·ROS 822 / #283 데이터 호스트 806·ROS 822 passed]. B 아래 칸 지원 확인 필요.
