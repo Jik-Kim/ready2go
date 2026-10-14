@@ -569,12 +569,15 @@ class NoRoomScene(MockScene):
 
 
 def test_no_room_anywhere_does_not_pick_and_never_stops_holding():
-    """놓을 데가 전혀 없으면 집지 않고 끝 — 쥔 채 멈추지 않고 '꺼내지 못했어요' → 닫기 → 홈."""
+    """놓을 데가 전혀 없으면 집지 않고 끝 — 쥔 채 멈추지 않고 '꺼내지 못했어요' → 닫기 → 홈.
+    실행 결과는 FAILED · NO_FREE_SPACE (E #196 10/14 — 예전엔 COMPLETED 로 찍혀 목표 미전달을 성공으로 보였음)."""
     _, robot, result = _run_with(NoRoomScene("plate_over_eraser"), "eraser")
     assert robot.picked() == [] and robot.placed() == []
     assert robot.checked() == ["free"]                                          # 빈 자리 판단 하나 (aside 안 씀)
     assert result.blackboard["sel"]["reason"] == "no_room" and result.blackboard["holding"] is False
-    assert "지우개를 꺼내지 못했어요" in robot.spoken
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "NO_FREE_SPACE", "s7.0c")
+    assert "위에 있는 물건을 옮기지 못해서 지우개를 꺼내지 못했어요" in robot.spoken
+    assert result.blackboard["run_failure"] is None                              # 태스크가 정한 실패 — 원인 안내는 s8.n1 이 이미 함
     assert any(a == "drawer_control" and p.get("state") == "close" for a, p in robot.calls)
     assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
     assert not any(s.get("fallback_stopped") for s in result.steps)             # 판단 거부는 움직이기 전 → 다음 대안
@@ -766,3 +769,121 @@ def test_restore_keeps_item_where_it_is_without_searching_other_free_spot():
     assert result.overall_status == "COMPLETED" and result.blackboard["restore_failed"] == []
     assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "free"}]
     assert robot.skills.scene.objects["car_key"]["xy"] == [0.033, 0.03]      # 집지 않고 그대로
+
+
+# ---- 실패 원인 안내 (E #196 10/14): 일반 실패면 정리(복구·닫기·홈) 전에 원인 한 문장, 정지·성공이면 안 함 ----
+
+def _order(result, *ids):
+    seq = [s["id"] for s in result.steps]
+    return [seq.index(i) for i in ids]
+
+
+def test_camera_timeout_cause_spoken_before_close():
+    _, robot, result = run("occluded_top", "toy_wrench", {"inspect_region": ["CAMERA_TIMEOUT", 2]})
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "CAMERA_TIMEOUT", "s4")
+    assert result.blackboard["run_failure"] == {"code": "CAMERA_TIMEOUT", "step": "s4", "action": "inspect_region",
+                                                "text": "카메라 영상이 제때 오지 않아서 멈췄어요"}
+    fx, close = _order(result, "fx.1", "f2")
+    assert fx < close                                                             # 닫기 전에
+    assert robot.spoken.index("카메라 영상이 제때 오지 않아서 멈췄어요") < robot.spoken.index("서랍을 닫았어요")
+
+
+def test_place_failure_while_holding_says_cause_and_still_skips_home():
+    _, robot, result = run("occluded_top", "toy_wrench", {"place_object": ["NOT_REACHED", 1]})
+    assert (result.overall_status, result.error_code) == ("FAILED", "NOT_REACHED")
+    assert result.blackboard["run_failure"]["text"] == "물건 놓기에 실패해서 멈췄어요"
+    assert "물건 놓기에 실패해서 멈췄어요" in robot.spoken
+    assert ("move_to_named_pose", {"pose_name": "home"}) not in robot.calls     # 쥔 채 정리 조건은 그대로
+
+
+class CauseSpeakFails(SceneRobot):
+    def call_action(self, name, params_json, timeout_sec):
+        text = json.loads(params_json).get("text", "") if name == SPEAK_ACTION else ""
+        if "멈췄어요" in text:
+            self.spoken.append(text)
+            return Reply(False, "TTS_FAILED")
+        return super().call_action(name, params_json, timeout_sec)
+
+
+def test_cause_speak_failure_keeps_original_error_and_cleanup():
+    robot = CauseSpeakFails("occluded_top", {"inspect_region": ["CAMERA_TIMEOUT", 2]})
+    runner = Runner(None, schema=SCHEMA, ontology=ONTOLOGY, log_store=MemoryLogStore())
+    runner.execute = RosBackend(robot.call_action, robot.call_service, lambda: runner.state, ONTOLOGY["world"])
+    result = runner.run(TASK, {"target": "toy_wrench"})
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "CAMERA_TIMEOUT", "s4")
+    assert [s["status"] for s in result.steps if s["id"] == "fx.1"] == ["FAILURE"]
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})      # 닫기·홈 그대로
+
+
+def test_estop_and_success_do_not_speak_cause():
+    _, robot, result = run("occluded_top", "toy_wrench", {"place_object": ["ESTOP", 1]})
+    assert result.overall_status == "ABORTED" and result.blackboard["run_failure"] is None
+    assert not [s for s in result.steps if s["id"] == "fx.1"]
+    _, robot, result = run("occluded_top", "toy_wrench")
+    assert result.overall_status == "COMPLETED" and result.blackboard["run_failure"] is None
+    assert not [s for s in result.steps if s["id"] == "fx.1"]
+
+
+# ---- 복구 원복 넛지 (B 요청 10/14): 지금 자리 판단이 WALL_TOO_CLOSE 면 끌기 → 다시 찍기·찾기 → 다시 판단 (최대 2번) ----
+
+class WallAfterDeliveryScene(MockScene):
+    """전달 뒤 상자가 벽에 붙어 집기가 WALL_TOO_CLOSE (놓기만 되는 자리에 둔 경우, #345). 끌 때마다 y 로 step_m 옮김 —
+    pushes_needed 번 끌어야 집힘. nudge_code 면 끌기 실패(움직이기 전)."""
+
+    def __init__(self, pushes_needed=1, step_m=0.012, nudge_code=None):
+        super().__init__("occluded_top")
+        self.pushes_needed, self.step_m, self.nudge_code, self.pushes = pushes_needed, step_m, nudge_code, 0
+
+    def pick_refusal(self, target):
+        if self.delivered and target.get("class") == "caramel_box" and self.pushes < self.pushes_needed:
+            return "WALL_TOO_CLOSE"
+        return super().pick_refusal(target)
+
+    def nudge(self, params):
+        if self.nudge_code:
+            return False, self.nudge_code, {"pushed": False, "push_vector_m": [0.0, 0.0], "target_after": None}
+        target = json.loads(json.dumps(params["target"]))
+        cls = target["class"]
+        self.objects[cls]["xy"] = [self.objects[cls]["xy"][0], round(self.objects[cls]["xy"][1] + self.step_m, 4)]
+        self.pushes += 1
+        target["pose"]["position"] = [self.objects[cls]["xy"][0], self.objects[cls]["xy"][1], 0.0]
+        return True, "", {"pushed": True, "push_vector_m": [0.0, self.step_m], "target_after": target}
+
+
+def _nudges(robot):
+    return [p["target"]["class"] for a, p in robot.calls if a == "nudge_object"]
+
+
+def test_restore_nudges_wall_item_then_restores_to_origin():
+    _, robot, result = _run_with(WallAfterDeliveryScene())
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert _nudges(robot) == ["caramel_box"]
+    assert [s["status"] for s in result.steps if s["id"] == "fr.5.w6"] == ["SUCCESS"]
+    assert robot.picked()[3:] == ["caramel_box"]                                   # 끈 뒤 상자 집어 원래 자리로 (차키는 평소대로 판단)
+    assert robot.skills.scene.objects["caramel_box"]["xy"][1] == 0.14
+    assert "caramel_box" in [r["class"] for r in result.blackboard["restored"]]
+
+
+def test_restore_nudge_failure_is_restore_failure_without_pick():
+    _, robot, result = _run_with(WallAfterDeliveryScene(nudge_code="NO_PUSH_ACCESS"))
+    assert (result.overall_status, result.error_code) == ("FAILED", "RESTORE_INCOMPLETE")
+    assert _nudges(robot) == ["caramel_box"]
+    assert "caramel_box" not in robot.picked()[3:]
+    assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
+    assert [c["class"] for c in result.blackboard["left_aside"]] == ["car_key"]   # 받침 실패 → 위 물체 보류 (#339)
+    assert result.blackboard["holding"] is False and robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+
+
+def test_restore_nudges_at_most_twice_and_refinds_after_each_push():
+    """끌 때마다 15 mm — 두 번이면 처음 놓은 자리에서 30 mm(reid_tol 20 mm 밖)지만 끈 뒤 예상 위치로 기록을 바꿔 매번 다시 찾음."""
+    _, robot, result = _run_with(WallAfterDeliveryScene(pushes_needed=3, step_m=0.015))
+    assert _nudges(robot) == ["caramel_box", "caramel_box"]
+    assert [(s.get("result") or s.get("output"))["status"] for s in result.steps if s["id"] == "fr.5.w6"] == ["found", "found"]
+    assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
+    assert "caramel_box" not in robot.picked()[3:]
+
+
+def test_other_restore_refusals_do_not_nudge():
+    _, robot, result = _run_with(RestorePickRefusedScene("occluded_top"))   # NEIGHBOR_TOO_CLOSE
+    assert _nudges(robot) == []
+    assert not [s for s in result.steps if s["id"] == "fr.5.w2"]

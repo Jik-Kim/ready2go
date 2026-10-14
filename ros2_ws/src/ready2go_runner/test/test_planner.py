@@ -161,6 +161,9 @@ def test_plan_failure_runs_safe_finally():
     assert (result.overall_status, result.error_code) == ("FAILED", "GRASP_FAILED")
     final = {s["id"]: s.get("status") for s in result.steps if s["id"].startswith("f")}
     assert final["fc.1"] == "SUCCESS" and final["fh.1"] == "SUCCESS"                     # 끝나지 못함 → 서랍 닫기·홈
+    order = [s["id"] for s in result.steps]
+    assert final["fx.1"] == "SUCCESS" and order.index("fx.1") < order.index("fc.1")   # 원인 안내가 닫기 전 (E #196 10/14)
+    assert robot.spoken[-1] == "물건 집기에 실패해서 멈췄어요"
     assert runner.state["open"]["drawer_top"] is False and runner.state["located_in"]["eraser"] == "drawer_top"
 
 

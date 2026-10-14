@@ -270,7 +270,11 @@ def to_task(result: PlanResult, task_id: str = "plan", timeouts: dict[str, float
     sequence.append({"id": f"p{len(result.steps) + 1}", "action": "set_var",
                      "params": {"name": "plan_done", "value": True}})
     opened = sorted({s.params.get("drawer_id") for s in result.steps if s.skill == "open_drawer"} - {None})
-    final = [{"id": "f1", "action": "query_ontology", "params": {"state": "gripper.robot"}, "output": "hold"}]
+    final = [{"id": "f1", "action": "query_ontology", "params": {"state": "gripper.robot"}, "output": "hold"},
+             # 일반 실패면 정리(닫기·홈) 전에 원인 한 문장 — Runner 가 finally 시작 때 넣는 run_failure (정지·취소·성공이면 null, E #196 10/14)
+             {"id": "fx", "action": "if", "on_failure": "skip", "cond": {"op": "!=", "args": ["$run_failure", None]},
+              "then": [{"id": "fx.1", "action": "speak", "params": {"text": "$run_failure.text"}, "on_failure": "skip",
+                        "timeout_sec": 20}]}]
     closes = []
     for n, drawer in enumerate(opened, 1):
         step = {"id": f"fc.{n}", "skill": "close_drawer", "params": {"drawer_id": drawer}, "on_failure": "skip"}

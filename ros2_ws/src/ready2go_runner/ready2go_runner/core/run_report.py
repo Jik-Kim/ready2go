@@ -157,8 +157,10 @@ def _detail_text(step: dict) -> str:
             after = (result.get("target_after") or {}).get("pose", {}).get("position")
             if after:
                 text += f" → 예상 위치 ({float(after[0]) * 1000:.0f}, {float(after[1]) * 1000:.0f}) mm"
-        else:
+        elif step.get("status") == "SUCCESS":
             text = "끌 필요 없음"
+        else:                                          # 실패에 pushed=false 만으로 B 의 '필요 없음' 판정을 추론하지 않음 (E #196 10/14)
+            text = "끌지 않음(실패)"
     elif action == "pick_object" and result:
         if "grasp_ok" in result:                       # 값이 없으면 판단을 적지 않음 (없음 ≠ 못 잡음)
             text = "잡음" if result["grasp_ok"] else "못 잡음"

@@ -36,6 +36,7 @@ from typing import Any, Callable
 
 from ready2go_knowledge.core import ontology
 
+from . import failure_speech
 from .conditions import BadCondition, evaluate
 from .log_records import new_run_id, run_document, step_document, utc_iso
 from .logstore import LogStore
@@ -109,6 +110,7 @@ def stop_state(info: dict, in_run: bool) -> str:
 # 태스크가 정리 동작(닫기·홈)을 멈추지 않고 실행 결과만 실패로 남길 때 쓰는 블랙보드 변수 {code, step}
 # (예: find_with_unpack 복구 미완료 RESTORE_INCOMPLETE — 정본 requirements 137 "복구 실패면 전체 FAILED")
 TASK_ERROR_VAR = "task_error"
+RUN_FAILURE_VAR = "run_failure"          # finally 시작 때 sequence 실패 원인 {code, step, action, text} — 정리 전 원인 안내 (E #196 10/14)
 ABORT_SAFE_ACTIONS = {"set_var", "if", "speak", "query_ontology", "update_ontology"}
 # skill 스텝 (#12): 온톨로지 primitive 스킬. 로봇을 움직이므로 ABORTED 때는 건너뜀
 UNKNOWN_SKILL = "UNKNOWN_SKILL"         # 온톨로지에 없거나 primitive 가 아닌 스킬 (P1 은 primitive 만)
@@ -456,6 +458,9 @@ class Runner:
     def _run_finally(self, ctx: _Run, error: StepFailed | Halted | None) -> RunResult:
         blackboard, records = ctx.blackboard, ctx.records
         self._in_finally, self._in_run = True, True
+        # 정지·취소(Halted)는 안내를 기다리지 않음 — 일반 실패(StepFailed)일 때만 원인을 블랙보드에 (공개 상태 계약 아님)
+        blackboard[RUN_FAILURE_VAR] = (_failure_view(error, records)
+                                       if isinstance(error, StepFailed) and not self._aborted else None)
         try:
             self._run_steps(ctx.task.get("finally", []), blackboard, records)
             self._check_halt(records[-1]["id"] if records else "")
@@ -1063,6 +1068,18 @@ class Runner:
         finally:
             record["duration_sec"] = round(self.clock() - started, 3)
             self._log_step(record)
+
+
+def _failure_view(error: StepFailed, records: list[dict]) -> dict | None:
+    """sequence 실패 원인 + 실패한 스텝의 동작(스킬이면 스킬 이름) + 안내 문장. 문장이 없으면(안내 자체 실패) None."""
+    rec = next((r for r in reversed(records) if r.get("id") == error.step_id), {})
+    action = rec.get("action")
+    if action == "skill":
+        action = rec.get("skill")
+    said = failure_speech.text(error.code, action)
+    if said is None:
+        return None
+    return {"code": error.code, "step": error.step_id, "action": action, "text": said}
 
 
 def _marked_error(blackboard: dict) -> StepFailed | None:
