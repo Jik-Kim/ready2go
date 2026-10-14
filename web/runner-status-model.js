@@ -177,6 +177,11 @@
       return connectionResult(UNLINKED, "run_id_mismatch");
     }
 
+    // 파서가 선택 필드로 허용한 null task_id는 동일 태스크라는 근거가 될 수 없다.
+    if (lastIntent.value.taskId === null || lastResult.value.taskId === null) {
+      return connectionResult(UNLINKED, "task_id_missing");
+    }
+
     // 같은 실행 ID라도 태스크가 다르면 모순된 요청·결과이므로 현재 요청의 결과로 쓰지 않는다.
     if (lastIntent.value.taskId !== lastResult.value.taskId) {
       return connectionResult(UNLINKED, "task_id_mismatch");

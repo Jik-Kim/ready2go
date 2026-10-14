@@ -225,14 +225,14 @@ def test_runner_records_distinguish_valid_absent_and_invalid_values(tmp_path: Pa
 def test_runner_records_link_only_an_accepted_request_with_matching_ids(tmp_path: Path) -> None:
     """같은 실행·태스크 ID만 연결하고 불일치·누락·비실행 결정을 분리한다."""
     # 각 사례는 실제 Runner 필드 전체를 넣어 파싱과 연결 판정을 한 번에 검증한다.
-    def intent(decision: str, run_id: str | None) -> dict:
-        # 요청별로 달라지는 결정과 실행 ID 외 필드는 정상 계약값으로 고정한다.
+    def intent(decision: str, run_id: str | None, task_id: str | None = "find_item") -> dict:
+        # 요청별로 달라지는 결정·실행 ID·태스크 ID 외 필드는 정상 계약값으로 고정한다.
         return {
             "intent": "find_item",
             "targets": ["wallet"],
             "decision": decision,
             "reason": None,
-            "task_id": "find_item",
+            "task_id": task_id,
             "request_id": "request-link-test",
             "run_id": run_id,
         }
@@ -254,13 +254,18 @@ def test_runner_records_link_only_an_accepted_request_with_matching_ids(tmp_path
         {"last_intent": intent("run", "run-002"), "last": result("run-previous")},
         # 실행 ID가 같아도 태스크가 다르면 모순된 결과이므로 연결하지 않는다.
         {"last_intent": intent("run", "run-002"), "last": result("run-002", "different_task")},
+        # 양쪽 task_id가 모두 null이어도 동일 태스크라는 근거가 없으므로 연결하지 않는다.
+        {"last_intent": intent("run", "run-003", None), "last": result("run-003", None)},
+        # 한쪽 task_id만 null인 두 방향도 값 불일치보다 누락으로 먼저 분류한다.
+        {"last_intent": intent("run", "run-004", None), "last": result("run-004")},
+        {"last_intent": intent("run", "run-005"), "last": result("run-005", None)},
         # run 결정에 ID가 없으면 결과 ID를 현재 요청에 추정해 넣지 않는다.
-        {"last_intent": intent("run", None), "last": result("run-003")},
+        {"last_intent": intent("run", None), "last": result("run-006")},
         # hold와 reject는 과거 결과 ID가 우연히 같아도 실행 결과로 연결하지 않는다.
-        {"last_intent": intent("hold", None), "last": result("run-004")},
-        {"last_intent": intent("reject", None), "last": result("run-005")},
+        {"last_intent": intent("hold", None), "last": result("run-007")},
+        {"last_intent": intent("reject", None), "last": result("run-008")},
         # 수락된 실행이 진행 중이라 결과가 없으면 요청만 유지한다.
-        {"last_intent": intent("run", "run-006"), "last": None},
+        {"last_intent": intent("run", "run-009"), "last": None},
     ]
 
     outputs = _evaluate_runner_model(tmp_path, cases)
@@ -273,6 +278,9 @@ def test_runner_records_link_only_an_accepted_request_with_matching_ids(tmp_path
     assert [output["connection"]["reason"] for output in outputs[1:]] == [
         "run_id_mismatch",
         "task_id_mismatch",
+        "task_id_missing",
+        "task_id_missing",
+        "task_id_missing",
         "run_id_missing",
         "non_run_decision",
         "non_run_decision",
