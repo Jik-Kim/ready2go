@@ -80,7 +80,7 @@ def test_unpacks_two_delivers_and_restores_in_reverse():
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
     assert robot.placed() == ["free", "free", "handover_zone", "origin"]
-    assert robot.checked() == ["free", "free", "origin", "origin", "origin"]   # 마지막 = 차키 지금 자리 판단(pose, fr.5.0b)   # aside 헛판단 없음
+    assert robot.checked() == ["free", "free", "origin", "origin", "origin", "origin"]   # 3번째 = 목표 집기 전 판단(s8.q1), 마지막 = 차키 지금 자리 판단(fr.5.0b)   # aside 헛판단 없음
     pick_view = [s for s in result.steps if s.get("parent") == "s8.t1" and s["action"] == "move_to_named_pose"]
     assert [bool(s.get("same_pose")) for s in pick_view] == [True]             # 방금 s7.6~7 탑뷰라 보내지 않음 (#245), 바로 집기라 두 번째 탑뷰 없음 (E 10/13 pick)
     scene = robot.skills.scene
@@ -99,7 +99,8 @@ def test_restore_uses_original_pose_not_where_it_was_placed():
     _, robot, _ = run("occluded_top", "toy_wrench")
     restore = [(p["pose"]["position"][:2], bool(p.get("check_only"))) for a, p in robot.calls
                if a == "place_object" and "pose" in p]
-    assert restore == [([0.12, 0.14], True), ([0.12, 0.14], False), ([0.12, 0.17], True),   # 차키 원래 자리는 판단에서 막힘
+    assert restore == [([0.12, 0.13], True),                       # 목표(렌치) 집기 전 판단 — 지금 자리 그대로 (s8.q1, 공간 만들기 필요?)
+                       ([0.12, 0.14], True), ([0.12, 0.14], False), ([0.12, 0.17], True),   # 차키 원래 자리는 판단에서 막힘
                        ([0.033, 0.03], True)]                     # → 차키 지금 자리(다시 찍은 위치) 판단 (fr.5.0b)
 
 
@@ -109,7 +110,7 @@ def test_plate_over_eraser_moves_only_the_plate():
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["cover_plate", "eraser", "cover_plate"]
     assert robot.placed() == ["free", "handover_zone", "origin"]
-    assert robot.checked() == ["free", "origin"]
+    assert robot.checked() == ["free", "origin", "origin"]                      # 목표 집기 전 판단(s8.q1) + 판 원래 자리
 
 
 def test_clear_target_needs_no_unpacking():
@@ -887,3 +888,155 @@ def test_other_restore_refusals_do_not_nudge():
     _, robot, result = _run_with(RestorePickRefusedScene("occluded_top"))   # NEIGHBOR_TOO_CLOSE
     assert _nudges(robot) == []
     assert not [s for s in result.steps if s["id"] == "fr.5.w2"]
+
+
+# ---- 목표 공간 만들기 (B 요청 10/14, #260 7절): 목표 집기 NEIGHBOR_TOO_CLOSE → make_room 한 동작 → 다시 찍기 (최대 4) ----
+
+class NeighborScene(MockScene):
+    """맨 위 차키(목표)가 옆 물체에 막혀 집기 NEIGHBOR_TOO_CLOSE. make_room 을 sweeps 번 하면 집힘.
+    moves=False 면 목표가 안 움직임(remove_first 를 받으면 움직임 — stuck_after_remove 면 그래도 안 움직임)."""
+
+    def __init__(self, sweeps=1, moves=True, stuck_after_remove=False, code=None):
+        super().__init__("occluded_top")
+        self.objects["car_key"].update(on=[])                                     # 셋 다 바닥에 따로 (16:19 처럼)
+        self.objects["caramel_box"].update(xy=[0.12, 0.10], on=[])
+        self.objects["toy_wrench"].update(xy=[0.05, 0.25])
+        self.sweeps, self.moves, self.stuck_after_remove, self.code = sweeps, moves, stuck_after_remove, code
+        self.done, self.remove_flags = 0, []
+
+    def pick_refusal(self, target):
+        if target.get("class") == "car_key" and self.done < self.sweeps:
+            return "NEIGHBOR_TOO_CLOSE"
+        return super().pick_refusal(target)
+
+    def nudge(self, params):
+        if not params.get("make_room"):
+            return super().nudge(params)
+        self.remove_flags.append(bool(params.get("remove_first")))
+        if self.code:
+            return False, self.code, {"pushed": False, "push_vector_m": [0.0, 0.0], "target_after": None}
+        move = self.moves or (params.get("remove_first") and not self.stuck_after_remove)
+        pushed_after = []
+        if move:                                  # 목표를 밀고 캐러멜도 같이 밀림 (B 계약: pushed_ids·pushed_after)
+            for cls in ("car_key", "caramel_box"):
+                self.objects[cls]["xy"] = [self.objects[cls]["xy"][0], round(self.objects[cls]["xy"][1] - 0.01, 4)]
+            self.done += 1
+            x, y = self.objects["caramel_box"]["xy"]
+            pushed_after = [{"id": "caramel_box#1", "frame": "drawer_top", "position": [x, y, 0.0],
+                             "yaw": self.objects["caramel_box"]["yaw"]}]
+        return True, "", {"pushed": bool(move), "push_vector_m": [0.0, -0.01 if move else 0.0], "target_after": None,
+                          "make_room": {"action": "sweep", "reason": "목표 밀기", "moved_id": "car_key#1" if move else None,
+                                        "pushed_ids": ["caramel_box#1"] if move else [], "pushed_after": pushed_after,
+                                        "ready_to_pick": self.done >= self.sweeps}}
+
+
+def _room_records(result):
+    return [s["params"]["value"]["class"] for s in result.steps if s["id"] in ("s8.m9c", "s8.m10e")]
+
+
+def test_target_neighbor_makes_room_once_then_picks():
+    """sweep 1번 → 집기. 같이 밀린 캐러멜은 이동 전 자리로 복구 목록에 들어가 정리 때 다시 찾아 되돌림 (E #352 P1 2)."""
+    _, robot, result = _run_with(NeighborScene(), "car_key")
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.skills.scene.remove_flags == [False]
+    assert robot.picked()[0] == "car_key" and robot.skills.scene.delivered == ["car_key"]
+    assert [m["action"] for m in result.blackboard["room_made"]] == ["sweep"]
+    assert _room_records(result) == ["caramel_box"]                             # 목표(moved_id = 차키)는 복구 대상 아님
+    assert [s["status"] for s in result.steps if s["id"] == "fr.4"] == ["SUCCESS"]   # 밀린 자리에서 다시 찾음
+    assert result.blackboard["restore_failed"] == []
+
+
+def test_target_neighbor_repeats_until_ready_to_pick():
+    _, robot, result = _run_with(NeighborScene(sweeps=2), "car_key")
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.skills.scene.remove_flags == [False, False]                    # 목표가 움직였으니 remove_first 안 씀
+
+
+def test_target_not_moving_switches_to_remove_first():
+    _, robot, result = _run_with(NeighborScene(moves=False), "car_key")
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.skills.scene.remove_flags == [False, False, True]              # 같은 sweep·같은 이유 두 번, 목표 그대로 → remove_first
+
+
+def test_still_stuck_after_remove_first_stops_and_pick_refuses():
+    _, robot, result = _run_with(NeighborScene(moves=False, stuck_after_remove=True), "car_key")
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "NEIGHBOR_TOO_CLOSE", "s8.t1.e3.o1.1"), steps(result)
+    assert robot.skills.scene.remove_flags == [False, False, True]              # remove_first 뒤에도 그대로 → 네 번째는 안 부름
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+
+
+def test_make_room_at_most_four_times():
+    _, robot, result = _run_with(NeighborScene(sweeps=9), "car_key")
+    assert (result.overall_status, result.error_code) == ("FAILED", "LOOP_LIMIT")
+    assert len(robot.skills.scene.remove_flags) == 4
+    assert "car_key" not in robot.picked() and robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+    assert _room_records(result) == ["caramel_box"] * 4                         # 밀린 캐러멜은 실패해도 복구 목록으로 되돌림 시도
+
+
+def test_make_room_refusal_fails_with_its_code_and_cleans_up():
+    _, robot, result = _run_with(NeighborScene(code="NO_PUSH_ACCESS"), "car_key")
+    assert (result.overall_status, result.error_code) == ("FAILED", "NO_PUSH_ACCESS")
+    assert any(a == "drawer_control" and p.get("state") == "close" for a, p in robot.calls)
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+
+
+def test_other_target_pick_failures_do_not_make_room():
+    _, robot, result = run("occluded_top", "car_key", {"pick_object": ["GRASP_FAILED", 2]})
+    assert result.overall_status == "FAILED"
+    assert not [p for a, p in robot.calls if a == "nudge_object" and p.get("make_room")]
+
+
+class RemoveNeighborsScene(MockScene):
+    """[E #352 P1 1 재현] 목표(차키)는 그대로인데 make_room 이 막는 이웃을 하나씩 빈 자리로 옮김(remove, 이유가 매번 다름) — 셋 다 옮기면 집힘."""
+
+    def __init__(self):
+        super().__init__("occluded_top")
+        self.objects["car_key"].update(on=[])
+        self.objects["caramel_box"].update(xy=[0.12, 0.10], on=[])
+        self.objects["toy_wrench"].update(xy=[0.06, 0.17])
+        self.objects["lip_balm"] = {"xy": [0.17, 0.17], "yaw": 0.0, "top_z": 0.02, "height": 0.02, "area": 0.0014, "on": []}
+        self.queue = [("caramel_box", [0.04, 0.05]), ("toy_wrench", [0.04, 0.25]), ("lip_balm", [0.17, 0.25])]
+        self.remove_flags = []
+
+    def pick_refusal(self, target):
+        if target.get("class") == "car_key" and self.queue:
+            return "NEIGHBOR_TOO_CLOSE"
+        return super().pick_refusal(target)
+
+    def nudge(self, params):
+        if not params.get("make_room"):
+            return super().nudge(params)
+        self.remove_flags.append(bool(params.get("remove_first")))
+        cls, xy = self.queue.pop(0)
+        self.objects[cls]["xy"] = xy
+        after = {"frame": "drawer_top", "position": [xy[0], xy[1], 0.0], "yaw": 0.0}
+        return True, "", {"pushed": False, "push_vector_m": [0.0, 0.0], "target_after": None,
+                          "make_room": {"action": "remove", "reason": f"막는 {cls}#1 → 빈 자리", "moved_id": f"{cls}#1",
+                                        "moved_after": after, "pushed_ids": [], "pushed_after": [],
+                                        "ready_to_pick": not self.queue}}
+
+
+def test_removing_different_neighbors_is_progress_not_stuck():
+    """목표가 그대로여도 remove(목표를 안 움직이는 동작)·이유가 매번 다르면 정체가 아님 → remove_first·멈춤 없이 셋 다 치우고 집기.
+    옮긴 이웃 셋은 이동 전 자리로 복구 목록에 들어가 역순으로 되돌림 (E #352 P1 1·2)."""
+    _, robot, result = _run_with(RemoveNeighborsScene(), "car_key")
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert robot.skills.scene.remove_flags == [False, False, False]
+    assert robot.skills.scene.delivered == ["car_key"]
+    assert _room_records(result) == ["caramel_box", "toy_wrench", "lip_balm"]
+    assert result.blackboard["restore_failed"] == []
+    back = {c: robot.skills.scene.objects[c]["xy"] for c in ("caramel_box", "toy_wrench", "lip_balm")}
+    assert (back["caramel_box"][1], back["toy_wrench"][1], back["lip_balm"][1]) == (0.10, 0.17, 0.17)   # 원래 자리 (x 는 mock 놓기 오차)
+
+
+def test_neighbor_moved_by_make_room_that_cannot_be_restored_is_restore_incomplete():
+    """옮긴 이웃을 되돌리지 못하면(다시 집기 거부) 전체 결과는 RESTORE_INCOMPLETE — 목표 전달만으로 COMPLETED 아님 (정본 FR-ACT-04)."""
+    class Stuck(RemoveNeighborsScene):
+        def pick_refusal(self, target):
+            if self.delivered and target.get("class") == "lip_balm":
+                return "WALL_TOO_CLOSE"
+            return super().pick_refusal(target)
+    _, robot, result = _run_with(Stuck(), "car_key")
+    assert robot.skills.scene.delivered == ["car_key"]
+    assert (result.overall_status, result.error_code) == ("FAILED", "RESTORE_INCOMPLETE")
+    assert "lip_balm" in [r["class"] for r in result.blackboard["restore_failed"]]
