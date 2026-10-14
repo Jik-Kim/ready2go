@@ -7,6 +7,9 @@
   // status-api.js가 제공하는 polling 구현을 렌더링 코드에서 한 번만 참조한다.
   const statusApi = window.ROKEY_STATUS_API;
 
+  // Runner 요청·결과 형식을 화면 표시 전에 검증하는 순수 파서 모듈이다.
+  const runnerStatusModel = window.ROKEY_RUNNER_STATUS_MODEL;
+
   const statusIcons = {
     waiting: "○",
     pending: "…",
@@ -49,6 +52,9 @@
 
   // 정의보다 상태 응답이 먼저 도착해도 나중에 등록명을 다시 적용할 수 있게 마지막 source를 보관한다.
   let latestRobotStateSource = null;
+
+  // 요청·결과 표시는 후속 단계에서 연결하며 지금은 검증된 내부 모델만 보관한다.
+  let latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
 
   // Runner core의 실제 phase 세 값만 사용자 표시 문구와 기존 화면 색상 키로 변환한다.
   const runnerPhaseViews = {
@@ -182,6 +188,8 @@
 
   function setRunnerSummaryUnknown() {
     // 기본 화면에서 목업 실행 요약이 실제 Runner 값처럼 보이지 않게 초기화한다.
+    // source가 유효하지 않으면 과거 요청·결과 내부 모델도 현재값으로 유지하지 않는다.
+    latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
     state.adminReview.current.liveSummary = {
       taskId: "확인 전",
       currentStep: "확인 전",
@@ -198,6 +206,8 @@
       setRunnerSummaryUnknown();
       return false;
     }
+    // last_intent와 last는 표시·연결 전에 독립적으로 형식을 검사하고 새 객체로 복사한다.
+    latestRunnerRecords = runnerStatusModel.parseRunnerRecords(data);
     // 계약에 없는 phase를 대기로 추정하지 않고 확인이 필요한 값으로 표시한다.
     const phaseView = typeof data.phase === "string" ? runnerPhaseViews[data.phase] : null;
     state.adminReview.current.liveSummary = {

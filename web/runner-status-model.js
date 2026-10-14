@@ -1,0 +1,150 @@
+(function () {
+  "use strict";
+
+  // 파싱 결과는 정상 객체, 아직 없는 값, 계약과 다른 값의 세 상태로 구분한다.
+  const VALID = "valid";
+  const ABSENT = "absent";
+  const INVALID = "invalid";
+
+  function isRecord(value) {
+    // JavaScript에서 배열과 null도 object로 분류되므로 Runner JSON 객체에서 제외한다.
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function hasOwn(record, key) {
+    // prototype에서 상속된 이름을 Runner가 보낸 필드로 잘못 인정하지 않는다.
+    return Object.prototype.hasOwnProperty.call(record, key);
+  }
+
+  function isNullableString(value) {
+    // Runner의 선택 필드는 null 또는 비어 있지 않은 문자열만 허용한다.
+    return value === null || (typeof value === "string" && value.trim().length > 0);
+  }
+
+  function isNullableStringArray(value) {
+    // targets는 해석 실패 때 null일 수 있고 정상 해석에서는 문자열 배열이어야 한다.
+    return value === null || (Array.isArray(value)
+      && value.every((entry) => typeof entry === "string" && entry.trim().length > 0));
+  }
+
+  function invalidResult(fields) {
+    // 화면 계층은 원본 일부를 재사용하지 않고 invalidFields를 진단 근거로만 사용한다.
+    return Object.freeze({ status: INVALID, value: null, invalidFields: Object.freeze(fields) });
+  }
+
+  function absentResult() {
+    // null은 아직 처리한 요청 또는 완료한 실행이 없는 정상 상태다.
+    return Object.freeze({ status: ABSENT, value: null, invalidFields: Object.freeze([]) });
+  }
+
+  function validResult(value) {
+    // 새 객체만 공개해 이후 화면 가공이 REST 원본 객체를 변경하지 않게 한다.
+    return Object.freeze({ status: VALID, value: Object.freeze(value), invalidFields: Object.freeze([]) });
+  }
+
+  function parseLastIntent(value) {
+    // Runner는 처리한 인텐트가 아직 없을 때 last_intent를 null로 보낸다.
+    if (value === null) return absentResult();
+    // 키 누락과 잘못된 자료형을 실제 요청 정보로 부분 사용하지 않는다.
+    if (!isRecord(value)) return invalidResult(["last_intent"]);
+
+    // 현재 Runner summary가 항상 제공하는 필드만 이번 내부 모델의 입력으로 삼는다.
+    const requiredFields = [
+      "intent", "targets", "decision", "reason", "task_id", "request_id", "run_id",
+    ];
+    // 필드가 빠진 객체는 계약을 충족하지 않으므로 누락 이름을 모두 남긴다.
+    const invalidFields = requiredFields.filter((field) => !hasOwn(value, field));
+
+    // intent는 BAD_INTENT 같은 해석 실패에서 null일 수 있다.
+    if (hasOwn(value, "intent") && !isNullableString(value.intent)) invalidFields.push("intent");
+    // targets의 항목까지 검사해 객체·숫자를 물품 ID처럼 사용하지 않는다.
+    if (hasOwn(value, "targets") && !isNullableStringArray(value.targets)) invalidFields.push("targets");
+    // last_intent 객체가 존재하면 어떤 결정을 내렸는지는 비어 있지 않은 문자열이어야 한다.
+    if (hasOwn(value, "decision")
+      && !(typeof value.decision === "string" && value.decision.trim().length > 0)) {
+      invalidFields.push("decision");
+    }
+    // 나머지 선택 필드는 null 또는 비어 있지 않은 문자열만 허용한다.
+    ["reason", "task_id", "request_id", "run_id"].forEach((field) => {
+      if (hasOwn(value, field) && !isNullableString(value[field])) invalidFields.push(field);
+    });
+
+    // 하나라도 잘못되면 정상 필드만 골라 사용하는 대신 전체 요청을 확인 전으로 둔다.
+    if (invalidFields.length > 0) return invalidResult([...new Set(invalidFields)]);
+
+    return validResult({
+      // 화면 코드의 camelCase 규칙으로 복사하되 Runner 원본 이름은 변경하지 않는다.
+      intent: value.intent,
+      // 배열은 새 배열로 복사해 내부 모델 변경이 REST 원본 targets에 전달되지 않게 한다.
+      targets: value.targets === null ? null : Object.freeze([...value.targets]),
+      decision: value.decision,
+      reason: value.reason,
+      taskId: value.task_id,
+      requestId: value.request_id,
+      runId: value.run_id,
+    });
+  }
+
+  function parseLastResult(value) {
+    // 완료된 실행이 아직 없으면 Runner는 last를 null로 보낸다.
+    if (value === null) return absentResult();
+    // 배열·문자열 같은 값은 실행 결과의 일부로 해석하지 않는다.
+    if (!isRecord(value)) return invalidResult(["last"]);
+
+    // 결과 연결과 실패 설명에 필요한 현재 Runner 필드만 검사한다.
+    const requiredFields = ["task_id", "run_id", "overall_status", "error_code", "failed_step"];
+    // 현재 계약에 필요한 필드가 빠지면 누락된 이름을 진단에 보존한다.
+    const invalidFields = requiredFields.filter((field) => !hasOwn(value, field));
+
+    // 완료 결과에는 연결 기준인 run_id와 결과 enum 문자열이 반드시 있어야 한다.
+    ["run_id", "overall_status"].forEach((field) => {
+      if (hasOwn(value, field)
+        && !(typeof value[field] === "string" && value[field].trim().length > 0)) {
+        invalidFields.push(field);
+      }
+    });
+    // task와 실패 정보는 실행 종류·성공 여부에 따라 null일 수 있다.
+    ["task_id", "error_code", "failed_step"].forEach((field) => {
+      if (hasOwn(value, field) && !isNullableString(value[field])) invalidFields.push(field);
+    });
+
+    // 부분적으로 정상인 결과를 현재 실행 결과처럼 표시하지 않는다.
+    if (invalidFields.length > 0) return invalidResult([...new Set(invalidFields)]);
+
+    return validResult({
+      taskId: value.task_id,
+      runId: value.run_id,
+      overallStatus: value.overall_status,
+      errorCode: value.error_code,
+      failedStep: value.failed_step,
+    });
+  }
+
+  function parseRunnerRecords(data) {
+    // source.data 자체가 없거나 객체가 아니면 두 하위 기록 모두 확인 전이다.
+    if (!isRecord(data)) {
+      return Object.freeze({
+        status: INVALID,
+        lastIntent: invalidResult(["runner"]),
+        lastResult: invalidResult(["runner"]),
+      });
+    }
+
+    // 요청과 결과는 독립적으로 파싱해 한쪽 오류가 다른 쪽 원본을 오염시키지 않게 한다.
+    const lastIntent = parseLastIntent(data.last_intent);
+    const lastResult = parseLastResult(data.last);
+    // 둘 중 하나라도 형식 오류이면 상위 모델도 확인이 필요한 상태로 표시한다.
+    const status = lastIntent.status === INVALID || lastResult.status === INVALID ? INVALID : VALID;
+    return Object.freeze({ status, lastIntent, lastResult });
+  }
+
+  // app.js와 브라우저 단위시험이 같은 공개 함수만 사용한다.
+  window.ROKEY_RUNNER_STATUS_MODEL = Object.freeze({
+    VALID,
+    ABSENT,
+    INVALID,
+    parseLastIntent,
+    parseLastResult,
+    parseRunnerRecords,
+  });
+})();
