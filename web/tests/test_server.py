@@ -51,8 +51,9 @@ def test_root_serves_existing_dashboard_html(client) -> None:
     # 현재 작업은 2열 영역 밖에 남아 전체 너비를 사용할 수 있어야 한다.
     assert 'class="dashboard-side-column"' in body
     assert 'id="cameraViewport"' in body
-    assert 'id="openCameraPreview"' in body
-    assert 'id="cameraDialog"' in body
+    assert 'id="openCameraPreview"' not in body
+    assert 'id="cameraPanelStatus"' not in body
+    assert 'id="cameraDialog"' not in body
     assert body.index('class="card drawer-card"') < body.index('class="dashboard-side-column"')
     assert body.index('id="cameraViewport"') < body.index('id="suppliesHeading"')
     assert body.index('class="dashboard-side-column"') < body.index('class="card task-card"')

@@ -770,21 +770,6 @@
       container.append(block);
     });
 
-    // 카메라 카드는 미디어 자체가 아니라 기존 CameraInfo 연결 진단만 공유한다.
-    // 따라서 상태가 정상이어도 16:9 영역은 소스 계약이 정해질 때까지 대기 화면을 유지한다.
-    renderCameraPanelStatus();
-  }
-
-  function renderCameraPanelStatus() {
-    // 상단 카메라 배지와 본문·확대 창이 서로 다른 연결 상태를 표시하지 않게 같은 모델을 사용한다.
-    const connection = getCameraConnection();
-    const status = connection?.status || "waiting";
-    const label = connection?.statusLabel || "확인 전";
-
-    ["cameraPanelStatus", "cameraDialogStatus"].forEach((id) => {
-      const container = getById(id);
-      if (container) container.replaceChildren(makeStatus(status, label));
-    });
   }
 
   function renderCommand() {
@@ -1189,8 +1174,6 @@
 
   getById("openCommandDetails").addEventListener("click", (event) => openDialog("commandDialog", event.currentTarget));
   getById("openDrawerPanel").addEventListener("click", (event) => openDialog("drawerDialog", event.currentTarget));
-  // 확대 창도 같은 대기 화면만 복제하며 사진·영상 연결을 추정해 시작하지 않는다.
-  getById("openCameraPreview").addEventListener("click", (event) => openDialog("cameraDialog", event.currentTarget));
   getById("taskDetailsToggle").addEventListener("click", toggleTaskDetails);
   getById("openAdminView").addEventListener("click", () => {
     selectAdminTab("current", false);

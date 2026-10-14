@@ -129,16 +129,12 @@
                 <span class="eyebrow">카메라 상태</span>
                 <h2 id="cameraHeading">카메라</h2>
               </div>
-              <button id="openCameraPreview" class="camera-expand-button" type="button">
-                확대 보기
-              </button>
             </div>
             <div id="cameraViewport" class="camera-viewport" role="img" aria-label="카메라 수신 대기">
               <span class="camera-placeholder-icon" aria-hidden="true">▧</span>
               <strong>카메라 수신 대기</strong>
               <span>사진·영상 소스 연결 방식 협의 중</span>
             </div>
-            <div id="cameraPanelStatus" class="camera-panel-status" aria-live="polite"></div>
           </section>
 
           <section class="card supplies-card" aria-labelledby="suppliesHeading">
@@ -361,22 +357,5 @@
       <p id="mobileInventoryEmpty" class="empty-state" hidden>등록된 물품이 없습니다.</p>
     </dialog>
 
-    <dialog id="cameraDialog" class="camera-dialog" aria-labelledby="cameraDialogTitle">
-      <div class="dialog-header">
-        <div>
-          <span class="eyebrow">카메라 상태</span>
-          <h2 id="cameraDialogTitle">카메라 확대 보기</h2>
-        </div>
-        <button class="icon-button" type="button" data-close-dialog="cameraDialog" aria-label="카메라 확대 보기 닫기">×</button>
-      </div>
-      <div class="camera-dialog-body">
-        <div class="camera-viewport camera-viewport--large" role="img" aria-label="카메라 수신 대기">
-          <span class="camera-placeholder-icon" aria-hidden="true">▧</span>
-          <strong>카메라 수신 대기</strong>
-          <span>사진·영상 소스 연결 방식 협의 중</span>
-        </div>
-        <div id="cameraDialogStatus" class="camera-panel-status" aria-live="polite"></div>
-      </div>
-    </dialog>
   </body>
 </html>

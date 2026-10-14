@@ -612,19 +612,6 @@ td {
   margin-bottom: 12px;
 }
 
-.camera-expand-button {
-  min-height: 36px;
-  padding: 7px 11px;
-  border: 1.5px solid #2172df;
-  border-radius: 8px;
-  background: var(--white);
-  color: #0b62cf;
-  cursor: pointer;
-  font-size: 0.76rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
 .camera-viewport {
   display: grid;
   aspect-ratio: 16 / 9;
@@ -651,15 +638,6 @@ td {
 .camera-placeholder-icon {
   color: #8ca4c7;
   font-size: 1.8rem;
-}
-
-.camera-panel-status {
-  min-height: 24px;
-  margin-top: 10px;
-}
-
-.camera-panel-status .status {
-  font-size: 0.76rem;
 }
 
 .supplies-heading {
@@ -983,25 +961,6 @@ dialog::backdrop {
   border-radius: 22px 22px 0 0;
   background: var(--white);
   box-shadow: 0 -16px 60px rgba(5, 24, 65, 0.22);
-}
-
-.camera-dialog {
-  width: min(960px, calc(100% - 32px));
-  max-height: calc(100vh - 32px);
-  padding: 0;
-  overflow: auto;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: var(--white);
-  box-shadow: 0 20px 70px rgba(5, 24, 65, 0.28);
-}
-
-.camera-dialog-body {
-  padding: 18px;
-}
-
-.camera-viewport--large {
-  width: 100%;
 }
 
 .dialog-header {
@@ -1667,14 +1626,6 @@ dialog::backdrop {
   .completion-count {
     padding: 6px 9px;
     font-size: 0.75rem;
-  }
-
-  .camera-dialog {
-    width: calc(100% - 24px);
-  }
-
-  .camera-dialog-body {
-    padding: 12px;
   }
 
   .supply-list {
