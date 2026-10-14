@@ -2062,31 +2062,25 @@ class SkillServer(Node):
                                        f" (실제 {out['push_vector_m'][0] * 1000:+.1f}·{out['push_vector_m'][1] * 1000:+.1f} mm)"), out
 
     # --- 집기 ---
-    _axis_off = False                                       # 이번 판단은 가로 물체도 짧은 변으로 (바꿔 잡기 두 번째 판단)
-    _pick_axis = False                                      # 방금 판단이 가로 물체 긴 변 양끝(axis_grasp)이었는지
-
     def _do_pick_object(self, goal, params):
         """집기 순서 [사용자 10/14 PC2 통합]: ① 놓인 방향에 맞게(세로 = 짧은 변, 가로 = 긴 변 양끝 axis_grasp) ② 막히면 가로·세로
         바꿔 잡기 ③ 그래도 막히면 넛지·sweep(부르는 쪽). 세로 물체의 짧은 변 → 긴 변은 원래 판단 안에 있음(벽·이웃) — 여기선 가로
         물체의 긴 변 양끝이 움직이기 전 WALL_TOO_CLOSE·NEIGHBOR_TOO_CLOSE 일 때 짧은 변(90° 돌림)으로 한 번 더 판단.
         [10/14 위 칸 차키: 긴 변 양끝은 옆벽 2.1 mm 부족 → 넛지 → 쌓인 차키 누르기 실패, 짧은 변이면 바로 잡힘 (덤프 재현)]
         둘 다 막히면 첫 판단(긴 변 양끝)의 거부 그대로 — 넛지 계획은 그 기준."""
-        first = self._pick_object_once(goal, params)
+        info = {}                                           # 판단 상태는 서버 속성이 아니라 이 호출 안에서만 (C #345 리뷰 P3)
+        first = self._pick_object_once(goal, params, info=info)
         o = first[0]
-        if (o.success or o.error_code not in (WALL_TOO_CLOSE, NEIGHBOR_TOO_CLOSE) or not self._pick_axis
+        if (o.success or o.error_code not in (WALL_TOO_CLOSE, NEIGHBOR_TOO_CLOSE) or not info.get("axis")
                 or not self.prm()["pick"].get("axis_swap")):
             return first
-        self._axis_off = True
-        try:
-            second = self._pick_object_once(goal, params)
-        finally:
-            self._axis_off = False
+        second = self._pick_object_once(goal, params, axis_off=True)
         if second[0].success or second[0].error_code not in (WALL_TOO_CLOSE, NEIGHBOR_TOO_CLOSE):
             return second
         return first
 
-    def _pick_object_once(self, goal, params):
-        self._pick_axis = False
+    def _pick_object_once(self, goal, params, axis_off=False, info=None):
+        """집기 판단·실행 한 번. axis_off = 가로 물체도 짧은 변으로(바꿔 잡기 두 번째 판단). info["axis"] = 가로 물체 긴 변 양끝으로 판단했음."""
         if (err := self._refuse_if_hold_unknown()):
             return err, None
         if "source_slot" in params:
@@ -2126,9 +2120,10 @@ class SkillServer(Node):
         # 원통형이 옆벽에 붙으면 넛지 없이 긴 변 양끝 + 벽 쪽으로 기울임 (굴러감) [사용자 10/10 PC2 립밤]
         long_side = False
         ag = None                                           # 긴 변 양끝·서랍 축 파지 [사용자 10/10 "그리퍼 기준 파지"]
-        if (gw["axis_grasp"] and not self._axis_off and not gw["round"] and mp.axis_grasp_fits(size, gw)
+        if (gw["axis_grasp"] and not axis_off and not gw["round"] and mp.axis_grasp_fits(size, gw)
                 and mp.is_crosswise(target["pose"]["yaw"])):
-            self._pick_axis = True
+            if info is not None:
+                info["axis"] = True
             gd = dict(gw, wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
             ag = mp.plan_axis_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gd,
                                     drag=prm["drag"])

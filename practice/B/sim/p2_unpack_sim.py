@@ -19,7 +19,8 @@ LIP_YAW = os.environ.get("LIP_YAW", "1") == "1"
 WRENCH_YAW = os.environ.get("WRENCH_YAW", "1") == "1"   # 0 = 캐러멜이 가운데를 덮어 몽키 각도 모름 (#344 전 비전)
 WALL = "WALL_TOO_CLOSE"
 OBST_NUDGE = os.environ.get("OBST_NUDGE") == "1"   # 치울 물체 집기도 벽이면 넛지 → 다시 (지금 흐름 s7.1 은 pick_object 만)
-MAKE_ROOM = os.environ.get("MAKE_ROOM") == "1"     # 목표 집기 NEIGHBOR_TOO_CLOSE 면 B make_room(clear_plan.plan_next) 반복 (지금 흐름엔 없음)
+MAKE_ROOM = os.environ.get("MAKE_ROOM") == "1"
+RESTORE_NUDGE = os.environ.get("RESTORE_NUDGE", "1") == "1"   # 0 = 원복 판단 WALL_TOO_CLOSE 에 넛지 없음 (지금 Runner find_with_unpack)     # 목표 집기 NEIGHBOR_TOO_CLOSE 면 B make_room(clear_plan.plan_next) 반복 (지금 흐름엔 없음)
 
 
 def norm(yaw):
@@ -178,7 +179,7 @@ def run_unpack(server, objs, tid, d):
                                                  "object": cur, "check_only": True})
             if out.success:
                 break
-            if out.error_code != WALL or k == 2:
+            if out.error_code != WALL or k == 2 or not RESTORE_NUDGE:
                 return f"원복 {cur['class']}", out.error_code, out.reason
             after, c2, r2 = orc.wall_nudge(objs, oid)
             if after is None:
@@ -190,14 +191,15 @@ def run_unpack(server, objs, tid, d):
 
 
 def _settings(server, monkeypatch):
-    if MODE != "main":
+    """MODE: now = 저장소 값 / main = 10/14 main(바꿔 잡기 끔·다시 집을 자리만) / strict = 바꿔 잡기 켬·다시 집을 자리만."""
+    if MODE not in ("main", "strict"):
         return
     real = server.ss._yaml_cached
 
     def cached(path, **kw):
         dd = real(path, **kw)
         if path.name == "skills.yaml":
-            dd = {**dd, "pick": {**dd["pick"], "axis_swap": False}, "place": {**dd["place"], "free_repickable_only": True}}
+            dd = {**dd, "pick": {**dd["pick"], "axis_swap": MODE == "strict"}, "place": {**dd["place"], "free_repickable_only": True}}
         return dd
     monkeypatch.setattr(server.ss, "_yaml_cached", cached)
 
