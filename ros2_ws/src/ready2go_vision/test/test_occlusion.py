@@ -177,9 +177,9 @@ def _ring_px(mask):
     return outer & ~inner
 
 
-@pytest.mark.parametrize("drop,expect", [(0.75, None), (0.3, [])])
+@pytest.mark.parametrize("drop,expect", [(1.0, None), (0.75, None), (0.3, [])])
 def test_alone_rule_partial_ring_dropout_counts_missing_depth(drop, expect):
-    """[E #361 P1] 둘레 띠 일부만 뎁스 결손: 결손 픽셀도 유효 비율 분모에 들어가야 함 — 75% 결손 → 확인 불가 null, 30% → 확인됨 []."""
+    """[E #361 P1] 둘레 띠 뎁스 결손: 결손 픽셀도 유효 비율 분모에 들어가야 함 — 전부·75% 결손 → 확인 불가 null, 30% → 확인됨 []."""
     objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115)]
     depth, masks = _shrunk(objs, 0.78)
     ring = _ring_px(masks[0])
