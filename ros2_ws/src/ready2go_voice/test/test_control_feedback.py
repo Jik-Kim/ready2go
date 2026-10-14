@@ -138,6 +138,8 @@ def test_routine_stop_hold_quiet_console_retains_each_detail(node, node_class, t
         node_class._diagnostic(node, dict(event='stop_audio_held', reason='TimeoutError'))
         node_class._diagnostic(node, dict(event='safety_stt_result', text='종료해'))
         assert any('TimeoutError' in line for line in console)
+        assert not any('종료해' in line for line in console)  # raw control remains in bounded detail
+        node_class._diagnostic(node, dict(event='stop_control_accepted', text='종료해', kind='end'))
         assert any('종료해' in line for line in console)
     finally:
         node.diagnostic_file.close()
