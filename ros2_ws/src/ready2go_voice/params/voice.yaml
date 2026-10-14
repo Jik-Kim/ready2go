@@ -101,7 +101,7 @@ diagnostic_backups: 3
 diagnostic_queue_size: 128
 # 모델/내용 identity는 유지, 초기 필수 문장+자주 사용한 검증 문장만 bounded 선준비.
 tts_prefill_progress_every: 8 # 선준비 진행 표시 간격 제안
-tts_prefill_max_texts: 256
+tts_prefill_max_texts: 512
 tts_prefill_max_chars: 160
 tts_prefill_max_bytes: 65536 # UTF-8 선준비 문장 전체 용량 상한 제안
 tts_frequent_max_texts: 32
@@ -141,6 +141,13 @@ voice_flow:
 # 승인 핫픽스의 안내 문구. 단일 값 원본이며 실제 현재 상태/모션을 단정하지 않습니다.
 voice_hotfix:
   runtime_recover: '복구 요청이 수락됐어요. 작업 재개는 별도 확인이 필요해요.'
+  runtime_recover_finally_close: '복구됐어요. 다만 서랍을 닫는 마무리 단계에서 멈춰, 이어서 할 단계가 저장되지 않았어요.'
+  runtime_recover_finally: '복구됐어요. 다만 마무리 단계에서 멈춰, 이어서 할 단계가 저장되지 않았어요.'
+  runtime_recover_no_work: '복구됐어요. 이어서 할 작업이 저장돼 있지 않아요.'
+  runtime_resume_finally_close: '서랍을 닫는 마무리 단계에서 멈춰, 이어서 할 단계가 저장되지 않았어요.'
+  runtime_resume_finally: '마무리 단계에서 멈춰, 이어서 할 단계가 저장되지 않았어요.'
+  runtime_resume_no_work: '이어서 할 보존 작업이 없습니다.'
+  runtime_no_recover_work: '복구할 정지 작업이 없습니다.'
   runtime_resume: '현재 작업의 재개 요청이 수락됐어요.'
   runtime_end: '현재 작업의 종료가 확인됐어요. 안전 잠금은 별도로 확인해 주세요.'
   runtime_end_pending: '정지를 확인하지 못해 작업 종료를 보류했어요. 작업은 보존됩니다. 직접 상태를 확인해 주세요.'

@@ -240,7 +240,7 @@ def test_prefill_current_p2_failure_and_stop_match_task_without_history(cfg,onto
     assert not any('당근 펜' in text for text in result)
     assert result.count('사용자 안내')==1 and len(result)==len(set(result))
     assert (path.read_bytes() if path.exists() else None)==raw and cfg==before
-    assert cfg['tts_prefill_max_texts']==256 and len(result)+1<=256
+    assert cfg['tts_prefill_max_texts']==512 and len(result)+1<=512
     assert cfg['tts_melotts_startup_timeout_sec']==60.0 and cfg['tts_melotts_speed']==1.2
     if history=='valid':assert '기존 선택 문장' in result
     if history=='invalid':assert warnings
