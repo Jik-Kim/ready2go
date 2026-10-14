@@ -1589,7 +1589,7 @@ class VoiceNode(Node):
                         return
                     pending = self.request_run.pending
                     token = ((pending['request_id'], self.request_run.run_id,
-                              self.request_source_boot, self.generation) if pending else None)
+                              getattr(self, 'request_source_boot', None), self.generation) if pending else None)
                     evidence = getattr(self, 'cause_speech', None)
                     if evidence is not None and evidence[0] == token:
                         cause = (token[1], evidence[1], evidence[2])
@@ -1634,7 +1634,7 @@ class VoiceNode(Node):
                 for event in events:
                     if event['event'] == 'request_accepted':
                         self.request_speech_current = ((event['request_id'], event['run_id'],
-                            self.request_source_boot, self.generation), status.get('task_id'))
+                            getattr(self, 'request_source_boot', None), self.generation), status.get('task_id'))
                         if not hasattr(self, 'accepted_request_logs'):
                             self.accepted_request_logs = deque(maxlen=128)
                         self.accepted_request_logs.append(event['request_id'])

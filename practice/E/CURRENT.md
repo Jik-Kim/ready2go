@@ -9,6 +9,7 @@
 - [구현/중복] 현재 run의 실제 fx.1 factory 문장이 실제 재생 증빙을 통과한 경우만 보존하며, 최종 same run/task/failed_step 실제 action/error factory 문장과 일치하는 낮은 경고만 억제합니다. 실패/거절·다른 run/error·완료/닫기·미확인은 최종 경고를 유지하고 높은 안전 경고는 항상 우선합니다. C s8.t3/on_failure/정리·성공 정책은 변경하지 않았습니다.
 - [실측: 직접 모의] 최종 `test_voice_five.py -k test_351` **17 passed/51 deselected**(3.21초): 기존9+BUSY/new-run1+중복 성공/재생 실패/다른 run/일반 안내/다른 오류/안전6+factory/no_room/cap1. 실제 E goal/speak/status 수신과 C status 생성기·첫 동작 Runner 게이트를 사용했고 장치/API/DDS는 모의입니다. 초기 fixture의 태스크 경로/실패 단계 오류를 실제 원본에 맞춰 수정했으며 제품 재생 증빙을 완화하지 않았습니다. 로그 `/tmp/e-351-latest-final-direct.log`.
 - [실측: 목록] 현재 source·기존 local 설정을 읽어 선택만 검사했습니다(ontology 경로는 검사 작업 원본으로 메모리에서 지정). 각각 필수246/frequent0/warmup1/15519bytes, 중복/누락·문장 길이/용량·cap256 정상, 경고0. startup60/prepare120·속도1.2 유지. 실제 캐시 준비/삭제는 하지 않았습니다.
+- [실측: CI 실패 보완] 중간 head74e9b984 전체 CI에서 core 3295 passed/43 skipped와 기존 wire fixture의 boot 필드 누락3실패, compose3 OK, colcon의 절대 data_files 경로 거부를 확인했습니다. 생산자 검증 게이트는 유지하며 기존 내부 adapter의 boot 미설정 형태는 None으로 읽고, 태스크 설치 원본 경로는 setuptools가 요구하는 상대 경로로 바꿨습니다. 실패한 wire 직접3사례는 수정 후 통과했습니다. 제품/설치 변경이 있으므로 최종 새 head 전체 CI를 다시 수행합니다. 실패한 중간74를 완료 검증으로 전용하지 않습니다.
 - [요구사항/미검증] FR-INT-03(P1), 기존 P2 수락 TTS 책임·FR-SAF-01/03의 경계를 유지합니다. 실제 PC2/마이크/API/TTS/ROS·DDS·실로봇 AC는 미검증입니다. 최종 커밋의 필수 전체 CI는 PR 본문에 실제 head별 결과로 기록하며 이전046 CI를 새 head 검사로 전용하지 않습니다.
 
 ## voice-351-receive-supplement-20261014
