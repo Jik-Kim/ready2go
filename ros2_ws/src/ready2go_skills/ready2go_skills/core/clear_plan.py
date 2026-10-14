@@ -428,12 +428,15 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
 
 def _repickable_with_margin(objs, held_id, pose, oracle, cfg) -> bool:
     """놓은 자리를 다시 볼 때 비전 오차(cfg.repick_margin_mm·deg)만큼 달라져도 다시 집히는지 [PC2 10/14 S1 RESTORE_INCOMPLETE:
-    free 에 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE 로 못 집음 — #196]. 여유가 0 이면 검사 안 함(True)."""
+    free 에 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE 로 못 집음 — #196]. 여유가 0 이면 검사 안 함(True).
+    위치 ±x·±y·대각 4개, 각도 ±yaw — 위치와 각도가 같이 어긋나는 조합은 안 봄(한계, #337 PM 리뷰)."""
     m, d = cfg.repick_margin_mm / 1000.0, math.radians(cfg.repick_margin_deg)
     if m <= 0 and d <= 0:
         return True
     x, y = pose["position"][0], pose["position"][1]
-    for dx, dy, dyaw in ((m, 0, 0), (-m, 0, 0), (0, m, 0), (0, -m, 0), (0, 0, d), (0, 0, -d)):
+    k = m / math.sqrt(2.0)                                         # 대각도 같은 거리 m
+    for dx, dy, dyaw in ((m, 0, 0), (-m, 0, 0), (0, m, 0), (0, -m, 0), (k, k, 0), (k, -k, 0), (-k, k, 0), (-k, -k, 0),
+                         (0, 0, d), (0, 0, -d)):
         if dx == dy == dyaw == 0:
             continue
         q = dict(pose, position=[x + dx, y + dy, 0.0], yaw=pose["yaw"] + dyaw)

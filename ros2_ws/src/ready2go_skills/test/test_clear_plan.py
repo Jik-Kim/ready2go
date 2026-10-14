@@ -263,9 +263,12 @@ def test_free_pose_repick_margin_skips_borderline_spot():
     safe = cp.find_free_pose(objs, "car_key#1", [], Oracle(), dataclasses.replace(cfg, repick_margin_mm=5.0, repick_margin_deg=5.0))
     assert first is not None and safe is not None and safe != first
     x, y = safe["position"][:2]
-    for dx, dy, dyaw in ((0.005, 0, 0), (-0.005, 0, 0), (0, 0.005, 0), (0, -0.005, 0), (0, 0, math.radians(5)), (0, 0, -math.radians(5))):
+    k = 0.005 / math.sqrt(2.0)
+    for dx, dy, dyaw in ((0.005, 0, 0), (-0.005, 0, 0), (0, 0.005, 0), (0, -0.005, 0), (k, k, 0), (k, -k, 0), (-k, k, 0), (-k, -k, 0),
+                         (0, 0, math.radians(5)), (0, 0, -math.radians(5))):
         q = dict(safe, position=[x + dx, y + dy, 0.0], yaw=safe["yaw"] + dyaw)
         assert Oracle().pick(cp._relocated(objs, "car_key#1", q, SIZES.get), "car_key#1")[0], (dx, dy, dyaw)
+
 
 def test_hole_class_is_not_pressed():
     """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 누르면 손끝이 구멍으로 빠짐 → 공간 만들기에서 누를 점 없음(같이 밀리기·집기만)."""
