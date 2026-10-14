@@ -273,11 +273,13 @@ def _correlation_requirement_error(trial: dict[str, Any]) -> str | None:
 
 
 def _validate_case_correlation(trial: dict[str, Any]) -> None:
-    if trial["automatic_result"] != "pass":
+    if trial["automatic_result"] not in {"pass", "fail"}:
         return
     reason = _correlation_requirement_error(trial)
     if reason is not None:
-        raise ArtifactValidationError(f"trial {trial['trial_id']} pass {reason}")
+        raise ArtifactValidationError(
+            f"trial {trial['trial_id']} {trial['automatic_result']} {reason}"
+        )
 
 
 def _validate_human_checks(trial: dict[str, Any], required_human: list[str] | None) -> None:

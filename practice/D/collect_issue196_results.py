@@ -41,8 +41,9 @@ import sys
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import validate_issue196_artifacts as validator
 
@@ -51,6 +52,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 DEFAULT_RESULTS = HERE / "issue196_results.v0.5-draft.jsonl"
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 class CollectionError(ValueError):
@@ -485,7 +487,7 @@ def build_records(
         "evidence": list(dict.fromkeys(trial_evidence)),
     }
     correlation_error = validator._correlation_requirement_error(trial)
-    if automatic_result == "pass" and correlation_error is not None:
+    if automatic_result in {"pass", "fail"} and correlation_error is not None:
         requirement = validator.RECOVERY_CORRELATION_REQUIREMENTS.get(case_id)
         if requirement is not None:
             for check in checks:
@@ -494,7 +496,9 @@ def build_records(
                     check["observed"] = "unavailable"
                     check["expected"] = correlation_error
                     break
-        trial["automatic_result"] = _automatic_result(checks, pass_supported)
+        # Without the required stale/current identity relation, this scenario
+        # cannot prove either a product pass or a product failure.
+        trial["automatic_result"] = "inconclusive"
     return basis, trial
 
 
@@ -535,25 +539,92 @@ def _evidence_references(
     return list(dict.fromkeys(references))
 
 
-def append_records(result_path: Path, records: tuple[dict[str, Any], dict[str, Any]]) -> dict[str, Any]:
-    result_path = result_path.resolve()
-    sources = _evidence_references(records)
-    durable_sources = [
-        source
-        for source in sources
-        if source.startswith(("repo:", "https://", "http://"))
-    ]
-    for artifact in (source for source in sources if source.startswith("artifact:")):
-        match = re.search(r"[?&#]sha256=([0-9a-f]{64})(?:[&#]|$)", artifact)
-        digest = match.group(1) if match else None
-        if digest is None or not any(
-            re.search(rf"[?&#]sha256={digest}(?:[&#]|$)", source)
-            for source in durable_sources
-        ):
+def _required_query_value(source: str, name: str) -> str:
+    values = parse_qs(urlsplit(source).query, keep_blank_values=True).get(name, [])
+    if len(values) != 1 or not values[0]:
+        raise CollectionError(f"evidence {source} requires exactly one {name}")
+    return values[0]
+
+
+def _evidence_digest(source: str) -> str:
+    digest = _required_query_value(source, "sha256")
+    if not SHA256_PATTERN.fullmatch(digest):
+        raise CollectionError(f"evidence {source} has invalid sha256")
+    return digest
+
+
+def _validate_http_source(source: str) -> str:
+    parsed = urlsplit(source)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise CollectionError(f"invalid HTTP evidence source: {source}")
+    return _evidence_digest(source)
+
+
+def _validate_repo_source(source: str, code_sha: str) -> str:
+    parsed = urlsplit(source)
+    path = unquote(parsed.path)
+    posix_path = PurePosixPath(path)
+    if (
+        parsed.scheme != "repo"
+        or parsed.netloc
+        or not path
+        or posix_path.is_absolute()
+        or any(part in {"", ".", ".."} for part in posix_path.parts)
+        or posix_path.as_posix() != path
+    ):
+        raise CollectionError(f"invalid repository evidence path: {source}")
+    revision = _required_query_value(source, "rev")
+    if not SHA_PATTERN.fullmatch(revision):
+        raise CollectionError(f"repository evidence {source} has invalid rev")
+    if revision != code_sha:
+        raise CollectionError(
+            f"repository evidence {source} rev does not match basis code_sha"
+        )
+    expected_digest = _evidence_digest(source)
+    try:
+        committed = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"{revision}:{path}"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        raise CollectionError(f"cannot verify repository evidence {source}") from exc
+    if committed.returncode != 0:
+        raise CollectionError(f"repository evidence does not exist: {source}")
+    actual_digest = hashlib.sha256(committed.stdout).hexdigest()
+    if actual_digest != expected_digest:
+        raise CollectionError(f"repository evidence sha256 mismatch: {source}")
+    return expected_digest
+
+
+def _validate_evidence_sources(
+    records: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    basis, _ = records
+    code_sha = basis.get("code_sha")
+    if not isinstance(code_sha, str) or not SHA_PATTERN.fullmatch(code_sha):
+        raise CollectionError("basis code_sha is required to verify evidence")
+    durable_digests: set[str] = set()
+    artifacts: list[tuple[str, str]] = []
+    for source in _evidence_references(records):
+        if source.startswith(("https://", "http://")):
+            durable_digests.add(_validate_http_source(source))
+        elif source.startswith("repo:"):
+            durable_digests.add(_validate_repo_source(source, code_sha))
+        elif source.startswith("artifact:"):
+            artifacts.append((source, _evidence_digest(source)))
+    for artifact, digest in artifacts:
+        if digest not in durable_digests:
             raise CollectionError(
                 f"external artifact evidence {artifact} requires a durable --source "
                 "with the same sha256"
             )
+
+
+def append_records(result_path: Path, records: tuple[dict[str, Any], dict[str, Any]]) -> dict[str, Any]:
+    result_path = result_path.resolve()
+    _validate_evidence_sources(records)
     payload = "".join(
         json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
         for record in records

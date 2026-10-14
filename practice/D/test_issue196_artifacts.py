@@ -145,12 +145,17 @@ def test_recovery_trial_without_halt_event_id_fails(tmp_path: Path) -> None:
         VALIDATOR.validate_pair(result_path)
 
 
+@pytest.mark.parametrize("automatic_result", ["pass", "fail"])
 @pytest.mark.parametrize(("case_id", "field", "check_id"), [
     (case_id, field, check_id)
     for case_id, (field, check_id) in MISMATCH_CASES.items()
 ])
 def test_mismatch_pass_requires_active_and_referenced_ids(
-    tmp_path: Path, case_id: str, field: str, check_id: str
+    tmp_path: Path,
+    case_id: str,
+    field: str,
+    check_id: str,
+    automatic_result: str,
 ) -> None:
     result_path, evaluation, result_set = _make_pair(tmp_path)
     case = next(
@@ -175,6 +180,7 @@ def test_mismatch_pass_requires_active_and_referenced_ids(
         correlation={"halt_event_id": "halt-current", field: f"{field}-current"},
         input_reference={},
         machine_checks=checks,
+        automatic_result=automatic_result,
         required_human_checks=case["required_human_checks"],
     )
     with pytest.raises(
@@ -184,12 +190,17 @@ def test_mismatch_pass_requires_active_and_referenced_ids(
         VALIDATOR.validate_pair(result_path)
 
 
+@pytest.mark.parametrize("automatic_result", ["pass", "fail"])
 @pytest.mark.parametrize(("case_id", "field", "check_id"), [
     (case_id, field, check_id)
     for case_id, (field, check_id) in MISMATCH_CASES.items()
 ])
 def test_mismatch_pass_rejects_equal_active_and_referenced_ids(
-    tmp_path: Path, case_id: str, field: str, check_id: str
+    tmp_path: Path,
+    case_id: str,
+    field: str,
+    check_id: str,
+    automatic_result: str,
 ) -> None:
     result_path, evaluation, result_set = _make_pair(tmp_path)
     case = next(
@@ -215,6 +226,7 @@ def test_mismatch_pass_rejects_equal_active_and_referenced_ids(
         correlation={"halt_event_id": "halt-current", field: value},
         input_reference={field: value},
         machine_checks=checks,
+        automatic_result=automatic_result,
         required_human_checks=case["required_human_checks"],
     )
     with pytest.raises(

@@ -142,6 +142,7 @@ def test_complete_machine_results_append_as_pass(tmp_path: Path) -> None:
     result_path = _copy_pair(tmp_path)
     checks_path = tmp_path / "checks.json"
     runner_path = _runner(tmp_path / "runner.json")
+    check_digest = "0" * 64
     _write_json(
         checks_path,
         {
@@ -150,7 +151,9 @@ def test_complete_machine_results_append_as_pass(tmp_path: Path) -> None:
                     "status": "pass",
                     "observed": True,
                     "expected": True,
-                    "evidence": [f"https://evidence.example/S10#{check_id}"],
+                    "evidence": [
+                        f"https://evidence.example/S10?sha256={check_digest}#{check_id}"
+                    ],
                 }
                 for check_id in S10_CHECKS
             }
@@ -619,6 +622,107 @@ def test_committed_repository_evidence_records_revision(
     assert summary["trial_count"] == 1
 
 
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "https://evidence.example/video.mp4",
+        "https://evidence.example/video.mp4?sha256=not-a-digest",
+    ],
+)
+def test_http_evidence_requires_valid_sha256(
+    tmp_path: Path, evidence: str
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    runner_path = _runner(tmp_path / "runner.json")
+    checks_path = tmp_path / "checks.json"
+    _write_json(
+        checks_path,
+        _s10_pass_checks([evidence]),
+    )
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=checks_path,
+        suite="recovery",
+        case_id="S10",
+        environment="mock",
+        code_sha="c" * 40,
+        extra_sources=[_durable_source(runner_path), _durable_source(checks_path)],
+    )
+    with pytest.raises(COLLECTOR.CollectionError, match="sha256"):
+        COLLECTOR.append_records(result_path, records)
+
+
+def test_nonexistent_repository_evidence_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    repository = tmp_path / "evidence-repo"
+    repository.mkdir()
+    runner_path = _runner(repository / "runner.json")
+    code_sha = _init_git_repo(repository)
+    monkeypatch.setattr(COLLECTOR, "REPO_ROOT", repository)
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=None,
+        suite="part",
+        case_id="C-03",
+        environment="mock",
+        code_sha=code_sha,
+        extra_sources=[f"repo:missing.json?rev={code_sha}&sha256={'0' * 64}"],
+    )
+    with pytest.raises(COLLECTOR.CollectionError, match="does not exist"):
+        COLLECTOR.append_records(result_path, records)
+
+
+def test_repository_evidence_digest_must_match_git_blob(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    repository = tmp_path / "evidence-repo"
+    repository.mkdir()
+    runner_path = _runner(repository / "runner.json")
+    code_sha = _init_git_repo(repository)
+    monkeypatch.setattr(COLLECTOR, "REPO_ROOT", repository)
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=None,
+        suite="part",
+        case_id="C-03",
+        environment="mock",
+        code_sha=code_sha,
+        extra_sources=[f"repo:runner.json?rev={code_sha}&sha256={'0' * 64}"],
+    )
+    with pytest.raises(COLLECTOR.CollectionError, match="sha256 mismatch"):
+        COLLECTOR.append_records(result_path, records)
+
+
+def test_repository_evidence_revision_must_match_basis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    repository = tmp_path / "evidence-repo"
+    repository.mkdir()
+    runner_path = _runner(repository / "runner.json")
+    code_sha = _init_git_repo(repository)
+    monkeypatch.setattr(COLLECTOR, "REPO_ROOT", repository)
+    digest = hashlib.sha256(runner_path.read_bytes()).hexdigest()
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=None,
+        suite="part",
+        case_id="C-03",
+        environment="mock",
+        code_sha=code_sha,
+        extra_sources=[f"repo:runner.json?rev={'0' * 40}&sha256={digest}"],
+    )
+    with pytest.raises(COLLECTOR.CollectionError, match="basis code_sha"):
+        COLLECTOR.append_records(result_path, records)
+
+
 def test_each_external_artifact_requires_matching_durable_source(tmp_path: Path) -> None:
     result_path = _copy_pair(tmp_path)
     runner_path = _runner(tmp_path / "runner.json")
@@ -836,6 +940,53 @@ def test_mismatch_pass_without_referenced_id_becomes_inconclusive(
                 check_id: {
                     "status": "pass",
                     "observed": True,
+                    "expected": True,
+                    "evidence": [f"https://evidence.example/{case_id}#{check_id}"],
+                }
+                for check_id in case["required_machine_checks"]
+            },
+        },
+    )
+    _, trial = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=_runner(tmp_path / "runner.json"),
+        checks_path=checks_path,
+        suite="recovery",
+        case_id=case_id,
+        environment="mock",
+        code_sha="f" * 40,
+    )
+    checks = {row["check_id"]: row for row in trial["machine_checks"]}
+    assert trial["automatic_result"] == "inconclusive"
+    assert checks[relation_check]["status"] == "unverifiable"
+
+
+@pytest.mark.parametrize(("case_id", "field", "relation_check"), [
+    (case_id, field, relation_check)
+    for case_id, (field, relation_check) in MISMATCH_CASES.items()
+])
+def test_mismatch_failure_without_referenced_id_becomes_inconclusive(
+    tmp_path: Path, case_id: str, field: str, relation_check: str
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    evaluation = json.loads(
+        (tmp_path / "issue196_evaluation.v0.5-draft.json").read_text(encoding="utf-8")
+    )
+    case = next(
+        row
+        for row in evaluation["suites"]["recovery"]["cases"]
+        if row["case_id"] == case_id
+    )
+    checks_path = tmp_path / "checks.json"
+    first_check = case["required_machine_checks"][0]
+    _write_json(
+        checks_path,
+        {
+            "correlation": {field: RUNNER_CURRENT_IDS[field]},
+            "machine_checks": {
+                check_id: {
+                    "status": "fail" if check_id == first_check else "pass",
+                    "observed": False if check_id == first_check else True,
                     "expected": True,
                     "evidence": [f"https://evidence.example/{case_id}#{check_id}"],
                 }
