@@ -178,7 +178,8 @@ def inspect_scene(detections, depth_m, K: Intrinsics, T_drawer_cam, params: dict
         merged = {"merged_from": det["merged_from"]} if det.get("merged_from") else {}
         size = items[det["class"]]["size_m"]
         mask = det.get("mask")
-        blob = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, nominal_long_m=size[0], mask=mask)
+        blob = analyze_box(depth_m, det["box"], K, T_drawer_cam, blob_params, nominal_long_m=size[0], mask=mask,
+                           nominal_short_m=size[1])
         src = "mask" if mask is not None else "box"
         if not blob.depth_ok or blob.top_z is None:
             note(det, skip=f"뎁스 덩어리 실패: {blob.reason}", depth_src=src, n_valid=blob.n_valid, invalid_ratio=round(blob.invalid_ratio, 3), **merged)
