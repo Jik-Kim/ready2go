@@ -71,7 +71,8 @@ class Dsr:
         """base 기준 툴 외력 [fx, fy, fz, mx, my, mz]. 영점이 시간에 따라 흐르므로 쓰기 직전에 기준값을 잡고 변화량만 쓴다
         [실측 B 10/06]. 실패하면 None."""
         r = self.call("force", timeout=0.5, ref=REF_BASE)
-        return list(r.tool_force) if r else None
+        f = list(r.tool_force) if r else []
+        return f if len(f) >= 6 else None                   # 축이 모자란 응답은 못 읽음 [E #335 리뷰 P2]
 
     def force_on(self, fz_n, stiffness, ramp_s=0.2):
         """base 기준 z 만 힘 제어로 아래로 fz_n(N) 누름 — 컴플라이언스(강성 stiffness[6]) 켠 뒤 목표 힘. 둘 다 성공해야 True.

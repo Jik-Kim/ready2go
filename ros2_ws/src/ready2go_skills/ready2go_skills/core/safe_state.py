@@ -76,16 +76,19 @@ def unknown_hold_decision(*, width_m: Optional[float], record: Mapping, min_widt
 
 def external_force_view(samples, threshold_n: float, need: int):
     """지속 외력 판정 [B 실측 10/13 일지 32: 정지 중 |F| ≤ 약 2.8 N, 손으로 지그시 밀기 10~24 N] → (external_force, 창 안 |F| 최소 N).
-    samples = 판정 창(external_force_hold_s) 동안 읽은 툴 힘 [fx, fy, fz, …] 목록. 하나라도 못 읽었거나(None·NaN) need 개보다 적으면
+    samples = 판정 창(external_force_hold_s) 동안 읽은 툴 힘 [fx, fy, fz, …] 목록. 하나라도 못 읽었거나(None·NaN·3축 미만) need 개보다 적으면
     (None, None) — 모름. 모두 |F| > threshold_n 이면 True(지속 외력), 아니면 False. |F| = 힘 3축 크기 (모멘트 안 봄)."""
     if samples is None or len(samples) < max(1, int(need)):
         return None, None
     mags = []
     for f in samples:
         try:
-            m = math.sqrt(sum(float(v) ** 2 for v in list(f)[:3]))
+            axes = [float(v) for v in list(f)[:3]]
         except (TypeError, ValueError):
             return None, None
+        if len(axes) < 3:                                   # 축이 빠진 응답을 0 으로 보지 않음 [E #335 리뷰 P2]
+            return None, None
+        m = math.sqrt(sum(v * v for v in axes))
         if not math.isfinite(m):
             return None, None
         mags.append(m)

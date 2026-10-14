@@ -75,6 +75,9 @@ def test_external_force_view_needs_all_samples_over_threshold():
     assert s.external_force_view([push] * 9, 5.0, 10) == (None, None)                   # 덜 읽음
     assert s.external_force_view([[float("nan"), 0, 0]] * 10, 5.0, 10) == (None, None)
     assert s.external_force_view([[0, 0, 5.0]] * 10, 5.0, 10)[0] is False              # 문턱과 같으면 아님 (초과만)
+    assert s.external_force_view([[]] * 10, 5.0, 10) == (None, None)                  # 축 빠진 응답 — 0 으로 보지 않음 [E #335 P2]
+    assert s.external_force_view([[0.0]] * 10, 5.0, 10) == (None, None)
+    assert s.external_force_view([[0.0, 0.0]] * 10, 5.0, 10) == (None, None)
 
 
 def test_unknown_hold_decision_same_as_restart_restore():
