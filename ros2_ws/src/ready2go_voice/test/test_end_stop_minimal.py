@@ -258,7 +258,7 @@ def test_exact_stop_and_wrong_transcript_are_not_forced_to_control(node,monkeypa
 
 def test_real_sdk_prompts_split_stop_safety_and_normal(cfg,monkeypatch,tmp_path):
     stt,calls=sdk(monkeypatch,cfg,lambda:6.,lambda:'중지')
-    session=VoiceSession(None,cfg,stt,clock=lambda:6.)
+    session=VoiceSession(None,cfg,stt,clock=lambda:6.,speech_gate=SimpleNamespace(check=lambda *a,**kw:True))
     assert session.stop_audio(audio())['intent']=='cancel'
     exchange=stopped(cfg);target=exchange.begin_independent(now=4.,unique_target=True)
     assert session.safety_audio(exchange,target,audio())['intent']=='cancel'

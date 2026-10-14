@@ -2,6 +2,22 @@
 
 - **담당**: E 고희태. 웨이크워드·STT·P1 단일 물품 LLM 해석/검증·규칙 폴백·TTS.
 
+## 운영 입력·Runner 메모리·종료 보류 — #322 (2026-10-14)
+
+[구현] 일반 요청·음성 정지는 `bash tools/dev/pc2_voice.sh`의 기본 설정으로 사용합니다. 기존 위치·서랍 개폐 질의는 기본 `request_run_enabled=false`에서도 `VoiceNode`의 `/robot_state` 구독 → 읽기 전용 메모리 → `IntentParser.state_provider` → 기존 질의 → TTS로 연결됩니다. C가 발행하는 String JSON과 TRANSIENT_LOCAL/RELIABLE(depth 1)을 사용하며 상태를 쓰거나 새 질의 wire를 발신하지 않습니다. 답변은 **Runner 기록 기준**이고 실제 관측·실물 위치 일치의 증거가 아닙니다.
+
+[구현·경계] 선택 Runner 이름/namespace·단일 endpoint와 기존 `/runner/status` boot/seq 연결을 확인합니다. 상태 JSON에 boot/stamp를 가정하지 않습니다. 미수신·형식 오류·연결 유실·재기동에는 초기 snapshot이나 과거 기록 대신 확인 불가를 안내합니다. 처음 state가 status보다 먼저 도착한 경우만 같은 현재 endpoint에서 보관한 latched state를 연결하며, 재기동/유실 뒤에는 새 state가 필요합니다. 기존 Jazzy metadata의 source timestamp는 표본 순서 확인에만 사용하며 새 freshness timeout·handshake·공개 필드를 추가하지 않습니다.
+
+[구현] 독립 정지 STT 전에 기존 SpeechPresence의 RMS/VAD 발화 검사를 적용합니다. 일반 입력의 VAD lock을 기다리지 않도록 별도 검사 인스턴스를 사용하고, 발화 없음·검사 실패·취소에서는 SDK를 호출하지 않습니다. 제어 STT에는 단어 나열 prompt를 보내지 않으며, 기존 local YAML에 옛 stt_control_prompt가 남아 있어도 제어 SDK prompt는 비웁니다. 일반 물품/현재 질문 힌트·원본 PCM·정확 긍정/부정/인용/자기 TTS 검사·한 SDK worker/최신 대기 캡처를 유지합니다. 오전사의 음향 원인이 확정되거나 실음성 정지 성공이 검증된 것은 아닙니다.
+
+[구현] 콘솔에는 실제 수용 제어·오류·상태 변경을 남깁니다. 수용 전/자기 TTS/무관한 제어 전사는 기본 콘솔에서 제외하며 bounded 상세 JSONL에는 기록합니다. 동일 phase/work_retained/termination_pending과 같은 세대의 반복 보류는 중복 출력하지 않으며 첫 보류 원인은 표시합니다. 실제 C 결과에는 `runtime_*` 안내를 사용하고 `control_*` 더미 안내는 명시 시험 경로에만 남깁니다. 복구 뒤 등록된 재개 질문을 앞두고 복구 안내를 중복 재생하지 않습니다.
+
+[구현·안전 경계] 현재 run/boot의 종료 요청 뒤 `halt.stop=unconfirmed`, 같은 run의 `SUSPENDED`, `halt.locked=true`이면 성공 대기 대신 **종료 보류**로 표시합니다. 대상은 보존하고 C 잠금·일반 요청 차단을 유지하며 시간 경과로 idle/폐기/허가를 만들지 않습니다. 같은 사건의 C 확인·ABORTED·보존 폐기만 종료 확인으로 처리합니다. 현행 C는 unconfirmed의 늦은 백엔드 응답을 같은 사건에 반영하지 않고 end_task 재요청을 `STOP_NOT_CONFIRMED`로 거절합니다. 사람 확인 후 기존 C reset_state의 해당 run 폐기를 관측하면 보존 대상만 정리하며, 이를 실제 정지·잠금 해제나 종료 요청의 물리 성공으로 안내하지 않습니다. 현재 C cancel 결정으로 보고된 재정지와 재기동은 이전 종료 의도를 폐기합니다. C에서 상태/결정 변화로 발행하지 않은 내부 재정지는 E가 독자적으로 관측했다고 주장하지 않습니다.
+
+[운용·미검증] 복구·재개·실행 중 종료 wire는 `bash tools/dev/pc2_voice.sh --control`과 Runner의 `RUNNER_RESUMABLE=1`을 함께 사용합니다. C의 현재 W2→새 W1·마지막 안전/재진입 검사가 담당 경계입니다. 기준 main `2881745`의 C는 외력 false를 통과시키고 true/null을 거절하지만 B 실제 응답은 아직 external_force=null이므로 **정상 실물 복구·재개는 미완료**입니다. E는 거절을 우회하지 않습니다. 기준은 [FR-INT-03](../../../docs/requirements.md#fr-int-03)·[FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../../docs/requirements.md#ac-saf-02)이며, 모의/CI/실물 상태는 [이번 CURRENT](../../../practice/E/CURRENT.md#voice-runtime-322-20261014)를 구분해 확인하십시오.
+
+[선준비] runtime 안내와 등록 물품/장소의 기록 질의·서랍 열림/닫힘 답을 node/prepare 공통 prefill에 포함합니다. cap256·startup60·prepare120·모델/속도는 유지합니다. 문장/소스 identity 변경으로 기존 receipt만으로 새 준비를 증명할 수 없으므로 사용자는 기존 `bash ros2_ws/src/ready2go_voice/tools/voice_trial.sh prepare` 절차로 준비한 뒤 사용자 승인된 live/운영 시험을 진행합니다. 에이전트가 cache/receipt를 생성·삭제하거나 모델/의존성을 설치하지 않습니다. 아래 10/12 더미 prepare/live 절차를 실제 Runner 제어·잠금 해제로 해석하지 마십시오.
+
 ## 활성 물품·P2 시작 상태 — 2026-10-13
 
 [문서] 음성 별칭·LLM targets enum은 로딩한 `world.items`를 사용합니다. 현재 당근 펜을 제외한 활성 10종이며 은퇴 물품 요청은 실행 대상으로 허용하지 않습니다. 기존 학습 11종·과거 prefill 실측/개수와 현재 활성 목록을 구분합니다. 캐시·모델·키·실음성은 이번 변경으로 갱신/검증하지 않았습니다. 단일 초기 위치는 [Knowledge 안내](../../../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)을 참조합니다. Voice·Runner의 기본 로딩은 manifest의 단일 초기 상태입니다. S3도 JSON에는 지우개의 아래 서랍 위치를 유지하고 실물에서만 제외하는 시험이며, 관측 불일치·LLM 결과 전달의 실제 연결/검증은 별도입니다. 공개 intent·실행 게이트·opt-in·제어 정책은 유지합니다.
@@ -16,7 +32,7 @@
 
 [구현: 답/종료] 현재 등록·실제 TTS 완료·새 SDK receipt에 묶인 “응/네/예”와 명시 재개를 처리하고, 질문답·거절·만료에도 기존 선택 request_id를 보내 C 최종 decision/reason을 상관합니다. `decision=resume`은 현재 대상 상관을 지우기 전에 1회 소비하고 E 보존 대상을 종료하며, reject/hold/closed는 질문/요청만 닫고 작업을 보존합니다. 없어지는 terminal echo만 기다리지 않습니다. 진행 중 명시 종료는 현재 수락 run/boot로 event_id 없이 end_task를 직접 발신하며, C requested/unconfirmed에서는 완료로 처리하지 않습니다. 동일 대상의 실제 정지 confirmed·ABORTED·보존 폐기 확인 뒤에만 종료를 확정합니다. 정지 후 END도 현재 실제 C 결과를 대조하며 C의 from_step과 최종 failed_step 하위 ID를 다른 사건으로 오인하지 않습니다. C 잠금/phase는 E가 변경하지 않습니다.
 
-[실측: 모의/미검증] 실제 C core/라우터/노드 상태 생성 본문과 E Node/Session을 연결한 직접 13사례, 관련 mapper 포함 39사례가 통과했습니다. PCM·SDK·ROS 전송은 모의이며 실ROS/실물 수용이 아닙니다. 실제 C strict 시간 경계, C304 재정지 P1, B 실제 조회/외력은 타 담당 미결입니다. 값/책임/완료 기준은 P2 [FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../../docs/requirements.md#ac-saf-02)·[접수 정책](../../../docs/requirements.md#resume-admission-policy), 정확 source/검사/최종 상태는 [E CURRENT](../../../practice/E/CURRENT.md#e-c-w3-wire-runtime-20261013)를 참조하십시오. 아래 10/12 typed/dummy 준비는 당시 이력이며 현재 runtime 연결과 구분합니다.
+[실측: 모의/미검증] 실제 C core/라우터/노드 상태 생성 본문과 E Node/Session을 연결한 직접 13사례, 관련 mapper 포함 39사례가 통과했습니다. PCM·SDK·ROS 전송은 모의이며 실ROS/실물 수용이 아닙니다. 해당 검사는 당시 SHA의 결과입니다. 현재 main의 C #319 시간 끝값·#316 복구 중 재정지는 반영됐으며, 실제 B 응답/외력 연결과 실물 검증은 별도로 남습니다. 값/책임/완료 기준은 P2 [FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../../docs/requirements.md#ac-saf-02)·[접수 정책](../../../docs/requirements.md#resume-admission-policy), 정확 source/검사/최종 상태는 [E CURRENT](../../../practice/E/CURRENT.md#e-c-w3-wire-runtime-20261013)를 참조하십시오. 아래 10/12 typed/dummy 준비는 당시 이력이며 현재 runtime 연결과 구분합니다.
 
 ## 종료·중지 최소 연결 — 2026-10-12
 
@@ -26,7 +42,7 @@
 
 [구현: STT 힌트] `stt_control_prompt`는 stop/safety의 실제 Whisper SDK prompt에서만 사용하고 일반 물품/현재 질문 힌트는 유지합니다. “요소희/이어서헥스”를 재개로 강제 치환하지 않습니다. 모델/PCM/장치/임계값·TTS 상한은 바꾸지 않았습니다.
 
-[인계: 실제 C 미연결] `bind_request_source(check, boot=...)`의 boot는 검증된 현재 생산자 identity를 전달하는 E 내부 adapter 입력이며 새 공개 wire가 아닙니다. 실제 C의 현재 run/boot 및 재기동 바인딩, typed 정지 증빙·종료 후보/명시 수락·보존 폐기 adapter는 C 확인/계약 협의 선행입니다. 현재 공개 cancel 전송과 실제 작업 종료·잠금 해제는 구분합니다. 더미 idle은 COMPLETED/effect/빈손/실로봇 완료가 아닙니다. 실제 C/B·음성 재시험·실물 수용은 미검증이며 상태 질문은 P3 보류입니다. 기준은 [FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[FR-INT-03](../../../docs/requirements.md#fr-int-03)·[재개/종료 접수 정책](../../../docs/requirements.md#resume-admission-policy), 직접 검사/게시 경계는 [E CURRENT](../../../practice/E/CURRENT.md#end-stop-minimal-20261012-01)를 참조하십시오.
+[10/12 당시 인계: 실제 C 미연결] `bind_request_source(check, boot=...)`의 boot는 검증된 현재 생산자 identity를 전달하는 E 내부 adapter 입력이며 새 공개 wire가 아닙니다. 실제 C의 현재 run/boot 및 재기동 바인딩, typed 정지 증빙·종료 후보/명시 수락·보존 폐기 adapter는 C 확인/계약 협의 선행입니다. 현재 공개 cancel 전송과 실제 작업 종료·잠금 해제는 구분합니다. 더미 idle은 COMPLETED/effect/빈손/실로봇 완료가 아닙니다. 이 문단은 10/12 인계 이력입니다. 현재 C wire 및 기존 위치/개폐 읽기 질의 연결은 위 #322 절을 참조하십시오. 새 P3 상태 질의 범위·실제 C/B·실음성·실물 수용은 이 이력으로 완료 판정하지 않습니다. 기준은 [FR-SAF-01/03](../../../docs/requirements.md#fr-saf-01)·[FR-INT-03](../../../docs/requirements.md#fr-int-03)·[재개/종료 접수 정책](../../../docs/requirements.md#resume-admission-policy), 직접 검사/게시 경계는 [E CURRENT](../../../practice/E/CURRENT.md#end-stop-minimal-20261012-01)를 참조하십시오.
 
 ## P2 실음성 더미 준비
 
@@ -57,7 +73,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 [구현: E-VOICE-DIALOGUE-HOTFIX-20261012-02] 현재 질문은 쉼표·복합 답을 판정하는 동안 유지하고, 같은 세대/기한에서 긍정 또는 대상 정정을 판정한 뒤 한 번 소비합니다. “어, 맞아.”·“맞아, 그거 갖다줘.”·“맞아, 그걸로 갖다줘.”와 그걸로는 원문을 보존해 처리합니다. 질문 없음·만료·부정·미지원·새 다른 대상은 이전 대상을 자동 수락하지 않습니다. 정상 빈 전사 보존과 기존 기한은 그대로입니다.
 
-가능 여부 질문(“립밤 가져올 수 있어?” 포함)은 실행하지 않고 등록 지원·실재고/파지 미확인을 안내한 뒤 대상 확인 질문을 합니다. 명시 긍정 후에도 기존 대상/요청 검증을 통과해야 합니다. 실제 시험의 “지금 망치 어딨어?”·“위쪽 서랍 열려있어?”와 끝마침표 형태도 위치/열림 질의로 처리합니다. 장소는 기존 위 서랍 이름의 방향 수식만 정규화하며 원본 장소/별칭을 추가하지 않습니다. 위치/열림 질의는 실행 분류 전에 기존 ontology.load/get의 초기 state를 읽기만 하며 “초기 배치 기준”이라고 안내합니다. IntentParser.state_provider에 바인딩된 읽기 전용 callable이 있으면 reference_query가 기존 state mapping을 실제 호출해 Runner 기록 기준으로 안내합니다. None일 때만 초기 배치를 사용하며 연결 실패/누락은 모름 안내입니다. 실제 C 공급자는 아직 바인딩하지 않았습니다.
+가능 여부 질문(“립밤 가져올 수 있어?” 포함)은 실행하지 않고 등록 지원·실재고/파지 미확인을 안내한 뒤 대상 확인 질문을 합니다. 명시 긍정 후에도 기존 대상/요청 검증을 통과해야 합니다. 실제 시험의 “지금 망치 어딨어?”·“위쪽 서랍 열려있어?”와 끝마침표 형태도 위치/열림 질의로 처리합니다. 장소는 기존 위 서랍 이름의 방향 수식만 정규화하며 원본 장소/별칭을 추가하지 않습니다. 위치/열림 질의는 실행 분류 전에 기존 ontology.load/get의 초기 state를 읽기만 하며 “초기 배치 기준”이라고 안내합니다. IntentParser.state_provider에 바인딩된 읽기 전용 callable이 있으면 reference_query가 기존 state mapping을 실제 호출해 Runner 기록 기준으로 안내합니다. None일 때만 초기 배치를 사용하며 연결 실패/누락은 모름 안내입니다. 현재 VoiceNode의 C 공급자 바인딩·미수신/유실/재기동 경계는 위 #322 절에 구현했습니다. 독립 parser/dummy의 provider=None 초기 배치 경로는 유지하되 운영 노드의 현재 상태로 대체하지 않습니다.
 
 더미 cancel은 현재 run의 명시 stopped fixture를 보존합니다. 이후 새로운 음성의 복구/재개/종료는 기존 typed safety 경로를 사용하고 일반 LLM에 보내지 않습니다. 복구 증빙·재개/종료는 모의 가정/후보이며 실제 B/C 상태·잠금 해제·모션 성공이 아닙니다. 작업 없음/완료 후에는 보존된 작업이 없음을 안내합니다. 실제 C의 정지/복구/재개/종료 상태 매핑은 담당 인계 사항입니다. 독립 정지는 멈춰/정지/그만/정지해/중단해를 기존 cancel 경로로 보내며 자기TTS·부정/인용은 보류합니다. 아래 정지·더미 후속의 DC 제외 판정을 적용하며 기존 임계값·보호한도·모델은 유지합니다.
 

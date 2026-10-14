@@ -14,7 +14,7 @@ silence_sec: 0.4      # [팀 확정 필요] 발화 종료 지연도 3초 측정�
 speech_start_timeout_sec: 3.0
 max_record_sec: 8.0   # 최대 보호 한도이며 고정 8초 녹음이 아님
 stt_model: whisper-1
-stt_control_prompt: '멈춰, 정지, 중지, 취소, 그만, 중단해, 복구해, 이어서 해, 재개해, 종료, 작업 종료해, 네, 아니요'
+stt_control_prompt: ''  # 독립 제어는 단어 나열 힌트 없이 전사. 일반 물품/질문 힌트 유지.
 llm_model: gpt-4o     # 참고 코드 후보, 계정 접근·실측 지연 [팀 확정 필요]
 stt_timeout_sec: 30.0
 llm_timeout_sec: 30.0
@@ -140,6 +140,15 @@ voice_flow:
 
 # 승인 핫픽스의 안내 문구. 단일 값 원본이며 실제 현재 상태/모션을 단정하지 않습니다.
 voice_hotfix:
+  runtime_recover: '복구 요청이 수락됐어요. 작업 재개는 별도 확인이 필요해요.'
+  runtime_resume: '현재 작업의 재개 요청이 수락됐어요.'
+  runtime_end: '현재 작업의 종료가 확인됐어요. 안전 잠금은 별도로 확인해 주세요.'
+  runtime_end_pending: '정지를 확인하지 못해 작업 종료를 보류했어요. 작업은 보존됩니다. 직접 상태를 확인해 주세요.'
+  runtime_discarded: '보존 작업이 폐기됐어요. 정지와 안전 잠금 상태는 별도로 확인해 주세요.'
+  runtime_failed: '제어 요청이 거절됐어요. 현재 작업과 안전 잠금 상태를 확인해 주세요.'
+  runtime_recover_failed: '안전 조건을 확인하지 못해 복구를 거절했어요. 작업과 잠금은 유지됩니다.'
+  runtime_service_failed: '복구 서비스 응답을 확인하지 못했어요. 작업과 잠금은 유지됩니다.'
+  runtime_restopped: '복구 중 새 정지가 보고됐어요. 작업과 잠금은 유지됩니다.'
   control_recover: '더미 복구 확인이 끝났습니다. 새 웨이크 후 이어서 해라고 말씀해 주세요. 실제 로봇 복구 확인은 아닙니다.'
   control_resume: '더미 작업 재개를 수락했습니다. 안내가 끝나면 더미 실행 상태로 돌아갑니다. 실제 로봇은 움직이지 않습니다.'
   control_end: '더미 작업 종료를 수락했습니다. 안내가 끝나면 새 요청을 받을 수 있습니다. 물리 작업 완료는 아닙니다.'

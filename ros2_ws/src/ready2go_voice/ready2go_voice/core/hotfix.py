@@ -1,4 +1,4 @@
-"""E 읽기 전용 초기 배치 질의와 안내. 상태 쓰기·공통 query wire는 없습니다."""
+"""기존 읽기 전용 위치/개폐 질의와 안내. 상태 쓰기·공통 query wire는 없습니다."""
 import re
 import yaml
 from .stt_error import _prompt_file
@@ -17,6 +17,21 @@ def prompts(cfg):
         raise ValueError('voice_hotfix: 안내 문자열 필요')
     return value
 
+
+
+def control_notice(cfg, kind, *, runtime=False, reason=None, operation=None):
+    """C result wording stays separate from explicit dummy fixtures."""
+    key = 'control_' + kind
+    if runtime:
+        key = 'runtime_' + kind
+        if kind == 'failed':
+            if reason == 'STOPPED_DURING_RECOVER':
+                key = 'runtime_restopped'
+            elif reason in ('B_RECOVER_UNAVAILABLE', 'B_RECOVER_FAILED', 'B_CHECK_UNAVAILABLE'):
+                key = 'runtime_service_failed'
+            elif operation == 'recover':
+                key = 'runtime_recover_failed'
+    return prompts(cfg)[key]
 
 
 def reference_query(parser, text):

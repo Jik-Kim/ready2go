@@ -133,12 +133,12 @@ def recording():
 
 @pytest.mark.parametrize('text',['멈추지 마','멈춰라고 말했어','"멈춰"','아마 멈춰','재개해'])
 def test_stop_rejects_negation_quote_ambiguity_and_other_commands(cfg,text):
-    session=VoiceSession(None,cfg,STT(text),clock=lambda:100.)
+    session=VoiceSession(None,cfg,STT(text),clock=lambda:100.,speech_gate=SimpleNamespace(check=lambda *a,**kw:True))
     assert session.stop_audio(recording()) is None
 
 
 def test_stop_has_separate_stt_slot_no_llm_and_self_speech_guard(cfg):
-    stt=STT();session=VoiceSession(None,cfg,stt,clock=lambda:100.)
+    stt=STT();session=VoiceSession(None,cfg,stt,clock=lambda:100.,speech_gate=SimpleNamespace(check=lambda *a,**kw:True))
     session.stt_calls._lock.acquire()  # 처리 중 P1 STT 슬롯을 모델링합니다.
     try:
         assert session.stop_audio(recording())['intent']=='cancel'
@@ -149,7 +149,7 @@ def test_stop_has_separate_stt_slot_no_llm_and_self_speech_guard(cfg):
 
 def test_network_failure_and_generation_change_do_not_return_stop(cfg):
     def fail():raise OSError('network unavailable')
-    session=VoiceSession(None,cfg,STT(hook=fail),clock=lambda:100.)
+    session=VoiceSession(None,cfg,STT(hook=fail),clock=lambda:100.,speech_gate=SimpleNamespace(check=lambda *a,**kw:True))
     assert session.stop_audio(recording()) is None
     stale=[False];session.stt=STT(hook=lambda:stale.__setitem__(0,True))
     assert session.stop_audio(recording(),paused=lambda:stale[0]) is None
@@ -163,7 +163,7 @@ def test_stop_late_sdk_result_is_discarded_and_slot_recovers(cfg):
             release.wait(1)
             try:return super().transcribe(*args,**kw)
             finally:ended.set()
-    session=VoiceSession(None,cfg,Slow(),clock=lambda:100.)
+    session=VoiceSession(None,cfg,Slow(),clock=lambda:100.,speech_gate=SimpleNamespace(check=lambda *a,**kw:True))
     try:assert session.stop_audio(recording()) is None
     finally:release.set()
     assert ended.wait(1)

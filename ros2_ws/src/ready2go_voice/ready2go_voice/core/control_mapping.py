@@ -83,6 +83,7 @@ class ControlMapper:
         self.reason = None
         self.active_run = None
         self.admitted_ends = {}
+        self.end_reset_baselines = {}
         self.publishing = None
 
     def connected(self):
@@ -153,7 +154,8 @@ class ControlMapper:
         if (sent is not None and sent.generation == self.generation()
                 and sent.work.session == self.boot and decision.get('intent') == sent.intent
                 and (halt is None or halt.get('run_id') == sent.work.task and (isinstance(sent.work,ActiveRun)
-                    or halt.get('event_id') == sent.work.stop))):
+                    or halt.get('event_id') == sent.work.stop
+                    or decision.get('decision') in ('reject','hold')))):
             result = decision.get('decision')
             expected = ('registered' if sent.intent == 'resume_register' or sent.phase == 'register'
                 else 'resume' if sent.intent in ('resume','resume_answer') and sent.answer not in ('decline','expired')
@@ -274,10 +276,18 @@ class ControlMapper:
                 and (event is None or halt.get('event_id') == event))
             if admitted and current:
                 last = doc.get('last') or {}
+                if (halt.get('stop') == 'unconfirmed' and halt.get('locked') is True
+                        and last.get('run_id') == target.task and last.get('overall_status') == 'SUSPENDED'):
+                    node.running_end_deferred(candidate, halt['event_id'], pending[1])
                 if (halt.get('stop') == 'confirmed' and halt.get('resume') is None
                         and last.get('run_id') == target.task and last.get('overall_status') == 'ABORTED'):
                     node.running_end_completed(candidate)
                     self.pending = None
+                elif (halt.get('resume') is None and last.get('run_id') == target.task
+                        and last.get('overall_status') == 'ABORTED' and identity(doc.get('state_reset_at'))
+                        and doc['state_reset_at'] != self.end_reset_baselines.get(pending[1])):
+                    node.running_end_discarded(candidate)
+                    self.pending = None  # C human/reset disposal, not confirmed physical stop
                 return # requested/unconfirmed preserves target, never claims completion
         halt = doc.get('halt') or {}
         evidence = self.evidence()
@@ -380,6 +390,7 @@ class ControlMapper:
             run_id=target.task,request_id=request_id)  # event_id deliberately absent
         self.validator.validate(payload)
         self.pending = ('end_task',request_id,candidate)
+        self.end_reset_baselines[request_id] = self.status.get('state_reset_at')
         self.operations[request_id] = SentControl('end_task',target,request_id,None,None,None,
             self.clock(),self.generation(),candidate)
         self.publishing = (payload,target,None,candidate)

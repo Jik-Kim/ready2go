@@ -20,6 +20,7 @@ class VoiceSession:
         cfg['voice_flow'] = self.flow
         self.progress = progress
         self.speech_gate = speech_gate
+        self.stop_speech_gate = speech_gate  # separate production VAD instance; injected PCM tests may share
         self.stt_calls = DeadlineCall()
         self.stop_stt_calls = DeadlineCall()  # 일반 STT/LLM 작업 종료를 기다리지 않습니다.
         self._last = None
@@ -280,6 +281,12 @@ class VoiceSession:
             return None
         timeout = self.cfg['stt_timeout_sec']
         try:
+            if self.stop_speech_gate is None:
+                from ..adapters.speech import SpeechPresence
+                self.stop_speech_gate = SpeechPresence(self.cfg)
+            if not self.stop_speech_gate.check(recording, paused=paused):
+                emit(event='stop_audio_held', reason='NO_SPEECH')
+                return None
             def transcribe():
                 if paused():
                     raise InterruptedError('STOP_CANCELED')
@@ -302,7 +309,7 @@ class VoiceSession:
                 return None
             # 기존 정확 문구 분류는 부정·인용·전언·모호 표현을 수용하지 않습니다.
             normalized_control = self.parser.control(text) if self.parser is not None else None
-            emit(event='stop_stt_result', text=text)
+            emit(event='stop_stt_result', text=text)  # bounded detail, before decision
             ending = task_end_utterance(text)
             if paused() or not (ending or safety_utterance(text) == 'stop' or normalized_control and normalized_control['intent'] == 'cancel'):
                 emit(event='stop_audio_held', reason='canceled' if paused() else 'not_explicit_stop')
@@ -316,6 +323,7 @@ class VoiceSession:
                 doc['_voice'] = {'safety_control':'task_end'}  # E 내부 라우팅만; 공개 종료 enum 아님
             doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
                                  llm_called=False, fallback_used=False)
+            emit(event='stop_control_accepted', text=text, kind='end' if ending else 'stop')
             return doc
         except Exception as exc:
             emit(event='stop_audio_held', reason=type(exc).__name__, api_error=error_info(exc))
