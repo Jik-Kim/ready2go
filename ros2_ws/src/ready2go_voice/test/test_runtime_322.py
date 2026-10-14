@@ -46,22 +46,26 @@ def answer(node,text):
     assert doc['_voice']['readonly_query'] and not doc['source']['execution_allowed']
     assert not doc['source']['llm_called']
     node.deliver(doc)
+    notice=node.pending_notice
+    if notice is not None and notice.kind=='readonly_query':
+        node.pending_notice=None
+        node._play_notice(notice,threading.Event())
     return node.texts[-1]
 
 
 def test_real_default_false_memory_callback_parser_and_tts(node):
     endpoints,status,state,subscriptions=memory_node(node)
     assert subscriptions[0][0]=='/robot_state'
-    assert '확인하지 못했어요' in answer(node,'지우개 어딨어?')
+    assert '확인할 수 없습니다' in answer(node,'지우개 어딨어?')
     status();state()
     assert '아래 서랍' in answer(node,'지우개 어딨어?')
     doc=copy.deepcopy(node.parser.reference_state)
     doc['located_in']['eraser']='handover_zone';doc['open']['drawer_top']=True
     state(doc,stamp=12)
     assert '전달 트레이' in answer(node,'지우개 어딨어?')
-    assert '열림' in answer(node,'위쪽 서랍 열려있어?')
+    assert '열려있습니다' in answer(node,'위쪽 서랍 열려있어?')
     doc['open']['drawer_top']=False;state(doc,stamp=13)
-    assert '닫힘' in answer(node,'위쪽 서랍 열려있어?')
+    assert '닫혀있습니다' in answer(node,'위쪽 서랍 열려있어?')
     returned=node._runner_memory_state();returned['open']['drawer_top']=True
     assert node._runner_memory_state()['open']['drawer_top'] is False
     assert not node.published and getattr(node,'control_mapper',None) is None
@@ -72,7 +76,7 @@ def test_real_default_false_memory_callback_parser_and_tts(node):
 def test_bad_memory_never_falls_back_to_initial_state(node,bad):
     _,status,state,_=memory_node(node);status();state()
     state(bad)
-    assert '확인하지 못했어요' in answer(node,'지우개 어딨어?')
+    assert '확인할 수 없습니다' in answer(node,'지우개 어딨어?')
     node._robot_state(SimpleNamespace(data='{invalid'),dict(INFO))
     assert node._runner_memory_state() is None and not node.published
 
@@ -94,7 +98,7 @@ def test_state_before_first_status_is_latched_but_loss_and_restart_require_new_s
     state(stamp=21);assert node._runner_memory_state() is None
     state(stamp=31);assert node._runner_memory_state() is not None
     endpoints['/robot_state']*=2
-    assert '확인하지 못했어요' in answer(node,'위쪽 서랍 열려있어?')
+    assert '확인할 수 없습니다' in answer(node,'위쪽 서랍 열려있어?')
 
 
 def test_deep_invalid_json_is_held_in_state_and_status_callbacks(node):
@@ -355,9 +359,9 @@ def test_actual_pick_place_effect_and_held_stop_support_readonly_queries(node,on
     assert 'gripper' not in node.parser.places
     state(held,stamp=12)
     assert '그리퍼에 쥐고' in answer(node,'지우개 어딨어?')
-    assert 'Runner 기록 기준' in node.texts[-1] and '별도 확인' in node.texts[-1]
-    assert 'Runner 기록 기준' in answer(node,'차키 어딨어?')
-    assert '닫힘' in answer(node,'위쪽 서랍 열려있어?')
+    assert node.texts[-1]=='지우개는 그리퍼에 쥐고 있습니다.'
+    assert '서랍에 있습니다.' in answer(node,'차키 어딨어?')
+    assert '닫혀있습니다' in answer(node,'위쪽 서랍 열려있어?')
     # A held stop preserves the actual effect state; it does not grant motion.
     node._runner_status_with_info(SimpleNamespace(data=json.dumps(dict(boot_id='boot',seq=2,
         phase='halted',halt_code='HALTED',halt=None,last=None,task_id=None))),dict(INFO,source_timestamp=13))

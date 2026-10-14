@@ -218,7 +218,7 @@ def test_old_local_and_yaml_single_source(cfg,tmp_path):
     path=tmp_path/'old.yaml';path.write_text(yaml.safe_dump(cfg))
     loaded=load_config(path)
     assert loaded['voice_flow']==settings({})
-    assert not loaded['voice_flow']['wake_cue_enabled'] and not loaded['voice_flow']['capture_save_wav']
+    assert loaded['voice_flow']['wake_cue_enabled'] and not loaded['voice_flow']['capture_save_wav']
 
 
 def test_flow_installed_share_lookup_reads_single_yaml(monkeypatch,tmp_path):

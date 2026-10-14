@@ -69,7 +69,8 @@ class IntentParser:
             return intent('cancel')
         if normalize_control(text) in {normalize_control(p) for p in self.cfg['cancel_phrases']}:
             return intent('cancel')
-        if normalize_control(text) in {normalize_control(p) for p in self.cfg['status_phrases']}:
+        from .hotfix import is_status_query
+        if is_status_query(self, text):
             return intent('status')
         return None
 
@@ -197,11 +198,15 @@ class IntentParser:
         drawers = {g['subject'] for group in catalog for g in group if g['predicate'] == 'open'}
         deliveries = {(g['subject'], g['value']) for group in catalog for g in group if g['predicate'] == 'located_in'}
         value = normalize_control(text)
+        if value.startswith('지금'):
+            value = value[2:]
         for drawer in drawers:
             if drawer not in self.places or self.places[drawer].get('class') != 'Drawer':
                 continue
             names = [normalize(self.places[drawer]['name_ko']), drawer]
-            if len(drawers) == 1:
+            if drawer == 'drawer_top':
+                names.extend(('위서랍', '위쪽서랍'))
+            if len(drawers) == 1 and not self.cfg.get('upper_drawer_enabled', False):
                 names.append('서랍')  # unambiguous selected drawer only
             d = '(?:' + '|'.join(re.escape(n) for n in names) + ')'
             for state, verb in ((True, r'열어(?:둬|줘|두세요|두어줘)'), (False, r'닫아(?:줘|주세요)?')):
@@ -335,11 +340,14 @@ class IntentParser:
         return result
 
     def parse(self, text, deadline=None, *, context=None):
-        from .hotfix import reference_query
+        from .hotfix import reference_query, is_status_query
         answer = reference_query(self, text)
         if answer is not None:
-            doc = intent('unknown')
-            doc['_voice'] = {'final_text': answer, 'readonly_query': True}
+            status_read = is_status_query(self, text)
+            doc = intent('status' if status_read else 'unknown')
+            doc['_voice'] = {'final_text': answer, 'readonly_query': True,
+                'query_kind': 'status' if status_read else 'record',
+                'query_source': 'runner_record' if status_read or getattr(self, 'state_provider', None) is not None else 'initial_reference'}
             doc['source'] = {'stt_text':text, 'input_kind':'text', 'llm_called':False, 'llm_validation':'not_called', 'fallback_used':False, 'execution_allowed':False}
             return doc
         if self.cfg.get('p2_goal_enabled') is True and not self.control(text) and self._goal_requested(text):

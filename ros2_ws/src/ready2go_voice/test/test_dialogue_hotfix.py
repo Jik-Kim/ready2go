@@ -72,8 +72,8 @@ def test_readonly_provider_boundary_no_fallback_after_connected_failure(node,mod
         else:
             assert '초기 배치 기준' in answer
         assert not calls
-    elif mode=='recorded':assert 'Runner 기록 기준' in answer and calls==[1]
-    else:assert answer=='Runner 기록에서 해당 상태를 확인하지 못했어요. 초기 배치를 현재 상태로 대신 안내하지 않습니다.' and calls==[1]
+    elif mode=='recorded':assert 'Runner 기록 기준' not in answer and calls==[1] and (node.parser.places['staging_tray']['name_ko'] in answer if '망치' in text else answer=='위 서랍은 현재 열려있습니다.')
+    else:assert answer=='현재 상태를 확인할 수 없습니다.' and calls==[1]
     assert not doc['source']['execution_allowed']
     assert node.parser.reference_state==initial and state=={'located_in':{'toy_hammer':'staging_tray'},'open':{'drawer_top':True}}
 
@@ -104,7 +104,7 @@ def test_known_initial_location_does_not_fill_connected_provider_failure(node,mo
     node.parser.state_provider=provider
     node.parser.llm=lambda *a:pytest.fail('읽기 전용 질의는 LLM을 호출하지 않습니다.')
     doc=node.session.text('지우개 어디있어?');answer=doc['_voice']['final_text']
-    assert answer=='Runner 기록에서 해당 상태를 확인하지 못했어요. 초기 배치를 현재 상태로 대신 안내하지 않습니다.' and calls==[1]
+    assert answer=='현재 상태를 확인할 수 없습니다.' and calls==[1]
     assert doc['_voice']['readonly_query'] and doc['targets']==[] and not doc['source']['llm_called']
     assert not doc['source']['execution_allowed'] and node.parser.reference_state==initial
 

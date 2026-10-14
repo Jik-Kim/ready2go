@@ -1,5 +1,6 @@
 """기존 voice ICD. 콘솔 요약/E 로컬 상세 증빙, 실행·DB 상태는 C 책임입니다."""
 import json
+from copy import deepcopy
 import uuid
 import time
 from pathlib import Path
@@ -58,6 +59,7 @@ class VoiceNode(Node):
         if not isinstance(goal_enabled, bool):
             raise ValueError('p2_goal_enabled: bool 필요')
         self.cfg['p2_goal_enabled'] = goal_enabled
+        self._configure_upper_drawer()
         self.cfg['diagnostic_detail'] = self.declare_parameter('diagnostic_detail', self.cfg['diagnostic_detail']).value
         self.local_context = threading.local()
         self.diagnostic_file = DiagnosticFile(self.cfg, self.get_logger().warning) if self.cfg['diagnostic_detail'] else None
@@ -80,7 +82,8 @@ class VoiceNode(Node):
             self.tts.prepare()  # 모델/캐시 완료 전 웨이크/ready를 시작하지 않음
         self.cue_cancel = threading.Event()
         self.cue_active = threading.Event()
-        self.cue = WakeCue(self.cfg, self.tts.lock) if self.cfg['voice_flow']['wake_cue_enabled'] else None
+        self.cue = None
+        self._cue_initialization_failed = False
         self.stop_event = threading.Event()
         self.busy = threading.Event()
         self.speaking = threading.Event()
@@ -90,7 +93,7 @@ class VoiceNode(Node):
         self.goal_lock = threading.Lock()
         self.generation = 0
         self.request_cancel = threading.Event()
-        self.notice_policy = RunnerNoticePolicy()
+        self.notice_policy = RunnerNoticePolicy(self.cfg)
         self.request_run = RequestRun()
         self.accepted_request_logs = deque(maxlen=128)
         self.request_source_check = None  # Actual C producer/restart mapping is supplied at integration.
@@ -168,6 +171,7 @@ class VoiceNode(Node):
         self.server = ActionServer(self, Skill, '/voice/speak', execute_callback=self._speak,
                                    goal_callback=self._goal, cancel_callback=lambda _: CancelResponse.ACCEPT,
                                    callback_group=group)
+        self._init_wake_cue()
         self.worker = threading.Thread(target=self._work, daemon=True)
         self.worker.start()
         self.notice_worker = threading.Thread(target=self._notice_work, daemon=True)
@@ -179,7 +183,46 @@ class VoiceNode(Node):
             self.listener.start()
         self._diagnostic({'event': 'ready', 'evaluation_mode': self.cfg['evaluation_mode'],
                           'audio_enabled': self.cfg['audio_enabled'],
-                          'request_run_enabled': self.cfg['request_run_enabled']})
+                          'request_run_enabled': self.cfg['request_run_enabled'],
+                          'p2_goal_enabled': self.cfg['p2_goal_enabled'],
+                          'upper_drawer_enabled': self.cfg.get('upper_drawer_enabled', False),
+                          'wake_cue_enabled': self.cfg['voice_flow']['wake_cue_enabled'],
+                          'output_device': self.cfg.get('output_device'),
+                          'cue_gain': self.cfg['voice_flow']['cue_gain']})
+
+    def _configure_upper_drawer(self):
+        """Explicit startup scope; reuse the selected catalog and both send gates."""
+        enabled = self.declare_parameter('upper_drawer_enabled', False).value
+        if type(enabled) is not bool:
+            raise ValueError('upper_drawer_enabled: bool required')
+        self.cfg['upper_drawer_enabled'] = enabled
+        if not enabled:
+            return
+        if not self.cfg['p2_goal_enabled'] or not self.cfg['request_run_enabled']:
+            raise ValueError('upper_drawer_enabled requires both P2/request opt-ins')
+        selected = [[{'predicate': 'open', 'subject': 'drawer_top', 'value': value}]
+                    for value in (True, False)]
+        catalog = self.cfg['p2_goal_catalog']
+        if any(group not in catalog for group in selected):
+            raise ValueError('upper drawer goals must exist in selected catalog')
+        self.cfg['p2_goal_catalog'] = deepcopy(selected)
+
+    def _init_wake_cue(self):
+        from ready2go_voice.adapters.cue import WakeCue
+        enabled = self.cfg['voice_flow']['wake_cue_enabled']
+        self.cue = None
+        self._cue_initialization_failed = False
+        try:
+            if enabled:
+                self.cue = WakeCue(self.cfg, self.tts.lock)
+        except Exception as exc:
+            self._cue_initialization_failed = True
+            self._diagnostic({'event':'wake_cue_failed','reason':'initialization_failed',
+                              'error_type':type(exc).__name__})
+        self._diagnostic({'event':'wake_cue_config','enabled':enabled,
+                          'available':self.cue is not None,'output_device':self.cfg.get('output_device'),
+                          'gain':self.cfg['voice_flow']['cue_gain'],
+                          'reason':'configured_off' if not enabled else 'initialization_failed' if self._cue_initialization_failed else 'ready'})
 
     def _cancel_place_locked(self):
         owned = self.place_activity.is_set()
@@ -261,6 +304,7 @@ class VoiceNode(Node):
             self.place_identity, self.place_budget = ident, incoming.final_timeout_sec
             self.place_first_sent = self.place_registered = self.place_registered_at = None
             self.place_pending = q
+            self._cancel_readonly_notice_locked()
             self.place_activity.set()
             self.busy.set()
             self.session.conversation.invalidate()
@@ -502,26 +546,44 @@ class VoiceNode(Node):
                 and getattr(self.safety_exchange.evidence, 'stopped', False) is True):
             self._send_safety_candidate_locked(TaskEndCandidate(p.work), self.safety_sender)
             return True
-        empty = (self.notice_policy.phase == 'idle' and (p is None or p.work is None)
+        current = self._current_runner_status()
+        idle_confirmed = (getattr(self, 'runner_control_source', None) is None or
+                          current is not None and current['phase'] == 'idle' and current.get('halt') is None)
+        empty = (idle_confirmed and self.notice_policy.phase == 'idle' and (p is None or p.work is None)
                  and (self.request_run.run_id is None or self.request_run.finished))
         meta['final_text'] = prompts(self.cfg)['no_end_work'] if empty else self.session.flow['status_prompts']['unconfirmed']
         self._diagnostic({'event':'task_end_held','reason':'no_active_work' if empty else 'current_stop_unconfirmed'})
-        if doc['intent'] == 'cancel':
+        if doc['intent'] == 'cancel' or self.normal_notice_cancel.is_set():
             self._task_end_notice_locked(meta['final_text'])
+            return True
         return False
 
     def _task_end_notice_locked(self, text):
-        self._control_notice_locked('task_end_held',text)
+        marker = self._feedback_marker()
+        self._control_notice_locked('task_end_held',text,guard=lambda: self._feedback_marker() == marker)
 
-    def _control_notice_locked(self, kind, text):
+    def _control_notice_locked(self, kind, text, *, guard=None):
         # 기존 비권한 notice worker. 높은 안전 경고는 종료 보류 안내로 덮지 않습니다.
         with self.notice_condition:
-            if self.pending_notice is not None and self.pending_notice.priority < 4:
+            active = getattr(self, 'active_notice', None)
+            if (self.pending_notice is not None and self.pending_notice.priority < 4
+                    or active is not None and active.priority < 4):
+                self._diagnostic({'event':'readonly_feedback_held','reason':'safety_warning_priority'})
                 return
             self.notice_policy.revision += 1
             self.notice_cancel.set()
-            self.pending_notice = Notice(kind, text, 4, self.notice_policy.revision)
+            self.pending_notice = Notice(kind, text, 4, self.notice_policy.revision, self.generation, guard)
             self.notice_condition.notify_all()
+
+    def _cancel_readonly_notice_locked(self):
+        # Caller owns submit_lock. Keep submit_lock -> notice_condition ordering.
+        with self.notice_condition:
+            kinds = ('readonly_query', 'control_rejected', 'task_end_held')
+            if self.pending_notice is not None and self.pending_notice.kind in kinds:
+                self.pending_notice = None
+            active = getattr(self, 'active_notice', None)
+            if active is not None and active.kind in kinds:
+                self.notice_cancel.set()
 
     def safety_offer(self, work, revision, evidence, *, valid_state, valid_until):
         """복구 확인된 현재 사건을 질문 작업에 연결합니다. valid_until은 E 로컬 시각입니다."""
@@ -538,6 +600,7 @@ class VoiceNode(Node):
             self._cancel_place_locked()
             self.safety_cancel = threading.Event()
             self.safety_pending = ('question', q)
+            self._cancel_readonly_notice_locked()
             self.safety_activity.set()
             self.busy.set()
             self.place_condition.notify_all()
@@ -561,6 +624,7 @@ class VoiceNode(Node):
                 return None
             self.safety_cancel = threading.Event()
             self.safety_pending = ('independent', target)
+            self._cancel_readonly_notice_locked()
             self.safety_activity.set()
             self.busy.set()
             self.place_condition.notify_all()
@@ -739,6 +803,7 @@ class VoiceNode(Node):
             self.control_feedback = token
             self.safety_cancel = threading.Event()
             self.safety_pending = ('feedback', token)
+            self._cancel_readonly_notice_locked()
             self.safety_activity.set()
             self.busy.set()
             try:
@@ -807,6 +872,7 @@ class VoiceNode(Node):
                 return
             cancel = self.safety_cancel = threading.Event()
             self.safety_running = cancel
+            self._cancel_readonly_notice_locked()
             self.safety_activity.set()
             sender = self.safety_sender
         try:
@@ -1039,6 +1105,130 @@ class VoiceNode(Node):
             raise ValueError('selected Runner name/namespace required')
         topic = getattr(self.status_subscription, 'topic_name', '/runner/status')
         self.runner_control_source = RunnerSource(self.get_publishers_info_by_topic,topic,name=name,namespace=namespace)
+        self._query_status = self._query_binding = None
+        self._read_recovering = None
+        self.parser.status_provider = self._runner_status_view
+
+    def _current_runner_status(self):
+        source = getattr(self, 'runner_control_source', None)
+        binding = getattr(self, '_query_binding', None)
+        doc = getattr(self, '_query_status', None)
+        if source is None or binding is None or not isinstance(doc, dict):
+            return None
+        if not source.check(binding):
+            # Reuse the existing loss/generation boundary while preserving only
+            # an unaccepted state-first candidate for the next verified status.
+            self._lose_control_source_locked(preserve_memory_candidate=True)
+            return None
+        halt = doc.get('halt')
+        if (doc.get('boot_id') != binding.boot or doc.get('phase') not in ('idle','running','halted')
+                or doc.get('last') is not None and not isinstance(doc['last'], dict)
+                or doc.get('last_intent') is not None and not isinstance(doc['last_intent'], dict)
+                or doc.get('phase') == 'running' and (not isinstance(doc.get('task_id'), str) or not doc['task_id'].strip())):
+            return None
+        if halt is not None:
+            if (not isinstance(halt, dict) or halt.get('boot_id') != binding.boot
+                    or type(halt.get('locked')) is not bool
+                    or not isinstance(halt.get('event_id'), str) or not halt['event_id'].strip()
+                    or halt.get('run_id') is not None and (not isinstance(halt['run_id'], str) or not halt['run_id'].strip())
+                    or halt.get('stop') not in ('requested','confirmed','unconfirmed','none')
+                    or halt.get('resume') is not None and not isinstance(halt['resume'], dict)):
+                return None
+            resume = halt.get('resume') or {}
+            if halt.get('resume') is not None and (type(resume.get('offered')) is not bool
+                    or not isinstance(resume.get('from_step'), str) or not resume['from_step'].strip()):
+                return None
+            for key in ('question','request'):
+                value = resume.get(key)
+                if value is not None and (not isinstance(value, dict)
+                        or not isinstance(value.get('id'), str) or not value['id'].strip()
+                        or not isinstance(value.get('state'), str) or not value['state'].strip()):
+                    return None
+        return deepcopy(doc)
+
+    def _runner_status_view(self):
+        # The wrapper is E-local read-only context, never a new public payload.
+        with self.submit_lock:
+            doc = self._current_runner_status()
+            if doc is None:
+                return None
+            target = None
+            pending, run = self.request_run.pending, self.request_run.run_id
+            decision = doc.get('last_intent') or {}
+            if (doc['phase'] == 'running' and isinstance(decision, dict) and pending is not None
+                    and run is not None and not self.request_run.finished
+                    and decision.get('decision') == 'run' and decision.get('run_id') == run
+                    and decision.get('request_id') == pending['request_id']
+                    and pending.get('intent') == decision.get('intent') == 'find_item'
+                    and pending.get('targets') == decision.get('targets')
+                    and len(pending.get('targets') or []) == 1):
+                target = pending['targets'][0]
+            mapper = getattr(self, 'control_mapper', None)
+            request_id = getattr(self, '_read_recovering', None)
+            sent = mapper.operations.get(request_id) if mapper is not None else None
+            halt = doc.get('halt') or {}
+            recovering = bool(sent is not None and sent.intent == 'recover'
+                and sent.request_id not in mapper.result_ids and sent.generation == self.generation
+                and mapper.boot == doc['boot_id'] and sent.work.session == doc['boot_id']
+                and sent.work.task == halt.get('run_id') and sent.work.stop == halt.get('event_id'))
+            return {'status':doc, 'target':target, 'recovering':recovering}
+
+    def _feedback_marker(self):
+        view = self._runner_status_view()
+        if view is None:
+            return None
+        doc = view['status']; halt = doc.get('halt') or {}; last = doc.get('last') or {}
+        resume = halt.get('resume') or {}; question = resume.get('question') or {}; request = resume.get('request') or {}
+        # Seq/stamp progression alone does not obsolete a fresh read. Events,
+        # active run/request and visible workflow meaning do.
+        return (doc['boot_id'], doc['phase'], doc.get('task_id'),
+                halt.get('event_id'), halt.get('run_id'), halt.get('stop'), halt.get('locked'),
+                last.get('run_id') if doc['phase'] != 'running' else None,
+                last.get('overall_status') if doc['phase'] != 'running' else None,
+                self.request_run.run_id, view['target'], view['recovering'],
+                resume.get('offered'), resume.get('from_step'),
+                question.get('id'), question.get('state'), request.get('id'), request.get('state'),
+                getattr(self, '_read_recovering', None) if view['recovering'] else None)
+
+    def _readonly_feedback_locked(self, doc, generation):
+        from ready2go_voice.core.hotfix import reference_query, prompts
+        meta = doc.get('_voice', {})
+        source = doc.get('source', {})
+        query = bool(meta.get('readonly_query') and doc['intent'] in ('status','unknown')
+                     and source.get('execution_allowed') is False and source.get('llm_called') is False)
+        rejection = meta.get('safety_control') in ('recover','resume','new_start')
+        if not query and not rejection:
+            return False
+        request = source.get('stt_text', '')
+        if query:
+            text = reference_query(self.parser, request)
+            if text is None or text != meta.get('final_text'):
+                self._diagnostic({'event':'readonly_feedback_held','reason':'record_changed'})
+                return True
+        else:
+            text = (prompts(self.cfg)['control_rejected']
+                    if self._current_runner_status() is not None else prompts(self.cfg)['status_unknown'])
+        binding = getattr(self, '_query_binding', None)
+        marker = self._feedback_marker()
+        memory_epoch = getattr(self, 'memory_epoch', None) if meta.get('query_kind') == 'record' else None
+        def current():
+            if self.stop_event.is_set() or generation != self.generation:
+                return False
+            if (getattr(self, '_query_binding', None) != binding or self._feedback_marker() != marker
+                    or memory_epoch is not None and getattr(self, 'memory_epoch', None) != memory_epoch):
+                return False
+            if query:
+                return reference_query(self.parser, request) == text
+            expected = (prompts(self.cfg)['control_rejected']
+                        if self._current_runner_status() is not None else prompts(self.cfg)['status_unknown'])
+            return expected == text
+        self._diagnostic({'event':'final_response','text':text,'intent':doc})
+        self._diagnostic({'event':'readonly_feedback','kind':'query' if query else 'control_rejection',
+                          'query_source':meta.get('query_source'), 'boot_id':binding.boot if binding else None,
+                          'source_confirmed':self._current_runner_status() is not None, 'physical_observation':False,
+                          'published':False})
+        self._control_notice_locked('readonly_query' if query else 'control_rejected', text, guard=current)
+        return True
 
     def _init_runner_memory(self, qos):
         from ready2go_voice.adapters.runner_control import RunnerMemory
@@ -1080,17 +1270,29 @@ class VoiceNode(Node):
 
     def _runner_memory_state(self):
         with self.submit_lock:
-            return self.runner_memory.current()
+            state = self.runner_memory.current()
+            if getattr(self, 'runner_control_source', None) is not None and self._current_runner_status() is None:
+                return None
+            return state
 
-    def _lose_control_source_locked(self):
+    def _lose_control_source_locked(self, *, preserve_memory_candidate=False):
         if not getattr(self, '_control_source_lost', False):
             self.generation += 1
             self.request_cancel.set()
             self.session.conversation.invalidate()
         self._control_source_lost = True
         self._control_binding = None
+        self._query_status = self._query_binding = None
+        with self.notice_condition:
+            active = getattr(self, 'active_notice', None)
+            if active is not None and active.priority == 4:
+                self.notice_cancel.set()
+            if self.pending_notice is not None and self.pending_notice.priority == 4:
+                self.pending_notice = None
         if getattr(self, 'runner_memory', None) is not None:
+            candidate = self.runner_memory.pending if preserve_memory_candidate else None
             self.runner_memory.invalidate()
+            self.runner_memory.pending = candidate
         self._cancel_safety_locked()
         self.request_run.invalidate()
 
@@ -1154,6 +1356,8 @@ class VoiceNode(Node):
                         self.bind_control_source(self._runtime_control_check,boot=binding.boot,
                             publisher_gid=binding.endpoint_gid)
                     self._control_binding = binding
+                self._query_status = json.loads(message.data)
+                self._query_binding = binding
                 memory = getattr(self, 'runner_memory', None)
                 if memory is not None:
                     if memory.observe_status(binding, info):
@@ -1284,7 +1488,11 @@ class VoiceNode(Node):
                 if accepted:
                     mapper.pending = None
                 return accepted
+            previous_operations = set(mapper.operations) if kind == 'recover' else None
             accepted = mapper.send(kind, value)
+            if accepted and kind == 'recover':
+                current_requests = set(mapper.operations) - previous_operations
+                self._read_recovering = next(iter(current_requests)) if len(current_requests) == 1 else None
             if not accepted:
                 self._diagnostic({'event':'control_publish_held','kind':kind,'reason':mapper.reason or 'proof_or_target_unconfirmed'})
                 if kind in ('register_question','register_independent'):
@@ -1580,20 +1788,54 @@ class VoiceNode(Node):
                 notice, self.pending_notice = self.pending_notice, None
                 if notice.revision != self.notice_policy.revision: continue
                 cancel = self.notice_cancel = threading.Event()
+                # Reserve before releasing the queue lock; low feedback sees inflight warnings.
+                self.active_notice = notice
+            self._play_notice(notice, cancel)
+
+    def _play_notice(self, notice, cancel=None):
+        cancel = cancel if cancel is not None else self.notice_cancel
+        low = notice.kind in ('readonly_query', 'control_rejected', 'task_end_held')
+        timing = {}
+        owns_dialog = False
+        try:
+            if low:
+                owns_dialog = self.dialog_lock.acquire(blocking=False)
+                if not owns_dialog:
+                    cancel.set()
+                    return
+            with self.submit_lock:
+                if (cancel.is_set() or self.stop_event.is_set() or notice.revision != self.notice_policy.revision
+                        or notice.generation is not None and notice.generation != self.generation
+                        or notice.guard is not None and not notice.guard()):
+                    return
+                if low and (self.place_activity.is_set() or self.safety_activity.is_set()):
+                    self._diagnostic({'event':'readonly_feedback_held','reason':'question_capture_priority'})
+                    return
+                self.active_notice = notice
             self.speaking.set()
-            timing = {}
-            try:
-                self._say(notice.text, cancel=cancel, on_timing=timing.update,
-                               on_start=lambda stamp: self._diagnostic({'event': 'tts_started',
-                                   'notice_kind': notice.kind, 'source': stamp, 'timing': dict(timing)}))
-                self._diagnostic({'event': 'tts_finished', 'notice_kind': notice.kind, 'timing': dict(timing)})
-            except InterruptedError:
-                pass  # 상위 경고/새 회차/종료 시 폐기, 재시도하지 않음.
-            except Exception as exc:
-                self._diagnostic({'event': 'runner_notice_failed', 'notice_kind': notice.kind,
-                                  'error_type': type(exc).__name__})
-            finally:
-                if not self.tts.lock.locked(): self.speaking.clear()
+            def started(stamp):
+                with self.submit_lock:
+                    if (cancel.is_set() or self.stop_event.is_set()
+                            or notice.revision != self.notice_policy.revision
+                            or notice.generation is not None and notice.generation != self.generation
+                            or notice.guard is not None and not notice.guard()
+                            or low and (self.place_activity.is_set() or self.safety_activity.is_set())):
+                        cancel.set()
+                        raise InterruptedError('NOTICE_NOT_CURRENT')
+                self._diagnostic({'event':'tts_started','notice_kind':notice.kind,'source':stamp,'timing':dict(timing)})
+            self._say(notice.text, cancel=cancel, on_timing=timing.update, on_start=started)
+            self._diagnostic({'event':'tts_finished','notice_kind':notice.kind,'timing':dict(timing)})
+        except InterruptedError:
+            pass
+        except Exception as exc:
+            self._diagnostic({'event':'runner_notice_failed','notice_kind':notice.kind,'error_type':type(exc).__name__})
+        finally:
+            with self.notice_condition:
+                if getattr(self, 'active_notice', None) is notice:
+                    self.active_notice = None
+            if owns_dialog:
+                self.dialog_lock.release()
+            if not self.tts.lock.locked(): self.speaking.clear()
 
     def _publish(self, doc):
         message = String()
@@ -1613,9 +1855,18 @@ class VoiceNode(Node):
                         self.safety_sender('recover', p.work)
                     else:
                         self._diagnostic({'event': 'safety_text_held', 'reason': 'current_voice_recording_required'})
+                        if kind in ('recover','resume','new_start'):
+                            self._readonly_feedback_locked(self.session.text(message.data, self.generation), self.generation)
+                        else:
+                            from ready2go_voice.core.hotfix import prompts
+                            self._task_end_notice_locked(prompts(self.cfg)['status_unknown'] if self._current_runner_status() is None else prompts(self.cfg)['control_rejected'])
                 return
         control = self.parser.control(message.data)
         if control:
+            if control['intent'] == 'status':
+                with self.submit_lock:
+                    self._deliver(self.parser.parse(message.data), self.generation)
+                return
             with self.submit_lock:
                 self.session.conversation.invalidate()  # status도 새 독립 요청입니다.
                 if control['intent'] == 'cancel':
@@ -1715,11 +1966,16 @@ class VoiceNode(Node):
                 doc['source']['execution_allowed'] = False
                 meta.update(request_epoch=self.session.conversation.epoch, execution_hold_reason='runner_busy_or_locked', final_text=doc['clarify_question'])
                 self._diagnostic({'event':'execution_held','reason':'runner_busy_or_locked','original_intent':meta['original_interpretation']['intent']})
-            if self.stop_event.is_set() or generation != self.generation or not self.session.valid_context(doc, generation):
+            readonly = doc.get('_voice', {}).get('readonly_query') is True
+            if (self.stop_event.is_set() or generation != self.generation
+                    or not readonly and not self.session.valid_context(doc, generation)):
                 self._diagnostic({'event': 'request_canceled', 'published': False})
                 return
             if doc['intent'] in ('find_item', 'achieve_goal') and self.session.is_duplicate(doc):
                 self._diagnostic({'event': 'request_duplicate', 'intent': doc, 'published': False})
+                return
+        with self.submit_lock:
+            if self._readonly_feedback_locked(doc, generation):
                 return
         if doc['intent'] == 'achieve_goal' and runner_blocks(self):
             self.session.conversation.invalidate()
@@ -1829,6 +2085,8 @@ class VoiceNode(Node):
                     or self.tts.lock.locked() or self.place_activity.is_set() or self.safety_activity.is_set())
         self._diagnostic({'event': 'capture_input_prepared', 'last_input_monotonic': getattr(stream, 'last_frame_monotonic', None)})
         cue = getattr(self, 'cue', None)
+        if getattr(self, '_cue_initialization_failed', False):
+            raise RuntimeError('CUE_INITIALIZATION_FAILED')
         capture_boundary = None
         if cue is not None:
             with self.submit_lock:
@@ -1843,8 +2101,13 @@ class VoiceNode(Node):
                 capture_boundary = timing['cue_audible_ended_monotonic']
                 if self.stop_event.wait(self.cfg['voice_flow']['cue_guard_sec']) or generation != self.generation:
                     raise InterruptedError('CUE_CANCELED')
+            except Exception as exc:
+                self._diagnostic({'event':'wake_cue_failed','reason':'playback_failed','error_type':type(exc).__name__})
+                raise
             finally:
                 self.cue_active.clear()
+        else:
+            self._diagnostic({'event':'wake_cue_disabled','reason':'configured_off'})
         if paused():
             raise InterruptedError('CAPTURE_CANCELED')
         prepared = stream.begin_capture(capture_boundary) if hasattr(stream, 'begin_capture') else stream.discard()

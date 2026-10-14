@@ -116,7 +116,7 @@ stt_error_prompts:
 
 # E-VOICE-FLOW 승인 시험 옵션. 숫자는 시험 제안이며 [팀 확정 필요]. 기본 녹음/모델/예산은 불변.
 voice_flow:
-  wake_cue_enabled: false
+  wake_cue_enabled: true
   cue_rate_hz: 16000
   cue_tones_hz: [660.0, 880.0]
   cue_tone_sec: 0.08
@@ -163,7 +163,28 @@ voice_hotfix:
   no_end_work: 종료할 작업이 없습니다.
   control_held: 중단 작업의 기존 안전 확인 경로로 요청을 전달합니다. 실제 복구나 재개 완료는 아닙니다.
 
-  recorded_location: '{item_topic} Runner 기록 기준 {place}에 있습니다. 실제 현재 위치는 별도 확인이 필요합니다.'
-  recorded_held: '{item_topic} Runner 기록 기준 그리퍼에 쥐고 있습니다. 실제 보유 상태는 별도 확인이 필요합니다.'
-  recorded_open: '{place_topic} Runner 기록 기준 {value} 상태입니다. 실제 현재 상태는 별도 확인이 필요합니다.'
-  unknown_recorded_state: Runner 기록에서 해당 상태를 확인하지 못했어요. 초기 배치를 현재 상태로 대신 안내하지 않습니다.
+  recorded_location: '{item_topic} {place}에 있습니다.'
+  recorded_held: '{item_topic} 그리퍼에 쥐고 있습니다.'
+  recorded_open: '{place_topic} 현재 {value}있습니다.'
+  unknown_recorded_state: 현재 상태를 확인할 수 없습니다.
+  recorded_open_true: 열려
+  recorded_open_false: 닫혀
+  status_idle: 작업을 기다리고 있습니다.
+  status_running: 작업을 진행하고 있습니다.
+  status_target: '{item_object} 찾고 있습니다.'
+  status_halted: 작업이 중단된 상태입니다.
+  status_recovering: 복구 응답을 기다리고 있습니다.
+  status_resume_ready: 중단 작업의 재개를 기다리고 있습니다.
+  status_resume_wait: 재개 여부 답변을 기다리고 있습니다.
+  status_unknown: 현재 작업 상태를 확인할 수 없습니다.
+  control_rejected: 현재 작업의 제어 조건을 확인하지 못했습니다.
+  notice_vision_timeout: 비전 단계의 응답이 늦습니다. 카메라와 연결 상태를 확인해 주세요.
+  notice_camera: 비전 프레임 응답이 늦습니다. 카메라와 연결을 확인해 주세요.
+  notice_coordinates: 깊이 또는 좌표 정보를 확인하지 못했습니다. 카메라와 좌표 설정을 확인해 주세요.
+  notice_region: 작업 영역을 확인하지 못했습니다. 가림과 카메라 자세를 확인해 주세요.
+  notice_interference: 벽이나 이웃 물체와의 간섭 때문에 진행하지 못했습니다.
+  notice_no_space: 물건을 옮길 빈 자리를 찾지 못했습니다.
+  notice_restore: 옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람이 확인해 주세요
+  notice_recovery: 복구 결과를 확인하지 못했습니다. 작업과 잠금은 유지됩니다.
+  runtime_external_force: 외력이 보고돼 복구를 거절했습니다.
+  runtime_external_force_unknown: 외력 상태를 확인하지 못해 복구를 거절했습니다.

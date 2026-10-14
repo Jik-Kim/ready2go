@@ -2,6 +2,26 @@
 
 - **담당**: E 고희태. 웨이크워드·STT·P1 단일 물품 LLM 해석/검증·규칙 폴백·TTS.
 
+## 음성 피드백 5항목 — 2026-10-14 로컬 보완
+
+[구현·입력 경계] 정지 후 새로 요청한 위치·개폐·고정 상태 질의와 제어 보류 안내만 기존 비권한 notice worker로 전달합니다. 일반 TTS/기존 C speak 차단은 유지하며, 취소된 일반 요청을 다시 실행하거나 정지·복구·재개 권한을 만들지 않습니다. 대기/재생 중 높은 안전 경고와 질문 캡처를 우선하고, 정지·run/사건·질문·boot/연결 변경은 이전 안내를 무효화합니다. 정상 heartbeat의 seq 증가만으로 같은 의미의 새 읽기 안내를 취소하지 않습니다.
+
+[현재 기록·표현] 기본 위치·개폐 답변은 “지우개는 아래 서랍에 있습니다.”·“위 서랍은 현재 닫혀있습니다.”처럼 짧게 말합니다. 정보 원본은 계속 Runner 기록이며 물리 관측 검증이 아닙니다. 출처/currentness와 물리 관측 미검증은 진단에 남깁니다. 미수신·형식 오류·재기동·유실은 확인 불가로 답하고 초기 배치로 대신하지 않습니다. 명시적인 legacy/dummy 초기 참조는 기존 설명을 유지합니다. “지금 뭐하고 있어?”·“현재 상태”는 현재 Runner phase/재개 질문과 실제 E 요청/run 상관을 읽기만 합니다. 물품명이 확인될 때만 “지우개를 찾고 있습니다.”라고 말하고 불명확하면 일반 작업 안내를 사용하며 LLM/intent 발행·모션을 만들지 않습니다. E 보존 정보가 없다는 이유만으로 C에 작업이 없다고 단정하지 않습니다.
+
+[알림음·설정] 패키지 `voice_flow.wake_cue_enabled` 기본을 true로 바꿨고, 명시 local false는 유지합니다. 시작 진단은 실효 enabled/생성 여부/출력장치/gain과 비활성·실패 사유를 표시합니다. 기존 출력 lock·cue 완료·guard 뒤 새 캡처 순서·기한/gain은 유지하며 생성/재생 실패는 녹음을 시작하지 않습니다. 이 변경에서 실제 beep를 재생하지 않았습니다. 기존 local 설정이 recorded_* 문구를 명시 override하면 그대로 사용하며, 옛 “열림/닫힘 상태” 템플릿은 문법이 깨지지 않게 같은 noun 값을 사용합니다.
+
+[원인 안내·선행] 실제 CAMERA_TIMEOUT·TF_UNAVAILABLE/DEPTH_INVALID·REGION_NOT_VISIBLE·파지·벽/이웃 간섭·NO_FREE_SPACE·원위치 복구 불완전과 안전 복구 실패를 구분합니다. 일반 TIMEOUT은 현재의 두 기본 태스크 정의에서 task_id/failed_step이 정확한 inspect_region 단계일 때만 비전 단계 지연으로 분류하고, 근거가 없으면 일반 timeout을 유지합니다. NOT_REACHED나 pushed=false를 비전 단절/넛지 불필요로 해석하지 않습니다. 물품 원위치 복구 실패에는 기존 fn.1 안내를 재사용하며 잠금 유지/안전 해제로 설명하지 않습니다. 결과/높은 경고의 기존 중복·우선순위를 유지합니다. 현재 last 결과는 finally 뒤에 도착하므로 E 결과 안내가 서랍 정리 전 원인 전달을 구현한 것은 아닙니다. 정리 전에는 C의 실제 기존 speak 호출/원인·현재 실행 상관이 선행이며, opt-in speak의 기존 첫 수락 문장 게이트도 별도 대조가 필요합니다. C 파일/계약은 이 보완에서 변경하지 않습니다.
+
+[준비·미검증] 새 문장은 node/prepare 공통 필수 목록에 포함하고 e28의 실패·중단 12문장을 유지합니다. 현재 source와 기존 local YAML의 선택은 각각 필수208+warmup1로 cap256 이내이며 startup60/prepare120·속도1.2·history는 유지합니다. 코드/목록 변경 뒤 기존 prepare와 적용 확인이 필요하지만 cache/receipt를 생성·삭제하지 않습니다. 선택·모의 검사와 실제 API/마이크/스피커·beep/음성·ROS·PC2/로봇/물리 AC는 구분하며 후자는 미검증입니다. [이번 CURRENT](../../../practice/E/CURRENT.md#voice-five-log-fixes-20261014)에서 버전·검사·담당 후속을 확인하십시오.
+
+## 위 서랍 열기·닫기 명시 실행 옵션 — 2026-10-14
+
+[구현·범위] [FR-INT-02](../../../docs/requirements.md#fr-int-02)·[FR-PLN-02/P2](../../../docs/requirements.md#fr-pln-02)의 기존 목표 경로를 사용합니다. VoiceNode 시작 시 `-p upper_drawer_enabled:=true -p p2_goal_enabled:=true -p request_run_enabled:=true`를 함께 지정하면 원본 선정 목록에서 `drawer_top`의 `open=true/false` 두 단일 목표만 선택합니다. 기본 P1·기존 opt-in 기본값은 유지합니다. 명시된 기존 두 opt-in은 기존 제어 런타임도 활성화하며 현재 source·halt·B/C 검사와 복구·재개·종료 조건은 유지합니다. C RUNNER_RESUMABLE을 자동 변경하지 않습니다. “지금 위 서랍 열어줘”, “위쪽 서랍 닫아줘”를 현재 온톨로지·선정 목록과 LLM 결과로 검증하며, 부정·인용·가능 여부 질문·아래 서랍·범위 밖 복합/물품 목표는 실행 후보로 확정하지 않습니다. 평가 모드·잠금/작업 중·현재 C 연결 미확인은 기존 발신 차단을 유지합니다.
+
+[연결·C 인계] E 목표 후보 → 기존 Session 발행 조건 → 현재 C source/요청 상관 → C achieve_goal 플래너 → 기존 수락 speak/첫 동작 게이트를 사용합니다. `tools/dev/pc2_voice.sh --control`은 현재 `request_run_enabled`만 설정하므로 이 기능을 활성화하지 않습니다. C 담당은 위 세 ROS 인자를 실제 VoiceNode argv로 전달하는 실행 옵션을 추가해야 합니다. 해당 스크립트·사용자 local YAML은 여기서 수정하지 않았습니다. 기존 C 계획·speak 삽입 경로는 코드로 대조했고, 선택 검사는 ROS 비의존 모의이며 실물 열기·닫기나 PC2 실행 완료가 아닙니다.
+
+[검증] 경고 dequeue→active 인계 보호, 질문/독립 녹음 생산자의 낮은 안내 취소와 실제 재생 직전 활동 재검사·dialog lock 보존을 보완했습니다. 변경 경합·개폐/잠금/발신 차단·기존 수락 speak/물품 찾기 선택 **24 passed, 157 deselected (3.11s)**입니다. 수정 전 선택 235개는 이전 버전 근거로 구분하여 재사용하고 전체 재실행하지 않았습니다. [CURRENT](../../../practice/E/CURRENT.md#voice-five-log-fixes-20261014)를 참조하십시오.
+
 ## 운영 입력·Runner 메모리·종료 보류 — #322 (2026-10-14)
 
 [구현] 일반 요청·음성 정지는 `bash tools/dev/pc2_voice.sh`의 기본 설정으로 사용합니다. 기존 위치·서랍 개폐 질의는 기본 `request_run_enabled=false`에서도 `VoiceNode`의 `/robot_state` 구독 → 읽기 전용 메모리 → `IntentParser.state_provider` → 기존 질의 → TTS로 연결됩니다. C가 발행하는 String JSON과 TRANSIENT_LOCAL/RELIABLE(depth 1)을 사용하며 상태를 쓰거나 새 질의 wire를 발신하지 않습니다. 답변은 **Runner 기록 기준**이고 실제 관측·실물 위치 일치의 증거가 아닙니다.
