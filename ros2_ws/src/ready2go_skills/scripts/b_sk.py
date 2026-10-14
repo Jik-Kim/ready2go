@@ -691,8 +691,7 @@ def unpack(node):
     집기 → 서랍 빈 자리(slot free) → 기록 → 다시 보기 … 최대 2개 → 목표가 다 보이면 집기 → 트레이 →
     (쥔 게 없을 때) 옮긴 것을 역순으로: 다시 보기 → find_moved → 집기 → 원래 자리(막히면 다시 빈 자리 + 안내) →
     치운 물체는 고정 aside 대신 늘 빈 자리(free) [사용자 10/13 "free 가 상위호환, aside 다 지움"] — 서버가 집는 물체 자리는 빈 것으로 보고,
-    목표(scan.target) 둘레를 비우고, 놓은 뒤 다시 집을 수 있는 곳을 먼저(없으면 놓기만 되는 곳 — 원복 때 넛지 뒤 집기) 고름.
-    빈 자리가 없으면 든 채 멈춤 (Runner 태스크는 집기 전에 판단, #250).
+    목표(scan.target) 둘레를 비우고, 놓은 뒤 다시 집을 수 있는 곳을 고름. 빈 자리가 없으면 든 채 멈춤 (Runner 태스크는 집기 전에 판단, #250).
     마지막 다시 보기로 복구 오차(위치 mm·각도 °) 출력 → 닫기·홈. 판정(3 cm)은 기록표 — 자로 잰 값과 같이 적기."""
     up = _runner_unpack()
     world = {"items": json.load(open(repo_file("knowledge", "world.jsonld"), encoding="utf-8"))["world"]["items"]}
@@ -759,10 +758,9 @@ def unpack(node):
             print(f"  {item['id']} 다시 못 찾음 ({(found or {}).get('status', '인식 실패')}) — 남은 것 계속 (태스크 fr.x)")
             restore_failed.append(item)
             continue
-        # 놓기만 되는 빈 자리(place.free_repickable_only false)에 둔 물체는 다시 집을 때 WALL_TOO_CLOSE → 넛지 → 다시 보기 → 집기
-        # [사용자 10/14 PC2 "걍 일단 상관없이 놓고 넛지로 끌고 오자"] — 목표 집기(_pick_retry)와 같은 순서
-        ok, rescan, _ = _pick_retry(node, found["object"], rescan, item["class"])
-        if not ok:
+        if not _pick(node, found["object"], rescan):
+            if last["code"] in STOP_CODES:
+                sys.exit(f"pick {last['code']} — 멈춤 (사람 확인)")
             print(f"  {item['id']} 집기 {last['code']} — 남은 것 계속 (태스크 fr.x)")
             restore_failed.append(item)
             continue

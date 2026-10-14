@@ -156,7 +156,7 @@ drawer_open_close:              # drawer_control 실물 (위 drawer_control 판�
   stopper_window_mm: 10.0       # 목표 이 거리 안에서 걸리면 스토퍼 도달로 봄 (닫힌 위치가 몇 mm 어긋난 경우)
   close_pos_tol_m: 0.015        # 닫힘 위치 판정 여유 (미는 손가락 앞면 오프셋 [추정] 오차 포함) [팀 확정 필요]
 place:
-  free_repickable_only: false   # true = slot "free" 는 다시 집을 수 있는 자리만(없으면 NO_FREE_SPACE, #337). false = 다시 집을 수 있는 자리를 먼저(여유 포함), 없으면 놓기만 되는 자리 — 원복 때 WALL_TOO_CLOSE 면 넛지 → 다시 보기 → 집기 [사용자 10/14 PC2 "걍 일단 상관없이 놓고 넛지로 끌고 오자": 아래 칸 판·위 칸 꽉 찬 배치는 다시 집히는 빈 자리가 없어 집지도 않고 닫음]
+  free_repickable_only: false   # true = slot "free" 는 다시 집을 수 있는 자리만(없으면 NO_FREE_SPACE, #337). false = 다시 집을 수 있는 자리를 먼저(여유 포함), 없으면 놓기만 되는 자리 — 원복 때 WALL_TOO_CLOSE 면 부르는 쪽(Runner)이 넛지 → 다시 보기 → 집기 [사용자 10/14 PC2 "걍 일단 상관없이 놓고 넛지로 끌고 오자": 아래 칸 판·위 칸 꽉 찬 배치는 다시 집히는 빈 자리가 없어 집지도 않고 닫음]
   free_repick_margin_mm: 5.0    # 다시 집기 검사를 놓을 자리 ±이만큼 옮겨서도 — 비전 위치 오차 2.5 mm [실측 #155] + 여유 (neighbor.margin_mm 과 같은 값)
   free_repick_margin_deg: 5.0   # 다시 집기 검사를 ±이 각도 돌려서도 — 비전 각도 오차 [추정]
   free_try: 0                   # slot "free" 빈 자리 후보 중 놓기·다시 집기 검사할 개수. 0 = 전부 [사용자 10/14: 앞 60개(벽에 붙은 자리부터)만 보면 S1 위 칸 후보 약 150개 중 뒤쪽 다시 집히는 자리를 못 봄 → NO_FREE_SPACE]. make_room(B clear)은 core 기본 60
