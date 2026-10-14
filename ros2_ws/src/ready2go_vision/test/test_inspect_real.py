@@ -360,3 +360,12 @@ def test_single_fragment_of_long_object_still_invalid_yaw():
     ok, err, js = inspect_scene([det], depth, K, T, PARAMS, BAR, "drawer_top", "long_bar", INTERIOR)
     assert ok
     assert json.loads(js)["target"]["pose"]["yaw_valid"] is False
+
+
+def test_fragment_yaw_off_switch_keeps_old_behavior():
+    """depth_blob.fragment_min_area_ratio 0 이면 조각 계산을 끄고 예전처럼 yaw_valid false."""
+    depth, m, bar = _split_bar(0.3)
+    det = {"class": "long_bar", "conf": 0.9, "box": box_of(bar[0], bar[1], bar[3], bar[2], margin=0.02), "mask": m}
+    off = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], "fragment_min_area_ratio": 0.0}}
+    ok, _, js = inspect_scene([det], depth, K, T, off, BAR, "drawer_top", "long_bar", INTERIOR)
+    assert ok and json.loads(js)["target"]["pose"]["yaw_valid"] is False

@@ -47,20 +47,20 @@ def _long_axis_yaw(xy: np.ndarray):
 
 
 def _fragments_yaw(mask, K: Intrinsics, T_drawer_cam: np.ndarray, z_plane: float, nominal_long_m: float,
-                   nominal_short_m: float | None, tol: float):
+                   nominal_short_m: float | None, tol: float, min_ratio: float, min_px: int):
     """분할 마스크가 위에 얹힌 물체에 가운데가 덮여 둘 이상으로 갈라졌을 때(넓이 5 % 이상 조각 2개 이상), 조각 전체를
-    서랍 좌표 z_plane 평면에 투영한 외접 사각형이 명목 크기와 맞으면 (yaw, 긴 변, 짧은 변), 아니면 None.
+    서랍 좌표 z_plane 평면에 투영한 외접 사각형이 명목 크기와 맞으면 (yaw, 긴 변, 짧은 변), 아니면 None. min_ratio 0 이면 끔.
     긴 변은 명목 ±tol, 짧은 변은 명목 짧은 변의 (1 + tol) 이하 — 다른 물체가 섞인 마스크 막기. 한 조각만 보이는 경우(일부만
-    드러난 지우개 등)는 방향이 애매해 쓰지 않음 [실물 덤프 110장: 갈라진 몽키 20장만 해당, 일부만 보인 지우개 3장은 한 조각]."""
-    if mask is None:
+    드러난 지우개 등)는 방향이 애매해 쓰지 않음 [실물 덤프 110장: 갈라진 몽키 19장만 해당, 일부만 보인 지우개 3장은 한 조각]."""
+    if mask is None or min_ratio <= 0:
         return None
     cv2 = _cv2()
     n_lab, _, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
     areas = stats[1:, cv2.CC_STAT_AREA]
-    if areas.size == 0 or int((areas >= 0.05 * areas.sum()).sum()) < 2:
+    if areas.size == 0 or int((areas >= min_ratio * areas.sum()).sum()) < 2:
         return None
     vs, us = np.nonzero(mask)
-    if len(us) < 50:
+    if len(us) < min_px:
         return None
     d = T_drawer_cam[:3, :3] @ np.stack([(us - K.cx) / K.fx, (vs - K.cy) / K.fy, np.ones(len(us))])
     o = T_drawer_cam[:3, 3]
@@ -131,7 +131,8 @@ def analyze_box(depth_m: np.ndarray, box, K: Intrinsics, T_drawer_cam: np.ndarra
     if nominal_long_m is not None:
         tol = params["size_tolerance"]
         if not (nominal_long_m * (1 - tol) <= long_m <= nominal_long_m * (1 + tol)):
-            fr = _fragments_yaw(full_mask, K, T_drawer_cam, top_z / 2.0, nominal_long_m, nominal_short_m, tol)
+            fr = _fragments_yaw(full_mask, K, T_drawer_cam, top_z / 2.0, nominal_long_m, nominal_short_m, tol,
+                                float(params.get("fragment_min_area_ratio", 0.0)), int(params.get("fragment_min_px", 50)))
             if fr is not None:                              # 위에 얹힌 물체가 가운데를 덮어 마스크가 갈라짐 → 조각 전체로 [10/14 S1 몽키]
                 base.update(blob_long_m=fr[1], blob_short_m=fr[2])
                 return BlobResult(yaw=fr[0], yaw_ok=True,
