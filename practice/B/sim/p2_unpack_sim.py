@@ -16,6 +16,7 @@ from ready2go_skills.core import place_plan as plp
 NSIM, SEED = int(os.environ.get("NSIM", "200")), int(os.environ.get("SEED", "1"))
 MODE = os.environ.get("MODE", "now")
 LIP_YAW = os.environ.get("LIP_YAW", "1") == "1"
+WRENCH_YAW = os.environ.get("WRENCH_YAW", "1") == "1"   # 0 = 캐러멜이 가운데를 덮어 몽키 각도 모름 (#344 전 비전)
 WALL = "WALL_TOO_CLOSE"
 OBST_NUDGE = os.environ.get("OBST_NUDGE") == "1"   # 치울 물체 집기도 벽이면 넛지 → 다시 (지금 흐름 s7.1 은 pick_object 만)
 MAKE_ROOM = os.environ.get("MAKE_ROOM") == "1"     # 목표 집기 NEIGHBOR_TOO_CLOSE 면 B make_room(clear_plan.plan_next) 반복 (지금 흐름엔 없음)
@@ -66,6 +67,7 @@ def scene_s1(rng, size_of, interior, d="drawer_top"):
         if not (center_in(c, w, size_of, 0.0) and center_in(k, c, size_of, 0.0) and inside(c, size_of, interior) and inside(k, size_of, interior)):
             continue
         w["occluded_by"] = ["caramel_box#1"] + (["car_key#1"] if overlaps(k, w, size_of) else [])
+        w["pose"]["yaw_valid"] = WRENCH_YAW
         c["occluded_by"] = ["car_key#1"]
         return [w, c, k]
     raise RuntimeError("S1 배치 실패")
