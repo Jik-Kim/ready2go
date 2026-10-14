@@ -131,6 +131,22 @@ def test_alone_rule_off_or_much_less_visible_stays_unknown():
     assert ok and json.loads(js)["target"]["occluded_by"] is None
 
 
+def test_alone_rule_keeps_unknown_when_undetected_cover_in_depth():
+    """[10/14 PM 검토] 덮개가 검출 안 됐어도(뎁스에만 있음) 둘레 뎁스에 지우개보다 높은 픽셀이 있으면 null — 10/11 판 밑 지우개 판 미검출 대비."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115), ("cover_plate", 0.055, 0.15, (0.0605, 0.06), 0.035)]   # 판이 지우개 왼쪽 끝 11.5 mm 를 덮음
+    depth, masks = scene(objs)
+    dets = dets_of(objs[:1], masks[:1])                                         # 판은 검출 안 됨
+    ratio = visible_area_m2(masks[0], depth, K, 0.15, 1.0) / (0.0525 * 0.022)
+    assert OCC["alone_clear_min_ratio"] <= ratio < OCC["visible_ratio_max"]   # 혼자 규칙 범위 안 (끝만 덮임)
+    dbg = []
+    ok, _, js = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+    assert any(d.get("occlusion", {}).get("ring_high_px", 0) >= OCC["ring_high_min_px"] for d in dbg)
+    off = {**PARAMS, "occlusion": {**OCC, "ring_check": False}}                 # 둘레 확인을 끄면 [] (위험 — 그래서 켬)
+    ok, _, js = inspect_scene(dets, depth, K, T, off, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] == []
+
+
 def test_yaw_near_90_degrees_stays_in_range():
     """반올림 1.5708 이 pi/2 를 넘어 RESULT_INVALID 가 나던 문제 (가림 시험에서 발견)."""
     it, _ = run([("caramel_box", 0.10, 0.15, (0.049, 0.075), 0.0185)], target="caramel_box")

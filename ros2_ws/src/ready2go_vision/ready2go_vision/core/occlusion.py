@@ -54,18 +54,18 @@ def _ring_high(j, masks, grown, Z, XY, interior_m, top_j, p):
     """j 마스크 둘레 띠(검출 마스크·서랍 안쪽 밖 제외)에서 j 윗면보다 ring_high_dz_m 이상 높은 픽셀 수. 검출 밖의 높은 물체 = 덮었을 수 있음."""
     cv2 = _cv2()
     m = masks[j].astype(np.uint8)
-    r_out, r_in = int(p.get("ring_outer_px", 24)), int(p.get("ring_inner_px", 4))
+    r_out, r_in = int(p["ring_outer_px"]), int(p["ring_inner_px"])
     ring = (cv2.dilate(m, np.ones((2 * r_out + 1,) * 2, np.uint8)) > 0) & ~(cv2.dilate(m, np.ones((2 * r_in + 1,) * 2, np.uint8)) > 0)
     for i, g in enumerate(grown):
         if i != j and g is not None:
             ring &= ~g
     if interior_m is not None and XY is not None:
-        mg = float(p.get("ring_wall_margin_m", 0.004))
+        mg = float(p["ring_wall_margin_m"])
         X, Y = XY
         ring &= (X > mg) & (X < interior_m[0] - mg) & (Y > mg) & (Y < interior_m[1] - mg)
     z = Z[ring]
     z = z[np.isfinite(z)]
-    return int((z > top_j + float(p.get("ring_high_dz_m", 0.004))).sum()), int(ring.sum())
+    return int((z > top_j + float(p["ring_high_dz_m"])).sum()), int(ring.sum())
 
 
 def visible_area_m2(mask: np.ndarray, depth_m: np.ndarray, K: Intrinsics, min_depth: float, max_depth: float):
@@ -203,8 +203,8 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
         alone = p.get("alone_clear_min_ratio")                 # 조금 덜 보이는데(기준 넓이가 커서) 맞닿은 검출 물체가 하나도 없고 조각도 안 났으면
         ring_ok = True                                         # 덮을 수 있는 검출 물체가 없음 → [] (10/14 PC2 아래 칸
         if alone is not None and p.get("ring_check") and not covers and not unknown and less and not split and not touch and tops[j] is not None:
-            hi, n_ring = _ring_high(j, masks, grown, Z, XY, interior_m, tops[j], p)   # 실험: 둘레 뎁스에 검출 밖 높은 물체가 있으면 [] 안 함
-            ring_ok = n_ring > 0 and hi < int(p.get("ring_high_min_px", 30))
+            hi, n_ring = _ring_high(j, masks, grown, Z, XY, interior_m, tops[j], p)   # 둘레 뎁스에 검출 밖 높은 물체가 있으면 [] 안 함(판 미검출 대비)
+            ring_ok = n_ring > 0 and hi < int(p["ring_high_min_px"])
             relations is not None and relations.append({"under": ids[j], "ring_high_px": hi, "ring_px": n_ring, "judge": "둘레 뎁스 확인"})
         if (alone is not None and ring_ok and not covers and not unknown and less and not split and not touch   # 혼자 다 보인 지우개 0.78 이 null 이라 C 가 집지 않음, #196)
                 and ratio is not None and ratio >= alone):
