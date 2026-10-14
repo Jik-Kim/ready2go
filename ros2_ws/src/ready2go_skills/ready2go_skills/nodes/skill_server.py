@@ -511,17 +511,24 @@ class SkillServer(Node):
         """W1 결과 dict (core/safe_state.build_state). 모르는 값은 None. hold: 쥔 기억 대신 볼 기록(W2 가 hold_unknown 을 다시 볼 때).
         in_gate: 복구(W2)가 gate 를 잡은 채 부름 — 그 gate 는 동작 실행이 아님."""
         g = self.prm()["gripper"]
-        robot_state = self.robot.state()
-        try:
-            motion_state = self.state()
-        except Exception:                                    # 상태 조회 실패 — 모름
-            motion_state = None
+
+        def motion():
+            """(DSR 상태, 관절 변화까지 본 상태) — MotionState 는 직전 조회 뒤 관절이 바뀌었으면 이동 중."""
+            rs = self.robot.state()
+            try:
+                return rs, self.state()
+            except Exception:                                # 상태 조회 실패 — 모름
+                return rs, None
+
+        def still(rs, ms):
+            return rs is not None and ms is not None and sf.STATE_MOVING not in (rs, ms)
+        robot_state, motion_state = motion()
         names = self.robot.tool_names()
         tool_ok = None if None in names else motion_guard.check_tool(*names, self.expected_tcp, self.expected_tool) is None
         width, detected, safety = self._read_gripper()
         busy = self.gate.busy() and not in_gate
         force, force_n = None, None
-        if robot_state is not None and motion_state is not None and not busy:   # 지속 외력: 멈춘 채 판정 창 동안 읽기만 (동작 중이면 모름)
+        if still(robot_state, motion_state) and not busy:   # 지속 외력: 멈춘 채 판정 창 동안 읽기만 (동작 중이면 모름)
             fp = self.prm().get("safe_state") or {}
             hz, hold_s = float(fp.get("external_force_rate_hz", 20.0)), float(fp.get("external_force_hold_s", 0.5))
             need = max(1, int(round(hold_s * hz)))
@@ -531,6 +538,12 @@ class SkillServer(Node):
                 if k + 1 < need:
                     time.sleep(1.0 / hz)
             force, force_n = ss_.external_force_view(samples, float(fp.get("external_force_n", 5.0)), need)
+            # 창이 끝난 뒤 다시 읽음 — 창 도중 조그·외부 제어로 움직이기 시작했으면 stopped 는 그 값(이동 중·모름), 외력 판정은 버림
+            # [nomal-npc #335 리뷰 P1: 창 전 한 번만 읽어 창 도중 이동을 못 보고 stopped=true·external_force=false 로 잠금 해제]
+            robot_state, motion_state = motion()
+            busy = self.gate.busy() and not in_gate          # 창 도중 다른 스킬 동작이 시작됐을 수도
+            if busy or not still(robot_state, motion_state):
+                force, force_n = None, None
         grip = ss_.gripper_view(width_m=width, grasp_detected=detected, safety_error=safety,
                                 held=hold if hold is not None else self.held,
                                 hold_unknown=None if hold is not None else getattr(self, "hold_unknown", None),

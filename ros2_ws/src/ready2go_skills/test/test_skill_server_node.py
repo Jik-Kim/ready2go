@@ -3382,6 +3382,40 @@ def test_check_state_external_force_reads_window_without_motion(server):
     assert srv.robot.log == []
     srv.locked = None
 
+
+def test_external_force_window_rechecks_motion_after(server):
+    """[nomal-npc #335 리뷰 P1] 외력 판정 창(0.5 s) 도중 조그·외부 제어로 로봇이 움직이기 시작하면 창이 끝난 뒤 다시 읽은 상태로
+    stopped false·external_force null → W2 는 잠금을 풀지 않음. 창 전에 한 번만 읽던 때는 stopped true·external_force false 로 풀었음."""
+    srv = _srv_state(server)
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    real_state = srv.robot.state
+    n = {"force": 0}
+
+    def force(p):                                                  # 두 번째 읽기부터 로봇이 움직이는 중 (DSR 상태 2)
+        n["force"] += 1
+        if n["force"] == 2:
+            srv.robot.state = lambda: 2
+        return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    try:
+        r = srv.recover()
+        assert not r["recovered"] and srv.locked
+        assert r["state"]["stopped"] is False and r["state"]["external_force"] is None
+        assert r["blockers"][0] == "NOT_STOPPED" and "EXTERNAL_FORCE_UNKNOWN" in r["blockers"]
+        srv.robot.state, n["force"] = real_state, 0                 # 창 도중 관절이 바뀐 경우 (DSR 상태는 대기 그대로)
+
+        def nudge(p):
+            n["force"] += 1
+            if n["force"] == 2:
+                srv.robot.j = [v + 0.5 for v in srv.robot.j]
+            return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+        srv.robot.force = nudge
+        st = srv.safe_state()
+        assert st["stopped"] is False and st["external_force"] is None
+        assert srv.robot.log == []
+    finally:
+        srv.robot.state, srv.locked = real_state, None
+
 def test_recover_reads_state_once_and_changes_nothing_on_error(server):
     """[E #297 재리뷰 P2] 복구는 상태를 처음 한 번만 읽고 응답을 다 만든 뒤에 잠금·쥔 기억을 바꿈 — 예전엔 잠금을 푼 뒤 응답용으로
     다시 읽다 예외가 나면 recovered=false 인데 잠금은 이미 풀려 있었음. 첫 조회 성공 → 두 번째부터 예외여도 정상 복구, 응답 state 는
