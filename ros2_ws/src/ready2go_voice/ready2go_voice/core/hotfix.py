@@ -25,6 +25,8 @@ def control_notice(cfg, kind, *, runtime=False, reason=None, operation=None):
     if runtime:
         key = 'runtime_' + kind
         if kind == 'failed':
+            if reason in ('EXTERNAL_FORCE', 'EXTERNAL_FORCE_UNKNOWN'):
+                return prompts(cfg)['runtime_external_force' + ('_unknown' if reason.endswith('UNKNOWN') else '')]
             if reason == 'STOPPED_DURING_RECOVER':
                 key = 'runtime_restopped'
             elif reason in ('B_RECOVER_UNAVAILABLE', 'B_RECOVER_FAILED', 'B_CHECK_UNAVAILABLE'):
@@ -34,11 +36,54 @@ def control_notice(cfg, kind, *, runtime=False, reason=None, operation=None):
     return prompts(cfg)[key]
 
 
+STATUS_QUERIES = frozenset({'지금뭐하고있어', '지금뭐하고있나요', '현재상태', '현재상태알려줘'})
+
+
+def is_status_query(parser, text):
+    value = ''.join(str(text).split()).rstrip('.!?？')
+    return value in STATUS_QUERIES | {''.join(p.split()).rstrip('.!?？') for p in parser.cfg['status_phrases']}
+
+
+def status_answer(parser):
+    from .recovery_confirmation import _particle
+    p = prompts(parser.cfg)
+    provider = getattr(parser, 'status_provider', None)
+    try:
+        view = provider() if provider is not None else None
+    except Exception:
+        view = None
+    if not isinstance(view, dict) or not isinstance(view.get('status'), dict):
+        return p['status_unknown']
+    status = view['status']
+    if view.get('recovering') is True:
+        return p['status_recovering']
+    halt = status.get('halt') or {}
+    resume = halt.get('resume') or {}
+    if (resume.get('question') or {}).get('state') == 'registered':
+        return p['status_resume_wait']
+    if resume.get('offered') is True:
+        return p['status_resume_ready']
+    phase = status.get('phase')
+    if phase == 'running':
+        item = parser.items.get(view.get('target'))
+        return p['status_target'].format(item_object=_particle(item['name_ko'], '을', '를')) if item else p['status_running']
+    return p['status_idle' if phase == 'idle' else 'status_halted' if phase == 'halted' else 'status_unknown']
+
+
+def open_state_value(p, prompt, opened):
+    # Keep an explicitly supplied old noun-state template grammatical. Do not
+    # replace the user's template or force a short answer over an override.
+    prefix = 'recorded_open_' if prompt == 'recorded_open' and '{value} 상태' not in p[prompt] else 'open_'
+    return p[prefix + ('true' if opened else 'false')]
+
+
 def reference_query(parser, text):
     from ready2go_knowledge.core.ontology import get
     from .recovery_confirmation import _particle
     value = ''.join(str(text).split()).rstrip('.!?？')
     p = prompts(parser.cfg)
+    if is_status_query(parser, text):
+        return status_answer(parser)
     keys = parser.mentioned(text)
     provider = getattr(parser, 'state_provider', None)
     def read(predicate, subject):
@@ -72,6 +117,6 @@ def reference_query(parser, text):
         if len(places) == 1:
             opened = read('open', places[0])
             if type(opened) is bool:
-                return open_prompt.format(place=parser.places[places[0]]['name_ko'], place_topic=_particle(parser.places[places[0]]['name_ko'], '은', '는'), value=p['open_true' if opened else 'open_false'])
+                return open_prompt.format(place=parser.places[places[0]]['name_ko'], place_topic=_particle(parser.places[places[0]]['name_ko'], '은', '는'), value=open_state_value(p, 'recorded_open' if provider is not None else 'initial_open', opened))
             return unknown
     return None

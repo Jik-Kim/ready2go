@@ -196,3 +196,51 @@ def test_canceled_playback_never_reports_completed_timing(runtime, playback):
                       on_start=lambda _: cancel.set(), on_timing=snapshots.append)
     assert len(snapshots) == 1 and 'playback_sec' not in snapshots[0]
     assert not adapter.lock.locked()
+
+
+
+@pytest.mark.parametrize('history',['missing','valid','invalid'])
+def test_prefill_current_p2_failure_and_stop_match_task_without_history(cfg,ontology,tmp_path,history):
+    import copy
+    from conftest import ROOT
+    from ready2go_runner.core.variables import interpolate
+    from ready2go_voice.core.tts_prefill import prefill_texts
+    task=json.loads((ROOT/'tasks/find_with_unpack.json').read_text())
+    notices={}
+    def collect(value):
+        if isinstance(value,dict):
+            if value.get('action')=='speak':
+                notices[value['id']]=value['params']['text']
+            for child in value.values():collect(child)
+        elif isinstance(value,list):
+            for child in value:collect(child)
+    collect(task)
+    cfg['tts_melotts_assets']=str(tmp_path)
+    user_texts=['사용자 안내','지우개를 꺼내지 못했어요','사용자 안내']
+    cfg['tts_melotts_prefill_texts'].extend(user_texts)
+    path=tmp_path/'validated_phrases.json'
+    if history=='valid':
+        path.write_text(json.dumps([{'text':'기존 선택 문장','uses':cfg['tts_frequent_min_uses']},
+            {'text':'지우개를 꺼내지 못했어요','uses':cfg['tts_frequent_min_uses']}],ensure_ascii=False))
+    elif history=='invalid':path.write_text('{invalid')
+    before=copy.deepcopy(cfg);raw=path.read_bytes() if path.exists() else None
+    warnings=[];selection=[]
+    items=ontology['world']['items']
+    assert len(items)==10 and 'carrot_pen' not in items
+    result=prefill_texts(cfg,items.values(),warnings.append,selection.append,
+        reference_state=ontology['state'],places=ontology['world']['places'],
+        item_names={key:item['name_ko'] for key,item in items.items()})
+    rendered=[interpolate(notices['s8.1'],{'loc':item}) for item in items.values()]
+    assert '지우개를 꺼내지 못했어요' in rendered
+    assert any('을 꺼내지 못했어요' in text for text in rendered)
+    assert any('를 꺼내지 못했어요' in text for text in rendered)
+    for text in [*rendered,notices['fn.1'],notices['fh.1']]:
+        assert result.count(text)==1
+        assert result.index(text)<selection[0]['required_count']
+    assert not any('당근 펜' in text for text in result)
+    assert result.count('사용자 안내')==1 and len(result)==len(set(result))
+    assert (path.read_bytes() if path.exists() else None)==raw and cfg==before
+    assert cfg['tts_prefill_max_texts']==256 and len(result)+1<=256
+    assert cfg['tts_melotts_startup_timeout_sec']==60.0 and cfg['tts_melotts_speed']==1.2
+    if history=='valid':assert '기존 선택 문장' in result
+    if history=='invalid':assert warnings

@@ -60,11 +60,12 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     flow = cfg.get('voice_flow') or flow_settings(cfg)
     texts.extend(flow['status_prompts'].values())
     texts.append(flow['empty_reply_prompt'])
-    from .hotfix import prompts
+    from .hotfix import prompts, open_state_value
     extra = prompts(cfg)
     texts.extend(extra[k] for k in ('no_work','no_end_work','control_held','unknown_state','unknown_recorded_state',
                                   'control_recover','control_resume','control_end','control_failed'))
-    texts.extend(text for key, text in extra.items() if key.startswith('runtime_'))
+    texts.extend(text for key, text in extra.items() if key.startswith(('runtime_', 'notice_')) or key.startswith('status_') and key != 'status_target')
+    texts.append(extra['control_rejected'])
     for item in items:
         texts.append(extra['availability'].format(item=item['name_ko']))
     if reference_state is not None and places is not None:
@@ -80,7 +81,7 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
             if place.get('class') == 'Drawer' and type(get(reference_state,'open',key)) is bool:
                 for prompt in ('initial_open','recorded_open'):
                     opened = get(reference_state,'open',key)
-                    texts.append(extra[prompt].format(place=place['name_ko'],place_topic=_particle(place['name_ko'],'은','는'),value=extra['open_true' if opened else 'open_false']))
+                    texts.append(extra[prompt].format(place=place['name_ko'],place_topic=_particle(place['name_ko'],'은','는'),value=open_state_value(extra,prompt,opened)))
         # Runner memory may differ from the initial layout. Prepare the existing
         # read-only answers for registered items/places and both drawer states.
         for name in (item_names or {}).values():
@@ -92,17 +93,24 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
             if place.get('class') == 'Drawer':
                 for value in ('open_true','open_false'):
                     texts.append(extra['recorded_open'].format(place=place['name_ko'],
-                        place_topic=_particle(place['name_ko'],'은','는'),value=extra[value]))
+                        place_topic=_particle(place['name_ko'],'은','는'),value=open_state_value(extra,'recorded_open',value=='open_true')))
     texts.extend((UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST))
     for item in items:
         name = item['name_ko']
         code = ord(name[-1]) if name else 0
         has_jong = 0xAC00 <= code <= 0xD7A3 and (code - 0xAC00) % 28 != 0
         target = name + ('을' if has_jong else '를')
+        texts.append(extra['status_target'].format(item_object=target))
         texts.extend((confirmation(name), question(name),
-                      target + ' 찾아 올게요', target + ' 앞쪽 트레이에 놓았어요', target + ' 찾지 못했어요'))
+                      target + ' 찾아 올게요', target + ' 앞쪽 트레이에 놓았어요', target + ' 찾지 못했어요',
+                      target + ' 꺼내지 못했어요'))
+    # Current P2 task failure/held-stop notices are required, not history-selected.
+    texts.extend(('옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람이 확인해 주세요',
+                  '물건을 옮기다 멈췄어요. 사람이 확인해 주세요'))
     texts.append('서랍을 닫았어요')
     texts.extend(STATUS_PROMPTS.values())
+    from .runner_speech import required_texts
+    texts.extend(required_texts(cfg, items))
     result = list(dict.fromkeys(texts))
     max_count = cfg.get('tts_prefill_max_texts', 256)
     max_chars = cfg.get('tts_prefill_max_chars', 160)

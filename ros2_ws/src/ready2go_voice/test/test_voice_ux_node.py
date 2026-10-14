@@ -33,7 +33,7 @@ def node_class():
     source=Path(__file__).resolve().parents[1]/'ready2go_voice/nodes/voice_node.py'
     tree=ast.parse(source.read_text())
     tree.body=[n for n in tree.body if isinstance(n,ast.ClassDef) or isinstance(n,ast.FunctionDef) and n.name=='runner_blocks']
-    namespace=dict(Node=object,deque=deque,json=json,queue=queue,threading=threading,time=time,uuid=uuid,
+    namespace=dict(Node=object,deque=deque,json=json,deepcopy=copy.deepcopy,queue=queue,threading=threading,time=time,uuid=uuid,
                    intent=intent,final_response=final_response,redact=redact,remember_text=remember_text,
                    Notice=Notice,RunnerNoticePolicy=RunnerNoticePolicy, Recorder=Recorder,
                    TaskEndCandidate=TaskEndCandidate,finite=finite,safety_utterance=safety_utterance,task_end_utterance=task_end_utterance,
@@ -329,12 +329,18 @@ def test_submit_to_work_keeps_local_request_id(node,node_class):
 
 @pytest.mark.parametrize('control',['지금 뭐해?','취소'])
 @pytest.mark.parametrize('evaluation',[False,True])
-def test_control_fast_path_invalidates_question_without_wait(node,node_class,control,evaluation):
+def test_control_fast_path_status_preserves_question_cancel_invalidates(node,node_class,control,evaluation):
     ask(node);node.published.clear();node.cfg['evaluation_mode']=evaluation
+    question = node.session.conversation.pending
     node_class._text(node,SimpleNamespace(data=control))
-    assert not node.session.conversation.pending
-    assert (len(node.published)==0) is evaluation
-    assert node.session.text('응',node.generation)['intent']!='find_item'
+    if control == '지금 뭐해?':
+        assert node.session.conversation.pending is question
+        assert not node.published
+        assert node.session.text('응',node.generation)['intent'] == 'find_item'
+    else:
+        assert not node.session.conversation.pending
+        assert (len(node.published)==0) is evaluation
+        assert node.session.text('응',node.generation)['intent']!='find_item'
 
 
 def test_targetless_invalid_clarify_console_and_tts_are_safe(node,node_class):

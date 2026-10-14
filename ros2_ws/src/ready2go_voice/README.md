@@ -2,6 +2,44 @@
 
 - **담당**: E 고희태. 웨이크워드·STT·P1 단일 물품 LLM 해석/검증·규칙 폴백·TTS.
 
+## #351 최신 코멘트 보완 — 2026-10-14
+
+[구현] 첫 C 수락에서 확인한 request/run/boot/source·세대·태스크의 연속성을 유지하므로, 다른 요청의 BUSY/status 결정이 현재 실행의 후속 안내를 폐기하지 않습니다. 실제 새 RUN·idle/종료·중단/잠금·재기동·연결 유실은 해당 재생 권한을 폐기합니다. 첫 수락의 실제 재생 성공 조건과 실패 시 첫 모션 차단은 유지합니다.
+
+[원본 연결] `core/runner_speech.py`가 C `ready2go_runner.core.failure_speech`와 현재 `tasks/find_item.json`·`find_with_unpack.json`을 읽습니다. no_room 템플릿은 C의 보간/조사 함수로 물품별 생성하며, 원인·TIMEOUT·동작 실패·generic 문구는 C factory를 사용합니다. `package.xml`에 Runner 실행 의존성을 선언하고 `setup.py`가 두 태스크 원본을 E share/tasks에 설치합니다. 소스 실행은 현재 태스크를 우선하고 설치 실행은 패키지 산출물을 사용하므로 태스크 변경 뒤 E 재빌드/설치가 필요합니다. 타 담당 원본은 직접 편집하지 않았습니다.
+
+[구현·한계] 현재 검증된 실행의 후속 안내가 C factory 원인 문장 화이트리스트에 포함되고 DAC 시작/재생 완료 검증을 통과한 경우만 근거를 보존합니다. 최종 결과가 동일 run·태스크의 FAILED이고 낮은 경고이면 중복 안내를 생략합니다. status.current_step이나 전개된 failed_step의 정적 태스크 조회로 원인을 다시 계산하지 않으므로 동적 achieve_goal 태스크에도 적용됩니다. 재생 실패/거절·다른 실행·미확인/일반 완료·닫기 안내는 생략 근거가 아니며 중단·상태 불명 등 높은 안전 경고는 유지합니다. 이는 동일 실행에서 원인 문장 재생 성공을 근거로 한 중복 억제이며, text-only 호출의 원래 실행 출처나 개별 오류의 추가 식별을 보장하지 않습니다. 새 계약은 추가하지 않았습니다.
+
+[실측: 선택·모의] 직접 회귀 17개 통과. node/prepare 공통 목록은 source·기존 local 각각 필수246+warmup1, frequent0, 15519bytes이며 cap256·중복·누락·용량 검사 통과입니다. startup60/prepare120·속도1.2·history/models/cache는 유지합니다. 실제 새 WAV 캐시 준비·PC2/API/마이크/스피커·ROS/DDS·실로봇은 미검증이며 기존 prepare 절차와 통합 시험이 남습니다. 근거/요구사항은 [CURRENT](../../../practice/E/CURRENT.md#voice-351-latest-comments-20261014)와 [FR-INT-03](../../../docs/requirements.md#fr-int-03)·[P2 수락 TTS 책임](../../../docs/requirements.md#acceptance-tts-policy)을 참조하십시오.
+
+## #351 수신 경로 보완 — 2026-10-14
+
+[구현·중단 음성 조회] `_listen`의 safety_audio → `_safety_recording`/질문 worker → Session의 실제 STT 결과 → 읽기 전용 결과 수신 → 기존 notice 경로를 연결했습니다. 등록된 고정 상태·위치 질의에만 받은 전사를 재사용하고 STT/LLM 재호출·intent 발행·재개 권한을 만들지 않습니다. 해당 녹음 receipt만 정리하고 중단 work·기존 질문 객체/등록/기한은 보존합니다. 읽기 안내는 질문/녹음·dialog 소유권 종료 뒤에 전달하며 기존 질문의 다음 새 녹음도 기존 접수·결과 기한으로 검사합니다.
+
+[구현·C 후속 speak] 첫 accept_text는 기존 한 번만 허용하고 실제 재생 증빙이 성공해야 후속 안내를 허용합니다. 현재 검증된 C source·동일 E request/run·running/unlocked 상태에서 완료·닫기·오류 문장을 받고, 접수 때의 run/boot/generation을 재생 직전·도중에도 확인합니다. 첫 수락 실패·중복, 종료된 run·잠금/취소·평가·재기동·연결 유실·접수 뒤 run 변경은 거절합니다. 일반 TTS의 차단이나 첫 동작 게이트를 통째로 풀지 않았습니다. **기존 Skill params_json의 text-only 호출에는 원래 run 식별이 없으므로, 새 run 중 뒤늦게 도착한 과거 호출 자체의 출처는 식별하지 못합니다.** 이를 차단 완료로 보고하지 않으며 C 송신 상관은 타 담당 선행입니다. 공용 계약/C 코드는 변경하지 않았습니다.
+
+[원인·선준비] 현재 `tasks/find_item.json`·`find_with_unpack.json`의 실제 failed_step이 speak인 BACKEND_ERROR만 “음성 안내를 재생하지 못했습니다. 작업 상태를 확인해 주세요.”로 안내합니다. 물리 전달 완료나 집기 실패를 새로 단정하지 않습니다. 다른 단계·미등록 태스크/단계는 일반 실패로 유지하며 C task의 FAILED/skip 정책은 바꾸지 않았습니다. 같은 source/YAML 문구가 필수 prefill에 포함되어 source·기존 local은 **필수209+warmup1**, cap256·일반60초/prepare120초·모델/속도/history를 보존합니다. 새 캐시 생성·실음성 청취는 수행하지 않았습니다. 직접 회귀 고유9건은 현재 수신 경로/첫 동작 모의/거절 경계/원인 분류를 확인하며, 실제 PC2·API·ROS·장치·물리 완료는 미검증입니다. [보완 기록](../../../practice/E/CURRENT.md#voice-351-receive-supplement-20261014)을 참조하십시오.
+
+## 음성 피드백 5항목 — 2026-10-14 로컬 보완
+
+[구현·입력 경계] 정지 후 새로 요청한 위치·개폐·고정 상태 질의와 제어 보류 안내만 기존 비권한 notice worker로 전달합니다. 일반 TTS의 잠금·취소 차단은 유지하며, 취소된 일반 요청을 다시 실행하거나 정지·복구·재개 권한을 만들지 않습니다. 대기/재생 중 높은 안전 경고와 질문 캡처를 우선하고, 정지·run/사건·질문·boot/연결 변경은 이전 안내를 무효화합니다. 정상 heartbeat의 seq 증가만으로 같은 의미의 새 읽기 안내를 취소하지 않습니다.
+
+[현재 기록·표현] 기본 위치·개폐 답변은 “지우개는 아래 서랍에 있습니다.”·“위 서랍은 현재 닫혀있습니다.”처럼 짧게 말합니다. 정보 원본은 계속 Runner 기록이며 물리 관측 검증이 아닙니다. 출처/currentness와 물리 관측 미검증은 진단에 남깁니다. 미수신·형식 오류·재기동·유실은 확인 불가로 답하고 초기 배치로 대신하지 않습니다. 명시적인 legacy/dummy 초기 참조는 기존 설명을 유지합니다. “지금 뭐하고 있어?”·“현재 상태”는 현재 Runner phase/재개 질문과 실제 E 요청/run 상관을 읽기만 합니다. 물품명이 확인될 때만 “지우개를 찾고 있습니다.”라고 말하고 불명확하면 일반 작업 안내를 사용하며 LLM/intent 발행·모션을 만들지 않습니다. E 보존 정보가 없다는 이유만으로 C에 작업이 없다고 단정하지 않습니다.
+
+[알림음·설정] 패키지 `voice_flow.wake_cue_enabled` 기본을 true로 바꿨고, 명시 local false는 유지합니다. 시작 진단은 실효 enabled/생성 여부/출력장치/gain과 비활성·실패 사유를 표시합니다. 기존 출력 lock·cue 완료·guard 뒤 새 캡처 순서·기한/gain은 유지하며 생성/재생 실패는 녹음을 시작하지 않습니다. 이 변경에서 실제 beep를 재생하지 않았습니다. 기존 local 설정이 recorded_* 문구를 명시 override하면 그대로 사용하며, 옛 “열림/닫힘 상태” 템플릿은 문법이 깨지지 않게 같은 noun 값을 사용합니다.
+
+[원인 안내·선행] 실제 CAMERA_TIMEOUT·TF_UNAVAILABLE/DEPTH_INVALID·REGION_NOT_VISIBLE·파지·벽/이웃 간섭·NO_FREE_SPACE·원위치 복구 불완전과 안전 복구 실패를 구분합니다. 일반 TIMEOUT은 현재의 두 기본 태스크 정의에서 task_id/failed_step이 정확한 inspect_region 단계일 때만 비전 단계 지연으로 분류하고, 근거가 없으면 일반 timeout을 유지합니다. NOT_REACHED나 pushed=false를 비전 단절/넛지 불필요로 해석하지 않습니다. 물품 원위치 복구 실패에는 기존 fn.1 안내를 재사용하며 잠금 유지/안전 해제로 설명하지 않습니다. 결과/높은 경고의 기존 중복·우선순위를 유지합니다. 현재 last 결과는 finally 뒤에 도착하므로 E 결과 안내가 서랍 정리 전 원인 전달을 구현한 것은 아닙니다. 정리 전에는 C의 실제 기존 speak 호출/원인·현재 실행 상관이 선행이며, 첫 수락 게이트와 현재 run의 후속 speak 구분은 위 수신 경로 보완에 반영했으며, text-only 원천 run 식별 한계는 남아 있습니다. C 파일/계약은 이 보완에서 변경하지 않습니다.
+
+[준비·미검증] 새 문장은 node/prepare 공통 필수 목록에 포함하고 e28의 실패·중단 12문장을 유지합니다. 수신 경로 보완 당시 source와 기존 local YAML의 선택은 각각 필수209+warmup1로 cap256 이내이며 startup60/prepare120·속도1.2·history는 유지합니다. 코드/목록 변경 뒤 기존 prepare와 적용 확인이 필요하지만 cache/receipt를 생성·삭제하지 않습니다. 선택·모의 검사와 실제 API/마이크/스피커·beep/음성·ROS·PC2/로봇/물리 AC는 구분하며 후자는 미검증입니다. [이번 CURRENT](../../../practice/E/CURRENT.md#voice-five-log-fixes-20261014)에서 버전·검사·담당 후속을 확인하십시오.
+
+## 위 서랍 열기·닫기 명시 실행 옵션 — 2026-10-14
+
+[구현·범위] [FR-INT-02](../../../docs/requirements.md#fr-int-02)·[FR-PLN-02/P2](../../../docs/requirements.md#fr-pln-02)의 기존 목표 경로를 사용합니다. VoiceNode 시작 시 `-p upper_drawer_enabled:=true -p p2_goal_enabled:=true -p request_run_enabled:=true`를 함께 지정하면 원본 선정 목록에서 `drawer_top`의 `open=true/false` 두 단일 목표만 선택합니다. 기본 P1·기존 opt-in 기본값은 유지합니다. 명시된 기존 두 opt-in은 기존 제어 런타임도 활성화하며 현재 source·halt·B/C 검사와 복구·재개·종료 조건은 유지합니다. C RUNNER_RESUMABLE을 자동 변경하지 않습니다. “지금 위 서랍 열어줘”, “위쪽 서랍 닫아줘”를 현재 온톨로지·선정 목록과 LLM 결과로 검증하며, 부정·인용·가능 여부 질문·아래 서랍·범위 밖 복합/물품 목표는 실행 후보로 확정하지 않습니다. 평가 모드·잠금/작업 중·현재 C 연결 미확인은 기존 발신 차단을 유지합니다.
+
+[연결·C 인계] E 목표 후보 → 기존 Session 발행 조건 → 현재 C source/요청 상관 → C achieve_goal 플래너 → 기존 수락 speak/첫 동작 게이트를 사용합니다. `tools/dev/pc2_voice.sh --control`은 현재 `request_run_enabled`만 설정하므로 이 기능을 활성화하지 않습니다. C 담당은 위 세 ROS 인자를 실제 VoiceNode argv로 전달하는 실행 옵션을 추가해야 합니다. 해당 스크립트·사용자 local YAML은 여기서 수정하지 않았습니다. 기존 C 계획·speak 삽입 경로는 코드로 대조했고, 선택 검사는 ROS 비의존 모의이며 실물 열기·닫기나 PC2 실행 완료가 아닙니다.
+
+[검증] 경고 dequeue→active 인계 보호, 질문/독립 녹음 생산자의 낮은 안내 취소와 실제 재생 직전 활동 재검사·dialog lock 보존을 보완했습니다. 변경 경합·개폐/잠금/발신 차단·기존 수락 speak/물품 찾기 선택 **24 passed, 157 deselected (3.11s)**입니다. 수정 전 선택 235개는 이전 버전 근거로 구분하여 재사용하고 전체 재실행하지 않았습니다. [CURRENT](../../../practice/E/CURRENT.md#voice-five-log-fixes-20261014)를 참조하십시오.
+
 ## 운영 입력·Runner 메모리·종료 보류 — #322 (2026-10-14)
 
 [구현] 일반 요청·음성 정지는 `bash tools/dev/pc2_voice.sh`의 기본 설정으로 사용합니다. 기존 위치·서랍 개폐 질의는 기본 `request_run_enabled=false`에서도 `VoiceNode`의 `/robot_state` 구독 → 읽기 전용 메모리 → `IntentParser.state_provider` → 기존 질의 → TTS로 연결됩니다. C가 발행하는 String JSON과 TRANSIENT_LOCAL/RELIABLE(depth 1)을 사용하며 상태를 쓰거나 새 질의 wire를 발신하지 않습니다. 답변은 **Runner 기록 기준**이고 실제 관측·실물 위치 일치의 증거가 아닙니다.
@@ -53,7 +91,7 @@
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ros2_ws/install/setup.bash
-export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PYTHONPATH"
+export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge:$PWD/ros2_ws/src/ready2go_runner:$PYTHONPATH"
 .venvs/project/bin/python ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py
 .venvs/project/bin/python ros2_ws/src/ready2go_voice/tools/p2_voice_dummy.py --serve-local
 ```
@@ -296,7 +334,7 @@ E Voice를 거치는 음성/텍스트 입력에는 [설정과 동작 경계](#�
 | Python 기본 | 실제 core imports: jsonschema, PyYAML, numpy. `setup.py`에 선언 |
 | Python API | `openai>=1,<3`, `langchain-openai>=0.2,<2`, `langchain-core>=0.3,<2` (`api` extra). 실제 SDK timeout/JSON 호출을 모의 검증 |
 | Python 오디오 | sounddevice, openwakeword 0.6.0 (`audio` extra), 모델에 맞는 tflite_runtime 및 openwakeword 전처리 모델 자산. Python/CPU 호환 runtime은 배포 PC에서 확인 |
-| ROS | rclpy, ament_index_python, std_msgs, ready2go_interfaces, ready2go_knowledge (`package.xml`). 기존 Skill 메시지 생성 필요 |
+| ROS | rclpy, ament_index_python, std_msgs, ready2go_interfaces, ready2go_knowledge, ready2go_runner (`package.xml`; C 실패 factory/조사 함수 사용). 기존 Skill 메시지 생성 필요 |
 | 시스템 | PortAudio, 오디오 서버/권한·실제 마이크/스피커. Melo는 별도 CPU 환경 사용; espeak 선택 시만 espeak-ng 설치·한국어 음성 확인 필요 |
 | 벤더/자산 | `OPENAI_API_KEY`는 기존 환경에서만 읽음. whisper-1/gpt-4o 계정 접근·네트워크·지연은 별도 확인. 외부 강의 `hello_rokey_8332_32.tflite` 경로를 설정하며 모델 원본/키를 커밋하지 않음 |
 | 선택/미구현 | faster-whisper·Piper는 현재 imports/실행 경로에 없음. 기본 설치에 포함하지 않음 |

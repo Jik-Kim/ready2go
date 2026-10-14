@@ -36,7 +36,7 @@ def test_running_halt_ignores_historical_estop_and_final_duplicate():
 
 
 @pytest.mark.parametrize('error,kind', [('TIMEOUT','timeout'), ('LATE_RESULT','timeout'),
-                                    ('GRASP_FAILED','grasp'), ('DEPTH_INVALID','vision'),
+                                    ('GRASP_FAILED','grasp'), ('DEPTH_INVALID','coordinates'),
                                     ('UNKNOWN_REGION','vision'), ('unregistered PRIVATE','failure')])
 def test_final_failure_once_and_next_run_same_error_again(error, kind):
     p = RunnerNoticePolicy(); p.observe(status()); p.observe(status('running'))

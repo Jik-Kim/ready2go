@@ -1,4 +1,6 @@
 from glob import glob
+from pathlib import Path
+from os.path import relpath
 from setuptools import find_packages, setup
 
 package_name = 'ready2go_voice'
@@ -11,6 +13,8 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/ready2go_voice']),
         ('share/ready2go_voice', ['package.xml']),
         ('share/ready2go_voice/params', glob('params/*.yaml') + glob('params/melotts_*')),
+        ('share/ready2go_voice/tasks', [relpath(Path(__file__).resolve().parents[3] / 'tasks' / name)
+                                     for name in ('find_item.json', 'find_with_unpack.json')]),
     ],
     install_requires=['setuptools', 'jsonschema>=4,<5', 'PyYAML>=6,<7', 'numpy>=1.24,<2'],
     extras_require={
