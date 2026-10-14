@@ -1,6 +1,6 @@
 {
   "task_id": "find_with_unpack",
-  "description": "P2 Unpacking (FR-ACT-04 — 기준은 docs/requirements.md 가림·추적·복구 정책): find_item 흐름(열기 → 탑뷰 → 찾기 → 공통 pick → 트레이 → 닫기 → 홈)에 치우기와 역순 복구를 넣은 것. 찾기 결과로 select_obstacle 이 치울 물체를 고르면(덮은 물체를 따라 맨 위부터, 옮긴 물체 제외) 집기 전에 놓을 자리를 place_object check_only 로 먼저 판단(s7.0 — 움직이지 않음, 서랍 안 빈 자리 free 만 — B 10/13 #265 aside 고정 자리 안 씀, PC2 10/14 S1 aside 헛판단, B #241·#242. 안 되면 집지 않고 sel 을 no_room 으로 바꿔 루프를 끝냄 → '꺼내지 못했어요', 쥔 채 멈추지 않음. 판단 거부 코드는 s7.0 실패(넘어감)로 기록 — B 는 집기 전 판단을 실제 집기 계획대로 해서 집기 거부 코드로도 거부) → 집어서(scan 같이 넘김 — 집기 전 이웃 확인) 판단한 자리(room.slot)에 놓고 — 그 사이 막히면 놓지 못함(free 하나 — 거부는 움직이기 전, #166·#241) — 원래 자리·명령한 자리를 restore_stack 에 push → 탑뷰에서 다시 찍고 다시 고름 (최대 2개, B 고정 자리 2곳). 목표가 다 보이면 공통 pick·place 로 전달. finally: 쥔 장애물이 없을 때만 restore_stack 을 거꾸로 — 탑뷰에서 다시 찍고 find_moved 로 같은 물체를 찾아(재식별 #109) 집기 전에 원래 자리를 check_only 로 먼저 보고(fr.5.0a, #242) 놓을 수 있으면 집어(scan 같이 넘김 — 집기 전 이웃 확인, #242 B 댓글) 원래 자리로 — 원래 자리가 안 되면 지금 자리(다시 찍은 위치 found.object.pose)를 판단(fr.5.0b: pose + object 로 check_only — 집을 수 있고 그 자리에 그대로 둘 수 있음, 다른 빈 자리를 찾지 않음. 예전 slot free 판단은 '어딘가 빈 자리가 있나'를 봐서 B #337 뒤 빈 자리가 없으면 멀쩡해도 복구 실패였음 — C #260 질문 2·B 답 10/14)해 되면 집지 않고 그대로 둠(left_aside, 집었다 같은 자리에 다시 놓는 헛동작 없음 — 분류는 예전 '집어서 꺼낸 자리에 다시 둠'과 같음), 둘 다 안 되면(집기부터 거부 등) 집지 않고 복구 실패(restore_failed — 예전 되돌리기 집기 거부와 같음, 쥔 채 멈추지 않음). 판단은 통과했는데 실제 놓기가 막히면 방금 꺼낸 그 고정 자리(기록한 slot, free 면 서버가 빈 자리를 다시 찾음)에 다시 둠 — 빈손이면 남은 복구 계속, 그것도 막혀 쥔 채면 남은 복구 안 함·안내·서랍 닫기·홈 안 감(B·C 합의 #168, D 체크시트 S-17, AC-ACT-03 미달로 기록). 못 찾거나 모호하면 그 물체는 두고 안내. 복구 실패가 나도 닫기·홈 규칙은 find_item 과 같음(쥔 채면 홈 안 감). 복구를 다 못 하면 실행 결과는 블랙보드 task_error = RESTORE_INCOMPLETE 로 FAILED(정본 requirements 137 — 복구 실패면 전체 FAILED, 앞선 실패·중단이 있으면 그 원인 우선)이고, 정리 동작은 조건별(#240): 빈손·비중단(되돌리기 집기 거부·다시 못 찾음 등)이면 남은 물체도 계속 시도 → 닫기 → 홈 → 안내 / 쥔 채(holding)면 남은 복구·닫기·홈 안 함 + 쥔 채 정지 안내(사람 복구) / 놓침·센서 이상·집기 뒤 쥐었는지 모름(hand unknown)·비상정지·취소면 즉시 정지·잠금(ABORTED). 원래 자리 대신 빈 자리에 둔 물체는 10/12 2차 점검 판정 A안(빈 자리 + 안내 + 닫힘·빈손 = 그 점검의 제한적 통과)이라 실행 결과를 FAILED 로 만들지 않음(안내·보고서 줄만) — 정본 복구 지지면은 바닥 또는 아래 물체 윗면(requirements 3.3)이라 원위치 복구·AC-ACT-03 완료가 아님(#239 E 리뷰, 정식 예외는 E 가 정본에 반영한 뒤). 중단(비상정지·취소)이면 복구 반복은 하지 않고 restore_stack 을 남김(사람 확인). 장애물 집기·놓기는 원자 동작이라 온톨로지 상태를 바꾸지 않으므로(같은 서랍 안 이동) 쥔 상태는 블랙보드 holding 으로 따로 기록. reid_tol_m 0.02 는 mock 값 — 비전·놓기 오차 실측 뒤 [팀 확정 필요]. 얹힌 물체 집기는 B 설정 pick.allow_stacked(#191 — 너무 높으면 움직이기 전 NOT_ON_FLOOR), 놓기는 바닥에만(#166 — 복구 때 pose 로 놓기는 B #243(10/12)부터 아래 물체 윗면도 됨 — 놓을 물체 가운데가 그 물체 위일 때만, 찾는 목표 위는 안 됨, 실물 미확인). 놓침·센서 이상(OBJECT_DROPPED·SENSOR_INVALID)은 Runner 가 즉시 정지·잠금(#78) — 복구 반복·닫기·홈 없음, 안내 fh 는 쥠 여부를 단정하지 않는 문장(원인별 안내는 E). 원래 자리 대신 빈 자리 안내(10/12 2차 점검 대비): 원래 자리가 막혀(목표가 아직 그 아래 있음 등 — 목표 위로는 놓지 않음, 그 밖에는 바닥에만(#243 전)) 꺼냈던 빈 자리에 돌려놓은(또는 판단만 하고 집지 않아 그 자리에 그대로 둔, fr.5.l) 물체는 left_aside 에 남기고, 복구가 끝나면 닫기 전에 물체마다 \"○○은 원래 자리 대신 옆 빈 자리에 뒀어요\" 안내(fa). 가림 모름 다시 찍기(A #214 권고): 고른 결과가 occlusion_unknown(분할 모델 null 등)이면 같은 자세에서 한 번만 다시 찍고 다시 고름(s6r·s7.9) — 두 번째도 모르면 지금처럼 목표를 집지 않음, 다시 찍기 실패는 넘어감(skip). 복구 오차 기록(AC-ACT-03): 원래 자리(origin)에 되돌려 놓는 데 성공한 물체만 restored 에 push → 복구가 끝나면 닫기 전에 탑뷰에서 한 번 더 찍고(fv) find_moved(record.placed = origin)로 같은 물체를 찾아 실행 기록에 원래 자리와 지금 자리(위치·yaw)를 남김 — 합격/불합격은 판단하지 않음(run_report 가 위치·방향 오차 표시). 꺼낸 고정 자리로 돌려놓은(fr.5.3b)·그대로 둔(fr.5.l) 물체는 원위치 복구 아님 → restored 에 넣지 않음. restore_check_tol_m 은 같은 물체를 찾는 창일 뿐 합격 기준이 아님. trigger 없음: 음성 연결 전, RUNNER_TASK_FILE·시험으로 실행 계약07 수락 문장(#249 E 리뷰 P2): 음성 요청에 E 가 검증한 accept_text 가 있으면 s2 첫 안내를 그 문장 1회로(s2.1), 없으면 기존 문장(s2.2) — find_item 과 같음. s2 첫 안내 직전 s2a 가 announce_pending 을 켜고 성공하면 s2k 가 끄는데, 안내가 실패해 켜진 채면 finally 홈 이동도 보내지 않음(f3g) — 로봇 동작 0번. s1 조회 실패 등 안내 전 실패와 이미 움직인 뒤 실패의 정리는 그대로. 받침 복구 보류(#196 2번, E 10/14): 치울 때 고른 촬영의 occluded_by 로 그 물체가 덮고 있던 물체 class 를 under 에 기록(s7.u — id 는 같은 촬영 안에서만 비교, null·필드 없음은 덮였을 수 있음으로 넣음, 기록 실패는 '*'), 그 촬영에 보인 물체 class 도 seen 에 기록. 복구 때 원래 자리로 못 돌아온 물체 class 를 not_restored 에 모으고(fr.n), 다음 물체 under 가 그중 하나이거나 그 물체를 고른 촬영에 안 보였던(seen 에 없는 — 관계 모름, E #339 P1) 물체면 원래 자리 복구 보류 — 움직이지 않고 꺼낸 자리 그대로 left_aside + 안내(fr.h·fr.hh), 보류도 not_restored 에 넣어 위로 전파. 관계없는 물체는 계속 복구. 실패 원인 안내(E #196 10/14): sequence 가 일반 실패(StepFailed)로 끝나면 Runner 가 finally 시작 때 run_failure{code, step, action, text}를 넣고 fx 가 정리(복구·닫기·홈) 전에 그 문장을 한 번 말함 — 정지·취소·성공이면 null 이라 안 말함, 안내 실패는 넘어감(원래 실패 원인 유지). 문장은 core/failure_speech.py(E 대조). 치울 물건을 옮기지 못함(sel.reason no_room — s7.0c 판단 실패)이면 목표를 집지 않고 '위에 있는 물건을 옮기지 못해서 ○○을 꺼내지 못했어요'(s8.n1) + task_error NO_FREE_SPACE(s8.n2) → 정리 뒤 FAILED(E #196 10/14, 앞선 실패·정지가 있으면 그 원인 우선). JSON 은 s7.0c 의 실제 거부 코드를 읽을 수 없어 집기부터 거부(WALL_TOO_CLOSE 등)도 NO_FREE_SPACE 로 표시 — 실제 코드는 s7.0c 스텝 기록. 목표를 못 찾음(S3) 등 다른 분기는 그대로 s8.1·COMPLETED. 복구 원복 넛지(B 요청 10/14, #345 free_repickable_only false 대비): 지금 자리 판단(fr.5.0b)이 WALL_TOO_CLOSE 로 끝나면(벽에 붙어 못 집음, 빈손) nudge_object(found.object, rescan) → 끈 뒤 예상 위치를 기록 placed 로 → 탑뷰 → 다시 찍기 → find_moved → 원래 자리·지금 자리 다시 판단(fr.5.w, 최대 2번). 넛지 실패·다시 못 찾음·두 번 뒤에도 벽이면 지금처럼 restore_failed. 그 밖의 거부(이웃·막힘)는 넛지 안 함(next_on WALL_TOO_CLOSE). 실물 미확인 — 리허설에서 확인 뒤 B 가 free_repickable_only false.",
+  "description": "P2 Unpacking (FR-ACT-04 — 기준은 docs/requirements.md 가림·추적·복구 정책): find_item 흐름(열기 → 탑뷰 → 찾기 → 공통 pick → 트레이 → 닫기 → 홈)에 치우기와 역순 복구를 넣은 것. 찾기 결과로 select_obstacle 이 치울 물체를 고르면(덮은 물체를 따라 맨 위부터, 옮긴 물체 제외) 집기 전에 놓을 자리를 place_object check_only 로 먼저 판단(s7.0 — 움직이지 않음, 서랍 안 빈 자리 free 만 — B 10/13 #265 aside 고정 자리 안 씀, PC2 10/14 S1 aside 헛판단, B #241·#242. 안 되면 집지 않고 sel 을 no_room 으로 바꿔 루프를 끝냄 → '꺼내지 못했어요', 쥔 채 멈추지 않음. 판단 거부 코드는 s7.0 실패(넘어감)로 기록 — B 는 집기 전 판단을 실제 집기 계획대로 해서 집기 거부 코드로도 거부) → 집어서(scan 같이 넘김 — 집기 전 이웃 확인) 판단한 자리(room.slot)에 놓고 — 그 사이 막히면 놓지 못함(free 하나 — 거부는 움직이기 전, #166·#241) — 원래 자리·명령한 자리를 restore_stack 에 push → 탑뷰에서 다시 찍고 다시 고름 (최대 2개, B 고정 자리 2곳). 목표가 다 보이면 공통 pick·place 로 전달. finally: 쥔 장애물이 없을 때만 restore_stack 을 거꾸로 — 탑뷰에서 다시 찍고 find_moved 로 같은 물체를 찾아(재식별 #109) 집기 전에 원래 자리를 check_only 로 먼저 보고(fr.5.0a, #242) 놓을 수 있으면 집어(scan 같이 넘김 — 집기 전 이웃 확인, #242 B 댓글) 원래 자리로 — 원래 자리가 안 되면 지금 자리(다시 찍은 위치 found.object.pose)를 판단(fr.5.0b: pose + object 로 check_only — 집을 수 있고 그 자리에 그대로 둘 수 있음, 다른 빈 자리를 찾지 않음. 예전 slot free 판단은 '어딘가 빈 자리가 있나'를 봐서 B #337 뒤 빈 자리가 없으면 멀쩡해도 복구 실패였음 — C #260 질문 2·B 답 10/14)해 되면 집지 않고 그대로 둠(left_aside, 집었다 같은 자리에 다시 놓는 헛동작 없음 — 분류는 예전 '집어서 꺼낸 자리에 다시 둠'과 같음), 둘 다 안 되면(집기부터 거부 등) 집지 않고 복구 실패(restore_failed — 예전 되돌리기 집기 거부와 같음, 쥔 채 멈추지 않음). 판단은 통과했는데 실제 놓기가 막히면 방금 꺼낸 그 고정 자리(기록한 slot, free 면 서버가 빈 자리를 다시 찾음)에 다시 둠 — 빈손이면 남은 복구 계속, 그것도 막혀 쥔 채면 남은 복구 안 함·안내·서랍 닫기·홈 안 감(B·C 합의 #168, D 체크시트 S-17, AC-ACT-03 미달로 기록). 못 찾거나 모호하면 그 물체는 두고 안내. 복구 실패가 나도 닫기·홈 규칙은 find_item 과 같음(쥔 채면 홈 안 감). 복구를 다 못 하면 실행 결과는 블랙보드 task_error = RESTORE_INCOMPLETE 로 FAILED(정본 requirements 137 — 복구 실패면 전체 FAILED, 앞선 실패·중단이 있으면 그 원인 우선)이고, 정리 동작은 조건별(#240): 빈손·비중단(되돌리기 집기 거부·다시 못 찾음 등)이면 남은 물체도 계속 시도 → 닫기 → 홈 → 안내 / 쥔 채(holding)면 남은 복구·닫기·홈 안 함 + 쥔 채 정지 안내(사람 복구) / 놓침·센서 이상·집기 뒤 쥐었는지 모름(hand unknown)·비상정지·취소면 즉시 정지·잠금(ABORTED). 원래 자리 대신 빈 자리에 둔 물체는 10/12 2차 점검 판정 A안(빈 자리 + 안내 + 닫힘·빈손 = 그 점검의 제한적 통과)이라 실행 결과를 FAILED 로 만들지 않음(안내·보고서 줄만) — 정본 복구 지지면은 바닥 또는 아래 물체 윗면(requirements 3.3)이라 원위치 복구·AC-ACT-03 완료가 아님(#239 E 리뷰, 정식 예외는 E 가 정본에 반영한 뒤). 중단(비상정지·취소)이면 복구 반복은 하지 않고 restore_stack 을 남김(사람 확인). 장애물 집기·놓기는 원자 동작이라 온톨로지 상태를 바꾸지 않으므로(같은 서랍 안 이동) 쥔 상태는 블랙보드 holding 으로 따로 기록. reid_tol_m 0.02 는 mock 값 — 비전·놓기 오차 실측 뒤 [팀 확정 필요]. 얹힌 물체 집기는 B 설정 pick.allow_stacked(#191 — 너무 높으면 움직이기 전 NOT_ON_FLOOR), 놓기는 바닥에만(#166 — 복구 때 pose 로 놓기는 B #243(10/12)부터 아래 물체 윗면도 됨 — 놓을 물체 가운데가 그 물체 위일 때만, 찾는 목표 위는 안 됨, 실물 미확인). 놓침·센서 이상(OBJECT_DROPPED·SENSOR_INVALID)은 Runner 가 즉시 정지·잠금(#78) — 복구 반복·닫기·홈 없음, 안내 fh 는 쥠 여부를 단정하지 않는 문장(원인별 안내는 E). 원래 자리 대신 빈 자리 안내(10/12 2차 점검 대비): 원래 자리가 막혀(목표가 아직 그 아래 있음 등 — 목표 위로는 놓지 않음, 그 밖에는 바닥에만(#243 전)) 꺼냈던 빈 자리에 돌려놓은(또는 판단만 하고 집지 않아 그 자리에 그대로 둔, fr.5.l) 물체는 left_aside 에 남기고, 복구가 끝나면 닫기 전에 물체마다 \"○○은 원래 자리 대신 옆 빈 자리에 뒀어요\" 안내(fa). 가림 모름 다시 찍기(A #214 권고): 고른 결과가 occlusion_unknown(분할 모델 null 등)이면 같은 자세에서 한 번만 다시 찍고 다시 고름(s6r·s7.9) — 두 번째도 모르면 지금처럼 목표를 집지 않음, 다시 찍기 실패는 넘어감(skip). 복구 오차 기록(AC-ACT-03): 원래 자리(origin)에 되돌려 놓는 데 성공한 물체만 restored 에 push → 복구가 끝나면 닫기 전에 탑뷰에서 한 번 더 찍고(fv) find_moved(record.placed = origin)로 같은 물체를 찾아 실행 기록에 원래 자리와 지금 자리(위치·yaw)를 남김 — 합격/불합격은 판단하지 않음(run_report 가 위치·방향 오차 표시). 꺼낸 고정 자리로 돌려놓은(fr.5.3b)·그대로 둔(fr.5.l) 물체는 원위치 복구 아님 → restored 에 넣지 않음. restore_check_tol_m 은 같은 물체를 찾는 창일 뿐 합격 기준이 아님. trigger 없음: 음성 연결 전, RUNNER_TASK_FILE·시험으로 실행 계약07 수락 문장(#249 E 리뷰 P2): 음성 요청에 E 가 검증한 accept_text 가 있으면 s2 첫 안내를 그 문장 1회로(s2.1), 없으면 기존 문장(s2.2) — find_item 과 같음. s2 첫 안내 직전 s2a 가 announce_pending 을 켜고 성공하면 s2k 가 끄는데, 안내가 실패해 켜진 채면 finally 홈 이동도 보내지 않음(f3g) — 로봇 동작 0번. s1 조회 실패 등 안내 전 실패와 이미 움직인 뒤 실패의 정리는 그대로. 받침 복구 보류(#196 2번, E 10/14): 치울 때 고른 촬영의 occluded_by 로 그 물체가 덮고 있던 물체 class 를 under 에 기록(s7.u — id 는 같은 촬영 안에서만 비교, null·필드 없음은 덮였을 수 있음으로 넣음, 기록 실패는 '*'), 그 촬영에 보인 물체 class 도 seen 에 기록. 복구 때 원래 자리로 못 돌아온 물체 class 를 not_restored 에 모으고(fr.n), 다음 물체 under 가 그중 하나이거나 그 물체를 고른 촬영에 안 보였던(seen 에 없는 — 관계 모름, E #339 P1) 물체면 원래 자리 복구 보류 — 움직이지 않고 꺼낸 자리 그대로 left_aside + 안내(fr.h·fr.hh), 보류도 not_restored 에 넣어 위로 전파. 관계없는 물체는 계속 복구. 실패 원인 안내(E #196 10/14): sequence 가 일반 실패(StepFailed)로 끝나면 Runner 가 finally 시작 때 run_failure{code, step, action, text}를 넣고 fx 가 정리(복구·닫기·홈) 전에 그 문장을 한 번 말함 — 정지·취소·성공이면 null 이라 안 말함, 안내 실패는 넘어감(원래 실패 원인 유지). 문장은 core/failure_speech.py(E 대조). 치울 물건을 옮기지 못함(sel.reason no_room — s7.0c 판단 실패)이면 목표를 집지 않고 '위에 있는 물건을 옮기지 못해서 ○○을 꺼내지 못했어요'(s8.n1) + task_error NO_FREE_SPACE(s8.n2) → 정리 뒤 FAILED(E #196 10/14, 앞선 실패·정지가 있으면 그 원인 우선). JSON 은 s7.0c 의 실제 거부 코드를 읽을 수 없어 집기부터 거부(WALL_TOO_CLOSE 등)도 NO_FREE_SPACE 로 표시 — 실제 코드는 s7.0c 스텝 기록. 목표를 못 찾음(S3) 등 다른 분기는 그대로 s8.1·COMPLETED. 복구 원복 넛지(B 요청 10/14, #345 free_repickable_only false 대비): 지금 자리 판단(fr.5.0b)이 WALL_TOO_CLOSE 로 끝나면(벽에 붙어 못 집음, 빈손) nudge_object(found.object, rescan) → 끈 뒤 예상 위치를 기록 placed 로 → 탑뷰 → 다시 찍기 → find_moved → 원래 자리·지금 자리 다시 판단(fr.5.w, 최대 2번). 넛지 실패·다시 못 찾음·두 번 뒤에도 벽이면 지금처럼 restore_failed. 그 밖의 거부(이웃·막힘)는 넛지 안 함(next_on WALL_TOO_CLOSE). 실물 미확인 — 리허설에서 확인 뒤 B 가 free_repickable_only false. 목표 공간 만들기(B 요청 10/14, #260 7절): 목표 집기 전 움직이지 않는 판단(s8.q — 지금 자리 그대로 check_only)이 NEIGHBOR_TOO_CLOSE(옆 물체가 손가락 자리)면 s8.r — 탑뷰·다시 찍기 → nudge_object {make_room: true} 한 동작(s8.m5) → ready_to_pick 까지 반복(s8.mw, 최대 4). 방금 동작 뒤 목표가 5 mm 안 그대로면(find_moved tol 0.005) 다음 부름 remove_first, 그 뒤에도 그대로면 멈춤 → 그다음 평소 집기(s8.t1)가 거부 코드로 끝냄. 그 밖의 판단 결과(통과·벽 등)는 지금처럼 바로 s8.t1(벽은 pick 스킬 끌기). make_room 이 밀거나 치운 이웃은 복구 대상이 아님(B make_room 설계 — room_made 에 기록만).",
   "inputs": {
     "target": "toy_wrench",
     "reid_tol_m": 0.02,
@@ -61,6 +61,14 @@
       "action": "set_var",
       "params": {
         "name": "not_restored",
+        "value": []
+      }
+    },
+    {
+      "id": "s0m",
+      "action": "set_var",
+      "params": {
+        "name": "room_made",
         "value": []
       }
     },
@@ -536,6 +544,310 @@
         ]
       },
       "then": [
+        {
+          "id": "s8.q0",
+          "action": "set_var",
+          "params": {
+            "name": "need_room",
+            "value": false
+          }
+        },
+        {
+          "id": "s8.q",
+          "action": "fallback",
+          "on_failure": "skip",
+          "next_on": [
+            "NEIGHBOR_TOO_CLOSE"
+          ],
+          "options": [
+            [
+              {
+                "id": "s8.q1",
+                "action": "place_object",
+                "timeout_sec": 30,
+                "params": {
+                  "location": "$loc.drawer_id",
+                  "pose": "$scan.target.pose",
+                  "scan": "$scan",
+                  "object": "$scan.target",
+                  "check_only": true
+                }
+              }
+            ],
+            [
+              {
+                "id": "s8.q2",
+                "action": "set_var",
+                "params": {
+                  "name": "need_room",
+                  "value": true
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "id": "s8.r",
+          "action": "if",
+          "cond": {
+            "op": "==",
+            "args": [
+              "$need_room",
+              true
+            ]
+          },
+          "then": [
+            {
+              "id": "s8.m0a",
+              "action": "set_var",
+              "params": {
+                "name": "mr_ready",
+                "value": false
+              }
+            },
+            {
+              "id": "s8.m0b",
+              "action": "set_var",
+              "params": {
+                "name": "mr_stop",
+                "value": false
+              }
+            },
+            {
+              "id": "s8.m0c",
+              "action": "set_var",
+              "params": {
+                "name": "mr_remove",
+                "value": false
+              }
+            },
+            {
+              "id": "s8.m0d",
+              "action": "set_var",
+              "params": {
+                "name": "mr_prev",
+                "value": null
+              }
+            },
+            {
+              "id": "s8.mw",
+              "action": "while",
+              "max_iter": 4,
+              "cond": {
+                "op": "and",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "$mr_ready",
+                      false
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "$mr_stop",
+                      false
+                    ]
+                  }
+                ]
+              },
+              "body": [
+                {
+                  "id": "s8.m1",
+                  "action": "move_to_named_pose",
+                  "timeout_sec": 60,
+                  "params": {
+                    "pose_name": "drawer_top_view",
+                    "drawer_id": "$loc.drawer_id"
+                  }
+                },
+                {
+                  "id": "s8.m2",
+                  "action": "inspect_region",
+                  "output": "scan",
+                  "on_failure": "retry",
+                  "retry": 1,
+                  "timeout_sec": 30,
+                  "params": {
+                    "region": "$loc.drawer_id",
+                    "search_target": "$inputs.target"
+                  }
+                },
+                {
+                  "id": "s8.m3",
+                  "action": "if",
+                  "cond": {
+                    "op": "!=",
+                    "args": [
+                      "$mr_prev",
+                      null
+                    ]
+                  },
+                  "then": [
+                    {
+                      "id": "s8.m3a",
+                      "action": "set_var",
+                      "params": {
+                        "name": "mr_still",
+                        "value": false
+                      }
+                    },
+                    {
+                      "id": "s8.m3b",
+                      "action": "find_moved",
+                      "output": "mr_same",
+                      "on_failure": "skip",
+                      "params": {
+                        "scan": "$scan",
+                        "tol_m": 0.005,
+                        "record": {
+                          "class": "$inputs.target",
+                          "origin": "$mr_prev.pose",
+                          "placed": "$mr_prev.pose"
+                        }
+                      }
+                    },
+                    {
+                      "id": "s8.m3c",
+                      "action": "if",
+                      "on_failure": "skip",
+                      "cond": {
+                        "op": "==",
+                        "args": [
+                          "$mr_same.status",
+                          "found"
+                        ]
+                      },
+                      "then": [
+                        {
+                          "id": "s8.m3d",
+                          "action": "set_var",
+                          "params": {
+                            "name": "mr_still",
+                            "value": true
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "s8.m3e",
+                      "action": "if",
+                      "cond": {
+                        "op": "==",
+                        "args": [
+                          "$mr_still",
+                          true
+                        ]
+                      },
+                      "then": [
+                        {
+                          "id": "s8.m3f",
+                          "action": "if",
+                          "cond": {
+                            "op": "==",
+                            "args": [
+                              "$mr_remove",
+                              true
+                            ]
+                          },
+                          "then": [
+                            {
+                              "id": "s8.m3g",
+                              "action": "set_var",
+                              "params": {
+                                "name": "mr_stop",
+                                "value": true
+                              }
+                            }
+                          ],
+                          "else": [
+                            {
+                              "id": "s8.m3h",
+                              "action": "set_var",
+                              "params": {
+                                "name": "mr_remove",
+                                "value": true
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "else": [
+                        {
+                          "id": "s8.m3i",
+                          "action": "set_var",
+                          "params": {
+                            "name": "mr_remove",
+                            "value": false
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "s8.m4",
+                  "action": "if",
+                  "cond": {
+                    "op": "==",
+                    "args": [
+                      "$mr_stop",
+                      false
+                    ]
+                  },
+                  "then": [
+                    {
+                      "id": "s8.m5",
+                      "action": "nudge_object",
+                      "output": "mr",
+                      "timeout_sec": 60,
+                      "params": {
+                        "drawer_id": "$loc.drawer_id",
+                        "target": "$scan.target",
+                        "scan": "$scan",
+                        "make_room": true,
+                        "remove_first": "$mr_remove"
+                      }
+                    },
+                    {
+                      "id": "s8.m6",
+                      "action": "set_var",
+                      "params": {
+                        "name": "mr_prev",
+                        "value": {
+                          "pose": "$scan.target.pose",
+                          "action": "$mr.make_room.action",
+                          "reason": "$mr.make_room.reason"
+                        }
+                      }
+                    },
+                    {
+                      "id": "s8.m7",
+                      "action": "set_var",
+                      "params": {
+                        "name": "mr_ready",
+                        "value": "$mr.make_room.ready_to_pick"
+                      }
+                    },
+                    {
+                      "id": "s8.m8",
+                      "action": "push",
+                      "params": {
+                        "stack": "room_made",
+                        "value": {
+                          "action": "$mr.make_room.action",
+                          "moved_id": "$mr.make_room.moved_id",
+                          "pushed_ids": "$mr.make_room.pushed_ids"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
         {
           "id": "s8.t1",
           "skill": "pick",
