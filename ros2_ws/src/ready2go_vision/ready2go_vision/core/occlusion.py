@@ -62,8 +62,9 @@ def _ring_high(j, masks, grown, Z, XY, interior_m, top_j, p):
             ring &= ~g
     if interior_m is not None and XY is not None:
         mg = float(p["ring_wall_margin_m"])
-        X, Y = XY
-        ring &= (X > mg) & (X < interior_m[0] - mg) & (Y > mg) & (Y < interior_m[1] - mg)
+        X, Y = XY                                              # 좌표를 잰 픽셀 중 서랍 안쪽 밖(벽 쪽)만 뺌 — 뎁스 결손이라 좌표가 nan 인
+        known = np.isfinite(X) & np.isfinite(Y)                # 픽셀은 띠에 남겨 유효 비율 분모에 넣음 (빼면 결손이 많아도 '확인됨', E #361 P1)
+        ring &= ~(known & ~((X > mg) & (X < interior_m[0] - mg) & (Y > mg) & (Y < interior_m[1] - mg)))
     z = Z[ring]
     z = z[np.isfinite(z)]
     return int((z > top_j + float(p["ring_high_dz_m"])).sum()), int(ring.sum()), int(z.size)
