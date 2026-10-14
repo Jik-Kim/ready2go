@@ -3416,32 +3416,34 @@ def test_external_force_window_rechecks_motion_after(server):
     finally:
         srv.robot.state, srv.locked = real_state, None
 
-def test_external_force_window_rejects_motion_that_returns_before_end(server):
+@pytest.mark.parametrize("case", ["moving", "unknown", "joints"])
+def test_external_force_window_rejects_motion_that_returns_before_end(server, case):
     """[E #335 재리뷰 P1, head e3964d1] 창 도중 움직였다가(또는 상태를 못 읽다가) 창 끝 전에 원래 대기·관절로 돌아오면 창 전·후만
-    읽어서는 못 봄 → 잠금 해제였음. 힘 읽을 때마다 상태·관절도 읽어 한 번이라도 멈춤이 아니면 그 창은 버림(외력 null) → W2 거절."""
+    읽어서는 못 봄 → 잠금 해제였음. 힘 읽을 때마다 상태·관절도 읽어 한 번이라도 멈춤이 아니면 그 창은 버림(외력 null) → W2 거절.
+    경우마다 새 서버(상태·관절·MotionState 이력 따로) [E 재리뷰 P3]."""
     srv = _srv_state(server)
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
     real_state, real_j = srv.robot.state, list(srv.robot.j)
-    cases = {
+    go, back = {
         "moving": (lambda: setattr(srv.robot, "state", lambda: 2), lambda: setattr(srv.robot, "state", real_state)),
         "unknown": (lambda: setattr(srv.robot, "state", lambda: None), lambda: setattr(srv.robot, "state", real_state)),
         "joints": (lambda: setattr(srv.robot, "j", [v + 0.5 for v in real_j]), lambda: setattr(srv.robot, "j", list(real_j))),
-    }
-    try:
-        for name, (go, back) in cases.items():
-            srv.locked, n = "pick_object: MOVE_UNCONFIRMED", {"force": 0}
+    }[case]
+    n = {"force": 0}
 
-            def force(p, go=go, back=back):                      # 두 번째 읽기에 움직이고(모르고) 여덟 번째에 원래대로
-                n["force"] += 1
-                if n["force"] == 2:
-                    go()
-                elif n["force"] == 8:
-                    back()
-                return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
-            srv.robot.force = force
-            r = srv.recover()
-            assert not r["recovered"] and srv.locked, name
-            assert r["state"]["external_force"] is None and "EXTERNAL_FORCE_UNKNOWN" in r["blockers"], (name, r)
-            assert n["force"] < 10, name                              # 버린 창은 끝까지 안 읽음
+    def force(p):                                                  # 두 번째 읽기에 움직이고(모르고) 여덟 번째에 원래대로
+        n["force"] += 1
+        if n["force"] == 2:
+            go()
+        elif n["force"] == 8:
+            back()
+        return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    try:
+        r = srv.recover()
+        assert n["force"] == 2                                      # 창 안 주입 샘플까지 갔고, 거기서 창을 버림(끝 전 복귀를 기다리지 않음)
+        assert not r["recovered"] and srv.locked
+        assert r["state"]["external_force"] is None and "EXTERNAL_FORCE_UNKNOWN" in r["blockers"], r
         assert srv.robot.log == []
     finally:
         srv.robot.state, srv.robot.j, srv.locked = real_state, real_j, None
