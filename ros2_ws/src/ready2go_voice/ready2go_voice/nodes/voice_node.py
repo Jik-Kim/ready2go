@@ -551,6 +551,13 @@ class VoiceNode(Node):
                           current is not None and current['phase'] == 'idle' and current.get('halt') is None)
         empty = (idle_confirmed and self.notice_policy.phase == 'idle' and (p is None or p.work is None)
                  and (self.request_run.run_id is None or self.request_run.finished))
+        last = (current or {}).get('last') or {}
+        if (current is not None and current['phase'] == 'idle' and current.get('halt') is None
+                and last.get('overall_status') == 'ABORTED'
+                and (current.get('last_intent') or {}).get('decision') != 'run'
+                and (self.request_run.run_id is None or self.request_run.run_id == last.get('run_id')
+                     or self.request_run.finished)):
+            empty = True  # C가 작업 종료를 확인했으면 오래된 E 문맥으로 불명 처리하지 않음.
         meta['final_text'] = prompts(self.cfg)['no_end_work'] if empty else self.session.flow['status_prompts']['unconfirmed']
         self._diagnostic({'event':'task_end_held','reason':'no_active_work' if empty else 'current_stop_unconfirmed'})
         if doc['intent'] == 'cancel' or self.normal_notice_cancel.is_set():
@@ -1209,6 +1216,14 @@ class VoiceNode(Node):
                 question.get('id'), question.get('state'), request.get('id'), request.get('state'),
                 getattr(self, '_read_recovering', None) if view['recovering'] else None)
 
+    def _control_rejection_text(self, operation):
+        from ready2go_voice.core.hotfix import prompts
+        from ready2go_voice.core.runner_speech import unavailable_work_text
+        current = self._current_runner_status()
+        values = prompts(self.cfg)
+        text = unavailable_work_text(current, self.notice_policy.task_steps, values, operation=operation)
+        return text or values['control_rejected' if current is not None else 'status_unknown']
+
     def _readonly_feedback_locked(self, doc, generation):
         from ready2go_voice.core.hotfix import reference_query, prompts
         meta = doc.get('_voice', {})
@@ -1225,8 +1240,7 @@ class VoiceNode(Node):
                 self._diagnostic({'event':'readonly_feedback_held','reason':'record_changed'})
                 return True
         else:
-            text = (prompts(self.cfg)['control_rejected']
-                    if self._current_runner_status() is not None else prompts(self.cfg)['status_unknown'])
+            text = self._control_rejection_text(meta.get('safety_control'))
         binding = getattr(self, '_query_binding', None)
         marker = self._feedback_marker()
         memory_epoch = getattr(self, 'memory_epoch', None) if meta.get('query_kind') == 'record' else None
@@ -1238,8 +1252,7 @@ class VoiceNode(Node):
                 return False
             if query:
                 return reference_query(self.parser, request) == text
-            expected = (prompts(self.cfg)['control_rejected']
-                        if self._current_runner_status() is not None else prompts(self.cfg)['status_unknown'])
+            expected = self._control_rejection_text(meta.get('safety_control'))
             return expected == text
         self._diagnostic({'event':'final_response','text':text,'intent':doc})
         self._diagnostic({'event':'readonly_feedback','kind':'query' if query else 'control_rejection',
@@ -1451,8 +1464,13 @@ class VoiceNode(Node):
                 # recovery announcement; rejection remains explicit/detail-led.
                 policy = self.safety_exchange.policy
                 if not (kind == 'recover' and policy is not None and policy.question is not None):
-                    self._control_notice_locked('control_' + kind,control_notice(self.cfg,kind,runtime=True,
-                        reason=result.reason,operation=result.sent.intent))
+                    text = control_notice(self.cfg,kind,runtime=True,reason=result.reason,operation=result.sent.intent)
+                    if kind == 'recover':
+                        from ready2go_voice.core.hotfix import prompts
+                        from ready2go_voice.core.runner_speech import unavailable_work_text
+                        text = unavailable_work_text(mapper.status,self.notice_policy.task_steps,prompts(self.cfg),
+                            recovered=True,run_id=result.sent.work.task) or text
+                    self._control_notice_locked('control_' + kind,text)
 
     def bind_control_source(self, check, *, boot, publisher_gid, proof_provider=None):
         """Explicit verified C binding; existing request_run opt-in still required.
@@ -1606,9 +1624,12 @@ class VoiceNode(Node):
                 notice = self.notice_policy.observe(message.data, cause=cause)
                 if self.notice_policy.phase != 'running':
                     self.cause_speech = None
+                retained = bool(self.safety_exchange.policy and self.safety_exchange.policy.work
+                                or getattr(self, 'deferred_task_end', None))
+                if control_verified:
+                    retained = bool(((self.control_mapper.status or {}).get('halt') or {}).get('resume'))
                 self._diagnostic({'event':'voice_state','phase':self.notice_policy.phase,
-                    'work_retained':bool(self.safety_exchange.policy and self.safety_exchange.policy.work
-                                         or getattr(self, 'deferred_task_end', None)),
+                    'work_retained':retained,
                     'termination_pending':getattr(self,'pending_task_end',None) is not None})
                 ending = getattr(self, 'task_end_request', None)
                 first_end_stop = (ending is not None and not ending['halt_seen']
