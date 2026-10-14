@@ -1,6 +1,6 @@
 {
   "task_id": "find_item",
-  "description": "P1 단일 물품 전달 (#17, demo_scenario.md 17.1): 물품 위치 조회 → 서랍 열기 → 탑뷰 이동(s3v: 열기 끝은 홈 자세, E #17 10/07) → 관측 → (찾음) 집기 → 전달 트레이에 놓기 / (못 찾음) 안내, finally 로 서랍 닫기·홈 (그리퍼가 비어 있을 때만 홈 이동: 놓기 실패로 물품을 쥐고 있으면 열린 서랍 부근에서 움직이지 않고 정지·사람 복구, PR #82 리뷰). 스킬 스텝이라 Runner 가 온톨로지 pre 확인·effect 반영. 집기 전 관측(s4)은 미발견 안내용(P1 Runner 는 pick 스킬 안의 미발견을 분기할 수 없음). s4 는 인식 실패(CAMERA_TIMEOUT·DEPTH_INVALID·비전 TIMEOUT 등)면 1회 다시 찍음(로봇 동작 없음, #168·10/08 2회차 CAMERA_TIMEOUT). pick 은 E #122 공통 스킬: 탑뷰 → 촬영 → 끌기(B 판단, 공간이 있으면 움직이지 않음) → 탑뷰 → 다시 촬영 → 다시 본 좌표로 집기(FR-ACT-05). 못 찾으면 VAR_NULL 로 집기 없이 실패. pick retry 1 은 팔이 움직이기 전 실패에만 적용되고, 탑뷰·끌기 뒤 실패(YAW_INVALID 포함)는 Runner 가 다시 보내지 않음(MOTION_UNCERTAIN). trigger.targets = 지우개만: 10/07 P1 음성 실행 한정(E #17 사용자 결정, P1 전체를 지우개로 영구 제한하는 것 아님) — 다른 등록 물품 음성 요청은 로봇 동작 전에 UNSUPPORTED_ITEM 보류. RUNNER_TASK_FILE·직접 실행은 trigger 를 보지 않으므로 inputs.target 을 따로 확인 / finally 닫기 안내(#138): f1d·f2d 로 닫기 전·후 서랍 상태를 조회해 '이번 실행에서 열림 → 닫힘'일 때만 f2s.1 \"서랍을 닫았어요\". 처음부터 닫힘·닫기 실패/skip/PRE_UNMET·비상정지/취소(닫기 SKIPPED)면 안내 없음. 조회·안내는 모두 on_failure=skip, 안내는 timeout_sec 20(음성 노드가 응답하지 않아도 TIMEOUT → skip) 이라 실패해도 닫힘 상태 반영·홈 복귀(f3)는 그대로 계약07(10/11): 음성 요청에 E 가 검증한 수락 문장(accept_text)이 있으면 s2 첫 안내를 그 문장 1회로(s2.1), 없으면 기존 문장(s2.2). 안내 speak 가 실패하면(TTS 실패·시간 초과·취소) **로봇 동작 0번**으로 실패 — s2 첫 안내 직전 s2a 가 announce_pending 을 켜고 성공하면 s2k 가 끄는데, 안내가 실패해 켜진 채면 finally 홈 이동도 보내지 않음(f3g, 정본 수락 TTS, #249 E 리뷰 P1). 서랍 닫기(f2)는 연 서랍이 없어 PRE_UNMET 으로 동작 없음. s1 조회 실패 등 안내 전 실패와 이미 움직인 뒤 실패의 정리(닫기·홈)는 그대로(#140).",
+  "description": "P1 단일 물품 전달 (#17, demo_scenario.md 17.1): 물품 위치 조회 → 서랍 열기 → 탑뷰 이동(s3v: 열기 끝은 홈 자세, E #17 10/07) → 관측 → (찾음) 집기 → 전달 트레이에 놓기 / (못 찾음) 안내, finally 로 서랍 닫기·홈 (그리퍼가 비어 있을 때만 홈 이동: 놓기 실패로 물품을 쥐고 있으면 열린 서랍 부근에서 움직이지 않고 정지·사람 복구, PR #82 리뷰). 스킬 스텝이라 Runner 가 온톨로지 pre 확인·effect 반영. 집기 전 관측(s4)은 미발견 안내용(P1 Runner 는 pick 스킬 안의 미발견을 분기할 수 없음). s4 는 인식 실패(CAMERA_TIMEOUT·DEPTH_INVALID·비전 TIMEOUT 등)면 1회 다시 찍음(로봇 동작 없음, #168·10/08 2회차 CAMERA_TIMEOUT). pick 은 E #122 공통 스킬: 탑뷰 → 촬영 → 끌기(B 판단, 공간이 있으면 움직이지 않음) → 탑뷰 → 다시 촬영 → 다시 본 좌표로 집기(FR-ACT-05). 못 찾으면 VAR_NULL 로 집기 없이 실패. pick retry 1 은 팔이 움직이기 전 실패에만 적용되고, 탑뷰·끌기 뒤 실패(YAW_INVALID 포함)는 Runner 가 다시 보내지 않음(MOTION_UNCERTAIN). trigger.targets = 지우개만: 10/07 P1 음성 실행 한정(E #17 사용자 결정, P1 전체를 지우개로 영구 제한하는 것 아님) — 다른 등록 물품 음성 요청은 로봇 동작 전에 UNSUPPORTED_ITEM 보류. RUNNER_TASK_FILE·직접 실행은 trigger 를 보지 않으므로 inputs.target 을 따로 확인 / finally 닫기 안내(#138): f1d·f2d 로 닫기 전·후 서랍 상태를 조회해 '이번 실행에서 열림 → 닫힘'일 때만 f2s.1 \"서랍을 닫았어요\". 처음부터 닫힘·닫기 실패/skip/PRE_UNMET·비상정지/취소(닫기 SKIPPED)면 안내 없음. 조회·안내는 모두 on_failure=skip, 안내는 timeout_sec 20(음성 노드가 응답하지 않아도 TIMEOUT → skip) 이라 실패해도 닫힘 상태 반영·홈 복귀(f3)는 그대로 계약07(10/11): 음성 요청에 E 가 검증한 수락 문장(accept_text)이 있으면 s2 첫 안내를 그 문장 1회로(s2.1), 없으면 기존 문장(s2.2). 안내 speak 가 실패하면(TTS 실패·시간 초과·취소) **로봇 동작 0번**으로 실패 — s2 첫 안내 직전 s2a 가 announce_pending 을 켜고 성공하면 s2k 가 끄는데, 안내가 실패해 켜진 채면 finally 홈 이동도 보내지 않음(f3g, 정본 수락 TTS, #249 E 리뷰 P1). 서랍 닫기(f2)는 연 서랍이 없어 PRE_UNMET 으로 동작 없음. s1 조회 실패 등 안내 전 실패와 이미 움직인 뒤 실패의 정리(닫기·홈)는 그대로(#140). 실패 원인 안내(E #196 10/14): sequence 가 일반 실패(StepFailed)로 끝나면 Runner 가 finally 시작 때 run_failure{code, step, action, text}를 넣고 fx 가 정리(복구·닫기·홈) 전에 그 문장을 한 번 말함 — 정지·취소·성공이면 null 이라 안 말함, 안내 실패는 넘어감(원래 실패 원인 유지). 문장은 core/failure_speech.py(E 대조).",
   "trigger": {
     "intent": "find_item",
     "targets": [
@@ -164,6 +164,29 @@
         "state": "gripper.robot"
       },
       "output": "hold"
+    },
+    {
+      "id": "fx",
+      "action": "if",
+      "on_failure": "skip",
+      "cond": {
+        "op": "!=",
+        "args": [
+          "$run_failure",
+          null
+        ]
+      },
+      "then": [
+        {
+          "id": "fx.1",
+          "action": "speak",
+          "params": {
+            "text": "$run_failure.text"
+          },
+          "on_failure": "skip",
+          "timeout_sec": 20
+        }
+      ]
     },
     {
       "id": "f1d",

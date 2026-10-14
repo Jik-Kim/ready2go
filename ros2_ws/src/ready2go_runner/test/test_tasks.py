@@ -150,6 +150,7 @@ def test_inspect_failing_twice_cleans_up_without_pick():
     assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "CAMERA_TIMEOUT", "s4")
     assert "/skills/pick_object" not in robot.sent and "/skills/nudge_object" not in robot.sent
     assert robot.motion_after(INSPECT_SERVICE) == ["/skills/drawer_control", "/skills/move_to_named_pose"]   # 닫기 → 홈
+    assert robot.spoken[-2:] == ["카메라 영상이 제때 오지 않아서 멈췄어요", CLOSED]   # 원인 안내 → 닫기 (E #196 10/14)
 
 
 def test_success_delivers_item_and_cleans_up():
