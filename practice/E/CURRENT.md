@@ -1,5 +1,14 @@
 # CURRENT — E 고희태
 
+## failure-prefill-20261014
+
+- [문서: 승인·기준] E-FAILURE-PREFILL-20261014. 조율 human turn `01a138d5-e6e5-7131-b0ea-6c5496332775` / message `01a138d5-e727-7433-9634-fa12db545d7e`의 “실패 중단 보존 확인 진행”을 직접 확인하고 실패 안내 prefill 누락만 보완합니다. 기준 main `ce5483e5fdc2b19fe0630a2edae7912919617ddf`, 격리 `/tmp/ready2go-e-failure-prefill-20261014` / `codex/e-failure-prefill-20261014`, [FR-INT-03/P1](../../docs/requirements.md#fr-int-03) 및 기존 P2 안내 범위입니다.
+- [구현] node/prepare 공통 `prefill_texts` 필수 목록에 활성10종의 현재 `find_with_unpack` s8.1 “을/를 꺼내지 못했어요”와 fn.1 복구 불완전·fh.1 쥔 채 중단 고정 안내 두 문장을 추가합니다. 실제 task 원본과 C `interpolate` 조사 렌더를 대조하고 `지우개를 꺼내지 못했어요`가 정상/잘못된/없는 history와 무관하게 필수에 포함되는지 검사합니다. 다른 태스크/미래Phase 수집기·동적 사용자 문장·C 실패/재개 동작 변경은 없습니다.
+- [실측: 선택·정적 검사] `test_melotts.py -k prefill` **5 passed/22 deselected(0.47s)**, 기존 `test_voice_ux.py` prefill frequent/256·warmup/문자·용량 경계 선택 **5 passed/213 deselected(0.48s)**입니다. 로그 `/tmp/e-failure-prefill-tests.log`, `/tmp/e-failure-prefill-bounds.log`. AST2·diff 공백 검사 통과. 현재 source와 기존 local YAML을 읽기만 한 실제 선택은 각각 활성10종·필수181/빈번0·warmup1·15893 bytes로 cap256 이내입니다(`/tmp/e-failure-prefill-selection.log`). 사용자 목록/history는 보존하고 중복 제거·startup60/prepare120·모델/속도1.2·설정은 유지합니다.
+- [문서: 기존 실측 인용·미검증] 상위가 대조한 `/home/jonny/Downloads/voice.run.cIZVHgT2.log`의 s8.1 새 합성4.015s/재생2.301s 및 `/home/jonny/Downloads/pc2_1014_1300이후_db_raw.json`의 run `2026-10-14T04:29:22Z_ee3615` speak6.437s는 이번 재측정이 아닙니다. 필수 선택 보완은 실제 cache 준비/hit·음성 시간 단축 성공을 뜻하지 않습니다. 실합성·cache/receipt 갱신·마이크/스피커/API·ROS/장치·물리종료·전체 pytest/colcon/CI·추가 agent·push/PR은 수행하지 않습니다.
+- [담당·보존] E core/tts_prefill.py·test/test_melotts.py·이 CURRENT만 수정하고 검사 뒤 해당 파일만 로컬 커밋합니다. primary dirty demo_scenario/CURRENT·기존 dcb/b0 공간·과거 기록·env/local YAML/models/cache/초기 state/world는 보존합니다. C 실패 결과/반복·fallback 보존/보고서 문구는 상위 C 인계이며 E에서 수정·별도 게시하지 않습니다. 권한 밖 Vault는 편집하지 않고 기존 `cases/voice_control_prefill_prompt.md`에 추가할 원인/선택 검사/실음성 미검증 기록을 상위에 인계합니다.
+
+
 ## pr340-review-20261014
 
 - [문서: 승인·기준] E-PR340-REVIEW-20261014. 조율 human turn `01a1384e-0432-7452-b90b-6f4889f44232` / message `01a1384e-0464-7903-b0d6-8df323f320f4`의 “#340 코멘트 확인 후 수정”과 기존 PR 정상 push·본문·리뷰 답변 범위를 직접 확인했습니다. 작업은 `/tmp/ready2go-e-voice-runtime-322-20261014`, `codex/e-voice-runtime-322-20261014`, 시작 로컬/원격 HEAD `f3a27151fb43030b91e6820027fa10ba2bb94319`입니다. 원격 main `c5a459ce1a169f29ae3a80a4bf9b10069d389051`의 추가6파일은 B clear_plan·설정·문서·예시이고 이번 E 경로와 겹치지 않아 병합하지 않았습니다. 기준은 [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-01/03/P2](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)입니다.

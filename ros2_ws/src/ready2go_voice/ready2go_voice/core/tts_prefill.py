@@ -100,7 +100,11 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
         has_jong = 0xAC00 <= code <= 0xD7A3 and (code - 0xAC00) % 28 != 0
         target = name + ('을' if has_jong else '를')
         texts.extend((confirmation(name), question(name),
-                      target + ' 찾아 올게요', target + ' 앞쪽 트레이에 놓았어요', target + ' 찾지 못했어요'))
+                      target + ' 찾아 올게요', target + ' 앞쪽 트레이에 놓았어요', target + ' 찾지 못했어요',
+                      target + ' 꺼내지 못했어요'))
+    # Current P2 task failure/held-stop notices are required, not history-selected.
+    texts.extend(('옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람이 확인해 주세요',
+                  '물건을 옮기다 멈췄어요. 사람이 확인해 주세요'))
     texts.append('서랍을 닫았어요')
     texts.extend(STATUS_PROMPTS.values())
     result = list(dict.fromkeys(texts))
