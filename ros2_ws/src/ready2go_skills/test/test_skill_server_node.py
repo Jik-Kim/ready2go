@@ -67,7 +67,7 @@ def server(monkeypatch):
     _stub(monkeypatch, "dsr_msgs2")
     _stub(monkeypatch, "dsr_msgs2.srv", **{n: object for n in (
         "GetCurrentPosj GetCurrentPosx GetCurrentTcp GetCurrentTool GetRobotMode GetRobotState GetToolForce "
-        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveStop SetRobotMode TaskComplianceCtrl SetDesiredForce ReleaseForce ReleaseComplianceCtrl").split()})
+        "MoveBlending MoveJoint MoveLine MoveSplineJoint MoveSplineTask MoveStop SetRobotMode TaskComplianceCtrl SetDesiredForce ReleaseForce ReleaseComplianceCtrl").split()})
     _stub(monkeypatch, "pymodbus")
     _stub(monkeypatch, "pymodbus.client", ModbusTcpClient=object)
     for m in ("ready2go_skills.adapters.dsr", "ready2go_skills.adapters.rg2", "ready2go_skills.nodes.skill_server"):
@@ -3664,3 +3664,184 @@ def test_free_plate_place_only_then_nudge_on_restore(server, monkeypatch, repick
     out, nd = server.run("nudge_object", {"drawer_id": d, "target": moved, "scan": back, "check_only": True})
     assert out.error_code == "PUSH_LIMIT" and nd["needed"] and "y -" in out.reason, out.reason   # 끌면 집힘 (움직이지 않음)
     assert srv.robot.log == [] and srv.held is None
+
+
+def _with_prm(server, monkeypatch, **sections):
+    """skills.yaml 섹션 일부만 바꿔 읽게 (예: motion={"one_turn": True}, carry={"direct": True})."""
+    real = server.ss._yaml_cached
+
+    def cached(path, **kw):
+        d = real(path, **kw)
+        if path.name == "skills.yaml":
+            d = dict(d)
+            for k, v in sections.items():
+                d[k] = {**(d.get(k) or {}), **v}
+        return d
+    monkeypatch.setattr(server.ss, "_yaml_cached", cached)
+
+
+def _turning_movej(server, drawer_id="drawer_top"):
+    """가짜 로봇: 경유점(drag_down) J1~J5 로 가는 movej 면 TCP 를 경유점(carry_line 1)에 두고 J6 차이만큼 손목(C)도 돌려 둠 —
+    그리퍼 수직에서 J6 +θ = posx (C − A) +θ [계산 m0609_kin]."""
+    srv = server.srv
+    down = srv.poses()["drag_down"][drawer_id]
+    wp = srv.poses()["carry_line"][drawer_id][0]
+    real = srv.robot.movej_async
+
+    def movej(j, v, a):
+        ok = real(j, v, a)
+        if list(j[:5]) == list(down[:5]):
+            srv.robot.p = list(wp[:5]) + [wp[5] + (j[5] - down[5])]
+        return ok
+    srv.robot.movej_async = movej
+    return down, wp
+
+
+def test_pick_one_turn_rotates_wrist_once_on_way_to_waypoint(server, monkeypatch):
+    """[사용자 10/14 P2 시연 뒤] motion.one_turn: 탑뷰 → 경유점 관절 이동에 잡는 J6 를 넣어 한 번에 — 경유점 기본 방향 도착 뒤
+    J6 만 따로 돌리는 movej 가 없음. 내려가는 손목 각도·잡는 자리는 끔/켬이 같음."""
+    srv = server.srv
+    down, _ = _turning_movej(server)
+    t = json.loads(json.dumps(ERASER_FREE))
+    t["pose"]["yaw"] = -0.7
+    seen = {}
+    for one_turn in (False, True):
+        _with_prm(server, monkeypatch, motion={"one_turn": one_turn})
+        srv.robot.p, srv.robot.j, srv.held = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0], [0.0, 0.0, 90.0, 0.0, 90.0, 0.0], None
+        server.Gripper.holding = True
+        srv.robot.log.clear()
+        try:
+            out, _ = server.run("pick_object", {"target": t, "approach_offset": [0, 0, 0.1]})
+        finally:
+            server.Gripper.holding = False
+        assert out.success, out.reason
+        log = srv.robot.log
+        first_b = next(k for k, e in enumerate(log) if e[0] == "moveb")
+        js = [e[1] for e in log[:first_b] if e[0] == "movej" and list(e[1][:5]) == list(down[:5])]   # 경유점·J6 만 (탑뷰 이동 빼고)
+        assert len(js) == (1 if one_turn else 2)
+        assert (abs(js[0][5] - down[5]) > 1.0) == one_turn
+        seen[one_turn] = (js[-1][5], log[first_b][1][-1])
+    assert seen[True][0] == pytest.approx(seen[False][0], abs=1e-6)     # 끝 J6 같음
+    from ready2go_skills.core import pose_math as pm
+    a, b = seen[True][1], seen[False][1]
+    assert a[:3] == pytest.approx(b[:3], abs=1e-6)                      # 목표 위로 내려가는 점 같음
+    assert pm.rotation_angle(pm.rot(*a[3:6]), pm.rot(*b[3:6])) < 0.05  # 손목도 같은 방향 (표기 ±360 차이는 같은 방향)
+
+
+def test_place_in_drawer_one_turn_from_waypoint_turns_once_and_keeps_wrist_back(server, monkeypatch):
+    """[사용자 10/14 "90° 기준으로 돌려 경유점 만든 뒤 목표 각도로"] 집은 뒤 경유점 자리(손목은 집은 각도)에서 서랍 안 놓기:
+    끔 = 경유점 기본 방향 movej → J6 따로 / 켬 = 경유점 movej 없이 J6 한 번. 놓는 자리·손목은 같고, 켬이면 돌아갈 때 손목 그대로."""
+    srv = server.srv
+    down, wp = _turning_movej(server)
+    seen = {}
+    for one_turn in (False, True):
+        _with_prm(server, monkeypatch, motion={"one_turn": one_turn})
+        _holding_in_drawer(server)
+        srv.robot.p = list(wp[:5]) + [wp[5] + 50.0]                     # 경유점 자리, 손목은 집은 각도(기본에서 50°)
+        srv.robot.j = list(down[:5]) + [down[5] + 50.0]
+        srv.robot.log.clear()
+        out, _ = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+        assert out.success, out.reason
+        log = srv.robot.log
+        assert (("movej", down) in log) is (not one_turn)
+        assert len([e for e in log if e[0] == "movej"]) == (1 if one_turn else 2)
+        lines = [p for e in log if e[0] in ("movel", "moveb") for p in ([e[1]] if e[0] == "movel" else e[1])]
+        low, back = min(lines, key=lambda p: p[2]), lines[-1]
+        assert back[:2] == pytest.approx(wp[:2])
+        assert back[3:] == pytest.approx(low[3:] if one_turn else wp[3:])   # 켬: 돌아갈 때 손목 그대로 (다음 관절 이동이 한 번에 돌림)
+        seen[one_turn] = low
+    assert seen[True] == pytest.approx(seen[False], abs=1e-6)           # 놓는 자리·손목 같음
+
+@pytest.mark.parametrize("direct", [False, True])
+def test_carry_direct_turns_wrist_on_long_leg_without_stop(server, monkeypatch, direct):
+    """[사용자 10/14 "경유점 두 번"] carry.direct: 경유점 1 에서 J6 만 돌리는 movej 없이, 1→2(짧음)는 집은 손목 그대로,
+    2→3(긴 구간)부터 놓는 손목 — 블렌딩 한 번. 끄면 지금처럼 J6 먼저."""
+    _with_prm(server, monkeypatch, carry={"direct": direct})
+    srv = server.srv
+    route = srv.poses()["carry_line"]["drawer_top"]
+    grasp_ang = [156.1, 180.0, -139.4]
+    srv.held = dict(LIP_HELD)
+    server.Gripper.holding, server.Gripper.width = True, 19.5
+    srv.robot.p = list(route[0][:3]) + grasp_ang
+    srv.robot.log.clear()
+    try:
+        out, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    log = srv.robot.log
+    first_b = next(k for k, e in enumerate(log) if e[0] == "moveb")
+    assert any(e[0] == "movej" for e in log[:first_b]) is (not direct)
+    pts = log[first_b][1]
+    assert pts[0][:3] == route[1][:3] and pts[1][:3] == route[2][:3]
+    if direct:
+        assert pts[0][3:] == grasp_ang and pts[1][3:] == pts[-1][3:] != grasp_ang
+    else:
+        assert all(p[3:] == pts[-1][3:] for p in pts)
+
+
+@pytest.mark.parametrize("supported", [True, False])
+def test_carry_spline_uses_guided_movesx_or_falls_back_to_moveb(server, monkeypatch, supported):
+    """[강사님 피드백 10/13] carry.spline: 칸 위까지 movesx guided(교시점이 아니라 moveb 둥근 경로 위 점) → 마지막 1 cm 위까지 직선.
+    드라이버에 movesx 가 없으면 아무것도 안 보내고 지금 moveb 그대로."""
+    _with_prm(server, monkeypatch, carry={"spline": True})
+    srv = server.srv
+    route = srv.poses()["carry_line"]["drawer_top"]
+
+    def movesx(pts, vel, acc, rot_vel=30.0, rot_acc=60.0, const_vel=True):
+        if not supported:
+            return "unsupported"
+        srv.robot.log.append(("movesx", [list(p) for p in pts]))
+        srv.robot.p = list(pts[-1])
+        return True
+    srv.robot.movesx_async = movesx
+    srv.held = dict(LIP_HELD)
+    server.Gripper.holding, server.Gripper.width = True, 19.5
+    srv.robot.p = list(route[0])
+    srv.robot.log.clear()
+    try:
+        out, data = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    assert data["slot"] == "handover_zone_1"
+    kinds = [e[0] for e in srv.robot.log]
+    if not supported:
+        assert "movesx" not in kinds and "moveb" in kinds
+        return
+    assert "moveb" not in kinds
+    via = next(e[1] for e in srv.robot.log if e[0] == "movesx")
+    assert len(via) == srv.prm()["carry"]["spline_via"]
+    assert max(p[2] for p in via) <= max(r[2] for r in route) + 1e-6   # 교시점보다 위로 안 부풂
+    k = kinds.index("movesx")
+    assert kinds[k + 1] == "movel" and srv.robot.log[k + 1][1][:2] == pytest.approx(via[-1][:2])   # 칸 위 → 1 cm 위까지 직선
+    assert via[-1][2] == pytest.approx(route[-1][2]) and srv.robot.log[k + 1][1][2] < via[-1][2]
+
+
+@pytest.mark.parametrize("window", [0.0, 3.0])
+def test_place_touch_window_ignores_early_wobble_but_stops_on_floor(server, monkeypatch, window):
+    """[사용자 10/14 PC2] 덮개 판을 같은 free 자리에 한 번은 바닥에, 한 번은 5 mm 위에서 놓음(기울지 않음) — 마지막 천천히 내리기에서
+    목표 5 mm 위 흔들림(4 N)을 바닥으로 봄 [추정]. place.touch_window_mm 3: 그건 무시하고 내려가 진짜 바닥(목표)에서 멈춤. 0 = 지금처럼."""
+    _with_prm(server, monkeypatch, place={"touch_window_mm": window})
+    srv = server.srv
+    _holding_in_drawer(server)
+    out, _ = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    deeper = [e[1] for e in srv.robot.log if e[0] == "movel"]
+    tz = min(p[2] for p in deeper) + srv.prm()["place"]["touch_overtravel_mm"]   # 놓는 목표 높이
+    logs = []
+    srv.get_logger = lambda: types.SimpleNamespace(info=logs.append, warn=logs.append, warning=logs.append, error=logs.append)
+    srv.robot.force = lambda p: [0.0, 0.0, 4.0 if (tz + 4.5 <= p[2] <= tz + 5.5 or p[2] <= tz) else 0.0, 0.0, 0.0, 0.0]
+    opened = []
+    real_grip = srv._grip
+    srv._grip = lambda w, f: opened.append(srv.robot.p[2]) or real_grip(w, f)
+    _holding_in_drawer(server)
+    srv.robot.log.clear()
+    out, _ = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    z = opened[-1]
+    msg = next(m for m in logs if "닿아서 멈춤" in m)
+    if window:
+        assert z == pytest.approx(tz, abs=0.5) and "무시" in msg            # 흔들림은 넘기고 바닥(목표)에서
+    else:
+        assert z == pytest.approx(tz + 5.0, abs=0.6) and "+5" in msg       # 지금: 5 mm 위에서 놓음 (로그에 남음)
