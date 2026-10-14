@@ -2529,7 +2529,8 @@ class SkillServer(Node):
                          reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(loc) or 0.0) / 1000.0 or None,
                          allow_unpickable_place=not bool(pl.get("free_repickable_only", True)),
                          repick_margin_mm=float(pl.get("free_repick_margin_mm", 0.0)),
-                         repick_margin_deg=float(pl.get("free_repick_margin_deg", 0.0)))
+                         repick_margin_deg=float(pl.get("free_repick_margin_deg", 0.0)),
+                         free_try=int(pl.get("free_try", clp.Config.free_try)))
         pose = clp.find_free_pose(objs, held["id"], [tid] if tid and tid != held["id"] else [], _HeldOracle(self, loc, held), cfg)
         if pose is None:
             return None, plp.Refusal(NO_FREE_SPACE, f"{loc} 안에 {held['class']} 를 놓을 빈 자리 없음")

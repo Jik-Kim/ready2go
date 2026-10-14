@@ -335,7 +335,7 @@ class Config:
     max_chain: int = 2                       # 한 번에 같이 밀 물체 수 [추정 — 실물 확인 필요]
     slack_mm: float = 0.0                    # 넛지·밀기 뒤 여유 — 집기 검사가 딱 통과하는 거리보다 이만큼 더 (실행 값 make_room.slack_mm)
     round_classes: Sequence[str] = ("lip_balm",)
-    free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수
+    free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수 (0 이하 = 전부 — place slot free, #337 뒤)
     allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선 — make_room·B clear)
     repick_margin_mm: float = 0.0            # 다시 집기 검사를 놓을 자리에서 ±이만큼 옮겨서도 (비전 위치 오차) — 0 이면 그 자리만
     repick_margin_deg: float = 0.0           # 다시 집기 검사를 ±이 각도 돌려서도 (비전 각도 오차)
@@ -400,7 +400,7 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
         cands = [c for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid, avoid_pad_mm=pad)
                  if cfg.reach_x_m is None or c["pose"]["position"][0] <= cfg.reach_x_m]   # 안쪽 벽에 붙여도 손이 안 닿으면 못 놓음
         for i, c in enumerate(cands):
-            if i >= cfg.free_try * (2 if tilted is not None else 1):   # 기울임 자리만 찾았으면 수직 자리를 두 배까지 더 찾아봄
+            if 0 < cfg.free_try and i >= cfg.free_try * (2 if tilted is not None else 1):   # 기울임 자리만 찾았으면 수직 자리를 두 배까지 더 찾아봄
                 break
             pose = as_pose(c)
             ok, _, _ = oracle.place(objs, held_id, pose)
