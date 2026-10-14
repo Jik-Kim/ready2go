@@ -93,6 +93,44 @@ def test_less_visible_without_cover_is_unknown():
     assert ok and t["occluded_by"] is None and t["visible_area_m2"] > 0
 
 
+def _shrunk(objs, keep):
+    """첫 물체 마스크를 오른쪽에서 잘라 보이는 넓이를 keep 비율로 (마스크가 실제보다 작게 잡힌 경우 흉내)."""
+    depth, masks = scene(objs)
+    m = masks[0].copy(); us = np.nonzero(m.any(axis=0))[0]
+    m[:, us[0] + int(round((us[-1] - us[0] + 1) * keep)):] = False
+    return depth, [m] + masks[1:]
+
+
+def test_slightly_less_visible_alone_is_clear():
+    """[10/14 PC2 아래 칸] 혼자 다 보인 지우개가 기준 넓이보다 작게 재여(0.78) 덜 보임 → 맞닿은 검출 물체가 하나도 없으면 [] (#196)."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115), ("lip_balm", 0.10, 0.20, (0.0718, 0.02), 0.022)]   # 립밤은 떨어져 있음
+    depth, masks = _shrunk(objs, 0.78)
+    dbg = []
+    ok, _, js = inspect_scene(dets_of(objs, masks), depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    assert ok and json.loads(js)["target"]["occluded_by"] == []
+    assert any("맞닿은 물체 없음" in d.get("occlusion", {}).get("judge", "") for d in dbg)
+
+
+def test_slightly_less_visible_touching_neighbor_stays_unknown():
+    """같은 넓이라도 맞닿은 이웃이 있으면(덮었는지 못 가림) 예전처럼 null."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115), ("lip_balm", 0.10, 0.172, (0.0718, 0.02), 0.0115)]  # 같은 높이로 붙음
+    depth, masks = _shrunk(objs, 0.78)
+    ok, _, js = inspect_scene(dets_of(objs, masks), depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+
+
+def test_alone_rule_off_or_much_less_visible_stays_unknown():
+    """많이 덜 보이면(검출 안 된 물체가 덮었을 수 있음) 혼자여도 null, alone_clear_min_ratio 를 빼면 규칙 꺼짐."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115)]
+    depth, masks = _shrunk(objs, 0.6)
+    ok, _, js = inspect_scene(dets_of(objs, masks), depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+    off = {**PARAMS, "occlusion": {k: v for k, v in PARAMS["occlusion"].items() if k != "alone_clear_min_ratio"}}
+    depth, masks = _shrunk(objs, 0.78)
+    ok, _, js = inspect_scene(dets_of(objs, masks), depth, K, T, off, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+
+
 def test_yaw_near_90_degrees_stays_in_range():
     """반올림 1.5708 이 pi/2 를 넘어 RESULT_INVALID 가 나던 문제 (가림 시험에서 발견)."""
     it, _ = run([("caramel_box", 0.10, 0.15, (0.049, 0.075), 0.0185)], target="caramel_box")

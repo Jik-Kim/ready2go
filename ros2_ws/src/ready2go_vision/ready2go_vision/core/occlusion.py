@@ -121,7 +121,12 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
         touch = []                                             # 맞닿은 이웃 (보조 규칙용)
         dropped = []                                           # 윗면 비교로 버린 '위' 이웃
         for i, a in enumerate(dets):
-            if i == j or masks[i] is None:
+            if i == j:
+                continue
+            if masks[i] is None:                               # 마스크 없는 검출은 관계를 못 재지만, 상자가 닿으면 '맞닿은 물체 있음'(아래 혼자 규칙 막기)
+                x1, y1, x2, y2 = (int(round(v)) for v in a["box"])
+                if grown[j][max(y1, 0):max(y2, 0) + 1, max(x1, 0):max(x2, 0) + 1].any():
+                    touch.append(i)
                 continue
             band_a, band_b = masks[i] & grown[j], mb & grown[i]
             if band_a.sum() < p["min_contact_px"] or band_b.sum() < p["min_contact_px"]:
@@ -166,7 +171,12 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
         if dropped and not covers and not unknown:             # 경계로는 위인데 버림 → 다른 덮은 물체가 없으면 모름 (얇은 물체가 키 큰 물체의
             unknown.append("위아래 엇갈림(경계 vs 전체 윗면)")             # 낮은 부분에 얹힌 경우를 [] 로 내지 않게, PM #236 검토)
             relations is not None and relations.append({"under": ids[j], "judge": "모름: 버린 관계만 있음"})
-        if not covers and not unknown and (less or (split and ratio is None)):   # 다 보이는데(기준 넓이 이상) 조각만 났으면 마스크 잡조각 — 안 가려짐
+        alone = p.get("alone_clear_min_ratio")                 # 조금 덜 보이는데(기준 넓이가 커서) 맞닿은 검출 물체가 하나도 없고 조각도 안 났으면
+        if (alone is not None and not covers and not unknown and less and not split and not touch   # 덮을 수 있는 검출 물체가 없음 → [] (10/14 PC2 아래 칸
+                and ratio is not None and ratio >= alone):                                     # 혼자 다 보인 지우개 0.78 이 null 이라 C 가 집지 않음, #196)
+            relations is not None and relations.append({"under": ids[j], "visible_ratio": round(ratio, 2),   # 많이 덜 보이면(검출 안 된 물체가
+                                                        "judge": "다 보임(조금 덜 보이지만 맞닿은 물체 없음)"})        # 덮었을 수 있음) 그대로 null
+        elif not covers and not unknown and (less or (split and ratio is None)):   # 다 보이는데(기준 넓이 이상) 조각만 났으면 마스크 잡조각 — 안 가려짐
             unknown.append("덜 보이거나 조각났는데 덮은 물체 없음")
             relations is not None and relations.append({"under": ids[j], "visible_ratio": None if ratio is None else round(ratio, 2),
                                                         "split": split, "judge": "모름: 덮은 물체 없음"})
