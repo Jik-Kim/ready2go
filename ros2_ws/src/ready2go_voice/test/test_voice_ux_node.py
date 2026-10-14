@@ -110,6 +110,60 @@ def test_actual_work_passes_queue_identity_to_session_preparation(node, node_cla
     assert not node.texts and not node.published  # 내부 준비는 재생/발행하지 않습니다.
 
 
+@pytest.mark.parametrize('failure', ['AUDIO_OVERFLOW', 'NO_SPEECH', 'RECORD_LIMIT', 'CAPTURE_CANCELED'])
+def test_listener_overflow_is_silent_and_accepts_next_recording(node, monkeypatch, failure):
+    from contextlib import contextmanager
+
+    class Wake:
+        last_score = 1.0
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        @contextmanager
+        def stream(self):
+            yield SimpleNamespace()
+
+        def wait(self, *args):
+            return True
+
+    namespace = node._listen.__func__.__globals__
+    monkeypatch.setitem(namespace, 'WakeAudio', Wake)
+    monkeypatch.setitem(namespace, 'Recorder', lambda *args, **kwargs: object())
+    node.shared_input = SimpleNamespace(start=lambda: None, close=lambda: None)
+    node._stop_listen = lambda: None
+    node._voice_input_busy = lambda: False
+    recording = SimpleNamespace(recording_started_monotonic=1., recording_ended_monotonic=2.,
+                                ended_monotonic=2., recording_mode='fixed')
+    attempts, submitted = [], []
+    pending = node.session.conversation.pending
+
+    def capture(*args):
+        attempts.append(True)
+        if len(attempts) <= 2:
+            error = InterruptedError if failure == 'CAPTURE_CANCELED' else RuntimeError
+            raise error(failure)
+        return recording
+
+    def submit(value, **kwargs):
+        submitted.append(value)
+        if value[0] == 'audio':
+            node.stop_event.set()
+
+    node._capture_after_wake = capture
+    node._submit = submit
+    node._listen()
+    node.stop_listener.join(1)
+    assert len(attempts) == 3 and submitted[-1] == ('audio', recording)
+    errors = [value for value in submitted if value[0] == 'record_error']
+    assert errors == ([] if failure in ('AUDIO_OVERFLOW', 'CAPTURE_CANCELED')
+                      else [('record_error', failure)] * 2)
+    assert sum(d.get('event') == 'recording_held' and d.get('reason') == failure
+               for d in node.diagnostics) == 2
+    assert node.session.conversation.pending is pending
+    assert not node.texts and not node.published
+
+
 @pytest.mark.parametrize('first,second', [('응', '맞아'), ('응 맞아', '네 맞아요'), ('네 맞아요', '응 맞아'), ('어어', '어어')])
 def test_initial_question_then_different_affirmations_only_one_find(node, first, second):
     doc=ask(node)
