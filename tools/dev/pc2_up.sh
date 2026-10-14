@@ -95,9 +95,15 @@ wait_for vision-node "inspect_region 시작" 900 || ok=0
   && say "   ✅ 비전 v2 모델" || { say "❌ 비전 모델이 v2 가 아님"; ok=0; }
 "${COMPOSE[@]}" logs --no-color --since "$START" ros2-core | grep "Runner 준비" | tail -1 | grep -q "find_with_unpack" \
   && say "   ✅ find_item → find_with_unpack" || say "⚠️  Runner 인텐트에 find_with_unpack 없음 (.env RUNNER_INTENT_TASKS)"
-eff=$("${COMPOSE[@]}" exec -T ros2-core printenv RUNNER_RESUMABLE 2>/dev/null || true)
-if [ "$eff" = "${RUNNER_RESUMABLE}" ]; then say "   ✅ 실효 RUNNER_RESUMABLE='$eff' — $RUN_MODE"
-else say "❌ 실효 RUNNER_RESUMABLE='$eff' ≠ 모드 '${RUNNER_RESUMABLE}'"; ok=0; fi
+# 조회 자체가 실패하면(컨테이너 없음·exec 실패·변수 줄 없음) 빈 값으로 보지 않고 확인 실패 (#349 E 리뷰 3)
+eff="(조회 실패)"
+if envs=$("${COMPOSE[@]}" exec -T ros2-core env 2>/dev/null) && line=$(printf '%s\n' "$envs" | grep -m1 '^RUNNER_RESUMABLE='); then
+  eff=${line#RUNNER_RESUMABLE=}
+  if [ "$eff" = "${RUNNER_RESUMABLE}" ]; then say "   ✅ 실효 RUNNER_RESUMABLE='$eff' — $RUN_MODE"
+  else say "❌ 실효 RUNNER_RESUMABLE='$eff' ≠ 모드 '${RUNNER_RESUMABLE}'"; ok=0; fi
+else
+  say "❌ ros2-core 컨테이너에서 RUNNER_RESUMABLE 을 읽지 못함 — 실효 값 확인 실패"; ok=0
+fi
 say "   스킬 서버는 SKILL_START_DELAY_S(기본 15 s) 뒤 — 그 전 요청은 NOT_READY 로 거절(동작 없음)"
 say ""
 say "기준점(Python 0줄 비교): $CODE_SHA   로그: $LOG/"
