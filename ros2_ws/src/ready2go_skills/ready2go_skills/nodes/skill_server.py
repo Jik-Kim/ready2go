@@ -873,6 +873,18 @@ class SkillServer(Node):
             return sf.Outcome(False, sf.ESTOP, reason=f"다음 명령 전 로봇 상태 {st} (안전·비상정지) — 보내지 않음")
         return None
 
+    def _down_with_turn(self, drawer_id, down, pos_mm, close_dir):
+        """서랍 안 경유점(drag_down) 관절 — motion.one_turn 이면 J6 에 '경유점에서 돌릴 손목 각도'를 미리 더함 (한 번에 돌기).
+        경유점 손목 방향 = carry_line 1번(= drag_down TCP) 각도. 그리퍼 수직에서 J6 +θ = posx (C − A) +θ [계산 m0609_kin].
+        꺼짐·경로 없음이면 경유점 그대로 (지금처럼 경유점 도착 → J6 따로)."""
+        route = self._carry_route(drawer_id)
+        if not (self.prm().get("motion") or {}).get("one_turn") or not route:
+            return list(down)
+        wp = list(route[0][3:6])
+        g = mp.gripper_posx(pos_mm, close_dir, wp)
+        turn = ((g[5] - g[3]) - (wp[2] - wp[0]) + 180.0) % 360.0 - 180.0
+        return list(down[:5]) + [down[5] + turn]
+
     def _movej(self, goal, joints, stage, in_drawer=False):
         """관절 이동 1번 (제한 확인 → 자동 모드 → 비동기 → 도착). 성공이면 Outcome(True).
         in_drawer: 서랍 안으로 들어가는 경유점(drag_down) — speed.in_drawer_joint_* (서버 관절 속도와 따로, 탑뷰와 같게)."""
@@ -1068,6 +1080,45 @@ class SkillServer(Node):
         left = math.dist(cur[:3], [float(v) for v in posx[:3]])
         return sf.Outcome(False, sf.NOT_REACHED, reason=f"[{stage}] {done.reason} — 멈춘 곳 {[round(v, 1) for v in cur]}, "
                                                      f"목표 {[round(float(v), 1) for v in posx]}, 남은 {left:.1f} mm")
+
+    def _spline(self, goal, via, vel, stage):
+        """movesx guided (carry.spline) — via 를 작업 공간 스플라인 한 번에, 마지막 점에서 정지. 성공이면 None.
+        드라이버에 movesx 가 없으면(칸이 다르거나 서비스 없음) 아무것도 보내지 않고 "unsupported" → 부르는 쪽이 moveb 로.
+        받기만 하고 출발하지 않으면 "unsupported" 와 같게 봄 (움직이지 않았으니 moveb 로 이어서 감)."""
+        if not hasattr(self.robot, "movesx_async"):
+            return "unsupported"
+        goal.publish_feedback(Skill.Feedback(stage=stage))
+        if not self.robot.auto():
+            return sf.after_command(False, what="자동 모드 전환", stop=self.robot.stop, get_state=self.state)
+        early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+        if early:
+            return early
+        sp = self._speed()
+        start = self.robot.posx()
+        sent = {}
+
+        def send():
+            early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
+            if early:
+                return early
+            r = self.robot.movesx_async(via, vel, sp["line_acc_ratio"] * vel, sp["turn_deg_s"], sp["turn_acc_deg_s2"])
+            if r == "unsupported":
+                sent["no"] = True
+                return None
+            return sf.after_command(r, what=f"movesx({stage})", stop=self.robot.stop, get_state=self.state)
+        bad = send()
+        if sent.get("no"):
+            self.get_logger().warn(f"[{stage}] movesx 를 쓸 수 없음 — moveb 로")
+            return "unsupported"
+        bad = bad or self._wait_pose(goal, via[-1], vel, stage)
+        if bad is None or bad.error_code != sf.NOT_REACHED or start is None:
+            return bad
+        now = self.robot.posx()
+        if (now is None or math.dist(now[:3], start[:3]) >= 1.0
+                or pm.rotation_angle(pm.rot(*now[3:6]), pm.rot(*start[3:6])) >= 0.5):
+            return bad                                      # 출발은 했다가 선 것 — 그대로 실패
+        self.get_logger().warn(f"[{stage}] movesx 가 출발 안 함 — moveb 로 ({bad.reason})")
+        return self._settle(goal) or "unsupported"
 
     def _blend(self, goal, points, radii, vel, stage):
         """posx 경유점들을 직선 블렌딩으로 한 번에 (자동 모드 → 취소 확인 → 비동기 → 마지막 점 도착까지). 성공이면 None."""
@@ -2252,7 +2303,10 @@ class SkillServer(Node):
                     abs(a_ - b_) for a_, b_ in zip(jnow[:6], down)) <= tol:
                 self.get_logger().info(f"[pick] 이미 경유점(실측 관절 {tol}° 안) — 경유점 이동 건너뜀 [E #245]")
             else:
-                o = self._movej(goal, down, "to_object:down", in_drawer=True)
+                # motion.one_turn: 경유점으로 가는 관절 이동에 잡는 손목 각도(J6)까지 넣어 한 번에 — 경유점 기본 방향으로 갔다가
+                # 다시 돌리지 않음 [사용자 10/14 P2 시연 뒤 "한 번에 돌려서 시간 줄이자"]. 각도는 경유점 방향 기준(아래 turn 과 같은 식)
+                o = self._movej(goal, self._down_with_turn(drawer_id, down, [1000.0 * v for v in plan.position_m], close_dir),
+                                "to_object:down", in_drawer=True)
                 if not o.success:
                     return o, None
             cur = self.robot.posx()
@@ -2384,7 +2438,7 @@ class SkillServer(Node):
             bad = self._line(goal, above, self._in_vel(), "lift")
         if bad:
             return bad, pick_out(False, "unknown", close=chk.reason)    # 닫아서 잡은 뒤 멈춤 — 기억은 쥔 채 (사람 확인)
-        if route:
+        if route and not prm["carry"].get("direct"):        # carry.direct: 경유점 1 에서 멈춤 없이 바로 놓으러 감 [사용자 10/14]
             time.sleep(prm["carry"]["pause_s"])
         st2 = Rg2(self.rg2_ip)
         try:
@@ -2460,11 +2514,15 @@ class SkillServer(Node):
             # 4번 → 칸 위에서 돌리다 제어기가 출발 안 함 [실측 PC2 10/10 손잡이 쪽 지우개 carry NOT_REACHED]
             turn = ((target[5] - target[3]) - (cur[5] - cur[3]) + 180.0) % 360.0 - 180.0
             jnow = self.robot.posj()
-            if abs(turn) > 1.0 and jnow:
+            # carry.direct: 경유점 1 에서 J6 만 따로 돌리며 서지 않고, 긴 2→3 구간(트레이 쪽 약 390 mm)에서 옮기며 돌림 —
+            # 짧은 1→2(64 mm)는 집은 손목 그대로 (거기서 크게 돌리면 출발 안 함 [실측 10/10]) [사용자 10/14 "경유점 두 번"]
+            direct = bool(prm["carry"].get("direct")) and len(route) >= 3 and abs(turn) > 1.0
+            if abs(turn) > 1.0 and jnow and not direct:
                 o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "carry:turn", in_drawer=True)
                 if not o.success:
                     return o, None
-            pts = [list(p[:3]) + list(target[3:]) for p in route[1:]] + \
+            keep = list(cur[3:6]) if direct else list(target[3:])
+            pts = [list(route[1][:3]) + keep] + [list(p[:3]) + list(target[3:]) for p in route[2:]] + \
                 [list(target[:2]) + [route[-1][2]] + list(target[3:])]   # 칸 위(4번 높이)
             slow_c = pl.get("slow_last_mm", 0.0)
             if slow_c > 0 and target[2] + slow_c < pts[-1][2] - 1.0:   # 칸 위에서 멈추지 않고 놓는 높이 1 cm 위까지 이어서 [사용자 10/10]
@@ -2474,7 +2532,17 @@ class SkillServer(Node):
             seq = [here] + pts
             radii = [min(rad, math.dist(seq[k][:3], seq[k + 1][:3]) / 2.0, math.dist(seq[k + 1][:3], seq[k + 2][:3]) / 2.0)
                      for k in range(len(pts) - 1)] + [0.0]   # 반지름은 앞뒤 구간 절반까지 (짧은 구간 1→2)
-            bad = self._blend(goal, pts, radii, self._free_vel(), "carry")
+            bad = "unsupported"
+            if prm["carry"].get("spline") and len(pts) >= 3:
+                # carry.spline: 칸 위까지를 movesx guided(moveb 둥근 경로 위 점들)로 속도 끊김 없이 → 놓는 높이 + 10 mm 는 직선
+                # [강사님 피드백 10/13, movesx_carry_sim — 교시점 그대로 넣으면 위로 약 90 mm 부풂]. 못 쓰면 지금 moveb 로
+                via = mp.guided_via(seq[:-1] if len(pts) > len(route) else seq, radii, int(prm["carry"].get("spline_via", 8)),
+                                    turn_after=2 if direct else 0, start_angles=list(here[3:6]))
+                bad = self._spline(goal, via, self._free_vel(), "carry:spline")
+                if bad is None and len(pts) > len(route):
+                    bad = self._line(goal, pts[-1], self._free_vel(), "carry:down")
+            if bad == "unsupported":
+                bad = self._blend(goal, pts, radii, self._free_vel(), "carry")
             if bad:
                 return bad, None                            # 놓는 자리로는 grasp_mm_s 로 살포시 (10/06 저녁: 놓기는 빠르게 하지 않음)
             above = list(pts[-2] if len(pts) > len(route) else pts[-1])   # 칸 위(4번 높이) — 놓은 뒤 여기로
@@ -2786,14 +2854,24 @@ class SkillServer(Node):
         bad = self._to_drawer_view(goal, loc)
         if bad:
             return bad, dict(empty)
-        if not sf.check_reached(down, self.robot.posj(), self.reach_tol).success:
-            o = self._movej(goal, down, "place:down", in_drawer=True)
+        route = self._carry_route(loc)
+        one_turn = bool((prm.get("motion") or {}).get("one_turn")) and bool(route)
+        place_dir = mp.horizontal_angle_dir(long_deg + (0.0 if self.held.get("long_side") else 90.0))
+        now0 = self.robot.posx()
+        # motion.one_turn: 집은 뒤라 이미 경유점 자리(손목만 집은 각도)면 경유점 기본 방향으로 되돌렸다가 다시 돌리지 않고 놓는 각도로
+        # 한 번만 [사용자 10/14 "90° 기준으로 돌려 경유점 만든 뒤 목표 각도로 — 한 번에"]. 다른 데서 오면 경유점 관절 이동에 J6 를 넣어 한 번에
+        at_wp = one_turn and now0 is not None and math.dist(now0[:3], route[0][:3]) <= 2.0
+        if not at_wp and not sf.check_reached(down, self.robot.posj(), self.reach_tol).success:
+            jd = list(down) if back_tilt or not one_turn else \
+                self._down_with_turn(loc, down, [1000.0 * v for v in pos_m], place_dir)
+            o = self._movej(goal, jd, "place:down", in_drawer=True)
             if not o.success:
                 return o, dict(empty)
         cur = self.robot.posx()
         if cur is None:
             return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), dict(empty)
-        target = mp.gripper_posx([1000.0 * v for v in pos_m], mp.horizontal_angle_dir(long_deg + (0.0 if self.held.get("long_side") else 90.0)), cur[3:])
+        # 놓는 손목 방향은 경유점 기본 방향 기준으로 고름 (지금 손목 기준이면 ± 반 바퀴가 바뀌어 카메라가 벽 쪽으로 갈 수 있음)
+        target = mp.gripper_posx([1000.0 * v for v in pos_m], place_dir, list(route[0][3:6]) if one_turn else cur[3:])
         if back_tilt:
             # 집기 거꾸로: 경유점에서 J6 만 돌려 집을 때 수직 손목 방향 맞춤 → 집을 때 TCP(+ drop_m)·집을 때 기울인 손목 그대로
             # (손가락 ± 를 다시 고르면 J6 가 반 바퀴 달라 손목 카메라가 벽 쪽으로 갈 수 있음 — 기억한 각도를 그대로 씀)
@@ -2820,8 +2898,9 @@ class SkillServer(Node):
                 cur = self.robot.posx() or cur
                 target = list(target[:3]) + list(cur[3:])
         above = mp.with_z(target, target[2] + min(pl["approach_m"] * 1000.0, 30.0))
-        route = self._carry_route(loc)
         back = list(route[0]) if route else list(cur)          # 돌아갈 서랍 안 경유점 (= drag_down TCP)
+        if one_turn:                                           # 돌아갈 때 손목은 놓은 각도 그대로 — 다음 동작(탑뷰·경유점 관절 이동)이 한 번에 돌림
+            back = list(back[:3]) + list(cur[3:6])
         vel = self._in_vel()
         bad = self._over_then_down(goal, loc, cur, above, "place:over", turn_down=not back_tilt)   # 옆 이동은 travel_z 에서만, 내려가기는 수직 (넛지·집기와 같음)
         if bad:

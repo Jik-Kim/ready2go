@@ -398,3 +398,22 @@ def test_side_drag_presses_clear_of_handle_wall_body():
     ag = mp.plan_axis_grasp(target=tgt(0.0129, 0.0498, -1.5644), size_m=ERASER, interior_m=INTERIOR, g=g, drag=drag)
     assert ag.drag is not None and ag.drag.needed and ag.drag.axis == "y" and ag.drag.shift_y_m > 0
     assert ag.drag.press_xy_m[0] * 1000.0 == pytest.approx(16.0)
+
+
+def test_guided_via_follows_rounded_carry_path_not_taught_corners():
+    """carry.spline [movesx_carry_sim 10/13]: 교시 경유점(직각 모서리) 대신 moveb 둥근 경로 위 점 — 모든 점이 직선 구간 + 반지름
+    안쪽(꼭짓점에서 반지름보다 멀리 안 벗어남), 끝점은 그대로, 손목은 turn_after 모서리 뒤부터 놓는 각도."""
+    a0, a1 = [140.0, 180.0, 140.0], [24.0, 180.0, 24.0]
+    seq = [[383.5, -214.3, 275.1] + a0, [373.4, -219.4, 338.8] + a1, [366.6, 174.5, 334.9] + a1,
+           [365.1, 174.2, 100.4] + a1, [600.0, 224.2, 100.4] + a1]
+    radii = [28.0, 100.0, 100.0, 0.0]
+    via = mp.guided_via(seq, radii, 8, turn_after=2, start_angles=a0)
+    assert len(via) == 8 and via[-1] == pytest.approx(seq[-1])
+    for p in via:                                                        # 꺾인 선(교시점)에서 가장 가까운 거리 ≤ 그 모서리 반지름 근처
+        d = min(math.dist(p[:3], [s[i] + t * (e[i] - s[i]) for i in range(3)])
+                for s, e in zip(seq, seq[1:]) for t in [k / 200 for k in range(201)])
+        assert d <= 40.0
+    assert max(p[2] for p in via) <= max(s[2] for s in seq) + 1e-6      # 위로 부풀지 않음 (교시점 그대로 스플라인이면 약 +90 mm)
+    turned = [p[3:] == a1 for p in via]
+    assert turned[0] is False and all(turned[turned.index(True):])      # 2→3 끝(3번 모서리)부터 놓는 손목
+    assert all(p[3:] == a1 for p in mp.guided_via(seq, radii, 8))       # turn_after 0 = 처음부터 끝 각도

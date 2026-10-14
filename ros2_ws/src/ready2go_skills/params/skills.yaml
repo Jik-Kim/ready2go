@@ -94,7 +94,15 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
   push_slow_mm_s: 10.0          # 닫기 마지막 구간 (drawer_open_close.push_slow_last_mm) — 끝에서 세게 박지 않게
 carry:                            # 집은 뒤 → 트레이 직선 블렌딩 (poses.yaml carry_line) [사용자 10/06 저녁]
   radius_mm: 100.0              # 경유점 모서리 블렌딩 반지름 (마지막 놓는 자리는 0 = 정확히 정지). 20 → 50 [사용자 10/07 "덜컹"] → 100 [사용자 10/08]. 구간이 짧으면 앞뒤 구간 절반의 90% 까지 (motion_plan.safe_blend_radii)
-  pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤
+  pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤 (direct 면 안 멈춤)
+  direct: false                 # [10/14 P2 시연 뒤 사용자 "경유점 두 번" — 실물 저속 확인 뒤 켜기] true = 경유점 1 에서 0.5 s 멈춤·J6 따로 돌리기 없이
+                                #   1→2(64 mm)는 집은 손목 그대로, 긴 2→3(트레이 쪽 약 390 mm)에서 옮기며 놓는 각도로 돌림
+  spline: false                 # [강사님 피드백 10/13, practice/B/sim/movesx_carry_sim.py — 실물 저속 확인 뒤 켜기] true = 칸 위까지 movesx guided
+                                #   (moveb 둥근 경로 위 spline_via 점, 일정 속도) → 놓는 높이 + 10 mm 는 직선. 드라이버에 movesx 가 없거나 출발 안 하면 moveb 그대로
+  spline_via: 8                 # guided 경유점 수 (sim: 8 점이면 moveb 경로에서 최대 29 mm 안, 최소 곡률 반지름 20 → 54 mm)
+motion:                           # 서랍 안 손목 회전 [사용자 10/14 P2 시연 뒤 — 실물 저속 확인 뒤 켜기]
+  one_turn: false               # true = 집기·서랍 안 놓기·원복에서 경유점(drag_down) 기본 방향으로 손목을 돌렸다가 다시 목표 각도로 돌리지 않고
+                                #   한 번에 (경유점 관절 이동에 J6 포함 / 이미 경유점 자리면 J6 만 한 번), 놓은 뒤 경유점으로 돌아갈 때도 손목 그대로
 safe_state:                       # W1 /skills/check_state 지속 외력 판정 [실측 PC2 10/13 일지 32, scripts/force_log.py] — 로봇 명령 없음(읽기만)
   external_force_n: 5.0           # |F| 이 이보다 크면 외력. 정지 중 잡음 ≤ 1 N + 영점 치우침 약 1.8 N(쥔 채), 손으로 지그시 밀기 10~24 N [실측]
   external_force_hold_s: 0.5      # 이 시간 동안 계속 넘어야 true (W1 응답이 이만큼 늦어짐)
