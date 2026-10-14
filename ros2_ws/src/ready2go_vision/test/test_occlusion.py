@@ -162,6 +162,12 @@ def test_alone_rule_unknown_when_ring_cannot_be_checked():
     finally:
         occ._top = orig
     assert out["eraser#1"][0] is None
+    nan_ring = depth.copy()                                                     # 둘레 뎁스가 모두 결손(검은·반사 덮개) → 확인 불가 → null
+    import cv2
+    near = cv2.dilate(masks[0].astype(np.uint8), np.ones((61, 61), np.uint8)) > 0
+    nan_ring[near & ~masks[0]] = np.nan                                         # 마스크 둘레 30 px 만 결손 (나머지 바닥은 보임)
+    ok, _, js = inspect_scene(dets_of(objs, masks), nan_ring, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
 
 
 def test_yaw_near_90_degrees_stays_in_range():

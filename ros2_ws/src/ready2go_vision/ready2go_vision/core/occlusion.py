@@ -51,7 +51,8 @@ def drawer_xy_map(depth_m: np.ndarray, K: Intrinsics, T_drawer_cam: np.ndarray):
 
 
 def _ring_high(j, masks, grown, Z, XY, interior_m, top_j, p):
-    """j 마스크 둘레 띠(검출 마스크·서랍 안쪽 밖 제외)에서 j 윗면보다 ring_high_dz_m 이상 높은 픽셀 수. 검출 밖의 높은 물체 = 덮었을 수 있음."""
+    """j 마스크 둘레 띠(검출 마스크·서랍 안쪽 밖 제외) → (j 윗면보다 ring_high_dz_m 이상 높은 픽셀 수, 띠 픽셀 수, 띠 중 유효 뎁스 픽셀 수).
+    검출 밖의 높은 물체 = 덮었을 수 있음. 결손 픽셀은 높은지 모르므로 부르는 쪽이 유효 비율로 확인 불가를 가린다."""
     cv2 = _cv2()
     m = masks[j].astype(np.uint8)
     r_out, r_in = int(p["ring_outer_px"]), int(p["ring_inner_px"])
@@ -65,7 +66,7 @@ def _ring_high(j, masks, grown, Z, XY, interior_m, top_j, p):
         ring &= (X > mg) & (X < interior_m[0] - mg) & (Y > mg) & (Y < interior_m[1] - mg)
     z = Z[ring]
     z = z[np.isfinite(z)]
-    return int((z > top_j + float(p["ring_high_dz_m"])).sum()), int(ring.sum())
+    return int((z > top_j + float(p["ring_high_dz_m"])).sum()), int(ring.sum()), int(z.size)
 
 
 def visible_area_m2(mask: np.ndarray, depth_m: np.ndarray, K: Intrinsics, min_depth: float, max_depth: float):
@@ -130,7 +131,7 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
     kern = np.ones((2 * dil + 1, 2 * dil + 1), np.uint8)
     masks = [d.get("mask") for d in dets]
     Z = drawer_z_map(depth_m, K, T_drawer_cam, min_depth, max_depth) if any(m is not None for m in masks) else None
-    XY = drawer_xy_map(depth_m, K, T_drawer_cam) if (Z is not None and p.get("ring_check")) else None
+    XY = []                                                    # 서랍 x·y 지도는 둘레 확인을 할 때만 한 번 계산 (전체 화면이라 매 요청 계산은 ~9 ms)
     grown = [None if m is None else cv2.dilate(m.astype(np.uint8), kern) > 0 for m in masks]
     area = [None if m is None else visible_area_m2(m, depth_m, K, min_depth, max_depth) for m in masks]
     tops = [_top(Z, d.get("top_mask", m), p.get("top_percentile", 95)) for d, m in zip(dets, masks)]   # top_mask = 높은 이웃 근처를 뺀 마스크(있으면)
@@ -207,9 +208,13 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
                 ring_ok = False
                 relations is not None and relations.append({"under": ids[j], "judge": "모름: 둘레 확인 불가(윗면 높이 없음)"})
             else:                                              # 둘레 뎁스에 검출 밖 높은 물체가 있으면 [] 안 함 — 하한 0.70 에서 판 미검출의 유일한 방어
-                hi, n_ring = _ring_high(j, masks, grown, Z, XY, interior_m, tops[j], p)
-                ring_ok = n_ring > 0 and hi < int(p["ring_high_min_px"])   # 둘레 띠가 비면(벽 쪽뿐 등) 확인 불가 → null
-                relations is not None and relations.append({"under": ids[j], "ring_high_px": hi, "ring_px": n_ring, "judge": "둘레 뎁스 확인"})
+                if not XY:
+                    XY.append(drawer_xy_map(depth_m, K, T_drawer_cam))
+                hi, n_ring, n_valid = _ring_high(j, masks, grown, Z, XY[0], interior_m, tops[j], p)
+                checked = n_ring > 0 and n_valid >= float(p["ring_min_valid_ratio"]) * n_ring   # 띠가 비거나(벽 쪽뿐) 뎁스 결손이 많으면 확인 불가 → null
+                ring_ok = checked and hi < int(p["ring_high_min_px"])
+                relations is not None and relations.append({"under": ids[j], "ring_high_px": hi, "ring_px": n_ring, "ring_valid_px": n_valid,
+                                                            "judge": "둘레 뎁스 확인" if checked else "모름: 둘레 확인 불가(띠 없음·뎁스 결손)"})
         if (alone is not None and ring_ok and not covers and not unknown and less and not split and not touch   # 혼자 다 보인 지우개 0.78 이 null 이라 C 가 집지 않음, #196)
                 and ratio is not None and ratio >= alone):
             relations is not None and relations.append({"under": ids[j], "visible_ratio": round(ratio, 2),   # 많이 덜 보이면(검출 안 된 물체가
