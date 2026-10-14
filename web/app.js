@@ -769,7 +769,6 @@
       block.append(icon, text);
       container.append(block);
     });
-
   }
 
   function renderCommand() {

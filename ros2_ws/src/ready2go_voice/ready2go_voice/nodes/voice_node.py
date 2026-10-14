@@ -2194,7 +2194,8 @@ class VoiceNode(Node):
                     code = str(exc)
                     reason = code if code in ('NO_SPEECH','RECORD_LIMIT','AUDIO_OVERFLOW','입력 종료','녹음 중단','CUE_CANCELED','CAPTURE_CANCELED') else type(exc).__name__
                     self._diagnostic({'event': 'recording_held', 'reason': reason})
-                    if not isinstance(exc, InterruptedError):
+                    # 일시 overflow는 손상 녹음만 폐기. 사용자 재질문·clarify는 만들지 않음.
+                    if not isinstance(exc, InterruptedError) and code != 'AUDIO_OVERFLOW':
                         self._submit(('record_error', reason), generation=record_generation, request_id=request_id)
                     continue
                 self._submit(('safety_audio', (recording, record_work)) if record_work is not None else ('audio', recording),

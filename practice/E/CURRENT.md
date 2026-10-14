@@ -767,3 +767,9 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [구현] 저장소 시험 자료 `knowledge/examples/p3_semantics.ttl`과 E `core.semantic_query.load_ttl`·`query_class`·`query_list` 추가. 기존 활성 키·은퇴 목록을 대조하고 물품 키·source·상속/목록 근거 반환. 미등록·은퇴·누락 참조·순환·선언 충돌·상태 관계를 거절함. 초기 위치 없는 활성 물품도 제외하지 않음.
 - [실측: 직접 모의] RDFLib 7.6.0에서 새 의미 조회·기존 로더·pick Runner 회귀 71 passed(1.24초), Ubuntu 제공판과 같은 RDFLib 6.1.1의 격리 환경에서 새 조회 18 passed(0.43초). C 실제 query 함수를 사용해 위치 미상 UNKNOWN_ITEM, 변경된 Runner 상태 조회, list/class NOT_SUPPORTED 유지 확인. DDS·음성·실물 시험은 아님.
 - [미연결/담당] C/B/D 코드·기존 JSON-LD·초기 상태·스킬·운영 manifest 유지. 음성 발신·C 수신 어댑터·다중 실행·GUI·반복 재개는 미연결. 일부 성공 최종 상태 이름은 미확정. C에 공통 requirements/CI pip 목록의 RDFLib 반영 또는 두 줄 편집 동의를 요청했고 아직 수락 근거 없음. E package.xml/setup.py만 의존성 선언함. 공통 설치 선행 조건이 남아 전체 CI는 실행하지 않았으며 최종 통합 완료로 보지 않음.
+
+## 일반 녹음 overflow 재질문 억제 — 2026-10-14
+
+- [원인/수정] 일반 `_listen`이 AUDIO_OVERFLOW를 record_error 큐에 넣어 clarify/TTS를 만들던 분기 수정. 진단 recording_held는 유지하고 손상 녹음만 폐기해 다음 wake/녹음을 받음. NO_SPEECH·RECORD_LIMIT의 기존 오류 안내와 정지 입력 경로는 유지.
+- [실측: 직접 모의] 실제 `_listen` 예외→큐 경로의 반복 overflow/다음 정상 녹음·일반 오류·취소 4사례 포함 Voice UX/독립 정지 청취 2파일 160 passed(19.57초). 실제 장치/API/TTS·overflow 발생 빈도 개선은 미검증.
+- [범위] E 노드 조건 1곳·직접 회귀·이 기록만 변경. 기본 작업 폴더의 미커밋 문서/출력은 보존하고 별도 worktree/브랜치 codex/e-audio-overflow-silent-20261014에서 작업. P3 TTL·캐시 변경·C/B 계약·상태 정책은 포함하지 않음. 최종 전체 CI는 별도 검사 SHA 결과로 보고.
