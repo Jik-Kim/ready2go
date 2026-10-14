@@ -3595,3 +3595,72 @@ def test_force_mode_off_is_unchanged_and_release_is_safety_net(server):
     srv.robot.force_off = lambda ramp=0.2: False
     r = srv._force_release()
     assert r is not None and r.error_code == server.ss.sf.STATE_UNKNOWN and not srv._force_active
+
+
+# [PC2 10/14 통합 덤프] 위 칸 몽키·캐러멜·차키 쌓음(inspect_20261014_043203_153Z), 아래 칸 판이 지우개·립밤 덮음(…_042948_407Z)
+SCAN_1014_TOP_KEY = json.loads('{"target_found": true, "target": {"id": "car_key#1", "class": "car_key", "pose": {"frame": "drawer_top", "position": [0.08, 0.2221, 0.0], "yaw": -1.5122, "yaw_valid": true}, "top_z": 0.0518, "occluded_by": [], "visible_area_m2": 0.002457}, "candidates": [{"id": "caramel_box#1", "class": "caramel_box", "pose": {"frame": "drawer_top", "position": [0.0415, 0.2183, 0.0], "yaw": 1.5701, "yaw_valid": true}, "top_z": 0.0367, "occluded_by": ["car_key#1"], "visible_area_m2": 0.00149}, {"id": "toy_wrench#1", "class": "toy_wrench", "pose": {"frame": "drawer_top", "position": [0.1142, 0.2164, 0.0], "yaw": 0.1783, "yaw_valid": true}, "top_z": 0.0167, "occluded_by": ["car_key#1"], "visible_area_m2": 0.003417}], "visible_count": 3}')
+SCAN_1014_BOTTOM_PLATE = json.loads('{"target_found": true, "target": {"id": "eraser#1", "class": "eraser", "pose": {"frame": "drawer_bottom", "position": [0.107, 0.1402, 0.0], "yaw": 1.5667, "yaw_valid": true}, "top_z": 0.0133, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.000827}, "candidates": [{"id": "cover_plate#1", "class": "cover_plate", "pose": {"frame": "drawer_bottom", "position": [0.1032, 0.1967, 0.0], "yaw": -0.0378, "yaw_valid": true}, "top_z": 0.0351, "occluded_by": [], "visible_area_m2": 0.007296}, {"id": "lip_balm#1", "class": "lip_balm", "pose": {"frame": "drawer_bottom", "position": [0.0754, 0.1439, 0.0], "yaw": 0.0, "yaw_valid": false}, "top_z": 0.0204, "occluded_by": ["cover_plate#1"], "visible_area_m2": 0.000646}], "visible_count": 3}')
+
+
+def _with_pick(server, monkeypatch, **pick):
+    real = server.ss._yaml_cached
+
+    def cached(path, **kw):
+        d = real(path, **kw)
+        if path.name == "skills.yaml":
+            d = {**d, "pick": {**d["pick"], **pick}}
+        return d
+    monkeypatch.setattr(server.ss, "_yaml_cached", cached)
+
+
+@pytest.mark.parametrize("swap", [True, False])
+def test_pick_crosswise_swaps_to_short_side_before_nudge(server, monkeypatch, swap):
+    """[사용자 10/14 PC2 "① 잡기 편한 방식 ② 안 되면 가로세로 바꿔 잡기 ③ 그래도 안 되면 넛지나 sweep"] 가로 차키(쌓인 맨 위)는
+    긴 변 양끝이면 옆벽 2.1 mm 부족 → 예전엔 넛지(쌓인 차키 누르기 실패), 짧은 변(90° 돌림)이면 바로 잡힘. 판단만 — 로봇 명령 0."""
+    _with_pick(server, monkeypatch, axis_swap=swap)
+    srv = server.srv
+    srv.disp["drawer_top"] = srv.places()["drawer_top"]["tf_at_travel_m"]
+    scan = json.loads(json.dumps(SCAN_1014_TOP_KEY))
+    out, _ = server.run("place_object", {"location": "drawer_top", "slot": "free", "scan": scan, "object": scan["target"], "check_only": True})
+    if swap:
+        assert out.success, out.reason
+    else:
+        assert out.error_code == "WALL_TOO_CLOSE" and "2.1 mm" in out.reason, out.reason
+    assert srv.robot.log == [] and srv.held is None
+
+
+@pytest.mark.parametrize("repickable_only", [True, False])
+def test_free_plate_place_only_then_nudge_on_restore(server, monkeypatch, repickable_only):
+    """[PC2 10/14 아래 칸] 판이 지우개·립밤을 덮은 장면: 지우개 손가락 자리를 비우면서 다시 집히는 빈 자리는 없음(옆벽 여유 5.6~25 mm
+    부족). 기본(place.free_repickable_only true, #337) = 움직이기 전 NO_FREE_SPACE(집지 않음). false = 놓기만 되는 자리 (60, 232) 에
+    놓고, 원복 때 집기 WALL_TOO_CLOSE → 넛지(옆벽 반대 y −) 계획 — 부르는 쪽(Runner)에 원복 넛지가 있어야 함(#345 리뷰)."""
+    real = server.ss._yaml_cached
+
+    def cached(path, **kw):
+        dd = real(path, **kw)
+        if path.name == "skills.yaml":
+            dd = {**dd, "place": {**dd["place"], "free_repickable_only": repickable_only}}
+        return dd
+    monkeypatch.setattr(server.ss, "_yaml_cached", cached)
+    srv = server.srv
+    d = "drawer_bottom"
+    srv.disp[d] = srv.places()[d]["tf_at_travel_m"]
+    scan = json.loads(json.dumps(SCAN_1014_BOTTOM_PLATE))
+    plate, lip = scan["candidates"]
+    out, data = server.run("place_object", {"location": d, "slot": "free", "scan": scan, "object": plate, "check_only": True})
+    if repickable_only:
+        assert out.error_code == "NO_FREE_SPACE", out.reason
+        assert srv.robot.log == [] and srv.held is None
+        return
+    assert out.success, out.reason
+    pose = data["planned_pose"]
+    assert pose["position"][:2] == pytest.approx([0.06, 0.232], abs=0.006)
+    # 원복: 지우개는 트레이로 갔고, 판은 놓은 자리, 립밤은 판 밑에서 드러나 각도를 앎
+    moved = dict(plate, occluded_by=[], pose=dict(pose, yaw_valid=True))
+    lip = dict(lip, occluded_by=[], pose=dict(lip["pose"], yaw=0.0, yaw_valid=True))
+    back = {"target_found": True, "target": moved, "candidates": [lip], "visible_count": 2}
+    out, _ = server.run("place_object", {"location": d, "pose": plate["pose"], "scan": back, "object": moved, "check_only": True})
+    assert out.error_code == "WALL_TOO_CLOSE", out.reason                 # 놓기만 되는 자리 — 바로는 못 집음
+    out, nd = server.run("nudge_object", {"drawer_id": d, "target": moved, "scan": back, "check_only": True})
+    assert out.error_code == "PUSH_LIMIT" and nd["needed"] and "y -" in out.reason, out.reason   # 끌면 집힘 (움직이지 않음)
+    assert srv.robot.log == [] and srv.held is None
