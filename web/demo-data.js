@@ -14,10 +14,10 @@
         label: "음성",
         status: "waiting",
         statusLabel: "확인 전",
-        description: "웨이크워드·마이크 상태 제공 경로 미확정",
+        description: "/voice/intent publisher 확인 전",
       },
-      { id: "robot", label: "로봇", status: "waiting", statusLabel: "확인 전", description: "연결 판단에 사용할 드라이버 토픽 미확정" },
-      { id: "camera", label: "카메라", status: "waiting", statusLabel: "확인 전", description: "향후 /wrist_cam/color/camera_info 수신 여부로 판정 예정" },
+      { id: "robot", label: "로봇", status: "waiting", statusLabel: "확인 전", description: "/dsr01/joint_states 수신 전" },
+      { id: "camera", label: "카메라", status: "waiting", statusLabel: "확인 전", description: "/wrist_cam/color/camera_info 수신 전" },
       { id: "runner", label: "Runner", status: "pending", statusLabel: "상태 수신 대기", description: "향후 /runner/status로 연결 예정" },
     ],
     command: {

@@ -25,7 +25,7 @@
 
 | 구분 | 설치 대상·범위 |
 |---|---|
-| 공통 Python | PyYAML·jsonschema·numpy, Runner pymongo, Skills pymodbus, Vision/tools OpenCV·SciPy, Voice OpenAI/LangChain·sounddevice·dotenv, 웨이크의 비-TFLite 의존성 |
+| 공통 Python | PyYAML·jsonschema·numpy, Runner pymongo, Skills pymodbus, Vision/tools OpenCV·SciPy, 웹 Flask, Voice OpenAI/LangChain·sounddevice·dotenv, 웨이크의 비-TFLite 의존성 |
 | 테스트/빌드 | pytest·setuptools는 requirements, colcon/rosdep는 ROS 개발 도구 |
 | ROS | rclpy·launch/launch_ros·ament_index_python·std_msgs/std_srvs·sensor_msgs·tf2·cv_bridge·메시지 생성. apt/rosdep 및 프로젝트 colcon 빌드로 준비; pip 설치 대상 아님 |
 | 시스템/서비스 | PortAudio·libsndfile·FFmpeg·오디오 서버/장치 권한·Tk, Git/LFS. espeak 선택 시 espeak-ng. Docker/Compose·MongoDB 서버·NVIDIA 드라이버는 별도 준비 |

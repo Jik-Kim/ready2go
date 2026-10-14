@@ -16,6 +16,7 @@
 | `dsr-emulator` | `doosanrobot/dsr_emulator:3.0.1` | `sim`, `dev` | M0609 가상 제어기 |
 | `mock-sim` | `ros:jazzy` + Python | `dev` | 가짜 조인트·서랍·카메라 토픽 (예정). 로봇 원자 동작 mock 은 우리 작업공간이 필요해 `ros2-core` 안의 `mock_backend`가 맡음(`BACKEND=mock`, #10) |
 
+* **웹 대시보드는 아직 공통 Compose 서비스가 아님**: 이슈 #267 1~5단계 구현은 PC2 호스트에서 `source ros2_ws/install/setup.bash` 뒤 Flask+rclpy 프로세스로 실행한다. 상태는 같은 ROS graph의 `/runner/status`·`/robot_state`, 등록 정의는 `RUNNER_ONTOLOGY_FILE`과 `WEB_TASKS_DIR`의 read-only 원본을 서버 시작 때 한 번 읽는다. Compose 추가·`network_mode: host`·마운트·포트 확정은 별도 운영 합의 전이며 현재 실행법은 [web README](../web/README.md#6-실행과-접속)를 따른다.
 * **Isaac Sim은 컨테이너에 넣지 않음**: 과목 필수 요소가 아닌 팀 선택 도구로, 실물 로봇·카메라처럼 외부 환경으로 취급함. PC1의 네이티브 설치본(`~/isaac-sim-5.1.0`)을 `sim/isaac_env.sh`로 환경을 맞춘 뒤 실행함. **시스템 ROS를 source하지 않고** Isaac Sim 번들의 내부 ROS 라이브러리 + CycloneDDS(Domain 70)를 씀 [실측 10/03]: Kit의 Python은 3.11이고 시스템 Jazzy `rclpy`는 3.12용이라 시스템 ROS를 source하면 `rclpy`를 불러오지 못함. **팀 로직은 Isaac Sim 안에 두지 않고**(씬 로드·ROS 2 Bridge·조인트 미러링만), 전부 컨테이너의 ROS 노드에 둠.
 * 기존 `ros:jazzy-ros-base-noble` 기반 `yolo-detection` 컨테이너를 `vision`의 시작점으로 재사용함.
 * ROS 2 배포판은 **Jazzy(Ubuntu 24.04)로 확정**.

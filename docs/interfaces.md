@@ -9,7 +9,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 인터페이스 | 이름 | 타입 | 제공 → 사용 |
 | :--- | :--- | :--- | :--- |
 | 인텐트 | `/voice/intent` | topic `std_msgs/String` (JSON) | voice → ros2-core |
-| 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | **P1 구현:** Runner가 응답 기준 현재 상태를 발행하며 Runner 통합 테스트가 구독. 시연 화면·트윈·voice의 직접 구독은 후속 연결이고, 관측으로 검증된 상태라는 뜻이 아님 |
+| 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | **P1 구현:** 현재 필드는 `robot_pose`·`gripper`·`open`·`located_in`이며 좌표와 관측 시각은 없음. Runner가 스킬 effect 뒤 기억한 상태로, 관측으로 검증된 현재 상태라는 뜻이 아님. 시연 화면·트윈·voice의 직접 구독은 후속 연결 |
 | 생성된 계획 | `/planner/plan` | topic `std_msgs/String` (7.2 형식 JSON) | **토픽 발행·시연 화면 소비 미구현.** P2 플래너 핵심과 `achieve_goal` → Runner 실행 연결은 구현됐으며, 계획은 현재 실행 기록 헤더 `plan`과 콘솔에 남음 |
 | 텍스트 디버그 입력 | `/voice/text_override` | topic `std_msgs/String` | 테스트 → voice |
 | TTS 요청 (`speak` 원자 동작) | `/voice/speak` | action `Skill` | ros2-core → voice |
@@ -20,7 +20,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 그리퍼 명령 (sim 전용) | `/gripper/command` | JSON 문자열 | **P2 트윈 계획, 미구현:** sim 백엔드 → Isaac Sim |
 | 서랍 상태 | `/drawers/state` | JSON 문자열 (`drawer_id`, `displacement`) | **P2 트윈·관측 계획, 미구현:** 백엔드 → Runner·트윈. P1은 `drawer_control` 액션 응답의 `drawer_displacement`를 사용 |
 | 카메라 | `/wrist_cam/color/image_raw`, `/wrist_cam/color/camera_info`, `/wrist_cam/aligned_depth_to_color/image_raw` (컬러에 정렬된 뎁스, 내부 파라미터는 컬러와 동일) | `sensor_msgs` | realsense / Isaac Sim → vision (결정 #24) |
-| Runner 상태 · 비상정지 · 상태 초기화 | `/runner/status`, `/runner/estop`, `/runner/reset_state` | `std_msgs/String`, `std_srvs/Trigger`, `std_srvs/Trigger` | **P1 Runner 구현.** 테스트·사람의 ROS 호출 외에 Voice가 `/runner/status`를 읽어 실행 결과 안내에 사용함(PR #144). 시연 화면 #59 연결은 후속이며, Voice는 정지·초기화 서비스를 호출하지 않음. **계약(E 대화 승인 10/13, 사용자 전달 — #259)**: `/runner/status` `halt` — 정지 요청과 실제 정지 확인(`stop`: `requested`·`confirmed`·`unconfirmed`·`none`) 구분, [runner.md](runner.md)·[예시](../contracts/examples/runner_status.json), #152·#187. **계약안 W3·W4 (#152, E 포함 2명 승인 전)**: `/voice/intent` 제어 인텐트 `recover`·`resume_register`·`resume_answer`·`resume`·`end_task`([intent 스키마](../contracts/intent.schema.json)·예시 `intent_*.json`), `/runner/status` `boot_id`·`seq`·`stamp`·`halt.resume` — [runner.md 제어 인텐트](runner.md) |
+| Runner 상태 · 비상정지 · 상태 초기화 | `/runner/status`, `/runner/estop`, `/runner/reset_state` | `std_msgs/String`, `std_srvs/Trigger`, `std_srvs/Trigger` | **P1 Runner 구현.** `/runner/status`는 내용 변경 때만 발행하며 현재 `phase`·`task_id`·`current_step`·`halt_code`·`halt`·`last`·`last_intent`·`log_store`·`state_reset_at`·`boot_id`를 제공하고, 실제 발행마다 `seq`·`stamp`를 붙임. 테스트·사람의 ROS 호출 외에 Voice가 실행 결과 안내에 사용하며(PR #144), Voice는 정지·초기화 서비스를 호출하지 않음. **계약(E 대화 승인 10/13, 사용자 전달 — #259)**: `/runner/status` `halt.stop`은 정지 요청과 실제 정지 확인(`requested`·`confirmed`·`unconfirmed`·`none`)을 구분, [runner.md](runner.md)·[예시](../contracts/examples/runner_status.json), #152·#187. **P2 W3·W4 구현(#271·#286)**: `/voice/intent` 제어 인텐트 `recover`·`resume_register`·`resume_answer`·`resume`·`end_task`([intent 스키마](../contracts/intent.schema.json)·예시 `intent_*.json`)와 재개 대기 때의 `/runner/status` `halt.resume` — [runner.md 제어 인텐트](runner.md) |
 | B 안전 상태 조회 · B 복구 (계약안 W1·W2, #297 B 제안 · #152) | `/skills/check_state`, `/skills/recover` | service `std_srvs/Trigger` (요청 비어 있음, 응답 `success` + `message` JSON) | **제안, E 포함 2명 승인 전 · 실물 미확인.** B 스킬 서버 → Runner. 둘 다 로봇·그리퍼 명령 없음. W1 `success` = 값을 다 읽음(값이 좋은지와 무관), `message` = `stopped`·`estop_active`·`controller_ready`·`tcp_tool_ok`·`comm_ok`·`sensors_ok`·`gripper {state, held_id, …}`·`drawers`(B 서버가 기억한 서랍별 인출 거리 m)·`b_locked`·`external_force`·`stamp` 등, 모르는 값 `null`. W2 `success` = `recovered`, `message` = `{recovered, code, cleared, blockers, state}`. Runner 사용: `recover` 때 W1 조회 → `core/recovery.py` fail-closed 판정(`recover_check: b`, 기준 `params/recovery.yaml`), W2 는 `recover_call_b: true` 일 때 먼저(호출 주체 E·B 결정 대기) — [runner.md 제어 인텐트](runner.md) |
 | TF 프레임 | `world`, `base_link`, `link_6`, `wrist_cam_link`, `wrist_cam_color_optical_frame`, `drawer_<id>`, `staging_tray`, `handover_zone` | TF2 | ros2-core: `ready2go_bringup` launch가 `config/calibration/`·`config/places.yaml`을 읽어 static TF 발행 (결정 #23). 로봇 TF는 DSR 드라이버. **`wrist_cam_link`**: 캘리브레이션 결과를 거는 프레임(`link_6 → wrist_cam_link`, bringup 발행). **`wrist_cam_color_optical_frame`**: 컬러·정렬 뎁스 이미지의 `frame_id`, `wrist_cam_link` 아래 트리는 realsense 드라이버가 `/tf_static`으로 발행(끄지 않음). Isaac Sim 트윈 카메라도 같은 `frame_id`를 사용. 강의 URDF(`m0609_rg2_bringup`)에 CAD 기반 `camera_*` 프레임이 따로 있어 TF에 카메라가 두 개 생길 수 있으나, **비전은 `wrist_cam_color_optical_frame`만 사용**(CAD 위치는 캘리브레이션과 x·y 약 1.8 cm 차이, 5점 검증에서 캘리브레이션이 맞음 [실측 B 10/03]). `base_link`·`link_6` 접두어 없음 [실측 B 10/02], `tool0`은 `link_6`과 원점이 같고 축만 회전하므로 사용하지 않음 |
 
@@ -33,6 +33,24 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | `update_ontology` 원자 동작 | **P1 미지원(`NOT_SUPPORTED`).** P1 상태 변경은 성공 응답 뒤 스킬 `effect` 적용으로만 수행 | Runner 후속 범위 (7.1 ②) |
 | 로그 저장 | **P1 구현:** Python `pymongo`로 MongoDB(`cobot2` DB: `runs`·`steps`)에 `LogStore` 경유 저장, 연결 실패 시 `logs/*.jsonl` 폴백. **P2 계획(FR-LOG-02):** `states` 컬렉션·사후 관측 상세 로그 | Runner (7.4). 별도 Logger 프로세스는 없음 |
 | STT · LLM | HTTPS로 OpenAI API 호출 (`secrets/voice.env`의 키 사용) | `voice` 컨테이너 (6장) |
+| 웹 상태 조회 | `GET /api/status`, 같은 origin의 JSON·`Cache-Control: no-store` | **이슈 #267 구현:** Flask 웹 브리지 → PC·휴대폰 브라우저. 약 1초 polling이며 ROS 발행 주기나 실시간 보장이 아님. `sources.runner`·`sources.robot_state`·`sources.robot`·`sources.camera`·`sources.voice`를 활성화하고 REST 오류 뒤 이전 값을 정상으로 표시하지 않음. 상세 실행·시험은 [web README](../web/README.md#3단계-rest-형식)를 참조 |
+| 웹 등록 정의 조회 | `GET /api/definitions`, 같은 origin의 JSON·`Cache-Control: no-store` | **이슈 #267 5단계 구현:** Flask → PC·휴대폰 브라우저. 서버 시작 때 공통 `ontology.load`와 `tasks/*.json`을 한 번 읽은 `web_file_snapshot`이며 Runner 내부 snapshot·hot reload·현재 상태가 아님. 원본 경로·웹 로딩 시각·manifest SHA와 등록 물품·장소·목록·스킬·태스크 요약을 제공. 상세 형식은 [web README](../web/README.md#5단계-등록-정의-rest-형식)를 참조 |
+
+<a id="web-status-rest"></a>
+#### 웹 상태 REST — 이슈 #267 3단계
+
+성공 응답은 `schema_version=1`, UTC `served_at`, 권장 `poll_interval_ms=1000`, `status=ok`, `runtime_profile`, `robot_topic`, `sources`를 포함한다. `sources.<name>`은 publisher 존재, 메시지 수신·유효 여부, 마지막 전체·정상 수신 시각, 나이, freshness·stale, 연결 요약, 메시지/브리지 오류와 마지막 정상 `data`를 구분한다. 현재 실행 source는 `runner`·`robot_state`·`robot`·`camera`·`voice`다. `robot`은 기본 `/dsr01/joint_states`의 수신 진단이며 2초 기본 timeout을 환경 설정으로 관리하고, `robot_topic`은 실행 시 실제 선택한 토픽을 나타낸다. `camera`는 `/wrist_cam/color/camera_info`의 최근 2초 수신 여부이며 sim/dev 최초 미수신은 `확인 전(시뮬레이션)`, 과거 수신 뒤 단절은 `수신 끊김`으로 구분한다. `voice`는 `/voice/intent` publisher 존재 여부를 나타낸다. 로봇 표시는 모션 가능·E-stop 해제·그리퍼·스킬 서버 준비를, Voice 표시는 마이크·STT 처리 성공을 뜻하지 않는다. UI는 `/robot_state`의 네 map 필드가 없거나 형식이 다르면 목업을 사용하지 않고 `확인 전`으로 표시한다.
+
+`/runner/status`와 `/robot_state`는 0.5초 비교 뒤 내용이 바뀔 때만 발행하고 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`을 사용한다. 따라서 웹 연결 판정은 메시지 나이에 대한 freshness timeout을 두지 않고 publisher 존재와 마지막 보존 메시지를 사용한다. 현재 최상위 실행 `run_id`가 없어 실행 중 상태와 `last_intent`를 항상 확정적으로 연결할 수 없으며, 불명확한 경우 화면은 `확인 전`으로 표시한다. Runner가 제공하는 `boot_id`·`seq`·`stamp`·`halt.resume`은 REST 원본 `sources.runner.data`에 그대로 포함되며, 웹은 `boot_id`를 GID 보조 기동 경계로 사용하지만 `seq`·`stamp`·`halt.resume`은 아직 화면 의미로 변환하지 않는다. `current_skill`은 Runner가 제공하지 않는 미구현 제안이므로 현재 REST 계약과 화면에 추가하지 않는다.
+
+캐시가 없으면 HTTP 503 `STATE_CACHE_UNAVAILABLE`, 스냅샷 생성에 실패하면 HTTP 500 `STATE_SNAPSHOT_FAILED`를 반환한다. 두 오류 모두 `status=error`와 안정된 `error.code`·`error.message`를 사용하며 내부 예외 상세는 응답에 넣지 않는다. 브라우저는 HTTP 오류·JSON 형식 오류·지원하지 않는 버전을 REST 연결 오류로 표시하고, 이전 성공 응답을 현재 정상 상태로 계속 사용하지 않는다.
+
+<a id="web-definitions-rest"></a>
+#### 웹 등록 정의 REST — 이슈 #267 5단계
+
+`GET /api/definitions`는 상태 polling과 분리해 브라우저 시작 때 한 번 조회한다. 응답의 `snapshot.schema_version=1`, `snapshot_kind=web_file_snapshot`, `loaded_at`, `runner_hot_reload_applied=false`, `sources`, `counts`, `definitions`가 웹이 읽은 원본과 시점을 구분한다. `definitions`에는 classes·items·places·lists·skills·tasks 요약만 포함하며 Runner 현재 `state`는 `/robot_state`와 혼동하지 않도록 제외한다.
+
+서버는 `RUNNER_ONTOLOGY_FILE`(기본 `/knowledge/robot_ontology.jsonld`)과 `WEB_TASKS_DIR`(Runner `tasks_dir` 기본값과 같은 `/tasks`)를 시작 때 읽는다. 온톨로지는 `ready2go_knowledge.core.ontology.load()`를 재사용하며 태스크는 바로 아래 `*.json`의 고유하고 비어 있지 않은 `task_id`를 검사한다. 파일 변경은 실행 중인 Runner나 웹에 자동 반영되지 않는다. 정의 로딩 실패는 HTTP 503 `DEFINITIONS_UNAVAILABLE`로 해당 API에만 표시하고 `/api/status`와 정적 UI는 계속 제공한다.
 
 ### 5.1 물품 식별자·좌표·조회 결과의 공유 규칙
 

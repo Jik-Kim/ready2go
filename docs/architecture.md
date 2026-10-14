@@ -20,7 +20,15 @@
                │ /dsr01/joint_states (real·sim 공통)
                ▼
    Isaac Sim 디지털 트윈 (PC1, 네이티브): 사전 검증 모드 / 실물 미러링 모드
+
+[/runner/status · /robot_state · /dsr01/joint_states · /wrist_cam/color/camera_info · /voice/intent]
+                                      → 단일 rclpy 웹 브리지 → 잠금 캐시 → Flask 상태 REST
+[knowledge manifest · tasks/] → 공통 ontology.load · 시작 시 파일 스냅샷 → Flask 정의 REST
+                                                                    ↓
+                                                        PC·모바일 읽기 전용 UI
 ```
+
+[코드: 이슈 #267 1~5단계] 웹은 ROS 상태와 등록 정의를 서로 다른 원본·시점으로 취급한다. `/api/status`는 약 1초마다 최신 캐시를 조회하고, `/api/definitions`는 Flask 시작 때 읽은 `web_file_snapshot`을 페이지 시작 시 한 번 조회한다. 웹의 파일 스냅샷은 Runner 내부 상태 변경이나 hot reload를 뜻하지 않으며 상세 실행·오류 형식은 [web README](../web/README.md)를 참조한다.
 
 ### 3.1 백엔드별 구성
 
@@ -47,3 +55,4 @@
 | **Database** | MongoDB 7.0 (컨테이너, 이슈 #34) + pymongo, JSONL 폴백, rosbag2(MCAP) | 실행 로그·스텝 기록·상태 스냅샷 저장·조회, 원시 토픽 녹화 |
 | **Speech · LLM (필수)** | openWakeWord, OpenAI Whisper API / faster-whisper, LangChain + GPT(강의 방식), Piper·espeak-ng | 웨이크워드, STT, LLM 인텐트 파싱, TTS |
 | **Digital Twin (팀 선택)** | NVIDIA Isaac Sim 5.1.0 (네이티브), Lula IK·RMPflow(폴백) | 실물 미러링, JSON 사전 검증 |
+| **Read-only Web** | Flask, rclpy, HTML/CSS/JavaScript | Runner 상태 polling, 등록 정의 파일 스냅샷, PC·모바일 읽기 전용 표시 |
