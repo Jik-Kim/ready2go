@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from .runner_speech import task_steps, final_failure_text, failure_texts
+from .runner_speech import task_steps, failure_texts
 
 STATUS_PROMPTS = {
     'estop': '비상정지가 보고됐어요. 로봇의 실제 정지와 상태를 확인해 주세요.',
@@ -147,9 +147,10 @@ class RunnerNoticePolicy:
                                                    aborted=outcome == 'ABORTED',
                                                    vision_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.vision_steps.get(last.get('task_id'), set()),
                                                    speech_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.speech_steps.get(last.get('task_id'), set()))
-                    expected = final_failure_text(self.task_steps, last)
-                    if not (warning[1] == 3 and expected is not None
-                            and cause == (run_id, last.get('task_id'), expected)):
+                    if not (outcome == 'FAILED' and warning[1] == 3
+                            and isinstance(cause, tuple) and len(cause) == 3
+                            and cause[:2] == (run_id, last.get('task_id'))
+                            and cause[2] in self.failure_texts):
                         candidates.append(warning)
         self.phase, self.previous_halt = phase, halt
         self.blocked = bool(halt)

@@ -16,10 +16,10 @@ from test_runtime_322 import memory_node
 from conftest import ROOT, PACKAGE
 
 
-def packet(node, *, phase='idle',seq=1,boot='boot',halt=None,last=None,decision=None,step='s7.1'):
+def packet(node, *, phase='idle',seq=1,boot='boot',halt=None,last=None,decision=None,step='s7.1',task='find_with_unpack'):
     result=build_status(phase=='running',phase=='halted','HALTED' if phase=='halted' else None,
-        'find_with_unpack' if phase=='running' else None,step if phase=='running' else None,
-        last,'find_with_unpack' if last else None,False,halt=halt)
+        task if phase=='running' else None,step if phase=='running' else None,
+        last,task if last else None,False,halt=halt)
     result.update(boot_id=boot,seq=seq,last_intent=decision)
     node._runner_status_with_info(SimpleNamespace(data=json.dumps(result)),
         dict(source_timestamp=seq+10,received_timestamp=seq+11,publication_sequence_number=seq,reception_sequence_number=seq))
@@ -460,13 +460,19 @@ def test_351_safety_audio_reuses_stt_for_readonly_receiver_and_preserves_work_qu
     assert not sent and not node.published
 
 
-def speech_run(node):
+def speech_run(node, *, task='find_with_unpack', goal=False):
     endpoints, _, _, _ = memory_node(node)
     node.cfg['request_run_enabled'] = True
     packet(node)
-    node.deliver(node.session.text('지우개 가져다줘',node.generation, request_id='speech-request'))
-    decision = dict(intent='find_item',targets=['eraser'],request_id='speech-request',decision='run',run_id='speech-run')
-    packet(node,phase='running',seq=2,decision=decision)
+    if goal:
+        node.cfg['p2_goal_enabled'] = True
+        node.declare_parameter = lambda name, default: SimpleNamespace(value=True if name == 'upper_drawer_enabled' else default)
+        node._configure_upper_drawer()
+        node.parser.llm = lambda *_: dict(intent='achieve_goal', targets=[], confidence=.99,
+            goals=[{'predicate':'open', 'subject':'drawer_top', 'value':True}])
+    node.deliver(node.session.text('위 서랍 열어줘' if goal else '지우개 가져다줘',node.generation, request_id='speech-request'))
+    decision = dict(intent='achieve_goal' if goal else 'find_item',targets=[] if goal else ['eraser'],request_id='speech-request',decision='run',run_id='speech-run')
+    packet(node,phase='running',seq=2,decision=decision,task=task)
     assert node.request_run.run_id == 'speech-run'
     def actual_proof(text, **kwargs):
         node.texts.append(text)
@@ -574,28 +580,31 @@ def test_351_busy_preserves_current_speech_but_new_run_does_not(node):
     assert node._goal(SimpleNamespace(params_json=json.dumps({'text':'서랍을 닫을게요'}))) == 0
 
 
-@pytest.mark.parametrize('case', ['success', 'playback_failure', 'other_run', 'unrelated_speech', 'different_error', 'safety'])
+@pytest.mark.parametrize('case', ['success', 'expanded', 'dynamic_goal', 'playback_failure', 'unconfirmed_playback', 'other_run', 'unrelated_speech', 'safety'])
 def test_351_final_notice_suppression_requires_same_run_cause_playback(node, case):
     from ready2go_runner.core import failure_speech
     node.notice_policy = RunnerNoticePolicy(node.cfg)
-    _, decision = speech_run(node); first_speech(node)
-    packet(node, phase='running', seq=3, decision=decision, step='fx.1')
+    task = 'achieve_goal_generated_plan' if case == 'dynamic_goal' else 'find_with_unpack'
+    _, decision = speech_run(node, task=task, goal=case == 'dynamic_goal'); first_speech(node)
+    packet(node, phase='running', seq=3, decision=decision, step='f1' if case in ('expanded', 'dynamic_goal') else 'fx.1', task=task)
     text = failure_speech.text('CAMERA_TIMEOUT', 'inspect_region')
     if case == 'playback_failure':
         def failed(text, **kwargs): raise RuntimeError('playback failed')
         node.tts.speak = failed
+    elif case == 'unconfirmed_playback':
+        node.tts.speak = lambda text, **kwargs: {'tts_mock':True}
     result, _ = receive_speech(node, '서랍을 닫았어요' if case == 'unrelated_speech' else text)
-    assert result.success == (case != 'playback_failure')
+    assert result.success == (case not in ('playback_failure', 'unconfirmed_playback'))
     if case == 'other_run':
         packet(node, phase='running', seq=4, decision=dict(decision, request_id='other', run_id='new-run'))
     # Actual C status construction and actual E status receiver, no physical playback.
-    last = RunResult('FAILED', {}, error_code='DEPTH_INVALID' if case == 'different_error' else 'CAMERA_TIMEOUT', failed_step='s4',
+    last = RunResult('FAILED', {}, error_code='CAMERA_TIMEOUT', failed_step='expanded_skill.s4' if case in ('expanded', 'dynamic_goal') else 's4',
                      run_id='new-run' if case == 'other_run' else 'speech-run')
-    packet(node, phase='halted' if case == 'safety' else 'idle', seq=5, last=last, decision=decision)
-    if case == 'success': assert node.pending_notice is None
+    packet(node, phase='halted' if case == 'safety' else 'idle', seq=5, last=last, decision=decision, task=task)
+    if case in ('success', 'expanded', 'dynamic_goal'): assert node.pending_notice is None
     else:
         assert node.pending_notice is not None
-        assert node.pending_notice.priority < 3 if case == 'safety' else node.pending_notice.kind == ('coordinates' if case == 'different_error' else 'camera')
+        assert node.pending_notice.priority < 3 if case == 'safety' else node.pending_notice.kind == 'camera'
 
 
 def test_351_c_failure_factory_and_no_room_are_required_prefill(cfg, ontology, tmp_path):

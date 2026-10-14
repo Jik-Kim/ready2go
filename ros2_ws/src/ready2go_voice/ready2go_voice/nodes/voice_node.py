@@ -2265,8 +2265,6 @@ class VoiceNode(Node):
                 self.goal_first_speech = first
                 status = self._current_runner_status()
                 if (not first and status is not None
-                        and status.get('current_step') == 'fx.1'
-                        and self.notice_policy.task_steps.get(status['task_id'], {}).get('fx.1', {}).get('params', {}).get('text') == '$run_failure.text'
                         and params['text'] in self.notice_policy.failure_texts):
                     self.goal_cause_speech = (token, status['task_id'], params['text'])
                 if first:
@@ -2338,8 +2336,8 @@ class VoiceNode(Node):
                     if status is not None and self._current_speech_run() == token:
                         self.request_speech_current = (token, status['task_id'])
                 evidence = getattr(self, 'goal_cause_speech', None)
-                if evidence is not None:
-                    self.cause_speech = evidence  # Same-run fx.1 + verified playback only.
+                if evidence is not None and self._current_speech_run() == evidence[0]:
+                    self.cause_speech = evidence  # Same verified run + actual cause playback only.
             result.success = True
             result.output_json = json.dumps(stamp)
             goal.succeed()

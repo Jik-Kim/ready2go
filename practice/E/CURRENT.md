@@ -1,5 +1,13 @@
 # CURRENT — E 고희태
 
+## voice-351-cause-completion-20261014
+
+- [승인/범위] 기존 사용자 최신 코멘트 수정 승인과 조율 세션의 동일 중복 억제 보완 지시를 적용했습니다. dc115a0 기준 깨끗한 동일 작업 브랜치에서 E 원인 증거 수신/정책 두 곳과 직접 회귀·필요 E 문서만 수정했습니다. C 코드/계약·캐시·startup/prepare 설정은 변경하지 않았습니다.
+- [구현/연결] `_goal`은 현재 검증 run token의 후속 speak가 C factory 화이트리스트 원인 문장인 경우 후보를 기록하고 `_speak`가 실제 DAC 시작/완료와 동일 현재 run 유지를 확인한 뒤 성공 근거를 보존합니다. status.current_step=fx.1과 정적 태스크 존재 조건을 제거했습니다. 최종 같은 run/token/task의 FAILED·priority3만 원인 안내 성공 근거로 중복 억제하며 expanded failed_step을 다시 조회하지 않습니다. 동적 achieve_goal 태스크도 같은 경로를 사용합니다. 완료/닫기 문장은 화이트리스트가 아니며 실패/미확인·다른 run·중단/높은 안전 경고는 유지합니다. 위 범위는 이전 절의 fx.1/실패 단계별 재계산 방식 설명을 대체합니다.
+- [실측: 이번 직접 부분검사] `test_voice_five.py -k 'test_351_final_notice or test_351_first_speech_failure or test_351_busy'`: **10 passed/60 deselected**, 2.52초. expanded 단계·f1 상태·동적 achieve_goal, 재생 실패/미확인·다른 run·완료 문장·안전 우선과 기존 BUSY/첫 수락 실패 모션0을 확인했습니다. 기존 `test_runner_notice.py -k 'test_final_failure_once or test_warning_priority_escalates'`: **7 passed/28 deselected**. AST3·diff 형식 검사 통과. 실제 E 함수와 C 상태 생성기를 사용한 모의이며 실장치 검증이 아닙니다.
+- [검사 버전 구분] 기존 dc115a0b2ba2c9779dd99c6240ac2d68a13176a9 전체 CI의 3298 passed/43 skipped·계약/compose3/build OK는 당시 버전의 근거입니다. 이번 새 최종 코드에는 위 직접 부분검사만 적용했으며 전체 CI·colcon을 재실행하지 않았습니다. 새 head 전체 CI 통과로 주장하지 않습니다. 문서/PR 본문만 수정하는 경우 CI를 실행하지 않습니다.
+- [미결] text-only 원래 run/개별 오류 출처 식별, 실제 PC2/API/TTS/ROS/DDS·실로봇은 미검증입니다. 설치 파일 예외 처리/빌드시점 태스크 원본 복사 정합성(P3)은 이번 범위를 확대하지 않은 후속 한계입니다. C 원본 정합성 회신은 조율 세션 담당입니다. 게시 담당에는 코드 push만 인계하고 제목/본문과 검사 버전 사실 정리는 조율 세션에서 처리합니다.
+
 ## voice-351-latest-comments-20261014
 
 - [승인] 조율 세션의 인간 지시 “최신 코멘트 확인해서 수정해 최대한 빨리 해”(turn `01a1398e-3956-77c1-a543-c5d9ef16266e`)를 직접 확인했습니다. #351 코멘트 세 항목만 E 소유 코드/필요 문서·검사에서 보완하고 정상 push/본문 갱신합니다. 추가 리뷰·계약 변경·타 담당 직접 편집·실물 시험은 범위 밖입니다.

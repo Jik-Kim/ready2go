@@ -8,7 +8,7 @@
 
 [원본 연결] `core/runner_speech.py`가 C `ready2go_runner.core.failure_speech`와 현재 `tasks/find_item.json`·`find_with_unpack.json`을 읽습니다. no_room 템플릿은 C의 보간/조사 함수로 물품별 생성하며, 원인·TIMEOUT·동작 실패·generic 문구는 C factory를 사용합니다. `package.xml`에 Runner 실행 의존성을 선언하고 `setup.py`가 두 태스크 원본을 E share/tasks에 설치합니다. 소스 실행은 현재 태스크를 우선하고 설치 실행은 패키지 산출물을 사용하므로 태스크 변경 뒤 E 재빌드/설치가 필요합니다. 타 담당 원본은 직접 편집하지 않았습니다.
 
-[구현·한계] 현재 실행의 실제 `fx.1` 원인 안내 호출이 확인된 factory 문장이며 DAC 시작/재생 완료 검증을 통과한 경우에만 그 근거를 보존합니다. 최종 결과의 동일 run·태스크·실패 단계의 실제 동작·오류 factory 문장이 일치하면 낮은 최종 안내만 생략합니다. 재생 실패/거절·다른 실행·다른 오류·미확인/일반 완료·닫기 안내는 생략 근거가 아니며 중단·상태 불명 등 높은 안전 경고는 유지합니다. text-only 호출의 원래 실행 출처 식별 한계는 아래 설명과 동일하며 새 계약은 추가하지 않았습니다.
+[구현·한계] 현재 검증된 실행의 후속 안내가 C factory 원인 문장 화이트리스트에 포함되고 DAC 시작/재생 완료 검증을 통과한 경우만 근거를 보존합니다. 최종 결과가 동일 run·태스크의 FAILED이고 낮은 경고이면 중복 안내를 생략합니다. status.current_step이나 전개된 failed_step의 정적 태스크 조회로 원인을 다시 계산하지 않으므로 동적 achieve_goal 태스크에도 적용됩니다. 재생 실패/거절·다른 실행·미확인/일반 완료·닫기 안내는 생략 근거가 아니며 중단·상태 불명 등 높은 안전 경고는 유지합니다. 이는 동일 실행에서 원인 문장 재생 성공을 근거로 한 중복 억제이며, text-only 호출의 원래 실행 출처나 개별 오류의 추가 식별을 보장하지 않습니다. 새 계약은 추가하지 않았습니다.
 
 [실측: 선택·모의] 직접 회귀 17개 통과. node/prepare 공통 목록은 source·기존 local 각각 필수246+warmup1, frequent0, 15519bytes이며 cap256·중복·누락·용량 검사 통과입니다. startup60/prepare120·속도1.2·history/models/cache는 유지합니다. 실제 새 WAV 캐시 준비·PC2/API/마이크/스피커·ROS/DDS·실로봇은 미검증이며 기존 prepare 절차와 통합 시험이 남습니다. 근거/요구사항은 [CURRENT](../../../practice/E/CURRENT.md#voice-351-latest-comments-20261014)와 [FR-INT-03](../../../docs/requirements.md#fr-int-03)·[P2 수락 TTS 책임](../../../docs/requirements.md#acceptance-tts-policy)을 참조하십시오.
 
