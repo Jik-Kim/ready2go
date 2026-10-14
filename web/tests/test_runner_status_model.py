@@ -175,23 +175,108 @@ def test_runner_records_distinguish_valid_absent_and_invalid_values(tmp_path: Pa
             },
             "invalidFields": [],
         },
+        "connection": {
+            "status": "linked",
+            "reason": None,
+            "value": {
+                "runId": "run-001",
+                "request": {
+                    "intent": "find_item",
+                    "targets": ["wallet"],
+                    "decision": "run",
+                    "reason": None,
+                    "taskId": "find_item",
+                    "requestId": "request-001",
+                    "runId": "run-001",
+                },
+                "result": {
+                    "taskId": "find_item",
+                    "runId": "run-001",
+                    "overallStatus": "COMPLETED",
+                    "errorCode": None,
+                    "failedStep": None,
+                },
+            },
+        },
     }
     # 요청과 결과가 아직 없다는 사실은 형식 오류와 다르게 absent로 보존한다.
     assert outputs[1]["status"] == "valid"
     assert outputs[1]["lastIntent"]["status"] == "absent"
     assert outputs[1]["lastResult"]["status"] == "absent"
+    assert outputs[1]["connection"] == {
+        "status": "absent", "reason": "records_absent", "value": None,
+    }
     # 잘못된 targets는 요청 전체를 invalid로 만들고 결과 null은 absent로 유지한다.
     assert outputs[2]["status"] == "invalid"
     assert outputs[2]["lastIntent"]["invalidFields"] == ["targets"]
     assert outputs[2]["lastIntent"]["value"] is None
     assert outputs[2]["lastResult"]["status"] == "absent"
+    assert outputs[2]["connection"]["reason"] == "invalid_record"
     # 누락 필드와 잘못된 결과 필드를 모두 수집해 화면의 확인 전 근거로 제공한다.
     assert outputs[3]["lastIntent"]["invalidFields"] == ["reason"]
     assert outputs[3]["lastResult"]["invalidFields"] == ["failed_step", "run_id"]
+    assert outputs[3]["connection"]["status"] == "invalid"
     # Runner data 자체가 잘못되면 과거 요청·결과를 부분적으로 남기지 않는다.
     assert outputs[4]["status"] == "invalid"
     assert outputs[4]["lastIntent"]["invalidFields"] == ["runner"]
     assert outputs[4]["lastResult"]["invalidFields"] == ["runner"]
+
+
+def test_runner_records_link_only_an_accepted_request_with_the_same_run_id(tmp_path: Path) -> None:
+    """같은 실행 ID만 연결하고 다른 ID·누락·비실행 결정을 분리한다."""
+    # 각 사례는 실제 Runner 필드 전체를 넣어 파싱과 연결 판정을 한 번에 검증한다.
+    def intent(decision: str, run_id: str | None) -> dict:
+        # 요청별로 달라지는 결정과 실행 ID 외 필드는 정상 계약값으로 고정한다.
+        return {
+            "intent": "find_item",
+            "targets": ["wallet"],
+            "decision": decision,
+            "reason": None,
+            "task_id": "find_item",
+            "request_id": "request-link-test",
+            "run_id": run_id,
+        }
+
+    def result(run_id: str) -> dict:
+        # 결과는 연결 판정에 필요한 run_id와 현재 Runner 완료 필드를 모두 제공한다.
+        return {
+            "task_id": "find_item",
+            "run_id": run_id,
+            "overall_status": "COMPLETED",
+            "error_code": None,
+            "failed_step": None,
+        }
+
+    cases = [
+        # 실행 수락 요청과 결과의 ID가 같을 때만 연결된다.
+        {"last_intent": intent("run", "run-001"), "last": result("run-001")},
+        # 서로 다른 ID는 각각 유효해도 같은 실행으로 묶지 않는다.
+        {"last_intent": intent("run", "run-002"), "last": result("run-previous")},
+        # run 결정에 ID가 없으면 결과 ID를 현재 요청에 추정해 넣지 않는다.
+        {"last_intent": intent("run", None), "last": result("run-003")},
+        # hold와 reject는 과거 결과 ID가 우연히 같아도 실행 결과로 연결하지 않는다.
+        {"last_intent": intent("hold", None), "last": result("run-004")},
+        {"last_intent": intent("reject", None), "last": result("run-005")},
+        # 수락된 실행이 진행 중이라 결과가 없으면 요청만 유지한다.
+        {"last_intent": intent("run", "run-006"), "last": None},
+    ]
+
+    outputs = _evaluate_runner_model(tmp_path, cases)
+
+    # 첫 사례만 연결되며 결합 모델도 같은 실행 ID와 두 내부 레코드를 보존한다.
+    assert outputs[0]["connection"]["status"] == "linked"
+    assert outputs[0]["connection"]["reason"] is None
+    assert outputs[0]["connection"]["value"]["runId"] == "run-001"
+    # 나머지는 구체적인 분리 이유를 남겨 화면이 완료 결과로 오인하지 않게 한다.
+    assert [output["connection"]["reason"] for output in outputs[1:]] == [
+        "run_id_mismatch",
+        "run_id_missing",
+        "non_run_decision",
+        "non_run_decision",
+        "last_result_absent",
+    ]
+    assert all(output["connection"]["status"] == "unlinked" for output in outputs[1:])
+    assert all(output["connection"]["value"] is None for output in outputs[1:])
 
 
 def test_runner_records_accept_every_checked_in_contract_example(tmp_path: Path) -> None:

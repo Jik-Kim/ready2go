@@ -5,6 +5,9 @@
   const VALID = "valid";
   const ABSENT = "absent";
   const INVALID = "invalid";
+  // 요청과 결과의 연결 판정은 파싱 상태와 구분해 연결됨·분리됨으로 표현한다.
+  const LINKED = "linked";
+  const UNLINKED = "unlinked";
 
   function isRecord(value) {
     // JavaScript에서 배열과 null도 object로 분류되므로 Runner JSON 객체에서 제외한다.
@@ -40,6 +43,15 @@
   function validResult(value) {
     // 새 객체만 공개해 이후 화면 가공이 REST 원본 객체를 변경하지 않게 한다.
     return Object.freeze({ status: VALID, value: Object.freeze(value), invalidFields: Object.freeze([]) });
+  }
+
+  function connectionResult(status, reason, value = null) {
+    // 화면은 연결 여부와 분리 이유를 사용하고 원본 레코드를 다시 비교하지 않는다.
+    return Object.freeze({
+      status,
+      reason,
+      value: value === null ? null : Object.freeze(value),
+    });
   }
 
   function parseLastIntent(value) {
@@ -120,22 +132,72 @@
     });
   }
 
+  function linkRunnerRecords(lastIntent, lastResult) {
+    // 형식 오류가 있는 요청·결과는 일부 정상 필드나 같은 문자열 ID가 있어도 연결하지 않는다.
+    if (lastIntent.status === INVALID || lastResult.status === INVALID) {
+      return connectionResult(INVALID, "invalid_record");
+    }
+
+    // 요청과 결과가 모두 null이면 아직 연결할 기록이 없는 정상 초기 상태다.
+    if (lastIntent.status === ABSENT && lastResult.status === ABSENT) {
+      return connectionResult(ABSENT, "records_absent");
+    }
+
+    // 결과만 남아 있는 경우 어느 요청의 결과인지 현재 last_intent만으로 추정하지 않는다.
+    if (lastIntent.status === ABSENT) {
+      return connectionResult(UNLINKED, "last_intent_absent");
+    }
+
+    // run 이외의 결정은 실행을 수락하지 않았으므로 과거 last와 ID를 비교하지 않는다.
+    if (lastIntent.value.decision !== "run") {
+      return connectionResult(UNLINKED, "non_run_decision");
+    }
+
+    // 수락 결정에 run_id가 없으면 결과가 있어도 동일 실행임을 확인할 수 없다.
+    if (lastIntent.value.runId === null) {
+      return connectionResult(UNLINKED, "run_id_missing");
+    }
+
+    // 실행 중처럼 아직 최종 결과가 없으면 요청만 유지하고 연결 완료로 표시하지 않는다.
+    if (lastResult.status === ABSENT) {
+      return connectionResult(UNLINKED, "last_result_absent");
+    }
+
+    // 서로 다른 실행 ID는 마지막 요청과 과거 또는 다른 실행 결과로 분리한다.
+    if (lastIntent.value.runId !== lastResult.value.runId) {
+      return connectionResult(UNLINKED, "run_id_mismatch");
+    }
+
+    // decision=run이고 두 비어 있지 않은 run_id가 같을 때만 하나의 요청·결과로 묶는다.
+    return connectionResult(LINKED, null, {
+      runId: lastIntent.value.runId,
+      request: lastIntent.value,
+      result: lastResult.value,
+    });
+  }
+
   function parseRunnerRecords(data) {
     // source.data 자체가 없거나 객체가 아니면 두 하위 기록 모두 확인 전이다.
     if (!isRecord(data)) {
+      // 같은 invalid 객체를 연결 판정에도 전달해 초기화 경로의 결과 모양을 일정하게 유지한다.
+      const lastIntent = invalidResult(["runner"]);
+      const lastResult = invalidResult(["runner"]);
       return Object.freeze({
         status: INVALID,
-        lastIntent: invalidResult(["runner"]),
-        lastResult: invalidResult(["runner"]),
+        lastIntent,
+        lastResult,
+        connection: linkRunnerRecords(lastIntent, lastResult),
       });
     }
 
     // 요청과 결과는 독립적으로 파싱해 한쪽 오류가 다른 쪽 원본을 오염시키지 않게 한다.
     const lastIntent = parseLastIntent(data.last_intent);
     const lastResult = parseLastResult(data.last);
+    // 파싱된 내부 모델만 연결 함수에 전달해 REST 원본을 직접 비교하지 않는다.
+    const connection = linkRunnerRecords(lastIntent, lastResult);
     // 둘 중 하나라도 형식 오류이면 상위 모델도 확인이 필요한 상태로 표시한다.
     const status = lastIntent.status === INVALID || lastResult.status === INVALID ? INVALID : VALID;
-    return Object.freeze({ status, lastIntent, lastResult });
+    return Object.freeze({ status, lastIntent, lastResult, connection });
   }
 
   // app.js와 브라우저 단위시험이 같은 공개 함수만 사용한다.
@@ -143,8 +205,11 @@
     VALID,
     ABSENT,
     INVALID,
+    LINKED,
+    UNLINKED,
     parseLastIntent,
     parseLastResult,
+    linkRunnerRecords,
     parseRunnerRecords,
   });
 })();

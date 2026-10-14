@@ -53,7 +53,7 @@
   // 정의보다 상태 응답이 먼저 도착해도 나중에 등록명을 다시 적용할 수 있게 마지막 source를 보관한다.
   let latestRobotStateSource = null;
 
-  // 요청·결과 표시는 후속 단계에서 연결하며 지금은 검증된 내부 모델만 보관한다.
+  // 요청·결과 표시는 후속 단계에서 연결하며 지금은 검증·연결 판정된 내부 모델만 보관한다.
   let latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
 
   // Runner core의 실제 phase 세 값만 사용자 표시 문구와 기존 화면 색상 키로 변환한다.
@@ -206,7 +206,7 @@
       setRunnerSummaryUnknown();
       return false;
     }
-    // last_intent와 last는 표시·연결 전에 독립적으로 형식을 검사하고 새 객체로 복사한다.
+    // last_intent와 last를 독립 파싱한 뒤 decision과 run_id로 같은 실행인지 판정한다.
     latestRunnerRecords = runnerStatusModel.parseRunnerRecords(data);
     // 계약에 없는 phase를 대기로 추정하지 않고 확인이 필요한 값으로 표시한다.
     const phaseView = typeof data.phase === "string" ? runnerPhaseViews[data.phase] : null;
