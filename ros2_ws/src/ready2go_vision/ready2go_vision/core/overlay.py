@@ -46,10 +46,38 @@ def _crop_box(K, T_drawer_cam, interior_m, w, h, margin_px=20):
     return x0, y0, int(round(x0 + cw)), int(round(y0 + ch))
 
 
-def render_overlay(color_bgr, dets, result, K, T_drawer_cam, interior_m, items, request, shot_text, font_paths=FONT_PATHS):
+def _match(dets, objs, K, T_drawer_cam):
+    """결과 물체 → 검출 짝 {검출 번호: 물체}. 물체 위치(서랍 좌표)를 사진에 투영해 같은 클래스 검출 중 마스크(없으면 상자) 안에 들거나
+    상자 중심이 가장 가까운 것. 같은 클래스 중복 병합·서랍 밖 제외로 검출과 결과 수가 달라도 엉뚱한 물체에 라벨이 붙지 않게."""
+    out = {}
+    Tc = np.linalg.inv(T_drawer_cam) if T_drawer_cam is not None else None
+    for o in objs:
+        cls = o["id"].split("#")[0]
+        cand = [i for i, d in enumerate(dets) if d["class"] == cls and i not in out]
+        if not cand:
+            continue
+        if Tc is None:
+            out[cand[0]] = o
+            continue
+        x, y = o["pose"]["position"][:2]
+        p = Tc[:3, :3] @ np.array([x, y, (o.get("top_z") or 0) / 2]) + Tc[:3, 3]
+        if p[2] <= 0:
+            continue
+        u, v = K.fx * p[0] / p[2] + K.cx, K.fy * p[1] / p[2] + K.cy
+
+        def score(i):
+            d = dets[i]; b = d["box"]; m = d.get("mask")
+            inside = (m is not None and 0 <= int(v) < m.shape[0] and 0 <= int(u) < m.shape[1] and bool(m[int(v), int(u)])) or \
+                     (m is None and b[0] <= u <= b[2] and b[1] <= v <= b[3])
+            return (0 if inside else 1, math.hypot((b[0] + b[2]) / 2 - u, (b[1] + b[3]) / 2 - v))
+        out[min(cand, key=score)] = o
+    return out
+
+
+def render_overlay(color_bgr, dets, result, K, T_drawer_cam, interior_m, items, request, shot_text, font_paths=FONT_PATHS, error_code=""):
     """color_bgr: HxWx3 uint8 BGR(노드·덤프의 컬러). dets: 검출(class·conf·box, 분할이면 mask bool HxW).
     result: result_json 을 읽은 dict(실패면 {}). K: Intrinsics. T_drawer_cam: 4x4 또는 None(TF 없음 — 방향 선·잘라내기 안 함).
-    items: 온톨로지 world.items. request: {region, search_target}. shot_text: 머리 띠에 쓸 촬영 시각 글자.
+    items: 온톨로지 world.items. request: {region, search_target}. shot_text: 머리 띠에 쓸 촬영 시각 글자. error_code: 실패 요청의 오류 코드(머리 띠에 표시).
     반환: OUT_H x OUT_W x 3 uint8 RGB."""
     from PIL import Image, ImageDraw
     h, w = color_bgr.shape[:2]
@@ -65,13 +93,8 @@ def render_overlay(color_bgr, dets, result, K, T_drawer_cam, interior_m, items, 
     img = Image.fromarray(np.ascontiguousarray(color_bgr[y0:y1, x0:x1, ::-1])).resize((OUT_W, OUT_H), Image.BILINEAR).convert("RGBA")
 
     objs = ([result["target"]] if result.get("target") else []) + list(result.get("candidates") or [])
-    by_cls = {}
-    for o in objs:
-        by_cls.setdefault(o["id"].split("#")[0], []).append(o)
-    pairs = []                                                  # 검출 ↔ 결과 물체 (클래스별 순서, 결과 id 는 class#n)
-    for i, d in enumerate(dets):
-        lst = by_cls.get(d["class"]) or []
-        pairs.append((d, lst.pop(0) if lst else None, PALETTE[i % len(PALETTE)]))
+    match = _match(dets, objs, K, T_drawer_cam)
+    pairs = [(d, match.get(i), PALETTE[i % len(PALETTE)]) for i, d in enumerate(dets)]
 
     import cv2
     over = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -145,7 +168,9 @@ def render_overlay(color_bgr, dets, result, K, T_drawer_cam, interior_m, items, 
         head += (f" · 찾는 물건: {name(tgt)}" if tgt else "") + f" · 촬영 {shot_text}"
     else:
         head = f"{reg}" + (f" / target: {request.get('search_target')}" if request.get("search_target") else "") + f" / shot {shot_text}"
-    if not dets:
+    if error_code:
+        head += (" · 실패 " if korean else " / failed ") + error_code
+    elif not dets:
         head += " · 검출 없음" if korean else " / no detection"
     dr.rectangle([0, 0, OUT_W, 52], fill=(20, 33, 61, 235))
     dr.text((16, 10), head, font=font, fill="white")

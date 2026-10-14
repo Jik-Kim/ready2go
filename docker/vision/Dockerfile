@@ -9,5 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip3 install --break-system-packages --no-cache-dir \
       --extra-index-url https://download.pytorch.org/whl/cu128 \
       torch==2.11.0 torchvision==0.26.0 ultralytics==8.4.170 numpy==1.26.4 opencv-python==4.9.0.80
+# 촬영 장면 오버레이(#348) 라벨용 한글 글꼴. 없으면 오버레이는 영문 클래스 키로 그림(core/overlay.py). 위 torch 층 캐시를 깨지 않게 따로.
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-nanum && rm -rf /var/lib/apt/lists/*
 WORKDIR /ros2_ws
 CMD ["bash", "-lc", "source /opt/ros/jazzy/setup.bash && sleep infinity"]
