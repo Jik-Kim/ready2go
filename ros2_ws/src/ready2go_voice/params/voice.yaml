@@ -164,5 +164,6 @@ voice_hotfix:
   control_held: 중단 작업의 기존 안전 확인 경로로 요청을 전달합니다. 실제 복구나 재개 완료는 아닙니다.
 
   recorded_location: '{item_topic} Runner 기록 기준 {place}에 있습니다. 실제 현재 위치는 별도 확인이 필요합니다.'
+  recorded_held: '{item_topic} Runner 기록 기준 그리퍼에 쥐고 있습니다. 실제 보유 상태는 별도 확인이 필요합니다.'
   recorded_open: '{place_topic} Runner 기록 기준 {value} 상태입니다. 실제 현재 상태는 별도 확인이 필요합니다.'
   unknown_recorded_state: Runner 기록에서 해당 상태를 확인하지 못했어요. 초기 배치를 현재 상태로 대신 안내하지 않습니다.

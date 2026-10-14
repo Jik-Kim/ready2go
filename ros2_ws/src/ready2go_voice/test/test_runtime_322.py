@@ -27,6 +27,7 @@ def memory_node(node):
         subscriptions.append((topic,callback,qos))
         return SimpleNamespace(topic_name=topic)
     node.create_subscription=subscribe
+    node.destroy_subscription=lambda subscription:True
     node.cfg['request_run_enabled']=False
     node.runner_control_source=None;node._control_binding=None;node._control_source_lost=False
     node._init_runner_control_source()
@@ -86,7 +87,7 @@ def test_state_before_first_status_is_latched_but_loss_and_restart_require_new_s
         topic_type='std_msgs/msg/String',endpoint_gid=bytes([7]*24))]
     status(seq=2,stamp=20)
     assert node._runner_memory_state() is None
-    state(stamp=19);assert node._runner_memory_state() is None
+    state(stamp=9);assert node._runner_memory_state() is None
     state(stamp=21);assert node._runner_memory_state() is not None
     status(seq=1,boot='new-boot',stamp=30)
     assert node._runner_memory_state() is None
@@ -249,6 +250,153 @@ def test_runtime_prefill_all_memory_answers_and_not_dummy_notices(cfg,ontology,t
     for key,text in prompts(cfg).items():
         if key.startswith('runtime_'):assert text in texts and '더미' not in text
     assert len(texts)+1<=256
+    from ready2go_voice.core.recovery_confirmation import _particle
+    for item in ontology['world']['items'].values():
+        name=item['name_ko']
+        assert prompts(cfg)['recorded_held'].format(item=name,item_topic=_particle(name,'은','는')) in texts
     assert control_notice(cfg,'end',runtime=True) in texts
     assert control_notice(cfg,'failed',runtime=True,operation='recover',reason='B_RECOVER_UNAVAILABLE') in texts
     assert cfg['tts_melotts_startup_timeout_sec']==60.
+
+
+@pytest.mark.parametrize('order',['state-first','status-first'])
+@pytest.mark.parametrize('transition',['first','restart','loss'])
+def test_memory_callback_order_after_first_restart_and_loss(node,order,transition):
+    endpoints,status,state,subscriptions=memory_node(node)
+    if transition!='first':
+        status();state()
+        if transition=='loss':
+            selected=endpoints['/runner/status']
+            endpoints['/runner/status']=[]
+            assert node._runner_memory_state() is None
+            endpoints['/runner/status']=selected
+        else:
+            for topic in endpoints:
+                endpoints[topic][0]=SimpleNamespace(**dict(endpoints[topic][0].__dict__,
+                    endpoint_gid=bytes([17 if topic=='/runner/status' else 19]*24)))
+    packet=copy.deepcopy(node.parser.reference_state)
+    packet['located_in']['eraser']='handover_zone'
+    seq=2 if transition=='loss' else 1
+    boot='new-boot' if transition=='restart' else 'boot'
+    if order=='state-first':
+        state(packet,stamp=31)
+        assert node._runner_memory_state() is None
+        status(seq=seq,boot=boot,stamp=30)
+    else:
+        status(seq=seq,boot=boot,stamp=30)
+        assert node._runner_memory_state() is None
+        state(packet,stamp=31)
+    assert '전달 트레이' in answer(node,'지우개 어딨어?')
+    assert not node.published
+
+
+def test_same_boot_loss_rereads_current_latched_record_and_retires_old_reader(node):
+    endpoints,status,state,subscriptions=memory_node(node)
+    status();state(stamp=11)
+    old_callback=subscriptions[-1][1]
+    selected=endpoints['/runner/status']
+    endpoints['/runner/status']=[]
+    assert node._runner_memory_state() is None
+    endpoints['/runner/status']=selected
+    status(seq=2,stamp=30)
+    assert len(subscriptions)==2
+    assert node._runner_memory_state() is None  # no local cache restoration
+    packet=copy.deepcopy(node.parser.reference_state)
+    packet['located_in']['eraser']='handover_zone'
+    # Publication 20 happened during loss, before the recovery status. The
+    # recreated TRANSIENT_LOCAL reader receives it without C republishing.
+    old_callback(SimpleNamespace(data=json.dumps(packet)),dict(INFO,source_timestamp=40))
+    assert node._runner_memory_state() is None
+    subscriptions[-1][1](SimpleNamespace(data=json.dumps(packet)),dict(INFO,source_timestamp=20))
+    assert '전달 트레이' in answer(node,'지우개 어딨어?')
+    # Also rereceive an unchanged record with the same source stamp after loss.
+    endpoints['/runner/status']=[];assert node._runner_memory_state() is None
+    endpoints['/runner/status']=selected;status(seq=3,stamp=50)
+    assert node._runner_memory_state() is None
+    subscriptions[-1][1](SimpleNamespace(data=json.dumps(packet)),dict(INFO,source_timestamp=20))
+    assert node._runner_memory_state()['located_in']['eraser']=='handover_zone'
+
+
+@pytest.mark.parametrize('reader_failure',['destroy','create'])
+def test_memory_reader_recreation_failure_stays_unknown(node,reader_failure):
+    endpoints,status,state,_=memory_node(node);status();state()
+    selected=endpoints['/runner/status'];endpoints['/runner/status']=[]
+    assert node._runner_memory_state() is None
+    endpoints['/runner/status']=selected
+    if reader_failure=='destroy':node.destroy_subscription=lambda subscription:False
+    else:
+        def fail(*a,**kw):raise RuntimeError('reader unavailable')
+        node.create_subscription=fail
+    status(seq=2,stamp=30)
+    assert node._runner_memory_state() is None and not node.published
+
+
+def test_restart_rejects_old_latched_record_and_retired_boot(node):
+    endpoints,status,state,subscriptions=memory_node(node);status();state(stamp=11)
+    old_callback=subscriptions[-1][1]
+    for topic in endpoints:
+        endpoints[topic][0]=SimpleNamespace(**dict(endpoints[topic][0].__dict__,endpoint_gid=bytes([17]*24)))
+    status(boot='new-boot',stamp=30)
+    old_callback(SimpleNamespace(data=json.dumps(node.parser.reference_state)),dict(INFO,source_timestamp=40))
+    assert node._runner_memory_state() is None
+    state(stamp=11);assert node._runner_memory_state() is None
+    state(stamp=31);assert node._runner_memory_state() is not None
+    status(seq=2,boot='boot',stamp=40)
+    assert node.runner_control_source.binding.boot=='new-boot'
+
+
+def test_actual_pick_place_effect_and_held_stop_support_readonly_queries(node,ontology):
+    from ready2go_knowledge.core.ontology import apply
+    _,status,state,_=memory_node(node);status();state()
+    assert '아래 서랍' in answer(node,'지우개 어딨어?')
+    held,_=apply(ontology['state'],ontology['skills']['pick']['effect'],
+                 {'item':'eraser','from':'drawer_bottom'})
+    assert held['located_in']['eraser']=='gripper'
+    assert 'gripper' not in node.parser.places
+    state(held,stamp=12)
+    assert '그리퍼에 쥐고' in answer(node,'지우개 어딨어?')
+    assert 'Runner 기록 기준' in node.texts[-1] and '별도 확인' in node.texts[-1]
+    assert 'Runner 기록 기준' in answer(node,'차키 어딨어?')
+    assert '닫힘' in answer(node,'위쪽 서랍 열려있어?')
+    # A held stop preserves the actual effect state; it does not grant motion.
+    node._runner_status_with_info(SimpleNamespace(data=json.dumps(dict(boot_id='boot',seq=2,
+        phase='halted',halt_code='HALTED',halt=None,last=None,task_id=None))),dict(INFO,source_timestamp=13))
+    doc=node.session.text('지우개 어딨어?',node.generation)
+    assert '그리퍼에 쥐고' in doc['_voice']['final_text']
+    assert doc['_voice']['readonly_query'] and not doc['source']['execution_allowed']
+    # Existing halted-state notice/TTS cancellation still has priority.
+    placed,_=apply(held,ontology['skills']['place']['effect'],{'item':'eraser','to':'handover_zone'})
+    state(placed,stamp=14)
+    doc=node.session.text('지우개 어딨어?',node.generation)
+    assert '전달 트레이' in doc['_voice']['final_text']
+    assert not node.published
+
+
+@pytest.mark.parametrize('predicate,key,value',[
+    ('located_in','eraser','invented_place'),('located_in','unregistered','gripper'),
+    ('open','gripper',True),('open','drawer_top',1)])
+def test_held_support_keeps_unknown_keys_locations_and_open_types_rejected(node,predicate,key,value):
+    _,status,state,_=memory_node(node);status();state()
+    packet=copy.deepcopy(node.parser.reference_state)
+    packet[predicate][key]=value;state(packet,stamp=12)
+    assert node._runner_memory_state() is None and not node.published
+
+
+
+def test_same_boot_reader_replay_needs_valid_status_order_metadata(node):
+    endpoints,status,state,subscriptions=memory_node(node);status();state(stamp=11)
+    selected=endpoints['/runner/status'];endpoints['/runner/status']=[]
+    assert node._runner_memory_state() is None
+    endpoints['/runner/status']=selected
+    status(seq=2,stamp=None)
+    subscriptions[-1][1](SimpleNamespace(data=json.dumps(node.parser.reference_state)),dict(INFO,source_timestamp=11))
+    assert node._runner_memory_state() is None
+
+
+
+def test_initial_status_before_state_endpoint_discovery_accepts_first_state(node):
+    endpoints,status,state,_=memory_node(node)
+    selected=endpoints['/robot_state'];endpoints['/robot_state']=[]
+    status();assert node._runner_memory_state() is None
+    endpoints['/robot_state']=selected;state(stamp=11)
+    assert '아래 서랍' in answer(node,'지우개 어딨어?')

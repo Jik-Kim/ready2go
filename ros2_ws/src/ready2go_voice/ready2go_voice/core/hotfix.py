@@ -11,7 +11,7 @@ def prompts(cfg):
     if not isinstance(supplied, dict):
         raise ValueError('voice_hotfix: mapping 필요')
     value.update(supplied)
-    for key, field in (('initial_location', 'item'), ('recorded_location', 'item'), ('initial_open', 'place'), ('recorded_open', 'place')):
+    for key, field in (('initial_location', 'item'), ('recorded_location', 'item'), ('recorded_held', 'item'), ('initial_open', 'place'), ('recorded_open', 'place')):
         value[key] = value[key].replace('{' + field + '}은', '{' + field + '_topic}')
     if any(not isinstance(text,str) or not text.strip() for text in value.values()):
         raise ValueError('voice_hotfix: 안내 문자열 필요')
@@ -55,6 +55,9 @@ def reference_query(parser, text):
 
     if len(keys) == 1 and re.fullmatch(r'.+(?:어딨어|어디있어|어디에있어|어디에있나요|위치알려줘)', value):
         key = next(iter(keys)); place = read('located_in', key)
+        if place == 'gripper' and provider is not None:
+            return p['recorded_held'].format(item=parser.items[key]['name_ko'],
+                item_topic=_particle(parser.items[key]['name_ko'], '은', '는'))
         name = parser.places.get(place, {}).get('name_ko') if isinstance(place,str) else None
         return location_prompt.format(item=parser.items[key]['name_ko'], item_topic=_particle(parser.items[key]['name_ko'], '은', '는'), place=name) if name else unknown
     if re.fullmatch(r'.+(?:열려있어|열려있나요|닫혀있어|닫혀있나요)', value):

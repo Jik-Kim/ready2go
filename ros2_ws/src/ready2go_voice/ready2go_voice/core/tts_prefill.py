@@ -84,6 +84,7 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
         # Runner memory may differ from the initial layout. Prepare the existing
         # read-only answers for registered items/places and both drawer states.
         for name in (item_names or {}).values():
+            texts.append(extra['recorded_held'].format(item=name, item_topic=_particle(name,'은','는')))
             for place in places.values():
                 texts.append(extra['recorded_location'].format(item=name,
                     item_topic=_particle(name,'은','는'),place=place['name_ko']))

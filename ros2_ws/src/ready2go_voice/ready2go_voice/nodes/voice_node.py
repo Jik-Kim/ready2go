@@ -1042,12 +1042,36 @@ class VoiceNode(Node):
 
     def _init_runner_memory(self, qos):
         from ready2go_voice.adapters.runner_control import RunnerMemory
-        self.memory_subscription = self.create_subscription(String, '/robot_state', self._robot_state,
-            qos, callback_group=MutuallyExclusiveCallbackGroup())
-        self.runner_memory = RunnerMemory(self.runner_control_source,
-            getattr(self.memory_subscription, 'topic_name', '/robot_state'),
+        self.memory_qos = qos
+        self.memory_epoch = 0
+        self.memory_subscription = None
+        self.runner_memory = RunnerMemory(self.runner_control_source, '/robot_state',
             items=self.parser.items, places=self.parser.places)
+        self._replace_runner_memory_subscription()
         self.parser.state_provider = self._runner_memory_state
+
+    def _replace_runner_memory_subscription(self):
+        # Epoch belongs to this reader lifecycle, not a public state/boot field.
+        # Queued callbacks from a destroyed reader cannot restore pre-loss state.
+        self.memory_epoch += 1
+        epoch = self.memory_epoch
+        previous = self.memory_subscription
+        self.memory_subscription = None
+        try:
+            if previous is not None and not self.destroy_subscription(previous):
+                self.memory_subscription = previous
+                raise RuntimeError('runner_memory_reader_destroy_failed')
+            def receive(message, info):
+                with self.submit_lock:
+                    if epoch == self.memory_epoch:
+                        self._robot_state(message, info)
+            self.memory_subscription = self.create_subscription(String, '/robot_state', receive,
+                self.memory_qos, callback_group=MutuallyExclusiveCallbackGroup())
+            self.runner_memory.state_source.topic = getattr(self.memory_subscription, 'topic_name', '/robot_state')
+            self.runner_memory.begin_replay()
+        except Exception as exc:
+            self.runner_memory.invalidate()
+            self._diagnostic({'event':'runner_memory_held','reason':type(exc).__name__})
 
     def _robot_state(self, message, info):
         with self.submit_lock:
@@ -1132,7 +1156,8 @@ class VoiceNode(Node):
                     self._control_binding = binding
                 memory = getattr(self, 'runner_memory', None)
                 if memory is not None:
-                    memory.observe_status(binding, info)
+                    if memory.observe_status(binding, info):
+                        self._replace_runner_memory_subscription()
         mapper = getattr(self, 'control_mapper', None)
         if mapper is None:
             self._runner_status(message)
