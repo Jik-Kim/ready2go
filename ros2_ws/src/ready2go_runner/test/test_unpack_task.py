@@ -822,3 +822,68 @@ def test_estop_and_success_do_not_speak_cause():
     _, robot, result = run("occluded_top", "toy_wrench")
     assert result.overall_status == "COMPLETED" and result.blackboard["run_failure"] is None
     assert not [s for s in result.steps if s["id"] == "fx.1"]
+
+
+# ---- 복구 원복 넛지 (B 요청 10/14): 지금 자리 판단이 WALL_TOO_CLOSE 면 끌기 → 다시 찍기·찾기 → 다시 판단 (최대 2번) ----
+
+class WallAfterDeliveryScene(MockScene):
+    """전달 뒤 상자가 벽에 붙어 집기가 WALL_TOO_CLOSE (놓기만 되는 자리에 둔 경우, #345). 끌 때마다 y 로 step_m 옮김 —
+    pushes_needed 번 끌어야 집힘. nudge_code 면 끌기 실패(움직이기 전)."""
+
+    def __init__(self, pushes_needed=1, step_m=0.012, nudge_code=None):
+        super().__init__("occluded_top")
+        self.pushes_needed, self.step_m, self.nudge_code, self.pushes = pushes_needed, step_m, nudge_code, 0
+
+    def pick_refusal(self, target):
+        if self.delivered and target.get("class") == "caramel_box" and self.pushes < self.pushes_needed:
+            return "WALL_TOO_CLOSE"
+        return super().pick_refusal(target)
+
+    def nudge(self, params):
+        if self.nudge_code:
+            return False, self.nudge_code, {"pushed": False, "push_vector_m": [0.0, 0.0], "target_after": None}
+        target = json.loads(json.dumps(params["target"]))
+        cls = target["class"]
+        self.objects[cls]["xy"] = [self.objects[cls]["xy"][0], round(self.objects[cls]["xy"][1] + self.step_m, 4)]
+        self.pushes += 1
+        target["pose"]["position"] = [self.objects[cls]["xy"][0], self.objects[cls]["xy"][1], 0.0]
+        return True, "", {"pushed": True, "push_vector_m": [0.0, self.step_m], "target_after": target}
+
+
+def _nudges(robot):
+    return [p["target"]["class"] for a, p in robot.calls if a == "nudge_object"]
+
+
+def test_restore_nudges_wall_item_then_restores_to_origin():
+    _, robot, result = _run_with(WallAfterDeliveryScene())
+    assert result.overall_status == "COMPLETED", steps(result)
+    assert _nudges(robot) == ["caramel_box"]
+    assert [s["status"] for s in result.steps if s["id"] == "fr.5.w6"] == ["SUCCESS"]
+    assert robot.picked()[3:] == ["caramel_box"]                                   # 끈 뒤 상자 집어 원래 자리로 (차키는 평소대로 판단)
+    assert robot.skills.scene.objects["caramel_box"]["xy"][1] == 0.14
+    assert "caramel_box" in [r["class"] for r in result.blackboard["restored"]]
+
+
+def test_restore_nudge_failure_is_restore_failure_without_pick():
+    _, robot, result = _run_with(WallAfterDeliveryScene(nudge_code="NO_PUSH_ACCESS"))
+    assert (result.overall_status, result.error_code) == ("FAILED", "RESTORE_INCOMPLETE")
+    assert _nudges(robot) == ["caramel_box"]
+    assert "caramel_box" not in robot.picked()[3:]
+    assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
+    assert [c["class"] for c in result.blackboard["left_aside"]] == ["car_key"]   # 받침 실패 → 위 물체 보류 (#339)
+    assert result.blackboard["holding"] is False and robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+
+
+def test_restore_nudges_at_most_twice_and_refinds_after_each_push():
+    """끌 때마다 15 mm — 두 번이면 처음 놓은 자리에서 30 mm(reid_tol 20 mm 밖)지만 끈 뒤 예상 위치로 기록을 바꿔 매번 다시 찾음."""
+    _, robot, result = _run_with(WallAfterDeliveryScene(pushes_needed=3, step_m=0.015))
+    assert _nudges(robot) == ["caramel_box", "caramel_box"]
+    assert [(s.get("result") or s.get("output"))["status"] for s in result.steps if s["id"] == "fr.5.w6"] == ["found", "found"]
+    assert [r["class"] for r in result.blackboard["restore_failed"]] == ["caramel_box"]
+    assert "caramel_box" not in robot.picked()[3:]
+
+
+def test_other_restore_refusals_do_not_nudge():
+    _, robot, result = _run_with(RestorePickRefusedScene("occluded_top"))   # NEIGHBOR_TOO_CLOSE
+    assert _nudges(robot) == []
+    assert not [s for s in result.steps if s["id"] == "fr.5.w2"]
