@@ -290,3 +290,12 @@ def test_restore_check_unknown_occlusion_is_not_an_error():
     for occ in (None, "missing"):
         assert rr.detail(_restore_step(1.55, now, occluded_by=occ)) == \
             "복구 확인 caramel_box: 가림 여부 미확인 — 관측 기준 4.0 mm, 위치 오차로 쓰지 않음", occ
+
+
+def test_nudge_failure_is_not_reported_as_no_drag_needed():
+    """[E #196 10/14] 실패한 nudge 의 pushed=false 를 B 의 '끌 필요 없음' 판정으로 적지 않음 — 성공한 no-op 만 그 문구."""
+    base = {"id": "s8.t1.e3.o2.1", "action": "nudge_object", "params": {},
+            "result": {"pushed": False, "push_vector_m": [0.0, 0.0], "target_after": None}}
+    assert rr.detail({**base, "status": "SUCCESS"}) == "끌 필요 없음"
+    failed = rr.detail({**base, "status": "FAILURE", "error": {"code": "NOT_REACHED"}})
+    assert "끌 필요 없음" not in failed and failed.startswith("NOT_REACHED") and "끌지 않음(실패)" in failed
