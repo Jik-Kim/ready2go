@@ -75,6 +75,24 @@ def sig(code, f, drawer, steps):
     return f"{code} | {f['class']} | {st} | {walls} | {nb} | {'가로' if f['across'] else '세로'}"
 
 
+PATS = (("끄는 길에", "drag_path_blocked"), ("뒤에서 밀 손가락 자리에", "push_spot_blocked"), ("벌린 손가락 자리에", "finger_zone_blocked"),
+        ("손잡이 쪽 벽에 붙음", "handle_wall_no_inward"))
+
+
+def pattern(code, reason, steps, objs):
+    """B 거부 이유 문장 → 짧은 이름 + 막는 물체 class."""
+    by = {o["id"]: o["class"] for o in objs}
+    for key, name in PATS:
+        if key in (reason or ""):
+            rest = reason.split(key, 1)[1].strip()
+            oid = rest.split()[0].strip(" —,") if rest else ""
+            return name, by.get(oid, "")
+    if code == "STEP_LIMIT":
+        top = collections.Counter(steps).most_common(1)
+        return (f"loop_{top[0][0]}" if top else "loop"), ""
+    return ((reason or "").split(" ")[0][:20] or "-"), ""
+
+
 def retrieve(objs, tid, drawer):
     oracle = cs.Oracle(drawer)
     cfg = dataclasses.replace(srv._room_cfg(drawer), size_of=cs.cp_size)
@@ -94,6 +112,7 @@ def main():
     t0 = time.time()
     tot, ok_n = 0, 0
     matched, unmatched, examples = collections.Counter(), collections.Counter(), {}
+    records = []
     for i in range(N):
         L = cs.layouts()
         for drawer in cs.DRAWERS:
@@ -110,6 +129,11 @@ def main():
                 cid = match(code, f, steps)
                 key = cid or sig(code, f, drawer, steps)
                 (matched if cid else unmatched)[key] += 1
+                pat, blk = pattern(code, act.reason if act else "", steps, end)
+                records.append({"layout": i, "drawer": drawer, "target": o["class"], "fail_on": f["class"], "code": code, "pat": pat,
+                                "blocker": blk, "case": cid, "walls": f["walls"], "front_mm": f["gaps_mm"]["front_handle"],
+                                "on_top_of": f["on_top_of"], "under_cover": f["under_cover"], "near_n": len(f["near"]),
+                                "steps": steps})
                 if key not in examples or len(examples[key]) < 3:
                     examples.setdefault(key, []).append({
                         "seed": SEED, "mode": MODE, "layout": i, "drawer": drawer, "target": o["id"], "fail_on": who,
@@ -122,7 +146,7 @@ def main():
     out = HERE / "hunt" / f"hunt_{MODE}_{SEED}.json"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps({"mode": MODE, "seed": SEED, "layouts": N, "targets": tot, "ok": ok_n,
-                               "matched": dict(matched), "unmatched": dict(unmatched), "examples": examples,
+                               "matched": dict(matched), "unmatched": dict(unmatched), "examples": examples, "records": records,
                                "sec": round(time.time() - t0)}, ensure_ascii=False, indent=1))
     print(f"[{MODE} {SEED}] 꺼내기 {tot} · 성공 {ok_n} ({ok_n / max(tot, 1) * 100:.1f}%) · 기존 난제 {sum(matched.values())} · 새 후보 {sum(unmatched.values())} · {time.time() - t0:.0f} s → {out}")
 
