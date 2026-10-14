@@ -3629,16 +3629,29 @@ def test_pick_crosswise_swaps_to_short_side_before_nudge(server, monkeypatch, sw
     assert srv.robot.log == [] and srv.held is None
 
 
-def test_free_plate_place_only_then_nudge_on_restore(server):
-    """[PC2 10/14 아래 칸, 사용자 "걍 일단 상관없이 놓고 넛지로 끌고 오자"] 판이 지우개·립밤을 덮은 장면: 지우개 손가락 자리를 비우면서
-    다시 집히는 빈 자리는 없음(옆벽 여유 5.6~25 mm 부족) → 예전(#337) NO_FREE_SPACE 로 집지도 않고 닫음. 이제 놓기만 되는 자리
-    (60, 232) 에 놓고, 원복 때 집기 WALL_TOO_CLOSE → 넛지(옆벽 반대 y −) 계획이 있음(B unpack·Runner 가 넛지 → 다시 보기 → 집기)."""
+@pytest.mark.parametrize("repickable_only", [True, False])
+def test_free_plate_place_only_then_nudge_on_restore(server, monkeypatch, repickable_only):
+    """[PC2 10/14 아래 칸] 판이 지우개·립밤을 덮은 장면: 지우개 손가락 자리를 비우면서 다시 집히는 빈 자리는 없음(옆벽 여유 5.6~25 mm
+    부족). 기본(place.free_repickable_only true, #337) = 움직이기 전 NO_FREE_SPACE(집지 않음). false = 놓기만 되는 자리 (60, 232) 에
+    놓고, 원복 때 집기 WALL_TOO_CLOSE → 넛지(옆벽 반대 y −) 계획 — 부르는 쪽(Runner)에 원복 넛지가 있어야 함(#345 리뷰)."""
+    real = server.ss._yaml_cached
+
+    def cached(path, **kw):
+        dd = real(path, **kw)
+        if path.name == "skills.yaml":
+            dd = {**dd, "place": {**dd["place"], "free_repickable_only": repickable_only}}
+        return dd
+    monkeypatch.setattr(server.ss, "_yaml_cached", cached)
     srv = server.srv
     d = "drawer_bottom"
     srv.disp[d] = srv.places()[d]["tf_at_travel_m"]
     scan = json.loads(json.dumps(SCAN_1014_BOTTOM_PLATE))
     plate, lip = scan["candidates"]
     out, data = server.run("place_object", {"location": d, "slot": "free", "scan": scan, "object": plate, "check_only": True})
+    if repickable_only:
+        assert out.error_code == "NO_FREE_SPACE", out.reason
+        assert srv.robot.log == [] and srv.held is None
+        return
     assert out.success, out.reason
     pose = data["planned_pose"]
     assert pose["position"][:2] == pytest.approx([0.06, 0.232], abs=0.006)

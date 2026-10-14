@@ -2,9 +2,10 @@
 "물건들 랜덤 배치하면서 잘못된 거 있으면 말해줘 — 몽키·캐러멜·차키 올린 상태, 지우개·립밤 위 커버 플레이트"].
   S1(위 칸): 몽키 위 캐러멜 위 차키 — 목표 몽키(치우기 2개) / 차키(맨 위, 바로)
   S2(아래 칸): 덮개 판이 지우개·립밤을 덮음 — 목표 지우개 / 립밤. LIP_YAW=0 이면 판 밑 립밤 각도 모름(10/14 덤프처럼)
-흐름(b_sk unpack·C find_with_unpack 과 같은 순서): 맨 위부터 치울 물체 → place_object free check_only(object) → 놓음(예정 자리)
-→ 다시 → 목표 집기(WALL_TOO_CLOSE 면 벽 넛지 → 다시, 2번까지) → 트레이 → 역순 원복: 원래 자리 check_only(object, pose=origin)
-→ WALL_TOO_CLOSE 면 벽 넛지 → 다시(2번까지). 로봇·비전은 가짜 — 판단만 [추정]. 결과는 실패 단계·코드별.
+흐름(C find_with_unpack 순서 바탕 — **가정 포함, 실제 Runner 런타임 검증 아님**): 맨 위부터 치울 물체 → place_object free check_only(object)
+→ 놓음(예정 자리) → 다시 → 목표 집기(WALL_TOO_CLOSE 면 벽 넛지 → 다시, 2번까지 — 공통 pick 과 같음) → 트레이 → 역순 원복: 원래 자리
+check_only(object, pose=origin) → WALL_TOO_CLOSE 면 벽 넛지 → 다시(2번까지). **원복 넛지는 지금 C 흐름에 없음(C 후속 가정)** —
+지금 Runner 와 같게 보려면 RESTORE_NUDGE=0. OBST_NUDGE·MAKE_ROOM 도 지금 흐름에 없는 가정. 로봇·비전은 가짜 — 판단만 [추정].
 실행 (저장소 루트):  NSIM=200 SEED=1 python3 -m pytest -q -s -p no:cacheprovider practice/B/sim/p2_unpack_sim.py
 설정 비교: MODE=main 이면 10/14 main(pick.axis_swap 끔·place.free_repickable_only 켬) 값으로."""
 import collections, json, math, os, random, sys

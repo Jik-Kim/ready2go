@@ -669,7 +669,7 @@
   },
   {
    "case": "free_slot",
-   "_comment": "slot \"free\" = 서랍 안 빈 자리(core/clear_plan.find_free_pose, scan.target 둘레 비움) 중 놓은 뒤 다시 집을 수 있는 자리를 먼저(place.free_repick_margin_mm·deg 만큼 어긋나도 집혀야 함, #337), 없으면 놓기만 되는 자리(place.free_repickable_only false — 원복 때 WALL_TOO_CLOSE 면 넛지 → 다시 보기 → 집기, true 면 안 씀). 놓을 자리가 없으면 NO_FREE_SPACE(움직이기 전) — slot \"free\", placed_pose = 놓은 자리",
+   "_comment": "slot \"free\" = 서랍 안 빈 자리(core/clear_plan.find_free_pose, scan.target 둘레 비움) 중 놓은 뒤 다시 집을 수 있는 자리만 — place.free_repick_margin_mm·deg 만큼 어긋나도 집혀야 함, 놓기만 되는 자리는 안 씀(make_room 과 다름, #337). 없으면 NO_FREE_SPACE(움직이기 전) — slot \"free\", placed_pose = 놓은 자리",
    "_held": {
     "id": "lip_balm#1",
     "class": "lip_balm"
