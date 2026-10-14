@@ -2521,9 +2521,15 @@ class SkillServer(Node):
         # (보수적). 가림 관계 판단(make_room·select_obstacle)에 이 목록을 다시 쓰지 말 것 — 거기선 모름을 바꾸지 않음 (runner.md 7.1) [A·PM #241]
         objs = [dict(o, occluded_by=list(o.get("occluded_by") or [])) for o in objs]
         tid = (scan.get("target") or {}).get("id") if scan.get("target_found") else None
+        pl = prm.get("place") or {}
+        # 놓은 물체는 나중에 원래 자리로 되돌려야 함(unpack·Runner) → 다시 집을 수 있는 자리만, 비전 오차만큼 어긋나도 집히는 곳
+        # [PC2 10/14 S1 RESTORE_INCOMPLETE: 옆벽 가까이 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE — #196·#260]
         cfg = clp.Config(interior_m=place["interior_m"], frame=loc, size_of=self._size_cached(),
                          round_classes=tuple(prm["pick"].get("round_classes") or ()),
-                         reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(loc) or 0.0) / 1000.0 or None)
+                         reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(loc) or 0.0) / 1000.0 or None,
+                         allow_unpickable_place=not bool(pl.get("free_repickable_only", True)),
+                         repick_margin_mm=float(pl.get("free_repick_margin_mm", 0.0)),
+                         repick_margin_deg=float(pl.get("free_repick_margin_deg", 0.0)))
         pose = clp.find_free_pose(objs, held["id"], [tid] if tid and tid != held["id"] else [], _HeldOracle(self, loc, held), cfg)
         if pose is None:
             return None, plp.Refusal(NO_FREE_SPACE, f"{loc} 안에 {held['class']} 를 놓을 빈 자리 없음")

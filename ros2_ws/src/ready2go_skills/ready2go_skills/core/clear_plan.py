@@ -336,7 +336,9 @@ class Config:
     slack_mm: float = 0.0                    # 넛지·밀기 뒤 여유 — 집기 검사가 딱 통과하는 거리보다 이만큼 더 (실행 값 make_room.slack_mm)
     round_classes: Sequence[str] = ("lip_balm",)
     free_try: int = 60                       # 빈 자리 후보 중 oracle 로 확인할 개수
-    allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선)
+    allow_unpickable_place: bool = True      # 다시 바로 집기 어려운 자리라도 놓을 수 있으면 치움 (목표 꺼내기 우선 — make_room·B clear)
+    repick_margin_mm: float = 0.0            # 다시 집기 검사를 놓을 자리에서 ±이만큼 옮겨서도 (비전 위치 오차) — 0 이면 그 자리만
+    repick_margin_deg: float = 0.0           # 다시 집기 검사를 ±이 각도 돌려서도 (비전 각도 오차)
     neighbor_r_m: float = 0.08               # 목표 둘레 이 거리 안 물체는 옮겨 볼 후보
     avoid_pad_mm: float = 25.0               # 치운 물체를 목표에서 이만큼 떨어뜨려 놓음 (먼저 봄)
     near_pad_mm: float = 5.0                 # 위가 없으면 이만큼까지 가까이 — 목표 집기 손가락 자리를 안 막을 때만
@@ -387,7 +389,8 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
     """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 목표(avoid_ids) 둘레 비움.
     먼저 목표에서 cfg.avoid_pad_mm 떨어진 곳, 없으면 더 가까이(near_pad_mm)도 보되 놓은 물체가 목표를 집을 손가락 자리를
     막지 않는지 집기 검사로 확인 (가운데 가로로 놓인 몽키 위 차키 [P2 시뮬레이션 10/11: 25 mm 비우면 놓을 데가 없음]).
-    놓은 뒤 바로 다시 집을 수 있는 곳을 먼저, 없으면 놓을 수만 있는 곳 (나중에 꺼낼 땐 그때 공간 만들기).
+    놓은 뒤 바로 다시 집을 수 있는 곳을 먼저(cfg.repick_margin_* 가 있으면 그만큼 어긋나도 집히는 곳), 없으면 놓을 수만 있는 곳
+    (cfg.allow_unpickable_place 일 때만 — 되돌려야 하는 unpack·place free 에선 끔: 복구 때 못 집음 [PC2 10/14 #196]).
     다시 집을 때 그리퍼를 기울여야 하는 곳(oracle.last_pick_tilted, 손잡이 쪽 벽 가까이)은 수직으로 집을 곳이 없을 때만 (그때는
     free_try 두 배까지 더 찾아봄 — 후보가 벽에 붙은 자리부터라 손잡이 쪽 벽 자리가 앞에 몰림) —
     기울여 쥔 물체를 다른 자리에 수직으로 놓으면 손 안에서 기울어진 채 놓임 [트윈 재생 10/13 A]."""
@@ -407,7 +410,10 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
             if pad < cfg.avoid_pad_mm and any(_blocks(after, a, held_id, oracle) for a in avoid_ids):
                 continue
             if oracle.pick(after, held_id)[0]:
-                if not getattr(oracle, "last_pick_tilted", False):
+                tilted_here = getattr(oracle, "last_pick_tilted", False)
+                if not _repickable_with_margin(objs, held_id, pose, oracle, cfg):
+                    continue                                 # 경계 자리 — 비전 오차만큼 달라지면 못 집음 (놓기만 되는 자리로도 안 씀)
+                if not tilted_here:
                     return pose
                 tilted = tilted or pose
                 continue
@@ -418,6 +424,22 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
         if fallback is not None:
             return fallback
     return None
+
+
+def _repickable_with_margin(objs, held_id, pose, oracle, cfg) -> bool:
+    """놓은 자리를 다시 볼 때 비전 오차(cfg.repick_margin_mm·deg)만큼 달라져도 다시 집히는지 [PC2 10/14 S1 RESTORE_INCOMPLETE:
+    free 에 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE 로 못 집음 — #196]. 여유가 0 이면 검사 안 함(True)."""
+    m, d = cfg.repick_margin_mm / 1000.0, math.radians(cfg.repick_margin_deg)
+    if m <= 0 and d <= 0:
+        return True
+    x, y = pose["position"][0], pose["position"][1]
+    for dx, dy, dyaw in ((m, 0, 0), (-m, 0, 0), (0, m, 0), (0, -m, 0), (0, 0, d), (0, 0, -d)):
+        if dx == dy == dyaw == 0:
+            continue
+        q = dict(pose, position=[x + dx, y + dy, 0.0], yaw=pose["yaw"] + dyaw)
+        if not oracle.pick(_relocated(objs, held_id, q, cfg.size_of), held_id)[0]:
+            return False
+    return True
 
 
 def _blocks(objs, tid, placed_id, oracle) -> bool:
