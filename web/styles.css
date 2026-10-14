@@ -833,6 +833,12 @@ td {
   text-align: center;
 }
 
+/* author display 규칙이 HTML hidden 속성을 덮어쓰지 않게 사진·빈 상태를 확실히 숨긴다. */
+.capture-empty[hidden],
+.capture-viewport img[hidden] {
+  display: none;
+}
+
 .capture-empty strong {
   font-size: 1rem;
 }

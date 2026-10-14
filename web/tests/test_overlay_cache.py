@@ -124,8 +124,8 @@ def test_metadata_separates_capture_time_from_web_receipt_time() -> None:
     )
 
     # 합의 전 기본값 None과 임시 10분 기준을 각각 조회한다.
-    undecided = cache.get_metadata(BASE_TIME)
-    decided = cache.get_metadata(BASE_TIME, stale_after_sec=600)
+    undecided = cache.get_metadata(BASE_TIME, capture_time_is_utc=True)
+    decided = cache.get_metadata(BASE_TIME, stale_after_sec=600, capture_time_is_utc=True)
 
     assert undecided["image_available"] is True
     assert undecided["capture_age_sec"] == pytest.approx(1_199.5)
@@ -141,6 +141,43 @@ def test_metadata_separates_capture_time_from_web_receipt_time() -> None:
     }
     # JSON 메타데이터에는 JPEG 본문을 넣지 않는다.
     assert "jpeg" not in decided
+
+
+def test_non_utc_capture_clock_does_not_create_misleading_wall_time_or_age() -> None:
+    """sim stamp를 1970년 UTC나 매우 오래된 사진으로 잘못 표시하지 않는다."""
+    cache = make_cache()
+    cache.update(b"sim-jpeg", 15, 0, BASE_TIME, "camera_color", generation_id="sim-1")
+
+    metadata = cache.get_metadata(BASE_TIME, stale_after_sec=10)
+
+    assert metadata["captured_stamp"] == {"sec": 15, "nanosec": 0}
+    assert metadata["captured_at"] is None
+    assert metadata["capture_age_sec"] is None
+    assert metadata["receive_age_sec"] == pytest.approx(0.0)
+    assert metadata["stale"] is False
+
+
+def test_new_publisher_generation_accepts_a_lower_capture_stamp() -> None:
+    """publisher 재기동이나 sim 시간 초기화 뒤에도 새 촬영을 받을 수 있다."""
+    cache = make_cache()
+    cache.update(b"old-generation", 100, 0, BASE_TIME, "camera_color", generation_id=b"gid-a")
+
+    stored = cache.update(
+        b"new-generation",
+        1,
+        0,
+        BASE_TIME + timedelta(seconds=1),
+        "camera_color",
+        generation_id=b"gid-b",
+    )
+    latest = cache.get_latest()
+
+    assert stored is True
+    assert latest is not None
+    assert latest.jpeg == b"new-generation"
+    assert latest.captured_stamp_sec == 1
+    # revision은 브라우저 캐시 무효화 값이므로 기동이 바뀌어도 다시 1이 되지 않는다.
+    assert latest.revision == 2
 
 
 def test_concurrent_updates_keep_the_newest_capture_stamp() -> None:

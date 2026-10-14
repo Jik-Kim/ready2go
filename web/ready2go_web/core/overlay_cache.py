@@ -77,6 +77,8 @@ class OverlayCache:
         self._utcnow = utcnow
         # 촬영 결과가 오기 전에는 명시적으로 None을 유지해 빈 상태를 구분한다.
         self._latest: OverlaySnapshot | None = None
+        # 같은 촬영 stamp의 대소 비교가 유효한 publisher 기동 세대를 따로 기억한다.
+        self._generation_id: str | bytes | None = None
         # revision은 사진이 실제로 교체된 횟수이며 최초 저장 결과는 1이 된다.
         self._revision = 0
 
@@ -87,6 +89,8 @@ class OverlayCache:
         captured_stamp_nanosec: int,
         received_at: datetime | None,
         frame_id: str,
+        *,
+        generation_id: str | bytes | None = None,
     ) -> bool:
         """더 최신인 촬영 결과만 저장하고 실제 교체 여부를 반환한다."""
         # bytearray와 memoryview도 받되 저장 전 bytes로 복사해 호출자의 변경을 차단한다.
@@ -104,8 +108,17 @@ class OverlayCache:
         # frame_id는 촬영 기준 프레임을 식별해야 하므로 빈 문자열이나 다른 타입을 허용하지 않는다.
         if not isinstance(frame_id, str) or not frame_id.strip():
             raise ValueError("frame_id는 비어 있지 않은 문자열이어야 합니다")
+        # ROS publisher GID처럼 기동 세대를 구분하는 값은 비어 있지 않은 문자열·bytes만 받는다.
+        if generation_id is not None:
+            if not isinstance(generation_id, (str, bytes)) or not generation_id:
+                raise ValueError("generation_id는 비어 있지 않은 문자열 또는 bytes여야 합니다")
 
         with self._lock:
+            # publisher가 바뀌면 ROS/sim 시간이 이전보다 작아질 수 있으므로 과거 기동의
+            # stamp와 비교하지 않는다. revision은 브라우저 URL이 재사용되지 않게 유지한다.
+            if generation_id is not None and generation_id != self._generation_id:
+                self._latest = None
+                self._generation_id = generation_id
             # 기존 사진의 촬영 stamp를 새 stamp와 같은 튜플 형식으로 만든다.
             latest_stamp = (
                 None
@@ -142,12 +155,15 @@ class OverlayCache:
         self,
         now: datetime | None = None,
         stale_after_sec: float | None = None,
+        *,
+        capture_time_is_utc: bool = False,
     ) -> dict[str, object]:
         """JPEG를 제외한 REST 직렬화용 촬영 메타데이터를 반환한다.
 
-        ``now``는 촬영 stamp와 같은 시간 기준이어야 한다. real 환경에서는 UTC wall
-        clock을 사용할 수 있지만, sim time을 사용할 때는 호출자가 같은 ROS 시간 기준을
-        변환해 전달해야 한다. 오래됨 기준이 미확정이면 ``stale_after_sec=None``으로 둔다.
+        ``now``는 웹 서버의 UTC 시각이다. 카메라 stamp도 같은 UTC wall clock이라는
+        근거가 있을 때만 ``capture_time_is_utc=True``로 촬영 시각·나이를 계산한다.
+        sim time처럼 기준이 다르면 원본 stamp만 제공하고 파생 시각·나이는 ``None``이다.
+        오래됨 기준이 미확정이면 ``stale_after_sec=None``으로 둔다.
         """
         # 수신 나이와 촬영 나이를 같은 조회 시점에서 계산하도록 now를 한 번만 읽는다.
         current = _require_aware(now or self._utcnow(), field_name="now")
@@ -156,6 +172,8 @@ class OverlayCache:
             if isinstance(stale_after_sec, bool) or stale_after_sec <= 0:
                 raise ValueError("stale_after_sec은 0보다 커야 합니다")
             stale_after_sec = float(stale_after_sec)
+        if not isinstance(capture_time_is_utc, bool):
+            raise TypeError("capture_time_is_utc는 bool이어야 합니다")
 
         # 잠금 구간을 짧게 유지하기 위해 불변 복사본을 얻은 뒤 시간 계산을 수행한다.
         latest = self.get_latest()
@@ -174,17 +192,26 @@ class OverlayCache:
                 "stale": False,
             }
 
-        # 표시용 촬영 시각을 만들되 정확한 나노초 값은 captured_stamp에 그대로 보존한다.
-        captured_at = _stamp_as_datetime(
-            latest.captured_stamp_sec,
-            latest.captured_stamp_nanosec,
+        # UTC wall clock이라는 근거가 없으면 sim stamp를 1970년 시각으로 오해하지 않는다.
+        captured_at = (
+            _stamp_as_datetime(latest.captured_stamp_sec, latest.captured_stamp_nanosec)
+            if capture_time_is_utc
+            else None
         )
-        # PC 시계가 뒤로 조정돼도 UI에 음수 나이를 노출하지 않는다.
-        capture_age_sec = max(0.0, (current - captured_at).total_seconds())
+        # PC 시계와 같은 기준일 때만 경과 시간을 계산하며 음수 값은 노출하지 않는다.
+        capture_age_sec = (
+            max(0.0, (current - captured_at).total_seconds())
+            if captured_at is not None
+            else None
+        )
         # 웹 수신 나이는 ROS stamp가 아니라 실제 브리지 수신 시각을 기준으로 별도 계산한다.
         receive_age_sec = max(0.0, (current - latest.received_at).total_seconds())
         # 기준이 합의되지 않은 None 상태에서는 사진을 임의로 오래됐다고 판정하지 않는다.
-        stale = bool(stale_after_sec is not None and capture_age_sec > stale_after_sec)
+        stale = bool(
+            stale_after_sec is not None
+            and capture_age_sec is not None
+            and capture_age_sec > stale_after_sec
+        )
 
         return {
             "image_available": True,
@@ -192,7 +219,7 @@ class OverlayCache:
                 "sec": latest.captured_stamp_sec,
                 "nanosec": latest.captured_stamp_nanosec,
             },
-            "captured_at": _isoformat_utc(captured_at),
+            "captured_at": _isoformat_utc(captured_at) if captured_at is not None else None,
             "received_at": _isoformat_utc(latest.received_at),
             "capture_age_sec": capture_age_sec,
             "receive_age_sec": receive_age_sec,
