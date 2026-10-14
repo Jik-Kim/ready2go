@@ -511,21 +511,53 @@ class SkillServer(Node):
         """W1 결과 dict (core/safe_state.build_state). 모르는 값은 None. hold: 쥔 기억 대신 볼 기록(W2 가 hold_unknown 을 다시 볼 때).
         in_gate: 복구(W2)가 gate 를 잡은 채 부름 — 그 gate 는 동작 실행이 아님."""
         g = self.prm()["gripper"]
-        robot_state = self.robot.state()
-        try:
-            motion_state = self.state()
-        except Exception:                                    # 상태 조회 실패 — 모름
-            motion_state = None
+
+        def motion():
+            """(DSR 상태, 관절 변화까지 본 상태) — MotionState 는 직전 조회 뒤 관절이 바뀌었으면 이동 중."""
+            rs = self.robot.state()
+            try:
+                return rs, self.state()
+            except Exception:                                # 상태 조회 실패 — 모름
+                return rs, None
+
+        def still(rs, ms):
+            return rs is not None and ms is not None and sf.STATE_MOVING not in (rs, ms)
+        robot_state, motion_state = motion()
         names = self.robot.tool_names()
         tool_ok = None if None in names else motion_guard.check_tool(*names, self.expected_tcp, self.expected_tool) is None
         width, detected, safety = self._read_gripper()
+        busy = self.gate.busy() and not in_gate
+        force, force_n = None, None
+        if still(robot_state, motion_state) and not busy:   # 지속 외력: 멈춘 채 판정 창 동안 읽기만 (동작 중이면 모름)
+            fp = self.prm().get("safe_state") or {}
+            hz, hold_s = float(fp.get("external_force_rate_hz", 20.0)), float(fp.get("external_force_hold_s", 0.5))
+            need = max(1, int(round(hold_s * hz)))
+            samples, steady = [], True
+            for k in range(need):
+                samples.append(self.robot.tool_force())
+                # 읽을 때마다 상태·관절도 — 창 도중 움직였다가(모르다가) 끝 전에 돌아와도 버림 [E #335 재리뷰 P1: 창 전·후만 읽으면
+                # 두 번째 읽기에 이동·여덟 번째에 원래 관절로 돌아온 경우 stopped=true·external_force=false 로 잠금 해제]
+                if not still(*motion()) or (self.gate.busy() and not in_gate):
+                    steady = False
+                    break
+                if k + 1 < need:
+                    time.sleep(1.0 / hz)
+            force, force_n = (ss_.external_force_view(samples, float(fp.get("external_force_n", 5.0)), need) if steady
+                              else (None, None))
+            # 창이 끝난 뒤 다시 읽음 — 창 도중 조그·외부 제어로 움직이기 시작했으면 stopped 는 그 값(이동 중·모름), 외력 판정은 버림
+            # [nomal-npc #335 리뷰 P1: 창 전 한 번만 읽어 창 도중 이동을 못 보고 stopped=true·external_force=false 로 잠금 해제]
+            robot_state, motion_state = motion()
+            busy = self.gate.busy() and not in_gate          # 창 도중 다른 스킬 동작이 시작됐을 수도
+            if busy or not still(robot_state, motion_state):
+                force, force_n = None, None
         grip = ss_.gripper_view(width_m=width, grasp_detected=detected, safety_error=safety,
                                 held=hold if hold is not None else self.held,
                                 hold_unknown=None if hold is not None else getattr(self, "hold_unknown", None),
                                 min_width_m=float(g["min_width_m"]), slip_tolerance_m=float(g["slip_tolerance_m"]))
-        return ss_.build_state(robot_state=robot_state, motion_state=motion_state, busy=self.gate.busy() and not in_gate, tool_ok=tool_ok,
+        return ss_.build_state(robot_state=robot_state, motion_state=motion_state, busy=busy, tool_ok=tool_ok,
                                gripper=grip, gripper_read=width is not None, locked=self.locked, disp=self._drawer_disp(),
-                               stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds"))
+                               stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds"),
+                               external_force=force, external_force_n=force_n)
 
     def _drawer_disp(self):
         """W1 drawers — 서랍마다 서버가 기억한 인출 거리(m). 연 적 없는 서랍은 0.0 (서버는 닫힌 서랍에서 시작한다고 봄 — README 시작 조건)

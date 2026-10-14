@@ -7,6 +7,7 @@ B 복구(W2)는 B 서버 잠금(이동 확인 실패 `LOCKING_CODES`)과 쥐었�
 """
 from __future__ import annotations
 
+import math
 from typing import Mapping, Optional
 
 from . import grasp_check as gc
@@ -73,16 +74,41 @@ def unknown_hold_decision(*, width_m: Optional[float], record: Mapping, min_widt
     return {gc.HELD: "restore", gc.DROPPED: "empty"}.get(h.reason)
 
 
+def external_force_view(samples, threshold_n: float, need: int):
+    """지속 외력 판정 [B 실측 10/13 일지 32: 정지 중 |F| ≤ 약 2.8 N, 손으로 지그시 밀기 10~24 N] → (external_force, 창 안 |F| 최소 N).
+    samples = 판정 창(external_force_hold_s) 동안 읽은 툴 힘 [fx, fy, fz, …] 목록. 하나라도 못 읽었거나(None·NaN·3축 미만) need 개보다 적으면
+    (None, None) — 모름. 모두 |F| > threshold_n 이면 True(지속 외력), 아니면 False. |F| = 힘 3축 크기 (모멘트 안 봄)."""
+    if samples is None or len(samples) < max(1, int(need)):
+        return None, None
+    mags = []
+    for f in samples:
+        try:
+            axes = [float(v) for v in list(f)[:3]]
+        except (TypeError, ValueError):
+            return None, None
+        if len(axes) < 3:                                   # 축이 빠진 응답을 0 으로 보지 않음 [E #335 리뷰 P2]
+            return None, None
+        m = math.sqrt(sum(v * v for v in axes))
+        if not math.isfinite(m):
+            return None, None
+        mags.append(m)
+    low = min(mags)
+    return bool(low > float(threshold_n)), round(low, 2)
+
+
 def build_state(*, robot_state: Optional[int], motion_state: Optional[int], busy: bool, tool_ok: Optional[bool],
-                gripper: dict, gripper_read: bool, locked: Optional[str], disp: Mapping, stamp: str) -> dict:
+                gripper: dict, gripper_read: bool, locked: Optional[str], disp: Mapping, stamp: str,
+                external_force: Optional[bool] = None, external_force_n: Optional[float] = None) -> dict:
     """W1 결과 (#271 칸): stopped·external_force·sensors_ok·comm_ok·controller_ready·estop_active·tcp_tool_ok·gripper·drawers·
     b_locked·stamp + 참고(robot_state·b_lock_reason·busy).
     robot_state: DSR GetRobotState 원값(None = 조회 실패). motion_state: 관절 변화까지 본 값(skill_flow.MotionState).
-    busy: 스킬 동작 실행 중(MotionGate). 지속 외력은 판정 기준 미실측이라 None [P2 체크리스트 5절 — 임계·유지 시간 B 실측 필요]."""
+    busy: 스킬 동작 실행 중(MotionGate). external_force: external_force_view 판정(멈춤이 아니거나 못 읽으면 None)."""
     known = robot_state is not None and motion_state is not None
+    stopped = (not busy and motion_state != STATE_MOVING and robot_state != STATE_MOVING) if known else None
     return {
-        "stopped": (not busy and motion_state != STATE_MOVING and robot_state != STATE_MOVING) if known else None,
-        "external_force": None,
+        "stopped": stopped,
+        "external_force": external_force if stopped else None,      # 멈춘 상태에서만 판정 (움직이면 관성·가감속이 섞임)
+        "external_force_n": external_force_n if stopped else None,
         "sensors_ok": gripper_read and gripper.get("reason") not in ("RG2 안전 오류", "그리퍼 폭 이상"),
         "comm_ok": robot_state is not None and gripper_read,
         "controller_ready": (robot_state == STANDBY) if robot_state is not None else None,
@@ -99,13 +125,14 @@ def build_state(*, robot_state: Optional[int], motion_state: Optional[int], busy
 
 
 def recover_blockers(state: Mapping) -> list:
-    """B 복구(W2)로 잠금을 풀기 전 조건 — 로봇이 멈춰 있고 비상정지 아니고 제어기 준비·툴 일치·통신·센서 정상,
+    """B 복구(W2)로 잠금을 풀기 전 조건 — 로봇이 멈춰 있고 비상정지 아니고 제어기 준비·툴 일치·통신·센서 정상·지속 외력 없음,
     그리퍼 상태를 앎(holding|empty). 모르는 값(None)은 통과로 보지 않음. 빈 목록이면 복구 가능.
     센서 오류·그리퍼 모름이면 쥔 기록 유무와 무관하게 막음 [E #297 리뷰 P1: RG2 safety_error 인데 MOVE_UNCONFIRMED 잠금을 풂]."""
     out = []
     for key, want, code in (("stopped", True, "NOT_STOPPED"), ("estop_active", False, "ESTOP_ACTIVE"),
                             ("controller_ready", True, "CONTROLLER_NOT_READY"), ("tcp_tool_ok", True, "TOOL_MISMATCH"),
-                            ("comm_ok", True, "COMM_FAILED"), ("sensors_ok", True, "SENSOR_INVALID")):
+                            ("comm_ok", True, "COMM_FAILED"), ("sensors_ok", True, "SENSOR_INVALID"),
+                            ("external_force", False, "EXTERNAL_FORCE")):
         v = state.get(key)
         if v is None:
             out.append(f"{key.upper()}_UNKNOWN")
@@ -139,6 +166,8 @@ def response_errors(service: str, success: bool, message: Mapping) -> list:
             errs.append("W2 복구면 code \"\"·blockers []")
         if st.get("b_locked") or (st.get("gripper") or {}).get("state") not in ("holding", "empty"):
             errs.append("W2 복구 뒤 state 는 B 잠금 없음·그리퍼 앎")
+        if st.get("external_force") is not False:
+            errs.append("W2 복구 뒤 state 는 지속 외력 없음(false)")
     else:
         b = message.get("blockers") or []
         if not b or message.get("code") != b[0]:

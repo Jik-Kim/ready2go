@@ -94,6 +94,10 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
 carry:                            # 집은 뒤 → 트레이 직선 블렌딩 (poses.yaml carry_line) [사용자 10/06 저녁]
   radius_mm: 100.0              # 경유점 모서리 블렌딩 반지름 (마지막 놓는 자리는 0 = 정확히 정지). 20 → 50 [사용자 10/07 "덜컹"] → 100 [사용자 10/08]. 구간이 짧으면 앞뒤 구간 절반의 90% 까지 (motion_plan.safe_blend_radii)
   pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤
+safe_state:                       # W1 /skills/check_state 지속 외력 판정 [실측 PC2 10/13 일지 32, scripts/force_log.py] — 로봇 명령 없음(읽기만)
+  external_force_n: 5.0           # |F| 이 이보다 크면 외력. 정지 중 잡음 ≤ 1 N + 영점 치우침 약 1.8 N(쥔 채), 손으로 지그시 밀기 10~24 N [실측]
+  external_force_hold_s: 0.5      # 이 시간 동안 계속 넘어야 true (W1 응답이 이만큼 늦어짐)
+  external_force_rate_hz: 20.0    # 읽기 주기 [실측 50 ms 간격·실패 0]
 force:                            # 힘 기준값 (scripts/b_demo.py 와 같음)
   tare_settle_s: 0.7            # 멈춘 뒤 기다림
   tare_samples: 10              # 평균 낼 횟수

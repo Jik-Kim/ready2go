@@ -3300,8 +3300,16 @@ def _safe_state_cases(server):
         out[(name, case)] = (resp.success, json.loads(resp.message))
     unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
     real_state = srv.robot.state
+    rest = lambda p: [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]                             # noqa: E731 — 정지 중 영점 치우침 |F| 1.81 N [실측 10/13 일지 32]
+    push = lambda p: [-12.0, 10.5, -0.5, 0.0, 0.0, 0.0]                             # noqa: E731 — 손으로 지그시 밀기 |F| 약 16 N
+    srv.robot.force = rest
     server.Gripper.width = 0.9
     put("skills_check_state", "stopped_empty", w1())
+    srv.robot.force = push
+    put("skills_check_state", "external_force", w1())
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    put("skills_recover", "refused_external_force", w2())
+    srv.locked, srv.robot.force = None, rest
     srv.held, server.Gripper.width = dict(unknown), 21.0
     put("skills_check_state", "holding_eraser", w1())
     srv.held = None
@@ -3346,6 +3354,99 @@ def test_safe_state_examples_match_node_output(server):
     for k in want:
         assert (got[k][0], _no_stamp(got[k][1])) == (want[k][0], _no_stamp(want[k][1])), k
     assert server.srv.robot.log == []
+
+
+
+def test_check_state_external_force_reads_window_without_motion(server):
+    """W1 external_force [B 실측 10/13 일지 32]: 멈춘 채 safe_state.external_force_hold_s 동안 rate_hz 로 툴 힘을 읽어(로봇 명령 없음)
+    모두 |F| > external_force_n 이면 true. 한 번이라도 못 읽으면 null → W2 는 EXTERNAL_FORCE_UNKNOWN 으로 거절하고 잠금 유지."""
+    srv = _srv_state(server)
+    fp = srv.prm()["safe_state"]
+    need = int(round(fp["external_force_hold_s"] * fp["external_force_rate_hz"]))
+    reads = []
+
+    def force(p):
+        reads.append(1)
+        return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    st = srv.safe_state()
+    assert st["external_force"] is False and st["external_force_n"] == 1.81 and len(reads) == need
+    calls = {"n": 0}
+
+    def flaky(p):
+        calls["n"] += 1
+        return None if calls["n"] == 3 else [-12.0, 10.5, -0.5, 0.0, 0.0, 0.0]
+    srv.robot.force, srv.locked = flaky, "pick_object: MOVE_UNCONFIRMED"
+    r = srv.recover()
+    assert not r["recovered"] and r["blockers"] == ["EXTERNAL_FORCE_UNKNOWN"] and srv.locked
+    assert srv.robot.log == []
+    srv.locked = None
+
+
+def test_external_force_window_rechecks_motion_after(server):
+    """[nomal-npc #335 리뷰 P1] 외력 판정 창(0.5 s) 도중 조그·외부 제어로 로봇이 움직이기 시작하면 창이 끝난 뒤 다시 읽은 상태로
+    stopped false·external_force null → W2 는 잠금을 풀지 않음. 창 전에 한 번만 읽던 때는 stopped true·external_force false 로 풀었음."""
+    srv = _srv_state(server)
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    real_state = srv.robot.state
+    n = {"force": 0}
+
+    def force(p):                                                  # 두 번째 읽기부터 로봇이 움직이는 중 (DSR 상태 2)
+        n["force"] += 1
+        if n["force"] == 2:
+            srv.robot.state = lambda: 2
+        return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    try:
+        r = srv.recover()
+        assert not r["recovered"] and srv.locked
+        assert r["state"]["stopped"] is False and r["state"]["external_force"] is None
+        assert r["blockers"][0] == "NOT_STOPPED" and "EXTERNAL_FORCE_UNKNOWN" in r["blockers"]
+        srv.robot.state, n["force"] = real_state, 0                 # 창 도중 관절이 바뀐 경우 (DSR 상태는 대기 그대로)
+
+        def nudge(p):
+            n["force"] += 1
+            if n["force"] == 2:
+                srv.robot.j = [v + 0.5 for v in srv.robot.j]
+            return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+        srv.robot.force = nudge
+        st = srv.safe_state()
+        assert st["stopped"] is False and st["external_force"] is None
+        assert srv.robot.log == []
+    finally:
+        srv.robot.state, srv.locked = real_state, None
+
+@pytest.mark.parametrize("case", ["moving", "unknown", "joints"])
+def test_external_force_window_rejects_motion_that_returns_before_end(server, case):
+    """[E #335 재리뷰 P1, head e3964d1] 창 도중 움직였다가(또는 상태를 못 읽다가) 창 끝 전에 원래 대기·관절로 돌아오면 창 전·후만
+    읽어서는 못 봄 → 잠금 해제였음. 힘 읽을 때마다 상태·관절도 읽어 한 번이라도 멈춤이 아니면 그 창은 버림(외력 null) → W2 거절.
+    경우마다 새 서버(상태·관절·MotionState 이력 따로) [E 재리뷰 P3]."""
+    srv = _srv_state(server)
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    real_state, real_j = srv.robot.state, list(srv.robot.j)
+    go, back = {
+        "moving": (lambda: setattr(srv.robot, "state", lambda: 2), lambda: setattr(srv.robot, "state", real_state)),
+        "unknown": (lambda: setattr(srv.robot, "state", lambda: None), lambda: setattr(srv.robot, "state", real_state)),
+        "joints": (lambda: setattr(srv.robot, "j", [v + 0.5 for v in real_j]), lambda: setattr(srv.robot, "j", list(real_j))),
+    }[case]
+    n = {"force": 0}
+
+    def force(p):                                                  # 두 번째 읽기에 움직이고(모르고) 여덟 번째에 원래대로
+        n["force"] += 1
+        if n["force"] == 2:
+            go()
+        elif n["force"] == 8:
+            back()
+        return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    try:
+        r = srv.recover()
+        assert n["force"] == 2                                      # 창 안 주입 샘플까지 갔고, 거기서 창을 버림(끝 전 복귀를 기다리지 않음)
+        assert not r["recovered"] and srv.locked
+        assert r["state"]["external_force"] is None and "EXTERNAL_FORCE_UNKNOWN" in r["blockers"], r
+        assert srv.robot.log == []
+    finally:
+        srv.robot.state, srv.robot.j, srv.locked = real_state, real_j, None
 
 
 def test_recover_reads_state_once_and_changes_nothing_on_error(server):

@@ -1,7 +1,7 @@
 {
   "service": "/skills/check_state",
   "type": "std_srvs/srv/Trigger",
-  "note": "W1 무동작 안전 상태 조회. success = 조회 끝남(값이 좋은지와 무관). message 는 아래 JSON 을 문자열로 담음. 스키마 ../skills_safe_state.schema.json (#/$defs/check_state·check_state_error). 계약안 #297 (B 제안, C 확인·E 포함 2명 승인 전, P2). 실물 출력 아님 — B 노드 시험(test_safe_state_examples_match_node_output)이 가짜 로봇으로 같은 출력을 확인(stamp 제외)",
+  "note": "W1 무동작 안전 상태 조회. success = 조회 끝남(값이 좋은지와 무관). message 는 아래 JSON 을 문자열로 담음. 스키마 ../skills_safe_state.schema.json (#/$defs/check_state·check_state_error). 계약안 #297 머지 10/13, external_force 판정은 B 제안(E 포함 2명 승인 전, P2). 실물 출력 아님 — B 노드 시험(test_safe_state_examples_match_node_output)이 가짜 로봇으로 같은 출력을 확인(stamp 제외)",
   "cases": [
     {
       "case": "stopped_empty",
@@ -9,7 +9,8 @@
       "success": true,
       "message": {
         "stopped": true,
-        "external_force": null,
+        "external_force": false,
+        "external_force_n": 1.81,
         "sensors_ok": true,
         "comm_ok": true,
         "controller_ready": true,
@@ -39,7 +40,8 @@
       "success": true,
       "message": {
         "stopped": true,
-        "external_force": null,
+        "external_force": false,
+        "external_force_n": 1.81,
         "sensors_ok": true,
         "comm_ok": true,
         "controller_ready": true,
@@ -69,7 +71,8 @@
       "success": true,
       "message": {
         "stopped": true,
-        "external_force": null,
+        "external_force": false,
+        "external_force_n": 1.81,
         "sensors_ok": true,
         "comm_ok": true,
         "controller_ready": false,
@@ -94,12 +97,44 @@
       }
     },
     {
+      "case": "external_force",
+      "desc": "사람이 그리퍼를 손으로 지그시 미는 중 — 0.5 s 동안 |F| 가 모두 5 N 초과(최소 15.95 N) → external_force true. 정지 중 값은 |F| 약 1.8 N(영점 치우침, 실측 10/13) → false",
+      "success": true,
+      "message": {
+        "stopped": true,
+        "external_force": true,
+        "external_force_n": 15.95,
+        "sensors_ok": true,
+        "comm_ok": true,
+        "controller_ready": true,
+        "estop_active": false,
+        "tcp_tool_ok": true,
+        "gripper": {
+          "state": "empty",
+          "held_id": null,
+          "width_m": 0.0009,
+          "grasp_detected": true,
+          "reason": ""
+        },
+        "drawers": {
+          "drawer_bottom": 0.0,
+          "drawer_top": 0.226
+        },
+        "b_locked": false,
+        "b_lock_reason": null,
+        "robot_state": 1,
+        "busy": false,
+        "stamp": "2026-10-13T07:20:00.000+00:00"
+      }
+    },
+    {
       "case": "hold_unknown_locked",
       "desc": "재시작 때 폭을 못 읽어 쥐었는지 모름 + B 잠금(MOVE_UNCONFIRMED) — gripper.state null, b_locked true. W2 필요",
       "success": true,
       "message": {
         "stopped": true,
-        "external_force": null,
+        "external_force": false,
+        "external_force_n": 1.81,
         "sensors_ok": true,
         "comm_ok": true,
         "controller_ready": true,

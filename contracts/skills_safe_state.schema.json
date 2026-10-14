@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "B 무동작 안전 상태 조회 W1 /skills/check_state · B 복구 W2 /skills/recover — 응답 message JSON",
-  "description": "두 서비스 모두 std_srvs/srv/Trigger (요청 비어 있음). 응답 message 는 아래 JSON 을 문자열로 담음. 로봇·그리퍼 명령 없음. 계약안 #297 (B 제안, C 확인·E 포함 2명 승인 전, P2). 예시: examples/skills_check_state.json·skills_recover.json. 문서: ros2_ws/src/ready2go_skills/README.md W1·W2, docs/interfaces.md.",
+  "description": "두 서비스 모두 std_srvs/srv/Trigger (요청 비어 있음). 응답 message 는 아래 JSON 을 문자열로 담음. 로봇·그리퍼 명령 없음. 계약안 #297 머지 10/13, external_force 판정은 B 제안(E 포함 2명 승인 전, P2). 예시: examples/skills_check_state.json·skills_recover.json. 문서: ros2_ws/src/ready2go_skills/README.md W1·W2, docs/interfaces.md.",
   "oneOf": [
     {"$ref": "#/$defs/check_state"},
     {"$ref": "#/$defs/check_state_error"},
@@ -13,11 +13,12 @@
       "description": "W1 success=true (조회 끝남 — 값이 좋은지와 무관). 모르는 값은 null, null 을 허가로 보지 않음.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["stopped", "external_force", "sensors_ok", "comm_ok", "controller_ready", "estop_active", "tcp_tool_ok",
+      "required": ["stopped", "external_force", "external_force_n", "sensors_ok", "comm_ok", "controller_ready", "estop_active", "tcp_tool_ok",
                    "gripper", "drawers", "b_locked", "b_lock_reason", "robot_state", "busy", "stamp"],
       "properties": {
         "stopped": {"type": ["boolean", "null"], "description": "스킬 동작 실행 중 아님 + DSR 상태가 이동 중(2) 아님 + 관절 변화 없음. 로봇 상태를 못 읽으면 null"},
-        "external_force": {"type": "null", "description": "지속 외력 — 판정 기준(임계·유지 시간) 실측 전이라 항상 null. 실물 복구 완료로 해석하지 않음"},
+        "external_force": {"type": ["boolean", "null"], "description": "지속 외력 — 멈춘 상태에서 safe_state.external_force_hold_s 동안 external_force_rate_hz 로 읽은 툴 힘 |F|(3축)이 모두 external_force_n 보다 크면 true, 아니면 false (값은 B params/skills.yaml safe_state, 근거 B 실측 10/13 일지 32). 창 전·힘 읽을 때마다·창 뒤 읽은 상태·관절이 한 번이라도 멈춤이 아니거나(창 도중 조그·외부 제어로 움직였다 돌아온 경우 포함)·동작 중·한 번이라도 못 읽음(3축 미만 포함)이면 null. 값은 B params/skills.yaml safe_state"},
+        "external_force_n": {"type": ["number", "null"], "minimum": 0, "description": "판정 창 안 |F| 최소값(N) — 참고용, 판정은 external_force. external_force 가 null 이면 null"},
         "sensors_ok": {"type": "boolean", "description": "RG2 를 읽었고 안전 오류 없음·폭 정상 범위"},
         "comm_ok": {"type": "boolean", "description": "로봇 상태와 RG2 를 둘 다 읽음"},
         "controller_ready": {"type": ["boolean", "null"], "description": "DSR 상태가 대기(1). 못 읽으면 null"},
@@ -82,8 +83,8 @@
     "blocker": {
       "enum": ["BUSY", "NOT_STOPPED", "ESTOP_ACTIVE", "CONTROLLER_NOT_READY", "TOOL_MISMATCH", "COMM_FAILED", "SENSOR_INVALID",
                "STOPPED_UNKNOWN", "ESTOP_ACTIVE_UNKNOWN", "CONTROLLER_READY_UNKNOWN", "TCP_TOOL_OK_UNKNOWN", "COMM_OK_UNKNOWN",
-               "SENSORS_OK_UNKNOWN", "GRIPPER_UNKNOWN", "HOLD_UNCERTAIN"],
-      "description": "BUSY 다른 동작 실행 중 · <칸>_UNKNOWN 그 칸 null · GRIPPER_UNKNOWN 그리퍼 상태 모름 · HOLD_UNCERTAIN 쥐었는지 모름 기록인데 지금 폭이 저장 폭과 다르고 빈손 닫힘도 아님 (기록·잠금 유지)"
+               "SENSORS_OK_UNKNOWN", "GRIPPER_UNKNOWN", "HOLD_UNCERTAIN", "EXTERNAL_FORCE", "EXTERNAL_FORCE_UNKNOWN"],
+      "description": "BUSY 다른 동작 실행 중 · <칸>_UNKNOWN 그 칸 null · GRIPPER_UNKNOWN 그리퍼 상태 모름 · HOLD_UNCERTAIN 쥐었는지 모름 기록인데 지금 폭이 저장 폭과 다르고 빈손 닫힘도 아님 (기록·잠금 유지) · EXTERNAL_FORCE 지속 외력 있음 · EXTERNAL_FORCE_UNKNOWN 외력 판정 못 함(멈춤 아님·힘 못 읽음)"
     }
   }
 }
