@@ -1,12 +1,14 @@
 """hunt_cases.py 결과(hunt/hunt_*.json) 묶기 — 실패를 ① 기존 난제 ② 새 물리 난제 후보 ③ B 계획 빈틈(코드로 풀 수 있음)으로.
 
 같은 seed·mode 로 배치를 다시 만들어 실패 순간을 재생하고, 막는 물체를 따로 집을 수 있는지 B 판단으로 확인.
-  python3 practice/B/ontology/analyze_hunt.py            → hunt/summary.json + 표 출력
+  python3 practice/B/ontology/analyze_hunt.py --one practice/B/ontology/hunt/hunt_<mode>_<seed>.json   (파일마다, 병렬로 돌려도 됨)
+  python3 practice/B/ontology/analyze_hunt.py            → ana_*.json 합쳐 hunt/summary.json + 표 출력
 """
 import sys, json, glob, random, dataclasses, collections
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+ARGS = sys.argv[1:]
 sys.argv = [sys.argv[0], "0", "1"]
 sys.path.insert(0, str(HERE.parent / "sim"))
 import clear_sim as cs  # noqa: E402
@@ -78,39 +80,53 @@ def bucket(r, rp):
     return "other", f"{code} {pat}"
 
 
+
+def one(f):
+    """파일 하나 재생 → hunt/ana_<이름>.json."""
+    d = json.load(open(f))
+    want = collections.defaultdict(list)
+    for r in d["records"]:
+        want[r["layout"]].append((r["drawer"], r["target"]))
+    rp = replay(d["mode"], d["seed"], want)
+    rows = []
+    for r in d["records"]:
+        x = rp.get((r["layout"], r["drawer"], r["target"]))
+        kind, name = bucket(r, x)
+        rows.append({"mode": d["mode"], "seed": d["seed"], "kind": kind, "name": name, **r, "replay": x})
+    out = HERE / "hunt" / ("ana_" + Path(f).name)
+    out.write_text(json.dumps({"mode": d["mode"], "targets": d["targets"], "ok": d["ok"], "rows": rows}, ensure_ascii=False))
+    print(f"  {Path(f).name} 재생 끝", flush=True)
+
+
 def main():
-    files = sorted(glob.glob(str(HERE / "hunt" / "hunt_*.json")))
+    if ARGS[:1] == ["--one"]:
+        return one(ARGS[1])
     total = ok = 0
     groups = collections.Counter()
     by_mode = collections.defaultdict(collections.Counter)
+    mode_tot = collections.Counter()
     examples = {}
-    for f in files:
+    for f in sorted(glob.glob(str(HERE / "hunt" / "ana_hunt_*.json"))):
         d = json.load(open(f))
-        if "records" not in d:
-            continue
         total += d["targets"]
         ok += d["ok"]
-        want = collections.defaultdict(list)
-        for r in d["records"]:
-            want[r["layout"]].append((r["drawer"], r["target"]))
-        rp = replay(d["mode"], d["seed"], want)
-        for r in d["records"]:
-            kind, name = bucket(r, rp.get((r["layout"], r["drawer"], r["target"])))
-            groups[(kind, name)] += 1
-            by_mode[d["mode"]][(kind, name)] += 1
-            examples.setdefault(f"{kind}|{name}", []).append({"mode": d["mode"], "seed": d["seed"], **r,
-                                                              "replay": rp.get((r["layout"], r["drawer"], r["target"]))}) \
-                if len(examples.get(f"{kind}|{name}", [])) < 5 else None
-        print(f"  {Path(f).name} 재생 끝", flush=True)
-    fails = total - ok
-    print(f"\n꺼내기 {total} · 성공 {ok} ({ok / max(total, 1) * 100:.1f}%) · 실패 {fails}")
+        mode_tot[d["mode"]] += d["targets"]
+        for r in d["rows"]:
+            groups[(r["kind"], r["name"])] += 1
+            by_mode[d["mode"]][(r["kind"], r["name"])] += 1
+            ex = examples.setdefault(f"{r['kind']}|{r['name']}", [])
+            if len(ex) < 5:
+                ex.append(r)
+    print(f"\n꺼내기 {total} · 성공 {ok} ({ok / max(total, 1) * 100:.1f}%) · 실패 {total - ok}")
     for kind, title in (("known", "① 기존 난제"), ("new", "② 새 물리 난제 후보"), ("gap", "③ B 계획 빈틈"), ("other", "기타")):
         rows = [(k[1], v) for k, v in groups.most_common() if k[0] == kind]
         print(f"\n{title} — {sum(v for _, v in rows)}")
-        for name, v in rows[:15]:
-            print(f"  {v:5d}  {name}")
+        for name, v in rows[:20]:
+            per = " · ".join(f"{m} {by_mode[m][(kind, name)] / mode_tot[m] * 100:.1f}%" for m in sorted(mode_tot))
+            print(f"  {v:5d}  {name}   ({per})")
     (HERE / "hunt" / "summary.json").write_text(json.dumps({
-        "targets": total, "ok": ok, "groups": {f"{k[0]}|{k[1]}": v for k, v in groups.most_common()},
+        "targets": total, "ok": ok, "mode_targets": dict(mode_tot),
+        "groups": {f"{k[0]}|{k[1]}": v for k, v in groups.most_common()},
         "by_mode": {m: {f"{k[0]}|{k[1]}": v for k, v in c.most_common()} for m, c in by_mode.items()},
         "examples": examples}, ensure_ascii=False, indent=1))
 
