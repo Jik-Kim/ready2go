@@ -9,7 +9,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | 인터페이스 | 이름 | 타입 | 제공 → 사용 |
 | :--- | :--- | :--- | :--- |
 | 인텐트 | `/voice/intent` | topic `std_msgs/String` (JSON) | voice → ros2-core |
-| 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | **P1 구현:** 현재 필드는 `robot_pose`·`gripper`·`open`·`located_in`이며 좌표와 관측 시각은 없음. Runner가 스킬 effect 뒤 기억한 상태로, 관측으로 검증된 현재 상태라는 뜻이 아님. 시연 화면·트윈·voice의 직접 구독은 후속 연결 |
+| 로봇 상태 | `/robot_state` | topic `std_msgs/String` (온톨로지 `state` JSON) | **P1 구현:** 현재 필드는 `robot_pose`·`gripper`·`open`·`located_in`이며 좌표와 관측 시각은 없음. Runner가 스킬 effect 뒤 기억한 상태로, 관측으로 검증된 현재 상태라는 뜻이 아님. Voice는 직접 구독해 기존 위치·개폐 질의에 Runner 기록 기준으로 답함([현재 연결·미검증](voice_llm.md#voice-runtime-322)). 시연 화면·트윈의 직접 구독은 후속 연결 |
 | 생성된 계획 | `/planner/plan` | topic `std_msgs/String` (7.2 형식 JSON) | **토픽 발행·시연 화면 소비 미구현.** P2 플래너 핵심과 `achieve_goal` → Runner 실행 연결은 구현됐으며, 계획은 현재 실행 기록 헤더 `plan`과 콘솔에 남음 |
 | 텍스트 디버그 입력 | `/voice/text_override` | topic `std_msgs/String` | 테스트 → voice |
 | TTS 요청 (`speak` 원자 동작) | `/voice/speak` | action `Skill` | ros2-core → voice |

@@ -13,7 +13,7 @@ class WhisperSTT:
         self.cfg = cfg
         self.clock = clock
         self.prompt = ', '.join(vocabulary)
-        self.control_prompt = cfg.get('stt_control_prompt', '')
+        self.control_prompt = ''  # Independent control must not prime control words.
 
     def transcribe(self, wav_path, timeout, *, before_request=None, context_hint=None, control=False):
         from openai import OpenAI

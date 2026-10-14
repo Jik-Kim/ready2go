@@ -8,6 +8,7 @@ import __future__
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import queue
 import threading
@@ -20,7 +21,7 @@ from ready2go_runner.core.interpreter import Runner, ResumeRejected, ActionResul
 from ready2go_runner.core.logstore import MemoryLogStore
 from ready2go_runner.core.log_records import new_run_id, utc_iso
 from ready2go_runner.core.request_memory import RequestMemory
-from ready2go_runner.core.recovery import MOCK_LIMITS, mock_check, recover_blockers
+from ready2go_runner.core.recovery import MOCK_LIMITS, mock_check, recover_blockers, parse_check
 from ready2go_runner.core.resume_admission import ResumeAdmission, load_limits
 from ready2go_runner.core.runner_status import build_status
 from ready2go_runner.core.start_gate import StartGate, STARTED, CANCELED_BEFORE_START, BUSY
@@ -36,7 +37,12 @@ INFO=dict(source_timestamp=1,received_timestamp=2,publication_sequence_number=1,
 
 def tasks_module():
     spec=importlib.util.spec_from_file_location('_wire_c_tasks',C_PACKAGE/'test/test_tasks.py')
-    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    module=importlib.util.module_from_spec(spec)
+    sys.path.insert(0,str(C_PACKAGE/'test'))  # C #323's real independent fixture import
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(str(C_PACKAGE/'test'))
     return module
 
 
@@ -57,7 +63,8 @@ def controller_class(started):
         ResumeRejected=ResumeRejected,MOCK_LIMITS=MOCK_LIMITS,mock_check=mock_check,
         recover_blockers=recover_blockers,new_run_id=new_run_id,utc_iso=utc_iso,
         build_status=build_status,String=SimpleNamespace,
-        threading=SimpleNamespace(Thread=lambda **kw:SimpleNamespace(start=lambda:started.append(kw))))
+        parse_check=parse_check, Trigger=SimpleNamespace(Request=SimpleNamespace),
+        threading=SimpleNamespace(Event=threading.Event, Thread=lambda **kw:SimpleNamespace(start=lambda:started.append(kw))))
     namespace.update(constants)
     exec(compile(tree,str(source),'exec',flags=__future__.annotations.compiler_flag),namespace)
     return namespace['RunnerNode']
@@ -321,14 +328,16 @@ def test_source_loss_discards_late_actual_sdk_result(node,monkeypatch):
 
 def test_opt_in_off_and_evaluation_do_not_install_runtime_or_publish(node):
     node.cfg['request_run_enabled']=False;node._init_runner_control_source()
-    assert getattr(node,'runner_control_source',None) is None and not node.published
+    assert node.runner_control_source is not None and getattr(node,'control_mapper',None) is None and not node.published
     node.cfg.update(request_run_enabled=True,evaluation_mode=True);node._init_runner_control_source()
-    assert getattr(node,'runner_control_source',None) is None and not node.published
+    assert node.runner_control_source is not None and getattr(node,'control_mapper',None) is None and not node.published
 
 
 
-@pytest.mark.parametrize('backend_code,completed',[('CANCELED',True),('STOP_UNCONFIRMED',False)])
-def test_active_running_voice_end_is_direct_and_waits_for_actual_c_stop(node,monkeypatch,backend_code,completed):
+@pytest.mark.parametrize('backend_code,completed,followup',[
+    ('CANCELED',True,'reset'),('STOP_UNCONFIRMED',False,'reset'),
+    ('STOP_UNCONFIRMED',False,'restop'),('STOP_UNCONFIRMED',False,'restart')])
+def test_active_running_voice_end_is_direct_and_waits_for_actual_c_stop(node,monkeypatch,backend_code,completed,followup):
     monkeypatch.setenv('BACKEND','mock');wire=Wire(node,suspended=False)
     doc=node.session.text('지우개 찾아줘',node.generation);node.deliver(doc);wire.flush()
     target=node.request_run.run_id
@@ -372,5 +381,44 @@ def test_active_running_voice_end_is_direct_and_waits_for_actual_c_stop(node,mon
         assert any(d.get('event')=='task_end_accepted' for d in node.diagnostics)
     else:
         assert wire.c.runner.halt_summary['stop']=='unconfirmed' and wire.c.runner.suspended is not None
-        assert node.pending_task_end is not None
+        assert node.pending_task_end is None and node.deferred_task_end is not None
         assert not any(d.get('event')=='task_end_accepted' for d in node.diagnostics)
+        marker=node.deferred_task_end
+        old_packet=wire.status_packets[-1]
+        wire.c._sent['status']=None;wire.c.publish();wire.flush()
+        assert node.deferred_task_end==marker
+        assert len([d for d in node.diagnostics if d.get('event')=='task_end_deferred'])==1
+        retry=dict(end,request_id='new-end-retry',event_id=wire.c.runner.halt_summary['event_id'])
+        wire.c._on_intent(SimpleNamespace(data=json.dumps(retry)));wire.flush()
+        assert wire.c._last_intent['reason']=='STOP_NOT_CONFIRMED'
+        assert node.deferred_task_end is not None and wire.c.runner.suspended is not None
+        assert not any(d.get('event')=='task_end_accepted' for d in node.diagnostics)
+        node._runner_status_with_info(SimpleNamespace(data=old_packet),dict(INFO))
+        assert node.deferred_task_end is not None
+        if followup=='restop':
+            wire.c._on_intent(SimpleNamespace(data=json.dumps(dict(intent='cancel',confidence=1.,targets=[]))));wire.flush()
+            assert node.deferred_task_end is None and wire.c.runner.halted
+            assert wire.c.runner.suspended is not None and node.notice_policy.blocked
+            assert not any(d.get('event')=='task_end_accepted' for d in node.diagnostics)
+            return
+        if followup=='restart':
+            module=tasks_module()
+            wire.c.runner=Runner(None,schema=module.SCHEMA,ontology=module.ONTOLOGY,
+                log_store=MemoryLogStore(),resumable=True,clock=lambda:node.now[0]+5000.)
+            wire.c._last=None;wire.c._last_intent=None;wire.c._task_id=None;wire.c._last_task_id=None
+            wire.c._state_reset_at=None
+            wire.endpoints=[SimpleNamespace(**dict(wire.endpoint.__dict__,endpoint_gid=bytes([8]*24)))]
+            wire.c.publish();wire.flush()
+            assert node.deferred_task_end is None
+            generation=node.generation
+            node._runner_status_with_info(SimpleNamespace(data=old_packet),dict(INFO))
+            assert node.generation==generation and node.deferred_task_end is None
+            assert not any(d.get('event')=='task_end_accepted' for d in node.diagnostics)
+            return
+        # Actual C human/reset disposal preserves the physical stop/lock warning.
+        response=wire.c._reset_state(SimpleNamespace(),SimpleNamespace());wire.flush()
+        assert response.success and wire.c.runner.suspended is None and wire.c.runner.halted
+        assert node.pending_task_end is None and node.deferred_task_end is None
+        assert node.notice_policy.phase=='halted' and node.notice_policy.blocked
+        assert not any(d.get('event')=='task_end_accepted' for d in node.diagnostics)
+        assert any(d.get('event')=='task_end_discarded' for d in node.diagnostics)

@@ -43,7 +43,7 @@ def test_python_ros_native_and_three_stt_routes_saved_once_and_redacted(trial,no
     writer.close()
     text=logfile.read_text()
     assert text.count('python marker')==text.count('ROS native marker')==1
-    assert text.count('STT 결과:')==3 and secret not in text
+    assert text.count('STT 결과:')==1 and secret not in text  # independent raw transcripts are detail-only
     raw=(tmp_path/'diagnostic.jsonl').read_text();assert secret not in raw
     assert {json.loads(line)['event'] for line in raw.splitlines()}=={'stt_result','stop_stt_result','safety_stt_result'}
 

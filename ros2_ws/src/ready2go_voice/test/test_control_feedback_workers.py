@@ -204,7 +204,8 @@ def test_real_worker_exception_cleanup_and_next_wake(live_boundary, failure):
     h.writer.queue.join()
     detail = h.writer.path.read_text()
     assert secret not in detail and secret not in h.console.getvalue()
-    assert '[REDACTED]' in detail and '[REDACTED]' in h.console.getvalue()
+    assert '[REDACTED]' in detail
+    assert '복구해 [REDACTED]' not in h.console.getvalue()  # raw independent transcript is detail-only
     if failure == 'queued_diagnostic':
         assert 'processing_failed' in detail and '처리 실패: OSError' in h.console.getvalue()
     if failure in ('tts', 'running_diagnostic'):

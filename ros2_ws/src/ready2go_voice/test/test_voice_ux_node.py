@@ -40,6 +40,7 @@ def node_class():
                    decode=decode,identity=identity,question_input=question_input,registered=registered,result_notice=result_notice,
                    IndependentRegistration=IndependentRegistration,QuestionDeclined=QuestionDeclined,RecoveryRequest=RecoveryRequest,
                    GoalResponse=SimpleNamespace(ACCEPT=1,REJECT=0),
+                   String=SimpleNamespace, MutuallyExclusiveCallbackGroup=lambda:object(),
                    Skill=SimpleNamespace(Result=SimpleNamespace))
     exec(compile(tree,str(source),'exec'),namespace)
     return namespace['VoiceNode']
@@ -62,6 +63,11 @@ def node(node_class,ontology,schema,cfg):
     h.busy=threading.Event();h.audio_lock=threading.Lock();h.dialog_lock=threading.Lock()
     h.request_run=RequestRun();h.request_source_check=None;h.request_speech_used=set();h.goal_request_run=None
     h.goal_lock=threading.Lock()
+    h.session.speech_gate=SimpleNamespace(check=lambda *a,**kw:True)  # PCM/VAD is injected in routing tests.
+    h.session.stop_speech_gate=h.session.speech_gate
+    h.declare_parameter=lambda name,default:SimpleNamespace(value=default)
+    h.get_publishers_info_by_topic=lambda topic:[]
+    h.status_subscription=SimpleNamespace(topic_name='/runner/status')
     h.place_condition=threading.Condition(h.submit_lock)
     h.place_exchange=PlaceExchange(cfg,item_names={k:v['name_ko'] for k,v in parser.items.items()})
     h.place_topic='';h.place_pending=h.place_identity=h.place_registered=h.place_registered_at=None

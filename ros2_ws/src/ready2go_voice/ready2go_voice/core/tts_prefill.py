@@ -64,6 +64,7 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     extra = prompts(cfg)
     texts.extend(extra[k] for k in ('no_work','no_end_work','control_held','unknown_state','unknown_recorded_state',
                                   'control_recover','control_resume','control_end','control_failed'))
+    texts.extend(text for key, text in extra.items() if key.startswith('runtime_'))
     for item in items:
         texts.append(extra['availability'].format(item=item['name_ko']))
     if reference_state is not None and places is not None:
@@ -80,6 +81,18 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
                 for prompt in ('initial_open','recorded_open'):
                     opened = get(reference_state,'open',key)
                     texts.append(extra[prompt].format(place=place['name_ko'],place_topic=_particle(place['name_ko'],'은','는'),value=extra['open_true' if opened else 'open_false']))
+        # Runner memory may differ from the initial layout. Prepare the existing
+        # read-only answers for registered items/places and both drawer states.
+        for name in (item_names or {}).values():
+            texts.append(extra['recorded_held'].format(item=name, item_topic=_particle(name,'은','는')))
+            for place in places.values():
+                texts.append(extra['recorded_location'].format(item=name,
+                    item_topic=_particle(name,'은','는'),place=place['name_ko']))
+        for place in places.values():
+            if place.get('class') == 'Drawer':
+                for value in ('open_true','open_false'):
+                    texts.append(extra['recorded_open'].format(place=place['name_ko'],
+                        place_topic=_particle(place['name_ko'],'은','는'),value=extra[value]))
     texts.extend((UNSUPPORTED_ITEM, UNSUPPORTED_REQUEST))
     for item in items:
         name = item['name_ko']

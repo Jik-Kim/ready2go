@@ -110,6 +110,7 @@ class VoiceNode(Node):
         self.stop_processor = None
         self.stop_captures = queue.Queue(maxsize=1)
         self.pending_task_end = None
+        self.deferred_task_end = None
         self.task_end_request = self.task_end_source = None
         self.request_source_boot = None
         self.pending_resume = None
@@ -157,6 +158,8 @@ class VoiceNode(Node):
         self._control_binding = None
         self._control_source_lost = False
         self._init_runner_control_source()
+        self._init_runner_memory(QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                                           reliability=ReliabilityPolicy.RELIABLE))
         if self.place_topic:
             self.place_subscription = self.create_subscription(String, self.place_topic, self._place_input, 10,
                                                                 callback_group=group)
@@ -384,6 +387,7 @@ class VoiceNode(Node):
         self.control_feedback = None
         self.pending_resume = None
         self.pending_task_end = None
+        self.deferred_task_end = None
         self.task_end_request = self.task_end_source = None
         if self.safety_running is None:
             self.safety_activity.clear()
@@ -457,6 +461,10 @@ class VoiceNode(Node):
             return True  # 일반/독립 전사 중복은 새 cancel·후보·TTS를 만들지 않습니다.
         from ready2go_voice.core.hotfix import prompts
         meta = doc.setdefault('_voice', {})
+        if getattr(self, 'deferred_task_end', None) is not None:
+            from ready2go_voice.core.hotfix import control_notice
+            self._task_end_notice_locked(control_notice(self.cfg, 'end_pending', runtime=True))
+            return True  # C still requires human confirmation/reset; no retry/permission.
         p = self.safety_exchange.policy
         if self.notice_policy.phase == 'running':
             check = getattr(self, 'request_source_check', None)
@@ -611,14 +619,42 @@ class VoiceNode(Node):
 
     def running_end_completed(self, candidate):
         pending = getattr(self,'pending_task_end',None)
-        if (pending is None or pending != (candidate,self.generation)
+        deferred = getattr(self, 'deferred_task_end', None)
+        current = pending == (candidate, self.generation) or (deferred is not None
+            and deferred[:2] == (candidate, self.generation))
+        if (not current
                 or not self._request_run_connected()):
             return False
         self.pending_task_end = None
         self._cancel_safety_locked()
         self._diagnostic({'event':'task_end_accepted','reason':'current_c_stop_and_disposal_confirmed'})
-        from ready2go_voice.core.hotfix import prompts
-        self._control_notice_locked('control_end',prompts(self.cfg)['control_end'])
+        from ready2go_voice.core.hotfix import control_notice
+        self._control_notice_locked('control_end',control_notice(self.cfg, 'end', runtime=True))
+        return True
+
+    def running_end_deferred(self, candidate, event_id, request_id):
+        """Unconfirmed is a retained target, not pending success or new permission."""
+        marker = (candidate, self.generation, event_id, request_id)
+        if getattr(self, 'deferred_task_end', None) == marker:
+            return
+        if getattr(self, 'pending_task_end', None) != (candidate, self.generation):
+            return
+        self.pending_task_end = None
+        self.deferred_task_end = marker
+        self._diagnostic({'event':'task_end_deferred','reason':'STOP_NOT_CONFIRMED',
+                          'run_id':candidate.work.task, 'event_id':event_id})
+        from ready2go_voice.core.hotfix import control_notice
+        self._control_notice_locked('task_end_deferred',control_notice(self.cfg, 'end_pending', runtime=True))
+
+    def running_end_discarded(self, candidate):
+        deferred = getattr(self, 'deferred_task_end', None)
+        if (deferred is None or deferred[:2] != (candidate, self.generation)
+                or not self._request_run_connected()):
+            return False
+        self._cancel_safety_locked()
+        self._diagnostic({'event':'task_end_discarded','reason':'current_c_reset_disposal_not_stop_confirmation'})
+        from ready2go_voice.core.hotfix import control_notice
+        self._control_notice_locked('control_end_discarded',control_notice(self.cfg, 'discarded', runtime=True))
         return True
 
     def safety_task_end_accepted(self, candidate, *, valid_state):
@@ -695,7 +731,9 @@ class VoiceNode(Node):
                         or p._recovery_mode(work, self.safety_exchange.evidence) != 'resume'):
                     return None
                 self.pending_resume = None  # 후보는 한 번만 수락합니다.
-            text = prompts(self.cfg)['control_' + kind]
+            from ready2go_voice.core.hotfix import control_notice
+            text = control_notice(self.cfg, kind, runtime=getattr(self, 'control_mapper', None) is not None,
+                                  reason=reason)
             token = dict(work=work, kind=kind, candidate=candidate, generation=self.generation, text=text)
             previous_cancel = self.safety_cancel
             self.control_feedback = token
@@ -890,9 +928,24 @@ class VoiceNode(Node):
         if writer is not None:
             writer.emit(value)
         event = doc.get('event')
+        if event == 'voice_state':
+            state = tuple(doc.get(key) for key in ('phase','work_retained','termination_pending'))
+            if state == getattr(self, '_console_voice_state', None):
+                return
+            self._console_voice_state = state
+        if event in ('stop_stt_result', 'safety_stt_result'):
+            return  # raw/self/irrelevant transcripts remain in bounded detail only
         if event == 'stop_audio_held' and doc.get('reason') in ('empty_transcript', 'not_explicit_stop', 'overlapping_self_speech', 'canceled', 'stale_generation', 'NO_SPEECH'):
             return
         reason = '' if doc.get('reason') is None else str(doc['reason'])
+        if event in ('safety_audio_held','safety_input_held','safety_result_held','stop_audio_held','control_feedback_failed','runner_memory_held'):
+            key = (event, reason, getattr(self, 'generation', None))
+            seen = getattr(self, '_console_held', None)
+            if seen is None:
+                self._console_held = seen = deque(maxlen=128)
+            if key in seen:
+                return
+            seen.append(key)
         messages = {
             'ready': '음성 준비 완료 (' + ('평가: 실행 보류' if doc.get('evaluation_mode') else '실행 모드') + ')', 'wake_waiting': f"웨이크 대기 (입력: {doc.get('input_device')})",
             'capture_ready': '말씀해 주세요 (새 녹음 준비)',
@@ -902,6 +955,11 @@ class VoiceNode(Node):
             'record_finished': '녹음 완료', 'whisper_requested': 'Whisper 요청',
             'stt_result': f"STT 결과: {doc.get('text', '')}",
             'stop_stt_result': f"정지 STT 결과: {doc.get('text','')}",
+            'stop_control_accepted': f"제어 입력 수용 ({doc.get('kind')}): {doc.get('text','')}",
+            'task_end_deferred': '정지 미확인: 종료 보류 · 작업/잠금 보존 · 직접 확인 필요',
+            'task_end_discarded': '현재 C 보존 작업 폐기 확인 · 정지/잠금 해제 아님',
+            'runner_memory_held': 'Runner 기록 확인 불가: ' + reason,
+            'control_decision': f"제어 결과: {doc.get('intent')} / {doc.get('decision')} / {reason or '사유 없음'}",
             'safety_stt_result': f"중단 후 STT 결과: {doc.get('text','')}",
             'voice_state': f"Voice 상태: {doc.get('phase')} / 중단 작업 보존={doc.get('work_retained')} / 종료 수락 대기={doc.get('termination_pending')}",
             'task_end_candidate': '작업 종료 후보 · 수락 대기',
@@ -973,9 +1031,7 @@ class VoiceNode(Node):
                 print(json.dumps({'event':'voice_logger_cleanup_error','error_type':type(exc).__name__}),flush=True)
 
     def _init_runner_control_source(self):
-        """Opt-in real ROS caller, without a handshake or extra control intent."""
-        if not self.cfg.get('request_run_enabled') or self.cfg['evaluation_mode']:
-            return
+        """Selected Runner source; control binding alone remains opt-in."""
         from ready2go_voice.adapters.runner_control import RunnerSource
         name = self.declare_parameter('control_runner_name', 'runner').value
         namespace = self.declare_parameter('control_runner_namespace', '/').value
@@ -984,6 +1040,48 @@ class VoiceNode(Node):
         topic = getattr(self.status_subscription, 'topic_name', '/runner/status')
         self.runner_control_source = RunnerSource(self.get_publishers_info_by_topic,topic,name=name,namespace=namespace)
 
+    def _init_runner_memory(self, qos):
+        from ready2go_voice.adapters.runner_control import RunnerMemory
+        self.memory_qos = qos
+        self.memory_epoch = 0
+        self.memory_subscription = None
+        self.runner_memory = RunnerMemory(self.runner_control_source, '/robot_state',
+            items=self.parser.items, places=self.parser.places)
+        self._replace_runner_memory_subscription()
+        self.parser.state_provider = self._runner_memory_state
+
+    def _replace_runner_memory_subscription(self):
+        # Epoch belongs to this reader lifecycle, not a public state/boot field.
+        # Queued callbacks from a destroyed reader cannot restore pre-loss state.
+        self.memory_epoch += 1
+        epoch = self.memory_epoch
+        previous = self.memory_subscription
+        self.memory_subscription = None
+        try:
+            if previous is not None and not self.destroy_subscription(previous):
+                self.memory_subscription = previous
+                raise RuntimeError('runner_memory_reader_destroy_failed')
+            def receive(message, info):
+                with self.submit_lock:
+                    if epoch == self.memory_epoch:
+                        self._robot_state(message, info)
+            self.memory_subscription = self.create_subscription(String, '/robot_state', receive,
+                self.memory_qos, callback_group=MutuallyExclusiveCallbackGroup())
+            self.runner_memory.state_source.topic = getattr(self.memory_subscription, 'topic_name', '/robot_state')
+            self.runner_memory.begin_replay()
+        except Exception as exc:
+            self.runner_memory.invalidate()
+            self._diagnostic({'event':'runner_memory_held','reason':type(exc).__name__})
+
+    def _robot_state(self, message, info):
+        with self.submit_lock:
+            if not self.runner_memory.observe(message.data, info):
+                self._diagnostic({'event':'runner_memory_held','reason':'state_or_source_unconfirmed'})
+
+    def _runner_memory_state(self):
+        with self.submit_lock:
+            return self.runner_memory.current()
+
     def _lose_control_source_locked(self):
         if not getattr(self, '_control_source_lost', False):
             self.generation += 1
@@ -991,6 +1089,8 @@ class VoiceNode(Node):
             self.session.conversation.invalidate()
         self._control_source_lost = True
         self._control_binding = None
+        if getattr(self, 'runner_memory', None) is not None:
+            self.runner_memory.invalidate()
         self._cancel_safety_locked()
         self.request_run.invalidate()
 
@@ -1005,6 +1105,8 @@ class VoiceNode(Node):
         sent = result.sent
         if sent.generation != self.generation or not self._request_run_connected():
             return None
+        self._diagnostic({'event':'control_decision','intent':sent.intent,
+            'decision':result.decision,'request_id':sent.request_id,'reason':result.reason})
         from ready2go_voice.core.recovery_confirmation import ActiveRun
         if isinstance(sent.work,ActiveRun):
             if result.decision in ('reject','hold'):
@@ -1030,8 +1132,6 @@ class VoiceNode(Node):
         if result.decision in ('reject','hold','closed'):
             self._cancel_safety_locked()  # local question/request only, preserved work
             self.control_mapper.pending = None
-            self._diagnostic({'event':'control_decision','intent':sent.intent,
-                'decision':result.decision,'request_id':sent.request_id,'reason':result.reason})
             return 'failed' if result.decision in ('reject','hold') else None
         if result.decision == 'recover':
             return 'recover'
@@ -1049,16 +1149,22 @@ class VoiceNode(Node):
                     return
                 if binding != self._control_binding:
                     self._control_source_lost = False
-                    self._runtime_control_check = lambda: self._runtime_control_current(source,binding)
-                    self.bind_control_source(self._runtime_control_check,boot=binding.boot,
-                        publisher_gid=binding.endpoint_gid)
+                    if self.cfg.get('request_run_enabled') and not self.cfg['evaluation_mode']:
+                        self._runtime_control_check = lambda: self._runtime_control_current(source,binding)
+                        self.bind_control_source(self._runtime_control_check,boot=binding.boot,
+                            publisher_gid=binding.endpoint_gid)
                     self._control_binding = binding
+                memory = getattr(self, 'runner_memory', None)
+                if memory is not None:
+                    if memory.observe_status(binding, info):
+                        self._replace_runner_memory_subscription()
         mapper = getattr(self, 'control_mapper', None)
         if mapper is None:
             self._runner_status(message)
             return
         with self.submit_lock:
             # Jazzy supplies four-key dict metadata, no per-sample publisher GID.
+            previous_intent = (mapper.status or {}).get('last_intent')
             gid = info.get('publisher_gid') if isinstance(info,dict) else None
             if gid is not None:
                 try:
@@ -1074,20 +1180,40 @@ class VoiceNode(Node):
                         self.request_run.invalidate()
                 self._diagnostic({'event':'control_status_held','reason':mapper.reason})
                 return
-            notices = [kind for result in mapper.results
+            decision = mapper.status.get('last_intent') or {}
+            if (decision != previous_intent and decision.get('intent') == 'cancel'
+                    and decision.get('decision') == 'cancel'
+                    and (getattr(self, 'pending_task_end', None) is not None
+                         or getattr(self, 'deferred_task_end', None) is not None)):
+                self.generation += 1
+                self.request_cancel.set()
+                self.session.conversation.invalidate()
+                self._cancel_safety_locked()
+                mapper.pending = None  # visible C re-stop retires the old END intent
+            notices = [(kind, result) for result in mapper.results
                        if (kind := self._consume_control_decision(result)) is not None]
             pending = getattr(self, 'pending_task_end', None)
+            deferred = getattr(self, 'deferred_task_end', None)
             origin = getattr(self, 'task_end_source', None)
             end_current = (pending is not None and mapper.pending is not None
                 and mapper.pending[0] == 'end_task' and mapper.pending[2] is pending[0]
                 and pending[1] == self.generation and (pending[0].work == mapper.work
                     and mapper.evidence().stopped or getattr(pending[0].work,'stop',None) is None
                     and (mapper.status.get('halt') or {}).get('run_id') == pending[0].work.task))
+            halt = mapper.status.get('halt') or {}
+            deferred_current = (deferred is not None and deferred[1] == self.generation
+                and mapper.pending is not None and mapper.pending[0] == 'end_task'
+                and mapper.pending[1] == deferred[3] and mapper.pending[2] == deferred[0]
+                and halt.get('boot_id') == deferred[0].work.session
+                and halt.get('run_id') == deferred[0].work.task and halt.get('event_id') == deferred[2])
             self._runner_status(message, preserve_safety=mapper.same_work, control_verified=True)
-            if end_current and mapper.connected():
+            if (end_current or deferred_current) and mapper.connected():
                 # A terminal phase transition may invalidate ordinary requests.
                 # Restore only this verified END's pending feedback correlation.
-                self.pending_task_end = (pending[0], self.generation)
+                if end_current:
+                    self.pending_task_end = (pending[0], self.generation)
+                if deferred_current:
+                    self.deferred_task_end = (deferred[0], self.generation, deferred[2], deferred[3])
                 if mapper.pending is not None:
                     from dataclasses import replace
                     operation = mapper.operations.get(mapper.pending[1])
@@ -1096,8 +1222,14 @@ class VoiceNode(Node):
                 self.task_end_source = origin
             mapper.dispatch(self)
             if notices:
-                from ready2go_voice.core.hotfix import prompts
-                self._control_notice_locked('control_' + notices[-1],prompts(self.cfg)['control_' + notices[-1]])
+                from ready2go_voice.core.hotfix import control_notice
+                kind, result = notices[-1]
+                # Registered recovery question takes precedence over a second
+                # recovery announcement; rejection remains explicit/detail-led.
+                policy = self.safety_exchange.policy
+                if not (kind == 'recover' and policy is not None and policy.question is not None):
+                    self._control_notice_locked('control_' + kind,control_notice(self.cfg,kind,runtime=True,
+                        reason=result.reason,operation=result.sent.intent))
 
     def bind_control_source(self, check, *, boot, publisher_gid, proof_provider=None):
         """Explicit verified C binding; existing request_run opt-in still required.
@@ -1228,7 +1360,8 @@ class VoiceNode(Node):
                 previous_phase = self.notice_policy.phase
                 notice = self.notice_policy.observe(message.data)
                 self._diagnostic({'event':'voice_state','phase':self.notice_policy.phase,
-                    'work_retained':bool(self.safety_exchange.policy and self.safety_exchange.policy.work),
+                    'work_retained':bool(self.safety_exchange.policy and self.safety_exchange.policy.work
+                                         or getattr(self, 'deferred_task_end', None)),
                     'termination_pending':getattr(self,'pending_task_end',None) is not None})
                 ending = getattr(self, 'task_end_request', None)
                 first_end_stop = (ending is not None and not ending['halt_seen']
@@ -1661,7 +1794,7 @@ class VoiceNode(Node):
                 self.session.conversation.invalidate()
                 self._diagnostic({'event': 'request_held', 'reason': 'runner_busy_or_locked', 'intent': doc, 'published': False})
                 return
-            published = self.session.should_publish(doc)
+            published = self.session.should_publish(doc) and not doc.get('_voice', {}).get('readonly_query')
             payload = doc
             if published and request_run:
                 payload = self.session.prepare_request_payload(
