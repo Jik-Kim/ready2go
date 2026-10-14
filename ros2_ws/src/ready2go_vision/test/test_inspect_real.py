@@ -316,3 +316,69 @@ def test_box_model_duplicates_are_not_merged():
     box = box_of(er[0], er[1], er[3], er[2])
     _, _, js = run(depth, [{"class": "eraser", "conf": 0.9, "box": box}, {"class": "eraser", "conf": 0.6, "box": box}])
     assert json.loads(js)["visible_count"] == 2
+
+
+BAR = {"long_bar": {"size_m": [0.170, 0.040, 0.0185]}}                 # 몽키처럼 긴 물체 (가운데가 덮여 마스크가 갈라지는 경우)
+
+
+def _split_bar(yaw, cover_len=0.07, keep=("a", "b")):
+    """긴 막대(가운데 cover_len 을 더 높은 상자가 덮음)의 뎁스와 막대 마스크(보이는 조각만). keep 으로 남길 조각 고름."""
+    bar = (0.10, 0.15, yaw, (0.170, 0.040), 0.0185)
+    cover = (0.10, 0.15, yaw, (cover_len, 0.060), 0.040)                 # 위에 얹힌 상자 (윗면 40 mm)
+    depth = scene(*bar, extra=[cover])
+    m = mask_of(*bar)
+    h, w = depth.shape
+    us, vs = np.meshgrid(np.arange(w, dtype=float), np.arange(h, dtype=float))
+    x = CAM_XY[0] + (us - K.cx) / K.fx * (H - 0.0185)
+    y = CAM_XY[1] - (vs - K.cy) / K.fy * (H - 0.0185)
+    a = (x - 0.10) * math.cos(yaw) + (y - 0.15) * math.sin(yaw)
+    m &= abs(a) > cover_len / 2                                           # 덮인 가운데는 막대 마스크에서 빠짐
+    if "a" not in keep:
+        m &= a > 0
+    if "b" not in keep:
+        m &= a < 0
+    return depth, m, bar
+
+
+def test_split_mask_of_long_object_gives_valid_yaw_from_all_fragments():
+    """[10/14 S1] 위에 얹힌 물체가 긴 물체 가운데를 덮어 마스크가 두 조각 → 가장 큰 덩어리만 보면 명목 길이와 달라 yaw 를 버렸음.
+    분할 마스크 조각 전체의 외접 사각형이 명목 크기와 맞으면 그 방향을 믿음."""
+    depth, m, bar = _split_bar(0.3)
+    det = {"class": "long_bar", "conf": 0.9, "box": box_of(bar[0], bar[1], bar[3], bar[2], margin=0.02), "mask": m}
+    dbg = []
+    ok, err, js = inspect_scene([det], depth, K, T, PARAMS, BAR, "drawer_top", "long_bar", INTERIOR, dbg)
+    assert ok and err == ""
+    t = json.loads(js)["target"]
+    assert t["pose"]["yaw_valid"] is True and t["pose"]["yaw"] == pytest.approx(0.3, abs=0.03)
+    assert "조각" in dbg[0]["yaw_reason"]
+
+
+def test_single_fragment_of_long_object_still_invalid_yaw():
+    """조각 하나만 보이면(외접 사각형도 명목보다 짧음) 예전처럼 yaw 를 믿지 않음."""
+    depth, m, bar = _split_bar(0.3, cover_len=0.07, keep=("a",))
+    det = {"class": "long_bar", "conf": 0.9, "box": box_of(bar[0], bar[1], bar[3], bar[2], margin=0.02), "mask": m}
+    ok, err, js = inspect_scene([det], depth, K, T, PARAMS, BAR, "drawer_top", "long_bar", INTERIOR)
+    assert ok
+    assert json.loads(js)["target"]["pose"]["yaw_valid"] is False
+
+
+def test_fragment_yaw_off_switch_keeps_old_behavior():
+    """depth_blob.fragment_min_area_ratio 0 이면 조각 계산을 끄고 예전처럼 yaw_valid false."""
+    depth, m, bar = _split_bar(0.3)
+    det = {"class": "long_bar", "conf": 0.9, "box": box_of(bar[0], bar[1], bar[3], bar[2], margin=0.02), "mask": m}
+    off = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], "fragment_min_area_ratio": 0.0}}
+    ok, _, js = inspect_scene([det], depth, K, T, off, BAR, "drawer_top", "long_bar", INTERIOR)
+    assert ok and json.loads(js)["target"]["pose"]["yaw_valid"] is False
+
+
+def test_fragment_yaw_needs_tighter_size_match_than_blob():
+    """조각 전체 외접 사각형은 depth_blob.fragment_size_tolerance(덩어리 검사보다 좁게)로 명목과 맞아야 함 — 실물 170 mm 를
+    명목 230 mm 로 보면 ±50% 안이지만 ±20% 밖이라 yaw 를 믿지 않음(방향이 틀린 채 true 가 되지 않게, #344 B 리뷰)."""
+    depth, m, bar = _split_bar(0.3)
+    det = {"class": "long_bar", "conf": 0.9, "box": box_of(bar[0], bar[1], bar[3], bar[2], margin=0.02), "mask": m}
+    longer = {"long_bar": {"size_m": [0.230, 0.040, 0.0185]}}
+    ok, _, js = inspect_scene([det], depth, K, T, PARAMS, longer, "drawer_top", "long_bar", INTERIOR)
+    assert ok and json.loads(js)["target"]["pose"]["yaw_valid"] is False
+    wide = {**PARAMS, "depth_blob": {**PARAMS["depth_blob"], "fragment_size_tolerance": 0.5}}
+    ok, _, js = inspect_scene([det], depth, K, T, wide, longer, "drawer_top", "long_bar", INTERIOR)
+    assert ok and json.loads(js)["target"]["pose"]["yaw_valid"] is True

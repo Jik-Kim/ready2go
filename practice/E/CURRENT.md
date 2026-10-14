@@ -8,6 +8,15 @@
 - [문서: 기존 실측 인용·미검증] 상위가 대조한 `/home/jonny/Downloads/voice.run.cIZVHgT2.log`의 s8.1 새 합성4.015s/재생2.301s 및 `/home/jonny/Downloads/pc2_1014_1300이후_db_raw.json`의 run `2026-10-14T04:29:22Z_ee3615` speak6.437s는 이번 재측정이 아닙니다. 필수 선택 보완은 실제 cache 준비/hit·음성 시간 단축 성공을 뜻하지 않습니다. 실합성·cache/receipt 갱신·마이크/스피커/API·ROS/장치·물리종료·전체 pytest/colcon/CI·추가 agent·push/PR은 수행하지 않습니다.
 - [담당·보존] E core/tts_prefill.py·test/test_melotts.py·이 CURRENT만 수정하고 검사 뒤 해당 파일만 로컬 커밋합니다. primary dirty demo_scenario/CURRENT·기존 dcb/b0 공간·과거 기록·env/local YAML/models/cache/초기 state/world는 보존합니다. C 실패 결과/반복·fallback 보존/보고서 문구는 상위 C 인계이며 E에서 수정·별도 게시하지 않습니다. 권한 밖 Vault는 편집하지 않고 기존 `cases/voice_control_prefill_prompt.md`에 추가할 원인/선택 검사/실음성 미검증 기록을 상위에 인계합니다.
 
+## 322-current-completeness-20261014
+
+- [문서: 승인·범위] E-322-CURRENT-COMPLETENESS-20261014. 조율 human turn `01a13876-859e-7ac3-950f-b64ca25facc9` / message `01a13879-4eac-7f80-9569-3fe4a1da9431`의 “진행해 PR 작성까지 완료하고, 작성 후 너와 PR 리뷰 세션에서 리뷰 후 수정까지 push해”와 상위의 후속 두 문서 범위를 직접 확인했습니다. 작업 기준 main `ce5483e5fdc2b19fe0630a2edae7912919617ddf`, 별도 `/tmp/ready2go-e-322-ros-check-20261014` / `codex/e-322-ros-check-20261014`입니다. [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-01/03/P2](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)를 따릅니다.
+- [문서·원본 대조] [PR #340](https://github.com/Jik-Kim/ready2go/pull/340)의 runtime 안내/더미 분리·END 미확인 보류·현재 C W2→새 W1 경로·기존 활성화 조건은 구현과 기존 모의 근거가 있습니다. [PR #335](https://github.com/Jik-Kim/ready2go/pull/335) 병합 `f30513ac1766bbc776052c234f9cebf97207cf26` 뒤 B `skill_server.safe_state`는 실제 힘 읽기→`external_force_view`→`build_state` 응답으로 연결합니다. 값 미확인/이동 중은 null이며 실제 자세/쥔 물품·센서·응답 시간의 현장 판정을 코드 병합으로 완료 처리하지 않습니다. E README 현재 운용 단락의 과거 null/PR open 조건만 정정하며 이전 SHA·실측·이력은 보존합니다.
+- [기존 검증 재사용·이번 확인] dcb861019cd06c21c08b9257f240fb05946f82b4의 전체 CI **3189 passed/43 skipped, 계약·compose3·colcon OK**, 변경 핵심 검토와 직접77/40 사례는 해당 제품 SHA/모의 범위의 기존 근거입니다. 새 문서 PR 최종 SHA CI를 대신하지 않습니다. 이번에는 현재 실행 원본·문서 링크·변경 범위만 대조합니다. Python `/usr/bin/python3` 3.12.3/Jazzy 및 기존 built Skill interface에서 최신 E/C 모듈 import는 확인했지만 실제 ROS 노드 초기화/DDS·가짜B 서비스 검사는 실행하지 않았습니다. 상위 범위 축소에 따라 새 ROS 시험·제품/시험 코드 추가·호스트 실행 환경의 추가 의존성 설치/ROS 빌드는 하지 않습니다. PR 전 필수 격리 로컬 CI는 별도로 수행합니다.
+- [운용·담당 인계] 기존 cache prepare·원본 default/실효 설정·`--control`/C `RUNNER_RESUMABLE=1` 절차는 유지합니다. C 소유 `tools/dev/pc2_voice.sh`는 `--control`에서만 true override를 추가하여 local YAML true이면 기본 false 배너와 실효 값이 다를 수 있다는 기지 조건을 인계합니다. C 런북의 과거 외력 결정 대기 설명도 C가 현재 연결/현장 후속과 구분해 갱신해야 합니다. E는 해당 C 파일·활성화 정책을 수정하지 않습니다.
+- [미검증·남은 조건] 실제 ROS/DDS·PC2 적용/회차·마이크/스피커·실STT/LLM API·실B/로봇·물리 AC는 미검증입니다. 현장 담당자가 버전/실효 설정과 캐시 준비를 확인한 뒤 연결·외력 판정·거절/timeout/재정지/종료 보존·안내를 검증해야 합니다. #322 체크 항목 정리 후보는 구현/모의/현장 후속을 나눠 상위에 인계하며 이슈를 직접 갱신/종료하지 않습니다. 새 PR의 문서 정합 리뷰·최종 SHA CI·push/본문 근거는 이 기록 뒤 게시/완료 보고로 확인하며 CI 뒤 기록만 추가 커밋해 SHA를 바꾸지 않습니다.
+- [보존] 수정은 이 격리 worktree의 E README와 CURRENT 두 파일뿐입니다. primary `edb989f9e905c3ded5ea99df2305670a8d601cec`의 dirty demo_scenario/CURRENT, 기존 dcb 공간·로그, env/secrets/local YAML·모델/cache/receipt·초기 state/world·C/B 제품·공용 계약/정본을 보존합니다. 로봇/사용자 프로세스 조작·API 호출·음성 재생·main 병합·Approve·force push는 하지 않습니다.
+
 
 ## pr340-review-20261014
 
