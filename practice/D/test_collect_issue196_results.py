@@ -638,6 +638,78 @@ def test_each_external_artifact_requires_matching_durable_source(tmp_path: Path)
         COLLECTOR.append_records(result_path, records)
 
 
+def _s10_pass_checks(evidence: list[str]) -> dict[str, object]:
+    return {
+        "machine_checks": {
+            check_id: {
+                "status": "pass",
+                "observed": True,
+                "expected": True,
+                "evidence": evidence,
+            }
+            for check_id in S10_CHECKS
+        }
+    }
+
+
+def test_machine_check_artifact_requires_matching_durable_source(
+    tmp_path: Path,
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    runner_path = _runner(tmp_path / "runner.json")
+    video_digest = "1" * 64
+    checks_path = tmp_path / "checks.json"
+    _write_json(
+        checks_path,
+        _s10_pass_checks(
+            [f"artifact:video.mp4?sha256={video_digest}#frame=120"]
+        ),
+    )
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=checks_path,
+        suite="recovery",
+        case_id="S10",
+        environment="mock",
+        code_sha="c" * 40,
+        extra_sources=[_durable_source(runner_path), _durable_source(checks_path)],
+    )
+    with pytest.raises(COLLECTOR.CollectionError, match="video.mp4.*same sha256"):
+        COLLECTOR.append_records(result_path, records)
+
+
+def test_machine_check_artifact_with_matching_durable_source_appends(
+    tmp_path: Path,
+) -> None:
+    result_path = _copy_pair(tmp_path)
+    runner_path = _runner(tmp_path / "runner.json")
+    video_digest = "2" * 64
+    checks_path = tmp_path / "checks.json"
+    _write_json(
+        checks_path,
+        _s10_pass_checks(
+            [f"artifact:video.mp4?sha256={video_digest}#frame=120"]
+        ),
+    )
+    records = COLLECTOR.build_records(
+        result_path=result_path,
+        runner_path=runner_path,
+        checks_path=checks_path,
+        suite="recovery",
+        case_id="S10",
+        environment="mock",
+        code_sha="c" * 40,
+        extra_sources=[
+            _durable_source(runner_path),
+            _durable_source(checks_path),
+            f"https://evidence.example/video.mp4?sha256={video_digest}",
+        ],
+    )
+    summary = COLLECTOR.append_records(result_path, records)
+    assert summary["trial_count"] == 1
+
+
 def test_runner_parse_and_source_hash_use_same_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

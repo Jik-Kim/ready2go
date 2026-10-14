@@ -515,9 +515,29 @@ def validate_candidate(result_path: Path, records: tuple[dict[str, Any], dict[st
         return validator.validate_pair(candidate)
 
 
+def _evidence_references(
+    records: tuple[dict[str, Any], dict[str, Any]],
+) -> list[str]:
+    basis, trial = records
+    references: list[str] = []
+    for value in basis.get("sources", []):
+        if isinstance(value, str):
+            references.append(value)
+    for value in trial.get("evidence", []):
+        if isinstance(value, str):
+            references.append(value)
+    for check in trial.get("machine_checks", []):
+        if not isinstance(check, dict):
+            continue
+        for value in check.get("evidence", []):
+            if isinstance(value, str):
+                references.append(value)
+    return list(dict.fromkeys(references))
+
+
 def append_records(result_path: Path, records: tuple[dict[str, Any], dict[str, Any]]) -> dict[str, Any]:
     result_path = result_path.resolve()
-    sources = records[0].get("sources", [])
+    sources = _evidence_references(records)
     durable_sources = [
         source
         for source in sources
@@ -531,7 +551,8 @@ def append_records(result_path: Path, records: tuple[dict[str, Any], dict[str, A
             for source in durable_sources
         ):
             raise CollectionError(
-                f"external artifact {artifact} requires a durable --source with the same sha256"
+                f"external artifact evidence {artifact} requires a durable --source "
+                "with the same sha256"
             )
     payload = "".join(
         json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
