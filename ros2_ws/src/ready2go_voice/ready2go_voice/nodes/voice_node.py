@@ -914,7 +914,7 @@ class VoiceNode(Node):
         context = getattr(self, 'local_context', None)
         if context is not None and getattr(context, 'request_id', None):
             value.setdefault('request_id', context.request_id)
-        meta = (doc.get('intent') or {}).get('_voice') or {}
+        meta = (doc.get('intent') if isinstance(doc.get('intent'), dict) else {}).get('_voice') or {}
         value.update({k: v for k, v in meta.items() if k in ('request_id', 'question_id')})
         # 원본 LLM 전체는 interpretation에 한 번만; 공개 source 원본 자체는 삭제하지 않습니다.
         if value.get('event') != 'interpretation':
