@@ -1,0 +1,308 @@
+{
+  "version": "0.1",
+  "status": "B 제안 — E 스키마·저장 위치 합의 전. 로더·Runner 미연결",
+  "source": "practice/B/TROUBLESHOOTING.md (10/06~10/14, 176건 중 배치 관련 넛지·집기·벽·이웃·쌓임 83건) + practice/B/sim",
+  "relations": {
+    "against_wall": {
+      "args": ["item", "wall", "gap_mm"],
+      "wall": ["left", "right", "back", "front_handle"],
+      "meaning": "물체 외접 박스와 서랍 벽 사이 틈",
+      "source": "scan 위치·yaw + config/places.yaml 서랍 치수 (B 벽 검사와 같은 계산)",
+      "observable": "now"
+    },
+    "in_corner": {
+      "args": ["item", "wall", "wall"],
+      "meaning": "두 벽에 같이 붙음",
+      "source": "against_wall 두 개",
+      "observable": "now"
+    },
+    "adjacent_to": {
+      "args": ["item", "item", "side", "gap_mm"],
+      "meaning": "옆 물체와 바닥면 틈",
+      "source": "scan 두 물체 footprint (온톨로지 크기 직사각형)",
+      "observable": "now"
+    },
+    "blocks_finger_zone": {
+      "args": ["blocker", "target", "short_mm"],
+      "meaning": "목표를 잡을 손가락 띠 안에 다른 물체가 있음 — 모자란 mm",
+      "source": "B 집기 사전 검사 거부 이유 (NEIGHBOR_TOO_CLOSE)",
+      "observable": "now"
+    },
+    "surrounded": {
+      "args": ["target", "count"],
+      "meaning": "손가락 띠 양쪽·앞뒤 중 셋 이상이 물체·벽으로 막힘",
+      "source": "blocks_finger_zone·against_wall 조합",
+      "observable": "now"
+    },
+    "on_top_of": {
+      "args": ["item", "support", "level"],
+      "meaning": "다른 물체 위에 얹힘 (level 1 = 2단)",
+      "source": "비전 occluded_by + B _rests_on (footprint 안 + 5 mm, 온톨로지 높이 합)",
+      "observable": "now"
+    },
+    "edge_overlap": {
+      "args": ["item", "support", "overlap_mm"],
+      "meaning": "다른 물체 가장자리에 일부만 걸침",
+      "source": "두 footprint 겹침 길이",
+      "observable": "now"
+    },
+    "under_cover": {
+      "args": ["item", "cover"],
+      "meaning": "덮개 판 밑 (다리 사이 65 × 35 mm 통과 여부 포함)",
+      "source": "비전 occluded_by + pick.under_gap_by_class_mm",
+      "observable": "now"
+    },
+    "crosses_finger_line": {
+      "args": ["item", "cover"],
+      "meaning": "판 밑 물체가 판 긴 변 손가락 선을 가로지름",
+      "source": "판 손가락 띠와 밑 물체 footprint",
+      "observable": "now"
+    },
+    "beyond_reach": {
+      "args": ["item", "x_mm", "limit_mm"],
+      "meaning": "아래 칸 수직으로 닿는 깊이 밖",
+      "source": "scan x + 아래 칸 깊이 한계 129 mm [실측 10/07·10/13]",
+      "observable": "now"
+    },
+    "leaning_on": {
+      "args": ["item", "support"],
+      "meaning": "다른 물체에 비스듬히 기댐",
+      "source": "없음 — 비전 pose 에 기울기가 없음 (yaw 만)",
+      "observable": "no"
+    },
+    "standing": {
+      "args": ["item"],
+      "meaning": "세워 둠 (눕힌 학습 자세가 아님)",
+      "source": "없음 — 검출 자체가 안 됨 [10/13 11]",
+      "observable": "no"
+    },
+    "relation_unknown": {
+      "args": ["item"],
+      "meaning": "비전이 가림 관계를 모름 (occluded_by null)",
+      "source": "비전 결과",
+      "observable": "now"
+    }
+  },
+  "item_traits": {
+    "cylinder": {"items": ["lip_balm"], "meaning": "짧은 변 방향으로 밀면 굴러감 [사용자 10/10]"},
+    "hollow_flexible": {"items": ["caramel_box"], "meaning": "빈 상자라 누르면 휘어 힘이 빠짐 [실측 10/13]"},
+    "has_hole": {"items": ["masking_tape"], "meaning": "가운데가 뚫려 윗면을 못 누름 [사용자 10/13]"},
+    "uneven_top": {"items": ["toy_wrench"], "meaning": "머리 쪽 윗면이 낮아 끝을 누르면 안 닿음 [실측 10/13]"},
+    "wide_grasp": {"items": ["toy_wrench", "toy_hammer", "cover_plate"], "meaning": "긴 변 벌림이 100 mm 넘음"},
+    "cover": {"items": ["cover_plate"], "meaning": "다리 위 판 — 밑에 물체가 들어감"}
+  },
+  "strategies": {
+    "direct": "바로 집기 (짧은 변 → 긴 변 → 기울여 잡기)",
+    "axis_swap": "가로 물체 긴 변 양끝이 막히면 짧은 변으로 (pick.axis_swap)",
+    "nudge": "목표를 벽에서 떼거나 서랍 축으로 끈 뒤 다시 보기",
+    "make_room": "nudge_object make_room — 넛지 → sweep → 막는 물체 치우기, 한 동작마다 다시 보기",
+    "remove_top": "위 물체부터 집어 빈 자리(free)로",
+    "reobserve": "다시 보기 (B 동작 없음)",
+    "impossible": "움직이기 전에 거부하고 이유를 말함 — 지금은 시연 배치 규칙으로 피함"
+  },
+  "cases": [
+    {
+      "id": "wall_side_short",
+      "name_ko": "옆벽에 붙어 손가락 자리가 모자람",
+      "when": ["against_wall(target, left|right, gap_mm < 손가락 여유)"],
+      "b_code": "WALL_TOO_CLOSE",
+      "strategy": "axis_swap",
+      "then": "nudge",
+      "say_ko": "벽에 붙어 있어서 조금 떼어 놓고 집을게요",
+      "evidence": {
+        "real": ["10/07 5-7 (1.8 mm 부족 → 끌기 뒤 집기)", "10/10 6·7", "10/14 #345 차키 옆벽 2.1 mm 부족"],
+        "sim": ["10/10 rand_sim2 — 넛지 순서 정리 뒤 멈춤 0%"]
+      },
+      "status": "verified_real"
+    },
+    {
+      "id": "corner",
+      "name_ko": "구석에 비스듬히 낌",
+      "when": ["in_corner(target, *, *)"],
+      "b_code": "WALL_TOO_CLOSE",
+      "strategy": "nudge",
+      "note": "닫히는 방향(안쪽)으로 끌기 금지, 뒤에서 밀기 push_from_behind",
+      "say_ko": "구석에 끼어 있어서 벽 쪽으로 붙인 뒤 집을게요",
+      "evidence": {"real": ["10/06 2", "10/11 2~5 (뒤에서 밀기 3차까지)"], "sim": []},
+      "status": "verified_real"
+    },
+    {
+      "id": "back_wall",
+      "name_ko": "안쪽 벽에 붙음",
+      "when": ["against_wall(target, back, gap_mm < 손가락 여유)"],
+      "b_code": "NO_PUSH_ACCESS",
+      "strategy": "nudge",
+      "note": "앞뒤 넛지 (0.5~1.2 N)",
+      "say_ko": "안쪽 벽에 붙어 있어서 앞으로 당긴 뒤 집을게요",
+      "evidence": {"real": ["10/10 13"], "sim": []},
+      "status": "verified_real"
+    },
+    {
+      "id": "handle_wall_across",
+      "name_ko": "손잡이 쪽 벽에 가로로 붙은 물체",
+      "when": ["against_wall(target, front_handle, *)", "yaw 가로"],
+      "b_code": "NO_PUSH_ACCESS",
+      "strategy": "direct",
+      "note": "안쪽으로 밀면 서랍이 같이 닫힘 → 긴 변·20° 기울여 잡기",
+      "say_ko": "손잡이 쪽 벽에 붙어 있어서 비스듬히 잡을게요",
+      "evidence": {"real": ["10/10 15 [사용자]", "10/10 18 (미확인)"], "sim": ["10/10 23 지우개 4.8% → 손잡이 벽 눕히기"]},
+      "status": "unconfirmed"
+    },
+    {
+      "id": "handle_wall_wide",
+      "name_ko": "큰 공구가 손잡이 쪽 벽에 가로",
+      "when": ["against_wall(target, front_handle, *)", "trait wide_grasp"],
+      "b_code": "NO_PUSH_ACCESS",
+      "strategy": "impossible",
+      "reason": "벌림 100 mm 초과, 안쪽 넛지 불가",
+      "say_ko": "손잡이 쪽 벽에 가로로 붙어 있어서 잡을 수 없어요",
+      "evidence": {"real": [], "sim": ["10/10 25 몽키·망치·가림막 4~5% 멈춤"]},
+      "status": "sim_only"
+    },
+    {
+      "id": "beyond_reach",
+      "name_ko": "아래 칸 깊은 곳",
+      "when": ["beyond_reach(target, x_mm > 129)"],
+      "b_code": "WALL_TOO_CLOSE",
+      "strategy": "impossible",
+      "reason": "위 서랍장에 막혀 수직으로 닿는 깊이 129 mm — 10/13 판 x 132.6",
+      "say_ko": "너무 안쪽에 있어서 손이 닿지 않아요",
+      "evidence": {"real": ["10/13 9 (판 x 132.6 > 129)"], "sim": []},
+      "status": "verified_real"
+    },
+    {
+      "id": "cluster_open_side",
+      "name_ko": "뭉침 — 한쪽이라도 열림",
+      "when": ["surrounded(target, ≥ 3)", "against_wall(target, front_handle) 아님"],
+      "b_code": "NEIGHBOR_TOO_CLOSE",
+      "strategy": "make_room",
+      "say_ko": "주변 물건을 조금 밀어 자리를 만든 뒤 집을게요",
+      "evidence": {
+        "real": ["10/13 14~20 가운데·오른쪽 벽 뭉침 성공"],
+        "sim": ["10/13 cluster_sim 무작위 뭉침 약 350 장면 중 346"]
+      },
+      "status": "verified_real"
+    },
+    {
+      "id": "cluster_front_wall",
+      "name_ko": "손잡이 쪽 앞벽 뭉침",
+      "when": ["against_wall(target, front_handle, *)", "surrounded(target, ≥ 3)"],
+      "b_code": "NEIGHBOR_TOO_CLOSE",
+      "strategy": "impossible",
+      "reason": "안쪽으로 못 끌고 사방이 막힘 — 분할 마스크로 실제 모양을 봐도 7 mm 모자람",
+      "say_ko": "손잡이 쪽 벽에 붙어 사방이 막혀서 꺼낼 수 없어요",
+      "evidence": {"real": ["10/13 21 (덤프 064400)", "10/13 23"], "sim": []},
+      "status": "verified_real"
+    },
+    {
+      "id": "edge_overlap_diagonal",
+      "name_ko": "다른 물체 가장자리에 걸치고 대각선에 이웃",
+      "when": ["edge_overlap(target, support, ~18 mm)", "blocks_finger_zone(neighbor, target, *)"],
+      "b_code": "NEIGHBOR_TOO_CLOSE",
+      "strategy": "make_room",
+      "note": "받침만 빼도·이웃만 빼도 거부 — B 판단 sweep 40 mm",
+      "say_ko": "옆 물건 때문에 손가락 자리가 없어서 자리를 만든 뒤 집을게요",
+      "evidence": {"real": ["10/14 4 차키·몽키·캐러멜 (07:19 덤프)"], "sim": []},
+      "status": "unconfirmed"
+    },
+    {
+      "id": "stacked_top",
+      "name_ko": "쌓인 물체 맨 위",
+      "when": ["on_top_of(target, support, level ≥ 1)"],
+      "b_code": "NEIGHBOR_TOO_CLOSE",
+      "strategy": "direct",
+      "note": "받침은 이웃에서 빼고 온톨로지 높이 합으로 손끝 높이 — 벽에 막히면 쌓인 채 넛지",
+      "say_ko": "위에 있는 것부터 집을게요",
+      "evidence": {"real": ["10/11 10·19 차키 2단·3단", "10/13 1 3단 넛지 (휘는 상자 → 찾는 거리 12 mm)"], "sim": []},
+      "status": "verified_real"
+    },
+    {
+      "id": "stacked_under",
+      "name_ko": "목표 위에 다른 물체가 얹힘",
+      "when": ["on_top_of(other, target, *)"],
+      "b_code": null,
+      "strategy": "remove_top",
+      "note": "Runner select_obstacle 가 occluded_by 로 치울 물체를 고름 — 위 물체 넛지는 테두리 − 10 mm 넘게 쌓이면 NOT_ON_FLOOR",
+      "say_ko": "위에 있는 물건을 먼저 옮길게요",
+      "evidence": {"real": ["10/12 B unpack 몽키 (#260 6절)", "10/12 20"], "sim": ["10/14 p2_unpack_sim S1 원복까지 58%"]},
+      "status": "verified_real"
+    },
+    {
+      "id": "under_cover_between_legs",
+      "name_ko": "판 밑 물체 — 다리 사이",
+      "when": ["under_cover(item, cover_plate)"],
+      "b_code": "NEIGHBOR_TOO_CLOSE",
+      "strategy": "direct",
+      "note": "판 집기·되돌리기에서 다리 사이(65 × 35) 통과 폭 물체는 손가락 확인에서 뺌",
+      "say_ko": "판을 먼저 들어 옮길게요",
+      "evidence": {"real": ["10/12 26~30", "10/13 5·6 (미확인)"], "sim": []},
+      "status": "unconfirmed"
+    },
+    {
+      "id": "under_cover_crossing",
+      "name_ko": "판 밑 물체가 판 손가락 선을 가로지름",
+      "when": ["under_cover(item, cover_plate)", "crosses_finger_line(item, cover_plate)"],
+      "b_code": "PLACE_BLOCKED",
+      "strategy": "impossible",
+      "reason": "판 원래 자리 되돌리기 거부가 맞음 — 손가락이 밑 물체에 닿음",
+      "say_ko": "판 밑 물건이 손가락 자리에 있어서 판을 원래 자리에 못 놓고 빈 자리에 둘게요",
+      "evidence": {"real": ["10/12 41·44 (립밤이 판 긴 변 가로지름)"], "sim": []},
+      "status": "verified_real"
+    },
+    {
+      "id": "no_free_space",
+      "name_ko": "치울 물체를 놓을 빈 자리가 없음",
+      "when": ["한 칸에 큰 물건 셋 이상"],
+      "b_code": "NO_FREE_SPACE",
+      "strategy": "impossible",
+      "reason": "서랍 안에 다시 집을 수 있는 빈 자리가 없음",
+      "say_ko": "서랍 안에 물건을 잠깐 둘 자리가 없어서 꺼낼 수 없어요",
+      "evidence": {"real": ["10/14 #345 PC2 덤프 재현 — 아래 칸 판"], "sim": ["10/11 clear_sim 남은 문제 — 큰 물건 셋"]},
+      "status": "verified_real"
+    },
+    {
+      "id": "cylinder_side",
+      "name_ko": "립밤 — 짧은 변 방향 밀기",
+      "when": ["trait cylinder", "against_wall(target, *, *)"],
+      "b_code": "WALL_TOO_CLOSE",
+      "strategy": "nudge",
+      "note": "긴 변 방향으로만 넛지, 가장자리는 기울여 잡기 (pick.round_wall)",
+      "say_ko": "굴러가지 않게 길이 방향으로 밀어 집을게요",
+      "evidence": {"real": ["10/10 20 [사용자]"], "sim": ["10/10 26·27 가장자리 멈춤 8.7%/21% → 0.6%"]},
+      "status": "unconfirmed"
+    },
+    {
+      "id": "leaning",
+      "name_ko": "기대 세운 물체",
+      "when": ["leaning_on(target, *)"],
+      "b_code": null,
+      "strategy": "impossible",
+      "reason": "비전 pose 에 기울기가 없어 B 는 평평하다고 봄 — 지금은 감지도 못 함",
+      "say_ko": "비스듬히 기대 있어서 안전하게 잡을 수 없어요",
+      "evidence": {"real": ["10/13 3 [사용자]"], "sim": []},
+      "status": "layout_rule"
+    },
+    {
+      "id": "standing",
+      "name_ko": "세운 물체",
+      "when": ["standing(target)"],
+      "b_code": null,
+      "strategy": "impossible",
+      "reason": "검출 자체가 안 됨 [추정 학습 부족]",
+      "say_ko": "세워져 있어서 찾지 못했어요",
+      "evidence": {"real": ["10/13 11·25 [사용자]"], "sim": []},
+      "status": "layout_rule"
+    },
+    {
+      "id": "relation_unknown",
+      "name_ko": "비전이 가림 관계를 모름",
+      "when": ["relation_unknown(target)"],
+      "b_code": "OCCLUSION_UNKNOWN",
+      "strategy": "reobserve",
+      "note": "B 동작 아님 — 비전 규칙(A #360·#361)·Runner 예외(C)",
+      "say_ko": "다시 한 번 볼게요",
+      "evidence": {"real": ["10/14 6 지우개 (로그 ee7344)", "10/12 3"], "sim": []},
+      "status": "verified_real"
+    }
+  ]
+}
