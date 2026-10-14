@@ -519,13 +519,26 @@ class SkillServer(Node):
         names = self.robot.tool_names()
         tool_ok = None if None in names else motion_guard.check_tool(*names, self.expected_tcp, self.expected_tool) is None
         width, detected, safety = self._read_gripper()
+        busy = self.gate.busy() and not in_gate
+        force, force_n = None, None
+        if robot_state is not None and motion_state is not None and not busy:   # 지속 외력: 멈춘 채 판정 창 동안 읽기만 (동작 중이면 모름)
+            fp = self.prm().get("safe_state") or {}
+            hz, hold_s = float(fp.get("external_force_rate_hz", 20.0)), float(fp.get("external_force_hold_s", 0.5))
+            need = max(1, int(round(hold_s * hz)))
+            samples = []
+            for k in range(need):
+                samples.append(self.robot.tool_force())
+                if k + 1 < need:
+                    time.sleep(1.0 / hz)
+            force, force_n = ss_.external_force_view(samples, float(fp.get("external_force_n", 5.0)), need)
         grip = ss_.gripper_view(width_m=width, grasp_detected=detected, safety_error=safety,
                                 held=hold if hold is not None else self.held,
                                 hold_unknown=None if hold is not None else getattr(self, "hold_unknown", None),
                                 min_width_m=float(g["min_width_m"]), slip_tolerance_m=float(g["slip_tolerance_m"]))
-        return ss_.build_state(robot_state=robot_state, motion_state=motion_state, busy=self.gate.busy() and not in_gate, tool_ok=tool_ok,
+        return ss_.build_state(robot_state=robot_state, motion_state=motion_state, busy=busy, tool_ok=tool_ok,
                                gripper=grip, gripper_read=width is not None, locked=self.locked, disp=self._drawer_disp(),
-                               stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds"))
+                               stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds"),
+                               external_force=force, external_force_n=force_n)
 
     def _drawer_disp(self):
         """W1 drawers — 서랍마다 서버가 기억한 인출 거리(m). 연 적 없는 서랍은 0.0 (서버는 닫힌 서랍에서 시작한다고 봄 — README 시작 조건)

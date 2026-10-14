@@ -3300,8 +3300,16 @@ def _safe_state_cases(server):
         out[(name, case)] = (resp.success, json.loads(resp.message))
     unknown = {"class": "eraser", "id": "eraser#1", "width_m": 0.021}
     real_state = srv.robot.state
+    rest = lambda p: [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]                             # noqa: E731 — 정지 중 영점 치우침 |F| 1.81 N [실측 10/13 일지 32]
+    push = lambda p: [-12.0, 10.5, -0.5, 0.0, 0.0, 0.0]                             # noqa: E731 — 손으로 지그시 밀기 |F| 약 16 N
+    srv.robot.force = rest
     server.Gripper.width = 0.9
     put("skills_check_state", "stopped_empty", w1())
+    srv.robot.force = push
+    put("skills_check_state", "external_force", w1())
+    srv.locked = "pick_object: MOVE_UNCONFIRMED"
+    put("skills_recover", "refused_external_force", w2())
+    srv.locked, srv.robot.force = None, rest
     srv.held, server.Gripper.width = dict(unknown), 21.0
     put("skills_check_state", "holding_eraser", w1())
     srv.held = None
@@ -3347,6 +3355,32 @@ def test_safe_state_examples_match_node_output(server):
         assert (got[k][0], _no_stamp(got[k][1])) == (want[k][0], _no_stamp(want[k][1])), k
     assert server.srv.robot.log == []
 
+
+
+def test_check_state_external_force_reads_window_without_motion(server):
+    """W1 external_force [B 실측 10/13 일지 32]: 멈춘 채 safe_state.external_force_hold_s 동안 rate_hz 로 툴 힘을 읽어(로봇 명령 없음)
+    모두 |F| > external_force_n 이면 true. 한 번이라도 못 읽으면 null → W2 는 EXTERNAL_FORCE_UNKNOWN 으로 거절하고 잠금 유지."""
+    srv = _srv_state(server)
+    fp = srv.prm()["safe_state"]
+    need = int(round(fp["external_force_hold_s"] * fp["external_force_rate_hz"]))
+    reads = []
+
+    def force(p):
+        reads.append(1)
+        return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+    srv.robot.force = force
+    st = srv.safe_state()
+    assert st["external_force"] is False and st["external_force_n"] == 1.81 and len(reads) == need
+    calls = {"n": 0}
+
+    def flaky(p):
+        calls["n"] += 1
+        return None if calls["n"] == 3 else [-12.0, 10.5, -0.5, 0.0, 0.0, 0.0]
+    srv.robot.force, srv.locked = flaky, "pick_object: MOVE_UNCONFIRMED"
+    r = srv.recover()
+    assert not r["recovered"] and r["blockers"] == ["EXTERNAL_FORCE_UNKNOWN"] and srv.locked
+    assert srv.robot.log == []
+    srv.locked = None
 
 def test_recover_reads_state_once_and_changes_nothing_on_error(server):
     """[E #297 재리뷰 P2] 복구는 상태를 처음 한 번만 읽고 응답을 다 만든 뒤에 잠금·쥔 기억을 바꿈 — 예전엔 잠금을 푼 뒤 응답용으로

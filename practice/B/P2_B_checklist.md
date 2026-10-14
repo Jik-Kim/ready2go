@@ -89,6 +89,7 @@
 
 ## 5. 무동작 안전 확인 — B → C/E 제안 초안 (**10/13 구현 — W1·W2 PR #297(#296 에서 분리), 제안, C 확인·E 포함 2명 승인 전**)
 > 10/13: W1 `/skills/check_state`·W2 `/skills/recover` 로 구현(`std_srvs/Trigger`, 응답 `message` = JSON, 칸은 `ros2_ws/src/ready2go_skills/README.md`). 남은 것: `external_force`(지속 외력) 판정 — 아래 B 실측 뒤까지 `null`. 아래는 10/11 초안 기록.
+> 10/14: `external_force` 판정 구현(계약 PR) — 기준 \|F\| > 5 N 이 0.5 s(20 Hz 10번) 계속이면 true [실측 10/13 일지 32, `scripts/force_log.py`]. W2 는 true·null 이면 거절. 값은 `params/skills.yaml` `safe_state`.
 재개 판정 3개 중 "B 안전 상태"용. 로봇을 움직이지 않고 한 번에 읽어 돌려주는 액션(이름 예: `/skills/check_state`)을 제안한다.
 - 돌려줄 것(모두 지금 B 가 읽을 수 있는 값): 로봇 상태값(이동 중·안전/비상정지 `ESTOP_STATES`), 서버 잠금 사유, 펜던트 TCP·툴 이름 일치(`motion_guard.check_tool`), 그리퍼 폭·`grasp_detected`·safety error 와 `hand`(holding/empty/unknown), 쥔 기억·`hold_unknown`, 툴 힘(멈춘 채 평균)과 읽은 시각, 서랍 인출 기억(`disp`).
 - 정할 것(C/E): 액션 이름·결과 스키마, 지속 외력 판정(힘 변화량만으로 안전이라 하지 않기 — 임계·유지 시간·신선도 상한을 B 실측으로), 미확인 시 복구 거절 문구.

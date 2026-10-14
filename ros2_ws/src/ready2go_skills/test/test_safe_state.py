@@ -30,7 +30,7 @@ def test_gripper_view_empty_holding_unknown():
 
 def state(**kw):
     base = dict(robot_state=1, motion_state=1, busy=False, tool_ok=True, gripper=view(), gripper_read=True,
-                locked=None, disp={"drawer_top": 0.226}, stamp="t")
+                locked=None, disp={"drawer_top": 0.226}, stamp="t", external_force=False, external_force_n=1.81)
     base.update(kw)
     return s.build_state(**base)
 
@@ -39,7 +39,10 @@ def test_build_state_fields_and_unknowns():
     st = state()
     assert st["stopped"] is True and st["estop_active"] is False and st["controller_ready"] is True
     assert st["b_locked"] is False and st["gripper"]["state"] == "empty" and st["drawers"] == {"drawer_top": 0.226}
-    assert st["external_force"] is None                                               # 판정 기준 미실측 — 모름
+    assert st["external_force"] is False and st["external_force_n"] == 1.81
+    assert state(external_force=None)["external_force"] is None                       # 못 읽음 — 모름
+    assert state(busy=True)["external_force"] is None and state(motion_state=2)["external_force"] is None   # 멈춤 아니면 판정 안 함
+    assert state(robot_state=None)["external_force"] is None
     assert state(robot_state=None)["stopped"] is None and state(robot_state=None)["estop_active"] is None
     assert state(robot_state=None)["comm_ok"] is False
     assert state(motion_state=2)["stopped"] is False and state(busy=True)["stopped"] is False
@@ -58,6 +61,20 @@ def test_recover_blockers():
     assert s.recover_blockers(state(gripper=bad)) == ["SENSOR_INVALID", "GRIPPER_UNKNOWN"]
     neg = view(width_m=-0.005, grasp_detected=False)
     assert state(gripper=neg)["sensors_ok"] is False and "GRIPPER_UNKNOWN" in s.recover_blockers(state(gripper=neg))
+    assert s.recover_blockers(state(external_force=True)) == ["EXTERNAL_FORCE"]          # 지속 외력 — 사람이 밀고 있음
+    assert s.recover_blockers(state(external_force=None)) == ["EXTERNAL_FORCE_UNKNOWN"]  # 못 읽음 — 허가로 안 봄
+
+
+def test_external_force_view_needs_all_samples_over_threshold():
+    """[B 실측 10/13 일지 32] 0.5 s(10번) 동안 |F| 가 모두 5 N 초과일 때만 true — 한 번 튄 값으론 안 됨, 하나라도 못 읽으면 모름."""
+    rest, push = [-1.12, 1.39, 0.31, 0, 0, 0], [-12.0, 10.5, -0.5, 9, 9, 9]
+    assert s.external_force_view([rest] * 10, 5.0, 10) == (False, 1.81)
+    assert s.external_force_view([push] * 10, 5.0, 10) == (True, 15.95)
+    assert s.external_force_view([push] * 9 + [rest], 5.0, 10)[0] is False             # 계속이 아님
+    assert s.external_force_view([push] * 9 + [None], 5.0, 10) == (None, None)
+    assert s.external_force_view([push] * 9, 5.0, 10) == (None, None)                   # 덜 읽음
+    assert s.external_force_view([[float("nan"), 0, 0]] * 10, 5.0, 10) == (None, None)
+    assert s.external_force_view([[0, 0, 5.0]] * 10, 5.0, 10)[0] is False              # 문턱과 같으면 아님 (초과만)
 
 
 def test_unknown_hold_decision_same_as_restart_restore():
