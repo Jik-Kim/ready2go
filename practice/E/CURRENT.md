@@ -34,6 +34,11 @@
 - [문서: 기존 실측 인용·미검증] 상위가 대조한 `/home/jonny/Downloads/voice.run.cIZVHgT2.log`의 s8.1 새 합성4.015s/재생2.301s 및 `/home/jonny/Downloads/pc2_1014_1300이후_db_raw.json`의 run `2026-10-14T04:29:22Z_ee3615` speak6.437s는 이번 재측정이 아닙니다. 필수 선택 보완은 실제 cache 준비/hit·음성 시간 단축 성공을 뜻하지 않습니다. 실합성·cache/receipt 갱신·마이크/스피커/API·ROS/장치·물리종료·전체 pytest/colcon/CI·추가 agent·push/PR은 수행하지 않습니다.
 - [담당·보존] E core/tts_prefill.py·test/test_melotts.py·이 CURRENT만 수정하고 검사 뒤 해당 파일만 로컬 커밋합니다. primary dirty demo_scenario/CURRENT·기존 dcb/b0 공간·과거 기록·env/local YAML/models/cache/초기 state/world는 보존합니다. C 실패 결과/반복·fallback 보존/보고서 문구는 상위 C 인계이며 E에서 수정·별도 게시하지 않습니다. 권한 밖 Vault는 편집하지 않고 기존 `cases/voice_control_prefill_prompt.md`에 추가할 원인/선택 검사/실음성 미검증 기록을 상위에 인계합니다.
 
+## diagnostic-control-hotfix-20261014
+
+- [문서: 승인·원인] Root 조율이 직접 확인한 사용자 “최소 수정 및 검증만 해 시간 오래 걸릴 거 아니잖아?” 승인 범위입니다. 최신 main `50f1cf96dddf32f04bc14c48686b8f3413d436e3`에서 격리 작업하며 기존09a8·primary dirty 파일은 보존합니다. [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-03/P2](../../docs/requirements.md#fr-saf-03) 관련 진단 예외만 수정합니다. 전달된 voice.run.gNuK1spr.log의 control_decision 문자열 intent(recover/resume/end_task)를 dict로 취급해 str.get AttributeError로 executor가 종료되는 경로이며 이번 실음성 재측정은 아닙니다.
+- [구현·실측] `_diagnostic`의 `_voice` 조회에 dict 타입 확인 한 줄만 추가했습니다. 실제 `_consume_control_decision`→실제 `_diagnostic`→DiagnosticFile 경로와 기존 dict 메타 보존 직접 회귀 `test_diagnostic_control_hotfix.py`: **3 passed/0.47s**, `/tmp/e-diagnostic-control-hotfix-direct.log`(project Python, PYTHONPATH voice/knowledge). AST·diff 검사 후 해당 E 세 파일만 커밋하고 최종 SHA 필수 CI1회/PR 게시를 진행합니다. 추가 리뷰·전체 선택 재검사·C 코드/계약/모델·cache 변경·장치/실음성/물리 검증은 없습니다.
+
 ## 322-current-completeness-20261014
 
 - [문서: 승인·범위] E-322-CURRENT-COMPLETENESS-20261014. 조율 human turn `01a13876-859e-7ac3-950f-b64ca25facc9` / message `01a13879-4eac-7f80-9569-3fe4a1da9431`의 “진행해 PR 작성까지 완료하고, 작성 후 너와 PR 리뷰 세션에서 리뷰 후 수정까지 push해”와 상위의 후속 두 문서 범위를 직접 확인했습니다. 작업 기준 main `ce5483e5fdc2b19fe0630a2edae7912919617ddf`, 별도 `/tmp/ready2go-e-322-ros-check-20261014` / `codex/e-322-ros-check-20261014`입니다. [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-01/03/P2](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)를 따릅니다.
