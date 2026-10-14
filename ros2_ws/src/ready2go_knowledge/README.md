@@ -33,3 +33,39 @@
 - 전체 파일 역할·담당별 인계: [`knowledge/README.md`](../../../knowledge/README.md).
 
 - 물품 파지 설정 정본 `config/item_grasp.yaml`도 로딩하여 기존 물품 조회에 grip_force(null 허용)·grasp_verified와 선택 항목 grasp_width_m·grasp_width_long_m(B 실측 잡은 폭, size_m 해당 변 이하 양수)을 제공한다. `require_grasp_settings(onto, item)`은 미확정 설정을 거절하지만 실제 실행 경로 연결은 B·C 담당이다.
+
+## P3 TTL 의미 조회 — #302 첫 시험
+
+`core.semantic_query.load_ttl()`은 명시한 로컬 TTL을 읽고 활성 물품 키·은퇴 목록과 대조한다. RDF 파싱은 RDFLib, 상속 경로 탐색·순환/참조 검사는 E 함수에서 수행한다. 현재 지원 관계는 `rdf:type`, `rdfs:subClassOf`, `rdfs:label`, 프로젝트 `alias_ko`·`hasItem`이다. OWL 전체 추론기가 아니다.
+
+```python
+from pathlib import Path
+from ready2go_knowledge.core import ontology, semantic_query
+
+root = Path.cwd()  # 저장소 루트에서 실행
+onto = ontology.load(root / 'knowledge/robot_ontology.jsonld')
+retired = (root / 'config/yolo_retired_classes.txt').read_text().splitlines()
+catalog = semantic_query.load_ttl(
+    root / 'knowledge/examples/p3_semantics.ttl',
+    active_items=onto['world']['items'], retired_items=retired)
+result = catalog.query_class('귀중품')  # query_list('출근 준비물')도 지원
+```
+
+분류 결과 예시:
+
+```json
+{
+  "items": ["car_key"],
+  "source": {"kind": "class", "id": "Valuables", "name_ko": "귀중품", "sha256": "<읽은 TTL 바이트의 SHA-256>"},
+  "evidence": {"car_key": {"class_paths": [["Key", "Valuables"]]}}
+}
+```
+
+- 반환 물품은 중복 없이 키 순으로 정렬한다. 실행 순서·실행 가능·파지 가능 판정이 아니다. 위치 기록이 없는 등록 물품도 반환한다.
+- `source`는 선택한 분류/목록과 읽은 파일의 출처이며 현재 로봇 상태·관측 시각이 아니다. 클래스/목록 키와 이름·별칭으로 조회하며 모호하거나 없는 이름은 `ValueError`로 거절한다. 정상 빈 분류·목록은 빈 `items`를 반환한다.
+- 미등록·은퇴 물품, 누락된 분류/목록 참조, 클래스/물품/목록 선언 충돌, 분류 순환과 허용하지 않은 관계를 읽을 때 거절한다. 복수 상위 분류는 지원하며 각 물품의 직접 분류별 최단 상속 경로 하나를 근거로 반환한다.
+- `knowledge/examples/p3_semantics.ttl`은 **저장소의 소규모 시험 자료**다. 운영 manifest와 설치 데이터에는 등록하지 않는다. 운영 의미 원본의 TTL 전환 또는 기존 원본에서 그래프를 만드는 방식은 아직 미결이다. 기존 JSON-LD·초기 상태·스킬은 그대로 사용한다.
+- C 전달 후보는 `items`·`source`·`evidence`다. C는 기존 `query_ontology {item}`으로 현재 위치를 조회하며 `list/class`는 `NOT_SUPPORTED`를 유지한다. **음성 입력·C 전달 어댑터·다중 서랍 실행·GUI는 아직 미연결**이다. 새 ROS/wire 계약은 이번에 추가하지 않는다.
+- Python 의존성은 `setup.py`의 `rdflib>=6.1.1,<8`, ROS 시스템 의존성은 `package.xml`의 `python3-rdflib`이다. 기존 로더는 이 모듈을 import하지 않는다. 공통 pip/CI 설치 목록 반영은 C 요청 사항이며 완료 전 전체 CI 준비가 끝난 것으로 보지 않는다.
+
+최소 검사는 `PYTHONPATH=ros2_ws/src/ready2go_knowledge:ros2_ws/src/ready2go_runner python3 -m pytest ros2_ws/src/ready2go_knowledge/test/test_semantic_query.py -q`로 실행한다. 기존 로더/스킬 회귀와 실행 수신 연결은 별도 근거로 구분한다. 기준은 [FR-ONT-03](../../../docs/requirements.md#fr-ont-03), 담당별 결정은 [#302](https://github.com/Jik-Kim/ready2go/issues/302)를 따른다.
