@@ -202,10 +202,14 @@ def occlusion_fields(dets: list[dict], ids: list, depth_m: np.ndarray, K: Intrin
             relations is not None and relations.append({"under": ids[j], "judge": "모름: 버린 관계만 있음"})
         alone = p.get("alone_clear_min_ratio")                 # 조금 덜 보이는데(기준 넓이가 커서) 맞닿은 검출 물체가 하나도 없고 조각도 안 났으면
         ring_ok = True                                         # 덮을 수 있는 검출 물체가 없음 → [] (10/14 PC2 아래 칸
-        if alone is not None and p.get("ring_check") and not covers and not unknown and less and not split and not touch and tops[j] is not None:
-            hi, n_ring = _ring_high(j, masks, grown, Z, XY, interior_m, tops[j], p)   # 둘레 뎁스에 검출 밖 높은 물체가 있으면 [] 안 함(판 미검출 대비)
-            ring_ok = n_ring > 0 and hi < int(p["ring_high_min_px"])
-            relations is not None and relations.append({"under": ids[j], "ring_high_px": hi, "ring_px": n_ring, "judge": "둘레 뎁스 확인"})
+        if alone is not None and p.get("ring_check") and not covers and not unknown and less and not split and not touch:
+            if tops[j] is None:                                # 윗면을 못 재면 둘레를 비교할 수 없음 → 확인 불가는 null (보수적)
+                ring_ok = False
+                relations is not None and relations.append({"under": ids[j], "judge": "모름: 둘레 확인 불가(윗면 높이 없음)"})
+            else:                                              # 둘레 뎁스에 검출 밖 높은 물체가 있으면 [] 안 함 — 하한 0.70 에서 판 미검출의 유일한 방어
+                hi, n_ring = _ring_high(j, masks, grown, Z, XY, interior_m, tops[j], p)
+                ring_ok = n_ring > 0 and hi < int(p["ring_high_min_px"])   # 둘레 띠가 비면(벽 쪽뿐 등) 확인 불가 → null
+                relations is not None and relations.append({"under": ids[j], "ring_high_px": hi, "ring_px": n_ring, "judge": "둘레 뎁스 확인"})
         if (alone is not None and ring_ok and not covers and not unknown and less and not split and not touch   # 혼자 다 보인 지우개 0.78 이 null 이라 C 가 집지 않음, #196)
                 and ratio is not None and ratio >= alone):
             relations is not None and relations.append({"under": ids[j], "visible_ratio": round(ratio, 2),   # 많이 덜 보이면(검출 안 된 물체가

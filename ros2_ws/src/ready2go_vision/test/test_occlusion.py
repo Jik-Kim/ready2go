@@ -147,6 +147,23 @@ def test_alone_rule_keeps_unknown_when_undetected_cover_in_depth():
     assert ok and json.loads(js)["target"]["occluded_by"] == []
 
 
+def test_alone_rule_unknown_when_ring_cannot_be_checked():
+    """둘레 확인을 못 하면 null(보수적): 둘레 띠가 비거나(띠 폭 0) 윗면을 못 잼(뎁스 결손)."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115)]
+    depth, masks = _shrunk(objs, 0.78)
+    empty_ring = {**PARAMS, "occlusion": {**OCC, "ring_outer_px": OCC["ring_inner_px"]}}   # 띠 픽셀 0
+    ok, _, js = inspect_scene(dets_of(objs, masks), depth, K, T, empty_ring, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+    import ready2go_vision.core.occlusion as occ                                # 윗면 높이 못 잼(_top → None) 흉내
+    orig = occ._top
+    occ._top = lambda *a, **k: None
+    try:
+        out = occ.occlusion_fields(dets_of(objs, masks), ["eraser#1"], depth, K, T, {"top_percentile": 95, **OCC}, 0.15, 1.0, interior_m=INTERIOR)
+    finally:
+        occ._top = orig
+    assert out["eraser#1"][0] is None
+
+
 def test_yaw_near_90_degrees_stays_in_range():
     """반올림 1.5708 이 pi/2 를 넘어 RESULT_INVALID 가 나던 문제 (가림 시험에서 발견)."""
     it, _ = run([("caramel_box", 0.10, 0.15, (0.049, 0.075), 0.0185)], target="caramel_box")
