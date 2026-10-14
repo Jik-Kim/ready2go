@@ -13,6 +13,8 @@
     <!-- 목업 화면 모델 위에 status-api.js가 실제 Runner 연결과 기억 상태를 안전하게 덮어씁니다. -->
     <script src="./demo-data.js" defer></script>
     <script src="./status-api.js" defer></script>
+    <!-- Runner 요청·결과 원본을 화면과 분리된 내부 모델로 먼저 검증합니다. -->
+    <script src="./runner-status-model.js" defer></script>
     <script src="./app.js" defer></script>
   </head>
   <body>
@@ -111,17 +113,42 @@
           </div>
         </section>
 
-        <section class="card supplies-card" aria-labelledby="suppliesHeading">
-          <div class="section-heading supplies-heading">
-            <div>
-              <span class="eyebrow">요청 목록</span>
-              <h2 id="suppliesHeading">출근 준비물</h2>
+        <button id="openDrawerPanel" class="mobile-drawer-button" type="button">
+          <span class="section-icon" aria-hidden="true">▤</span>
+          <span>
+            <small>선택한 서랍의 등록 물품</small>
+            서랍 보기
+          </span>
+          <span aria-hidden="true">›</span>
+        </button>
+
+        <div class="dashboard-side-column">
+          <section class="card camera-card" aria-labelledby="cameraHeading">
+            <div class="section-heading camera-heading">
+              <div>
+                <span class="eyebrow">카메라 상태</span>
+                <h2 id="cameraHeading">카메라</h2>
+              </div>
             </div>
-            <span id="completionCount" class="completion-count" aria-live="polite"></span>
-          </div>
-          <div id="supplyList" class="supply-list"></div>
-          <p id="suppliesEmpty" class="empty-state" hidden>요청된 준비물이 없습니다.</p>
-        </section>
+            <div id="cameraViewport" class="camera-viewport" role="img" aria-label="카메라 수신 대기">
+              <span class="camera-placeholder-icon" aria-hidden="true">▧</span>
+              <strong>카메라 수신 대기</strong>
+              <span>사진·영상 소스 연결 방식 협의 중</span>
+            </div>
+          </section>
+
+          <section class="card supplies-card" aria-labelledby="suppliesHeading">
+            <div class="section-heading supplies-heading">
+              <div>
+                <span class="eyebrow">요청 목록</span>
+                <h2 id="suppliesHeading">출근 준비물</h2>
+              </div>
+              <span id="completionCount" class="completion-count" aria-live="polite"></span>
+            </div>
+            <div id="supplyList" class="supply-list"></div>
+            <p id="suppliesEmpty" class="empty-state" hidden>요청된 준비물이 없습니다.</p>
+          </section>
+        </div>
       </div>
 
       <section class="card task-card" aria-labelledby="taskHeading">
@@ -174,15 +201,6 @@
           </dl>
         </div>
       </section>
-
-      <button id="openDrawerPanel" class="mobile-drawer-button" type="button">
-        <span class="section-icon" aria-hidden="true">▤</span>
-        <span>
-          <small>선택한 서랍의 등록 물품</small>
-          서랍 보기
-        </span>
-        <span aria-hidden="true">›</span>
-      </button>
 
     </main>
 
@@ -338,5 +356,6 @@
       <div id="mobileInventoryList" class="mobile-inventory-list"></div>
       <p id="mobileInventoryEmpty" class="empty-state" hidden>등록된 물품이 없습니다.</p>
     </dialog>
+
   </body>
 </html>

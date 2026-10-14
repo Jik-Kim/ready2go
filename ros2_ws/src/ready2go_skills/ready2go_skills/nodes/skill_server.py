@@ -2063,6 +2063,24 @@ class SkillServer(Node):
 
     # --- 집기 ---
     def _do_pick_object(self, goal, params):
+        """집기 순서 [사용자 10/14 PC2 통합]: ① 놓인 방향에 맞게(세로 = 짧은 변, 가로 = 긴 변 양끝 axis_grasp) ② 막히면 가로·세로
+        바꿔 잡기 ③ 그래도 막히면 넛지·sweep(부르는 쪽). 세로 물체의 짧은 변 → 긴 변은 원래 판단 안에 있음(벽·이웃) — 여기선 가로
+        물체의 긴 변 양끝이 움직이기 전 WALL_TOO_CLOSE·NEIGHBOR_TOO_CLOSE 일 때 짧은 변(90° 돌림)으로 한 번 더 판단.
+        [10/14 위 칸 차키: 긴 변 양끝은 옆벽 2.1 mm 부족 → 넛지 → 쌓인 차키 누르기 실패, 짧은 변이면 바로 잡힘 (덤프 재현)]
+        둘 다 막히면 첫 판단(긴 변 양끝)의 거부 그대로 — 넛지 계획은 그 기준."""
+        info = {}                                           # 판단 상태는 서버 속성이 아니라 이 호출 안에서만 (C #345 리뷰 P3)
+        first = self._pick_object_once(goal, params, info=info)
+        o = first[0]
+        if (o.success or o.error_code not in (WALL_TOO_CLOSE, NEIGHBOR_TOO_CLOSE) or not info.get("axis")
+                or not self.prm()["pick"].get("axis_swap")):
+            return first
+        second = self._pick_object_once(goal, params, axis_off=True)
+        if second[0].success or second[0].error_code not in (WALL_TOO_CLOSE, NEIGHBOR_TOO_CLOSE):
+            return second
+        return first
+
+    def _pick_object_once(self, goal, params, axis_off=False, info=None):
+        """집기 판단·실행 한 번. axis_off = 가로 물체도 짧은 변으로(바꿔 잡기 두 번째 판단). info["axis"] = 가로 물체 긴 변 양끝으로 판단했음."""
         if (err := self._refuse_if_hold_unknown()):
             return err, None
         if "source_slot" in params:
@@ -2102,7 +2120,10 @@ class SkillServer(Node):
         # 원통형이 옆벽에 붙으면 넛지 없이 긴 변 양끝 + 벽 쪽으로 기울임 (굴러감) [사용자 10/10 PC2 립밤]
         long_side = False
         ag = None                                           # 긴 변 양끝·서랍 축 파지 [사용자 10/10 "그리퍼 기준 파지"]
-        if gw["axis_grasp"] and not gw["round"] and mp.axis_grasp_fits(size, gw) and mp.is_crosswise(target["pose"]["yaw"]):
+        if (gw["axis_grasp"] and not axis_off and not gw["round"] and mp.axis_grasp_fits(size, gw)
+                and mp.is_crosswise(target["pose"]["yaw"])):
+            if info is not None:
+                info["axis"] = True
             gd = dict(gw, wall_tcp_min_mm=(prm["drag"].get("wall_tcp_min_by_drawer_mm") or {}).get(drawer_id))
             ag = mp.plan_axis_grasp(target=target, size_m=size, interior_m=place.get("interior_m") or [0, 0, 0], g=gd,
                                     drag=prm["drag"])
@@ -2554,8 +2575,9 @@ class SkillServer(Node):
         objs = [dict(o, occluded_by=list(o.get("occluded_by") or [])) for o in objs]
         tid = (scan.get("target") or {}).get("id") if scan.get("target_found") else None
         pl = prm.get("place") or {}
-        # 놓은 물체는 나중에 원래 자리로 되돌려야 함(unpack·Runner) → 다시 집을 수 있는 자리만, 비전 오차만큼 어긋나도 집히는 곳
-        # [PC2 10/14 S1 RESTORE_INCOMPLETE: 옆벽 가까이 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE — #196·#260]
+        # 놓은 물체는 나중에 원래 자리로 되돌려야 함(unpack·Runner) → 다시 집을 수 있는 자리(비전 오차만큼 어긋나도 집히는 곳)를 먼저
+        # [PC2 10/14 S1 RESTORE_INCOMPLETE: 옆벽 가까이 놓은 캐러멜을 복구 때 WALL_TOO_CLOSE — #196·#260]. 없으면
+        # free_repickable_only false 일 때 놓기만 되는 자리 — 원복 때 부르는 쪽이 넛지 뒤 집기 [사용자 10/14 PC2 통합]
         cfg = clp.Config(interior_m=place["interior_m"], frame=loc, size_of=self._size_cached(),
                          round_classes=tuple(prm["pick"].get("round_classes") or ()),
                          reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(loc) or 0.0) / 1000.0 or None,
