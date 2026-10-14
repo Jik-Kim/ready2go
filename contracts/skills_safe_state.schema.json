@@ -17,7 +17,7 @@
                    "gripper", "drawers", "b_locked", "b_lock_reason", "robot_state", "busy", "stamp"],
       "properties": {
         "stopped": {"type": ["boolean", "null"], "description": "스킬 동작 실행 중 아님 + DSR 상태가 이동 중(2) 아님 + 관절 변화 없음. 로봇 상태를 못 읽으면 null"},
-        "external_force": {"type": ["boolean", "null"], "description": "지속 외력 — 멈춘 상태에서 safe_state.external_force_hold_s 동안 external_force_rate_hz 로 읽은 툴 힘 |F|(3축)이 모두 external_force_n 보다 크면 true, 아니면 false (값은 B params/skills.yaml safe_state, 근거 B 실측 10/13 일지 32). 창 전·후 다시 읽은 상태가 하나라도 멈춤이 아니거나(창 도중 조그·외부 제어 포함)·동작 중·한 번이라도 못 읽음(3축 미만 포함)이면 null. 값은 B params/skills.yaml safe_state"},
+        "external_force": {"type": ["boolean", "null"], "description": "지속 외력 — 멈춘 상태에서 safe_state.external_force_hold_s 동안 external_force_rate_hz 로 읽은 툴 힘 |F|(3축)이 모두 external_force_n 보다 크면 true, 아니면 false (값은 B params/skills.yaml safe_state, 근거 B 실측 10/13 일지 32). 창 전·힘 읽을 때마다·창 뒤 읽은 상태·관절이 한 번이라도 멈춤이 아니거나(창 도중 조그·외부 제어로 움직였다 돌아온 경우 포함)·동작 중·한 번이라도 못 읽음(3축 미만 포함)이면 null. 값은 B params/skills.yaml safe_state"},
         "external_force_n": {"type": ["number", "null"], "minimum": 0, "description": "판정 창 안 |F| 최소값(N) — 참고용, 판정은 external_force. external_force 가 null 이면 null"},
         "sensors_ok": {"type": "boolean", "description": "RG2 를 읽었고 안전 오류 없음·폭 정상 범위"},
         "comm_ok": {"type": "boolean", "description": "로봇 상태와 RG2 를 둘 다 읽음"},

@@ -3416,6 +3416,37 @@ def test_external_force_window_rechecks_motion_after(server):
     finally:
         srv.robot.state, srv.locked = real_state, None
 
+def test_external_force_window_rejects_motion_that_returns_before_end(server):
+    """[E #335 재리뷰 P1, head e3964d1] 창 도중 움직였다가(또는 상태를 못 읽다가) 창 끝 전에 원래 대기·관절로 돌아오면 창 전·후만
+    읽어서는 못 봄 → 잠금 해제였음. 힘 읽을 때마다 상태·관절도 읽어 한 번이라도 멈춤이 아니면 그 창은 버림(외력 null) → W2 거절."""
+    srv = _srv_state(server)
+    real_state, real_j = srv.robot.state, list(srv.robot.j)
+    cases = {
+        "moving": (lambda: setattr(srv.robot, "state", lambda: 2), lambda: setattr(srv.robot, "state", real_state)),
+        "unknown": (lambda: setattr(srv.robot, "state", lambda: None), lambda: setattr(srv.robot, "state", real_state)),
+        "joints": (lambda: setattr(srv.robot, "j", [v + 0.5 for v in real_j]), lambda: setattr(srv.robot, "j", list(real_j))),
+    }
+    try:
+        for name, (go, back) in cases.items():
+            srv.locked, n = "pick_object: MOVE_UNCONFIRMED", {"force": 0}
+
+            def force(p, go=go, back=back):                      # 두 번째 읽기에 움직이고(모르고) 여덟 번째에 원래대로
+                n["force"] += 1
+                if n["force"] == 2:
+                    go()
+                elif n["force"] == 8:
+                    back()
+                return [-1.12, 1.39, 0.31, 0.0, 0.0, 0.0]
+            srv.robot.force = force
+            r = srv.recover()
+            assert not r["recovered"] and srv.locked, name
+            assert r["state"]["external_force"] is None and "EXTERNAL_FORCE_UNKNOWN" in r["blockers"], (name, r)
+            assert n["force"] < 10, name                              # 버린 창은 끝까지 안 읽음
+        assert srv.robot.log == []
+    finally:
+        srv.robot.state, srv.robot.j, srv.locked = real_state, real_j, None
+
+
 def test_recover_reads_state_once_and_changes_nothing_on_error(server):
     """[E #297 재리뷰 P2] 복구는 상태를 처음 한 번만 읽고 응답을 다 만든 뒤에 잠금·쥔 기억을 바꿈 — 예전엔 잠금을 푼 뒤 응답용으로
     다시 읽다 예외가 나면 recovered=false 인데 잠금은 이미 풀려 있었음. 첫 조회 성공 → 두 번째부터 예외여도 정상 복구, 응답 state 는
