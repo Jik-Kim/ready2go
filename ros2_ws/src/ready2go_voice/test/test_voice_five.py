@@ -420,3 +420,141 @@ def test_upper_drawer_existing_runtime_gates_still_hold(node, gate):
     if gate == 'evaluation': node.cfg['evaluation_mode'] = True
     node.deliver(doc)
     assert not node.published and node.request_run.pending is None
+
+
+def test_351_safety_audio_reuses_stt_for_readonly_receiver_and_preserves_work_question(node):
+    from test_safety_exchange import stopped, question, delivered, audio, WORK, STT
+    memory_node(node);packet(node, phase='halted')
+    node.safety_exchange = ex = stopped(node.cfg)
+    sent = []
+    node.safety_sender = lambda *args: sent.append(args)
+    node.now[0] = 6.
+    calls = []
+    class CountSTT(STT):
+        def transcribe(self, *args, **kwargs):
+            calls.append(self.text)
+            return super().transcribe(*args, **kwargs)
+    node.session.stt = CountSTT('현재 상태', node.now)
+    node.parser.llm = lambda *args: pytest.fail('readonly STT must not call LLM')
+    node._safety_recording(audio(), WORK)  # actual safety_audio -> actual receiver, not text delivery
+    assert calls == ['현재 상태'] and ex.policy.work == WORK and ex.policy.independent is None
+    assert not sent and not node.published and node.pending_notice.kind == 'readonly_query'
+    play(node)
+    assert node.texts[-1] == prompts(node.cfg)['status_halted']
+    q = question(ex);delivered(ex,q)
+    before = (q, ex.policy.question_until, ex.policy.registered_at, ex.policy.finished_at)
+    result = node.session.safety_audio(ex, q, audio(), cancel=node.safety_cancel)
+    with node.dialog_lock:
+        with node.submit_lock:
+            node.safety_activity.set()
+            node.safety_running = node.safety_cancel
+            node._safety_result_locked(result, node.safety_cancel, node.safety_sender)
+            node._release_safety_locked(node.safety_cancel)
+            assert node.pending_notice is None  # never queue into a still-owned question dialog
+    with node.submit_lock:
+        node._flush_safety_readonly_locked()
+    assert node.pending_notice.kind == 'readonly_query'
+    assert calls == ['현재 상태', '현재 상태']  # one SDK call for each distinct recording
+    assert before == (ex.policy.question, ex.policy.question_until, ex.policy.registered_at, ex.policy.finished_at)
+    assert ex.policy.work == WORK and ex.policy.request is None and ex.reserve(q) is not None
+    assert not sent and not node.published
+
+
+def speech_run(node):
+    endpoints, _, _, _ = memory_node(node)
+    node.cfg['request_run_enabled'] = True
+    packet(node)
+    node.deliver(node.session.text('지우개 가져다줘',node.generation, request_id='speech-request'))
+    decision = dict(intent='find_item',targets=['eraser'],request_id='speech-request',decision='run',run_id='speech-run')
+    packet(node,phase='running',seq=2,decision=decision)
+    assert node.request_run.run_id == 'speech-run'
+    def actual_proof(text, **kwargs):
+        node.texts.append(text)
+        stamp = dict(tts_started_monotonic=node.now[0],tts_mock=False,tts_start_basis='portaudio_first_dac')
+        kwargs['on_start'](stamp)
+        node.now[0] += .01
+        kwargs['on_timing'](dict(playback_ended_monotonic=node.now[0],playback_end_basis='portaudio_finished_callback'))
+        return stamp
+    node.tts.speak = actual_proof  # software playback proof fixture; no physical output
+    return endpoints, decision
+
+
+def receive_speech(node, text):
+    request = SimpleNamespace(params_json=json.dumps({'text':text}))
+    assert node._goal(request) == 1
+    outcomes = []
+    goal = SimpleNamespace(request=request,is_cancel_requested=False,succeed=lambda:outcomes.append('success'),
+        abort=lambda:outcomes.append('abort'),canceled=lambda:outcomes.append('cancel'))
+    return node._speak(goal), outcomes
+
+
+def first_speech(node):
+    result, outcomes = receive_speech(node,node.request_run.pending['accept_text'])
+    assert result.success and outcomes == ['success']
+
+
+def test_351_current_followup_completion_close_error_speak_after_first_success(node):
+    speech_run(node)
+    first_speech(node)
+    assert node._goal(SimpleNamespace(params_json=json.dumps({'text':node.request_run.pending['accept_text']}))) == 0
+    for text in ('지우개를 앞쪽 트레이에 놓았어요', '서랍을 닫을게요', '지우개를 꺼내지 못했어요'):
+        result, outcomes = receive_speech(node,text)
+        assert result.success and outcomes == ['success'] and node.texts[-1] == text
+
+
+@pytest.mark.parametrize('boundary',['finished','locked','boot','lost','changed_after_accept'])
+def test_351_followup_blocks_finished_changed_source_and_lock(node,boundary):
+    endpoints, decision = speech_run(node);first_speech(node)
+    request = SimpleNamespace(params_json=json.dumps({'text':'서랍을 닫을게요'}))
+    if boundary == 'changed_after_accept': assert node._goal(request) == 1
+    if boundary in ('finished','changed_after_accept'):
+        packet(node,seq=3,last=RunResult('COMPLETED',{},run_id='speech-run'),decision=decision)
+    elif boundary == 'locked': packet(node,phase='halted',seq=3,decision=decision)
+    elif boundary == 'boot': packet(node,phase='running',seq=3,boot='new-boot',decision=decision)
+    else: endpoints['/runner/status'] = []
+    if boundary == 'changed_after_accept':
+        before = list(node.texts);outcomes=[]
+        goal = SimpleNamespace(request=request,is_cancel_requested=False,succeed=lambda:outcomes.append('success'),
+            abort=lambda:outcomes.append('abort'),canceled=lambda:outcomes.append('cancel'))
+        result = node._speak(goal)
+        assert not result.success and outcomes == ['abort'] and node.texts == before
+    else: assert node._goal(request) == 0
+
+
+def test_351_first_speech_failure_keeps_actual_c_first_motion_gate_closed(node):
+    from ready2go_runner.core.interpreter import Runner, ActionResult
+    from ready2go_runner.core.intent_router import add_accept_speak
+    speech_run(node)
+    node.tts.speak = lambda text, **kwargs: kwargs['on_start'](dict(tts_started_monotonic=node.now[0],tts_mock=True))
+    motions=[]
+    def execute(action, params, timeout):
+        if action == 'speak':
+            result, _ = receive_speech(node,params['text'])
+            return ActionResult(result.success,error_code=getattr(result,'error_code',None))
+        motions.append(action)
+        return ActionResult(True)
+    task = add_accept_speak({'task_id':'first-gate-test','sequence':[
+        {'id':'p0','action':'set_var','params':{'name':'announce_pending','value':False}},
+        {'id':'p1','action':'go_home','params':{}}],
+        'finally':[{'id':'fh','action':'go_home','params':{}}]},
+        {'accept_text':node.request_run.pending['accept_text']})
+    result = Runner(execute).run(task,inputs={'accept_text':node.request_run.pending['accept_text']},run_id='speech-run')
+    assert result.overall_status == 'FAILED' and motions == []
+    assert getattr(node,'request_speech_completed',None) is None
+    assert node._goal(SimpleNamespace(params_json=json.dumps({'text':'서랍을 닫을게요'}))) == 0
+
+
+def test_351_backend_error_only_exact_speak_step_is_audio_failure_and_required(cfg,ontology,tmp_path):
+    cfg['ontology_file']=str(ROOT/'knowledge/robot_ontology.jsonld')
+    task=json.loads((ROOT/'tasks/find_with_unpack.json').read_text())
+    for task_id, step, kind in [(task['task_id'],'s8.t3','speech'),
+                               (task['task_id'],'unknown-step','failure'),('unknown-task','s8.t3','failure')]:
+        policy=RunnerNoticePolicy(cfg)
+        policy.observe(build_status(False,False,None,None,None,None,None,False))
+        policy.observe(build_status(True,False,None,task_id,step,None,None,False))
+        last=RunResult('FAILED',{},error_code='BACKEND_ERROR',failed_step=step,run_id='backend-run')
+        notice=policy.observe(build_status(False,False,None,None,None,last,task_id,False))
+        assert notice.kind == kind
+        if kind == 'speech': assert notice.text == prompts(cfg)['notice_speech']
+    cfg['tts_melotts_assets']=str(tmp_path)
+    assert prompts(cfg)['notice_speech'] in prefill_texts(cfg,ontology['world']['items'].values())

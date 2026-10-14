@@ -476,6 +476,16 @@ class VoiceSession:
                 doc['source'] = dict(input_kind='audio', stt_text=text, execution_allowed=False,
                                      llm_called=False, fallback_used=False)
                 return doc
+            from .hotfix import reference_query
+            if self.parser is not None and reference_query(self.parser, text) is not None:
+                # Reuse the one normal SDK result. Known reads do not invoke LLM or answer the question.
+                doc = self.parser.parse(text)
+                if (doc.get('_voice', {}).get('readonly_query')
+                        and exchange.release_readonly(target, receipt, result_at=result_at, now=self.clock())):
+                    doc['source']['input_kind'] = 'audio'
+                    emit(event='safety_audio_result', candidate_type='readonly_query')
+                    return doc
+                raise InterruptedError('SAFETY_CANCELED')
             current = exchange.current(target)
             result = exchange.answer(target, text, captured_at=start, now=self.clock(), request=receipt, result_at=result_at)
             if result is None:

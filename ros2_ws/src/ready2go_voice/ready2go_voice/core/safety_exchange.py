@@ -168,6 +168,27 @@ class SafetyExchange:
         return None
 
     @serialized
+    def release_readonly(self, target, request, *, result_at, now):
+        """Retire this admitted STT receipt without answering/invalidating its work or question."""
+        if not self.current(target) or not finite(result_at) or not finite(now) or result_at > now:
+            return False
+        p = self.policy
+        if target is p.question:
+            if (request is not p.request or request is None
+                    or not request.started_at <= result_at <= request.result_until
+                    or p.question_until is None or now >= p.question_until):
+                return False
+            p.request = None
+        else:
+            if (request is not p.independent_audio or not p._independent_valid(target, result_at)
+                    or now > request[0] + p.independent_request_timeout_sec):
+                return False
+            p.independent = p.independent_audio = p.independent_result = p.independent_ack = None
+        self.capture = None
+        self.last_context = self.last_candidate = None
+        return True
+
+    @serialized
     def answer(self, target, text, *, captured_at, now, request, result_at=None):
         self.last_rejection_reason = None
         result_at = now if result_at is None else result_at

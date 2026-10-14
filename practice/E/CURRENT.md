@@ -1,5 +1,14 @@
 # CURRENT — E 고희태
 
+## voice-351-receive-supplement-20261014
+
+- [문서: 승인·범위] Root가 직접 확인한 사용자 “#351 보완 요청해”의 P1 두 수신 경로와 실제 speak 실패 분류 보완입니다. 기존 `c8d27ed23406e86b545c42e837d6b39590dbe273`·#350 dict guard를 보존합니다. [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-03/P2](../../docs/requirements.md#fr-saf-03)의 기존 안내/질문/수락 경로이며 C/B/공용 계약·task 결과/skip 정책·새 TTL/권한을 변경하지 않습니다.
+- [구현: 실제 음성 읽기] 실제 safety STT 결과의 known readonly 질의만 재사용해 receiver→기존 notice로 전달합니다. 별도 STT/LLM/intent 발행 없이 현재 receipt만 해제하고 work·기존 질문/등록/기한을 보존합니다. 질문/녹음 소유권이 끝나기 전 안내를 queue하지 않고 기존 질문의 다음 새 캡처는 기존 증빙·접수/결과 기한으로 처리합니다.
+- [구현: 현재 실행 후속 안내] 첫 accept_text는 한 번이며 실제 재생 성공을 보존한 동일 현재 request/run/C source·running/unlocked에서 후속 완료/닫기/오류 speak를 허용합니다. 접수 snapshot의 boot/run/generation과 첫 성공 증빙을 재생 직전·도중 재검사합니다. 종료된 run/잠금·취소·평가·재기동·연결 유실·접수 후 run 변경·첫 수락 실패는 차단합니다. text-only action 자체에 원래 run 식별이 없어 새 run 중 늦게 도착한 과거 호출의 원천 식별은 미해결 C 선행이며 차단 완료로 주장하지 않습니다.
+- [구현: 실패 분류·선준비] 실제 현행 두 task 정의의 failed_step=speak인 BACKEND_ERROR만 별도 음성 안내 실패로 설명하고, 물리 전달 완료/집기 실패를 단정하지 않습니다. 다른/미등록 단계·태스크는 일반 실패 유지. 동일 YAML/source 문구 필수 cache 포함: source/local 각각 필수209/빈번0/warmup1/13093 bytes·cap256, 경고0(`/tmp/e-351-supplement-prefill.log`). local/history/캐시·모델·60/120초·속도1.2를 보존하며 준비/청취를 실행하지 않았습니다.
+- [실측: 직접 회귀] 고유9건: 실제 safety_audio→receiver·질문 보존/입력 소유권 종료 후 안내 1건 최종 **1 passed/0.56s**(`/tmp/e-351-supplement-readonly-final.log`), 현재 후속3문장과 종료/잠금/기동/연결/접수 후 변경 6건 **6 passed/0.89s**(`/tmp/e-351-supplement-speech-fix.log`), 실제 C add_accept_speak/Runner의 첫 재생 실패 시 모션0·후속 거절과 정확 speak BACKEND_ERROR/cache 2건은 최초 직접 선택 로그에서 통과(`/tmp/e-351-supplement-direct.log`). 장치 스텁의 stamp 반환 누락을 고친 실패6건만 재검했고, 이후 조회 소유권 변경은 해당1건만 확인했습니다. AST/공백 정적 후 최종head 필수CI1회로 검증하며 기존24/235·전체 선택을 반복하지 않습니다.
+- [문서: 이전 실측 인용·미결] Root가 대조한 voice.run.JXZjBJDU.log의 요청 발행/수락·첫 안내와 C DB s8.t3 BACKEND_ERROR/skip 및 gNuK/JXZ str.get 종료를 재사용합니다. console 단독으로 후속 거절/읽기 질문을 확정하지 않으며 당시 argv/ready 설정도 미확정입니다. 동일 첫 게이트는 ce5483e/cfafd에도 존재해 새 게이트 회귀로 단정하지 않습니다. 실제 PC2/ROS/API/음성·장치·물리/새 cache 검증은 미실행. PR #351의 제목/본문은 전체 기능/이 보완·최종CI·원천 run 한계로 갱신하고 merge는 하지 않습니다.
+
 ## voice-five-log-fixes-20261014
 
 - [문서: 승인·기준] E-VOICE-FIVE-LOG-FIXES-20261014. 조율 human turn `01a138df-11bb-74a0-b051-62af912a708d` / message `01a138df-11ea-77f3-b85a-7f942e59db55`의 “이것도 로그 확인한 거 바탕으로 진행해”와 직전 다섯 항목 범위를 직접 확인했습니다. 새 `/tmp/ready2go-e-voice-five-20261014` / `codex/e-voice-five-20261014`에서 e28 원본을 보존하고 최신 main `6ce3003cf67ca2751baca959594274a5c94e2c00`을 정상 merge `c13fe2b3ceb146ba7c24e5e1062b498169bcdac3`로 인입했습니다. CURRENT 충돌은 양쪽 기록을 모두 보존했습니다. 기준은 [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-01/03/P2](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)이며 자유 질의·새 실행/안전 정책·공용 계약 변경은 없습니다.

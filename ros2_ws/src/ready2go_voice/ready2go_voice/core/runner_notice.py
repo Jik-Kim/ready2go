@@ -16,12 +16,12 @@ STATUS_PROMPTS = {
 }
 # New cause wording comes from the same YAML prompts consumed by prefill.
 from .hotfix import prompts as feedback_prompts
-CAUSE_KINDS = ('camera', 'coordinates', 'region', 'interference', 'no_space', 'recovery', 'vision_timeout', 'restore')
+CAUSE_KINDS = ('camera', 'coordinates', 'region', 'interference', 'no_space', 'recovery', 'vision_timeout', 'restore', 'speech')
 STATUS_PROMPTS.update({kind: feedback_prompts({})['notice_' + kind] for kind in CAUSE_KINDS})
 
 
-def vision_steps(cfg):
-    """Only exact inspect_region steps of the two current task definitions.
+def vision_steps(cfg, action='inspect_region'):
+    """Only exact requested-action steps of the two current task definitions.
 
     Unknown/custom task definitions are not a reason to call TIMEOUT vision.
     """
@@ -33,7 +33,7 @@ def vision_steps(cfg):
             selected = set()
             def walk(value):
                 if isinstance(value, dict):
-                    if value.get('action') == 'inspect_region' and isinstance(value.get('id'), str):
+                    if value.get('action') == action and isinstance(value.get('id'), str):
                         selected.add(value['id'])
                     for child in value.values(): walk(child)
                 elif isinstance(value, list):
@@ -50,7 +50,7 @@ HALT_MOTION = frozenset({'OBJECT_DROPPED', 'ESTOP', 'SENSOR_INVALID', *UNCONFIRM
 VISION_ERRORS = {'DEPTH_INVALID', 'RESULT_INVALID', 'UNKNOWN_REGION', 'STUB_NOT_READY'}
 
 
-def warning_kind(code, *, halted=False, aborted=False, vision_step=False):
+def warning_kind(code, *, halted=False, aborted=False, vision_step=False, speech_step=False):
     if code == 'ESTOP': return 'estop', 0
     if code in UNCONFIRMED: return 'unconfirmed', 1
     if code == 'OBJECT_DROPPED': return 'dropped', 1
@@ -66,6 +66,7 @@ def warning_kind(code, *, halted=False, aborted=False, vision_step=False):
     if code == 'RESTORE_INCOMPLETE': return 'restore', 3
     if code in ('B_RECOVER_UNAVAILABLE', 'B_RECOVER_FAILED', 'B_CHECK_UNAVAILABLE'): return 'recovery', 3
     if code in VISION_ERRORS: return 'vision', 3
+    if code == 'BACKEND_ERROR' and speech_step: return 'speech', 3
     if code == 'GRASP_FAILED': return 'grasp', 3
     return 'failure', 3
 
@@ -83,6 +84,7 @@ class Notice:
 class RunnerNoticePolicy:
     def __init__(self, cfg=None):
         self.vision_steps = vision_steps(cfg) if cfg is not None else {}
+        self.speech_steps = vision_steps(cfg, 'speak') if cfg is not None else {}
         self.prompts = dict(STATUS_PROMPTS)
         if cfg is not None:
             self.prompts.update({kind: feedback_prompts(cfg)['notice_' + kind] for kind in CAUSE_KINDS})
@@ -140,7 +142,8 @@ class RunnerNoticePolicy:
                 if outcome in ('FAILED', 'ABORTED'):
                     candidates.append(warning_kind(error if isinstance(error, str) else None,
                                                    aborted=outcome == 'ABORTED',
-                                                   vision_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.vision_steps.get(last.get('task_id'), set())))
+                                                   vision_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.vision_steps.get(last.get('task_id'), set()),
+                                                   speech_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.speech_steps.get(last.get('task_id'), set())))
         self.phase, self.previous_halt = phase, halt
         self.blocked = bool(halt)
         if not candidates: return None

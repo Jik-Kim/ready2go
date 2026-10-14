@@ -184,6 +184,7 @@ voice_hotfix:
   notice_region: 작업 영역을 확인하지 못했습니다. 가림과 카메라 자세를 확인해 주세요.
   notice_interference: 벽이나 이웃 물체와의 간섭 때문에 진행하지 못했습니다.
   notice_no_space: 물건을 옮길 빈 자리를 찾지 못했습니다.
+  notice_speech: 음성 안내를 재생하지 못했습니다. 작업 상태를 확인해 주세요.
   notice_restore: 옮긴 물건 일부를 원래 자리로 못 돌려놨어요. 사람이 확인해 주세요
   notice_recovery: 복구 결과를 확인하지 못했습니다. 작업과 잠금은 유지됩니다.
   runtime_external_force: 외력이 보고돼 복구를 거절했습니다.

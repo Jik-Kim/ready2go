@@ -662,7 +662,10 @@ class VoiceNode(Node):
         if (sender is None or cancel is not self.safety_cancel or cancel.is_set()
                 or self.stop_event.is_set() or self.cfg['evaluation_mode']):
             return
-        if isinstance(result, dict) and result.get('intent') == 'cancel':
+        if isinstance(result, dict) and result.get('_voice', {}).get('readonly_query'):
+            self.safety_readonly_result = (result, cancel, self.generation)
+            self._flush_safety_readonly_locked()
+        elif isinstance(result, dict) and result.get('intent') == 'cancel':
             self._stop_locked(result)
         elif isinstance(result, IndependentRegistration):
             sender('register_independent', result.request)
@@ -672,6 +675,16 @@ class VoiceNode(Node):
             sender('recover', result.work)
         else:
             self._send_safety_candidate_locked(result, sender)
+
+    def _flush_safety_readonly_locked(self):
+        pending = getattr(self, 'safety_readonly_result', None)
+        if pending is None or self.safety_activity.is_set() or self.dialog_lock.locked():
+            return
+        self.safety_readonly_result = None
+        doc, cancel, generation = pending
+        if (cancel is self.safety_cancel and not cancel.is_set() and generation == self.generation
+                and not self.stop_event.is_set()):
+            self._readonly_feedback_locked(doc, generation)
 
     def _send_safety_candidate_locked(self, result, sender):
         if isinstance(result, TaskEndCandidate):
@@ -748,6 +761,7 @@ class VoiceNode(Node):
         if self.safety_running is None and self.safety_pending is None:
             self.safety_activity.clear()
         self._refresh_busy_locked()
+        self._flush_safety_readonly_locked()
         self.place_condition.notify_all()
 
     def _finish_feedback_locked(self, token):
@@ -865,8 +879,9 @@ class VoiceNode(Node):
                     or not finite(recording.recording_started_monotonic)):
                 self._diagnostic({'event':'safety_input_held','reason':'work_state_sender_or_capture_unconfirmed'})
                 return
-            target = self.safety_exchange.begin_independent(now=recording.recording_started_monotonic,
-                                                           unique_target=True)
+            target = (p.question if p.question is not None else
+                      self.safety_exchange.begin_independent(now=recording.recording_started_monotonic,
+                                                             unique_target=True))
             if target is None:
                 self._diagnostic({'event':'safety_input_held','reason':'current_question_or_request_pending'})
                 return
@@ -908,6 +923,7 @@ class VoiceNode(Node):
                 self.safety_pending = None
                 cancel, sender = self.safety_cancel, self.safety_sender
                 self.safety_running = cancel
+            result = None
             with self.dialog_lock:
                 try:
                     if mode == 'feedback':
@@ -969,11 +985,14 @@ class VoiceNode(Node):
                     if not self.tts.lock.locked():
                         self.speaking.clear()
                     with self.place_condition:
-                        if mode == 'question' and getattr(self, 'control_mapper', None) is not None:
+                        if (mode == 'question' and getattr(self, 'control_mapper', None) is not None
+                                and not (isinstance(result, dict) and result.get('_voice', {}).get('readonly_query'))):
                             sender('expired', target)  # close only this C-registered unanswered question
                         if mode == 'feedback':
                             self._finish_feedback_locked(target)
                         self._release_safety_locked(cancel)
+            with self.submit_lock:
+                self._flush_safety_readonly_locked()
 
     def _diagnostic(self, doc):
         value = dict(doc)
@@ -2167,7 +2186,26 @@ class VoiceNode(Node):
             if self.stop_listener is None:
                 self.shared_input.close()
 
+    def _current_speech_run(self):
+        """Current C status correlation, not provenance for a text-only action call."""
+        if not self._request_run_connected() or self.cfg['evaluation_mode']:
+            return None
+        doc = self._current_runner_status()
+        pending, run = self.request_run.pending, self.request_run.run_id
+        if (doc is None or doc['phase'] != 'running' or (doc.get('halt') or {}).get('locked') is True
+                or pending is None or run is None or self.request_run.finished):
+            return None
+        decision = doc.get('last_intent') or {}
+        if (decision.get('decision') != 'run' or decision.get('run_id') != run
+                or decision.get('request_id') != pending['request_id']
+                or decision.get('intent') != pending['intent']
+                or pending['intent'] == 'find_item' and decision.get('targets') != pending.get('targets')):
+            return None
+        return (pending['request_id'], run, getattr(self, 'request_source_boot', None), self.generation)
+
     def _goal(self, request):
+        if self.stop_event.is_set() or self.cfg.get('request_run_enabled') and self.cfg['evaluation_mode']:
+            return GoalResponse.REJECT
         if (self.cfg.get('request_run_enabled', False)
                 and not self._request_run_connected()):
             return GoalResponse.REJECT
@@ -2183,15 +2221,23 @@ class VoiceNode(Node):
             return GoalResponse.REJECT
         with self.submit_lock:
             self.goal_request_run = None
+            self.goal_first_speech = False
+            self.goal_request_boot = getattr(self, 'request_source_boot', None)
+            self.goal_generation = self.generation
             if self.cfg.get('request_run_enabled', False):
                 pending, run = self.request_run.pending, self.request_run.run_id
+                first = pending is not None and params['text'] == pending.get('accept_text')
+                token = (pending['request_id'], run, self.goal_request_boot, self.generation) if pending else None
                 if (pending is None or run is None or self.request_run.finished
-                        or params['text'] != pending.get('accept_text')
-                        or (pending['request_id'], run) in self.request_speech_used):
+                        or first and (pending['request_id'], run) in self.request_speech_used
+                        or not first and (getattr(self, 'request_speech_completed', None) != token
+                                          or self._current_speech_run() != token)):
                     self.goal_lock.release()
                     return GoalResponse.REJECT
                 self.goal_request_run = (pending['request_id'], run, params['text'])
-                self.request_speech_used.add((pending['request_id'], run))
+                self.goal_first_speech = first
+                if first:
+                    self.request_speech_used.add((pending['request_id'], run))
         self.goal_warning_epoch = getattr(self, 'warning_epoch', 0)
         return GoalResponse.ACCEPT
 
@@ -2201,12 +2247,19 @@ class VoiceNode(Node):
         done = threading.Event()
         epoch = getattr(self, 'goal_warning_epoch', getattr(self, 'warning_epoch', 0))
         request_identity = getattr(self, 'goal_request_run', None)
+        first_speech = getattr(self, 'goal_first_speech', False)
+        token = ((request_identity[0], request_identity[1], getattr(self, 'goal_request_boot', None),
+                  getattr(self, 'goal_generation', self.generation)) if request_identity else None)
         def warning_changed():
             if request_identity is not None:
                 with self.submit_lock:
                     pending = self.request_run.pending
-                    if (pending is None or (pending['request_id'], self.request_run.run_id, pending.get('accept_text')) != request_identity
-                            or self.request_run.finished):
+                    if (pending is None or (pending['request_id'], self.request_run.run_id) != request_identity[:2]
+                            or self.request_run.finished or token[2] != getattr(self, 'request_source_boot', None)
+                            or token[3] != self.generation or self.cfg['evaluation_mode']
+                            or first_speech and pending.get('accept_text') != request_identity[2]
+                            or not first_speech and (self._current_speech_run() != token
+                                or getattr(self, 'request_speech_completed', None) != token)):
                         return True
             normal_cancel = getattr(self, 'normal_notice_cancel', None)
             return (self.stop_event.is_set()
@@ -2243,6 +2296,11 @@ class VoiceNode(Node):
                                or not math.isfinite(t) for t in (start, end))
                         or end < start):
                     raise RuntimeError('TTS_PLAYBACK_UNCONFIRMED')
+            with self.submit_lock:
+                if warning_changed():
+                    raise InterruptedError('TTS_CANCELED')
+                if request_identity is not None and first_speech:
+                    self.request_speech_completed = token  # Only actual successful first playback.
             result.success = True
             result.output_json = json.dumps(stamp)
             goal.succeed()
