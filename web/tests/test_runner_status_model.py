@@ -222,8 +222,8 @@ def test_runner_records_distinguish_valid_absent_and_invalid_values(tmp_path: Pa
     assert outputs[4]["lastResult"]["invalidFields"] == ["runner"]
 
 
-def test_runner_records_link_only_an_accepted_request_with_the_same_run_id(tmp_path: Path) -> None:
-    """같은 실행 ID만 연결하고 다른 ID·누락·비실행 결정을 분리한다."""
+def test_runner_records_link_only_an_accepted_request_with_matching_ids(tmp_path: Path) -> None:
+    """같은 실행·태스크 ID만 연결하고 불일치·누락·비실행 결정을 분리한다."""
     # 각 사례는 실제 Runner 필드 전체를 넣어 파싱과 연결 판정을 한 번에 검증한다.
     def intent(decision: str, run_id: str | None) -> dict:
         # 요청별로 달라지는 결정과 실행 ID 외 필드는 정상 계약값으로 고정한다.
@@ -237,10 +237,10 @@ def test_runner_records_link_only_an_accepted_request_with_the_same_run_id(tmp_p
             "run_id": run_id,
         }
 
-    def result(run_id: str) -> dict:
-        # 결과는 연결 판정에 필요한 run_id와 현재 Runner 완료 필드를 모두 제공한다.
+    def result(run_id: str, task_id: str = "find_item") -> dict:
+        # 결과는 연결 판정에 필요한 두 ID와 현재 Runner 완료 필드를 모두 제공한다.
         return {
-            "task_id": "find_item",
+            "task_id": task_id,
             "run_id": run_id,
             "overall_status": "COMPLETED",
             "error_code": None,
@@ -252,6 +252,8 @@ def test_runner_records_link_only_an_accepted_request_with_the_same_run_id(tmp_p
         {"last_intent": intent("run", "run-001"), "last": result("run-001")},
         # 서로 다른 ID는 각각 유효해도 같은 실행으로 묶지 않는다.
         {"last_intent": intent("run", "run-002"), "last": result("run-previous")},
+        # 실행 ID가 같아도 태스크가 다르면 모순된 결과이므로 연결하지 않는다.
+        {"last_intent": intent("run", "run-002"), "last": result("run-002", "different_task")},
         # run 결정에 ID가 없으면 결과 ID를 현재 요청에 추정해 넣지 않는다.
         {"last_intent": intent("run", None), "last": result("run-003")},
         # hold와 reject는 과거 결과 ID가 우연히 같아도 실행 결과로 연결하지 않는다.
@@ -270,6 +272,7 @@ def test_runner_records_link_only_an_accepted_request_with_the_same_run_id(tmp_p
     # 나머지는 구체적인 분리 이유를 남겨 화면이 완료 결과로 오인하지 않게 한다.
     assert [output["connection"]["reason"] for output in outputs[1:]] == [
         "run_id_mismatch",
+        "task_id_mismatch",
         "run_id_missing",
         "non_run_decision",
         "non_run_decision",
@@ -277,6 +280,44 @@ def test_runner_records_link_only_an_accepted_request_with_the_same_run_id(tmp_p
     ]
     assert all(output["connection"]["status"] == "unlinked" for output in outputs[1:])
     assert all(output["connection"]["value"] is None for output in outputs[1:])
+
+
+def test_runner_result_accepts_only_contract_overall_status_values(tmp_path: Path) -> None:
+    """Runner 결과 enum 네 값만 정상으로 받고 임의 문자열 결과는 연결하지 않는다."""
+    # 같은 정상 요청에 결과 상태만 바꿔 파서의 enum 경계를 직접 확인한다.
+    intent = {
+        "intent": "find_item",
+        "targets": ["wallet"],
+        "decision": "run",
+        "reason": None,
+        "task_id": "find_item",
+        "request_id": "request-status-test",
+        "run_id": "run-status-test",
+    }
+
+    def result(overall_status: str) -> dict:
+        # 결과의 다른 필드는 유효하게 고정해 overall_status만 시험 원인이 되게 한다.
+        return {
+            "task_id": "find_item",
+            "run_id": "run-status-test",
+            "overall_status": overall_status,
+            "error_code": None,
+            "failed_step": None,
+        }
+
+    statuses = ["COMPLETED", "FAILED", "ABORTED", "SUSPENDED", "SUCCESS"]
+    outputs = _evaluate_runner_model(
+        tmp_path,
+        [{"last_intent": intent, "last": result(status)} for status in statuses],
+    )
+
+    # 계약과 Runner 구현에 있는 네 상태는 파싱과 연결이 모두 정상이어야 한다.
+    assert [output["lastResult"]["status"] for output in outputs[:4]] == ["valid"] * 4
+    assert [output["connection"]["status"] for output in outputs[:4]] == ["linked"] * 4
+    # 계약 밖 문자열은 결과 전체를 invalid로 만들어 같은 ID여도 연결하지 않는다.
+    assert outputs[4]["lastResult"]["status"] == "invalid"
+    assert outputs[4]["lastResult"]["invalidFields"] == ["overall_status"]
+    assert outputs[4]["connection"]["reason"] == "invalid_record"
 
 
 def test_runner_records_accept_every_checked_in_contract_example(tmp_path: Path) -> None:

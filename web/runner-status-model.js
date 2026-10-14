@@ -8,6 +8,13 @@
   // 요청과 결과의 연결 판정은 파싱 상태와 구분해 연결됨·분리됨으로 표현한다.
   const LINKED = "linked";
   const UNLINKED = "unlinked";
+  // Runner 실행 결과와 재개 대기에서 실제로 사용하는 최상위 결과 상태만 허용한다.
+  const OVERALL_STATUSES = Object.freeze([
+    "COMPLETED",
+    "FAILED",
+    "ABORTED",
+    "SUSPENDED",
+  ]);
 
   function isRecord(value) {
     // JavaScript에서 배열과 null도 object로 분류되므로 Runner JSON 객체에서 제외한다.
@@ -108,13 +115,15 @@
     // 현재 계약에 필요한 필드가 빠지면 누락된 이름을 진단에 보존한다.
     const invalidFields = requiredFields.filter((field) => !hasOwn(value, field));
 
-    // 완료 결과에는 연결 기준인 run_id와 결과 enum 문자열이 반드시 있어야 한다.
-    ["run_id", "overall_status"].forEach((field) => {
-      if (hasOwn(value, field)
-        && !(typeof value[field] === "string" && value[field].trim().length > 0)) {
-        invalidFields.push(field);
-      }
-    });
+    // 완료 결과에는 연결 기준인 run_id가 비어 있지 않은 문자열로 있어야 한다.
+    if (hasOwn(value, "run_id")
+      && !(typeof value.run_id === "string" && value.run_id.trim().length > 0)) {
+      invalidFields.push("run_id");
+    }
+    // 임의 문자열을 완료 상태로 표시하지 않고 Runner가 정의한 결과 enum만 인정한다.
+    if (hasOwn(value, "overall_status") && !OVERALL_STATUSES.includes(value.overall_status)) {
+      invalidFields.push("overall_status");
+    }
     // task와 실패 정보는 실행 종류·성공 여부에 따라 null일 수 있다.
     ["task_id", "error_code", "failed_step"].forEach((field) => {
       if (hasOwn(value, field) && !isNullableString(value[field])) invalidFields.push(field);
@@ -168,7 +177,12 @@
       return connectionResult(UNLINKED, "run_id_mismatch");
     }
 
-    // decision=run이고 두 비어 있지 않은 run_id가 같을 때만 하나의 요청·결과로 묶는다.
+    // 같은 실행 ID라도 태스크가 다르면 모순된 요청·결과이므로 현재 요청의 결과로 쓰지 않는다.
+    if (lastIntent.value.taskId !== lastResult.value.taskId) {
+      return connectionResult(UNLINKED, "task_id_mismatch");
+    }
+
+    // decision=run이고 실행 ID와 태스크 ID가 모두 같을 때만 하나의 요청·결과로 묶는다.
     return connectionResult(LINKED, null, {
       runId: lastIntent.value.runId,
       request: lastIntent.value,
