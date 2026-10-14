@@ -66,6 +66,6 @@ result = catalog.query_class('귀중품')  # query_list('출근 준비물')도 �
 - 미등록·은퇴 물품, 누락된 분류/목록 참조, 클래스/물품/목록 선언 충돌, 분류 순환과 허용하지 않은 관계를 읽을 때 거절한다. 복수 상위 분류는 지원하며 각 물품의 직접 분류별 최단 상속 경로 하나를 근거로 반환한다.
 - `knowledge/examples/p3_semantics.ttl`은 **저장소의 소규모 시험 자료**다. 운영 manifest와 설치 데이터에는 등록하지 않는다. 운영 의미 원본의 TTL 전환 또는 기존 원본에서 그래프를 만드는 방식은 아직 미결이다. 기존 JSON-LD·초기 상태·스킬은 그대로 사용한다.
 - C 전달 후보는 `items`·`source`·`evidence`다. C는 기존 `query_ontology {item}`으로 현재 위치를 조회하며 `list/class`는 `NOT_SUPPORTED`를 유지한다. **음성 입력·C 전달 어댑터·다중 서랍 실행·GUI는 아직 미연결**이다. 새 ROS/wire 계약은 이번에 추가하지 않는다.
-- Python 의존성은 `setup.py`의 `rdflib>=6.1.1,<8`, ROS 시스템 의존성은 `package.xml`의 `python3-rdflib`이다. 기존 로더는 이 모듈을 import하지 않는다. 공통 pip/CI 설치 목록 반영은 C 요청 사항이며 완료 전 전체 CI 준비가 끝난 것으로 보지 않는다.
+- Python 의존성은 `setup.py`·공통 `requirements.txt`의 `rdflib>=6.1.1,<8`, ROS 시스템 의존성은 `package.xml`의 `python3-rdflib`이다. 기존 로더는 이 모듈을 import하지 않는다. C 동의로 core CI의 pip 목록에도 같은 범위를 추가했다. 도커 실행 이미지 추가는 Runner/음성 연결 시 검토하며 이번에는 변경하지 않는다.
 
 최소 검사는 `PYTHONPATH=ros2_ws/src/ready2go_knowledge:ros2_ws/src/ready2go_runner python3 -m pytest ros2_ws/src/ready2go_knowledge/test/test_semantic_query.py -q`로 실행한다. 기존 로더/스킬 회귀와 실행 수신 연결은 별도 근거로 구분한다. 기준은 [FR-ONT-03](../../../docs/requirements.md#fr-ont-03), 담당별 결정은 [#302](https://github.com/Jik-Kim/ready2go/issues/302)를 따른다.

@@ -773,3 +773,7 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [원인/수정] 일반 `_listen`이 AUDIO_OVERFLOW를 record_error 큐에 넣어 clarify/TTS를 만들던 분기 수정. 진단 recording_held는 유지하고 손상 녹음만 폐기해 다음 wake/녹음을 받음. NO_SPEECH·RECORD_LIMIT의 기존 오류 안내와 정지 입력 경로는 유지.
 - [실측: 직접 모의] 실제 `_listen` 예외→큐 경로의 반복 overflow/다음 정상 녹음·일반 오류·취소 4사례 포함 Voice UX/독립 정지 청취 2파일 160 passed(19.57초). 실제 장치/API/TTS·overflow 발생 빈도 개선은 미검증.
 - [범위] E 노드 조건 1곳·직접 회귀·이 기록만 변경. 기본 작업 폴더의 미커밋 문서/출력은 보존하고 별도 worktree/브랜치 codex/e-audio-overflow-silent-20261014에서 작업. P3 TTL·캐시 변경·C/B 계약·상태 정책은 포함하지 않음. 최종 전체 CI는 별도 검사 SHA 결과로 보고.
+## P3 TTL 조회 CI 의존성 연결 — #355 C 리뷰 보완 / 2026-10-14
+
+- [승인/수정] C의 da19c369 리뷰 동의로 공통 requirements.txt와 ci.yml core pip 목록에 rdflib>=6.1.1,<8 추가. 최신 원격 브랜치의 main 합류·외부 변경은 fast-forward로 보존. E README의 의존성 대기 설명 정정.
+- [검증/경계] 조회 코드·예제·동작 정책·도커 이미지는 변경하지 않음. 최종 커밋에서 전체 CI 1회 수행하며 결과는 해당 SHA로 PR에 기록. 이전 71/18 직접 검사를 새 전체 CI로 전용하지 않음. 초안 해제 후 C 승인 대기, 병합은 #302 결정대로 10/15 P2 녹화 뒤.
