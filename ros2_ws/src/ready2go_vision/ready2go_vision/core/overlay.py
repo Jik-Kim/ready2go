@@ -129,9 +129,13 @@ def render_overlay(color_bgr, dets, result, K, T_drawer_cam, interior_m, items, 
     img = Image.alpha_composite(img, over)
     dr = ImageDraw.Draw(img)
 
+    n_cls = {}
+    for o in objs:
+        n_cls[o["id"].split("#")[0]] = n_cls.get(o["id"].split("#")[0], 0) + 1
     boxes = []
     for (d, o, col), c in zip(pairs, cents):
-        lines = [f"{name(d['class'])}  {d['conf']:.2f}"]
+        tag = f" #{o['id'].split('#')[1]}" if o and n_cls.get(d["class"], 0) > 1 and "#" in o["id"] else ""   # 같은 종류가 여럿이면 결과 id 번호
+        lines = [f"{name(d['class'])}{tag}  {d['conf']:.2f}"]
         if o:
             sub = (f"윗면 높이 {o['top_z'] * 1000:.0f} mm" if korean else f"top {o['top_z'] * 1000:.0f} mm")
             if not o["pose"].get("yaw_valid"):
