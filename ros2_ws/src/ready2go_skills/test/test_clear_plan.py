@@ -241,6 +241,46 @@ def test_free_pose_avoids_tilted_repick_zone_when_upright_spot_exists():
     assert everywhere == first
 
 
+
+def test_free_pose_repickable_only_refuses_place_only_spot():
+    """[PC2 10/14 S1 RESTORE_INCOMPLETE, #196] 놓기만 되고 다시 못 집는 자리(벽 가까이)를 고르면 복구 때 WALL_TOO_CLOSE.
+    allow_unpickable_place 를 끄면(place free) 그런 자리는 안 고르고, 다시 집을 자리가 없으면 None(NO_FREE_SPACE)."""
+    objs = [obj("car_key#1", "car_key", 0.15, 0.15)]
+    few = dataclasses.replace(CFG, free_try=5)                               # 가짜 검사는 벽에 붙은 앞 후보들을 다시 집기에서 거부
+    loose = cp.find_free_pose(objs, "car_key#1", [], Oracle(), few)
+    assert loose is not None and not Oracle().pick(cp._relocated(objs, "car_key#1", loose, SIZES.get), "car_key#1")[0]
+    assert cp.find_free_pose(objs, "car_key#1", [], Oracle(), dataclasses.replace(few, allow_unpickable_place=False)) is None
+    strict = cp.find_free_pose(objs, "car_key#1", [], Oracle(), dataclasses.replace(CFG, free_try=100, allow_unpickable_place=False))
+    assert strict is not None and Oracle().pick(cp._relocated(objs, "car_key#1", strict, SIZES.get), "car_key#1")[0]
+
+
+def test_free_pose_try_all_finds_repickable_spot_past_first_60():
+    """[사용자 10/14 "free 후보 60개까지만 보고 끊는다는 거지?"] 후보는 벽에 붙은 자리부터라 앞 60개가 다 다시 집기에서 떨어지면
+    뒤쪽에 다시 집히는 자리가 있어도 None(NO_FREE_SPACE). free_try 0 = 후보 전부 확인."""
+    objs = [obj("car_key#1", "car_key", 0.15, 0.15)]
+    strict = dataclasses.replace(CFG, allow_unpickable_place=False)
+    assert CFG.free_try == 60 and cp.find_free_pose(objs, "car_key#1", [], Oracle(), strict) is None   # 가짜 검사는 벽 자리 60개를 다 거부
+    pose = cp.find_free_pose(objs, "car_key#1", [], Oracle(), dataclasses.replace(strict, free_try=0))
+    assert pose is not None and Oracle().pick(cp._relocated(objs, "car_key#1", pose, SIZES.get), "car_key#1")[0]
+    assert pose == cp.find_free_pose(objs, "car_key#1", [], Oracle(), dataclasses.replace(strict, free_try=100000))   # 0 = 상한 없음과 같음
+
+
+def test_free_pose_repick_margin_skips_borderline_spot():
+    """다시 집기 검사를 비전 오차(±5 mm·±5°)만큼 어긋나게 해도 통과하는 자리만 — 경계에 딱 걸친 자리는 다시 볼 때 넘어감."""
+    import math
+    objs = [obj("car_key#1", "car_key", 0.15, 0.15)]
+    cfg = dataclasses.replace(CFG, free_try=100, allow_unpickable_place=False)
+    first = cp.find_free_pose(objs, "car_key#1", [], Oracle(), cfg)
+    safe = cp.find_free_pose(objs, "car_key#1", [], Oracle(), dataclasses.replace(cfg, repick_margin_mm=5.0, repick_margin_deg=5.0))
+    assert first is not None and safe is not None and safe != first
+    x, y = safe["position"][:2]
+    k = 0.005 / math.sqrt(2.0)
+    for dx, dy, dyaw in ((0.005, 0, 0), (-0.005, 0, 0), (0, 0.005, 0), (0, -0.005, 0), (k, k, 0), (k, -k, 0), (-k, k, 0), (-k, -k, 0),
+                         (0, 0, math.radians(5)), (0, 0, -math.radians(5))):
+        q = dict(safe, position=[x + dx, y + dy, 0.0], yaw=safe["yaw"] + dyaw)
+        assert Oracle().pick(cp._relocated(objs, "car_key#1", q, SIZES.get), "car_key#1")[0], (dx, dy, dyaw)
+
+
 def test_hole_class_is_not_pressed():
     """[사용자 10/13] 마스킹테이프는 가운데가 뚫려 누르면 손끝이 구멍으로 빠짐 → 공간 만들기에서 누를 점 없음(같이 밀리기·집기만)."""
     sizes = dict(SIZES, masking_tape=[0.0385, 0.0385, 0.0152])
