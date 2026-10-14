@@ -13,6 +13,7 @@
 3. **작업 상세 목업** — [댓글 6037139561](https://github.com/Jik-Kim/ready2go/issues/112#issuecomment-6037139561)에서 현재 동작과 접이식 상세, 단계별 진행 표현을 구체화했습니다.
 4. **연결·검토 화면 제안** — [댓글 6075167277](https://github.com/Jik-Kim/ready2go/issues/112#issuecomment-6075167277)과 [댓글 6079728121](https://github.com/Jik-Kim/ready2go/issues/112#issuecomment-6079728121)에서 서버를 통한 데이터 연결과 네 개의 읽기 전용 검토 탭을 제안했습니다.
 5. **녹화 범위 정리** — [최신 PM 검토 댓글 6136644749](https://github.com/Jik-Kim/ready2go/issues/112#issuecomment-6136644749)에 따라 STT 원문과 작업 중단을 이번 목업·녹화 화면에서 제외하고, 연결 상태를 `확인 전` 중심으로 바꿨습니다. STT 원문은 기존 `source.stt_text`에서 `/runner/status.last_intent.stt_text`로 제공되는 경로가 있으며, 화면 어댑터 연결과 값 누락 처리는 후속 작업입니다. 검토 화면은 현재 상태·온톨로지를 우선 연결 대상으로, 계획 근거·실행 기록을 후속 연결로 구분했습니다.
+6. **카메라 영역 배치** — [댓글 6161407726](https://github.com/Jik-Kim/ready2go/issues/112#issuecomment-6161407726)에 따라 PC 화면은 왼쪽 서랍·등록 물품과 오른쪽 `카메라 16:9 → 출근 준비물` 열로 나누고 현재 작업은 아래 전체 너비로 유지합니다. 좁은 화면은 서랍·카메라·준비물·현재 작업 순서로 표시합니다. 사진·영상 소스와 전송 방식이 확정되기 전까지 카메라 카드에는 `카메라 수신 대기` 영역만 표시하며 연결 진단은 기존 상단 카메라 배지에서 확인합니다.
 
 ## 2. 파일 역할과 실제 연동 시 교체 지점
 
@@ -22,6 +23,7 @@
 | `styles.css` | 흰색·남색·청록색 디자인, PC·모바일 배치, 서랍 모양, PC 가로·모바일 세로 단계 | 데이터 연결과 무관합니다. 상태 종류가 추가될 때 표시 스타일만 보완합니다. |
 | `demo-data.js` | PC·모바일이 함께 읽는 목업 데이터와 `long`·`empty`·`error` 시나리오 | 우선 교체 대상입니다. 서버 응답을 같은 화면 모델로 변환하는 어댑터가 이 역할을 맡습니다. |
 | `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 `/api/definitions`를 시작 때 한 번 읽음 | Runner 연결·기억 상태와 웹 파일 정의 스냅샷을 서로 다른 시점의 데이터로 전달합니다. |
+| `runner-status-model.js` | `/runner/status.last_intent`와 `last`를 화면 표시 전 `valid`·`absent`·`invalid` 내부 모델로 검증·복사하고 실행 연결을 판정 | `decision=run`이고 두 `run_id`가 같을 때만 `linked`로 묶으며 실제 요청·결과 화면 표시는 후속 단계에서 구현합니다. |
 | `app.js` | 상태 렌더링, 서랍 조회, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
 | `README.md` | 현재 구현, 실행·접속·시나리오, 실제 연동 경계를 설명 | 연결 경로가 구현된 뒤 실제 실행법과 검증 결과를 갱신합니다. |
 | `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 스냅샷을 `GET /api/status`로 반환 | 응답은 캐시하지 않으며 내부 예외 세부 내용은 브라우저에 노출하지 않습니다. |
@@ -35,6 +37,7 @@ index.html
  ├─ styles.css      화면 모양과 반응형 배치
  ├─ demo-data.js    목업 전용 원본 상태
  ├─ status-api.js   REST 상태 조회와 재시도
+ ├─ runner-status-model.js  Runner 요청·결과 형식 검증
  └─ app.js          같은 상태를 PC·모바일 요소에 표시
 ```
 
@@ -104,7 +107,9 @@ tasks/*.json ──────────────────────�
 - `/runner/status`와 `/robot_state`는 내용을 0.5초마다 비교하되 **내용이 달라졌을 때만** 발행합니다. 둘 다 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`이며, 긴 유휴 시간에 새 메시지가 없어도 publisher가 존재하면 연결된 것으로 판단합니다.
 - 현재 `/runner/status`에는 `phase`, 실행 중의 `task_id`·`current_step`, 잠금 상태의 `halt_code`, `halt`, `last`, `last_intent`, `log_store`, `state_reset_at`, `boot_id`가 포함되고 실제 발행에는 `seq`·`stamp`가 붙습니다. 재개 대기 중에는 `halt.resume`도 제공됩니다. REST는 이 원본을 그대로 전달하며 화면은 `boot_id`만 GID를 보조하는 기동 경계로 사용합니다.
 - `phase`는 `idle`·`running`·`halted`이며 화면에는 각각 `대기`·`실행 중`·`정지(잠김)`으로 표시합니다. 계약에 없는 값은 `확인 전`으로 표시합니다. `task_id`와 `current_step`은 실행 중에만 있으며, `halt_code`는 잠금 상태에서만 있습니다. `current_step`은 확장 또는 fallback 단계 ID일 수 있고 `achieve_goal`의 `plan_*`은 태스크 파일에 없으므로 화면은 원본 ID를 그대로 표시합니다.
-- 현재 실행과 요청 결과를 직접 연결하는 최상위 `run_id`는 없습니다. `last_intent`는 뒤이은 `BUSY` 결정으로 덮일 수 있으므로, 계약이 추가되기 전에는 `task_id`와 가장 최근 실행 결정이 같은 경우만 연결하고 불명확하면 `확인 전`으로 표시합니다.
+- 현재 실행과 최근 요청을 직접 연결하는 최상위 `run_id`는 없습니다. 따라서 실행 중인 `task_id`와 `current_step`을 최근 요청·결과라고 단정하지 않습니다. 아래의 `last_intent`와 `last` 사이 결합은 두 레코드가 제공하는 ID만 검사하는 별도 판정입니다.
+- 화면 연결에 앞서 `last_intent`의 `intent`·`targets`·`decision`·`reason`·`task_id`·`request_id`·`run_id`와 `last`의 `task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`을 독립적으로 검사합니다. `null`은 아직 기록이 없는 상태로, 키 누락·잘못된 자료형은 형식 오류로 구분하며 형식 오류의 정상 필드 일부를 화면에 재사용하지 않습니다. 이 파싱은 두 레코드를 같은 실행으로 연결하거나 결과 문구를 정하는 동작이 아닙니다.
+- 파싱 뒤에는 `last_intent.decision=run`이고 요청·결과의 비어 있지 않은 `run_id`와 `task_id`가 모두 같을 때만 `linked` 결합 모델을 만듭니다. 결과 상태는 Runner의 `COMPLETED`·`FAILED`·`ABORTED`·`SUSPENDED`만 허용합니다. 다른 ID, 수락 요청의 ID 누락, 계약 밖 결과 상태, `hold`·`reject`·`cancel`·`status` 같은 비실행 결정, 한쪽 기록 없음과 형식 오류는 연결하지 않고 각각의 이유 코드를 보존합니다. 이 판정은 내부 모델까지이며 메인 화면에는 아직 요청·결과를 표시하지 않습니다.
 - `/robot_state`의 현재 필드는 `robot_pose`, `gripper`, `open`, `located_in`입니다. 좌표는 없으며 모두 스킬 effect 뒤 Runner가 기억한 상태입니다. 현재 관측값이나 관측 시각으로 해석하지 않습니다.
 - 4단계 UI에서 `/robot_state` 값이 없거나 예상한 형식과 다르면 목업 데이터로 대체하지 않고 모두 `확인 전`으로 표시합니다. `상태 데이터 없음`은 별도 표시 문구로 사용하지 않습니다.
 - 서랍은 문자열 ID 순서가 아니라 `drawer_top`·`drawer_bottom`의 물리 순서로 표시합니다. 관리자 현재 상태 탭은 `task_id`·`current_step`·`phase`와 Runner 기억 상태를 실데이터로 표시하며, 별도 `run_id`가 없으므로 목업 실행 ID를 사용하지 않습니다.
@@ -343,6 +348,9 @@ python3 -m pytest web/tests -q
 - 정의 로딩 실패가 상태 REST를 중단시키지 않고 정의 영역만 `확인 전`으로 전환하는지
 - 빈 정의 경로 설정도 Flask 전체 종료가 아니라 정의 API 오류로 격리되는지
 - 복수 등록 목록에서 배열 첫 항목이 아닌 `commute_set`만 출근 준비물로 선택하는지
+- Runner `last_intent`·`last`의 정상·미존재·필드 누락·자료형 오류를 구분하고 입력 객체를 변경하지 않는지
+- 같은 `run_id`의 `run` 결정만 연결하고 다른 ID·ID 누락·비실행 결정·결과 미존재를 분리하는지
+- 저장소의 `contracts/examples/runner_status.json` 모든 상태 예시가 실제 브라우저 파서를 통과하는지
 
 실제 Runner와 함께 확인할 때는 웹 서버를 실행한 상태에서 다른 터미널에서 다음을 사용합니다.
 
@@ -365,6 +373,10 @@ ros2 topic info /voice/intent --verbose
 [실측] 2026-10-13 카메라·Voice source 활성화 뒤 로컬 CycloneDDS 웹 시험 `89 passed`, 계약 검사 `OK`를 확인했습니다. 시험 publisher 실행 중 `/api/status`에서 카메라 `receiving`과 Voice `publisher_present=true`, 종료 뒤 카메라 2초 초과 stale/단절과 Voice `publisher_present=false`를 확인했으며 브라우저 상단 배지도 각각 정상·끊김 상태로 전환됐습니다. 이 시험은 ROS 연결 판정 검증이며 실제 카메라 영상, 마이크 입력, 웨이크워드 또는 STT 성공 검증은 아닙니다.
 
 [실측] 2026-10-14 PR #288 재검토 뒤 실제 Flask UI를 headless Chrome으로 열어 dev·sim 카메라 최초 미발행은 `확인 전(시뮬레이션)`, dev 과거 수신 뒤 단절과 real 최초 미발행은 `카메라 정보 수신 끊김`으로 표시되는 회귀 시험 4건을 확인했습니다. 카메라·Voice를 포함한 로컬 웹·DDS 전체 시험은 `93 passed`입니다.
+
+[실측] 2026-10-14 `last_intent`·`last` 내부 파서를 실제 headless Chrome에서 실행해 정상·미존재·필드 누락·자료형 오류와 입력 불변을 확인하고, 저장소의 Runner 상태 계약 예시 전체가 같은 파서를 통과하는지 검사했습니다. ROS 2·CycloneDDS를 포함한 로컬 웹 전체 시험은 `96 passed`입니다. 이 결과는 요청과 결과의 `run_id` 연결 또는 메인 작업 화면 전환 완료를 뜻하지 않습니다.
+
+[실측] 같은 날 요청·결과 연결 판정을 추가한 뒤 실제 headless Chrome에서 동일 `run_id` 연결과 다른 ID·ID 누락·`hold`·`reject`·결과 미존재의 분리를 확인했습니다. ROS 2·CycloneDDS를 포함한 로컬 웹 전체 시험은 `97 passed`입니다. 메인 작업 화면의 요청·결과 표시는 아직 목업입니다.
 
 [실측] 같은 날 B 회신 반영 뒤 로컬 CycloneDDS 웹 시험 `89 passed`와 계약 검사 `OK`를 확인했습니다. dev 프로필에서 JointState 발행 전 `확인 전(시뮬레이션)`, 발행 뒤 `관절 상태 수신` 배지가 표시됐습니다. PC2 실물의 실제 QoS·100 Hz 주기와 제어기 LAN 분리 동작은 담당 실측 회신 뒤 확인합니다.
 

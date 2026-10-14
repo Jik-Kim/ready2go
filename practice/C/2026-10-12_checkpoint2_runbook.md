@@ -67,8 +67,8 @@ git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정
 
 | 터미널 | 명령 | 하는 일 |
 | :--- | :--- | :--- |
-| ① 도커 | `bash tools/dev/pc2_up.sh` (`--check` = 띄우지 않고 확인만) | `.env`·호스트 충돌·모델 v2·비전 이미지·시작 상태 확인 → `realsense`·`ros2-core`·`db`·`vision-node` 를 백그라운드로 → `Runner 준비`·`find_with_unpack`·비전 v2 시작 줄 확인 → 기준점 SHA 출력 → **Runner 로그를 계속 보여 줌**(Ctrl+C 는 보기만 멈춤). 로그는 `~/ready2go_pc2_logs/<시각>/` (저장소 `logs/` 는 root 소유일 수 있어 밖에 둠) |
-| ② 음성 | `bash tools/dev/pc2_voice.sh` | 1절 7번과 같음 — Jazzy·Domain 70·CycloneDDS local(`r2genv` 가 하던 것)·`.venvs/project`·`install_host`·`evaluation_mode:=false`. `audio_enabled`·`secrets/voice.env` 확인 |
+| ① 도커 | `bash tools/dev/pc2_up.sh` (`--check` = 띄우지 않고 확인만, `--p2` = P2 운영 — 재개 보존 켬) | `.env`·호스트 충돌·모델 v2·비전 이미지·시작 상태 확인 → `realsense`·`ros2-core`·`db`·`vision-node` 를 백그라운드로 → `Runner 준비`·`find_with_unpack`·비전 v2 시작 줄 확인 → 기준점 SHA 출력 → **Runner 로그를 계속 보여 줌**(Ctrl+C 는 보기만 멈춤). 로그는 `~/ready2go_pc2_logs/<시각>/` (저장소 `logs/` 는 root 소유일 수 있어 밖에 둠) |
+| ② 음성 | `bash tools/dev/pc2_voice.sh` (`--control` = 제어 연결, `--p2` = P2 운영) | 1절 7번과 같음 — Jazzy·Domain 70·CycloneDDS local(`r2genv` 가 하던 것)·`.venvs/project`·`install_host`·`evaluation_mode:=false`. `audio_enabled`·`secrets/voice.env` 확인 |
 | ③ 명령 | `bash tools/dev/pc2_cmd.sh help` | `status`·`state`(전체 JSON 보기 좋게)·`reset`·`report [n]`·`check`·`md`·`say <문장>`(음성 해석 거침)·`find <물품>`(직접)·`goal 1~5`(5절)·`unlock`(Runner 재시작)·`logs [서비스]` — 받는 쪽이 없으면 10 s 뒤 안내 |
 
 끄기: `bash tools/dev/pc2_down.sh` (로그 저장 → `down` → 시작 상태 임시 변경이 남았으면 되돌리기 안내). 시작 상태 임시 변경(3a)은 ① 전에 그대로 한다.
@@ -76,8 +76,9 @@ git diff --stat knowledge/snapshots/initial_state.json   # 3줄만 바뀌면 정
 - **이미 떠 있으면 멈춤**: compose 컨테이너가 떠 있으면 `pc2_up.sh` 는 띄우지 않고 종료(코드 1) — 떠 있는 `ros2-core` 를 이어 쓰면 지금 checkout·시작 상태와 다른 기동을 "준비 끝"으로 볼 수 있음. `pc2_down.sh` 뒤 다시. 준비 확인은 이번 기동 시각 뒤 로그만 보고, 실패하면 로그 보기 없이 종료 코드 1(`~/ready2go_pc2_logs/<시각>/ready.txt`).
 - **`pc2_cmd.sh`**: `say`·`find`·`goal` 은 메시지를 Python 으로 만들어 문장에 따옴표가 있어도 깨지지 않음, `find` 물품 키는 영문 소문자·숫자·`_` 만. 전달 실패면 안내 후 0 이 아닌 종료 코드.
 - **범위 (#313 E 리뷰)**:
-  - **1단계 = 지금 통합점검**: `RUNNER_RESUMABLE` 비움(재개 모드 끔), 음성 `pc2_voice.sh`(기본 — E 제어 연결 꺼짐). S1~S3·목표 5종·음성 정지.
-  - **2단계 = 종료·복구·재개 실물**: `RUNNER_RESUMABLE=1` + 음성 `pc2_voice.sh --control`(`request_run_enabled:=true` — `evaluation_mode:=false` 만으로는 켜지지 않음) + E #315·B #297 머지 + 외력 칸 결정. 이 스크립트만으로 2단계 준비가 됐다고 보지 않음.
+  - **기본 = 1단계·P1·단순 실행**: `pc2_up.sh` + `pc2_voice.sh` — 재개 끔(`RUNNER_RESUMABLE` 빈 값, 멈추면 끝 ABORTED·잠금), E 제어 연결 꺼짐. S1~S3·목표 5종·음성 정지.
+  - **P2 운영 = `--p2` (10/14, E 요청)**: `pc2_up.sh --p2` + `pc2_voice.sh --p2` — Runner 재개 보존 켬(`RUNNER_RESUMABLE=1`), 음성 `request_run_enabled`·`p2_goal_enabled`·`upper_drawer_enabled`(위 서랍 열기·닫기 목표만 — 설치된 음성 노드에 이 파라미터가 없으면 목표 범위가 제한되지 않으므로 `--p2` 를 거부, 종료 3: E 구현 main 반영·호스트 빌드 뒤 사용) — 복구·재개·종료 runtime 도 함께 켜짐. 세 값은 모드마다 true/false 를 모두 노드에 넘겨 로컬 YAML 이 덮지 못함. **`RUNNER_RESUMABLE` 은 `.env` 가 아니라 모드로 정함**(셸 값이 `.env` 보다 먼저 — `.env` 에 1 이 있어도 기본 모드는 빈 값). 실효 값: `pc2_up` 이 띄운 뒤 컨테이너 `env` 로 확인해(조회 실패는 빈 값이 아니라 준비 실패) 출력·`ready.txt`(`resumable=… mode=…`), `pc2_voice` 는 로그 첫 줄·`VoiceNode argv:` 줄. `pc2_voice.sh --control` = 제어 연결만(목표·위 서랍 없이).
+  - **재개 지원 위치(설정과 별개)** [실측: mock, main `cfafd9b`, find_with_unpack, 재개 모드 켬]: 최상위·`if` 안에서 멈추면 보존(SUSPENDED) — 목표 집기 `s8.t1`(빈손 관측일 때만 재개)·목표 놓기 `s8.t2`(쥔 채 관측일 때만)·탑뷰 이동 `s3v` 등. 서랍 여닫기 도중(`s3`)은 보존되지만 재개는 항상 거절(`REENTRY_BLOCKED`). **반복·fallback 안(장애물 치우기 `s7.*` — 10/14 13:33 `s7.1`)·finally(복구·닫기·홈)·놓침·센서 이상(`OBJECT_DROPPED`·`SENSOR_INVALID`)은 보존 안 됨(ABORTED)** — 재개 시험은 목표 집기·놓기 때 "멈춰". 보존 작업이 없어지는 경우: `/runner/reset_state`(폐기, 잠금 유지)·`end_task`(정지 확인 때만 폐기)·Runner 재기동(메모리에서 사라짐, DB 는 SUSPENDED 로 남음). 보존 중 새 요청은 `LOCKED`/`RESUME_PENDING` 거절.
 - 시작 상태: `pc2_up.sh` 가 `initial_state.json` 의 위 칸·아래 칸 물품을 보여 줌. E #283(단일 P2 시작 상태 — 위 S1·아래 S2)이 머지되면 3a 임시 변경은 필요 없음.
 
 ## 2. 회차마다 순서

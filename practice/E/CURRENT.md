@@ -1,5 +1,10 @@
 # CURRENT — E 고희태
 
+## diagnostic-control-hotfix-20261014
+
+- [문서: 승인·원인] Root 조율이 직접 확인한 사용자 “최소 수정 및 검증만 해 시간 오래 걸릴 거 아니잖아?” 승인 범위입니다. 최신 main `50f1cf96dddf32f04bc14c48686b8f3413d436e3`에서 격리 작업하며 기존09a8·primary dirty 파일은 보존합니다. [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-03/P2](../../docs/requirements.md#fr-saf-03) 관련 진단 예외만 수정합니다. 전달된 voice.run.gNuK1spr.log의 control_decision 문자열 intent(recover/resume/end_task)를 dict로 취급해 str.get AttributeError로 executor가 종료되는 경로이며 이번 실음성 재측정은 아닙니다.
+- [구현·실측] `_diagnostic`의 `_voice` 조회에 dict 타입 확인 한 줄만 추가했습니다. 실제 `_consume_control_decision`→실제 `_diagnostic`→DiagnosticFile 경로와 기존 dict 메타 보존 직접 회귀 `test_diagnostic_control_hotfix.py`: **3 passed/0.47s**, `/tmp/e-diagnostic-control-hotfix-direct.log`(project Python, PYTHONPATH voice/knowledge). AST·diff 검사 후 해당 E 세 파일만 커밋하고 최종 SHA 필수 CI1회/PR 게시를 진행합니다. 추가 리뷰·전체 선택 재검사·C 코드/계약/모델·cache 변경·장치/실음성/물리 검증은 없습니다.
+
 ## 322-current-completeness-20261014
 
 - [문서: 승인·범위] E-322-CURRENT-COMPLETENESS-20261014. 조율 human turn `01a13876-859e-7ac3-950f-b64ca25facc9` / message `01a13879-4eac-7f80-9569-3fe4a1da9431`의 “진행해 PR 작성까지 완료하고, 작성 후 너와 PR 리뷰 세션에서 리뷰 후 수정까지 push해”와 상위의 후속 두 문서 범위를 직접 확인했습니다. 작업 기준 main `ce5483e5fdc2b19fe0630a2edae7912919617ddf`, 별도 `/tmp/ready2go-e-322-ros-check-20261014` / `codex/e-322-ros-check-20261014`입니다. [FR-INT-03/P1](../../docs/requirements.md#fr-int-03)·[FR-SAF-01/03/P2](../../docs/requirements.md#fr-saf-01)·[AC-SAF-02/04](../../docs/requirements.md#ac-saf-02)를 따릅니다.
