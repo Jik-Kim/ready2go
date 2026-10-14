@@ -80,7 +80,7 @@ def test_unpacks_two_delivers_and_restores_in_reverse():
     assert result.overall_status == "COMPLETED", steps(result)
     assert robot.picked() == ["car_key", "caramel_box", "toy_wrench", "caramel_box"]
     assert robot.placed() == ["free", "free", "handover_zone", "origin"]
-    assert robot.checked() == ["free", "free", "origin", "origin", "free"]   # aside 헛판단 없음
+    assert robot.checked() == ["free", "free", "origin", "origin", "origin"]   # 마지막 = 차키 지금 자리 판단(pose, fr.5.0b)   # aside 헛판단 없음
     pick_view = [s for s in result.steps if s.get("parent") == "s8.t1" and s["action"] == "move_to_named_pose"]
     assert [bool(s.get("same_pose")) for s in pick_view] == [True]             # 방금 s7.6~7 탑뷰라 보내지 않음 (#245), 바로 집기라 두 번째 탑뷰 없음 (E 10/13 pick)
     scene = robot.skills.scene
@@ -99,7 +99,8 @@ def test_restore_uses_original_pose_not_where_it_was_placed():
     _, robot, _ = run("occluded_top", "toy_wrench")
     restore = [(p["pose"]["position"][:2], bool(p.get("check_only"))) for a, p in robot.calls
                if a == "place_object" and "pose" in p]
-    assert restore == [([0.12, 0.14], True), ([0.12, 0.14], False), ([0.12, 0.17], True)]   # 차키는 판단에서 막힘
+    assert restore == [([0.12, 0.14], True), ([0.12, 0.14], False), ([0.12, 0.17], True),   # 차키 원래 자리는 판단에서 막힘
+                       ([0.033, 0.03], True)]                     # → 차키 지금 자리(다시 찍은 위치) 판단 (fr.5.0b)
 
 
 def test_plate_over_eraser_moves_only_the_plate():
@@ -594,9 +595,9 @@ def test_restore_judged_unpickable_is_failure_not_left_aside():
     """원래 자리 판단도 꺼낸 자리 판단도 거부(집기부터 거부) → 집지 않고 복구 실패 — '빈 자리에 뒀어요'(A안 통과)로
     세지 않음. 예전 되돌리기 집기 거부와 같은 분류, 쥔 채 멈추지 않음."""
     _, robot, result = _run_with(RestorePickRefusedScene("occluded_top"))
-    judged = [(s["params"].get("slot") or "origin", s.get("error_code")) for s in result.steps
+    judged = [(s["id"], s.get("error_code")) for s in result.steps
               if s["id"] in ("fr.5.0a", "fr.5.0b") and s["status"] == "FAILURE"]
-    assert judged == [("origin", "NEIGHBOR_TOO_CLOSE"), ("free", "NEIGHBOR_TOO_CLOSE")]
+    assert judged == [("fr.5.0a", "NEIGHBOR_TOO_CLOSE"), ("fr.5.0b", "NEIGHBOR_TOO_CLOSE")]
     assert [c["class"] for c in result.blackboard["left_aside"]] == ["car_key"]   # 상자 위였던 차키는 보류 (빈 자리 + 안내)
     assert [c["class"] for c in result.blackboard["restore_failed"]] == ["caramel_box"]
 
@@ -744,3 +745,24 @@ def test_missing_under_record_holds_conservatively():
     result = runner.run(task, {"target": "toy_wrench"})
     assert _under(result) == {"car_key": ["*"], "caramel_box": ["*"]}
     assert [c["class"] for c in result.blackboard["left_aside"]] == ["car_key"]
+
+
+class NoOtherFreeSpotScene(MockScene):
+    """전달 뒤에는 서랍 안에 '다른' 빈 자리가 없음(slot free → NO_FREE_SPACE) — B #337 뒤 다시 집을 자리만 고르면 생길 수 있음."""
+
+    def place(self, params):
+        if self.delivered and params.get("slot") == "free":
+            return False, "NO_FREE_SPACE", {"slot": None, "placed_pose": None, "check_only": bool(params.get("check_only"))}
+        return super().place(params)
+
+
+def test_restore_keeps_item_where_it_is_without_searching_other_free_spot():
+    """[C #260 2번, B 답 10/14] 원래 자리가 막히면 fr.5.0b 는 '지금 자리에 그대로 둬도 되나'(pose = 다시 찍은 위치 + object
+    → 집을 수 있고 그 자리에 둘 수 있음)를 봄 — 다른 빈 자리를 찾지 않으므로 빈 자리가 없어도 복구 실패가 아니라 left_aside."""
+    _, robot, result = _run_with(NoOtherFreeSpotScene("occluded_top"))
+    b = [s for s in result.steps if s["id"] == "fr.5.0b"]
+    assert [(s["status"], "pose" in s["params"], "slot" in s["params"]) for s in b] == [("SUCCESS", True, False)]
+    assert b[0]["params"]["pose"]["position"][:2] == [0.033, 0.03]           # 차키를 다시 찍은 지금 자리
+    assert result.overall_status == "COMPLETED" and result.blackboard["restore_failed"] == []
+    assert result.blackboard["left_aside"] == [{"class": "car_key", "slot": "free"}]
+    assert robot.skills.scene.objects["car_key"]["xy"] == [0.033, 0.03]      # 집지 않고 그대로
