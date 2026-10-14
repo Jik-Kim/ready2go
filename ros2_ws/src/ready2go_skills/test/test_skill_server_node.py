@@ -3816,3 +3816,32 @@ def test_carry_spline_uses_guided_movesx_or_falls_back_to_moveb(server, monkeypa
     k = kinds.index("movesx")
     assert kinds[k + 1] == "movel" and srv.robot.log[k + 1][1][:2] == pytest.approx(via[-1][:2])   # 칸 위 → 1 cm 위까지 직선
     assert via[-1][2] == pytest.approx(route[-1][2]) and srv.robot.log[k + 1][1][2] < via[-1][2]
+
+
+@pytest.mark.parametrize("window", [0.0, 3.0])
+def test_place_touch_window_ignores_early_wobble_but_stops_on_floor(server, monkeypatch, window):
+    """[사용자 10/14 PC2] 덮개 판을 같은 free 자리에 한 번은 바닥에, 한 번은 5 mm 위에서 놓음(기울지 않음) — 마지막 천천히 내리기에서
+    목표 5 mm 위 흔들림(4 N)을 바닥으로 봄 [추정]. place.touch_window_mm 3: 그건 무시하고 내려가 진짜 바닥(목표)에서 멈춤. 0 = 지금처럼."""
+    _with_prm(server, monkeypatch, place={"touch_window_mm": window})
+    srv = server.srv
+    _holding_in_drawer(server)
+    out, _ = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    deeper = [e[1] for e in srv.robot.log if e[0] == "movel"]
+    tz = min(p[2] for p in deeper) + srv.prm()["place"]["touch_overtravel_mm"]   # 놓는 목표 높이
+    logs = []
+    srv.get_logger = lambda: types.SimpleNamespace(info=logs.append, warn=logs.append, warning=logs.append, error=logs.append)
+    srv.robot.force = lambda p: [0.0, 0.0, 4.0 if (tz + 4.5 <= p[2] <= tz + 5.5 or p[2] <= tz) else 0.0, 0.0, 0.0, 0.0]
+    opened = []
+    real_grip = srv._grip
+    srv._grip = lambda w, f: opened.append(srv.robot.p[2]) or real_grip(w, f)
+    _holding_in_drawer(server)
+    srv.robot.log.clear()
+    out, _ = server.run("place_object", {"location": "drawer_top", "pose": ASIDE_POSE, "scan": EMPTY_SCAN})
+    assert out.success, out.reason
+    z = opened[-1]
+    msg = next(m for m in logs if "닿아서 멈춤" in m)
+    if window:
+        assert z == pytest.approx(tz, abs=0.5) and "무시" in msg            # 흔들림은 넘기고 바닥(목표)에서
+    else:
+        assert z == pytest.approx(tz + 5.0, abs=0.6) and "+5" in msg       # 지금: 5 mm 위에서 놓음 (로그에 남음)

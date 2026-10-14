@@ -174,6 +174,8 @@ place:
   tilt_back_tol_deg: 5.0
   free_wall_extra_mm: 0.0       # B free 후보만: 벽 여유(gripper.wall_margin_mm)에 더함. 10/12 임시 10 → 옆벽 관절 실측으로 gripper.wall_clearance_mm.across 고친 뒤 0
   touch_n: 3.0                  # 마지막 천천히 내릴 때 z 힘이 이만큼 변하면 바닥 닿음 → 멈추고 벌림 [사용자 10/10 "바닥에 얌전히"] [팀 확정 필요, 외력 잡음 #152]. 0 = 끔
+  touch_window_mm: 0.0          # [10/14 PC2 덮개 판 5 mm 위에서 놓음 — 실물 확인 뒤 켜기, 제안 3] > 0 = 목표보다 이 mm 넘게 위에서 느낀 touch_n 은 흔들림으로 보고
+                                #   계속 내려감 (fast_guard_n 이상이면 높이와 상관없이 멈춤). 0 = 끔. 멈춘 높이·힘은 늘 로그 "[descend] 닿아서 멈춤"
   touch_overtravel_mm: 3.0      # 안 닿으면 계산 높이(drop_m 포함)보다 이만큼 더 내려가 멈춤 (트레이 없을 때 임시 8 → 새 트레이 놓고 3)
   touch_settle_s: 0.4           # 닿음 감지 전 힘 0점 잡기 멈춤 (force.tare_settle_s 0.7 대신) — 1 cm 위에서 한 번만 멈춤 [사용자 10/10 "멈췄다 가는 게 많음"]
   release_extra_mm: 6.0         # 놓을 때 잡은 폭보다 이만큼 더 벌림 (옆 칸 물건과 간섭 줄임, 칸 폭 45 mm)

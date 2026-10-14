@@ -811,16 +811,38 @@ class SkillServer(Node):
         if n <= 0:
             return self._line(goal, target, vel, stage)
         base = self._tare(pl.get("touch_settle_s"))
+        # place.touch_window_mm(> 0): 목표보다 이보다 위에서 느낀 touch_n 은 멈춘 직후 흔들림으로 보고 계속 내려감 — 넓은 물체를 가장자리로
+        # 잡으면 툴 힘 추정이 출렁임 [사용자 10/14 PC2: 덮개 판을 같은 free 자리에 한 번은 바닥에, 한 번은 5 mm 위에서 놓음, 기울지 않음].
+        # 단단히 막히면(fast_guard_n 이상) 높이와 상관없이 멈춤. 0 = 끔 (예전처럼 어디서든 touch_n)
+        window = float(pl.get("touch_window_mm") or 0.0)
+        hard = float(pl.get("fast_guard_n") or self.prm()["drag"]["press_max_force_n"])
+        hit = {}
 
         def touched():
             f = self.robot.tool_force()
             if f is None or base is None:
                 return sf.Outcome(False, dp.SENSOR_INVALID, reason="힘 조회 실패")
-            if abs(f[2] - base[2]) >= n:
-                return sf.Outcome(True, reason=f"바닥 닿음 {abs(f[2] - base[2]):.1f} N")
+            df = abs(f[2] - base[2])
+            if df >= n:
+                p_ = self.robot.posx()
+                above = p_[2] - target[2] if p_ else None
+                if window > 0 and above is not None and above > window and df < hard:
+                    hit["ignored"] = max(hit.get("ignored", 0.0), df)
+                    return None
+                hit.update(above=above, n=df)
+                return sf.Outcome(True, reason=f"바닥 닿음 {df:.1f} N")
             return None
-        deeper = mp.with_z(target, target[2] - float(pl.get("touch_overtravel_mm", 0.0)))
-        return self._line(goal, deeper, vel, stage, watch=touched)
+        over = float(pl.get("touch_overtravel_mm", 0.0))
+        deeper = mp.with_z(target, target[2] - over)
+        bad = self._line(goal, deeper, vel, stage, watch=touched)
+        # 어디서 멈췄는지 남김 — 닿아서(목표보다 몇 mm 위·몇 N) / 안 닿고 끝까지 [사용자 10/14 "그건 로그에 안 떠?"]
+        ign = f", 목표 위 {window:.0f} mm 밖 {hit['ignored']:.1f} N 무시" if "ignored" in hit else ""
+        if "n" in hit:
+            where = f"{hit['above']:+.1f} mm" if hit.get("above") is not None else "? mm"
+            self.get_logger().info(f"[{stage}] 닿아서 멈춤: 목표 대비 {where}, {hit['n']:.1f} N{ign}")
+        elif bad is None:
+            self.get_logger().info(f"[{stage}] 안 닿고 끝까지 (목표 −{over:.0f} mm){ign}")
+        return bad
 
     def _tare(self, settle_s=None):
         """멈춘 뒤 잠깐 기다렸다가 여러 번 읽은 평균 = 힘 기준값. 두산 툴 힘은 관절 토크 추정이라 멈춘 직후 흔들림 (10/06)."""
