@@ -1,4 +1,4 @@
-# ROKEY 웹 대시보드
+# Ready2Go 웹 대시보드
 
 > [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 현재 작업 진행과 실행 결과는 계속 목업이며 등록 정의와 구분합니다.
 
@@ -18,6 +18,7 @@
 
 | 파일 | 현재 역할 | 실제 연동 시 |
 |---|---|---|
+| `assets/items/*.svg` | 물품 식별용 그림 10종. `app.js`의 ID 매핑과 Flask allowlist로 제공 | 물품 등록·실제 위치·전달 성공을 판정하지 않습니다. |
 | `index.html` | 사용자 대시보드·읽기 전용 검토 화면의 HTML 구조와 CSS·JavaScript 진입점 | 화면 구조는 유지하고 `demo-data.js` 로딩을 데이터 어댑터 진입점으로 교체합니다. |
 | `styles.css` | 흰색·남색·청록색 디자인, PC·모바일 배치, 서랍 모양, PC 가로·모바일 세로 단계 | 데이터 연결과 무관합니다. 상태 종류가 추가될 때 표시 스타일만 보완합니다. |
 | `demo-data.js` | PC·모바일이 함께 읽는 목업 데이터와 `long`·`empty`·`error` 시나리오 | 우선 교체 대상입니다. 서버 응답을 같은 화면 모델로 변환하는 어댑터가 이 역할을 맡습니다. |
@@ -38,7 +39,14 @@ index.html
  ├─ status-api.js   REST 상태 조회와 재시도
  ├─ runner-status-model.js  Runner 요청·결과 형식 검증
  └─ app.js          같은 상태를 PC·모바일 요소에 표시
+     └─ assets/items/*.svg  물품 ID에 매핑된 그림 10종
 ```
+
+[문서] 물품 그림은 `app.js`의 `itemImagePaths`가 온톨로지 물품 ID를 고정 SVG 경로에 연결합니다. 목업의 `car-key` 별칭은 `car_key`로 정규화하며, 스패너 ID는 `toy_wrench`입니다. 매핑이 없거나 이미지 로드가 실패하면 기존 기호로 표시합니다. 서랍 표·준비물·모바일 서랍 목록·현재 작업이 공통 `makeItemVisual()`을 사용하며 Flask는 `PUBLIC_ASSETS`에 명시한 파일만 제공합니다.
+
+[문서] 관리자 요약 3종·상태 항목 5종은 `adminIconPaths`의 고정 path로 생성하는 인라인 SVG이며 물품 이미지 파일과 구분합니다. 총 18종 중 현재 작업 제목은 기존 태스크 아이콘, 현재 물품은 기존 지우개 그림을 재사용합니다.
+
+[문서] 목업 요청·준비물·작업 진행은 차 키·지우개·시계 시나리오로 맞추며, `empty`·`error`는 빈 목록·오류 표시를 확인하는 별도 시나리오입니다. 기본 화면의 준비물은 정의 API 수신 후 실제 `commute_set`으로 교체되므로 목업 작업의 실행 대상이나 결과를 나타내지 않습니다. 서버 시작 시 읽는 실제 정의 파일은 이 목업 변경의 대상이 아닙니다.
 
 `app.js`는 `window.ROKEY_DEMO_DATA` 한 객체를 읽으므로 PC와 휴대폰이 서로 다른 샘플 상태를 만들지 않습니다. 선택한 조회 서랍인 `selectedDrawerId`와 실제 작업 위치인 `task.workDrawerId`도 별도로 유지합니다.
 

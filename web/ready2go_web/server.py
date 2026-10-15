@@ -59,7 +59,6 @@ PUBLIC_ASSETS = frozenset(
         "assets/items/toy_car.svg",
         "assets/items/toy_hammer.svg",
         "assets/items/toy_wrench.svg",
-
     }
 )
 

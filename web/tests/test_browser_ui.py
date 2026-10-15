@@ -23,6 +23,7 @@ def _render_dashboard(
     *,
     runtime_profile: str,
     camera_received: bool,
+    scenario: str = "default",
     overlay_cache: object | None = None,
     utcnow: Callable[[], datetime] | None = None,
     on_first_image_request: Callable[[], None] | None = None,
@@ -92,7 +93,7 @@ def _render_dashboard(
                 f"--user-data-dir={tmp_path / 'chrome-profile'}",
                 "--virtual-time-budget=2500",
                 "--dump-dom",
-                f"http://127.0.0.1:{server.server_port}/",
+                f"http://127.0.0.1:{server.server_port}/?scenario={scenario}",
             ],
             check=False,
             capture_output=True,
@@ -197,6 +198,36 @@ def test_mock_current_task_uses_eraser_copy_and_shared_item_image(tmp_path: Path
     assert 'id="currentAction" aria-live="polite">지우개의 전달 결과를 확인하는 중</strong>' in rendered
     assert '<span class="step-label">지우개 확인·집기</span>' in rendered
     assert '<dd id="currentStepReason">지우개가 전달 위치에 놓였는지 확인</dd>' in rendered
+
+
+def test_mock_request_and_verifying_supply_match_current_item(tmp_path: Path) -> None:
+    """고정 목업의 요청·준비물·현재 작업이 서로 다른 물품을 가리키지 않는다."""
+    from html.parser import HTMLParser
+
+    class VisibleText(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.parts = []
+
+        def handle_data(self, data):
+            self.parts.append(data)
+
+    # long은 기본 목업을 상속하고 요청 문구를 덮어쓰므로 두 데이터 경로를 함께 검증한다.
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False, scenario="long"
+    )
+    parser = VisibleText()
+    parser.feed(rendered)
+    text = " ".join(parser.parts)
+    assert "차 키·지우개·업무용 손목시계 및 교통카드 케이스를 찾아 전달합니다." in text
+    assert "지우개의 전달 결과를 확인하는 중" in text
+    # 준비물 한 행 안에서 물품명과 확인 중 상태가 함께 표시되는지 확인한다.
+    supply_rows = rendered.split('class="supply-item"')[1:]
+    verifying_rows = [row.split('</article>', 1)[0] for row in supply_rows
+                      if "결과 확인 중" in row.split('</article>', 1)[0]]
+    assert len(verifying_rows) == 1
+    assert "지우개" in verifying_rows[0]
+    assert "지갑" not in verifying_rows[0]
 
 
 def test_recent_capture_explains_frame_id_rejection_without_image_request(
