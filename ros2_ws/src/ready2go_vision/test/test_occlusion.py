@@ -131,6 +131,101 @@ def test_alone_rule_off_or_much_less_visible_stays_unknown():
     assert ok and json.loads(js)["target"]["occluded_by"] is None
 
 
+def test_alone_rule_keeps_unknown_when_undetected_cover_in_depth():
+    """[10/14 PM 검토] 덮개가 검출 안 됐어도(뎁스에만 있음) 둘레 뎁스에 지우개보다 높은 픽셀이 있으면 null — 10/11 판 밑 지우개 판 미검출 대비."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115), ("cover_plate", 0.055, 0.15, (0.0605, 0.06), 0.035)]   # 판이 지우개 왼쪽 끝 11.5 mm 를 덮음
+    depth, masks = scene(objs)
+    dets = dets_of(objs[:1], masks[:1])                                         # 판은 검출 안 됨
+    ratio = visible_area_m2(masks[0], depth, K, 0.15, 1.0) / (0.0525 * 0.022)
+    assert OCC["alone_clear_min_ratio"] <= ratio < OCC["visible_ratio_max"]   # 혼자 규칙 범위 안 (끝만 덮임)
+    dbg = []
+    ok, _, js = inspect_scene(dets, depth, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+    assert any(d.get("occlusion", {}).get("ring_high_px", 0) >= OCC["ring_high_min_px"] for d in dbg)
+    off = {**PARAMS, "occlusion": {**OCC, "ring_check": False}}                 # 둘레 확인을 끄면 [] (위험 — 그래서 켬)
+    ok, _, js = inspect_scene(dets, depth, K, T, off, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] == []
+
+
+def test_alone_rule_unknown_when_ring_cannot_be_checked():
+    """둘레 확인을 못 하면 null(보수적): 둘레 띠가 비거나(띠 폭 0) 윗면을 못 잼(뎁스 결손)."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115)]
+    depth, masks = _shrunk(objs, 0.78)
+    empty_ring = {**PARAMS, "occlusion": {**OCC, "ring_outer_px": OCC["ring_inner_px"]}}   # 띠 픽셀 0
+    ok, _, js = inspect_scene(dets_of(objs, masks), depth, K, T, empty_ring, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+    import ready2go_vision.core.occlusion as occ                                # 윗면 높이 못 잼(_top → None) 흉내
+    orig = occ._top
+    occ._top = lambda *a, **k: None
+    try:
+        out = occ.occlusion_fields(dets_of(objs, masks), ["eraser#1"], depth, K, T, {"top_percentile": 95, **OCC}, 0.15, 1.0, interior_m=INTERIOR)
+    finally:
+        occ._top = orig
+    assert out["eraser#1"][0] is None
+    nan_ring = depth.copy()                                                     # 둘레 뎁스가 모두 결손(검은·반사 덮개) → 확인 불가 → null
+    import cv2
+    near = cv2.dilate(masks[0].astype(np.uint8), np.ones((61, 61), np.uint8)) > 0
+    nan_ring[near & ~masks[0]] = np.nan                                         # 마스크 둘레 30 px 만 결손 (나머지 바닥은 보임)
+    ok, _, js = inspect_scene(dets_of(objs, masks), nan_ring, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] is None
+
+
+def _ring_px(mask):
+    import cv2
+    inner = cv2.dilate(mask.astype(np.uint8), np.ones((2 * OCC["ring_inner_px"] + 1,) * 2, np.uint8)) > 0
+    outer = cv2.dilate(mask.astype(np.uint8), np.ones((2 * OCC["ring_outer_px"] + 1,) * 2, np.uint8)) > 0
+    return outer & ~inner
+
+
+@pytest.mark.parametrize("drop,expect", [(1.0, None), (0.75, None), (0.3, [])])
+def test_alone_rule_partial_ring_dropout_counts_missing_depth(drop, expect):
+    """[E #361 P1] 둘레 띠 뎁스 결손: 결손 픽셀도 유효 비율 분모에 들어가야 함 — 전부·75% 결손 → 확인 불가 null, 30% → 확인됨 []."""
+    objs = [("eraser", 0.10, 0.15, (0.0525, 0.022), 0.0115)]
+    depth, masks = _shrunk(objs, 0.78)
+    ring = _ring_px(masks[0])
+    rng = np.random.default_rng(0)
+    d = depth.copy()
+    d[ring & (rng.random(ring.shape) < drop)] = np.nan
+    dbg = []
+    ok, _, js = inspect_scene(dets_of(objs, masks), d, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR, dbg)
+    assert ok and json.loads(js)["target"]["occluded_by"] == expect
+    r = next(x["occlusion"] for x in dbg if "ring_px" in x.get("occlusion", {}))
+    assert r["ring_px"] == int(ring.sum()) and r["ring_valid_px"] / r["ring_px"] == pytest.approx(1 - drop, abs=0.03)
+
+
+def test_alone_rule_zero_depth_dropout_with_camera_outside_interior():
+    """[PM 재검증] 실물 결손은 NaN 이 아니라 뎁스 0 — X·Y 가 카메라 원점 좌표로 나와, 원점이 서랍 안쪽 밖이면 '벽'으로 빠지던 경로. 75% 결손 → null."""
+    from ready2go_vision.core.occlusion import occlusion_fields
+    objs = [("eraser", 0.045, 0.15, (0.0525, 0.022), 0.0115)]
+    depth, masks = _shrunk(objs, 0.78)
+    ring = _ring_px(masks[0])
+    d = depth.copy()
+    d[ring & (np.random.default_rng(0).random(ring.shape) < 0.75)] = 0.0          # RealSense 결손 = 0 m
+    interior = [0.09, 0.29]                                                     # 카메라 원점 x=0.10 이 서랍 안쪽 밖
+    rels = []
+    out = occlusion_fields(dets_of(objs, masks), ["eraser#1"], d, K, T, {"top_percentile": 95, **OCC}, 0.15, 1.0, rels, interior_m=interior)
+    assert out["eraser#1"][0] is None
+    r = next(x for x in rels if "ring_px" in x)
+    assert r["ring_valid_px"] / r["ring_px"] == pytest.approx(0.25, abs=0.03)
+
+
+def test_alone_rule_excludes_real_wall_from_ring():
+    """서랍 벽(안쪽 경계 밖, 좌표를 잰 높은 픽셀)은 둘레에서 빼고 판정 — 벽 옆 혼자 지우개는 []."""
+    objs = [("eraser", 0.006 + 0.02625, 0.15, (0.0525, 0.022), 0.0115)]        # x 쪽 벽(x=0)에서 6 mm → 둘레 띠가 벽면에 걸침
+    depth, masks = _shrunk(objs, 0.78)
+    h, w = depth.shape
+    us = np.mgrid[0:h, 0:w][1]
+    x = CAM_XY[0] + (us - K.cx) / K.fx * H                                     # 바닥 기준 서랍 x (x < 0 이면 광선이 벽 x=0 에 먼저 닿음)
+    wall = depth.copy()
+    face = x < 0                                                                # 벽 안쪽 면(x=0)에 닿는 깊이, 벽 높이 60 mm 넘으면 벽 윗면
+    wall[face] = np.minimum(CAM_XY[0] * H / (CAM_XY[0] - x[face]), H)
+    wall[face] = np.maximum(wall[face], H - 0.06)
+    ring = _ring_px(masks[0])
+    assert (ring & face & (wall < H - 0.0115 - 0.005)).sum() > OCC["ring_high_min_px"]   # 지우개보다 높은 벽 픽셀이 둘레에 충분히 걸침
+    ok, _, js = inspect_scene(dets_of(objs, masks), wall, K, T, PARAMS, ITEMS, "drawer_top", "eraser", INTERIOR)
+    assert ok and json.loads(js)["target"]["occluded_by"] == []
+
+
 def test_yaw_near_90_degrees_stays_in_range():
     """반올림 1.5708 이 pi/2 를 넘어 RESULT_INVALID 가 나던 문제 (가림 시험에서 발견)."""
     it, _ = run([("caramel_box", 0.10, 0.15, (0.049, 0.075), 0.0185)], target="caramel_box")
