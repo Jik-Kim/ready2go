@@ -1,5 +1,27 @@
 # CURRENT — E 고희태
 
+## pr375-ready-20261015
+
+- [승인/현재 형식] 조율 human turn01a13d8a-45cd-7cb3-8831-df7a19d650bc/user01a13d8a-4601-7651-85c3-e8aa84c9bd5a의 “ㅇㅋㅇㅋ 수정해”와 직전 설명 범위(main 충돌 해소·본문·E 형식 확정·Draft 해제·최종 CI1회)를 직접 확인했습니다. 기존 선택형식 승인과 이번 사용자 확정을 E 근거로 명시하며, C의 실제 APPROVE5527505545(headb7947400)와 구분합니다. E 검토5527475091은 COMMENT이므로 승인 수로 계산하지 않았고 자기계정 Approve도 추가하지 않습니다. 형식의 target/from·pre·plan_effect·sensing·task는 변경하지 않았습니다.
+- [정상 병합/보존] 기존 /tmp/ready2go-e-plan-effect-20261015, codex/e-plan-effect-20261015에서 b7947400 원격/clean을 확인하고 main e4d5741f00e3790debc31bb5226a1e61c8fd8fc2를 정상 병합했습니다. 충돌은 CURRENT1곳이며 E 계획 기록과 main의 캐시예산/compound-goal 기록 양쪽을 모두 보존했습니다. 데이터 JSONLD와 제품 ontology loader는 b7947400 대비 diff0입니다. 기존 primary/PPT/models/local 설정·다른 checkout은 보존하고 C/B 코드 직접 수정·정책 변경·리팩터·force/rebase는 하지 않았습니다.
+- [유효 검사 재사용] E 직접94/C810de713 연결3의 유효 근거는 이전 항목을 재사용했습니다. C APPROVE 본문의 C373 a8faf5a + E375 b7947400 병합 모의935 passed/15 skipped는 C 검토 보고로 인용하며 이번 직접 검사가 아닙니다. 충돌은 기록만 영향을 받아 데이터/제품 불변·양쪽 이력 보존·문서 링크/상태·diff 형식을 확인했습니다. 최종 병합 커밋 SHA에 승인된 전체 로컬 CI를1회 실행하고 실제 결과/검사SHA는 완료 보고와 최종 PR 본문에 기록합니다. 실패 시 실패 항목 직접 재검을 우선하며 전체 CI를 자동 반복하지 않습니다.
+- [최신 상태/미결] C max_rounds 결함은899ff7f에서 해소되고 저장소 시험 가정은a8faf5a에서 정정됐습니다. 노드 기본 composites=False이므로 C371/373 선병합을 E 데이터 PR 필수 조건으로 두지 않습니다. 이전 기록의 당시 Draft/미결은 그 버전 이력입니다. C 노드 achieve_goal→run_plan·상위run/child·음성/취소 설계 합의와 실제 구현/운영 연결은 별개이며 실제 PC2/API/ROS/음성/로봇은 미검증으로 유지합니다. 이번 승인 범위는 정상push·기존375 본문 갱신·Ready까지이며 main 병합은 하지 않습니다.
+
+## plan-effect-302-c373-connection-20261015
+
+- [선행 변경/승인] C PR373 공개에 따른 동일 범위 최소 직접 연결 지시를 받았습니다. 이미 실행 중이던 E CI를 중단하거나 반복하지 않았습니다. E 실제 데이터/제품 로더 버전은 a991a888aa217e39d72b8e25ef23ef87289fec53 그대로이며 C 읽기 전용 checkout head810de7131b6fed3e138b9167349ff25c2709d391을 사용했습니다. C 소스·테스트를 편집하지 않았고 C의 형식 복사 helper(e_onto)는 사용하지 않았습니다.
+- [실측: 버전별 검사] E a991a888 전체 CI **3404 passed/44 skipped**, 계약·compose3·colcon OK(10/15 11:40, ci_local.sh@aa5aa0f), exit0입니다. 그44skip에는 당시 C 미연결1건이 포함됩니다. 이후 변경은 E 소비 테스트/API opt-in 검사와 연결 상태 문서뿐이고 데이터/제품 로더는 불변입니다. 최신 후속 커밋 자체의 전체 CI를 재실행/통과했다고 주장하지 않습니다.
+- [직접 연결] E 테스트 후속 본문으로 실제 C 공개 planner opt-in·plan_exec.run_plan에 E 원본을 넣어 **3 passed (0.41초)**: composite target/from 선택, 기존 find_with_unpack(MockScene plate_over_eraser)의 판→지우개→판 복구 실제 mock 실행, located_in=handover_zone 확인 뒤 원래 목표/자동 아래닫힘 유지 재계획·위 열림, COMPLETED 표기만 있는 no-effect의 PLAN_EFFECT_UNMET/후속0을 확인했습니다. 선택/상태를 가짜 응답으로 고정하지 않고 C의 mock 장치·Runner·계획/구간 실행 본문을 사용했습니다. 초기 E state/정의는 불변이고 task 로딩 직전에도 예상 효과가 실제 위치를 미리 덮지 않음을 확인했습니다. 로그 /tmp/e-302-c373-connection.log.
+- [미결] C #373은 #371 위 stacked core이며 노드 achieve_goal→run_plan/기본 composites opt-inFalse·수락run_id/음성 상관·실PC2/API/ROS/장치/로봇은 별도입니다. 형식 E 포함2명 승인은 미완료입니다. Draft PR에서 두 검사SHA/범위와 후속 테스트 버전을 구분해 기록하며 전체 CI 자동 반복·새 agent/리뷰·C수정은 하지 않았습니다.
+
+## plan-effect-302-20261015
+
+- [승인/소유] 조율 human turn01a13d5e-e7df-71d0-b6a2-b4bef4ca9f08의 “진행하자”와 issuecomment6182976292의 C 권고2안 범위를 직접 확인했습니다. 시작main47301366bc58c4ccb34c33ff692b23838832bcdc, 격리 /tmp/ready2go-e-plan-effect-20261015 / codex/e-plan-effect-20261015. E skill 원본·knowledge loader/test·Knowledge README/ontology 설명·이 기록만 수정하며 primary의 staged PPT/다른변경·모델/local YAML·다른 checkout은 보존합니다. C/Planner/tasks/인텐트/계약은 직접 수정하지 않습니다.
+- [구현] composite/task/effect=sensing을 유지하고 plan_effect 레코드·params from:Drawer·빈손/위치/닫힘 pre를 추가했습니다. 위/아래 상수·primitive 배선·one_open 정책 복제 없이 기존 선언/바인딩 관례를 사용합니다. 로더는 plan_effect가 있는 새 정의만 실제/계획 효과 경계·비어 있지 않은 레코드·predicate/subject/value 참조·params 클래스/선언·pre 형식을 검사하며 구 단일 파일은 호환합니다. 기존 validate_contracts load 호출이 검사 경로이고 C 소유 도구를 고치지 않았습니다. resolve/check/apply의 기존 상태 처리 경로는 수정하지 않았습니다.
+- [직접 회귀] 기존 ontology/pick Runner 및 새 정의 검사에서 E **94 passed**. manifest/legacy 신구형식, 잘못된 계획 효과/참조/params, 두 서랍 동적 바인딩과 빈손/위치/닫힘 누락·unknown 거절, 기존 primitive 회귀를 확인했습니다. 실제 C 공개 plan은 UNPLANNABLE, 공개 run은 backend0/state불변 TASK_INVALID/composite 거절을 확인했고 소비 통합 사례는 **1 skipped**로 구분합니다. 초기 소비 fixture가 UNKNOWN_SKILL을 기대해 실패한 것은 실제 실행 전 validation 게이트에 맞춰 그 사례만 직접 재검했습니다(1 skipped/41 deselected, exit0). 로그 /tmp/e-302-plan-effect-direct.log 및 /tmp/e-302-plan-effect-c-boundary.log. AST/JSON 구문 검사와 의미 회귀는 별개로 확인했습니다.
+- [C 선행] main의 _groundings/_unreachable primitive 필터와 실행 전 check_task 거절이 남아 있습니다. #371 d7d21c47992eade02fd4e29504a23b54fa69137b의3379/43 CI는 그 C PR 근거로만 읽었고 전체 CI를 중복하지 않았습니다. 해당 item_group의 resumable=False/finally 복원과 restore_failed/task_error 검사→후속 차단은 읽기 전용으로 대조했습니다. C 후보/구간 실행→실제 located_in 확인→최초 목표/자동 닫힘 유지 재계획·무진행 종료는 미연결입니다. 부모가 C Slack 인계를 소유하며 중복 전송하지 않습니다.
+- [검증/미결] FR-ONT-01/02·FR-PLN-02/P2·FR-ACT-04/AC-ACT-03 및 가림 정책 기준입니다. 이번 E 최종 SHA의 전체 로컬 CI1회 결과/정확 SHA는 완료 보고와 Draft PR에 기록하며 C 소비 통합 완료로 확대하지 않습니다. 형식 E 포함2명 검토는 미완료이고 실제 PC2/API/ROS/DDS/음성/로봇·관측/복구 실물 수용은 미검증입니다. C 연결·형식 승인 전에 main 병합/완료를 주장하지 않습니다.
+
 ## pr356-regression-20261015
 
 - [승인/기준] E 지시 세션 사용자 “#356 리뷰 확인 후 해결”(turn01a13d09-ceb4-7102-9b03-64c28a2e970d)과 기존 동일 PR push 승인을 직접 확인했습니다. 시작59dd658c3ccbd2951591b438a30675fcb6df29f8에 최신 main d4585e78을 정상 병합했습니다. CURRENT 충돌 한 곳의 캐시 상한/overflow 억제/복구 사유 이력은 양쪽 모두 보존했고 README의 이미 해소된 문서 보완은 재작업하지 않았습니다. primary 사용자 dirty와 다른 checkout은 보존했습니다.
@@ -778,7 +800,7 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 
 - [구현] 선준비 문장 상한을 YAML·설정 기본값 모두 256→512개로 확대. 일반 MeloTTS 준비 기본 timeout 60→600초, 명시 prepare timeout 120→3600초로 변경함.
 - [미검증] 사용자 지시로 테스트·CI·빌드·실제 캐시 준비를 실행하지 않음. 기존 로컬 YAML의 명시값은 보존하며 일반 실행에는 로컬 값이 우선함.
-- 
+-
 ## P3 의미 조회 첫 시험 — #302 / 2026-10-14
 
 - [승인/범위] 사용자 “이대로 이슈에 반영하고 수정 시작해”에 따라 #302에 C의 조회·실패·다중 서랍 방침과 착수 승인을 반영. E TTL 시험·의미 조회만 구현하며 운영 원본 전환은 미결.

@@ -12,6 +12,40 @@ def view(**kw):
     return s.gripper_view(**base)
 
 
+
+def response_errors(service, success, message):
+    """W1·W2 응답 규칙 중 JSON 스키마(contracts/skills_safe_state.schema.json)로 못 쓰는 칸 사이 규칙 → 어긋난 것 목록 (빈 목록 = 맞음).
+    W1: success = 조회 끝남 — true 면 상태 칸, false 면 error 만. W2: success = recovered — 복구면 code ""·blockers []·B 잠금 없음·
+    그리퍼 앎, 거절이면 code = blockers[0]·푼 것 없음, 서버 예외면 SKILL_EXCEPTION 에 state 없음 [E #297 재리뷰]."""
+    errs = []
+    if service == "/skills/check_state":
+        if success is ("error" in message):
+            errs.append("W1 success 는 조회 끝남 — true 면 상태 칸, false 면 error 만")
+        return errs
+    if service != "/skills/recover":
+        return [f"모르는 서비스 {service}"]
+    if success is not message.get("recovered"):
+        errs.append("W2 success 는 recovered 와 같아야 함")
+    if "error" in message:
+        if message.get("code") != "SKILL_EXCEPTION" or "state" in message or message.get("recovered") is not False:
+            errs.append("W2 서버 예외는 recovered false·SKILL_EXCEPTION·state 없음")
+        return errs
+    st = message.get("state") or {}
+    if message.get("recovered"):
+        if message.get("code") != "" or message.get("blockers"):
+            errs.append("W2 복구면 code \"\"·blockers []")
+        if st.get("b_locked") or (st.get("gripper") or {}).get("state") not in ("holding", "empty"):
+            errs.append("W2 복구 뒤 state 는 B 잠금 없음·그리퍼 앎")
+        if st.get("external_force") is not False:
+            errs.append("W2 복구 뒤 state 는 지속 외력 없음(false)")
+    else:
+        b = message.get("blockers") or []
+        if not b or message.get("code") != b[0]:
+            errs.append("W2 거절이면 code = blockers[0]")
+        if message.get("cleared"):
+            errs.append("W2 거절이면 푼 것 없음(cleared [])")
+    return errs
+
 def test_gripper_view_empty_holding_unknown():
     assert view()["state"] == "empty"                                                 # 빈손 닫힘 0.9 mm
     assert view(width_m=0.1, grasp_detected=False)["state"] == "empty"                # 활짝 열림
@@ -112,7 +146,7 @@ def test_safe_state_examples_follow_schema_and_rules():
                 {"$ref": f"#/$defs/{d}", "$defs": schema["$defs"]}).iter_errors(c["message"]))]
             assert len(ok_def) == 1, (name, c["case"])
             jsonschema.validate(c["message"], schema)
-            assert s.response_errors(doc["service"], c["success"], c["message"]) == [], (name, c["case"])
+            assert response_errors(doc["service"], c["success"], c["message"]) == [], (name, c["case"])
             seen.add((ok_def[0], c["success"]))
         assert {d for d, _ in seen} == set(want[name]) and {ok for _, ok in seen} == {True, False}, name
     assert any(c["message"].get("code") == "HOLD_UNCERTAIN" for c in ex["skills_recover"]["cases"])
@@ -123,14 +157,14 @@ def test_response_errors_catches_broken_rules():
     _, ex = _contract()
     rec = {c["case"]: c for c in ex["skills_recover"]["cases"]}
     ok = rec["recovered_restore"]["message"]
-    assert s.response_errors("/skills/recover", False, ok)                                  # success ≠ recovered
-    assert s.response_errors("/skills/recover", True, dict(ok, blockers=["BUSY"]))
-    assert s.response_errors("/skills/recover", True, dict(ok, state=dict(ok["state"], b_locked=True)))
+    assert response_errors("/skills/recover", False, ok)                                  # success ≠ recovered
+    assert response_errors("/skills/recover", True, dict(ok, blockers=["BUSY"]))
+    assert response_errors("/skills/recover", True, dict(ok, state=dict(ok["state"], b_locked=True)))
     bad = rec["refused_estop"]["message"]
-    assert s.response_errors("/skills/recover", False, dict(bad, code="CONTROLLER_NOT_READY"))
-    assert s.response_errors("/skills/recover", False, dict(bad, cleared=["locked"]))
+    assert response_errors("/skills/recover", False, dict(bad, code="CONTROLLER_NOT_READY"))
+    assert response_errors("/skills/recover", False, dict(bad, cleared=["locked"]))
     err = rec["server_error"]["message"]
-    assert s.response_errors("/skills/recover", False, dict(err, state=ok["state"]))
+    assert response_errors("/skills/recover", False, dict(err, state=ok["state"]))
     w1 = {c["case"]: c for c in ex["skills_check_state"]["cases"]}
-    assert s.response_errors("/skills/check_state", True, w1["query_error"]["message"])
-    assert s.response_errors("/skills/check_state", False, w1["estop"]["message"])
+    assert response_errors("/skills/check_state", True, w1["query_error"]["message"])
+    assert response_errors("/skills/check_state", False, w1["estop"]["message"])

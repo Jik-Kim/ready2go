@@ -4,17 +4,8 @@
 #   bash b_flow.sh demo [go|N]  10/06 시연 흐름 (사용자 지정 순서·좌표, 단계마다 Enter / go = 끝까지 / N = N단계부터)
 #   bash b_flow.sh build      메시지 패키지(ready2go_interfaces)만 호스트에 빌드 — 처음 한 번
 #   bash b_flow.sh server     스킬 서버 (터미널 1, 계속 켜 둠). 관절 속도 VEL=60 JACC=40 기본, 느리게 보려면 VEL=20 JACC=20
-#   bash b_flow.sh all        터미널 2: 홈에서 열기 → 탑뷰 → 인식(A 비전, 없으면 고정 좌표) → 끌기 → 탑뷰 → 다시 인식 → 집기 → 놓기 → 닫기 → 홈
-#   bash b_flow.sh dragtest   끌기 단위 시험 [사용자 10/07]: 홈 → 열기 → 탑뷰 → 인식 → 끌기 → 탑뷰·다시 인식 → 집기 → 트레이 (끌기·집기 실패면 탑뷰 → 다시, 최대 2번)
-#   bash b_flow.sh <동작> [서랍]  서랍 = top | bottom (= drawer_top | drawer_bottom), 서랍 필요: ready open opened close scan nudge all dragtest, 없음: home pick place
-#     view 는 아래 b_route(서버 없이 바로 관절 이동) — 서버로 탑뷰는 b_sk.py view
+#   bash b_flow.sh <동작> [서랍] [물체]  b_sk.py 로 동작 하나 (B <동작>) — 서랍 = top | bottom, 목록은 인자 없이 b_sk.py
 #     opened = 서랍을 손으로 끝까지 연 것으로 서버에 알림 (로봇 동작 없음)
-#   bash b_flow.sh route1     들고 나오기 시험: 경유점 1(서랍 안)으로 관절 이동 (스킬 서버 없이)
-#   bash b_flow.sh route      경유점 1 → movesj 2·3·4 → 트레이 첫 칸 위 직선
-#   bash b_flow.sh mvl X Y Z A B C   툴 확인 후 직선 이동
-#   bash b_flow.sh movej J1 J2 J3 J4 J5 J6   툴 확인 후 관절 이동 (J5 133° 넘으면 거부)
-#   bash b_flow.sh press      지금 자세로 z 최대 9 mm 내려가며 툴 힘 z 2 N 되면 정지 (5 mm/s, 직전 0점)
-#   bash b_flow.sh view       drawer_top_view 로 관절 이동 하나만 (경유 없음)
 R="$HOME/ready2go"
 H="$HOME/r2g_host"      # 호스트 빌드 결과 — 저장소 ros2_ws/install 은 컨테이너가 만든 것(경로가 /opt/dsr_ws 등)이라 쓰지 않음
 ros_env() {
@@ -37,11 +28,8 @@ case "$1" in
         ros_env
         shift
         exec python3 "$(dirname "$0")/b_demo.py" "$@" ;;
-    view|route1|route|mvl|movej|press)
-        ros_env
-        exec python3 "$(dirname "$0")/b_route.py" "$@" ;;
     "")
-        sed -n '2,18p' "$0" ;;
+        sed -n '2,8p' "$0" ;;
     *)
         ros_env
         exec python3 "$(dirname "$0")/b_sk.py" "$@" ;;

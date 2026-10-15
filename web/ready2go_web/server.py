@@ -16,8 +16,9 @@ import os
 from pathlib import Path
 from typing import Mapping
 
-from flask import Flask, abort, jsonify, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
+from ready2go_web.core.overlay_cache import OverlayCache
 from ready2go_web.core.state_cache import StateCache
 
 
@@ -32,6 +33,9 @@ STATUS_API_PATH = "/api/status"
 
 # 브라우저가 시작할 때 한 번 조회할 등록 정의 스냅샷 경로다.
 DEFINITIONS_API_PATH = "/api/definitions"
+
+# 촬영 JPEG는 JSON 상태와 분리해 브라우저가 필요할 때만 내려받는다.
+VISION_OVERLAY_IMAGE_API_PATH = "/api/vision/overlay.jpg"
 
 # 이 값은 이슈 #267에서 정한 브라우저 권장 조회 간격이며 ROS 발행 주기가 아니다.
 POLL_INTERVAL_MS = 1_000
@@ -98,6 +102,7 @@ def create_app(
     web_root: str | Path | None = None,
     *,
     state_cache: StateCache | None = None,
+    overlay_cache: OverlayCache | None = None,
     definition_snapshot: Mapping[str, object] | None = None,
     definition_error: str | None = None,
     runtime_profile: str = "real",
@@ -121,6 +126,8 @@ def create_app(
         "static_root": str(static_root),
         # REST 핸들러는 요청마다 이 같은 캐시에서 잠금 스냅샷만 가져온다.
         "state_cache": state_cache,
+        # ROS 오버레이 콜백과 Flask 사진 API가 공유하는 최신 사진 한 장의 캐시다.
+        "overlay_cache": overlay_cache,
         # 정의는 서버 시작 때 한 번 읽은 웹 파일 스냅샷이며 요청마다 다시 읽지 않는다.
         "definition_snapshot": definition_snapshot,
         # 정의 로딩 실패도 상태 REST와 정적 UI를 중단하지 않고 별도 오류로 제공한다.
@@ -181,6 +188,36 @@ def create_app(
             )
             return api_response(payload, 500)
 
+        # 사진 캐시는 장치 source와 별도이므로 카메라 연결 판정에 합치지 않는다.
+        if overlay_cache is None:
+            overlay_metadata: dict[str, object] = {
+                "status": "unavailable",
+                "error": {
+                    "code": "OVERLAY_CACHE_UNAVAILABLE",
+                    "message": "촬영 사진 캐시를 사용할 수 없습니다.",
+                },
+            }
+        else:
+            try:
+                # PR #357은 header.stamp를 UTC epoch 촬영 시각으로 확정했다.
+                overlay_metadata = {
+                    "status": "ok",
+                    **overlay_cache.get_metadata(
+                        utcnow(),
+                        stale_after_sec=None,
+                        capture_time_is_utc=True,
+                    ),
+                }
+            except Exception:
+                # 사진 보조 정보 실패가 Runner·로봇 상태 REST까지 중단시키지 않게 격리한다.
+                overlay_metadata = {
+                    "status": "error",
+                    "error": {
+                        "code": "OVERLAY_METADATA_FAILED",
+                        "message": "촬영 사진 정보를 만들 수 없습니다.",
+                    },
+                }
+
         # 성공 시에는 가공하지 않은 source 진단과 마지막 정상 payload를 함께 제공한다.
         payload = response_envelope()
         payload.update(
@@ -189,9 +226,98 @@ def create_app(
                 "runtime_profile": runtime_profile,
                 "robot_topic": robot_topic,
                 "sources": sources,
+                "vision_overlay": overlay_metadata,
             }
         )
         return api_response(payload)
+
+    @app.get(VISION_OVERLAY_IMAGE_API_PATH)
+    def vision_overlay_image_api():
+        """현재 캐시의 최신 촬영 JPEG 한 장을 읽기 전용으로 반환한다."""
+        if overlay_cache is None:
+            payload = response_envelope()
+            payload.update(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "OVERLAY_CACHE_UNAVAILABLE",
+                        "message": "촬영 사진 캐시를 사용할 수 없습니다.",
+                    },
+                }
+            )
+            return api_response(payload, 503)
+
+        snapshot = overlay_cache.get_latest()
+        if snapshot is None:
+            payload = response_envelope()
+            payload.update(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "OVERLAY_NOT_AVAILABLE",
+                        "message": "아직 수신한 촬영 사진이 없습니다.",
+                    },
+                }
+            )
+            return api_response(payload, 404)
+
+        # 새 웹 프로세스가 revision을 다시 1부터 시작해도 이전 브라우저 사진과 섞이지
+        # 않도록 cache_id와 revision을 함께 비교한다. 쿼리를 생략한 직접 조회는 최신 사진이다.
+        requested_cache_id = request.args.get("cache_id")
+        if requested_cache_id is not None and requested_cache_id != overlay_cache.cache_id:
+            payload = response_envelope()
+            payload.update(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "OVERLAY_CACHE_CHANGED",
+                        "message": "요청한 촬영 사진 캐시가 현재 웹 기동과 일치하지 않습니다.",
+                    },
+                    "requested_cache_id": requested_cache_id,
+                    "current_cache_id": overlay_cache.cache_id,
+                }
+            )
+            return api_response(payload, 409)
+
+        requested_revision = request.args.get("revision")
+        if requested_revision is not None:
+            try:
+                revision = int(requested_revision)
+            except ValueError:
+                revision = 0
+            if revision <= 0:
+                payload = response_envelope()
+                payload.update(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "INVALID_OVERLAY_REVISION",
+                            "message": "revision은 1 이상의 정수여야 합니다.",
+                        },
+                    }
+                )
+                return api_response(payload, 400)
+            if revision != snapshot.revision:
+                payload = response_envelope()
+                payload.update(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "OVERLAY_REVISION_CHANGED",
+                            "message": "요청한 촬영 사진이 최신 revision과 일치하지 않습니다.",
+                        },
+                        "requested_revision": revision,
+                        "current_revision": snapshot.revision,
+                    }
+                )
+                return api_response(payload, 409)
+
+        # 사진과 revision은 같은 불변 스냅샷에서 읽어 서로 다른 갱신을 섞지 않는다.
+        response = Response(snapshot.jpeg, status=200, mimetype="image/jpeg")
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Overlay-Cache-ID"] = overlay_cache.cache_id
+        response.headers["X-Overlay-Revision"] = str(snapshot.revision)
+        return response
 
     @app.get(DEFINITIONS_API_PATH)
     def definitions_api():

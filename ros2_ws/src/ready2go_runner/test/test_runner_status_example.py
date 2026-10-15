@@ -8,7 +8,7 @@ from ready2go_runner.core.intent_router import Decision
 from ready2go_runner.core.runner_status import build_status
 
 EXAMPLE = json.loads((Path(__file__).resolve().parents[4] / "contracts/examples/runner_status.json").read_text(encoding="utf-8"))
-NODE_KEYS = {"last_intent", "state_reset_at", "boot_id", "seq", "stamp"}   # runner_node 가 붙이는 칸 (boot_id·seq·stamp 계약 W4)
+NODE_KEYS = {"last_intent", "accepted", "state_reset_at", "boot_id", "seq", "stamp"}   # runner_node 가 붙이는 칸 (boot_id·seq·stamp 계약 W4, accepted #376)
 NEW_INTENT_KEYS = {"request_id", "run_id"}                          # 계약07
 
 
@@ -106,3 +106,35 @@ def test_w4_boot_seq_and_resume_offer():
             assert (halt["resume"] is not None) == name.startswith("suspended_"), name
     offer = cases()["suspended_resume_offered"]["halt"]
     assert offer["resume"]["offered"] and not offer["locked"] and offer["resume"]["question"] is None
+
+
+FAILURE_KEYS = {"run_id", "boot_id", "code", "step", "action", "case_id", "strategy", "text"}
+
+
+def test_last_failure_and_accepted_shape_match_code():
+    """#376: last 에 failure(FAILED 만, 그 밖 null) — 칸은 코드(build_status·failure_record)와 같음. accepted 는 run 결정 요청."""
+    from ready2go_runner.core.interpreter import RunResult, StepFailed, failure_record
+    code_last = build_status(False, False, None, None, None, RunResult("COMPLETED", {}, run_id="r"), "t", False)["last"]
+    sample = failure_record(StepFailed("s1", "X"), [], "r", "b")
+    for name, status in cases().items():
+        if status["last"] is not None:
+            assert set(status["last"]) == set(code_last), name
+            failure = status["last"]["failure"]
+            assert (failure is not None) == (status["last"]["overall_status"] == "FAILED"), name
+            if failure is not None:
+                assert set(failure) == set(sample) == FAILURE_KEYS, name
+                assert failure["run_id"] == status["last"]["run_id"] and failure["boot_id"] == status["boot_id"], name
+                assert (failure["case_id"] is None) == (failure["strategy"] is None), name
+                assert failure["strategy"] in (None, "impossible"), name
+        accepted = status["accepted"]
+        if status["last_intent"] and status["last_intent"]["decision"] == "run":
+            assert accepted["run_id"] == status["last_intent"]["run_id"], name
+
+
+def test_status_question_does_not_move_accepted():
+    """'왜 멈췄어?' 상태 질문이 last_intent 를 덮어도 accepted·last.failure 는 그대로 — 최신 결정과 최근 수락 요청을 구분 (#376 E)."""
+    c = cases()
+    failed, asked = c["failed_with_refusal_reason"], c["status_question_after_failure"]
+    assert asked["last_intent"]["decision"] == "status" and asked["last_intent"]["run_id"] is None
+    assert asked["accepted"] == failed["accepted"] and asked["last"] == failed["last"]
+    assert asked["accepted"]["run_id"] == asked["last"]["failure"]["run_id"]
