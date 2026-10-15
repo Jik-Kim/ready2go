@@ -196,6 +196,10 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
 
     if accept_text:                         # 계약07: 수락 문장 1회 — 실패하면 로봇 동작 0번
         failed = say(accept_text)
+        if runner.halted:                   # 안내 중 정지 — 실패 코드(CANCELED 등)보다 정지가 먼저 (#381 E 리뷰)
+            result.overall_status, result.error_code = "ABORTED", runner.halt_code or "HALTED"
+            result.problems = ["수락 안내 중 정지 — 로봇 동작 없음"]
+            return result
         if failed:
             result.error_code, result.problems = failed, ["수락 안내 실패 — 로봇 동작 없음"]
             return result

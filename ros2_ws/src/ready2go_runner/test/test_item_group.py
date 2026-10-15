@@ -242,3 +242,25 @@ def test_allowed_failure_with_restore_failure_stops_the_group():
     assert (result.overall_status, result.error_code) == ("FAILED", "RESTORE_INCOMPLETE")
     assert statuses(result)[1] == ("lip_balm", ig.NOT_RUN)
     assert said[-1].endswith("옮긴 물건 일부를 원래 자리로 못 돌려놔서 목록 작업을 멈췄어요. 사람이 확인해 주세요.")
+
+
+
+def test_accept_speech_failure_means_no_motion():
+    """수락 문장(accept_text)이 실패하면 로봇 동작 0번으로 FAILED(그 코드) — 계약07."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, said = setup()
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: "BACKEND_ERROR", accept_text="출근 준비물을 가져올게요.")
+    assert (result.overall_status, result.error_code) == ("FAILED", "BACKEND_ERROR") and robot.calls == []
+
+
+@pytest.mark.parametrize("returned", ["CANCELED", None])
+def test_stop_during_accept_speech_is_aborted_not_failed(returned):
+    """[#381 E 리뷰] 수락 안내 도중 '멈춰' — 안내가 CANCELED 로 끝나든 성공으로 끝나든 ABORTED·HALTED(정지 우선), 로봇 동작 0번."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, _ = setup()
+
+    def speak(text):
+        runner.halt(source="voice")
+        return returned
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=speak, accept_text="출근 준비물을 가져올게요.")
+    assert (result.overall_status, result.error_code) == ("ABORTED", "HALTED") and robot.calls == []

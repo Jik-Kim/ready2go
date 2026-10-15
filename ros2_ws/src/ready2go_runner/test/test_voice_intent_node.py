@@ -845,3 +845,24 @@ def test_stop_inside_list_request_maps_to_parent_and_skips_the_rest(tmp_path):
         assert [i["status"] for i in doc["items"]][:2] == ["NOT_DELIVERED", "NOT_RUN"]
     finally:
         close()
+
+
+
+def test_stop_during_list_accept_speech_is_aborted_with_no_failure(tmp_path, monkeypatch):
+    """[#381 E 리뷰] 목록 수락 안내 도중 '멈춰'(안내 CANCELED) — 상위 R 은 ABORTED·HALTED, last.failure null(정지를 실패 이유로 안 냄),
+    로봇 동작 없음(물품 실행 0)."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE, intent_tasks=UNPACK_TASKS)
+    try:
+        def speak_then_stop(text):
+            runner.runner.halt(source="voice")
+            return "CANCELED"
+        monkeypatch.setattr(runner, "_speak", speak_then_stop)
+        voice.say(group_intent(request_id="list-accept-stop"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=20), voice.status
+        last = voice.status["last"]
+        assert (last["overall_status"], last["error_code"], last["failure"]) == ("ABORTED", "HALTED", None)
+        doc = runner.log_store.read_run(last["run_id"])["run"]
+        assert all(i["run_id"] is None for i in doc["items"])                              # 물품 실행 없음
+    finally:
+        close()
