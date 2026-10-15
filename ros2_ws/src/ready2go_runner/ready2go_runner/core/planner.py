@@ -10,6 +10,10 @@
 - 후보 줄이기: 물품 파라미터는 목표에 나온 물품과 지금 쥔 물품만 (다른 물품은 목표 달성에 필요 없음)
 - 지원 범위(limits): 백엔드가 실제로 할 수 있는 파라미터 값만 후보로 (예: 실물 놓기는 전달 트레이만). 그 밖의
   계획은 만들지 않고 UNPLANNABLE — 기호상 가능하지만 실물이 못 하는 계획을 중간까지 실행하지 않게 (#154 E 리뷰 P1)
+- 묶음 스킬(composite, #302 E 결정 10/15 — C 권고 2안): `composites=True` 이면 계획 전용 `plan_effect`(목록)와 `task` 가 있는
+  composite 만 후보 (예: handover_with_unpack — 실제 effect 는 "sensing", 안은 find_with_unpack). plan_effect 는 **계획에만** 쓰고
+  실제 Runner 상태에 쓰지 않음 — 실행은 core/plan_exec 가 그 태스크를 단독으로 돌린 뒤 실제 상태에서 다시 계획. 기본 False
+  (노드 achieve_goal 은 묶음 실행 연결 전이라 지금 계획 그대로 — primitive 만).
 """
 from __future__ import annotations
 
@@ -32,6 +36,7 @@ class Step:
     skill: str
     params: dict[str, str]
     reasons: list[str] = field(default_factory=list)   # 이 스텝이 필요한 이유 (단계별 근거)
+    task: str | None = None             # 묶음 스킬이면 실행할 태스크 경로 (to_task 에 넣지 않음 — plan_exec 가 단독 실행)
 
     def label(self) -> str:
         return f"{self.skill}({', '.join(f'{v}' for v in self.params.values())})"
@@ -65,6 +70,25 @@ def _auto_goals(state: dict, world: dict, goals: list[dict]) -> list[dict]:
 
 def _goal_text(goal: dict) -> str:
     return f"{goal['predicate']}.{goal['subject']} = {json.dumps(goal['value'], ensure_ascii=False)}"
+
+
+# ---- 계획에 쓰는 스킬 ----
+
+def plan_effects(skill: Any, composites: bool = False) -> list | None:
+    """계획 탐색에 쓰는 결과. primitive = effect, composite = 계획 전용 plan_effect(목록·task 있음, composites 일 때만).
+    계획에 못 쓰는 스킬이면 None (예: effect "sensing" 만 있는 composite)."""
+    if not isinstance(skill, dict):
+        return None
+    if skill.get("kind") == "primitive":
+        return skill.get("effect", [])
+    if composites and skill.get("kind") == "composite" and isinstance(skill.get("plan_effect"), list) \
+            and isinstance(skill.get("task"), str):
+        return skill["plan_effect"]
+    return None
+
+
+def _is_composite(skill: dict) -> bool:
+    return skill.get("kind") == "composite"
 
 
 # ---- 파라미터 후보 ----
@@ -109,12 +133,12 @@ def parse_limits(text: str) -> dict[str, dict[str, set[str]]]:
 
 
 def _groundings(skills: dict, onto: dict, relevant_items: set[str],
-                limits: dict | None = None) -> list[tuple[str, dict, dict]]:
+                limits: dict | None = None, composites: bool = False) -> list[tuple[str, dict, dict]]:
     """(스킬 이름, 스킬 정의, 파라미터 값) 전부 — 결정적 순서 (스킬 이름·파라미터 값 정렬). limits 밖의 값은 뺌."""
     out = []
     for name in sorted(skills):
         skill = skills[name]
-        if not isinstance(skill, dict) or skill.get("kind") != "primitive":
+        if plan_effects(skill, composites) is None:
             continue
         names = list(skill.get("params", {}))
         allowed = (limits or {}).get(name, {})
@@ -132,9 +156,10 @@ def _key(state: dict) -> str:
 
 
 def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH,
-         limits: dict | None = None) -> PlanResult:
+         limits: dict | None = None, composites: bool = False) -> PlanResult:
     """목표를 만족하는 최단 스킬 순서. state 는 Runner 상태(predicate → subject → value).
-    limits: 스킬 → 파라미터 → 허용 값 (백엔드 지원 범위, parse_limits). None 이면 제한 없음(mock·시험)."""
+    limits: 스킬 → 파라미터 → 허용 값 (백엔드 지원 범위, parse_limits). None 이면 제한 없음(mock·시험).
+    composites: plan_effect 가 있는 묶음 스킬도 후보로 (core/plan_exec 만 — 실행 뒤 실제 상태로 다시 계획)."""
     problem = _check_goals(goals, onto)
     if problem:
         return PlanResult(UNPLANNABLE, [], goals, problem)
@@ -143,14 +168,14 @@ def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH,
         return PlanResult(SATISFIED, [], all_goals, "이미 만족: " + ", ".join(_goal_text(g) for g in goals))
 
     skills = onto.get("skills", {})
-    unreachable = _unreachable(goals, skills)
+    unreachable = _unreachable(goals, skills, composites)
     if unreachable:
         return PlanResult(UNPLANNABLE, [], all_goals, unreachable)
 
     held = ontology.get(state, "gripper", ROBOT)
     relevant = {g["subject"] for g in goals} | {g["value"] for g in goals if isinstance(g["value"], str)}
     relevant |= {held} if held and held != "empty" else set()
-    actions = _groundings(skills, onto, relevant, limits)
+    actions = _groundings(skills, onto, relevant, limits, composites)
     one_open = (limits or {}).get("open_drawer", {}).get("one_open") == {"true"}   # 서랍은 한 번에 하나만
 
     start = state
@@ -161,19 +186,19 @@ def plan(state: dict, onto: dict, goals: list[dict], max_depth: int = MAX_DEPTH,
         if len(path) >= max_depth:
             continue
         for name, skill, binding in actions:
-            if one_open and name == "open_drawer" and any(
+            if one_open and (name == "open_drawer" or _is_composite(skill)) and any(
                     v is True for k, v in (current.get("open") or {}).items() if k.startswith("drawer")):
-                continue                        # 다른 서랍이 열려 있으면 열지 않음 (먼저 닫는 계획만)
+                continue                        # 다른 서랍이 열려 있으면 열지 않음 (먼저 닫는 계획만) — 묶음은 안에서 서랍을 엶
             if not all(c["pass"] for c in ontology.check(current, skill.get("pre", []), binding)):
                 continue
-            nxt, _ = ontology.apply(current, skill.get("effect", []), binding)
+            nxt, _ = ontology.apply(current, plan_effects(skill, composites), binding)
             k = _key(nxt)
             if k in seen:
                 continue
             seen.add(k)
             new_path = [*path, (name, skill, binding)]
             if all(_goal_ok(nxt, g) for g in all_goals):
-                return PlanResult(PLANNED, _explain(start, new_path, all_goals), all_goals, explored=len(seen))
+                return PlanResult(PLANNED, _explain(start, new_path, all_goals, composites), all_goals, explored=len(seen))
             if len(seen) >= MAX_STATES:
                 return PlanResult(UNPLANNABLE, [], all_goals,
                                   f"탐색 상한({MAX_STATES} 상태)을 넘음", explored=len(seen))
@@ -202,22 +227,21 @@ def _check_goals(goals: Any, onto: dict) -> str:
     return ""
 
 
-def _unreachable(goals: list[dict], skills: dict) -> str:
-    """어떤 스킬 effect 도 바꾸지 못하는 술어를 목표로 하면 바로 원인 반환."""
-    produced = {e["predicate"] for s in skills.values() if isinstance(s, dict) and s.get("kind") == "primitive"
-                for e in s.get("effect", [])}
+def _unreachable(goals: list[dict], skills: dict, composites: bool = False) -> str:
+    """어떤 스킬 effect 도 바꾸지 못하는 술어를 목표로 하면 바로 원인 반환 (탐색 후보와 같은 기준)."""
+    produced = {e["predicate"] for s in skills.values() for e in (plan_effects(s, composites) or [])}
     missing = sorted({g["predicate"] for g in goals} - produced)
     return f"어떤 스킬도 바꾸지 못하는 상태: {', '.join(missing)}" if missing else ""
 
 
 # ---- 단계별 근거 ----
 
-def _explain(start: dict, path: list[tuple[str, dict, dict]], goals: list[dict]) -> list[Step]:
-    """각 스텝의 effect 가 뒤 스텝의 조건이나 목표를 만족시키는지 찾아 이유로 적는다."""
+def _explain(start: dict, path: list[tuple[str, dict, dict]], goals: list[dict], composites: bool = False) -> list[Step]:
+    """각 스텝의 effect(묶음은 plan_effect) 가 뒤 스텝의 조건이나 목표를 만족시키는지 찾아 이유로 적는다."""
     states = [start]
     diffs = []
     for _, skill, binding in path:
-        nxt, diff = ontology.apply(states[-1], skill.get("effect", []), binding)
+        nxt, diff = ontology.apply(states[-1], plan_effects(skill, composites), binding)
         states.append(nxt)
         diffs.append(diff)
     steps = []
@@ -237,7 +261,7 @@ def _explain(start: dict, path: list[tuple[str, dict, dict]], goals: list[dict])
                     if g["predicate"] == predicate and g["subject"] == subject and g["value"] == after:
                         kind = "자동 목표(연 서랍 닫기)" if g.get("auto") else "목표"
                         reasons.append(f"{kind} {_goal_text(g)}")
-        steps.append(Step(name, dict(binding), reasons))
+        steps.append(Step(name, dict(binding), reasons, skill["task"] if _is_composite(skill) else None))
     return steps
 
 
@@ -260,6 +284,8 @@ def to_task(result: PlanResult, task_id: str = "plan", timeouts: dict[str, float
     timeouts: 스킬 이름 → timeout_sec (없으면 넣지 않음 — 실물은 호출하는 쪽이 설정에서 넘김)."""
     if result.status != PLANNED:
         raise ValueError(f"PLANNED 가 아닌 결과는 태스크로 만들지 않음: {result.status}")
+    if any(s.task for s in result.steps):     # Runner 는 composite 스킬 스텝을 UNKNOWN_SKILL 로 거부 — plan_exec 가 단독 실행
+        raise ValueError("묶음 스킬 스텝은 태스크에 넣지 않음 (core/plan_exec.run_plan 이 구간으로 나눠 실행)")
     timeouts = timeouts or {}
     sequence = [{"id": "p0", "action": "set_var", "params": {"name": "plan_done", "value": False}}]
     for n, s in enumerate(result.steps, 1):
