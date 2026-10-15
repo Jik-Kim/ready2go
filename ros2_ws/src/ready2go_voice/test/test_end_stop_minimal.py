@@ -272,13 +272,14 @@ def test_real_sdk_prompts_split_stop_safety_and_normal(cfg,monkeypatch,tmp_path)
 def test_control_prefill_node_prepare_identity_and_original_limits(node,trial,tmp_path):
     cfg=node.cfg;cfg['tts_melotts_assets']=str(tmp_path)
     cfg['ontology_file']=str(Path(__file__).resolve().parents[4]/'knowledge/robot_ontology.jsonld')
+    startup_timeout=cfg['tts_melotts_startup_timeout_sec']
     selected=trial.selected_texts(cfg)
     direct=prefill_texts(cfg,node.parser.items.values(),reference_state=node.parser.reference_state,
                          places=node.parser.places,item_names={k:v['name_ko'] for k,v in node.parser.items.items()})
     assert selected==direct
     assert all(prompts(cfg)[key] in selected for key in ('control_recover','control_resume','control_end','control_failed'))
-    assert len(selected)+1<=cfg['tts_prefill_max_texts']==256
-    assert cfg['tts_melotts_startup_timeout_sec']==60
+    assert len(selected)+1<=cfg['tts_prefill_max_texts']==512
+    assert cfg['tts_melotts_startup_timeout_sec']==startup_timeout
     assert trial.preparation_identity(cfg,selected)==trial.preparation_identity(cfg,direct)
 
 
