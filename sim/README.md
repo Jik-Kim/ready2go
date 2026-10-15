@@ -88,6 +88,7 @@ ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/
 ISAAC_SIM_CMD=$HOME/isaac-sim-5.1.0/python.sh bash sim/run_isaac.sh sim/scripts/mirror_joint_states.py --headless --duration 30
 ```
 - 2초마다 수신 주기, 메시지 지연(수신 시각 − `header.stamp`), 추종 오차를 출력한다.
+- **실물** [실측 PC1 10/11, local DDS]: 같은 PC1 에서 실물 드라이버를 compose `ros2-core`(`BACKEND=real`, 도메인 70, `DDS_MODE=local`)로 띄우고 위 GUI 명령을 그대로 실행 — 실물 `/dsr01/joint_states` 100 Hz, jog 이동을 트윈이 따라감(사용자 화면 확인, [practice 10/11 6절](../practice/A/2026-10-11_practice.md)). PC1↔PC2 multi DDS 경로·실물 지연·추종 오차 수치·스킬 흐름 중 미러링은 미확인.
 - 시험 [실측, 별도 시험 토픽 50 Hz 발행]: 수신 50 Hz, 평균 지연 2.2 ms, 최대 추종 오차 4.2 mrad(0.24°), 매핑 안 된 이름 없음, 1249건 처리.
 - 추종 오차는 위치를 설정한 뒤 물리 스텝 한 번 후 읽은 값과 받은 값의 차이다(중력·구동 목표 때문에 0이 되지는 않음).
 
