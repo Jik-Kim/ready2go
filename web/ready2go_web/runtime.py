@@ -18,6 +18,7 @@ import rclpy
 from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
 
+from ready2go_web.core.overlay_cache import OverlayCache
 from ready2go_web.core.state_cache import StateCache
 from ready2go_web.nodes.dashboard_bridge import (
     BridgeTopics,
@@ -81,6 +82,8 @@ class RosBridgeRuntime:
         # B가 제안한 timeout을 DashboardBridge의 generic cache 설정으로 전달한다.
         self._robot_timeout_sec = robot_timeout_sec
         self._node_name = node_name
+        # ROS 콜백과 후속 Flask 사진 API가 공유할 최신 촬영 한 장의 전용 캐시다.
+        self._overlay_cache = OverlayCache()
 
         # start·stop이 다른 스레드에서 동시에 호출돼도 중복 ROS 자원을 만들지 않게 한다.
         self._lifecycle_lock = threading.RLock()
@@ -99,6 +102,11 @@ class RosBridgeRuntime:
             if self._bridge is None:
                 raise RuntimeError("ROS 브리지가 시작되지 않았습니다")
             return self._bridge.cache
+
+    @property
+    def overlay_cache(self) -> OverlayCache:
+        """오버레이 구독이 갱신하는 사진 캐시를 반환한다."""
+        return self._overlay_cache
 
     @property
     def is_running(self) -> bool:
@@ -132,6 +140,7 @@ class RosBridgeRuntime:
                         CAMERA_SOURCE,
                         VOICE_SOURCE,
                     },
+                    overlay_cache=self._overlay_cache,
                     context=context,
                 )
 

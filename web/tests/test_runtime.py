@@ -11,7 +11,7 @@ import rclpy
 from rclpy.context import Context
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import CameraInfo, JointState
+from sensor_msgs.msg import CameraInfo, CompressedImage, JointState
 from std_msgs.msg import String
 
 from ready2go_web.nodes.dashboard_bridge import BridgeTopics
@@ -45,6 +45,7 @@ def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> No
         runner_status=f"{prefix}/runner/status",
         robot_state=f"{prefix}/robot_state",
         camera_info=f"{prefix}/camera_info",
+        inspect_overlay=f"{prefix}/vision/inspect_overlay",
         voice_intent=f"{prefix}/voice/intent",
         robot_connection=f"{prefix}/joint_states",
     )
@@ -89,6 +90,11 @@ def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> No
         topics.camera_info,
         robot_publisher_qos,
     )
+    overlay_publisher = publisher_node.create_publisher(
+        CompressedImage,
+        topics.inspect_overlay,
+        RUNNER_PUBLISHER_QOS,
+    )
     # Voice는 intent 내용을 보내지 않고 publisher endpoint 존재만 제공한다.
     voice_publisher = publisher_node.create_publisher(String, topics.voice_intent, 10)
 
@@ -110,6 +116,7 @@ def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> No
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.robot_state) == 1)
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.robot_connection) == 1)
         assert _wait_until(lambda: publisher_node.count_subscribers(topics.camera_info) == 1)
+        assert _wait_until(lambda: publisher_node.count_subscribers(topics.inspect_overlay) == 1)
         runner_payload = {"phase": "running", "task_id": "demo_task", "current_step": "open"}
         robot_state_payload = {
             "robot_pose": {"robot": "home"},
@@ -125,6 +132,12 @@ def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> No
         camera_message.header.frame_id = "wrist_cam"
         camera_message.width = 1280
         camera_message.height = 720
+        overlay_message = CompressedImage()
+        overlay_message.header.frame_id = "wrist_cam_color_optical_frame"
+        overlay_message.header.stamp.sec = 100
+        overlay_message.format = "jpeg"
+        overlay_message.data = b"runtime-overlay-jpeg"
+        overlay_publisher.publish(overlay_message)
 
         def publish_periodic_sources_until_received() -> bool:
             """VOLATILE JointState·CameraInfo를 실제 주기 발행처럼 반복한다."""
@@ -144,6 +157,7 @@ def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> No
             and runtime.cache.snapshot()["robot_state"]["message_valid"]
             and runtime.cache.snapshot()["voice"]["publisher_present"] is True
         )
+        assert _wait_until(lambda: runtime.overlay_cache.get_latest() is not None)
 
         runner = runtime.cache.snapshot()["runner"]
         assert runner["publisher_present"] is True
@@ -165,6 +179,7 @@ def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> No
         assert voice["message_received"] is False
         assert voice["connection_state"] == "waiting"
         assert voice_publisher is not None
+        assert runtime.overlay_cache.get_latest().jpeg == b"runtime-overlay-jpeg"
 
         # 동일 객체의 이중 시작은 구독 노드를 중복 생성하지 않고 명시적으로 실패한다.
         with pytest.raises(RuntimeError, match="이미 시작"):

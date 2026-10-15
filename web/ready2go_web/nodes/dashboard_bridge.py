@@ -21,9 +21,10 @@ from rclpy.qos import (
     ReliabilityPolicy,
     qos_profile_sensor_data,
 )
-from sensor_msgs.msg import CameraInfo, JointState
+from sensor_msgs.msg import CameraInfo, CompressedImage, JointState
 from std_msgs.msg import String
 
+from ready2go_web.core.overlay_cache import OverlayCache
 from ready2go_web.core.state_cache import StateCache
 
 
@@ -35,6 +36,18 @@ LATCHED_STATUS_QOS: Final = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
 )
+
+# PR #357의 /vision/inspect_overlay 계약은 늦게 시작한 웹도 마지막 촬영 한 장을
+# 받도록 RELIABLE·TRANSIENT_LOCAL·KEEP_LAST(1)을 요구한다.
+INSPECT_OVERLAY_QOS: Final = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+
+# 오버레이는 이 컬러 프레임을 잘라 만든 사진이며 다른 frame_id는 계약 위반이다.
+INSPECT_OVERLAY_FRAME_ID: Final = "wrist_cam_color_optical_frame"
 
 # StateCache와 REST 응답에서 사용할 source 이름을 한곳에 고정한다.
 RUNNER_SOURCE: Final = "runner"
@@ -66,6 +79,7 @@ class BridgeTopics:
     runner_status: str = "/runner/status"  # C Runner 실행·요청·결과 상태 JSON.
     robot_state: str = "/robot_state"  # C Runner가 기억하는 현재 상태 JSON.
     camera_info: str = "/wrist_cam/color/camera_info"  # A가 실측한 카메라 연결 근거.
+    inspect_overlay: str = "/vision/inspect_overlay"  # A가 촬영 요청마다 만드는 최근 오버레이.
     voice_intent: str = "/voice/intent"  # E VoiceNode의 간헐적 intent 발행 토픽.
     robot_connection: str = "/dsr01/joint_states"  # B가 확인한 관절 상태 수신 근거.
 
@@ -82,6 +96,7 @@ class DashboardBridge(Node):
         graph_poll_period_sec: float = 1.0,
         node_name: str = "ready2go_web_bridge",
         enabled_sources: Collection[str] | None = None,
+        overlay_cache: OverlayCache | None = None,
         context: Context | None = None,
     ) -> None:
         # bool은 int의 하위 타입이므로 True가 1초 설정으로 들어오는 경우도 막는다.
@@ -111,6 +126,8 @@ class DashboardBridge(Node):
 
         # 호출자가 토픽을 주지 않으면 이슈 #267에서 확인한 운영 기본값을 사용한다.
         self.topics = topics or BridgeTopics()
+        # 사진 캐시는 연결 진단 StateCache와 분리해 카메라 배지 의미를 바꾸지 않는다.
+        self.overlay_cache = overlay_cache
 
         # Runner 두 상태와 Voice는 메시지 나이만으로 끊김을 판정하지 않는다.
         # 카메라와 로봇 관절 상태는 각각 설정 가능한 freshness timeout을 사용한다.
@@ -129,6 +146,7 @@ class DashboardBridge(Node):
         self._runner_subscription = None
         self._robot_state_subscription = None
         self._camera_subscription = None
+        self._overlay_subscription = None
         self._robot_subscription = None
         # 상태 콜백의 MessageInfo에서 실제 발행자 GID를 기록한다. graph GID 교체를
         # 확인할 때 새 publisher의 메시지가 먼저 도착했는지 직접 구분하는 근거다.
@@ -159,6 +177,15 @@ class DashboardBridge(Node):
                 self.topics.camera_info,
                 self._on_camera_info,
                 qos_profile_sensor_data,
+            )
+
+        # 오버레이 캐시를 명시적으로 받은 실행에서만 계약 토픽을 구독한다.
+        if self.overlay_cache is not None and self.topics.inspect_overlay:
+            self._overlay_subscription = self.create_subscription(
+                CompressedImage,
+                self.topics.inspect_overlay,
+                self._on_inspect_overlay,
+                INSPECT_OVERLAY_QOS,
             )
 
         # B가 정한 JointState는 100 Hz 전체 값을 보존하지 않고 최근 유효 수신만 판정한다.
@@ -250,6 +277,37 @@ class DashboardBridge(Node):
         }
         # 실제 메시지 콜백이 실행됐을 때만 카메라를 정상 수신으로 기록한다.
         self.cache.record_message(CAMERA_SOURCE, summary)
+
+    def _on_inspect_overlay(self, message: CompressedImage, message_info: Any = None) -> None:
+        """계약에 맞는 최신 JPEG만 별도 촬영 캐시에 기록한다."""
+        # CompressedImage의 format은 계약상 정확히 jpeg이며 다른 압축 형식은 표시하지 않는다.
+        if message.format.strip().lower() != "jpeg":
+            self.get_logger().warning("/vision/inspect_overlay format must be jpeg")
+            return
+        # 잘라낸 이미지의 기준 프레임이 계약과 다르면 촬영 시각의 의미도 보장할 수 없다.
+        if message.header.frame_id != INSPECT_OVERLAY_FRAME_ID:
+            self.get_logger().warning(
+                "/vision/inspect_overlay frame_id must be wrist_cam_color_optical_frame"
+            )
+            return
+        if self.overlay_cache is None:
+            return
+
+        # publisher 기동이 바뀌면 sim/ROS 시간이 작아질 수 있어 GID를 stamp 비교 경계로 쓴다.
+        publisher_gid = getattr(message_info, "publisher_gid", None)
+        generation_id = bytes(publisher_gid) if publisher_gid is not None else None
+        try:
+            self.overlay_cache.update(
+                jpeg=bytes(message.data),
+                captured_stamp_sec=message.header.stamp.sec,
+                captured_stamp_nanosec=message.header.stamp.nanosec,
+                received_at=None,
+                frame_id=message.header.frame_id,
+                generation_id=generation_id,
+            )
+        except (TypeError, ValueError) as exc:
+            # 잘못된 새 메시지가 이미 보관한 정상 사진을 지우지 않게 경고만 남긴다.
+            self.get_logger().warning(f"invalid /vision/inspect_overlay message: {exc}")
 
     def _on_robot_joint_state(self, message: JointState) -> None:
         """고주기 JointState에서 관절 상태 수신 판정에 필요한 메타데이터만 저장한다."""
