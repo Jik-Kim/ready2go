@@ -185,3 +185,16 @@ def test_no_progress_is_finite(monkeypatch):
     monkeypatch.setattr(runner, "run", lambda task, inputs=None, **kw: RunResult("COMPLETED", {}, run_id="r"))
     out = run_plan(runner, onto, [TOP_OPEN], load_task, limits=LIMITS)
     assert (out.overall_status, out.error_code, len(out.segments)) == ("FAILED", PLAN_NO_PROGRESS, 1)
+
+
+def test_goal_met_on_the_last_allowed_segment_is_completed():
+    """[#373 E 리뷰] 구간 상한(max_rounds)의 마지막 구간에서 목표를 다 이루면 COMPLETED — PLAN_NO_PROGRESS 로 오기록하지 않음.
+    상한 안에 못 이루면 그대로 PLAN_NO_PROGRESS."""
+    onto = e_onto()
+    runner, _ = setup(onto)
+    out = run_plan(runner, onto, [TOP_OPEN], load_task, limits=LIMITS, max_rounds=1)
+    assert (out.overall_status, out.error_code, len(out.segments)) == ("COMPLETED", None, 1)
+    runner2, _ = setup(onto, scene=MockScene("plate_over_eraser", "drawer_bottom"))
+    short = run_plan(runner2, onto, [DELIVER, TOP_OPEN], load_task, limits=LIMITS, max_rounds=1)
+    assert (short.overall_status, short.error_code) == ("FAILED", PLAN_NO_PROGRESS)   # 묶음만 하고 위 서랍은 못 엶
+    assert runner2.state["located_in"]["eraser"] == "handover_zone"                  # 한 일은 그대로
