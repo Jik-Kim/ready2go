@@ -80,4 +80,4 @@ result = catalog.query_class('귀중품')  # query_list('출근 준비물')도 �
 
 ## P3 거부 이유 조회 준비 — #376
 
-`core.refusal_reasons`는 [knowledge 문장 원본과 API](../../../knowledge/README.md#p3-거부-이유-문장-준비--376)를 읽습니다. setup.py가 원본을 share/ready2go_knowledge/knowledge에 설치합니다. 실행 시 설치 산출물에 이 파일이 필요하므로 변경 후 재빌드/설치가 필요합니다. E 상태 소비는 C #379 실제 소스와 모의 연결을 확인했습니다. C 의존 PR 병합·운영 적용·실음성/실물은 미완료입니다. 설치 share 조회에 사용하는 ROS 실행 의존성 `ament_index_python`도 package.xml에 명시했습니다.
+`core.refusal_reasons`는 [knowledge 문장 원본과 API](../../../knowledge/README.md#p3-거부-이유-문장-준비--376)를 읽습니다. setup.py가 원본을 share/ready2go_knowledge/knowledge에 설치합니다. 실행 시 설치 산출물에 이 파일이 필요하므로 변경 후 재빌드/설치가 필요합니다. E 상태 소비는 C #379가 병합된 main d27700a3 실제 소스와 모의 연결을 확인했습니다. 의존 PR 병합·묶음 상위 R 매핑은 확인했으며 운영 적용·실음성/실물은 미검증입니다. 설치 share 조회에 사용하는 ROS 실행 의존성 `ament_index_python`도 package.xml에 명시했습니다.

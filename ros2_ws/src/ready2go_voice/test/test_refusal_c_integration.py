@@ -1,11 +1,9 @@
-"""Actual C #379 source -> status callback -> E readonly TTS; ROS/device mocked.
-
-Run with C #379 source first in PYTHONPATH before its merge. The ordinary base
-without failure_record skips these integration cases instead of fabricating C.
-"""
+"""Merged C source -> status callback -> E readonly TTS; ROS/device mocked."""
+import copy
 import inspect
 import json
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
@@ -17,12 +15,19 @@ from test_voice_ux_node import node, node_class
 
 @pytest.fixture
 def actual_c(node, monkeypatch):
-    if not hasattr(interpreter, 'failure_record'):
-        pytest.skip('C #379 actual failure snapshot implementation is not on this base')
+    assert hasattr(interpreter, 'failure_record')
     import test_c_control_wire as wire_module
-    monkeypatch.setattr(wire_module, 'C_PACKAGE', Path(inspect.getfile(interpreter)).parents[2])
+    package = Path(inspect.getfile(interpreter)).parents[2]
+    assert package == Path(__file__).resolve().parents[2] / 'ready2go_runner'
+    monkeypatch.setattr(wire_module, 'C_PACKAGE', package)
     monkeypatch.setenv('BACKEND', 'mock')
     wire = wire_module.Wire(node, suspended=False)
+    # Dependencies used by the newly merged C chain methods in the existing
+    # ROS-free AST harness. The method bodies themselves remain actual C code.
+    from ready2go_runner.core import plan_exec, planner
+    from ready2go_runner.core.log_records import run_document
+    wire.c._run_plan.__func__.__globals__.update(plan_exec=plan_exec, planner=planner,
+        run_document=run_document, RunResult=interpreter.RunResult, time=time, Path=Path)
     return wire
 
 
@@ -97,3 +102,58 @@ def test_actual_c_contract_examples_match_e_consumption(actual_c):
         assert refusal_answer(selected[key]) == refusal_reasons.text('cluster_front_wall', 'impossible')
     task_error = selected['failed_task_error_without_reason']['last']['failure']
     assert refusal_answer(selected['failed_task_error_without_reason']) == failure_speech.text(task_error['code'], task_error['action'])
+
+
+@pytest.mark.parametrize('mode', ['segment_refusal', 'chain_effect_unmet'])
+def test_merged_c_chain_parent_failure_reaches_e_tts(actual_c, ontology, mode):
+    wire = actual_c; c = wire.c; node = wire.e
+    c.onto = copy.deepcopy(ontology)
+    c.runner._state = copy.deepcopy(ontology['state'])
+    c.runner.skills = ontology['skills']
+    c.plan_composites, c.plan_limits, c.plan_timeouts = True, {}, {}
+    c._chain_parent, c._chain_events = {}, {}
+    # Only the device response/task is mocked; planning, child execution,
+    # failure extraction, parent mapping, logging and status publishing are C.
+    c._load_task = lambda path: {'task_id': 'refusal_segment', 'sequence': [
+        {'id': 'm1', 'action': 'nudge_object', 'params': {
+            'drawer_id': 'drawer_bottom', 'target': {'id': 'eraser#1'}, 'make_room': True}}]}
+    c.runner.execute = lambda *args, **kwargs: interpreter.ActionResult(
+        mode == 'chain_effect_unmet', {'make_room': {
+            'case_id': 'cluster_front_wall', 'strategy': 'impossible'}},
+        None if mode == 'chain_effect_unmet' else 'NEIGHBOR_TOO_CLOSE')
+    request = {'intent': 'achieve_goal', 'targets': ['eraser'], 'confidence': .99,
+        'request_id': 'chain-origin', 'goals': [
+            {'predicate': 'located_in', 'subject': 'eraser', 'value': 'handover_zone'},
+            {'predicate': 'open', 'subject': 'drawer_top', 'value': True}]}
+    c._on_intent(SimpleNamespace(data=json.dumps(request)))
+    parent = c._accepted['run_id']
+    assert c._accepted['request_id'] == 'chain-origin'
+    scheduled = wire.started[-1]
+    assert scheduled['target'].__name__ == '_run_plan'
+    scheduled['target'](*scheduled['args']); wire.flush()
+    status = c.status(); failure = status['last']['failure']
+    assert status['last']['overall_status'] == 'FAILED'
+    assert failure['run_id'] == status['last']['run_id'] == status['accepted']['run_id'] == parent
+    assert failure['boot_id'] == status['boot_id']
+    child = c.log_store.read_run(parent + '.1')['run']
+    assert c.log_store.read_run(parent)['run']['failure'] == failure
+    if mode == 'segment_refusal':
+        assert child['failure']['run_id'] == parent + '.1'
+        assert failure['case_id'] == child['failure']['case_id'] == 'cluster_front_wall'
+        assert failure['code'] == 'NEIGHBOR_TOO_CLOSE'
+        expected = refusal_reasons.text('cluster_front_wall', 'impossible')
+    else:
+        assert child['overall_status'] == 'COMPLETED'
+        assert failure['code'] == 'PLAN_EFFECT_UNMET'
+        assert failure['case_id'] is None and failure['step'] is None
+        expected = failure_speech.text('PLAN_EFFECT_UNMET', None)
+    c._on_intent(SimpleNamespace(data=json.dumps({'intent': 'status', 'targets': [], 'confidence': 1.})))
+    wire.flush()
+    warning, node.pending_notice = node.pending_notice, None
+    if warning is not None: node._play_notice(warning, threading.Event())
+    sent_before = list(wire.sent)
+    node.deliver(node.session.text('왜 멈췄어?', node.generation))
+    notice, node.pending_notice = node.pending_notice, None
+    assert notice.kind == 'readonly_query' and notice.text == expected
+    node._play_notice(notice, threading.Event())
+    assert wire.tts[-1] == expected and wire.sent == sent_before
