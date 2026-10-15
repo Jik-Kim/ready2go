@@ -1,9 +1,11 @@
 # CURRENT — B 서동권
 
 - **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P2 (Unpacking 통합·실물 확인 중, P3 트레이 집기는 별도 PR 대기)
-- **최종 갱신**: 2026-10-14 오후
+- **최종 갱신**: 2026-10-14 밤
 
 ## 지금 상태
+- **10/14 밤 — 정리·10/15 할 일**: 움직임 정리 #354 머지(`motion.one_turn`·`carry.direct`·`carry.spline`·`place.touch_window_mm`, **전부 기본 꺼짐**, 실물 미확인). C #352(Runner 목표 공간 만들기)·A #360(지우개 가림 null → `alone_clear_min_ratio` 0.77) 머지, main `77bebac`. 판 위에서 놓기: 10/15 케이블 정리 뒤에도 같음 → 로그 `+8.0 mm, 3.2 N`(바닥 8 mm 위에서 3 N 살짝 넘김) → `touch_window_mm: 3` 확인 필요. **10/15 (녹화 날)**: ① main 받기·케이블 정리·판 free 놓기 로그 확인 ② #354 설정 하나씩 켜서 같은 배치 2~3번(`pc2_cmd.sh unlock`·`report`) ③ 녹화 배치 주의(지우개–립밤 2 cm 이상, 차키를 몽키 가장자리에 걸치지 않기) ④ #352 실물 ⑤ PPT(`PPT_HANDOFF_improvements.md` 새 세션) ⑥ 온톨로지 난제 배치(강사님 피드백, E 협의). 상세 작업표.
+- **10/14 저녁 — P2 시연 성공 [사용자]** 뒤 움직임 정리 PR (설정 3개, **전부 기본 false — 동작 그대로**, 실물 미확인): `motion.one_turn`(집기·서랍 안 놓기·원복 손목 한 번에), `carry.direct`(집은 뒤 경유점 1 멈춤·J6 따로 돌리기 없이 2→3 에서 돌림), `carry.spline`(들고 나오기 movesx guided). 원인 분석·통합 환경 점검 절차는 `2026-10-14_practice.md`. 다음: PC2 저속으로 하나씩 켜기 → 좋으면 기본값 PR → 온톨로지 난제 배치(강사님 피드백) → PPT(`PPT_HANDOFF_improvements.md`).
 - **10/14 통합 (PR #345 — 승인 대기, 실물 미확인)**: PC2 덤프 재현 — 위 칸 차키(가로, 쌓인 맨 위)가 긴 변 양끝이면 옆벽 2.1 mm 부족 → 넛지 → 쌓인 차키 누르기 3번 실패(`NO_OBJECT_CONTACT`·`NOT_REACHED`), 아래 칸 판(지우개·립밤 덮음)은 다시 집히는 빈 자리 없어 `NO_FREE_SPACE`. **바꿔 잡기**(`pick.axis_swap`: 가로 물체 긴 변 양끝이 막히면 짧은 변, 그래도 막히면 넛지 [사용자 집기 순서 ①②③]) 추가. `free_repickable_only` 는 `true` 유지 — `false`(놓기만 되는 자리 허용)는 C Runner 원복 넛지 연결 뒤에(지금 흐름이면 S1 원복까지 58% → 45%, 사용자 10/14 선택 1). C 에 흐름 제안(원복 넛지·치울 물체 넛지·make_room — 녹화 뒤 `next_on` 검토). 무작위 sim `practice/B/sim/p2_unpack_sim.py`(원복 넛지는 가정, `RESTORE_NUDGE=0` 이 지금 Runner). `b_sk unpack` 은 안 고침(사용자). 힘 제어·쌓인 넛지 깊이는 나중.
 - **10/14 할 일**: 아침 들고 나오기 movesx 스플라인(기본 꺼짐, moveb 비교 그래프 — 강사님 피드백), 시간 나면 VLM 위험 배치 감지(학습 없이 프롬프트 + 사진 평가). 나중 실물 검증: 힘 제어 넛지(d13d)·마스킹테이프·W1(d13e). sim 목록 `practice/B/sim/README.md`.
 - **10/13 밤 3**: 넛지 힘 제어 모드 `drag.force_mode`(두산 compliance + desired force, **기본 꺼짐 — 동작 그대로**). sim 에서 접촉 찾기(몽키 머리·빈 상자) 나음 → **통합·P2 뒤 실물 검증 필요**(작업표 d13d, 일지 29번).

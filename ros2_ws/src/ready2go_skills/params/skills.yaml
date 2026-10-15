@@ -17,6 +17,8 @@ pick:   # core/pick_plan.py (#15)
   min_tcp_above_floor_m: 0.010  # [실측 B 10/04, #8] 성공한 가장 낮은 TCP 높이. 닫힌 손끝이 TCP보다 약 10 mm 아래라 이보다 낮추지 않음
   open_margin_m: 0.013          # [실측 B 10/04, #8] 벌림 = 짧은 변 + 13 mm (지우개 22 mm → 35 mm). 완전히 벌리면 손끝이 바닥에 닿음
   max_open_width_m: 0.100       # [문서] RG2 최대 110 mm에서 여유를 뺀 값 (#8 판정 기준)
+  open_on_way: true              # [사용자 10/15 PC2 실물 확인 → 기본 켬] true = 탑뷰 → 경유점(drag_down) 관절 이동 동안 벌림 (경유점에서 닫았다 서서 벌리지 않음).
+                                #   목표 위로 가기 전 벌리기가 끝났는지 기다림. false = 탑뷰에서 닫고 경유점에서 벌림 (지금)
   allow_stacked: true           # 다른 물체 위에 얹힌 물체도 집음 [사용자 10/09, P2 3개 겹침 망치·캐러멜·지우개 약 55 mm]. 받침 = 비전 top_z − 물체 높이. false 면 NOT_ON_FLOOR (P1)
   stack_top_clear_m: 0.010      # [팀 확정 필요] 쌓인 윗면 상한 = 서랍 테두리(interior_m[2]) − 이 값. 서랍 안 옆 이동(테두리 + 5 mm, 닫힌 손끝 약 10 mm 아래)과 안 부딪히게
   slow_last_mm: 10.0            # 잡는 높이 이 거리 전까지는 speed.line_mm_s, 마지막만 speed.grasp_mm_s [사용자 10/07]
@@ -94,7 +96,16 @@ speed:                          # [팀 확정 필요] 처음엔 낮게
   push_slow_mm_s: 10.0          # 닫기 마지막 구간 (drawer_open_close.push_slow_last_mm) — 끝에서 세게 박지 않게
 carry:                            # 집은 뒤 → 트레이 직선 블렌딩 (poses.yaml carry_line) [사용자 10/06 저녁]
   radius_mm: 100.0              # 경유점 모서리 블렌딩 반지름 (마지막 놓는 자리는 0 = 정확히 정지). 20 → 50 [사용자 10/07 "덜컹"] → 100 [사용자 10/08]. 구간이 짧으면 앞뒤 구간 절반의 90% 까지 (motion_plan.safe_blend_radii)
-  pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤
+  pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤 (direct 면 안 멈춤)
+  direct: true                  # [10/14 사용자 "경유점 두 번" → 10/15 PC2 실물 확인, 기본 켬] true = 경유점 1 에서 0.5 s 멈춤·J6 따로 돌리기 없이
+                                #   1→2(64 mm)는 집은 손목 그대로, 긴 2→3(트레이 쪽 약 390 mm)에서 옮기며 놓는 각도로 돌림
+                                #   spline 과 같이 켜면 손목은 경유점 1 에서 먼저 돌림 (스플라인 안 손목 회전 금지 — 10/15 차키 J5 한계)
+  spline: true                  # [강사님 피드백 10/13, practice/B/sim/movesx_carry_sim.py → 10/15 PC2 실물 확인, 기본 켬] true = 칸 위까지 movesx guided
+                                #   (moveb 둥근 경로 위 spline_via 점, 일정 속도) → 놓는 높이 + 10 mm 는 직선. 드라이버에 movesx 가 없거나 출발 안 하면 moveb 그대로
+  spline_via: 8                 # guided 경유점 수 (sim: 8 점이면 moveb 경로에서 최대 29 mm 안, 최소 곡률 반지름 20 → 54 mm)
+motion:                           # 서랍 안 손목 회전 [사용자 10/14 P2 시연 뒤 — 실물 저속 확인 뒤 켜기]
+  one_turn: true                # true = 집기·서랍 안 놓기·원복에서 경유점(drag_down) 기본 방향으로 손목을 돌렸다가 다시 목표 각도로 돌리지 않고
+                                #   한 번에 (경유점 관절 이동에 J6 포함 / 이미 경유점 자리면 J6 만 한 번), 놓은 뒤 경유점으로 돌아갈 때도 손목 그대로
 safe_state:                       # W1 /skills/check_state 지속 외력 판정 [실측 PC2 10/13 일지 32, scripts/force_log.py] — 로봇 명령 없음(읽기만)
   external_force_n: 5.0           # |F| 이 이보다 크면 외력. 정지 중 잡음 ≤ 1 N + 영점 치우침 약 1.8 N(쥔 채), 손으로 지그시 밀기 10~24 N [실측]
   external_force_hold_s: 0.5      # 이 시간 동안 계속 넘어야 true (W1 응답이 이만큼 늦어짐)
@@ -123,6 +134,8 @@ transit:
                                 #   15 는 위 칸 안쪽 먼 모서리에서 J3 17°(제한 10°)로 특이점에 가까움, 5 → J3 23° [계산 m0609_kin, 사용자 선택 10/08]
   view_lift_blend_mm: 50.0      # 홈 쪽 → 탑뷰: 올리기 끝 이 거리부터 관절 이동(회전) 시작 — 올라가기·회전이 같이 끝남 [사용자 10/08]. 올리는 길이의 45% 까지
   safe_z_mm: 300.0              # 서랍 안 이동·집은 뒤 올리는 높이 = 테두리 약 268 + 쥔 물체 12 + 여유 20. drawer_top_view z 363은 팔 거의 펴짐(A 10/04)
+  view_blend_in_drawer: true     # [사용자 10/15 PC2 실물 확인 → 기본 켬] true = 빈손으로 서랍 위 → 탑뷰(drawer_top_view) 때 safe_z 에서 서지 않고
+                                #   올리기 끝(올리는 길이의 45%)에서 관절 이동을 이음. 쥔 채·쥐었는지 모름이면 지금처럼 멈췄다 감
 drawer_open_close:              # drawer_control 실물 (위 drawer_control 판정값과 함께)
   # [보정 B 10/08 밤] handle_grasp_posx·close_push 는 선반 밀림만큼 옮김 (config/poses.yaml 맨 위 설명).
   #   위 칸은 손잡이 재실측 [381.694, −294.013, 271.144] posj [6.947, 17.238, 116.816, 94.897, −95.127, −45.755] [실측 B 10/08 밤] 기준 — 예전보다 (−0.4, −2.3, +2.5),
@@ -166,6 +179,8 @@ place:
   tilt_back_tol_deg: 5.0
   free_wall_extra_mm: 0.0       # B free 후보만: 벽 여유(gripper.wall_margin_mm)에 더함. 10/12 임시 10 → 옆벽 관절 실측으로 gripper.wall_clearance_mm.across 고친 뒤 0
   touch_n: 3.0                  # 마지막 천천히 내릴 때 z 힘이 이만큼 변하면 바닥 닿음 → 멈추고 벌림 [사용자 10/10 "바닥에 얌전히"] [팀 확정 필요, 외력 잡음 #152]. 0 = 끔
+  touch_window_mm: 3.0          # [10/14 PC2 덮개 판 5 mm 위에서 놓음 → 10/15 기본 3] > 0 = 목표보다 이 mm 넘게 위에서 느낀 touch_n 은 흔들림으로 보고
+                                #   계속 내려감 (fast_guard_n 이상이면 높이와 상관없이 멈춤). 0 = 끔. 멈춘 높이·힘은 늘 로그 "[descend] 닿아서 멈춤"
   touch_overtravel_mm: 3.0      # 안 닿으면 계산 높이(drop_m 포함)보다 이만큼 더 내려가 멈춤 (트레이 없을 때 임시 8 → 새 트레이 놓고 3)
   touch_settle_s: 0.4           # 닿음 감지 전 힘 0점 잡기 멈춤 (force.tare_settle_s 0.7 대신) — 1 cm 위에서 한 번만 멈춤 [사용자 10/10 "멈췄다 가는 게 많음"]
   release_extra_mm: 6.0         # 놓을 때 잡은 폭보다 이만큼 더 벌림 (옆 칸 물건과 간섭 줄임, 칸 폭 45 mm)

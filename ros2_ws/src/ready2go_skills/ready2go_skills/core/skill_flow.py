@@ -9,6 +9,7 @@ Runner와의 약속 (docs/runner.md 7.1 "백엔드 구현 약속", #10):
 import math
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from typing import Callable, Mapping, Optional, Sequence
 
@@ -281,8 +282,10 @@ def run_guarded(handler: Callable[[], tuple], *, stop: Callable[[], bool], get_s
     try:
         return handler()
     except Exception as e:
+        tb = traceback.extract_tb(e.__traceback__)[-1:]            # 터진 줄 — 로그만 보고 고칠 수 있게 [10/15 PC2 AttributeError 위치 모름]
+        where = f" @ {tb[0].filename.rsplit('/', 1)[-1]}:{tb[0].lineno} {tb[0].name}" if tb else ""
         out = _halt(stop, get_state, clock, sleep, period_s, stop_confirm_s,
-                    Outcome(False, SKILL_EXCEPTION, reason=f"예외: {e!r}"))
+                    Outcome(False, SKILL_EXCEPTION, reason=f"예외: {e!r}{where}"))
         return out, None
 
 

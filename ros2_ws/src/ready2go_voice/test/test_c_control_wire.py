@@ -219,6 +219,52 @@ def test_locked_end_uses_actual_c_disposal_without_resume_registration(node,monk
     assert node.safety_exchange.policy.work is None and wire.c.runner.halted
 
 
+def test_finally_close_recover_explains_no_resume_then_resume_and_end_are_specific(node,monkeypatch):
+    from ready2go_voice.core.hotfix import prompts
+    from ready2go_voice.core.runner_notice import RunnerNoticePolicy
+
+    monkeypatch.setenv('BACKEND','mock')
+    wire = Wire(node,suspended=False)
+    node.notice_policy = RunnerNoticePolicy(node.cfg)
+    original = wire.c.runner.execute
+
+    def stop_on_close(action, params, timeout_sec=None):
+        if action == 'drawer_control' and params.get('state') == 'close':
+            wire.c.runner.halt(source='voice')
+            return ActionResult(False,error_code='CANCELED')
+        return original(action,params,timeout_sec)
+
+    wire.c.runner.execute = stop_on_close
+    result = wire.c.runner.run(tasks_module().TASK)
+    wire.c._last, wire.c._last_task_id = result,'find_item'
+    assert result.overall_status == 'ABORTED' and wire.c.runner.suspended is None
+    assert wire.c.runner.halt_summary['stop'] == 'confirmed'
+    wire.c.publish();wire.flush()
+    wire.independent('복구해')
+    assert wire.c._last_intent['decision'] == 'recover'
+    assert wire.c.runner.halt_summary is None
+    assert node.pending_notice.text == prompts(node.cfg)['runtime_recover_finally_close']
+    notice,node.pending_notice = node.pending_notice,None
+    node._play_notice(notice,threading.Event())
+    assert wire.tts[-1] == prompts(node.cfg)['runtime_recover_finally_close']
+    assert node.diagnostics[-1].get('event') != 'control_status_held'
+    states = [doc for doc in node.diagnostics if doc.get('event') == 'voice_state']
+    assert states[-1]['phase'] == 'idle' and states[-1]['work_retained'] is False
+    sent = list(wire.sent)
+    node.deliver(node.session.text('이어서 해',node.generation))
+    assert node.pending_notice.text == prompts(node.cfg)['runtime_resume_finally_close']
+    notice,node.pending_notice = node.pending_notice,None
+    node._play_notice(notice,threading.Event())
+    assert wire.tts[-1] == prompts(node.cfg)['runtime_resume_finally_close']
+    end = node.session.text('종료',node.generation)
+    node.deliver(end)
+    assert end['_voice']['final_text'] == prompts(node.cfg)['no_end_work']
+    wire.flush()
+    assert not any(doc['intent'] in ('recover','resume','resume_register','resume_answer','end_task')
+                   for doc in wire.sent[len(sent):])
+    assert end['source']['execution_allowed'] is False and wire.c.runner.suspended is None
+
+
 def test_general_request_acceptance_and_first_speech_share_runtime_source(node,monkeypatch):
     monkeypatch.setenv('BACKEND','mock');wire=Wire(node,suspended=False)
     assert node._request_run_connected() and node.control_mapper.status['phase']=='idle'

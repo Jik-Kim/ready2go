@@ -7,14 +7,15 @@ import time
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from dsr_msgs2.srv import (GetCurrentPosj, GetCurrentPosx, GetCurrentTcp, GetCurrentTool, GetRobotMode, GetRobotState,
-                           GetToolForce, MoveBlending, MoveJoint, MoveLine, MoveSplineJoint, MoveStop, ReleaseComplianceCtrl,
-                           ReleaseForce, SetDesiredForce, SetRobotMode, TaskComplianceCtrl)
+                           GetToolForce, MoveBlending, MoveJoint, MoveLine, MoveSplineJoint, MoveSplineTask, MoveStop,
+                           ReleaseComplianceCtrl, ReleaseForce, SetDesiredForce, SetRobotMode, TaskComplianceCtrl)
 
 SPEC = {"posj": (GetCurrentPosj, "aux_control/get_current_posj"),
         "posx": (GetCurrentPosx, "aux_control/get_current_posx"),
         "force": (GetToolForce, "aux_control/get_tool_force"),
         "movel": (MoveLine, "motion/move_line"),
         "movesj": (MoveSplineJoint, "motion/move_spline_joint"),
+        "movesx": (MoveSplineTask, "motion/move_spline_task"),     # 들고 나오기 guided 스플라인 carry.spline [서비스 칸 PC2 10/13 확인]
         "moveb": (MoveBlending, "motion/move_blending"),
         "state": (GetRobotState, "system/get_robot_state"),
         "mode": (GetRobotMode, "system/get_robot_mode"),
@@ -32,6 +33,7 @@ AUTO = 1
 REF_BASE = 0
 QUICK_STOP = 2          # jog_gui 와 같은 stop_mode
 FORCE_KEYS = ("compliance", "desired_force", "release_force", "release_compliance")
+OPTIONAL_KEYS = FORCE_KEYS + ("movesx",)   # 켤 때만 쓰는 서비스 — 없어도 준비로 봄 (movesx 는 없으면 moveb 로)
 FC_MOD_REL = 1          # set_desired_force: 부른 순간 힘을 0 으로 보고 상대값으로 (힘 0점이 흐름 [실측 B 10/06])
 
 
@@ -45,7 +47,7 @@ class Dsr:
 
     def ready(self, timeout=3.0):
         """기본 서비스가 다 떴는지 — 힘 제어(drag.force_mode 에서만 씀)는 빼고 봄 (힘 제어가 없는 시뮬·트윈에서도 준비로)."""
-        return all(c.wait_for_service(timeout_sec=timeout) for k, c in self.cli.items() if k not in FORCE_KEYS)
+        return all(c.wait_for_service(timeout_sec=timeout) for k, c in self.cli.items() if k not in OPTIONAL_KEYS)
 
     def call(self, key, timeout=2.0, **kw):
         fut = self.cli[key].call_async(self.T[key].Request(**kw))
@@ -137,6 +139,35 @@ class Dsr:
                 setattr(req, name, type(getattr(req, name))(0))
         req.sync_type = 1
         fut = self.cli["movesj"].call_async(req)
+        t0 = time.monotonic()
+        while not fut.done() and time.monotonic() - t0 < 2.0:
+            time.sleep(0.005)
+        r = fut.result() if fut.done() else None
+        return None if r is None else bool(r.success)
+
+    def movesx_async(self, points, vel, acc, rot_vel=30.0, rot_acc=60.0, const_vel=True):
+        """비동기 작업 공간 스플라인 (posx 경유점 여러 개를 매끄럽게, opt 1 = 일정 속도). 서비스가 없거나 칸(pos·pos_cnt)이
+        예상과 다르면 보내지 않고 None 대신 "unsupported" — 부르는 쪽이 moveb 로 대신 감. 반환은 그 밖엔 movej_async 와 같다."""
+        from std_msgs.msg import Float64MultiArray
+        if not self.cli["movesx"].service_is_ready():
+            return "unsupported"
+        req = self.T["movesx"].Request()
+        ft = req.get_fields_and_field_types()
+        if "pos" not in ft or "pos_cnt" not in ft:
+            self.node.get_logger().error(f"MoveSplineTask 필드가 예상과 다름 — 보내지 않음: {ft}")
+            return "unsupported"
+        req.pos = [Float64MultiArray(data=[float(v) for v in p]) for p in points]
+        req.pos_cnt = len(points)
+        for name, val in (("vel", [float(vel), float(rot_vel)]), ("acc", [float(acc), float(rot_acc)])):
+            if name in ft:
+                setattr(req, name, val if "[" in ft[name] or "sequence" in ft[name] else val[0])
+        for name in ("time", "ref", "mode"):
+            if name in ft:
+                setattr(req, name, type(getattr(req, name))(0))      # ref 0 = base, mode 0 = 절대
+        if "opt" in ft:
+            req.opt = type(req.opt)(1 if const_vel else 0)
+        req.sync_type = 1
+        fut = self.cli["movesx"].call_async(req)
         t0 = time.monotonic()
         while not fut.done() and time.monotonic() - t0 < 2.0:
             time.sleep(0.005)

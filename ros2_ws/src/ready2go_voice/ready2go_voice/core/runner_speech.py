@@ -20,16 +20,47 @@ def task_steps(cfg):
     for name in ('find_item.json', 'find_with_unpack.json'):
         doc = json.loads((root / name).read_text())
         steps = {}
-        def walk(value):
+        def walk(value, in_finally=False):
             if isinstance(value, dict):
-                if isinstance(value.get('id'), str) and isinstance(value.get('action'), str):
-                    steps[value['id']] = value
-                for child in value.values(): walk(child)
+                if isinstance(value.get('id'), str) and (
+                        isinstance(value.get('action'), str) or isinstance(value.get('skill'), str)):
+                    step = dict(value, _in_finally=in_finally)
+                    step.setdefault('action', 'skill')
+                    steps[value['id']] = step
+                for key, child in value.items(): walk(child, in_finally or key == 'finally')
             elif isinstance(value, list):
-                for child in value: walk(child)
+                for child in value: walk(child, in_finally)
         walk(doc)
         result[doc['task_id']] = steps
     return result
+
+
+def unavailable_work_text(status, steps, prompts, *, operation='resume', recovered=False, run_id=None):
+    """검증된 C 상태에서 재개 불가 사유만 안내한다. 실행·상태는 변경하지 않는다."""
+    if (not isinstance(status, dict) or status.get('phase') != 'idle'
+            or 'halt' not in status or status['halt'] is not None):
+        return None
+    last = status.get('last') or {}
+    if not isinstance(last, dict) or last.get('overall_status') == 'SUSPENDED':
+        return None
+    if run_id is not None and last.get('run_id') != run_id:
+        return None
+    if not recovered and operation == 'recover':
+        return prompts['runtime_no_recover_work']
+    if not recovered and operation != 'resume':
+        return None
+    prefix = 'runtime_recover_' if recovered else 'runtime_resume_'
+    failed = last.get('failed_step')
+    task_id = last.get('task_id')
+    task = steps.get(task_id, {}) if isinstance(task_id, str) else {}
+    matches = [key for key in task if isinstance(failed, str)
+               and (failed == key or failed.startswith(key + '.e'))]
+    step = task[max(matches, key=len)] if matches else {}
+    if last.get('overall_status') == 'ABORTED' and step.get('_in_finally') is True:
+        close = (step.get('skill') == 'close_drawer' or
+                 step.get('action') == 'drawer_control' and step.get('params', {}).get('state') == 'close')
+        return prompts[prefix + ('finally_close' if close else 'finally')]
+    return prompts[prefix + 'no_work']
 
 
 def failure_texts():

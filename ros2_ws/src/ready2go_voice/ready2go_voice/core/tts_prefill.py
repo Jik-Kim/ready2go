@@ -112,7 +112,7 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     from .runner_speech import required_texts
     texts.extend(required_texts(cfg, items))
     result = list(dict.fromkeys(texts))
-    max_count = cfg.get('tts_prefill_max_texts', 256)
+    max_count = cfg.get('tts_prefill_max_texts', 512)
     max_chars = cfg.get('tts_prefill_max_chars', 160)
     max_bytes = cfg.get('tts_prefill_max_bytes', 65536)
     warmup = cfg.get('tts_melotts_warmup_text', '')
