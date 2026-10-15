@@ -14,7 +14,7 @@
 
 후속 `test/test_plan_effect_consumer.py`는 C #373의 실제 opt-in core API에 E 원본을 로드하여 후보 선택·find_with_unpack mock 실행·실제 위치 확인/재계획과 성공 표기만 있는 미전달 차단을 검사합니다. E `a991a888` 데이터/로더 + C `810de713` 공개 head에서 직접3사례가 통과했습니다. C core API가 없는 기본 main에서는 해당 연결 사례를 skip하고, C API/테스트 mock을 함께 제공한 격리 환경에서만 이 연결 검사를 실행합니다. C 노드/음성 운영 연결은 별도입니다.
 
-직접 회귀는 `test/test_plan_effect.py`와 기존 `test_ontology.py`·`test_pick_runner.py`로 확인합니다. 실제 C 공개 plan/run 대조는 미연결이면 명시적 skip이며 통합 성공으로 세지 않습니다. 향후 planner 후보 선택이 연결되어도 실제 구간 실행·상태 재계획·실물 확인은 별도입니다. [FR-PLN-02](../../../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../../../docs/requirements.md#fr-ont-02), 형식 E 포함2명 승인과 실행 후속은 [#302](https://github.com/Jik-Kim/ready2go/issues/302)에서 확인하십시오.
+직접 회귀는 `test/test_plan_effect.py`와 기존 `test_ontology.py`·`test_pick_runner.py`로 확인합니다. 실제 C 공개 plan/run 대조는 미연결이면 명시적 skip이며 통합 성공으로 세지 않습니다. 향후 planner 후보 선택이 연결되어도 실제 구간 실행·상태 재계획·실물 확인은 별도입니다. [FR-PLN-02](../../../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../../../docs/requirements.md#fr-ont-02), E 사용자 형식 확정·C 실제 APPROVE 근거와 실행 후속은 [#302](https://github.com/Jik-Kim/ready2go/issues/302)에서 확인하십시오.
 
 ## 구조
 

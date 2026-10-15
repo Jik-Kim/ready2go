@@ -218,7 +218,7 @@ class IntentParser:
                 aliases = [a for a, keys in self.aliases.items() if keys == {item}]
                 item_re = '(?:' + '|'.join(re.escape(a) for a in aliases) + ')'
                 places = '(?:' + re.escape(normalize(self.places[destination]['name_ko'])) + '|트레이)'
-                delivery = item_re + r'(?:을|를)?(?:' + places + r'에)?(?:갖다|가져다)(?:놔|놓아|놓고)'
+                delivery = item_re + r'(?:을|를)?(?:' + places + r'에)?(?:갖다|가져다)(?:놔|놓아|놓고|주고)'
                 base = {'predicate': 'located_in', 'subject': item, 'value': destination}
                 if re.fullmatch(delivery, value):
                     return [base]
