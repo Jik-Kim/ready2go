@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Intent",
-  "description": "voice → ros2-core (/voice/intent). docs/voice_llm.md 6.4. 계약 W3 (#152, 이름 E 동의 10/13 — 필드는 E 포함 2명 승인 전): 제어 인텐트 recover·resume_register·resume_answer·resume·end_task 는 allOf 의 인텐트별 필수 칸을 따른다. 일반 요청(find_item 등)은 그대로",
+  "description": "voice → ros2-core (/voice/intent). docs/voice_llm.md 6.4. 계약 W3 (#152, 이름 E 동의 10/13 — 필드는 E 포함 2명 승인 전): 제어 인텐트 recover·resume_register·resume_answer·resume·end_task 는 allOf 의 인텐트별 필수 칸을 따른다. 일반 요청(find_item 등)은 그대로. P3 목록·분류(#302 계약안, E 포함 2명 승인 전): find_list·find_class 는 targets(1개 이상·중복 없음) + semantic{source{kind=list|class, id, name_ko, sha256}, evidence} 필수.",
   "type": "object",
   "required": [
     "intent",
@@ -174,6 +174,51 @@
         }
       },
       "additionalProperties": false
+    },
+    "semantic": {
+      "type": "object",
+      "required": [
+        "source"
+      ],
+      "additionalProperties": false,
+      "description": "P3 목록·분류 요청 (#302 C 연결안·E 확정 10/15, 계약 승인 전): E semantic_query(query_list/query_class) 결과의 출처·근거 그대로. 실행 대상은 targets(E 가 풀어 준 활성 물품 키) — C 는 분류를 다시 계산하지 않고 물품마다 Runner 현재 상태로 위치 조회. 기록·안내용",
+      "properties": {
+        "source": {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "name_ko",
+            "sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "list",
+                "class"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name_ko": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "TTL 바이트 해시 — 출처 확인용, 현재 상태 신선도 아님"
+            }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "description": "물품 키 → 근거({list} 또는 {class_paths}) — 기록용"
+        }
+      }
     }
   },
   "allOf": [
@@ -357,6 +402,76 @@
           "run_id",
           "request_id"
         ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "find_list"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "then": {
+        "required": [
+          "targets",
+          "semantic"
+        ],
+        "properties": {
+          "targets": {
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "semantic": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "kind": {
+                    "const": "list"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "find_class"
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "then": {
+        "required": [
+          "targets",
+          "semantic"
+        ],
+        "properties": {
+          "targets": {
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "semantic": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "kind": {
+                    "const": "class"
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   ]

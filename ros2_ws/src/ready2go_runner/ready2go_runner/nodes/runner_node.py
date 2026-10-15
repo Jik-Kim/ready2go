@@ -34,7 +34,7 @@ from ready2go_knowledge.core import ontology
 
 from ..adapters.ros_clients import RosClients
 from ..core.backend import RosBackend, skill_servers
-from ..core import intent_router, plan_exec, planner, step_console
+from ..core import intent_router, item_group, plan_exec, planner, step_console
 from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import NOTHING_TO_RESUME, ResumeRejected, RunResult, Runner
 from ..core.log_records import new_run_id, run_document, utc_iso
@@ -310,6 +310,71 @@ class RunnerNode(Node):
         return {"run_id": run_id, "boot_id": self.runner.boot_id, "code": out.error_code, "step": out.failed_step,
                 "action": None, "case_id": None, "strategy": None, "text": None}
 
+    def start_group(self, decision: intent_router.Decision, meta: dict, token: int | None = None) -> bool:
+        """P3 목록·분류 요청을 작업 스레드에서 물품마다 실행 (#302). 시작 규칙은 start_task 와 같음."""
+        source = decision.inputs["semantic"]["source"]
+        with self._lock:
+            outcome = self.gate.try_start(token)
+            if outcome != STARTED:
+                self._refused = outcome
+                self.get_logger().warning(f"{'실행 중' if outcome == GATE_BUSY else '시작 전 멈춤 요청'}이라 거절: "
+                                          f"group_{source.get('id')}")
+                return False
+            self._task_id, self._chain_run = f"group_{source.get('id')}", decision.run_id
+            threading.Thread(target=self._run_group, args=(decision, meta), daemon=True).start()
+        return True
+
+    def _run_group(self, decision: intent_router.Decision, meta: dict) -> None:
+        """요청 하나 = 상위 run_id R 하나 (#377 과 같은 상태 칸 규칙): 물품 사이에도 running, 물품 실행은 R.1, R.2 …
+        (parent_run_id R), 상위 문서 R 에 물품별 결과·안내 문장, 끝에 last 를 R 로 1회. 묶음 안 재개 없음(run_group)."""
+        run_id, task_id = decision.run_id, self._task_id
+        semantic = decision.inputs["semantic"]
+        extra = {**meta, "backend": os.environ.get("BACKEND", "mock"), "group": True}
+        started, t0 = utc_iso(), time.monotonic()
+        self.get_logger().info(f"목록 요청 시작: {task_id} run_id={run_id} 물품 {semantic.get('items')}")
+        self._log_run("start_run", run_document(run_id, task_id, decision.inputs, started, extra=extra))
+        out = item_group.GroupResult("FAILED", "INTERNAL_ERROR", source=semantic.get("source"))
+        try:
+            out = item_group.run_group(self.runner, decision.task, semantic, self.onto.get("world", {}), speak=self._speak,
+                                       run_id=run_id, meta={**extra, "parent_run_id": run_id},
+                                       accept_text=decision.inputs.get("accept_text"))
+        except Exception as e:  # noqa: BLE001 — 예외여도 상위 R 의 끝 기록·last 를 남김
+            self.get_logger().error(f"목록 요청 실행 예외: {task_id} run_id={run_id} — {e!r}")
+            out = item_group.GroupResult("FAILED", "INTERNAL_ERROR", source=semantic.get("source"),
+                                         problems=[f"물품 실행 예외: {type(e).__name__}: {e}"])
+        finally:
+            for o in out.items:
+                if o.run_id:
+                    self._chain_parent[o.run_id] = run_id
+            event = self.runner.halt_event_id
+            if event and self.runner.halted:
+                self._chain_events.setdefault(event, run_id)
+            self._chain_run = None
+            self.gate.finish()
+        items = [{"item": o.item, "drawer": o.drawer, "status": o.status, "run_id": o.run_id,
+                  "overall_status": o.overall_status, "error_code": o.error_code,
+                  "restore_incomplete": o.restore_incomplete} for o in out.items]
+        failing = next((o for o in out.items if o.status == item_group.NOT_DELIVERED and o.failure), None)
+        failure = None
+        if out.overall_status == "FAILED":       # #376: 못 가져온 첫 물품의 처음 원인을 상위 R 로, 없으면 묶음 코드만
+            failure = ({**failing.failure, "run_id": run_id} if failing else
+                       {"run_id": run_id, "boot_id": self.runner.boot_id, "code": out.error_code, "step": None,
+                        "action": None, "case_id": None, "strategy": None, "text": None})
+        failed_step = failing.failure.get("step") if failing else None
+        self._log_run("end_run", run_document(
+            run_id, task_id, decision.inputs, started, ended_at=utc_iso(),
+            total_duration_sec=round(time.monotonic() - t0, 3), overall_status=out.overall_status,
+            error_code=out.error_code, failed_step=failed_step, problems=out.problems,
+            extra={**extra, "items": items, "start_text": out.start_text, "summary_text": out.summary_text,
+                   **({"failure": failure} if failure else {})}))
+        self._finished(RunResult(out.overall_status, {}, error_code=out.error_code, failed_step=failed_step,
+                                 problems=out.problems, run_id=run_id, failure=failure))
+
+    def _speak(self, text: str) -> str | None:
+        """목록 요청 시작·끝 안내 (/voice/speak). 실패 코드 또는 None(성공)."""
+        result = self.runner.execute("speak", {"text": text}, 20.0)
+        return None if result.success else (result.error_code or "BACKEND_ERROR")
+
     def _log_run(self, method: str, doc: dict) -> None:
         """상위 문서 기록 — 실패해도 실행·결과는 그대로 (Runner._log 와 같은 규칙)."""
         try:
@@ -409,6 +474,7 @@ class RunnerNode(Node):
             decision.run_id = new_run_id()      # 계약07: 수락할 때 정하고 바꾸지 않음 (빠른 완료에도 같은 값)
             meta = {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})}
             started = (self.start_plan(decision, meta, token) if decision.chain else
+                       self.start_group(decision, meta, token) if decision.group else
                        self.start_task(decision.task, decision.inputs, meta, token, run_id=decision.run_id))
             if not started:
                 reason = (intent_router.STOPPED_BEFORE_START if self._refused == CANCELED_BEFORE_START
