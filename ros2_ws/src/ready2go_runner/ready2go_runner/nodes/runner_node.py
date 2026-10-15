@@ -290,13 +290,25 @@ class RunnerNode(Node):
             self.gate.finish()
         segments = [{"run_id": s.run_id, "kind": s.kind, "skills": s.skills, "overall_status": s.overall_status,
                      "error_code": s.error_code} for s in out.segments]
+        failure = self._chain_failure(out, run_id)
         self._log_run("end_run", run_document(
             run_id, task_id, inputs, started, ended_at=utc_iso(), total_duration_sec=round(time.monotonic() - t0, 3),
             overall_status=out.overall_status, error_code=out.error_code, failed_step=out.failed_step,
-            extra={**extra, "segments": segments, "reason": out.reason}))
+            extra={**extra, "segments": segments, "reason": out.reason, **({"failure": failure} if failure else {})}))
         problems = [] if out.overall_status == "COMPLETED" else [out.reason]
         self._finished(RunResult(out.overall_status, {}, error_code=out.error_code, failed_step=out.failed_step,
-                                 problems=problems, run_id=run_id))
+                                 problems=problems, run_id=run_id, failure=failure))
+
+    def _chain_failure(self, out: plan_exec.PlanRun, run_id: str) -> dict | None:
+        """묶음 계획의 last.failure (#376·#377): FAILED 일 때만. 멈춘 구간이 FAILED 면 그 구간의 처음 원인(case_id 포함)을
+        상위 R 로, 구간 실패가 아닌 묶음 단위 원인(PLAN_EFFECT_UNMET·PLAN_NO_PROGRESS·UNPLANNABLE·INTERNAL_ERROR)은 그 코드만."""
+        if out.overall_status != "FAILED":
+            return None
+        last = out.segments[-1] if out.segments else None
+        if last is not None and last.overall_status == "FAILED" and last.failure:
+            return {**last.failure, "run_id": run_id}
+        return {"run_id": run_id, "boot_id": self.runner.boot_id, "code": out.error_code, "step": out.failed_step,
+                "action": None, "case_id": None, "strategy": None, "text": None}
 
     def _log_run(self, method: str, doc: dict) -> None:
         """상위 문서 기록 — 실패해도 실행·결과는 그대로 (Runner._log 와 같은 규칙)."""

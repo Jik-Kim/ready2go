@@ -43,6 +43,7 @@ class Segment:
     overall_status: str | None = None
     error_code: str | None = None
     failed_step: str | None = None
+    failure: dict | None = None             # 구간 실행의 last.failure 원천 (#376) — FAILED 구간의 처음 원인
 
 
 @dataclass
@@ -112,8 +113,8 @@ def run_plan(runner: Runner, onto: dict, goals: list[dict], tasks: Callable[[str
                 first = goals[0]
                 task = planner.to_task(partial, f"plan_{first['subject']}_{first['value']}".lower(), timeouts)
                 run = runner.run(add_accept_speak(task, say) if say else task, say or None, **child)
-            seg.run_id, seg.overall_status, seg.error_code, seg.failed_step = \
-                run.run_id, run.overall_status, run.error_code, run.failed_step
+            seg.run_id, seg.overall_status, seg.error_code, seg.failed_step, seg.failure = \
+                run.run_id, run.overall_status, run.error_code, run.failed_step, run.failure
             out.failed_step = run.failed_step
             out.segments.append(seg)
 

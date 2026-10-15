@@ -711,6 +711,8 @@ def test_exception_inside_compound_goal_still_finishes_the_parent_run(tmp_path, 
         assert status["phase"] == "idle" and runner.running is False
         doc = runner.log_store.read_run(parent)["run"]
         assert doc["overall_status"] == "FAILED" and "예외" in doc["reason"] and doc["segments"] == []
+        failure = status["last"]["failure"]                                              # #376: 묶음 단위 원인은 코드만
+        assert (failure["run_id"], failure["code"], failure["step"], failure["case_id"]) == (parent, "INTERNAL_ERROR", None, None)
     finally:
         close()
 
@@ -743,3 +745,25 @@ def test_successful_run_has_no_failure(system):
     voice.say(EXAMPLE)
     assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
     assert voice.status["last"]["failure"] is None and voice.status["accepted"]["run_id"] == voice.status["last"]["run_id"]
+
+
+
+def test_compound_goal_failure_carries_the_segment_cause_under_the_parent_run(tmp_path):
+    """[#376·#377] 묶음 계획의 구간(find_with_unpack)이 실패 — last.failure 는 그 구간의 처음 원인(code·step·action)을
+    상위 R 로(run_id = last.run_id = accepted.run_id = R, child R.1 아님). 상위 문서에도 같은 failure."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE, mock=[("fail", "pick_object=GRASP_FAILED")])
+    try:
+        _e_plan_effect(runner)
+        voice.say(compound_goal("goal-fail"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=40), voice.status
+        status = voice.status
+        parent, failure = status["last"]["run_id"], status["last"]["failure"]
+        assert status["last"]["overall_status"] == "FAILED" and failure is not None
+        assert failure["run_id"] == parent == status["accepted"]["run_id"] and failure["boot_id"] == status["boot_id"]
+        child = runner.log_store.read_run(f"{parent}.1")["run"]
+        assert (failure["code"], failure["step"]) == (child["failure"]["code"], child["failure"]["step"])
+        assert child["failure"]["run_id"] == f"{parent}.1"                                # 구간 문서는 자기 run_id
+        assert runner.log_store.read_run(parent)["run"]["failure"] == failure
+    finally:
+        close()
