@@ -734,13 +734,13 @@
     const registeredList = definitions.lists.find((entry) => entry?.id === DASHBOARD_LIST_ID) || null;
     // commute_set이 없으면 다른 목록을 대신 보여 주지 않고 확인 전 상태를 유지한다.
     const registeredItemIds = registeredList ? registeredList.item_ids : [];
-    // 준비물 카드는 전달 상태가 아니라 등록 여부만 표시한다.
+    // 파일에 등록된 목록의 구성원임을 표시하며 실제 위치·전달 완료를 뜻하지 않는다.
     state.supplies = registeredItemIds.map((itemId) => ({
       id: itemId,
       name: itemLabelForId(itemId),
       icon: itemIconForId(itemId),
       status: "pending",
-      statusLabel: "등록 정의",
+      statusLabel: "목록 등록됨",
     }));
     // 집계 문구에서 어떤 등록 목록인지 표시한다.
     state.suppliesDefinitionName = registeredList?.name_ko || registeredList?.id || "출근 준비물 정의 확인 전";
@@ -1347,10 +1347,10 @@
 
     // 탭 머리말은 정의 스냅샷 성공 여부를 상태 REST와 독립적으로 표시한다.
     getById("adminOntologySourceLabel").textContent = ontology.live
-      ? "공통 ontology.load · 웹 파일 스냅샷"
+      ? "웹 시작 시 읽은 파일 스냅샷"
       : "등록 정의 확인 전";
-    // 목업 배지 대신 실제 정의 또는 확인 전 상태를 표시한다.
-    getById("adminOntologyDataLabel").textContent = ontology.live ? "등록 정의" : "확인 전";
+    // 파일을 한 번 불러온 결과를 표시한다. 지속적인 파일 감시·실시간 연결을 뜻하지 않는다.
+    getById("adminOntologyDataLabel").textContent = ontology.live ? "정의 파일 불러옴" : "확인 전";
     // 경로·로딩 시각·manifest 해시 앞 12자를 한 줄로 제공해 배포 원본을 대조할 수 있게 한다.
     getById("adminOntologyMeta").textContent = ontology.live
       ? `원본 ${ontology.sourcePath} · 웹 로딩 ${formatReceivedTime(ontology.loadedAt)} · SHA-256 ${ontology.manifestSha?.slice(0, 12) || "확인 전"}`
