@@ -37,11 +37,17 @@ def control_notice(cfg, kind, *, runtime=False, reason=None, operation=None):
 
 
 STATUS_QUERIES = frozenset({'지금뭐하고있어', '지금뭐하고있나요', '현재상태', '현재상태알려줘'})
+REFUSAL_QUERIES = frozenset({'왜멈췄어', '왜멈췄어요', '왜안가져와', '왜안가져와요',
+                             '왜못꺼내', '왜못꺼내요'})
+
+
+def is_refusal_query(text):
+    return ''.join(str(text).split()).rstrip('.!?？') in REFUSAL_QUERIES
 
 
 def is_status_query(parser, text):
     value = ''.join(str(text).split()).rstrip('.!?？')
-    return value in STATUS_QUERIES | {''.join(p.split()).rstrip('.!?？') for p in parser.cfg['status_phrases']}
+    return is_refusal_query(text) or value in STATUS_QUERIES | {''.join(p.split()).rstrip('.!?？') for p in parser.cfg['status_phrases']}
 
 
 def status_answer(parser):
@@ -82,6 +88,15 @@ def reference_query(parser, text):
     from .recovery_confirmation import _particle
     value = ''.join(str(text).split()).rstrip('.!?？')
     p = prompts(parser.cfg)
+    if is_refusal_query(text):
+        from ready2go_knowledge.core.refusal_reasons import unknown_text
+        from .runner_speech import refusal_answer
+        provider = getattr(parser, 'status_provider', None)
+        try:
+            view = provider() if provider is not None else None
+        except Exception:
+            view = None
+        return (refusal_answer(view.get('status')) if isinstance(view, dict) else None) or unknown_text()
     if is_status_query(parser, text):
         return status_answer(parser)
     keys = parser.mentioned(text)

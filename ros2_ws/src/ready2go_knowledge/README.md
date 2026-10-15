@@ -77,3 +77,7 @@ result = catalog.query_class('귀중품')  # query_list('출근 준비물')도 �
 - Python 의존성은 `setup.py`·공통 `requirements.txt`의 `rdflib>=6.1.1,<8`, ROS 시스템 의존성은 `package.xml`의 `python3-rdflib`이다. 기존 로더는 이 모듈을 import하지 않는다. C 동의로 core CI의 pip 목록에도 같은 범위를 추가했다. 도커 실행 이미지 추가는 Runner/음성 연결 시 검토하며 이번에는 변경하지 않는다.
 
 최소 검사는 `PYTHONPATH=ros2_ws/src/ready2go_knowledge:ros2_ws/src/ready2go_runner python3 -m pytest ros2_ws/src/ready2go_knowledge/test/test_semantic_query.py -q`로 실행한다. 기존 로더/스킬 회귀와 실행 수신 연결은 별도 근거로 구분한다. 기준은 [FR-ONT-03](../../../docs/requirements.md#fr-ont-03), 담당별 결정은 [#302](https://github.com/Jik-Kim/ready2go/issues/302)를 따른다.
+
+## P3 거부 이유 조회 준비 — #376
+
+`core.refusal_reasons`는 [knowledge 문장 원본과 API](../../../knowledge/README.md#p3-거부-이유-문장-준비--376)를 읽습니다. setup.py가 원본을 share/ready2go_knowledge/knowledge에 설치합니다. 실행 시 설치 산출물에 이 파일이 필요하므로 변경 후 재빌드/설치가 필요합니다. E 상태 소비는 C #379가 병합된 main d27700a3 실제 소스와 모의 연결을 확인했습니다. 의존 PR 병합·묶음 상위 R 매핑은 확인했으며 운영 적용·실음성/실물은 미검증입니다. 설치 share 조회에 사용하는 ROS 실행 의존성 `ament_index_python`도 package.xml에 명시했습니다.

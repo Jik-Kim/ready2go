@@ -1208,12 +1208,15 @@ class VoiceNode(Node):
             return None
         doc = view['status']; halt = doc.get('halt') or {}; last = doc.get('last') or {}
         resume = halt.get('resume') or {}; question = resume.get('question') or {}; request = resume.get('request') or {}
+        accepted = doc.get('accepted')
+        accepted_run = accepted.get('run_id') if isinstance(accepted, dict) else None
         # Seq/stamp progression alone does not obsolete a fresh read. Events,
         # active run/request and visible workflow meaning do.
         return (doc['boot_id'], doc['phase'], doc.get('task_id'),
                 halt.get('event_id'), halt.get('run_id'), halt.get('stop'), halt.get('locked'),
                 last.get('run_id') if doc['phase'] != 'running' else None,
                 last.get('overall_status') if doc['phase'] != 'running' else None,
+                accepted_run,
                 self.request_run.run_id, view['target'], view['recovering'],
                 resume.get('offered'), resume.get('from_step'),
                 question.get('id'), question.get('state'), request.get('id'), request.get('state'),
