@@ -13,7 +13,10 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/ready2go_knowledge']),
         ('share/ready2go_knowledge', ['package.xml']),
         ('share/ready2go_knowledge/knowledge', [relpath(
-            Path(__file__).resolve().parents[3] / 'knowledge/refusal_reasons.json')]),
+            Path(__file__).resolve().parents[3] / 'knowledge' / name)
+            for name in ('refusal_reasons.json', 'semantics.ttl')]),
+        ('share/ready2go_knowledge/config', [relpath(
+            Path(__file__).resolve().parents[3] / 'config/yolo_retired_classes.txt')]),
     ],
     install_requires=['setuptools', 'PyYAML', 'rdflib>=6.1.1,<8'],
     zip_safe=True,

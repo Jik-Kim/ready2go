@@ -20,7 +20,7 @@ class RequestRun:
             return False
         request_id = payload.get('request_id')
         if (not isinstance(request_id, str) or not request_id.strip()
-                or request_id in self.seen_requests or payload.get('intent') not in ('find_item', 'achieve_goal')):
+                or request_id in self.seen_requests or payload.get('intent') not in ('find_item', 'achieve_goal', 'find_list', 'find_class')):
             return False
         if self.pending is not None and (not self.decided or (self.run_id and not self.finished)):
             return False  # 수락 대기·진행 중 run을 후속 요청으로 덮지 않습니다.
@@ -56,6 +56,11 @@ class RequestRun:
         if self.pending is None:
             return []  # latched 결과를 새 요청 수락으로 사용하지 않습니다.
         events = []
+        accepted = doc.get('accepted')
+        if (self.run_id and isinstance(accepted, dict) and isinstance(accepted.get('run_id'), str)
+                and accepted['run_id'] != self.run_id):
+            self.invalidate()
+            return []
         decision = doc.get('last_intent')
         if (self.run_id and isinstance(decision, dict) and decision.get('decision') == 'run'
                 and isinstance(decision.get('run_id'), str) and decision['run_id'] != self.run_id):

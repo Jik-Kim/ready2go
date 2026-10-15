@@ -27,6 +27,12 @@ def goal_confirmation(parser, goals):
 
 def final_response(parser, doc, candidate=None):
     kind = doc['intent']
+    if kind in ('find_list', 'find_class'):
+        from .semantic_requests import validate, acceptance
+        default = acceptance(validate(parser, doc))
+        doc.setdefault('_voice', {}).update(final_text=default, response_candidate=candidate,
+            response_replacement_reason=None if candidate in (None, default) else 'semantic_response_mismatch')
+        return default
     if kind == 'achieve_goal':
         default = goal_confirmation(parser, doc['goals'])
         doc.setdefault('_voice', {}).update(final_text=default, response_candidate=candidate,

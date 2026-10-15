@@ -344,12 +344,19 @@ class IntentParser:
         answer = reference_query(self, text)
         if answer is not None:
             status_read = is_status_query(self, text)
+            from .semantic_requests import reference as semantic_reference
+            semantic_read = not status_read and semantic_reference(self, text) is not None
             doc = intent('status' if status_read else 'unknown')
             doc['_voice'] = {'final_text': answer, 'readonly_query': True,
-                'query_kind': 'status' if status_read else 'record',
-                'query_source': 'runner_record' if status_read or getattr(self, 'state_provider', None) is not None else 'initial_reference'}
+                'query_kind': 'semantic' if semantic_read else 'status' if status_read else 'record',
+                'query_source': 'semantic_catalog' if semantic_read else 'runner_record' if status_read or getattr(self, 'state_provider', None) is not None else 'initial_reference'}
             doc['source'] = {'stt_text':text, 'input_kind':'text', 'llm_called':False, 'llm_validation':'not_called', 'fallback_used':False, 'execution_allowed':False}
             return doc
+        from .semantic_requests import parse as semantic_parse
+        if not self.control(text):
+            semantic_doc = semantic_parse(self, text)
+            if semantic_doc is not None:
+                return semantic_doc
         if self.cfg.get('p2_goal_enabled') is True and not self.control(text) and self._goal_requested(text):
             return self._parse_goal(text, deadline)
         started = self.clock()

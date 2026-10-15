@@ -111,6 +111,19 @@ def prefill_texts(cfg, items, warning=lambda message: None, on_selection=lambda 
     texts.extend(STATUS_PROMPTS.values())
     from .runner_speech import required_texts
     texts.extend(required_texts(cfg, items))
+    from .semantic_requests import required_texts as semantic_texts
+    from .group_speech import required_texts as group_texts
+    item_map = {key: {'name_ko': value} for key, value in (item_names or {}).items()}
+    if not item_map:
+        # Ontology keys remain available in normal node/prepare calls. Older
+        # callers with values only use the actual catalog's world lookup.
+        from ready2go_knowledge.core.ontology import load
+        from pathlib import Path
+        path = Path(cfg['ontology_file'])
+        if not path.is_file(): path = Path(__file__).resolve().parents[5] / 'knowledge/robot_ontology.jsonld'
+        item_map = load(path)['world']['items']
+    texts.extend(semantic_texts(cfg, item_map))
+    texts.extend(group_texts(cfg, item_map))
     result = list(dict.fromkeys(texts))
     max_count = cfg.get('tts_prefill_max_texts', 512)
     max_chars = cfg.get('tts_prefill_max_chars', 160)

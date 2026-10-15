@@ -73,7 +73,7 @@ class VoiceSession:
             meta.update(preserve_question_id=previous.id, original_question_expires=previous.expires,
                         final_text=self.flow['empty_reply_prompt'])
             doc['clarify_question'] = meta['final_text']
-        if blocked and doc['intent'] in ('find_item','clarify'):
+        if blocked and doc['intent'] in ('find_item','find_list','find_class','clarify'):
             meta['original_interpretation'] = {k: deepcopy(doc[k]) for k in ('intent','targets','goals','confidence') if k in doc}
             meta['original_final_text'] = meta.get('final_text')
             doc.update(intent='clarify', targets=[], clarify_question=blocked_prompt(self.cfg, runner_state))
@@ -87,7 +87,7 @@ class VoiceSession:
     @staticmethod
     def _acceptance_signature(doc):
         meta, source = doc.get('_voice', {}), doc.get('source', {})
-        return deepcopy((doc.get('intent'), doc.get('targets'), doc.get('goals'), doc.get('confidence'),
+        return deepcopy((doc.get('intent'), doc.get('targets'), doc.get('goals'), doc.get('semantic'), doc.get('confidence'),
             source.get('stt_text'), source.get('execution_allowed'),
             {key: meta.get(key) for key in ('request_id', 'request_epoch', 'final_text',
                 'context_answer', 'context_generation', 'context_epoch', 'question_expires')}))
@@ -97,13 +97,20 @@ class VoiceSession:
         self._acceptance = None
         meta = doc.get('_voice', {})
         goal = doc.get('intent') == 'achieve_goal'
+        semantic = doc.get('intent') in ('find_list', 'find_class')
+        if semantic:
+            try:
+                from .semantic_requests import validate
+                validate(self.parser, doc)
+            except Exception:
+                return
         if goal:
             try:
                 self.parser._validate_goal(doc, doc.get('source', {}).get('stt_text', ''))
             except Exception:
                 return
-        if (doc.get('intent') not in ('find_item', 'achieve_goal')
-                or not goal and (len(doc.get('targets', [])) != 1 or doc['targets'][0] not in self.parser.items)
+        if (doc.get('intent') not in ('find_item', 'achieve_goal', 'find_list', 'find_class')
+                or not goal and not semantic and (len(doc.get('targets', [])) != 1 or doc['targets'][0] not in self.parser.items)
                 or doc.get('source', {}).get('execution_allowed') is not True
                 or not meta.get('request_id') or not self.valid_context(doc, generation)):
             return
@@ -135,6 +142,11 @@ class VoiceSession:
         payload = deepcopy({key: value for key, value in doc.items()
                             if not key.startswith('_')})
         payload['request_id'], payload['accept_text'] = request_id, pending[4]
+        if doc['intent'] in ('find_list', 'find_class'):
+            try:
+                self.parser.validator.validate(payload)
+            except Exception:
+                return None
         return payload
 
     def consume_acceptance_text(self, doc, generation):
@@ -521,6 +533,8 @@ class VoiceSession:
     def should_publish(self, doc):
         """평가 모드는 모든 발행 금지. 조회로 요청을 소비하지 않습니다."""
         if doc.get('_voice', {}).get('readonly_query'):
+            return False
+        if doc['intent'] in ('find_list', 'find_class') and not self.cfg.get('request_run_enabled'):
             return False
         if doc['intent'] == 'achieve_goal' or doc.get('_voice', {}).get('p2_goal_candidate'):
             # Node additionally requires a verified current C connection before sending.

@@ -1100,7 +1100,7 @@ class VoiceNode(Node):
         if event == 'intent':
             if not doc.get('published'):
                 messages[event] = '실행 보류 (평가/확인 정책)'
-            elif doc.get('intent', {}).get('intent') in ('find_item','achieve_goal'):
+            elif doc.get('intent', {}).get('intent') in ('find_item','achieve_goal','find_list','find_class'):
                 pending = getattr(getattr(self, 'request_run', None), 'pending', None)
                 request = doc.get('intent', {}).get('request_id') or doc.get('intent', {}).get('_voice', {}).get('request_id')
                 accepted = request in getattr(self, 'accepted_request_logs', ()) or (pending is not None and pending.get('request_id') == request and self.request_run.run_id is not None)
@@ -1602,6 +1602,7 @@ class VoiceNode(Node):
             with self.notice_condition:
                 events = []
                 cause = None
+                group_summary = None
                 if self.cfg.get('request_run_enabled', False) and self._request_run_connected():
                     try:
                         status = json.loads(message.data)
@@ -1614,6 +1615,10 @@ class VoiceNode(Node):
                     pending = self.request_run.pending
                     token = ((pending['request_id'], self.request_run.run_id,
                               getattr(self, 'request_source_boot', None), self.generation) if pending else None)
+                    summary = getattr(self, 'group_summary_spoken', None)
+                    if (summary is not None and summary[0] == token and pending is not None
+                            and pending['intent'] in ('find_list','find_class')):
+                        group_summary = (token[1], summary[1])
                     evidence = getattr(self, 'cause_speech', None)
                     if evidence is not None and evidence[0] == token:
                         cause = (token[1], evidence[1], evidence[2])
@@ -1627,7 +1632,7 @@ class VoiceNode(Node):
                     events = self.request_run.observe(status)
                 previous = self.notice_policy.revision
                 previous_phase = self.notice_policy.phase
-                notice = self.notice_policy.observe(message.data, cause=cause)
+                notice = self.notice_policy.observe(message.data, cause=cause, group_summary=group_summary)
                 if self.notice_policy.phase != 'running':
                     self.cause_speech = None
                 retained = bool(self.safety_exchange.policy and self.safety_exchange.policy.work
@@ -1654,6 +1659,7 @@ class VoiceNode(Node):
                     if getattr(self, 'place_topic', ''):
                         self._cancel_place_locked()
                 if (not notice and not self.notice_policy.blocked
+                        and group_summary is None
                         and any(event['event'] == 'request_completed' for event in events)):
                     self.notice_policy.revision += 1
                     notice = Notice('completed', '요청한 작업을 완료했습니다.', 4,
@@ -1702,7 +1708,12 @@ class VoiceNode(Node):
             if on_start is not None:
                 on_start(stamp)
         try:
-            return self.tts.speak(text, on_start=started, **kwargs)
+            fragments = kwargs.pop('fragments', None) or [text]
+            first = None
+            for n, fragment in enumerate(fragments):
+                stamp = self.tts.speak(fragment, on_start=started if n == 0 else None, **kwargs)
+                if n == 0: first = stamp
+            return first
         finally:
             with self.playback_lock:
                 self.playback_texts.pop(token, None)
@@ -2017,7 +2028,7 @@ class VoiceNode(Node):
     def _deliver(self, doc, generation):
         with self.submit_lock:
             if (not self.stop_event.is_set() and generation == self.generation and runner_blocks(self)
-                    and doc['intent'] in ('find_item','clarify')
+                    and doc['intent'] in ('find_item','find_list','find_class','clarify')
                     and not doc['source'].get('stt_error') and not doc['source'].get('record_error')):
                 from ready2go_voice.core.flow import blocked_prompt
                 meta = doc.setdefault('_voice', {})
@@ -2039,13 +2050,13 @@ class VoiceNode(Node):
                     or not readonly and not self.session.valid_context(doc, generation)):
                 self._diagnostic({'event': 'request_canceled', 'published': False})
                 return
-            if doc['intent'] in ('find_item', 'achieve_goal') and self.session.is_duplicate(doc):
+            if doc['intent'] in ('find_item', 'achieve_goal', 'find_list', 'find_class') and self.session.is_duplicate(doc):
                 self._diagnostic({'event': 'request_duplicate', 'intent': doc, 'published': False})
                 return
         with self.submit_lock:
             if self._readonly_feedback_locked(doc, generation):
                 return
-        if doc['intent'] == 'achieve_goal' and runner_blocks(self):
+        if doc['intent'] in ('achieve_goal', 'find_list', 'find_class') and runner_blocks(self):
             self.session.conversation.invalidate()
             self._diagnostic({'event':'request_held','reason':'runner_busy_or_locked','intent':doc,'published':False})
             return  # P2 목표 차단 계약은 불변입니다.
@@ -2062,7 +2073,7 @@ class VoiceNode(Node):
         source = doc['source']
         text = doc.get('_voice', {}).get('final_text') or final_response(self.parser, doc)
         self._diagnostic({'event': 'final_response', 'text': text, 'intent': doc})
-        request_run = self.cfg.get('request_run_enabled', False) and doc['intent'] in ('find_item', 'achieve_goal')
+        request_run = self.cfg.get('request_run_enabled', False) and doc['intent'] in ('find_item', 'achieve_goal', 'find_list', 'find_class')
         speak = doc['intent'] in ('unknown', 'clarify') or (
             doc['intent'] == 'find_item' and self.cfg['confirmation_enabled'] and not request_run)
         if speak:
@@ -2114,7 +2125,7 @@ class VoiceNode(Node):
             if doc['intent'] == 'cancel':
                 self._stop_locked(doc, generation)
                 return
-            if doc['intent'] in ('find_item', 'achieve_goal') and runner_blocks(self):
+            if doc['intent'] in ('find_item', 'achieve_goal', 'find_list', 'find_class') and runner_blocks(self):
                 self.session.conversation.invalidate()
                 self._diagnostic({'event': 'request_held', 'reason': 'runner_busy_or_locked', 'intent': doc, 'published': False})
                 return
@@ -2247,13 +2258,20 @@ class VoiceNode(Node):
             return None
         decision = doc.get('last_intent') or {}
         token = (pending['request_id'], run, getattr(self, 'request_source_boot', None), self.generation)
+        if pending['intent'] in ('find_list', 'find_class'):
+            accepted = doc.get('accepted')
+            expected = 'group_' + pending['semantic']['source']['id']
+            if (doc['task_id'] != expected or not isinstance(accepted, dict)
+                    or accepted.get('request_id') != pending['request_id'] or accepted.get('run_id') != run
+                    or accepted.get('task_id') not in self.notice_policy.task_steps):
+                return None
         if (getattr(self, 'request_speech_current', None) == (token, doc['task_id'])
                 and not (decision.get('decision') == 'run' and decision.get('run_id') != run)):
             return token
         if (decision.get('decision') != 'run' or decision.get('run_id') != run
                 or decision.get('request_id') != pending['request_id']
                 or decision.get('intent') != pending['intent']
-                or pending['intent'] == 'find_item' and decision.get('targets') != pending.get('targets')):
+                or pending['intent'] in ('find_item','find_list','find_class') and decision.get('targets') != pending.get('targets')):
             return None
         return token
 
@@ -2277,6 +2295,8 @@ class VoiceNode(Node):
             self.goal_request_run = None
             self.goal_first_speech = False
             self.goal_cause_speech = None
+            self.goal_group_parts = None
+            self.goal_group_summary = False
             self.goal_request_boot = getattr(self, 'request_source_boot', None)
             self.goal_generation = self.generation
             if self.cfg.get('request_run_enabled', False):
@@ -2289,6 +2309,17 @@ class VoiceNode(Node):
                                           or self._current_speech_run() != token)):
                     self.goal_lock.release()
                     return GoalResponse.REJECT
+                if pending['intent'] in ('find_list', 'find_class'):
+                    if self._current_speech_run() != token:
+                        self.goal_lock.release()
+                        return GoalResponse.REJECT
+                    if not first:
+                        from ready2go_voice.core.group_speech import classify
+                        checked = classify(params['text'], pending, self.parser.items, self.cfg)
+                        if checked is None:
+                            self.goal_lock.release()
+                            return GoalResponse.REJECT
+                        self.goal_group_parts, self.goal_group_summary = checked
                 self.goal_request_run = (pending['request_id'], run, params['text'])
                 self.goal_first_speech = first
                 status = self._current_runner_status()
@@ -2338,7 +2369,7 @@ class VoiceNode(Node):
                 raise InterruptedError('TTS_CANCELED')
             timing = {}
             params = json.loads(goal.request.params_json)
-            stamp = self._say(params['text'], cancel=cancel,
+            stamp = self._say(params['text'], cancel=cancel, fragments=getattr(self, 'goal_group_parts', None),
                 on_start=lambda s: self._diagnostic({'event': 'tts_started', 'source': s, 'timing': dict(timing)}),
                 on_timing=timing.update)
             self._diagnostic({'event': 'tts_finished', 'timing': dict(timing)})
@@ -2366,6 +2397,10 @@ class VoiceNode(Node):
                 evidence = getattr(self, 'goal_cause_speech', None)
                 if evidence is not None and self._current_speech_run() == evidence[0]:
                     self.cause_speech = evidence  # Same verified run + actual cause playback only.
+                if (getattr(self, 'goal_group_summary', False)
+                        and self._current_speech_run() == token):
+                    status = self._current_runner_status()
+                    self.group_summary_spoken = (token, status['task_id'])
             result.success = True
             result.output_json = json.dumps(stamp)
             goal.succeed()

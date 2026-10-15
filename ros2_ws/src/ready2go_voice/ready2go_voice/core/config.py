@@ -22,6 +22,14 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
             raise ValueError('evaluation_mode: bool 필요')
         cfg['evaluation_mode'] = evaluation_mode
     cfg.setdefault('request_run_enabled', False)
+    cfg.setdefault('semantic_catalog_file', 'auto')
+    cfg.setdefault('semantic_queries', [{'kind': 'list', 'id': 'commute_set'}, {'kind': 'class', 'id': 'Valuables'}])
+    if (not isinstance(cfg['semantic_catalog_file'], str) or not cfg['semantic_catalog_file'].strip()
+            or not isinstance(cfg['semantic_queries'], list)
+            or any(not isinstance(e, dict) or set(e) != {'kind', 'id'}
+                   or e['kind'] not in ('list', 'class') or not isinstance(e['id'], str) or not e['id']
+                   for e in cfg['semantic_queries'])):
+        raise ValueError('semantic_catalog_file/semantic_queries: validated catalog references required')
     if request_run_enabled is not None:
         cfg['request_run_enabled'] = request_run_enabled
     if not isinstance(cfg['request_run_enabled'], bool):
