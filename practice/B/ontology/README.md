@@ -67,7 +67,7 @@
 | ① 지금 이 PR | 난제 표·근거·형식 확인 (`practice/B`) | 없음 (B 자료) | 방향·관계 이름에 E·C·A 의견 |
 | ② | 무작위 sim 장면마다 관계 → 난제 예측 vs B 사전 판단·sim 결과 비교표 (`clear_sim`·`cluster_sim`·`p2_unpack_sim` 장면 재사용) | 없음 (B sim) | — |
 | ③ | `knowledge/` 에 난제 파일 등록(스키마·로더 검사) | E 파일 | **E 결정**: 저장 위치·스키마 |
-| ④ | B `check_only`·거부 결과에 `case_id`·`strategy`(선택 칸). Runner 는 (code, `strategy == "impossible"`) 로만 분기, 모르는 id 는 지금 동작 [C 10/14] | 계약 (`docs/interfaces.md`·예시) | **E 포함 2명 승인** |
+| ④ | B `check_only`·거부 결과에 `case_id`·`strategy`(선택 칸). Runner 는 (code, `strategy == "impossible"`) 로만 분기, 모르는 id 는 지금 동작 [C 10/14] — **이 PR에 구현(10/15)**: `nudge_object make_room` 결과, `make_room.report_case` 기본 false, `core/layout_case.py`, 예시 `make_room_*_with_case` | 계약 (예시·B README, `docs/runner.md` 7.1 한 줄은 C 확인 뒤) | **E 포함 2명 승인** |
 | ⑤ | Runner 가 `impossible` 이면 시도하지 않고 이유를 말함 | C `tasks/`·음성 | **C·E 결정** |
 
 - 녹화(10/15)가 먼저다. ①은 문서뿐이라 녹화에 영향이 없다.
