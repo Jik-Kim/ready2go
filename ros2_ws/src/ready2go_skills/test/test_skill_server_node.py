@@ -4017,6 +4017,19 @@ def test_make_room_nudge_plate_is_on_in_repo_and_reaches_plan_config(server, mon
     assert server.srv._room_cfg("drawer_top").nudge_plate is False
 
 
+def test_make_room_wall_keep_and_center_weight_reach_plan_config(server, monkeypatch):
+    """[사용자 10/15 PC2 통합 — 벽 쪽으로 붙여 밀다 손가락이 벽에 닿음] 저장소 make_room.wall_keep_mm 10·center_weight 1 이
+    공간 만들기 계획 설정에 전달. 0 이면 예전."""
+    monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
+    prm = server.yaml_real(server.srv.params_file)
+    assert prm["make_room"]["wall_keep_mm"] == 10.0 and prm["make_room"]["center_weight"] == 1.0
+    cfg = server.srv._room_cfg("drawer_bottom")
+    assert (cfg.wall_keep_mm, cfg.center_weight) == (10.0, 1.0)
+    _with_prm(server, monkeypatch, make_room={"wall_keep_mm": 0.0, "center_weight": 0.0})
+    cfg = server.srv._room_cfg("drawer_bottom")
+    assert (cfg.wall_keep_mm, cfg.center_weight) == (0.0, 0.0)
+
+
 def test_make_room_report_case_is_off_by_default(server, monkeypatch):
     """[제안 10/15 B, 계약 ④ 승인 전 — #364] make_room.report_case 기본 false → 결과에 case_id·strategy 칸 없음 (지금 계약 그대로)."""
     from ready2go_skills.core import clear_plan as clp

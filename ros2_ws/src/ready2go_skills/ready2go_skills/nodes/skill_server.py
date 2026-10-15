@@ -2023,6 +2023,7 @@ class SkillServer(Node):
                           remove_first=bool(mr.get("remove_first", False)), slack_mm=float(mr.get("slack_mm", 10.0)),
                           remove_min_move_m=float(mr.get("remove_min_move_mm", 0.0)) / 1000.0,
                           nudge_plate=bool(mr.get("nudge_plate", False)),
+                          wall_keep_mm=float(mr.get("wall_keep_mm", 0.0)), center_weight=float(mr.get("center_weight", 0.0)),
                           plate_clear_m=float((prm["pick"].get("under_clear_by_class_mm") or {}).get("cover_plate", 21.0)) / 1000.0,
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 

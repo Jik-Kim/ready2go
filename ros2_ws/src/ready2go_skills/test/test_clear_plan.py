@@ -151,6 +151,40 @@ def test_nudge_plate_lets_make_room_move_the_plate_neighbor():
     assert a_off.target != "cover_plate#1" or a_off.kind == "fail", a_off
 
 
+def test_wall_keep_stops_moves_short_of_the_wall():
+    """[사용자 10/15 PC2 통합: 판 치운 뒤 지우개를 벽까지 붙여 밀다 손가락이 벽에 닿음] wall_keep_mm — 넛지·밀기로 옮긴 물체는
+    벽에서 이만큼 남김. 0 이면 예전처럼 벽에 닿을 때까지."""
+    t = obj("eraser#1", "eraser", 0.1, 0.06)                                   # 짧은 변 y 반폭 11 → -y 벽까지 49 mm
+    assert cp.free_move([t], "eraser#1", (0.0, -1.0), 0.08, INTERIOR, SIZES.get) == pytest.approx(0.049, abs=0.0015)
+    assert cp.free_move([t], "eraser#1", (0.0, -1.0), 0.08, INTERIOR, SIZES.get, keep_mm=10.0) == pytest.approx(0.039, abs=0.0015)
+    near = obj("eraser#2", "eraser", 0.1, 0.011 + 0.004)                        # 처음부터 벽에서 4 mm — 멀어지는 건 됨, 더 붙이진 않음
+    assert cp.free_move([near], "eraser#2", (0.0, 1.0), 0.02, INTERIOR, SIZES.get, keep_mm=10.0) == pytest.approx(0.02)
+    assert cp.free_move([near], "eraser#2", (0.0, -1.0), 0.02, INTERIOR, SIZES.get, keep_mm=10.0) == 0.0
+    nb = obj("eraser#3", "eraser", 0.1, 0.06 - 0.022 - 0.002)                   # 목표가 밀면 같이 밀리는 이웃도 벽에서 10 mm 에서 멈춤
+    _, done, pushed = cp.push_move([t, nb], "eraser#1", (0.0, -1.0), 0.08, INTERIOR, SIZES.get, cp.pushable, keep_mm=10.0)
+    assert pushed == ["eraser#3"] and done == pytest.approx(0.036 - 0.011 - 0.010 + 0.002, abs=0.0015)
+
+
+def test_make_room_moves_keep_wall_and_prefer_center():
+    """wall_keep_mm·center_weight 를 켜면 _self_moves 후보가 벽(물체 10 mm·손가락 반지름 + 2 mm)에 안 붙고,
+    같은 거리면 벽 쪽 후보가 더 비쌈 [사용자 10/15 "왜 중간이 아니라 벽쪽으로 밀어"]."""
+    t = obj("eraser#1", "eraser", 0.15, 0.05)
+    cfg = dataclasses.replace(CFG, wall_keep_mm=10.0, center_weight=1.0)
+    moves = cp._self_moves([t], "eraser#1", cfg)
+    assert moves
+    for cost, a, after in moves:
+        e = next(o for o in after if o["id"] == "eraser#1")
+        assert cp.wall_gap_mm(e, SIZES.get, INTERIOR) >= 10.0 - 0.05, a
+        px, py = e["pose"]["position"][:2]
+        assert cp._point_gap_mm(px, py, INTERIOR) >= cfg.press_finger_r_mm + 2.0 - 0.05, a
+    cost = {(a.kind, a.dir, round(a.dist_m, 3)): c for c, a, _ in moves}
+    assert cost[("nudge", (0.0, -1.0), 0.02)] > cost[("nudge", (0.0, 1.0), 0.02)]       # 벽 쪽(-y) 20 mm 가 가운데 쪽보다 비쌈
+    old = {(a.kind, a.dir, round(a.dist_m, 3)): c for c, a, _ in cp._self_moves([t], "eraser#1", CFG)}
+    assert old[("nudge", (0.0, -1.0), 0.02)] == old[("nudge", (0.0, 1.0), 0.02)]         # 끄면 예전(거리만)
+    assert max(a.dist_m for _, a, _ in cp._self_moves([t], "eraser#1", CFG) if a.dir == (0.0, -1.0)) > \
+        max(a.dist_m for _, a, _ in moves if a.dir == (0.0, -1.0))
+
+
 def test_rider_passes_over_base_without_collision():
     base = obj("caramel_box#1", "caramel_box", 0.1, 0.15, under=["eraser#1"])
     top = obj("eraser#1", "eraser", 0.1, 0.15, top=0.0185 + 0.0115)
