@@ -58,6 +58,10 @@ LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, relia
 
 
 class RunnerNode(Node):
+    # 최근 수락(run)한 요청 {request_id, run_id, task_id} — last_intent 는 BUSY·status·cancel 결정으로 덮이므로 따로 (#376 E).
+    # 클래스 기본값: __init__ 없이 만든 객체(E 음성 연결 시험의 가짜 Runner)도 지금처럼
+    _accepted: dict | None = None
+
     def __init__(self, **node_kwargs):
         super().__init__("runner", **node_kwargs)
         param = lambda name, default: self.declare_parameter(name, default).value  # noqa: E731
@@ -304,6 +308,9 @@ class RunnerNode(Node):
                 reason = (intent_router.STOPPED_BEFORE_START if self._refused == CANCELED_BEFORE_START
                           else intent_router.BUSY)
                 decision = intent_router.Decision(intent_router.REJECT, reason, intent=decision.intent)
+            else:                               # 실제로 시작한 요청만 — last.failure 가 어느 요청의 결과인지 (#376)
+                self._accepted = {"request_id": (decision.intent or {}).get("request_id"), "run_id": decision.run_id,
+                                  "task_id": decision.task.get("task_id")}
         if decision.kind == intent_router.CANCEL and decision.reason is None:
             self.runner.halt(source="voice")    # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
         summary = decision.summary()
@@ -532,6 +539,7 @@ class RunnerNode(Node):
                               self.runner.current_step, self._last, self._last_task_id, degraded,
                               halt=self.runner.halt_summary)
         status["last_intent"] = self._last_intent
+        status["accepted"] = self._accepted              # 최근 수락 요청 (#376) — 이번 기동에 없으면 null
         status["state_reset_at"] = self._state_reset_at   # 마지막 상태 초기화 시각 (UTC, 없으면 null)
         status["boot_id"] = self.runner.boot_id          # 계약 W4 (#271): 이 Runner 기동 — 재기동하면 새 값
         return status

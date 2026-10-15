@@ -60,7 +60,7 @@ def last_intent(s):
 
 
 def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks="",
-                skills_up=True, plan_limits=None, extra=(), located=None):
+                skills_up=True, plan_limits=None, extra=(), located=None, mock=()):
     """skills_up=False: mock 백엔드(/skills/* 서버) 없이 시작 — 기동 직후 스킬 서버가 늦게 뜨는 상황 (#108).
     나중에 voice.start_skills() 로 띄운다."""
     context = rclpy.Context()
@@ -84,7 +84,8 @@ def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology
         executor.add_node(node)
 
     def start_skills():
-        executor.add_node(MockBackendNode(context=context, parameter_overrides=[Parameter("duration_sec", value=duration)]))
+        executor.add_node(MockBackendNode(context=context, parameter_overrides=[
+            Parameter("duration_sec", value=duration), *[Parameter(k, value=v) for k, v in mock]]))
     voice.start_skills = start_skills
     if skills_up:
         start_skills()
@@ -592,3 +593,34 @@ def test_recover_rejects_when_stopped_again_during_b_check(tmp_path):
         assert runner.runner.halted and runner.runner.halt_event_id == event   # 같은 사건, 잠금 유지
     finally:
         close()
+
+
+
+# ---- #376 last.failure · accepted ----
+
+def test_failed_run_publishes_failure_and_status_question_keeps_accepted(tmp_path):
+    """실패한 실행 → last.failure(처음 원인·run_id·boot_id) + accepted(수락 요청). 뒤이은 상태 질문이 last_intent 를 status 로
+    덮어도 accepted·last.failure 는 그대로 — E 가 최신 결정과 최근 수락 요청을 구분 (#376). 성공 실행은 failure null."""
+    runner, voice, close = make_system(tmp_path, mock=[("fail", "pick_object=GRASP_FAILED")])
+    try:
+        voice.say(json.dumps({"intent": "find_item", "targets": ["eraser"], "confidence": 0.9, "request_id": "req-f1"}))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=40), voice.status
+        status = voice.status
+        failure = status["last"]["failure"]
+        assert status["last"]["overall_status"] == "FAILED" and failure is not None
+        assert failure["run_id"] == status["last"]["run_id"] and failure["boot_id"] == status["boot_id"]
+        assert failure["code"] == status["last"]["error_code"] and failure["case_id"] is None
+        assert status["accepted"] == {"request_id": "req-f1", "run_id": status["last"]["run_id"], "task_id": "find_item"}
+        accepted = status["accepted"]
+        voice.say(intent("status", targets=()))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "status"), voice.status
+        assert voice.status["accepted"] == accepted and voice.status["last"]["failure"] == failure
+    finally:
+        close()
+
+
+def test_successful_run_has_no_failure(system):
+    runner, voice = system
+    voice.say(EXAMPLE)
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
+    assert voice.status["last"]["failure"] is None and voice.status["accepted"]["run_id"] == voice.status["last"]["run_id"]

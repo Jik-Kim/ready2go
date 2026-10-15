@@ -62,6 +62,9 @@ class RunResult:
     problems: list[str] = field(default_factory=list)   # 실행하지 않은 이유 (TASK_INVALID 검사 결과, 중단 잠김)
     run_id: str | None = None           # 실행 이력(runs·steps)의 실행 ID
     log_errors: list[str] = field(default_factory=list)  # 기록 저장 실패 (실행은 멈추지 않음)
+    # FAILED 의 처음 원인 {run_id, boot_id, code, step, action, case_id, strategy, text} — /runner/status last.failure (#376).
+    # ABORTED·SUSPENDED·COMPLETED·시작 전 거절이면 None (정지를 배치 거부로 설명하지 않음)
+    failure: dict | None = None
 
 
 Execute = Callable[[str, dict, "float | None"], ActionResult]   # (action, params, timeout_sec)
@@ -476,7 +479,10 @@ class Runner:
         if self._aborted:
             return self._finish(ctx, RunResult("ABORTED", blackboard, records, error.code, error.step_id))
         if error:
-            return self._finish(ctx, RunResult("FAILED", blackboard, records, error.code, error.step_id))
+            failure = failure_record(error, records, ctx.doc["run_id"], self.boot_id,
+                                     task_level=error is not None and _is_marked(error, blackboard))
+            return self._finish(ctx, RunResult("FAILED", blackboard, records, error.code, error.step_id,
+                                               failure=failure))
         return self._finish(ctx, RunResult("COMPLETED", blackboard, records))
 
     def _finish(self, ctx: _Run, result: RunResult) -> RunResult:
@@ -485,6 +491,8 @@ class Runner:
         doc = dict(ctx.doc)
         if ctx.halts:
             doc["extra"] = {**(doc.get("extra") or {}), "halts": ctx.halts}
+        if result.failure is not None:          # 같은 실패 원인을 runs 문서에도 (run_report·D 집계, #376)
+            doc["extra"] = {**(doc.get("extra") or {}), "failure": result.failure}
         self._log("end_run", run_document(
             **doc, ended_at=utc_iso(), total_duration_sec=round(self.clock() - ctx.started, 3),
             overall_status=result.overall_status, error_code=result.error_code,
@@ -1080,6 +1088,49 @@ def _failure_view(error: StepFailed, records: list[dict]) -> dict | None:
     if said is None:
         return None
     return {"code": error.code, "step": error.step_id, "action": action, "text": said}
+
+
+def _refusal_text(case_id: str | None, strategy: str | None) -> str | None:
+    """E 공통 원본(knowledge/refusal_reasons.json)의 거부 이유 문장 — 등록된 impossible 난제만, 그 밖·모듈 없음은 None (#376)."""
+    if case_id is None:
+        return None
+    try:
+        from ready2go_knowledge.core import refusal_reasons
+    except ImportError:                         # E 원본 PR 전 — 기존 문장으로
+        return None
+    try:
+        return refusal_reasons.text(case_id, strategy)
+    except Exception:  # noqa: BLE001 — 안내 문장 조회가 실행 결과를 바꾸지 않게
+        return None
+
+
+def failure_record(error: StepFailed, records: list[dict], run_id: str | None, boot_id: str,
+                   task_level: bool = False) -> dict:
+    """FAILED 의 처음 원인 → /runner/status last.failure (#376 C 형식·B 보완·E 확인 10/15).
+    - code·step = 처음 원인(sequence 실패가 finally 오류보다 우선 — _run_finally), 태스크가 남긴 task_error 도 같음.
+    - case_id·strategy = **실패한 그 스텝의 B 결과** make_room 이 strategy == "impossible" 일 때만(B 보완 — 밀다 막힘·반복 상한·
+      check_only 미리보기·앞서 성공한 동작의 이름은 가져오지 않음), 그 밖은 None. C 는 관계를 새로 추정하지 않음.
+    - text = E 거부 이유 문장 → 없으면 스텝 실패는 failure_speech(지금 정리 전 안내와 같은 문장), task_error 는 None(E 코드 안내)."""
+    rec = next((r for r in reversed(records) if r.get("id") == error.step_id), {})
+    action = rec.get("action")
+    if action == "skill":
+        action = rec.get("skill")
+    out = rec.get("output", rec.get("result"))   # 메모리 기록은 output (DB 에 쓸 때 result 로 이름이 바뀜 — log_records)
+    out = out if isinstance(out, dict) else {}
+    room = out.get("make_room") if isinstance(out.get("make_room"), dict) else {}
+    impossible = room.get("strategy") == "impossible" and isinstance(room.get("case_id"), str) and room["case_id"]
+    case_id, strategy = (room["case_id"], "impossible") if impossible else (None, None)
+    text = _refusal_text(case_id, strategy)
+    if text is None and not task_level:
+        text = failure_speech.text(error.code, action)
+    return {"run_id": run_id, "boot_id": boot_id, "code": error.code, "step": error.step_id or None,
+            "action": action, "case_id": case_id, "strategy": strategy, "text": text}
+
+
+def _is_marked(error: StepFailed, blackboard: dict) -> bool:
+    """이 원인이 태스크가 남긴 task_error 인지 (스텝 실패가 아니라)."""
+    mark = blackboard.get(TASK_ERROR_VAR)
+    return isinstance(mark, dict) and mark.get("code") == error.code and str(mark.get("step") or "") == error.step_id
 
 
 def _marked_error(blackboard: dict) -> StepFailed | None:
