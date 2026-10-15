@@ -117,6 +117,40 @@ def test_push_stops_at_wall_and_unpushable():
     assert abs(done - (0.1 - 0.011)) < 0.0015                          # 벽까지만
 
 
+def test_plate_is_pushed_only_with_nudge_plate_and_passes_over_low_objects():
+    """[사용자 10/15 "plate 넛지 그냥 넣어 — 아래 물건은 신경쓰지 말고"] make_room.nudge_plate: 덮개 판도 같이 밀림.
+    판을 옮길 때 윗면이 판 밑 여유(21 mm) 이하인 물체(지우개 11.5)는 안 봄, 더 높은 것(에어팟 21.6)은 그대로 막음."""
+    plate = obj("cover_plate#1", "cover_plate", 0.1, 0.12)
+    assert not cp.pushable(plate) and cp.pushable(plate, plate=True)
+    assert not cp.pushable(dict(plate, occluded_by=["car_key#1"]), plate=True)        # 위에 얹힌 판은 여전히 안 밂
+    t = obj("eraser#1", "eraser", 0.1, 0.12 - 0.0371 - 0.011 - 0.003)
+    low = obj("eraser#2", "eraser", 0.1, 0.12 + 0.0371 + 0.011 + 0.005)            # 판 +y 쪽 바로 앞, 낮음
+    plate_on = lambda o: cp.pushable(o, plate=True)
+    _, done, pushed = cp.push_move([t, plate, low], "eraser#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get, plate_on,
+                                   plate_clear_m=0.021)
+    assert pushed == ["cover_plate#1"] and done == pytest.approx(0.03)              # 판만 같이, 지우개#2 는 판 밑으로
+    _, _, pushed = cp.push_move([t, plate, low], "eraser#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get, plate_on)
+    assert pushed == ["cover_plate#1", "eraser#2"]                                   # 여유 없으면 낮은 물체도 같이 밀림
+    high = obj("airpods_case#1", "airpods_case", 0.1, 0.12 + 0.0371 + 0.0225 + 0.005)
+    assert cp.free_move([plate, high], "cover_plate#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get, plate_clear_m=0.021) < 0.006
+    assert cp.free_move([plate, low], "cover_plate#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get, plate_clear_m=0.021) \
+        == pytest.approx(0.03)
+    assert cp.free_move([plate, low], "cover_plate#1", (0.0, 1.0), 0.03, INTERIOR, SIZES.get) < 0.006
+
+
+def test_nudge_plate_lets_make_room_move_the_plate_neighbor():
+    """nudge_plate 이면 목표 옆 판도 공간 만들기 후보(넛지·밀기) — 끄면 판은 후보에서 빠짐(예전)."""
+    t = obj("eraser#1", "eraser", 0.1, 0.15)
+    plate = obj("cover_plate#1", "cover_plate", 0.1, 0.15 + 0.011 + 0.0371 + 0.004)
+    cfg_on = dataclasses.replace(CFG, nudge_plate=True)
+    pick_never = type("O", (Oracle,), {"pick": lambda self, objs, oid: (False, "NEIGHBOR_TOO_CLOSE", "x") if oid != "eraser#1"
+                                       else Oracle.pick(self, objs, oid)})()
+    a_on = cp._remove_blocker([t, plate], "eraser#1", pick_never, cfg_on, "NEIGHBOR_TOO_CLOSE", "손가락 자리에 cover_plate#1", 0)
+    a_off = cp._remove_blocker([t, plate], "eraser#1", pick_never, CFG, "NEIGHBOR_TOO_CLOSE", "손가락 자리에 cover_plate#1", 0)
+    assert a_on.target == "cover_plate#1" and a_on.kind in ("nudge", "sweep"), a_on
+    assert a_off.target != "cover_plate#1" or a_off.kind == "fail", a_off
+
+
 def test_rider_passes_over_base_without_collision():
     base = obj("caramel_box#1", "caramel_box", 0.1, 0.15, under=["eraser#1"])
     top = obj("eraser#1", "eraser", 0.1, 0.15, top=0.0185 + 0.0115)
