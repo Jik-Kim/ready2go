@@ -10,7 +10,7 @@ import subprocess
 from threading import Thread
 
 import pytest
-from flask import request
+from flask import abort, request
 from werkzeug.serving import make_server
 
 from ready2go_web.core.overlay_cache import OverlayCache
@@ -28,6 +28,7 @@ def _render_dashboard(
     utcnow: Callable[[], datetime] | None = None,
     on_first_image_request: Callable[[], None] | None = None,
     on_first_image_response: Callable[[], None] | None = None,
+    runner_payloads: list[dict | None] | None = None,
 ) -> tuple[str, int]:
     """주입한 REST 상태를 실제 headless Chrome으로 렌더링해 DOM을 반환한다."""
     # 제품 JavaScript를 실행하지 않는 정적 문자열 검사는 분기 회귀를 잡지 못하므로,
@@ -55,6 +56,20 @@ def _render_dashboard(
         runtime_profile=runtime_profile,
         **({"utcnow": utcnow} if utcnow is not None else {}),
     )
+    status_request_count = 0
+
+    @app.before_request
+    def runner_sequence():
+        nonlocal status_request_count
+        if request.path != "/api/status" or runner_payloads is None:
+            return None
+        payload = runner_payloads[min(status_request_count, len(runner_payloads) - 1)]
+        status_request_count += 1
+        if payload is None:
+            abort(503)
+        cache.record_message("runner", payload)
+        return None
+
     image_request_count = 0
 
     @app.before_request
@@ -191,6 +206,7 @@ def test_mock_current_task_uses_eraser_copy_and_shared_item_image(tmp_path: Path
         tmp_path,
         runtime_profile="dev",
         camera_received=False,
+        scenario="preview",
     )
 
     assert 'id="taskHeadingIcon"' in rendered
@@ -352,3 +368,65 @@ def test_recent_capture_refetches_same_revision_after_server_process_changes(
     assert '<dd id="captureTime">10:10:06 KST</dd>' in rendered
     assert '<dd id="captureAge">1초 전</dd>' in rendered
     assert 'id="captureImage" alt="최근 촬영한 분할 결과" src="blob:' in rendered
+
+
+def _request_result(decision="run", reason=None, result_run="r1", result_status="COMPLETED"):
+    return {
+        "phase": "idle", "task_id": None, "current_step": None,
+        "last_intent": {"intent": "find_item", "targets": ["eraser"],
+                        "decision": decision, "reason": reason, "task_id": "find_item",
+                        "request_id": "request1", "run_id": "r1" if decision == "run" else None},
+        "last": {"task_id": "find_item", "run_id": result_run,
+                 "overall_status": result_status, "error_code": None, "failed_step": None},
+    }
+
+
+@pytest.mark.parametrize("scenario", ["default", "unknown"])
+def test_normal_page_never_uses_example_execution(tmp_path: Path, scenario: str) -> None:
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    scenario=scenario, runner_payloads=[None])
+    assert "지우개의 전달 결과를 확인하는 중" not in rendered
+    assert "차 키·지우개·시계를 찾아 전달합니다." not in rendered
+    assert "1 / 3 전달 완료" not in rendered
+    assert 'class="task-item-button"' not in rendered
+    assert '<p id="understoodText">확인 전</p>' in rendered
+    assert "현재 작업 확인 전" in rendered
+
+
+@pytest.mark.parametrize(("decision", "reason", "result_run", "expected"), [
+    ("run", None, "r1", "실행 완료"),
+    ("hold", "LOW_CONFIDENCE", "r1", "보류 · LOW_CONFIDENCE"),
+    ("reject", "BUSY", "r1", "거절 · BUSY"),
+    ("run", None, "other-run", "수락된 요청의 실행 결과 확인 전"),
+])
+def test_command_uses_only_linked_request_result(tmp_path: Path, decision, reason, result_run, expected) -> None:
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=[_request_result(decision, reason, result_run)])
+    assert "find_item · eraser" in rendered
+    assert expected in rendered
+    if decision != "run" or result_run != "r1":
+        assert "실행 완료" not in rendered
+    else:
+        # 실행 성공은 물품 전달 검증 또는 단계 상세를 만들지 않는다.
+        assert "전달 완료" not in rendered
+        assert "현재 작업 확인 전" in rendered
+        assert 'class="task-item-button"' not in rendered
+    # PC·모바일은 같은 명령 모델을 사용한다.
+    assert 'id="mobileUnderstoodText">find_item · eraser</dd>' in rendered
+
+
+@pytest.mark.parametrize("next_state", ["reject", "http-error", "invalid"])
+def test_previous_result_is_cleared_after_rejection_or_failure(tmp_path: Path, next_state: str) -> None:
+    next_payload = None if next_state == "http-error" else _request_result("reject", "BUSY")
+    if next_state == "invalid":
+        next_payload = {"last_intent": {"intent": "find_item"}, "last": None}
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=[_request_result(), next_payload])
+    assert "실행 완료" not in rendered
+    assert "지우개의 전달 결과를 확인하는 중" not in rendered
+    if next_state == "reject":
+        assert "거절 · BUSY" in rendered
+        assert "이 요청의 실행은 수락되지 않음" in rendered
+    else:
+        assert '<p id="understoodText">확인 전</p>' in rendered
+        assert "처리 결과 확인 전" in rendered

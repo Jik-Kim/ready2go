@@ -157,7 +157,10 @@
   };
 
   const params = new URLSearchParams(window.location.search);
-  const scenarioName = params.get("scenario") || "default";
+  // 알 수 없는 쿼리도 운영 화면으로 돌아간다. 명시한 미리보기만 예시를 사용한다.
+  const requestedScenario = params.get("scenario");
+  const scenarioName = ["preview", "long", "empty", "error"].includes(requestedScenario)
+    ? requestedScenario : "default";
   const data = JSON.parse(JSON.stringify(baseData));
 
   if (scenarios[scenarioName]) {
@@ -192,6 +195,28 @@
     },
   ];
   data.task.selectedExecutionItemId = data.task.executionItems.length ? "eraser" : null;
+
+  if (scenarioName === "default") {
+    data.meta = { mode: "waiting", label: "상태 확인 전", description: "Runner 요청·결과 수신 전입니다. 실행 상세는 아직 연결되지 않았습니다." };
+    data.command = {
+      understood: "확인 전",
+      interpretation: { status: "waiting", label: "해석 정보 확인 전" },
+      receipt: { status: "waiting", label: "접수 상태 확인 전" },
+      processing: { status: "waiting", label: "처리 결과 확인 전" },
+      confirmation: null,
+    };
+    data.task = {
+      status: "waiting", workDrawerId: null, currentItemId: null, currentItemIcon: null,
+      currentAction: "현재 작업 확인 전", detailsExpanded: true, steps: [],
+      executionItems: [], selectedExecutionItemId: null,
+    };
+    data.drawers = [];
+    data.selectedDrawerId = null;
+    data.supplies = [];
+    data.definitionsStatus = "unknown";
+    data.adminReview.current = { runId: null, rows: [], error: null };
+    data.adminReview.ontology = { relations: [], skills: [] };
+  }
 
   window.ROKEY_DEMO_DATA = data;
   window.ROKEY_DEMO_SCENARIO = scenarioName;

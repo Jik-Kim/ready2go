@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Ready2Go 출근 준비 도우미 — ROS 연결·기억 상태, 등록 목록, 최근 촬영 사진과 목업 작업 진행을 표시하는 반응형 대시보드"
+      content="Ready2Go 출근 준비 도우미 — ROS 연결·기억 상태, 요청·결과, 등록 목록과 최근 촬영 사진을 표시하는 반응형 대시보드"
     />
     <title>Ready2Go · 출근 준비 도우미</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./styles.css" />
-    <!-- 목업 화면 모델 위에 status-api.js가 실제 Runner 연결과 기억 상태를 안전하게 덮어씁니다. -->
+    <!-- 일반 화면은 확인 전으로 시작하며 명시적 미리보기만 예시 데이터를 사용합니다. -->
     <script src="./demo-data.js" defer></script>
     <script src="./status-api.js" defer></script>
     <!-- Runner 요청·결과 원본을 화면과 분리된 내부 모델로 먼저 검증합니다. -->
@@ -54,6 +54,7 @@
           <span class="round-icon" aria-hidden="true">●</span>
           <div>
             <span class="eyebrow">명령 처리 상태</span>
+            <div id="receiptStatus" class="receipt-status" role="status"></div>
             <div id="commandProcessingStatus"></div>
           </div>
         </div>
@@ -151,7 +152,7 @@
         <section class="task-items" aria-labelledby="taskItemsHeading">
           <div class="task-items-heading">
             <h3 id="taskItemsHeading">물품별 실행 순서</h3>
-            <span>화면 검토용 예시 · 실제 실행 순서 아님</span>
+            <span id="taskItemsNotice">실행 상세 확인 전</span>
           </div>
           <div id="taskItemOrder" class="task-item-order" role="group" aria-label="상세를 조회할 실행 물품"></div>
           <p id="taskItemSelection" class="task-item-selection" aria-live="polite"></p>
@@ -159,12 +160,11 @@
 
         <div id="taskDetails" class="task-details">
           <div class="task-detail-meta">
-            <div id="receiptStatus" class="receipt-status" role="status"></div>
             <div class="task-location">
               <span class="detail-label">실제 작업 위치</span>
               <strong id="taskLocation"></strong>
             </div>
-            <span class="demo-detail-note">목업 데이터 · 실제 실행 결과 아님</span>
+            <span id="taskDataNotice" class="demo-detail-note">실행 상세 확인 전</span>
           </div>
           <div
             class="progress-scroll"

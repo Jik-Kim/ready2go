@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  // 기본 화면 객체는 정적 목업에서 시작하지만 기본 시나리오에서는 상태와 등록 정의를 REST 결과로 교체한다.
+  // 기본 화면은 확인 전 모델, 명시적 미리보기만 예시 모델을 사용한다.
   const state = window.ROKEY_DEMO_DATA;
 
   // status-api.js가 제공하는 polling 구현을 렌더링 코드에서 한 번만 참조한다.
@@ -54,7 +54,7 @@
   // 정의보다 상태 응답이 먼저 도착해도 나중에 등록명을 다시 적용할 수 있게 마지막 source를 보관한다.
   let latestRobotStateSource = null;
 
-  // 요청·결과 표시는 후속 단계에서 연결하며 지금은 검증·연결 판정된 내부 모델만 보관한다.
+  // 명령 화면은 검증·연결 판정된 요청·결과 모델만 사용한다.
   let latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
 
   // 상태 JSON과 JPEG를 같은 revision으로 결합하기 위한 브라우저 전용 사진 상태다.
@@ -447,6 +447,7 @@
     // 기본 화면에서 목업 실행 요약이 실제 Runner 값처럼 보이지 않게 초기화한다.
     // source가 유효하지 않으면 과거 요청·결과 내부 모델도 현재값으로 유지하지 않는다.
     latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
+    state.command = runnerStatusModel.commandView(latestRunnerRecords);
     state.adminReview.current.liveSummary = {
       taskId: "확인 전",
       currentStep: "확인 전",
@@ -465,6 +466,7 @@
     }
     // last_intent와 last를 독립 파싱한 뒤 decision과 run_id로 같은 실행인지 판정한다.
     latestRunnerRecords = runnerStatusModel.parseRunnerRecords(data);
+    state.command = runnerStatusModel.commandView(latestRunnerRecords, itemLabelForId);
     // 계약에 없는 phase를 대기로 추정하지 않고 확인이 필요한 값으로 표시한다.
     const phaseView = typeof data.phase === "string" ? runnerPhaseViews[data.phase] : null;
     state.adminReview.current.liveSummary = {
@@ -775,6 +777,8 @@
     renderSupplies();
     renderDrawerSelectors();
     renderInventory();
+    state.command = runnerStatusModel.commandView(latestRunnerRecords, itemLabelForId);
+    renderCommand();
     renderAdminOntology();
     renderAdminDataMeta();
   }
@@ -790,17 +794,17 @@
     // 상태 REST 성공 시에는 /robot_state 적용 여부와 정의 스냅샷 여부를 함께 설명한다.
     if (state.meta.mode === "partial-live") {
       if (!state.definitionsLive) {
-        state.meta.description = "Runner 상태는 실제 데이터이며 등록 정의는 확인 전입니다. 작업 진행은 목업입니다.";
+        state.meta.description = "Runner 상태는 실제 데이터이며 등록 정의는 확인 전입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다.";
         return;
       }
       state.meta.description = state.robotStateLive
-        ? "Runner 연결과 기억 상태는 실제 데이터이며 등록 정의는 웹 파일 스냅샷입니다. 작업 진행은 목업입니다."
-        : "Runner 연결은 실제 데이터이고 등록 정의는 웹 파일 스냅샷이며 /robot_state는 확인 전입니다. 작업 진행은 목업입니다.";
+        ? "Runner 연결과 기억 상태는 실제 데이터이며 등록 정의는 웹 파일 스냅샷입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다."
+        : "Runner 연결은 실제 데이터이고 등록 정의는 웹 파일 스냅샷이며 /robot_state는 확인 전입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다.";
       return;
     }
     // 상태 응답 전에도 정의만 먼저 도착했다면 현재 사용할 수 있는 범위를 정확히 표시한다.
     state.meta.description = state.definitionsLive
-      ? "등록 정의는 웹 파일 스냅샷이며 Runner 현재 상태는 확인 전입니다. 작업 진행은 목업입니다."
+      ? "등록 정의는 웹 파일 스냅샷이며 Runner 현재 상태는 확인 전입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다."
       : "Runner 현재 상태와 등록 정의가 확인 전입니다.";
   }
 
@@ -932,8 +936,8 @@
       : "등록 정의는 확인 전입니다.";
     // 현재 상태와 정의의 출처를 합치지 않고 각각의 범위를 문장으로 알린다.
     state.meta.description = robotStateApplied
-      ? `Runner 연결과 기억 상태는 실제 데이터입니다. ${definitionText} 작업 진행은 목업입니다.`
-      : `Runner 연결은 실제 데이터이며 /robot_state 표시는 확인 전입니다. ${definitionText} 작업 진행은 목업입니다.`;
+      ? `Runner 연결과 기억 상태는 실제 데이터입니다. ${definitionText} 작업 순서·단계 상세는 미연결로 확인 전입니다.`
+      : `Runner 연결은 실제 데이터이며 /robot_state 표시는 확인 전입니다. ${definitionText} 작업 순서·단계 상세는 미연결로 확인 전입니다.`;
 
     updateAdminRunnerRow(view, source, "/runner/status · Flask REST");
     state.adminReview.current.liveConnected = runnerSummaryApplied && robotStateApplied;
@@ -948,6 +952,7 @@
     // 바뀐 부분만 다시 그려 사용자가 연 펼침·선택 상태를 불필요하게 초기화하지 않는다.
     renderMockNotice();
     renderConnections();
+    renderCommand();
     renderDrawerSelectors();
     renderInventory();
     renderAdminSummary();
@@ -1011,6 +1016,7 @@
 
     renderMockNotice();
     renderConnections();
+    renderCommand();
     renderDrawerSelectors();
     renderInventory();
     renderAdminSummary();
@@ -1060,6 +1066,9 @@
       makeStatus(state.command.receipt.status, state.command.receipt.label),
     );
 
+    getById("receiptStatus").replaceChildren(
+      makeStatus(state.command.receipt.status, state.command.receipt.label),
+    );
     const confirmationRow = getById("mobileConfirmationRow");
     confirmationRow.hidden = !state.command.confirmation;
     getById("mobileConfirmationText").textContent = state.command.confirmation || "";
@@ -1195,7 +1204,12 @@
     });
     getById("taskItemSelection").textContent = selected
       ? `선택 물품: ${selected.name} · 아래 단계와 근거는 선택한 물품 기준`
-      : "표시할 실행 물품 없음 · 예시";
+      : window.ROKEY_DEMO_SCENARIO === "default"
+        ? "물품별 실행 순서 확인 전" : "표시할 실행 물품 없음 · 예시";
+    getById("taskItemsNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
+      ? "실행 상세 미연결 · 확인 전" : "화면 검토용 예시 · 실제 실행 순서 아님";
+    getById("taskDataNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
+      ? "실행 상세 미연결 · 실제 단계·전달 결과 확인 전" : "목업 데이터 · 실제 실행 결과 아님";
   }
 
   function renderTask() {
@@ -1220,11 +1234,8 @@
       icon: state.task.currentItemIcon,
     });
     currentItemReplacement.id = "currentItemVisual";
+    currentItemReplacement.hidden = !state.task.currentItemId;
     currentItem.replaceWith(currentItemReplacement);
-
-    getById("receiptStatus").replaceChildren(
-      makeStatus(state.command.receipt.status, state.command.receipt.label),
-    );
 
     const details = getById("taskDetails");
     const toggle = getById("taskDetailsToggle");
