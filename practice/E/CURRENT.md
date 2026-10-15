@@ -874,3 +874,16 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [완료/미검증 구분] C383의3fd524ad와 동일한item_group 소스를 포함한 main454dcf0018d5e853fef5eb0f245cfcd1737e9f83을 정상합류했습니다(merge09a12dde6b7d79296ab6fa2efe52b04b4ea5d308). 현재checkout C import 경로와 기존검사소스동일을 확인했으며 head SHA의 전체CI1회·정상push·별도PR 상태는 최종 PR본문/완료보고로 기록합니다. C381병합사실과 계약2인승인 행정근거 확인은 별개로 취급합니다. 실API·마이크/스피커·Melo캐시생성·ROS/DDS·스킬/실물·PC2 적용과 물리AC는 미검증이며 초기위치/모의성공을 관측·파지승인·실물완료로 보고하지 않습니다.
 
 - [최종 CI 실측] 코드/설정/시험 최종2137ed8fb2ded1e22700c98a059cdd68c3da3bc3에서 전체CI1회 exit0: validate_contracts OK / pytest3570passed44skipped(py3.12 REQUIRE_MONGO=1) / compose real·sim·dev OK / colcon build OK (ci_local.sh@aa5aa0f,10/15 15:45). 이후 변경은 이 결과를 적은 CURRENT 문서뿐이며 새 head에서 전체CI를 다시 실행했다고 표현하지 않습니다. 로그 /tmp/e-p3-semantic-final-ci.log.
+
+### #384 C 리뷰 보완 — 2026-10-15
+
+- [승인/범위] 기존 P3 승인 안에서 C 리뷰①·③ 보완과② 최소 정규화/거절 진단을 반영했습니다. E voice 코드·YAML·검사·README 및 이 기록만 수정했습니다. C/B/공개계약/런처는 변경하지 않았으며 목록명 없는 후속 “챙겨줘” 맥락 연결은 보류했습니다.
+- [구현①] parser 소유 SemanticRuntime을 기동 시 한 번 준비해 reference/parse/validate/node prefill에 재사용합니다. 독립 prepare도 호출당 한 번이며 전역캐시는 없습니다. source/evidence는 해당 스냅샷에 고정되고 TTL 변경은 재시작 후 적용합니다. TTL 누락/구문오류·RDFLib import 실패·share 경로 오류는 기동 경고와 semantic_unavailable 사유로 P3만 보류하며 P1·P2·상태/기본 prefill은 유지합니다.
+- [구현③] 명시적 “출근 준비물에 뭐 있어?”는 읽기 전용, “출근 준비물 챙겨줘”는 기존 find_list 요청입니다. 문형을 semantic_speech YAML에 두되 목록 구성/출처는 TTL만 사용합니다. 장애 인식 이름 힌트는 구성 정본이 아닙니다. 등록 이름의 mixed/negative는 semantic_mixed_or_unconfirmed·clarify/발행0으로 보류하며 일반 준비물/목록/분류 단어만으로 기존 파서를 가로채지 않습니다.
+- [구현②/미결] 기존 task/factory의 공백·끝 마침표만 canonical 캐시 문장으로 정규화하고 불일치는 group_speech_rejected/factory_text_mismatch 진단 후 거절합니다. C 원문 구조/동일 버전 의존은 남아 있습니다. 구조화 안내 계약은 C 협의 미결이며 해결 완료로 보고하지 않습니다. 임의 원격 문장·새 공개필드 허용이나 C/런처 변경은 없습니다. 배포 시 host knowledge/voice/runner overlay와 C 컨테이너 버전 정렬·재빌드/재시작이 필요합니다.
+- [실측/직접] 최종 의미 음성 회귀51passed(9.90초): 실제 C 경로·1회준비·TTL 재시작수명·누락/비정상TTL·RDFLib import 실패 주입·share 누락·P1/P2/status/prefill 유지·신규문형·혼합/부정 발행0·일반단어 비가로채기·factory 최소정규화/임의문장거절. 영향 기존 intent/config/request_run/semantic_requests/voice_ux_node 461passed4skipped(49.40초), diff-check OK. 최초 직접 실행의 PYTHONPATH 누락은 환경 인자를 보완해 재실행했으며 제품 결함으로 처리하지 않았습니다.
+- [실측/최종CI] 코드/설정/검사/README 커밋96640d8c41e3cd873965171424a316277cae1812에서 전체CI1회 exit0. 아래 결과 이후 변경은 이 CURRENT 기록뿐이며 새 head에서 재실행한 것으로 표현하지 않습니다. 로그 /tmp/e-p3-semantic-review-ci.log.
+
+로컬 CI [실측] head `96640d8` (96640d8c41e3cd873965171424a316277cae1812, 전체) — validate_contracts OK / pytest 3581 passed, 44 skipped (py3.12, REQUIRE_MONGO=1) / compose real·sim·dev OK / colcon build OK (tools/dev/ci_local.sh@aa5aa0f, 10/15 16:22)
+
+- [미검증/인계] FR-INT-02(P3)·FR-ONT-03·UC-P3·FR-INT-03의 기존 범위입니다. ROS/장치/PCM은 모의이며 실API·마이크/스피커·Melo합성·ROS/DDS·PC2 적용·실로봇/물리AC는 미검증입니다. C② 구조화 안내 계약 협의와 최종 PR 재검토는 조율 세션에 인계합니다. main 병합은 수행하지 않습니다.
