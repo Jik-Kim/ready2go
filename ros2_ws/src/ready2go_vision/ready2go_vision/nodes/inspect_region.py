@@ -148,7 +148,7 @@ class InspectRegionNode(Node):
             except Exception:
                 self.get_logger().error(f"TF 없음 {self._base}→{self._cam}: {e}")
                 res.success, res.error_code, res.result_json = False, "TF_UNAVAILABLE", ""
-                self._overlay_submit(color_m, image_to_numpy(color_m), [], "", None, None, None, req, "TF_UNAVAILABLE")
+                self._overlay_submit(color_m, None, [], "", None, None, None, req, "TF_UNAVAILABLE")
                 return res
         T_drawer_cam = drawer_from_camera(region["T_base_drawer"], tf_to_T(ts))
         K = Intrinsics(info.k[0], info.k[4], info.k[2], info.k[5])
@@ -174,11 +174,19 @@ class InspectRegionNode(Node):
         """그릴 재료만 넘기고 바로 돌아감 — 그리기·인코딩·발행은 _overlay_loop (서비스 응답을 막지 않음)."""
         if not self._ov_enable:
             return
+        try:                                                     # 재료 넘기기 실패도 서비스 응답·인식 결과에 영향 없게 (계약)
+            self._ov_slot.put(self._overlay_job(color_m, color, dets, result_json, K, T_drawer_cam, interior_m, req, error_code))
+        except Exception as e:
+            self.get_logger().warn(f"오버레이 생략(요청 넘기기): {e}")
+
+    def _overlay_job(self, color_m, color, dets, result_json, K, T_drawer_cam, interior_m, req, error_code):
         st = color_m.header.stamp
+        if color is None:                                        # TF_UNAVAILABLE: 검출 전이라 사진만 (변환도 여기서 — 예외는 위 try)
+            color = image_to_numpy(color_m)
         job = dict(stamp=st, stamp_ns=st.sec * 1_000_000_000 + st.nanosec, frame_id=color_m.header.frame_id, color=color, dets=dets,
                    result_json=result_json, K=K, T=T_drawer_cam, interior_m=interior_m,
                    request={"region": req.region, "search_target": req.search_target}, error_code=error_code)
-        self._ov_slot.put(job)                                   # 아직 안 그린 이전 요청은 버림
+        return job                                               # put 이 아직 안 그린 이전 요청을 덮음
 
     def _overlay_loop(self):
         while rclpy.ok():
