@@ -5,7 +5,7 @@ RG2는 빈 상태로 끝까지 닫아도 `grip_detected=True`가 나오므로 [�
 폭 조건 없이 `grasp_detected`만 보면 빈손을 성공으로 판정한다.
 
 `min_width_m`·`expected_width_m`·`width_tolerance_m` 값은 노드가 `config/`에서 읽어 넘긴다 [팀 확정 필요].
-TODO(B): 물품별 집는 방향 폭은 #8 실측표(온톨로지 `size_m`) 확정 후 연결.
+물품별 집는 방향 폭은 노드가 온톨로지 `size_m`·손끝 표로 `expected_width_m` 을 넘긴다.
 
 놓침 감지(`check_hold`)는 들어 올린 뒤·옮기는 중·놓기 직전에 쓴다. 물체가 빠지면 RG2가 계속 닫혀
 폭이 빈손 닫힘(0.9 mm)까지 줄어든다 [실측 B 10/03]. 처리 순서는 docs/domain.md 8.6.
@@ -13,6 +13,7 @@ TODO(B): 물품별 집는 방향 폭은 #8 실측표(온톨로지 `size_m`) 확�
 import math
 from dataclasses import dataclass
 from typing import Optional
+from ready2go_skills.core.pose_math import finite as _finite
 
 OK = "OK"
 NOT_DETECTED = "NOT_DETECTED"        # RG2가 물체를 감지하지 못함 (끝까지 열림·중간에 멈춤 없음)
@@ -26,10 +27,6 @@ SENSOR_INVALID = "SENSOR_INVALID"    # 폭이 NaN·inf·숫자 아님·RG2 범�
 
 RG2_MAX_WIDTH_M = 0.110              # [문서] RG2 손가락 사이 최대 110 mm. 읽은 폭이 [0, 최대 + 여유] 밖이면 센서 이상
 _WIDTH_MARGIN_M = 0.002
-
-
-def _finite(*values) -> bool:
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
 
 def _width_ok(w) -> bool:

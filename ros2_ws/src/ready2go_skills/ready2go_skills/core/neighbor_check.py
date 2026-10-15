@@ -11,12 +11,9 @@ import math
 from typing import Callable, Mapping, Optional, Sequence
 
 from ready2go_skills.core import place_plan as plp
+from ready2go_skills.core.pose_math import finite as _finite
 
 NEIGHBOR_TOO_CLOSE = "NEIGHBOR_TOO_CLOSE"
-
-
-def _finite(*values) -> bool:
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
 
 def _below(obj: Mapping, support_m: float, below_tol_m: float) -> bool:

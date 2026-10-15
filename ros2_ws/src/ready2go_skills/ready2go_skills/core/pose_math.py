@@ -8,6 +8,11 @@
 import math
 
 
+def finite(*values) -> bool:
+    """모두 bool이 아닌 유한한 숫자인지. NaN·inf는 비교가 항상 False라 그대로 쓰면 확인을 통과해 버린다 (#70 D 리뷰)."""
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+
+
 def rot(a, b, c):
     """ZYZ 오일러(deg) → 회전 행렬 (3×3 리스트)."""
     a, b, c = (math.radians(v) for v in (a, b, c))
