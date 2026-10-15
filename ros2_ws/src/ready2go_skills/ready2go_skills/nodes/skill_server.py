@@ -1724,7 +1724,8 @@ class SkillServer(Node):
     def _j6_capped(self, joints, vel, acc):
         """관절 이동에서 J6(손목 끝) 각속도를 speed.j6_max_deg_s 이하로 — movej 는 모든 관절이 같이 끝나게 움직여 J6 속도 = vel × |ΔJ6| / max|Δ|.
         J6 가 크게 도는 이동(탑뷰 약 200°·경유점 약 170°)만 전체를 그 비율로 늦추고, J6 가 조금 도는 이동은 그대로
-        [사용자 10/15 PC2 "리얼센스 카메라 연결잭 체결이 불안정 — J6 움직임만 조금 속도 낮춰"]. null 이면 안 봄. 현재 관절을 못 읽으면 vel 자체를 상한으로."""
+        [사용자 10/15 PC2 "리얼센스 카메라 연결잭 체결이 불안정 — J6 움직임만 조금 속도 낮춰"]. speed.j6_limit 이 꺼져 있거나 상한이 null 이면
+        안 봄(켜고 끄기 — 사용자 10/15 "onoff 로"). 현재 관절을 못 읽으면 vel 자체를 상한으로."""
         cap = self._speed().get("j6_max_deg_s")
         if not cap:
             return vel, acc
@@ -1748,7 +1749,8 @@ class SkillServer(Node):
         sp = self.prm()["speed"]
         if getattr(self, "_careful", False) and sp.get("nudge"):
             sp = {**sp, **sp["nudge"]}
-        cap = sp.get("j6_max_deg_s")
+        cap = sp.get("j6_max_deg_s") if sp.get("j6_limit") else None
+        sp = {**sp, "j6_max_deg_s": cap}                           # 꺼져 있으면 _j6_capped 도 안 봄
         if cap and sp.get("turn_deg_s", 0.0) > cap:                # 직선·블렌딩 중 방향 회전(대부분 J6)도 같은 상한 [사용자 10/15]
             sp = {**sp, "turn_deg_s": float(cap)}
         return sp

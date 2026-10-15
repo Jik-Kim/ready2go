@@ -4031,21 +4031,24 @@ def test_make_room_wall_keep_and_center_weight_reach_plan_config(server, monkeyp
 
 
 def test_j6_speed_cap_slows_only_wrist_heavy_joint_moves(server, monkeypatch):
-    """[사용자 10/15 PC2 "리얼센스 연결잭 체결이 불안정 — J6 만 조금 느리게"] speed.j6_max_deg_s(저장소 90): movej 는 관절이 같이
-    끝나므로 J6 속도 = vel × |ΔJ6| / max|Δ| — J6 가 가장 많이 도는 이동은 J6 가 상한이 되게 전체를 늦추고(가속도 같은 비율),
-    J6 가 조금만 도는 이동은 그대로. 직선 중 회전(turn_deg_s)도 상한 이하. null 이면 예전."""
+    """[사용자 10/15 PC2 "리얼센스 연결잭 체결이 불안정 — J6 만 조금 느리게" → "속도 안 줄여도 될 듯, onoff 로"] speed.j6_limit
+    (저장소 false = 예전 속도)을 켜면 j6_max_deg_s(90): movej 는 관절이 같이 끝나므로 J6 속도 = vel × |ΔJ6| / max|Δ| — J6 가 가장
+    많이 도는 이동은 J6 가 상한이 되게 전체를 늦추고(가속도 같은 비율), J6 가 조금만 도는 이동은 그대로. 직선 중 회전(turn_deg_s)도 상한 이하."""
     monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
     srv = server.srv
     prm = server.yaml_real(srv.params_file)
-    cap = prm["speed"]["j6_max_deg_s"]
-    assert cap == 90.0
+    assert prm["speed"]["j6_limit"] is False and prm["speed"]["j6_max_deg_s"] == 90.0
+    srv.robot.j = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    assert srv._j6_capped([10.0, 0.0, 90.0, 0.0, 90.0, 170.0], 120.0, 90.0) == (120.0, 90.0)   # 기본 꺼짐 — 예전 속도
+    _with_prm(server, monkeypatch, speed={"j6_limit": True})
+    cap = 90.0
     srv.robot.j = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
     v, a = srv._j6_capped([10.0, 0.0, 90.0, 0.0, 90.0, 170.0], 120.0, 90.0)      # J6 170° 가 가장 큼 → J6 = 120 → 90
     assert v == pytest.approx(90.0) and a == pytest.approx(67.5)
     v, a = srv._j6_capped([60.0, 0.0, 90.0, 0.0, 90.0, 10.0], 150.0, 120.0)      # J6 10° / 최대 60° → J6 25 deg/s — 그대로
     assert (v, a) == (150.0, 120.0)
     assert srv._speed()["turn_deg_s"] == min(prm["speed"]["turn_deg_s"], cap)
-    _with_prm(server, monkeypatch, speed={"j6_max_deg_s": None})
+    _with_prm(server, monkeypatch, speed={"j6_limit": True, "j6_max_deg_s": None})
     assert srv._j6_capped([10.0, 0.0, 90.0, 0.0, 90.0, 170.0], 120.0, 90.0) == (120.0, 90.0)
 
 
