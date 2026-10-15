@@ -731,6 +731,6 @@ PYTHON
 
 ## P3 이유 질문·캐시 준비 — #376
 
-[구현] “왜 멈췄어?”, “왜 안 가져와?”, “왜 못 꺼내?”를 기존 읽기 전용 상태 질문 경로로 분류합니다. LLM·동작 발신 없이 현재는 “확인된 실패 이유를 아직 조회할 수 없어요.”를 안내합니다. C 공개 실패 상태 계약과 구현이 아직 연결되지 않아 실제 거부 원인을 답하는 기능은 미완료입니다. 정지·비상정지를 배치 거부로 추정하지 않습니다.
+[구현] “왜 멈췄어?”, “왜 안 가져와?”, “왜 못 꺼내?”를 기존 읽기 전용 상태 질문 경로로 분류합니다. LLM·동작 발신 없이 승인된 C #379의 현재 상태를 조회합니다. 기존 source/seq 검증을 통과한 idle/halted·FAILED이고 failure.run_id=last.run_id=accepted.run_id·failure.boot_id=status.boot_id가 일치해야 설명합니다. `last_intent`의 BUSY/status/cancel 덮임은 수락 실행의 근거로 사용하지 않습니다. 등록 impossible은 E 원본, 그 외에는 C factory 허용 문장 또는 기존 code/action 폴백을 사용합니다. raw text를 임의로 재생하거나 캐시에 추가하지 않습니다. 실행 중·원인 없음·이전 run/boot·정지/비상정지 결과는 “확인된 실패 이유를 아직 조회할 수 없어요.”로 안내하며 배치 거부로 추정하지 않습니다. 기존 높은 안전 경고·질문 수집 우선권과 읽기 전용 TTS guard를 유지합니다. 새 수락 실행은 대기 중인 이전 응답도 무효화합니다.
 
-[원본/설치] `ready2go_knowledge.core.refusal_reasons.texts()`를 기존 `runner_speech.required_texts()`에 합쳐 node·prepare의 공통 필수 캐시에 포함합니다. 문장 정본은 [knowledge 설명](../../../knowledge/README.md#p3-거부-이유-문장-준비--376), 설치는 knowledge 패키지 setup.py가 담당합니다. cap512·일반600초·prepare3600초와 명시 로컬 값 처리·WAV/history·모델은 변경하지 않았습니다. API·ROS·실음성·로봇 검증은 하지 않았습니다.
+[원본/설치] `ready2go_knowledge.core.refusal_reasons.texts()`를 기존 `runner_speech.required_texts()`에 합쳐 node·prepare의 공통 필수 캐시에 포함합니다. 문장 정본은 [knowledge 설명](../../../knowledge/README.md#p3-거부-이유-문장-준비--376), 설치는 knowledge 패키지 setup.py가 담당합니다. cap512·일반600초·prepare3600초와 명시 로컬 값 처리·WAV/history·모델은 변경하지 않았습니다. C #379 af273fb3의 실제 노드 수락·실행/실패 기록·상태 발행→E 콜백·질문→TTS 호출을 모의 검증했습니다. C #379와 #377 최종 상위 run 통합·의존 PR 병합·운영 적용은 별도이며 API·ROS·실음성·로봇 검증은 하지 않았습니다.

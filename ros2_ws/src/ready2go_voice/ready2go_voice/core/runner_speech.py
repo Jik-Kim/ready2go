@@ -69,6 +69,39 @@ def failure_texts():
         for action in (*failure_speech.ACTION_KO, None)]))
 
 
+def refusal_answer(status):
+    """Read only the latest accepted run's confirmed FAILED snapshot (#379).
+
+    Source/sequence freshness is enforced by VoiceNode's existing status view.
+    Arbitrary remote text is never added to playback or the bounded cache.
+    """
+    from ready2go_knowledge.core.refusal_reasons import text as reason_text
+    if not isinstance(status, dict) or status.get('phase') not in ('idle', 'halted'):
+        return None
+    last, accepted = status.get('last'), status.get('accepted')
+    if not isinstance(last, dict) or not isinstance(accepted, dict):
+        return None
+    failure = last.get('failure')
+    run, boot = last.get('run_id'), status.get('boot_id')
+    if (last.get('overall_status') != 'FAILED' or not isinstance(failure, dict)
+            or not isinstance(run, str) or not run.strip()
+            or not isinstance(boot, str) or not boot.strip()
+            or failure.get('run_id') != run or accepted.get('run_id') != run
+            or failure.get('boot_id') != boot):
+        return None
+    said = reason_text(failure.get('case_id'), failure.get('strategy'))
+    if said is not None:
+        return said
+    # Only the existing C factory's finite sentences may be used as fallback.
+    supplied = failure.get('text')
+    if isinstance(supplied, str) and supplied in failure_texts():
+        return supplied
+    code, action = failure.get('code'), failure.get('action')
+    if code is not None and not isinstance(code, str) or action is not None and not isinstance(action, str):
+        return None
+    return failure_speech.text(code, action)
+
+
 def required_texts(cfg, items):
     from ready2go_knowledge.core.refusal_reasons import texts as refusal_texts
     texts = list(failure_texts())

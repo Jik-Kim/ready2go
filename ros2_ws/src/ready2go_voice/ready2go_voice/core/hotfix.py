@@ -89,10 +89,14 @@ def reference_query(parser, text):
     value = ''.join(str(text).split()).rstrip('.!?？')
     p = prompts(parser.cfg)
     if is_refusal_query(text):
-        # C public failure snapshot is not agreed yet. Never infer a cause
-        # from a scan, generic pick error, or the private run_failure record.
         from ready2go_knowledge.core.refusal_reasons import unknown_text
-        return unknown_text()
+        from .runner_speech import refusal_answer
+        provider = getattr(parser, 'status_provider', None)
+        try:
+            view = provider() if provider is not None else None
+        except Exception:
+            view = None
+        return (refusal_answer(view.get('status')) if isinstance(view, dict) else None) or unknown_text()
     if is_status_query(parser, text):
         return status_answer(parser)
     keys = parser.mentioned(text)
