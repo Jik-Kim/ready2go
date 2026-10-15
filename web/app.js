@@ -524,6 +524,10 @@
       resultLabel: `종료 기록 · ${(item.restoreIncomplete ? "복구 미완료" : item.errorCode) || (item.stepsAvailable ? "단계 기록 수신" : "단계 기록 미수신")}`,
       steps: recordedSteps(item.steps),
     }));
+    // 상세 조회의 초기 선택은 제공된 종료 목록 안에서만 정한다. 현재 실행 물품으로 해석하지 않는다.
+    if (!state.task.executionItems.some(item => item.id === executionDetail.selectedId)) {
+      executionDetail.selectedId = state.task.executionItems[0]?.id || null;
+    }
     state.task.selectedExecutionItemId = executionDetail.selectedId;
   }
 
@@ -1290,7 +1294,7 @@
   function getSelectedExecutionItem() {
     // 선택은 조회 상세에만 적용하며 실제 실행 항목을 변경하지 않는다.
     const items = state.task.executionItems || [];
-    return items.find((item) => item.id === state.task.selectedExecutionItemId) || items[0] || null;
+    return items.find((item) => item.id === state.task.selectedExecutionItemId) || null;
   }
 
   function renderTaskItems() {
@@ -1310,10 +1314,21 @@
         // 조회 선택은 현재 실행 물품·작업 위치·상단 제목을 바꾸지 않는다.
         state.task.selectedExecutionItemId = entry.id;
         if (executionDetail.value) executionDetail.selectedId = entry.id;
-        renderTask();
-        container.children[index]?.focus({ preventScroll: true });
+        // 선택은 상세만 펼치고 갱신한다. 버튼·현재 실행 제목 DOM과 포커스를 보존한다.
+        state.task.detailsExpanded = true;
+        updateTaskSelection();
+        renderTaskDetails();
       });
       container.append(button);
+    });
+    updateTaskSelection();
+  }
+
+  function updateTaskSelection() {
+    // 기존 버튼의 접근성 상태와 선택 안내만 바꾼다. 실데이터/예시 모두 같은 경로다.
+    const selected = getSelectedExecutionItem();
+    [...getById("taskItemOrder").children].forEach((button, index) => {
+      button.setAttribute("aria-pressed", String(state.task.executionItems[index].id === selected?.id));
     });
     getById("taskItemSelection").textContent = selected
       ? `선택 물품: ${selected.name} · 아래 단계와 근거는 선택한 물품 기준`
@@ -1327,20 +1342,6 @@
 
   function renderTask() {
     renderTaskItems();
-    // 실데이터는 확인된 현재 단계만, 미리보기는 선택 물품의 예시 이력을 그린다.
-    const detail = executionDetail.value;
-    const selectedSteps = getSelectedExecutionItem()?.steps || (detail
-      ? [...recordedSteps(detail.steps), ...detail.segments.flatMap(segment =>
-        recordedSteps(segment.steps).map(step => ({ ...step, label: `${segment.runId} · ${step.label}` })))] : state.task.steps) || [];
-    // 종료 기록임을 명시해 현재 작업의 실제 진행 이력으로 오해하지 않게 한다.
-    if (detail) {
-      getById("taskItemsNotice").textContent = `최근 요청 종료 기록 · ${detail.runId}`;
-      getById("taskDataNotice").textContent = "종료 기록 조회 · 현재 실행 상세 아님";
-    }
-    const delivery = detail?.delivery;
-    getById("taskDeliveryCount").textContent = delivery
-      ? `${delivery.completed} / ${delivery.total} 전달 완료 · 종료 기록 기준` : "물품별 전달 결과 확인 전";
-
     const workDrawer = getWorkDrawer();
     // 조회 서랍/기억 위치를 실제 작업 장소로 대체하지 않는다. 목적지도 별도 제공 전까지 미확정이다.
     const location = window.ROKEY_DEMO_SCENARIO === "default"
@@ -1363,6 +1364,25 @@
     currentItemReplacement.id = "currentItemVisual";
     currentItemReplacement.hidden = !state.task.currentItemId;
     currentItem.replaceWith(currentItemReplacement);
+
+    renderTaskDetails();
+  }
+
+  function renderTaskDetails() {
+    // 선택/펼침에 필요한 단계·근거만 갱신하고 현재 제목·위치·버튼을 다시 만들지 않는다.
+    // 실데이터는 확인된 현재 단계만, 미리보기는 선택 물품의 예시 이력을 그린다.
+    const detail = executionDetail.value;
+    const selectedSteps = getSelectedExecutionItem()?.steps || (detail
+      ? [...recordedSteps(detail.steps), ...detail.segments.flatMap(segment =>
+        recordedSteps(segment.steps).map(step => ({ ...step, label: `${segment.runId} · ${step.label}` })))] : state.task.steps) || [];
+    // 종료 기록임을 명시해 현재 작업의 실제 진행 이력으로 오해하지 않게 한다.
+    if (detail) {
+      getById("taskItemsNotice").textContent = `최근 요청 종료 기록 · ${detail.runId}`;
+      getById("taskDataNotice").textContent = "종료 기록 조회 · 현재 실행 상세 아님";
+    }
+    const delivery = detail?.delivery;
+    getById("taskDeliveryCount").textContent = delivery
+      ? `${delivery.completed} / ${delivery.total} 전달 완료 · 종료 기록 기준` : "물품별 전달 결과 확인 전";
 
     const details = getById("taskDetails");
     const toggle = getById("taskDetailsToggle");
