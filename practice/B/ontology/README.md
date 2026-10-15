@@ -67,11 +67,19 @@
 | ① 지금 이 PR | 난제 표·근거·형식 확인 (`practice/B`) | 없음 (B 자료) | 방향·관계 이름에 E·C·A 의견 |
 | ② | 무작위 sim 장면마다 관계 → 난제 예측 vs B 사전 판단·sim 결과 비교표 (`clear_sim`·`cluster_sim`·`p2_unpack_sim` 장면 재사용) | 없음 (B sim) | — |
 | ③ | `knowledge/` 에 난제 파일 등록(스키마·로더 검사) | E 파일 | **E 결정**: 저장 위치·스키마 |
-| ④ | B `check_only` 결과에 `case_id`·`relations`(선택 칸) | 계약 (`docs/interfaces.md`·예시) | **E 포함 2명 승인** |
+| ④ | B `check_only`·거부 결과에 `case_id`·`strategy`(선택 칸). Runner 는 (code, `strategy == "impossible"`) 로만 분기, 모르는 id 는 지금 동작 [C 10/14] | 계약 (`docs/interfaces.md`·예시) | **E 포함 2명 승인** |
 | ⑤ | Runner 가 `impossible` 이면 시도하지 않고 이유를 말함 | C `tasks/`·음성 | **C·E 결정** |
 
 - 녹화(10/15)가 먼저다. ①은 문서뿐이라 녹화에 영향이 없다.
 - ②는 녹화 뒤 B 가 바로 할 수 있다. ③~⑤는 각 담당이 정한다.
+
+## 받은 의견 (10/15)
+- **C**: 방향 동의. ④는 위 표처럼 선택 칸 `case_id`·`strategy`. `say_ko` 는 B 자료·C `failure_speech.py`·E 사전 캐시로 흩어지지 않게 원본 한 곳.
+- **E**:
+  - 저장 위치는 스킬 `errors` 에 섞지 말고 `knowledge/` 별도 자료 파일 (파일명·스키마는 ③에서 E 확정). 이 폴더는 그때까지 제안으로 둔다.
+  - `on_top_of` 등 **제안 관계를 지금 실행 pre/effect 관계와 자동으로 같은 것으로 보지 않는다.** ③에서 관계마다 관측 출처·방향·unknown 의미를 먼저 맞춘다 (`relations.*.source`·`observable` 이 그 출발점).
+  - `say_ko` 원본 한 곳·E 캐시 연결, ④, ⑤ C/E 분기는 각각 별도 합의·계약 승인.
+- **D**: P0/P1 없음. 18 → 22 개수 맞춤은 반영.
 
 ## 의견 부탁
 - **E**:
