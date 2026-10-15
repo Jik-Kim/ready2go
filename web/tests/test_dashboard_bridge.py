@@ -227,6 +227,30 @@ def test_overlay_callback_accepts_only_contract_jpeg_and_newest_stamp(ros_contex
         invalid.data = b"invalid-image"
         bridge._on_inspect_overlay(invalid)
         assert cache.get_latest().jpeg == b"new-jpeg"
+        metadata = cache.get_metadata()
+        assert metadata["rejected_count"] == 1
+        assert metadata["last_rejection_reason"] == "format_mismatch"
+        assert metadata["last_rejected_frame_id"] == "wrong_frame"
+
+        wrong_frame = CompressedImage()
+        wrong_frame.header.frame_id = "wrong_frame"
+        wrong_frame.header.stamp.sec = 22
+        wrong_frame.format = "jpeg"
+        wrong_frame.data = b"wrong-frame-image"
+        bridge._on_inspect_overlay(wrong_frame)
+        metadata = cache.get_metadata()
+        assert metadata["rejected_count"] == 2
+        assert metadata["last_rejection_reason"] == "frame_id_mismatch"
+
+        empty = CompressedImage()
+        empty.header.frame_id = "wrist_cam_color_optical_frame"
+        empty.header.stamp.sec = 23
+        empty.format = "jpeg"
+        bridge._on_inspect_overlay(empty)
+        metadata = cache.get_metadata()
+        assert metadata["rejected_count"] == 3
+        assert metadata["last_rejection_reason"] == "invalid_message"
+        assert cache.get_latest().jpeg == b"new-jpeg"
     finally:
         bridge.destroy_node()
 

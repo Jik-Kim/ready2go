@@ -163,6 +163,10 @@
       emptyTitle.textContent = "아직 촬영 없음";
       emptyDetail.textContent = "촬영 결과를 기다리고 있습니다.";
       setCaptureStatus("");
+    } else if (recentCapture.view === "frame_id_mismatch") {
+      emptyTitle.textContent = "촬영 사진 확인 전";
+      emptyDetail.textContent = "카메라 프레임 불일치";
+      setCaptureStatus("", "error");
     } else if (recentCapture.view === "loading") {
       emptyTitle.textContent = "촬영 사진 불러오는 중";
       emptyDetail.textContent = "촬영 정보와 같은 사진을 확인하고 있습니다.";
@@ -251,7 +255,10 @@
       recentCapture.pendingRevision = null;
       recentCapture.blockedRevision = null;
       clearDisplayedCapture();
-      recentCapture.view = "empty";
+      // 메시지는 왔지만 계약 frame_id가 달라 거부된 상태를 단순 미촬영으로 숨기지 않는다.
+      recentCapture.view = metadata.last_rejection_reason === "frame_id_mismatch"
+        ? "frame_id_mismatch"
+        : "empty";
       renderRecentCapture();
       return;
     }

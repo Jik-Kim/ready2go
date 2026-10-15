@@ -38,6 +38,15 @@
       && (typeof value.capture_age_sec !== "number" || value.capture_age_sec < 0)) {
       throw new Error("촬영 사진 경과 시간이 올바르지 않습니다.");
     }
+    // 거부 진단은 사진 유무와 관계없이 고정 형식으로 받아 미촬영과 계약 불일치를 구분한다.
+    if (!Number.isInteger(value.rejected_count) || value.rejected_count < 0
+      || ![null, "format_mismatch", "frame_id_mismatch", "invalid_message"]
+        .includes(value.last_rejection_reason)
+      || (value.last_rejected_at !== null && typeof value.last_rejected_at !== "string")
+      || (value.last_rejected_frame_id !== null
+        && typeof value.last_rejected_frame_id !== "string")) {
+      throw new Error("촬영 사진 거부 진단 형식이 다릅니다.");
+    }
     return value;
   }
 

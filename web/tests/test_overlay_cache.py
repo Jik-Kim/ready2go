@@ -32,6 +32,10 @@ def test_initial_cache_has_no_image_or_binary_metadata() -> None:
     assert metadata["image_available"] is False
     assert metadata["revision"] == 0
     assert metadata["captured_at"] is None
+    assert metadata["rejected_count"] == 0
+    assert metadata["last_rejection_reason"] is None
+    assert metadata["last_rejected_at"] is None
+    assert metadata["last_rejected_frame_id"] is None
     # 상태 JSON에 큰 JPEG나 다른 bytes 값이 섞이지 않았는지도 함께 보장한다.
     assert not any(isinstance(value, bytes) for value in metadata.values())
 
@@ -77,13 +81,13 @@ def test_newer_capture_replaces_image_and_increments_revision() -> None:
     assert latest.revision == 2
 
 
-@pytest.mark.parametrize("sec,nanosec", [(99, 999_999_999), (100, 899), (100, 900)])
-def test_older_or_duplicate_capture_does_not_replace_latest(sec: int, nanosec: int) -> None:
-    """늦게 도착한 과거 사진과 같은 촬영의 중복 메시지를 무시한다."""
+@pytest.mark.parametrize("sec,nanosec", [(99, 999_999_999), (100, 899)])
+def test_older_capture_does_not_replace_latest(sec: int, nanosec: int) -> None:
+    """늦게 도착한 과거 사진은 현재 사진을 덮지 않는다."""
     cache = make_cache()
     cache.update(b"current", 100, 900, BASE_TIME, "camera_color")
 
-    # 더 늦게 수신됐더라도 촬영 stamp가 이전 값 이하이면 저장하지 않는다.
+    # 더 늦게 수신됐더라도 촬영 stamp가 이전 값이면 저장하지 않는다.
     stored = cache.update(b"late", sec, nanosec, BASE_TIME + timedelta(minutes=1), "camera_color")
     latest = cache.get_latest()
 
@@ -92,6 +96,27 @@ def test_older_or_duplicate_capture_does_not_replace_latest(sec: int, nanosec: i
     assert latest.jpeg == b"current"
     assert latest.received_at == BASE_TIME
     assert latest.revision == 1
+
+
+def test_same_capture_stamp_republication_replaces_jpeg_and_increments_revision() -> None:
+    """같은 컬러 프레임의 수정 재발행을 새 JPEG revision으로 제공한다."""
+    cache = make_cache()
+    cache.update(b"first-render", 100, 900, BASE_TIME, "camera_color")
+
+    stored = cache.update(
+        b"corrected-render",
+        100,
+        900,
+        BASE_TIME + timedelta(seconds=1),
+        "camera_color",
+    )
+    latest = cache.get_latest()
+
+    assert stored is True
+    assert latest is not None
+    assert latest.jpeg == b"corrected-render"
+    assert latest.received_at == BASE_TIME + timedelta(seconds=1)
+    assert latest.revision == 2
 
 
 def test_empty_jpeg_is_ignored_without_erasing_current_image() -> None:
@@ -182,13 +207,60 @@ def test_clear_removes_image_without_reusing_revision() -> None:
     """Runtime 종료용 초기화가 사진을 비우고 다음 URL revision은 새 값으로 만든다."""
     cache = make_cache()
     cache.update(b"before-restart", 100, 0, BASE_TIME, "camera_color")
+    cache.record_rejection(
+        "frame_id_mismatch",
+        frame_id="wrong_frame",
+        rejected_at=BASE_TIME,
+    )
 
     cache.clear()
 
     assert cache.get_latest() is None
-    assert cache.get_metadata(BASE_TIME)["image_available"] is False
+    metadata = cache.get_metadata(BASE_TIME)
+    assert metadata["image_available"] is False
+    assert metadata["rejected_count"] == 0
+    assert metadata["last_rejection_reason"] is None
     assert cache.update(b"after-restart", 101, 0, BASE_TIME, "camera_color") is True
     assert cache.get_latest().revision == 2
+
+
+def test_rejection_diagnostics_do_not_erase_latest_image() -> None:
+    """계약 불일치 진단을 누적해도 마지막 정상 사진은 그대로 제공한다."""
+    cache = make_cache()
+    cache.update(b"current", 100, 0, BASE_TIME, "camera_color")
+    rejected_at = BASE_TIME + timedelta(seconds=2)
+
+    cache.record_rejection(
+        "frame_id_mismatch",
+        frame_id="unexpected_frame",
+        rejected_at=rejected_at,
+    )
+    cache.record_rejection(
+        "format_mismatch",
+        frame_id="camera_color",
+        rejected_at=rejected_at + timedelta(seconds=1),
+    )
+    metadata = cache.get_metadata(BASE_TIME + timedelta(seconds=3))
+
+    assert cache.get_latest().jpeg == b"current"
+    assert metadata["image_available"] is True
+    assert metadata["rejected_count"] == 2
+    assert metadata["last_rejection_reason"] == "format_mismatch"
+    assert metadata["last_rejected_at"] == "2026-10-14T06:30:03Z"
+    assert metadata["last_rejected_frame_id"] == "camera_color"
+
+
+def test_rejection_rejects_unknown_reason_and_naive_time() -> None:
+    """REST 계약에 없는 사유와 기준이 불명확한 시각은 기록하지 않는다."""
+    cache = make_cache()
+
+    with pytest.raises(ValueError, match="지원하지 않는"):
+        cache.record_rejection("other")
+    with pytest.raises(ValueError, match="timezone-aware"):
+        cache.record_rejection(
+            "invalid_message",
+            rejected_at=datetime(2026, 10, 14, 6, 30),
+        )
 
 
 def test_concurrent_updates_keep_the_newest_capture_stamp() -> None:

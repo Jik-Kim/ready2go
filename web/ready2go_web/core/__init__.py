@@ -4,8 +4,8 @@
 """
 
 # 촬영 JPEG 캐시와 일반 상태 캐시를 core의 공개 API로 노출한다.
-from .overlay_cache import OverlayCache, OverlaySnapshot
+from .overlay_cache import OVERLAY_REJECTION_REASONS, OverlayCache, OverlaySnapshot
 from .state_cache import StateCache
 
 # wildcard import가 내부 구현 객체를 노출하지 않도록 공개 이름을 제한한다.
-__all__ = ["OverlayCache", "OverlaySnapshot", "StateCache"]
+__all__ = ["OVERLAY_REJECTION_REASONS", "OverlayCache", "OverlaySnapshot", "StateCache"]

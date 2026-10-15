@@ -14,6 +14,12 @@ import threading
 from typing import Callable
 
 
+# 브리지와 REST·브라우저가 같은 안정된 코드로 거부 원인을 구분한다.
+OVERLAY_REJECTION_REASONS = frozenset(
+    {"format_mismatch", "frame_id_mismatch", "invalid_message"}
+)
+
+
 def _utc_now() -> datetime:
     """운영 코드에서 웹 수신 시각으로 사용할 UTC 현재 시각을 만든다."""
     # 로컬 시간대가 달라도 같은 절대 시각을 기록하도록 timezone-aware UTC를 쓴다.
@@ -79,6 +85,33 @@ class OverlayCache:
         self._latest: OverlaySnapshot | None = None
         # revision은 사진이 실제로 교체된 횟수이며 최초 저장 결과는 1이 된다.
         self._revision = 0
+        # 거부 진단은 정상 사진과 분리해 잘못된 새 메시지가 기존 사진을 지우지 않게 한다.
+        self._rejected_count = 0
+        self._last_rejection_reason: str | None = None
+        self._last_rejected_at: datetime | None = None
+        self._last_rejected_frame_id: str | None = None
+
+    def record_rejection(
+        self,
+        reason: str,
+        *,
+        frame_id: str | None = None,
+        rejected_at: datetime | None = None,
+    ) -> None:
+        """계약에 맞지 않아 표시하지 않은 메시지의 진단만 기록한다."""
+        # 자유 형식 오류 문자열 대신 고정 코드를 사용해 REST와 UI 분기를 안정적으로 유지한다.
+        if reason not in OVERLAY_REJECTION_REASONS:
+            raise ValueError("지원하지 않는 오버레이 거부 사유입니다")
+        # 원본 frame_id는 빈 문자열도 진단 가치가 있으므로 문자열 여부만 검사한다.
+        if frame_id is not None and not isinstance(frame_id, str):
+            raise TypeError("frame_id는 문자열 또는 None이어야 합니다")
+        rejected = _require_aware(rejected_at or self._utcnow(), field_name="rejected_at")
+        with self._lock:
+            # 사진 스냅샷과 같은 잠금에서 갱신해 REST가 절반짜리 진단을 보지 않게 한다.
+            self._rejected_count += 1
+            self._last_rejection_reason = reason
+            self._last_rejected_at = rejected
+            self._last_rejected_frame_id = frame_id
 
     def update(
         self,
@@ -111,8 +144,8 @@ class OverlayCache:
                 if self._latest is None
                 else (self._latest.captured_stamp_sec, self._latest.captured_stamp_nanosec)
             )
-            # 늦게 도착한 과거 사진과 같은 촬영의 중복 메시지는 최신 사진을 덮지 않는다.
-            if latest_stamp is not None and stamp <= latest_stamp:
+            # 늦게 도착한 과거 촬영만 막고, 같은 프레임의 수정 재발행은 새 revision으로 받는다.
+            if latest_stamp is not None and stamp < latest_stamp:
                 return False
 
             # 실제로 최신 사진이 교체될 때만 revision을 증가시킨다.
@@ -129,11 +162,15 @@ class OverlayCache:
             return True
 
     def clear(self) -> None:
-        """현재 사진을 제거하되 다음 사진의 revision은 계속 증가하게 한다."""
+        """현재 사진과 거부 진단을 제거하되 revision은 계속 증가하게 한다."""
         with self._lock:
-            # Runtime 재기동 사이에 이전 기동 사진을 제공하지 않도록 스냅샷만 비운다.
+            # Runtime 재기동 사이에 이전 기동 사진·오류를 제공하지 않도록 함께 비운다.
             # revision을 되돌리면 브라우저가 과거 URL의 이미지를 재사용할 수 있으므로 유지한다.
             self._latest = None
+            self._rejected_count = 0
+            self._last_rejection_reason = None
+            self._last_rejected_at = None
+            self._last_rejected_frame_id = None
 
     def get_latest(self) -> OverlaySnapshot | None:
         """현재 최신 사진을 새 불변 스냅샷으로 반환한다."""
@@ -168,8 +205,21 @@ class OverlayCache:
         if not isinstance(capture_time_is_utc, bool):
             raise TypeError("capture_time_is_utc는 bool이어야 합니다")
 
-        # 잠금 구간을 짧게 유지하기 위해 불변 복사본을 얻은 뒤 시간 계산을 수행한다.
-        latest = self.get_latest()
+        # 사진과 거부 진단을 같은 잠금 시점에 복사해 REST 한 응답의 정합성을 지킨다.
+        with self._lock:
+            latest = None if self._latest is None else replace(self._latest)
+            rejected_count = self._rejected_count
+            last_rejection_reason = self._last_rejection_reason
+            last_rejected_at = self._last_rejected_at
+            last_rejected_frame_id = self._last_rejected_frame_id
+        rejection_metadata = {
+            "rejected_count": rejected_count,
+            "last_rejection_reason": last_rejection_reason,
+            "last_rejected_at": (
+                _isoformat_utc(last_rejected_at) if last_rejected_at is not None else None
+            ),
+            "last_rejected_frame_id": last_rejected_frame_id,
+        }
         if latest is None:
             # 빈 상태도 고정된 키를 반환해 REST와 UI가 조건마다 다른 구조를 처리하지 않게 한다.
             return {
@@ -183,6 +233,7 @@ class OverlayCache:
                 "revision": 0,
                 "stale_after_sec": stale_after_sec,
                 "stale": False,
+                **rejection_metadata,
             }
 
         # UTC wall clock이라는 근거가 없으면 sim stamp를 1970년 시각으로 오해하지 않는다.
@@ -220,4 +271,5 @@ class OverlayCache:
             "revision": latest.revision,
             "stale_after_sec": stale_after_sec,
             "stale": stale,
+            **rejection_metadata,
         }

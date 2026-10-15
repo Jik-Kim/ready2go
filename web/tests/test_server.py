@@ -264,6 +264,38 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     assert overlay["revision"] == 1
     assert overlay["stale_after_sec"] is None
     assert overlay["stale"] is False
+    assert overlay["rejected_count"] == 0
+    assert overlay["last_rejection_reason"] is None
+    assert overlay["last_rejected_at"] is None
+    assert overlay["last_rejected_frame_id"] is None
+    assert "jpeg" not in overlay
+
+
+def test_status_api_exposes_overlay_rejection_diagnostics_without_jpeg() -> None:
+    """사진이 거부된 이유를 상태 API에서 확인하되 바이너리는 포함하지 않는다."""
+    fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
+    overlay_cache = OverlayCache(utcnow=fixed_now)
+    overlay_cache.record_rejection(
+        "frame_id_mismatch",
+        frame_id="unexpected_frame",
+        rejected_at=fixed_now(),
+    )
+    app = create_app(
+        state_cache=StateCache(),
+        overlay_cache=overlay_cache,
+        utcnow=fixed_now,
+    )
+    app.config.update(TESTING=True)
+
+    with app.test_client() as test_client:
+        response = test_client.get(STATUS_API_PATH)
+
+    overlay = response.get_json()["vision_overlay"]
+    assert overlay["image_available"] is False
+    assert overlay["rejected_count"] == 1
+    assert overlay["last_rejection_reason"] == "frame_id_mismatch"
+    assert overlay["last_rejected_at"] == "2026-10-13T06:31:00Z"
+    assert overlay["last_rejected_frame_id"] == "unexpected_frame"
     assert "jpeg" not in overlay
 
 

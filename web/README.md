@@ -95,6 +95,10 @@ tasks/*.json ──────────────────────�
 
 [코드] 최근 촬영 영역은 `/api/status.vision_overlay`의 새 `revision`을 확인했을 때만 같은 revision의 JPEG를 요청합니다. 촬영 시각은 KST, 경과 시간은 서버 메타데이터 기준으로 표시하며, 상태와 JPEG 사이에 새 촬영이 들어와 HTTP 409가 발생하면 같은 revision을 반복 요청하지 않고 다음 상태 polling에서 새 revision을 받아 다시 시도합니다. 사진 없음·오래된 사진·확인 불가를 구분하되, 사진 상태는 `/wrist_cam/color/camera_info` 기반 상단 카메라 배지 판정에 사용하지 않습니다.
 
+[코드] JPEG 형식·`frame_id`·메시지 형식이 계약과 달라 사진을 거부하면 `vision_overlay`의 누적 횟수, 마지막 사유·시각·frame ID로 진단합니다. 사진이 한 장도 없고 마지막 사유가 `frame_id_mismatch`이면 최근 촬영 영역에 `촬영 사진 확인 전 · 카메라 프레임 불일치`를 표시하며, 기존 정상 사진이 있으면 그 사진을 지우지 않습니다.
+
+[운영 제한] 최신 사진은 촬영 stamp 순서로 정렬하므로 이전 stamp는 거부하고, 같은 stamp의 Vision 재발행은 수정된 JPEG로 보고 새 revision으로 교체합니다. 시뮬레이터 재시작으로 sim time이 이전 값으로 돌아가면 현재 웹 기동의 캐시보다 stamp가 작아 새 사진이 과거 촬영으로 거부될 수 있습니다. 이 경우 웹 Runtime을 재기동해 사진·거부 진단 캐시를 초기화한 뒤 다시 수신합니다. 실물의 UTC epoch 촬영 시각에는 이 sim time 제한이 적용되지 않습니다.
+
 실제 연결 시에는 다음 순서로 교체할 수 있습니다.
 
 1. Flask가 공유 `StateCache`의 스냅샷을 읽기 전용 REST로 반환합니다.

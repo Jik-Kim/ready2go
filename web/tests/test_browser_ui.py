@@ -155,6 +155,32 @@ def test_recent_capture_keeps_empty_state_without_image_request(tmp_path: Path) 
     assert '<dd id="captureAge">확인 전</dd>' in rendered
 
 
+def test_recent_capture_explains_frame_id_rejection_without_image_request(
+    tmp_path: Path,
+) -> None:
+    """사진이 없고 frame_id가 달라 거부됐다면 단순 미촬영으로 표시하지 않는다."""
+    now = datetime(2026, 10, 15, 1, 10, 7, tzinfo=timezone.utc)
+    overlay_cache = OverlayCache(utcnow=lambda: now)
+    overlay_cache.record_rejection(
+        "frame_id_mismatch",
+        frame_id="unexpected_frame",
+        rejected_at=now,
+    )
+
+    rendered, image_request_count = _render_dashboard(
+        tmp_path,
+        runtime_profile="dev",
+        camera_received=False,
+        overlay_cache=overlay_cache,
+        utcnow=lambda: now,
+    )
+
+    assert image_request_count == 0
+    assert '<strong>촬영 사진 확인 전</strong>' in rendered
+    assert '<span>카메라 프레임 불일치</span>' in rendered
+    assert '<strong>아직 촬영 없음</strong>' not in rendered
+
+
 def test_recent_capture_renders_matching_revision_once_with_kst_time(
     tmp_path: Path,
 ) -> None:

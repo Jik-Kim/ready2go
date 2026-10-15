@@ -282,10 +282,20 @@ class DashboardBridge(Node):
         """계약에 맞는 최신 JPEG만 별도 촬영 캐시에 기록한다."""
         # CompressedImage의 format은 계약상 정확히 jpeg이며 다른 압축 형식은 표시하지 않는다.
         if message.format.strip().lower() != "jpeg":
+            if self.overlay_cache is not None:
+                self.overlay_cache.record_rejection(
+                    "format_mismatch",
+                    frame_id=message.header.frame_id,
+                )
             self.get_logger().warning("/vision/inspect_overlay format must be jpeg")
             return
         # 잘라낸 이미지의 기준 프레임이 계약과 다르면 촬영 시각의 의미도 보장할 수 없다.
         if message.header.frame_id != INSPECT_OVERLAY_FRAME_ID:
+            if self.overlay_cache is not None:
+                self.overlay_cache.record_rejection(
+                    "frame_id_mismatch",
+                    frame_id=message.header.frame_id,
+                )
             self.get_logger().warning(
                 "/vision/inspect_overlay frame_id must be wrist_cam_color_optical_frame"
             )
@@ -293,9 +303,18 @@ class DashboardBridge(Node):
         if self.overlay_cache is None:
             return
 
+        # 빈 데이터는 촬영 순서와 무관하게 표시할 수 없는 잘못된 메시지다.
+        if not message.data:
+            self.overlay_cache.record_rejection(
+                "invalid_message",
+                frame_id=message.header.frame_id,
+            )
+            self.get_logger().warning("invalid /vision/inspect_overlay message: empty JPEG")
+            return
+
         try:
             # 계약은 stamp를 UTC epoch 촬영 시각으로 정했으므로 publisher GID와 관계없이
-            # 현재 캐시보다 오래되거나 같은 촬영을 항상 거부한다.
+            # 현재 캐시보다 오래된 촬영만 거부하고 같은 프레임의 재발행은 허용한다.
             self.overlay_cache.update(
                 jpeg=bytes(message.data),
                 captured_stamp_sec=message.header.stamp.sec,
@@ -304,7 +323,11 @@ class DashboardBridge(Node):
                 frame_id=message.header.frame_id,
             )
         except (TypeError, ValueError) as exc:
-            # 잘못된 새 메시지가 이미 보관한 정상 사진을 지우지 않게 경고만 남긴다.
+            # 잘못된 새 메시지가 기존 사진을 지우지 않되 REST에서 원인을 확인할 수 있게 한다.
+            self.overlay_cache.record_rejection(
+                "invalid_message",
+                frame_id=message.header.frame_id,
+            )
             self.get_logger().warning(f"invalid /vision/inspect_overlay message: {exc}")
 
     def _on_robot_joint_state(self, message: JointState) -> None:
