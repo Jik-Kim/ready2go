@@ -37,10 +37,11 @@ def local(cfg,tmp_path,monkeypatch):
 
 def test_two_explicit_commands_new_folders_shared_selection_and_preserved_original(trial,local,tmp_path):
     before=local.read_bytes();calls=[];root=tmp_path/'runs'
+    startup_timeout=yaml.safe_load(before)['tts_melotts_startup_timeout_sec']
     def prepare(cfg):
         calls.append(('prepare',cfg['_tts_prefill_texts']))
-        assert cfg['tts_prefill_max_texts']==256 and cfg['voice_flow']['cue_gain']==.18
-        assert cfg['tts_melotts_startup_timeout_sec']==60.
+        assert cfg['tts_prefill_max_texts']==512 and cfg['voice_flow']['cue_gain']==.18
+        assert cfg['tts_melotts_startup_timeout_sec']==startup_timeout
     def live(path,**kw):
         cfg=yaml.safe_load(path.read_text());calls.append(('live',trial.selected_texts(cfg)))
         assert not kw['auto_complete'] and cfg['voice_flow']['capture_save_wav']
