@@ -182,6 +182,42 @@ ss -ltnp | grep ':4173'
 
 `0.0.0.0`은 서버의 수신 주소이므로 브라우저 주소로 사용하지 않습니다. Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 다른 PC나 휴대폰에서 `http://서버_PC_IP:4173/`으로 접속합니다. 예를 들어 `hostname -I`의 LAN 주소가 `172.24.1.176`이면 접속 주소는 `http://172.24.1.176:4173/`입니다. 모바일 전용 URL은 없으며 화면 폭에 따라 자동 전환됩니다. 접속되지 않으면 서버 실행 여부, 동일 네트워크, 방문자망의 장치 간 차단, TCP 4173 방화벽을 확인합니다. Flask 내장 서버는 개발·시연용이며 운영 배포 서버로 사용하지 않습니다.
 
+<a id="pc2-overlay-check"></a>
+### PC2 실물 연결 확인 — 최근 촬영 UI (2026-10-15)
+
+[실측] 학원 공용 PC2(MSI)에서 A 김병직이 직접 실행하고 D 김민준이 화면을 함께 확인했습니다. 코드는 PC2 main `d28fd55`(#368 웹·#370 비전 포함)이며, PC1은 HTTP로만 접속했습니다(DDS는 PC2 `local` 그대로). 비전 쪽 절차·회차 기록은 [practice/A/2026-10-15_practice.md](../practice/A/2026-10-15_practice.md)에 있습니다.
+
+| 확인 항목 | 결과 |
+| :--- | :--- |
+| 카메라 배지 (`/wrist_cam/color/camera_info`) | 정상 수신, `frame_id` `wrist_cam_color_optical_frame` |
+| 촬영 한 장 뒤 `/api/status.vision_overlay` | `image_available: true`, `frame_id: wrist_cam_color_optical_frame`, `revision: 1`, `rejected_count: 0` |
+| PC1 → `GET /api/vision/overlay.jpg` | HTTP `200`, 136,544 B JPEG |
+| PC1 브라우저 작업 상세 '최근 촬영' 칸 | 분할 사진과 KST 촬영 시각 표시 |
+| 실제 회차 S2 (run `0d8e38`, 129 s, ✅ 성공) | 비전 호출 5번 모두 수신 → `revision: 6`, `rejected_count: 0`, 촬영마다 사진 실시간 갱신 |
+
+확인 순서(PC2 저장소 루트, 로봇이 멈춘 상태에서):
+
+```bash
+bash tools/dev/pc2_up.sh --p2                       # 터미널 ①
+# 터미널 ③: 비전 오버레이 시작 줄과 실제 카메라 frame_id
+docker compose --profile real --profile pc2 logs vision-node | grep "inspect_region 시작" | tail -1 | grep -o "오버레이 [^)]*"
+docker compose exec ros2-core /entrypoint.sh ros2 topic echo --once --field header.frame_id /wrist_cam/color/camera_info
+# 터미널 ④: 위 6절 환경 설정 뒤 WEB_HOST=0.0.0.0 WEB_PORT=4173 python3 -m ready2go_web
+# 터미널 ③: 탑뷰 자세에서 촬영만 한 번(로봇 이동 없음) → 웹 수신 확인
+docker compose exec ros2-core /entrypoint.sh ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: ''}"
+curl -sS http://127.0.0.1:4173/api/status | python3 -c 'import json,sys; v=json.load(sys.stdin)["vision_overlay"]; print({k: v.get(k) for k in ("image_available","captured_at","frame_id","revision","rejected_count","last_rejection_reason")})'
+# 다른 PC: curl -sS -o /tmp/overlay.jpg -w "%{http_code}\n" http://<PC2 와이파이 IP>:4173/api/vision/overlay.jpg
+```
+
+학원 공용 MSI에서 처음 실행할 때 확인한 차이입니다.
+
+- 저장소 위치는 `/home/rokey/ready2go`가 아니라 `~/ready2go`입니다. 위 6절 명령의 첫 `cd`를 바꿔 실행합니다.
+- `hostname -I`의 `192.168.1.x`는 로봇·그리퍼 쪽 유선망이라 다른 PC에서 열리지 않습니다. 와이파이 주소(`172.24.x.x`)로 접속합니다.
+- `.venvs/project`에 Flask가 없으면 `python3 -m pip install -r web/requirements.txt`로 설치합니다.
+- `ros2_ws/install`이 컨테이너에서 빌드된 것이면 호스트 `colcon`이 경로 불일치로 실패합니다. 기존 폴더는 두고 `--build-base ~/ready2go_host_ws/build --install-base ~/ready2go_host_ws/install --packages-up-to ready2go_knowledge`로 따로 빌드한 뒤 `source ~/ready2go_host_ws/install/setup.bash`를 사용합니다. 저장소 `logs/`가 root 소유일 수 있어 `ROS_LOG_DIR="$HOME/ready2go_pc2_logs/ros"`로 실행했습니다.
+
+미확인: PC1↔PC2 multi DDS, 휴대폰 접속, S1·S3 회차 중 표시.
+
 ### 3단계 REST 형식
 
 브라우저와 같은 origin의 `GET /api/status`를 사용합니다. 성공 응답은 HTTP 200이며 `Cache-Control: no-store`가 붙습니다.
