@@ -1293,7 +1293,7 @@
           ? "상태 REST 연결 오류 · 현재 상태는 확인 전이며 등록 정의 파일 스냅샷만 사용할 수 있습니다."
           : "REST 연결 오류 · 현재 상태와 등록 정의가 확인 전입니다."
         : state.meta.mode === "partial-live"
-          ? "부분 실데이터 · 인증 미구현 읽기 전용 화면 · Runner 응답은 수신했지만 현재 상태 일부는 확인 전입니다."
+          ? "부분 실데이터 · 인증 미구현 · Runner 응답은 수신했지만 현재 상태 일부는 확인 전입니다."
           : definitionsConnected
             ? "등록 정의 연결됨 · 현재 Runner 상태는 확인 전이며 등록 정의는 웹 파일 스냅샷입니다."
             : "확인 전 · 현재 상태와 등록 정의를 아직 조회하지 못했습니다.";
@@ -1410,7 +1410,8 @@
     const adminVisible = window.location.hash === "#admin";
     getById("dashboardView").hidden = adminVisible;
     getById("adminView").hidden = !adminVisible;
-    document.title = adminVisible ? "ROKEY · 읽기 전용 검토 화면" : "ROKEY · 출근 준비 도우미";
+    // 화면 전환 뒤에도 브라우저 탭 제목을 화면의 Ready2Go 브랜드와 맞춘다.
+    document.title = adminVisible ? "Ready2Go · 검토 화면" : "Ready2Go · 출근 준비 도우미";
     if (adminVisible) {
       window.scrollTo(0, 0);
       getById("exitAdminView").focus();

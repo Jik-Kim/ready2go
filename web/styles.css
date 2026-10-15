@@ -1002,21 +1002,6 @@ td {
   display: none;
 }
 
-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 18px clamp(22px, 4vw, 64px);
-  border-top: 1px solid var(--gray-200);
-  background: var(--white);
-  color: var(--gray-700);
-  font-size: 0.78rem;
-}
-
-footer strong {
-  color: var(--navy-900);
-}
-
 dialog {
   color: var(--navy-950);
 }
@@ -1892,12 +1877,6 @@ dialog::backdrop {
     color: var(--gray-700);
     font-size: 0.68rem;
     font-weight: 650;
-  }
-
-  footer {
-    display: grid;
-    gap: 2px;
-    padding: 15px 16px;
   }
 
   .admin-header {

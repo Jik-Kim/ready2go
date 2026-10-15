@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="ROKEY 출근 준비 도우미 녹화 범위 검토용 반응형 정적 목업"
+      content="Ready2Go 출근 준비 도우미 — ROS 연결·기억 상태, 등록 목록, 최근 촬영 사진과 목업 작업 진행을 표시하는 반응형 대시보드"
     />
-    <title>ROKEY · 출근 준비 도우미</title>
+    <title>Ready2Go · 출근 준비 도우미</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./styles.css" />
     <!-- 목업 화면 모델 위에 status-api.js가 실제 Runner 연결과 기억 상태를 안전하게 덮어씁니다. -->
@@ -20,8 +20,9 @@
   <body>
     <div id="dashboardView">
     <header class="app-header">
-      <div class="brand-lockup" aria-label="ROKEY 출근 준비 도우미">
-        <strong class="brand">ROKEY</strong>
+      <!-- 서비스명은 화면 제목과 접근성 이름에 동일하게 사용한다. -->
+      <div class="brand-lockup" aria-label="Ready2Go 출근 준비 도우미">
+        <strong class="brand">Ready2Go</strong>
         <span class="brand-subtitle">출근 준비 도우미</span>
       </div>
 
@@ -222,17 +223,13 @@
 
     </main>
 
-    <footer>
-      <strong>ROKEY</strong>
-      <span>녹화 범위 검토용 정적 목업 UI</span>
-    </footer>
     </div>
 
     <section id="adminView" class="admin-view" aria-labelledby="adminTitle" hidden>
       <header class="admin-header">
-        <div class="brand-lockup" aria-label="ROKEY 읽기 전용 검토 화면">
-          <strong class="brand">ROKEY</strong>
-          <h1 id="adminTitle" class="admin-title">읽기 전용 검토 화면</h1>
+        <div class="brand-lockup" aria-label="Ready2Go 검토 화면">
+          <strong class="brand">Ready2Go</strong>
+          <h1 id="adminTitle" class="admin-title">검토 화면</h1>
         </div>
         <button id="exitAdminView" class="admin-exit-button" type="button">
           <span aria-hidden="true">↪</span>
@@ -242,7 +239,7 @@
 
       <div class="admin-shell">
         <p id="adminDataNotice" class="admin-demo-notice" role="note">
-          목업 데이터 · 인증 미구현 읽기 전용 화면 · 현재 상태와 온톨로지만 녹화 우선 연결 예정입니다.
+          목업 데이터 · 인증 미구현 · 현재 상태와 온톨로지만 녹화 우선 연결 예정입니다.
         </p>
 
         <nav class="admin-tabs-scroll" aria-label="관리자 검토 항목">

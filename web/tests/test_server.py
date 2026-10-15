@@ -43,7 +43,7 @@ def test_root_serves_existing_dashboard_html(client) -> None:
 
     # 기존 UI의 제목·viewport·목업 안내 요소가 Flask 제공 뒤에도 유지돼야 한다.
     body = response.get_data(as_text=True)
-    assert "ROKEY · 출근 준비 도우미" in body
+    assert "Ready2Go · 출근 준비 도우미" in body
     assert 'name="viewport"' in body
     assert 'id="mockDataNotice"' in body
     assert '<script src="./status-api.js" defer></script>' in body
