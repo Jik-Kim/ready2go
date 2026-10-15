@@ -1,6 +1,6 @@
 # Ready2Go 웹 대시보드
 
-> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 기본 화면은 확인 전으로 시작하며 최근 요청의 해석·접수 결정과 같은 실행으로 연결된 결과를 표시합니다. 현재 작업은 Runner의 phase·task_id·current_step만 표시합니다. 저장소를 설정하면 최근 요청에 연결된 종료 기록의 물품 순서·단계·전달 결과를 별도로 표시합니다. 실행 중 전체 순서·현재 child 연결·작업 장소·목적지는 확인 전입니다.
+> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 기본 화면은 확인 전으로 시작하며 최근 요청의 해석·접수 결정과 같은 실행으로 연결된 결과를 표시합니다. 현재 시연의 작업 영역은 Runner의 phase·task_id·current_step만 표시합니다. 물품별 순서·단계·전달 결과의 상세 조회·표시는 비활성인 후속 구현으로 보존하며, 저장소·URL 설정으로 활성화되지 않습니다. 실행 중 전체 순서·현재 child 연결·작업 장소·목적지는 확인 전입니다.
 
 기능의 의미·Phase·수용 기준은 정본인 [FR-COM-01](../docs/requirements.md#fr-com-01), [FR-INT-02](../docs/requirements.md#fr-int-02), [FR-ONT-02](../docs/requirements.md#fr-ont-02), [FR-PLN-02](../docs/requirements.md#fr-pln-02), [FR-LOG-01–02](../docs/requirements.md#fr-log-01), [NFR-SAF-02](../docs/requirements.md#nfr-saf-02)를 참조합니다. 이 문서는 요구사항을 재정의하지 않습니다.
 
@@ -444,7 +444,7 @@ ros2 topic info /voice/intent --verbose
 
 [문서] 기동 변경 시 이전 명령·작업·선택 상세를 비웁니다. `/robot_state`는 기동 ID가 없으므로 재기동 당시의 캐시는 확인 전이며 이후 새 수신값만 Runner 기억 상태로 표시합니다. 이 별도 토픽의 새 수신만으로 현재 관측 또는 동일 기동 소속을 증명하지는 않습니다. 실제 작업 위치에는 사용하지 않습니다.
 
-[문서] 현재 작업의 제목과 단일 현재 단계는 `/runner/status`에서만 가져오며, 조회 서랍·선택 물품이나 최근 요청의 targets에서 만들지 않습니다. 앞 단계의 성공·전달 완료를 추정하지 않습니다. 상세 조회는 최근 요청과 연결된 종료 run에만 허용하고 기동/run/세대 토큰을 실제 응답 반영 경로에서 검사합니다. 현재 상위/child run 식별과 진행 중 순서·결과 갱신은 아직 연결하지 않았습니다.
+[문서] 현재 작업의 제목과 단일 현재 단계는 `/runner/status`에서만 가져오며, 조회 서랍·선택 물품이나 최근 요청의 targets에서 만들지 않습니다. 앞 단계의 성공·전달 완료를 추정하지 않습니다. 후속용으로 보존한 상세 구현은 최근 요청과 연결된 종료 run만 조회하고, 상세 응답 반영 시 기동/run/세대 토큰을 검사하도록 구현돼 있습니다. 현재 시연 화면에서는 이 상세 조회·응답 반영 경로를 호출하지 않습니다. 현재 상위/child run 식별과 진행 중 순서·결과 갱신은 아직 연결하지 않았습니다.
 
 ## 7. URL 데모 시나리오
 
