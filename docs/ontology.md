@@ -49,6 +49,8 @@
 
 자동 계획은 [FR-PLN-02](requirements.md#fr-pln-02), 복합 작업 추가는 [FR-PLN-03](requirements.md#fr-pln-03), 목록·분류 조회는 [FR-ONT-03](requirements.md#fr-ont-03)에 따릅니다. 스킬 파일과 sources 등록만으로 음성 프롬프트·플래너·태스크 레지스트리에 자동 반영된다고 보장하지 않습니다. 담당 모듈의 연결 확인이 필요합니다. 계획 설계는 [planner.md](planner.md)를 참조합니다. [문서]
 
+P3 첫 TTL 시험은 별도 `core.semantic_query`에서 분류·목록을 활성 물품 키와 출처로 조회합니다. 운영 JSON-LD·초기 상태·Runner 현재 상태는 보존하며 C의 물품별 위치 조회와 음성/실행 연결은 아직 미연결입니다. 호출 예시·지원 관계·의존성과 원본 형식 미결은 [Knowledge README](../ros2_ws/src/ready2go_knowledge/README.md#p3-ttl-의미-조회--302-첫-시험), 담당별 합의는 [#302](https://github.com/Jik-Kim/ready2go/issues/302)에 기록합니다. [구현/미연결]
+
 ### 7.8 상태 계약과 Phase별 연결
 
 - 상태는 `state[predicate][subject] = value` 형태입니다. 초기 프리셋을 읽는 것과 실제 로봇 상태를 확인·관리하는 것은 별개입니다. 현재 상태·로그 관리 책임은 Runner(C)에 있습니다. [문서]

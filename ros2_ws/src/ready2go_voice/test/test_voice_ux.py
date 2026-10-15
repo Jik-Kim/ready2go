@@ -508,21 +508,21 @@ def test_prepared_payload_rejects_stale_modified_or_untrusted_inputs(ontology, s
     assert session.prepare_request_payload(doc, generation, request_id=request_id, blocked=blocked) is None
 
 
-@pytest.mark.parametrize('total',[256,257])
-def test_prefill_256_includes_warmup_and_rejects_overflow(cfg,ontology,tmp_path,total):
+@pytest.mark.parametrize('total',[512,513])
+def test_prefill_512_includes_warmup_and_rejects_overflow(cfg,ontology,tmp_path,total):
     cfg['tts_melotts_assets']=str(tmp_path)
     items=list(ontology['world']['items'].values())
     initial=prefill_texts(cfg,items)
-    assert cfg['tts_prefill_max_texts']==256
+    assert cfg['tts_prefill_max_texts']==512
     cfg['tts_melotts_prefill_texts'].extend(f'모의 상한 문장 {i}' for i in range(total-1-len(initial)))
-    if total==256:
-        assert len(prefill_texts(cfg,items))+1==256
+    if total==512:
+        assert len(prefill_texts(cfg,items))+1==512
     else:
         with pytest.raises(ValueError,match='PREFILL_REQUIRED_LIMIT'):prefill_texts(cfg,items)
 
 
 @pytest.mark.parametrize('limit',['chars','bytes'])
-def test_prefill_256_keeps_character_and_utf8_limits(cfg,ontology,tmp_path,limit):
+def test_prefill_512_keeps_character_and_utf8_limits(cfg,ontology,tmp_path,limit):
     cfg['tts_melotts_assets']=str(tmp_path)
     if limit=='chars':
         cfg['tts_melotts_prefill_texts'].append('가'*(cfg['tts_prefill_max_chars']+1))
@@ -534,16 +534,16 @@ def test_prefill_256_keeps_character_and_utf8_limits(cfg,ontology,tmp_path,limit
 
 
 @pytest.mark.parametrize('missing',[False,True])
-def test_prefill_256_session_duplicate_capacity_does_not_restore_question(cfg,ontology,schema,missing):
+def test_prefill_512_session_duplicate_capacity_does_not_restore_question(cfg,ontology,schema,missing):
     cfg['evaluation_mode']=False
     if missing:cfg.pop('tts_prefill_max_texts')
     session=VoiceSession(IntentParser(ontology,schema,cfg),cfg)
-    assert session._published_questions.maxlen==256
-    for i in range(257):
+    assert session._published_questions.maxlen==512
+    for i in range(513):
         session.mark_published({'intent':'find_item','targets':['toy_hammer'],
             'source':{'stt_text':str(i)},'_voice':{'question_id':f'mock:{i}','context_answer':True}})
-    assert len(session._published_questions)==256 and 'mock:0' not in session._published_questions
-    assert 'mock:256' in session._published_questions
+    assert len(session._published_questions)==512 and 'mock:0' not in session._published_questions
+    assert 'mock:512' in session._published_questions
     assert session.conversation.pending is None
     answer=session.text('응')
     assert not answer['source']['execution_allowed'] and not answer['targets']
@@ -554,6 +554,6 @@ def test_prefill_256_config_missing_default_and_explicit_old_local_preserved(cfg
     from ready2go_voice.core.config import load_config
     path=tmp_path/'old.yaml'
     cfg.pop('tts_prefill_max_texts');path.write_text(yaml.safe_dump(cfg,allow_unicode=True))
-    assert load_config(path)['tts_prefill_max_texts']==256
+    assert load_config(path)['tts_prefill_max_texts']==512
     cfg['tts_prefill_max_texts']=128;path.write_text(yaml.safe_dump(cfg,allow_unicode=True))
     assert load_config(path)['tts_prefill_max_texts']==128  # 최신값 강제 적용은 승인된 시험 복사본에만 수행합니다.
