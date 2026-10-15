@@ -279,7 +279,7 @@ def test_text_status_and_refused_control_no_publication_and_corrupt_source_unkno
     node._text(SimpleNamespace(data='현재 상태'));play(node)
     assert node.texts[-1]==prompts(node.cfg)['status_idle'] and not node.published
     node._text(SimpleNamespace(data='복구해'));play(node)
-    assert node.texts[-1]==prompts(node.cfg)['control_rejected'] and not node.published
+    assert node.texts[-1]==prompts(node.cfg)['runtime_no_recover_work'] and not node.published
     node._query_status['last_intent']=[]
     query(node,'현재 상태');play(node)
     assert node.texts[-1]==prompts(node.cfg)['status_unknown']

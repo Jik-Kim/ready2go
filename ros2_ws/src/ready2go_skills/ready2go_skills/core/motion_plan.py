@@ -121,6 +121,42 @@ def safe_blend_radii(start: Sequence[float], points: Sequence[Sequence[float]], 
     return out
 
 
+def guided_via(seq: Sequence[Sequence[float]], radii: Sequence[float], n_via: int, turn_after: int = 0,
+               start_angles: Optional[Sequence[float]] = None) -> list:
+    """movesx guided 경유점 [movesx_carry_sim 10/13]: moveb 가 그리는 둥근 경로(직선 + 모서리 radii, 2차 베지어 근사) 위에서
+    길이 같은 간격 n_via 점을 뽑음 — 교시 경유점(직각 모서리)을 그대로 스플라인에 넣으면 위로 약 90 mm 부풂.
+    seq = [지금 posx] + 경유점들(posx 6), radii[k] = seq[k + 1] 모서리 반지름. 마지막 점은 seq[-1] 그대로.
+    손목 각도: 경로 길이가 seq[turn_after] 를 지난 점부터 seq[-1] 각도, 그 앞은 start_angles(없으면 seq[0] 각도)."""
+    pts = [list(map(float, p[:3])) for p in seq]
+    poly, cur, s_mark = [pts[0]], pts[0], []
+    for k in range(len(pts) - 2):
+        c, nxt = pts[k + 1], pts[k + 2]
+        r = min(float(radii[k]) if k < len(radii) else 0.0, math.dist(cur, c), math.dist(c, nxt))
+        a = [c[i] + (cur[i] - c[i]) / max(math.dist(cur, c), 1e-9) * r for i in range(3)]
+        b = [c[i] + (nxt[i] - c[i]) / max(math.dist(c, nxt), 1e-9) * r for i in range(3)]
+        poly.append(a)
+        s_mark.append(len(poly) - 1)                      # 모서리 k+1 에 들어가는 점
+        for j in range(1, 11):
+            t = j / 10.0
+            poly.append([(1 - t) ** 2 * a[i] + 2 * (1 - t) * t * c[i] + t ** 2 * b[i] for i in range(3)])
+        cur = b
+    poly.append(pts[-1])
+    s = [0.0]
+    for p, q in zip(poly, poly[1:]):
+        s.append(s[-1] + math.dist(p, q))
+    turn_s = 0.0 if turn_after <= 0 else (s[s_mark[turn_after - 1]] if turn_after - 1 < len(s_mark) else s[-1])
+    a0 = list(start_angles if start_angles is not None else seq[0][3:6])
+    a1 = list(seq[-1][3:6])
+    out = []
+    for k in range(1, n_via + 1):
+        v = s[-1] * k / n_via
+        i = next((j for j in range(1, len(s)) if s[j] >= v), len(s) - 1)
+        f = 0.0 if s[i] == s[i - 1] else (v - s[i - 1]) / (s[i] - s[i - 1])
+        xyz = pts[-1] if k == n_via else [poly[i - 1][d] + f * (poly[i][d] - poly[i - 1][d]) for d in range(3)]
+        out.append(list(xyz) + (a1 if v > turn_s else a0))
+    return out
+
+
 def handle_posx(closed_posx: Sequence[float], pull_dir: Sequence[float], displacement_m: float) -> list:
     """닫힌 상태 손잡이 파지 posx → 인출 거리 displacement_m 에서의 손잡이 파지 posx (방향 그대로)."""
     return offset_posx(closed_posx, pull_dir, displacement_m * 1000.0)
