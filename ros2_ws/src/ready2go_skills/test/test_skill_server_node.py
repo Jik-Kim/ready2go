@@ -182,7 +182,8 @@ def server(monkeypatch):
 
 LEGACY_FLAGS = {"motion": {"one_turn": False}, "carry": {"direct": False, "spline": False},
                 "transit": {"view_blend_in_drawer": False}, "pick": {"open_on_way": False},
-                "place": {"touch_window_mm": 0.0}, "make_room": {"wall_blocked_as_neighbor": False}}
+                "place": {"touch_window_mm": 0.0}, "speed": {"j6_max_deg_s": None},
+                "make_room": {"wall_blocked_as_neighbor": False}}
 
 
 def test_check_only_still_needs_drag_returns_push_limit_without_motion(server):
@@ -4015,6 +4016,41 @@ def test_make_room_nudge_plate_is_on_in_repo_and_reaches_plan_config(server, mon
     assert cfg.nudge_plate is True and cfg.plate_clear_m == pytest.approx(prm["pick"]["under_clear_by_class_mm"]["cover_plate"] / 1000.0)
     _with_prm(server, monkeypatch, make_room={"nudge_plate": False})
     assert server.srv._room_cfg("drawer_top").nudge_plate is False
+
+
+def test_make_room_wall_keep_and_center_weight_reach_plan_config(server, monkeypatch):
+    """[사용자 10/15 PC2 통합 — 벽 쪽으로 붙여 밀다 손가락이 벽에 닿음] 저장소 make_room.wall_keep_mm 10·center_weight 1 이
+    공간 만들기 계획 설정에 전달. 0 이면 예전."""
+    monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
+    prm = server.yaml_real(server.srv.params_file)
+    assert prm["make_room"]["wall_keep_mm"] == 10.0 and prm["make_room"]["center_weight"] == 1.0
+    cfg = server.srv._room_cfg("drawer_bottom")
+    assert (cfg.wall_keep_mm, cfg.center_weight) == (10.0, 1.0)
+    _with_prm(server, monkeypatch, make_room={"wall_keep_mm": 0.0, "center_weight": 0.0})
+    cfg = server.srv._room_cfg("drawer_bottom")
+    assert (cfg.wall_keep_mm, cfg.center_weight) == (0.0, 0.0)
+
+
+def test_j6_speed_cap_slows_only_wrist_heavy_joint_moves(server, monkeypatch):
+    """[사용자 10/15 PC2 "리얼센스 연결잭 체결이 불안정 — J6 만 조금 느리게" → "속도 안 줄여도 될 듯, onoff 로"] speed.j6_limit
+    (저장소 false = 예전 속도)을 켜면 j6_max_deg_s(90): movej 는 관절이 같이 끝나므로 J6 속도 = vel × |ΔJ6| / max|Δ| — J6 가 가장
+    많이 도는 이동은 J6 가 상한이 되게 전체를 늦추고(가속도 같은 비율), J6 가 조금만 도는 이동은 그대로. 직선 중 회전(turn_deg_s)도 상한 이하."""
+    monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
+    srv = server.srv
+    prm = server.yaml_real(srv.params_file)
+    assert prm["speed"]["j6_limit"] is False and prm["speed"]["j6_max_deg_s"] == 90.0
+    srv.robot.j = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    assert srv._j6_capped([10.0, 0.0, 90.0, 0.0, 90.0, 170.0], 120.0, 90.0) == (120.0, 90.0)   # 기본 꺼짐 — 예전 속도
+    _with_prm(server, monkeypatch, speed={"j6_limit": True})
+    cap = 90.0
+    srv.robot.j = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    v, a = srv._j6_capped([10.0, 0.0, 90.0, 0.0, 90.0, 170.0], 120.0, 90.0)      # J6 170° 가 가장 큼 → J6 = 120 → 90
+    assert v == pytest.approx(90.0) and a == pytest.approx(67.5)
+    v, a = srv._j6_capped([60.0, 0.0, 90.0, 0.0, 90.0, 10.0], 150.0, 120.0)      # J6 10° / 최대 60° → J6 25 deg/s — 그대로
+    assert (v, a) == (150.0, 120.0)
+    assert srv._speed()["turn_deg_s"] == min(prm["speed"]["turn_deg_s"], cap)
+    _with_prm(server, monkeypatch, speed={"j6_limit": True, "j6_max_deg_s": None})
+    assert srv._j6_capped([10.0, 0.0, 90.0, 0.0, 90.0, 170.0], 120.0, 90.0) == (120.0, 90.0)
 
 
 def test_make_room_report_case_is_off_by_default(server, monkeypatch):
