@@ -5,6 +5,7 @@
 #   bash tools/dev/pc2_voice.sh --p2       # P2 운영: request_run_enabled + p2_goal_enabled + upper_drawer_enabled (위 서랍 열기·닫기 목표만,
 #                                          #   E 10/14) — Runner 는 pc2_up.sh --p2 (재개 보존). 설치된 음성 노드에 upper_drawer_enabled 가
 #                                          #   없으면(E 구현·호스트 빌드 전) 목표 범위가 제한되지 않으므로 거부(종료 3)
+# 띄우기 전에 음성(install_host)·Runner(pc2_up 기준점) C 코드가 같은지 확인 — 다르면 종료 4 (tools/dev/pc2_version_check.py)
 # 세 값(request_run·p2_goal·upper_drawer)은 모드마다 true/false 를 모두 노드에 넘김 — 로컬 YAML 값과 모드 로그가 어긋나지 않게 (#349 E 리뷰 1)
 # r2genv(~/.bashrc 함수)가 하는 일(ROS Jazzy·Domain 70·CycloneDDS local)을 여기서 직접 한다 — 컨테이너 Runner 와 같은 DDS.
 # 음성 노드가 /voice/speak(TTS)도 맡음 — 꺼져 있으면 태스크 첫 안내("○○을 찾아 올게요")에서 실패.
@@ -16,6 +17,14 @@ export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI="fi
 source .venvs/project/bin/activate
 [ -f ros2_ws/install_host/setup.bash ] || { echo "❌ ros2_ws/install_host 없음 (호스트 빌드 — 컨테이너 install 과 섞지 않음)"; exit 1; }
 source ros2_ws/install_host/setup.bash
+# 음성(호스트 install_host)과 Runner(도커 — pc2_up 때 checkout)가 같은 C 코드인지 (#384 E·C 합의 10/15: 목록 안내가 C 문장을 대조하므로
+# 버전이 다르면 안내가 조용히 거절됨 — 구조화 안내 계약은 후속). 다르면 멈춤, 확인 못 함(ready.txt 없음 등)은 경고만.
+# 일부러 다른 버전으로 띄울 때만 PC2_SKIP_VERSION_CHECK=1
+if [ "${PC2_SKIP_VERSION_CHECK:-}" = 1 ]; then echo "⚠️  버전 확인 건너뜀 (PC2_SKIP_VERSION_CHECK=1)"
+else
+  rc=0; python3 tools/dev/pc2_version_check.py || rc=$?
+  [ "$rc" = 1 ] && { echo "❌ 음성·Runner C 코드 버전이 다름 — 위 '맞추기' 뒤 다시 (일부러면 PC2_SKIP_VERSION_CHECK=1)"; exit 4; }
+fi
 cfg=logs/voice_eval/voice.local.yaml
 [ -f "$cfg" ] || { echo "❌ $cfg 없음"; exit 1; }
 grep -qE '^\s*audio_enabled:\s*true' "$cfg" || echo "⚠️  $cfg audio_enabled 가 true 가 아님 — 마이크·웨이크가 안 켜짐 (글자 입력만)"
