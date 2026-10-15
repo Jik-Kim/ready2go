@@ -202,6 +202,9 @@ class VoiceNode(Node):
             raise ValueError('upper_drawer_enabled requires both P2/request opt-ins')
         selected = [[{'predicate': 'open', 'subject': 'drawer_top', 'value': value}]
                     for value in (True, False)]
+        selected.append([
+            {'predicate': 'located_in', 'subject': 'eraser', 'value': 'handover_zone'},
+            {'predicate': 'open', 'subject': 'drawer_top', 'value': True}])
         catalog = self.cfg['p2_goal_catalog']
         if any(group not in catalog for group in selected):
             raise ValueError('upper drawer goals must exist in selected catalog')

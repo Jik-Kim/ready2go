@@ -56,6 +56,20 @@
   // 요청·결과 표시는 후속 단계에서 연결하며 지금은 검증·연결 판정된 내부 모델만 보관한다.
   let latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
 
+  // 상태 JSON과 JPEG를 같은 revision으로 결합하기 위한 브라우저 전용 사진 상태다.
+  // 상단 카메라 배지는 이 객체가 아니라 기존 camera_info source만 계속 사용한다.
+  const recentCapture = {
+    latestMetadata: null,
+    displayedMetadata: null,
+    displayedIdentity: null,
+    pendingIdentity: null,
+    blockedIdentity: null,
+    objectUrl: null,
+    view: "empty",
+  };
+
+  const VISION_OVERLAY_IMAGE_API_PATH = "/api/vision/overlay.jpg";
+
   // Runner core의 실제 phase 세 값만 사용자 표시 문구와 기존 화면 색상 키로 변환한다.
   const runnerPhaseViews = {
     idle: { label: "대기", status: "waiting" },
@@ -97,6 +111,190 @@
     visual.setAttribute("aria-hidden", "true");
     visual.textContent = itemIcons[item.icon] || "●";
     return visual;
+  }
+
+  function formatCaptureTimeKst(value) {
+    // PR #357에서 확정한 UTC epoch 촬영 시각을 PC·휴대폰 시간대와 무관하게 KST로 표시한다.
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "확인 전";
+    return `${new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(parsed)} KST`;
+  }
+
+  function formatCaptureAge(value) {
+    // 서버가 같은 UTC 기준으로 계산한 나이를 사용하고 브라우저 시계로 다시 추정하지 않는다.
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "확인 전";
+    if (value < 60) return `${Math.floor(value)}초 전`;
+    if (value < 3600) return `${Math.floor(value / 60)}분 전`;
+    if (value < 86400) return `${Math.floor(value / 3600)}시간 전`;
+    return `${Math.floor(value / 86400)}일 전`;
+  }
+
+  function setCaptureStatus(label, kind = "") {
+    const status = getById("captureStatus");
+    status.textContent = label;
+    status.className = `capture-status${kind ? ` is-${kind}` : ""}`;
+    status.hidden = !label;
+  }
+
+  function captureIdentity(metadata) {
+    // revision은 새 서버 프로세스에서 다시 1이 되므로 캐시 기동 ID와 함께 비교한다.
+    if (!metadata || metadata.status !== "ok" || !metadata.image_available) return null;
+    return `${metadata.cache_id}:${metadata.revision}`;
+  }
+
+  function renderRecentCapture() {
+    const image = getById("captureImage");
+    const empty = getById("captureEmpty");
+    const emptyTitle = empty.querySelector("strong");
+    const emptyDetail = empty.querySelector("span");
+    const metadata = recentCapture.displayedMetadata;
+    const hasDisplayedImage = Boolean(recentCapture.objectUrl && metadata);
+
+    image.hidden = !hasDisplayedImage;
+    empty.hidden = hasDisplayedImage;
+    getById("captureTime").textContent = metadata
+      ? formatCaptureTimeKst(metadata.captured_at)
+      : "확인 전";
+    getById("captureAge").textContent = metadata
+      ? formatCaptureAge(metadata.capture_age_sec)
+      : "확인 전";
+
+    if (recentCapture.view === "empty") {
+      emptyTitle.textContent = "아직 촬영 없음";
+      emptyDetail.textContent = "촬영 결과를 기다리고 있습니다.";
+      setCaptureStatus("");
+    } else if (recentCapture.view === "frame_id_mismatch") {
+      emptyTitle.textContent = "촬영 사진 확인 전";
+      emptyDetail.textContent = "카메라 프레임 불일치";
+      setCaptureStatus("", "error");
+    } else if (recentCapture.view === "loading") {
+      emptyTitle.textContent = "촬영 사진 불러오는 중";
+      emptyDetail.textContent = "촬영 정보와 같은 사진을 확인하고 있습니다.";
+      setCaptureStatus(hasDisplayedImage ? "새 촬영 불러오는 중" : "");
+    } else if (recentCapture.view === "stale") {
+      setCaptureStatus("오래된 촬영 사진", "warning");
+    } else if (recentCapture.view === "conflict") {
+      emptyTitle.textContent = "촬영 사진 갱신 대기";
+      emptyDetail.textContent = "다음 상태 조회에서 최신 사진을 다시 확인합니다.";
+      setCaptureStatus(hasDisplayedImage ? "새 촬영 갱신 대기" : "", "warning");
+    } else if (recentCapture.view === "error") {
+      emptyTitle.textContent = "촬영 사진 확인 전";
+      emptyDetail.textContent = "사진 상태를 확인하지 못했습니다.";
+      setCaptureStatus(hasDisplayedImage ? "촬영 사진 확인 전" : "", "error");
+    } else {
+      setCaptureStatus("");
+    }
+  }
+
+  function clearDisplayedCapture() {
+    // 교체·빈 상태에서 이전 blob URL을 해제해 장시간 polling의 메모리 누적을 막는다.
+    if (recentCapture.objectUrl) URL.revokeObjectURL(recentCapture.objectUrl);
+    recentCapture.objectUrl = null;
+    recentCapture.displayedMetadata = null;
+    recentCapture.displayedIdentity = null;
+    const image = getById("captureImage");
+    image.removeAttribute("src");
+  }
+
+  async function loadRecentCapture(metadata) {
+    const identity = captureIdentity(metadata);
+    if (identity === null) return;
+    recentCapture.pendingIdentity = identity;
+    recentCapture.view = "loading";
+    renderRecentCapture();
+    try {
+      const response = await window.fetch(
+        `${VISION_OVERLAY_IMAGE_API_PATH}?cache_id=${encodeURIComponent(metadata.cache_id)}`
+          + `&revision=${encodeURIComponent(metadata.revision)}`,
+        { cache: "no-store", headers: { Accept: "image/jpeg" } },
+      );
+      if (response.status === 409) {
+        // 이미 다음 polling이 다른 캐시·revision을 시작했다면 이전 요청의 409는 무시한다.
+        if (captureIdentity(recentCapture.latestMetadata) !== identity) return;
+        // 상태와 사진 사이에 새 촬영·서버 기동이 들어오면 같은 identity를 반복 요청하지 않는다.
+        recentCapture.blockedIdentity = identity;
+        recentCapture.view = "conflict";
+        return;
+      }
+      if (!response.ok || !response.headers.get("Content-Type")?.startsWith("image/jpeg")) {
+        throw new Error(`촬영 사진 API HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const latest = recentCapture.latestMetadata;
+      // 느린 이전 서버·revision 응답이 새 메타데이터 뒤에 도착하면 표시하지 않는다.
+      if (captureIdentity(latest) !== identity) return;
+
+      const nextUrl = URL.createObjectURL(blob);
+      if (recentCapture.objectUrl) URL.revokeObjectURL(recentCapture.objectUrl);
+      recentCapture.objectUrl = nextUrl;
+      recentCapture.displayedIdentity = identity;
+      recentCapture.displayedMetadata = latest;
+      recentCapture.blockedIdentity = null;
+      recentCapture.view = latest.stale ? "stale" : "ready";
+      getById("captureImage").src = nextUrl;
+    } catch (_error) {
+      // 뒤늦은 이전 요청 실패도 현재 사진의 성공·로딩 상태를 덮지 않는다.
+      if (captureIdentity(recentCapture.latestMetadata) !== identity) return;
+      // 같은 identity의 반복 요청을 피하고 새 촬영·서버 메타데이터가 올 때 다시 시도한다.
+      recentCapture.blockedIdentity = identity;
+      recentCapture.view = "error";
+    } finally {
+      if (recentCapture.pendingIdentity === identity) recentCapture.pendingIdentity = null;
+      renderRecentCapture();
+    }
+  }
+
+  function applyVisionOverlay(metadata) {
+    recentCapture.latestMetadata = metadata;
+    if (metadata.status !== "ok") {
+      recentCapture.pendingIdentity = null;
+      recentCapture.blockedIdentity = null;
+      clearDisplayedCapture();
+      recentCapture.view = "error";
+      renderRecentCapture();
+      return;
+    }
+    if (!metadata.image_available) {
+      recentCapture.pendingIdentity = null;
+      recentCapture.blockedIdentity = null;
+      clearDisplayedCapture();
+      // 메시지는 왔지만 계약 frame_id가 달라 거부된 상태를 단순 미촬영으로 숨기지 않는다.
+      recentCapture.view = metadata.last_rejection_reason === "frame_id_mismatch"
+        ? "frame_id_mismatch"
+        : "empty";
+      renderRecentCapture();
+      return;
+    }
+    const identity = captureIdentity(metadata);
+    if (recentCapture.displayedIdentity === identity) {
+      // 같은 사진은 다시 내려받지 않고 매 polling마다 바뀌는 나이·stale 정보만 갱신한다.
+      recentCapture.displayedMetadata = metadata;
+      recentCapture.view = metadata.stale ? "stale" : "ready";
+      renderRecentCapture();
+      return;
+    }
+    // 같은 revision이어도 캐시 기동이 바뀌면 이전 blob과 비동기 상태를 모두 폐기한다.
+    if (recentCapture.displayedMetadata?.cache_id
+      && recentCapture.displayedMetadata.cache_id !== metadata.cache_id) {
+      clearDisplayedCapture();
+      recentCapture.pendingIdentity = null;
+      recentCapture.blockedIdentity = null;
+    }
+    if (recentCapture.blockedIdentity !== null && recentCapture.blockedIdentity !== identity) {
+      recentCapture.blockedIdentity = null;
+    }
+    if (recentCapture.pendingIdentity === identity
+      || recentCapture.blockedIdentity === identity) {
+      renderRecentCapture();
+      return;
+    }
+    void loadRecentCapture(metadata);
   }
 
   function getSelectedDrawer() {
@@ -667,6 +865,8 @@
     // 카메라 최근 수신과 Voice publisher 존재를 각각의 상단 장치 배지에 반영한다.
     applyCameraConnectionSource(cameraConnectionSource, payload.runtime_profile);
     applyVoiceConnectionSource(voiceConnectionSource);
+    // 사진은 camera_info 연결 배지와 별도로 REST 메타데이터·JPEG revision을 결합한다.
+    applyVisionOverlay(payload.vision_overlay);
     // 정의 연결 여부를 상태 연결과 구분해 현재 화면에 실제인 범위를 정확히 설명한다.
     const definitionText = state.definitionsLive
       ? "등록 정의는 웹 시작 시 읽은 파일 스냅샷입니다."
@@ -741,6 +941,14 @@
       label: "현재 오류: REST 연결",
       detail: "이전 Runner 값을 현재 정상 상태로 표시하지 않습니다.",
     };
+
+    // REST 오류 뒤 이전 사진을 새 정상 상태처럼 보이지 않게 현재 확인 불가를 표시한다.
+    recentCapture.latestMetadata = { status: "error" };
+    recentCapture.pendingIdentity = null;
+    recentCapture.blockedIdentity = null;
+    clearDisplayedCapture();
+    recentCapture.view = "error";
+    renderRecentCapture();
 
     renderMockNotice();
     renderConnections();
@@ -1143,6 +1351,7 @@
     renderInventory();
     renderSupplies();
     renderTask();
+    renderRecentCapture();
   }
 
   function selectDrawer(drawerId) {
@@ -1245,6 +1454,9 @@
     });
     poller.start();
     // 페이지를 떠날 때 예약 timer를 정리해 백그라운드 요청이 남지 않게 한다.
-    window.addEventListener("pagehide", () => poller.stop(), { once: true });
+    window.addEventListener("pagehide", () => {
+      poller.stop();
+      if (recentCapture.objectUrl) URL.revokeObjectURL(recentCapture.objectUrl);
+    }, { once: true });
   }
 })();
