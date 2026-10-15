@@ -164,6 +164,35 @@
     scenarios[scenarioName](data);
   }
 
+  // 화면 검토용 실행 순서다. 등록 목록·targets에서 실행 순서를 계산하지 않는다.
+  // TODO(D): C의 확정 실행 상세가 연결되면 별도 검증 모델로 교체한다.
+  data.task.executionItems = scenarioName === "empty" ? [] : [
+    {
+      id: "car-key", name: "차 키", statusLabel: "완료",
+      resultLabel: "예시 · 전달 확인 · 복구 완료",
+      steps: [
+        { id: "key-open", label: "서랍 열기", status: "complete", statusLabel: "완료", reason: "예시 · 요청 물품 접근", observation: "예시 · 열림 확인" },
+        { id: "key-pick", label: "차 키 집기", status: "complete", statusLabel: "완료", reason: "예시 · 요청 물품 일치", observation: "예시 · 파지 확인" },
+        { id: "key-deliver", label: "전달 검증", status: "complete", statusLabel: "완료", reason: "예시 · 전달 트레이 확인", observation: "예시 · 차 키 전달 확인" },
+        { id: "key-restore", label: "서랍 닫기·복귀", status: "complete", statusLabel: "완료", reason: "예시 · 작업 정리", observation: "예시 · 복구 완료" },
+      ],
+    },
+    {
+      id: "eraser", name: "지우개", statusLabel: scenarioName === "error" ? "확인 불가" : "진행 중",
+      resultLabel: "예시 · 전달 결과 미확정", steps: data.task.steps,
+    },
+    {
+      id: "watch", name: scenarioName === "long" ? "업무용 손목시계 및 교통카드 케이스" : "시계",
+      statusLabel: "대기", resultLabel: "예시 · 미실행",
+      steps: [
+        { id: "watch-open", label: "서랍 열기", status: "waiting", statusLabel: "미실행" },
+        { id: "watch-pick", label: "시계 집기", status: "waiting", statusLabel: "미실행" },
+        { id: "watch-deliver", label: "전달 검증", status: "waiting", statusLabel: "미실행", reason: "예시 · 아직 실행하지 않음", observation: "관측 결과 없음" },
+      ],
+    },
+  ];
+  data.task.selectedExecutionItemId = data.task.executionItems.length ? "eraser" : null;
+
   window.ROKEY_DEMO_DATA = data;
   window.ROKEY_DEMO_SCENARIO = scenarioName;
 })();

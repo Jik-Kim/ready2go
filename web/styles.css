@@ -1989,3 +1989,16 @@ dialog::backdrop {
   height: calc(100% - 8px);
   object-fit: contain;
 }
+
+/* 실행 물품 선택은 PC·모바일에서 같은 모델과 버튼을 사용한다. */
+.task-items { margin-top: 22px; }
+.task-items-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.task-items-heading h3 { margin: 0; font-size: 0.9rem; color: var(--navy-900); }
+.task-items-heading > span, .task-item-selection { font-size: 0.75rem; color: var(--gray-700); }
+.task-item-order { display: flex; gap: 10px; overflow-x: auto; padding: 12px 2px 4px; }
+.task-item-button { flex: 1 0 180px; min-width: 0; padding: 14px; border: 1px solid var(--gray-300); border-radius: 12px; background: var(--white); color: var(--navy-900); text-align: left; font: inherit; font-size: 0.85rem; cursor: pointer; overflow-wrap: anywhere; }
+.task-item-button small { display: block; margin-top: 7px; color: var(--gray-700); }
+.task-item-button[aria-pressed="true"] { border-color: var(--teal-600); box-shadow: inset 0 0 0 1px var(--teal-600); background: var(--mint-50); }
+.task-item-button:focus-visible { outline: 3px solid var(--navy-700); outline-offset: 2px; }
+.task-item-selection { margin: 10px 0; }
+@media (max-width: 760px) { .task-item-button { flex-basis: 155px; } }

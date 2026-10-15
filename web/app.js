@@ -1168,7 +1168,40 @@
     });
   }
 
+  function getSelectedExecutionItem() {
+    const items = state.task.executionItems || [];
+    return items.find((item) => item.id === state.task.selectedExecutionItemId) || items[0] || null;
+  }
+
+  function renderTaskItems() {
+    const container = getById("taskItemOrder");
+    const selected = getSelectedExecutionItem();
+    container.replaceChildren();
+    (state.task.executionItems || []).forEach((entry, index) => {
+      const button = makeElement("button", "task-item-button");
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(entry.id === selected?.id));
+      button.append(
+        makeElement("span", "", `${index + 1}. ${entry.name} · ${entry.statusLabel}`),
+        makeElement("small", "", entry.resultLabel),
+      );
+      button.addEventListener("click", () => {
+        // 조회 선택은 현재 실행 물품·작업 위치·상단 제목을 바꾸지 않는다.
+        state.task.selectedExecutionItemId = entry.id;
+        renderTask();
+        container.children[index]?.focus({ preventScroll: true });
+      });
+      container.append(button);
+    });
+    getById("taskItemSelection").textContent = selected
+      ? `선택 물품: ${selected.name} · 아래 단계와 근거는 선택한 물품 기준`
+      : "표시할 실행 물품 없음 · 예시";
+  }
+
   function renderTask() {
+    renderTaskItems();
+    const selectedSteps = getSelectedExecutionItem()?.steps || [];
+
     const workDrawer = getWorkDrawer();
     const location = workDrawer ? workDrawer.label : "확인 전";
     getById("taskLocation").textContent = location;
@@ -1200,9 +1233,9 @@
 
     const progress = getById("progressSteps");
     progress.replaceChildren();
-    progress.style.gridTemplateColumns = `repeat(${state.task.steps.length}, minmax(132px, 1fr))`;
-    progress.style.minWidth = `${Math.max(state.task.steps.length * 150, 600)}px`;
-    state.task.steps.forEach((step, index) => {
+    progress.style.gridTemplateColumns = `repeat(${selectedSteps.length || 1}, minmax(132px, 1fr))`;
+    progress.style.minWidth = `${Math.max(selectedSteps.length * 150, 600)}px`;
+    selectedSteps.forEach((step, index) => {
       const item = makeElement("li", `is-${step.status}`);
       const dotText = step.status === "complete"
         ? "✓"
@@ -1225,18 +1258,18 @@
       progress.append(item);
     });
 
-    const evidenceStep = getCurrentTaskStep();
+    const evidenceStep = getCurrentTaskStep(selectedSteps);
     getById("currentStepReason").textContent = evidenceStep?.reason || "확인 전";
     getById("currentStepObservation").textContent = evidenceStep?.observation || "미수신";
 
   }
 
-  function getCurrentTaskStep() {
-    return state.task.steps.find((step) => step.status === "current")
-      || state.task.steps.find((step) => step.status === "error")
-      || state.task.steps.find((step) => step.status === "unavailable")
-      || state.task.steps.find((step) => step.status === "stopped")
-      || state.task.steps.at(-1);
+  function getCurrentTaskStep(steps = state.task.steps) {
+    return steps.find((step) => step.status === "current")
+      || steps.find((step) => step.status === "error")
+      || steps.find((step) => step.status === "unavailable")
+      || steps.find((step) => step.status === "stopped")
+      || steps.at(-1);
   }
 
   function getTaskExecutionStatus() {
