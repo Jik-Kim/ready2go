@@ -42,6 +42,7 @@ def main() -> None:
         # Flask에는 ROS 캐시와 시작 시 고정한 정의 결과를 각각의 REST 원본으로 전달한다.
         app = create_app(
             state_cache=runtime.cache,
+            overlay_cache=runtime.overlay_cache,
             definition_snapshot=definition_snapshot,
             definition_error=definition_error,
             runtime_profile=runtime_settings.profile,

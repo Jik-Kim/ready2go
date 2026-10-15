@@ -320,6 +320,7 @@ def test_unknown_twice_does_not_pick_target_or_loop():
     assert [s["id"] for s in result.steps].count("s6r.1") == 1
     assert "장난감 스패너를 꺼내지 못했어요" in robot.spoken
     assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "OCCLUSION_UNKNOWN", "s8")
 
 
 def test_unknown_after_moving_one_reshoots_inside_loop():
@@ -1040,3 +1041,54 @@ def test_neighbor_moved_by_make_room_that_cannot_be_restored_is_restore_incomple
     assert robot.skills.scene.delivered == ["car_key"]
     assert (result.overall_status, result.error_code) == ("FAILED", "RESTORE_INCOMPLETE")
     assert "lip_balm" in [r["class"] for r in result.blackboard["restore_failed"]]
+
+
+
+# ---- 목표를 못 꺼내면 FAILED (PC2 10/14 20:11·20:14 — 판 치운 뒤 지우개 가림 모름인데 COMPLETED 로 찍힘) ----
+
+class TargetUnknownAfterMoveScene(MockScene):
+    """판을 치운 뒤 찍은 사진(2·3번째)에서 목표만 occluded_by null — A 기준 넓이 문제로 다 보이는 지우개를 '덜 보임'으로 본 경우."""
+
+    def __init__(self):
+        super().__init__("plate_over_eraser")
+        self.calls = 0
+
+    def inspect(self, region, search_target):
+        self.calls += 1
+        result = super().inspect(region, search_target)
+        if self.calls in (2, 3) and result["target"]:
+            result["target"]["occluded_by"] = None
+        return result
+
+
+def test_target_unknown_after_moving_cover_is_failed_occlusion_unknown():
+    """판 치우기·다시 찍기까지는 그대로, 목표는 집지 않음 → 판 정리·닫기·홈 → FAILED · OCCLUSION_UNKNOWN (step s8)."""
+    _, robot, result = _run_with(TargetUnknownAfterMoveScene(), "eraser")
+    assert robot.picked()[0] == "cover_plate" and "eraser" not in robot.picked()   # 판은 치우고, 지우개는 안 집음
+    assert robot.skills.scene.delivered == []
+    assert [s["id"] for s in result.steps].count("s7.9.1") == 1                 # 다시 찍기는 한 번
+    assert result.blackboard["sel"]["reason"] == "occlusion_unknown"
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "OCCLUSION_UNKNOWN", "s8")
+    assert [r["class"] for r in result.blackboard["left_aside"]] == ["cover_plate"]   # 판 정리는 그대로 (mock 은 판 원래 자리 위 놓기 불가 → 옆 빈 자리)
+    assert "지우개를 꺼내지 못했어요" in robot.spoken
+    assert result.blackboard["run_failure"] is None                              # 태스크가 정한 실패 — 원인 안내는 s8.1 이 함
+    assert any(a == "drawer_control" and p.get("state") == "close" for a, p in robot.calls)
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})
+
+
+class TargetNeverSeenScene(MockScene):
+    """목표가 한 번도 검출되지 않음 — 다른 물체를 치워 봐도 못 찾음."""
+
+    def inspect(self, region, search_target):
+        result = super().inspect(region, search_target)
+        if result["target"]:
+            result.update(target_found=False, target=None)
+        return result
+
+
+def test_target_never_found_is_failed_target_not_found():
+    _, robot, result = _run_with(TargetNeverSeenScene("plate_over_eraser"), "eraser")
+    assert robot.skills.scene.delivered == []
+    assert (result.overall_status, result.error_code, result.failed_step) == ("FAILED", "TARGET_NOT_FOUND", "s8")
+    assert "지우개를 꺼내지 못했어요" in robot.spoken
+    assert robot.calls[-1] == ("move_to_named_pose", {"pose_name": "home"})

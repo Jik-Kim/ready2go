@@ -1,5 +1,18 @@
 # CURRENT — E 고희태
 
+## pr356-regression-20261015
+
+- [승인/기준] E 지시 세션 사용자 “#356 리뷰 확인 후 해결”(turn01a13d09-ceb4-7102-9b03-64c28a2e970d)과 기존 동일 PR push 승인을 직접 확인했습니다. 시작59dd658c3ccbd2951591b438a30675fcb6df29f8에 최신 main d4585e78을 정상 병합했습니다. CURRENT 충돌 한 곳의 캐시 상한/overflow 억제/복구 사유 이력은 양쪽 모두 보존했고 README의 이미 해소된 문서 보완은 재작업하지 않았습니다. primary 사용자 dirty와 다른 checkout은 보존했습니다.
+- [해결/범위] issuecomment6181577075의 이전 head CI11실패는 구 cap256/startup60/prepare120 기대와 현행512/600/3600의 차이입니다. main에 포함된10edf8d5·483411be의 test_melotts 입력60/600 보존, test_end_stop_minimal/test_voice_launch_stop_input cap512, test_voice_ux의 warmup512/513·문자/UTF8 경계는 재사용했습니다. 추가 수정은 E test_runtime_322/test_voice_five/test_voice_ux/test_voice_launch_stop_input 4파일입니다. 제품 정책·실행 코드 추가 수정은 하지 않았고 정상 병합에서 일반600/명시prepare3600/cap512와 main 후속 변경을 함께 유지했습니다.
+- [직접 검증] 위 6개 기존 테스트 파일에서 prefill·prepare·두 명시 명령·준비 실패 관련 사례를 선택해 **30 passed/376 deselected (5.46초)** 확인했습니다. 패키지512/600·명시local128/60 보존·trial cap512 복사·실제 prepare 함수의 메모리3600 적용·cfg==before/원본 및 trial YAML 보존·live 입력값 보존·warmup포함512성공/513실패·문자160/UTF8제한·실패 시 live차단을 포함합니다. worker/모델·장치/API는 모의이며 실제 캐시를 만들지 않았습니다. AST4/diff 형식 검사를 통과했습니다. 로그 /tmp/e-356-regression-direct.log.
+- [검사 버전/후속] 이전59dd의3298passed/43skip/11fail은 실패 근거이며 통과로 재사용하지 않습니다. 이번 최종 병합·테스트 커밋 SHA에서 승인된 전체 로컬 CI를 최종1회 실행하고 정확한 결과는 완료 보고/PR 본문에 기록합니다. 실패 시 원인·실패 항목 직접 재검을 우선하고 전체 CI를 자동 반복하지 않습니다. FR-INT-01~03(P1) 및 관련 P2 FR-SAF-01/03·AC-SAF-02/04의 실제 음성·물리 수용 검증은 별개이며 미검증입니다. 실제 PC2/cache 합성·마이크/스피커/API·ROS/DDS·로봇·실소요 시간은 검사하지 않았고 준비 성공/시간 보장을 주장하지 않습니다. Draft 해제·병합·PR 설명 수정은 수행하지 않습니다.
+
+## pr356-review-doc-20261014
+
+- [승인/범위] E 지시 세션의 사용자 직접 요청 “#356 리뷰 확인 후 수정, push”(turn01a13a76-3101-7a63-b549-8068828b16bc)을 확인했습니다. head9c47fba0a89d6c25ac9a10b5f0b3918dbf8e6647의 리뷰5517089982/댓글6167263704에 따른 E README 현행 준비 예산과 이 최종 기록만 수정했습니다. primary 사용자 dirty와 다른 세션 변경은 포함하지 않았습니다.
+- [문서/원본] voice.yaml의 일반600초/cap512·config loader의 명시값 보존과 누락cap512·voice_trial의 trial cap 덮기 및 prepare 메모리3600초·selector의 warmup 포함 개수/문자160/UTF-8전체65536 제한을 직접 대조했습니다. 일반 local60초 보존, trial cap512 적용, prepare3600의 일반 live 비적용과 설정/설치 반영·재시작 필요를 구분했습니다. 과거60/120/256 승인·실측은 이력으로 보존했습니다.
+- [검증/미검증] README 값·prepare/live 명령·원본 상대 링크·요구사항 FR-INT-01~03(P1) 및 관련 P2 FR-SAF-01/03·AC-SAF-02/04 참조와 diff 형식/포함파일을 확인했습니다. 준비 예산을 AC 발화 예산과 구분했습니다. 문서 전용이므로 CI·테스트·빌드·캐시 생성·장치/API/ROS 실행은 하지 않았습니다. 이전9c47 코드/설정과 실제 준비 성공·소요시간은 미검증 상태를 유지하며 새 head 검사 통과로 표현하지 않습니다. PR 본문 정리는 지시 세션 담당입니다.
+
 ## voice-351-cause-completion-20261014
 
 - [승인/범위] 기존 사용자 최신 코멘트 수정 승인과 조율 세션의 동일 중복 억제 보완 지시를 적용했습니다. dc115a0 기준 깨끗한 동일 작업 브랜치에서 E 원인 증거 수신/정책 두 곳과 직접 회귀·필요 E 문서만 수정했습니다. C 코드/계약·캐시·startup/prepare 설정은 변경하지 않았습니다.
@@ -761,11 +774,27 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [문서: 전송 승인·실행 경계] 조율 turn `01a12a0a-6abb-7b92-a1d2-a1ed772a9a8d`의 user `01a12a12-fe2d-7dd3-8a0d-a1e582704f51` 원문 “승인하고 실음성 시험 진행”을 지시 세션이 직접 확인했습니다. 짧은 시험 WAV+물품 prompt를 api.openai.com Whisper에, 전사문+물품 목록/질문 문맥/정책을 같은 hostname LLM에 보내는 범위입니다. “망치 가져다줘”·미지원 물품·질문 답·“멈춰”·복구/재개/종료로 한정하며 새 실음성 종류를 확대하지 않습니다. 기본/`--serve-local`/`--smoke-local`은 녹음/API/재생 비활성, 명시 `--serve-live`만 기존 실마이크/STT/LLM/Melo factory·격리 executor/bridge·stdin fixture를 사용합니다. factory 승인 bool 기본false/승인host미지정 또는 현재 SDK host불일치면 시작하지 않습니다. 모의 current source·valid_state/evidence·등록/결과는 dummy 가정이며 실제 C/B 증거가 아닙니다. 실TTS의 기존 DAC/finished gate가 성공하고 현재 세대/run이 유지될 때만 더미 첫 동작을 기록하며 별도 complete 입력에 현재 상관을 재검사합니다. 실제 C 매핑·실음성/실물 AC와 PR227 검증을 새 준비의 완료 근거로 혼용하지 않습니다.
 - [실측: 로컬 확인·최초 startup] 기본 구성/승인 기본거절/STT·LLM 차단/mock TTS취소/AST/모의 speak 성공 전 완료 차단·후 현재 완료를 확인했습니다. audio=false 격리 ROS 생성·종료 exit0이며 현재 source overlay를 확인했습니다. 허용 실행에서 실제 장치 목록과 기본 [7,7] 입력/출력을 조회했으며 local None 선택을 보존했습니다. 첫 live 실행은 일반 startup60초의 Melo 선준비1/77 뒤 MELOTTS_PREPARE_FAILED/exit1로 종료, 마이크/웨이크ready 및 STT/LLM 요청 이전입니다. worker.log에 새 구체 예외가 없어 timeout 정황을 확정 원인으로 보고하지 않았습니다. cache109→114 및 잔존 Python0을 확인했습니다. 기존 README의 사용자 승인 별도prepare120을 재사용해 모델/전체 캐시만 별도 준비했으며 일반60/YAML/모델/의존성은 변경하지 않았습니다. /tmp/e-p2-live-voice-dummy-20261011.log 및 /tmp/e-p2-melotts-prefill-20261011.log를 보존합니다. 사람 발화/실음성 통과는 아직 없습니다.
 - [실측: cache 준비·live 대기] 첫 별도prepare120은 정확 MELOTTS_PREPARE_TIMEOUT/120.367초/exit1, 마지막48/77·cache160·worker종료-15였습니다. 같은 identity/문장/상한의 명시 사전준비 재시도는 앞48개 cache_hit=true, 77/77 완료·모델3.843초/prefill92.461초/총97.017초(호출97.042)/exit0·worker정리입니다. 같은60초 live node 1회 재시작은 Melo 준비 완료→현재 source overlay→“웨이크 대기 (입력:7)”를 확인했습니다. PID250630/격리166, 로그 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`, prefill 재시도 로그 `/tmp/e-p2-melotts-prefill-20261011-retry.log`입니다. 사람에게 첫 “헬로 로키”→“망치 가져다줘”를 안내했고 실제 발화/Whisper·LLM 결과/실TTS firstDAC·finished/더미 첫 동작·완료는 대기입니다. 실행 중 준비 source를 추가 편집하지 않으며 입력이 없으면 통과로 기록하지 않습니다. AST/공백/새 문서 경로 확인 통과, 기존 미추적 모델 JSON 해시를 보존했습니다. 새 준비의 전체 CI/push/PR은 후속입니다.
+## 캐시 준비 상한 확대 — 2026-10-14
+
+- [구현] 선준비 문장 상한을 YAML·설정 기본값 모두 256→512개로 확대. 일반 MeloTTS 준비 기본 timeout 60→600초, 명시 prepare timeout 120→3600초로 변경함.
+- [미검증] 사용자 지시로 테스트·CI·빌드·실제 캐시 준비를 실행하지 않음. 기존 로컬 YAML의 명시값은 보존하며 일반 실행에는 로컬 값이 우선함.
+- 
+## P3 의미 조회 첫 시험 — #302 / 2026-10-14
+
+- [승인/범위] 사용자 “이대로 이슈에 반영하고 수정 시작해”에 따라 #302에 C의 조회·실패·다중 서랍 방침과 착수 승인을 반영. E TTL 시험·의미 조회만 구현하며 운영 원본 전환은 미결.
+- [구현] 저장소 시험 자료 `knowledge/examples/p3_semantics.ttl`과 E `core.semantic_query.load_ttl`·`query_class`·`query_list` 추가. 기존 활성 키·은퇴 목록을 대조하고 물품 키·source·상속/목록 근거 반환. 미등록·은퇴·누락 참조·순환·선언 충돌·상태 관계를 거절함. 초기 위치 없는 활성 물품도 제외하지 않음.
+- [실측: 직접 모의] RDFLib 7.6.0에서 새 의미 조회·기존 로더·pick Runner 회귀 71 passed(1.24초), Ubuntu 제공판과 같은 RDFLib 6.1.1의 격리 환경에서 새 조회 18 passed(0.43초). C 실제 query 함수를 사용해 위치 미상 UNKNOWN_ITEM, 변경된 Runner 상태 조회, list/class NOT_SUPPORTED 유지 확인. DDS·음성·실물 시험은 아님.
+- [미연결/담당] C/B/D 코드·기존 JSON-LD·초기 상태·스킬·운영 manifest 유지. 음성 발신·C 수신 어댑터·다중 실행·GUI·반복 재개는 미연결. 일부 성공 최종 상태 이름은 미확정. C에 공통 requirements/CI pip 목록의 RDFLib 반영 또는 두 줄 편집 동의를 요청했고 아직 수락 근거 없음. E package.xml/setup.py만 의존성 선언함. 공통 설치 선행 조건이 남아 전체 CI는 실행하지 않았으며 최종 통합 완료로 보지 않음.
+
 ## 일반 녹음 overflow 재질문 억제 — 2026-10-14
 
 - [원인/수정] 일반 `_listen`이 AUDIO_OVERFLOW를 record_error 큐에 넣어 clarify/TTS를 만들던 분기 수정. 진단 recording_held는 유지하고 손상 녹음만 폐기해 다음 wake/녹음을 받음. NO_SPEECH·RECORD_LIMIT의 기존 오류 안내와 정지 입력 경로는 유지.
 - [실측: 직접 모의] 실제 `_listen` 예외→큐 경로의 반복 overflow/다음 정상 녹음·일반 오류·취소 4사례 포함 Voice UX/독립 정지 청취 2파일 160 passed(19.57초). 실제 장치/API/TTS·overflow 발생 빈도 개선은 미검증.
 - [범위] E 노드 조건 1곳·직접 회귀·이 기록만 변경. 기본 작업 폴더의 미커밋 문서/출력은 보존하고 별도 worktree/브랜치 codex/e-audio-overflow-silent-20261014에서 작업. P3 TTL·캐시 변경·C/B 계약·상태 정책은 포함하지 않음. 최종 전체 CI는 별도 검사 SHA 결과로 보고.
+## P3 TTL 조회 CI 의존성 연결 — #355 C 리뷰 보완 / 2026-10-14
+
+- [승인/수정] C의 da19c369 리뷰 동의로 공통 requirements.txt와 ci.yml core pip 목록에 rdflib>=6.1.1,<8 추가. 최신 원격 브랜치의 main 합류·외부 변경은 fast-forward로 보존. E README의 의존성 대기 설명 정정.
+- [검증/경계] 조회 코드·예제·동작 정책·도커 이미지는 변경하지 않음. 최종 커밋에서 전체 CI 1회 수행하며 결과는 해당 SHA로 PR에 기록. 이전 71/18 직접 검사를 새 전체 CI로 전용하지 않음. 초안 해제 후 C 승인 대기, 병합은 #302 결정대로 10/15 P2 녹화 뒤.
 ## 복구 뒤 재개 불가 사유 안내·선준비 상한 — 2026-10-14
 
 - [승인/범위] 사용자 승인한 마무리 중단 사유 안내와 추가 요청한 선준비 상한 512개를 E 음성 코드·설정·관련 회귀에 반영. C/B 실행·잠금·재개 정책과 공개 상태 필드는 변경하지 않음.
@@ -779,3 +808,10 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 
 - [문서: 사용자 승인] 합의한 순서와 병합 구성의 E 기능 8장을 [발표 구성본](../../output/presentations/e_features_20261015/ready2go_ppt_e_features_20261015.pptx)의 19–26장에 배치했습니다. 각 장의 16:9 공간에 터미널 촬영 영상·기존 구조도·정의 파일 캡처 등 필요한 시각 자료와 장면을 적었고, 새 시각 자료 제작·영상 삽입은 하지 않았습니다. P3는 확장 계획으로 표시했습니다.
 - [검증: 산출물] 전체 34장 렌더, PPT 구조·레이아웃 검사 오류 0건, 기능 8장의 자료 공간·순서·근거 노트 확인. 기존 26장은 페이지 번호 외 내용·이미지 보존을 대조했고 트러블슈팅 4장은 27–30장에 유지했습니다. 원본 5·14장의 경계 경고 3건은 기존 상태입니다. PowerPoint 직접 확인·기능 실측·코드 검사·빌드·CI·commit/push는 수행하지 않았습니다. 촬영 파일·타임코드 지정과 실제 자료 삽입은 후속입니다.
+
+## P2 지우개 전달 + 위 서랍 열림 복합 요청 — 2026-10-15
+
+- [승인/범위] 사용자 “최소 수정해” 승인. E 표현 판별 1줄과 PC2 upper_drawer 목표 선택부만 수정. 기존 선정 목록의 eraser→handover_zone + drawer_top open=true 조합을 유지하고 “갖다주고/가져다주고”를 인식. 아래 서랍·새 목표/계약·C/B 코드·실행 스크립트는 변경하지 않음.
+- [직접 검증] 실제 E Session/노드 메서드의 목표 발신→C IntentRouter.decide의 PLAN→현재 ontology/DEFAULT_PLAN_LIMITS로 C planner 계획·효과 적용을 대조해 지우개 전달/위 서랍 열림 최종 상태 확인. LLM 실패는 실행 없이 clarify 발행 가능, 잠김/실행 중/생산자 미확인/평가 모드의 기존 실행 차단 유지. 아래 서랍·다른 물품 복합·닫기·부정·가능 여부는 거절.
+- [실측] 변경 함수의 기존 테스트 파일 test_voice_five.py + test_intent.py 205 passed(23.79초). 최초 선택 검사에서 LLM 실패에도 clarify는 발행하는 기존 동작을 테스트가 과도하게 금지한 1건을 수정해 두 파일 재검 통과. 전체 CI/빌드·PC2·실음성·로봇·실API는 실행하지 않음.
+- [적용/미결] 별도 브랜치 codex/e-p2-compound-goal-20261015. PC2는 반영 뒤 기존 호스트 install_host 재빌드 및 pc2_voice.sh --p2 재시작 필요. 로컬 YAML에 기존 복합 선정 목표가 있어야 하며 없으면 시작 시 거절. C 기존 수신/플래너 경로는 모의 근거이고 PC2 운영 설정/실물 완료는 미검증.

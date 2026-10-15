@@ -4,7 +4,8 @@ ICD 상 ROS 인터페이스 없이 ros2-core 프로세스 안에서 처리한다
 (ontology.md 7.8) Runner 상태와 온톨로지 world 로 답한다. 상태를 바꾸는 것은 스킬 effect 뿐이다.
 
 Phase 1 범위: 물품 하나 조회(item), 상태 경로 조회(state).
-P1 미지원: list·class 다중 조회(번들 요청은 for_each 가 필요한 P2), update_ontology(P1 시나리오에 없음).
+list·class 다중 조회는 지원하지 않음(NOT_SUPPORTED 유지) — P3 목록·분류는 E 가 물품 키로 풀어 주고(#302 E 확정 10/15)
+C 는 물품마다 item 조회(core/item_group.py). update_ontology 는 P1 시나리오에 없음.
 """
 from __future__ import annotations
 
