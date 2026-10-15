@@ -4,13 +4,23 @@ Only actual registered catalog subsets are used; never a Cartesian product of
 item failures. This validates wording, not independent physical outcome proof.
 """
 import re
-import inspect
 from itertools import combinations
 from ready2go_runner.core import item_group as group
 
 
 def sentences(text):
     return [part.strip() for part in re.split(r'(?<=[.!?])\s+', text.strip()) if part.strip()]
+
+
+def item_intros(targets, items):
+    factory = getattr(group, 'item_start_text', None)
+    if factory is None:
+        return set()  # Existing C still uses the task's ordinary item sentence.
+    # C #383: index is zero-based; excluded members do not count. A larger
+    # requested catalog can have only one runnable member, so include that
+    # factory form as well as first/next (at most three forms per actual item).
+    return {factory(items[key]['name_ko'], index, total)
+            for key in targets for total in {1, len(targets)} for index in range(min(2, total))}
 
 
 def fragments(targets, items):
@@ -32,12 +42,7 @@ def fragments(targets, items):
             for code in (group.UNKNOWN_ITEM, 'NOT_IN_DRAWER', None):
                 excluded = [group.ItemOutcome(key, items[key]['name_ko'], status=group.EXCLUDED,
                             error_code=code) for key in subset]
-                if 'accepted' in inspect.signature(group.start_text).parameters:
-                    allowed.update(sentences(group.start_text([], excluded, accepted=True)))
-                else:
-                    # Before #381 merge only the exclusion sentence is shared;
-                    # no new wire request passes the old intent schema.
-                    allowed.update(sentences(group.start_text([], excluded))[1:])
+                allowed.update(sentences(group.start_text([], excluded, accepted=True)))
     for key, name in zip(targets, names):
         for code in (*group.REASON_KO, None):
             outcome = group.ItemOutcome(key, name, status=group.NOT_DELIVERED, error_code=code)
@@ -56,6 +61,8 @@ def classify(text, pending, items, cfg):
     from .runner_speech import required_texts
     task_texts = set(required_texts(cfg, items.values()))
     if text in task_texts:
+        return [text], False
+    if text in item_intros(pending['targets'], items):
         return [text], False
     allowed = fragments(pending['targets'], items)
     parts = sentences(text)
@@ -78,4 +85,5 @@ def classify(text, pending, items, cfg):
 
 def required_texts(cfg, items):
     from .semantic_requests import entries
-    return sorted({text for _, result in entries(cfg, items) for text in fragments(result['items'], items)})
+    return sorted({text for _, result in entries(cfg, items)
+                   for text in fragments(result['items'], items) | item_intros(result['items'], items)})

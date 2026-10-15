@@ -34,7 +34,7 @@ def _keys(values, name):
 
 
 def load_ttl(path: str | Path, *, active_items, retired_items=()) -> SemanticCatalog:
-    """활성 등록부를 대조해 TTL 시험 카탈로그를 읽는다. 위치는 입력받지 않는다."""
+    """활성 등록부를 대조해 TTL 의미 카탈로그를 읽는다. 위치는 입력받지 않는다."""
     raw = Path(path).read_bytes()
     graph = Graph().parse(data=raw.decode("utf-8"), format="turtle", publicID=str(NS))
     return SemanticCatalog(graph, active_items=active_items, retired_items=retired_items,
@@ -59,7 +59,7 @@ class SemanticCatalog:
             _key(node)
         for subject, predicate, value in graph:
             if predicate not in _PREDICATES:
-                raise ValueError(f"시험 의미 그래프에 허용하지 않은 관계: {predicate}")
+                raise ValueError(f"의미 그래프에 허용하지 않은 관계: {predicate}")
             if subject not in declared:
                 raise ValueError(f"종류 선언이 없는 참조: {subject}")
             if predicate in {RDFS.label, NS.alias_ko} and (

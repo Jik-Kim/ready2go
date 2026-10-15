@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import inspect
+import os
 import json
 import sys
 import threading
@@ -22,9 +23,10 @@ ROOT = Path(__file__).resolve().parents[4]
 
 def current_contract():
     root = Path(inspect.getfile(intent_router)).parents[5]
+    expected = Path(os.environ.get('READY2GO_C_SOURCE_ROOT', str(ROOT))).resolve()
+    assert root == expected  # explicit pinned-source direct run, otherwise current merged C
     schema = json.loads((root / 'contracts/intent.schema.json').read_text())
-    if 'find_list' not in schema['properties']['intent']['enum']:
-        pytest.skip('C #381 contract is not on this base; run with actual C source')
+    assert 'find_list' in schema['properties']['intent']['enum']
     return root, schema
 
 
@@ -35,7 +37,7 @@ def semantic_parser(ontology, cfg):
     return IntentParser(ontology, schema, cfg, llm=lambda *a: pytest.fail('Semantic input must not use LLM'))
 
 
-@pytest.mark.parametrize('question', ['출근 준비물 뭐야?', '출근 준비물 뭐가 들어 있어?', '출근 세트 목록 알려줘'])
+@pytest.mark.parametrize('question', ['출근 준비물 뭐야?', '출근 준비물 뭐가 들어 있어?', '출근 세트 목록 알려줘', '출근 준비 물품 뭐야?'])
 def test_contents_uses_real_catalog_and_actual_readonly_tts(node, question):
     from test_runtime_322 import answer
     assert answer(node, question) == '출근 준비물은 에어팟 케이스, 차키, 립밤이에요.'
@@ -84,6 +86,8 @@ def test_contents_during_confirmation_never_reuses_single_item_authority(node):
     doc = node.session.text('출근 준비물 뭐야?', node.generation)
     assert doc['_voice']['readonly_query'] and not doc['source']['execution_allowed']
     assert doc['targets'] == [] and node.request_run.pending is None
+    assert node.session.conversation.pending is None
+    assert not node.session.text('응', node.generation)['source']['execution_allowed']
 
 
 def test_ambiguous_alias_and_retired_catalog_are_not_executable(semantic_parser, tmp_path):
@@ -173,8 +177,8 @@ def group_wire(node, node_class, monkeypatch):
     node._say = node_class._say.__get__(node, node_class)
     def playback(text, on_start=None, on_timing=None, **kwargs):
         fragments.append(text)
-        if wire.speech_mode == 'fail': raise RuntimeError('mock PCM unavailable')
-        if wire.speech_mode == 'stop':
+        if wire.speech_mode == 'fail' or text == getattr(wire, 'fail_text', None): raise RuntimeError('mock PCM unavailable')
+        if wire.speech_mode == 'stop' or text == getattr(wire, 'stop_text', None):
             wire.c.runner.halt(source='voice')
             raise InterruptedError('CANCELED')
         stamp = dict(tts_started_monotonic=node.now[0], tts_start_basis='portaudio_first_dac', tts_mock=False)
@@ -226,7 +230,12 @@ def test_actual_voice_catalog_c_group_speech_and_parent_result(group_wire, quest
     if outcome == 'FAILED':
         assert status['last']['failure']['run_id'] == run
         assert '3개 중 2개 가져왔어요.' in wire.fragments
-        assert '차키를 찾아 올게요' in wire.fragments and '립밤을 찾아 올게요' in wire.fragments
+        if hasattr(item_group, 'item_start_text'):
+            assert item_group.item_start_text('차키',0,2) in wire.fragments
+            assert item_group.item_start_text('립밤',1,2) in wire.fragments
+            assert '차키를 찾아 올게요' not in wire.fragments and '립밤을 찾아 올게요' not in wire.fragments
+        else:
+            assert '차키를 찾아 올게요' in wire.fragments and '립밤을 찾아 올게요' in wire.fragments
     else: assert '차키를 가져왔어요.' in wire.fragments
     assert node.pending_notice is None  # verified C summary; no duplicate completion/false PARTIAL warning
 
@@ -241,6 +250,63 @@ def test_acceptance_failure_or_stop_sends_zero_robot_actions(group_wire, mode):
     assert not wire.robot.calls
     if mode == 'stop':
         assert result.overall_status == 'ABORTED' and result.failure is None
+    else: assert result.overall_status == 'FAILED'
+
+
+def test_approved_common_initial_state_delivers_all_three_without_changing_list_contents(group_wire, ontology):
+    wire = group_wire; node = wire.e
+    state = copy.deepcopy(ontology['state'])
+    assert state['located_in']['airpods_case'] == state['located_in']['car_key'] == 'drawer_top'
+    assert state['located_in']['lip_balm'] == 'drawer_bottom'
+    wire.c.runner._state = state
+    read = node.session.text('출근 준비 물품 뭐야?', node.generation)
+    assert read['_voice']['final_text'] == '출근 준비물은 에어팟 케이스, 차키, 립밤이에요.'
+    assert not node.session.should_publish(read)
+    node.deliver(node.session.text('출근 준비 물품 찾아줘', node.generation)); wire.flush()
+    scheduled = wire.started[-1]; scheduled['target'](*scheduled['args']); wire.flush()
+    assert wire.c._last.overall_status == 'COMPLETED'
+    assert '3개 모두 가져왔어요.' in wire.fragments
+    assert all(wire.c.runner.state['located_in'][key] == 'handover_zone'
+               for key in ('airpods_case','car_key','lip_balm'))
+    assert wire.robot.drawer_moves() == [('drawer_top','open'), ('drawer_top','close'),
+        ('drawer_top','open'), ('drawer_top','close'), ('drawer_bottom','open'), ('drawer_bottom','close')]
+    if hasattr(item_group, 'item_start_text'):
+        expected = [item_group.item_start_text(name,n,3) for n,name in enumerate(('에어팟 케이스','차키','립밤'))]
+        assert [text for text in wire.fragments if text in expected] == expected
+
+
+def test_one_runnable_member_of_list_uses_singleton_factory_and_cache(group_wire):
+    if not hasattr(item_group, 'item_start_text'): pytest.skip('C #383 item introduction factory pending')
+    wire = group_wire; node = wire.e
+    wire.c.runner._state['located_in'].pop('car_key', None)
+    node.deliver(node.session.text('출근 준비물 가져와', node.generation)); wire.flush()
+    scheduled = wire.started[-1]; scheduled['target'](*scheduled['args']); wire.flush()
+    text = item_group.item_start_text('립밤',0,1)
+    assert text in wire.fragments and '먼저' not in text and '다음으로' not in text
+    assert text in group_speech.required_texts(node.cfg, node.parser.items)
+    assert wire.c._last.error_code == 'PARTIAL_DELIVERY'
+
+
+@pytest.mark.parametrize('stage', ['first_fail','second_fail','second_stop'])
+def test_actual_item_intro_failure_or_stop_blocks_following_items(group_wire, ontology, stage):
+    if not hasattr(item_group, 'item_start_text'): pytest.skip('C #383 item introduction factory pending')
+    wire = group_wire; node = wire.e
+    wire.c.runner._state = copy.deepcopy(ontology['state'])
+    intro = item_group.item_start_text('에어팟 케이스' if stage == 'first_fail' else '차키',
+                                     0 if stage == 'first_fail' else 1, 3)
+    if stage == 'second_stop': wire.stop_text = intro
+    else: wire.fail_text = intro
+    node.deliver(node.session.text('출근 준비물 가져와', node.generation)); wire.flush()
+    run = wire.c.status()['accepted']['run_id']
+    scheduled = wire.started[-1]; scheduled['target'](*scheduled['args']); wire.flush()
+    result = wire.c._last
+    record = wire.c.log_store.read_run(run)['run']
+    assert next(o for o in record['items'] if o['item'] == 'lip_balm')['status'] == 'NOT_RUN'
+    if stage == 'first_fail': assert not wire.robot.calls
+    else:
+        assert wire.c.runner.state['located_in']['airpods_case'] == 'handover_zone'
+        assert wire.c.runner.state['located_in']['car_key'] == 'drawer_top'
+    if stage == 'second_stop': assert result.overall_status == 'ABORTED' and result.failure is None
     else: assert result.overall_status == 'FAILED'
 
 

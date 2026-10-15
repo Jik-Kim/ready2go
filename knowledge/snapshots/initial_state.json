@@ -1,5 +1,5 @@
 {
-  "description": "P2 초기 배치: 위 서랍에 S1 물품(toy_wrench, caramel_box, car_key), 아래 서랍에 S2 물품(cover_plate, eraser, lip_balm)을 등록. S3도 같은 초기 상태를 사용하되 실제 아래 서랍에서 지우개만 제외하여, 초기 상태와 비전 관측이 다를 때 LLM으로 전달되는 결과를 확인하는 시험. 이 파일은 초기 상태 정의이며 실제 관측 결과를 뜻하지 않음.",
+  "description": "P2·P3 공통 초기 배치: 위 서랍에 S1 물품(toy_wrench, caramel_box, car_key), 아래 서랍에 S2 물품(cover_plate, eraser, lip_balm)을 등록. P3 출근 준비 목록의 에어팟 케이스(airpods_case)는 위 서랍에 추가 등록하여 차키와 같은 서랍, 립밤은 아래 서랍에서 찾는다. S3도 같은 초기 상태를 사용하되 실제 아래 서랍에서 지우개만 제외하여, 초기 상태와 비전 관측이 다를 때 LLM으로 전달되는 결과를 확인하는 시험. 이 파일은 초기 상태 정의이며 실제 관측 결과를 뜻하지 않음.",
   "state": {
     "robot_pose": {
       "robot": "home"
@@ -18,7 +18,8 @@
       "car_key": "drawer_top",
       "cover_plate": "drawer_bottom",
       "eraser": "drawer_bottom",
-      "lip_balm": "drawer_bottom"
+      "lip_balm": "drawer_bottom",
+      "airpods_case": "drawer_top"
     }
   }
 }

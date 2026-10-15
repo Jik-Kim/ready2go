@@ -60,7 +60,7 @@ def select(parser, text):
             if name and name in value:
                 touched = True
                 rest = value.replace(name, '', 1)
-                readonly = re.fullmatch(r'(?:은|는)?(?:뭐야|뭐예요|뭐가들어있어|뭐가들어있어요|뭐가있어|목록알려줘|알려줘)', rest)
+                readonly = re.fullmatch(r'(?:은|는|에(?:는)?)?(?:뭐야|뭐예요|뭔지알려줘|뭐가들어있어|뭐가들어있어요|뭐가있어|목록알려줘|알려줘)', rest)
                 execution = re.fullmatch(r'(?:을|를)?(?:가져와|가져와줘|가져다줘|가져다주세요|가져와주세요|찾아줘)', rest)
                 if readonly or execution:
                     matched.append((result, bool(readonly)))
