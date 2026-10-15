@@ -4043,3 +4043,16 @@ def test_make_room_report_case_names_case_and_strategy(server, monkeypatch, kind
     mr = data["make_room"]
     assert (mr["case_id"], mr["strategy"]) == want, mr
     assert server.srv.robot.log == []
+
+
+def test_make_room_report_case_failure_does_not_change_result(server, monkeypatch):
+    """[C #364 리뷰 P2] 이름 붙이기(classify)가 예외여도 make_room 결과·동작은 그대로 — case_id null, strategy 는 계획 동작 종류."""
+    from ready2go_skills.core import clear_plan as clp
+    _with_prm(server, monkeypatch, make_room={"report_case": True})
+    monkeypatch.setattr(server.ss.lcase, "classify", lambda *a, **k: (_ for _ in ()).throw(StopIteration()))
+    t, nb = _seg(ERASER_FREE), _seg(CARAMEL_NEXT)
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: clp.Action("fail", "eraser#1", "x", code="NEIGHBOR_TOO_CLOSE"))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "check_only": True,
+                                            "scan": _scan_with(t, nb)})
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE"
+    assert data["make_room"]["case_id"] is None and data["make_room"]["strategy"] == "impossible"
