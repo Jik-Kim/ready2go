@@ -263,6 +263,7 @@ neighbor:   # core/neighbor_check.py — 집기·끌기 전 옆 물체 확인 (�
   below_tol_m: 0.003            # [팀 확정 필요] 목표 받침 + 이 값 이하 윗면(top_z)의 이웃은 손가락보다 아래 → 무시 (쌓인 물체의 받침)
   fingertip_clear_mm: 2.0       # 집을 때 닫은 손끝 높이(받침 + 물건별·높이 비율)보다 이만큼 넘게 낮은 이웃(비전 top_z·온톨로지 높이 중 큰 값)은 손가락 자리에 있어도 무시 — 가림막(손끝 25) 옆 지우개·립밤 [사용자 10/12 PC2, 제안]
 make_room:                       # nudge_object make_room — 파지 공간 만들기 한 단계 (core/clear_plan) [제안 10/11 B, 계약 승인 전, #117]
+  report_case: false            # [제안 10/15 B, 계약 ④ 승인 전 — #364] true = 결과 make_room 에 case_id(배치 난제 이름, 모르면 null)·strategy(direct|nudge|make_room|remove_top|impossible …) 추가 — core/layout_case. 선택 칸, Runner 는 strategy == "impossible" 로만 분기
   max_chain: 2                  # 목표를 밀 때 같이 밀려도 되는 물체 수 (줄줄이). 덮개 판·위에 뭐가 얹힌 물체는 안 밂 [추정 — 실물 확인 필요]
   remove_first: false           # 10/13 true → false [사용자 10/13 PC2 "캐러멜 먼저 넛지하지 말고 에어팟 sweep 후 에어팟만 가져가면 안 될까" — sweep 실물 잘 됨]: 한 번 움직여 잡히면 넛지·밀기(sweep, 옆 물체 같이) 중 덜 움직이는 것 먼저 → 안 되면 막는 물체 집어 빈 자리로·막는 물체 넛지. 예전 true [사용자 10/12 "목표 말고는 다 방해물"] = 다른 물체 안 건드리는 넛지 → 막는 물체 치우기 → 그래도 안 되면 밀기 — 10/13 밤 순서 [사용자 "넛지로 넓은 공간으로 끌어온 뒤 집기 → 안 되면 sweep → 그래도 안 되면 다른 놈들 치우기"]: 넛지(안 밂) → sweep → 치우기
   slack_mm: 10.0                # 넛지·밀기 뒤 집기 검사가 딱 통과하는 최소 거리보다 이만큼 더 (되돌아오기·끄는 거리) — 실물에서 같이 밀린 물체가
