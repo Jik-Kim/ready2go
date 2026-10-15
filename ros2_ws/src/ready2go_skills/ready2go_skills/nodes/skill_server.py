@@ -2734,6 +2734,14 @@ class SkillServer(Node):
             return None, sf.Outcome(False, sf.BAD_PARAMS, reason=f"check_only: {obj['id']} 집기 계획이 {loc} 가 아님")
         except Exception as e:                                    # 설정·계산 예외 = 판단 못 함 → 통과 아님
             return None, sf.Outcome(False, sf.SKILL_EXCEPTION, reason=f"check_only: 집기 판단 예외 {e!r:.100}")
+        if o.error_code == WALL_TOO_CLOSE and (self.prm().get("make_room") or {}).get("wall_blocked_as_neighbor"):
+            # 벽에 붙었는데 벽에서 끌어오는 넛지(pick 스킬의 대안)도 이웃에 막히면 이웃 거부로 — Runner 가 공간 만들기(make_room)로 감
+            # [PC2 10/15 출근 준비물: 옆벽 에어팟 + 앞 몽키 → s8.q1 WALL_TOO_CLOSE → pick 벽 넛지 NEIGHBOR_TOO_CLOSE 로 끝,
+            #  make_room 은 몽키 같이 밀기(sweep)로 풀 수 있는 장면 — 2D sim]
+            _, ncode, nwhy = _dry_call(lambda: _Dry(self)._do_nudge_object(_DRY_GOAL, {"drawer_id": loc, "target": obj, "scan": scan}))
+            if ncode == NEIGHBOR_TOO_CLOSE:
+                return None, sf.Outcome(False, NEIGHBOR_TOO_CLOSE,
+                                        reason=f"check_only: 벽에 붙음({o.reason}) + 벽 넛지도 거부 — {nwhy}")
         return None, sf.Outcome(False, o.error_code or sf.BAD_PARAMS, reason=f"check_only: 집기부터 거부 — {o.reason}")
 
     def _free_pose(self, params, loc, held):

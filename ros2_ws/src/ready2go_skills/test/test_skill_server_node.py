@@ -182,7 +182,7 @@ def server(monkeypatch):
 
 LEGACY_FLAGS = {"motion": {"one_turn": False}, "carry": {"direct": False, "spline": False},
                 "transit": {"view_blend_in_drawer": False}, "pick": {"open_on_way": False},
-                "place": {"touch_window_mm": 0.0}}
+                "place": {"touch_window_mm": 0.0}, "make_room": {"wall_blocked_as_neighbor": False}}
 
 
 def test_check_only_still_needs_drag_returns_push_limit_without_motion(server):
@@ -4145,3 +4145,49 @@ def test_pick_does_not_close_when_tcp_reread_fails(server, monkeypatch):
     out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
     assert state["after"] and out.error_code == "STATE_UNKNOWN", out
     assert grips and 0 not in grips[grips.index(max(grips)):]                 # 벌린 뒤 닫기(0) 없음
+
+
+def _air_wall_scene(wrench=True):
+    """PC2 10/15 출근 준비물 위 칸: 옆벽(y 0) 에어팟 (104, 22) + 앞(+y) 몽키 (100, 68) + 캐러멜·차키."""
+    def ob(i, c, x, y, top, yaw):
+        return {"id": i, "class": c, "pose": {"frame": "drawer_top", "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True},
+                "top_z": top, "occluded_by": [], "visible_area_m2": 0.002}
+    air = ob("airpods_case#1", "airpods_case", 0.104, 0.022, 0.0229, 0.0061)
+    nb = [ob("caramel_box#1", "caramel_box", 0.035, 0.019, 0.0228, -0.0083), ob("car_key#1", "car_key", 0.173, 0.016, 0.02, 0.0)]
+    if wrench:
+        nb.append(ob("toy_wrench#1", "toy_wrench", 0.100, 0.068, 0.016, -0.1916))
+    return air, {"target_found": True, "target": air, "candidates": nb}
+
+
+def _air_check(server):
+    air, scan = _air_wall_scene()
+    return server.run("place_object", {"location": "drawer_top", "pose": air["pose"], "scan": scan, "object": air, "check_only": True})
+
+
+def test_check_only_wall_with_blocked_wall_nudge_is_neighbor_so_runner_makes_room(server, monkeypatch):
+    """[사용자 10/15 PC2 출근 준비물] 옆벽 에어팟 앞에 몽키: 집기 판단은 WALL_TOO_CLOSE, pick 의 벽 넛지는 '끄는 길에 몽키'로 거부 →
+    Runner s8.q 가 make_room 으로 못 가고 끝남. make_room.wall_blocked_as_neighbor(저장소 true)면 check_only 가 NEIGHBOR_TOO_CLOSE —
+    움직이지 않음. 공간 만들기 계획은 이 장면을 몽키 같이 밀기로 풂."""
+    monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
+    assert server.yaml_real(server.srv.params_file)["make_room"]["wall_blocked_as_neighbor"] is True
+    server.srv.disp["drawer_top"] = server.srv.places()["drawer_top"]["tf_at_travel_m"]
+    out, _ = _air_check(server)
+    assert not out.success and out.error_code == "NEIGHBOR_TOO_CLOSE" and "toy_wrench#1" in out.reason
+    assert server.srv.robot.log == []
+    from ready2go_skills.core import clear_plan as clp
+    air, scan = _air_wall_scene()
+    objs, _ = server.srv._room_objs({"scan": scan, "target": air}, "drawer_top", air["id"], "make_room")
+    a = clp.plan_next(objs, air["id"], server.ss.DryOracle(server.srv, "drawer_top"), server.srv._room_cfg("drawer_top"))
+    assert a.kind in ("sweep", "nudge", "remove")
+
+
+def test_check_only_wall_stays_wall_when_flag_off_or_wall_nudge_is_free(server, monkeypatch):
+    """끄면 예전(WALL_TOO_CLOSE → pick 벽 넛지). 켜도 끄는 길이 비면 그대로 WALL_TOO_CLOSE (벽 넛지로 풂)."""
+    server.srv.disp["drawer_top"] = server.srv.places()["drawer_top"]["tf_at_travel_m"]
+    assert _air_check(server)[0].error_code == "WALL_TOO_CLOSE"                         # LEGACY_FLAGS = 끔
+    _with_prm(server, monkeypatch, make_room={"wall_blocked_as_neighbor": True})
+    air, scan = _air_wall_scene(wrench=False)
+    out, _ = server.run("place_object", {"location": "drawer_top", "pose": air["pose"], "scan": scan, "object": air, "check_only": True})
+    assert out.error_code == "WALL_TOO_CLOSE"
+    assert server.srv.robot.log == []
+
