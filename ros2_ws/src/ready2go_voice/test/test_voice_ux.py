@@ -549,11 +549,15 @@ def test_prefill_512_session_duplicate_capacity_does_not_restore_question(cfg,on
     assert not answer['source']['execution_allowed'] and not answer['targets']
 
 
-def test_prefill_256_config_missing_default_and_explicit_old_local_preserved(cfg,tmp_path):
+def test_prefill_512_config_missing_default_and_explicit_old_local_preserved(cfg,tmp_path):
     import yaml
     from ready2go_voice.core.config import load_config
+    assert cfg['tts_prefill_max_texts'] == 512 and cfg['tts_melotts_startup_timeout_sec'] == 600.
     path=tmp_path/'old.yaml'
     cfg.pop('tts_prefill_max_texts');path.write_text(yaml.safe_dump(cfg,allow_unicode=True))
     assert load_config(path)['tts_prefill_max_texts']==512
-    cfg['tts_prefill_max_texts']=128;path.write_text(yaml.safe_dump(cfg,allow_unicode=True))
-    assert load_config(path)['tts_prefill_max_texts']==128  # 최신값 강제 적용은 승인된 시험 복사본에만 수행합니다.
+    cfg['tts_prefill_max_texts']=128;cfg['tts_melotts_startup_timeout_sec']=60.
+    path.write_text(yaml.safe_dump(cfg,allow_unicode=True));before=path.read_bytes()
+    loaded = load_config(path)
+    assert loaded['tts_prefill_max_texts']==128 and loaded['tts_melotts_startup_timeout_sec']==60.
+    assert path.read_bytes() == before  # 최신값 강제 적용은 승인된 시험 복사본에만 수행합니다.
