@@ -32,6 +32,7 @@ def e_onto(located=P2_SINGLE):
     onto = with_state(ONTOLOGY, located)
     skill = onto["skills"]["handover_with_unpack"]
     assert skill["kind"] == "composite" and skill["effect"] == "sensing"
+    skill.pop("plan_effect", None)
     skill.update(params={"target": "Item", "from": "Drawer"},
                  pre=[{"subject": "robot", "predicate": "gripper", "op": "==", "value": "empty"},
                       {"subject": "$target", "predicate": "located_in", "op": "==", "value": "$from"},
@@ -61,7 +62,8 @@ def labels(result):
 
 def test_planner_chooses_unpack_composite_only_when_allowed():
     """'지우개 갖다주고 위 서랍 열어 둬' — composites=True 이면 묶음(언패킹) → 위 서랍 열기 2단계, 기본(False)은 지금 그대로
-    일반 pick 5단계. 저장소 온톨로지(plan_effect 없음)는 composites=True 여도 묶음을 후보로 안 씀(effect 'sensing' 만으로는 안 됨)."""
+    일반 pick 5단계. plan_effect 없는 composite(effect 'sensing' 만)는 composites=True 여도 후보로 안 씀 — 저장소 파일에
+    E #375 가 들어오든 말든 같은 결과가 되도록 복사본에서 plan_effect 를 빼서 확인."""
     onto = e_onto()
     both = planner.plan(start_state(P2_SINGLE), onto, [DELIVER, TOP_OPEN], limits=LIMITS, composites=True)
     assert labels(both) == ["handover_with_unpack(eraser, drawer_bottom)", "open_drawer(drawer_top)"]
@@ -70,9 +72,20 @@ def test_planner_chooses_unpack_composite_only_when_allowed():
     plain = planner.plan(start_state(P2_SINGLE), onto, [DELIVER, TOP_OPEN], limits=LIMITS)
     assert labels(plain) == ["open_drawer(drawer_bottom)", "pick(eraser, drawer_bottom)", "place(eraser, handover_zone)",
                              "close_drawer(drawer_bottom)", "open_drawer(drawer_top)"]
-    repo = planner.plan(start_state(P2_SINGLE), with_state(ONTOLOGY, P2_SINGLE), [DELIVER, TOP_OPEN], limits=LIMITS,
-                        composites=True)
-    assert labels(repo) == labels(plain)
+    sensing_only = e_onto()
+    del sensing_only["skills"]["handover_with_unpack"]["plan_effect"]
+    no_plan = planner.plan(start_state(P2_SINGLE), sensing_only, [DELIVER, TOP_OPEN], limits=LIMITS, composites=True)
+    assert labels(no_plan) == labels(plain)
+
+
+def test_repo_ontology_when_e_plan_effect_lands_matches_the_proposal():
+    """저장소 handover_with_unpack 에 E plan_effect(#375)가 있으면 이 시험이 쓰는 E 제안 형식과 같아야 함 — 없으면(머지 전) 건너뜀."""
+    repo = ONTOLOGY["skills"]["handover_with_unpack"]
+    if "plan_effect" not in repo:
+        pytest.skip("E #375 (handover_with_unpack plan_effect) 머지 전")
+    proposal = e_onto()["skills"]["handover_with_unpack"]
+    assert {k: repo.get(k) for k in ("kind", "params", "pre", "effect", "task", "plan_effect")} == \
+        {k: proposal[k] for k in ("kind", "params", "pre", "effect", "task", "plan_effect")}
 
 
 def test_composite_obeys_one_drawer_at_a_time():
