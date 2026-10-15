@@ -81,3 +81,26 @@ def test_occlusion_unknown_every_time_ends_loop_without_picking_target():
     assert len(calls) == 4
     assert "pick_object" not in [a for a, _ in sent]
     assert statuses(result)[0][1] == ig.NOT_DELIVERED and result.items[0].error_code is not None
+
+
+def test_rescan_after_stalled_moves_does_not_count_as_remove_stall():
+    """[#394 E 리뷰] 목표 그대로인 wall_nudge(준비 안 됨) 2회 → 다음 부름 remove_first → 그 부름이 OCCLUSION_UNKNOWN(움직이기 전)이면
+    다음 회차는 같은 행동 반복 판정을 건너뛰고 remove_first 를 다시 시도 — 예전엔 이전 mr_prev 로 다시 판정해 실행하지 않은
+    remove_first 를 '하고도 그대로'로 보고 멈춤(make_room 3회 뒤 바로 집기)."""
+    sent = []
+
+    def hook(action, params):
+        if action == "place_object" and params.get("check_only") and _id(params, "object").startswith("airpods"):
+            return ActionResult(False, error_code="NEIGHBOR_TOO_CLOSE")
+        if action == "nudge_object" and params.get("make_room"):
+            sent.append(bool(params.get("remove_first")))
+            if len(sent) <= 2:
+                return ActionResult(True, {"make_room": {"action": "wall_nudge", "ready_to_pick": False, "moved_id": None,
+                                                         "pushed_ids": [], "pushed_after": [], "reason": "벽에서 덜 떨어짐"}})
+            if len(sent) == 3:
+                return ActionResult(False, error_code="OCCLUSION_UNKNOWN")
+            return make_room_ok("remove")
+        return None
+    result, _ = run_airpods(hook)
+    assert sent == [False, False, True, True]
+    assert statuses(result)[0] == ("airpods_case", ig.DELIVERED)
