@@ -310,6 +310,39 @@ def test_actual_item_intro_failure_or_stop_blocks_following_items(group_wire, on
     else: assert result.overall_status == 'FAILED'
 
 
+def test_current_drawer_order_not_run_summary_uses_factory_chunks_not_permutation_cache(group_wire, ontology):
+    if not hasattr(item_group, 'item_start_text'): pytest.skip('C #383 item introduction factory pending')
+    wire = group_wire; node = wire.e
+    state = copy.deepcopy(ontology['state'])
+    state['located_in'].update(airpods_case='drawer_bottom', car_key='drawer_top', lip_balm='drawer_top')
+    wire.c.runner._state = state
+    wire.stop_text = item_group.item_start_text('차키',0,3)
+    node.deliver(node.session.text('출근 준비물 가져와',node.generation)); wire.flush()
+    scheduled = wire.started[-1]; scheduled['target'](*scheduled['args']); wire.flush()
+    assert wire.c._last.overall_status == 'ABORTED' and not wire.robot.calls
+    assert '립밤,' in wire.fragments
+    assert '에어팟 케이스는 작업하지 않았어요.' in wire.fragments
+
+
+def test_fragment_playback_keeps_first_start_last_end_and_aggregate_timing(node):
+    calls, started, reports = [], [], []
+    def speak(text, on_start=None, on_timing=None, **kwargs):
+        n = len(calls); calls.append(text)
+        stamp = {'tts_started_monotonic': n * 3., 'tts_start_basis':'portaudio_first_dac', 'tts_mock':False}
+        if on_start: on_start(stamp)
+        on_timing({'synthesis_wait_sec':1., 'cache_hit':n != 1})
+        on_timing({'synthesis_wait_sec':1., 'playback_sec':2., 'playback_ended_monotonic':n * 3. + 2.,
+                   'playback_end_basis':'portaudio_finished_callback', 'cache_hit':n != 1})
+        return stamp
+    node.tts.speak = speak
+    stamp = node._say('검증된 세 문장', fragments=['첫 문장','둘째 문장','셋째 문장'],
+                      on_start=started.append, on_timing=reports.append)
+    assert stamp['tts_started_monotonic'] == 0. and len(started) == 1
+    assert reports[-1]['playback_ended_monotonic'] == 8.
+    assert reports[-1]['synthesis_wait_sec'] == 3. and reports[-1]['playback_sec'] == 6.
+    assert reports[-1]['cache_hit'] is False
+
+
 @pytest.mark.parametrize('mode', ['all_unknown','missing_item','unsafe_stop','busy_status'])
 def test_actual_c_group_boundaries_keep_safe_result_and_continuity(group_wire, mode):
     wire = group_wire; node = wire.e

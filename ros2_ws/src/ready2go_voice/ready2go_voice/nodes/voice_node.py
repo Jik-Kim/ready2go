@@ -1709,9 +1709,26 @@ class VoiceNode(Node):
                 on_start(stamp)
         try:
             fragments = kwargs.pop('fragments', None) or [text]
+            if len(fragments) == 1:
+                return self.tts.speak(fragments[0], on_start=started, **kwargs)
+            report = kwargs.pop('on_timing', None)
+            timings = []
             first = None
             for n, fragment in enumerate(fragments):
-                stamp = self.tts.speak(fragment, on_start=started if n == 0 else None, **kwargs)
+                current = {}; timings.append(current)
+                def chunk_timing(update):
+                    current.update(update)
+                    total = {key: value for part in timings for key, value in part.items()}
+                    for key in ('synthesis_wait_sec', 'worker_synth_sec', 'playback_sec'):
+                        if any(key in part for part in timings):
+                            total[key] = sum(part.get(key, 0) for part in timings)
+                    if all('cache_hit' in part for part in timings):
+                        total['cache_hit'] = all(part['cache_hit'] is True for part in timings)
+                    else:
+                        total.pop('cache_hit', None)
+                    if report is not None: report(total)
+                stamp = self.tts.speak(fragment, on_start=started if n == 0 else None,
+                                       on_timing=chunk_timing, **kwargs)
                 if n == 0: first = stamp
             return first
         finally:

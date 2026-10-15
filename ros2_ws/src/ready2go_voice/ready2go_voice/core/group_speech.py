@@ -23,6 +23,20 @@ def item_intros(targets, items):
             for key in targets for total in {1, len(targets)} for index in range(min(2, total))}
 
 
+def ordered_not_run(part, targets, items):
+    """Validate C's runtime drawer order without pre-caching permutations."""
+    ordered = sorted((key for key in targets if items[key]['name_ko'] in part),
+                     key=lambda key: part.index(items[key]['name_ko']))
+    if not ordered:
+        return None
+    outcomes = [group.ItemOutcome(key, items[key]['name_ko'], status=group.NOT_RUN) for key in ordered]
+    actual = sentences(group.summary_text(group.GroupResult('FAILED', None, outcomes), None))[1:]
+    if actual != [part]:
+        return None
+    pieces = part.split(', ')
+    return [piece + ',' for piece in pieces[:-1]] + [pieces[-1]]
+
+
 def fragments(targets, items):
     if not targets:
         return set()
@@ -53,6 +67,11 @@ def fragments(targets, items):
                 allowed.update(sentences(group.summary_text(result, stop))[1:])
             outcome.restore_incomplete = True
             allowed.update(sentences(group.summary_text(group.GroupResult('FAILED', code, [outcome]), 'failed'))[1:])
+        if count > 1:
+            other = next(k for k in targets if k != key)
+            outcomes = [group.ItemOutcome(k, items[k]['name_ko'], status=group.NOT_RUN) for k in (key, other)]
+            clause = sentences(group.summary_text(group.GroupResult('FAILED', None, outcomes), None))[1]
+            allowed.add(clause.split(', ')[0] + ',')
     return allowed
 
 
@@ -67,8 +86,17 @@ def classify(text, pending, items, cfg):
     allowed = fragments(pending['targets'], items)
     parts = sentences(text)
     if (not parts or len(parts) > len(pending['targets']) + 3
-            or len(parts) != len(set(parts)) or any(p not in allowed for p in parts)):
+            or len(parts) != len(set(parts))):
         return None
+    playback = []
+    for part in parts:
+        if part in allowed:
+            playback.append(part)
+        else:
+            validated = ordered_not_run(part, pending['targets'], items)
+            if validated is None or any(piece not in allowed for piece in validated):
+                return None
+            playback.extend(validated)
     # Summary always starts with a factory count/result head; start/exclusion
     # sentences do not count as final-result playback evidence.
     heads = set()
@@ -80,7 +108,7 @@ def classify(text, pending, items, cfg):
     summary = parts[0] in heads
     if any(p in heads for p in parts[1:]) or not summary and (len(parts) != 1 or not text.endswith('빼고 가져올게요.')):
         return None
-    return parts, summary
+    return playback, summary
 
 
 def required_texts(cfg, items):
