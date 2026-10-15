@@ -7,7 +7,7 @@ E 음성은 C Runner 코드(`ready2go_runner.core.item_group` 안내 factory 등
 
 1. 호스트에 설치된 Python 패키지 파일이 지금 저장소 소스와 같은가 (install_host 를 다시 빌드했나)
 2. 떠 있는 Runner 의 기준점(pc2_up.sh 가 남긴 ready.txt 의 SHA)이 지금 checkout HEAD 와 같은가 (pc2_up 뒤에 git pull 안 했나) —
-   커밋이 달라도 실행 파일(RUNTIME_PATHS)이 그대로면(문서만 바뀜) 통과
+   커밋이 달라도 실행 파일(RUNTIME_PATHS, 그 안 Markdown 제외)이 그대로면(문서만 바뀜) 통과
 
 한계: 1 은 Python 패키지 파일만 비교(설치된 share 데이터 — TTL·태스크 — 는 안 봄). 2 는 기동 때 기록(ready.txt)과 커밋 비교라
 지금 살아 있는 Runner 프로세스·로드된 모듈을 직접 보지 않고, 커밋 안 한 수정을 pc2_up 뒤에 바꾼 경우는 못 잡음.
@@ -28,6 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = ("ready2go_runner", "ready2go_knowledge", "ready2go_voice")   # 음성이 import 하는 팀 Python 패키지
 RUNTIME_PATHS = ("ros2_ws/src", "tasks", "knowledge", "config", "contracts", "docker", "compose.yaml")  # Runner 기동·실행에 쓰는 것
+NOT_RUNTIME = (":(exclude,glob)**/*.md",)   # 그 안이라도 실행에 안 쓰는 것 — 패키지 README 등 문서
 
 
 def installed_dir(package: str) -> Path | None:
@@ -48,6 +49,14 @@ def compare(src: Path, installed: Path) -> list[str]:
     diff += [f"설치 안 됨 {f}" for f in sorted(a - b)]
     diff += [f"소스에 없음 {f}" for f in sorted(b - a)]
     return diff
+
+
+def runtime_changed(root: Path, sha: str) -> int:
+    """sha → HEAD 사이 실행 파일 변화: 0 = 없음, 1 = 있음, 그 밖 = 비교 불가(기준점 커밋 없음 등).
+    Markdown 은 뺌 — 설치·빌드·실행 입력으로 쓰는 .md 가 없음(setup.py data_files·CMake·Docker 확인, #385 E 재리뷰).
+    그 밖 확장자(.py·package.xml·setup.py·YAML·TTL·JSON 태스크 등)는 모두 실행 파일로 봄 — 확장자 허용 목록이 아니라 제외 목록."""
+    return subprocess.run(["git", "-C", str(root), "diff", "--quiet", sha, "HEAD", "--", *RUNTIME_PATHS, *NOT_RUNTIME],
+                          capture_output=True).returncode
 
 
 def latest_ready(log_dir: Path) -> Path | None:
@@ -90,10 +99,9 @@ def main(argv: list[str] | None = None) -> int:
             unknown.append(f"Runner 준비가 OK 가 아님 ({ready}: {state or '빈 파일'})")
         elif sha != head:
             # 커밋이 달라도 실행에 쓰는 파일이 그대로면(문서만 바뀜) 다시 띄우지 않아도 됨 (#385 E 리뷰)
-            changed = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", sha, "HEAD", "--", *RUNTIME_PATHS],
-                                     capture_output=True).returncode
+            changed = runtime_changed(ROOT, sha)
             if changed == 0:
-                notes.append(f"Runner 기준점 {sha} → 지금 {head}: 실행 파일({', '.join(RUNTIME_PATHS)}) 변화 없음 (문서·도구만 바뀜) — 다시 띄우지 않아도 됨")
+                notes.append(f"Runner 기준점 {sha} → 지금 {head}: 실행 파일({', '.join(RUNTIME_PATHS)}, .md 제외) 변화 없음 (문서·도구만 바뀜) — 다시 띄우지 않아도 됨")
             else:                           # 1 = 실행 파일 바뀜, 그 밖 = 기준점 커밋을 못 찾음(비교 불가 → 다름으로)
                 why = "실행 파일이 바뀜" if changed == 1 else "기준점 커밋을 이 저장소에서 못 찾아 비교 불가"
                 bad.append(f"Runner 기준점 {sha} ≠ 지금 checkout {head} — pc2_up.sh 뒤에 {why} ({ready})")
