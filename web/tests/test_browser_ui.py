@@ -720,3 +720,29 @@ def test_preview_labels_are_consistent(tmp_path: Path, scenario: str) -> None:
         assert "지우개 · 확인 불가" not in rendered
     else:
         assert rendered.count("업무용 손목시계 및 교통카드 케이스") >= 2
+
+
+
+def test_finished_detail_is_cached_and_excluded_items_do_not_take_numbers(tmp_path: Path) -> None:
+    """동일 key의 종료 기록은 한 번만 읽고 제외 항목 다음 실행 번호는 연속이다."""
+    class Reader:
+        def __init__(self):
+            self.calls = 0
+
+        def read_run(self, run_id):
+            self.calls += 1
+            if self.calls > 1:
+                raise RuntimeError("a repeated lookup would fail")
+            return {"run": {"run_id": "r1", "task_id": "find_item", "overall_status": "COMPLETED",
+                "ended_at": "2026-10-15T00:00:00Z", "inputs": {}, "items": [
+                    {"item": "eraser", "run_id": None, "status": "DELIVERED"},
+                    {"item": "excluded", "run_id": None, "status": "EXCLUDED"},
+                    {"item": "watch", "run_id": None, "status": "DELIVERED"}]}, "steps": []}
+
+    reader = Reader()
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        runner_payloads=[_request_result()], execution_reader=reader)
+    assert reader.calls == 1
+    assert "2 / 2 전달 완료" in rendered
+    assert "제외 excluded" in rendered
+    assert "2. watch" in rendered and "3. watch" not in rendered

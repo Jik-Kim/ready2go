@@ -13,7 +13,7 @@
   const runnerStatusGuard = runnerStatusModel.createStatusGuard();
   const detailGuard = statusApi.createDetailGuard();
   // 종료 기록 조회는 현재 실행 제목과 별도 상태다. 선택과 응답은 이 run에만 속한다.
-  const executionDetail = { key: null, controller: null, value: null, selectedId: null };
+  const executionDetail = { key: null, controller: null, value: null, selectedId: null, attempts: 0 };
   // robot_state에는 boot_id가 없어 재기동 당시 캐시를 새 기동의 기억값으로 재사용하지 않는다.
   let blockedRobotStateReceipt = null;
 
@@ -459,7 +459,7 @@
     if (invalidateDetail) {
       detailGuard.setContext(null, null);
       executionDetail.controller?.abort();
-      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null });
+      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null, attempts: 0 });
     }
   }
 
@@ -537,19 +537,21 @@
     if (link.status !== runnerStatusModel.LINKED) {
       detailGuard.setContext(null, null);
       executionDetail.controller?.abort();
-      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null });
+      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null, attempts: 0 });
       return;
     }
     const runId = link.value.runId;
     const key = JSON.stringify([data.boot_id, runId, link.value.result.overallStatus, link.value.request.requestId]);
     if (executionDetail.key !== key) {
       executionDetail.controller?.abort();
-      Object.assign(executionDetail, { key, controller: null, value: null, selectedId: null });
+      Object.assign(executionDetail, { key, controller: null, value: null, selectedId: null, attempts: 0 });
       detailGuard.setContext(null, null); // 같은 run의 재개 결과/요청 교체도 이전 상세 세대를 무효화한다.
       detailGuard.setContext(data.boot_id, runId);
     }
     applyExecutionDetail();
-    if (executionDetail.controller) return;
+    // 종료 기록은 같은 key 동안 불변 스냅샷으로 재사용한다. 저장 지연/일시 오류만 최대 3회 시도한다.
+    if (executionDetail.value || executionDetail.controller || executionDetail.attempts >= 3) return;
+    executionDetail.attempts += 1;
     const token = detailGuard.capture();
     const controller = new AbortController();
     executionDetail.controller = controller;
@@ -1302,12 +1304,15 @@
     const container = getById("taskItemOrder");
     const selected = getSelectedExecutionItem();
     container.replaceChildren();
-    (state.task.executionItems || []).forEach((entry, index) => {
+    // 제외 항목은 자리를 차지해도 실행 순번에는 포함하지 않는다.
+    let executionNumber = 0;
+    (state.task.executionItems || []).forEach((entry) => {
+      if (!entry.excluded) executionNumber += 1;
       const button = makeElement("button", "task-item-button");
       button.type = "button";
       button.setAttribute("aria-pressed", String(entry.id === selected?.id));
       button.append(
-        makeElement("span", "", `${entry.excluded ? "제외" : `${index + 1}.`} ${entry.name} · ${entry.statusLabel}`),
+        makeElement("span", "", `${entry.excluded ? "제외" : `${executionNumber}.`} ${entry.name} · ${entry.statusLabel}`),
         makeElement("small", "", entry.resultLabel),
       );
       button.addEventListener("click", () => {

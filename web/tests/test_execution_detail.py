@@ -109,6 +109,8 @@ def test_jsonl_exact_run_only_and_invalid_lines(tmp_path):
     with pytest.raises(ValueError):
         reader.read_run("../secret")
     path.write_text('{"collection":')
+    assert reader.read_run("r1")["run"] is None
+    path.write_text('[]\n')
     with pytest.raises(ValueError):
         reader.read_run("r1")
 
@@ -118,7 +120,7 @@ def test_storage_is_opt_in(monkeypatch):
     for key in ("WEB_RUN_JSONL_DIR", "WEB_RUN_MONGO_URI"):
         monkeypatch.delenv(key, raising=False)
     assert reader_from_env() is None
-    assert create_app().test_client().get("/api/execution-detail/r1").status_code == 503
+    assert create_app().test_client().get("/api/execution-detail/r1?boot_id=b&seq=1").status_code == 503
 
 
 def test_mongo_adapter_only_reads_exact_run(monkeypatch):
@@ -127,6 +129,11 @@ def test_mongo_adapter_only_reads_exact_run(monkeypatch):
     from types import SimpleNamespace
     from ready2go_web.adapters.execution_reader import MongoExecutionReader
     calls = []
+
+    class Cursor(list):
+        def sort(self, key, direction):
+            """Runner 공통 조회의 seq 정렬 호출을 지원한다."""
+            return self
 
     class Collection:
         def find_one(self, query, projection):
@@ -137,7 +144,7 @@ def test_mongo_adapter_only_reads_exact_run(monkeypatch):
         def find(self, query, projection):
             """steps 조회 조건을 기록한다. 쓰기 메서드는 제공하지 않는다."""
             calls.append(("find", query, projection))
-            return []
+            return Cursor()
 
     class Client:
         def __init__(self, *args, **kwargs):
@@ -169,3 +176,97 @@ def test_store_exception_is_not_exposed_to_browser():
         "/api/execution-detail/r1?boot_id=boot&seq=1")
     assert response.status_code == 503
     assert "secret" not in response.text
+
+
+@pytest.mark.parametrize("fault", ["bundle", "child_list", "child_string", "segment_list", "segment_child"])
+def test_malformed_child_and_segment_are_422(fault):
+    """완전한 JSON의 구조 오류를 저장소 연결 실패로 오인하지 않는다."""
+    reader = Records()
+    if fault == "bundle":
+        reader.rows["child"] = []
+    elif fault in ("child_list", "child_string"):
+        reader.rows["child"]["run"] = [] if fault == "child_list" else "bad"
+    else:
+        reader.rows["r1"]["run"]["items"] = []
+        reader.rows["r1"]["run"]["segments"] = [[]] if fault == "segment_list" else [{"run_id": "child"}]
+        reader.rows["child"]["run"] = []
+    cache, _ = cache_and_payload()
+    response = create_app(state_cache=cache, execution_reader=reader).test_client().get(
+        "/api/execution-detail/r1?boot_id=boot&seq=1")
+    assert response.status_code == 422 and response.json["status"] == "invalid_record"
+
+
+@pytest.mark.parametrize("seq", ["abc", "1.0", "-1", "", "9007199254740992"])
+def test_bad_query_is_400(seq):
+    """잘못된 요청은 기록을 읽기 전에 클라이언트 오류로 반환한다."""
+    cache, _ = cache_and_payload()
+    response = create_app(state_cache=cache, execution_reader=Records()).test_client().get(
+        f"/api/execution-detail/r1?boot_id=boot&seq={seq}")
+    assert response.status_code == 400 and response.json["status"] == "invalid_request"
+
+
+def test_fallback_priority_and_split_children(tmp_path):
+    """부모는 primary, child는 JSONL인 실행과 오래된 primary를 가리는 fallback을 확인한다."""
+    from ready2go_runner.core.logstore import JsonlLogStore
+    from ready2go_web.adapters.execution_reader import FallbackExecutionReader
+    primary = Records()
+    child = primary.rows.pop("child")
+    writer = JsonlLogStore(tmp_path)
+    writer.start_run(child["run"])
+    for step in child["steps"]:
+        writer.write_step(step)
+    # C의 실제 writer가 만든 파일과 D reader의 파일명/기록 처리가 일치한다.
+    reader = FallbackExecutionReader(primary, JsonlExecutionReader(tmp_path))
+    assert read_detail(reader, "r1", "group_test", "FAILED")["items"][0]["steps"]
+    parent = deepcopy(primary.rows["r1"]["run"])
+    parent["items"][0]["status"] = "NOT_DELIVERED"
+    writer.end_run(parent)
+    assert read_detail(reader, "r1", "group_test", "FAILED")["delivery"]["completed"] == 0
+
+
+def test_truncated_jsonl_between_valid_records(tmp_path):
+    """잘린 줄 뒤 C writer가 덧쓴 정상 종료 기록을 D에서도 읽는다."""
+    from ready2go_runner.core.logstore import JsonlLogStore
+    writer = JsonlLogStore(tmp_path)
+    run_id = "2026-10-15T00:00:00Z_test"
+    writer.start_run({"run_id": run_id})
+    with writer._path(run_id).open("a") as stream:
+        stream.write('{"collection":')
+    writer.end_run({"run_id": run_id, "overall_status": "COMPLETED"})
+    reader = JsonlExecutionReader(tmp_path)
+    assert reader.read_run(run_id) == writer.read_run(run_id)
+
+
+def test_configuration_failure_logs_without_secret(monkeypatch, caplog):
+    """미설정은 조용히 유지하고 예외는 종류/점검 안내만 남겨 URI를 노출하지 않는다."""
+    import logging
+    from ready2go_web.adapters import execution_reader as module
+    # 다른 서버 시험의 전역 logging 설정과 무관하게 이 진단만 수집한다.
+    logger = logging.Logger("reader-test")
+    logger.addHandler(caplog.handler)
+    monkeypatch.setattr(module, "reader_from_env", lambda: None)
+    assert module.load_reader_for_startup(logger) is None
+    assert not caplog.records
+
+    def fail():
+        raise ValueError("mongodb://user:secret@host")
+
+    monkeypatch.setattr(module, "reader_from_env", fail)
+    assert module.load_reader_for_startup(logger) is None
+    assert "ValueError" in caplog.text and "WEB_RUN_" in caplog.text
+    assert "secret" not in caplog.text and "mongodb://" not in caplog.text
+
+
+def test_environment_enables_both_readers(monkeypatch, tmp_path):
+    """두 설정을 함께 주면 선택 충돌 없이 run별 폴백 reader를 구성한다."""
+    from ready2go_web.adapters import execution_reader as module
+    primary = object()
+    monkeypatch.setattr(module, "MongoExecutionReader", lambda *args: primary)
+    monkeypatch.setenv("WEB_RUN_JSONL_DIR", str(tmp_path))
+    monkeypatch.setenv("WEB_RUN_MONGO_URI", "mongodb://test")
+    monkeypatch.setenv("WEB_RUN_MONGO_DB", "test")
+    monkeypatch.setenv("WEB_RUN_MONGO_TIMEOUT_MS", "100")
+    reader = module.reader_from_env()
+    assert isinstance(reader, module.FallbackExecutionReader)
+    assert reader.primary is primary
+    assert reader.fallback.directory == tmp_path.resolve()

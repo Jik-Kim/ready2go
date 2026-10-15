@@ -24,6 +24,16 @@ def linked_result(data):
     return result
 
 
+def checked_bundle(reader, run_id):
+    """외부 reader의 모든 상위/child 반환 구조를 같은 422 경계에서 검증한다."""
+    bundle = reader.read_run(run_id)
+    if not isinstance(bundle, dict) or not isinstance(bundle.get("steps"), list):
+        raise ValueError("invalid record bundle")
+    if bundle.get("run") is not None and not isinstance(bundle["run"], dict):
+        raise ValueError("invalid run document")
+    return bundle
+
+
 def normalized_steps(bundle, run_id):
     """기록된 seq는 단계 시작 순서다. 누락 단계나 실행 중 단계를 만들어 넣지 않는다."""
     steps, seen = [], set()
@@ -45,7 +55,7 @@ def normalized_steps(bundle, run_id):
 
 def read_detail(reader, run_id, task_id, overall_status):
     """종료 기록의 물품 배열 순서를 보존한다. semantic.items는 실행 순서로 사용하지 않는다."""
-    bundle = reader.read_run(run_id)
+    bundle = checked_bundle(reader, run_id)
     run = bundle.get("run")
     if run is None:
         return None
@@ -72,7 +82,7 @@ def read_detail(reader, run_id, task_id, overall_status):
             raise ValueError("invalid item identity")
         child_steps, available = [], False
         if child_id is not None:
-            child = reader.read_run(child_id)
+            child = checked_bundle(reader, child_id)
             child_run = child.get("run")
             if child_run is not None:
                 if child_run.get("run_id") != child_id or child_run.get("parent_run_id") != run_id:
@@ -89,10 +99,12 @@ def read_detail(reader, run_id, task_id, overall_status):
     # 묶음 계획 segments는 물품 순서와 다르므로 별도 기록으로 반환한다.
     segments = []
     for segment in run.get("segments", []):
+        if not isinstance(segment, dict):
+            raise ValueError("invalid segment")
         child_id = segment.get("run_id")
         if child_id is None:
             continue
-        child = reader.read_run(child_id)
+        child = checked_bundle(reader, child_id)
         child_run = child.get("run")
         if child_run is not None and (child_run.get("parent_run_id") != run_id or child_run.get("run_id") != child_id):
             raise ValueError("segment parent mismatch")

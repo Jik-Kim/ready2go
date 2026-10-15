@@ -20,3 +20,8 @@ if str(WEB_ROOT) not in sys.path:
 # colcon overlay를 source하지 않은 단위시험도 저장소의 실제 공통 로더를 사용하게 한다.
 if str(KNOWLEDGE_PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(KNOWLEDGE_PACKAGE_ROOT))
+
+# 읽기 어댑터는 C 저장소의 파일명/조회 규칙을 공유한다. 시험에서도 같은 실제 모듈을 사용한다.
+RUNNER_PACKAGE_ROOT = WEB_ROOT.parent / "ros2_ws" / "src" / "ready2go_runner"
+if str(RUNNER_PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(RUNNER_PACKAGE_ROOT))

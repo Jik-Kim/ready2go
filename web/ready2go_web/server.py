@@ -171,12 +171,21 @@ def create_app(
     @app.get("/api/execution-detail/<run_id>")
     def execution_detail_api(run_id):
         """현재 요청에 연결된 종료 run만 읽는다. 일반 실행 기록 검색 API가 아니다."""
+        # 클라이언트 쿼리 오류와 저장소 기록 손상을 구분한다. ASCII 비음수 정수만 허용한다.
+        boot_id = request.args.get("boot_id")
+        raw_seq = request.args.get("seq", "")
+        try:
+            checked_run_id(run_id)
+            if not boot_id or not boot_id.strip() or not raw_seq.isascii() or not raw_seq.isdecimal():
+                raise ValueError("invalid query")
+            seq = int(raw_seq)
+            if seq > 9007199254740991:
+                raise ValueError("unsafe seq")
+        except ValueError:
+            return api_response({"status": "invalid_request"}, 400)
         if state_cache is None or execution_reader is None:
             return api_response({"status": "unavailable"}, 503)
         try:
-            checked_run_id(run_id)
-            boot_id = request.args.get("boot_id")
-            seq = int(request.args.get("seq", "-1"))
             source = state_cache.snapshot()["runner"]
             data = source.get("data") or {}
             result = linked_result(data)
