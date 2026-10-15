@@ -193,6 +193,22 @@ def test_alone_rule_partial_ring_dropout_counts_missing_depth(drop, expect):
     assert r["ring_px"] == int(ring.sum()) and r["ring_valid_px"] / r["ring_px"] == pytest.approx(1 - drop, abs=0.03)
 
 
+def test_alone_rule_zero_depth_dropout_with_camera_outside_interior():
+    """[PM 재검증] 실물 결손은 NaN 이 아니라 뎁스 0 — X·Y 가 카메라 원점 좌표로 나와, 원점이 서랍 안쪽 밖이면 '벽'으로 빠지던 경로. 75% 결손 → null."""
+    from ready2go_vision.core.occlusion import occlusion_fields
+    objs = [("eraser", 0.045, 0.15, (0.0525, 0.022), 0.0115)]
+    depth, masks = _shrunk(objs, 0.78)
+    ring = _ring_px(masks[0])
+    d = depth.copy()
+    d[ring & (np.random.default_rng(0).random(ring.shape) < 0.75)] = 0.0          # RealSense 결손 = 0 m
+    interior = [0.09, 0.29]                                                     # 카메라 원점 x=0.10 이 서랍 안쪽 밖
+    rels = []
+    out = occlusion_fields(dets_of(objs, masks), ["eraser#1"], d, K, T, {"top_percentile": 95, **OCC}, 0.15, 1.0, rels, interior_m=interior)
+    assert out["eraser#1"][0] is None
+    r = next(x for x in rels if "ring_px" in x)
+    assert r["ring_valid_px"] / r["ring_px"] == pytest.approx(0.25, abs=0.03)
+
+
 def test_alone_rule_excludes_real_wall_from_ring():
     """서랍 벽(안쪽 경계 밖, 좌표를 잰 높은 픽셀)은 둘레에서 빼고 판정 — 벽 옆 혼자 지우개는 []."""
     objs = [("eraser", 0.006 + 0.02625, 0.15, (0.0525, 0.022), 0.0115)]        # x 쪽 벽(x=0)에서 6 mm → 둘레 띠가 벽면에 걸침
