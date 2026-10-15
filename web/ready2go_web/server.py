@@ -261,8 +261,24 @@ def create_app(
             )
             return api_response(payload, 404)
 
-        # 상태 API에서 읽은 메타데이터와 다른 사진이 결합되지 않도록 요청 revision을
-        # 같은 불변 스냅샷의 revision과 비교한다. 쿼리를 생략한 직접 조회는 최신 사진이다.
+        # 새 웹 프로세스가 revision을 다시 1부터 시작해도 이전 브라우저 사진과 섞이지
+        # 않도록 cache_id와 revision을 함께 비교한다. 쿼리를 생략한 직접 조회는 최신 사진이다.
+        requested_cache_id = request.args.get("cache_id")
+        if requested_cache_id is not None and requested_cache_id != overlay_cache.cache_id:
+            payload = response_envelope()
+            payload.update(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "OVERLAY_CACHE_CHANGED",
+                        "message": "요청한 촬영 사진 캐시가 현재 웹 기동과 일치하지 않습니다.",
+                    },
+                    "requested_cache_id": requested_cache_id,
+                    "current_cache_id": overlay_cache.cache_id,
+                }
+            )
+            return api_response(payload, 409)
+
         requested_revision = request.args.get("revision")
         if requested_revision is not None:
             try:
@@ -299,6 +315,7 @@ def create_app(
         # 사진과 revision은 같은 불변 스냅샷에서 읽어 서로 다른 갱신을 섞지 않는다.
         response = Response(snapshot.jpeg, status=200, mimetype="image/jpeg")
         response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Overlay-Cache-ID"] = overlay_cache.cache_id
         response.headers["X-Overlay-Revision"] = str(snapshot.revision)
         return response
 

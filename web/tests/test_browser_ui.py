@@ -23,9 +23,10 @@ def _render_dashboard(
     *,
     runtime_profile: str,
     camera_received: bool,
-    overlay_cache: OverlayCache | None = None,
+    overlay_cache: object | None = None,
     utcnow: Callable[[], datetime] | None = None,
     on_first_image_request: Callable[[], None] | None = None,
+    on_first_image_response: Callable[[], None] | None = None,
 ) -> tuple[str, int]:
     """주입한 REST 상태를 실제 headless Chrome으로 렌더링해 DOM을 반환한다."""
     # 제품 JavaScript를 실행하지 않는 정적 문자열 검사는 분기 회귀를 잡지 못하므로,
@@ -64,6 +65,17 @@ def _render_dashboard(
         image_request_count += 1
         if image_request_count == 1 and on_first_image_request is not None:
             on_first_image_request()
+
+    @app.after_request
+    def switch_after_first_overlay_response(response):
+        """첫 JPEG가 만들어진 뒤 서버 캐시 교체를 재현할 시험 hook이다."""
+        if (
+            request.path == VISION_OVERLAY_IMAGE_API_PATH
+            and image_request_count == 1
+            and on_first_image_response is not None
+        ):
+            on_first_image_response()
+        return response
     server = make_server("127.0.0.1", 0, app)
     server_thread = Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
@@ -134,6 +146,23 @@ def _overlay_cache_with_capture(captured_at: datetime, now: datetime) -> Overlay
         "wrist_cam_color_optical_frame",
     )
     return cache
+
+
+class _SwitchableOverlayCache:
+    """Flask 객체는 유지한 채 새 Python 프로세스의 사진 캐시로 전환한다."""
+
+    def __init__(self, active: OverlayCache) -> None:
+        self.active = active
+
+    @property
+    def cache_id(self) -> str:
+        return self.active.cache_id
+
+    def get_latest(self):
+        return self.active.get_latest()
+
+    def get_metadata(self, *args, **kwargs):
+        return self.active.get_metadata(*args, **kwargs)
 
 
 def test_recent_capture_keeps_empty_state_without_image_request(tmp_path: Path) -> None:
@@ -232,6 +261,47 @@ def test_recent_capture_retries_new_revision_after_409(tmp_path: Path) -> None:
     )
 
     # revision 1은 409, 다음 상태 polling의 revision 2는 JPEG 200으로 각각 한 번 요청한다.
+    assert image_request_count == 2
+    assert '<dd id="captureTime">10:10:06 KST</dd>' in rendered
+    assert '<dd id="captureAge">1초 전</dd>' in rendered
+    assert 'id="captureImage" alt="최근 촬영한 분할 결과" src="blob:' in rendered
+
+
+def test_recent_capture_refetches_same_revision_after_server_process_changes(
+    tmp_path: Path,
+) -> None:
+    """열린 브라우저가 새 서버의 같은 revision 사진을 이전 사진으로 오해하지 않는다."""
+    now = datetime(2026, 10, 15, 1, 10, 7, tzinfo=timezone.utc)
+    first_capture = datetime(2026, 10, 15, 1, 10, 5, tzinfo=timezone.utc)
+    second_capture = datetime(2026, 10, 15, 1, 10, 6, tzinfo=timezone.utc)
+    first = OverlayCache(utcnow=lambda: now, cache_id="first-process")
+    second = OverlayCache(utcnow=lambda: now, cache_id="second-process")
+    first.update(
+        b"\xff\xd8first-process-overlay\xff\xd9",
+        int(first_capture.timestamp()),
+        0,
+        now,
+        "wrist_cam_color_optical_frame",
+    )
+    second.update(
+        b"\xff\xd8second-process-overlay\xff\xd9",
+        int(second_capture.timestamp()),
+        0,
+        now,
+        "wrist_cam_color_optical_frame",
+    )
+    proxy = _SwitchableOverlayCache(first)
+
+    rendered, image_request_count = _render_dashboard(
+        tmp_path,
+        runtime_profile="dev",
+        camera_received=False,
+        overlay_cache=proxy,
+        utcnow=lambda: now,
+        on_first_image_response=lambda: setattr(proxy, "active", second),
+    )
+
+    # 두 프로세스 모두 revision 1이지만 cache_id가 달라 새 JPEG를 다시 요청해야 한다.
     assert image_request_count == 2
     assert '<dd id="captureTime">10:10:06 KST</dd>' in rendered
     assert '<dd id="captureAge">1초 전</dd>' in rendered

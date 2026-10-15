@@ -28,6 +28,9 @@
       || typeof value.stale !== "boolean") {
       throw new Error("촬영 사진 메타데이터 형식이 다릅니다.");
     }
+    if (typeof value.cache_id !== "string" || !value.cache_id.trim()) {
+      throw new Error("촬영 사진 캐시 식별자가 올바르지 않습니다.");
+    }
     // 사진이 있을 때만 revision과 UTC 촬영 시각을 실제 JPEG 조회 근거로 사용한다.
     if (value.image_available
       && (!Number.isInteger(value.revision) || value.revision < 1

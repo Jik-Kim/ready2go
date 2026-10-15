@@ -191,7 +191,7 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     )
     cache.set_publisher_present("voice", True)
     fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
-    overlay_cache = OverlayCache(utcnow=fixed_now)
+    overlay_cache = OverlayCache(utcnow=fixed_now, cache_id="server-process")
     captured_at = datetime(2026, 10, 13, 6, 30, 58, 500_000, tzinfo=timezone.utc)
     overlay_cache.update(
         b"jpeg-payload",
@@ -257,6 +257,8 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     assert voice["connection_state"] == "waiting"
     overlay = payload["vision_overlay"]
     assert overlay["status"] == "ok"
+    assert isinstance(overlay["cache_id"], str)
+    assert overlay["cache_id"]
     assert overlay["image_available"] is True
     assert overlay["captured_at"] == "2026-10-13T06:30:58.500000Z"
     assert overlay["received_at"] == "2026-10-13T06:30:59Z"
@@ -274,7 +276,7 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
 def test_status_api_exposes_overlay_rejection_diagnostics_without_jpeg() -> None:
     """사진이 거부된 이유를 상태 API에서 확인하되 바이너리는 포함하지 않는다."""
     fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
-    overlay_cache = OverlayCache(utcnow=fixed_now)
+    overlay_cache = OverlayCache(utcnow=fixed_now, cache_id="server-process")
     overlay_cache.record_rejection(
         "frame_id_mismatch",
         frame_id="unexpected_frame",
@@ -310,7 +312,7 @@ def test_overlay_image_api_distinguishes_missing_cache_empty_cache_and_jpeg() ->
     assert unavailable.status_code == 503
     assert unavailable.get_json()["error"]["code"] == "OVERLAY_CACHE_UNAVAILABLE"
 
-    overlay_cache = OverlayCache(utcnow=fixed_now)
+    overlay_cache = OverlayCache(utcnow=fixed_now, cache_id="server-process")
     app = create_app(overlay_cache=overlay_cache, utcnow=fixed_now)
     app.config.update(TESTING=True)
     with app.test_client() as test_client:
@@ -325,13 +327,41 @@ def test_overlay_image_api_distinguishes_missing_cache_empty_cache_and_jpeg() ->
             fixed_now(),
             "wrist_cam_color_optical_frame",
         )
-        image = test_client.get(f"{VISION_OVERLAY_IMAGE_API_PATH}?revision=1")
+        image = test_client.get(
+            f"{VISION_OVERLAY_IMAGE_API_PATH}?cache_id=server-process&revision=1"
+        )
 
     assert image.status_code == 200
     assert image.mimetype == "image/jpeg"
     assert image.get_data() == b"contract-jpeg"
     assert image.headers["Cache-Control"] == "no-store"
+    assert image.headers["X-Overlay-Cache-ID"] == "server-process"
     assert image.headers["X-Overlay-Revision"] == "1"
+
+
+def test_overlay_image_api_rejects_another_process_cache_id() -> None:
+    """같은 revision이어도 다른 웹 프로세스의 사진 요청은 409로 분리한다."""
+    fixed_now = lambda: datetime(2026, 10, 13, 7, 0, tzinfo=timezone.utc)
+    overlay_cache = OverlayCache(utcnow=fixed_now, cache_id="current-process")
+    overlay_cache.update(
+        b"current-process-image",
+        int(fixed_now().timestamp()),
+        0,
+        fixed_now(),
+        "wrist_cam_color_optical_frame",
+    )
+    app = create_app(overlay_cache=overlay_cache, utcnow=fixed_now)
+    app.config.update(TESTING=True)
+
+    with app.test_client() as test_client:
+        changed = test_client.get(
+            f"{VISION_OVERLAY_IMAGE_API_PATH}?cache_id=previous-process&revision=1"
+        )
+
+    assert changed.status_code == 409
+    assert changed.get_json()["error"]["code"] == "OVERLAY_CACHE_CHANGED"
+    assert changed.get_json()["requested_cache_id"] == "previous-process"
+    assert changed.get_json()["current_cache_id"] == "current-process"
 
 
 def test_overlay_image_api_rejects_invalid_or_changed_revision() -> None:

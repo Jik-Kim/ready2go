@@ -29,6 +29,8 @@ def test_initial_cache_has_no_image_or_binary_metadata() -> None:
 
     # 이미지 API는 None으로 404를 판단하고 상태 API는 revision 0을 사용할 수 있어야 한다.
     assert latest is None
+    assert isinstance(metadata["cache_id"], str)
+    assert metadata["cache_id"]
     assert metadata["image_available"] is False
     assert metadata["revision"] == 0
     assert metadata["captured_at"] is None
@@ -213,6 +215,7 @@ def test_clear_removes_image_without_reusing_revision() -> None:
         rejected_at=BASE_TIME,
     )
 
+    cache_id = cache.cache_id
     cache.clear()
 
     assert cache.get_latest() is None
@@ -220,8 +223,30 @@ def test_clear_removes_image_without_reusing_revision() -> None:
     assert metadata["image_available"] is False
     assert metadata["rejected_count"] == 0
     assert metadata["last_rejection_reason"] is None
+    assert metadata["cache_id"] == cache_id
     assert cache.update(b"after-restart", 101, 0, BASE_TIME, "camera_color") is True
     assert cache.get_latest().revision == 2
+
+
+def test_new_cache_has_new_identity_even_when_first_revision_is_reused() -> None:
+    """새 프로세스의 revision 1을 열린 브라우저의 이전 revision 1과 구분한다."""
+    first = OverlayCache(utcnow=lambda: BASE_TIME, cache_id="process-a")
+    second = OverlayCache(utcnow=lambda: BASE_TIME, cache_id="process-b")
+
+    first.update(b"first-process", 100, 0, BASE_TIME, "camera_color")
+    second.update(b"second-process", 101, 0, BASE_TIME, "camera_color")
+
+    first_metadata = first.get_metadata(BASE_TIME)
+    second_metadata = second.get_metadata(BASE_TIME)
+    assert first_metadata["revision"] == second_metadata["revision"] == 1
+    assert first_metadata["cache_id"] == "process-a"
+    assert second_metadata["cache_id"] == "process-b"
+
+
+def test_cache_id_must_be_a_nonempty_string() -> None:
+    """브라우저 식별 경계를 없애는 빈 cache_id 설정을 거부한다."""
+    with pytest.raises(ValueError, match="비어 있지 않은 문자열"):
+        OverlayCache(cache_id="  ")
 
 
 def test_rejection_diagnostics_do_not_erase_latest_image() -> None:

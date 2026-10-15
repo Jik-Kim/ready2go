@@ -61,9 +61,9 @@
   const recentCapture = {
     latestMetadata: null,
     displayedMetadata: null,
-    displayedRevision: null,
-    pendingRevision: null,
-    blockedRevision: null,
+    displayedIdentity: null,
+    pendingIdentity: null,
+    blockedIdentity: null,
     objectUrl: null,
     view: "empty",
   };
@@ -142,6 +142,12 @@
     status.hidden = !label;
   }
 
+  function captureIdentity(metadata) {
+    // revision은 새 서버 프로세스에서 다시 1이 되므로 캐시 기동 ID와 함께 비교한다.
+    if (!metadata || metadata.status !== "ok" || !metadata.image_available) return null;
+    return `${metadata.cache_id}:${metadata.revision}`;
+  }
+
   function renderRecentCapture() {
     const image = getById("captureImage");
     const empty = getById("captureEmpty");
@@ -191,27 +197,28 @@
     if (recentCapture.objectUrl) URL.revokeObjectURL(recentCapture.objectUrl);
     recentCapture.objectUrl = null;
     recentCapture.displayedMetadata = null;
-    recentCapture.displayedRevision = null;
+    recentCapture.displayedIdentity = null;
     const image = getById("captureImage");
     image.removeAttribute("src");
   }
 
   async function loadRecentCapture(metadata) {
-    const revision = metadata.revision;
-    recentCapture.pendingRevision = revision;
+    const identity = captureIdentity(metadata);
+    if (identity === null) return;
+    recentCapture.pendingIdentity = identity;
     recentCapture.view = "loading";
     renderRecentCapture();
     try {
       const response = await window.fetch(
-        `${VISION_OVERLAY_IMAGE_API_PATH}?revision=${encodeURIComponent(revision)}`,
+        `${VISION_OVERLAY_IMAGE_API_PATH}?cache_id=${encodeURIComponent(metadata.cache_id)}`
+          + `&revision=${encodeURIComponent(metadata.revision)}`,
         { cache: "no-store", headers: { Accept: "image/jpeg" } },
       );
       if (response.status === 409) {
-        // 이미 다음 polling이 더 새 revision을 시작했다면 이전 요청의 409는 화면 상태를 바꾸지 않는다.
-        if (recentCapture.latestMetadata?.revision !== revision) return;
-        // 상태와 사진 사이에 새 촬영이 들어온 경우 같은 revision을 반복 요청하지 않는다.
-        // 다음 /api/status polling에서 달라진 revision을 받은 뒤에만 다시 시도한다.
-        recentCapture.blockedRevision = revision;
+        // 이미 다음 polling이 다른 캐시·revision을 시작했다면 이전 요청의 409는 무시한다.
+        if (captureIdentity(recentCapture.latestMetadata) !== identity) return;
+        // 상태와 사진 사이에 새 촬영·서버 기동이 들어오면 같은 identity를 반복 요청하지 않는다.
+        recentCapture.blockedIdentity = identity;
         recentCapture.view = "conflict";
         return;
       }
@@ -220,25 +227,25 @@
       }
       const blob = await response.blob();
       const latest = recentCapture.latestMetadata;
-      // 느린 이전 응답이 새 메타데이터 뒤에 도착해 화면을 되돌리지 않게 폐기한다.
-      if (!latest || latest.status !== "ok" || latest.revision !== revision) return;
+      // 느린 이전 서버·revision 응답이 새 메타데이터 뒤에 도착하면 표시하지 않는다.
+      if (captureIdentity(latest) !== identity) return;
 
       const nextUrl = URL.createObjectURL(blob);
       if (recentCapture.objectUrl) URL.revokeObjectURL(recentCapture.objectUrl);
       recentCapture.objectUrl = nextUrl;
-      recentCapture.displayedRevision = revision;
+      recentCapture.displayedIdentity = identity;
       recentCapture.displayedMetadata = latest;
-      recentCapture.blockedRevision = null;
+      recentCapture.blockedIdentity = null;
       recentCapture.view = latest.stale ? "stale" : "ready";
       getById("captureImage").src = nextUrl;
     } catch (_error) {
       // 뒤늦은 이전 요청 실패도 현재 사진의 성공·로딩 상태를 덮지 않는다.
-      if (recentCapture.latestMetadata?.revision !== revision) return;
-      // 같은 revision의 반복 요청을 피하고 새 촬영 메타데이터가 올 때 다시 시도한다.
-      recentCapture.blockedRevision = revision;
+      if (captureIdentity(recentCapture.latestMetadata) !== identity) return;
+      // 같은 identity의 반복 요청을 피하고 새 촬영·서버 메타데이터가 올 때 다시 시도한다.
+      recentCapture.blockedIdentity = identity;
       recentCapture.view = "error";
     } finally {
-      if (recentCapture.pendingRevision === revision) recentCapture.pendingRevision = null;
+      if (recentCapture.pendingIdentity === identity) recentCapture.pendingIdentity = null;
       renderRecentCapture();
     }
   }
@@ -246,14 +253,16 @@
   function applyVisionOverlay(metadata) {
     recentCapture.latestMetadata = metadata;
     if (metadata.status !== "ok") {
-      recentCapture.pendingRevision = null;
+      recentCapture.pendingIdentity = null;
+      recentCapture.blockedIdentity = null;
+      clearDisplayedCapture();
       recentCapture.view = "error";
       renderRecentCapture();
       return;
     }
     if (!metadata.image_available) {
-      recentCapture.pendingRevision = null;
-      recentCapture.blockedRevision = null;
+      recentCapture.pendingIdentity = null;
+      recentCapture.blockedIdentity = null;
       clearDisplayedCapture();
       // 메시지는 왔지만 계약 frame_id가 달라 거부된 상태를 단순 미촬영으로 숨기지 않는다.
       recentCapture.view = metadata.last_rejection_reason === "frame_id_mismatch"
@@ -262,19 +271,26 @@
       renderRecentCapture();
       return;
     }
-    if (recentCapture.displayedRevision === metadata.revision) {
+    const identity = captureIdentity(metadata);
+    if (recentCapture.displayedIdentity === identity) {
       // 같은 사진은 다시 내려받지 않고 매 polling마다 바뀌는 나이·stale 정보만 갱신한다.
       recentCapture.displayedMetadata = metadata;
       recentCapture.view = metadata.stale ? "stale" : "ready";
       renderRecentCapture();
       return;
     }
-    if (recentCapture.blockedRevision !== null
-      && recentCapture.blockedRevision !== metadata.revision) {
-      recentCapture.blockedRevision = null;
+    // 같은 revision이어도 캐시 기동이 바뀌면 이전 blob과 비동기 상태를 모두 폐기한다.
+    if (recentCapture.displayedMetadata?.cache_id
+      && recentCapture.displayedMetadata.cache_id !== metadata.cache_id) {
+      clearDisplayedCapture();
+      recentCapture.pendingIdentity = null;
+      recentCapture.blockedIdentity = null;
     }
-    if (recentCapture.pendingRevision === metadata.revision
-      || recentCapture.blockedRevision === metadata.revision) {
+    if (recentCapture.blockedIdentity !== null && recentCapture.blockedIdentity !== identity) {
+      recentCapture.blockedIdentity = null;
+    }
+    if (recentCapture.pendingIdentity === identity
+      || recentCapture.blockedIdentity === identity) {
       renderRecentCapture();
       return;
     }
@@ -928,7 +944,9 @@
 
     // REST 오류 뒤 이전 사진을 새 정상 상태처럼 보이지 않게 현재 확인 불가를 표시한다.
     recentCapture.latestMetadata = { status: "error" };
-    recentCapture.pendingRevision = null;
+    recentCapture.pendingIdentity = null;
+    recentCapture.blockedIdentity = null;
+    clearDisplayedCapture();
     recentCapture.view = "error";
     renderRecentCapture();
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import threading
 from typing import Callable
+import uuid
 
 
 # 브리지와 REST·브라우저가 같은 안정된 코드로 거부 원인을 구분한다.
@@ -76,11 +77,21 @@ class OverlaySnapshot:
 class OverlayCache:
     """최신 촬영 JPEG 한 장을 촬영 시각 순서로 보관한다."""
 
-    def __init__(self, *, utcnow: Callable[[], datetime] = _utc_now) -> None:
+    def __init__(
+        self,
+        *,
+        utcnow: Callable[[], datetime] = _utc_now,
+        cache_id: str | None = None,
+    ) -> None:
         # ROS executor 콜백과 Flask 요청 스레드가 같은 객체에 동시에 접근한다.
         self._lock = threading.RLock()
         # 시험에서 sleep 없이 수신 시각을 고정할 수 있도록 현재 시각 함수를 주입받는다.
         self._utcnow = utcnow
+        # 새 Python 프로세스·캐시를 열린 브라우저가 이전 revision과 구분할 불투명 ID다.
+        generated_cache_id = uuid.uuid4().hex if cache_id is None else cache_id
+        if not isinstance(generated_cache_id, str) or not generated_cache_id.strip():
+            raise ValueError("cache_id는 비어 있지 않은 문자열이어야 합니다")
+        self._cache_id = generated_cache_id
         # 촬영 결과가 오기 전에는 명시적으로 None을 유지해 빈 상태를 구분한다.
         self._latest: OverlaySnapshot | None = None
         # revision은 사진이 실제로 교체된 횟수이며 최초 저장 결과는 1이 된다.
@@ -90,6 +101,12 @@ class OverlayCache:
         self._last_rejection_reason: str | None = None
         self._last_rejected_at: datetime | None = None
         self._last_rejected_frame_id: str | None = None
+
+    @property
+    def cache_id(self) -> str:
+        """현재 캐시 기동을 식별하는 불투명 ID를 반환한다."""
+        # clear에서는 유지하고 새 OverlayCache 생성 때만 바뀌어 두 재시작 경계를 구분한다.
+        return self._cache_id
 
     def record_rejection(
         self,
@@ -213,6 +230,7 @@ class OverlayCache:
             last_rejected_at = self._last_rejected_at
             last_rejected_frame_id = self._last_rejected_frame_id
         rejection_metadata = {
+            "cache_id": self._cache_id,
             "rejected_count": rejected_count,
             "last_rejection_reason": last_rejection_reason,
             "last_rejected_at": (

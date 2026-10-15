@@ -25,7 +25,7 @@
 | `runner-status-model.js` | `/runner/status.last_intent`와 `last`를 화면 표시 전 `valid`·`absent`·`invalid` 내부 모델로 검증·복사하고 실행 연결을 판정 | `decision=run`이고 두 `run_id`가 같을 때만 `linked`로 묶으며 실제 요청·결과 화면 표시는 후속 단계에서 구현합니다. |
 | `app.js` | 상태 렌더링, 서랍 조회, 최근 촬영 revision별 JPEG 표시, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
 | `README.md` | 현재 구현, 실행·접속·시나리오, 실제 연동 경계를 설명 | 연결 경로가 구현된 뒤 실제 실행법과 검증 결과를 갱신합니다. |
-| `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 상태와 최신 촬영 JPEG를 REST로 반환 | `GET /api/status`의 `vision_overlay`는 JPEG를 제외한 메타데이터이며 사진은 `GET /api/vision/overlay.jpg?revision=N`으로 조회합니다. 현재 revision과 다르면 409를 반환합니다. |
+| `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 상태와 최신 촬영 JPEG를 REST로 반환 | `GET /api/status`의 `vision_overlay`는 JPEG를 제외한 메타데이터이며 사진은 `GET /api/vision/overlay.jpg?cache_id=C&revision=N`으로 조회합니다. 현재 캐시 ID나 revision과 다르면 409를 반환합니다. |
 | `ready2go_web/nodes/dashboard_bridge.py` | 단일 rclpy 노드로 선택한 ROS source를 구독·관찰 | 4단계 실행에서는 `/runner/status`와 `/robot_state`를 활성화합니다. |
 | `ready2go_web/core/state_cache.py` | ROS 콜백과 Flask 요청 사이의 최신 상태를 잠금으로 보호 | REST에는 깊은 복사 스냅샷만 전달합니다. |
 | `ready2go_web/core/definition_catalog.py` | 공통 `ontology.load`와 `tasks/*.json`으로 등록 정의 스냅샷 생성 | Runner hot reload가 아닌 웹 시작 시 파일 조회임을 출처·시각·manifest SHA와 함께 기록합니다. |
@@ -86,14 +86,14 @@ index.html
 /robot_state  ────────────────────┘                 ↓ 약 1초 polling
                                         Runner 연결·기억 상태 UI
 /vision/inspect_overlay → OverlayCache ┬→ GET /api/status의 vision_overlay 메타데이터
-                                      └→ GET /api/vision/overlay.jpg?revision=N → 최근 촬영 UI
+                                      └→ GET /api/vision/overlay.jpg?cache_id=C&revision=N → 최근 촬영 UI
 온톨로지 manifest ─ common ontology.load ─┐
 tasks/*.json ─────────────────────────────┼→ 시작 시 정의 스냅샷 → GET /api/definitions → 등록 정의 UI
 ```
 
 [문서] 브라우저는 ROS 2·온톨로지 파일·MongoDB에 직접 연결하지 않습니다. 현재 Flask 프로세스가 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하며 `/runner/status`와 `/robot_state`를 활성화합니다. 두 `std_msgs/msg/String`의 JSON 객체를 source별 캐시에 저장하고 publisher 존재, 메시지 수신, 파싱 오류를 구분합니다. 브라우저는 REST 응답이 끝난 뒤 다음 조회를 예약하므로 느린 요청이 서로 겹치지 않습니다.
 
-[코드] 최근 촬영 영역은 `/api/status.vision_overlay`의 새 `revision`을 확인했을 때만 같은 revision의 JPEG를 요청합니다. 촬영 시각은 KST, 경과 시간은 서버 메타데이터 기준으로 표시하며, 상태와 JPEG 사이에 새 촬영이 들어와 HTTP 409가 발생하면 같은 revision을 반복 요청하지 않고 다음 상태 polling에서 새 revision을 받아 다시 시도합니다. 사진 없음·오래된 사진·확인 불가를 구분하되, 사진 상태는 `/wrist_cam/color/camera_info` 기반 상단 카메라 배지 판정에 사용하지 않습니다.
+[코드] 최근 촬영 영역은 `/api/status.vision_overlay`의 `cache_id`와 `revision`을 한 쌍으로 비교하고 새 식별자를 확인했을 때만 같은 식별자의 JPEG를 요청합니다. 새 Flask 프로세스에서 revision이 다시 1이 되어도 `cache_id`가 달라 이전 사진을 재사용하지 않습니다. 촬영 시각은 KST, 경과 시간은 서버 메타데이터 기준으로 표시하며, 상태와 JPEG 사이에 새 촬영이나 서버 교체가 들어와 HTTP 409가 발생하면 같은 식별자를 반복 요청하지 않고 다음 상태 polling에서 다시 확인합니다. 사진 없음·오래된 사진·확인 불가를 구분하되, 사진 상태는 `/wrist_cam/color/camera_info` 기반 상단 카메라 배지 판정에 사용하지 않습니다.
 
 [코드] JPEG 형식·`frame_id`·메시지 형식이 계약과 달라 사진을 거부하면 `vision_overlay`의 누적 횟수, 마지막 사유·시각·frame ID로 진단합니다. 사진이 한 장도 없고 마지막 사유가 `frame_id_mismatch`이면 최근 촬영 영역에 `촬영 사진 확인 전 · 카메라 프레임 불일치`를 표시하며, 기존 정상 사진이 있으면 그 사진을 지우지 않습니다.
 
@@ -137,11 +137,12 @@ tasks/*.json ──────────────────────�
 
 ## 6. 실행과 접속
 
-루트 [`requirements.txt`](../requirements.txt)를 설치한 프로젝트 가상환경과 ROS 2 환경을 준비한 뒤 **저장소 루트에서** 다음을 실행합니다. 아래 Domain 70·CycloneDDS 설정은 Runner와 웹 브리지가 같은 ROS graph를 사용하기 위한 필수 실행 환경입니다.
+루트 [`requirements.txt`](../requirements.txt)를 설치한 프로젝트 가상환경과 ROS 2 환경을 준비한 뒤 **새 터미널에서 저장소 루트부터** 다음을 실행합니다. `ros2_ws/install/setup.bash`를 함께 읽어야 `ready2go_knowledge` 등 workspace 패키지를 찾을 수 있습니다. 파일이 없다면 먼저 루트 README의 빌드 절차를 실행합니다. 아래 Domain 70·CycloneDDS 설정은 Runner와 웹 브리지가 같은 ROS graph를 사용하기 위한 필수 실행 환경입니다.
 
 ```bash
+cd /home/rokey/ready2go
 source /opt/ros/jazzy/setup.bash
-source .venvs/project/bin/activate
+[ -f .venvs/project/bin/activate ] && source .venvs/project/bin/activate
 source ros2_ws/install/setup.bash
 export ROS_DOMAIN_ID=70
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -161,19 +162,25 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 
 의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../README.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 루트 README의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
 
-이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info` 구독과 `/voice/intent` publisher 관찰, 상태 REST와 등록 정의 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://localhost:4173`으로 접속합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 현재 작업 진행·요청 결과는 목업이며 상태·정의와 구분됩니다.
+이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info`·`/vision/inspect_overlay` 구독과 `/voice/intent` publisher 관찰, 상태·정의·최근 촬영 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://127.0.0.1:4173/`로 접속하고 다음 명령으로 REST 기동도 확인합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 현재 작업 진행·요청 결과는 목업이며 상태·정의와 구분됩니다.
+
+```bash
+curl -sS http://127.0.0.1:4173/api/status | python3 -m json.tool
+```
 
 휴대폰이나 다른 PC에서는 서버 PC와 같은 네트워크에 연결한 뒤 서버 PC에서 주소를 확인합니다. `config/cyclonedds.local.xml`은 DDS를 loopback으로 제한하므로 Runner와 웹 브리지는 같은 PC2에서 실행해야 합니다. 외부 브라우저 접속이 필요할 때만 `WEB_HOST=0.0.0.0`으로 실행하고, 실제 포트(`ss -ltnp`), PC 방화벽과 Wi-Fi AP의 단말 간 통신 차단 여부를 현장에서 확인합니다.
 
 ```bash
-# PC2의 모든 네트워크 인터페이스에서 웹 접속을 받습니다.
+# 위와 같은 환경 설정을 마친 서버 터미널에서 Flask를 모든 인터페이스에 바인딩합니다.
+cd /home/rokey/ready2go/web
 WEB_HOST=0.0.0.0 WEB_PORT=4173 python3 -m ready2go_web
 
-# 다른 터미널에서 PC2의 LAN 주소를 확인합니다.
+# 새 터미널에서 서버 PC의 LAN 주소와 4173 listen 상태를 확인합니다.
 hostname -I
+ss -ltnp | grep ':4173'
 ```
 
-Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 `http://서버_PC_IP:4173`으로 접속합니다. 모바일 전용 URL은 없으며 화면 폭에 따라 자동 전환됩니다. 접속되지 않으면 서버 실행 여부, 동일 네트워크, 방문자망의 장치 간 차단, TCP 4173 방화벽을 확인합니다.
+`0.0.0.0`은 서버의 수신 주소이므로 브라우저 주소로 사용하지 않습니다. Docker용 `172.17.x.x`를 제외한 와이파이·유선 LAN 주소를 골라 다른 PC나 휴대폰에서 `http://서버_PC_IP:4173/`으로 접속합니다. 예를 들어 `hostname -I`의 LAN 주소가 `172.24.1.176`이면 접속 주소는 `http://172.24.1.176:4173/`입니다. 모바일 전용 URL은 없으며 화면 폭에 따라 자동 전환됩니다. 접속되지 않으면 서버 실행 여부, 동일 네트워크, 방문자망의 장치 간 차단, TCP 4173 방화벽을 확인합니다. Flask 내장 서버는 개발·시연용이며 운영 배포 서버로 사용하지 않습니다.
 
 ### 3단계 REST 형식
 
