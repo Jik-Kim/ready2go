@@ -987,9 +987,8 @@ class Runner:
                 if e.no_retry is None and moved:
                     e.no_retry = "MOTION_UNCERTAIN"   # 앞서 팔을 움직였으면 어떤 실패든 스킬을 다시 보내지 않음
                 raise
-            # 실제로 보낸 팔 동작만 셈(블록·원자 동작 모두 _motions) — 이미 그 자세라 안 보낸 이동(same_pose)·움직이기 전 거부는
-            # 움직임이 아님. 예전엔 원자 동작을 이름으로만 봐서 pick 첫 줄 same_pose 이동도 움직임 → 재시도가 거의 안 됨 (#392 4)
-            moved = moved or self._motions != motions
+            moved = moved or (self._motions != motions if sub["action"] in EXPAND_BLOCKS
+                              else _moves_arm(sub["action"], sub.get("params")))
         with self._halt_lock:                   # 중단 확인과 반영 사이에 halt() 가 끼어들 수 없음 (PR #64 E 리뷰)
             self._check_halt(step["id"])        # 반영 전 중단 요청 → effect 반영 안 함
             self._check_timeout(step, attempt_started)

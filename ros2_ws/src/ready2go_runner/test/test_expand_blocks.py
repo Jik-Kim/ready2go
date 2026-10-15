@@ -65,25 +65,20 @@ def test_wall_too_close_goes_nudge_rescan_pick_with_new_scan():
 
 
 def test_other_no_motion_refusal_does_not_nudge():
-    """움직이기 전 거부라도 next_on 밖 코드(NEIGHBOR_TOO_CLOSE)면 넛지로 가지 않고 그 코드로 멈춤 (#260 E).
-    이 시도에서 팔을 안 움직였으니(탑뷰 이동은 same_pose 로 안 보냄) 스텝 retry 1 대로 pick 을 한 번 더 — 그래도 같으면 그 코드 (#392 4)."""
-    robot = MockRobot(fail={"pick_object": ["NEIGHBOR_TOO_CLOSE", "NEIGHBOR_TOO_CLOSE"]})
+    """움직이기 전 거부라도 next_on 밖 코드(NEIGHBOR_TOO_CLOSE)면 넛지로 가지 않고 그 코드로 멈춤 (#260 E)."""
+    robot = MockRobot(fail={"pick_object": ["NEIGHBOR_TOO_CLOSE"]})
     _, result, _ = run(robot, onto=ONTO)
     assert "nudge_object" not in sent_in_pick(robot)
-    assert sent_in_pick(robot).count("pick_object") == 2 and step(result, "s5.1")["attempts"] == 2
     assert (block(result)["status"], block(result)["fallback_stopped"]) == ("FAILURE", "NOT_IN_NEXT_ON")
     assert step(result, "s5.1")["error_code"] == "NEIGHBOR_TOO_CLOSE"
 
 
 def test_nudge_failure_or_moved_failure_stops_without_next_pick():
-    """넛지까지 움직이기 전 거부(NO_PUSH_ACCESS)면 이 시도에서 팔을 안 움직였으므로 retry 1 대로 pick 스킬을 한 번 더(#392 4) —
-    그래도 같으면 FAILED. 집다 실패(GRASP_FAILED)는 움직였을 수 있어 지금처럼 다시 보내지 않음."""
-    for fail, stopped, picks in (
-            ({"pick_object": ["WALL_TOO_CLOSE"] * 2, "nudge_object": ["NO_PUSH_ACCESS"] * 2}, "NOT_IN_NEXT_ON", 2),
-            ({"pick_object": ["GRASP_FAILED"]}, "MOTION_UNCERTAIN", 1)):   # 집다 실패 = 움직였을 수 있음
+    for fail, stopped in (({"pick_object": ["WALL_TOO_CLOSE"], "nudge_object": ["NO_PUSH_ACCESS"]}, "NOT_IN_NEXT_ON"),
+                          ({"pick_object": ["GRASP_FAILED"]}, "MOTION_UNCERTAIN")):   # 집다 실패 = 움직였을 수 있음
         robot = MockRobot(fail=fail)
         _, result, _ = run(robot, onto=ONTO)
-        assert sent_in_pick(robot).count("pick_object") == picks, fail
+        assert [n for n in sent_in_pick(robot) if n == "pick_object"] == ["pick_object"], fail
         assert block(result)["fallback_stopped"] == stopped, fail
         assert result.overall_status == "FAILED"
 
