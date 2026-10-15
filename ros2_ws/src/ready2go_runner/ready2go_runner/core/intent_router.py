@@ -53,6 +53,7 @@ class Decision:
     goals: list | None = None           # plan 일 때 목표 (achieve_goal)
     plan: list | None = None            # 플래너 결과 설명 줄 (실행 기록 헤더 extra.plan, #150)
     run_id: str | None = None           # 계약07: 실제로 수락(run)해 시작한 실행 ID — 노드가 수락할 때 정해 고정
+    chain: bool = False                 # run 인데 묶음 스킬이 든 계획 — 노드가 core/plan_exec 로 구간 실행 (task 는 서버 확인·표시용)
 
     def summary(self) -> dict:
         """/runner/status last_intent 에 싣는 짧은 요약 (D 시연 화면 #59)."""
