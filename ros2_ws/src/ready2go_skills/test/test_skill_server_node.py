@@ -3866,3 +3866,28 @@ def test_place_touch_window_ignores_early_wobble_but_stops_on_floor(server, monk
         assert z == pytest.approx(tz, abs=0.5) and "무시" in msg            # 흔들림은 넘기고 바닥(목표)에서
     else:
         assert z == pytest.approx(tz + 5.0, abs=0.6) and "+5" in msg       # 지금: 5 mm 위에서 놓음 (로그에 남음)
+
+
+@pytest.mark.parametrize("on_way", [False, True])
+def test_pick_open_on_way_opens_during_waypoint_move(server, monkeypatch, on_way):
+    """[사용자 10/15 "뷰 찍고 집으러 내려오면서 그리퍼 벌려두면"] pick.open_on_way: 끔 = 탑뷰에서 닫고 경유점 도착 뒤 벌림,
+    켬 = 닫지 않고 경유점 관절 이동과 같이 벌림, 목표 위로 가기(moveb) 전에 다 벌림. 잡는 자리·결과는 같음."""
+    srv = server.srv
+    down, _ = _turning_movej(server)
+    _with_prm(server, monkeypatch, pick={"open_on_way": on_way})
+    orig = server.Gripper.move
+    monkeypatch.setattr(server.Gripper, "move", lambda self, w, f: (srv.robot.log.append(("grip", w)), orig(self, w, f))[1])
+    srv.robot.p, srv.robot.j, srv.held = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0], [0.0, 0.0, 90.0, 0.0, 90.0, 0.0], None
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    log = srv.robot.log
+    first_b = next(k for k, e in enumerate(log) if e[0] == "moveb")
+    grips = [e[1] for e in log[:first_b] if e[0] == "grip"]
+    assert grips == ([grips[-1]] if on_way else [0, grips[-1]]) and grips[-1] > 0     # 켬이면 닫지 않음, 벌리기는 목표 위로 가기 전에 끝
+    wp = next(k for k, e in enumerate(log) if e[0] == "movej" and list(e[1][:5]) == list(down[:5]))
+    if not on_way:
+        assert log.index(("grip", 0)) < wp < log.index(("grip", grips[-1]))          # 끔: 닫고 → 경유점 → 벌림 (지금 동작)

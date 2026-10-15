@@ -17,6 +17,8 @@ pick:   # core/pick_plan.py (#15)
   min_tcp_above_floor_m: 0.010  # [실측 B 10/04, #8] 성공한 가장 낮은 TCP 높이. 닫힌 손끝이 TCP보다 약 10 mm 아래라 이보다 낮추지 않음
   open_margin_m: 0.013          # [실측 B 10/04, #8] 벌림 = 짧은 변 + 13 mm (지우개 22 mm → 35 mm). 완전히 벌리면 손끝이 바닥에 닿음
   max_open_width_m: 0.100       # [문서] RG2 최대 110 mm에서 여유를 뺀 값 (#8 판정 기준)
+  open_on_way: false             # [사용자 10/15 — 실물 저속 확인 뒤 켜기] true = 탑뷰 → 경유점(drag_down) 관절 이동 동안 벌림 (경유점에서 닫았다 서서 벌리지 않음).
+                                #   목표 위로 가기 전 벌리기가 끝났는지 기다림. false = 탑뷰에서 닫고 경유점에서 벌림 (지금)
   allow_stacked: true           # 다른 물체 위에 얹힌 물체도 집음 [사용자 10/09, P2 3개 겹침 망치·캐러멜·지우개 약 55 mm]. 받침 = 비전 top_z − 물체 높이. false 면 NOT_ON_FLOOR (P1)
   stack_top_clear_m: 0.010      # [팀 확정 필요] 쌓인 윗면 상한 = 서랍 테두리(interior_m[2]) − 이 값. 서랍 안 옆 이동(테두리 + 5 mm, 닫힌 손끝 약 10 mm 아래)과 안 부딪히게
   slow_last_mm: 10.0            # 잡는 높이 이 거리 전까지는 speed.line_mm_s, 마지막만 speed.grasp_mm_s [사용자 10/07]

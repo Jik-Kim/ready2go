@@ -23,6 +23,7 @@ import datetime
 import json
 import math
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -1215,6 +1216,27 @@ class SkillServer(Node):
         finally:
             g.close()
 
+    def _grip_async(self, width_mm, force_n):
+        """RG2 이동을 따로 시작 — 돌려준 함수를 부르면 끝날 때까지 기다리고 상태 반환 (예외는 그대로, 10 s 넘으면 TimeoutError)."""
+        box = {}
+
+        def run():
+            try:
+                box["st"] = self._grip(width_mm, force_n)
+            except Exception as e:                          # 기다리는 쪽에서 그대로 다시 던짐 → run_guarded 가 정지 확인
+                box["err"] = e
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+
+        def wait():
+            t.join(10.0)
+            if t.is_alive():
+                raise TimeoutError("RG2 벌리기가 10 s 안에 끝나지 않음")
+            if "err" in box:
+                raise box["err"]
+            return box["st"]
+        return wait
+
     def _cur_angles(self):
         cur = self.robot.posx()
         if cur is None:
@@ -2323,7 +2345,19 @@ class SkillServer(Node):
             # 넛지와 같은 길 [사용자 10/07 저녁, 10/08]: 탑뷰(팔 거의 펴짐)에서 바로 직선으로 가면 특이점 → 서랍 중앙 경유점 movej
             # → y 를 목표 y 로 → 목표 위(grasp + approach, 최대 30 mm)를 블렌딩 한 번에 (사이 멈춤 없음)
             # 경유점은 서랍 안 — 벌린 RG2 는 손끝이 더 내려옴 → 끌기처럼 닫고 지나감, 목표 위에서 벌림 [#136 PM 리뷰]
-            self._grip(0, 20)
+            # pick.open_on_way: 경유점으로 가는 관절 이동 동안 벌림 — 경유점에서 서서 벌리지 않음 [사용자 10/15 "뷰 찍고 집으러 내려오면서
+            # 그리퍼 벌려두면"]. 경유점은 테두리 위라 벌려도 안 닿음(아래 원래 벌리는 자리와 같은 높이), 탑뷰 → 경유점은 서랍 가운데 위에서 내려옴
+            open_wait = self._grip_async(plan.open_width_m * 1000.0, 20) if prm["pick"].get("open_on_way") else None
+
+            def opened_then(o):                             # 실패로 돌아가기 전에 벌리기가 끝나게 (다음 동작과 그리퍼 명령이 겹치지 않게)
+                if open_wait:
+                    try:
+                        open_wait()
+                    except Exception:
+                        pass
+                return o, None
+            if not open_wait:
+                self._grip(0, 20)
             jnow = self.robot.posj()
             tol = float(prm["pick"].get("at_waypoint_tol_deg", 0.5))
             if jnow and len(jnow) >= 6 and all(math.isfinite(v) for v in jnow[:6]) and max(
@@ -2335,10 +2369,10 @@ class SkillServer(Node):
                 o = self._movej(goal, self._down_with_turn(drawer_id, down, [1000.0 * v for v in plan.position_m], close_dir),
                                 "to_object:down", in_drawer=True)
                 if not o.success:
-                    return o, None
+                    return opened_then(o)
             cur = self.robot.posx()
             if cur is None:
-                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+                return opened_then(sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"))
             # 잡는 손목 방향은 경유점에 도착한 뒤 그 손목 기준으로 (넛지와 같음). 탑뷰(그리퍼 180° 돌림)에서 미리 정하면
             # 경유점에서 손목을 반 바퀴 다시 돌리며 목표로 가 경유점을 안 지나는 것처럼 보임 [사용자 10/08]
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, cur[3:])
@@ -2351,7 +2385,7 @@ class SkillServer(Node):
             if abs(turn) > 1.0 and jnow:
                 o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "to_object:turn", in_drawer=True)
                 if not o.success:
-                    return o, None
+                    return opened_then(o)
                 cur = self.robot.posx() or cur
                 grasp = list(grasp[:3]) + list(cur[3:])
             by_height = prm["pick"].get("grip_height_ratio") is not None and round_side is None
@@ -2370,7 +2404,10 @@ class SkillServer(Node):
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
             # 경유점에서 미리 벌리고(테두리 위 높이라 안 닿음) 테두리 위로 목표 위 → 잡는 높이 1 cm 위까지 블렌딩 한 번 — 목표 위에서 멈춰
             # 벌리고 다시 내려가지 않음 [사용자 10/10 "동작이 너무 많고 복잡"]. 마지막 1 cm 만 천천히 [사용자 10/07]
-            self._grip(plan.open_width_m * 1000.0, 20)
+            if open_wait:
+                open_wait()                                 # 보통 경유점 도착 전에 끝남 — 덜 벌렸으면 여기서 기다림 (목표 위로 가기 전)
+            else:
+                self._grip(plan.open_width_m * 1000.0, 20)
             slow_mm = 0.0 if by_height else prm["pick"].get("slow_last_mm", 0.0)   # 높이 계산이면 한 번에 빠르게 [사용자 10/11 "존나 빠르게"]
             near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
             bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=tilt is None)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
