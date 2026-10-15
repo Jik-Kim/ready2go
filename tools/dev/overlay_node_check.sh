@@ -9,7 +9,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 DUMP=$(realpath "$1"); N=${2:-8}; EN=${3:-true}; GAP=${4:-0.5}
 DOM=${OVERLAY_CHECK_DOMAIN:-77}
-if [ "$DOM" = 70 ]; then echo "시험 도메인이 운영 도메인 70 과 같음 — OVERLAY_CHECK_DOMAIN 을 다른 값으로"; exit 2; fi
+[[ "$DOM" =~ ^[0-9]+$ ]] || { echo "OVERLAY_CHECK_DOMAIN 은 숫자만: '$DOM'"; exit 2; }
+DOM=$((10#$DOM))                                          # 070 같은 입력도 70 으로 읽어 비교 (ROS 는 십진으로 읽음)
+if [ "$DOM" -eq 70 ]; then echo "시험 도메인이 운영 도메인 70 과 같음 — OVERLAY_CHECK_DOMAIN 을 다른 값으로"; exit 2; fi
 OUT=$(dirname "$DUMP")/overlay_check_out; mkdir -p "$OUT"; cp "$DUMP" "$OUT/d.npz"
 RUN=(docker run --rm --network host --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp -e YOLO_CONFIG_DIR=/tmp/y
   -e ROS_DOMAIN_ID="$DOM" -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -e CYCLONEDDS_URI=file:///repo/config/cyclonedds.local.xml
