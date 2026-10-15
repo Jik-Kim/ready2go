@@ -144,7 +144,7 @@ def render_overlay(color_bgr, dets, result, K, T_drawer_cam, interior_m, items, 
                 sub += " · 방향 모름" if korean else " / yaw unknown"
             ob = o.get("occluded_by")
             if ob:
-                sub += (" · 가리는 물체: " if korean else " / under: ") + ", ".join(name(i.split("#")[0]) for i in ob)
+                sub += (" · 가리는 물체: " if korean else " / covered by: ") + ", ".join(name(i.split("#")[0]) for i in ob)
             elif ob is not None:
                 sub += " · 가리는 물체 없음" if korean else " / not covered"
             lines.append(sub)
