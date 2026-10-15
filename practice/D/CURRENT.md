@@ -7,6 +7,7 @@
 - **최종 갱신**: 2026-10-15
 
 ## 지금 상태
+- [문서] PR #357의 [D 승인](https://github.com/Jik-Kim/ready2go/pull/357#pullrequestreview-5517200207)·[E 승인](https://github.com/Jik-Kim/ready2go/pull/357#pullrequestreview-5526940550)을 `docs/interfaces.md`와 `docs/vision.md`에 연결해 오래된 `승인 전` 표기를 제거함. 계약 승인과 구현 완료를 구분해 vision 발행부 미구현, #368 웹 구독·캐시·REST 구현, 브라우저 사진 렌더링 후속 상태를 각각 기록함.
 - [코드·실측] 같은 `OverlayCache`를 ROS runtime과 Flask에 연결해 `GET /api/vision/overlay.jpg`로 최신 JPEG를 제공하고 `/api/status.vision_overlay`로 JPEG를 제외한 촬영·수신 시각, 경과, frame ID, revision을 제공함. 요청한 revision이 현재 사진과 다르면 409로 거절해 메타데이터와 JPEG가 섞이지 않게 했고, Runtime 종료 시 공유 캐시의 사진을 비워 같은 객체 재기동 뒤 이전 기동 사진이 남지 않게 함. 캐시 미연결 503·미촬영 404·정상 JPEG 200도 구분하며 브라우저 최근 촬영 렌더링은 아직 연결하지 않음. ROS 2·CycloneDDS 포함 웹 전체 시험 `119 passed`.
 - [코드·실측] 병합된 PR #357의 `/vision/inspect_overlay` 계약을 웹 ROS 브리지에 연결함. `sensor_msgs/msg/CompressedImage`를 `RELIABLE`·`TRANSIENT_LOCAL`·`KEEP_LAST(1)`로 구독하고 `format=jpeg`·`wrist_cam_color_optical_frame`만 전용 `OverlayCache`에 기록함. publisher GID와 관계없이 UTC epoch 촬영 stamp만 최신성 기준으로 사용해 과거·중복 사진이 현재 사진을 덮지 않으며, 오버레이 캐시는 `/wrist_cam/color/camera_info` 기반 카메라 연결 진단과 분리함.
 - [코드·실측] 이슈 #348 사진 캐시·최근 촬영 UI 재검토에서 카메라 stamp가 PC UTC와 같은 기준임을 명시한 경우에만 촬영 시각·경과·stale을 계산하며 그 밖에는 원본 stamp와 수신 나이만 제공하도록 경계를 명확히 함. `.capture-empty[hidden]`과 이미지의 hidden 규칙도 추가해 실제 Chrome에서 `display:none`을 확인함.
