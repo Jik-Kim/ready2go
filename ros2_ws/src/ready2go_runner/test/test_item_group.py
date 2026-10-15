@@ -51,8 +51,8 @@ class Robot:
         self.calls.append((action, params))
         if self.hook is not None:
             forced = self.hook(action, params)
-            if forced is not None:
-                return Reply(forced.success, forced.error_code, "")
+            if forced is not None:              # 결과(output)도 그대로 — make_room 결과 등 (#392)
+                return Reply(forced.success, forced.error_code, "" if forced.output is None else json.dumps(forced.output))
         reply = self.skills.respond(action, params)
         return Reply(reply.success, reply.error_code, "" if reply.output is None else json.dumps(reply.output))
 

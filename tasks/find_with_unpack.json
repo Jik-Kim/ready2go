@@ -557,7 +557,8 @@
           "action": "fallback",
           "on_failure": "skip",
           "next_on": [
-            "NEIGHBOR_TOO_CLOSE"
+            "NEIGHBOR_TOO_CLOSE",
+            "WALL_TOO_CLOSE"
           ],
           "options": [
             [
@@ -849,171 +850,213 @@
                   },
                   "then": [
                     {
-                      "id": "s8.m5",
-                      "action": "nudge_object",
-                      "output": "mr",
-                      "timeout_sec": 60,
-                      "params": {
-                        "drawer_id": "$loc.drawer_id",
-                        "target": "$scan.target",
-                        "scan": "$scan",
-                        "make_room": true,
-                        "remove_first": "$mr_remove"
-                      }
-                    },
-                    {
-                      "id": "s8.m6",
+                      "id": "s8.m4r",
                       "action": "set_var",
                       "params": {
-                        "name": "mr_prev",
-                        "value": {
-                          "pose": "$scan.target.pose",
-                          "action": "$mr.make_room.action",
-                          "reason": "$mr.make_room.reason",
-                          "prev_action": "$mr_prev.action",
-                          "prev_reason": "$mr_prev.reason"
-                        }
+                        "name": "mr_rescan",
+                        "value": false
                       }
                     },
                     {
-                      "id": "s8.m7",
-                      "action": "set_var",
-                      "params": {
-                        "name": "mr_ready",
-                        "value": "$mr.make_room.ready_to_pick"
-                      }
+                      "id": "s8.m5f",
+                      "action": "fallback",
+                      "next_on": [
+                        "OCCLUSION_UNKNOWN"
+                      ],
+                      "options": [
+                        [
+                          {
+                            "id": "s8.m5",
+                            "action": "nudge_object",
+                            "output": "mr",
+                            "timeout_sec": 60,
+                            "params": {
+                              "drawer_id": "$loc.drawer_id",
+                              "target": "$scan.target",
+                              "scan": "$scan",
+                              "make_room": true,
+                              "remove_first": "$mr_remove"
+                            }
+                          }
+                        ],
+                        [
+                          {
+                            "id": "s8.m5r",
+                            "action": "set_var",
+                            "params": {
+                              "name": "mr_rescan",
+                              "value": true
+                            }
+                          }
+                        ]
+                      ]
                     },
                     {
-                      "id": "s8.m8",
-                      "action": "push",
-                      "params": {
-                        "stack": "room_made",
-                        "value": {
-                          "action": "$mr.make_room.action",
-                          "moved_id": "$mr.make_room.moved_id",
-                          "pushed_ids": "$mr.make_room.pushed_ids"
-                        }
-                      }
-                    },
-                    {
-                      "id": "s8.m9",
+                      "id": "s8.m5k",
                       "action": "if",
                       "cond": {
-                        "op": "and",
+                        "op": "==",
                         "args": [
-                          {
-                            "op": "!=",
-                            "args": [
-                              "$mr.make_room.moved_id",
-                              null
-                            ]
-                          },
-                          {
-                            "op": "!=",
-                            "args": [
-                              "$mr.make_room.moved_id",
-                              "$scan.target.id"
-                            ]
-                          }
+                          "$mr_rescan",
+                          false
                         ]
                       },
                       "then": [
                         {
-                          "id": "s8.m9a",
-                          "action": "for_each",
-                          "in": "$scan.candidates",
-                          "as": "mc",
-                          "body": [
-                            {
-                              "id": "s8.m9b",
-                              "action": "if",
-                              "cond": {
-                                "op": "==",
+                          "id": "s8.m6",
+                          "action": "set_var",
+                          "params": {
+                            "name": "mr_prev",
+                            "value": {
+                              "pose": "$scan.target.pose",
+                              "action": "$mr.make_room.action",
+                              "reason": "$mr.make_room.reason",
+                              "prev_action": "$mr_prev.action",
+                              "prev_reason": "$mr_prev.reason"
+                            }
+                          }
+                        },
+                        {
+                          "id": "s8.m7",
+                          "action": "set_var",
+                          "params": {
+                            "name": "mr_ready",
+                            "value": "$mr.make_room.ready_to_pick"
+                          }
+                        },
+                        {
+                          "id": "s8.m8",
+                          "action": "push",
+                          "params": {
+                            "stack": "room_made",
+                            "value": {
+                              "action": "$mr.make_room.action",
+                              "moved_id": "$mr.make_room.moved_id",
+                              "pushed_ids": "$mr.make_room.pushed_ids"
+                            }
+                          }
+                        },
+                        {
+                          "id": "s8.m9",
+                          "action": "if",
+                          "cond": {
+                            "op": "and",
+                            "args": [
+                              {
+                                "op": "!=",
                                 "args": [
-                                  "$mc.id",
-                                  "$mr.make_room.moved_id"
+                                  "$mr.make_room.moved_id",
+                                  null
                                 ]
                               },
-                              "then": [
+                              {
+                                "op": "!=",
+                                "args": [
+                                  "$mr.make_room.moved_id",
+                                  "$scan.target.id"
+                                ]
+                              }
+                            ]
+                          },
+                          "then": [
+                            {
+                              "id": "s8.m9a",
+                              "action": "for_each",
+                              "in": "$scan.candidates",
+                              "as": "mc",
+                              "body": [
                                 {
-                                  "id": "s8.m9c",
-                                  "action": "push",
-                                  "params": {
-                                    "stack": "restore_stack",
-                                    "value": {
-                                      "class": "$mc.class",
-                                      "origin": "$mc.pose",
-                                      "placed": "$mr.make_room.moved_after",
-                                      "slot": "free",
-                                      "under": [
-                                        "*"
-                                      ],
-                                      "seen": []
+                                  "id": "s8.m9b",
+                                  "action": "if",
+                                  "cond": {
+                                    "op": "==",
+                                    "args": [
+                                      "$mc.id",
+                                      "$mr.make_room.moved_id"
+                                    ]
+                                  },
+                                  "then": [
+                                    {
+                                      "id": "s8.m9c",
+                                      "action": "push",
+                                      "params": {
+                                        "stack": "restore_stack",
+                                        "value": {
+                                          "class": "$mc.class",
+                                          "origin": "$mc.pose",
+                                          "placed": "$mr.make_room.moved_after",
+                                          "slot": "free",
+                                          "under": [
+                                            "*"
+                                          ],
+                                          "seen": []
+                                        }
+                                      }
                                     }
-                                  }
+                                  ]
                                 }
                               ]
                             }
                           ]
-                        }
-                      ]
-                    },
-                    {
-                      "id": "s8.m10",
-                      "action": "for_each",
-                      "in": "$mr.make_room.pushed_ids",
-                      "as": "pid",
-                      "body": [
+                        },
                         {
-                          "id": "s8.m10a",
+                          "id": "s8.m10",
                           "action": "for_each",
-                          "in": "$scan.candidates",
-                          "as": "mc",
+                          "in": "$mr.make_room.pushed_ids",
+                          "as": "pid",
                           "body": [
                             {
-                              "id": "s8.m10b",
-                              "action": "if",
-                              "cond": {
-                                "op": "==",
-                                "args": [
-                                  "$mc.id",
-                                  "$pid"
-                                ]
-                              },
-                              "then": [
+                              "id": "s8.m10a",
+                              "action": "for_each",
+                              "in": "$scan.candidates",
+                              "as": "mc",
+                              "body": [
                                 {
-                                  "id": "s8.m10c",
-                                  "action": "for_each",
-                                  "in": "$mr.make_room.pushed_after",
-                                  "as": "pa",
-                                  "body": [
+                                  "id": "s8.m10b",
+                                  "action": "if",
+                                  "cond": {
+                                    "op": "==",
+                                    "args": [
+                                      "$mc.id",
+                                      "$pid"
+                                    ]
+                                  },
+                                  "then": [
                                     {
-                                      "id": "s8.m10d",
-                                      "action": "if",
-                                      "cond": {
-                                        "op": "==",
-                                        "args": [
-                                          "$pa.id",
-                                          "$pid"
-                                        ]
-                                      },
-                                      "then": [
+                                      "id": "s8.m10c",
+                                      "action": "for_each",
+                                      "in": "$mr.make_room.pushed_after",
+                                      "as": "pa",
+                                      "body": [
                                         {
-                                          "id": "s8.m10e",
-                                          "action": "push",
-                                          "params": {
-                                            "stack": "restore_stack",
-                                            "value": {
-                                              "class": "$mc.class",
-                                              "origin": "$mc.pose",
-                                              "placed": "$pa",
-                                              "slot": "free",
-                                              "under": [
-                                                "*"
-                                              ],
-                                              "seen": []
+                                          "id": "s8.m10d",
+                                          "action": "if",
+                                          "cond": {
+                                            "op": "==",
+                                            "args": [
+                                              "$pa.id",
+                                              "$pid"
+                                            ]
+                                          },
+                                          "then": [
+                                            {
+                                              "id": "s8.m10e",
+                                              "action": "push",
+                                              "params": {
+                                                "stack": "restore_stack",
+                                                "value": {
+                                                  "class": "$mc.class",
+                                                  "origin": "$mc.pose",
+                                                  "placed": "$pa",
+                                                  "slot": "free",
+                                                  "under": [
+                                                    "*"
+                                                  ],
+                                                  "seen": []
+                                                }
+                                              }
                                             }
-                                          }
+                                          ]
                                         }
                                       ]
                                     }
