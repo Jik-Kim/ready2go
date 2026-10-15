@@ -8,9 +8,9 @@
                        켰어도 윗면이 서랍 테두리에 너무 가까움(서랍 안 옆 이동 높이와 부딪힘)
 다시 인식은 스킬이 아니라 태스크(C)가 한다. 허용 오차는 params/skills.yaml 에서 받는다 [팀 확정 필요].
 """
-import math
 from dataclasses import dataclass
 from typing import Mapping, Optional
+from ready2go_skills.core.pose_math import finite as _finite
 
 TOOL_NOT_SET = "TOOL_NOT_SET"
 DRAWER_NOT_AT_TRAVEL = "DRAWER_NOT_AT_TRAVEL"
@@ -22,11 +22,6 @@ NOT_ON_FLOOR = "NOT_ON_FLOOR"
 class GuardError:
     error_code: str
     reason: str
-
-
-def _finite(*values) -> bool:
-    """모두 bool이 아닌 유한한 숫자인지. NaN·inf는 비교가 항상 False라 그대로 쓰면 확인을 통과해 버린다 (#70 D 리뷰)."""
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
 
 def expected_tool(meta: Mapping) -> tuple:

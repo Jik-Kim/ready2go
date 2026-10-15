@@ -4003,3 +4003,14 @@ def test_repo_defaults_are_pc2_tested_and_run_together(server, monkeypatch):
         server.Gripper.holding = False
     assert out.success, out.reason
     assert seen and getattr(srv, "locked", None) is None                # movesx 로 감, 잠금 없음
+
+
+def test_dry_place_works_with_grip_height_ratio_null(server, monkeypatch):
+    """[10/15 정리] pick.grip_height_ratio 는 null(예전 높이 방식)도 쓸 수 있는 값 — 빈 자리 판단(DryOracle.place)이 None × 높이로
+    예외를 내지 않고 0.5 로 봄. 판단만 — 로봇 명령 없음."""
+    _with_prm(server, monkeypatch, pick={"grip_height_ratio": None})
+    er = _seg(ERASER_FREE)
+    pose = {"frame": "drawer_top", "position": [0.10, 0.15, 0.0], "yaw": 0.0}
+    ok, code, reason = server.ss.DryOracle(server.srv, "drawer_top").place([er], "eraser#1", pose)
+    assert code != "SKILL_EXCEPTION", reason
+    assert server.srv.robot.log == []

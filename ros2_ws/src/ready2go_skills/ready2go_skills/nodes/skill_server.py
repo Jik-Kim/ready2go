@@ -7,10 +7,11 @@
   - 움직이기 전 펜던트 TCP·툴 확인 → 다르면 TOOL_NOT_SET (motion_guard, calibration_meta.yaml 기준)
 구현 상태:
   - move_to_named_pose: poses.yaml 관절각으로 movej, 도착 확인 (낮은 곳이면 먼저 수직으로 올림)
-  - drawer_control (drawer_top): 손잡이 잡고 당겨 열기(걸림 감시) / 주먹으로 밀어 닫기(위치 + 힘). 시연 1차 10/06
-  - nudge_object: 기울인 손끝으로 눌러(힘 감지) 서랍 옆으로만 끌기 — 옆벽에 붙어 짧은 변으로 못 잡을 때 (트러블슈팅 2)
-  - pick_object (서랍): 짧은 변 잡기, 폭 확인, 들어 올린 뒤 놓침 확인 / place_object: handover_zone 빈 칸,
-    서랍 안 pose·slot (#120 ②·#166 — 이웃·벽 겹침은 움직이기 전 거부, 실물 미확인)
+  - drawer_control (위·아래 칸): 손잡이 잡고 당겨 열기(걸림 감시) / 45° 기울여 밀어 닫기(close_push, 위치 + 힘)
+  - nudge_object: 눌러(힘 감지) 서랍 축으로 끌기·뒤에서 밀기·구멍 밀기 — 벽에 붙어 못 잡을 때 (트러블슈팅 2),
+    make_room = 파지 공간 만들기 한 동작 (core/clear_plan)
+  - pick_object (서랍): 짧은 변·긴 변 양끝·기울여 잡기, 폭 확인, 들어 올린 뒤 놓침 확인 / place_object: handover_zone 빈 칸,
+    서랍 안 pose·slot (#120 ②·#166 — 이웃·벽 겹침은 움직이기 전 거부)
   값은 params/skills.yaml (10/05~06 로봇 실측), 장소는 config/places.yaml, 물체 크기는 knowledge/world.jsonld.
 
 실행 (PC2, DSR 드라이버 실행 중):
@@ -199,7 +200,7 @@ class DryOracle:
         size = srv._size_or_none(h["class"]) or prm["place"]["default_obstacle_size_m"]
         gw = srv.grasp_width(h["class"], size, prm) or size[1]
         dry = _Dry(srv, held={"class": h["class"], "id": held_id, "width_m": gw, "drawer_id": self.drawer,
-                              "tcp_above_floor_m": size[2] * prm["pick"].get("grip_height_ratio", 0.5), "long_side": False})
+                              "tcp_above_floor_m": size[2] * (prm["pick"].get("grip_height_ratio") or 0.5), "long_side": False})
         p = {"location": self.drawer, "scan": _scan_of(objs, held_id)}
         p.update({"slot": pose_or_slot} if isinstance(pose_or_slot, str) else {"pose": pose_or_slot})
         return _dry_call(lambda: dry._place_in_drawer(_DRY_GOAL, p, self.drawer))
@@ -1857,7 +1858,7 @@ class SkillServer(Node):
         shift = [shift[0], shift[1], 0.0]                     # 수평으로만 (b_demo 와 같음): 서랍 tf 기울기로 41.7 mm 에 z −0.5 mm 가 섞이면
         #   끌면서 더 눌림 — 위치로 누르면 1 mm 에 2 → 10 N [실측 10/06] → 10/06 저녁 통합 PUSH_BLOCKED 15.1 N
         # 끄기 직전 힘 0점 다시 [사용자 10/10 "옮기기 직전에 힘값 리셋"] — 힘 맞추기 마지막 측정보다 멈춘 뒤 평균이 안정
-        base_drag = self._tare(d.get("tare_settle_s")) or self._held_f
+        base_drag = self._tare(d.get("tare_settle_s")) or getattr(self, "_held_f", None)   # 둘 다 없으면 blocked() 가 SENSOR_INVALID
         max_z = d.get("max_force_z_n", d["max_force_n"])
 
         def blocked():
@@ -2131,7 +2132,7 @@ class SkillServer(Node):
             if sf.is_safety(bad) or attempt == int(d.get("press_attempts", 1)) or now is None or math.dist(now[:3], above[:3]) > 1.0:
                 return bad, out
             goal.publish_feedback(Skill.Feedback(stage=f"retry:{attempt + 1}"))
-        base_drag = self._tare(d.get("tare_settle_s")) or self._held_f
+        base_drag = self._tare(d.get("tare_settle_s")) or getattr(self, "_held_f", None)   # 둘 다 없으면 blocked() 가 SENSOR_INVALID
         max_z = d.get("max_force_z_n", d["max_force_n"])
 
         def blocked():
@@ -2428,10 +2429,13 @@ class SkillServer(Node):
         if not down:
             self._grip(plan.open_width_m * 1000.0, 20)
         slow_mm = 0.0 if (down and by_height) else prm["pick"].get("slow_last_mm", 0.0)   # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
+        here = self.robot.posx()
+        if here is None:                                                  # 모르는 높이에서 닫지 않음 — 내려가기 전 멈춤
+            return sf.Outcome(False, dp.SENSOR_INVALID, reason="TCP 위치 조회 실패 — 내려가지 않음"), None
         bad = None
-        if slow_mm > 0 and grasp[2] + slow_mm < self.robot.posx()[2] - 1.0:
+        if slow_mm > 0 and grasp[2] + slow_mm < here[2] - 1.0:
             bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
-        if math.dist(self.robot.posx()[:3], grasp[:3]) > 0.5:              # 높이 계산이면 블렌딩이 이미 잡는 높이까지 → 안 움직임
+        if math.dist((self.robot.posx() or here)[:3], grasp[:3]) > 0.5:              # 높이 계산이면 블렌딩이 이미 잡는 높이까지 → 안 움직임
             bad = bad or self._line(goal, grasp, speed["grasp_mm_s"], "descend")
         if bad:
             return bad, None

@@ -85,13 +85,12 @@ ros2 action send_goal /skills/move_to_named_pose ready2go_interfaces/action/Skil
 ```
 
 **B 시험 명령 (현재)**: `scripts/b_sk.py` — `B <동작> [서랍] [물체]`, 서랍 = `top`|`bottom`(= `drawer_top`|`drawer_bottom`). 전체 목록·한 줄 설명은 `B` 를 인자 없이 실행했을 때 나오는 사용법(`b_sk.py` `USAGE`)이 원본. Runner 와 같은 `/skills/<동작>` 요청을 보냄. 세팅·순서는 `practice/B/HANDOVER.md`.
-- 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find clear free plan unpack` / 없음: `home pick place putback trayview trayclear`.
+- 서랍 필요: `ready open opened close view scan rescan nudge clear plan unpack` / 없음: `home pick place putback trayview trayclear`.
 - `unpack <서랍> <목표>` — Runner `find_with_unpack`(C `feat/c-unpack-task`)과 같은 순서를 B 명령 하나로: 열기 → 덮은 것 맨 위부터 서랍 빈 자리(`place_object` `slot: "free"`, 10/13부터 — 고정 aside 안 씀, 빈 자리 없으면 든 채 멈춤) 최대 2개 → 목표 트레이 → 옮긴 것 역순 원래 자리(거부면 다시 빈 자리 + 안내) → 복구 오차(비전) 출력 → 닫기·홈. 치울 것 고르기·다시 찾기는 Runner `core/unpack.py` 를 그대로 씀. 서랍 닫힘·빈손·홈에서 시작. 예: `B unpack top 몽키`(쌓기), `B unpack bottom 지우개`(가림막).
-  - `rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick` / `find` = 손으로 연 서랍에서 잡을 때까지 다시 넛지 → 트레이.
+  - `rescan` = 끌기 뒤 다시 인식, 그 좌표로 `B pick`. (10/15 정리: `all`·`dragtest`·`find`·`free` 는 Runner `find_with_unpack`·`place_object slot free` 로 대신 — 뺌)
 - 파지 공간 만들기 (`nudge_object` `make_room` — **계약 제안, E 포함 2명 승인 전 · 실물 미검증**, 판단 순서·한계는 [runner.md 7.1](../../../docs/runner.md) `nudge_object`, 설정은 [`params/skills.yaml`](params/skills.yaml) `make_room`·`drag.sweep_force_n`):
   - `plan` — `B scan` 뒤 다음 공간 만들기 동작을 **판단만, 움직이지 않음**(`make_room` + `check_only`). 바로 집을 수 있으면 성공(`ready_to_pick`). 다음 동작이 있으면 `PUSH_LIMIT` + `needed: true` + `make_room.action·reason`(미리보기 — 실제 이동 실패가 아님). 할 동작이 없으면 그 거부 코드(`NEIGHBOR_TOO_CLOSE`·`NO_FREE_SPACE`·`NO_PUSH_ACCESS`) + `needed: false` + `plan_code`(같은 코드).
   - `clear` — **실행**: 탑뷰 → 인식 → 공간 만들기 한 동작 → 다시 인식을 반복(최대 `CLEAR_STEPS` 12), 집을 수 있게 되면 집기 → 트레이 → 홈. 같은 동작·이유인데 목표가 5 mm 안에서 그대로면 다음부터 `remove_first: true`(막는 물체 치우기 먼저)로 다시, 그래도 되풀이면 멈춤 [사용자 10/13]. 판단 순서 전체는 `practice/B/2026-10-13_practice.md` "make_room 판단 순서".
-  - `free` — **실행**: `B pick` 으로 쥔 물체를 그 서랍의 계산된 빈 자리에 놓기(고정 aside 대신, 기존 `place_object` `pose` 계약). 스킬 서버의 놓기·다시 집기 사전 검사를 움직이지 않고 돌려 통과한 자리만 보냄.
 
 **과거 단독 시험 (10/06, 현재 P1 경로 아님)** — 위 서랍, 세로 지우개를 서동권 쪽-오른쪽 모서리에. 이때는 넛지 **예상 위치**(`target_after`)로 바로 집었음. **현재 공통 `pick` 은 끈 뒤 탑뷰에서 다시 찍은 `scan.target` 으로 집는다**(`knowledge/skills/pick.jsonld`, `docs/domain.md` 8.5). 하나씩 보내고 결과 확인 (`--feedback`로 단계 표시):
 ```bash
