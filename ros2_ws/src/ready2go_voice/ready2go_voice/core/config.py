@@ -14,7 +14,9 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
     cfg.setdefault('evaluation_mode', False)
     from .stt_error import _prompt_file
     with _prompt_file().open(encoding='utf-8') as defaults:
-        cfg.setdefault('stt_control_prompt', yaml.safe_load(defaults)['stt_control_prompt'])
+        package_defaults = yaml.safe_load(defaults)
+        cfg.setdefault('stt_control_prompt', package_defaults['stt_control_prompt'])
+        cfg.setdefault('semantic_speech', package_defaults['semantic_speech'])
     if not isinstance(cfg['stt_control_prompt'], str):
         raise ValueError('stt_control_prompt: 문자열 필요 (독립 제어는 빈 힌트)')
     if evaluation_mode is not None:
@@ -22,6 +24,14 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
             raise ValueError('evaluation_mode: bool 필요')
         cfg['evaluation_mode'] = evaluation_mode
     cfg.setdefault('request_run_enabled', False)
+    cfg.setdefault('semantic_catalog_file', 'auto')
+    cfg.setdefault('semantic_queries', [{'kind': 'list', 'id': 'commute_set'}, {'kind': 'class', 'id': 'Valuables'}])
+    if (not isinstance(cfg['semantic_catalog_file'], str) or not cfg['semantic_catalog_file'].strip()
+            or not isinstance(cfg['semantic_queries'], list)
+            or any(not isinstance(e, dict) or set(e) != {'kind', 'id'}
+                   or e['kind'] not in ('list', 'class') or not isinstance(e['id'], str) or not e['id']
+                   for e in cfg['semantic_queries'])):
+        raise ValueError('semantic_catalog_file/semantic_queries: validated catalog references required')
     if request_run_enabled is not None:
         cfg['request_run_enabled'] = request_run_enabled
     if not isinstance(cfg['request_run_enabled'], bool):

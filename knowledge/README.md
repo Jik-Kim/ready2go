@@ -57,14 +57,14 @@
 <a id="p2-시작-배치-선택--e-구현c-연결-대기"></a>
 ## 단일 초기 상태와 선택 API
 
-[문서] 기본 `load(manifest)`는 [`sources.initial_state`](robot_ontology.jsonld)의 [`initial_state.json`](snapshots/initial_state.json)만 읽습니다. 사용자 배치 원문을 반영한 단일 초기 상태이며 운영 장면별 파일 3개는 제거했습니다. 등록 world 10종과 이 파일에 위치를 기입한 6종은 구분합니다.
+[문서] 기본 `load(manifest)`는 [`sources.initial_state`](robot_ontology.jsonld)의 [`initial_state.json`](snapshots/initial_state.json)만 읽습니다. 사용자 배치 원문을 반영한 단일 초기 상태이며 운영 장면별 파일 3개는 제거했습니다. 등록 world 10종과 이 파일에 위치를 기입한 7종은 구분합니다.
 
 | 초기 위치 | 기입한 물품 |
 | :--- | :--- |
-| drawer_top | toy_wrench·caramel_box·car_key |
+| drawer_top | toy_wrench·caramel_box·car_key·airpods_case |
 | drawer_bottom | cover_plate·eraser·lip_balm |
 
-[문서] 위치가 없는 airpods_case·masking_tape·toy_car·toy_hammer는 등록 물품입니다. 위치 생략을 미등록이나 실물 재고 없음으로 정의하지 않습니다. home·empty·두 서랍 닫힘·handover_zone 값도 사용자 초기 파일 그대로이며 실제 빈손·닫힘·쌓임/가림/pose 증거가 아닙니다.
+[문서] 위치가 없는 masking_tape·toy_car·toy_hammer는 등록 물품입니다. 위치 생략을 미등록이나 실물 재고 없음으로 정의하지 않습니다. home·empty·두 서랍 닫힘·handover_zone 값도 사용자 초기 파일 그대로이며 실제 빈손·닫힘·쌓임/가림/pose 증거가 아닙니다.
 
 [문서] S3도 같은 JSON의 eraser → drawer_bottom을 유지하고 **실물에서만 지우개를 제외하는 시험**입니다. 초기 정의와 실제 관측의 차이를 확인하기 위한 배치이며, 이 파일만으로 LLM 전달·재식별·자동 상태 갱신의 운영 연결이나 검증 완료를 선언하지 않습니다. 관측의 `occluded_by`·`target=null`은 별도 관측 결과로 보존합니다.
 
@@ -121,3 +121,13 @@
 [조회] `ready2go_knowledge.core.refusal_reasons.text(case_id, strategy)`는 등록 ID와 `impossible`이 함께 주어진 경우만 문장을 반환하고, 누락·미등록·다른 strategy는 `None`을 반환합니다. `load()`는 근거를 포함한 목록, `texts()`는 캐시 준비용 문장을 반환합니다. 소스 실행과 `share/ready2go_knowledge/knowledge` 설치본을 지원합니다. C에서 사용하려면 같은 실패의 실제 B 결과와 run/boot를 먼저 검증해야 합니다.
 
 [구현/의존] 승인된 C [#379](https://github.com/Jik-Kim/ready2go/pull/379)의 `accepted`·`last.failure` 형식을 E가 소비합니다. idle/halted의 FAILED이며 실패 run_id=last.run_id=accepted.run_id와 failure.boot_id=status.boot_id가 일치할 때만 설명합니다. 현재 실행·새 수락 실행·새 boot·원인 없는 결과는 원인 조회 불가로 안내합니다. C #379 최종 a3354a0c가 병합된 main d27700a3를 합류했습니다. 실제 C 수락/구간 실행/실패 기록·상위 R 매핑/상태 발행→E 콜백·질문→TTS를 모의 검증했습니다. 구간 기록 R.n과 상위 공개 실패 R을 구분하며 묶음 단위 원인은 기존 코드 안내로 폴백합니다. 운영 적용·실음성/실물은 별도입니다. 일반 pick 거부의 case_id를 추정하지 않습니다. B 자료의 중복 say_ko 제거는 B 담당입니다. 요구사항 기준은 [FR-INT-02](../docs/requirements.md#fr-int-02)·[FR-INT-03](../docs/requirements.md#fr-int-03)·[FR-LOG-02](../docs/requirements.md#fr-log-02), #376의 P3 준비 작업이며 기존 요구사항 Phase를 재정의하지 않습니다.
+
+## P3 운영 의미 원본·음성 조회 — #302
+
+[구현] [semantics.ttl](semantics.ttl)은 등록 목록·분류의 P3 음성 실행 및 내용 조회가 함께 사용하는 운영 원본입니다. [시험 TTL](examples/p3_semantics.ttl)은 시험 역할을 유지하며 운영 설정에서 자동 선택하지 않습니다. P3 목록 구성은 이 TTL에서만 해석합니다. world.jsonld의 기존 lists.commute_set·분류/물품 역할은 삭제하지 않았으며 초기 등록의 구성 일치를 검사합니다. 현재 출근 준비물은 airpods_case/car_key/lip_balm, 귀중품은 Key→Valuables의 car_key입니다. “출근 준비 물품”·“출근 세트”는 TTL 별칭이며 새 목록이 아닙니다.
+
+[연결] `ready2go_knowledge.core.semantic_query.load_ttl`의 등록/은퇴/상속·순환/모호성 검사와 query_list/query_class를 사용합니다. `names(kind,id)`도 같은 그래프에서 키·이름·별칭만 반환합니다. E 음성은 이 결과의 items→targets, source/evidence를 그대로 발신하며 LLM이 구성·해시를 생성하지 않습니다. TTL 해시는 읽은 의미 원본의 출처이고 현재 위치나 관측 신선도가 아닙니다. 현재 위치 조회·물품별 실행과 결과/상태 기록은 C 책임입니다.
+
+[운용] Voice `semantic_catalog_file:auto`는 사용 ontology 인접 semantics.ttl→소스 knowledge/semantics.ttl→설치 share/ready2go_knowledge/knowledge/semantics.ttl 순서입니다. 명시 경로는 그대로 읽고 누락 시 다른 원본으로 대체하지 않습니다. `semantic_queries`는 등록 kind/id 선택 참조이며 이름/구성의 복사본이 아닙니다. knowledge setup.py는 운영 TTL·은퇴 목록을 설치합니다. 기존 단일 initial_state에 사용자 확인한 에어팟 위 서랍 위치를 추가했으며 새 P3 snapshot·manifest 선택·reset 기능은 만들지 않았습니다. 위치 등록은 실제 관측·재고/파지 승인·실물 성공의 증거가 아닙니다.
+
+범위·수용 기준은 [FR-INT-02](../docs/requirements.md#fr-int-02)·[FR-ONT-03](../docs/requirements.md#fr-ont-03)·[UC-P3](../docs/requirements.md#use-cases), 실행·설치·직접 검사와 남은 실음성 검증은 [Voice README](../ros2_ws/src/ready2go_voice/README.md#p3-목록분류-실행과-목록-내용-조회--302)를 참조하십시오.

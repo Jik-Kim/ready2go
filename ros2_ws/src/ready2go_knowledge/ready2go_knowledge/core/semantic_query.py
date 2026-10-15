@@ -1,4 +1,4 @@
-"""#302 P3 시험용 의미 조회. Runner 현재 상태와 실행 정책은 다루지 않는다.
+"""#302 P3 의미 조회. Runner 현재 상태와 실행 정책은 다루지 않는다.
 
 TTL은 명시한 로컬 파일에서만 읽는다. 기존 JSON-LD load()나 운영 manifest에
 자동 연결하지 않으며, RDF 파싱 뒤 명시적으로 상위 분류 경로를 탐색한다.
@@ -34,7 +34,7 @@ def _keys(values, name):
 
 
 def load_ttl(path: str | Path, *, active_items, retired_items=()) -> SemanticCatalog:
-    """활성 등록부를 대조해 TTL 시험 카탈로그를 읽는다. 위치는 입력받지 않는다."""
+    """활성 등록부를 대조해 TTL 의미 카탈로그를 읽는다. 위치는 입력받지 않는다."""
     raw = Path(path).read_bytes()
     graph = Graph().parse(data=raw.decode("utf-8"), format="turtle", publicID=str(NS))
     return SemanticCatalog(graph, active_items=active_items, retired_items=retired_items,
@@ -59,7 +59,7 @@ class SemanticCatalog:
             _key(node)
         for subject, predicate, value in graph:
             if predicate not in _PREDICATES:
-                raise ValueError(f"시험 의미 그래프에 허용하지 않은 관계: {predicate}")
+                raise ValueError(f"의미 그래프에 허용하지 않은 관계: {predicate}")
             if subject not in declared:
                 raise ValueError(f"종류 선언이 없는 참조: {subject}")
             if predicate in {RDFS.label, NS.alias_ko} and (
@@ -156,3 +156,11 @@ class SemanticCatalog:
         evidence = {_key(item): {"list": _key(target)}
                     for item in sorted(self._graph.objects(target, NS.hasItem), key=str)}
         return self._result("list", target, evidence)
+
+    def names(self, kind: str, query: str) -> list[str]:
+        """등록부의 키·이름·별칭. 음성 선택지는 동일 그래프에서만 얻는다."""
+        if kind not in ('list', 'class'):
+            raise ValueError('목록 또는 분류가 필요합니다')
+        node = self._select(query, self._lists if kind == 'list' else self._classes)
+        return sorted({_key(node), *(str(value) for predicate in (RDFS.label, NS.alias_ko)
+                       for value in self._graph.objects(node, predicate))})

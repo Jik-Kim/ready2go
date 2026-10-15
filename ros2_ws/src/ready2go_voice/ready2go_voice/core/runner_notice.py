@@ -102,7 +102,7 @@ class RunnerNoticePolicy:
         self.blocked = False  # 오래된 정상 음성만 억제; Runner/로봇 제어 게이트 아님.
         self.revision = 0
 
-    def observe(self, raw, *, cause=None):
+    def observe(self, raw, *, cause=None, group_summary=None):
         try:
             doc = json.loads(raw) if isinstance(raw, str) else raw
         except (ValueError, TypeError, RecursionError): return None
@@ -148,6 +148,8 @@ class RunnerNoticePolicy:
                                                    vision_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.vision_steps.get(last.get('task_id'), set()),
                                                    speech_step=isinstance(last.get('failed_step'), str) and last['failed_step'] in self.speech_steps.get(last.get('task_id'), set()))
                     if not (outcome == 'FAILED' and warning[1] == 3
+                            and group_summary == (run_id, last.get('task_id')) or
+                            outcome == 'FAILED' and warning[1] == 3
                             and isinstance(cause, tuple) and len(cause) == 3
                             and cause[:2] == (run_id, last.get('task_id'))
                             and cause[2] in self.failure_texts):

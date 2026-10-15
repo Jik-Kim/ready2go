@@ -99,6 +99,10 @@ def reference_query(parser, text):
         return (refusal_answer(view.get('status')) if isinstance(view, dict) else None) or unknown_text()
     if is_status_query(parser, text):
         return status_answer(parser)
+    from .semantic_requests import reference
+    semantic_answer = reference(parser, text)
+    if semantic_answer is not None:
+        return semantic_answer
     keys = parser.mentioned(text)
     provider = getattr(parser, 'state_provider', None)
     def read(predicate, subject):

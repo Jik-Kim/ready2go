@@ -96,9 +96,11 @@ def test_meaning_and_c_item_query_keep_runner_state_separate():
     before = deepcopy(onto)
     index = catalog()
     result = index.query_list("commute_set")
-    # 등록됐지만 초기 위치가 없는 물품도 E는 반환. 제외·안내는 C 정책이다.
+    # 위치 미상 시험은 운영 초기 상태를 바꾸지 않고 별도 현재 상태에서 만든다.
     assert "airpods_case" in result["items"]
-    unknown = query({"item": "airpods_case"}, onto["state"], onto["world"])
+    missing = deepcopy(onto['state'])
+    missing['located_in'].pop('airpods_case', None)
+    unknown = query({"item": "airpods_case"}, missing, onto["world"])
     assert unknown.error_code == "UNKNOWN_ITEM"
     state = deepcopy(onto["state"])
     state["located_in"]["car_key"] = "drawer_bottom"

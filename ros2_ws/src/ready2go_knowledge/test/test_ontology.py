@@ -240,10 +240,10 @@ def test_item_configuration_and_geometry_reference_errors(tmp_path):
 def test_single_initial_state_preserves_active_registry():
     onto = _onto()
     locations = {"toy_wrench": "drawer_top", "caramel_box": "drawer_top", "car_key": "drawer_top",
-                 "cover_plate": "drawer_bottom", "eraser": "drawer_bottom", "lip_balm": "drawer_bottom"}
+                 "airpods_case": "drawer_top", "cover_plate": "drawer_bottom", "eraser": "drawer_bottom", "lip_balm": "drawer_bottom"}
     assert onto["state"]["located_in"] == locations
     assert len(onto["world"]["items"]) == 10 and "carrot_pen" not in onto["world"]["items"]
-    assert set(onto["world"]["items"]) - locations.keys() == {"airpods_case", "masking_tape", "toy_car", "toy_hammer"}
+    assert set(onto["world"]["items"]) - locations.keys() == {"masking_tape", "toy_car", "toy_hammer"}
     assert onto["state"]["robot_pose"] == {"robot": "home"}
     assert onto["state"]["gripper"] == {"robot": "empty"}
     assert onto["state"]["open"] == {"drawer_top": False, "drawer_bottom": False, "handover_zone": True}

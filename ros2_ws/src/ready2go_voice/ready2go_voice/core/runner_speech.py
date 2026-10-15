@@ -106,12 +106,12 @@ def required_texts(cfg, items):
     from ready2go_knowledge.core.refusal_reasons import texts as refusal_texts
     texts = list(failure_texts())
     texts.extend(refusal_texts())
-    # C의 실제 물품별 no_room 안내 템플릿과 조사 구현을 그대로 사용합니다.
+    # C의 실제 태스크 speak 템플릿과 조사 구현을 그대로 사용합니다.
     for steps in task_steps(cfg).values():
-        step = steps.get('s8.n1')
-        if step and step['action'] == 'speak':
-            template = step['params']['text']
-            texts.extend(interpolate(template, {'loc': item}) for item in items)
+        for step in steps.values():
+            template = step.get('params', {}).get('text')
+            if step['action'] == 'speak' and isinstance(template, str) and not template.startswith('$'):
+                texts.extend(interpolate(template, {'loc': item, 'aside_item': item}) for item in items)
     return sorted(set(texts))
 
 

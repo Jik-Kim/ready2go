@@ -9,8 +9,8 @@
 | 구분 | 범위·정본 | 현재 상태 |
 | :--- | :--- | :--- |
 | P1 | [FR-INT-01–03](requirements.md#fr-int-01)·[음성 정책](requirements.md#voice-policy) | E 패키지 구현 있음. 실제 음성/API·C/D 연결·AC-INT-01~03 미검증 |
-| P2 | [FR-INT-02](requirements.md#fr-int-02)·[FR-PLN-02](requirements.md#fr-pln-02) | 이 문서의 후속 설계. 현재 P1 voice 경로에서 목표 계획을 실행하지 않음 |
-| P3 | [FR-INT-02](requirements.md#fr-int-02)·[FR-ONT-03](requirements.md#fr-ont-03)·[FR-PLN-03](requirements.md#fr-pln-03) | 다중 서랍·지식 확장 후속 설계. 데이터 등록과 음성/실행 연결 완료는 구분 |
+| P2 | [FR-INT-02](requirements.md#fr-int-02)·[FR-PLN-02](requirements.md#fr-pln-02) | 선정 목표를 명시 opt-in으로 발신하는 경로 구현. P1 기본 경로는 유지 |
+| P3 | [FR-INT-02](requirements.md#fr-int-02)·[FR-ONT-03](requirements.md#fr-ont-03)·[FR-PLN-03](requirements.md#fr-pln-03) | 등록 목록/분류 1개 해석·C 물품별 실행·목록 내용 조회를 연결한 구현. 실제 음성/실물 수용은 별도 |
 | Phase 미배정 | 상태 질의, 퍼지 매칭, 이름 없는 추론 수용 등의 개선안 | SOT의 명시적 Phase 배정 없이 P2/P3 구현 약속으로 확정하지 않음 |
 
 ### 6.1 파이프라인
@@ -54,8 +54,8 @@ Melo 모델·설정된 고정 안내/등록 물품 확인 문장 캐시 준비 �
 
 | 단계 | 정본 참조 | 현재 E 연결 |
 |---|---|---|
-| P2 | [FR-INT-02](requirements.md#fr-int-02)·[FR-PLN-02](requirements.md#fr-pln-02)·[AC-PLN-01](requirements.md#ac-pln-01) | E 목표 해석·발행 미지원. C Runner의 목표 계획 경로와 별개이며 [플래너 설명](planner.md)을 대조 |
-| P3 | [FR-ONT-03](requirements.md#fr-ont-03)·[FR-PLN-03](requirements.md#fr-pln-03)·[AC-PLN-02](requirements.md#ac-pln-02) | 목록/클래스/복합 작업 호출 미연결. 등록만으로 음성 어휘·trigger가 추가되지 않음 |
+| P2 | [FR-INT-02](requirements.md#fr-int-02)·[FR-PLN-02](requirements.md#fr-pln-02)·[AC-PLN-01](requirements.md#ac-pln-01) | 선정 목표의 명시 opt-in 해석/발신 경로 구현. 현재 허용 목표와 C 연결·실물 한계는 Voice README와 [플래너 설명](planner.md)을 대조 |
+| P3 | [FR-ONT-03](requirements.md#fr-ont-03)·[FR-PLN-03](requirements.md#fr-pln-03)·[AC-PLN-02](requirements.md#ac-pln-02) | 운영 TTL의 등록 목록/분류→find_list/find_class 발신·C 실행·후속 TTS 연결. 임의 등록만으로 발신 범위를 늘리지 않음 |
 
 `query_state`·퍼지 매칭·이름 없는 추론 수용·Push-to-talk·오프라인 STT/Piper·새 웨이크 학습 [#87](https://github.com/Jik-Kim/ready2go/issues/87)은 미확정 선택 제안입니다. 계약의 허용 enum과 현재 기능·착수 승인·Phase 배정은 구분합니다.
 
@@ -110,6 +110,16 @@ unknown/clarify는 정상 탈출값이며 그 자체를 LLM 검증 실패로 집
 [문서: 실행 연결 대기] [부분 결과 정책](requirements.md#verification-policy)은 같은 run의 실제 단계별 검증 결과가 E에 전달되어야 구체 안내에 적용할 수 있습니다. 현재 `/runner/status.last`의 전체 상태·오류만으로 전달 검증이나 복구 실패를 추정하지 않습니다. C의 실제 결과 수신 원본이 확정되기 전에는 기존 원인 경고를 유지합니다. [빈손·신선도 승인](https://github.com/Jik-Kim/ready2go/issues/43#issuecomment-6105675499)의 값 원본·적용은 B/C 담당이며 E의 내부 모의 입력을 운영 허가로 사용하지 않습니다.
 
 [현재 구현: E-VOICE-FLOW-20261012-01] 일반 P1의 질문 답/빈 전사 처리는 [정본 음성 정책](requirements.md#voice-policy)을 따릅니다. Conversation의 기존 질문 ID/세대/기한을 검사하고 정상 빈 SDK 결과의 내부 표식은 새 delivered/만료 갱신 없이 보존합니다. 자연스러운 답은 현재 등록 대상과 공통 parser 검증/규칙 폴백에 연결하며 대상 없음을 묻는 경로와 running/잠금 상태 안내를 구분합니다. 원래 해석/실행 보류는 내부 `_voice.original_interpretation`/`execution_hold_reason`로 기록하고 안내 발행은 C 수락과 구분합니다. 새 cue·원음/trim·silence 비교·더미 자동완료는 [사용자 시험 명령과 제한](../ros2_ws/src/ready2go_voice/README.md#통합-음성-흐름--사용자-직접-시험)을 참조하십시오. 값/문구는 voice.yaml의 voice_flow가 원본이며 실제 STT 미검출 해소·echo/첫 음절·물리 수용은 미검증입니다. #43/#152와 공개 wire는 변경하지 않았습니다.
+
+#### P3 등록 목록·분류 음성 경로 — #302
+
+[구현] [운영 TTL](../knowledge/semantics.ttl)의 선택한 목록/분류 하나를 엄격한 문형으로 해석한 뒤 실제 SemanticCatalog.query_list/query_class 결과를 공개 계약으로 검증합니다. “출근 준비물 가져와”·“출근 준비 물품 찾아줘”는 find_list, “귀중품 가져와”는 find_class입니다. source/evidence는 TTL 조회 결과 그대로이며 LLM이 items/hash를 구성하지 않습니다. 혼합 요청·복수 목록/분류·부정·미등록/모호 대상은 전체를 보류하며 일부 물품으로 축소해 실행하지 않습니다. 기존 P1 LLM·P2 선정 목표·긴급 정지 경로는 유지합니다.
+
+[연결] Session 수락 문장 검증→RequestRun 중복/진행 중 대체 차단→현재 C 수락/상위 run 상관→첫 수락 재생 증빙→C 물품별 조회/실행·후속 안내→최종 결과를 연결합니다. C의 accepted.task_id(물품별 태스크)와 status/last.task_id(group_<의미ID>)를 구분합니다. BUSY/status 뒤에도 기존 run 연속성은 유지하고 새 run/boot·취소·정지에는 이전 안내 권한을 폐기합니다. 실제 위치/상태·실행·결과 기록은 C 책임이며 TTL 해시를 신선도 증거로 사용하지 않습니다. 물품별 순서 안내는 C item_start_text의 실제 runnable 순서로 먼저/다음으로를 말하고, 하나뿐이면 순서말을 생략합니다. 제외 물품은 세지 않으며 태스크 s2.1을 사용해 s2.2와 중복하지 않습니다.
+
+[읽기 전용] “출근 준비물 뭐야?”·“뭐가 들어 있어?”·“목록 알려줘”는 동일 TTL/query_list와 world.items 이름으로 구성 문장만 답합니다. Runner 발행·RequestRun 등록·동작은 없으며 실제 재고/현재 위치·파지 가능을 확인했다고 말하지 않습니다.
+
+[캐시/설치] C 실제 태스크 및 item_group factory 문장을 검증하고 필요한 문장 조각만 공통 node/prepare prefill로 준비합니다. cap512·기존 timeout/local 값·기존 WAV/history는 유지합니다. 실제 등록 목록의 조각만 사용하며 실패 조합 전수 캐시는 만들지 않습니다. 실행 방법·설치 경로·검사 SHA와 미검증은 [Voice P3 안내](../ros2_ws/src/ready2go_voice/README.md#p3-목록분류-실행과-목록-내용-조회--302), 원본 역할은 [knowledge README](../knowledge/README.md#p3-운영-의미-원본음성-조회--302)를 참조하십시오.
 
 ### 6.5 (Stretch) LLM 태스크 JSON 생성
 

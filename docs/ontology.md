@@ -20,7 +20,7 @@
 | [`places.yaml`](../config/places.yaml) | 장소 좌표계·실측 치수·이동 거리·설정의 정본 |
 | [`item_grasp.yaml`](../config/item_grasp.yaml) | 물품별 파지 힘과 검증 승인 상태, 실제로 잡은 폭(선택, B 실측)의 정본 |
 
-`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 선택 입력 `snapshot`은 상태 파일만 대체하며 생략하면 sources.initial_state의 단일 정의를 사용합니다. 활성 10종·초기 위치 6종, S3 실물 제외와 초기 JSON 유지, 선택 API 및 C 기동/reset 경계는 [knowledge/README.md](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. [문서]
+`ready2go_knowledge.core.ontology.load()`는 manifest의 상대 경로를 따라 파일을 읽고 `classes/world/state/skills`로 반환합니다. `sources`는 프로젝트 로더 규칙이며 JSON-LD 표준의 자동 import가 아닙니다. 장소와 파지 설정은 동일 식별자로 결합하며 미측정 `null`을 보존합니다. 선택 입력 `snapshot`은 상태 파일만 대체하며 생략하면 sources.initial_state의 단일 정의를 사용합니다. 활성 10종·초기 위치 7종, S3 실물 제외와 초기 JSON 유지, 선택 API 및 C 기동/reset 경계는 [knowledge/README.md](../knowledge/README.md#p2-시작-배치-선택--e-구현c-연결-대기)를 참조합니다. [문서]
 
 **현재 분리 형식에서 검사하는 항목**: 필수 sources와 객체 형식, JSON/YAML 중복 키, 중복 스킬 ID, 장소 설정 누락·중복, 물품과 파지 설정 ID 일치, 양수 유한값 3개의 `size_m`, 파지 설정 형식·값, 물품·장소의 class 참조, 초기 located_in의 물품·장소 참조, 목록의 물품 참조입니다. 기존 단일 파일 호환 경로는 JSON을 읽어 그대로 반환하며 이 전체 검사를 수행하지 않습니다. [문서]
 
@@ -39,7 +39,7 @@
 ### 물품 정의·치수·요청 범위 (P1, #8 반영)
 
 - **원본**: `knowledge/world.jsonld`의 `world.items`. 진입점 `knowledge/robot_ontology.jsonld`에는 파일 참조만 있으므로 `ready2go_knowledge.core.ontology.load()`로 읽음. 장소 설정은 `config/places.yaml`, 파지 힘·최종 검증 여부는 `config/item_grasp.yaml`에서 같은 식별자로 연결함.
-- **요청 범위**: [FR-INT-02·물품 정책](requirements.md#item-policy)을 참조함. 현재 `commute_set`은 예시 데이터이며 실제 시연 목록 확정·음성 연결의 근거가 아님.
+- **요청 범위**: [FR-INT-02·물품 정책](requirements.md#item-policy)을 참조함. 기존 `world.lists`의 예시 데이터와 운영 의미 원본 `knowledge/semantics.ttl`을 구분함. 현재 P3 음성 연결은 아래 운영 TTL 설명을 참조하며, 목록 등록만으로 시연/실물 완료를 판정하지 않음.
 - **치수·분류·역할 의미**: [물품 정책](requirements.md#item-policy)을 참조함. 현재 `world.items`는 #8 실측 치수와 #6·#61 정렬을 반영하며 `class`·`roles`를 제공함. 좌표·pose 형식은 실행 원본과 [interfaces.md](interfaces.md)를 대조함. 로더의 참조 검사와 실제 A/B 소비 경로 연결 완료는 구분함. [문서]
 - **인스턴스**: 의미는 [관측 정책](requirements.md#observation-policy)을 참조함. 현재 world는 클래스 키로 조회하고 A가 관측 ID를 제공함. 초기 위치 프리셋은 개별 인스턴스 추적 구현이 아니며 A/C 상태 계약과 실제 연결은 후속 확인 사항임.
 - **파지 설정**: 등록·인식·라벨링과 실물 파지 승인은 구분함. 미확정 `grip_force`는 YAML의 `null`, `grasp_verified`는 `false`로 둠. 임의 기본 힘·임계값을 넣지 않음. 로더는 이를 물품 조회 결과에 제공하며 `require_grasp_settings(onto, item)`은 미확정 설정을 거절함. 이 함수를 **B/C의 실제 파지·밀기·복구 경로에 연결하는 작업은 인계 사항**으로, 이번 변경만으로 실행 차단이 자동 적용되는 것은 아님.
@@ -51,7 +51,9 @@
 
 자동 계획은 [FR-PLN-02](requirements.md#fr-pln-02), 복합 작업 추가는 [FR-PLN-03](requirements.md#fr-pln-03), 목록·분류 조회는 [FR-ONT-03](requirements.md#fr-ont-03)에 따릅니다. 스킬 파일과 sources 등록만으로 음성 프롬프트·플래너·태스크 레지스트리에 자동 반영된다고 보장하지 않습니다. 담당 모듈의 연결 확인이 필요합니다. 계획 설계는 [planner.md](planner.md)를 참조합니다. [문서]
 
-P3 첫 TTL 시험은 별도 `core.semantic_query`에서 분류·목록을 활성 물품 키와 출처로 조회합니다. 운영 JSON-LD·초기 상태·Runner 현재 상태는 보존하며 C의 물품별 위치 조회와 음성/실행 연결은 아직 미연결입니다. 호출 예시·지원 관계·의존성과 원본 형식 미결은 [Knowledge README](../ros2_ws/src/ready2go_knowledge/README.md#p3-ttl-의미-조회--302-첫-시험), 담당별 합의는 [#302](https://github.com/Jik-Kim/ready2go/issues/302)에 기록합니다. [구현/미연결]
+[이력: #355 첫 TTL 시험] `core.semantic_query`로 `knowledge/examples/p3_semantics.ttl`의 분류·목록을 활성 물품 키와 출처로 조회했습니다. 당시에는 운영 JSON-LD·초기 상태를 바꾸지 않고 C 위치 조회·음성/실행과 연결하지 않았습니다. 시험 예제는 운영 원본과 구분해 보존합니다.
+
+[현재 구현: #384] 운영 원본은 [knowledge/semantics.ttl](../knowledge/semantics.ttl)입니다. E parser/Session이 실제 조회 결과를 검증해 현재 C의 목록/분류 물품별 실행과 후속 안내에 연결하고, 목록 구성 질문은 Runner 발행 없이 답합니다. 기존 단일 initial_state에는 사용자 확인한 airpods_case 위치를 추가했으며 초기 프리셋은 현재 관측·실재고나 파지 승인 근거가 아닙니다. 현재 상태 관리·실행/로그는 C 책임입니다. 지원 관계·source/share 설치는 [Knowledge README](../ros2_ws/src/ready2go_knowledge/README.md#p3-ttl-의미-조회--302-첫-시험), 활성화·장애 격리·같은 버전 배포와 미검증 조건은 [Voice P3 연결](../ros2_ws/src/ready2go_voice/README.md#p3-목록분류-실행과-목록-내용-조회--302), 담당별 합의는 [#302](https://github.com/Jik-Kim/ready2go/issues/302)를 참조합니다. 이 연결을 실제 음성/PC2/로봇 수용 완료로 판정하지 않습니다.
 
 ### 7.8 상태 계약과 Phase별 연결
 
