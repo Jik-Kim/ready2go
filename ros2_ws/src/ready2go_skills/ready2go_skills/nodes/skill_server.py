@@ -2445,21 +2445,21 @@ class SkillServer(Node):
             self._grip(plan.open_width_m * 1000.0, 20)
         slow_mm = 0.0 if (down and by_height) else prm["pick"].get("slow_last_mm", 0.0)   # 잡는 높이 1 cm 전까지 빠르게, 마지막만 천천히 [사용자 10/07]
         here = self.robot.posx()
-        if here is None:                                                  # 모르는 높이에서 닫지 않음 — 내려가기 전 멈춤
-            return sf.Outcome(False, dp.SENSOR_INVALID, reason="TCP 위치 조회 실패 — 내려가지 않음"), None
+        if here is None:                                                  # 모르는 높이에서 닫지 않음 — 내려가기 전 멈춤, 위치 모름 = STATE_UNKNOWN(잠금) [C #374 P3]
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="TCP 위치 조회 실패 — 내려가지 않음"), None
         bad = None
         if slow_mm > 0 and grasp[2] + slow_mm < here[2] - 1.0:
             bad = self._line(goal, mp.with_z(grasp, grasp[2] + slow_mm), self._in_vel(), "descend_fast")
         now = None if bad else self.robot.posx()
         if not bad and now is None:                                       # 다시 못 읽으면 닫지 않음 [E #374 P1]
-            return sf.Outcome(False, dp.SENSOR_INVALID, reason="TCP 위치 조회 실패 — 닫지 않음"), None
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="TCP 위치 조회 실패 — 닫지 않음"), None
         if not bad and math.dist(now[:3], grasp[:3]) > 0.5:              # 높이 계산이면 블렌딩이 이미 잡는 높이까지 → 안 움직임
             bad = self._line(goal, grasp, speed["grasp_mm_s"], "descend")
             now = None if bad else self.robot.posx()
         if bad:
             return bad, None
         if now is None:
-            return sf.Outcome(False, dp.SENSOR_INVALID, reason="TCP 위치 조회 실패 — 닫지 않음"), None
+            return sf.Outcome(False, sf.STATE_UNKNOWN, reason="TCP 위치 조회 실패 — 닫지 않음"), None
         grasp_z_now = now[2]                                              # 실제로 닫은 TCP 높이
 
         def pick_out(ok, hand, **evidence):

@@ -4055,7 +4055,7 @@ def test_make_room_press_move_without_force_baseline_lifts_without_drag(server, 
 
 
 def test_pick_does_not_close_when_tcp_reread_fails(server, monkeypatch):
-    """[E #374 P1] 목표 위로 내려온 뒤 TCP 를 한 번 읽고 그다음부터 못 읽으면 예전 좌표로 대신하지 않음 — 닫지 않고 SENSOR_INVALID."""
+    """[E #374 P1] 목표 위로 내려온 뒤 TCP 를 한 번 읽고 그다음부터 못 읽으면 예전 좌표로 대신하지 않음 — 닫지 않고 STATE_UNKNOWN(위치 모름, 잠금 — C #374 P3)."""
     srv = server.srv
     real_over = server.ss.SkillServer._over_then_down
     real_posx = srv.robot.posx
@@ -4078,5 +4078,5 @@ def test_pick_does_not_close_when_tcp_reread_fails(server, monkeypatch):
     real_grip = srv._grip
     srv._grip = lambda w, f: (grips.append(w), real_grip(w, f))[1]
     out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
-    assert state["after"] and out.error_code == "SENSOR_INVALID", out
+    assert state["after"] and out.error_code == "STATE_UNKNOWN", out
     assert grips and 0 not in grips[grips.index(max(grips)):]                 # 벌린 뒤 닫기(0) 없음
