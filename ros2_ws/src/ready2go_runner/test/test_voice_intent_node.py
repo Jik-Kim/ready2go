@@ -686,3 +686,29 @@ def test_stop_inside_compound_goal_maps_to_parent_run(tmp_path, stop):
         assert doc["overall_status"] == "ABORTED" and [s["run_id"] for s in doc["segments"]] == [f"{parent}.1"]
     finally:
         close()
+
+
+
+def test_exception_inside_compound_goal_still_finishes_the_parent_run(tmp_path, monkeypatch):
+    """[#377 E·D 리뷰 P2] 구간 실행(run_plan)이 예외를 던져도 상위 R 은 FAILED·INTERNAL_ERROR 로 끝 기록·last 1회 발행,
+    실행 문(gate)은 풀려 idle — 수락한 요청이 결과 없이 사라지지 않음."""
+    from start_states import P2_SINGLE
+    from ready2go_runner.core import plan_exec
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("시험용 구간 실행 예외")
+    monkeypatch.setattr(plan_exec, "run_plan", boom)
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE)
+    try:
+        _e_plan_effect(runner)
+        voice.say(compound_goal("goal-boom"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=20), voice.status
+        status = voice.status
+        parent = last_intent(status)["run_id"]
+        assert (status["last"]["run_id"], status["last"]["overall_status"], status["last"]["error_code"]) == \
+            (parent, "FAILED", "INTERNAL_ERROR")
+        assert status["phase"] == "idle" and runner.running is False
+        doc = runner.log_store.read_run(parent)["run"]
+        assert doc["overall_status"] == "FAILED" and "예외" in doc["reason"] and doc["segments"] == []
+    finally:
+        close()

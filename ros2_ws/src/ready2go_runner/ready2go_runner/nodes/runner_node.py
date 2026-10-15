@@ -273,6 +273,9 @@ class RunnerNode(Node):
                                      limits=self.plan_limits or None, timeouts=self.plan_timeouts, run_id=run_id,
                                      meta={**extra, "parent_run_id": run_id},
                                      accept_text=decision.inputs.get("accept_text"))
+        except Exception as e:  # noqa: BLE001 — 예외여도 상위 R 의 끝 기록·last 를 남김 (#377 E·D 리뷰 P2)
+            self.get_logger().error(f"묶음 계획 구간 실행 예외: {task_id} run_id={run_id} — {e!r}")
+            out = plan_exec.PlanRun("FAILED", "INTERNAL_ERROR", reason=f"구간 실행 예외: {type(e).__name__}: {e}")
         finally:
             for seg in out.segments:
                 if seg.run_id:
