@@ -1991,3 +1991,22 @@ dialog::backdrop {
     scroll-behavior: auto !important;
   }
 }
+
+/* 관리자 항목 SVG는 작은 화면에서도 선 두께와 기존 아이콘 칸 크기를 유지한다. */
+.admin-category-icon {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 식별용 그림을 기존 46px/모바일 42px 칸 안에 같은 비율로 맞춘다. */
+.item-image {
+  display: block;
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
+  object-fit: contain;
+}

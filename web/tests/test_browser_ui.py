@@ -184,6 +184,21 @@ def test_recent_capture_keeps_empty_state_without_image_request(tmp_path: Path) 
     assert '<dd id="captureAge">확인 전</dd>' in rendered
 
 
+def test_mock_current_task_uses_eraser_copy_and_shared_item_image(tmp_path: Path) -> None:
+    """현재 작업 목업의 물품·문구·근거가 지우개로 같이 렌더링된다."""
+    rendered, _image_request_count = _render_dashboard(
+        tmp_path,
+        runtime_profile="dev",
+        camera_received=False,
+    )
+
+    assert 'id="taskHeadingIcon"' in rendered
+    assert 'src="assets/items/eraser.svg"' in rendered
+    assert 'id="currentAction" aria-live="polite">지우개의 전달 결과를 확인하는 중</strong>' in rendered
+    assert '<span class="step-label">지우개 확인·집기</span>' in rendered
+    assert '<dd id="currentStepReason">지우개가 전달 위치에 놓였는지 확인</dd>' in rendered
+
+
 def test_recent_capture_explains_frame_id_rejection_without_image_request(
     tmp_path: Path,
 ) -> None:

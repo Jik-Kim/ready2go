@@ -36,6 +36,7 @@
     note: "▱",
     box: "◆",
     charger: "⌁",
+    eraser: "▰",
     drawer: "▣",
     gripper: "⌘",
   };
@@ -106,10 +107,68 @@
     return wrapper;
   }
 
+  // 관리자 항목의 의미를 고정 SVG로 구분한다. 상태 값과 성공 여부는 기존 배지가 담당한다.
+  const adminIconPaths = {
+    task: ["M9 5H6v16h12V5h-3", "M9 3h6v4H9z"],
+    step: ["M6 12h3m6 0h3", "M6 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0", "M15 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0", "M24 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0"],
+    execution: ["M5 19a9 9 0 1 1 14 0", "M12 12l5-5", "M13 12a1 1 0 1 0-2 0 1 1 0 0 0 2 0"],
+    runner: ["M12 7v4M5 17v-3l7-3 7 3v3", "M14 4a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M7 20a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M21 20a2 2 0 1 0-4 0 2 2 0 0 0 4 0"],
+    "robot-pose": ["M2 21h9v-3H2zM4 18V11l5-7 6 2", "M6 10a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M11 4a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M19 22s4-4 4-7a4 4 0 0 0-8 0c0 3 4 7 4 7z", "M19 14v2"],
+    // 위쪽 연결선과 대각선 꺾임 시작 지점의 가로선을 각각 유지한다.
+    gripper: ["M6 3h12v3h-2v4l4 4v6h-3M6 3v3h2v4l-4 4v6h3", "M8 10h8"],
+    "drawer-state": ["M3 3h18v18H3zM3 12h18", "M9 6v2h6V6M9 15v2h6v-2"],
+    "item-location": ["M2 5l7-3 7 3-7 3zM2 5v10l7 3V8M16 5v4", "M18 22s5-5 5-8a5 5 0 0 0-10 0c0 3 5 8 5 8z", "M18 13v2"],
+  };
+
+  function makeAdminIcon(name, className) {
+    const wrapper = makeElement("span", className);
+    wrapper.setAttribute("aria-hidden", "true");
+    // 외부 문자열을 SVG 마크업으로 삽입하지 않고 정해진 도형만 생성한다.
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "-2 -2 28 28");
+    svg.setAttribute("focusable", "false");
+    svg.classList.add("admin-category-icon");
+    adminIconPaths[name].forEach((d) => {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      svg.append(path);
+    });
+    wrapper.append(svg);
+    return wrapper;
+  }
+
+  // 온톨로지 ID만 공개 자산에 연결한다. 외부 응답을 임의 이미지 URL로 사용하지 않는다.
+  const itemImagePaths = Object.freeze({
+    car_key: "assets/items/car_key.svg",
+    airpods_case: "assets/items/airpods_case.svg",
+    caramel_box: "assets/items/caramel_box.svg",
+    cover_plate: "assets/items/cover_plate.svg",
+    eraser: "assets/items/eraser.svg",
+    lip_balm: "assets/items/lip_balm.svg",
+    masking_tape: "assets/items/masking_tape.svg",
+    toy_car: "assets/items/toy_car.svg",
+    toy_hammer: "assets/items/toy_hammer.svg",
+    toy_wrench: "assets/items/toy_wrench.svg",
+  });
+
   function makeItemVisual(item) {
     const visual = makeElement("span", `item-visual item-visual--${item.icon}`);
     visual.setAttribute("aria-hidden", "true");
-    visual.textContent = itemIcons[item.icon] || "●";
+    const fallback = itemIcons[item.icon] || "●";
+    visual.textContent = fallback;
+    // 고정 목업의 car-key 별칭도 같은 차 키 그림을 재사용한다.
+    const id = typeof item.id === "string" ? item.id.replaceAll("-", "_") : "";
+    if (Object.hasOwn(itemImagePaths, id)) {
+      const image = document.createElement("img");
+      image.className = "item-image";
+      image.alt = ""; // 바로 옆 물품명이 있으므로 보조 기술에서 중복 낭독하지 않는다.
+      image.width = 36;
+      image.height = 36;
+      // 자산 누락 때 깨진 그림 대신 기존 기호를 복원한다.
+      image.addEventListener("error", () => visual.replaceChildren(document.createTextNode(fallback)), { once: true });
+      image.src = itemImagePaths[id];
+      visual.replaceChildren(image);
+    }
     return visual;
   }
 
@@ -1115,9 +1174,20 @@
     getById("taskLocation").textContent = location;
     getById("mobileTaskLocation").textContent = location;
     getById("currentAction").textContent = state.task.currentAction;
+
+    // 기존 관리자 태스크 SVG를 재사용해 물품 기호와 현재 작업 제목을 구분한다.
+    const taskHeadingIcon = makeAdminIcon("task", "section-icon");
+    taskHeadingIcon.id = "taskHeadingIcon";
+    getById("taskHeadingIcon").replaceWith(taskHeadingIcon);
+
+    // 목업 작업의 물품 ID도 공통 물품 렌더러를 통과시켜 서랍·준비물과 같은 SVG를 쓴다.
     const currentItem = getById("currentItemVisual");
-    currentItem.className = `item-visual item-visual--${state.task.currentItemIcon}`;
-    currentItem.textContent = itemIcons[state.task.currentItemIcon] || "●";
+    const currentItemReplacement = makeItemVisual({
+      id: state.task.currentItemId,
+      icon: state.task.currentItemIcon,
+    });
+    currentItemReplacement.id = "currentItemVisual";
+    currentItem.replaceWith(currentItemReplacement);
 
     getById("receiptStatus").replaceChildren(
       makeStatus(state.command.receipt.status, state.command.receipt.label),
@@ -1193,12 +1263,12 @@
     summary.replaceChildren();
 
     [
-      { label: liveSummary ? "태스크 ID" : "실행 ID", value: liveSummary?.taskId || data.runId || "미수신", icon: "▧" },
-      { label: "현재 단계", value: liveSummary?.currentStep || currentStep?.label || "확인 전", icon: "⚙" },
-      { label: "실행 상태", value: executionStatus.label, icon: "●", status: executionStatus.key },
+      { label: liveSummary ? "태스크 ID" : "실행 ID", value: liveSummary?.taskId || data.runId || "미수신", icon: "task" },
+      { label: "현재 단계", value: liveSummary?.currentStep || currentStep?.label || "확인 전", icon: "step" },
+      { label: "실행 상태", value: executionStatus.label, icon: "execution", status: executionStatus.key },
     ].forEach((entry) => {
       const item = makeElement("article", `admin-summary-item${entry.status ? ` is-${entry.status}` : ""}`);
-      const icon = makeElement("span", "admin-summary-icon", entry.icon);
+      const icon = makeAdminIcon(entry.icon, "admin-summary-icon");
       icon.setAttribute("aria-hidden", "true");
       const text = makeElement("div");
       text.append(makeElement("span", "eyebrow", entry.label), makeElement("strong", "", entry.value));
@@ -1243,7 +1313,11 @@
       const row = document.createElement("tr");
       const itemCell = document.createElement("td");
       const item = makeElement("div", "admin-state-item");
-      item.append(makeItemVisual(entry), makeElement("strong", "", entry.label));
+      // 물품용 공통 아이콘과 관리자 상태 항목 아이콘을 분리한다.
+      const visual = Object.hasOwn(adminIconPaths, entry.id)
+        ? makeAdminIcon(entry.id, "item-visual")
+        : makeItemVisual(entry);
+      item.append(visual, makeElement("strong", "", entry.label));
       itemCell.append(item);
       const valueCell = document.createElement("td");
       valueCell.append(makeStatus(entry.valueStatus || "waiting", entry.value || "확인 전"));
