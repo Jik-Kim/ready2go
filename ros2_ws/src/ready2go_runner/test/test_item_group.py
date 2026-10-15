@@ -36,11 +36,16 @@ class Robot:
         self.calls: list[tuple[str, dict]] = []
         self.spoken: list[str] = []
         self.hook = None                    # (action, params) → ActionResult | None — 시험이 끼어들기
+        self.speak_hook = None
 
     def call_action(self, name, params_json, timeout_sec):
         params = json.loads(params_json)
         if name == SPEAK_ACTION:
             self.spoken.append(params.get("text", ""))
+            if self.speak_hook is not None:     # (text) → 실패 코드 | None — 시험이 안내 실패·도중 정지를 끼움
+                code = self.speak_hook(params.get("text", ""))
+                if code:
+                    return Reply(False, code, "")
             return Reply(True)
         action = name.rsplit("/", 1)[-1]
         self.calls.append((action, params))
@@ -264,3 +269,63 @@ def test_stop_during_accept_speech_is_aborted_not_failed(returned):
         return returned
     result = ig.run_group(runner, TASK, semantic, WORLD, speak=speak, accept_text="출근 준비물을 가져올게요.")
     assert (result.overall_status, result.error_code) == ("ABORTED", "HALTED") and robot.calls == []
+
+
+
+FULL = {**P2_SINGLE, "airpods_case": "drawer_top"}        # E 사용자 확정 10/15: 에어팟 케이스 = 위 칸 (initial_state 와 같은 배치)
+
+
+def test_item_start_text_order_words():
+    """물품별 순서 안내 (#302 E 요청 10/15) — 첫 '먼저', 그 뒤 '다음으로', 1개뿐이면 순서말 없음, 조사는 받침 따라."""
+    assert ig.item_start_text("차키", 0, 3) == "먼저 차키를 가져올게요"
+    assert ig.item_start_text("립밤", 2, 3) == "다음으로 립밤을 가져올게요"
+    assert ig.item_start_text("차키", 0, 1) == "차키를 가져올게요"
+
+
+def test_each_item_announces_its_order_instead_of_generic_line():
+    """물품 실행의 첫 안내(s2.1)가 순서 안내 — 일반 안내 '…찾아 올게요'(s2.2)는 안 나감. 뺀 물품(에어팟)은 순번에 안 셈."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, _ = setup()                                                    # 에어팟 위치 없음 → 뺌
+    ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: None)
+    assert [t for t in robot.spoken if "가져올게요" in t or "찾아 올게요" in t] == \
+        ["먼저 차키를 가져올게요", "다음으로 립밤을 가져올게요"]
+    runner, robot, _ = setup(FULL)
+    ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: None)
+    assert [t for t in robot.spoken if "가져올게요" in t or "찾아 올게요" in t] == \
+        ["먼저 에어팟 케이스를 가져올게요", "다음으로 차키를 가져올게요", "다음으로 립밤을 가져올게요"]
+
+
+def test_single_item_list_has_no_order_word():
+    semantic = catalog().query_class("귀중품")
+    runner, robot, _ = setup()
+    ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: None)
+    assert "차키를 가져올게요" in robot.spoken and not any("먼저" in t or "찾아 올게요" in t for t in robot.spoken)
+
+
+def test_item_speech_failure_stops_group_with_no_motion_for_that_item():
+    """둘째 물품 안내 실패 → 그 물품 동작 0번(서랍도 안 엶), 허용 코드가 아니라 묶음 중단 — 셋째는 실행 안 함."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, _ = setup(FULL)
+    robot.speak_hook = lambda text: "BACKEND_ERROR" if text == "다음으로 차키를 가져올게요" else None
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: None)
+    assert statuses(result) == [("airpods_case", ig.DELIVERED), ("car_key", ig.NOT_DELIVERED), ("lip_balm", ig.NOT_RUN)]
+    assert result.overall_status == "FAILED" and result.error_code not in (None, ig.PARTIAL_DELIVERY, *ig.CONTINUE_CODES)
+    assert robot.drawer_moves() == [("drawer_top", "open"), ("drawer_top", "close")]   # 첫 물품 것만
+    assert runner.state["located_in"]["car_key"] == "drawer_top"
+
+
+def test_stop_during_item_speech_aborts_group():
+    """둘째 물품 안내 도중 '멈춰' → 그 물품 동작 0번, 묶음 ABORTED·HALTED(이어서 안 함)."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, _ = setup(FULL)
+
+    def stop_on_second(text):
+        if text == "다음으로 차키를 가져올게요":
+            runner.halt(source="voice")
+            return "CANCELED"
+        return None
+    robot.speak_hook = stop_on_second
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: None)
+    assert (result.overall_status, result.error_code) == ("ABORTED", "HALTED")
+    assert statuses(result)[1:] == [("car_key", ig.NOT_DELIVERED), ("lip_balm", ig.NOT_RUN)]
+    assert robot.drawer_moves() == [("drawer_top", "open"), ("drawer_top", "close")]
