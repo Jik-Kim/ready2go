@@ -1,10 +1,11 @@
 # CURRENT — C 이영훈
 
 - **담당**: Runner · 플래너 · 로그 · 기술 통합 · **현재 Phase**: P2 (P1 통합 실험 10/08 종료)
-- **최종 갱신**: 2026-10-14 — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
+- **최종 갱신**: 2026-10-14 (저녁) — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
 - **P3 목록·분류 요청 1차 (10/15 — #302 E 확정 두 결정, #355 위)**: `core/item_group.py` + `test_item_group.py`(mock 14) — 실제 E TTL `query_list('출근 준비물')` → 에어팟(위치 기록 없음) 빼고 차키(위 칸)·립밤(아래 칸) 차례로 `find_with_unpack` → 3개 중 2개 `FAILED`+`PARTIAL_DELIVERY`. 못 찾음은 계속, 집기 실패·정지는 묶음 중단. 다음: `find_list`/`find_class` + `semantic` 계약 PR(E 포함 2명) → 노드 연결·묶음 기록 → 서랍당 한 번 열기.
+- **목표를 못 꺼내면 FAILED (10/14 PC2 20:11·20:14 회차)**: 판 치운 뒤 지우개가 `occluded_by: null` → 집지 않음 → 결과가 COMPLETED 로 찍히던 것 → `s8.e` `TARGET_NOT_FOUND`·`OCCLUSION_UNKNOWN`·`UNPACK_INCOMPLETE`(step `s8`)로 FAILED, 정리는 그대로. null 원인(지우개 기준 넓이 1443 vs 다 보인 1130 mm²)은 A 비전 규칙 제안 '맞닿은 검출 물체 없으면 []'(#196) — C 동의. [실측: mock 시험]
 - **목표 공간 만들기 (10/14 PR #352, B 요청 #260 7절, #347 위 — JSON 만)**: 목표 집기 전 움직이지 않는 판단(지금 자리 그대로 `check_only`)이 `NEIGHBOR_TOO_CLOSE` 면 탑뷰·다시 찍기 → `nudge_object {make_room: true}` 한 동작 → `ready_to_pick` 까지(최대 4), 목표 5 mm 안 그대로면 `remove_first`, 그래도 그대로면 멈춤 → 평소 집기. PC2 10/14 16:19 차키(캐러멜·몽키 가장자리에 걸림) 근거, 같은 scan 으로 B plan = sweep 40 mm. [실측: mock 7경우, 현재 main Runner 에서도 통과, CI 3227] E 리뷰 P1 반영: 정체는 목표를 움직이려던 같은 action·reason 이 반복될 때만(이웃 차례로 치우기는 계속), make_room 이 옮긴·민 이웃은 `restore_stack` 으로 역순 복구(못 하면 RESTORE_INCOMPLETE). 실물 미검증 — 리허설에서 #347 과 같이, 그 전엔 배치(차키를 캐러멜과 띄우고 몽키 가장자리에 안 걸치게).
 - **복구 원복 넛지 (10/14 PR #347, B 요청, #346 위 — JSON 만)**: 복구 때 지금 자리 판단이 `WALL_TOO_CLOSE` 면 끌기 → 끈 뒤 예상 위치로 기록 갱신 → 탑뷰·다시 찍기·`find_moved` → 다시 판단(최대 2번), 실패·못 찾음·두 번 뒤 벽이면 `restore_failed`. [실측: mock — 벽 물체 1번 끌고 원위치 / 끌기 실패 / 2번 상한·매번 다시 찾음 / 이웃 거부는 안 끎, CI 3220] **적용 보류**: 실물 미검증(덮개판·쌓인 물체 누르기, 끈 뒤 재식별). B `free_repickable_only: true` 여도 배치에 따라 벽 거부가 나면 이 분기가 실행됨. 녹화 전 적용·B false 는 E 결정, #346 먼저.
 - **실패 결과·정리 전 원인 안내 (10/14 PR #346, E 요청)**: ① 치울 물건을 못 옮겨 목표를 못 꺼내면 `NO_FREE_SPACE` → FAILED(예전 COMPLETED) ② 일반 실패면 Runner 가 finally 시작 때 `run_failure` → `fx` 가 닫기·복구·홈 전에 원인 한 문장(`core/failure_speech.py`, 문구 E 대조) ③ 보고서 끌기 실패 문구. [실측: mock 호스트 829·ROS 843, CI 3216] **미연결(E #346 재검토 P1)**: 음성 제어 연결(`--control`/`--p2`)에서는 E 게이트가 첫 수락 안내 뒤 Runner 후속 speak 를 거절 → 원인 안내가 실제로 안 들림(넘어감, 결과 영향 없음) — E·C 후속(E #351), 새 문장 사전 캐시 E 후속. PC2 는 Runner Python 이라 pull 필요.
