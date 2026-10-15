@@ -1124,6 +1124,9 @@ class SkillServer(Node):
         sp = self._speed()
         start = self.robot.posx()
         sent = {}
+        # 보낸 점을 남김 — 실물이 guided(점 사이 moveb 경로 근처)대로 갔는지 비교 [10/15 PC2 차키 들고 나오기 z 400 까지 부풂·STOP_UNCONFIRMED]
+        self.get_logger().info(f"[{stage}] movesx 점 {len(via)}개, z {min(p[2] for p in via):.0f}~{max(p[2] for p in via):.0f} mm: "
+                               + " ".join(f"({p[0]:.0f},{p[1]:.0f},{p[2]:.0f}|{p[5] - p[3]:.0f})" for p in via))
 
         def send():
             early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
