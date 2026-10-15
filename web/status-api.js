@@ -14,6 +14,45 @@
   const MIN_POLL_INTERVAL_MS = 250;
   const MAX_POLL_INTERVAL_MS = 10000;
 
+  function validateVisionOverlay(value) {
+    // 사진 메타데이터는 장치 연결 source와 별도 계약이므로 독립 객체로 검사한다.
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("촬영 사진 상태가 응답에 없습니다.");
+    }
+    if (!["ok", "unavailable", "error"].includes(value.status)) {
+      throw new Error("촬영 사진 상태를 확인할 수 없습니다.");
+    }
+    // 캐시가 없거나 메타데이터 생성이 실패한 응답은 app.js가 `확인 전`으로 표시한다.
+    if (value.status !== "ok") return value;
+    if (typeof value.image_available !== "boolean"
+      || typeof value.stale !== "boolean") {
+      throw new Error("촬영 사진 메타데이터 형식이 다릅니다.");
+    }
+    if (typeof value.cache_id !== "string" || !value.cache_id.trim()) {
+      throw new Error("촬영 사진 캐시 식별자가 올바르지 않습니다.");
+    }
+    // 사진이 있을 때만 revision과 UTC 촬영 시각을 실제 JPEG 조회 근거로 사용한다.
+    if (value.image_available
+      && (!Number.isInteger(value.revision) || value.revision < 1
+        || typeof value.captured_at !== "string")) {
+      throw new Error("촬영 사진 revision 또는 촬영 시각이 올바르지 않습니다.");
+    }
+    if (value.capture_age_sec !== null
+      && (typeof value.capture_age_sec !== "number" || value.capture_age_sec < 0)) {
+      throw new Error("촬영 사진 경과 시간이 올바르지 않습니다.");
+    }
+    // 거부 진단은 사진 유무와 관계없이 고정 형식으로 받아 미촬영과 계약 불일치를 구분한다.
+    if (!Number.isInteger(value.rejected_count) || value.rejected_count < 0
+      || ![null, "format_mismatch", "frame_id_mismatch", "invalid_message"]
+        .includes(value.last_rejection_reason)
+      || (value.last_rejected_at !== null && typeof value.last_rejected_at !== "string")
+      || (value.last_rejected_frame_id !== null
+        && typeof value.last_rejected_frame_id !== "string")) {
+      throw new Error("촬영 사진 거부 진단 형식이 다릅니다.");
+    }
+    return value;
+  }
+
   function validatePayload(payload) {
     // REST 성공 응답이 3단계 최소 형식을 만족하는지 검사한다.
     // null·배열은 JavaScript에서 object이므로 각각 명시적으로 제외한다.
@@ -43,6 +82,8 @@
     if (typeof payload.sources.voice !== "object" || payload.sources.voice === null) {
       throw new Error("Voice 상태가 응답에 없습니다.");
     }
+    // JPEG 바이트는 별도 API에서 받고 상태 polling에서는 메타데이터만 검증한다.
+    validateVisionOverlay(payload.vision_overlay);
     // 실행 프로필은 실물 단절과 sim/dev의 의도된 미기동을 구분하는 근거다.
     if (!["real", "sim", "dev"].includes(payload.runtime_profile)) {
       throw new Error("웹 실행 프로필을 확인할 수 없습니다.");
