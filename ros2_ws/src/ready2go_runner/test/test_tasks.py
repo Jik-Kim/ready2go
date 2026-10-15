@@ -234,10 +234,12 @@ def test_yaw_invalid_after_reobserve_is_not_retried():
     runner, result, _ = run(robot)
     assert (result.overall_status, result.error_code) == ("FAILED", "YAW_INVALID")
     assert robot.sent.count("/skills/pick_object") == 2 and robot.sent.count("/skills/nudge_object") == 1
-    first = MockRobot(fail={"pick_object": ["YAW_INVALID"]})
+    # 첫 집기 YAW_INVALID(움직이기 전, 탑뷰 이동은 same_pose 로 안 보냄) → 끌기로는 안 가고 retry 1 대로 다시 찍어 집기(#65 재인식,
+    # #392 4 — 예전엔 same_pose 도 움직임으로 세어 재시도 안 됨). 두 번 다 YAW_INVALID 면 그 코드로 finally
+    first = MockRobot(fail={"pick_object": ["YAW_INVALID", "YAW_INVALID"]})
     _, result_first, _ = run(first)
     assert (result_first.error_code, first.sent.count("/skills/nudge_object"), first.sent.count("/skills/pick_object")) == (
-        "YAW_INVALID", 0, 1)
+        "YAW_INVALID", 0, 2)
     assert statuses(result, "f2", "f3.1") == ["SUCCESS", "SUCCESS"]
     assert runner.state["located_in"]["eraser"] == "drawer_top"
 

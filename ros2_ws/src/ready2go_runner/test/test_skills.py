@@ -163,6 +163,29 @@ def test_yaw_invalid_after_reobserve_is_not_retried():
     assert runner.state["gripper"]["robot"] == "empty"
 
 
+def test_pick_retried_when_already_at_view_pose():
+    """[#392 4] 앞 스텝이 이미 탑뷰 자세로 옮겨 둠 → pick 첫 줄 이동은 same_pose 로 안 보냄 → 집기가 움직이기 전 거부(YAW_INVALID)면
+    이 시도에서 팔을 움직이지 않았으므로 retry 대로 pick 을 한 번 더 (예전엔 same_pose 도 움직임으로 세어 MOTION_UNCERTAIN)."""
+    backend = FakeBackend({"inspect_region": FOUND_WATCH,
+                           "pick_object": [ActionResult(False, error_code="YAW_INVALID"), ActionResult(True, {"picked": True})]})
+    runner = opened_drawer_runner(backend)
+    view = {"id": "s0", "action": "move_to_named_pose", "params": {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"}}
+    result = runner.run(skill_task(view, PICK_WITH_RETRY))
+    assert result.overall_status == "COMPLETED"
+    # 다시 보낼 때는 탑뷰 이동부터 (집기를 보낸 뒤라 자세 기억을 비움 — 안전한 쪽)
+    assert [a for a, _ in backend.calls] == ["move_to_named_pose", "inspect_region", "pick_object"] + PICK_CALLS
+    assert result.steps[1]["attempts"] == 2 and "retry_stopped" not in result.steps[1]
+
+
+def test_pick_not_retried_when_view_move_was_sent():
+    """이동을 실제로 보냈으면(다른 자세에서 시작) 지금처럼 MOTION_UNCERTAIN — 고친 것은 안 보낸 이동만."""
+    backend = FakeBackend({"inspect_region": FOUND_WATCH, "pick_object": ActionResult(False, error_code="YAW_INVALID")})
+    runner = opened_drawer_runner(backend)
+    home = {"id": "s0", "action": "move_to_named_pose", "params": {"pose_name": "home"}}
+    result = runner.run(skill_task(home, PICK_WITH_RETRY))
+    assert (result.steps[1]["attempts"], result.steps[1]["retry_stopped"]) == (1, "MOTION_UNCERTAIN")
+
+
 def test_yaw_invalid_ends_task_with_finally():
     backend = FakeBackend({"inspect_region": FOUND_WATCH, "pick_object": ActionResult(False, error_code="YAW_INVALID")})
     result = opened_drawer_runner(backend).run(skill_task(

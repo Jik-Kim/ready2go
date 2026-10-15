@@ -329,3 +329,44 @@ def test_stop_during_item_speech_aborts_group():
     assert (result.overall_status, result.error_code) == ("ABORTED", "HALTED")
     assert statuses(result)[1:] == [("car_key", ig.NOT_DELIVERED), ("lip_balm", ig.NOT_RUN)]
     assert robot.drawer_moves() == [("drawer_top", "open"), ("drawer_top", "close")]
+
+
+def _refuse_pick(item, code="NEIGHBOR_TOO_CLOSE"):
+    """그 물품 집기만 움직이기 전 거부 (PC2 10/15: 옆벽 에어팟 + 앞 몽키 → 벽 넛지가 끄는 길의 몽키로 거부)."""
+    return lambda a, p: ActionResult(False, error_code=code) \
+        if a == "pick_object" and (p.get("target") or {}).get("id", "").startswith(item) else None
+
+
+def test_pick_refusal_moves_on_to_next_item():
+    """[#392 1] 에어팟 집기 거부(NEIGHBOR_TOO_CLOSE) → 정리 뒤 빈손·닫힘·홈이면 차키·립밤은 그대로 — 예전엔 목록 전체 중단."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, said = setup(FULL)
+    robot.hook = _refuse_pick("airpods")
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=said.append)
+    assert statuses(result) == [("airpods_case", ig.NOT_DELIVERED), ("car_key", ig.DELIVERED), ("lip_balm", ig.DELIVERED)]
+    assert (result.overall_status, result.error_code) == ("FAILED", ig.PARTIAL_DELIVERY)
+    assert said[-1] == "3개 중 2개 가져왔어요. 에어팟 케이스는 옆 물건에 막혀서 꺼내지 못했어요."
+
+
+@pytest.mark.parametrize("code", sorted(ig.CONTINUE_CODES - {"TARGET_NOT_FOUND", "OCCLUSION_UNKNOWN", "UNPACK_INCOMPLETE",
+                                                              "NO_FREE_SPACE"}))
+def test_new_continue_codes_have_reason_text(code):
+    assert code in ig.REASON_KO
+
+
+def test_no_home_after_refusal_stops_group():
+    """[#392 1] 같은 거부라도 정리의 홈 복귀(f3.1)가 실패하면 팔이 어디 있는지 모름 → 다음 물품 안 함."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, _ = setup(FULL)
+    refuse = _refuse_pick("airpods")
+    homes = []
+
+    def hook(action, params):
+        if action == "move_to_named_pose" and params.get("pose_name") == "home" and not homes:
+            homes.append(1)
+            return ActionResult(False, error_code="PLANNING_FAILED")
+        return refuse(action, params)
+    robot.hook = hook
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: None)
+    assert statuses(result)[1:] == [("car_key", ig.NOT_RUN), ("lip_balm", ig.NOT_RUN)]
+    assert result.overall_status == "FAILED" and result.error_code != ig.PARTIAL_DELIVERY
