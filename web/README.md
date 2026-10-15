@@ -21,9 +21,9 @@
 | `index.html` | 사용자 대시보드·읽기 전용 검토 화면의 HTML 구조와 CSS·JavaScript 진입점 | 화면 구조는 유지하고 `demo-data.js` 로딩을 데이터 어댑터 진입점으로 교체합니다. |
 | `styles.css` | 흰색·남색·청록색 디자인, PC·모바일 배치, 서랍 모양, PC 가로·모바일 세로 단계 | 데이터 연결과 무관합니다. 상태 종류가 추가될 때 표시 스타일만 보완합니다. |
 | `demo-data.js` | PC·모바일이 함께 읽는 목업 데이터와 `long`·`empty`·`error` 시나리오 | 우선 교체 대상입니다. 서버 응답을 같은 화면 모델로 변환하는 어댑터가 이 역할을 맡습니다. |
-| `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 `/api/definitions`를 시작 때 한 번 읽음 | Runner 연결·기억 상태와 웹 파일 정의 스냅샷을 서로 다른 시점의 데이터로 전달합니다. |
+| `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 `/api/definitions`를 시작 때 한 번 읽으며 `vision_overlay` 메타데이터를 검증 | Runner 연결·기억 상태, 최신 촬영 메타데이터와 웹 파일 정의 스냅샷을 서로 다른 시점의 데이터로 전달합니다. |
 | `runner-status-model.js` | `/runner/status.last_intent`와 `last`를 화면 표시 전 `valid`·`absent`·`invalid` 내부 모델로 검증·복사하고 실행 연결을 판정 | `decision=run`이고 두 `run_id`가 같을 때만 `linked`로 묶으며 실제 요청·결과 화면 표시는 후속 단계에서 구현합니다. |
-| `app.js` | 상태 렌더링, 서랍 조회, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
+| `app.js` | 상태 렌더링, 서랍 조회, 최근 촬영 revision별 JPEG 표시, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
 | `README.md` | 현재 구현, 실행·접속·시나리오, 실제 연동 경계를 설명 | 연결 경로가 구현된 뒤 실제 실행법과 검증 결과를 갱신합니다. |
 | `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 상태와 최신 촬영 JPEG를 REST로 반환 | `GET /api/status`의 `vision_overlay`는 JPEG를 제외한 메타데이터이며 사진은 `GET /api/vision/overlay.jpg?revision=N`으로 조회합니다. 현재 revision과 다르면 409를 반환합니다. |
 | `ready2go_web/nodes/dashboard_bridge.py` | 단일 rclpy 노드로 선택한 ROS source를 구독·관찰 | 4단계 실행에서는 `/runner/status`와 `/robot_state`를 활성화합니다. |
@@ -86,12 +86,14 @@ index.html
 /robot_state  ────────────────────┘                 ↓ 약 1초 polling
                                         Runner 연결·기억 상태 UI
 /vision/inspect_overlay → OverlayCache ┬→ GET /api/status의 vision_overlay 메타데이터
-                                      └→ GET /api/vision/overlay.jpg (브라우저 연결 전)
+                                      └→ GET /api/vision/overlay.jpg?revision=N → 최근 촬영 UI
 온톨로지 manifest ─ common ontology.load ─┐
 tasks/*.json ─────────────────────────────┼→ 시작 시 정의 스냅샷 → GET /api/definitions → 등록 정의 UI
 ```
 
 [문서] 브라우저는 ROS 2·온톨로지 파일·MongoDB에 직접 연결하지 않습니다. 현재 Flask 프로세스가 별도 `SingleThreadedExecutor`에서 단일 `DashboardBridge`를 실행하며 `/runner/status`와 `/robot_state`를 활성화합니다. 두 `std_msgs/msg/String`의 JSON 객체를 source별 캐시에 저장하고 publisher 존재, 메시지 수신, 파싱 오류를 구분합니다. 브라우저는 REST 응답이 끝난 뒤 다음 조회를 예약하므로 느린 요청이 서로 겹치지 않습니다.
+
+[코드] 최근 촬영 영역은 `/api/status.vision_overlay`의 새 `revision`을 확인했을 때만 같은 revision의 JPEG를 요청합니다. 촬영 시각은 KST, 경과 시간은 서버 메타데이터 기준으로 표시하며, 상태와 JPEG 사이에 새 촬영이 들어와 HTTP 409가 발생하면 같은 revision을 반복 요청하지 않고 다음 상태 polling에서 새 revision을 받아 다시 시도합니다. 사진 없음·오래된 사진·확인 불가를 구분하되, 사진 상태는 `/wrist_cam/color/camera_info` 기반 상단 카메라 배지 판정에 사용하지 않습니다.
 
 실제 연결 시에는 다음 순서로 교체할 수 있습니다.
 

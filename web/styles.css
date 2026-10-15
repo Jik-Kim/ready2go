@@ -824,6 +824,28 @@ td {
   object-fit: contain;
 }
 
+/* 사진 자체의 최신성과 camera_info 연결 배지를 섞지 않고 사진 위에서만 안내한다. */
+.capture-status {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  left: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgb(11 24 49 / 82%);
+  color: var(--white);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.capture-status.is-warning {
+  background: rgb(174 92 0 / 90%);
+}
+
+.capture-status.is-error {
+  background: rgb(180 35 35 / 90%);
+}
+
 .capture-empty {
   display: grid;
   place-items: center;
@@ -835,7 +857,8 @@ td {
 
 /* author display 규칙이 HTML hidden 속성을 덮어쓰지 않게 사진·빈 상태를 확실히 숨긴다. */
 .capture-empty[hidden],
-.capture-viewport img[hidden] {
+.capture-viewport img[hidden],
+.capture-status[hidden] {
   display: none;
 }
 
