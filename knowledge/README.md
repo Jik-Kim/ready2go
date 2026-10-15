@@ -104,7 +104,7 @@
 
 ## P3 거부 이유 문장 준비 — #376
 
-[구현] `refusal_reasons.json`은 거부 이유 한국어 문장의 E 원본입니다. B #364 head `d28ab2c7c06fe40797e994b7bce8e189ecb6e0d6`의 `impossible` 8건에서 ID·strategy·status·evidence를 보존했습니다. `verified_real`도 과거 배치 근거이므로 현재 물리 원인을 확정하지 않으며 가능성 표현을 사용합니다. 이 자료는 실행 허용·거부나 안전 판정에 사용하지 않습니다.
+[구현] `refusal_reasons.json`은 거부 이유 한국어 문장의 E 원본입니다. B #364 head `d28ab2c7c06fe40797e994b7bce8e189ecb6e0d6`의 거부 설명 9건에서 ID·status·evidence를 보존했습니다. 실제 `core/layout_case.py`의 impossible 반환 6개(`no_free_space`, `beyond_reach`, `cluster_front_wall`, `cylinder_handle_wall`, `handle_wall_wide`, `chain_blocker_plate_pinned`)와 예약 3개(`under_cover_crossing`, `leaning`, `standing`)를 구분합니다. `beyond_reach`의 B 자료는 strategy=nudge·then=impossible이고, 실제 실패 반환은 strategy=impossible입니다. E 목록의 strategy는 설명을 사용할 실제 수신 전략이며 원본 전략을 변경한 것이 아닙니다. 해당 항목에 source_strategy/source_then을 보존했습니다. `verified_real`도 과거 배치 근거이므로 현재 물리 원인을 확정하지 않으며 가능성 표현을 사용합니다. 이 자료는 실행 허용·거부나 안전 판정에 사용하지 않습니다.
 
 [조회] `ready2go_knowledge.core.refusal_reasons.text(case_id, strategy)`는 등록 ID와 `impossible`이 함께 주어진 경우만 문장을 반환하고, 누락·미등록·다른 strategy는 `None`을 반환합니다. `load()`는 근거를 포함한 목록, `texts()`는 캐시 준비용 문장을 반환합니다. 소스 실행과 `share/ready2go_knowledge/knowledge` 설치본을 지원합니다. C에서 사용하려면 같은 실패의 실제 B 결과와 run/boot를 먼저 검증해야 합니다.
 

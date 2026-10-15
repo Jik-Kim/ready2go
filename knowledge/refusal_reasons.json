@@ -3,7 +3,8 @@
   "source": {
     "repository": "Jik-Kim/ready2go",
     "commit": "d28ab2c7c06fe40797e994b7bce8e189ecb6e0d6",
-    "path": "practice/B/ontology/layout_cases.json"
+    "path": "practice/B/ontology/layout_cases.json",
+    "classifier_path": "ros2_ws/src/ready2go_skills/ready2go_skills/core/layout_case.py"
   },
   "cases": [
     {
@@ -111,6 +112,23 @@
         ]
       },
       "text_ko": "립밤이 손잡이 쪽 벽에 붙어 있어 꺼내기 어려울 수 있어요."
+    },
+    {
+      "id": "beyond_reach",
+      "status": "verified_real",
+      "evidence": {
+        "real": [
+          "10/13 9 (판 x 132.6 > 129)"
+        ],
+        "sim": [
+          "10/14 무작위 1550 배치 (hunt_cases.py, 꺼내기 17050번): 482번 (무작위 배치 5.8%, 시연 규칙은 0 — 깊이 규칙이 막음)",
+          "10/15 단계 ② 비교 (compare_cases.py, 무작위 330 배치·물건 4620, 관계만 보고 이 난제로 예측된 장면): 501번 중 실제 실패 177 (35%)"
+        ]
+      },
+      "strategy": "impossible",
+      "source_strategy": "nudge",
+      "source_then": "impossible",
+      "text_ko": "물건이 너무 안쪽에 있어 손이 닿기 어려울 수 있어요."
     }
   ],
   "unknown_text_ko": "확인된 실패 이유를 아직 조회할 수 없어요."

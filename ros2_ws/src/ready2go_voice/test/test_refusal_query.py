@@ -21,3 +21,10 @@ def test_refusal_question_uses_actual_readonly_route_without_execution(node, que
 
 def test_node_prepare_shared_required_texts_contains_catalog(cfg):
     assert set(refusal_reasons.texts()) <= set(required_texts(cfg, []))
+
+
+def test_beyond_reach_is_in_node_prepare_shared_prefill(cfg, ontology):
+    from ready2go_voice.core.tts_prefill import prefill_texts
+    text = refusal_reasons.text('beyond_reach', 'impossible')
+    assert text in required_texts(cfg, [])
+    assert text in prefill_texts(cfg, ontology['world']['items'].values())

@@ -822,3 +822,9 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [구현] B d28ab2c의 impossible 8건(실제 원본 집계)의 ID/strategy/status/evidence를 보존하고 문장 원본·공통 로더·share 설치·node/prepare 필수 캐시를 연결했습니다. verified_real도 현재 관측의 원인 확정이 아니므로 물리 배치는 가능성 표현입니다. 이유 질문은 기존 읽기 전용 경로로 인식하며 현재 답변은 원인 조회 불가입니다. 공개 상태 필드를 임의 소비하지 않습니다.
 - [검증] Python3.12 직접 회귀 88 passed(5.78초): 신규 로더/unknown/null/strategy 경계·설치 share 모의, 이유 질문 비실행 분류·LLM 미호출·공통 캐시 포함 및 기존 읽기 전용/notice 회귀. 최종 코드 SHA의 전체 CI 1회 결과는 PR 본문에 기록합니다.
 - [미결/제외] C issuecomment6183717189는 E 확인 후 계약 PR/구현 예정인 형식 회신입니다. B issuecomment6183735652의 impossible 한정 조건과 최신 run/boot·FAILED 검증, 최초 원인 보존·task_error/정지 경계는 C 계약/실제 코드 연결 후 검증해야 합니다. E 포함 2인 계약 승인·실제 B→C→E 실패 답변·ROS/DDS/TTS/실물은 미완료입니다. B 중복 문장 제거는 B 담당이며 report_case=false 유지, 모델/PC2/API/cache 생성·병합은 수행하지 않았습니다. 요구사항 FR-INT-02(P1–P3), FR-INT-03(P1), FR-LOG-02(P2)를 참조하는 #376 P3 준비로 구분합니다.
+
+### #378 실제 B 반환 누락 보완 — 2026-10-15
+
+- [수정/근거] B d28ab2c의 core/layout_case.py를 자료 JSON과 대조해 beyond_reach 누락을 추가했습니다. B 자료 strategy=nudge·then=impossible과 실제 fail 반환 strategy=impossible을 구분하고 source_strategy/source_then 및 원본 status/evidence를 보존했습니다. E 카탈로그 9개는 실제 impossible 반환 6개와 예약 under_cover_crossing/leaning/standing 3개입니다. 기존 8개는 삭제하지 않았습니다.
+- [직접 검증] 관련 knowledge/voice 회귀 22 passed(1.01초): 실제 반환 6개 전체의 조회, beyond_reach/nudge·unknown 폴백, 새 문장의 node/prepare 공통 prefill 포함을 확인했습니다. B d28ab2c의 실제 classify를 모의 입력 6종으로 호출해 case_id+impossible→E text 연결도 확인했습니다(ROS/실물 시험 아님).
+- [검사 SHA 구분] 전체 CI 통과는 기존 0ce2d7e819d948ddf1819db48f0fb6d5551fd690에서의 3394 passed/43 skipped·계약/compose/build 결과입니다. 이후 변경은 E 문장 데이터·회귀·관련 문서/기록이며 전체 CI를 재실행하지 않았습니다. 새 head의 전체 CI 통과로 표현하지 않습니다. C 실제 공개 상태 소비·계약 승인·최종 통합 검증은 여전히 미완료이며 Draft를 유지합니다.
