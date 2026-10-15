@@ -383,7 +383,7 @@ def test_upper_drawer_scoped_request_reaches_existing_request_gate(node, text, v
     node.parser.llm = lambda *_: dict(intent='achieve_goal', targets=[], confidence=.99, goals=goals)
     doc = node.session.text(text, node.generation, request_id='drawer-request')
     node.deliver(doc)
-    assert len(node.cfg['p2_goal_catalog']) == 2
+    assert len(node.cfg['p2_goal_catalog']) == 3
     assert len(node.published) == 1 and node.published[0]['goals'] == goals
     assert node.published[0]['request_id'] == 'drawer-request'
     assert node.published[0]['accept_text'] == doc['_voice']['final_text'] and not node.texts
@@ -399,7 +399,68 @@ def test_upper_drawer_scope_rejects_other_or_nonrequest_goals(node, text):
                                     goals=node.cfg['p2_goal_catalog'][0])
     doc = node.session.text(text, node.generation)
     assert doc['intent'] != 'achieve_goal'
-    assert node.parser._expected_goals(text) is None
+    assert node.parser._expected_goals(text) not in node.cfg['p2_goal_catalog']
+
+
+
+@pytest.mark.parametrize('text', ['지우개 갖다주고 위 서랍 열어줘',
+                                 '지우개 갖다주고 위 서랍 열어둬',
+                                 '지우개를 가져다주고 위쪽 서랍 열어줘',
+                                 '지우개 갖다 놓고 위 서랍은 열어 둬'])
+def test_p2_compound_delivery_reaches_existing_e_and_c_goal_path(node, ontology, schema, text):
+    from ready2go_runner.core.intent_router import IntentRouter, PLAN
+    from ready2go_runner.core import planner
+    upper_drawer(node)
+    goals = node.cfg['p2_goal_catalog'][2]
+    node.parser.llm = lambda *_: dict(intent='achieve_goal', targets=[], confidence=.99, goals=goals)
+    doc = node.session.text(text, node.generation, request_id='compound-request')
+    node.deliver(doc)
+    assert len(node.published) == 1 and node.published[0]['goals'] == goals
+    assert not node.texts and node.published[0]['request_id'] == 'compound-request'
+    decision = IntentRouter(schema, {}, ontology['world']['items'], .85).decide(
+        json.dumps(node.published[0]), running=False, locked=False)
+    assert decision.kind == PLAN and decision.goals == goals
+    result = planner.plan(ontology['state'], ontology, decision.goals,
+                          limits=planner.parse_limits(planner.DEFAULT_PLAN_LIMITS))
+    assert result.status == planner.PLANNED
+    from ready2go_knowledge.core.ontology import apply
+    state = copy.deepcopy(ontology['state'])
+    for step in result.steps:
+        state, _ = apply(state, ontology['skills'][step.skill]['effect'], step.params)
+    assert state['open']['drawer_top'] is True
+    assert state['located_in']['eraser'] == 'handover_zone'
+
+
+@pytest.mark.parametrize('gate', ['locked', 'busy', 'source', 'evaluation', 'llm_failure'])
+def test_p2_compound_preserves_existing_send_guards(node, gate):
+    upper_drawer(node)
+    goals = node.cfg['p2_goal_catalog'][2]
+    def model(*_):
+        if gate == 'llm_failure':
+            raise TimeoutError('mock')
+        return dict(intent='achieve_goal', targets=[], confidence=.99, goals=goals)
+    node.parser.llm = model
+    doc = node.session.text('지우개 갖다주고 위 서랍 열어줘', node.generation)
+    if gate == 'locked': node.observe('halted')
+    if gate == 'busy': node.observe('running')
+    if gate == 'source': node.bind_request_source(lambda: False)
+    if gate == 'evaluation': node.cfg['evaluation_mode'] = True
+    node.deliver(doc)
+    assert not any(d['intent'] in ('find_item', 'achieve_goal') for d in node.published)
+    assert node.request_run.pending is None
+
+
+@pytest.mark.parametrize('text', ['지우개 갖다주고 아래 서랍 열어줘',
+                                 '립밤 갖다주고 위 서랍 열어줘',
+                                 '지우개 갖다주고 위 서랍 닫아줘',
+                                 '지우개 갖다주고 위 서랍 열지 마',
+                                 '지우개 갖다주고 위 서랍 열어줄 수 있어?'])
+def test_p2_compound_rejects_unselected_or_nonrequest_goals(node, text):
+    upper_drawer(node)
+    node.parser.llm = lambda *_: dict(intent='achieve_goal', targets=[], confidence=.99,
+                                    goals=node.cfg['p2_goal_catalog'][2])
+    doc = node.session.text(text, node.generation)
+    assert doc['intent'] != 'achieve_goal'
 
 
 def test_upper_drawer_activation_requires_both_existing_optins(node):
