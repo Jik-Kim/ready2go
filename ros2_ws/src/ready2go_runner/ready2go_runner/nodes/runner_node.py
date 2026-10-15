@@ -59,6 +59,13 @@ LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, relia
 
 
 class RunnerNode(Node):
+    # 묶음 계획(#302 2안) 칸의 클래스 기본값 — __init__ 을 거치지 않고 만든 객체(E 음성 연결 시험의 가짜 Runner)도 지금처럼 동작
+    plan_composites = False
+    tasks_dir = "/tasks"
+    _chain_run: str | None = None
+    _chain_parent: dict | None = None
+    _chain_events: dict | None = None
+
     def __init__(self, **node_kwargs):
         super().__init__("runner", **node_kwargs)
         param = lambda name, default: self.declare_parameter(name, default).value  # noqa: E731
@@ -621,7 +628,7 @@ class RunnerNode(Node):
         degraded = getattr(self.log_store, "degraded", False)
         halt = self.runner.halt_summary
         if halt is not None:                    # 묶음 계획: 구간(child)·구간 사이 정지는 상위 run_id 로 (E end_task·복구 대상이 그대로 맞게)
-            parent = (self._chain_parent.get(halt.get("run_id")) or self._chain_events.get(halt.get("event_id"))
+            parent = ((self._chain_parent or {}).get(halt.get("run_id")) or (self._chain_events or {}).get(halt.get("event_id"))
                       or (self._chain_run if halt.get("run_id") is None else None)
                       or (self._chain_run if (halt.get("run_id") or "").startswith(f"{self._chain_run}.") else None))
             if parent:
