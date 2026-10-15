@@ -4005,6 +4005,59 @@ def test_repo_defaults_are_pc2_tested_and_run_together(server, monkeypatch):
     assert seen and getattr(srv, "locked", None) is None                # movesx 로 감, 잠금 없음
 
 
+def test_make_room_report_case_is_off_by_default(server, monkeypatch):
+    """[제안 10/15 B, 계약 ④ 승인 전 — #364] make_room.report_case 기본 false → 결과에 case_id·strategy 칸 없음 (지금 계약 그대로)."""
+    from ready2go_skills.core import clear_plan as clp
+    t, nb = _seg(ERASER_FREE), _seg(CARAMEL_NEXT)
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: clp.Action("fail", "eraser#1", "x", code="NEIGHBOR_TOO_CLOSE"))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "check_only": True,
+                                            "scan": _scan_with(t, nb)})
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE"
+    assert "case_id" not in data["make_room"] and "strategy" not in data["make_room"]
+
+
+@pytest.mark.parametrize("kind, code, want", [
+    ("fail", "NO_FREE_SPACE", ("no_free_space", "impossible")),
+    ("unstack", "", ("stacked_under", "remove_top")),
+    ("sweep", "", ("cluster_open_side", "make_room")),
+    ("pick", "", (None, "direct")),
+])
+def test_make_room_report_case_names_case_and_strategy(server, monkeypatch, kind, code, want):
+    """[제안 10/15 B — #364 ④] report_case 켜면 make_room 결과에 case_id(난제 이름, 모르면 null)·strategy(계획 동작 종류) — 판단만,
+    로봇 명령 0. strategy 는 계획이 고른 동작 그대로라 새 물리 판단이 아님."""
+    from ready2go_skills.core import clear_plan as clp
+    _with_prm(server, monkeypatch, make_room={"report_case": True})
+    t = _seg(ERASER_FREE)
+    key = _seg({"id": "car_key#1", "class": "car_key", "top_z": 0.0273,
+                "pose": {"frame": "drawer_top", "position": list(t["pose"]["position"]), "yaw": 0.0, "yaw_valid": True}})
+    if kind == "unstack":
+        t["occluded_by"] = ["car_key#1"]
+    else:
+        key["pose"]["position"] = [0.05, 0.05, 0.0]
+    who = "car_key#1" if kind in ("unstack", "fail") else "eraser#1"
+    a = clp.Action(kind, who, f"{who} 주입", code=code, dir=(0.0, -1.0), dist_m=0.02, back_m=0.01,
+                   to_pose={"frame": "drawer_top", "position": [0.05, 0.05, 0.0], "yaw": 0.0})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *x, **k: a)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "check_only": True,
+                                            "scan": _scan_with(t, key)})
+    mr = data["make_room"]
+    assert (mr["case_id"], mr["strategy"]) == want, mr
+    assert server.srv.robot.log == []
+
+
+def test_make_room_report_case_failure_does_not_change_result(server, monkeypatch):
+    """[C #364 리뷰 P2] 이름 붙이기(classify)가 예외여도 make_room 결과·동작은 그대로 — case_id null, strategy 는 계획 동작 종류."""
+    from ready2go_skills.core import clear_plan as clp
+    _with_prm(server, monkeypatch, make_room={"report_case": True})
+    monkeypatch.setattr(server.ss.lcase, "classify", lambda *a, **k: (_ for _ in ()).throw(StopIteration()))
+    t, nb = _seg(ERASER_FREE), _seg(CARAMEL_NEXT)
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: clp.Action("fail", "eraser#1", "x", code="NEIGHBOR_TOO_CLOSE"))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "check_only": True,
+                                            "scan": _scan_with(t, nb)})
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE"
+    assert data["make_room"]["case_id"] is None and data["make_room"]["strategy"] == "impossible"
+
+
 def test_dry_place_works_with_grip_height_ratio_null(server, monkeypatch):
     """[10/15 정리] pick.grip_height_ratio 는 null(예전 높이 방식)도 쓸 수 있는 값 — 빈 자리 판단(DryOracle.place)이 None × 높이로
     예외를 내지 않고 0.5 로 봄. 판단만 — 로봇 명령 없음."""

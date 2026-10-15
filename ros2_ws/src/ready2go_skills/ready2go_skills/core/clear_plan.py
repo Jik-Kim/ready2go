@@ -350,6 +350,7 @@ class Config:
     front_keep_mm: float = 10.0              # 손잡이 쪽 벽(x 0)에서 이만큼 안으로 새로 들어오게 미는 동작은 벌점 — 앞벽에 붙으면 안쪽으로 못 끌어
     front_penalty_m: float = 0.05            # (서랍이 닫힘) 사방이 막혀 못 풂 [사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] — 이동 거리로 셈
     sweep_max_m: Optional[float] = None      # 밀기(sweep) 최대 거리 — 없으면 max_shift_m. 실행 값 make_room.sweep_max_mm
+    remove_min_move_m: float = 0.0           # 막는 물체 치울 빈 자리가 지금 자리에서 이만큼은 떨어져야 함 — 0 = 안 봄(지금) [제안 10/15 B, #364 sim: 같은 자리로 다시 치우기 반복]
     press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]
 
 
@@ -385,7 +386,7 @@ def _relocated(objs, oid, pose, size_of=None):
     return out
 
 
-def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
+def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config, min_move_m: float = 0.0):
     """쥔 물체(held_id, 아직 원래 자리)를 놓을 빈 자리: 놓기 검사 통과 + 목표(avoid_ids) 둘레 비움.
     먼저 목표에서 cfg.avoid_pad_mm 떨어진 곳, 없으면 더 가까이(near_pad_mm)도 보되 놓은 물체가 목표를 집을 손가락 자리를
     막지 않는지 집기 검사로 확인 (가운데 가로로 놓인 몽키 위 차키 [P2 시뮬레이션 10/11: 25 mm 비우면 놓을 데가 없음]).
@@ -399,6 +400,9 @@ def find_free_pose(objs, held_id, avoid_ids, oracle, cfg: Config):
         avoid = [o for o in objs if o["id"] in avoid_ids]
         cands = [c for c in free_poses(objs, held_id, cfg.size_of, cfg.interior_m, cfg.frame, avoid=avoid, avoid_pad_mm=pad)
                  if cfg.reach_x_m is None or c["pose"]["position"][0] <= cfg.reach_x_m]   # 안쪽 벽에 붙여도 손이 안 닿으면 못 놓음
+        here = next(o for o in objs if o["id"] == held_id)["pose"]["position"][:2]
+        if min_move_m > 0:                                   # 지금 자리와 거의 같은 '빈 자리'는 빼고 셈 (치워도 그대로 막음)
+            cands = [c for c in cands if math.dist(as_pose(c)["position"][:2], here) >= min_move_m]
         for i, c in enumerate(cands):
             if 0 < cfg.free_try and i >= cfg.free_try * (2 if tilted is not None else 1):   # 기울임 자리만 찾았으면 수직 자리를 두 배까지 더 찾아봄
                 break
@@ -677,7 +681,7 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
     if who and depth <= 1 and not riders(objs, who):
         ok, c2, r2 = oracle.pick(objs, who)
         if ok:
-            pose = find_free_pose(objs, who, [tid], oracle, cfg)
+            pose = find_free_pose(objs, who, [tid], oracle, cfg, cfg.remove_min_move_m)
             if pose is not None:
                 return Action("remove", who, f"막는 {who} → 빈 자리", to_pose=pose)
     if depth == 0:

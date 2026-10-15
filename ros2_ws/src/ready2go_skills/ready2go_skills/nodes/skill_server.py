@@ -39,7 +39,7 @@ from ready2go_interfaces.action import Skill
 from ready2go_skills.adapters.dsr import Dsr
 from ready2go_skills.adapters.rg2 import Rg2
 from ready2go_skills.core import drawer_plan as dp, grasp_check as gc, motion_guard, motion_plan as mp
-from ready2go_skills.core import clear_plan as clp, neighbor_check as nc
+from ready2go_skills.core import clear_plan as clp, layout_case as lcase, neighbor_check as nc
 from ready2go_skills.core import pick_plan as pp, place_plan as plp, pose_math as pm, skill_flow as sf
 from ready2go_skills.core import safe_state as ss_
 
@@ -2021,6 +2021,7 @@ class SkillServer(Node):
                           front_keep_mm=float(mr.get("front_keep_mm", 10.0)), front_penalty_m=float(mr.get("front_penalty_m", 0.05)),
                           sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
                           remove_first=bool(mr.get("remove_first", False)), slack_mm=float(mr.get("slack_mm", 10.0)),
+                          remove_min_move_m=float(mr.get("remove_min_move_mm", 0.0)) / 1000.0,
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
     def _make_room(self, goal, params, drawer_id, target):
@@ -2043,7 +2044,14 @@ class SkillServer(Node):
                 "pushed_ids": [], "pushed_after": []}
         out["make_room"] = info
         by = {o["id"]: o for o in objs}
-        self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason}")
+        if self.prm()["make_room"].get("report_case"):            # 난제 이름·전략 [제안 10/15 B, 계약 ④ 승인 전 — #364]
+            dry = DryOracle(self, drawer_id)
+            try:                                                  # 보고 칸이 동작을 바꾸지 않게 — 이름 붙이기 실패면 case_id null [C #364 P2]
+                info.update(lcase.classify(objs, tid, a, cfg.size_of, cfg.interior_m, cfg.reach_x_m, lambda i: dry.pick(objs, i)[0]))
+            except Exception as e:
+                self.get_logger().warning(f"[make_room] 난제 이름 붙이기 실패 — case_id null: {e!r}")
+                info.update(case_id=None, strategy=lcase.STRATEGY.get(a.kind, "make_room"))
+        self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason} {info.get('case_id') or ''}")
         if params.get("check_only"):                              # 판단 결과 공개 [E #245 제안] — 일반 넛지 check_only 와 같은 필드
             fail_code = a.code if a.code in (NEIGHBOR_TOO_CLOSE, NO_FREE_SPACE, mp.NO_PUSH_ACCESS) else mp.NO_PUSH_ACCESS
             out.update(needed=a.kind not in ("pick", "fail"), plan_code=fail_code if a.kind == "fail" else None)   # 결과 error_code 와 같게
