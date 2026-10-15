@@ -98,3 +98,7 @@ def test_latest_slot_keeps_newest_and_drops_older_shots():
     assert q.take(timeout=0.01) is None                                        # 이미 발행한 것보다 오래됨
     q.put({"stamp_ns": 20})
     assert q.take(timeout=0.01)["stamp_ns"] == 20                              # 같은 촬영 시각은 발행
+    q.put({"stamp_ns": 30}); q.put({"stamp_ns": 25})                           # [E #370 P2] 늦게 끝난 이전 촬영(25)이 대기 중 최신(30)을 덮지 않음
+    assert q.take(timeout=0.01)["stamp_ns"] == 30
+    q.put({"stamp_ns": 40, "v": 1}); q.put({"stamp_ns": 40, "v": 2})           # 같은 촬영 시각은 나중 것으로 덮음
+    assert q.take(timeout=0.01)["v"] == 2

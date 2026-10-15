@@ -202,7 +202,11 @@ class LatestSlot:
         self.last_stamp_ns = -1
 
     def put(self, job):
+        """대기 작업을 덮음 — 단 대기 중인 것보다 촬영이 오래된 요청은 무시(같은 촬영 시각은 덮음). 서비스 콜백이 동시에 돌아
+        늦게 끝난 이전 촬영이 최신 대기 작업을 덮지 않게 (E #370 P2)."""
         with self._cv:
+            if self._job is not None and job["stamp_ns"] < self._job["stamp_ns"]:
+                return
             self._job = job
             self._cv.notify()
 
