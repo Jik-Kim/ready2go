@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from ready2go_web.core.overlay_cache import OverlayCache
 from ready2go_web.core.state_cache import StateCache
 from ready2go_web.server import (
     API_SCHEMA_VERSION,
@@ -14,6 +15,7 @@ from ready2go_web.server import (
     POLL_INTERVAL_MS,
     PUBLIC_ASSETS,
     STATUS_API_PATH,
+    VISION_OVERLAY_IMAGE_API_PATH,
     create_app,
     settings_from_env,
 )
@@ -189,15 +191,26 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     )
     cache.set_publisher_present("voice", True)
     fixed_now = lambda: datetime(2026, 10, 13, 6, 31, tzinfo=timezone.utc)
+    overlay_cache = OverlayCache(utcnow=fixed_now)
+    captured_at = datetime(2026, 10, 13, 6, 30, 58, 500_000, tzinfo=timezone.utc)
+    overlay_cache.update(
+        b"jpeg-payload",
+        int(captured_at.timestamp()),
+        500_000_000,
+        datetime(2026, 10, 13, 6, 30, 59, tzinfo=timezone.utc),
+        "wrist_cam_color_optical_frame",
+    )
 
     # app factory가 runtime과 같은 캐시를 보관하고 요청 때마다 snapshot을 읽는다.
     app = create_app(
         state_cache=cache,
+        overlay_cache=overlay_cache,
         runtime_profile="dev",
         robot_topic="/test/joint_states",
         utcnow=fixed_now,
     )
     assert app.extensions["ready2go_web"]["state_cache"] is cache
+    assert app.extensions["ready2go_web"]["overlay_cache"] is overlay_cache
 
     app.config.update(TESTING=True)
     with app.test_client() as test_client:
@@ -242,6 +255,88 @@ def test_status_api_returns_consistent_runner_and_robot_state_snapshots() -> Non
     assert voice["publisher_present"] is True
     assert voice["message_received"] is False
     assert voice["connection_state"] == "waiting"
+    overlay = payload["vision_overlay"]
+    assert overlay["status"] == "ok"
+    assert overlay["image_available"] is True
+    assert overlay["captured_at"] == "2026-10-13T06:30:58.500000Z"
+    assert overlay["received_at"] == "2026-10-13T06:30:59Z"
+    assert overlay["frame_id"] == "wrist_cam_color_optical_frame"
+    assert overlay["revision"] == 1
+    assert overlay["stale_after_sec"] is None
+    assert overlay["stale"] is False
+    assert "jpeg" not in overlay
+
+
+def test_overlay_image_api_distinguishes_missing_cache_empty_cache_and_jpeg() -> None:
+    """사진 API가 서버 구성 오류·미촬영·정상 JPEG를 서로 다른 응답으로 제공한다."""
+    fixed_now = lambda: datetime(2026, 10, 13, 7, 0, tzinfo=timezone.utc)
+
+    unavailable_app = create_app(utcnow=fixed_now)
+    unavailable_app.config.update(TESTING=True)
+    with unavailable_app.test_client() as test_client:
+        unavailable = test_client.get(VISION_OVERLAY_IMAGE_API_PATH)
+    assert unavailable.status_code == 503
+    assert unavailable.get_json()["error"]["code"] == "OVERLAY_CACHE_UNAVAILABLE"
+
+    overlay_cache = OverlayCache(utcnow=fixed_now)
+    app = create_app(overlay_cache=overlay_cache, utcnow=fixed_now)
+    app.config.update(TESTING=True)
+    with app.test_client() as test_client:
+        empty = test_client.get(VISION_OVERLAY_IMAGE_API_PATH)
+        assert empty.status_code == 404
+        assert empty.get_json()["error"]["code"] == "OVERLAY_NOT_AVAILABLE"
+
+        overlay_cache.update(
+            b"contract-jpeg",
+            int(fixed_now().timestamp()),
+            0,
+            fixed_now(),
+            "wrist_cam_color_optical_frame",
+        )
+        image = test_client.get(f"{VISION_OVERLAY_IMAGE_API_PATH}?revision=1")
+
+    assert image.status_code == 200
+    assert image.mimetype == "image/jpeg"
+    assert image.get_data() == b"contract-jpeg"
+    assert image.headers["Cache-Control"] == "no-store"
+    assert image.headers["X-Overlay-Revision"] == "1"
+
+
+def test_overlay_image_api_rejects_invalid_or_changed_revision() -> None:
+    """상태 메타데이터와 다른 revision의 JPEG가 한 화면에 결합되지 않게 한다."""
+    fixed_now = lambda: datetime(2026, 10, 13, 7, 0, tzinfo=timezone.utc)
+    overlay_cache = OverlayCache(utcnow=fixed_now)
+    overlay_cache.update(
+        b"revision-one",
+        int(fixed_now().timestamp()),
+        0,
+        fixed_now(),
+        "wrist_cam_color_optical_frame",
+    )
+    app = create_app(overlay_cache=overlay_cache, utcnow=fixed_now)
+    app.config.update(TESTING=True)
+
+    with app.test_client() as test_client:
+        invalid = test_client.get(f"{VISION_OVERLAY_IMAGE_API_PATH}?revision=abc")
+        # 브라우저가 revision 1 메타데이터를 읽은 직후 새 사진이 도착한 경합을 재현한다.
+        overlay_cache.update(
+            b"revision-two",
+            int(fixed_now().timestamp()) + 1,
+            0,
+            fixed_now(),
+            "wrist_cam_color_optical_frame",
+        )
+        changed = test_client.get(f"{VISION_OVERLAY_IMAGE_API_PATH}?revision=1")
+        current = test_client.get(f"{VISION_OVERLAY_IMAGE_API_PATH}?revision=2")
+
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"]["code"] == "INVALID_OVERLAY_REVISION"
+    assert changed.status_code == 409
+    assert changed.get_json()["error"]["code"] == "OVERLAY_REVISION_CHANGED"
+    assert changed.get_json()["requested_revision"] == 1
+    assert changed.get_json()["current_revision"] == 2
+    assert current.status_code == 200
+    assert current.get_data() == b"revision-two"
 
 
 def test_status_api_reports_missing_runtime_cache_as_service_unavailable(client) -> None:

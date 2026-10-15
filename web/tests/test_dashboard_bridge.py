@@ -231,8 +231,8 @@ def test_overlay_callback_accepts_only_contract_jpeg_and_newest_stamp(ros_contex
         bridge.destroy_node()
 
 
-def test_overlay_publisher_generation_accepts_lower_stamp(ros_context) -> None:
-    """비전 publisher GID가 바뀌면 새 기동의 낮은 stamp를 새 사진으로 받는다."""
+def test_overlay_publisher_generation_does_not_bypass_capture_order(ros_context) -> None:
+    """비전 publisher GID가 바뀌어도 UTC 촬영 시각이 과거인 사진은 무시한다."""
     cache = OverlayCache()
     bridge = DashboardBridge(
         topics=unique_topics(),
@@ -254,8 +254,8 @@ def test_overlay_publisher_generation_accepts_lower_stamp(ros_context) -> None:
         restarted.data = b"second-generation"
         bridge._on_inspect_overlay(restarted, SimpleNamespace(publisher_gid=b"generation-b"))
 
-        assert cache.get_latest().jpeg == b"second-generation"
-        assert cache.get_latest().revision == 2
+        assert cache.get_latest().jpeg == b"first-generation"
+        assert cache.get_latest().revision == 1
     finally:
         bridge.destroy_node()
 

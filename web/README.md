@@ -25,7 +25,7 @@
 | `runner-status-model.js` | `/runner/status.last_intent`와 `last`를 화면 표시 전 `valid`·`absent`·`invalid` 내부 모델로 검증·복사하고 실행 연결을 판정 | `decision=run`이고 두 `run_id`가 같을 때만 `linked`로 묶으며 실제 요청·결과 화면 표시는 후속 단계에서 구현합니다. |
 | `app.js` | 상태 렌더링, 서랍 조회, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
 | `README.md` | 현재 구현, 실행·접속·시나리오, 실제 연동 경계를 설명 | 연결 경로가 구현된 뒤 실제 실행법과 검증 결과를 갱신합니다. |
-| `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 스냅샷을 `GET /api/status`로 반환 | 응답은 캐시하지 않으며 내부 예외 세부 내용은 브라우저에 노출하지 않습니다. |
+| `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 상태와 최신 촬영 JPEG를 REST로 반환 | `GET /api/status`의 `vision_overlay`는 JPEG를 제외한 메타데이터이며 사진은 `GET /api/vision/overlay.jpg?revision=N`으로 조회합니다. 현재 revision과 다르면 409를 반환합니다. |
 | `ready2go_web/nodes/dashboard_bridge.py` | 단일 rclpy 노드로 선택한 ROS source를 구독·관찰 | 4단계 실행에서는 `/runner/status`와 `/robot_state`를 활성화합니다. |
 | `ready2go_web/core/state_cache.py` | ROS 콜백과 Flask 요청 사이의 최신 상태를 잠금으로 보호 | REST에는 깊은 복사 스냅샷만 전달합니다. |
 | `ready2go_web/core/definition_catalog.py` | 공통 `ontology.load`와 `tasks/*.json`으로 등록 정의 스냅샷 생성 | Runner hot reload가 아닌 웹 시작 시 파일 조회임을 출처·시각·manifest SHA와 함께 기록합니다. |
@@ -85,6 +85,8 @@ index.html
 /runner/status → DashboardBridge → StateCache → GET /api/status
 /robot_state  ────────────────────┘                 ↓ 약 1초 polling
                                         Runner 연결·기억 상태 UI
+/vision/inspect_overlay → OverlayCache ┬→ GET /api/status의 vision_overlay 메타데이터
+                                      └→ GET /api/vision/overlay.jpg (브라우저 연결 전)
 온톨로지 manifest ─ common ontology.load ─┐
 tasks/*.json ─────────────────────────────┼→ 시작 시 정의 스냅샷 → GET /api/definitions → 등록 정의 UI
 ```

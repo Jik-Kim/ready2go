@@ -278,7 +278,7 @@ class DashboardBridge(Node):
         # 실제 메시지 콜백이 실행됐을 때만 카메라를 정상 수신으로 기록한다.
         self.cache.record_message(CAMERA_SOURCE, summary)
 
-    def _on_inspect_overlay(self, message: CompressedImage, message_info: Any = None) -> None:
+    def _on_inspect_overlay(self, message: CompressedImage, _message_info: Any = None) -> None:
         """계약에 맞는 최신 JPEG만 별도 촬영 캐시에 기록한다."""
         # CompressedImage의 format은 계약상 정확히 jpeg이며 다른 압축 형식은 표시하지 않는다.
         if message.format.strip().lower() != "jpeg":
@@ -293,17 +293,15 @@ class DashboardBridge(Node):
         if self.overlay_cache is None:
             return
 
-        # publisher 기동이 바뀌면 sim/ROS 시간이 작아질 수 있어 GID를 stamp 비교 경계로 쓴다.
-        publisher_gid = getattr(message_info, "publisher_gid", None)
-        generation_id = bytes(publisher_gid) if publisher_gid is not None else None
         try:
+            # 계약은 stamp를 UTC epoch 촬영 시각으로 정했으므로 publisher GID와 관계없이
+            # 현재 캐시보다 오래되거나 같은 촬영을 항상 거부한다.
             self.overlay_cache.update(
                 jpeg=bytes(message.data),
                 captured_stamp_sec=message.header.stamp.sec,
                 captured_stamp_nanosec=message.header.stamp.nanosec,
                 received_at=None,
                 frame_id=message.header.frame_id,
-                generation_id=generation_id,
             )
         except (TypeError, ValueError) as exc:
             # 잘못된 새 메시지가 이미 보관한 정상 사진을 지우지 않게 경고만 남긴다.

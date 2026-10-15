@@ -229,3 +229,6 @@ class RosBridgeRuntime:
             self._bridge = None
             self._executor = None
             self._thread = None
+            # 같은 Runtime 객체를 다시 시작해도 종료된 기동의 사진을 제공하지 않는다.
+            # 캐시 객체는 Flask와 공유하므로 교체하지 않고 내부 스냅샷만 원자적으로 비운다.
+            self._overlay_cache.clear()

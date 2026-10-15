@@ -146,7 +146,7 @@ def test_metadata_separates_capture_time_from_web_receipt_time() -> None:
 def test_non_utc_capture_clock_does_not_create_misleading_wall_time_or_age() -> None:
     """sim stamp를 1970년 UTC나 매우 오래된 사진으로 잘못 표시하지 않는다."""
     cache = make_cache()
-    cache.update(b"sim-jpeg", 15, 0, BASE_TIME, "camera_color", generation_id="sim-1")
+    cache.update(b"sim-jpeg", 15, 0, BASE_TIME, "camera_color")
 
     metadata = cache.get_metadata(BASE_TIME, stale_after_sec=10)
 
@@ -157,27 +157,38 @@ def test_non_utc_capture_clock_does_not_create_misleading_wall_time_or_age() -> 
     assert metadata["stale"] is False
 
 
-def test_new_publisher_generation_accepts_a_lower_capture_stamp() -> None:
-    """publisher 재기동이나 sim 시간 초기화 뒤에도 새 촬영을 받을 수 있다."""
+def test_lower_capture_stamp_never_replaces_current_image() -> None:
+    """publisher 기동과 관계없이 UTC 촬영 시각이 과거이면 현재 사진을 유지한다."""
     cache = make_cache()
-    cache.update(b"old-generation", 100, 0, BASE_TIME, "camera_color", generation_id=b"gid-a")
+    cache.update(b"current", 100, 0, BASE_TIME, "camera_color")
 
     stored = cache.update(
-        b"new-generation",
+        b"late-old-capture",
         1,
         0,
         BASE_TIME + timedelta(seconds=1),
         "camera_color",
-        generation_id=b"gid-b",
     )
     latest = cache.get_latest()
 
-    assert stored is True
+    assert stored is False
     assert latest is not None
-    assert latest.jpeg == b"new-generation"
-    assert latest.captured_stamp_sec == 1
-    # revision은 브라우저 캐시 무효화 값이므로 기동이 바뀌어도 다시 1이 되지 않는다.
-    assert latest.revision == 2
+    assert latest.jpeg == b"current"
+    assert latest.captured_stamp_sec == 100
+    assert latest.revision == 1
+
+
+def test_clear_removes_image_without_reusing_revision() -> None:
+    """Runtime 종료용 초기화가 사진을 비우고 다음 URL revision은 새 값으로 만든다."""
+    cache = make_cache()
+    cache.update(b"before-restart", 100, 0, BASE_TIME, "camera_color")
+
+    cache.clear()
+
+    assert cache.get_latest() is None
+    assert cache.get_metadata(BASE_TIME)["image_available"] is False
+    assert cache.update(b"after-restart", 101, 0, BASE_TIME, "camera_color") is True
+    assert cache.get_latest().revision == 2
 
 
 def test_concurrent_updates_keep_the_newest_capture_stamp() -> None:

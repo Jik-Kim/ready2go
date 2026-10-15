@@ -77,8 +77,6 @@ class OverlayCache:
         self._utcnow = utcnow
         # 촬영 결과가 오기 전에는 명시적으로 None을 유지해 빈 상태를 구분한다.
         self._latest: OverlaySnapshot | None = None
-        # 같은 촬영 stamp의 대소 비교가 유효한 publisher 기동 세대를 따로 기억한다.
-        self._generation_id: str | bytes | None = None
         # revision은 사진이 실제로 교체된 횟수이며 최초 저장 결과는 1이 된다.
         self._revision = 0
 
@@ -89,8 +87,6 @@ class OverlayCache:
         captured_stamp_nanosec: int,
         received_at: datetime | None,
         frame_id: str,
-        *,
-        generation_id: str | bytes | None = None,
     ) -> bool:
         """더 최신인 촬영 결과만 저장하고 실제 교체 여부를 반환한다."""
         # bytearray와 memoryview도 받되 저장 전 bytes로 복사해 호출자의 변경을 차단한다.
@@ -108,17 +104,7 @@ class OverlayCache:
         # frame_id는 촬영 기준 프레임을 식별해야 하므로 빈 문자열이나 다른 타입을 허용하지 않는다.
         if not isinstance(frame_id, str) or not frame_id.strip():
             raise ValueError("frame_id는 비어 있지 않은 문자열이어야 합니다")
-        # ROS publisher GID처럼 기동 세대를 구분하는 값은 비어 있지 않은 문자열·bytes만 받는다.
-        if generation_id is not None:
-            if not isinstance(generation_id, (str, bytes)) or not generation_id:
-                raise ValueError("generation_id는 비어 있지 않은 문자열 또는 bytes여야 합니다")
-
         with self._lock:
-            # publisher가 바뀌면 ROS/sim 시간이 이전보다 작아질 수 있으므로 과거 기동의
-            # stamp와 비교하지 않는다. revision은 브라우저 URL이 재사용되지 않게 유지한다.
-            if generation_id is not None and generation_id != self._generation_id:
-                self._latest = None
-                self._generation_id = generation_id
             # 기존 사진의 촬영 stamp를 새 stamp와 같은 튜플 형식으로 만든다.
             latest_stamp = (
                 None
@@ -141,6 +127,13 @@ class OverlayCache:
                 revision=self._revision,
             )
             return True
+
+    def clear(self) -> None:
+        """현재 사진을 제거하되 다음 사진의 revision은 계속 증가하게 한다."""
+        with self._lock:
+            # Runtime 재기동 사이에 이전 기동 사진을 제공하지 않도록 스냅샷만 비운다.
+            # revision을 되돌리면 브라우저가 과거 URL의 이미지를 재사용할 수 있으므로 유지한다.
+            self._latest = None
 
     def get_latest(self) -> OverlaySnapshot | None:
         """현재 최신 사진을 새 불변 스냅샷으로 반환한다."""

@@ -193,6 +193,11 @@ def test_runtime_receives_all_enabled_sources_on_its_own_executor_thread() -> No
 
     # 정상 종료 후 executor 스레드가 남지 않고 stop 반복 호출도 안전해야 한다.
     assert runtime.is_running is False
+    # 같은 Runtime 객체를 다시 시작할 때 이전 기동 사진이 제공되지 않아야 한다.
+    assert runtime.overlay_cache.get_latest() is None
+    runtime.start()
+    assert runtime.is_running is True
+    assert runtime.overlay_cache.get_latest() is None
     runtime.stop()
     with pytest.raises(RuntimeError, match="시작되지"):
         _ = runtime.cache
