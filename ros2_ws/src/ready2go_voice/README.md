@@ -728,3 +728,9 @@ PYTHON
 [문서·코드 대조: 정지 한계] `Session.stop_audio`는 새 녹음과 현재 세대를 검사하고 일반 STT/LLM/TTS 완료를 기다리지 않는 별도 DeadlineCall에서 현재 Whisper를 호출합니다. 기존 정확 문구 분류로 부정·인용·전언·모호 표현을 보류하고, 녹음과 겹친 실제 재생 문구에 포함된 stop 텍스트도 보류합니다. 이 문구 대조는 음향 echo 제거가 아니며 같은 문구의 실제 사용자 발화도 보수적으로 보류할 수 있습니다. 처리/TTS/질문·Runner 실행/잠김 동안의 독립 청취를 작성한 상태로, 클라우드 지연/실패·자기 TTS 변형/잔음·작은 발화·동시 마이크 소비·실제 정지 AC는 후속 시험 대상입니다. 네트워크 비의존 정지나 B/C의 물리 정지 증빙으로 보고하지 않습니다. 무음은 STT를 호출하지 않고 다른 명령은 독립 stop 경로에서 LLM으로 넘기지 않습니다.
 
 [후속 준비] `PlaceConfirmation.asked`의 최초 전체 구간·재질문은 [정본](../../../docs/requirements.md#verification-policy)을 참조합니다. E 내부 typed 호출과 질문/STT·후보 경로는 작성했으며, 실제 C ACK·confirm 질문/답 수신·단계별 post_check·복구/재개 공개 규약 매핑은 미연결입니다. 기존 녹음/SDK 진단과 문장 캐시를 보존했습니다.
+
+## P3 이유 질문·캐시 준비 — #376
+
+[구현] “왜 멈췄어?”, “왜 안 가져와?”, “왜 못 꺼내?”를 기존 읽기 전용 상태 질문 경로로 분류합니다. LLM·동작 발신 없이 현재는 “확인된 실패 이유를 아직 조회할 수 없어요.”를 안내합니다. C 공개 실패 상태 계약과 구현이 아직 연결되지 않아 실제 거부 원인을 답하는 기능은 미완료입니다. 정지·비상정지를 배치 거부로 추정하지 않습니다.
+
+[원본/설치] `ready2go_knowledge.core.refusal_reasons.texts()`를 기존 `runner_speech.required_texts()`에 합쳐 node·prepare의 공통 필수 캐시에 포함합니다. 문장 정본은 [knowledge 설명](../../../knowledge/README.md#p3-거부-이유-문장-준비--376), 설치는 knowledge 패키지 setup.py가 담당합니다. cap512·일반600초·prepare3600초와 명시 로컬 값 처리·WAV/history·모델은 변경하지 않았습니다. API·ROS·실음성·로봇 검증은 하지 않았습니다.

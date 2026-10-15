@@ -815,3 +815,10 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [직접 검증] 실제 E Session/노드 메서드의 목표 발신→C IntentRouter.decide의 PLAN→현재 ontology/DEFAULT_PLAN_LIMITS로 C planner 계획·효과 적용을 대조해 지우개 전달/위 서랍 열림 최종 상태 확인. LLM 실패는 실행 없이 clarify 발행 가능, 잠김/실행 중/생산자 미확인/평가 모드의 기존 실행 차단 유지. 아래 서랍·다른 물품 복합·닫기·부정·가능 여부는 거절.
 - [실측] 변경 함수의 기존 테스트 파일 test_voice_five.py + test_intent.py 205 passed(23.79초). 최초 선택 검사에서 LLM 실패에도 clarify는 발행하는 기존 동작을 테스트가 과도하게 금지한 1건을 수정해 두 파일 재검 통과. 전체 CI/빌드·PC2·실음성·로봇·실API는 실행하지 않음.
 - [적용/미결] 별도 브랜치 codex/e-p2-compound-goal-20261015. PC2는 반영 뒤 기존 호스트 install_host 재빌드 및 pc2_voice.sh --p2 재시작 필요. 로컬 YAML에 기존 복합 선정 목표가 있어야 하며 없으면 시작 시 거절. C 기존 수신/플래너 경로는 모의 근거이고 PC2 운영 설정/실물 완료는 미검증.
+
+## #376 거부 이유 문장·질문 인식·캐시 준비 — 2026-10-15
+
+- [승인/범위] 사용자 “로봇 거부 이유 설명도 구현해 별도 PR로 올려” 승인 및 조율 세션의 E 독립분 Draft PR 우선 지시를 적용했습니다. 기준 main e4d5741f, 별도 codex/e-refusal-reason-20261015에서 E 소유 knowledge/voice/기록만 수정했습니다.
+- [구현] B d28ab2c의 impossible 8건(실제 원본 집계)의 ID/strategy/status/evidence를 보존하고 문장 원본·공통 로더·share 설치·node/prepare 필수 캐시를 연결했습니다. verified_real도 현재 관측의 원인 확정이 아니므로 물리 배치는 가능성 표현입니다. 이유 질문은 기존 읽기 전용 경로로 인식하며 현재 답변은 원인 조회 불가입니다. 공개 상태 필드를 임의 소비하지 않습니다.
+- [검증] Python3.12 직접 회귀 88 passed(5.78초): 신규 로더/unknown/null/strategy 경계·설치 share 모의, 이유 질문 비실행 분류·LLM 미호출·공통 캐시 포함 및 기존 읽기 전용/notice 회귀. 최종 코드 SHA의 전체 CI 1회 결과는 PR 본문에 기록합니다.
+- [미결/제외] C issuecomment6183717189는 E 확인 후 계약 PR/구현 예정인 형식 회신입니다. B issuecomment6183735652의 impossible 한정 조건과 최신 run/boot·FAILED 검증, 최초 원인 보존·task_error/정지 경계는 C 계약/실제 코드 연결 후 검증해야 합니다. E 포함 2인 계약 승인·실제 B→C→E 실패 답변·ROS/DDS/TTS/실물은 미완료입니다. B 중복 문장 제거는 B 담당이며 report_case=false 유지, 모델/PC2/API/cache 생성·병합은 수행하지 않았습니다. 요구사항 FR-INT-02(P1–P3), FR-INT-03(P1), FR-LOG-02(P2)를 참조하는 #376 P3 준비로 구분합니다.

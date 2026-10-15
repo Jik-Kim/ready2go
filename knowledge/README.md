@@ -101,3 +101,11 @@
 [문서·코드 대조: 2026-10-10] C의 [PR #202](https://github.com/Jik-Kim/ready2go/pull/202)는 main에 병합됐습니다. `interpreter.HALT_MOTION_CODES`의 `OBJECT_DROPPED`·`SENSOR_INVALID`는 기존 `HALT_CODES` 경로로 `ABORTED`·잠금을 적용하고, finally의 후속 모션과 잠금 중 새 요청을 차단합니다. 두 오류는 재개 모드에서도 실행을 보존하지 않습니다. E errors 선언이 이 동작을 구현한 것은 아니며, C 모의 검사와 실제 정지·복구 완료는 구분합니다.
 
 [미연결/인계] B handover place의 센서 이상/놓침 반환 구분·보유 확실성·실제 정지/신선 관측과 C의 관측 기반 상태 동기화·잠금 해제·명시적 새 run 운영 연결은 후속입니다. 현재 `reset_state()`는 시작 스냅샷을 복원하며 잠금 해제나 물리 상태 검증을 하지 않습니다. [#78](https://github.com/Jik-Kim/ready2go/issues/78)·[#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 남은 B/C 협의·E 포함 2인 계약 승인·운영 adapter·실물 검증을 확인합니다.
+
+## P3 거부 이유 문장 준비 — #376
+
+[구현] `refusal_reasons.json`은 거부 이유 한국어 문장의 E 원본입니다. B #364 head `d28ab2c7c06fe40797e994b7bce8e189ecb6e0d6`의 `impossible` 8건에서 ID·strategy·status·evidence를 보존했습니다. `verified_real`도 과거 배치 근거이므로 현재 물리 원인을 확정하지 않으며 가능성 표현을 사용합니다. 이 자료는 실행 허용·거부나 안전 판정에 사용하지 않습니다.
+
+[조회] `ready2go_knowledge.core.refusal_reasons.text(case_id, strategy)`는 등록 ID와 `impossible`이 함께 주어진 경우만 문장을 반환하고, 누락·미등록·다른 strategy는 `None`을 반환합니다. `load()`는 근거를 포함한 목록, `texts()`는 캐시 준비용 문장을 반환합니다. 소스 실행과 `share/ready2go_knowledge/knowledge` 설치본을 지원합니다. C에서 사용하려면 같은 실패의 실제 B 결과와 run/boot를 먼저 검증해야 합니다.
+
+[미연결] C 공개 `last.failure` 계약·구현·승인 전으로, 음성은 이유 질문을 인식해 원인 조회 불가만 안내합니다. 일반 pick 거부의 case_id를 추정하지 않습니다. B 자료의 중복 say_ko 제거는 B 담당입니다. 요구사항 기준은 [FR-INT-02](../docs/requirements.md#fr-int-02)·[FR-INT-03](../docs/requirements.md#fr-int-03)·[FR-LOG-02](../docs/requirements.md#fr-log-02), #376의 P3 준비 작업이며 기존 요구사항 Phase를 재정의하지 않습니다.

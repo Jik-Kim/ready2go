@@ -70,7 +70,9 @@ def failure_texts():
 
 
 def required_texts(cfg, items):
+    from ready2go_knowledge.core.refusal_reasons import texts as refusal_texts
     texts = list(failure_texts())
+    texts.extend(refusal_texts())
     # C의 실제 물품별 no_room 안내 템플릿과 조사 구현을 그대로 사용합니다.
     for steps in task_steps(cfg).values():
         step = steps.get('s8.n1')
