@@ -486,3 +486,5 @@ http://localhost:4173/?scenario=error
 [문서] 같은 기동/run/요청/종료 상태의 상세 조회가 성공하면 화면 수명 동안 그 스냅샷을 재사용합니다. 미수신/조회 실패는 같은 key에서 최대 3회 시도하며, 재기동·요청 전환·상태 단절로 해당 key가 무효화되면 초기화합니다. 성공 스냅샷의 누락 child를 자동으로 계속 조회하지는 않습니다.
 
 [문서] JSONL 파일명은 Runner `JsonlLogStore._path`, Mongo 조회는 `MongoLogStore.read_run`을 재사용합니다. ROS 실행 환경에는 `ready2go_runner`가 설치되어 있어야 하며 소스 환경에서는 `ros2_ws/src/ready2go_runner`를 Python import 경로에 추가합니다. JSONL은 C처럼 파싱 불가능한 잘린 줄을 건너뛰되 완전한 줄의 잘못된 구조·식별자는 422로 구분합니다. 저장소 오구성은 웹을 종료하지 않고 서버 로그에 예외 종류와 WEB_RUN_* 점검 안내를 남깁니다. URI·암호·외부 예외 전문은 기록하지 않습니다.
+
+[문서·실측] 상위/child/단계/semantic의 저장 시점, 기존 PC2 기록의 한계와 모의 JSONL 확인 결과는 [실행 기록 저장 시점 확인](execution-record-timing.md)을 참조합니다.
