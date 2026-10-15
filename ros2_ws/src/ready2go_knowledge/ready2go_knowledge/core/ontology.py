@@ -92,6 +92,7 @@ def load(path: str | Path, *, snapshot: str | Path | None = None) -> dict:
     if "sources" not in manifest:
         if snapshot is not None:
             raise ValueError("snapshot 선택은 sources manifest 진입점이 필요합니다")
+        _validate_plan_effects(manifest)
         return manifest
     sources = _section(manifest, "sources", path)
     required = {"classes", "world", "skills", "initial_state", "places", "item_grasp"}
@@ -184,7 +185,70 @@ def load(path: str | Path, *, snapshot: str | Path | None = None) -> dict:
     errors = list_reference_errors(onto)
     if errors:
         raise ValueError("; ".join(errors))
+    _validate_plan_effects(onto)
     return onto
+
+
+def _validate_plan_effects(onto: dict) -> None:
+    """계획 전용 필드가 있는 composite만 검사. 기존 effect/state는 적용하지 않음."""
+    classes, world = onto.get("classes", {}), onto.get("world", {})
+    skills = onto.get("skills", {})
+    if not isinstance(skills, dict):
+        return  # 이 필드가 없는 기존 단일 파일의 로딩 계약은 유지합니다.
+    for name, skill in skills.items():
+        if not isinstance(skill, dict) or "plan_effect" not in skill:
+            continue
+        def fail():
+            raise ValueError(f"skills.{name}: 잘못된 composite plan_effect/params/pre 참조")
+        if (not isinstance(classes, dict) or not isinstance(world, dict)
+                or any(not isinstance(world.get(k, {}), dict) for k in ("items", "places"))):
+            fail()
+        if (skill.get("kind") != "composite" or skill.get("effect") != "sensing"
+                or not isinstance(skill.get("task"), str) or not skill["task"].strip()):
+            fail()
+        params = skill.get("params")
+        if (not isinstance(params, dict) or not params
+                or any(not isinstance(k, str) or not k or k.startswith("$")
+                       or not isinstance(v, str) or v not in classes for k, v in params.items())):
+            fail()
+
+        def matches(value, want):
+            if not isinstance(value, str):
+                return False
+            if value.startswith("$"):
+                cls = params.get(value[1:])
+            else:
+                entity = world.get("items", {}).get(value) or world.get("places", {}).get(value)
+                cls = entity.get("class") if isinstance(entity, dict) else None
+            seen = set()
+            while cls and cls not in seen:
+                if cls == want:
+                    return True
+                seen.add(cls)
+                cls = classes.get(cls, {}).get("subClassOf")
+            return False
+
+        for field in ("plan_effect", "pre"):
+            records = skill.get(field)
+            if not isinstance(records, list) or not records:
+                fail()
+            for record in records:
+                keys = {"subject", "predicate", "value"}
+                if (not isinstance(record, dict) or not keys <= record.keys()
+                        or record.keys() - keys - ({"op"} if field == "pre" else set())
+                        or field == "pre" and (not isinstance(record.get("op", "=="), str)
+                                               or record.get("op", "==") not in _OPS)):
+                    fail()
+                subject, value, predicate = record["subject"], record["value"], record["predicate"]
+                valid = (
+                    predicate == "located_in" and matches(subject, "Item")
+                    and (matches(value, "Place") or value == "gripper")
+                    or predicate == "open" and matches(subject, "Place") and type(value) is bool
+                    or predicate == "gripper" and subject == "robot"
+                    and (value == "empty" or matches(value, "Item"))
+                )
+                if not valid:
+                    fail()
 
 def resolve(value: Any, binding: dict) -> Any:
     """'$name' 을 binding 값으로 치환. 그 외 값은 그대로."""

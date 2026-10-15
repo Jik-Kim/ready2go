@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ready2go_skills.core import drawer_plan as dp
+from ready2go_skills.core import drawer_plan as dp, motion_plan as mp
 
 ROOT = Path(__file__).resolve().parents[4]
 PLACES = yaml.safe_load((ROOT / "config/places.yaml").read_text(encoding="utf-8"))
@@ -26,7 +26,7 @@ def test_pull_direction_matches_measured_opening():
 
 def test_displacement_from_measured_pull_is_max_travel():
     d = dp.pull_direction(TOP["tf"]["quaternion_xyzw"])
-    moved = dp.displacement_m([v / 1000 for v in HANDLE_CLOSED], [v / 1000 for v in HANDLE_OPEN], d)
+    moved = mp.travel_mm(HANDLE_CLOSED, HANDLE_OPEN, d) / 1000.0               # 서버가 인출 거리를 재는 식
     assert moved == pytest.approx(TOP["max_travel_m"], abs=0.002)
 
 

@@ -8,6 +8,14 @@
 - [FR-ONT-01–03](../../../docs/requirements.md#fr-ont-01)·[물품 정책](../../../docs/requirements.md#item-policy)·[가림 정책](../../../docs/requirements.md#occlusion-policy): 의미·정책·Phase·완료 기준의 정본
 - [온톨로지 구현](../../../docs/ontology.md)·[플래너 구현](../../../docs/planner.md): 해당 모듈 설명. 요구사항을 복사해 정의하지 않음
 
+## #302 composite 계획 필드 검사
+
+`core.ontology.load()`는 manifest와 구 단일 파일에서 `plan_effect`가 있는 composite의 새 형식을 검사합니다. 기존 actual effect는 sensing으로 유지하고, 계획 필드를 읽어 실제 상태를 쓰는 경로는 추가하지 않았습니다. 형식/등록 참조/매개변수·pre 검사 범위와 C 소비 대기는 [knowledge 원본 설명](../../../knowledge/README.md#302-계획-전용-composite-필드--e-구현--c-연결-대기)을 참조하십시오. primitive와 계획 필드 없는 구 온톨로지의 기존 경로는 보존합니다.
+
+후속 `test/test_plan_effect_consumer.py`는 C #373의 실제 opt-in core API에 E 원본을 로드하여 후보 선택·find_with_unpack mock 실행·실제 위치 확인/재계획과 성공 표기만 있는 미전달 차단을 검사합니다. E `a991a888` 데이터/로더 + C `810de713` 공개 head에서 직접3사례가 통과했습니다. C core API가 없는 기본 main에서는 해당 연결 사례를 skip하고, C API/테스트 mock을 함께 제공한 격리 환경에서만 이 연결 검사를 실행합니다. C 노드/음성 운영 연결은 별도입니다.
+
+직접 회귀는 `test/test_plan_effect.py`와 기존 `test_ontology.py`·`test_pick_runner.py`로 확인합니다. 실제 C 공개 plan/run 대조는 미연결이면 명시적 skip이며 통합 성공으로 세지 않습니다. 향후 planner 후보 선택이 연결되어도 실제 구간 실행·상태 재계획·실물 확인은 별도입니다. [FR-PLN-02](../../../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../../../docs/requirements.md#fr-ont-02), E 사용자 형식 확정·C 실제 APPROVE 근거와 실행 후속은 [#302](https://github.com/Jik-Kim/ready2go/issues/302)에서 확인하십시오.
+
 ## 구조
 
 | 폴더 | 내용 |

@@ -59,6 +59,9 @@ LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, relia
 
 
 class RunnerNode(Node):
+    # 최근 수락(run)한 요청 {request_id, run_id, task_id} — last_intent 는 BUSY·status·cancel 결정으로 덮이므로 따로 (#376 E).
+    # 클래스 기본값: __init__ 없이 만든 객체(E 음성 연결 시험의 가짜 Runner)도 지금처럼
+    _accepted: dict | None = None
     # 묶음 계획(#302 2안) 칸의 클래스 기본값 — __init__ 을 거치지 않고 만든 객체(E 음성 연결 시험의 가짜 Runner)도 지금처럼 동작
     plan_composites = False
     tasks_dir = "/tasks"
@@ -287,13 +290,25 @@ class RunnerNode(Node):
             self.gate.finish()
         segments = [{"run_id": s.run_id, "kind": s.kind, "skills": s.skills, "overall_status": s.overall_status,
                      "error_code": s.error_code} for s in out.segments]
+        failure = self._chain_failure(out, run_id)
         self._log_run("end_run", run_document(
             run_id, task_id, inputs, started, ended_at=utc_iso(), total_duration_sec=round(time.monotonic() - t0, 3),
             overall_status=out.overall_status, error_code=out.error_code, failed_step=out.failed_step,
-            extra={**extra, "segments": segments, "reason": out.reason}))
+            extra={**extra, "segments": segments, "reason": out.reason, **({"failure": failure} if failure else {})}))
         problems = [] if out.overall_status == "COMPLETED" else [out.reason]
         self._finished(RunResult(out.overall_status, {}, error_code=out.error_code, failed_step=out.failed_step,
-                                 problems=problems, run_id=run_id))
+                                 problems=problems, run_id=run_id, failure=failure))
+
+    def _chain_failure(self, out: plan_exec.PlanRun, run_id: str) -> dict | None:
+        """묶음 계획의 last.failure (#376·#377): FAILED 일 때만. 멈춘 구간이 FAILED 면 그 구간의 처음 원인(case_id 포함)을
+        상위 R 로, 구간 실패가 아닌 묶음 단위 원인(PLAN_EFFECT_UNMET·PLAN_NO_PROGRESS·UNPLANNABLE·INTERNAL_ERROR)은 그 코드만."""
+        if out.overall_status != "FAILED":
+            return None
+        last = out.segments[-1] if out.segments else None
+        if last is not None and last.overall_status == "FAILED" and last.failure:
+            return {**last.failure, "run_id": run_id}
+        return {"run_id": run_id, "boot_id": self.runner.boot_id, "code": out.error_code, "step": out.failed_step,
+                "action": None, "case_id": None, "strategy": None, "text": None}
 
     def _log_run(self, method: str, doc: dict) -> None:
         """상위 문서 기록 — 실패해도 실행·결과는 그대로 (Runner._log 와 같은 규칙)."""
@@ -399,6 +414,9 @@ class RunnerNode(Node):
                 reason = (intent_router.STOPPED_BEFORE_START if self._refused == CANCELED_BEFORE_START
                           else intent_router.BUSY)
                 decision = intent_router.Decision(intent_router.REJECT, reason, intent=decision.intent)
+            else:                               # 실제로 시작한 요청만 — last.failure 가 어느 요청의 결과인지 (#376)
+                self._accepted = {"request_id": (decision.intent or {}).get("request_id"), "run_id": decision.run_id,
+                                  "task_id": decision.task.get("task_id")}
         if decision.kind == intent_router.CANCEL and decision.reason is None:
             self.runner.halt(source="voice")    # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
         summary = decision.summary()
@@ -639,6 +657,7 @@ class RunnerNode(Node):
         status = build_status(self.running, self.runner.halted, self.runner.halt_code, self._task_id,
                               self.runner.current_step, self._last, self._last_task_id, degraded, halt=halt)
         status["last_intent"] = self._last_intent
+        status["accepted"] = self._accepted              # 최근 수락 요청 (#376) — 이번 기동에 없으면 null
         status["state_reset_at"] = self._state_reset_at   # 마지막 상태 초기화 시각 (UTC, 없으면 null)
         status["boot_id"] = self.runner.boot_id          # 계약 W4 (#271): 이 Runner 기동 — 재기동하면 새 값
         return status

@@ -15,6 +15,7 @@ from typing import Callable, Mapping, Optional, Sequence
 
 from ready2go_skills.core import motion_plan as mp
 from ready2go_skills.core import pick_plan as pp
+from ready2go_skills.core.pose_math import finite as _finite
 
 BAD_PARAMS = "BAD_PARAMS"
 PLACE_NOT_CONFIGURED = "PLACE_NOT_CONFIGURED"
@@ -27,10 +28,6 @@ class Refusal:
     error_code: str
     reason: str
     blocked_by: Optional[str] = None
-
-
-def _finite(*values) -> bool:
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
 
 def pose_error(pose, location: str) -> Optional[str]:

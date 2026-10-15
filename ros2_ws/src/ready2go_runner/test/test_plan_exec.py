@@ -138,6 +138,8 @@ def test_composite_failure_sends_no_followup():
     out = run_plan(runner, onto, [DELIVER, TOP_OPEN], load_task, limits=LIMITS)
     assert out.overall_status == "FAILED" and out.error_code == "TARGET_NOT_FOUND"
     assert ("drawer_top", "open") not in robot.drawer_moves()
+    failure = out.segments[0].failure                                                # #376: 구간의 처음 원인을 묶음까지 들고 옴
+    assert (failure["code"], failure["step"], failure["run_id"]) == ("TARGET_NOT_FOUND", "s8", out.segments[0].run_id)
 
 
 def test_halt_inside_composite_aborts_keeps_lock_and_nothing_suspended():

@@ -2,6 +2,18 @@
 
 > 의미·정책·책임·Phase·수용 기준: [FR-ONT-01–03](../docs/requirements.md#fr-ont-01)·[물품 정책](../docs/requirements.md#item-policy)·[가림 정책](../docs/requirements.md#occlusion-policy). 설명: [`docs/ontology.md`](../docs/ontology.md). 과거 그래프는 현재 데이터의 근거로 사용하지 않습니다.
 
+## #302 계획 전용 composite 필드 — E 구현 / C 연결 대기
+
+[구현·형식 확정 근거 확인] 원본은 [`skills/handover_with_unpack.jsonld`](skills/handover_with_unpack.jsonld)입니다. 기존 composite 종류·태스크 참조·실제 `effect: sensing`을 보존하고, `plan_effect`와 `from: Drawer` 입력을 추가했습니다. `target`·`from`을 바인딩한 빈손/현재 위치/해당 서랍 닫힘 pre를 검사하며 이 세 값의 누락·unknown은 충족되지 않습니다. 위·아래 서랍 상수나 동작 순서를 추가하지 않았습니다. `from`은 C의 계획/진입 조건에 쓰고 내부 태스크에는 기존 `target` 입력을 전달하는 안입니다. 다른 서랍 닫힘/one_open은 C의 기존 일반 규칙이며 E가 복제하지 않았습니다.
+
+[검사 연결] `ontology.load()`는 새 필드가 있는 정의만 composite·sensing·태스크/매개변수 선언·비어 있지 않은 레코드와 등록된 참조를 검사합니다. 새 필드의 pre/계획 레코드는 기존 subject/predicate/value 구조를 사용하며 현재 지원 predicate는 located_in/open/gripper입니다. subject/value의 클래스·상수·$param 참조와 pre 연산자를 확인합니다. 이 필드가 없는 구 단일 파일 로딩은 보존합니다. `tools/validate_contracts.py`의 기존 load 호출로 검사되며 도구 자체는 수정하지 않았습니다. 로딩/검사는 계획 예상 효과를 state에 적용하지 않으며 실제 상태 반영을 새로 연결하지 않습니다.
+
+[main 미연결: 기준 47301366] 기준 main `47301366`의 C planner는 여전히 primitive만 후보로 삼습니다. 실제 공개 plan은 composite 단독 계획을 만들지 못하고 Runner의 공개 run은 실행 전 composite를 TASK_INVALID로 거절합니다. 따라서 데이터 정의·형식 검사 완료와 자동 언패킹 실행 완료는 다릅니다. main에는 후보/구간 실행·실제 상태 재계획 연결이 없으며, 공개 C 후속 core의 직접 검증은 다음 단락에서 구분합니다. main·노드 운영 연결은 담당 후속입니다. #371의 선행 보호는 별도 PR이며 이번 E 전체 CI가 그 C PR을 다시 검사했다는 뜻이 아닙니다.
+
+[후속 직접 검증] E 데이터/로더 `a991a888`의 실제 원본을 C #373 head `810de713`의 opt-in `plan(composites=True)`·`plan_exec.run_plan`에 입력해 직접3사례를 확인했습니다. 판 치우기→지우개 전달→판 원위치→실제 위치 확인→위 서랍 열기, 최종 아래 서랍 닫힘 유지와 성공 표기만 있는 미전달의 PLAN_EFFECT_UNMET 차단이 모의 장치에서 통과했습니다. C가 만든 온톨로지 형식 복사본 대신 E 원본을 로드했고 예상 효과의 선행 실제 상태 적용이 없음을 확인했습니다. 이는 공개 core API 연결이며 노드의 achieve_goal 기본 연결/opt-in·수락 run_id·음성 상관은 여전히 별도입니다. 이 모의 검증과 형식 승인·실제 운용 완료는 별개의 근거입니다.
+
+근거: [#302 승인 범위](https://github.com/Jik-Kim/ready2go/issues/302#issuecomment-6182976292), [FR-PLN-02](../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../docs/requirements.md#fr-ont-02)·[FR-ACT-04](../docs/requirements.md#fr-act-04)·[가림 정책](../docs/requirements.md#occlusion-policy). E 형식 확정은 사용자 기존 선택 승인과 10/15 “ㅇㅋㅇㅋ 수정해”(turn01a13d8a-45cd-7cb3-8831-df7a19d650bc)를 근거로 하고, C의 실제 [APPROVE 5527505545](https://github.com/Jik-Kim/ready2go/pull/375#pullrequestreview-5527505545)와 구분합니다. E COMMENT 5527475091을 GitHub 승인 인원으로 계산하거나 자기 계정 Approve를 추가하지 않았습니다. C 검토 보고의 C #373 a8faf5a + E b7947400 병합 모의935 passed/15 skipped는 재사용 근거이며 이번 직접 실행이 아닙니다. C의 max_rounds 경계는899ff7f에서 해소됐고 시험 가정은a8faf5a에서 정정됐습니다. 노드 기본 composites=False이므로 E 데이터와 C core의 병합 순서는 필수 선행 조건이 아닙니다. 노드 achieve_goal→run_plan/상위run·음성 상관은 별도 후속이며 PC2·API·ROS·로봇 수용 검증은 미완료입니다.
+
 ## 작성 원본과 진입점
 
 | 파일 | 역할 |

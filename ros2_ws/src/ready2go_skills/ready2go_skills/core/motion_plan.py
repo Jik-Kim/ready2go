@@ -15,12 +15,9 @@ from typing import Mapping, Optional, Sequence
 
 from ready2go_skills.core import pose_math as pm
 from ready2go_skills.core.pick_plan import rotate
+from ready2go_skills.core.pose_math import finite as _finite
 
 NO_PUSH_ACCESS = "NO_PUSH_ACCESS"      # 옆으로 끌어도 잡을 수 없음 (앞뒤 벽 때문) — docs/runner.md nudge_object 표
-
-
-def _finite(*values) -> bool:
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
 
 def interp(x: float, xs: Sequence[float], ys: Sequence[float]) -> float:
@@ -172,7 +169,6 @@ def tip_contact(tilt_rad: float, g: Mapping) -> tuple:
     손끝 끝은 반지름 R 반원, 수직일 때 바닥점이 TCP 아래 tip mm → 반원 중심은 TCP 아래 (tip − R)."""
     tip, r = tip_below_tcp_mm(0.9, g), g["tip_radius_mm"]
     return (tip - r) * math.sin(tilt_rad), (tip - r) * math.cos(tilt_rad) + r
-
 
 
 @dataclass(frozen=True)
@@ -417,12 +413,7 @@ def plan_drag(*, target: Mapping, size_m: Sequence[float], interior_m: Sequence[
     넛지를 못 하면 긴 변 양끝으로 집기(needed False 로 돌려 집기로 넘어감)."""
     if g.get("round"):
         return _plan_drag_round(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=drag)
-    r = None
-    if r and not r[1]:
-        return DragPlan(False, None, 0.0, None, r[0], 0.0, "원통형이 옆벽에 붙음 — 넛지하면 굴러감 → 긴 변 양끝을 벽 쪽으로 기울여 집기")
-    if r:                                                   # 모서리: 긴 변 방향(서랍 x)으로만 끎 — 짧은 변 방향(y)으로 밀면 굴러감 [사용자 10/10]
-        return _plan_drag_round_corner(target, size_m, interior_m, g, drag, r[0])
-    if (g.get("axis_grasp") and not g.get("round") and axis_grasp_fits(size_m, g)
+    if (g.get("axis_grasp") and axis_grasp_fits(size_m, g)
             and is_crosswise(target["pose"]["yaw"])):       # 가로에 가까우면 긴 변 [사용자 10/10]
         ag = plan_axis_grasp(target=target, size_m=size_m, interior_m=interior_m, g=g, drag=drag)
         return ag.drag or DragPlan(False, None, 0.0, None, 0.0, 0.0, "끌지 않아도 잡을 수 있음 — " + ag.reason)

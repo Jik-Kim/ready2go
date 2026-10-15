@@ -21,7 +21,7 @@
 3. **완전 부재 처리**: 서랍 내부 이동 후에도 정해진 탐색 한도/안전 조건 안에서 목표를 찾지 못하면 미발견 또는 실행 불가를 안내함. 장애물이 서랍 안에 남으므로 서랍이 비워진다고 가정하지 않음.
 
 ### 8.3 스마트 원위치 복구 (Rollback) & 동적 온톨로지 갱신
-* **스마트 복구**: 목표물을 `handover_zone`에 전달한 뒤, 기록을 역순으로 읽어 같은 서랍 안에서 옮긴 장애물을 재관측·재식별하여 **원래 서랍 로컬 좌표**로 복구하는 P2 계획. 복구 직전에 서랍 좌표계를 재추정(현재 인출 거리 반영)하고, 원래 자리 점유 등 안전 조건이 맞지 않으면 임의 위치를 원위치 복구 성공으로 처리하지 않음. 대응은 B·C·E가 검증·합의해야 함. 높이(z): **현재 B `place_object` 서랍 안 놓기는 서랍 바닥만 지원**(#166, [runner.md 7.1](runner.md) `place_object`) — 받치던 물체가 남아 있으면 겹침 검사로 `PLACE_BLOCKED`(움직이기 전), 없으면 바닥에 놓여 원래 높이와 달라짐(C 가 AC-ACT-03 미달로 기록). 다른 물체 위 복구는 [FR-ACT-04](requirements.md#fr-act-04) 목표와의 차이로 **협의 항목**(#134, 완료 아님). 서랍 안 놓기 구현은 #191(머지 전까지 main 은 `UNSUPPORTED_PARAMS`로 거부), 실물 미확인, `place_slots`·아래 칸 `drag_down` 교시 전(`PLACE_NOT_CONFIGURED`).
+* **스마트 복구**: 목표물을 `handover_zone`에 전달한 뒤, 기록을 역순으로 읽어 같은 서랍 안에서 옮긴 장애물을 재관측·재식별하여 **원래 서랍 로컬 좌표**로 복구하는 P2 계획. 복구 직전에 서랍 좌표계를 재추정(현재 인출 거리 반영)하고, 원래 자리 점유 등 안전 조건이 맞지 않으면 임의 위치를 원위치 복구 성공으로 처리하지 않음. 대응은 B·C·E가 검증·합의해야 함. 높이(z): B `place_object` 서랍 안 놓기는 바닥과 **받치던 물체 윗면 위 되돌리기**를 지원합니다(`params/skills.yaml` `place.allow_stack_place` — 값은 원본, #191 머지 뒤 10/12 추가). 받침이 없어졌으면 바닥에 놓여 원래 높이와 달라질 수 있습니다(C 가 AC-ACT-03 기준으로 기록). [FR-ACT-04](requirements.md#fr-act-04) 목표 전체와의 차이는 **협의 항목**(#134, 완료 아님)입니다. 두 칸의 `drag_down`·`place_slots`(`aside_1`·`aside_2`)는 교시됐고(`config/poses.yaml`·`places.yaml`), 쌓은 위 놓기의 실물 확인 범위는 B 일지 기준입니다.
 * **복구 정확도 측정**: 선행 연구에 정량 자료가 없으므로 위치·요(yaw) 오차를 같은 카메라로 직접 측정해 지표로 보고(14장).
 * **동적 온톨로지 업데이트**: 목표 발견 시 `update_ontology`로 명시 갱신하고, 같은 서랍 안에서 옮긴 장애물의 `located_in`은 해당 서랍으로 유지됨. 임시/원래 pose 추적과 관측 기반 상태 반영은 C·E 후속 설계이며 `inspect_region` 호출만으로 자동 갱신 완료를 뜻하지 않음.
 
@@ -29,7 +29,7 @@
 
 | 대상·담당 | 근거·영향·필요 조치 |
 | :--- | :--- |
-| TODO(B·C·E): `place_object`/`inspect_region` 연결 | 서랍 안 놓기 계약(#166 머지, #120 ② 제안): `location` 서랍 + `pose`/`slot` + `scan`(`$scan`, `target`·`candidates` 모두 이웃), 이웃·벽 겹침은 움직이기 전 거부, `placed_pose` = 명령한 자리(실제 위치는 재관측) — [runner.md 7.1](runner.md), `contracts/examples/place_object_result.json`. B 스킬 서버 구현 10/08(#191 머지 전, `core/place_plan.py`, 실물 미확인, 고정 자리 `place_slots` 교시 전). 빈 자리 자동 계산·실패/취소 복구 계약은 아직. 기존 `aside`/`avoid` 제안은 확정 필드로 추가하지 않음 |
+| TODO(B·C·E): `place_object`/`inspect_region` 연결 | 서랍 안 놓기 계약(#166 머지, #120 ② 제안): `location` 서랍 + `pose`/`slot` + `scan`(`$scan`, `target`·`candidates` 모두 이웃), 이웃·벽 겹침은 움직이기 전 거부, `placed_pose` = 명령한 자리(실제 위치는 재관측) — [runner.md 7.1](runner.md), `contracts/examples/place_object_result.json`. B 스킬 서버 구현은 #191 머지(`core/place_plan.py`), 고정 자리 `place_slots` 교시됨. 빈 자리 자동 계산은 `slot: "free"`(#241·#250, 다시 집을 자리만 — `place.free_repickable_only`), 실패/취소 복구 계약은 아직. 기존 `aside`/`avoid` 제안은 확정 필드로 추가하지 않음 |
 | TODO(C·E): `tasks/find_with_unpack.json` | 현재 s7.2=`staging_tray`, f1.2=`tray_view`, f1.3=`source_slot`인 이전 예시. 내부 이동/재식별·원래 pose 기록 계약을 반영한 뒤 갱신·검증. 새 좌표를 임의로 넣지 않음 |
 | TODO(C·E): Runner/플래너·온톨로지 | 이미 옮긴 물체의 반복 제거 방지, `restore_stack` 식별/pose·역순 복구, located_in 유지와 pre/effect 의미 대조 필요 |
 | TODO(B·C·A·E): 잔존 `staging_tray` | world/초기상태, places.yaml, vision_stub, ICD TF/region·place, 관련 테스트·로그 예시가 참조함. 승인·소비자 정리 전에 삭제하지 않음. `tray_view`는 전달 트레이 용도 필요 여부를 B가 판단 |
@@ -48,7 +48,7 @@
   * **닫기는 노드 하나가 다 함** [B 결정 10/08, #181 C·E 리뷰]: Runner 는 `drawer_control(close)` 한 번, 노드가 (서랍 위면 홈 →) 시작 자세로 관절 이동(이동하며 45° 기울이기) → 밀기. #168 "숨은 이동 없음"의 예외 — 온톨로지 `close_drawer` 전개(`drawer_control` 하나)·C 태스크 그대로. C·E 동의 확인 필요. 실패 후 상태: 이동 중 실패면 그 자리 정지, 미는 중 걸림이면 정지(`CLOSE_NOT_CONFIRMED`), 취소는 다음 명령(그리퍼 포함) 전에 멈춤. 20° 는 손잡이에 닿음 [실측 10/08].
   * 서랍에 `close_push` 교시가 없으면 움직이기 전 `DRAWER_NOT_CONFIGURED`. 예전 홈 자세 수직 손끝 밀기는 두 칸 모두 교시 뒤 안 써서 10/12 코드 정리로 뺌.
 * **서랍 상태**: 열린 거리는 센서가 아니라 스킬 서버가 움직인 거리를 기억(`drawer_displacement`). 서버를 다시 켜면 닫혀 있다고 봄 → 손으로 연 서랍은 `displacement`(m)로 알려 줌. `/drawers/state` 는 미구현.
-* **아래 서랍(`drawer_bottom`)** [실측 B 10/08]: 손잡이 파지(닫힘) TCP z 120.5 (위 칸 268.6, 같은 손목 방향), 손잡이 앞 = +y 108 mm, 최대 인출 226.6 mm. 넛지·집기·들고 나오기 경유점과 서랍 안 이동 높이 상한은 교시 전.
+* **아래 서랍(`drawer_bottom`)** [실측 B 10/08]: 손잡이 파지(닫힘) TCP z 120.5 (위 칸 268.6, 같은 손목 방향), 손잡이 앞 = +y 108 mm, 최대 인출 226.6 mm. 넛지·집기 경유점(`drag_down`)·들고 나오기(`carry_line`)·탑뷰는 교시됨(`config/poses.yaml`), 수직으로 닿는 깊이 129 mm(`params/skills.yaml` `drawer_reach_x_mm`).
 * 이전 설계안(DRL 컴플라이언스 제어로 인출 축 외 방향 부드럽게, 닫힘 실패 시 5 cm 다시 열고 재시도)은 **구현하지 않음** — 위치 이동 + 축 방향 힘 감시로 대신함.
 
 ### 8.5 벽 인접 물체 밀어오기 (담당 B)
@@ -74,7 +74,7 @@
   * **누르기**: `press_speed_mm_s` 2 mm/s로 내려가며 힘 z가 `touch_force_n` 5 N을 넘으면 즉시 멈춘다. 멈춘 채 0.1 s 간격으로 3번(`press_confirm`) 모두 5 N 이상일 때만 접촉으로 보고, 아니면 그 자리에서 다시 내려간다(접촉 확인 재시도 `touch_retries` 최대 2번 — 튄 값 대책). 누르는 동안 `press_max_force_n` 8 N 상한을 항상 본다. 위 서랍은 z 14 N에서 앞으로 넘어가므로 10 N을 넘기지 않는다 [실측 B 10/07]. 접촉 높이가 예상 ± 3 mm 밖이면 끌지 않는다.
   * **힘 풀기**: 0.1 mm씩 올려 누르는 힘을 `drag_force_n`(10/13 값 0.5~1.2 N, 처음 10/07 1.5~2.5 N — 지금 1.5~2.5 는 공간 만들기 sweep 의 `sweep_force_n`)으로 맞춘다. 3 mm 올려도 상한을 넘으면 `PUSH_BLOCKED`. 눌린 채 0.1 mm 이동은 제어기가 덜 움직여 도착 판정(0.05 mm) 전에 멈출 수 있어 [실측 B 10/07 PC2 `relax:2` 남은 0.1 mm], 한 칸의 `NOT_REACHED`는 실패로 끝내지 않고 다음 칸으로 넘어간다(목표는 명령 위치에 누적). 힘이 범위에 들면 **실제 멈춘 자리**를 끌기 시작 위치로 다시 읽는다(#135).
   * **끌기 전 재시도**: 누르기·힘 풀기에서 안전 코드가 아닌 실패(`NO_OBJECT_CONTACT`, `PUSH_BLOCKED`, `NOT_REACHED` 등)가 나면 누를 자리 위(`start_above_mm`)로 올라가고, 그 자리에 1 mm 안으로 돌아온 것을 확인한 뒤 같은 좌표에서 누르기부터 다시 한다. 총 `press_attempts` 3회. 물체가 아직 끌리지 않았으므로 같은 좌표를 쓴다. 위의 `touch_retries`(멈춘 자리에서 접촉 확인만 다시)와 다르다. **끌기 시작 뒤 실패·안전 코드는 재시도하지 않는다.** Runner의 이동 뒤 pick 재시도 억제(`MOTION_UNCERTAIN`)는 그대로이며, 이 재시도는 `nudge_object` 한 번의 호출 안에서만 일어난다 [사용자 10/07 "넛지 안 되면 닫지 말고 다시"].
-  * **끌기**: 누른 z 그대로 서랍 옆(y)으로 `shift_mm`만큼 끈다(현재 값은 params 정본, 10/07 저녁 **40 mm**). 33 mm는 10/07 손끝 실측 좌표(y 0.2904) 기준으로 실물 성공했지만, PC2 P1에서 비전 좌표가 벽 쪽 2 mm(0.2924)라 끈 뒤 집기 `WALL_TOO_CLOSE` 1.8 mm 부족 → 40 mm(비전 오차 ±2 mm 여유) [#135]. **40 mm는 실물 미검증.** 끄는 중 힘 변화가 `max_force_n` 8 N을 넘으면 멈추고 `PUSH_BLOCKED`. 서랍이 닫히는 방향으로는 끌지 않는다(서랍이 같이 밀림, 10/06).
+  * **끌기**: 누른 z 그대로 서랍 축(옆 y, 안쪽 벽이면 앞 x)으로 끈다. 거리는 지금 **계산**입니다(`params/skills.yaml` `drag.shift_mm: null` — 벽 쪽 잡기에 모자란 만큼 + 여유, 넛지가 필요 없는 자리면 안 끎). 끄는 중 수평 힘 변화가 `drag.max_force_n`(원본 값, 10/10 8 → 15 N)을 넘으면 멈추고 `PUSH_BLOCKED`. 서랍이 닫히는 방향(안쪽 +x)으로는 끌지 않는다(서랍이 같이 밀림, 10/06). [과거] 10/07 저녁에는 고정 40 mm·8 N이었다 — 33 mm 실물 성공 뒤 PC2 P1 비전 오차 2 mm로 `WALL_TOO_CLOSE` 1.8 mm 부족 → 40 mm [#135], 10/10에 계산 거리로 바꿈.
   * **10/13 현재 (위 줄은 10/07 기록)**: 끄는 거리는 계산(`shift_mm: null` — 잡기에 모자란 만큼 + `extra_mm` 5 mm, 최대 `max_shift_mm` 80 mm), 끄는 중 힘 상한 옆 `max_force_n` 15 N·위아래 `max_force_z_n` 10 N. 방향은 서랍 x·y 둘 다(옆벽에서 y, 앞뒤 벽에서 x, 손잡이 쪽 비스듬하면 대각선). 그 밖에 벽까지 뒤에서 밀기(`plan_drag` `push_to_xy_m` → `_push_from_behind`), 쌓인 물체 넛지(받침 위 기준), 가운데가 뚫린 물체(`drag.hole_classes` 마스킹테이프)는 닫은 손가락을 구멍에 넣어 밀기(10/13, 실물 미확인). 넛지 동작 속도는 `speed.nudge`(`{}` = 평소 속도, 10/13). 값 정본은 `skills.yaml` `drag`.
   * **끝**: `lift_mm` 30 mm 위로 올라간 뒤 응답한다. 안전 정지 코드가 아닌 실패에서도 같이 올라간다. 도착 판정은 좌표 기준(목표 ± 허용 오차 + 정지)이다.
   * **바닥 높이**: 서랍 TF z에는 설치 오차가 있어, 누르는 높이는 힘 감지로 확인한다.

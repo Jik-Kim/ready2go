@@ -36,8 +36,8 @@
 - `nodes/skill_server.py` — 액션 `/skills/{move_to_named_pose, drawer_control, nudge_object, pick_object, place_object}`. `_do_pick_object`(by_height 집기), `_push_from_behind`, `_restore_held`, `_yaml_cached`.
 - `core/place_plan.py` — `objects_under`·`ontology_support_m`·`stack_support`, 놓기 겹침. `core/motion_plan.py` 손끝 표·벽 간섭. `core/grasp_check.py` HELD/SLIPPED/DROPPED/SENSOR_INVALID.
 - `params/skills.yaml` — 속도·힘·집기·넛지 값. `config/poses.yaml`·`places.yaml`(서랍·트레이 tf·aside). `config/item_grasp.yaml` 은 E 온톨로지 시험 규칙 때문에 grip_force null 유지(바꾸면 시험 깨짐).
-- `scripts/b_sk.py` — `B <동작> top|bottom [물체]`. 서랍 필요: `ready open opened close view scan rescan nudge all dragtest find clear free plan unpack` / 서랍 없음: `home pick place putback trayview trayclear`. 두 단어 이름·별명(몽키·가림막 등). `scripts/b_flow.sh`(build·server).
-  - **시작 상태가 다름 — 틀리면 부딪힘**: `B find`·`clear`·`free`는 **서랍을 손으로 열고 `B opened` 뒤**. `B unpack`·`B all`은 **서랍 닫힘·빈손·홈에서** — 스스로 손잡이 앞(`ready`)으로 가서 엶. 손으로 연 서랍에 `B unpack`/`B ready` 를 치면 손잡이 앞 자세가 열린 서랍 안이라 **부딪힘** [실측 PC2 10/12 사고].
+- `scripts/b_sk.py` — `B <동작> top|bottom [물체]`. 서랍 필요: `ready open opened close view scan rescan nudge clear plan unpack` / 서랍 없음: `home pick place putback trayview trayclear`. 두 단어 이름·별명(몽키·가림막 등). `scripts/b_flow.sh`(build·server).
+  - **시작 상태가 다름 — 틀리면 부딪힘**: `B clear`는 **서랍을 손으로 열고 `B opened` 뒤**. `B unpack`은 **서랍 닫힘·빈손·홈에서** — 스스로 손잡이 앞(`ready`)으로 가서 엶. 손으로 연 서랍에 `B unpack`/`B ready` 를 치면 손잡이 앞 자세가 열린 서랍 안이라 **부딪힘** [실측 PC2 10/12 사고].
 
 ## 4. PC2 실행 방법 — **평소(B 방식)와 통합(컨테이너)은 다른 구성. 섞으면 서버·드라이버가 두 개 뜸**
 
@@ -63,8 +63,8 @@
 5. 비전: `cd ~/ready2go && export DDS_MODE=local && bash tools/dev/vision_real_check.sh node` (`weights_sha256 b2ae5af07e2d`)
 6. 명령 창: `r2genv; ros2 node list | grep -c skill_server` → **`1`이어야 함** (2 이상이면 멈춤)
 7. 서랍 닫힌 채 `B home` → 그다음 명령의 시작 상태(3절 b_sk 항목)를 맞춤:
-   - `B unpack top 몽키` / `B all top`: 서랍 **닫힌 채** 그대로
-   - `B find`·`clear`·`free`·`scan`·`pick` 하나씩: 서랍 **손으로 끝까지 열고** `B opened top` (그 뒤 `B ready`·`B open`·`B unpack` 금지)
+   - `B unpack top 몽키`: 서랍 **닫힌 채** 그대로
+   - `B clear`·`scan`·`pick` 하나씩: 서랍 **손으로 끝까지 열고** `B opened top` (그 뒤 `B ready`·`B open`·`B unpack` 금지)
 - 끝: 홈 → 서랍 닫기(로봇 `B close top` 또는 손 — 손이면 서버 재시작) → 창들 Ctrl+C → `docker compose down; docker rm -f vision_check`
 - 비전 찍기만: 탑뷰(`B view top|bottom`)에서 `bash tools/dev/vision_real_check.sh call <물체> drawer_top|drawer_bottom`. 자세와 칸이 다르면 `REGION_NOT_VISIBLE`(정상), 카메라 꺼짐 `CAMERA_TIMEOUT`, TF 없음 `TF_UNAVAILABLE`.
 
