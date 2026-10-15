@@ -1170,7 +1170,7 @@
 
   function getSelectedExecutionItem() {
     const items = state.task.executionItems || [];
-    return items.find((item) => item.id === state.task.selectedExecutionItemId) || items[0] || null;
+    return items.find((item) => item.id === state.task.selectedExecutionItemId) || null;
   }
 
   function renderTaskItems() {
@@ -1188,10 +1188,21 @@
       button.addEventListener("click", () => {
         // 조회 선택은 현재 실행 물품·작업 위치·상단 제목을 바꾸지 않는다.
         state.task.selectedExecutionItemId = entry.id;
-        renderTask();
-        container.children[index]?.focus({ preventScroll: true });
+        // 선택 시 숨겨진 상세를 펼치고 기존 버튼·제목 DOM과 포커스를 보존한다.
+        state.task.detailsExpanded = true;
+        updateTaskSelection();
+        renderTaskDetails();
       });
       container.append(button);
+    });
+    updateTaskSelection();
+  }
+
+  function updateTaskSelection() {
+    // 버튼을 다시 만들지 않고 선택 접근성 속성과 안내만 갱신한다.
+    const selected = getSelectedExecutionItem();
+    [...getById("taskItemOrder").children].forEach((button, index) => {
+      button.setAttribute("aria-pressed", String(state.task.executionItems[index].id === selected?.id));
     });
     getById("taskItemSelection").textContent = selected
       ? `선택 물품: ${selected.name} · 아래 단계와 근거는 선택한 물품 기준`
@@ -1200,7 +1211,6 @@
 
   function renderTask() {
     renderTaskItems();
-    const selectedSteps = getSelectedExecutionItem()?.steps || [];
 
     const workDrawer = getWorkDrawer();
     const location = workDrawer ? workDrawer.label : "확인 전";
@@ -1226,6 +1236,12 @@
       makeStatus(state.command.receipt.status, state.command.receipt.label),
     );
 
+    renderTaskDetails();
+  }
+
+  function renderTaskDetails() {
+    // 접힘·선택 단계·근거만 갱신한다. 현재 실행 제목/위치와 조회 서랍은 건드리지 않는다.
+    const selectedSteps = getSelectedExecutionItem()?.steps || [];
     const details = getById("taskDetails");
     const toggle = getById("taskDetailsToggle");
     details.hidden = !state.task.detailsExpanded;

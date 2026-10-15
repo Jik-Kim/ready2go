@@ -208,7 +208,7 @@ def test_mock_current_task_uses_eraser_copy_and_shared_item_image(tmp_path: Path
     rendered, _image_request_count = _render_dashboard(
         tmp_path,
         runtime_profile="dev",
-        camera_received=False,
+        camera_received=False, scenario="preview",
     )
 
     assert 'id="taskHeadingIcon"' in rendered
@@ -431,3 +431,46 @@ def test_preview_item_selection_changes_only_selected_detail(tmp_path: Path, vie
     for snapshot in [key, watch, eraser]:
         for field in ["title", "location", "drawer"]:
             assert snapshot[field] == initial[field]
+
+
+@pytest.mark.parametrize("scenario", ["default", "unknown"])
+def test_no_example_task_in_normal_scenario(tmp_path: Path, scenario: str) -> None:
+    """일반/미정의 접속에서는 예시 버튼·단계·제목이 남지 않는다."""
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False, scenario=scenario)
+    assert 'class="task-item-button"' not in rendered
+    assert "지우개의 전달 결과를 확인하는 중" not in rendered
+    assert "차 키 집기" not in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_collapsed_selection_opens_details_without_replacing_button(tmp_path: Path, viewport_width: int) -> None:
+    """접힌 상태에서 선택하면 상세가 열리고 버튼/제목 DOM·키보드 포커스는 보존된다."""
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        scenario="preview", viewport_width=viewport_width, interaction_script="""
+          document.getElementById('taskDetailsToggle').click();
+          const button = document.querySelector('.task-item-button');
+          const heading = document.getElementById('taskHeadingIcon');
+          button.focus(); button.click();
+          const out = document.createElement('pre'); out.id = 'focus-result';
+          out.textContent = JSON.stringify([
+            !document.getElementById('taskDetails').hidden,
+            document.getElementById('taskDetailsToggle').getAttribute('aria-expanded'),
+            button === document.querySelector('.task-item-button'),
+            heading === document.getElementById('taskHeadingIcon'),
+            document.activeElement === button]);
+          document.body.append(out);
+        """)
+    match = re.search(r'<pre id="focus-result">(.*?)</pre>', rendered)
+    assert match is not None
+    assert json.loads(unescape(match.group(1))) == [True, "true", True, True, True]
+
+
+@pytest.mark.parametrize("scenario", ["error", "long"])
+def test_preview_labels_are_consistent(tmp_path: Path, scenario: str) -> None:
+    """시나리오가 준비물·실행 항목에 동일한 이름/오류 어휘를 적용한다."""
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False, scenario=scenario)
+    if scenario == "error":
+        assert "지우개 · 오류" in rendered
+        assert "지우개 · 확인 불가" not in rendered
+    else:
+        assert rendered.count("업무용 손목시계 및 교통카드 케이스") >= 2

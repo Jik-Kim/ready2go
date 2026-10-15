@@ -100,7 +100,37 @@
     },
   };
 
+  // 실행 순서 예시는 등록 목록과 독립적이다. 시나리오별 변경은 아래 함수에만 둔다.
+  baseData.task.executionItems = [
+    {
+      id: "car-key", name: "차 키", statusLabel: "완료",
+      resultLabel: "예시 · 전달 확인 · 복구 완료",
+      steps: [
+        { id: "key-open", label: "서랍 열기", status: "complete", statusLabel: "완료", reason: "예시 · 요청 물품 접근", observation: "예시 · 열림 확인" },
+        { id: "key-pick", label: "차 키 집기", status: "complete", statusLabel: "완료", reason: "예시 · 요청 물품 일치", observation: "예시 · 파지 확인" },
+        { id: "key-deliver", label: "전달 검증", status: "complete", statusLabel: "완료", reason: "예시 · 전달 트레이 확인", observation: "예시 · 차 키 전달 확인" },
+        { id: "key-restore", label: "서랍 닫기·복귀", status: "complete", statusLabel: "완료", reason: "예시 · 작업 정리", observation: "예시 · 복구 완료" },
+      ],
+    },
+    {
+      id: "eraser", name: "지우개", statusLabel: "진행 중",
+      resultLabel: "예시 · 전달 결과 미확정", steps: [],
+    },
+    {
+      id: "watch", name: "시계",
+      statusLabel: "대기", resultLabel: "예시 · 미실행",
+      steps: [
+        { id: "watch-open", label: "서랍 열기", status: "waiting", statusLabel: "미실행" },
+        { id: "watch-pick", label: "시계 집기", status: "waiting", statusLabel: "미실행" },
+        { id: "watch-deliver", label: "전달 검증", status: "waiting", statusLabel: "미실행", reason: "예시 · 아직 실행하지 않음", observation: "관측 결과 없음" },
+      ],
+    },
+  ];
+
   const scenarios = {
+    preview(_data) {
+      // 명시적 미리보기는 기본 예시를 그대로 사용한다.
+    },
     error(data) {
       data.meta.label = "목업 오류 시나리오";
       data.meta.description = "실제 장치 오류가 아닙니다. 확인 전·상태 수신 실패·오류·데이터 없음 표시를 검토합니다.";
@@ -128,6 +158,7 @@
       };
       data.command.processing = { status: "error", label: "처리 상태 확인 불가 · 목업 예시" };
       data.task.status = "error";
+      data.task.executionItems[1].statusLabel = "오류";
       data.task.currentAction = "상태 데이터 없음 · 확인 필요 (목업 예시)";
       data.task.steps[3] = {
         ...data.task.steps[3],
@@ -151,48 +182,33 @@
     },
     long(data) {
       data.drawers[0].items[0].name = "손목시계 충전 거치대가 포함된 매우 긴 등록 물품명";
-      data.supplies[2].name = "업무용 손목시계 및 교통카드 케이스";
-      data.command.understood = "차 키·지우개·업무용 손목시계 및 교통카드 케이스를 찾아 전달합니다.";
+      const watchName = "업무용 손목시계 및 교통카드 케이스";
+      data.supplies[2].name = watchName;
+      data.task.executionItems[2].name = watchName;
+      data.command.understood = `차 키·지우개·${watchName}를 찾아 전달합니다.`;
     },
   };
 
   const params = new URLSearchParams(window.location.search);
-  const scenarioName = params.get("scenario") || "default";
+  // 미정의 이름은 운영 경로로 정규화해 예시/polling 우회를 방지한다.
+  const requested = params.get("scenario");
+  const scenarioName = Object.hasOwn(scenarios, requested) ? requested : "default";
   const data = JSON.parse(JSON.stringify(baseData));
 
+  // 깊은 복사 후 현재 물품 단계와 선택 상세가 같은 예시 배열을 사용하게 한다.
+  data.task.executionItems[1].steps = data.task.steps;
   if (scenarios[scenarioName]) {
     scenarios[scenarioName](data);
   }
 
-  // 화면 검토용 실행 순서다. 등록 목록·targets에서 실행 순서를 계산하지 않는다.
-  // TODO(D): C의 확정 실행 상세가 연결되면 별도 검증 모델로 교체한다.
-  data.task.executionItems = [
-    {
-      id: "car-key", name: "차 키", statusLabel: "완료",
-      resultLabel: "예시 · 전달 확인 · 복구 완료",
-      steps: [
-        { id: "key-open", label: "서랍 열기", status: "complete", statusLabel: "완료", reason: "예시 · 요청 물품 접근", observation: "예시 · 열림 확인" },
-        { id: "key-pick", label: "차 키 집기", status: "complete", statusLabel: "완료", reason: "예시 · 요청 물품 일치", observation: "예시 · 파지 확인" },
-        { id: "key-deliver", label: "전달 검증", status: "complete", statusLabel: "완료", reason: "예시 · 전달 트레이 확인", observation: "예시 · 차 키 전달 확인" },
-        { id: "key-restore", label: "서랍 닫기·복귀", status: "complete", statusLabel: "완료", reason: "예시 · 작업 정리", observation: "예시 · 복구 완료" },
-      ],
-    },
-    {
-      id: "eraser", name: "지우개", statusLabel: scenarioName === "error" ? "확인 불가" : "진행 중",
-      resultLabel: "예시 · 전달 결과 미확정", steps: data.task.steps,
-    },
-    {
-      id: "watch", name: scenarioName === "long" ? "업무용 손목시계 및 교통카드 케이스" : "시계",
-      statusLabel: "대기", resultLabel: "예시 · 미실행",
-      steps: [
-        { id: "watch-open", label: "서랍 열기", status: "waiting", statusLabel: "미실행" },
-        { id: "watch-pick", label: "시계 집기", status: "waiting", statusLabel: "미실행" },
-        { id: "watch-deliver", label: "전달 검증", status: "waiting", statusLabel: "미실행", reason: "예시 · 아직 실행하지 않음", observation: "관측 결과 없음" },
-      ],
-    },
-  ];
-  data.task.selectedExecutionItemId = data.task.executionItems.length ? "eraser" : null;
-
+  // 초기 선택은 현재 예시 물품과 일치할 때만 설정한다.
+  data.task.selectedExecutionItemId = data.task.executionItems.some(item => item.id === data.task.currentItemId)
+    ? data.task.currentItemId : null;
+  if (scenarioName === "default") {
+    // 운영 접속에서는 버튼뿐 아니라 예시 단계·근거·제목도 남기지 않는다.
+    Object.assign(data.task, { status: "waiting", executionItems: [], steps: [], selectedExecutionItemId: null,
+      currentItemId: null, currentItemIcon: null, workDrawerId: null, currentAction: "현재 작업 확인 전" });
+  }
   window.ROKEY_DEMO_DATA = data;
   window.ROKEY_DEMO_SCENARIO = scenarioName;
 })();
