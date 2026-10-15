@@ -42,6 +42,9 @@ ERROR_KO = {
     "PUSH_BLOCKED": "끌다가 힘 초과", "NO_OBJECT_CONTACT": "끌기: 물체 접촉 없음",
     "GRASP_FAILED": "파지 실패", "UNKNOWN_SKILL": "알 수 없는 스킬",
     "RESTORE_INCOMPLETE": "옮긴 물체를 원래 자리로 다 돌려놓지 못함 (되돌리기 실패·다시 못 찾음·쥔 채 멈춤) — 전달은 됐을 수 있음",
+    "TARGET_NOT_FOUND": "목표를 못 찾음 (치워 봐도 안 보임) — 꺼내지 못함, 정리는 함",
+    "OCCLUSION_UNKNOWN": "목표 위에 뭐가 있는지 모름 (비전 occluded_by null) — 집지 않음, 정리는 함",
+    "UNPACK_INCOMPLETE": "목표를 덮은 물체를 다 치우지 못함 (확정 못 함·반복 한도) — 꺼내지 못함, 정리는 함",
     "REGION_NOT_VISIBLE": "촬영 지역 바닥이 충분히 안 보임 (가림·뎁스 결손·다른 곳을 찍음) — 미검출 아님, 관측 오류",
     "TASK_INVALID": "태스크 검사 실패 — 실행 전 거절 (로봇 동작 없음)",
 }

@@ -1,0 +1,20 @@
+# #302 소규모 시험 전용. 운영 원본·초기 배치·현재 상태가 아님.
+@prefix r2g: <https://ready2go.local/onto#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+r2g:Item a rdfs:Class ; rdfs:label "물품"@ko .
+r2g:Valuables a rdfs:Class ;
+    rdfs:subClassOf r2g:Item ; rdfs:label "귀중품"@ko .
+r2g:Key a rdfs:Class ;
+    rdfs:subClassOf r2g:Valuables ; rdfs:label "열쇠류"@ko .
+
+r2g:car_key a r2g:Key ;
+    rdfs:label "차키"@ko ; r2g:alias_ko "자동차 열쇠", "스마트키" .
+r2g:airpods_case a r2g:Item ; rdfs:label "에어팟 케이스"@ko .
+r2g:lip_balm a r2g:Item ; rdfs:label "립밤"@ko .
+
+# 기존 commute_set의 시험용 표현. 운영 manifest에는 등록하지 않음.
+r2g:commute_set a r2g:ItemList ;
+    rdfs:label "출근 준비물"@ko ; r2g:alias_ko "출근 세트" ;
+    r2g:hasItem r2g:airpods_case, r2g:car_key, r2g:lip_balm .

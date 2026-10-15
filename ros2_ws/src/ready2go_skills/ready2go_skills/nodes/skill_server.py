@@ -23,6 +23,7 @@ import datetime
 import json
 import math
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -706,6 +707,11 @@ class SkillServer(Node):
             lift_z = max(lift_z, tr["safe_z_mm"])          # 홈 → z 300 → ready: drawer_control 열기·b_demo 와 같은 경로 (10/06 통합: 홈에서 바로 가면 손잡이보다 낮게 지나감)
         # 서랍 밖·빈손일 때만 (홈 → high_z 325 → 탑뷰: 이어지는 곳 305 > 앞판 295.5). 서랍 안(safe_z 300)·물체를 든 채면 테두리 여유가 작아 멈췄다 감
         blend = tr.get("blend_mm", 0.0) if cur[2] < lift_z and not self._over_drawer(cur) and not self.held else 0.0
+        # transit.view_blend_in_drawer: 빈손으로 서랍 위(경유점 1 등) → 탑뷰도 safe_z 에서 서지 않고 올리기 끝에서 관절 이동을 이음
+        # (아래에서 올리는 길이의 45% 까지 — 경유점 1 z 275 → 300 이면 z 약 289 에서 출발, 테두리 약 268 위) [사용자 10/15 "중앙 경유점 → z 위로 → 뷰, 약간 늦어"]
+        if (not blend and tr.get("view_blend_in_drawer") and pose_name == "drawer_top_view" and cur[2] < lift_z
+                and self._over_drawer(cur) and not self.held and not getattr(self, "hold_unknown", None)):
+            blend = tr.get("blend_mm", 0.0)
         if blend and pose_name == "drawer_top_view":       # 탑뷰: 올리는 끝 50 mm 부터 회전 시작 → 올라가기·회전이 같이 끝남 [사용자 10/08].
             # 홈(z 196) → z 275 에서 관절 이동 시작해도 손잡이(y −66) 위 약 59 mm·앞판(y −87) 위 약 49 mm [계산 m0609_kin]
             blend = min(max(blend, tr.get("view_lift_blend_mm", blend)), 0.45 * (lift_z - cur[2]))
@@ -1118,6 +1124,9 @@ class SkillServer(Node):
         sp = self._speed()
         start = self.robot.posx()
         sent = {}
+        # 보낸 점을 남김 — 실물이 guided(점 사이 moveb 경로 근처)대로 갔는지 비교 [10/15 PC2 차키 들고 나오기 z 400 까지 부풂·STOP_UNCONFIRMED]
+        self.get_logger().info(f"[{stage}] movesx 점 {len(via)}개, z {min(p[2] for p in via):.0f}~{max(p[2] for p in via):.0f} mm: "
+                               + " ".join(f"({p[0]:.0f},{p[1]:.0f},{p[2]:.0f}|{p[5] - p[3]:.0f})" for p in via))
 
         def send():
             early = sf.canceled_before_motion(lambda: goal.is_cancel_requested)
@@ -1209,6 +1218,30 @@ class SkillServer(Node):
             return g.move(width_mm, force_n)
         finally:
             g.close()
+
+    def _grip_async(self, width_mm, force_n):
+        """RG2 이동을 따로 시작 — 돌려준 함수를 부르면 끝날 때까지 기다리고 상태 반환 (예외는 그대로, 10 s 넘으면 TimeoutError)."""
+        box = {}
+
+        def run():
+            try:
+                box["st"] = self._grip(width_mm, force_n)
+            except Exception as e:                          # 기다리는 쪽에서 그대로 다시 던짐 → run_guarded 가 정지 확인
+                box["err"] = e
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+
+        def wait():
+            limit = float(getattr(self, "grip_wait_s", 10.0))
+            t.join(limit)
+            if t.is_alive():
+                # 끝났는지 모름 — 늦게 끝나며 다음 그리퍼 명령과 겹칠 수 있음 → 서버 잠금(모든 동작 거부, W2 복구·재시작으로 풂) [#365 E P1]
+                self._lock("pick_object", f"RG2 {width_mm:.0f} mm 이동이 {limit:.0f} s 안에 끝났는지 확인 못 함")
+                raise TimeoutError(f"RG2 {width_mm:.0f} mm 이동이 {limit:.0f} s 안에 끝나지 않음")
+            if "err" in box:
+                raise box["err"]
+            return box["st"]
+        return wait
 
     def _cur_angles(self):
         cur = self.robot.posx()
@@ -2318,7 +2351,20 @@ class SkillServer(Node):
             # 넛지와 같은 길 [사용자 10/07 저녁, 10/08]: 탑뷰(팔 거의 펴짐)에서 바로 직선으로 가면 특이점 → 서랍 중앙 경유점 movej
             # → y 를 목표 y 로 → 목표 위(grasp + approach, 최대 30 mm)를 블렌딩 한 번에 (사이 멈춤 없음)
             # 경유점은 서랍 안 — 벌린 RG2 는 손끝이 더 내려옴 → 끌기처럼 닫고 지나감, 목표 위에서 벌림 [#136 PM 리뷰]
-            self._grip(0, 20)
+            # pick.open_on_way: 경유점으로 가는 관절 이동 동안 벌림 — 경유점에서 서서 벌리지 않음 [사용자 10/15 "뷰 찍고 집으러 내려오면서
+            # 그리퍼 벌려두면"]. 경유점은 테두리 위라 벌려도 안 닿음(아래 원래 벌리는 자리와 같은 높이), 탑뷰 → 경유점은 서랍 가운데 위에서 내려옴
+            open_wait = self._grip_async(plan.open_width_m * 1000.0, 20) if prm["pick"].get("open_on_way") else None
+
+            def opened_then(o):                             # 실패로 돌아가기 전에 벌리기가 끝나게 (다음 동작과 그리퍼 명령이 겹치지 않게)
+                if open_wait:
+                    try:
+                        open_wait()
+                    except Exception as e:                  # 끝난 걸 확인 못 하면 이동 실패로 숨기지 않음 — 상태 모름(잠금) [#365 E P1]
+                        return sf.Outcome(False, sf.STATE_UNKNOWN,
+                                          reason=f"{o.reason} — 그리퍼 벌리기 끝 확인 못 함 ({e!r})"), None
+                return o, None
+            if not open_wait:
+                self._grip(0, 20)
             jnow = self.robot.posj()
             tol = float(prm["pick"].get("at_waypoint_tol_deg", 0.5))
             if jnow and len(jnow) >= 6 and all(math.isfinite(v) for v in jnow[:6]) and max(
@@ -2330,10 +2376,10 @@ class SkillServer(Node):
                 o = self._movej(goal, self._down_with_turn(drawer_id, down, [1000.0 * v for v in plan.position_m], close_dir),
                                 "to_object:down", in_drawer=True)
                 if not o.success:
-                    return o, None
+                    return opened_then(o)
             cur = self.robot.posx()
             if cur is None:
-                return sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"), None
+                return opened_then(sf.Outcome(False, sf.STATE_UNKNOWN, reason="현재 좌표 조회 실패"))
             # 잡는 손목 방향은 경유점에 도착한 뒤 그 손목 기준으로 (넛지와 같음). 탑뷰(그리퍼 180° 돌림)에서 미리 정하면
             # 경유점에서 손목을 반 바퀴 다시 돌리며 목표로 가 경유점을 안 지나는 것처럼 보임 [사용자 10/08]
             grasp = mp.gripper_posx([1000.0 * v for v in plan.position_m], close_dir, cur[3:])
@@ -2346,7 +2392,7 @@ class SkillServer(Node):
             if abs(turn) > 1.0 and jnow:
                 o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "to_object:turn", in_drawer=True)
                 if not o.success:
-                    return o, None
+                    return opened_then(o)
                 cur = self.robot.posx() or cur
                 grasp = list(grasp[:3]) + list(cur[3:])
             by_height = prm["pick"].get("grip_height_ratio") is not None and round_side is None
@@ -2365,7 +2411,10 @@ class SkillServer(Node):
             above = mp.with_z(grasp, grasp[2] + min(approach, 30.0))
             # 경유점에서 미리 벌리고(테두리 위 높이라 안 닿음) 테두리 위로 목표 위 → 잡는 높이 1 cm 위까지 블렌딩 한 번 — 목표 위에서 멈춰
             # 벌리고 다시 내려가지 않음 [사용자 10/10 "동작이 너무 많고 복잡"]. 마지막 1 cm 만 천천히 [사용자 10/07]
-            self._grip(plan.open_width_m * 1000.0, 20)
+            if open_wait:
+                open_wait()                                 # 보통 경유점 도착 전에 끝남 — 덜 벌렸으면 여기서 기다림 (목표 위로 가기 전)
+            else:
+                self._grip(plan.open_width_m * 1000.0, 20)
             slow_mm = 0.0 if by_height else prm["pick"].get("slow_last_mm", 0.0)   # 높이 계산이면 한 번에 빠르게 [사용자 10/11 "존나 빠르게"]
             near = mp.with_z(grasp, grasp[2] + slow_mm) if slow_mm > 0 else grasp
             bad = self._over_then_down(goal, drawer_id, cur, near, "to_object:over", turn_down=tilt is None)   # 손목은 이미 맞춤 — 테두리 위로 목표 바로 위 → 수직 [사용자 10/08]
@@ -2538,7 +2587,9 @@ class SkillServer(Node):
             jnow = self.robot.posj()
             # carry.direct: 경유점 1 에서 J6 만 따로 돌리며 서지 않고, 긴 2→3 구간(트레이 쪽 약 390 mm)에서 옮기며 돌림 —
             # 짧은 1→2(64 mm)는 집은 손목 그대로 (거기서 크게 돌리면 출발 안 함 [실측 10/10]) [사용자 10/14 "경유점 두 번"]
-            direct = bool(prm["carry"].get("direct")) and len(route) >= 3 and abs(turn) > 1.0
+            # carry.spline 이면 direct 를 쓰지 않음 — 스플라인 안에서 손목 각을 바꾸면 각도 숫자가 점 하나에서 270~360° 뛰어 제어기가
+            # 손목을 휘저음 [실측 PC2 10/15 차키: z 400 까지 치켜올림, J5 134° JOINT_LIMIT → STOP_UNCONFIRMED. 렌치(회전 작음)는 정상]
+            direct = bool(prm["carry"].get("direct")) and not prm["carry"].get("spline") and len(route) >= 3 and abs(turn) > 1.0
             if abs(turn) > 1.0 and jnow and not direct:
                 o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "carry:turn", in_drawer=True)
                 if not o.success:
@@ -2559,7 +2610,10 @@ class SkillServer(Node):
                 # carry.spline: 칸 위까지를 movesx guided(moveb 둥근 경로 위 점들)로 속도 끊김 없이 → 놓는 높이 + 10 mm 는 직선
                 # [강사님 피드백 10/13, movesx_carry_sim — 교시점 그대로 넣으면 위로 약 90 mm 부풂]. 못 쓰면 지금 moveb 로
                 via = mp.guided_via(seq[:-1] if len(pts) > len(route) else seq, radii, int(prm["carry"].get("spline_via", 8)),
-                                    turn_after=2 if direct else 0, start_angles=list(here[3:6]))
+                                    turn_after=0, start_angles=list(here[3:6]))
+                # 손목은 위에서 이미 놓는 방향으로 돌려 둠 → 점마다 지금 각도 숫자 그대로 (같은 방향이라도 −130·230 처럼 숫자가 다르면
+                # 스플라인이 360° 를 이으려 함). 놓는 각도와 차이(1° 안)는 마지막 직선(carry:down·lower)에서 맞춤
+                via = [list(v[:3]) + list(here[3:6]) for v in via]
                 bad = self._spline(goal, via, self._free_vel(), "carry:spline")
                 if bad is None and len(pts) > len(route):
                     bad = self._line(goal, pts[-1], self._free_vel(), "carry:down")
