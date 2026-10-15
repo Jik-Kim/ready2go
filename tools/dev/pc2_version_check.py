@@ -6,9 +6,11 @@ E 음성은 C Runner 코드(`ready2go_runner.core.item_group` 안내 factory 등
 구조화 안내 계약은 후속). 그래서 음성 노드를 띄우기 전에 확인:
 
 1. 호스트에 설치된 Python 패키지 파일이 지금 저장소 소스와 같은가 (install_host 를 다시 빌드했나)
-2. 떠 있는 Runner 의 기준점(pc2_up.sh 가 남긴 ready.txt 의 SHA)이 지금 checkout HEAD 와 같은가 (pc2_up 뒤에 git pull 안 했나)
+2. 떠 있는 Runner 의 기준점(pc2_up.sh 가 남긴 ready.txt 의 SHA)이 지금 checkout HEAD 와 같은가 (pc2_up 뒤에 git pull 안 했나) —
+   커밋이 달라도 실행 파일(RUNTIME_PATHS)이 그대로면(문서만 바뀜) 통과
 
-한계: Python 패키지 파일만 비교(설치된 share 데이터 — TTL·태스크 — 는 안 봄), 커밋 안 한 수정을 pc2_up 뒤에 바꾼 경우는 2 가 못 잡음.
+한계: 1 은 Python 패키지 파일만 비교(설치된 share 데이터 — TTL·태스크 — 는 안 봄). 2 는 기동 때 기록(ready.txt)과 커밋 비교라
+지금 살아 있는 Runner 프로세스·로드된 모듈을 직접 보지 않고, 커밋 안 한 수정을 pc2_up 뒤에 바꾼 경우는 못 잡음.
 
   python3 tools/dev/pc2_version_check.py [--ready <ready.txt>]     # install_host 를 source 한 셸에서
 종료 코드 0 = 맞음, 1 = 다름(이유 출력), 2 = 확인 못 함.
@@ -25,6 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = ("ready2go_runner", "ready2go_knowledge", "ready2go_voice")   # 음성이 import 하는 팀 Python 패키지
+RUNTIME_PATHS = ("ros2_ws/src", "tasks", "knowledge", "config", "contracts", "docker", "compose.yaml")  # Runner 기동·실행에 쓰는 것
 
 
 def installed_dir(package: str) -> Path | None:
@@ -58,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--log-dir", type=Path,                      # pc2_up.sh 와 같은 곳 (PC2_LOG_DIR)
                     default=Path(os.environ.get("PC2_LOG_DIR") or Path.home() / "ready2go_pc2_logs"))
     args = ap.parse_args(argv)
-    bad, unknown, fixes = [], [], []
+    bad, unknown, fixes, notes = [], [], [], []
 
     for package in PACKAGES:
         src = ROOT / "ros2_ws/src" / package / package
@@ -86,8 +89,15 @@ def main(argv: list[str] | None = None) -> int:
         if state != "OK":
             unknown.append(f"Runner 준비가 OK 가 아님 ({ready}: {state or '빈 파일'})")
         elif sha != head:
-            bad.append(f"Runner 기준점 {sha} ≠ 지금 checkout {head} — pc2_up.sh 뒤에 코드가 바뀜 ({ready})")
-            fixes.append("Runner 다시 띄우기: bash tools/dev/pc2_down.sh → bash tools/dev/pc2_up.sh (같은 모드)")
+            # 커밋이 달라도 실행에 쓰는 파일이 그대로면(문서만 바뀜) 다시 띄우지 않아도 됨 (#385 E 리뷰)
+            changed = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", sha, "HEAD", "--", *RUNTIME_PATHS],
+                                     capture_output=True).returncode
+            if changed == 0:
+                notes.append(f"Runner 기준점 {sha} → 지금 {head}: 실행 파일({', '.join(RUNTIME_PATHS)}) 변화 없음 (문서·도구만 바뀜) — 다시 띄우지 않아도 됨")
+            else:                           # 1 = 실행 파일 바뀜, 그 밖 = 기준점 커밋을 못 찾음(비교 불가 → 다름으로)
+                why = "실행 파일이 바뀜" if changed == 1 else "기준점 커밋을 이 저장소에서 못 찾아 비교 불가"
+                bad.append(f"Runner 기준점 {sha} ≠ 지금 checkout {head} — pc2_up.sh 뒤에 {why} ({ready})")
+                fixes.append("Runner 다시 띄우기: bash tools/dev/pc2_down.sh → bash tools/dev/pc2_up.sh (같은 모드)")
 
     for line in bad:
         print(f"❌ {line}")
@@ -99,7 +109,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if unknown:
         return 2
-    print(f"✅ 음성(install_host)·Runner 같은 C 코드 — 기준점 {head}")
+    for line in notes:
+        print(f"   {line}")
+    print(f"✅ 음성(install_host)·Runner 같은 C 코드 — 지금 {head}")
     return 0
 
 
