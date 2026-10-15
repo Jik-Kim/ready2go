@@ -298,3 +298,17 @@ def test_front_wall_penalty_only_for_newly_touching_handle_wall():
     assert cp._front_cost([t], side, CFG) == 0.0
     already = obj("eraser#1", "eraser", 0.03, 0.15)                                # 이미 붙어 있던 물체를 옆으로
     assert cp._front_cost([already], [cp.moved(already, 0.0, 0.02)], CFG) == 0.0
+
+
+def test_free_pose_min_move_skips_spots_near_current():
+    """[#364 무작위 sim 10/15] 막는 물체의 '빈 자리'가 지금 자리와 거의 같으면(망치 6 mm) 치워도 그대로 막아 같은 치우기 반복.
+    min_move_m > 0 이면 그만큼 안의 후보는 빼고 다른 자리(없으면 None), 0(기본) 이면 지금처럼."""
+    import math
+    here = (0.03, 0.05)                                                   # 첫 빈 자리 후보와 같은 자리 (sim 망치처럼)
+    objs = [obj("car_key#1", "car_key", *here)]
+    first = cp.find_free_pose(objs, "car_key#1", [], Oracle(), CFG)
+    assert math.dist(first["position"][:2], here) < 0.01                 # 기본: 지금 자리를 '빈 자리'로 고름
+    far = cp.find_free_pose(objs, "car_key#1", [], Oracle(), CFG, min_move_m=0.03)
+    assert far is not None and math.dist(far["position"][:2], here) >= 0.03
+    assert cp.find_free_pose(objs, "car_key#1", [], Oracle(), CFG, min_move_m=1.0) is None
+    assert CFG.remove_min_move_m == 0.0                                  # 기본 = 지금 동작

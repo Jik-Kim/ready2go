@@ -2007,6 +2007,7 @@ class SkillServer(Node):
                           front_keep_mm=float(mr.get("front_keep_mm", 10.0)), front_penalty_m=float(mr.get("front_penalty_m", 0.05)),
                           sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
                           remove_first=bool(mr.get("remove_first", False)), slack_mm=float(mr.get("slack_mm", 10.0)),
+                          remove_min_move_m=float(mr.get("remove_min_move_mm", 0.0)) / 1000.0,
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
     def _make_room(self, goal, params, drawer_id, target):
