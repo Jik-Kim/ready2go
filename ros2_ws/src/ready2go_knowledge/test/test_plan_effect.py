@@ -79,6 +79,7 @@ def test_manifest_loader_rejects_bad_plan_reference(tmp_path):
 
 
 def test_actual_c_public_plan_consumer_or_explicitly_pending():
+    import inspect
     from ready2go_runner.core.planner import plan, UNPLANNABLE, PLANNED
     from ready2go_runner.core.interpreter import Runner, ActionResult
     onto = ontology.load(SOURCE);before = copy.deepcopy(onto['state'])
@@ -86,7 +87,8 @@ def test_actual_c_public_plan_consumer_or_explicitly_pending():
     composite_only = copy.deepcopy(onto)
     composite_only['skills'] = {'handover_with_unpack':onto['skills']['handover_with_unpack']}
     goal = [{'subject':'eraser','predicate':'located_in','value':'handover_zone'}]
-    result = plan(before, composite_only, goal)
+    opt_in = {'composites':True} if 'composites' in inspect.signature(plan).parameters else {}
+    result = plan(before, composite_only, goal, **opt_in)
     if result.status == UNPLANNABLE:
         calls=[]
         runner = Runner(lambda *args: calls.append(args) or ActionResult(True), ontology=onto)

@@ -1,5 +1,12 @@
 # CURRENT — E 고희태
 
+## plan-effect-302-c373-connection-20261015
+
+- [선행 변경/승인] C PR373 공개에 따른 동일 범위 최소 직접 연결 지시를 받았습니다. 이미 실행 중이던 E CI를 중단하거나 반복하지 않았습니다. E 실제 데이터/제품 로더 버전은 a991a888aa217e39d72b8e25ef23ef87289fec53 그대로이며 C 읽기 전용 checkout head810de7131b6fed3e138b9167349ff25c2709d391을 사용했습니다. C 소스·테스트를 편집하지 않았고 C의 형식 복사 helper(e_onto)는 사용하지 않았습니다.
+- [실측: 버전별 검사] E a991a888 전체 CI **3404 passed/44 skipped**, 계약·compose3·colcon OK(10/15 11:40, ci_local.sh@aa5aa0f), exit0입니다. 그44skip에는 당시 C 미연결1건이 포함됩니다. 이후 변경은 E 소비 테스트/API opt-in 검사와 연결 상태 문서뿐이고 데이터/제품 로더는 불변입니다. 최신 후속 커밋 자체의 전체 CI를 재실행/통과했다고 주장하지 않습니다.
+- [직접 연결] E 테스트 후속 본문으로 실제 C 공개 planner opt-in·plan_exec.run_plan에 E 원본을 넣어 **3 passed (0.41초)**: composite target/from 선택, 기존 find_with_unpack(MockScene plate_over_eraser)의 판→지우개→판 복구 실제 mock 실행, located_in=handover_zone 확인 뒤 원래 목표/자동 아래닫힘 유지 재계획·위 열림, COMPLETED 표기만 있는 no-effect의 PLAN_EFFECT_UNMET/후속0을 확인했습니다. 선택/상태를 가짜 응답으로 고정하지 않고 C의 mock 장치·Runner·계획/구간 실행 본문을 사용했습니다. 초기 E state/정의는 불변이고 task 로딩 직전에도 예상 효과가 실제 위치를 미리 덮지 않음을 확인했습니다. 로그 /tmp/e-302-c373-connection.log.
+- [미결] C #373은 #371 위 stacked core이며 노드 achieve_goal→run_plan/기본 composites opt-inFalse·수락run_id/음성 상관·실PC2/API/ROS/장치/로봇은 별도입니다. 형식 E 포함2명 승인은 미완료입니다. Draft PR에서 두 검사SHA/범위와 후속 테스트 버전을 구분해 기록하며 전체 CI 자동 반복·새 agent/리뷰·C수정은 하지 않았습니다.
+
 ## plan-effect-302-20261015
 
 - [승인/소유] 조율 human turn01a13d5e-e7df-71d0-b6a2-b4bef4ca9f08의 “진행하자”와 issuecomment6182976292의 C 권고2안 범위를 직접 확인했습니다. 시작main47301366bc58c4ccb34c33ff692b23838832bcdc, 격리 /tmp/ready2go-e-plan-effect-20261015 / codex/e-plan-effect-20261015. E skill 원본·knowledge loader/test·Knowledge README/ontology 설명·이 기록만 수정하며 primary의 staged PPT/다른변경·모델/local YAML·다른 checkout은 보존합니다. C/Planner/tasks/인텐트/계약은 직접 수정하지 않습니다.

@@ -8,7 +8,9 @@
 
 [검사 연결] `ontology.load()`는 새 필드가 있는 정의만 composite·sensing·태스크/매개변수 선언·비어 있지 않은 레코드와 등록된 참조를 검사합니다. 새 필드의 pre/계획 레코드는 기존 subject/predicate/value 구조를 사용하며 현재 지원 predicate는 located_in/open/gripper입니다. subject/value의 클래스·상수·$param 참조와 pre 연산자를 확인합니다. 이 필드가 없는 구 단일 파일 로딩은 보존합니다. `tools/validate_contracts.py`의 기존 load 호출로 검사되며 도구 자체는 수정하지 않았습니다. 로딩/검사는 계획 예상 효과를 state에 적용하지 않으며 실제 상태 반영을 새로 연결하지 않습니다.
 
-[미연결] 기준 main `47301366`의 C planner는 여전히 primitive만 후보로 삼습니다. 실제 공개 plan은 composite 단독 계획을 만들지 못하고 Runner의 공개 run은 실행 전 composite를 TASK_INVALID로 거절합니다. 따라서 데이터 정의·형식 검사 완료와 자동 언패킹 실행 완료는 다릅니다. C의 후보/도달성·구간 실행·실제 위치 확인 후 최초 목표/자동 닫힘을 유지한 재계획·실패/정지/복구 실패 차단은 담당 후속입니다. #371의 선행 보호는 별도 PR이며 이번 E 전체 CI가 그 C PR을 다시 검사했다는 뜻이 아닙니다.
+[main 미연결: 기준 47301366] 기준 main `47301366`의 C planner는 여전히 primitive만 후보로 삼습니다. 실제 공개 plan은 composite 단독 계획을 만들지 못하고 Runner의 공개 run은 실행 전 composite를 TASK_INVALID로 거절합니다. 따라서 데이터 정의·형식 검사 완료와 자동 언패킹 실행 완료는 다릅니다. main에는 후보/구간 실행·실제 상태 재계획 연결이 없으며, 공개 C 후속 core의 직접 검증은 다음 단락에서 구분합니다. main·노드 운영 연결은 담당 후속입니다. #371의 선행 보호는 별도 PR이며 이번 E 전체 CI가 그 C PR을 다시 검사했다는 뜻이 아닙니다.
+
+[후속 직접 검증] E 데이터/로더 `a991a888`의 실제 원본을 C #373 head `810de713`의 opt-in `plan(composites=True)`·`plan_exec.run_plan`에 입력해 직접3사례를 확인했습니다. 판 치우기→지우개 전달→판 원위치→실제 위치 확인→위 서랍 열기, 최종 아래 서랍 닫힘 유지와 성공 표기만 있는 미전달의 PLAN_EFFECT_UNMET 차단이 모의 장치에서 통과했습니다. C가 만든 온톨로지 형식 복사본 대신 E 원본을 로드했고 예상 효과의 선행 실제 상태 적용이 없음을 확인했습니다. 이는 공개 core API 연결이며 노드의 achieve_goal 기본 연결/opt-in·수락 run_id·음성 상관은 여전히 별도입니다. 형식2명 승인·실제 운용 완료를 의미하지 않습니다.
 
 근거: [#302 승인 범위](https://github.com/Jik-Kim/ready2go/issues/302#issuecomment-6182976292), [FR-PLN-02](../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../docs/requirements.md#fr-ont-02)·[FR-ACT-04](../docs/requirements.md#fr-act-04)·[가림 정책](../docs/requirements.md#occlusion-policy). 형식은 E 포함 2명 검토 전 병합하지 않으며, 실제 C 소비·PC2·음성·로봇 수용 검증은 미완료입니다.
 
