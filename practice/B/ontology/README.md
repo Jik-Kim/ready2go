@@ -1,7 +1,8 @@
-# 배치 난제 온톨로지 — B 제안 (10/14, 합의 전)
+# 배치 난제 온톨로지 — B 제안 (10/14 시작, ④ 승인 대기)
 
 > 강사님 피드백: 랜덤 배치에서 실패한 난제를 "실패 확률이 있다"로 두지 말고, **"이 관계 조합이면 이 움직임은 못 한다/이렇게 한다"를 온톨로지에 저장해 두고, 관계를 데이터로 판단**하게 만들기.
-> 이 폴더는 **B 의 제안 자료**다. 온톨로지 정본(`knowledge/`, 담당 E)·Runner(`tasks/`, 담당 C)·계약은 바꾸지 않았다. 정본으로 옮기는 것은 아래 합의 뒤 각 담당이 한다.
+> 이 폴더는 **B 의 제안 자료**다. 온톨로지 정본(`knowledge/`, 담당 E)과 Runner 태스크(`tasks/`, 담당 C)는 바꾸지 않았다. 정본으로 옮기는 것은 아래 합의 뒤 각 담당이 한다.
+> **다만 PR #364 는 10/15부터 자료만이 아니다** — ①·② 자료에 더해 ④ **공개 결과 계약의 선택 칸**(`nudge_object` 결과 `make_room.case_id`·`strategy`, 예시·`docs/runner.md` 7.1 한 줄)과 B 코드(`core/layout_case.py`, `clear_plan.find_free_pose(min_move_m)`, 설정 `make_room.report_case`·`remove_min_move_mm`)를 바꾼다. 두 설정은 **기본 꺼짐**(지금 동작 그대로)이고, 계약이라 **E 포함 2명 승인 전**이다. (10/14 처음 올렸을 때는 자료 전용이었다.)
 
 ## 무엇을 했나
 - 트러블슈팅 176건(10/06~10/14, [`TROUBLESHOOTING.md`](../TROUBLESHOOTING.md)) 가운데 배치 관련 83건(넛지·집기·벽·이웃·쌓임)을 **난제 18개**로 묶었다(무작위 sim 으로 4개 더 → 22개, 아래) → [`layout_cases.json`](layout_cases.json).
@@ -24,6 +25,11 @@
 | 위 물체 먼저 `remove_top` | 2 | 목표 위에 얹힘 · **막는 물체 위에 또 얹힘(sim)** |
 | 다시 보기 `reobserve` | 1 | 비전 가림 관계 모름 |
 | **못 함 `impossible`** | **8** | 앞벽 뭉침(7 mm 부족)·큰 공구 손잡이 벽 가로·판 밑 물체가 손가락 선 가로지름·빈 자리 없음·기대 세움·세움 · **막는 판이 벽에 걸림(sim)·손잡이 벽 립밤(sim)** |
+
+- 위 개수는 **자료의 전략별 집계**다. ④ 결과에 실제로 실리는 impossible `case_id` 와는 같은 집계가 아니다.
+  - `classify` 가 실패(`fail`) 때 내는 id 는 6개다: `no_free_space`·`beyond_reach`·`cluster_front_wall`·`cylinder_handle_wall`·`handle_wall_wide`·`chain_blocker_plate_pinned`.
+  - `beyond_reach` 는 자료 전략이 `nudge` 이고(`then: impossible`), 끌어오기도 못 할 때만 impossible 로 실린다.
+  - `under_cover_crossing`·`leaning`·`standing` 3개는 자료에는 impossible 이지만 지금 결과에는 실리지 않는다(관측 안 됨·판정 없음). E #378 의 예약 3개와 같은 구분이다.
 
 ## 무작위 배치에서 더 찾은 난제 (10/14 밤, sim)
 - **방법**:
@@ -97,14 +103,14 @@
 ## 단계 (합의가 필요한 곳)
 | 단계 | 내용 | 바뀌는 곳 | 필요한 합의 |
 | :--- | :--- | :--- | :--- |
-| ① 지금 이 PR | 난제 표·근거·형식 확인 (`practice/B`) | 없음 (B 자료) | 방향·관계 이름에 E·C·A 의견 |
-| ② | 무작위 sim 장면마다 관계 → 난제 예측 vs B 사전 판단·sim 결과 비교표 (`clear_sim`·`cluster_sim`·`p2_unpack_sim` 장면 재사용) | 없음 (B sim) | — |
+| ① **이 PR (10/14)** | 난제 표·근거·형식 확인 (`practice/B`) | 없음 (B 자료) | 방향·관계 이름에 E·C·A 의견 — C·E·D 의견 받음 |
+| ② **이 PR (10/15)** | 무작위 sim 장면마다 관계 → 난제 예측 vs B 사전 판단·sim 결과 비교표 (아래 "② 비교표"). 계획 빈틈 `remove_same_spot` 은 `make_room.remove_min_move_mm`(기본 0 = 지금 동작)로 고침 | B sim 자료 + B 코드·설정(기본 꺼짐) | — |
 | ③ | `knowledge/` 에 난제 파일 등록(스키마·로더 검사) | E 파일 | **E 결정**: 저장 위치·스키마 |
-| ④ | B `check_only`·거부 결과에 `case_id`·`strategy`(선택 칸). Runner 는 (code, `strategy == "impossible"`) 로만 분기, 모르는 id 는 지금 동작 [C 10/14] — **이 PR에 구현(10/15)**: `nudge_object make_room` 결과, `make_room.report_case` 기본 false, `core/layout_case.py`, 예시 `make_room_*_with_case` | 계약 (예시·B README, `docs/runner.md` 7.1 한 줄은 C 확인 뒤) | **E 포함 2명 승인** |
+| ④ **이 PR (10/15)** | B `check_only`·거부 결과에 `case_id`·`strategy`(선택 칸). Runner 는 (code, `strategy == "impossible"`) 로만 분기, 모르는 id 는 지금 동작 [C 10/14] — **이 PR에 구현(10/15)**: `nudge_object make_room` 결과, `make_room.report_case` 기본 false, `core/layout_case.py`, 예시 `make_room_*_with_case` | 계약 (예시·B README, `docs/runner.md` 7.1 한 줄은 C 확인 뒤) | **E 포함 2명 승인** |
 | ⑤ | Runner 가 `impossible` 이면 시도하지 않고 이유를 말함 | C `tasks/`·음성 | **C·E 결정** |
 
-- 녹화(10/15)가 먼저다. ①은 문서뿐이라 녹화에 영향이 없다.
-- ②는 녹화 뒤 B 가 바로 할 수 있다. ③~⑤는 각 담당이 정한다.
+- 지금 상태: ①·②·④ 는 이 PR 에 있다(④ 는 기본 꺼짐·승인 대기). ③·⑤ 는 후속이고 각 담당이 정한다. ⑤ 의 "왜 멈췄어?" 안내는 #376(C #379·E #378)에서 진행 중이다.
+- [10/14 당시] 녹화(10/15)가 먼저였다. 그때 ①은 문서뿐이라 녹화에 영향이 없었고, ②는 녹화 뒤 하기로 했다.
 
 ## 받은 의견 (10/15)
 - **C**: 방향 동의. ④는 위 표처럼 선택 칸 `case_id`·`strategy`. `say_ko` 는 B 자료·C `failure_speech.py`·E 사전 캐시로 흩어지지 않게 원본 한 곳.
