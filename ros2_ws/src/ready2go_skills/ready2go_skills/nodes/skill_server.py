@@ -2022,6 +2022,8 @@ class SkillServer(Node):
                           sweep_max_m=float(mr.get("sweep_max_mm", prm["drag"]["max_shift_mm"])) / 1000.0,
                           remove_first=bool(mr.get("remove_first", False)), slack_mm=float(mr.get("slack_mm", 10.0)),
                           remove_min_move_m=float(mr.get("remove_min_move_mm", 0.0)) / 1000.0,
+                          nudge_plate=bool(mr.get("nudge_plate", False)),
+                          plate_clear_m=float((prm["pick"].get("under_clear_by_class_mm") or {}).get("cover_plate", 21.0)) / 1000.0,
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 
     def _make_room(self, goal, params, drawer_id, target):

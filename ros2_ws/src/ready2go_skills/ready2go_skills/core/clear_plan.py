@@ -99,6 +99,16 @@ def riders(objs: Sequence[Mapping], base_id: str) -> set:
 LEG_CLASSES = {"cover_plate"}   # 다리로 바닥에 섬 — 밑에 물체가 있어도 바닥 물체 (#8 덮개 판)
 
 
+def low_under(objs: Sequence[Mapping], oid: str, size_of: Callable, clear_m: Optional[float]) -> set:
+    """다리 있는 물체(덮개 판)를 옮길 때 안 보는 물체 id — 윗면이 판 밑 여유(clear_m) 이하인 물체는 판 밑으로 지나간다고 봄
+    [사용자 10/15 "plate 넛지 그냥 넣어 — 아래 물건은 신경쓰지 말고"]. clear_m None·다리 없는 물체는 빈 집합. 다리와의 충돌은 안 봄 [추정]."""
+    o = next((x for x in objs if x["id"] == oid), None)
+    if clear_m is None or o is None or o.get("class") not in LEG_CLASSES:
+        return set()
+    return {x["id"] for x in objs if x["id"] != oid and x.get("class") not in LEG_CLASSES
+            and zrange(x, size_of)[1] <= clear_m}
+
+
 def on_floor(objs: Sequence[Mapping], oid: str) -> bool:
     """다른 물체 위에 얹히지 않았는지 (그 물체가 누구의 occluded_by 에도 없음). 다리 있는 물체는 늘 바닥."""
     o = next((x for x in objs if x["id"] == oid), None)
@@ -146,13 +156,14 @@ def _behind(objs: Sequence[Mapping], mover: str, u: tuple, size_of) -> set:
 
 
 def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, interior_m, size_of, step_mm: float = 1.0,
-              gap_mm: float = 0.0) -> float:
+              gap_mm: float = 0.0, plate_clear_m: Optional[float] = None) -> float:
     """mover(위 물체 포함)를 u 로 dist_m 까지 — 다른 바닥 물체·벽에 닿기 전까지 갈 수 있는 거리(m). 밀지 않음.
     처음부터 겹친 물체 중 뒤쪽(멀어지는 쪽)은 막지 않음 (_behind)."""
     group = {mover} | riders(objs, mover)
     by = {o["id"]: o for o in objs}
     behind = _behind(objs, mover, u, size_of)
-    others = [o for o in _blocking(objs, group) if o["id"] not in behind]
+    below = set().union(*(low_under(objs, g, size_of, plate_clear_m) for g in group))
+    others = [o for o in _blocking(objs, group) if o["id"] not in behind and o["id"] not in below]
     slack = out_mm(by[mover], size_of, interior_m)               # 처음부터 경계 밖으로 그려진 만큼은 봐줌
     done = 0.0
     for k in range(1, int(round(dist_m * 1000.0 / step_mm)) + 1):
@@ -165,7 +176,8 @@ def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
 
 
 def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, interior_m, size_of,
-              pushable: Callable[[Mapping], bool], max_chain: int = 2, step_mm: float = 1.0):
+              pushable: Callable[[Mapping], bool], max_chain: int = 2, step_mm: float = 1.0,
+              plate_clear_m: Optional[float] = None):
     """mover 를 u 로 밀어 dist_m 까지 — 앞을 막는 바닥 물체는 같이 밀림(줄줄이, 최대 max_chain 개, 위에 얹힌 것도 같이).
     밀린 물체가 벽·못 미는 물체에 걸리면 거기서 멈춤. → (새 물체 목록, 간 거리 m, 밀린 id 목록)."""
     order = [o["id"] for o in objs]
@@ -174,7 +186,7 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     # 처음부터 겹친 뒤·옆 물체는 밀지도 막지도 않음 — 목표만이 아니라 같이 밀리기 시작한 물체도 그때 겹친 뒤·옆 물체는 봐줌
     # [실측 PC2 10/13 inspect_20261013_060416_812Z: 에어팟 +y 밀기 → 몽키 외접 박스(길이 170 × 머리 폭 61)가 손잡이 쪽
     # 캐러멜과 처음부터 겹쳐 캐러멜까지 같이 밀려다 0 mm → 밀기 후보 없음 → 몽키 머리 넛지(접촉 없음)]
-    ign = {g: _behind(objs, g, u, size_of) for g in base}
+    ign = {g: _behind(objs, g, u, size_of) | low_under(objs, g, size_of, plate_clear_m) for g in base}
     slack = {o["id"]: out_mm(o, size_of, interior_m) for o in objs}   # 처음부터 경계 밖으로 그려진 만큼은 봐줌
     pushed = []
     done = 0.0
@@ -200,7 +212,7 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
                 pushed.append(oid)
                 cl = list(cur.values())
                 for gid in [oid] + sorted(riders(tl, oid)):
-                    ign.setdefault(gid, _behind(cl, gid, u, size_of))
+                    ign.setdefault(gid, _behind(cl, gid, u, size_of) | low_under(cl, gid, size_of, plate_clear_m))
                     trial[gid] = moved(cur[gid], dx, dy)
                     moving.append(gid)
                 changed = True
@@ -350,6 +362,8 @@ class Config:
     front_keep_mm: float = 10.0              # 손잡이 쪽 벽(x 0)에서 이만큼 안으로 새로 들어오게 미는 동작은 벌점 — 앞벽에 붙으면 안쪽으로 못 끌어
     front_penalty_m: float = 0.05            # (서랍이 닫힘) 사방이 막혀 못 풂 [사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] — 이동 거리로 셈
     sweep_max_m: Optional[float] = None      # 밀기(sweep) 최대 거리 — 없으면 max_shift_m. 실행 값 make_room.sweep_max_mm
+    nudge_plate: bool = False                # 덮개 판도 넛지·밀기(목표 옆 판 옮기기, 같이 밀리기) — 판 밑 물체는 안 봄. 실행 값 make_room.nudge_plate [사용자 10/15]
+    plate_clear_m: float = 0.021             # 판 밑 여유 — 윗면이 이 높이 이하인 물체는 판을 옮길 때 안 봄. 실행 값 pick.under_clear_by_class_mm.cover_plate
     remove_min_move_m: float = 0.0           # 막는 물체 치울 빈 자리가 지금 자리에서 이만큼은 떨어져야 함 — 0 = 안 봄(지금) [제안 10/15 B, #364 sim: 같은 자리로 다시 치우기 반복]
     press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]
 
@@ -362,9 +376,19 @@ def _round_axis_ok(t: Mapping, u: tuple, cfg: Config) -> bool:
     return abs(u[0] * math.cos(yaw) + u[1] * math.sin(yaw)) >= math.cos(math.radians(20.0))
 
 
-def pushable(o: Mapping) -> bool:
-    """같이 밀려도 되는 물체: 다리 있는 물체(덮개 판)·위에 뭐가 얹힌 물체는 안 밂 (넘어짐·흩어짐) [추정]."""
-    return o.get("class") not in LEG_CLASSES and not o.get("occluded_by")
+def pushable(o: Mapping, plate: bool = False) -> bool:
+    """같이 밀려도 되는 물체: 위에 뭐가 얹힌 물체는 안 밂 (넘어짐·흩어짐) [추정]. 다리 있는 물체(덮개 판)는 plate 일 때만
+    (make_room.nudge_plate) — 판 밑 물체는 판과 안 부딪힌다고 봄(under)."""
+    return (plate or o.get("class") not in LEG_CLASSES) and not o.get("occluded_by")
+
+
+def _pushable(cfg) -> Callable[[Mapping], bool]:
+    return lambda o: pushable(o, cfg.nudge_plate)
+
+
+def _clear(cfg) -> Optional[float]:
+    """판 밑 여유 (m) — nudge_plate 일 때만 (판을 옮길 때 그 아래 물체 안 봄)."""
+    return cfg.plate_clear_m if cfg.nudge_plate else None
 
 
 def _with(objs, new_obj):
@@ -635,7 +659,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
     for u in cfg.axes:
         if not _round_axis_ok(t, u, cfg):
             continue
-        can = free_move(objs, tid, u, cfg.max_shift_m, cfg.interior_m, cfg.size_of)
+        can = free_move(objs, tid, u, cfg.max_shift_m, cfg.interior_m, cfg.size_of, plate_clear_m=_clear(cfg))
         dists = [k * step for k in range(1, int(can / step + 1e-6) + 1)]
         for s in dists:
             after = _with(objs, moved(t, u[0] * s, u[1] * s))
@@ -644,12 +668,13 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
         d = (int(can / cfg.sweep_step_m + 1e-6) + 1) * cfg.sweep_step_m
         last = can
         while d <= (cfg.sweep_max_m or cfg.max_shift_m) + 1e-9:
-            o2, done, pushed = push_move(objs, tid, u, d, cfg.interior_m, cfg.size_of, pushable, cfg.max_chain)
+            o2, done, pushed = push_move(objs, tid, u, d, cfg.interior_m, cfg.size_of, _pushable(cfg), cfg.max_chain,
+                                        plate_clear_m=_clear(cfg))
             if done <= last + 0.0015:                                  # 더 못 밂
                 break
             last = done
             t2 = next(o for o in o2 if o["id"] == tid)
-            back_max = free_move(o2, tid, (-u[0], -u[1]), done, cfg.interior_m, cfg.size_of)
+            back_max = free_move(o2, tid, (-u[0], -u[1]), done, cfg.interior_m, cfg.size_of, plate_clear_m=_clear(cfg))
             if fine:
                 backs = [k * cfg.nudge_step_m for k in range(int(back_max / cfg.nudge_step_m + 1e-6) + 1)]
             else:
@@ -686,7 +711,7 @@ def _remove_blocker(objs, tid, oracle, cfg, code, reason, depth) -> Action:
                 return Action("remove", who, f"막는 {who} → 빈 자리", to_pose=pose)
     if depth == 0:
         tx, ty = t["pose"]["position"][:2]
-        near = sorted((o for o in objs if o["id"] != tid and on_floor(objs, o["id"]) and pushable(o)
+        near = sorted((o for o in objs if o["id"] != tid and on_floor(objs, o["id"]) and pushable(o, cfg.nudge_plate)
                        and tid not in (o.get("occluded_by") or [])
                        and (o["id"] == who or
                             math.dist((tx, ty), o["pose"]["position"][:2]) <= cfg.neighbor_r_m + 0.5 * max(cfg.size_of(o["class"])[:2]))),
@@ -749,7 +774,8 @@ def apply(objs: Sequence[Mapping], a: Action, cfg: Config) -> list:
         t = next(o for o in objs if o["id"] == a.target)
         return _with(objs, moved(t, a.dir[0] * a.dist_m, a.dir[1] * a.dist_m))
     if a.kind == "sweep":
-        o2, _, _ = push_move(objs, a.target, a.dir, a.dist_m, cfg.interior_m, cfg.size_of, pushable, cfg.max_chain)
+        o2, _, _ = push_move(objs, a.target, a.dir, a.dist_m, cfg.interior_m, cfg.size_of, _pushable(cfg), cfg.max_chain,
+                             plate_clear_m=_clear(cfg))
         t2 = next(o for o in o2 if o["id"] == a.target)
         return _with(o2, moved(t2, -a.dir[0] * a.back_m, -a.dir[1] * a.back_m))
     return list(objs)

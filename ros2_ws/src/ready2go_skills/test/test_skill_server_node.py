@@ -4005,6 +4005,18 @@ def test_repo_defaults_are_pc2_tested_and_run_together(server, monkeypatch):
     assert seen and getattr(srv, "locked", None) is None                # movesx 로 감, 잠금 없음
 
 
+def test_make_room_nudge_plate_is_on_in_repo_and_reaches_plan_config(server, monkeypatch):
+    """[사용자 10/15 "plate 넛지 그냥 넣어 — 아래 물건은 신경쓰지 말고"] 저장소 기본 make_room.nudge_plate true →
+    공간 만들기 계획 설정에 판도 밂·판 밑 여유(pick.under_clear_by_class_mm.cover_plate 21 mm). false 면 예전(판 안 밂)."""
+    monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
+    prm = server.yaml_real(server.srv.params_file)
+    assert prm["make_room"]["nudge_plate"] is True
+    cfg = server.srv._room_cfg("drawer_top")
+    assert cfg.nudge_plate is True and cfg.plate_clear_m == pytest.approx(prm["pick"]["under_clear_by_class_mm"]["cover_plate"] / 1000.0)
+    _with_prm(server, monkeypatch, make_room={"nudge_plate": False})
+    assert server.srv._room_cfg("drawer_top").nudge_plate is False
+
+
 def test_make_room_report_case_is_off_by_default(server, monkeypatch):
     """[제안 10/15 B, 계약 ④ 승인 전 — #364] make_room.report_case 기본 false → 결과에 case_id·strategy 칸 없음 (지금 계약 그대로)."""
     from ready2go_skills.core import clear_plan as clp
