@@ -1284,7 +1284,7 @@
     // 온톨로지 탭은 Runner 상태와 독립적인 웹 파일 스냅샷 연결 상태를 사용한다.
     const definitionsConnected = state.adminReview.ontology?.live === true;
     const restError = state.meta.mode === "rest-error";
-    getById("adminDataNotice").textContent = connected
+    const dataNotice = connected
       ? definitionsConnected
         ? "부분 실데이터 · 현재 상태는 Runner에서 수신하고 등록 정의는 웹 시작 시 파일에서 읽었습니다. 계획 근거·실행 기록은 후속 연결입니다."
         : "부분 실데이터 · 현재 상태는 Runner에서 수신하며 등록 정의는 확인 전입니다. 계획 근거·실행 기록은 후속 연결입니다."
@@ -1293,10 +1293,12 @@
           ? "상태 REST 연결 오류 · 현재 상태는 확인 전이며 등록 정의 파일 스냅샷만 사용할 수 있습니다."
           : "REST 연결 오류 · 현재 상태와 등록 정의가 확인 전입니다."
         : state.meta.mode === "partial-live"
-          ? "부분 실데이터 · 인증 미구현 · Runner 응답은 수신했지만 현재 상태 일부는 확인 전입니다."
+          ? "부분 실데이터 · Runner 응답은 수신했지만 현재 상태 일부는 확인 전입니다."
           : definitionsConnected
             ? "등록 정의 연결됨 · 현재 Runner 상태는 확인 전이며 등록 정의는 웹 파일 스냅샷입니다."
             : "확인 전 · 현재 상태와 등록 정의를 아직 조회하지 못했습니다.";
+    // 연결 성공·오류와 관계없이 검토 화면의 조회 전용 역할과 인증 상태를 알린다.
+    getById("adminDataNotice").textContent = `읽기 전용 · 인증 미구현 · ${dataNotice}`;
     getById("adminCurrentTabStatus").textContent = connected ? "연결됨" : "확인 전";
     getById("adminCurrentSourceLabel").textContent = connected
       ? "/runner/status · /robot_state 연결됨"
