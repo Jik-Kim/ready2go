@@ -165,7 +165,24 @@ def server(monkeypatch):
     def run(action, params):
         return sf.run_guarded(lambda: getattr(srv, f"_do_{action}")(goal, json.loads(json.dumps(params))),
                               stop=srv.robot.stop, get_state=srv.state)
-    return types.SimpleNamespace(ss=ss, srv=srv, run=run, Gripper=Gripper)
+    # [10/15 기본값 켬] 예전 테스트는 끈 동작(경유점에서 닫고·멈추고·손목 따로)을 검사 — 여기서 끈 값으로 고정하고,
+    # 켠 동작은 _with_prm 으로 켜거나 yaml_real(저장소 skills.yaml 그대로)로 검사
+    yaml_real = ss._yaml_cached
+
+    def legacy(path, **kw):
+        d = yaml_real(path, **kw)
+        if path.name == "skills.yaml":
+            d = dict(d)
+            for k, v in LEGACY_FLAGS.items():
+                d[k] = {**(d.get(k) or {}), **v}
+        return d
+    monkeypatch.setattr(ss, "_yaml_cached", legacy)
+    return types.SimpleNamespace(ss=ss, srv=srv, run=run, Gripper=Gripper, yaml_real=yaml_real)
+
+
+LEGACY_FLAGS = {"motion": {"one_turn": False}, "carry": {"direct": False, "spline": False},
+                "transit": {"view_blend_in_drawer": False}, "pick": {"open_on_way": False},
+                "place": {"touch_window_mm": 0.0}}
 
 
 def test_check_only_still_needs_drag_returns_push_limit_without_motion(server):
@@ -3951,3 +3968,38 @@ def test_pick_open_on_way_unfinished_open_is_not_hidden_as_move_failure(server, 
     assert started.is_set(), out
     assert not out.success and out.error_code == server.ss.sf.STATE_UNKNOWN, out
     assert "벌리기" in out.reason and srv.locked
+
+
+def test_repo_defaults_are_pc2_tested_and_run_together(server, monkeypatch):
+    """[사용자 10/15 "다 잘 돌아가니 이대로 확정"] 저장소 skills.yaml 기본값 = PC2 실물로 확인한 6개 켬. 끈 값 고정(LEGACY_FLAGS)을
+    풀고 그대로 집기(open_on_way·one_turn) → 건네기 놓기(spline+direct, 손목 90°)가 잠금 없이 끝남."""
+    monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
+    srv = server.srv
+    prm = server.yaml_real(srv.params_file)
+    want = {"motion": {"one_turn": True}, "carry": {"direct": True, "spline": True},
+            "transit": {"view_blend_in_drawer": True}, "pick": {"open_on_way": True}, "place": {"touch_window_mm": 3.0}}
+    for sec, kv in want.items():
+        for k, v in kv.items():
+            assert prm[sec][k] == v, (sec, k, prm[sec][k])
+    _turning_movej(server)
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+
+    route = srv.poses()["carry_line"]["drawer_top"]
+    seen = []
+    srv.robot.movesx_async = lambda pts, *a, **kw: (seen.append(len(pts)), setattr(srv.robot, "p", list(pts[-1])), True)[2]
+    srv.held = dict(LIP_HELD)
+    server.Gripper.holding, server.Gripper.width = True, 19.5
+    start = list(route[0])
+    start[5] += 90.0
+    srv.robot.p, srv.robot.j = start, [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    try:
+        out, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    assert seen and getattr(srv, "locked", None) is None                # movesx 로 감, 잠금 없음
