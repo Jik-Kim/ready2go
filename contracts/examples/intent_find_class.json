@@ -1,0 +1,31 @@
+{
+  "intent": "find_class",
+  "targets": [
+    "car_key"
+  ],
+  "semantic": {
+    "source": {
+      "kind": "class",
+      "id": "Valuables",
+      "name_ko": "귀중품",
+      "sha256": "1d802e97f699ab2073ae92487c678401168e62bf19e2ffa0ba10fbf0217e703a"
+    },
+    "evidence": {
+      "car_key": {
+        "class_paths": [
+          [
+            "Key",
+            "Valuables"
+          ]
+        ]
+      }
+    }
+  },
+  "confidence": 0.9,
+  "source": {
+    "stt_text": "귀중품 가져와",
+    "fallback_used": false
+  },
+  "request_id": "example-find-class-01",
+  "accept_text": "귀중품을 가져올게요."
+}

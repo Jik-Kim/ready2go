@@ -17,8 +17,9 @@ E 가 목록·분류("출근 준비물", "귀중품")를 활성 물품 키로 �
    묶음 안 정지는 재개하지 않음 — "목록 작업은 이어서 할 수 없어요"(반복 안 재개 확장은 별도 후속). 묶음을 도는 동안만
    Runner 재개 보존(`resumable`)을 꺼서 물품 실행이 `SUSPENDED` 로 남지 않게 함 — 정지 잠금은 그대로, 끝나면 원래 설정 (#371 E P2).
 
-공개 인텐트 연결(`find_list`/`find_class` + `semantic` 선택 필드)은 계약 PR(스키마·예시·문서, E 포함 2명 승인) 뒤 —
-지금은 core 와 mock 시험만. 묶음 요약의 실행 기록(runs) 저장도 그때 노드와 같이.
+공개 인텐트(`find_list`/`find_class` + `semantic`, #302 계약안)는 노드가 이 함수로 실행 — 요청 하나 = 상위 run_id R 하나
+(#377 과 같은 상태 칸 규칙): 물품 실행은 `R.1`, `R.2` …(`parent_run_id: R`). 수락 안내(`accept_text`)가 있으면 첫 동작 전에
+그 문장 1회 — 안내가 실패하면 로봇 동작 0번(계약07 규칙), 위치 기록이 없어 뺀 물품은 그다음에 이유를 따로 안내.
 """
 from __future__ import annotations
 
@@ -56,6 +57,7 @@ class ItemOutcome:
     error_code: str | None = None
     run_id: str | None = None
     restore_incomplete: bool = False        # 그 물품 실행에서 옮긴 물건을 다 되돌리지 못함 (결과 코드와 따로)
+    failure: dict | None = None             # 그 물품 실행의 last.failure 원천 (#376) — FAILED 물품의 처음 원인
 
 
 @dataclass
@@ -113,14 +115,15 @@ def plan_group(semantic: dict, state: dict, world: dict) -> tuple[list[ItemOutco
     return runnable, excluded
 
 
-def start_text(runnable: list[ItemOutcome], excluded: list[ItemOutcome]) -> str:
-    text = ", ".join(o.name_ko for o in runnable) + " 가져올게요."
+def start_text(runnable: list[ItemOutcome], excluded: list[ItemOutcome], accepted: bool = False) -> str:
+    """시작 안내. accepted = E 수락 문장을 이미 말함 → 뺀 물품 이유만 (없으면 빈 문자열)."""
+    text = "" if accepted else ", ".join(o.name_ko for o in runnable) + " 가져올게요."
     if excluded:
         why = {o.error_code for o in excluded}
         reason = "위치 기록이 없어서" if why == {UNKNOWN_ITEM} else "서랍에서 꺼낼 물건이 아니라서" if why == {"NOT_IN_DRAWER"} \
             else "위치를 확인하지 못해서"
         text += f" {attach_particle(', '.join(o.name_ko for o in excluded), '은')} {reason} 빼고 가져올게요."
-    return text
+    return text.strip()
 
 
 def summary_text(result: GroupResult, stopped: str | None) -> str:
@@ -164,8 +167,11 @@ def _safe_to_continue(runner: Runner, result: RunResult, drawer: str) -> bool:
 
 
 def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
-              speak: Callable[[str], object] | None = None) -> GroupResult:
-    """E 조회 결과로 물품마다 task(find_with_unpack)를 차례로 실행. speak: 시작·끝 안내(노드가 /voice/speak 연결, 실패해도 계속)."""
+              speak: Callable[[str], object] | None = None, run_id: str | None = None, meta: dict | None = None,
+              accept_text: str | None = None) -> GroupResult:
+    """E 조회 결과로 물품마다 task(find_with_unpack)를 차례로 실행. speak(text) → 실패 코드(문자열) 또는 None(성공):
+    시작·끝 안내(노드가 /voice/speak 연결). run_id: 상위 R — 물품 실행은 R.1, R.2 …, meta: 물품 실행 기록 헤더(parent_run_id 붙임).
+    accept_text: E 수락 문장 — 첫 동작 전 1회, 실패하면 로봇 동작 0번으로 FAILED(그 코드)."""
     problems = check_semantic(semantic, world)
     if problems:
         return GroupResult("FAILED", BAD_QUERY, source=(semantic or {}).get("source") if isinstance(semantic, dict) else None,
@@ -178,14 +184,26 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
         result.summary_text = summary_text(result, None)
         return result
 
-    def say(text: str) -> None:
-        if speak is not None:
-            try:
-                speak(text)
-            except Exception:               # 안내 실패는 실행·결과를 바꾸지 않음
-                pass
+    def say(text: str):
+        """실패 코드 또는 None. 안내 예외는 실패 코드로 (실행을 깨뜨리지 않음)."""
+        if speak is None or not text:
+            return None
+        try:
+            code = speak(text)
+        except Exception:  # noqa: BLE001
+            return "BACKEND_ERROR"
+        return code if isinstance(code, str) and code else None
 
-    result.start_text = start_text(runnable, excluded)
+    if accept_text:                         # 계약07: 수락 문장 1회 — 실패하면 로봇 동작 0번
+        failed = say(accept_text)
+        if runner.halted:                   # 안내 중 정지 — 실패 코드(CANCELED 등)보다 정지가 먼저 (#381 E 리뷰)
+            result.overall_status, result.error_code = "ABORTED", runner.halt_code or "HALTED"
+            result.problems = ["수락 안내 중 정지 — 로봇 동작 없음"]
+            return result
+        if failed:
+            result.error_code, result.problems = failed, ["수락 안내 실패 — 로봇 동작 없음"]
+            return result
+    result.start_text = start_text(runnable, excluded, accepted=bool(accept_text))
     say(result.start_text)
     stopped = None
     resumable = runner.resumable            # 묶음 안 정지는 보존·재개 없음 — 물품 실행이 SUSPENDED 로 남지 않게 (#371 E P2)
@@ -195,8 +213,11 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
             if runner.halted:               # 물품 사이 정지 — 다음 물품을 시작하지 않음
                 result.overall_status, result.error_code, stopped = "ABORTED", runner.halt_code or "HALTED", "halted"
                 break
-            run = runner.run(task, {"target": outcome.item})
+            child = {"run_id": f"{run_id}.{runnable.index(outcome) + 1}" if run_id else None,
+                     "meta": {**(meta or {}), **({"parent_run_id": run_id} if run_id else {})} or None}
+            run = runner.run(task, {"target": outcome.item}, **child)
             outcome.overall_status, outcome.error_code, outcome.run_id = run.overall_status, run.error_code, run.run_id
+            outcome.failure = run.failure
             outcome.status = DELIVERED if _delivered(runner, outcome.item) else NOT_DELIVERED
             outcome.restore_incomplete = _restore_incomplete(run)
             if run.overall_status in ("ABORTED", "SUSPENDED"):   # 정지·비상정지 (SUSPENDED 는 보존을 꺼서 안 옴 — 방어)

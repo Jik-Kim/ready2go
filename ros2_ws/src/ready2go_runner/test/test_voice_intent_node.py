@@ -767,3 +767,102 @@ def test_compound_goal_failure_carries_the_segment_cause_under_the_parent_run(tm
         assert runner.log_store.read_run(parent)["run"]["failure"] == failure
     finally:
         close()
+
+
+# ---- P3 목록·분류 요청 (#302 계약안): find_list·find_class → 물품마다 find_with_unpack, 요청 하나 = 상위 run_id ----
+
+def group_intent(name="find_list", request_id=None):
+    doc = json.loads((ROOT / f"contracts/examples/intent_{name}.json").read_text(encoding="utf-8"))
+    if request_id:
+        doc["request_id"] = request_id
+    return json.dumps(doc, ensure_ascii=False)
+
+
+UNPACK_TASKS = "find_item=" + str(ROOT / "tasks/find_with_unpack.json")   # PC2 운영과 같은 find_item 태스크
+
+
+def test_list_request_runs_items_under_one_parent_run(tmp_path):
+    """'출근 준비물'(E 실제 조회 결과 예시) — 에어팟(위치 기록 없음)은 빼고 차키(위 칸)·립밤(아래 칸)을 차례로. 상위 R 하나:
+    last_intent·accepted·last 가 R, 물품 사이에도 running, 물품 실행은 R.1·R.2(parent_run_id R). 3개 중 2개 → FAILED +
+    PARTIAL_DELIVERY, 못 가져온 물품 실패가 없으니 failure 는 묶음 코드만. 수락 문장 뒤 뺀 물품 이유를 따로 안내."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE, intent_tasks=UNPACK_TASKS)
+    try:
+        voice.say(group_intent(request_id="list-1"))
+        assert voice.wait(lambda s: s["phase"] == "running" and last_intent(s).get("run_id")), voice.status
+        parent = last_intent(voice.status)["run_id"]
+        seen = _watch(voice, lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=60)
+        status = voice.status
+        assert (status["last"]["run_id"], status["last"]["overall_status"], status["last"]["error_code"]) == \
+            (parent, "FAILED", "PARTIAL_DELIVERY")
+        assert status["last"]["task_id"] == "group_commute_set" and status["accepted"]["run_id"] == parent
+        assert all(s["phase"] == "running" for s in seen if s["last"] is None)
+        failure = status["last"]["failure"]
+        assert (failure["run_id"], failure["code"], failure["step"]) == (parent, "PARTIAL_DELIVERY", None)
+        doc = runner.log_store.read_run(parent)["run"]
+        assert [(i["item"], i["status"], i["run_id"]) for i in doc["items"]] == [
+            ("car_key", "DELIVERED", f"{parent}.1"), ("lip_balm", "DELIVERED", f"{parent}.2"), ("airpods_case", "EXCLUDED", None)]
+        assert doc["start_text"] == "에어팟 케이스는 위치 기록이 없어서 빼고 가져올게요."          # 수락 문장(E)은 따로 먼저
+        assert doc["summary_text"] == "3개 중 2개 가져왔어요. 에어팟 케이스는 위치 기록이 없어요."
+        assert doc["inputs"]["semantic"]["source"]["id"] == "commute_set"
+        for n, item in ((1, "car_key"), (2, "lip_balm")):
+            child = runner.log_store.read_run(f"{parent}.{n}")["run"]
+            assert child["parent_run_id"] == parent and child["inputs"]["target"] == item
+        state = runner.runner.state
+        assert state["located_in"]["car_key"] == state["located_in"]["lip_balm"] == "handover_zone"
+    finally:
+        close()
+
+
+def test_class_request_with_one_item_completes(tmp_path):
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE, intent_tasks=UNPACK_TASKS)
+    try:
+        voice.say(group_intent("find_class", request_id="class-1"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=60), voice.status
+        last = voice.status["last"]
+        assert (last["overall_status"], last["failure"], last["task_id"]) == ("COMPLETED", None, "group_Valuables")
+        assert runner.log_store.read_run(last["run_id"])["run"]["summary_text"] == "차키를 가져왔어요."
+    finally:
+        close()
+
+
+def test_stop_inside_list_request_maps_to_parent_and_skips_the_rest(tmp_path):
+    """목록 실행 중 '멈춰' — 지금 물품이 멈추고 잠김, 다음 물품 안 함. halt.run_id·last.run_id 는 상위 R, 재개 보존 없음."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, duration=0.3, located=P2_SINGLE, intent_tasks=UNPACK_TASKS,
+                                       extra=[("resumable", True)])
+    try:
+        voice.say(group_intent(request_id="list-stop"))
+        assert voice.wait(lambda s: s["phase"] == "running" and (s.get("current_step") or "").startswith("s3")), voice.status
+        parent = last_intent(voice.status)["run_id"]
+        voice.say(intent("cancel", targets=()))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED", timeout=40), voice.status
+        status = voice.status
+        assert status["phase"] == "halted" and status["last"]["run_id"] == parent and status["halt"]["run_id"] == parent
+        assert status["last"]["failure"] is None and runner.runner.suspended is None
+        doc = runner.log_store.read_run(parent)["run"]
+        assert [i["status"] for i in doc["items"]][:2] == ["NOT_DELIVERED", "NOT_RUN"]
+    finally:
+        close()
+
+
+
+def test_stop_during_list_accept_speech_is_aborted_with_no_failure(tmp_path, monkeypatch):
+    """[#381 E 리뷰] 목록 수락 안내 도중 '멈춰'(안내 CANCELED) — 상위 R 은 ABORTED·HALTED, last.failure null(정지를 실패 이유로 안 냄),
+    로봇 동작 없음(물품 실행 0)."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE, intent_tasks=UNPACK_TASKS)
+    try:
+        def speak_then_stop(text):
+            runner.runner.halt(source="voice")
+            return "CANCELED"
+        monkeypatch.setattr(runner, "_speak", speak_then_stop)
+        voice.say(group_intent(request_id="list-accept-stop"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=20), voice.status
+        last = voice.status["last"]
+        assert (last["overall_status"], last["error_code"], last["failure"]) == ("ABORTED", "HALTED", None)
+        doc = runner.log_store.read_run(last["run_id"])["run"]
+        assert all(i["run_id"] is None for i in doc["items"])                              # 물품 실행 없음
+    finally:
+        close()

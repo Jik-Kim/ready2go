@@ -57,7 +57,7 @@ def test_other_registered_item_becomes_target_when_task_has_no_targets():
     (intent(confidence=1.5), ir.BAD_INTENT),
     (intent(intent="unknown", targets=[]), ir.NEEDS_CLARIFY),
     (intent(intent="clarify", clarify_question="어느 서랍요?"), ir.NEEDS_CLARIFY),
-    (intent(intent="find_list", targets=["morning_kit"]), ir.UNSUPPORTED_INTENT),   # P3
+    (intent(intent="find_list", targets=["morning_kit"]), ir.BAD_INTENT),   # P3 목록은 semantic 필수 (#302 계약안)
     (intent(intent="achieve_goal"), ir.NO_GOAL),                            # P2 목표형인데 goals 없음 (#150)
     (intent(confidence=0.3), ir.LOW_CONFIDENCE),
     (intent(targets=[]), ir.NO_TARGET),
@@ -253,3 +253,55 @@ def test_resume_intents_route_and_only_spoken_ones_need_confidence():
     assert router().decide(json.dumps(spoken), running=False, locked=False).reason == ir.LOW_CONFIDENCE
     assert router().decide(json.dumps(request), running=False, locked=False).reason == ir.LOW_CONFIDENCE
     assert router().decide(json.dumps({**spoken, "confidence": 0.9}), running=False, locked=False).kind == ir.RESUME
+
+
+
+# ---- P3 목록·분류 요청 (#302 계약안) ----
+
+EXAMPLES = Path(__file__).resolve().parents[4] / "contracts/examples"
+UNPACK = json.loads((ROOT / "tasks/find_with_unpack.json").read_text(encoding="utf-8"))   # PC2 운영 find_item 태스크 (물품 제한 없음)
+
+
+def group_router():
+    return router({"find_item": UNPACK})
+
+
+def group_example(name="find_list", **changes):
+    doc = json.loads((EXAMPLES / f"intent_{name}.json").read_text(encoding="utf-8"))
+    doc.update(changes)
+    return doc
+
+
+@pytest.mark.parametrize("name", ["find_list", "find_class"])
+def test_list_and_class_examples_become_group_runs(name):
+    """계약 예시(E 실제 조회 결과) → group run: 물품마다 find_item 태스크, inputs.semantic 에 E 출처·근거, 수락 문장."""
+    doc = group_example(name)
+    d = group_router().decide(json.dumps(doc, ensure_ascii=False), running=False, locked=False)
+    assert (d.kind, d.group, d.task) == (ir.RUN, True, UNPACK)
+    assert d.inputs["semantic"] == {"items": doc["targets"], "source": doc["semantic"]["source"],
+                                    "evidence": doc["semantic"]["evidence"]}
+    assert d.inputs["accept_text"] == doc["accept_text"] and d.inputs["stt_text"] == doc["source"]["stt_text"]
+
+
+@pytest.mark.parametrize("doc, reason", [
+    (group_example(semantic=None), ir.BAD_INTENT),                                       # semantic 없음
+    (group_example(targets=[]), ir.BAD_INTENT),                                          # 물품 없음
+    (group_example(targets=["car_key", "car_key"]), ir.BAD_INTENT),                      # 중복
+    (group_example(semantic={**group_example()["semantic"],
+                             "source": {**group_example()["semantic"]["source"], "kind": "class"}}), ir.BAD_INTENT),  # 종류 불일치
+    (group_example(targets=["car_key", "wallet"]), ir.UNKNOWN_ITEM),                     # 활성 물품 아님
+    (group_example(confidence=0.3), ir.LOW_CONFIDENCE),
+])
+def test_bad_group_requests_are_held(doc, reason):
+    if doc.get("semantic") is None:
+        doc.pop("semantic")
+    d = group_router().decide(json.dumps(doc, ensure_ascii=False), running=False, locked=False)
+    assert (d.kind, d.reason) == (ir.HOLD, reason)
+
+
+def test_group_respects_lock_busy_and_task_item_limits():
+    doc = json.dumps(group_example(), ensure_ascii=False)
+    assert group_router().decide(doc, running=True, locked=False).reason == ir.BUSY
+    assert group_router().decide(doc, running=False, locked=True).reason == ir.LOCKED
+    assert router({"find_item": FIND}).decide(doc, False, False).reason == ir.UNSUPPORTED_ITEM   # P1 find_item 은 지우개만
+    assert router({}).decide(doc, False, False).reason == ir.UNSUPPORTED_INTENT       # find_item 태스크 없음
