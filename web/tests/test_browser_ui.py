@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from html import unescape
+import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,6 +31,8 @@ def _render_dashboard(
     utcnow: Callable[[], datetime] | None = None,
     on_first_image_request: Callable[[], None] | None = None,
     on_first_image_response: Callable[[], None] | None = None,
+    interaction_script: str | None = None,
+    viewport_width: int = 1280,
 ) -> tuple[str, int]:
     """주입한 REST 상태를 실제 headless Chrome으로 렌더링해 DOM을 반환한다."""
     # 제품 JavaScript를 실행하지 않는 정적 문자열 검사는 분기 회귀를 잡지 못하므로,
@@ -77,6 +82,18 @@ def _render_dashboard(
         ):
             on_first_image_response()
         return response
+    @app.after_request
+    def inject_test_interaction(response):
+        # 시험 응답에만 사용자 동작과 DOM 스냅샷 코드를 추가한다.
+        if request.path == "/" and interaction_script is not None:
+            response.direct_passthrough = False
+            response.set_data(response.get_data(as_text=True).replace(
+                "</body>",
+                '<script>window.addEventListener("load", () => {'
+                + interaction_script + '});</script></body>',
+            ))
+        return response
+
     server = make_server("127.0.0.1", 0, app)
     server_thread = Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
@@ -92,6 +109,7 @@ def _render_dashboard(
                 "--disable-background-networking",
                 f"--user-data-dir={tmp_path / 'chrome-profile'}",
                 "--virtual-time-budget=2500",
+                f"--window-size={viewport_width},900",
                 "--dump-dom",
                 f"http://127.0.0.1:{server.server_port}/?scenario={scenario}",
             ],
@@ -190,7 +208,7 @@ def test_mock_current_task_uses_eraser_copy_and_shared_item_image(tmp_path: Path
     rendered, _image_request_count = _render_dashboard(
         tmp_path,
         runtime_profile="dev",
-        camera_received=False,
+        camera_received=False, scenario="preview",
     )
 
     assert 'id="taskHeadingIcon"' in rendered
@@ -352,3 +370,107 @@ def test_recent_capture_refetches_same_revision_after_server_process_changes(
     assert '<dd id="captureTime">10:10:06 KST</dd>' in rendered
     assert '<dd id="captureAge">1초 전</dd>' in rendered
     assert 'id="captureImage" alt="최근 촬영한 분할 결과" src="blob:' in rendered
+
+
+def test_empty_inventory_keeps_current_task_preview(tmp_path: Path) -> None:
+    """empty는 조회용 물품·준비물만 비우고 실행 단계·근거는 유지한다."""
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False, scenario="empty",
+    )
+    assert "요청된 준비물이 없습니다." in rendered
+    assert 'class="supply-item"' not in rendered
+    assert 'id="inventoryTableBody"></tbody>' in rendered
+    assert "지우개의 전달 결과를 확인하는 중" in rendered
+    assert '<span class="step-label">지우개 확인·집기</span>' in rendered
+    assert '<dd id="currentStepReason">지우개가 전달 위치에 놓였는지 확인</dd>' in rendered
+    assert rendered.count('class="task-item-button"') == 3
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_preview_item_selection_changes_only_selected_detail(tmp_path: Path, viewport_width: int) -> None:
+    """실제 버튼을 눌러 단계·근거 전환과 현재 작업·조회 선택 보존을 확인한다."""
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False, scenario="preview",
+        viewport_width=viewport_width,
+        interaction_script="""
+          const read = () => ({
+            title: document.getElementById('currentAction').textContent,
+            location: document.getElementById('taskLocation').textContent,
+            drawer: document.getElementById('drawerSelector').querySelector('[aria-pressed="true"]').getAttribute('data-drawer-id'),
+            selection: document.getElementById('taskItemSelection').textContent,
+            steps: document.getElementById('progressSteps').textContent,
+            reason: document.getElementById('currentStepReason').textContent,
+            observation: document.getElementById('currentStepObservation').textContent,
+            pressed: [...document.querySelectorAll('.task-item-button')].map(b => b.getAttribute('aria-pressed')),
+          });
+          const snapshots = [read()];
+          for (const index of [0, 2, 1]) {
+            document.querySelectorAll('.task-item-button')[index].click();
+            snapshots.push(read());
+          }
+          const result = document.createElement('pre');
+          result.id = 'selection-test-result';
+          result.textContent = JSON.stringify(snapshots);
+          document.body.append(result);
+        """,
+    )
+    match = re.search(r'<pre id="selection-test-result">(.*?)</pre>', rendered, re.DOTALL)
+    assert match is not None, rendered
+    initial, key, watch, eraser = json.loads(unescape(match.group(1)))
+    assert "선택 물품: 지우개" in initial["selection"]
+    assert "선택 물품: 차 키" in key["selection"]
+    assert "차 키 집기" in key["steps"]
+    assert key["observation"] == "예시 · 복구 완료"
+    assert key["reason"] == "예시 · 작업 정리"
+    assert key["pressed"] == ["true", "false", "false"]
+    assert "선택 물품: 시계" in watch["selection"]
+    assert "미실행" in watch["steps"]
+    assert watch["observation"] == "관측 결과 없음"
+    assert watch["pressed"] == ["false", "false", "true"]
+    assert eraser == initial
+    for snapshot in [key, watch, eraser]:
+        for field in ["title", "location", "drawer"]:
+            assert snapshot[field] == initial[field]
+
+
+@pytest.mark.parametrize("scenario", ["default", "unknown"])
+def test_no_example_task_in_normal_scenario(tmp_path: Path, scenario: str) -> None:
+    """일반/미정의 접속에서는 예시 버튼·단계·제목이 남지 않는다."""
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False, scenario=scenario)
+    assert 'class="task-item-button"' not in rendered
+    assert "지우개의 전달 결과를 확인하는 중" not in rendered
+    assert "차 키 집기" not in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_collapsed_selection_opens_details_without_replacing_button(tmp_path: Path, viewport_width: int) -> None:
+    """접힌 상태에서 선택하면 상세가 열리고 버튼/제목 DOM·키보드 포커스는 보존된다."""
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        scenario="preview", viewport_width=viewport_width, interaction_script="""
+          document.getElementById('taskDetailsToggle').click();
+          const button = document.querySelector('.task-item-button');
+          const heading = document.getElementById('taskHeadingIcon');
+          button.focus(); button.click();
+          const out = document.createElement('pre'); out.id = 'focus-result';
+          out.textContent = JSON.stringify([
+            !document.getElementById('taskDetails').hidden,
+            document.getElementById('taskDetailsToggle').getAttribute('aria-expanded'),
+            button === document.querySelector('.task-item-button'),
+            heading === document.getElementById('taskHeadingIcon'),
+            document.activeElement === button]);
+          document.body.append(out);
+        """)
+    match = re.search(r'<pre id="focus-result">(.*?)</pre>', rendered)
+    assert match is not None
+    assert json.loads(unescape(match.group(1))) == [True, "true", True, True, True]
+
+
+@pytest.mark.parametrize("scenario", ["error", "long"])
+def test_preview_labels_are_consistent(tmp_path: Path, scenario: str) -> None:
+    """시나리오가 준비물·실행 항목에 동일한 이름/오류 어휘를 적용한다."""
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False, scenario=scenario)
+    if scenario == "error":
+        assert "지우개 · 오류" in rendered
+        assert "지우개 · 확인 불가" not in rendered
+    else:
+        assert rendered.count("업무용 손목시계 및 교통카드 케이스") >= 2

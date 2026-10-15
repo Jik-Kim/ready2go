@@ -441,11 +441,13 @@ ros2 topic info /voice/intent --verbose
 ## 7. URL 데모 시나리오
 
 ```text
+http://localhost:4173/?scenario=preview
 http://localhost:4173/?scenario=long
 http://localhost:4173/?scenario=empty
 http://localhost:4173/?scenario=error
 ```
 
+- `preview`: 기본 예시 실행 순서와 물품 선택을 확인합니다. 실제 실행 결과가 아닙니다. 일반/미정의 시나리오에서는 예시 작업을 표시하지 않습니다.
 - `long`: 긴 등록명·작업 문장의 줄바꿈을 확인합니다.
 - `empty`: 빈 등록 물품과 빈 준비물 레이아웃을 확인합니다.
 - `error`: `목업 오류 시나리오` 안내 아래 연결 확인 전, 상태 수신 실패, 오류, 데이터 없음을 확인합니다. 실제 장치 오류가 아닙니다.
