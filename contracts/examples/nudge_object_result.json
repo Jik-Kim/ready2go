@@ -83,6 +83,25 @@
       "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0, "target_after": null,
                  "make_room": {"action": "fail", "moved_id": null, "ready_to_pick": false, "reason": "car_key#1 놓을 빈 자리 없음",
                                "pushed_ids": [], "pushed_after": []}}
+    },
+    {
+      "case": "make_room_check_only_with_case",
+      "_comment": "make_room + check_only + report_case [제안 10/15 B, 계약 ④ 승인 전 — #364]: 선택 칸 case_id(배치 난제 id, practice/B/ontology/layout_cases.json · 모르면 null)·strategy(direct|nudge|make_room|remove_top|impossible — 계획이 고른 동작 종류). Runner 는 (error_code, strategy == impossible) 로만 분기, 모르는 case_id 는 지금 동작. 칸이 없으면(report_case false) 지금과 같음",
+      "success": false,
+      "error_code": "PUSH_LIMIT",
+      "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0, "target_after": null,
+                 "needed": true, "plan_code": null,
+                 "make_room": {"action": "unstack", "moved_id": null, "ready_to_pick": false, "reason": "car_key#1 → 빈 자리",
+                               "pushed_ids": [], "pushed_after": [], "case_id": "stacked_under", "strategy": "remove_top"}}
+    },
+    {
+      "case": "make_room_impossible_with_case",
+      "_comment": "report_case [제안 10/15 B — #364 ④]: 손잡이 쪽 벽 뭉침 — 움직이지 않음, strategy impossible 이면 Runner 는 make_room 반복 없이 이유 안내",
+      "success": false,
+      "error_code": "NEIGHBOR_TOO_CLOSE",
+      "output": {"pushed": false, "push_vector_m": [0.0, 0.0], "clearance_before_m": 0.0, "floor_z_m": 0.0, "target_after": null,
+                 "make_room": {"action": "fail", "moved_id": null, "ready_to_pick": false, "reason": "벌린 손가락 자리에 eraser#1 — 띄우거나 eraser#1 먼저 치우기",
+                               "pushed_ids": [], "pushed_after": [], "case_id": "cluster_front_wall", "strategy": "impossible"}}
     }
   ]
 }
