@@ -6,8 +6,9 @@ E 가 목록·분류("출근 준비물", "귀중품")를 활성 물품 키로 �
    이유, 전부 빠지면 로봇 동작 없이 거절(`UNKNOWN_ITEM`). 초기 배치로 위치를 보충하지 않음. 클래스 계층은 E 몫(C 는 다시 계산 안 함).
 2. 서랍 순서(world.places 의 Drawer 순)로 묶고, **물품마다 기존 `find_with_unpack` 을 차례로 실행** — 같은 서랍도 물품마다
    열고 닫음(서랍당 한 번 열기는 후속), 한 번에 서랍 하나·물품 하나 전달.
-3. 다음 물품으로 넘어가는 조건(허용 목록): 그 물품 실행이 정리까지 끝났고(COMPLETED·FAILED) 원인이 움직이기 전 실패
-   (`CONTINUE_CODES`, 또는 코드 없음 — #359 전 main 은 못 꺼내도 COMPLETED)이며 빈손·그 서랍 닫힘. 그 밖(정지·충돌·동작 불확실·
+3. 다음 물품으로 넘어가는 조건(허용 목록): 그 물품 실행이 정리까지 끝났고(COMPLETED·FAILED) 원인이 그 물품만 못 꺼낸 실패
+   (`CONTINUE_CODES` — 못 찾음·가림 모름·치우기 실패에 #392 로 집기 판단 거부·make_room 한도·인식 실패 추가, 또는 코드 없음 —
+   #359 전 main 은 못 꺼내도 COMPLETED)이며 빈손·그 서랍 닫힘·홈(그 실행에서 팔을 움직였으면 마지막 자세가 홈). 그 밖(정지·충돌·동작 불확실·
    쥔 상태 모름·놓침·복구 실패 등)은 **묶음 전체 중단**(기존 규칙). 복구 실패는 결과 코드만 보지 않고 태스크 표식
    (`task_error = RESTORE_INCOMPLETE`·`restore_failed`)도 봄 — Runner 는 처음 원인(예 `NO_FREE_SPACE`)을 결과에 남기므로 (#371 E P2).
 4. 결과: 요청한 물품을 전부 전달 `COMPLETED` / 일부 `FAILED`+`PARTIAL_DELIVERY` / 하나도 못 함 `FAILED`+첫 원인 /
@@ -34,8 +35,14 @@ from .variables import attach_particle
 
 PARTIAL_DELIVERY = "PARTIAL_DELIVERY"       # 요청한 물품 중 일부만 전달 (overall_status FAILED, E 확정 10/15)
 HANDOVER = "handover_zone"
-# 이 코드로 끝난 물품은 정리(되돌리기·닫기·홈)까지 끝난 '움직이기 전 실패' — 빈손·서랍 닫힘이면 다음 물품으로
-CONTINUE_CODES = {"TARGET_NOT_FOUND", "OCCLUSION_UNKNOWN", "UNPACK_INCOMPLETE", "NO_FREE_SPACE"}
+# 이 코드로 끝난 물품은 그 물품만 못 꺼낸 것 — 정리(되돌리기·닫기·홈)까지 끝났고 빈손·서랍 닫힘·홈이면 다음 물품으로.
+# 처음 4개(#371 E 확정) + #392(PC2 10/15 출근 준비물 에어팟 — 집기 거부로 목록 전체가 멈춤, B 제안·E 동의 대기):
+#   집기·놓기 판단의 움직이기 전 거부, make_room 반복 한도, 인식 실패. 복구 실패 표식이면 코드와 무관하게 중단(아래).
+CONTINUE_CODES = {"TARGET_NOT_FOUND", "OCCLUSION_UNKNOWN", "UNPACK_INCOMPLETE", "NO_FREE_SPACE",
+                  "NEIGHBOR_TOO_CLOSE", "WALL_TOO_CLOSE", "NO_PUSH_ACCESS", "YAW_INVALID", "NOT_ON_FLOOR",
+                  "LOOP_LIMIT", "CAMERA_TIMEOUT", "DEPTH_INVALID"}
+# 인식 실패는 그 물품이 아니라 카메라·연결 문제일 수 있음 — 두 물품 연속이면 남은 물품을 같은 이유로 반복하지 않고 중단 (#393 A 리뷰)
+DEVICE_CODES = {"CAMERA_TIMEOUT", "DEPTH_INVALID"}
 SOURCE_KINDS = {"list", "class"}
 
 DELIVERED, NOT_DELIVERED, EXCLUDED, NOT_RUN = "DELIVERED", "NOT_DELIVERED", "EXCLUDED", "NOT_RUN"
@@ -43,6 +50,14 @@ REASON_KO = {                               # 끝 요약에서 못 가져온 이
     "TARGET_NOT_FOUND": "못 찾았어요",
     "OCCLUSION_UNKNOWN": "위에 뭐가 있는지 확인하지 못했어요",
     "NO_FREE_SPACE": "위에 있는 물건을 옮기지 못했어요",
+    "NEIGHBOR_TOO_CLOSE": "옆 물건에 막혀서 꺼내지 못했어요",          # #392 — 문구 E 대조 [팀 확정 필요]
+    "WALL_TOO_CLOSE": "서랍 벽에 붙어 있어서 꺼내지 못했어요",
+    "NO_PUSH_ACCESS": "끌어와도 잡을 자리가 안 나와서 꺼내지 못했어요",     # B 의미 (#393 B 리뷰)
+    "YAW_INVALID": "잡을 방향을 정하지 못했어요",
+    "NOT_ON_FLOOR": "다른 물건 위에 높이 얹혀 있어서 꺼내지 못했어요",       # B 의미 (#393 B 리뷰)
+    "LOOP_LIMIT": "공간 확보를 끝내지 못해서 꺼내지 못했어요",           # 다시 찍기만 해도 나옴 — 이동 단정 안 함 (#393 E 리뷰)
+    "CAMERA_TIMEOUT": "카메라 응답이 없어서 확인하지 못했어요",
+    "DEPTH_INVALID": "거리를 재지 못해서 확인하지 못했어요",
     UNKNOWN_ITEM: "위치 기록이 없어요",
     "NOT_IN_DRAWER": "서랍에 있지 않아요",
 }
@@ -167,13 +182,16 @@ def _restore_incomplete(result: RunResult) -> bool:
     return (isinstance(mark, dict) and mark.get("code") == "RESTORE_INCOMPLETE") or bool(board.get("restore_failed"))
 
 
-def _safe_to_continue(runner: Runner, result: RunResult, drawer: str) -> bool:
+def _safe_to_continue(runner: Runner, result: RunResult, drawer: str, motions_before: int) -> bool:
     if result.overall_status not in ("COMPLETED", "FAILED"):
         return False
     if result.overall_status == "FAILED" and result.error_code not in CONTINUE_CODES:
         return False
     state = runner.state
-    return (state.get("gripper") or {}).get("robot") == "empty" and (state.get("open") or {}).get(drawer) is False
+    # 홈 확인 (#392 1): 그 물품 실행에서 팔을 움직였으면 마지막 자세가 홈이어야 함 — 상태 robot_pose 는 갱신되지 않아 쓰지 않고
+    # Runner 가 실제로 보낸 자세로 봄(finally 홈 복귀 f3.1 이 실패·불확실하면 None → 중단). 팔을 안 움직였으면 처음 자리 그대로.
+    home = runner.arm_pose == "home" or runner.motions_sent == motions_before
+    return home and (state.get("gripper") or {}).get("robot") == "empty" and (state.get("open") or {}).get(drawer) is False
 
 
 def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
@@ -216,6 +234,7 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
     result.start_text = start_text(runnable, excluded, accepted=bool(accept_text))
     say(result.start_text)
     stopped = None
+    device_fail = False                     # 바로 앞 물품이 인식 실패(DEVICE_CODES)로 끝났나
     resumable = runner.resumable            # 묶음 안 정지는 보존·재개 없음 — 물품 실행이 SUSPENDED 로 남지 않게 (#371 E P2)
     runner.resumable = False
     try:
@@ -228,6 +247,7 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
                      "meta": {**(meta or {}), **({"parent_run_id": run_id} if run_id else {})} or None}
             # 물품 안내 = 그 물품 실행의 첫 안내(s2.1) — 실패하면 그 물품 동작 0번(announce_pending), 코드가 허용 목록 밖이라 아래에서 중단
             say_item = item_start_text(outcome.name_ko, n, len(runnable))
+            motions_before = runner.motions_sent
             run = runner.run(task, {"target": outcome.item, "accept_text": say_item}, **child)
             outcome.overall_status, outcome.error_code, outcome.run_id = run.overall_status, run.error_code, run.run_id
             outcome.failure = run.failure
@@ -239,7 +259,11 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
             if outcome.restore_incomplete:  # 허용 코드여도 정리(복구)가 실패했으면 다음 물품 안 함
                 result.overall_status, result.error_code, stopped = "FAILED", "RESTORE_INCOMPLETE", "failed"
                 break
-            if not _safe_to_continue(runner, run, outcome.drawer):
+            if run.overall_status == "FAILED" and run.error_code in DEVICE_CODES and device_fail:
+                result.overall_status, result.error_code, stopped = "FAILED", run.error_code, "failed"
+                break                       # 두 물품 연속 인식 실패 — 카메라 문제로 보고 중단
+            device_fail = run.overall_status == "FAILED" and run.error_code in DEVICE_CODES
+            if not _safe_to_continue(runner, run, outcome.drawer, motions_before):
                 result.overall_status, result.error_code, stopped = "FAILED", run.error_code or "GROUP_STOPPED", "failed"
                 break
     finally:

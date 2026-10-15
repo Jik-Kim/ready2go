@@ -296,6 +296,17 @@ class Runner:
         return True
 
     @property
+    def arm_pose(self) -> str | None:
+        """팔이 지금 있는 이름 자세(마지막 성공한 move_to_named_pose, 그 뒤 움직였을 수 있으면 None). 실행 사이에도 유지 —
+        다음 run() 시작 때 비움. 목록 실행이 물품 사이에 홈 복귀를 확인하는 데 씀 (#392 1)."""
+        return (self._at_pose or {}).get("pose_name")
+
+    @property
+    def motions_sent(self) -> int:
+        """지금까지 보낸 팔 동작 수(움직이기 전 거부가 보장된 실패는 빼고). 앞뒤 값을 비교해 그 사이에 팔을 움직였는지 봄."""
+        return self._motions
+
+    @property
     def halt_generation(self) -> int:
         """정지 요청 세대 — recover 가 B 조회 전에 읽어 두고 resume_if 로 넘김."""
         return self._halt_gen
