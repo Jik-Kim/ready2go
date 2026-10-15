@@ -2583,7 +2583,9 @@ class SkillServer(Node):
             jnow = self.robot.posj()
             # carry.direct: 경유점 1 에서 J6 만 따로 돌리며 서지 않고, 긴 2→3 구간(트레이 쪽 약 390 mm)에서 옮기며 돌림 —
             # 짧은 1→2(64 mm)는 집은 손목 그대로 (거기서 크게 돌리면 출발 안 함 [실측 10/10]) [사용자 10/14 "경유점 두 번"]
-            direct = bool(prm["carry"].get("direct")) and len(route) >= 3 and abs(turn) > 1.0
+            # carry.spline 이면 direct 를 쓰지 않음 — 스플라인 안에서 손목 각을 바꾸면 각도 숫자가 점 하나에서 270~360° 뛰어 제어기가
+            # 손목을 휘저음 [실측 PC2 10/15 차키: z 400 까지 치켜올림, J5 134° JOINT_LIMIT → STOP_UNCONFIRMED. 렌치(회전 작음)는 정상]
+            direct = bool(prm["carry"].get("direct")) and not prm["carry"].get("spline") and len(route) >= 3 and abs(turn) > 1.0
             if abs(turn) > 1.0 and jnow and not direct:
                 o = self._movej(goal, list(jnow[:5]) + [jnow[5] + turn], "carry:turn", in_drawer=True)
                 if not o.success:
@@ -2604,7 +2606,10 @@ class SkillServer(Node):
                 # carry.spline: 칸 위까지를 movesx guided(moveb 둥근 경로 위 점들)로 속도 끊김 없이 → 놓는 높이 + 10 mm 는 직선
                 # [강사님 피드백 10/13, movesx_carry_sim — 교시점 그대로 넣으면 위로 약 90 mm 부풂]. 못 쓰면 지금 moveb 로
                 via = mp.guided_via(seq[:-1] if len(pts) > len(route) else seq, radii, int(prm["carry"].get("spline_via", 8)),
-                                    turn_after=2 if direct else 0, start_angles=list(here[3:6]))
+                                    turn_after=0, start_angles=list(here[3:6]))
+                # 손목은 위에서 이미 놓는 방향으로 돌려 둠 → 점마다 지금 각도 숫자 그대로 (같은 방향이라도 −130·230 처럼 숫자가 다르면
+                # 스플라인이 360° 를 이으려 함). 놓는 각도와 차이(1° 안)는 마지막 직선(carry:down·lower)에서 맞춤
+                via = [list(v[:3]) + list(here[3:6]) for v in via]
                 bad = self._spline(goal, via, self._free_vel(), "carry:spline")
                 if bad is None and len(pts) > len(route):
                     bad = self._line(goal, pts[-1], self._free_vel(), "carry:down")

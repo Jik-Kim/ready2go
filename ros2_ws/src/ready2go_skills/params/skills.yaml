@@ -99,6 +99,7 @@ carry:                            # 집은 뒤 → 트레이 직선 블렌딩 (p
   pause_s: 0.5                  # 집고 경유점 1에 도착한 뒤 멈춤 (direct 면 안 멈춤)
   direct: false                 # [10/14 P2 시연 뒤 사용자 "경유점 두 번" — 실물 저속 확인 뒤 켜기] true = 경유점 1 에서 0.5 s 멈춤·J6 따로 돌리기 없이
                                 #   1→2(64 mm)는 집은 손목 그대로, 긴 2→3(트레이 쪽 약 390 mm)에서 옮기며 놓는 각도로 돌림
+                                #   spline 과 같이 켜면 손목은 경유점 1 에서 먼저 돌림 (스플라인 안 손목 회전 금지 — 10/15 차키 J5 한계)
   spline: false                 # [강사님 피드백 10/13, practice/B/sim/movesx_carry_sim.py — 실물 저속 확인 뒤 켜기] true = 칸 위까지 movesx guided
                                 #   (moveb 둥근 경로 위 spline_via 점, 일정 속도) → 놓는 높이 + 10 mm 는 직선. 드라이버에 movesx 가 없거나 출발 안 하면 moveb 그대로
   spline_via: 8                 # guided 경유점 수 (sim: 8 점이면 moveb 경로에서 최대 29 mm 안, 최소 곡률 반지름 20 → 54 mm)

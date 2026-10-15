@@ -3891,3 +3891,34 @@ def test_pick_open_on_way_opens_during_waypoint_move(server, monkeypatch, on_way
     wp = next(k for k, e in enumerate(log) if e[0] == "movej" and list(e[1][:5]) == list(down[:5]))
     if not on_way:
         assert log.index(("grip", 0)) < wp < log.index(("grip", grips[-1]))          # 끔: 닫고 → 경유점 → 벌림 (지금 동작)
+
+
+def test_carry_spline_turns_wrist_first_and_keeps_angles_in_movesx(server, monkeypatch):
+    """[실측 PC2 10/15 차키] carry.spline + direct + 손목 90°: 스플라인 안에서 손목 각을 바꾸면 각도 숫자가 점 하나에서 270~360° 뛰어
+    J5 한계(STOP_UNCONFIRMED). → 스플라인이면 경유점 1 에서 J6 먼저(carry:turn), movesx 점은 모두 지금 각도 숫자 그대로."""
+    _with_prm(server, monkeypatch, carry={"spline": True, "direct": True})
+    srv = server.srv
+    route = srv.poses()["carry_line"]["drawer_top"]
+    seen = {}
+
+    def movesx(pts, vel, acc, rot_vel=30.0, rot_acc=60.0, const_vel=True):
+        seen["via"], seen["start"] = [list(p) for p in pts], list(srv.robot.p)
+        srv.robot.p = list(pts[-1])
+        return True
+    srv.robot.movesx_async = movesx
+    srv.held = dict(LIP_HELD)
+    server.Gripper.holding, server.Gripper.width = True, 19.5
+    start = list(route[0])
+    start[5] += 90.0                                                    # 집은 손목이 놓는 방향과 90° 다름
+    srv.robot.p, srv.robot.j = start, [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    srv.robot.log.clear()
+    try:
+        out, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    log = srv.robot.log
+    turn_k = next(k for k, e in enumerate(log) if e[0] == "movej")         # 경유점 1 에서 J6 먼저
+    assert turn_k < len(log) and "via" in seen
+    assert all(v[3:6] == seen["start"][3:6] for v in seen["via"])       # 스플라인 안 손목 각 숫자 그대로
+    assert max(v[2] for v in seen["via"]) <= max(p[2] for p in route) + 1.0
