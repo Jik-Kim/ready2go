@@ -21,7 +21,8 @@
       { id: "runner", label: "Runner", status: "pending", statusLabel: "상태 수신 대기", description: "향후 /runner/status로 연결 예정" },
     ],
     command: {
-      understood: "차 키·지갑·시계를 찾아 전달합니다.",
+      // 현재 작업과 같은 목업 요청을 사용한다. 실제 commute_set 정의는 변경하지 않는다.
+      understood: "차 키·지우개·시계를 찾아 전달합니다.",
       interpretation: { status: "confirmed", label: "요청 해석 완료 · 목업 예시" },
       receipt: { status: "accepted", label: "명령 접수 · 목업 예시" },
       processing: { status: "verifying", label: "관측 결과 확인 중 · 목업 예시" },
@@ -49,20 +50,21 @@
     ],
     supplies: [
       { id: "car-key", name: "차 키", icon: "key", status: "delivered", statusLabel: "전달 완료" },
-      { id: "wallet", name: "지갑", icon: "wallet", status: "verifying", statusLabel: "결과 확인 중" },
+      { id: "eraser", name: "지우개", icon: "eraser", status: "verifying", statusLabel: "결과 확인 중" },
       { id: "watch", name: "시계", icon: "watch", status: "waiting", statusLabel: "대기" },
     ],
     task: {
       status: "verifying",
       workDrawerId: "bottom",
-      currentItemIcon: "wallet",
-      currentAction: "지갑의 전달 결과를 확인하는 중",
+      currentItemId: "eraser",
+      currentItemIcon: "eraser",
+      currentAction: "지우개의 전달 결과를 확인하는 중",
       detailsExpanded: true,
       steps: [
         { id: "open-bottom", label: "아래 서랍 열기", status: "complete", statusLabel: "완료", reason: "등록 위치의 물품에 접근", observation: "목업 예시 · 서랍 열림 상태 확인" },
-        { id: "pick-wallet", label: "지갑 확인·집기", status: "complete", statusLabel: "완료", reason: "요청 물품과 등록 물품 일치 확인", observation: "목업 예시 · 지갑 집기 완료" },
-        { id: "place-wallet", label: "전달 위치에 놓기", status: "complete", statusLabel: "완료", reason: "사용자에게 물품 전달", observation: "목업 예시 · 전달 위치 배치 완료" },
-        { id: "verify-wallet", label: "배치 결과 검증", status: "current", statusLabel: "진행 중", reason: "지갑이 전달 위치에 놓였는지 확인", observation: "목업 예시 · 확인 대기" },
+        { id: "pick-eraser", label: "지우개 확인·집기", status: "complete", statusLabel: "완료", reason: "요청 물품과 등록 물품 일치 확인", observation: "목업 예시 · 지우개 집기 완료" },
+        { id: "place-eraser", label: "전달 위치에 놓기", status: "complete", statusLabel: "완료", reason: "사용자에게 물품 전달", observation: "목업 예시 · 전달 위치 배치 완료" },
+        { id: "verify-eraser", label: "배치 결과 검증", status: "current", statusLabel: "진행 중", reason: "지우개가 전달 위치에 놓였는지 확인", observation: "목업 예시 · 확인 대기" },
         { id: "close-bottom", label: "아래 서랍 닫기", status: "waiting", statusLabel: "대기", reason: "작업 후 서랍 상태 복구", observation: "목업 예시 · 미수행" },
       ],
     },
@@ -72,15 +74,15 @@
         rows: [
           { id: "bottom-drawer", icon: "drawer", label: "아래 서랍", value: "열림", valueStatus: "confirmed", source: "목업 · Runner 저장 상태 예시", receivedAt: "08:12:19" },
           { id: "gripper", icon: "gripper", label: "그리퍼", value: "열림", valueStatus: "confirmed", source: "목업 · Runner 저장 상태 예시", receivedAt: "08:12:20" },
-          { id: "wallet-placement", icon: "wallet", label: "지갑 배치", value: "확인 대기", valueStatus: "verifying", source: "목업 · 관측 결과 미수신", receivedAt: null },
+          { id: "eraser-placement", icon: "eraser", label: "지우개 배치", value: "확인 대기", valueStatus: "verifying", source: "목업 · 관측 결과 미수신", receivedAt: null },
         ],
         error: { label: "현재 오류: 미수신", detail: "오류 데이터 제공 경로가 연결되지 않아 오류 유무를 판단할 수 없습니다." },
       },
       ontology: {
         relations: [
-          { title: "등록 물품", value: "차 키 · 지갑 · 시계", meta: "샘플 정의" },
+          { title: "등록 물품", value: "차 키 · 지우개 · 시계", meta: "샘플 정의" },
           { title: "등록 장소", value: "위 서랍 · 아래 서랍", meta: "샘플 정의" },
-          { title: "관계", value: "지갑 → 아래 서랍", meta: "샘플 관계" },
+          { title: "관계", value: "지우개 → 아래 서랍", meta: "샘플 관계" },
         ],
         skills: [
           { title: "pick", before: "대상 위치 확인", after: "그리퍼가 대상 물품 보유" },
@@ -150,7 +152,7 @@
     long(data) {
       data.drawers[0].items[0].name = "손목시계 충전 거치대가 포함된 매우 긴 등록 물품명";
       data.supplies[2].name = "업무용 손목시계 및 교통카드 케이스";
-      data.command.understood = "차 키·지갑·업무용 손목시계 및 교통카드 케이스를 찾아 전달합니다.";
+      data.command.understood = "차 키·지우개·업무용 손목시계 및 교통카드 케이스를 찾아 전달합니다.";
     },
   };
 

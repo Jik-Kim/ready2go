@@ -43,7 +43,7 @@ def test_root_serves_existing_dashboard_html(client) -> None:
 
     # 기존 UI의 제목·viewport·목업 안내 요소가 Flask 제공 뒤에도 유지돼야 한다.
     body = response.get_data(as_text=True)
-    assert "ROKEY · 출근 준비 도우미" in body
+    assert "Ready2Go · 출근 준비 도우미" in body
     assert 'name="viewport"' in body
     assert 'id="mockDataNotice"' in body
     assert '<script src="./status-api.js" defer></script>' in body
@@ -79,9 +79,13 @@ def test_public_assets_are_served_with_expected_mimetype(
 
 
 def test_public_asset_allowlist_matches_current_dashboard_dependencies() -> None:
-    """정적 공개 범위가 현재 HTML의 다섯 의존성으로 제한돼 있는지 확인한다."""
+    """정적 공개 범위가 화면 의존성과 승인된 물품 그림으로 제한되는지 확인한다."""
     assert PUBLIC_ASSETS == frozenset(
         {"app.js", "demo-data.js", "runner-status-model.js", "status-api.js", "styles.css"}
+        | {f"assets/items/{name}.svg" for name in (
+            "airpods_case", "car_key", "caramel_box", "cover_plate", "eraser",
+            "lip_balm", "masking_tape", "toy_car", "toy_hammer", "toy_wrench",
+        )}
     )
 
 
@@ -139,6 +143,7 @@ def test_custom_web_root_can_be_injected_without_exposing_other_files(tmp_path: 
     # 최소 정적 파일과 공개하면 안 되는 private 파일을 같은 임시 폴더에 만든다.
     (tmp_path / "index.html").write_text("<h1>temporary dashboard</h1>", encoding="utf-8")
     for asset_name in PUBLIC_ASSETS:
+        (tmp_path / asset_name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / asset_name).write_text(f"/* {asset_name} */", encoding="utf-8")
     (tmp_path / "private.txt").write_text("secret", encoding="utf-8")
 
@@ -501,3 +506,20 @@ def test_status_api_hides_internal_snapshot_exception() -> None:
     payload = response.get_json()
     assert payload["error"]["code"] == "STATE_SNAPSHOT_FAILED"
     assert "private implementation detail" not in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("asset_name", sorted(name for name in PUBLIC_ASSETS if name.startswith("assets/items/")))
+def test_item_icons_are_served_as_svg(client, asset_name):
+    """물품 그림은 실제 파일과 올바른 MIME으로 제공되어야 한다."""
+    from xml.etree import ElementTree
+
+    response = client.get("/" + asset_name)
+    assert response.status_code == 200
+    assert response.mimetype == "image/svg+xml"
+    assert ElementTree.fromstring(response.data).tag == "{http://www.w3.org/2000/svg}svg"
+
+
+@pytest.mark.parametrize("path", ["assets/items/missing.svg", "assets/items/../../app.js", "assets/items/private.txt"])
+def test_item_icon_route_keeps_allowlist_boundary(client, path):
+    """물품 경로를 추가해도 미허용 파일과 상위 경로는 공개하지 않는다."""
+    assert client.get("/" + path).status_code == 404

@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<!-- 물품 식별용 그림: 관측 또는 실행 성공을 나타내지 않는다. -->
+<g transform="rotate(35 32 32)"><rect x="27" y="21" width="10" height="39" rx="4" fill="#ff9c35" stroke="#e77520" stroke-width="2"/><rect x="12" y="9" width="40" height="17" rx="6" fill="#ffa344" stroke="#e77520" stroke-width="2"/><rect x="10" y="7" width="8" height="21" rx="4" fill="#ffb158" stroke="#e77520"/><rect x="46" y="7" width="8" height="21" rx="4" fill="#ffb158" stroke="#e77520"/></g>
+</svg>

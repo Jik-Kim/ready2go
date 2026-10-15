@@ -48,6 +48,17 @@ PUBLIC_ASSETS = frozenset(
         "runner-status-model.js",
         "status-api.js",
         "styles.css",
+        # 물품 그림은 명시한 자산만 공개하며 디렉터리 전체를 열지 않는다.
+        "assets/items/car_key.svg",
+        "assets/items/airpods_case.svg",
+        "assets/items/caramel_box.svg",
+        "assets/items/cover_plate.svg",
+        "assets/items/eraser.svg",
+        "assets/items/lip_balm.svg",
+        "assets/items/masking_tape.svg",
+        "assets/items/toy_car.svg",
+        "assets/items/toy_hammer.svg",
+        "assets/items/toy_wrench.svg",
     }
 )
 
@@ -354,7 +365,7 @@ def create_app(
 
     @app.get("/<path:asset_name>")
     def static_asset(asset_name: str):
-        """현재 대시보드가 사용하는 공개 CSS·JavaScript 파일만 반환한다."""
+        """현재 대시보드의 허용된 CSS·JavaScript·물품 그림만 반환한다."""
         # allowlist에 없는 파일과 ../ 상위 경로 요청은 모두 같은 404로 처리한다.
         if asset_name not in PUBLIC_ASSETS:
             abort(404)
