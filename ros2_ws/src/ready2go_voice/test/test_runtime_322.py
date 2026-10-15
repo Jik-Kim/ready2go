@@ -247,20 +247,23 @@ def test_actual_c_b_rejection_failure_timeout_and_restopped_preserve_lock(node,m
     if node.pending_notice is not None:assert '더미' not in node.pending_notice.text
 
 
-def test_runtime_prefill_all_memory_answers_and_not_dummy_notices(cfg,ontology,tmp_path):
+@pytest.mark.parametrize('startup_timeout', [60.0, 600.0])
+def test_runtime_prefill_all_memory_answers_and_not_dummy_notices(cfg,ontology,tmp_path,startup_timeout):
     cfg=dict(cfg,tts_melotts_assets=str(tmp_path))
+    cfg['tts_melotts_startup_timeout_sec'] = startup_timeout
+    before = copy.deepcopy(cfg)
     texts=prefill_texts(cfg,ontology['world']['items'].values(),reference_state=ontology['state'],
         places=ontology['world']['places'],item_names={k:v['name_ko'] for k,v in ontology['world']['items'].items()})
     for key,text in prompts(cfg).items():
         if key.startswith('runtime_'):assert text in texts and '더미' not in text
-    assert len(texts)+1<=256
+    assert len(texts)+1<=cfg['tts_prefill_max_texts']==512
     from ready2go_voice.core.recovery_confirmation import _particle
     for item in ontology['world']['items'].values():
         name=item['name_ko']
         assert prompts(cfg)['recorded_held'].format(item=name,item_topic=_particle(name,'은','는')) in texts
     assert control_notice(cfg,'end',runtime=True) in texts
     assert control_notice(cfg,'failed',runtime=True,operation='recover',reason='B_RECOVER_UNAVAILABLE') in texts
-    assert cfg['tts_melotts_startup_timeout_sec']==60.
+    assert cfg == before
 
 
 @pytest.mark.parametrize('order',['state-first','status-first'])

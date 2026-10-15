@@ -148,7 +148,7 @@ def prepare(cfg):
     if cfg['tts_engine'] != 'melotts':
         raise ValueError('MELOTTS_REQUIRED')
     cfg = dict(cfg)
-    cfg['tts_melotts_startup_timeout_sec'] = 120.0  # 기존 명시 prepare 전용 상한; 일반 node60 불변
+    cfg['tts_melotts_startup_timeout_sec'] = 3600.0  # 명시 prepare 전용: 새 문장 전체 합성에 최대 1시간 허용
     def progress(data):
         print(json.dumps({key:data[key] for key in ('event','done','total','cache_hit','elapsed_sec') if key in data},ensure_ascii=False),flush=True)
     cfg['_tts_progress'] = progress
