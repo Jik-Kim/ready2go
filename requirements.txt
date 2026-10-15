@@ -4,6 +4,7 @@
 # 공통 core, Knowledge/Bringup, Runner, Skills, 보정/tools 및 Vision 영상 처리
 setuptools
 PyYAML>=6,<7
+rdflib>=6.1.1,<8
 jsonschema>=4,<5
 numpy==1.26.4
 pymongo>=4,<5
