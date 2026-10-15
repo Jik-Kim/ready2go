@@ -13,7 +13,9 @@
   전달 뒤 후속 목표 실패는 전달 상태·기록 그대로 두고 전체 FAILED + 그 코드. 묶음 안 재개 확대 없음.
 - 끝없이 돌지 않음: 같은 상태로 다시 계획하게 되면(상태 변화 없음) `PLAN_NO_PROGRESS`, 구간 수 상한 `max_rounds`.
 
-노드 연결(achieve_goal → run_plan, 수락 run_id·음성 상관)은 별도 — 지금 노드는 composites=False 로 지금 계획 그대로.
+노드 연결(#302 C 설계·E 동의 10/15): 요청 하나 = 상위 run_id(R) 하나 — 구간(child) 실행은 `R.1`, `R.2` … 로 따로 기록
+(`parent_run_id: R`, 같은 run_id 재사용·덮어쓰기 없음). 첫 수락 안내(`accept_text`)는 첫 구간에만 — 이후 구간은 같은 상위 요청의
+후속 안내. 상태 칸·정지 매핑은 노드(nodes/runner_node.py)가 함.
 """
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ from ready2go_knowledge.core import ontology
 from . import planner
 from .interpreter import Runner
 from .item_group import _restore_incomplete
-from .intent_router import UNPLANNABLE
+from .intent_router import UNPLANNABLE, add_accept_speak
 
 PLAN_EFFECT_UNMET = "PLAN_EFFECT_UNMET"     # 묶음이 끝났는데 실제 상태가 계획 전용 결과(plan_effect)를 만족하지 않음
 PLAN_NO_PROGRESS = "PLAN_NO_PROGRESS"       # 구간 뒤 상태가 그대로라 같은 계획을 반복하게 됨 / 구간 수 상한
@@ -40,6 +42,7 @@ class Segment:
     run_id: str | None = None
     overall_status: str | None = None
     error_code: str | None = None
+    failed_step: str | None = None
 
 
 @dataclass
@@ -48,6 +51,7 @@ class PlanRun:
     error_code: str | None
     segments: list[Segment] = field(default_factory=list)
     reason: str = ""                        # 끝난 이유 (사람이 읽는 설명)
+    failed_step: str | None = None          # 멈춘 구간의 실패 스텝 (상위 결과 last.failed_step)
 
 
 def _effect_met(state: dict, skill: dict, params: dict) -> bool:
@@ -58,8 +62,11 @@ def _effect_met(state: dict, skill: dict, params: dict) -> bool:
 
 def run_plan(runner: Runner, onto: dict, goals: list[dict], tasks: Callable[[str], dict],
              limits: dict | None = None, timeouts: dict[str, float] | None = None,
-             max_rounds: int = MAX_ROUNDS) -> PlanRun:
-    """goals 를 묶음 스킬까지 써서 계획·실행. tasks: 묶음 스킬 task 경로 → 태스크 JSON (노드·시험이 읽어 줌)."""
+             max_rounds: int = MAX_ROUNDS, run_id: str | None = None, meta: dict | None = None,
+             accept_text: str | None = None) -> PlanRun:
+    """goals 를 묶음 스킬까지 써서 계획·실행. tasks: 묶음 스킬 task 경로 → 태스크 JSON (노드·시험이 읽어 줌).
+    run_id: 상위 실행 ID R — 구간 실행 ID 는 R.1, R.2 … (없으면 Runner 가 새로). meta: 구간 실행 기록 헤더(parent_run_id 붙임).
+    accept_text: 첫 구간에만 수락 안내 1회 (묶음이면 태스크 inputs.accept_text, primitive 면 add_accept_speak)."""
     skills = onto.get("skills", {})
     initial_auto = planner._auto_goals(runner.state, onto.get("world", {}), goals)   # 처음 상태 기준 — 끝까지 유지
     all_goals = [*goals, *initial_auto]
@@ -87,9 +94,13 @@ def run_plan(runner: Runner, onto: dict, goals: list[dict], tasks: Callable[[str
             seen.add(key)
 
             head = result.steps[0]
+            first_segment = not out.segments
+            say = {"accept_text": accept_text} if first_segment and accept_text else {}
+            child = {"run_id": f"{run_id}.{len(out.segments) + 1}" if run_id else None,
+                     "meta": {**(meta or {}), **({"parent_run_id": run_id} if run_id else {})} or None}
             if head.task:                   # 묶음 하나 = 지정 태스크 단독 실행
                 seg = Segment("composite", [head.label()], lines)
-                run = runner.run(tasks(head.task), {"target": head.params.get("target")})
+                run = runner.run(tasks(head.task), {"target": head.params.get("target"), **say}, **child)
             else:                           # 다음 묶음 전까지 primitive = 기존 to_task 한 번
                 prefix = []
                 for s in result.steps:
@@ -99,8 +110,11 @@ def run_plan(runner: Runner, onto: dict, goals: list[dict], tasks: Callable[[str
                 seg = Segment("primitive", [s.label() for s in prefix], lines)
                 partial = planner.PlanResult(planner.PLANNED, prefix, result.goals)
                 first = goals[0]
-                run = runner.run(planner.to_task(partial, f"plan_{first['subject']}_{first['value']}".lower(), timeouts))
-            seg.run_id, seg.overall_status, seg.error_code = run.run_id, run.overall_status, run.error_code
+                task = planner.to_task(partial, f"plan_{first['subject']}_{first['value']}".lower(), timeouts)
+                run = runner.run(add_accept_speak(task, say) if say else task, say or None, **child)
+            seg.run_id, seg.overall_status, seg.error_code, seg.failed_step = \
+                run.run_id, run.overall_status, run.error_code, run.failed_step
+            out.failed_step = run.failed_step
             out.segments.append(seg)
 
             if run.overall_status in ("ABORTED", "SUSPENDED"):
