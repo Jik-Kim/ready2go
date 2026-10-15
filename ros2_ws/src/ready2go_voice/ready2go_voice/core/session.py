@@ -26,7 +26,7 @@ class VoiceSession:
         self._last = None
         self._acceptance = None
         self.conversation = Conversation(cfg, clock)
-        self._published_questions = deque(maxlen=cfg.get("tts_prefill_max_texts", 256))
+        self._published_questions = deque(maxlen=cfg.get("tts_prefill_max_texts", 512))
 
     def text(self, text, generation=0, blocked=False, deadline=None, request_id=None, *, preserve_empty=False, runner_state=None):
         self._acceptance = None  # 새 요청은 이전 내부 문장의 소비 권한을 폐기합니다.

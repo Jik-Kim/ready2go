@@ -165,7 +165,24 @@ def server(monkeypatch):
     def run(action, params):
         return sf.run_guarded(lambda: getattr(srv, f"_do_{action}")(goal, json.loads(json.dumps(params))),
                               stop=srv.robot.stop, get_state=srv.state)
-    return types.SimpleNamespace(ss=ss, srv=srv, run=run, Gripper=Gripper)
+    # [10/15 기본값 켬] 예전 테스트는 끈 동작(경유점에서 닫고·멈추고·손목 따로)을 검사 — 여기서 끈 값으로 고정하고,
+    # 켠 동작은 _with_prm 으로 켜거나 yaml_real(저장소 skills.yaml 그대로)로 검사
+    yaml_real = ss._yaml_cached
+
+    def legacy(path, **kw):
+        d = yaml_real(path, **kw)
+        if path.name == "skills.yaml":
+            d = dict(d)
+            for k, v in LEGACY_FLAGS.items():
+                d[k] = {**(d.get(k) or {}), **v}
+        return d
+    monkeypatch.setattr(ss, "_yaml_cached", legacy)
+    return types.SimpleNamespace(ss=ss, srv=srv, run=run, Gripper=Gripper, yaml_real=yaml_real)
+
+
+LEGACY_FLAGS = {"motion": {"one_turn": False}, "carry": {"direct": False, "spline": False},
+                "transit": {"view_blend_in_drawer": False}, "pick": {"open_on_way": False},
+                "place": {"touch_window_mm": 0.0}}
 
 
 def test_check_only_still_needs_drag_returns_push_limit_without_motion(server):
@@ -345,6 +362,27 @@ def test_named_top_view_from_over_drawer_does_not_exit(server):
     assert out.success
     assert log[0][0] == "movel" and log[0][1][1] == pytest.approx(-216.0) and log[0][1][2] == pytest.approx(300.0)
     assert log[1][0] == "movej"
+
+
+@pytest.mark.parametrize("flag, held, radius", [
+    (False, False, 0.0),             # 기본: safe_z 에서 서고 관절 이동 (지금 동작 그대로)
+    (True, False, 0.45 * 25.0),      # 켬·빈손: 경유점 1(z 275) → 300 올리기 끝 45% 에서 이음
+    (True, True, 0.0),               # 켬이어도 쥔 채면 지금처럼 멈췄다 감
+])
+def test_top_view_from_waypoint_blends_only_when_flag_and_empty(server, monkeypatch, flag, held, radius):
+    """[사용자 10/15 "중앙 경유점 → z 위로 → 뷰, 약간 늦어"] transit.view_blend_in_drawer."""
+    _with_prm(server, monkeypatch, transit={"view_blend_in_drawer": flag})
+    rb = server.srv.robot
+    rb.p = [380.0, -216.0, 275.0, 0.0, 180.0, 0.0]
+    if held:
+        server.srv.held = {"id": "eraser#1", "class": "eraser", "width_m": 0.02}
+    radii, ml = [], rb.movel_async
+    rb.movel_async = lambda p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0: (radii.append(radius), ml(p, vel, acc, rot_vel, rot_acc, radius))[1]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    moves = [e for e in rb.log if e[0] in ("movel", "movej")]
+    assert out.success
+    assert moves[0][0] == "movel" and moves[0][1][2] == pytest.approx(300.0) and moves[-1][0] == "movej"
+    assert radii[0] == pytest.approx(radius)
 
 
 def test_open_drawer_without_posx_fails_before_any_command(server):
@@ -3845,3 +3883,163 @@ def test_place_touch_window_ignores_early_wobble_but_stops_on_floor(server, monk
         assert z == pytest.approx(tz, abs=0.5) and "무시" in msg            # 흔들림은 넘기고 바닥(목표)에서
     else:
         assert z == pytest.approx(tz + 5.0, abs=0.6) and "+5" in msg       # 지금: 5 mm 위에서 놓음 (로그에 남음)
+
+
+@pytest.mark.parametrize("on_way", [False, True])
+def test_pick_open_on_way_opens_during_waypoint_move(server, monkeypatch, on_way):
+    """[사용자 10/15 "뷰 찍고 집으러 내려오면서 그리퍼 벌려두면"] pick.open_on_way: 끔 = 탑뷰에서 닫고 경유점 도착 뒤 벌림,
+    켬 = 닫지 않고 경유점 관절 이동과 같이 벌림, 목표 위로 가기(moveb) 전에 다 벌림. 잡는 자리·결과는 같음."""
+    srv = server.srv
+    down, _ = _turning_movej(server)
+    _with_prm(server, monkeypatch, pick={"open_on_way": on_way})
+    orig = server.Gripper.move
+    monkeypatch.setattr(server.Gripper, "move", lambda self, w, f: (srv.robot.log.append(("grip", w)), orig(self, w, f))[1])
+    srv.robot.p, srv.robot.j, srv.held = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0], [0.0, 0.0, 90.0, 0.0, 90.0, 0.0], None
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    log = srv.robot.log
+    first_b = next(k for k, e in enumerate(log) if e[0] == "moveb")
+    grips = [e[1] for e in log[:first_b] if e[0] == "grip"]
+    assert grips == ([grips[-1]] if on_way else [0, grips[-1]]) and grips[-1] > 0     # 켬이면 닫지 않음, 벌리기는 목표 위로 가기 전에 끝
+    wp = next(k for k, e in enumerate(log) if e[0] == "movej" and list(e[1][:5]) == list(down[:5]))
+    if not on_way:
+        assert log.index(("grip", 0)) < wp < log.index(("grip", grips[-1]))          # 끔: 닫고 → 경유점 → 벌림 (지금 동작)
+
+
+def test_carry_spline_turns_wrist_first_and_keeps_angles_in_movesx(server, monkeypatch):
+    """[실측 PC2 10/15 차키] carry.spline + direct + 손목 90°: 스플라인 안에서 손목 각을 바꾸면 각도 숫자가 점 하나에서 270~360° 뛰어
+    J5 한계(STOP_UNCONFIRMED). → 스플라인이면 경유점 1 에서 J6 먼저(carry:turn), movesx 점은 모두 지금 각도 숫자 그대로."""
+    _with_prm(server, monkeypatch, carry={"spline": True, "direct": True})
+    srv = server.srv
+    route = srv.poses()["carry_line"]["drawer_top"]
+    seen = {}
+
+    def movesx(pts, vel, acc, rot_vel=30.0, rot_acc=60.0, const_vel=True):
+        seen["via"], seen["start"] = [list(p) for p in pts], list(srv.robot.p)
+        srv.robot.p = list(pts[-1])
+        return True
+    srv.robot.movesx_async = movesx
+    srv.held = dict(LIP_HELD)
+    server.Gripper.holding, server.Gripper.width = True, 19.5
+    start = list(route[0])
+    start[5] += 90.0                                                    # 집은 손목이 놓는 방향과 90° 다름
+    srv.robot.p, srv.robot.j = start, [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    srv.robot.log.clear()
+    try:
+        out, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    log = srv.robot.log
+    turn_k = next(k for k, e in enumerate(log) if e[0] == "movej")         # 경유점 1 에서 J6 먼저
+    assert turn_k < len(log) and "via" in seen
+    assert all(v[3:6] == seen["start"][3:6] for v in seen["via"])       # 스플라인 안 손목 각 숫자 그대로
+    assert max(v[2] for v in seen["via"]) <= max(p[2] for p in route) + 1.0
+
+
+def test_pick_open_on_way_unfinished_open_is_not_hidden_as_move_failure(server, monkeypatch):
+    """[#365 E P1] pick.open_on_way 에서 경유점 이동이 실패했는데 RG2 벌리기가 기다리는 시간 안에 안 끝나면: 일반 이동 실패로
+    숨기지 않고 STATE_UNKNOWN(잠금 코드) + 서버 잠금 — 늦게 끝나는 벌리기가 다음 그리퍼 명령과 겹치지 않게."""
+    import threading
+    srv = server.srv
+    down, _ = _turning_movej(server)
+    _with_prm(server, monkeypatch, pick={"open_on_way": True})
+    gate, started = threading.Event(), threading.Event()
+    real = srv._grip
+
+    def slow_grip(w, f):                                                # 장치 지연 — 풀어 줄 때까지 안 끝남
+        started.set()
+        gate.wait(5.0)
+        return real(w, f)
+    srv._grip = slow_grip
+    srv.grip_wait_s = 0.05
+    srv.locked = None
+    mj = srv.robot.movej_async
+    srv.robot.movej_async = lambda j, vel, acc: False if list(j[:5]) == list(down[:5]) else mj(j, vel, acc)   # 경유점 이동만 거부
+    srv.robot.p, srv.robot.j, srv.held = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0], [0.0, 0.0, 90.0, 0.0, 90.0, 0.0], None
+    try:
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        gate.set()
+    assert started.is_set(), out
+    assert not out.success and out.error_code == server.ss.sf.STATE_UNKNOWN, out
+    assert "벌리기" in out.reason and srv.locked
+
+
+def test_repo_defaults_are_pc2_tested_and_run_together(server, monkeypatch):
+    """[사용자 10/15 "다 잘 돌아가니 이대로 확정"] 저장소 skills.yaml 기본값 = PC2 실물로 확인한 6개 켬. 끈 값 고정(LEGACY_FLAGS)을
+    풀고 그대로 집기(open_on_way·one_turn) → 건네기 놓기(spline+direct, 손목 90°)가 잠금 없이 끝남."""
+    monkeypatch.setattr(server.ss, "_yaml_cached", server.yaml_real)
+    srv = server.srv
+    prm = server.yaml_real(srv.params_file)
+    want = {"motion": {"one_turn": True}, "carry": {"direct": True, "spline": True},
+            "transit": {"view_blend_in_drawer": True}, "pick": {"open_on_way": True}, "place": {"touch_window_mm": 3.0}}
+    for sec, kv in want.items():
+        for k, v in kv.items():
+            assert prm[sec][k] == v, (sec, k, prm[sec][k])
+    _turning_movej(server)
+    server.Gripper.holding = True
+    try:
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+
+    route = srv.poses()["carry_line"]["drawer_top"]
+    seen = []
+    srv.robot.movesx_async = lambda pts, *a, **kw: (seen.append(len(pts)), setattr(srv.robot, "p", list(pts[-1])), True)[2]
+    srv.held = dict(LIP_HELD)
+    server.Gripper.holding, server.Gripper.width = True, 19.5
+    start = list(route[0])
+    start[5] += 90.0
+    srv.robot.p, srv.robot.j = start, [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    try:
+        out, _ = server.run("place_object", {"location": "handover_zone"})
+    finally:
+        server.Gripper.holding = False
+    assert out.success, out.reason
+    assert seen and getattr(srv, "locked", None) is None                # movesx 로 감, 잠금 없음
+
+
+def test_make_room_report_case_is_off_by_default(server, monkeypatch):
+    """[제안 10/15 B, 계약 ④ 승인 전 — #364] make_room.report_case 기본 false → 결과에 case_id·strategy 칸 없음 (지금 계약 그대로)."""
+    from ready2go_skills.core import clear_plan as clp
+    t, nb = _seg(ERASER_FREE), _seg(CARAMEL_NEXT)
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *a, **k: clp.Action("fail", "eraser#1", "x", code="NEIGHBOR_TOO_CLOSE"))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "check_only": True,
+                                            "scan": _scan_with(t, nb)})
+    assert out.error_code == "NEIGHBOR_TOO_CLOSE"
+    assert "case_id" not in data["make_room"] and "strategy" not in data["make_room"]
+
+
+@pytest.mark.parametrize("kind, code, want", [
+    ("fail", "NO_FREE_SPACE", ("no_free_space", "impossible")),
+    ("unstack", "", ("stacked_under", "remove_top")),
+    ("sweep", "", ("cluster_open_side", "make_room")),
+    ("pick", "", (None, "direct")),
+])
+def test_make_room_report_case_names_case_and_strategy(server, monkeypatch, kind, code, want):
+    """[제안 10/15 B — #364 ④] report_case 켜면 make_room 결과에 case_id(난제 이름, 모르면 null)·strategy(계획 동작 종류) — 판단만,
+    로봇 명령 0. strategy 는 계획이 고른 동작 그대로라 새 물리 판단이 아님."""
+    from ready2go_skills.core import clear_plan as clp
+    _with_prm(server, monkeypatch, make_room={"report_case": True})
+    t = _seg(ERASER_FREE)
+    key = _seg({"id": "car_key#1", "class": "car_key", "top_z": 0.0273,
+                "pose": {"frame": "drawer_top", "position": list(t["pose"]["position"]), "yaw": 0.0, "yaw_valid": True}})
+    if kind == "unstack":
+        t["occluded_by"] = ["car_key#1"]
+    else:
+        key["pose"]["position"] = [0.05, 0.05, 0.0]
+    who = "car_key#1" if kind in ("unstack", "fail") else "eraser#1"
+    a = clp.Action(kind, who, f"{who} 주입", code=code, dir=(0.0, -1.0), dist_m=0.02, back_m=0.01,
+                   to_pose={"frame": "drawer_top", "position": [0.05, 0.05, 0.0], "yaw": 0.0})
+    monkeypatch.setattr(server.ss.clp, "plan_next", lambda *x, **k: a)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "check_only": True,
+                                            "scan": _scan_with(t, key)})
+    mr = data["make_room"]
+    assert (mr["case_id"], mr["strategy"]) == want, mr
+    assert server.srv.robot.log == []

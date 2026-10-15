@@ -104,7 +104,7 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
         raise ValueError('dialogue_timeout_sec: null 또는 유한 양수 필요')
     defaults = {'response_max_chars': 160, 'diagnostic_max_bytes': 10485760,
                 'diagnostic_backups': 3, 'diagnostic_queue_size': 128,
-                'tts_prefill_progress_every': 8, 'tts_prefill_max_texts': 256, 'tts_prefill_max_chars': 160, 'tts_prefill_max_bytes': 65536,
+                'tts_prefill_progress_every': 8, 'tts_prefill_max_texts': 512, 'tts_prefill_max_chars': 160, 'tts_prefill_max_bytes': 65536,
                 'tts_frequent_max_texts': 32, 'tts_frequent_min_uses': 2,
                 'tts_frequent_max_bytes': 1048576}
     for key, default in defaults.items():
