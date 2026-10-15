@@ -166,7 +166,7 @@
 
   // 화면 검토용 실행 순서다. 등록 목록·targets에서 실행 순서를 계산하지 않는다.
   // TODO(D): C의 확정 실행 상세가 연결되면 별도 검증 모델로 교체한다.
-  data.task.executionItems = scenarioName === "empty" ? [] : [
+  data.task.executionItems = [
     {
       id: "car-key", name: "차 키", statusLabel: "완료",
       resultLabel: "예시 · 전달 확인 · 복구 완료",
