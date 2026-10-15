@@ -13,7 +13,7 @@ from ready2go_runner.core import item_group as ig
 from ready2go_runner.core.backend import SPEAK_ACTION, Reply, RosBackend
 from ready2go_runner.core.interpreter import ActionResult, Runner
 from ready2go_runner.core.logstore import MemoryLogStore
-from ready2go_runner.core.mock_skills import MockSkills
+from ready2go_runner.core.mock_skills import MockReply, MockSkills
 
 from start_states import P2_SINGLE, with_state  # noqa: E402
 from test_tasks import ONTOLOGY, SCHEMA  # noqa: E402
@@ -370,3 +370,29 @@ def test_no_home_after_refusal_stops_group():
     result = ig.run_group(runner, TASK, semantic, WORLD, speak=lambda text: None)
     assert statuses(result)[1:] == [("car_key", ig.NOT_RUN), ("lip_balm", ig.NOT_RUN)]
     assert result.overall_status == "FAILED" and result.error_code != ig.PARTIAL_DELIVERY
+
+
+def test_loop_limit_reason_does_not_claim_objects_were_moved():
+    """[#393 E 리뷰] make_room 이 다시 찍기만 하다 반복 한도(LOOP_LIMIT)에 닿아도 나오는 코드 — 끝 요약이 '여러 번 옮겼다'고 단정하지 않음."""
+    result = ig.GroupResult("FAILED", ig.PARTIAL_DELIVERY, [
+        ig.ItemOutcome("airpods_case", "에어팟 케이스", "drawer_top", ig.NOT_DELIVERED, "FAILED", "LOOP_LIMIT"),
+        ig.ItemOutcome("car_key", "차키", "drawer_top", ig.DELIVERED, "COMPLETED")], {"kind": "list", "id": "commute_set"})
+    text = ig.summary_text(result, None)
+    assert text == "2개 중 1개 가져왔어요. 에어팟 케이스는 공간 확보를 끝내지 못해서 꺼내지 못했어요."
+    assert "옮" not in text
+
+
+@pytest.mark.parametrize("dead, expected", [
+    ({"airpods"}, [("airpods_case", ig.NOT_DELIVERED), ("car_key", ig.DELIVERED), ("lip_balm", ig.DELIVERED)]),
+    ({"airpods", "car_key"}, [("airpods_case", ig.NOT_DELIVERED), ("car_key", ig.NOT_DELIVERED), ("lip_balm", ig.NOT_RUN)]),
+])
+def test_two_items_in_a_row_with_camera_failure_stop_group(dead, expected):
+    """[#393 A 리뷰] 인식 실패는 한 물품이면 다음 물품으로, 두 물품 연속이면 카메라 문제로 보고 남은 물품은 하지 않음."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, said = setup(FULL)
+    robot.skills.inspect = (lambda orig: lambda region, target: MockReply(False, "CAMERA_TIMEOUT")
+                            if any(target.startswith(d) for d in dead) else orig(region, target))(robot.skills.inspect)
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=said.append)
+    assert statuses(result) == expected
+    if len(dead) == 2:
+        assert result.error_code == "CAMERA_TIMEOUT" and "작업하지 않았어요" in said[-1]

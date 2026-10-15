@@ -41,6 +41,8 @@ HANDOVER = "handover_zone"
 CONTINUE_CODES = {"TARGET_NOT_FOUND", "OCCLUSION_UNKNOWN", "UNPACK_INCOMPLETE", "NO_FREE_SPACE",
                   "NEIGHBOR_TOO_CLOSE", "WALL_TOO_CLOSE", "NO_PUSH_ACCESS", "YAW_INVALID", "NOT_ON_FLOOR",
                   "LOOP_LIMIT", "CAMERA_TIMEOUT", "DEPTH_INVALID"}
+# 인식 실패는 그 물품이 아니라 카메라·연결 문제일 수 있음 — 두 물품 연속이면 남은 물품을 같은 이유로 반복하지 않고 중단 (#393 A 리뷰)
+DEVICE_CODES = {"CAMERA_TIMEOUT", "DEPTH_INVALID"}
 SOURCE_KINDS = {"list", "class"}
 
 DELIVERED, NOT_DELIVERED, EXCLUDED, NOT_RUN = "DELIVERED", "NOT_DELIVERED", "EXCLUDED", "NOT_RUN"
@@ -50,10 +52,10 @@ REASON_KO = {                               # 끝 요약에서 못 가져온 이
     "NO_FREE_SPACE": "위에 있는 물건을 옮기지 못했어요",
     "NEIGHBOR_TOO_CLOSE": "옆 물건에 막혀서 꺼내지 못했어요",          # #392 — 문구 E 대조 [팀 확정 필요]
     "WALL_TOO_CLOSE": "서랍 벽에 붙어 있어서 꺼내지 못했어요",
-    "NO_PUSH_ACCESS": "밀어서 옮길 자리가 없어서 꺼내지 못했어요",
+    "NO_PUSH_ACCESS": "끌어와도 잡을 자리가 안 나와서 꺼내지 못했어요",     # B 의미 (#393 B 리뷰)
     "YAW_INVALID": "잡을 방향을 정하지 못했어요",
-    "NOT_ON_FLOOR": "서랍 바닥에 놓여 있지 않아서 꺼내지 못했어요",
-    "LOOP_LIMIT": "주변 물건을 여러 번 옮겨도 자리가 나지 않았어요",
+    "NOT_ON_FLOOR": "다른 물건 위에 높이 얹혀 있어서 꺼내지 못했어요",       # B 의미 (#393 B 리뷰)
+    "LOOP_LIMIT": "공간 확보를 끝내지 못해서 꺼내지 못했어요",           # 다시 찍기만 해도 나옴 — 이동 단정 안 함 (#393 E 리뷰)
     "CAMERA_TIMEOUT": "카메라 응답이 없어서 확인하지 못했어요",
     "DEPTH_INVALID": "거리를 재지 못해서 확인하지 못했어요",
     UNKNOWN_ITEM: "위치 기록이 없어요",
@@ -232,6 +234,7 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
     result.start_text = start_text(runnable, excluded, accepted=bool(accept_text))
     say(result.start_text)
     stopped = None
+    device_fail = False                     # 바로 앞 물품이 인식 실패(DEVICE_CODES)로 끝났나
     resumable = runner.resumable            # 묶음 안 정지는 보존·재개 없음 — 물품 실행이 SUSPENDED 로 남지 않게 (#371 E P2)
     runner.resumable = False
     try:
@@ -256,6 +259,10 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
             if outcome.restore_incomplete:  # 허용 코드여도 정리(복구)가 실패했으면 다음 물품 안 함
                 result.overall_status, result.error_code, stopped = "FAILED", "RESTORE_INCOMPLETE", "failed"
                 break
+            if run.overall_status == "FAILED" and run.error_code in DEVICE_CODES and device_fail:
+                result.overall_status, result.error_code, stopped = "FAILED", run.error_code, "failed"
+                break                       # 두 물품 연속 인식 실패 — 카메라 문제로 보고 중단
+            device_fail = run.overall_status == "FAILED" and run.error_code in DEVICE_CODES
             if not _safe_to_continue(runner, run, outcome.drawer, motions_before):
                 result.overall_status, result.error_code, stopped = "FAILED", run.error_code or "GROUP_STOPPED", "failed"
                 break
