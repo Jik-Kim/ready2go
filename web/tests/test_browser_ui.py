@@ -34,6 +34,7 @@ def _render_dashboard(
     runner_payloads: list[dict | None] | None = None,
     interaction_script: str | None = None,
     viewport_width: int = 1280,
+    robot_state_payload: dict | None = None,
 ) -> tuple[str, int]:
     """주입한 REST 상태를 실제 headless Chrome으로 렌더링해 DOM을 반환한다."""
     # 제품 JavaScript를 실행하지 않는 정적 문자열 검사는 분기 회귀를 잡지 못하므로,
@@ -53,6 +54,10 @@ def _render_dashboard(
         cache.set_publisher_present("camera", True)
         cache.record_message("camera", {"frame_id": "wrist_cam", "width": 1280, "height": 720})
         cache.set_publisher_present("camera", False)
+
+    # 조회 서랍 전환 시험에는 실제 기억 상태 형식의 독립 source를 주입한다.
+    if robot_state_payload is not None:
+        cache.record_message("robot_state", robot_state_payload)
 
     # 운영 정적 파일과 상태 REST를 같은 origin으로 제공하되 사용 가능한 임의 포트를 쓴다.
     app = create_app(
@@ -389,7 +394,9 @@ def test_recent_capture_refetches_same_revision_after_server_process_changes(
 
 
 def _request_result(decision="run", reason=None, result_run="r1", result_status="COMPLETED"):
+    """요청과 결과를 독립 변경할 수 있는 동일 기동·순서의 최소 시험 상태다."""
     return {
+        "boot_id": "boot-1", "seq": 1,
         "phase": "idle", "task_id": None, "current_step": None,
         "last_intent": {"intent": "find_item", "targets": ["eraser"],
                         "decision": decision, "reason": reason, "task_id": "find_item",
@@ -427,7 +434,7 @@ def test_command_uses_only_linked_request_result(tmp_path: Path, decision, reaso
     else:
         # 실행 성공은 물품 전달 검증 또는 단계 상세를 만들지 않는다.
         assert "전달 완료" not in rendered
-        assert "현재 작업 확인 전" in rendered
+        assert "현재 실행 없음 · 대기" in rendered
         assert 'class="task-item-button"' not in rendered
     # PC·모바일은 같은 명령 모델을 사용한다.
     assert 'id="mobileUnderstoodText">인텐트: find_item · eraser</dd>' in rendered
@@ -436,6 +443,8 @@ def test_command_uses_only_linked_request_result(tmp_path: Path, decision, reaso
 @pytest.mark.parametrize("next_state", ["reject", "http-error", "invalid"])
 def test_previous_result_is_cleared_after_rejection_or_failure(tmp_path: Path, next_state: str) -> None:
     next_payload = None if next_state == "http-error" else _request_result("reject", "BUSY")
+    if next_payload is not None:
+        next_payload["seq"] = 2
     if next_state == "invalid":
         next_payload = {"last_intent": {"intent": "find_item"}, "last": None}
     rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
@@ -527,3 +536,70 @@ def test_control_decisions_do_not_inherit_execution_success(tmp_path: Path, deci
     assert "실행 완료" not in rendered
     assert "전달 완료" not in rendered
     assert f'id="mobileUnderstoodText">인텐트: future_intent · eraser</dd>' in rendered
+
+
+@pytest.mark.parametrize("change", ["older-seq", "old-boot", "restart", "invalid-seq", "disconnect"])
+def test_live_task_reboot_and_ordering(tmp_path: Path, change: str) -> None:
+    """현재 단계 수신 뒤 늦은 상태·재기동·단절이 요청/실행을 잘못 살리지 않는지 검증한다."""
+    first = _request_result()
+    first.update(phase="running", task_id="current_task", current_step="step_live", seq=8)
+    following = _request_result()
+    following.update(boot_id="boot-2", seq=1, last_intent=None, last=None)
+    payloads = [first, following]
+    if change == "older-seq":
+        following.update(boot_id="boot-1", seq=7)
+    elif change == "old-boot":
+        payloads.append(first)
+    elif change == "invalid-seq":
+        following["seq"] = "9"
+    elif change == "disconnect":
+        payloads[1] = None
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=payloads)
+    assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
+    assert "전달 완료" not in rendered
+    if change == "older-seq":
+        assert "실행 중 · 태스크: current_task · 단계: step_live" in rendered
+        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+    else:
+        assert "step_live" not in rendered
+        assert "실행 완료" not in rendered
+        assert '<p id="understoodText">확인 전</p>' in rendered
+        assert "현재 작업 확인 전" in rendered if change in ("invalid-seq", "disconnect") else "현재 실행 없음 · 대기" in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_live_drawer_selection_does_not_change_execution(tmp_path: Path, viewport_width: int) -> None:
+    """PC·모바일 조회 서랍 변경은 현재 실행 제목·현재 단계·미확정 작업 위치를 바꾸지 않는다."""
+    payload = _request_result("reject", "BUSY")
+    payload.update(phase="running", task_id="actual_task", current_step="actual_step")
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False, runner_payloads=[payload],
+        viewport_width=viewport_width,
+        robot_state_payload={"robot_pose": {"robot": "home"}, "gripper": {"robot": "empty"},
+                             "open": {"drawer_top": False, "drawer_bottom": True},
+                             "located_in": {"eraser": "drawer_top"}},
+        interaction_script="""
+          setTimeout(() => {
+            const read = () => [document.getElementById('currentAction').textContent,
+              document.getElementById('taskLocation').textContent,
+              document.getElementById('progressSteps').textContent];
+            const before = read();
+            document.querySelector('#drawerSelector [data-drawer-id="drawer_bottom"]').click();
+            const output = document.createElement('pre');
+            output.id = 'live-selection-result';
+            output.textContent = JSON.stringify([before, read()]);
+            document.body.append(output);
+          }, 500);
+        """,
+    )
+    match = re.search(r'<pre id="live-selection-result">(.*?)</pre>', rendered, re.DOTALL)
+    assert match is not None, rendered
+    before, after = json.loads(unescape(match.group(1)))
+    assert before == after
+    assert "actual_task" in before[0] and "actual_step" in before[2]
+    assert before[1] == "작업 장소 확인 전 → 목적지 확인 전"
+    # 빈 아래 서랍을 선택했으므로 물품 행 대신 공통 출처 안내로 기억 상태 표시를 확인한다.
+    assert "Runner 기억 상태" in rendered
+    assert "거절 · 사유 코드: BUSY" in rendered
+    assert "실행 완료" not in rendered

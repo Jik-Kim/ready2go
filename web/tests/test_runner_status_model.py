@@ -17,7 +17,7 @@ from werkzeug.serving import make_server
 from ready2go_web.server import create_app
 
 
-def _evaluate_runner_model(tmp_path: Path, cases: list[dict]) -> list[dict]:
+def _evaluate_runner_model(tmp_path: Path, cases: list[dict], *, expression: str | None = None) -> list[dict]:
     """제품 JavaScript 파서에 입력 목록을 전달하고 직렬화된 결과를 반환한다."""
     # 저장소에 Node.js 의존성이 없으므로 실제 지원 브라우저에서 순수 파서 함수를 실행한다.
     chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable")
@@ -26,18 +26,23 @@ def _evaluate_runner_model(tmp_path: Path, cases: list[dict]) -> list[dict]:
 
     # JSON 문자열은 Python이 만들고 JavaScript는 제품 모듈의 공개 함수만 호출한다.
     encoded_cases = json.dumps(cases, ensure_ascii=False).replace("</", "<\\/")
+    # 순수 파서뿐 아니라 순서·상세 토큰·취소 동작도 동일한 실제 브라우저에서 검증한다.
+    evaluation = expression or "cases.map((entry) => window.ROKEY_RUNNER_STATUS_MODEL.parseRunnerRecords(entry))"
     harness = f"""<!doctype html>
 <meta charset=\"utf-8\">
 <script src=\"/runner-status-model.js\"></script>
+<script src=\"/status-api.js\"></script>
 <pre id=\"result\"></pre>
 <script>
+  (async () => {{
   const cases = {encoded_cases};
   const before = JSON.stringify(cases);
-  const outputs = cases.map((entry) => window.ROKEY_RUNNER_STATUS_MODEL.parseRunnerRecords(entry));
+  const outputs = await ({evaluation});
   document.getElementById("result").textContent = JSON.stringify({{
     outputs,
     inputUnchanged: before === JSON.stringify(cases),
   }});
+  }})();
 </script>"""
 
     # 시험 전용 경로만 추가하고 제품 Flask의 실제 정적 allowlist로 파서 파일을 제공한다.
@@ -346,3 +351,103 @@ def test_runner_records_accept_every_checked_in_contract_example(tmp_path: Path)
         if output["status"] != "valid"
     ]
     assert invalid_cases == []
+
+
+def test_status_guard_rejects_old_boot_and_sequence(tmp_path: Path) -> None:
+    """재기동 역전·낮은 seq·중복·동일 seq 변조·잘못된 순서 필드를 구분한다."""
+    cases = [
+        {"boot_id": "a", "seq": 2}, {"boot_id": "a", "seq": 1},
+        {"boot_id": "a", "seq": 2}, {"boot_id": "a", "seq": 2, "phase": "idle"},
+        {"boot_id": "b", "seq": 0}, {"boot_id": "a", "seq": 100},
+        {"boot_id": "b", "seq": "3"}, {"boot_id": "b", "seq": -1},
+        {"boot_id": "", "seq": 3}, {"boot_id": "b", "seq": 3},
+    ]
+    output = _evaluate_runner_model(tmp_path, cases, expression="""(() => {
+      const guard = window.ROKEY_RUNNER_STATUS_MODEL.createStatusGuard();
+      return cases.map(value => guard.accept(value));
+    })()""")
+    assert [entry["status"] for entry in output] == [
+        "valid", "stale", "valid", "invalid", "valid", "stale", "invalid", "invalid", "invalid", "valid",
+    ]
+    assert output[4]["restarted"] is True
+
+
+def test_detail_guard_invalidates_inflight_identity(tmp_path: Path) -> None:
+    """run 전환·재기동·단절 후 같은 run 복귀에도 이전 상세 토큰은 폐기한다."""
+    output = _evaluate_runner_model(tmp_path, [], expression="""(() => {
+      const guard = window.ROKEY_STATUS_API.createDetailGuard();
+      const result = [guard.capture() === null];
+      guard.setContext('a', 'r1');
+      const token = guard.capture();
+      result.push(guard.matches(token, {bootId:'a', runId:'r1'}));
+      result.push(guard.matches(token, {bootId:'a', runId:'r2'}));
+      guard.setContext('a', 'r2');
+      result.push(guard.matches(token, {bootId:'a', runId:'r1'}));
+      guard.setContext('b', 'r1');
+      result.push(guard.matches(token, {bootId:'b', runId:'r1'}));
+      const second = guard.capture();
+      guard.setContext(null, null);
+      guard.setContext('b', 'r1');
+      result.push(guard.matches(second, {bootId:'b', runId:'r1'}));
+      return result;
+    })()""")
+    assert output == [True, True, False, False, False, False]
+
+
+def test_stopped_poller_ignores_late_failure(tmp_path: Path) -> None:
+    """fetch가 취소 신호를 무시하고 늦게 실패해도 종료된 화면의 콜백은 호출하지 않는다."""
+    output = _evaluate_runner_model(tmp_path, [], expression="""(async () => {
+      let rejectFetch, signal;
+      const calls = [];
+      const poller = window.ROKEY_STATUS_API.createPoller({
+        fetchStatus: (_, options) => { signal = options.signal; return new Promise((_, reject) => { rejectFetch = reject; }); },
+        onSuccess: () => calls.push('success'), onFailure: () => calls.push('failure'),
+        schedule: () => calls.push('scheduled'), cancelSchedule: () => {},
+      });
+      poller.start();
+      poller.stop();
+      rejectFetch(new Error('late response'));
+      await Promise.resolve();
+      return [signal.aborted, calls.length];
+    })()""")
+    assert output == [True, 0]
+
+
+def test_current_task_uses_only_reported_phase_and_step(tmp_path: Path) -> None:
+    """대기·잠김은 지난 단계가 남아 있어도 지우고 현재 단계로 이력을 만들지 않는다."""
+    cases = [
+        {"phase": "running", "task_id": "task", "current_step": "s4"},
+        {"phase": "idle", "task_id": "old", "current_step": "s4"},
+        {"phase": "halted", "task_id": "old", "current_step": "s4"},
+        {"phase": "future", "task_id": "old", "current_step": "s4"},
+        {"phase": "running", "task_id": [], "current_step": {}},
+    ]
+    output = _evaluate_runner_model(tmp_path, cases, expression=
+        "cases.map(value => window.ROKEY_RUNNER_STATUS_MODEL.currentTaskView(value))")
+    assert len(output[0]["steps"]) == 1
+    assert output[0]["steps"][0]["id"] == "s4"
+    assert output[0]["steps"][0]["status"] == "current"
+    assert all(not view["steps"] for view in output[1:])
+    assert "old" not in str(output[1:])
+    assert output[3]["title"] == "현재 작업 확인 전"
+
+
+def test_stopped_poller_ignores_late_success(tmp_path: Path) -> None:
+    """JSON 파싱 중 종료되어도 정상 응답이 과거 화면을 복원하지 않는다."""
+    output = _evaluate_runner_model(tmp_path, [], expression="""(async () => {
+      const payload = await fetch('/api/status').then(response => response.json());
+      let resolveJson;
+      const calls = [];
+      const poller = window.ROKEY_STATUS_API.createPoller({
+        fetchStatus: async () => ({ok: true, json: () => new Promise(resolve => { resolveJson = resolve; })}),
+        onSuccess: () => calls.push('success'), onFailure: () => calls.push('failure'),
+        schedule: () => calls.push('scheduled'), cancelSchedule: () => {},
+      });
+      poller.start();
+      await Promise.resolve();
+      poller.stop();
+      resolveJson(payload);
+      await Promise.resolve();
+      return calls;
+    })()""")
+    assert output == []

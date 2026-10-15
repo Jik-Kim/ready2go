@@ -219,6 +219,51 @@
     return Object.freeze({ status, lastIntent, lastResult, connection });
   }
 
+  function createStatusGuard() {
+    // boot 간 seq는 비교하지 않는다. 떠난 기동은 기억해 늦게 온 응답의 역전도 막는다.
+    let bootId = null;
+    let seq = -1;
+    let fingerprint = null;
+    const retiredBoots = new Set();
+    return {
+      accept(data) {
+        // 기동·순서를 검증할 수 없는 메시지는 과거 정상값으로 대체하지 않는다.
+        if (!data || typeof data.boot_id !== "string" || !data.boot_id.trim()
+          || !Number.isSafeInteger(data.seq) || data.seq < 0) return { status: "invalid" };
+        if (retiredBoots.has(data.boot_id)
+          || (bootId === data.boot_id && data.seq < seq)) return { status: "stale" };
+        const nextFingerprint = JSON.stringify(data);
+        // 변경 때만 seq가 증가하므로 같은 seq에 다른 내용은 계약 불일치다.
+        if (bootId === data.boot_id && data.seq === seq && fingerprint !== nextFingerprint) {
+          return { status: "invalid" };
+        }
+        const restarted = bootId !== null && bootId !== data.boot_id;
+        if (restarted) retiredBoots.add(bootId);
+        bootId = data.boot_id;
+        seq = data.seq;
+        fingerprint = nextFingerprint;
+        return { status: "valid", restarted, bootId, seq };
+      },
+    };
+  }
+
+  function currentTaskView(data) {
+    // 현재 물품·run·장소는 최신 요청에서 가져오지 않는다. 상태 토픽이 보장하는 필드만 사용한다.
+    const unknown = { title: "현재 작업 확인 전", steps: [] };
+    if (!data || !["idle", "running", "halted"].includes(data.phase)) return unknown;
+    if (data.phase === "idle") return { title: "현재 실행 없음 · 대기", steps: [] };
+    if (data.phase === "halted") return { title: "Runner 정지(잠김) · 현재 단계 확인 전", steps: [] };
+    const task = typeof data.task_id === "string" && data.task_id.trim() ? data.task_id : null;
+    const step = typeof data.current_step === "string" && data.current_step.trim() ? data.current_step : null;
+    return {
+      title: `실행 중 · 태스크: ${task || "확인 전"} · 단계: ${step || "확인 전"}`,
+      // 현재 단계 하나만 표시한다. 앞 단계 성공·단계 자체 완료는 추론하지 않는다.
+      steps: step ? [{ id: step, label: `단계: ${step}`, status: "current",
+        statusLabel: "Runner 현재 단계 · 완료 여부 확인 전" }] : [],
+    };
+  }
+
+  // 검증된 최신 요청과 연결된 결과만 PC·모바일 공통 명령 표시로 변환한다.
   function commandView(records, itemLabel = (id) => id) {
     const view = {
       understood: "확인 전",
@@ -277,5 +322,7 @@
     linkRunnerRecords,
     parseRunnerRecords,
     commandView,
+    createStatusGuard,
+    currentTaskView,
   });
 })();

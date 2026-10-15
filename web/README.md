@@ -1,6 +1,6 @@
 # Ready2Go 웹 대시보드
 
-> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 기본 화면은 확인 전으로 시작하며 최근 요청의 해석·접수 결정과 같은 실행으로 연결된 결과를 표시합니다. 현재 작업의 물품 순서·단계·전달 결과는 아직 미연결이며 확인 전으로 유지합니다.
+> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 기본 화면은 확인 전으로 시작하며 최근 요청의 해석·접수 결정과 같은 실행으로 연결된 결과를 표시합니다. 현재 작업은 Runner의 phase·task_id·current_step만 표시합니다. 물품 순서·단계 이력·전달 결과·작업 장소·목적지는 미연결이며 확인 전으로 유지합니다.
 
 기능의 의미·Phase·수용 기준은 정본인 [FR-COM-01](../docs/requirements.md#fr-com-01), [FR-INT-02](../docs/requirements.md#fr-int-02), [FR-ONT-02](../docs/requirements.md#fr-ont-02), [FR-PLN-02](../docs/requirements.md#fr-pln-02), [FR-LOG-01–02](../docs/requirements.md#fr-log-01), [NFR-SAF-02](../docs/requirements.md#nfr-saf-02)를 참조합니다. 이 문서는 요구사항을 재정의하지 않습니다.
 
@@ -170,7 +170,7 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 
 의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../README.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 루트 README의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
 
-이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info`·`/vision/inspect_overlay` 구독과 `/voice/intent` publisher 관찰, 상태·정의·최근 촬영 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://127.0.0.1:4173/`로 접속하고 다음 명령으로 REST 기동도 확인합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 최근 요청과 연결된 실행 결과를 표시하며, 미연결인 현재 작업 진행·물품별 전달 결과는 확인 전입니다.
+이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info`·`/vision/inspect_overlay` 구독과 `/voice/intent` publisher 관찰, 상태·정의·최근 촬영 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://127.0.0.1:4173/`로 접속하고 다음 명령으로 REST 기동도 확인합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 최근 요청과 연결된 실행 결과를 표시하며, 현재 작업은 수신한 실행 상태·현재 단계만 표시하고 물품별 전달 결과는 확인 전입니다.
 
 ```bash
 curl -sS http://127.0.0.1:4173/api/status | python3 -m json.tool
@@ -437,6 +437,14 @@ ros2 topic info /voice/intent --verbose
 [실측] 같은 날 요청·결과 연결 판정을 추가한 뒤 실제 headless Chrome에서 동일 `run_id` 연결과 다른 ID·ID 누락·`hold`·`reject`·결과 미존재의 분리를 확인했습니다. ROS 2·CycloneDDS를 포함한 로컬 웹 전체 시험은 `97 passed`입니다. 이는 당시 내부 모델 검증 결과이며, 이후 추가된 명령 화면 연결의 검증 결과와 구분합니다.
 
 [실측] 같은 날 B 회신 반영 뒤 로컬 CycloneDDS 웹 시험 `89 passed`와 계약 검사 `OK`를 확인했습니다. dev 프로필에서 JointState 발행 전 `확인 전(시뮬레이션)`, 발행 뒤 `관절 상태 수신` 배지가 표시됐습니다. PC2 실물의 실제 QoS·100 Hz 주기와 제어기 LAN 분리 동작은 담당 실측 회신 뒤 확인합니다.
+
+### 기동·응답 순서와 현재 작업 표시
+
+[문서] `boot_id`·안전한 정수 `seq`가 없는 상태는 확인 전으로 표시합니다. 같은 기동의 낮은 seq와 이미 떠난 기동의 응답은 폐기하며, 같은 seq의 동일 상태는 반복 REST 조회로 허용합니다. 같은 seq인데 내용이 다르면 형식 불일치로 처리합니다. 단절 시 표시값은 지우되 순서 경계는 보존합니다. REST 종료 후 늦은 응답은 반영하지 않습니다.
+
+[문서] 기동 변경 시 이전 명령·작업·선택 상세를 비웁니다. `/robot_state`는 기동 ID가 없으므로 재기동 당시의 캐시는 확인 전이며 이후 새 수신값만 Runner 기억 상태로 표시합니다. 이 별도 토픽의 새 수신만으로 현재 관측 또는 동일 기동 소속을 증명하지는 않습니다. 실제 작업 위치에는 사용하지 않습니다.
+
+[문서] 현재 작업의 제목과 단일 현재 단계는 `/runner/status`에서만 가져오며, 조회 서랍·선택 물품이나 최근 요청의 targets에서 만들지 않습니다. 앞 단계의 성공·전달 완료를 추정하지 않습니다. 상세 조회용 기동/run/세대 토큰 검증기는 준비했지만, 현재 실행 run을 확정하는 데이터와 상세 API가 없어 실제 상세 요청은 아직 보내지 않습니다. API 연결과 응답 내용 검증은 후속 범위입니다.
 
 ## 7. URL 데모 시나리오
 

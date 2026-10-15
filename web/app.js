@@ -9,6 +9,11 @@
 
   // Runner 요청·결과 형식을 화면 표시 전에 검증하는 순수 파서 모듈이다.
   const runnerStatusModel = window.ROKEY_RUNNER_STATUS_MODEL;
+  // 화면 수명 동안 기동·순서 경계를 유지한다. 단절 시에도 과거 기동/seq를 잊지 않는다.
+  const runnerStatusGuard = runnerStatusModel.createStatusGuard();
+  const detailGuard = statusApi.createDetailGuard();
+  // robot_state에는 boot_id가 없어 재기동 당시 캐시를 새 기동의 기억값으로 재사용하지 않는다.
+  let blockedRobotStateReceipt = null;
 
   const statusIcons = {
     waiting: "○",
@@ -443,9 +448,19 @@
     return leftOrder - rightOrder || left.localeCompare(right);
   }
 
+  function clearCurrentTask() {
+    // 요청·실행·선택 상세를 함께 지우되 조회용 서랍 선택과 펼침 상태는 별도로 관리한다.
+    Object.assign(state.task, {
+      currentAction: "현재 작업 확인 전", currentItemId: null, currentItemIcon: null,
+      workDrawerId: null, destinationId: null, steps: [], executionItems: [], selectedExecutionItemId: null,
+    });
+    detailGuard.setContext(null, null);
+  }
+
   function setRunnerSummaryUnknown() {
     // 기본 화면에서 목업 실행 요약이 실제 Runner 값처럼 보이지 않게 초기화한다.
     // source가 유효하지 않으면 과거 요청·결과 내부 모델도 현재값으로 유지하지 않는다.
+    clearCurrentTask();
     latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
     state.command = runnerStatusModel.commandView(latestRunnerRecords);
     state.adminReview.current.liveSummary = {
@@ -464,6 +479,11 @@
       setRunnerSummaryUnknown();
       return false;
     }
+    // 현재 실행 run은 제공되지 않으므로 상세 토큰은 비활성 상태로 둔다.
+    clearCurrentTask();
+    const taskView = runnerStatusModel.currentTaskView(data);
+    state.task.currentAction = taskView.title;
+    state.task.steps = taskView.steps;
     // last_intent와 last를 독립 파싱한 뒤 decision과 run_id로 같은 실행인지 판정한다.
     latestRunnerRecords = runnerStatusModel.parseRunnerRecords(data);
     state.command = runnerStatusModel.commandView(latestRunnerRecords, itemLabelForId);
@@ -899,8 +919,19 @@
     const robotConnectionSource = payload.sources.robot;
     const cameraConnectionSource = payload.sources.camera;
     const voiceConnectionSource = payload.sources.voice;
-    // 정의 API가 나중에 도착해도 등록명을 다시 적용할 수 있도록 최신 source를 보관한다.
-    latestRobotStateSource = robotStateSource;
+    // 낮은 seq·이미 떠난 기동의 응답은 화면의 어떤 영역도 덮지 않는다.
+    const ordering = source.connection_state === "receiving" && source.message_valid === true
+      ? runnerStatusGuard.accept(source.data) : { status: "invalid" };
+    if (ordering.status === "stale") return;
+    if (ordering.restarted) {
+      setRunnerSummaryUnknown();
+      blockedRobotStateReceipt = robotStateSource.last_received_at;
+      latestRobotStateSource = null;
+    }
+    // 기동을 연결할 수 없는 기억값은 정의 API의 늦은 응답에서도 다시 살리지 않는다.
+    const memorySource = blockedRobotStateReceipt !== null
+      && robotStateSource.last_received_at === blockedRobotStateReceipt ? null : robotStateSource;
+    latestRobotStateSource = ordering.status === "valid" ? memorySource : null;
     const view = runnerConnectionView(source);
     const connection = getRunnerConnection();
     if (!connection) return;
@@ -921,8 +952,13 @@
     });
     state.meta.mode = "partial-live";
     state.meta.label = "REST 연결됨 · 부분 실데이터";
-    const runnerSummaryApplied = applyRunnerSummary(source);
-    const robotStateApplied = applyRobotStateSource(robotStateSource);
+    const runnerSummaryApplied = applyRunnerSummary(ordering.status === "valid" ? source : null);
+    const robotStateApplied = applyRobotStateSource(latestRobotStateSource);
+    if (ordering.status === "invalid") {
+      Object.assign(view, { status: "waiting", label: "Runner 확인 전" });
+      Object.assign(connection, { status: "waiting", statusLabel: "Runner 확인 전",
+        description: "수신 끊김 또는 기동·순서 형식 확인 필요" });
+    }
     // B의 관절 상태는 Runner 기억 상태와 별도 연결 진단으로 상단 로봇 배지에만 반영한다.
     applyRobotConnectionSource(robotConnectionSource, payload.runtime_profile, payload.robot_topic);
     // 카메라 최근 수신과 Voice publisher 존재를 각각의 상단 장치 배지에 반영한다.
@@ -953,6 +989,7 @@
     renderMockNotice();
     renderConnections();
     renderCommand();
+    renderTask();
     renderDrawerSelectors();
     renderInventory();
     renderAdminSummary();
@@ -967,7 +1004,7 @@
     const lastSuccess = formatReceivedTime(lastSuccessAt);
     Object.assign(connection, {
       status: "error",
-      statusLabel: "REST 연결 오류",
+      statusLabel: "수신 끊김 · REST 연결 오류",
       description: `현재 상태를 사용하지 않습니다. REST 마지막 성공 ${lastSuccess}`,
     });
     // REST 단절 뒤 이전 JointState 수신값이 계속 정상처럼 보이지 않도록 로봇 배지도 전환한다.
@@ -975,7 +1012,7 @@
     if (robotConnection) {
       Object.assign(robotConnection, {
         status: "error",
-        statusLabel: "REST 연결 오류",
+        statusLabel: "수신 끊김 · REST 연결 오류",
         description: `현재 로봇 관절 상태를 사용할 수 없습니다. REST 마지막 성공 ${lastSuccess}`,
       });
     }
@@ -984,7 +1021,7 @@
       if (!deviceConnection) continue;
       Object.assign(deviceConnection, {
         status: "error",
-        statusLabel: "REST 연결 오류",
+        statusLabel: "수신 끊김 · REST 연결 오류",
         description: `현재 장치 상태를 사용할 수 없습니다. REST 마지막 성공 ${lastSuccess}`,
       });
     }
@@ -995,6 +1032,7 @@
       ? "Runner 현재 상태를 조회할 수 없습니다. 등록 정의 파일 스냅샷만 표시합니다."
       : "Runner 현재 상태와 등록 정의를 확인할 수 없습니다.";
 
+    latestRobotStateSource = null; // 늦은 정의 응답이 단절 전 기억값을 복원하지 못하게 한다.
     setRobotStateUnknown(null, "Flask REST 미수신");
     setRunnerSummaryUnknown();
     state.adminReview.current.liveConnected = false;
@@ -1017,6 +1055,7 @@
     renderMockNotice();
     renderConnections();
     renderCommand();
+    renderTask();
     renderDrawerSelectors();
     renderInventory();
     renderAdminSummary();
@@ -1178,11 +1217,13 @@
   }
 
   function getSelectedExecutionItem() {
+    // 선택은 조회 상세에만 적용하며 실제 실행 항목을 변경하지 않는다.
     const items = state.task.executionItems || [];
     return items.find((item) => item.id === state.task.selectedExecutionItemId) || items[0] || null;
   }
 
   function renderTaskItems() {
+    // 제공된 실행 항목만 가변 버튼으로 그린다. 등록 목록으로 순서를 만들지 않는다.
     const container = getById("taskItemOrder");
     const selected = getSelectedExecutionItem();
     container.replaceChildren();
@@ -1209,15 +1250,18 @@
     getById("taskItemsNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
       ? "실행 상세 미연결 · 확인 전" : "화면 검토용 예시 · 실제 실행 순서 아님";
     getById("taskDataNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
-      ? "실행 상세 미연결 · 실제 단계·전달 결과 확인 전" : "목업 데이터 · 실제 실행 결과 아님";
+      ? "/runner/status 현재 상태 · 단계 이력·전달 결과 미연결" : "목업 데이터 · 실제 실행 결과 아님";
   }
 
   function renderTask() {
     renderTaskItems();
-    const selectedSteps = getSelectedExecutionItem()?.steps || [];
+    // 실데이터는 확인된 현재 단계만, 미리보기는 선택 물품의 예시 이력을 그린다.
+    const selectedSteps = getSelectedExecutionItem()?.steps || state.task.steps || [];
 
     const workDrawer = getWorkDrawer();
-    const location = workDrawer ? workDrawer.label : "확인 전";
+    // 조회 서랍/기억 위치를 실제 작업 장소로 대체하지 않는다. 목적지도 별도 제공 전까지 미확정이다.
+    const location = window.ROKEY_DEMO_SCENARIO === "default"
+      ? "작업 장소 확인 전 → 목적지 확인 전" : workDrawer ? workDrawer.label : "확인 전";
     getById("taskLocation").textContent = location;
     getById("mobileTaskLocation").textContent = location;
     getById("currentAction").textContent = state.task.currentAction;
@@ -1468,10 +1512,10 @@
     renderMockNotice();
     renderConnections();
     renderCommand();
+    renderTask();
     renderDrawerSelectors();
     renderInventory();
     renderSupplies();
-    renderTask();
     renderRecentCapture();
   }
 
