@@ -113,3 +113,11 @@
 [문서·코드 대조: 2026-10-10] C의 [PR #202](https://github.com/Jik-Kim/ready2go/pull/202)는 main에 병합됐습니다. `interpreter.HALT_MOTION_CODES`의 `OBJECT_DROPPED`·`SENSOR_INVALID`는 기존 `HALT_CODES` 경로로 `ABORTED`·잠금을 적용하고, finally의 후속 모션과 잠금 중 새 요청을 차단합니다. 두 오류는 재개 모드에서도 실행을 보존하지 않습니다. E errors 선언이 이 동작을 구현한 것은 아니며, C 모의 검사와 실제 정지·복구 완료는 구분합니다.
 
 [미연결/인계] B handover place의 센서 이상/놓침 반환 구분·보유 확실성·실제 정지/신선 관측과 C의 관측 기반 상태 동기화·잠금 해제·명시적 새 run 운영 연결은 후속입니다. 현재 `reset_state()`는 시작 스냅샷을 복원하며 잠금 해제나 물리 상태 검증을 하지 않습니다. [#78](https://github.com/Jik-Kim/ready2go/issues/78)·[#196](https://github.com/Jik-Kim/ready2go/issues/196)에서 남은 B/C 협의·E 포함 2인 계약 승인·운영 adapter·실물 검증을 확인합니다.
+
+## P3 거부 이유 문장 준비 — #376
+
+[구현] `refusal_reasons.json`은 거부 이유 한국어 문장의 E 원본입니다. B #364 head `d28ab2c7c06fe40797e994b7bce8e189ecb6e0d6`의 거부 설명 9건에서 ID·status·evidence를 보존했습니다. 실제 `core/layout_case.py`의 impossible 반환 6개(`no_free_space`, `beyond_reach`, `cluster_front_wall`, `cylinder_handle_wall`, `handle_wall_wide`, `chain_blocker_plate_pinned`)와 예약 3개(`under_cover_crossing`, `leaning`, `standing`)를 구분합니다. `beyond_reach`의 B 자료는 strategy=nudge·then=impossible이고, 실제 실패 반환은 strategy=impossible입니다. E 목록의 strategy는 설명을 사용할 실제 수신 전략이며 원본 전략을 변경한 것이 아닙니다. 해당 항목에 source_strategy/source_then을 보존했습니다. `verified_real`도 과거 배치 근거이므로 현재 물리 원인을 확정하지 않으며 가능성 표현을 사용합니다. 이 자료는 실행 허용·거부나 안전 판정에 사용하지 않습니다.
+
+[조회] `ready2go_knowledge.core.refusal_reasons.text(case_id, strategy)`는 등록 ID와 `impossible`이 함께 주어진 경우만 문장을 반환하고, 누락·미등록·다른 strategy는 `None`을 반환합니다. `load()`는 근거를 포함한 목록, `texts()`는 캐시 준비용 문장을 반환합니다. 소스 실행과 `share/ready2go_knowledge/knowledge` 설치본을 지원합니다. C에서 사용하려면 같은 실패의 실제 B 결과와 run/boot를 먼저 검증해야 합니다.
+
+[구현/의존] 승인된 C [#379](https://github.com/Jik-Kim/ready2go/pull/379)의 `accepted`·`last.failure` 형식을 E가 소비합니다. idle/halted의 FAILED이며 실패 run_id=last.run_id=accepted.run_id와 failure.boot_id=status.boot_id가 일치할 때만 설명합니다. 현재 실행·새 수락 실행·새 boot·원인 없는 결과는 원인 조회 불가로 안내합니다. C #379 최종 a3354a0c가 병합된 main d27700a3를 합류했습니다. 실제 C 수락/구간 실행/실패 기록·상위 R 매핑/상태 발행→E 콜백·질문→TTS를 모의 검증했습니다. 구간 기록 R.n과 상위 공개 실패 R을 구분하며 묶음 단위 원인은 기존 코드 안내로 폴백합니다. 운영 적용·실음성/실물은 별도입니다. 일반 pick 거부의 case_id를 추정하지 않습니다. B 자료의 중복 say_ko 제거는 B 담당입니다. 요구사항 기준은 [FR-INT-02](../docs/requirements.md#fr-int-02)·[FR-INT-03](../docs/requirements.md#fr-int-03)·[FR-LOG-02](../docs/requirements.md#fr-log-02), #376의 P3 준비 작업이며 기존 요구사항 Phase를 재정의하지 않습니다.

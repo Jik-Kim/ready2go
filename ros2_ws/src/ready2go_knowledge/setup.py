@@ -1,4 +1,6 @@
 from glob import glob
+from pathlib import Path
+from os.path import relpath
 from setuptools import find_packages, setup
 
 package_name = 'ready2go_knowledge'
@@ -10,6 +12,8 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/ready2go_knowledge']),
         ('share/ready2go_knowledge', ['package.xml']),
+        ('share/ready2go_knowledge/knowledge', [relpath(
+            Path(__file__).resolve().parents[3] / 'knowledge/refusal_reasons.json')]),
     ],
     install_requires=['setuptools', 'PyYAML', 'rdflib>=6.1.1,<8'],
     zip_safe=True,
