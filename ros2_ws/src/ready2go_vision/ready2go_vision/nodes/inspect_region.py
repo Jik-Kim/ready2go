@@ -37,7 +37,7 @@ from ready2go_vision.core.dump_masks import split_masks
 from ready2go_vision.core.floor_probe import floor_probe
 from ready2go_vision.core.geometry import Intrinsics, drawer_from_camera, make_T
 from ready2go_vision.core.inspect_real import SUPPORTED_REGIONS, inspect_scene, region_frames
-from ready2go_vision.core.overlay import encode_jpeg, render_overlay
+from ready2go_vision.core.overlay import LatestSlot, encode_jpeg, render_overlay
 
 OVERLAY_TOPIC = "/vision/inspect_overlay"
 OVERLAY_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -104,9 +104,7 @@ class InspectRegionNode(Node):
         self.create_subscription(Image, p("depth_topic"), lambda m: self._store("_depth", m), qos_profile_sensor_data, callback_group=cb)
         self.create_subscription(CameraInfo, p("info_topic"), lambda m: self._store("_info", m), qos_profile_sensor_data, callback_group=cb)
         self._ov_enable, self._ov_quality = bool(p("overlay_enable")), int(p("overlay_jpeg_quality"))
-        self._ov_cv = threading.Condition()
-        self._ov_job = None                                     # 아직 안 그린 가장 최근 요청 하나 (새 요청이 오면 덮음)
-        self._ov_last_stamp = -1                                 # 발행한 사진의 촬영 시각(ns) — 이보다 오래된 것은 발행 안 함
+        self._ov_slot = LatestSlot()                            # 아직 안 그린 가장 최근 요청 하나, 발행한 것보다 오래된 촬영은 그리기 전에 버림
         if self._ov_enable:
             self._ov_pub = self.create_publisher(CompressedImage, OVERLAY_TOPIC, OVERLAY_QOS)
             threading.Thread(target=self._overlay_loop, daemon=True).start()
@@ -180,24 +178,16 @@ class InspectRegionNode(Node):
         job = dict(stamp=st, stamp_ns=st.sec * 1_000_000_000 + st.nanosec, frame_id=color_m.header.frame_id, color=color, dets=dets,
                    result_json=result_json, K=K, T=T_drawer_cam, interior_m=interior_m,
                    request={"region": req.region, "search_target": req.search_target}, error_code=error_code)
-        with self._ov_cv:
-            self._ov_job = job                                   # 아직 안 그린 이전 요청은 버림
-            self._ov_cv.notify()
+        self._ov_slot.put(job)                                   # 아직 안 그린 이전 요청은 버림
 
     def _overlay_loop(self):
         while rclpy.ok():
-            with self._ov_cv:
-                while self._ov_job is None:
-                    self._ov_cv.wait(timeout=1.0)
-                    if not rclpy.ok():
-                        return
-                job, self._ov_job = self._ov_job, None
+            job = self._ov_slot.take(timeout=1.0)
+            if job is None:
+                continue
             try:
-                msg = self._overlay_msg(job)
-                if job["stamp_ns"] <= self._ov_last_stamp:        # 이미 더 새 촬영을 발행함
-                    continue
-                self._ov_pub.publish(msg)
-                self._ov_last_stamp = job["stamp_ns"]
+                self._ov_pub.publish(self._overlay_msg(job))
+                self._ov_slot.published(job["stamp_ns"])
             except Exception as e:                               # 오버레이 실패가 인식에 영향 주지 않게 — 경고만
                 self.get_logger().warn(f"오버레이 생략: {e}")
 

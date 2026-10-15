@@ -2,6 +2,7 @@
 웹 대시보드 '최근 촬영' 칸용 — 결과(result_json)를 바꾸지 않고 그림만 만든다. 서랍 안쪽만 잘라 16:9 로 키워 작은 칸에서도 글씨가 보이게.
 글꼴: 한글 글꼴(font_paths 중 있는 것)이 없으면 영어 클래스 이름으로 그린다(비전 이미지에 한글 글꼴이 없을 수 있음)."""
 import math
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -189,3 +190,31 @@ def encode_jpeg(rgb, quality=85) -> bytes:
     if not ok:
         raise RuntimeError("JPEG 인코딩 실패")
     return buf.tobytes()
+
+
+class LatestSlot:
+    """오버레이 작업 대기: 가장 최근 요청 하나만 보관(새 요청이 오면 아직 안 그린 것을 덮음)하고, 이미 발행한 촬영보다
+    오래된 촬영은 그리기 전에 버린다(같은 촬영 시각은 발행 — 계약 '오래된 경우 생략', docs/vision.md#inspect-overlay). rclpy 없이 시험 가능."""
+
+    def __init__(self):
+        self._cv = threading.Condition()
+        self._job = None
+        self.last_stamp_ns = -1
+
+    def put(self, job):
+        with self._cv:
+            self._job = job
+            self._cv.notify()
+
+    def take(self, timeout: float):
+        """다음 작업(오래된 촬영은 건너뜀) 또는 timeout 동안 없으면 None."""
+        with self._cv:
+            if self._job is None:
+                self._cv.wait(timeout=timeout)
+            job, self._job = self._job, None
+        if job is not None and job["stamp_ns"] < self.last_stamp_ns:
+            return None
+        return job
+
+    def published(self, stamp_ns: int):
+        self.last_stamp_ns = max(self.last_stamp_ns, stamp_ns)

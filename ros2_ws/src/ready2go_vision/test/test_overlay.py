@@ -9,7 +9,7 @@ np = pytest.importorskip("numpy")
 pytest.importorskip("cv2")
 pytest.importorskip("PIL")
 from ready2go_vision.core.geometry import Intrinsics  # noqa: E402
-from ready2go_vision.core.overlay import OUT_H, OUT_W, _crop_box, _match, encode_jpeg, render_overlay  # noqa: E402
+from ready2go_vision.core.overlay import OUT_H, OUT_W, LatestSlot, _crop_box, _match, encode_jpeg, render_overlay  # noqa: E402
 
 K = Intrinsics(fx=900.0, fy=900.0, cx=640.0, cy=360.0)
 H = 0.37
@@ -85,3 +85,16 @@ def test_label_skipped_when_center_outside_crop():
     both = render_overlay(np.zeros((720, 1280, 3), np.uint8), [det_at(0.05, 0.10), far], {"target": obj(1, 0.05, 0.10)}, K, T, INTERIOR,
                           ITEMS, {"region": "drawer_top", "search_target": "eraser"}, "10:10:05")
     assert np.array_equal(inside, both)
+
+
+def test_latest_slot_keeps_newest_and_drops_older_shots():
+    """작업 대기: 안 그린 요청은 새 요청이 덮음, 발행한 촬영보다 오래된 촬영은 버림, 같은 촬영 시각은 발행(계약 '오래된 경우 생략')."""
+    q = LatestSlot()
+    assert q.take(timeout=0.01) is None
+    q.put({"stamp_ns": 10}); q.put({"stamp_ns": 20})
+    assert q.take(timeout=0.01)["stamp_ns"] == 20 and q.take(timeout=0.01) is None
+    q.published(20)
+    q.put({"stamp_ns": 15})
+    assert q.take(timeout=0.01) is None                                        # 이미 발행한 것보다 오래됨
+    q.put({"stamp_ns": 20})
+    assert q.take(timeout=0.01)["stamp_ns"] == 20                              # 같은 촬영 시각은 발행
