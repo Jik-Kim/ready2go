@@ -347,6 +347,27 @@ def test_named_top_view_from_over_drawer_does_not_exit(server):
     assert log[1][0] == "movej"
 
 
+@pytest.mark.parametrize("flag, held, radius", [
+    (False, False, 0.0),             # 기본: safe_z 에서 서고 관절 이동 (지금 동작 그대로)
+    (True, False, 0.45 * 25.0),      # 켬·빈손: 경유점 1(z 275) → 300 올리기 끝 45% 에서 이음
+    (True, True, 0.0),               # 켬이어도 쥔 채면 지금처럼 멈췄다 감
+])
+def test_top_view_from_waypoint_blends_only_when_flag_and_empty(server, monkeypatch, flag, held, radius):
+    """[사용자 10/15 "중앙 경유점 → z 위로 → 뷰, 약간 늦어"] transit.view_blend_in_drawer."""
+    _with_prm(server, monkeypatch, transit={"view_blend_in_drawer": flag})
+    rb = server.srv.robot
+    rb.p = [380.0, -216.0, 275.0, 0.0, 180.0, 0.0]
+    if held:
+        server.srv.held = {"id": "eraser#1", "class": "eraser", "width_m": 0.02}
+    radii, ml = [], rb.movel_async
+    rb.movel_async = lambda p, vel, acc, rot_vel=30.0, rot_acc=60.0, radius=0.0: (radii.append(radius), ml(p, vel, acc, rot_vel, rot_acc, radius))[1]
+    out, _ = server.run("move_to_named_pose", {"pose_name": "drawer_top_view", "drawer_id": "drawer_top"})
+    moves = [e for e in rb.log if e[0] in ("movel", "movej")]
+    assert out.success
+    assert moves[0][0] == "movel" and moves[0][1][2] == pytest.approx(300.0) and moves[-1][0] == "movej"
+    assert radii[0] == pytest.approx(radius)
+
+
 def test_open_drawer_without_posx_fails_before_any_command(server):
     """#83 E 검토 P1: 서랍 열기에서 현재 좌표를 못 읽으면 그리퍼·관절 이동 없이 STATE_UNKNOWN."""
     server.srv.disp = {}

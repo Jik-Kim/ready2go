@@ -706,6 +706,11 @@ class SkillServer(Node):
             lift_z = max(lift_z, tr["safe_z_mm"])          # 홈 → z 300 → ready: drawer_control 열기·b_demo 와 같은 경로 (10/06 통합: 홈에서 바로 가면 손잡이보다 낮게 지나감)
         # 서랍 밖·빈손일 때만 (홈 → high_z 325 → 탑뷰: 이어지는 곳 305 > 앞판 295.5). 서랍 안(safe_z 300)·물체를 든 채면 테두리 여유가 작아 멈췄다 감
         blend = tr.get("blend_mm", 0.0) if cur[2] < lift_z and not self._over_drawer(cur) and not self.held else 0.0
+        # transit.view_blend_in_drawer: 빈손으로 서랍 위(경유점 1 등) → 탑뷰도 safe_z 에서 서지 않고 올리기 끝에서 관절 이동을 이음
+        # (아래에서 올리는 길이의 45% 까지 — 경유점 1 z 275 → 300 이면 z 약 289 에서 출발, 테두리 약 268 위) [사용자 10/15 "중앙 경유점 → z 위로 → 뷰, 약간 늦어"]
+        if (not blend and tr.get("view_blend_in_drawer") and pose_name == "drawer_top_view" and cur[2] < lift_z
+                and self._over_drawer(cur) and not self.held and not getattr(self, "hold_unknown", None)):
+            blend = tr.get("blend_mm", 0.0)
         if blend and pose_name == "drawer_top_view":       # 탑뷰: 올리는 끝 50 mm 부터 회전 시작 → 올라가기·회전이 같이 끝남 [사용자 10/08].
             # 홈(z 196) → z 275 에서 관절 이동 시작해도 손잡이(y −66) 위 약 59 mm·앞판(y −87) 위 약 49 mm [계산 m0609_kin]
             blend = min(max(blend, tr.get("view_lift_blend_mm", blend)), 0.45 * (lift_z - cur[2]))
