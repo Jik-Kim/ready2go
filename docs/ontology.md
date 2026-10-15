@@ -6,6 +6,8 @@
 
 ### 7.5 파일 역할과 현재 로더
 
+[구현안·C 연결 대기] #302의 `handover_with_unpack`은 실제 effect=sensing을 유지하고 계획 전용 `plan_effect`·동적 `from: Drawer`·pre를 추가했습니다. 로더의 조건부 형식/참조 검사와 실제 C primitive-only 소비 경계는 [knowledge 설명](../knowledge/README.md#302-계획-전용-composite-필드--e-구현--c-연결-대기)을 참조하십시오. 예상 효과를 실제 상태에 미리 쓰거나 자동 언패킹 실행을 연결한 것이 아니며 E 포함2명 형식 검토와 C 구간 실행 검증은 남습니다.
+
 [FR-ONT-01](requirements.md#fr-ont-01)의 물품·장소·상태·스킬을 하나의 조회 구조로 정의합니다. 작성 파일을 분리하되 `robot_ontology.jsonld`를 전체 구성의 진입점으로 사용합니다. [문서]
 
 | 원본 | 역할 |

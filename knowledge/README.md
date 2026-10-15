@@ -2,6 +2,16 @@
 
 > 의미·정책·책임·Phase·수용 기준: [FR-ONT-01–03](../docs/requirements.md#fr-ont-01)·[물품 정책](../docs/requirements.md#item-policy)·[가림 정책](../docs/requirements.md#occlusion-policy). 설명: [`docs/ontology.md`](../docs/ontology.md). 과거 그래프는 현재 데이터의 근거로 사용하지 않습니다.
 
+## #302 계획 전용 composite 필드 — E 구현 / C 연결 대기
+
+[구현안·형식 승인 대기] 원본은 [`skills/handover_with_unpack.jsonld`](skills/handover_with_unpack.jsonld)입니다. 기존 composite 종류·태스크 참조·실제 `effect: sensing`을 보존하고, `plan_effect`와 `from: Drawer` 입력을 추가했습니다. `target`·`from`을 바인딩한 빈손/현재 위치/해당 서랍 닫힘 pre를 검사하며 이 세 값의 누락·unknown은 충족되지 않습니다. 위·아래 서랍 상수나 동작 순서를 추가하지 않았습니다. `from`은 C의 계획/진입 조건에 쓰고 내부 태스크에는 기존 `target` 입력을 전달하는 안입니다. 다른 서랍 닫힘/one_open은 C의 기존 일반 규칙이며 E가 복제하지 않았습니다.
+
+[검사 연결] `ontology.load()`는 새 필드가 있는 정의만 composite·sensing·태스크/매개변수 선언·비어 있지 않은 레코드와 등록된 참조를 검사합니다. 새 필드의 pre/계획 레코드는 기존 subject/predicate/value 구조를 사용하며 현재 지원 predicate는 located_in/open/gripper입니다. subject/value의 클래스·상수·$param 참조와 pre 연산자를 확인합니다. 이 필드가 없는 구 단일 파일 로딩은 보존합니다. `tools/validate_contracts.py`의 기존 load 호출로 검사되며 도구 자체는 수정하지 않았습니다. 로딩/검사는 계획 예상 효과를 state에 적용하지 않으며 실제 상태 반영을 새로 연결하지 않습니다.
+
+[미연결] 기준 main `47301366`의 C planner는 여전히 primitive만 후보로 삼습니다. 실제 공개 plan은 composite 단독 계획을 만들지 못하고 Runner의 공개 run은 실행 전 composite를 TASK_INVALID로 거절합니다. 따라서 데이터 정의·형식 검사 완료와 자동 언패킹 실행 완료는 다릅니다. C의 후보/도달성·구간 실행·실제 위치 확인 후 최초 목표/자동 닫힘을 유지한 재계획·실패/정지/복구 실패 차단은 담당 후속입니다. #371의 선행 보호는 별도 PR이며 이번 E 전체 CI가 그 C PR을 다시 검사했다는 뜻이 아닙니다.
+
+근거: [#302 승인 범위](https://github.com/Jik-Kim/ready2go/issues/302#issuecomment-6182976292), [FR-PLN-02](../docs/requirements.md#fr-pln-02)·[FR-ONT-02](../docs/requirements.md#fr-ont-02)·[FR-ACT-04](../docs/requirements.md#fr-act-04)·[가림 정책](../docs/requirements.md#occlusion-policy). 형식은 E 포함 2명 검토 전 병합하지 않으며, 실제 C 소비·PC2·음성·로봇 수용 검증은 미완료입니다.
+
 ## 작성 원본과 진입점
 
 | 파일 | 역할 |

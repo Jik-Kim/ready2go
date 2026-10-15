@@ -1,5 +1,13 @@
 # CURRENT — E 고희태
 
+## plan-effect-302-20261015
+
+- [승인/소유] 조율 human turn01a13d5e-e7df-71d0-b6a2-b4bef4ca9f08의 “진행하자”와 issuecomment6182976292의 C 권고2안 범위를 직접 확인했습니다. 시작main47301366bc58c4ccb34c33ff692b23838832bcdc, 격리 /tmp/ready2go-e-plan-effect-20261015 / codex/e-plan-effect-20261015. E skill 원본·knowledge loader/test·Knowledge README/ontology 설명·이 기록만 수정하며 primary의 staged PPT/다른변경·모델/local YAML·다른 checkout은 보존합니다. C/Planner/tasks/인텐트/계약은 직접 수정하지 않습니다.
+- [구현] composite/task/effect=sensing을 유지하고 plan_effect 레코드·params from:Drawer·빈손/위치/닫힘 pre를 추가했습니다. 위/아래 상수·primitive 배선·one_open 정책 복제 없이 기존 선언/바인딩 관례를 사용합니다. 로더는 plan_effect가 있는 새 정의만 실제/계획 효과 경계·비어 있지 않은 레코드·predicate/subject/value 참조·params 클래스/선언·pre 형식을 검사하며 구 단일 파일은 호환합니다. 기존 validate_contracts load 호출이 검사 경로이고 C 소유 도구를 고치지 않았습니다. resolve/check/apply의 기존 상태 처리 경로는 수정하지 않았습니다.
+- [직접 회귀] 기존 ontology/pick Runner 및 새 정의 검사에서 E **94 passed**. manifest/legacy 신구형식, 잘못된 계획 효과/참조/params, 두 서랍 동적 바인딩과 빈손/위치/닫힘 누락·unknown 거절, 기존 primitive 회귀를 확인했습니다. 실제 C 공개 plan은 UNPLANNABLE, 공개 run은 backend0/state불변 TASK_INVALID/composite 거절을 확인했고 소비 통합 사례는 **1 skipped**로 구분합니다. 초기 소비 fixture가 UNKNOWN_SKILL을 기대해 실패한 것은 실제 실행 전 validation 게이트에 맞춰 그 사례만 직접 재검했습니다(1 skipped/41 deselected, exit0). 로그 /tmp/e-302-plan-effect-direct.log 및 /tmp/e-302-plan-effect-c-boundary.log. AST/JSON 구문 검사와 의미 회귀는 별개로 확인했습니다.
+- [C 선행] main의 _groundings/_unreachable primitive 필터와 실행 전 check_task 거절이 남아 있습니다. #371 d7d21c47992eade02fd4e29504a23b54fa69137b의3379/43 CI는 그 C PR 근거로만 읽었고 전체 CI를 중복하지 않았습니다. 해당 item_group의 resumable=False/finally 복원과 restore_failed/task_error 검사→후속 차단은 읽기 전용으로 대조했습니다. C 후보/구간 실행→실제 located_in 확인→최초 목표/자동 닫힘 유지 재계획·무진행 종료는 미연결입니다. 부모가 C Slack 인계를 소유하며 중복 전송하지 않습니다.
+- [검증/미결] FR-ONT-01/02·FR-PLN-02/P2·FR-ACT-04/AC-ACT-03 및 가림 정책 기준입니다. 이번 E 최종 SHA의 전체 로컬 CI1회 결과/정확 SHA는 완료 보고와 Draft PR에 기록하며 C 소비 통합 완료로 확대하지 않습니다. 형식 E 포함2명 검토는 미완료이고 실제 PC2/API/ROS/DDS/음성/로봇·관측/복구 실물 수용은 미검증입니다. C 연결·형식 승인 전에 main 병합/완료를 주장하지 않습니다.
+
 ## voice-351-cause-completion-20261014
 
 - [승인/범위] 기존 사용자 최신 코멘트 수정 승인과 조율 세션의 동일 중복 억제 보완 지시를 적용했습니다. dc115a0 기준 깨끗한 동일 작업 브랜치에서 E 원인 증거 수신/정책 두 곳과 직접 회귀·필요 E 문서만 수정했습니다. C 코드/계약·캐시·startup/prepare 설정은 변경하지 않았습니다.
