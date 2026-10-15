@@ -12,11 +12,12 @@ DOM=${OVERLAY_CHECK_DOMAIN:-77}
 [[ "$DOM" =~ ^[0-9]+$ ]] || { echo "OVERLAY_CHECK_DOMAIN 은 숫자만: '$DOM'"; exit 2; }
 DOM=$((10#$DOM))                                          # 070 같은 입력도 70 으로 읽어 비교 (ROS 는 십진으로 읽음)
 if [ "$DOM" -eq 70 ]; then echo "시험 도메인이 운영 도메인 70 과 같음 — OVERLAY_CHECK_DOMAIN 을 다른 값으로"; exit 2; fi
-OUT=$(dirname "$DUMP")/overlay_check_out; mkdir -p "$OUT"; cp "$DUMP" "$OUT/d.npz"
+OUT=$(dirname "$DUMP")/overlay_check_out
 RUN=(docker run --rm --network host --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp -e YOLO_CONFIG_DIR=/tmp/y
   -e ROS_DOMAIN_ID="$DOM" -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -e CYCLONEDDS_URI=file:///repo/config/cyclonedds.local.xml
   -v "$PWD:/repo" -v "$PWD/knowledge:/knowledge:ro" -v "$PWD/models:/models:ro" -v "$OUT:/t" -w /repo ready2go-vision:latest)
 if [ "${DRY_RUN:-0}" = 1 ]; then printf '%q ' "${RUN[@]}"; echo; exit 0; fi
+mkdir -p "$OUT"; cp "$DUMP" "$OUT/d.npz"                 # DRY_RUN 은 파일도 안 만듦 (E #370 재리뷰 권고)
 "${RUN[@]}" bash -lc "
 source /opt/ros/jazzy/setup.bash && cd /repo/ros2_ws && colcon build --build-base /tmp/build --install-base /tmp/install --packages-up-to ready2go_vision >/tmp/build.log 2>&1 || { tail -20 /tmp/build.log; exit 1; }
 source /tmp/install/setup.bash
