@@ -728,6 +728,7 @@ class SkillServer(Node):
             # [사용자 10/12 "서랍 닫고 홈 가는 게 느림, ready 갈 때랑 같게"] — 쥔 채·쥐었는지 모름(hold_unknown, #223)이면 서버 관절 속도 그대로 (#235 A·PM)
             sp = self._speed()
             vel, acc = sp.get("view_joint_deg_s", vel), sp.get("view_joint_acc_deg_s2", acc)
+        vel, acc = self._j6_capped(joints, vel, acc)
         ok = self.robot.movej_async(joints, vel, acc)
         if ok is False and (blend or moving):               # 올라가는 중이라 거부 → 다 올라간 뒤 다시 (멈췄다 감)
             bad = self._wait_pose(goal, up, self._free_vel(cur), "lift") if blend else self._settle(goal)
@@ -931,6 +932,7 @@ class SkillServer(Node):
             sp = self._speed()
             vel = sp.get("in_drawer_joint_deg_s", vel)
             acc = sp.get("in_drawer_joint_acc_deg_s2", acc)
+        vel, acc = self._j6_capped(joints, vel, acc)
         bad = sf.after_command(self.robot.movej_async(joints, vel, acc), what=f"movej({stage})",
                                stop=self.robot.stop, get_state=self.state)
         if bad:
@@ -1719,13 +1721,38 @@ class SkillServer(Node):
             return cache[cls]
         return size_of
 
+    def _j6_capped(self, joints, vel, acc):
+        """관절 이동에서 J6(손목 끝) 각속도를 speed.j6_max_deg_s 이하로 — movej 는 모든 관절이 같이 끝나게 움직여 J6 속도 = vel × |ΔJ6| / max|Δ|.
+        J6 가 크게 도는 이동(탑뷰 약 200°·경유점 약 170°)만 전체를 그 비율로 늦추고, J6 가 조금 도는 이동은 그대로
+        [사용자 10/15 PC2 "리얼센스 카메라 연결잭 체결이 불안정 — J6 움직임만 조금 속도 낮춰"]. speed.j6_limit 이 꺼져 있거나 상한이 null 이면
+        안 봄(켜고 끄기 — 사용자 10/15 "onoff 로"). 현재 관절을 못 읽으면 vel 자체를 상한으로."""
+        cap = self._speed().get("j6_max_deg_s")
+        if not cap:
+            return vel, acc
+        cur = self.robot.posj()
+        if cur is None or len(cur) < 6:
+            k = min(1.0, float(cap) / float(vel)) if vel else 1.0
+            return vel * k, acc * k
+        d = [abs(float(a) - float(b)) for a, b in zip(joints, cur)]
+        if max(d) <= 0.0 or d[5] <= 0.0:
+            return vel, acc
+        j6 = vel * d[5] / max(d)
+        if j6 <= float(cap):
+            return vel, acc
+        k = float(cap) / j6
+        return vel * k, acc * k
+
     def _speed(self):
         """speed 설정 — 넛지 동작 중(nudge_object, make_room 포함)이면 speed.nudge 값으로 덮어씀 [사용자 10/13 PC2 "clear 할 때
         넛지하러 갈 때 기울이거나 하는 게 진짜 빨라서 무섭다, 이동 자체도 빨라"]. 서랍 안 직선·경유점 관절·손목 회전에 적용.
         탑뷰·손잡이 앞 이동(move_to_named_pose)·서랍 열고 닫기·집기 마지막·끌기 속도는 그대로."""
         sp = self.prm()["speed"]
         if getattr(self, "_careful", False) and sp.get("nudge"):
-            return {**sp, **sp["nudge"]}
+            sp = {**sp, **sp["nudge"]}
+        cap = sp.get("j6_max_deg_s") if sp.get("j6_limit") else None
+        sp = {**sp, "j6_max_deg_s": cap}                           # 꺼져 있으면 _j6_capped 도 안 봄
+        if cap and sp.get("turn_deg_s", 0.0) > cap:                # 직선·블렌딩 중 방향 회전(대부분 J6)도 같은 상한 [사용자 10/15]
+            sp = {**sp, "turn_deg_s": float(cap)}
         return sp
 
     def _do_nudge_object(self, goal, params):
@@ -2023,6 +2050,7 @@ class SkillServer(Node):
                           remove_first=bool(mr.get("remove_first", False)), slack_mm=float(mr.get("slack_mm", 10.0)),
                           remove_min_move_m=float(mr.get("remove_min_move_mm", 0.0)) / 1000.0,
                           nudge_plate=bool(mr.get("nudge_plate", False)),
+                          wall_keep_mm=float(mr.get("wall_keep_mm", 0.0)), center_weight=float(mr.get("center_weight", 0.0)),
                           plate_clear_m=float((prm["pick"].get("under_clear_by_class_mm") or {}).get("cover_plate", 21.0)) / 1000.0,
                           reach_x_m=((prm.get("drawer_reach_x_mm") or {}).get(drawer_id) or 0.0) / 1000.0 or None)
 

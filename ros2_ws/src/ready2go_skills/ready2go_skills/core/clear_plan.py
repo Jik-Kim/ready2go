@@ -53,6 +53,26 @@ def inside(o: Mapping, size_of: Callable, interior_m: Sequence[float], margin_mm
     return all(margin_mm <= x <= d - margin_mm and margin_mm <= y <= w - margin_mm for x, y in footprint_mm(o, size_of))
 
 
+def wall_gap_mm(o: Mapping, size_of: Callable, interior_m: Sequence[float]) -> float:
+    """footprint 에서 가장 가까운 서랍 벽까지 거리(mm, 벽 밖이면 음수)."""
+    d, w = interior_m[0] * 1000.0, interior_m[1] * 1000.0
+    return min(min(x, d - x, y, w - y) for x, y in footprint_mm(o, size_of))
+
+
+def _point_gap_mm(x_m: float, y_m: float, interior_m: Sequence[float]) -> float:
+    d, w = interior_m[0] * 1000.0, interior_m[1] * 1000.0
+    x, y = x_m * 1000.0, y_m * 1000.0
+    return min(x, d - x, y, w - y)
+
+
+def keeps_wall(start: Mapping, now: Mapping, size_of: Callable, interior_m: Sequence[float], keep_mm: float) -> bool:
+    """넛지·밀기로 옮긴 물체가 벽에서 keep_mm 은 남김 — 처음부터 그보다 가까웠으면 더 가까워지지만 않으면 됨
+    [사용자 10/15 PC2 통합: 판 치운 뒤 지우개를 벽까지 붙여 밀다 손가락이 벽에 닿음]. keep_mm 0 = 안 봄(예전)."""
+    if keep_mm <= 0.0:
+        return True
+    return wall_gap_mm(now, size_of, interior_m) >= min(keep_mm, wall_gap_mm(start, size_of, interior_m)) - 0.05
+
+
 def overlaps(a: Mapping, b: Mapping, size_of: Callable, gap_mm: float = 0.0) -> bool:
     return plp.rects_overlap(footprint_mm(a, size_of, gap_mm), footprint_mm(b, size_of))
 
@@ -156,7 +176,7 @@ def _behind(objs: Sequence[Mapping], mover: str, u: tuple, size_of) -> set:
 
 
 def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, interior_m, size_of, step_mm: float = 1.0,
-              gap_mm: float = 0.0, plate_clear_m: Optional[float] = None) -> float:
+              gap_mm: float = 0.0, plate_clear_m: Optional[float] = None, keep_mm: float = 0.0) -> float:
     """mover(위 물체 포함)를 u 로 dist_m 까지 — 다른 바닥 물체·벽에 닿기 전까지 갈 수 있는 거리(m). 밀지 않음.
     처음부터 겹친 물체 중 뒤쪽(멀어지는 쪽)은 막지 않음 (_behind)."""
     group = {mover} | riders(objs, mover)
@@ -169,7 +189,8 @@ def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     for k in range(1, int(round(dist_m * 1000.0 / step_mm)) + 1):
         s = k * step_mm / 1000.0
         m = moved(by[mover], u[0] * s, u[1] * s)
-        if not inside(m, size_of, interior_m, -slack) or any(collide(m, o, size_of, gap_mm) for o in others):
+        if not inside(m, size_of, interior_m, -slack) or any(collide(m, o, size_of, gap_mm) for o in others) \
+                or not keeps_wall(by[mover], m, size_of, interior_m, keep_mm):
             break
         done = s
     return done
@@ -177,7 +198,7 @@ def free_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
 
 def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, interior_m, size_of,
               pushable: Callable[[Mapping], bool], max_chain: int = 2, step_mm: float = 1.0,
-              plate_clear_m: Optional[float] = None):
+              plate_clear_m: Optional[float] = None, keep_mm: float = 0.0):
     """mover 를 u 로 밀어 dist_m 까지 — 앞을 막는 바닥 물체는 같이 밀림(줄줄이, 최대 max_chain 개, 위에 얹힌 것도 같이).
     밀린 물체가 벽·못 미는 물체에 걸리면 거기서 멈춤. → (새 물체 목록, 간 거리 m, 밀린 id 목록)."""
     order = [o["id"] for o in objs]
@@ -188,6 +209,7 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
     # 캐러멜과 처음부터 겹쳐 캐러멜까지 같이 밀려다 0 mm → 밀기 후보 없음 → 몽키 머리 넛지(접촉 없음)]
     ign = {g: _behind(objs, g, u, size_of) | low_under(objs, g, size_of, plate_clear_m) for g in base}
     slack = {o["id"]: out_mm(o, size_of, interior_m) for o in objs}   # 처음부터 경계 밖으로 그려진 만큼은 봐줌
+    start = {o["id"]: o for o in objs}                                  # 벽 여유(keep_mm)는 처음 자리 기준
     pushed = []
     done = 0.0
     dx, dy = u[0] * step_mm / 1000.0, u[1] * step_mm / 1000.0
@@ -217,7 +239,8 @@ def push_move(objs: Sequence[Mapping], mover: str, u: tuple, dist_m: float, inte
                     moving.append(gid)
                 changed = True
                 break
-        if not ok or not all(inside(trial[m], size_of, interior_m, -slack.get(m, 0.0)) for m in moving
+        if not ok or not all(inside(trial[m], size_of, interior_m, -slack.get(m, 0.0))
+                             and keeps_wall(start[m], trial[m], size_of, interior_m, keep_mm) for m in moving
                              if on_floor(list(trial.values()), m)):
             break
         cur = trial
@@ -362,6 +385,8 @@ class Config:
     front_keep_mm: float = 10.0              # 손잡이 쪽 벽(x 0)에서 이만큼 안으로 새로 들어오게 미는 동작은 벌점 — 앞벽에 붙으면 안쪽으로 못 끌어
     front_penalty_m: float = 0.05            # (서랍이 닫힘) 사방이 막혀 못 풂 [사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] — 이동 거리로 셈
     sweep_max_m: Optional[float] = None      # 밀기(sweep) 최대 거리 — 없으면 max_shift_m. 실행 값 make_room.sweep_max_mm
+    wall_keep_mm: float = 0.0                # 넛지·밀기로 옮긴 물체(목표·같이 밀린 것)를 벽에서 이만큼은 남김, 누르는 손가락(press_finger_r_mm)도 벽에 안 닿게 — 0 = 안 봄. 실행 값 make_room.wall_keep_mm [사용자 10/15]
+    center_weight: float = 0.0               # 목표가 벽 쪽으로 가까워진 만큼 이동 거리에 더하는 벌점 비율 — 같은 거리면 서랍 가운데 쪽 먼저. 실행 값 make_room.center_weight [사용자 10/15]
     nudge_plate: bool = False                # 덮개 판도 넛지·밀기(목표 옆 판 옮기기, 같이 밀리기) — 판 밑 물체는 안 봄. 실행 값 make_room.nudge_plate [사용자 10/15]
     plate_clear_m: float = 0.021             # 판 밑 여유 — 윗면이 이 높이 이하인 물체는 판을 옮길 때 안 봄. 실행 값 pick.under_clear_by_class_mm.cover_plate
     remove_min_move_m: float = 0.0           # 막는 물체 치울 빈 자리가 지금 자리에서 이만큼은 떨어져야 함 — 0 = 안 봄(지금) [제안 10/15 B, #364 sim: 같은 자리로 다시 치우기 반복]
@@ -647,6 +672,27 @@ def _front_cost(before, after, cfg: Config) -> float:
     return 0.0
 
 
+def _center_cost(before, after, tid, cfg: Config) -> float:
+    """목표가 벽에 가까워진 거리 × center_weight (m) — 같은 거리면 서랍 가운데 쪽 넛지·밀기를 먼저 [사용자 10/15 "왜 중간이 아니라 벽쪽으로"]."""
+    if cfg.center_weight <= 0:
+        return 0.0
+    b = next(o for o in before if o["id"] == tid)
+    a = next(o for o in after if o["id"] == tid)
+    closer = wall_gap_mm(b, cfg.size_of, cfg.interior_m) - wall_gap_mm(a, cfg.size_of, cfg.interior_m)
+    return cfg.center_weight * max(0.0, closer) / 1000.0
+
+
+def _press_keeps_wall(press_xy, u, dist_m, cfg: Config) -> bool:
+    """누르는 손가락(press_finger_r_mm 원)이 dist_m 끈 뒤에도 벽에서 떨어져 있음 — 처음부터 가까웠으면 더 가까워지지만 않으면 됨."""
+    if cfg.wall_keep_mm <= 0 or press_xy is None:
+        return True
+    x0, y0 = press_xy
+    g0 = _point_gap_mm(x0, y0, cfg.interior_m)
+    g1 = _point_gap_mm(x0 + u[0] * dist_m, y0 + u[1] * dist_m, cfg.interior_m)
+    need = cfg.press_finger_r_mm + 2.0
+    return g1 >= min(need, g0) - 0.05
+
+
 def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False) -> list:
     """목표 자신을 서랍 축으로 움직이는 후보 → [(움직인 거리 m, Action, 예상 물체 목록)].
     nudge: 막힘 없이 끌기 / sweep: 앞 물체를 같이 밀고(최대 max_chain) back 만큼 되돌아오기 (양쪽 공간) [사용자 10/11].
@@ -656,25 +702,30 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
     out = []
     pp_ = press_point(objs, tid, cfg.size_of, **_pkw(cfg))
     press = {"press_xy_m": [round(v, 4) for v in pp_]} if pp_ else {}
+    pxy = tuple(pp_) if pp_ else tuple(t["pose"]["position"][:2])
+    keep = cfg.wall_keep_mm
     for u in cfg.axes:
         if not _round_axis_ok(t, u, cfg):
             continue
-        can = free_move(objs, tid, u, cfg.max_shift_m, cfg.interior_m, cfg.size_of, plate_clear_m=_clear(cfg))
+        can = free_move(objs, tid, u, cfg.max_shift_m, cfg.interior_m, cfg.size_of, plate_clear_m=_clear(cfg), keep_mm=keep)
         dists = [k * step for k in range(1, int(can / step + 1e-6) + 1)]
         for s in dists:
+            if not _press_keeps_wall(pxy, u, s, cfg):
+                break
             after = _with(objs, moved(t, u[0] * s, u[1] * s))
-            out.append((s + _front_cost(objs, after, cfg),
+            out.append((s + _front_cost(objs, after, cfg) + _center_cost(objs, after, tid, cfg),
                         Action("nudge", tid, f"빈 쪽({_dir_name(u)})으로 {s * 1000:.0f} mm", dir=u, dist_m=s, extra=dict(press)), after))
         d = (int(can / cfg.sweep_step_m + 1e-6) + 1) * cfg.sweep_step_m
         last = can
         while d <= (cfg.sweep_max_m or cfg.max_shift_m) + 1e-9:
             o2, done, pushed = push_move(objs, tid, u, d, cfg.interior_m, cfg.size_of, _pushable(cfg), cfg.max_chain,
-                                        plate_clear_m=_clear(cfg))
-            if done <= last + 0.0015:                                  # 더 못 밂
+                                        plate_clear_m=_clear(cfg), keep_mm=keep)
+            if done <= last + 0.0015 or not _press_keeps_wall(pxy, u, done, cfg):   # 더 못 밂 / 손가락이 벽에 닿음
                 break
             last = done
             t2 = next(o for o in o2 if o["id"] == tid)
-            back_max = free_move(o2, tid, (-u[0], -u[1]), done, cfg.interior_m, cfg.size_of, plate_clear_m=_clear(cfg))
+            back_max = free_move(o2, tid, (-u[0], -u[1]), done, cfg.interior_m, cfg.size_of, plate_clear_m=_clear(cfg),
+                                 keep_mm=keep)
             if fine:
                 backs = [k * cfg.nudge_step_m for k in range(int(back_max / cfg.nudge_step_m + 1e-6) + 1)]
             else:
@@ -683,7 +734,7 @@ def _self_moves(objs, tid, cfg: Config, fine: bool = True, coarse: bool = False)
                 act = Action("sweep", tid, f"{done * 1000:.0f} mm 밀고 {bk * 1000:.0f} mm 되돌아옴 (같이 밀림 {list(pushed)})",
                              dir=u, dist_m=done, back_m=bk, pushed=tuple(pushed), extra=dict(press))
                 after = _with(o2, moved(t2, -u[0] * bk, -u[1] * bk))
-                out.append((done + bk + _front_cost(objs, after, cfg), act, after))
+                out.append((done + bk + _front_cost(objs, after, cfg) + _center_cost(objs, after, tid, cfg), act, after))
             d += cfg.sweep_step_m
     if coarse:                                                         # 종류·방향마다 짧게·중간·끝까지만
         keep = []
@@ -775,7 +826,7 @@ def apply(objs: Sequence[Mapping], a: Action, cfg: Config) -> list:
         return _with(objs, moved(t, a.dir[0] * a.dist_m, a.dir[1] * a.dist_m))
     if a.kind == "sweep":
         o2, _, _ = push_move(objs, a.target, a.dir, a.dist_m, cfg.interior_m, cfg.size_of, _pushable(cfg), cfg.max_chain,
-                             plate_clear_m=_clear(cfg))
+                             plate_clear_m=_clear(cfg), keep_mm=cfg.wall_keep_mm)
         t2 = next(o for o in o2 if o["id"] == a.target)
         return _with(o2, moved(t2, -a.dir[0] * a.back_m, -a.dir[1] * a.back_m))
     return list(objs)
