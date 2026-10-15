@@ -747,7 +747,7 @@ PYTHON
 
 [상태/안내] 검증된 C 수락과 첫 accept_text의 실제 재생 증빙 후에만 동작 경로를 허용합니다. accepted의 하위 태스크와 group_<의미ID> 상위 상태를 구분하고 R.n→R 결과를 대조합니다. C의 제외/물품별/최종 문장을 허용 factory·원본 태스크에 한정해 받고 공통 조각으로 재생합니다. C #383의 item_start_text(name_ko,index,total)를 직접 사용해 실제 runnable 첫 물품은 “먼저”, 이후는 “다음으로”로 안내하고, 한 물품뿐이면 순서말을 생략합니다. 제외 물품은 순번에서 빼며 child inputs.accept_text→기존 s2.1이 일반 s2.2를 대체합니다. 물품 안내 실패·정지 뒤 해당 물품/후속 물품 실행 차단은 C 규칙을 유지합니다. 기존 C에 factory가 없으면 일반 태스크 문장으로 동작하며 초기화/prepare를 깨뜨리지 않습니다. raw remote text는 임의로 재생하지 않으며 성공한 최종 요약 뒤 일반 완료/실패 안내를 중복하지 않습니다. PARTIAL_DELIVERY를 전체 성공으로 안내하지 않습니다. 높은 안전 경고는 유지합니다.
 
-[후속 안내 한계] 현재 task/factory 문장의 공백과 끝 마침표만 정규화해 원본 캐시 문장으로 재생합니다. factory 불일치는 group_speech_rejected/factory_text_mismatch 진단과 거절을 유지합니다. C 원문 형식·동일 버전 의존은 남아 있으며 구조화 안내 계약은 C 협의 미결입니다. 임의 원격 문장 허용이나 새 공개 필드를 추가하지 않았습니다.
+[후속 안내 한계] 현재 task/factory 문장의 공백과 끝 마침표만 정규화해 원본 캐시 문장으로 재생합니다. factory 불일치는 group_speech_rejected/factory_text_mismatch 진단과 거절을 유지합니다. C 원문 형식·동일 버전 의존은 남아 있으며 구조화 안내 계약은 C·E 합의로 후속 분리하며 #384 차단 항목이 아닙니다. 후속 설계는 캐시를 C text 기준으로 두고 E factory는 사전 캐시용으로 사용하는 방향이며 이번 코드에 새 계약을 구현한 것은 아닙니다. PC2 호스트 음성과 Docker Runner는 같은 main 시점 소스로 빌드해야 합니다. 임의 원격 문장 허용이나 새 공개 필드를 추가하지 않았습니다.
 
 [초기 상태] 기존 단일 initial_state에 사용자 확인한 airpods_case=drawer_top을 추가했습니다. 출근 목록은 에어팟/차키가 위, 립밤이 아래입니다. 기존 S1/S2·S3 지우개 실물 제외·home/빈손/닫힘은 보존하고 새 P3 snapshot/선택/reset 기능은 만들지 않았습니다. 초기 위치는 관측/파지 승인·실물 성공의 증거가 아닙니다.
 
