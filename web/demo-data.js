@@ -205,10 +205,27 @@
   data.task.selectedExecutionItemId = data.task.executionItems.some(item => item.id === data.task.currentItemId)
     ? data.task.currentItemId : null;
   if (scenarioName === "default") {
-    // 운영 접속에서는 버튼뿐 아니라 예시 단계·근거·제목도 남기지 않는다.
-    Object.assign(data.task, { status: "waiting", executionItems: [], steps: [], selectedExecutionItemId: null,
-      currentItemId: null, currentItemIcon: null, workDrawerId: null, currentAction: "현재 작업 확인 전" });
+    data.meta = { mode: "waiting", label: "상태 확인 전", description: "Runner 요청·결과 수신 전입니다. 실행 상세는 아직 연결되지 않았습니다." };
+    data.command = {
+      understood: "확인 전",
+      interpretation: { status: "waiting", label: "해석 정보 확인 전" },
+      receipt: { status: "waiting", label: "접수 상태 확인 전" },
+      processing: { status: "waiting", label: "처리 결과 확인 전" },
+      confirmation: null,
+    };
+    data.task = {
+      status: "waiting", workDrawerId: null, currentItemId: null, currentItemIcon: null,
+      currentAction: "현재 작업 확인 전", detailsExpanded: true, steps: [],
+      executionItems: [], selectedExecutionItemId: null,
+    };
+    data.drawers = [];
+    data.selectedDrawerId = null;
+    data.supplies = [];
+    data.definitionsStatus = "unknown";
+    data.adminReview.current = { runId: null, rows: [], error: null };
+    data.adminReview.ontology = { relations: [], skills: [] };
   }
+
   window.ROKEY_DEMO_DATA = data;
   window.ROKEY_DEMO_SCENARIO = scenarioName;
 })();

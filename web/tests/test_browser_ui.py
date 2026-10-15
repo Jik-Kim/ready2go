@@ -13,7 +13,7 @@ import subprocess
 from threading import Thread
 
 import pytest
-from flask import request
+from flask import abort, request
 from werkzeug.serving import make_server
 
 from ready2go_web.core.overlay_cache import OverlayCache
@@ -31,8 +31,13 @@ def _render_dashboard(
     utcnow: Callable[[], datetime] | None = None,
     on_first_image_request: Callable[[], None] | None = None,
     on_first_image_response: Callable[[], None] | None = None,
+    runner_payloads: list[dict | None] | None = None,
     interaction_script: str | None = None,
     viewport_width: int = 1280,
+    robot_state_payload: dict | None = None,
+    execution_reader=None,
+    enable_deferred_detail: bool = False,
+    on_detail_request: Callable[[], None] | None = None,
 ) -> tuple[str, int]:
     """주입한 REST 상태를 실제 headless Chrome으로 렌더링해 DOM을 반환한다."""
     # 제품 JavaScript를 실행하지 않는 정적 문자열 검사는 분기 회귀를 잡지 못하므로,
@@ -53,13 +58,34 @@ def _render_dashboard(
         cache.record_message("camera", {"frame_id": "wrist_cam", "width": 1280, "height": 720})
         cache.set_publisher_present("camera", False)
 
+    # 조회 서랍 전환 시험에는 실제 기억 상태 형식의 독립 source를 주입한다.
+    if robot_state_payload is not None:
+        cache.record_message("robot_state", robot_state_payload)
+
     # 운영 정적 파일과 상태 REST를 같은 origin으로 제공하되 사용 가능한 임의 포트를 쓴다.
     app = create_app(
         state_cache=cache,
+        execution_reader=execution_reader,
         overlay_cache=overlay_cache,
         runtime_profile=runtime_profile,
         **({"utcnow": utcnow} if utcnow is not None else {}),
     )
+    status_request_count = 0
+
+    @app.before_request
+    def runner_sequence():
+        nonlocal status_request_count
+        if request.path.startswith("/api/execution-detail/") and on_detail_request is not None:
+            on_detail_request()
+        if request.path != "/api/status" or runner_payloads is None:
+            return None
+        payload = runner_payloads[min(status_request_count, len(runner_payloads) - 1)]
+        status_request_count += 1
+        if payload is None:
+            abort(503)
+        cache.record_message("runner", payload)
+        return None
+
     image_request_count = 0
 
     @app.before_request
@@ -84,6 +110,13 @@ def _render_dashboard(
         return response
     @app.after_request
     def inject_test_interaction(response):
+        # 보존한 후속 상세 기능의 기존 시험만 전용 응답에서 활성화한다. 제품/URL 설정은 아니다.
+        if request.path == "/app.js" and enable_deferred_detail:
+            response.direct_passthrough = False
+            source = response.get_data(as_text=True)
+            assert "const executionDetailEnabled = false;" in source
+            response.set_data(source.replace("const executionDetailEnabled = false;",
+                                             "const executionDetailEnabled = true;"))
         # 시험 응답에만 사용자 동작과 DOM 스냅샷 코드를 추가한다.
         if request.path == "/" and interaction_script is not None:
             response.direct_passthrough = False
@@ -208,7 +241,8 @@ def test_mock_current_task_uses_eraser_copy_and_shared_item_image(tmp_path: Path
     rendered, _image_request_count = _render_dashboard(
         tmp_path,
         runtime_profile="dev",
-        camera_received=False, scenario="preview",
+        camera_received=False,
+        scenario="preview",
     )
 
     assert 'id="taskHeadingIcon"' in rendered
@@ -372,6 +406,70 @@ def test_recent_capture_refetches_same_revision_after_server_process_changes(
     assert 'id="captureImage" alt="최근 촬영한 분할 결과" src="blob:' in rendered
 
 
+def _request_result(decision="run", reason=None, result_run="r1", result_status="COMPLETED"):
+    """요청과 결과를 독립 변경할 수 있는 동일 기동·순서의 최소 시험 상태다."""
+    return {
+        "boot_id": "boot-1", "seq": 1,
+        "phase": "idle", "task_id": None, "current_step": None,
+        "last_intent": {"intent": "find_item", "targets": ["eraser"],
+                        "decision": decision, "reason": reason, "task_id": "find_item",
+                        "request_id": "request1", "run_id": "r1" if decision == "run" else None},
+        "last": {"task_id": "find_item", "run_id": result_run,
+                 "overall_status": result_status, "error_code": None, "failed_step": None},
+    }
+
+
+@pytest.mark.parametrize("scenario", ["default", "unknown"])
+def test_normal_page_never_uses_example_execution(tmp_path: Path, scenario: str) -> None:
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    scenario=scenario, runner_payloads=[None])
+    assert "지우개의 전달 결과를 확인하는 중" not in rendered
+    assert "차 키·지우개·시계를 찾아 전달합니다." not in rendered
+    assert "1 / 3 전달 완료" not in rendered
+    assert 'class="task-item-button"' not in rendered
+    assert '<p id="understoodText">확인 전</p>' in rendered
+    assert "현재 작업 확인 전" in rendered
+
+
+@pytest.mark.parametrize(("decision", "reason", "result_run", "expected"), [
+    ("run", None, "r1", "실행 완료"),
+    ("hold", "LOW_CONFIDENCE", "r1", "보류 · 사유 코드: LOW_CONFIDENCE"),
+    ("reject", "BUSY", "r1", "거절 · 사유 코드: BUSY"),
+    ("run", None, "other-run", "수락된 요청의 실행 결과 확인 전"),
+])
+def test_command_uses_only_linked_request_result(tmp_path: Path, decision, reason, result_run, expected) -> None:
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=[_request_result(decision, reason, result_run)])
+    assert "인텐트: find_item · eraser" in rendered
+    assert expected in rendered
+    if decision != "run" or result_run != "r1":
+        assert "실행 완료" not in rendered
+    else:
+        # 실행 성공은 물품 전달 검증 또는 단계 상세를 만들지 않는다.
+        assert "전달 완료" not in rendered
+        assert "현재 실행 없음 · 대기" in rendered
+        assert 'class="task-item-button"' not in rendered
+    # PC·모바일은 같은 명령 모델을 사용한다.
+    assert 'id="mobileUnderstoodText">인텐트: find_item · eraser</dd>' in rendered
+
+
+@pytest.mark.parametrize("next_state", ["reject", "http-error", "invalid"])
+def test_previous_result_is_cleared_after_rejection_or_failure(tmp_path: Path, next_state: str) -> None:
+    next_payload = None if next_state == "http-error" else _request_result("reject", "BUSY")
+    if next_payload is not None:
+        next_payload["seq"] = 2
+    if next_state == "invalid":
+        next_payload = {"last_intent": {"intent": "find_item"}, "last": None}
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=[_request_result(), next_payload])
+    assert "실행 완료" not in rendered
+    assert "지우개의 전달 결과를 확인하는 중" not in rendered
+    if next_state == "reject":
+        assert "거절 · 사유 코드: BUSY" in rendered
+        assert "이 요청의 실행은 수락되지 않음" in rendered
+    else:
+        assert '<p id="understoodText">확인 전</p>' in rendered
+        assert "처리 결과 확인 전" in rendered
 def test_empty_inventory_keeps_current_task_preview(tmp_path: Path) -> None:
     """empty는 조회용 물품·준비물만 비우고 실행 단계·근거는 유지한다."""
     rendered, _ = _render_dashboard(
@@ -433,6 +531,165 @@ def test_preview_item_selection_changes_only_selected_detail(tmp_path: Path, vie
             assert snapshot[field] == initial[field]
 
 
+@pytest.mark.parametrize(("decision", "label"), [
+    ("recover", "복구 요청 처리"), ("resume", "재개 요청 처리"),
+    ("end", "작업 종료 처리"), ("registered", "재개 질문·요청 등록"),
+    ("closed", "재개 대기 종료"), ("future_decision", "접수 상태 확인 전"),
+])
+def test_control_decisions_do_not_inherit_execution_success(tmp_path: Path, decision, label) -> None:
+    payload = _request_result(decision)
+    # ID가 같더라도 비실행 결정에 지난 완료 결과를 붙이지 않는다.
+    payload["last_intent"]["run_id"] = "r1"
+    payload["last_intent"]["intent"] = "future_intent"
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=[payload])
+    assert label in rendered
+    assert "인텐트: future_intent · eraser" in rendered
+    assert "처리 결과 확인 전" in rendered
+    assert "실행 완료" not in rendered
+    assert "전달 완료" not in rendered
+    assert f'id="mobileUnderstoodText">인텐트: future_intent · eraser</dd>' in rendered
+
+
+@pytest.mark.parametrize("change", ["older-seq", "old-boot", "restart", "invalid-seq", "disconnect"])
+def test_live_task_reboot_and_ordering(tmp_path: Path, change: str) -> None:
+    """현재 단계 수신 뒤 늦은 상태·재기동·단절이 요청/실행을 잘못 살리지 않는지 검증한다."""
+    first = _request_result()
+    first.update(phase="running", task_id="current_task", current_step="step_live", seq=8)
+    following = _request_result()
+    following.update(boot_id="boot-2", seq=1, last_intent=None, last=None)
+    payloads = [first, following]
+    if change == "older-seq":
+        following.update(boot_id="boot-1", seq=7)
+    elif change == "old-boot":
+        payloads.append(first)
+    elif change == "invalid-seq":
+        following["seq"] = "9"
+    elif change == "disconnect":
+        payloads[1] = None
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=payloads)
+    assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
+    assert "전달 완료" not in rendered
+    if change == "older-seq":
+        assert "실행 중 · 태스크: current_task · 단계: step_live" in rendered
+        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+    else:
+        assert "step_live" not in rendered
+        assert "실행 완료" not in rendered
+        assert '<p id="understoodText">확인 전</p>' in rendered
+        assert "현재 작업 확인 전" in rendered if change in ("invalid-seq", "disconnect") else "현재 실행 없음 · 대기" in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_live_drawer_selection_does_not_change_execution(tmp_path: Path, viewport_width: int) -> None:
+    """PC·모바일 조회 서랍 변경은 현재 실행 제목·현재 단계·미확정 작업 위치를 바꾸지 않는다."""
+    payload = _request_result("reject", "BUSY")
+    payload.update(phase="running", task_id="actual_task", current_step="actual_step")
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False, runner_payloads=[payload],
+        viewport_width=viewport_width,
+        robot_state_payload={"robot_pose": {"robot": "home"}, "gripper": {"robot": "empty"},
+                             "open": {"drawer_top": False, "drawer_bottom": True},
+                             "located_in": {"eraser": "drawer_top"}},
+        interaction_script="""
+          setTimeout(() => {
+            const read = () => [document.getElementById('currentAction').textContent,
+              document.getElementById('taskLocation').textContent,
+              document.getElementById('progressSteps').textContent];
+            const before = read();
+            document.querySelector('#drawerSelector [data-drawer-id="drawer_bottom"]').click();
+            const output = document.createElement('pre');
+            output.id = 'live-selection-result';
+            output.textContent = JSON.stringify([before, read()]);
+            document.body.append(output);
+          }, 500);
+        """,
+    )
+    match = re.search(r'<pre id="live-selection-result">(.*?)</pre>', rendered, re.DOTALL)
+    assert match is not None, rendered
+    before, after = json.loads(unescape(match.group(1)))
+    assert before == after
+    assert "actual_task" in before[0] and "actual_step" in before[2]
+    assert before[1] == "작업 장소 확인 전 → 목적지 확인 전"
+    # 빈 아래 서랍을 선택했으므로 물품 행 대신 공통 출처 안내로 기억 상태 표시를 확인한다.
+    assert "Runner 기억 상태" in rendered
+    assert "거절 · 사유 코드: BUSY" in rendered
+    assert "실행 완료" not in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_finished_execution_detail_reads_actual_records(tmp_path: Path, viewport_width: int) -> None:
+    """종료 물품 순서/전달 집계/선택 단계는 기록에서 읽고 현재 작업 제목에는 섞지 않는다."""
+    from ready2go_web.adapters.execution_reader import JsonlExecutionReader
+    records = {
+        "r1": [("runs", {"run_id": "r1", "task_id": "find_item", "overall_status": "FAILED",
+            "ended_at": "2026-10-15T00:00:00Z", "inputs": {"semantic": {"items": ["watch", "eraser"],
+                "evidence": {"eraser": {"list": "commute_set"}}}},
+            "items": [{"item": "eraser", "run_id": "child", "status": "DELIVERED"},
+                      {"item": "watch", "run_id": None, "status": "NOT_RUN"}]})],
+        "child": [("runs", {"run_id": "child", "parent_run_id": "r1"}),
+                  ("steps", {"run_id": "child", "seq": 0, "id": "recorded_pick", "status": "SUCCESS",
+                             "result": {"verified": True}})],
+    }
+    for run_id, entries in records.items():
+        (tmp_path / f"{run_id}.jsonl").write_text("".join(
+            json.dumps({"collection": collection, "doc": doc}) + "\n" for collection, doc in entries))
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False, viewport_width=viewport_width,
+        runner_payloads=[_request_result(result_status="FAILED")],
+        execution_reader=JsonlExecutionReader(tmp_path), enable_deferred_detail=True,
+        interaction_script="""
+          setTimeout(() => {
+            const buttons = document.querySelectorAll('.task-item-button');
+            const first = document.getElementById('progressSteps').textContent;
+            const reason = document.getElementById('currentStepReason').textContent;
+            buttons[1].click();
+            const second = document.getElementById('progressSteps').textContent;
+            const output = document.createElement('pre');
+            output.id = 'record-test-result';
+            output.textContent = JSON.stringify([first, reason, second]);
+            document.body.append(output);
+          }, 700);
+        """,
+    )
+    match = re.search(r'<pre id="record-test-result">(.*?)</pre>', rendered, re.DOTALL)
+    assert match is not None, rendered
+    first, reason, second = json.loads(unescape(match.group(1)))
+    assert "recorded_pick" in first and "단계 성공" in first
+    assert "semantic.evidence" in reason and "commute_set" in reason
+    assert second == ""
+    assert "1 / 2 전달 완료 · 종료 기록 기준" in rendered
+    assert "현재 실행 없음 · 대기" in rendered
+    assert "종료 기록 조회 · 현재 실행 상세 아님" in rendered
+    assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
+
+
+@pytest.mark.parametrize("transition", ["reboot", "reject", "disconnect", "other-run"])
+def test_finished_detail_is_cleared_when_identity_changes(tmp_path: Path, transition: str) -> None:
+    """기록을 표시한 뒤 기동·요청·연결이 달라지면 이전 단계/전달 수를 남기지 않는다."""
+    from ready2go_web.adapters.execution_reader import JsonlExecutionReader
+    run = {"run_id": "r1", "task_id": "find_item", "overall_status": "COMPLETED",
+           "ended_at": "2026-10-15T00:00:00Z", "inputs": {},
+           "items": [{"item": "eraser", "run_id": None, "status": "DELIVERED"}]}
+    (tmp_path / "r1.jsonl").write_text(json.dumps({"collection": "runs", "doc": run}) + "\n")
+    first = _request_result()
+    second = _request_result("reject", "BUSY")
+    second["seq"] = 2
+    if transition == "reboot":
+        second.update(boot_id="boot-2", seq=1, last_intent=None, last=None)
+    elif transition == "disconnect":
+        second = None
+    elif transition == "other-run":
+        second = _request_result(result_run="other")
+        second["seq"] = 2
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        runner_payloads=[first, second], execution_reader=JsonlExecutionReader(tmp_path), enable_deferred_detail=True)
+    assert "1 / 1 전달 완료" not in rendered
+    assert "종료 기록 조회 · 현재 실행 상세 아님" not in rendered
+    assert 'class="task-item-button"' not in rendered
+
+
 @pytest.mark.parametrize("scenario", ["default", "unknown"])
 def test_no_example_task_in_normal_scenario(tmp_path: Path, scenario: str) -> None:
     """일반/미정의 접속에서는 예시 버튼·단계·제목이 남지 않는다."""
@@ -474,3 +731,57 @@ def test_preview_labels_are_consistent(tmp_path: Path, scenario: str) -> None:
         assert "지우개 · 확인 불가" not in rendered
     else:
         assert rendered.count("업무용 손목시계 및 교통카드 케이스") >= 2
+
+
+
+def test_finished_detail_is_cached_and_excluded_items_do_not_take_numbers(tmp_path: Path) -> None:
+    """동일 key의 종료 기록은 한 번만 읽고 제외 항목 다음 실행 번호는 연속이다."""
+    class Reader:
+        def __init__(self):
+            self.calls = 0
+
+        def read_run(self, run_id):
+            self.calls += 1
+            if self.calls > 1:
+                raise RuntimeError("a repeated lookup would fail")
+            return {"run": {"run_id": "r1", "task_id": "find_item", "overall_status": "COMPLETED",
+                "ended_at": "2026-10-15T00:00:00Z", "inputs": {}, "items": [
+                    {"item": "eraser", "run_id": None, "status": "DELIVERED"},
+                    {"item": "excluded", "run_id": None, "status": "EXCLUDED"},
+                    {"item": "watch", "run_id": None, "status": "DELIVERED"}]}, "steps": []}
+
+    reader = Reader()
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        runner_payloads=[_request_result()], execution_reader=reader, enable_deferred_detail=True)
+    assert reader.calls == 1
+    assert "2 / 2 전달 완료" in rendered
+    assert "제외 excluded" in rendered
+    assert "2. watch" in rendered and "3. watch" not in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+@pytest.mark.parametrize("mode", ["completed", "running", "rejected"])
+def test_demo_scope_never_requests_execution_detail(tmp_path, viewport_width, mode):
+    """운영 응답 그대로 시험: 종료/실행/다른 요청 거절에도 상세 HTTP 요청과 예시 진행은 없다."""
+    requested = []
+    payload = _request_result("reject", "BUSY") if mode == "rejected" else _request_result()
+    if mode != "completed":
+        payload.update(phase="running", task_id="live_task", current_step="live_step")
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False,
+        viewport_width=viewport_width, runner_payloads=[payload],
+        on_detail_request=lambda: requested.append(True))
+    assert requested == []
+    assert 'class="task-item-button"' not in rendered
+    assert "물품별 진행 정보 미연결" in rendered
+    assert "물품별 전달 결과 확인 전" in rendered
+    assert "종료 기록 조회 · 현재 실행 상세 아님" not in rendered
+    assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
+    if mode != "completed":
+        assert "실행 중 · 태스크: live_task · 단계: live_step" in rendered
+        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+    if mode == "rejected":
+        assert "거절 · 사유 코드: BUSY" in rendered
+        assert "실행 완료" not in rendered
+    elif mode == "completed":
+        assert "실행 완료" in rendered  # 같은 요청의 처리 결과는 상세 비활성화와 무관하게 유지한다.

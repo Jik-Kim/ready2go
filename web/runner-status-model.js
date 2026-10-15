@@ -219,6 +219,97 @@
     return Object.freeze({ status, lastIntent, lastResult, connection });
   }
 
+  function createStatusGuard() {
+    // boot 간 seq는 비교하지 않는다. 떠난 기동은 기억해 늦게 온 응답의 역전도 막는다.
+    let bootId = null;
+    let seq = -1;
+    let fingerprint = null;
+    const retiredBoots = new Set();
+    return {
+      accept(data) {
+        // 기동·순서를 검증할 수 없는 메시지는 과거 정상값으로 대체하지 않는다.
+        if (!data || typeof data.boot_id !== "string" || !data.boot_id.trim()
+          || !Number.isSafeInteger(data.seq) || data.seq < 0) return { status: "invalid" };
+        if (retiredBoots.has(data.boot_id)
+          || (bootId === data.boot_id && data.seq < seq)) return { status: "stale" };
+        const nextFingerprint = JSON.stringify(data);
+        // 변경 때만 seq가 증가하므로 같은 seq에 다른 내용은 계약 불일치다.
+        if (bootId === data.boot_id && data.seq === seq && fingerprint !== nextFingerprint) {
+          return { status: "invalid" };
+        }
+        const restarted = bootId !== null && bootId !== data.boot_id;
+        if (restarted) retiredBoots.add(bootId);
+        bootId = data.boot_id;
+        seq = data.seq;
+        fingerprint = nextFingerprint;
+        return { status: "valid", restarted, bootId, seq };
+      },
+    };
+  }
+
+  function currentTaskView(data) {
+    // 현재 물품·run·장소는 최신 요청에서 가져오지 않는다. 상태 토픽이 보장하는 필드만 사용한다.
+    const unknown = { title: "현재 작업 확인 전", steps: [] };
+    if (!data || !["idle", "running", "halted"].includes(data.phase)) return unknown;
+    if (data.phase === "idle") return { title: "현재 실행 없음 · 대기", steps: [] };
+    if (data.phase === "halted") return { title: "Runner 정지(잠김) · 현재 단계 확인 전", steps: [] };
+    const task = typeof data.task_id === "string" && data.task_id.trim() ? data.task_id : null;
+    const step = typeof data.current_step === "string" && data.current_step.trim() ? data.current_step : null;
+    return {
+      title: `실행 중 · 태스크: ${task || "확인 전"} · 단계: ${step || "확인 전"}`,
+      // 현재 단계 하나만 표시한다. 앞 단계 성공·단계 자체 완료는 추론하지 않는다.
+      steps: step ? [{ id: step, label: `단계: ${step}`, status: "current",
+        statusLabel: "Runner 현재 단계 · 완료 여부 확인 전" }] : [],
+    };
+  }
+
+  // 검증된 최신 요청과 연결된 결과만 PC·모바일 공통 명령 표시로 변환한다.
+  function commandView(records, itemLabel = (id) => id) {
+    const view = {
+      understood: "확인 전",
+      interpretation: { status: "waiting", label: "해석 정보 확인 전" },
+      receipt: { status: "waiting", label: "접수 상태 확인 전" },
+      processing: { status: "waiting", label: "처리 결과 확인 전" },
+      confirmation: null,
+    };
+    if (records.lastIntent.status !== VALID) return view;
+    const request = records.lastIntent.value;
+    const targets = request.targets?.map(itemLabel).join(" · ");
+    view.understood = `${request.intent ? `인텐트: ${request.intent}` : "인텐트 확인 전"} · ${targets || "대상 정보 없음"}`;
+    view.interpretation = request.intent === null
+      ? view.interpretation : { status: "confirmed", label: "Runner 해석 정보 수신" };
+    // 미지의 결정은 수락으로 추정하지 않는다. 사유는 원본 코드를 보존한다.
+    const decisions = {
+      run: ["accepted", "수락"], hold: ["pending", "보류"], reject: ["error", "거절"],
+      status: ["pending", "상태 조회 처리"], cancel: ["pending", "취소 요청 처리"],
+      recover: ["pending", "복구 요청 처리"], resume: ["pending", "재개 요청 처리"],
+      end: ["pending", "작업 종료 처리"],
+      registered: ["pending", "재개 질문·요청 등록"], closed: ["pending", "재개 대기 종료"],
+    };
+    const decision = decisions[request.decision];
+    view.receipt = {
+      status: decision?.[0] || "waiting",
+      label: `${decision?.[1] || "접수 상태 확인 전"}${request.reason ? ` · 사유 코드: ${request.reason}` : ""}`,
+    };
+    if (["hold", "reject"].includes(request.decision)) {
+      view.processing = { status: "waiting", label: "이 요청의 실행은 수락되지 않음" };
+    } else if (request.decision === "run") {
+      view.processing.label = "수락된 요청의 실행 결과 확인 전";
+    }
+    // phase/current_step 또는 accepted를 최신 요청의 결과로 대신 사용하지 않는다.
+    if (records.connection.status === LINKED) {
+      const result = records.connection.value.result;
+      const results = {
+        COMPLETED: ["complete", "실행 완료"], FAILED: ["error", "실행 실패"],
+        ABORTED: ["stopped", "실행 중단"], SUSPENDED: ["stopped", "실행 일시 중단"],
+      };
+      const [status, label] = results[result.overallStatus];
+      const detail = [result.errorCode, result.failedStep].filter(Boolean).join(" · ");
+      view.processing = { status, label: `${label}${detail ? ` · ${detail}` : ""}` };
+    }
+    return view;
+  }
+
   // app.js와 브라우저 단위시험이 같은 공개 함수만 사용한다.
   window.ROKEY_RUNNER_STATUS_MODEL = Object.freeze({
     VALID,
@@ -230,5 +321,8 @@
     parseLastResult,
     linkRunnerRecords,
     parseRunnerRecords,
+    commandView,
+    createStatusGuard,
+    currentTaskView,
   });
 })();

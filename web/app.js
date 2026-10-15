@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  // 기본 화면 객체는 정적 목업에서 시작하지만 기본 시나리오에서는 상태와 등록 정의를 REST 결과로 교체한다.
+  // 기본 화면은 확인 전 모델, 명시적 미리보기만 예시 모델을 사용한다.
   const state = window.ROKEY_DEMO_DATA;
 
   // status-api.js가 제공하는 polling 구현을 렌더링 코드에서 한 번만 참조한다.
@@ -9,6 +9,16 @@
 
   // Runner 요청·결과 형식을 화면 표시 전에 검증하는 순수 파서 모듈이다.
   const runnerStatusModel = window.ROKEY_RUNNER_STATUS_MODEL;
+  // 화면 수명 동안 기동·순서 경계를 유지한다. 단절 시에도 과거 기동/seq를 잊지 않는다.
+  const runnerStatusGuard = runnerStatusModel.createStatusGuard();
+  const detailGuard = statusApi.createDetailGuard();
+  // #391 E 권고: 이번 시연은 현재 상태/단계만 연결한다. 상세 구현은 후속 검증용으로 보존한다.
+  // URL이나 미리보기 옵션으로 실제 상세 조회를 켜지 않는다.
+  const executionDetailEnabled = false;
+  // 종료 기록 조회는 현재 실행 제목과 별도 상태다. 선택과 응답은 이 run에만 속한다.
+  const executionDetail = { key: null, controller: null, value: null, selectedId: null, attempts: 0 };
+  // robot_state에는 boot_id가 없어 재기동 당시 캐시를 새 기동의 기억값으로 재사용하지 않는다.
+  let blockedRobotStateReceipt = null;
 
   const statusIcons = {
     waiting: "○",
@@ -54,7 +64,7 @@
   // 정의보다 상태 응답이 먼저 도착해도 나중에 등록명을 다시 적용할 수 있게 마지막 source를 보관한다.
   let latestRobotStateSource = null;
 
-  // 요청·결과 표시는 후속 단계에서 연결하며 지금은 검증·연결 판정된 내부 모델만 보관한다.
+  // 명령 화면은 검증·연결 판정된 요청·결과 모델만 사용한다.
   let latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
 
   // 상태 JSON과 JPEG를 같은 revision으로 결합하기 위한 브라우저 전용 사진 상태다.
@@ -443,10 +453,25 @@
     return leftOrder - rightOrder || left.localeCompare(right);
   }
 
+  function clearCurrentTask(invalidateDetail = true) {
+    // 요청·실행·선택 상세를 함께 지우되 조회용 서랍 선택과 펼침 상태는 별도로 관리한다.
+    Object.assign(state.task, {
+      currentAction: "현재 작업 확인 전", currentItemId: null, currentItemIcon: null,
+      workDrawerId: null, destinationId: null, steps: [], executionItems: [], selectedExecutionItemId: null,
+    });
+    if (invalidateDetail) {
+      detailGuard.setContext(null, null);
+      executionDetail.controller?.abort();
+      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null, attempts: 0 });
+    }
+  }
+
   function setRunnerSummaryUnknown() {
     // 기본 화면에서 목업 실행 요약이 실제 Runner 값처럼 보이지 않게 초기화한다.
     // source가 유효하지 않으면 과거 요청·결과 내부 모델도 현재값으로 유지하지 않는다.
+    clearCurrentTask();
     latestRunnerRecords = runnerStatusModel.parseRunnerRecords(null);
+    state.command = runnerStatusModel.commandView(latestRunnerRecords);
     state.adminReview.current.liveSummary = {
       taskId: "확인 전",
       currentStep: "확인 전",
@@ -463,8 +488,14 @@
       setRunnerSummaryUnknown();
       return false;
     }
+    // 현재 상태를 다시 그리되 같은 종료 run의 상세 선택은 유지한다.
+    clearCurrentTask(false);
+    const taskView = runnerStatusModel.currentTaskView(data);
+    state.task.currentAction = taskView.title;
+    state.task.steps = taskView.steps;
     // last_intent와 last를 독립 파싱한 뒤 decision과 run_id로 같은 실행인지 판정한다.
     latestRunnerRecords = runnerStatusModel.parseRunnerRecords(data);
+    state.command = runnerStatusModel.commandView(latestRunnerRecords, itemLabelForId);
     // 계약에 없는 phase를 대기로 추정하지 않고 확인이 필요한 값으로 표시한다.
     const phaseView = typeof data.phase === "string" ? runnerPhaseViews[data.phase] : null;
     state.adminReview.current.liveSummary = {
@@ -474,6 +505,78 @@
       status: phaseView?.status || "waiting",
     };
     return true;
+  }
+
+  function recordedSteps(rows) {
+    // 완료되어 기록된 단계만 표시한다. SUCCESS는 단계 성공이며 물품 전달 성공이 아니다.
+    return rows.map(row => ({ id: `${row.id}:${row.seq}`, label: `단계: ${row.id}`,
+      status: { SUCCESS: "complete", FAILURE: "error", SKIPPED: "waiting" }[row.status],
+      statusLabel: { SUCCESS: "단계 성공", FAILURE: "단계 실패", SKIPPED: "미실행" }[row.status],
+      reason: row.error ? `기록된 오류: ${JSON.stringify(row.error)}` : "단계 근거 미제공",
+      observation: row.result == null ? "검증 결과 미제공" : `기록된 결과: ${JSON.stringify(row.result)}` }));
+  }
+
+  function applyExecutionDetail() {
+    // C 종료 items 배열을 그대로 사용한다. semantic.items나 child 이름으로 순서를 만들지 않는다.
+    const detail = executionDetailEnabled ? executionDetail.value : null;
+    if (!detail) return;
+    const labels = { DELIVERED: "전달 완료", NOT_DELIVERED: "미전달", EXCLUDED: "제외", NOT_RUN: "미실행" };
+    state.task.executionItems = detail.items.map(item => ({
+      id: item.id, name: itemLabelForId(item.id), statusLabel: labels[item.status],
+      excluded: item.status === "EXCLUDED", evidence: item.evidence,
+      resultLabel: `종료 기록 · ${(item.restoreIncomplete ? "복구 미완료" : item.errorCode) || (item.stepsAvailable ? "단계 기록 수신" : "단계 기록 미수신")}`,
+      steps: recordedSteps(item.steps),
+    }));
+    // 상세 조회의 초기 선택은 제공된 종료 목록 안에서만 정한다. 현재 실행 물품으로 해석하지 않는다.
+    if (!state.task.executionItems.some(item => item.id === executionDetail.selectedId)) {
+      executionDetail.selectedId = state.task.executionItems[0]?.id || null;
+    }
+    state.task.selectedExecutionItemId = executionDetail.selectedId;
+  }
+
+  async function syncExecutionDetail(data) {
+    // 후속 연결 전에는 실수로 호출되더라도 저장소 조회를 시작하지 않는다.
+    if (!executionDetailEnabled) return;
+    // 현재 상위/child run은 미제공이다. 기존 연결 판정이 성공한 최근 요청의 종료 기록만 조회한다.
+    const link = latestRunnerRecords.connection;
+    if (link.status !== runnerStatusModel.LINKED) {
+      detailGuard.setContext(null, null);
+      executionDetail.controller?.abort();
+      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null, attempts: 0 });
+      return;
+    }
+    const runId = link.value.runId;
+    const key = JSON.stringify([data.boot_id, runId, link.value.result.overallStatus, link.value.request.requestId]);
+    if (executionDetail.key !== key) {
+      executionDetail.controller?.abort();
+      Object.assign(executionDetail, { key, controller: null, value: null, selectedId: null, attempts: 0 });
+      detailGuard.setContext(null, null); // 같은 run의 재개 결과/요청 교체도 이전 상세 세대를 무효화한다.
+      detailGuard.setContext(data.boot_id, runId);
+    }
+    applyExecutionDetail();
+    // 종료 기록은 같은 key 동안 불변 스냅샷으로 재사용한다. 저장 지연/일시 오류만 최대 3회 시도한다.
+    if (executionDetail.value || executionDetail.controller || executionDetail.attempts >= 3) return;
+    executionDetail.attempts += 1;
+    const token = detailGuard.capture();
+    const controller = new AbortController();
+    executionDetail.controller = controller;
+    try {
+      const payload = await statusApi.loadExecutionDetail(token, data.seq, controller.signal);
+      // 취소를 무시한 전송도 현재 기동/run/세대와 다르면 표시하지 않는다.
+      if (!detailGuard.matches(token, payload.identity)) return;
+      executionDetail.value = payload.detail;
+      applyExecutionDetail();
+      renderTask();
+    } catch (error) {
+      if (controller.signal.aborted || !detailGuard.matches(token, token)) return;
+      // 저장소 단절·형식 오류 뒤 이전 상세 결과를 현재 수신값처럼 남기지 않는다.
+      executionDetail.value = null;
+      state.task.executionItems = [];
+      state.task.selectedExecutionItemId = null;
+      renderTask();
+    } finally {
+      if (executionDetail.controller === controller) executionDetail.controller = null;
+    }
   }
 
   function applyRobotConnectionSource(source, runtimeProfile, robotTopic) {
@@ -775,6 +878,8 @@
     renderSupplies();
     renderDrawerSelectors();
     renderInventory();
+    state.command = runnerStatusModel.commandView(latestRunnerRecords, itemLabelForId);
+    renderCommand();
     renderAdminOntology();
     renderAdminDataMeta();
   }
@@ -790,17 +895,17 @@
     // 상태 REST 성공 시에는 /robot_state 적용 여부와 정의 스냅샷 여부를 함께 설명한다.
     if (state.meta.mode === "partial-live") {
       if (!state.definitionsLive) {
-        state.meta.description = "Runner 상태는 실제 데이터이며 등록 정의는 확인 전입니다. 작업 진행은 목업입니다.";
+        state.meta.description = "Runner 상태는 실제 데이터이며 등록 정의는 확인 전입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다.";
         return;
       }
       state.meta.description = state.robotStateLive
-        ? "Runner 연결과 기억 상태는 실제 데이터이며 등록 정의는 웹 파일 스냅샷입니다. 작업 진행은 목업입니다."
-        : "Runner 연결은 실제 데이터이고 등록 정의는 웹 파일 스냅샷이며 /robot_state는 확인 전입니다. 작업 진행은 목업입니다.";
+        ? "Runner 연결과 기억 상태는 실제 데이터이며 등록 정의는 웹 파일 스냅샷입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다."
+        : "Runner 연결은 실제 데이터이고 등록 정의는 웹 파일 스냅샷이며 /robot_state는 확인 전입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다.";
       return;
     }
     // 상태 응답 전에도 정의만 먼저 도착했다면 현재 사용할 수 있는 범위를 정확히 표시한다.
     state.meta.description = state.definitionsLive
-      ? "등록 정의는 웹 파일 스냅샷이며 Runner 현재 상태는 확인 전입니다. 작업 진행은 목업입니다."
+      ? "등록 정의는 웹 파일 스냅샷이며 Runner 현재 상태는 확인 전입니다. 작업 순서·단계 상세는 미연결로 확인 전입니다."
       : "Runner 현재 상태와 등록 정의가 확인 전입니다.";
   }
 
@@ -895,8 +1000,19 @@
     const robotConnectionSource = payload.sources.robot;
     const cameraConnectionSource = payload.sources.camera;
     const voiceConnectionSource = payload.sources.voice;
-    // 정의 API가 나중에 도착해도 등록명을 다시 적용할 수 있도록 최신 source를 보관한다.
-    latestRobotStateSource = robotStateSource;
+    // 낮은 seq·이미 떠난 기동의 응답은 화면의 어떤 영역도 덮지 않는다.
+    const ordering = source.connection_state === "receiving" && source.message_valid === true
+      ? runnerStatusGuard.accept(source.data) : { status: "invalid" };
+    if (ordering.status === "stale") return;
+    if (ordering.restarted) {
+      setRunnerSummaryUnknown();
+      blockedRobotStateReceipt = robotStateSource.last_received_at;
+      latestRobotStateSource = null;
+    }
+    // 기동을 연결할 수 없는 기억값은 정의 API의 늦은 응답에서도 다시 살리지 않는다.
+    const memorySource = blockedRobotStateReceipt !== null
+      && robotStateSource.last_received_at === blockedRobotStateReceipt ? null : robotStateSource;
+    latestRobotStateSource = ordering.status === "valid" ? memorySource : null;
     const view = runnerConnectionView(source);
     const connection = getRunnerConnection();
     if (!connection) return;
@@ -917,8 +1033,14 @@
     });
     state.meta.mode = "partial-live";
     state.meta.label = "REST 연결됨 · 부분 실데이터";
-    const runnerSummaryApplied = applyRunnerSummary(source);
-    const robotStateApplied = applyRobotStateSource(robotStateSource);
+    const runnerSummaryApplied = applyRunnerSummary(ordering.status === "valid" ? source : null);
+    const robotStateApplied = applyRobotStateSource(latestRobotStateSource);
+    if (executionDetailEnabled && runnerSummaryApplied) void syncExecutionDetail(source.data);
+    if (ordering.status === "invalid") {
+      Object.assign(view, { status: "waiting", label: "Runner 확인 전" });
+      Object.assign(connection, { status: "waiting", statusLabel: "Runner 확인 전",
+        description: "수신 끊김 또는 기동·순서 형식 확인 필요" });
+    }
     // B의 관절 상태는 Runner 기억 상태와 별도 연결 진단으로 상단 로봇 배지에만 반영한다.
     applyRobotConnectionSource(robotConnectionSource, payload.runtime_profile, payload.robot_topic);
     // 카메라 최근 수신과 Voice publisher 존재를 각각의 상단 장치 배지에 반영한다.
@@ -932,8 +1054,8 @@
       : "등록 정의는 확인 전입니다.";
     // 현재 상태와 정의의 출처를 합치지 않고 각각의 범위를 문장으로 알린다.
     state.meta.description = robotStateApplied
-      ? `Runner 연결과 기억 상태는 실제 데이터입니다. ${definitionText} 작업 진행은 목업입니다.`
-      : `Runner 연결은 실제 데이터이며 /robot_state 표시는 확인 전입니다. ${definitionText} 작업 진행은 목업입니다.`;
+      ? `Runner 연결과 기억 상태는 실제 데이터입니다. ${definitionText} 작업 순서·단계 상세는 미연결로 확인 전입니다.`
+      : `Runner 연결은 실제 데이터이며 /robot_state 표시는 확인 전입니다. ${definitionText} 작업 순서·단계 상세는 미연결로 확인 전입니다.`;
 
     updateAdminRunnerRow(view, source, "/runner/status · Flask REST");
     state.adminReview.current.liveConnected = runnerSummaryApplied && robotStateApplied;
@@ -948,6 +1070,8 @@
     // 바뀐 부분만 다시 그려 사용자가 연 펼침·선택 상태를 불필요하게 초기화하지 않는다.
     renderMockNotice();
     renderConnections();
+    renderCommand();
+    renderTask();
     renderDrawerSelectors();
     renderInventory();
     renderAdminSummary();
@@ -962,7 +1086,7 @@
     const lastSuccess = formatReceivedTime(lastSuccessAt);
     Object.assign(connection, {
       status: "error",
-      statusLabel: "REST 연결 오류",
+      statusLabel: "수신 끊김 · REST 연결 오류",
       description: `현재 상태를 사용하지 않습니다. REST 마지막 성공 ${lastSuccess}`,
     });
     // REST 단절 뒤 이전 JointState 수신값이 계속 정상처럼 보이지 않도록 로봇 배지도 전환한다.
@@ -970,7 +1094,7 @@
     if (robotConnection) {
       Object.assign(robotConnection, {
         status: "error",
-        statusLabel: "REST 연결 오류",
+        statusLabel: "수신 끊김 · REST 연결 오류",
         description: `현재 로봇 관절 상태를 사용할 수 없습니다. REST 마지막 성공 ${lastSuccess}`,
       });
     }
@@ -979,7 +1103,7 @@
       if (!deviceConnection) continue;
       Object.assign(deviceConnection, {
         status: "error",
-        statusLabel: "REST 연결 오류",
+        statusLabel: "수신 끊김 · REST 연결 오류",
         description: `현재 장치 상태를 사용할 수 없습니다. REST 마지막 성공 ${lastSuccess}`,
       });
     }
@@ -990,6 +1114,7 @@
       ? "Runner 현재 상태를 조회할 수 없습니다. 등록 정의 파일 스냅샷만 표시합니다."
       : "Runner 현재 상태와 등록 정의를 확인할 수 없습니다.";
 
+    latestRobotStateSource = null; // 늦은 정의 응답이 단절 전 기억값을 복원하지 못하게 한다.
     setRobotStateUnknown(null, "Flask REST 미수신");
     setRunnerSummaryUnknown();
     state.adminReview.current.liveConnected = false;
@@ -1011,6 +1136,8 @@
 
     renderMockNotice();
     renderConnections();
+    renderCommand();
+    renderTask();
     renderDrawerSelectors();
     renderInventory();
     renderAdminSummary();
@@ -1060,6 +1187,9 @@
       makeStatus(state.command.receipt.status, state.command.receipt.label),
     );
 
+    getById("receiptStatus").replaceChildren(
+      makeStatus(state.command.receipt.status, state.command.receipt.label),
+    );
     const confirmationRow = getById("mobileConfirmationRow");
     confirmationRow.hidden = !state.command.confirmation;
     getById("mobileConfirmationText").textContent = state.command.confirmation || "";
@@ -1169,26 +1299,32 @@
   }
 
   function getSelectedExecutionItem() {
+    // 선택은 조회 상세에만 적용하며 실제 실행 항목을 변경하지 않는다.
     const items = state.task.executionItems || [];
     return items.find((item) => item.id === state.task.selectedExecutionItemId) || null;
   }
 
   function renderTaskItems() {
+    // 제공된 실행 항목만 가변 버튼으로 그린다. 등록 목록으로 순서를 만들지 않는다.
     const container = getById("taskItemOrder");
     const selected = getSelectedExecutionItem();
     container.replaceChildren();
-    (state.task.executionItems || []).forEach((entry, index) => {
+    // 제외 항목은 자리를 차지해도 실행 순번에는 포함하지 않는다.
+    let executionNumber = 0;
+    (state.task.executionItems || []).forEach((entry) => {
+      if (!entry.excluded) executionNumber += 1;
       const button = makeElement("button", "task-item-button");
       button.type = "button";
       button.setAttribute("aria-pressed", String(entry.id === selected?.id));
       button.append(
-        makeElement("span", "", `${index + 1}. ${entry.name} · ${entry.statusLabel}`),
+        makeElement("span", "", `${entry.excluded ? "제외" : `${executionNumber}.`} ${entry.name} · ${entry.statusLabel}`),
         makeElement("small", "", entry.resultLabel),
       );
       button.addEventListener("click", () => {
         // 조회 선택은 현재 실행 물품·작업 위치·상단 제목을 바꾸지 않는다.
         state.task.selectedExecutionItemId = entry.id;
-        // 선택 시 숨겨진 상세를 펼치고 기존 버튼·제목 DOM과 포커스를 보존한다.
+        if (executionDetail.value) executionDetail.selectedId = entry.id;
+        // 선택은 상세만 펼치고 갱신한다. 버튼·현재 실행 제목 DOM과 포커스를 보존한다.
         state.task.detailsExpanded = true;
         updateTaskSelection();
         renderTaskDetails();
@@ -1199,21 +1335,27 @@
   }
 
   function updateTaskSelection() {
-    // 버튼을 다시 만들지 않고 선택 접근성 속성과 안내만 갱신한다.
+    // 기존 버튼의 접근성 상태와 선택 안내만 바꾼다. 실데이터/예시 모두 같은 경로다.
     const selected = getSelectedExecutionItem();
     [...getById("taskItemOrder").children].forEach((button, index) => {
       button.setAttribute("aria-pressed", String(state.task.executionItems[index].id === selected?.id));
     });
     getById("taskItemSelection").textContent = selected
       ? `선택 물품: ${selected.name} · 아래 단계와 근거는 선택한 물품 기준`
-      : "표시할 실행 물품 없음 · 예시";
+      : window.ROKEY_DEMO_SCENARIO === "default"
+        ? "물품별 진행 정보 미연결" : "표시할 실행 물품 없음 · 예시";
+    getById("taskItemsNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
+      ? "물품별 진행 정보 미연결 · 시연은 현재 상태·단계만 표시" : "화면 검토용 예시 · 실제 실행 순서 아님";
+    getById("taskDataNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
+      ? "/runner/status 현재 상태 · 단계 이력·전달 결과 미연결" : "목업 데이터 · 실제 실행 결과 아님";
   }
 
   function renderTask() {
     renderTaskItems();
-
     const workDrawer = getWorkDrawer();
-    const location = workDrawer ? workDrawer.label : "확인 전";
+    // 조회 서랍/기억 위치를 실제 작업 장소로 대체하지 않는다. 목적지도 별도 제공 전까지 미확정이다.
+    const location = window.ROKEY_DEMO_SCENARIO === "default"
+      ? "작업 장소 확인 전 → 목적지 확인 전" : workDrawer ? workDrawer.label : "확인 전";
     getById("taskLocation").textContent = location;
     getById("mobileTaskLocation").textContent = location;
     getById("currentAction").textContent = state.task.currentAction;
@@ -1230,18 +1372,30 @@
       icon: state.task.currentItemIcon,
     });
     currentItemReplacement.id = "currentItemVisual";
+    currentItemReplacement.hidden = !state.task.currentItemId;
     currentItem.replaceWith(currentItemReplacement);
-
-    getById("receiptStatus").replaceChildren(
-      makeStatus(state.command.receipt.status, state.command.receipt.label),
-    );
 
     renderTaskDetails();
   }
 
   function renderTaskDetails() {
-    // 접힘·선택 단계·근거만 갱신한다. 현재 실행 제목/위치와 조회 서랍은 건드리지 않는다.
-    const selectedSteps = getSelectedExecutionItem()?.steps || [];
+    // 선택/펼침에 필요한 단계·근거만 갱신하고 현재 제목·위치·버튼을 다시 만들지 않는다.
+    // 실데이터는 확인된 현재 단계만, 미리보기는 선택 물품의 예시 이력을 그린다.
+    const detail = executionDetailEnabled ? executionDetail.value : null;
+    const selectedItem = window.ROKEY_DEMO_SCENARIO !== "default" || executionDetailEnabled
+      ? getSelectedExecutionItem() : null;
+    const selectedSteps = selectedItem?.steps || (detail
+      ? [...recordedSteps(detail.steps), ...detail.segments.flatMap(segment =>
+        recordedSteps(segment.steps).map(step => ({ ...step, label: `${segment.runId} · ${step.label}` })))] : state.task.steps) || [];
+    // 종료 기록임을 명시해 현재 작업의 실제 진행 이력으로 오해하지 않게 한다.
+    if (detail) {
+      getById("taskItemsNotice").textContent = `최근 요청 종료 기록 · ${detail.runId}`;
+      getById("taskDataNotice").textContent = "종료 기록 조회 · 현재 실행 상세 아님";
+    }
+    const delivery = detail?.delivery;
+    getById("taskDeliveryCount").textContent = delivery
+      ? `${delivery.completed} / ${delivery.total} 전달 완료 · 종료 기록 기준` : "물품별 전달 결과 확인 전";
+
     const details = getById("taskDetails");
     const toggle = getById("taskDetailsToggle");
     details.hidden = !state.task.detailsExpanded;
@@ -1275,7 +1429,9 @@
     });
 
     const evidenceStep = getCurrentTaskStep(selectedSteps);
-    getById("currentStepReason").textContent = evidenceStep?.reason || "확인 전";
+    const evidence = selectedItem?.evidence;
+    getById("currentStepReason").textContent = evidence
+      ? `semantic.evidence: ${JSON.stringify(evidence)}` : evidenceStep?.reason || "확인 전";
     getById("currentStepObservation").textContent = evidenceStep?.observation || "미수신";
 
   }
@@ -1473,10 +1629,10 @@
     renderMockNotice();
     renderConnections();
     renderCommand();
+    renderTask();
     renderDrawerSelectors();
     renderInventory();
     renderSupplies();
-    renderTask();
     renderRecentCapture();
   }
 

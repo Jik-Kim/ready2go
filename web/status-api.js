@@ -147,6 +147,62 @@
     return validateDefinitionsPayload(await response.json());
   }
 
+  async function loadExecutionDetail(identity, seq, signal) {
+    // 현재 요청의 종료 run만 조회한다. 응답 identity와 기록 구조를 검증한 뒤 화면으로 전달한다.
+    const query = new URLSearchParams({ boot_id: identity.bootId, seq: String(seq) });
+    const response = await fetch(`/api/execution-detail/${encodeURIComponent(identity.runId)}?${query}`,
+      { cache: "no-store", signal, headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`실행 상세 확인 전 (HTTP ${response.status})`);
+    const payload = await response.json();
+    const detail = payload?.detail;
+    const validSteps = (steps) => Array.isArray(steps) && steps.every(step => step
+      && typeof step.id === "string" && Number.isSafeInteger(step.seq) && step.seq >= 0
+      && ["SUCCESS", "FAILURE", "SKIPPED"].includes(step.status));
+    if (payload.status !== "ok" || payload.identity?.bootId !== identity.bootId
+      || payload.identity?.runId !== identity.runId || detail?.runId !== identity.runId
+      || detail.kind !== "finished_record" || typeof detail.taskId !== "string"
+      || typeof detail.endedAt !== "string" || !["COMPLETED", "FAILED", "ABORTED", "SUSPENDED"].includes(detail.overallStatus)
+      || !validSteps(detail.steps)
+      || !Array.isArray(detail.items) || !detail.items.every(item => item && typeof item.id === "string"
+        && ["DELIVERED", "NOT_DELIVERED", "EXCLUDED", "NOT_RUN"].includes(item.status) && validSteps(item.steps))
+      || !Array.isArray(detail.segments) || !detail.segments.every(segment => validSteps(segment.steps))) {
+      throw new Error("실행 상세 형식 확인 전");
+    }
+    // 전달 집계도 명시된 물품 결과와 일치해야 한다. 단계 SUCCESS로 숫자를 보충하지 않는다.
+    const delivery = detail.delivery;
+    if (new Set(detail.items.map(item => item.id)).size !== detail.items.length
+      || (detail.items.length ? !delivery
+        || delivery.completed !== detail.items.filter(item => item.status === "DELIVERED").length
+        || delivery.total !== detail.items.filter(item => item.status !== "EXCLUDED").length : delivery !== null)) {
+      throw new Error("실행 상세 집계 형식 확인 전");
+    }
+    return payload;
+  }
+
+  function createDetailGuard() {
+    // 요청에 연결된 종료 run만 context로 사용한다. 실시간 현재 run을 accepted에서 추정하지 않는다.
+    let context = null;
+    let generation = 0;
+    return {
+      setContext(bootId, runId) {
+        const next = typeof bootId === "string" && bootId.trim()
+          && typeof runId === "string" && runId.trim() ? { bootId, runId } : null;
+        if (!next || next.bootId !== context?.bootId || next.runId !== context?.runId) generation += 1;
+        context = next;
+      },
+      capture() {
+        // 요청 시점의 불변 토큰은 run 변경·단절 후 재연결에도 재사용할 수 없다.
+        return context ? Object.freeze({ ...context, generation }) : null;
+      },
+      matches(token, responseIdentity) {
+        // 응답의 기동·run도 별도로 대조한다. 내용 스키마 검증은 상세 API 계약 확정 뒤 추가한다.
+        return Boolean(context && token && responseIdentity && token.generation === generation
+          && token.bootId === context.bootId && token.runId === context.runId
+          && responseIdentity.bootId === context.bootId && responseIdentity.runId === context.runId);
+      },
+    };
+  }
+
   function createPoller(options) {
     // 응답 완료 뒤 다음 조회를 예약해 중첩 요청 없이 상태를 반복 수신한다.
     // 시험과 브라우저 실행이 fetch·시계·timer를 각각 주입할 수 있게 의존성을 받는다.
@@ -161,6 +217,8 @@
     let started = false;
     let timerId = null;
     let lastSuccessAt = null;
+    // stop 뒤 늦은 fetch 완료가 화면을 다시 살리지 않도록 전송도 취소한다.
+    const controller = new AbortController();
 
     async function pollOnce() {
       // 한 번 조회하고 성공·실패 표시 후 다음 호출을 예약한다.
@@ -168,6 +226,7 @@
       try {
         // HTTP 캐시를 사용하지 않고 서버의 현재 StateCache 스냅샷을 요청한다.
         const response = await fetchStatus(STATUS_API_PATH, {
+          signal: controller.signal,
           cache: "no-store",
           headers: { Accept: "application/json" },
         });
@@ -175,12 +234,13 @@
         if (!response.ok) throw new Error(`상태 API HTTP ${response.status}`);
 
         const payload = validatePayload(await response.json());
+        if (stopped) return; // JSON 파싱 중 stop된 응답도 폐기한다.
         lastSuccessAt = now().toISOString();
         nextDelay = normalizedPollInterval(payload.poll_interval_ms);
         onSuccess(payload, lastSuccessAt);
       } catch (error) {
         // 마지막 성공 시각은 보존하되 오류 뒤 이전 상태를 정상으로 표시하지 않게 알린다.
-        onFailure(error, lastSuccessAt);
+        if (!stopped) onFailure(error, lastSuccessAt);
       } finally {
         // setInterval 대신 완료 후 예약해 느린 요청이 서로 겹치지 않게 한다.
         if (!stopped) timerId = schedule(pollOnce, nextDelay);
@@ -198,6 +258,7 @@
       stop() {
         // 페이지 종료 시 예약된 다음 조회를 취소한다.
         stopped = true;
+        controller.abort();
         if (timerId !== null) cancelSchedule(timerId);
         timerId = null;
       },
@@ -207,6 +268,8 @@
   // app.js는 이 한 객체만 사용하므로 REST 세부 구현을 렌더링 코드와 분리한다.
   window.ROKEY_STATUS_API = {
     createPoller,
+    createDetailGuard,
+    loadExecutionDetail,
     loadDefinitions,
   };
 })();

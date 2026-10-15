@@ -1,6 +1,6 @@
 # Ready2Go 웹 대시보드
 
-> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 현재 작업 진행과 실행 결과는 계속 목업이며 등록 정의와 구분합니다.
+> [문서] 화면은 이슈 [#112](https://github.com/Jik-Kim/ready2go/issues/112)의 PC·휴대폰 검토 목업을 기반으로 합니다. 이슈 [#267](https://github.com/Jik-Kim/ready2go/issues/267)의 1~5단계인 Flask 정적 제공, `/runner/status`·`/robot_state` 수신·잠금 캐시, 상태 REST와 약 1초 조회, 등록 온톨로지·태스크·스킬 정의의 읽기 전용 파일 스냅샷 연결을 구현했습니다. 기본 화면은 확인 전으로 시작하며 최근 요청의 해석·접수 결정과 같은 실행으로 연결된 결과를 표시합니다. 현재 작업은 Runner의 phase·task_id·current_step만 표시합니다. 저장소를 설정하면 최근 요청에 연결된 종료 기록의 물품 순서·단계·전달 결과를 별도로 표시합니다. 실행 중 전체 순서·현재 child 연결·작업 장소·목적지는 확인 전입니다.
 
 기능의 의미·Phase·수용 기준은 정본인 [FR-COM-01](../docs/requirements.md#fr-com-01), [FR-INT-02](../docs/requirements.md#fr-int-02), [FR-ONT-02](../docs/requirements.md#fr-ont-02), [FR-PLN-02](../docs/requirements.md#fr-pln-02), [FR-LOG-01–02](../docs/requirements.md#fr-log-01), [NFR-SAF-02](../docs/requirements.md#nfr-saf-02)를 참조합니다. 이 문서는 요구사항을 재정의하지 않습니다.
 
@@ -21,9 +21,9 @@
 | `assets/items/*.svg` | 물품 식별용 그림 10종. `app.js`의 ID 매핑과 Flask allowlist로 제공 | 물품 등록·실제 위치·전달 성공을 판정하지 않습니다. |
 | `index.html` | 사용자 대시보드·읽기 전용 검토 화면의 HTML 구조와 CSS·JavaScript 진입점 | 화면 구조는 유지하고 `demo-data.js` 로딩을 데이터 어댑터 진입점으로 교체합니다. |
 | `styles.css` | 흰색·남색·청록색 디자인, PC·모바일 배치, 서랍 모양, PC 가로·모바일 세로 단계 | 데이터 연결과 무관합니다. 상태 종류가 추가될 때 표시 스타일만 보완합니다. |
-| `demo-data.js` | PC·모바일이 함께 읽는 목업 데이터와 `long`·`empty`·`error` 시나리오 | 우선 교체 대상입니다. 서버 응답을 같은 화면 모델로 변환하는 어댑터가 이 역할을 맡습니다. |
+| `demo-data.js` | PC·모바일 공통 확인 전 초기값과 명시적 `preview`·`long`·`empty`·`error` 예시 | 일반 접속·알 수 없는 시나리오는 예시 실행을 사용하지 않습니다. |
 | `status-api.js` | `/api/status`를 중첩 없이 약 1초마다 조회하고 `/api/definitions`를 시작 때 한 번 읽으며 `vision_overlay` 메타데이터를 검증 | Runner 연결·기억 상태, 최신 촬영 메타데이터와 웹 파일 정의 스냅샷을 서로 다른 시점의 데이터로 전달합니다. |
-| `runner-status-model.js` | `/runner/status.last_intent`와 `last`를 화면 표시 전 `valid`·`absent`·`invalid` 내부 모델로 검증·복사하고 실행 연결을 판정 | `decision=run`이고 두 `run_id`가 같을 때만 `linked`로 묶으며 실제 요청·결과 화면 표시는 후속 단계에서 구현합니다. |
+| `runner-status-model.js` | `/runner/status.last_intent`와 `last`를 화면 표시 전 `valid`·`absent`·`invalid` 내부 모델로 검증·복사하고 실행 연결을 판정 | `decision=run`이고 비어 있지 않은 `run_id`·`task_id`가 모두 같을 때만 `linked`로 묶고 `commandView()`가 명령 표시 모델로 변환합니다. |
 | `app.js` | 상태 렌더링, 서랍 조회, 최근 촬영 revision별 JPEG 표시, 상세·대화상자·검토 탭 전환과 포커스 복귀 | 렌더링은 재사용하고 데이터 수신 뒤 `renderAll()` 또는 필요한 렌더 함수를 호출합니다. ROS 2나 DB에 직접 연결하지 않습니다. |
 | `README.md` | 현재 구현, 실행·접속·시나리오, 실제 연동 경계를 설명 | 연결 경로가 구현된 뒤 실제 실행법과 검증 결과를 갱신합니다. |
 | `ready2go_web/server.py` | 기존 정적 파일을 allowlist로 제공하고 ROS 공유 캐시의 상태와 최신 촬영 JPEG를 REST로 반환 | `GET /api/status`의 `vision_overlay`는 JPEG를 제외한 메타데이터이며 사진은 `GET /api/vision/overlay.jpg?cache_id=C&revision=N`으로 조회합니다. 현재 캐시 ID나 revision과 다르면 409를 반환합니다. |
@@ -35,7 +35,7 @@
 ```text
 index.html
  ├─ styles.css      화면 모양과 반응형 배치
- ├─ demo-data.js    목업 전용 원본 상태
+ ├─ demo-data.js    확인 전 초기값·명시적 미리보기 예시
  ├─ status-api.js   REST 상태 조회와 재시도
  ├─ runner-status-model.js  Runner 요청·결과 형식 검증
  └─ app.js          같은 상태를 PC·모바일 요소에 표시
@@ -46,15 +46,15 @@ index.html
 
 [문서] 관리자 요약 3종·상태 항목 5종은 `adminIconPaths`의 고정 path로 생성하는 인라인 SVG이며 물품 이미지 파일과 구분합니다. 총 18종 중 현재 작업 제목은 기존 태스크 아이콘, 현재 물품은 기존 지우개 그림을 재사용합니다.
 
-[문서] 목업 요청·준비물·작업 진행은 차 키·지우개·시계 시나리오로 맞추며, `empty`·`error`는 빈 목록·오류 표시를 확인하는 별도 시나리오입니다. 기본 화면의 준비물은 정의 API 수신 후 실제 `commute_set`으로 교체되므로 목업 작업의 실행 대상이나 결과를 나타내지 않습니다. 서버 시작 시 읽는 실제 정의 파일은 이 목업 변경의 대상이 아닙니다.
+[문서] 목업 요청·준비물·작업 진행은 차 키·지우개·시계 시나리오로 맞추며, `empty`·`error`는 빈 목록·오류 표시를 확인하는 별도 시나리오입니다. 기본 화면의 준비물은 정의 API 수신 후 실제 `commute_set`으로 교체되므로 현재 작업의 실행 대상이나 결과를 나타내지 않습니다. 서버 시작 시 읽는 실제 정의 파일은 이 목업 변경의 대상이 아닙니다.
 
 `app.js`는 `window.ROKEY_DEMO_DATA` 한 객체를 읽으므로 PC와 휴대폰이 서로 다른 샘플 상태를 만들지 않습니다. 선택한 조회 서랍인 `selectedDrawerId`와 실제 작업 위치인 `task.workDrawerId`도 별도로 유지합니다.
 
-## 3. 현재 정적 목업
+## 3. 화면 데이터와 미리보기
 
 ### 표시 데이터
 
-| 화면 | 목업 데이터 경로 |
+| 화면 | 화면 모델 경로 |
 |---|---|
 | 목업 안내 | `meta.label`, `meta.description` |
 | 연결 상태 | `connections[].status`, `statusLabel`, `description` |
@@ -78,7 +78,7 @@ index.html
 4. 온톨로지 원본 읽기
 5. PC·휴대폰의 동일 상태 표시
 
-[문서] 1단계 정적 UI, 2단계 `/runner/status` 수신·캐시, 3단계 상태 REST·약 1초 조회, 4단계 `/robot_state` 수신·화면 반영, 5단계 등록 온톨로지·태스크·스킬 정의 로딩이 구현됐습니다. 현재 화면에는 Runner 연결·기억 상태와 웹이 시작할 때 읽은 정의 파일 스냅샷이 각각의 출처로 나타납니다. MongoDB/JSONL 실행 기록, 작업 중단·재개·초기화, 실시간 계획 근거, STT 원문과 확정되지 않은 음성·로봇 연결 판정은 제외합니다.
+[문서] 1단계 정적 UI, 2단계 `/runner/status` 수신·캐시, 3단계 상태 REST·약 1초 조회, 4단계 `/robot_state` 수신·화면 반영, 5단계 등록 온톨로지·태스크·스킬 정의 로딩이 구현됐습니다. 현재 화면에는 Runner 연결·기억 상태와 웹이 시작할 때 읽은 정의 파일 스냅샷이 각각의 출처로 나타납니다. 전체 MongoDB/JSONL 실행 기록 검색, 작업 중단·재개·초기화, 실시간 계획 근거, STT 원문과 확정되지 않은 음성·로봇 연결 판정은 제외합니다.
 
 ### 표시를 바꾼 이유
 
@@ -111,7 +111,7 @@ tasks/*.json ──────────────────────�
 
 1. Flask가 공유 `StateCache`의 스냅샷을 읽기 전용 REST로 반환합니다.
 2. 기본 화면은 약 1초마다 API를 조회하고 Runner 연결과 기억 상태를 변환합니다.
-3. `long`·`empty`·`error` 시나리오 URL은 고정 목업 검토를 위해 polling하지 않습니다.
+3. `preview`·`long`·`empty`·`error` 시나리오 URL은 고정 목업 검토를 위해 polling하지 않습니다.
 4. `/api/definitions`는 페이지 시작 때 한 번만 읽고 상태 polling에 섞지 않습니다.
 5. 정의 파일 변경은 현재 Runner나 이미 실행 중인 웹에 자동 적용되지 않으며, 두 프로세스를 각각 재기동해야 새 스냅샷을 읽습니다.
 
@@ -124,7 +124,7 @@ tasks/*.json ──────────────────────�
 - `phase`는 `idle`·`running`·`halted`이며 화면에는 각각 `대기`·`실행 중`·`정지(잠김)`으로 표시합니다. 계약에 없는 값은 `확인 전`으로 표시합니다. `task_id`와 `current_step`은 실행 중에만 있으며, `halt_code`는 잠금 상태에서만 있습니다. `current_step`은 확장 또는 fallback 단계 ID일 수 있고 `achieve_goal`의 `plan_*`은 태스크 파일에 없으므로 화면은 원본 ID를 그대로 표시합니다.
 - 현재 실행과 최근 요청을 직접 연결하는 최상위 `run_id`는 없습니다. 따라서 실행 중인 `task_id`와 `current_step`을 최근 요청·결과라고 단정하지 않습니다. 아래의 `last_intent`와 `last` 사이 결합은 두 레코드가 제공하는 ID만 검사하는 별도 판정입니다.
 - 화면 연결에 앞서 `last_intent`의 `intent`·`targets`·`decision`·`reason`·`task_id`·`request_id`·`run_id`와 `last`의 `task_id`·`run_id`·`overall_status`·`error_code`·`failed_step`을 독립적으로 검사합니다. `null`은 아직 기록이 없는 상태로, 키 누락·잘못된 자료형은 형식 오류로 구분하며 형식 오류의 정상 필드 일부를 화면에 재사용하지 않습니다. 이 파싱은 두 레코드를 같은 실행으로 연결하거나 결과 문구를 정하는 동작이 아닙니다.
-- 파싱 뒤에는 `last_intent.decision=run`이고 요청·결과의 비어 있지 않은 `run_id`와 `task_id`가 모두 같을 때만 `linked` 결합 모델을 만듭니다. 결과 상태는 Runner의 `COMPLETED`·`FAILED`·`ABORTED`·`SUSPENDED`만 허용합니다. 다른 ID, 수락 요청의 ID 누락, 계약 밖 결과 상태, `hold`·`reject`·`cancel`·`status` 같은 비실행 결정, 한쪽 기록 없음과 형식 오류는 연결하지 않고 각각의 이유 코드를 보존합니다. 이 판정은 내부 모델까지이며 메인 화면에는 아직 요청·결과를 표시하지 않습니다.
+- 파싱 뒤에는 `last_intent.decision=run`이고 요청·결과의 비어 있지 않은 `run_id`와 `task_id`가 모두 같을 때만 `linked` 결합 모델을 만듭니다. 결과 상태는 Runner의 `COMPLETED`·`FAILED`·`ABORTED`·`SUSPENDED`만 허용합니다. 다른 ID, 수락 요청의 ID 누락, 계약 밖 결과 상태, `hold`·`reject`·`cancel`·`status` 같은 비실행 결정, 한쪽 기록 없음과 형식 오류는 연결하지 않고 각각의 이유 코드를 보존합니다. 메인 화면과 모바일 명령 상세는 이 판정의 `commandView()`를 함께 사용합니다. `recover`·`resume`·`end`·`registered`·`closed`도 접수 결정으로 구분하되 실행 성공으로 해석하지 않습니다. 인텐트와 사유는 각각 `인텐트:`·`사유 코드:`로 원본임을 표시합니다. 미지의 결정은 접수 상태 확인 전으로 남깁니다.
 - `/robot_state`의 현재 필드는 `robot_pose`, `gripper`, `open`, `located_in`입니다. 좌표는 없으며 모두 스킬 effect 뒤 Runner가 기억한 상태입니다. 현재 관측값이나 관측 시각으로 해석하지 않습니다.
 - 4단계 UI에서 `/robot_state` 값이 없거나 예상한 형식과 다르면 목업 데이터로 대체하지 않고 모두 `확인 전`으로 표시합니다. `상태 데이터 없음`은 별도 표시 문구로 사용하지 않습니다.
 - 서랍은 문자열 ID 순서가 아니라 `drawer_top`·`drawer_bottom`의 물리 순서로 표시합니다. 관리자 현재 상태 탭은 `task_id`·`current_step`·`phase`와 Runner 기억 상태를 실데이터로 표시하며, 별도 `run_id`가 없으므로 목업 실행 ID를 사용하지 않습니다.
@@ -139,7 +139,7 @@ tasks/*.json ──────────────────────�
 - **현재 상태**: Runner 연결 진단과 기억 상태는 `/runner/status`·`/robot_state`·REST의 실제 값입니다. `/robot_state`는 관측값이 아니며 값 누락·형식 불일치는 `확인 전`으로 표시합니다.
 - **온톨로지**: 서버가 공통 `ontology.load`로 읽은 등록 물품·장소·목록·스킬과 `tasks/*.json` 태스크를 표시합니다. 원본 경로·웹 로딩 시각·manifest SHA를 함께 보여 주며 Runner 내부 현재 상태나 hot reload를 뜻하지 않습니다.
 - **계획 근거**: 후속 연결 예정이며 현재 제공 경로가 확정되지 않았다는 안내만 표시합니다.
-- **실행 기록**: 후속 연결 예정이며 실제 MongoDB/JSONL 조회가 연결되지 않았다는 안내만 표시합니다.
+- **실행 기록**: 후속 연결 예정이며 관리자 탭의 전체 기록 검색은 미연결입니다. 최근 요청의 종료 상세 단건 조회 구현은 보존하지만 이번 시연 화면에서는 호출·표시하지 않습니다.
 
 실제 운영 전에 서버 인증과 접근 제어를 반드시 연결해야 합니다. 일반 사용자 로그인은 고려 단계이며 이 목업의 구현 범위가 아닙니다.
 
@@ -170,7 +170,7 @@ WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 
 의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../README.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 루트 README의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
 
-이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info`·`/vision/inspect_overlay` 구독과 `/voice/intent` publisher 관찰, 상태·정의·최근 촬영 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://127.0.0.1:4173/`로 접속하고 다음 명령으로 REST 기동도 확인합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 현재 작업 진행·요청 결과는 목업이며 상태·정의와 구분됩니다.
+이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info`·`/vision/inspect_overlay` 구독과 `/voice/intent` publisher 관찰, 상태·정의·최근 촬영 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://127.0.0.1:4173/`로 접속하고 다음 명령으로 REST 기동도 확인합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 최근 요청과 연결된 실행 결과를 표시하며, 현재 작업은 수신한 실행 상태·현재 단계만 표시하고 물품별 전달 결과는 확인 전입니다.
 
 ```bash
 curl -sS http://127.0.0.1:4173/api/status | python3 -m json.tool
@@ -434,20 +434,30 @@ ros2 topic info /voice/intent --verbose
 
 [실측] 2026-10-14 `last_intent`·`last` 내부 파서를 실제 headless Chrome에서 실행해 정상·미존재·필드 누락·자료형 오류와 입력 불변을 확인하고, 저장소의 Runner 상태 계약 예시 전체가 같은 파서를 통과하는지 검사했습니다. ROS 2·CycloneDDS를 포함한 로컬 웹 전체 시험은 `96 passed`입니다. 이 결과는 요청과 결과의 `run_id` 연결 또는 메인 작업 화면 전환 완료를 뜻하지 않습니다.
 
-[실측] 같은 날 요청·결과 연결 판정을 추가한 뒤 실제 headless Chrome에서 동일 `run_id` 연결과 다른 ID·ID 누락·`hold`·`reject`·결과 미존재의 분리를 확인했습니다. ROS 2·CycloneDDS를 포함한 로컬 웹 전체 시험은 `97 passed`입니다. 메인 작업 화면의 요청·결과 표시는 아직 목업입니다.
+[실측] 같은 날 요청·결과 연결 판정을 추가한 뒤 실제 headless Chrome에서 동일 `run_id` 연결과 다른 ID·ID 누락·`hold`·`reject`·결과 미존재의 분리를 확인했습니다. ROS 2·CycloneDDS를 포함한 로컬 웹 전체 시험은 `97 passed`입니다. 이는 당시 내부 모델 검증 결과이며, 이후 추가된 명령 화면 연결의 검증 결과와 구분합니다.
 
 [실측] 같은 날 B 회신 반영 뒤 로컬 CycloneDDS 웹 시험 `89 passed`와 계약 검사 `OK`를 확인했습니다. dev 프로필에서 JointState 발행 전 `확인 전(시뮬레이션)`, 발행 뒤 `관절 상태 수신` 배지가 표시됐습니다. PC2 실물의 실제 QoS·100 Hz 주기와 제어기 LAN 분리 동작은 담당 실측 회신 뒤 확인합니다.
+
+### 기동·응답 순서와 현재 작업 표시
+
+[문서] `boot_id`·안전한 정수 `seq`가 없는 상태는 확인 전으로 표시합니다. 같은 기동의 낮은 seq와 이미 떠난 기동의 응답은 폐기하며, 같은 seq의 동일 상태는 반복 REST 조회로 허용합니다. 같은 seq인데 내용이 다르면 형식 불일치로 처리합니다. 단절 시 표시값은 지우되 순서 경계는 보존합니다. REST 종료 후 늦은 응답은 반영하지 않습니다.
+
+[문서] 기동 변경 시 이전 명령·작업·선택 상세를 비웁니다. `/robot_state`는 기동 ID가 없으므로 재기동 당시의 캐시는 확인 전이며 이후 새 수신값만 Runner 기억 상태로 표시합니다. 이 별도 토픽의 새 수신만으로 현재 관측 또는 동일 기동 소속을 증명하지는 않습니다. 실제 작업 위치에는 사용하지 않습니다.
+
+[문서] 현재 작업의 제목과 단일 현재 단계는 `/runner/status`에서만 가져오며, 조회 서랍·선택 물품이나 최근 요청의 targets에서 만들지 않습니다. 앞 단계의 성공·전달 완료를 추정하지 않습니다. 상세 조회는 최근 요청과 연결된 종료 run에만 허용하고 기동/run/세대 토큰을 실제 응답 반영 경로에서 검사합니다. 현재 상위/child run 식별과 진행 중 순서·결과 갱신은 아직 연결하지 않았습니다.
 
 ## 7. URL 데모 시나리오
 
 ```text
+http://localhost:4173/
 http://localhost:4173/?scenario=preview
 http://localhost:4173/?scenario=long
 http://localhost:4173/?scenario=empty
 http://localhost:4173/?scenario=error
 ```
 
-- `preview`: 기본 예시 실행 순서와 물품 선택을 확인합니다. 실제 실행 결과가 아닙니다. 일반/미정의 시나리오에서는 예시 작업을 표시하지 않습니다.
+- 기본 URL·알 수 없는 시나리오: 확인 전으로 시작하고 실제 상태 API를 조회합니다. API 실패 시 예시 성공 상태로 대체하지 않습니다.
+- `preview`: 물품 선택·단계·결과를 확인하는 명시적 예시 데이터입니다. 실제 실행 결과가 아닙니다.
 - `long`: 긴 등록명·작업 문장의 줄바꿈을 확인합니다.
 - `empty`: 빈 등록 물품과 빈 준비물 레이아웃을 확인합니다.
 - `error`: `목업 오류 시나리오` 안내 아래 연결 확인 전, 상태 수신 실패, 오류, 데이터 없음을 확인합니다. 실제 장치 오류가 아닙니다.
@@ -457,3 +467,28 @@ http://localhost:4173/?scenario=error
 ## 8. Git과 PR
 
 공통 Git·PR 정책은 저장소 루트의 [`AGENTS.md`](../AGENTS.md)를 따릅니다.
+
+
+### 읽기 전용 종료 기록 상세 (후속 기능으로 보존)
+
+[문서] #391에 대한 E 권고와 사용자 지시에 따라 이번 시연 화면은 실제 요청 해석·접수·연결된 처리 결과, Runner 현재 상태·현재 단계까지만 표시합니다. `app.js`의 `executionDetailEnabled = false`로 종료 상세 자동 조회와 표시를 비활성화했습니다. URL·scenario·저장소 환경 설정으로 켜지지 않습니다. 물품별 진행은 미연결, 전달 집계·작업 장소·목적지는 확인 전으로 유지하며 기존 레이아웃과 명시적 예시 미리보기는 유지합니다.
+
+아래 API·어댑터·화면 상세 코드는 후속 연결을 위해 보존한 구현 설명입니다. 서버 API 자체를 제거하거나 차단한 것은 아니며, 저장소를 설정해도 일반 화면에서는 호출하지 않습니다. 기존 상세 브라우저 시험은 시험 응답에서만 별도로 활성화하고, 일반 화면 시험은 제품 응답 그대로 상세 요청이 0회인지 확인합니다.
+
+[문서] `GET /api/execution-detail/<run_id>?boot_id=...&seq=...`는 현재 상태 캐시에서 최근 요청과 연결된 종료 run만 허용합니다. 저장소 조회 전후 기동·seq·요청 연결을 확인합니다. 잘못된 ID/기동/seq 쿼리는 400, 상태 전환은 409, 종료 기록 미수신은 404, 형식 오류는 422, 저장소 미설정·조회 실패는 503입니다. 임의 실행 기록 검색이나 쓰기 API는 제공하지 않습니다.
+
+웹 프로세스 시작 전에 아래 저장소를 하나 또는 둘 다 명시합니다. 미설정이면 기존 상태 화면은 유지하고 상세는 확인 전입니다.
+
+- JSONL: `WEB_RUN_JSONL_DIR`에 Runner 기록 디렉터리를 지정합니다. 해당 run 파일과 상위 종료 기록이 참조한 child 파일만 읽습니다.
+- MongoDB: `WEB_RUN_MONGO_URI`, `WEB_RUN_MONGO_DB`, `WEB_RUN_MONGO_TIMEOUT_MS`를 모두 지정합니다. 웹 계정에는 조회 권한만 부여합니다. 어댑터는 find만 수행하며 인덱스·문서 쓰기를 하지 않습니다. Mongo 사용 시에만 `pip install -r web/requirements-mongo.txt`로 추가 의존성을 설치합니다.
+
+[문서·코드 확인] Runner 상위 시작 기록에는 `inputs.semantic`이 있고 단계 로그는 단계 종료 시 저장됩니다. 물품 그룹의 확정 순서·제외 항목·전달 결과인 상위 `items`와 계획 구간 `segments`는 종료 기록에 있습니다. D는 items 순서를 보존하고 `DELIVERED`만 집계하며 EXCLUDED는 실행 대상 분모에서 제외합니다. `semantic.items` 순서와 클래스 경로를 재계산하지 않습니다. 물품의 `semantic.evidence`가 있을 때만 근거로 표시합니다. `items.drawer`는 기록 당시 대상 서랍이며 현재 작업 위치로 사용하지 않습니다.
+
+보존한 상세 화면 로직은 “최근 요청 종료 기록”과 run ID를 표시하도록 구현돼 있습니다. 선택 물품의 종료 단계·결과가 바뀌어도 현재 실행 제목·위치는 바뀌지 않습니다. 두 저장소를 함께 설정하면 각 run마다 JSONL 기록을 먼저 찾고 없으면 Mongo를 조회합니다. 부모와 child가 다른 저장소에 있어도 연결하며, 한 run의 단계들을 서로 다른 저장소에서 섞지는 않습니다. 두 곳 모두 없는 child는 단계 미수신입니다. 누락 단계를 성공으로 채우지 않습니다. 실제 Runner/DB·PC2 통합 연결은 별도 검증이 필요합니다.
+
+
+[문서] 같은 기동/run/요청/종료 상태의 상세 조회가 성공하면 화면 수명 동안 그 스냅샷을 재사용합니다. 미수신/조회 실패는 같은 key에서 최대 3회 시도하며, 재기동·요청 전환·상태 단절로 해당 key가 무효화되면 초기화합니다. 성공 스냅샷의 누락 child를 자동으로 계속 조회하지는 않습니다.
+
+[문서] JSONL 파일명은 Runner `JsonlLogStore._path`, Mongo 조회는 `MongoLogStore.read_run`을 재사용합니다. ROS 실행 환경에는 `ready2go_runner`가 설치되어 있어야 하며 소스 환경에서는 `ros2_ws/src/ready2go_runner`를 Python import 경로에 추가합니다. JSONL은 C처럼 파싱 불가능한 잘린 줄을 건너뛰되 완전한 줄의 잘못된 구조·식별자는 422로 구분합니다. 저장소 오구성은 웹을 종료하지 않고 서버 로그에 예외 종류와 WEB_RUN_* 점검 안내를 남깁니다. URI·암호·외부 예외 전문은 기록하지 않습니다.
+
+[문서·실측] 상위/child/단계/semantic의 저장 시점, 기존 PC2 기록의 한계와 모의 JSONL 확인 결과는 [실행 기록 저장 시점 확인](execution-record-timing.md)을 참조합니다.
