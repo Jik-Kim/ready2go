@@ -31,19 +31,22 @@ def local(cfg,tmp_path,monkeypatch):
     cfg['intent_schema_file']=str(root/'contracts/intent.schema.json')
     cfg['tts_melotts_assets']=str(tmp_path/'assets')
     cfg['tts_prefill_max_texts']=128;cfg['voice_flow']['cue_gain']=.12
+    cfg['tts_melotts_startup_timeout_sec']=60.0  # 기존 local의 명시값은 패키지600과 구분합니다.
     path=tmp_path/'local.yaml';path.write_text(yaml.safe_dump(cfg,allow_unicode=True))
     return path
 
 
 def test_two_explicit_commands_new_folders_shared_selection_and_preserved_original(trial,local,tmp_path):
     before=local.read_bytes();calls=[];root=tmp_path/'runs'
+    startup_timeout=yaml.safe_load(before)['tts_melotts_startup_timeout_sec']
     def prepare(cfg):
         calls.append(('prepare',cfg['_tts_prefill_texts']))
-        assert cfg['tts_prefill_max_texts']==256 and cfg['voice_flow']['cue_gain']==.18
-        assert cfg['tts_melotts_startup_timeout_sec']==60.
+        assert cfg['tts_prefill_max_texts']==512 and cfg['voice_flow']['cue_gain']==.18
+        assert cfg['tts_melotts_startup_timeout_sec']==startup_timeout
     def live(path,**kw):
         cfg=yaml.safe_load(path.read_text());calls.append(('live',trial.selected_texts(cfg)))
         assert not kw['auto_complete'] and cfg['voice_flow']['capture_save_wav']
+        assert cfg['tts_melotts_startup_timeout_sec']==startup_timeout and cfg['tts_prefill_max_texts']==512
     code,first=trial.run('prepare',local,root,prepare_fn=prepare,live_fn=live)
     assert code==0 and [kind for kind,_ in calls]==['prepare']  # 자동 live 없음
     code,second=trial.run('live',local,root,prepare_fn=prepare,live_fn=live)
@@ -52,6 +55,30 @@ def test_two_explicit_commands_new_folders_shared_selection_and_preserved_origin
     assert code==0 and len({first,second,third})==3
     assert local.read_bytes()==before and all((p/'console.log').exists() for p in (first,second,third))
     assert json.loads((first/'result.json').read_text())['success']
+
+
+@pytest.mark.parametrize('startup_timeout', [60.0, 600.0])
+def test_actual_prepare_uses_3600_only_in_memory_and_preserves_trial_live(trial,local,tmp_path,monkeypatch,startup_timeout):
+    import copy
+    import ready2go_voice.adapters.melotts as adapter
+    raw=yaml.safe_load(local.read_text())
+    raw.update(tts_engine='melotts',tts_melotts_startup_timeout_sec=startup_timeout)
+    local.write_text(yaml.safe_dump(raw,allow_unicode=True));original=local.read_bytes()
+    folder=tmp_path/'trial';folder.mkdir()
+    path,cfg=trial.trial_config(local,folder)
+    before=copy.deepcopy(cfg);trial_yaml=path.read_bytes();events=[]
+    class FakeMelo:
+        def __init__(self,actual):
+            assert actual['tts_melotts_startup_timeout_sec']==3600.
+            assert actual['tts_prefill_max_texts']==512
+            events.append('constructor')
+        def prepare(self):events.append('prepare')
+        def close(self):events.append('close')
+    monkeypatch.setattr(adapter,'MeloTTS',FakeMelo)
+    trial.prepare(cfg)  # 실제 함수 본문, 모델/worker/API/음향 장치는 호출하지 않습니다.
+    assert events==['constructor','prepare','close'] and cfg==before
+    assert local.read_bytes()==original and path.read_bytes()==trial_yaml
+    assert yaml.safe_load(path.read_text())['tts_melotts_startup_timeout_sec']==startup_timeout
 
 
 @pytest.mark.parametrize('failure',['missing','latest_failed','changed'])

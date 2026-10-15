@@ -134,6 +134,7 @@ def test_status_full_form_rejects_quote_or_negation(node,text):
 def test_short_records_and_prefill_preserve_initial_unknown_and_e28(cfg,ontology,tmp_path):
     node_items=ontology['world']['items']
     cfg['tts_melotts_assets']=str(tmp_path)
+    before = copy.deepcopy(cfg)
     selected=[]
     texts=prefill_texts(cfg,node_items.values(),on_selection=selected.append,
         reference_state=ontology['state'],places=ontology['world']['places'],
@@ -143,8 +144,8 @@ def test_short_records_and_prefill_preserve_initial_unknown_and_e28(cfg,ontology
     assert p['recorded_open'].format(place_topic='위 서랍은',value=p['recorded_open_false']) in texts
     assert '지우개를 꺼내지 못했어요' in texts
     assert '물건을 옮기다 멈췄어요. 사람이 확인해 주세요' in texts
-    assert len(texts)+1<=256 and len(texts)==len(set(texts))
-    assert cfg['tts_melotts_startup_timeout_sec']==60 and cfg['tts_melotts_speed']==1.2
+    assert len(texts)+1<=cfg['tts_prefill_max_texts']==512 and len(texts)==len(set(texts))
+    assert cfg == before and cfg['tts_melotts_speed']==1.2
 
 
 @pytest.mark.parametrize('enabled',[True,False])
@@ -279,7 +280,7 @@ def test_text_status_and_refused_control_no_publication_and_corrupt_source_unkno
     node._text(SimpleNamespace(data='현재 상태'));play(node)
     assert node.texts[-1]==prompts(node.cfg)['status_idle'] and not node.published
     node._text(SimpleNamespace(data='복구해'));play(node)
-    assert node.texts[-1]==prompts(node.cfg)['control_rejected'] and not node.published
+    assert node.texts[-1]==prompts(node.cfg)['runtime_no_recover_work'] and not node.published
     node._query_status['last_intent']=[]
     query(node,'현재 상태');play(node)
     assert node.texts[-1]==prompts(node.cfg)['status_unknown']
@@ -624,5 +625,5 @@ def test_351_c_failure_factory_and_no_room_are_required_prefill(cfg, ontology, t
     for action in failure_speech.ACTION_KO:
         assert failure_speech.text('TIMEOUT', action) in texts
         assert failure_speech.text(None, action) in texts
-    assert len(texts) == len(set(texts)) and len(texts) + 1 <= 256
+    assert len(texts) == len(set(texts)) and len(texts) + 1 <= cfg['tts_prefill_max_texts'] == 512
     assert selections[0]['frequent_count'] == 0

@@ -393,12 +393,6 @@ p {
   margin-top: 16px;
 }
 
-.dashboard-side-column {
-  display: grid;
-  min-width: 0;
-  gap: 16px;
-}
-
 .card {
   border-radius: var(--radius-lg);
   padding: 20px;
@@ -602,42 +596,6 @@ td {
 
 .supplies-card {
   min-width: 0;
-}
-
-.camera-card {
-  min-width: 0;
-}
-
-.camera-heading {
-  margin-bottom: 12px;
-}
-
-.camera-viewport {
-  display: grid;
-  aspect-ratio: 16 / 9;
-  place-content: center;
-  justify-items: center;
-  gap: 6px;
-  overflow: hidden;
-  border: 1px solid #cbd6e5;
-  border-radius: var(--radius-md);
-  background: linear-gradient(145deg, #13213b, #071226);
-  color: var(--white);
-  text-align: center;
-}
-
-.camera-viewport strong {
-  font-size: 0.95rem;
-}
-
-.camera-viewport > span:last-child {
-  color: #b8c5d9;
-  font-size: 0.72rem;
-}
-
-.camera-placeholder-icon {
-  color: #8ca4c7;
-  font-size: 1.8rem;
 }
 
 .supplies-heading {
@@ -1603,10 +1561,6 @@ dialog::backdrop {
 
   .dashboard-grid {
     display: block;
-    margin-top: 12px;
-  }
-
-  .dashboard-side-column {
     margin-top: 12px;
   }
 

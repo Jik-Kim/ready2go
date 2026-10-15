@@ -1,5 +1,12 @@
 # CURRENT — E 고희태
 
+## pr356-regression-20261015
+
+- [승인/기준] E 지시 세션 사용자 “#356 리뷰 확인 후 해결”(turn01a13d09-ceb4-7102-9b03-64c28a2e970d)과 기존 동일 PR push 승인을 직접 확인했습니다. 시작59dd658c3ccbd2951591b438a30675fcb6df29f8에 최신 main d4585e78을 정상 병합했습니다. CURRENT 충돌 한 곳의 캐시 상한/overflow 억제/복구 사유 이력은 양쪽 모두 보존했고 README의 이미 해소된 문서 보완은 재작업하지 않았습니다. primary 사용자 dirty와 다른 checkout은 보존했습니다.
+- [해결/범위] issuecomment6181577075의 이전 head CI11실패는 구 cap256/startup60/prepare120 기대와 현행512/600/3600의 차이입니다. main에 포함된10edf8d5·483411be의 test_melotts 입력60/600 보존, test_end_stop_minimal/test_voice_launch_stop_input cap512, test_voice_ux의 warmup512/513·문자/UTF8 경계는 재사용했습니다. 추가 수정은 E test_runtime_322/test_voice_five/test_voice_ux/test_voice_launch_stop_input 4파일입니다. 제품 정책·실행 코드 추가 수정은 하지 않았고 정상 병합에서 일반600/명시prepare3600/cap512와 main 후속 변경을 함께 유지했습니다.
+- [직접 검증] 위 6개 기존 테스트 파일에서 prefill·prepare·두 명시 명령·준비 실패 관련 사례를 선택해 **30 passed/376 deselected (5.46초)** 확인했습니다. 패키지512/600·명시local128/60 보존·trial cap512 복사·실제 prepare 함수의 메모리3600 적용·cfg==before/원본 및 trial YAML 보존·live 입력값 보존·warmup포함512성공/513실패·문자160/UTF8제한·실패 시 live차단을 포함합니다. worker/모델·장치/API는 모의이며 실제 캐시를 만들지 않았습니다. AST4/diff 형식 검사를 통과했습니다. 로그 /tmp/e-356-regression-direct.log.
+- [검사 버전/후속] 이전59dd의3298passed/43skip/11fail은 실패 근거이며 통과로 재사용하지 않습니다. 이번 최종 병합·테스트 커밋 SHA에서 승인된 전체 로컬 CI를 최종1회 실행하고 정확한 결과는 완료 보고/PR 본문에 기록합니다. 실패 시 원인·실패 항목 직접 재검을 우선하고 전체 CI를 자동 반복하지 않습니다. FR-INT-01~03(P1) 및 관련 P2 FR-SAF-01/03·AC-SAF-02/04의 실제 음성·물리 수용 검증은 별개이며 미검증입니다. 실제 PC2/cache 합성·마이크/스피커/API·ROS/DDS·로봇·실소요 시간은 검사하지 않았고 준비 성공/시간 보장을 주장하지 않습니다. Draft 해제·병합·PR 설명 수정은 수행하지 않습니다.
+
 ## pr356-review-doc-20261014
 
 - [승인/범위] E 지시 세션의 사용자 직접 요청 “#356 리뷰 확인 후 수정, push”(turn01a13a76-3101-7a63-b549-8068828b16bc)을 확인했습니다. head9c47fba0a89d6c25ac9a10b5f0b3918dbf8e6647의 리뷰5517089982/댓글6167263704에 따른 E README 현행 준비 예산과 이 최종 기록만 수정했습니다. primary 사용자 dirty와 다른 세션 변경은 포함하지 않았습니다.
@@ -771,3 +778,17 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 
 - [구현] 선준비 문장 상한을 YAML·설정 기본값 모두 256→512개로 확대. 일반 MeloTTS 준비 기본 timeout 60→600초, 명시 prepare timeout 120→3600초로 변경함.
 - [미검증] 사용자 지시로 테스트·CI·빌드·실제 캐시 준비를 실행하지 않음. 기존 로컬 YAML의 명시값은 보존하며 일반 실행에는 로컬 값이 우선함.
+
+## 일반 녹음 overflow 재질문 억제 — 2026-10-14
+
+- [원인/수정] 일반 `_listen`이 AUDIO_OVERFLOW를 record_error 큐에 넣어 clarify/TTS를 만들던 분기 수정. 진단 recording_held는 유지하고 손상 녹음만 폐기해 다음 wake/녹음을 받음. NO_SPEECH·RECORD_LIMIT의 기존 오류 안내와 정지 입력 경로는 유지.
+- [실측: 직접 모의] 실제 `_listen` 예외→큐 경로의 반복 overflow/다음 정상 녹음·일반 오류·취소 4사례 포함 Voice UX/독립 정지 청취 2파일 160 passed(19.57초). 실제 장치/API/TTS·overflow 발생 빈도 개선은 미검증.
+- [범위] E 노드 조건 1곳·직접 회귀·이 기록만 변경. 기본 작업 폴더의 미커밋 문서/출력은 보존하고 별도 worktree/브랜치 codex/e-audio-overflow-silent-20261014에서 작업. P3 TTL·캐시 변경·C/B 계약·상태 정책은 포함하지 않음. 최종 전체 CI는 별도 검사 SHA 결과로 보고.
+## 복구 뒤 재개 불가 사유 안내·선준비 상한 — 2026-10-14
+
+- [승인/범위] 사용자 승인한 마무리 중단 사유 안내와 추가 요청한 선준비 상한 512개를 E 음성 코드·설정·관련 회귀에 반영. C/B 실행·잠금·재개 정책과 공개 상태 필드는 변경하지 않음.
+- [구현] 검증된 현재 C의 idle·halt=null·마지막 실행/실패 단계와 실제 태스크 finally 메타데이터를 대조. 복구 수락 뒤 닫기 마무리 중단이면 “복구됐어요. 다만 서랍을 닫는 마무리 단계에서 멈춰, 이어서 할 단계가 저장되지 않았어요.”로 안내. 반복 요청은 작업 없음과 상태 미확인을 구분하고, 재개 가능한 C 제안/질문은 기존 경로 유지. 보존 표시도 C halt.resume 기준으로 변경.
+- [캐시] voice.yaml·load_config 기본값·선준비 selector 기본값을 512개로 정렬. 이 값을 사용하는 질문 중복 이력의 raw config fallback도 같은 값으로 맞춤. 새 고정 안내는 기존 runtime_ 필수 선준비 목록에 자동 포함하며 기존 WAV/history·모델·로컬 YAML은 보존.
+- [직접 검증] 실제 C core/node와 E 상태 수신·notice 재생을 연결한 모의에서 finally 닫기 정지→복구 수락→재개 불가 이유 재생→종료할 작업 없음 안내·새 제어 발신 없음 확인. C 정상 재개/거절 기존 회귀와 상태 유실·다른 실행·재개 제안 유지, cache 포함·512/513 경계 확인. 중간 검사에서 기존 시험의 256 고정 경계 2건을 확인해 512/513으로 정렬하고 해당 6사례 재검 통과. 실행 코드 검증은 최종 SHA 전체 CI 1회로 별도 보고하며 실제 PC2/음성/장치는 미검증.
+- [조율/제외] 별도 #356 담당이 편집 중인 Voice README는 수정하지 않고 작업 지시 세션에 경계 공유함. 실행기록 포함 Slack 전달은 자동 승인 검토가 외부 공유 승인을 확인할 수 없다는 이유로 거부해 미전달. 이를 C 회신·공통 계약 승인으로 취급하지 않음.
+- [최종 검사/버전 구분] 실행 코드 최종본 32aadb231c724600c96d8af6ae92275288b8679d에서 전체 CI 1회 수행: 계약·compose real/sim/dev·colcon build 통과, core 3330 passed·43 skipped·2 failed. 실패는 기존 cap=256 고정 기대 두 곳으로, 512로 정렬 후 해당 기존 테스트 파일 두 개 45 passed(9.93초). 이후 변경은 테스트·이 기록뿐이며 운영 코드/설정은 동일. #356의 timeout 600초와 기존 60초 설정 보존 회귀도 6 passed(0.82초). 전체 CI 재실행 없음; 최신 head 전체 CI 통과로 보고하지 않음. PC2 적용·실음성 미검증.
