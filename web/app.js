@@ -12,6 +12,9 @@
   // 화면 수명 동안 기동·순서 경계를 유지한다. 단절 시에도 과거 기동/seq를 잊지 않는다.
   const runnerStatusGuard = runnerStatusModel.createStatusGuard();
   const detailGuard = statusApi.createDetailGuard();
+  // #391 E 권고: 이번 시연은 현재 상태/단계만 연결한다. 상세 구현은 후속 검증용으로 보존한다.
+  // URL이나 미리보기 옵션으로 실제 상세 조회를 켜지 않는다.
+  const executionDetailEnabled = false;
   // 종료 기록 조회는 현재 실행 제목과 별도 상태다. 선택과 응답은 이 run에만 속한다.
   const executionDetail = { key: null, controller: null, value: null, selectedId: null, attempts: 0 };
   // robot_state에는 boot_id가 없어 재기동 당시 캐시를 새 기동의 기억값으로 재사용하지 않는다.
@@ -515,7 +518,7 @@
 
   function applyExecutionDetail() {
     // C 종료 items 배열을 그대로 사용한다. semantic.items나 child 이름으로 순서를 만들지 않는다.
-    const detail = executionDetail.value;
+    const detail = executionDetailEnabled ? executionDetail.value : null;
     if (!detail) return;
     const labels = { DELIVERED: "전달 완료", NOT_DELIVERED: "미전달", EXCLUDED: "제외", NOT_RUN: "미실행" };
     state.task.executionItems = detail.items.map(item => ({
@@ -532,6 +535,8 @@
   }
 
   async function syncExecutionDetail(data) {
+    // 후속 연결 전에는 실수로 호출되더라도 저장소 조회를 시작하지 않는다.
+    if (!executionDetailEnabled) return;
     // 현재 상위/child run은 미제공이다. 기존 연결 판정이 성공한 최근 요청의 종료 기록만 조회한다.
     const link = latestRunnerRecords.connection;
     if (link.status !== runnerStatusModel.LINKED) {
@@ -1030,7 +1035,7 @@
     state.meta.label = "REST 연결됨 · 부분 실데이터";
     const runnerSummaryApplied = applyRunnerSummary(ordering.status === "valid" ? source : null);
     const robotStateApplied = applyRobotStateSource(latestRobotStateSource);
-    if (runnerSummaryApplied) void syncExecutionDetail(source.data);
+    if (executionDetailEnabled && runnerSummaryApplied) void syncExecutionDetail(source.data);
     if (ordering.status === "invalid") {
       Object.assign(view, { status: "waiting", label: "Runner 확인 전" });
       Object.assign(connection, { status: "waiting", statusLabel: "Runner 확인 전",
@@ -1338,9 +1343,9 @@
     getById("taskItemSelection").textContent = selected
       ? `선택 물품: ${selected.name} · 아래 단계와 근거는 선택한 물품 기준`
       : window.ROKEY_DEMO_SCENARIO === "default"
-        ? "물품별 실행 순서 확인 전" : "표시할 실행 물품 없음 · 예시";
+        ? "물품별 진행 정보 미연결" : "표시할 실행 물품 없음 · 예시";
     getById("taskItemsNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
-      ? "실행 상세 미연결 · 확인 전" : "화면 검토용 예시 · 실제 실행 순서 아님";
+      ? "물품별 진행 정보 미연결 · 시연은 현재 상태·단계만 표시" : "화면 검토용 예시 · 실제 실행 순서 아님";
     getById("taskDataNotice").textContent = window.ROKEY_DEMO_SCENARIO === "default"
       ? "/runner/status 현재 상태 · 단계 이력·전달 결과 미연결" : "목업 데이터 · 실제 실행 결과 아님";
   }
@@ -1376,8 +1381,10 @@
   function renderTaskDetails() {
     // 선택/펼침에 필요한 단계·근거만 갱신하고 현재 제목·위치·버튼을 다시 만들지 않는다.
     // 실데이터는 확인된 현재 단계만, 미리보기는 선택 물품의 예시 이력을 그린다.
-    const detail = executionDetail.value;
-    const selectedSteps = getSelectedExecutionItem()?.steps || (detail
+    const detail = executionDetailEnabled ? executionDetail.value : null;
+    const selectedItem = window.ROKEY_DEMO_SCENARIO !== "default" || executionDetailEnabled
+      ? getSelectedExecutionItem() : null;
+    const selectedSteps = selectedItem?.steps || (detail
       ? [...recordedSteps(detail.steps), ...detail.segments.flatMap(segment =>
         recordedSteps(segment.steps).map(step => ({ ...step, label: `${segment.runId} · ${step.label}` })))] : state.task.steps) || [];
     // 종료 기록임을 명시해 현재 작업의 실제 진행 이력으로 오해하지 않게 한다.
@@ -1422,7 +1429,7 @@
     });
 
     const evidenceStep = getCurrentTaskStep(selectedSteps);
-    const evidence = getSelectedExecutionItem()?.evidence;
+    const evidence = selectedItem?.evidence;
     getById("currentStepReason").textContent = evidence
       ? `semantic.evidence: ${JSON.stringify(evidence)}` : evidenceStep?.reason || "확인 전";
     getById("currentStepObservation").textContent = evidenceStep?.observation || "미수신";

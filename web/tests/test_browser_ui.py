@@ -36,6 +36,8 @@ def _render_dashboard(
     viewport_width: int = 1280,
     robot_state_payload: dict | None = None,
     execution_reader=None,
+    enable_deferred_detail: bool = False,
+    on_detail_request: Callable[[], None] | None = None,
 ) -> tuple[str, int]:
     """주입한 REST 상태를 실제 headless Chrome으로 렌더링해 DOM을 반환한다."""
     # 제품 JavaScript를 실행하지 않는 정적 문자열 검사는 분기 회귀를 잡지 못하므로,
@@ -73,6 +75,8 @@ def _render_dashboard(
     @app.before_request
     def runner_sequence():
         nonlocal status_request_count
+        if request.path.startswith("/api/execution-detail/") and on_detail_request is not None:
+            on_detail_request()
         if request.path != "/api/status" or runner_payloads is None:
             return None
         payload = runner_payloads[min(status_request_count, len(runner_payloads) - 1)]
@@ -106,6 +110,13 @@ def _render_dashboard(
         return response
     @app.after_request
     def inject_test_interaction(response):
+        # 보존한 후속 상세 기능의 기존 시험만 전용 응답에서 활성화한다. 제품/URL 설정은 아니다.
+        if request.path == "/app.js" and enable_deferred_detail:
+            response.direct_passthrough = False
+            source = response.get_data(as_text=True)
+            assert "const executionDetailEnabled = false;" in source
+            response.set_data(source.replace("const executionDetailEnabled = false;",
+                                             "const executionDetailEnabled = true;"))
         # 시험 응답에만 사용자 동작과 DOM 스냅샷 코드를 추가한다.
         if request.path == "/" and interaction_script is not None:
             response.direct_passthrough = False
@@ -627,7 +638,7 @@ def test_finished_execution_detail_reads_actual_records(tmp_path: Path, viewport
     rendered, _ = _render_dashboard(
         tmp_path, runtime_profile="dev", camera_received=False, viewport_width=viewport_width,
         runner_payloads=[_request_result(result_status="FAILED")],
-        execution_reader=JsonlExecutionReader(tmp_path),
+        execution_reader=JsonlExecutionReader(tmp_path), enable_deferred_detail=True,
         interaction_script="""
           setTimeout(() => {
             const buttons = document.querySelectorAll('.task-item-button');
@@ -673,7 +684,7 @@ def test_finished_detail_is_cleared_when_identity_changes(tmp_path: Path, transi
         second = _request_result(result_run="other")
         second["seq"] = 2
     rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
-        runner_payloads=[first, second], execution_reader=JsonlExecutionReader(tmp_path))
+        runner_payloads=[first, second], execution_reader=JsonlExecutionReader(tmp_path), enable_deferred_detail=True)
     assert "1 / 1 전달 완료" not in rendered
     assert "종료 기록 조회 · 현재 실행 상세 아님" not in rendered
     assert 'class="task-item-button"' not in rendered
@@ -741,8 +752,36 @@ def test_finished_detail_is_cached_and_excluded_items_do_not_take_numbers(tmp_pa
 
     reader = Reader()
     rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
-        runner_payloads=[_request_result()], execution_reader=reader)
+        runner_payloads=[_request_result()], execution_reader=reader, enable_deferred_detail=True)
     assert reader.calls == 1
     assert "2 / 2 전달 완료" in rendered
     assert "제외 excluded" in rendered
     assert "2. watch" in rendered and "3. watch" not in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+@pytest.mark.parametrize("mode", ["completed", "running", "rejected"])
+def test_demo_scope_never_requests_execution_detail(tmp_path, viewport_width, mode):
+    """운영 응답 그대로 시험: 종료/실행/다른 요청 거절에도 상세 HTTP 요청과 예시 진행은 없다."""
+    requested = []
+    payload = _request_result("reject", "BUSY") if mode == "rejected" else _request_result()
+    if mode != "completed":
+        payload.update(phase="running", task_id="live_task", current_step="live_step")
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False,
+        viewport_width=viewport_width, runner_payloads=[payload],
+        on_detail_request=lambda: requested.append(True))
+    assert requested == []
+    assert 'class="task-item-button"' not in rendered
+    assert "물품별 진행 정보 미연결" in rendered
+    assert "물품별 전달 결과 확인 전" in rendered
+    assert "종료 기록 조회 · 현재 실행 상세 아님" not in rendered
+    assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
+    if mode != "completed":
+        assert "실행 중 · 태스크: live_task · 단계: live_step" in rendered
+        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+    if mode == "rejected":
+        assert "거절 · 사유 코드: BUSY" in rendered
+        assert "실행 완료" not in rendered
+    elif mode == "completed":
+        assert "실행 완료" in rendered  # 같은 요청의 처리 결과는 상세 비활성화와 무관하게 유지한다.
