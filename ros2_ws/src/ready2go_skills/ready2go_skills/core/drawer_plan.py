@@ -8,6 +8,7 @@
 import math
 from dataclasses import dataclass
 from typing import Optional, Sequence
+from ready2go_skills.core.pose_math import finite as _finite
 
 DRAWER_STUCK = "DRAWER_STUCK"
 SENSOR_INVALID = "SENSOR_INVALID"   # 위치·힘 값이 NaN·inf — 판정할 수 없으니 즉시 정지 (fail-safe, #70 D 리뷰와 같은 문제)
@@ -32,15 +33,6 @@ def pull_direction(q_xyzw: Sequence[float]) -> tuple:
     """서랍을 여는 방향(base, 단위벡터, 수평). 서랍 x축(안쪽)의 반대를 수평면에 투영."""
     ax = x_axis_from_quat(q_xyzw)
     return _unit((-ax[0], -ax[1], 0.0))
-
-
-def displacement_m(start_tcp_m: Sequence[float], now_tcp_m: Sequence[float], direction: Sequence[float]) -> float:
-    """시작 위치에서 direction 방향으로 실제 이동한 거리(m). `drawer_displacement` 계산용."""
-    return sum((n - s) * d for s, n, d in zip(start_tcp_m, now_tcp_m, direction))
-
-
-def _finite(*values) -> bool:
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
 
 
 @dataclass(frozen=True)

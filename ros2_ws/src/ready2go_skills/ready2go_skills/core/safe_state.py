@@ -141,37 +141,3 @@ def recover_blockers(state: Mapping) -> list:
     if (state.get("gripper") or {}).get("state") not in ("holding", "empty"):
         out.append("GRIPPER_UNKNOWN")
     return out
-
-
-def response_errors(service: str, success: bool, message: Mapping) -> list:
-    """W1·W2 응답 규칙 중 JSON 스키마(contracts/skills_safe_state.schema.json)로 못 쓰는 칸 사이 규칙 → 어긋난 것 목록 (빈 목록 = 맞음).
-    W1: success = 조회 끝남 — true 면 상태 칸, false 면 error 만. W2: success = recovered — 복구면 code ""·blockers []·B 잠금 없음·
-    그리퍼 앎, 거절이면 code = blockers[0]·푼 것 없음, 서버 예외면 SKILL_EXCEPTION 에 state 없음 [E #297 재리뷰]."""
-    errs = []
-    if service == "/skills/check_state":
-        if success is ("error" in message):
-            errs.append("W1 success 는 조회 끝남 — true 면 상태 칸, false 면 error 만")
-        return errs
-    if service != "/skills/recover":
-        return [f"모르는 서비스 {service}"]
-    if success is not message.get("recovered"):
-        errs.append("W2 success 는 recovered 와 같아야 함")
-    if "error" in message:
-        if message.get("code") != "SKILL_EXCEPTION" or "state" in message or message.get("recovered") is not False:
-            errs.append("W2 서버 예외는 recovered false·SKILL_EXCEPTION·state 없음")
-        return errs
-    st = message.get("state") or {}
-    if message.get("recovered"):
-        if message.get("code") != "" or message.get("blockers"):
-            errs.append("W2 복구면 code \"\"·blockers []")
-        if st.get("b_locked") or (st.get("gripper") or {}).get("state") not in ("holding", "empty"):
-            errs.append("W2 복구 뒤 state 는 B 잠금 없음·그리퍼 앎")
-        if st.get("external_force") is not False:
-            errs.append("W2 복구 뒤 state 는 지속 외력 없음(false)")
-    else:
-        b = message.get("blockers") or []
-        if not b or message.get("code") != b[0]:
-            errs.append("W2 거절이면 code = blockers[0]")
-        if message.get("cleared"):
-            errs.append("W2 거절이면 푼 것 없음(cleared [])")
-    return errs

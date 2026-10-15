@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 import rclpy
@@ -33,10 +34,10 @@ from ready2go_knowledge.core import ontology
 
 from ..adapters.ros_clients import RosClients
 from ..core.backend import RosBackend, skill_servers
-from ..core import intent_router, planner, step_console
+from ..core import intent_router, plan_exec, planner, step_console
 from ..core.start_gate import BUSY as GATE_BUSY, CANCELED_BEFORE_START, STARTED, StartGate
 from ..core.interpreter import NOTHING_TO_RESUME, ResumeRejected, RunResult, Runner
-from ..core.log_records import new_run_id, utc_iso
+from ..core.log_records import new_run_id, run_document, utc_iso
 from ..core.recovery import MOCK_LIMITS, choose_check, load_limits as load_recovery_limits, mock_check, parse_check, recover_blockers
 from ..core.request_memory import RequestMemory
 from ..core.resume_admission import ResumeAdmission, load_limits
@@ -58,6 +59,16 @@ LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, relia
 
 
 class RunnerNode(Node):
+    # 최근 수락(run)한 요청 {request_id, run_id, task_id} — last_intent 는 BUSY·status·cancel 결정으로 덮이므로 따로 (#376 E).
+    # 클래스 기본값: __init__ 없이 만든 객체(E 음성 연결 시험의 가짜 Runner)도 지금처럼
+    _accepted: dict | None = None
+    # 묶음 계획(#302 2안) 칸의 클래스 기본값 — __init__ 을 거치지 않고 만든 객체(E 음성 연결 시험의 가짜 Runner)도 지금처럼 동작
+    plan_composites = False
+    tasks_dir = "/tasks"
+    _chain_run: str | None = None
+    _chain_parent: dict | None = None
+    _chain_events: dict | None = None
+
     def __init__(self, **node_kwargs):
         super().__init__("runner", **node_kwargs)
         param = lambda name, default: self.declare_parameter(name, default).value  # noqa: E731
@@ -105,7 +116,11 @@ class RunnerNode(Node):
         # RUNNER_PLAN_LIMITS 로 바꿀 수 있음 (예: 위 칸만 "open_drawer.drawer_id=drawer_top,...")
         self.plan_limits = planner.parse_limits(param(
             "plan_limits", os.environ.get("RUNNER_PLAN_LIMITS") or planner.DEFAULT_PLAN_LIMITS))
-
+        # 묶음 스킬 계획 (#302 2안): plan_effect 가 있는 composite(handover_with_unpack — 안은 find_with_unpack)도 후보 → 구간 실행.
+        # 온톨로지에 plan_effect 가 없으면 지금 계획 그대로. RUNNER_PLAN_COMPOSITES=0 이면 끔
+        self.plan_composites = param("plan_composites",
+                                     os.environ.get("RUNNER_PLAN_COMPOSITES", "1") not in ("0", "false", "off"))
+        self.tasks_dir = tasks_dir
         with open(schema_file, encoding="utf-8") as f:
             schema = json.load(f)
         onto = ontology.load(ontology_file)
@@ -149,6 +164,10 @@ class RunnerNode(Node):
         # 끼어들지 않게 — 각 요청 자신의 결정이 적어도 한 번 발행됨 (#249 E 리뷰). 짧게만 잡음 (정지 경로가 기다리지 않게)
         self._pub_lock = threading.RLock()
         self._end_requested: str | None = None   # end_task 로 정지를 요청한 run_id (끝난 뒤 보존됐으면 폐기)
+        # 묶음 계획 구간 실행 (#302 C 설계·E 동의): 요청 하나 = 상위 run_id 하나. 구간(child) run_id → 상위, 정지 사건 → 상위
+        self._chain_run: str | None = None       # 지금 구간 실행 중인 상위 run_id (없으면 None)
+        self._chain_parent: dict[str, str] = {}  # child run_id → 상위 run_id (halt.run_id 를 상위로 내보냄)
+        self._chain_events: dict[str, str] = {}  # 묶음 중 생긴 정지 사건 event_id → 상위 run_id (구간 사이 정지)
         self.requests = RequestMemory()          # 계약07: 이번 기동 동안 request_id → 첫 결정 (재기동하면 빔)
         self.get_logger().info(f"Runner 준비: 스키마 {schema_file}, 온톨로지 {ontology_file}, "
                                f"백엔드 {os.environ.get('BACKEND', 'mock')}, 예비 기록 {log_dir}, "
@@ -213,6 +232,91 @@ class RunnerNode(Node):
             self.gate.finish()
         self._finished(result)
 
+    def _chain_steps(self, result: planner.PlanResult) -> list[dict]:
+        """묶음 계획의 서버 확인용 스텝: 묶음은 그 태스크의 스텝(정리 포함), primitive 는 스킬 스텝."""
+        steps = []
+        for n, s in enumerate(result.steps, 1):
+            if s.task:
+                task = self._load_task(s.task)
+                steps += [*task.get("sequence", []), *task.get("finally", [])]
+            else:
+                steps.append({"id": f"c{n}", "skill": s.skill, "params": dict(s.params)})
+        return steps
+
+    def _load_task(self, path: str) -> dict:
+        """묶음 스킬 task 경로(저장소 기준 "tasks/find_with_unpack.json") → tasks_dir 의 같은 파일."""
+        with open(Path(self.tasks_dir) / Path(path).name, encoding="utf-8") as f:
+            return json.load(f)
+
+    def start_plan(self, decision: intent_router.Decision, meta: dict, token: int | None = None) -> bool:
+        """묶음 계획을 작업 스레드에서 구간 실행. 시작 규칙은 start_task 와 같음 (실행 중·시작 전 멈춤이면 거절)."""
+        with self._lock:
+            outcome = self.gate.try_start(token)
+            if outcome != STARTED:
+                self._refused = outcome
+                self.get_logger().warning(f"{'실행 중' if outcome == GATE_BUSY else '시작 전 멈춤 요청'}이라 거절: "
+                                          f"{decision.task.get('task_id')}")
+                return False
+            self._task_id, self._chain_run = decision.task.get("task_id"), decision.run_id
+            threading.Thread(target=self._run_plan, args=(decision, meta), daemon=True).start()
+        return True
+
+    def _run_plan(self, decision: intent_router.Decision, meta: dict) -> None:
+        """상위 run_id R 하나로 구간 실행 (#302 C 설계·E 동의): 구간 사이에도 phase running(gate), 구간 run 은 R.1, R.2 …
+        (parent_run_id R) 로 따로 기록, 상위 문서 R 에 구간 목록·결과. 끝에 last 를 R 로 한 번."""
+        run_id, task_id = decision.run_id, self._task_id
+        extra = {**meta, "backend": os.environ.get("BACKEND", "mock"), "plan_chain": True}
+        inputs = {**decision.inputs, "goals": decision.goals}
+        started, t0 = utc_iso(), time.monotonic()
+        self.get_logger().info(f"묶음 계획 시작: {task_id} run_id={run_id}")
+        self._log_run("start_run", run_document(run_id, task_id, inputs, started, extra=extra))
+        out = plan_exec.PlanRun("FAILED", "INTERNAL_ERROR", reason="구간 실행 예외")
+        try:
+            out = plan_exec.run_plan(self.runner, self.onto, decision.goals, self._load_task,
+                                     limits=self.plan_limits or None, timeouts=self.plan_timeouts, run_id=run_id,
+                                     meta={**extra, "parent_run_id": run_id},
+                                     accept_text=decision.inputs.get("accept_text"))
+        except Exception as e:  # noqa: BLE001 — 예외여도 상위 R 의 끝 기록·last 를 남김 (#377 E·D 리뷰 P2)
+            self.get_logger().error(f"묶음 계획 구간 실행 예외: {task_id} run_id={run_id} — {e!r}")
+            out = plan_exec.PlanRun("FAILED", "INTERNAL_ERROR", reason=f"구간 실행 예외: {type(e).__name__}: {e}")
+        finally:
+            for seg in out.segments:
+                if seg.run_id:
+                    self._chain_parent[seg.run_id] = run_id
+            event = self.runner.halt_event_id
+            if event and self.runner.halted:
+                self._chain_events.setdefault(event, run_id)
+            self._chain_run = None
+            self.gate.finish()
+        segments = [{"run_id": s.run_id, "kind": s.kind, "skills": s.skills, "overall_status": s.overall_status,
+                     "error_code": s.error_code} for s in out.segments]
+        failure = self._chain_failure(out, run_id)
+        self._log_run("end_run", run_document(
+            run_id, task_id, inputs, started, ended_at=utc_iso(), total_duration_sec=round(time.monotonic() - t0, 3),
+            overall_status=out.overall_status, error_code=out.error_code, failed_step=out.failed_step,
+            extra={**extra, "segments": segments, "reason": out.reason, **({"failure": failure} if failure else {})}))
+        problems = [] if out.overall_status == "COMPLETED" else [out.reason]
+        self._finished(RunResult(out.overall_status, {}, error_code=out.error_code, failed_step=out.failed_step,
+                                 problems=problems, run_id=run_id, failure=failure))
+
+    def _chain_failure(self, out: plan_exec.PlanRun, run_id: str) -> dict | None:
+        """묶음 계획의 last.failure (#376·#377): FAILED 일 때만. 멈춘 구간이 FAILED 면 그 구간의 처음 원인(case_id 포함)을
+        상위 R 로, 구간 실패가 아닌 묶음 단위 원인(PLAN_EFFECT_UNMET·PLAN_NO_PROGRESS·UNPLANNABLE·INTERNAL_ERROR)은 그 코드만."""
+        if out.overall_status != "FAILED":
+            return None
+        last = out.segments[-1] if out.segments else None
+        if last is not None and last.overall_status == "FAILED" and last.failure:
+            return {**last.failure, "run_id": run_id}
+        return {"run_id": run_id, "boot_id": self.runner.boot_id, "code": out.error_code, "step": out.failed_step,
+                "action": None, "case_id": None, "strategy": None, "text": None}
+
+    def _log_run(self, method: str, doc: dict) -> None:
+        """상위 문서 기록 — 실패해도 실행·결과는 그대로 (Runner._log 와 같은 규칙)."""
+        try:
+            getattr(self.log_store, method)(doc)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f"묶음 계획 기록 실패({method}): {e}")
+
     def _finished(self, result: RunResult) -> None:
         self._last, self._last_task_id = result, self._task_id
         message = (f"태스크 끝: {self._task_id} → {result.overall_status}"
@@ -244,13 +348,18 @@ class RunnerNode(Node):
 
     def _plan(self, decision: intent_router.Decision) -> intent_router.Decision:
         """achieve_goal → 현재 상태로 플래너 (#150). 계획되면 run, 이미 만족·계획 불가면 hold (로봇 동작 없음)."""
-        result = planner.plan(self.runner.state, self.onto, decision.goals, limits=self.plan_limits or None)
+        result = planner.plan(self.runner.state, self.onto, decision.goals, limits=self.plan_limits or None,
+                              composites=self.plan_composites)
         lines = planner.describe(result)
         for line in lines:
             self.get_logger().info(f"[plan] {line}")
         if result.status == planner.PLANNED:
             first = decision.goals[0]
             task_id = f"plan_{first['subject']}_{first['value']}".lower()
+            if any(s.task for s in result.steps):   # 묶음 스킬 — 구간 실행(core/plan_exec), 상위 run_id 하나 (#302 2안)
+                check = {"task_id": task_id, "sequence": self._chain_steps(result)}   # 서버 확인·표시용 (실행 안 함)
+                return intent_router.Decision(intent_router.RUN, task=check, inputs=decision.inputs, intent=decision.intent,
+                                              goals=decision.goals, plan=lines, chain=True)
             task = intent_router.add_accept_speak(planner.to_task(result, task_id, self.plan_timeouts), decision.inputs)
             return intent_router.Decision(intent_router.RUN, task=task, inputs=decision.inputs, intent=decision.intent,
                                           plan=lines)
@@ -298,12 +407,16 @@ class RunnerNode(Node):
             decision = intent_router.Decision(intent_router.REJECT, intent_router.NOT_READY, intent=decision.intent)
         elif decision.kind == intent_router.RUN:
             decision.run_id = new_run_id()      # 계약07: 수락할 때 정하고 바꾸지 않음 (빠른 완료에도 같은 값)
-            if not self.start_task(decision.task, decision.inputs,
-                                   {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})},
-                                   token, run_id=decision.run_id):
+            meta = {"intent": decision.intent, **({"plan": decision.plan} if decision.plan else {})}
+            started = (self.start_plan(decision, meta, token) if decision.chain else
+                       self.start_task(decision.task, decision.inputs, meta, token, run_id=decision.run_id))
+            if not started:
                 reason = (intent_router.STOPPED_BEFORE_START if self._refused == CANCELED_BEFORE_START
                           else intent_router.BUSY)
                 decision = intent_router.Decision(intent_router.REJECT, reason, intent=decision.intent)
+            else:                               # 실제로 시작한 요청만 — last.failure 가 어느 요청의 결과인지 (#376)
+                self._accepted = {"request_id": (decision.intent or {}).get("request_id"), "run_id": decision.run_id,
+                                  "task_id": decision.task.get("task_id")}
         if decision.kind == intent_router.CANCEL and decision.reason is None:
             self.runner.halt(source="voice")    # /runner/estop 과 같음: 진행 중 goal 취소, 사람 확인 전 새 태스크 거절
         summary = decision.summary()
@@ -327,6 +440,12 @@ class RunnerNode(Node):
             return intent_router.Decision(intent_router.REJECT, BOOT_MISMATCH, intent=intent)
         target = intent.get("run_id")
         with self._lock:                         # 대상 확인·정지를 start_task 와 같은 잠금 안에서 (#285 E 리뷰)
+            if self.running and self._chain_run is not None and self._chain_run == target:
+                # 묶음 계획(상위 R): 진행 중인 구간을 멈추고 잠금 — 구간 사이면 잠금만, run_plan 이 다음 구간 전에 멈춤.
+                # 묶음 중엔 재개 보존을 끄므로 보존·폐기 단계 없음
+                self.gate.cancel()
+                self.runner.halt(source="voice")
+                return intent_router.Decision(intent_router.END, intent=intent)
             if self.running and self.runner.active_run_id == target:
                 self._end_requested = target
                 self.gate.cancel()
@@ -528,10 +647,17 @@ class RunnerNode(Node):
 
     def status(self) -> dict:
         degraded = getattr(self.log_store, "degraded", False)
+        halt = self.runner.halt_summary
+        if halt is not None:                    # 묶음 계획: 구간(child)·구간 사이 정지는 상위 run_id 로 (E end_task·복구 대상이 그대로 맞게)
+            parent = ((self._chain_parent or {}).get(halt.get("run_id")) or (self._chain_events or {}).get(halt.get("event_id"))
+                      or (self._chain_run if halt.get("run_id") is None else None)
+                      or (self._chain_run if (halt.get("run_id") or "").startswith(f"{self._chain_run}.") else None))
+            if parent:
+                halt = {**halt, "run_id": parent}
         status = build_status(self.running, self.runner.halted, self.runner.halt_code, self._task_id,
-                              self.runner.current_step, self._last, self._last_task_id, degraded,
-                              halt=self.runner.halt_summary)
+                              self.runner.current_step, self._last, self._last_task_id, degraded, halt=halt)
         status["last_intent"] = self._last_intent
+        status["accepted"] = self._accepted              # 최근 수락 요청 (#376) — 이번 기동에 없으면 null
         status["state_reset_at"] = self._state_reset_at   # 마지막 상태 초기화 시각 (UTC, 없으면 null)
         status["boot_id"] = self.runner.boot_id          # 계약 W4 (#271): 이 Runner 기동 — 재기동하면 새 값
         return status

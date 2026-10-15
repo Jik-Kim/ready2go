@@ -4,7 +4,8 @@
       "kind": "composite",
       "name_ko": "가려진 물건까지 찾아 꺼내기",
       "params": {
-        "target": "Item"
+        "target": "Item",
+        "from": "Drawer"
       },
       "task": "tasks/find_with_unpack.json",
       "pre": [
@@ -13,6 +14,18 @@
           "predicate": "gripper",
           "op": "==",
           "value": "empty"
+        },
+        {
+          "subject": "$target",
+          "predicate": "located_in",
+          "op": "==",
+          "value": "$from"
+        },
+        {
+          "subject": "$from",
+          "predicate": "open",
+          "op": "==",
+          "value": false
         }
       ],
       "effect": "sensing",
@@ -21,7 +34,14 @@
         "examples_ko": [
           "지우개 찾아줘"
         ]
-      }
+      },
+      "plan_effect": [
+        {
+          "subject": "$target",
+          "predicate": "located_in",
+          "value": "handover_zone"
+        }
+      ]
     }
   }
 }

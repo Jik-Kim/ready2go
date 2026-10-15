@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "source": {
+    "repository": "Jik-Kim/ready2go",
+    "commit": "d28ab2c7c06fe40797e994b7bce8e189ecb6e0d6",
+    "path": "practice/B/ontology/layout_cases.json",
+    "classifier_path": "ros2_ws/src/ready2go_skills/ready2go_skills/core/layout_case.py"
+  },
+  "cases": [
+    {
+      "id": "handle_wall_wide",
+      "strategy": "impossible",
+      "status": "sim_only",
+      "evidence": {
+        "real": [],
+        "sim": [
+          "10/10 25 몽키·망치·가림막 4~5% 멈춤",
+          "10/14 무작위 1550 배치 (hunt_cases.py, 꺼내기 17050번): 874번 (5.1%) — 판 842·몽키 30, 시연 규칙 배치에서 더 많음 7.6%",
+          "10/15 단계 ② 비교 (compare_cases.py, 무작위 330 배치·물건 4620, 관계만 보고 이 난제로 예측된 장면): 70번 중 실제 실패 66 (94%)"
+        ]
+      },
+      "text_ko": "손잡이 쪽 벽에 가로로 붙어 있어 잡기 어려울 수 있어요."
+    },
+    {
+      "id": "cluster_front_wall",
+      "strategy": "impossible",
+      "status": "verified_real",
+      "evidence": {
+        "real": [
+          "10/13 21 (덤프 064400)",
+          "10/13 23"
+        ],
+        "sim": [
+          "10/14 무작위 1550 배치 (hunt_cases.py, 꺼내기 17050번): 177번 (무작위 2.0%, 시연 규칙 0.1~0.2%)",
+          "10/15 단계 ② 비교 (compare_cases.py, 무작위 330 배치·물건 4620, 관계만 보고 이 난제로 예측된 장면): 89번 중 실제 실패 32 (36%)"
+        ]
+      },
+      "text_ko": "손잡이 쪽 벽과 주변 물건에 막혀 꺼내기 어려울 수 있어요."
+    },
+    {
+      "id": "under_cover_crossing",
+      "strategy": "impossible",
+      "status": "verified_real",
+      "evidence": {
+        "real": [
+          "10/12 41·44 (립밤이 판 긴 변 가로지름)"
+        ],
+        "sim": []
+      },
+      "text_ko": "판 밑 물건이 손가락 자리에 있어 판을 원래 자리에 놓기 어려울 수 있어요."
+    },
+    {
+      "id": "no_free_space",
+      "strategy": "impossible",
+      "status": "verified_real",
+      "evidence": {
+        "real": [
+          "10/14 #345 PC2 덤프 재현 — 아래 칸 판"
+        ],
+        "sim": [
+          "10/11 clear_sim 남은 문제 — 큰 물건 셋",
+          "10/14 무작위 1550 배치 (hunt_cases.py, 꺼내기 17050번): 1227번 (7.2%) — 판·캐러멜이 대부분"
+        ]
+      },
+      "text_ko": "물건을 잠깐 놓을 자리를 찾지 못했어요."
+    },
+    {
+      "id": "leaning",
+      "strategy": "impossible",
+      "status": "layout_rule",
+      "evidence": {
+        "real": [
+          "10/13 3 [사용자]"
+        ],
+        "sim": []
+      },
+      "text_ko": "물건이 비스듬히 기대 있어 안전하게 잡기 어려울 수 있어요."
+    },
+    {
+      "id": "standing",
+      "strategy": "impossible",
+      "status": "layout_rule",
+      "evidence": {
+        "real": [
+          "10/13 11·25 [사용자]"
+        ],
+        "sim": []
+      },
+      "text_ko": "물건이 세워져 있어 인식하거나 잡기 어려울 수 있어요."
+    },
+    {
+      "id": "chain_blocker_plate_pinned",
+      "strategy": "impossible",
+      "status": "sim_only",
+      "evidence": {
+        "real": [],
+        "sim": [
+          "10/14 무작위 1550 배치 (hunt_cases.py, 꺼내기 17050번): 165번 (1.0%)"
+        ]
+      },
+      "text_ko": "막고 있는 판이 벽에 붙어 있어 꺼내기 어려울 수 있어요."
+    },
+    {
+      "id": "cylinder_handle_wall",
+      "strategy": "impossible",
+      "status": "sim_only",
+      "evidence": {
+        "real": [],
+        "sim": [
+          "10/14 무작위 1550 배치 (hunt_cases.py, 꺼내기 17050번): 106번 (0.6%) — 마스킹테이프도 6번",
+          "10/15 단계 ② 비교 (compare_cases.py, 무작위 330 배치·물건 4620, 관계만 보고 이 난제로 예측된 장면): 57번 중 실제 실패 19 (33%)"
+        ]
+      },
+      "text_ko": "립밤이 손잡이 쪽 벽에 붙어 있어 꺼내기 어려울 수 있어요."
+    },
+    {
+      "id": "beyond_reach",
+      "status": "verified_real",
+      "evidence": {
+        "real": [
+          "10/13 9 (판 x 132.6 > 129)"
+        ],
+        "sim": [
+          "10/14 무작위 1550 배치 (hunt_cases.py, 꺼내기 17050번): 482번 (무작위 배치 5.8%, 시연 규칙은 0 — 깊이 규칙이 막음)",
+          "10/15 단계 ② 비교 (compare_cases.py, 무작위 330 배치·물건 4620, 관계만 보고 이 난제로 예측된 장면): 501번 중 실제 실패 177 (35%)"
+        ]
+      },
+      "strategy": "impossible",
+      "source_strategy": "nudge",
+      "source_then": "impossible",
+      "text_ko": "물건이 너무 안쪽에 있어 손이 닿기 어려울 수 있어요."
+    }
+  ],
+  "unknown_text_ko": "확인된 실패 이유를 아직 조회할 수 없어요."
+}

@@ -14,10 +14,7 @@
 import math
 from dataclasses import dataclass
 from typing import Mapping, Sequence
-
-
-def _finite(*values) -> bool:
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+from ready2go_skills.core.pose_math import finite as _finite
 
 
 def check_tf(tf: Mapping) -> None:

@@ -1,5 +1,27 @@
 # CURRENT — E 고희태
 
+## pr375-ready-20261015
+
+- [승인/현재 형식] 조율 human turn01a13d8a-45cd-7cb3-8831-df7a19d650bc/user01a13d8a-4601-7651-85c3-e8aa84c9bd5a의 “ㅇㅋㅇㅋ 수정해”와 직전 설명 범위(main 충돌 해소·본문·E 형식 확정·Draft 해제·최종 CI1회)를 직접 확인했습니다. 기존 선택형식 승인과 이번 사용자 확정을 E 근거로 명시하며, C의 실제 APPROVE5527505545(headb7947400)와 구분합니다. E 검토5527475091은 COMMENT이므로 승인 수로 계산하지 않았고 자기계정 Approve도 추가하지 않습니다. 형식의 target/from·pre·plan_effect·sensing·task는 변경하지 않았습니다.
+- [정상 병합/보존] 기존 /tmp/ready2go-e-plan-effect-20261015, codex/e-plan-effect-20261015에서 b7947400 원격/clean을 확인하고 main e4d5741f00e3790debc31bb5226a1e61c8fd8fc2를 정상 병합했습니다. 충돌은 CURRENT1곳이며 E 계획 기록과 main의 캐시예산/compound-goal 기록 양쪽을 모두 보존했습니다. 데이터 JSONLD와 제품 ontology loader는 b7947400 대비 diff0입니다. 기존 primary/PPT/models/local 설정·다른 checkout은 보존하고 C/B 코드 직접 수정·정책 변경·리팩터·force/rebase는 하지 않았습니다.
+- [유효 검사 재사용] E 직접94/C810de713 연결3의 유효 근거는 이전 항목을 재사용했습니다. C APPROVE 본문의 C373 a8faf5a + E375 b7947400 병합 모의935 passed/15 skipped는 C 검토 보고로 인용하며 이번 직접 검사가 아닙니다. 충돌은 기록만 영향을 받아 데이터/제품 불변·양쪽 이력 보존·문서 링크/상태·diff 형식을 확인했습니다. 최종 병합 커밋 SHA에 승인된 전체 로컬 CI를1회 실행하고 실제 결과/검사SHA는 완료 보고와 최종 PR 본문에 기록합니다. 실패 시 실패 항목 직접 재검을 우선하며 전체 CI를 자동 반복하지 않습니다.
+- [최신 상태/미결] C max_rounds 결함은899ff7f에서 해소되고 저장소 시험 가정은a8faf5a에서 정정됐습니다. 노드 기본 composites=False이므로 C371/373 선병합을 E 데이터 PR 필수 조건으로 두지 않습니다. 이전 기록의 당시 Draft/미결은 그 버전 이력입니다. C 노드 achieve_goal→run_plan·상위run/child·음성/취소 설계 합의와 실제 구현/운영 연결은 별개이며 실제 PC2/API/ROS/음성/로봇은 미검증으로 유지합니다. 이번 승인 범위는 정상push·기존375 본문 갱신·Ready까지이며 main 병합은 하지 않습니다.
+
+## plan-effect-302-c373-connection-20261015
+
+- [선행 변경/승인] C PR373 공개에 따른 동일 범위 최소 직접 연결 지시를 받았습니다. 이미 실행 중이던 E CI를 중단하거나 반복하지 않았습니다. E 실제 데이터/제품 로더 버전은 a991a888aa217e39d72b8e25ef23ef87289fec53 그대로이며 C 읽기 전용 checkout head810de7131b6fed3e138b9167349ff25c2709d391을 사용했습니다. C 소스·테스트를 편집하지 않았고 C의 형식 복사 helper(e_onto)는 사용하지 않았습니다.
+- [실측: 버전별 검사] E a991a888 전체 CI **3404 passed/44 skipped**, 계약·compose3·colcon OK(10/15 11:40, ci_local.sh@aa5aa0f), exit0입니다. 그44skip에는 당시 C 미연결1건이 포함됩니다. 이후 변경은 E 소비 테스트/API opt-in 검사와 연결 상태 문서뿐이고 데이터/제품 로더는 불변입니다. 최신 후속 커밋 자체의 전체 CI를 재실행/통과했다고 주장하지 않습니다.
+- [직접 연결] E 테스트 후속 본문으로 실제 C 공개 planner opt-in·plan_exec.run_plan에 E 원본을 넣어 **3 passed (0.41초)**: composite target/from 선택, 기존 find_with_unpack(MockScene plate_over_eraser)의 판→지우개→판 복구 실제 mock 실행, located_in=handover_zone 확인 뒤 원래 목표/자동 아래닫힘 유지 재계획·위 열림, COMPLETED 표기만 있는 no-effect의 PLAN_EFFECT_UNMET/후속0을 확인했습니다. 선택/상태를 가짜 응답으로 고정하지 않고 C의 mock 장치·Runner·계획/구간 실행 본문을 사용했습니다. 초기 E state/정의는 불변이고 task 로딩 직전에도 예상 효과가 실제 위치를 미리 덮지 않음을 확인했습니다. 로그 /tmp/e-302-c373-connection.log.
+- [미결] C #373은 #371 위 stacked core이며 노드 achieve_goal→run_plan/기본 composites opt-inFalse·수락run_id/음성 상관·실PC2/API/ROS/장치/로봇은 별도입니다. 형식 E 포함2명 승인은 미완료입니다. Draft PR에서 두 검사SHA/범위와 후속 테스트 버전을 구분해 기록하며 전체 CI 자동 반복·새 agent/리뷰·C수정은 하지 않았습니다.
+
+## plan-effect-302-20261015
+
+- [승인/소유] 조율 human turn01a13d5e-e7df-71d0-b6a2-b4bef4ca9f08의 “진행하자”와 issuecomment6182976292의 C 권고2안 범위를 직접 확인했습니다. 시작main47301366bc58c4ccb34c33ff692b23838832bcdc, 격리 /tmp/ready2go-e-plan-effect-20261015 / codex/e-plan-effect-20261015. E skill 원본·knowledge loader/test·Knowledge README/ontology 설명·이 기록만 수정하며 primary의 staged PPT/다른변경·모델/local YAML·다른 checkout은 보존합니다. C/Planner/tasks/인텐트/계약은 직접 수정하지 않습니다.
+- [구현] composite/task/effect=sensing을 유지하고 plan_effect 레코드·params from:Drawer·빈손/위치/닫힘 pre를 추가했습니다. 위/아래 상수·primitive 배선·one_open 정책 복제 없이 기존 선언/바인딩 관례를 사용합니다. 로더는 plan_effect가 있는 새 정의만 실제/계획 효과 경계·비어 있지 않은 레코드·predicate/subject/value 참조·params 클래스/선언·pre 형식을 검사하며 구 단일 파일은 호환합니다. 기존 validate_contracts load 호출이 검사 경로이고 C 소유 도구를 고치지 않았습니다. resolve/check/apply의 기존 상태 처리 경로는 수정하지 않았습니다.
+- [직접 회귀] 기존 ontology/pick Runner 및 새 정의 검사에서 E **94 passed**. manifest/legacy 신구형식, 잘못된 계획 효과/참조/params, 두 서랍 동적 바인딩과 빈손/위치/닫힘 누락·unknown 거절, 기존 primitive 회귀를 확인했습니다. 실제 C 공개 plan은 UNPLANNABLE, 공개 run은 backend0/state불변 TASK_INVALID/composite 거절을 확인했고 소비 통합 사례는 **1 skipped**로 구분합니다. 초기 소비 fixture가 UNKNOWN_SKILL을 기대해 실패한 것은 실제 실행 전 validation 게이트에 맞춰 그 사례만 직접 재검했습니다(1 skipped/41 deselected, exit0). 로그 /tmp/e-302-plan-effect-direct.log 및 /tmp/e-302-plan-effect-c-boundary.log. AST/JSON 구문 검사와 의미 회귀는 별개로 확인했습니다.
+- [C 선행] main의 _groundings/_unreachable primitive 필터와 실행 전 check_task 거절이 남아 있습니다. #371 d7d21c47992eade02fd4e29504a23b54fa69137b의3379/43 CI는 그 C PR 근거로만 읽었고 전체 CI를 중복하지 않았습니다. 해당 item_group의 resumable=False/finally 복원과 restore_failed/task_error 검사→후속 차단은 읽기 전용으로 대조했습니다. C 후보/구간 실행→실제 located_in 확인→최초 목표/자동 닫힘 유지 재계획·무진행 종료는 미연결입니다. 부모가 C Slack 인계를 소유하며 중복 전송하지 않습니다.
+- [검증/미결] FR-ONT-01/02·FR-PLN-02/P2·FR-ACT-04/AC-ACT-03 및 가림 정책 기준입니다. 이번 E 최종 SHA의 전체 로컬 CI1회 결과/정확 SHA는 완료 보고와 Draft PR에 기록하며 C 소비 통합 완료로 확대하지 않습니다. 형식 E 포함2명 검토는 미완료이고 실제 PC2/API/ROS/DDS/음성/로봇·관측/복구 실물 수용은 미검증입니다. C 연결·형식 승인 전에 main 병합/완료를 주장하지 않습니다.
+
 ## pr356-regression-20261015
 
 - [승인/기준] E 지시 세션 사용자 “#356 리뷰 확인 후 해결”(turn01a13d09-ceb4-7102-9b03-64c28a2e970d)과 기존 동일 PR push 승인을 직접 확인했습니다. 시작59dd658c3ccbd2951591b438a30675fcb6df29f8에 최신 main d4585e78을 정상 병합했습니다. CURRENT 충돌 한 곳의 캐시 상한/overflow 억제/복구 사유 이력은 양쪽 모두 보존했고 README의 이미 해소된 문서 보완은 재작업하지 않았습니다. primary 사용자 dirty와 다른 checkout은 보존했습니다.
@@ -778,7 +800,7 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 
 - [구현] 선준비 문장 상한을 YAML·설정 기본값 모두 256→512개로 확대. 일반 MeloTTS 준비 기본 timeout 60→600초, 명시 prepare timeout 120→3600초로 변경함.
 - [미검증] 사용자 지시로 테스트·CI·빌드·실제 캐시 준비를 실행하지 않음. 기존 로컬 YAML의 명시값은 보존하며 일반 실행에는 로컬 값이 우선함.
-- 
+-
 ## P3 의미 조회 첫 시험 — #302 / 2026-10-14
 
 - [승인/범위] 사용자 “이대로 이슈에 반영하고 수정 시작해”에 따라 #302에 C의 조회·실패·다중 서랍 방침과 착수 승인을 반영. E TTL 시험·의미 조회만 구현하며 운영 원본 전환은 미결.
@@ -815,3 +837,28 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 - [직접 검증] 실제 E Session/노드 메서드의 목표 발신→C IntentRouter.decide의 PLAN→현재 ontology/DEFAULT_PLAN_LIMITS로 C planner 계획·효과 적용을 대조해 지우개 전달/위 서랍 열림 최종 상태 확인. LLM 실패는 실행 없이 clarify 발행 가능, 잠김/실행 중/생산자 미확인/평가 모드의 기존 실행 차단 유지. 아래 서랍·다른 물품 복합·닫기·부정·가능 여부는 거절.
 - [실측] 변경 함수의 기존 테스트 파일 test_voice_five.py + test_intent.py 205 passed(23.79초). 최초 선택 검사에서 LLM 실패에도 clarify는 발행하는 기존 동작을 테스트가 과도하게 금지한 1건을 수정해 두 파일 재검 통과. 전체 CI/빌드·PC2·실음성·로봇·실API는 실행하지 않음.
 - [적용/미결] 별도 브랜치 codex/e-p2-compound-goal-20261015. PC2는 반영 뒤 기존 호스트 install_host 재빌드 및 pc2_voice.sh --p2 재시작 필요. 로컬 YAML에 기존 복합 선정 목표가 있어야 하며 없으면 시작 시 거절. C 기존 수신/플래너 경로는 모의 근거이고 PC2 운영 설정/실물 완료는 미검증.
+
+## #376 거부 이유 문장·질문 인식·캐시 준비 — 2026-10-15
+
+- [승인/범위] 사용자 “로봇 거부 이유 설명도 구현해 별도 PR로 올려” 승인 및 조율 세션의 E 독립분 Draft PR 우선 지시를 적용했습니다. 기준 main e4d5741f, 별도 codex/e-refusal-reason-20261015에서 E 소유 knowledge/voice/기록만 수정했습니다.
+- [구현] B d28ab2c의 impossible 8건(실제 원본 집계)의 ID/strategy/status/evidence를 보존하고 문장 원본·공통 로더·share 설치·node/prepare 필수 캐시를 연결했습니다. verified_real도 현재 관측의 원인 확정이 아니므로 물리 배치는 가능성 표현입니다. 이유 질문은 기존 읽기 전용 경로로 인식하며 현재 답변은 원인 조회 불가입니다. 공개 상태 필드를 임의 소비하지 않습니다.
+- [검증] Python3.12 직접 회귀 88 passed(5.78초): 신규 로더/unknown/null/strategy 경계·설치 share 모의, 이유 질문 비실행 분류·LLM 미호출·공통 캐시 포함 및 기존 읽기 전용/notice 회귀. 최종 코드 SHA의 전체 CI 1회 결과는 PR 본문에 기록합니다.
+- [미결/제외] C issuecomment6183717189는 E 확인 후 계약 PR/구현 예정인 형식 회신입니다. B issuecomment6183735652의 impossible 한정 조건과 최신 run/boot·FAILED 검증, 최초 원인 보존·task_error/정지 경계는 C 계약/실제 코드 연결 후 검증해야 합니다. E 포함 2인 계약 승인·실제 B→C→E 실패 답변·ROS/DDS/TTS/실물은 미완료입니다. B 중복 문장 제거는 B 담당이며 report_case=false 유지, 모델/PC2/API/cache 생성·병합은 수행하지 않았습니다. 요구사항 FR-INT-02(P1–P3), FR-INT-03(P1), FR-LOG-02(P2)를 참조하는 #376 P3 준비로 구분합니다.
+
+### #378 실제 B 반환 누락 보완 — 2026-10-15
+
+- [수정/근거] B d28ab2c의 core/layout_case.py를 자료 JSON과 대조해 beyond_reach 누락을 추가했습니다. B 자료 strategy=nudge·then=impossible과 실제 fail 반환 strategy=impossible을 구분하고 source_strategy/source_then 및 원본 status/evidence를 보존했습니다. E 카탈로그 9개는 실제 impossible 반환 6개와 예약 under_cover_crossing/leaning/standing 3개입니다. 기존 8개는 삭제하지 않았습니다.
+- [직접 검증] 관련 knowledge/voice 회귀 22 passed(1.01초): 실제 반환 6개 전체의 조회, beyond_reach/nudge·unknown 폴백, 새 문장의 node/prepare 공통 prefill 포함을 확인했습니다. B d28ab2c의 실제 classify를 모의 입력 6종으로 호출해 case_id+impossible→E text 연결도 확인했습니다(ROS/실물 시험 아님).
+- [검사 SHA 구분] 전체 CI 통과는 기존 0ce2d7e819d948ddf1819db48f0fb6d5551fd690에서의 3394 passed/43 skipped·계약/compose/build 결과입니다. 이후 변경은 E 문장 데이터·회귀·관련 문서/기록이며 전체 CI를 재실행하지 않았습니다. 새 head의 전체 CI 통과로 표현하지 않습니다. C 실제 공개 상태 소비·계약 승인·최종 통합 검증은 여전히 미완료이며 Draft를 유지합니다.
+
+### #378 승인된 C 실패 상태 소비 연결 — 2026-10-15
+
+- [승인/구현] 조율 세션이 전달한 #379 E APPROVE5528319524·B5527901585와 같은 사용자 승인 범위로 이유 질문→현재 C 상태→기존 읽기 전용 TTS를 연결했습니다. idle/halted·FAILED, failure/last/accepted의 nonempty run 일치와 boot 일치를 요구합니다. last_intent는 상관 근거로 쓰지 않으며 기존 source/seq·안전 경고·질문 우선권을 보존합니다. 새 accepted run은 대기 응답을 무효화합니다. 등록 impossible은 E 원본, 나머지는 기존 C factory 허용 문장/코드 폴백이며 raw text 무제한 수용·캐시 추가는 없습니다. share 조회의 실제 import에 맞춰 ament_index_python 실행 의존성을 명시했습니다.
+- [직접 검사/버전] E 현재 코드와 C #379 af273fb3da9428db58c3e1f5f00ac423114e8d01 소스를 조합해 관련 음성 4개 파일 108 passed(7.26초). C 실제 RunnerNode 수락 accepted→_run/failure_record→status/publish→E callback/질문→TTS를 모의 검증한 8사례를 포함합니다. 일반 pick·task_error·unknown·nonimpossible 폴백, 정리 오류 뒤 최초 원인, 정지·현재 실행/이전 run/새 boot 거절, last_intent=status 뒤 accepted 보존, 실제 계약 예시를 확인했습니다. 첫 통합 6실패는 높은 실패/정지 안내가 먼저 대기 중인 것을 시험이 이유 응답으로 오인한 것으로 제품 gate를 우회하지 않고 경고 재생 후 질문 순서로 고쳤습니다. 복수 패키지 검사 때 루트 conftest가 C 경로를 로컬로 바꿔 8개 skip한 결과는 통합 성공으로 쓰지 않고 --confcutdir로 실제 C 소스를 고정해 위108개를 재검했습니다.
+- [미결] C #379/#377 최종 합류와 묶음 실패 상위 R 매핑은 C 담당입니다. E는 C/B 코드·계약·tasks를 수정하지 않았습니다. 이 E 최종 코드 SHA에서 필요한 전체 CI를 1회 수행하고 정확한 결과를 PR 본문에 기록합니다. ROS/DDS·실음성/TTS 합성·API·로봇/PC2 적용·운영 연결은 미검증입니다. 이전0ce 전체 CI나 직접 모의를 새 운영/실물 완료로 표현하지 않습니다.
+
+### #378 최신 main 합류·C 묶음 실패 연결 확인 — 2026-10-15
+
+- [승인/합류] 사용자 “#379 머지 된 것 같은데? #378 main 바꿔서 확인해봐” 승인에 따라 origin/main d27700a33a55d528866f64d36bccfa234c91305f를 정상 병합했습니다(merge41aad60abdaf8d557e6e7c7f525668c77b2eae77). C #379 최종 a3354a0cb4ef58fe9beaf0fb6aa0e26d90b0cf98와 #377을 포함하며 양쪽 변경을 보존했습니다. primary 사용자 변경·모델·로컬 설정은 건드리지 않았습니다.
+- [직접 검증] 이전 af273 읽기 전용 경로를 제거하고 현재 checkout의 C import 경로를 assert했습니다. 기존 실제 C 통합8사례와 새 묶음2사례 모두 **10 passed/0 skipped(2.51초)**. 실제 C planner/plan_exec·accepted→child 실패R.1→상위failure/last/accepted R·runs 기록·status.publish→E callback·왜 멈췄어 질문→TTS를 확인했습니다. 구간 거부는 E 원본, 묶음 자체 PLAN_EFFECT_UNMET은 case/step null과 기존 factory/code 폴백을 확인했습니다. ROS/장치는 모의입니다. 첫 명령의 호스트 ROS pytest 플러그인 lark 누락은 제품 코드 실패가 아니며, E 명시 PYTHONPATH·플러그인 자동 로딩 비활성으로 분리해 위 검사를 수행했습니다.
+- [범위/완료 조건] C/B 코드는 직접 수정하지 않았습니다. E 거부 이유 production 코드는 b5dcc875와 동일하며, E 통합 시험/관련 설명만 보완했습니다. C 미합류·상위R매핑 미결 문구를 현행으로 정정했습니다. 기존 조회/신선도/취소/캐시 근거를 재사용하고 최종 합류 코드 SHA에서 전체 CI1회 결과를 PR에 기록합니다. CI 통과 뒤 정상push·본문갱신·Ready 전환하며 main병합/운영 적용·실API·실음성·실물은 수행하지 않습니다.

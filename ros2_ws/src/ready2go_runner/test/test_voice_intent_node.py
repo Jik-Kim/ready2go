@@ -60,7 +60,7 @@ def last_intent(s):
 
 
 def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology.jsonld", intent_tasks="",
-                skills_up=True, plan_limits=None, extra=(), located=None):
+                skills_up=True, plan_limits=None, extra=(), located=None, mock=()):
     """skills_up=False: mock 백엔드(/skills/* 서버) 없이 시작 — 기동 직후 스킬 서버가 늦게 뜨는 상황 (#108).
     나중에 voice.start_skills() 로 띄운다."""
     context = rclpy.Context()
@@ -84,7 +84,8 @@ def make_system(tmp_path, duration=0.05, ontology_file="knowledge/robot_ontology
         executor.add_node(node)
 
     def start_skills():
-        executor.add_node(MockBackendNode(context=context, parameter_overrides=[Parameter("duration_sec", value=duration)]))
+        executor.add_node(MockBackendNode(context=context, parameter_overrides=[
+            Parameter("duration_sec", value=duration), *[Parameter(k, value=v) for k, v in mock]]))
     voice.start_skills = start_skills
     if skills_up:
         start_skills()
@@ -590,5 +591,179 @@ def test_recover_rejects_when_stopped_again_during_b_check(tmp_path):
         voice.say(recover(halt["boot_id"], halt["event_id"], "rec-race"))
         assert voice.wait(lambda s: last_intent(s).get("reason") == "STOPPED_DURING_RECOVER"), voice.status
         assert runner.runner.halted and runner.runner.halt_event_id == event   # 같은 사건, 잠금 유지
+    finally:
+        close()
+
+
+# ---- #302 2안: 묶음 스킬 계획 → 구간 실행, 요청 하나 = 상위 run_id 하나 (C 설계·E 동의 10/15) ----
+
+DELIVER_ERASER = {"predicate": "located_in", "subject": "eraser", "value": "handover_zone"}
+TOP_OPEN = {"predicate": "open", "subject": "drawer_top", "value": True}
+
+
+def _e_plan_effect(runner):
+    """E #375 형식(handover_with_unpack params·pre·plan_effect) — 저장소에 아직 없으면 노드 온톨로지에 넣음."""
+    runner.onto["skills"]["handover_with_unpack"].update(
+        params={"target": "Item", "from": "Drawer"},
+        pre=[{"subject": "robot", "predicate": "gripper", "op": "==", "value": "empty"},
+             {"subject": "$target", "predicate": "located_in", "op": "==", "value": "$from"},
+             {"subject": "$from", "predicate": "open", "op": "==", "value": False}],
+        plan_effect=[{"subject": "$target", "predicate": "located_in", "value": "handover_zone"}])
+
+
+def compound_goal(request_id="goal-c1"):
+    return json.dumps({"intent": "achieve_goal", "targets": ["eraser"], "confidence": 0.9, "request_id": request_id,
+                       "goals": [DELIVER_ERASER, TOP_OPEN], "accept_text": "지우개를 가져오고 위 서랍을 열어 둘게요.",
+                       "source": {"stt_text": "지우개 갖다주고 위 서랍 열어 둬"}}, ensure_ascii=False)
+
+
+def _watch(voice, until, timeout=40.0):
+    """until 이 참이 될 때까지 받은 상태를 모두 모음 (구간 사이 idle 이 새지 않았는지 보려고)."""
+    seen, end = [], time.monotonic() + timeout
+    while time.monotonic() < end:
+        s = voice.status
+        if s is not None and (not seen or s is not seen[-1]):
+            seen.append(s)
+        if s is not None and until(s):
+            return seen
+        time.sleep(0.01)
+    return seen
+
+
+def test_compound_goal_runs_as_one_parent_run(tmp_path):
+    """'지우개 갖다주고 위 서랍 열어 둬' — 묶음(find_with_unpack) → 실제 상태 재계획 → 위 서랍 열기. 상태 칸은 상위 run_id R 하나:
+    last_intent.run_id R 고정, 구간 사이에도 running, 끝에 last 1회(R), DB 는 상위 문서 R(구간 목록) + 구간 R.1·R.2(parent_run_id R),
+    수락 안내는 첫 구간에만."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE)
+    try:
+        _e_plan_effect(runner)
+        voice.say(compound_goal())
+        assert voice.wait(lambda s: s["phase"] == "running" and last_intent(s).get("run_id")), voice.status
+        parent = last_intent(voice.status)["run_id"]
+        seen = _watch(voice, lambda s: (s["last"] or {}).get("overall_status") is not None)
+        last = voice.status["last"]
+        assert (last["run_id"], last["overall_status"], last["task_id"]) == (parent, "COMPLETED", "plan_eraser_handover_zone")
+        assert last_intent(voice.status)["run_id"] == parent and last_intent(voice.status)["request_id"] == "goal-c1"
+        assert all(s["phase"] == "running" for s in seen if s["last"] is None)            # 구간 사이 idle 안 냄
+        assert {(s["last"] or {}).get("run_id") for s in seen} <= {None, parent}         # child 결과를 last 로 안 냄
+        state = runner.runner.state
+        assert state["located_in"]["eraser"] == "handover_zone"
+        assert (state["open"]["drawer_top"], state["open"]["drawer_bottom"]) == (True, False)
+        doc = runner.log_store.read_run(parent)["run"]
+        assert doc["plan_chain"] is True and doc["overall_status"] == "COMPLETED"
+        assert [s["run_id"] for s in doc["segments"]] == [f"{parent}.1", f"{parent}.2"]
+        assert [s["kind"] for s in doc["segments"]] == ["composite", "primitive"]
+        first, second = (runner.log_store.read_run(f"{parent}.{n}") for n in (1, 2))
+        assert first["run"]["task_id"] == "find_with_unpack" and first["run"]["parent_run_id"] == parent
+        assert second["run"]["parent_run_id"] == parent
+        assert first["run"]["inputs"].get("accept_text") and not second["run"]["inputs"].get("accept_text")
+        assert "s2.1" in [s["id"] for s in first["steps"]]                                # 수락 안내는 첫 구간에서 1회
+        assert not any(s["action"] == "speak" and s["id"] == "pa" for s in second["steps"])
+    finally:
+        close()
+
+
+@pytest.mark.parametrize("stop", ["cancel", "end_task"])
+def test_stop_inside_compound_goal_maps_to_parent_run(tmp_path, stop):
+    """묶음 실행 중 '멈춰' / end_task(상위 R) — 지금 구간이 멈추고 잠김, 다음 구간(위 서랍 열기) 안 함.
+    halt.run_id·last.run_id 는 상위 R (E 의 end_task·복구 대상이 그대로 맞게), 재개 보존 없음."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, duration=0.3, located=P2_SINGLE, extra=[("resumable", True)])
+    try:
+        _e_plan_effect(runner)
+        voice.say(compound_goal(f"goal-{stop}"))
+        assert voice.wait(lambda s: s["phase"] == "running" and (s.get("current_step") or "").startswith("s3")), voice.status
+        parent = last_intent(voice.status)["run_id"]
+        voice.say(intent("cancel", targets=()) if stop == "cancel" else end_task(runner.runner.boot_id, parent, "end-c"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "ABORTED", timeout=40), voice.status
+        status = voice.status
+        assert status["phase"] == "halted" and status["last"]["run_id"] == parent
+        assert status["halt"]["run_id"] == parent                                         # child R.1 이 아니라 상위 R
+        assert not (status["halt"].get("resume") or {}).get("offered")                     # 재개 제안 없음
+        assert runner.runner.suspended is None and runner.runner.resumable is True
+        assert runner.runner.state["open"]["drawer_top"] is False                         # 다음 구간 안 함
+        doc = runner.log_store.read_run(parent)["run"]
+        assert doc["overall_status"] == "ABORTED" and [s["run_id"] for s in doc["segments"]] == [f"{parent}.1"]
+    finally:
+        close()
+
+
+
+def test_exception_inside_compound_goal_still_finishes_the_parent_run(tmp_path, monkeypatch):
+    """[#377 E·D 리뷰 P2] 구간 실행(run_plan)이 예외를 던져도 상위 R 은 FAILED·INTERNAL_ERROR 로 끝 기록·last 1회 발행,
+    실행 문(gate)은 풀려 idle — 수락한 요청이 결과 없이 사라지지 않음."""
+    from start_states import P2_SINGLE
+    from ready2go_runner.core import plan_exec
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("시험용 구간 실행 예외")
+    monkeypatch.setattr(plan_exec, "run_plan", boom)
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE)
+    try:
+        _e_plan_effect(runner)
+        voice.say(compound_goal("goal-boom"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=20), voice.status
+        status = voice.status
+        parent = last_intent(status)["run_id"]
+        assert (status["last"]["run_id"], status["last"]["overall_status"], status["last"]["error_code"]) == \
+            (parent, "FAILED", "INTERNAL_ERROR")
+        assert status["phase"] == "idle" and runner.running is False
+        doc = runner.log_store.read_run(parent)["run"]
+        assert doc["overall_status"] == "FAILED" and "예외" in doc["reason"] and doc["segments"] == []
+        failure = status["last"]["failure"]                                              # #376: 묶음 단위 원인은 코드만
+        assert (failure["run_id"], failure["code"], failure["step"], failure["case_id"]) == (parent, "INTERNAL_ERROR", None, None)
+    finally:
+        close()
+
+
+# ---- #376 last.failure · accepted ----
+
+def test_failed_run_publishes_failure_and_status_question_keeps_accepted(tmp_path):
+    """실패한 실행 → last.failure(처음 원인·run_id·boot_id) + accepted(수락 요청). 뒤이은 상태 질문이 last_intent 를 status 로
+    덮어도 accepted·last.failure 는 그대로 — E 가 최신 결정과 최근 수락 요청을 구분 (#376). 성공 실행은 failure null."""
+    runner, voice, close = make_system(tmp_path, mock=[("fail", "pick_object=GRASP_FAILED")])
+    try:
+        voice.say(json.dumps({"intent": "find_item", "targets": ["eraser"], "confidence": 0.9, "request_id": "req-f1"}))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=40), voice.status
+        status = voice.status
+        failure = status["last"]["failure"]
+        assert status["last"]["overall_status"] == "FAILED" and failure is not None
+        assert failure["run_id"] == status["last"]["run_id"] and failure["boot_id"] == status["boot_id"]
+        assert failure["code"] == status["last"]["error_code"] and failure["case_id"] is None
+        assert status["accepted"] == {"request_id": "req-f1", "run_id": status["last"]["run_id"], "task_id": "find_item"}
+        accepted = status["accepted"]
+        voice.say(intent("status", targets=()))
+        assert voice.wait(lambda s: last_intent(s).get("decision") == "status"), voice.status
+        assert voice.status["accepted"] == accepted and voice.status["last"]["failure"] == failure
+    finally:
+        close()
+
+
+def test_successful_run_has_no_failure(system):
+    runner, voice = system
+    voice.say(EXAMPLE)
+    assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") == "COMPLETED"), voice.status
+    assert voice.status["last"]["failure"] is None and voice.status["accepted"]["run_id"] == voice.status["last"]["run_id"]
+
+
+
+def test_compound_goal_failure_carries_the_segment_cause_under_the_parent_run(tmp_path):
+    """[#376·#377] 묶음 계획의 구간(find_with_unpack)이 실패 — last.failure 는 그 구간의 처음 원인(code·step·action)을
+    상위 R 로(run_id = last.run_id = accepted.run_id = R, child R.1 아님). 상위 문서에도 같은 failure."""
+    from start_states import P2_SINGLE
+    runner, voice, close = make_system(tmp_path, located=P2_SINGLE, mock=[("fail", "pick_object=GRASP_FAILED")])
+    try:
+        _e_plan_effect(runner)
+        voice.say(compound_goal("goal-fail"))
+        assert voice.wait(lambda s: (s["last"] or {}).get("overall_status") is not None, timeout=40), voice.status
+        status = voice.status
+        parent, failure = status["last"]["run_id"], status["last"]["failure"]
+        assert status["last"]["overall_status"] == "FAILED" and failure is not None
+        assert failure["run_id"] == parent == status["accepted"]["run_id"] and failure["boot_id"] == status["boot_id"]
+        child = runner.log_store.read_run(f"{parent}.1")["run"]
+        assert (failure["code"], failure["step"]) == (child["failure"]["code"], child["failure"]["step"])
+        assert child["failure"]["run_id"] == f"{parent}.1"                                # 구간 문서는 자기 run_id
+        assert runner.log_store.read_run(parent)["run"]["failure"] == failure
     finally:
         close()

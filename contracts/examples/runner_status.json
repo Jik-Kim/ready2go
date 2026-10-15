@@ -1,5 +1,5 @@
 {
-  "_comment": "/runner/status (std_msgs/String JSON, TRANSIENT_LOCAL) 예시 — docs/runner.md 7.1 `/runner/status`·`/voice/intent` 처리. 이 공동 계약 PR(계약07, E-C-REQUEST-RUN-WIRE-20261011-07 사용자 승인)에서는 기존 칸(phase·task_id·current_step·halt_code·log_store·last·last_intent·state_reset_at)과 last_intent 의 새 칸 request_id·run_id 만 보인다. request_id = 받은 /voice/intent 최상위 request_id 그대로 — 입력에 필드가 없으면 null(입력 request_id 는 있으면 비어 있지 않은 문자열만, null·빈 문자열은 스키마 위반 hold BAD_INTENT). run_id = Runner 가 실제로 수락(decision run)할 때 정한 실행 ID — 보류·거절·cancel·status 는 null, 빠른 완료로 결정 발행 전에 실행이 끝나도 같은 값. 최종 결과는 기존 last.run_id 로 대조(E 는 last.run_id == 그 요청의 run_id 일 때만 완료 안내). last_intent 는 마지막 요청 1건의 결정만 — 실행 중 다른 요청이 오면 last_intent 가 그 요청(reject BUSY)으로 바뀌므로 E 는 앞 요청의 run_id 를 자기 쪽에 보관한다. 같은 boot 안 같은 request_id 재전송은 같은 결정을 다시 발행(재실행·TTS 없음), 같은 ID + 다른 내용은 첫 결정 유지(새 내용 실행 없음, 경고 기록). halt(정지 사건 요약)는 #152·#187 계약(E 대화 승인 10/13, 사용자 전달 — #259, 이 파일 halt 사례 — `stop_*`·`halted_object_dropped`): 잠김·재개 대기일 때만, 아니면 null. code·cause(halt_motion·estop·stop·unconfirmed·locked) = 왜 멈췄나, source(service·voice·backend)·requested_at = 정지 요청, canceled_goals = 요청 때 취소를 보낸 진행 중 로봇 스킬(/skills/*) goal 수 — 음성 goal 은 세지 않음, stop = 요청과 실제 정지 확인 구분(requested = 진행 중이던 동작의 최종 결과 대기 — 이때 phase 는 아직 running / confirmed = 백엔드 최종 결과 받음 / unconfirmed = 정해진 시간 안에 정지 확인 없음, 잠금 / none = 요청 때 보낸 동작이 없었음), response_code·response_received_at = 진행 중이던 동작의 백엔드 최종 응답 코드(CANCELED·STOP_UNCONFIRMED·ESTOP 등)와 Runner 가 그 응답을 받은 시각(UTC — 실제 로봇 정지 시각 아님, B 실측 시각은 별도), locked = Runner 잠김. boot_id = Runner 기동마다 새 값, run_id = 정지 요청 때 진행 중이던 실행(실행 사이 요청이면 null) — E 는 boot_id·run_id·event_id 가 같은 halt 만 같은 사건으로 본다. 한 사건의 첫 응답만 쓰고 바꾸지 않음: 다시 정지(잠긴 채 \"멈춰\")·잠긴 동안 새 요청(거절 실행, last.run_id 는 그 거절 실행 — stop_confirmed_then_refused_new_request)·반복 발행은 halt 를 바꾸지 않음. 늦은 백엔드 응답(5 s 대기 뒤)은 Runner 가 이미 STOP_UNCONFIRMED 로 끝내 반영하지 않음(unconfirmed 가 confirmed 로 바뀌지 않음). unconfirmed 는 두 가지: B 가 STOP_UNCONFIRMED 등을 최종 결과로 줌(response_code·response_received_at 있음, stop_unconfirmed_halted) / B 최종 결과를 못 받음 — 응답 유실·통신 예외·어댑터 5 s 시간 초과·Runner 안 확인만(response_code·response_received_at null, stop_no_backend_result). Runner 안에서 멈춘 기록(HALTED)과 음성(speak) 등 B 스킬이 아닌 동작의 결과는 응답으로 세지 않음. 시간 초과 취소 대기 중 정지면 response_code 는 B 원래 코드(실행 기록 코드는 TIMEOUT 그대로). B 가 취소 직전에 성공으로 끝냈으면 confirmed 에 response_code null. stop 이 confirmed 가 아니면 \"멈췄다\"고 안내하지 않음. 같은 내용이 실행 기록 extra.halts[] 에 남음. (#259 단계 설명 — 재개 표시 halt.resume 과 최상위 boot_id·seq 는 아래 계약 W4 에서 추가.) 값은 형식 예시이며 실측 아님. Runner 구현은 계약 병합 뒤 운영 PR. 계약 W4 (#271, 구현 #285 위 PR): 최상위 boot_id(halt.boot_id 와 같은 값, Runner 기동마다 새로)·seq(같은 boot_id 안에서 바뀐 상태를 보낼 때마다 +1, 큰 것이 최신 — E 는 낮은 seq 버림)·stamp(보낸 시각 UTC, 표시용). halt.resume(재개 대기일 때만, 아니면 null): offered(잠금 풀림 + C 제안 기한 안 — 재개 허가 아님)·from_step·needs(재진입 그리퍼 조건)·question·request(재개 질문·답 구현 전 null)·hold_until(제안 창을 열 때 정한 고정 UTC 시각 — 만료 뒤에도 같은 값)·hold_remaining_s(C monotonic 시계로 계산, 만료 뒤 0 에서 멈춤 — 만료 뒤에는 상태가 바뀌지 않아 seq 도 늘지 않음, 보존 작업 기한 아님) — suspended_resume_offered.",
+  "_comment": "/runner/status (std_msgs/String JSON, TRANSIENT_LOCAL) 예시 — docs/runner.md 7.1 `/runner/status`·`/voice/intent` 처리. 이 공동 계약 PR(계약07, E-C-REQUEST-RUN-WIRE-20261011-07 사용자 승인)에서는 기존 칸(phase·task_id·current_step·halt_code·log_store·last·last_intent·state_reset_at)과 last_intent 의 새 칸 request_id·run_id 만 보인다. request_id = 받은 /voice/intent 최상위 request_id 그대로 — 입력에 필드가 없으면 null(입력 request_id 는 있으면 비어 있지 않은 문자열만, null·빈 문자열은 스키마 위반 hold BAD_INTENT). run_id = Runner 가 실제로 수락(decision run)할 때 정한 실행 ID — 보류·거절·cancel·status 는 null, 빠른 완료로 결정 발행 전에 실행이 끝나도 같은 값. 최종 결과는 기존 last.run_id 로 대조(E 는 last.run_id == 그 요청의 run_id 일 때만 완료 안내). last_intent 는 마지막 요청 1건의 결정만 — 실행 중 다른 요청이 오면 last_intent 가 그 요청(reject BUSY)으로 바뀌므로 E 는 앞 요청의 run_id 를 자기 쪽에 보관한다. 같은 boot 안 같은 request_id 재전송은 같은 결정을 다시 발행(재실행·TTS 없음), 같은 ID + 다른 내용은 첫 결정 유지(새 내용 실행 없음, 경고 기록). halt(정지 사건 요약)는 #152·#187 계약(E 대화 승인 10/13, 사용자 전달 — #259, 이 파일 halt 사례 — `stop_*`·`halted_object_dropped`): 잠김·재개 대기일 때만, 아니면 null. code·cause(halt_motion·estop·stop·unconfirmed·locked) = 왜 멈췄나, source(service·voice·backend)·requested_at = 정지 요청, canceled_goals = 요청 때 취소를 보낸 진행 중 로봇 스킬(/skills/*) goal 수 — 음성 goal 은 세지 않음, stop = 요청과 실제 정지 확인 구분(requested = 진행 중이던 동작의 최종 결과 대기 — 이때 phase 는 아직 running / confirmed = 백엔드 최종 결과 받음 / unconfirmed = 정해진 시간 안에 정지 확인 없음, 잠금 / none = 요청 때 보낸 동작이 없었음), response_code·response_received_at = 진행 중이던 동작의 백엔드 최종 응답 코드(CANCELED·STOP_UNCONFIRMED·ESTOP 등)와 Runner 가 그 응답을 받은 시각(UTC — 실제 로봇 정지 시각 아님, B 실측 시각은 별도), locked = Runner 잠김. boot_id = Runner 기동마다 새 값, run_id = 정지 요청 때 진행 중이던 실행(실행 사이 요청이면 null) — E 는 boot_id·run_id·event_id 가 같은 halt 만 같은 사건으로 본다. 한 사건의 첫 응답만 쓰고 바꾸지 않음: 다시 정지(잠긴 채 \"멈춰\")·잠긴 동안 새 요청(거절 실행, last.run_id 는 그 거절 실행 — stop_confirmed_then_refused_new_request)·반복 발행은 halt 를 바꾸지 않음. 늦은 백엔드 응답(5 s 대기 뒤)은 Runner 가 이미 STOP_UNCONFIRMED 로 끝내 반영하지 않음(unconfirmed 가 confirmed 로 바뀌지 않음). unconfirmed 는 두 가지: B 가 STOP_UNCONFIRMED 등을 최종 결과로 줌(response_code·response_received_at 있음, stop_unconfirmed_halted) / B 최종 결과를 못 받음 — 응답 유실·통신 예외·어댑터 5 s 시간 초과·Runner 안 확인만(response_code·response_received_at null, stop_no_backend_result). Runner 안에서 멈춘 기록(HALTED)과 음성(speak) 등 B 스킬이 아닌 동작의 결과는 응답으로 세지 않음. 시간 초과 취소 대기 중 정지면 response_code 는 B 원래 코드(실행 기록 코드는 TIMEOUT 그대로). B 가 취소 직전에 성공으로 끝냈으면 confirmed 에 response_code null. stop 이 confirmed 가 아니면 \"멈췄다\"고 안내하지 않음. 같은 내용이 실행 기록 extra.halts[] 에 남음. (#259 단계 설명 — 재개 표시 halt.resume 과 최상위 boot_id·seq 는 아래 계약 W4 에서 추가.) 값은 형식 예시이며 실측 아님. Runner 구현은 계약 병합 뒤 운영 PR. 계약 W4 (#271, 구현 #285 위 PR): 최상위 boot_id(halt.boot_id 와 같은 값, Runner 기동마다 새로)·seq(같은 boot_id 안에서 바뀐 상태를 보낼 때마다 +1, 큰 것이 최신 — E 는 낮은 seq 버림)·stamp(보낸 시각 UTC, 표시용). halt.resume(재개 대기일 때만, 아니면 null): offered(잠금 풀림 + C 제안 기한 안 — 재개 허가 아님)·from_step·needs(재진입 그리퍼 조건)·question·request(재개 질문·답 구현 전 null)·hold_until(제안 창을 열 때 정한 고정 UTC 시각 — 만료 뒤에도 같은 값)·hold_remaining_s(C monotonic 시계로 계산, 만료 뒤 0 에서 멈춤 — 만료 뒤에는 상태가 바뀌지 않아 seq 도 늘지 않음, 보존 작업 기한 아님) — suspended_resume_offered. #376 (C 형식·B 보완·E 확인 10/15 — E 포함 2명 승인 전): last.failure {run_id, boot_id, code, step, action, case_id, strategy, text} — FAILED 의 처음 원인만, ABORTED·SUSPENDED·COMPLETED·시작 전 거절은 null. 최상위 accepted {request_id, run_id, task_id} = 이번 기동에서 최근 수락(run)한 요청 — last_intent 는 BUSY·status·cancel 결정으로 덮이므로 따로.",
   "cases": [
     {
       "case": "accepted_running",
@@ -24,6 +24,11 @@
           "request_id": "req-0007",
           "run_id": "2026-10-11T05:02:10Z_7a1c3e"
         },
+        "accepted": {
+          "request_id": "req-0007",
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e",
+          "task_id": "find_item"
+        },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 10,
@@ -45,7 +50,8 @@
           "error_code": null,
           "failed_step": null,
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": null,
         "last_intent": {
@@ -60,6 +66,11 @@
           "task_id": "find_item",
           "request_id": "req-0007",
           "run_id": "2026-10-11T05:02:10Z_7a1c3e"
+        },
+        "accepted": {
+          "request_id": "req-0007",
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e",
+          "task_id": "find_item"
         },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
@@ -90,6 +101,7 @@
           "request_id": "req-0008",
           "run_id": null
         },
+        "accepted": null,
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 30,
@@ -111,7 +123,8 @@
           "error_code": null,
           "failed_step": null,
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": null,
         "last_intent": {
@@ -126,6 +139,11 @@
           "task_id": null,
           "request_id": "req-0010",
           "run_id": null
+        },
+        "accepted": {
+          "request_id": null,
+          "run_id": "2026-10-11T04:58:00Z_2b9d41",
+          "task_id": "find_item"
         },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
@@ -148,7 +166,8 @@
           "error_code": null,
           "failed_step": null,
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": null,
         "last_intent": {
@@ -163,6 +182,11 @@
           "task_id": "find_item",
           "request_id": null,
           "run_id": "2026-10-11T05:02:10Z_7a1c3e"
+        },
+        "accepted": {
+          "request_id": null,
+          "run_id": "2026-10-11T05:02:10Z_7a1c3e",
+          "task_id": "find_item"
         },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
@@ -205,6 +229,7 @@
           "request_id": null,
           "run_id": null
         },
+        "accepted": null,
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 60,
@@ -226,7 +251,8 @@
           "error_code": "HALTED",
           "failed_step": "s5.1",
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": {
           "boot_id": "3f9c1a7b2e44",
@@ -254,6 +280,11 @@
           "request_id": null,
           "run_id": null
         },
+        "accepted": {
+          "request_id": null,
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
+          "task_id": "find_item"
+        },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 70,
@@ -275,7 +306,8 @@
           "error_code": "HALTED",
           "failed_step": "s5.1",
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": {
           "boot_id": "3f9c1a7b2e44",
@@ -303,6 +335,11 @@
           "request_id": null,
           "run_id": null
         },
+        "accepted": {
+          "request_id": null,
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
+          "task_id": "find_item"
+        },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 80,
@@ -324,7 +361,8 @@
           "error_code": "HALTED",
           "failed_step": "s5.1",
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": {
           "boot_id": "3f9c1a7b2e44",
@@ -351,6 +389,11 @@
           "task_id": null,
           "request_id": null,
           "run_id": null
+        },
+        "accepted": {
+          "request_id": null,
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
+          "task_id": "find_item"
         },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
@@ -395,6 +438,11 @@
           "request_id": "req-0010",
           "run_id": "2026-10-12T12:58:00Z_19c0d2"
         },
+        "accepted": {
+          "request_id": "req-0010",
+          "run_id": "2026-10-12T12:58:00Z_19c0d2",
+          "task_id": "find_item"
+        },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 100,
@@ -416,7 +464,8 @@
           "error_code": "OBJECT_DROPPED",
           "failed_step": "s6.1",
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": {
           "boot_id": "3f9c1a7b2e44",
@@ -446,6 +495,11 @@
           "request_id": "req-0011",
           "run_id": "2026-10-12T13:00:05Z_4b2e91"
         },
+        "accepted": {
+          "request_id": "req-0011",
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
+          "task_id": "find_item"
+        },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 110,
@@ -469,7 +523,8 @@
           "problems": [
             "중단 상태입니다. 사람이 확인한 뒤 resume() 해야 실행합니다"
           ],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": {
           "boot_id": "3f9c1a7b2e44",
@@ -499,6 +554,11 @@
           "request_id": "req-0012",
           "run_id": "2026-10-12T13:01:10Z_8d77a0"
         },
+        "accepted": {
+          "request_id": "req-0012",
+          "run_id": "2026-10-12T13:01:10Z_8d77a0",
+          "task_id": "find_item"
+        },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 120,
@@ -520,7 +580,8 @@
           "error_code": "HALTED",
           "failed_step": "s5.1",
           "problems": [],
-          "log_errors": []
+          "log_errors": [],
+          "failure": null
         },
         "halt": {
           "boot_id": "3f9c1a7b2e44",
@@ -556,10 +617,172 @@
           "request_id": null,
           "run_id": null
         },
+        "accepted": {
+          "request_id": null,
+          "run_id": "2026-10-12T13:00:05Z_4b2e91",
+          "task_id": "find_item"
+        },
         "state_reset_at": null,
         "boot_id": "3f9c1a7b2e44",
         "seq": 200,
         "stamp": "2026-10-13T05:31:00.000Z"
+      }
+    },
+    {
+      "case": "failed_with_refusal_reason",
+      "_comment": "#376 (C 형식·B 보완·E 확인 10/15, 계약 승인 전): FAILED 의 처음 원인 last.failure. case_id·strategy 는 실패한 그 스텝(s8.m5 make_room)의 B 결과가 strategy == impossible 일 때만, text 는 E knowledge/refusal_reasons 문장(없으면 failure_speech). accepted = 최근 수락 요청 — failure.run_id == last.run_id == accepted.run_id 이고 failure.boot_id == boot_id 이며 phase 가 running 이 아닐 때만 '왜 멈췄어?' 에 답함",
+      "status": {
+        "phase": "idle",
+        "task_id": null,
+        "current_step": null,
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": {
+          "task_id": "find_with_unpack",
+          "run_id": "2026-10-15T03:40:12Z_c41e09",
+          "overall_status": "FAILED",
+          "error_code": "NEIGHBOR_TOO_CLOSE",
+          "failed_step": "s8.m5",
+          "problems": [],
+          "log_errors": [],
+          "failure": {
+            "run_id": "2026-10-15T03:40:12Z_c41e09",
+            "boot_id": "3f9c1a7b2e44",
+            "code": "NEIGHBOR_TOO_CLOSE",
+            "step": "s8.m5",
+            "action": "nudge_object",
+            "case_id": "cluster_front_wall",
+            "strategy": "impossible",
+            "text": "차키가 손잡이 쪽 벽 가까이 다른 물건들과 붙어 있어 손가락이 들어갈 자리를 만들지 못했어요"
+          }
+        },
+        "halt": null,
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "car_key"
+          ],
+          "confidence": 0.93,
+          "stt_text": "차키 가져와",
+          "decision": "run",
+          "reason": null,
+          "task_id": "find_with_unpack",
+          "request_id": "req-0031",
+          "run_id": "2026-10-15T03:40:12Z_c41e09"
+        },
+        "accepted": {
+          "request_id": "req-0031",
+          "run_id": "2026-10-15T03:40:12Z_c41e09",
+          "task_id": "find_with_unpack"
+        },
+        "state_reset_at": null,
+        "boot_id": "3f9c1a7b2e44",
+        "seq": 60,
+        "stamp": "2026-10-13T05:12:00.000Z"
+      }
+    },
+    {
+      "case": "status_question_after_failure",
+      "_comment": "#376: '왜 멈췄어?' 상태 질문으로 last_intent 가 status 결정으로 덮여도 accepted 는 그대로 — 최신 결정(last_intent)과 최근 수락 요청(accepted)을 구분",
+      "status": {
+        "phase": "idle",
+        "task_id": null,
+        "current_step": null,
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": {
+          "task_id": "find_with_unpack",
+          "run_id": "2026-10-15T03:40:12Z_c41e09",
+          "overall_status": "FAILED",
+          "error_code": "NEIGHBOR_TOO_CLOSE",
+          "failed_step": "s8.m5",
+          "problems": [],
+          "log_errors": [],
+          "failure": {
+            "run_id": "2026-10-15T03:40:12Z_c41e09",
+            "boot_id": "3f9c1a7b2e44",
+            "code": "NEIGHBOR_TOO_CLOSE",
+            "step": "s8.m5",
+            "action": "nudge_object",
+            "case_id": "cluster_front_wall",
+            "strategy": "impossible",
+            "text": "차키가 손잡이 쪽 벽 가까이 다른 물건들과 붙어 있어 손가락이 들어갈 자리를 만들지 못했어요"
+          }
+        },
+        "halt": null,
+        "last_intent": {
+          "intent": "status",
+          "targets": [],
+          "confidence": 0.93,
+          "stt_text": "왜 멈췄어",
+          "decision": "status",
+          "reason": null,
+          "task_id": null,
+          "request_id": null,
+          "run_id": null
+        },
+        "accepted": {
+          "request_id": "req-0031",
+          "run_id": "2026-10-15T03:40:12Z_c41e09",
+          "task_id": "find_with_unpack"
+        },
+        "state_reset_at": null,
+        "boot_id": "3f9c1a7b2e44",
+        "seq": 61,
+        "stamp": "2026-10-13T05:12:00.000Z"
+      }
+    },
+    {
+      "case": "failed_task_error_without_reason",
+      "_comment": "#376: 태스크가 남긴 task_error(NO_FREE_SPACE @ s7.0c)도 last.failure 에 — 그 스텝 결과에 impossible 난제가 없으면 case_id·strategy null, text null(E 가 코드 안내로)",
+      "status": {
+        "phase": "idle",
+        "task_id": null,
+        "current_step": null,
+        "halt_code": null,
+        "log_store": "mongo",
+        "last": {
+          "task_id": "find_with_unpack",
+          "run_id": "2026-10-15T03:40:12Z_c41e09",
+          "overall_status": "FAILED",
+          "error_code": "NO_FREE_SPACE",
+          "failed_step": "s7.0c",
+          "problems": [],
+          "log_errors": [],
+          "failure": {
+            "run_id": "2026-10-15T03:40:12Z_c41e09",
+            "boot_id": "3f9c1a7b2e44",
+            "code": "NO_FREE_SPACE",
+            "step": "s7.0c",
+            "action": "place_object",
+            "case_id": null,
+            "strategy": null,
+            "text": null
+          }
+        },
+        "halt": null,
+        "last_intent": {
+          "intent": "find_item",
+          "targets": [
+            "car_key"
+          ],
+          "confidence": 0.93,
+          "stt_text": "차키 가져와",
+          "decision": "run",
+          "reason": null,
+          "task_id": "find_with_unpack",
+          "request_id": "req-0031",
+          "run_id": "2026-10-15T03:40:12Z_c41e09"
+        },
+        "accepted": {
+          "request_id": "req-0031",
+          "run_id": "2026-10-15T03:40:12Z_c41e09",
+          "task_id": "find_with_unpack"
+        },
+        "state_reset_at": null,
+        "boot_id": "3f9c1a7b2e44",
+        "seq": 60,
+        "stamp": "2026-10-13T05:12:00.000Z"
       }
     }
   ]

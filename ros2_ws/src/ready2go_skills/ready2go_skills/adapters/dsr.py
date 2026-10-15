@@ -46,7 +46,7 @@ class Dsr:
                     for k, (t, name) in SPEC.items()}
 
     def ready(self, timeout=3.0):
-        """기본 서비스가 다 떴는지 — 힘 제어(drag.force_mode 에서만 씀)는 빼고 봄 (힘 제어가 없는 시뮬·트윈에서도 준비로)."""
+        """기본 서비스가 다 떴는지 — 선택 서비스(OPTIONAL_KEYS: 힘 제어·movesx)는 빼고 봄 (없는 시뮬·트윈에서도 준비로)."""
         return all(c.wait_for_service(timeout_sec=timeout) for k, c in self.cli.items() if k not in OPTIONAL_KEYS)
 
     def call(self, key, timeout=2.0, **kw):

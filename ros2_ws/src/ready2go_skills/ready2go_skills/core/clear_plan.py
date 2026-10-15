@@ -342,7 +342,7 @@ class Config:
     neighbor_r_m: float = 0.08               # 목표 둘레 이 거리 안 물체는 옮겨 볼 후보
     avoid_pad_mm: float = 25.0               # 치운 물체를 목표에서 이만큼 떨어뜨려 놓음 (먼저 봄)
     near_pad_mm: float = 5.0                 # 위가 없으면 이만큼까지 가까이 — 목표 집기 손가락 자리를 안 막을 때만
-    reach_x_m: Optional[float] = None
+    reach_x_m: Optional[float] = None        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
     remove_first: bool = True                # 옆 물체를 같이 미는 밀기보다 막는 물체 집어 치우기 먼저 — 실행 값 make_room.remove_first [사용자 10/12]
     narrow_of: Optional[Callable] = None     # 손잡이 폭(m) — 누를 점을 폭 방향으로 비킬 범위 (몽키·망치 item_grasp)
     press_center_only_classes: Sequence[str] = ("toy_wrench",)   # 가운데만 누름 — 머리·끝은 윗면이 낮음 [사용자 10/13 PC2]
@@ -351,7 +351,7 @@ class Config:
     front_penalty_m: float = 0.05            # (서랍이 닫힘) 사방이 막혀 못 풂 [사용자 10/13 "sweep 할 때 손잡이 쪽 벽엔 최대한 붙이지 말기"] — 이동 거리로 셈
     sweep_max_m: Optional[float] = None      # 밀기(sweep) 최대 거리 — 없으면 max_shift_m. 실행 값 make_room.sweep_max_mm
     remove_min_move_m: float = 0.0           # 막는 물체 치울 빈 자리가 지금 자리에서 이만큼은 떨어져야 함 — 0 = 안 봄(지금) [제안 10/15 B, #364 sim: 같은 자리로 다시 치우기 반복]
-    press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]        # 손이 수직으로 닿는 물체 가운데 x 최대 (drawer_reach_x_mm) — 빈 자리 후보에서 미리 뺌
+    press_finger_r_mm: float = 16.0          # 누르는 닫은 손가락 범위(원 반지름) — 실행 값은 skills.yaml make_room.press_finger_r_mm [팀 확정 필요]
 
 
 def _round_axis_ok(t: Mapping, u: tuple, cfg: Config) -> bool:
