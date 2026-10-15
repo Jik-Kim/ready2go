@@ -787,6 +787,122 @@ td {
   font-weight: 750;
 }
 
+/* #348의 최근 촬영은 현재 작업 상세 안에서 제목·16:9 사진·시각 정보를 함께 보여준다. */
+.recent-capture {
+  display: grid;
+  grid-template-columns: 120px minmax(360px, 1fr) minmax(230px, 0.72fr);
+  align-items: start;
+  gap: 22px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--white);
+}
+
+.recent-capture h3 {
+  color: var(--navy-950);
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+
+/* 실제 JPEG는 비율을 유지해 마스크·라벨이 잘리지 않도록 contain으로 표시한다. */
+.capture-viewport {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: #0b1831;
+}
+
+.capture-viewport img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* 사진 자체의 최신성과 camera_info 연결 배지를 섞지 않고 사진 위에서만 안내한다. */
+.capture-status {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  left: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgb(11 24 49 / 82%);
+  color: var(--white);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.capture-status.is-warning {
+  background: rgb(174 92 0 / 90%);
+}
+
+.capture-status.is-error {
+  background: rgb(180 35 35 / 90%);
+}
+
+.capture-empty {
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  padding: 20px;
+  color: var(--white);
+  text-align: center;
+}
+
+/* author display 규칙이 HTML hidden 속성을 덮어쓰지 않게 사진·빈 상태를 확실히 숨긴다. */
+.capture-empty[hidden],
+.capture-viewport img[hidden],
+.capture-status[hidden] {
+  display: none;
+}
+
+.capture-empty strong {
+  font-size: 1rem;
+}
+
+.capture-empty span {
+  color: #c3ccdc;
+  font-size: 0.76rem;
+}
+
+.capture-metadata {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 0 0 22px;
+  border-left: 1px solid var(--gray-200);
+}
+
+.capture-metadata dt {
+  color: var(--gray-700);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.capture-metadata dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--navy-950);
+  font-size: 1.2rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
+.capture-metadata .capture-guidance dd {
+  color: var(--gray-700);
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
 .progress-steps li {
   position: relative;
   display: grid;
@@ -1422,6 +1538,15 @@ dialog::backdrop {
   .dashboard-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  /* 태블릿 폭에서는 제목을 한 줄로 올리고 사진과 메타데이터 폭을 확보한다. */
+  .recent-capture {
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 0.7fr);
+  }
+
+  .recent-capture h3 {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1431,6 +1556,28 @@ dialog::backdrop {
     gap: 12px;
     min-height: auto;
     padding: 18px 16px 12px;
+  }
+
+  /* 휴대폰에서는 사진을 먼저 확인하고 그 아래에서 촬영 시각을 읽게 세로 배치한다. */
+  .recent-capture {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .recent-capture h3 {
+    grid-column: auto;
+  }
+
+  .capture-metadata {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 0;
+    border-left: 0;
+  }
+
+  .capture-guidance {
+    grid-column: 1 / -1;
   }
 
   .brand-lockup {
