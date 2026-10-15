@@ -7,6 +7,7 @@
 - **최종 갱신**: 2026-10-15
 
 ## 지금 상태
+- [실측] 2026-10-15 학원 공용 PC2(MSI)에서 A가 실행한 오버레이 실물 확인에 같이 참여해 PC1 브라우저 '최근 촬영' 칸 표시와 실제 회차 S2(run `0d8e38`) 중 촬영마다 사진이 실시간으로 바뀌는 것을 확인함(`vision_overlay` `revision` 6·`rejected_count` 0, main `d28fd55`). 화면 확인 순서·공용 PC 주의는 `web/README.md` "PC2 실물 연결 확인" 절(A가 기록, 같은 PR).
 - [코드·문서·실측] PR #368 검토를 반영해 새 Flask 프로세스마다 사진 캐시 `cache_id`를 만들고 브라우저가 `cache_id + revision`을 함께 비교하도록 보강함. 새 서버의 첫 사진도 revision 1인 경우 열린 브라우저가 이전 blob을 유지하는 문제를 막고, JPEG API가 요청한 캐시 ID와 현재 캐시가 다르면 409로 재조회 경계를 제공함. 웹 README의 새 터미널 기동 절차에 저장소 루트, ROS workspace overlay, 로컬 REST 확인, `0.0.0.0` 바인딩과 LAN IP를 이용한 다른 PC·휴대폰 접속 명령을 정리했으며 실제 headless Chrome을 포함한 웹 전체 시험은 `130 passed`임.
 - [코드·실측] `/vision/inspect_overlay`의 JPEG 형식 오류·`frame_id` 불일치·잘못된 메시지를 사진 캐시에 누적 진단하고 `/api/status.vision_overlay`에 거부 횟수, 마지막 사유·시각·frame ID를 제공함. Runtime 종료 시 사진과 진단을 함께 초기화하며, 사진이 없고 마지막 거부 사유가 `frame_id_mismatch`이면 UI에서 단순 미촬영 대신 `촬영 사진 확인 전 · 카메라 프레임 불일치`로 표시함. Vision PR #370과 맞춰 이전 stamp만 거부하고 같은 stamp 재발행은 새 JPEG revision으로 교체하며, sim time이 뒤로 간 경우 웹 Runtime 재기동으로 캐시를 초기화하는 제한·복구 방법을 웹 README에 기록함.
 - [코드·실측] 이슈 #348 최근 촬영 브라우저 연결을 추가해 `/api/status.vision_overlay`의 revision이 새로울 때만 같은 revision의 `/api/vision/overlay.jpg`를 요청하고, KST 촬영 시각과 서버가 계산한 촬영 경과를 표시함. 상태와 JPEG 사이 경합으로 409가 발생하면 해당 revision을 반복 요청하지 않고 다음 상태 polling의 새 revision으로 재시도하며, 느린 이전 응답이 새 사진을 덮지 않게 함. 사진 없음·확인 불가·오래된 사진을 구분하고 blob URL을 교체·종료 때 해제함. 오버레이 사진 상태는 `/wrist_cam/color/camera_info` 기반 상단 카메라 배지와 분리했으며 실제 headless Chrome 회귀를 포함한 웹 전체 시험 `122 passed`를 확인함.
