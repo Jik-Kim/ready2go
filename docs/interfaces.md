@@ -15,7 +15,7 @@ Day 1에 확정하고, 이후 변경은 전원 합의 후 이 표를 먼저 수�
 | TTS 요청 (`speak` 원자 동작) | `/voice/speak` | action `Skill` | ros2-core → voice |
 | 인식 | `/vision/inspect_region` | service `InspectRegion` (req: `region`, `search_target` / res: `success`, `error_code`, `result_json`; 에러 코드 표는 [runner.md](runner.md)) | ros2-core → vision |
 | 로봇 원자 동작 | `/skills/<action_name>` | action `Skill` (goal: `params_json` / result: `success`, `error_code`, `output_json` / feedback: `stage`) | Runner → 백엔드 |
-| 로봇 조인트 상태 | `/dsr01/joint_states` | `sensor_msgs/JointState` | DSR 드라이버(real·sim) → Isaac Sim 트윈. **P2 선행 구현:** 에뮬레이터 미러링 확인, 실물 미러링 미확인([twin.md](twin.md)) |
+| 로봇 조인트 상태 | `/dsr01/joint_states` | `sensor_msgs/JointState` | DSR 드라이버(real·sim) → Isaac Sim 트윈. **P2 선행 구현:** 에뮬레이터 미러링 확인, 실물 미러링 확인(관절 6축, PC1 local DDS 10/11 — PC1↔PC2 multi DDS·지연 수치 미측정, [twin.md](twin.md)) |
 | 그리퍼 상태 | `/gripper/state` | JSON 문자열 (`width` m, `grasp_detected`) | **P1 발행 구현:** `ready2go_skills` RG2 상태 노드 → ROS 토픽. Runner·트윈의 토픽 구독 연결은 미구현이며, P1 실물 스킬은 RG2 상태를 백엔드 안에서 직접 읽음 |
 | 그리퍼 명령 (sim 전용) | `/gripper/command` | JSON 문자열 | **P2 트윈 계획, 미구현:** sim 백엔드 → Isaac Sim |
 | 서랍 상태 | `/drawers/state` | JSON 문자열 (`drawer_id`, `displacement`) | **P2 트윈·관측 계획, 미구현:** 백엔드 → Runner·트윈. P1은 `drawer_control` 액션 응답의 `drawer_displacement`를 사용 |
