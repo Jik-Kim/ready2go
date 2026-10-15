@@ -887,3 +887,11 @@ PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_knowledge"
 로컬 CI [실측] head `96640d8` (96640d8c41e3cd873965171424a316277cae1812, 전체) — validate_contracts OK / pytest 3581 passed, 44 skipped (py3.12, REQUIRE_MONGO=1) / compose real·sim·dev OK / colcon build OK (tools/dev/ci_local.sh@aa5aa0f, 10/15 16:22)
 
 - [미검증/인계] FR-INT-02(P3)·FR-ONT-03·UC-P3·FR-INT-03의 기존 범위입니다. ROS/장치/PCM은 모의이며 실API·마이크/스피커·Melo합성·ROS/DDS·PC2 적용·실로봇/물리AC는 미검증입니다. C② 구조화 안내 계약 후속 분리 합의와 최종 PR 재검토는 조율 세션에 인계합니다. main 병합은 수행하지 않습니다.
+
+### #384 문서 정합성 정정 — 2026-10-15
+
+- [승인/범위] 사용자 승인으로 Voice README 지원표·범위, docs/ontology.md와 이 기록만 수정합니다. PR 검토 기준은 head ef8064f9cf157dac9861873f4baecf8fc842d014 / base 454dcf0018d5e853fef5eb0f245cfcd1737e9f83입니다. 기존 E 리뷰5529656653의 P2 문서 불일치(프로젝트 Phase P3와 별개)를 반영하며 코드·계약·설정·C/B 원본은 변경하지 않습니다.
+- [문서] find_list/find_class 실행, Runner 발행 없는 목록 내용 조회, 미지원 query_state를 지원표에서 분리했습니다. request_run/evaluation·현재 C 연결과 배포/실물 미검증을 보존하고, E 패키지의 P3 범위·관련 파일 역할을 맞췄습니다.
+- [문서] 첫 TTL 시험은 예제·당시 미연결 이력으로 보존하고 운영 semantics.ttl→E/C 현재 연결과 초기 airpods_case 위치 추가를 구분했습니다. 초기 프리셋을 현재 관측/재고·파지 승인·실물 완료로 설명하지 않습니다.
+- [실측: 이번 정적 검사] 수정 문서2개 상대 링크210건·앵커131건 대상 확인, bash13블록 구문 정상(placeholder2개 제외), 개인 홈 절대 경로 없음, git diff --check 정상. 구문 검사는 실제 기동 성공 근거가 아닙니다. CI SHA96640d8c 이후 차이는 승인 문서3개뿐임을 확인했습니다.
+- [기존 근거/미검증] 코드96640d8c의 전체CI3581passed44skipped 및 해당 코드/기존 head의 의미 음성 회귀51passed는 기존 기록을 재사용합니다. 이번 새 head에서 실행한 검사로 보고하지 않으며 문서 전용이라 CI·전체 테스트·빌드를 반복하지 않습니다. 호스트 knowledge/voice/runner·Runner 컨테이너 같은 버전 재빌드/재시작, 실API·마이크/스피커·Melo합성·ROS/DDS·PC2·로봇/물리AC는 미검증입니다. 기존 PR에 정상push·후속 코멘트를 반영하며 main 병합은 별도입니다.
