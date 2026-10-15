@@ -1,6 +1,12 @@
 """core/layout_case — 배치 난제 이름·전략 [제안 10/15 B, 계약 ④ 승인 전 — #364]. 로봇 없음."""
+import json
+from pathlib import Path
+
 from ready2go_skills.core import clear_plan as clp
 from ready2go_skills.core import layout_case as lc
+
+IDS = {c["id"] for c in json.loads((Path(__file__).resolve().parents[4] / "practice/B/ontology/layout_cases.json")
+                                   .read_text(encoding="utf-8"))["cases"]}
 
 SIZE = {"eraser": (0.05, 0.022, 0.012), "toy_hammer": (0.17, 0.04, 0.02), "lip_balm": (0.07, 0.018, 0.018),
         "caramel_box": (0.06, 0.04, 0.037), "cover_plate": (0.12, 0.08, 0.035), "car_key": (0.06, 0.03, 0.016)}
@@ -16,8 +22,10 @@ def obj(i, cls, x, y, yaw=0.0, occ=()):
             "pose": {"frame": "drawer_top", "position": [x, y, 0.0], "yaw": yaw, "yaw_valid": True}}
 
 
-def cls_(objs, tid, kind, target="", code="", reason="", reach=None, can_pick=None):
-    return lc.classify(objs, tid, clp.Action(kind, target or tid, reason, code=code), size_of, INTERIOR, reach, can_pick)
+def cls_(objs, tid, kind, target="", code="", reason="", reach=None, can_pick=lambda i: True):
+    got = lc.classify(objs, tid, clp.Action(kind, target or tid, reason, code=code), size_of, INTERIOR, reach, can_pick)
+    assert got["case_id"] is None or got["case_id"] in IDS          # layout_cases.json(#364) 의 난제 id 만
+    return got
 
 
 def test_strategy_is_plan_action_kind():
@@ -43,9 +51,9 @@ def test_fail_front_wall_cluster_and_pinned_plate():
     assert cls_([t] + nbs, "eraser#1", "fail", reason="벌린 손가락 자리에 caramel_box#1")["case_id"] == "cluster_front_wall"
     t2 = obj("eraser#1", "eraser", 0.15, 0.2)
     plate = obj("cover_plate#1", "cover_plate", 0.15, 0.27)
-    got = cls_([t2, plate], "eraser#1", "fail", reason="끄는 길에 cover_plate#1", can_pick=lambda i: False)
-    assert got["case_id"] == "chain_blocker_plate_pinned"
-    assert cls_([t2, plate], "eraser#1", "fail", reason="끄는 길에 cover_plate#1", can_pick=lambda i: True)["case_id"] is None
+    assert cls_([t2, plate], "eraser#1", "fail", reason="끄는 길에 cover_plate#1", can_pick=lambda i: False)["case_id"] \
+        == "chain_blocker_plate_pinned"
+    assert cls_([t2, plate], "eraser#1", "fail", reason="끄는 길에 cover_plate#1")["case_id"] is None
 
 
 def test_stack_and_chain_cases():
@@ -68,12 +76,3 @@ def test_wall_nudge_names_wall_case():
     back = obj("eraser#1", "eraser", 0.27, 0.2)
     assert cls_([back], "eraser#1", "wall_nudge")["case_id"] == "back_wall"
 
-
-def test_case_ids_exist_in_ontology_proposal():
-    """case_id 는 layout_cases.json(#364) 의 id — 여기 쓰는 이름 목록이 바뀌면 같이 고침."""
-    used = {"no_free_space", "beyond_reach", "cluster_front_wall", "cylinder_handle_wall", "handle_wall_wide",
-            "chain_blocker_plate_pinned", "stacked_top", "stacked_under", "chain_blocker_stacked", "corner", "back_wall",
-            "wall_side_short", "chain_blocker_blocked", "cluster_open_side"}
-    import inspect
-    src = inspect.getsource(lc)
-    assert all(f'"{u}"' in src for u in used)

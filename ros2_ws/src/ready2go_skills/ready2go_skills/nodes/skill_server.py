@@ -2029,12 +2029,10 @@ class SkillServer(Node):
                 "pushed_ids": [], "pushed_after": []}
         out["make_room"] = info
         by = {o["id"]: o for o in objs}
-        if self.prm().get("make_room", {}).get("report_case"):   # 난제 이름·전략 [제안 10/15 B, 계약 ④ 승인 전 — #364]
-            oracle = DryOracle(self, drawer_id)
-            info.update(lcase.classify(objs, tid, a, cfg.size_of, cfg.interior_m, cfg.reach_x_m,
-                                       can_pick=lambda i: oracle.pick(objs, i)[0]))
-        self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason}"
-                               + (f" [{info['case_id']} · {info['strategy']}]" if "strategy" in info else ""))
+        if self.prm()["make_room"].get("report_case"):            # 난제 이름·전략 [제안 10/15 B, 계약 ④ 승인 전 — #364]
+            dry = DryOracle(self, drawer_id)
+            info.update(lcase.classify(objs, tid, a, cfg.size_of, cfg.interior_m, cfg.reach_x_m, lambda i: dry.pick(objs, i)[0]))
+        self.get_logger().info(f"[make_room] {tid}: {a.kind} {a.target} — {a.reason} {info.get('case_id') or ''}")
         if params.get("check_only"):                              # 판단 결과 공개 [E #245 제안] — 일반 넛지 check_only 와 같은 필드
             fail_code = a.code if a.code in (NEIGHBOR_TOO_CLOSE, NO_FREE_SPACE, mp.NO_PUSH_ACCESS) else mp.NO_PUSH_ACCESS
             out.update(needed=a.kind not in ("pick", "fail"), plan_code=fail_code if a.kind == "fail" else None)   # 결과 error_code 와 같게
