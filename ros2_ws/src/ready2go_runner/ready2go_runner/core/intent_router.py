@@ -54,6 +54,7 @@ class Decision:
     plan: list | None = None            # 플래너 결과 설명 줄 (실행 기록 헤더 extra.plan, #150)
     run_id: str | None = None           # 계약07: 실제로 수락(run)해 시작한 실행 ID — 노드가 수락할 때 정해 고정
     chain: bool = False                 # run 인데 묶음 스킬이 든 계획 — 노드가 core/plan_exec 로 구간 실행 (task 는 서버 확인·표시용)
+    group: bool = False                 # run 인데 P3 목록·분류 요청 — 노드가 core/item_group 으로 물품마다 task 실행 (#302)
 
     def summary(self) -> dict:
         """/runner/status last_intent 에 싣는 짧은 요약 (D 시연 화면 #59)."""
@@ -128,6 +129,8 @@ class IntentRouter:
             return Decision(HOLD, NEEDS_CLARIFY, intent=intent)
         if name == "achieve_goal" and name not in self.tasks:     # 목표형: 동작 순서는 플래너가 (#150, FR-PLN-02)
             return self._goal(intent, running, locked)
+        if name in ("find_list", "find_class") and name not in self.tasks:   # P3 목록·분류 (#302): 물품마다 find_item 태스크
+            return self._group(intent, running, locked)
         task = self.tasks.get(name)
         if task is None:
             return Decision(HOLD, UNSUPPORTED_INTENT, intent=intent)
@@ -150,6 +153,34 @@ class IntentRouter:
         if running:
             return Decision(REJECT, BUSY, intent=intent)
         return Decision(RUN, task=task, inputs=_inputs(targets[0], intent), intent=intent)
+
+    def _group(self, intent: dict, running: bool, locked: bool) -> Decision:
+        """find_list·find_class (#302 C 연결안·E 확정): E 가 풀어 준 targets + semantic(출처·근거). 형식(스키마 allOf)·신뢰도·
+        물품 키·태스크 물품 제한만 보고 group 으로 — 위치 조회·순서·실행은 노드가 core/item_group 으로 현재 상태에서.
+        물품마다 쓰는 태스크는 find_item 과 같은 것(PC2 운영은 find_with_unpack)."""
+        task = self.tasks.get("find_item")
+        if task is None:
+            return Decision(HOLD, UNSUPPORTED_INTENT, intent=intent)
+        if intent["confidence"] < self.min_confidence:
+            return Decision(HOLD, LOW_CONFIDENCE, intent=intent)
+        targets = intent.get("targets") or []
+        if any(t not in self.items for t in targets):
+            return Decision(HOLD, UNKNOWN_ITEM, intent=intent)
+        allowed = (task.get("trigger") or {}).get("targets")
+        if allowed is not None and not (isinstance(allowed, list) and all(t in allowed for t in targets)):
+            return Decision(HOLD, UNSUPPORTED_ITEM, intent=intent)
+        if locked:
+            return Decision(REJECT, LOCKED, intent=intent)
+        if running:
+            return Decision(REJECT, BUSY, intent=intent)
+        semantic = intent["semantic"]
+        inputs = {"source": "voice", "intent_confidence": intent["confidence"],
+                  "semantic": {"items": list(targets), "source": semantic["source"], "evidence": semantic.get("evidence", {})}}
+        stt = (intent.get("source") or {}).get("stt_text")
+        if stt:
+            inputs["stt_text"] = stt
+        _accept_text(inputs, intent)
+        return Decision(RUN, task=task, inputs=inputs, intent=intent, group=True)
 
     def _goal(self, intent: dict, running: bool, locked: bool) -> Decision:
         """achieve_goal: 형식·신뢰도·물품 이름만 보고 plan 으로 넘김. 계획 자체는 노드가 현재 상태로 (core/planner)."""

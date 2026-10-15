@@ -1,0 +1,34 @@
+{
+  "intent": "find_list",
+  "targets": [
+    "airpods_case",
+    "car_key",
+    "lip_balm"
+  ],
+  "semantic": {
+    "source": {
+      "kind": "list",
+      "id": "commute_set",
+      "name_ko": "출근 준비물",
+      "sha256": "1d802e97f699ab2073ae92487c678401168e62bf19e2ffa0ba10fbf0217e703a"
+    },
+    "evidence": {
+      "airpods_case": {
+        "list": "commute_set"
+      },
+      "car_key": {
+        "list": "commute_set"
+      },
+      "lip_balm": {
+        "list": "commute_set"
+      }
+    }
+  },
+  "confidence": 0.9,
+  "source": {
+    "stt_text": "출근 준비물 가져와",
+    "fallback_used": false
+  },
+  "request_id": "example-find-list-01",
+  "accept_text": "출근 준비물을 가져올게요."
+}

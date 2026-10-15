@@ -4,6 +4,7 @@
 - **최종 갱신**: 2026-10-14 (저녁) — 날짜별 기록 [10/08](2026-10-08_practice.md) · [10/10](2026-10-10_practice.md) · [10/11](2026-10-11_practice.md) · [10/12](2026-10-12_practice.md)
 
 ## 지금 상태
+- **P3 목록·분류 공개 인텐트 + 노드 연결 (10/15 — #302 계약안)**: `find_list`/`find_class` + `semantic` 스키마·예시, 노드 group 실행(상위 R·R.n·items·수락 1회). E 포함 2명 승인 필요, E 음성 발신은 E.
 - **`last.failure`·`accepted` (10/15 — #376 계약안, E 확인)**: "왜 멈췄어?"용 FAILED 처음 원인(B make_room impossible 이면 case_id) + 최근 수락 요청. 계약(예시·시험·문서) 같은 PR, E 포함 2명 승인 필요. E 문장 원본 PR 뒤 text 가 거부 이유 문장으로.
 - **묶음 계획 노드 연결 (10/15 — #302 C 설계·E 동의, #373 위)**: `achieve_goal` 계획에 묶음(언패킹)이 있으면 노드가 `run_plan` — 상위 run_id R 하나(구간 사이 running·last 1회·halt.run_id R·end_task R 매핑·첫 안내 1회), DB 상위 R + 구간 R.n. ROS 노드 시험 3 통과. PC2: #375(E plan_effect) 머지 뒤 "지우개 갖다주고 위 서랍 열어 둬"가 언패킹 경로로 감.
 - **플래너 언패킹 연결 (10/15 — #302 E 결정 2안, #371 위)**: `planner.plan(composites=True)` + `core/plan_exec.run_plan` + `test_plan_exec.py`(mock 11) — "지우개 갖다주고 위 서랍 열어 둬" = 묶음(find_with_unpack: 판 치우기·전달·원위치) → 실제 상태 확인 → 재계획 → 위 서랍 열기. 선행: E `handover_with_unpack` params{target,from}·pre·plan_effect PR. 다음: 노드 `achieve_goal` 연결(수락 run_id·음성 상관).
