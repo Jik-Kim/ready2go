@@ -27,5 +27,6 @@ def build_status(running: bool, halted: bool, halt_code: str | None, task_id: st
     if last is not None:
         status["last"] = {"task_id": last_task_id, "run_id": last.run_id, "overall_status": last.overall_status,
                           "error_code": last.error_code, "failed_step": last.failed_step,
-                          "problems": last.problems, "log_errors": last.log_errors}
+                          "problems": last.problems, "log_errors": last.log_errors,
+                          "failure": last.failure}   # FAILED 의 처음 원인 (#376) — 그 밖은 null
     return status
