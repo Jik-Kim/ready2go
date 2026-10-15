@@ -12,12 +12,14 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import CameraInfo, JointState
+from sensor_msgs.msg import CameraInfo, CompressedImage, JointState
 from std_msgs.msg import String
 
+from ready2go_web.core.overlay_cache import OverlayCache
 from ready2go_web.nodes.dashboard_bridge import (
     BridgeTopics,
     DashboardBridge,
+    INSPECT_OVERLAY_QOS,
     ROBOT_SOURCE,
     RUNNER_SOURCE,
 )
@@ -54,6 +56,7 @@ def unique_topics() -> BridgeTopics:
         runner_status=f"{prefix}/runner/status",
         robot_state=f"{prefix}/robot_state",
         camera_info=f"{prefix}/camera_info",
+        inspect_overlay=f"{prefix}/vision/inspect_overlay",
         voice_intent=f"{prefix}/voice/intent",
         robot_connection=f"{prefix}/joint_states",
     )
@@ -139,6 +142,7 @@ def test_runner_only_stage_does_not_connect_later_sources(ros_context) -> None:
         assert bridge._runner_subscription is not None
         assert bridge._robot_state_subscription is None
         assert bridge._camera_subscription is None
+        assert bridge._overlay_subscription is None
         assert bridge._robot_subscription is None
     finally:
         bridge.destroy_node()
@@ -176,6 +180,106 @@ def test_camera_callback_keeps_only_connection_metadata(ros_context) -> None:
             "height": 720,
         }
         assert "k" not in state["data"]
+    finally:
+        bridge.destroy_node()
+
+
+def test_overlay_callback_accepts_only_contract_jpeg_and_newest_stamp(ros_context) -> None:
+    """오버레이 콜백은 계약 JPEG를 받고 과거·잘못된 사진은 기존 값을 보존한다."""
+    cache = OverlayCache()
+    bridge = DashboardBridge(
+        topics=unique_topics(),
+        overlay_cache=cache,
+        node_name=f"overlay_bridge_{uuid.uuid4().hex}",
+    )
+    try:
+        assert bridge._overlay_subscription is not None
+        assert bridge._overlay_subscription.qos_profile == INSPECT_OVERLAY_QOS
+
+        latest = CompressedImage()
+        latest.header.frame_id = "wrist_cam_color_optical_frame"
+        latest.header.stamp.sec = 20
+        latest.header.stamp.nanosec = 30
+        latest.format = "jpeg"
+        latest.data = b"new-jpeg"
+        bridge._on_inspect_overlay(
+            latest,
+            SimpleNamespace(publisher_gid=bytes(range(16))),
+        )
+        assert cache.get_latest() is not None
+        assert cache.get_latest().jpeg == b"new-jpeg"
+
+        older = CompressedImage()
+        older.header.frame_id = "wrist_cam_color_optical_frame"
+        older.header.stamp.sec = 19
+        older.format = "jpeg"
+        older.data = b"old-jpeg"
+        bridge._on_inspect_overlay(
+            older,
+            SimpleNamespace(publisher_gid=bytes(range(16))),
+        )
+        assert cache.get_latest().jpeg == b"new-jpeg"
+
+        invalid = CompressedImage()
+        invalid.header.frame_id = "wrong_frame"
+        invalid.header.stamp.sec = 21
+        invalid.format = "png"
+        invalid.data = b"invalid-image"
+        bridge._on_inspect_overlay(invalid)
+        assert cache.get_latest().jpeg == b"new-jpeg"
+        metadata = cache.get_metadata()
+        assert metadata["rejected_count"] == 1
+        assert metadata["last_rejection_reason"] == "format_mismatch"
+        assert metadata["last_rejected_frame_id"] == "wrong_frame"
+
+        wrong_frame = CompressedImage()
+        wrong_frame.header.frame_id = "wrong_frame"
+        wrong_frame.header.stamp.sec = 22
+        wrong_frame.format = "jpeg"
+        wrong_frame.data = b"wrong-frame-image"
+        bridge._on_inspect_overlay(wrong_frame)
+        metadata = cache.get_metadata()
+        assert metadata["rejected_count"] == 2
+        assert metadata["last_rejection_reason"] == "frame_id_mismatch"
+
+        empty = CompressedImage()
+        empty.header.frame_id = "wrist_cam_color_optical_frame"
+        empty.header.stamp.sec = 23
+        empty.format = "jpeg"
+        bridge._on_inspect_overlay(empty)
+        metadata = cache.get_metadata()
+        assert metadata["rejected_count"] == 3
+        assert metadata["last_rejection_reason"] == "invalid_message"
+        assert cache.get_latest().jpeg == b"new-jpeg"
+    finally:
+        bridge.destroy_node()
+
+
+def test_overlay_publisher_generation_does_not_bypass_capture_order(ros_context) -> None:
+    """비전 publisher GID가 바뀌어도 UTC 촬영 시각이 과거인 사진은 무시한다."""
+    cache = OverlayCache()
+    bridge = DashboardBridge(
+        topics=unique_topics(),
+        overlay_cache=cache,
+        node_name=f"overlay_generation_bridge_{uuid.uuid4().hex}",
+    )
+    try:
+        first = CompressedImage()
+        first.header.frame_id = "wrist_cam_color_optical_frame"
+        first.header.stamp.sec = 100
+        first.format = "jpeg"
+        first.data = b"first-generation"
+        bridge._on_inspect_overlay(first, SimpleNamespace(publisher_gid=b"generation-a"))
+
+        restarted = CompressedImage()
+        restarted.header.frame_id = "wrist_cam_color_optical_frame"
+        restarted.header.stamp.sec = 1
+        restarted.format = "jpeg"
+        restarted.data = b"second-generation"
+        bridge._on_inspect_overlay(restarted, SimpleNamespace(publisher_gid=b"generation-b"))
+
+        assert cache.get_latest().jpeg == b"first-generation"
+        assert cache.get_latest().revision == 1
     finally:
         bridge.destroy_node()
 

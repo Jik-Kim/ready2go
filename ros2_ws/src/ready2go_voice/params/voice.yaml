@@ -51,7 +51,7 @@ tts_melotts_assets: models/tts/melotts
 tts_melotts_speaker: KR
 tts_melotts_speed: 1.2
 tts_melotts_threads: 4
-tts_melotts_startup_timeout_sec: 60.0
+tts_melotts_startup_timeout_sec: 600.0
 tts_melotts_warmup_text: 준비되었습니다.
 tts_melotts_prefill_texts:
 - 그 요청은 지원하지 않습니다.
