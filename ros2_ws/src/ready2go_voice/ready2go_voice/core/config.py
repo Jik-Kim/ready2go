@@ -14,7 +14,9 @@ def load_config(path, *, evaluation_mode=None, request_run_enabled=None):
     cfg.setdefault('evaluation_mode', False)
     from .stt_error import _prompt_file
     with _prompt_file().open(encoding='utf-8') as defaults:
-        cfg.setdefault('stt_control_prompt', yaml.safe_load(defaults)['stt_control_prompt'])
+        package_defaults = yaml.safe_load(defaults)
+        cfg.setdefault('stt_control_prompt', package_defaults['stt_control_prompt'])
+        cfg.setdefault('semantic_speech', package_defaults['semantic_speech'])
     if not isinstance(cfg['stt_control_prompt'], str):
         raise ValueError('stt_control_prompt: 문자열 필요 (독립 제어는 빈 힌트)')
     if evaluation_mode is not None:

@@ -67,6 +67,9 @@ class VoiceNode(Node):
         with open(self.cfg['intent_schema_file'], encoding='utf-8') as f:
             schema = json.load(f)
         self.parser = IntentParser(ontology, schema, self.cfg, LangChainIntent(self.cfg, ontology['world']['items']))
+        if self.parser.semantic_runtime.reason is not None:
+            self.parser.semantic_runtime.warn(self.get_logger().warning)
+            self._diagnostic({'event':'semantic_unavailable', 'reason':self.parser.semantic_runtime.reason})
         self.session = VoiceSession(self.parser, self.cfg, stt if stt is not None else WhisperSTT(
             self.cfg, list(dict.fromkeys(name for v in ontology['world']['items'].values()
                 for name in [v['name_ko'], *v.get('aliases_ko', [])]))),
@@ -76,7 +79,8 @@ class VoiceNode(Node):
             self.cfg['_tts_prefill_texts'] = prefill_texts(self.cfg, self.parser.items.values(), self.get_logger().warning,
                 lambda data: self._diagnostic(dict(data, event='prefill_selection')),
                 reference_state=self.parser.reference_state, places=self.parser.places,
-                item_names={k:v['name_ko'] for k,v in self.parser.items.items()})
+                item_names={k:v['name_ko'] for k,v in self.parser.items.items()},
+                semantic_runtime=self.parser.semantic_runtime)
         self.tts = tts if tts is not None else create_tts(self.cfg)
         if self.cfg.get('tts_engine') == 'melotts':
             self.tts.prepare()  # 모델/캐시 완료 전 웨이크/ready를 시작하지 않음
@@ -2334,6 +2338,7 @@ class VoiceNode(Node):
                         from ready2go_voice.core.group_speech import classify
                         checked = classify(params['text'], pending, self.parser.items, self.cfg)
                         if checked is None:
+                            self._diagnostic({'event':'group_speech_rejected', 'reason':'factory_text_mismatch'})
                             self.goal_lock.release()
                             return GoalResponse.REJECT
                         self.goal_group_parts, self.goal_group_summary = checked

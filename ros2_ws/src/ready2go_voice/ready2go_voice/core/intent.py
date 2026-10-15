@@ -50,6 +50,8 @@ class IntentParser:
         self.places = ontology['world']['places']
         self.validator = Draft7Validator(schema)
         self.cfg, self.llm, self.clock = cfg, llm, clock
+        from .semantic_requests import SemanticRuntime
+        self.semantic_runtime = SemanticRuntime(cfg, self.items)
         self.calls = DeadlineCall()
         self.aliases = {}
         for key, item in self.items.items():

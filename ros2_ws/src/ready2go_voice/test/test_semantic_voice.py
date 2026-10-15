@@ -37,7 +37,7 @@ def semantic_parser(ontology, cfg):
     return IntentParser(ontology, schema, cfg, llm=lambda *a: pytest.fail('Semantic input must not use LLM'))
 
 
-@pytest.mark.parametrize('question', ['출근 준비물 뭐야?', '출근 준비물 뭐가 들어 있어?', '출근 세트 목록 알려줘', '출근 준비 물품 뭐야?'])
+@pytest.mark.parametrize('question', ['출근 준비물에 뭐 있어?', '출근 준비물 뭐야?', '출근 준비물 뭐가 들어 있어?', '출근 세트 목록 알려줘', '출근 준비 물품 뭐야?'])
 def test_contents_uses_real_catalog_and_actual_readonly_tts(node, question):
     from test_runtime_322 import answer
     assert answer(node, question) == '출근 준비물은 에어팟 케이스, 차키, 립밤이에요.'
@@ -45,6 +45,7 @@ def test_contents_uses_real_catalog_and_actual_readonly_tts(node, question):
 
 
 @pytest.mark.parametrize('text,kind,targets', [
+    ('출근 준비물 챙겨줘', 'find_list', ['airpods_case', 'car_key', 'lip_balm']),
     ('출근 준비물 가져와', 'find_list', ['airpods_case', 'car_key', 'lip_balm']),
     ('출근 준비 물품 찾아줘', 'find_list', ['airpods_case', 'car_key', 'lip_balm']),
     ('귀중품 가져와', 'find_class', ['car_key'])])
@@ -60,18 +61,24 @@ def test_real_parser_session_prepares_exact_catalog_payload(semantic_parser, tex
 
 
 @pytest.mark.parametrize('text', ['출근 준비물과 망치 가져와', '출근 준비물과 귀중품 가져와',
-    '귀중품과 귀중품 가져와', '출근 준비물 가져오지 마', '출근 준비물 뭐야 그리고 망치 가져와', '미등록 목록 가져와'])
+    '귀중품과 귀중품 가져와', '출근 준비물 가져오지 마', '출근 준비물 뭐야 그리고 망치 가져와'])
 def test_semantic_mixed_negative_and_unknown_never_extract_partial_targets(semantic_parser, text):
     doc = VoiceSession(semantic_parser, semantic_parser.cfg).text(text)
     assert doc['intent'] in ('unknown','clarify') and doc['targets'] == []
     assert not doc['source']['execution_allowed'] and not doc['source']['llm_called']
+    assert doc['_voice']['reason'] == 'semantic_mixed_or_unconfirmed'
+    assert not VoiceSession(semantic_parser, semantic_parser.cfg).should_publish(doc)
 
 
-def test_same_ttl_changes_contents_and_execution_targets(semantic_parser, tmp_path):
+def test_same_ttl_changes_contents_and_execution_targets(semantic_parser, tmp_path, ontology):
     path = tmp_path / 'semantics.ttl'
-    path.write_text((ROOT / 'knowledge/semantics.ttl').read_text().replace(
-        'r2g:airpods_case, r2g:car_key, r2g:lip_balm .', 'r2g:car_key, r2g:lip_balm .'))
+    raw = (ROOT / 'knowledge/semantics.ttl').read_text()
+    path.write_text(raw)
     semantic_parser.cfg['semantic_catalog_file'] = str(path)
+    semantic_parser = IntentParser(ontology, semantic_parser.validator.schema, semantic_parser.cfg, semantic_parser.llm)
+    path.write_text(raw.replace('r2g:airpods_case, r2g:car_key, r2g:lip_balm .', 'r2g:car_key, r2g:lip_balm .'))
+    assert semantic_requests.select(semantic_parser, '출근 준비물 가져와')[0]['items'] == ['airpods_case', 'car_key', 'lip_balm']
+    semantic_parser = IntentParser(ontology, semantic_parser.validator.schema, semantic_parser.cfg, semantic_parser.llm)
     session = VoiceSession(semantic_parser, semantic_parser.cfg)
     read = session.text('출근 준비물 뭐야?')
     run = session.text('출근 준비물 가져와')
@@ -90,11 +97,12 @@ def test_contents_during_confirmation_never_reuses_single_item_authority(node):
     assert not node.session.text('응', node.generation)['source']['execution_allowed']
 
 
-def test_ambiguous_alias_and_retired_catalog_are_not_executable(semantic_parser, tmp_path):
+def test_ambiguous_alias_and_retired_catalog_are_not_executable(semantic_parser, tmp_path, ontology):
     path = tmp_path / 'ambiguous.ttl'
     raw = (ROOT / 'knowledge/semantics.ttl').read_text()
     path.write_text(raw.replace('rdfs:label "귀중품"@ko', 'rdfs:label "귀중품"@ko ; r2g:alias_ko "출근 준비물"'))
     semantic_parser.cfg['semantic_catalog_file'] = str(path)
+    semantic_parser = IntentParser(ontology, semantic_parser.validator.schema, semantic_parser.cfg, semantic_parser.llm)
     doc = VoiceSession(semantic_parser, semantic_parser.cfg).text('출근 준비물 가져와')
     assert doc['intent'] in ('unknown','clarify') and not doc['source']['execution_allowed']
     path.write_text(raw.replace('r2g:lip_balm a r2g:Item', 'r2g:carrot_pen a r2g:Item'))
@@ -397,3 +405,89 @@ def test_group_followup_gate_requires_current_factory_bound_run(group_wire, chan
     assert reply.success is (change == 'old_seq')
     if change != 'old_seq': assert wire.fragments == played
     assert not wire.robot.calls
+
+
+def test_startup_snapshot_reused_by_reference_execution_validation_and_prefill(monkeypatch, ontology, cfg, schema):
+    original = semantic_requests.catalog
+    calls = []
+    def counted(*args):
+        calls.append(1)
+        return original(*args)
+    monkeypatch.setattr(semantic_requests, 'catalog', counted)
+    cfg.update(request_run_enabled=True, evaluation_mode=False)
+    parser = IntentParser(ontology, schema, cfg)
+    session = VoiceSession(parser, cfg)
+    assert session.text('출근 준비물에 뭐 있어?')['_voice']['readonly_query']
+    doc = session.text('출근 준비물 챙겨줘')
+    semantic_requests.validate(parser, doc)
+    texts = prefill_texts(cfg, parser.items.values(), semantic_runtime=parser.semantic_runtime,
+        reference_state=parser.reference_state, places=parser.places,
+        item_names={k:v['name_ko'] for k,v in parser.items.items()})
+    assert semantic_requests.acceptance(semantic_requests.select(parser, '출근 준비물 챙겨줘')[0]) in texts
+    assert len(calls) == 1
+    IntentParser(ontology, schema, copy.deepcopy(cfg))
+    assert len(calls) == 2  # distinct parser owns its own snapshot
+
+
+@pytest.mark.parametrize('failure', ['missing', 'invalid', 'rdflib', 'share'])
+def test_semantic_failure_isolated_from_p1_p2_status_and_prefill(monkeypatch, tmp_path, ontology, cfg, schema, failure):
+    import builtins
+    if failure in ('missing', 'invalid'):
+        path = tmp_path / 'semantic.ttl'
+        cfg['semantic_catalog_file'] = str(path)
+        if failure == 'invalid': path.write_text('not valid turtle {')
+    elif failure == 'rdflib':
+        original = builtins.__import__
+        def no_rdf(name, *args, **kwargs):
+            if name == 'ready2go_knowledge.core.semantic_query':
+                raise ModuleNotFoundError("No module named 'rdflib'")
+            return original(name, *args, **kwargs)
+        monkeypatch.setattr(builtins, '__import__', no_rdf)
+    else:
+        monkeypatch.setattr(semantic_requests, '__file__', str(tmp_path / 'a/b/c/d/e/semantic_requests.py'))
+        cfg['ontology_file'] = str(tmp_path / 'missing/world.jsonld')
+        packages = SimpleNamespace(get_package_share_directory=lambda _: (_ for _ in ()).throw(FileNotFoundError('knowledge share missing')))
+        monkeypatch.setitem(sys.modules, 'ament_index_python.packages', packages)
+    cfg.update(request_run_enabled=True, evaluation_mode=False, p2_goal_enabled=True)
+    goals = cfg['p2_goal_catalog'][0]
+    parser = IntentParser(ontology, schema, cfg, lambda *_: dict(intent='achieve_goal', targets=[], confidence=.99,
+        goals=goals, response_text=None, rejection_reason=None))
+    assert parser.semantic_runtime.reason
+    warnings = []
+    parser.semantic_runtime.warn(warnings.append)
+    parser.semantic_runtime.warn(warnings.append)
+    assert len(warnings) == 1 and 'P3' in warnings[0]
+    session = VoiceSession(parser, cfg)
+    for text in ('출근 준비물 챙겨줘', '출근 준비물에 뭐 있어?'):
+        doc = session.text(text)
+        assert doc['_voice']['reason'] == 'semantic_unavailable'
+        assert doc['_voice']['semantic_unavailable_reason'] == parser.semantic_runtime.reason
+        assert not doc['source']['execution_allowed'] and not session.should_publish(doc)
+    parser.llm = None
+    assert parser.parse('지우개 가져다줘')['intent'] == 'find_item'
+    assert parser.parse('지금 뭐 해')['intent'] == 'status'
+    parser.llm = lambda *_: dict(intent='achieve_goal', targets=[], confidence=.99, goals=goals,
+        response_text=None, rejection_reason=None)
+    from test_intent import GOAL_TEXTS
+    assert parser.parse(GOAL_TEXTS[0])['intent'] == 'achieve_goal'
+    texts = prefill_texts(cfg, parser.items.values(), semantic_runtime=parser.semantic_runtime,
+        reference_state=parser.reference_state, places=parser.places,
+        item_names={k:v['name_ko'] for k,v in parser.items.items()})
+    assert texts and not any('출근 준비물' in text for text in texts)
+
+
+@pytest.mark.parametrize('text', ['미등록 목록 가져와', '분류 설명해줘', '목록에 지우개가 있나', '준비물이라는 단어 설명해줘'])
+def test_broad_words_do_not_intercept_normal_parser(semantic_parser, text):
+    assert semantic_requests.select(semantic_parser, text) is None
+    semantic_parser.llm = None
+    assert not semantic_parser.parse(text).get('_voice', {}).get('semantic_held')
+
+
+def test_group_factory_normalization_is_bounded(ontology, cfg):
+    items = ontology['world']['items']
+    pending = {'targets':['car_key']}
+    text = next(iter(group_speech.item_intros(pending['targets'], items)))
+    changed = '  ' + text.rstrip('.').replace(' ', '  ') + '  '
+    assert group_speech.classify(changed, pending, items, cfg) == ([text], False)
+    assert group_speech.classify(text.replace('차키', '지우개'), pending, items, cfg) is None
+    assert group_speech.classify('아무 물건이나 던져요.', pending, items, cfg) is None

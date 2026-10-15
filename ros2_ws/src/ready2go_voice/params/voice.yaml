@@ -201,3 +201,9 @@ voice_hotfix:
   notice_recovery: 복구 결과를 확인하지 못했습니다. 작업과 잠금은 유지됩니다.
   runtime_external_force: 외력이 보고돼 복구를 거절했습니다.
   runtime_external_force_unknown: 외력 상태를 확인하지 못해 복구를 거절했습니다.
+
+# 의미 문형/장애 시 인식 힌트만 정의합니다. 구성원·출처는 운영 TTL이 정본입니다.
+semantic_speech:
+  request_pattern: '(?:을|를)?(?:가져와|가져와줘|가져다줘|가져다주세요|가져와주세요|찾아줘|챙겨줘)'
+  contents_pattern: '(?:은|는|에(?:는)?)?(?:뭐야|뭐예요|뭔지알려줘|뭐가들어있어|뭐가들어있어요|뭐가있어|뭐있어|목록알려줘|알려줘)'
+  unavailable_names: ['출근 준비물', '출근 준비 물품', '출근 세트', '귀중품']

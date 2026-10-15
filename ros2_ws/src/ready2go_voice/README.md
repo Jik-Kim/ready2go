@@ -737,13 +737,17 @@ PYTHON
 
 ## P3 목록/분류 실행과 목록 내용 조회 — #302
 
-[구현] “출근 준비물 가져와”·“출근 준비 물품 찾아줘”·“귀중품 가져와”를 운영 [semantics.ttl](../../../knowledge/semantics.ttl)의 실제 조회로 해석합니다. “출근 준비물 뭐야?”는 동일 원본에서 “출근 준비물은 에어팟 케이스, 차키, 립밤이에요.”라고 답하는 읽기 전용 경로이며 Runner 발행/등록/동작이 없습니다. 위치/실재고/파지 가능 설명이 아닙니다. 목록+단일·복수 목록/분류·부정·미등록/모호 대상은 일부만 실행하지 않고 보류합니다. 기존 단일·P2 goal·상태/위치·긴급 정지는 유지합니다.
+[구현] “출근 준비물 가져와”·“출근 준비물 챙겨줘”·“출근 준비 물품 찾아줘”·“귀중품 가져와”를 운영 [semantics.ttl](../../../knowledge/semantics.ttl)의 실제 조회로 해석합니다. “출근 준비물 뭐야?”·“출근 준비물에 뭐 있어?”는 동일 원본에서 “출근 준비물은 에어팟 케이스, 차키, 립밤이에요.”라고 답하는 읽기 전용 경로이며 Runner 발행/등록/동작이 없습니다. 위치/실재고/파지 가능 설명이 아닙니다. 목록+단일·복수 목록/분류·부정·미등록/모호 대상은 일부만 실행하지 않고 보류합니다. 기존 단일·P2 goal·상태/위치·긴급 정지는 유지합니다.
 
 [활성화] 새 false 플래그는 없습니다. 기존 request_run_enabled=true·evaluation_mode=false와 현재 C #381 계약/구현이 필요하며 현행 `tools/dev/pc2_voice.sh --p2`의 request/P2 goal/upper_drawer 세 값은 바꾸지 않습니다. upper_drawer는 P2 선정 목표 범위이고 P3 목록의 다중 서랍 조회를 제한하는 설정이 아닙니다. C의 기존 find_item→find_with_unpack 운영 매핑을 사용합니다. `semantic_catalog_file:auto`/`semantic_queries`는 패키지 YAML과 load_config 기본값에 있어 기존 local도 등록 참조를 받습니다. 명시 파일 경로는 그대로 읽으며 원본 local YAML·키·모델은 덮어쓰지 않습니다. 실행 연결이 꺼진 경우 목록 실행을 보류하고 내용 조회는 유지합니다.
 
-[원본/설치] TTL 자동 선택은 사용 ontology 인접 파일→소스 knowledge/semantics.ttl→knowledge 설치 share 순서입니다. 선택 참조(kind/id) 외에 구성·이름을 YAML/LLM에 복사하지 않습니다. knowledge setup.py는 운영 TTL·은퇴 목록, voice setup.py는 현재 find_item/find_with_unpack 태스크 원본을 설치합니다. 변경 뒤 기존 install_host의 knowledge/voice/runner를 최신 소스로 재빌드하고 노드를 재시작해야 합니다. 호스트 .venvs/project는 공통 requirements.txt의 RDFLib 범위를 설치해야 하며 knowledge package.xml/setup.py가 python3-rdflib/rdflib와 ament_index_python을 명시합니다. voice Docker의 python3-rdflib도 실제 import에 맞춰 추가했습니다. Melo 격리 worker에 RDFLib를 넣거나 모델·캐시를 생성하지 않습니다.
+[장애 격리/수명] 파서 시작 시 검증한 카탈로그 스냅샷을 조회·실행 검증·node 필수 prefill에 재사용합니다. 독립 prepare는 호출당 한 번 준비하며 전역 캐시는 없습니다. TTL/설치 경로/RDFLib 오류는 기동 경고와 semantic_unavailable 사유를 남기고 P3만 보류하며 P1·P2·상태 및 기본 prefill은 유지합니다. 실행 중 TTL/config 변경은 재시작 뒤 적용됩니다. 문형은 voice.yaml의 semantic_speech에 두며 장애 인식용 이름 힌트는 목록 구성/출처의 정본이 아닙니다. 등록 이름이 포함된 혼합/부정은 semantic_mixed_or_unconfirmed와 발행0으로 보류합니다. 준비물/목록/분류 같은 일반 단어만으로 기존 파서 요청을 가로채지 않습니다. 목록명 없는 후속 “챙겨줘”의 맥락 연결은 이번 범위 밖입니다.
+
+[원본/설치] TTL 자동 선택은 사용 ontology 인접 파일→소스 knowledge/semantics.ttl→knowledge 설치 share 순서입니다. 목록 구성/출처는 TTL에서만 조회하며 YAML에는 선택 참조(kind/id)·문형·장애 인식 힌트만 둡니다. knowledge setup.py는 운영 TTL·은퇴 목록, voice setup.py는 현재 find_item/find_with_unpack 태스크 원본을 설치합니다. 변경 뒤 기존 install_host의 knowledge/voice/runner를 최신 소스로 재빌드하고 노드를 재시작해야 합니다. 호스트 .venvs/project는 공통 requirements.txt의 RDFLib 범위를 설치해야 하며 knowledge package.xml/setup.py가 python3-rdflib/rdflib와 ament_index_python을 명시합니다. voice Docker의 python3-rdflib도 실제 import에 맞춰 추가했습니다. Melo 격리 worker에 RDFLib를 넣거나 모델·캐시를 생성하지 않습니다.
 
 [상태/안내] 검증된 C 수락과 첫 accept_text의 실제 재생 증빙 후에만 동작 경로를 허용합니다. accepted의 하위 태스크와 group_<의미ID> 상위 상태를 구분하고 R.n→R 결과를 대조합니다. C의 제외/물품별/최종 문장을 허용 factory·원본 태스크에 한정해 받고 공통 조각으로 재생합니다. C #383의 item_start_text(name_ko,index,total)를 직접 사용해 실제 runnable 첫 물품은 “먼저”, 이후는 “다음으로”로 안내하고, 한 물품뿐이면 순서말을 생략합니다. 제외 물품은 순번에서 빼며 child inputs.accept_text→기존 s2.1이 일반 s2.2를 대체합니다. 물품 안내 실패·정지 뒤 해당 물품/후속 물품 실행 차단은 C 규칙을 유지합니다. 기존 C에 factory가 없으면 일반 태스크 문장으로 동작하며 초기화/prepare를 깨뜨리지 않습니다. raw remote text는 임의로 재생하지 않으며 성공한 최종 요약 뒤 일반 완료/실패 안내를 중복하지 않습니다. PARTIAL_DELIVERY를 전체 성공으로 안내하지 않습니다. 높은 안전 경고는 유지합니다.
+
+[후속 안내 한계] 현재 task/factory 문장의 공백과 끝 마침표만 정규화해 원본 캐시 문장으로 재생합니다. factory 불일치는 group_speech_rejected/factory_text_mismatch 진단과 거절을 유지합니다. C 원문 형식·동일 버전 의존은 남아 있으며 구조화 안내 계약은 C 협의 미결입니다. 임의 원격 문장 허용이나 새 공개 필드를 추가하지 않았습니다.
 
 [초기 상태] 기존 단일 initial_state에 사용자 확인한 airpods_case=drawer_top을 추가했습니다. 출근 목록은 에어팟/차키가 위, 립밤이 아래입니다. 기존 S1/S2·S3 지우개 실물 제외·home/빈손/닫힘은 보존하고 새 P3 snapshot/선택/reset 기능은 만들지 않았습니다. 초기 위치는 관측/파지 승인·실물 성공의 증거가 아닙니다.
 

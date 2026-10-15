@@ -31,9 +31,10 @@ def ordered_not_run(part, targets, items):
         return None
     outcomes = [group.ItemOutcome(key, items[key]['name_ko'], status=group.NOT_RUN) for key in ordered]
     actual = sentences(group.summary_text(group.GroupResult('FAILED', None, outcomes), None))[1:]
-    if actual != [part]:
+    canonical = factory_match(part, actual)
+    if canonical is None:
         return None
-    pieces = part.split(', ')
+    pieces = canonical.split(', ')
     return [piece + ',' for piece in pieces[:-1]] + [pieces[-1]]
 
 
@@ -75,16 +76,23 @@ def fragments(targets, items):
     return allowed
 
 
+def factory_match(text, allowed):
+    # Only whitespace and a terminal full stop; return the cached factory text.
+    def key(value):
+        return re.sub(r'\s+', ' ', value.strip()).rstrip('.')
+    matches = {value for value in allowed if key(value) == key(text)}
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
 def classify(text, pending, items, cfg):
     """Return (parts, is_summary), or None. Caller binds run/boot/source first."""
     from .runner_speech import required_texts
     task_texts = set(required_texts(cfg, items.values()))
-    if text in task_texts:
-        return [text], False
-    if text in item_intros(pending['targets'], items):
-        return [text], False
+    canonical = factory_match(text, task_texts | item_intros(pending['targets'], items))
+    if canonical is not None:
+        return [canonical], False
     allowed = fragments(pending['targets'], items)
-    parts = sentences(text)
+    parts = [factory_match(part, allowed) or re.sub(r'\s+', ' ', part.strip()) for part in sentences(text)]
     if (not parts or len(parts) > len(pending['targets']) + 3
             or len(parts) != len(set(parts))):
         return None
@@ -106,12 +114,12 @@ def classify(text, pending, items, cfg):
         result = group.GroupResult('COMPLETED' if got == len(outcomes) else 'FAILED', None, outcomes)
         heads.add(sentences(group.summary_text(result, None))[0])
     summary = parts[0] in heads
-    if any(p in heads for p in parts[1:]) or not summary and (len(parts) != 1 or not text.endswith('빼고 가져올게요.')):
+    if any(p in heads for p in parts[1:]) or not summary and (len(parts) != 1 or not parts[0].endswith('빼고 가져올게요.')):
         return None
     return playback, summary
 
 
-def required_texts(cfg, items):
+def required_texts(cfg, items, runtime=None):
     from .semantic_requests import entries
-    return sorted({text for _, result in entries(cfg, items)
+    return sorted({text for _, result in entries(cfg, items, runtime)
                    for text in fragments(result['items'], items) | item_intros(result['items'], items)})

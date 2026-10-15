@@ -534,6 +534,8 @@ class VoiceSession:
         """평가 모드는 모든 발행 금지. 조회로 요청을 소비하지 않습니다."""
         if doc.get('_voice', {}).get('readonly_query'):
             return False
+        if doc.get('_voice', {}).get('semantic_held'):
+            return False
         if doc['intent'] in ('find_list', 'find_class') and not self.cfg.get('request_run_enabled'):
             return False
         if doc['intent'] == 'achieve_goal' or doc.get('_voice', {}).get('p2_goal_candidate'):

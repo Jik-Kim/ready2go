@@ -1,13 +1,14 @@
 """P3 registered semantic requests and list contents share one validated TTL."""
 import re
 from pathlib import Path
-from ready2go_knowledge.core.semantic_query import load_ttl
+from copy import deepcopy
 
 KINDS = ('find_list', 'find_class')
 DEFAULT_QUERIES = [{'kind': 'list', 'id': 'commute_set'}, {'kind': 'class', 'id': 'Valuables'}]
 
 
 def catalog(cfg, items):
+    from ready2go_knowledge.core.semantic_query import load_ttl
     configured = cfg.get('semantic_catalog_file', 'auto')
     if configured != 'auto':
         path = Path(configured).expanduser().resolve()
@@ -27,14 +28,58 @@ def catalog(cfg, items):
     return load_ttl(path, active_items=items, retired_items=retired.read_text().splitlines())
 
 
-def entries(cfg, items):
-    knowledge = catalog(cfg, items)
-    result = []
-    for entry in cfg.get('semantic_queries', DEFAULT_QUERIES):
-        kind, key = entry['kind'], entry['id']
-        query = knowledge.query_list if kind == 'list' else knowledge.query_class
-        result.append((knowledge.names(kind, key), query(key)))
-    return result
+class SemanticRuntime:
+    """One startup snapshot, owned by one parser/prepare call, never global."""
+    def __init__(self, cfg, items):
+        self._entries = []
+        self.reason = None
+        self.warned = False
+        self.rules = speech_defaults()
+        try:
+            configured = cfg.get('semantic_speech', self.rules)
+            if (not isinstance(configured, dict) or set(configured) != set(self.rules)
+                    or not isinstance(configured['unavailable_names'], list)
+                    or any(not isinstance(name, str) or not name.strip() for name in configured['unavailable_names'])):
+                raise ValueError('semantic_speech: patterns and unavailable-name hints required')
+            for key in ('contents_pattern', 'request_pattern'):
+                if not isinstance(configured[key], str) or not configured[key]:
+                    raise ValueError('semantic_speech: nonempty patterns required')
+                re.compile(configured[key])
+            self.rules = deepcopy(configured)
+            knowledge = catalog(cfg, items)
+            for entry in cfg.get('semantic_queries', DEFAULT_QUERIES):
+                kind, key = entry['kind'], entry['id']
+                query = knowledge.query_list if kind == 'list' else knowledge.query_class
+                self._entries.append((knowledge.names(kind, key), query(key)))
+        except Exception as exc:
+            self._entries = []
+            self.reason = type(exc).__name__ + ': ' + str(exc)
+
+    def warn(self, warning):
+        if self.reason is not None and not self.warned:
+            warning('P3 의미 조회 비활성: ' + self.reason)
+            self.warned = True
+
+    def entries(self):
+        return deepcopy(self._entries)
+
+
+def speech_defaults():
+    import yaml
+    from .stt_error import _prompt_file
+    with _prompt_file().open(encoding='utf-8') as stream:
+        return yaml.safe_load(stream)['semantic_speech']
+
+
+def prepared(parser):
+    value = getattr(parser, 'semantic_runtime', None)
+    if value is None:
+        value = parser.semantic_runtime = SemanticRuntime(parser.cfg, parser.items)
+    return value
+
+
+def entries(cfg, items, runtime=None):
+    return (runtime if runtime is not None else SemanticRuntime(cfg, items)).entries()
 
 
 def acceptance(result):
@@ -52,28 +97,33 @@ def select(parser, text):
     or None when this is unrelated to registered semantic names.
     """
     value = re.sub(r'\s+', '', str(text)).rstrip('.!?？')
+    runtime = prepared(parser)
     matched = []
     touched = False
-    for names, result in entries(parser.cfg, parser.items):
+    rows = runtime.entries()
+    if runtime.reason is not None:
+        return False if any(re.sub(r'\s+', '', name) in value
+                            for name in runtime.rules['unavailable_names']) else None
+    for names, result in rows:
         for name in names:
             name = re.sub(r'\s+', '', name)
             if name and name in value:
                 touched = True
                 rest = value.replace(name, '', 1)
-                readonly = re.fullmatch(r'(?:은|는|에(?:는)?)?(?:뭐야|뭐예요|뭔지알려줘|뭐가들어있어|뭐가들어있어요|뭐가있어|목록알려줘|알려줘)', rest)
-                execution = re.fullmatch(r'(?:을|를)?(?:가져와|가져와줘|가져다줘|가져다주세요|가져와주세요|찾아줘)', rest)
+                readonly = re.fullmatch(runtime.rules['contents_pattern'], rest)
+                execution = re.fullmatch(runtime.rules['request_pattern'], rest)
                 if readonly or execution:
                     matched.append((result, bool(readonly)))
     unique = {(r['source']['kind'], r['source']['id'], read): (r, read) for r, read in matched}
     if len(unique) == 1:
         return next(iter(unique.values()))
-    return False if touched or re.search(r'준비물|목록|분류|귀중품', value) else None
+    return False if touched else None
 
 
 def validate(parser, doc):
     if doc.get('intent') not in KINDS:
         raise ValueError('semantic intent required')
-    result = next((result for _, result in entries(parser.cfg, parser.items)
+    result = next((result for _, result in entries(parser.cfg, parser.items, prepared(parser))
                    if result['source'] == doc.get('semantic', {}).get('source')), None)
     if (result is None or not result['items'] or doc.get('targets') != result['items']
             or doc.get('semantic') != {'source': result['source'], 'evidence': result['evidence']}
@@ -108,7 +158,8 @@ def parse(parser, text):
 def held(parser, text):
     from .intent import intent
     doc = intent('clarify', question=parser.cfg['clarify_prompts']['general'])
-    doc['_voice'] = {'reason': 'semantic_mixed_or_unconfirmed', 'final_text': doc['clarify_question']}
+    doc['_voice'] = {'reason': 'semantic_unavailable' if prepared(parser).reason else 'semantic_mixed_or_unconfirmed',
+        'semantic_unavailable_reason': prepared(parser).reason, 'semantic_held': True, 'final_text': doc['clarify_question']}
     doc['source'] = dict(stt_text=text, input_kind='text', llm_called=False,
         llm_validation='not_called', fallback_used=False, execution_allowed=False)
     return doc
@@ -116,13 +167,11 @@ def held(parser, text):
 
 def reference(parser, text):
     selected = select(parser, text)
-    if selected is False:
-        return parser.cfg['clarify_prompts']['general']
     if selected is not None and selected is not False and selected[1]:
         return contents(selected[0], parser.items)
     return None
 
 
-def required_texts(cfg, items):
-    return sorted({text for _, result in entries(cfg, items)
+def required_texts(cfg, items, runtime=None):
+    return sorted({text for _, result in entries(cfg, items, runtime)
                    for text in (acceptance(result), contents(result, items))})
