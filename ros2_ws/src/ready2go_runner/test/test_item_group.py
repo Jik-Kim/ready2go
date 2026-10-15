@@ -194,3 +194,51 @@ def test_item_already_on_tray_is_excluded_not_rerun():
     result = ig.run_group(runner, TASK, semantic, WORLD, speak=said.append)
     assert ("car_key", ig.EXCLUDED) in statuses(result)
     assert robot.drawer_moves() == [("drawer_bottom", "open"), ("drawer_bottom", "close")]
+
+
+def test_resumable_runner_halt_inside_group_leaves_nothing_suspended():
+    """[#371 E P2] 운영 재개 모드(resumable=True)에서 첫 탑뷰 이동 중 '멈춰' — 묶음은 ABORTED·재개 없음이고
+    물품 실행도 SUSPENDED 로 남지 않음(묶음 밖에서 그 물품만 재개되지 않게). 정지 잠금은 유지, 원래 설정은 되돌림."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, said = setup()
+    runner.resumable = True
+
+    def stop_at_top_view(action, params):
+        if action == "move_to_named_pose" and params.get("pose_name") == "drawer_top_view":
+            runner.halt(source="voice")
+            return ActionResult(False, error_code="CANCELED")
+        return None
+    robot.hook = stop_at_top_view
+    result = ig.run_group(runner, TASK, semantic, WORLD, speak=said.append)
+    assert (result.overall_status, result.error_code) == ("ABORTED", "HALTED")
+    assert runner.suspended is None and runner.halted is True                     # 보존 없음 · 잠금 유지
+    assert runner.resumable is True                                                # 원래 설정으로
+    assert statuses(result)[:2] == [("car_key", ig.NOT_DELIVERED), ("lip_balm", ig.NOT_RUN)]
+    assert ("drawer_bottom", "open") not in robot.drawer_moves()
+    assert "이어서 할 수 없어요" in said[-1]
+
+
+# 처음 원인은 허용 코드(NO_FREE_SPACE)인데 정리(복구)도 실패한 실행 — 실제 Runner 가 처음 원인을 결과에 남기는지 재현하는 작은 태스크
+NO_ROOM_THEN_RESTORE_FAIL = {
+    "task_id": "no_room_then_restore_fail",
+    "inputs": {"target": None},
+    "sequence": [{"id": "a1", "action": "place_object", "params": {"location": "drawer_top", "slot": "free"}}],
+    "finally": [
+        {"id": "z1", "action": "set_var", "params": {"name": "restore_failed", "value": [{"class": "cover_plate"}]}},
+        {"id": "z2", "action": "set_var", "params": {"name": "task_error", "value": {"code": "RESTORE_INCOMPLETE", "step": "fr"}}},
+    ],
+}
+
+
+def test_allowed_failure_with_restore_failure_stops_the_group():
+    """[#371 E P2] 결과 코드는 NO_FREE_SPACE(허용)여도 태스크 복구 실패 표식(task_error RESTORE_INCOMPLETE·restore_failed)이
+    있으면 다음 물품을 하지 않음 — 빈손·서랍 닫힘이어도. 묶음 원인 RESTORE_INCOMPLETE, 안내에 사람 확인."""
+    semantic = catalog().query_list("출근 준비물")
+    runner, robot, said = setup(failures={"place_object": ["NO_FREE_SPACE", None]})
+    result = ig.run_group(runner, NO_ROOM_THEN_RESTORE_FAIL, semantic, WORLD, speak=said.append)
+    first = result.items[0]
+    assert (first.item, first.overall_status, first.error_code, first.restore_incomplete) == \
+        ("car_key", "FAILED", "NO_FREE_SPACE", True)                                # Runner 는 처음 원인을 남김
+    assert (result.overall_status, result.error_code) == ("FAILED", "RESTORE_INCOMPLETE")
+    assert statuses(result)[1] == ("lip_balm", ig.NOT_RUN)
+    assert said[-1].endswith("옮긴 물건 일부를 원래 자리로 못 돌려놔서 목록 작업을 멈췄어요. 사람이 확인해 주세요.")

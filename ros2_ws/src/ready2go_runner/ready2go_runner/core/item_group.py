@@ -8,12 +8,14 @@ E 가 목록·분류("출근 준비물", "귀중품")를 활성 물품 키로 �
    열고 닫음(서랍당 한 번 열기는 후속), 한 번에 서랍 하나·물품 하나 전달.
 3. 다음 물품으로 넘어가는 조건(허용 목록): 그 물품 실행이 정리까지 끝났고(COMPLETED·FAILED) 원인이 움직이기 전 실패
    (`CONTINUE_CODES`, 또는 코드 없음 — #359 전 main 은 못 꺼내도 COMPLETED)이며 빈손·그 서랍 닫힘. 그 밖(정지·충돌·동작 불확실·
-   쥔 상태 모름·놓침·복구 실패 등)은 **묶음 전체 중단**(기존 규칙).
+   쥔 상태 모름·놓침·복구 실패 등)은 **묶음 전체 중단**(기존 규칙). 복구 실패는 결과 코드만 보지 않고 태스크 표식
+   (`task_error = RESTORE_INCOMPLETE`·`restore_failed`)도 봄 — Runner 는 처음 원인(예 `NO_FREE_SPACE`)을 결과에 남기므로 (#371 E P2).
 4. 결과: 요청한 물품을 전부 전달 `COMPLETED` / 일부 `FAILED`+`PARTIAL_DELIVERY` / 하나도 못 함 `FAILED`+첫 원인 /
    정지 `ABORTED`. **새 상태 값·`outcome` 필드 없음**(E 확정). 물품별 결과는 `GroupResult.items` 에 보존.
    전달 여부 = Runner 상태 `located_in(물품) == handover_zone`(place 스킬 effect) — 실행 결과 상태만 보지 않음.
 5. 안내: 시작("차키, 립밤 가져올게요. 에어팟 케이스는 위치 기록이 없어서 빼고 가져올게요") / 끝 요약(실제 전달 수·못 가져온 물품).
-   묶음 안 정지는 재개하지 않음 — "목록 작업은 이어서 할 수 없어요"(반복 안 재개 확장은 별도 후속).
+   묶음 안 정지는 재개하지 않음 — "목록 작업은 이어서 할 수 없어요"(반복 안 재개 확장은 별도 후속). 묶음을 도는 동안만
+   Runner 재개 보존(`resumable`)을 꺼서 물품 실행이 `SUSPENDED` 로 남지 않게 함 — 정지 잠금은 그대로, 끝나면 원래 설정 (#371 E P2).
 
 공개 인텐트 연결(`find_list`/`find_class` + `semantic` 선택 필드)은 계약 PR(스키마·예시·문서, E 포함 2명 승인) 뒤 —
 지금은 core 와 mock 시험만. 묶음 요약의 실행 기록(runs) 저장도 그때 노드와 같이.
@@ -53,6 +55,7 @@ class ItemOutcome:
     overall_status: str | None = None       # 그 물품 find_with_unpack 실행 결과
     error_code: str | None = None
     run_id: str | None = None
+    restore_incomplete: bool = False        # 그 물품 실행에서 옮긴 물건을 다 되돌리지 못함 (결과 코드와 따로)
 
 
 @dataclass
@@ -131,7 +134,9 @@ def summary_text(result: GroupResult, stopped: str | None) -> str:
     if left:
         parts.append(f"{attach_particle(', '.join(left), '은')} 작업하지 않았어요")
     tail = ""
-    if stopped == "halted":
+    if any(o.restore_incomplete for o in result.items):
+        tail = " 옮긴 물건 일부를 원래 자리로 못 돌려놔서 목록 작업을 멈췄어요. 사람이 확인해 주세요."
+    elif stopped == "halted":
         tail = " 목록 작업은 멈춰서 이어서 할 수 없어요. 다시 요청해 주세요."
     elif stopped == "failed":
         tail = " 문제가 생겨 목록 작업을 멈췄어요."
@@ -140,6 +145,13 @@ def summary_text(result: GroupResult, stopped: str | None) -> str:
 
 def _delivered(runner: Runner, item: str) -> bool:
     return (runner.state.get("located_in") or {}).get(item) == HANDOVER
+
+
+def _restore_incomplete(result: RunResult) -> bool:
+    """태스크가 남긴 복구 실패 표식 — 처음 원인이 허용 코드여도 정리(복구)가 실패했을 수 있음 (Runner 는 처음 원인을 우선 보존)."""
+    board = result.blackboard or {}
+    mark = board.get("task_error")
+    return (isinstance(mark, dict) and mark.get("code") == "RESTORE_INCOMPLETE") or bool(board.get("restore_failed"))
 
 
 def _safe_to_continue(runner: Runner, result: RunResult, drawer: str) -> bool:
@@ -176,19 +188,28 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
     result.start_text = start_text(runnable, excluded)
     say(result.start_text)
     stopped = None
-    for outcome in runnable:
-        if runner.halted:                   # 물품 사이 정지 — 다음 물품을 시작하지 않음
-            result.overall_status, result.error_code, stopped = "ABORTED", runner.halt_code or "HALTED", "halted"
-            break
-        run = runner.run(task, {"target": outcome.item})
-        outcome.overall_status, outcome.error_code, outcome.run_id = run.overall_status, run.error_code, run.run_id
-        outcome.status = DELIVERED if _delivered(runner, outcome.item) else NOT_DELIVERED
-        if run.overall_status in ("ABORTED", "SUSPENDED"):   # 정지·비상정지 — 묶음 안 재개 없음
-            result.overall_status, result.error_code, stopped = "ABORTED", run.error_code, "halted"
-            break
-        if not _safe_to_continue(runner, run, outcome.drawer):
-            result.overall_status, result.error_code, stopped = "FAILED", run.error_code or "GROUP_STOPPED", "failed"
-            break
+    resumable = runner.resumable            # 묶음 안 정지는 보존·재개 없음 — 물품 실행이 SUSPENDED 로 남지 않게 (#371 E P2)
+    runner.resumable = False
+    try:
+        for outcome in runnable:
+            if runner.halted:               # 물품 사이 정지 — 다음 물품을 시작하지 않음
+                result.overall_status, result.error_code, stopped = "ABORTED", runner.halt_code or "HALTED", "halted"
+                break
+            run = runner.run(task, {"target": outcome.item})
+            outcome.overall_status, outcome.error_code, outcome.run_id = run.overall_status, run.error_code, run.run_id
+            outcome.status = DELIVERED if _delivered(runner, outcome.item) else NOT_DELIVERED
+            outcome.restore_incomplete = _restore_incomplete(run)
+            if run.overall_status in ("ABORTED", "SUSPENDED"):   # 정지·비상정지 (SUSPENDED 는 보존을 꺼서 안 옴 — 방어)
+                result.overall_status, result.error_code, stopped = "ABORTED", run.error_code, "halted"
+                break
+            if outcome.restore_incomplete:  # 허용 코드여도 정리(복구)가 실패했으면 다음 물품 안 함
+                result.overall_status, result.error_code, stopped = "FAILED", "RESTORE_INCOMPLETE", "failed"
+                break
+            if not _safe_to_continue(runner, run, outcome.drawer):
+                result.overall_status, result.error_code, stopped = "FAILED", run.error_code or "GROUP_STOPPED", "failed"
+                break
+    finally:
+        runner.resumable = resumable
     if stopped is None:
         got = len(result.delivered)
         if got == len(result.items):
