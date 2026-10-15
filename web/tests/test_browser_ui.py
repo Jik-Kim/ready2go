@@ -413,14 +413,14 @@ def test_normal_page_never_uses_example_execution(tmp_path: Path, scenario: str)
 
 @pytest.mark.parametrize(("decision", "reason", "result_run", "expected"), [
     ("run", None, "r1", "실행 완료"),
-    ("hold", "LOW_CONFIDENCE", "r1", "보류 · LOW_CONFIDENCE"),
-    ("reject", "BUSY", "r1", "거절 · BUSY"),
+    ("hold", "LOW_CONFIDENCE", "r1", "보류 · 사유 코드: LOW_CONFIDENCE"),
+    ("reject", "BUSY", "r1", "거절 · 사유 코드: BUSY"),
     ("run", None, "other-run", "수락된 요청의 실행 결과 확인 전"),
 ])
 def test_command_uses_only_linked_request_result(tmp_path: Path, decision, reason, result_run, expected) -> None:
     rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
                                     runner_payloads=[_request_result(decision, reason, result_run)])
-    assert "find_item · eraser" in rendered
+    assert "인텐트: find_item · eraser" in rendered
     assert expected in rendered
     if decision != "run" or result_run != "r1":
         assert "실행 완료" not in rendered
@@ -430,7 +430,7 @@ def test_command_uses_only_linked_request_result(tmp_path: Path, decision, reaso
         assert "현재 작업 확인 전" in rendered
         assert 'class="task-item-button"' not in rendered
     # PC·모바일은 같은 명령 모델을 사용한다.
-    assert 'id="mobileUnderstoodText">find_item · eraser</dd>' in rendered
+    assert 'id="mobileUnderstoodText">인텐트: find_item · eraser</dd>' in rendered
 
 
 @pytest.mark.parametrize("next_state", ["reject", "http-error", "invalid"])
@@ -443,7 +443,7 @@ def test_previous_result_is_cleared_after_rejection_or_failure(tmp_path: Path, n
     assert "실행 완료" not in rendered
     assert "지우개의 전달 결과를 확인하는 중" not in rendered
     if next_state == "reject":
-        assert "거절 · BUSY" in rendered
+        assert "거절 · 사유 코드: BUSY" in rendered
         assert "이 요청의 실행은 수락되지 않음" in rendered
     else:
         assert '<p id="understoodText">확인 전</p>' in rendered
@@ -507,3 +507,23 @@ def test_preview_item_selection_changes_only_selected_detail(tmp_path: Path, vie
     for snapshot in [key, watch, eraser]:
         for field in ["title", "location", "drawer"]:
             assert snapshot[field] == initial[field]
+
+
+@pytest.mark.parametrize(("decision", "label"), [
+    ("recover", "복구 요청 처리"), ("resume", "재개 요청 처리"),
+    ("end", "작업 종료 처리"), ("registered", "재개 질문·요청 등록"),
+    ("closed", "재개 대기 종료"), ("future_decision", "접수 상태 확인 전"),
+])
+def test_control_decisions_do_not_inherit_execution_success(tmp_path: Path, decision, label) -> None:
+    payload = _request_result(decision)
+    # ID가 같더라도 비실행 결정에 지난 완료 결과를 붙이지 않는다.
+    payload["last_intent"]["run_id"] = "r1"
+    payload["last_intent"]["intent"] = "future_intent"
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+                                    runner_payloads=[payload])
+    assert label in rendered
+    assert "인텐트: future_intent · eraser" in rendered
+    assert "처리 결과 확인 전" in rendered
+    assert "실행 완료" not in rendered
+    assert "전달 완료" not in rendered
+    assert f'id="mobileUnderstoodText">인텐트: future_intent · eraser</dd>' in rendered

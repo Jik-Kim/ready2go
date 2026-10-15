@@ -230,18 +230,21 @@
     if (records.lastIntent.status !== VALID) return view;
     const request = records.lastIntent.value;
     const targets = request.targets?.map(itemLabel).join(" · ");
-    view.understood = `${request.intent || "인텐트 확인 전"} · ${targets || "대상 정보 없음"}`;
+    view.understood = `${request.intent ? `인텐트: ${request.intent}` : "인텐트 확인 전"} · ${targets || "대상 정보 없음"}`;
     view.interpretation = request.intent === null
       ? view.interpretation : { status: "confirmed", label: "Runner 해석 정보 수신" };
     // 미지의 결정은 수락으로 추정하지 않는다. 사유는 원본 코드를 보존한다.
     const decisions = {
       run: ["accepted", "수락"], hold: ["pending", "보류"], reject: ["error", "거절"],
       status: ["pending", "상태 조회 처리"], cancel: ["pending", "취소 요청 처리"],
+      recover: ["pending", "복구 요청 처리"], resume: ["pending", "재개 요청 처리"],
+      end: ["pending", "작업 종료 처리"],
+      registered: ["pending", "재개 질문·요청 등록"], closed: ["pending", "재개 대기 종료"],
     };
     const decision = decisions[request.decision];
     view.receipt = {
       status: decision?.[0] || "waiting",
-      label: `${decision?.[1] || "접수 상태 확인 전"}${request.reason ? ` · ${request.reason}` : ""}`,
+      label: `${decision?.[1] || "접수 상태 확인 전"}${request.reason ? ` · 사유 코드: ${request.reason}` : ""}`,
     };
     if (["hold", "reject"].includes(request.decision)) {
       view.processing = { status: "waiting", label: "이 요청의 실행은 수락되지 않음" };
