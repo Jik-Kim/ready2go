@@ -2076,14 +2076,19 @@ class SkillServer(Node):
         info["pushed_after"] = [dict(clp.as_pose(next(o for o in expect if o["id"] == i)), id=i) for i in info["pushed_ids"]]
         moved = by[a.target]
         if a.kind in ("unstack", "remove"):                       # 집어서 빈 자리에 내려놓기 (서랍 안 놓기 검사 그대로)
-            res, _ = self._do_pick_object(goal, {"target": moved, "approach_offset": [0, 0, 0.1], "scan": scan})
+            res, po = self._do_pick_object(goal, {"target": moved, "approach_offset": [0, 0, 0.1], "scan": scan})
             if not res.success:
                 out["target_after"] = None
+                if (po or {}).get("hand"):                        # 집기 실패의 손 상태(#223)를 그대로 — 버리면 Runner 가 빈손으로 봄
+                    out["hand"] = po["hand"]
                 return res, out
             res, pl = self._place_in_drawer(goal, {"location": drawer_id, "pose": a.to_pose, "scan": scan}, drawer_id)
             info["placed_pose"] = (pl or {}).get("placed_pose")
             if not res.success:
                 out["target_after"] = None
+                if self.held is not None:                         # 집은 뒤 놓기가 (움직이기 전) 거부 = 쥔 채 — 코드가 '움직이기 전'
+                    out["hand"] = "holding"                       # 거부라도 Runner 는 hand 로 빈손 아님을 알고 정지·잠금(#223)
+                    res = dataclasses.replace(res, reason=f"{a.target} 집은 뒤 놓기 거부 — 쥔 채: {res.reason}")
                 return res, out
             return sf.Outcome(True, reason=f"{a.reason} — 다시 보고 다시 부르기"), out
         if a.kind == "wall_nudge":                                # 기존 벽 넛지 그대로 (끄는 길 이웃 확인 포함)

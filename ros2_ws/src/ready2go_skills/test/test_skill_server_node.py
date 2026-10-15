@@ -4191,3 +4191,25 @@ def test_check_only_wall_stays_wall_when_flag_off_or_wall_nudge_is_free(server, 
     assert out.error_code == "WALL_TOO_CLOSE"
     assert server.srv.robot.log == []
 
+
+
+def test_make_room_remove_place_refused_after_pick_reports_holding(server, monkeypatch):
+    """[C 연결 점검 10/15 — #392] make_room 치우기(remove)에서 집은 뒤 놓기가 움직이기 전 거부(WALL_TOO_CLOSE 등)되면 쥔 채인데
+    예전엔 그 '움직이기 전' 코드만 돌려줘 Runner 가 빈손으로 봄(→ 쥔 채 홈). 이제 결과 hand = holding → Runner 정지·잠금(#223)."""
+    from ready2go_skills.core import clear_plan as clp
+    srv, ss = server.srv, server.ss
+    srv.disp["drawer_top"] = srv.places()["drawer_top"]["tf_at_travel_m"]
+    air, scan = _air_wall_scene()
+    wr = next(c for c in scan["candidates"] if c["id"] == "toy_wrench#1")
+    to = dict(wr["pose"], position=[0.2, 0.2, 0.0])
+    monkeypatch.setattr(ss.clp, "plan_next", lambda *a, **k: clp.Action("remove", "toy_wrench#1", "막는 몽키 → 빈 자리", to_pose=to))
+
+    def fake_pick(goal, params):
+        srv.held = {"class": "toy_wrench", "id": "toy_wrench#1", "width_m": 0.02, "drawer_id": "drawer_top"}
+        return server.ss.sf.Outcome(True), {"hand": "holding"}
+    monkeypatch.setattr(srv, "_do_pick_object", fake_pick)
+    monkeypatch.setattr(srv, "_place_in_drawer", lambda goal, p, d: (server.ss.sf.Outcome(False, "WALL_TOO_CLOSE", reason="벽"), None))
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": air, "scan": scan, "make_room": True})
+    assert not out.success and out.error_code == "WALL_TOO_CLOSE" and "쥔 채" in out.reason
+    assert data["hand"] == "holding"
+    srv.held = None
