@@ -3922,3 +3922,32 @@ def test_carry_spline_turns_wrist_first_and_keeps_angles_in_movesx(server, monke
     assert turn_k < len(log) and "via" in seen
     assert all(v[3:6] == seen["start"][3:6] for v in seen["via"])       # 스플라인 안 손목 각 숫자 그대로
     assert max(v[2] for v in seen["via"]) <= max(p[2] for p in route) + 1.0
+
+
+def test_pick_open_on_way_unfinished_open_is_not_hidden_as_move_failure(server, monkeypatch):
+    """[#365 E P1] pick.open_on_way 에서 경유점 이동이 실패했는데 RG2 벌리기가 기다리는 시간 안에 안 끝나면: 일반 이동 실패로
+    숨기지 않고 STATE_UNKNOWN(잠금 코드) + 서버 잠금 — 늦게 끝나는 벌리기가 다음 그리퍼 명령과 겹치지 않게."""
+    import threading
+    srv = server.srv
+    down, _ = _turning_movej(server)
+    _with_prm(server, monkeypatch, pick={"open_on_way": True})
+    gate, started = threading.Event(), threading.Event()
+    real = srv._grip
+
+    def slow_grip(w, f):                                                # 장치 지연 — 풀어 줄 때까지 안 끝남
+        started.set()
+        gate.wait(5.0)
+        return real(w, f)
+    srv._grip = slow_grip
+    srv.grip_wait_s = 0.05
+    srv.locked = None
+    mj = srv.robot.movej_async
+    srv.robot.movej_async = lambda j, vel, acc: False if list(j[:5]) == list(down[:5]) else mj(j, vel, acc)   # 경유점 이동만 거부
+    srv.robot.p, srv.robot.j, srv.held = [380.0, -6.5, 300.0, 90.0, -90.0, 180.0], [0.0, 0.0, 90.0, 0.0, 90.0, 0.0], None
+    try:
+        out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    finally:
+        gate.set()
+    assert started.is_set(), out
+    assert not out.success and out.error_code == server.ss.sf.STATE_UNKNOWN, out
+    assert "벌리기" in out.reason and srv.locked

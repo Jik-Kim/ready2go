@@ -1232,9 +1232,12 @@ class SkillServer(Node):
         t.start()
 
         def wait():
-            t.join(10.0)
+            limit = float(getattr(self, "grip_wait_s", 10.0))
+            t.join(limit)
             if t.is_alive():
-                raise TimeoutError("RG2 벌리기가 10 s 안에 끝나지 않음")
+                # 끝났는지 모름 — 늦게 끝나며 다음 그리퍼 명령과 겹칠 수 있음 → 서버 잠금(모든 동작 거부, W2 복구·재시작으로 풂) [#365 E P1]
+                self._lock("pick_object", f"RG2 {width_mm:.0f} mm 이동이 {limit:.0f} s 안에 끝났는지 확인 못 함")
+                raise TimeoutError(f"RG2 {width_mm:.0f} mm 이동이 {limit:.0f} s 안에 끝나지 않음")
             if "err" in box:
                 raise box["err"]
             return box["st"]
@@ -2356,8 +2359,9 @@ class SkillServer(Node):
                 if open_wait:
                     try:
                         open_wait()
-                    except Exception:
-                        pass
+                    except Exception as e:                  # 끝난 걸 확인 못 하면 이동 실패로 숨기지 않음 — 상태 모름(잠금) [#365 E P1]
+                        return sf.Outcome(False, sf.STATE_UNKNOWN,
+                                          reason=f"{o.reason} — 그리퍼 벌리기 끝 확인 못 함 ({e!r})"), None
                 return o, None
             if not open_wait:
                 self._grip(0, 20)
