@@ -211,3 +211,20 @@ def test_goal_met_on_the_last_allowed_segment_is_completed():
     short = run_plan(runner2, onto, [DELIVER, TOP_OPEN], load_task, limits=LIMITS, max_rounds=1)
     assert (short.overall_status, short.error_code) == ("FAILED", PLAN_NO_PROGRESS)   # 묶음만 하고 위 서랍은 못 엶
     assert runner2.state["located_in"]["eraser"] == "handover_zone"                  # 한 일은 그대로
+
+
+def test_halt_right_after_the_last_allowed_segment_is_aborted(monkeypatch):
+    """[#373 E 재리뷰] 마지막 허용 구간이 끝난 직후 정지가 들어오면 ABORTED + 정지 코드 — '목표 미달성'(PLAN_NO_PROGRESS)이 아님.
+    한 일(위 서랍 열림)은 그대로, 잠금 유지."""
+    onto = e_onto()
+    runner, _ = setup(onto)
+    real_run = runner.run
+
+    def run_then_halt(task, inputs=None, **kw):
+        result = real_run(task, inputs, **kw)
+        runner.halt(source="voice")          # 구간 결과가 돌아온 직후 정지 도착
+        return result
+    monkeypatch.setattr(runner, "run", run_then_halt)
+    out = run_plan(runner, onto, [TOP_OPEN], load_task, limits=LIMITS, max_rounds=1)
+    assert (out.overall_status, out.error_code) == ("ABORTED", "HALTED")
+    assert runner.halted is True and runner.state["open"]["drawer_top"] is True

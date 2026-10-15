@@ -115,9 +115,12 @@ def run_plan(runner: Runner, onto: dict, goals: list[dict], tasks: Callable[[str
             if head.task and not _effect_met(runner.state, skills.get(head.skill, {}), head.params):
                 out.error_code, out.reason = PLAN_EFFECT_UNMET, f"{seg.skills[0]} 뒤 실제 상태가 계획 결과와 다름"
                 return out
-        # 구간 상한 — 마지막 구간이 목표를 다 이뤘으면 성공 (#373 E 리뷰: 마지막 허용 구간 성공을 PLAN_NO_PROGRESS 로 오기록)
-        if not runner.halted and planner.plan(runner.state, onto, all_goals, limits=limits,
-                                              composites=True).status == planner.SATISFIED:
+        # 구간 상한 — 루프 첫머리와 같이 정지부터 (#373 E 재리뷰: 마지막 구간 직후 정지를 PLAN_NO_PROGRESS 로 오기록)
+        if runner.halted:
+            out.overall_status, out.error_code, out.reason = "ABORTED", runner.halt_code or "HALTED", "정지 잠금"
+            return out
+        # 마지막 구간이 목표를 다 이뤘으면 성공 (#373 E 리뷰: 마지막 허용 구간 성공을 PLAN_NO_PROGRESS 로 오기록)
+        if planner.plan(runner.state, onto, all_goals, limits=limits, composites=True).status == planner.SATISFIED:
             out.overall_status, out.error_code, out.reason = "COMPLETED", None, "목표 만족"
             return out
         out.error_code, out.reason = PLAN_NO_PROGRESS, f"구간 {max_rounds}개 안에 목표를 다 만족하지 못함"
