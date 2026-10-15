@@ -1,9 +1,10 @@
 # CURRENT — B 서동권
 
 - **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P2 (Unpacking 통합·실물 확인 중, P3 트레이 집기는 별도 PR 대기)
-- **최종 갱신**: 2026-10-14 밤
+- **최종 갱신**: 2026-10-15 저녁
 
 ## 지금 상태
+- **10/15 저녁 — PC2 출근 준비물 통합 (PR #390, 실물 미확인)**: 옆벽 에어팟 + 앞 몽키에서 `s8.q1` `WALL_TOO_CLOSE` → make_room 안 거치고 pick 벽 넛지 '끄는 길에 몽키'로 끝, 목록 중단(차키·립밤 안 함). make_room 은 같은 장면을 몽키 같이 밀기로 풂 [2D sim]. B: `make_room.wall_blocked_as_neighbor`(기본 true) — 벽 + 벽 넛지 이웃 막힘이면 check_only `NEIGHBOR_TOO_CLOSE`. 점검 중 B 안전 빈틈: make_room 치우기에서 집은 뒤 놓기 거부면 쥔 채 '움직이기 전' 코드 → 결과 `hand: holding` 으로 고침. C 연결 빈틈 정리 #392(목록 계속 코드·`WALL_TOO_CLOSE` → make_room·`OCCLUSION_UNKNOWN` 다시 찍기·pick retry). 미결: PC2 같은 배치 저속 재시험, #387 과 합칠 때 `skills.yaml`·`LEGACY_FLAGS` 조정.
 - **10/14 밤 — 정리·10/15 할 일**: 움직임 정리 #354 머지(`motion.one_turn`·`carry.direct`·`carry.spline`·`place.touch_window_mm`, **전부 기본 꺼짐**, 실물 미확인). C #352(Runner 목표 공간 만들기)·A #360(지우개 가림 null → `alone_clear_min_ratio` 0.77) 머지, main `77bebac`. 판 위에서 놓기: 10/15 케이블 정리 뒤에도 같음 → 로그 `+8.0 mm, 3.2 N`(바닥 8 mm 위에서 3 N 살짝 넘김) → `touch_window_mm: 3` 확인 필요. **10/15 (녹화 날)**: ① main 받기·케이블 정리·판 free 놓기 로그 확인 ② #354 설정 하나씩 켜서 같은 배치 2~3번(`pc2_cmd.sh unlock`·`report`) ③ 녹화 배치 주의(지우개–립밤 2 cm 이상, 차키를 몽키 가장자리에 걸치지 않기) ④ #352 실물 ⑤ PPT(`PPT_HANDOFF_improvements.md` 새 세션) ⑥ 온톨로지 난제 배치(강사님 피드백, E 협의). 상세 작업표.
 - **10/14 저녁 — P2 시연 성공 [사용자]** 뒤 움직임 정리 PR (설정 3개, **전부 기본 false — 동작 그대로**, 실물 미확인): `motion.one_turn`(집기·서랍 안 놓기·원복 손목 한 번에), `carry.direct`(집은 뒤 경유점 1 멈춤·J6 따로 돌리기 없이 2→3 에서 돌림), `carry.spline`(들고 나오기 movesx guided). 원인 분석·통합 환경 점검 절차는 `2026-10-14_practice.md`. 다음: PC2 저속으로 하나씩 켜기 → 좋으면 기본값 PR → 온톨로지 난제 배치(강사님 피드백) → PPT(`PPT_HANDOFF_improvements.md`).
 - **10/14 통합 (PR #345 — 승인 대기, 실물 미확인)**: PC2 덤프 재현 — 위 칸 차키(가로, 쌓인 맨 위)가 긴 변 양끝이면 옆벽 2.1 mm 부족 → 넛지 → 쌓인 차키 누르기 3번 실패(`NO_OBJECT_CONTACT`·`NOT_REACHED`), 아래 칸 판(지우개·립밤 덮음)은 다시 집히는 빈 자리 없어 `NO_FREE_SPACE`. **바꿔 잡기**(`pick.axis_swap`: 가로 물체 긴 변 양끝이 막히면 짧은 변, 그래도 막히면 넛지 [사용자 집기 순서 ①②③]) 추가. `free_repickable_only` 는 `true` 유지 — `false`(놓기만 되는 자리 허용)는 C Runner 원복 넛지 연결 뒤에(지금 흐름이면 S1 원복까지 58% → 45%, 사용자 10/14 선택 1). C 에 흐름 제안(원복 넛지·치울 물체 넛지·make_room — 녹화 뒤 `next_on` 검토). 무작위 sim `practice/B/sim/p2_unpack_sim.py`(원복 넛지는 가정, `RESTORE_NUDGE=0` 이 지금 Runner). `b_sk unpack` 은 안 고침(사용자). 힘 제어·쌓인 넛지 깊이는 나중.
