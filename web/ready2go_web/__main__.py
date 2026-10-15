@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ready2go_web.adapters.execution_reader import reader_from_env
 from ready2go_web.core.definition_catalog import (
     load_definition_snapshot,
     settings_from_env as definition_settings_from_env,
@@ -38,10 +39,17 @@ def main() -> None:
         robot_timeout_sec=runtime_settings.robot_timeout_sec,
     )
     runtime.start()
+    # 상세 저장소 오구성은 상태 화면을 중단하지 않는다. 상세 API만 미연결로 유지한다.
+    execution_reader = None
+    try:
+        execution_reader = reader_from_env()
+    except Exception:
+        pass
     try:
         # Flask에는 ROS 캐시와 시작 시 고정한 정의 결과를 각각의 REST 원본으로 전달한다.
         app = create_app(
             state_cache=runtime.cache,
+            execution_reader=execution_reader,
             overlay_cache=runtime.overlay_cache,
             definition_snapshot=definition_snapshot,
             definition_error=definition_error,
@@ -58,6 +66,8 @@ def main() -> None:
     finally:
         # Ctrl+C와 서버 예외 모두 executor·노드·context 정리 경로를 통과한다.
         runtime.stop()
+        if execution_reader is not None:
+            execution_reader.close()
 
 
 # 모듈을 import할 때 서버가 자동 실행되지 않고 -m으로 직접 실행할 때만 시작한다.

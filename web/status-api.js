@@ -147,9 +147,40 @@
     return validateDefinitionsPayload(await response.json());
   }
 
+  async function loadExecutionDetail(identity, seq, signal) {
+    // 현재 요청의 종료 run만 조회한다. 응답 identity와 기록 구조를 검증한 뒤 화면으로 전달한다.
+    const query = new URLSearchParams({ boot_id: identity.bootId, seq: String(seq) });
+    const response = await fetch(`/api/execution-detail/${encodeURIComponent(identity.runId)}?${query}`,
+      { cache: "no-store", signal, headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`실행 상세 확인 전 (HTTP ${response.status})`);
+    const payload = await response.json();
+    const detail = payload?.detail;
+    const validSteps = (steps) => Array.isArray(steps) && steps.every(step => step
+      && typeof step.id === "string" && Number.isSafeInteger(step.seq) && step.seq >= 0
+      && ["SUCCESS", "FAILURE", "SKIPPED"].includes(step.status));
+    if (payload.status !== "ok" || payload.identity?.bootId !== identity.bootId
+      || payload.identity?.runId !== identity.runId || detail?.runId !== identity.runId
+      || detail.kind !== "finished_record" || typeof detail.taskId !== "string"
+      || typeof detail.endedAt !== "string" || !["COMPLETED", "FAILED", "ABORTED", "SUSPENDED"].includes(detail.overallStatus)
+      || !validSteps(detail.steps)
+      || !Array.isArray(detail.items) || !detail.items.every(item => item && typeof item.id === "string"
+        && ["DELIVERED", "NOT_DELIVERED", "EXCLUDED", "NOT_RUN"].includes(item.status) && validSteps(item.steps))
+      || !Array.isArray(detail.segments) || !detail.segments.every(segment => validSteps(segment.steps))) {
+      throw new Error("실행 상세 형식 확인 전");
+    }
+    // 전달 집계도 명시된 물품 결과와 일치해야 한다. 단계 SUCCESS로 숫자를 보충하지 않는다.
+    const delivery = detail.delivery;
+    if (new Set(detail.items.map(item => item.id)).size !== detail.items.length
+      || (detail.items.length ? !delivery
+        || delivery.completed !== detail.items.filter(item => item.status === "DELIVERED").length
+        || delivery.total !== detail.items.filter(item => item.status !== "EXCLUDED").length : delivery !== null)) {
+      throw new Error("실행 상세 집계 형식 확인 전");
+    }
+    return payload;
+  }
+
   function createDetailGuard() {
-    // TODO(D): 상세 API 연결 시 검증된 현재 run으로 context를 설정하고 응답 반영 직전에 matches를 호출한다.
-    // 지금은 API·현재 run 계약이 없어 토큰을 만들지 않으며, run을 최근 수락 요청에서 추정하지 않는다.
+    // 요청에 연결된 종료 run만 context로 사용한다. 실시간 현재 run을 accepted에서 추정하지 않는다.
     let context = null;
     let generation = 0;
     return {
@@ -238,6 +269,7 @@
   window.ROKEY_STATUS_API = {
     createPoller,
     createDetailGuard,
+    loadExecutionDetail,
     loadDefinitions,
   };
 })();

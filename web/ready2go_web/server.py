@@ -18,6 +18,8 @@ from typing import Mapping
 
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
+from ready2go_web.core.execution_detail import linked_result, read_detail
+from ready2go_web.adapters.execution_reader import checked_run_id
 from ready2go_web.core.overlay_cache import OverlayCache
 from ready2go_web.core.state_cache import StateCache
 
@@ -118,6 +120,7 @@ def create_app(
     definition_error: str | None = None,
     runtime_profile: str = "real",
     robot_topic: str = "/dsr01/joint_states",
+    execution_reader=None,
     utcnow: Callable[[], datetime] = _utc_now,
 ) -> Flask:
     """기존 UI를 제공하는 Flask app을 생성한다.
@@ -164,6 +167,39 @@ def create_app(
             "served_at": _isoformat_utc(utcnow()),
             "poll_interval_ms": POLL_INTERVAL_MS,
         }
+
+    @app.get("/api/execution-detail/<run_id>")
+    def execution_detail_api(run_id):
+        """현재 요청에 연결된 종료 run만 읽는다. 일반 실행 기록 검색 API가 아니다."""
+        if state_cache is None or execution_reader is None:
+            return api_response({"status": "unavailable"}, 503)
+        try:
+            checked_run_id(run_id)
+            boot_id = request.args.get("boot_id")
+            seq = int(request.args.get("seq", "-1"))
+            source = state_cache.snapshot()["runner"]
+            data = source.get("data") or {}
+            result = linked_result(data)
+            # source의 연결 상태와 요청 당시 순서를 같이 확인해 오래된 캐시의 조회도 막는다.
+            if (source.get("connection_state") != "receiving" or source.get("message_valid") is not True
+                or not boot_id or data.get("boot_id") != boot_id or type(data.get("seq")) is not int
+                or data.get("seq") != seq or not result or result["run_id"] != run_id):
+                return api_response({"status": "identity_changed"}, 409)
+            detail = read_detail(execution_reader, run_id, result["task_id"], result["overall_status"])
+            after = state_cache.snapshot()["runner"]
+            # 저장소 조회 중 재기동·새 요청·단절이 발생했으면 응답 내용을 폐기한다.
+            if (after.get("data") != data or after.get("connection_state") != "receiving"
+                or after.get("message_valid") is not True):
+                return api_response({"status": "identity_changed"}, 409)
+            if detail is None:
+                return api_response({"status": "record_pending"}, 404)
+            return api_response({"status": "ok", "identity": {"bootId": boot_id, "runId": run_id},
+                                 "detail": detail})
+        except ValueError:
+            return api_response({"status": "invalid_record"}, 422)
+        except Exception:
+            # 저장소 URI·인증정보·내부 예외는 클라이언트에 노출하지 않는다.
+            return api_response({"status": "unavailable"}, 503)
 
     @app.get(STATUS_API_PATH)
     def status_api():

@@ -12,6 +12,8 @@
   // 화면 수명 동안 기동·순서 경계를 유지한다. 단절 시에도 과거 기동/seq를 잊지 않는다.
   const runnerStatusGuard = runnerStatusModel.createStatusGuard();
   const detailGuard = statusApi.createDetailGuard();
+  // 종료 기록 조회는 현재 실행 제목과 별도 상태다. 선택과 응답은 이 run에만 속한다.
+  const executionDetail = { key: null, controller: null, value: null, selectedId: null };
   // robot_state에는 boot_id가 없어 재기동 당시 캐시를 새 기동의 기억값으로 재사용하지 않는다.
   let blockedRobotStateReceipt = null;
 
@@ -448,13 +450,17 @@
     return leftOrder - rightOrder || left.localeCompare(right);
   }
 
-  function clearCurrentTask() {
+  function clearCurrentTask(invalidateDetail = true) {
     // 요청·실행·선택 상세를 함께 지우되 조회용 서랍 선택과 펼침 상태는 별도로 관리한다.
     Object.assign(state.task, {
       currentAction: "현재 작업 확인 전", currentItemId: null, currentItemIcon: null,
       workDrawerId: null, destinationId: null, steps: [], executionItems: [], selectedExecutionItemId: null,
     });
-    detailGuard.setContext(null, null);
+    if (invalidateDetail) {
+      detailGuard.setContext(null, null);
+      executionDetail.controller?.abort();
+      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null });
+    }
   }
 
   function setRunnerSummaryUnknown() {
@@ -479,8 +485,8 @@
       setRunnerSummaryUnknown();
       return false;
     }
-    // 현재 실행 run은 제공되지 않으므로 상세 토큰은 비활성 상태로 둔다.
-    clearCurrentTask();
+    // 현재 상태를 다시 그리되 같은 종료 run의 상세 선택은 유지한다.
+    clearCurrentTask(false);
     const taskView = runnerStatusModel.currentTaskView(data);
     state.task.currentAction = taskView.title;
     state.task.steps = taskView.steps;
@@ -496,6 +502,70 @@
       status: phaseView?.status || "waiting",
     };
     return true;
+  }
+
+  function recordedSteps(rows) {
+    // 완료되어 기록된 단계만 표시한다. SUCCESS는 단계 성공이며 물품 전달 성공이 아니다.
+    return rows.map(row => ({ id: `${row.id}:${row.seq}`, label: `단계: ${row.id}`,
+      status: { SUCCESS: "complete", FAILURE: "error", SKIPPED: "waiting" }[row.status],
+      statusLabel: { SUCCESS: "단계 성공", FAILURE: "단계 실패", SKIPPED: "미실행" }[row.status],
+      reason: row.error ? `기록된 오류: ${JSON.stringify(row.error)}` : "단계 근거 미제공",
+      observation: row.result == null ? "검증 결과 미제공" : `기록된 결과: ${JSON.stringify(row.result)}` }));
+  }
+
+  function applyExecutionDetail() {
+    // C 종료 items 배열을 그대로 사용한다. semantic.items나 child 이름으로 순서를 만들지 않는다.
+    const detail = executionDetail.value;
+    if (!detail) return;
+    const labels = { DELIVERED: "전달 완료", NOT_DELIVERED: "미전달", EXCLUDED: "제외", NOT_RUN: "미실행" };
+    state.task.executionItems = detail.items.map(item => ({
+      id: item.id, name: itemLabelForId(item.id), statusLabel: labels[item.status],
+      excluded: item.status === "EXCLUDED", evidence: item.evidence,
+      resultLabel: `종료 기록 · ${(item.restoreIncomplete ? "복구 미완료" : item.errorCode) || (item.stepsAvailable ? "단계 기록 수신" : "단계 기록 미수신")}`,
+      steps: recordedSteps(item.steps),
+    }));
+    state.task.selectedExecutionItemId = executionDetail.selectedId;
+  }
+
+  async function syncExecutionDetail(data) {
+    // 현재 상위/child run은 미제공이다. 기존 연결 판정이 성공한 최근 요청의 종료 기록만 조회한다.
+    const link = latestRunnerRecords.connection;
+    if (link.status !== runnerStatusModel.LINKED) {
+      detailGuard.setContext(null, null);
+      executionDetail.controller?.abort();
+      Object.assign(executionDetail, { key: null, controller: null, value: null, selectedId: null });
+      return;
+    }
+    const runId = link.value.runId;
+    const key = JSON.stringify([data.boot_id, runId, link.value.result.overallStatus, link.value.request.requestId]);
+    if (executionDetail.key !== key) {
+      executionDetail.controller?.abort();
+      Object.assign(executionDetail, { key, controller: null, value: null, selectedId: null });
+      detailGuard.setContext(null, null); // 같은 run의 재개 결과/요청 교체도 이전 상세 세대를 무효화한다.
+      detailGuard.setContext(data.boot_id, runId);
+    }
+    applyExecutionDetail();
+    if (executionDetail.controller) return;
+    const token = detailGuard.capture();
+    const controller = new AbortController();
+    executionDetail.controller = controller;
+    try {
+      const payload = await statusApi.loadExecutionDetail(token, data.seq, controller.signal);
+      // 취소를 무시한 전송도 현재 기동/run/세대와 다르면 표시하지 않는다.
+      if (!detailGuard.matches(token, payload.identity)) return;
+      executionDetail.value = payload.detail;
+      applyExecutionDetail();
+      renderTask();
+    } catch (error) {
+      if (controller.signal.aborted || !detailGuard.matches(token, token)) return;
+      // 저장소 단절·형식 오류 뒤 이전 상세 결과를 현재 수신값처럼 남기지 않는다.
+      executionDetail.value = null;
+      state.task.executionItems = [];
+      state.task.selectedExecutionItemId = null;
+      renderTask();
+    } finally {
+      if (executionDetail.controller === controller) executionDetail.controller = null;
+    }
   }
 
   function applyRobotConnectionSource(source, runtimeProfile, robotTopic) {
@@ -954,6 +1024,7 @@
     state.meta.label = "REST 연결됨 · 부분 실데이터";
     const runnerSummaryApplied = applyRunnerSummary(ordering.status === "valid" ? source : null);
     const robotStateApplied = applyRobotStateSource(latestRobotStateSource);
+    if (runnerSummaryApplied) void syncExecutionDetail(source.data);
     if (ordering.status === "invalid") {
       Object.assign(view, { status: "waiting", label: "Runner 확인 전" });
       Object.assign(connection, { status: "waiting", statusLabel: "Runner 확인 전",
@@ -1232,12 +1303,13 @@
       button.type = "button";
       button.setAttribute("aria-pressed", String(entry.id === selected?.id));
       button.append(
-        makeElement("span", "", `${index + 1}. ${entry.name} · ${entry.statusLabel}`),
+        makeElement("span", "", `${entry.excluded ? "제외" : `${index + 1}.`} ${entry.name} · ${entry.statusLabel}`),
         makeElement("small", "", entry.resultLabel),
       );
       button.addEventListener("click", () => {
         // 조회 선택은 현재 실행 물품·작업 위치·상단 제목을 바꾸지 않는다.
         state.task.selectedExecutionItemId = entry.id;
+        if (executionDetail.value) executionDetail.selectedId = entry.id;
         renderTask();
         container.children[index]?.focus({ preventScroll: true });
       });
@@ -1256,7 +1328,18 @@
   function renderTask() {
     renderTaskItems();
     // 실데이터는 확인된 현재 단계만, 미리보기는 선택 물품의 예시 이력을 그린다.
-    const selectedSteps = getSelectedExecutionItem()?.steps || state.task.steps || [];
+    const detail = executionDetail.value;
+    const selectedSteps = getSelectedExecutionItem()?.steps || (detail
+      ? [...recordedSteps(detail.steps), ...detail.segments.flatMap(segment =>
+        recordedSteps(segment.steps).map(step => ({ ...step, label: `${segment.runId} · ${step.label}` })))] : state.task.steps) || [];
+    // 종료 기록임을 명시해 현재 작업의 실제 진행 이력으로 오해하지 않게 한다.
+    if (detail) {
+      getById("taskItemsNotice").textContent = `최근 요청 종료 기록 · ${detail.runId}`;
+      getById("taskDataNotice").textContent = "종료 기록 조회 · 현재 실행 상세 아님";
+    }
+    const delivery = detail?.delivery;
+    getById("taskDeliveryCount").textContent = delivery
+      ? `${delivery.completed} / ${delivery.total} 전달 완료 · 종료 기록 기준` : "물품별 전달 결과 확인 전";
 
     const workDrawer = getWorkDrawer();
     // 조회 서랍/기억 위치를 실제 작업 장소로 대체하지 않는다. 목적지도 별도 제공 전까지 미확정이다.
@@ -1314,7 +1397,9 @@
     });
 
     const evidenceStep = getCurrentTaskStep(selectedSteps);
-    getById("currentStepReason").textContent = evidenceStep?.reason || "확인 전";
+    const evidence = getSelectedExecutionItem()?.evidence;
+    getById("currentStepReason").textContent = evidence
+      ? `semantic.evidence: ${JSON.stringify(evidence)}` : evidenceStep?.reason || "확인 전";
     getById("currentStepObservation").textContent = evidenceStep?.observation || "미수신";
 
   }

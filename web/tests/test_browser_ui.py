@@ -35,6 +35,7 @@ def _render_dashboard(
     interaction_script: str | None = None,
     viewport_width: int = 1280,
     robot_state_payload: dict | None = None,
+    execution_reader=None,
 ) -> tuple[str, int]:
     """주입한 REST 상태를 실제 headless Chrome으로 렌더링해 DOM을 반환한다."""
     # 제품 JavaScript를 실행하지 않는 정적 문자열 검사는 분기 회귀를 잡지 못하므로,
@@ -62,6 +63,7 @@ def _render_dashboard(
     # 운영 정적 파일과 상태 REST를 같은 origin으로 제공하되 사용 가능한 임의 포트를 쓴다.
     app = create_app(
         state_cache=cache,
+        execution_reader=execution_reader,
         overlay_cache=overlay_cache,
         runtime_profile=runtime_profile,
         **({"utcnow": utcnow} if utcnow is not None else {}),
@@ -603,3 +605,75 @@ def test_live_drawer_selection_does_not_change_execution(tmp_path: Path, viewpor
     assert "Runner 기억 상태" in rendered
     assert "거절 · 사유 코드: BUSY" in rendered
     assert "실행 완료" not in rendered
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_finished_execution_detail_reads_actual_records(tmp_path: Path, viewport_width: int) -> None:
+    """종료 물품 순서/전달 집계/선택 단계는 기록에서 읽고 현재 작업 제목에는 섞지 않는다."""
+    from ready2go_web.adapters.execution_reader import JsonlExecutionReader
+    records = {
+        "r1": [("runs", {"run_id": "r1", "task_id": "find_item", "overall_status": "FAILED",
+            "ended_at": "2026-10-15T00:00:00Z", "inputs": {"semantic": {"items": ["watch", "eraser"],
+                "evidence": {"eraser": {"list": "commute_set"}}}},
+            "items": [{"item": "eraser", "run_id": "child", "status": "DELIVERED"},
+                      {"item": "watch", "run_id": None, "status": "NOT_RUN"}]})],
+        "child": [("runs", {"run_id": "child", "parent_run_id": "r1"}),
+                  ("steps", {"run_id": "child", "seq": 0, "id": "recorded_pick", "status": "SUCCESS",
+                             "result": {"verified": True}})],
+    }
+    for run_id, entries in records.items():
+        (tmp_path / f"{run_id}.jsonl").write_text("".join(
+            json.dumps({"collection": collection, "doc": doc}) + "\n" for collection, doc in entries))
+    rendered, _ = _render_dashboard(
+        tmp_path, runtime_profile="dev", camera_received=False, viewport_width=viewport_width,
+        runner_payloads=[_request_result(result_status="FAILED")],
+        execution_reader=JsonlExecutionReader(tmp_path),
+        interaction_script="""
+          setTimeout(() => {
+            const buttons = document.querySelectorAll('.task-item-button');
+            const first = document.getElementById('progressSteps').textContent;
+            const reason = document.getElementById('currentStepReason').textContent;
+            buttons[1].click();
+            const second = document.getElementById('progressSteps').textContent;
+            const output = document.createElement('pre');
+            output.id = 'record-test-result';
+            output.textContent = JSON.stringify([first, reason, second]);
+            document.body.append(output);
+          }, 700);
+        """,
+    )
+    match = re.search(r'<pre id="record-test-result">(.*?)</pre>', rendered, re.DOTALL)
+    assert match is not None, rendered
+    first, reason, second = json.loads(unescape(match.group(1)))
+    assert "recorded_pick" in first and "단계 성공" in first
+    assert "semantic.evidence" in reason and "commute_set" in reason
+    assert second == ""
+    assert "1 / 2 전달 완료 · 종료 기록 기준" in rendered
+    assert "현재 실행 없음 · 대기" in rendered
+    assert "종료 기록 조회 · 현재 실행 상세 아님" in rendered
+    assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
+
+
+@pytest.mark.parametrize("transition", ["reboot", "reject", "disconnect", "other-run"])
+def test_finished_detail_is_cleared_when_identity_changes(tmp_path: Path, transition: str) -> None:
+    """기록을 표시한 뒤 기동·요청·연결이 달라지면 이전 단계/전달 수를 남기지 않는다."""
+    from ready2go_web.adapters.execution_reader import JsonlExecutionReader
+    run = {"run_id": "r1", "task_id": "find_item", "overall_status": "COMPLETED",
+           "ended_at": "2026-10-15T00:00:00Z", "inputs": {},
+           "items": [{"item": "eraser", "run_id": None, "status": "DELIVERED"}]}
+    (tmp_path / "r1.jsonl").write_text(json.dumps({"collection": "runs", "doc": run}) + "\n")
+    first = _request_result()
+    second = _request_result("reject", "BUSY")
+    second["seq"] = 2
+    if transition == "reboot":
+        second.update(boot_id="boot-2", seq=1, last_intent=None, last=None)
+    elif transition == "disconnect":
+        second = None
+    elif transition == "other-run":
+        second = _request_result(result_run="other")
+        second["seq"] = 2
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        runner_payloads=[first, second], execution_reader=JsonlExecutionReader(tmp_path))
+    assert "1 / 1 전달 완료" not in rendered
+    assert "종료 기록 조회 · 현재 실행 상세 아님" not in rendered
+    assert 'class="task-item-button"' not in rendered
