@@ -13,7 +13,9 @@ E 가 목록·분류("출근 준비물", "귀중품")를 활성 물품 키로 �
 4. 결과: 요청한 물품을 전부 전달 `COMPLETED` / 일부 `FAILED`+`PARTIAL_DELIVERY` / 하나도 못 함 `FAILED`+첫 원인 /
    정지 `ABORTED`. **새 상태 값·`outcome` 필드 없음**(E 확정). 물품별 결과는 `GroupResult.items` 에 보존.
    전달 여부 = Runner 상태 `located_in(물품) == handover_zone`(place 스킬 effect) — 실행 결과 상태만 보지 않음.
-5. 안내: 시작("차키, 립밤 가져올게요. 에어팟 케이스는 위치 기록이 없어서 빼고 가져올게요") / 끝 요약(실제 전달 수·못 가져온 물품).
+5. 안내: 시작("차키, 립밤 가져올게요. 에어팟 케이스는 위치 기록이 없어서 빼고 가져올게요") / 물품마다 순서 안내
+   (`item_start_text` — "먼저 차키를 가져올게요"·"다음으로 립밤을 가져올게요", 물품 실행의 첫 안내 s2.1 로, 실패하면 그 물품 동작 0번·
+   묶음 중단) / 끝 요약(실제 전달 수·못 가져온 물품).
    묶음 안 정지는 재개하지 않음 — "목록 작업은 이어서 할 수 없어요"(반복 안 재개 확장은 별도 후속). 묶음을 도는 동안만
    Runner 재개 보존(`resumable`)을 꺼서 물품 실행이 `SUSPENDED` 로 남지 않게 함 — 정지 잠금은 그대로, 끝나면 원래 설정 (#371 E P2).
 
@@ -126,6 +128,14 @@ def start_text(runnable: list[ItemOutcome], excluded: list[ItemOutcome], accepte
     return text.strip()
 
 
+def item_start_text(name_ko: str, index: int, total: int) -> str:
+    """물품별 시작 안내 (#302 E 요청·사용자 승인 10/15) — 실제 실행 순서(서랍 정렬 뒤 runnable, 뺀 물품은 세지 않음) 기준.
+    index 0 = "먼저 차키를 가져올게요", 그 뒤 = "다음으로 립밤을 가져올게요", 실행할 물품이 1개뿐 = "차키를 가져올게요".
+    물품 실행 inputs.accept_text 로 넣어 find_with_unpack s2.1 에서 재생(일반 안내 s2.2 대체). E group_speech 도 이 함수를 씀."""
+    head = "" if total <= 1 else "먼저 " if index == 0 else "다음으로 "
+    return f"{head}{attach_particle(name_ko, '을')} 가져올게요"
+
+
 def summary_text(result: GroupResult, stopped: str | None) -> str:
     total, got = len(result.items), len(result.delivered)
     if result.overall_status == "COMPLETED":
@@ -213,9 +223,12 @@ def run_group(runner: Runner, task: dict, semantic: dict, world: dict,
             if runner.halted:               # 물품 사이 정지 — 다음 물품을 시작하지 않음
                 result.overall_status, result.error_code, stopped = "ABORTED", runner.halt_code or "HALTED", "halted"
                 break
-            child = {"run_id": f"{run_id}.{runnable.index(outcome) + 1}" if run_id else None,
+            n = runnable.index(outcome)
+            child = {"run_id": f"{run_id}.{n + 1}" if run_id else None,
                      "meta": {**(meta or {}), **({"parent_run_id": run_id} if run_id else {})} or None}
-            run = runner.run(task, {"target": outcome.item}, **child)
+            # 물품 안내 = 그 물품 실행의 첫 안내(s2.1) — 실패하면 그 물품 동작 0번(announce_pending), 코드가 허용 목록 밖이라 아래에서 중단
+            say_item = item_start_text(outcome.name_ko, n, len(runnable))
+            run = runner.run(task, {"target": outcome.item, "accept_text": say_item}, **child)
             outcome.overall_status, outcome.error_code, outcome.run_id = run.overall_status, run.error_code, run.run_id
             outcome.failure = run.failure
             outcome.status = DELIVERED if _delivered(runner, outcome.item) else NOT_DELIVERED
