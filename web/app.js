@@ -1413,7 +1413,7 @@
     getById("dashboardView").hidden = adminVisible;
     getById("adminView").hidden = !adminVisible;
     // 화면 전환 뒤에도 브라우저 탭 제목을 화면의 Ready2Go 브랜드와 맞춘다.
-    document.title = adminVisible ? "Ready2Go · 검토 화면" : "Ready2Go · 출근 준비 도우미";
+    document.title = adminVisible ? "Ready2Go · 읽기 전용 검토 화면" : "Ready2Go · 출근 준비 도우미";
     if (adminVisible) {
       window.scrollTo(0, 0);
       getById("exitAdminView").focus();
