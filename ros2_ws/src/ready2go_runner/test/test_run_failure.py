@@ -3,12 +3,13 @@
 확인: B make_room 거부(strategy impossible)의 case_id 보존 / impossible 아니면 case_id null / 정리 중 오류가 처음 원인을 덮지 않음 /
 정지·성공·시작 전 거절은 null / task_error(NO_FREE_SPACE) 경로 / E 문장 → 없으면 failure_speech 폴백 / runs 문서에도 남김.
 """
+import importlib
 import sys
 import types
 
 import pytest
 
-from ready2go_runner.core import failure_speech
+from ready2go_runner.core import failure_speech, interpreter
 from ready2go_runner.core.interpreter import ActionResult, Runner
 from ready2go_runner.core.logstore import MemoryLogStore
 
@@ -38,8 +39,10 @@ def refuse_room(output=ROOM_REFUSED, code="NEIGHBOR_TOO_CLOSE"):
     return lambda runner, action, params: ActionResult(False, output, code) if action == "nudge_object" else None
 
 
-def test_impossible_make_room_refusal_keeps_case_and_falls_back_to_current_sentence():
-    """B make_room 이 움직이기 전 거부(strategy impossible) → case_id·strategy 보존. E 원본 모듈이 없으면 지금 정리 전 안내 문장."""
+def test_impossible_make_room_refusal_keeps_case_and_falls_back_to_current_sentence(monkeypatch):
+    """B make_room 이 움직이기 전 거부(strategy impossible) → case_id·strategy 보존. E 문장이 없으면(조회 None 을 명시 주입 —
+    E 원본 설치 여부와 무관, #379 E 리뷰) 지금 정리 전 안내 문장."""
+    monkeypatch.setattr(interpreter, "_refusal_text", lambda case_id, strategy: None)
     runner, store = make(refuse_room())
     result = runner.run(task())
     assert (result.overall_status, result.error_code) == ("FAILED", "NEIGHBOR_TOO_CLOSE")
@@ -71,6 +74,18 @@ def test_e_refusal_sentence_is_used_when_registered(monkeypatch):
     failure = runner2.run(task()).failure
     assert failure["case_id"] == "not_registered"                                     # B 가 준 이름은 그대로 기록
     assert failure["text"] == failure_speech.text("NEIGHBOR_TOO_CLOSE", "nudge_object")   # 문장은 폴백
+
+
+def test_with_the_real_e_catalog_the_registered_sentence_is_used():
+    """[#379 E 리뷰] E 원본(#378 knowledge/refusal_reasons.json)이 설치된 조합 — 실제 E text(case_id, "impossible") 결과를 그대로 씀
+    (등록 문장이면 그 문장, None 이면 failure_speech). E 원본이 없으면(머지 전) 건너뜀."""
+    try:
+        reasons = importlib.import_module("ready2go_knowledge.core.refusal_reasons")
+    except ImportError:
+        pytest.skip("E #378 (refusal_reasons) 머지 전")
+    runner, _ = make(refuse_room())
+    expected = reasons.text("cluster_front_wall", "impossible") or failure_speech.text("NEIGHBOR_TOO_CLOSE", "nudge_object")
+    assert runner.run(task()).failure["text"] == expected
 
 
 def test_cleanup_error_does_not_replace_the_first_cause():

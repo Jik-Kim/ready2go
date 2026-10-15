@@ -27,6 +27,7 @@ discard_suspended() 는 보존한 실행을 지금까지처럼 ABORTED 로 끝�
 from __future__ import annotations
 
 import copy
+import importlib
 from datetime import datetime, timedelta, timezone
 import threading
 import time
@@ -1094,9 +1095,9 @@ def _refusal_text(case_id: str | None, strategy: str | None) -> str | None:
     """E 공통 원본(knowledge/refusal_reasons.json)의 거부 이유 문장 — 등록된 impossible 난제만, 그 밖·모듈 없음은 None (#376)."""
     if case_id is None:
         return None
-    try:
-        from ready2go_knowledge.core import refusal_reasons
-    except ImportError:                         # E 원본 PR 전 — 기존 문장으로
+    try:                                        # import_module: sys.modules 를 먼저 봄 (시험이 모듈을 바꿔 끼울 수 있게)
+        refusal_reasons = importlib.import_module("ready2go_knowledge.core.refusal_reasons")
+    except ImportError:                         # E 원본(#378) 전 — 기존 문장으로
         return None
     try:
         return refusal_reasons.text(case_id, strategy)
