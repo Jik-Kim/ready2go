@@ -4014,3 +4014,69 @@ def test_dry_place_works_with_grip_height_ratio_null(server, monkeypatch):
     ok, code, reason = server.ss.DryOracle(server.srv, "drawer_top").place([er], "eraser#1", pose)
     assert code != "SKILL_EXCEPTION", reason
     assert server.srv.robot.log == []
+
+
+def _no_drag_baseline(server, monkeypatch):
+    """누르기는 성공했는데 끌기 직전 힘 0점(_tare)도, 힘 맞추기 기준값(_held_f)도 없는 경우 [E #374 P1]."""
+    real, real_tare = server.ss.SkillServer._press_relax, server.ss.SkillServer._tare
+    pressed = {}
+
+    def press_relax(self, *a, **k):
+        r = real(self, *a, **k)
+        self.__dict__.pop("_held_f", None)
+        pressed["done"] = True
+        return r
+    monkeypatch.setattr(server.ss.SkillServer, "_press_relax", press_relax)
+    monkeypatch.setattr(server.ss.SkillServer, "_tare", lambda self, *a, **k: None if pressed else real_tare(self, *a, **k))
+    contact, line = _press_contact(server)
+    monkeypatch.setattr(server.ss.SkillServer, "_line", line)
+    return contact
+
+
+def test_wall_nudge_without_force_baseline_lifts_without_drag(server, monkeypatch):
+    """[E #374 P1] 기준값 없이 끌면 blocked() 가 movel 뒤에야 거부 → 끌기 명령 전에 SENSOR_INVALID, 그 자리에서 올리기만."""
+    contact = _no_drag_baseline(server, monkeypatch)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": ERASER_WALL_CROSS})
+    stages = [s[0] for s in contact["stages"]]
+    assert out.error_code == "SENSOR_INVALID" and "drag" not in stages and stages[-1] == "lift", (out, stages)
+    assert data["pushed"] is False and data["target_after"] is None
+
+
+def test_make_room_press_move_without_force_baseline_lifts_without_drag(server, monkeypatch):
+    """[E #374 P1] make_room 넛지·밀기(_press_move) 도 같음 — 끌기·되돌아오기 명령 없이 올리고 SENSOR_INVALID."""
+    t = _seg(ERASER_FREE)
+    t["pose"]["yaw"] = 0.0
+    ham = {"id": "toy_hammer#1", "class": "toy_hammer", "top_z": 0.025, "occluded_by": [],
+           "pose": {"frame": "drawer_top", "position": [0.10, 0.15 + 0.011 + 0.0375 + 0.002, 0.0], "yaw": 0.0, "yaw_valid": True}}
+    contact = _no_drag_baseline(server, monkeypatch)
+    out, data = server.run("nudge_object", {"drawer_id": "drawer_top", "target": t, "make_room": True, "scan": _scan_with(t, ham)})
+    stages = [s[0] for s in contact["stages"]]
+    assert out.error_code == "SENSOR_INVALID" and not {"drag", "drag_back"} & set(stages) and stages[-1] == "lift", (out, stages)
+
+
+def test_pick_does_not_close_when_tcp_reread_fails(server, monkeypatch):
+    """[E #374 P1] 목표 위로 내려온 뒤 TCP 를 한 번 읽고 그다음부터 못 읽으면 예전 좌표로 대신하지 않음 — 닫지 않고 SENSOR_INVALID."""
+    srv = server.srv
+    real_over = server.ss.SkillServer._over_then_down
+    real_posx = srv.robot.posx
+    state = {"after": False, "reads": 0}
+
+    def over(self, *a, **k):
+        r = real_over(self, *a, **k)
+        state["after"] = True
+        return r
+
+    def posx():
+        if state["after"]:
+            state["reads"] += 1
+            if state["reads"] > 1:
+                return None
+        return real_posx()
+    monkeypatch.setattr(server.ss.SkillServer, "_over_then_down", over)
+    srv.robot.posx = posx
+    grips = []
+    real_grip = srv._grip
+    srv._grip = lambda w, f: (grips.append(w), real_grip(w, f))[1]
+    out, _ = server.run("pick_object", {"target": json.loads(json.dumps(ERASER_FREE)), "approach_offset": [0, 0, 0.1]})
+    assert state["after"] and out.error_code == "SENSOR_INVALID", out
+    assert grips and 0 not in grips[grips.index(max(grips)):]                 # 벌린 뒤 닫기(0) 없음
