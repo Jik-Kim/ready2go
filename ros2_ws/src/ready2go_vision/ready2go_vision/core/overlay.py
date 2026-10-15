@@ -134,6 +134,8 @@ def render_overlay(color_bgr, dets, result, K, T_drawer_cam, interior_m, items, 
         n_cls[o["id"].split("#")[0]] = n_cls.get(o["id"].split("#")[0], 0) + 1
     boxes = []
     for (d, o, col), c in zip(pairs, cents):
+        if not (0 <= c[0] < OUT_W and 0 <= c[1] < OUT_H):     # 중심이 잘라낸 사진 밖(서랍 밖 오검출 등) → 라벨·연결선 안 그림 (화면 끝까지 선이 그어지던 것)
+            continue
         tag = f" #{o['id'].split('#')[1]}" if o and n_cls.get(d["class"], 0) > 1 and "#" in o["id"] else ""   # 같은 종류가 여럿이면 결과 id 번호
         lines = [f"{name(d['class'])}{tag}  {d['conf']:.2f}"]
         if o:

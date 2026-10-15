@@ -75,3 +75,13 @@ def test_render_without_korean_font_falls_back():
     rgb = render_overlay(np.zeros((720, 1280, 3), np.uint8), [det_at(0.05, 0.10)], {"target": obj(1, 0.05, 0.10)}, K, T, INTERIOR, ITEMS,
                          {"region": "drawer_top", "search_target": "eraser"}, "10:10:05", font_paths=("/nonexistent.ttf",))
     assert rgb.shape == (OUT_H, OUT_W, 3)
+
+
+def test_label_skipped_when_center_outside_crop():
+    """서랍 밖 오검출(중심이 잘라낸 사진 밖)은 라벨·연결선을 그리지 않음 — 10/11 덤프 에어팟 오검출 선이 화면 끝까지 그어지던 것."""
+    far = det_at(0.40, 0.15)                                                    # 서랍(0~0.20) 훨씬 밖
+    inside = render_overlay(np.zeros((720, 1280, 3), np.uint8), [det_at(0.05, 0.10)], {"target": obj(1, 0.05, 0.10)}, K, T, INTERIOR,
+                            ITEMS, {"region": "drawer_top", "search_target": "eraser"}, "10:10:05")
+    both = render_overlay(np.zeros((720, 1280, 3), np.uint8), [det_at(0.05, 0.10), far], {"target": obj(1, 0.05, 0.10)}, K, T, INTERIOR,
+                          ITEMS, {"region": "drawer_top", "search_target": "eraser"}, "10:10:05")
+    assert np.array_equal(inside, both)
