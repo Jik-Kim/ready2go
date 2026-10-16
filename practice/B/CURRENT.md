@@ -1,9 +1,10 @@
 # CURRENT — B 서동권
 
 - **담당**: 실물 로봇 모션 (`ready2go_skills`) · **현재 Phase**: P2 (Unpacking 통합·실물 확인 중, P3 트레이 집기는 별도 PR 대기)
-- **최종 갱신**: 2026-10-15 저녁
+- **최종 갱신**: 2026-10-16
 
 ## 지금 상태
+- **10/16 — 복구 조회 NOT_STOPPED 오탐 (PR #399, 실물 미확인)**: E 요청(PC1 10/15 21:47 출근 준비물). 정지 CANCELED 15 s 뒤 "복구해"가 `NOT_STOPPED`·`EXTERNAL_FORCE_UNKNOWN` — PC1 로그상 정지 확인(59.231) 뒤 복구(73.404)까지 상태 조회 0회, 복구 때 3회(외력 창 안 돎). `MotionState` 가 오래된 관절 기준과 비교해 이동 중으로 본 것 [로그·코드, robot_state 원값은 없어 추정]. W1·W2 판정 전 기준 새로 잡고 0.35 s 기다림 + 원값 로그. 남은 것: #397·#399 머지 뒤 PC2 단일 물품 "멈춰 → 복구해 → 이어서 해" — W1/W2 응답 소요·C timeout(2 s)·`[check_state]` 로그 같이 남김. 같은 PC1 기록의 사례 A(음성 쪽, E #397)·사례 B 묶음 작업 미보존(C)은 B 범위 밖.
 - **10/15 저녁 — PC2 출근 준비물 통합 (PR #390, 실물 미확인)**: 옆벽 에어팟 + 앞 몽키에서 `s8.q1` `WALL_TOO_CLOSE` → make_room 안 거치고 pick 벽 넛지 '끄는 길에 몽키'로 끝, 목록 중단(차키·립밤 안 함). make_room 은 같은 장면을 몽키 같이 밀기로 풂 [2D sim]. B: `make_room.wall_blocked_as_neighbor`(기본 true) — 벽 + 벽 넛지 이웃 막힘이면 check_only `NEIGHBOR_TOO_CLOSE`. 점검 중 B 안전 빈틈: make_room 치우기에서 집은 뒤 놓기 거부면 쥔 채 '움직이기 전' 코드 → 결과 `hand: holding` 으로 고침. C 연결 빈틈 정리 #392(목록 계속 코드·`WALL_TOO_CLOSE` → make_room·`OCCLUSION_UNKNOWN` 다시 찍기·pick retry). 미결: PC2 같은 배치 저속 재시험, #387 과 합칠 때 `skills.yaml`·`LEGACY_FLAGS` 조정.
 - **10/15 오후 — PC2 통합 (PR #387, 실물 미확인)**: 판 치운 뒤 지우개를 벽 쪽으로 붙여 넛지 → 로봇이 벽에 닿음. 원인: make_room 넛지·밀기가 벽 거리 0 도 허용하고 비용이 거리만 봄. `make_room.wall_keep_mm` 10·`center_weight` 1(켜짐) — sim A 300배치 벽에 붙임 2→0, 누르는 점 벽 거리 최소 17.8→25.5 mm [추정]. 리얼센스 잭 때문에 J6 상한 `speed.j6_limit`(기본 false — 사용자 '속도 안 줄여도 될 듯, on/off 로'). 미결: PC2 같은 배치 저속 재시험(16 mm 손가락 모델은 실제 충돌 예측 못 함), J6 실측, #390 과 합칠 때 `skills.yaml`·`LEGACY_FLAGS` 조정.
 - **10/14 밤 — 정리·10/15 할 일**: 움직임 정리 #354 머지(`motion.one_turn`·`carry.direct`·`carry.spline`·`place.touch_window_mm`, **전부 기본 꺼짐**, 실물 미확인). C #352(Runner 목표 공간 만들기)·A #360(지우개 가림 null → `alone_clear_min_ratio` 0.77) 머지, main `77bebac`. 판 위에서 놓기: 10/15 케이블 정리 뒤에도 같음 → 로그 `+8.0 mm, 3.2 N`(바닥 8 mm 위에서 3 N 살짝 넘김) → `touch_window_mm: 3` 확인 필요. **10/15 (녹화 날)**: ① main 받기·케이블 정리·판 free 놓기 로그 확인 ② #354 설정 하나씩 켜서 같은 배치 2~3번(`pc2_cmd.sh unlock`·`report`) ③ 녹화 배치 주의(지우개–립밤 2 cm 이상, 차키를 몽키 가장자리에 걸치지 않기) ④ #352 실물 ⑤ PPT(`PPT_HANDOFF_improvements.md` 새 세션) ⑥ 온톨로지 난제 배치(강사님 피드백, E 협의). 상세 작업표.
