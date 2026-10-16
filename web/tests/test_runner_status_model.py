@@ -451,3 +451,16 @@ def test_stopped_poller_ignores_late_success(tmp_path: Path) -> None:
       return calls;
     })()""")
     assert output == []
+
+
+def test_current_step_name_requires_exact_task_and_id(tmp_path: Path) -> None:
+    """등록 이름만 사용하고 group/미등록/비슷한 ID는 이름 확인 전으로 남긴다."""
+    output = _evaluate_runner_model(tmp_path, [], expression="""(() => {
+      const definitions = [{id: 'find_with_unpack', step_labels: {'s8.t2.e1': '전달 트레이에 물품 놓기'}}];
+      return [['find_with_unpack', 's8.t2.e1'], ['find_with_unpack', 's8.t2.e10'],
+        ['group_commute', 's8.t2.e1']].map(([task_id, current_step]) =>
+        window.ROKEY_RUNNER_STATUS_MODEL.currentTaskView({phase: 'running', task_id, current_step}, definitions));
+    })()""")
+    assert output[0]['steps'][0]['label'] == '전달 트레이에 물품 놓기'
+    assert all('단계명 확인 전' in row['steps'][0]['label'] for row in output[1:])
+    assert all(len(row['steps']) == 1 and row['steps'][0]['status'] == 'current' for row in output)

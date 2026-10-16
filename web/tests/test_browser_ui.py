@@ -35,6 +35,7 @@ def _render_dashboard(
     interaction_script: str | None = None,
     viewport_width: int = 1280,
     robot_state_payload: dict | None = None,
+    definition_snapshot=None,
     execution_reader=None,
     enable_deferred_detail: bool = False,
     on_detail_request: Callable[[], None] | None = None,
@@ -66,6 +67,7 @@ def _render_dashboard(
     app = create_app(
         state_cache=cache,
         execution_reader=execution_reader,
+        definition_snapshot=definition_snapshot,
         overlay_cache=overlay_cache,
         runtime_profile=runtime_profile,
         **({"utcnow": utcnow} if utcnow is not None else {}),
@@ -572,8 +574,8 @@ def test_live_task_reboot_and_ordering(tmp_path: Path, change: str) -> None:
     assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
     assert "전달 완료" not in rendered
     if change == "older-seq":
-        assert "실행 중 · 태스크: current_task · 단계: step_live" in rendered
-        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+        assert "실행 중 · 태스크: current_task · 단계: 단계명 확인 전" in rendered
+        assert "현재 진행 중" in rendered
     else:
         assert "step_live" not in rendered
         assert "실행 완료" not in rendered
@@ -610,7 +612,7 @@ def test_live_drawer_selection_does_not_change_execution(tmp_path: Path, viewpor
     assert match is not None, rendered
     before, after = json.loads(unescape(match.group(1)))
     assert before == after
-    assert "actual_task" in before[0] and "actual_step" in before[2]
+    assert "actual_task" in before[0] and "단계명 확인 전" in before[2]
     assert before[1] == "작업 장소 확인 전 → 목적지 확인 전"
     # 빈 아래 서랍을 선택했으므로 물품 행 대신 공통 출처 안내로 기억 상태 표시를 확인한다.
     assert "Runner 기억 상태" in rendered
@@ -778,10 +780,27 @@ def test_demo_scope_never_requests_execution_detail(tmp_path, viewport_width, mo
     assert "종료 기록 조회 · 현재 실행 상세 아님" not in rendered
     assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
     if mode != "completed":
-        assert "실행 중 · 태스크: live_task · 단계: live_step" in rendered
-        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+        assert "실행 중 · 태스크: live_task · 단계: 단계명 확인 전" in rendered
+        assert "현재 진행 중" in rendered
     if mode == "rejected":
         assert "거절 · 사유 코드: BUSY" in rendered
         assert "실행 완료" not in rendered
     elif mode == "completed":
         assert "실행 완료" in rendered  # 같은 요청의 처리 결과는 상세 비활성화와 무관하게 유지한다.
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_current_step_uses_registered_name(tmp_path, viewport_width):
+    """실제 태스크/스킬 정의로 사진의 ID를 한국어 단계로 표시하되 결과를 추정하지 않는다."""
+    from ready2go_web.core.definition_catalog import DefinitionSettings, load_definition_snapshot
+    root = Path(__file__).resolve().parents[2]
+    snapshot = load_definition_snapshot(DefinitionSettings(root / "knowledge/robot_ontology.jsonld", root / "tasks"))
+    payload = _request_result()
+    payload.update(phase="running", task_id="find_with_unpack", current_step="s8.t2.e1")
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        viewport_width=viewport_width, runner_payloads=[payload], definition_snapshot=snapshot)
+    assert "전달 트레이에 물품 놓기" in rendered
+    assert "단계: s8.t2.e1" not in rendered
+    assert "단계 ID: s8.t2.e1" in rendered
+    assert "현재 진행 중" in rendered
+    assert "물품별 전달 결과 확인 전" in rendered
