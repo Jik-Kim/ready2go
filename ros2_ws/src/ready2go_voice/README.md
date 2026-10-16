@@ -239,7 +239,7 @@ export PYTHONPATH="$PWD/ros2_ws/src/ready2go_voice:$PWD/ros2_ws/src/ready2go_kno
 
 [실측: 인계 상태, 2026-10-11] 에이전트 실행은 stdin `exit`로 정상 종료(exit0)했습니다. PID250630 및 더미/Melo worker 잔존 없음, 기존 close/finally의 공유 입력·worker·executor/context 정리를 확인했습니다. 당시 로그는 `/tmp/e-p2-live-voice-dummy-20261011-ready.log`에 보존했습니다. 사람 발화·STT/LLM 결과·실TTS 재생·더미 첫 동작/완료는 관측0이며 사용자가 직접 다음 시험을 수행합니다. 준비 성공과 실음성 통과는 다릅니다.
 
-[구현: E-VOICE-LAUNCH-STOP-INPUT-20261012-01] [프로젝트 Python 의존성 설치](../../../README.md#프로젝트-의존성-설치), [공통 호스트 build/install·새 터미널 준비](../../../README.md#실행), [Voice 패키지 빌드/install 준비](#실행-준비와-의존성)를 마친 뒤 **저장소 루트에서** 아래 두 명령을 각각 명시 실행합니다. 스크립트는 자신의 위치에서 저장소 루트를 계산해 이동하고 ROS Jazzy·기존 `ros2_ws/install`을 source한 뒤 `.venvs/project/bin/python`으로 실행합니다. 시험 설정 복사와 로그 저장도 도구가 처리합니다. prepare는 마이크/API/재생/live를 호출하지 않으며, 성공 뒤에만 별도 live 명령을 사용합니다. live는 실제 마이크/API/스피커를 사용하는 기존 격리 더미 시험입니다. 에이전트는 이번 변경에서 두 실제 실행을 수행하지 않았습니다.
+[구현: E-VOICE-LAUNCH-STOP-INPUT-20261012-01] [프로젝트 Python 의존성 설치](../../../docs/run.md#프로젝트-의존성-설치), [공통 호스트 build/install·새 터미널 준비](../../../docs/run.md#실행), [Voice 패키지 빌드/install 준비](#실행-준비와-의존성)를 마친 뒤 **저장소 루트에서** 아래 두 명령을 각각 명시 실행합니다. 스크립트는 자신의 위치에서 저장소 루트를 계산해 이동하고 ROS Jazzy·기존 `ros2_ws/install`을 source한 뒤 `.venvs/project/bin/python`으로 실행합니다. 시험 설정 복사와 로그 저장도 도구가 처리합니다. prepare는 마이크/API/재생/live를 호출하지 않으며, 성공 뒤에만 별도 live 명령을 사용합니다. live는 실제 마이크/API/스피커를 사용하는 기존 격리 더미 시험입니다. 에이전트는 이번 변경에서 두 실제 실행을 수행하지 않았습니다.
 
 ```bash
 bash ros2_ws/src/ready2go_voice/tools/voice_trial.sh prepare
@@ -355,7 +355,7 @@ E Voice를 거치는 음성/텍스트 입력에는 [설정과 동작 경계](#�
 
 [문서] [공식 STT 문서](https://developers.openai.com/api/docs/guides/speech-to-text)의 whisper-1·어휘 prompt와 [구조화 출력 문서](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat)를 대조했습니다. 모델 계정 접근·유료 API 호출 성공은 문서 확인으로 대신하지 않습니다. 로컬 검사에서는 실제 키/API 호출을 하지 않았습니다.
 
-저장소 루트에서 [전체 프로젝트 설치 안내](../../../README.md#프로젝트-의존성-설치)와 [requirements.txt](../../../requirements.txt)를 먼저 적용합니다. ROS Python은 `.venvs/project`(`--system-site-packages`), Melo CPU는 `.venvs/melotts`, Vision CUDA는 별도 환경을 사용합니다. `pip install voice[api,audio]`만으로 새 Ubuntu 24.04 PC의 설치가 끝나지 않습니다.
+저장소 루트에서 [전체 프로젝트 설치 안내](../../../docs/run.md#프로젝트-의존성-설치)와 [requirements.txt](../../../requirements.txt)를 먼저 적용합니다. ROS Python은 `.venvs/project`(`--system-site-packages`), Melo CPU는 `.venvs/melotts`, Vision CUDA는 별도 환경을 사용합니다. `pip install voice[api,audio]`만으로 새 Ubuntu 24.04 PC의 설치가 끝나지 않습니다.
 
 [실측: 로컬 파일·배포 메타데이터] 설치된 openwakeword 0.6.0의 Linux 의존성은 `tflite-runtime>=2.8,<3`이며 Python 3.12용 wheel 부재가 설치 장애입니다. 본체는 `--no-deps`로 설치하고 onnxruntime·tqdm·SciPy·scikit-learn·requests는 루트 requirements로 별도 설치합니다. 이 PC에는 시스템 Python의 `tflite_runtime/interpreter.py`가 `from ai_edge_litert.interpreter import Interpreter`를 제공하며 ai-edge-litert 2.2.0이 설치되어 있습니다. 이 호환 파일은 저장소 밖 파일이며 tflite-runtime 배포 메타데이터도 없습니다. `ai-edge-litert`만 설치해도 `tflite_runtime` 이름이 제공되는 것은 아닙니다. 새 PC를 위한 호환 runtime 배포/검증은 **미해결 인계**이며, 임의 shim이나 자동 ONNX 전환을 구현하지 않았습니다. runtime이 확인되기 전 실음성 웨이크 준비 완료로 보고하지 않습니다.
 

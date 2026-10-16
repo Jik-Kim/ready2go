@@ -1,380 +1,287 @@
-# ready2go
+# Ready2Go — 음성 명령 서랍 물품 탐색 협동로봇
 
-음성 명령으로 실물 **Doosan M0609 + OnRobot RG2**가 서랍 속 물건을 찾아 꺼내고 원상 복구하는 시스템.
-로봇의 동작·상태를 **JSON 온톨로지**로 정의하고, 명령에 맞춰 조합하며, 모든 동작의 성공 여부를 기록한다.
+> 두산 부트캠프 협동로봇 프로젝트 · 2026.10.02 ~ 10.16 (14일 스프린트) · 5인 팀
 
-- 문서: [`docs/README.md`](docs/README.md) (인덱스부터) · P1·P2·P3의 의미·정책·책임·Phase·수용 기준: [`docs/requirements.md`](docs/requirements.md). 다른 문서는 해당 FR/AC를 링크로 참조하며 실행 필드·설정은 기존 JSON/YAML 원본을 확인합니다.
-- 스택: ROS 2 Jazzy · CycloneDDS(`ROS_DOMAIN_ID=70`) · Docker Compose · Python · MongoDB · Isaac Sim 5.1.0(트윈, 네이티브)
+![최종 시연 — 에어팟 케이스 옆에 붙은 캐러멜 상자를 감지하고, 앞으로 끌어 손가락 자리를 만든 뒤 집어서 전달](docs/media/demo_airpods.gif)
 
-## 실행
+*10/16 최종 시연 편집본 일부(로봇 이동 구간 배속). 왼쪽은 실물 셀, 오른쪽 위는 요청 목록, 오른쪽 아래는 로봇 손목 카메라가 본 장면입니다.*
 
-[문서] 현재 Compose·launch·노드 진입점 기준의 실행 안내입니다. P1 음성(FR-INT-01~03), Runner(FR-PLN-01), 실행 기록(FR-LOG-01), Docker(NFR-ENV-01)에 해당하며, 아래 명령의 정적 확인과 실제 장치 연동·완료 기준 통과는 구분합니다.
+"헬로 로키, 출근 준비물 챙겨줘"라고 말하면, **실물 Doosan M0609 + OnRobot RG2**가 서랍장을 열어 등록된 물건을 찾아 전달 트레이에 놓고, 치웠던 물건은 원래 자리로 되돌린 뒤 서랍을 닫습니다.
 
-### 1. 실행 전 준비
+로봇이 할 수 있는 동작과 세계 상태는 **JSON-LD 온톨로지**로 정의합니다. 명령은 그 동작들을 조합한 **JSON 태스크**로 실행되고, 모든 스텝의 성공 여부와 전후 상태는 **MongoDB**에 기록됩니다. 서랍 안에서 물건이 다른 물건에 가려져 있거나 벽·이웃 물체에 붙어 있으면, 비전이 그 관계를 판정하고 로봇이 장애물을 치우거나 물체를 끌어내 집을 공간을 만듭니다.
 
-저장소 루트에서 실행합니다. `.env.example`을 참고해 `.env`에 `BACKEND`, `ROBOT_HOST`, `RG2_HOST`, DDS 설정을 채웁니다. 기존 `.env`·로컬 음성 설정·키·모델은 덮어쓰지 않습니다.
+## 최종 시연 결과 (10/16)
 
-- 호스트·컨테이너 준비, DDS 버퍼·다중 PC 설정: [Docker 안내](docs/docker.md).
-- 실행자·비상정지 대기자, TCP·툴·교시값·배치 확인: [안전 절차](docs/safety.md), [B 패키지 안내](ros2_ws/src/ready2go_skills/README.md).
-- 카메라·모델·보정 파일과 의존성: [A 패키지 안내](ros2_ws/src/ready2go_vision/README.md).
-- 마이크·API·웨이크 모델·MeloTTS 설치: [E 음성 패키지 안내](ros2_ws/src/ready2go_voice/README.md). 키는 `secrets/voice.env`, 로컬 모델은 `models/`에 두며 Git에 올리지 않습니다.
+요청 "출근 준비물 챙겨줘" — 온톨로지에 등록된 목록 `출근 준비물`(에어팟 케이스·차키·립밤)을 순서대로 한 번에 수행했습니다. 실물 1회 연속 촬영입니다.
 
-#### 프로젝트 의존성 설치
-
-[문서] [requirements.txt](requirements.txt)는 음성뿐 아니라 전체 프로젝트의 Python 의존성 입구입니다. 공통 호스트 라이브러리와 테스트 도구를 설치하며, 충돌하는 Vision GPU·Melo CPU·Isaac 번들 환경은 아래 보조 설치 경로로 분리합니다. 패키지의 실제 import, `setup.py`, `package.xml`, Docker 선언과 tools/sim 실행 안내를 기준으로 구분했습니다. 범위 제한은 설치 안내이며 새 기능이나 Phase 완료 선언이 아닙니다.
-
-| 구분 | 설치 대상·범위 |
+| 항목 | 결과 |
 |---|---|
-| 공통 Python | PyYAML·jsonschema·numpy, Runner pymongo, Skills pymodbus, Vision/tools OpenCV·SciPy, 웹 Flask, Voice OpenAI/LangChain·sounddevice·dotenv, 웨이크의 비-TFLite 의존성 |
-| 테스트/빌드 | pytest·setuptools는 requirements, colcon/rosdep는 ROS 개발 도구 |
-| ROS | rclpy·launch/launch_ros·ament_index_python·std_msgs/std_srvs·sensor_msgs·tf2·cv_bridge·메시지 생성. apt/rosdep 및 프로젝트 colcon 빌드로 준비; pip 설치 대상 아님 |
-| 시스템/서비스 | PortAudio·libsndfile·FFmpeg·오디오 서버/장치 권한·Tk, Git/LFS. espeak 선택 시 espeak-ng. Docker/Compose·MongoDB 서버·NVIDIA 드라이버는 별도 준비 |
-| 벤더 | DSR 소스/overlay는 B 안내 및 `docker/ros2-core/Dockerfile` 기준. Isaac Sim 5.1/omni/pxr는 [sim 안내](sim/README.md)의 번들 Python 사용; Jazzy Python 3.12와 섞지 않음 |
-| 환경별/자산 | Vision CUDA/YOLO와 Melo CPU는 아래 별도 설치. 웨이크 TFLite·전처리/VAD·TTS 모델 및 API 키는 코드 pull만으로 준비되지 않음 |
-| 선택/향후 | faster-whisper·Piper는 현재 음성 실행 경로 없음. SAM2·P2~ 트윈 준비를 P1 필수 설치/완료로 간주하지 않음 |
+| 전달 | **3 / 3** — 에어팟 케이스(위 서랍), 차키(위 서랍), 립밤(아래 서랍) |
+| 소요 시간 | 요청 수락부터 작업 완료까지 **6분 27초** |
+| 상황별 대응 | 에어팟 케이스: 옆에 붙은 캐러멜 상자 때문에 손가락 자리가 없음 → 앞으로 끌어 자리 확보 · 차키: 벽에 너무 붙음 → 42 mm 끌어내기 · 립밤: 덮개 판 밑에 가려짐 → 판을 먼저 치움 |
+| 원위치 복구 | 치운·함께 밀린 물체 2건을 원래 자리로 복구 — 위치 오차 **0.5 mm / 2.8 mm** |
+| 실행 기록 | 물품별 실행 3건 모두 `COMPLETED`, 스텝 기록 154 · 90 · 119개, 누락 점검 0건 |
+| 자동 시험 | pytest 3,630건 통과 · 44건 건너뜀, 계약·Compose·colcon 빌드 확인 (로컬 CI `tools/dev/ci_local.sh`, 10/16). 모의 환경 시험이라 실제 힘·파지·충돌 성능을 입증하지는 않습니다 |
+| 음성 질의 | "출근 준비물에 뭐 있어?" → "에어팟 케이스, 차키, 립밤이에요" · "귀중품은 뭐야?" → "귀중품은 차키예요" (온톨로지 목록·분류 조회) |
 
-아래 모든 프로젝트 명령의 작업 경로는 **저장소 루트**입니다. Ubuntu 24.04, 시스템 Python 3.12, ROS 2 Jazzy apt 저장소/설치가 준비되어 있어야 합니다. 기존 설정·가상환경은 삭제하거나 덮어쓰지 않습니다. 시스템/모델 설치 명령은 사용자가 해당 PC에서 실행하며, 이 문서 수정에서 실행하지 않았습니다.
+<table>
+<tr>
+<td width="50%"><img src="docs/media/demo_lipbalm.gif" alt="아래 서랍 — 덮개 판 밑의 립밤: 판을 치우고 립밤을 전달한 뒤 판을 원래 자리로 복구"></td>
+<td width="50%"><img src="docs/media/demo_carkey.gif" alt="위 서랍 — 벽에 붙은 차키를 42 mm 끌어낸 뒤 집어서 전달"></td>
+</tr>
+<tr>
+<td><b>가림 탐색·원위치 복구</b> — 덮개 판 밑의 립밤. 판을 치우고 다시 촬영해 립밤을 집고, 전달 뒤 판을 원래 자리로 되돌립니다.</td>
+<td><b>집을 공간 만들기</b> — 벽에 붙은 차키는 바로 집을 수 없어 42 mm 끌어낸 뒤 집습니다.</td>
+</tr>
+</table>
 
-```bash
-sudo apt-get update
-sudo apt-get install -y ros-jazzy-ros-base ros-dev-tools python3-venv python3-pip \
-  python3-tk git git-lfs portaudio19-dev libportaudio2 libsndfile1 ffmpeg \
-  ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-cv-bridge
-source /opt/ros/jazzy/setup.bash
-python3 -m venv --system-site-packages .venvs/project
-source .venvs/project/bin/activate
-python3 -m pip install -r requirements.txt
-# Linux/Python 3.12에서 audio extra의 tflite-runtime 자동 설치를 피합니다.
-python3 -m pip install --no-deps openwakeword==0.6.0
+## 팀과 역할
+
+| 이름 | 역할 | 맡은 영역 |
+|---|---|---|
+| 고희태 (조장) | 통합 지휘 · 음성 · LLM · 온톨로지 | `ready2go_voice` · `ready2go_knowledge` · `knowledge/` |
+| 김병직 | 비전 · Isaac Sim 트윈 | `ready2go_vision` · `sim/` |
+| 서동권 | 실물 로봇 모션 | `ready2go_skills` · `config/` 포즈·장소·파지 설정 |
+| 이영훈 | Runner · 플래너 · 기록 · 기술 통합 | `ready2go_runner` · `ready2go_interfaces` · `tasks/` · `tools/dev/` |
+| 김민준 | 웹 대시보드 · 기록 · 평가 자료 | `web/` · `practice/D/` |
+
+**고희태** — 통합 우선순위·체크포인트 판정과 요구사항 정본 관리, 서랍장·물품 준비.
+- 음성 파이프라인: 웨이크워드 → Whisper STT → GPT-4o strict JSON 해석 → 등록 어휘 검증 → 규칙 폴백, MeloTTS 문장 캐시
+- 로봇 온톨로지(스킬·물품·목록), TTL 기반 분류·목록 조회
+- 음성 정지·복구·재개·종료 흐름과 Runner 연결
+
+**김병직** — 손목 카메라부터 물체 판정까지의 비전과 디지털 트윈.
+- 손목 RealSense 연결·핸드-아이 캘리브레이션, 실물 데이터 직접 수집·라벨링, YOLO 검출 → 인스턴스 분할(v2) 학습
+- `inspect_region`: 서랍 좌표 위치·방향·윗면 높이(손끝 정답 대비 1.1~3.2 mm, 반복 0.2 mm), 가림 관계·보이는 넓이 판정, 촬영 분할 오버레이
+- 실측 서랍장 트윈 씬, 실물 관절 미러링, 스킬 궤적·Unpacking 사전 검증
+
+**서동권** — 실물 로봇이 하는 모든 원자 동작.
+- DSR 드라이버 컨테이너·RG2 연결, 스킬 서버(서랍 개폐·집기·놓기·끌기·놓침 감지, 취소·비상정지·움직이기 전 거부)
+- 힘 기준으로 눌러 끌어낸 뒤 집기, Unpacking 동작(빈 자리 놓기·원위치 되돌리기·바꿔 잡기)
+- 둘러싸인 물체를 위한 `make_room`(넛지 → 밀기 → 치우기), 실물 조그 GUI
+
+**이영훈** — 명령을 실행으로 바꾸는 프레임워크와 통합 환경.
+- JSON 태스크 Runner(변수·조건·`while`·`for_each`·`fallback`·`finally`, 실행 전 검사), 스킬 조건·결과 기반 상태 추적, MongoDB 실행 기록
+- BFS 스킬 플래너·묶음 계획, `find_with_unpack` 태스크(놓을 자리 사전 판단·역순 복구)
+- 정지·복구·재개·종료 계약, 실행 보고서·누락 점검, 목록·분류 실행, 실물 실행 스크립트
+
+**김민준** — 실행 상태를 보여 주는 웹과 평가·기록 자료.
+- PC·모바일 반응형 대시보드, Flask + rclpy 상태 브리지와 등록 정의 조회
+- 요청과 실행 결과의 `run_id` 연결 판정, 촬영 오버레이 캐시·표시, 물품별 실행 순서·단계명 UI
+- 시나리오 체크리스트 검증기, 음성 평가 문장 세트, 회의록·결정 로그
+
+GitHub에서 머지한 PR은 321건(문서·작업 기록 포함), 커밋은 1,900여 개입니다. PR은 대부분 다른 팀원의 리뷰를 거쳐 머지했고, 작업 규칙과 문서 정합성 기준은 [AGENTS.md](AGENTS.md)에 있습니다.
+
+## 핵심 기능
+
+- **음성 + LLM 명령 해석** — 웨이크워드 → STT → LLM 인텐트 파싱(규칙 폴백) → 온톨로지 어휘로 검증. 단일 물품·목록(`출근 준비물`)·분류(`귀중품`) 요청과 목록·분류 질의를 처리하고, 진행·결과를 한국어 TTS로 알립니다.
+- **로봇 온톨로지 + 동작 조합** — 스킬마다 사전 조건·결과(effect)를, 서랍·그리퍼·물품의 상태와 세계를 JSON-LD로 정의합니다. 탐색형 작업은 변수·`if`·`while`·`for_each`·`finally` 제어 블록을 가진 JSON 태스크로 표현해, 코드를 고치지 않고 새 작업을 등록합니다.
+- **가림 판정 비전** — 손목 RealSense + 인스턴스 분할 모델(`yolo11s-seg`)로 물체마다 서랍 좌표 위치·방향·윗면 높이를 내고, 마스크와 뎁스로 "무엇이 무엇을 덮고 있는지"(`occluded_by`)와 보이는 넓이를 판정합니다.
+- **Unpacking + LIFO 원위치 복구** — 목표가 가려져 있으면 위 물체부터 서랍 안 빈 자리로 옮기며 다시 촬영하고, 전달 뒤 옮긴 순서의 역순으로 원래 자리에 되돌립니다. 실패해도 `finally` 블록에서 복구를 시도합니다.
+- **집을 공간 만들기** — 목표가 벽이나 이웃 물체에 붙어 손가락이 들어갈 자리가 없으면, 놓기 전에 판단만 하는 사전 검사로 이를 감지하고 물체를 끌어내거나(`sweep`·`nudge`) 재촬영해 자리를 확보합니다.
+- **실행 기록** — 모든 스텝의 시각·결과·오류 코드·조건 확인·전후 상태를 MongoDB에 남기고(장애 시 JSONL 폴백), 회차별 표와 누락 점검 도구로 확인합니다.
+- **정지·복구 안전 경로** — 음성 정지·외력 정지 뒤 상태를 보존하고, 조건이 확인될 때만 음성으로 복구·재개·종료를 받습니다.
+- **Isaac Sim 디지털 트윈** — 실측 치수로 만든 서랍장 씬에서 스킬 흐름 궤적과 Unpacking 동작을 실물 투입 전에 재생해 문제를 찾고, 실물 관절 상태를 실시간으로 미러링합니다.
+- **PC·모바일 웹 대시보드** — Runner 상태·서랍과 물품·요청 목록·현재 작업·최근 촬영 분할 사진을 읽기 전용으로 보여 줍니다.
+
+## 시스템 구성
+
+```mermaid
+flowchart TB
+  U([사용자 음성]) --> V["음성 노드 (E)<br/>웨이크워드 → STT → LLM 인텐트 → 어휘 검증"]
+  V -- "/voice/intent" --> R
+  subgraph CORE["ros2-core (Docker)"]
+    O[("로봇 온톨로지<br/>JSON-LD")] <--> R["Runner (C)<br/>JSON 태스크 · 상태 추적 · 플래너"]
+    R -- "Skill Action" --> S["스킬 서버 (B)<br/>서랍 · 집기 · 놓기 · 끌기"]
+  end
+  R -- "inspect_region" --> VI["비전 (A)<br/>분할 + 뎁스 + 가림 판정"]
+  R -- "안내 문장" --> T["MeloTTS 음성 안내"]
+  R --> DB[("MongoDB<br/>스텝별 실행 기록")]
+  S --> HW["M0609 + RG2"]
+  CAM["손목 RealSense"] --> VI
+  HW -- "/dsr01/joint_states" --> TW["Isaac Sim 트윈 (A)"]
+  R -- "/runner/status" --> W["웹 대시보드 (D)<br/>Flask + rclpy → PC·모바일"]
+  VI -- "/vision/inspect_overlay" --> W
 ```
 
-웨이크 본체와 비-TFLite 의존성 설치까지의 절차입니다. **Python 3.12 TFLite 호환 런타임은 아직 저장소에 배포되지 않았습니다.** 현재 PC의 별도 호환 파일로 실행한 결과를 새 PC 설치 성공으로 간주하지 않습니다. 런타임/모델 확인과 남은 조치는 [음성 의존성 안내](ros2_ws/src/ready2go_voice/README.md#실행-준비와-의존성)를 따릅니다. espeak를 선택하면 별도로 `sudo apt-get install -y espeak-ng`를 실행하고 한국어 음성을 확인합니다.
+- 팀이 작성한 소프트웨어는 Docker Compose 프로파일(`realsense`·`ros2-core`·`db`·`vision-node`)로 띄우고, 음성 노드와 Isaac Sim은 호스트에서 실행합니다. ROS 2 Jazzy · CycloneDDS(Domain 70).
+- 원자 동작은 `real` / `sim` / `mock` 백엔드 뒤에 있어, 같은 JSON 태스크를 실물·트윈·GPU 없는 모의 환경에서 실행합니다.
 
-rosdep은 최초 1회 `sudo rosdep init`(이미 초기화된 PC에서는 생략), 이어서 아래 명령을 실행합니다. DSR 패키지는 벤더 overlay를 먼저 준비/source해야 하며, rosdep이 알 수 없는 `dsr_*` 의존성을 무시한 채 실물 준비 완료로 처리하지 않습니다.
+### 한 물품을 찾는 흐름 (`find_with_unpack`)
 
-```bash
-source /opt/ros/jazzy/setup.bash
-source .venvs/project/bin/activate
-rosdep update
-rosdep install --from-paths ros2_ws/src --ignore-src -r -y --rosdistro jazzy
+```mermaid
+flowchart TD
+  A[온톨로지에서 물품 위치 조회] --> B[안내 음성] --> C[서랍 열기] --> D[탑뷰 촬영·분할]
+  D -->|가려짐| E[위 물체를 서랍 안 빈 자리로 옮기고 복구 스택에 쌓기] --> D
+  D -->|벽·이웃에 붙음| F[끌어내기·조금 밀기로 손가락 자리 확보] --> D
+  D -->|집을 수 있음| G[집기 → 전달 트레이에 놓기] --> H[결과 안내]
+  H --> I[finally: 복구 스택 역순으로 원래 자리 복구·재촬영 확인]
+  I --> J[서랍 닫기 → 홈]
+  D -->|없음| K[찾지 못함 안내] --> I
 ```
 
-Vision/YOLO는 공통 호스트 환경과 별도로 준비합니다. 아래 조합의 torch·torchvision·ultralytics·numpy·opencv-python 버전은 [Vision Dockerfile](docker/vision/Dockerfile)의 선언값입니다. `PyYAML`·`setuptools`는 Dockerfile pip 목록에 없고 호스트 venv용으로 더한 것입니다(컨테이너의 PyYAML은 ROS base 이미지에 포함, PC1 이미지 6.0.1 [실측]). 기존 PC1 컨테이너 실측과 새 PC/GPU·새 이미지 설치 검증은 구분합니다. NVIDIA 드라이버/GPU 호환 확인은 A 담당입니다.
+## 화면
+
+| 웹 대시보드 (최종 시연 중) | 촬영 분할 오버레이 |
+|---|---|
+| <img src="docs/media/web_dashboard.jpg" alt="웹 대시보드 — 서랍·물품 상태, 요청 목록, 현재 작업, 최근 촬영 분할 사진" width="420"> | <img src="docs/images/vision_inspect_overlay_example.jpg" alt="손목 카메라 분할 결과 — 물체별 이름·신뢰도·윗면 높이·가림 여부" width="420"><br/>물체마다 이름·신뢰도·윗면 높이·가림 관계를 표시하고, 웹이 촬영마다 갱신합니다. |
+
+## Isaac Sim 디지털 트윈
+
+| 실물 관절 미러링 | Unpacking 사전 검증 |
+|---|---|
+| <img src="docs/media/twin_mirror.gif" alt="실물 M0609을 조그로 움직이면 Isaac Sim 트윈이 같은 자세로 따라감"> | <img src="docs/media/twin_verify.gif" alt="Isaac Sim에서 위 서랍 Unpacking 궤적과 물리 재생"> |
+| 실물 드라이버의 `/dsr01/joint_states`(약 100 Hz)를 받아 트윈이 따라갑니다(10/11, 조그 이동). | 스킬 서버 코드의 이동 명령과 실물 촬영 인식 결과로 Unpacking을 강체 물리로 재생해, 복구 높이·기울임 문제를 실물 전에 찾았습니다(10/13). |
+
+트윈은 보조 경로입니다. 접촉·마찰·힘 제어·실제 파지 성공·뎁스 결손은 검증하지 못하며 실물 시험으로만 확인했습니다([twin.md](docs/twin.md)).
+
+## 기술 스택
+
+| 구분 | 사용 기술 |
+|---|---|
+| 로봇 | Doosan M0609 + DSR ROS 2 드라이버, OnRobot RG2(Modbus), 손목 Intel RealSense D435i |
+| 프레임워크 | ROS 2 Jazzy, CycloneDDS, Docker Compose |
+| 비전 | Ultralytics YOLO11s-seg(실물 데이터 직접 수집·라벨링), 정렬 뎁스, 핸드-아이 캘리브레이션, OpenCV |
+| 태스크·지식 | Python JSON Runner + `jsonschema`, JSON-LD 온톨로지, BFS 플래너 |
+| 음성·LLM | openWakeWord("헬로 로키"), Silero VAD, OpenAI Whisper STT, LangChain + GPT-4o 인텐트 파서(규칙 폴백), MeloTTS(한국어) |
+| 기록 | MongoDB 7 + pymongo, JSONL 폴백 |
+| 트윈 | NVIDIA Isaac Sim 5.1.0 |
+| 웹 | Flask + rclpy 브리지, HTML/CSS/JavaScript |
+
+## 실행 방법 (Docker)
+
+팀이 작성한 ROS 노드·DB·카메라·비전은 Docker Compose로 띄웁니다. 음성 노드와 웹 대시보드, Isaac Sim은 호스트에서 실행합니다. 모든 명령은 저장소 루트에서 실행합니다.
+
+### 준비물
+
+- **공통** — Ubuntu 24.04, Docker Engine + Compose v2, Git LFS(모델 가중치·USD)
+- **실물** — M0609 제어기·RG2와 유선 연결, 손목 RealSense(USB 3), NVIDIA GPU + NVIDIA Container Toolkit(비전)
+- **음성** — 호스트 Python 환경(`.venvs/project`, MeloTTS용 `.venvs/melotts`), 마이크·스피커, `secrets/voice.env`의 OpenAI API 키. 설치는 [음성 패키지 안내](ros2_ws/src/ready2go_voice/README.md)
 
 ```bash
-python3 -m venv --system-site-packages .venvs/vision
-.venvs/vision/bin/python -m pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
-  torch==2.11.0 torchvision==0.26.0 ultralytics==8.4.170 \
-  numpy==1.26.4 opencv-python==4.9.0.80 PyYAML setuptools
+git clone https://github.com/Jik-Kim/ready2go.git
+cd ready2go
+git lfs pull
+cp .env.example .env
 ```
 
-호스트 실비전은 아래 [전용 빌드·실행 절차](#host-vision)를 사용합니다. ROS 노드 실행 파일이 사용하는 Python도 해당 환경과 일치해야 하며, 기존 host install을 source하는 것만으로 GPU 환경 전환이 되지는 않습니다. 비전/tools의 장치·데이터 준비는 [A 안내](ros2_ws/src/ready2go_vision/README.md)·[YOLO 도구](tools/yolo/README.md)를 따릅니다. Melo는 기존 [설치기·고정 목록·단독 합성 안내](ros2_ws/src/ready2go_voice/README.md#melotts-설치재생-p1-e-사용자-선택)에 따라 `.venvs/melotts`에만 설치합니다. 두 Torch 버전을 한 환경에 설치하지 않습니다. Compose는 이 호스트 requirements를 자동 적용하지 않으며, 현재 voice/vision 서비스는 노드 자동 기동과 완전한 모델/runtime 준비를 보장하지 않습니다.
+### Compose 서비스와 프로파일
 
-공통 호스트 노드는 필요한 ROS·Python·장치 의존성을 먼저 준비하고 **프로젝트 안에 빌드**합니다. 아래 공통 빌드는 `.venvs/project`를 사용하므로 실비전은 별도 절차를 따릅니다. DSR 드라이버를 호스트에서 실행할 경우 벤더 워크스페이스도 준비합니다.
+| 서비스 | 프로파일 | 하는 일 |
+|---|---|---|
+| `ros2-core` | `real` · `sim` · `dev` | Runner·온톨로지·플래너, DSR 드라이버·RG2·스킬 서버(`BACKEND=real`) 또는 모의 백엔드(`BACKEND=mock`) |
+| `db` | `real` · `sim` · `dev` | MongoDB 7 — 실행 기록(`./db_data`에 영구 저장) |
+| `realsense` | `real` | 손목 RealSense 컬러·정렬 뎁스 발행 |
+| `vision-node` | `pc2` (`real`과 함께) | 분할 비전 노드 `inspect_region` (GPU) |
+| `dsr-emulator` | `sim` · `dev` | M0609 가상 제어기 |
 
-```bash
-source /opt/ros/jazzy/setup.bash
-source .venvs/project/bin/activate
-cd ros2_ws
-python3 /usr/bin/colcon build --symlink-install
-cd ..
-source ros2_ws/install/setup.bash
-```
+모든 컨테이너는 `network_mode: host`, ROS 2 Domain 70, CycloneDDS를 씁니다. 장비별 값(백엔드, 제어기·RG2 IP, DDS 모드)은 각 PC의 `.env`에 둡니다.
 
-**호스트 노드를 실행하는 새 터미널마다** 아래 환경을 적용합니다. MeloTTS 상대 경로 때문에 음성 노드도 저장소 루트에서 시작합니다.
+### 1) 로봇 없이 모의 실행
 
-```bash
-source /opt/ros/jazzy/setup.bash
-source .venvs/project/bin/activate
-source ros2_ws/install/setup.bash
-export ROS_DOMAIN_ID=70
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export CYCLONEDDS_URI="file://$PWD/config/cyclonedds.local.xml"
-export ROS_LOG_DIR="logs/ros"
-mkdir -p "$ROS_LOG_DIR"
-```
-
-호스트 노드의 스키마·온톨로지 진입점·설정·모델·로그 및 기록 조회 경로는 저장소 루트 기준 상대 경로입니다. 온톨로지 내부 `sources`는 로더가 진입점 파일의 폴더 기준으로 해석합니다. `CYCLONEDDS_URI`는 `file://` URI에 올바른 절대 파일 위치가 필요하므로 실행 시 `$PWD`로 생성합니다. `/opt/ros/jazzy`·`/opt/dsr_ws`는 시스템/벤더 설치 위치, `/colcon` 및 컨테이너 명령의 `/config`·`/knowledge`·`/tasks`·`/models`·`/logs`는 컨테이너 설치/마운트 위치이며 호스트 프로젝트 상대 경로와 구분합니다. 기본 `~/.ros/log`는 ROS 사용자 로그 위치입니다.
-
-`local`은 같은 PC 내 통신입니다. PC를 나누면 `.env`의 `DDS_MODE=multi`와 NIC·양쪽 IP를 맞춥니다. 호스트에도 같은 `DDS_IFACE`·`PEER_PC1`·`PEER_PC2`를 export하고 `CYCLONEDDS_URI`를 `cyclonedds.multi.xml`로 바꿉니다. 음성과 Runner의 Domain ID도 같아야 합니다.
-
-### 2. 전체 실행 순서
-
-실물 운용에서는 **DB·TF·DSR·그리퍼 상태·Runner·스킬 서버·카메라·비전의 준비를 확인한 뒤 음성**을 시작합니다. 음성 노드 시작 전 [MeloTTS 사전 캐시 준비](ros2_ws/src/ready2go_voice/README.md#melotts-prefill)의 **설정 확인 → 캐시 생성 → 완료 로그/종료 코드 확인 → 대표 문구 청취 → 같은 설정으로 노드 실행**을 수행합니다. 최초 설치·속도/worker 변경 시 필요하며, 청취 시험은 스피커를 사용합니다. Compose는 아래 서비스를 함께 기동하며, 음성의 실행 모드로 전환하기 전에 각 서버의 준비와 대상·배치를 확인합니다.
-
-| 실행 방법 | 자동 시작하는 노드 | 추가로 실행할 노드 |
-| :--- | :--- | :--- |
-| `BACKEND=real`의 `ros2-core` | 고정 TF, DSR, `gripper_state`, `runner`, 지연 후 `skill_server` | 비전, 음성 |
-| `BACKEND=mock`의 `ros2-core` | 고정 TF, `runner`, `mock_backend` | 모의 플로우만 시험하면 불필요 |
-| `realsense` 서비스 | RealSense 카메라 | `inspect_region`은 별도로 필요 |
-| `vision`·`voice` 서비스 | 현재는 대기 컨테이너 | 각 패키지의 노드는 자동 시작하지 않음 |
-
-[문서] real 통합 launch는 `SKILL_START_DELAY_S`(현 구현 기본 15초) 뒤 `skill_server`를 자동 기동합니다. 이 시간 경과는 DSR 연결·실물 준비 완료 판정이 아닙니다. 비전·음성은 준비된 호스트에서 별도로 실행하며, 같은 Domain의 Runner·스킬·비전·TTS 서버를 중복 실행하지 않습니다.
-
-**실물(PC2)**: `.env`의 실제 장비 IP·DDS 설정 확인 후 실행합니다. `RUNNER_TASK_FILE`은 비워 음성 입력을 기다립니다. 아래 B의 첫 저속 실행 예 10°/s는 Compose 기동 전에 `SKILL_JOINT_VEL_DEG_S=10.0`으로 전달합니다. 속도·가속도·지연은 기동 셸의 동명 변수 또는 `.env`에서 정하며, 미설정 시 Compose/launch의 현 구현 기본값은 각각 60°/s·40°/s²·15초입니다. 아래 명령에서 가속도는 기존 설정을 사용하고 미설정이면 40°/s²입니다. 이는 새 합의나 실물 안전 승인값이 아니므로, 운용 전에 실제 설정의 속도·가속도를 확인하고 [안전 절차](docs/safety.md)를 따릅니다.
-
-```bash
-BACKEND=real RUNNER_TASK_FILE= SKILL_JOINT_VEL_DEG_S=10.0 \
-  docker compose --profile real up -d --build db ros2-core realsense
-docker compose logs -f ros2-core realsense
-```
-
-빌드 완료·DSR 연결·Runner와 자동 스킬 서버 준비를 로그·상태로 확인한 뒤, 아래 노드별 실비전과 음성 명령을 별도 터미널에서 실행합니다. 카메라는 Compose에서 시작됐으므로 호스트에서 중복 실행하지 않습니다. 아래 10°/s는 B의 첫 저속 실행 예이며(위 `SKILL_JOINT_VEL_DEG_S`로 자동 서버에 전달), 실물 운용 한계는 안전 절차를 따릅니다.
-
-**스킬 서버는 이미 떠 있습니다 — 다시 실행하지 않습니다.** 자동 서버 하나만 써야 같은 이름의 `/skills/*` 액션 서버가 둘이 되지 않습니다(파라미터가 서로 다르게 적용될 수 있음). 서버가 하나인지와 콘솔 저장은 아래처럼 확인합니다. 자동 서버를 쓰지 않고 호스트에서 따로 띄우는 경우는 아래 "그리퍼 상태·실물 스킬(호스트 개별 실행 대안)"만 따릅니다.
-
-```bash
-docker compose exec -T ros2-core bash -lc 'source /opt/ros/jazzy/setup.bash && ros2 node list | grep -c skill_server'   # 1 이어야 함
-mkdir -p logs
-CORE_CONSOLE_LOG=$(mktemp "logs/ros2-core.console.XXXXXX.log")
-docker compose logs --no-color -f ros2-core 2>&1 | tee "$CORE_CONSOLE_LOG"
-```
-
-**로봇 없는 모의 플로우**: 모의 서버로 `find_item.json`을 한 번 실행합니다. 웨이크워드·STT·실물 동작 검사는 아닙니다.
+GPU·로봇·카메라 없이 Runner와 MongoDB 기록을 확인합니다. 모의 백엔드가 모든 원자 동작에 성공을 돌려 줍니다.
 
 ```bash
 BACKEND=mock RUNNER_TASK_FILE=/tasks/find_item.json docker compose --profile dev up --build db ros2-core
 ```
 
-`mock_backend`는 `/voice/speak`도 제공하므로 같은 Domain에서 실음성 노드를 함께 실행하지 않습니다. 실음성 단독 평가는 뒤의 평가 모드로 별도 실행합니다. 일반 입력 대기로 돌아갈 때는 `RUNNER_TASK_FILE`을 비웁니다.
-
-프로파일 전체 서비스의 실행 명령은 아래와 같습니다. 프로파일만으로 `BACKEND`가 바뀌거나 `vision`·`voice`의 노드가 시작되지는 않습니다.
+Runner 로그에 `태스크 끝: find_item → COMPLETED`가 찍히면 됩니다. 물체가 겹친 장면에서 Unpacking·원위치 복구 흐름을 보려면 다음처럼 띄웁니다.
 
 ```bash
-docker compose --profile real up   # .env: BACKEND=real. 카메라·GPU 등의 준비 필요
-docker compose --profile sim up    # Isaac Sim 실행·연결은 별도. P2 이후 검증 경로
-docker compose --profile dev up    # .env: BACKEND=mock
+BACKEND=mock MOCK_SCENE=occluded_top RUNNER_TASK_FILE=/tasks/find_with_unpack.json docker compose --profile dev up --build db ros2-core
 ```
 
-Isaac Sim은 네이티브 실행이며 [트윈 안내](docs/twin.md)를 참조합니다. 컨테이너의 팀 빌드 경로는 `/colcon/build`·`/colcon/install`, 호스트는 `ros2_ws/build`·`ros2_ws/install`로 구분합니다.
-
-### 3. 노드별 실행 명령
-
-아래는 위 실행 전 준비 환경을 적용한 **호스트 개별 실행**입니다. Compose에서 이미 시작한 노드를 동시에 실행하는 목록이 아닙니다. 각 명령은 별도 터미널에서 실행합니다.
-
-**Runner**: 저장소 루트 기준 상대 경로를 지정하고 음성 입력을 기다립니다. `BACKEND` 표시만 바꿔 실제 연결 서버가 바뀌지는 않습니다.
+다른 터미널에서 방금 실행의 스텝별 결과를 표로 봅니다.
 
 ```bash
-ros2 run ready2go_runner runner --ros-args \
-  -p schema_file:="contracts/task.schema.json" \
-  -p intent_schema_file:="contracts/intent.schema.json" \
-  -p ontology_file:="knowledge/robot_ontology.jsonld" \
-  -p tasks_dir:="tasks" -p log_dir:="logs/runner"
+bash tools/dev/pc2_cmd.sh report 1
 ```
 
-`-p task_file:="tasks/find_item.json"`를 추가하면 시작 직후 해당 태스크를 한 번 실행합니다. 일반 음성 경로에서는 지정하지 않습니다. 현재 `/voice/intent`의 `find_item`을 `tasks/find_item.json`에 연결하는 구현이 있습니다. 발행 로그만으로 Runner 수신·로봇 완료를 증명하지 않습니다.
+### 2) 실물 실행 (최종 시연 구성)
 
-**모의 백엔드**: 실물 스킬·비전·음성을 대신해 응답합니다.
+`.env`에 실물 값을 채웁니다.
 
-```bash
-ros2 run ready2go_runner mock_backend
+```ini
+BACKEND=real
+ROBOT_HOST=<제어기 IP>
+RG2_HOST=<RG2 IP>
+DDS_MODE=local
+VISION_MODE=yolo
+RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json
 ```
 
-**DSR 드라이버**: 호스트의 벤더 오버레이를 source하고 `ROBOT_HOST`에 실제 장비 IP를 export한 후 실행합니다. 고정 TF는 Compose 통합 launch가 `config/`에서 읽어 발행합니다.
+비전 이미지는 처음 한 번 빌드합니다.
 
 ```bash
-ros2 launch ready2go_skills dsr_real.launch.py host:="$ROBOT_HOST"
+docker compose --profile real build vision
 ```
 
-**그리퍼 상태·실물 스킬(호스트 개별 실행 대안)**: 아래 명령은 Compose의 자동 서버를 사용하지 않는 개별 실행용입니다. 같은 Domain에서 real Compose의 `gripper_state`·`skill_server`와 함께 실행하지 않습니다. 호스트에서는 `RG2_HOST`를 export합니다(Compose용 `.env`만으로 호스트 환경 변수가 설정되지는 않음). DSR·TCP·툴·실측 설정이 준비된 후 실행합니다.
+터미널을 나눠 순서대로 실행합니다. `pc2_*` 스크립트는 로봇 PC에서 쓰려고 만든 이름이지만, 로봇·카메라가 연결된 PC 한 대면 어디서든 동작합니다(최종 시연은 노트북 한 대에서 실행).
+
+**① 띄우기** — `.env`·모델·호스트 충돌을 확인한 뒤 `db`·`ros2-core`·`realsense`·`vision-node`를 띄우고, 로봇·카메라·비전·Runner 준비를 확인한 다음 Runner 로그를 보여 줍니다. `--p2`는 정지 뒤 작업 보존(복구·재개)을 켭니다.
 
 ```bash
-ros2 run ready2go_skills gripper_state --ros-args -p rg2_ip:="$RG2_HOST"
+bash tools/dev/pc2_up.sh --p2
 ```
 
-```bash
-ros2 run ready2go_skills skill_server --ros-args \
-  -p config_dir:="config" -p joint_vel_deg_s:=10.0
-```
-
-**RealSense 카메라**: Compose의 `realsense` 대신 호스트에서 실행할 때의 동일 설정입니다. `realsense2_camera` 설치가 필요합니다.
+**② 음성** — ①이 "준비 끝"을 알린 뒤 호스트에서 음성 노드를 띄웁니다. 음성 쪽과 Runner의 코드 버전이 다르면 멈춥니다. 처음 한 번, 그리고 코드를 받은 뒤에는 호스트 빌드(`ros2_ws/install_host`)를 다시 합니다.
 
 ```bash
-ros2 run realsense2_camera realsense2_camera_node --ros-args \
-  -r __ns:=/ -r __node:=wrist_cam -p camera_name:=wrist_cam \
-  -p enable_color:=true -p enable_depth:=true -p align_depth.enable:=true \
-  -p enable_infra1:=false -p enable_infra2:=false \
-  -p enable_accel:=false -p enable_gyro:=false \
-  -p rgb_camera.color_profile:=1280x720x30 -p depth_module.depth_profile:=848x480x30
-```
-
-**실비전**: 실물에서 검증한 경로는 **`ready2go-vision` 컨테이너 + [`tools/dev/vision_real_check.sh`](tools/dev/vision_real_check.sh)**입니다 [실측 PC2 10/07 21:13 KST, main `55829e3`: P1 한 바퀴에서 첫 촬영·끌기 뒤 재인식 포함 호출 3회 성공, #23]. 카메라와 로봇이 같은 PC면 DDS `local`입니다. 저장소 루트에서 실행하고, 터미널마다 같은 환경을 줍니다.
-
-```bash
-cd <저장소>                                                    # 스크립트가 저장소를 /repo 로 마운트, config·models 를 그 안에서 읽음
-export DDS_MODE=local VISION_DUMP=$HOME/ready2go_vision_dump    # 요청마다 프레임 저장 위치(저장소 밖)
-bash tools/dev/vision_real_check.sh check                      # 뎁스 약 30 Hz, TF base_link → wrist_cam_color_optical_frame 출력이면 통과
-bash tools/dev/vision_real_check.sh node                       # 비전 노드 (터미널 하나 계속 사용, 처음 한 번 패키지 빌드 수십 초)
-bash tools/dev/vision_real_check.sh call eraser                # 1회 호출: success true, target_found true, 서랍 안 좌표
-bash tools/dev/vision_real_check.sh call eraser drawer_bottom  # 아래 칸 (places.yaml drawer_bottom.tf 측정 후, 전에는 UNKNOWN_REGION)
-```
-
-- **새 PC 준비** (컨테이너 경로): ① `ready2go-vision` 이미지(`docker/vision/Dockerfile`, 버전 고정 torch 2.11.0+cu128·ultralytics 8.4.170) — 첫 실행에서 GPU 확인 `docker run --rm --gpus all ready2go-vision:latest python3 -c "import torch;print(torch.cuda.is_available())"` ② 모델은 Git LFS: `git lfs install && git lfs pull` 뒤 `sha256sum models/*.pt`가 [`models/README.md`](models/README.md) 값과 같아야 함(노드 기본은 분할 `yolo11s_seg_ready2go_v2.pt`, 시작 로그 `weights_sha256` `b2ae5af07e2d` — 이전 분할 v1 로 되돌릴 때만 `VISION_WEIGHTS=models/yolo11s_seg_ready2go_v1.pt`)(132 B 포인터 파일이면 노드가 시작하자마자 실패 [실측 PC2 10/07]) ③ `ros2-core`는 `BACKEND=real`(mock 이면 `mock_backend`가 같은 이름의 `/vision/inspect_region`을 띄움) ④ 카메라는 Compose `realsense` 하나만(호스트 `realsense2_camera`와 동시 실행 금지)
-- **확인 기준**: 노드 시작 로그의 가중치·`places.yaml`·`vision_params.yaml` 해시와 `drawer_top.tf`를 기록합니다. Compose `vision` 서비스는 대기 컨테이너라 노드를 띄우지 않습니다. stub과 동시에 실행하지 않습니다(서비스 이름이 같음)
-- **실물 주의** [실측 PC2 10/07]: 카메라 케이블이 렌즈 앞으로 늘어지면 뎁스가 크게 비어 `DEPTH_INVALID` → 케이블을 손목에 고정. 서랍 영역 밖 오검출은 뎁스 계산 전에 제외됩니다(`region.detect_roi_margin_m`, #132)
-- 카메라·비전이 PC1, 로봇이 PC2인 구성은 양쪽 `DDS_MODE=multi`(`DDS_IFACE`·`PEER_PC1`·`PEER_PC2`, 스크립트 첫 부분). 사용법·`measure`·`replay`는 [`tools/yolo/README.md`](tools/yolo/README.md) "inspect_region 실제 노드 실행"
-- **호스트에서 직접 실행**은 아래 전용 절차를 따르며 **새 PC 설치·기동·실물 미검증**입니다. 위 컨테이너 경로의 실측과 구분합니다.
-
-<a id="host-vision"></a>
-#### 호스트 실비전: 설치 → 빌드 → source → 실행 [문서]
-
-P1 FR-VIS-01–02·FR-ML-01·NFR-ENV-01의 실행 준비 안내입니다. 모든 명령은 **저장소 루트**에서 실행합니다. 위 시스템/rosdep 준비와 `.venvs/vision` 설치를 먼저 마치십시오. `setup.py`의 `install_requires`는 setuptools만 선언하므로 YOLO·Torch·OpenCV·numpy·PyYAML은 위 별도 설치가 필요합니다. ROS의 rclpy·sensor_msgs·tf2_ros 및 생성된 `ready2go_interfaces`는 pip 대상이 아닙니다. 실제 노드는 이미지 변환에 cv_bridge를 사용하지 않지만 다른 도구의 시스템 의존성 안내는 유지합니다.
-
-기존 공통 빌드를 덮어쓰지 않도록 Vision용 build/install/log를 분리합니다. 새 터미널에서 공통 프로젝트 overlay를 먼저 source하지 않고 아래 순서로 실행하십시오. 가상환경을 옮기거나 재생성하면 실행기의 Python 경로도 다시 확인해야 합니다.
-
-```bash
-source /opt/ros/jazzy/setup.bash
-source .venvs/vision/bin/activate
-.venvs/vision/bin/python /usr/bin/colcon --log-base ros2_ws/log_vision build \
-  --base-paths ros2_ws/src/ready2go_interfaces ros2_ws/src/ready2go_vision \
-  --packages-select ready2go_interfaces ready2go_vision --symlink-install \
-  --build-base ros2_ws/build_vision --install-base ros2_ws/install_vision
-source ros2_ws/install_vision/setup.bash
-# 첫 줄의 Python 경로가 아래 sys.executable과 같은 가상환경인지 확인합니다.
-head -n 1 ros2_ws/install_vision/ready2go_vision/lib/ready2go_vision/inspect_region
-.venvs/vision/bin/python -c 'import sys; print(sys.executable); import rclpy, sensor_msgs, tf2_ros, numpy, cv2, yaml, torch, ultralytics; from ready2go_interfaces.srv import InspectRegion; import ready2go_vision.nodes.inspect_region; print("imports OK; CUDA:", torch.cuda.is_available())'
-```
-
-빌드 성공·같은 가상환경의 shebang·`imports OK`를 확인하십시오. GPU 사용 시 CUDA가 True여야 하며 드라이버 호환은 A 확인 대상입니다. 이 확인만으로 모델·카메라·TF·서비스 응답이나 AC-VIS-01(3D 위치 오차 1.5cm 이내) 통과를 판단하지 않습니다.
-
-실행 전 [모델 받기·해시 확인](models/README.md#받기검증)을 마치고 `config/places.yaml`의 `drawer_top.tf` 및 카메라/TF 발행자를 준비합니다. 호스트·컨테이너 중 카메라는 하나만 사용하고, 같은 `/vision/inspect_region`의 stub/mock/실제 서버를 중복 실행하지 않습니다. 아래는 GPU 0·단일 PC DDS 예시이며 다중 PC는 위 `DDS_MODE=multi` 안내를 따릅니다.
-
-```bash
-# 새 터미널에서도 저장소 루트에서 이 순서로 source합니다.
-source /opt/ros/jazzy/setup.bash
-source .venvs/vision/bin/activate
-source ros2_ws/install_vision/setup.bash
-export ROS_DOMAIN_ID=70 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export CYCLONEDDS_URI="file://$PWD/config/cyclonedds.local.xml"
-export ROS_LOG_DIR="logs/ros"
-mkdir -p "$ROS_LOG_DIR" logs/vision
-ros2 run ready2go_vision inspect_region --ros-args \
-  -p config_dir:=config -p world_path:=knowledge/world.jsonld \
-  -p weights:=models/yolo11s_seg_ready2go_v2.pt -p dump_dir:=logs/vision \
-  -p "code_sha:=\"$(git rev-parse HEAD)\"" -p 'device:="0"'
-```
-
-CPU를 사용하실 때는 `-p 'device:="0"'`을 `-p device:=cpu`로 변경하십시오. 노드는 `device`를 문자열로 선언하므로 GPU 번호도 따옴표를 보존해 문자열로 전달해야 합니다. 설정·모델·로그 경로는 저장소 루트 기준 상대 경로입니다. 별도 터미널에 같은 환경을 준비한 뒤 `ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: eraser}"`로 응답을 확인하십시오. 시작 로그의 모델·설정 해시와 TF, 응답의 success/target_found를 보존하십시오. 실물 배치와 좌표의 정확성은 A/B의 실측으로 확인해야 합니다. 본 예시는 원본과 정적으로 대조한 절차이며, 이번 문서 작업에서는 설치·빌드·노드·장치를 실행하지 않았습니다.
-
-**비전 stub**: 실비전과 동시에 실행하지 않고 시험용 실측 파일을 지정합니다. 아래 기본 파일은 `ready: false`라 그대로 쓰면 `STUB_NOT_READY`입니다. 고정 좌표의 성공을 실제 인식 검증으로 취급하지 않습니다.
-
-```bash
-ros2 run ready2go_vision inspect_region_stub --ros-args \
-  -p config_path:="config/vision_stub.yaml" -p places_path:="config/places.yaml"
-```
-
-`ready2go_knowledge`는 Runner·음성이 사용하는 함수 모음, `ready2go_interfaces`는 메시지·서비스·액션 정의이므로 단독 실행 노드는 없습니다. [Knowledge README](ros2_ws/src/ready2go_knowledge/README.md)를 참조합니다.
-
-### 4. 음성 평가·실행 전환
-
-`logs/voice_eval/voice.local.yaml`에 마이크·`audio_enabled: true`·저장소 루트 기준 웨이크 모델 경로·MeloTTS 설정을 준비합니다. 모델 파일명은 실제 배치한 것으로 지정합니다. `secrets/voice.env`는 Python dotenv로 읽고 키는 명령이나 로그에 출력하지 않습니다.
-
-**음성만 평가하는 명령**입니다. 시작 파라미터 `evaluation_mode:=true`로 모든 intent의 발행을 차단하고, 요약 콘솔을 매번 새 파일에 저장하고, 상세 JSONL은 로컬 Voice YAML의 `diagnostic_file` 경로에 별도로 남깁니다. 전체 LLM 증빙은 tee 파일만으로 보존되지 않습니다.
-
-```bash
-mkdir -p logs/voice_eval
-VOICE_CONSOLE_LOG=$(mktemp logs/voice_eval/console.XXXXXX.log)
-set -o pipefail
-python3 -u - <<'PYTHON' 2>&1 | tee "$VOICE_CONSOLE_LOG"
-from dotenv import load_dotenv
-from ready2go_voice.nodes.voice_node import main
-
-load_dotenv('secrets/voice.env')
-main(args=['--ros-args',
-           '-p', 'config_file:=logs/voice_eval/voice.local.yaml',
-           '-p', 'evaluation_mode:=true',
-           '-p', 'diagnostic_detail:=true'])
-PYTHON
-```
-
-**로봇 연동**은 준비·접속 확인 후 같은 명령의 `'evaluation_mode:=true'`를 `'evaluation_mode:=false'`로 바꿔 실행합니다. 시작 인자의 기본은 false이며 YAML보다 우선합니다. 실행 중 `ros2 param set`으로 전환하는 기능은 없습니다. 다른 노드에서 시작한 태스크를 평가 모드가 중단시키는 것도 아닙니다.
-
-기존 `recording_mode`·`timing_mode`·웨이크 기준 등은 이 전환으로 변경하지 않습니다. 고정 5초 녹음·commissioning 설정은 [AC-INT-03](docs/requirements.md#ac-int-03)의 측정 근거가 아닙니다. 판별 제약·미해결 사항과 기록의 의미는 [음성 README](ros2_ws/src/ready2go_voice/README.md)에 적혀 있습니다.
-
-### 5. 연결·결과·로그 확인
-
-같은 DDS 환경에서 확인합니다. 토픽 존재만으로 연결 성공이라 하지 않고 내용·Runner 시작과 종료·동일한 `run_id`의 스텝 기록을 대조합니다.
-
-```bash
-ros2 node list
-ros2 action list
-ros2 service list
-ros2 topic echo /voice/intent
+source /opt/ros/jazzy/setup.bash && source .venvs/project/bin/activate
+cd ros2_ws && colcon build --build-base build_host --install-base install_host --packages-up-to ready2go_voice && cd ..
 ```
 
 ```bash
-ros2 topic echo /runner/status
+bash tools/dev/pc2_voice.sh --p2
 ```
+
+이제 "헬로 로키, 출근 준비물 챙겨줘"처럼 말하면 됩니다.
+
+**③ 명령·확인** — 상태 조회(`status`), 음성 없이 실행(`find eraser`), 글자 입력(`say 지우개 찾아줘`, 음성 노드가 해석), 결과 표(`md 1`), 기록 누락 점검(`check`).
 
 ```bash
-ros2 topic echo /robot_state
+bash tools/dev/pc2_cmd.sh status
 ```
 
-| 기록 | 위치·확인 방법 |
-| :--- | :--- |
-| 호스트 ROS 로그 | 위 공통 환경은 `logs/ros/`. 미설정 시 보통 `~/.ros/log/`(`ROS_HOME` 설정 시 해당 경로 아래 `log/`) |
-| 실물 자동 스킬 서버 | `ros2-core`의 Compose 콘솔(`docker compose logs ros2-core`)·컨테이너 ROS 로그. 호스트 개별 실행 대안은 위 공통 환경의 `logs/ros/` |
-| Compose 자동 시작 노드 | 표준 출력은 `docker compose logs`. 기본 ROS 로그는 컨테이너 안 `~/.ros/log/`이며 호스트 자동 저장 설정은 없음 |
-| Runner 실행·스텝 | MongoDB `cobot2.runs`·`cobot2.steps`. DB 장애 시 `log_dir` 아래 `<run_id>.jsonl`로 폴백 |
-| JSONL 호스트 위치 | Compose의 `/logs`는 호스트 `logs/`. 위 호스트 Runner는 `logs/runner/`. DB가 정상이면 JSONL이 없는 것은 정상 |
-| 음성 상세 평가 | 위 명령의 `logs/voice_eval/console.*.log`. 평가 결과 JSON이나 녹음 파일이 자동 생성된다는 의미는 아님 |
-| 비전 입력·결과 | `dump_dir`를 지정하면 `logs/vision/`의 `.npz`. ROS 로그와 별개 |
+**④ 웹 대시보드** — 호스트에서 Flask + rclpy 브리지를 띄우고 `http://<PC IP>:4173`으로 접속합니다(휴대폰은 `WEB_HOST=0.0.0.0`). 환경 설정은 [웹 실행 안내](web/README.md#6-실행과-접속)에 있습니다.
 
-컨테이너 ROS 로그 위치 확인과 자동 스킬 서버를 포함한 Compose 콘솔 저장 예입니다. 아래 `logs/ros2-core.console.*.log` 저장은 수동이며, 컨테이너 ROS 로그의 호스트 자동 저장을 뜻하지 않습니다.
+**끄기** — 컨테이너 로그를 저장한 뒤 내립니다.
 
 ```bash
-docker compose exec ros2-core bash -lc 'ls -lt ~/.ros/log'
-mkdir -p logs
-CORE_CONSOLE_LOG=$(mktemp "logs/ros2-core.console.XXXXXX.log")
-docker compose logs --no-color ros2-core > "$CORE_CONSOLE_LOG" 2>&1
+bash tools/dev/pc2_down.sh
 ```
 
-Runner 기록의 요약(호스트 MongoDB 조회는 `pymongo` 의존성 필요):
+> **안전** — 실물을 처음 움직일 때는 관절 속도를 낮추고(`SKILL_JOINT_VEL_DEG_S=10` 등) 비상정지 담당자를 둡니다. 호스트에서 DSR 드라이버나 RealSense 노드를 띄운 채 Compose를 올리지 않습니다(제어기·카메라 이중 접속). 절차는 [안전 문서](docs/safety.md)를 따릅니다.
 
-```bash
-ros2 run ready2go_runner run_report -n 2
-```
+노드별 개별 실행, 다중 PC DDS, 로그 위치, 음성 평가 모드 등 자세한 내용은 [실행 안내](docs/run.md)와 [Docker 문서](docs/docker.md)에 있습니다. Isaac Sim 트윈은 네이티브로 실행합니다([sim/README.md](sim/README.md)).
 
-```bash
-ros2 run ready2go_runner run_report --jsonl "logs/runner" -n 2
-```
+## 한계와 향후 과제
 
-### 6. 종료·다음 회차 준비
+- **완료·검증 범위** — 최종 시연은 리허설에서 확인한 배치로 진행했습니다. 무작위 배치에서는 이웃 물체가 너무 가까워 거부(`NEIGHBOR_TOO_CLOSE`)하거나 공간 만들기 반복 상한에 걸린 회차가 있었고, 손잡이 쪽 앞벽에 뭉친 배치는 실물에서 실패했습니다. 공간 만들기의 무작위 배치 성공률 개선(약 30 % → 68 %)은 시뮬레이션 220회 결과입니다.
+- **정지 뒤 복구** — 동작 사이 정지 후 음성 복구·종료 연결은 마지막 날 반영했고, 외력 정지 판정 오탐 보완은 리뷰 중입니다. 정지 후 실음성 복구는 실물에서 다시 확인해야 합니다.
+- **완전히 가려진 물체** — 판정이 애매할 때 사용자에게 물어 치울 물체를 정하는 질문·답 대기 계약은 설계 단계입니다.
+- **트윈** — 관절 미러링은 조그 이동만 확인했고, 그리퍼·서랍 상태 연동과 `BACKEND=sim` 사전 검증 실행은 남았습니다.
+- **웹** — 목록 요청 중 물품별 단계명, 실행 상세 조회 화면은 후속입니다.
 
-실물은 B 안전 절차로 정지를 확인한 뒤 개별 노드 터미널을 `Ctrl+C`로 종료합니다. `Ctrl+C`나 컨테이너 종료만으로 안전 정지를 확인한 것으로 취급하지 않습니다. Compose 종료는 사용한 프로파일로 실행합니다(아래는 real 예).
+남은 일 전체는 마무리 이슈 [#398](https://github.com/Jik-Kim/ready2go/issues/398)에서 추적합니다.
 
-```bash
-docker compose --profile real stop
-```
+## 문서와 실행
 
-컨테이너 제거는 `docker compose --profile real down`을 사용합니다. 컨테이너 안에만 있는 ROS 로그는 먼저 회수합니다. MongoDB 데이터는 호스트 `db_data/`에 남습니다.
-
-회차 사이에는 사람이 물품·서랍·그리퍼 원상 복구를 확인하고 Runner가 대기 상태일 때 상태 초기화를 요청할 수 있습니다. 정지나 실물 상태 확인·안전 잠금 해제를 대신하는 기능은 아닙니다.
-
-```bash
-ros2 service call /runner/reset_state std_srvs/srv/Trigger '{}'
-```
+- 자세한 실행 안내(노드별 명령·다중 PC·로그·종료): [docs/run.md](docs/run.md) · 컨테이너 구성: [docs/docker.md](docs/docker.md)
+- 문서 인덱스: [docs/README.md](docs/README.md) · 요구사항 정본(P1·P2·P3, 수용 기준): [docs/requirements.md](docs/requirements.md)
+- 주제별: [아키텍처](docs/architecture.md) · [온톨로지](docs/ontology.md) · [Runner](docs/runner.md) · [플래너](docs/planner.md) · [비전](docs/vision.md) · [음성·LLM](docs/voice_llm.md) · [트윈](docs/twin.md) · [안전](docs/safety.md) · [선행 사례 조사](docs/research/prior_art_report.md)
 
 ## 저장소 구조
+
 | 경로 | 내용 |
 | :--- | :--- |
-| `docs/` | 요구사항 기준 원본과 주제별 기술 문서. `archive/`는 과거 스냅샷 |
-| `contracts/` | JSON Schema 계약 + `examples/` |
-| `knowledge/` | 로봇 온톨로지(`robot_ontology.jsonld`), 상태 스냅샷 |
-| `tasks/` | 태스크(복합 스킬) JSON |
-| `config/` | 장비·실측값: DDS, 기준 포즈, 서랍 좌표계, 캘리브레이션 |
-| `ros2_ws/src/` | ROS 2 패키지 `ready2go_*` |
+| `ros2_ws/src/` | ROS 2 패키지 `ready2go_*` (bringup·interfaces·knowledge·runner·skills·vision·voice) |
+| `knowledge/` | 로봇 온톨로지(스킬·상태·세계, JSON-LD) |
+| `tasks/` | 등록 태스크(JSON) |
+| `contracts/` | 메시지·태스크 JSON 스키마와 예시 |
+| `config/` | 포즈·장소·비전 파라미터·캘리브레이션·DDS 설정 |
 | `docker/` | 서비스별 Dockerfile |
-| `sim/` | Isaac Sim 스크립트 (USD는 Git LFS) |
-| `tools/` | 검증·측정 스크립트 |
-| `web/` | 녹화 범위 검토용 PC·모바일 정적 목업과 [실행·연동 안내](web/README.md) |
-| `practice/` | 담당별 현재 상태(`CURRENT.md`) |
-
-## 팀
-| 코드 | 이름 | 담당 |
-| :--- | :--- | :--- |
-| A | 김병직 | 비전 · Isaac Sim 트윈 |
-| B | 서동권 | 실물 로봇 모션 |
-| C | 이영훈 | Runner · 플래너 · 로그 · 기술 통합 |
-| D | 김민준 | 기록 · 문서 · 평가 자료 |
-| E | 고희태 (조장) | 통합 지휘 · 하드웨어 · 음성 · LLM · 온톨로지 |
+| `sim/` | Isaac Sim 씬·미러링·재생 스크립트 (USD는 Git LFS) |
+| `tools/` | 실행·검증·측정·YOLO 학습 스크립트 |
+| `web/` | PC·모바일 웹 대시보드 |
+| `practice/` | 담당별 작업 기록과 현재 상태(`CURRENT.md`) |

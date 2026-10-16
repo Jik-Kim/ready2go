@@ -145,7 +145,7 @@ tasks/*.json ──────────────────────�
 
 ## 6. 실행과 접속
 
-루트 [`requirements.txt`](../requirements.txt)를 설치한 프로젝트 가상환경과 ROS 2 환경을 준비한 뒤 **새 터미널에서 저장소 루트부터** 다음을 실행합니다. `ros2_ws/install/setup.bash`를 함께 읽어야 `ready2go_knowledge` 등 workspace 패키지를 찾을 수 있습니다. 파일이 없다면 먼저 루트 README의 빌드 절차를 실행합니다. 아래 Domain 70·CycloneDDS 설정은 Runner와 웹 브리지가 같은 ROS graph를 사용하기 위한 필수 실행 환경입니다.
+루트 [`requirements.txt`](../requirements.txt)를 설치한 프로젝트 가상환경과 ROS 2 환경을 준비한 뒤 **새 터미널에서 저장소 루트부터** 다음을 실행합니다. `ros2_ws/install/setup.bash`를 함께 읽어야 `ready2go_knowledge` 등 workspace 패키지를 찾을 수 있습니다. 파일이 없다면 먼저 [실행 안내](../docs/run.md)의 빌드 절차를 실행합니다. 아래 Domain 70·CycloneDDS 설정은 Runner와 웹 브리지가 같은 ROS graph를 사용하기 위한 필수 실행 환경입니다.
 
 ```bash
 cd /home/rokey/ready2go
@@ -168,7 +168,7 @@ cd web
 WEB_HOST=127.0.0.1 WEB_PORT=4173 python3 -m ready2go_web
 ```
 
-의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../README.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 루트 README의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
+의존성을 아직 설치하지 않았다면 저장소 루트의 [프로젝트 의존성 설치](../docs/run.md#프로젝트-의존성-설치)를 먼저 따릅니다. PC를 나눠 사용하는 경우에는 [실행 안내](../docs/run.md)의 다중 PC 안내에 따라 `cyclonedds.multi.xml`, NIC와 peer IP를 사용합니다.
 
 이 명령은 Flask 정적 서버, `/runner/status`·`/robot_state`·`/dsr01/joint_states`·`/wrist_cam/color/camera_info`·`/vision/inspect_overlay` 구독과 `/voice/intent` publisher 관찰, 상태·정의·최근 촬영 REST를 같은 프로세스에서 시작합니다. 같은 PC에서는 `http://127.0.0.1:4173/`로 접속하고 다음 명령으로 REST 기동도 확인합니다. 종료할 때 `Ctrl+C`를 누르면 executor, 노드, ROS context도 함께 정리됩니다. 최근 요청과 연결된 실행 결과를 표시하며, 현재 작업은 수신한 실행 상태·현재 단계만 표시하고 물품별 전달 결과는 확인 전입니다.
 
