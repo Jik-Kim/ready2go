@@ -477,7 +477,7 @@ http://localhost:4173/?scenario=error
 
 [문서] `GET /api/execution-detail/<run_id>?boot_id=...&seq=...`는 현재 상태 캐시에서 최근 요청과 연결된 종료 run만 허용합니다. 저장소 조회 전후 기동·seq·요청 연결을 확인합니다. 잘못된 ID/기동/seq 쿼리는 400, 상태 전환은 409, 종료 기록 미수신은 404, 형식 오류는 422, 저장소 미설정·조회 실패는 503입니다. 임의 실행 기록 검색이나 쓰기 API는 제공하지 않습니다.
 
-웹 프로세스 시작 전에 아래 저장소를 하나 또는 둘 다 명시합니다. 미설정이면 기존 상태 화면은 유지하고 상세는 확인 전입니다.
+후속 상세 연결 시 서버 API가 읽을 저장소는 웹 프로세스 시작 전에 아래 설정으로 하나 또는 둘 다 지정합니다. 저장소 미설정 시 상세 API는 503 `unavailable`을 반환합니다. 현재 시연 화면은 저장소 설정 여부와 관계없이 상세 API를 호출하거나 상세를 표시하지 않으며, 기존 상태·현재 단계 표시를 유지합니다.
 
 - JSONL: `WEB_RUN_JSONL_DIR`에 Runner 기록 디렉터리를 지정합니다. 해당 run 파일과 상위 종료 기록이 참조한 child 파일만 읽습니다.
 - MongoDB: `WEB_RUN_MONGO_URI`, `WEB_RUN_MONGO_DB`, `WEB_RUN_MONGO_TIMEOUT_MS`를 모두 지정합니다. 웹 계정에는 조회 권한만 부여합니다. 어댑터는 find만 수행하며 인덱스·문서 쓰기를 하지 않습니다. Mongo 사용 시에만 `pip install -r web/requirements-mongo.txt`로 추가 의존성을 설치합니다.
