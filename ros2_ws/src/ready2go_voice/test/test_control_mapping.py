@@ -146,8 +146,12 @@ def test_stt_failure_and_late_classification_cannot_register(node):
     assert not node.published and ex.policy.work==WORK
 
 
-def test_recover_and_end_do_not_require_fabricated_robot_evidence_or_unlock(node):
-    mapper,receive=wire(node,provider=False);receive(status(locked=True))
+@pytest.mark.parametrize('stop',['confirmed','none'])
+@pytest.mark.parametrize('clear_step',[False,True])
+def test_recover_and_end_do_not_require_fabricated_robot_evidence_or_unlock(node,stop,clear_step):
+    mapper,receive=wire(node,provider=False)
+    initial=status(locked=True);initial['halt']['stop']=stop
+    receive(initial)
     assert node.safety_sender('recover',WORK)
     recover=node.published[-1]
     assert recover['intent']=='recover' and recover['request_id']
@@ -156,11 +160,15 @@ def test_recover_and_end_do_not_require_fabricated_robot_evidence_or_unlock(node
     end=node.published[-1]
     assert end['intent']=='end_task' and end['run_id']=='run' and end['request_id']!=recover['request_id']
     ack=status(2,locked=True);ack['phase']='halted';ack['halt_code']='HALTED'
+    ack['halt']['stop']=stop
     ack['last_intent']=dict(intent='end_task',decision='end',request_id=end['request_id'])
     receive(ack) # END admission is not disposal; work remains.
     assert node.safety_exchange.policy.work==WORK and not getattr(node,'control_feedback',None)
     ack=status(3,locked=True);ack['phase']='halted';ack['halt_code']='HALTED'
+    ack['halt']['stop']=stop
     ack['halt']['resume']=None;ack['last']['overall_status']='ABORTED'
+    if clear_step:
+        ack['last']['failed_step']=None  # C may remove the suspended step on disposal.
     ack['last_intent']=dict(intent='end_task',decision='end',request_id=end['request_id'])
     receive(ack)
     assert node.safety_exchange.policy.work==WORK # until actual feedback playback, never unlock/idle
@@ -306,7 +314,47 @@ def test_between_steps_recovery_rejection_keeps_work_locked(node):
     assert [p['intent'] for p in node.published]==['recover']
 
 
-def test_none_needs_separate_current_typed_safety_proof(node):
+@pytest.mark.parametrize('change',['event','run','halt_run','request','requested','unconfirmed'])
+def test_none_end_terminal_requires_matching_settled_disposal(node,change):
+    mapper,receive=wire(node,provider=False)
+    initial=status(locked=True);initial['halt']['stop']='none'
+    receive(initial)
+    node._send_safety_candidate_locked(TaskEndCandidate(WORK),node.safety_sender)
+    end=node.published[-1]
+    terminal=status(2,locked=True);terminal['phase']='halted'
+    terminal['halt'].update(stop='none',resume=None)
+    terminal['last'].update(overall_status='ABORTED',failed_step=None)
+    terminal['last_intent']=dict(intent='end_task',decision='end',request_id=end['request_id'])
+    if change=='event': terminal['halt']['event_id']='other'
+    elif change=='run': terminal['last']['run_id']='other'
+    elif change=='halt_run': terminal['halt']['run_id']='other'
+    elif change=='request': terminal['last_intent']['request_id']='other'
+    else: terminal['halt']['stop']=change
+    receive(terminal)
+    assert node.control_feedback is None and not node.texts
+    assert mapper.status['halt']['locked'] is True
+
+
+@pytest.mark.parametrize('stop',['confirmed','none'])
+def test_running_end_completes_only_after_c_terminal_disposal(node,stop):
+    from ready2go_voice.core.recovery_confirmation import ActiveRun
+    mapper,receive=wire(node,provider=False)
+    running=status();running.update(phase='running',task_id='task',halt=None,last=None)
+    receive(running)
+    candidate=TaskEndCandidate(ActiveRun('boot','run'))
+    node.pending_task_end=(candidate,node.generation)
+    assert mapper.send_running_end(candidate)
+    end=node.published[-1]
+    terminal=status(2,locked=True);terminal['phase']='halted'
+    terminal['halt'].update(stop=stop,resume=None)
+    terminal['last'].update(overall_status='ABORTED',failed_step=None)
+    terminal['last_intent']=dict(intent='end_task',decision='end',request_id=end['request_id'])
+    receive(terminal)
+    assert node.pending_task_end is None and mapper.pending is None
+    assert node.notice_policy.phase=='halted' and mapper.status['halt']['locked'] is True
+
+
+def test_none_still_accepts_separate_current_typed_safety_proof(node):
     mapper,receive=wire(node)
     doc=status(offered=True);doc['halt']['stop']='none'
     receive(doc)
