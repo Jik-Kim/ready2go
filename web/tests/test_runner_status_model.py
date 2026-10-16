@@ -464,3 +464,16 @@ def test_current_step_name_requires_exact_task_and_id(tmp_path: Path) -> None:
     assert output[0]['steps'][0]['label'] == '전달 트레이에 물품 놓기'
     assert all('단계명 확인 전' in row['steps'][0]['label'] for row in output[1:])
     assert all(len(row['steps']) == 1 and row['steps'][0]['status'] == 'current' for row in output)
+
+
+
+def test_reported_step_does_not_claim_active_execution(tmp_path: Path) -> None:
+    """현재 상태만으로 단계의 종료 직후와 실행 중을 구분할 수 없음을 표시한다."""
+    output = _evaluate_runner_model(tmp_path, [], expression="""(() => {
+      const model = window.ROKEY_RUNNER_STATUS_MODEL;
+      return [model.currentTaskView({phase:'running', task_id:'task', current_step:'s1'}),
+        model.currentTaskView({phase:'idle', task_id:'task', current_step:'s1'})];
+    })()""")
+    assert output[0]['steps'][0]['statusLabel'] == 'Runner 보고 단계 · 완료 여부 확인 전'
+    assert '진행 중' not in output[0]['steps'][0]['label']
+    assert output[1]['steps'] == []

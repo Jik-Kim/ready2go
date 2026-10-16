@@ -24,3 +24,17 @@ def test_nested_expand_and_check_only_are_not_delivery():
     labels = task_step_labels({"sequence": [{"id": "s1", "skill": "test"}]}, skills)
     assert labels["s1.e1.t1.o1.1"] == "물품 배치 공간 확인"
     assert "s1.e1.f1" not in labels
+
+
+
+def test_extra_labels_and_safe_home_require_declared_policy():
+    """반복/선택과 선언된 실패 복귀만 이름을 만들며 임의 복귀 ID를 만들지 않는다."""
+    labels = task_step_labels({"sequence": [
+        {"id": "s6", "action": "select_obstacle"},
+        {"id": "fa", "action": "for_each", "body": [
+            {"id": "fa.1", "action": "speak", "on_failure": "safe_home"}]},
+        {"id": "plain", "action": "speak"}], "finally": []}, {})
+    assert labels["s6"] == "치울 물체 고르기"
+    assert labels["fa"] == "반복 처리"
+    assert labels["fa.1.safe_home"] == "기본 자세로 이동"
+    assert "plain.safe_home" not in labels

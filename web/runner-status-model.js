@@ -261,10 +261,10 @@
     const display = typeof name === "string" && name.trim() ? name : null;
     return {
       title: `실행 중 · 태스크: ${task || "확인 전"} · 단계: ${display || "단계명 확인 전"}`,
-      // 현재 단계 하나만 표시한다. 앞 단계 성공·단계 자체 완료는 추론하지 않는다.
-      steps: step ? [{ id: step, label: display || "작업 진행 중 · 단계명 확인 전", status: "current",
+      // current_step은 마지막으로 시작한 기록일 수도 있다. 활성/완료를 단정하지 않는다.
+      steps: step ? [{ id: step, label: display || "보고된 단계 · 단계명 확인 전", status: "current",
         reason: display ? `등록 태스크 정의 기준 · 단계 ID: ${step}` : `단계 정의 미확인 · 단계 ID: ${step}`,
-        statusLabel: "현재 진행 중" }] : [],
+        statusLabel: "Runner 보고 단계 · 완료 여부 확인 전" }] : [],
     };
   }
 

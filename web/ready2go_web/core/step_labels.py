@@ -8,6 +8,7 @@ ACTION_LABELS = {
     "speak": "음성 안내", "if": "작업 조건 확인", "while": "반복 조건 확인",
     "fallback": "실행 방법 확인", "set_var": "작업 정보 갱신",
     "assert": "작업 조건 검증", "wait": "대기",
+    "select_obstacle": "치울 물체 고르기", "for_each": "반복 처리",
 }
 
 
@@ -52,6 +53,9 @@ def task_step_labels(task, skills):
                 continue
             step_id = node.get("id")
             if isinstance(step_id, str):
+                # 실패 정책이 선언된 원본 단계만 복구 ID를 허용한다. 임의 suffix 매칭은 하지 않는다.
+                if node.get("on_failure") == "safe_home":
+                    labels[f"{step_id}.safe_home"] = "기본 자세로 이동"
                 skill = skills.get(node.get("skill"), {})
                 text = skill.get("name_ko") if skill else label(node, {})
                 if isinstance(text, str) and text:
