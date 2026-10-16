@@ -244,8 +244,8 @@ def test_stt_exact_end_boundary_keeps_receipt_but_question_validity_stays_strict
     assert ex.policy.work==WORK
 
 
-@pytest.mark.parametrize('stop,allowed',[('confirmed',True),('none',False),('unconfirmed',False)])
-def test_stop_summary_none_is_not_backend_confirmation(node,stop,allowed):
+@pytest.mark.parametrize('stop,allowed',[('confirmed',True),('none',True),('requested',False),('unconfirmed',False)])
+def test_settled_halt_allows_control_input_without_granting_resume(node,stop,allowed):
     mapper,receive=wire(node,provider=False)
     doc=status(offered=True,locked=True);doc['halt']['stop']=stop
     receive(doc)
@@ -256,6 +256,54 @@ def test_stop_summary_none_is_not_backend_confirmation(node,stop,allowed):
     node._send_safety_candidate_locked(TaskEndCandidate(WORK),node.safety_sender)
     assert (len(node.published)>before)==allowed
     assert not node.texts and (node.safety_exchange.policy is None or node.safety_exchange.policy.question is None)
+
+
+def test_between_steps_halt_recover_uses_current_c_offer_before_question(node):
+    from ready2go_runner.core.interpreter import stop_state
+    from ready2go_voice.core.safety_exchange import RecoveryRequest
+
+    mapper,receive=wire(node,provider=False)
+    doc=status(locked=True)
+    doc['phase']='halted'
+    doc['halt']['stop']=stop_state(dict(source='voice',canceled_goals=0,noted=True),False)
+    assert doc['halt']['stop']=='none'
+    receive(doc)
+    ex=node.safety_exchange
+    assert ex.policy.work==WORK and ex.policy.current_state_confirmed
+    target=ex.begin_independent(now=0.,unique_target=True)
+    receipt=ex.admit(target,ex.reserve(target),captured_at=0.,ended_at=1.,started_at=2.)
+    node.now[0]=3.
+    candidate=ex.answer(target,'복구해',captured_at=0.,now=3.,request=receipt,result_at=3.)
+    assert isinstance(candidate,RecoveryRequest)
+    node.safety_cancel.clear()
+    node._safety_result_locked(candidate,node.safety_cancel,node.safety_sender)
+    recover=node.published[-1]
+    assert recover['intent']=='recover' and recover['run_id']=='run'
+    assert not mapper.eligible() and ex.policy.question is None and not node.texts
+    assert mapper.status['halt']['locked'] is True  # E did not unlock C
+
+    recovered=status(2,offered=True,locked=False)
+    recovered['halt']['stop']='none'
+    recovered['last_intent']=dict(intent='recover',decision='recover',request_id=recover['request_id'])
+    receive(recovered)
+    question=ex.policy.question
+    assert question is not None and ex.policy.registered_at is None
+    assert not node.texts and not any(p['intent'] in ('resume','resume_answer') for p in node.published)
+    assert node.safety_sender('register_question',question)
+    assert node.published[-1]['intent']=='resume_register'
+
+
+def test_between_steps_recovery_rejection_keeps_work_locked(node):
+    mapper,receive=wire(node,provider=False)
+    doc=status(locked=True);doc['phase']='halted';doc['halt']['stop']='none'
+    receive(doc)
+    assert node.safety_sender('recover',WORK)
+    doc['seq']=2
+    doc['last_intent']=dict(intent='recover',decision='reject',reason='NOT_STOPPED',request_id=node.published[-1]['request_id'])
+    receive(doc)
+    assert mapper.status['halt']['locked'] is True and not mapper.eligible()
+    assert node.safety_exchange.policy.work==WORK and node.safety_exchange.policy.question is None
+    assert [p['intent'] for p in node.published]==['recover']
 
 
 def test_none_needs_separate_current_typed_safety_proof(node):

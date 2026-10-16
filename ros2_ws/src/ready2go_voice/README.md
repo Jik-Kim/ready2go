@@ -51,6 +51,8 @@
 
 ## 운영 입력·Runner 메모리·종료 보류 — #322 (2026-10-14)
 
+[수정 10/16] 보존 작업이 있는 동작 사이 정지(`halt.stop=none`)도 E 제어 입력 경로에 연결합니다. `none`은 C가 정지 요청 당시 보낸 동작이 없었다는 뜻이며 B의 실제 정지 확인을 새로 만들어내지 않습니다. `requested`·`unconfirmed`는 계속 차단합니다. 복구 요청 뒤 C·B 검사와 잠금 해제·재개 제안, 질문 등록 확인·명시적 답변이 필요하며 자동 재개하지 않습니다. 목록 실행의 중단 보존 범위와 B `NOT_STOPPED` 판정은 바꾸지 않았습니다. PC1 제공 로그와 C `stop_state`를 사용한 모의 회귀를 대조했으며 수정 후 실물 재개는 미검증입니다.
+
 [구현] 일반 요청·음성 정지는 `bash tools/dev/pc2_voice.sh`의 기본 설정으로 사용합니다. 기존 위치·서랍 개폐 질의는 기본 `request_run_enabled=false`에서도 `VoiceNode`의 `/robot_state` 구독 → 읽기 전용 메모리 → `IntentParser.state_provider` → 기존 질의 → TTS로 연결됩니다. C가 발행하는 String JSON과 TRANSIENT_LOCAL/RELIABLE(depth 1)을 사용하며 상태를 쓰거나 새 질의 wire를 발신하지 않습니다. 답변은 **Runner 기록 기준**이고 실제 관측·실물 위치 일치의 증거가 아닙니다.
 
 [구현·경계] 선택 Runner 이름/namespace·단일 endpoint와 기존 `/runner/status` boot/seq 연결을 확인합니다. 상태 JSON에 boot/stamp를 가정하지 않습니다. 미수신·형식 오류·연결 유실·재기동에는 초기 snapshot이나 과거 기록 대신 확인 불가를 안내합니다. 첫 접속·재기동·유실 뒤 state-first/status-first 모두 후보를 보관하고 현재 status·endpoint·표본 순서를 대조한 뒤 연결합니다. 후보는 status 확인 전 질의에 사용하지 않습니다. 같은 boot/status endpoint와 state endpoint가 확인된 유실 복구는 구독을 교체해 현재 발행자의 latched 기록을 새로 수신합니다. 유실 전 로컬 캐시는 복원하지 않으며 이전 구독의 대기 콜백은 배제합니다. 현재 status 재수신 또는 새 state 수신이 없으면 확인 불가를 유지합니다. 정지 상태의 기존 일반 TTS 취소·안전 안내 우선순위는 유지합니다. pick effect의 located_in=gripper는 Runner 기록 기준 쥔 상태로 답하며 다른 물품/서랍 질의도 유지합니다. world에 장소를 추가하지 않습니다. 기존 Jazzy metadata의 source timestamp는 표본 순서 확인에만 사용하며 새 freshness timeout·handshake·공개 필드를 추가하지 않습니다.

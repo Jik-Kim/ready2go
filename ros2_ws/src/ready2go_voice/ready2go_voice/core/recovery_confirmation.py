@@ -109,7 +109,9 @@ class RunnerOffer:
 
     @property
     def stopped(self):
-        return self.stop == 'confirmed'
+        # C's `none` means no action was in flight at the halt boundary.
+        # This opens control input only; C still owns W2/W1 and resume checks.
+        return self.stop in ('confirmed', 'none')
 
     def eligible(self, work):
         return (work == self.work and self.stopped and self.locked is False
