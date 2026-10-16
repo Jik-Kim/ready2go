@@ -35,6 +35,43 @@
 </tr>
 </table>
 
+## 팀과 역할
+
+| 이름 | 역할 | 맡은 영역 |
+|---|---|---|
+| 고희태 (조장) | 통합 지휘 · 음성 · LLM · 온톨로지 | `ready2go_voice` · `ready2go_knowledge` · `knowledge/` |
+| 김병직 | 비전 · Isaac Sim 트윈 | `ready2go_vision` · `sim/` |
+| 서동권 | 실물 로봇 모션 | `ready2go_skills` · `config/` 포즈·장소·파지 설정 |
+| 이영훈 | Runner · 플래너 · 기록 · 기술 통합 | `ready2go_runner` · `ready2go_interfaces` · `tasks/` · `tools/dev/` |
+| 김민준 | 웹 대시보드 · 기록 · 평가 자료 | `web/` · `practice/D/` |
+
+**고희태** — 통합 우선순위·체크포인트 판정과 요구사항 정본 관리, 서랍장·물품 준비.
+- 음성 파이프라인: 웨이크워드 → Whisper STT → GPT-4o strict JSON 해석 → 등록 어휘 검증 → 규칙 폴백, MeloTTS 문장 캐시
+- 로봇 온톨로지(스킬·물품·목록), TTL 기반 분류·목록 조회
+- 음성 정지·복구·재개·종료 흐름과 Runner 연결
+
+**김병직** — 손목 카메라부터 물체 판정까지의 비전과 디지털 트윈.
+- 손목 RealSense 연결·핸드-아이 캘리브레이션, 실물 데이터 직접 수집·라벨링, YOLO 검출 → 인스턴스 분할(v2) 학습
+- `inspect_region`: 서랍 좌표 위치·방향·윗면 높이(손끝 정답 대비 1.1~3.2 mm, 반복 0.2 mm), 가림 관계·보이는 넓이 판정, 촬영 분할 오버레이
+- 실측 서랍장 트윈 씬, 실물 관절 미러링, 스킬 궤적·Unpacking 사전 검증
+
+**서동권** — 실물 로봇이 하는 모든 원자 동작.
+- DSR 드라이버 컨테이너·RG2 연결, 스킬 서버(서랍 개폐·집기·놓기·끌기·놓침 감지, 취소·비상정지·움직이기 전 거부)
+- 힘 기준으로 눌러 끌어낸 뒤 집기, Unpacking 동작(빈 자리 놓기·원위치 되돌리기·바꿔 잡기)
+- 둘러싸인 물체를 위한 `make_room`(넛지 → 밀기 → 치우기), 실물 조그 GUI
+
+**이영훈** — 명령을 실행으로 바꾸는 프레임워크와 통합 환경.
+- JSON 태스크 Runner(변수·조건·`while`·`for_each`·`fallback`·`finally`, 실행 전 검사), 스킬 조건·결과 기반 상태 추적, MongoDB 실행 기록
+- BFS 스킬 플래너·묶음 계획, `find_with_unpack` 태스크(놓을 자리 사전 판단·역순 복구)
+- 정지·복구·재개·종료 계약, 실행 보고서·누락 점검, 목록·분류 실행, 실물 실행 스크립트
+
+**김민준** — 실행 상태를 보여 주는 웹과 평가·기록 자료.
+- PC·모바일 반응형 대시보드, Flask + rclpy 상태 브리지와 등록 정의 조회
+- 요청과 실행 결과의 `run_id` 연결 판정, 촬영 오버레이 캐시·표시, 물품별 실행 순서·단계명 UI
+- 시나리오 체크리스트 검증기, 음성 평가 문장 세트, 회의록·결정 로그
+
+GitHub에서 머지한 PR은 321건(문서·작업 기록 포함), 커밋은 1,900여 개입니다. PR은 대부분 다른 팀원의 리뷰를 거쳐 머지했고, 작업 규칙과 문서 정합성 기준은 [AGENTS.md](AGENTS.md)에 있습니다.
+
 ## 핵심 기능
 
 - **음성 + LLM 명령 해석** — 웨이크워드 → STT → LLM 인텐트 파싱(규칙 폴백) → 온톨로지 어휘로 검증. 단일 물품·목록(`출근 준비물`)·분류(`귀중품`) 요청과 목록·분류 질의를 처리하고, 진행·결과를 한국어 TTS로 알립니다.
@@ -111,42 +148,112 @@ flowchart TD
 | 트윈 | NVIDIA Isaac Sim 5.1.0 |
 | 웹 | Flask + rclpy 브리지, HTML/CSS/JavaScript |
 
-## 팀과 역할
+## 실행 방법 (Docker)
 
-| 이름 | 역할 | 맡은 영역 |
+팀이 작성한 ROS 노드·DB·카메라·비전은 Docker Compose로 띄웁니다. 음성 노드와 웹 대시보드, Isaac Sim은 호스트에서 실행합니다. 모든 명령은 저장소 루트에서 실행합니다.
+
+### 준비물
+
+- **공통** — Ubuntu 24.04, Docker Engine + Compose v2, Git LFS(모델 가중치·USD)
+- **실물** — M0609 제어기·RG2와 유선 연결, 손목 RealSense(USB 3), NVIDIA GPU + NVIDIA Container Toolkit(비전)
+- **음성** — 호스트 Python 환경(`.venvs/project`, MeloTTS용 `.venvs/melotts`), 마이크·스피커, `secrets/voice.env`의 OpenAI API 키. 설치는 [음성 패키지 안내](ros2_ws/src/ready2go_voice/README.md)
+
+```bash
+git clone https://github.com/Jik-Kim/ready2go.git
+cd ready2go
+git lfs pull
+cp .env.example .env
+```
+
+### Compose 서비스와 프로파일
+
+| 서비스 | 프로파일 | 하는 일 |
 |---|---|---|
-| 고희태 (조장) | 통합 지휘 · 음성 · LLM · 온톨로지 | `ready2go_voice` · `ready2go_knowledge` · `knowledge/` |
-| 김병직 | 비전 · Isaac Sim 트윈 | `ready2go_vision` · `sim/` |
-| 서동권 | 실물 로봇 모션 | `ready2go_skills` · `config/` 포즈·장소·파지 설정 |
-| 이영훈 | Runner · 플래너 · 기록 · 기술 통합 | `ready2go_runner` · `ready2go_interfaces` · `tasks/` · `tools/dev/` |
-| 김민준 | 웹 대시보드 · 기록 · 평가 자료 | `web/` · `practice/D/` |
+| `ros2-core` | `real` · `sim` · `dev` | Runner·온톨로지·플래너, DSR 드라이버·RG2·스킬 서버(`BACKEND=real`) 또는 모의 백엔드(`BACKEND=mock`) |
+| `db` | `real` · `sim` · `dev` | MongoDB 7 — 실행 기록(`./db_data`에 영구 저장) |
+| `realsense` | `real` | 손목 RealSense 컬러·정렬 뎁스 발행 |
+| `vision-node` | `pc2` (`real`과 함께) | 분할 비전 노드 `inspect_region` (GPU) |
+| `dsr-emulator` | `sim` · `dev` | M0609 가상 제어기 |
 
-**고희태** — 통합 우선순위·체크포인트 판정과 요구사항 정본 관리, 서랍장·물품 준비.
-- 음성 파이프라인: 웨이크워드 → Whisper STT → GPT-4o strict JSON 해석 → 등록 어휘 검증 → 규칙 폴백, MeloTTS 문장 캐시
-- 로봇 온톨로지(스킬·물품·목록), TTL 기반 분류·목록 조회
-- 음성 정지·복구·재개·종료 흐름과 Runner 연결
+모든 컨테이너는 `network_mode: host`, ROS 2 Domain 70, CycloneDDS를 씁니다. 장비별 값(백엔드, 제어기·RG2 IP, DDS 모드)은 각 PC의 `.env`에 둡니다.
 
-**김병직** — 손목 카메라부터 물체 판정까지의 비전과 디지털 트윈.
-- 손목 RealSense 연결·핸드-아이 캘리브레이션, 실물 데이터 직접 수집·라벨링, YOLO 검출 → 인스턴스 분할(v2) 학습
-- `inspect_region`: 서랍 좌표 위치·방향·윗면 높이(손끝 정답 대비 1.1~3.2 mm, 반복 0.2 mm), 가림 관계·보이는 넓이 판정, 촬영 분할 오버레이
-- 실측 서랍장 트윈 씬, 실물 관절 미러링, 스킬 궤적·Unpacking 사전 검증
+### 1) 로봇 없이 모의 실행
 
-**서동권** — 실물 로봇이 하는 모든 원자 동작.
-- DSR 드라이버 컨테이너·RG2 연결, 스킬 서버(서랍 개폐·집기·놓기·끌기·놓침 감지, 취소·비상정지·움직이기 전 거부)
-- 힘 기준으로 눌러 끌어낸 뒤 집기, Unpacking 동작(빈 자리 놓기·원위치 되돌리기·바꿔 잡기)
-- 둘러싸인 물체를 위한 `make_room`(넛지 → 밀기 → 치우기), 실물 조그 GUI
+GPU·로봇·카메라 없이 Runner와 MongoDB 기록을 확인합니다. 모의 백엔드가 모든 원자 동작에 성공을 돌려 줍니다.
 
-**이영훈** — 명령을 실행으로 바꾸는 프레임워크와 통합 환경.
-- JSON 태스크 Runner(변수·조건·`while`·`for_each`·`fallback`·`finally`, 실행 전 검사), 스킬 조건·결과 기반 상태 추적, MongoDB 실행 기록
-- BFS 스킬 플래너·묶음 계획, `find_with_unpack` 태스크(놓을 자리 사전 판단·역순 복구)
-- 정지·복구·재개·종료 계약, 실행 보고서·누락 점검, 목록·분류 실행, 실물 실행 스크립트
+```bash
+BACKEND=mock RUNNER_TASK_FILE=/tasks/find_item.json docker compose --profile dev up --build db ros2-core
+```
 
-**김민준** — 실행 상태를 보여 주는 웹과 평가·기록 자료.
-- PC·모바일 반응형 대시보드, Flask + rclpy 상태 브리지와 등록 정의 조회
-- 요청과 실행 결과의 `run_id` 연결 판정, 촬영 오버레이 캐시·표시, 물품별 실행 순서·단계명 UI
-- 시나리오 체크리스트 검증기, 음성 평가 문장 세트, 회의록·결정 로그
+Runner 로그에 `태스크 끝: find_item → COMPLETED`가 찍히면 됩니다. 물체가 겹친 장면에서 Unpacking·원위치 복구 흐름을 보려면 다음처럼 띄웁니다.
 
-GitHub에서 머지한 PR은 321건(문서·작업 기록 포함), 커밋은 1,900여 개입니다. PR은 대부분 다른 팀원의 리뷰를 거쳐 머지했고, 작업 규칙과 문서 정합성 기준은 [AGENTS.md](AGENTS.md)에 있습니다.
+```bash
+BACKEND=mock MOCK_SCENE=occluded_top RUNNER_TASK_FILE=/tasks/find_with_unpack.json docker compose --profile dev up --build db ros2-core
+```
+
+다른 터미널에서 방금 실행의 스텝별 결과를 표로 봅니다.
+
+```bash
+bash tools/dev/pc2_cmd.sh report 1
+```
+
+### 2) 실물 실행 (최종 시연 구성)
+
+`.env`에 실물 값을 채웁니다.
+
+```ini
+BACKEND=real
+ROBOT_HOST=<제어기 IP>
+RG2_HOST=<RG2 IP>
+DDS_MODE=local
+VISION_MODE=yolo
+RUNNER_INTENT_TASKS=find_item=/tasks/find_with_unpack.json
+```
+
+비전 이미지는 처음 한 번 빌드합니다.
+
+```bash
+docker compose --profile real build vision
+```
+
+터미널을 나눠 순서대로 실행합니다. `pc2_*` 스크립트는 로봇 PC에서 쓰려고 만든 이름이지만, 로봇·카메라가 연결된 PC 한 대면 어디서든 동작합니다(최종 시연은 노트북 한 대에서 실행).
+
+**① 띄우기** — `.env`·모델·호스트 충돌을 확인한 뒤 `db`·`ros2-core`·`realsense`·`vision-node`를 띄우고, 로봇·카메라·비전·Runner 준비를 확인한 다음 Runner 로그를 보여 줍니다. `--p2`는 정지 뒤 작업 보존(복구·재개)을 켭니다.
+
+```bash
+bash tools/dev/pc2_up.sh --p2
+```
+
+**② 음성** — ①이 "준비 끝"을 알린 뒤 호스트에서 음성 노드를 띄웁니다. 음성 쪽과 Runner의 코드 버전이 다르면 멈춥니다. 처음 한 번, 그리고 코드를 받은 뒤에는 호스트 빌드(`ros2_ws/install_host`)를 다시 합니다.
+
+```bash
+source /opt/ros/jazzy/setup.bash && source .venvs/project/bin/activate
+cd ros2_ws && colcon build --build-base build_host --install-base install_host --packages-up-to ready2go_voice && cd ..
+```
+
+```bash
+bash tools/dev/pc2_voice.sh --p2
+```
+
+이제 "헬로 로키, 출근 준비물 챙겨줘"처럼 말하면 됩니다.
+
+**③ 명령·확인** — 상태 조회(`status`), 음성 없이 실행(`find eraser`), 글자 입력(`say 지우개 찾아줘`, 음성 노드가 해석), 결과 표(`md 1`), 기록 누락 점검(`check`).
+
+```bash
+bash tools/dev/pc2_cmd.sh status
+```
+
+**④ 웹 대시보드** — 호스트에서 Flask + rclpy 브리지를 띄우고 `http://<PC IP>:4173`으로 접속합니다(휴대폰은 `WEB_HOST=0.0.0.0`). 환경 설정은 [웹 실행 안내](web/README.md#6-실행과-접속)에 있습니다.
+
+**끄기** — 컨테이너 로그를 저장한 뒤 내립니다.
+
+```bash
+bash tools/dev/pc2_down.sh
+```
+
+> **안전** — 실물을 처음 움직일 때는 관절 속도를 낮추고(`SKILL_JOINT_VEL_DEG_S=10` 등) 비상정지 담당자를 둡니다. 호스트에서 DSR 드라이버나 RealSense 노드를 띄운 채 Compose를 올리지 않습니다(제어기·카메라 이중 접속). 절차는 [안전 문서](docs/safety.md)를 따릅니다.
+
+노드별 개별 실행, 다중 PC DDS, 로그 위치, 음성 평가 모드 등 자세한 내용은 [실행 안내](docs/run.md)와 [Docker 문서](docs/docker.md)에 있습니다. Isaac Sim 트윈은 네이티브로 실행합니다([sim/README.md](sim/README.md)).
 
 ## 한계와 향후 과제
 
@@ -160,7 +267,7 @@ GitHub에서 머지한 PR은 321건(문서·작업 기록 포함), 커밋은 1,9
 
 ## 문서와 실행
 
-- 실행 안내(준비·전체 실행 순서·노드별 명령·로그·종료): [docs/run.md](docs/run.md)
+- 자세한 실행 안내(노드별 명령·다중 PC·로그·종료): [docs/run.md](docs/run.md) · 컨테이너 구성: [docs/docker.md](docs/docker.md)
 - 문서 인덱스: [docs/README.md](docs/README.md) · 요구사항 정본(P1·P2·P3, 수용 기준): [docs/requirements.md](docs/requirements.md)
 - 주제별: [아키텍처](docs/architecture.md) · [온톨로지](docs/ontology.md) · [Runner](docs/runner.md) · [플래너](docs/planner.md) · [비전](docs/vision.md) · [음성·LLM](docs/voice_llm.md) · [트윈](docs/twin.md) · [안전](docs/safety.md) · [선행 사례 조사](docs/research/prior_art_report.md)
 
