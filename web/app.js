@@ -3,6 +3,10 @@
 
   // 기본 화면은 확인 전 모델, 명시적 미리보기만 예시 모델을 사용한다.
   const state = window.ROKEY_DEMO_DATA;
+  // 정의는 표시명 조회에만 쓰며 실행 이력/현재 child를 생성하지 않는다.
+  let taskDefinitions = [];
+  // 순서 검증을 통과한 표시용 상태만 보관한다. 단절/재기동 시 이전 상태를 폐기한다.
+  let latestTaskData = null;
 
   // status-api.js가 제공하는 polling 구현을 렌더링 코드에서 한 번만 참조한다.
   const statusApi = window.ROKEY_STATUS_API;
@@ -454,6 +458,7 @@
   }
 
   function clearCurrentTask(invalidateDetail = true) {
+    latestTaskData = null;
     // 요청·실행·선택 상세를 함께 지우되 조회용 서랍 선택과 펼침 상태는 별도로 관리한다.
     Object.assign(state.task, {
       currentAction: "현재 작업 확인 전", currentItemId: null, currentItemIcon: null,
@@ -490,7 +495,8 @@
     }
     // 현재 상태를 다시 그리되 같은 종료 run의 상세 선택은 유지한다.
     clearCurrentTask(false);
-    const taskView = runnerStatusModel.currentTaskView(data);
+    latestTaskData = { phase: data.phase, task_id: data.task_id, current_step: data.current_step };
+    const taskView = runnerStatusModel.currentTaskView(latestTaskData, taskDefinitions);
     state.task.currentAction = taskView.title;
     state.task.steps = taskView.steps;
     // last_intent와 last를 독립 파싱한 뒤 decision과 run_id로 같은 실행인지 판정한다.
@@ -758,6 +764,7 @@
   }
 
   function setDefinitionsUnknown(detail) {
+    taskDefinitions = []; // 이전 정의를 현재 이름의 근거로 재사용하지 않는다.
     // 정의 API 수신 전이나 실패 시 목업 정의를 실제 등록값처럼 남겨 두지 않는다.
     state.definitionsLive = false;
     // 고정 목업 시나리오와 실제 정의 확인 실패를 렌더러가 구분할 수 있게 상태를 기록한다.
@@ -783,6 +790,7 @@
   function applyDefinitionSnapshot(snapshot) {
     // status-api.js가 검증한 여섯 정의 구역을 화면 모델로 변환한다.
     const definitions = snapshot.definitions;
+    taskDefinitions = definitions.tasks;
     // 물품 ID와 한국어 등록명을 이후 /robot_state 렌더링에서 재사용한다.
     definitions.items.forEach((item) => {
       // ID가 없거나 문자열이 아니면 해당 항목만 표시명 사전에서 제외한다.
@@ -871,6 +879,13 @@
   function applyDefinitionsSuccess(snapshot) {
     // 검증된 스냅샷을 화면 모델에 적용한다.
     applyDefinitionSnapshot(snapshot);
+    // 정의가 늦어도 다음 폴링을 기다리지 않는다. 무효화된 상태는 되살리지 않는다.
+    if (latestTaskData) {
+      const taskView = runnerStatusModel.currentTaskView(latestTaskData, taskDefinitions);
+      state.task.currentAction = taskView.title;
+      state.task.steps = taskView.steps;
+      renderTask();
+    }
     // 상태 요청보다 늦게 성공해도 현재 조합에 맞는 상단 안내로 다시 계산한다.
     refreshDefinitionAwareMetaDescription();
     // 등록 준비물·현재 위치 표시·관리자 정의 탭을 새 정의명으로 다시 그린다.

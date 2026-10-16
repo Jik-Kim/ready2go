@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ready2go_knowledge.core import ontology
+from ready2go_web.core.step_labels import task_step_labels
 
 
 # 정의 API의 형식 버전은 ROS 계약이나 상태 API 버전과 독립적으로 관리한다.
@@ -273,7 +274,7 @@ def _summarize_skills(skills: Mapping[str, Any]) -> list[dict[str, Any]]:
     return summaries
 
 
-def _summarize_tasks(task_paths: list[Path]) -> list[dict[str, Any]]:
+def _summarize_tasks(task_paths: list[Path], skills: Mapping[str, Any]) -> list[dict[str, Any]]:
     """태스크 디렉터리의 모든 JSON 파일을 등록 태스크 목록으로 만든다."""
 
     # 중복 task_id를 탐지하기 위한 집합이다.
@@ -302,6 +303,7 @@ def _summarize_tasks(task_paths: list[Path]) -> list[dict[str, Any]]:
             {
                 "id": task_id,
                 "trigger": copy.deepcopy(trigger),
+                "step_labels": task_step_labels(definition, skills),
                 "step_count": _count_step_nodes(
                     [definition.get("sequence", []), definition.get("finally", [])]
                 ),
@@ -348,7 +350,7 @@ def load_definition_snapshot(
     if not task_paths:
         raise ValueError(f"등록 태스크 JSON이 없습니다: {settings.tasks_dir}")
     # 각 태스크를 검증하고 화면용 요약으로 변환한다.
-    task_summaries = _summarize_tasks(task_paths)
+    task_summaries = _summarize_tasks(task_paths, skills)
     # 나머지 온톨로지 구역도 같은 시점의 요약으로 만든다.
     class_summaries = _summarize_classes(classes)
     # 등록 물품의 ID·표시명·분류를 추출한다.

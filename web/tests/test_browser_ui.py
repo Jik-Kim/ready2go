@@ -35,6 +35,9 @@ def _render_dashboard(
     interaction_script: str | None = None,
     viewport_width: int = 1280,
     robot_state_payload: dict | None = None,
+    definition_snapshot=None,
+    definition_delay_ms: int = 0,
+    status_poll_interval_ms: int | None = None,
     execution_reader=None,
     enable_deferred_detail: bool = False,
     on_detail_request: Callable[[], None] | None = None,
@@ -66,6 +69,7 @@ def _render_dashboard(
     app = create_app(
         state_cache=cache,
         execution_reader=execution_reader,
+        definition_snapshot=definition_snapshot,
         overlay_cache=overlay_cache,
         runtime_profile=runtime_profile,
         **({"utcnow": utcnow} if utcnow is not None else {}),
@@ -110,6 +114,15 @@ def _render_dashboard(
         return response
     @app.after_request
     def inject_test_interaction(response):
+        # 응답 순서 회귀: 제품 fetch 경로는 유지하고 시험 HTML에서 정의 응답 전달만 늦춘다.
+        if request.path == "/" and definition_delay_ms:
+            response.direct_passthrough = False
+            script = "<script>const originalFetch = window.fetch.bind(window); window.fetch = async (...args) => { const response = await originalFetch(...args); if (String(args[0]).includes('/api/definitions')) await new Promise(resolve => setTimeout(resolve, " + str(definition_delay_ms) + ")); return response; };</script>"
+            response.set_data(response.get_data(as_text=True).replace("<head>", "<head>" + script))
+        if request.path == "/api/status" and status_poll_interval_ms is not None and response.status_code == 200:
+            payload = response.get_json()
+            payload["poll_interval_ms"] = status_poll_interval_ms
+            response.set_data(json.dumps(payload))
         # 보존한 후속 상세 기능의 기존 시험만 전용 응답에서 활성화한다. 제품/URL 설정은 아니다.
         if request.path == "/app.js" and enable_deferred_detail:
             response.direct_passthrough = False
@@ -572,8 +585,8 @@ def test_live_task_reboot_and_ordering(tmp_path: Path, change: str) -> None:
     assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
     assert "전달 완료" not in rendered
     if change == "older-seq":
-        assert "실행 중 · 태스크: current_task · 단계: step_live" in rendered
-        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+        assert "실행 중 · 태스크: current_task · 단계: 단계명 확인 전" in rendered
+        assert "Runner 보고 단계 · 완료 여부 확인 전" in rendered
     else:
         assert "step_live" not in rendered
         assert "실행 완료" not in rendered
@@ -610,7 +623,7 @@ def test_live_drawer_selection_does_not_change_execution(tmp_path: Path, viewpor
     assert match is not None, rendered
     before, after = json.loads(unescape(match.group(1)))
     assert before == after
-    assert "actual_task" in before[0] and "actual_step" in before[2]
+    assert "actual_task" in before[0] and "단계명 확인 전" in before[2]
     assert before[1] == "작업 장소 확인 전 → 목적지 확인 전"
     # 빈 아래 서랍을 선택했으므로 물품 행 대신 공통 출처 안내로 기억 상태 표시를 확인한다.
     assert "Runner 기억 상태" in rendered
@@ -778,10 +791,54 @@ def test_demo_scope_never_requests_execution_detail(tmp_path, viewport_width, mo
     assert "종료 기록 조회 · 현재 실행 상세 아님" not in rendered
     assert "작업 장소 확인 전 → 목적지 확인 전" in rendered
     if mode != "completed":
-        assert "실행 중 · 태스크: live_task · 단계: live_step" in rendered
-        assert "Runner 현재 단계 · 완료 여부 확인 전" in rendered
+        assert "실행 중 · 태스크: live_task · 단계: 단계명 확인 전" in rendered
+        assert "Runner 보고 단계 · 완료 여부 확인 전" in rendered
     if mode == "rejected":
         assert "거절 · 사유 코드: BUSY" in rendered
         assert "실행 완료" not in rendered
     elif mode == "completed":
         assert "실행 완료" in rendered  # 같은 요청의 처리 결과는 상세 비활성화와 무관하게 유지한다.
+
+
+@pytest.mark.parametrize("viewport_width", [1280, 390])
+def test_current_step_uses_registered_name(tmp_path, viewport_width):
+    """실제 태스크/스킬 정의로 사진의 ID를 한국어 단계로 표시하되 결과를 추정하지 않는다."""
+    from ready2go_web.core.definition_catalog import DefinitionSettings, load_definition_snapshot
+    root = Path(__file__).resolve().parents[2]
+    snapshot = load_definition_snapshot(DefinitionSettings(root / "knowledge/robot_ontology.jsonld", root / "tasks"))
+    payload = _request_result()
+    payload.update(phase="running", task_id="find_with_unpack", current_step="s8.t2.e1")
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        viewport_width=viewport_width, runner_payloads=[payload], definition_snapshot=snapshot)
+    assert "전달 트레이에 물품 놓기" in rendered
+    assert "단계: s8.t2.e1" not in rendered
+    assert "단계 ID: s8.t2.e1" in rendered
+    assert "Runner 보고 단계 · 완료 여부 확인 전" in rendered
+    assert "물품별 전달 결과 확인 전" in rendered
+
+
+@pytest.mark.parametrize("transition", ["same", "disconnect", "restart", "invalid"])
+def test_late_definitions_refresh_only_valid_current_task(tmp_path, transition):
+    """정의가 늦게 도착하면 즉시 이름 갱신, 단절/기동 변경/오류 뒤에는 이전 작업 복원 금지."""
+    from ready2go_web.core.definition_catalog import DefinitionSettings, load_definition_snapshot
+    root = Path(__file__).resolve().parents[2]
+    snapshot = load_definition_snapshot(DefinitionSettings(root / "knowledge/robot_ontology.jsonld", root / "tasks"))
+    first = _request_result()
+    first.update(phase="running", task_id="find_with_unpack", current_step="s8.t2.e1")
+    second = dict(first)
+    if transition == "disconnect":
+        second = None
+    elif transition == "restart":
+        second.update(boot_id="new-boot", phase="idle", task_id=None, current_step=None)
+    elif transition == "invalid":
+        second["seq"] = "invalid"
+    rendered, _ = _render_dashboard(tmp_path, runtime_profile="dev", camera_received=False,
+        runner_payloads=[first, second], definition_snapshot=snapshot, definition_delay_ms=1500,
+        status_poll_interval_ms=10000 if transition == "same" else 1000)
+    if transition == "same":
+        assert "전달 트레이에 물품 놓기" in rendered
+        assert "Runner 보고 단계 · 완료 여부 확인 전" in rendered
+    else:
+        assert "전달 트레이에 물품 놓기" not in rendered
+        assert "단계 ID: s8.t2.e1" not in rendered
+        assert "현재 실행 없음 · 대기" in rendered if transition == "restart" else "현재 작업 확인 전" in rendered
