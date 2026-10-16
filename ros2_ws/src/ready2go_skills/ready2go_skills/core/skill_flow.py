@@ -103,7 +103,14 @@ class MotionState:
         self.eps, self.hold = eps_deg, hold_s
         self._last = None
         self._changed_at = None
+        self._read_at = None             # 마지막으로 관절을 읽은 시각 — 기준(_last)이 얼마나 오래됐는지
         self._lock = threading.Lock()
+
+    def stale(self) -> bool:
+        """관절 기준이 hold_s 보다 오래됨(또는 없음). 이 상태의 첫 조회는 '그동안 바뀐 것'까지 방금 움직임으로 본다
+        — 정지 확인 뒤 아무도 안 읽다가 미끄러져 멈춘 차이 등 [E 10/16 PC1 21:47 NOT_STOPPED]. 판정 전에 기준을 새로 잡을 때 씀."""
+        with self._lock:
+            return self._read_at is None or self._clock() - self._read_at > self.hold
 
     def __call__(self) -> Optional[int]:
         state = self._state()
@@ -116,6 +123,7 @@ class MotionState:
                 if self._last is not None and max(abs(a - b) for a, b in zip(joints, self._last)) > self.eps:
                     self._changed_at = now
                 self._last = list(joints)
+                self._read_at = now
             if state != STATE_MOVING and self._changed_at is not None and now - self._changed_at < self.hold:
                 return STATE_MOVING
         return state

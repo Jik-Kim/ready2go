@@ -524,6 +524,14 @@ class SkillServer(Node):
 
         def still(rs, ms):
             return rs is not None and ms is not None and sf.STATE_MOVING not in (rs, ms)
+        # 관절 기준 새로 잡기 [E 10/16 PC1 21:47: 정지 CANCELED 15 s 뒤 복구 조회가 NOT_STOPPED·EXTERNAL_FORCE_UNKNOWN]:
+        # MotionState 는 '직전에 읽은 관절'과 비교하는데 정지 확인(_halt) 뒤엔 아무도 안 읽어 기준이 오래됨 → 그 뒤 미끄러져 멈춘
+        # 차이를 첫 조회에서 '방금 움직임'으로 봄. 한 번 읽어 기준을 지금으로 맞추고 hold_s 넘게 기다린 뒤 판정 — 기준 완화 아님:
+        # 그 사이 실제로 0.02° 넘게 움직이면 그대로 이동 중, 외력 창도 지금처럼 매번 다시 확인.
+        prime = None
+        if getattr(self.state, "stale", lambda: False)():
+            prime = self.state()
+            time.sleep(self.state.hold + 0.05)
         robot_state, motion_state = motion()
         names = self.robot.tool_names()
         tool_ok = None if None in names else motion_guard.check_tool(*names, self.expected_tcp, self.expected_tool) is None
@@ -552,6 +560,9 @@ class SkillServer(Node):
             busy = self.gate.busy() and not in_gate          # 창 도중 다른 스킬 동작이 시작됐을 수도
             if busy or not still(robot_state, motion_state):
                 force, force_n = None, None
+        # 판정 근거 원값 기록 (W1 응답 칸은 계약 그대로 — 원인 추적용 로그만) [E 10/16 요청: robot_state·motion_state 원본]
+        self.get_logger().info(f"[check_state] robot_state={robot_state} motion_state={motion_state} prime={prime} busy={busy} "
+                               f"in_gate={in_gate} force={force} force_n={force_n}")
         grip = ss_.gripper_view(width_m=width, grasp_detected=detected, safety_error=safety,
                                 held=hold if hold is not None else self.held,
                                 hold_unknown=None if hold is not None else getattr(self, "hold_unknown", None),

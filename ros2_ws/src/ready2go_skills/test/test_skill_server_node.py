@@ -3278,6 +3278,27 @@ def test_check_state_service_reports_without_motion(server):
     assert json.loads(srv._srv_check_state(None, types.SimpleNamespace(success=None, message=None)).message)["tcp_tool_ok"] is None
 
 
+def test_check_state_after_drift_since_last_read_is_stopped(server):
+    """[E 10/16 PC1 21:47] 정지 확인 뒤 관절이 조금 더 미끄러져 멈추고 15 s 뒤 첫 조회 — 오래된 기준과 비교해 NOT_STOPPED·
+    EXTERNAL_FORCE_UNKNOWN 이던 것: 기준을 새로 잡고 hold_s 기다린 뒤 판정해 정지·외력 판정함. 실제로 계속 움직이면 그대로 이동 중."""
+    srv = _srv_state(server)
+    server.Gripper.width = 0.9
+    srv.state = server.ss.sf.MotionState(srv.robot.state, lambda: srv.robot.posj(), clock=server.ss.time.monotonic)   # 가짜 시계
+    srv.state()                                                                     # 정지 확인 때 마지막으로 읽음
+    srv.robot.j = list(srv.robot.j); srv.robot.j[5] += 0.15                         # 그 뒤 미끄러져 멈춤
+    server.ss.time.sleep(15.0)
+    st = srv.safe_state()
+    assert st["stopped"] is True and st["external_force"] is False
+    assert srv.robot.log == []
+    # 실제로 계속 움직이는 중이면(읽을 때마다 관절이 바뀜) 기준을 새로 잡아도 정지가 아님 — 완화 아님
+    real_posj = srv.robot.posj
+    srv.robot.posj = lambda: [v + server.ss.time.monotonic() * 0.5 for v in real_posj()]   # 0.5 °/s
+    server.ss.time.sleep(15.0)
+    st = srv.safe_state()
+    assert st["stopped"] is False and st["external_force"] is None
+    srv.robot.posj = real_posj
+
+
 def test_recover_service_clears_b_lock_and_unknown_hold(server):
     """W2 /skills/recover: 조건(멈춤·비상정지 아님·제어기 준비·툴·통신)이 되면 B 잠금을 풀고, 쥐었는지 모름은 그리퍼를 다시 읽어
     같은 폭이면 쥔 기억 복원. 비상정지면 아무것도 안 풂. 로봇·그리퍼 명령 없음."""
