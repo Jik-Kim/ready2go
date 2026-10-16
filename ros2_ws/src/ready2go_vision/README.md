@@ -25,12 +25,12 @@
 - 계약(`ready2go_interfaces`, `contracts/`)을 바꾸면 스키마·예시·문서를 같은 PR에서 함께 수정.
 
 ## inspect_region 실제 노드 (실물)
-실물에서 검증한 실행 경로는 `ready2go-vision` 컨테이너 + [`tools/dev/vision_real_check.sh`](../../../tools/dev/vision_real_check.sh) (`check` → `node` → `call`) [실측 PC2 10/07, main `55829e3`]. 새 PC 준비(이미지·모델 LFS·`BACKEND=real`·카메라 하나)와 확인 기준은 [저장소 README "실비전"](../../../README.md#3-노드별-실행-명령), 상세 사용법·`replay`는 [`tools/yolo/README.md`](../../../tools/yolo/README.md) "inspect_region 실제 노드 실행". 아래 stub 과 동시에 실행하지 않는다.
+실물에서 검증한 실행 경로는 `ready2go-vision` 컨테이너 + [`tools/dev/vision_real_check.sh`](../../../tools/dev/vision_real_check.sh) (`check` → `node` → `call`) [실측 PC2 10/07, main `55829e3`]. 새 PC 준비(이미지·모델 LFS·`BACKEND=real`·카메라 하나)와 확인 기준은 [실행 안내 "실비전"](../../../docs/run.md#3-노드별-실행-명령), 상세 사용법·`replay`는 [`tools/yolo/README.md`](../../../tools/yolo/README.md) "inspect_region 실제 노드 실행". 아래 stub 과 동시에 실행하지 않는다.
 
 ## inspect_region stub (#18, Day 4 — B의 #15 실물 테스트용)
 카메라·YOLO 없이 `config/vision_stub.yaml`의 손으로 잰 좌표를 `result_json` 형식 그대로 응답한다. 실제 구현(Day 5)도 같은 형식을 쓴다.
 
-호스트에서는 [저장소 README "실행 전 준비"](../../../README.md#1-실행-전-준비)의 공통 호스트 환경(`.venvs/project`)을 쓴다(stub은 YOLO·Torch가 필요 없음). 모든 명령은 **저장소 루트**에서 시작하고, 새 터미널마다 같은 절의 ROS 환경(`ROS_DOMAIN_ID`·`RMW_IMPLEMENTATION`·`CYCLONEDDS_URI`)을 적용한다. 두 파라미터의 기본값 `/config/...`는 컨테이너 마운트 경로라 호스트에서는 둘 다 넘긴다 — `places_path`가 없으면 노드가 시작 중 파일을 못 찾아 종료된다.
+호스트에서는 [실행 안내 "실행 전 준비"](../../../docs/run.md#1-실행-전-준비)의 공통 호스트 환경(`.venvs/project`)을 쓴다(stub은 YOLO·Torch가 필요 없음). 모든 명령은 **저장소 루트**에서 시작하고, 새 터미널마다 같은 절의 ROS 환경(`ROS_DOMAIN_ID`·`RMW_IMPLEMENTATION`·`CYCLONEDDS_URI`)을 적용한다. 두 파라미터의 기본값 `/config/...`는 컨테이너 마운트 경로라 호스트에서는 둘 다 넘긴다 — `places_path`가 없으면 노드가 시작 중 파일을 못 찾아 종료된다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -43,7 +43,7 @@ ros2 run ready2go_vision inspect_region_stub --ros-args \
 ros2 service call /vision/inspect_region ready2go_interfaces/srv/InspectRegion "{region: drawer_top, search_target: eraser}"
 ```
 
-실제 노드를 호스트에서 돌리는 절차(전용 `.venvs/vision`·별도 빌드)는 [저장소 README "호스트 실비전"](../../../README.md#host-vision)에 있다. stub과 실제 노드는 서비스 이름이 같으므로 동시에 실행하지 않는다.
+실제 노드를 호스트에서 돌리는 절차(전용 `.venvs/vision`·별도 빌드)는 [실행 안내 "호스트 실비전"](../../../docs/run.md#host-vision)에 있다. stub과 실제 노드는 서비스 이름이 같으므로 동시에 실행하지 않는다.
 
 - 결과 예시: [`contracts/examples/inspect_region_result.json`](../../../contracts/examples/inspect_region_result.json)
 - `pose` = `{frame: <region>, position: [x, y, z] m, yaw: rad, yaw_valid: bool}`. 의미(x·y = 관측 박스 중심의 서랍 좌표, z 자리표시와 `top_z` 높이 기준, yaw = 긴 변 방향·대칭 물체 0, `yaw_valid=false`의 0은 방향 확정값 아님)는 정본 [관측 좌표의 의미](../../../docs/requirements.md#observation-policy). 필드·타입은 [`docs/runner.md`](../../../docs/runner.md) 7.1과 결과 예시, 좌표계·투영 평면은 `config/places.yaml` 첫 부분, 규칙 코드는 `ready2go_vision/core/pose_rules.py`(대칭 판정 `is_symmetric`), 산출 방식(뎁스 덩어리 `minAreaRect`)과 확정 이력은 `docs/vision.md` V2·비교 실험 #62·#63. 스텁은 `yaw_valid: true`를 내고(설정에서 `yaw_valid: false`를 지정해 시험 가능), 정답 yaw 기록법(#62)만 남음.
