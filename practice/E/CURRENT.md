@@ -1,5 +1,12 @@
 # CURRENT — E 고희태
 
+## stop-none-recover-20261016
+
+- [자체 리뷰 보완] `none`에서 종료 발신 뒤 resume가 사라지면 E가 완료를 놓치던 경로 수정. C 종료 수락 ACK와 폐기 결과가 분리돼 failed_step까지 지워진 경우에도 같은 현재 세대·요청·boot·run·정지 사건의 기존 수락을 대조해 종료 안내·로컬 후보 정리로 연결함. C 잠금은 유지하며 requested/unconfirmed 또는 다른 요청·run·사건이면 완료 처리하지 않음. 변경 전 종료 회귀 2건 실패를 확인하고 보완 후 confirmed/none·스텝 유무 4건 통과, 제어 매핑+C 실코드 모의 55건 통과(추가 halt.run_id 대조 전), 추가 식별자 차단 직접 검사 6 passed(1.26초). 새 코드 커밋의 최종 전체 CI는 완료 보고/PR 본문에 분리 기록함. 기존 2c318298 CI를 새 코드 검사로 재사용하지 않음.
+- [범위] 사용자 승인으로 E `RunnerOffer.stopped` 한 곳 수정. 보존 작업이 있는 `halt.stop=none`에서 새 음성 복구 요청을 C로 전달함. C·B 코드, 공개 계약, 목록 재개 범위는 변경 없음.
+- [로그] PC1 10/15 A 실행은 양쪽 P2 설정 켬·SUSPENDED @ s8·E 보존=True인데 일반 STT 경로로 복구가 보류됨. 원본 halt JSON은 제공되지 않아 당시 `stop=none` 값은 직접 확인 못 함. C 실제 `stop_state`의 스텝 사이 결과와 E의 confirmed 전용 조건을 대조함. B 실행은 별도 원인(NOT_STOPPED·EXTERNAL_FORCE_UNKNOWN), 목록 ABORTED라 보존=False.
+- [직접 검증] 변경된 제어 매핑 파일 29 passed(4.29초), 기존 recovery_confirmation·safety_exchange 파일 118 passed(1.70초). C 실제 stop_state → E 녹음 접수·복구 발신, C 거절 시 잠금·작업 유지, C offered 뒤 등록 전 TTS/자동 재개 없음, requested/unconfirmed 차단 확인. ROS·SDK·실장치는 모의이며 PC1 수정 후 실물은 미검증. 최종 코드 커밋에 전체 CI 1회 후 원격 작업 브랜치로 정상 push, main 병합은 하지 않음.
+
 ## pr375-ready-20261015
 
 - [승인/현재 형식] 조율 human turn01a13d8a-45cd-7cb3-8831-df7a19d650bc/user01a13d8a-4601-7651-85c3-e8aa84c9bd5a의 “ㅇㅋㅇㅋ 수정해”와 직전 설명 범위(main 충돌 해소·본문·E 형식 확정·Draft 해제·최종 CI1회)를 직접 확인했습니다. 기존 선택형식 승인과 이번 사용자 확정을 E 근거로 명시하며, C의 실제 APPROVE5527505545(headb7947400)와 구분합니다. E 검토5527475091은 COMMENT이므로 승인 수로 계산하지 않았고 자기계정 Approve도 추가하지 않습니다. 형식의 target/from·pre·plan_effect·sensing·task는 변경하지 않았습니다.

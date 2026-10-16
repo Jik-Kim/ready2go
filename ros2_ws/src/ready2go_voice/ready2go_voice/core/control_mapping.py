@@ -210,9 +210,11 @@ class ControlMapper:
         # Correlate this END to its retained target, never invent a new step/run.
         if (sent is not None and not isinstance(sent.work,ActiveRun) and decision.get('decision') == 'end'
                 and sent.intent == 'end_task' and halt is not None and halt.get('resume') is None
-                and halt.get('stop') == 'confirmed' and isinstance(last,dict)
+                and halt.get('stop') in ('confirmed','none') and isinstance(last,dict)
+                and sent.generation == self.generation() and halt.get('event_id') == sent.work.stop
+                and halt.get('run_id') == sent.work.task
                 and last.get('run_id') == sent.work.task and last.get('overall_status') == 'ABORTED'
-                and any(result.sent is sent for result in self.results)):
+                and sent.request_id in self.admitted_ends):
             work = sent.work
         self.same_work = (old is not None and old == work and self.status is not None
                           and self.status.get('phase') == doc.get('phase'))
@@ -255,7 +257,8 @@ class ControlMapper:
             bound = self.question_bounds.get(qid) if qid else self.request_bounds.get(rid) if rid else None
             return RunnerOffer(self.work,self.seq,resume.get('offered') is True,halt.get('stop'),
                 halt.get('locked'),resume.get('needs'),qid,rid,bound)
-        return Evidence(stopped=halt.get('stop') == 'confirmed')
+        # No suspended offer after disposal; retain C's settled-halt meaning.
+        return Evidence(stopped=halt.get('stop') in ('confirmed','none'))
 
     def eligible(self):
         evidence = self.evidence()
@@ -279,7 +282,7 @@ class ControlMapper:
                 if (halt.get('stop') == 'unconfirmed' and halt.get('locked') is True
                         and last.get('run_id') == target.task and last.get('overall_status') == 'SUSPENDED'):
                     node.running_end_deferred(candidate, halt['event_id'], pending[1])
-                if (halt.get('stop') == 'confirmed' and halt.get('resume') is None
+                if (halt.get('stop') in ('confirmed','none') and halt.get('resume') is None
                         and last.get('run_id') == target.task and last.get('overall_status') == 'ABORTED'):
                     node.running_end_completed(candidate)
                     self.pending = None
