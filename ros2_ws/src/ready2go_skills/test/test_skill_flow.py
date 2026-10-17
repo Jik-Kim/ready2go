@@ -464,6 +464,21 @@ def test_stop_is_confirmed_only_after_joints_hold_still():
     assert o.error_code == sf.MOVE_UNCONFIRMED and a.t >= 0.3   # 관절이 멈춘 뒤 hold_s 지나서야 정지 확인
 
 
+def test_motion_state_stale_after_hold_without_reads():
+    """[E 10/16 PC1 NOT_STOPPED] 관절을 hold_s 넘게 안 읽으면 기준이 오래됨 → 그 상태 첫 조회는 그동안의 차이를 '방금 움직임'으로 봄."""
+    t, j = [0.0], [0.0]
+    st = sf.MotionState(lambda: 1, lambda: [j[0], 0, 0, 0, 0, 0], clock=lambda: t[0])
+    assert st.stale()                                       # 아직 안 읽음
+    st()
+    assert not st.stale()
+    j[0] += 0.15                                            # 정지 확인 뒤 아무도 안 읽는 동안 미끄러져 멈춤
+    t[0] += 15.0
+    assert st.stale()
+    assert st() == sf.STATE_MOVING                          # 오래된 기준과 비교 — 이걸 W1 이 정지 아님으로 보던 것
+    t[0] += st.hold + 0.05                                  # 기준을 새로 잡은 뒤 hold_s 넘게 기다리면
+    assert st() == 1 and not st.stale()                     # 그 사이 안 움직였으면 정지
+
+
 def test_motion_state_passes_estop_and_unknown_through():
     assert sf.MotionState(lambda: 6, lambda: [0.0] * 6)() == 6
     assert sf.MotionState(lambda: None, lambda: [0.0] * 6)() is None
