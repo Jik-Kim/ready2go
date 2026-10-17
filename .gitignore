@@ -30,4 +30,6 @@ models/wakeword/
 .venvs/
 models/tts/melotts/
 /ros2_ws/src/ready2go_voice/models/tts/melotts/validated_phrases.json
+# 생성형 시연 산출물은 로컬 보관 (PPT는 output/presentations/ 전체 무시)
+output/videos/
 output/presentations/
