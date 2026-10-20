@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>JSON Runner · 플래너 · 상태 추적 · 실행 로그(LogStore→MongoDB)</description>
   <maintainer email="todo@example.com">C 이영훈</maintainer>
-  <license>TODO</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>rcl_interfaces</exec_depend>

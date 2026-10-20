@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>실물/시뮬/목 백엔드의 모션 원자 동작(DSR·RG2) — 로봇을 움직이는 유일한 패키지</description>
   <maintainer email="todo@example.com">B 서동권</maintainer>
-  <license>TODO</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>ready2go_interfaces</exec_depend>

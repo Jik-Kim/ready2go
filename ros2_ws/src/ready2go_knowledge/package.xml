@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>OntologyManager: 로봇 온톨로지 로딩 · 정합성 검사 · 상태 읽기/쓰기</description>
   <maintainer email="todo@example.com">E 고희태</maintainer>
-  <license>TODO</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>ament_index_python</exec_depend>

@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>launch · 노드 파라미터 기본값(params/*.yaml)</description>
   <maintainer email="todo@example.com">공동 (검토 C 이영훈)</maintainer>
-  <license>TODO</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>ready2go_interfaces</exec_depend>

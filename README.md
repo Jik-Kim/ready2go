@@ -285,3 +285,13 @@ bash tools/dev/pc2_down.sh
 | `tools/` | 실행·검증·측정·YOLO 학습 스크립트 |
 | `web/` | PC·모바일 웹 대시보드 |
 | `practice/` | 담당별 작업 기록과 현재 상태(`CURRENT.md`) |
+
+## 라이선스
+
+[Apache License 2.0](LICENSE) · Copyright 2026 Ready2Go 팀 (고희태, 김병직, 서동권, 이영훈, 김민준)
+
+팀이 작성한 코드·설정·문서에 적용됩니다. 외부에서 가져온 것은 원래 조건을 따릅니다. 대표적으로 다음이 해당합니다.
+- Doosan M0609·OnRobot RG2 로봇 모델에서 만든 Isaac Sim 자산(`sim/assets/m0609_camera_cube/`)
+- 강사가 제공한 CycloneDDS 원본 설정(`config/cyclonedds.local.xml`)
+- 비전 학습 가중치(`models/*.pt`) — Ultralytics YOLO(AGPL-3.0)로 학습
+- 의존 패키지(ROS 2, Ultralytics YOLO, MeloTTS 등)

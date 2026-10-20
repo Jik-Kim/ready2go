@@ -25,7 +25,7 @@ setup(
     maintainer='E 고희태',
     maintainer_email='todo@example.com',
     description='웨이크워드 · STT · LLM 인텐트/목표 추출 · TTS',
-    license='TODO',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={'console_scripts': ['voice_node = ready2go_voice.nodes.voice_node:main']},
 )
