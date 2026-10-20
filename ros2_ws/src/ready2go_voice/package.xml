@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>웨이크워드 · STT · LLM 인텐트/목표 추출 · TTS</description>
   <maintainer email="todo@example.com">E 고희태</maintainer>
-  <license>TODO</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>ament_index_python</exec_depend>

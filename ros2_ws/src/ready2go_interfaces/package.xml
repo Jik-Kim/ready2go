@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>ready2go 커스텀 메시지 2종 (Skill.action, InspectRegion.srv). 알고리즘·노드 코드를 두지 않음.</description>
   <maintainer email="todo@example.com">C 이영훈</maintainer>
-  <license>TODO</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>

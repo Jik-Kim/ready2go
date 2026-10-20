@@ -18,7 +18,7 @@ setup(
     maintainer='공동 (검토 C 이영훈)',
     maintainer_email='todo@example.com',
     description='launch · 노드 파라미터 기본값(params/*.yaml)',
-    license='TODO',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={'console_scripts': []},
 )

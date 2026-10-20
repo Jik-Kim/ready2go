@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>inspect_region: 검출 · 뎁스 3D 위치 · 가림 순서 · 인스턴스 ID 추적</description>
   <maintainer email="todo@example.com">A 김병직</maintainer>
-  <license>TODO</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>

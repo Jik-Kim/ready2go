@@ -17,7 +17,7 @@ setup(
     maintainer='C 이영훈',
     maintainer_email='todo@example.com',
     description='JSON Runner · 플래너 · 상태 추적 · 실행 로그(LogStore→MongoDB)',
-    license='TODO',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={'console_scripts': [
         'runner = ready2go_runner.nodes.runner_node:main',

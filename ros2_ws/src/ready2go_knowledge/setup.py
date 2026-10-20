@@ -23,7 +23,7 @@ setup(
     maintainer='E 고희태',
     maintainer_email='todo@example.com',
     description='OntologyManager: 로봇 온톨로지 로딩 · 정합성 검사 · 상태 읽기/쓰기',
-    license='TODO',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={'console_scripts': []},
 )
